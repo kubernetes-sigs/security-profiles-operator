@@ -93,18 +93,21 @@ type SPODSpec struct {
 	// enableProfiling tells the operator whether or not to enable profiling
 	// support for this SPOD instance.
 	// +optional
-	EnableProfiling bool `json:"enableProfiling,omitempty"`
+	// +kubebuilder:default=false
+	EnableProfiling *bool `json:"enableProfiling,omitempty"`
 	// enableMemoryOptimization enables memory optimization in the controller
 	// running inside of SPOD instance and watching for pods in the cluster.
 	// This will make the controller loading in the cache memory only the pods
 	// labelled explicitly for profile recording with
 	// 'spo.x-k8s.io/enable-recording=true'.
 	// +optional
-	EnableMemoryOptimization bool `json:"enableMemoryOptimization,omitempty"`
+	// +kubebuilder:default=false
+	EnableMemoryOptimization *bool `json:"enableMemoryOptimization,omitempty"`
 	// enableAppArmor tells the operator whether or not to enable AppArmor
 	// support for this SPOD instance.
 	// +optional
-	EnableAppArmor bool `json:"enableAppArmor,omitempty"`
+	// +kubebuilder:default=false
+	EnableAppArmor *bool `json:"enableAppArmor,omitempty"`
 	// hostProcVolumePath is the path for specifying a custom host /proc
 	// volume, which is required for the log-enricher as well as bpf-recorder
 	// to retrieve the container ID for a process ID. This can be helpful for
@@ -157,7 +160,8 @@ type SPODEnricherConfig struct {
 	// enableLogEnricher tells the operator whether or not to enable log
 	// enrichment support for this SPOD instance.
 	// +optional
-	EnableLogEnricher bool `json:"enableLogEnricher,omitempty"`
+	// +kubebuilder:default=false
+	EnableLogEnricher *bool `json:"enableLogEnricher,omitempty"`
 	// logEnricherFilters if defined, an optional JSON-format filter to
 	// determine if log lines should be emitted for the log-enricher.
 	// +optional
@@ -170,7 +174,8 @@ type SPODEnricherConfig struct {
 	// enableJsonEnricher tells the operator whether or not to enable audit
 	// JSON enrichment support for this SPOD instance.
 	// +optional
-	EnableJsonEnricher bool `json:"enableJsonEnricher,omitempty"`
+	// +kubebuilder:default=false
+	EnableJsonEnricher *bool `json:"enableJsonEnricher,omitempty"`
 	// jsonEnricherFilters if defined, an optional JSON-format filter to
 	// determine if log lines should be emitted for the json-enricher.
 	// +optional
@@ -181,7 +186,8 @@ type SPODEnricherConfig struct {
 	// enableBpfRecorder tells the operator whether or not to enable bpf
 	// recorder support for this SPOD instance.
 	// +optional
-	EnableBpfRecorder bool `json:"enableBpfRecorder,omitempty"`
+	// +kubebuilder:default=false
+	EnableBpfRecorder *bool `json:"enableBpfRecorder,omitempty"`
 }
 
 // SPODWebhookConfig contains webhook configuration.
@@ -191,7 +197,8 @@ type SPODWebhookConfig struct {
 	// will not create or update the webhook configuration and its related
 	// resources.
 	// +optional
-	StaticConfig bool `json:"staticConfig,omitempty"`
+	// +kubebuilder:default=false
+	StaticConfig *bool `json:"staticConfig,omitempty"`
 	// options set custom namespace selectors and failure mode for SPO's webhooks.
 	// +optional
 	Options []WebhookOptions `json:"options,omitempty"`
@@ -223,7 +230,8 @@ type SPODSecurityConfig struct {
 	// disableOciArtifactSignatureVerification can be used to disable OCI
 	// artifact signature verification.
 	// +optional
-	DisableOCIArtifactSignatureVerification bool `json:"disableOciArtifactSignatureVerification,omitempty"`
+	// +kubebuilder:default=false
+	DisableOCIArtifactSignatureVerification *bool `json:"disableOciArtifactSignatureVerification,omitempty"`
 }
 
 // SPODState defines the state that the spod is in.

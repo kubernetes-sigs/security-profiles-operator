@@ -692,11 +692,13 @@ spec:
                     type: object
                 type: object
               enableAppArmor:
+                default: false
                 description: |-
                   enableAppArmor tells the operator whether or not to enable AppArmor
                   support for this SPOD instance.
                 type: boolean
               enableMemoryOptimization:
+                default: false
                 description: |-
                   enableMemoryOptimization enables memory optimization in the controller
                   running inside of SPOD instance and watching for pods in the cluster.
@@ -705,6 +707,7 @@ spec:
                   'spo.x-k8s.io/enable-recording=true'.
                 type: boolean
               enableProfiling:
+                default: false
                 description: |-
                   enableProfiling tells the operator whether or not to enable profiling
                   support for this SPOD instance.
@@ -713,16 +716,19 @@ spec:
                 description: enricher contains log and JSON enricher configuration.
                 properties:
                   enableBpfRecorder:
+                    default: false
                     description: |-
                       enableBpfRecorder tells the operator whether or not to enable bpf
                       recorder support for this SPOD instance.
                     type: boolean
                   enableJsonEnricher:
+                    default: false
                     description: |-
                       enableJsonEnricher tells the operator whether or not to enable audit
                       JSON enrichment support for this SPOD instance.
                     type: boolean
                   enableLogEnricher:
+                    default: false
                     description: |-
                       enableLogEnricher tells the operator whether or not to enable log
                       enrichment support for this SPOD instance.
@@ -1810,6 +1816,7 @@ spec:
                       type: string
                     type: array
                   disableOciArtifactSignatureVerification:
+                    default: false
                     description: |-
                       disableOciArtifactSignatureVerification can be used to disable OCI
                       artifact signature verification.
@@ -1965,6 +1972,7 @@ spec:
                       type: object
                     type: array
                   staticConfig:
+                    default: false
                     description: |-
                       staticConfig indicates whether the webhook configuration and its
                       related resources are statically deployed. In this case, the operator

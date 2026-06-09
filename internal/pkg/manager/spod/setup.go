@@ -110,7 +110,8 @@ func (r *ReconcileSPOd) Setup(
 func (r *ReconcileSPOd) createConfigIfNotExist(ctx context.Context) error {
 	obj := bindata.DefaultSPOD.DeepCopy()
 	obj.Namespace = config.GetOperatorNamespace()
-	obj.Spec.Webhook.StaticConfig = isStaticWebhook(ctx)
+	staticWebhook := isStaticWebhook(ctx)
+	obj.Spec.Webhook.StaticConfig = &staticWebhook
 
 	if err := r.client.Create(ctx, obj); err != nil && !k8serrors.IsAlreadyExists(err) {
 		return fmt.Errorf("create SecurityProfilesOperatorDaemon object: %w", err)
