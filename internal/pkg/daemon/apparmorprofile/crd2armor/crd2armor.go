@@ -134,8 +134,6 @@ type Capability struct {
 
 // Global chars constraints: these are strictly forbidden regardless of field type.
 var (
-	// Allowed characters in the profile name.
-	profileNameChars = regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`)
 	// Prevent newline/carriage return injection.
 	illegalChars = regexp.MustCompile(`[\n\r]`)
 	// Prevent breaking the structural context (comma, quote, closing brace).
@@ -200,7 +198,7 @@ func newApparmorData(name string, abstract *apparmorprofileapi.AppArmorAbstract)
 
 func (d *ApparmorData) Validate() error {
 	// 1. Validate profile name (usually limited to [a-zA-Z0-9_-])
-	if d.Name != "" && !profileNameChars.MatchString(d.Name) {
+	if d.Name != "" && !strictPathRegex.MatchString(d.Name) {
 		return fmt.Errorf("invalid profile name: %q", d.Name)
 	}
 
