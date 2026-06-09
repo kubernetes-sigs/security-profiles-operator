@@ -15,7 +15,8 @@
 set -eu
 
 dev() {
-  systemd-nspawn -q -i /opt/bin/flatcar_developer_container.bin --bind=/:/hostfs ${@}
+  # --tmpfs=/tmp:size=2G: Allocate 2GB tmpfs to accommodate large vendor dependencies during test runs
+  systemd-nspawn -q -i /opt/bin/flatcar_developer_container.bin --bind=/:/hostfs --tmpfs=/tmp:size=2G ${@}
 }
 
 dev --chdir=/hostfs/vagrant -- /hostfs/vagrant/hack/ci/e2e-flatcar.sh

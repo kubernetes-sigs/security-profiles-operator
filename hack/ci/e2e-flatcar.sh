@@ -41,6 +41,26 @@ alias k=kubectl
 # Configure git to consider the mounted host filesystem as safe
 git config --global --add safe.directory "/hostfs/vagrant"
 
+# Clean up Go build cache to free up disk space before running tests
+go clean -cache -testcache || true
+
+# Clean up old temporary build directories from /tmp if they exist
+find /tmp -maxdepth 1 -name "go-build*" -type d -exec rm -rf {} + 2>/dev/null || true
+
+# Display disk space before tests to aid debugging
+echo "Disk space before tests:"
+df -h /tmp 2>/dev/null || df -h /
+
+# Trap to ensure cleanup happens even if tests fail
+cleanup() {
+    echo "Cleaning up Go build cache..."
+    go clean -cache -testcache 2>/dev/null || true
+    rm -rf /tmp/go-build* 2>/dev/null || true
+    echo "Disk space after cleanup:"
+    df -h /tmp 2>/dev/null || df -h /
+}
+trap cleanup EXIT
+
 if "${E2E_TEST_FLAKY_TESTS_ONLY}"; then
     make test-flaky-e2e
 else
