@@ -35,7 +35,9 @@ const ProfilePartialLabel = "spo.x-k8s.io/partial"
 type SecurityProfileBase interface {
 	client.Object
 
-	ListProfilesByRecording(ctx context.Context, cli client.Client, recording string, recordingNamespace string) ([]metav1.Object, error)
+	ListProfilesByRecording(
+		ctx context.Context, cli client.Client, recording string, recordingNamespace string,
+	) ([]metav1.Object, error)
 	IsPartial() bool
 	IsDisabled() bool
 	IsReconcilable() bool
