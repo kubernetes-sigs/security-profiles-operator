@@ -212,6 +212,9 @@ spec:
                       logEnricherSource determines which source should be used for audit
                       logs. This defaults to "auditd", but can be switched to "bpf" on
                       systems where auditd is unavailable.
+                    enum:
+                    - auditd
+                    - bpf
                     type: string
                 type: object
               hostProcVolumePath:
@@ -1460,7 +1463,7 @@ spec:
                 x-kubernetes-list-type: map
               state:
                 description: |-
-                  Represents the state that the policy is in. Can be:
+                  state represents the state that the policy is in. Can be:
                   PENDING, IN-PROGRESS, RUNNING or ERROR
                 enum:
                 - PENDING

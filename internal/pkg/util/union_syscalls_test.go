@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 )
@@ -77,26 +78,26 @@ func TestUnionSyscalls(t *testing.T) {
 				{
 					Names:  []string{"a", "b", "c"},
 					Action: v1beta1.Action("foo"),
-					Args:   []v1beta1.Arg{{Index: 1, Value: 2}},
+					Args:   []v1beta1.Arg{{Index: ptr.To[int32](1), Value: 2}},
 				},
 			},
 			appliedSyscalls: []v1beta1.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
 					Action: v1beta1.Action("foo"),
-					Args:   []v1beta1.Arg{{Index: 2, Value: 3}},
+					Args:   []v1beta1.Arg{{Index: ptr.To[int32](2), Value: 3}},
 				},
 			},
 			want: []v1beta1.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
 					Action: v1beta1.Action("foo"),
-					Args:   []v1beta1.Arg{{Index: 1, Value: 2}},
+					Args:   []v1beta1.Arg{{Index: ptr.To[int32](1), Value: 2}},
 				},
 				{
 					Names:  []string{"a", "b", "c"},
 					Action: v1beta1.Action("foo"),
-					Args:   []v1beta1.Arg{{Index: 2, Value: 3}},
+					Args:   []v1beta1.Arg{{Index: ptr.To[int32](2), Value: 3}},
 				},
 			},
 		},

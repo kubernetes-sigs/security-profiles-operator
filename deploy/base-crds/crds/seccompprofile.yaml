@@ -51,10 +51,11 @@ spec:
           metadata:
             type: object
           spec:
-            description: SeccompProfileSpec defines the desired state of SeccompProfile.
+            description: spec defines the desired state of the SeccompProfile.
             properties:
               architectures:
-                description: the architecture used for system calls
+                description: architectures specifies the architecture used for system
+                  calls.
                 items:
                   enum:
                   - SCMP_ARCH_NATIVE
@@ -82,25 +83,40 @@ spec:
                 x-kubernetes-list-type: set
               baseProfileName:
                 description: |-
-                  BaseProfileName is the name of base profile (in the same namespace) that
+                  baseProfileName is the name of base profile (in the same namespace) that
                   will be unioned into this profile. Base profiles can be references as
                   remote OCI artifacts as well when prefixed with `oci://`.
                 type: string
               defaultAction:
-                description: the default action for seccomp
-                enum:
-                - SCMP_ACT_KILL
-                - SCMP_ACT_KILL_PROCESS
-                - SCMP_ACT_KILL_THREAD
-                - SCMP_ACT_TRAP
-                - SCMP_ACT_ERRNO
-                - SCMP_ACT_TRACE
-                - SCMP_ACT_ALLOW
-                - SCMP_ACT_LOG
-                - SCMP_ACT_NOTIFY
+                allOf:
+                - enum:
+                  - SCMP_ACT_KILL
+                  - SCMP_ACT_KILL_PROCESS
+                  - SCMP_ACT_KILL_THREAD
+                  - SCMP_ACT_TRAP
+                  - SCMP_ACT_ERRNO
+                  - SCMP_ACT_TRACE
+                  - SCMP_ACT_ALLOW
+                  - SCMP_ACT_LOG
+                  - SCMP_ACT_NOTIFY
+                - enum:
+                  - SCMP_ACT_KILL
+                  - SCMP_ACT_KILL_PROCESS
+                  - SCMP_ACT_KILL_THREAD
+                  - SCMP_ACT_TRAP
+                  - SCMP_ACT_ERRNO
+                  - SCMP_ACT_TRACE
+                  - SCMP_ACT_ALLOW
+                  - SCMP_ACT_LOG
+                  - SCMP_ACT_NOTIFY
+                description: |-
+                  defaultAction is the default action for seccomp. Valid values are:
+                  SCMP_ACT_KILL, SCMP_ACT_KILL_PROCESS, SCMP_ACT_KILL_THREAD,
+                  SCMP_ACT_TRAP, SCMP_ACT_ERRNO, SCMP_ACT_TRACE, SCMP_ACT_ALLOW,
+                  SCMP_ACT_LOG, SCMP_ACT_NOTIFY.
                 type: string
               flags:
-                description: list of flags to use with seccomp(2)
+                description: flags is a list of flags to use with seccomp(2).
                 items:
                   enum:
                   - SECCOMP_FILTER_FLAG_TSYNC
@@ -111,11 +127,13 @@ spec:
                 type: array
                 x-kubernetes-list-type: set
               listenerMetadata:
-                description: opaque data to pass to the seccomp agent
+                description: listenerMetadata contains opaque data to pass to the
+                  seccomp agent.
                 type: string
               listenerPath:
-                description: path of UNIX domain socket to contact a seccomp agent
-                  for SCMP_ACT_NOTIFY
+                description: |-
+                  listenerPath is the path of UNIX domain socket to contact a seccomp
+                  agent for SCMP_ACT_NOTIFY.
                 pattern: ^/var/run/security-profiles-operator/[a-zA-Z0-9_\-\.]+$
                 type: string
               state:
@@ -129,54 +147,85 @@ spec:
                 type: string
               syscalls:
                 description: |-
-                  match a syscall in seccomp. While this property is OPTIONAL, some values
-                  of defaultAction are not useful without syscalls entries. For example,
-                  if defaultAction is SCMP_ACT_KILL and syscalls is empty or unset, the
-                  kernel will kill the container process on its first syscall
+                  syscalls match a syscall in seccomp. While this property is optional,
+                  some values of defaultAction are not useful without syscalls entries.
+                  For example, if defaultAction is SCMP_ACT_KILL and syscalls is empty
+                  or unset, the kernel will kill the container process on its first syscall.
                 items:
                   description: Syscall defines a syscall in seccomp.
                   properties:
                     action:
-                      description: the action for seccomp rules
-                      enum:
-                      - SCMP_ACT_KILL
-                      - SCMP_ACT_KILL_PROCESS
-                      - SCMP_ACT_KILL_THREAD
-                      - SCMP_ACT_TRAP
-                      - SCMP_ACT_ERRNO
-                      - SCMP_ACT_TRACE
-                      - SCMP_ACT_ALLOW
-                      - SCMP_ACT_LOG
-                      - SCMP_ACT_NOTIFY
+                      allOf:
+                      - enum:
+                        - SCMP_ACT_KILL
+                        - SCMP_ACT_KILL_PROCESS
+                        - SCMP_ACT_KILL_THREAD
+                        - SCMP_ACT_TRAP
+                        - SCMP_ACT_ERRNO
+                        - SCMP_ACT_TRACE
+                        - SCMP_ACT_ALLOW
+                        - SCMP_ACT_LOG
+                        - SCMP_ACT_NOTIFY
+                      - enum:
+                        - SCMP_ACT_KILL
+                        - SCMP_ACT_KILL_PROCESS
+                        - SCMP_ACT_KILL_THREAD
+                        - SCMP_ACT_TRAP
+                        - SCMP_ACT_ERRNO
+                        - SCMP_ACT_TRACE
+                        - SCMP_ACT_ALLOW
+                        - SCMP_ACT_LOG
+                        - SCMP_ACT_NOTIFY
+                      description: |-
+                        action is the action for seccomp rules. Valid values are:
+                        SCMP_ACT_KILL, SCMP_ACT_KILL_PROCESS, SCMP_ACT_KILL_THREAD,
+                        SCMP_ACT_TRAP, SCMP_ACT_ERRNO, SCMP_ACT_TRACE, SCMP_ACT_ALLOW,
+                        SCMP_ACT_LOG, SCMP_ACT_NOTIFY.
                       type: string
                     args:
-                      description: the specific syscall in seccomp
+                      description: args defines the specific syscall arguments in
+                        seccomp.
                       items:
                         description: Arg defines the specific syscall in seccomp.
                         properties:
                           index:
-                            description: the index for syscall arguments in seccomp
+                            description: index is the index for syscall arguments
+                              in seccomp.
                             format: int32
                             minimum: 0
                             type: integer
                           op:
-                            description: the operator for syscall arguments in seccomp
-                            enum:
-                            - SCMP_CMP_NE
-                            - SCMP_CMP_LT
-                            - SCMP_CMP_LE
-                            - SCMP_CMP_EQ
-                            - SCMP_CMP_GE
-                            - SCMP_CMP_GT
-                            - SCMP_CMP_MASKED_EQ
+                            allOf:
+                            - enum:
+                              - SCMP_CMP_NE
+                              - SCMP_CMP_LT
+                              - SCMP_CMP_LE
+                              - SCMP_CMP_EQ
+                              - SCMP_CMP_GE
+                              - SCMP_CMP_GT
+                              - SCMP_CMP_MASKED_EQ
+                            - enum:
+                              - SCMP_CMP_NE
+                              - SCMP_CMP_LT
+                              - SCMP_CMP_LE
+                              - SCMP_CMP_EQ
+                              - SCMP_CMP_GE
+                              - SCMP_CMP_GT
+                              - SCMP_CMP_MASKED_EQ
+                            description: |-
+                              op is the operator for syscall arguments in seccomp. Valid values are:
+                              SCMP_CMP_NE, SCMP_CMP_LT, SCMP_CMP_LE, SCMP_CMP_EQ, SCMP_CMP_GE,
+                              SCMP_CMP_GT, SCMP_CMP_MASKED_EQ.
                             type: string
                           value:
-                            description: the value for syscall arguments in seccomp
+                            description: value is the value for syscall arguments
+                              in seccomp.
                             format: int64
                             minimum: 0
                             type: integer
                           valueTwo:
-                            description: the value for syscall arguments in seccomp
+                            description: valueTwo is the second value for syscall
+                              arguments in seccomp.
                             format: int64
                             minimum: 0
                             type: integer
@@ -189,13 +238,14 @@ spec:
                       x-kubernetes-list-type: atomic
                     errnoRet:
                       description: |-
-                        the errno return code to use. Some actions like SCMP_ACT_ERRNO and
-                        SCMP_ACT_TRACE allow to specify the errno code to return
+                        errnoRet is the errno return code to use. Some actions like
+                        SCMP_ACT_ERRNO and SCMP_ACT_TRACE allow to specify the errno
+                        code to return.
                       format: int32
                       minimum: 0
                       type: integer
                     names:
-                      description: the names of the syscalls
+                      description: names specifies the names of the syscalls.
                       items:
                         type: string
                       minItems: 1
@@ -211,44 +261,67 @@ spec:
             - defaultAction
             type: object
           status:
-            description: SeccompProfileStatus contains status of the deployed SeccompProfile.
+            description: status contains the observed state of the SeccompProfile.
             properties:
               activeWorkloads:
+                description: activeWorkloads lists the workloads currently using this
+                  profile.
                 items:
                   type: string
                 type: array
                 x-kubernetes-list-type: set
               conditions:
-                description: Conditions of the resource.
+                description: conditions contains the conditions of the resource.
                 items:
-                  description: A Condition that may apply to a resource.
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
                   properties:
                     lastTransitionTime:
                       description: |-
-                        LastTransitionTime is the last time this condition transitioned from one
-                        status to another.
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
                       format: date-time
                       type: string
                     message:
                       description: |-
-                        A Message containing details about this condition's last transition from
-                        one status to another, if any.
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
                       type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
                     reason:
-                      description: A Reason for this condition's last transition from
-                        one status to another.
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
                       type: string
                     status:
-                      description: Status of this condition; is it currently True,
-                        False, or Unknown?
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
                       type: string
                     type:
-                      description: |-
-                        Type of this condition. At most one of each condition type may apply to
-                        a resource at any point in time.
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
                       type: string
                   required:
                   - lastTransitionTime
+                  - message
                   - reason
                   - status
                   - type
@@ -259,16 +332,16 @@ spec:
                 x-kubernetes-list-type: map
               localhostProfile:
                 description: |-
-                  The path that should be provided to the `securityContext.seccompProfile.localhostProfile`
-                  field of a Pod or container spec
+                  localhostProfile is the path that should be provided to the
+                  `securityContext.seccompProfile.localhostProfile` field of a Pod
+                  or container spec.
                 type: string
               path:
+                description: path is the file path of the installed seccomp profile
+                  on the node.
                 type: string
               status:
-                description: |-
-                  ProfileState defines the state that the profile is in. A profile in this context
-                  refers to a SeccompProfile or a SELinux profile, the states are shared between them
-                  as well as the management API.
+                description: status is the current state of the profile across nodes.
                 enum:
                 - Partial
                 - Disabled
@@ -279,6 +352,8 @@ spec:
                 - Error
                 type: string
             type: object
+        required:
+        - spec
         type: object
     served: true
     storage: true

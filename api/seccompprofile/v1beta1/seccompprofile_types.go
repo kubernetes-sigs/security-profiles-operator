@@ -69,37 +69,43 @@ type SeccompProfileSpec struct {
 	// Common spec fields for all profiles.
 	profilebase.SpecBase `json:",inline"`
 
-	// BaseProfileName is the name of base profile (in the same namespace) that
+	// baseProfileName is the name of base profile (in the same namespace) that
 	// will be unioned into this profile. Base profiles can be references as
 	// remote OCI artifacts as well when prefixed with `oci://`.
 	// +optional
 	BaseProfileName string `json:"baseProfileName,omitempty"`
 
-	// the default action for seccomp
+	// defaultAction is the default action for seccomp. Valid values are:
+	// SCMP_ACT_KILL, SCMP_ACT_KILL_PROCESS, SCMP_ACT_KILL_THREAD,
+	// SCMP_ACT_TRAP, SCMP_ACT_ERRNO, SCMP_ACT_TRACE, SCMP_ACT_ALLOW,
+	// SCMP_ACT_LOG, SCMP_ACT_NOTIFY.
 	// +required
-	DefaultAction Action `json:"defaultAction"`
-	// the architecture used for system calls
+	//nolint:lll // required for kubebuilder
+	// +kubebuilder:validation:Enum=SCMP_ACT_KILL;SCMP_ACT_KILL_PROCESS;SCMP_ACT_KILL_THREAD;SCMP_ACT_TRAP;SCMP_ACT_ERRNO;SCMP_ACT_TRACE;SCMP_ACT_ALLOW;SCMP_ACT_LOG;SCMP_ACT_NOTIFY
+	DefaultAction Action `json:"defaultAction,omitempty"`
+	// architectures specifies the architecture used for system calls.
 	// +optional
 	// +listType=set
 	Architectures []Arch `json:"architectures,omitempty"`
-	// path of UNIX domain socket to contact a seccomp agent for SCMP_ACT_NOTIFY
+	// listenerPath is the path of UNIX domain socket to contact a seccomp
+	// agent for SCMP_ACT_NOTIFY.
 	// +optional
 	// +kubebuilder:validation:Pattern=`^/var/run/security-profiles-operator/[a-zA-Z0-9_\-\.]+$`
 	ListenerPath string `json:"listenerPath,omitempty"`
-	// opaque data to pass to the seccomp agent
+	// listenerMetadata contains opaque data to pass to the seccomp agent.
 	// +optional
 	ListenerMetadata string `json:"listenerMetadata,omitempty"`
-	// match a syscall in seccomp. While this property is OPTIONAL, some values
-	// of defaultAction are not useful without syscalls entries. For example,
-	// if defaultAction is SCMP_ACT_KILL and syscalls is empty or unset, the
-	// kernel will kill the container process on its first syscall
+	// syscalls match a syscall in seccomp. While this property is optional,
+	// some values of defaultAction are not useful without syscalls entries.
+	// For example, if defaultAction is SCMP_ACT_KILL and syscalls is empty
+	// or unset, the kernel will kill the container process on its first syscall.
 	// +optional
 	// +listType=atomic
 	Syscalls []Syscall `json:"syscalls,omitempty"`
 
 	// Additional properties from OCI runtime spec
 
-	// list of flags to use with seccomp(2)
+	// flags is a list of flags to use with seccomp(2).
 	// +optional
 	// +listType=set
 	Flags []Flag `json:"flags,omitempty"`
@@ -117,20 +123,26 @@ type Flag string
 
 // Syscall defines a syscall in seccomp.
 type Syscall struct {
-	// the names of the syscalls
+	// names specifies the names of the syscalls.
 	// +required
 	// +kubebuilder:validation:MinItems=1
 	// +listType=set
-	Names []string `json:"names"`
-	// the action for seccomp rules
+	Names []string `json:"names,omitempty"`
+	// action is the action for seccomp rules. Valid values are:
+	// SCMP_ACT_KILL, SCMP_ACT_KILL_PROCESS, SCMP_ACT_KILL_THREAD,
+	// SCMP_ACT_TRAP, SCMP_ACT_ERRNO, SCMP_ACT_TRACE, SCMP_ACT_ALLOW,
+	// SCMP_ACT_LOG, SCMP_ACT_NOTIFY.
 	// +required
-	Action Action `json:"action"`
-	// the errno return code to use. Some actions like SCMP_ACT_ERRNO and
-	// SCMP_ACT_TRACE allow to specify the errno code to return
+	//nolint:lll // required for kubebuilder
+	// +kubebuilder:validation:Enum=SCMP_ACT_KILL;SCMP_ACT_KILL_PROCESS;SCMP_ACT_KILL_THREAD;SCMP_ACT_TRAP;SCMP_ACT_ERRNO;SCMP_ACT_TRACE;SCMP_ACT_ALLOW;SCMP_ACT_LOG;SCMP_ACT_NOTIFY
+	Action Action `json:"action,omitempty"`
+	// errnoRet is the errno return code to use. Some actions like
+	// SCMP_ACT_ERRNO and SCMP_ACT_TRACE allow to specify the errno
+	// code to return.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	ErrnoRet int32 `json:"errnoRet,omitempty"`
-	// the specific syscall in seccomp
+	// args defines the specific syscall arguments in seccomp.
 	// +optional
 	// +kubebuilder:validation:MaxItems=6
 	// +listType=atomic
@@ -139,33 +151,40 @@ type Syscall struct {
 
 // Arg defines the specific syscall in seccomp.
 type Arg struct {
-	// the index for syscall arguments in seccomp
+	// index is the index for syscall arguments in seccomp.
 	// +required
 	// +kubebuilder:validation:Minimum=0
-	Index int32 `json:"index"`
-	// the value for syscall arguments in seccomp
+	Index *int32 `json:"index,omitempty"`
+	// value is the value for syscall arguments in seccomp.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	Value int64 `json:"value,omitempty"`
-	// the value for syscall arguments in seccomp
+	// valueTwo is the second value for syscall arguments in seccomp.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	ValueTwo int64 `json:"valueTwo,omitempty"`
-	// the operator for syscall arguments in seccomp
+	// op is the operator for syscall arguments in seccomp. Valid values are:
+	// SCMP_CMP_NE, SCMP_CMP_LT, SCMP_CMP_LE, SCMP_CMP_EQ, SCMP_CMP_GE,
+	// SCMP_CMP_GT, SCMP_CMP_MASKED_EQ.
 	// +required
-	Op Operator `json:"op"`
+	//nolint:lll // required for kubebuilder
+	// +kubebuilder:validation:Enum=SCMP_CMP_NE;SCMP_CMP_LT;SCMP_CMP_LE;SCMP_CMP_EQ;SCMP_CMP_GE;SCMP_CMP_GT;SCMP_CMP_MASKED_EQ
+	Op Operator `json:"op,omitempty"`
 }
 
 // SeccompProfileStatus contains status of the deployed SeccompProfile.
 type SeccompProfileStatus struct {
 	profilebase.StatusBase `json:",inline"`
+	// path is the file path of the installed seccomp profile on the node.
 	// +optional
 	Path string `json:"path,omitempty"`
+	// activeWorkloads lists the workloads currently using this profile.
 	// +optional
 	// +listType=set
 	ActiveWorkloads []string `json:"activeWorkloads,omitempty"`
-	// The path that should be provided to the `securityContext.seccompProfile.localhostProfile`
-	// field of a Pod or container spec
+	// localhostProfile is the path that should be provided to the
+	// `securityContext.seccompProfile.localhostProfile` field of a Pod
+	// or container spec.
 	// +optional
 	LocalhostProfile string `json:"localhostProfile,omitempty"`
 }
@@ -180,10 +199,16 @@ type SeccompProfileStatus struct {
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 // +kubebuilder:printcolumn:name="LocalhostProfile",type=string,priority=10,JSONPath=`.status.localhostProfile`
 type SeccompProfile struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
+	// metadata contains the object metadata.
+	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   SeccompProfileSpec   `json:"spec,omitempty"`
+	// spec defines the desired state of the SeccompProfile.
+	// +required
+	Spec SeccompProfileSpec `json:"spec,omitzero"`
+	// status contains the observed state of the SeccompProfile.
+	// +optional
 	Status SeccompProfileStatus `json:"status,omitempty"`
 }
 

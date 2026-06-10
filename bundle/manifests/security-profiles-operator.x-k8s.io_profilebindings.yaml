@@ -43,24 +43,24 @@ spec:
             properties:
               image:
                 description: |-
-                  Image name within pod containers to match to the profile.
+                  image specifies the container image name within pod containers to match to the profile.
                   Use the "*" string to bind the profile to all pods.
                 minLength: 1
                 type: string
               profileRef:
-                description: ProfileRef references a SeccompProfile or other profile
+                description: profileRef references a SeccompProfile or other profile
                   type in the current namespace.
                 properties:
                   kind:
-                    description: Kind of object to be bound.
+                    description: kind specifies the type of object to be bound.
                     enum:
                     - SeccompProfile
                     - SelinuxProfile
                     - AppArmorProfile
                     type: string
                   name:
-                    description: Name of the profile within the current namespace
-                      to which to bind the selected pods.
+                    description: name is the name of the profile within the current
+                      namespace to which to bind the selected pods.
                     minLength: 1
                     type: string
                 required:

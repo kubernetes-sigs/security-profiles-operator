@@ -15,6 +15,7 @@
 GO ?= go
 
 GOLANGCI_LINT_VERSION = v2.10.1
+KAL_VERSION = v0.0.0-20260518104151-5ebe05f9440b
 REPO_INFRA_VERSION = v0.2.5
 KUSTOMIZE_VERSION = 5.5.0
 OPERATOR_SDK_VERSION ?= v1.42.2
@@ -449,8 +450,8 @@ verify-deployments: deployments ## Verify the generated deployments
 	hack/tree-status
 
 .PHONY: verify-go-lint
-verify-go-lint: $(BUILD_DIR)/golangci-lint ## Verify the golang code by linting
-	GL_DEBUG=gocritic $(BUILD_DIR)/golangci-lint run --build-tags $(LINT_BUILDTAGS)
+verify-go-lint: $(BUILD_DIR)/golangci-lint-kube-api-linter ## Verify the golang code by linting
+	GL_DEBUG=gocritic $(BUILD_DIR)/golangci-lint-kube-api-linter run --build-tags $(LINT_BUILDTAGS)
 
 $(BUILD_DIR)/golangci-lint:
 	export \
@@ -459,7 +460,11 @@ $(BUILD_DIR)/golangci-lint:
 		BINDIR=$(BUILD_DIR) && \
 	curl -sfL $$URL/$$VERSION/install.sh | sh -s $$VERSION
 	$(BUILD_DIR)/golangci-lint version
-	$(BUILD_DIR)/golangci-lint linters
+
+$(BUILD_DIR)/golangci-lint-kube-api-linter: $(BUILD_DIR)/golangci-lint
+	CGO_ENABLED=0 GOFLAGS=-mod=mod $(BUILD_DIR)/golangci-lint custom
+	$(BUILD_DIR)/golangci-lint-kube-api-linter version
+	$(BUILD_DIR)/golangci-lint-kube-api-linter linters
 
 
 .PHONY: verify-dependencies

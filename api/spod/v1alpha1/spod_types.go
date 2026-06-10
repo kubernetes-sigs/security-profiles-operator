@@ -32,7 +32,7 @@ type SelinuxOptions struct {
 	// that are allowed to be inherited by workloads. Use this with care,
 	// as this might provide a lot of permissions depending on the policy.
 	// +optional
-	// +kubebuilder:default={"container"}
+	// +default=["container"]
 	// +listType=set
 	AllowedSystemProfiles []string `json:"allowedSystemProfiles,omitempty"`
 }
@@ -77,7 +77,8 @@ type JsonEnricherOptions struct {
 type WebhookOptions struct {
 	// name specifies which webhook to configure.
 	// +required
-	Name string `json:"name"`
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name,omitempty"`
 	// failurePolicy sets the webhook failure policy.
 	// +optional
 	FailurePolicy *admissionregv1.FailurePolicyType `json:"failurePolicy,omitempty"`
@@ -98,7 +99,7 @@ type SPODSpec struct {
 	// enableProfiling tells the operator whether or not to enable profiling
 	// support for this SPOD instance.
 	// +optional
-	// +kubebuilder:default=false
+	// +default=false
 	EnableProfiling *bool `json:"enableProfiling,omitempty"`
 	// enableMemoryOptimization enables memory optimization in the controller
 	// running inside of SPOD instance and watching for pods in the cluster.
@@ -106,12 +107,12 @@ type SPODSpec struct {
 	// labelled explicitly for profile recording with
 	// 'spo.x-k8s.io/enable-recording=true'.
 	// +optional
-	// +kubebuilder:default=false
+	// +default=false
 	EnableMemoryOptimization *bool `json:"enableMemoryOptimization,omitempty"`
 	// enableAppArmor tells the operator whether or not to enable AppArmor
 	// support for this SPOD instance.
 	// +optional
-	// +kubebuilder:default=false
+	// +default=false
 	EnableAppArmor *bool `json:"enableAppArmor,omitempty"`
 	// hostProcVolumePath is the path for specifying a custom host /proc
 	// volume, which is required for the log-enricher as well as bpf-recorder
@@ -161,7 +162,7 @@ type SPODSelinuxConfig struct {
 	EnableRawSelinuxProfiles *bool `json:"enableRawSelinuxProfiles,omitempty"`
 	// typeTag is the SELinux type tag applied to the security context of SPOD.
 	// +optional
-	// +kubebuilder:default="spc_t"
+	// +default="spc_t"
 	TypeTag string `json:"typeTag,omitempty"`
 	// options defines options specific to the SELinux functionality.
 	// +optional
@@ -173,7 +174,7 @@ type SPODEnricherConfig struct {
 	// enableLogEnricher tells the operator whether or not to enable log
 	// enrichment support for this SPOD instance.
 	// +optional
-	// +kubebuilder:default=false
+	// +default=false
 	EnableLogEnricher *bool `json:"enableLogEnricher,omitempty"`
 	// logEnricherFilters if defined, an optional JSON-format filter to
 	// determine if log lines should be emitted for the log-enricher.
@@ -183,11 +184,12 @@ type SPODEnricherConfig struct {
 	// logs. This defaults to "auditd", but can be switched to "bpf" on
 	// systems where auditd is unavailable.
 	// +optional
+	// +kubebuilder:validation:Enum=auditd;bpf
 	LogEnricherSource string `json:"logEnricherSource,omitempty"`
 	// enableJsonEnricher tells the operator whether or not to enable audit
 	// JSON enrichment support for this SPOD instance.
 	// +optional
-	// +kubebuilder:default=false
+	// +default=false
 	EnableJsonEnricher *bool `json:"enableJsonEnricher,omitempty"`
 	// jsonEnricherFilters if defined, an optional JSON-format filter to
 	// determine if log lines should be emitted for the json-enricher.
@@ -199,7 +201,7 @@ type SPODEnricherConfig struct {
 	// enableBpfRecorder tells the operator whether or not to enable bpf
 	// recorder support for this SPOD instance.
 	// +optional
-	// +kubebuilder:default=false
+	// +default=false
 	EnableBpfRecorder *bool `json:"enableBpfRecorder,omitempty"`
 }
 
@@ -210,7 +212,7 @@ type SPODWebhookConfig struct {
 	// will not create or update the webhook configuration and its related
 	// resources.
 	// +optional
-	// +kubebuilder:default=false
+	// +default=false
 	StaticConfig *bool `json:"staticConfig,omitempty"`
 	// options set custom namespace selectors and failure mode for SPO's webhooks.
 	// +optional
@@ -230,7 +232,7 @@ type SPODSchedulingConfig struct {
 	Affinity *corev1.Affinity `json:"affinity,omitempty"`
 	// priorityClassName if defined, indicates the SPOD pod priority class.
 	// +optional
-	// +kubebuilder:default="system-node-critical"
+	// +default="system-node-critical"
 	PriorityClassName string `json:"priorityClassName,omitempty"`
 }
 
@@ -243,12 +245,12 @@ type SPODSecurityConfig struct {
 	AllowedSyscalls []string `json:"allowedSyscalls,omitempty"`
 	// allowedSeccompActions if specified, a list of allowed seccomp actions.
 	// +optional
-	// +listType=set
+	// +listType=atomic
 	AllowedSeccompActions []seccompapi.Action `json:"allowedSeccompActions,omitempty"`
 	// disableOciArtifactSignatureVerification can be used to disable OCI
 	// artifact signature verification.
 	// +optional
-	// +kubebuilder:default=false
+	// +default=false
 	DisableOCIArtifactSignatureVerification *bool `json:"disableOciArtifactSignatureVerification,omitempty"`
 }
 
@@ -272,8 +274,9 @@ const (
 // SPODStatus defines the observed state of SPOD.
 type SPODStatus struct {
 	common.ConditionedStatus `json:",inline"`
-	// Represents the state that the policy is in. Can be:
-	// PENDING, IN-PROGRESS, RUNNING or ERROR
+	// state represents the state that the policy is in. Can be:
+	// PENDING, CREATING, UPDATING, RUNNING or ERROR
+	// +optional
 	State SPODState `json:"state,omitempty"`
 }
 
@@ -284,10 +287,16 @@ type SPODStatus struct {
 // +kubebuilder:resource:path=securityprofilesoperatordaemons,shortName=spod
 // +kubebuilder:printcolumn:name="State",type="string",JSONPath=`.status.state`
 type SecurityProfilesOperatorDaemon struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
+	// metadata contains the object metadata.
+	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   SPODSpec   `json:"spec,omitempty"`
+	// spec defines the desired state of the SecurityProfilesOperatorDaemon.
+	// +optional
+	Spec SPODSpec `json:"spec,omitempty"`
+	// status contains the observed state of the SecurityProfilesOperatorDaemon.
+	// +optional
 	Status SPODStatus `json:"status,omitempty"`
 }
 
