@@ -159,7 +159,7 @@ func (p Handler) getPodExecPatch(req *admission.Request) ([]jsonpatch.JsonPatchO
 	p.log.V(1).Info("execObject before mutate", "execObject", execObject)
 
 	execCommand, replaced := replaceRegexMatches(execObject.Command,
-		ExecRequestUid+"=.*", fmt.Sprintf("%s=%s", ExecRequestUid, req.UID))
+		`^`+ExecRequestUid+`=.*$`, fmt.Sprintf("%s=%s", ExecRequestUid, req.UID))
 
 	if !replaced {
 		execObject.Command = slices.Insert(execObject.Command, 0, "env",
