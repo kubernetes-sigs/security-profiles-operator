@@ -43,7 +43,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: SPODSpec defines the desired state of SPOD.
+            description: spec defines the desired state of the SecurityProfilesOperatorDaemon.
             properties:
               daemonResourceRequirements:
                 description: |-
@@ -209,6 +209,9 @@ spec:
                       logEnricherSource determines which source should be used for audit
                       logs. This defaults to "auditd", but can be switched to "bpf" on
                       systems where auditd is unavailable.
+                    enum:
+                    - auditd
+                    - bpf
                     type: string
                 type: object
               hostProcVolumePath:
@@ -1232,7 +1235,7 @@ spec:
                       - SCMP_ACT_NOTIFY
                       type: string
                     type: array
-                    x-kubernetes-list-type: set
+                    x-kubernetes-list-type: atomic
                   allowedSyscalls:
                     description: |-
                       allowedSyscalls if specified, a list of system calls which are
@@ -1303,6 +1306,7 @@ spec:
                           type: string
                         name:
                           description: name specifies which webhook to configure.
+                          minLength: 1
                           type: string
                         namespaceSelector:
                           description: namespaceSelector sets the webhook's namespace
@@ -1415,39 +1419,60 @@ spec:
                 type: object
             type: object
           status:
-            description: SPODStatus defines the observed state of SPOD.
+            description: status contains the observed state of the SecurityProfilesOperatorDaemon.
             properties:
               conditions:
-                description: Conditions of the resource.
+                description: conditions contains the conditions of the resource.
                 items:
-                  description: A Condition that may apply to a resource.
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
                   properties:
                     lastTransitionTime:
                       description: |-
-                        LastTransitionTime is the last time this condition transitioned from one
-                        status to another.
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
                       format: date-time
                       type: string
                     message:
                       description: |-
-                        A Message containing details about this condition's last transition from
-                        one status to another, if any.
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
                       type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
                     reason:
-                      description: A Reason for this condition's last transition from
-                        one status to another.
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
                       type: string
                     status:
-                      description: Status of this condition; is it currently True,
-                        False, or Unknown?
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
                       type: string
                     type:
-                      description: |-
-                        Type of this condition. At most one of each condition type may apply to
-                        a resource at any point in time.
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
                       type: string
                   required:
                   - lastTransitionTime
+                  - message
                   - reason
                   - status
                   - type
@@ -1458,8 +1483,8 @@ spec:
                 x-kubernetes-list-type: map
               state:
                 description: |-
-                  Represents the state that the policy is in. Can be:
-                  PENDING, IN-PROGRESS, RUNNING or ERROR
+                  state represents the state that the policy is in. Can be:
+                  PENDING, CREATING, UPDATING, RUNNING or ERROR
                 enum:
                 - PENDING
                 - CREATING

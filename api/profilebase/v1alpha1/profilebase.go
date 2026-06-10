@@ -90,7 +90,9 @@ func ListProfilesByRecording(
 // StatusBase contains common attributes for a profile's status.
 type StatusBase struct {
 	common.ConditionedStatus `json:",inline"`
-	Status                   secprofnodestatusv1alpha1.ProfileState `json:"status,omitempty"`
+	// status is the current state of the profile across nodes.
+	// +optional
+	Status secprofnodestatusv1alpha1.ProfileState `json:"status,omitempty"`
 }
 
 type StatusBaseUser interface {
@@ -121,6 +123,6 @@ type SpecBase struct {
 	// state controls whether the profile is enabled or disabled for
 	// reconciliation. A disabled profile will be skipped.
 	// +optional
-	// +kubebuilder:default=Enabled
+	// +default="Enabled"
 	State SpecState `json:"state,omitempty"`
 }

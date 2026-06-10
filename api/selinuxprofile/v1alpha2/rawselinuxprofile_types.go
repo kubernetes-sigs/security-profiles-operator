@@ -39,6 +39,8 @@ type RawSelinuxProfileSpec struct {
 	// Common spec fields for all profiles.
 	profilebasev1alpha1.SpecBase `json:",inline"`
 
+	// policy is the raw SELinux policy module content.
+	// +optional
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=500000
 	Policy string `json:"policy,omitempty"`
@@ -52,11 +54,17 @@ type RawSelinuxProfileSpec struct {
 // +kubebuilder:printcolumn:name="Usage",type="string",JSONPath=`.status.usage`
 // +kubebuilder:printcolumn:name="State",type="string",JSONPath=`.status.status`
 type RawSelinuxProfile struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
+	// metadata contains the object metadata.
+	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   RawSelinuxProfileSpec `json:"spec,omitempty"`
-	Status SelinuxProfileStatus  `json:"status,omitempty"`
+	// spec defines the desired state of the RawSelinuxProfile.
+	// +optional
+	Spec RawSelinuxProfileSpec `json:"spec,omitempty"`
+	// status contains the observed state of the RawSelinuxProfile.
+	// +optional
+	Status SelinuxProfileStatus `json:"status,omitempty"`
 }
 
 func (sp *RawSelinuxProfile) GetStatusBase() *profilebasev1alpha1.StatusBase {

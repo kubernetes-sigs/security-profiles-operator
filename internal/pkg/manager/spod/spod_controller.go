@@ -32,6 +32,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
@@ -242,7 +243,7 @@ func (r *ReconcileSPOd) Reconcile(ctx context.Context, req reconcile.Request) (r
 	if foundSPOd.Status.NumberReady == foundSPOd.Status.DesiredNumberScheduled {
 		condready := spod.Status.GetReadyCondition()
 		// Don't pollute the logs. Let's only update when needed.
-		if condready.Status != corev1.ConditionTrue {
+		if condready.Status != metav1.ConditionTrue {
 			return reconcile.Result{}, r.handleRunningStatus(ctx, spod, logger)
 		}
 	}

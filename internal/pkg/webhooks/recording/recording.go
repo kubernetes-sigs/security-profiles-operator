@@ -127,7 +127,7 @@ func (p *podSeccompRecorder) Handle(
 		}
 
 		selector, err := p.LabelSelectorAsSelector(
-			&item.Spec.PodSelector,
+			item.Spec.PodSelector,
 		)
 		if err != nil {
 			p.log.Error(

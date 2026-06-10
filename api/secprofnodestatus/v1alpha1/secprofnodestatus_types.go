@@ -90,23 +90,31 @@ func LowerOfTwoStates(currentLowest, candidate ProfileState) ProfileState {
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 // +kubebuilder:printcolumn:name="Node",type=string,priority=10,JSONPath=`.spec.nodeName`
 type SecurityProfileNodeStatus struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
+	// metadata contains the object metadata.
+	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   SecurityProfileNodeStatusSpec   `json:"spec,omitempty"`
+	// spec defines the desired state of the SecurityProfileNodeStatus.
+	// +required
+	Spec SecurityProfileNodeStatusSpec `json:"spec,omitzero"`
+	// status contains the observed state of the SecurityProfileNodeStatus.
+	// +optional
 	Status SecurityProfileNodeStatusStatus `json:"status,omitempty"`
 }
 
 // SecurityProfileNodeStatusSpec defines the desired state of SecurityProfileNodeStatus.
 type SecurityProfileNodeStatusSpec struct {
-	// NodeName is the name of the node on which the profile is installed.
+	// nodeName is the name of the node on which the profile is installed.
+	// +required
 	// +kubebuilder:validation:MinLength=1
 	NodeName string `json:"nodeName,omitempty"`
 }
 
 // SecurityProfileNodeStatusStatus defines the observed state of SecurityProfileNodeStatus.
 type SecurityProfileNodeStatusStatus struct {
-	// Status is the installation status of the profile on this node.
+	// status is the installation status of the profile on this node.
+	// +optional
 	Status ProfileState `json:"status,omitempty"`
 }
 

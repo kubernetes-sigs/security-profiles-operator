@@ -48,7 +48,7 @@ spec:
             properties:
               containers:
                 description: |-
-                  Containers is a set of containers to record. This allows to select
+                  containers is a set of containers to record. This allows to select
                   only specific containers to record instead of all containers present
                   in the pod.
                 items:
@@ -58,13 +58,13 @@ spec:
               disableProfileAfterRecording:
                 default: false
                 description: |-
-                  DisableProfileAfterRecording indicates whether the profile should be disabled
-                  after recording and thus skipped during reconcile. In case of SELinux profiles,
-                  reconcile can take a significant amount of time and for all profiles might not be needed.
-                  This Defaults to false.
+                  disableProfileAfterRecording indicates whether the profile should be
+                  disabled after recording and thus skipped during reconcile. In case of
+                  SELinux profiles, reconcile can take a significant amount of time and
+                  for all profiles might not be needed. Defaults to false.
                 type: boolean
               kind:
-                description: Kind of object to be recorded.
+                description: kind specifies the type of object to be recorded.
                 enum:
                 - SeccompProfile
                 - SelinuxProfile
@@ -73,15 +73,15 @@ spec:
               mergeStrategy:
                 default: none
                 description: |-
-                  Whether or how to merge recorded profiles. Can be one of "none" or "containers".
-                  Default is "none".
+                  mergeStrategy controls whether or how to merge recorded profiles.
+                  Can be one of "none" or "containers". Default is "none".
                 enum:
                 - none
                 - containers
                 type: string
               podSelector:
                 description: |-
-                  PodSelector selects the pods to record. This field follows standard
+                  podSelector selects the pods to record. This field follows standard
                   label selector semantics. An empty podSelector matches all pods in this
                   namespace.
                 properties:
@@ -129,7 +129,7 @@ spec:
                 type: object
                 x-kubernetes-map-type: atomic
               recorder:
-                description: Recorder to be used.
+                description: recorder specifies which recorder to use.
                 enum:
                 - bpf
                 - logs

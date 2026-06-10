@@ -50,21 +50,21 @@ spec:
           metadata:
             type: object
           spec:
-            description: SecurityProfileNodeStatusSpec defines the desired state of
-              SecurityProfileNodeStatus.
+            description: spec defines the desired state of the SecurityProfileNodeStatus.
             properties:
               nodeName:
-                description: NodeName is the name of the node on which the profile
+                description: nodeName is the name of the node on which the profile
                   is installed.
                 minLength: 1
                 type: string
+            required:
+            - nodeName
             type: object
           status:
-            description: SecurityProfileNodeStatusStatus defines the observed state
-              of SecurityProfileNodeStatus.
+            description: status contains the observed state of the SecurityProfileNodeStatus.
             properties:
               status:
-                description: Status is the installation status of the profile on this
+                description: status is the installation status of the profile on this
                   node.
                 enum:
                 - Partial
@@ -76,6 +76,8 @@ spec:
                 - Error
                 type: string
             type: object
+        required:
+        - spec
         type: object
     served: true
     storage: true

@@ -4,6 +4,16 @@ dependencies:
     refPaths:
     - path: Makefile
       match: GOLANGCI_LINT_VERSION
+    - path: .custom-gcl.yml
+      match: "^version:"
+
+  - name: kube-api-linter
+    version: v0.0.0-20260518104151-5ebe05f9440b
+    refPaths:
+    - path: Makefile
+      match: KAL_VERSION
+    - path: .custom-gcl.yml
+      match: version
 
   - name: repo-infra
     version: v0.2.5

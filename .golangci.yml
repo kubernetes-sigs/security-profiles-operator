@@ -50,6 +50,7 @@ linters:
     - ineffassign
     - intrange
     - iotamixing
+    - kubeapilinter
     - lll
     - loggercheck
     - makezero
@@ -117,6 +118,15 @@ linters:
     # - varnamelen
     # - wrapcheck
   settings:
+    custom:
+      kubeapilinter:
+        type: module
+        description: Kube API Linter lints Kube like APIs based on API conventions and best practices.
+        settings:
+          linters:
+            disable:
+              - nomaps
+              - optionalfields
     errcheck:
       check-type-assertions: true
       check-blank: true
@@ -165,6 +175,9 @@ linters:
       - linters:
           - godoclint
         path: api/
+      - linters:
+          - kubeapilinter
+        path-except: api/
     paths:
       - third_party$
       - builtin$

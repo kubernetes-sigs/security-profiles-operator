@@ -33,46 +33,56 @@ var (
 
 // AppArmorExecutablesRules stores the rules for allowed executable.
 type AppArmorExecutablesRules struct {
-	// AllowedExecutables list of allowed executables.
+	// allowedExecutables is a list of allowed executables.
+	// +optional
 	// +listType=set
 	AllowedExecutables []string `json:"allowedExecutables,omitempty"`
-	// AllowedLibraries list of allowed libraries.
+	// allowedLibraries is a list of allowed libraries.
+	// +optional
 	// +listType=set
 	AllowedLibraries []string `json:"allowedLibraries,omitempty"`
 }
 
 // AppArmorFsRules stores the rules for file system access.
 type AppArmorFsRules struct {
-	// ReadOnlyPaths list of allowed read only file paths.
+	// readOnlyPaths is a list of allowed read only file paths.
+	// +optional
 	// +listType=set
 	ReadOnlyPaths []string `json:"readOnlyPaths,omitempty"`
-	// WriteOnlyPaths list of allowed write only file paths.
+	// writeOnlyPaths is a list of allowed write only file paths.
+	// +optional
 	// +listType=set
 	WriteOnlyPaths []string `json:"writeOnlyPaths,omitempty"`
-	// ReadWritePaths list of allowed read write file paths.
+	// readWritePaths is a list of allowed read write file paths.
+	// +optional
 	// +listType=set
 	ReadWritePaths []string `json:"readWritePaths,omitempty"`
 }
 
 // AppArmorAllowedProtocols stores the rules for allowed networking protocols.
 type AppArmorAllowedProtocols struct {
-	// AllowTCP allows TCP socket connections.
+	// allowTcp allows TCP socket connections.
+	// +optional
 	AllowTCP *bool `json:"allowTcp,omitempty"`
-	// AllowUDP allows UDP sockets connections.
+	// allowUdp allows UDP sockets connections.
+	// +optional
 	AllowUDP *bool `json:"allowUdp,omitempty"`
 }
 
 // AppArmorNetworkRules stores the rules for network access.
 type AppArmorNetworkRules struct {
-	// AllowRaw allows raw sockets.
+	// allowRaw allows raw sockets.
+	// +optional
 	AllowRaw *bool `json:"allowRaw,omitempty"`
-	// Protocols keeps the allowed networking protocols.
+	// allowedProtocols keeps the allowed networking protocols.
+	// +optional
 	Protocols *AppArmorAllowedProtocols `json:"allowedProtocols,omitempty"`
 }
 
-// AllowedCapabilities stores the rules of allowed Linux capabilities.
+// AppArmorCapabilityRules stores the rules of allowed Linux capabilities.
 type AppArmorCapabilityRules struct {
-	// AllowedCapabilities list of allowed capabilities.
+	// allowedCapabilities is a list of allowed capabilities.
+	// +optional
 	// +listType=set
 	AllowedCapabilities []string `json:"allowedCapabilities,omitempty"`
 }
@@ -80,13 +90,17 @@ type AppArmorCapabilityRules struct {
 // AppArmorAbstract AppArmor profile which stores various allowed list for
 // executable, file, network, capabilities access.
 type AppArmorAbstract struct {
-	// Executable rules for allowed executables.
+	// executable defines rules for allowed executables.
+	// +optional
 	Executable *AppArmorExecutablesRules `json:"executable,omitempty"`
-	// Filesystem rules for filesystem access.
+	// filesystem defines rules for filesystem access.
+	// +optional
 	Filesystem *AppArmorFsRules `json:"filesystem,omitempty"`
-	// Network rules for network access.
+	// network defines rules for network access.
+	// +optional
 	Network *AppArmorNetworkRules `json:"network,omitempty"`
-	// Capability rules for Linux capabilities.
+	// capability defines rules for Linux capabilities.
+	// +optional
 	Capability *AppArmorCapabilityRules `json:"capability,omitempty"`
 }
 
@@ -104,14 +118,15 @@ type AppArmorProfileSpec struct {
 	// Common spec fields for all profiles.
 	profilebasev1alpha1.SpecBase `json:",inline"`
 
-	// Abstract stores the apparmor profile allow lists for executable, file, network and capabilities access.
+	// abstract stores the apparmor profile allow lists for executable, file, network and capabilities access.
+	// +optional
 	Abstract AppArmorAbstract `json:"abstract,omitempty"`
 
 	// mode controls the enforcement mode for the AppArmor profile.
 	// In "Complain" mode, violations are logged but allowed.
 	// In "Enforce" mode (the default), violations are denied.
 	// +optional
-	// +kubebuilder:default=Enforce
+	// +default="Enforce"
 	Mode AppArmorMode `json:"mode,omitempty"`
 }
 
@@ -127,10 +142,16 @@ type AppArmorProfileStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Status",type="string",JSONPath=`.status.status`
 type AppArmorProfile struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
+	// metadata contains the object metadata.
+	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   AppArmorProfileSpec   `json:"spec,omitempty"`
+	// spec defines the desired state of the AppArmor profile.
+	// +optional
+	Spec AppArmorProfileSpec `json:"spec,omitempty"`
+	// status contains the observed state of the AppArmor profile.
+	// +optional
 	Status AppArmorProfileStatus `json:"status,omitempty"`
 }
 

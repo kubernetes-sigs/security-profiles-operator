@@ -56,77 +56,78 @@ spec:
           metadata:
             type: object
           spec:
-            description: AppArmorProfileSpec defines the desired state of AppArmorProfile.
+            description: spec defines the desired state of the AppArmor profile.
             properties:
               abstract:
-                description: Abstract stores the apparmor profile allow lists for
+                description: abstract stores the apparmor profile allow lists for
                   executable, file, network and capabilities access.
                 properties:
                   capability:
-                    description: Capability rules for Linux capabilities.
+                    description: capability defines rules for Linux capabilities.
                     properties:
                       allowedCapabilities:
-                        description: AllowedCapabilities list of allowed capabilities.
+                        description: allowedCapabilities is a list of allowed capabilities.
                         items:
                           type: string
                         type: array
                         x-kubernetes-list-type: set
                     type: object
                   executable:
-                    description: Executable rules for allowed executables.
+                    description: executable defines rules for allowed executables.
                     properties:
                       allowedExecutables:
-                        description: AllowedExecutables list of allowed executables.
+                        description: allowedExecutables is a list of allowed executables.
                         items:
                           type: string
                         type: array
                         x-kubernetes-list-type: set
                       allowedLibraries:
-                        description: AllowedLibraries list of allowed libraries.
+                        description: allowedLibraries is a list of allowed libraries.
                         items:
                           type: string
                         type: array
                         x-kubernetes-list-type: set
                     type: object
                   filesystem:
-                    description: Filesystem rules for filesystem access.
+                    description: filesystem defines rules for filesystem access.
                     properties:
                       readOnlyPaths:
-                        description: ReadOnlyPaths list of allowed read only file
-                          paths.
+                        description: readOnlyPaths is a list of allowed read only
+                          file paths.
                         items:
                           type: string
                         type: array
                         x-kubernetes-list-type: set
                       readWritePaths:
-                        description: ReadWritePaths list of allowed read write file
-                          paths.
+                        description: readWritePaths is a list of allowed read write
+                          file paths.
                         items:
                           type: string
                         type: array
                         x-kubernetes-list-type: set
                       writeOnlyPaths:
-                        description: WriteOnlyPaths list of allowed write only file
-                          paths.
+                        description: writeOnlyPaths is a list of allowed write only
+                          file paths.
                         items:
                           type: string
                         type: array
                         x-kubernetes-list-type: set
                     type: object
                   network:
-                    description: Network rules for network access.
+                    description: network defines rules for network access.
                     properties:
                       allowRaw:
-                        description: AllowRaw allows raw sockets.
+                        description: allowRaw allows raw sockets.
                         type: boolean
                       allowedProtocols:
-                        description: Protocols keeps the allowed networking protocols.
+                        description: allowedProtocols keeps the allowed networking
+                          protocols.
                         properties:
                           allowTcp:
-                            description: AllowTCP allows TCP socket connections.
+                            description: allowTcp allows TCP socket connections.
                             type: boolean
                           allowUdp:
-                            description: AllowUDP allows UDP sockets connections.
+                            description: allowUdp allows UDP sockets connections.
                             type: boolean
                         type: object
                     type: object
@@ -152,39 +153,60 @@ spec:
                 type: string
             type: object
           status:
-            description: AppArmorProfileStatus defines the observed state of AppArmorProfile.
+            description: status contains the observed state of the AppArmor profile.
             properties:
               conditions:
-                description: Conditions of the resource.
+                description: conditions contains the conditions of the resource.
                 items:
-                  description: A Condition that may apply to a resource.
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
                   properties:
                     lastTransitionTime:
                       description: |-
-                        LastTransitionTime is the last time this condition transitioned from one
-                        status to another.
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
                       format: date-time
                       type: string
                     message:
                       description: |-
-                        A Message containing details about this condition's last transition from
-                        one status to another, if any.
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
                       type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
                     reason:
-                      description: A Reason for this condition's last transition from
-                        one status to another.
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
                       type: string
                     status:
-                      description: Status of this condition; is it currently True,
-                        False, or Unknown?
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
                       type: string
                     type:
-                      description: |-
-                        Type of this condition. At most one of each condition type may apply to
-                        a resource at any point in time.
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
                       type: string
                   required:
                   - lastTransitionTime
+                  - message
                   - reason
                   - status
                   - type
@@ -194,10 +216,7 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               status:
-                description: |-
-                  ProfileState defines the state that the profile is in. A profile in this context
-                  refers to a SeccompProfile or a SELinux profile, the states are shared between them
-                  as well as the management API.
+                description: status is the current state of the profile across nodes.
                 enum:
                 - Partial
                 - Disabled
@@ -254,28 +273,28 @@ spec:
           metadata:
             type: object
           spec:
-            description: ProfileBindingSpec defines the desired state of ProfileBinding.
+            description: spec defines the desired state of the ProfileBinding.
             properties:
               image:
                 description: |-
-                  Image name within pod containers to match to the profile.
+                  image specifies the container image name within pod containers to match to the profile.
                   Use the "*" string to bind the profile to all pods.
                 minLength: 1
                 type: string
               profileRef:
-                description: ProfileRef references a SeccompProfile or other profile
+                description: profileRef references a SeccompProfile or other profile
                   type in the current namespace.
                 properties:
                   kind:
-                    description: Kind of object to be bound.
+                    description: kind specifies the type of object to be bound.
                     enum:
                     - SeccompProfile
                     - SelinuxProfile
                     - AppArmorProfile
                     type: string
                   name:
-                    description: Name of the profile within the current namespace
-                      to which to bind the selected pods.
+                    description: name is the name of the profile within the current
+                      namespace to which to bind the selected pods.
                     minLength: 1
                     type: string
                 required:
@@ -287,14 +306,18 @@ spec:
             - profileRef
             type: object
           status:
-            description: ProfileBindingStatus contains status of the Profilebinding.
+            description: status contains the observed state of the ProfileBinding.
             properties:
               activeWorkloads:
+                description: activeWorkloads lists the workloads currently using this
+                  binding.
                 items:
                   type: string
                 type: array
                 x-kubernetes-list-type: set
             type: object
+        required:
+        - spec
         type: object
     served: true
     storage: true
@@ -346,11 +369,11 @@ spec:
           metadata:
             type: object
           spec:
-            description: ProfileRecordingSpec defines the desired state of ProfileRecording.
+            description: spec defines the desired state of the ProfileRecording.
             properties:
               containers:
                 description: |-
-                  Containers is a set of containers to record. This allows to select
+                  containers is a set of containers to record. This allows to select
                   only specific containers to record instead of all containers present
                   in the pod.
                 items:
@@ -360,13 +383,13 @@ spec:
               disableProfileAfterRecording:
                 default: false
                 description: |-
-                  DisableProfileAfterRecording indicates whether the profile should be disabled
-                  after recording and thus skipped during reconcile. In case of SELinux profiles,
-                  reconcile can take a significant amount of time and for all profiles might not be needed.
-                  This Defaults to false.
+                  disableProfileAfterRecording indicates whether the profile should be
+                  disabled after recording and thus skipped during reconcile. In case of
+                  SELinux profiles, reconcile can take a significant amount of time and
+                  for all profiles might not be needed. Defaults to false.
                 type: boolean
               kind:
-                description: Kind of object to be recorded.
+                description: kind specifies the type of object to be recorded.
                 enum:
                 - SeccompProfile
                 - SelinuxProfile
@@ -375,15 +398,15 @@ spec:
               mergeStrategy:
                 default: none
                 description: |-
-                  Whether or how to merge recorded profiles. Can be one of "none" or "containers".
-                  Default is "none".
+                  mergeStrategy controls whether or how to merge recorded profiles.
+                  Can be one of "none" or "containers". Default is "none".
                 enum:
                 - none
                 - containers
                 type: string
               podSelector:
                 description: |-
-                  PodSelector selects the pods to record. This field follows standard
+                  podSelector selects the pods to record. This field follows standard
                   label selector semantics. An empty podSelector matches all pods in this
                   namespace.
                 properties:
@@ -431,7 +454,7 @@ spec:
                 type: object
                 x-kubernetes-map-type: atomic
               recorder:
-                description: Recorder to be used.
+                description: recorder specifies which recorder to use.
                 enum:
                 - bpf
                 - logs
@@ -442,14 +465,18 @@ spec:
             - recorder
             type: object
           status:
-            description: ProfileRecordingStatus contains status of the ProfileRecording.
+            description: status contains the observed state of the ProfileRecording.
             properties:
               activeWorkloads:
+                description: activeWorkloads lists the workloads currently using this
+                  recording.
                 items:
                   type: string
                 type: array
                 x-kubernetes-list-type: set
             type: object
+        required:
+        - spec
         type: object
     served: true
     storage: true
@@ -503,9 +530,10 @@ spec:
           metadata:
             type: object
           spec:
-            description: RawSelinuxProfileSpec defines the desired state of RawSelinuxProfile.
+            description: spec defines the desired state of the RawSelinuxProfile.
             properties:
               policy:
+                description: policy is the raw SELinux policy module content.
                 maxLength: 500000
                 minLength: 1
                 type: string
@@ -520,44 +548,67 @@ spec:
                 type: string
             type: object
           status:
-            description: SelinuxProfileStatus defines the observed state of SelinuxProfile.
+            description: status contains the observed state of the RawSelinuxProfile.
             properties:
               activeWorkloads:
+                description: activeWorkloads lists the workloads currently using this
+                  profile.
                 items:
                   type: string
                 type: array
                 x-kubernetes-list-type: set
               conditions:
-                description: Conditions of the resource.
+                description: conditions contains the conditions of the resource.
                 items:
-                  description: A Condition that may apply to a resource.
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
                   properties:
                     lastTransitionTime:
                       description: |-
-                        LastTransitionTime is the last time this condition transitioned from one
-                        status to another.
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
                       format: date-time
                       type: string
                     message:
                       description: |-
-                        A Message containing details about this condition's last transition from
-                        one status to another, if any.
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
                       type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
                     reason:
-                      description: A Reason for this condition's last transition from
-                        one status to another.
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
                       type: string
                     status:
-                      description: Status of this condition; is it currently True,
-                        False, or Unknown?
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
                       type: string
                     type:
-                      description: |-
-                        Type of this condition. At most one of each condition type may apply to
-                        a resource at any point in time.
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
                       type: string
                   required:
                   - lastTransitionTime
+                  - message
                   - reason
                   - status
                   - type
@@ -567,10 +618,7 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               status:
-                description: |-
-                  ProfileState defines the state that the profile is in. A profile in this context
-                  refers to a SeccompProfile or a SELinux profile, the states are shared between them
-                  as well as the management API.
+                description: status is the current state of the profile across nodes.
                 enum:
                 - Partial
                 - Disabled
@@ -582,7 +630,7 @@ spec:
                 type: string
               usage:
                 description: |-
-                  Represents the string that the SelinuxProfile object can be
+                  usage represents the string that the SelinuxProfile object can be
                   referenced as in a pod seLinuxOptions section.
                 type: string
             type: object
@@ -647,10 +695,11 @@ spec:
           metadata:
             type: object
           spec:
-            description: SeccompProfileSpec defines the desired state of SeccompProfile.
+            description: spec defines the desired state of the SeccompProfile.
             properties:
               architectures:
-                description: the architecture used for system calls
+                description: architectures specifies the architecture used for system
+                  calls.
                 items:
                   enum:
                   - SCMP_ARCH_NATIVE
@@ -678,25 +727,40 @@ spec:
                 x-kubernetes-list-type: set
               baseProfileName:
                 description: |-
-                  BaseProfileName is the name of base profile (in the same namespace) that
+                  baseProfileName is the name of base profile (in the same namespace) that
                   will be unioned into this profile. Base profiles can be references as
                   remote OCI artifacts as well when prefixed with `oci://`.
                 type: string
               defaultAction:
-                description: the default action for seccomp
-                enum:
-                - SCMP_ACT_KILL
-                - SCMP_ACT_KILL_PROCESS
-                - SCMP_ACT_KILL_THREAD
-                - SCMP_ACT_TRAP
-                - SCMP_ACT_ERRNO
-                - SCMP_ACT_TRACE
-                - SCMP_ACT_ALLOW
-                - SCMP_ACT_LOG
-                - SCMP_ACT_NOTIFY
+                allOf:
+                - enum:
+                  - SCMP_ACT_KILL
+                  - SCMP_ACT_KILL_PROCESS
+                  - SCMP_ACT_KILL_THREAD
+                  - SCMP_ACT_TRAP
+                  - SCMP_ACT_ERRNO
+                  - SCMP_ACT_TRACE
+                  - SCMP_ACT_ALLOW
+                  - SCMP_ACT_LOG
+                  - SCMP_ACT_NOTIFY
+                - enum:
+                  - SCMP_ACT_KILL
+                  - SCMP_ACT_KILL_PROCESS
+                  - SCMP_ACT_KILL_THREAD
+                  - SCMP_ACT_TRAP
+                  - SCMP_ACT_ERRNO
+                  - SCMP_ACT_TRACE
+                  - SCMP_ACT_ALLOW
+                  - SCMP_ACT_LOG
+                  - SCMP_ACT_NOTIFY
+                description: |-
+                  defaultAction is the default action for seccomp. Valid values are:
+                  SCMP_ACT_KILL, SCMP_ACT_KILL_PROCESS, SCMP_ACT_KILL_THREAD,
+                  SCMP_ACT_TRAP, SCMP_ACT_ERRNO, SCMP_ACT_TRACE, SCMP_ACT_ALLOW,
+                  SCMP_ACT_LOG, SCMP_ACT_NOTIFY.
                 type: string
               flags:
-                description: list of flags to use with seccomp(2)
+                description: flags is a list of flags to use with seccomp(2).
                 items:
                   enum:
                   - SECCOMP_FILTER_FLAG_TSYNC
@@ -707,11 +771,13 @@ spec:
                 type: array
                 x-kubernetes-list-type: set
               listenerMetadata:
-                description: opaque data to pass to the seccomp agent
+                description: listenerMetadata contains opaque data to pass to the
+                  seccomp agent.
                 type: string
               listenerPath:
-                description: path of UNIX domain socket to contact a seccomp agent
-                  for SCMP_ACT_NOTIFY
+                description: |-
+                  listenerPath is the path of UNIX domain socket to contact a seccomp
+                  agent for SCMP_ACT_NOTIFY.
                 pattern: ^/var/run/security-profiles-operator/[a-zA-Z0-9_\-\.]+$
                 type: string
               state:
@@ -725,54 +791,85 @@ spec:
                 type: string
               syscalls:
                 description: |-
-                  match a syscall in seccomp. While this property is OPTIONAL, some values
-                  of defaultAction are not useful without syscalls entries. For example,
-                  if defaultAction is SCMP_ACT_KILL and syscalls is empty or unset, the
-                  kernel will kill the container process on its first syscall
+                  syscalls match a syscall in seccomp. While this property is optional,
+                  some values of defaultAction are not useful without syscalls entries.
+                  For example, if defaultAction is SCMP_ACT_KILL and syscalls is empty
+                  or unset, the kernel will kill the container process on its first syscall.
                 items:
                   description: Syscall defines a syscall in seccomp.
                   properties:
                     action:
-                      description: the action for seccomp rules
-                      enum:
-                      - SCMP_ACT_KILL
-                      - SCMP_ACT_KILL_PROCESS
-                      - SCMP_ACT_KILL_THREAD
-                      - SCMP_ACT_TRAP
-                      - SCMP_ACT_ERRNO
-                      - SCMP_ACT_TRACE
-                      - SCMP_ACT_ALLOW
-                      - SCMP_ACT_LOG
-                      - SCMP_ACT_NOTIFY
+                      allOf:
+                      - enum:
+                        - SCMP_ACT_KILL
+                        - SCMP_ACT_KILL_PROCESS
+                        - SCMP_ACT_KILL_THREAD
+                        - SCMP_ACT_TRAP
+                        - SCMP_ACT_ERRNO
+                        - SCMP_ACT_TRACE
+                        - SCMP_ACT_ALLOW
+                        - SCMP_ACT_LOG
+                        - SCMP_ACT_NOTIFY
+                      - enum:
+                        - SCMP_ACT_KILL
+                        - SCMP_ACT_KILL_PROCESS
+                        - SCMP_ACT_KILL_THREAD
+                        - SCMP_ACT_TRAP
+                        - SCMP_ACT_ERRNO
+                        - SCMP_ACT_TRACE
+                        - SCMP_ACT_ALLOW
+                        - SCMP_ACT_LOG
+                        - SCMP_ACT_NOTIFY
+                      description: |-
+                        action is the action for seccomp rules. Valid values are:
+                        SCMP_ACT_KILL, SCMP_ACT_KILL_PROCESS, SCMP_ACT_KILL_THREAD,
+                        SCMP_ACT_TRAP, SCMP_ACT_ERRNO, SCMP_ACT_TRACE, SCMP_ACT_ALLOW,
+                        SCMP_ACT_LOG, SCMP_ACT_NOTIFY.
                       type: string
                     args:
-                      description: the specific syscall in seccomp
+                      description: args defines the specific syscall arguments in
+                        seccomp.
                       items:
                         description: Arg defines the specific syscall in seccomp.
                         properties:
                           index:
-                            description: the index for syscall arguments in seccomp
+                            description: index is the index for syscall arguments
+                              in seccomp.
                             format: int32
                             minimum: 0
                             type: integer
                           op:
-                            description: the operator for syscall arguments in seccomp
-                            enum:
-                            - SCMP_CMP_NE
-                            - SCMP_CMP_LT
-                            - SCMP_CMP_LE
-                            - SCMP_CMP_EQ
-                            - SCMP_CMP_GE
-                            - SCMP_CMP_GT
-                            - SCMP_CMP_MASKED_EQ
+                            allOf:
+                            - enum:
+                              - SCMP_CMP_NE
+                              - SCMP_CMP_LT
+                              - SCMP_CMP_LE
+                              - SCMP_CMP_EQ
+                              - SCMP_CMP_GE
+                              - SCMP_CMP_GT
+                              - SCMP_CMP_MASKED_EQ
+                            - enum:
+                              - SCMP_CMP_NE
+                              - SCMP_CMP_LT
+                              - SCMP_CMP_LE
+                              - SCMP_CMP_EQ
+                              - SCMP_CMP_GE
+                              - SCMP_CMP_GT
+                              - SCMP_CMP_MASKED_EQ
+                            description: |-
+                              op is the operator for syscall arguments in seccomp. Valid values are:
+                              SCMP_CMP_NE, SCMP_CMP_LT, SCMP_CMP_LE, SCMP_CMP_EQ, SCMP_CMP_GE,
+                              SCMP_CMP_GT, SCMP_CMP_MASKED_EQ.
                             type: string
                           value:
-                            description: the value for syscall arguments in seccomp
+                            description: value is the value for syscall arguments
+                              in seccomp.
                             format: int64
                             minimum: 0
                             type: integer
                           valueTwo:
-                            description: the value for syscall arguments in seccomp
+                            description: valueTwo is the second value for syscall
+                              arguments in seccomp.
                             format: int64
                             minimum: 0
                             type: integer
@@ -785,13 +882,14 @@ spec:
                       x-kubernetes-list-type: atomic
                     errnoRet:
                       description: |-
-                        the errno return code to use. Some actions like SCMP_ACT_ERRNO and
-                        SCMP_ACT_TRACE allow to specify the errno code to return
+                        errnoRet is the errno return code to use. Some actions like
+                        SCMP_ACT_ERRNO and SCMP_ACT_TRACE allow to specify the errno
+                        code to return.
                       format: int32
                       minimum: 0
                       type: integer
                     names:
-                      description: the names of the syscalls
+                      description: names specifies the names of the syscalls.
                       items:
                         type: string
                       minItems: 1
@@ -807,44 +905,67 @@ spec:
             - defaultAction
             type: object
           status:
-            description: SeccompProfileStatus contains status of the deployed SeccompProfile.
+            description: status contains the observed state of the SeccompProfile.
             properties:
               activeWorkloads:
+                description: activeWorkloads lists the workloads currently using this
+                  profile.
                 items:
                   type: string
                 type: array
                 x-kubernetes-list-type: set
               conditions:
-                description: Conditions of the resource.
+                description: conditions contains the conditions of the resource.
                 items:
-                  description: A Condition that may apply to a resource.
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
                   properties:
                     lastTransitionTime:
                       description: |-
-                        LastTransitionTime is the last time this condition transitioned from one
-                        status to another.
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
                       format: date-time
                       type: string
                     message:
                       description: |-
-                        A Message containing details about this condition's last transition from
-                        one status to another, if any.
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
                       type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
                     reason:
-                      description: A Reason for this condition's last transition from
-                        one status to another.
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
                       type: string
                     status:
-                      description: Status of this condition; is it currently True,
-                        False, or Unknown?
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
                       type: string
                     type:
-                      description: |-
-                        Type of this condition. At most one of each condition type may apply to
-                        a resource at any point in time.
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
                       type: string
                   required:
                   - lastTransitionTime
+                  - message
                   - reason
                   - status
                   - type
@@ -855,16 +976,16 @@ spec:
                 x-kubernetes-list-type: map
               localhostProfile:
                 description: |-
-                  The path that should be provided to the `securityContext.seccompProfile.localhostProfile`
-                  field of a Pod or container spec
+                  localhostProfile is the path that should be provided to the
+                  `securityContext.seccompProfile.localhostProfile` field of a Pod
+                  or container spec.
                 type: string
               path:
+                description: path is the file path of the installed seccomp profile
+                  on the node.
                 type: string
               status:
-                description: |-
-                  ProfileState defines the state that the profile is in. A profile in this context
-                  refers to a SeccompProfile or a SELinux profile, the states are shared between them
-                  as well as the management API.
+                description: status is the current state of the profile across nodes.
                 enum:
                 - Partial
                 - Disabled
@@ -875,6 +996,8 @@ spec:
                 - Error
                 type: string
             type: object
+        required:
+        - spec
         type: object
     served: true
     storage: true
@@ -935,21 +1058,21 @@ spec:
           metadata:
             type: object
           spec:
-            description: SecurityProfileNodeStatusSpec defines the desired state of
-              SecurityProfileNodeStatus.
+            description: spec defines the desired state of the SecurityProfileNodeStatus.
             properties:
               nodeName:
-                description: NodeName is the name of the node on which the profile
+                description: nodeName is the name of the node on which the profile
                   is installed.
                 minLength: 1
                 type: string
+            required:
+            - nodeName
             type: object
           status:
-            description: SecurityProfileNodeStatusStatus defines the observed state
-              of SecurityProfileNodeStatus.
+            description: status contains the observed state of the SecurityProfileNodeStatus.
             properties:
               status:
-                description: Status is the installation status of the profile on this
+                description: status is the installation status of the profile on this
                   node.
                 enum:
                 - Partial
@@ -961,6 +1084,8 @@ spec:
                 - Error
                 type: string
             type: object
+        required:
+        - spec
         type: object
     served: true
     storage: true
@@ -1014,7 +1139,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: SPODSpec defines the desired state of SPOD.
+            description: spec defines the desired state of the SecurityProfilesOperatorDaemon.
             properties:
               daemonResourceRequirements:
                 description: |-
@@ -1180,6 +1305,9 @@ spec:
                       logEnricherSource determines which source should be used for audit
                       logs. This defaults to "auditd", but can be switched to "bpf" on
                       systems where auditd is unavailable.
+                    enum:
+                    - auditd
+                    - bpf
                     type: string
                 type: object
               hostProcVolumePath:
@@ -2203,7 +2331,7 @@ spec:
                       - SCMP_ACT_NOTIFY
                       type: string
                     type: array
-                    x-kubernetes-list-type: set
+                    x-kubernetes-list-type: atomic
                   allowedSyscalls:
                     description: |-
                       allowedSyscalls if specified, a list of system calls which are
@@ -2279,6 +2407,7 @@ spec:
                           type: string
                         name:
                           description: name specifies which webhook to configure.
+                          minLength: 1
                           type: string
                         namespaceSelector:
                           description: namespaceSelector sets the webhook's namespace
@@ -2391,39 +2520,60 @@ spec:
                 type: object
             type: object
           status:
-            description: SPODStatus defines the observed state of SPOD.
+            description: status contains the observed state of the SecurityProfilesOperatorDaemon.
             properties:
               conditions:
-                description: Conditions of the resource.
+                description: conditions contains the conditions of the resource.
                 items:
-                  description: A Condition that may apply to a resource.
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
                   properties:
                     lastTransitionTime:
                       description: |-
-                        LastTransitionTime is the last time this condition transitioned from one
-                        status to another.
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
                       format: date-time
                       type: string
                     message:
                       description: |-
-                        A Message containing details about this condition's last transition from
-                        one status to another, if any.
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
                       type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
                     reason:
-                      description: A Reason for this condition's last transition from
-                        one status to another.
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
                       type: string
                     status:
-                      description: Status of this condition; is it currently True,
-                        False, or Unknown?
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
                       type: string
                     type:
-                      description: |-
-                        Type of this condition. At most one of each condition type may apply to
-                        a resource at any point in time.
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
                       type: string
                   required:
                   - lastTransitionTime
+                  - message
                   - reason
                   - status
                   - type
@@ -2434,8 +2584,8 @@ spec:
                 x-kubernetes-list-type: map
               state:
                 description: |-
-                  Represents the state that the policy is in. Can be:
-                  PENDING, IN-PROGRESS, RUNNING or ERROR
+                  state represents the state that the policy is in. Can be:
+                  PENDING, CREATING, UPDATING, RUNNING or ERROR
                 enum:
                 - PENDING
                 - CREATING
@@ -2497,7 +2647,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: SelinuxProfileSpec defines the desired state of SelinuxProfile.
+            description: spec defines the desired state of the SelinuxProfile.
             properties:
               allow:
                 additionalProperties:
@@ -2506,22 +2656,22 @@ spec:
                       type: string
                     type: array
                   type: object
-                description: Defines the allow policy for the profile
+                description: allow defines the allow policy for the profile.
                 type: object
               inherit:
                 default:
                 - kind: System
                   name: container
                 description: |-
-                  A SELinuxProfile or set of profiles that this inherits from.
+                  inherit specifies a SELinuxProfile or set of profiles that this inherits from.
                   Note that they need to be in the same namespace.
                 items:
                   properties:
                     kind:
                       default: System
                       description: |-
-                        The Kind of the policy that this inherits from.
-                        Can be a SelinuxProfile object Or "System" if an already
+                        kind specifies the type of policy that this inherits from.
+                        Can be a SelinuxProfile object or "System" if an already
                         installed policy will be used.
                         The allowed "System" policies are available in the
                         SecurityProfilesOperatorDaemon instance.
@@ -2530,7 +2680,8 @@ spec:
                       - SelinuxProfile
                       type: string
                     name:
-                      description: The name of the policy that this inherits from.
+                      description: name is the name of the policy that this inherits
+                        from.
                       minLength: 1
                       type: string
                   required:
@@ -2559,44 +2710,67 @@ spec:
                 type: string
             type: object
           status:
-            description: SelinuxProfileStatus defines the observed state of SelinuxProfile.
+            description: status contains the observed state of the SelinuxProfile.
             properties:
               activeWorkloads:
+                description: activeWorkloads lists the workloads currently using this
+                  profile.
                 items:
                   type: string
                 type: array
                 x-kubernetes-list-type: set
               conditions:
-                description: Conditions of the resource.
+                description: conditions contains the conditions of the resource.
                 items:
-                  description: A Condition that may apply to a resource.
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
                   properties:
                     lastTransitionTime:
                       description: |-
-                        LastTransitionTime is the last time this condition transitioned from one
-                        status to another.
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
                       format: date-time
                       type: string
                     message:
                       description: |-
-                        A Message containing details about this condition's last transition from
-                        one status to another, if any.
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
                       type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
                     reason:
-                      description: A Reason for this condition's last transition from
-                        one status to another.
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
                       type: string
                     status:
-                      description: Status of this condition; is it currently True,
-                        False, or Unknown?
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
                       type: string
                     type:
-                      description: |-
-                        Type of this condition. At most one of each condition type may apply to
-                        a resource at any point in time.
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
                       type: string
                   required:
                   - lastTransitionTime
+                  - message
                   - reason
                   - status
                   - type
@@ -2606,10 +2780,7 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               status:
-                description: |-
-                  ProfileState defines the state that the profile is in. A profile in this context
-                  refers to a SeccompProfile or a SELinux profile, the states are shared between them
-                  as well as the management API.
+                description: status is the current state of the profile across nodes.
                 enum:
                 - Partial
                 - Disabled
@@ -2621,7 +2792,7 @@ spec:
                 type: string
               usage:
                 description: |-
-                  Represents the string that the SelinuxProfile object can be
+                  usage represents the string that the SelinuxProfile object can be
                   referenced as in a pod seLinuxOptions section.
                 type: string
             type: object

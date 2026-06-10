@@ -230,7 +230,7 @@ spec:
 		sp := e.getSeccompProfile(allowProfileName)
 
 		conReady := sp.Status.GetReadyCondition()
-		if conReady.Reason == common.ReasonDeleting {
+		if conReady.Reason == string(common.ReasonDeleting) {
 			break
 		}
 

@@ -532,7 +532,7 @@ func (r *RecorderReconciler) collectLogSeccompProfile(
 		return fmt.Errorf("get seccomp arch: %w", err)
 	}
 
-	profileSpec := seccompprofileapi.SeccompProfileSpec{
+	profileSpec := &seccompprofileapi.SeccompProfileSpec{
 		DefaultAction: seccompprofileapi.ActErrno,
 		Architectures: []seccompprofileapi.Arch{arch},
 		Syscalls: []seccompprofileapi.Syscall{{
@@ -547,7 +547,7 @@ func (r *RecorderReconciler) collectLogSeccompProfile(
 			Namespace: profileNamespacedName.Namespace,
 			Labels:    labels,
 		},
-		Spec: profileSpec,
+		Spec: *profileSpec,
 	}
 
 	if err := r.setDisabled(ctx, r.client,
@@ -561,7 +561,7 @@ func (r *RecorderReconciler) collectLogSeccompProfile(
 
 	res, err := r.CreateOrUpdate(ctx, r.client, profile,
 		func() error {
-			profile.Spec = profileSpec
+			profile.Spec = *profileSpec
 
 			return nil
 		},
@@ -828,7 +828,7 @@ func (r *RecorderReconciler) collectSeccompBpfProfile(
 		return nil, fmt.Errorf("getting seccomp arch: %w", err)
 	}
 
-	profileSpec := seccompprofileapi.SeccompProfileSpec{
+	profileSpec := &seccompprofileapi.SeccompProfileSpec{
 		DefaultAction: seccompprofileapi.ActErrno,
 		Architectures: []seccompprofileapi.Arch{arch},
 		Syscalls: []seccompprofileapi.Syscall{{
@@ -843,7 +843,7 @@ func (r *RecorderReconciler) collectSeccompBpfProfile(
 			Namespace: profileNamespacedName.Namespace,
 			Labels:    profileLabels,
 		},
-		Spec: profileSpec,
+		Spec: *profileSpec,
 	}
 
 	return profile, nil

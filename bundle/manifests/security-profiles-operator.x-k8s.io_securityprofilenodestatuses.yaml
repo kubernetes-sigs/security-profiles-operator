@@ -57,7 +57,7 @@ spec:
               SecurityProfileNodeStatus.
             properties:
               nodeName:
-                description: NodeName is the name of the node on which the profile
+                description: nodeName is the name of the node on which the profile
                   is installed.
                 minLength: 1
                 type: string
@@ -67,7 +67,7 @@ spec:
               of SecurityProfileNodeStatus.
             properties:
               status:
-                description: Status is the installation status of the profile on this
+                description: status is the installation status of the profile on this
                   node.
                 enum:
                 - Partial
