@@ -5,6 +5,7 @@ metadata:
     spo.x-k8s.io/container-id: test-pod
     spo.x-k8s.io/profile-id: AppArmorProfile-test-recording-test-pod
     spo.x-k8s.io/recording-id: test-recording
+    spo.x-k8s.io/recording-namespace: security-profiles-operator
   name: test-recording-test-pod
 spec:
   abstract:
