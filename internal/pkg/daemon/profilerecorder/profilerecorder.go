@@ -1304,8 +1304,9 @@ func profileLabels(
 	}
 
 	labels := map[string]string{
-		profilerecordingapi.ProfileToRecordingLabel: recordingName,
-		profilerecordingapi.ProfileToContainerLabel: cntName,
+		profilerecordingapi.ProfileToRecordingLabel:          recordingName,
+		profilerecordingapi.ProfileToContainerLabel:          cntName,
+		profilerecordingapi.ProfileToRecordingNamespaceLabel: namespace,
 	}
 
 	partial, err := profilePartial(ctx, r, recordingName, namespace)
