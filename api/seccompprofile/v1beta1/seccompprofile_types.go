@@ -84,6 +84,7 @@ type SeccompProfileSpec struct {
 	Architectures []Arch `json:"architectures,omitempty"`
 	// path of UNIX domain socket to contact a seccomp agent for SCMP_ACT_NOTIFY
 	// +optional
+	// +kubebuilder:validation:Pattern=`^/var/run/security-profiles-operator/[a-zA-Z0-9_\-\.]+$`
 	ListenerPath string `json:"listenerPath,omitempty"`
 	// opaque data to pass to the seccomp agent
 	// +optional
