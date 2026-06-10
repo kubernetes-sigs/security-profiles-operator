@@ -96,21 +96,19 @@ func (a *AuditdSource) TailErr() error {
 // type IDs are defined at https://elixir.bootlin.com/linux/latest/source/include/uapi/linux/audit.h
 var (
 	seccompLineRegex = regexp.MustCompile(
-		// Non-greedy spacing, exact boundaries for audit IDs, and [^"]* for quoted exe.
-		`(type=SECCOMP|audit:\S+type=1326).*?audit\(([^)]+)\).*?pid=(\d+).*?exe="([^"]*)".*?syscall=(\d+).*`,
+		// Fixed audit:.*?type prefix to allow spaces.
+		`(type=SECCOMP|audit:.*?type=1326).*?audit\(([^)]+)\).*?pid=(\d+).*?exe="([^"]*)".*?syscall=(\d+).*`,
 	)
 	selinuxLineRegex = regexp.MustCompile(
-		// \S+ for unquoted context fields to prevent greedy swallowing.
-		`type=AVC.*?audit\(([^)]+)\).*?\{\s*([^}]+)\s*\}.*?pid=(\d+).*?scontext=(\S+).*?tcontext=(\S+).*?tclass=(\w+).*`,
+		// Fixed \{\s*(.*?)\s*\} to drop trailing spaces inside the perm brackets.
+		`type=AVC.*?audit\(([^)]+)\).*?\{\s*(.*?)\s*\}.*?pid=(\d+).*?scontext=(\S+).*?tcontext=(\S+).*?tclass=(\w+).*`,
 	)
 	apparmorLineRegex = regexp.MustCompile(
 		//nolint:lll // no need to wrap regex
-		// Every quoted field uses [^"]* to strictly stop at the closing quote.
-		// Note: The optional `info` field is safely skipped by the non-greedy `.*?` separator before `profile=`.
-		`(type=APPARMOR|audit:\S+type=1400).*?audit\(([^)]+)\).*?apparmor="([^"]*)".*?operation="([^"]*)".*?profile="([^"]*)".*?name="([^"]*)".*?pid=(\d+).*?comm="([^"]*)"\s*(.*)`,
+		// Fixed audit:.*?type prefix to allow spaces.
+		`(type=APPARMOR|audit:.*?type=1400).*?audit\(([^)]+)\).*?apparmor="([^"]*)".*?operation="([^"]*)".*?profile="([^"]*)".*?name="([^"]*)".*?pid=(\d+).*?comm="([^"]*)"\s*(.*)`,
 	)
 
-	// Removed the greedy .* and fixed the capture groups to strictly capture digits.
 	uidGidRegex = regexp.MustCompile(`.*?\suid=(\d+).*?\sgid=(\d+).*`)
 )
 
