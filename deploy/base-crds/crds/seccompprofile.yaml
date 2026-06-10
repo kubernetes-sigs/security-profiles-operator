@@ -116,6 +116,7 @@ spec:
               listenerPath:
                 description: path of UNIX domain socket to contact a seccomp agent
                   for SCMP_ACT_NOTIFY
+                pattern: ^/var/run/security-profiles-operator/[a-zA-Z0-9_\-\.]+$
                 type: string
               state:
                 default: Enabled
