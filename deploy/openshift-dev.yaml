@@ -1188,6 +1188,7 @@ spec:
                   volume, which is required for the log-enricher as well as bpf-recorder
                   to retrieve the container ID for a process ID. This can be helpful for
                   nested environments, for example when using "kind".
+                pattern: ^/proc(/.*)?$
                 type: string
               imagePullSecrets:
                 description: |-
