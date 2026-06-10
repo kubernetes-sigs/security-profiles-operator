@@ -26,7 +26,7 @@ spec:
       name: LocalhostProfile
       priority: 10
       type: string
-    name: v1beta1
+    name: v1
     schema:
       openAPIV3Schema:
         description: |-
@@ -357,5 +357,349 @@ spec:
         type: object
     served: true
     storage: true
+    subresources:
+      status: {}
+  - additionalPrinterColumns:
+    - jsonPath: .status.status
+      name: Status
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    - jsonPath: .status.localhostProfile
+      name: LocalhostProfile
+      priority: 10
+      type: string
+    name: v1beta1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          SeccompProfile is a cluster level specification for a seccomp profile.
+          See https://github.com/opencontainers/runtime-spec/blob/master/config-linux.md#seccomp
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the desired state of the SeccompProfile.
+            properties:
+              architectures:
+                description: architectures specifies the architecture used for system
+                  calls.
+                items:
+                  enum:
+                  - SCMP_ARCH_NATIVE
+                  - SCMP_ARCH_X86
+                  - SCMP_ARCH_X86_64
+                  - SCMP_ARCH_X32
+                  - SCMP_ARCH_ARM
+                  - SCMP_ARCH_AARCH64
+                  - SCMP_ARCH_MIPS
+                  - SCMP_ARCH_MIPS64
+                  - SCMP_ARCH_MIPS64N32
+                  - SCMP_ARCH_MIPSEL
+                  - SCMP_ARCH_MIPSEL64
+                  - SCMP_ARCH_MIPSEL64N32
+                  - SCMP_ARCH_PPC
+                  - SCMP_ARCH_PPC64
+                  - SCMP_ARCH_PPC64LE
+                  - SCMP_ARCH_S390
+                  - SCMP_ARCH_S390X
+                  - SCMP_ARCH_PARISC
+                  - SCMP_ARCH_PARISC64
+                  - SCMP_ARCH_RISCV64
+                  type: string
+                type: array
+                x-kubernetes-list-type: set
+              baseProfileName:
+                description: |-
+                  baseProfileName is the name of base profile (in the same namespace) that
+                  will be unioned into this profile. Base profiles can be references as
+                  remote OCI artifacts as well when prefixed with `oci://`.
+                type: string
+              defaultAction:
+                allOf:
+                - enum:
+                  - SCMP_ACT_KILL
+                  - SCMP_ACT_KILL_PROCESS
+                  - SCMP_ACT_KILL_THREAD
+                  - SCMP_ACT_TRAP
+                  - SCMP_ACT_ERRNO
+                  - SCMP_ACT_TRACE
+                  - SCMP_ACT_ALLOW
+                  - SCMP_ACT_LOG
+                  - SCMP_ACT_NOTIFY
+                - enum:
+                  - SCMP_ACT_KILL
+                  - SCMP_ACT_KILL_PROCESS
+                  - SCMP_ACT_KILL_THREAD
+                  - SCMP_ACT_TRAP
+                  - SCMP_ACT_ERRNO
+                  - SCMP_ACT_TRACE
+                  - SCMP_ACT_ALLOW
+                  - SCMP_ACT_LOG
+                  - SCMP_ACT_NOTIFY
+                description: |-
+                  defaultAction is the default action for seccomp. Valid values are:
+                  SCMP_ACT_KILL, SCMP_ACT_KILL_PROCESS, SCMP_ACT_KILL_THREAD,
+                  SCMP_ACT_TRAP, SCMP_ACT_ERRNO, SCMP_ACT_TRACE, SCMP_ACT_ALLOW,
+                  SCMP_ACT_LOG, SCMP_ACT_NOTIFY.
+                type: string
+              flags:
+                description: flags is a list of flags to use with seccomp(2).
+                items:
+                  enum:
+                  - SECCOMP_FILTER_FLAG_TSYNC
+                  - SECCOMP_FILTER_FLAG_LOG
+                  - SECCOMP_FILTER_FLAG_SPEC_ALLOW
+                  - SECCOMP_FILTER_FLAG_WAIT_KILLABLE_RECV
+                  type: string
+                type: array
+                x-kubernetes-list-type: set
+              listenerMetadata:
+                description: listenerMetadata contains opaque data to pass to the
+                  seccomp agent.
+                type: string
+              listenerPath:
+                description: |-
+                  listenerPath is the path of UNIX domain socket to contact a seccomp
+                  agent for SCMP_ACT_NOTIFY.
+                pattern: ^/var/run/security-profiles-operator/[a-zA-Z0-9_\-\.]+$
+                type: string
+              state:
+                default: Enabled
+                description: |-
+                  state controls whether the profile is enabled or disabled for
+                  reconciliation. A disabled profile will be skipped.
+                enum:
+                - Enabled
+                - Disabled
+                type: string
+              syscalls:
+                description: |-
+                  syscalls match a syscall in seccomp. While this property is optional,
+                  some values of defaultAction are not useful without syscalls entries.
+                  For example, if defaultAction is SCMP_ACT_KILL and syscalls is empty
+                  or unset, the kernel will kill the container process on its first syscall.
+                items:
+                  description: Syscall defines a syscall in seccomp.
+                  properties:
+                    action:
+                      allOf:
+                      - enum:
+                        - SCMP_ACT_KILL
+                        - SCMP_ACT_KILL_PROCESS
+                        - SCMP_ACT_KILL_THREAD
+                        - SCMP_ACT_TRAP
+                        - SCMP_ACT_ERRNO
+                        - SCMP_ACT_TRACE
+                        - SCMP_ACT_ALLOW
+                        - SCMP_ACT_LOG
+                        - SCMP_ACT_NOTIFY
+                      - enum:
+                        - SCMP_ACT_KILL
+                        - SCMP_ACT_KILL_PROCESS
+                        - SCMP_ACT_KILL_THREAD
+                        - SCMP_ACT_TRAP
+                        - SCMP_ACT_ERRNO
+                        - SCMP_ACT_TRACE
+                        - SCMP_ACT_ALLOW
+                        - SCMP_ACT_LOG
+                        - SCMP_ACT_NOTIFY
+                      description: |-
+                        action is the action for seccomp rules. Valid values are:
+                        SCMP_ACT_KILL, SCMP_ACT_KILL_PROCESS, SCMP_ACT_KILL_THREAD,
+                        SCMP_ACT_TRAP, SCMP_ACT_ERRNO, SCMP_ACT_TRACE, SCMP_ACT_ALLOW,
+                        SCMP_ACT_LOG, SCMP_ACT_NOTIFY.
+                      type: string
+                    args:
+                      description: args defines the specific syscall arguments in
+                        seccomp.
+                      items:
+                        description: Arg defines the specific syscall in seccomp.
+                        properties:
+                          index:
+                            description: index is the index for syscall arguments
+                              in seccomp.
+                            format: int32
+                            minimum: 0
+                            type: integer
+                          op:
+                            allOf:
+                            - enum:
+                              - SCMP_CMP_NE
+                              - SCMP_CMP_LT
+                              - SCMP_CMP_LE
+                              - SCMP_CMP_EQ
+                              - SCMP_CMP_GE
+                              - SCMP_CMP_GT
+                              - SCMP_CMP_MASKED_EQ
+                            - enum:
+                              - SCMP_CMP_NE
+                              - SCMP_CMP_LT
+                              - SCMP_CMP_LE
+                              - SCMP_CMP_EQ
+                              - SCMP_CMP_GE
+                              - SCMP_CMP_GT
+                              - SCMP_CMP_MASKED_EQ
+                            description: |-
+                              op is the operator for syscall arguments in seccomp. Valid values are:
+                              SCMP_CMP_NE, SCMP_CMP_LT, SCMP_CMP_LE, SCMP_CMP_EQ, SCMP_CMP_GE,
+                              SCMP_CMP_GT, SCMP_CMP_MASKED_EQ.
+                            type: string
+                          value:
+                            description: value is the value for syscall arguments
+                              in seccomp.
+                            format: int64
+                            minimum: 0
+                            type: integer
+                          valueTwo:
+                            description: valueTwo is the second value for syscall
+                              arguments in seccomp.
+                            format: int64
+                            minimum: 0
+                            type: integer
+                        required:
+                        - index
+                        - op
+                        type: object
+                      maxItems: 6
+                      type: array
+                      x-kubernetes-list-type: atomic
+                    errnoRet:
+                      description: |-
+                        errnoRet is the errno return code to use. Some actions like
+                        SCMP_ACT_ERRNO and SCMP_ACT_TRACE allow to specify the errno
+                        code to return.
+                      format: int32
+                      minimum: 0
+                      type: integer
+                    names:
+                      description: names specifies the names of the syscalls.
+                      items:
+                        type: string
+                      minItems: 1
+                      type: array
+                      x-kubernetes-list-type: set
+                  required:
+                  - action
+                  - names
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
+            required:
+            - defaultAction
+            type: object
+          status:
+            description: status contains the observed state of the SeccompProfile.
+            properties:
+              activeWorkloads:
+                description: activeWorkloads lists the workloads currently using this
+                  profile.
+                items:
+                  type: string
+                type: array
+                x-kubernetes-list-type: set
+              conditions:
+                description: conditions contains the conditions of the resource.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              localhostProfile:
+                description: |-
+                  localhostProfile is the path that should be provided to the
+                  `securityContext.seccompProfile.localhostProfile` field of a Pod
+                  or container spec.
+                type: string
+              path:
+                description: path is the file path of the installed seccomp profile
+                  on the node.
+                type: string
+              status:
+                description: status is the current state of the profile across nodes.
+                enum:
+                - Partial
+                - Disabled
+                - Pending
+                - InProgress
+                - Installed
+                - Terminating
+                - Error
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: false
     subresources:
       status: {}

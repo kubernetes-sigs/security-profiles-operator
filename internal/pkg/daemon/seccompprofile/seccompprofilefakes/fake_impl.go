@@ -22,18 +22,18 @@ import (
 	"sync"
 
 	"github.com/go-logr/logr"
-	v1 "github.com/opencontainers/image-spec/specs-go/v1"
+	v1b "github.com/opencontainers/image-spec/specs-go/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
-	"sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
+	v1 "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
+	v1a "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 )
 
 type FakeImpl struct {
-	ClientGetProfileStub        func(context.Context, client.Client, client.ObjectKey, ...client.GetOption) (*v1beta1.SeccompProfile, error)
+	ClientGetProfileStub        func(context.Context, client.Client, client.ObjectKey, ...client.GetOption) (*v1.SeccompProfile, error)
 	clientGetProfileMutex       sync.RWMutex
 	clientGetProfileArgsForCall []struct {
 		arg1 context.Context
@@ -42,25 +42,25 @@ type FakeImpl struct {
 		arg4 []client.GetOption
 	}
 	clientGetProfileReturns struct {
-		result1 *v1beta1.SeccompProfile
+		result1 *v1.SeccompProfile
 		result2 error
 	}
 	clientGetProfileReturnsOnCall map[int]struct {
-		result1 *v1beta1.SeccompProfile
+		result1 *v1.SeccompProfile
 		result2 error
 	}
-	GetSPODStub        func(context.Context, client.Client) (*v1alpha1.SecurityProfilesOperatorDaemon, error)
+	GetSPODStub        func(context.Context, client.Client) (*v1a.SecurityProfilesOperatorDaemon, error)
 	getSPODMutex       sync.RWMutex
 	getSPODArgsForCall []struct {
 		arg1 context.Context
 		arg2 client.Client
 	}
 	getSPODReturns struct {
-		result1 *v1alpha1.SecurityProfilesOperatorDaemon
+		result1 *v1a.SecurityProfilesOperatorDaemon
 		result2 error
 	}
 	getSPODReturnsOnCall map[int]struct {
-		result1 *v1alpha1.SecurityProfilesOperatorDaemon
+		result1 *v1a.SecurityProfilesOperatorDaemon
 		result2 error
 	}
 	IncSeccompProfileErrorStub        func(*metrics.Metrics, string)
@@ -69,7 +69,7 @@ type FakeImpl struct {
 		arg1 *metrics.Metrics
 		arg2 string
 	}
-	PullStub        func(context.Context, logr.Logger, string, string, string, *v1.Platform, bool) (*artifact.PullResult, error)
+	PullStub        func(context.Context, logr.Logger, string, string, string, *v1b.Platform, bool) (*artifact.PullResult, error)
 	pullMutex       sync.RWMutex
 	pullArgsForCall []struct {
 		arg1 context.Context
@@ -77,7 +77,7 @@ type FakeImpl struct {
 		arg3 string
 		arg4 string
 		arg5 string
-		arg6 *v1.Platform
+		arg6 *v1b.Platform
 		arg7 bool
 	}
 	pullReturns struct {
@@ -88,16 +88,16 @@ type FakeImpl struct {
 		result1 *artifact.PullResult
 		result2 error
 	}
-	PullResultSeccompProfileStub        func(*artifact.PullResult) *v1beta1.SeccompProfile
+	PullResultSeccompProfileStub        func(*artifact.PullResult) *v1.SeccompProfile
 	pullResultSeccompProfileMutex       sync.RWMutex
 	pullResultSeccompProfileArgsForCall []struct {
 		arg1 *artifact.PullResult
 	}
 	pullResultSeccompProfileReturns struct {
-		result1 *v1beta1.SeccompProfile
+		result1 *v1.SeccompProfile
 	}
 	pullResultSeccompProfileReturnsOnCall map[int]struct {
-		result1 *v1beta1.SeccompProfile
+		result1 *v1.SeccompProfile
 	}
 	PullResultTypeStub        func(*artifact.PullResult) artifact.PullResultType
 	pullResultTypeMutex       sync.RWMutex
@@ -123,7 +123,7 @@ type FakeImpl struct {
 	invocationsMutex sync.RWMutex
 }
 
-func (fake *FakeImpl) ClientGetProfile(arg1 context.Context, arg2 client.Client, arg3 client.ObjectKey, arg4 ...client.GetOption) (*v1beta1.SeccompProfile, error) {
+func (fake *FakeImpl) ClientGetProfile(arg1 context.Context, arg2 client.Client, arg3 client.ObjectKey, arg4 ...client.GetOption) (*v1.SeccompProfile, error) {
 	fake.clientGetProfileMutex.Lock()
 	ret, specificReturn := fake.clientGetProfileReturnsOnCall[len(fake.clientGetProfileArgsForCall)]
 	fake.clientGetProfileArgsForCall = append(fake.clientGetProfileArgsForCall, struct {
@@ -151,7 +151,7 @@ func (fake *FakeImpl) ClientGetProfileCallCount() int {
 	return len(fake.clientGetProfileArgsForCall)
 }
 
-func (fake *FakeImpl) ClientGetProfileCalls(stub func(context.Context, client.Client, client.ObjectKey, ...client.GetOption) (*v1beta1.SeccompProfile, error)) {
+func (fake *FakeImpl) ClientGetProfileCalls(stub func(context.Context, client.Client, client.ObjectKey, ...client.GetOption) (*v1.SeccompProfile, error)) {
 	fake.clientGetProfileMutex.Lock()
 	defer fake.clientGetProfileMutex.Unlock()
 	fake.ClientGetProfileStub = stub
@@ -164,33 +164,33 @@ func (fake *FakeImpl) ClientGetProfileArgsForCall(i int) (context.Context, clien
 	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3, argsForCall.arg4
 }
 
-func (fake *FakeImpl) ClientGetProfileReturns(result1 *v1beta1.SeccompProfile, result2 error) {
+func (fake *FakeImpl) ClientGetProfileReturns(result1 *v1.SeccompProfile, result2 error) {
 	fake.clientGetProfileMutex.Lock()
 	defer fake.clientGetProfileMutex.Unlock()
 	fake.ClientGetProfileStub = nil
 	fake.clientGetProfileReturns = struct {
-		result1 *v1beta1.SeccompProfile
+		result1 *v1.SeccompProfile
 		result2 error
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) ClientGetProfileReturnsOnCall(i int, result1 *v1beta1.SeccompProfile, result2 error) {
+func (fake *FakeImpl) ClientGetProfileReturnsOnCall(i int, result1 *v1.SeccompProfile, result2 error) {
 	fake.clientGetProfileMutex.Lock()
 	defer fake.clientGetProfileMutex.Unlock()
 	fake.ClientGetProfileStub = nil
 	if fake.clientGetProfileReturnsOnCall == nil {
 		fake.clientGetProfileReturnsOnCall = make(map[int]struct {
-			result1 *v1beta1.SeccompProfile
+			result1 *v1.SeccompProfile
 			result2 error
 		})
 	}
 	fake.clientGetProfileReturnsOnCall[i] = struct {
-		result1 *v1beta1.SeccompProfile
+		result1 *v1.SeccompProfile
 		result2 error
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) GetSPOD(arg1 context.Context, arg2 client.Client) (*v1alpha1.SecurityProfilesOperatorDaemon, error) {
+func (fake *FakeImpl) GetSPOD(arg1 context.Context, arg2 client.Client) (*v1a.SecurityProfilesOperatorDaemon, error) {
 	fake.getSPODMutex.Lock()
 	ret, specificReturn := fake.getSPODReturnsOnCall[len(fake.getSPODArgsForCall)]
 	fake.getSPODArgsForCall = append(fake.getSPODArgsForCall, struct {
@@ -216,7 +216,7 @@ func (fake *FakeImpl) GetSPODCallCount() int {
 	return len(fake.getSPODArgsForCall)
 }
 
-func (fake *FakeImpl) GetSPODCalls(stub func(context.Context, client.Client) (*v1alpha1.SecurityProfilesOperatorDaemon, error)) {
+func (fake *FakeImpl) GetSPODCalls(stub func(context.Context, client.Client) (*v1a.SecurityProfilesOperatorDaemon, error)) {
 	fake.getSPODMutex.Lock()
 	defer fake.getSPODMutex.Unlock()
 	fake.GetSPODStub = stub
@@ -229,28 +229,28 @@ func (fake *FakeImpl) GetSPODArgsForCall(i int) (context.Context, client.Client)
 	return argsForCall.arg1, argsForCall.arg2
 }
 
-func (fake *FakeImpl) GetSPODReturns(result1 *v1alpha1.SecurityProfilesOperatorDaemon, result2 error) {
+func (fake *FakeImpl) GetSPODReturns(result1 *v1a.SecurityProfilesOperatorDaemon, result2 error) {
 	fake.getSPODMutex.Lock()
 	defer fake.getSPODMutex.Unlock()
 	fake.GetSPODStub = nil
 	fake.getSPODReturns = struct {
-		result1 *v1alpha1.SecurityProfilesOperatorDaemon
+		result1 *v1a.SecurityProfilesOperatorDaemon
 		result2 error
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) GetSPODReturnsOnCall(i int, result1 *v1alpha1.SecurityProfilesOperatorDaemon, result2 error) {
+func (fake *FakeImpl) GetSPODReturnsOnCall(i int, result1 *v1a.SecurityProfilesOperatorDaemon, result2 error) {
 	fake.getSPODMutex.Lock()
 	defer fake.getSPODMutex.Unlock()
 	fake.GetSPODStub = nil
 	if fake.getSPODReturnsOnCall == nil {
 		fake.getSPODReturnsOnCall = make(map[int]struct {
-			result1 *v1alpha1.SecurityProfilesOperatorDaemon
+			result1 *v1a.SecurityProfilesOperatorDaemon
 			result2 error
 		})
 	}
 	fake.getSPODReturnsOnCall[i] = struct {
-		result1 *v1alpha1.SecurityProfilesOperatorDaemon
+		result1 *v1a.SecurityProfilesOperatorDaemon
 		result2 error
 	}{result1, result2}
 }
@@ -288,7 +288,7 @@ func (fake *FakeImpl) IncSeccompProfileErrorArgsForCall(i int) (*metrics.Metrics
 	return argsForCall.arg1, argsForCall.arg2
 }
 
-func (fake *FakeImpl) Pull(arg1 context.Context, arg2 logr.Logger, arg3 string, arg4 string, arg5 string, arg6 *v1.Platform, arg7 bool) (*artifact.PullResult, error) {
+func (fake *FakeImpl) Pull(arg1 context.Context, arg2 logr.Logger, arg3 string, arg4 string, arg5 string, arg6 *v1b.Platform, arg7 bool) (*artifact.PullResult, error) {
 	fake.pullMutex.Lock()
 	ret, specificReturn := fake.pullReturnsOnCall[len(fake.pullArgsForCall)]
 	fake.pullArgsForCall = append(fake.pullArgsForCall, struct {
@@ -297,7 +297,7 @@ func (fake *FakeImpl) Pull(arg1 context.Context, arg2 logr.Logger, arg3 string, 
 		arg3 string
 		arg4 string
 		arg5 string
-		arg6 *v1.Platform
+		arg6 *v1b.Platform
 		arg7 bool
 	}{arg1, arg2, arg3, arg4, arg5, arg6, arg7})
 	stub := fake.PullStub
@@ -319,13 +319,13 @@ func (fake *FakeImpl) PullCallCount() int {
 	return len(fake.pullArgsForCall)
 }
 
-func (fake *FakeImpl) PullCalls(stub func(context.Context, logr.Logger, string, string, string, *v1.Platform, bool) (*artifact.PullResult, error)) {
+func (fake *FakeImpl) PullCalls(stub func(context.Context, logr.Logger, string, string, string, *v1b.Platform, bool) (*artifact.PullResult, error)) {
 	fake.pullMutex.Lock()
 	defer fake.pullMutex.Unlock()
 	fake.PullStub = stub
 }
 
-func (fake *FakeImpl) PullArgsForCall(i int) (context.Context, logr.Logger, string, string, string, *v1.Platform, bool) {
+func (fake *FakeImpl) PullArgsForCall(i int) (context.Context, logr.Logger, string, string, string, *v1b.Platform, bool) {
 	fake.pullMutex.RLock()
 	defer fake.pullMutex.RUnlock()
 	argsForCall := fake.pullArgsForCall[i]
@@ -358,7 +358,7 @@ func (fake *FakeImpl) PullReturnsOnCall(i int, result1 *artifact.PullResult, res
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) PullResultSeccompProfile(arg1 *artifact.PullResult) *v1beta1.SeccompProfile {
+func (fake *FakeImpl) PullResultSeccompProfile(arg1 *artifact.PullResult) *v1.SeccompProfile {
 	fake.pullResultSeccompProfileMutex.Lock()
 	ret, specificReturn := fake.pullResultSeccompProfileReturnsOnCall[len(fake.pullResultSeccompProfileArgsForCall)]
 	fake.pullResultSeccompProfileArgsForCall = append(fake.pullResultSeccompProfileArgsForCall, struct {
@@ -383,7 +383,7 @@ func (fake *FakeImpl) PullResultSeccompProfileCallCount() int {
 	return len(fake.pullResultSeccompProfileArgsForCall)
 }
 
-func (fake *FakeImpl) PullResultSeccompProfileCalls(stub func(*artifact.PullResult) *v1beta1.SeccompProfile) {
+func (fake *FakeImpl) PullResultSeccompProfileCalls(stub func(*artifact.PullResult) *v1.SeccompProfile) {
 	fake.pullResultSeccompProfileMutex.Lock()
 	defer fake.pullResultSeccompProfileMutex.Unlock()
 	fake.PullResultSeccompProfileStub = stub
@@ -396,26 +396,26 @@ func (fake *FakeImpl) PullResultSeccompProfileArgsForCall(i int) *artifact.PullR
 	return argsForCall.arg1
 }
 
-func (fake *FakeImpl) PullResultSeccompProfileReturns(result1 *v1beta1.SeccompProfile) {
+func (fake *FakeImpl) PullResultSeccompProfileReturns(result1 *v1.SeccompProfile) {
 	fake.pullResultSeccompProfileMutex.Lock()
 	defer fake.pullResultSeccompProfileMutex.Unlock()
 	fake.PullResultSeccompProfileStub = nil
 	fake.pullResultSeccompProfileReturns = struct {
-		result1 *v1beta1.SeccompProfile
+		result1 *v1.SeccompProfile
 	}{result1}
 }
 
-func (fake *FakeImpl) PullResultSeccompProfileReturnsOnCall(i int, result1 *v1beta1.SeccompProfile) {
+func (fake *FakeImpl) PullResultSeccompProfileReturnsOnCall(i int, result1 *v1.SeccompProfile) {
 	fake.pullResultSeccompProfileMutex.Lock()
 	defer fake.pullResultSeccompProfileMutex.Unlock()
 	fake.PullResultSeccompProfileStub = nil
 	if fake.pullResultSeccompProfileReturnsOnCall == nil {
 		fake.pullResultSeccompProfileReturnsOnCall = make(map[int]struct {
-			result1 *v1beta1.SeccompProfile
+			result1 *v1.SeccompProfile
 		})
 	}
 	fake.pullResultSeccompProfileReturnsOnCall[i] = struct {
-		result1 *v1beta1.SeccompProfile
+		result1 *v1.SeccompProfile
 	}{result1}
 }
 

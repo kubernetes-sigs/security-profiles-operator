@@ -30,8 +30,8 @@ import (
 	aa "github.com/pjbgf/go-apparmor/pkg/apparmor"
 	"github.com/pjbgf/go-apparmor/pkg/hostop"
 
-	"sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
-	profilebasev1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
+	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
+	profilebaseapi "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/apparmorprofile/crd2armor"
 )
 
@@ -68,8 +68,8 @@ func (a *aaProfileManager) Enabled() bool {
 	return hostSupportsAppArmor
 }
 
-func (a *aaProfileManager) RemoveProfile(bp profilebasev1alpha1.StatusBaseUser) error {
-	profile, ok := bp.(*v1alpha1.AppArmorProfile)
+func (a *aaProfileManager) RemoveProfile(bp profilebaseapi.StatusBaseUser) error {
+	profile, ok := bp.(*apparmorprofileapi.AppArmorProfile)
 	if !ok {
 		return errors.New(errInvalidCustomResourceType)
 	}
@@ -77,8 +77,8 @@ func (a *aaProfileManager) RemoveProfile(bp profilebasev1alpha1.StatusBaseUser) 
 	return a.removeProfile(a.logger, profile.GetProfileName())
 }
 
-func (a *aaProfileManager) InstallProfile(bp profilebasev1alpha1.StatusBaseUser) (bool, error) {
-	profile, ok := bp.(*v1alpha1.AppArmorProfile)
+func (a *aaProfileManager) InstallProfile(bp profilebaseapi.StatusBaseUser) (bool, error) {
+	profile, ok := bp.(*apparmorprofileapi.AppArmorProfile)
 	if !ok {
 		return false, errors.New(errInvalidCustomResourceType)
 	}

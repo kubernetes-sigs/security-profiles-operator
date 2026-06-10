@@ -26,10 +26,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
-	"sigs.k8s.io/security-profiles-operator/api/profilebinding/v1alpha1"
-	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
-	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha2"
+	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
+	profilebindingapi "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
+	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
 
@@ -41,7 +41,7 @@ type defaultImpl struct {
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../../hack/boilerplate/boilerplate.generatego.txt
 //counterfeiter:generate . impl
 type impl interface {
-	ListProfileBindings(context.Context, ...client.ListOption) (*v1alpha1.ProfileBindingList, error)
+	ListProfileBindings(context.Context, ...client.ListOption) (*profilebindingapi.ProfileBindingList, error)
 	UpdateResource(context.Context, logr.Logger, client.Object, string) error
 	UpdateResourceStatus(context.Context, logr.Logger, client.Object, string) error
 	DecodePod(admission.Request) (*corev1.Pod, error)
@@ -52,8 +52,8 @@ type impl interface {
 
 func (d *defaultImpl) ListProfileBindings(
 	ctx context.Context, opts ...client.ListOption,
-) (*v1alpha1.ProfileBindingList, error) {
-	profileBindings := &v1alpha1.ProfileBindingList{}
+) (*profilebindingapi.ProfileBindingList, error) {
+	profileBindings := &profilebindingapi.ProfileBindingList{}
 	if err := d.client.List(ctx, profileBindings, opts...); err != nil {
 		return nil, fmt.Errorf("list profile bindings: %w", err)
 	}

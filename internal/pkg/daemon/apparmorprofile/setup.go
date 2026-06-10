@@ -22,7 +22,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	"sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
+	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 )
 
@@ -44,7 +44,7 @@ func (r *Reconciler) Setup(
 	// Register the regular reconciler to manage AppArmorProfiles
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("apparmorprofile").
-		For(&v1alpha1.AppArmorProfile{}).
+		For(&apparmorprofileapi.AppArmorProfile{}).
 		WithEventFilter(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})).
 		Complete(r)
 }

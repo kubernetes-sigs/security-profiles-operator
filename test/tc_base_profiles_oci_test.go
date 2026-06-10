@@ -44,7 +44,7 @@ func (e *e2e) testCaseBaseProfileOCI([]string) {
 	namespace := e.getCurrentContextNamespace(defaultNamespace)
 	profileName := fmt.Sprintf("profile-%v", time.Now().Unix())
 	profileYAML := fmt.Sprintf(`
-apiVersion: security-profiles-operator.x-k8s.io/v1beta1
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: SeccompProfile
 metadata:
   name: %s

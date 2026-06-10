@@ -28,9 +28,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	profilebase "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
-	"sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1"
-	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
+	profilebase "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
+	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
+	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
@@ -98,12 +98,12 @@ func (nsf *StatusClient) createPolLabel(ctx context.Context) error {
 			labels = make(map[string]string)
 		}
 
-		if _, ok := labels[secprofnodestatusv1alpha1.StatusToProfLabel]; ok {
+		if _, ok := labels[secprofnodestatusapi.StatusToProfLabel]; ok {
 			// the label is already set, nothing to do
 			return nil
 		}
 
-		labels[secprofnodestatusv1alpha1.StatusToProfLabel] = util.KindBasedDNSLengthName(nsf.pol)
+		labels[secprofnodestatusapi.StatusToProfLabel] = util.KindBasedDNSLengthName(nsf.pol)
 		nsf.pol.SetLabels(labels)
 
 		return nsf.client.Update(ctx, nsf.pol)
@@ -111,23 +111,23 @@ func (nsf *StatusClient) createPolLabel(ctx context.Context) error {
 }
 
 func (nsf *StatusClient) statusObj(
-	polState secprofnodestatusv1alpha1.ProfileState,
-) *secprofnodestatusv1alpha1.SecurityProfileNodeStatus {
-	return &secprofnodestatusv1alpha1.SecurityProfileNodeStatus{
+	polState secprofnodestatusapi.ProfileState,
+) *secprofnodestatusapi.SecurityProfileNodeStatus {
+	return &secprofnodestatusapi.SecurityProfileNodeStatus{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      nsf.perNodeStatusName(),
 			Namespace: nsf.pol.GetNamespace(),
 			Labels: map[string]string{
-				secprofnodestatusv1alpha1.StatusToProfLabel: util.KindBasedDNSLengthName(nsf.pol),
-				secprofnodestatusv1alpha1.StatusToNodeLabel: nsf.nodeName,
-				secprofnodestatusv1alpha1.StatusStateLabel:  string(polState),
-				secprofnodestatusv1alpha1.StatusKindLabel:   nsf.pol.GetObjectKind().GroupVersionKind().Kind,
+				secprofnodestatusapi.StatusToProfLabel: util.KindBasedDNSLengthName(nsf.pol),
+				secprofnodestatusapi.StatusToNodeLabel: nsf.nodeName,
+				secprofnodestatusapi.StatusStateLabel:  string(polState),
+				secprofnodestatusapi.StatusKindLabel:   nsf.pol.GetObjectKind().GroupVersionKind().Kind,
 			},
 		},
-		Spec: secprofnodestatusv1alpha1.SecurityProfileNodeStatusSpec{
+		Spec: secprofnodestatusapi.SecurityProfileNodeStatusSpec{
 			NodeName: nsf.nodeName,
 		},
-		Status: secprofnodestatusv1alpha1.SecurityProfileNodeStatusStatus{
+		Status: secprofnodestatusapi.SecurityProfileNodeStatusStatus{
 			Status: polState,
 		},
 	}
@@ -160,14 +160,14 @@ func (nsf *StatusClient) createNodeStatus(ctx context.Context) error {
 	return nil
 }
 
-func (nsf *StatusClient) initialStatus() secprofnodestatusv1alpha1.ProfileState {
+func (nsf *StatusClient) initialStatus() secprofnodestatusapi.ProfileState {
 	if nsf.pol.IsDisabled() {
-		return secprofnodestatusv1alpha1.ProfileStateDisabled
+		return secprofnodestatusapi.ProfileStateDisabled
 	} else if nsf.pol.IsPartial() {
-		return secprofnodestatusv1alpha1.ProfileStatePartial
+		return secprofnodestatusapi.ProfileStatePartial
 	}
 
-	return secprofnodestatusv1alpha1.ProfileStatePending
+	return secprofnodestatusapi.ProfileStatePending
 }
 
 func (nsf *StatusClient) Remove(ctx context.Context, c client.Client) error {
@@ -200,7 +200,7 @@ func (nsf *StatusClient) removeFinalizer(ctx context.Context) error {
 
 func (nsf *StatusClient) removeNodeStatus(ctx context.Context, c client.Client) error {
 	// the state here is more or less unused, we just care about the name since we're deleting...
-	err := c.Delete(ctx, nsf.statusObj(secprofnodestatusv1alpha1.ProfileStateTerminating))
+	err := c.Delete(ctx, nsf.statusObj(secprofnodestatusapi.ProfileStateTerminating))
 	if err != nil && !kerrors.IsNotFound(err) {
 		return fmt.Errorf("deleting node status: %w", err)
 	}
@@ -220,7 +220,7 @@ func (nsf *StatusClient) finalizerExists() bool {
 }
 
 func (nsf *StatusClient) nodeStatusExists(ctx context.Context) (bool, error) {
-	status := secprofnodestatusv1alpha1.SecurityProfileNodeStatus{}
+	status := secprofnodestatusapi.SecurityProfileNodeStatus{}
 
 	err := nsf.client.Get(ctx, nsf.perNodeStatusNamespacedName(), &status)
 	if kerrors.IsNotFound(err) {
@@ -234,19 +234,19 @@ func (nsf *StatusClient) nodeStatusExists(ctx context.Context) (bool, error) {
 
 func (nsf *StatusClient) SetNodeStatus(
 	ctx context.Context,
-	polState secprofnodestatusv1alpha1.ProfileState,
+	polState secprofnodestatusapi.ProfileState,
 ) error {
-	status := secprofnodestatusv1alpha1.SecurityProfileNodeStatus{}
+	status := secprofnodestatusapi.SecurityProfileNodeStatus{}
 
 	err := nsf.client.Get(ctx, nsf.perNodeStatusNamespacedName(), &status)
-	if kerrors.IsNotFound(err) && polState == secprofnodestatusv1alpha1.ProfileStateTerminating {
+	if kerrors.IsNotFound(err) && polState == secprofnodestatusapi.ProfileStateTerminating {
 		// it's OK if we're about to terminate a profile but it was already gone
 		return nil
 	} else if err != nil {
 		return fmt.Errorf("retrieving the current status: %w", err)
 	}
 
-	status.Labels[secprofnodestatusv1alpha1.StatusStateLabel] = string(polState)
+	status.Labels[secprofnodestatusapi.StatusStateLabel] = string(polState)
 	if err := nsf.client.Update(ctx, &status); err != nil {
 		return fmt.Errorf("updating node status labels: %w", err)
 	}
@@ -265,7 +265,7 @@ func (nsf *StatusClient) SetNodeStatus(
 }
 
 func (nsf *StatusClient) GetAnnotation(ctx context.Context, key string) (string, error) {
-	status := secprofnodestatusv1alpha1.SecurityProfileNodeStatus{}
+	status := secprofnodestatusapi.SecurityProfileNodeStatus{}
 	if err := nsf.client.Get(ctx, nsf.perNodeStatusNamespacedName(), &status); err != nil {
 		return "", fmt.Errorf("getting node status for annotation: %w", err)
 	}
@@ -278,7 +278,7 @@ func (nsf *StatusClient) GetAnnotation(ctx context.Context, key string) (string,
 }
 
 func (nsf *StatusClient) SetAnnotation(ctx context.Context, key, value string) error {
-	status := secprofnodestatusv1alpha1.SecurityProfileNodeStatus{}
+	status := secprofnodestatusapi.SecurityProfileNodeStatus{}
 	if err := nsf.client.Get(ctx, nsf.perNodeStatusNamespacedName(), &status); err != nil {
 		return fmt.Errorf("getting node status for annotation update: %w", err)
 	}
@@ -301,11 +301,11 @@ func (nsf *StatusClient) SetAnnotation(ctx context.Context, key, value string) e
 }
 
 func (nsf *StatusClient) Matches(
-	ctx context.Context, polState secprofnodestatusv1alpha1.ProfileState,
+	ctx context.Context, polState secprofnodestatusapi.ProfileState,
 ) (bool, error) {
-	status := secprofnodestatusv1alpha1.SecurityProfileNodeStatus{}
+	status := secprofnodestatusapi.SecurityProfileNodeStatus{}
 	if err := nsf.client.Get(ctx, nsf.perNodeStatusNamespacedName(), &status); err != nil {
-		if kerrors.IsNotFound(err) && polState == secprofnodestatusv1alpha1.ProfileStateTerminating {
+		if kerrors.IsNotFound(err) && polState == secprofnodestatusapi.ProfileStateTerminating {
 			// it's OK if we're about to terminate a profile but it was already gone
 			return true, nil
 		}
@@ -330,12 +330,12 @@ func handleRecordingFinalizer(ctx context.Context, c client.Client, pol profileb
 	// if this policy was not recorded, we don't need to do anything. This also covers the upgrade
 	// case because the finalizer is only added when the policy is recorded with the new version
 	polLabels := pol.GetLabels()
-	if polLabels == nil || polLabels[v1alpha1.ProfileToRecordingLabel] == "" {
+	if polLabels == nil || polLabels[profilerecordingapi.ProfileToRecordingLabel] == "" {
 		return nil
 	}
 
 	// if there are other policies recorded by the same recording, we don't need to do anything either
-	otherPolicies, err := pol.ListProfilesByRecording(ctx, c, polLabels[v1alpha1.ProfileToRecordingLabel])
+	otherPolicies, err := pol.ListProfilesByRecording(ctx, c, polLabels[profilerecordingapi.ProfileToRecordingLabel])
 	if err != nil {
 		return fmt.Errorf("listing profiles by recording: %w", err)
 	}
@@ -373,8 +373,8 @@ func handleRecordingFinalizer(ctx context.Context, c client.Client, pol profileb
 		return nil
 	}
 
-	profilerecording := &v1alpha1.ProfileRecording{}
-	recordingName := util.NamespacedName(polLabels[v1alpha1.ProfileToRecordingLabel], pol.GetNamespace())
+	profilerecording := &profilerecordingapi.ProfileRecording{}
+	recordingName := util.NamespacedName(polLabels[profilerecordingapi.ProfileToRecordingLabel], pol.GetNamespace())
 
 	err = c.Get(ctx, recordingName, profilerecording)
 	if kerrors.IsNotFound(err) {
@@ -384,11 +384,11 @@ func handleRecordingFinalizer(ctx context.Context, c client.Client, pol profileb
 	}
 
 	// no other recordings, remove the finalizer
-	if !controllerutil.ContainsFinalizer(profilerecording, v1alpha1.RecordingHasUnmergedProfiles) {
+	if !controllerutil.ContainsFinalizer(profilerecording, profilerecordingapi.RecordingHasUnmergedProfiles) {
 		return nil
 	}
 
-	controllerutil.RemoveFinalizer(profilerecording, v1alpha1.RecordingHasUnmergedProfiles)
+	controllerutil.RemoveFinalizer(profilerecording, profilerecordingapi.RecordingHasUnmergedProfiles)
 
 	return c.Update(ctx, profilerecording)
 }

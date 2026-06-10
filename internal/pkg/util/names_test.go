@@ -22,7 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	seccompprofile "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
+	seccompprofile "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 )
 
 func TestNameHashing(t *testing.T) {
@@ -38,7 +38,7 @@ func TestNameHashing(t *testing.T) {
 			prof: seccompprofile.SeccompProfile{
 				TypeMeta: metav1.TypeMeta{
 					Kind:       "SeccompProfile",
-					APIVersion: "security-profiles-operator.x-k8s.io/v1beta1",
+					APIVersion: "security-profiles-operator.x-k8s.io/v1",
 				},
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "shortname-profile",
@@ -54,7 +54,7 @@ func TestNameHashing(t *testing.T) {
 			prof: seccompprofile.SeccompProfile{
 				TypeMeta: metav1.TypeMeta{
 					Kind:       "SeccompProfile",
-					APIVersion: "security-profiles-operator.x-k8s.io/v1beta1",
+					APIVersion: "security-profiles-operator.x-k8s.io/v1",
 				},
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "this-is-a-very-long-name-surely-over-64-characters-omg-its-overflowing",

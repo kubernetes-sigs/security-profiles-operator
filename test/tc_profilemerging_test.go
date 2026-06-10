@@ -22,7 +22,7 @@ import (
 	"strings"
 	"time"
 
-	"sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
+	profilebaseapi "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 )
 
 const (
@@ -30,7 +30,7 @@ const (
 	containerNameRedis        = "redis"
 	mergeProfileRecordingName = "test-profile-merging"
 	profileRecordingTemplate  = `
-    apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+    apiVersion: security-profiles-operator.x-k8s.io/v1
     kind: ProfileRecording
     metadata:
       name: %s
@@ -59,7 +59,7 @@ func (e *e2e) testSeccompBpfProfileMerging() {
 	defer restoreNs()
 
 	e.profileMergingTest(
-		"bpf",
+		"Bpf",
 		"SeccompProfile", "sp",
 		"/bin/mknod /tmp/foo p",
 		"listen",
@@ -77,7 +77,7 @@ func (e *e2e) testSeccompLogsProfileMerging() {
 	defer restoreNs()
 
 	e.profileMergingTest(
-		"logs",
+		"Logs",
 		"SeccompProfile", "sp",
 		"/bin/mknod /tmp/foo p",
 		"listen", "mknod",
@@ -95,7 +95,7 @@ func (e *e2e) testSelinuxLogsProfileMerging() {
 	defer restoreNs()
 
 	e.profileMergingTest(
-		"logs",
+		"Logs",
 		"SelinuxProfile", "selinuxprofile",
 		"curl localhost:8080",
 		"name_bind", "name_connect",
@@ -113,7 +113,7 @@ func (e *e2e) testSelinuxLogsDisabledProfileMerging() {
 	defer restoreNs()
 
 	e.profileMergingTest(
-		"logs",
+		"Logs",
 		"SelinuxProfile", "selinuxprofile",
 		"curl localhost:8080",
 		"name_bind", "name_connect",
@@ -171,7 +171,7 @@ spec:
 		name:           mergeProfileRecordingName,
 		recorderKind:   recorderKind,
 		recorder:       recordedMethod,
-		mergeStrategy:  "containers",
+		mergeStrategy:  "Containers",
 		labelKey:       "app",
 		labelValue:     "alpine",
 		policyDisabled: isPolicyDisabled,
@@ -182,10 +182,10 @@ spec:
 	suffixes := e.getPodSuffixesByLabel("app=alpine")
 
 	switch recordedMethod {
-	case "logs":
+	case "Logs":
 		e.waitForEnricherLogs(since, conditions...)
 
-	case "bpf":
+	case "Bpf":
 		profileNames := make([]string, 0, len(suffixes))
 		for _, sfx := range suffixes {
 			profileNames = append(profileNames, mergeProfileRecordingName+"-"+containerNameNginx+"-"+sfx)
@@ -212,7 +212,7 @@ spec:
 			e.logf("Checking that the recorded profile %s is partial", recordedProfileName)
 
 			profile := e.retryGetProfile(resource, recordedProfileName)
-			e.Contains(profile, v1alpha1.ProfilePartialLabel)
+			e.Contains(profile, profilebaseapi.ProfilePartialLabel)
 			e.Contains(profile, commonAction)
 
 			retryAssertPrfStatus(e, resource, recordedProfileName, "Pending", isPolicyDisabled)

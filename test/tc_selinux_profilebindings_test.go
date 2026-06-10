@@ -83,7 +83,7 @@ func (e *e2e) profileBindingTestPrep(
 	image string,
 ) func() {
 	selinuxTestProfile := fmt.Sprintf(`
-apiVersion: security-profiles-operator.x-k8s.io/v1alpha2
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: SelinuxProfile
 metadata:
   name: %s
@@ -119,7 +119,7 @@ spec:
 `, selinuxTestProfileName)
 
 	selinuxBinding := fmt.Sprintf(`
-apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: ProfileBinding
 metadata:
   name: %s

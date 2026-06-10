@@ -1,4 +1,4 @@
-apiVersion: security-profiles-operator.x-k8s.io/v1beta1
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: SeccompProfile
 metadata:
   name: profile-allowed-syscalls
@@ -16,7 +16,7 @@ spec:
     - futex
     - nanosleep
 ---
-apiVersion: security-profiles-operator.x-k8s.io/v1beta1
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: SeccompProfile
 metadata:
   name: profile-denied-syscalls
@@ -39,7 +39,7 @@ spec:
     - acct
     - add_key
 ---
-apiVersion: security-profiles-operator.x-k8s.io/v1beta1
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: SeccompProfile
 metadata:
   name: profile-allow-all-syscalls
@@ -48,7 +48,7 @@ metadata:
 spec:
   defaultAction: "SCMP_ACT_ALLOW"
 ---
-apiVersion: security-profiles-operator.x-k8s.io/v1beta1
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: SeccompProfile
 metadata:
   name: profile-block-all-syscalls

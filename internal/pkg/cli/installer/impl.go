@@ -19,7 +19,7 @@ package installer
 import (
 	"os"
 
-	profilebasev1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
+	profilebaseapi "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/apparmorprofile"
 )
 
@@ -30,7 +30,7 @@ type defaultImpl struct{}
 type impl interface {
 	ReadFile(string) ([]byte, error)
 	AppArmorEnabled(manager apparmorprofile.ProfileManager) bool
-	AppArmorInstallProfile(manager apparmorprofile.ProfileManager, p profilebasev1alpha1.StatusBaseUser) (bool, error)
+	AppArmorInstallProfile(manager apparmorprofile.ProfileManager, p profilebaseapi.StatusBaseUser) (bool, error)
 }
 
 func (*defaultImpl) ReadFile(name string) ([]byte, error) {
@@ -43,7 +43,7 @@ func (*defaultImpl) AppArmorEnabled(manager apparmorprofile.ProfileManager) bool
 
 func (*defaultImpl) AppArmorInstallProfile(
 	manager apparmorprofile.ProfileManager,
-	p profilebasev1alpha1.StatusBaseUser,
+	p profilebaseapi.StatusBaseUser,
 ) (bool, error) {
 	return manager.InstallProfile(p)
 }

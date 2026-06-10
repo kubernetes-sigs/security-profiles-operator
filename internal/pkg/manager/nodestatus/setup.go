@@ -21,7 +21,7 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
+	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 )
 
@@ -38,6 +38,6 @@ func (r *StatusReconciler) Setup(
 	// Register a special reconciler for status events
 	return ctrl.NewControllerManagedBy(mgr).
 		Named(r.Name()).
-		For(&secprofnodestatusv1alpha1.SecurityProfileNodeStatus{}).
+		For(&secprofnodestatusapi.SecurityProfileNodeStatus{}).
 		Complete(r)
 }

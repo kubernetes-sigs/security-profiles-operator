@@ -22,8 +22,8 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 
-	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
-	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
+	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
@@ -70,7 +70,7 @@ func (e *e2e) testCaseDefaultAndExampleProfiles(nodes []string) {
 
 			spns := e.getSeccompProfileNodeStatus(name, node)
 			if e.NotNil(spns) {
-				e.Equal(secprofnodestatusv1alpha1.ProfileStateInstalled, spns.Status.Status)
+				e.Equal(secprofnodestatusapi.ProfileStateInstalled, spns.Status.Status)
 			}
 		}
 	}

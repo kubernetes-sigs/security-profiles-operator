@@ -26,7 +26,7 @@ import (
 	"github.com/go-logr/logr"
 	"sigs.k8s.io/release-utils/helpers"
 
-	"sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
+	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/apparmorprofile"
@@ -205,7 +205,7 @@ func (*defaultImpl) InstallApparmor(manager apparmorprofile.ProfileManager, file
 		return fmt.Errorf("parsing apparmor profile: %w", err)
 	}
 
-	ap, ok := profile.(*v1alpha1.AppArmorProfile)
+	ap, ok := profile.(*apparmorprofileapi.AppArmorProfile)
 	if !ok {
 		return errors.New("failed converting apparmor profile")
 	}

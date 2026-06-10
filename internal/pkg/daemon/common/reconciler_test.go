@@ -29,8 +29,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
-	statusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
+	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/nodestatus"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
@@ -39,8 +39,8 @@ const testNodeName = "test-node"
 
 func testScheme() *runtime.Scheme {
 	s := runtime.NewScheme()
-	seccompprofileapi.SchemeBuilder.AddToScheme(s) //nolint:errcheck // test helper
-	statusv1alpha1.SchemeBuilder.AddToScheme(s)    //nolint:errcheck // test helper
+	seccompprofileapi.SchemeBuilder.AddToScheme(s)    //nolint:errcheck // test helper
+	secprofnodestatusapi.SchemeBuilder.AddToScheme(s) //nolint:errcheck // test helper
 
 	return s
 }
@@ -107,10 +107,10 @@ func TestReconcileDeletion(t *testing.T) {
 			profile: testProfile(util.GetFinalizerNodeString(testNodeName)),
 			mockClient: &util.MockClient{
 				MockGet: func(_ context.Context, _ client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
-					if ns, ok := obj.(*statusv1alpha1.SecurityProfileNodeStatus); ok {
-						ns.Status.Status = statusv1alpha1.ProfileStatePending
+					if ns, ok := obj.(*secprofnodestatusapi.SecurityProfileNodeStatus); ok {
+						ns.Status.Status = secprofnodestatusapi.ProfileStatePending
 						ns.Labels = map[string]string{
-							statusv1alpha1.StatusStateLabel: string(statusv1alpha1.ProfileStatePending),
+							secprofnodestatusapi.StatusStateLabel: string(secprofnodestatusapi.ProfileStatePending),
 						}
 					}
 
@@ -129,10 +129,10 @@ func TestReconcileDeletion(t *testing.T) {
 			profile: testProfile(util.GetFinalizerNodeString(testNodeName), util.HasActivePodsFinalizerString),
 			mockClient: &util.MockClient{
 				MockGet: func(_ context.Context, _ client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
-					if ns, ok := obj.(*statusv1alpha1.SecurityProfileNodeStatus); ok {
-						ns.Status.Status = statusv1alpha1.ProfileStateTerminating
+					if ns, ok := obj.(*secprofnodestatusapi.SecurityProfileNodeStatus); ok {
+						ns.Status.Status = secprofnodestatusapi.ProfileStateTerminating
 						ns.Labels = map[string]string{
-							statusv1alpha1.StatusStateLabel: string(statusv1alpha1.ProfileStateTerminating),
+							secprofnodestatusapi.StatusStateLabel: string(secprofnodestatusapi.ProfileStateTerminating),
 						}
 					}
 
@@ -149,10 +149,10 @@ func TestReconcileDeletion(t *testing.T) {
 			profile: testProfile(util.GetFinalizerNodeString(testNodeName)),
 			mockClient: &util.MockClient{
 				MockGet: func(_ context.Context, _ client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
-					if ns, ok := obj.(*statusv1alpha1.SecurityProfileNodeStatus); ok {
-						ns.Status.Status = statusv1alpha1.ProfileStateTerminating
+					if ns, ok := obj.(*secprofnodestatusapi.SecurityProfileNodeStatus); ok {
+						ns.Status.Status = secprofnodestatusapi.ProfileStateTerminating
 						ns.Labels = map[string]string{
-							statusv1alpha1.StatusStateLabel: string(statusv1alpha1.ProfileStateTerminating),
+							secprofnodestatusapi.StatusStateLabel: string(secprofnodestatusapi.ProfileStateTerminating),
 						}
 					}
 
@@ -170,10 +170,10 @@ func TestReconcileDeletion(t *testing.T) {
 			profile: testProfile(util.GetFinalizerNodeString(testNodeName)),
 			mockClient: &util.MockClient{
 				MockGet: func(_ context.Context, _ client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
-					if ns, ok := obj.(*statusv1alpha1.SecurityProfileNodeStatus); ok {
-						ns.Status.Status = statusv1alpha1.ProfileStateTerminating
+					if ns, ok := obj.(*secprofnodestatusapi.SecurityProfileNodeStatus); ok {
+						ns.Status.Status = secprofnodestatusapi.ProfileStateTerminating
 						ns.Labels = map[string]string{
-							statusv1alpha1.StatusStateLabel: string(statusv1alpha1.ProfileStateTerminating),
+							secprofnodestatusapi.StatusStateLabel: string(secprofnodestatusapi.ProfileStateTerminating),
 						}
 					}
 

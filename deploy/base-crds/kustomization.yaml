@@ -13,6 +13,9 @@ resources:
 - crds/selinuxpolicy.yaml
 - crds/apparmorprofile.yaml
 
+patches:
+- path: patches/conversion_webhook.yaml
+
 generatorOptions:
   disableNameSuffixHash: true
 labels:

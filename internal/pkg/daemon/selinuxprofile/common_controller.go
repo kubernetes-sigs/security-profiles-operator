@@ -40,8 +40,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
-	statusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
-	selxv1alpha2 "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha2"
+	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
+	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
@@ -137,7 +137,7 @@ func (r *ReconcileSelinux) Name() string {
 
 // SchemeBuilder returns the API scheme of the controller.
 func (r *ReconcileSelinux) SchemeBuilder() *scheme.Builder {
-	return selxv1alpha2.SchemeBuilder
+	return selinuxprofileapi.SchemeBuilder
 }
 
 // Healthz is the liveness probe endpoint of the controller.
@@ -201,7 +201,7 @@ func (r *ReconcileSelinux) Reconcile(ctx context.Context, request reconcile.Requ
 		return r.reconcilePolicy(ctx, instance, oh, nodeStatus, reqLogger)
 	}
 
-	if err := nodeStatus.SetNodeStatus(ctx, statusv1alpha1.ProfileStateTerminating); err != nil {
+	if err := nodeStatus.SetNodeStatus(ctx, secprofnodestatusapi.ProfileStateTerminating); err != nil {
 		reqLogger.Error(err, "cannot update SELinux profile status")
 		r.metrics.IncSelinuxProfileError(reasonCannotUpdatePolicyStatus)
 		r.record.Event(instance, util.EventTypeWarning, reasonCannotUpdatePolicyStatus, err.Error())
@@ -247,7 +247,7 @@ func (r *ReconcileSelinux) Reconcile(ctx context.Context, request reconcile.Requ
 
 func (r *ReconcileSelinux) reconcilePolicy(
 	ctx context.Context,
-	sp selxv1alpha2.SelinuxProfileObject,
+	sp selinuxprofileapi.SelinuxProfileObject,
 	oh SelinuxObjectHandler,
 	nodeStatus *nodestatus.StatusClient,
 	l logr.Logger,
@@ -268,7 +268,7 @@ func (r *ReconcileSelinux) reconcilePolicy(
 	}
 
 	if valErr := oh.Validate(); valErr != nil {
-		if err := nodeStatus.SetNodeStatus(ctx, statusv1alpha1.ProfileStateError); err != nil {
+		if err := nodeStatus.SetNodeStatus(ctx, secprofnodestatusapi.ProfileStateError); err != nil {
 			r.metrics.IncSelinuxProfileError(reasonCannotUpdatePolicyStatus)
 			r.record.Event(sp, util.EventTypeWarning, reasonCannotUpdatePolicyStatus, err.Error())
 
@@ -303,7 +303,7 @@ func (r *ReconcileSelinux) reconcilePolicy(
 	if policyUpdated {
 		l.Info("Policy file updated, requeuing to allow selinuxd to process the change")
 
-		if err := nodeStatus.SetNodeStatus(ctx, statusv1alpha1.ProfileStateInProgress); err != nil {
+		if err := nodeStatus.SetNodeStatus(ctx, secprofnodestatusapi.ProfileStateInProgress); err != nil {
 			r.metrics.IncSelinuxProfileError(reasonCannotUpdatePolicyStatus)
 			r.record.Event(sp, util.EventTypeWarning, reasonCannotUpdatePolicyStatus, err.Error())
 
@@ -317,7 +317,7 @@ func (r *ReconcileSelinux) reconcilePolicy(
 	polStatus, err := getPolicyStatus(ctx, sp, r.httpc)
 
 	if errors.Is(err, errPolicyNotFound) {
-		if err := nodeStatus.SetNodeStatus(ctx, statusv1alpha1.ProfileStateInProgress); err != nil {
+		if err := nodeStatus.SetNodeStatus(ctx, secprofnodestatusapi.ProfileStateInProgress); err != nil {
 			r.metrics.IncSelinuxProfileError(reasonCannotUpdatePolicyStatus)
 			r.record.Event(sp, util.EventTypeWarning, reasonCannotUpdatePolicyStatus, err.Error())
 
@@ -334,11 +334,11 @@ func (r *ReconcileSelinux) reconcilePolicy(
 		return reconcile.Result{}, fmt.Errorf("looking up policy status: %w", err)
 	}
 
-	var polState statusv1alpha1.ProfileState
+	var polState secprofnodestatusapi.ProfileState
 
 	switch polStatus.Status {
 	case installedStatus:
-		polState = statusv1alpha1.ProfileStateInstalled
+		polState = secprofnodestatusapi.ProfileStateInstalled
 		evstr := "Successfully saved profile to disk on " + os.Getenv(config.NodeNameEnvKey)
 
 		r.metrics.IncSelinuxProfileUpdate()
@@ -373,7 +373,7 @@ func (r *ReconcileSelinux) reconcilePolicy(
 			// If jobCreated is false (skipped due to TTL), don't update annotation - will retry on next reconcile
 		}
 	case failedStatus:
-		polState = statusv1alpha1.ProfileStateError
+		polState = secprofnodestatusapi.ProfileStateError
 		evstr := fmt.Sprintf("Failed to save profile to disk on %s: %s", os.Getenv(config.NodeNameEnvKey), polStatus.Msg)
 
 		r.metrics.IncSelinuxProfileError(reasonCannotInstallPolicy)
@@ -395,7 +395,7 @@ func (r *ReconcileSelinux) reconcilePolicy(
 // reconcilePolicyFile writes the policy file to the drop directory if the content differs.
 // Returns (policyUpdated, error) where policyUpdated is true if the file was actually written.
 func (r *ReconcileSelinux) reconcilePolicyFile(
-	sp selxv1alpha2.SelinuxProfileObject,
+	sp selinuxprofileapi.SelinuxProfileObject,
 	oh SelinuxObjectHandler,
 	l logr.Logger,
 ) (bool, error) {
@@ -418,7 +418,7 @@ func (r *ReconcileSelinux) reconcilePolicyFile(
 
 func (r *ReconcileSelinux) reconcileDeletePolicy(
 	ctx context.Context,
-	sp selxv1alpha2.SelinuxProfileObject,
+	sp selinuxprofileapi.SelinuxProfileObject,
 	nodeStatus *nodestatus.StatusClient,
 	l logr.Logger,
 ) (reconcile.Result, error) {
@@ -483,7 +483,7 @@ func (r *ReconcileSelinux) reconcileDeletePolicy(
 
 		return reconcile.Result{Requeue: true}, nil
 	case failedStatus:
-		if err := nodeStatus.SetNodeStatus(ctx, statusv1alpha1.ProfileStateError); err != nil {
+		if err := nodeStatus.SetNodeStatus(ctx, secprofnodestatusapi.ProfileStateError); err != nil {
 			r.metrics.IncSelinuxProfileError(reasonCannotRemovePolicy)
 
 			return reconcile.Result{}, fmt.Errorf("updating SELinux policy with installation: %w", err)
@@ -501,7 +501,7 @@ func (r *ReconcileSelinux) reconcileDeletePolicy(
 	return reconcile.Result{}, nil
 }
 
-func (r *ReconcileSelinux) reconcileDeletePolicyFile(sp selxv1alpha2.SelinuxProfileObject,
+func (r *ReconcileSelinux) reconcileDeletePolicyFile(sp selinuxprofileapi.SelinuxProfileObject,
 	l logr.Logger,
 ) (reconcile.Result, error) {
 	policyPath := path.Join(bindata.SelinuxDropDirectory, sp.GetPolicyName()+".cil")
@@ -528,7 +528,7 @@ func (r *ReconcileSelinux) reconcileDeletePolicyFile(sp selxv1alpha2.SelinuxProf
 
 func getPolicyStatus(
 	ctx context.Context,
-	sp selxv1alpha2.SelinuxProfileObject,
+	sp selinuxprofileapi.SelinuxProfileObject,
 	httpc *http.Client,
 ) (*sePolStatus, error) {
 	polURL := selinuxdPoliciesBaseURL + sp.GetPolicyName()

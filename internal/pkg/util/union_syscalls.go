@@ -22,7 +22,7 @@ import (
 
 	"dario.cat/mergo"
 
-	seccompprofile "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
+	seccompprofile "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 )
 
 func UnionSyscalls(syscalls, appliedSyscalls []seccompprofile.Syscall) ([]seccompprofile.Syscall, error) {

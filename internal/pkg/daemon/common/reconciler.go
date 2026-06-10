@@ -28,7 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	statusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
+	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/nodestatus"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
@@ -68,7 +68,7 @@ func ReconcileDeletion(
 	}
 
 	if hasStatus {
-		isTerminating, getErr := nsc.Matches(ctx, statusv1alpha1.ProfileStateTerminating)
+		isTerminating, getErr := nsc.Matches(ctx, secprofnodestatusapi.ProfileStateTerminating)
 		if getErr != nil {
 			log.Error(getErr, "couldn't get current status")
 
@@ -78,7 +78,7 @@ func ReconcileDeletion(
 		if !isTerminating {
 			log.Info("setting status to terminating")
 
-			if err := nsc.SetNodeStatus(ctx, statusv1alpha1.ProfileStateTerminating); err != nil {
+			if err := nsc.SetNodeStatus(ctx, secprofnodestatusapi.ProfileStateTerminating); err != nil {
 				log.Error(err, "cannot update profile status")
 				incError(reasons.CannotUpdateProfile)
 				rec.Event(profile, util.EventTypeWarning, reasons.CannotUpdateProfile, err.Error())

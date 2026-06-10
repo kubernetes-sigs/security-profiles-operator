@@ -31,12 +31,12 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
-	profilebasev1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
-	"sigs.k8s.io/security-profiles-operator/api/profilebinding/v1alpha1"
-	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
-	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
-	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha2"
+	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
+	profilebaseapi "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
+	profilebindingapi "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
+	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
+	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/binding/bindingfakes"
 )
 
@@ -67,7 +67,7 @@ func TestHandle(t *testing.T) {
 	}{
 		{ // success pod unchanged
 			prepare: func(mock *bindingfakes.FakeImpl) {
-				mock.ListProfileBindingsReturns(&v1alpha1.ProfileBindingList{}, nil)
+				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{}, nil)
 				mock.DecodePodReturns(&corev1.Pod{}, nil)
 			},
 			assert: func(resp admission.Response) {
@@ -86,7 +86,7 @@ func TestHandle(t *testing.T) {
 		},
 		{ // error failed to decode pod
 			prepare: func(mock *bindingfakes.FakeImpl) {
-				mock.ListProfileBindingsReturns(&v1alpha1.ProfileBindingList{}, nil)
+				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{}, nil)
 				mock.DecodePodReturns(nil, errTest)
 			},
 			assert: func(resp admission.Response) {
@@ -96,12 +96,12 @@ func TestHandle(t *testing.T) {
 		//nolint:dupl // test duplicates are fine
 		{ // success pod changed
 			prepare: func(mock *bindingfakes.FakeImpl) {
-				mock.ListProfileBindingsReturns(&v1alpha1.ProfileBindingList{
-					Items: []v1alpha1.ProfileBinding{
+				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
+					Items: []profilebindingapi.ProfileBinding{
 						{
-							Spec: v1alpha1.ProfileBindingSpec{
-								ProfileRef: v1alpha1.ProfileRef{
-									Kind: v1alpha1.ProfileBindingKindSeccompProfile,
+							Spec: profilebindingapi.ProfileBindingSpec{
+								ProfileRef: profilebindingapi.ProfileRef{
+									Kind: profilebindingapi.ProfileBindingKindSeccompProfile,
 								},
 								Image: "foo",
 							},
@@ -111,8 +111,8 @@ func TestHandle(t *testing.T) {
 				mock.DecodePodReturns(testPod.DeepCopy(), nil)
 				mock.GetSeccompProfileReturns(&seccompprofileapi.SeccompProfile{
 					Status: seccompprofileapi.SeccompProfileStatus{
-						StatusBase: profilebasev1alpha1.StatusBase{
-							Status: secprofnodestatusv1alpha1.ProfileStateInstalled,
+						StatusBase: profilebaseapi.StatusBase{
+							Status: secprofnodestatusapi.ProfileStateInstalled,
 						},
 					},
 				}, nil)
@@ -136,14 +136,14 @@ func TestHandle(t *testing.T) {
 		},
 		{ // success pod changed with * image
 			prepare: func(mock *bindingfakes.FakeImpl) {
-				mock.ListProfileBindingsReturns(&v1alpha1.ProfileBindingList{
-					Items: []v1alpha1.ProfileBinding{
+				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
+					Items: []profilebindingapi.ProfileBinding{
 						{
-							Spec: v1alpha1.ProfileBindingSpec{
-								ProfileRef: v1alpha1.ProfileRef{
-									Kind: v1alpha1.ProfileBindingKindSeccompProfile,
+							Spec: profilebindingapi.ProfileBindingSpec{
+								ProfileRef: profilebindingapi.ProfileRef{
+									Kind: profilebindingapi.ProfileBindingKindSeccompProfile,
 								},
-								Image: v1alpha1.SelectAllContainersImage,
+								Image: profilebindingapi.SelectAllContainersImage,
 							},
 						},
 					},
@@ -151,8 +151,8 @@ func TestHandle(t *testing.T) {
 				mock.DecodePodReturns(testPod.DeepCopy(), nil)
 				mock.GetSeccompProfileReturns(&seccompprofileapi.SeccompProfile{
 					Status: seccompprofileapi.SeccompProfileStatus{
-						StatusBase: profilebasev1alpha1.StatusBase{
-							Status: secprofnodestatusv1alpha1.ProfileStateInstalled,
+						StatusBase: profilebaseapi.StatusBase{
+							Status: secprofnodestatusapi.ProfileStateInstalled,
 						},
 					},
 				}, nil)
@@ -176,12 +176,12 @@ func TestHandle(t *testing.T) {
 		},
 		{ // selinux success pod changed
 			prepare: func(mock *bindingfakes.FakeImpl) {
-				mock.ListProfileBindingsReturns(&v1alpha1.ProfileBindingList{
-					Items: []v1alpha1.ProfileBinding{
+				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
+					Items: []profilebindingapi.ProfileBinding{
 						{
-							Spec: v1alpha1.ProfileBindingSpec{
-								ProfileRef: v1alpha1.ProfileRef{
-									Kind: v1alpha1.ProfileBindingKindSelinuxProfile,
+							Spec: profilebindingapi.ProfileBindingSpec{
+								ProfileRef: profilebindingapi.ProfileRef{
+									Kind: profilebindingapi.ProfileBindingKindSelinuxProfile,
 								},
 								Image: "foo",
 							},
@@ -191,7 +191,7 @@ func TestHandle(t *testing.T) {
 				mock.DecodePodReturns(testPod.DeepCopy(), nil)
 				mock.GetSelinuxProfileReturns(&selinuxprofileapi.SelinuxProfile{
 					Status: selinuxprofileapi.SelinuxProfileStatus{
-						StatusBase: profilebasev1alpha1.StatusBase{
+						StatusBase: profilebaseapi.StatusBase{
 							Status: "Installed",
 						},
 					},
@@ -216,14 +216,14 @@ func TestHandle(t *testing.T) {
 		},
 		{ // selinux success pod changed with * image
 			prepare: func(mock *bindingfakes.FakeImpl) {
-				mock.ListProfileBindingsReturns(&v1alpha1.ProfileBindingList{
-					Items: []v1alpha1.ProfileBinding{
+				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
+					Items: []profilebindingapi.ProfileBinding{
 						{
-							Spec: v1alpha1.ProfileBindingSpec{
-								ProfileRef: v1alpha1.ProfileRef{
-									Kind: v1alpha1.ProfileBindingKindSelinuxProfile,
+							Spec: profilebindingapi.ProfileBindingSpec{
+								ProfileRef: profilebindingapi.ProfileRef{
+									Kind: profilebindingapi.ProfileBindingKindSelinuxProfile,
 								},
-								Image: v1alpha1.SelectAllContainersImage,
+								Image: profilebindingapi.SelectAllContainersImage,
 							},
 						},
 					},
@@ -231,7 +231,7 @@ func TestHandle(t *testing.T) {
 				mock.DecodePodReturns(testPod.DeepCopy(), nil)
 				mock.GetSelinuxProfileReturns(&selinuxprofileapi.SelinuxProfile{
 					Status: selinuxprofileapi.SelinuxProfileStatus{
-						StatusBase: profilebasev1alpha1.StatusBase{
+						StatusBase: profilebaseapi.StatusBase{
 							Status: "Installed",
 						},
 					},
@@ -257,12 +257,12 @@ func TestHandle(t *testing.T) {
 		//nolint:dupl // test duplicates are fine
 		{ // apparmor success pod changed
 			prepare: func(mock *bindingfakes.FakeImpl) {
-				mock.ListProfileBindingsReturns(&v1alpha1.ProfileBindingList{
-					Items: []v1alpha1.ProfileBinding{
+				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
+					Items: []profilebindingapi.ProfileBinding{
 						{
-							Spec: v1alpha1.ProfileBindingSpec{
-								ProfileRef: v1alpha1.ProfileRef{
-									Kind: v1alpha1.ProfileBindingKindAppArmorProfile,
+							Spec: profilebindingapi.ProfileBindingSpec{
+								ProfileRef: profilebindingapi.ProfileRef{
+									Kind: profilebindingapi.ProfileBindingKindAppArmorProfile,
 								},
 								Image: "foo",
 							},
@@ -272,8 +272,8 @@ func TestHandle(t *testing.T) {
 				mock.DecodePodReturns(testPod.DeepCopy(), nil)
 				mock.GetAppArmorProfileReturns(&apparmorprofileapi.AppArmorProfile{
 					Status: apparmorprofileapi.AppArmorProfileStatus{
-						StatusBase: profilebasev1alpha1.StatusBase{
-							Status: secprofnodestatusv1alpha1.ProfileStateInstalled,
+						StatusBase: profilebaseapi.StatusBase{
+							Status: secprofnodestatusapi.ProfileStateInstalled,
 						},
 					},
 				}, nil)
@@ -297,14 +297,14 @@ func TestHandle(t *testing.T) {
 		},
 		{ // apparmor success pod changed with * image
 			prepare: func(mock *bindingfakes.FakeImpl) {
-				mock.ListProfileBindingsReturns(&v1alpha1.ProfileBindingList{
-					Items: []v1alpha1.ProfileBinding{
+				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
+					Items: []profilebindingapi.ProfileBinding{
 						{
-							Spec: v1alpha1.ProfileBindingSpec{
-								ProfileRef: v1alpha1.ProfileRef{
-									Kind: v1alpha1.ProfileBindingKindAppArmorProfile,
+							Spec: profilebindingapi.ProfileBindingSpec{
+								ProfileRef: profilebindingapi.ProfileRef{
+									Kind: profilebindingapi.ProfileBindingKindAppArmorProfile,
 								},
-								Image: v1alpha1.SelectAllContainersImage,
+								Image: profilebindingapi.SelectAllContainersImage,
 							},
 						},
 					},
@@ -312,8 +312,8 @@ func TestHandle(t *testing.T) {
 				mock.DecodePodReturns(testPod.DeepCopy(), nil)
 				mock.GetAppArmorProfileReturns(&apparmorprofileapi.AppArmorProfile{
 					Status: apparmorprofileapi.AppArmorProfileStatus{
-						StatusBase: profilebasev1alpha1.StatusBase{
-							Status: secprofnodestatusv1alpha1.ProfileStateInstalled,
+						StatusBase: profilebaseapi.StatusBase{
+							Status: secprofnodestatusapi.ProfileStateInstalled,
 						},
 					},
 				}, nil)
@@ -337,12 +337,12 @@ func TestHandle(t *testing.T) {
 		},
 		{ // failure get apparmor profile errored
 			prepare: func(mock *bindingfakes.FakeImpl) {
-				mock.ListProfileBindingsReturns(&v1alpha1.ProfileBindingList{
-					Items: []v1alpha1.ProfileBinding{
+				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
+					Items: []profilebindingapi.ProfileBinding{
 						{
-							Spec: v1alpha1.ProfileBindingSpec{
-								ProfileRef: v1alpha1.ProfileRef{
-									Kind: v1alpha1.ProfileBindingKindAppArmorProfile,
+							Spec: profilebindingapi.ProfileBindingSpec{
+								ProfileRef: profilebindingapi.ProfileRef{
+									Kind: profilebindingapi.ProfileBindingKindAppArmorProfile,
 								},
 							},
 						},
@@ -370,12 +370,12 @@ func TestHandle(t *testing.T) {
 		//nolint:dupl // test duplicates are fine
 		{ // failure get apparmor profile without status
 			prepare: func(mock *bindingfakes.FakeImpl) {
-				mock.ListProfileBindingsReturns(&v1alpha1.ProfileBindingList{
-					Items: []v1alpha1.ProfileBinding{
+				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
+					Items: []profilebindingapi.ProfileBinding{
 						{
-							Spec: v1alpha1.ProfileBindingSpec{
-								ProfileRef: v1alpha1.ProfileRef{
-									Kind: v1alpha1.ProfileBindingKindAppArmorProfile,
+							Spec: profilebindingapi.ProfileBindingSpec{
+								ProfileRef: profilebindingapi.ProfileRef{
+									Kind: profilebindingapi.ProfileBindingKindAppArmorProfile,
 								},
 							},
 						},
@@ -404,11 +404,11 @@ func TestHandle(t *testing.T) {
 		},
 		{ // success unsupported kind
 			prepare: func(mock *bindingfakes.FakeImpl) {
-				mock.ListProfileBindingsReturns(&v1alpha1.ProfileBindingList{
-					Items: []v1alpha1.ProfileBinding{
+				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
+					Items: []profilebindingapi.ProfileBinding{
 						{
-							Spec: v1alpha1.ProfileBindingSpec{
-								ProfileRef: v1alpha1.ProfileRef{
+							Spec: profilebindingapi.ProfileBindingSpec{
+								ProfileRef: profilebindingapi.ProfileRef{
 									Kind: "unsupported",
 								},
 							},
@@ -418,8 +418,8 @@ func TestHandle(t *testing.T) {
 				mock.DecodePodReturns(testPod.DeepCopy(), nil)
 				mock.GetSeccompProfileReturns(&seccompprofileapi.SeccompProfile{
 					Status: seccompprofileapi.SeccompProfileStatus{
-						StatusBase: profilebasev1alpha1.StatusBase{
-							Status: secprofnodestatusv1alpha1.ProfileStateInstalled,
+						StatusBase: profilebaseapi.StatusBase{
+							Status: secprofnodestatusapi.ProfileStateInstalled,
 						},
 					},
 				}, nil)
@@ -444,12 +444,12 @@ func TestHandle(t *testing.T) {
 		//nolint:dupl // test duplicates are fine
 		{ // failure get seccomp profile malicious
 			prepare: func(mock *bindingfakes.FakeImpl) {
-				mock.ListProfileBindingsReturns(&v1alpha1.ProfileBindingList{
-					Items: []v1alpha1.ProfileBinding{
+				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
+					Items: []profilebindingapi.ProfileBinding{
 						{
-							Spec: v1alpha1.ProfileBindingSpec{
-								ProfileRef: v1alpha1.ProfileRef{
-									Kind: v1alpha1.ProfileBindingKindSeccompProfile,
+							Spec: profilebindingapi.ProfileBindingSpec{
+								ProfileRef: profilebindingapi.ProfileRef{
+									Kind: profilebindingapi.ProfileBindingKindSeccompProfile,
 								},
 							},
 						},
@@ -478,12 +478,12 @@ func TestHandle(t *testing.T) {
 		},
 		{ // failure get seccomp profile errored
 			prepare: func(mock *bindingfakes.FakeImpl) {
-				mock.ListProfileBindingsReturns(&v1alpha1.ProfileBindingList{
-					Items: []v1alpha1.ProfileBinding{
+				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
+					Items: []profilebindingapi.ProfileBinding{
 						{
-							Spec: v1alpha1.ProfileBindingSpec{
-								ProfileRef: v1alpha1.ProfileRef{
-									Kind: v1alpha1.ProfileBindingKindSeccompProfile,
+							Spec: profilebindingapi.ProfileBindingSpec{
+								ProfileRef: profilebindingapi.ProfileRef{
+									Kind: profilebindingapi.ProfileBindingKindSeccompProfile,
 								},
 							},
 						},
@@ -511,12 +511,12 @@ func TestHandle(t *testing.T) {
 		//nolint:dupl // test duplicates are fine
 		{ // failure on UpdateResource
 			prepare: func(mock *bindingfakes.FakeImpl) {
-				mock.ListProfileBindingsReturns(&v1alpha1.ProfileBindingList{
-					Items: []v1alpha1.ProfileBinding{
+				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
+					Items: []profilebindingapi.ProfileBinding{
 						{
-							Spec: v1alpha1.ProfileBindingSpec{
-								ProfileRef: v1alpha1.ProfileRef{
-									Kind: v1alpha1.ProfileBindingKindSeccompProfile,
+							Spec: profilebindingapi.ProfileBindingSpec{
+								ProfileRef: profilebindingapi.ProfileRef{
+									Kind: profilebindingapi.ProfileBindingKindSeccompProfile,
 								},
 								Image: "foo",
 							},
@@ -526,8 +526,8 @@ func TestHandle(t *testing.T) {
 				mock.DecodePodReturns(testPod.DeepCopy(), nil)
 				mock.GetSeccompProfileReturns(&seccompprofileapi.SeccompProfile{
 					Status: seccompprofileapi.SeccompProfileStatus{
-						StatusBase: profilebasev1alpha1.StatusBase{
-							Status: secprofnodestatusv1alpha1.ProfileStateInstalled,
+						StatusBase: profilebaseapi.StatusBase{
+							Status: secprofnodestatusapi.ProfileStateInstalled,
 						},
 					},
 				}, nil)
@@ -552,12 +552,12 @@ func TestHandle(t *testing.T) {
 		//nolint:dupl // test duplicates are fine
 		{ // failure on UpdateResourceStatus
 			prepare: func(mock *bindingfakes.FakeImpl) {
-				mock.ListProfileBindingsReturns(&v1alpha1.ProfileBindingList{
-					Items: []v1alpha1.ProfileBinding{
+				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
+					Items: []profilebindingapi.ProfileBinding{
 						{
-							Spec: v1alpha1.ProfileBindingSpec{
-								ProfileRef: v1alpha1.ProfileRef{
-									Kind: v1alpha1.ProfileBindingKindSeccompProfile,
+							Spec: profilebindingapi.ProfileBindingSpec{
+								ProfileRef: profilebindingapi.ProfileRef{
+									Kind: profilebindingapi.ProfileBindingKindSeccompProfile,
 								},
 								Image: "foo",
 							},
@@ -567,8 +567,8 @@ func TestHandle(t *testing.T) {
 				mock.DecodePodReturns(testPod.DeepCopy(), nil)
 				mock.GetSeccompProfileReturns(&seccompprofileapi.SeccompProfile{
 					Status: seccompprofileapi.SeccompProfileStatus{
-						StatusBase: profilebasev1alpha1.StatusBase{
-							Status: secprofnodestatusv1alpha1.ProfileStateInstalled,
+						StatusBase: profilebaseapi.StatusBase{
+							Status: secprofnodestatusapi.ProfileStateInstalled,
 						},
 					},
 				}, nil)
@@ -592,15 +592,15 @@ func TestHandle(t *testing.T) {
 		},
 		{ // success pod deleted
 			prepare: func(mock *bindingfakes.FakeImpl) {
-				mock.ListProfileBindingsReturns(&v1alpha1.ProfileBindingList{
-					Items: []v1alpha1.ProfileBinding{
+				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
+					Items: []profilebindingapi.ProfileBinding{
 						{
-							Spec: v1alpha1.ProfileBindingSpec{
-								ProfileRef: v1alpha1.ProfileRef{
-									Kind: v1alpha1.ProfileBindingKindSeccompProfile,
+							Spec: profilebindingapi.ProfileBindingSpec{
+								ProfileRef: profilebindingapi.ProfileRef{
+									Kind: profilebindingapi.ProfileBindingKindSeccompProfile,
 								},
 							},
-							Status: v1alpha1.ProfileBindingStatus{
+							Status: profilebindingapi.ProfileBindingStatus{
 								ActiveWorkloads: []string{"1", "2", "3"},
 							},
 						},
@@ -619,15 +619,15 @@ func TestHandle(t *testing.T) {
 		},
 		{ // failure delete on remove pod from binding at  UpdateResourceStatus
 			prepare: func(mock *bindingfakes.FakeImpl) {
-				mock.ListProfileBindingsReturns(&v1alpha1.ProfileBindingList{
-					Items: []v1alpha1.ProfileBinding{
+				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
+					Items: []profilebindingapi.ProfileBinding{
 						{
-							Spec: v1alpha1.ProfileBindingSpec{
-								ProfileRef: v1alpha1.ProfileRef{
-									Kind: v1alpha1.ProfileBindingKindSeccompProfile,
+							Spec: profilebindingapi.ProfileBindingSpec{
+								ProfileRef: profilebindingapi.ProfileRef{
+									Kind: profilebindingapi.ProfileBindingKindSeccompProfile,
 								},
 							},
-							Status: v1alpha1.ProfileBindingStatus{
+							Status: profilebindingapi.ProfileBindingStatus{
 								ActiveWorkloads: []string{"1", "2", "3"},
 							},
 						},

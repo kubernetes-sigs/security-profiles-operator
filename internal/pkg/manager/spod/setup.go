@@ -32,7 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
+	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
@@ -96,7 +96,7 @@ func (r *ReconcileSPOd) Setup(
 
 	return ctrl.NewControllerManagedBy(mgr).
 		Named(r.Name()).
-		For(&spodv1alpha1.SecurityProfilesOperatorDaemon{}).
+		For(&spodapi.SecurityProfilesOperatorDaemon{}).
 		Owns(&appsv1.DaemonSet{}).
 		WithEventFilter(predicate.Funcs{
 			CreateFunc:  func(e event.CreateEvent) bool { return isInOperatorNamespace(e.Object) },
@@ -259,7 +259,7 @@ func updateJsonEnricherSpec(dt *daemonTunables, refSPOd *appsv1.DaemonSet) {
 }
 
 func isInOperatorNamespace(obj runtime.Object) bool {
-	spod, ok := obj.(*spodv1alpha1.SecurityProfilesOperatorDaemon)
+	spod, ok := obj.(*spodapi.SecurityProfilesOperatorDaemon)
 	if !ok {
 		return false
 	}
