@@ -258,9 +258,9 @@ func (sp *SeccompProfile) GetProfileOperatorPath() string {
 func (sp *SeccompProfile) ListProfilesByRecording(
 	ctx context.Context,
 	cli client.Client,
-	recording string,
+	recording, recordingNamespace string,
 ) ([]metav1.Object, error) {
-	return profilebasev1.ListProfilesByRecording(ctx, cli, recording, sp.Namespace, &SeccompProfileList{})
+	return profilebasev1.ListProfilesByRecording(ctx, cli, recording, recordingNamespace, &SeccompProfileList{})
 }
 
 func (sp *SeccompProfile) IsPartial() bool {

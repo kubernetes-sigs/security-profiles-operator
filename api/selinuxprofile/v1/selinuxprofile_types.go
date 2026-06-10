@@ -185,9 +185,9 @@ func (sp *SelinuxProfile) GetPolicyUsage() string {
 func (sp *SelinuxProfile) ListProfilesByRecording(
 	ctx context.Context,
 	cli client.Client,
-	recording string,
+	recording, recordingNamespace string,
 ) ([]metav1.Object, error) {
-	return profilebasev1.ListProfilesByRecording(ctx, cli, recording, sp.Namespace, &SelinuxProfileList{})
+	return profilebasev1.ListProfilesByRecording(ctx, cli, recording, recordingNamespace, &SelinuxProfileList{})
 }
 
 func (sp *SelinuxProfile) IsPartial() bool {
