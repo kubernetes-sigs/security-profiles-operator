@@ -118,6 +118,7 @@ type SPODSpec struct {
 	// to retrieve the container ID for a process ID. This can be helpful for
 	// nested environments, for example when using "kind".
 	// +optional
+	// +kubebuilder:validation:Pattern="^/proc(/.*)?$"
 	HostProcVolumePath string `json:"hostProcVolumePath,omitempty"`
 	// imagePullSecrets if defined, list of references to secrets in the
 	// security-profiles-operator's namespace to use for pulling the images
