@@ -85,10 +85,10 @@ func listPartialProfiles(
 	if err := cli.List(
 		ctx,
 		list,
-		client.InNamespace(recording.Namespace),
 		client.MatchingLabels{
-			profilerecordingapi.ProfileToRecordingLabel: recording.Name,
-			profilebase.ProfilePartialLabel:             "true",
+			profilerecordingapi.ProfileToRecordingLabel:          recording.Name,
+			profilerecordingapi.ProfileToRecordingNamespaceLabel: recording.Namespace,
+			profilebase.ProfilePartialLabel:                      "true",
 		}); err != nil {
 		return nil, fmt.Errorf("listing partial profiles for %s: %w", recording.Name, err)
 	}
@@ -162,10 +162,10 @@ func deletePartialProfiles(
 	return cli.DeleteAllOf(
 		ctx,
 		prf,
-		client.InNamespace(recording.Namespace),
 		client.MatchingLabels{
-			profilerecordingapi.ProfileToRecordingLabel: recording.Name,
-			profilebase.ProfilePartialLabel:             "true",
+			profilerecordingapi.ProfileToRecordingLabel:          recording.Name,
+			profilerecordingapi.ProfileToRecordingNamespaceLabel: recording.Namespace,
+			profilebase.ProfilePartialLabel:                      "true",
 		})
 }
 

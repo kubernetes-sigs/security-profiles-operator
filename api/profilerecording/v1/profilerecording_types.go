@@ -51,6 +51,9 @@ const (
 const (
 	// ProfileToRecordingLabel is the name of the ProfileRecording CR that produced this profile.
 	ProfileToRecordingLabel = "spo.x-k8s.io/recording-id"
+	// ProfileToRecordingNamespaceLabel is the namespace of the ProfileRecording CR that produced this profile.
+	// Required to disambiguate cluster-scoped profiles from recordings with the same name in different namespaces.
+	ProfileToRecordingNamespaceLabel = "spo.x-k8s.io/recording-namespace"
 	// ProfileToContainerLabel is the name of the container that produced this profile.
 	ProfileToContainerLabel = "spo.x-k8s.io/container-id"
 	// RecordingHasUnmergedProfiles is a finalizer that indicates that the recording has partial policies. Its
