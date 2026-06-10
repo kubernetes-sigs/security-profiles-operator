@@ -95,9 +95,9 @@ func (sp *RawSelinuxProfile) GetPolicyUsage() string {
 func (sp *RawSelinuxProfile) ListProfilesByRecording(
 	ctx context.Context,
 	cli client.Client,
-	recording string,
+	recording, recordingNamespace string,
 ) ([]metav1.Object, error) {
-	return profilebasev1.ListProfilesByRecording(ctx, cli, recording, sp.Namespace, &RawSelinuxProfileList{})
+	return profilebasev1.ListProfilesByRecording(ctx, cli, recording, recordingNamespace, &RawSelinuxProfileList{})
 }
 
 func (sp *RawSelinuxProfile) ValidatePolicy() error {

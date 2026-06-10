@@ -170,9 +170,9 @@ func (sp *AppArmorProfile) SetImplementationStatus() {
 func (sp *AppArmorProfile) ListProfilesByRecording(
 	ctx context.Context,
 	cli client.Client,
-	recording string,
+	recording, recordingNamespace string,
 ) ([]metav1.Object, error) {
-	return profilebasev1.ListProfilesByRecording(ctx, cli, recording, sp.Namespace, &AppArmorProfileList{})
+	return profilebasev1.ListProfilesByRecording(ctx, cli, recording, recordingNamespace, &AppArmorProfileList{})
 }
 
 func (sp *AppArmorProfile) IsPartial() bool {

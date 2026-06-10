@@ -35,7 +35,7 @@ const ProfilePartialLabel = "spo.x-k8s.io/partial"
 type SecurityProfileBase interface {
 	client.Object
 
-	ListProfilesByRecording(ctx context.Context, cli client.Client, recording string) ([]metav1.Object, error)
+	ListProfilesByRecording(ctx context.Context, cli client.Client, recording string, recordingNamespace string) ([]metav1.Object, error)
 	IsPartial() bool
 	IsDisabled() bool
 	IsReconcilable() bool
@@ -65,8 +65,10 @@ func ListProfilesByRecording(
 	if err := cli.List(
 		ctx,
 		list,
-		client.InNamespace(recordingNamespace),
-		client.MatchingLabels{profilerecordingv1.ProfileToRecordingLabel: recordingName}); err != nil {
+		client.MatchingLabels{
+			profilerecordingv1.ProfileToRecordingLabel:          recordingName,
+			profilerecordingv1.ProfileToRecordingNamespaceLabel: recordingNamespace,
+		}); err != nil {
 		return nil, fmt.Errorf("listing recorded profiles for %s: %w", recordingName, err)
 	}
 

@@ -335,7 +335,7 @@ func handleRecordingFinalizer(ctx context.Context, c client.Client, pol profileb
 	}
 
 	// if there are other policies recorded by the same recording, we don't need to do anything either
-	otherPolicies, err := pol.ListProfilesByRecording(ctx, c, polLabels[profilerecordingapi.ProfileToRecordingLabel])
+	otherPolicies, err := pol.ListProfilesByRecording(ctx, c, polLabels[profilerecordingapi.ProfileToRecordingLabel], polLabels[profilerecordingapi.ProfileToRecordingNamespaceLabel])
 	if err != nil {
 		return fmt.Errorf("listing profiles by recording: %w", err)
 	}
@@ -374,7 +374,7 @@ func handleRecordingFinalizer(ctx context.Context, c client.Client, pol profileb
 	}
 
 	profilerecording := &profilerecordingapi.ProfileRecording{}
-	recordingName := util.NamespacedName(polLabels[profilerecordingapi.ProfileToRecordingLabel], pol.GetNamespace())
+	recordingName := util.NamespacedName(polLabels[profilerecordingapi.ProfileToRecordingLabel], polLabels[profilerecordingapi.ProfileToRecordingNamespaceLabel])
 
 	err = c.Get(ctx, recordingName, profilerecording)
 	if kerrors.IsNotFound(err) {
