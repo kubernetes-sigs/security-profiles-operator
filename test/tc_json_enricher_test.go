@@ -38,7 +38,7 @@ func (e *e2e) testCaseJsonEnricherFileOptions([]string) {
 	e.logf("Creating test profile for JSON Enricher")
 
 	profile := fmt.Sprintf(`
-apiVersion: security-profiles-operator.x-k8s.io/v1beta1
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: SeccompProfile
 metadata:
   name: %s
@@ -132,7 +132,7 @@ func (e *e2e) testCaseJsonEnricher([]string) {
 	e.logf("Creating test profile for JSON Enricher")
 
 	profile := fmt.Sprintf(`
-apiVersion: security-profiles-operator.x-k8s.io/v1beta1
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: SeccompProfile
 metadata:
   name: %s

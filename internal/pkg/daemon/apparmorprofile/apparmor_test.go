@@ -27,9 +27,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	"sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
-	profilebasev1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
-	sec "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
+	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
+	profilebaseapi "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
+	sec "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 )
 
 var (
@@ -43,7 +43,7 @@ func TestInstallProfile(t *testing.T) {
 	cases := []struct {
 		name       string
 		sut        aaProfileManager
-		profile    profilebasev1alpha1.StatusBaseUser
+		profile    profilebaseapi.StatusBaseUser
 		wantResult bool
 		wantErr    error
 	}{
@@ -59,7 +59,7 @@ func TestInstallProfile(t *testing.T) {
 				loadProfile:       func(_ logr.Logger, _, _ string) (bool, error) { return false, nil },
 				checkProfileExist: func(_ logr.Logger, _ string) bool { return true },
 			},
-			profile: &v1alpha1.AppArmorProfile{ObjectMeta: metav1.ObjectMeta{
+			profile: &apparmorprofileapi.AppArmorProfile{ObjectMeta: metav1.ObjectMeta{
 				Generation: 1,
 			}},
 			wantErr: errApparmorProfileExists,
@@ -70,7 +70,7 @@ func TestInstallProfile(t *testing.T) {
 				loadProfile:       func(_ logr.Logger, _, _ string) (bool, error) { return false, nil },
 				checkProfileExist: func(_ logr.Logger, _ string) bool { return false },
 			},
-			profile: &v1alpha1.AppArmorProfile{},
+			profile: &apparmorprofileapi.AppArmorProfile{},
 		},
 	}
 
@@ -94,7 +94,7 @@ func TestRemoveProfile(t *testing.T) {
 	cases := []struct {
 		name    string
 		sut     aaProfileManager
-		profile profilebasev1alpha1.StatusBaseUser
+		profile profilebaseapi.StatusBaseUser
 		wantErr error
 	}{
 		{
@@ -108,7 +108,7 @@ func TestRemoveProfile(t *testing.T) {
 			sut: aaProfileManager{
 				removeProfile: func(_ logr.Logger, _ string) error { return nil },
 			},
-			profile: &v1alpha1.AppArmorProfile{},
+			profile: &apparmorprofileapi.AppArmorProfile{},
 		},
 	}
 

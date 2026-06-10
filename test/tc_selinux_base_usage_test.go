@@ -26,7 +26,7 @@ const (
 	maxNodeIterations      = 6
 	sleepBetweenIterations = 5 * time.Second
 	errorloggerPolicy      = `
-apiVersion: security-profiles-operator.x-k8s.io/v1alpha2
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: SelinuxProfile
 metadata:
   name: errorlogger
@@ -62,7 +62,7 @@ spec:
 `
 
 	rawErrorloggerPolicy = `
-apiVersion: security-profiles-operator.x-k8s.io/v1alpha2
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: RawSelinuxProfile
 metadata:
   name: raw-errorlogger
@@ -78,7 +78,7 @@ spec:
 	// ensure that the workload will fail if the policy in incomplete. Allows setting a parameter
 	// as needed.
 	errorloggerIncompletePolFmt = `
-apiVersion: security-profiles-operator.x-k8s.io/v1alpha2
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: SelinuxProfile
 metadata:
   name: errorlogger-incomplete-%s
@@ -111,7 +111,7 @@ spec:
 `
 
 	netContainerPolicy = `
-apiVersion: security-profiles-operator.x-k8s.io/v1alpha2
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: SelinuxProfile
 metadata:
   name: net-container-policy

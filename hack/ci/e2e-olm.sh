@@ -24,7 +24,7 @@ CATALOG_IMG=${REPO}/security-profiles-operator-catalog:v${GITHUB_SHA}
 
 function create_sp() {
   kubectl create -f - <<EOF
-apiVersion: security-profiles-operator.x-k8s.io/v1beta1
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: SeccompProfile
 metadata:
   name: log-all

@@ -28,7 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	selxv1alpha2 "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha2"
+	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/translator"
@@ -53,17 +53,17 @@ func NewController() controller.Controller {
 
 func selinuxProfileControllerBuild(b *ctrl.Builder, r reconcile.Reconciler) error {
 	return b.Named("selinuxprofile").
-		For(&selxv1alpha2.SelinuxProfile{}).
+		For(&selinuxprofileapi.SelinuxProfile{}).
 		Complete(r)
 }
 
 var _ SelinuxObjectHandler = &selinuxProfileHandler{}
 
 type selinuxProfileHandler struct {
-	sp                *selxv1alpha2.SelinuxProfile
+	sp                *selinuxprofileapi.SelinuxProfile
 	cli               client.Client
 	systemInherits    []string
-	objInherits       []selxv1alpha2.SelinuxProfileObject
+	objInherits       []selinuxprofileapi.SelinuxProfileObject
 	labelRegex        *regexp.Regexp
 	objClassPermRegex *regexp.Regexp
 }
@@ -97,7 +97,7 @@ func (sph *selinuxProfileHandler) Init(
 	return nil
 }
 
-func (sph *selinuxProfileHandler) GetProfileObject() selxv1alpha2.SelinuxProfileObject {
+func (sph *selinuxProfileHandler) GetProfileObject() selinuxprofileapi.SelinuxProfileObject {
 	return sph.sp
 }
 
@@ -131,12 +131,12 @@ func (sph *selinuxProfileHandler) Validate() error {
 }
 
 func (sph *selinuxProfileHandler) validateAndTrackInherit(
-	ancestorRef selxv1alpha2.PolicyRef,
+	ancestorRef selinuxprofileapi.PolicyRef,
 	namespace string,
 ) error {
 	switch ancestorRef.Kind {
 	// We default to System if Kind is left empty
-	case selxv1alpha2.SystemPolicyKind, "":
+	case selinuxprofileapi.SystemPolicyKind, "":
 		return sph.handleInheritSystemPolicy(ancestorRef)
 	case "SelinuxProfile":
 		return sph.handleInheritSPOPolicy(ancestorRef, namespace)
@@ -146,7 +146,7 @@ func (sph *selinuxProfileHandler) validateAndTrackInherit(
 }
 
 func (sph *selinuxProfileHandler) validateLabelKey(
-	key selxv1alpha2.LabelKey,
+	key selinuxprofileapi.LabelKey,
 ) error {
 	if !sph.labelRegex.MatchString(string(key)) {
 		return fmt.Errorf("'%s' didn't match expected characters: %w", key, ErrInvalidLabelKey)
@@ -156,7 +156,7 @@ func (sph *selinuxProfileHandler) validateLabelKey(
 }
 
 func (sph *selinuxProfileHandler) validateObjClass(
-	key selxv1alpha2.ObjectClassKey,
+	key selinuxprofileapi.ObjectClassKey,
 ) error {
 	if !sph.objClassPermRegex.MatchString(string(key)) {
 		return fmt.Errorf("'%s' didn't match expected characters: %w", key, ErrInvalidObjClass)
@@ -176,10 +176,10 @@ func (sph *selinuxProfileHandler) validatePermission(
 }
 
 func (sph *selinuxProfileHandler) handleInheritSPOPolicy(
-	ancestorRef selxv1alpha2.PolicyRef,
+	ancestorRef selinuxprofileapi.PolicyRef,
 	namespace string,
 ) error {
-	ancestor := &selxv1alpha2.SelinuxProfile{}
+	ancestor := &selinuxprofileapi.SelinuxProfile{}
 	key := types.NamespacedName{Name: ancestorRef.Name, Namespace: namespace}
 
 	err := sph.cli.Get(context.Background(), key, ancestor)
@@ -196,7 +196,7 @@ func (sph *selinuxProfileHandler) handleInheritSPOPolicy(
 }
 
 func (sph *selinuxProfileHandler) handleInheritSystemPolicy(
-	ancestorRef selxv1alpha2.PolicyRef,
+	ancestorRef selinuxprofileapi.PolicyRef,
 ) error {
 	spod, err := common.GetSPOD(context.Background(), sph.cli)
 	if err != nil {
@@ -232,9 +232,9 @@ func newSelinuxProfileHandler(
 	key types.NamespacedName,
 ) (SelinuxObjectHandler, error) {
 	oh := &selinuxProfileHandler{
-		sp:             &selxv1alpha2.SelinuxProfile{},
+		sp:             &selinuxprofileapi.SelinuxProfile{},
 		systemInherits: make([]string, 0),
-		objInherits:    make([]selxv1alpha2.SelinuxProfileObject, 0),
+		objInherits:    make([]selinuxprofileapi.SelinuxProfileObject, 0),
 	}
 
 	err := oh.Init(ctx, cli, key)

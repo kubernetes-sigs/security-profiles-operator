@@ -23,7 +23,7 @@ import (
 	"time"
 
 	"sigs.k8s.io/security-profiles-operator/api/common"
-	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
+	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
@@ -84,7 +84,7 @@ func (e *e2e) testCaseAllowedSyscallsValidation(nodes []string) {
 
 			spns := e.getSeccompProfileNodeStatus(name, node)
 			if e.NotNil(spns) {
-				e.Equal(secprofnodestatusv1alpha1.ProfileStateInstalled, spns.Status.Status)
+				e.Equal(secprofnodestatusapi.ProfileStateInstalled, spns.Status.Status)
 			}
 		}
 
@@ -126,7 +126,7 @@ func (e *e2e) testCaseAllowedSyscallsChange(nodes []string) {
 
 		spns := e.getSeccompProfileNodeStatus(name, node)
 		if e.NotNil(spns) {
-			e.Equal(secprofnodestatusv1alpha1.ProfileStateInstalled, spns.Status.Status)
+			e.Equal(secprofnodestatusapi.ProfileStateInstalled, spns.Status.Status)
 		}
 	}
 
@@ -167,7 +167,7 @@ func (e *e2e) testCaseAllowedSyscallsInUse(nodes []string) {
 	const (
 		allowProfileName = "allow-me"
 		allowProfile     = `
-apiVersion: security-profiles-operator.x-k8s.io/v1beta1
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: SeccompProfile
 metadata:
   name: allow-me
@@ -201,7 +201,7 @@ spec:
 	)
 
 	sp := e.getSeccompProfile(allowProfileName)
-	e.Equal(secprofnodestatusv1alpha1.ProfileStateInstalled, sp.Status.Status)
+	e.Equal(secprofnodestatusapi.ProfileStateInstalled, sp.Status.Status)
 
 	// Create the pod which reference the allowed profile
 	podCleanup := e.writeAndCreate(allowPod, "allow-pod*.yaml")
@@ -238,7 +238,7 @@ spec:
 	}
 
 	sp = e.getSeccompProfile(allowProfileName)
-	e.Equal(secprofnodestatusv1alpha1.ProfileStateTerminating, sp.Status.Status)
+	e.Equal(secprofnodestatusapi.ProfileStateTerminating, sp.Status.Status)
 
 	// Remove the pod, after this point the profile should be complete cleaned-up
 	e.kubectl("delete", "pod", allowPodName)
@@ -269,7 +269,7 @@ func (e *e2e) existsSeccompProfileNodeStatus(id, node string) bool {
 	seccompProfileNodeStatusJSON := e.kubectl(
 		"get", "securityprofilenodestatus", "-l", selector, "-o", "json",
 	)
-	secpolNodeStatusList := &secprofnodestatusv1alpha1.SecurityProfileNodeStatusList{}
+	secpolNodeStatusList := &secprofnodestatusapi.SecurityProfileNodeStatusList{}
 	e.Require().NoError(json.Unmarshal([]byte(seccompProfileNodeStatusJSON), secpolNodeStatusList))
 
 	return len(secpolNodeStatusList.Items) > 0

@@ -21,13 +21,13 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
-	seccompprofile "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
-	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha2"
+	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
+	seccompprofile "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
+	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 )
 
 const SeccompProfileExample = `
-apiVersion: security-profiles-operator.x-k8s.io/v1beta1
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: SeccompProfile
 spec:
   defaultAction: SCMP_ACT_ERRNO
@@ -38,7 +38,7 @@ spec:
 `
 
 const SelinuxProfileExample = `
-apiVersion: security-profiles-operator.x-k8s.io/v1alpha2
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: SelinuxProfile
 spec:
   inherit:
@@ -50,7 +50,7 @@ spec:
 `
 
 const AppArmorProfileExample = `
-apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: AppArmorProfile
 spec:
   abstract:

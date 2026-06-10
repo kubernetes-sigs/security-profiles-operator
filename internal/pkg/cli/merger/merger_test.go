@@ -28,7 +28,7 @@ import (
 )
 
 const SeccompA = `
-apiVersion: security-profiles-operator.x-k8s.io/v1beta1
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: SeccompProfile
 spec:
   defaultAction: SCMP_ACT_ERRNO
@@ -39,7 +39,7 @@ spec:
 `
 
 const SeccompB = `
-apiVersion: security-profiles-operator.x-k8s.io/v1beta1
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: SeccompProfile
 spec:
   defaultAction: SCMP_ACT_ERRNO
@@ -49,7 +49,7 @@ spec:
         - bar
 `
 
-const SeccompMerged = `apiVersion: security-profiles-operator.x-k8s.io/v1beta1
+const SeccompMerged = `apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: SeccompProfile
 metadata: {}
 spec:
@@ -65,7 +65,7 @@ status: {}
 `
 
 const SelinuxA = `
-apiVersion: security-profiles-operator.x-k8s.io/v1alpha2
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: SelinuxProfile
 spec:
   inherit:

@@ -26,7 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	selxv1alpha2 "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha2"
+	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 )
 
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=rawselinuxprofiles,verbs=get;list;watch
@@ -52,7 +52,7 @@ func RegisterWebhook(server webhook.Server, scheme *runtime.Scheme) {
 func (v *rawSelinuxProfileValidator) Handle(
 	_ context.Context, req admission.Request,
 ) admission.Response {
-	rsp := &selxv1alpha2.RawSelinuxProfile{}
+	rsp := &selinuxprofileapi.RawSelinuxProfile{}
 	if err := v.decoder.Decode(req, rsp); err != nil {
 		v.log.Error(err, "failed to decode RawSelinuxProfile")
 

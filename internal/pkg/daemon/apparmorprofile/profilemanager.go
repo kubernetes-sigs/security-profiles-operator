@@ -16,7 +16,7 @@ limitations under the License.
 
 package apparmorprofile
 
-import profilebasev1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
+import profilebaseapi "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 
 type ProfileManager interface {
 	// Enabled checks whether the given profile technology is supported and
@@ -24,8 +24,8 @@ type ProfileManager interface {
 	Enabled() bool
 
 	// InstallProfile ensure the profile is installed/copied/loaded into the host.
-	InstallProfile(p profilebasev1alpha1.StatusBaseUser) (bool, error)
+	InstallProfile(p profilebaseapi.StatusBaseUser) (bool, error)
 
 	// RemoveProfile ensure the profile is uninstalled/deleted/unloaded from the host.
-	RemoveProfile(p profilebasev1alpha1.StatusBaseUser) error
+	RemoveProfile(p profilebaseapi.StatusBaseUser) error
 }

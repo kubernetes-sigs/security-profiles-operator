@@ -27,8 +27,8 @@ import (
 
 	"sigs.k8s.io/release-utils/command"
 
-	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
-	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
+	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
@@ -405,12 +405,12 @@ func (e *e2e) getSeccompProfile(name string) *seccompprofileapi.SeccompProfile {
 
 func (e *e2e) getSeccompProfileNodeStatus(
 	id, node string,
-) *secprofnodestatusv1alpha1.SecurityProfileNodeStatus {
+) *secprofnodestatusapi.SecurityProfileNodeStatus {
 	selector := fmt.Sprintf("spo.x-k8s.io/node-name=%s,spo.x-k8s.io/profile-id=SeccompProfile-%s", node, id)
 	seccompProfileNodeStatusJSON := e.kubectl(
 		"get", "securityprofilenodestatus", "-l", selector, "-o", "json",
 	)
-	secpolNodeStatusList := &secprofnodestatusv1alpha1.SecurityProfileNodeStatusList{}
+	secpolNodeStatusList := &secprofnodestatusapi.SecurityProfileNodeStatusList{}
 	e.Require().NoError(json.Unmarshal([]byte(seccompProfileNodeStatusJSON), secpolNodeStatusList))
 
 	if e.Len(secpolNodeStatusList.Items, 1) {
@@ -422,12 +422,12 @@ func (e *e2e) getSeccompProfileNodeStatus(
 
 func (e *e2e) getAllSeccompProfileNodeStatuses(
 	id string,
-) *secprofnodestatusv1alpha1.SecurityProfileNodeStatusList {
+) *secprofnodestatusapi.SecurityProfileNodeStatusList {
 	selector := "spo.x-k8s.io/profile-id=SeccompProfile-" + id
 	seccompProfileNodeStatusJSON := e.kubectl(
 		"get", "securityprofilenodestatus", "-l", selector, "-o", "json",
 	)
-	secpolNodeStatusList := &secprofnodestatusv1alpha1.SecurityProfileNodeStatusList{}
+	secpolNodeStatusList := &secprofnodestatusapi.SecurityProfileNodeStatusList{}
 	e.Require().NoError(json.Unmarshal([]byte(seccompProfileNodeStatusJSON), secpolNodeStatusList))
 
 	return secpolNodeStatusList

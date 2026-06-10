@@ -36,10 +36,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
-	profilebindingv1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1alpha1"
-	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
-	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha2"
+	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
+	profilebindingapi "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
+	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
@@ -142,7 +142,7 @@ func (p *podBinder) Handle(ctx context.Context, req admission.Request) admission
 
 func (p *podBinder) updatePod(
 	ctx context.Context,
-	profilebindings []profilebindingv1alpha1.ProfileBinding,
+	profilebindings []profilebindingapi.ProfileBinding,
 	req *admission.Request,
 ) (*corev1.Pod, admission.Response) {
 	var err error
@@ -151,7 +151,7 @@ func (p *podBinder) updatePod(
 
 	var containers sync.Map
 
-	var podProfileBinding *profilebindingv1alpha1.ProfileBinding
+	var podProfileBinding *profilebindingapi.ProfileBinding
 
 	podID := req.Namespace + "/" + req.Name
 	pod := &corev1.Pod{}
@@ -188,11 +188,11 @@ func (p *podBinder) updatePod(
 		var err error
 
 		switch profileKind {
-		case profilebindingv1alpha1.ProfileBindingKindSeccompProfile:
+		case profilebindingapi.ProfileBindingKindSeccompProfile:
 			bindProfile, err = p.getSeccompProfile(ctx, namespacedName)
-		case profilebindingv1alpha1.ProfileBindingKindSelinuxProfile:
+		case profilebindingapi.ProfileBindingKindSelinuxProfile:
 			bindProfile, err = p.getSelinuxProfile(ctx, namespacedName)
-		case profilebindingv1alpha1.ProfileBindingKindAppArmorProfile:
+		case profilebindingapi.ProfileBindingKindAppArmorProfile:
 			bindProfile, err = p.getAppArmorProfile(ctx, namespacedName)
 		default:
 			p.log.Info(fmt.Sprintf("profile kind %s not supported", profileKind))
@@ -206,7 +206,7 @@ func (p *podBinder) updatePod(
 			return pod, admission.Errored(http.StatusInternalServerError, err)
 		}
 
-		if profilebindings[i].Spec.Image == profilebindingv1alpha1.SelectAllContainersImage {
+		if profilebindings[i].Spec.Image == profilebindingapi.SelectAllContainersImage {
 			podBindProfile = &bindProfile
 			podProfileBinding = &profilebindings[i]
 
@@ -509,7 +509,7 @@ func (p *podBinder) addPodAppArmorContext(
 func (p *podBinder) addPodToBinding(
 	ctx context.Context,
 	podID string,
-	pb *profilebindingv1alpha1.ProfileBinding,
+	pb *profilebindingapi.ProfileBinding,
 ) error {
 	pb.Status.ActiveWorkloads = utils.AppendIfNotExists(pb.Status.ActiveWorkloads, podID)
 	if err := p.UpdateResourceStatus(ctx, p.log, pb, "profilebinding status"); err != nil {
@@ -526,7 +526,7 @@ func (p *podBinder) addPodToBinding(
 func (p *podBinder) removePodFromBinding(
 	ctx context.Context,
 	podID string,
-	pb *profilebindingv1alpha1.ProfileBinding,
+	pb *profilebindingapi.ProfileBinding,
 ) error {
 	pb.Status.ActiveWorkloads = utils.RemoveIfExists(pb.Status.ActiveWorkloads, podID)
 	if err := p.UpdateResourceStatus(ctx, p.log, pb, "profilebinding status"); err != nil {

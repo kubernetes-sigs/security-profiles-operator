@@ -28,7 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/release-utils/helpers"
 
-	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
+	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
@@ -43,8 +43,8 @@ func GetSPODName() string {
 }
 
 // GetSPOD returns the SPOD instance we're currently running on.
-func GetSPOD(ctx context.Context, cli client.Client) (*spodv1alpha1.SecurityProfilesOperatorDaemon, error) {
-	spod := &spodv1alpha1.SecurityProfilesOperatorDaemon{}
+func GetSPOD(ctx context.Context, cli client.Client) (*spodapi.SecurityProfilesOperatorDaemon, error) {
+	spod := &spodapi.SecurityProfilesOperatorDaemon{}
 	if err := cli.Get(ctx, types.NamespacedName{
 		Name:      GetSPODName(),
 		Namespace: config.GetOperatorNamespace(),

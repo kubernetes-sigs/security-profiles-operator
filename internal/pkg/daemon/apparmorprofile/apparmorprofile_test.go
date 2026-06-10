@@ -28,7 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	profilebasev1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
+	profilebaseapi "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
@@ -120,10 +120,10 @@ func (f *FakeProfileManager) Enabled() bool {
 	return f.enabled
 }
 
-func (f *FakeProfileManager) InstallProfile(profilebasev1alpha1.StatusBaseUser) (bool, error) {
+func (f *FakeProfileManager) InstallProfile(profilebaseapi.StatusBaseUser) (bool, error) {
 	return f.installed, f.err
 }
 
-func (f *FakeProfileManager) RemoveProfile(profilebasev1alpha1.StatusBaseUser) error {
+func (f *FakeProfileManager) RemoveProfile(profilebaseapi.StatusBaseUser) error {
 	return f.err
 }

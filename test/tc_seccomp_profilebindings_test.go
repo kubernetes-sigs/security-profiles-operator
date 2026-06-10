@@ -28,7 +28,7 @@ func (e *e2e) testCaseSeccompProfileBinding(_ []string, image string) {
 	const exampleProfilePath = "examples/seccompprofile.yaml"
 
 	testBinding := fmt.Sprintf(`
-apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: ProfileBinding
 metadata:
   name: hello-binding

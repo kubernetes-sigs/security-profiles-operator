@@ -28,7 +28,7 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
 
-	statusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
+	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 )
 
 func GetDynamicClient() (dynamic.Interface, error) {
@@ -83,7 +83,7 @@ func GetNodeList(ctx context.Context) ([]string, error) {
 }
 
 func FinalizersMatchCurrentNodes(ctx context.Context,
-	nodeStatusList *statusv1alpha1.SecurityProfileNodeStatusList,
+	nodeStatusList *secprofnodestatusapi.SecurityProfileNodeStatusList,
 ) (bool, error) {
 	// Obtain a list of current node names through a Kubernetes API call
 	currentNodeNames, err := GetNodeList(ctx)

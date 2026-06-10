@@ -42,8 +42,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
-	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
-	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
+	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
@@ -91,7 +91,7 @@ func (r *ReconcileSPOd) Name() string {
 
 // SchemeBuilder returns the API scheme of the controller.
 func (r *ReconcileSPOd) SchemeBuilder() *scheme.Builder {
-	return spodv1alpha1.SchemeBuilder
+	return spodapi.SchemeBuilder
 }
 
 // Healthz is the liveness probe endpoint of the controller.
@@ -143,7 +143,7 @@ func (r *ReconcileSPOd) Reconcile(ctx context.Context, req reconcile.Request) (r
 
 	logger := r.log.WithValues("profile", req.Name, "namespace", req.Namespace)
 	// Fetch the ConfigMap instance
-	spod := &spodv1alpha1.SecurityProfilesOperatorDaemon{}
+	spod := &spodapi.SecurityProfilesOperatorDaemon{}
 	if err := r.client.Get(ctx, req.NamespacedName, spod); err != nil {
 		if errors.IsNotFound(err) {
 			return reconcile.Result{}, nil
@@ -253,7 +253,7 @@ func (r *ReconcileSPOd) Reconcile(ctx context.Context, req reconcile.Request) (r
 
 func (r *ReconcileSPOd) handleInitialStatus(
 	ctx context.Context,
-	spod *spodv1alpha1.SecurityProfilesOperatorDaemon,
+	spod *spodapi.SecurityProfilesOperatorDaemon,
 	l logr.Logger,
 ) (err error) {
 	l.Info("Adding an initial status to the SPOD instance")
@@ -271,7 +271,7 @@ func (r *ReconcileSPOd) handleInitialStatus(
 
 func (r *ReconcileSPOd) handleCreatingStatus(
 	ctx context.Context,
-	spod *spodv1alpha1.SecurityProfilesOperatorDaemon,
+	spod *spodapi.SecurityProfilesOperatorDaemon,
 	l logr.Logger,
 ) (err error) {
 	l.Info("Adding 'Creating' status to the SPOD instance")
@@ -289,7 +289,7 @@ func (r *ReconcileSPOd) handleCreatingStatus(
 
 func (r *ReconcileSPOd) handleUpdatingStatus(
 	ctx context.Context,
-	spod *spodv1alpha1.SecurityProfilesOperatorDaemon,
+	spod *spodapi.SecurityProfilesOperatorDaemon,
 	l logr.Logger,
 ) (err error) {
 	l.Info("Adding 'Updating' status to the SPOD instance")
@@ -306,7 +306,7 @@ func (r *ReconcileSPOd) handleUpdatingStatus(
 }
 
 func (r *ReconcileSPOd) defaultProfiles(
-	cfg *spodv1alpha1.SecurityProfilesOperatorDaemon,
+	cfg *spodapi.SecurityProfilesOperatorDaemon,
 ) (defaultProfiles []*seccompprofileapi.SeccompProfile) {
 	if ptr.Deref(cfg.Spec.Enricher.EnableLogEnricher, false) {
 		defaultProfiles = append(defaultProfiles, bindata.DefaultLogEnricherProfile())
@@ -317,7 +317,7 @@ func (r *ReconcileSPOd) defaultProfiles(
 
 func (r *ReconcileSPOd) handleRunningStatus(
 	ctx context.Context,
-	spod *spodv1alpha1.SecurityProfilesOperatorDaemon,
+	spod *spodapi.SecurityProfilesOperatorDaemon,
 	l logr.Logger,
 ) (err error) {
 	l.Info("Adding 'Running' status to the SPOD instance")
@@ -335,7 +335,7 @@ func (r *ReconcileSPOd) handleRunningStatus(
 
 func (r *ReconcileSPOd) handleCreate(
 	ctx context.Context,
-	cfg *spodv1alpha1.SecurityProfilesOperatorDaemon,
+	cfg *spodapi.SecurityProfilesOperatorDaemon,
 	newSPOd *appsv1.DaemonSet,
 	webhook *bindata.Webhook,
 	metricsService *corev1.Service,
@@ -421,7 +421,7 @@ func (r *ReconcileSPOd) handleCreate(
 
 func (r *ReconcileSPOd) handleUpdate(
 	ctx context.Context,
-	cfg *spodv1alpha1.SecurityProfilesOperatorDaemon,
+	cfg *spodapi.SecurityProfilesOperatorDaemon,
 	spodInstance *appsv1.DaemonSet,
 	webhook *bindata.Webhook,
 	metricsService *corev1.Service,
@@ -519,7 +519,7 @@ func (r *ReconcileSPOd) handleUpdate(
 //nolint:gocognit,gocyclo // large function with many config branches
 func (r *ReconcileSPOd) getConfiguredSPOd(
 	ctx context.Context,
-	cfg *spodv1alpha1.SecurityProfilesOperatorDaemon,
+	cfg *spodapi.SecurityProfilesOperatorDaemon,
 	image string,
 	pullPolicy corev1.PullPolicy,
 	caInjectType bindata.CAInjectType,
@@ -799,7 +799,7 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	return newSPOd
 }
 
-func (r *ReconcileSPOd) getConfiguredLogEnricher(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) {
+func (r *ReconcileSPOd) getConfiguredLogEnricher(cfg *spodapi.SecurityProfilesOperatorDaemon) {
 	if cfg.Spec.Enricher.LogEnricherFilters != "" {
 		r.log.Info("Setting LogEnricherFilters",
 			"LogEnricherFilters", cfg.Spec.Enricher.LogEnricherFilters)
@@ -815,12 +815,12 @@ func (r *ReconcileSPOd) getConfiguredLogEnricher(cfg *spodv1alpha1.SecurityProfi
 
 		r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDLogEnricher].Args = addArgsConfig(
 			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDLogEnricher].Args,
-			"--enricher-log-source="+cfg.Spec.Enricher.LogEnricherSource,
+			"--enricher-log-source="+string(cfg.Spec.Enricher.LogEnricherSource),
 		)
 	}
 }
 
-func (r *ReconcileSPOd) getConfiguredJsonEnricher(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) {
+func (r *ReconcileSPOd) getConfiguredJsonEnricher(cfg *spodapi.SecurityProfilesOperatorDaemon) {
 	if cfg.Spec.Enricher.JsonEnricherFilters != "" {
 		r.log.Info("Setting LogEnricherFilters",
 			"JsonEnricherFilters", cfg.Spec.Enricher.JsonEnricherFilters)
@@ -883,7 +883,7 @@ func (r *ReconcileSPOd) getConfiguredJsonEnricher(cfg *spodv1alpha1.SecurityProf
 
 // getConfiguredWebook gets a fully configured webhook instance from a desired
 // configuration and the reference base SPOd.
-func (r *ReconcileSPOd) getConfiguredWebook(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon,
+func (r *ReconcileSPOd) getConfiguredWebook(cfg *spodapi.SecurityProfilesOperatorDaemon,
 	image string, pullPolicy corev1.PullPolicy, caInjectType bindata.CAInjectType,
 ) *bindata.Webhook {
 	webhook := bindata.GetWebhook(r.log, r.namespace, cfg.Spec.Webhook.Options, image,
@@ -892,7 +892,7 @@ func (r *ReconcileSPOd) getConfiguredWebook(cfg *spodv1alpha1.SecurityProfilesOp
 	return webhook
 }
 
-func isLogEnricherEnabled(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) bool {
+func isLogEnricherEnabled(cfg *spodapi.SecurityProfilesOperatorDaemon) bool {
 	enableLogEnricherEnv, err := strconv.ParseBool(os.Getenv(config.EnableLogEnricherEnvKey))
 	if err != nil {
 		enableLogEnricherEnv = false
@@ -901,7 +901,7 @@ func isLogEnricherEnabled(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) bool
 	return ptr.Deref(cfg.Spec.Enricher.EnableLogEnricher, false) || enableLogEnricherEnv
 }
 
-func isJsonEnricherEnabled(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) bool {
+func isJsonEnricherEnabled(cfg *spodapi.SecurityProfilesOperatorDaemon) bool {
 	enableJsonEnricherEnv, err := strconv.ParseBool(os.Getenv(config.EnableJsonEnricherEnvKey))
 	if err != nil {
 		enableJsonEnricherEnv = false
@@ -950,7 +950,7 @@ func sliceContainsString(slice []string, s string) bool {
 	return slices.Contains(slice, s)
 }
 
-func isBpfRecorderEnabled(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) bool {
+func isBpfRecorderEnabled(cfg *spodapi.SecurityProfilesOperatorDaemon) bool {
 	enableBpfRecorderEnv, err := strconv.ParseBool(os.Getenv(config.EnableBpfRecorderEnvKey))
 	if err != nil {
 		enableBpfRecorderEnv = false

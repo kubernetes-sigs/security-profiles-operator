@@ -23,7 +23,7 @@ import (
 
 	"github.com/go-logr/logr"
 
-	profilebasev1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
+	profilebaseapi "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 )
 
 var errAppArmorNotSupported = errors.New("apparmor not enabled in this build")
@@ -32,11 +32,11 @@ func (a *aaProfileManager) Enabled() bool {
 	return false
 }
 
-func (a *aaProfileManager) RemoveProfile(profilebasev1alpha1.StatusBaseUser) error {
+func (a *aaProfileManager) RemoveProfile(profilebaseapi.StatusBaseUser) error {
 	return errAppArmorNotSupported
 }
 
-func (a *aaProfileManager) InstallProfile(profilebasev1alpha1.StatusBaseUser) (bool, error) {
+func (a *aaProfileManager) InstallProfile(profilebaseapi.StatusBaseUser) (bool, error) {
 	return false, errAppArmorNotSupported
 }
 

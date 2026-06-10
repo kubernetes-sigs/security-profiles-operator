@@ -22,13 +22,13 @@ import (
 	"strings"
 	"time"
 
-	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
+	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 )
 
 const (
 	policyName     = "this-is-a-very-long-name-surely-over-64-characters-omg-its-overflowing"
 	longNamePolicy = `
-    apiVersion: security-profiles-operator.x-k8s.io/v1beta1
+    apiVersion: security-profiles-operator.x-k8s.io/v1
     kind: SeccompProfile
     metadata:
       name: this-is-a-very-long-name-surely-over-64-characters-omg-its-overflowing
@@ -62,7 +62,7 @@ func (e *e2e) testCaseLongSeccompProfileName(nodes []string) {
 			"get", "securityprofilenodestatus", "-l", selector, "-o", "json",
 		)
 
-		secpolNodeStatusList := &secprofnodestatusv1alpha1.SecurityProfileNodeStatusList{}
+		secpolNodeStatusList := &secprofnodestatusapi.SecurityProfileNodeStatusList{}
 		e.Require().NoError(json.Unmarshal([]byte(seccompProfileNodeStatusJSON), secpolNodeStatusList))
 
 		if len(nodes) == len(secpolNodeStatusList.Items) {

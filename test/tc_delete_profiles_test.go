@@ -21,7 +21,7 @@ import (
 	"time"
 
 	"sigs.k8s.io/security-profiles-operator/api/common"
-	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
+	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 )
 
 func (e *e2e) testCaseDeleteProfiles(nodes []string) {
@@ -29,7 +29,7 @@ func (e *e2e) testCaseDeleteProfiles(nodes []string) {
 
 	const (
 		deleteProfile = `
-apiVersion: security-profiles-operator.x-k8s.io/v1beta1
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: SeccompProfile
 metadata:
   name: delete-me
@@ -41,7 +41,7 @@ spec:
 		fakeNodeStatusName = "delete-me-fake-node"
 		//nolint:dupword // status: is both a YAML key and a field name
 		fakeNodeStatus = `
-apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: SecurityProfileNodeStatus
 metadata:
   name: delete-me-fake-node
@@ -195,12 +195,12 @@ spec:
 
 		// At this point it must be terminating or else we haven't matched the condition above
 		sp := e.getSeccompProfile(deleteProfileName)
-		e.Equal(secprofnodestatusv1alpha1.ProfileStateTerminating, sp.Status.Status)
+		e.Equal(secprofnodestatusapi.ProfileStateTerminating, sp.Status.Status)
 
 		// The node statuses should still be there, just terminating
 		nodeStatuses := e.getAllSeccompProfileNodeStatuses(deleteProfileName)
 		for i := range nodeStatuses.Items {
-			e.Equal(secprofnodestatusv1alpha1.ProfileStateTerminating, nodeStatuses.Items[i].Status.Status)
+			e.Equal(secprofnodestatusapi.ProfileStateTerminating, nodeStatuses.Items[i].Status.Status)
 			// On each node, there should still be the profile on the disk
 			nodeWithPodName := nodeStatuses.Items[i].Spec.NodeName
 			profileOperatorPath := path.Join(e.nodeRootfsPrefix, sp.GetProfileOperatorPath())

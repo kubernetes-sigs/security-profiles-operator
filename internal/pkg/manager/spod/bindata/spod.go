@@ -25,7 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
-	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
+	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
@@ -64,7 +64,7 @@ const (
 	DefaultHostProcPath                              = "/proc"
 	SelinuxContainerName                             = "selinuxd"
 	LogEnricherContainerName                         = "log-enricher"
-	DefaultLogEnricherSource                         = "auditd"
+	DefaultLogEnricherSource                         = spodapi.LogEnricherSourceAuditd
 	JsonEnricherContainerName                        = "json-enricher"
 	BpfRecorderContainerName                         = "bpf-recorder"
 	NonRootEnablerContainerName                      = "non-root-enabler"
@@ -78,37 +78,37 @@ const (
 	MetricsCertPath                                  = "/var/run/secrets/metrics"
 )
 
-var DefaultSPOD = &spodv1alpha1.SecurityProfilesOperatorDaemon{
+var DefaultSPOD = &spodapi.SecurityProfilesOperatorDaemon{
 	ObjectMeta: metav1.ObjectMeta{
 		Name:   config.SPOdName,
 		Labels: map[string]string{"app": config.OperatorName},
 	},
-	Spec: spodv1alpha1.SPODSpec{
+	Spec: spodapi.SPODSpec{
 		Verbosity:                0,
 		EnableProfiling:          new(bool),
 		EnableMemoryOptimization: new(bool),
 		EnableAppArmor:           new(bool),
 		HostProcVolumePath:       DefaultHostProcPath,
-		Selinux: spodv1alpha1.SPODSelinuxConfig{
-			Options: spodv1alpha1.SelinuxOptions{
+		Selinux: spodapi.SPODSelinuxConfig{
+			Options: spodapi.SelinuxOptions{
 				AllowedSystemProfiles: []string{
 					"container",
 				},
 			},
 		},
-		Enricher: spodv1alpha1.SPODEnricherConfig{
+		Enricher: spodapi.SPODEnricherConfig{
 			EnableLogEnricher:  new(bool),
 			EnableJsonEnricher: new(bool),
 			EnableBpfRecorder:  new(bool),
 			LogEnricherSource:  DefaultLogEnricherSource,
 		},
-		Webhook: spodv1alpha1.SPODWebhookConfig{
+		Webhook: spodapi.SPODWebhookConfig{
 			StaticConfig: new(bool),
 		},
-		Security: spodv1alpha1.SPODSecurityConfig{
+		Security: spodapi.SPODSecurityConfig{
 			DisableOCIArtifactSignatureVerification: new(bool),
 		},
-		Scheduling: spodv1alpha1.SPODSchedulingConfig{
+		Scheduling: spodapi.SPODSchedulingConfig{
 			PriorityClassName: DefaultPriorityClassName,
 			Tolerations: []corev1.Toleration{
 				{

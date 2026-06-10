@@ -19,7 +19,7 @@ package remover
 import (
 	"os"
 
-	profilebasev1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
+	profilebaseapi "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/apparmorprofile"
 )
 
@@ -30,7 +30,7 @@ type defaultImpl struct{}
 type impl interface {
 	ReadFile(string) ([]byte, error)
 	AppArmorEnabled(manager apparmorprofile.ProfileManager) bool
-	AppArmorRemoveProfile(manager apparmorprofile.ProfileManager, p profilebasev1alpha1.StatusBaseUser) error
+	AppArmorRemoveProfile(manager apparmorprofile.ProfileManager, p profilebaseapi.StatusBaseUser) error
 }
 
 func (*defaultImpl) ReadFile(name string) ([]byte, error) {
@@ -43,7 +43,7 @@ func (*defaultImpl) AppArmorEnabled(manager apparmorprofile.ProfileManager) bool
 
 func (*defaultImpl) AppArmorRemoveProfile(
 	manager apparmorprofile.ProfileManager,
-	p profilebasev1alpha1.StatusBaseUser,
+	p profilebaseapi.StatusBaseUser,
 ) error {
 	return manager.RemoveProfile(p)
 }

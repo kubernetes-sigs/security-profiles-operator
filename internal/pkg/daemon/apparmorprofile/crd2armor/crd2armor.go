@@ -25,7 +25,7 @@ import (
 	"strings"
 	"text/template"
 
-	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
+	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 )
 
 var appArmorTemplate = `

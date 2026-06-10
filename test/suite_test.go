@@ -814,7 +814,7 @@ func (e *e2e) jsonEnricherOnlyTestCaseFileOptions(jsonLogFileName string,
 
 func (e *e2e) enableLogEnricherBpfInSpod() {
 	e.kubectlOperatorNS("patch", "spod", "spod", "-p",
-		`{"spec":{"enricher":{"logEnricherSource": "bpf"}}}`, "--type=merge")
+		`{"spec":{"enricher":{"logEnricherSource": "Bpf"}}}`, "--type=merge")
 }
 
 func (e *e2e) enableLogEnricherInSpod() {

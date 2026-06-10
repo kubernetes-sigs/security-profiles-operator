@@ -23,7 +23,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/sets"
 
-	selxv1alpha2 "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha2"
+	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 )
 
 const (
@@ -33,8 +33,8 @@ const (
 
 func Object2CIL(
 	systemInherits []string,
-	objInherits []selxv1alpha2.SelinuxProfileObject,
-	sp *selxv1alpha2.SelinuxProfile,
+	objInherits []selinuxprofileapi.SelinuxProfileObject,
+	sp *selinuxprofileapi.SelinuxProfile,
 ) string {
 	cilbuilder := strings.Builder{}
 	cilbuilder.WriteString(getCILStart(sp))
@@ -62,13 +62,13 @@ func Object2CIL(
 		cilbuilder.WriteString(getCILInheritline(inherit.GetPolicyName()))
 	}
 
-	if sp.Spec.Mode == selxv1alpha2.SelinuxModePermissive {
+	if sp.Spec.Mode == selinuxprofileapi.SelinuxModePermissive {
 		cilbuilder.WriteString(typePermissive)
 		cilbuilder.WriteString("\n")
 	}
 
-	for _, ttype := range selxv1alpha2.SortLabelKeys(sp.Spec.Allow) {
-		for _, tclass := range selxv1alpha2.SortObjectClassKeys(sp.Spec.Allow[ttype]) {
+	for _, ttype := range selinuxprofileapi.SortLabelKeys(sp.Spec.Allow) {
+		for _, tclass := range selinuxprofileapi.SortObjectClassKeys(sp.Spec.Allow[ttype]) {
 			cilbuilder.WriteString(getCILAllowLine(sp, ttype, tclass, sp.Spec.Allow[ttype][tclass]))
 		}
 	}
@@ -78,7 +78,7 @@ func Object2CIL(
 	return cilbuilder.String()
 }
 
-func getCILStart(sp *selxv1alpha2.SelinuxProfile) string {
+func getCILStart(sp *selinuxprofileapi.SelinuxProfile) string {
 	return fmt.Sprintf("(block %s\n", sp.GetName())
 }
 
@@ -87,13 +87,13 @@ func getCILInheritline(i string) string {
 }
 
 func getCILAllowLine(
-	sp *selxv1alpha2.SelinuxProfile,
-	ttype selxv1alpha2.LabelKey,
-	tclass selxv1alpha2.ObjectClassKey,
-	perms selxv1alpha2.PermissionSet,
+	sp *selinuxprofileapi.SelinuxProfile,
+	ttype selinuxprofileapi.LabelKey,
+	tclass selinuxprofileapi.ObjectClassKey,
+	perms selinuxprofileapi.PermissionSet,
 ) string {
 	ttypeFinal := ttype.String()
-	if ttype == selxv1alpha2.AllowSelf {
+	if ttype == selinuxprofileapi.AllowSelf {
 		ttypeFinal = sp.GetPolicyUsage()
 	}
 

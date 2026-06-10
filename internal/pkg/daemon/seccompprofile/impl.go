@@ -25,8 +25,8 @@ import (
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
-	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
+	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
@@ -45,7 +45,7 @@ type impl interface {
 	) (*seccompprofileapi.SeccompProfile, error)
 	IncSeccompProfileError(*metrics.Metrics, string)
 	RecordEvent(record.EventRecorder, runtime.Object, string, string, string)
-	GetSPOD(context.Context, client.Client) (*spodv1alpha1.SecurityProfilesOperatorDaemon, error)
+	GetSPOD(context.Context, client.Client) (*spodapi.SecurityProfilesOperatorDaemon, error)
 }
 
 func (*defaultImpl) Pull(
@@ -87,6 +87,6 @@ func (*defaultImpl) RecordEvent(
 
 func (*defaultImpl) GetSPOD(
 	ctx context.Context, cli client.Client,
-) (*spodv1alpha1.SecurityProfilesOperatorDaemon, error) {
+) (*spodapi.SecurityProfilesOperatorDaemon, error) {
 	return common.GetSPOD(ctx, cli)
 }

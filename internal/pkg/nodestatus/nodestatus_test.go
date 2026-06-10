@@ -22,8 +22,8 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	profilebase "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
-	seccompprofile "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
+	profilebase "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
+	seccompprofile "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 

@@ -24,14 +24,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	selxv1alpha2 "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha2"
+	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 )
 
 type controllerBuilder func(*ctrl.Builder, reconcile.Reconciler) error
 
 type SelinuxObjectHandler interface {
 	Init(context.Context, client.Client, types.NamespacedName) error
-	GetProfileObject() selxv1alpha2.SelinuxProfileObject
+	GetProfileObject() selinuxprofileapi.SelinuxProfileObject
 	Validate() error
 	GetCILPolicy() (string, error)
 }

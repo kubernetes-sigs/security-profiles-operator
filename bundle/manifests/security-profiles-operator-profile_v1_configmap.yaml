@@ -116,7 +116,7 @@ data:
       ]
     }
   bpfrecorder-apparmor.yaml: |
-    apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+    apiVersion: security-profiles-operator.x-k8s.io/v1
     kind: AppArmorProfile
     metadata:
       labels:
@@ -343,7 +343,7 @@ data:
       (typepermissive process)
     )
   spo-apparmor.yaml: |
-    apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+    apiVersion: security-profiles-operator.x-k8s.io/v1
     kind: AppArmorProfile
     metadata:
       labels:

@@ -22,7 +22,7 @@ import (
 
 	"github.com/go-logr/logr"
 
-	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
+	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/installer"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/apparmorprofile"

@@ -1,0 +1,145 @@
+# Adds conversion webhook configuration to all CRDs that serve multiple API versions.
+# The caBundle is injected by cert-manager via the annotation below.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    cert-manager.io/inject-ca-from: security-profiles-operator/webhook-cert
+  name: seccompprofiles.security-profiles-operator.x-k8s.io
+spec:
+  conversion:
+    strategy: Webhook
+    webhook:
+      clientConfig:
+        service:
+          name: webhook-service
+          namespace: security-profiles-operator
+          path: /convert
+      conversionReviewVersions:
+      - v1
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    cert-manager.io/inject-ca-from: security-profiles-operator/webhook-cert
+  name: selinuxprofiles.security-profiles-operator.x-k8s.io
+spec:
+  conversion:
+    strategy: Webhook
+    webhook:
+      clientConfig:
+        service:
+          name: webhook-service
+          namespace: security-profiles-operator
+          path: /convert
+      conversionReviewVersions:
+      - v1
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    cert-manager.io/inject-ca-from: security-profiles-operator/webhook-cert
+  name: rawselinuxprofiles.security-profiles-operator.x-k8s.io
+spec:
+  conversion:
+    strategy: Webhook
+    webhook:
+      clientConfig:
+        service:
+          name: webhook-service
+          namespace: security-profiles-operator
+          path: /convert
+      conversionReviewVersions:
+      - v1
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    cert-manager.io/inject-ca-from: security-profiles-operator/webhook-cert
+  name: apparmorprofiles.security-profiles-operator.x-k8s.io
+spec:
+  conversion:
+    strategy: Webhook
+    webhook:
+      clientConfig:
+        service:
+          name: webhook-service
+          namespace: security-profiles-operator
+          path: /convert
+      conversionReviewVersions:
+      - v1
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    cert-manager.io/inject-ca-from: security-profiles-operator/webhook-cert
+  name: profilebindings.security-profiles-operator.x-k8s.io
+spec:
+  conversion:
+    strategy: Webhook
+    webhook:
+      clientConfig:
+        service:
+          name: webhook-service
+          namespace: security-profiles-operator
+          path: /convert
+      conversionReviewVersions:
+      - v1
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    cert-manager.io/inject-ca-from: security-profiles-operator/webhook-cert
+  name: profilerecordings.security-profiles-operator.x-k8s.io
+spec:
+  conversion:
+    strategy: Webhook
+    webhook:
+      clientConfig:
+        service:
+          name: webhook-service
+          namespace: security-profiles-operator
+          path: /convert
+      conversionReviewVersions:
+      - v1
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    cert-manager.io/inject-ca-from: security-profiles-operator/webhook-cert
+  name: securityprofilesoperatordaemons.security-profiles-operator.x-k8s.io
+spec:
+  conversion:
+    strategy: Webhook
+    webhook:
+      clientConfig:
+        service:
+          name: webhook-service
+          namespace: security-profiles-operator
+          path: /convert
+      conversionReviewVersions:
+      - v1
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    cert-manager.io/inject-ca-from: security-profiles-operator/webhook-cert
+  name: securityprofilenodestatuses.security-profiles-operator.x-k8s.io
+spec:
+  conversion:
+    strategy: Webhook
+    webhook:
+      clientConfig:
+        service:
+          name: webhook-service
+          namespace: security-profiles-operator
+          path: /convert
+      conversionReviewVersions:
+      - v1

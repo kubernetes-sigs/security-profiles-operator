@@ -32,7 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
+	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
@@ -141,7 +141,7 @@ type Webhook struct {
 func GetWebhook(
 	log logr.Logger,
 	namespace string,
-	webhookOpts []spodv1alpha1.WebhookOptions,
+	webhookOpts []spodapi.WebhookOptions,
 	image string,
 	pullPolicy corev1.PullPolicy,
 	caInjectType CAInjectType,
@@ -239,9 +239,9 @@ func (w *Webhook) Create(ctx context.Context, c client.Client) error {
 	return nil
 }
 
-func applyWebhookOptions(cfg *admissionregv1.MutatingWebhookConfiguration, opts []spodv1alpha1.WebhookOptions) {
+func applyWebhookOptions(cfg *admissionregv1.MutatingWebhookConfiguration, opts []spodapi.WebhookOptions) {
 	for i := range cfg.Webhooks {
-		var userOpt *spodv1alpha1.WebhookOptions
+		var userOpt *spodapi.WebhookOptions
 
 		hook := &cfg.Webhooks[i]
 
@@ -584,7 +584,7 @@ func getValidatingWebhookConfig() *admissionregv1.ValidatingWebhookConfiguration
 						},
 						Rule: admissionregv1.Rule{
 							APIGroups:   []string{"security-profiles-operator.x-k8s.io"},
-							APIVersions: []string{"v1alpha2"},
+							APIVersions: []string{"v1", "v1alpha2"},
 							Resources:   []string{"rawselinuxprofiles"},
 						},
 					},

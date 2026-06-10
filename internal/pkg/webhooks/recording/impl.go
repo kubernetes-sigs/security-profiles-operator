@@ -28,7 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	"sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1"
+	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
@@ -41,8 +41,8 @@ type defaultImpl struct {
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../../hack/boilerplate/boilerplate.generatego.txt
 //counterfeiter:generate . impl
 type impl interface {
-	GetProfileRecording(ctx context.Context, name, namespace string) (*v1alpha1.ProfileRecording, error)
-	ListProfileRecordings(context.Context, ...client.ListOption) (*v1alpha1.ProfileRecordingList, error)
+	GetProfileRecording(ctx context.Context, name, namespace string) (*profilerecordingapi.ProfileRecording, error)
+	ListProfileRecordings(context.Context, ...client.ListOption) (*profilerecordingapi.ProfileRecordingList, error)
 	ListRecordedPods(ctx context.Context, inNs string, selector *metav1.LabelSelector) (*corev1.PodList, error)
 	UpdateResource(context.Context, logr.Logger, client.Object, string) error
 	UpdateResourceStatus(context.Context, logr.Logger, client.Object, string) error
@@ -53,8 +53,8 @@ type impl interface {
 
 func (d *defaultImpl) GetProfileRecording(
 	ctx context.Context, name, namespace string,
-) (*v1alpha1.ProfileRecording, error) {
-	profileRecording := &v1alpha1.ProfileRecording{}
+) (*profilerecordingapi.ProfileRecording, error) {
+	profileRecording := &profilerecordingapi.ProfileRecording{}
 	prName := types.NamespacedName{Name: name, Namespace: namespace}
 
 	if err := d.client.Get(ctx, prName, profileRecording); err != nil {
@@ -66,8 +66,8 @@ func (d *defaultImpl) GetProfileRecording(
 
 func (d *defaultImpl) ListProfileRecordings(
 	ctx context.Context, opts ...client.ListOption,
-) (*v1alpha1.ProfileRecordingList, error) {
-	profileRecordings := &v1alpha1.ProfileRecordingList{}
+) (*profilerecordingapi.ProfileRecordingList, error) {
+	profileRecordings := &profilerecordingapi.ProfileRecordingList{}
 	if err := d.client.List(ctx, profileRecordings, opts...); err != nil {
 		return nil, fmt.Errorf("list profile recordings: %w", err)
 	}

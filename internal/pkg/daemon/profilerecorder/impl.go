@@ -34,8 +34,8 @@ import (
 
 	bpfrecorderapi "sigs.k8s.io/security-profiles-operator/api/grpc/bpfrecorder"
 	enricherapi "sigs.k8s.io/security-profiles-operator/api/grpc/enricher"
-	profilerecording1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1"
-	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
+	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
+	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher"
@@ -80,7 +80,7 @@ type impl interface {
 		context.Context, enricherapi.EnricherClient, *enricherapi.AvcRequest,
 	) error
 	DialEnricher() (*grpc.ClientConn, error)
-	GetRecording(context.Context, client.Client, client.ObjectKey) (*profilerecording1alpha1.ProfileRecording, error)
+	GetRecording(context.Context, client.Client, client.ObjectKey) (*profilerecordingapi.ProfileRecording, error)
 	ApparmorForProfile(
 		context.Context,
 		bpfrecorderapi.BpfRecorderClient,
@@ -227,8 +227,8 @@ func (*defaultImpl) GetRecording(
 	ctx context.Context,
 	cli client.Client,
 	key client.ObjectKey,
-) (*profilerecording1alpha1.ProfileRecording, error) {
-	recording := profilerecording1alpha1.ProfileRecording{}
+) (*profilerecordingapi.ProfileRecording, error) {
+	recording := profilerecordingapi.ProfileRecording{}
 
 	err := cli.Get(ctx, key, &recording)
 

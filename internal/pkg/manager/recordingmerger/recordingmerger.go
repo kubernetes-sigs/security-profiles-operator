@@ -30,10 +30,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
-	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
-	profilerecording1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1"
-	seccompprofile "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
-	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha2"
+	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
+	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
+	seccompprofile "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
+	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
@@ -72,7 +72,7 @@ func (r *PolicyMergeReconciler) Name() string {
 
 // SchemeBuilder returns the API scheme of the controller.
 func (r *PolicyMergeReconciler) SchemeBuilder() *scheme.Builder {
-	return profilerecording1alpha1.SchemeBuilder
+	return profilerecordingapi.SchemeBuilder
 }
 
 // Healthz is the liveness probe endpoint of the controller.
@@ -95,7 +95,7 @@ func (r *PolicyMergeReconciler) Reconcile(ctx context.Context, req reconcile.Req
 	logger := r.log.WithValues("profileRecording", req.Name, "namespace", req.Namespace)
 	logger.Info("Reconciling profile recording")
 
-	profileRecording := &profilerecording1alpha1.ProfileRecording{}
+	profileRecording := &profilerecordingapi.ProfileRecording{}
 	if err := r.client.Get(ctx, req.NamespacedName, profileRecording); err != nil {
 		if util.IgnoreNotFound(err) == nil {
 			return reconcile.Result{}, nil
@@ -120,16 +120,16 @@ func (r *PolicyMergeReconciler) Reconcile(ctx context.Context, req reconcile.Req
 
 func (r *PolicyMergeReconciler) mergeProfiles(
 	ctx context.Context,
-	profileRecording *profilerecording1alpha1.ProfileRecording,
+	profileRecording *profilerecordingapi.ProfileRecording,
 ) error {
 	var err error
 
 	switch profileRecording.Spec.Kind {
-	case profilerecording1alpha1.ProfileRecordingKindSeccompProfile:
+	case profilerecordingapi.ProfileRecordingKindSeccompProfile:
 		err = r.mergeSeccompProfiles(ctx, profileRecording)
-	case profilerecording1alpha1.ProfileRecordingKindSelinuxProfile:
+	case profilerecordingapi.ProfileRecordingKindSelinuxProfile:
 		err = r.mergeSelinuxProfiles(ctx, profileRecording)
-	case profilerecording1alpha1.ProfileRecordingKindAppArmorProfile:
+	case profilerecordingapi.ProfileRecordingKindAppArmorProfile:
 		err = r.mergeAppArmorProfiles(ctx, profileRecording)
 	default:
 		err = fmt.Errorf("%s: %s", errCannotMergeKind, profileRecording.Spec.Kind)
@@ -145,7 +145,7 @@ func (r *PolicyMergeReconciler) mergeProfiles(
 
 func (r *PolicyMergeReconciler) mergeTypedProfiles(
 	ctx context.Context,
-	profileRecording *profilerecording1alpha1.ProfileRecording,
+	profileRecording *profilerecordingapi.ProfileRecording,
 	createUpdateMergedProfile createUpdateFn,
 	profileItem client.Object,
 	listItem client.ObjectList,
@@ -195,14 +195,14 @@ func (r *PolicyMergeReconciler) mergeTypedProfiles(
 type createUpdateFn func(
 	ctx context.Context,
 	client client.Client,
-	profileRecording *profilerecording1alpha1.ProfileRecording,
+	profileRecording *profilerecordingapi.ProfileRecording,
 	mergedRecordingName string,
 	mergedProfiles mergeableProfile,
 ) (controllerutil.OperationResult, error)
 
 func (r *PolicyMergeReconciler) mergeSeccompProfiles(
 	ctx context.Context,
-	profileRecording *profilerecording1alpha1.ProfileRecording,
+	profileRecording *profilerecordingapi.ProfileRecording,
 ) error {
 	return r.mergeTypedProfiles(
 		ctx,
@@ -214,7 +214,7 @@ func (r *PolicyMergeReconciler) mergeSeccompProfiles(
 
 func (r *PolicyMergeReconciler) mergeSelinuxProfiles(
 	ctx context.Context,
-	profileRecording *profilerecording1alpha1.ProfileRecording,
+	profileRecording *profilerecordingapi.ProfileRecording,
 ) error {
 	return r.mergeTypedProfiles(
 		ctx,
@@ -226,7 +226,7 @@ func (r *PolicyMergeReconciler) mergeSelinuxProfiles(
 
 func (r *PolicyMergeReconciler) mergeAppArmorProfiles(
 	ctx context.Context,
-	profileRecording *profilerecording1alpha1.ProfileRecording,
+	profileRecording *profilerecordingapi.ProfileRecording,
 ) error {
 	return r.mergeTypedProfiles(
 		ctx,
@@ -240,7 +240,7 @@ func (r *PolicyMergeReconciler) mergeAppArmorProfiles(
 func createUpdateSeccompProfile(
 	ctx context.Context,
 	cl client.Client,
-	profileRecording *profilerecording1alpha1.ProfileRecording,
+	profileRecording *profilerecordingapi.ProfileRecording,
 	mergedRecordingName string,
 	mergedProfiles mergeableProfile,
 ) (controllerutil.OperationResult, error) {
@@ -250,14 +250,14 @@ func createUpdateSeccompProfile(
 		profileRecording,
 		mergedRecordingName,
 		mergedProfiles,
-		profilerecording1alpha1.ProfileRecordingKindSeccompProfile,
+		profilerecordingapi.ProfileRecordingKindSeccompProfile,
 	)
 }
 
 func createUpdateSelinuxProfile(
 	ctx context.Context,
 	cl client.Client,
-	profileRecording *profilerecording1alpha1.ProfileRecording,
+	profileRecording *profilerecordingapi.ProfileRecording,
 	mergedRecordingName string,
 	mergedProfiles mergeableProfile,
 ) (controllerutil.OperationResult, error) {
@@ -267,14 +267,14 @@ func createUpdateSelinuxProfile(
 		profileRecording,
 		mergedRecordingName,
 		mergedProfiles,
-		profilerecording1alpha1.ProfileRecordingKindSelinuxProfile,
+		profilerecordingapi.ProfileRecordingKindSelinuxProfile,
 	)
 }
 
 func createUpdateApparmorProfile(
 	ctx context.Context,
 	cl client.Client,
-	profileRecording *profilerecording1alpha1.ProfileRecording,
+	profileRecording *profilerecordingapi.ProfileRecording,
 	mergedRecordingName string,
 	mergedProfiles mergeableProfile,
 ) (controllerutil.OperationResult, error) {
@@ -284,20 +284,20 @@ func createUpdateApparmorProfile(
 		profileRecording,
 		mergedRecordingName,
 		mergedProfiles,
-		profilerecording1alpha1.ProfileRecordingKindAppArmorProfile,
+		profilerecordingapi.ProfileRecordingKindAppArmorProfile,
 	)
 }
 
 func createUpdateProfile(
 	ctx context.Context,
 	cl client.Client,
-	profileRecording *profilerecording1alpha1.ProfileRecording,
+	profileRecording *profilerecordingapi.ProfileRecording,
 	mergedRecordingName string,
 	mergedProfiles mergeableProfile,
-	kind profilerecording1alpha1.ProfileRecordingKind,
+	kind profilerecordingapi.ProfileRecordingKind,
 ) (controllerutil.OperationResult, error) {
 	switch kind {
-	case profilerecording1alpha1.ProfileRecordingKindSeccompProfile:
+	case profilerecordingapi.ProfileRecordingKindSeccompProfile:
 		mergedSp := &seccompprofile.SeccompProfile{
 			ObjectMeta: *mergedObjectMeta(mergedRecordingName, profileRecording.Name, profileRecording.Namespace),
 		}
@@ -318,7 +318,7 @@ func createUpdateProfile(
 			},
 		)
 
-	case profilerecording1alpha1.ProfileRecordingKindSelinuxProfile:
+	case profilerecordingapi.ProfileRecordingKindSelinuxProfile:
 		mergedSp := &selinuxprofileapi.SelinuxProfile{
 			ObjectMeta: *mergedObjectMeta(mergedRecordingName, profileRecording.Name, profileRecording.Namespace),
 		}
@@ -338,7 +338,7 @@ func createUpdateProfile(
 				return nil
 			},
 		)
-	case profilerecording1alpha1.ProfileRecordingKindAppArmorProfile:
+	case profilerecordingapi.ProfileRecordingKindAppArmorProfile:
 		mergedSp := &apparmorprofileapi.AppArmorProfile{
 			ObjectMeta: *mergedObjectMeta(mergedRecordingName, profileRecording.Name, profileRecording.Namespace),
 		}

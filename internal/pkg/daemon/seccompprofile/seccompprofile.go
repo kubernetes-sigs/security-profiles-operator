@@ -46,9 +46,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
-	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
-	statusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
-	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
+	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
+	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
@@ -537,7 +537,7 @@ func (r *Reconciler) reconcileSeccompProfile(
 
 	l.Info("Checking node status")
 
-	isAlreadyInstalled, getErr := nodeStatus.Matches(ctx, statusv1alpha1.ProfileStateInstalled)
+	isAlreadyInstalled, getErr := nodeStatus.Matches(ctx, secprofnodestatusapi.ProfileStateInstalled)
 	if getErr != nil {
 		l.Error(getErr, "couldn't get current status")
 
@@ -552,7 +552,7 @@ func (r *Reconciler) reconcileSeccompProfile(
 
 	l.Info("Set node status to installed")
 
-	if err := nodeStatus.SetNodeStatus(ctx, statusv1alpha1.ProfileStateInstalled); err != nil {
+	if err := nodeStatus.SetNodeStatus(ctx, secprofnodestatusapi.ProfileStateInstalled); err != nil {
 		l.Error(err, "cannot update node status")
 		r.metrics.IncSeccompProfileError(common.ReasonCannotUpdateStatus)
 		r.record.Event(sp, util.EventTypeWarning, common.ReasonCannotUpdateStatus, err.Error())

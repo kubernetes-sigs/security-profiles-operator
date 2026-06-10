@@ -32,8 +32,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
-	"sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
-	statusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
+	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
+	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
@@ -76,7 +76,7 @@ func (r *Reconciler) Name() string {
 
 // SchemeBuilder returns the API scheme of the controller.
 func (r *Reconciler) SchemeBuilder() *scheme.Builder {
-	return v1alpha1.SchemeBuilder
+	return apparmorprofileapi.SchemeBuilder
 }
 
 // Healthz is the liveness probe endpoint of the controller.
@@ -114,7 +114,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		if r.record != nil {
 			r.metrics.IncAppArmorProfileError(req.Name, reasonAppArmorNotSupported)
 			r.record.AnnotatedEventf(
-				&v1alpha1.AppArmorProfile{},
+				&apparmorprofileapi.AppArmorProfile{},
 				map[string]string{os.Getenv(config.NodeNameEnvKey): "node does not support apparmor"},
 				util.EventTypeWarning,
 				reasonAppArmorNotSupported,
@@ -128,7 +128,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return reconcile.Result{}, nil
 	}
 
-	appArmorProfile := &v1alpha1.AppArmorProfile{}
+	appArmorProfile := &apparmorprofileapi.AppArmorProfile{}
 	if err := r.client.Get(ctx, req.NamespacedName, appArmorProfile); err != nil {
 		// Expected to find an AppArmorProfile, return an error and requeue
 		if util.IgnoreNotFound(err) == nil {
@@ -142,7 +142,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 }
 
 func (r *Reconciler) reconcileAppArmorProfile(
-	ctx context.Context, sp *v1alpha1.AppArmorProfile, l logr.Logger,
+	ctx context.Context, sp *apparmorprofileapi.AppArmorProfile, l logr.Logger,
 ) (reconcile.Result, error) {
 	if sp == nil {
 		return reconcile.Result{}, errors.New(errAppArmorProfileNil)
@@ -177,7 +177,7 @@ func (r *Reconciler) reconcileAppArmorProfile(
 		return result, nil
 	}
 
-	isAlreadyInstalled, getErr := nodeStatus.Matches(ctx, statusv1alpha1.ProfileStateInstalled)
+	isAlreadyInstalled, getErr := nodeStatus.Matches(ctx, secprofnodestatusapi.ProfileStateInstalled)
 	if getErr != nil {
 		l.Error(getErr, "couldn't get current status")
 
@@ -190,7 +190,7 @@ func (r *Reconciler) reconcileAppArmorProfile(
 		return reconcile.Result{}, nil
 	}
 
-	if err := nodeStatus.SetNodeStatus(ctx, statusv1alpha1.ProfileStateInstalled); err != nil {
+	if err := nodeStatus.SetNodeStatus(ctx, secprofnodestatusapi.ProfileStateInstalled); err != nil {
 		l.Error(err, "cannot update node status")
 		r.metrics.IncAppArmorProfileError(sp.GetName(), common.ReasonCannotUpdateStatus)
 		r.record.Event(sp, util.EventTypeWarning, common.ReasonCannotUpdateStatus, err.Error())
@@ -216,7 +216,7 @@ func (r *Reconciler) reconcileAppArmorProfile(
 
 func (r *Reconciler) reconcileDeletion(
 	ctx context.Context,
-	sp *v1alpha1.AppArmorProfile,
+	sp *apparmorprofileapi.AppArmorProfile,
 	nsc *nodestatus.StatusClient,
 ) (reconcile.Result, error) {
 	return common.ReconcileDeletion(
@@ -231,7 +231,7 @@ func (r *Reconciler) reconcileDeletion(
 	)
 }
 
-func (r *Reconciler) handleDeletion(sp *v1alpha1.AppArmorProfile) error {
+func (r *Reconciler) handleDeletion(sp *apparmorprofileapi.AppArmorProfile) error {
 	if err := r.manager.RemoveProfile(sp); err != nil {
 		return fmt.Errorf("unloading profile from host: %w", err)
 	}

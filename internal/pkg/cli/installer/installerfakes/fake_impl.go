@@ -20,7 +20,7 @@ package installerfakes
 import (
 	"sync"
 
-	"sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
+	v1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/apparmorprofile"
 )
 
@@ -36,11 +36,11 @@ type FakeImpl struct {
 	appArmorEnabledReturnsOnCall map[int]struct {
 		result1 bool
 	}
-	AppArmorInstallProfileStub        func(apparmorprofile.ProfileManager, v1alpha1.StatusBaseUser) (bool, error)
+	AppArmorInstallProfileStub        func(apparmorprofile.ProfileManager, v1.StatusBaseUser) (bool, error)
 	appArmorInstallProfileMutex       sync.RWMutex
 	appArmorInstallProfileArgsForCall []struct {
 		arg1 apparmorprofile.ProfileManager
-		arg2 v1alpha1.StatusBaseUser
+		arg2 v1.StatusBaseUser
 	}
 	appArmorInstallProfileReturns struct {
 		result1 bool
@@ -128,12 +128,12 @@ func (fake *FakeImpl) AppArmorEnabledReturnsOnCall(i int, result1 bool) {
 	}{result1}
 }
 
-func (fake *FakeImpl) AppArmorInstallProfile(arg1 apparmorprofile.ProfileManager, arg2 v1alpha1.StatusBaseUser) (bool, error) {
+func (fake *FakeImpl) AppArmorInstallProfile(arg1 apparmorprofile.ProfileManager, arg2 v1.StatusBaseUser) (bool, error) {
 	fake.appArmorInstallProfileMutex.Lock()
 	ret, specificReturn := fake.appArmorInstallProfileReturnsOnCall[len(fake.appArmorInstallProfileArgsForCall)]
 	fake.appArmorInstallProfileArgsForCall = append(fake.appArmorInstallProfileArgsForCall, struct {
 		arg1 apparmorprofile.ProfileManager
-		arg2 v1alpha1.StatusBaseUser
+		arg2 v1.StatusBaseUser
 	}{arg1, arg2})
 	stub := fake.AppArmorInstallProfileStub
 	fakeReturns := fake.appArmorInstallProfileReturns
@@ -154,13 +154,13 @@ func (fake *FakeImpl) AppArmorInstallProfileCallCount() int {
 	return len(fake.appArmorInstallProfileArgsForCall)
 }
 
-func (fake *FakeImpl) AppArmorInstallProfileCalls(stub func(apparmorprofile.ProfileManager, v1alpha1.StatusBaseUser) (bool, error)) {
+func (fake *FakeImpl) AppArmorInstallProfileCalls(stub func(apparmorprofile.ProfileManager, v1.StatusBaseUser) (bool, error)) {
 	fake.appArmorInstallProfileMutex.Lock()
 	defer fake.appArmorInstallProfileMutex.Unlock()
 	fake.AppArmorInstallProfileStub = stub
 }
 
-func (fake *FakeImpl) AppArmorInstallProfileArgsForCall(i int) (apparmorprofile.ProfileManager, v1alpha1.StatusBaseUser) {
+func (fake *FakeImpl) AppArmorInstallProfileArgsForCall(i int) (apparmorprofile.ProfileManager, v1.StatusBaseUser) {
 	fake.appArmorInstallProfileMutex.RLock()
 	defer fake.appArmorInstallProfileMutex.RUnlock()
 	argsForCall := fake.appArmorInstallProfileArgsForCall[i]

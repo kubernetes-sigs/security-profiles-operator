@@ -20,7 +20,7 @@ package removerfakes
 import (
 	"sync"
 
-	"sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
+	v1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/apparmorprofile"
 )
 
@@ -36,11 +36,11 @@ type FakeImpl struct {
 	appArmorEnabledReturnsOnCall map[int]struct {
 		result1 bool
 	}
-	AppArmorRemoveProfileStub        func(apparmorprofile.ProfileManager, v1alpha1.StatusBaseUser) error
+	AppArmorRemoveProfileStub        func(apparmorprofile.ProfileManager, v1.StatusBaseUser) error
 	appArmorRemoveProfileMutex       sync.RWMutex
 	appArmorRemoveProfileArgsForCall []struct {
 		arg1 apparmorprofile.ProfileManager
-		arg2 v1alpha1.StatusBaseUser
+		arg2 v1.StatusBaseUser
 	}
 	appArmorRemoveProfileReturns struct {
 		result1 error
@@ -126,12 +126,12 @@ func (fake *FakeImpl) AppArmorEnabledReturnsOnCall(i int, result1 bool) {
 	}{result1}
 }
 
-func (fake *FakeImpl) AppArmorRemoveProfile(arg1 apparmorprofile.ProfileManager, arg2 v1alpha1.StatusBaseUser) error {
+func (fake *FakeImpl) AppArmorRemoveProfile(arg1 apparmorprofile.ProfileManager, arg2 v1.StatusBaseUser) error {
 	fake.appArmorRemoveProfileMutex.Lock()
 	ret, specificReturn := fake.appArmorRemoveProfileReturnsOnCall[len(fake.appArmorRemoveProfileArgsForCall)]
 	fake.appArmorRemoveProfileArgsForCall = append(fake.appArmorRemoveProfileArgsForCall, struct {
 		arg1 apparmorprofile.ProfileManager
-		arg2 v1alpha1.StatusBaseUser
+		arg2 v1.StatusBaseUser
 	}{arg1, arg2})
 	stub := fake.AppArmorRemoveProfileStub
 	fakeReturns := fake.appArmorRemoveProfileReturns
@@ -152,13 +152,13 @@ func (fake *FakeImpl) AppArmorRemoveProfileCallCount() int {
 	return len(fake.appArmorRemoveProfileArgsForCall)
 }
 
-func (fake *FakeImpl) AppArmorRemoveProfileCalls(stub func(apparmorprofile.ProfileManager, v1alpha1.StatusBaseUser) error) {
+func (fake *FakeImpl) AppArmorRemoveProfileCalls(stub func(apparmorprofile.ProfileManager, v1.StatusBaseUser) error) {
 	fake.appArmorRemoveProfileMutex.Lock()
 	defer fake.appArmorRemoveProfileMutex.Unlock()
 	fake.AppArmorRemoveProfileStub = stub
 }
 
-func (fake *FakeImpl) AppArmorRemoveProfileArgsForCall(i int) (apparmorprofile.ProfileManager, v1alpha1.StatusBaseUser) {
+func (fake *FakeImpl) AppArmorRemoveProfileArgsForCall(i int) (apparmorprofile.ProfileManager, v1.StatusBaseUser) {
 	fake.appArmorRemoveProfileMutex.RLock()
 	defer fake.appArmorRemoveProfileMutex.RUnlock()
 	argsForCall := fake.appArmorRemoveProfileArgsForCall[i]

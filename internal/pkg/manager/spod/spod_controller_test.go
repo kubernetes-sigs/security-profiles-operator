@@ -24,7 +24,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 
-	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
+	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 )
 
 func Test_addAuditLogConfig(t *testing.T) {
@@ -53,10 +53,10 @@ func Test_getConfiguredJsonEnricher(t *testing.T) {
 	valSixty := int32(60)
 	valEmptyStr := ""
 
-	cfg := &spodv1alpha1.SecurityProfilesOperatorDaemon{
-		Spec: spodv1alpha1.SPODSpec{
-			Enricher: spodv1alpha1.SPODEnricherConfig{
-				JsonEnricherOptions: &spodv1alpha1.JsonEnricherOptions{
+	cfg := &spodapi.SecurityProfilesOperatorDaemon{
+		Spec: spodapi.SPODSpec{
+			Enricher: spodapi.SPODEnricherConfig{
+				JsonEnricherOptions: &spodapi.JsonEnricherOptions{
 					AuditLogIntervalSeconds: &valSixty,
 					AuditLogPath:            &valEmptyStr,
 					AuditLogMaxSize:         &valTen,
@@ -100,10 +100,10 @@ func Test_getConfiguredJsonEnricherNilInterval(t *testing.T) {
 
 	valTen := int32(10)
 
-	cfg := &spodv1alpha1.SecurityProfilesOperatorDaemon{
-		Spec: spodv1alpha1.SPODSpec{
-			Enricher: spodv1alpha1.SPODEnricherConfig{
-				JsonEnricherOptions: &spodv1alpha1.JsonEnricherOptions{
+	cfg := &spodapi.SecurityProfilesOperatorDaemon{
+		Spec: spodapi.SPODSpec{
+			Enricher: spodapi.SPODEnricherConfig{
+				JsonEnricherOptions: &spodapi.JsonEnricherOptions{
 					AuditLogMaxSize:    &valTen,
 					AuditLogMaxBackups: &valTen,
 					AuditLogMaxAge:     &valTen,

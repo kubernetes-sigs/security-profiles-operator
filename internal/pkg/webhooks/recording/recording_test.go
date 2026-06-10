@@ -33,7 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	"sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1"
+	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/recording/recordingfakes"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
@@ -64,7 +64,7 @@ func TestHandle(t *testing.T) {
 	}{
 		{ // success pod unchanged
 			prepare: func(mock *recordingfakes.FakeImpl) {
-				mock.ListProfileRecordingsReturns(&v1alpha1.ProfileRecordingList{}, nil)
+				mock.ListProfileRecordingsReturns(&profilerecordingapi.ProfileRecordingList{}, nil)
 				mock.DecodePodReturns(&corev1.Pod{}, nil)
 			},
 			assert: func(resp admission.Response) {
@@ -83,7 +83,7 @@ func TestHandle(t *testing.T) {
 		},
 		{ // error failed to decode pod
 			prepare: func(mock *recordingfakes.FakeImpl) {
-				mock.ListProfileRecordingsReturns(&v1alpha1.ProfileRecordingList{}, nil)
+				mock.ListProfileRecordingsReturns(&profilerecordingapi.ProfileRecordingList{}, nil)
 				mock.DecodePodReturns(nil, errTest)
 			},
 			assert: func(resp admission.Response) {
@@ -94,24 +94,24 @@ func TestHandle(t *testing.T) {
 		// todo: actually look at the content of the patches
 		{ // success pod changed - tailing logs
 			prepare: func(mock *recordingfakes.FakeImpl) {
-				mock.ListProfileRecordingsReturns(&v1alpha1.ProfileRecordingList{
-					Items: []v1alpha1.ProfileRecording{
+				mock.ListProfileRecordingsReturns(&profilerecordingapi.ProfileRecordingList{
+					Items: []profilerecordingapi.ProfileRecording{
 						{
-							Spec: v1alpha1.ProfileRecordingSpec{
-								Kind:     v1alpha1.ProfileRecordingKindSelinuxProfile,
-								Recorder: v1alpha1.ProfileRecorderLogs,
+							Spec: profilerecordingapi.ProfileRecordingSpec{
+								Kind:     profilerecordingapi.ProfileRecordingKindSelinuxProfile,
+								Recorder: profilerecordingapi.ProfileRecorderLogs,
 							},
 						},
 					},
 				}, nil)
-				mock.GetProfileRecordingReturns(&v1alpha1.ProfileRecording{
+				mock.GetProfileRecordingReturns(&profilerecordingapi.ProfileRecording{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "my-little-profile-recording",
 						Namespace: "test-ns",
 					},
-					Spec: v1alpha1.ProfileRecordingSpec{
-						Kind:     v1alpha1.ProfileRecordingKindSelinuxProfile,
-						Recorder: v1alpha1.ProfileRecorderLogs,
+					Spec: profilerecordingapi.ProfileRecordingSpec{
+						Kind:     profilerecordingapi.ProfileRecordingKindSelinuxProfile,
+						Recorder: profilerecordingapi.ProfileRecorderLogs,
 					},
 				}, nil)
 				mock.ListRecordedPodsReturns(&corev1.PodList{
@@ -140,24 +140,24 @@ func TestHandle(t *testing.T) {
 		},
 		{ // success pod changed
 			prepare: func(mock *recordingfakes.FakeImpl) {
-				mock.ListProfileRecordingsReturns(&v1alpha1.ProfileRecordingList{
-					Items: []v1alpha1.ProfileRecording{
+				mock.ListProfileRecordingsReturns(&profilerecordingapi.ProfileRecordingList{
+					Items: []profilerecordingapi.ProfileRecording{
 						{
-							Spec: v1alpha1.ProfileRecordingSpec{
-								Kind:     v1alpha1.ProfileRecordingKindSeccompProfile,
-								Recorder: v1alpha1.ProfileRecorderBpf,
+							Spec: profilerecordingapi.ProfileRecordingSpec{
+								Kind:     profilerecordingapi.ProfileRecordingKindSeccompProfile,
+								Recorder: profilerecordingapi.ProfileRecorderBpf,
 							},
 						},
 					},
 				}, nil)
-				mock.GetProfileRecordingReturns(&v1alpha1.ProfileRecording{
+				mock.GetProfileRecordingReturns(&profilerecordingapi.ProfileRecording{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "my-little-profile-recording",
 						Namespace: "test-ns",
 					},
-					Spec: v1alpha1.ProfileRecordingSpec{
-						Kind:     v1alpha1.ProfileRecordingKindSelinuxProfile,
-						Recorder: v1alpha1.ProfileRecorderBpf,
+					Spec: profilerecordingapi.ProfileRecordingSpec{
+						Kind:     profilerecordingapi.ProfileRecordingKindSelinuxProfile,
+						Recorder: profilerecordingapi.ProfileRecorderBpf,
 					},
 				}, nil)
 				mock.ListRecordedPodsReturns(&corev1.PodList{
@@ -185,23 +185,23 @@ func TestHandle(t *testing.T) {
 		},
 		{ // success no seccomp profile
 			prepare: func(mock *recordingfakes.FakeImpl) {
-				mock.ListProfileRecordingsReturns(&v1alpha1.ProfileRecordingList{
-					Items: []v1alpha1.ProfileRecording{
+				mock.ListProfileRecordingsReturns(&profilerecordingapi.ProfileRecordingList{
+					Items: []profilerecordingapi.ProfileRecording{
 						{
-							Spec: v1alpha1.ProfileRecordingSpec{
+							Spec: profilerecordingapi.ProfileRecordingSpec{
 								Kind: "OtherProfile",
 							},
 						},
 					},
 				}, nil)
-				mock.GetProfileRecordingReturns(&v1alpha1.ProfileRecording{
+				mock.GetProfileRecordingReturns(&profilerecordingapi.ProfileRecording{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "my-little-profile-recording",
 						Namespace: "test-ns",
 					},
-					Spec: v1alpha1.ProfileRecordingSpec{
-						Kind:     v1alpha1.ProfileRecordingKindSelinuxProfile,
-						Recorder: v1alpha1.ProfileRecorderLogs,
+					Spec: profilerecordingapi.ProfileRecordingSpec{
+						Kind:     profilerecordingapi.ProfileRecordingKindSelinuxProfile,
+						Recorder: profilerecordingapi.ProfileRecorderLogs,
 					},
 				}, nil)
 				mock.ListRecordedPodsReturns(&corev1.PodList{
@@ -216,12 +216,12 @@ func TestHandle(t *testing.T) {
 		},
 		{ // success although GetProfile returns IsNotFound
 			prepare: func(mock *recordingfakes.FakeImpl) {
-				mock.ListProfileRecordingsReturns(&v1alpha1.ProfileRecordingList{
-					Items: []v1alpha1.ProfileRecording{
+				mock.ListProfileRecordingsReturns(&profilerecordingapi.ProfileRecordingList{
+					Items: []profilerecordingapi.ProfileRecording{
 						{
-							Spec: v1alpha1.ProfileRecordingSpec{
-								Kind:     v1alpha1.ProfileRecordingKindSeccompProfile,
-								Recorder: v1alpha1.ProfileRecorderBpf,
+							Spec: profilerecordingapi.ProfileRecordingSpec{
+								Kind:     profilerecordingapi.ProfileRecordingKindSeccompProfile,
+								Recorder: profilerecordingapi.ProfileRecorderBpf,
 							},
 						},
 					},
@@ -256,11 +256,11 @@ func TestHandle(t *testing.T) {
 		},
 		{ // failure LabelSelectorAsSelector
 			prepare: func(mock *recordingfakes.FakeImpl) {
-				mock.ListProfileRecordingsReturns(&v1alpha1.ProfileRecordingList{
-					Items: []v1alpha1.ProfileRecording{
+				mock.ListProfileRecordingsReturns(&profilerecordingapi.ProfileRecordingList{
+					Items: []profilerecordingapi.ProfileRecording{
 						{
-							Spec: v1alpha1.ProfileRecordingSpec{
-								Kind: v1alpha1.ProfileRecordingKindSeccompProfile,
+							Spec: profilerecordingapi.ProfileRecordingSpec{
+								Kind: profilerecordingapi.ProfileRecordingKindSeccompProfile,
 							},
 						},
 					},
@@ -277,23 +277,23 @@ func TestHandle(t *testing.T) {
 		},
 		{ // failure UpdateResource
 			prepare: func(mock *recordingfakes.FakeImpl) {
-				mock.ListProfileRecordingsReturns(&v1alpha1.ProfileRecordingList{
-					Items: []v1alpha1.ProfileRecording{
+				mock.ListProfileRecordingsReturns(&profilerecordingapi.ProfileRecordingList{
+					Items: []profilerecordingapi.ProfileRecording{
 						{
-							Spec: v1alpha1.ProfileRecordingSpec{
-								Kind: v1alpha1.ProfileRecordingKindSeccompProfile,
+							Spec: profilerecordingapi.ProfileRecordingSpec{
+								Kind: profilerecordingapi.ProfileRecordingKindSeccompProfile,
 							},
 						},
 					},
 				}, nil)
-				mock.GetProfileRecordingReturns(&v1alpha1.ProfileRecording{
+				mock.GetProfileRecordingReturns(&profilerecordingapi.ProfileRecording{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "my-little-profile-recording",
 						Namespace: "test-ns",
 					},
-					Spec: v1alpha1.ProfileRecordingSpec{
-						Kind:     v1alpha1.ProfileRecordingKindSelinuxProfile,
-						Recorder: v1alpha1.ProfileRecorderLogs,
+					Spec: profilerecordingapi.ProfileRecordingSpec{
+						Kind:     profilerecordingapi.ProfileRecordingKindSelinuxProfile,
+						Recorder: profilerecordingapi.ProfileRecorderLogs,
 					},
 				}, nil)
 				mock.ListRecordedPodsReturns(&corev1.PodList{
@@ -321,28 +321,28 @@ func TestHandle(t *testing.T) {
 		},
 		{ // success pod already tracked
 			prepare: func(mock *recordingfakes.FakeImpl) {
-				mock.ListProfileRecordingsReturns(&v1alpha1.ProfileRecordingList{
-					Items: []v1alpha1.ProfileRecording{
+				mock.ListProfileRecordingsReturns(&profilerecordingapi.ProfileRecordingList{
+					Items: []profilerecordingapi.ProfileRecording{
 						{
 							ObjectMeta: metav1.ObjectMeta{
 								Name:      "my-little-profile-recording",
 								Namespace: "test-ns",
 							},
-							Spec: v1alpha1.ProfileRecordingSpec{
-								Kind:     v1alpha1.ProfileRecordingKindSeccompProfile,
-								Recorder: v1alpha1.ProfileRecorderLogs,
+							Spec: profilerecordingapi.ProfileRecordingSpec{
+								Kind:     profilerecordingapi.ProfileRecordingKindSeccompProfile,
+								Recorder: profilerecordingapi.ProfileRecorderLogs,
 							},
 						},
 					},
 				}, nil)
-				mock.GetProfileRecordingReturns(&v1alpha1.ProfileRecording{
+				mock.GetProfileRecordingReturns(&profilerecordingapi.ProfileRecording{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "my-little-profile-recording",
 						Namespace: "test-ns",
 					},
-					Spec: v1alpha1.ProfileRecordingSpec{
-						Kind:     v1alpha1.ProfileRecordingKindSelinuxProfile,
-						Recorder: v1alpha1.ProfileRecorderLogs,
+					Spec: profilerecordingapi.ProfileRecordingSpec{
+						Kind:     profilerecordingapi.ProfileRecordingKindSelinuxProfile,
+						Recorder: profilerecordingapi.ProfileRecorderLogs,
 					},
 				}, nil)
 				mock.ListRecordedPodsReturns(&corev1.PodList{
@@ -382,26 +382,26 @@ func TestHandle(t *testing.T) {
 		},
 		{ // success pod deleted
 			prepare: func(mock *recordingfakes.FakeImpl) {
-				mock.ListProfileRecordingsReturns(&v1alpha1.ProfileRecordingList{
-					Items: []v1alpha1.ProfileRecording{
+				mock.ListProfileRecordingsReturns(&profilerecordingapi.ProfileRecordingList{
+					Items: []profilerecordingapi.ProfileRecording{
 						{
-							Spec: v1alpha1.ProfileRecordingSpec{
-								Kind: v1alpha1.ProfileRecordingKindSeccompProfile,
+							Spec: profilerecordingapi.ProfileRecordingSpec{
+								Kind: profilerecordingapi.ProfileRecordingKindSeccompProfile,
 							},
-							Status: v1alpha1.ProfileRecordingStatus{
+							Status: profilerecordingapi.ProfileRecordingStatus{
 								ActiveWorkloads: []string{"1", "2", "3"},
 							},
 						},
 					},
 				}, nil)
-				mock.GetProfileRecordingReturns(&v1alpha1.ProfileRecording{
+				mock.GetProfileRecordingReturns(&profilerecordingapi.ProfileRecording{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "my-little-profile-recording",
 						Namespace: "test-ns",
 					},
-					Spec: v1alpha1.ProfileRecordingSpec{
-						Kind:     v1alpha1.ProfileRecordingKindSelinuxProfile,
-						Recorder: v1alpha1.ProfileRecorderLogs,
+					Spec: profilerecordingapi.ProfileRecordingSpec{
+						Kind:     profilerecordingapi.ProfileRecordingKindSelinuxProfile,
+						Recorder: profilerecordingapi.ProfileRecorderLogs,
 					},
 				}, nil)
 				mock.ListRecordedPodsReturns(&corev1.PodList{
@@ -422,26 +422,26 @@ func TestHandle(t *testing.T) {
 		//nolint:dupl // golint flags this as a dup of the below, but here we're testing failure of UpdateResource
 		{ // failure pod deleted on UpdateResource
 			prepare: func(mock *recordingfakes.FakeImpl) {
-				mock.ListProfileRecordingsReturns(&v1alpha1.ProfileRecordingList{
-					Items: []v1alpha1.ProfileRecording{
+				mock.ListProfileRecordingsReturns(&profilerecordingapi.ProfileRecordingList{
+					Items: []profilerecordingapi.ProfileRecording{
 						{
-							Spec: v1alpha1.ProfileRecordingSpec{
-								Kind: v1alpha1.ProfileRecordingKindSeccompProfile,
+							Spec: profilerecordingapi.ProfileRecordingSpec{
+								Kind: profilerecordingapi.ProfileRecordingKindSeccompProfile,
 							},
-							Status: v1alpha1.ProfileRecordingStatus{
+							Status: profilerecordingapi.ProfileRecordingStatus{
 								ActiveWorkloads: []string{"1", "2", "3"},
 							},
 						},
 					},
 				}, nil)
-				mock.GetProfileRecordingReturns(&v1alpha1.ProfileRecording{
+				mock.GetProfileRecordingReturns(&profilerecordingapi.ProfileRecording{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "my-little-profile-recording",
 						Namespace: "test-ns",
 					},
-					Spec: v1alpha1.ProfileRecordingSpec{
-						Kind:     v1alpha1.ProfileRecordingKindSelinuxProfile,
-						Recorder: v1alpha1.ProfileRecorderLogs,
+					Spec: profilerecordingapi.ProfileRecordingSpec{
+						Kind:     profilerecordingapi.ProfileRecordingKindSelinuxProfile,
+						Recorder: profilerecordingapi.ProfileRecorderLogs,
 					},
 				}, nil)
 				mock.ListRecordedPodsReturns(&corev1.PodList{
@@ -463,26 +463,26 @@ func TestHandle(t *testing.T) {
 		//nolint:dupl // golint flags this as a dup of above, but here we're testing failure of UpdateResourceStatus
 		{ // failure on UpdateResourceStatus
 			prepare: func(mock *recordingfakes.FakeImpl) {
-				mock.ListProfileRecordingsReturns(&v1alpha1.ProfileRecordingList{
-					Items: []v1alpha1.ProfileRecording{
+				mock.ListProfileRecordingsReturns(&profilerecordingapi.ProfileRecordingList{
+					Items: []profilerecordingapi.ProfileRecording{
 						{
-							Spec: v1alpha1.ProfileRecordingSpec{
-								Kind: v1alpha1.ProfileRecordingKindSeccompProfile,
+							Spec: profilerecordingapi.ProfileRecordingSpec{
+								Kind: profilerecordingapi.ProfileRecordingKindSeccompProfile,
 							},
-							Status: v1alpha1.ProfileRecordingStatus{
+							Status: profilerecordingapi.ProfileRecordingStatus{
 								ActiveWorkloads: []string{"1", "2", "3"},
 							},
 						},
 					},
 				}, nil)
-				mock.GetProfileRecordingReturns(&v1alpha1.ProfileRecording{
+				mock.GetProfileRecordingReturns(&profilerecordingapi.ProfileRecording{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "my-little-profile-recording",
 						Namespace: "test-ns",
 					},
-					Spec: v1alpha1.ProfileRecordingSpec{
-						Kind:     v1alpha1.ProfileRecordingKindSelinuxProfile,
-						Recorder: v1alpha1.ProfileRecorderLogs,
+					Spec: profilerecordingapi.ProfileRecordingSpec{
+						Kind:     profilerecordingapi.ProfileRecordingKindSelinuxProfile,
+						Recorder: profilerecordingapi.ProfileRecorderLogs,
 					},
 				}, nil)
 				mock.ListRecordedPodsReturns(&corev1.PodList{
@@ -503,24 +503,24 @@ func TestHandle(t *testing.T) {
 		},
 		{ // success apparmor profile recording should be admitted
 			prepare: func(mock *recordingfakes.FakeImpl) {
-				mock.ListProfileRecordingsReturns(&v1alpha1.ProfileRecordingList{
-					Items: []v1alpha1.ProfileRecording{
+				mock.ListProfileRecordingsReturns(&profilerecordingapi.ProfileRecordingList{
+					Items: []profilerecordingapi.ProfileRecording{
 						{
-							Spec: v1alpha1.ProfileRecordingSpec{
-								Kind:     v1alpha1.ProfileRecordingKindAppArmorProfile,
-								Recorder: v1alpha1.ProfileRecorderBpf,
+							Spec: profilerecordingapi.ProfileRecordingSpec{
+								Kind:     profilerecordingapi.ProfileRecordingKindAppArmorProfile,
+								Recorder: profilerecordingapi.ProfileRecorderBpf,
 							},
 						},
 					},
 				}, nil)
-				mock.GetProfileRecordingReturns(&v1alpha1.ProfileRecording{
+				mock.GetProfileRecordingReturns(&profilerecordingapi.ProfileRecording{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "apparmor-profile-recording",
 						Namespace: "test-ns",
 					},
-					Spec: v1alpha1.ProfileRecordingSpec{
-						Kind:     v1alpha1.ProfileRecordingKindAppArmorProfile,
-						Recorder: v1alpha1.ProfileRecorderBpf,
+					Spec: profilerecordingapi.ProfileRecordingSpec{
+						Kind:     profilerecordingapi.ProfileRecordingKindAppArmorProfile,
+						Recorder: profilerecordingapi.ProfileRecorderBpf,
 					},
 				}, nil)
 				mock.ListRecordedPodsReturns(&corev1.PodList{

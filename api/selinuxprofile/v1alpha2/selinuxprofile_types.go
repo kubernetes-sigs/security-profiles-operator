@@ -139,7 +139,6 @@ type SelinuxProfileStatus struct {
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // SelinuxProfile is the Schema for the selinuxprofiles API.
-// +kubebuilder:storageversion
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:path=selinuxprofiles,scope=Cluster
 // +kubebuilder:printcolumn:name="Usage",type="string",JSONPath=`.status.usage`

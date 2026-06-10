@@ -2,12 +2,23 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
+    cert-manager.io/inject-ca-from: security-profiles-operator/webhook-cert
     controller-gen.kubebuilder.io/version: v0.20.1
   creationTimestamp: null
   labels:
     app: security-profiles-operator
   name: profilerecordings.security-profiles-operator.x-k8s.io
 spec:
+  conversion:
+    strategy: Webhook
+    webhook:
+      clientConfig:
+        service:
+          name: webhook-service
+          namespace: security-profiles-operator
+          path: /convert
+      conversionReviewVersions:
+      - v1
   group: security-profiles-operator.x-k8s.io
   names:
     kind: ProfileRecording
@@ -16,6 +27,147 @@ spec:
     singular: profilerecording
   scope: Namespaced
   versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.podSelector
+      name: PodSelector
+      priority: 10
+      type: string
+    name: v1
+    schema:
+      openAPIV3Schema:
+        description: ProfileRecording is the Schema for the profilerecordings API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the desired state of the ProfileRecording.
+            properties:
+              containers:
+                description: |-
+                  containers is a set of containers to record. This allows to select
+                  only specific containers to record instead of all containers present
+                  in the pod.
+                items:
+                  type: string
+                type: array
+                x-kubernetes-list-type: set
+              disableProfileAfterRecording:
+                default: false
+                description: |-
+                  disableProfileAfterRecording indicates whether the profile should be
+                  disabled after recording and thus skipped during reconcile. In case of
+                  SELinux profiles, reconcile can take a significant amount of time and
+                  for all profiles might not be needed. Defaults to false.
+                type: boolean
+              kind:
+                description: kind specifies the type of object to be recorded.
+                enum:
+                - SeccompProfile
+                - SelinuxProfile
+                - AppArmorProfile
+                type: string
+              mergeStrategy:
+                default: None
+                description: |-
+                  mergeStrategy controls whether or how to merge recorded profiles.
+                  Can be one of "None" or "Containers". Default is "None".
+                enum:
+                - None
+                - Containers
+                type: string
+              podSelector:
+                description: |-
+                  podSelector selects the pods to record. This field follows standard
+                  label selector semantics. An empty podSelector matches all pods in this
+                  namespace.
+                properties:
+                  matchExpressions:
+                    description: matchExpressions is a list of label selector requirements.
+                      The requirements are ANDed.
+                    items:
+                      description: |-
+                        A label selector requirement is a selector that contains values, a key, and an operator that
+                        relates the key and values.
+                      properties:
+                        key:
+                          description: key is the label key that the selector applies
+                            to.
+                          type: string
+                        operator:
+                          description: |-
+                            operator represents a key's relationship to a set of values.
+                            Valid operators are In, NotIn, Exists and DoesNotExist.
+                          type: string
+                        values:
+                          description: |-
+                            values is an array of string values. If the operator is In or NotIn,
+                            the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                            the values array must be empty. This array is replaced during a strategic
+                            merge patch.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                      required:
+                      - key
+                      - operator
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  matchLabels:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                      map is equivalent to an element of matchExpressions, whose key field is "key", the
+                      operator is "In", and the values array contains only "value". The requirements are ANDed.
+                    type: object
+                type: object
+                x-kubernetes-map-type: atomic
+              recorder:
+                description: recorder specifies which recorder to use.
+                enum:
+                - Bpf
+                - Logs
+                type: string
+            required:
+            - kind
+            - podSelector
+            - recorder
+            type: object
+          status:
+            description: status contains the observed state of the ProfileRecording.
+            properties:
+              activeWorkloads:
+                description: activeWorkloads lists the workloads currently using this
+                  recording.
+                items:
+                  type: string
+                type: array
+                x-kubernetes-list-type: set
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
   - additionalPrinterColumns:
     - jsonPath: .spec.podSelector
       name: PodSelector
@@ -44,7 +196,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: ProfileRecordingSpec defines the desired state of ProfileRecording.
+            description: spec defines the desired state of the ProfileRecording.
             properties:
               containers:
                 description: |-
@@ -140,17 +292,21 @@ spec:
             - recorder
             type: object
           status:
-            description: ProfileRecordingStatus contains status of the ProfileRecording.
+            description: status contains the observed state of the ProfileRecording.
             properties:
               activeWorkloads:
+                description: activeWorkloads lists the workloads currently using this
+                  recording.
                 items:
                   type: string
                 type: array
                 x-kubernetes-list-type: set
             type: object
+        required:
+        - spec
         type: object
     served: true
-    storage: true
+    storage: false
     subresources:
       status: {}
 status:

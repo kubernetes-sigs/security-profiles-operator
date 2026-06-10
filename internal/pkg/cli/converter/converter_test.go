@@ -45,7 +45,7 @@ func TestRun(t *testing.T) {
 		{
 			name: "AppArmor CRD in enforce mode by default",
 			input: `
-apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: AppArmorProfile
 spec:
   abstract:
@@ -58,7 +58,7 @@ spec:
 		{
 			name: "AppArmor CRD in enforce mode",
 			input: `
-apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: AppArmorProfile
 spec:
   mode: Enforce
@@ -72,7 +72,7 @@ spec:
 		{
 			name: "AppArmor CRD in complain mode",
 			input: `
-apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: AppArmorProfile
 spec:
   mode: Complain
@@ -86,7 +86,7 @@ spec:
 		{
 			name: "seccomp",
 			input: `
-apiVersion: security-profiles-operator.x-k8s.io/v1beta1
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: SeccompProfile
 spec:
   defaultAction: SCMP_ACT_ERRNO
