@@ -193,11 +193,9 @@ func New() *Metrics {
 				metricsLabelNamespace,
 				metricsLabelPod,
 				metricsLabelContainer,
-				metricsLabelExecutable,
 				metricsLabelProfile,
 				metricLabelOperation,
 				metricsLabelApparmor,
-				metricsLabelName,
 			},
 		),
 		metricAppArmorProfileError: prometheus.NewCounterVec(
@@ -273,10 +271,10 @@ func (m *Metrics) IncSeccompProfileDelete() {
 // IncSeccompProfileAudit increments the seccomp profile audit counter for the
 // provided labels.
 func (m *Metrics) IncSeccompProfileAudit(
-	node, namespace, pod, container, executable, syscall string,
+	node, namespace, pod, container, syscall string,
 ) {
 	m.metricSeccompProfileAudit.WithLabelValues(
-		node, namespace, pod, container, executable, syscall,
+		node, namespace, pod, container, syscall,
 	).Inc()
 }
 
@@ -339,10 +337,10 @@ func (m *Metrics) IncAppArmorProfileDelete() {
 // IncAppArmorProfileAudit increments the apparmor profile audit counter for the
 // provided labels.
 func (m *Metrics) IncAppArmorProfileAudit(
-	node, namespace, pod, container, executable, profile, operation, apparmor, name string,
+	node, namespace, pod, container, profile, operation, apparmor string,
 ) {
 	m.metricAppArmorProfileAudit.WithLabelValues(
-		node, namespace, pod, container, executable, profile, operation, apparmor, name,
+		node, namespace, pod, container, profile, operation, apparmor,
 	).Inc()
 
 	if apparmor == apparmorDeniedAction {
