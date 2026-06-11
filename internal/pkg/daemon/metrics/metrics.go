@@ -67,7 +67,6 @@ const (
 	metricsLabelTcontext       = "tcontext"
 	metricsLabelMountNamespace = "mount_namespace"
 	metricsLabelApparmor       = "apparmor"
-	metricsLabelName           = "name"
 
 	// HandlerPath is the default path for serving metrics.
 	HandlerPath = "/metrics-spod"
@@ -118,7 +117,6 @@ func New() *Metrics {
 				metricsLabelNamespace,
 				metricsLabelPod,
 				metricsLabelContainer,
-				metricsLabelExecutable,
 				metricsLabelSyscall,
 			},
 		),
@@ -161,7 +159,6 @@ func New() *Metrics {
 				metricsLabelNamespace,
 				metricsLabelPod,
 				metricsLabelContainer,
-				metricsLabelExecutable,
 				metricsLabelScontext,
 				metricsLabelTcontext,
 			},
@@ -312,7 +309,7 @@ func (m *Metrics) IncSelinuxProfileAudit(
 	node, namespace, pod, container, executable, scontext, tcontext string,
 ) {
 	m.metricSelinuxProfileAudit.WithLabelValues(
-		node, namespace, pod, container, executable, scontext, tcontext,
+		node, namespace, pod, container, scontext, tcontext,
 	).Inc()
 }
 

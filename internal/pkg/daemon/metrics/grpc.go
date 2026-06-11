@@ -100,7 +100,7 @@ func (m *Metrics) AuditInc(
 				r.GetNamespace(),
 				r.GetPod(),
 				r.GetContainer(),
-				r.GetExecutable(),
+				r.GetSeccompReq().GetSyscall(),
 			)
 		} else if r.GetSelinuxReq() != nil {
 			m.IncSelinuxProfileAudit(
@@ -108,7 +108,6 @@ func (m *Metrics) AuditInc(
 				r.GetNamespace(),
 				r.GetPod(),
 				r.GetContainer(),
-				r.GetExecutable(),
 				r.GetSelinuxReq().GetScontext(),
 				r.GetSelinuxReq().GetTcontext(),
 			)
