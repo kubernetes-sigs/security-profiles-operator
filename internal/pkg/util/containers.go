@@ -42,6 +42,8 @@ var (
 	// cgroup does not contain any container ID.
 	ErrContainerIDNotFound = errors.New("unable to find container ID in cgroup path")
 
+	// ErrContainerIDSearchFailed is the error returned with a reason by
+	// ContainerIDForPID if it fails to parse the container ID from the logs.
 	ErrContainerIDSearchFailed = errors.New("failed looking for container ID")
 )
 
@@ -54,7 +56,7 @@ func ContainerIDForPID(cache *ttlcache.Cache[string, string], pid int) (string, 
 	}
 
 	// Combine the pid with the process start time as a cache key to avoid "fork-bomb"
-	// attack which reuse a PID for a different container within the cache TTL.
+	// attack which reuses a PID for a different container within the cache TTL.
 	cacheKey := strconv.Itoa(pid) + "_" + stat
 
 	// Check the cache first
@@ -104,9 +106,19 @@ func getProcessStartTime(pid int) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("reading proc start time for %d pid: %w", pid, err)
 	}
-	fields := strings.Fields(string(stat))
-	if len(fields) < 22 {
+
+	// The comm field (field 2) is in parentheses and can contain spaces,
+	// so split after the last ")" to get reliable field indices.
+	raw := string(stat)
+	i := strings.LastIndexByte(raw, ')')
+	if i < 0 || i+2 >= len(raw) {
 		return "", fmt.Errorf("invalid proc stat format for pid: %d", pid)
 	}
-	return fields[21], nil
+	// After ")" the fields are: state(3) ppid(4) ... starttime(22),
+	// which is index 19 in the zero-based slice after ")".
+	fields := strings.Fields(raw[i+2:])
+	if len(fields) < 20 {
+		return "", fmt.Errorf("invalid proc stat format for pid: %d", pid)
+	}
+	return fields[19], nil
 }
