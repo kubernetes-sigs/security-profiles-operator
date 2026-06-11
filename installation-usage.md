@@ -79,14 +79,17 @@
 
 The feature scope of the security-profiles-operator is right now limited to:
 
-- Adds a `SeccompProfile` CRD (alpha) to store seccomp profiles.
-- Adds a `ApparmorProfile` CRD (alpha) to store apparmor profiles.
-- Adds a `SelinuxProfile` CRD (alpha) to store apparmor profiles.
-- Adds a `ProfileBinding` CRD (alpha) to bind security profiles to pods.
-- Adds a `ProfileRecording` CRD (alpha) to record security profiles from workloads.
+- Adds a `SeccompProfile` CRD (v1) to store seccomp profiles.
+- Adds an `AppArmorProfile` CRD (v1) to store apparmor profiles.
+- Adds a `SelinuxProfile` CRD (v1) to store selinux profiles.
+- Adds a `ProfileBinding` CRD (v1) to bind security profiles to pods.
+- Adds a `ProfileRecording` CRD (v1) to record security profiles from workloads.
 - Synchronize seccomp, apparmor and selinux profiles across all worker nodes.
 - Providing metrics endpoints
 - Providing a Command Line Interface `spoc` for use cases not including Kubernetes.
+
+> **Upgrading to v1?** See the [Migration Guide](doc/migration-guide-v1.md) for
+> details on API version changes, enum normalization, and conversion webhooks.
 
 ## Architecture
 
@@ -265,12 +268,12 @@ $ kubectl -nsecurity-profiles-operator patch spod spod  --type=merge \
     -p='{"spec":{"webhook":{"options":[{"name":"binding.spo.io","namespaceSelector":{"matchExpressions":[{"key":"control-plane","operator":"DoesNotExist"}]}},{"name":"recording.spo.io","namespaceSelector":{"matchExpressions":[{"key":"control-plane","operator":"DoesNotExist"}]}}]}}}'
 ```
 
-Afterwards, validate spod has been patched successfully by ensuring the `RUNNING` state:
+Afterwards, validate spod has been patched successfully by ensuring the `Running` state:
 
 ```sh
 $ kubectl -nsecurity-profiles-operator get spod spod
 NAME   STATE
-spod   RUNNING
+spod   Running
 ```
 
 ## Configure Operator
@@ -581,16 +584,16 @@ I0623 12:51:04.258061 1854764 enricher.go:69] log-enricher "msg"="Reading from f
 ```
 
 To record by using the log enricher, create a `ProfileRecording` which is using
-`recorder: logs`:
+`recorder: Logs`:
 
 ```yaml
-apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: ProfileRecording
 metadata:
   name: test-recording
 spec:
   kind: SeccompProfile
-  recorder: logs
+  recorder: Logs
   podSelector:
     matchLabels:
       app: my-app
@@ -707,16 +710,16 @@ expected. This includes a `load` and `unload` of the BPF module. If this fails,
 please open an issue so that we can find out what went wrong.
 
 To record seccomp profiles by using the BPF recorder, create a
-`ProfileRecording` which is using `recorder: bpf`:
+`ProfileRecording` which is using `recorder: Bpf`:
 
 ```yaml
-apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: ProfileRecording
 metadata:
   name: my-recording
 spec:
   kind: SeccompProfile
-  recorder: bpf
+  recorder: Bpf
   podSelector:
     matchLabels:
       app: my-app
@@ -776,7 +779,7 @@ my-recording-nginx   Installed   15s
 Use the `SeccompProfile` kind to create profiles. Example:
 
 ```yaml
-apiVersion: security-profiles-operator.x-k8s.io/v1beta1
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: SeccompProfile
 metadata:
   name: profile1
@@ -980,7 +983,7 @@ To enable a single pod log the activity following these steps:
    Create a file (e.g., profile1.yaml) with the following content:
 
    ```shell
-   apiVersion: security-profiles-operator.x-k8s.io/v1beta1
+   apiVersion: security-profiles-operator.x-k8s.io/v1
    kind: SeccompProfile
    metadata:
      name: profile1
@@ -1192,14 +1195,14 @@ You can now set up an apparmor profile recording for `nginx` container by creati
 
 ```
 kubectl apply -f - <<EOF
-apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: ProfileRecording
 metadata:
   name: nginx-recording
   namespace: security-profiles-operator
 spec:
-  kind: ApparmorProfile
-  recorder: bpf
+  kind: AppArmorProfile
+  recorder: Bpf
   podSelector:
     matchLabels:
       app: nginx
@@ -1328,7 +1331,7 @@ In particular, the `SelinuxProfile` kind:
 Below is an example of a policy that can be used with a non-privileged nginx workload:
 
 ```yaml
-apiVersion: security-profiles-operator.x-k8s.io/v1alpha2
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: SelinuxProfile
 metadata:
   name: nginx-secure
@@ -1412,20 +1415,20 @@ I0623 12:51:04.258061 1854764 enricher.go:69] log-enricher "msg"="Reading from f
 ```
 
 To record by using the log enricher, create a `ProfileRecording` which is using
-`recorder: logs`:
+`recorder: Logs`:
 
 You can now record a SELinux profile for `nginx` container by creating the following `ProfileRecording` configuration:
 
 ```
 kubectl apply -f - <<EOF
-apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: ProfileRecording
 metadata:
   name: nginx-recording
   namespace: security-profiles-operator
 spec:
   kind: SelinuxProfile
-  recorder: logs
+  recorder: Logs
   podSelector:
     matchLabels:
       app: nginx
@@ -1593,7 +1596,7 @@ application-specific profiles that only specify syscalls that are required on
 top of the base calls needed for the container runtime. For example:
 
 ```yaml
-apiVersion: security-profiles-operator.x-k8s.io/v1beta1
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: SeccompProfile
 metadata:
   name: profile1
@@ -1659,7 +1662,7 @@ OCI artifacts, which are right now:
 To use that feature, just prefix the `baseProfileName` with `oci://`, like:
 
 ```yaml
-apiVersion: security-profiles-operator.x-k8s.io/v1beta1
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: SeccompProfile
 metadata:
   name: profile1
@@ -1692,7 +1695,7 @@ Name:         profile1
 Labels:       spo.x-k8s.io/profile-id=SeccompProfile-profile1
 Annotations:  syscalls:
                 [{"names":["arch_prctl","brk","capget","capset","chdir","clone","close","dup3","epoll_create1","epoll_ctl","epoll_pwait","execve","exit_gr...
-API Version:  security-profiles-operator.x-k8s.io/v1beta1
+API Version:  security-profiles-operator.x-k8s.io/v1
 ```
 
 We provide all available base profiles as part of the ["Security Profiles"
@@ -1716,7 +1719,7 @@ example seccomp profile, create a ProfileBinding in the same namespace as both
 the Pod and the SeccompProfile:
 
 ```yaml
-apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: ProfileBinding
 metadata:
   name: nginx-binding
@@ -1731,7 +1734,7 @@ You can enable a default profile binding by using the string "\*" as the image n
 This will only apply a profile binding if no other profile binding matches a container in the pod.
 
 ```yaml
-apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: ProfileBinding
 metadata:
   name: nginx-binding
@@ -1773,7 +1776,7 @@ example uses a `SeccompProfile` as the `kind` but the same applies to
 `SelinuxProfile` as well.
 
 ```yaml
-apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: ProfileRecording
 metadata:
   # The name of the Recording is the same as the resulting `SeccompProfile` CRD
@@ -1781,8 +1784,8 @@ metadata:
   name: test-recording
 spec:
   kind: SeccompProfile
-  recorder: logs
-  mergeStrategy: containers
+  recorder: Logs
+  mergeStrategy: Containers
   podSelector:
     matchLabels:
       app: sp-record
@@ -1932,7 +1935,7 @@ Now the seccomp profile should be written in the CRD format:
 ```
 
 ```yaml
-apiVersion: security-profiles-operator.x-k8s.io/v1beta1
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: SeccompProfile
 metadata:
   name: echo
