@@ -110,6 +110,7 @@ func getProcessStartTime(pid int) (string, error) {
 	// The comm field (field 2) is in parentheses and can contain spaces,
 	// so split after the last ")" to get reliable field indices.
 	raw := string(stat)
+
 	i := strings.LastIndexByte(raw, ')')
 	if i < 0 || i+2 >= len(raw) {
 		return "", fmt.Errorf("invalid proc stat format for pid: %d", pid)
@@ -120,5 +121,6 @@ func getProcessStartTime(pid int) (string, error) {
 	if len(fields) < 20 {
 		return "", fmt.Errorf("invalid proc stat format for pid: %d", pid)
 	}
+
 	return fields[19], nil
 }
