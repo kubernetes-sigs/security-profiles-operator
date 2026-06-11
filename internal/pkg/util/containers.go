@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/jellydator/ttlcache/v3"
 )
@@ -40,13 +41,24 @@ var (
 	// ErrContainerIDNotFound is the error returned by ContainerIDForPID if the
 	// cgroup does not contain any container ID.
 	ErrContainerIDNotFound = errors.New("unable to find container ID in cgroup path")
+
+	ErrContainerIDSearchFailed = errors.New("failed looking for container ID")
 )
 
 // ContainerIDForPID tries to find the 64 digit container ID for the provided
 // PID by using its cgroup. It supports caching via the cache argument.
 func ContainerIDForPID(cache *ttlcache.Cache[string, string], pid int) (string, error) {
+	stat, err := getProcessStartTime(pid)
+	if err != nil {
+		return "", fmt.Errorf("reading proc start time: %w", err)
+	}
+
+	// Combine the pid with the process start time as a cache key to avoid "fork-bomb"
+	// attack which reuse a PID for a different container within the cache TTL.
+	cacheKey := strconv.Itoa(pid) + "_" + stat
+
 	// Check the cache first
-	item := cache.Get(strconv.Itoa(pid))
+	item := cache.Get(cacheKey)
 	if item != nil {
 		return item.Value(), nil
 	}
@@ -73,11 +85,28 @@ func ContainerIDForPID(cache *ttlcache.Cache[string, string], pid int) (string, 
 			// Using the last container ID in the cgroup path to support "docker in docker" use cases
 			containerID := containerIDs[len(containerIDs)-1]
 			// Update the cache
-			cache.Set(strconv.Itoa(pid), containerID, ttlcache.DefaultTTL)
+			cache.Set(cacheKey, containerID, ttlcache.DefaultTTL)
 
 			return containerID, nil
 		}
 	}
+	// Check if not finding a container ID was caused by any scanning errors.
+	if err := scanner.Err(); err != nil {
+		return "", fmt.Errorf("%w: %w", ErrContainerIDSearchFailed, err)
+	}
 
 	return "", ErrContainerIDNotFound
+}
+
+// getProcessStartTime return the start time for a process.
+func getProcessStartTime(pid int) (string, error) {
+	stat, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err != nil {
+		return "", fmt.Errorf("reading proc start time for %d pid: %w", pid, err)
+	}
+	fields := strings.Fields(string(stat))
+	if len(fields) < 22 {
+		return "", fmt.Errorf("invalid proc stat format for pid: %d", pid)
+	}
+	return fields[21], nil
 }
