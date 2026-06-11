@@ -173,6 +173,7 @@ func (b *AppArmorRecorder) handleFileEvent(fileEvent *bpfEvent) {
 
 	if shouldExcludeFile(fileName) {
 		b.logger.Info("Exclude file", "filename", fileName)
+
 		return
 	}
 
@@ -185,6 +186,7 @@ func (b *AppArmorRecorder) handleFileEvent(fileEvent *bpfEvent) {
 	if len(b.recordedFiles[mid]) > maxTrackedPaths {
 		b.logger.Info("Max tracked file reached. Profile will be truncated to avoid OOM",
 			"mntns", mid, "limit", maxTrackedPaths)
+
 		return
 	}
 
