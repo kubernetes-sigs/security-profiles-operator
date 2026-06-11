@@ -235,12 +235,13 @@ func (p *podSeccompRecorder) updatePod(
 
 		if existingValue != value {
 			// Overwrite the existing value with the expected value to avoid that
-			// an attacker will spoof a profile recording into it's own controlled
+			// an attacker will spoof a profile recording into its own controlled
 			// profile instead of the one expected.
 			pod.Annotations[key] = value
+			podChanged = true
 			p.log.Info(
 				fmt.Sprintf(
-					"workload %s already has annotation %q is overwritten by %q.",
+					"workload %s already has annotation %q, overwriting with %q.",
 					podName,
 					existingValue,
 					value,
