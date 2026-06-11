@@ -306,7 +306,7 @@ func (m *Metrics) IncSelinuxProfileDelete() {
 // IncSelinuxProfileAudit increments the selinux profile audit counter for the
 // provided labels.
 func (m *Metrics) IncSelinuxProfileAudit(
-	node, namespace, pod, container, executable, scontext, tcontext string,
+	node, namespace, pod, container, scontext, tcontext string,
 ) {
 	m.metricSelinuxProfileAudit.WithLabelValues(
 		node, namespace, pod, container, scontext, tcontext,
