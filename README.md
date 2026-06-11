@@ -40,6 +40,8 @@ The motivation behind the project can be found in the corresponding [RFC][0].
 - [Architecture](doc/architecture.svg)
 - [Use Stories](doc/user-stories.md)
 - [Personas](doc/personas.md)
+- [Audit Logging Guide](doc/audit-logging-guide.md)
+- [Migration Guide: API v1 Graduation](doc/migration-guide-v1.md)
 
 [0]: RFC.md
 

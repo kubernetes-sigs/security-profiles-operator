@@ -169,6 +169,10 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			"SPOD: Enable profile recorder",
 			e.testCaseSPODEnableProfileRecorder,
 		},
+		{
+			"API v1 Graduation: Verify conversion webhooks",
+			e.testCaseAPIV1Graduation,
+		},
 	}
 	for _, testCase := range testCases {
 		tc := testCase

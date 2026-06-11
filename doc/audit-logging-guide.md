@@ -58,7 +58,7 @@ This profile logs specific syscalls related to process creation.
 Create a file named `sec_comp_profile.yaml`:
 
 ```yaml
-apiVersion: security-profiles-operator.x-k8s.io/v1beta1
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: SeccompProfile
 metadata:
   name: profile1
@@ -86,7 +86,7 @@ This will automatically apply the profile to new pods in the default namespace.
 Create a file named `image_sec_comp.yaml`:
 
 ```yaml
-apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: ProfileBinding
 metadata:
   namespace: default
