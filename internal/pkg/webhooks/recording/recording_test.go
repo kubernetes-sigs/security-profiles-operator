@@ -377,7 +377,7 @@ func TestHandle(t *testing.T) {
 			},
 			assert: func(resp admission.Response) {
 				require.True(t, resp.Allowed)
-				require.Empty(t, resp.Patches)
+				require.Len(t, resp.Patches, 3) // 3 because pod + container security context and the annotation
 			},
 		},
 		{ // success pod deleted
