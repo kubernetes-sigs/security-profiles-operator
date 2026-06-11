@@ -21,7 +21,6 @@ package bpfrecorder
 import (
 	"errors"
 	"fmt"
-	"log"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -40,6 +39,13 @@ const (
 	sockDgram    uint64 = 2
 	sockRaw      uint64 = 3
 	sockTypeMask uint64 = 0xF
+
+	// maxTrackedPaths limits the number of unique paths recorded per mount namespace
+	// to prevent memory exhaustion (OOM) attacks from malicious workloads.
+	maxTrackedPaths = 10000
+
+	// maxPathLength enforces a ceiling on the string size stored in the map.
+	maxPathLength = 4096
 )
 
 var appArmorHooks = []string{
@@ -162,17 +168,29 @@ func (b *AppArmorRecorder) handleFileEvent(fileEvent *bpfEvent) {
 	fileName := fileDataToString(&fileEvent.Data)
 	fileName = ReplaceVarianceInFilePath(fileName)
 
-	log.Printf("File access: %s, flags=%d pid=%d mntns=%d\n", fileName, fileEvent.Flags, fileEvent.Pid, fileEvent.Mntns)
+	b.logger.Info("File access", "filename",
+		fileName, "flags", fileEvent.Flags, "pid", fileEvent.Pid, "mntns", fileEvent.Mntns)
 
 	if shouldExcludeFile(fileName) {
-		log.Printf("Excluded File: %s", fileName)
-
+		b.logger.Info("Exclude file", "filename", fileName)
 		return
 	}
 
 	mid := mntnsID(fileEvent.Mntns)
 	if _, ok := b.recordedFiles[mid]; !ok {
 		b.recordedFiles[mid] = map[string]*fileAccess{}
+	}
+
+	// Enforce a limit on max tracked files to avoid OOM.
+	if len(b.recordedFiles[mid]) > maxTrackedPaths {
+		b.logger.Info("Max tracked file reached. Profile will be truncated to avoid OOM",
+			"mntns", mid, "limit", maxTrackedPaths)
+		return
+	}
+
+	// Cap path length to prevent single-string memory bloat
+	if len(fileName) > maxPathLength {
+		fileName = fileName[:maxPathLength]
 	}
 
 	path, ok := b.recordedFiles[mid][fileName]
@@ -221,11 +239,11 @@ func (b *AppArmorRecorder) handleCapabilityEvent(capEvent *bpfEvent) {
 		return
 	}
 
-	log.Printf(
-		"Requested capability: %s with pid=%d, mntns=%d\n",
-		capabilityToString(requestedCap),
-		capEvent.Pid,
-		capEvent.Mntns,
+	b.logger.Info(
+		"Requested capability",
+		"capability", capabilityToString(requestedCap),
+		"pid", capEvent.Pid,
+		"mntns", capEvent.Mntns,
 	)
 
 	b.recordedCapabilities[mid] = append(b.recordedCapabilities[mid], requestedCap)
@@ -246,7 +264,8 @@ func (b *AppArmorRecorder) clearMntns(event *bpfEvent) {
 	defer b.lockRecordedSocketsUse.Unlock()
 
 	mntns := mntnsID(event.Mntns)
-	log.Printf("Clearing mntns: %d\n", mntns)
+
+	b.logger.Info("Clearing", "mntns", mntns)
 	delete(b.recordedFiles, mntns)
 	delete(b.recordedCapabilities, mntns)
 	delete(b.recordedSocketsUse, mntns)
