@@ -194,6 +194,7 @@ func (b *AppArmorRecorder) handleFileEvent(fileEvent *bpfEvent) {
 	if len(fileName) > maxPathLength {
 		b.logger.Info("Skipping file with excessively long path",
 			"level", "warn", "length", len(fileName), "mntns", mid)
+
 		return
 	}
 
