@@ -239,6 +239,7 @@ func (p *podSeccompRecorder) updatePod(
 			// profile instead of the one expected.
 			pod.Annotations[key] = value
 			podChanged = true
+
 			p.log.Info(
 				fmt.Sprintf(
 					"workload %s already has annotation %q, overwriting with %q.",
