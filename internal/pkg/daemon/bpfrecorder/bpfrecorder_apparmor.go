@@ -183,16 +183,18 @@ func (b *AppArmorRecorder) handleFileEvent(fileEvent *bpfEvent) {
 	}
 
 	// Enforce a limit on max tracked files to avoid OOM.
-	if len(b.recordedFiles[mid]) > maxTrackedPaths {
-		b.logger.Info("Max tracked file reached. Profile will be truncated to avoid OOM",
-			"mntns", mid, "limit", maxTrackedPaths)
+	if len(b.recordedFiles[mid]) >= maxTrackedPaths {
+		b.logger.Info("Max tracked files reached. Profile will be truncated to avoid OOM",
+			"level", "warn", "mntns", mid, "limit", maxTrackedPaths)
 
 		return
 	}
 
 	// Cap path length to prevent single-string memory bloat
 	if len(fileName) > maxPathLength {
-		fileName = fileName[:maxPathLength]
+		b.logger.Info("Skipping file with excessively long path",
+			"level", "warn", "length", len(fileName), "mntns", mid)
+		return
 	}
 
 	path, ok := b.recordedFiles[mid][fileName]
