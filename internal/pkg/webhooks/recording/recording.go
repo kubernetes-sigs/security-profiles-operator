@@ -19,7 +19,6 @@ package recording
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -235,10 +234,13 @@ func (p *podSeccompRecorder) updatePod(
 		}
 
 		if existingValue != value {
-			p.log.Error(
-				errors.New("existing annotation"),
+			// Overwrite the existing value with the expected value to avoid that
+			// an attacker will spoof a profile recording into it's own controlled
+			// profile instead of the one expected.
+			pod.Annotations[key] = value
+			p.log.Info(
 				fmt.Sprintf(
-					"workload %s already has annotation %s (not mutating to %s).",
+					"workload %s already has annotation %q is overwritten by %q.",
 					podName,
 					existingValue,
 					value,
