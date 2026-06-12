@@ -26,11 +26,13 @@ import (
 	"strings"
 
 	"github.com/go-logr/logr"
+	"github.com/opencontainers/go-digest"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sigstore/cosign/v2/cmd/cosign/cli/generate"
 	"github.com/sigstore/cosign/v2/cmd/cosign/cli/options"
 	"github.com/sigstore/cosign/v2/cmd/cosign/cli/verify"
 	"oras.land/oras-go/v2"
+	"oras.land/oras-go/v2/registry/remote"
 	"oras.land/oras-go/v2/registry/remote/auth"
 	"oras.land/oras-go/v2/registry/remote/retry"
 
@@ -269,6 +271,16 @@ func (a *Artifact) Pull(
 	ctx, cancel := context.WithTimeout(c, defaultTimeout)
 	defer cancel()
 
+	// Retrieve the immutable image digest before doing any verification to
+	// prevent a TOCTOU attack on the mutable tag of the base image, which
+	// it might lead to a malicious based profile being injected between
+	// verification and copying the content
+	a.logger.Info("Resolving digest of image: " + from)
+	from, repo, digest, err := a.imageWithDigest(ctx, from, username, password)
+	if err != nil {
+		return nil, fmt.Errorf("resolving digest for image %q: %w", from, err)
+	}
+
 	if !disableSignatureVerification {
 		a.logger.Info("Verifying signature")
 
@@ -309,41 +321,12 @@ func (a *Artifact) Pull(
 		}
 	}()
 
-	a.logger.Info("Verifying reference: " + from)
-
-	parsedRef, err := a.ParseReference(from)
-	if err != nil {
-		return nil, fmt.Errorf("parse reference: %w", err)
-	}
-
-	ref := parsedRef.Context().Name()
-	a.logger.Info("Creating repository for " + ref)
-
-	repo, err := a.NewRepository(ref)
-	if err != nil {
-		return nil, fmt.Errorf("create repository: %w", err)
-	}
-
-	if username != "" && password != "" {
-		a.logger.Info("Using username and password")
-
-		repo.Client = &auth.Client{
-			Client: retry.DefaultClient,
-			Cache:  auth.DefaultCache,
-			Credential: auth.StaticCredential(
-				repo.Reference.Registry,
-				auth.Credential{Username: username, Password: password},
-			),
-		}
-	}
-
-	tag := parsedRef.Identifier()
-	a.logger.Info("Using tag: " + tag)
-
+	sha := digest.String()
+	a.logger.Info("Use image digest: %s", sha)
 	a.logger.Info("Copying profile from repository")
 
 	if _, err := a.Copy(
-		ctx, repo, tag, store, tag, oras.DefaultCopyOptions,
+		ctx, repo, sha, store, sha, oras.DefaultCopyOptions,
 	); err != nil {
 		return nil, fmt.Errorf("copy from repository: %w", err)
 	}
@@ -393,6 +376,45 @@ func (a *Artifact) Pull(
 	default:
 		return nil, fmt.Errorf("cannot process %T to PullResult", obj)
 	}
+}
+
+// imageWithDigest transforms the given image into an image with digest instead of a tag.
+// It retrieves the digest from the remote repository. Returns the updated image with
+// digest and the repository and the digest as separate return arguments.
+func (a *Artifact) imageWithDigest(ctx context.Context, image, username, password string) (
+	string, *remote.Repository, digest.Digest, error) {
+	ref, err := a.ParseReference(image)
+	if err != nil {
+		return "", nil, "", fmt.Errorf("parsing ref for image %q: %w", image, err)
+	}
+
+	repo, err := a.NewRepository(ref.Name())
+	if err != nil {
+		return "", nil, "", fmt.Errorf("creating repository for %q: %w",
+			ref.Context().Name(), err)
+	}
+
+	if username != "" && password != "" {
+		a.logger.Info("Using username and password")
+
+		repo.Client = &auth.Client{
+			Client: retry.DefaultClient,
+			Cache:  auth.DefaultCache,
+			Credential: auth.StaticCredential(
+				repo.Reference.Registry,
+				auth.Credential{Username: username, Password: password},
+			),
+		}
+	}
+
+	desc, err := a.ResolveRepository(ctx, repo, ref.Identifier())
+	if err != nil {
+		return "", nil, "",
+			fmt.Errorf("resolving image identifier %q: %w", ref.Identifier(), err)
+	}
+
+	return fmt.Sprintf("%s@%s", ref.Name(),
+		desc.Digest.String()), repo, desc.Digest, nil
 }
 
 // profileName returns the name for the profile based on the platform.

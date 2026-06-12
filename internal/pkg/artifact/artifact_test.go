@@ -235,6 +235,7 @@ func TestPull(t *testing.T) {
 			name: "success with failed cleanup",
 			prepare: func(mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
+				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.ReadFileReturns([]byte{}, nil)
 				mock.ReadProfileReturns(&seccompprofileapi.SeccompProfile{}, nil)
@@ -253,6 +254,7 @@ func TestPull(t *testing.T) {
 			name: "success seccomp",
 			prepare: func(mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
+				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.ReadFileReturns([]byte{}, nil)
 				mock.ReadProfileReturns(&seccompprofileapi.SeccompProfile{}, nil)
@@ -269,6 +271,7 @@ func TestPull(t *testing.T) {
 			name: "success selinux",
 			prepare: func(mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
+				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.ReadFileReturns([]byte{}, nil)
 				mock.ReadProfileReturns(&selinuxprofileapi.SelinuxProfile{}, nil)
@@ -285,6 +288,7 @@ func TestPull(t *testing.T) {
 			name: "success apparmor",
 			prepare: func(mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
+				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.ReadFileReturns([]byte{}, nil)
 				mock.ReadProfileReturns(&apparmorprofileapi.AppArmorProfile{}, nil)
@@ -301,6 +305,7 @@ func TestPull(t *testing.T) {
 			name: "failure on all YAML decodes",
 			prepare: func(mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
+				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.ReadFileReturns([]byte{}, nil)
 				mock.ReadProfileReturns(nil, errTest)
@@ -315,6 +320,7 @@ func TestPull(t *testing.T) {
 			name: "failure on ReadFile",
 			prepare: func(mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
+				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.ReadFileReturns(nil, errTest)
 			},
@@ -327,6 +333,7 @@ func TestPull(t *testing.T) {
 			name: "failure on Copy",
 			prepare: func(mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
+				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.CopyReturns(defaultDescriptor(), errTest)
 			},
@@ -357,8 +364,23 @@ func TestPull(t *testing.T) {
 			},
 		},
 		{
+			name: "failure on ResolveRepository",
+			prepare: func(mock *artifactfakes.FakeImpl) {
+				mock.NewRepositoryReturns(&remote.Repository{}, nil)
+				mock.ParseReferenceReturns(testRef, nil)
+				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, errTest)
+			},
+			assert: func(res *PullResult, err error) {
+				require.ErrorIs(t, err, errTest)
+				require.Nil(t, res)
+			},
+		},
+		{
 			name: "failure on FileNew",
 			prepare: func(mock *artifactfakes.FakeImpl) {
+				mock.NewRepositoryReturns(&remote.Repository{}, nil)
+				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
+				mock.ParseReferenceReturns(testRef, nil)
 				mock.FileNewReturns(nil, errTest)
 			},
 			assert: func(res *PullResult, err error) {
@@ -369,6 +391,9 @@ func TestPull(t *testing.T) {
 		{
 			name: "failure on MkdirTemp",
 			prepare: func(mock *artifactfakes.FakeImpl) {
+				mock.NewRepositoryReturns(&remote.Repository{}, nil)
+				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
+				mock.ParseReferenceReturns(testRef, nil)
 				mock.MkdirTempReturns("", errTest)
 			},
 			assert: func(res *PullResult, err error) {
@@ -379,6 +404,9 @@ func TestPull(t *testing.T) {
 		{
 			name: "failure on VerifyCmd",
 			prepare: func(mock *artifactfakes.FakeImpl) {
+				mock.NewRepositoryReturns(&remote.Repository{}, nil)
+				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
+				mock.ParseReferenceReturns(testRef, nil)
 				mock.VerifyCmdReturns(errTest)
 			},
 			assert: func(res *PullResult, err error) {

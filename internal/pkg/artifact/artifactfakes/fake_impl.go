@@ -196,6 +196,21 @@ type FakeImpl struct {
 	removeAllReturnsOnCall map[int]struct {
 		result1 error
 	}
+	ResolveRepositoryStub        func(context.Context, *remote.Repository, string) (v1.Descriptor, error)
+	resolveRepositoryMutex       sync.RWMutex
+	resolveRepositoryArgsForCall []struct {
+		arg1 context.Context
+		arg2 *remote.Repository
+		arg3 string
+	}
+	resolveRepositoryReturns struct {
+		result1 v1.Descriptor
+		result2 error
+	}
+	resolveRepositoryReturnsOnCall map[int]struct {
+		result1 v1.Descriptor
+		result2 error
+	}
 	SignCmdStub        func(*options.RootOptions, options.KeyOpts, options.SignOptions, []string) error
 	signCmdMutex       sync.RWMutex
 	signCmdArgsForCall []struct {
@@ -1034,6 +1049,72 @@ func (fake *FakeImpl) RemoveAllReturnsOnCall(i int, result1 error) {
 	fake.removeAllReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
+}
+
+func (fake *FakeImpl) ResolveRepository(arg1 context.Context, arg2 *remote.Repository, arg3 string) (v1.Descriptor, error) {
+	fake.resolveRepositoryMutex.Lock()
+	ret, specificReturn := fake.resolveRepositoryReturnsOnCall[len(fake.resolveRepositoryArgsForCall)]
+	fake.resolveRepositoryArgsForCall = append(fake.resolveRepositoryArgsForCall, struct {
+		arg1 context.Context
+		arg2 *remote.Repository
+		arg3 string
+	}{arg1, arg2, arg3})
+	stub := fake.ResolveRepositoryStub
+	fakeReturns := fake.resolveRepositoryReturns
+	fake.recordInvocation("ResolveRepository", []interface{}{arg1, arg2, arg3})
+	fake.resolveRepositoryMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) ResolveRepositoryCallCount() int {
+	fake.resolveRepositoryMutex.RLock()
+	defer fake.resolveRepositoryMutex.RUnlock()
+	return len(fake.resolveRepositoryArgsForCall)
+}
+
+func (fake *FakeImpl) ResolveRepositoryCalls(stub func(context.Context, *remote.Repository, string) (v1.Descriptor, error)) {
+	fake.resolveRepositoryMutex.Lock()
+	defer fake.resolveRepositoryMutex.Unlock()
+	fake.ResolveRepositoryStub = stub
+}
+
+func (fake *FakeImpl) ResolveRepositoryArgsForCall(i int) (context.Context, *remote.Repository, string) {
+	fake.resolveRepositoryMutex.RLock()
+	defer fake.resolveRepositoryMutex.RUnlock()
+	argsForCall := fake.resolveRepositoryArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *FakeImpl) ResolveRepositoryReturns(result1 v1.Descriptor, result2 error) {
+	fake.resolveRepositoryMutex.Lock()
+	defer fake.resolveRepositoryMutex.Unlock()
+	fake.ResolveRepositoryStub = nil
+	fake.resolveRepositoryReturns = struct {
+		result1 v1.Descriptor
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) ResolveRepositoryReturnsOnCall(i int, result1 v1.Descriptor, result2 error) {
+	fake.resolveRepositoryMutex.Lock()
+	defer fake.resolveRepositoryMutex.Unlock()
+	fake.ResolveRepositoryStub = nil
+	if fake.resolveRepositoryReturnsOnCall == nil {
+		fake.resolveRepositoryReturnsOnCall = make(map[int]struct {
+			result1 v1.Descriptor
+			result2 error
+		})
+	}
+	fake.resolveRepositoryReturnsOnCall[i] = struct {
+		result1 v1.Descriptor
+		result2 error
+	}{result1, result2}
 }
 
 func (fake *FakeImpl) SignCmd(arg1 *options.RootOptions, arg2 options.KeyOpts, arg3 options.SignOptions, arg4 []string) error {
