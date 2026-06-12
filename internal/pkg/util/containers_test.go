@@ -119,6 +119,7 @@ func TestGetProcessStartTimeTicks(t *testing.T) {
 				if tt.mockErr != nil {
 					return nil, tt.mockErr
 				}
+
 				return []byte(tt.mockContent), nil
 			}
 
@@ -135,19 +136,21 @@ func TestGetProcessStartTimeTicks(t *testing.T) {
 }
 
 func TestGetProcessStartTimeTicks_CacheMissOnRecycledPID(t *testing.T) {
+	t.Parallel()
+
 	pid := 1234
 	filler := "S 1 1234 1234 0 -1 4194560 1234 0 0 0 10 20 30 40 20 0 1 0"
 
 	// Execution 1: Mocking the original process
 	mockReader1 := func(pid int) ([]byte, error) {
-		return []byte(fmt.Sprintf("%d (bash) %s 100 1234", pid, filler)), nil
+		return fmt.Appendf(nil, "%d (bash) %s 100 1234", pid, filler), nil
 	}
 	time1, err := getProcessStartTimeTicks(pid, mockReader1)
 	require.NoError(t, err)
 
 	// Execution 2: Mocking a new process that reused the same PID
 	mockReader2 := func(pid int) ([]byte, error) {
-		return []byte(fmt.Sprintf("%d (python3) %s 5000 1234", pid, filler)), nil
+		return fmt.Appendf(nil, "%d (python3) %s 5000 1234", pid, filler), nil
 	}
 	time2, err := getProcessStartTimeTicks(pid, mockReader2)
 	require.NoError(t, err)
