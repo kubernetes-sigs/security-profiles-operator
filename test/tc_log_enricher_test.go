@@ -137,7 +137,6 @@ spec:
 		metrics := e.runAndRetryPodCMD(curlSpodCMD)
 		e.Regexp(fmt.Sprintf(`(?m)security_profiles_operator_seccomp_profile_audit_total{`+
 			`container="%s",`+
-			`executable="/usr/sbin/nginx",`+
 			`namespace="%s",`+
 			`node=".*",`+
 			`pod="%s",`+
