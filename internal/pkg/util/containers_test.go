@@ -115,6 +115,8 @@ func TestGetProcessStartTimeTicks(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			mockFileReader := func(pid int) ([]byte, error) {
 				if tt.mockErr != nil {
 					return nil, tt.mockErr
