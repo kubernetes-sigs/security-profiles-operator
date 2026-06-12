@@ -56,6 +56,7 @@ type impl interface {
 	ClientSecret(options.OIDCOptions) (string, error)
 	SignCmd(*options.RootOptions, options.KeyOpts, options.SignOptions, []string) error
 	VerifyCmd(context.Context, verify.VerifyCommand, string) error
+	ResolveRepository(context.Context, *remote.Repository, string) (ocispec.Descriptor, error)
 }
 
 func (*defaultImpl) ParseReference(s string, opts ...ggcrname.Option) (ggcrname.Reference, error) {
@@ -140,4 +141,10 @@ func (*defaultImpl) VerifyCmd(
 	ctx context.Context, cmd verify.VerifyCommand, image string,
 ) error {
 	return cmd.Exec(ctx, []string{image})
+}
+
+//nolint:gocritic // intentional for the mock
+func (*defaultImpl) ResolveRepository(ctx context.Context,
+	repo *remote.Repository, reference string) (ocispec.Descriptor, error) {
+	return repo.Resolve(ctx, reference)
 }
