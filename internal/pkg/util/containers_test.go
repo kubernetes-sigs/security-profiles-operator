@@ -17,6 +17,8 @@ limitations under the License.
 package util
 
 import (
+	"fmt"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -61,4 +63,95 @@ func TestExtractContainerID(t *testing.T) {
 			require.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestGetProcessStartTimeTicks(t *testing.T) {
+	t.Parallel()
+
+	filler := "S 1 1234 1234 0 -1 4194560 1234 0 0 0 10 20 30 40 20 0 1 0"
+
+	tests := []struct {
+		name        string
+		pid         int
+		mockContent string
+		mockErr     error
+		want        string
+		wantErr     bool
+	}{
+		{
+			name:        "Standard valid output",
+			pid:         1234,
+			mockContent: fmt.Sprintf("1234 (bash) %s 88888 1234", filler),
+			want:        "88888",
+			wantErr:     false,
+		},
+		{
+			name:        "Edge-case: comm field with spaces",
+			pid:         1234,
+			mockContent: fmt.Sprintf("1234 (my cool daemon) %s 99999 1234", filler),
+			want:        "99999",
+			wantErr:     false,
+		},
+		{
+			name:        "Edge-case: nested and trailing parentheses",
+			pid:         1234,
+			mockContent: fmt.Sprintf("1234 (my (cool) daemon()) %s 11111 1234", filler),
+			want:        "11111",
+			wantErr:     false,
+		},
+		{
+			name:    "Error path: missing /proc/<pid>/stat file",
+			pid:     9999,
+			mockErr: os.ErrNotExist,
+			wantErr: true,
+		},
+		{
+			name:        "Error path: truncated stat output",
+			pid:         1234,
+			mockContent: "1234 (bash S 1 1234",
+			wantErr:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockFileReader := func(pid int) ([]byte, error) {
+				if tt.mockErr != nil {
+					return nil, tt.mockErr
+				}
+				return []byte(tt.mockContent), nil
+			}
+
+			got, err := getProcessStartTimeTicks(tt.pid, mockFileReader)
+
+			if tt.wantErr {
+				require.Error(t, err, "expected an error but got none")
+			} else {
+				require.NoError(t, err, "expected no error but got one")
+				require.Equal(t, tt.want, got, "start time ticks did not match")
+			}
+		})
+	}
+}
+
+func TestGetProcessStartTimeTicks_CacheMissOnRecycledPID(t *testing.T) {
+	pid := 1234
+	filler := "S 1 1234 1234 0 -1 4194560 1234 0 0 0 10 20 30 40 20 0 1 0"
+
+	// Execution 1: Mocking the original process
+	mockReader1 := func(pid int) ([]byte, error) {
+		return []byte(fmt.Sprintf("%d (bash) %s 100 1234", pid, filler)), nil
+	}
+	time1, err := getProcessStartTimeTicks(pid, mockReader1)
+	require.NoError(t, err)
+
+	// Execution 2: Mocking a new process that reused the same PID
+	mockReader2 := func(pid int) ([]byte, error) {
+		return []byte(fmt.Sprintf("%d (python3) %s 5000 1234", pid, filler)), nil
+	}
+	time2, err := getProcessStartTimeTicks(pid, mockReader2)
+	require.NoError(t, err)
+
+	// Verify the start times are distinct to prevent cache collisions
+	require.NotEqual(t, time1, time2, "expected different start times for a recycled PID to prevent cache poisoning")
 }
