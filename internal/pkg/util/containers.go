@@ -42,22 +42,28 @@ var (
 	// cgroup does not contain any container ID.
 	ErrContainerIDNotFound = errors.New("unable to find container ID in cgroup path")
 
-	// ErrContainerIDSearchFailed is the error returned with a reason by
+	// errContainerIDSearchFailed is the error returned with a reason by
 	// ContainerIDForPID if it fails to parse the container ID from the logs.
-	ErrContainerIDSearchFailed = errors.New("failed looking for container ID")
+	errContainerIDSearchFailed = errors.New("failed looking for container ID")
 )
+
+// procStatReader closure function to read the /proc/<pid>stat which allows for
+// more testability.
+type procStatReader func(pid int) ([]byte, error)
 
 // ContainerIDForPID tries to find the 64 digit container ID for the provided
 // PID by using its cgroup. It supports caching via the cache argument.
 func ContainerIDForPID(cache *ttlcache.Cache[string, string], pid int) (string, error) {
-	stat, err := getProcessStartTime(pid)
+	startTime, err := getProcessStartTimeTicks(pid, func(pid int) ([]byte, error) {
+		return os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	})
 	if err != nil {
 		return "", fmt.Errorf("reading proc start time: %w", err)
 	}
 
 	// Combine the pid with the process start time as a cache key to avoid "fork-bomb"
 	// attack which reuses a PID for a different container within the cache TTL.
-	cacheKey := strconv.Itoa(pid) + "_" + stat
+	cacheKey := strconv.Itoa(pid) + "_" + startTime
 
 	// Check the cache first
 	item := cache.Get(cacheKey)
@@ -94,15 +100,16 @@ func ContainerIDForPID(cache *ttlcache.Cache[string, string], pid int) (string, 
 	}
 	// Check if not finding a container ID was caused by any scanning errors.
 	if err := scanner.Err(); err != nil {
-		return "", fmt.Errorf("%w: %w", ErrContainerIDSearchFailed, err)
+		return "", fmt.Errorf("%w: %w", errContainerIDSearchFailed, err)
 	}
 
 	return "", ErrContainerIDNotFound
 }
 
-// getProcessStartTime return the start time for a process.
-func getProcessStartTime(pid int) (string, error) {
-	stat, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+// getProcessStartTimeTicks return the start time for a process.
+func getProcessStartTimeTicks(pid int, procStatReader procStatReader) (string, error) {
+	//stat, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	stat, err := procStatReader(pid)
 	if err != nil {
 		return "", fmt.Errorf("reading proc start time for %d pid: %w", pid, err)
 	}
