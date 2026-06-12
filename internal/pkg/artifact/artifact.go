@@ -276,7 +276,7 @@ func (a *Artifact) Pull(
 	// it might lead to a malicious based profile being injected between
 	// verification and copying the content
 	a.logger.Info("Resolving digest of image: " + from)
-	from, repo, digest, err := a.imageWithDigest(ctx, from, username, password)
+	from, repo, sha, err := a.imageWithDigest(ctx, from, username, password)
 	if err != nil {
 		return nil, fmt.Errorf("resolving digest for image %q: %w", from, err)
 	}
@@ -321,12 +321,11 @@ func (a *Artifact) Pull(
 		}
 	}()
 
-	sha := digest.String()
-	a.logger.Info("Use image digest: %s", sha)
 	a.logger.Info("Copying profile from repository")
+	a.logger.Info("Source image", "image", from)
 
 	if _, err := a.Copy(
-		ctx, repo, sha, store, sha, oras.DefaultCopyOptions,
+		ctx, repo, sha.String(), store, sha.String(), oras.DefaultCopyOptions,
 	); err != nil {
 		return nil, fmt.Errorf("copy from repository: %w", err)
 	}
@@ -382,7 +381,8 @@ func (a *Artifact) Pull(
 // It retrieves the digest from the remote repository. Returns the updated image with
 // digest and the repository and the digest as separate return arguments.
 func (a *Artifact) imageWithDigest(ctx context.Context, image, username, password string) (
-	string, *remote.Repository, digest.Digest, error) {
+	string, *remote.Repository, digest.Digest, error,
+) {
 	ref, err := a.ParseReference(image)
 	if err != nil {
 		return "", nil, "", fmt.Errorf("parsing ref for image %q: %w", image, err)
@@ -391,7 +391,7 @@ func (a *Artifact) imageWithDigest(ctx context.Context, image, username, passwor
 	repo, err := a.NewRepository(ref.Name())
 	if err != nil {
 		return "", nil, "", fmt.Errorf("creating repository for %q: %w",
-			ref.Context().Name(), err)
+			ref.Name(), err)
 	}
 
 	if username != "" && password != "" {

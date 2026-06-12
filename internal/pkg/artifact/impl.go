@@ -143,8 +143,8 @@ func (*defaultImpl) VerifyCmd(
 	return cmd.Exec(ctx, []string{image})
 }
 
-//nolint:gocritic // intentional for the mock
 func (*defaultImpl) ResolveRepository(ctx context.Context,
-	repo *remote.Repository, reference string) (ocispec.Descriptor, error) {
+	repo *remote.Repository, reference string,
+) (ocispec.Descriptor, error) {
 	return repo.Resolve(ctx, reference)
 }
