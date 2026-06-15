@@ -285,13 +285,14 @@ func (a *Artifact) Pull(
 	ctx, cancel := context.WithTimeout(c, defaultTimeout)
 	defer cancel()
 
-	a.logger.Info("Resolving digest of image: " + from)
+	originalImage := from
+
+	a.logger.Info("Resolving digest of image: " + originalImage)
 
 	// Retrieve the immutable image digest before doing any verification to
 	// prevent a TOCTOU attack on the mutable tag of the base image, which
-	// which might lead to a malicious base profile being injected between
+	// might lead to a malicious base profile being injected between
 	// verification and copying the content.
-	originalImage := from
 	from, repo, sha, err := a.imageWithDigest(ctx, originalImage, username, password)
 	if err != nil {
 		return nil, fmt.Errorf("resolving digest for image %q: %w", originalImage, err)
