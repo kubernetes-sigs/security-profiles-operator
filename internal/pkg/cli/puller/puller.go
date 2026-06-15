@@ -47,7 +47,11 @@ func (p *Puller) Run() error {
 		p.options.username,
 		p.options.password,
 		p.options.platform,
-		p.options.disableSignatureVerification,
+		&artifact.PullSignatureOptions{
+			DisableSignatureVerification: p.options.disableSignatureVerification,
+			AllowedIdentityRegexp:        p.options.allowedIdentityRegexp,
+			AllowedOidcIssuerRegexp:      p.options.allowedOidcIssuerRegexp,
+		},
 	)
 	if err != nil {
 		return fmt.Errorf("pull profile: %w", err)

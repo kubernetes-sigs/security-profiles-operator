@@ -69,7 +69,7 @@ type FakeImpl struct {
 		arg1 *metrics.Metrics
 		arg2 string
 	}
-	PullStub        func(context.Context, logr.Logger, string, string, string, *v1b.Platform, bool) (*artifact.PullResult, error)
+	PullStub        func(context.Context, logr.Logger, string, string, string, *v1b.Platform, *artifact.PullSignatureOptions) (*artifact.PullResult, error)
 	pullMutex       sync.RWMutex
 	pullArgsForCall []struct {
 		arg1 context.Context
@@ -78,7 +78,7 @@ type FakeImpl struct {
 		arg4 string
 		arg5 string
 		arg6 *v1b.Platform
-		arg7 bool
+		arg7 *artifact.PullSignatureOptions
 	}
 	pullReturns struct {
 		result1 *artifact.PullResult
@@ -288,7 +288,7 @@ func (fake *FakeImpl) IncSeccompProfileErrorArgsForCall(i int) (*metrics.Metrics
 	return argsForCall.arg1, argsForCall.arg2
 }
 
-func (fake *FakeImpl) Pull(arg1 context.Context, arg2 logr.Logger, arg3 string, arg4 string, arg5 string, arg6 *v1b.Platform, arg7 bool) (*artifact.PullResult, error) {
+func (fake *FakeImpl) Pull(arg1 context.Context, arg2 logr.Logger, arg3 string, arg4 string, arg5 string, arg6 *v1b.Platform, arg7 *artifact.PullSignatureOptions) (*artifact.PullResult, error) {
 	fake.pullMutex.Lock()
 	ret, specificReturn := fake.pullReturnsOnCall[len(fake.pullArgsForCall)]
 	fake.pullArgsForCall = append(fake.pullArgsForCall, struct {
@@ -298,7 +298,7 @@ func (fake *FakeImpl) Pull(arg1 context.Context, arg2 logr.Logger, arg3 string, 
 		arg4 string
 		arg5 string
 		arg6 *v1b.Platform
-		arg7 bool
+		arg7 *artifact.PullSignatureOptions
 	}{arg1, arg2, arg3, arg4, arg5, arg6, arg7})
 	stub := fake.PullStub
 	fakeReturns := fake.pullReturns
@@ -319,13 +319,13 @@ func (fake *FakeImpl) PullCallCount() int {
 	return len(fake.pullArgsForCall)
 }
 
-func (fake *FakeImpl) PullCalls(stub func(context.Context, logr.Logger, string, string, string, *v1b.Platform, bool) (*artifact.PullResult, error)) {
+func (fake *FakeImpl) PullCalls(stub func(context.Context, logr.Logger, string, string, string, *v1b.Platform, *artifact.PullSignatureOptions) (*artifact.PullResult, error)) {
 	fake.pullMutex.Lock()
 	defer fake.pullMutex.Unlock()
 	fake.PullStub = stub
 }
 
-func (fake *FakeImpl) PullArgsForCall(i int) (context.Context, logr.Logger, string, string, string, *v1b.Platform, bool) {
+func (fake *FakeImpl) PullArgsForCall(i int) (context.Context, logr.Logger, string, string, string, *v1b.Platform, *artifact.PullSignatureOptions) {
 	fake.pullMutex.RLock()
 	defer fake.pullMutex.RUnlock()
 	argsForCall := fake.pullArgsForCall[i]
