@@ -67,8 +67,8 @@ func TestFromContext(t *testing.T) {
 			},
 			assert: func(opts *Options, err error) {
 				require.NoError(t, err)
-				require.Equal(t, opts.allowedIdentityRegexp, "testIdentity*")
-				require.Equal(t, opts.allowedOidcIssuerRegexp, "testOidc*")
+				require.Equal(t, "testIdentity*", opts.allowedIdentityRegexp)
+				require.Equal(t, "testOidc*", opts.allowedOidcIssuerRegexp)
 			},
 		},
 		{

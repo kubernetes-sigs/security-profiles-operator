@@ -37,7 +37,8 @@ type defaultImpl struct{}
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../../hack/boilerplate/boilerplate.generatego.txt
 //counterfeiter:generate . impl
 type impl interface {
-	Pull(context.Context, logr.Logger, string, string, string, *v1.Platform, *artifact.PullSignatureOptions) (*artifact.PullResult, error)
+	Pull(context.Context, logr.Logger, string, string, string, *v1.Platform,
+		*artifact.PullSignatureOptions) (*artifact.PullResult, error)
 	PullResultType(*artifact.PullResult) artifact.PullResultType
 	PullResultSeccompProfile(*artifact.PullResult) *seccompprofileapi.SeccompProfile
 	ClientGetProfile(
