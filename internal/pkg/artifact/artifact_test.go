@@ -427,7 +427,7 @@ func TestPull(t *testing.T) {
 			sut := New(logr.Discard())
 			sut.impl = mock
 
-			res, err := sut.Pull(t.Context(), "", "foo", "bar", nil, false)
+			res, err := sut.Pull(t.Context(), "", "foo", "bar", nil, &PullSignatureOptions{})
 			assert(res, err)
 		})
 	}

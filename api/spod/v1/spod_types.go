@@ -260,6 +260,18 @@ type SPODSecurityConfig struct {
 	// +optional
 	// +default=false
 	DisableOCIArtifactSignatureVerification *bool `json:"disableOciArtifactSignatureVerification,omitempty"`
+
+	// allowedIdentityRegexp regexp for allowed identity when verifying the signature of OCI
+	// image used to distribute the base profile in the cluster.
+	// +optional
+	// +default=".*"
+	AllowedIdentityRegexp string `json:"allowedIdentityRegexp,omitempty"`
+
+	// allowedOidcIssuerRegexp regexp for allowed Oidc issuer when verifying the signature of OIDC
+	// image used to distribute the base profile in the cluster.
+	// +optional
+	// +default=".*"
+	AllowedOidcIssuerRegexp string `json:"allowedOidcIssuerRegexp,omitempty"`
 }
 
 // SPODState defines the state that the spod is in.

@@ -390,16 +390,22 @@ func (r *Reconciler) resolveSyscallsForProfile(
 				return nil, fmt.Errorf("retrieving the SPOD configuration: %w", err)
 			}
 
-			disableVerification := ptr.Deref(spod.Spec.Security.DisableOCIArtifactSignatureVerification, false)
+			signOpts := &artifact.PullSignatureOptions{
+				DisableSignatureVerification: ptr.Deref(spod.Spec.Security.DisableOCIArtifactSignatureVerification, false),
+				AllowedIdentityRegexp:        spod.Spec.Security.AllowedIdentityRegexp,
+				AllowedOidcIssuerRegexp:      spod.Spec.Security.AllowedOidcIssuerRegexp,
+			}
 			l.Info(
 				"Pulling base profile: "+from,
-				"disableOCIArtifactSignatureVerification", disableVerification,
+				"disableOCIArtifactSignatureVerification", signOpts.DisableSignatureVerification,
+				"allowedIdentityRegexp", signOpts.AllowedIdentityRegexp,
+				"allowedOidcIssuerRegexp", signOpts.AllowedOidcIssuerRegexp,
 			)
 
 			res, err := r.Pull(ctx, l, from, "", "", &v1.Platform{
 				Architecture: runtime.GOARCH,
 				OS:           runtime.GOOS,
-			}, disableVerification)
+			}, signOpts)
 			if err != nil {
 				l.Error(err, "cannot pull base profile "+baseProfileName)
 				r.IncSeccompProfileError(r.metrics, reasonCannotPullProfile)

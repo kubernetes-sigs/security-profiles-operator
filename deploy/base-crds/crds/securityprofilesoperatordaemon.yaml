@@ -1219,6 +1219,18 @@ spec:
               security:
                 description: security contains security policy configuration.
                 properties:
+                  allowedIdentityRegexp:
+                    default: .*
+                    description: |-
+                      allowedIdentityRegexp regexp for allowed identity when verifying the signature of OCI
+                      image used to distribute the base profile in the cluster.
+                    type: string
+                  allowedOidcIssuerRegexp:
+                    default: .*
+                    description: |-
+                      allowedOidcIssuerRegexp regexp for allowed Oidc issuer when verifying the signature of OIDC
+                      image used to distribute the base profile in the cluster.
+                    type: string
                   allowedSeccompActions:
                     description: allowedSeccompActions if specified, a list of allowed
                       seccomp actions.

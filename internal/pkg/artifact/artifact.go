@@ -83,6 +83,18 @@ type Artifact struct {
 	logger logr.Logger
 }
 
+// PullSignatureOptions options for verifying the OCI image signature during pulling.
+type PullSignatureOptions struct {
+	// DisableSignatureVerification disables signature verification during pulling.
+	DisableSignatureVerification bool
+
+	// AllowedIdentityRegexp regexp for allowed identities for signature verification.
+	AllowedIdentityRegexp string
+
+	// AllowedOidcIssuerRegexp regexp for allowed Oidc issuer for signature verification.
+	AllowedOidcIssuerRegexp string
+}
+
 // New returns a new Artifact instance.
 func New(logger logr.Logger) *Artifact {
 	return &Artifact{
@@ -266,7 +278,7 @@ func (a *Artifact) Pull(
 	c context.Context,
 	from, username, password string,
 	platform *v1.Platform,
-	disableSignatureVerification bool,
+	signOpts *PullSignatureOptions,
 ) (*PullResult, error) {
 	ctx, cancel := context.WithTimeout(c, defaultTimeout)
 	defer cancel()
@@ -282,15 +294,13 @@ func (a *Artifact) Pull(
 		return nil, fmt.Errorf("resolving digest for image %q: %w", from, err)
 	}
 
-	if !disableSignatureVerification {
+	if signOpts != nil && !signOpts.DisableSignatureVerification {
 		a.logger.Info("Verifying signature")
-
-		const all = ".*"
 
 		v := verify.VerifyCommand{
 			CertVerifyOptions: options.CertVerifyOptions{
-				CertIdentityRegexp:   all,
-				CertOidcIssuerRegexp: all,
+				CertIdentityRegexp:   signOpts.AllowedIdentityRegexp,
+				CertOidcIssuerRegexp: signOpts.AllowedOidcIssuerRegexp,
 			},
 		}
 		if err := a.VerifyCmd(ctx, v, from); err != nil {

@@ -243,6 +243,18 @@ func main() {
 					EnvVars: []string{"DISABLE_SIGNATURE_VERIFICATION"},
 					Usage:   "disable signature verification",
 				},
+				&cli.StringFlag{
+					Name:    puller.FlagAllowedIdentitiesRegexp,
+					Aliases: []string{"i"},
+					EnvVars: []string{"ALLOWED_IDENTITIES_REGEXP"},
+					Usage:   "regexp for allowed identities in signature verification",
+				},
+				&cli.StringFlag{
+					Name:    puller.FlagAllowedOidcIssuerRegexp,
+					Aliases: []string{"o"},
+					EnvVars: []string{"ALLOWED_OIDC_ISSUER_REGEXP"},
+					Usage:   "regexp for allowed Oidc issuer in signature verification",
+				},
 			},
 		},
 	)

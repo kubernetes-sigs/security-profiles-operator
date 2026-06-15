@@ -35,12 +35,16 @@ type Options struct {
 	password                     string
 	platform                     *v1.Platform
 	disableSignatureVerification bool
+	allowedIdentityRegexp        string
+	allowedOidcIssuerRegexp      string
 }
 
 // Default returns a default options instance.
 func Default() *Options {
 	return &Options{
-		outputFile: DefaultOutputFile,
+		outputFile:              DefaultOutputFile,
+		allowedIdentityRegexp:   ".*",
+		allowedOidcIssuerRegexp: ".*",
 	}
 }
 
@@ -69,6 +73,14 @@ func FromContext(ctx *ucli.Context) (*Options, error) {
 
 	if ctx.IsSet(FlagDisableSignatureVerification) {
 		options.disableSignatureVerification = ctx.Bool(FlagDisableSignatureVerification)
+	}
+
+	if ctx.IsSet(FlagAllowedIdentitiesRegexp) {
+		options.allowedIdentityRegexp = ctx.String(FlagAllowedIdentitiesRegexp)
+	}
+
+	if ctx.IsSet(FlagAllowedOidcIssuerRegexp) {
+		options.allowedOidcIssuerRegexp = ctx.String(FlagAllowedOidcIssuerRegexp)
 	}
 
 	options.password = os.Getenv(cli.EnvKeyPassword)

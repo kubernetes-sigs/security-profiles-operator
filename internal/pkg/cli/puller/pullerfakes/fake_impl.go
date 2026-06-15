@@ -26,14 +26,14 @@ import (
 )
 
 type FakeImpl struct {
-	PullStub        func(string, string, string, *v1.Platform, bool) (*artifact.PullResult, error)
+	PullStub        func(string, string, string, *v1.Platform, *artifact.PullSignatureOptions) (*artifact.PullResult, error)
 	pullMutex       sync.RWMutex
 	pullArgsForCall []struct {
 		arg1 string
 		arg2 string
 		arg3 string
 		arg4 *v1.Platform
-		arg5 bool
+		arg5 *artifact.PullSignatureOptions
 	}
 	pullReturns struct {
 		result1 *artifact.PullResult
@@ -60,7 +60,7 @@ type FakeImpl struct {
 	invocationsMutex sync.RWMutex
 }
 
-func (fake *FakeImpl) Pull(arg1 string, arg2 string, arg3 string, arg4 *v1.Platform, arg5 bool) (*artifact.PullResult, error) {
+func (fake *FakeImpl) Pull(arg1 string, arg2 string, arg3 string, arg4 *v1.Platform, arg5 *artifact.PullSignatureOptions) (*artifact.PullResult, error) {
 	fake.pullMutex.Lock()
 	ret, specificReturn := fake.pullReturnsOnCall[len(fake.pullArgsForCall)]
 	fake.pullArgsForCall = append(fake.pullArgsForCall, struct {
@@ -68,7 +68,7 @@ func (fake *FakeImpl) Pull(arg1 string, arg2 string, arg3 string, arg4 *v1.Platf
 		arg2 string
 		arg3 string
 		arg4 *v1.Platform
-		arg5 bool
+		arg5 *artifact.PullSignatureOptions
 	}{arg1, arg2, arg3, arg4, arg5})
 	stub := fake.PullStub
 	fakeReturns := fake.pullReturns
@@ -89,13 +89,13 @@ func (fake *FakeImpl) PullCallCount() int {
 	return len(fake.pullArgsForCall)
 }
 
-func (fake *FakeImpl) PullCalls(stub func(string, string, string, *v1.Platform, bool) (*artifact.PullResult, error)) {
+func (fake *FakeImpl) PullCalls(stub func(string, string, string, *v1.Platform, *artifact.PullSignatureOptions) (*artifact.PullResult, error)) {
 	fake.pullMutex.Lock()
 	defer fake.pullMutex.Unlock()
 	fake.PullStub = stub
 }
 
-func (fake *FakeImpl) PullArgsForCall(i int) (string, string, string, *v1.Platform, bool) {
+func (fake *FakeImpl) PullArgsForCall(i int) (string, string, string, *v1.Platform, *artifact.PullSignatureOptions) {
 	fake.pullMutex.RLock()
 	defer fake.pullMutex.RUnlock()
 	argsForCall := fake.pullArgsForCall[i]
