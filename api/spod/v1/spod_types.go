@@ -267,7 +267,7 @@ type SPODSecurityConfig struct {
 	// +default=".*"
 	AllowedIdentityRegexp string `json:"allowedIdentityRegexp,omitempty"`
 
-	// allowedOidcIssuerRegexp regexp for allowed Oidc issuer when verifying the signature of OIDC
+	// allowedOidcIssuerRegexp regexp for allowed Oidc issuer when verifying the signature of OCI
 	// image used to distribute the base profile in the cluster.
 	// +optional
 	// +default=".*"

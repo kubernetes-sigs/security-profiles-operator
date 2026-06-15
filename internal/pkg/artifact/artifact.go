@@ -289,9 +289,10 @@ func (a *Artifact) Pull(
 	// prevent a TOCTOU attack on the mutable tag of the base image, which
 	// it might lead to a malicious based profile being injected between
 	// verification and copying the content.
-	from, repo, sha, err := a.imageWithDigest(ctx, from, username, password)
+	originalImage := from
+	from, repo, sha, err := a.imageWithDigest(ctx, originalImage, username, password)
 	if err != nil {
-		return nil, fmt.Errorf("resolving digest for image %q: %w", from, err)
+		return nil, fmt.Errorf("resolving digest for image %q: %w", originalImage, err)
 	}
 
 	if signOpts != nil && !signOpts.DisableSignatureVerification {
@@ -399,7 +400,7 @@ func (a *Artifact) imageWithDigest(ctx context.Context, image, username, passwor
 		return "", nil, "", fmt.Errorf("parsing ref for image %q: %w", image, err)
 	}
 
-	repo, err := a.NewRepository(ref.Name())
+	repo, err := a.NewRepository(ref.Context().Name())
 	if err != nil {
 		return "", nil, "", fmt.Errorf("creating repository for %q: %w",
 			ref.Name(), err)
@@ -424,7 +425,7 @@ func (a *Artifact) imageWithDigest(ctx context.Context, image, username, passwor
 			fmt.Errorf("resolving image identifier %q: %w", ref.Identifier(), err)
 	}
 
-	return fmt.Sprintf("%s@%s", ref.Name(),
+	return fmt.Sprintf("%s@%s", ref.Context().Name(),
 		desc.Digest.String()), repo, desc.Digest, nil
 }
 
