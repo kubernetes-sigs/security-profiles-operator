@@ -36,9 +36,9 @@ const (
 	// verification on pull.
 	FlagDisableSignatureVerification string = "disable-signature-verification"
 
-	// FlagAllowedIdentitiesRegexp is the flag for defining the allowed identity
+	// FlagAllowedIdentityRegexp is the flag for defining the allowed identity
 	// regexp when verifying the image signature.
-	FlagAllowedIdentitiesRegexp string = "allowed-identity-regexp"
+	FlagAllowedIdentityRegexp string = "allowed-identity-regexp"
 
 	// FlagAllowedOidcIssuerRegexp is the flag for defining the allowed Oidc issuers
 	// regexp when verifying the image signature.

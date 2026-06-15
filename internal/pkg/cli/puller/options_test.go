@@ -59,9 +59,9 @@ func TestFromContext(t *testing.T) {
 		{
 			name: "success with verify allowed identity and allowed oidc issuer regexp(s)",
 			prepare: func(set *flag.FlagSet) {
-				set.String(FlagAllowedIdentitiesRegexp, "testIdentity*", "")
+				set.String(FlagAllowedIdentityRegexp, "testIdentity*", "")
 				set.String(FlagAllowedOidcIssuerRegexp, "testOidc*", "")
-				require.NoError(t, set.Set(FlagAllowedIdentitiesRegexp, "testIdentity*"))
+				require.NoError(t, set.Set(FlagAllowedIdentityRegexp, "testIdentity*"))
 				require.NoError(t, set.Set(FlagAllowedOidcIssuerRegexp, "testOidc*"))
 				require.NoError(t, set.Parse([]string{"echo"}))
 			},

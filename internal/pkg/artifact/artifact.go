@@ -41,6 +41,8 @@ import (
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 )
 
+const allowAllRegexp = ".*"
+
 // PullResult is the type returned by Pull.
 type PullResult struct {
 	typ PullResultType
@@ -287,7 +289,7 @@ func (a *Artifact) Pull(
 
 	// Retrieve the immutable image digest before doing any verification to
 	// prevent a TOCTOU attack on the mutable tag of the base image, which
-	// it might lead to a malicious based profile being injected between
+	// which might lead to a malicious base profile being injected between
 	// verification and copying the content.
 	originalImage := from
 	from, repo, sha, err := a.imageWithDigest(ctx, originalImage, username, password)
@@ -295,7 +297,14 @@ func (a *Artifact) Pull(
 		return nil, fmt.Errorf("resolving digest for image %q: %w", originalImage, err)
 	}
 
-	if signOpts != nil && !signOpts.DisableSignatureVerification {
+	if signOpts == nil {
+		signOpts = &PullSignatureOptions{
+			AllowedIdentityRegexp:   allowAllRegexp,
+			AllowedOidcIssuerRegexp: allowAllRegexp,
+		}
+	}
+
+	if !signOpts.DisableSignatureVerification {
 		a.logger.Info("Verifying signature")
 
 		v := verify.VerifyCommand{
