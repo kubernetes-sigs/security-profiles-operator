@@ -28,6 +28,8 @@ import (
 	"sync"
 
 	"github.com/go-logr/logr"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
 const (
@@ -44,8 +46,20 @@ const (
 	// to prevent memory exhaustion (OOM) attacks from malicious workloads.
 	maxTrackedPaths = 10000
 
-	// maxPathLength enforces a ceiling on the string size stored in the map.
-	maxPathLength = 4096
+	// maxTrackedMntns limits the number of distinct mount namespaces tracked
+	// to prevent unbounded map growth when many containers start concurrently.
+	maxTrackedMntns = 1000
+)
+
+var (
+	reDirectPathWithPid = regexp.MustCompile(`^/\d+/`)
+	reDirectPathWithTid = regexp.MustCompile(`^/@{pid}/task/\d+/`)
+	rePathWithPid       = regexp.MustCompile(`^/proc/\d+/`)
+	rePathWithTid       = regexp.MustCompile(`^/proc/@{pid}/task/\d+/`)
+	rePathWithCid       = regexp.MustCompile(`/var/lib/containers/storage/overlay/\w+/`)
+	reUUID              = regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`)
+	reHash              = regexp.MustCompile(`[0-9a-fA-F]{32,}`)
+	reDigitSequence     = regexp.MustCompile(`\d{6,}`)
 )
 
 var appArmorHooks = []string{
@@ -80,6 +94,9 @@ type AppArmorRecorder struct {
 
 	recordedFiles     map[mntnsID]map[string]*fileAccess
 	lockRecordedFiles sync.Mutex
+
+	maxPathsWarned map[mntnsID]bool
+	maxMntnsWarned bool
 }
 
 type fileAccess struct {
@@ -119,6 +136,7 @@ func newAppArmorRecorder(logger logr.Logger, programName string) *AppArmorRecord
 		lockRecordedCapabilities: sync.Mutex{},
 		recordedFiles:            map[mntnsID]map[string]*fileAccess{},
 		lockRecordedFiles:        sync.Mutex{},
+		maxPathsWarned:           map[mntnsID]bool{},
 	}
 }
 
@@ -157,6 +175,8 @@ func (b *AppArmorRecorder) StopRecording(r *BpfRecorder) error {
 	clear(b.recordedSocketsUse)
 	clear(b.recordedCapabilities)
 	clear(b.recordedFiles)
+	clear(b.maxPathsWarned)
+	b.maxMntnsWarned = false
 
 	return nil
 }
@@ -168,32 +188,37 @@ func (b *AppArmorRecorder) handleFileEvent(fileEvent *bpfEvent) {
 	fileName := fileDataToString(&fileEvent.Data)
 	fileName = ReplaceVarianceInFilePath(fileName)
 
-	b.logger.Info("File access", "filename",
-		fileName, "flags", fileEvent.Flags, "pid", fileEvent.Pid, "mntns", fileEvent.Mntns)
+	b.logger.V(config.VerboseLevel).Info("File access",
+		"filename", fileName, "flags", fileEvent.Flags, "pid", fileEvent.Pid, "mntns", fileEvent.Mntns)
 
 	if shouldExcludeFile(fileName) {
-		b.logger.Info("Exclude file", "filename", fileName)
+		b.logger.V(config.VerboseLevel).Info("Exclude file", "filename", fileName)
 
 		return
 	}
 
 	mid := mntnsID(fileEvent.Mntns)
 	if _, ok := b.recordedFiles[mid]; !ok {
+		if len(b.recordedFiles) >= maxTrackedMntns {
+			if !b.maxMntnsWarned {
+				b.logger.Info("Max tracked mount namespaces reached, new containers will not be recorded",
+					"limit", maxTrackedMntns)
+				b.maxMntnsWarned = true
+			}
+
+			return
+		}
+
 		b.recordedFiles[mid] = map[string]*fileAccess{}
 	}
 
 	// Enforce a limit on max tracked files to avoid OOM.
 	if len(b.recordedFiles[mid]) >= maxTrackedPaths {
-		b.logger.Info("Max tracked files reached. Profile will be truncated to avoid OOM",
-			"mntns", mid, "limit", maxTrackedPaths)
-
-		return
-	}
-
-	// Cap path length to prevent single-string memory bloat
-	if len(fileName) > maxPathLength {
-		b.logger.Info("Skipping file with excessively long path",
-			"length", len(fileName), "mntns", mid)
+		if !b.maxPathsWarned[mid] {
+			b.logger.Info("Max tracked files reached, profile will be truncated",
+				"mntns", mid, "limit", maxTrackedPaths)
+			b.maxPathsWarned[mid] = true
+		}
 
 		return
 	}
@@ -259,14 +284,14 @@ func (b *AppArmorRecorder) handleCapabilityEvent(capEvent *bpfEvent) {
 // The recorder triggers this after container initialization to make sure that
 // permissions needed for setup are not included in the final profile.
 func (b *AppArmorRecorder) clearMntns(event *bpfEvent) {
-	b.lockRecordedFiles.Lock()
-	defer b.lockRecordedFiles.Unlock()
+	b.lockRecordedSocketsUse.Lock()
+	defer b.lockRecordedSocketsUse.Unlock()
 
 	b.lockRecordedCapabilities.Lock()
 	defer b.lockRecordedCapabilities.Unlock()
 
-	b.lockRecordedSocketsUse.Lock()
-	defer b.lockRecordedSocketsUse.Unlock()
+	b.lockRecordedFiles.Lock()
+	defer b.lockRecordedFiles.Unlock()
 
 	mntns := mntnsID(event.Mntns)
 
@@ -274,17 +299,18 @@ func (b *AppArmorRecorder) clearMntns(event *bpfEvent) {
 	delete(b.recordedFiles, mntns)
 	delete(b.recordedCapabilities, mntns)
 	delete(b.recordedSocketsUse, mntns)
+	delete(b.maxPathsWarned, mntns)
 }
 
 func (b *AppArmorRecorder) GetKnownMntns() []mntnsID {
-	b.lockRecordedFiles.Lock()
-	defer b.lockRecordedFiles.Unlock()
+	b.lockRecordedSocketsUse.Lock()
+	defer b.lockRecordedSocketsUse.Unlock()
 
 	b.lockRecordedCapabilities.Lock()
 	defer b.lockRecordedCapabilities.Unlock()
 
-	b.lockRecordedSocketsUse.Lock()
-	defer b.lockRecordedSocketsUse.Unlock()
+	b.lockRecordedFiles.Lock()
+	defer b.lockRecordedFiles.Unlock()
 
 	known := make(map[mntnsID]bool, len(b.recordedFiles))
 	for mntns := range b.recordedFiles {
@@ -317,52 +343,29 @@ func (b *AppArmorRecorder) GetAppArmorProcessed(mntns uint32) BpfAppArmorProcess
 	mid := mntnsID(mntns)
 	processed.FileProcessed = b.processExecFsEvents(mid)
 
+	b.lockRecordedSocketsUse.Lock()
 	if sockets, ok := b.recordedSocketsUse[mid]; ok && sockets != nil {
-		processed.Socket = *b.recordedSocketsUse[mid]
+		processed.Socket = *sockets
 	}
 
-	processed.Capabilities = b.processCapabilities(mid)
-
-	// Clean up the recorded data after processing to avoid keeping global state.
 	delete(b.recordedSocketsUse, mid)
-	delete(b.recordedFiles, mid)
-	delete(b.recordedCapabilities, mid)
+	b.lockRecordedSocketsUse.Unlock()
+
+	processed.Capabilities = b.processCapabilities(mid)
 
 	return processed
 }
 
 func ReplaceVarianceInFilePath(filePath string) string {
-	// Replace PID value with a apparmor variable (direct procfs access without /proc prefix).
-	directPathWithPid := regexp.MustCompile(`^/\d+/`)
-	filePath = directPathWithPid.ReplaceAllString(filePath, "/@{pid}/")
+	filePath = reDirectPathWithPid.ReplaceAllString(filePath, "/@{pid}/")
+	filePath = reDirectPathWithTid.ReplaceAllString(filePath, "/@{pid}/task/@{tid}/")
+	filePath = rePathWithPid.ReplaceAllString(filePath, "/proc/@{pid}/")
+	filePath = rePathWithTid.ReplaceAllString(filePath, "/proc/@{pid}/task/@{tid}/")
+	filePath = rePathWithCid.ReplaceAllString(filePath, "/var/lib/containers/storage/overlay/*/")
+	filePath = reUUID.ReplaceAllString(filePath, "*")
+	filePath = reHash.ReplaceAllString(filePath, "*")
+	filePath = reDigitSequence.ReplaceAllString(filePath, "*")
 
-	// Replace TID value with a apparmor variable (direct procfs access without /proc prefix).
-	directPathWithTid := regexp.MustCompile(`^/@{pid}/task/\d+/`)
-	filePath = directPathWithTid.ReplaceAllString(filePath, "/@{pid}/task/@{tid}/")
-
-	// Replace PID value with a apparmor variable.
-	pathWithPid := regexp.MustCompile(`^/proc/\d+/`)
-	filePath = pathWithPid.ReplaceAllString(filePath, "/proc/@{pid}/")
-
-	// Replace TID value with a apparmor variable.
-	pathWithTid := regexp.MustCompile(`^/proc/@{pid}/task/\d+/`)
-	filePath = pathWithTid.ReplaceAllString(filePath, "/proc/@{pid}/task/@{tid}/")
-
-	// Replace container ID with any container ID
-	pathWithCid := regexp.MustCompile(`/var/lib/containers/storage/overlay/\w+/`)
-	filePath = pathWithCid.ReplaceAllString(filePath, "/var/lib/containers/storage/overlay/*/")
-
-	uuid := regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`)
-	filePath = uuid.ReplaceAllString(filePath, "*")
-
-	hash := regexp.MustCompile(`[0-9a-fA-F]{32,}`)
-	filePath = hash.ReplaceAllString(filePath, "*")
-
-	// Assume that long digit sequences are random, replace them with a placeholder
-	digitSequence := regexp.MustCompile(`\d{6,}`)
-	filePath = digitSequence.ReplaceAllString(filePath, "*")
-
-	// Replace the sys devices with a generic path
 	if strings.HasPrefix(filePath, "/sys/devices/") {
 		filePath = "/sys/devices/**"
 	}
@@ -435,6 +438,8 @@ func (b *AppArmorRecorder) processExecFsEvents(mid mntnsID) BpfAppArmorFileProce
 	slices.Sort(processedEvents.WriteOnlyPaths)
 	slices.Sort(processedEvents.ReadWritePaths)
 
+	delete(b.recordedFiles, mid)
+
 	return processedEvents
 }
 
@@ -496,16 +501,21 @@ func allowAnyFiles(filePaths []string) []string {
 }
 
 func (b *AppArmorRecorder) processCapabilities(mid mntnsID) []string {
-	if _, ok := b.recordedCapabilities[mid]; !ok {
+	b.lockRecordedCapabilities.Lock()
+	defer b.lockRecordedCapabilities.Unlock()
+
+	caps, ok := b.recordedCapabilities[mid]
+	if !ok {
 		return []string{}
 	}
 
-	ret := make([]string, 0, len(b.recordedCapabilities[mid]))
-	for _, capID := range b.recordedCapabilities[mid] {
+	ret := make([]string, 0, len(caps))
+	for _, capID := range caps {
 		ret = append(ret, capabilityToString(capID))
 	}
 
 	slices.Sort(ret)
+	delete(b.recordedCapabilities, mid)
 
 	return ret
 }

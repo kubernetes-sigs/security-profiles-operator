@@ -21,6 +21,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/jellydator/ttlcache/v3"
 	"github.com/stretchr/testify/require"
 )
 
@@ -159,4 +160,69 @@ func TestGetProcessStartTimeTicks_CacheMissOnRecycledPID(t *testing.T) {
 
 	// Verify the start times are distinct to prevent cache collisions
 	require.NotEqual(t, time1, time2, "expected different start times for a recycled PID to prevent cache poisoning")
+}
+
+const (
+	testContainerID1 = "af208fd68bf39a07a439ed0c9b6609b9ae63ecd8a5f1a2af3e0db48b945b320a"
+	testContainerID2 = "b469ca5b54e01e7724b7a990f01d54f571dd7669b87851a87bd8b849c438c580"
+	testStatFiller   = "S 1 1234 1234 0 -1 4194560 1234 0 0 0 10 20 30 40 20 0 1 0"
+)
+
+func TestContainerIDForPID_CacheKeyWithStartTime(t *testing.T) {
+	t.Parallel()
+
+	cache := ttlcache.New[string, string]()
+
+	statReader := func(pid int) ([]byte, error) {
+		return fmt.Appendf(nil, "%d (bash) %s 100 1234", pid, testStatFiller), nil
+	}
+	cgroupReader := func(_ int) ([]byte, error) {
+		return fmt.Appendf(nil, "0::/kubepods/pod123/crio-%s\n", testContainerID1), nil
+	}
+
+	id1, err := containerIDForPID(cache, 1234, statReader, cgroupReader)
+	require.NoError(t, err)
+	require.Equal(t, testContainerID1, id1)
+
+	// Same PID but different start time (recycled PID) should produce a cache miss
+	// and return the new container's ID.
+	statReader2 := func(pid int) ([]byte, error) {
+		return fmt.Appendf(nil, "%d (python3) %s 200 1234", pid, testStatFiller), nil
+	}
+	cgroupReader2 := func(_ int) ([]byte, error) {
+		return fmt.Appendf(nil, "0::/kubepods/pod456/crio-%s\n", testContainerID2), nil
+	}
+
+	id2, err := containerIDForPID(cache, 1234, statReader2, cgroupReader2)
+	require.NoError(t, err)
+	require.Equal(t, testContainerID2, id2)
+	require.NotEqual(t, id1, id2)
+}
+
+func TestContainerIDForPID_CacheHit(t *testing.T) {
+	t.Parallel()
+
+	cache := ttlcache.New[string, string]()
+
+	cgroupCalls := 0
+	statReader := func(pid int) ([]byte, error) {
+		return fmt.Appendf(nil, "%d (bash) %s 100 1234", pid, testStatFiller), nil
+	}
+	cgroupReader := func(pid int) ([]byte, error) {
+		cgroupCalls++
+
+		return fmt.Appendf(nil, "0::/kubepods/pod123/crio-%s\n", testContainerID1), nil
+	}
+
+	id1, err := containerIDForPID(cache, 1234, statReader, cgroupReader)
+	require.NoError(t, err)
+	require.Equal(t, testContainerID1, id1)
+	require.Equal(t, 1, cgroupCalls)
+
+	// Second call with the same PID and start time should hit the cache
+	// and skip the cgroup read entirely.
+	id2, err := containerIDForPID(cache, 1234, statReader, cgroupReader)
+	require.NoError(t, err)
+	require.Equal(t, id1, id2)
+	require.Equal(t, 1, cgroupCalls)
 }
