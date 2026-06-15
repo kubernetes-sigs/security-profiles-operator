@@ -86,6 +86,8 @@ const (
 
 	defaultCacheTimeout time.Duration = 24 * time.Hour
 	maxCacheItems       uint64        = 1000
+
+	allowedAllRegexp string = ".*"
 )
 
 // NewController returns a new empty controller instance.
@@ -388,6 +390,14 @@ func (r *Reconciler) resolveSyscallsForProfile(
 			spod, err := r.GetSPOD(ctx, r.client)
 			if err != nil {
 				return nil, fmt.Errorf("retrieving the SPOD configuration: %w", err)
+			}
+
+			if spod.Spec.Security.AllowedIdentityRegexp == "" {
+				spod.Spec.Security.AllowedIdentityRegexp = allowedAllRegexp
+			}
+
+			if spod.Spec.Security.AllowedOidcIssuerRegexp == "" {
+				spod.Spec.Security.AllowedOidcIssuerRegexp = allowedAllRegexp
 			}
 
 			signOpts := &artifact.PullSignatureOptions{
