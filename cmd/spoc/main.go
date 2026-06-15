@@ -244,7 +244,7 @@ func main() {
 					Usage:   "disable signature verification",
 				},
 				&cli.StringFlag{
-					Name:    puller.FlagAllowedIdentitiesRegexp,
+					Name:    puller.FlagAllowedIdentityRegexp,
 					Aliases: []string{"i"},
 					EnvVars: []string{"ALLOWED_IDENTITIES_REGEXP"},
 					Usage:   "regexp for allowed identities in signature verification",

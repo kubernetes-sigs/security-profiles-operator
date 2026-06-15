@@ -75,8 +75,8 @@ func FromContext(ctx *ucli.Context) (*Options, error) {
 		options.disableSignatureVerification = ctx.Bool(FlagDisableSignatureVerification)
 	}
 
-	if ctx.IsSet(FlagAllowedIdentitiesRegexp) {
-		options.allowedIdentityRegexp = ctx.String(FlagAllowedIdentitiesRegexp)
+	if ctx.IsSet(FlagAllowedIdentityRegexp) {
+		options.allowedIdentityRegexp = ctx.String(FlagAllowedIdentityRegexp)
 	}
 
 	if ctx.IsSet(FlagAllowedOidcIssuerRegexp) {
