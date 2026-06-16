@@ -419,6 +419,7 @@ func (p *podBinder) addAppArmorContext(
 
 	if c.SecurityContext.AppArmorProfile == nil {
 		c.SecurityContext.AppArmorProfile = &aa
+
 		return true
 	}
 
@@ -427,6 +428,7 @@ func (p *podBinder) addAppArmorContext(
 	// profile is enforced through a binding.
 	if !ptr.Equal(c.SecurityContext.AppArmorProfile, &aa) {
 		c.SecurityContext.AppArmorProfile = &aa
+
 		return true
 	}
 
