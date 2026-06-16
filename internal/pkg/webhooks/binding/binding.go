@@ -398,6 +398,7 @@ func (p *podBinder) addSelinuxContext(
 	// profile is enforced through a binding.
 	if !ptr.Equal(c.SecurityContext.SELinuxOptions, &sl) {
 		c.SecurityContext.SELinuxOptions = &sl
+
 		return true
 	}
 
