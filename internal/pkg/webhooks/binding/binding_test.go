@@ -134,6 +134,7 @@ func TestHandle(t *testing.T) {
 				require.Len(t, resp.Patches, 1)
 			},
 		},
+		//nolint:dupl // test duplicates are fine
 		{ // success pod changed with * image
 			prepare: func(mock *bindingfakes.FakeImpl) {
 				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
@@ -438,6 +439,7 @@ func TestHandle(t *testing.T) {
 				require.Len(t, resp.Patches, 2)
 			},
 		},
+		//nolint:dupl // test duplicates are fine
 		{ // apparmor success pod changed with * image
 			prepare: func(mock *bindingfakes.FakeImpl) {
 				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
