@@ -174,6 +174,53 @@ func TestHandle(t *testing.T) {
 				require.Len(t, resp.Patches, 1)
 			},
 		},
+		{ // success seccomp pod security context overwrite with * image
+			prepare: func(mock *bindingfakes.FakeImpl) {
+				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
+					Items: []profilebindingapi.ProfileBinding{
+						{
+							Spec: profilebindingapi.ProfileBindingSpec{
+								ProfileRef: profilebindingapi.ProfileRef{
+									Kind: profilebindingapi.ProfileBindingKindSeccompProfile,
+								},
+								Image: profilebindingapi.SelectAllContainersImage,
+							},
+						},
+					},
+				}, nil)
+				mock.DecodePodReturns(testPod.DeepCopy(), nil)
+				mock.GetSeccompProfileReturns(&seccompprofileapi.SeccompProfile{
+					Status: seccompprofileapi.SeccompProfileStatus{
+						StatusBase: profilebaseapi.StatusBase{
+							Status: secprofnodestatusapi.ProfileStateInstalled,
+						},
+						LocalhostProfile: "seccomp-test-profile",
+					},
+				}, nil)
+			},
+			request: admission.Request{
+				AdmissionRequest: admissionv1.AdmissionRequest{
+					Object: runtime.RawExtension{
+						Raw: func() []byte {
+							podWithSecurityContext := testPod.DeepCopy()
+							podWithSecurityContext.Spec.SecurityContext = &corev1.PodSecurityContext{
+								SeccompProfile: &corev1.SeccompProfile{
+									Type: corev1.SeccompProfileTypeUnconfined,
+								},
+							}
+							b, err := json.Marshal(podWithSecurityContext)
+							require.NoError(t, err)
+
+							return b
+						}(),
+					},
+				},
+			},
+			assert: func(resp admission.Response) {
+				require.True(t, resp.Allowed)
+				require.Len(t, resp.Patches, 2) // add localProfile, replace type with Localhost
+			},
+		},
 		{ // selinux success pod changed
 			prepare: func(mock *bindingfakes.FakeImpl) {
 				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
@@ -202,6 +249,53 @@ func TestHandle(t *testing.T) {
 					Object: runtime.RawExtension{
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
+							require.NoError(t, err)
+
+							return b
+						}(),
+					},
+				},
+			},
+			assert: func(resp admission.Response) {
+				require.True(t, resp.Allowed)
+				require.Len(t, resp.Patches, 1)
+			},
+		},
+		{ // success selinux pod security context overwrite with * image
+			prepare: func(mock *bindingfakes.FakeImpl) {
+				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
+					Items: []profilebindingapi.ProfileBinding{
+						{
+							Spec: profilebindingapi.ProfileBindingSpec{
+								ProfileRef: profilebindingapi.ProfileRef{
+									Kind: profilebindingapi.ProfileBindingKindSelinuxProfile,
+								},
+								Image: profilebindingapi.SelectAllContainersImage,
+							},
+						},
+					},
+				}, nil)
+				mock.DecodePodReturns(testPod.DeepCopy(), nil)
+				mock.GetSelinuxProfileReturns(&selinuxprofileapi.SelinuxProfile{
+					Status: selinuxprofileapi.SelinuxProfileStatus{
+						StatusBase: profilebaseapi.StatusBase{
+							Status: "Installed",
+						},
+						Usage: "test-usage",
+					},
+				}, nil)
+			},
+			request: admission.Request{
+				AdmissionRequest: admissionv1.AdmissionRequest{
+					Object: runtime.RawExtension{
+						Raw: func() []byte {
+							podWithSecurityContext := testPod.DeepCopy()
+							podWithSecurityContext.Spec.SecurityContext = &corev1.PodSecurityContext{
+								SELinuxOptions: &corev1.SELinuxOptions{
+									Type: "unconfined",
+								},
+							}
+							b, err := json.Marshal(podWithSecurityContext)
 							require.NoError(t, err)
 
 							return b
@@ -293,6 +387,55 @@ func TestHandle(t *testing.T) {
 			assert: func(resp admission.Response) {
 				require.True(t, resp.Allowed)
 				require.Len(t, resp.Patches, 1)
+			},
+		},
+		{ // success apparmor security context overwritten with * image
+			prepare: func(mock *bindingfakes.FakeImpl) {
+				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
+					Items: []profilebindingapi.ProfileBinding{
+						{
+							Spec: profilebindingapi.ProfileBindingSpec{
+								ProfileRef: profilebindingapi.ProfileRef{
+									Kind: profilebindingapi.ProfileBindingKindAppArmorProfile,
+								},
+								Image: profilebindingapi.SelectAllContainersImage,
+							},
+						},
+					},
+				}, nil)
+				mock.DecodePodReturns(testPod.DeepCopy(), nil)
+				mock.GetAppArmorProfileReturns(&apparmorprofileapi.AppArmorProfile{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-apparmor-profile",
+					},
+					Status: apparmorprofileapi.AppArmorProfileStatus{
+						StatusBase: profilebaseapi.StatusBase{
+							Status: secprofnodestatusapi.ProfileStateInstalled,
+						},
+					},
+				}, nil)
+			},
+			request: admission.Request{
+				AdmissionRequest: admissionv1.AdmissionRequest{
+					Object: runtime.RawExtension{
+						Raw: func() []byte {
+							podWithSecurityContext := testPod.DeepCopy()
+							podWithSecurityContext.Spec.SecurityContext = &corev1.PodSecurityContext{
+								AppArmorProfile: &corev1.AppArmorProfile{
+									Type: corev1.AppArmorProfileTypeUnconfined,
+								},
+							}
+							b, err := json.Marshal(podWithSecurityContext)
+							require.NoError(t, err)
+
+							return b
+						}(),
+					},
+				},
+			},
+			assert: func(resp admission.Response) {
+				require.True(t, resp.Allowed)
+				require.Len(t, resp.Patches, 2)
 			},
 		},
 		{ // apparmor success pod changed with * image

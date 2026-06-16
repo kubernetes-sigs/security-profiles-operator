@@ -30,6 +30,7 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -346,7 +347,6 @@ func (p *podBinder) addSecurityContext(
 func (p *podBinder) addSeccompContext(
 	c *corev1.Container, seccompProfile *seccompprofileapi.SeccompProfile,
 ) bool {
-	podChanged := false
 	profileRef := seccompProfile.Status.LocalhostProfile
 	sp := corev1.SeccompProfile{
 		Type:             corev1.SeccompProfileTypeLocalhost,
@@ -357,20 +357,25 @@ func (p *podBinder) addSeccompContext(
 		c.SecurityContext = &corev1.SecurityContext{}
 	}
 
-	if c.SecurityContext.SeccompProfile != nil {
-		p.log.Info("cannot override existing seccomp profile for pod or container")
-	} else {
+	if c.SecurityContext.SeccompProfile == nil {
 		c.SecurityContext.SeccompProfile = &sp
-		podChanged = true
+		return true
 	}
 
-	return podChanged
+	// Make srue that the bound profile is realy in the pod security context if already a profile
+	// exists, otherwise it can be easily overwritten with something less permissive like
+	// "type": "Unconfined", even though a specific profile is enforced through a binding.
+	if !ptr.Equal(c.SecurityContext.SeccompProfile, &sp) {
+		c.SecurityContext.SeccompProfile = &sp
+		return true
+	}
+
+	return false
 }
 
 func (p *podBinder) addSelinuxContext(
 	c *corev1.Container, selinuxProfile *selinuxprofileapi.SelinuxProfile,
 ) bool {
-	podChanged := false
 	usage := selinuxProfile.Status.Usage
 	sl := corev1.SELinuxOptions{
 		Type: usage,
@@ -380,20 +385,25 @@ func (p *podBinder) addSelinuxContext(
 		c.SecurityContext = &corev1.SecurityContext{}
 	}
 
-	if c.SecurityContext.SELinuxOptions != nil {
-		p.log.Info("cannot override existing selinux profile for pod or container")
-	} else {
+	if c.SecurityContext.SeccompProfile == nil {
 		c.SecurityContext.SELinuxOptions = &sl
-		podChanged = true
+		return true
 	}
 
-	return podChanged
+	// Make srue that the bound profile is realy in the pod security context if the profile exists,
+	// otherwise it can be easily overwritten with something less permissive, even though a specific
+	// profile is enforced through a binding.
+	if !ptr.Equal(c.SecurityContext.SELinuxOptions, &sl) {
+		c.SecurityContext.SELinuxOptions = &sl
+		return true
+	}
+
+	return false
 }
 
 func (p *podBinder) addAppArmorContext(
 	c *corev1.Container, appArmorProfile *apparmorprofileapi.AppArmorProfile,
 ) bool {
-	podChanged := false
 	profileName := appArmorProfile.GetProfileName()
 	aa := corev1.AppArmorProfile{
 		Type:             corev1.AppArmorProfileTypeLocalhost,
@@ -404,14 +414,20 @@ func (p *podBinder) addAppArmorContext(
 		c.SecurityContext = &corev1.SecurityContext{}
 	}
 
-	if c.SecurityContext.AppArmorProfile != nil {
-		p.log.Info("cannot override existing apparmor profile for pod or container")
-	} else {
+	if c.SecurityContext.AppArmorProfile == nil {
 		c.SecurityContext.AppArmorProfile = &aa
-		podChanged = true
+		return true
 	}
 
-	return podChanged
+	// Make srue that the bound profile is realy in the pod security context, otherwise
+	// it can be easily overwritten with something less permissive, even though a specific
+	// profile is enforced through a binding.
+	if !ptr.Equal(c.SecurityContext.AppArmorProfile, &aa) {
+		c.SecurityContext.AppArmorProfile = &aa
+		return true
+	}
+
+	return false
 }
 
 func (p *podBinder) addPodSecurityContext(
