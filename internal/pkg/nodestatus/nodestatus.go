@@ -330,15 +330,19 @@ func handleRecordingFinalizer(ctx context.Context, c client.Client, pol profileb
 	// if this policy was not recorded, we don't need to do anything. This also covers the upgrade
 	// case because the finalizer is only added when the policy is recorded with the new version
 	polLabels := pol.GetLabels()
-	if polLabels == nil || polLabels[profilerecordingapi.ProfileToRecordingLabel] == "" {
+	if polLabels == nil {
+		return nil
+	}
+
+	recordingName := polLabels[profilerecordingapi.ProfileToRecordingLabel]
+	recordingNamespace := polLabels[profilerecordingapi.ProfileToRecordingNamespaceLabel]
+
+	if recordingName == "" || recordingNamespace == "" {
 		return nil
 	}
 
 	// if there are other policies recorded by the same recording, we don't need to do anything either
-	otherPolicies, err := pol.ListProfilesByRecording(ctx, c,
-		polLabels[profilerecordingapi.ProfileToRecordingLabel],
-		polLabels[profilerecordingapi.ProfileToRecordingNamespaceLabel],
-	)
+	otherPolicies, err := pol.ListProfilesByRecording(ctx, c, recordingName, recordingNamespace)
 	if err != nil {
 		return fmt.Errorf("listing profiles by recording: %w", err)
 	}
@@ -377,12 +381,8 @@ func handleRecordingFinalizer(ctx context.Context, c client.Client, pol profileb
 	}
 
 	profilerecording := &profilerecordingapi.ProfileRecording{}
-	recordingName := util.NamespacedName(
-		polLabels[profilerecordingapi.ProfileToRecordingLabel],
-		polLabels[profilerecordingapi.ProfileToRecordingNamespaceLabel],
-	)
 
-	err = c.Get(ctx, recordingName, profilerecording)
+	err = c.Get(ctx, util.NamespacedName(recordingName, recordingNamespace), profilerecording)
 	if kerrors.IsNotFound(err) {
 		return nil // should not happen, but if it does, we don't need to do anything
 	} else if err != nil {
