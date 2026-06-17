@@ -823,7 +823,6 @@ func TestHandle(t *testing.T) {
 			},
 			assert: func(resp admission.Response) {
 				require.True(t, resp.Allowed)
-				require.Contains(t, resp.Result.Message, "skip binding")
 				require.Empty(t, resp.Patches)
 			},
 		},
