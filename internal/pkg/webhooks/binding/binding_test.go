@@ -308,7 +308,7 @@ func TestHandle(t *testing.T) {
 			},
 			assert: func(resp admission.Response) {
 				require.True(t, resp.Allowed)
-				require.Len(t, resp.Patches, 1)
+				require.Len(t, resp.Patches, 2)
 			},
 		},
 		{ // selinux success pod changed with * image
