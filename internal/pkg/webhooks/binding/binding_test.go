@@ -204,11 +204,12 @@ func TestHandle(t *testing.T) {
 					Object: runtime.RawExtension{
 						Raw: func() []byte {
 							podWithSecurityContext := testPod.DeepCopy()
-							podWithSecurityContext.Spec.SecurityContext = &corev1.PodSecurityContext{
-								SeccompProfile: &corev1.SeccompProfile{
-									Type: corev1.SeccompProfileTypeUnconfined,
-								},
-							}
+							podWithSecurityContext.Spec.Containers[0].SecurityContext =
+								&corev1.SecurityContext{
+									SeccompProfile: &corev1.SeccompProfile{
+										Type: corev1.SeccompProfileTypeUnconfined,
+									},
+								}
 							b, err := json.Marshal(podWithSecurityContext)
 							require.NoError(t, err)
 
@@ -291,11 +292,12 @@ func TestHandle(t *testing.T) {
 					Object: runtime.RawExtension{
 						Raw: func() []byte {
 							podWithSecurityContext := testPod.DeepCopy()
-							podWithSecurityContext.Spec.SecurityContext = &corev1.PodSecurityContext{
-								SELinuxOptions: &corev1.SELinuxOptions{
-									Type: "unconfined",
-								},
-							}
+							podWithSecurityContext.Spec.Containers[0].SecurityContext =
+								&corev1.SecurityContext{
+									SELinuxOptions: &corev1.SELinuxOptions{
+										Type: "unconfined",
+									},
+								}
 							b, err := json.Marshal(podWithSecurityContext)
 							require.NoError(t, err)
 
@@ -421,11 +423,12 @@ func TestHandle(t *testing.T) {
 					Object: runtime.RawExtension{
 						Raw: func() []byte {
 							podWithSecurityContext := testPod.DeepCopy()
-							podWithSecurityContext.Spec.SecurityContext = &corev1.PodSecurityContext{
-								AppArmorProfile: &corev1.AppArmorProfile{
-									Type: corev1.AppArmorProfileTypeUnconfined,
-								},
-							}
+							podWithSecurityContext.Spec.Containers[0].SecurityContext =
+								&corev1.SecurityContext{
+									AppArmorProfile: &corev1.AppArmorProfile{
+										Type: corev1.AppArmorProfileTypeUnconfined,
+									},
+								}
 							b, err := json.Marshal(podWithSecurityContext)
 							require.NoError(t, err)
 
