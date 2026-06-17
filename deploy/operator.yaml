@@ -6451,15 +6451,11 @@ data:
         (allow process file_context_t ( file ( append create getattr ioctl lock map open read rename setattr unlink write )))
         (allow process file_context_t ( sock_file ( append getattr open read write )))
         (allow process security_t ( file ( append create getattr ioctl lock map open read rename setattr unlink write )))
-        (allow process security_t ( security ( load_policy )))
+        (typeattributeset can_load_policy process)
         (allow process selinux_config_t ( dir ( add_name create getattr ioctl lock open read remove_name rename rmdir search setattr write )))
         (allow process selinux_config_t ( fifo_file ( getattr read write append ioctl lock open )))
         (allow process selinux_config_t ( file ( append create getattr ioctl lock map open read rename setattr unlink write )))
         (allow process selinux_config_t ( sock_file ( append getattr open read write )))
-        (allow process selinux_login_config_t ( dir ( add_name create getattr ioctl lock open read remove_name rmdir search setattr write )))
-        (allow process selinux_login_config_t ( fifo_file ( getattr read write append ioctl lock open )))
-        (allow process selinux_login_config_t ( file ( append create getattr ioctl lock map open read rename setattr unlink write )))
-        (allow process selinux_login_config_t ( sock_file ( append getattr open read write )))
         (allow process semanage_read_lock_t ( dir ( add_name create getattr ioctl lock open read remove_name rmdir search setattr write )))
         (allow process semanage_read_lock_t ( fifo_file ( getattr read write append ioctl lock open )))
         (allow process semanage_read_lock_t ( file ( append create getattr ioctl lock map open read rename setattr unlink write )))
@@ -6476,6 +6472,13 @@ data:
         (allow process sysfs_t ( fifo_file ( getattr read write append ioctl lock open )))
         (allow process sysfs_t ( file ( append create getattr ioctl lock map open read rename setattr unlink write )))
         (allow process sysfs_t ( sock_file ( append getattr open read write )))
+
+        (optional rhel_only
+            (allow process selinux_login_config_t ( dir ( add_name create getattr ioctl lock open read remove_name rmdir search setattr write )))
+            (allow process selinux_login_config_t ( fifo_file ( getattr read write append ioctl lock open )))
+            (allow process selinux_login_config_t ( file ( append create getattr ioctl lock map open read rename setattr unlink write )))
+            (allow process selinux_login_config_t ( sock_file ( append getattr open read write )))
+        )
     )
   selinuxrecording.cil: |
     (block selinuxrecording
