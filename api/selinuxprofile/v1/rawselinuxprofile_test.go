@@ -148,6 +148,7 @@ func TestValidatePolicy(t *testing.T) {
 
 			if tt.wantErr {
 				require.Error(t, err, "ValidatePolicy() should have returned an error")
+
 				if tt.errContains != "" {
 					require.Contains(t, err.Error(), tt.errContains, "Error message did not contain the expected substring")
 				}
