@@ -202,6 +202,14 @@ func (p *podBinder) updatePod(
 		}
 
 		if err != nil {
+			if kerrors.IsNotFound(err) {
+				p.log.Info("skip binding due to unavailable profile", "profile-kind", profileKind, "profile", namespacedName)
+				// When a profile is not found for a pod, the binding should be just skipped. Otherwise all pod CRUD(s)
+				// operation in a namespace with binding enabled will be blocked with 500 error. This might also lead
+				// to a DoS when a ProfileBinding has a non-existing profileRef.
+				return pod, admission.Allowed(fmt.Sprintf("skip binding, not found: %v %#v", profileKind, namespacedName))
+			}
+
 			p.log.Error(err, fmt.Sprintf("failed to get %v %#v", profileKind, namespacedName))
 
 			return pod, admission.Errored(http.StatusInternalServerError, err)
