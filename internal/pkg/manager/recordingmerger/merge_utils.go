@@ -39,7 +39,8 @@ func mergedObjectMeta(profileName, recordingName, namespace string) *metav1.Obje
 		Name:      profileName,
 		Namespace: namespace,
 		Labels: map[string]string{
-			profilerecordingapi.ProfileToRecordingLabel: recordingName,
+			profilerecordingapi.ProfileToRecordingLabel:          recordingName,
+			profilerecordingapi.ProfileToRecordingNamespaceLabel: namespace,
 		},
 	}
 }
