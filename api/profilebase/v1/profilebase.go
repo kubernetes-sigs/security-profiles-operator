@@ -36,7 +36,8 @@ type SecurityProfileBase interface {
 	client.Object
 
 	ListProfilesByRecording(
-		ctx context.Context, cli client.Client, recording string, recordingNamespace string,
+		ctx context.Context, cli client.Client,
+		recording, recordingNamespace string,
 	) ([]metav1.Object, error)
 	IsPartial() bool
 	IsDisabled() bool
