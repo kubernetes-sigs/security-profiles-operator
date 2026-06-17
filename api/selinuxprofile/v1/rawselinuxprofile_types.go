@@ -152,6 +152,7 @@ func (sp *RawSelinuxProfile) ValidatePolicy() error {
 
 	// Prevent block escape via unbalanced parentheses.
 	depth := 0
+
 	for _, r := range policy {
 		switch r {
 		case '(':
@@ -164,6 +165,7 @@ func (sp *RawSelinuxProfile) ValidatePolicy() error {
 			}
 		}
 	}
+
 	if depth != 0 {
 		return errors.New("invalid policy: unbalanced parentheses")
 	}

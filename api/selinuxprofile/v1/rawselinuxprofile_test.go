@@ -23,6 +23,8 @@ import (
 )
 
 func TestValidatePolicy(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name        string
 		policy      string
@@ -106,13 +108,14 @@ func TestValidatePolicy(t *testing.T) {
 		},
 		{
 			name:        "Restricted directive embedded in larger policy",
-			policy:      "(allow my_t my_t (file (read))) (mls (sensitivity s0))",
+			policy:      "(allow my_t my_test_t (file (read))) (mls (sensitivity s0))",
 			wantErr:     true,
 			errContains: "restricted global directive 'mls'",
 		},
 		{
-			name:        "Original CVE Attack Payload",
-			policy:      "(allow container_t self (capability (sys_admin))) ) (typepermissive spc_t) (allow container_t shadow_t (file (read open))) (block x",
+			name: "Original CVE Attack Payload",
+			policy: `(allow container_t self (capability (sys_admin))) ) 
+			(typepermissive spc_t) (allow container_t shadow_t (file (read open))) (block x`,
 			wantErr:     true,
 			errContains: "unmatched closing parenthesis",
 		},
@@ -132,6 +135,8 @@ func TestValidatePolicy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			// Mocking the RawSelinuxProfile struct
 			sp := &RawSelinuxProfile{
 				Spec: RawSelinuxProfileSpec{
