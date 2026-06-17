@@ -202,6 +202,9 @@ func (p *podBinder) updatePod(
 		}
 
 		if err != nil {
+			// This relies on until.Retry to propagate the last retried error though the tree of wrapped errors when a
+			// resource is not found. Without this, the last error when the retried reached the timeout would only be
+			// a wait.ErrWaitTimeout error which will never be matched by this if statement.
 			if kerrors.IsNotFound(err) {
 				p.log.Info("skip binding due to unavailable profile", "profile-kind", profileKind, "profile", namespacedName)
 				// When a profile is not found for a pod, the binding should be just skipped. Otherwise all pod CRUD(s)
