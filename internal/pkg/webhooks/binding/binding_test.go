@@ -792,7 +792,6 @@ func TestHandle(t *testing.T) {
 				require.Equal(t, http.StatusInternalServerError, int(resp.Result.Code))
 			},
 		},
-		//nolint:dupl // test duplicates are fine
 		{ // success when the profile referenced in the profile binding doesn't exist.
 			prepare: func(mock *bindingfakes.FakeImpl) {
 				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
@@ -824,7 +823,7 @@ func TestHandle(t *testing.T) {
 			},
 			assert: func(resp admission.Response) {
 				require.True(t, resp.Allowed)
-				require.Len(t, resp.Patches, 0)
+				require.Empty(t, resp.Patches)
 			},
 		},
 	} {

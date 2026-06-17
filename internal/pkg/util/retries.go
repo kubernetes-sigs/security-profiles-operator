@@ -47,12 +47,14 @@ func Retry(fn func() error, retryCondition func(error) bool) error {
 
 func RetryEx(backoff *wait.Backoff, fn func() error, retryCondition func(error) bool) error {
 	var lastRetryErr error
+
 	waitErr := wait.ExponentialBackoff(*backoff, func() (bool, error) {
 		err := fn()
 		if err == nil {
 			return true, nil
 		} else if retryCondition(err) {
 			lastRetryErr = err
+
 			return false, nil
 		}
 
@@ -62,6 +64,7 @@ func RetryEx(backoff *wait.Backoff, fn func() error, retryCondition func(error) 
 		if lastRetryErr != nil {
 			return fmt.Errorf("wait on retry: %w, last retry error: %w", waitErr, lastRetryErr)
 		}
+
 		return fmt.Errorf("wait on retry: %w", waitErr)
 	}
 
