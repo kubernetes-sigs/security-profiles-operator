@@ -363,7 +363,7 @@ func (p *podBinder) addSeccompContext(
 		return true
 	}
 
-	// Make srue that the bound profile is really in the pod security context if already a profile
+	// Make sure that the bound profile is really in the pod security context if already a profile
 	// exists, otherwise it can be easily overwritten with something less permissive like
 	// "type": "Unconfined", even though a specific profile is enforced through a binding.
 	if !ptr.Equal(c.SecurityContext.SeccompProfile, &sp) {
@@ -387,13 +387,13 @@ func (p *podBinder) addSelinuxContext(
 		c.SecurityContext = &corev1.SecurityContext{}
 	}
 
-	if c.SecurityContext.SeccompProfile == nil {
+	if c.SecurityContext.SELinuxOptions == nil {
 		c.SecurityContext.SELinuxOptions = &sl
 
 		return true
 	}
 
-	// Make srue that the bound profile is really in the pod security context if the profile exists,
+	// Make sure that the bound profile is really in the pod security context if the profile exists,
 	// otherwise it can be easily overwritten with something less permissive, even though a specific
 	// profile is enforced through a binding.
 	if !ptr.Equal(c.SecurityContext.SELinuxOptions, &sl) {
@@ -424,7 +424,7 @@ func (p *podBinder) addAppArmorContext(
 		return true
 	}
 
-	// Make srue that the bound profile is really in the pod security context, otherwise
+	// Make sure that the bound profile is really in the pod security context, otherwise
 	// it can be easily overwritten with something less permissive, even though a specific
 	// profile is enforced through a binding.
 	if !ptr.Equal(c.SecurityContext.AppArmorProfile, &aa) {
