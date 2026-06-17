@@ -27,8 +27,10 @@ import (
 	"github.com/stretchr/testify/require"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
@@ -788,6 +790,41 @@ func TestHandle(t *testing.T) {
 			},
 			assert: func(resp admission.Response) {
 				require.Equal(t, http.StatusInternalServerError, int(resp.Result.Code))
+			},
+		},
+		//nolint:dupl // test duplicates are fine
+		{ // success when the profile referenced in the profile binding doesn't exist.
+			prepare: func(mock *bindingfakes.FakeImpl) {
+				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
+					Items: []profilebindingapi.ProfileBinding{
+						{
+							Spec: profilebindingapi.ProfileBindingSpec{
+								ProfileRef: profilebindingapi.ProfileRef{
+									Kind: profilebindingapi.ProfileBindingKindAppArmorProfile,
+								},
+								Image: "foo",
+							},
+						},
+					},
+				}, nil)
+				mock.DecodePodReturns(testPod.DeepCopy(), nil)
+				mock.GetAppArmorProfileReturns(nil, kerrors.NewNotFound(schema.GroupResource{}, "test-profile"))
+			},
+			request: admission.Request{
+				AdmissionRequest: admissionv1.AdmissionRequest{
+					Object: runtime.RawExtension{
+						Raw: func() []byte {
+							b, err := json.Marshal(testPod.DeepCopy())
+							require.NoError(t, err)
+
+							return b
+						}(),
+					},
+				},
+			},
+			assert: func(resp admission.Response) {
+				require.True(t, resp.Allowed)
+				require.Len(t, resp.Patches, 0)
 			},
 		},
 	} {
