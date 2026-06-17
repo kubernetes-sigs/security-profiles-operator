@@ -17,7 +17,6 @@ limitations under the License.
 package util
 
 import (
-	"errors"
 	"fmt"
 	"time"
 
@@ -62,7 +61,7 @@ func RetryEx(backoff *wait.Backoff, fn func() error, retryCondition func(error) 
 		return false, fmt.Errorf("retry function: %w", err)
 	})
 	if waitErr != nil {
-		if lastRetryErr != nil && errors.Is(waitErr, wait.ErrWaitTimeout) {
+		if lastRetryErr != nil && wait.Interrupted(waitErr) {
 			return fmt.Errorf("wait on retry: %w, last retry error: %w", waitErr, lastRetryErr)
 		}
 
