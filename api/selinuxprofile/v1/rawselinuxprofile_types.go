@@ -19,6 +19,9 @@ package v1
 import (
 	"context"
 	"errors"
+	"fmt"
+	"regexp"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -27,6 +30,38 @@ import (
 
 	profilebasev1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 )
+
+// restrictedDirectives contains CIL statements that alter global node state
+// or should not be allowed within a namespace-scoped container profile.
+var restrictedDirectives = []string{
+	"typepermissive",
+	"class",
+	"classorder",
+	"classmap",
+	"classmapping",
+	"sid",
+	"sidorder",
+	"sidcontext",
+	"category",
+	"categoryorder",
+	"sensitivity",
+	"sensitivityorder",
+	"dominance",
+	"level",
+	"levelrange",
+	"context",
+	"filecon",
+	"portcon",
+	"nodecon",
+	"netifcon",
+	"genfscon",
+	"policycap",
+	"mls",
+}
+
+// directiveRegex finds CIL statements by looking for an open parenthesis
+// followed by optional whitespace and an alphanumeric directive word.
+var directiveRegex = regexp.MustCompile(`\(\s*([a-zA-Z0-9_-]+)`)
 
 var (
 	// Ensure RawSelinuxProfile implements the StatusBaseUser and SecurityProfileBase interfaces.
@@ -113,6 +148,38 @@ func (sp *RawSelinuxProfile) ValidatePolicy() error {
 
 	if strings.ContainsRune(policy, '\x00') {
 		return errors.New("policy must not contain null bytes")
+	}
+
+	// Prevent block escape via unbalanced parentheses.
+	depth := 0
+	for _, r := range policy {
+		switch r {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth < 0 {
+				return errors.New(
+					"invalid policy: unmatched closing parenthesis ')' allows block escape")
+			}
+		}
+	}
+	if depth != 0 {
+		return errors.New("invalid policy: unbalanced parentheses")
+	}
+
+	// Prevent Global Privilege Escalation: Reject dangerous CIL directives.
+	// This scans for tokens immediately following an open parenthesis.
+	matches := directiveRegex.FindAllStringSubmatch(policy, -1)
+	for _, match := range matches {
+		if len(match) > 1 {
+			directive := strings.ToLower(match[1])
+			if slices.Contains(restrictedDirectives, directive) {
+				return fmt.Errorf(
+					"invalid policy: use of restricted global directive '%s' is not allowed",
+					directive)
+			}
+		}
 	}
 
 	return nil
