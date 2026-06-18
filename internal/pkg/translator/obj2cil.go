@@ -151,7 +151,7 @@ func Object2CIL(
 
 	for _, ttype := range selinuxprofileapi.SortLabelKeys(sp.Spec.Allow) {
 		for _, tclass := range selinuxprofileapi.SortObjectClassKeys(sp.Spec.Allow[ttype]) {
-			if err := validateSematicRule(deniedOpts, ttype, tclass, sp.Spec.Allow[ttype][tclass]); err != nil {
+			if err := validateSemanticRule(deniedOpts, ttype, tclass, sp.Spec.Allow[ttype][tclass]); err != nil {
 				return "", fmt.Errorf("invalid semantic rule for type %s, class %s: %w",
 					ttype, tclass, err)
 			}
@@ -165,7 +165,7 @@ func Object2CIL(
 	return cilbuilder.String(), nil
 }
 
-func validateSematicRule(opts *deniedOptions, ttype selinuxprofileapi.LabelKey,
+func validateSemanticRule(opts *deniedOptions, ttype selinuxprofileapi.LabelKey,
 	class selinuxprofileapi.ObjectClassKey,
 	perms selinuxprofileapi.PermissionSet,
 ) error {
