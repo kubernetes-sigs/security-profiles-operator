@@ -3422,6 +3422,30 @@ spec:
                   options:
                     description: options defines options specific to the SELinux functionality.
                     properties:
+                      DeniedClasses:
+                        description: |-
+                          DeniedClasses if specified, a list of SELinux object classes which are
+                          denied in SELinux profiles.
+                        items:
+                          type: string
+                        type: array
+                        x-kubernetes-list-type: set
+                      DeniedPermissions:
+                        description: |-
+                          DeniedPermissions if specified, a list of SELinux permissions which are
+                          denied in SELinux profiles.
+                        items:
+                          type: string
+                        type: array
+                        x-kubernetes-list-type: set
+                      DeniedTypes:
+                        description: |-
+                          DeniedTypes if specified, a list of SELinux types which are
+                          denied in SELinux profiles.
+                        items:
+                          type: string
+                        type: array
+                        x-kubernetes-list-type: set
                       allowedSystemProfiles:
                         default:
                         - container
