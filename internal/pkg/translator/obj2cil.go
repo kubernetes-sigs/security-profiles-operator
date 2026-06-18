@@ -18,6 +18,7 @@ package translator
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 
@@ -60,10 +61,60 @@ var (
 	}
 )
 
+// Options defines the options for the Object2CIL translation.
+type Options struct {
+	// DeniedTypes if specified, a list of SELinux types which are
+	// denied in SELinux profiles.
+	DeniedTypes []string
+
+	// DeniedClasses if specified, a list of SELinux object classes which are
+	// denied in SELinux profiles.
+	DeniedClasses []string
+
+	// DeniedPermissions if specified, a list of SELinux permissions which are
+	// denied in SELinux profiles.
+	DeniedPermissions []string
+}
+
+type deniedOptions struct {
+	deniedTypes       map[string]struct{}
+	deniedClasses     map[string]struct{}
+	deniedPermissions map[string]struct{}
+}
+
+func deniedOptionsFromOpts(opts *Options) *deniedOptions {
+	// Global maps are cloned to avoid data race in this function is
+	// executed in parallel (e.g. in tests).
+	denied := &deniedOptions{
+		deniedTypes:       maps.Clone(deniedTypes),
+		deniedClasses:     maps.Clone(deniedClasses),
+		deniedPermissions: maps.Clone(deniedPermissions),
+	}
+
+	if opts == nil {
+		return denied
+	}
+
+	for _, t := range opts.DeniedTypes {
+		denied.deniedTypes[t] = struct{}{}
+	}
+
+	for _, c := range opts.DeniedClasses {
+		denied.deniedClasses[c] = struct{}{}
+	}
+
+	for _, p := range opts.DeniedPermissions {
+		denied.deniedPermissions[p] = struct{}{}
+	}
+
+	return denied
+}
+
 func Object2CIL(
 	systemInherits []string,
 	objInherits []selinuxprofileapi.SelinuxProfileObject,
 	sp *selinuxprofileapi.SelinuxProfile,
+	options *Options,
 ) (string, error) {
 	cilbuilder := strings.Builder{}
 	cilbuilder.WriteString(getCILStart(sp))
@@ -96,9 +147,11 @@ func Object2CIL(
 		cilbuilder.WriteString("\n")
 	}
 
+	deniedOpts := deniedOptionsFromOpts(options)
+
 	for _, ttype := range selinuxprofileapi.SortLabelKeys(sp.Spec.Allow) {
 		for _, tclass := range selinuxprofileapi.SortObjectClassKeys(sp.Spec.Allow[ttype]) {
-			if err := validateSematicRule(ttype, tclass, sp.Spec.Allow[ttype][tclass]); err != nil {
+			if err := validateSematicRule(deniedOpts, ttype, tclass, sp.Spec.Allow[ttype][tclass]); err != nil {
 				return "", fmt.Errorf("invalid semantic rule for type %s, class %s: %w",
 					ttype, tclass, err)
 			}
@@ -112,20 +165,20 @@ func Object2CIL(
 	return cilbuilder.String(), nil
 }
 
-func validateSematicRule(ttype selinuxprofileapi.LabelKey,
+func validateSematicRule(opts *deniedOptions, ttype selinuxprofileapi.LabelKey,
 	class selinuxprofileapi.ObjectClassKey,
 	perms selinuxprofileapi.PermissionSet,
 ) error {
-	if _, ok := deniedTypes[ttype.String()]; ok {
+	if _, ok := opts.deniedTypes[ttype.String()]; ok {
 		return fmt.Errorf("type %s is denied", ttype)
 	}
 
-	if _, ok := deniedClasses[class.String()]; ok {
+	if _, ok := opts.deniedClasses[class.String()]; ok {
 		return fmt.Errorf("class %s is denied", class)
 	}
 
 	for _, perm := range perms {
-		if _, ok := deniedPermissions[perm]; ok {
+		if _, ok := opts.deniedPermissions[perm]; ok {
 			return fmt.Errorf("permission %s is denied", perm)
 		}
 	}

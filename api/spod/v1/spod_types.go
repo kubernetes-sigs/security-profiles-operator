@@ -35,6 +35,24 @@ type SelinuxOptions struct {
 	// +default=["container"]
 	// +listType=set
 	AllowedSystemProfiles []string `json:"allowedSystemProfiles,omitempty"`
+
+	// DeniedTypes if specified, a list of SELinux types which are
+	// denied in SELinux profiles.
+	// +optional
+	// +listType=set
+	DeniedTypes []string `json:"DeniedTypes,omitempty"`
+
+	// DeniedClasses if specified, a list of SELinux object classes which are
+	// denied in SELinux profiles.
+	// +optional
+	// +listType=set
+	DeniedClasses []string `json:"DeniedClasses,omitempty"`
+
+	// DeniedPermissions if specified, a list of SELinux permissions which are
+	// denied in SELinux profiles.
+	// +optional
+	// +listType=set
+	DeniedPermissions []string `json:"DeniedPermissions,omitempty"`
 }
 
 // JsonEnricherOptions defines options specific to the JSON enricher.

@@ -219,11 +219,22 @@ func (sph *selinuxProfileHandler) handleInheritSystemPolicy(
 }
 
 func (sph *selinuxProfileHandler) GetCILPolicy() (string, error) {
+	spod, err := common.GetSPOD(context.Background(), sph.cli)
+	if err != nil {
+		return "", fmt.Errorf("couldn't get SELinux options from spod: %w", err)
+	}
+
+	opts := &translator.Options{
+		DeniedTypes:       spod.Spec.Selinux.Options.DeniedTypes,
+		DeniedClasses:     spod.Spec.Selinux.Options.DeniedClasses,
+		DeniedPermissions: spod.Spec.Selinux.Options.DeniedPermissions,
+	}
+
 	// Note that this assumes that the client and the object
 	// have been initialized already
 	// At this point, validation has happened and no errors will happen when
 	// rendering
-	return translator.Object2CIL(sph.systemInherits, sph.objInherits, sph.sp)
+	return translator.Object2CIL(sph.systemInherits, sph.objInherits, sph.sp, opts)
 }
 
 func newSelinuxProfileHandler(

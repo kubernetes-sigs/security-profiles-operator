@@ -31,6 +31,7 @@ func TestObject2CIL(t *testing.T) {
 	tests := []struct {
 		name        string
 		profile     *selinuxprofileapi.SelinuxProfile
+		options     *Options
 		wantMatches []string
 		doNotMatch  []string
 		inheritsys  []string
@@ -413,12 +414,43 @@ func TestObject2CIL(t *testing.T) {
 				"container",
 			},
 		},
+		{
+			name: "Test translation with denied options",
+			profile: &selinuxprofileapi.SelinuxProfile{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "foo-bar",
+				},
+				Spec: selinuxprofileapi.SelinuxProfileSpec{
+					Inherit: []selinuxprofileapi.PolicyRef{
+						{
+							Name: "container",
+						},
+					},
+					Allow: selinuxprofileapi.Allow{
+						"var_log_t": {
+							"dir": []string{
+								"open",
+							},
+						},
+					},
+				},
+			},
+			options: &Options{
+				DeniedTypes:       []string{"var_log_t"},
+				DeniedClasses:     []string{"dir"},
+				DeniedPermissions: []string{"open"},
+			},
+			wantErr: true,
+			inheritsys: []string{
+				"container",
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := Object2CIL(tt.inheritsys, tt.inheritobjs, tt.profile)
+			got, err := Object2CIL(tt.inheritsys, tt.inheritobjs, tt.profile, tt.options)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Object2CIL() error = %v, wantErr %v", err, tt.wantErr)
 
