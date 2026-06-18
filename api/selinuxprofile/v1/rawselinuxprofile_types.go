@@ -20,9 +20,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
-	"slices"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -33,35 +32,42 @@ import (
 
 // restrictedDirectives contains CIL statements that alter global node state
 // or should not be allowed within a namespace-scoped container profile.
-var restrictedDirectives = []string{
-	"typepermissive",
-	"class",
-	"classorder",
-	"classmap",
-	"classmapping",
-	"sid",
-	"sidorder",
-	"sidcontext",
-	"category",
-	"categoryorder",
-	"sensitivity",
-	"sensitivityorder",
-	"dominance",
-	"level",
-	"levelrange",
-	"context",
-	"filecon",
-	"portcon",
-	"nodecon",
-	"netifcon",
-	"genfscon",
-	"policycap",
-	"mls",
+var restrictedDirectives = map[string]struct{}{
+	"block":            {},
+	"blockinherit":     {},
+	"blockstart":       {},
+	"booleanif":        {},
+	"category":         {},
+	"categoryorder":    {},
+	"class":            {},
+	"classmap":         {},
+	"classmapping":     {},
+	"classorder":       {},
+	"context":          {},
+	"dominance":        {},
+	"filecon":          {},
+	"genfscon":         {},
+	"level":            {},
+	"levelrange":       {},
+	"mls":              {},
+	"netifcon":         {},
+	"nodecon":          {},
+	"optional":         {},
+	"policycap":        {},
+	"portcon":          {},
+	"role":             {},
+	"roletype":         {},
+	"sensitivity":      {},
+	"sensitivityorder": {},
+	"sid":              {},
+	"sidcontext":       {},
+	"sidorder":         {},
+	"tunable":          {},
+	"tunableif":        {},
+	"typepermissive":   {},
+	"user":             {},
+	"userrole":         {},
 }
-
-// directiveRegex finds CIL statements by looking for an open parenthesis
-// followed by optional whitespace and an alphanumeric directive word.
-var directiveRegex = regexp.MustCompile(`\(\s*([a-zA-Z0-9_-]+)`)
 
 var (
 	// Ensure RawSelinuxProfile implements the StatusBaseUser and SecurityProfileBase interfaces.
@@ -152,16 +158,28 @@ func (sp *RawSelinuxProfile) ValidatePolicy() error {
 
 	// Prevent block escape via unbalanced parentheses.
 	depth := 0
+	directive := []rune{}
+	directives := map[string]struct{}{}
 
 	for _, r := range policy {
 		switch r {
 		case '(':
 			depth++
+			directive = []rune{}
 		case ')':
 			depth--
 			if depth < 0 {
 				return errors.New(
 					"invalid policy: unmatched closing parenthesis ')' allows block escape")
+			}
+		default:
+			if isDirectiveCharacter(r) {
+				directive = append(directive, r)
+			} else {
+				if len(directive) > 0 {
+					directives[string(directive)] = struct{}{}
+					directive = []rune{}
+				}
 			}
 		}
 	}
@@ -171,20 +189,29 @@ func (sp *RawSelinuxProfile) ValidatePolicy() error {
 	}
 
 	// Prevent Global Privilege Escalation: Reject dangerous CIL directives.
-	// This scans for tokens immediately following an open parenthesis.
-	matches := directiveRegex.FindAllStringSubmatch(policy, -1)
-	for _, match := range matches {
-		if len(match) > 1 {
-			directive := strings.ToLower(match[1])
-			if slices.Contains(restrictedDirectives, directive) {
-				return fmt.Errorf(
-					"invalid policy: use of restricted global directive '%s' is not allowed",
-					directive)
-			}
+	// Check out all found directives in the policy and see if any of them are
+	// in the restricted list.
+	for directive := range directives {
+		if _, ok := restrictedDirectives[strings.ToLower(directive)]; ok {
+			return fmt.Errorf(
+				"invalid policy: use of restricted global directive '%s' is not allowed",
+				directive)
 		}
 	}
 
 	return nil
+}
+
+func isDirectiveCharacter(r rune) bool {
+	if unicode.IsLetter(r) || unicode.IsDigit(r) {
+		return true
+	}
+	switch r {
+	case '_', '-':
+		return true
+	default:
+		return false
+	}
 }
 
 func (sp *RawSelinuxProfile) IsPartial() bool {
