@@ -159,58 +159,69 @@ func (sp *RawSelinuxProfile) ValidatePolicy() error {
 	// Prevent block escape via unbalanced parentheses.
 	depth := 0
 	directive := []rune{}
-	directives := map[string]struct{}{}
+	atDirectivePosition := false
+
+	checkDirective := func() error {
+		if len(directive) == 0 || !atDirectivePosition {
+			return nil
+		}
+		d := strings.ToLower(string(directive))
+		if _, ok := restrictedDirectives[d]; ok {
+			return fmt.Errorf(
+				"invalid policy: use of restricted global directive '%s' is not allowed", d)
+		}
+		return nil
+	}
 
 	for _, r := range policy {
 		switch r {
 		case '(':
+			if err := checkDirective(); err != nil {
+				return err
+			}
 			depth++
 			directive = []rune{}
+			atDirectivePosition = true
 		case ')':
+			if err := checkDirective(); err != nil {
+				return err
+			}
 			depth--
 			if depth < 0 {
 				return errors.New(
 					"invalid policy: unmatched closing parenthesis ')' allows block escape")
 			}
+			directive = []rune{}
+			atDirectivePosition = false
 		default:
 			if isDirectiveCharacter(r) {
 				directive = append(directive, r)
 			} else if len(directive) > 0 {
-				directives[string(directive)] = struct{}{}
+				if err := checkDirective(); err != nil {
+					return err
+				}
 				directive = []rune{}
+				atDirectivePosition = false
 			}
 		}
+	}
+	if err := checkDirective(); err != nil {
+		return err
 	}
 
 	if depth != 0 {
 		return errors.New("invalid policy: unbalanced parentheses")
 	}
 
-	// Prevent Global Privilege Escalation: Reject dangerous CIL directives.
-	// Check out all found directives in the policy and see if any of them are
-	// in the restricted list.
-	for directive := range directives {
-		if _, ok := restrictedDirectives[strings.ToLower(directive)]; ok {
-			return fmt.Errorf(
-				"invalid policy: use of restricted global directive '%s' is not allowed",
-				directive)
-		}
-	}
-
 	return nil
 }
 
 func isDirectiveCharacter(r rune) bool {
-	if unicode.IsLetter(r) || unicode.IsDigit(r) {
+	if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-' {
 		return true
 	}
 
-	switch r {
-	case '_', '-':
-		return true
-	default:
-		return false
-	}
+	return false
 }
 
 func (sp *RawSelinuxProfile) IsPartial() bool {
