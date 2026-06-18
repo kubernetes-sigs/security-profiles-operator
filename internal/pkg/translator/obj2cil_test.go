@@ -421,8 +421,10 @@ func TestObject2CIL(t *testing.T) {
 			got, err := Object2CIL(tt.inheritsys, tt.inheritobjs, tt.profile)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Object2CIL() error = %v, wantErr %v", err, tt.wantErr)
+
 				return
 			}
+
 			for _, wantMatch := range tt.wantMatches {
 				matched, err := regexp.MatchString(wantMatch, got)
 				if err != nil {
