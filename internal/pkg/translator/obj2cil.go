@@ -31,11 +31,40 @@ const (
 	systemContainerInherit = "container"
 )
 
+// Safe Defaults: Hardcoded denylists to prevent critical privilege escalation.
+var (
+	// deniedTypes prevents access to critical hosts assets.
+	deniedTypes = map[string]struct{}{
+		"kernel_t":   {}, // Core kernel structures
+		"kmem_t":     {}, // Kernel memory
+		"security_t": {}, // SELinux fs
+		"shadow_t":   {}, // /etc/shadow
+	}
+
+	// deniedClasses prevents manipulation of the SELinux system itself.
+	deniedClasses = map[string]struct{}{
+		"capability": {}, // Linux capabilities
+		"security":   {}, // Allows managing SELinux state
+		"system":     {}, // Core system operations
+	}
+
+	// deniedPermissions prevents hostile actions on otherwise standard classes.
+	deniedPermissions = map[string]struct{}{
+		"load_policy": {}, // Can rewrite SELinux rules
+		"mac_admin":   {},
+		"mounton":     {},
+		"relabelto":   {}, // Can hijack other containers' files
+		"setbool":     {},
+		"setenforce":  {}, // Can disable SELinux
+		"setsecparam": {},
+	}
+)
+
 func Object2CIL(
 	systemInherits []string,
 	objInherits []selinuxprofileapi.SelinuxProfileObject,
 	sp *selinuxprofileapi.SelinuxProfile,
-) string {
+) (string, error) {
 	cilbuilder := strings.Builder{}
 	cilbuilder.WriteString(getCILStart(sp))
 
@@ -69,13 +98,37 @@ func Object2CIL(
 
 	for _, ttype := range selinuxprofileapi.SortLabelKeys(sp.Spec.Allow) {
 		for _, tclass := range selinuxprofileapi.SortObjectClassKeys(sp.Spec.Allow[ttype]) {
+			if err := validateSematicRule(ttype, tclass, sp.Spec.Allow[ttype][tclass]); err != nil {
+				return "", fmt.Errorf("invalid semantic rule for type %s, class %s: %w",
+					ttype, tclass, err)
+			}
 			cilbuilder.WriteString(getCILAllowLine(sp, ttype, tclass, sp.Spec.Allow[ttype][tclass]))
 		}
 	}
 
 	cilbuilder.WriteString(getCILEnd())
 
-	return cilbuilder.String()
+	return cilbuilder.String(), nil
+}
+
+func validateSematicRule(ttype selinuxprofileapi.LabelKey,
+	class selinuxprofileapi.ObjectClassKey,
+	perms selinuxprofileapi.PermissionSet) error {
+	if _, ok := deniedTypes[ttype.String()]; ok {
+		return fmt.Errorf("type %s is denied", ttype)
+	}
+
+	if _, ok := deniedClasses[class.String()]; ok {
+		return fmt.Errorf("class %s is denied", class)
+	}
+
+	for _, perm := range perms {
+		if _, ok := deniedPermissions[perm]; ok {
+			return fmt.Errorf("permission %s is denied", perm)
+		}
+	}
+
+	return nil
 }
 
 func getCILStart(sp *selinuxprofileapi.SelinuxProfile) string {

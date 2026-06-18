@@ -223,7 +223,7 @@ func (sph *selinuxProfileHandler) GetCILPolicy() (string, error) {
 	// have been initialized already
 	// At this point, validation has happened and no errors will happen when
 	// rendering
-	return translator.Object2CIL(sph.systemInherits, sph.objInherits, sph.sp), nil
+	return translator.Object2CIL(sph.systemInherits, sph.objInherits, sph.sp)
 }
 
 func newSelinuxProfileHandler(
