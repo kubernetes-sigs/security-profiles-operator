@@ -35,6 +35,7 @@ func TestObject2CIL(t *testing.T) {
 		doNotMatch  []string
 		inheritsys  []string
 		inheritobjs []selinuxprofileapi.SelinuxProfileObject
+		wantErr     bool
 	}{
 		{
 			name: "Test errorlogger translation with system inheritance",
@@ -334,12 +335,94 @@ func TestObject2CIL(t *testing.T) {
 				"net_container",
 			},
 		},
+		{
+			name: "Test translation with forbidden type",
+			profile: &selinuxprofileapi.SelinuxProfile{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "foo-bar",
+				},
+				Spec: selinuxprofileapi.SelinuxProfileSpec{
+					Inherit: []selinuxprofileapi.PolicyRef{
+						{
+							Name: "container",
+						},
+					},
+					Allow: selinuxprofileapi.Allow{
+						"kernel_t": {
+							"dir": []string{
+								"open",
+							},
+						},
+					},
+				},
+			},
+			wantErr: true,
+			inheritsys: []string{
+				"container",
+			},
+		},
+		{
+			name: "Test translation with forbidden class",
+			profile: &selinuxprofileapi.SelinuxProfile{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "foo-bar",
+				},
+				Spec: selinuxprofileapi.SelinuxProfileSpec{
+					Inherit: []selinuxprofileapi.PolicyRef{
+						{
+							Name: "container",
+						},
+					},
+					Allow: selinuxprofileapi.Allow{
+						"var_log_t": {
+							"security": []string{
+								"open",
+							},
+						},
+					},
+				},
+			},
+			wantErr: true,
+			inheritsys: []string{
+				"container",
+			},
+		},
+		{
+			name: "Test translation with forbidden permission",
+			profile: &selinuxprofileapi.SelinuxProfile{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "foo-bar",
+				},
+				Spec: selinuxprofileapi.SelinuxProfileSpec{
+					Inherit: []selinuxprofileapi.PolicyRef{
+						{
+							Name: "container",
+						},
+					},
+					Allow: selinuxprofileapi.Allow{
+						"var_log_t": {
+							"dir": []string{
+								"load_policy",
+							},
+						},
+					},
+				},
+			},
+			wantErr: true,
+			inheritsys: []string{
+				"container",
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := Object2CIL(tt.inheritsys, tt.inheritobjs, tt.profile)
+			got, err := Object2CIL(tt.inheritsys, tt.inheritobjs, tt.profile)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Object2CIL() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
 			for _, wantMatch := range tt.wantMatches {
 				matched, err := regexp.MatchString(wantMatch, got)
 				if err != nil {
