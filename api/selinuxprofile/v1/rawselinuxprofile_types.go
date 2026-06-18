@@ -175,11 +175,9 @@ func (sp *RawSelinuxProfile) ValidatePolicy() error {
 		default:
 			if isDirectiveCharacter(r) {
 				directive = append(directive, r)
-			} else {
-				if len(directive) > 0 {
-					directives[string(directive)] = struct{}{}
-					directive = []rune{}
-				}
+			} else if len(directive) > 0 {
+				directives[string(directive)] = struct{}{}
+				directive = []rune{}
 			}
 		}
 	}
@@ -206,6 +204,7 @@ func isDirectiveCharacter(r rune) bool {
 	if unicode.IsLetter(r) || unicode.IsDigit(r) {
 		return true
 	}
+
 	switch r {
 	case '_', '-':
 		return true
