@@ -1293,7 +1293,7 @@ spec:
                         x-kubernetes-list-type: set
                       deniedClasses:
                         description: |-
-                          DeniedClasses if specified, a list of SELinux object classes which are
+                          deniedClasses if specified, a list of SELinux object classes which are
                           denied in SELinux profiles.
                         items:
                           type: string
@@ -1301,7 +1301,7 @@ spec:
                         x-kubernetes-list-type: set
                       deniedPermissions:
                         description: |-
-                          DeniedPermissions if specified, a list of SELinux permissions which are
+                          deniedPermissions if specified, a list of SELinux permissions which are
                           denied in SELinux profiles.
                         items:
                           type: string
@@ -1309,7 +1309,7 @@ spec:
                         x-kubernetes-list-type: set
                       deniedTypes:
                         description: |-
-                          DeniedTypes if specified, a list of SELinux types which are
+                          deniedTypes if specified, a list of SELinux types which are
                           denied in SELinux profiles.
                         items:
                           type: string

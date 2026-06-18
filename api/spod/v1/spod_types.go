@@ -36,19 +36,19 @@ type SelinuxOptions struct {
 	// +listType=set
 	AllowedSystemProfiles []string `json:"allowedSystemProfiles,omitempty"`
 
-	// DeniedTypes if specified, a list of SELinux types which are
+	// deniedTypes if specified, a list of SELinux types which are
 	// denied in SELinux profiles.
 	// +optional
 	// +listType=set
 	DeniedTypes []string `json:"deniedTypes,omitempty"`
 
-	// DeniedClasses if specified, a list of SELinux object classes which are
+	// deniedClasses if specified, a list of SELinux object classes which are
 	// denied in SELinux profiles.
 	// +optional
 	// +listType=set
 	DeniedClasses []string `json:"deniedClasses,omitempty"`
 
-	// DeniedPermissions if specified, a list of SELinux permissions which are
+	// deniedPermissions if specified, a list of SELinux permissions which are
 	// denied in SELinux profiles.
 	// +optional
 	// +listType=set
