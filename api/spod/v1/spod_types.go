@@ -40,19 +40,19 @@ type SelinuxOptions struct {
 	// denied in SELinux profiles.
 	// +optional
 	// +listType=set
-	DeniedTypes []string `json:"DeniedTypes,omitempty"`
+	DeniedTypes []string `json:"deniedTypes,omitempty"`
 
 	// DeniedClasses if specified, a list of SELinux object classes which are
 	// denied in SELinux profiles.
 	// +optional
 	// +listType=set
-	DeniedClasses []string `json:"DeniedClasses,omitempty"`
+	DeniedClasses []string `json:"deniedClasses,omitempty"`
 
 	// DeniedPermissions if specified, a list of SELinux permissions which are
 	// denied in SELinux profiles.
 	// +optional
 	// +listType=set
-	DeniedPermissions []string `json:"DeniedPermissions,omitempty"`
+	DeniedPermissions []string `json:"deniedPermissions,omitempty"`
 }
 
 // JsonEnricherOptions defines options specific to the JSON enricher.
