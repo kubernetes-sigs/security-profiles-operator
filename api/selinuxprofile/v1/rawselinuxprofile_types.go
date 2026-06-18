@@ -195,6 +195,7 @@ func (sp *RawSelinuxProfile) ValidatePolicy() error {
 				return errors.New(
 					"invalid policy: unmatched closing parenthesis ')' allows block escape")
 			}
+
 			directive = []rune{}
 			atDirectivePosition = false
 		default:
