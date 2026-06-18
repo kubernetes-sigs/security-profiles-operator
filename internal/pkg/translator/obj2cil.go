@@ -102,6 +102,7 @@ func Object2CIL(
 				return "", fmt.Errorf("invalid semantic rule for type %s, class %s: %w",
 					ttype, tclass, err)
 			}
+
 			cilbuilder.WriteString(getCILAllowLine(sp, ttype, tclass, sp.Spec.Allow[ttype][tclass]))
 		}
 	}
@@ -113,7 +114,8 @@ func Object2CIL(
 
 func validateSematicRule(ttype selinuxprofileapi.LabelKey,
 	class selinuxprofileapi.ObjectClassKey,
-	perms selinuxprofileapi.PermissionSet) error {
+	perms selinuxprofileapi.PermissionSet,
+) error {
 	if _, ok := deniedTypes[ttype.String()]; ok {
 		return fmt.Errorf("type %s is denied", ttype)
 	}
