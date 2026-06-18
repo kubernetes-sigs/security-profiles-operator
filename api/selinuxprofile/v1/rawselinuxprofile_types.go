@@ -165,11 +165,13 @@ func (sp *RawSelinuxProfile) ValidatePolicy() error {
 		if len(directive) == 0 || !atDirectivePosition {
 			return nil
 		}
+
 		d := strings.ToLower(string(directive))
 		if _, ok := restrictedDirectives[d]; ok {
 			return fmt.Errorf(
 				"invalid policy: use of restricted global directive '%s' is not allowed", d)
 		}
+
 		return nil
 	}
 
@@ -177,6 +179,7 @@ func (sp *RawSelinuxProfile) ValidatePolicy() error {
 		switch r {
 		case '(':
 			if err := checkDirective(); err != nil {
+
 				return err
 			}
 			depth++
@@ -184,6 +187,7 @@ func (sp *RawSelinuxProfile) ValidatePolicy() error {
 			atDirectivePosition = true
 		case ')':
 			if err := checkDirective(); err != nil {
+
 				return err
 			}
 			depth--
@@ -198,6 +202,7 @@ func (sp *RawSelinuxProfile) ValidatePolicy() error {
 				directive = append(directive, r)
 			} else if len(directive) > 0 {
 				if err := checkDirective(); err != nil {
+
 					return err
 				}
 				directive = []rune{}
