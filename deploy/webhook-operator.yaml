@@ -6422,7 +6422,6 @@ data:
         (allow process file_context_t ( file ( append create getattr ioctl lock map open read rename setattr unlink write )))
         (allow process file_context_t ( sock_file ( append getattr open read write )))
         (allow process security_t ( file ( append create getattr ioctl lock map open read rename setattr unlink write )))
-        (typeattributeset can_load_policy process)
         (allow process selinux_config_t ( dir ( add_name create getattr ioctl lock open read remove_name rename rmdir search setattr write )))
         (allow process selinux_config_t ( fifo_file ( getattr read write append ioctl lock open )))
         (allow process selinux_config_t ( file ( append create getattr ioctl lock map open read rename setattr unlink write )))
@@ -6444,7 +6443,17 @@ data:
         (allow process sysfs_t ( file ( append create getattr ioctl lock map open read rename setattr unlink write )))
         (allow process sysfs_t ( sock_file ( append getattr open read write )))
 
-        (optional rhel_only
+        ; Best effort to allow loading policies
+        (optional load_policy_rule_support
+            ; Targets distros that allow direct rules but might lack the 'can_load_policy' typeattribute (fails safely if blocked by a neverallow)
+            (allow process security_t ( security ( load_policy )))
+        )
+        (optional can_load_policy_attr_support
+            ; Targets distros where 'can_load_policy' typeattribute exists
+            (typeattributeset can_load_policy process)
+        )
+
+        (optional login_config_support
             (allow process selinux_login_config_t ( dir ( add_name create getattr ioctl lock open read remove_name rmdir search setattr write )))
             (allow process selinux_login_config_t ( fifo_file ( getattr read write append ioctl lock open )))
             (allow process selinux_login_config_t ( file ( append create getattr ioctl lock map open read rename setattr unlink write )))
