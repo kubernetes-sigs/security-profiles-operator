@@ -179,17 +179,17 @@ func (sp *RawSelinuxProfile) ValidatePolicy() error {
 		switch r {
 		case '(':
 			if err := checkDirective(); err != nil {
-
 				return err
 			}
+
 			depth++
 			directive = []rune{}
 			atDirectivePosition = true
 		case ')':
 			if err := checkDirective(); err != nil {
-
 				return err
 			}
+
 			depth--
 			if depth < 0 {
 				return errors.New(
@@ -202,14 +202,15 @@ func (sp *RawSelinuxProfile) ValidatePolicy() error {
 				directive = append(directive, r)
 			} else if len(directive) > 0 {
 				if err := checkDirective(); err != nil {
-
 					return err
 				}
+
 				directive = []rune{}
 				atDirectivePosition = false
 			}
 		}
 	}
+
 	if err := checkDirective(); err != nil {
 		return err
 	}
