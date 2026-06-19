@@ -41,13 +41,13 @@ require (
 	gopkg.in/yaml.v2 v2.4.0
 	k8s.io/api v0.36.2
 	k8s.io/apimachinery v0.36.2
-	k8s.io/cli-runtime v0.35.3
+	k8s.io/cli-runtime v0.36.2
 	k8s.io/client-go v0.36.2
 	k8s.io/klog/v2 v2.140.0
 	k8s.io/utils v0.0.0-20260507154919-ff6756f316d2
 	oras.land/oras-go/v2 v2.6.1
 	sigs.k8s.io/controller-runtime v0.24.1
-	sigs.k8s.io/controller-tools v0.20.1
+	sigs.k8s.io/controller-tools v0.21.0
 	sigs.k8s.io/release-utils v0.12.4
 	sigs.k8s.io/yaml v1.6.0
 )
@@ -140,7 +140,7 @@ require (
 	github.com/emicklei/go-restful/v3 v3.13.0 // indirect
 	github.com/emicklei/proto v1.14.3 // indirect
 	github.com/evanphx/json-patch/v5 v5.9.11 // indirect
-	github.com/fatih/color v1.18.0 // indirect
+	github.com/fatih/color v1.19.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.2 // indirect
@@ -149,24 +149,24 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-openapi/analysis v0.24.3 // indirect
 	github.com/go-openapi/errors v0.22.7 // indirect
-	github.com/go-openapi/jsonpointer v0.22.5 // indirect
+	github.com/go-openapi/jsonpointer v0.23.1 // indirect
 	github.com/go-openapi/jsonreference v0.21.5 // indirect
 	github.com/go-openapi/loads v0.23.3 // indirect
 	github.com/go-openapi/runtime v0.29.3 // indirect
 	github.com/go-openapi/spec v0.22.4 // indirect
 	github.com/go-openapi/strfmt v0.26.1 // indirect
-	github.com/go-openapi/swag v0.25.5 // indirect
-	github.com/go-openapi/swag/cmdutils v0.25.5 // indirect
-	github.com/go-openapi/swag/conv v0.25.5 // indirect
-	github.com/go-openapi/swag/fileutils v0.25.5 // indirect
-	github.com/go-openapi/swag/jsonname v0.25.5 // indirect
-	github.com/go-openapi/swag/jsonutils v0.25.5 // indirect
-	github.com/go-openapi/swag/loading v0.25.5 // indirect
-	github.com/go-openapi/swag/mangling v0.25.5 // indirect
-	github.com/go-openapi/swag/netutils v0.25.5 // indirect
-	github.com/go-openapi/swag/stringutils v0.25.5 // indirect
-	github.com/go-openapi/swag/typeutils v0.25.5 // indirect
-	github.com/go-openapi/swag/yamlutils v0.25.5 // indirect
+	github.com/go-openapi/swag v0.26.0 // indirect
+	github.com/go-openapi/swag/cmdutils v0.26.0 // indirect
+	github.com/go-openapi/swag/conv v0.26.0 // indirect
+	github.com/go-openapi/swag/fileutils v0.26.0 // indirect
+	github.com/go-openapi/swag/jsonname v0.26.0 // indirect
+	github.com/go-openapi/swag/jsonutils v0.26.0 // indirect
+	github.com/go-openapi/swag/loading v0.26.0 // indirect
+	github.com/go-openapi/swag/mangling v0.26.0 // indirect
+	github.com/go-openapi/swag/netutils v0.26.0 // indirect
+	github.com/go-openapi/swag/stringutils v0.26.0 // indirect
+	github.com/go-openapi/swag/typeutils v0.26.0 // indirect
+	github.com/go-openapi/swag/yamlutils v0.26.0 // indirect
 	github.com/go-openapi/validate v0.25.2 // indirect
 	github.com/go-piv/piv-go/v2 v2.5.0 // indirect
 	github.com/go-quicktest/qt v1.101.1-0.20240301121107-c6c8733fa1e6 // indirect
