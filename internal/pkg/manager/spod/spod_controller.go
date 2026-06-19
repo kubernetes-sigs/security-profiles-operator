@@ -753,6 +753,13 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 			"--with-mem-optim=true")
 	}
 
+	// Enable insecure metrics access if requested
+	if isInsecureMetricsEnabled(cfg) {
+		templateSpec.Containers[bindata.ContainerIDDaemon].Args = append(
+			templateSpec.Containers[bindata.ContainerIDDaemon].Args,
+			"--with-insecure-metrics=true")
+	}
+
 	for i := range templateSpec.InitContainers {
 		// Set image pull policy
 		templateSpec.InitContainers[i].ImagePullPolicy = pullPolicy
@@ -908,6 +915,15 @@ func isJsonEnricherEnabled(cfg *spodapi.SecurityProfilesOperatorDaemon) bool {
 	}
 
 	return ptr.Deref(cfg.Spec.Enricher.EnableJsonEnricher, false) || enableJsonEnricherEnv
+}
+
+func isInsecureMetricsEnabled(cfg *spodapi.SecurityProfilesOperatorDaemon) bool {
+	enableInsecureMetricsEnv, err := strconv.ParseBool(os.Getenv(config.EnableInsecureMetricsAccessEnvKey))
+	if err != nil {
+		enableInsecureMetricsEnv = false
+	}
+
+	return ptr.Deref(cfg.Spec.EnableInsecureMetricsAccess, false) || enableInsecureMetricsEnv
 }
 
 func addArgsConfig(args []string, argonfig string) []string {

@@ -102,6 +102,7 @@ const (
 	rawSelinuxFlag               string = "with-raw-selinux"
 	webhookFlag                  string = "webhook"
 	memOptimFlag                 string = "with-mem-optim"
+	insecureMetricsAccessFlag    string = "with-insecure-metrics-access"
 	defaultWebhookPort           int    = 9443
 	auditLogIntervalSecondsParam string = "audit-log-interval-seconds"
 	auditLogPathParam            string = "audit-log-path"
@@ -223,6 +224,12 @@ func main() {
 					Name:  memOptimFlag,
 					Usage: "Enable memory optimization by watching only labeled pods",
 					Value: false,
+				},
+				&cli.BoolFlag{
+					Name:    insecureMetricsAccessFlag,
+					Usage:   "Allow unauthenticated access to metrics endpoint (default: false)",
+					Value:   false,
+					EnvVars: []string{config.EnableInsecureMetricsAccessEnvKey},
 				},
 			},
 		},
@@ -712,6 +719,14 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 			},
 			TLSOpts: []func(*tls.Config){disableHTTP2},
 		},
+	}
+
+	if ctx.Bool(insecureMetricsAccessFlag) {
+		setupLog.Info("WARNING: insecure metrics access enabled, TLS and authentication are disabled")
+		ctrlOpts.Metrics.SecureServing = false
+		ctrlOpts.Metrics.CertDir = ""
+		ctrlOpts.Metrics.FilterProvider = nil
+		ctrlOpts.Metrics.TLSOpts = nil
 	}
 
 	setControllerOptionsForNamespaces(&ctrlOpts)
