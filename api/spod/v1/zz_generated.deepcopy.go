@@ -199,6 +199,11 @@ func (in *SPODSpec) DeepCopyInto(out *SPODSpec) {
 		*out = new(bool)
 		**out = **in
 	}
+	if in.EnableInsecureMetricsAccess != nil {
+		in, out := &in.EnableInsecureMetricsAccess, &out.EnableInsecureMetricsAccess
+		*out = new(bool)
+		**out = **in
+	}
 	if in.EnableAppArmor != nil {
 		in, out := &in.EnableAppArmor, &out.EnableAppArmor
 		*out = new(bool)
