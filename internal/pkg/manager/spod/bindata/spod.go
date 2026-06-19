@@ -84,11 +84,12 @@ var DefaultSPOD = &spodapi.SecurityProfilesOperatorDaemon{
 		Labels: map[string]string{"app": config.OperatorName},
 	},
 	Spec: spodapi.SPODSpec{
-		Verbosity:                0,
-		EnableProfiling:          new(bool),
-		EnableMemoryOptimization: new(bool),
-		EnableAppArmor:           new(bool),
-		HostProcVolumePath:       DefaultHostProcPath,
+		Verbosity:                   0,
+		EnableProfiling:             new(bool),
+		EnableMemoryOptimization:    new(bool),
+		EnableInsecureMetricsAccess: new(bool),
+		EnableAppArmor:              new(bool),
+		HostProcVolumePath:          DefaultHostProcPath,
 		Selinux: spodapi.SPODSelinuxConfig{
 			Options: spodapi.SelinuxOptions{
 				AllowedSystemProfiles: []string{

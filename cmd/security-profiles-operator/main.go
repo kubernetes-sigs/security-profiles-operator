@@ -227,7 +227,7 @@ func main() {
 				},
 				&cli.BoolFlag{
 					Name:    insecureMetricsAccessFlag,
-					Usage:   "Allow unauthenticated access to metrics endpoint (default: false)",
+					Usage:   "Allow unauthenticated access to metrics endpoint",
 					Value:   false,
 					EnvVars: []string{config.EnableInsecureMetricsAccessEnvKey},
 				},
@@ -722,7 +722,7 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 	}
 
 	if ctx.Bool(insecureMetricsAccessFlag) {
-		setupLog.Info("WARNING: insecure metrics access enabled, TLS and authentication are disabled")
+		setupLog.Info("Insecure metrics access enabled, TLS and authentication are disabled")
 
 		ctrlOpts.Metrics.SecureServing = false
 		ctrlOpts.Metrics.CertDir = ""
