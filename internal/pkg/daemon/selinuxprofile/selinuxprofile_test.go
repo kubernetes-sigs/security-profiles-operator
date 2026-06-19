@@ -334,6 +334,9 @@ func Test_selinuxProfileHandler(t *testing.T) {
 			wantErrMatches: []string{
 				"didn't match expected characters: invalid object class",
 			},
+			existingObjs: []client.Object{
+				spodinstance.DeepCopy(),
+			},
 		},
 		{
 			name: "Test validate injection through object permission",
@@ -363,6 +366,9 @@ func Test_selinuxProfileHandler(t *testing.T) {
 			wantValidateErr: true,
 			wantErrMatches: []string{
 				"didn't match expected characters: invalid permission",
+			},
+			existingObjs: []client.Object{
+				spodinstance.DeepCopy(),
 			},
 		},
 	}
