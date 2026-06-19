@@ -187,7 +187,8 @@ func (r *ReconcileSPOd) Reconcile(ctx context.Context, req reconcile.Request) (r
 	configuredSPOd := r.getConfiguredSPOd(ctx, spod, image, pullPolicy, caInjectType)
 	webhook := r.getConfiguredWebook(spod, image, pullPolicy, caInjectType)
 	metricsService := bindata.GetMetricsService(r.namespace, caInjectType)
-	serviceMonitor := bindata.ServiceMonitor(caInjectType)
+	serviceMonitor := bindata.ServiceMonitor(caInjectType,
+		ptr.Deref(spod.Spec.EnableInsecureMetricsAccess, false))
 
 	var certManagerResources *bindata.CertManagerResources
 	if caInjectType == bindata.CAInjectTypeCertManager {

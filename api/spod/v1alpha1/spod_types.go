@@ -109,6 +109,11 @@ type SPODSpec struct {
 	// +optional
 	// +default=false
 	EnableMemoryOptimization *bool `json:"enableMemoryOptimization,omitempty"`
+	// enableInsecureMetricsAccess enables unauthenticated access to the metrics
+	// endpoint. This will disable TLS and authentication for the metrics endpoint.
+	// +optional
+	// +default=false
+	EnableInsecureMetricsAccess *bool `json:"enableInsecureMetricsAccess,omitempty"`
 	// enableAppArmor tells the operator whether or not to enable AppArmor
 	// support for this SPOD instance.
 	// +optional

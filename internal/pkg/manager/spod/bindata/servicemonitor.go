@@ -29,7 +29,7 @@ import (
 
 // ServiceMonitor returns the default ServiceMonitor for automatic metrics
 // retrieval via the prometheus operator.
-func ServiceMonitor(caInjectType CAInjectType) *v1.ServiceMonitor {
+func ServiceMonitor(caInjectType CAInjectType, enableInsecureMetricsAccess bool) *v1.ServiceMonitor {
 	return &v1.ServiceMonitor{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "security-profiles-operator-monitor",
@@ -37,8 +37,8 @@ func ServiceMonitor(caInjectType CAInjectType) *v1.ServiceMonitor {
 		},
 		Spec: v1.ServiceMonitorSpec{
 			Endpoints: []v1.Endpoint{
-				endpointFor("/metrics", caInjectType),
-				endpointFor("/metrics-spod", caInjectType),
+				endpointFor("/metrics", caInjectType, enableInsecureMetricsAccess),
+				endpointFor("/metrics-spod", caInjectType, enableInsecureMetricsAccess),
 			},
 			Selector: metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -54,15 +54,25 @@ func ServiceMonitor(caInjectType CAInjectType) *v1.ServiceMonitor {
 }
 
 // endpointFor provides a standard endpoint for the given URL path.
-func endpointFor(path string, caInjectType CAInjectType) v1.Endpoint {
+func endpointFor(path string, caInjectType CAInjectType, enableInsecureMetricsAccess bool) v1.Endpoint {
 	serverName := fmt.Sprintf("metrics.%s.svc", config.GetOperatorNamespace())
 	scheme := v1.Scheme("https")
+	port := "https"
+
+	if enableInsecureMetricsAccess {
+		scheme = v1.Scheme("http")
+		port = "http"
+	}
 
 	ep := v1.Endpoint{
 		Path:     path,
 		Interval: "10s",
-		Port:     "https",
+		Port:     port,
 		Scheme:   &scheme,
+	}
+
+	if enableInsecureMetricsAccess {
+		return ep
 	}
 
 	ep.Authorization = &v1.SafeAuthorization{

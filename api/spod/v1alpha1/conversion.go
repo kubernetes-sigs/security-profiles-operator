@@ -65,6 +65,7 @@ func (src *SecurityProfilesOperatorDaemon) ConvertTo(dstRaw conversion.Hub) erro
 	dst.Spec.Verbosity = src.Spec.Verbosity
 	dst.Spec.EnableProfiling = src.Spec.EnableProfiling
 	dst.Spec.EnableMemoryOptimization = src.Spec.EnableMemoryOptimization
+	dst.Spec.EnableInsecureMetricsAccess = src.Spec.EnableInsecureMetricsAccess
 	dst.Spec.EnableAppArmor = src.Spec.EnableAppArmor
 	dst.Spec.HostProcVolumePath = src.Spec.HostProcVolumePath
 	dst.Spec.ImagePullSecrets = src.Spec.ImagePullSecrets
@@ -136,6 +137,7 @@ func (dst *SecurityProfilesOperatorDaemon) ConvertFrom(srcRaw conversion.Hub) er
 	dst.Spec.Verbosity = src.Spec.Verbosity
 	dst.Spec.EnableProfiling = src.Spec.EnableProfiling
 	dst.Spec.EnableMemoryOptimization = src.Spec.EnableMemoryOptimization
+	dst.Spec.EnableInsecureMetricsAccess = src.Spec.EnableInsecureMetricsAccess
 	dst.Spec.EnableAppArmor = src.Spec.EnableAppArmor
 	dst.Spec.HostProcVolumePath = src.Spec.HostProcVolumePath
 	dst.Spec.ImagePullSecrets = src.Spec.ImagePullSecrets
