@@ -415,7 +415,7 @@ func TestObject2CIL(t *testing.T) {
 			},
 		},
 		{
-			name: "Test translation with denied options",
+			name: "Test translation with denied type",
 			profile: &selinuxprofileapi.SelinuxProfile{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "foo-bar",
@@ -436,8 +436,64 @@ func TestObject2CIL(t *testing.T) {
 				},
 			},
 			options: &Options{
-				DeniedTypes:       []string{"var_log_t"},
-				DeniedClasses:     []string{"dir"},
+				DeniedTypes: []string{"var_log_t"},
+			},
+			wantErr: true,
+			inheritsys: []string{
+				"container",
+			},
+		},
+		{
+			name: "Test translation with denied class",
+			profile: &selinuxprofileapi.SelinuxProfile{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "foo-bar",
+				},
+				Spec: selinuxprofileapi.SelinuxProfileSpec{
+					Inherit: []selinuxprofileapi.PolicyRef{
+						{
+							Name: "container",
+						},
+					},
+					Allow: selinuxprofileapi.Allow{
+						"var_log_t": {
+							"dir": []string{
+								"open",
+							},
+						},
+					},
+				},
+			},
+			options: &Options{
+				DeniedClasses: []string{"dir"},
+			},
+			wantErr: true,
+			inheritsys: []string{
+				"container",
+			},
+		},
+		{
+			name: "Test translation with denied permission",
+			profile: &selinuxprofileapi.SelinuxProfile{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "foo-bar",
+				},
+				Spec: selinuxprofileapi.SelinuxProfileSpec{
+					Inherit: []selinuxprofileapi.PolicyRef{
+						{
+							Name: "container",
+						},
+					},
+					Allow: selinuxprofileapi.Allow{
+						"var_log_t": {
+							"dir": []string{
+								"open",
+							},
+						},
+					},
+				},
+			},
+			options: &Options{
 				DeniedPermissions: []string{"open"},
 			},
 			wantErr: true,

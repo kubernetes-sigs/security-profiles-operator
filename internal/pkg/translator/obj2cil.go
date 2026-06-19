@@ -44,9 +44,10 @@ var (
 
 	// deniedClasses prevents manipulation of the SELinux system itself.
 	deniedClasses = map[string]struct{}{
-		"capability": {}, // Linux capabilities
-		"security":   {}, // Allows managing SELinux state
-		"system":     {}, // Core system operations
+		"capability":  {}, // Linux capabilities
+		"capability2": {}, // Newer Linux capabilities
+		"security":    {}, // Allows managing SELinux state
+		"system":      {}, // Core system operations
 	}
 
 	// deniedPermissions prevents hostile actions on otherwise standard classes.
@@ -55,6 +56,7 @@ var (
 		"mac_admin":   {},
 		"mounton":     {},
 		"relabelto":   {}, // Can hijack other containers' files
+		"relabelfrom": {}, // Can hijack other containers' files
 		"setbool":     {},
 		"setenforce":  {}, // Can disable SELinux
 		"setsecparam": {},
