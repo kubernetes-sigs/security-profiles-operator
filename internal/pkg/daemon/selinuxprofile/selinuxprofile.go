@@ -206,8 +206,8 @@ func (sph *selinuxProfileHandler) handleInheritSPOPolicy(
 }
 
 func (sph *selinuxProfileHandler) handleSelinuxOptions(
-	spod *spodapi.SecurityProfilesOperatorDaemon) {
-
+	spod *spodapi.SecurityProfilesOperatorDaemon,
+) {
 	sph.deniedOpts = &translator.Options{
 		DeniedTypes:       spod.Spec.Selinux.Options.DeniedTypes,
 		DeniedClasses:     spod.Spec.Selinux.Options.DeniedClasses,
