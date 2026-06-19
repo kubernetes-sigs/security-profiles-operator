@@ -415,6 +415,32 @@ func TestObject2CIL(t *testing.T) {
 			},
 		},
 		{
+			name: "Test translation without denied options",
+			profile: &selinuxprofileapi.SelinuxProfile{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "foo-bar",
+				},
+				Spec: selinuxprofileapi.SelinuxProfileSpec{
+					Inherit: []selinuxprofileapi.PolicyRef{
+						{
+							Name: "container",
+						},
+					},
+					Allow: selinuxprofileapi.Allow{
+						"var_log_t": {
+							"dir": []string{
+								"open",
+							},
+						},
+					},
+				},
+			},
+			wantErr: false,
+			inheritsys: []string{
+				"container",
+			},
+		},
+		{
 			name: "Test translation with denied type",
 			profile: &selinuxprofileapi.SelinuxProfile{
 				ObjectMeta: metav1.ObjectMeta{
