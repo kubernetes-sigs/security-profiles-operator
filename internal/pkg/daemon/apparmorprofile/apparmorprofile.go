@@ -118,7 +118,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 				map[string]string{os.Getenv(config.NodeNameEnvKey): "node does not support apparmor"},
 				util.EventTypeWarning,
 				reasonAppArmorNotSupported,
-				err.Error(),
+				"%s", err.Error(),
 			)
 		}
 
