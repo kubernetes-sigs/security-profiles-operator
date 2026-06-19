@@ -3,7 +3,7 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     cert-manager.io/inject-ca-from: security-profiles-operator/webhook-cert
-    controller-gen.kubebuilder.io/version: v0.20.1
+    controller-gen.kubebuilder.io/version: v0.21.0
   creationTimestamp: null
   labels:
     app: security-profiles-operator
@@ -102,32 +102,21 @@ spec:
                   remote OCI artifacts as well when prefixed with `oci://`.
                 type: string
               defaultAction:
-                allOf:
-                - enum:
-                  - SCMP_ACT_KILL
-                  - SCMP_ACT_KILL_PROCESS
-                  - SCMP_ACT_KILL_THREAD
-                  - SCMP_ACT_TRAP
-                  - SCMP_ACT_ERRNO
-                  - SCMP_ACT_TRACE
-                  - SCMP_ACT_ALLOW
-                  - SCMP_ACT_LOG
-                  - SCMP_ACT_NOTIFY
-                - enum:
-                  - SCMP_ACT_KILL
-                  - SCMP_ACT_KILL_PROCESS
-                  - SCMP_ACT_KILL_THREAD
-                  - SCMP_ACT_TRAP
-                  - SCMP_ACT_ERRNO
-                  - SCMP_ACT_TRACE
-                  - SCMP_ACT_ALLOW
-                  - SCMP_ACT_LOG
-                  - SCMP_ACT_NOTIFY
                 description: |-
                   defaultAction is the default action for seccomp. Valid values are:
                   SCMP_ACT_KILL, SCMP_ACT_KILL_PROCESS, SCMP_ACT_KILL_THREAD,
                   SCMP_ACT_TRAP, SCMP_ACT_ERRNO, SCMP_ACT_TRACE, SCMP_ACT_ALLOW,
                   SCMP_ACT_LOG, SCMP_ACT_NOTIFY.
+                enum:
+                - SCMP_ACT_KILL
+                - SCMP_ACT_KILL_PROCESS
+                - SCMP_ACT_KILL_THREAD
+                - SCMP_ACT_TRAP
+                - SCMP_ACT_ERRNO
+                - SCMP_ACT_TRACE
+                - SCMP_ACT_ALLOW
+                - SCMP_ACT_LOG
+                - SCMP_ACT_NOTIFY
                 type: string
               flags:
                 description: flags is a list of flags to use with seccomp(2).
@@ -169,32 +158,21 @@ spec:
                   description: Syscall defines a syscall in seccomp.
                   properties:
                     action:
-                      allOf:
-                      - enum:
-                        - SCMP_ACT_KILL
-                        - SCMP_ACT_KILL_PROCESS
-                        - SCMP_ACT_KILL_THREAD
-                        - SCMP_ACT_TRAP
-                        - SCMP_ACT_ERRNO
-                        - SCMP_ACT_TRACE
-                        - SCMP_ACT_ALLOW
-                        - SCMP_ACT_LOG
-                        - SCMP_ACT_NOTIFY
-                      - enum:
-                        - SCMP_ACT_KILL
-                        - SCMP_ACT_KILL_PROCESS
-                        - SCMP_ACT_KILL_THREAD
-                        - SCMP_ACT_TRAP
-                        - SCMP_ACT_ERRNO
-                        - SCMP_ACT_TRACE
-                        - SCMP_ACT_ALLOW
-                        - SCMP_ACT_LOG
-                        - SCMP_ACT_NOTIFY
                       description: |-
                         action is the action for seccomp rules. Valid values are:
                         SCMP_ACT_KILL, SCMP_ACT_KILL_PROCESS, SCMP_ACT_KILL_THREAD,
                         SCMP_ACT_TRAP, SCMP_ACT_ERRNO, SCMP_ACT_TRACE, SCMP_ACT_ALLOW,
                         SCMP_ACT_LOG, SCMP_ACT_NOTIFY.
+                      enum:
+                      - SCMP_ACT_KILL
+                      - SCMP_ACT_KILL_PROCESS
+                      - SCMP_ACT_KILL_THREAD
+                      - SCMP_ACT_TRAP
+                      - SCMP_ACT_ERRNO
+                      - SCMP_ACT_TRACE
+                      - SCMP_ACT_ALLOW
+                      - SCMP_ACT_LOG
+                      - SCMP_ACT_NOTIFY
                       type: string
                     args:
                       description: args defines the specific syscall arguments in
@@ -209,27 +187,18 @@ spec:
                             minimum: 0
                             type: integer
                           op:
-                            allOf:
-                            - enum:
-                              - SCMP_CMP_NE
-                              - SCMP_CMP_LT
-                              - SCMP_CMP_LE
-                              - SCMP_CMP_EQ
-                              - SCMP_CMP_GE
-                              - SCMP_CMP_GT
-                              - SCMP_CMP_MASKED_EQ
-                            - enum:
-                              - SCMP_CMP_NE
-                              - SCMP_CMP_LT
-                              - SCMP_CMP_LE
-                              - SCMP_CMP_EQ
-                              - SCMP_CMP_GE
-                              - SCMP_CMP_GT
-                              - SCMP_CMP_MASKED_EQ
                             description: |-
                               op is the operator for syscall arguments in seccomp. Valid values are:
                               SCMP_CMP_NE, SCMP_CMP_LT, SCMP_CMP_LE, SCMP_CMP_EQ, SCMP_CMP_GE,
                               SCMP_CMP_GT, SCMP_CMP_MASKED_EQ.
+                            enum:
+                            - SCMP_CMP_NE
+                            - SCMP_CMP_LT
+                            - SCMP_CMP_LE
+                            - SCMP_CMP_EQ
+                            - SCMP_CMP_GE
+                            - SCMP_CMP_GT
+                            - SCMP_CMP_MASKED_EQ
                             type: string
                           value:
                             description: value is the value for syscall arguments
@@ -446,32 +415,21 @@ spec:
                   remote OCI artifacts as well when prefixed with `oci://`.
                 type: string
               defaultAction:
-                allOf:
-                - enum:
-                  - SCMP_ACT_KILL
-                  - SCMP_ACT_KILL_PROCESS
-                  - SCMP_ACT_KILL_THREAD
-                  - SCMP_ACT_TRAP
-                  - SCMP_ACT_ERRNO
-                  - SCMP_ACT_TRACE
-                  - SCMP_ACT_ALLOW
-                  - SCMP_ACT_LOG
-                  - SCMP_ACT_NOTIFY
-                - enum:
-                  - SCMP_ACT_KILL
-                  - SCMP_ACT_KILL_PROCESS
-                  - SCMP_ACT_KILL_THREAD
-                  - SCMP_ACT_TRAP
-                  - SCMP_ACT_ERRNO
-                  - SCMP_ACT_TRACE
-                  - SCMP_ACT_ALLOW
-                  - SCMP_ACT_LOG
-                  - SCMP_ACT_NOTIFY
                 description: |-
                   defaultAction is the default action for seccomp. Valid values are:
                   SCMP_ACT_KILL, SCMP_ACT_KILL_PROCESS, SCMP_ACT_KILL_THREAD,
                   SCMP_ACT_TRAP, SCMP_ACT_ERRNO, SCMP_ACT_TRACE, SCMP_ACT_ALLOW,
                   SCMP_ACT_LOG, SCMP_ACT_NOTIFY.
+                enum:
+                - SCMP_ACT_KILL
+                - SCMP_ACT_KILL_PROCESS
+                - SCMP_ACT_KILL_THREAD
+                - SCMP_ACT_TRAP
+                - SCMP_ACT_ERRNO
+                - SCMP_ACT_TRACE
+                - SCMP_ACT_ALLOW
+                - SCMP_ACT_LOG
+                - SCMP_ACT_NOTIFY
                 type: string
               flags:
                 description: flags is a list of flags to use with seccomp(2).
@@ -513,32 +471,21 @@ spec:
                   description: Syscall defines a syscall in seccomp.
                   properties:
                     action:
-                      allOf:
-                      - enum:
-                        - SCMP_ACT_KILL
-                        - SCMP_ACT_KILL_PROCESS
-                        - SCMP_ACT_KILL_THREAD
-                        - SCMP_ACT_TRAP
-                        - SCMP_ACT_ERRNO
-                        - SCMP_ACT_TRACE
-                        - SCMP_ACT_ALLOW
-                        - SCMP_ACT_LOG
-                        - SCMP_ACT_NOTIFY
-                      - enum:
-                        - SCMP_ACT_KILL
-                        - SCMP_ACT_KILL_PROCESS
-                        - SCMP_ACT_KILL_THREAD
-                        - SCMP_ACT_TRAP
-                        - SCMP_ACT_ERRNO
-                        - SCMP_ACT_TRACE
-                        - SCMP_ACT_ALLOW
-                        - SCMP_ACT_LOG
-                        - SCMP_ACT_NOTIFY
                       description: |-
                         action is the action for seccomp rules. Valid values are:
                         SCMP_ACT_KILL, SCMP_ACT_KILL_PROCESS, SCMP_ACT_KILL_THREAD,
                         SCMP_ACT_TRAP, SCMP_ACT_ERRNO, SCMP_ACT_TRACE, SCMP_ACT_ALLOW,
                         SCMP_ACT_LOG, SCMP_ACT_NOTIFY.
+                      enum:
+                      - SCMP_ACT_KILL
+                      - SCMP_ACT_KILL_PROCESS
+                      - SCMP_ACT_KILL_THREAD
+                      - SCMP_ACT_TRAP
+                      - SCMP_ACT_ERRNO
+                      - SCMP_ACT_TRACE
+                      - SCMP_ACT_ALLOW
+                      - SCMP_ACT_LOG
+                      - SCMP_ACT_NOTIFY
                       type: string
                     args:
                       description: args defines the specific syscall arguments in
@@ -553,27 +500,18 @@ spec:
                             minimum: 0
                             type: integer
                           op:
-                            allOf:
-                            - enum:
-                              - SCMP_CMP_NE
-                              - SCMP_CMP_LT
-                              - SCMP_CMP_LE
-                              - SCMP_CMP_EQ
-                              - SCMP_CMP_GE
-                              - SCMP_CMP_GT
-                              - SCMP_CMP_MASKED_EQ
-                            - enum:
-                              - SCMP_CMP_NE
-                              - SCMP_CMP_LT
-                              - SCMP_CMP_LE
-                              - SCMP_CMP_EQ
-                              - SCMP_CMP_GE
-                              - SCMP_CMP_GT
-                              - SCMP_CMP_MASKED_EQ
                             description: |-
                               op is the operator for syscall arguments in seccomp. Valid values are:
                               SCMP_CMP_NE, SCMP_CMP_LT, SCMP_CMP_LE, SCMP_CMP_EQ, SCMP_CMP_GE,
                               SCMP_CMP_GT, SCMP_CMP_MASKED_EQ.
+                            enum:
+                            - SCMP_CMP_NE
+                            - SCMP_CMP_LT
+                            - SCMP_CMP_LE
+                            - SCMP_CMP_EQ
+                            - SCMP_CMP_GE
+                            - SCMP_CMP_GT
+                            - SCMP_CMP_MASKED_EQ
                             type: string
                           value:
                             description: value is the value for syscall arguments
