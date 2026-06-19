@@ -723,6 +723,7 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 
 	if ctx.Bool(insecureMetricsAccessFlag) {
 		setupLog.Info("WARNING: insecure metrics access enabled, TLS and authentication are disabled")
+
 		ctrlOpts.Metrics.SecureServing = false
 		ctrlOpts.Metrics.CertDir = ""
 		ctrlOpts.Metrics.FilterProvider = nil
