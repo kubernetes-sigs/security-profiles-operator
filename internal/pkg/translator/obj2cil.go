@@ -87,6 +87,7 @@ type deniedOptions struct {
 func deniedOptionsFromOpts(opts *Options) *deniedOptions {
 	// Global maps are cloned to avoid data race in this function is
 	// executed in parallel (e.g. in tests).
+	// Clone global maps to avoid data races when executed in parallel.
 	denied := &deniedOptions{
 		deniedTypes:       maps.Clone(deniedTypes),
 		deniedClasses:     maps.Clone(deniedClasses),

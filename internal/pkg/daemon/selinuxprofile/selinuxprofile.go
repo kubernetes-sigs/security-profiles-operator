@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
+	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/translator"
@@ -103,8 +104,15 @@ func (sph *selinuxProfileHandler) GetProfileObject() selinuxprofileapi.SelinuxPr
 }
 
 func (sph *selinuxProfileHandler) Validate() error {
+	spod, err := common.GetSPOD(context.Background(), sph.cli)
+	if err != nil {
+		return fmt.Errorf("couldn't get spod configuration: %w", err)
+	}
+
+	sph.handleSelinuxOptions(spod)
+
 	for _, inherit := range sph.sp.Spec.Inherit {
-		err := sph.validateAndTrackInherit(inherit, sph.sp.GetNamespace())
+		err := sph.validateAndTrackInherit(spod, inherit, sph.sp.GetNamespace())
 		if err != nil {
 			return err
 		}
@@ -132,13 +140,14 @@ func (sph *selinuxProfileHandler) Validate() error {
 }
 
 func (sph *selinuxProfileHandler) validateAndTrackInherit(
+	spod *spodapi.SecurityProfilesOperatorDaemon,
 	ancestorRef selinuxprofileapi.PolicyRef,
 	namespace string,
 ) error {
 	switch ancestorRef.Kind {
 	// We default to System if Kind is left empty
 	case selinuxprofileapi.SystemPolicyKind, "":
-		return sph.handleSelinuxOptions(ancestorRef)
+		return sph.handleInheritSystemPolicy(spod, ancestorRef)
 	case "SelinuxProfile":
 		return sph.handleInheritSPOPolicy(ancestorRef, namespace)
 	}
@@ -197,19 +206,18 @@ func (sph *selinuxProfileHandler) handleInheritSPOPolicy(
 }
 
 func (sph *selinuxProfileHandler) handleSelinuxOptions(
-	ancestorRef selinuxprofileapi.PolicyRef,
-) error {
-	spod, err := common.GetSPOD(context.Background(), sph.cli)
-	if err != nil {
-		return fmt.Errorf("couldn't get spod to verify system inheritance: %w", err)
-	}
+	spod *spodapi.SecurityProfilesOperatorDaemon) {
 
 	sph.deniedOpts = &translator.Options{
 		DeniedTypes:       spod.Spec.Selinux.Options.DeniedTypes,
 		DeniedClasses:     spod.Spec.Selinux.Options.DeniedClasses,
 		DeniedPermissions: spod.Spec.Selinux.Options.DeniedPermissions,
 	}
+}
 
+func (sph *selinuxProfileHandler) handleInheritSystemPolicy(
+	spod *spodapi.SecurityProfilesOperatorDaemon, ancestorRef selinuxprofileapi.PolicyRef,
+) error {
 	for idx := range spod.Spec.Selinux.Options.AllowedSystemProfiles {
 		prof := spod.Spec.Selinux.Options.AllowedSystemProfiles[idx]
 		if prof == ancestorRef.Name {
@@ -227,9 +235,7 @@ func (sph *selinuxProfileHandler) handleSelinuxOptions(
 
 func (sph *selinuxProfileHandler) GetCILPolicy() (string, error) {
 	// Note that this assumes that the client and the object
-	// have been initialized already
-	// At this point, validation has happened and no errors will happen when
-	// rendering
+	// have been initialized already.
 	return translator.Object2CIL(sph.systemInherits, sph.objInherits, sph.sp, sph.deniedOpts)
 }
 
