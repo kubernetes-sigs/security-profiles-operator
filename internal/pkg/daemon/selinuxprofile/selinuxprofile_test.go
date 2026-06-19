@@ -301,6 +301,9 @@ func Test_selinuxProfileHandler(t *testing.T) {
 			wantErrMatches: []string{
 				"didn't match expected characters: invalid label key",
 			},
+			existingObjs: []client.Object{
+				spodinstance.DeepCopy(),
+			},
 		},
 		{
 			name: "Test validate injection through object class key",
