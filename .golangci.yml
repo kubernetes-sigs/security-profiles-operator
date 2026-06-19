@@ -176,6 +176,9 @@ linters:
           - godoclint
         path: api/
       - linters:
+          - staticcheck
+        text: "SA1019: scheme.Builder is deprecated"
+      - linters:
           - kubeapilinter
         path-except: api/
     paths:

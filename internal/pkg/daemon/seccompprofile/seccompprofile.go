@@ -258,7 +258,7 @@ func (r *Reconciler) checkSeccomp() error {
 				map[string]string{os.Getenv(config.NodeNameEnvKey): "node does not support seccomp"},
 				util.EventTypeWarning,
 				reasonSeccompNotSupported,
-				err.Error())
+				"%s", err.Error())
 		}
 
 		return err
