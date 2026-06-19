@@ -753,11 +753,10 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 			"--with-mem-optim=true")
 	}
 
-	// Enable insecure metrics access if requested
 	if isInsecureMetricsEnabled(cfg) {
 		templateSpec.Containers[bindata.ContainerIDDaemon].Args = append(
 			templateSpec.Containers[bindata.ContainerIDDaemon].Args,
-			"--with-insecure-metrics=true")
+			"--with-insecure-metrics-access=true")
 	}
 
 	for i := range templateSpec.InitContainers {
