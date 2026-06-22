@@ -126,6 +126,12 @@ spec:
                   enableAppArmor tells the operator whether or not to enable AppArmor
                   support for this SPOD instance.
                 type: boolean
+              enableInsecureMetricsAccess:
+                default: false
+                description: |-
+                  enableInsecureMetricsAccess enables unauthenticated access to the metrics
+                  endpoint. This will disable TLS and authentication for the metrics endpoint.
+                type: boolean
               enableMemoryOptimization:
                 default: false
                 description: |-
@@ -1305,6 +1311,30 @@ spec:
                           type: string
                         type: array
                         x-kubernetes-list-type: set
+                      deniedClasses:
+                        description: |-
+                          deniedClasses if specified, a list of SELinux object classes which are
+                          denied in SELinux profiles.
+                        items:
+                          type: string
+                        type: array
+                        x-kubernetes-list-type: set
+                      deniedPermissions:
+                        description: |-
+                          deniedPermissions if specified, a list of SELinux permissions which are
+                          denied in SELinux profiles.
+                        items:
+                          type: string
+                        type: array
+                        x-kubernetes-list-type: set
+                      deniedTypes:
+                        description: |-
+                          deniedTypes if specified, a list of SELinux types which are
+                          denied in SELinux profiles.
+                        items:
+                          type: string
+                        type: array
+                        x-kubernetes-list-type: set
                     type: object
                   typeTag:
                     default: spc_t
@@ -1620,6 +1650,12 @@ spec:
                 description: |-
                   enableAppArmor tells the operator whether or not to enable AppArmor
                   support for this SPOD instance.
+                type: boolean
+              enableInsecureMetricsAccess:
+                default: false
+                description: |-
+                  enableInsecureMetricsAccess enables unauthenticated access to the metrics
+                  endpoint. This will disable TLS and authentication for the metrics endpoint.
                 type: boolean
               enableMemoryOptimization:
                 default: false
