@@ -618,7 +618,7 @@ func TestResolveSyscallsForProfile(t *testing.T) {
 						Spec: seccompprofileapi.SeccompProfileSpec{
 							BaseProfileName: "test",
 							Syscalls: []seccompprofileapi.Syscall{
-								{Names: []string{"second"}},
+								{Names: []string{"second"}, Action: seccompprofileapi.ActAllow},
 							},
 						},
 					}, nil,
@@ -628,7 +628,7 @@ func TestResolveSyscallsForProfile(t *testing.T) {
 					&seccompprofileapi.SeccompProfile{
 						Spec: seccompprofileapi.SeccompProfileSpec{
 							Syscalls: []seccompprofileapi.Syscall{
-								{Names: []string{"third"}},
+								{Names: []string{"third"}, Action: seccompprofileapi.ActAllow},
 							},
 						},
 					}, nil,
@@ -638,7 +638,7 @@ func TestResolveSyscallsForProfile(t *testing.T) {
 					Spec: seccompprofileapi.SeccompProfileSpec{
 						BaseProfileName: "test",
 						Syscalls: []seccompprofileapi.Syscall{
-							{Names: []string{"first"}},
+							{Names: []string{"first"}, Action: seccompprofileapi.ActAllow},
 						},
 					},
 				}
@@ -649,9 +649,9 @@ func TestResolveSyscallsForProfile(t *testing.T) {
 				require.Len(t, syscalls[0].Names, 1)
 				require.Len(t, syscalls[1].Names, 1)
 				require.Len(t, syscalls[2].Names, 1)
-				require.Equal(t, "third", syscalls[0].Names[0])
+				require.Equal(t, "first", syscalls[0].Names[0])
 				require.Equal(t, "second", syscalls[1].Names[0])
-				require.Equal(t, "first", syscalls[2].Names[0])
+				require.Equal(t, "third", syscalls[2].Names[0])
 			},
 		},
 		{
@@ -662,14 +662,14 @@ func TestResolveSyscallsForProfile(t *testing.T) {
 					Spec: seccompprofileapi.SeccompProfileSpec{
 						BaseProfileName: config.OCIProfilePrefix + "test-1",
 						Syscalls: []seccompprofileapi.Syscall{
-							{Names: []string{"second"}},
+							{Names: []string{"second"}, Action: seccompprofileapi.ActAllow},
 						},
 					},
 				})
 				mock.PullResultSeccompProfileReturnsOnCall(1, &seccompprofileapi.SeccompProfile{
 					Spec: seccompprofileapi.SeccompProfileSpec{
 						Syscalls: []seccompprofileapi.Syscall{
-							{Names: []string{"third"}},
+							{Names: []string{"third"}, Action: seccompprofileapi.ActAllow},
 						},
 					},
 				})
@@ -678,7 +678,7 @@ func TestResolveSyscallsForProfile(t *testing.T) {
 					Spec: seccompprofileapi.SeccompProfileSpec{
 						BaseProfileName: config.OCIProfilePrefix + "test-0",
 						Syscalls: []seccompprofileapi.Syscall{
-							{Names: []string{"first"}},
+							{Names: []string{"first"}, Action: seccompprofileapi.ActAllow},
 						},
 					},
 				}
@@ -689,9 +689,9 @@ func TestResolveSyscallsForProfile(t *testing.T) {
 				require.Len(t, syscalls[0].Names, 1)
 				require.Len(t, syscalls[1].Names, 1)
 				require.Len(t, syscalls[2].Names, 1)
-				require.Equal(t, "third", syscalls[0].Names[0])
+				require.Equal(t, "first", syscalls[0].Names[0])
 				require.Equal(t, "second", syscalls[1].Names[0])
-				require.Equal(t, "first", syscalls[2].Names[0])
+				require.Equal(t, "third", syscalls[2].Names[0])
 			},
 		},
 		{

@@ -17,6 +17,7 @@ limitations under the License.
 package recordingmerger
 
 import (
+	"reflect"
 	"sort"
 	"testing"
 
@@ -86,7 +87,7 @@ func TestMergeProfiles(t *testing.T) {
 							Syscalls: []seccompprofile.Syscall{
 								{
 									Names:  []string{"a", "b", "c"},
-									Action: seccompprofile.Action("foo"),
+									Action: seccompprofile.ActErrno,
 								},
 							},
 						},
@@ -101,7 +102,7 @@ func TestMergeProfiles(t *testing.T) {
 							Syscalls: []seccompprofile.Syscall{
 								{
 									Names:  []string{"c", "e", "d"},
-									Action: seccompprofile.Action("foo"),
+									Action: seccompprofile.ActErrno,
 								},
 							},
 						},
@@ -112,10 +113,20 @@ func TestMergeProfiles(t *testing.T) {
 				t.Helper()
 
 				mergedProf := ifaceAsSortedSeccompProfile(mergedProfIface)
-				require.Equal(t, mergedProf.Spec.Syscalls[0].Action, seccompprofile.Action("foo"))
-				require.Equal(t, []string{"a", "b", "c"}, mergedProf.Spec.Syscalls[0].Names)
-				require.Equal(t, mergedProf.Spec.Syscalls[1].Action, seccompprofile.Action("foo"))
-				require.Equal(t, []string{"c", "d", "e"}, mergedProf.Spec.Syscalls[1].Names)
+				require.Len(t, mergedProf.Spec.Syscalls, 5)
+
+				for _, sc := range mergedProf.Spec.Syscalls {
+					require.Equal(t, seccompprofile.ActErrno, sc.Action)
+					require.Len(t, sc.Names, 1)
+				}
+
+				allNames := make([]string, 0, 5)
+
+				for _, sc := range mergedProf.Spec.Syscalls {
+					allNames = append(allNames, sc.Names[0])
+				}
+
+				require.ElementsMatch(t, []string{"a", "b", "c", "d", "e"}, allNames)
 
 				return nil
 			},
@@ -291,4 +302,110 @@ func TestMergeProfiles(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+func TestNormalizeSeccompProfile(t *testing.T) {
+	t.Parallel()
+
+	profile := &seccompprofile.SeccompProfile{
+		Spec: seccompprofile.SeccompProfileSpec{
+			DefaultAction: seccompprofile.ActErrno,
+			Syscalls: []seccompprofile.Syscall{
+				{
+					Names:  []string{"write", "read"},
+					Action: seccompprofile.ActAllow,
+				},
+			},
+		},
+	}
+
+	require.NoError(t, NormalizeProfile(profile))
+	require.Len(t, profile.Spec.Syscalls, 2)
+
+	for _, sc := range profile.Spec.Syscalls {
+		require.Len(t, sc.Names, 1)
+	}
+
+	require.Equal(t, "read", profile.Spec.Syscalls[0].Names[0])
+	require.Equal(t, "write", profile.Spec.Syscalls[1].Names[0])
+}
+
+func TestNormalizeAppArmorProfile(t *testing.T) {
+	t.Parallel()
+
+	profile := &apparmorprofileapi.AppArmorProfile{
+		Spec: apparmorprofileapi.AppArmorProfileSpec{
+			Abstract: apparmorprofileapi.AppArmorAbstract{
+				Executable: &apparmorprofileapi.AppArmorExecutablesRules{
+					AllowedExecutables: []string{"z-exec", "a-exec"},
+					AllowedLibraries:   []string{"z-lib", "a-lib"},
+				},
+				Filesystem: &apparmorprofileapi.AppArmorFsRules{
+					ReadOnlyPaths:  []string{"/z", "/a"},
+					WriteOnlyPaths: []string{"/z", "/a"},
+					ReadWritePaths: []string{"/z", "/a"},
+				},
+				Capability: &apparmorprofileapi.AppArmorCapabilityRules{
+					AllowedCapabilities: []string{"sys_admin", "chown"},
+				},
+			},
+		},
+	}
+
+	require.NoError(t, NormalizeProfile(profile))
+
+	a := profile.Spec.Abstract
+	require.Equal(t, []string{"a-exec", "z-exec"}, a.Executable.AllowedExecutables)
+	require.Equal(t, []string{"a-lib", "z-lib"}, a.Executable.AllowedLibraries)
+	require.Equal(t, []string{"/a", "/z"}, a.Filesystem.ReadOnlyPaths)
+	require.Equal(t, []string{"/a", "/z"}, a.Filesystem.WriteOnlyPaths)
+	require.Equal(t, []string{"/a", "/z"}, a.Filesystem.ReadWritePaths)
+	require.Equal(t, []string{"chown", "sys_admin"}, a.Capability.AllowedCapabilities)
+}
+
+func TestNormalizeCheckIdempotent(t *testing.T) {
+	t.Parallel()
+
+	profile := &seccompprofile.SeccompProfile{
+		Spec: seccompprofile.SeccompProfileSpec{
+			DefaultAction: seccompprofile.ActErrno,
+			Syscalls: []seccompprofile.Syscall{
+				{Names: []string{"read"}, Action: seccompprofile.ActAllow},
+				{Names: []string{"write"}, Action: seccompprofile.ActAllow},
+			},
+		},
+	}
+
+	require.NoError(t, NormalizeProfile(profile))
+
+	base := profile.DeepCopy()
+
+	require.NoError(t, NormalizeProfile(profile))
+	require.True(t, reflect.DeepEqual(base, profile))
+}
+
+func TestNormalizeCheckMergeComparison(t *testing.T) {
+	t.Parallel()
+
+	profiles := []client.Object{
+		&seccompprofile.SeccompProfile{
+			ObjectMeta: metav1.ObjectMeta{Name: "base"},
+			Spec: seccompprofile.SeccompProfileSpec{
+				DefaultAction: seccompprofile.ActErrno,
+				Syscalls: []seccompprofile.Syscall{
+					{Names: []string{"read", "write"}, Action: seccompprofile.ActAllow},
+				},
+			},
+		},
+	}
+
+	base, ok := profiles[0].DeepCopyObject().(client.Object)
+	require.True(t, ok)
+	require.NoError(t, NormalizeProfile(base))
+
+	merged, err := MergeProfiles(profiles)
+	require.NoError(t, err)
+	require.NoError(t, NormalizeProfile(merged))
+
+	require.True(t, reflect.DeepEqual(base, merged))
 }

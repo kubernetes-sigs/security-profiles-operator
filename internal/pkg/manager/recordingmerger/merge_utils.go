@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -143,6 +144,51 @@ func MergeProfiles(
 	}
 
 	return merged.getProfile(), nil
+}
+
+// NormalizeProfile normalizes a profile's internal representation to match
+// the format produced by the merger library. For SeccompProfiles, this
+// converts multi-name syscall entries to single-name-per-entry format.
+// For AppArmorProfiles, string slices are sorted alphabetically.
+func NormalizeProfile(obj client.Object) error {
+	switch p := obj.(type) {
+	case *seccompprofile.SeccompProfile:
+		return normalizeSeccompProfile(p)
+	case *apparmorprofileapi.AppArmorProfile:
+		normalizeAppArmorProfile(p)
+	}
+
+	return nil
+}
+
+func normalizeSeccompProfile(sp *seccompprofile.SeccompProfile) error {
+	normalized, err := util.UnionSyscalls(sp.Spec.Syscalls, nil)
+	if err != nil {
+		return fmt.Errorf("normalize syscalls: %w", err)
+	}
+
+	sp.Spec.Syscalls = normalized
+
+	return nil
+}
+
+func normalizeAppArmorProfile(ap *apparmorprofileapi.AppArmorProfile) {
+	a := &ap.Spec.Abstract
+
+	if a.Executable != nil {
+		slices.Sort(a.Executable.AllowedExecutables)
+		slices.Sort(a.Executable.AllowedLibraries)
+	}
+
+	if a.Filesystem != nil {
+		slices.Sort(a.Filesystem.ReadOnlyPaths)
+		slices.Sort(a.Filesystem.WriteOnlyPaths)
+		slices.Sort(a.Filesystem.ReadWritePaths)
+	}
+
+	if a.Capability != nil {
+		slices.Sort(a.Capability.AllowedCapabilities)
+	}
 }
 
 func getContainerID(prf client.Object) string {

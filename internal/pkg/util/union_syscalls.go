@@ -17,33 +17,15 @@ limitations under the License.
 package util
 
 import (
-	"fmt"
-	"sort"
-
-	"dario.cat/mergo"
+	"github.com/saschagrunert/security-profiles-merger/seccomp"
 
 	seccompprofile "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 )
 
 func UnionSyscalls(syscalls, appliedSyscalls []seccompprofile.Syscall) ([]seccompprofile.Syscall, error) {
-	if err := mergo.Merge(
-		&syscalls,
-		appliedSyscalls,
-		mergo.WithAppendSlice,
-		mergo.WithSliceDeepCopy,
-		mergo.WithOverrideEmptySlice,
-		mergo.WithOverwriteWithEmptyValue,
-	); err != nil {
-		return nil, fmt.Errorf("merge syscalls: %w", err)
-	}
+	left := syscallsToOCI(syscalls)
+	right := syscallsToOCI(appliedSyscalls)
+	merged := seccomp.UnionSyscalls(left, right)
 
-	for _, syscall := range syscalls {
-		sort.Strings(syscall.Names)
-	}
-
-	sort.Slice(syscalls, func(i, j int) bool {
-		return syscalls[i].Action < syscalls[j].Action
-	})
-
-	return syscalls, nil
+	return syscallsFromOCI(merged), nil
 }

@@ -161,9 +161,6 @@ cyphar.com/go-pathrs
 cyphar.com/go-pathrs/internal/fdutils
 cyphar.com/go-pathrs/internal/libpathrs
 cyphar.com/go-pathrs/procfs
-# dario.cat/mergo v1.0.2
-## explicit; go 1.13
-dario.cat/mergo
 # github.com/AliyunContainerService/ack-ram-tool/pkg/credentials/provider v0.20.0
 ## explicit; go 1.16
 github.com/AliyunContainerService/ack-ram-tool/pkg/credentials/provider
@@ -1179,6 +1176,11 @@ github.com/russross/blackfriday/v2
 ## explicit; go 1.23.0
 github.com/sagikazarmark/locafero
 github.com/sagikazarmark/locafero/internal/queue
+# github.com/saschagrunert/security-profiles-merger v0.2.1
+## explicit; go 1.25.0
+github.com/saschagrunert/security-profiles-merger/apparmor
+github.com/saschagrunert/security-profiles-merger/internal/merge
+github.com/saschagrunert/security-profiles-merger/seccomp
 # github.com/sassoftware/relic v7.2.1+incompatible
 ## explicit
 github.com/sassoftware/relic/lib/pkcs7
