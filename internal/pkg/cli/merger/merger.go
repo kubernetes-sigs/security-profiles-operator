@@ -64,11 +64,22 @@ func (p *Merger) Run() error {
 		}
 	}
 
-	baseProfile := contents[0].DeepCopyObject()
+	baseProfile, ok := contents[0].DeepCopyObject().(client.Object)
+	if !ok {
+		return fmt.Errorf("base profile %T is not a client.Object", contents[0])
+	}
+
+	if err := recordingmerger.NormalizeProfile(baseProfile); err != nil {
+		return fmt.Errorf("normalize base profile: %w", err)
+	}
 
 	merged, err := recordingmerger.MergeProfiles(contents)
 	if err != nil {
 		return fmt.Errorf("merge profiles: %w", err)
+	}
+
+	if err := recordingmerger.NormalizeProfile(merged); err != nil {
+		return fmt.Errorf("normalize merged profile: %w", err)
 	}
 
 	printer := printers.YAMLPrinter{}

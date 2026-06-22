@@ -46,14 +46,13 @@ func TestUnionSyscalls(t *testing.T) {
 			appliedSyscalls: []seccompprofileapi.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
-					Action: seccompprofileapi.Action("foo"),
+					Action: seccompprofileapi.ActAllow,
 				},
 			},
 			want: []seccompprofileapi.Syscall{
-				{
-					Names:  []string{"a", "b", "c"},
-					Action: seccompprofileapi.Action("foo"),
-				},
+				{Names: []string{"a"}, Action: seccompprofileapi.ActAllow},
+				{Names: []string{"b"}, Action: seccompprofileapi.ActAllow},
+				{Names: []string{"c"}, Action: seccompprofileapi.ActAllow},
 			},
 		},
 		{
@@ -61,15 +60,14 @@ func TestUnionSyscalls(t *testing.T) {
 			baseSyscalls: []seccompprofileapi.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
-					Action: seccompprofileapi.Action("foo"),
+					Action: seccompprofileapi.ActAllow,
 				},
 			},
 			appliedSyscalls: []seccompprofileapi.Syscall{},
 			want: []seccompprofileapi.Syscall{
-				{
-					Names:  []string{"a", "b", "c"},
-					Action: seccompprofileapi.Action("foo"),
-				},
+				{Names: []string{"a"}, Action: seccompprofileapi.ActAllow},
+				{Names: []string{"b"}, Action: seccompprofileapi.ActAllow},
+				{Names: []string{"c"}, Action: seccompprofileapi.ActAllow},
 			},
 		},
 		{
@@ -77,119 +75,117 @@ func TestUnionSyscalls(t *testing.T) {
 			baseSyscalls: []seccompprofileapi.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
-					Action: seccompprofileapi.Action("foo"),
+					Action: seccompprofileapi.ActAllow,
 					Args:   []seccompprofileapi.Arg{{Index: ptr.To[int32](1), Value: 2}},
 				},
 			},
 			appliedSyscalls: []seccompprofileapi.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
-					Action: seccompprofileapi.Action("foo"),
+					Action: seccompprofileapi.ActAllow,
 					Args:   []seccompprofileapi.Arg{{Index: ptr.To[int32](2), Value: 3}},
 				},
 			},
 			want: []seccompprofileapi.Syscall{
 				{
-					Names:  []string{"a", "b", "c"},
-					Action: seccompprofileapi.Action("foo"),
-					Args:   []seccompprofileapi.Arg{{Index: ptr.To[int32](1), Value: 2}},
+					Names:  []string{"a"},
+					Action: seccompprofileapi.ActAllow,
+					Args: []seccompprofileapi.Arg{
+						{Index: ptr.To[int32](1), Value: 2},
+						{Index: ptr.To[int32](2), Value: 3},
+					},
 				},
 				{
-					Names:  []string{"a", "b", "c"},
-					Action: seccompprofileapi.Action("foo"),
-					Args:   []seccompprofileapi.Arg{{Index: ptr.To[int32](2), Value: 3}},
+					Names:  []string{"b"},
+					Action: seccompprofileapi.ActAllow,
+					Args: []seccompprofileapi.Arg{
+						{Index: ptr.To[int32](1), Value: 2},
+						{Index: ptr.To[int32](2), Value: 3},
+					},
+				},
+				{
+					Names:  []string{"c"},
+					Action: seccompprofileapi.ActAllow,
+					Args: []seccompprofileapi.Arg{
+						{Index: ptr.To[int32](1), Value: 2},
+						{Index: ptr.To[int32](2), Value: 3},
+					},
 				},
 			},
 		},
 		{
-			name: "UniqueActions",
+			name: "DifferentActionsPicksLessRestrictive",
 			baseSyscalls: []seccompprofileapi.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
-					Action: seccompprofileapi.Action("foo"),
+					Action: seccompprofileapi.ActAllow,
 				},
 			},
 			appliedSyscalls: []seccompprofileapi.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
-					Action: seccompprofileapi.Action("bar"),
+					Action: seccompprofileapi.ActLog,
 				},
 			},
 			want: []seccompprofileapi.Syscall{
-				{
-					Names:  []string{"a", "b", "c"},
-					Action: seccompprofileapi.Action("bar"),
-				},
-				{
-					Names:  []string{"a", "b", "c"},
-					Action: seccompprofileapi.Action("foo"),
-				},
+				{Names: []string{"a"}, Action: seccompprofileapi.ActAllow},
+				{Names: []string{"b"}, Action: seccompprofileapi.ActAllow},
+				{Names: []string{"c"}, Action: seccompprofileapi.ActAllow},
 			},
 		},
 		{
-			name: "OverlappingActionsWithUniqueNames",
+			name: "SameActionUniqueNames",
 			baseSyscalls: []seccompprofileapi.Syscall{
 				{
 					Names:  []string{"a", "c", "b"},
-					Action: seccompprofileapi.Action("foo"),
+					Action: seccompprofileapi.ActAllow,
 				},
 			},
 			appliedSyscalls: []seccompprofileapi.Syscall{
 				{
 					Names:  []string{"d", "f", "e"},
-					Action: seccompprofileapi.Action("foo"),
+					Action: seccompprofileapi.ActAllow,
 				},
 			},
 			want: []seccompprofileapi.Syscall{
-				{
-					Names:  []string{"a", "b", "c"},
-					Action: seccompprofileapi.Action("foo"),
-				},
-				{
-					Names:  []string{"d", "e", "f"},
-					Action: seccompprofileapi.Action("foo"),
-				},
+				{Names: []string{"a"}, Action: seccompprofileapi.ActAllow},
+				{Names: []string{"b"}, Action: seccompprofileapi.ActAllow},
+				{Names: []string{"c"}, Action: seccompprofileapi.ActAllow},
+				{Names: []string{"d"}, Action: seccompprofileapi.ActAllow},
+				{Names: []string{"e"}, Action: seccompprofileapi.ActAllow},
+				{Names: []string{"f"}, Action: seccompprofileapi.ActAllow},
 			},
 		},
 		{
-			name: "OverlappingActionsWithOverlappingNames",
+			name: "OverlappingNamesDeduplicatedAndNormalized",
 			baseSyscalls: []seccompprofileapi.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
-					Action: seccompprofileapi.Action("foo"),
+					Action: seccompprofileapi.ActAllow,
 				},
 				{
 					Names:  []string{"x", "y", "z"},
-					Action: seccompprofileapi.Action("bar"),
+					Action: seccompprofileapi.ActLog,
 				},
 			},
 			appliedSyscalls: []seccompprofileapi.Syscall{
 				{
 					Names:  []string{"b", "c", "d"},
-					Action: seccompprofileapi.Action("foo"),
+					Action: seccompprofileapi.ActAllow,
 				},
 				{
 					Names:  []string{"x", "y", "z"},
-					Action: seccompprofileapi.Action("bar"),
+					Action: seccompprofileapi.ActLog,
 				},
 			},
 			want: []seccompprofileapi.Syscall{
-				{
-					Names:  []string{"x", "y", "z"},
-					Action: seccompprofileapi.Action("bar"),
-				},
-				{
-					Names:  []string{"x", "y", "z"},
-					Action: seccompprofileapi.Action("bar"),
-				},
-				{
-					Names:  []string{"a", "b", "c"},
-					Action: seccompprofileapi.Action("foo"),
-				},
-				{
-					Names:  []string{"b", "c", "d"},
-					Action: seccompprofileapi.Action("foo"),
-				},
+				{Names: []string{"a"}, Action: seccompprofileapi.ActAllow},
+				{Names: []string{"b"}, Action: seccompprofileapi.ActAllow},
+				{Names: []string{"c"}, Action: seccompprofileapi.ActAllow},
+				{Names: []string{"d"}, Action: seccompprofileapi.ActAllow},
+				{Names: []string{"x"}, Action: seccompprofileapi.ActLog},
+				{Names: []string{"y"}, Action: seccompprofileapi.ActLog},
+				{Names: []string{"z"}, Action: seccompprofileapi.ActLog},
 			},
 		},
 	}

@@ -57,10 +57,10 @@ spec:
   syscalls:
   - action: SCMP_ACT_ALLOW
     names:
-    - foo
+    - bar
   - action: SCMP_ACT_ALLOW
     names:
-    - bar
+    - foo
 status: {}
 `
 

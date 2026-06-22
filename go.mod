@@ -3,7 +3,6 @@ module sigs.k8s.io/security-profiles-operator
 go 1.26.0
 
 require (
-	dario.cat/mergo v1.0.2
 	github.com/acobaugh/osrelease v0.1.0
 	github.com/aquasecurity/libbpfgo v0.10.0-libbpf-1.5.1
 	github.com/blang/semver/v4 v4.0.0
@@ -26,6 +25,7 @@ require (
 	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.92.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/client_model v0.6.2
+	github.com/saschagrunert/security-profiles-merger v0.2.1
 	github.com/seccomp/libseccomp-golang v0.11.1
 	github.com/sigstore/cosign/v2 v2.6.3
 	github.com/stretchr/testify v1.11.1
