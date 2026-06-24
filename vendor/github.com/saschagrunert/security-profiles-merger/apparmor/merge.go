@@ -19,6 +19,7 @@ package apparmor
 
 import (
 	"fmt"
+	"path/filepath"
 	"slices"
 
 	"github.com/saschagrunert/security-profiles-merger/internal/merge"
@@ -62,13 +63,29 @@ type strategy interface {
 
 func foldProfiles(profiles []*Profile, mergeOp strategy) (*Profile, error) {
 	for _, profile := range profiles {
+		if profile == nil {
+			return nil, fmt.Errorf("validate: %w", ErrNilProfile)
+		}
+
+		err := validateEmptyPathsInProfile(profile)
+		if err != nil {
+			return nil, fmt.Errorf("validate: %w", err)
+		}
+	}
+
+	normalized := make([]*Profile, len(profiles))
+	for idx, profile := range profiles {
+		normalized[idx] = normalizeProfile(profile)
+	}
+
+	for _, profile := range normalized {
 		err := Validate(profile)
 		if err != nil {
 			return nil, fmt.Errorf("validate: %w", err)
 		}
 	}
 
-	result, err := merge.Fold(profiles, cloneProfile, func(a, b *Profile) *Profile {
+	result, err := merge.Fold(normalized, cloneProfile, func(a, b *Profile) *Profile {
 		return mergeTwo(a, b, mergeOp)
 	})
 	if err != nil {
@@ -316,10 +333,14 @@ func addReadWritePaths(
 			continue
 		}
 
-		if pat := readSet.popInteracting(path); pat != nil {
-			rwSet.add(*pat)
-		} else if pat := writeSet.popInteracting(path); pat != nil {
-			rwSet.add(*pat)
+		if pats := readSet.popInteracting(path); len(pats) > 0 {
+			for _, pat := range pats {
+				rwSet.add(pat)
+			}
+		} else if pats := writeSet.popInteracting(path); len(pats) > 0 {
+			for _, pat := range pats {
+				rwSet.add(pat)
+			}
 		} else {
 			rwSet.add(path)
 		}
@@ -335,8 +356,10 @@ func addReadOnlyPaths(
 			continue
 		}
 
-		if pat := writeSet.popInteracting(path); pat != nil {
-			rwSet.add(*pat)
+		if pats := writeSet.popInteracting(path); len(pats) > 0 {
+			for _, pat := range pats {
+				rwSet.add(pat)
+			}
 		} else {
 			readSet.add(path)
 		}
@@ -352,8 +375,10 @@ func addWriteOnlyPaths(
 			continue
 		}
 
-		if pat := readSet.popInteracting(path); pat != nil {
-			rwSet.add(*pat)
+		if pats := readSet.popInteracting(path); len(pats) > 0 {
+			for _, pat := range pats {
+				rwSet.add(pat)
+			}
 		} else if !writeSet.matches(path) {
 			writeSet.add(path)
 		}
@@ -503,4 +528,29 @@ func cloneCapabilities(caps *CapabilityRules) *CapabilityRules {
 	return &CapabilityRules{
 		AllowedCapabilities: slices.Clone(caps.AllowedCapabilities),
 	}
+}
+
+func normalizeProfile(profile *Profile) *Profile {
+	result := cloneProfile(profile)
+
+	if result.Executable != nil {
+		result.Executable.AllowedExecutables = normalizePaths(result.Executable.AllowedExecutables)
+		result.Executable.AllowedLibraries = normalizePaths(result.Executable.AllowedLibraries)
+	}
+
+	if result.Filesystem != nil {
+		result.Filesystem.ReadOnlyPaths = normalizePaths(result.Filesystem.ReadOnlyPaths)
+		result.Filesystem.WriteOnlyPaths = normalizePaths(result.Filesystem.WriteOnlyPaths)
+		result.Filesystem.ReadWritePaths = normalizePaths(result.Filesystem.ReadWritePaths)
+	}
+
+	return result
+}
+
+func normalizePaths(paths []string) []string {
+	for idx, p := range paths {
+		paths[idx] = filepath.Clean(p)
+	}
+
+	return paths
 }

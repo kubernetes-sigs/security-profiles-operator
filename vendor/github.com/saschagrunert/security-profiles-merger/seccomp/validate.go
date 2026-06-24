@@ -29,6 +29,9 @@ var (
 	ErrUnknownAction = errors.New("unknown seccomp action")
 	// ErrEmptySyscallNames is returned when a syscall entry has no names.
 	ErrEmptySyscallNames = errors.New("syscall entry has no names")
+	// ErrDuplicateSyscallName is returned when the same syscall name
+	// appears in more than one syscall entry.
+	ErrDuplicateSyscallName = errors.New("duplicate syscall name")
 )
 
 // Validate checks that a seccomp profile contains only known actions.
@@ -61,6 +64,42 @@ func Validate(profile *specs.LinuxSeccomp) error {
 		)
 		if err != nil {
 			errs = append(errs, err)
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
+// ValidateStrict performs all checks from Validate and additionally detects
+// duplicate syscall names across entries. The OCI runtime-spec allows the
+// same syscall to appear in multiple entries (for example with different
+// argument filters), so the merge path uses Validate which permits this.
+// ValidateStrict is intended for user-authored profiles where duplicates
+// are likely mistakes.
+func ValidateStrict(profile *specs.LinuxSeccomp) error {
+	err := Validate(profile)
+	if err != nil {
+		return err
+	}
+
+	return validateDuplicateSyscallNames(profile.Syscalls)
+}
+
+func validateDuplicateSyscallNames(syscalls []specs.LinuxSyscall) error {
+	seen := make(map[string]int)
+
+	var errs []error
+
+	for idx, sc := range syscalls {
+		for _, name := range sc.Names {
+			if prev, ok := seen[name]; ok {
+				errs = append(errs, fmt.Errorf(
+					"syscall %q in entries %d and %d: %w",
+					name, prev, idx, ErrDuplicateSyscallName,
+				))
+			} else {
+				seen[name] = idx
+			}
 		}
 	}
 

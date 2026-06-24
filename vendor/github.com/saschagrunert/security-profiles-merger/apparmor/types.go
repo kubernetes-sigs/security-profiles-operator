@@ -29,7 +29,7 @@ type Profile struct {
 	Executable   *ExecutableRules `json:"executable,omitempty"`
 	Filesystem   *FilesystemRules `json:"filesystem,omitempty"`
 	Network      *NetworkRules    `json:"network,omitempty"`
-	Capabilities *CapabilityRules `json:"capabilities,omitempty"`
+	Capabilities *CapabilityRules `json:"capability,omitempty"`
 }
 
 // ExecutableRules defines which executables and libraries may be run.
@@ -48,13 +48,13 @@ type FilesystemRules struct {
 // NetworkRules defines network access permissions.
 type NetworkRules struct {
 	AllowRaw  *bool             `json:"allowRaw,omitempty"`
-	Protocols *AllowedProtocols `json:"protocols,omitempty"`
+	Protocols *AllowedProtocols `json:"allowedProtocols,omitempty"`
 }
 
 // AllowedProtocols defines which network protocols are permitted.
 type AllowedProtocols struct {
-	AllowTCP *bool `json:"allowTCP,omitempty"`
-	AllowUDP *bool `json:"allowUDP,omitempty"`
+	AllowTCP *bool `json:"allowTcp,omitempty"` //nolint:tagliatelle // matches SPO CRD
+	AllowUDP *bool `json:"allowUdp,omitempty"` //nolint:tagliatelle // matches SPO CRD
 }
 
 // CapabilityRules defines which Linux capabilities are permitted.

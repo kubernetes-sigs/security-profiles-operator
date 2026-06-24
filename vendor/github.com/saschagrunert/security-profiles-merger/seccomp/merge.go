@@ -49,6 +49,9 @@ var (
 // need precise architecture intersection should populate the native
 // architecture explicitly before merging.
 //
+// An empty Flags list is likewise treated as "unspecified" and defers to the
+// other profile, consistent with the architecture handling.
+//
 // This implements the profile merging semantics defined in KEP-6061 for CRI
 // runtimes merging OCI-pulled profiles with node baselines.
 func Intersect(profiles ...*specs.LinuxSeccomp) (*specs.LinuxSeccomp, error) {
@@ -124,13 +127,25 @@ func mergeTwo(
 
 	if strategy.isIntersect {
 		merged.Architectures = intersectArchitectures(left.Architectures, right.Architectures)
-		merged.Flags = merge.IntersectSlice(left.Flags, right.Flags)
+		merged.Flags = intersectFlags(left.Flags, right.Flags)
 	} else {
 		merged.Architectures = merge.UnionSlice(left.Architectures, right.Architectures)
 		merged.Flags = merge.UnionSlice(left.Flags, right.Flags)
 	}
 
 	return merged
+}
+
+func intersectFlags(left, right []specs.LinuxSeccompFlag) []specs.LinuxSeccompFlag {
+	if len(left) == 0 {
+		return slices.Clone(right)
+	}
+
+	if len(right) == 0 {
+		return slices.Clone(left)
+	}
+
+	return merge.IntersectSlice(left, right)
 }
 
 func intersectArchitectures(left, right []specs.Arch) []specs.Arch {
@@ -150,6 +165,10 @@ func intersectArchitectures(left, right []specs.Arch) []specs.Arch {
 // on bare syscall slices without a profile-level DefaultAction, so no entries
 // are elided. Multi-name entries are normalized to one-name-per-entry and the
 // result is sorted by name.
+//
+// This function does not validate its inputs. Callers should ensure that
+// actions are known and that every entry has at least one name, or call
+// Validate on the enclosing profile first.
 func UnionSyscalls(left, right []specs.LinuxSyscall) []specs.LinuxSyscall {
 	strategy := mergeStrategy{pick: LessRestrictive, isIntersect: false}
 	leftMap := normalizeSyscallList(left, strategy)
@@ -184,6 +203,10 @@ func UnionSyscalls(left, right []specs.LinuxSyscall) []specs.LinuxSyscall {
 // function operates on bare syscall slices without a profile-level
 // DefaultAction. Multi-name entries are normalized to one-name-per-entry and
 // the result is sorted by name.
+//
+// This function does not validate its inputs. Callers should ensure that
+// actions are known and that every entry has at least one name, or call
+// Validate on the enclosing profile first.
 func IntersectSyscalls(left, right []specs.LinuxSyscall) []specs.LinuxSyscall {
 	strategy := mergeStrategy{pick: MoreRestrictive, isIntersect: true}
 	leftMap := normalizeSyscallList(left, strategy)
@@ -306,11 +329,9 @@ func mergeSyscallEntry(
 		return mergeMatchedSyscall(leftEntry, rightEntry, mergedDefault, strategy)
 	case leftEntry != nil:
 		return mergeUnmatchedSyscall(leftEntry, rightDefault, mergedDefault, pick)
-	case rightEntry != nil:
+	default:
 		return mergeUnmatchedSyscall(rightEntry, leftDefault, mergedDefault, pick)
 	}
-
-	return nil
 }
 
 func mergeMatchedSyscall(
@@ -319,7 +340,7 @@ func mergeMatchedSyscall(
 	strategy mergeStrategy,
 ) *specs.LinuxSyscall {
 	merged := pickSyscall(left, right, strategy)
-	if merged.Action != mergedDefault || len(merged.Args) > 0 {
+	if !actionsEquivalent(merged.Action, mergedDefault) || len(merged.Args) > 0 {
 		return merged
 	}
 
@@ -332,12 +353,15 @@ func mergeUnmatchedSyscall(
 	pick func(first, second specs.LinuxSeccompAction) specs.LinuxSeccompAction,
 ) *specs.LinuxSyscall {
 	effective := pick(entry.Action, otherDefault)
-	if effective != mergedDefault || len(entry.Args) > 0 {
+	if !actionsEquivalent(effective, mergedDefault) || len(entry.Args) > 0 {
 		// When the picked action came from the other side's default,
 		// clear ErrnoRet because the default action's ErrnoRet is
 		// already captured in the profile-level DefaultErrnoRet.
+		// Safe to use actionsEquivalent here: pick() returns entry.Action
+		// when levels tie, and the only same-level pair (ActKill/ActKillThread)
+		// ignores ErrnoRet.
 		var errnoRet *uint
-		if effective == entry.Action {
+		if actionsEquivalent(effective, entry.Action) {
 			errnoRet = copyErrnoRet(entry.ErrnoRet)
 		}
 
@@ -364,6 +388,7 @@ func pickSyscall(
 		Action: pickedAction,
 	}
 
+	// Uses == (not actionsEquivalent) to check which literal input pick returned.
 	if pickedAction == left.Action {
 		result.ErrnoRet = copyErrnoRet(left.ErrnoRet)
 	} else {
@@ -504,15 +529,15 @@ func mergeErrnoRet(
 	leftAction, rightAction specs.LinuxSeccompAction,
 	pick func(first, second specs.LinuxSeccompAction) specs.LinuxSeccompAction,
 ) *uint {
-	// When both actions are equal, leftmost wins unconditionally,
+	// When both actions are equivalent, leftmost wins unconditionally,
 	// even if left's ErrnoRet is nil (meaning "no errno override").
-	if leftAction == rightAction {
+	if actionsEquivalent(leftAction, rightAction) {
 		return copyErrnoRet(leftRet)
 	}
 
 	picked := pick(leftAction, rightAction)
 
-	if picked == leftAction {
+	if actionsEquivalent(picked, leftAction) {
 		return copyErrnoRet(leftRet)
 	}
 
