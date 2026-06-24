@@ -198,6 +198,7 @@ type SPODSelinuxConfig struct {
 	TypeTag string `json:"typeTag,omitempty"`
 	// options defines options specific to the SELinux functionality.
 	// +optional
+	// +default={}
 	Options SelinuxOptions `json:"options,omitzero,omitempty"`
 }
 
