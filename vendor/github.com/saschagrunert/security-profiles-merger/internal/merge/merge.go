@@ -67,7 +67,7 @@ func IntersectSlice[T comparable](left, right []T) []T {
 	switch {
 	case len(left) == 0 || len(right) == 0:
 		return nil
-	case len(right) <= smallSliceThreshold:
+	case len(left)+len(right) <= smallSliceThreshold:
 		return intersectSliceSmall(left, right)
 	default:
 		return intersectSliceLarge(left, right)

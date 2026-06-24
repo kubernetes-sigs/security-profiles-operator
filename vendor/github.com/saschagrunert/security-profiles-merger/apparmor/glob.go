@@ -22,13 +22,13 @@ import (
 	"strings"
 )
 
-var globTokenRe = regexp.MustCompile(`\*\*?|\?|\{[^}]+\}`)
+var (
+	// globTokenRe matches AppArmor glob tokens: **, *, ?, and {alt1,alt2,...}.
+	globTokenRe = regexp.MustCompile(`\*\*?|\?|\{[^}]+\}`)
 
-// globToRegex converts an AppArmor glob pattern to a Go regular expression.
-// Falls back to a never-matching regex on compilation failure, which cannot
-// occur in practice because all literal segments are escaped and glob tokens
-// map to fixed regex fragments.
-var neverMatchRe = regexp.MustCompile(`^(?:$.)$`)
+	// neverMatchRe is a fallback regex that matches nothing.
+	neverMatchRe = regexp.MustCompile(`^(?:$.)$`)
+)
 
 const (
 	maxGlobPatternLen   = 4096
@@ -81,12 +81,12 @@ func globToRegex(pattern string) *regexp.Regexp {
 	builder.WriteString(regexp.QuoteMeta(pattern[lastEnd:]))
 	builder.WriteString("$")
 
-	re, err := regexp.Compile(builder.String())
+	compiled, err := regexp.Compile(builder.String())
 	if err != nil {
 		return neverMatchRe
 	}
 
-	return re
+	return compiled
 }
 
 type apparmorPath struct {
@@ -146,31 +146,36 @@ func (set *pathSet) removeAt(idx int) {
 // popInteracting removes all entries that interact with path.
 // It checks both directions: existing patterns matching the incoming path
 // (forward), and the incoming path matching existing non-glob entries
-// (reverse). Returns the broader of the two patterns for promotion.
-func (set *pathSet) popInteracting(path string) *string {
+// (reverse). Returns all removed patterns so callers can promote each one.
+func (set *pathSet) popInteracting(path string) []string {
 	for idx, entry := range set.paths {
 		if entry.pattern == path {
-			ret := entry.pattern
-
 			set.removeAt(idx)
 
-			return &ret
+			return []string{entry.pattern}
 		}
 	}
 
-	for idx, entry := range set.paths {
+	var matches []string
+
+	set.paths = slices.DeleteFunc(set.paths, func(entry apparmorPath) bool {
 		if entry.expr.MatchString(path) {
-			ret := entry.pattern
+			delete(set.literals, entry.pattern)
 
-			set.removeAt(idx)
+			matches = append(matches, entry.pattern)
 
-			return &ret
+			return true
 		}
+
+		return false
+	})
+
+	if len(matches) > 0 {
+		return matches
 	}
 
 	if globTokenRe.MatchString(path) {
 		expr := globToRegex(path)
-		found := false
 
 		set.paths = slices.DeleteFunc(set.paths, func(existing apparmorPath) bool {
 			matched := !globTokenRe.MatchString(existing.pattern) &&
@@ -178,16 +183,14 @@ func (set *pathSet) popInteracting(path string) *string {
 			if matched {
 				delete(set.literals, existing.pattern)
 
-				found = true
+				matches = append(matches, existing.pattern)
 			}
 
 			return matched
 		})
 
-		if found {
-			ret := path
-
-			return &ret
+		if len(matches) > 0 {
+			return append(matches, path)
 		}
 	}
 

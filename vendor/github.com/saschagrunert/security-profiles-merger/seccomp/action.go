@@ -24,8 +24,8 @@ const (
 	levelKillThread
 	levelTrap
 	levelErrno
-	levelTrace
 	levelNotify
+	levelTrace
 	levelLog
 	levelAllow
 )
@@ -56,6 +56,10 @@ func LessRestrictive(first, second specs.LinuxSeccompAction) specs.LinuxSeccompA
 	}
 
 	return second
+}
+
+func actionsEquivalent(a, b specs.LinuxSeccompAction) bool {
+	return restrictiveness(a) == restrictiveness(b)
 }
 
 func restrictiveness(action specs.LinuxSeccompAction) int {
