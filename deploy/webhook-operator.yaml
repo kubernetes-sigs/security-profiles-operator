@@ -3364,6 +3364,7 @@ spec:
                       controller will not be started. Defaults to true when SELinux is enabled.
                     type: boolean
                   options:
+                    default: {}
                     description: options defines options specific to the SELinux functionality.
                     properties:
                       allowedSystemProfiles:
