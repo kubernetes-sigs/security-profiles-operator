@@ -35,7 +35,7 @@ var (
 func Fold[T any](
 	profiles []*T,
 	clone func(*T) *T,
-	merge func(*T, *T) *T,
+	mergeFn func(*T, *T) (*T, error),
 ) (*T, error) {
 	if len(profiles) == 0 {
 		return nil, ErrNoProfiles
@@ -51,10 +51,16 @@ func Fold[T any](
 		return clone(profiles[0]), nil
 	}
 
-	result := merge(profiles[0], profiles[1])
+	result, err := mergeFn(profiles[0], profiles[1])
+	if err != nil {
+		return nil, err
+	}
 
 	for idx := 2; idx < len(profiles); idx++ {
-		result = merge(result, profiles[idx])
+		result, err = mergeFn(result, profiles[idx])
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return result, nil
