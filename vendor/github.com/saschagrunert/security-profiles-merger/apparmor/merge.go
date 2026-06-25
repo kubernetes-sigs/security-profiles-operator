@@ -63,10 +63,6 @@ type strategy interface {
 
 func foldProfiles(profiles []*Profile, mergeOp strategy) (*Profile, error) {
 	for _, profile := range profiles {
-		if profile == nil {
-			return nil, fmt.Errorf("validate: %w", ErrNilProfile)
-		}
-
 		err := validateEmptyPathsInProfile(profile)
 		if err != nil {
 			return nil, fmt.Errorf("validate: %w", err)
@@ -85,8 +81,8 @@ func foldProfiles(profiles []*Profile, mergeOp strategy) (*Profile, error) {
 		}
 	}
 
-	result, err := merge.Fold(normalized, cloneProfile, func(a, b *Profile) *Profile {
-		return mergeTwo(a, b, mergeOp)
+	result, err := merge.Fold(normalized, cloneProfile, func(a, b *Profile) (*Profile, error) {
+		return mergeTwo(a, b, mergeOp), nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("fold: %w", err)
@@ -247,11 +243,53 @@ func (intersectStrategy) mergeFilesystem(left, right *FilesystemRules) *Filesyst
 	leftPerms := expandFsPerms(left)
 	rightPerms := expandFsPerms(right)
 
+	merged := make(map[string]fsPermission)
+
+	// Literal-vs-literal intersection via map lookup: O(n+m).
+	for path, leftPerm := range leftPerms {
+		if globTokenRe.MatchString(path) {
+			continue
+		}
+
+		if rightPerm, ok := rightPerms[path]; ok {
+			intersected := leftPerm.intersect(rightPerm)
+			if intersected.read || intersected.write {
+				merged[path] = intersected
+			}
+		}
+	}
+
+	// Glob entries need pairwise matching against all entries on the other side.
 	leftEntries := buildFsEntries(leftPerms)
 	rightEntries := buildFsEntries(rightPerms)
 
-	merged := make(map[string]fsPermission)
+	leftGlobs, leftLiterals := splitGlobEntries(leftEntries)
+	rightGlobs, _ := splitGlobEntries(rightEntries)
 
+	// Glob-vs-literal, glob-vs-glob, and literal-vs-glob.
+	matchFsEntries(leftGlobs, rightEntries, merged)
+	matchFsEntries(leftLiterals, rightGlobs, merged)
+
+	return collapseFsPerms(merged)
+}
+
+//nolint:nonamedreturns // names required to distinguish two same-typed returns
+func splitGlobEntries(entries []fsPathEntry) (globs, literals []fsPathEntry) {
+	for _, entry := range entries {
+		if globTokenRe.MatchString(entry.path) {
+			globs = append(globs, entry)
+		} else {
+			literals = append(literals, entry)
+		}
+	}
+
+	return globs, literals
+}
+
+func matchFsEntries(
+	leftEntries, rightEntries []fsPathEntry,
+	merged map[string]fsPermission,
+) {
 	for _, leftEntry := range leftEntries {
 		for _, rightEntry := range rightEntries {
 			key := matchIntersectPaths(leftEntry, rightEntry)
@@ -271,8 +309,6 @@ func (intersectStrategy) mergeFilesystem(left, right *FilesystemRules) *Filesyst
 			}
 		}
 	}
-
-	return collapseFsPerms(merged)
 }
 
 // unionStrategy implements union (OR) semantics.
@@ -548,9 +584,15 @@ func normalizeProfile(profile *Profile) *Profile {
 }
 
 func normalizePaths(paths []string) []string {
-	for idx, p := range paths {
-		paths[idx] = filepath.Clean(p)
+	if paths == nil {
+		return nil
 	}
 
-	return paths
+	result := make([]string, len(paths))
+
+	for idx, p := range paths {
+		result[idx] = filepath.Clean(p)
+	}
+
+	return result
 }

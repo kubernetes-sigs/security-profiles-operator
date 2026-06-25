@@ -36,6 +36,14 @@ var (
 
 	// ErrEmptyPath is returned when a path rule contains an empty string.
 	ErrEmptyPath = errors.New("empty path")
+
+	// ErrEmptyCapability is returned when a capability entry is an empty
+	// string.
+	ErrEmptyCapability = errors.New("empty capability")
+
+	// ErrDuplicateExecutablePath is returned when the same path appears
+	// more than once in AllowedExecutables or AllowedLibraries.
+	ErrDuplicateExecutablePath = errors.New("duplicate executable path")
 )
 
 // Validate checks an AppArmor profile for structural issues.
@@ -72,12 +80,48 @@ func Validate(profile *Profile) error {
 	}
 
 	if profile.Capabilities != nil {
-		err := validateDuplicateCapabilities(
+		err := validateEmptyCapabilities(
 			profile.Capabilities.AllowedCapabilities,
 		)
 		if err != nil {
 			errs = append(errs, err)
 		}
+
+		err = validateDuplicateCapabilities(
+			profile.Capabilities.AllowedCapabilities,
+		)
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
+// ValidateStrict performs all checks from Validate and additionally detects
+// duplicate paths in AllowedExecutables and AllowedLibraries. The merge path
+// handles duplicates by deduplication, so Validate permits them.
+// ValidateStrict is intended for user-authored profiles where duplicates
+// are likely mistakes.
+func ValidateStrict(profile *Profile) error {
+	err := Validate(profile)
+	if err != nil {
+		return err
+	}
+
+	var errs []error
+
+	if profile.Executable != nil {
+		errs = append(errs, validateDuplicatesInSlice(
+			"AllowedExecutables",
+			profile.Executable.AllowedExecutables,
+			ErrDuplicateExecutablePath,
+		)...)
+		errs = append(errs, validateDuplicatesInSlice(
+			"AllowedLibraries",
+			profile.Executable.AllowedLibraries,
+			ErrDuplicateExecutablePath,
+		)...)
 	}
 
 	return errors.Join(errs...)
@@ -100,6 +144,10 @@ func validateEmptyPaths(context string, paths []string) []error {
 // validateEmptyPathsInProfile checks for empty paths before normalization,
 // since filepath.Clean("") returns "." which would bypass Validate's check.
 func validateEmptyPathsInProfile(profile *Profile) error {
+	if profile == nil {
+		return ErrNilProfile
+	}
+
 	var errs []error
 
 	if profile.Executable != nil {
@@ -173,6 +221,20 @@ func validateDuplicatePathsInCategory(rules *FilesystemRules) error {
 	errs = append(errs, roErrs...)
 	errs = append(errs, woErrs...)
 	errs = append(errs, rwErrs...)
+
+	return errors.Join(errs...)
+}
+
+func validateEmptyCapabilities(caps []string) error {
+	var errs []error
+
+	for idx, cap := range caps {
+		if cap == "" {
+			errs = append(errs, fmt.Errorf(
+				"AllowedCapabilities[%d]: %w", idx, ErrEmptyCapability,
+			))
+		}
+	}
 
 	return errors.Join(errs...)
 }

@@ -20,6 +20,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 )
 
 var (
@@ -28,6 +29,9 @@ var (
 
 	// neverMatchRe is a fallback regex that matches nothing.
 	neverMatchRe = regexp.MustCompile(`^(?:$.)$`)
+
+	// globRegexCache caches compiled glob patterns for reuse.
+	globRegexCache sync.Map //nolint:gochecknoglobals // process-wide cache
 )
 
 const (
@@ -36,6 +40,20 @@ const (
 )
 
 func globToRegex(pattern string) *regexp.Regexp {
+	if cached, ok := globRegexCache.Load(pattern); ok {
+		compiled, _ := cached.(*regexp.Regexp)
+
+		return compiled
+	}
+
+	compiled := compileGlob(pattern)
+	actual, _ := globRegexCache.LoadOrStore(pattern, compiled)
+	stored, _ := actual.(*regexp.Regexp)
+
+	return stored
+}
+
+func compileGlob(pattern string) *regexp.Regexp {
 	if len(pattern) > maxGlobPatternLen {
 		return neverMatchRe
 	}
@@ -244,7 +262,9 @@ func (set *pathSet) patterns() []string {
 
 // intersectPaths returns paths permitted by both sides, with glob awareness.
 // Non-glob paths are kept when matched by a glob on the other side.
-// Glob-vs-glob intersection uses exact string match only (conservative).
+// For glob-vs-glob, prefix-based narrowing is attempted: if one glob's literal
+// prefix contains the other's, the more specific pattern is kept. Otherwise,
+// exact string match is used (conservative).
 func intersectPaths(left, right []string) []string {
 	leftSet := newPathSet(left)
 	rightSet := newPathSet(right)
@@ -263,9 +283,19 @@ func intersectPaths(left, right []string) []string {
 	addMatchedLiterals(left, &rightSet, addPath)
 	addMatchedLiterals(right, &leftSet, addPath)
 
-	for _, path := range left {
-		if globTokenRe.MatchString(path) && slices.Contains(right, path) {
-			addPath(path)
+	for _, leftPath := range left {
+		if !globTokenRe.MatchString(leftPath) {
+			continue
+		}
+
+		for _, rightPath := range right {
+			if !globTokenRe.MatchString(rightPath) {
+				continue
+			}
+
+			if narrowed := narrowGlobs(leftPath, rightPath); narrowed != "" {
+				addPath(narrowed)
+			}
 		}
 	}
 
@@ -304,7 +334,8 @@ func buildFsEntries(perms map[string]fsPermission) []fsPathEntry {
 
 // matchIntersectPaths returns the narrower path when one covers the other
 // via glob matching, the path itself for exact matches, or empty string
-// when the paths don't interact. Glob-vs-glob uses exact string match only.
+// when the paths don't interact. For glob-vs-glob, prefix-based narrowing
+// is used when possible, falling back to exact string match.
 func matchIntersectPaths(left, right fsPathEntry) string {
 	if left.path == right.path {
 		return left.path
@@ -321,6 +352,52 @@ func matchIntersectPaths(left, right fsPathEntry) string {
 	case leftIsGlob && !rightIsGlob:
 		if left.expr.MatchString(right.path) {
 			return right.path
+		}
+	case leftIsGlob && rightIsGlob:
+		return narrowGlobs(left.path, right.path)
+	}
+
+	return ""
+}
+
+// globLiteralPrefix extracts the leading literal path segments before the
+// first glob token. For example, "/var/log/**" returns "/var/log/",
+// "/var/*/foo" returns "/var/", and "**" returns "".
+func globLiteralPrefix(pattern string) string {
+	loc := globTokenRe.FindStringIndex(pattern)
+	if loc == nil {
+		return pattern
+	}
+
+	prefix := pattern[:loc[0]]
+
+	lastSlash := strings.LastIndex(prefix, "/")
+	if lastSlash >= 0 {
+		return prefix[:lastSlash+1]
+	}
+
+	return ""
+}
+
+// narrowGlobs returns the more specific glob when one glob's literal prefix
+// strictly contains the other's. Exact string matches are kept as-is.
+// If neither prefix contains the other, returns empty string.
+func narrowGlobs(left, right string) string {
+	if left == right {
+		return left
+	}
+
+	leftPrefix := globLiteralPrefix(left)
+	rightPrefix := globLiteralPrefix(right)
+
+	switch {
+	case strings.HasPrefix(rightPrefix, leftPrefix) && leftPrefix != rightPrefix:
+		if left == leftPrefix+"**" {
+			return right
+		}
+	case strings.HasPrefix(leftPrefix, rightPrefix) && rightPrefix != leftPrefix:
+		if right == rightPrefix+"**" {
+			return left
 		}
 	}
 

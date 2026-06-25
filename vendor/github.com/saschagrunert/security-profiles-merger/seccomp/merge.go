@@ -90,8 +90,8 @@ func foldProfiles(
 	result, err := merge.Fold(
 		profiles,
 		cloneProfile,
-		func(a, b *specs.LinuxSeccomp) *specs.LinuxSeccomp {
-			return mergeTwo(a, b, strategy)
+		func(a, b *specs.LinuxSeccomp) (*specs.LinuxSeccomp, error) {
+			return mergeTwo(a, b, strategy), nil
 		},
 	)
 	if err != nil {
@@ -101,6 +101,9 @@ func foldProfiles(
 	slices.SortFunc(result.Syscalls, func(a, b specs.LinuxSyscall) int {
 		return cmp.Compare(a.Names[0], b.Names[0])
 	})
+
+	slices.Sort(result.Architectures)
+	slices.Sort(result.Flags)
 
 	return result, nil
 }
@@ -501,6 +504,9 @@ func groupArgsByIndex(
 	return grouped
 }
 
+// unionArgs combines argument filters from two syscall entries. No args means
+// "match unconditionally", which is already the most permissive state.
+// Unioning with an unconstrained side yields unconstrained.
 func unionArgs(
 	leftArgs, rightArgs []specs.LinuxSeccompArg,
 ) ([]specs.LinuxSeccompArg, bool) {
