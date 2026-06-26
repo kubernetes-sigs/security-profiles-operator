@@ -435,6 +435,7 @@ spec:
         - apiGroups:
           - config.openshift.io
           resources:
+          - apiservers
           - clusteroperators
           verbs:
           - get
@@ -585,6 +586,14 @@ spec:
           - get
           - patch
           - update
+        - apiGroups:
+            - config.openshift.io
+          resources:
+            - apiservers
+          verbs:
+            - get
+            - list
+            - watch
         serviceAccountName: spo-webhook
       - rules:
         - apiGroups:
@@ -692,6 +701,14 @@ spec:
           - security-profiles-operator.x-k8s.io
           resources:
           - securityprofilesoperatordaemons
+          verbs:
+          - get
+          - list
+          - watch
+        - apiGroups:
+          - config.openshift.io
+          resources:
+          - apiservers
           verbs:
           - get
           - list
