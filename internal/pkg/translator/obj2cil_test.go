@@ -527,6 +527,102 @@ func TestObject2CIL(t *testing.T) {
 				"container",
 			},
 		},
+		{
+			name: "Test translation allowing a built-in denied type",
+			profile: &selinuxprofileapi.SelinuxProfile{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "foo-bar",
+				},
+				Spec: selinuxprofileapi.SelinuxProfileSpec{
+					Inherit: []selinuxprofileapi.PolicyRef{
+						{
+							Name: "container",
+						},
+					},
+					Allow: selinuxprofileapi.Allow{
+						"kernel_t": {
+							"file": []string{
+								"open",
+							},
+						},
+					},
+				},
+			},
+			options: &Options{
+				AllowedTypes: []string{"kernel_t"},
+			},
+			wantErr: false,
+			wantMatches: []string{
+				"\\(allow process kernel_t \\( file \\( open \\)\\)\\)\n",
+			},
+			inheritsys: []string{
+				"container",
+			},
+		},
+		{
+			name: "Test translation allowing a built-in denied class",
+			profile: &selinuxprofileapi.SelinuxProfile{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "foo-bar",
+				},
+				Spec: selinuxprofileapi.SelinuxProfileSpec{
+					Inherit: []selinuxprofileapi.PolicyRef{
+						{
+							Name: "container",
+						},
+					},
+					Allow: selinuxprofileapi.Allow{
+						"var_log_t": {
+							"capability": []string{
+								"net_admin",
+							},
+						},
+					},
+				},
+			},
+			options: &Options{
+				AllowedClasses: []string{"capability"},
+			},
+			wantErr: false,
+			wantMatches: []string{
+				"\\(allow process var_log_t \\( capability \\( net_admin \\)\\)\\)\n",
+			},
+			inheritsys: []string{
+				"container",
+			},
+		},
+		{
+			name: "Test translation allowing a built-in denied permission",
+			profile: &selinuxprofileapi.SelinuxProfile{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "foo-bar",
+				},
+				Spec: selinuxprofileapi.SelinuxProfileSpec{
+					Inherit: []selinuxprofileapi.PolicyRef{
+						{
+							Name: "container",
+						},
+					},
+					Allow: selinuxprofileapi.Allow{
+						"var_log_t": {
+							"file": []string{
+								"mounton",
+							},
+						},
+					},
+				},
+			},
+			options: &Options{
+				AllowedPermissions: []string{"mounton"},
+			},
+			wantErr: false,
+			wantMatches: []string{
+				"\\(allow process var_log_t \\( file \\( mounton \\)\\)\\)\n",
+			},
+			inheritsys: []string{
+				"container",
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
