@@ -28,6 +28,8 @@ import (
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -141,6 +143,26 @@ func (p *podBinder) Handle(ctx context.Context, req admission.Request) admission
 	return admission.PatchResponseFromRaw(req.Object.Raw, marshaledPod)
 }
 
+// podMatchesSelector reports whether the binding's podSelector matches the
+// pod's labels. A nil selector matches every pod, an invalid selector is treated
+// as non-matching so the binding is skipped rather than blocking pod admission.
+func (p *podBinder) podMatchesSelector(
+	pod *corev1.Pod, pb *profilebindingapi.ProfileBinding,
+) bool {
+	if pb.Spec.PodSelector == nil {
+		return true
+	}
+
+	selector, err := metav1.LabelSelectorAsSelector(pb.Spec.PodSelector)
+	if err != nil {
+		p.log.Error(err, "invalid podSelector, skipping binding", "binding", pb.Name)
+
+		return false
+	}
+
+	return selector.Matches(labels.Set(pod.GetLabels()))
+}
+
 func (p *podBinder) updatePod(
 	ctx context.Context,
 	profilebindings []profilebindingapi.ProfileBinding,
@@ -179,6 +201,11 @@ func (p *podBinder) updatePod(
 				return pod, admission.Errored(http.StatusInternalServerError, err)
 			}
 
+			continue
+		}
+
+		// Skip bindings whose podSelector does not match the pod's labels.
+		if !p.podMatchesSelector(pod, &profilebindings[i]) {
 			continue
 		}
 
