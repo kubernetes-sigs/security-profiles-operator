@@ -1745,6 +1745,28 @@ spec:
   image: *
 ```
 
+By default a binding applies to every pod in the namespace that runs a
+container with the matching image. When several workloads share the same image
+but need different profiles, you can additionally scope a binding to specific
+pods with the optional `podSelector` field. It follows standard label selector
+semantics, so the binding is only applied to pods whose labels match the
+selector (in addition to the image match).
+
+```yaml
+apiVersion: security-profiles-operator.x-k8s.io/v1
+kind: ProfileBinding
+metadata:
+  name: nginx-binding
+spec:
+  profileRef:
+    kind: SeccompProfile
+    name: profile-complain
+  image: nginx:1.19.1
+  podSelector:
+    matchLabels:
+      app: nginx
+```
+
 If the Pod is already running, it will need to be restarted in order to pick up
 the profile binding. Once the binding is created and the Pod is created or
 recreated, the SeccompProfile should be applied to the container whose image
