@@ -39,6 +39,11 @@ type ProfileBindingSpec struct {
 	// +required
 	// +kubebuilder:validation:MinLength=1
 	Image string `json:"image,omitempty"`
+	// podSelector selects which pods this binding applies to. This field follows
+	// standard label selector semantics. An empty or omitted podSelector matches
+	// all pods in the namespace.
+	// +optional
+	PodSelector *metav1.LabelSelector `json:"podSelector,omitempty"`
 }
 
 // ProfileRef contains information that points to the profile being used.
