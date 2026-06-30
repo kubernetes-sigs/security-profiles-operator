@@ -76,6 +76,18 @@ type Options struct {
 	// DeniedPermissions if specified, a list of SELinux permissions which are
 	// denied in SELinux profiles.
 	DeniedPermissions []string
+
+	// AllowedTypes if specified, a list of SELinux types which are removed
+	// from the built-in denylist.
+	AllowedTypes []string
+
+	// AllowedClasses if specified, a list of SELinux object classes which are
+	// removed from the built-in denylist.
+	AllowedClasses []string
+
+	// AllowedPermissions if specified, a list of SELinux permissions which are
+	// removed from the built-in denylist.
+	AllowedPermissions []string
 }
 
 type deniedOptions struct {
@@ -108,6 +120,18 @@ func deniedOptionsFromOpts(opts *Options) *deniedOptions {
 
 	for _, p := range opts.DeniedPermissions {
 		denied.deniedPermissions[p] = struct{}{}
+	}
+
+	for _, t := range opts.AllowedTypes {
+		delete(denied.deniedTypes, t)
+	}
+
+	for _, c := range opts.AllowedClasses {
+		delete(denied.deniedClasses, c)
+	}
+
+	for _, p := range opts.AllowedPermissions {
+		delete(denied.deniedPermissions, p)
 	}
 
 	return denied

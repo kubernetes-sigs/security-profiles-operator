@@ -53,6 +53,27 @@ type SelinuxOptions struct {
 	// +optional
 	// +listType=set
 	DeniedPermissions []string `json:"deniedPermissions,omitempty"`
+
+	// allowedTypes if specified, a list of SELinux types which are removed
+	// from the built-in denylist. Use this with care, as it relaxes a safe
+	// default for every translated policy.
+	// +optional
+	// +listType=set
+	AllowedTypes []string `json:"allowedTypes,omitempty"`
+
+	// allowedClasses if specified, a list of SELinux object classes which are
+	// removed from the built-in denylist. Use this with care, as it relaxes a
+	// safe default for every translated policy.
+	// +optional
+	// +listType=set
+	AllowedClasses []string `json:"allowedClasses,omitempty"`
+
+	// allowedPermissions if specified, a list of SELinux permissions which are
+	// removed from the built-in denylist. Use this with care, as it relaxes a
+	// safe default for every translated policy.
+	// +optional
+	// +listType=set
+	AllowedPermissions []string `json:"allowedPermissions,omitempty"`
 }
 
 // JsonEnricherOptions defines options specific to the JSON enricher.
