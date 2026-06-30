@@ -209,9 +209,12 @@ func (sph *selinuxProfileHandler) handleSelinuxOptions(
 	spod *spodapi.SecurityProfilesOperatorDaemon,
 ) {
 	sph.deniedOpts = &translator.Options{
-		DeniedTypes:       spod.Spec.Selinux.Options.DeniedTypes,
-		DeniedClasses:     spod.Spec.Selinux.Options.DeniedClasses,
-		DeniedPermissions: spod.Spec.Selinux.Options.DeniedPermissions,
+		DeniedTypes:        spod.Spec.Selinux.Options.DeniedTypes,
+		DeniedClasses:      spod.Spec.Selinux.Options.DeniedClasses,
+		DeniedPermissions:  spod.Spec.Selinux.Options.DeniedPermissions,
+		AllowedTypes:       spod.Spec.Selinux.Options.AllowedTypes,
+		AllowedClasses:     spod.Spec.Selinux.Options.AllowedClasses,
+		AllowedPermissions: spod.Spec.Selinux.Options.AllowedPermissions,
 	}
 }
 
