@@ -20,7 +20,9 @@ require (
 	github.com/opencontainers/image-spec v1.1.1
 	github.com/opencontainers/runc v1.5.0
 	github.com/opencontainers/runtime-spec v1.3.0
-	github.com/openshift/api v0.0.0-20260304122331-fa4ca2f2be59
+	github.com/openshift/api v0.0.0-20260507162658-047c8957c266
+	github.com/openshift/controller-runtime-common v0.0.0-20260428152732-64ee174f5e2e
+	github.com/openshift/library-go v0.0.0-20260511114641-ae196b55736d
 	github.com/pjbgf/go-apparmor v0.1.3-0.20241107184909-1375e5e7aa89
 	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.92.1
 	github.com/prometheus/client_golang v1.23.2
