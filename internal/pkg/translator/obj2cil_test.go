@@ -636,7 +636,7 @@ func TestObject2CIL(t *testing.T) {
 						},
 					},
 					Allow: selinuxprofileapi.Allow{
-						"var_log_t": {
+						"kernel_t": {
 							"file": []string{
 								"open",
 							},
@@ -647,8 +647,8 @@ func TestObject2CIL(t *testing.T) {
 			// A user-specified deny takes precedence over an allow for the same
 			// entry, so translation is rejected.
 			options: &Options{
-				DeniedTypes:  []string{"var_log_t"},
-				AllowedTypes: []string{"var_log_t"},
+				DeniedTypes:  []string{"kernel_t"},
+				AllowedTypes: []string{"kernel_t"},
 			},
 			wantErr: true,
 			inheritsys: []string{
