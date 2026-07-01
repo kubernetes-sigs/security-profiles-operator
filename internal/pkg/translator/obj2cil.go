@@ -110,18 +110,7 @@ func deniedOptionsFromOpts(opts *Options) *deniedOptions {
 		return denied
 	}
 
-	for _, t := range opts.DeniedTypes {
-		denied.deniedTypes[t] = struct{}{}
-	}
-
-	for _, c := range opts.DeniedClasses {
-		denied.deniedClasses[c] = struct{}{}
-	}
-
-	for _, p := range opts.DeniedPermissions {
-		denied.deniedPermissions[p] = struct{}{}
-	}
-
+	// Remove allowed types, classes, and permissions from the default denylist.
 	for _, t := range opts.AllowedTypes {
 		delete(denied.deniedTypes, t)
 	}
@@ -132,6 +121,19 @@ func deniedOptionsFromOpts(opts *Options) *deniedOptions {
 
 	for _, p := range opts.AllowedPermissions {
 		delete(denied.deniedPermissions, p)
+	}
+
+	// Add user-specified denied types, classes, and permissions to the denylist.
+	for _, t := range opts.DeniedTypes {
+		denied.deniedTypes[t] = struct{}{}
+	}
+
+	for _, c := range opts.DeniedClasses {
+		denied.deniedClasses[c] = struct{}{}
+	}
+
+	for _, p := range opts.DeniedPermissions {
+		denied.deniedPermissions[p] = struct{}{}
 	}
 
 	return denied
