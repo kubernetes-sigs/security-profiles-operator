@@ -170,6 +170,30 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			e.testCaseSPODEnableProfileRecorder,
 		},
 		{
+			"Audit Logging: Exec and Rsh Commands",
+			e.testCaseAuditLoggingExecRsh,
+		},
+		{
+			"Audit Logging: File Rotation",
+			e.testCaseAuditLoggingRotation,
+		},
+		{
+			"Audit Logging: Multi-Namespace Concurrent Sessions",
+			e.testCaseAuditLoggingMultiNamespace,
+		},
+		{
+			"Audit Logging: RequestUID Correlation",
+			e.testCaseAuditLoggingRequestUIDCorrelation,
+		},
+		{
+			"Audit Logging: Seccomp Profile Coverage",
+			e.testCaseAuditLoggingSeccompProfileCoverage,
+		},
+		{
+			"Audit Logging: Webhook Integration",
+			e.testCaseAuditLoggingWebhookIntegration,
+		},
+		{
 			"API v1 Graduation: Verify conversion webhooks",
 			e.testCaseAPIV1Graduation,
 		},
