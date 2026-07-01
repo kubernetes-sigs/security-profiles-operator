@@ -623,6 +623,38 @@ func TestObject2CIL(t *testing.T) {
 				"container",
 			},
 		},
+		{
+			name: "Test translation with a type both denied (higher precedence) and allowed",
+			profile: &selinuxprofileapi.SelinuxProfile{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "foo-bar",
+				},
+				Spec: selinuxprofileapi.SelinuxProfileSpec{
+					Inherit: []selinuxprofileapi.PolicyRef{
+						{
+							Name: "container",
+						},
+					},
+					Allow: selinuxprofileapi.Allow{
+						"var_log_t": {
+							"file": []string{
+								"open",
+							},
+						},
+					},
+				},
+			},
+			// A user-specified deny takes precedence over an allow for the same
+			// entry, so translation is rejected.
+			options: &Options{
+				DeniedTypes:  []string{"var_log_t"},
+				AllowedTypes: []string{"var_log_t"},
+			},
+			wantErr: true,
+			inheritsys: []string{
+				"container",
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
