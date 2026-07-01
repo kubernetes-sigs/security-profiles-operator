@@ -67,7 +67,7 @@ type selinuxProfileHandler struct {
 	objInherits       []selinuxprofileapi.SelinuxProfileObject
 	labelRegex        *regexp.Regexp
 	objClassPermRegex *regexp.Regexp
-	deniedOpts        *translator.Options
+	translatorOpts    *translator.Options
 }
 
 func (sph *selinuxProfileHandler) Init(
@@ -208,7 +208,7 @@ func (sph *selinuxProfileHandler) handleInheritSPOPolicy(
 func (sph *selinuxProfileHandler) handleSelinuxOptions(
 	spod *spodapi.SecurityProfilesOperatorDaemon,
 ) {
-	sph.deniedOpts = &translator.Options{
+	sph.translatorOpts = &translator.Options{
 		DeniedTypes:        spod.Spec.Selinux.Options.DeniedTypes,
 		DeniedClasses:      spod.Spec.Selinux.Options.DeniedClasses,
 		DeniedPermissions:  spod.Spec.Selinux.Options.DeniedPermissions,
@@ -239,7 +239,7 @@ func (sph *selinuxProfileHandler) handleInheritSystemPolicy(
 func (sph *selinuxProfileHandler) GetCILPolicy() (string, error) {
 	// Note that this assumes that the client and the object
 	// have been initialized already.
-	return translator.Object2CIL(sph.systemInherits, sph.objInherits, sph.sp, sph.deniedOpts)
+	return translator.Object2CIL(sph.systemInherits, sph.objInherits, sph.sp, sph.translatorOpts)
 }
 
 func newSelinuxProfileHandler(
