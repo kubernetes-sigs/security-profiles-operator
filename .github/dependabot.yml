@@ -21,6 +21,10 @@ updates:
   labels:
     - "release-note-none"
     - "ok-to-test"
+  groups:
+    actions:
+      patterns:
+        - "*"
 - package-ecosystem: docker
   directory: "/"
   schedule:
