@@ -26,6 +26,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
+	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -180,7 +181,13 @@ func (p *podBinder) updatePod(
 	pod := &corev1.Pod{}
 	podChanged := false
 
-	if req.Operation != "DELETE" {
+	// Pod security context fields are immutable after creation, so only
+	// mutate on CREATE. UPDATE would produce a patch the API server rejects.
+	if req.Operation != admissionv1.Create && req.Operation != admissionv1.Delete {
+		return pod, admission.Allowed("pod update, skipping mutation")
+	}
+
+	if req.Operation == admissionv1.Create {
 		pod, err = p.DecodePod(*req)
 		if err != nil {
 			p.log.Error(err, "failed to decode pod")
@@ -196,7 +203,7 @@ func (p *podBinder) updatePod(
 
 		profileName := profilebindings[i].Spec.ProfileRef.Name
 
-		if req.Operation == "DELETE" {
+		if req.Operation == admissionv1.Delete {
 			if err := p.removePodFromBinding(ctx, podID, &profilebindings[i]); err != nil {
 				return pod, admission.Errored(http.StatusInternalServerError, err)
 			}

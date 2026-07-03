@@ -12,7 +12,7 @@ webhooks:
     timeoutSeconds: 5
     sideEffects: None
     rules:
-      - operations: ["CREATE", "UPDATE", "DELETE"]
+      - operations: ["CREATE", "DELETE"]
         apiGroups: ["*"]
         apiVersions: ["v1"]
         resources: ["pods"]

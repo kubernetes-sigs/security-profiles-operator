@@ -86,15 +86,51 @@ func TestHandle(t *testing.T) {
 				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{}, nil)
 				mock.DecodePodReturns(&corev1.Pod{}, nil)
 			},
+			request: admission.Request{
+				AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Create,
+				},
+			},
 			assert: func(resp admission.Response) {
 				require.True(t, resp.Allowed)
 				require.Equal(t, http.StatusOK, int(resp.Result.Code))
 				require.Equal(t, "pod unchanged", resp.Result.Message)
 			},
 		},
+		{ // success pod update skips mutation
+			prepare: func(mock *bindingfakes.FakeImpl) {
+				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
+					Items: []profilebindingapi.ProfileBinding{
+						{
+							Spec: profilebindingapi.ProfileBindingSpec{
+								ProfileRef: profilebindingapi.ProfileRef{
+									Kind: profilebindingapi.ProfileBindingKindSeccompProfile,
+								},
+								Image: "foo",
+							},
+						},
+					},
+				}, nil)
+			},
+			request: admission.Request{
+				AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Update,
+				},
+			},
+			assert: func(resp admission.Response) {
+				require.True(t, resp.Allowed)
+				require.Empty(t, resp.Patches)
+				require.Equal(t, "pod update, skipping mutation", resp.Result.Message)
+			},
+		},
 		{ // error could not list profile bindings
 			prepare: func(mock *bindingfakes.FakeImpl) {
 				mock.ListProfileBindingsReturns(nil, errTest)
+			},
+			request: admission.Request{
+				AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Create,
+				},
 			},
 			assert: func(resp admission.Response) {
 				require.Equal(t, http.StatusInternalServerError, int(resp.Result.Code))
@@ -104,6 +140,11 @@ func TestHandle(t *testing.T) {
 			prepare: func(mock *bindingfakes.FakeImpl) {
 				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{}, nil)
 				mock.DecodePodReturns(nil, errTest)
+			},
+			request: admission.Request{
+				AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Create,
+				},
 			},
 			assert: func(resp admission.Response) {
 				require.Equal(t, http.StatusBadRequest, int(resp.Result.Code))
@@ -135,6 +176,7 @@ func TestHandle(t *testing.T) {
 			},
 			request: admission.Request{
 				AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Create,
 					Object: runtime.RawExtension{
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
@@ -178,6 +220,7 @@ func TestHandle(t *testing.T) {
 			},
 			request: admission.Request{
 				AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Create,
 					Object: runtime.RawExtension{
 						Raw: func() []byte {
 							b, err := json.Marshal(testPodWithLabels.DeepCopy())
@@ -221,6 +264,7 @@ func TestHandle(t *testing.T) {
 			},
 			request: admission.Request{
 				AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Create,
 					Object: runtime.RawExtension{
 						Raw: func() []byte {
 							b, err := json.Marshal(testPodWithLabels.DeepCopy())
@@ -263,6 +307,7 @@ func TestHandle(t *testing.T) {
 			},
 			request: admission.Request{
 				AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Create,
 					Object: runtime.RawExtension{
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
@@ -304,6 +349,7 @@ func TestHandle(t *testing.T) {
 			},
 			request: admission.Request{
 				AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Create,
 					Object: runtime.RawExtension{
 						Raw: func() []byte {
 							podWithSecurityContext := testPod.DeepCopy()
@@ -350,6 +396,7 @@ func TestHandle(t *testing.T) {
 			},
 			request: admission.Request{
 				AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Create,
 					Object: runtime.RawExtension{
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
@@ -391,6 +438,7 @@ func TestHandle(t *testing.T) {
 			},
 			request: admission.Request{
 				AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Create,
 					Object: runtime.RawExtension{
 						Raw: func() []byte {
 							podWithSecurityContext := testPod.DeepCopy()
@@ -437,6 +485,7 @@ func TestHandle(t *testing.T) {
 			},
 			request: admission.Request{
 				AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Create,
 					Object: runtime.RawExtension{
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
@@ -478,6 +527,7 @@ func TestHandle(t *testing.T) {
 			},
 			request: admission.Request{
 				AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Create,
 					Object: runtime.RawExtension{
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
@@ -521,6 +571,7 @@ func TestHandle(t *testing.T) {
 			},
 			request: admission.Request{
 				AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Create,
 					Object: runtime.RawExtension{
 						Raw: func() []byte {
 							podWithSecurityContext := testPod.DeepCopy()
@@ -568,6 +619,7 @@ func TestHandle(t *testing.T) {
 			},
 			request: admission.Request{
 				AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Create,
 					Object: runtime.RawExtension{
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
@@ -601,6 +653,7 @@ func TestHandle(t *testing.T) {
 			},
 			request: admission.Request{
 				AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Create,
 					Object: runtime.RawExtension{
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
@@ -636,6 +689,7 @@ func TestHandle(t *testing.T) {
 			},
 			request: admission.Request{
 				AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Create,
 					Object: runtime.RawExtension{
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
@@ -674,6 +728,7 @@ func TestHandle(t *testing.T) {
 			},
 			request: admission.Request{
 				AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Create,
 					Object: runtime.RawExtension{
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
@@ -710,6 +765,7 @@ func TestHandle(t *testing.T) {
 			},
 			request: admission.Request{
 				AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Create,
 					Object: runtime.RawExtension{
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
@@ -742,6 +798,7 @@ func TestHandle(t *testing.T) {
 			},
 			request: admission.Request{
 				AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Create,
 					Object: runtime.RawExtension{
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
@@ -783,6 +840,7 @@ func TestHandle(t *testing.T) {
 			},
 			request: admission.Request{
 				AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Create,
 					Object: runtime.RawExtension{
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
@@ -824,6 +882,7 @@ func TestHandle(t *testing.T) {
 			},
 			request: admission.Request{
 				AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Create,
 					Object: runtime.RawExtension{
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
@@ -912,6 +971,7 @@ func TestHandle(t *testing.T) {
 			},
 			request: admission.Request{
 				AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Create,
 					Object: runtime.RawExtension{
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
