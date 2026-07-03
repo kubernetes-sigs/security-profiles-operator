@@ -44,7 +44,19 @@ var (
 	caBundle                      = []byte("Cg==")
 	sideEffects                   = admissionregv1.SideEffectClassNone
 	admissionReviewVersions       = []string{"v1beta1"}
-	rules                         = []admissionregv1.RuleWithOperations{
+	bindingRules                  = []admissionregv1.RuleWithOperations{
+		{
+			Operations: []admissionregv1.OperationType{
+				"CREATE", "DELETE",
+			},
+			Rule: admissionregv1.Rule{
+				APIGroups:   []string{""},
+				APIVersions: []string{"v1"},
+				Resources:   []string{"pods"},
+			},
+		},
+	}
+	recordingRules = []admissionregv1.RuleWithOperations{
 		{
 			Operations: []admissionregv1.OperationType{
 				"CREATE", "UPDATE", "DELETE",
@@ -482,7 +494,7 @@ func getWebhookConfig(execMetadataWebhookEnabled bool) *admissionregv1.MutatingW
 			Name:           binding.name,
 			FailurePolicy:  &failurePolicyFail,
 			SideEffects:    &sideEffects,
-			Rules:          rules,
+			Rules:          bindingRules,
 			ObjectSelector: &objectSelector,
 			NamespaceSelector: &metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -505,7 +517,7 @@ func getWebhookConfig(execMetadataWebhookEnabled bool) *admissionregv1.MutatingW
 			Name:           recording.name,
 			FailurePolicy:  &failurePolicyFail,
 			SideEffects:    &sideEffects,
-			Rules:          rules,
+			Rules:          recordingRules,
 			ObjectSelector: &objectSelector,
 			NamespaceSelector: &metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{

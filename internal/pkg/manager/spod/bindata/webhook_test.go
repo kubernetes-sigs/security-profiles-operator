@@ -225,6 +225,12 @@ func TestWebhook_getWebhookConfig(t *testing.T) {
 	webhookConfig := getWebhookConfig(false)
 	require.Len(t, webhookConfig.Webhooks, 2)
 
+	bindingOps := webhookConfig.Webhooks[binding.index].Rules[0].Operations
+	assert.ElementsMatch(t, []admissionregv1.OperationType{"CREATE", "DELETE"}, bindingOps)
+
+	recordingOps := webhookConfig.Webhooks[recording.index].Rules[0].Operations
+	assert.ElementsMatch(t, []admissionregv1.OperationType{"CREATE", "UPDATE", "DELETE"}, recordingOps)
+
 	webhookConfig = getWebhookConfig(true)
 	require.Len(t, webhookConfig.Webhooks, 4)
 }
