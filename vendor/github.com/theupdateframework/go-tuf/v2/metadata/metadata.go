@@ -458,6 +458,10 @@ func (f *MetaFiles) VerifyLengthHashes(data []byte) error {
 // VerifyLengthHashes checks whether the TargetFiles data matches its corresponding
 // length and hashes
 func (f *TargetFiles) VerifyLengthHashes(data []byte) error {
+	// Per TUF spec, hashes are mandatory for target files
+	if len(f.Hashes) == 0 {
+		return &ErrLengthOrHashMismatch{Msg: "hashes must not be empty for target files"}
+	}
 	err := verifyHashes(data, f.Hashes)
 	if err != nil {
 		return err

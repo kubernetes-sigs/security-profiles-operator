@@ -24,6 +24,7 @@ import (
 	"hash"
 	"io"
 	"math/big"
+	"time"
 
 	"github.com/digitorus/pkcs7"
 	"github.com/digitorus/timestamp"
@@ -51,6 +52,11 @@ type VerifyOpts struct {
 	Nonce *big.Int
 	// CommonName verifies that the TSR certificate subject's Common Name matches the expected value. Optional
 	CommonName string
+	// CurrentTime, if not zero, is used as the current time for certificate
+	// chain validation instead of time.Now. This is necessary when verifying
+	// timestamps after the TSA certificate has expired, since the timestamp
+	// was issued while the certificate was still valid.
+	CurrentTime time.Time
 }
 
 // Verify the TSR's certificate identifier matches a provided TSA certificate
@@ -246,6 +252,13 @@ func VerifyTimestampResponse(tsrBytes []byte, artifact io.Reader, opts VerifyOpt
 		return nil, ErrUnsupportedHashAlg
 	}
 
+	// Use the timestamp's own time for certificate chain validation when
+	// the caller hasn't specified one. The TSA certificate must have been
+	// valid when the timestamp was issued, not necessarily at the current time.
+	if opts.CurrentTime.IsZero() {
+		opts.CurrentTime = ts.Time
+	}
+
 	// verify the timestamp response signature using the provided certificate pool
 	signerCert, verifiedChains, err := verifyTSRWithChain(ts, opts)
 	if err != nil {
@@ -313,6 +326,7 @@ func verifyTSRWithChain(ts *timestamp.Timestamp, opts VerifyOpts) (*x509.Certifi
 		Roots:         rootCertPool,
 		Intermediates: intermediateCertPool,
 		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageTimeStamping},
+		CurrentTime:   opts.CurrentTime,
 	}
 
 	// if the PCKS7 object does not have any certificates set in the
