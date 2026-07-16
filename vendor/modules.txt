@@ -1190,7 +1190,7 @@ github.com/russross/blackfriday/v2
 ## explicit; go 1.23.0
 github.com/sagikazarmark/locafero
 github.com/sagikazarmark/locafero/internal/queue
-# github.com/saschagrunert/security-profiles-merger v0.3.0
+# github.com/saschagrunert/security-profiles-merger v0.3.2
 ## explicit; go 1.25.0
 github.com/saschagrunert/security-profiles-merger/apparmor
 github.com/saschagrunert/security-profiles-merger/internal/merge

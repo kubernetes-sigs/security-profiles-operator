@@ -72,6 +72,7 @@ func foldProfiles(profiles []*Profile, mergeOp strategy) (*Profile, error) {
 	normalized := make([]*Profile, len(profiles))
 	for idx, profile := range profiles {
 		normalized[idx] = normalizeProfile(profile)
+		deduplicateProfile(normalized[idx])
 	}
 
 	for _, profile := range normalized {
@@ -360,6 +361,12 @@ func (unionStrategy) mergeFilesystem(left, right *FilesystemRules) *FilesystemRu
 	}
 }
 
+func promoteCoveredLiterals(glob string, source, target *pathSet) {
+	for _, lit := range source.popCoveredLiterals(glob) {
+		target.add(lit)
+	}
+}
+
 func addReadWritePaths(
 	additions []string,
 	readSet, writeSet, rwSet *pathSet,
@@ -369,17 +376,26 @@ func addReadWritePaths(
 			continue
 		}
 
-		if pats := readSet.popInteracting(path); len(pats) > 0 {
-			for _, pat := range pats {
-				rwSet.add(pat)
-			}
-		} else if pats := writeSet.popInteracting(path); len(pats) > 0 {
-			for _, pat := range pats {
-				rwSet.add(pat)
-			}
-		} else {
+		if readSet.popExact(path) || writeSet.popExact(path) {
 			rwSet.add(path)
+
+			continue
 		}
+
+		isGlob := globTokenRe.MatchString(path)
+
+		if !isGlob && (readSet.matches(path) || writeSet.matches(path)) {
+			rwSet.add(path)
+
+			continue
+		}
+
+		if isGlob {
+			promoteCoveredLiterals(path, readSet, rwSet)
+			promoteCoveredLiterals(path, writeSet, rwSet)
+		}
+
+		rwSet.add(path)
 	}
 }
 
@@ -392,13 +408,23 @@ func addReadOnlyPaths(
 			continue
 		}
 
-		if pats := writeSet.popInteracting(path); len(pats) > 0 {
-			for _, pat := range pats {
-				rwSet.add(pat)
-			}
-		} else {
-			readSet.add(path)
+		if writeSet.popExact(path) {
+			rwSet.add(path)
+
+			continue
 		}
+
+		if !globTokenRe.MatchString(path) && writeSet.matches(path) {
+			rwSet.add(path)
+
+			continue
+		}
+
+		if globTokenRe.MatchString(path) {
+			promoteCoveredLiterals(path, writeSet, rwSet)
+		}
+
+		readSet.add(path)
 	}
 }
 
@@ -411,11 +437,23 @@ func addWriteOnlyPaths(
 			continue
 		}
 
-		if pats := readSet.popInteracting(path); len(pats) > 0 {
-			for _, pat := range pats {
-				rwSet.add(pat)
-			}
-		} else if !writeSet.matches(path) {
+		if readSet.popExact(path) {
+			rwSet.add(path)
+
+			continue
+		}
+
+		if !globTokenRe.MatchString(path) && readSet.matches(path) {
+			rwSet.add(path)
+
+			continue
+		}
+
+		if globTokenRe.MatchString(path) {
+			promoteCoveredLiterals(path, readSet, rwSet)
+		}
+
+		if !writeSet.matches(path) {
 			writeSet.add(path)
 		}
 	}
@@ -583,6 +621,65 @@ func normalizeProfile(profile *Profile) *Profile {
 	return result
 }
 
+func deduplicateProfile(profile *Profile) {
+	if profile.Executable != nil {
+		profile.Executable.AllowedExecutables = deduplicatePaths(
+			profile.Executable.AllowedExecutables,
+		)
+		profile.Executable.AllowedLibraries = deduplicatePaths(
+			profile.Executable.AllowedLibraries,
+		)
+	}
+
+	if profile.Filesystem != nil {
+		profile.Filesystem.ReadOnlyPaths = deduplicatePaths(
+			profile.Filesystem.ReadOnlyPaths,
+		)
+		profile.Filesystem.WriteOnlyPaths = deduplicatePaths(
+			profile.Filesystem.WriteOnlyPaths,
+		)
+		profile.Filesystem.ReadWritePaths = deduplicatePaths(
+			profile.Filesystem.ReadWritePaths,
+		)
+	}
+}
+
+func deduplicatePaths(paths []string) []string {
+	if len(paths) == 0 {
+		return paths
+	}
+
+	seen := make(map[string]struct{}, len(paths))
+
+	result := paths[:0]
+
+	for _, path := range paths {
+		if _, ok := seen[path]; ok {
+			continue
+		}
+
+		seen[path] = struct{}{}
+
+		result = append(result, path)
+	}
+
+	return result
+}
+
+func normalizeGlobPath(path string) string {
+	prefix := globLiteralPrefix(path)
+	if prefix == "" {
+		return path
+	}
+
+	cleaned := filepath.Clean(prefix)
+	if cleaned != "/" {
+		cleaned += "/"
+	}
+
+	return cleaned + path[len(prefix):]
+}
+
 func normalizePaths(paths []string) []string {
 	if paths == nil {
 		return nil
@@ -591,7 +688,11 @@ func normalizePaths(paths []string) []string {
 	result := make([]string, len(paths))
 
 	for idx, p := range paths {
-		result[idx] = filepath.Clean(p)
+		if globTokenRe.MatchString(p) {
+			result[idx] = normalizeGlobPath(p)
+		} else {
+			result[idx] = filepath.Clean(p)
+		}
 	}
 
 	return result
