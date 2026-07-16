@@ -20,7 +20,7 @@ spec:
   selinux:
     enable: {{ or .Values.enableSelinux .Values.selinux.enable }}
     enableRawSelinuxProfiles: {{ .Values.selinux.enableRawSelinuxProfiles }}
-    typeTag: {{ .Values.selinux.typeTag }}
+    typeTag: {{ .Values.selinux.typeTag | quote }}
     {{- with .Values.selinux.options }}
     options:
       {{- toYaml . | nindent 6 }}
