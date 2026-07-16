@@ -31,6 +31,14 @@ selinux:
   enableRawSelinuxProfiles: true
   typeTag: spc_t
   options: {}
+    # allowedSystemProfiles:
+    #   - container
+    # deniedTypes: []
+    # deniedClasses: []
+    # deniedPermissions: []
+    # allowedTypes: []
+    # allowedClasses: []
+    # allowedPermissions: []
 enableLogEnricher: false
 enableJsonEnricher: false
 enableAppArmor: false
