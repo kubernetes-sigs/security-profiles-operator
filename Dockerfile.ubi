@@ -18,7 +18,7 @@
 # for more details
 
 # hash below referred to latest
-FROM registry.access.redhat.com/ubi8/go-toolset@sha256:17d09cc2a734335aa2d009bb1b20e6a02f29c7ce8930fef04459d9d46410863a AS build
+FROM registry.access.redhat.com/ubi8/go-toolset@sha256:f89075fe359199d3ba9bde88e56b6b858916ba4f401541beb509535ee9b3a3a9 AS build
 USER root
 WORKDIR /work
 
