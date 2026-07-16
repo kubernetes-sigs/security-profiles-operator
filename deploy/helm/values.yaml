@@ -27,7 +27,7 @@ selinuxdImage:
 # Deprecated, use selinux.enable instead
 enableSelinux: false
 selinux:
-  enable: false
+  # enable: false # Overrides deprecated enableSelinux flag
   enableRawSelinuxProfiles: true
   typeTag: spc_t
   options: {}
