@@ -24,7 +24,13 @@ selinuxdImage:
     repository: security-profiles-operator/selinuxd-fedora
     tag: latest
 
+# Deprecated, use selinux.enable instead
 enableSelinux: false
+selinux:
+  enable: false
+  enableRawSelinuxProfiles: true
+  typeTag: spc_t
+  options: {}
 enableLogEnricher: false
 enableJsonEnricher: false
 enableAppArmor: false

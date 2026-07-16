@@ -18,7 +18,13 @@ spec:
   daemonResourceRequirements:
     {{- toYaml .Values.daemon.resources | nindent 4 }}
   selinux:
-    enable: {{ .Values.enableSelinux }}
+    enable: {{ or .Values.enableSelinux .Values.selinux.enable }}
+    enableRawSelinuxProfiles: {{ .Values.selinux.enableRawSelinuxProfiles }}
+    typeTag: {{ .Values.selinux.typeTag }}
+    {{- with .Values.selinux.options }}
+    options:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
   enricher:
     enableLogEnricher: {{ .Values.enableLogEnricher }}
     enableJsonEnricher: {{ .Values.enableJsonEnricher }}
