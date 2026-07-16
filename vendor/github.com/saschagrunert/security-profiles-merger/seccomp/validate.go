@@ -19,6 +19,7 @@ package seccomp
 import (
 	"errors"
 	"fmt"
+	"slices"
 
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 )
@@ -29,6 +30,9 @@ var (
 	ErrUnknownAction = errors.New("unknown seccomp action")
 	// ErrEmptySyscallNames is returned when a syscall entry has no names.
 	ErrEmptySyscallNames = errors.New("syscall entry has no names")
+	// ErrEmptySyscallName is returned when a syscall entry contains an
+	// empty string in its name list.
+	ErrEmptySyscallName = errors.New("empty syscall name")
 	// ErrDuplicateSyscallName is returned when the same syscall name
 	// appears in more than one syscall entry.
 	ErrDuplicateSyscallName = errors.New("duplicate syscall name")
@@ -58,6 +62,12 @@ func Validate(profile *specs.LinuxSeccomp) error {
 			))
 		}
 
+		if slices.Contains(profile.Syscalls[idx].Names, "") {
+			errs = append(errs, fmt.Errorf(
+				"syscall entry %d: %w", idx, ErrEmptySyscallName,
+			))
+		}
+
 		err := validateAction(
 			profile.Syscalls[idx].Action,
 			fmt.Sprintf("syscall entry %d action", idx),
@@ -77,12 +87,23 @@ func Validate(profile *specs.LinuxSeccomp) error {
 // ValidateStrict is intended for user-authored profiles where duplicates
 // are likely mistakes.
 func ValidateStrict(profile *specs.LinuxSeccomp) error {
+	var errs []error
+
 	err := Validate(profile)
 	if err != nil {
-		return err
+		errs = append(errs, err)
 	}
 
-	return validateDuplicateSyscallNames(profile.Syscalls)
+	if profile == nil {
+		return errors.Join(errs...)
+	}
+
+	err = validateDuplicateSyscallNames(profile.Syscalls)
+	if err != nil {
+		errs = append(errs, err)
+	}
+
+	return errors.Join(errs...)
 }
 
 func validateDuplicateSyscallNames(syscalls []specs.LinuxSyscall) error {

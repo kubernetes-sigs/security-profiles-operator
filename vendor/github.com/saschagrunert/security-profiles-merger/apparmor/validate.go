@@ -104,14 +104,14 @@ func Validate(profile *Profile) error {
 // ValidateStrict is intended for user-authored profiles where duplicates
 // are likely mistakes.
 func ValidateStrict(profile *Profile) error {
-	err := Validate(profile)
-	if err != nil {
-		return err
-	}
-
 	var errs []error
 
-	if profile.Executable != nil {
+	err := Validate(profile)
+	if err != nil {
+		errs = append(errs, err)
+	}
+
+	if profile != nil && profile.Executable != nil {
 		errs = append(errs, validateDuplicatesInSlice(
 			"AllowedExecutables",
 			profile.Executable.AllowedExecutables,
@@ -228,8 +228,8 @@ func validateDuplicatePathsInCategory(rules *FilesystemRules) error {
 func validateEmptyCapabilities(caps []string) error {
 	var errs []error
 
-	for idx, cap := range caps {
-		if cap == "" {
+	for idx, capability := range caps {
+		if capability == "" {
 			errs = append(errs, fmt.Errorf(
 				"AllowedCapabilities[%d]: %w", idx, ErrEmptyCapability,
 			))

@@ -673,8 +673,8 @@ github.com/ryanuber/go-glob v1.0.0 h1:iQh3xXAumdQ+4Ufa5b25cRpC5TYKlno6hsv6Cb3pkB
 github.com/ryanuber/go-glob v1.0.0/go.mod h1:807d1WSdnB0XRJzKNil9Om6lcp/3a0v4qIHxIXzX/Yc=
 github.com/sagikazarmark/locafero v0.12.0 h1:/NQhBAkUb4+fH1jivKHWusDYFjMOOKU88eegjfxfHb4=
 github.com/sagikazarmark/locafero v0.12.0/go.mod h1:sZh36u/YSZ918v0Io+U9ogLYQJ9tLLBmM4eneO6WwsI=
-github.com/saschagrunert/security-profiles-merger v0.3.0 h1:JrWx1A4WnWjCzsPkjLOkrxw/M5F3eqyGL9tqUiW4m2k=
-github.com/saschagrunert/security-profiles-merger v0.3.0/go.mod h1:k+Metag22RGXY2RBf2aHXHzqQtqeZEORb+dMGhp1TQ4=
+github.com/saschagrunert/security-profiles-merger v0.3.2 h1:0fqjP8tOzrgLFnRDHtjkHRFiHtaFnbY98n2L3x8Cp2U=
+github.com/saschagrunert/security-profiles-merger v0.3.2/go.mod h1:k+Metag22RGXY2RBf2aHXHzqQtqeZEORb+dMGhp1TQ4=
 github.com/sassoftware/relic v7.2.1+incompatible h1:Pwyh1F3I0r4clFJXkSI8bOyJINGqpgjJU3DYAZeI05A=
 github.com/sassoftware/relic v7.2.1+incompatible/go.mod h1:CWfAxv73/iLZ17rbyhIEq3K9hs5w6FpNMdUT//qR+zk=
 github.com/sassoftware/relic/v7 v7.6.2 h1:rS44Lbv9G9eXsukknS4mSjIAuuX+lMq/FnStgmZlUv4=

@@ -21,6 +21,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 var (
@@ -32,11 +33,18 @@ var (
 
 	// globRegexCache caches compiled glob patterns for reuse.
 	globRegexCache sync.Map //nolint:gochecknoglobals // process-wide cache
+
+	// globRegexCacheCount tracks the number of entries in the cache.
+	globRegexCacheCount atomic.Int64 //nolint:gochecknoglobals // tracks cache size
+
+	// globCacheEvicting prevents concurrent eviction storms.
+	globCacheEvicting atomic.Bool //nolint:gochecknoglobals // guards eviction
 )
 
 const (
 	maxGlobPatternLen   = 4096
 	maxGlobAlternatives = 100
+	maxGlobCacheEntries = 1024
 )
 
 func globToRegex(pattern string) *regexp.Regexp {
@@ -47,7 +55,18 @@ func globToRegex(pattern string) *regexp.Regexp {
 	}
 
 	compiled := compileGlob(pattern)
-	actual, _ := globRegexCache.LoadOrStore(pattern, compiled)
+
+	actual, loaded := globRegexCache.LoadOrStore(pattern, compiled)
+	if !loaded {
+		if globRegexCacheCount.Add(1) > maxGlobCacheEntries &&
+			globCacheEvicting.CompareAndSwap(false, true) {
+			globRegexCache.Clear()
+			globRegexCacheCount.Store(1)
+			globRegexCache.Store(pattern, compiled)
+			globCacheEvicting.Store(false)
+		}
+	}
+
 	stored, _ := actual.(*regexp.Regexp)
 
 	return stored
@@ -107,6 +126,11 @@ func compileGlob(pattern string) *regexp.Regexp {
 	return compiled
 }
 
+// IsGlobPattern reports whether the path contains AppArmor glob tokens.
+func IsGlobPattern(path string) bool {
+	return globTokenRe.MatchString(path)
+}
+
 type apparmorPath struct {
 	pattern string
 	expr    *regexp.Regexp
@@ -161,60 +185,6 @@ func (set *pathSet) removeAt(idx int) {
 	set.paths = slices.Delete(set.paths, idx, idx+1)
 }
 
-// popInteracting removes all entries that interact with path.
-// It checks both directions: existing patterns matching the incoming path
-// (forward), and the incoming path matching existing non-glob entries
-// (reverse). Returns all removed patterns so callers can promote each one.
-func (set *pathSet) popInteracting(path string) []string {
-	for idx, entry := range set.paths {
-		if entry.pattern == path {
-			set.removeAt(idx)
-
-			return []string{entry.pattern}
-		}
-	}
-
-	var matches []string
-
-	set.paths = slices.DeleteFunc(set.paths, func(entry apparmorPath) bool {
-		if entry.expr.MatchString(path) {
-			delete(set.literals, entry.pattern)
-
-			matches = append(matches, entry.pattern)
-
-			return true
-		}
-
-		return false
-	})
-
-	if len(matches) > 0 {
-		return matches
-	}
-
-	if globTokenRe.MatchString(path) {
-		expr := globToRegex(path)
-
-		set.paths = slices.DeleteFunc(set.paths, func(existing apparmorPath) bool {
-			matched := !globTokenRe.MatchString(existing.pattern) &&
-				expr.MatchString(existing.pattern)
-			if matched {
-				delete(set.literals, existing.pattern)
-
-				matches = append(matches, existing.pattern)
-			}
-
-			return matched
-		})
-
-		if len(matches) > 0 {
-			return append(matches, path)
-		}
-	}
-
-	return nil
-}
-
 func (set *pathSet) add(pattern string) {
 	expr := globToRegex(pattern)
 
@@ -244,6 +214,38 @@ func (set *pathSet) add(pattern string) {
 	if !globTokenRe.MatchString(pattern) {
 		set.literals[pattern] = struct{}{}
 	}
+}
+
+func (set *pathSet) popExact(path string) bool {
+	for idx, entry := range set.paths {
+		if entry.pattern == path {
+			set.removeAt(idx)
+
+			return true
+		}
+	}
+
+	return false
+}
+
+func (set *pathSet) popCoveredLiterals(glob string) []string {
+	expr := globToRegex(glob)
+
+	var popped []string
+
+	set.paths = slices.DeleteFunc(set.paths, func(existing apparmorPath) bool {
+		matched := !globTokenRe.MatchString(existing.pattern) &&
+			expr.MatchString(existing.pattern)
+		if matched {
+			delete(set.literals, existing.pattern)
+
+			popped = append(popped, existing.pattern)
+		}
+
+		return matched
+	})
+
+	return popped
 }
 
 func (set *pathSet) patterns() []string {
