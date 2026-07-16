@@ -18,7 +18,7 @@ spec:
   daemonResourceRequirements:
     {{- toYaml .Values.daemon.resources | nindent 4 }}
   selinux:
-    enable: {{ or .Values.enableSelinux .Values.selinux.enable }}
+    enable: {{ hasKey .Values.selinux "enable" | ternary .Values.selinux.enable .Values.enableSelinux }}
     enableRawSelinuxProfiles: {{ .Values.selinux.enableRawSelinuxProfiles }}
     typeTag: {{ .Values.selinux.typeTag | quote }}
     {{- with .Values.selinux.options }}
