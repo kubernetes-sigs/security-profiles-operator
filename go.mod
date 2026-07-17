@@ -27,7 +27,7 @@ require (
 	github.com/prometheus/client_model v0.6.2
 	github.com/saschagrunert/security-profiles-merger v0.3.2
 	github.com/seccomp/libseccomp-golang v0.11.1
-	github.com/sigstore/cosign/v2 v2.6.3
+	github.com/sigstore/cosign/v2 v2.6.4
 	github.com/stretchr/testify v1.11.1
 	github.com/urfave/cli/v2 v2.27.7
 	go.podman.io/common v0.68.1
