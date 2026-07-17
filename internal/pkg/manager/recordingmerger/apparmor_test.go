@@ -67,7 +67,9 @@ func TestMergeFilesystem(t *testing.T) {
 				WriteOnlyPaths: []string{"/r/bar"},
 			},
 			merged: apparmorprofileapi.AppArmorFsRules{
-				ReadWritePaths: []string{"/r/*", "/rw/*", "/w/*"},
+				ReadOnlyPaths:  []string{"/r/*"},
+				WriteOnlyPaths: []string{"/w/*"},
+				ReadWritePaths: []string{"/r/bar", "/rw/*", "/w/foo"},
 			},
 		},
 		{
@@ -76,7 +78,9 @@ func TestMergeFilesystem(t *testing.T) {
 				ReadWritePaths: []string{"/r/foo", "/w/foo"},
 			},
 			merged: apparmorprofileapi.AppArmorFsRules{
-				ReadWritePaths: []string{"/r/*", "/rw/*", "/w/*"},
+				ReadOnlyPaths:  []string{"/r/*"},
+				WriteOnlyPaths: []string{"/w/*"},
+				ReadWritePaths: []string{"/r/foo", "/rw/*", "/w/foo"},
 			},
 		},
 		{
