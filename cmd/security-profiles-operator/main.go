@@ -839,7 +839,7 @@ func runNonRootEnabler(ctx *cli.Context, info *version.Info) error {
 
 	printInfo(component, info)
 
-	runtime := ctx.String("runtime")
+	containerRuntime := ctx.String("runtime")
 	apparmor := ctx.Bool("apparmor")
 
 	cfg, err := ctrl.GetConfig()
@@ -857,7 +857,7 @@ func runNonRootEnabler(ctx *cli.Context, info *version.Info) error {
 		kubeletDir = config.KubeletDir()
 	}
 
-	return nonrootenabler.New().Run(ctrl.Log.WithName(component), runtime, kubeletDir, apparmor)
+	return nonrootenabler.New().Run(ctrl.Log.WithName(component), containerRuntime, kubeletDir, apparmor)
 }
 
 func runWebhook(ctx *cli.Context, info *version.Info) error {
