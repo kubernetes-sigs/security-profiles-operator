@@ -408,14 +408,10 @@ func main() {
 		},
 	}
 
-	if err := app.Run(os.Args); err != nil {
+	if err := app.RunContext(mainctx, os.Args); err != nil {
 		setupLog.Error(err, "running security-profiles-operator")
 		//nolint:gocritic // this is intentional to return to correct exit code
 		os.Exit(1)
-	}
-
-	if err := app.RunContext(mainctx, os.Args); err != nil {
-		fmt.Printf("application error: %v", err)
 	}
 }
 
