@@ -477,6 +477,7 @@ github.com/hashicorp/go-secure-stdlib/strutil v0.1.2 h1:kes8mmyCpxJsI7FTwtzRqEy9
 github.com/hashicorp/go-secure-stdlib/strutil v0.1.2/go.mod h1:Gou2R9+il93BqX25LAKCLuM+y9U2T4hlwvT1yprcna4=
 github.com/hashicorp/go-sockaddr v1.0.7 h1:G+pTkSO01HpR5qCxg7lxfsFEZaG+C0VssTy/9dbT+Fw=
 github.com/hashicorp/go-sockaddr v1.0.7/go.mod h1:FZQbEYa1pxkQ7WLpyXJ6cbjpT8q0YgQaK/JakXqGyWw=
+github.com/hashicorp/golang-lru v0.5.4 h1:YDjusn29QI/Das2iO9M0BHnIbxPeyuCHsjMW+lJfyTc=
 github.com/hashicorp/golang-lru/v2 v2.0.7 h1:a+bsQ5rvGLjzHuww6tVxozPZFVghXaHOwFs4luLUK2k=
 github.com/hashicorp/golang-lru/v2 v2.0.7/go.mod h1:QeFd9opnmA6QUJc5vARoKUSoFhyfM2/ZepoAG6RGpeM=
 github.com/hashicorp/hcl v1.0.1-vault-7 h1:ag5OxFVy3QYTFTJODRzTKVZ6xvdfLLCA1cy/Y6xGI0I=
@@ -633,8 +634,12 @@ github.com/opencontainers/runtime-tools v0.9.1-0.20260316125833-8a4db579f5c8 h1:
 github.com/opencontainers/runtime-tools v0.9.1-0.20260316125833-8a4db579f5c8/go.mod h1:DKDEfzxvRkoQ6n9TGhxQgg2IM1lY4aM0eaQP4e3oElw=
 github.com/opencontainers/selinux v1.14.1 h1:a7XlXV/nN/l5zFP1FWZYoExpClu1QOPMfWUV2CZ8kEQ=
 github.com/opencontainers/selinux v1.14.1/go.mod h1:LenyElirjUHszfxrjuFqC85HIeXZKumHcKMQtnaDlQQ=
-github.com/openshift/api v0.0.0-20260304122331-fa4ca2f2be59 h1:cp6BnGqm92zxbkogSNvjDN+73DxvCSokXnR5zL0REy0=
-github.com/openshift/api v0.0.0-20260304122331-fa4ca2f2be59/go.mod h1:pyVjK0nZ4sRs4fuQVQ4rubsJdahI1PB94LnQ8sGdvxo=
+github.com/openshift/api v0.0.0-20260507162658-047c8957c266 h1:WKG989mPfWiRt5hdblHLAtH5oAzyFT6Qe3vSUtaF5C0=
+github.com/openshift/api v0.0.0-20260507162658-047c8957c266/go.mod h1:pyVjK0nZ4sRs4fuQVQ4rubsJdahI1PB94LnQ8sGdvxo=
+github.com/openshift/controller-runtime-common v0.0.0-20260428152732-64ee174f5e2e h1:k89oIo2EjX0PRSdi1kesktCyWp50SC9WwKurvupvRGs=
+github.com/openshift/controller-runtime-common v0.0.0-20260428152732-64ee174f5e2e/go.mod h1:XGabTMnNbz0M5Oa7IbscZp/jmcc7aHobvOCUWwkzKvM=
+github.com/openshift/library-go v0.0.0-20260511114641-ae196b55736d h1:0O6Blk2RbdbREQvtZBNKvXugrRs35OnV/t0KHdHdUeA=
+github.com/openshift/library-go v0.0.0-20260511114641-ae196b55736d/go.mod h1:r7O6Q0YyWqNwFPZCalcBYAT6Z++q9jReXmTv1OqI1GA=
 github.com/pborman/getopt v0.0.0-20170112200414-7148bc3a4c30/go.mod h1:85jBQOZwpVEaDAr341tbn15RS4fCAsIst0qp7i8ex1o=
 github.com/pborman/uuid v1.2.1 h1:+ZZIw58t/ozdjRaXh/3awHfmWRbzYxJoAdNJxe/3pvw=
 github.com/pborman/uuid v1.2.1/go.mod h1:X/NO0urCmaxf9VXbdlT7C2Yzkj2IKimNn4k+gtPdI/k=
