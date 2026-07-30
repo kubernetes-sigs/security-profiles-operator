@@ -32,7 +32,9 @@ type PerfBuffer struct {
 func (pb *PerfBuffer) Poll(timeout int) {
 	pb.stop = make(chan struct{})
 	pb.wg.Add(1)
-	go pb.poll(timeout)
+	go func() {
+		_ = pb.poll(timeout)
+	}()
 }
 
 // Deprecated: use PerfBuffer.Poll() instead.

@@ -7,6 +7,7 @@ package libbpfgo
 import "C"
 
 import (
+	"errors"
 	"fmt"
 	"syscall"
 	"unsafe"
@@ -64,7 +65,7 @@ func (l *BPFLink) DestroyLegacy(linkType LinkType) error {
 		)
 	}
 
-	return fmt.Errorf("unable to destroy legacy link")
+	return errors.New("unable to destroy legacy link")
 }
 
 func (l *BPFLink) Destroy() error {

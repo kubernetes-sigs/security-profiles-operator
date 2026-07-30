@@ -1,8 +1,9 @@
 package libbpfgo
 
 import (
-	"C"
 	"unsafe"
+
+	"C"
 )
 
 // revive:disable

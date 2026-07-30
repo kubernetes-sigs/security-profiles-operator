@@ -168,6 +168,23 @@ struct bpf_link *cgo_bpf_program__attach_uprobe_multi(
     return bpf_program__attach_uprobe_multi(prog, pid, binary_path, func_pattern, &opts);
 }
 
+struct bpf_link *cgo_bpf_program__attach_uprobe_opts(struct bpf_program *prog,
+                                                     pid_t pid,
+                                                     const char *binary_path,
+                                                     size_t func_offset,
+                                                     size_t ref_ctr_offset,
+                                                     __u64 bpf_cookie,
+                                                     bool retprobe)
+{
+    struct bpf_uprobe_opts opts = {};
+    opts.sz = sizeof(opts);
+    opts.ref_ctr_offset = ref_ctr_offset;
+    opts.bpf_cookie = bpf_cookie;
+    opts.retprobe = retprobe;
+
+    return bpf_program__attach_uprobe_opts(prog, pid, binary_path, func_offset, &opts);
+}
+
 //
 // struct handlers
 //

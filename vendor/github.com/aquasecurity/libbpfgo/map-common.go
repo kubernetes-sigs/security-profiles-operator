@@ -7,6 +7,7 @@ package libbpfgo
 import "C"
 
 import (
+	"errors"
 	"fmt"
 	"syscall"
 )
@@ -185,7 +186,7 @@ func GetMapInfoByFD(fd int) (*BPFMapInfo, error) {
 // For per-CPU maps, it is calculated based on the number of possible CPUs.
 func CalcMapValueSize(valueSize int, mapType MapType) (int, error) {
 	if valueSize <= 0 {
-		return 0, fmt.Errorf("value size must be greater than 0")
+		return 0, errors.New("value size must be greater than 0")
 	}
 
 	switch mapType {

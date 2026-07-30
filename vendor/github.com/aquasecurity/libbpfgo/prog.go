@@ -206,7 +206,9 @@ func (p *BPFProg) AttachCgroup(cgroupV2DirPath string) (*BPFLink, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer syscall.Close(cgroupDirFD)
+	defer func() {
+		_ = syscall.Close(cgroupDirFD)
+	}()
 
 	linkC, errno := C.bpf_program__attach_cgroup(p.prog, C.int(cgroupDirFD))
 	if linkC == nil {
@@ -251,7 +253,9 @@ func (p *BPFProg) AttachCgroupLegacy(cgroupV2DirPath string, attachType BPFAttac
 	if err != nil {
 		return nil, err
 	}
-	defer syscall.Close(cgroupDirFD)
+	defer func() {
+		_ = syscall.Close(cgroupDirFD)
+	}()
 
 	retC, errno := C.cgo_bpf_prog_attach_cgroup_legacy(
 		C.int(p.FileDescriptor()),
@@ -291,7 +295,9 @@ func (p *BPFProg) DetachCgroupLegacy(cgroupV2DirPath string, attachType BPFAttac
 	if err != nil {
 		return err
 	}
-	defer syscall.Close(cgroupDirFD)
+	defer func() {
+		_ = syscall.Close(cgroupDirFD)
+	}()
 
 	retC, errno := C.cgo_bpf_prog_detach_cgroup_legacy(
 		C.int(p.FileDescriptor()),
@@ -628,6 +634,30 @@ func (p *BPFProg) AttachURetprobe(pid int, path string, offset uint64) (*BPFLink
 	return doAttachUprobe(p, true, pid, absPath, offset)
 }
 
+// AttachUprobeWithOpts attaches the BPFProgram to entry of the symbol in the library or binary at 'path'
+// which can be relative or absolute, with a bpf_cookie value retrievable via bpf_get_attach_cookie().
+// A pid can be provided to attach to, or -1 can be specified to attach to all processes.
+func (p *BPFProg) AttachUprobeWithOpts(pid int, path string, offset uint64, cookie uint64) (*BPFLink, error) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+
+	return doAttachUprobeOpts(p, false, pid, absPath, offset, 0, cookie)
+}
+
+// AttachURetprobeWithOpts attaches the BPFProgram to exit of the symbol in the library or binary at 'path'
+// which can be relative or absolute, with a bpf_cookie value retrievable via bpf_get_attach_cookie().
+// A pid can be provided to attach to, or -1 can be specified to attach to all processes.
+func (p *BPFProg) AttachURetprobeWithOpts(pid int, path string, offset uint64, cookie uint64) (*BPFLink, error) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+
+	return doAttachUprobeOpts(p, true, pid, absPath, offset, 0, cookie)
+}
+
 // AttachUprobeMulti attaches the BPFProgram to entry of the symbol in the library or binary at 'path'
 // which can be relative or absolute, using the uprobe_multi link, allowing to specify multiple offsets.
 // A pid can be provided to attach to, or -1 can be specified to attach to all processes.
@@ -669,6 +699,41 @@ func doAttachUprobe(prog *BPFProg, isUretprobe bool, pid int, path string, offse
 	)
 	if linkC == nil {
 		return nil, fmt.Errorf("failed to attach u(ret)probe to program %s:%d with pid %d: %w ", path, offset, pid, errno)
+	}
+
+	upType := Uprobe
+	if isUretprobe {
+		upType = Uretprobe
+	}
+
+	bpfLink := &BPFLink{
+		link:      linkC,
+		prog:      prog,
+		linkType:  upType,
+		eventName: fmt.Sprintf("%s:%d:%d", path, pid, offset),
+	}
+
+	return bpfLink, nil
+}
+
+// mirrors cgo_bpf_program__attach_uprobe_opts arguments
+//
+//revive:disable-next-line:argument-limit
+func doAttachUprobeOpts(prog *BPFProg, isUretprobe bool, pid int, path string, offset uint64, refCtrOffset uint64, cookie uint64) (*BPFLink, error) {
+	pathC := C.CString(path)
+	defer C.free(unsafe.Pointer(pathC))
+
+	linkC, errno := C.cgo_bpf_program__attach_uprobe_opts(
+		prog.prog,
+		C.int(pid),
+		pathC,
+		C.size_t(offset),
+		C.size_t(refCtrOffset),
+		C.__u64(cookie),
+		C.bool(isUretprobe),
+	)
+	if linkC == nil {
+		return nil, fmt.Errorf("failed to attach u(ret)probe to program %s:%d with pid %d: %w", path, offset, pid, errno)
 	}
 
 	upType := Uprobe

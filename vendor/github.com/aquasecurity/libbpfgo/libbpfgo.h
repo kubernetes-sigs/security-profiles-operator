@@ -40,6 +40,14 @@ struct bpf_link *cgo_bpf_program__attach_uprobe_multi(struct bpf_program *prog,
                                                       size_t count,
                                                       bool retprobe);
 
+struct bpf_link *cgo_bpf_program__attach_uprobe_opts(struct bpf_program *prog,
+                                                     pid_t pid,
+                                                     const char *binary_path,
+                                                     size_t func_offset,
+                                                     size_t ref_ctr_offset,
+                                                     __u64 bpf_cookie,
+                                                     bool retprobe);
+
 //
 // struct handlers
 //

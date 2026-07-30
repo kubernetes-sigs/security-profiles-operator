@@ -141,8 +141,8 @@ github.com/andreyvit/diff v0.0.0-20170406064948-c7f18ee00883 h1:bvNMNQO63//z+xNg
 github.com/andreyvit/diff v0.0.0-20170406064948-c7f18ee00883/go.mod h1:rCTlJbsFo29Kk6CurOXKm700vrz8f0KW0JNfpkRJY/8=
 github.com/antlr4-go/antlr/v4 v4.13.1 h1:SqQKkuVZ+zWkMMNkjy5FZe5mr5WURWnlpmOuzYWrPrQ=
 github.com/antlr4-go/antlr/v4 v4.13.1/go.mod h1:GKmUxMtwp6ZgGwZSva4eWPC5mS6vUAmOABFgjdkM7Nw=
-github.com/aquasecurity/libbpfgo v0.10.0-libbpf-1.5.1 h1:i/6EeKnBR3XVeLmOyMbM0Oq+kIC08n613zwkD8lix8w=
-github.com/aquasecurity/libbpfgo v0.10.0-libbpf-1.5.1/go.mod h1:veHe4u3xEpl0TBV+wX0AFJWOsnteNPOhNklRbYf3d+k=
+github.com/aquasecurity/libbpfgo v0.11.0-libbpf-1.8-dev-2bbc483 h1:cIVgy3qUrc/zIJQijxC+VXou00JBtegmRghdMuCrQKc=
+github.com/aquasecurity/libbpfgo v0.11.0-libbpf-1.8-dev-2bbc483/go.mod h1:bRzdRnYH24hENJCufBHJvSbtFIhtWSAGg4OSWhvyLso=
 github.com/arbovm/levenshtein v0.0.0-20160628152529-48b4e1c0c4d0 h1:jfIu9sQUG6Ig+0+Ap1h4unLjW6YQJpKZVmUzxsD4E/Q=
 github.com/arbovm/levenshtein v0.0.0-20160628152529-48b4e1c0c4d0/go.mod h1:t2tdKJDJF9BV14lnkjHmOQgcvEKgtqs5a1N3LNdJhGE=
 github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 h1:DklsrG3dyBCFEj5IhUbnKptjxatkF07cF2ak3yi77so=
