@@ -30,7 +30,9 @@ type RingBuffer struct {
 func (rb *RingBuffer) Poll(timeout int) {
 	rb.stop = make(chan struct{})
 	rb.wg.Add(1)
-	go rb.poll(timeout)
+	go func() {
+		_ = rb.poll(timeout)
+	}()
 }
 
 // Deprecated: use RingBuffer.Poll() instead.

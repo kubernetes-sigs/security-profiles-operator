@@ -260,8 +260,8 @@ github.com/aliyun/credentials-go/credentials/utils
 # github.com/antlr4-go/antlr/v4 v4.13.1
 ## explicit; go 1.22
 github.com/antlr4-go/antlr/v4
-# github.com/aquasecurity/libbpfgo v0.10.0-libbpf-1.5.1
-## explicit; go 1.21
+# github.com/aquasecurity/libbpfgo v0.11.0-libbpf-1.8-dev-2bbc483
+## explicit; go 1.18
 github.com/aquasecurity/libbpfgo
 # github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2
 ## explicit; go 1.13

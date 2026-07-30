@@ -196,7 +196,7 @@ func (m *Module) Close() {
 	}
 	for _, link := range m.links {
 		if link.link != nil {
-			link.Destroy()
+			_ = link.Destroy()
 		}
 	}
 	C.bpf_object__close(m.obj)
@@ -208,10 +208,26 @@ func (m *Module) BPFLoadObject() error {
 		return fmt.Errorf("failed to load BPF object: %w", syscall.Errno(-retC))
 	}
 	m.loaded = true
-	m.elf.Close()
+	if err := m.elf.Close(); err != nil {
+		return fmt.Errorf("failed to close ELF file: %w", err)
+	}
 	m.elf = nil
 
 	return nil
+}
+
+// BTFFD returns the BTF file descriptor associated with this loaded BPF object.
+func (m *Module) BTFFD() (int, error) {
+	if m == nil || m.obj == nil {
+		return -1, errors.New("module is not initialized")
+	}
+
+	fdC := C.bpf_object__btf_fd(m.obj)
+	if fdC < 0 {
+		return int(fdC), fmt.Errorf("failed to get BTF fd from BPF object: %w", syscall.Errno(-fdC))
+	}
+
+	return int(fdC), nil
 }
 
 // InitGlobalVariable sets global variables (defined in .data or .rodata)
@@ -341,7 +357,7 @@ func (m *Module) InitUserRingBuf(mapName string, eventsChan chan []byte) (*UserR
 	}
 
 	if eventsChan == nil {
-		return nil, fmt.Errorf("events channel can not be nil")
+		return nil, errors.New("events channel can not be nil")
 	}
 
 	rbC, errno := C.cgo_init_user_ring_buf(C.int(bpfMap.FileDescriptor()))
@@ -365,12 +381,12 @@ func (m *Module) InitRingBuf(mapName string, eventsChan chan []byte) (*RingBuffe
 	}
 
 	if eventsChan == nil {
-		return nil, fmt.Errorf("events channel can not be nil")
+		return nil, errors.New("events channel can not be nil")
 	}
 
 	slot := eventChannels.put(eventsChan)
 	if slot == -1 {
-		return nil, fmt.Errorf("max ring buffers reached")
+		return nil, errors.New("max ring buffers reached")
 	}
 
 	rbC, errno := C.cgo_init_ring_buf(C.int(bpfMap.FileDescriptor()), C.uintptr_t(slot))
@@ -395,12 +411,12 @@ func (m *Module) AddRingBuf(ringBuf *RingBuffer, mapName string, eventsChan chan
 	}
 
 	if eventsChan == nil {
-		return false, fmt.Errorf("events channel can not be nil")
+		return false, errors.New("events channel can not be nil")
 	}
 
 	slot := eventChannels.put(eventsChan)
 	if slot == -1 {
-		return false, fmt.Errorf("max ring buffers reached")
+		return false, errors.New("max ring buffers reached")
 	}
 	ringBuf.slots = append(ringBuf.slots, uint(slot))
 
@@ -419,7 +435,7 @@ func (m *Module) InitPerfBuf(mapName string, eventsChan chan []byte, lostChan ch
 	}
 
 	if eventsChan == nil {
-		return nil, fmt.Errorf("failed to init perf buffer: events channel can not be nil")
+		return nil, errors.New("failed to init perf buffer: events channel can not be nil")
 	}
 
 	perfBuf := &PerfBuffer{
@@ -430,7 +446,7 @@ func (m *Module) InitPerfBuf(mapName string, eventsChan chan []byte, lostChan ch
 
 	slot := eventChannels.put(perfBuf)
 	if slot == -1 {
-		return nil, fmt.Errorf("max number of ring/perf buffers reached")
+		return nil, errors.New("max number of ring/perf buffers reached")
 	}
 
 	pbC, errno := C.cgo_init_perf_buf(C.int(bpfMap.FileDescriptor()), C.int(pageCnt), C.uintptr_t(slot))
