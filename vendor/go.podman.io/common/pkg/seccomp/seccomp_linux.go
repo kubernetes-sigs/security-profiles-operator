@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 
 	"github.com/opencontainers/runtime-spec/specs-go"
@@ -54,17 +55,6 @@ var nativeToSeccomp = map[string]Arch{
 	"mipsel64":    ArchMIPSEL64,
 	"mipsel64n32": ArchMIPSEL64N32,
 	"s390x":       ArchS390X,
-}
-
-// inSlice tests whether a string is contained in a slice of strings or not.
-// Comparison is case sensitive.
-func inSlice(slice []string, s string) bool {
-	for _, ss := range slice {
-		if s == ss {
-			return true
-		}
-	}
-	return false
 }
 
 func getArchitectures(config *Seccomp, newConfig *specs.LinuxSeccomp) error {
@@ -153,25 +143,25 @@ Loop:
 	// Loop through all syscall blocks and convert them to libcontainer format after filtering them
 	for _, call := range config.Syscalls {
 		if len(call.Excludes.Arches) > 0 {
-			if inSlice(call.Excludes.Arches, arch) {
+			if slices.Contains(call.Excludes.Arches, arch) {
 				continue Loop
 			}
 		}
 		if len(call.Excludes.Caps) > 0 {
 			for _, c := range call.Excludes.Caps {
-				if rs != nil && rs.Process != nil && rs.Process.Capabilities != nil && inSlice(rs.Process.Capabilities.Bounding, c) {
+				if rs != nil && rs.Process != nil && rs.Process.Capabilities != nil && slices.Contains(rs.Process.Capabilities.Bounding, c) {
 					continue Loop
 				}
 			}
 		}
 		if len(call.Includes.Arches) > 0 {
-			if !inSlice(call.Includes.Arches, arch) {
+			if !slices.Contains(call.Includes.Arches, arch) {
 				continue Loop
 			}
 		}
 		if len(call.Includes.Caps) > 0 {
 			for _, c := range call.Includes.Caps {
-				if rs != nil && rs.Process != nil && rs.Process.Capabilities != nil && !inSlice(rs.Process.Capabilities.Bounding, c) {
+				if rs != nil && rs.Process != nil && rs.Process.Capabilities != nil && !slices.Contains(rs.Process.Capabilities.Bounding, c) {
 					continue Loop
 				}
 			}
