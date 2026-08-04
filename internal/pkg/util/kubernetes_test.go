@@ -182,17 +182,17 @@ func TestMatchSelinuxdImageVersion(t *testing.T) {
 
 	mappingJSON := `[
 		{
-			"regex": "(.*)(CoreOS).*(41[0-2]\\.[0-9]+)\\..*|(.*)(Red Hat Enterprise Linux release)\\s+8\\.[0-9]+",
+			"regex": "(.*)(CoreOS).*(41[0-2]\\.[0-9]+)\\..*|(.*)(Red Hat Enterprise Linux)(\\s+release)?\\s+8\\.[0-9]+",
 			"imageFromVar": "RELATED_IMAGE_SELINUXD_EL8"
 		},
 		{
 			"regex": "(.*)(CoreOS).*10\\.[0-9]+\\..*|(.*)(Red Hat Enterprise Linux CoreOS)\\s+10\\.[0-9]+\\..*` +
-		`|(.*)(Red Hat Enterprise Linux release)\\s+10\\.[0-9]+",
+		`|(.*)(Red Hat Enterprise Linux)(\\s+release)?\\s+10\\.[0-9]+",
 			"imageFromVar": "RELATED_IMAGE_SELINUXD_EL10"
 		},
 		{
 			"regex": "(.*)(CoreOS).*(41[3-9]\\.[0-9]+)\\..*|(.*)(CoreOS)\\s+9\\.[0-9]+\\..*` +
-		`|(.*)(Red Hat Enterprise Linux release)\\s+9\\.[0-9]+",
+		`|(.*)(Red Hat Enterprise Linux)(\\s+release)?\\s+9\\.[0-9]+",
 			"imageFromVar": "RELATED_IMAGE_SELINUXD_EL9"
 		}
 	]`
@@ -347,6 +347,28 @@ func TestMatchSelinuxdImageVersion(t *testing.T) {
 			},
 			want: "RELATED_IMAGE_SELINUXD_EL8",
 		},
+		{
+			name: "Direct RHEL 9.8 without release",
+			node: &corev1.Node{
+				Status: corev1.NodeStatus{
+					NodeInfo: corev1.NodeSystemInfo{
+						OSImage: "Red Hat Enterprise Linux 9.8 (Plow)",
+					},
+				},
+			},
+			want: "RELATED_IMAGE_SELINUXD_EL9",
+		},
+		{
+			name: "Direct RHEL 8.6 without release",
+			node: &corev1.Node{
+				Status: corev1.NodeStatus{
+					NodeInfo: corev1.NodeSystemInfo{
+						OSImage: "Red Hat Enterprise Linux 8.6 (Ootpa)",
+					},
+				},
+			},
+			want: "RELATED_IMAGE_SELINUXD_EL8",
+		},
 	}
 
 	for _, tt := range tests {
@@ -386,7 +408,8 @@ func TestGetOperatorConfigMap(t *testing.T) {
 			args: args{
 				c: &MockClient{
 					MockGet: NewMockGetFn(kerrors.NewForbidden(
-						schema.GroupResource{}, "test", errors.New("test"))),
+						schema.GroupResource{}, "test", errors.New("test"),
+					)),
 				},
 			},
 			want:    nil,
