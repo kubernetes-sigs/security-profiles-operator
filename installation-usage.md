@@ -1900,6 +1900,43 @@ including the `mknod` syscall:
   - mknod
 ```
 
+**Syscall coverage annotation**
+
+When a `SeccompProfile` is produced by a merge (`mergeStrategy: Containers`), the resulting profile
+carries an informational annotation, `spo.x-k8s.io/syscall-coverage`, that records how the merged
+allowlist was assembled from the individual partial profiles. Its value is a small JSON document:
+
+```json
+{
+  "version": "v1",
+  "total": 3,
+  "syscalls": {
+    "mknod": 1,
+    "read": 3,
+    "write": 3
+  }
+}
+```
+
+The semantics are literal, per syscall: `total` is **M**, the number of partial profiles that were
+collected and included in the merge, and each entry under `syscalls` is **N**, the number of those
+partial profiles that contained that syscall. A syscall that appears more than once inside a single
+partial profile still counts once for that profile. In the example above, `read` and `write` were
+observed in all three recorded containers, while `mknod` was observed in only one.
+
+This is **observation coverage, not confidence or probability**, and it does not measure how many
+times a syscall was invoked. `total` counts the partial profiles that were actually collected, which
+is not necessarily the number of executions that occurred (for example, a recording can be lost if
+the operator restarts mid-recording). Recorded replicas usually run identical images and are
+therefore correlated rather than independent samples, so the counts should not be read as a
+statistical measure.
+
+The annotation is purely informational: it never changes the generated seccomp allowlist, and the
+enforced profile is exactly what the merge produces regardless of these counts. Treat it as a review
+aid only — **do not remove syscalls from a generated profile based solely on a low coverage count**,
+since a syscall observed in only one replica may still be required on a code path the other replicas
+did not exercise.
+
 ## Command Line Interface (CLI)
 
 The Security Profiles Operator CLI `spoc` aims to support use cases where

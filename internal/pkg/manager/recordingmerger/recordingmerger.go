@@ -165,6 +165,16 @@ func (r *PolicyMergeReconciler) mergeTypedProfiles(
 	for cntName, cntPartialProfiles := range partialProfiles {
 		r.log.Info("Merging profiles for container", "container", cntName)
 
+		// Informational only; empty for non-seccomp kinds.
+		coverageAnnotation, err := seccompCoverageAnnotation(cntPartialProfiles)
+		if err != nil {
+			// The current coverage schema contains only JSON-supported types, so
+			// this error is theoretical unless the schema changes.
+			r.log.Error(err, "Cannot compute syscall coverage", "container", cntName)
+
+			coverageAnnotation = ""
+		}
+
 		mergedProfile, err := mergeMergeableProfiles(cntPartialProfiles)
 		if err != nil {
 			return fmt.Errorf("cannot merge partial profiles: %w", err)
@@ -179,7 +189,10 @@ func (r *PolicyMergeReconciler) mergeTypedProfiles(
 
 		mergedRecordingName := mergedProfileName(profileRecording.Name, cntPartialProfiles[0])
 
-		res, err := createUpdateMergedProfile(ctx, r.client, profileRecording, mergedRecordingName, mergedProfile)
+		r.log.V(1).Info("Computed syscall coverage", "container", cntName, "coverage", coverageAnnotation)
+
+		res, err := createUpdateMergedProfile(
+			ctx, r.client, profileRecording, mergedRecordingName, mergedProfile, coverageAnnotation)
 		if err != nil {
 			r.record.Event(profileRecording, util.EventTypeWarning, reasonCannotCreateUpdate, err.Error())
 
@@ -198,6 +211,7 @@ type createUpdateFn func(
 	profileRecording *profilerecordingapi.ProfileRecording,
 	mergedRecordingName string,
 	mergedProfiles mergeableProfile,
+	coverageAnnotation string,
 ) (controllerutil.OperationResult, error)
 
 func (r *PolicyMergeReconciler) mergeSeccompProfiles(
@@ -243,6 +257,7 @@ func createUpdateSeccompProfile(
 	profileRecording *profilerecordingapi.ProfileRecording,
 	mergedRecordingName string,
 	mergedProfiles mergeableProfile,
+	coverageAnnotation string,
 ) (controllerutil.OperationResult, error) {
 	return createUpdateProfile(
 		ctx,
@@ -251,6 +266,7 @@ func createUpdateSeccompProfile(
 		mergedRecordingName,
 		mergedProfiles,
 		profilerecordingapi.ProfileRecordingKindSeccompProfile,
+		coverageAnnotation,
 	)
 }
 
@@ -260,6 +276,7 @@ func createUpdateSelinuxProfile(
 	profileRecording *profilerecordingapi.ProfileRecording,
 	mergedRecordingName string,
 	mergedProfiles mergeableProfile,
+	coverageAnnotation string,
 ) (controllerutil.OperationResult, error) {
 	return createUpdateProfile(
 		ctx,
@@ -268,6 +285,7 @@ func createUpdateSelinuxProfile(
 		mergedRecordingName,
 		mergedProfiles,
 		profilerecordingapi.ProfileRecordingKindSelinuxProfile,
+		coverageAnnotation,
 	)
 }
 
@@ -277,6 +295,7 @@ func createUpdateApparmorProfile(
 	profileRecording *profilerecordingapi.ProfileRecording,
 	mergedRecordingName string,
 	mergedProfiles mergeableProfile,
+	coverageAnnotation string,
 ) (controllerutil.OperationResult, error) {
 	return createUpdateProfile(
 		ctx,
@@ -285,6 +304,7 @@ func createUpdateApparmorProfile(
 		mergedRecordingName,
 		mergedProfiles,
 		profilerecordingapi.ProfileRecordingKindAppArmorProfile,
+		coverageAnnotation,
 	)
 }
 
@@ -295,6 +315,7 @@ func createUpdateProfile(
 	mergedRecordingName string,
 	mergedProfiles mergeableProfile,
 	kind profilerecordingapi.ProfileRecordingKind,
+	coverageAnnotation string,
 ) (controllerutil.OperationResult, error) {
 	switch kind {
 	case profilerecordingapi.ProfileRecordingKindSeccompProfile:
@@ -313,6 +334,8 @@ func createUpdateProfile(
 		return controllerutil.CreateOrUpdate(ctx, cl, mergedSp,
 			func() error {
 				mergedSp.Spec = *mergedSpec
+
+				setSyscallCoverageAnnotation(mergedSp, coverageAnnotation)
 
 				return nil
 			},
