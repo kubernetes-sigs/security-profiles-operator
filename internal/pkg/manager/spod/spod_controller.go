@@ -580,6 +580,14 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		templateSpec.Containers[bindata.ContainerIDDaemon].Args = append(
 			templateSpec.Containers[bindata.ContainerIDDaemon].Args,
 			fmt.Sprintf("--with-raw-selinux=%t", enableRawSelinux))
+
+		if cfg.Spec.Selinux.CustomTemplatesConfigMap != "" {
+			vol, mount := bindata.CustomTemplatesVolume(cfg.Spec.Selinux.CustomTemplatesConfigMap)
+			templateSpec.Volumes = append(templateSpec.Volumes, vol)
+			idx := bindata.InitContainerIDSelinuxSharedPoliciesCopier
+			templateSpec.InitContainers[idx].VolumeMounts = append(
+				templateSpec.InitContainers[idx].VolumeMounts, mount)
+		}
 	}
 
 	// Custom host proc volume

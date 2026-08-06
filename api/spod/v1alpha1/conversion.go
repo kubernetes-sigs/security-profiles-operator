@@ -76,6 +76,7 @@ func (src *SecurityProfilesOperatorDaemon) ConvertTo(dstRaw conversion.Hub) erro
 	dst.Spec.Selinux.EnableRawSelinuxProfiles = src.Spec.Selinux.EnableRawSelinuxProfiles
 	dst.Spec.Selinux.TypeTag = src.Spec.Selinux.TypeTag
 	dst.Spec.Selinux.Options.AllowedSystemProfiles = src.Spec.Selinux.Options.AllowedSystemProfiles
+	dst.Spec.Selinux.CustomTemplatesConfigMap = src.Spec.Selinux.CustomTemplatesConfigMap
 
 	// Enricher
 	dst.Spec.Enricher.EnableLogEnricher = src.Spec.Enricher.EnableLogEnricher
@@ -148,6 +149,7 @@ func (dst *SecurityProfilesOperatorDaemon) ConvertFrom(srcRaw conversion.Hub) er
 	dst.Spec.Selinux.EnableRawSelinuxProfiles = src.Spec.Selinux.EnableRawSelinuxProfiles
 	dst.Spec.Selinux.TypeTag = src.Spec.Selinux.TypeTag
 	dst.Spec.Selinux.Options.AllowedSystemProfiles = src.Spec.Selinux.Options.AllowedSystemProfiles
+	dst.Spec.Selinux.CustomTemplatesConfigMap = src.Spec.Selinux.CustomTemplatesConfigMap
 
 	// Enricher
 	dst.Spec.Enricher.EnableLogEnricher = src.Spec.Enricher.EnableLogEnricher
