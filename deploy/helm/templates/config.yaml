@@ -25,6 +25,9 @@ spec:
     options:
       {{- toYaml . | nindent 6 }}
     {{- end }}
+    {{- with .Values.selinux.customTemplatesConfigMap }}
+    customTemplatesConfigMap: {{ . | quote }}
+    {{- end }}
   enricher:
     enableLogEnricher: {{ .Values.enableLogEnricher }}
     enableJsonEnricher: {{ .Values.enableJsonEnricher }}

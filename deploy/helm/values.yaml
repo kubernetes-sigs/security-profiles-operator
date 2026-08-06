@@ -30,6 +30,7 @@ selinux:
   # enable: false # Overrides deprecated enableSelinux flag
   enableRawSelinuxProfiles: true
   typeTag: spc_t
+  customTemplatesConfigMap: ""
   options: {}
     # allowedSystemProfiles:
     #   - container
@@ -45,7 +46,6 @@ enableAppArmor: false
 enableBpfRecorder: false
 enableProfiling: false
 verbosity: 0
-
 
 nameOverride: ""
 fullnameOverride: ""
