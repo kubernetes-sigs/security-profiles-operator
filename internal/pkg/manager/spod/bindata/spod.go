@@ -76,6 +76,7 @@ const (
 	ContainerPort                              int32 = 9443
 	metricsServerCert                                = "metrics-server-cert"
 	MetricsCertPath                                  = "/var/run/secrets/metrics"
+	SelinuxCustomTemplatesVolumeName                 = "selinux-custom-templates"
 )
 
 var DefaultSPOD = &spodapi.SecurityProfilesOperatorDaemon{
@@ -1013,5 +1014,20 @@ func CustomConfigMap(mountPath string, configVolSource *corev1.VolumeSource) (co
 			Name:      volumeName,
 			MountPath: mountPath,
 			ReadOnly:  false,
+		}
+}
+
+func CustomTemplatesVolume(configMapName string) (corev1.Volume, corev1.VolumeMount) {
+	return corev1.Volume{
+			Name: SelinuxCustomTemplatesVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{Name: configMapName},
+				},
+			},
+		}, corev1.VolumeMount{
+			Name:      SelinuxCustomTemplatesVolumeName,
+			MountPath: "/usr/share/selinuxd/templates",
+			ReadOnly:  true,
 		}
 }

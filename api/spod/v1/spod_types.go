@@ -221,6 +221,14 @@ type SPODSelinuxConfig struct {
 	// +optional
 	// +default={}
 	Options SelinuxOptions `json:"options,omitzero,omitempty"`
+	// customTemplatesConfigMap if defined, names a ConfigMap containing .cil
+	// files that replace the bundled selinuxd templates entirely. The ConfigMap
+	// must exist in the same namespace as the SPOD daemonset. Use this on
+	// distributions (e.g. Flatcar Linux) whose SELinux policy base is incompatible
+	// with the templates shipped with selinuxd.
+	// +optional
+	// +kubebuilder:validation:MaxLength=253
+	CustomTemplatesConfigMap string `json:"customTemplatesConfigMap,omitempty"`
 }
 
 // SPODEnricherConfig contains log enricher, JSON enricher, and BPF recorder configuration.
