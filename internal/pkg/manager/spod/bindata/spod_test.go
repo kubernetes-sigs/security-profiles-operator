@@ -23,6 +23,18 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
+func Test_CustomTemplatesVolume(t *testing.T) {
+	t.Parallel()
+
+	vol, mount := CustomTemplatesVolume("test-templates")
+
+	require.Equal(t, SelinuxCustomTemplatesVolumeName, vol.Name)
+	require.Equal(t, "test-templates", vol.ConfigMap.Name)
+	require.Equal(t, SelinuxCustomTemplatesVolumeName, mount.Name)
+	require.Equal(t, "/usr/share/selinuxd/templates", mount.MountPath)
+	require.True(t, mount.ReadOnly)
+}
+
 func Test_CustomLogVolume(t *testing.T) {
 	t.Parallel()
 

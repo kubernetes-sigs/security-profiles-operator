@@ -25,6 +25,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 )
 
 func Test_addAuditLogConfig(t *testing.T) {
@@ -141,6 +142,76 @@ func Test_getConfiguredJsonEnricherNilInterval(t *testing.T) {
 
 	require.True(t, containsString(r.baseSPOd.Spec.Template.Spec.Containers[4].Args,
 		"--audit-log-maxsize=10"))
+}
+
+func Test_addSelinuxCustomTemplatesVolumeEmpty(t *testing.T) {
+	t.Parallel()
+
+	cfg := &spodapi.SecurityProfilesOperatorDaemon{
+		Spec: spodapi.SPODSpec{
+			Selinux: spodapi.SPODSelinuxConfig{
+				CustomTemplatesConfigMap: "",
+			},
+		},
+	}
+
+	templateSpec := &v1.PodSpec{
+		InitContainers: []v1.Container{{Name: bindata.SelinuxPoliciesCopierContainerName}},
+	}
+
+	addSelinuxCustomTemplatesVolume(cfg, templateSpec)
+
+	require.Empty(t, templateSpec.Volumes)
+	require.Empty(t, templateSpec.InitContainers[0].VolumeMounts)
+}
+
+func Test_addSelinuxCustomTemplatesNoInitContainer(t *testing.T) {
+	t.Parallel()
+
+	cfg := &spodapi.SecurityProfilesOperatorDaemon{
+		Spec: spodapi.SPODSpec{
+			Selinux: spodapi.SPODSelinuxConfig{
+				CustomTemplatesConfigMap: "test-templates",
+			},
+		},
+	}
+
+	templateSpec := &v1.PodSpec{
+		InitContainers: []v1.Container{{Name: "some-other-container"}},
+	}
+
+	addSelinuxCustomTemplatesVolume(cfg, templateSpec)
+
+	require.Empty(t, templateSpec.Volumes)
+	require.Empty(t, templateSpec.InitContainers[0].VolumeMounts)
+}
+
+func Test_addSelinuxCustomTemplatesVolume(t *testing.T) {
+	t.Parallel()
+
+	cfg := &spodapi.SecurityProfilesOperatorDaemon{
+		Spec: spodapi.SPODSpec{
+			Selinux: spodapi.SPODSelinuxConfig{
+				CustomTemplatesConfigMap: "test-templates",
+			},
+		},
+	}
+
+	templateSpec := &v1.PodSpec{
+		InitContainers: []v1.Container{
+			{Name: "some-other-container"},
+			{Name: bindata.SelinuxPoliciesCopierContainerName},
+		},
+	}
+
+	addSelinuxCustomTemplatesVolume(cfg, templateSpec)
+
+	require.Len(t, templateSpec.Volumes, 1)
+	require.Equal(t, "test-templates", templateSpec.Volumes[0].ConfigMap.Name)
+	require.Empty(t, templateSpec.InitContainers[0].VolumeMounts)
+	require.Len(t, templateSpec.InitContainers[1].VolumeMounts, 1)
+	require.Equal(t, templateSpec.Volumes[0].Name, templateSpec.InitContainers[1].VolumeMounts[0].Name)
+	require.Equal(t, "/usr/share/selinuxd/templates", templateSpec.InitContainers[1].VolumeMounts[0].MountPath)
 }
 
 func containsString(slice []string, element string) bool {
