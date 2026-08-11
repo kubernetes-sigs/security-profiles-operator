@@ -581,13 +581,7 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 			templateSpec.Containers[bindata.ContainerIDDaemon].Args,
 			fmt.Sprintf("--with-raw-selinux=%t", enableRawSelinux))
 
-		if cfg.Spec.Selinux.CustomTemplatesConfigMap != "" {
-			vol, mount := bindata.CustomTemplatesVolume(cfg.Spec.Selinux.CustomTemplatesConfigMap)
-			templateSpec.Volumes = append(templateSpec.Volumes, vol)
-			idx := bindata.InitContainerIDSelinuxSharedPoliciesCopier
-			templateSpec.InitContainers[idx].VolumeMounts = append(
-				templateSpec.InitContainers[idx].VolumeMounts, mount)
-		}
+		addSelinuxCustomTemplatesVolume(cfg, templateSpec)
 	}
 
 	// Custom host proc volume
@@ -905,6 +899,26 @@ func (r *ReconcileSPOd) getConfiguredWebook(cfg *spodapi.SecurityProfilesOperato
 		pullPolicy, caInjectType, cfg.Spec.Scheduling.Tolerations, cfg.Spec.ImagePullSecrets, isJsonEnricherEnabled(cfg))
 
 	return webhook
+}
+
+func addSelinuxCustomTemplatesVolume(
+	cfg *spodapi.SecurityProfilesOperatorDaemon,
+	templateSpec *corev1.PodSpec,
+) {
+	if cfg.Spec.Selinux.CustomTemplatesConfigMap == "" {
+		return
+	}
+
+	idx := slices.IndexFunc(templateSpec.InitContainers, func(c corev1.Container) bool {
+		return c.Name == bindata.SelinuxPoliciesCopierContainerName
+	})
+	if idx == -1 {
+		return
+	}
+
+	vol, mount := bindata.CustomTemplatesVolume(cfg.Spec.Selinux.CustomTemplatesConfigMap)
+	templateSpec.Volumes = append(templateSpec.Volumes, vol)
+	templateSpec.InitContainers[idx].VolumeMounts = append(templateSpec.InitContainers[idx].VolumeMounts, mount)
 }
 
 func isLogEnricherEnabled(cfg *spodapi.SecurityProfilesOperatorDaemon) bool {
