@@ -159,8 +159,9 @@ func Test_addSelinuxCustomTemplatesVolumeEmpty(t *testing.T) {
 		InitContainers: []v1.Container{{Name: bindata.SelinuxPoliciesCopierContainerName}},
 	}
 
-	addSelinuxCustomTemplatesVolume(cfg, templateSpec)
+	err := addSelinuxCustomTemplatesVolume(cfg, templateSpec)
 
+	require.NoError(t, err)
 	require.Empty(t, templateSpec.Volumes)
 	require.Empty(t, templateSpec.InitContainers[0].VolumeMounts)
 }
@@ -180,8 +181,9 @@ func Test_addSelinuxCustomTemplatesNoInitContainer(t *testing.T) {
 		InitContainers: []v1.Container{{Name: "some-other-container"}},
 	}
 
-	addSelinuxCustomTemplatesVolume(cfg, templateSpec)
+	err := addSelinuxCustomTemplatesVolume(cfg, templateSpec)
 
+	require.Error(t, err)
 	require.Empty(t, templateSpec.Volumes)
 	require.Empty(t, templateSpec.InitContainers[0].VolumeMounts)
 }
@@ -204,8 +206,9 @@ func Test_addSelinuxCustomTemplatesVolume(t *testing.T) {
 		},
 	}
 
-	addSelinuxCustomTemplatesVolume(cfg, templateSpec)
+	err := addSelinuxCustomTemplatesVolume(cfg, templateSpec)
 
+	require.NoError(t, err)
 	require.Len(t, templateSpec.Volumes, 1)
 	require.Equal(t, "test-templates", templateSpec.Volumes[0].ConfigMap.Name)
 	require.Empty(t, templateSpec.InitContainers[0].VolumeMounts)
