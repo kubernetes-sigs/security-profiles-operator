@@ -225,7 +225,8 @@ type SPODSelinuxConfig struct {
 	// files that replace the bundled selinuxd templates entirely. The ConfigMap
 	// must exist in the same namespace as the SPOD daemonset. Use this on
 	// distributions (e.g. Flatcar Linux) whose SELinux policy base is incompatible
-	// with the templates shipped with selinuxd.
+	// with the templates shipped with selinuxd. Note: changes to the ConfigMap
+	// contents require restarting the DaemonSet pods to take effect.
 	// +optional
 	// +kubebuilder:validation:MaxLength=253
 	CustomTemplatesConfigMap string `json:"customTemplatesConfigMap,omitempty"`
