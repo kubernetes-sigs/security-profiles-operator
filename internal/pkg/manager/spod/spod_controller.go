@@ -54,8 +54,9 @@ const (
 	// default reconcile timeout.
 	reconcileTimeout = 1 * time.Minute
 
-	reasonCannotCreateSPOD string = "CannotCreateSPOD"
-	reasonCannotUpdateSPOD string = "CannotUpdateSPOD"
+	reasonCannotCreateSPOD           string = "CannotCreateSPOD"
+	reasonCannotUpdateSPOD           string = "CannotUpdateSPOD"
+	reasonCannotMountCustomTemplates string = "CannotMountCustomTemplates"
 
 	appArmorAnnotation = "container.seccomp.security.alpha.kubernetes.io/security-profiles-operator"
 )
@@ -581,7 +582,10 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 			templateSpec.Containers[bindata.ContainerIDDaemon].Args,
 			fmt.Sprintf("--with-raw-selinux=%t", enableRawSelinux))
 
-		addSelinuxCustomTemplatesVolume(cfg, templateSpec)
+		if err := addSelinuxCustomTemplatesVolume(cfg, templateSpec); err != nil {
+			r.log.Info("Unable to mount custom SELinux templates", "error", err)
+			r.record.Event(cfg, util.EventTypeWarning, reasonCannotMountCustomTemplates, err.Error())
+		}
 	}
 
 	// Custom host proc volume
@@ -904,21 +908,26 @@ func (r *ReconcileSPOd) getConfiguredWebook(cfg *spodapi.SecurityProfilesOperato
 func addSelinuxCustomTemplatesVolume(
 	cfg *spodapi.SecurityProfilesOperatorDaemon,
 	templateSpec *corev1.PodSpec,
-) {
+) error {
 	if cfg.Spec.Selinux.CustomTemplatesConfigMap == "" {
-		return
+		return nil
 	}
 
 	idx := slices.IndexFunc(templateSpec.InitContainers, func(c corev1.Container) bool {
 		return c.Name == bindata.SelinuxPoliciesCopierContainerName
 	})
 	if idx == -1 {
-		return
+		return fmt.Errorf(
+			"customTemplatesConfigMap is set but %s init container was not found",
+			bindata.SelinuxPoliciesCopierContainerName,
+		)
 	}
 
 	vol, mount := bindata.CustomTemplatesVolume(cfg.Spec.Selinux.CustomTemplatesConfigMap)
 	templateSpec.Volumes = append(templateSpec.Volumes, vol)
 	templateSpec.InitContainers[idx].VolumeMounts = append(templateSpec.InitContainers[idx].VolumeMounts, mount)
+
+	return nil
 }
 
 func isLogEnricherEnabled(cfg *spodapi.SecurityProfilesOperatorDaemon) bool {
