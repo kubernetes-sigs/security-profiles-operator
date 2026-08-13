@@ -185,7 +185,11 @@ func (r *ReconcileSPOd) Reconcile(ctx context.Context, req reconcile.Request) (r
 		return reconcile.Result{}, fmt.Errorf("get ca inject type: %w", err)
 	}
 
-	configuredSPOd := r.getConfiguredSPOd(ctx, spod, image, pullPolicy, caInjectType)
+	configuredSPOd, err := r.getConfiguredSPOd(ctx, spod, image, pullPolicy, caInjectType)
+	if err != nil {
+		return reconcile.Result{}, fmt.Errorf("get configured SPOD: %w", err)
+	}
+
 	webhook := r.getConfiguredWebook(spod, image, pullPolicy, caInjectType)
 	metricsService := bindata.GetMetricsService(r.namespace, caInjectType)
 	serviceMonitor := bindata.ServiceMonitor(caInjectType,
@@ -525,7 +529,7 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	image string,
 	pullPolicy corev1.PullPolicy,
 	caInjectType bindata.CAInjectType,
-) *appsv1.DaemonSet {
+) (*appsv1.DaemonSet, error) {
 	newSPOd := r.baseSPOd.DeepCopy()
 
 	newSPOd.SetName(cfg.GetName())
@@ -583,8 +587,9 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 			fmt.Sprintf("--with-raw-selinux=%t", enableRawSelinux))
 
 		if err := addSelinuxCustomTemplatesVolume(cfg, templateSpec); err != nil {
-			r.log.Info("Unable to mount custom SELinux templates", "error", err)
 			r.record.Event(cfg, util.EventTypeWarning, reasonCannotMountCustomTemplates, err.Error())
+
+			return nil, fmt.Errorf("unable to mount custom SELinux templates: %w", err)
 		}
 	}
 
@@ -809,7 +814,7 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	templateSpec.ImagePullSecrets = cfg.Spec.ImagePullSecrets
 	templateSpec.PriorityClassName = cfg.Spec.Scheduling.PriorityClassName
 
-	return newSPOd
+	return newSPOd, nil
 }
 
 func (r *ReconcileSPOd) getConfiguredLogEnricher(cfg *spodapi.SecurityProfilesOperatorDaemon) {
