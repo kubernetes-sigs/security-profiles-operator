@@ -591,6 +591,8 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 
 			return nil, fmt.Errorf("unable to mount custom SELinux templates: %w", err)
 		}
+	} else if cfg.Spec.Selinux.CustomTemplatesConfigMap != "" {
+		r.log.Info("customTemplatesConfigMap is set but SELinux is disabled, the field will be ignored")
 	}
 
 	// Custom host proc volume
