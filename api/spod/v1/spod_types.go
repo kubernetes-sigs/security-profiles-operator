@@ -229,6 +229,7 @@ type SPODSelinuxConfig struct {
 	// contents require restarting the DaemonSet pods to take effect.
 	// +optional
 	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
 	CustomTemplatesConfigMap string `json:"customTemplatesConfigMap,omitempty"`
 }
 

@@ -3410,6 +3410,7 @@ spec:
                       with the templates shipped with selinuxd. Note: changes to the ConfigMap
                       contents require restarting the DaemonSet pods to take effect.
                     maxLength: 253
+                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                     type: string
                   enable:
                     description: |-
@@ -4961,6 +4962,7 @@ spec:
                       with the templates shipped with selinuxd. Note: changes to the ConfigMap
                       contents require restarting the DaemonSet pods to take effect.
                     maxLength: 253
+                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                     type: string
                   enable:
                     description: |-
