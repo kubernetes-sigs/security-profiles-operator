@@ -151,6 +151,7 @@ data:
           readWritePaths:
           - "ptrace (read),\n# ugly template injection hack"
           - /var/run/grpc/bpf-recorder.sock
+          - /var/run/grpc/metrics.sock
         network:
           allowedProtocols:
             allowTcp: true
