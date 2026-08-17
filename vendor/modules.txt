@@ -1582,7 +1582,7 @@ go.opentelemetry.io/proto/otlp/collector/trace/v1
 go.opentelemetry.io/proto/otlp/common/v1
 go.opentelemetry.io/proto/otlp/resource/v1
 go.opentelemetry.io/proto/otlp/trace/v1
-# go.podman.io/common v0.69.0
+# go.podman.io/common v0.69.1
 ## explicit; go 1.25.7
 go.podman.io/common/pkg/seccomp
 # go.uber.org/multierr v1.11.0
