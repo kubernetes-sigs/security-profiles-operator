@@ -56,6 +56,9 @@ type JsonEnricher struct {
 	bpfProcessCache  *bpfrecorder.BpfProcessCache
 }
 
+// bpfRetryDelays defines progressive delays for BPF cache retries.
+var bpfRetryDelays = []time.Duration{0, 10 * time.Millisecond, 50 * time.Millisecond}
+
 type JsonEnricherOptions struct {
 	AuditFreq           time.Duration
 	AuditLogPath        string
@@ -204,7 +207,8 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 
 			e.logger.V(config.VerboseLevel).Info("Emit audit log for process",
 				"pid", logItem.Key())
-			e.dispatchSeccompLine(auditLogBucket, nodeName)
+
+			go e.dispatchSeccompLine(ctx, auditLogBucket, nodeName)
 		})
 
 	e.logger.Info(fmt.Sprintf("Setting up caches with expiry of %v", defaultCacheTimeout))
@@ -411,8 +415,80 @@ func (e *JsonEnricher) fetchProcessInfo(processId int, executable string, uid, g
 	return processInfo
 }
 
+// retryBpfCmdLine retries fetching cmdLine from BPF cache with progressive delays.
+// This handles the race condition where audit events arrive before BPF events are processed.
+func (e *JsonEnricher) retryBpfCmdLine(logBucket *types.LogBucket) {
+	if e.bpfProcessCache == nil || logBucket.ProcessInfo.CmdLine != "" || logBucket.ProcessInfo.Pid == 0 {
+		return
+	}
+
+	maxRetries := len(bpfRetryDelays)
+
+	for attempt := 0; attempt < maxRetries && logBucket.ProcessInfo.CmdLine == ""; attempt++ {
+		if attempt > 0 {
+			time.Sleep(bpfRetryDelays[attempt])
+		}
+
+		cmdLine, errCmdLine := e.bpfProcessCache.GetCmdLine(logBucket.ProcessInfo.Pid)
+		if errCmdLine == nil {
+			logBucket.ProcessInfo.CmdLine = cmdLine
+			e.logger.V(1).Info("cmdline found in eBPF on retry",
+				"processId", logBucket.ProcessInfo.Pid, "cmdLine", cmdLine, "attempt", attempt+1)
+		}
+	}
+}
+
+// retryBpfRequestUID retries fetching requestUID from BPF environment with progressive delays.
+func (e *JsonEnricher) retryBpfRequestUID(logBucket *types.LogBucket) {
+	if e.bpfProcessCache == nil || logBucket.ProcessInfo.ExecRequestId != nil {
+		return
+	}
+
+	maxRetries := len(bpfRetryDelays)
+
+	for attempt := 0; attempt < maxRetries && logBucket.ProcessInfo.ExecRequestId == nil; attempt++ {
+		if attempt > 0 {
+			time.Sleep(bpfRetryDelays[attempt])
+		}
+
+		procEnv, errEnv := e.bpfProcessCache.GetEnv(logBucket.ProcessInfo.Pid)
+		if errEnv == nil {
+			reqId, ok := procEnv[requestIdEnv]
+			if ok {
+				logBucket.ProcessInfo.ExecRequestId = &reqId
+				e.logger.V(1).Info("exec request id found in eBPF on retry", "reqId", reqId,
+					"processId", logBucket.ProcessInfo.Pid, "attempt", attempt+1)
+			}
+		}
+	}
+}
+
+// retryContainerInfo retries fetching container info with progressive delays if it's missing.
+func (e *JsonEnricher) retryContainerInfo(ctx context.Context, logBucket *types.LogBucket, nodeName string) {
+	if logBucket.ContainerInfo != nil || logBucket.ProcessInfo.Pid == 0 {
+		return
+	}
+
+	maxRetries := len(bpfRetryDelays)
+
+	for attempt := 0; attempt < maxRetries && logBucket.ContainerInfo == nil; attempt++ {
+		if attempt > 0 {
+			time.Sleep(bpfRetryDelays[attempt])
+		}
+
+		logBucket.ContainerInfo = e.fetchContainerInfo(ctx, logBucket.ProcessInfo.Pid, nodeName)
+		if logBucket.ContainerInfo != nil {
+			e.logger.V(1).Info("Container info found on retry",
+				"processID", logBucket.ProcessInfo.Pid,
+				"pod", logBucket.ContainerInfo.PodName,
+				"namespace", logBucket.ContainerInfo.Namespace,
+				"attempt", attempt+1)
+		}
+	}
+}
+
 func (e *JsonEnricher) dispatchSeccompLine(
-	logBucket *types.LogBucket, nodeName string,
+	ctx context.Context, logBucket *types.LogBucket, nodeName string,
 ) {
 	var syscallNames []string
 
@@ -442,6 +518,10 @@ func (e *JsonEnricher) dispatchSeccompLine(
 
 		return
 	}
+
+	e.retryBpfCmdLine(logBucket)
+	e.retryBpfRequestUID(logBucket)
+	e.retryContainerInfo(ctx, logBucket, nodeName)
 
 	if logBucket.ContainerInfo == nil {
 		e.logger.V(config.VerboseLevel).Info("Container info not found in cache")
