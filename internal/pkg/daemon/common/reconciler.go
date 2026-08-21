@@ -129,7 +129,7 @@ func EnsureNodeStatus(
 	}
 
 	if !exists {
-		if err := nsc.Create(ctx); err != nil {
+		if _, err := nsc.Create(ctx); err != nil {
 			return false, reconcile.Result{}, fmt.Errorf("cannot ensure node status: %w", err)
 		}
 
