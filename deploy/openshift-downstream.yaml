@@ -5736,6 +5736,7 @@ rules:
 - apiGroups:
   - config.openshift.io
   resources:
+  - apiservers
   - clusteroperators
   verbs:
   - get
@@ -5901,6 +5902,15 @@ rules:
   - list
   - watch
 - apiGroups:
+  - config.openshift.io
+  resources:
+  - apiservers
+  - clusteroperators
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
   - apparmorprofiles
@@ -6001,6 +6011,15 @@ rules:
   - ""
   resources:
   - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - config.openshift.io
+  resources:
+  - apiservers
+  - clusteroperators
   verbs:
   - get
   - list
