@@ -21,12 +21,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	profilebase "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
@@ -34,6 +36,8 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
+
+var log = logf.Log.WithName("nodestatus")
 
 const (
 	partialProfileFinalizer = "spo.x-k8s.io/partial-profile-finalizer"
@@ -61,28 +65,66 @@ func NewForProfile(pol profilebase.SecurityProfileBase, c client.Client) (*Statu
 }
 
 func (nsf *StatusClient) perNodeStatusName() string {
-	return nsf.pol.GetName() + "-" + nsf.nodeName
+	kind := strings.ToLower(nsf.pol.GetObjectKind().GroupVersionKind().Kind)
+
+	return util.DNSLengthName(kind, "%s-%s-%s", kind, nsf.pol.GetName(), nsf.nodeName)
 }
 
 func (nsf *StatusClient) perNodeStatusNamespacedName() types.NamespacedName {
 	return util.NamespacedName(nsf.perNodeStatusName(), nsf.pol.GetNamespace())
 }
 
-func (nsf *StatusClient) Create(ctx context.Context) error {
+func (nsf *StatusClient) Create(ctx context.Context) (bool, error) {
 	if err := nsf.createFinalizer(ctx); err != nil {
-		return fmt.Errorf("cannot create finalizer for %s: %w", nsf.pol.GetName(), err)
+		return false, fmt.Errorf("cannot create finalizer for %s: %w", nsf.pol.GetName(), err)
 	}
 
 	if err := nsf.createPolLabel(ctx); err != nil {
-		return fmt.Errorf("cannot create policy name label for %s: %w", nsf.pol.GetName(), err)
+		return false, fmt.Errorf("cannot create policy name label for %s: %w", nsf.pol.GetName(), err)
 	}
+
+	wasMigrated := nsf.removeLegacyNodeStatus(ctx)
 
 	// if object does not exist, add it
 	if err := nsf.createNodeStatus(ctx); err != nil {
-		return fmt.Errorf("cannot create node status for %s: %w", nsf.pol.GetName(), err)
+		return false, fmt.Errorf("cannot create node status for %s: %w", nsf.pol.GetName(), err)
 	}
 
-	return nil
+	return wasMigrated, nil
+}
+
+// removeLegacyNodeStatus removes old-format status objects that used
+// <profileName>-<nodeName> instead of <kind>-<profileName>-<nodeName>.
+// Returns true if a legacy status was found and removed (upgrade migration).
+func (nsf *StatusClient) removeLegacyNodeStatus(ctx context.Context) bool {
+	legacyName := nsf.pol.GetName() + "-" + nsf.nodeName
+	if legacyName == nsf.perNodeStatusName() {
+		return false
+	}
+
+	old := &secprofnodestatusapi.SecurityProfileNodeStatus{}
+	key := util.NamespacedName(legacyName, nsf.pol.GetNamespace())
+
+	if err := nsf.client.Get(ctx, key, old); err != nil {
+		if !kerrors.IsNotFound(err) {
+			log.Error(err, "failed to look up legacy node status", "name", legacyName)
+		}
+
+		return false
+	}
+
+	// Verify the object belongs to this profile. A profile named
+	// "<kind>-<other>" has a legacy name that collides with the
+	// new-format name of profile "<other>".
+	if old.Labels[secprofnodestatusapi.StatusToProfLabel] != util.KindBasedDNSLengthName(nsf.pol) {
+		return false
+	}
+
+	if err := nsf.client.Delete(ctx, old); err != nil && !kerrors.IsNotFound(err) {
+		log.Error(err, "failed to remove legacy node status", "name", legacyName)
+	}
+
+	return true
 }
 
 func (nsf *StatusClient) createFinalizer(ctx context.Context) error {

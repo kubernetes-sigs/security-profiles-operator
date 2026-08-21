@@ -70,7 +70,7 @@ func lengthName(maxLen int, hashPrefix, format string, a ...any) (string, error)
 	return hashedName, nil
 }
 
-func dnsLengthName(hashPrefix, format string, a ...any) string {
+func DNSLengthName(hashPrefix, format string, a ...any) string {
 	//nolint:errcheck // (jhrozek): I think it makes sense to make the utility
 	// 					  function return error, but here I think it's OK to
 	// 					  just ignore
@@ -82,5 +82,5 @@ func dnsLengthName(hashPrefix, format string, a ...any) string {
 func KindBasedDNSLengthName(obj client.Object) string {
 	kind := obj.GetObjectKind().GroupVersionKind().Kind
 
-	return dnsLengthName(kind, "%s-%s", kind, obj.GetName())
+	return DNSLengthName(kind, "%s-%s", kind, obj.GetName())
 }

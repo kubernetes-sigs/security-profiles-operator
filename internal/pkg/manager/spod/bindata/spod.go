@@ -77,6 +77,7 @@ const (
 	metricsServerCert                                = "metrics-server-cert"
 	MetricsCertPath                                  = "/var/run/secrets/metrics"
 	SelinuxCustomTemplatesVolumeName                 = "selinux-custom-templates"
+	SelinuxModuleStorePath                           = "/var/lib/selinux"
 )
 
 var DefaultSPOD = &spodapi.SecurityProfilesOperatorDaemon{
