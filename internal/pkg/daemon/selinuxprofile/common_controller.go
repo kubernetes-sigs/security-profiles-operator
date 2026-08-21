@@ -27,6 +27,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -74,6 +75,7 @@ const (
 	reasonCannotContactSelinuxd    string = "CannotContactSelinuxd"
 	reasonCannotRemovePolicy       string = "CannotRemoveSelinuxPolicy"
 	reasonCannotInstallPolicy      string = "CannotSaveSelinuxPolicy"
+	reasonSystemModuleConflict     string = "SystemModuleConflict"
 	reasonCannotWritePolicyFile    string = "CannotWritePolicyFile"
 	reasonCannotGetPolicyStatus    string = "CannotGetPolicyStatus"
 	reasonCannotUpdatePolicyStatus string = "CannotUpdatePolicyStatus"
@@ -196,13 +198,18 @@ func (r *ReconcileSelinux) Reconcile(ctx context.Context, request reconcile.Requ
 			return reconcile.Result{}, fmt.Errorf("checking if node status exists: %w", existErr)
 		}
 
+		firstInstall := false
+
 		if !exists {
-			if err := nodeStatus.Create(ctx); err != nil {
-				return reconcile.Result{}, fmt.Errorf("cannot ensure node status: %w", err)
+			wasMigrated, createErr := nodeStatus.Create(ctx)
+			if createErr != nil {
+				return reconcile.Result{}, fmt.Errorf("cannot ensure node status: %w", createErr)
 			}
+
+			firstInstall = !wasMigrated
 		}
 
-		return r.reconcilePolicy(ctx, instance, oh, nodeStatus, reqLogger)
+		return r.reconcilePolicy(ctx, instance, oh, nodeStatus, firstInstall, reqLogger)
 	}
 
 	if err := nodeStatus.SetNodeStatus(ctx, secprofnodestatusapi.ProfileStateTerminating); err != nil {
@@ -254,6 +261,7 @@ func (r *ReconcileSelinux) reconcilePolicy(
 	sp selinuxprofileapi.SelinuxProfileObject,
 	oh SelinuxObjectHandler,
 	nodeStatus *nodestatus.StatusClient,
+	firstInstall bool,
 	l logr.Logger,
 ) (reconcile.Result, error) {
 	selinuxdReady, err := isSelinuxdReady(ctx, r.httpc)
@@ -289,6 +297,26 @@ func (r *ReconcileSelinux) reconcilePolicy(
 
 	if !sp.IsReconcilable() {
 		l.Info("Profile is partial or disabled, skipping")
+
+		return reconcile.Result{}, nil
+	}
+
+	if firstInstall && isSystemSELinuxModule(bindata.SelinuxModuleStorePath, sp.GetPolicyName()) {
+		if err := nodeStatus.SetNodeStatus(ctx, secprofnodestatusapi.ProfileStateError); err != nil {
+			r.metrics.IncSelinuxProfileError(reasonCannotUpdatePolicyStatus)
+			r.record.Event(sp, util.EventTypeWarning, reasonCannotUpdatePolicyStatus, err.Error())
+
+			return reconcile.Result{}, fmt.Errorf("setting node status to error: %w", err)
+		}
+
+		evstr := fmt.Sprintf(
+			"Profile name %q conflicts with a system SELinux module on %s; "+
+				"use a different name (e.g. %q)",
+			sp.GetPolicyName(), os.Getenv(config.NodeNameEnvKey), "custom-"+sp.GetPolicyName(),
+		)
+
+		r.metrics.IncSelinuxProfileError(reasonSystemModuleConflict)
+		r.record.Event(sp, util.EventTypeWarning, reasonSystemModuleConflict, evstr)
 
 		return reconcile.Result{}, nil
 	}
@@ -627,4 +655,40 @@ func writeFileIfDiffers(filePath string, contents []byte, l logr.Logger) (bool, 
 	l.Info("Updating policy file", "policyPath", filePath)
 
 	return true, os.WriteFile(filePath, contents, filePermissions)
+}
+
+// isSystemSELinuxModule checks whether an SELinux module with the given name
+// is already installed in the host's module store. The store layout is
+// /var/lib/selinux/<policy_type>/active/modules/<priority>/<module_name>/.
+func isSystemSELinuxModule(moduleStorePath, name string) bool {
+	policyTypes, err := os.ReadDir(moduleStorePath)
+	if err != nil {
+		return false
+	}
+
+	for _, pt := range policyTypes {
+		if !pt.IsDir() {
+			continue
+		}
+
+		modulesDir := filepath.Join(moduleStorePath, pt.Name(), "active", "modules")
+
+		priorities, err := os.ReadDir(modulesDir)
+		if err != nil {
+			continue
+		}
+
+		for _, prio := range priorities {
+			if !prio.IsDir() {
+				continue
+			}
+
+			moduleDir := filepath.Join(modulesDir, prio.Name(), name)
+			if fi, err := os.Stat(moduleDir); err == nil && fi.IsDir() {
+				return true
+			}
+		}
+	}
+
+	return false
 }

@@ -259,6 +259,7 @@ func TestEnsureNodeStatus(t *testing.T) {
 				MockGet:                     util.NewMockGetFn(nil),
 				MockCreate:                  util.NewMockCreateFn(nil),
 				MockUpdate:                  util.NewMockUpdateFn(nil),
+				MockDelete:                  util.NewMockDeleteFn(nil),
 				MockSubResourceWriterUpdate: util.NewMockSubResourceWriterUpdateFn(nil),
 				MockScheme:                  util.NewMockSchemeFn(testScheme()),
 			},

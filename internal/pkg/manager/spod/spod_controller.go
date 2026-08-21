@@ -577,6 +577,14 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 			templateSpec.Containers,
 			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDSelinuxd])
 
+		templateSpec.Containers[bindata.ContainerIDDaemon].VolumeMounts = append(
+			templateSpec.Containers[bindata.ContainerIDDaemon].VolumeMounts,
+			corev1.VolumeMount{
+				Name:      "host-varlibselinux-volume",
+				MountPath: bindata.SelinuxModuleStorePath,
+				ReadOnly:  true,
+			})
+
 		templateSpec.Containers[bindata.ContainerIDDaemon].Args = append(
 			templateSpec.Containers[bindata.ContainerIDDaemon].Args,
 			"--with-selinux=true")
