@@ -35,6 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -60,6 +61,108 @@ func TestName(t *testing.T) {
 
 	sut := NewController()
 	assert.Equal(t, "recorder-spod", sut.Name())
+}
+
+func TestCollectBpfProfilesProfileName(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name          string
+		mergeStrategy recordingapi.ProfileMergeStrategy
+		podName       string
+		replicaSuffix string
+		expected      string
+	}{
+		{
+			name:          "fixed pod with containers merge",
+			mergeStrategy: recordingapi.ProfileMergeContainers,
+			podName:       "fixed-pod",
+			expected:      "recording-container-fixed-pod",
+		},
+		{
+			name:          "fixed pod without merge",
+			mergeStrategy: recordingapi.ProfileMergeNone,
+			podName:       "fixed-pod",
+			expected:      "recording-container",
+		},
+		{
+			name:          "generated pod keeps replica suffix",
+			mergeStrategy: recordingapi.ProfileMergeContainers,
+			podName:       "generated-abcde",
+			replicaSuffix: "abcde",
+			expected:      "recording-container-abcde",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			recording := &recordingapi.ProfileRecording{
+				ObjectMeta: metav1.ObjectMeta{Name: "recording", Namespace: "recording-ns"},
+				Spec: recordingapi.ProfileRecordingSpec{
+					MergeStrategy: tc.mergeStrategy,
+				},
+			}
+			scheme := apiruntime.NewScheme()
+			require.NoError(t, recordingapi.AddToScheme(scheme))
+			kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(recording).Build()
+
+			mock := &profilerecorderfakes.FakeImpl{}
+			mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
+				Spec: spodapi.SPODSpec{Enricher: spodapi.SPODEnricherConfig{EnableBpfRecorder: ptrTrue()}},
+			}, nil)
+			mock.DialBpfRecorderReturns(nil, nil)
+			mock.SyscallsForProfileReturns(&bpfrecorderapi.SyscallsResponse{
+				Syscalls: []string{"read"},
+				GoArch:   runtime.GOARCH,
+			}, nil)
+			mock.ClientGetCalls(func(
+				_ context.Context,
+				_ client.Client,
+				key types.NamespacedName,
+				obj client.Object,
+			) error {
+				recordingResult, ok := obj.(*recordingapi.ProfileRecording)
+				require.True(t, ok)
+				require.Equal(t, client.ObjectKeyFromObject(recording), key)
+
+				recording.DeepCopyInto(recordingResult)
+
+				return nil
+			})
+			mock.GetRecordingReturns(recording, nil)
+
+			createdName := ""
+
+			mock.CreateOrUpdateCalls(func(
+				_ context.Context,
+				_ client.Client,
+				obj client.Object,
+				mutate controllerutil.MutateFn,
+			) (controllerutil.OperationResult, error) {
+				createdName = obj.GetName()
+
+				return controllerutil.OperationResultCreated, mutate()
+			})
+
+			sut := &RecorderReconciler{
+				impl:   mock,
+				client: kubeClient,
+				log:    logr.Discard(),
+				record: record.NewFakeRecorder(10),
+			}
+			err := sut.collectBpfProfiles(
+				t.Context(),
+				tc.replicaSuffix,
+				types.NamespacedName{Name: tc.podName, Namespace: recording.Namespace},
+				[]profileToCollect{{
+					kind: recordingapi.ProfileRecordingKindSeccompProfile,
+					name: "recording_container_nonce_timestamp",
+				}},
+			)
+			require.NoError(t, err)
+			require.Equal(t, tc.expected, createdName)
+		})
+	}
 }
 
 func TestSchemeBuilder(t *testing.T) {
