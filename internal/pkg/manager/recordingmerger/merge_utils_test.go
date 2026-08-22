@@ -47,6 +47,17 @@ func ifaceAsSortedSeccompProfile(iface client.Object) *seccompprofile.SeccompPro
 	return prof
 }
 
+func TestMergedObjectMetaIsClusterScoped(t *testing.T) {
+	t.Parallel()
+
+	meta := mergedObjectMeta("recording-container", "recording", "recording-ns")
+
+	require.Equal(t, "recording-container", meta.Name)
+	require.Empty(t, meta.Namespace)
+	require.Equal(t, "recording", meta.Labels["spo.x-k8s.io/recording-id"])
+	require.Equal(t, "recording-ns", meta.Labels["spo.x-k8s.io/recording-namespace"])
+}
+
 func ifaceAsSortedSelinuxProfile(iface client.Object) *selinuxprofileapi.SelinuxProfile {
 	prof, ok := iface.(*selinuxprofileapi.SelinuxProfile)
 	if !ok {
