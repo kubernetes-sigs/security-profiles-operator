@@ -458,9 +458,11 @@ func (r *RecorderReconciler) collectLogProfiles(
 			return fmt.Errorf("parse profile raw annotation: %w", err)
 		}
 
-		profileNamespacedName := createProfileName(
-			parsedProfileAnnotation.cntName, replicaSuffix,
-			podName.Namespace, parsedProfileAnnotation.profileName)
+		profileNamespacedName, err := createProfileNameForRecording(
+			ctx, r, parsedProfileAnnotation, replicaSuffix, podName)
+		if err != nil {
+			return fmt.Errorf("create profile name: %w", err)
+		}
 
 		r.log.Info("Collecting profile", "name", profileNamespacedName, "kind", prf.kind)
 
@@ -727,9 +729,11 @@ func (r *RecorderReconciler) collectBpfProfiles(
 			return fmt.Errorf("parse profile raw annotation: %w", err)
 		}
 
-		profileNamespacedName := createProfileName(
-			parsedProfileName.cntName, replicaSuffix,
-			podName.Namespace, parsedProfileName.profileName)
+		profileNamespacedName, err := createProfileNameForRecording(
+			ctx, r, parsedProfileName, replicaSuffix, podName)
+		if err != nil {
+			return fmt.Errorf("create profile name: %w", err)
+		}
 
 		labels, err := profileLabels(
 			ctx,
@@ -1087,6 +1091,27 @@ func createProfileName(cntName, replicaSuffix, namespace, profileName string) ty
 		Name:      name,
 		Namespace: namespace,
 	}
+}
+
+func createProfileNameForRecording(
+	ctx context.Context,
+	r *RecorderReconciler,
+	profile *parsedAnnotation,
+	replicaSuffix string,
+	podName types.NamespacedName,
+) (types.NamespacedName, error) {
+	if replicaSuffix == "" {
+		partial, err := profilePartial(ctx, r, profile.profileName, podName.Namespace)
+		if err != nil {
+			return types.NamespacedName{}, fmt.Errorf("determine profile merge strategy: %w", err)
+		}
+
+		if partial {
+			replicaSuffix = podName.Name
+		}
+	}
+
+	return createProfileName(profile.cntName, replicaSuffix, podName.Namespace, profile.profileName), nil
 }
 
 // parseLogAnnotations parses the provided annotations and extracts the

@@ -550,7 +550,7 @@ func TestCreateUpdateProfile_CoverageAnnotation(t *testing.T) {
 
 		got := &seccompprofile.SeccompProfile{}
 		require.NoError(t, cl.Get(context.Background(),
-			client.ObjectKey{Name: mergedName, Namespace: namespace}, got))
+			client.ObjectKey{Name: mergedName}, got))
 		require.JSONEq(t, coverage, got.GetAnnotations()[syscallCoverageAnnotation])
 	})
 
@@ -566,7 +566,7 @@ func TestCreateUpdateProfile_CoverageAnnotation(t *testing.T) {
 
 		got := &selinuxprofileapi.SelinuxProfile{}
 		require.NoError(t, cl.Get(context.Background(),
-			client.ObjectKey{Name: mergedName, Namespace: namespace}, got))
+			client.ObjectKey{Name: mergedName}, got))
 		require.NotContains(t, got.GetAnnotations(), syscallCoverageAnnotation)
 	})
 
@@ -582,7 +582,7 @@ func TestCreateUpdateProfile_CoverageAnnotation(t *testing.T) {
 
 		got := &apparmorprofileapi.AppArmorProfile{}
 		require.NoError(t, cl.Get(context.Background(),
-			client.ObjectKey{Name: mergedName, Namespace: namespace}, got))
+			client.ObjectKey{Name: mergedName}, got))
 		require.NotContains(t, got.GetAnnotations(), syscallCoverageAnnotation)
 	})
 
@@ -592,7 +592,6 @@ func TestCreateUpdateProfile_CoverageAnnotation(t *testing.T) {
 		existing := &seccompprofile.SeccompProfile{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:        mergedName,
-				Namespace:   namespace,
 				Annotations: map[string]string{"user.example.com/keep": "yes"},
 			},
 		}
@@ -606,7 +605,7 @@ func TestCreateUpdateProfile_CoverageAnnotation(t *testing.T) {
 
 		got := &seccompprofile.SeccompProfile{}
 		require.NoError(t, cl.Get(context.Background(),
-			client.ObjectKey{Name: mergedName, Namespace: namespace}, got))
+			client.ObjectKey{Name: mergedName}, got))
 		require.JSONEq(t, coverage, got.GetAnnotations()[syscallCoverageAnnotation])
 		require.Equal(t, "yes", got.GetAnnotations()["user.example.com/keep"])
 	})
