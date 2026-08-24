@@ -125,9 +125,11 @@ func TestCollectBpfProfilesProfileName(t *testing.T) {
 				case *recordingapi.ProfileRecording:
 					require.Equal(t, client.ObjectKeyFromObject(recording), key)
 					recording.DeepCopyInto(recordingResult)
+
 					return nil
 				default:
 					t.Fatalf("unexpected ClientGet for %T", obj)
+
 					return nil
 				}
 			})
