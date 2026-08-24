@@ -32,13 +32,13 @@ var (
 	neverMatchRe = regexp.MustCompile(`^(?:$.)$`)
 
 	// globRegexCache caches compiled glob patterns for reuse.
-	globRegexCache sync.Map //nolint:gochecknoglobals // process-wide cache
+	globRegexCache sync.Map
 
 	// globRegexCacheCount tracks the number of entries in the cache.
-	globRegexCacheCount atomic.Int64 //nolint:gochecknoglobals // tracks cache size
+	globRegexCacheCount atomic.Int64
 
 	// globCacheEvicting prevents concurrent eviction storms.
-	globCacheEvicting atomic.Bool //nolint:gochecknoglobals // guards eviction
+	globCacheEvicting atomic.Bool
 )
 
 const (
@@ -58,11 +58,12 @@ func globToRegex(pattern string) *regexp.Regexp {
 
 	actual, loaded := globRegexCache.LoadOrStore(pattern, compiled)
 	if !loaded {
-		if globRegexCacheCount.Add(1) > maxGlobCacheEntries &&
+		count := globRegexCacheCount.Add(1)
+		if count > maxGlobCacheEntries &&
 			globCacheEvicting.CompareAndSwap(false, true) {
 			globRegexCache.Clear()
-			globRegexCacheCount.Store(1)
 			globRegexCache.Store(pattern, compiled)
+			globRegexCacheCount.Store(1)
 			globCacheEvicting.Store(false)
 		}
 	}
@@ -137,89 +138,88 @@ type apparmorPath struct {
 }
 
 type pathSet struct {
-	paths    []apparmorPath
+	globs    []apparmorPath
 	literals map[string]struct{}
 }
 
 func newPathSet(patterns []string) pathSet {
-	set := pathSet{paths: nil, literals: make(map[string]struct{})}
+	set := pathSet{
+		globs:    make([]apparmorPath, 0, len(patterns)),
+		literals: make(map[string]struct{}, len(patterns)),
+	}
+
+	seen := make(map[string]struct{}, len(patterns))
 
 	for _, pat := range patterns {
-		set.add(pat)
+		if _, ok := seen[pat]; ok {
+			continue
+		}
+
+		seen[pat] = struct{}{}
+
+		if globTokenRe.MatchString(pat) {
+			set.globs = append(set.globs, apparmorPath{
+				pattern: pat, expr: globToRegex(pat),
+			})
+		} else {
+			set.literals[pat] = struct{}{}
+		}
 	}
 
 	return set
 }
 
-// findMatch returns the index of the first entry whose regex matches path,
-// or whose pattern equals path exactly. Only checks forward matching
-// (existing pattern covers incoming path).
-func (set *pathSet) findMatch(path string) int {
-	if _, ok := set.literals[path]; ok {
-		for idx, entry := range set.paths {
-			if entry.pattern == path {
-				return idx
-			}
-		}
-	}
-
-	for idx, entry := range set.paths {
-		if entry.expr.MatchString(path) {
-			return idx
-		}
-	}
-
-	return -1
-}
-
 func (set *pathSet) matches(path string) bool {
-	return set.findMatch(path) >= 0
-}
-
-func (set *pathSet) removeAt(idx int) {
-	removed := set.paths[idx]
-	if !globTokenRe.MatchString(removed.pattern) {
-		delete(set.literals, removed.pattern)
+	if _, ok := set.literals[path]; ok {
+		return true
 	}
 
-	set.paths = slices.Delete(set.paths, idx, idx+1)
+	for _, entry := range set.globs {
+		if entry.expr.MatchString(path) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (set *pathSet) add(pattern string) {
-	expr := globToRegex(pattern)
+	if globTokenRe.MatchString(pattern) {
+		expr := globToRegex(pattern)
 
-	// Prune exact duplicates and non-glob entries subsumed by the new
-	// pattern. Glob-vs-glob subsumption is not attempted because matching
-	// a glob pattern string against another glob's regex does not reliably
-	// indicate language inclusion.
-	set.paths = slices.DeleteFunc(set.paths, func(existing apparmorPath) bool {
-		if existing.pattern == pattern {
-			return true
+		// Remove exact duplicate glob.
+		set.globs = slices.DeleteFunc(set.globs, func(existing apparmorPath) bool {
+			return existing.pattern == pattern
+		})
+
+		// Prune literals subsumed by this glob. Glob-vs-glob
+		// subsumption is not attempted because matching a glob
+		// pattern string against another glob's regex does not
+		// reliably indicate language inclusion.
+		for lit := range set.literals {
+			if expr.MatchString(lit) {
+				delete(set.literals, lit)
+			}
 		}
 
-		pruned := !globTokenRe.MatchString(existing.pattern) &&
-			expr.MatchString(existing.pattern)
-		if pruned {
-			delete(set.literals, existing.pattern)
-		}
-
-		return pruned
-	})
-
-	set.paths = append(set.paths, apparmorPath{
-		pattern: pattern,
-		expr:    expr,
-	})
-
-	if !globTokenRe.MatchString(pattern) {
+		set.globs = append(set.globs, apparmorPath{
+			pattern: pattern, expr: expr,
+		})
+	} else {
 		set.literals[pattern] = struct{}{}
 	}
 }
 
 func (set *pathSet) popExact(path string) bool {
-	for idx, entry := range set.paths {
+	if _, ok := set.literals[path]; ok {
+		delete(set.literals, path)
+
+		return true
+	}
+
+	for idx, entry := range set.globs {
 		if entry.pattern == path {
-			set.removeAt(idx)
+			set.globs = slices.Delete(set.globs, idx, idx+1)
 
 			return true
 		}
@@ -233,29 +233,32 @@ func (set *pathSet) popCoveredLiterals(glob string) []string {
 
 	var popped []string
 
-	set.paths = slices.DeleteFunc(set.paths, func(existing apparmorPath) bool {
-		matched := !globTokenRe.MatchString(existing.pattern) &&
-			expr.MatchString(existing.pattern)
-		if matched {
-			delete(set.literals, existing.pattern)
-
-			popped = append(popped, existing.pattern)
+	for lit := range set.literals {
+		if expr.MatchString(lit) {
+			popped = append(popped, lit)
 		}
+	}
 
-		return matched
-	})
+	for _, lit := range popped {
+		delete(set.literals, lit)
+	}
 
 	return popped
 }
 
 func (set *pathSet) patterns() []string {
-	if len(set.paths) == 0 {
+	total := len(set.globs) + len(set.literals)
+	if total == 0 {
 		return nil
 	}
 
-	ret := make([]string, 0, len(set.paths))
+	ret := make([]string, 0, total)
 
-	for _, entry := range set.paths {
+	for lit := range set.literals {
+		ret = append(ret, lit)
+	}
+
+	for _, entry := range set.globs {
 		ret = append(ret, entry.pattern)
 	}
 
@@ -324,10 +327,15 @@ func buildFsEntries(perms map[string]fsPermission) []fsPathEntry {
 	entries := make([]fsPathEntry, 0, len(perms))
 
 	for path, perm := range perms {
+		var expr *regexp.Regexp
+		if globTokenRe.MatchString(path) {
+			expr = globToRegex(path)
+		}
+
 		entries = append(entries, fsPathEntry{
 			path: path,
 			perm: perm,
-			expr: globToRegex(path),
+			expr: expr,
 		})
 	}
 
@@ -343,19 +351,16 @@ func matchIntersectPaths(left, right fsPathEntry) string {
 		return left.path
 	}
 
-	leftIsGlob := globTokenRe.MatchString(left.path)
-	rightIsGlob := globTokenRe.MatchString(right.path)
-
 	switch {
-	case !leftIsGlob && rightIsGlob:
+	case left.expr == nil && right.expr != nil:
 		if right.expr.MatchString(left.path) {
 			return left.path
 		}
-	case leftIsGlob && !rightIsGlob:
+	case left.expr != nil && right.expr == nil:
 		if left.expr.MatchString(right.path) {
 			return right.path
 		}
-	case leftIsGlob && rightIsGlob:
+	case left.expr != nil && right.expr != nil:
 		return narrowGlobs(left.path, right.path)
 	}
 

@@ -25,7 +25,7 @@ require (
 	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.93.1
 	github.com/prometheus/client_golang v1.24.1
 	github.com/prometheus/client_model v0.6.2
-	github.com/saschagrunert/security-profiles-merger v0.3.2
+	github.com/saschagrunert/security-profiles-merger v0.3.5
 	github.com/seccomp/libseccomp-golang v0.11.1
 	github.com/sigstore/cosign/v2 v2.6.5
 	github.com/stretchr/testify v1.12.1

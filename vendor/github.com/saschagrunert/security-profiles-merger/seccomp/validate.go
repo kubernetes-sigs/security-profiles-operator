@@ -24,6 +24,8 @@ import (
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 )
 
+const maxSyscallArgIndex = 5
+
 var (
 	// ErrUnknownAction is returned when a profile contains an unrecognized
 	// seccomp action.
@@ -36,6 +38,18 @@ var (
 	// ErrDuplicateSyscallName is returned when the same syscall name
 	// appears in more than one syscall entry.
 	ErrDuplicateSyscallName = errors.New("duplicate syscall name")
+	// ErrUnknownOperator is returned when a syscall arg contains an
+	// unrecognized comparison operator.
+	ErrUnknownOperator = errors.New("unknown seccomp operator")
+	// ErrArgIndexOutOfRange is returned when a syscall arg index exceeds
+	// the maximum (5).
+	ErrArgIndexOutOfRange = errors.New("syscall arg index out of range")
+	// ErrUnknownArch is returned when a profile contains an unrecognized
+	// architecture.
+	ErrUnknownArch = errors.New("unknown architecture")
+	// ErrUnknownFlag is returned when a profile contains an unrecognized
+	// seccomp flag.
+	ErrUnknownFlag = errors.New("unknown seccomp flag")
 )
 
 // Validate checks that a seccomp profile contains only known actions.
@@ -81,11 +95,12 @@ func Validate(profile *specs.LinuxSeccomp) error {
 }
 
 // ValidateStrict performs all checks from Validate and additionally detects
-// duplicate syscall names across entries. The OCI runtime-spec allows the
-// same syscall to appear in multiple entries (for example with different
-// argument filters), so the merge path uses Validate which permits this.
-// ValidateStrict is intended for user-authored profiles where duplicates
-// are likely mistakes.
+// duplicate syscall names across entries, unknown architectures, unknown
+// flags, unknown arg operators, and out-of-range arg indices. The OCI
+// runtime-spec allows the same syscall to appear in multiple entries (for
+// example with different argument filters), so the merge path uses Validate
+// which permits this. ValidateStrict is intended for user-authored profiles
+// where duplicates are likely mistakes.
 func ValidateStrict(profile *specs.LinuxSeccomp) error {
 	var errs []error
 
@@ -99,6 +114,21 @@ func ValidateStrict(profile *specs.LinuxSeccomp) error {
 	}
 
 	err = validateDuplicateSyscallNames(profile.Syscalls)
+	if err != nil {
+		errs = append(errs, err)
+	}
+
+	err = validateArchitectures(profile.Architectures)
+	if err != nil {
+		errs = append(errs, err)
+	}
+
+	err = validateFlags(profile.Flags)
+	if err != nil {
+		errs = append(errs, err)
+	}
+
+	err = validateSyscallArgs(profile.Syscalls)
 	if err != nil {
 		errs = append(errs, err)
 	}
@@ -133,4 +163,95 @@ func validateAction(action specs.LinuxSeccompAction, context string) error {
 	}
 
 	return nil
+}
+
+func isKnownOperator(op specs.LinuxSeccompOperator) bool {
+	switch op {
+	case specs.OpNotEqual, specs.OpLessThan, specs.OpLessEqual,
+		specs.OpEqualTo, specs.OpGreaterEqual, specs.OpGreaterThan,
+		specs.OpMaskedEqual:
+		return true
+	default:
+		return false
+	}
+}
+
+func isKnownArch(arch specs.Arch) bool {
+	switch arch {
+	case specs.ArchX86, specs.ArchX86_64, specs.ArchX32,
+		specs.ArchARM, specs.ArchAARCH64,
+		specs.ArchMIPS, specs.ArchMIPS64, specs.ArchMIPS64N32,
+		specs.ArchMIPSEL, specs.ArchMIPSEL64, specs.ArchMIPSEL64N32,
+		specs.ArchPPC, specs.ArchPPC64, specs.ArchPPC64LE,
+		specs.ArchS390, specs.ArchS390X,
+		specs.ArchPARISC, specs.ArchPARISC64,
+		specs.ArchRISCV64, specs.ArchLOONGARCH64,
+		specs.ArchM68K, specs.ArchSH, specs.ArchSHEB:
+		return true
+	default:
+		return false
+	}
+}
+
+func isKnownFlag(flag specs.LinuxSeccompFlag) bool {
+	switch flag {
+	case specs.LinuxSeccompFlagLog,
+		specs.LinuxSeccompFlagSpecAllow,
+		specs.LinuxSeccompFlagWaitKillableRecv:
+		return true
+	default:
+		return false
+	}
+}
+
+func validateArchitectures(archs []specs.Arch) error {
+	var errs []error
+
+	for _, arch := range archs {
+		if !isKnownArch(arch) {
+			errs = append(errs, fmt.Errorf(
+				"architecture: %w %q", ErrUnknownArch, arch,
+			))
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
+func validateFlags(flags []specs.LinuxSeccompFlag) error {
+	var errs []error
+
+	for _, flag := range flags {
+		if !isKnownFlag(flag) {
+			errs = append(errs, fmt.Errorf(
+				"flag: %w %q", ErrUnknownFlag, flag,
+			))
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
+func validateSyscallArgs(syscalls []specs.LinuxSyscall) error {
+	var errs []error
+
+	for idx, sc := range syscalls {
+		for argIdx, arg := range sc.Args {
+			if !isKnownOperator(arg.Op) {
+				errs = append(errs, fmt.Errorf(
+					"syscall entry %d arg %d: %w %q",
+					idx, argIdx, ErrUnknownOperator, arg.Op,
+				))
+			}
+
+			if arg.Index > maxSyscallArgIndex {
+				errs = append(errs, fmt.Errorf(
+					"syscall entry %d arg %d: %w %d",
+					idx, argIdx, ErrArgIndexOutOfRange, arg.Index,
+				))
+			}
+		}
+	}
+
+	return errors.Join(errs...)
 }

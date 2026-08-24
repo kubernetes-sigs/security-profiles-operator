@@ -19,6 +19,11 @@ package seccomp
 
 import specs "github.com/opencontainers/runtime-spec/specs-go"
 
+// Restrictiveness levels, ordered from most restrictive (kill) to least
+// (allow). Notify sits between Errno and Trace: it blocks the syscall pending
+// a supervisor decision, making it more restrictive than Trace (which traps to
+// a ptrace tracer) but less restrictive than Errno (which fails outright
+// without supervisor intervention).
 const (
 	levelKillProcess = iota
 	levelKillThread

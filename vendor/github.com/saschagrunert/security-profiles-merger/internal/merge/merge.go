@@ -18,9 +18,11 @@ limitations under the License.
 package merge
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 )
 
 var (
@@ -28,6 +30,8 @@ var (
 	ErrNoProfiles = errors.New("at least one profile is required")
 	// ErrNilProfile is returned when a nil profile is provided.
 	ErrNilProfile = errors.New("profile must not be nil")
+	// ErrEmptyPath is returned when a path rule contains an empty string.
+	ErrEmptyPath = errors.New("empty path")
 )
 
 // Fold validates and merges a slice of profiles using pairwise reduction.
@@ -64,6 +68,65 @@ func Fold[T any](
 	}
 
 	return result, nil
+}
+
+// FormatDiffItems formats added and removed items as a prefixed diff string.
+func FormatDiffItems[T ~string](prefix string, removed, added []T) string {
+	items := make([]string, 0, len(removed)+len(added))
+
+	for _, r := range removed {
+		items = append(items, "-"+string(r))
+	}
+
+	for _, a := range added {
+		items = append(items, "+"+string(a))
+	}
+
+	return prefix + ":" + strings.Join(items, ",")
+}
+
+// DiffSlice returns elements added to and removed from left relative to right.
+// Both slices are treated as sets; duplicates within a slice are ignored.
+// Results are sorted. Returns nil, nil when the sets are equal.
+func DiffSlice[T cmp.Ordered](left, right []T) ([]T, []T) {
+	if len(left) == 0 && len(right) == 0 {
+		return nil, nil
+	}
+
+	leftSet := make(map[T]struct{}, len(left))
+	for _, item := range left {
+		leftSet[item] = struct{}{}
+	}
+
+	rightSet := make(map[T]struct{}, len(right))
+	for _, item := range right {
+		rightSet[item] = struct{}{}
+	}
+
+	var added, removed []T
+
+	for item := range leftSet {
+		if _, ok := rightSet[item]; !ok {
+			removed = append(removed, item)
+		}
+	}
+
+	for item := range rightSet {
+		if _, ok := leftSet[item]; !ok {
+			added = append(added, item)
+		}
+	}
+
+	slices.Sort(added)
+	slices.Sort(removed)
+
+	return added, removed
+}
+
+// SliceDiff represents added and removed items in a set-like slice.
+type SliceDiff[T comparable] struct {
+	Added   []T `json:"added,omitempty"`
+	Removed []T `json:"removed,omitempty"`
 }
 
 const smallSliceThreshold = 16
@@ -149,7 +212,7 @@ func unionSliceSmall[T comparable](left, right []T) []T {
 
 func unionSliceLarge[T comparable](left, right []T) []T {
 	result := make([]T, 0, len(left)+len(right))
-	seen := make(map[T]struct{})
+	seen := make(map[T]struct{}, len(left)+len(right))
 
 	for _, val := range left {
 		if _, ok := seen[val]; !ok {
@@ -162,6 +225,37 @@ func unionSliceLarge[T comparable](left, right []T) []T {
 		if _, ok := seen[val]; !ok {
 			seen[val] = struct{}{}
 			result = append(result, val)
+		}
+	}
+
+	return result
+}
+
+// ClonePtr returns a shallow copy of the pointed-to value, or nil if ptr is nil.
+func ClonePtr[T any](ptr *T) *T {
+	if ptr == nil {
+		return nil
+	}
+
+	val := *ptr
+
+	return &val
+}
+
+// DeduplicateSlice returns a new slice with duplicate elements removed,
+// preserving the order of first occurrence.
+func DeduplicateSlice[T comparable](items []T) []T {
+	if len(items) == 0 {
+		return items
+	}
+
+	seen := make(map[T]struct{}, len(items))
+	result := make([]T, 0, len(items))
+
+	for _, item := range items {
+		if _, ok := seen[item]; !ok {
+			seen[item] = struct{}{}
+			result = append(result, item)
 		}
 	}
 
