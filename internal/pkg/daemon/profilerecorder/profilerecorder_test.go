@@ -121,13 +121,15 @@ func TestCollectBpfProfilesProfileName(t *testing.T) {
 				key types.NamespacedName,
 				obj client.Object,
 			) error {
-				recordingResult, ok := obj.(*recordingapi.ProfileRecording)
-				require.True(t, ok)
-				require.Equal(t, client.ObjectKeyFromObject(recording), key)
-
-				recording.DeepCopyInto(recordingResult)
-
-				return nil
+				switch recordingResult := obj.(type) {
+				case *recordingapi.ProfileRecording:
+					require.Equal(t, client.ObjectKeyFromObject(recording), key)
+					recording.DeepCopyInto(recordingResult)
+					return nil
+				default:
+					t.Fatalf("unexpected ClientGet for %T", obj)
+					return nil
+				}
 			})
 			mock.GetRecordingReturns(recording, nil)
 
