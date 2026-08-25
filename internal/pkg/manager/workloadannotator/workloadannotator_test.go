@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 )
@@ -60,6 +61,26 @@ func TestUpdatePodReferencesForSeccompRefreshesBeforeNoOpCheck(t *testing.T) {
 	stale := stored.DeepCopy()
 	stale.Status.ActiveWorkloads = nil
 
+	readerGetCalls := 0
+	apiReader := fake.NewClientBuilder().
+		WithScheme(testScheme).
+		WithStatusSubresource(stored).
+		WithObjects(stored).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(
+				ctx context.Context,
+				c client.WithWatch,
+				key client.ObjectKey,
+				obj client.Object,
+				opts ...client.GetOption,
+			) error {
+				readerGetCalls++
+
+				return c.Get(ctx, key, obj, opts...)
+			},
+		}).
+		Build()
+
 	fakeClient := fake.NewClientBuilder().
 		WithScheme(testScheme).
 		WithStatusSubresource(stored).
@@ -67,8 +88,9 @@ func TestUpdatePodReferencesForSeccompRefreshesBeforeNoOpCheck(t *testing.T) {
 		WithIndex(&corev1.Pod{}, spOwnerKey, func(client.Object) []string { return nil }).
 		Build()
 
-	r := &PodReconciler{client: fakeClient}
+	r := &PodReconciler{client: fakeClient, reader: apiReader}
 	require.NoError(t, r.updatePodReferencesForSeccomp(ctx, stale))
+	require.Equal(t, 1, readerGetCalls)
 
 	updated := &seccompprofileapi.SeccompProfile{}
 	require.NoError(t, fakeClient.Get(ctx, client.ObjectKey{Name: stored.Name}, updated))

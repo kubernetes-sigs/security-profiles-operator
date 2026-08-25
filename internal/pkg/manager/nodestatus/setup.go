@@ -32,6 +32,7 @@ func (r *StatusReconciler) Setup(
 	_ *metrics.Metrics,
 ) error {
 	r.client = mgr.GetClient()
+	r.reader = mgr.GetAPIReader()
 	r.log = ctrl.Log.WithName(r.Name())
 	//nolint:staticcheck // TODO: migrate to GetEventRecorder
 	r.record = mgr.GetEventRecorderFor(

@@ -67,8 +67,7 @@ func TestReconcileStatusRetriesConflictWithFreshGet(t *testing.T) {
 	}
 
 	getCalls := 0
-	updateCalls := 0
-	fakeClient := fake.NewClientBuilder().
+	apiReader := fake.NewClientBuilder().
 		WithScheme(testScheme).
 		WithStatusSubresource(profile).
 		WithObjects(profile).
@@ -84,6 +83,15 @@ func TestReconcileStatusRetriesConflictWithFreshGet(t *testing.T) {
 
 				return c.Get(ctx, key, obj, opts...)
 			},
+		}).
+		Build()
+
+	updateCalls := 0
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(testScheme).
+		WithStatusSubresource(profile).
+		WithObjects(profile).
+		WithInterceptorFuncs(interceptor.Funcs{
 			SubResourceUpdate: func(
 				ctx context.Context,
 				c client.Client,
@@ -105,7 +113,7 @@ func TestReconcileStatusRetriesConflictWithFreshGet(t *testing.T) {
 		}).
 		Build()
 
-	r := &StatusReconciler{client: fakeClient}
+	r := &StatusReconciler{client: fakeClient, reader: apiReader}
 	err := r.reconcileStatus(ctx, profile, secprofnodestatusapi.ProfileStateInstalled, logr.Discard())
 
 	require.NoError(t, err)
