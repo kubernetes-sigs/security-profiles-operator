@@ -19,6 +19,9 @@ package apparmor
 import (
 	"errors"
 	"fmt"
+	"strings"
+
+	"github.com/saschagrunert/security-profiles-merger/internal/merge"
 )
 
 var (
@@ -34,8 +37,12 @@ var (
 	// more than once in AllowedCapabilities.
 	ErrDuplicateCapability = errors.New("duplicate capability")
 
+	// ErrUnknownCapability is returned when a profile contains a
+	// capability name not in the known set of Linux capabilities.
+	ErrUnknownCapability = errors.New("unknown capability")
+
 	// ErrEmptyPath is returned when a path rule contains an empty string.
-	ErrEmptyPath = errors.New("empty path")
+	ErrEmptyPath = merge.ErrEmptyPath
 
 	// ErrEmptyCapability is returned when a capability entry is an empty
 	// string.
@@ -46,10 +53,27 @@ var (
 	ErrDuplicateExecutablePath = errors.New("duplicate executable path")
 )
 
+func isKnownCapability(name string) bool {
+	switch strings.ToUpper(name) {
+	case "CHOWN", "DAC_OVERRIDE", "DAC_READ_SEARCH", "FOWNER", "FSETID",
+		"KILL", "SETGID", "SETUID", "SETPCAP", "LINUX_IMMUTABLE",
+		"NET_BIND_SERVICE", "NET_BROADCAST", "NET_ADMIN", "NET_RAW",
+		"IPC_LOCK", "IPC_OWNER", "SYS_MODULE", "SYS_RAWIO",
+		"SYS_CHROOT", "SYS_PTRACE", "SYS_PACCT", "SYS_ADMIN",
+		"SYS_BOOT", "SYS_NICE", "SYS_RESOURCE", "SYS_TIME",
+		"SYS_TTY_CONFIG", "MKNOD", "LEASE", "AUDIT_WRITE",
+		"AUDIT_CONTROL", "SETFCAP", "MAC_OVERRIDE", "MAC_ADMIN",
+		"SYSLOG", "WAKE_ALARM", "BLOCK_SUSPEND", "AUDIT_READ",
+		"PERFMON", "BPF", "CHECKPOINT_RESTORE":
+		return true
+	default:
+		return false
+	}
+}
+
 // Validate checks an AppArmor profile for structural issues.
-// Capability names are not validated against a fixed set because the
-// kernel may support capabilities unknown to this library. Filesystem
-// paths and executable paths are also not validated.
+// Capability names are validated against the known set of Linux
+// capabilities. Filesystem paths and executable paths are not validated.
 //
 // The checks catch issues that would produce confusing merge results:
 // duplicate paths across filesystem categories, which expand into
@@ -88,6 +112,13 @@ func Validate(profile *Profile) error {
 		}
 
 		err = validateDuplicateCapabilities(
+			profile.Capabilities.AllowedCapabilities,
+		)
+		if err != nil {
+			errs = append(errs, err)
+		}
+
+		err = validateCapabilityNames(
 			profile.Capabilities.AllowedCapabilities,
 		)
 		if err != nil {
@@ -243,6 +274,20 @@ func validateDuplicateCapabilities(caps []string) error {
 	return errors.Join(validateDuplicatesInSlice(
 		"AllowedCapabilities", caps, ErrDuplicateCapability,
 	)...)
+}
+
+func validateCapabilityNames(caps []string) error {
+	var errs []error
+
+	for idx, cap := range caps {
+		if cap != "" && !isKnownCapability(cap) {
+			errs = append(errs, fmt.Errorf(
+				"AllowedCapabilities[%d]: %q: %w", idx, cap, ErrUnknownCapability,
+			))
+		}
+	}
+
+	return errors.Join(errs...)
 }
 
 func validateDuplicatesInSlice(

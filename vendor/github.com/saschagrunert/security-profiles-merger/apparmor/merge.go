@@ -120,99 +120,94 @@ func mergeTwo(left, right *Profile, mergeStrategy strategy) *Profile {
 	}
 }
 
-func mergeExecutable(left, right *ExecutableRules, mergeStrategy strategy) *ExecutableRules {
+func mergeOptional[T any](
+	left, right *T,
+	cloneFn func(*T) *T,
+	mergeFn func(*T, *T) *T,
+) *T {
 	if left == nil && right == nil {
 		return nil
 	}
 
 	if left == nil {
-		return cloneExecutable(right)
+		return cloneFn(right)
 	}
 
 	if right == nil {
-		return cloneExecutable(left)
+		return cloneFn(left)
 	}
 
-	return &ExecutableRules{
-		AllowedExecutables: mergeStrategy.mergePaths(
-			left.AllowedExecutables,
-			right.AllowedExecutables,
-		),
-		AllowedLibraries: mergeStrategy.mergePaths(
-			left.AllowedLibraries,
-			right.AllowedLibraries,
-		),
-	}
+	return mergeFn(left, right)
+}
+
+func mergeExecutable(left, right *ExecutableRules, mergeStrategy strategy) *ExecutableRules {
+	return mergeOptional(
+		left,
+		right,
+		cloneExecutable,
+		func(lhs, rhs *ExecutableRules) *ExecutableRules {
+			return &ExecutableRules{
+				AllowedExecutables: mergeStrategy.mergePaths(
+					lhs.AllowedExecutables,
+					rhs.AllowedExecutables,
+				),
+				AllowedLibraries: mergeStrategy.mergePaths(
+					lhs.AllowedLibraries,
+					rhs.AllowedLibraries,
+				),
+			}
+		},
+	)
 }
 
 func mergeFilesystem(left, right *FilesystemRules, mergeStrategy strategy) *FilesystemRules {
-	if left == nil && right == nil {
-		return nil
-	}
-
-	if left == nil {
-		return cloneFilesystem(right)
-	}
-
-	if right == nil {
-		return cloneFilesystem(left)
-	}
-
-	return mergeStrategy.mergeFilesystem(left, right)
+	return mergeOptional(
+		left,
+		right,
+		cloneFilesystem,
+		func(lhs, rhs *FilesystemRules) *FilesystemRules {
+			return mergeStrategy.mergeFilesystem(lhs, rhs)
+		},
+	)
 }
 
 func mergeNetwork(left, right *NetworkRules, mergeStrategy strategy) *NetworkRules {
-	if left == nil && right == nil {
-		return nil
-	}
-
-	if left == nil {
-		return cloneNetwork(right)
-	}
-
-	if right == nil {
-		return cloneNetwork(left)
-	}
-
-	result := &NetworkRules{
-		AllowRaw:  mergeStrategy.mergeBool(left.AllowRaw, right.AllowRaw),
-		Protocols: nil,
-	}
-
-	switch {
-	case left.Protocols != nil && right.Protocols != nil:
-		result.Protocols = &AllowedProtocols{
-			AllowTCP: mergeStrategy.mergeBool(left.Protocols.AllowTCP, right.Protocols.AllowTCP),
-			AllowUDP: mergeStrategy.mergeBool(left.Protocols.AllowUDP, right.Protocols.AllowUDP),
+	return mergeOptional(left, right, cloneNetwork, func(lhs, rhs *NetworkRules) *NetworkRules {
+		result := &NetworkRules{
+			AllowRaw:  mergeStrategy.mergeBool(lhs.AllowRaw, rhs.AllowRaw),
+			Protocols: nil,
 		}
-	case left.Protocols != nil:
-		result.Protocols = cloneProtocols(left.Protocols)
-	case right.Protocols != nil:
-		result.Protocols = cloneProtocols(right.Protocols)
-	}
 
-	return result
+		switch {
+		case lhs.Protocols != nil && rhs.Protocols != nil:
+			result.Protocols = &AllowedProtocols{
+				AllowTCP: mergeStrategy.mergeBool(lhs.Protocols.AllowTCP, rhs.Protocols.AllowTCP),
+				AllowUDP: mergeStrategy.mergeBool(lhs.Protocols.AllowUDP, rhs.Protocols.AllowUDP),
+			}
+		case lhs.Protocols != nil:
+			result.Protocols = cloneProtocols(lhs.Protocols)
+		case rhs.Protocols != nil:
+			result.Protocols = cloneProtocols(rhs.Protocols)
+		}
+
+		return result
+	})
 }
 
 func mergeCapabilities(left, right *CapabilityRules, mergeStrategy strategy) *CapabilityRules {
-	if left == nil && right == nil {
-		return nil
-	}
-
-	if left == nil {
-		return cloneCapabilities(right)
-	}
-
-	if right == nil {
-		return cloneCapabilities(left)
-	}
-
-	return &CapabilityRules{
-		AllowedCapabilities: mergeStrategy.mergeStrings(
-			left.AllowedCapabilities,
-			right.AllowedCapabilities,
-		),
-	}
+	return mergeOptional(
+		left,
+		right,
+		cloneCapabilities,
+		func(lhs, rhs *CapabilityRules) *CapabilityRules {
+			return &CapabilityRules{
+				AllowedCapabilities: mergeStrategy.mergeStrings(
+					lhs.AllowedCapabilities,
+					rhs.AllowedCapabilities,
+				),
+			}
+		},
+	)
 }
 
 // intersectStrategy implements intersection (AND) semantics.
@@ -228,11 +223,11 @@ func (intersectStrategy) mergePaths(left, right []string) []string {
 
 func (intersectStrategy) mergeBool(left, right *bool) *bool {
 	if left == nil {
-		return copyBool(right)
+		return merge.ClonePtr(right)
 	}
 
 	if right == nil {
-		return copyBool(left)
+		return merge.ClonePtr(left)
 	}
 
 	val := *left && *right
@@ -274,10 +269,11 @@ func (intersectStrategy) mergeFilesystem(left, right *FilesystemRules) *Filesyst
 	return collapseFsPerms(merged)
 }
 
-//nolint:nonamedreturns // names required to distinguish two same-typed returns
-func splitGlobEntries(entries []fsPathEntry) (globs, literals []fsPathEntry) {
+func splitGlobEntries(entries []fsPathEntry) ([]fsPathEntry, []fsPathEntry) {
+	var globs, literals []fsPathEntry
+
 	for _, entry := range entries {
-		if globTokenRe.MatchString(entry.path) {
+		if entry.expr != nil {
 			globs = append(globs, entry)
 		} else {
 			literals = append(literals, entry)
@@ -333,11 +329,11 @@ func (unionStrategy) mergePaths(left, right []string) []string {
 
 func (unionStrategy) mergeBool(left, right *bool) *bool {
 	if left == nil {
-		return copyBool(right)
+		return merge.ClonePtr(right)
 	}
 
 	if right == nil {
-		return copyBool(left)
+		return merge.ClonePtr(left)
 	}
 
 	val := *left || *right
@@ -414,13 +410,15 @@ func addReadOnlyPaths(
 			continue
 		}
 
-		if !globTokenRe.MatchString(path) && writeSet.matches(path) {
+		isGlob := globTokenRe.MatchString(path)
+
+		if !isGlob && writeSet.matches(path) {
 			rwSet.add(path)
 
 			continue
 		}
 
-		if globTokenRe.MatchString(path) {
+		if isGlob {
 			promoteCoveredLiterals(path, writeSet, rwSet)
 		}
 
@@ -443,13 +441,15 @@ func addWriteOnlyPaths(
 			continue
 		}
 
-		if !globTokenRe.MatchString(path) && readSet.matches(path) {
+		isGlob := globTokenRe.MatchString(path)
+
+		if !isGlob && readSet.matches(path) {
 			rwSet.add(path)
 
 			continue
 		}
 
-		if globTokenRe.MatchString(path) {
+		if isGlob {
 			promoteCoveredLiterals(path, readSet, rwSet)
 		}
 
@@ -526,16 +526,6 @@ func collapseFsPerms(perms map[string]fsPermission) *FilesystemRules {
 	}
 }
 
-func copyBool(boolVal *bool) *bool {
-	if boolVal == nil {
-		return nil
-	}
-
-	val := *boolVal
-
-	return &val
-}
-
 func cloneProfile(profile *Profile) *Profile {
 	clone := &Profile{
 		Executable:   nil,
@@ -580,7 +570,7 @@ func cloneFilesystem(fsRules *FilesystemRules) *FilesystemRules {
 
 func cloneNetwork(network *NetworkRules) *NetworkRules {
 	clone := &NetworkRules{
-		AllowRaw:  copyBool(network.AllowRaw),
+		AllowRaw:  merge.ClonePtr(network.AllowRaw),
 		Protocols: nil,
 	}
 
@@ -593,8 +583,8 @@ func cloneNetwork(network *NetworkRules) *NetworkRules {
 
 func cloneProtocols(proto *AllowedProtocols) *AllowedProtocols {
 	return &AllowedProtocols{
-		AllowTCP: copyBool(proto.AllowTCP),
-		AllowUDP: copyBool(proto.AllowUDP),
+		AllowTCP: merge.ClonePtr(proto.AllowTCP),
+		AllowUDP: merge.ClonePtr(proto.AllowUDP),
 	}
 }
 
@@ -623,47 +613,31 @@ func normalizeProfile(profile *Profile) *Profile {
 
 func deduplicateProfile(profile *Profile) {
 	if profile.Executable != nil {
-		profile.Executable.AllowedExecutables = deduplicatePaths(
+		profile.Executable.AllowedExecutables = merge.DeduplicateSlice(
 			profile.Executable.AllowedExecutables,
 		)
-		profile.Executable.AllowedLibraries = deduplicatePaths(
+		profile.Executable.AllowedLibraries = merge.DeduplicateSlice(
 			profile.Executable.AllowedLibraries,
 		)
 	}
 
 	if profile.Filesystem != nil {
-		profile.Filesystem.ReadOnlyPaths = deduplicatePaths(
+		profile.Filesystem.ReadOnlyPaths = merge.DeduplicateSlice(
 			profile.Filesystem.ReadOnlyPaths,
 		)
-		profile.Filesystem.WriteOnlyPaths = deduplicatePaths(
+		profile.Filesystem.WriteOnlyPaths = merge.DeduplicateSlice(
 			profile.Filesystem.WriteOnlyPaths,
 		)
-		profile.Filesystem.ReadWritePaths = deduplicatePaths(
+		profile.Filesystem.ReadWritePaths = merge.DeduplicateSlice(
 			profile.Filesystem.ReadWritePaths,
 		)
 	}
-}
 
-func deduplicatePaths(paths []string) []string {
-	if len(paths) == 0 {
-		return paths
+	if profile.Capabilities != nil {
+		profile.Capabilities.AllowedCapabilities = merge.DeduplicateSlice(
+			profile.Capabilities.AllowedCapabilities,
+		)
 	}
-
-	seen := make(map[string]struct{}, len(paths))
-
-	result := paths[:0]
-
-	for _, path := range paths {
-		if _, ok := seen[path]; ok {
-			continue
-		}
-
-		seen[path] = struct{}{}
-
-		result = append(result, path)
-	}
-
-	return result
 }
 
 func normalizeGlobPath(path string) string {

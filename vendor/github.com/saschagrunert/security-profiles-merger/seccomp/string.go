@@ -70,6 +70,48 @@ func FormatProfile(profile *specs.LinuxSeccomp) string {
 	return fmt.Sprintf("Profile{%s}", strings.Join(parts, " "))
 }
 
+// String returns a human-readable representation of the syscall entry.
+func (e SyscallEntry) String() string {
+	action := string(e.Action)
+	if e.ErrnoRet != nil {
+		action = fmt.Sprintf("%s(errno:%d)", action, *e.ErrnoRet)
+	}
+
+	if len(e.Args) == 0 {
+		return e.Name + "->" + action
+	}
+
+	return fmt.Sprintf("%s(%s)->%s", e.Name, formatArgs(e.Args), action)
+}
+
+// String returns a human-readable representation of the syscall detail.
+func (d SyscallDetail) String() string {
+	action := string(d.Action)
+	if d.ErrnoRet != nil {
+		action = fmt.Sprintf("%s(errno:%d)", action, *d.ErrnoRet)
+	}
+
+	if len(d.Args) == 0 {
+		return action
+	}
+
+	return fmt.Sprintf("(%s)->%s", formatArgs(d.Args), action)
+}
+
+func formatArgs(args []specs.LinuxSeccompArg) string {
+	parts := make([]string, len(args))
+
+	for idx, arg := range args {
+		if arg.Op == specs.OpMaskedEqual {
+			parts[idx] = fmt.Sprintf("[%d]%s:%d:%d", arg.Index, arg.Op, arg.Value, arg.ValueTwo)
+		} else {
+			parts[idx] = fmt.Sprintf("[%d]%s:%d", arg.Index, arg.Op, arg.Value)
+		}
+	}
+
+	return strings.Join(parts, ",")
+}
+
 func formatSyscall(syscall specs.LinuxSyscall) string {
 	names := strings.Join(syscall.Names, ",")
 	action := string(syscall.Action)
@@ -82,14 +124,5 @@ func formatSyscall(syscall specs.LinuxSyscall) string {
 		return names + "->" + action
 	}
 
-	args := make([]string, len(syscall.Args))
-	for idx, arg := range syscall.Args {
-		if arg.Op == specs.OpMaskedEqual {
-			args[idx] = fmt.Sprintf("[%d]%s:%d:%d", arg.Index, arg.Op, arg.Value, arg.ValueTwo)
-		} else {
-			args[idx] = fmt.Sprintf("[%d]%s:%d", arg.Index, arg.Op, arg.Value)
-		}
-	}
-
-	return fmt.Sprintf("%s(%s)->%s", names, strings.Join(args, ","), action)
+	return fmt.Sprintf("%s(%s)->%s", names, formatArgs(syscall.Args), action)
 }

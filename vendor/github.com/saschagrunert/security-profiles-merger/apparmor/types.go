@@ -53,8 +53,8 @@ type NetworkRules struct {
 
 // AllowedProtocols defines which network protocols are permitted.
 type AllowedProtocols struct {
-	AllowTCP *bool `json:"allowTcp,omitempty"` //nolint:tagliatelle // matches SPO CRD
-	AllowUDP *bool `json:"allowUdp,omitempty"` //nolint:tagliatelle // matches SPO CRD
+	AllowTCP *bool `json:"allowTcp,omitempty"`
+	AllowUDP *bool `json:"allowUdp,omitempty"`
 }
 
 // CapabilityRules defines which Linux capabilities are permitted.

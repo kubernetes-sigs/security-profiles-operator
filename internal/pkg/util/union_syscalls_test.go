@@ -87,30 +87,9 @@ func TestUnionSyscalls(t *testing.T) {
 				},
 			},
 			want: []seccompprofileapi.Syscall{
-				{
-					Names:  []string{"a"},
-					Action: seccompprofileapi.ActAllow,
-					Args: []seccompprofileapi.Arg{
-						{Index: ptr.To[int32](1), Value: 2},
-						{Index: ptr.To[int32](2), Value: 3},
-					},
-				},
-				{
-					Names:  []string{"b"},
-					Action: seccompprofileapi.ActAllow,
-					Args: []seccompprofileapi.Arg{
-						{Index: ptr.To[int32](1), Value: 2},
-						{Index: ptr.To[int32](2), Value: 3},
-					},
-				},
-				{
-					Names:  []string{"c"},
-					Action: seccompprofileapi.ActAllow,
-					Args: []seccompprofileapi.Arg{
-						{Index: ptr.To[int32](1), Value: 2},
-						{Index: ptr.To[int32](2), Value: 3},
-					},
-				},
+				{Names: []string{"a"}, Action: seccompprofileapi.ActAllow},
+				{Names: []string{"b"}, Action: seccompprofileapi.ActAllow},
+				{Names: []string{"c"}, Action: seccompprofileapi.ActAllow},
 			},
 		},
 		{
