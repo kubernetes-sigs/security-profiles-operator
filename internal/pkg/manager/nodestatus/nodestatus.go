@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -32,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -348,6 +350,24 @@ func (r *StatusReconciler) reconcileStatus(
 	state secprofnodestatusapi.ProfileState,
 	l logr.Logger,
 ) error {
+	key := client.ObjectKeyFromObject(prof)
+
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		current := prof.DeepCopyToStatusBaseIf()
+		if err := r.client.Get(ctx, key, current); err != nil {
+			return client.IgnoreNotFound(err)
+		}
+
+		return r.updateProfileStatus(ctx, current, state, l)
+	})
+}
+
+func (r *StatusReconciler) updateProfileStatus(
+	ctx context.Context,
+	prof profilebaseapi.StatusBaseUser,
+	state secprofnodestatusapi.ProfileState,
+	l logr.Logger,
+) error {
 	pCopy := prof.DeepCopyToStatusBaseIf()
 
 	// We always set this status
@@ -385,6 +405,10 @@ func (r *StatusReconciler) reconcileStatus(
 		))
 	}
 
+	if !profileStatusChanged(prof, pCopy) {
+		return nil
+	}
+
 	l.V(config.VerboseLevel).Info("Updating status")
 
 	if updateErr := r.client.Status().Update(ctx, pCopy); updateErr != nil {
@@ -392,6 +416,10 @@ func (r *StatusReconciler) reconcileStatus(
 	}
 
 	return nil
+}
+
+func profileStatusChanged(current, desired profilebaseapi.StatusBaseUser) bool {
+	return !reflect.DeepEqual(current, desired)
 }
 
 func daemonSetIsReady(ds *appsv1.DaemonSet) bool {

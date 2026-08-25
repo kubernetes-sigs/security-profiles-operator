@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -233,21 +234,21 @@ func (r *PodReconciler) updatePodReferencesForSeccomp(
 		pod := linkedPods.Items[i]
 		podList[i] = pod.Namespace + "/" + pod.Name
 	}
+	slices.Sort(podList)
 
 	if err := util.Retry(func() error {
-		sp.Status.ActiveWorkloads = podList
+		if err := r.client.Get(ctx, util.NamespacedName(sp.GetName(), sp.GetNamespace()), sp); err != nil {
+			return fmt.Errorf("retrieving profile: %w", err)
+		}
 
-		updateErr := r.client.Status().Update(ctx, sp)
-		if updateErr != nil {
-			if err := r.client.Get(
-				ctx,
-				util.NamespacedName(sp.GetName(), sp.GetNamespace()),
-				sp,
-			); err != nil {
-				return fmt.Errorf("retrieving profile: %w", err)
-			}
+		if sameActiveWorkloads(sp.Status.ActiveWorkloads, podList) {
+			return nil
+		}
 
-			return fmt.Errorf("updating profile: %w", updateErr)
+		sp.Status.ActiveWorkloads = slices.Clone(podList)
+
+		if err := r.client.Status().Update(ctx, sp); err != nil {
+			return fmt.Errorf("updating profile: %w", err)
 		}
 
 		return nil
@@ -270,6 +271,19 @@ func (r *PodReconciler) updatePodReferencesForSeccomp(
 	}
 
 	return nil
+}
+
+func sameActiveWorkloads(current, desired []string) bool {
+	if len(current) != len(desired) {
+		return false
+	}
+
+	currentCopy := slices.Clone(current)
+	desiredCopy := slices.Clone(desired)
+	slices.Sort(currentCopy)
+	slices.Sort(desiredCopy)
+
+	return slices.Equal(currentCopy, desiredCopy)
 }
 
 // updatePodReferencesForSelinux updates a SelinuxProfile with the identifiers of pods using it and ensures
