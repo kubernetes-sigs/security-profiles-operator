@@ -66,6 +66,7 @@ func NewController() controller.Controller {
 // A StatusReconciler monitors node changes and updates the profile status.
 type StatusReconciler struct {
 	client client.Client
+	reader client.Reader
 	log    logr.Logger
 	record record.EventRecorder
 }
@@ -354,7 +355,7 @@ func (r *StatusReconciler) reconcileStatus(
 
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		current := prof.DeepCopyToStatusBaseIf()
-		if err := r.client.Get(ctx, key, current); err != nil {
+		if err := r.reader.Get(ctx, key, current); err != nil {
 			return client.IgnoreNotFound(err)
 		}
 

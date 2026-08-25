@@ -55,6 +55,7 @@ func NewController() controller.Controller {
 // A PodReconciler monitors pod changes and links them to SeccompProfiles.
 type PodReconciler struct {
 	client client.Client
+	reader client.Reader
 	log    logr.Logger
 	record record.EventRecorder
 }
@@ -237,7 +238,7 @@ func (r *PodReconciler) updatePodReferencesForSeccomp(
 	slices.Sort(podList)
 
 	if err := util.Retry(func() error {
-		if err := r.client.Get(ctx, util.NamespacedName(sp.GetName(), sp.GetNamespace()), sp); err != nil {
+		if err := r.reader.Get(ctx, util.NamespacedName(sp.GetName(), sp.GetNamespace()), sp); err != nil {
 			return fmt.Errorf("retrieving profile: %w", err)
 		}
 
