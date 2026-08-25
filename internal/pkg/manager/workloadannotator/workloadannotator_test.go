@@ -17,12 +17,63 @@ limitations under the License.
 package workloadannotator
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 )
+
+func TestSameActiveWorkloads(t *testing.T) {
+	t.Parallel()
+
+	require.True(t, sameActiveWorkloads(
+		[]string{"namespace/pod-b", "namespace/pod-a"},
+		[]string{"namespace/pod-a", "namespace/pod-b"},
+	))
+	require.False(t, sameActiveWorkloads(
+		[]string{"namespace/pod-a"},
+		[]string{"namespace/pod-a", "namespace/pod-b"},
+	))
+}
+
+func TestUpdatePodReferencesForSeccompRefreshesBeforeNoOpCheck(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	testScheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(testScheme))
+	require.NoError(t, seccompprofileapi.AddToScheme(testScheme))
+
+	stored := &seccompprofileapi.SeccompProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-profile"},
+		Status: seccompprofileapi.SeccompProfileStatus{
+			ActiveWorkloads: []string{"example/pod-a"},
+		},
+	}
+	stale := stored.DeepCopy()
+	stale.Status.ActiveWorkloads = nil
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(testScheme).
+		WithStatusSubresource(stored).
+		WithObjects(stored).
+		WithIndex(&corev1.Pod{}, spOwnerKey, func(client.Object) []string { return nil }).
+		Build()
+
+	r := &PodReconciler{client: fakeClient}
+	require.NoError(t, r.updatePodReferencesForSeccomp(ctx, stale))
+
+	updated := &seccompprofileapi.SeccompProfile{}
+	require.NoError(t, fakeClient.Get(ctx, client.ObjectKey{Name: stored.Name}, updated))
+	require.Empty(t, updated.Status.ActiveWorkloads)
+}
 
 func TestGetSeccompProfilesFromPod(t *testing.T) {
 	t.Parallel()
