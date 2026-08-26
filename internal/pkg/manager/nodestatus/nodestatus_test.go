@@ -50,7 +50,9 @@ func TestProfileStatusChanged(t *testing.T) {
 			current: &seccompprofileapi.SeccompProfile{
 				ObjectMeta: metav1.ObjectMeta{Name: "test-profile"},
 				Status: seccompprofileapi.SeccompProfileStatus{
-					StatusBase: profilebaseapi.StatusBase{Status: secprofnodestatusapi.ProfileStateInstalled},
+					StatusBase: profilebaseapi.StatusBase{
+						Status: secprofnodestatusapi.ProfileStateInstalled,
+					},
 				},
 			},
 		},
@@ -59,7 +61,9 @@ func TestProfileStatusChanged(t *testing.T) {
 			current: &selinuxprofileapi.SelinuxProfile{
 				ObjectMeta: metav1.ObjectMeta{Name: "test-profile"},
 				Status: selinuxprofileapi.SelinuxProfileStatus{
-					StatusBase: profilebaseapi.StatusBase{Status: secprofnodestatusapi.ProfileStateInstalled},
+					StatusBase: profilebaseapi.StatusBase{
+						Status: secprofnodestatusapi.ProfileStateInstalled,
+					},
 				},
 			},
 		},
@@ -68,7 +72,9 @@ func TestProfileStatusChanged(t *testing.T) {
 			current: &selinuxprofileapi.RawSelinuxProfile{
 				ObjectMeta: metav1.ObjectMeta{Name: "test-profile"},
 				Status: selinuxprofileapi.SelinuxProfileStatus{
-					StatusBase: profilebaseapi.StatusBase{Status: secprofnodestatusapi.ProfileStateInstalled},
+					StatusBase: profilebaseapi.StatusBase{
+						Status: secprofnodestatusapi.ProfileStateInstalled,
+					},
 				},
 			},
 		},
@@ -77,7 +83,9 @@ func TestProfileStatusChanged(t *testing.T) {
 			current: &apparmorapi.AppArmorProfile{
 				ObjectMeta: metav1.ObjectMeta{Name: "test-profile"},
 				Status: apparmorapi.AppArmorProfileStatus{
-					StatusBase: profilebaseapi.StatusBase{Status: secprofnodestatusapi.ProfileStateInstalled},
+					StatusBase: profilebaseapi.StatusBase{
+						Status: secprofnodestatusapi.ProfileStateInstalled,
+					},
 				},
 			},
 		},
@@ -147,7 +155,10 @@ func TestReconcileStatusRetriesConflictWithFreshGet(t *testing.T) {
 				updateCalls++
 				if updateCalls == 1 {
 					return apierrors.NewConflict(
-						schema.GroupResource{Group: seccompprofileapi.GroupVersion.Group, Resource: "seccompprofiles"},
+						schema.GroupResource{
+							Group:    seccompprofileapi.GroupVersion.Group,
+							Resource: "seccompprofiles",
+						},
 						obj.GetName(),
 						errors.New("simulated conflict"),
 					)
@@ -159,7 +170,12 @@ func TestReconcileStatusRetriesConflictWithFreshGet(t *testing.T) {
 		Build()
 
 	r := &StatusReconciler{client: fakeClient, reader: apiReader}
-	err := r.reconcileStatus(ctx, profile, secprofnodestatusapi.ProfileStateInstalled, logr.Discard())
+	err := r.reconcileStatus(
+		ctx,
+		profile,
+		secprofnodestatusapi.ProfileStateInstalled,
+		logr.Discard(),
+	)
 
 	require.NoError(t, err)
 	require.Equal(t, 2, updateCalls)
