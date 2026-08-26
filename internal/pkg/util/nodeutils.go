@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -55,7 +55,9 @@ func GetNodeList(ctx context.Context) ([]string, error) {
 	nodeResource := schema.GroupVersionResource{Group: "", Version: "v1", Resource: "nodes"}
 
 	// List the nodes (using the dynamic client)
-	nodeList, err := dynamicClient.Resource(nodeResource).Namespace("").List(ctx, metav1.ListOptions{})
+	nodeList, err := dynamicClient.Resource(nodeResource).
+		Namespace("").
+		List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("cannot connect to api to list nodes: %w", err)
 	}

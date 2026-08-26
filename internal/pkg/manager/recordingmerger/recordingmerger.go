@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -24,11 +24,11 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
@@ -71,7 +71,7 @@ func (r *PolicyMergeReconciler) Name() string {
 }
 
 // SchemeBuilder returns the API scheme of the controller.
-func (r *PolicyMergeReconciler) SchemeBuilder() *scheme.Builder {
+func (r *PolicyMergeReconciler) SchemeBuilder() runtime.SchemeBuilder {
 	return profilerecordingapi.SchemeBuilder
 }
 
@@ -88,7 +88,10 @@ func (r *PolicyMergeReconciler) Healthz(*http.Request) error {
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles,verbs=get;list;watch;create;update;patch;delete;deletecollection
 
 // Reconcile reconciles a NodeStatus.
-func (r *PolicyMergeReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+func (r *PolicyMergeReconciler) Reconcile(
+	ctx context.Context,
+	req reconcile.Request,
+) (reconcile.Result, error) {
 	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
 
@@ -156,7 +159,12 @@ func (r *PolicyMergeReconciler) mergeTypedProfiles(
 	}
 
 	if len(partialProfiles) == 0 {
-		r.record.Event(profileRecording, util.EventTypeWarning, reasonNoPartialProfiles, errNoPartialProfiles)
+		r.record.Event(
+			profileRecording,
+			util.EventTypeWarning,
+			reasonNoPartialProfiles,
+			errNoPartialProfiles,
+		)
 		r.log.Info(errNoPartialProfiles)
 
 		return nil
@@ -181,7 +189,12 @@ func (r *PolicyMergeReconciler) mergeTypedProfiles(
 		}
 
 		if mergedProfile == nil {
-			r.record.Event(profileRecording, util.EventTypeWarning, reasonMergedEmptyProfile, errEmptyMergedProfile)
+			r.record.Event(
+				profileRecording,
+				util.EventTypeWarning,
+				reasonMergedEmptyProfile,
+				errEmptyMergedProfile,
+			)
 			r.log.Info(errEmptyMergedProfile)
 
 			return nil
@@ -189,12 +202,18 @@ func (r *PolicyMergeReconciler) mergeTypedProfiles(
 
 		mergedRecordingName := mergedProfileName(profileRecording.Name, cntPartialProfiles[0])
 
-		r.log.V(1).Info("Computed syscall coverage", "container", cntName, "coverage", coverageAnnotation)
+		r.log.V(1).
+			Info("Computed syscall coverage", "container", cntName, "coverage", coverageAnnotation)
 
 		res, err := createUpdateMergedProfile(
 			ctx, r.client, profileRecording, mergedRecordingName, mergedProfile, coverageAnnotation)
 		if err != nil {
-			r.record.Event(profileRecording, util.EventTypeWarning, reasonCannotCreateUpdate, err.Error())
+			r.record.Event(
+				profileRecording,
+				util.EventTypeWarning,
+				reasonCannotCreateUpdate,
+				err.Error(),
+			)
 
 			return fmt.Errorf("cannot create or update merged profile: action:  %w", err)
 		}
@@ -325,7 +344,9 @@ func createUpdateProfile(
 
 		mergedProf, ok := mergedProfiles.getProfile().(*seccompprofile.SeccompProfile)
 		if !ok {
-			return controllerutil.OperationResultNone, errors.New("cannot convert merged profile to SeccompProfile")
+			return controllerutil.OperationResultNone, errors.New(
+				"cannot convert merged profile to SeccompProfile",
+			)
 		}
 
 		mergedSpec := mergedProf.Spec.DeepCopy()
@@ -348,7 +369,9 @@ func createUpdateProfile(
 
 		mergedProf, ok := mergedProfiles.getProfile().(*selinuxprofileapi.SelinuxProfile)
 		if !ok {
-			return controllerutil.OperationResultNone, errors.New("cannot convert merged profile to SelinuxProfile")
+			return controllerutil.OperationResultNone, errors.New(
+				"cannot convert merged profile to SelinuxProfile",
+			)
 		}
 
 		mergedSpec := mergedProf.Spec.DeepCopy()
@@ -368,7 +391,9 @@ func createUpdateProfile(
 
 		mergedProf, ok := mergedProfiles.getProfile().(*apparmorprofileapi.AppArmorProfile)
 		if !ok {
-			return controllerutil.OperationResultNone, errors.New("cannot convert merged profile to AppArmorProfile")
+			return controllerutil.OperationResultNone, errors.New(
+				"cannot convert merged profile to AppArmorProfile",
+			)
 		}
 
 		mergedSpec := mergedProf.Spec.DeepCopy()

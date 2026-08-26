@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -63,7 +63,8 @@ func (e *e2e) testCaseLongSeccompProfileName(nodes []string) {
 		)
 
 		secpolNodeStatusList := &secprofnodestatusapi.SecurityProfileNodeStatusList{}
-		e.Require().NoError(json.Unmarshal([]byte(seccompProfileNodeStatusJSON), secpolNodeStatusList))
+		e.Require().
+			NoError(json.Unmarshal([]byte(seccompProfileNodeStatusJSON), secpolNodeStatusList))
 
 		if len(nodes) == len(secpolNodeStatusList.Items) {
 			e.logf("Node status successfully reconciled")

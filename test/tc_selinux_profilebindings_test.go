@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -50,9 +50,21 @@ func (e *e2e) testCaseSelinuxProfileBinding(image string) {
 	e.Equal(selinuxUsage, output)
 
 	e.logf("Testing that profile binding has pod reference")
-	output = e.kubectl("get", "profilebinding", selinuxBindingName, "--output", "jsonpath={.status.activeWorkloads[0]}")
+	output = e.kubectl(
+		"get",
+		"profilebinding",
+		selinuxBindingName,
+		"--output",
+		"jsonpath={.status.activeWorkloads[0]}",
+	)
 	e.Equal(fmt.Sprintf("%s/%s", namespace, testPodName), output)
-	output = e.kubectl("get", "profilebinding", selinuxBindingName, "--output", "jsonpath={.metadata.finalizers[0]}")
+	output = e.kubectl(
+		"get",
+		"profilebinding",
+		selinuxBindingName,
+		"--output",
+		"jsonpath={.metadata.finalizers[0]}",
+	)
 	e.Equal("active-workload-lock", output)
 
 	e.logf("Testing that profile has pod reference")

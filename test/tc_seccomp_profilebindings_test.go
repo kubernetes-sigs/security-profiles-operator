@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -127,16 +127,31 @@ spec:
 	} else {
 		e.logf("Testing that pod container has securityContext for specific image")
 		output = e.kubectl(
-			"get", "pod", "hello",
-			"--output", "jsonpath={.spec.containers[0].securityContext.seccompProfile.localhostProfile}",
+			"get",
+			"pod",
+			"hello",
+			"--output",
+			"jsonpath={.spec.containers[0].securityContext.seccompProfile.localhostProfile}",
 		)
 		e.Equal(fmt.Sprintf("operator/%s/profile-allow-unsafe.json", namespace), output)
 	}
 
 	e.logf("Testing that profile binding has pod reference")
-	output = e.kubectl("get", "profilebinding", "hello-binding", "--output", "jsonpath={.status.activeWorkloads[0]}")
+	output = e.kubectl(
+		"get",
+		"profilebinding",
+		"hello-binding",
+		"--output",
+		"jsonpath={.status.activeWorkloads[0]}",
+	)
 	e.Equal(namespace+"/hello", output)
-	output = e.kubectl("get", "profilebinding", "hello-binding", "--output", "jsonpath={.metadata.finalizers[0]}")
+	output = e.kubectl(
+		"get",
+		"profilebinding",
+		"hello-binding",
+		"--output",
+		"jsonpath={.metadata.finalizers[0]}",
+	)
 	e.Equal("active-workload-lock", output)
 
 	e.logf("Testing that profile has pod reference")

@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -51,7 +51,12 @@ type podSeccompRecorder struct {
 	record *utils.SafeRecorder
 }
 
-func RegisterWebhook(server webhook.Server, scheme *runtime.Scheme, rec record.EventRecorder, c client.Client) {
+func RegisterWebhook(
+	server webhook.Server,
+	scheme *runtime.Scheme,
+	rec record.EventRecorder,
+	c client.Client,
+) {
 	server.Register(
 		"/mutate-v1-pod-recording",
 		&webhook.Admission{
@@ -289,10 +294,13 @@ func (p *podSeccompRecorder) updateSeccompSecurityContext(
 	if ctr.SecurityContext.SeccompProfile == nil {
 		ctr.SecurityContext.SeccompProfile = &corev1.SeccompProfile{}
 	} else {
-		p.record.Eventf(pr,
+		p.record.Eventf(
+			pr,
 			corev1.EventTypeWarning,
 			"SecurityContextAlreadySet",
-			"Container %s had SecurityContext already set, the profile recorder overwrote it", ctr.Name)
+			"Container %s had SecurityContext already set, the profile recorder overwrote it",
+			ctr.Name,
+		)
 	}
 
 	ctr.SecurityContext.SeccompProfile.Type = corev1.SeccompProfileTypeLocalhost
@@ -315,10 +323,13 @@ func (p *podSeccompRecorder) updateSelinuxSecurityContext(
 	if ctr.SecurityContext.SELinuxOptions == nil {
 		ctr.SecurityContext.SELinuxOptions = &corev1.SELinuxOptions{}
 	} else {
-		p.record.Eventf(pr,
+		p.record.Eventf(
+			pr,
 			corev1.EventTypeWarning,
 			"SecurityContextAlreadySet",
-			"Container %s had SecurityContext already set, the profile recorder overwrote it", ctr.Name)
+			"Container %s had SecurityContext already set, the profile recorder overwrote it",
+			ctr.Name,
+		)
 	}
 
 	ctr.SecurityContext.SELinuxOptions.Type = config.SelinuxPermissiveProfile
@@ -348,7 +359,11 @@ func (p *podSeccompRecorder) setRecordingReferences(
 ) error {
 	// we Get the recording again because remove is used in a retry loop
 	// to handle conflicts, we want to get the most recent one
-	profileRecording, err := p.GetProfileRecording(ctx, profileRecording.Name, profileRecording.Namespace)
+	profileRecording, err := p.GetProfileRecording(
+		ctx,
+		profileRecording.Name,
+		profileRecording.Namespace,
+	)
 	if kerrors.IsNotFound(err) {
 		// this can happen if the profile recording is deleted while we're reconciling
 		// just return without doing anything
@@ -357,7 +372,14 @@ func (p *podSeccompRecorder) setRecordingReferences(
 		return fmt.Errorf("cannot retrieve profilerecording: %w", err)
 	}
 
-	if err := p.setActiveWorkloads(ctx, op, profileRecording, selector, podName, podLabels); err != nil {
+	if err := p.setActiveWorkloads(
+		ctx,
+		op,
+		profileRecording,
+		selector,
+		podName,
+		podLabels,
+	); err != nil {
 		return fmt.Errorf("cannot set active workloads: %w", err)
 	}
 
@@ -413,14 +435,19 @@ func (p *podSeccompRecorder) warnEventIfContainerPrivileged(
 		return
 	}
 
-	if ctr.SecurityContext == nil || ctr.SecurityContext.Privileged == nil || !*ctr.SecurityContext.Privileged {
+	if ctr.SecurityContext == nil || ctr.SecurityContext.Privileged == nil ||
+		!*ctr.SecurityContext.Privileged {
 		return
 	}
 
-	p.record.Eventf(profileRecording,
+	p.record.Eventf(
+		profileRecording,
 		corev1.EventTypeWarning,
 		"PrivilegedContainer",
-		"Container %s in pod %s is privileged, cannot use log-based profile recording", ctr.Name, pod.Name)
+		"Container %s in pod %s is privileged, cannot use log-based profile recording",
+		ctr.Name,
+		pod.Name,
+	)
 }
 
 // warnEventIfNameTooLong warns the user if the name of the profile recording is too long or otherwise does

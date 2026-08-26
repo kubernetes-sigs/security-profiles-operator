@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -24,8 +24,8 @@ import (
 )
 
 const (
-	baseProfileNameRunc = "runc-v1.4.2"
-	baseProfileNameCrun = "crun-v1.26"
+	baseProfileNameRunc = "runc-v1.5.1"
+	baseProfileNameCrun = "crun-v1.29.1"
 )
 
 func (e *e2e) testCaseBaseProfile([]string) {

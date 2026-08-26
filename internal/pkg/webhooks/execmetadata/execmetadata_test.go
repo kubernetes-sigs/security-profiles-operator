@@ -1,5 +1,5 @@
 /*
-Copyright 2025 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -56,7 +56,10 @@ func getPodAdmRequest(t *testing.T, pod *corev1.Pod, resource string) admissionv
 	}
 }
 
-func getPodExecAdmRequest(t *testing.T, execOpts *corev1.PodExecOptions) admissionv1.AdmissionRequest {
+func getPodExecAdmRequest(
+	t *testing.T,
+	execOpts *corev1.PodExecOptions,
+) admissionv1.AdmissionRequest {
 	t.Helper()
 
 	return admissionv1.AdmissionRequest{
@@ -113,7 +116,9 @@ func TestHandler_Handle(t *testing.T) {
 					{
 						Operation: "replace",
 						Path:      "/spec/containers/0/env",
-						Value:     []corev1.EnvVar{{Name: "SPO_EXEC_REQUEST_UID", Value: "test-uid"}},
+						Value: []corev1.EnvVar{
+							{Name: "SPO_EXEC_REQUEST_UID", Value: "test-uid"},
+						},
 					},
 				},
 				AdmissionResponse: admissionv1.AdmissionResponse{
@@ -150,7 +155,9 @@ func TestHandler_Handle(t *testing.T) {
 					{
 						Operation: "replace",
 						Path:      "/spec/ephemeralContainers/0/env",
-						Value:     []corev1.EnvVar{{Name: "SPO_EXEC_REQUEST_UID", Value: "test-uid"}},
+						Value: []corev1.EnvVar{
+							{Name: "SPO_EXEC_REQUEST_UID", Value: "test-uid"},
+						},
 					},
 				},
 				AdmissionResponse: admissionv1.AdmissionResponse{
@@ -193,7 +200,9 @@ func TestHandler_Handle(t *testing.T) {
 					{
 						Operation: "replace",
 						Path:      "/spec/ephemeralContainers/0/env",
-						Value:     []corev1.EnvVar{{Name: "SPO_EXEC_REQUEST_UID", Value: "test-uid"}},
+						Value: []corev1.EnvVar{
+							{Name: "SPO_EXEC_REQUEST_UID", Value: "test-uid"},
+						},
 					},
 				},
 				AdmissionResponse: admissionv1.AdmissionResponse{
@@ -225,7 +234,12 @@ func TestHandler_Handle(t *testing.T) {
 					{
 						Operation: "add",
 						Path:      "/command",
-						Value:     []string{"env", "SPO_EXEC_REQUEST_UID=test-uid", "echo", "hello"},
+						Value: []string{
+							"env",
+							"SPO_EXEC_REQUEST_UID=test-uid",
+							"echo",
+							"hello",
+						},
 					},
 				},
 				AdmissionResponse: admissionv1.AdmissionResponse{
@@ -257,7 +271,12 @@ func TestHandler_Handle(t *testing.T) {
 					{
 						Operation: "add",
 						Path:      "/command",
-						Value:     []string{"env", "SPO_EXEC_REQUEST_UID=test-uid", "echo", "hello"},
+						Value: []string{
+							"env",
+							"SPO_EXEC_REQUEST_UID=test-uid",
+							"echo",
+							"hello",
+						},
 					},
 				},
 				AdmissionResponse: admissionv1.AdmissionResponse{

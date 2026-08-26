@@ -1,5 +1,5 @@
 /*
-Copyright 2025 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -30,7 +30,10 @@ type defaultImpl struct{}
 type impl interface {
 	ReadFile(string) ([]byte, error)
 	AppArmorEnabled(manager apparmorprofile.ProfileManager) bool
-	AppArmorRemoveProfile(manager apparmorprofile.ProfileManager, p profilebaseapi.StatusBaseUser) error
+	AppArmorRemoveProfile(
+		manager apparmorprofile.ProfileManager,
+		p profilebaseapi.StatusBaseUser,
+	) error
 }
 
 func (*defaultImpl) ReadFile(name string) ([]byte, error) {

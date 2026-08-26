@@ -1,7 +1,7 @@
 //go:build apparmor
 
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -91,7 +91,11 @@ func (a *aaProfileManager) InstallProfile(bp profilebaseapi.StatusBaseUser) (boo
 		return false, errors.New(errProfileExists)
 	}
 
-	policy, err := crd2armor.GenerateProfile(profile.GetProfileName(), profile.Spec.Mode, &profile.Spec.Abstract)
+	policy, err := crd2armor.GenerateProfile(
+		profile.GetProfileName(),
+		profile.Spec.Mode,
+		&profile.Spec.Abstract,
+	)
 	if err != nil {
 		return false, fmt.Errorf("generating raw apparmor profile: %w", err)
 	}
@@ -139,7 +143,12 @@ func loadProfile(logger logr.Logger, name, content string) (bool, error) {
 			targetProfileDir,
 			profileFilename(name),
 		)
-		if err := os.WriteFile(path, []byte(content), 0o644); err != nil { //nolint // file permissions are fine
+		//nolint:gosec // file permissions are fine
+		if err := os.WriteFile(
+			path,
+			[]byte(content),
+			0o644,
+		); err != nil {
 			return fmt.Errorf("writing policy file: %w", err)
 		}
 
@@ -153,7 +162,10 @@ func loadProfile(logger logr.Logger, name, content string) (bool, error) {
 		}
 
 		if !loaded {
-			return fmt.Errorf("policy %q is not loaded: AppArmorProfile name must match defined policy", name)
+			return fmt.Errorf(
+				"policy %q is not loaded: AppArmorProfile name must match defined policy",
+				name,
+			)
 		}
 
 		return nil
@@ -176,7 +188,11 @@ func removeProfile(logger logr.Logger, profileName string) error {
 		}
 
 		if !loaded {
-			logger.Info("profile is not loaded into host: skipping deletion", "profile-name", profileName)
+			logger.Info(
+				"profile is not loaded into host: skipping deletion",
+				"profile-name",
+				profileName,
+			)
 
 			return nil
 		}

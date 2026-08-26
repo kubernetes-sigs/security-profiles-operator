@@ -1,5 +1,5 @@
 /*
-Copyright 2026 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -83,7 +83,11 @@ func (r *ReconcileSelinux) createPolicyReloadJob(
 			job := &existingJobs.Items[i]
 			// Skip if a job is currently running
 			if job.Status.Succeeded == 0 && job.Status.Failed == 0 {
-				l.Info("Reload job already running for this node, skipping", "existingJob", job.Name)
+				l.Info(
+					"Reload job already running for this node, skipping",
+					"existingJob",
+					job.Name,
+				)
 
 				return false, nil
 			}
@@ -98,7 +102,12 @@ func (r *ReconcileSelinux) createPolicyReloadJob(
 	}
 
 	// Use a unique job name based on timestamp to avoid conflicts
-	jobName := fmt.Sprintf("%s%s-%d", reloadJobNamePrefix, nodeName[:min(10, len(nodeName))], time.Now().Unix())
+	jobName := fmt.Sprintf(
+		"%s%s-%d",
+		reloadJobNamePrefix,
+		nodeName[:min(10, len(nodeName))],
+		time.Now().Unix(),
+	)
 
 	privileged := true
 	hostPathDirectory := corev1.HostPathDirectory
@@ -204,7 +213,15 @@ exit $exit_code`,
 		},
 	}
 
-	l.Info("Creating SELinux policy reload job", "jobName", jobName, "nodeName", nodeName, "policyName", policyName)
+	l.Info(
+		"Creating SELinux policy reload job",
+		"jobName",
+		jobName,
+		"nodeName",
+		nodeName,
+		"policyName",
+		policyName,
+	)
 
 	if err := r.client.Create(ctx, job); err != nil {
 		if kerrors.IsAlreadyExists(err) {
@@ -224,7 +241,10 @@ exit $exit_code`,
 // getSelinuxdImageFromPod retrieves the selinuxd container image from the current pod.
 // This is needed because the selinuxd image is set per-node by the operator based on
 // the node's OS, so it's not available as an environment variable.
-func (r *ReconcileSelinux) getSelinuxdImageFromPod(ctx context.Context, namespace string) (string, error) {
+func (r *ReconcileSelinux) getSelinuxdImageFromPod(
+	ctx context.Context,
+	namespace string,
+) (string, error) {
 	podName := os.Getenv("POD_NAME")
 	if podName == "" {
 		return "", errors.New("POD_NAME environment variable not set")
@@ -234,7 +254,11 @@ func (r *ReconcileSelinux) getSelinuxdImageFromPod(ctx context.Context, namespac
 	// The daemon manager can filter the pod cache to recording-enabled pods.
 	// Read the current SPOD pod directly so the reload path does not depend on
 	// recording labels being present on operator-managed pods.
-	if err := r.clientReader.Get(ctx, types.NamespacedName{Name: podName, Namespace: namespace}, pod); err != nil {
+	if err := r.clientReader.Get(
+		ctx,
+		types.NamespacedName{Name: podName, Namespace: namespace},
+		pod,
+	); err != nil {
 		return "", fmt.Errorf("getting pod %s: %w", podName, err)
 	}
 

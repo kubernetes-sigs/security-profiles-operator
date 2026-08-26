@@ -1,5 +1,5 @@
 /*
-Copyright 2025 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -52,7 +52,9 @@ func (p Handler) getPodPatch(req *admission.Request) ([]jsonpatch.JsonPatchOpera
 	}
 }
 
-func (p Handler) getNodeDebuggingPodPatch(req *admission.Request) ([]jsonpatch.JsonPatchOperation, error) {
+func (p Handler) getNodeDebuggingPodPatch(
+	req *admission.Request,
+) ([]jsonpatch.JsonPatchOperation, error) {
 	patches := make([]jsonpatch.JsonPatchOperation, 0, 1)
 
 	podObject := corev1.Pod{}
@@ -69,7 +71,10 @@ func (p Handler) getNodeDebuggingPodPatch(req *admission.Request) ([]jsonpatch.J
 
 	container := podObject.Spec.Containers[0]
 	container.Env = removeExistingEnv(container.Env, ExecRequestUid)
-	container.Env = append(container.Env, corev1.EnvVar{Name: ExecRequestUid, Value: string(req.UID)})
+	container.Env = append(
+		container.Env,
+		corev1.EnvVar{Name: ExecRequestUid, Value: string(req.UID)},
+	)
 
 	patches = append(patches, jsonpatch.JsonPatchOperation{
 		Operation: "replace",
@@ -82,7 +87,9 @@ func (p Handler) getNodeDebuggingPodPatch(req *admission.Request) ([]jsonpatch.J
 	return patches, nil
 }
 
-func (p Handler) getEphemeralContainerPatch(req *admission.Request) ([]jsonpatch.JsonPatchOperation, error) {
+func (p Handler) getEphemeralContainerPatch(
+	req *admission.Request,
+) ([]jsonpatch.JsonPatchOperation, error) {
 	patches := make([]jsonpatch.JsonPatchOperation, 0)
 
 	podObject := corev1.Pod{}
@@ -112,7 +119,10 @@ func (p Handler) getEphemeralContainerPatch(req *admission.Request) ([]jsonpatch
 		// You can't change env of a already created ephemeral container.
 		if !exists {
 			container.Env = removeExistingEnv(container.Env, ExecRequestUid)
-			container.Env = append(container.Env, corev1.EnvVar{Name: ExecRequestUid, Value: string(req.UID)})
+			container.Env = append(
+				container.Env,
+				corev1.EnvVar{Name: ExecRequestUid, Value: string(req.UID)},
+			)
 
 			patches = append(patches, jsonpatch.JsonPatchOperation{
 				Operation: "replace",
@@ -148,7 +158,7 @@ func removeExistingEnv(env []corev1.EnvVar, key string) []corev1.EnvVar {
 }
 
 func (p Handler) getPodExecPatch(req *admission.Request) ([]jsonpatch.JsonPatchOperation, error) {
-	patches := make([]jsonpatch.JsonPatchOperation, 0)
+	patches := make([]jsonpatch.JsonPatchOperation, 0, 1)
 
 	execObject := corev1.PodExecOptions{}
 

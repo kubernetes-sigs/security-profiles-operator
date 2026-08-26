@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -199,7 +199,10 @@ const (
 // ProfileRecordingOutputPath is the path where the recorded profiles will be
 // stored. Those profiles are going to be reconciled into native CRDs and
 // therefore have a limited lifetime.
-var ProfileRecordingOutputPath = filepath.Join(os.TempDir(), "security-profiles-operator-recordings")
+var ProfileRecordingOutputPath = filepath.Join(
+	os.TempDir(),
+	"security-profiles-operator-recordings",
+)
 
 var ErrPodNamespaceEnvNotFound = errors.New("the env variable OPERATOR_NAMESPACE hasn't been set")
 

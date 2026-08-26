@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -43,7 +43,10 @@ func GetSPODName() string {
 }
 
 // GetSPOD returns the SPOD instance we're currently running on.
-func GetSPOD(ctx context.Context, cli client.Client) (*spodapi.SecurityProfilesOperatorDaemon, error) {
+func GetSPOD(
+	ctx context.Context,
+	cli client.Client,
+) (*spodapi.SecurityProfilesOperatorDaemon, error) {
 	spod := &spodapi.SecurityProfilesOperatorDaemon{}
 	if err := cli.Get(ctx, types.NamespacedName{
 		Name:      GetSPODName(),

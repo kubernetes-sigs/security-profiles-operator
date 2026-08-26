@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Copyright 2021 The Kubernetes Authors.
+# Copyright The Kubernetes Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,7 +15,7 @@
 
 set -euo pipefail
 
-VERSION=1.6.1
+VERSION=1.7.0
 curl -sSfL --retry 5 --retry-delay 3 \
     "https://github.com/libbpf/libbpf/archive/refs/tags/v$VERSION.tar.gz" -o- |
     tar xfz -

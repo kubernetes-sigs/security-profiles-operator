@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -23,7 +23,13 @@ func (e *e2e) testCaseSPODUpdateSelinux([]string) {
 
 	e.logf("assert selinux is enabled in the spod object")
 
-	selinuxEnabledInSPODObj := e.kubectlOperatorNS("get", "spod", "spod", "-o", "jsonpath={.spec.selinux.enable}")
+	selinuxEnabledInSPODObj := e.kubectlOperatorNS(
+		"get",
+		"spod",
+		"spod",
+		"-o",
+		"jsonpath={.spec.selinux.enable}",
+	)
 	if clusterType == clusterTypeOpenShift {
 		// OCP enables SELinux by default, so both no value and explicit true are OK
 		if selinuxEnabledInSPODObj != "" && selinuxEnabledInSPODObj != "true" {
@@ -40,7 +46,14 @@ func (e *e2e) testCaseSPODUpdateSelinux([]string) {
 	e.Contains(selinuxEnabledInSPODDS, "--with-selinux=true")
 
 	e.logf("Disable selinux from SPOD")
-	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"selinux":{"enable": false}}}`, "--type=merge")
+	e.kubectlOperatorNS(
+		"patch",
+		"spod",
+		"spod",
+		"-p",
+		`{"spec":{"selinux":{"enable": false}}}`,
+		"--type=merge",
+	)
 
 	time.Sleep(defaultWaitTime)
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
@@ -50,7 +63,14 @@ func (e *e2e) testCaseSPODUpdateSelinux([]string) {
 	e.NotContains(selinuxDisabledInSPODDS, "--with-selinux=true")
 
 	e.logf("Re-enable selinux in SPOD")
-	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"selinux":{"enable": true}}}`, "--type=merge")
+	e.kubectlOperatorNS(
+		"patch",
+		"spod",
+		"spod",
+		"-p",
+		`{"spec":{"selinux":{"enable": true}}}`,
+		"--type=merge",
+	)
 
 	time.Sleep(defaultWaitTime)
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")

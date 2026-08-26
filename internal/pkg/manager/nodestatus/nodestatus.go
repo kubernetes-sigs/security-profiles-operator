@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -28,12 +28,12 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
 	apparmorapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/api/common"
@@ -74,7 +74,7 @@ func (r *StatusReconciler) Name() string {
 }
 
 // SchemeBuilder returns the API scheme of the controller.
-func (r *StatusReconciler) SchemeBuilder() *scheme.Builder {
+func (r *StatusReconciler) SchemeBuilder() runtime.SchemeBuilder {
 	return secprofnodestatusapi.SchemeBuilder
 }
 
@@ -104,7 +104,10 @@ func (r *StatusReconciler) Healthz(*http.Request) error {
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 
 // Reconcile reconciles a NodeStatus.
-func (r *StatusReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+func (r *StatusReconciler) Reconcile(
+	ctx context.Context,
+	req reconcile.Request,
+) (reconcile.Result, error) {
 	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
 
@@ -147,7 +150,9 @@ func (r *StatusReconciler) Reconcile(ctx context.Context, req reconcile.Request)
 		return reconcile.Result{}, errors.New("unlabeled node status")
 	}
 
-	if util.KindBasedDNSLengthName(prof) != instance.Labels[secprofnodestatusapi.StatusToProfLabel] {
+	if util.KindBasedDNSLengthName(
+		prof,
+	) != instance.Labels[secprofnodestatusapi.StatusToProfLabel] {
 		return reconcile.Result{}, errors.New("status doesn't match owner")
 	}
 
@@ -189,14 +194,28 @@ func (r *StatusReconciler) Reconcile(ctx context.Context, req reconcile.Request)
 
 		if nodeName != "" {
 			// remove the deleted node finalizer string from the profile
-			logger.Info("Removing finalizer from profile", "profile", prof.GetName(), "node", nodeName)
+			logger.Info(
+				"Removing finalizer from profile",
+				"profile",
+				prof.GetName(),
+				"node",
+				nodeName,
+			)
 
-			if err := util.RemoveFinalizer(ctx, r.client, prof, util.GetFinalizerNodeString(nodeName)); err != nil {
-				return reconcile.Result{}, fmt.Errorf("cannot remove finalizer from profile: %w", err)
+			if err := util.RemoveFinalizer(
+				ctx,
+				r.client,
+				prof,
+				util.GetFinalizerNodeString(nodeName),
+			); err != nil {
+				return reconcile.Result{}, fmt.Errorf(
+					"cannot remove finalizer from profile: %w",
+					err,
+				)
 			}
 		}
 
-		return reconcile.Result{Requeue: true}, nil
+		return reconcile.Result{RequeueAfter: time.Second}, nil
 	}
 
 	statusMatch, err := util.FinalizersMatchCurrentNodes(ctx, nodeStatusList)
@@ -213,10 +232,18 @@ func (r *StatusReconciler) Reconcile(ctx context.Context, req reconcile.Request)
 		// if nodeName is not in currentNodeNames and there isn't a mismatch in statuses/nodes, remove it from the finalizers
 		for i := range nodeStatusList.Items {
 			nodeStatus := &nodeStatusList.Items[i]
-			if !util.ContainsSubstring(currentNodeNames, nodeStatus.Spec.NodeName) { // string not in list
+			if !util.ContainsSubstring(
+				currentNodeNames,
+				nodeStatus.Spec.NodeName,
+			) { // string not in list
 				// Found a finalizer for a node that doesn't exist
 				finalizerNodeString := util.GetFinalizerNodeString(nodeStatus.Spec.NodeName)
-				if err := util.RemoveFinalizer(ctx, r.client, prof, finalizerNodeString); err != nil {
+				if err := util.RemoveFinalizer(
+					ctx,
+					r.client,
+					prof,
+					finalizerNodeString,
+				); err != nil {
 					return reconcile.Result{}, fmt.Errorf("cannot remove finalizer: %w", err)
 				}
 			}
@@ -225,7 +252,10 @@ func (r *StatusReconciler) Reconcile(ctx context.Context, req reconcile.Request)
 
 	lowestCommonState := secprofnodestatusapi.LowestState
 	for i := range nodeStatusList.Items {
-		lowestCommonState = secprofnodestatusapi.LowerOfTwoStates(lowestCommonState, nodeStatusList.Items[i].Status.Status)
+		lowestCommonState = secprofnodestatusapi.LowerOfTwoStates(
+			lowestCommonState,
+			nodeStatusList.Items[i].Status.Status,
+		)
 	}
 
 	logger.V(config.VerboseLevel).Info("Setting the status to", "Status", lowestCommonState)
@@ -259,7 +289,11 @@ func (r *StatusReconciler) removeStatusForDeletedNode(ctx context.Context,
 	return "", nil
 }
 
-func (r *StatusReconciler) getDS(ctx context.Context, namespace string, l logr.Logger) (*appsv1.DaemonSet, error) {
+func (r *StatusReconciler) getDS(
+	ctx context.Context,
+	namespace string,
+	l logr.Logger,
+) (*appsv1.DaemonSet, error) {
 	spodDS := appsv1.DaemonSet{}
 	spodName := util.NamespacedName("spod", namespace)
 
@@ -355,7 +389,8 @@ func (r *StatusReconciler) reconcileStatus(
 }
 
 func daemonSetIsReady(ds *appsv1.DaemonSet) bool {
-	return ds.Status.DesiredNumberScheduled > 0 && ds.Status.DesiredNumberScheduled == ds.Status.NumberAvailable
+	return ds.Status.DesiredNumberScheduled > 0 &&
+		ds.Status.DesiredNumberScheduled == ds.Status.NumberAvailable
 }
 
 func daemonSetIsUpdating(ds *appsv1.DaemonSet) bool {

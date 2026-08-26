@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -68,7 +68,10 @@ func (e *e2e) TestSecurityProfilesOperator_Flaky() {
 	// TODO(jaosorior): Re-introduce this to the namespaced tests once we
 	// fix the issue with the certs.
 	e.Run("cluster-wide: Seccomp: Verify profile binding", func() {
-		e.testCaseSeccompProfileBinding(nodes, "quay.io/security-profiles-operator/test-hello-world:latest")
+		e.testCaseSeccompProfileBinding(
+			nodes,
+			"quay.io/security-profiles-operator/test-hello-world:latest",
+		)
 		e.testCaseSeccompProfileBinding(nodes, "'*'")
 	})
 

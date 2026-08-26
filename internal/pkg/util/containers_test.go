@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -159,7 +159,12 @@ func TestGetProcessStartTimeTicks_CacheMissOnRecycledPID(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify the start times are distinct to prevent cache collisions
-	require.NotEqual(t, time1, time2, "expected different start times for a recycled PID to prevent cache poisoning")
+	require.NotEqual(
+		t,
+		time1,
+		time2,
+		"expected different start times for a recycled PID to prevent cache poisoning",
+	)
 }
 
 const (

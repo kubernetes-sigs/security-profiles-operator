@@ -120,7 +120,7 @@ cert-manager via `kubectl`, if you're **not** running on
 [OpenShift](https://www.redhat.com/en/technologies/cloud-computing/openshift):
 
 ```sh
-$ kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.17.2/cert-manager.yaml
+$ kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.21.1/cert-manager.yaml
 $ kubectl --namespace cert-manager wait --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
 ```
 
@@ -204,7 +204,7 @@ You may also specify a different target namespace with `--namespace mynamespace`
 ```shell
 # Install cert-manager if it is not already installed (TODO: The helm
 # chart might do this one day - see issue 1062 for details):
-kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.17.2/cert-manager.yaml
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.21.1/cert-manager.yaml
 kubectl --namespace cert-manager wait --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
 
 # Create the namespace beforehand
@@ -1602,7 +1602,7 @@ metadata:
   name: profile1
 spec:
   defaultAction: SCMP_ACT_ERRNO
-  baseProfileName: runc-v1.4.2
+  baseProfileName: runc-v1.5.1
   syscalls:
     - action: SCMP_ACT_ALLOW
       names:
@@ -1612,7 +1612,7 @@ spec:
 If you're not using runc but the alternative
 [crun](https://github.com/containers/crun), then you can do the same by using
 the [corresponding example profile](./examples/baseprofile-crun.yaml) (tested
-with version 0.20.1).
+with version 1.29.1).
 
 #### Recording profiles without applying them
 
@@ -1668,7 +1668,7 @@ metadata:
   name: profile1
 spec:
   defaultAction: SCMP_ACT_ERRNO
-  baseProfileName: oci://ghcr.io/security-profiles/runc:v1.4.2
+  baseProfileName: oci://ghcr.io/security-profiles/runc:v1.5.1
 ```
 
 The resulting profile `profile1` will then contain all base syscalls from the
@@ -2089,24 +2089,24 @@ The `spoc` client is able to pull security profiles from OCI artifact compatible
 registries. To do that, just run `spoc pull`:
 
 ```console
-> spoc pull ghcr.io/security-profiles/runc:v1.4.2
-16:32:29.795597 Pulling profile from: ghcr.io/security-profiles/runc:v1.4.2
+> spoc pull ghcr.io/security-profiles/runc:v1.5.1
+16:32:29.795597 Pulling profile from: ghcr.io/security-profiles/runc:v1.5.1
 16:32:29.795610 Verifying signature
 
-Verification for ghcr.io/security-profiles/runc:v1.4.2 --
+Verification for ghcr.io/security-profiles/runc:v1.5.1 --
 The following checks were performed on each of these signatures:
   - Existence of the claims in the transparency log was verified offline
   - The code-signing certificate was verified using trusted certificate authority certificates
 
 [{"critical":{"identity":{"docker-reference":"ghcr.io/security-profiles/runc"},…}}]
 16:32:33.208695 Creating file store in: /tmp/pull-3199397214
-16:32:33.208713 Verifying reference: ghcr.io/security-profiles/runc:v1.4.2
+16:32:33.208713 Verifying reference: ghcr.io/security-profiles/runc:v1.5.1
 16:32:33.208718 Creating repository for ghcr.io/security-profiles/runc
-16:32:33.208742 Using tag: v1.4.2
+16:32:33.208742 Using tag: v1.5.1
 16:32:33.208743 Copying profile from repository
 16:32:34.119652 Reading profile
 16:32:34.119677 Trying to unmarshal seccomp profile
-16:32:34.120114 Got SeccompProfile: runc-v1.4.2
+16:32:34.120114 Got SeccompProfile: runc-v1.5.1
 16:32:34.120119 Saving profile in: /tmp/profile.yaml
 ```
 
@@ -2234,15 +2234,15 @@ The Security Profiles Operator will try to pull the correct profile by using
 way, for example if a profile does not support any platform:
 
 ```
-> spoc pull ghcr.io/security-profiles/runc:v1.4.2
-11:07:14.788840 Pulling profile from: ghcr.io/security-profiles/runc:v1.4.2
+> spoc pull ghcr.io/security-profiles/runc:v1.5.1
+11:07:14.788840 Pulling profile from: ghcr.io/security-profiles/runc:v1.5.1
 11:07:14.788852 Verifying signature
 …
 11:07:17.559037 Copying profile from repository
 11:07:18.359152 Trying to read profile: profile-linux-amd64.yaml
 11:07:18.359209 Trying to read profile: profile.yaml
 11:07:18.359224 Trying to unmarshal seccomp profile
-11:07:18.359728 Got SeccompProfile: runc-v1.4.2
+11:07:18.359728 Got SeccompProfile: runc-v1.5.1
 11:07:18.359732 Saving profile in: /tmp/profile.yaml
 ```
 

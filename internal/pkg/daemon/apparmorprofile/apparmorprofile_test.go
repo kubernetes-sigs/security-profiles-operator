@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -56,7 +56,9 @@ func TestReconcile(t *testing.T) {
 				metrics: metrics.New(),
 				manager: NewAppArmorProfileManager(log.Log),
 			},
-			req:        reconcile.Request{NamespacedName: types.NamespacedName{Namespace: namespace, Name: name}},
+			req: reconcile.Request{
+				NamespacedName: types.NamespacedName{Namespace: namespace, Name: name},
+			},
 			wantResult: reconcile.Result{},
 			wantErr:    nil,
 		},
@@ -73,7 +75,9 @@ func TestReconcile(t *testing.T) {
 				manager: NewAppArmorProfileManager(log.Log),
 				metrics: metrics.New(),
 			},
-			req:        reconcile.Request{NamespacedName: types.NamespacedName{Namespace: namespace, Name: name}},
+			req: reconcile.Request{
+				NamespacedName: types.NamespacedName{Namespace: namespace, Name: name},
+			},
 			wantResult: reconcile.Result{},
 			wantErr:    nil,
 		},
@@ -90,7 +94,9 @@ func TestReconcile(t *testing.T) {
 				manager: &FakeProfileManager{enabled: false},
 				metrics: metrics.New(),
 			},
-			req:        reconcile.Request{NamespacedName: types.NamespacedName{Namespace: namespace, Name: name}},
+			req: reconcile.Request{
+				NamespacedName: types.NamespacedName{Namespace: namespace, Name: name},
+			},
 			wantResult: reconcile.Result{},
 			wantErr:    nil,
 		},

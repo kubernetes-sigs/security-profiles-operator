@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -99,7 +99,9 @@ func New(logger logr.Logger, opts *LogEnricherOptions) (*Enricher, error) {
 	if opts != nil && strings.EqualFold(opts.AuditSource, "bpf") {
 		logger.Info("Using BPF-based audit source")
 
+		//nolint:staticcheck,nolintlint // platform-dependent
 		source, err = auditsource.NewBpfSource(logger)
+		//nolint:staticcheck,nolintlint // platform-dependent
 		if err != nil {
 			return nil, err
 		}
@@ -202,7 +204,8 @@ func (e *Enricher) Run() error {
 	}
 
 	for auditLine := range log {
-		e.logger.V(config.VerboseLevel).Info(fmt.Sprintf("Get container ID for PID: %d", auditLine.ProcessID))
+		e.logger.V(config.VerboseLevel).
+			Info(fmt.Sprintf("Get container ID for PID: %d", auditLine.ProcessID))
 
 		cID, err := e.ContainerIDForPID(e.containerIDCache, auditLine.ProcessID)
 		if errors.Is(err, os.ErrNotExist) {

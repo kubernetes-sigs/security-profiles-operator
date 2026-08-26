@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -34,7 +34,7 @@ func (r *Reconciler) Setup(
 ) error {
 	r.client = mgr.GetClient()
 	r.log = ctrl.Log.WithName(r.Name())
-	//nolint:staticcheck,nolintlint // TODO: migrate to GetEventRecorder
+	//nolint:staticcheck // TODO: migrate to GetEventRecorder
 	r.record = mgr.GetEventRecorderFor("apparmorprofile")
 	r.metrics = met
 	r.manager = NewAppArmorProfileManager(r.log)

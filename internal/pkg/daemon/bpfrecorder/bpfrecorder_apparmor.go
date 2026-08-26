@@ -1,7 +1,7 @@
 //go:build linux && !no_bpf
 
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -57,9 +57,11 @@ var (
 	rePathWithPid       = regexp.MustCompile(`^/proc/\d+/`)
 	rePathWithTid       = regexp.MustCompile(`^/proc/@{pid}/task/\d+/`)
 	rePathWithCid       = regexp.MustCompile(`/var/lib/containers/storage/overlay/\w+/`)
-	reUUID              = regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`)
-	reHash              = regexp.MustCompile(`[0-9a-fA-F]{32,}`)
-	reDigitSequence     = regexp.MustCompile(`\d{6,}`)
+	reUUID              = regexp.MustCompile(
+		`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`,
+	)
+	reHash          = regexp.MustCompile(`[0-9a-fA-F]{32,}`)
+	reDigitSequence = regexp.MustCompile(`\d{6,}`)
 )
 
 var appArmorHooks = []string{
@@ -201,8 +203,11 @@ func (b *AppArmorRecorder) handleFileEvent(fileEvent *bpfEvent) {
 	if _, ok := b.recordedFiles[mid]; !ok {
 		if len(b.recordedFiles) >= maxTrackedMntns {
 			if !b.maxMntnsWarned {
-				b.logger.Info("Max tracked mount namespaces reached, new containers will not be recorded",
-					"limit", maxTrackedMntns)
+				b.logger.Info(
+					"Max tracked mount namespaces reached, new containers will not be recorded",
+					"limit",
+					maxTrackedMntns,
+				)
 				b.maxMntnsWarned = true
 			}
 
@@ -403,10 +408,16 @@ func (b *AppArmorRecorder) processExecFsEvents(mid mntnsID) BpfAppArmorFileProce
 		knownWrite := isKnownFile(fileName, knownWritePrefixes)
 
 		if access.spawn { //nolint:gocritic // better readability
-			processedEvents.AllowedExecutables = append(processedEvents.AllowedExecutables, fileName)
+			processedEvents.AllowedExecutables = append(
+				processedEvents.AllowedExecutables,
+				fileName,
+			)
 		} else if access.exec {
 			if !knownLibrary {
-				processedEvents.AllowedLibraries = append(processedEvents.AllowedLibraries, fileName)
+				processedEvents.AllowedLibraries = append(
+					processedEvents.AllowedLibraries,
+					fileName,
+				)
 			}
 		} else if access.read && access.write {
 			// XXX: Condition here isn't exact.
@@ -444,7 +455,11 @@ func (b *AppArmorRecorder) processExecFsEvents(mid mntnsID) BpfAppArmorFileProce
 }
 
 // processDeletedFiles process file paths which are marked as deleted by the Linux kernel.
-func processDeletedFiles(fileName string, processedEvents *BpfAppArmorFileProcessed, logger logr.Logger) bool {
+func processDeletedFiles(
+	fileName string,
+	processedEvents *BpfAppArmorFileProcessed,
+	logger logr.Logger,
+) bool {
 	// Workaround for HUGETLB support with apparmor:
 	// AppArmor treats mmap(..., MAP_ANONYMOUS | MAP_HUGETLB) calls as
 	// file access to "", which is then attached to "/" (attach_disconnected).

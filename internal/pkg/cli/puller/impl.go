@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -32,7 +32,13 @@ type defaultImpl struct{}
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../../hack/boilerplate/boilerplate.generatego.txt
 //counterfeiter:generate . impl
 type impl interface {
-	Pull(string, string, string, *v1.Platform, *artifact.PullSignatureOptions) (*artifact.PullResult, error)
+	Pull(
+		string,
+		string,
+		string,
+		*v1.Platform,
+		*artifact.PullSignatureOptions,
+	) (*artifact.PullResult, error)
 	WriteFile(string, []byte, os.FileMode) error
 }
 

@@ -1,5 +1,5 @@
 /*
-Copyright 2026 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -544,8 +544,14 @@ func TestCreateUpdateProfile_CoverageAnnotation(t *testing.T) {
 		cl := fake.NewClientBuilder().WithScheme(coverageTestScheme(t)).Build()
 
 		_, err := createUpdateProfile(
-			context.Background(), cl, recording, mergedName,
-			&mergeableSeccompProfile{}, profilerecordingapi.ProfileRecordingKindSeccompProfile, coverage)
+			context.Background(),
+			cl,
+			recording,
+			mergedName,
+			&mergeableSeccompProfile{},
+			profilerecordingapi.ProfileRecordingKindSeccompProfile,
+			coverage,
+		)
 		require.NoError(t, err)
 
 		got := &seccompprofile.SeccompProfile{}
@@ -560,8 +566,14 @@ func TestCreateUpdateProfile_CoverageAnnotation(t *testing.T) {
 		cl := fake.NewClientBuilder().WithScheme(coverageTestScheme(t)).Build()
 
 		_, err := createUpdateProfile(
-			context.Background(), cl, recording, mergedName,
-			&MergeableSelinuxProfile{}, profilerecordingapi.ProfileRecordingKindSelinuxProfile, coverage)
+			context.Background(),
+			cl,
+			recording,
+			mergedName,
+			&MergeableSelinuxProfile{},
+			profilerecordingapi.ProfileRecordingKindSelinuxProfile,
+			coverage,
+		)
 		require.NoError(t, err)
 
 		got := &selinuxprofileapi.SelinuxProfile{}
@@ -576,8 +588,14 @@ func TestCreateUpdateProfile_CoverageAnnotation(t *testing.T) {
 		cl := fake.NewClientBuilder().WithScheme(coverageTestScheme(t)).Build()
 
 		_, err := createUpdateProfile(
-			context.Background(), cl, recording, mergedName,
-			&mergeableAppArmorProfile{}, profilerecordingapi.ProfileRecordingKindAppArmorProfile, coverage)
+			context.Background(),
+			cl,
+			recording,
+			mergedName,
+			&mergeableAppArmorProfile{},
+			profilerecordingapi.ProfileRecordingKindAppArmorProfile,
+			coverage,
+		)
 		require.NoError(t, err)
 
 		got := &apparmorprofileapi.AppArmorProfile{}
@@ -599,8 +617,14 @@ func TestCreateUpdateProfile_CoverageAnnotation(t *testing.T) {
 			WithScheme(coverageTestScheme(t)).WithObjects(existing).Build()
 
 		_, err := createUpdateProfile(
-			context.Background(), cl, recording, mergedName,
-			&mergeableSeccompProfile{}, profilerecordingapi.ProfileRecordingKindSeccompProfile, coverage)
+			context.Background(),
+			cl,
+			recording,
+			mergedName,
+			&mergeableSeccompProfile{},
+			profilerecordingapi.ProfileRecordingKindSeccompProfile,
+			coverage,
+		)
 		require.NoError(t, err)
 
 		got := &seccompprofile.SeccompProfile{}

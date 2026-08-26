@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -40,7 +40,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
@@ -91,7 +90,7 @@ func (r *ReconcileSPOd) Name() string {
 }
 
 // SchemeBuilder returns the API scheme of the controller.
-func (r *ReconcileSPOd) SchemeBuilder() *scheme.Builder {
+func (r *ReconcileSPOd) SchemeBuilder() runtime.SchemeBuilder {
 	return spodapi.SchemeBuilder
 }
 
@@ -138,7 +137,10 @@ func (r *ReconcileSPOd) Healthz(*http.Request) error {
 
 // Reconcile reads that state of the cluster for a SPOD object and makes changes based on the state read
 // and what is in the `ConfigMap.Spec`.
-func (r *ReconcileSPOd) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+func (r *ReconcileSPOd) Reconcile(
+	ctx context.Context,
+	req reconcile.Request,
+) (reconcile.Result, error) {
 	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
 
@@ -204,10 +206,21 @@ func (r *ReconcileSPOd) Reconcile(ctx context.Context, req reconcile.Request) (r
 	if err := r.client.Get(ctx, spodKey, foundSPOd); err != nil {
 		if errors.IsNotFound(err) {
 			createErr := r.handleCreate(
-				ctx, spod, configuredSPOd, webhook, metricsService, certManagerResources, serviceMonitor,
+				ctx,
+				spod,
+				configuredSPOd,
+				webhook,
+				metricsService,
+				certManagerResources,
+				serviceMonitor,
 			)
 			if createErr != nil {
-				r.record.Event(spod, util.EventTypeWarning, reasonCannotCreateSPOD, createErr.Error())
+				r.record.Event(
+					spod,
+					util.EventTypeWarning,
+					reasonCannotCreateSPOD,
+					createErr.Error(),
+				)
 
 				return reconcile.Result{}, createErr
 			}
@@ -476,7 +489,11 @@ func (r *ReconcileSPOd) handleUpdate(
 			updatedProfile.Spec = *profile.Spec.DeepCopy()
 
 			if updateErr := r.client.Update(ctx, updatedProfile); updateErr != nil {
-				return fmt.Errorf("updating operator default profile %s: %w", profile.Name, updateErr)
+				return fmt.Errorf(
+					"updating operator default profile %s: %w",
+					profile.Name,
+					updateErr,
+				)
 			}
 
 			continue
@@ -489,7 +506,11 @@ func (r *ReconcileSPOd) handleUpdate(
 					return nil
 				}
 
-				return fmt.Errorf("creating operator default profile %s: %w", profile.Name, createErr)
+				return fmt.Errorf(
+					"creating operator default profile %s: %w",
+					profile.Name,
+					createErr,
+				)
 			}
 
 			continue
@@ -572,7 +593,8 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	if enableSelinux {
 		templateSpec.InitContainers = append(
 			templateSpec.InitContainers,
-			r.baseSPOd.Spec.Template.Spec.InitContainers[bindata.InitContainerIDSelinuxSharedPoliciesCopier])
+			r.baseSPOd.Spec.Template.Spec.InitContainers[bindata.InitContainerIDSelinuxSharedPoliciesCopier],
+		)
 		templateSpec.Containers = append(
 			templateSpec.Containers,
 			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDSelinuxd])
@@ -595,16 +617,24 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 			fmt.Sprintf("--with-raw-selinux=%t", enableRawSelinux))
 
 		if err := addSelinuxCustomTemplatesVolume(cfg, templateSpec); err != nil {
-			r.record.Event(cfg, util.EventTypeWarning, reasonCannotMountCustomTemplates, err.Error())
+			r.record.Event(
+				cfg,
+				util.EventTypeWarning,
+				reasonCannotMountCustomTemplates,
+				err.Error(),
+			)
 
 			return nil, fmt.Errorf("unable to mount custom SELinux templates: %w", err)
 		}
 	} else if cfg.Spec.Selinux.CustomTemplatesConfigMap != "" {
-		r.log.Info("customTemplatesConfigMap is set but SELinux is disabled, the field will be ignored")
+		r.log.Info(
+			"customTemplatesConfigMap is set but SELinux is disabled, the field will be ignored",
+		)
 	}
 
 	// Custom host proc volume
-	useCustomHostProc := cfg.Spec.HostProcVolumePath != bindata.DefaultHostProcPath && cfg.Spec.HostProcVolumePath != ""
+	useCustomHostProc := cfg.Spec.HostProcVolumePath != bindata.DefaultHostProcPath &&
+		cfg.Spec.HostProcVolumePath != ""
 	volume, mount := bindata.CustomHostProcVolume(cfg.Spec.HostProcVolumePath)
 
 	// Disable profile recording controller by default
@@ -675,9 +705,14 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 
 		// Dynamically read the json-enricher log volume configuration from the ConfigMap
 		// during each reconciliation to handle ConfigMap updates without requiring operator restart
-		jsonEnricherLogVolumeSource, jsonEnricherLogVolumeMountPath, err := r.getJsonEnricherVolume(ctx)
+		jsonEnricherLogVolumeSource, jsonEnricherLogVolumeMountPath, err := r.getJsonEnricherVolume(
+			ctx,
+		)
 		if err == nil && jsonEnricherLogVolumeSource != nil {
-			logVolume, logMount := bindata.CustomLogVolume(jsonEnricherLogVolumeMountPath, jsonEnricherLogVolumeSource)
+			logVolume, logMount := bindata.CustomLogVolume(
+				jsonEnricherLogVolumeMountPath,
+				jsonEnricherLogVolumeSource,
+			)
 			// Replace existing volume or append if not found.
 			// Using replace (not skip) so that ConfigMap changes to the volume source
 			// or mount path are applied even when baseSPOd already has an older version.
@@ -786,7 +821,10 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		templateSpec.InitContainers[i].ImagePullPolicy = pullPolicy
 
 		// Set the logging verbosity
-		templateSpec.InitContainers[i].Env = append(templateSpec.InitContainers[i].Env, verbosityEnv(cfg.Spec.Verbosity))
+		templateSpec.InitContainers[i].Env = append(
+			templateSpec.InitContainers[i].Env,
+			verbosityEnv(cfg.Spec.Verbosity),
+		)
 
 		// Update the SELinux type tag only when AppArmor is not enabled this is to prevent a crash.
 		// The SELinux type tag needs to be configured independent of EnableSelinux flag, because the
@@ -794,7 +832,10 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		// For instance, on Flatcar Linux SELinux type tag needs to be set to 'unconfined_t' instead of 'spc_t'
 		// even though SELinux is disabled in order to get the containers to start.
 		if !ptr.Deref(cfg.Spec.EnableAppArmor, false) {
-			configureSeLinuxTag(templateSpec.InitContainers[i].SecurityContext, cfg.Spec.Selinux.TypeTag)
+			configureSeLinuxTag(
+				templateSpec.InitContainers[i].SecurityContext,
+				cfg.Spec.Selinux.TypeTag,
+			)
 		}
 	}
 
@@ -803,7 +844,10 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		templateSpec.Containers[i].ImagePullPolicy = pullPolicy
 
 		// Set the logging verbosity
-		templateSpec.Containers[i].Env = append(templateSpec.Containers[i].Env, verbosityEnv(cfg.Spec.Verbosity))
+		templateSpec.Containers[i].Env = append(
+			templateSpec.Containers[i].Env,
+			verbosityEnv(cfg.Spec.Verbosity),
+		)
 
 		// Enable profiling if requested
 		if ptr.Deref(cfg.Spec.EnableProfiling, false) {
@@ -815,7 +859,10 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		// For instance, on Flatcar Linux SELinux type tag needs to be set to 'unconfined_t' instead of 'spc_t'
 		// even though SELinux is disabled in order to get the containers to start.
 		if !ptr.Deref(cfg.Spec.EnableAppArmor, false) {
-			configureSeLinuxTag(templateSpec.Containers[i].SecurityContext, cfg.Spec.Selinux.TypeTag)
+			configureSeLinuxTag(
+				templateSpec.Containers[i].SecurityContext,
+				cfg.Spec.Selinux.TypeTag,
+			)
 		}
 	}
 
@@ -839,7 +886,11 @@ func (r *ReconcileSPOd) getConfiguredLogEnricher(cfg *spodapi.SecurityProfilesOp
 	}
 
 	if cfg.Spec.Enricher.LogEnricherSource != "" {
-		r.log.Info("Setting LogEnricherSource", "LogEnricherSource", cfg.Spec.Enricher.LogEnricherSource)
+		r.log.Info(
+			"Setting LogEnricherSource",
+			"LogEnricherSource",
+			cfg.Spec.Enricher.LogEnricherSource,
+		)
 
 		r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDLogEnricher].Args = addArgsConfig(
 			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDLogEnricher].Args,
@@ -860,12 +911,18 @@ func (r *ReconcileSPOd) getConfiguredJsonEnricher(cfg *spodapi.SecurityProfilesO
 	}
 
 	if cfg.Spec.Enricher.JsonEnricherOptions != nil {
-		r.log.Info("Setting JsonEnricherOpt",
-			"AuditLogIntervalSeconds", cfg.Spec.Enricher.JsonEnricherOptions.AuditLogIntervalSeconds,
-			"AuditLogPath", cfg.Spec.Enricher.JsonEnricherOptions.AuditLogPath,
-			"AuditLogMaxAge", cfg.Spec.Enricher.JsonEnricherOptions.AuditLogMaxAge,
-			"AuditLogMaxSize", cfg.Spec.Enricher.JsonEnricherOptions.AuditLogMaxSize,
-			"AuditLogMaxBackups", cfg.Spec.Enricher.JsonEnricherOptions.AuditLogMaxBackups,
+		r.log.Info(
+			"Setting JsonEnricherOpt",
+			"AuditLogIntervalSeconds",
+			cfg.Spec.Enricher.JsonEnricherOptions.AuditLogIntervalSeconds,
+			"AuditLogPath",
+			cfg.Spec.Enricher.JsonEnricherOptions.AuditLogPath,
+			"AuditLogMaxAge",
+			cfg.Spec.Enricher.JsonEnricherOptions.AuditLogMaxAge,
+			"AuditLogMaxSize",
+			cfg.Spec.Enricher.JsonEnricherOptions.AuditLogMaxSize,
+			"AuditLogMaxBackups",
+			cfg.Spec.Enricher.JsonEnricherOptions.AuditLogMaxBackups,
 		)
 
 		if cfg.Spec.Enricher.JsonEnricherOptions.AuditLogIntervalSeconds != nil {
@@ -914,8 +971,17 @@ func (r *ReconcileSPOd) getConfiguredJsonEnricher(cfg *spodapi.SecurityProfilesO
 func (r *ReconcileSPOd) getConfiguredWebook(cfg *spodapi.SecurityProfilesOperatorDaemon,
 	image string, pullPolicy corev1.PullPolicy, caInjectType bindata.CAInjectType,
 ) *bindata.Webhook {
-	webhook := bindata.GetWebhook(r.log, r.namespace, cfg.Spec.Webhook.Options, image,
-		pullPolicy, caInjectType, cfg.Spec.Scheduling.Tolerations, cfg.Spec.ImagePullSecrets, isJsonEnricherEnabled(cfg))
+	webhook := bindata.GetWebhook(
+		r.log,
+		r.namespace,
+		cfg.Spec.Webhook.Options,
+		image,
+		pullPolicy,
+		caInjectType,
+		cfg.Spec.Scheduling.Tolerations,
+		cfg.Spec.ImagePullSecrets,
+		isJsonEnricherEnabled(cfg),
+	)
 
 	return webhook
 }
@@ -940,7 +1006,10 @@ func addSelinuxCustomTemplatesVolume(
 
 	vol, mount := bindata.CustomTemplatesVolume(cfg.Spec.Selinux.CustomTemplatesConfigMap)
 	templateSpec.Volumes = append(templateSpec.Volumes, vol)
-	templateSpec.InitContainers[idx].VolumeMounts = append(templateSpec.InitContainers[idx].VolumeMounts, mount)
+	templateSpec.InitContainers[idx].VolumeMounts = append(
+		templateSpec.InitContainers[idx].VolumeMounts,
+		mount,
+	)
 
 	return nil
 }
@@ -964,7 +1033,9 @@ func isJsonEnricherEnabled(cfg *spodapi.SecurityProfilesOperatorDaemon) bool {
 }
 
 func isInsecureMetricsEnabled(cfg *spodapi.SecurityProfilesOperatorDaemon) bool {
-	enableInsecureMetricsEnv, err := strconv.ParseBool(os.Getenv(config.EnableInsecureMetricsAccessEnvKey))
+	enableInsecureMetricsEnv, err := strconv.ParseBool(
+		os.Getenv(config.EnableInsecureMetricsAccessEnvKey),
+	)
 	if err != nil {
 		enableInsecureMetricsEnv = false
 	}
@@ -996,7 +1067,11 @@ func sliceReplaceArg(slice []string, s string) bool {
 
 	for i := range slice {
 		existingItem := slice[i]
-		existingParts := strings.SplitN(existingItem, argSeparator, 2) // Split existing item to get its key
+		existingParts := strings.SplitN(
+			existingItem,
+			argSeparator,
+			2,
+		) // Split existing item to get its key
 
 		if len(existingParts) >= 1 && existingParts[0] == newKey {
 			slice[i] = s

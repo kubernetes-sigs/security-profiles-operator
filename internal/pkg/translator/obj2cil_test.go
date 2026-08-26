@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -672,7 +672,11 @@ func TestObject2CIL(t *testing.T) {
 				if err != nil {
 					t.Errorf("Error matching parsed CIL to expected result: %s", err)
 				} else if !matched {
-					t.Errorf("The generated CIL didn't match expectation.\nExpected match for: %s\nGenerated CIL: %s", wantMatch, got)
+					t.Errorf(
+						"The generated CIL didn't match expectation.\nExpected match for: %s\nGenerated CIL: %s",
+						wantMatch,
+						got,
+					)
 				}
 			}
 
@@ -681,7 +685,11 @@ func TestObject2CIL(t *testing.T) {
 				if err != nil {
 					t.Errorf("Error matching parsed CIL to expected result: %s", err)
 				} else if matched {
-					t.Errorf("The generated CIL matched expectation.\nExpected no match for: %s\nGenerated CIL: %s", doNotMatch, got)
+					t.Errorf(
+						"The generated CIL matched expectation.\nExpected no match for: %s\nGenerated CIL: %s",
+						doNotMatch,
+						got,
+					)
 				}
 			}
 		})

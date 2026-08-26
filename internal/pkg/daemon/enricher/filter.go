@@ -1,5 +1,5 @@
 /*
-Copyright 2025 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -28,7 +28,10 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 )
 
-func GetEnricherFilters(enricherFiltersJsonStr string, logger logr.Logger) ([]types.EnricherFilterOptions, error) {
+func GetEnricherFilters(
+	enricherFiltersJsonStr string,
+	logger logr.Logger,
+) ([]types.EnricherFilterOptions, error) {
 	var enricherFilters []types.EnricherFilterOptions
 	if err := json.Unmarshal([]byte(enricherFiltersJsonStr), &enricherFilters); err != nil {
 		logger.Error(err, "failed to unmarshal enricher filters",
@@ -67,7 +70,11 @@ func matchAnyFilterLabel(filter types.EnricherFilterOptions, logMap map[string]a
 	return false
 }
 
-func matchPathFilterLabel(label string, filter types.EnricherFilterOptions, logMap map[string]any) bool {
+func matchPathFilterLabel(
+	label string,
+	filter types.EnricherFilterOptions,
+	logMap map[string]any,
+) bool {
 	subLabels := strings.SplitN(label, "/", 2)
 
 	if len(subLabels) == 2 {

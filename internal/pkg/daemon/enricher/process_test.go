@@ -1,5 +1,5 @@
 /*
-Copyright 2025 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -32,8 +32,10 @@ func Test_extractSPORequestUID(t *testing.T) {
 		foundWant bool
 	}{
 		{
-			name:      "Basic test with cmdline having SPO_EXEC_REQUEST_UID",
-			args:      args{input: "env SPO_EXEC_REQUEST_UID=dbbf5fca-c955-4922-99d2-27a50212071c ls"},
+			name: "Basic test with cmdline having SPO_EXEC_REQUEST_UID",
+			args: args{
+				input: "env SPO_EXEC_REQUEST_UID=dbbf5fca-c955-4922-99d2-27a50212071c ls",
+			},
 			want:      "dbbf5fca-c955-4922-99d2-27a50212071c",
 			foundWant: true,
 		},

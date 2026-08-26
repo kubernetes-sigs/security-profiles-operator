@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -34,6 +34,7 @@ import (
 	"github.com/jellydator/ttlcache/v3"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"go.podman.io/common/pkg/seccomp"
+	apiruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
@@ -44,7 +45,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
@@ -120,7 +120,7 @@ func (r *Reconciler) Name() string {
 }
 
 // SchemeBuilder returns the API scheme of the controller.
-func (r *Reconciler) SchemeBuilder() *scheme.Builder {
+func (r *Reconciler) SchemeBuilder() apiruntime.SchemeBuilder {
 	return seccompprofileapi.SchemeBuilder
 }
 
@@ -176,7 +176,8 @@ func (r *Reconciler) Setup(
 ) error {
 	r.client = mgr.GetClient()
 	r.log = ctrl.Log.WithName(r.Name())
-	r.record = mgr.GetEventRecorderFor("profile") //nolint:staticcheck,nolintlint // TODO: migrate to GetEventRecorder
+	//nolint:staticcheck // TODO: migrate to GetEventRecorder
+	r.record = mgr.GetEventRecorderFor("profile")
 	r.save = saveProfileOnDisk
 	r.metrics = met
 
@@ -192,7 +193,10 @@ func (r *Reconciler) Setup(
 		Complete(r)
 }
 
-func (r *Reconciler) handleAllowedSyscallsChanged(ctx context.Context, obj client.Object) []reconcile.Request {
+func (r *Reconciler) handleAllowedSyscallsChanged(
+	ctx context.Context,
+	obj client.Object,
+) []reconcile.Request {
 	spod, ok := obj.(*spodapi.SecurityProfilesOperatorDaemon)
 	if !ok {
 		r.log.Info("cannot handle allowedSyscalls changed for no SPOD objects")
@@ -218,7 +222,11 @@ func (r *Reconciler) handleAllowedSyscallsChanged(ctx context.Context, obj clien
 
 	for i := range seccompProfileList.Items {
 		sp := &seccompProfileList.Items[i]
-		if err := allowProfile(sp, spod.Spec.Security.AllowedSyscalls, spod.Spec.Security.AllowedSeccompActions); err != nil {
+		if err := allowProfile(
+			sp,
+			spod.Spec.Security.AllowedSyscalls,
+			spod.Spec.Security.AllowedSeccompActions,
+		); err != nil {
 			r.log.Info(fmt.Sprintf("deleting not allowed seccomp profile %s/%s",
 				sp.GetNamespace(), sp.GetName()))
 
@@ -255,10 +263,14 @@ func (r *Reconciler) checkSeccomp() error {
 			r.metrics.IncSeccompProfileError(reasonSeccompNotSupported)
 			r.record.AnnotatedEventf(
 				&seccompprofileapi.SeccompProfile{},
-				map[string]string{os.Getenv(config.NodeNameEnvKey): "node does not support seccomp"},
+				map[string]string{
+					os.Getenv(config.NodeNameEnvKey): "node does not support seccomp",
+				},
 				util.EventTypeWarning,
 				reasonSeccompNotSupported,
-				"%s", err.Error())
+				"%s",
+				err.Error(),
+			)
 		}
 
 		return err
@@ -285,7 +297,10 @@ func (r *Reconciler) checkSeccomp() error {
 // +kubebuilder:rbac:groups=security.openshift.io,namespace="security-profiles-operator",resources=securitycontextconstraints,verbs=use
 
 // Reconcile reconciles a SeccompProfile.
-func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+func (r *Reconciler) Reconcile(
+	ctx context.Context,
+	req reconcile.Request,
+) (reconcile.Result, error) {
 	logger := r.log.WithValues("profile", req.Name, "namespace", req.Namespace)
 
 	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
@@ -401,9 +416,12 @@ func (r *Reconciler) resolveSyscallsForProfile(
 			}
 
 			signOpts := &artifact.PullSignatureOptions{
-				DisableSignatureVerification: ptr.Deref(spod.Spec.Security.DisableOCIArtifactSignatureVerification, false),
-				AllowedIdentityRegexp:        spod.Spec.Security.AllowedIdentityRegexp,
-				AllowedOidcIssuerRegexp:      spod.Spec.Security.AllowedOidcIssuerRegexp,
+				DisableSignatureVerification: ptr.Deref(
+					spod.Spec.Security.DisableOCIArtifactSignatureVerification,
+					false,
+				),
+				AllowedIdentityRegexp:   spod.Spec.Security.AllowedIdentityRegexp,
+				AllowedOidcIssuerRegexp: spod.Spec.Security.AllowedOidcIssuerRegexp,
 			}
 			l.Info(
 				"Pulling base profile: "+from,
@@ -419,7 +437,13 @@ func (r *Reconciler) resolveSyscallsForProfile(
 			if err != nil {
 				l.Error(err, "cannot pull base profile "+baseProfileName)
 				r.IncSeccompProfileError(r.metrics, reasonCannotPullProfile)
-				r.RecordEvent(r.record, sp, util.EventTypeWarning, reasonCannotPullProfile, err.Error())
+				r.RecordEvent(
+					r.record,
+					sp,
+					util.EventTypeWarning,
+					reasonCannotPullProfile,
+					err.Error(),
+				)
 
 				return nil, fmt.Errorf("retrieve base profile %s from OCI registry: %w", from, err)
 			}
@@ -445,7 +469,13 @@ func (r *Reconciler) resolveSyscallsForProfile(
 		if err != nil {
 			l.Error(err, "cannot retrieve base profile "+baseProfileName)
 			r.IncSeccompProfileError(r.metrics, reasonInvalidSeccompProfile)
-			r.RecordEvent(r.record, sp, util.EventTypeWarning, reasonInvalidSeccompProfile, err.Error())
+			r.RecordEvent(
+				r.record,
+				sp,
+				util.EventTypeWarning,
+				reasonInvalidSeccompProfile,
+				err.Error(),
+			)
 
 			return nil, fmt.Errorf("merging base profile: %w", err)
 		}
@@ -501,7 +531,7 @@ func (r *Reconciler) reconcileSeccompProfile(
 		r.metrics.IncSeccompProfileError(reasonProfileNotAllowed)
 		r.record.Event(sp, util.EventTypeWarning, reasonProfileNotAllowed, err.Error())
 
-		return reconcile.Result{Requeue: false}, fmt.Errorf("validating profile: %w", err)
+		return reconcile.Result{}, fmt.Errorf("validating profile: %w", err)
 	}
 
 	l.Info("Got profile content")
@@ -553,11 +583,17 @@ func (r *Reconciler) reconcileSeccompProfile(
 
 	l.Info("Checking node status")
 
-	isAlreadyInstalled, getErr := nodeStatus.Matches(ctx, secprofnodestatusapi.ProfileStateInstalled)
+	isAlreadyInstalled, getErr := nodeStatus.Matches(
+		ctx,
+		secprofnodestatusapi.ProfileStateInstalled,
+	)
 	if getErr != nil {
 		l.Error(getErr, "couldn't get current status")
 
-		return reconcile.Result{}, fmt.Errorf("getting status for installed SeccompProfile: %w", getErr)
+		return reconcile.Result{}, fmt.Errorf(
+			"getting status for installed SeccompProfile: %w",
+			getErr,
+		)
 	}
 
 	if isAlreadyInstalled {
@@ -568,12 +604,18 @@ func (r *Reconciler) reconcileSeccompProfile(
 
 	l.Info("Set node status to installed")
 
-	if err := nodeStatus.SetNodeStatus(ctx, secprofnodestatusapi.ProfileStateInstalled); err != nil {
+	if err := nodeStatus.SetNodeStatus(
+		ctx,
+		secprofnodestatusapi.ProfileStateInstalled,
+	); err != nil {
 		l.Error(err, "cannot update node status")
 		r.metrics.IncSeccompProfileError(common.ReasonCannotUpdateStatus)
 		r.record.Event(sp, util.EventTypeWarning, common.ReasonCannotUpdateStatus, err.Error())
 
-		return reconcile.Result{}, fmt.Errorf("updating status in SeccompProfile reconciler: %w", err)
+		return reconcile.Result{}, fmt.Errorf(
+			"updating status in SeccompProfile reconciler: %w",
+			err,
+		)
 	}
 
 	l.Info(
@@ -620,14 +662,21 @@ func (r *Reconciler) handleDeletion(sp *seccompprofileapi.SeccompProfile) error 
 	return nil
 }
 
-func (r *Reconciler) validateProfile(ctx context.Context, profile *seccompprofileapi.SeccompProfile) error {
+func (r *Reconciler) validateProfile(
+	ctx context.Context,
+	profile *seccompprofileapi.SeccompProfile,
+) error {
 	spod, err := r.GetSPOD(ctx, r.client)
 	if err != nil {
 		return fmt.Errorf("retrieving the SPOD configuration: %w", err)
 	}
 
 	if len(spod.Spec.Security.AllowedSyscalls) > 0 {
-		return allowProfile(profile, spod.Spec.Security.AllowedSyscalls, spod.Spec.Security.AllowedSeccompActions)
+		return allowProfile(
+			profile,
+			spod.Spec.Security.AllowedSyscalls,
+			spod.Spec.Security.AllowedSeccompActions,
+		)
 	}
 
 	return nil
@@ -651,7 +700,9 @@ func saveProfileOnDisk(fileName string, content []byte) (updated bool, err error
 }
 
 func allowProfile(
-	profile *seccompprofileapi.SeccompProfile, allowedSyscalls []string, allowedActions []seccompprofileapi.Action,
+	profile *seccompprofileapi.SeccompProfile,
+	allowedSyscalls []string,
+	allowedActions []seccompprofileapi.Action,
 ) error {
 	syscalls := map[seccompprofileapi.Action]map[string]bool{}
 	for _, call := range profile.Spec.Syscalls {
@@ -665,7 +716,10 @@ func allowProfile(
 	}
 
 	allAllowedActions := []seccompprofileapi.Action{
-		seccompprofileapi.ActAllow, seccompprofileapi.ActLog, seccompprofileapi.ActTrace, seccompprofileapi.ActNotify,
+		seccompprofileapi.ActAllow,
+		seccompprofileapi.ActLog,
+		seccompprofileapi.ActTrace,
+		seccompprofileapi.ActNotify,
 	}
 	if len(allowedActions) == 0 {
 		allowedActions = allAllowedActions

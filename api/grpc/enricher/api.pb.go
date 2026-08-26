@@ -1,5 +1,5 @@
 //
-//Copyright 2021 The Kubernetes Authors.
+//Copyright The Kubernetes Authors.
 //
 //Licensed under the Apache License, Version 2.0 (the "License");
 //you may not use this file except in compliance with the License.
@@ -22,10 +22,11 @@
 package api_enricher
 
 import (
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
+
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -37,7 +38,7 @@ const (
 
 type SyscallsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Profile       string                 `protobuf:"bytes,1,opt,name=profile,proto3" json:"profile,omitempty"`
+	Profile       string                 `                   protobuf:"bytes,1,opt,name=profile,proto3" json:"profile,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -81,8 +82,8 @@ func (x *SyscallsRequest) GetProfile() string {
 
 type SyscallsResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Syscalls      []string               `protobuf:"bytes,1,rep,name=syscalls,proto3" json:"syscalls,omitempty"`
-	GoArch        string                 `protobuf:"bytes,2,opt,name=go_arch,json=goArch,proto3" json:"go_arch,omitempty"`
+	Syscalls      []string               `                   protobuf:"bytes,1,rep,name=syscalls,proto3"            json:"syscalls,omitempty"`
+	GoArch        string                 `                   protobuf:"bytes,2,opt,name=go_arch,json=goArch,proto3" json:"go_arch,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -133,7 +134,7 @@ func (x *SyscallsResponse) GetGoArch() string {
 
 type AvcRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Profile       string                 `protobuf:"bytes,1,opt,name=profile,proto3" json:"profile,omitempty"`
+	Profile       string                 `                   protobuf:"bytes,1,opt,name=profile,proto3" json:"profile,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -177,7 +178,7 @@ func (x *AvcRequest) GetProfile() string {
 
 type AvcResponse struct {
 	state         protoimpl.MessageState    `protogen:"open.v1"`
-	Avc           []*AvcResponse_SelinuxAvc `protobuf:"bytes,1,rep,name=avc,proto3" json:"avc,omitempty"`
+	Avc           []*AvcResponse_SelinuxAvc `                   protobuf:"bytes,1,rep,name=avc,proto3" json:"avc,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -257,10 +258,10 @@ func (*EmptyResponse) Descriptor() ([]byte, []int) {
 
 type AvcResponse_SelinuxAvc struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Perm          string                 `protobuf:"bytes,1,opt,name=perm,proto3" json:"perm,omitempty"`
-	Scontext      string                 `protobuf:"bytes,2,opt,name=scontext,proto3" json:"scontext,omitempty"`
-	Tcontext      string                 `protobuf:"bytes,3,opt,name=tcontext,proto3" json:"tcontext,omitempty"`
-	Tclass        string                 `protobuf:"bytes,4,opt,name=tclass,proto3" json:"tclass,omitempty"`
+	Perm          string                 `                   protobuf:"bytes,1,opt,name=perm,proto3"     json:"perm,omitempty"`
+	Scontext      string                 `                   protobuf:"bytes,2,opt,name=scontext,proto3" json:"scontext,omitempty"`
+	Tcontext      string                 `                   protobuf:"bytes,3,opt,name=tcontext,proto3" json:"tcontext,omitempty"`
+	Tclass        string                 `                   protobuf:"bytes,4,opt,name=tclass,proto3"   json:"tclass,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -381,7 +382,9 @@ var (
 
 func file_api_grpc_enricher_api_proto_rawDescGZIP() []byte {
 	file_api_grpc_enricher_api_proto_rawDescOnce.Do(func() {
-		file_api_grpc_enricher_api_proto_rawDescData = protoimpl.X.CompressGZIP(file_api_grpc_enricher_api_proto_rawDescData)
+		file_api_grpc_enricher_api_proto_rawDescData = protoimpl.X.CompressGZIP(
+			file_api_grpc_enricher_api_proto_rawDescData,
+		)
 	})
 	return file_api_grpc_enricher_api_proto_rawDescData
 }

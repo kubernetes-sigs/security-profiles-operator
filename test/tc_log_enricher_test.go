@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -155,9 +155,12 @@ func (e *e2e) testCaseLogEnricherWithFilters([]string) {
 		containerName = "enrichercontainer"
 	)
 
-	// Filter out all the logs for the pod.
-	//nolint:lll  // long filter.
-	e.logEnricherOnlyTestCaseWithFilters(fmt.Sprintf(`"[{\"priority\":100, \"level\":\"None\",\"matchKeys\":[\"syscallID\"],\"matchValues\":[\"%d\"]}]"`, 50))
+	e.logEnricherOnlyTestCaseWithFilters(
+		fmt.Sprintf(
+			`"[{\"priority\":100, \"level\":\"None\",\"matchKeys\":[\"syscallID\"],\"matchValues\":[\"%d\"]}]"`,
+			50,
+		),
+	)
 
 	e.logf("Creating test profile")
 

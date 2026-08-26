@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -85,7 +85,10 @@ func GetVersion(node *corev1.Node) string {
 func GetKubeletDirFromNodeLabel(ctx context.Context, c client.Reader) (string, error) {
 	nodeName := os.Getenv(config.NodeNameEnvKey)
 	if nodeName == "" {
-		return "", fmt.Errorf("no node name found in environment variable %q", config.NodeNameEnvKey)
+		return "", fmt.Errorf(
+			"no node name found in environment variable %q",
+			config.NodeNameEnvKey,
+		)
 	}
 
 	node := &corev1.Node{}
@@ -128,7 +131,8 @@ func matchSelinuxdImage(node *corev1.Node, mapping []selinuxdImageMap) string {
 			continue
 		}
 
-		if matched, err := regexp.MatchString(m.Regex, node.Status.NodeInfo.OSImage); err == nil && matched {
+		if matched, err := regexp.MatchString(m.Regex, node.Status.NodeInfo.OSImage); err == nil &&
+			matched {
 			return m.ImageFromVar
 		}
 	}

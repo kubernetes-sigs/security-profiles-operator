@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ import (
 	admissionregv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 
 	"sigs.k8s.io/security-profiles-operator/api/common"
 	seccompapi "sigs.k8s.io/security-profiles-operator/api/seccomp"
@@ -406,5 +407,13 @@ func (s *SPODStatus) StateRunning() {
 }
 
 func init() { //nolint:gochecknoinits // required to init the scheme
-	SchemeBuilder.Register(&SecurityProfilesOperatorDaemon{}, &SecurityProfilesOperatorDaemonList{})
+	SchemeBuilder.Register(func(s *runtime.Scheme) error {
+		s.AddKnownTypes(
+			GroupVersion,
+			&SecurityProfilesOperatorDaemon{},
+			&SecurityProfilesOperatorDaemonList{},
+		)
+
+		return nil
+	})
 }

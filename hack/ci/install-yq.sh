@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Copyright 2024 The Kubernetes Authors.
+# Copyright The Kubernetes Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@ set -euo pipefail
 
 install_yq() {
   echo "Installing yq"
-  YQ_VERSION=4.44.3
+  YQ_VERSION=4.53.6
   curl_retry -o /usr/bin/yq \
     https://github.com/mikefarah/yq/releases/download/v$YQ_VERSION/yq_linux_amd64
   sudo chmod +x /usr/bin/yq

@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -80,8 +80,7 @@ func IsNotFound(err error) bool {
 
 	// Introduced in controller-runtime v0.15.0, which makes a simple
 	// `apierrors.IsNotFound(err)` not work any more.
-	groupErr := &discovery.ErrGroupDiscoveryFailed{}
-	if errors.As(err, &groupErr) {
+	if groupErr, ok := errors.AsType[*discovery.ErrGroupDiscoveryFailed](err); ok {
 		for _, err := range groupErr.Groups {
 			if apierrors.IsNotFound(err) {
 				return true
@@ -175,7 +174,7 @@ var issuer = certmanagerv1.Issuer{
 	ObjectMeta: metav1.ObjectMeta{
 		Name: issuerName,
 		Labels: map[string]string{
-			"app": config.OperatorName,
+			labelApp: config.OperatorName,
 		},
 	},
 	Spec: certmanagerv1.IssuerSpec{
@@ -189,7 +188,7 @@ var metricsCert = certmanagerv1.Certificate{
 	ObjectMeta: metav1.ObjectMeta{
 		Name: "metrics-cert",
 		Labels: map[string]string{
-			"app": config.OperatorName,
+			labelApp: config.OperatorName,
 		},
 	},
 	Spec: certmanagerv1.CertificateSpec{
@@ -213,7 +212,7 @@ var webhookCert = certmanagerv1.Certificate{
 	ObjectMeta: metav1.ObjectMeta{
 		Name: "webhook-cert",
 		Labels: map[string]string{
-			"app": config.OperatorName,
+			labelApp: config.OperatorName,
 		},
 	},
 	Spec: certmanagerv1.CertificateSpec{

@@ -2,7 +2,7 @@
 apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: SeccompProfile
 metadata:
-  name: crun-v1.26
+  name: crun-v1.29.1
 spec:
   defaultAction: SCMP_ACT_ERRNO
   architectures:
@@ -15,15 +15,19 @@ spec:
         - brk
         - capset
         - chdir
-        - chmod
-        - chown
         - close
         - close_range
+        - dup
         - dup2
         - execve
         - exit_group
         - fchdir
+        - fchmodat
         - fchown
+        - fchownat
+        - fsconfig
+        - fsmount
+        - fsopen
         - fstat
         - fstatfs
         - getcwd
@@ -37,29 +41,27 @@ spec:
         - mknodat
         - mmap
         - mount
+        - mount_setattr
+        - move_mount
         - mprotect
         - nanosleep
         - newfstatat
+        - open_tree
         - openat
         - openat2
         - pivot_root
         - prctl
         - pselect6
         - read
-        - readlink
         - rt_sigaction
         - rt_sigprocmask
         - set_tid_address
-        - setgroups
         - sethostname
-        - setns
         - setresgid
         - setresuid
         - setsid
-        - statfs
         - statx
         - symlinkat
         - umask
         - umount2
-        - unshare
         - write

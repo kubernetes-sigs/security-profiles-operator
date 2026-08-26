@@ -1,5 +1,5 @@
 /*
-Copyright 2026 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -110,7 +110,9 @@ func TestReconcileDeletion(t *testing.T) {
 					if ns, ok := obj.(*secprofnodestatusapi.SecurityProfileNodeStatus); ok {
 						ns.Status.Status = secprofnodestatusapi.ProfileStatePending
 						ns.Labels = map[string]string{
-							secprofnodestatusapi.StatusStateLabel: string(secprofnodestatusapi.ProfileStatePending),
+							secprofnodestatusapi.StatusStateLabel: string(
+								secprofnodestatusapi.ProfileStatePending,
+							),
 						}
 					}
 
@@ -121,18 +123,23 @@ func TestReconcileDeletion(t *testing.T) {
 				MockScheme:                  util.NewMockSchemeFn(testScheme()),
 			},
 			handleDeletion: func() error { return nil },
-			wantResult:     reconcile.Result{Requeue: true, RequeueAfter: Wait},
+			wantResult:     reconcile.Result{RequeueAfter: Wait},
 			wantErr:        false,
 		},
 		{
-			name:    "StatusExistsTerminating_ActivePodsFinalizer_Requeues",
-			profile: testProfile(util.GetFinalizerNodeString(testNodeName), util.HasActivePodsFinalizerString),
+			name: "StatusExistsTerminating_ActivePodsFinalizer_Requeues",
+			profile: testProfile(
+				util.GetFinalizerNodeString(testNodeName),
+				util.HasActivePodsFinalizerString,
+			),
 			mockClient: &util.MockClient{
 				MockGet: func(_ context.Context, _ client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
 					if ns, ok := obj.(*secprofnodestatusapi.SecurityProfileNodeStatus); ok {
 						ns.Status.Status = secprofnodestatusapi.ProfileStateTerminating
 						ns.Labels = map[string]string{
-							secprofnodestatusapi.StatusStateLabel: string(secprofnodestatusapi.ProfileStateTerminating),
+							secprofnodestatusapi.StatusStateLabel: string(
+								secprofnodestatusapi.ProfileStateTerminating,
+							),
 						}
 					}
 
@@ -152,7 +159,9 @@ func TestReconcileDeletion(t *testing.T) {
 					if ns, ok := obj.(*secprofnodestatusapi.SecurityProfileNodeStatus); ok {
 						ns.Status.Status = secprofnodestatusapi.ProfileStateTerminating
 						ns.Labels = map[string]string{
-							secprofnodestatusapi.StatusStateLabel: string(secprofnodestatusapi.ProfileStateTerminating),
+							secprofnodestatusapi.StatusStateLabel: string(
+								secprofnodestatusapi.ProfileStateTerminating,
+							),
 						}
 					}
 
@@ -173,7 +182,9 @@ func TestReconcileDeletion(t *testing.T) {
 					if ns, ok := obj.(*secprofnodestatusapi.SecurityProfileNodeStatus); ok {
 						ns.Status.Status = secprofnodestatusapi.ProfileStateTerminating
 						ns.Labels = map[string]string{
-							secprofnodestatusapi.StatusStateLabel: string(secprofnodestatusapi.ProfileStateTerminating),
+							secprofnodestatusapi.StatusStateLabel: string(
+								secprofnodestatusapi.ProfileStateTerminating,
+							),
 						}
 					}
 

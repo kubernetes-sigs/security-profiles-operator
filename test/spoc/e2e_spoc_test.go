@@ -1,7 +1,7 @@
 //go:build linux && !no_bpf
 
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -114,7 +114,15 @@ func recordAppArmorTest(t *testing.T) {
 			require.NotEmpty(t, profile.Filesystem.ReadWritePaths)
 			require.Contains(t, profile.Filesystem.ReadWritePaths, "/dev/null")
 
-			runWithProfile(t, profile, "./demobinary", "--file-read", "/dev/null", "--file-write", "/dev/null")
+			runWithProfile(
+				t,
+				profile,
+				"./demobinary",
+				"--file-read",
+				"/dev/null",
+				"--file-write",
+				"/dev/null",
+			)
 		})
 		t.Run("create", func(t *testing.T) {
 			f := filepath.Join(t.TempDir(), "spoc-test-file")
@@ -125,7 +133,11 @@ func recordAppArmorTest(t *testing.T) {
 
 			require.NotNil(t, profile.Filesystem)
 			require.NotEmpty(t, profile.Filesystem.WriteOnlyPaths)
-			require.Contains(t, profile.Filesystem.WriteOnlyPaths, bpfrecorder.ReplaceVarianceInFilePath(f))
+			require.Contains(
+				t,
+				profile.Filesystem.WriteOnlyPaths,
+				bpfrecorder.ReplaceVarianceInFilePath(f),
+			)
 
 			err := os.Remove(f)
 			require.NoError(t, err)
@@ -144,7 +156,11 @@ func recordAppArmorTest(t *testing.T) {
 			)
 			require.NotNil(t, profile.Filesystem)
 			require.NotEmpty(t, profile.Filesystem.ReadWritePaths)
-			require.Contains(t, profile.Filesystem.ReadWritePaths, bpfrecorder.ReplaceVarianceInFilePath(fileToRemove.Name()))
+			require.Contains(
+				t,
+				profile.Filesystem.ReadWritePaths,
+				bpfrecorder.ReplaceVarianceInFilePath(fileToRemove.Name()),
+			)
 
 			fileToRemove2, err := os.CreateTemp(tempDir, "spoc-test")
 			require.NoError(t, err)
@@ -172,8 +188,16 @@ func recordAppArmorTest(t *testing.T) {
 		require.NotEmpty(t, profile.Filesystem.ReadWritePaths)
 		require.Contains(t, profile.Filesystem.ReadOnlyPaths, "/var/")
 		require.Contains(t, profile.Filesystem.ReadOnlyPaths, "/usr/")
-		require.Contains(t, profile.Filesystem.ReadWritePaths, bpfrecorder.ReplaceVarianceInFilePath(testDir1))
-		require.Contains(t, profile.Filesystem.ReadWritePaths, bpfrecorder.ReplaceVarianceInFilePath(testDir2))
+		require.Contains(
+			t,
+			profile.Filesystem.ReadWritePaths,
+			bpfrecorder.ReplaceVarianceInFilePath(testDir1),
+		)
+		require.Contains(
+			t,
+			profile.Filesystem.ReadWritePaths,
+			bpfrecorder.ReplaceVarianceInFilePath(testDir2),
+		)
 
 		runWithProfile(t, profile,
 			"./demobinary",
@@ -187,7 +211,11 @@ func recordAppArmorTest(t *testing.T) {
 			profile := recordAppArmor(t, "./demobinary", "--net-unix", sockPath)
 			require.NotNil(t, profile.Filesystem)
 			require.NotEmpty(t, profile.Filesystem.ReadWritePaths)
-			require.Contains(t, profile.Filesystem.ReadWritePaths, bpfrecorder.ReplaceVarianceInFilePath(sockPath))
+			require.Contains(
+				t,
+				profile.Filesystem.ReadWritePaths,
+				bpfrecorder.ReplaceVarianceInFilePath(sockPath),
+			)
 
 			err := os.Remove(sockPath)
 			require.NoError(t, err)
@@ -223,7 +251,13 @@ func recordAppArmorTest(t *testing.T) {
 		}
 	})
 	t.Run("subprocess", func(t *testing.T) {
-		profile := recordAppArmor(t, "./demobinary", "./demobinary-child", "--file-read", "/dev/null")
+		profile := recordAppArmor(
+			t,
+			"./demobinary",
+			"./demobinary-child",
+			"--file-read",
+			"/dev/null",
+		)
 		require.Contains(t, profile.Executable.AllowedExecutables[0], "/demobinary-child")
 		require.Contains(t, profile.Filesystem.ReadOnlyPaths, "/dev/null")
 
@@ -231,7 +265,14 @@ func recordAppArmorTest(t *testing.T) {
 		require.Contains(t, profile.Executable.AllowedExecutables[0], "/demobinary")
 		require.Contains(t, profile.Filesystem.ReadOnlyPaths, "/dev/null")
 
-		profile = recordAppArmor(t, "./demobinary", "./demobinary-child", "./demobinary-child", "--file-read", "/dev/null")
+		profile = recordAppArmor(
+			t,
+			"./demobinary",
+			"./demobinary-child",
+			"./demobinary-child",
+			"--file-read",
+			"/dev/null",
+		)
 		require.Contains(t, profile.Executable.AllowedExecutables[0], "/demobinary-child")
 		require.Contains(t, profile.Filesystem.ReadOnlyPaths, "/dev/null")
 	})
@@ -295,7 +336,10 @@ func recordAppArmorTest(t *testing.T) {
 		for spocLogs.Scan() {
 			t.Log(spocLogs.Text())
 
-			if strings.Contains(spocLogs.Text(), fmt.Sprintf("record pid exit: %d.", cmd2.Process.Pid)) {
+			if strings.Contains(
+				spocLogs.Text(),
+				fmt.Sprintf("record pid exit: %d.", cmd2.Process.Pid),
+			) {
 				break
 			}
 		}
@@ -362,8 +406,14 @@ func runSpoc(t *testing.T, args ...string) ([]byte, error) {
 	return out, err
 }
 
+//
 //nolint:unparam // `binary` arg for consistency with `record`/`recordAppArmor`.
-func runWithProfile(t *testing.T, profile apparmorprofileapi.AppArmorAbstract, binary string, args ...string) {
+func runWithProfile(
+	t *testing.T,
+	profile apparmorprofileapi.AppArmorAbstract,
+	binary string,
+	args ...string,
+) {
 	t.Helper()
 	// Create profile file
 	demobinary, err := filepath.Abs("./demobinary")

@@ -1,5 +1,5 @@
 /*
-Copyright 2025 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -54,7 +54,9 @@ func GetProcessInfo(
 
 	var errDetailsFetch error
 
-	if procErrors := populateProcessCache(pid, executable, uid, gid, processCache, impl); len(procErrors) > 0 {
+	if procErrors := populateProcessCache(pid, executable, uid, gid, processCache, impl); len(
+		procErrors,
+	) > 0 {
 		errDetailsFetch = fmt.Errorf("get process info for pid: %w", errors.Join(procErrors...))
 	}
 
