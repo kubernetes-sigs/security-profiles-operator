@@ -27,6 +27,8 @@ var knownLibrariesPrefixes = []string{
 	"/usr/lib64/gconv/",
 	"/usr/lib/x86_64-linux-gnu/",
 	"/lib/x86_64-linux-gnu/",
+	"/usr/lib/aarch64-linux-gnu/",
+	"/lib/aarch64-linux-gnu/",
 	"/lib64/",
 	"/lib/tls/",
 	"/usr/lib/tls/",

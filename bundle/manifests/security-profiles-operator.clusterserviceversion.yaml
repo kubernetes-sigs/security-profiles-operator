@@ -253,7 +253,7 @@ metadata:
     categories: Security
     containerImage: gcr.io/k8s-staging-sp-operator/security-profiles-operator:latest
     createdAt: "2026-08-26T08:14:08Z"
-    olm.skipRange: '>=0.4.1 <1.0.2-dev'
+    olm.skipRange: '>=1.0.0 <1.0.2-dev'
     operatorframework.io/cluster-monitoring: "true"
     operatorframework.io/os.linux: supported
     operatorframework.io/suggested-namespace: security-profiles-operator

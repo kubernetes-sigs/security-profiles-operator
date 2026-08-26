@@ -370,13 +370,19 @@ func (r *StatusReconciler) reconcileStatus(
 		outStatus.SetConditions(common.Deleting())
 	case secprofnodestatusapi.ProfileStateError:
 		outStatus.Status = secprofnodestatusapi.ProfileStateError
-		outStatus.SetConditions(common.Unavailable())
+		outStatus.SetConditions(common.Unavailable(
+			"profile failed to install on one or more nodes",
+		))
 	case secprofnodestatusapi.ProfileStatePartial:
 		outStatus.Status = secprofnodestatusapi.ProfileStatePartial
-		outStatus.SetConditions(common.Unavailable())
+		outStatus.SetConditions(common.Unavailable(
+			"profile is only partially installed across nodes",
+		))
 	case secprofnodestatusapi.ProfileStateDisabled:
 		outStatus.Status = secprofnodestatusapi.ProfileStateDisabled
-		outStatus.SetConditions(common.Unavailable())
+		outStatus.SetConditions(common.Unavailable(
+			"profile type is disabled in the SPOD configuration",
+		))
 	}
 
 	l.V(config.VerboseLevel).Info("Updating status")

@@ -62,20 +62,23 @@ const (
 // All of the statuses would need to reach this for us to get here.
 const LowestState ProfileState = ProfileStateInstalled
 
+// stateOrder maps each ProfileState to its ordinal rank. Lower values represent
+// "worse" states so that the overall status reflects the least-progressed node.
+var stateOrder = map[ProfileState]int{
+	ProfileStateError:       0,
+	ProfileStateTerminating: 1,
+	ProfileStatePartial:     2,
+	ProfileStateDisabled:    3,
+	ProfileStatePending:     4,
+	ProfileStateInProgress:  5,
+	ProfileStateInstalled:   6,
+}
+
 // LowerOfTwoStates is used to figure out the "lowest common state" and is used to represent
 // the overall status of a profile. The idea is that if, e.g. one in three profiles is already
 // installed, but the two others are pending, the overall state should be pending.
 func LowerOfTwoStates(currentLowest, candidate ProfileState) ProfileState {
-	orderedStates := make(map[ProfileState]int)
-	orderedStates[ProfileStateError] = 0       // error must always have the lowest index
-	orderedStates[ProfileStateTerminating] = 1 // If one is set as terminating; all the statuses will end here too
-	orderedStates[ProfileStatePartial] = 2
-	orderedStates[ProfileStateDisabled] = 3
-	orderedStates[ProfileStatePending] = 4
-	orderedStates[ProfileStateInProgress] = 5
-	orderedStates[ProfileStateInstalled] = 6
-
-	if orderedStates[currentLowest] > orderedStates[candidate] {
+	if stateOrder[currentLowest] > stateOrder[candidate] {
 		return candidate
 	}
 

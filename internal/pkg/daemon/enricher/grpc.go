@@ -25,7 +25,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
-	"k8s.io/apimachinery/pkg/util/sets"
 
 	api "sigs.k8s.io/security-profiles-operator/api/grpc/enricher"
 )
@@ -48,7 +47,7 @@ func (e *Enricher) Syscalls(
 		return nil, st.Err()
 	}
 
-	stringSet, ok := syscalls.(sets.Set[string])
+	stringSet, ok := syscalls.(*syncSet)
 	if !ok {
 		return nil, errors.New("syscalls are no string set")
 	}
@@ -81,7 +80,7 @@ func (e *Enricher) Avcs(
 
 	avcList := make([]*api.AvcResponse_SelinuxAvc, 0)
 
-	stringSet, ok := avcs.(sets.Set[string])
+	stringSet, ok := avcs.(*syncSet)
 	if !ok {
 		return nil, errors.New("avcs are no string set")
 	}

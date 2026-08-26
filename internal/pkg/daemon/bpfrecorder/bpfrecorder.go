@@ -92,6 +92,8 @@ type BpfRecorder struct {
 	AppArmor *AppArmorRecorder
 	Seccomp  *SeccompRecorder
 
+	startMu       sync.Mutex
+	pidSem        chan struct{}
 	recordedExits sync.Map
 }
 
@@ -131,6 +133,7 @@ func New(programName string, logger logr.Logger, recordSeccomp, recordAppArmor b
 		programName:             programName,
 		AppArmor:                appArmor,
 		Seccomp:                 seccomp,
+		pidSem:                  make(chan struct{}, 32),
 		recordedExits:           sync.Map{},
 	}
 }
@@ -214,6 +217,12 @@ func (b *BpfRecorder) Run() error {
 		"Got system mount namespace: " + strconv.FormatUint(uint64(b.excludeMountNamespace), 10),
 	)
 
+	if _, err := b.Stat("/sys/kernel/btf/vmlinux"); err != nil {
+		b.logger.Info(
+			"WARNING: /sys/kernel/btf/vmlinux not found, BPF recording will not work on this kernel",
+		)
+	}
+
 	b.logger.Info("Loading BPF program")
 
 	if err := b.Load(); err != nil {
@@ -286,7 +295,10 @@ func Dial() (*grpc.ClientConn, error) {
 func (b *BpfRecorder) Start(
 	context.Context, *api.EmptyRequest,
 ) (*api.EmptyResponse, error) {
-	if b.startRequests == 0 {
+	b.startMu.Lock()
+	defer b.startMu.Unlock()
+
+	if atomic.LoadInt64(&b.startRequests) == 0 {
 		b.logger.Info("Starting bpf recorder")
 
 		if err := b.StartRecording(); err != nil {
@@ -304,7 +316,10 @@ func (b *BpfRecorder) Start(
 func (b *BpfRecorder) Stop(
 	context.Context, *api.EmptyRequest,
 ) (*api.EmptyResponse, error) {
-	if b.startRequests == 0 {
+	b.startMu.Lock()
+	defer b.startMu.Unlock()
+
+	if atomic.LoadInt64(&b.startRequests) == 0 {
 		b.logger.Info("bpf recorder not running")
 
 		return &api.EmptyResponse{}, nil
@@ -312,11 +327,11 @@ func (b *BpfRecorder) Stop(
 
 	atomic.AddInt64(&b.startRequests, -1)
 
-	if b.startRequests == 0 {
+	if atomic.LoadInt64(&b.startRequests) == 0 {
 		b.logger.Info("Stopping bpf recorder")
 
 		if err := b.StopRecording(); err != nil {
-			return nil, fmt.Errorf("start recording: %w", err)
+			return nil, fmt.Errorf("stop recording: %w", err)
 		}
 	} else {
 		b.logger.Info("Not stopping because another recording is in progress")
@@ -329,7 +344,7 @@ func (b *BpfRecorder) Stop(
 func (b *BpfRecorder) SyscallsForProfile(
 	_ context.Context, r *api.ProfileRequest,
 ) (*api.SyscallsResponse, error) {
-	if b.startRequests == 0 {
+	if atomic.LoadInt64(&b.startRequests) == 0 {
 		return nil, errors.New("bpf recorder not running")
 	}
 
@@ -369,7 +384,7 @@ func (b *BpfRecorder) SyscallsForProfile(
 func (b *BpfRecorder) ApparmorForProfile(
 	_ context.Context, r *api.ProfileRequest,
 ) (*api.ApparmorResponse, error) {
-	if b.startRequests == 0 {
+	if atomic.LoadInt64(&b.startRequests) == 0 {
 		return nil, errors.New("bpf recorder not running")
 	}
 
@@ -723,7 +738,12 @@ func (b *BpfRecorder) handleEvent(eventBytes []byte) {
 	switch event.Type {
 	case uint8(eventTypeNewPid):
 		// handleNewPidEvent can be slow, and we don't want to block the event processing loop.
-		go b.handleNewPidEvent(&event)
+		go func() {
+			b.pidSem <- struct{}{}
+			defer func() { <-b.pidSem }()
+
+			b.handleNewPidEvent(&event)
+		}()
 	case uint8(eventTypeExit):
 		b.handleExitEvent(&event)
 	case uint8(eventTypeAppArmorFile):
@@ -732,9 +752,13 @@ func (b *BpfRecorder) handleEvent(eventBytes []byte) {
 			b.AppArmor.handleFileEvent(&event)
 		}
 	case uint8(eventTypeAppArmorSocket):
-		b.AppArmor.handleSocketEvent(&event)
+		if b.AppArmor != nil {
+			b.AppArmor.handleSocketEvent(&event)
+		}
 	case uint8(eventTypeAppArmorCap):
-		b.AppArmor.handleCapabilityEvent(&event)
+		if b.AppArmor != nil {
+			b.AppArmor.handleCapabilityEvent(&event)
+		}
 	case uint8(eventTypeClearMntns):
 		if b.AppArmor != nil {
 			b.AppArmor.clearMntns(&event)
@@ -975,13 +999,14 @@ func (b *BpfRecorder) WaitForPidExit(ctx context.Context, pid uint32) error {
 		return fmt.Errorf("unexpected type: %T", d)
 	}
 
+	defer b.recordedExits.Delete(pid)
+
 	select {
 	case <-done:
+		return nil
 	case <-ctx.Done():
 		return fmt.Errorf("waiting for pid exit: %w", ctx.Err())
 	}
-
-	return nil
 }
 
 func BPFLSMEnabled() bool {

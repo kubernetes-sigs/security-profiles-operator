@@ -272,7 +272,7 @@ func TestHandle(t *testing.T) {
 				mock.LabelSelectorAsSelectorReturns(nil, errTest)
 			},
 			assert: func(resp admission.Response) {
-				require.Equal(t, http.StatusInternalServerError, int(resp.Result.Code))
+				require.Equal(t, http.StatusBadRequest, int(resp.Result.Code))
 			},
 		},
 		{ // failure UpdateResource

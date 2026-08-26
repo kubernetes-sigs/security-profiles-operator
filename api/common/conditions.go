@@ -139,66 +139,80 @@ func conditionsEqual(a, b *metav1.Condition) bool {
 
 // Creating returns a condition that indicates the resource is currently
 // being created.
-func Creating() metav1.Condition {
+func Creating(message ...string) metav1.Condition {
 	return metav1.Condition{
 		Type:               string(TypeReady),
 		Status:             metav1.ConditionFalse,
 		LastTransitionTime: metav1.Now(),
 		Reason:             string(ReasonCreating),
+		Message:            firstOr(message),
 	}
 }
 
 // Deleting returns a condition that indicates the resource is currently
 // being deleted.
-func Deleting() metav1.Condition {
+func Deleting(message ...string) metav1.Condition {
 	return metav1.Condition{
 		Type:               string(TypeReady),
 		Status:             metav1.ConditionFalse,
 		LastTransitionTime: metav1.Now(),
 		Reason:             string(ReasonDeleting),
+		Message:            firstOr(message),
 	}
 }
 
 // Available returns a condition that indicates the resource is
 // currently observed to be available for use.
-func Available() metav1.Condition {
+func Available(message ...string) metav1.Condition {
 	return metav1.Condition{
 		Type:               string(TypeReady),
 		Status:             metav1.ConditionTrue,
 		LastTransitionTime: metav1.Now(),
 		Reason:             string(ReasonAvailable),
+		Message:            firstOr(message),
 	}
 }
 
 // Unavailable returns a condition that indicates the resource is not
 // currently available for use.
-func Unavailable() metav1.Condition {
+func Unavailable(message ...string) metav1.Condition {
 	return metav1.Condition{
 		Type:               string(TypeReady),
 		Status:             metav1.ConditionFalse,
 		LastTransitionTime: metav1.Now(),
 		Reason:             string(ReasonUnavailable),
+		Message:            firstOr(message),
 	}
 }
 
 // Pending returns a condition that indicates the resource is currently
 // observed to be waiting for creating.
-func Pending() metav1.Condition {
+func Pending(message ...string) metav1.Condition {
 	return metav1.Condition{
 		Type:               string(TypeReady),
 		Status:             metav1.ConditionFalse,
 		LastTransitionTime: metav1.Now(),
 		Reason:             string(ReasonPending),
+		Message:            firstOr(message),
 	}
 }
 
 // Updating returns a condition that indicates the resource is currently
 // observed to be updating.
-func Updating() metav1.Condition {
+func Updating(message ...string) metav1.Condition {
 	return metav1.Condition{
 		Type:               string(TypeReady),
 		Status:             metav1.ConditionFalse,
 		LastTransitionTime: metav1.Now(),
 		Reason:             string(ReasonUpdating),
+		Message:            firstOr(message),
 	}
+}
+
+func firstOr(values []string) string {
+	if len(values) > 0 {
+		return values[0]
+	}
+
+	return ""
 }

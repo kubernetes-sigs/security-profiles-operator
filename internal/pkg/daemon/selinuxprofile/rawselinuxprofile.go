@@ -25,7 +25,9 @@ import (
 
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
@@ -49,7 +51,9 @@ func NewRawController() controller.Controller {
 
 func rawSelinuxProfileControllerBuild(b *ctrl.Builder, r reconcile.Reconciler) error {
 	return b.Named("rawselinuxprofile").
-		For(&selinuxprofileapi.RawSelinuxProfile{}).
+		For(&selinuxprofileapi.RawSelinuxProfile{}, builder.WithPredicates(
+			predicate.GenerationChangedPredicate{},
+		)).
 		Complete(r)
 }
 

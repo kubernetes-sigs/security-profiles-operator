@@ -306,7 +306,7 @@ func convert(ctx *cli.Context) error {
 	return nil
 }
 
-// convert runs the `spoc install` subcommand.
+// install runs the `spoc install` subcommand.
 func install(ctx *cli.Context) error {
 	options, err := installer.FromContext(ctx)
 	if err != nil {
@@ -348,7 +348,7 @@ func run(ctx *cli.Context) error {
 	return nil
 }
 
-// pull runs the `spoc push` subcommand.
+// push runs the `spoc push` subcommand.
 func push(ctx *cli.Context) error {
 	options, err := pusher.FromContext(ctx)
 	if err != nil {

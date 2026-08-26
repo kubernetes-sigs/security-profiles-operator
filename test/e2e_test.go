@@ -433,6 +433,21 @@ func (e *e2e) getSeccompProfileNodeStatus(
 	return nil
 }
 
+func (e *e2e) waitForProfileActivePodsFinalizer(name string) {
+	e.logf("Waiting for active-pods finalizer on profile %s", name)
+
+	for range 30 {
+		sp := e.getSeccompProfile(name)
+		if slices.Contains(sp.GetFinalizers(), "in-use-by-active-pods") {
+			return
+		}
+
+		time.Sleep(time.Second)
+	}
+
+	e.Fail("timed out waiting for active-pods finalizer")
+}
+
 func (e *e2e) getAllSeccompProfileNodeStatuses(
 	id string,
 ) *secprofnodestatusapi.SecurityProfileNodeStatusList {

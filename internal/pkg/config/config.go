@@ -94,6 +94,21 @@ const (
 	// EnableRecordingEnvKey is the environment variable key to enabling profile recording.
 	EnableRecordingEnvKey = "ENABLE_RECORDING"
 
+	// EnableSeccompEnvKey is the environment variable key for enabling seccomp support.
+	EnableSeccompEnvKey = "ENABLE_SECCOMP"
+
+	// EnableSelinuxEnvKey is the environment variable key for enabling SELinux support.
+	EnableSelinuxEnvKey = "ENABLE_SELINUX"
+
+	// EnableApparmorEnvKey is the environment variable key for enabling AppArmor support.
+	EnableApparmorEnvKey = "ENABLE_APPARMOR"
+
+	// EnableRawSelinuxEnvKey is the environment variable key for enabling raw SELinux support.
+	EnableRawSelinuxEnvKey = "ENABLE_RAW_SELINUX"
+
+	// EnableMemOptimEnvKey is the environment variable key for enabling memory optimization.
+	EnableMemOptimEnvKey = "ENABLE_MEM_OPTIM"
+
 	// EnableInsecureMetricsAccessEnvKey is the environment variable key for allowing unauthenticated
 	// access to metrics endpoint.
 	EnableInsecureMetricsAccessEnvKey = "ENABLE_INSECURE_METRICS_ACCESS"
@@ -213,11 +228,12 @@ type KubeletConfig struct {
 }
 
 // GetOperatorNamespace gets the namespace that the operator is currently running on.
-// Failure to get the namespace results in a panic.
+// Failure to get the namespace terminates the process.
 func GetOperatorNamespace() string {
 	ns, err := TryToGetOperatorNamespace()
 	if err != nil {
-		panic(err)
+		fmt.Fprintf(os.Stderr, "unable to get operator namespace: %v\n", err)
+		os.Exit(1)
 	}
 
 	return ns

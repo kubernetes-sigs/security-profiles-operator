@@ -177,6 +177,7 @@ spec:
 		defer podCleanup() //nolint:gocritic // TODO: is this intention?
 
 		e.waitFor("condition=ready", "pod", deletePodName)
+		e.waitForProfileActivePodsFinalizer(deleteProfileName)
 		e.logf("Ensuring profile cannot be deleted while pod is active")
 		e.kubectl("delete", "seccompprofile", deleteProfileName, "--wait=0")
 

@@ -976,14 +976,17 @@ func CustomLogVolume(
 ) (corev1.Volume, corev1.VolumeMount) {
 	const volumeName = "json-enricher-log-output-volume"
 
-	return corev1.Volume{
-			Name:         volumeName,
-			VolumeSource: *logVolumeSource,
-		}, corev1.VolumeMount{
-			Name:      volumeName,
-			MountPath: mountPath,
-			ReadOnly:  false,
-		}
+	volume := corev1.Volume{
+		Name:         volumeName,
+		VolumeSource: *logVolumeSource,
+	}
+	mount := corev1.VolumeMount{
+		Name:      volumeName,
+		MountPath: mountPath,
+		ReadOnly:  false,
+	}
+
+	return volume, mount
 }
 
 // CustomHostProcVolume returns a new host /proc path volume as well as
@@ -991,19 +994,22 @@ func CustomLogVolume(
 func CustomHostProcVolume(path string) (corev1.Volume, corev1.VolumeMount) {
 	const volumeName = "host-proc-volume"
 
-	return corev1.Volume{
-			Name: volumeName,
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: path,
-					Type: &hostPathDirectory,
-				},
+	volume := corev1.Volume{
+		Name: volumeName,
+		VolumeSource: corev1.VolumeSource{
+			HostPath: &corev1.HostPathVolumeSource{
+				Path: path,
+				Type: &hostPathDirectory,
 			},
-		}, corev1.VolumeMount{
-			Name:      volumeName,
-			MountPath: DefaultHostProcPath,
-			ReadOnly:  true,
-		}
+		},
+	}
+	mount := corev1.VolumeMount{
+		Name:      volumeName,
+		MountPath: DefaultHostProcPath,
+		ReadOnly:  true,
+	}
+
+	return volume, mount
 }
 
 // CustomHostKubeletVolume returns a new host path volume for custom kubelet path
@@ -1011,19 +1017,22 @@ func CustomHostProcVolume(path string) (corev1.Volume, corev1.VolumeMount) {
 func CustomHostKubeletVolume(path string) (corev1.Volume, corev1.VolumeMount) {
 	const volumeName = "host-kubelet-volume"
 
-	return corev1.Volume{
-			Name: volumeName,
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: path,
-					Type: &hostPathDirectory,
-				},
+	volume := corev1.Volume{
+		Name: volumeName,
+		VolumeSource: corev1.VolumeSource{
+			HostPath: &corev1.HostPathVolumeSource{
+				Path: path,
+				Type: &hostPathDirectory,
 			},
-		}, corev1.VolumeMount{
-			Name:      volumeName,
-			MountPath: path,
-			ReadOnly:  false,
-		}
+		},
+	}
+	mount := corev1.VolumeMount{
+		Name:      volumeName,
+		MountPath: path,
+		ReadOnly:  false,
+	}
+
+	return volume, mount
 }
 
 func CustomConfigMap(
@@ -1032,27 +1041,33 @@ func CustomConfigMap(
 ) (corev1.Volume, corev1.VolumeMount) {
 	const volumeName = "json-enricher-filters-volume"
 
-	return corev1.Volume{
-			Name:         volumeName,
-			VolumeSource: *configVolSource,
-		}, corev1.VolumeMount{
-			Name:      volumeName,
-			MountPath: mountPath,
-			ReadOnly:  false,
-		}
+	volume := corev1.Volume{
+		Name:         volumeName,
+		VolumeSource: *configVolSource,
+	}
+	mount := corev1.VolumeMount{
+		Name:      volumeName,
+		MountPath: mountPath,
+		ReadOnly:  false,
+	}
+
+	return volume, mount
 }
 
 func CustomTemplatesVolume(configMapName string) (corev1.Volume, corev1.VolumeMount) {
-	return corev1.Volume{
-			Name: SelinuxCustomTemplatesVolumeName,
-			VolumeSource: corev1.VolumeSource{
-				ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{Name: configMapName},
-				},
+	volume := corev1.Volume{
+		Name: SelinuxCustomTemplatesVolumeName,
+		VolumeSource: corev1.VolumeSource{
+			ConfigMap: &corev1.ConfigMapVolumeSource{
+				LocalObjectReference: corev1.LocalObjectReference{Name: configMapName},
 			},
-		}, corev1.VolumeMount{
-			Name:      SelinuxCustomTemplatesVolumeName,
-			MountPath: "/usr/share/selinuxd/templates",
-			ReadOnly:  true,
-		}
+		},
+	}
+	mount := corev1.VolumeMount{
+		Name:      SelinuxCustomTemplatesVolumeName,
+		MountPath: "/usr/share/selinuxd/templates",
+		ReadOnly:  true,
+	}
+
+	return volume, mount
 }
