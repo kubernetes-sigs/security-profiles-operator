@@ -50,6 +50,11 @@ sed -i 's;gcr.io/k8s-staging-sp-operator/;registry.k8s.io/;g' test/e2e_test.go
 # Update patches
 sed -i 's;gcr.io.*;registry.k8s.io/security-profiles-operator/security-profiles-operator:v'"$VERSION"';g' hack/deploy-localhost.patch
 
+# Update webhook overlay
+FILE=deploy/overlays/webhook/kustomization.yaml
+sed -i 's;newName: gcr.io/k8s-staging-sp-operator/security-profiles-operator;newName: registry.k8s.io/security-profiles-operator/security-profiles-operator;g' $FILE
+sed -i 's;newTag: latest;newTag: v'"$VERSION"';g' $FILE
+
 # Update dependencies.yaml
 FILES=(
     dependencies.yaml

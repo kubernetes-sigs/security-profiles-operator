@@ -73,4 +73,10 @@ sed -i 's;registry.k8s.io;gcr.io/k8s-staging-sp-operator;g' test/e2e_test.go
 sed -i 's;registry.k8s.io/security-profiles-operator.*;gcr.io/k8s-staging-sp-operator/security-profiles-operator:latest;g' \
     hack/deploy-localhost.patch
 
+# Revert webhook overlay to staging
+sed -i \
+    -e 's;newName: registry.k8s.io/security-profiles-operator/security-profiles-operator;newName: gcr.io/k8s-staging-sp-operator/security-profiles-operator;g' \
+    -e 's;newTag: v'"$VERSION"';newTag: latest;g' \
+    deploy/overlays/webhook/kustomization.yaml
+
 echo "Done. Commit the changes to a new branch and create a PR from it"
