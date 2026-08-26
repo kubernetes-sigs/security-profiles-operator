@@ -253,7 +253,7 @@ metadata:
     categories: Security
     containerImage: registry.k8s.io/security-profiles-operator/security-profiles-operator:v1.0.1
     createdAt: "2026-08-26T08:14:08Z"
-    olm.skipRange: '>=0.4.1 <0.8.5-dev'
+    olm.skipRange: '>=0.4.1 <1.0.1'
     operatorframework.io/cluster-monitoring: "true"
     operatorframework.io/os.linux: supported
     operatorframework.io/suggested-namespace: security-profiles-operator
