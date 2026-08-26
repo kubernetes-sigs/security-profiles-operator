@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -176,7 +176,12 @@ func (e *e2e) selinuxBaseUsage(kind, policy, polName string, nodes []string) {
 	rawPolicyName := e.getSELinuxPolicyName(kind, polName)
 
 	e.logf("assert policy is installed")
-	e.assertSelinuxPolicyIsInstalled(nodes, rawPolicyName, maxNodeIterations, sleepBetweenIterations)
+	e.assertSelinuxPolicyIsInstalled(
+		nodes,
+		rawPolicyName,
+		maxNodeIterations,
+		sleepBetweenIterations,
+	)
 
 	e.logf("creating workload")
 
@@ -223,7 +228,10 @@ func (e *e2e) testCaseSelinuxIncompletePolicy() {
 		"--for", "condition=ready", "selinuxprofile", enforcingProfileName)
 
 	e.logf("creating workload - it should become ready, but fail")
-	podWithPolicy := fmt.Sprintf(podWithPolicyFmt, e.getSELinuxPolicyUsage("selinuxprofile", enforcingProfileName))
+	podWithPolicy := fmt.Sprintf(
+		podWithPolicyFmt,
+		e.getSELinuxPolicyUsage("selinuxprofile", enforcingProfileName),
+	)
 	e.writeAndCreate(podWithPolicy, "pod-w-incomplete-policy.yml")
 
 	// note: this would have been much nicer with kubectl wait --jsonpath, but I found it racy incase the status
@@ -270,7 +278,12 @@ func (e *e2e) testCaseSelinuxNonDefaultTemplate(nodes []string) {
 	rawPolicyName := e.getSELinuxPolicyName("selinuxprofile", netContainerPolicyName)
 
 	e.logf("assert policy is installed")
-	e.assertSelinuxPolicyIsInstalled(nodes, rawPolicyName, maxNodeIterations, sleepBetweenIterations)
+	e.assertSelinuxPolicyIsInstalled(
+		nodes,
+		rawPolicyName,
+		maxNodeIterations,
+		sleepBetweenIterations,
+	)
 }
 
 func (e *e2e) testCaseSelinuxIncompletePermissivePolicy() {
@@ -292,7 +305,10 @@ func (e *e2e) testCaseSelinuxIncompletePermissivePolicy() {
 		"--for", "condition=ready", "selinuxprofile", permissiveProfileName)
 
 	e.logf("creating workload - it should become ready, but fail")
-	podWithPolicy := fmt.Sprintf(podWithPolicyFmt, e.getSELinuxPolicyUsage("selinuxprofile", permissiveProfileName))
+	podWithPolicy := fmt.Sprintf(
+		podWithPolicyFmt,
+		e.getSELinuxPolicyUsage("selinuxprofile", permissiveProfileName),
+	)
 	e.writeAndCreate(podWithPolicy, "pod-w-incomplete-permissive-policy.yml")
 
 	e.waitFor("condition=ready", "pod", "errorlogger")
@@ -323,7 +339,10 @@ func (e *e2e) testCaseSelinuxIncompleteDisabledPolicy() {
 		"--for", "condition=ready=false", "selinuxprofile", disabledProfileName)
 
 	e.logf("creating workload - it should not even become ready")
-	podWithPolicy := fmt.Sprintf(podWithPolicyFmt, e.getSELinuxPolicyUsage("selinuxprofile", disabledProfileName))
+	podWithPolicy := fmt.Sprintf(
+		podWithPolicyFmt,
+		e.getSELinuxPolicyUsage("selinuxprofile", disabledProfileName),
+	)
 	e.writeAndCreate(podWithPolicy, "pod-w-incomplete-disabled-policy.yml")
 
 	var exitCode string
@@ -351,7 +370,12 @@ func (e *e2e) testCaseSelinuxIncompleteDisabledPolicy() {
 	e.kubectl("delete", "selinuxprofile", disabledProfileName)
 }
 
-func (e *e2e) assertSelinuxPolicyIsInstalled(nodes []string, policy string, nodeIterations int, sleep time.Duration) {
+func (e *e2e) assertSelinuxPolicyIsInstalled(
+	nodes []string,
+	policy string,
+	nodeIterations int,
+	sleep time.Duration,
+) {
 	for i := range nodeIterations {
 		var missingPolName string
 
@@ -378,7 +402,12 @@ func (e *e2e) assertSelinuxPolicyIsInstalled(nodes []string, policy string, node
 	}
 }
 
-func (e *e2e) assertSelinuxPolicyIsRemoved(nodes []string, policy string, nodeIterations int, sleep time.Duration) {
+func (e *e2e) assertSelinuxPolicyIsRemoved(
+	nodes []string,
+	policy string,
+	nodeIterations int,
+	sleep time.Duration,
+) {
 	for i := range nodeIterations {
 		var missingPolName string
 

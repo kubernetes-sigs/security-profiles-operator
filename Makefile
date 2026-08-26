@@ -1,4 +1,4 @@
-# Copyright 2020 The Kubernetes Authors.
+# Copyright The Kubernetes Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,13 +14,13 @@
 
 GO ?= go
 
-GOLANGCI_LINT_VERSION = v2.10.1
-KAL_VERSION = v0.0.0-20260518104151-5ebe05f9440b
-REPO_INFRA_VERSION = v0.2.5
-KUSTOMIZE_VERSION = 5.5.0
-OPERATOR_SDK_VERSION ?= v1.42.2
-OPM_VERSION ?= v1.65.0
-ZEITGEIST_VERSION = v0.5.4
+GOLANGCI_LINT_VERSION = v2.13.1
+KAL_VERSION = v0.0.0-20260716143926-092fe0c72997
+REPO_INFRA_VERSION = v0.2.6
+KUSTOMIZE_VERSION = 5.8.1
+OPERATOR_SDK_VERSION ?= v1.42.3
+OPM_VERSION ?= v1.73.0
+ZEITGEIST_VERSION = v0.8.0
 MDTOC_VERSION = v1.4.0
 CI_IMAGE ?= golang:$(shell sed -n 's;^go\s\(.*\);\1;p' go.mod)
 
@@ -465,8 +465,8 @@ verify-dependencies: $(BUILD_DIR)/zeitgeist ## Verify external dependencies
 	$(BUILD_DIR)/zeitgeist validate --local-only --base-path . --config dependencies.yaml
 
 $(BUILD_DIR)/zeitgeist: $(BUILD_DIR)
-	curl -sSfL -o $(BUILD_DIR)/zeitgeist \
-		https://storage.googleapis.com/k8s-artifacts-sig-release/kubernetes-sigs/zeitgeist/$(ZEITGEIST_VERSION)/zeitgeist-$(ARCH)-$(OS)
+	curl -sSfL -o $(BUILD_DIR)/zeitgeist -L \
+		https://github.com/kubernetes-sigs/zeitgeist/releases/download/$(ZEITGEIST_VERSION)/zeitgeist-$(ARCH)-$(OS)
 	chmod +x $(BUILD_DIR)/zeitgeist
 
 .PHONY: verify-toc

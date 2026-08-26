@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -240,7 +240,13 @@ func (p *podBinder) updatePod(
 			// resource is not found. Without this, the last error when the retried reached the timeout would only be
 			// a wait.ErrWaitTimeout error which will never be matched by this if statement.
 			if kerrors.IsNotFound(err) {
-				p.log.Info("skip binding due to unavailable profile", "profile-kind", profileKind, "profile", namespacedName)
+				p.log.Info(
+					"skip binding due to unavailable profile",
+					"profile-kind",
+					profileKind,
+					"profile",
+					namespacedName,
+				)
 				// When a profile is not found for a pod, the binding should be just skipped. Otherwise all pod CRUD(s)
 				// operation in a namespace with binding enabled will be blocked with 500 error. This might also lead
 				// to a DoS when a ProfileBinding has a non-existing profileRef.

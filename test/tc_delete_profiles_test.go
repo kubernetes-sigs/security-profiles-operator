@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -200,7 +200,10 @@ spec:
 		// The node statuses should still be there, just terminating
 		nodeStatuses := e.getAllSeccompProfileNodeStatuses(deleteProfileName)
 		for i := range nodeStatuses.Items {
-			e.Equal(secprofnodestatusapi.ProfileStateTerminating, nodeStatuses.Items[i].Status.Status)
+			e.Equal(
+				secprofnodestatusapi.ProfileStateTerminating,
+				nodeStatuses.Items[i].Status.Status,
+			)
 			// On each node, there should still be the profile on the disk
 			nodeWithPodName := nodeStatuses.Items[i].Spec.NodeName
 			profileOperatorPath := path.Join(e.nodeRootfsPrefix, sp.GetProfileOperatorPath())
@@ -210,7 +213,11 @@ spec:
 		isDeleted := make(chan bool)
 
 		go func() {
-			e.waitFor("delete", "seccompprofile", deleteProfileName) //nolint:testifylint // intentional goroutine usage
+			e.waitFor( //nolint:testifylint // intentional goroutine usage
+				"delete",
+				"seccompprofile",
+				deleteProfileName,
+			)
 
 			isDeleted <- true
 		}()

@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -45,7 +45,14 @@ type impl interface {
 	FileClose(*file.Store) error
 	FilepathAbs(string) (string, error)
 	NewRepository(string) (*remote.Repository, error)
-	Copy(context.Context, oras.ReadOnlyTarget, string, oras.Target, string, oras.CopyOptions) (ocispec.Descriptor, error)
+	Copy(
+		context.Context,
+		oras.ReadOnlyTarget,
+		string,
+		oras.Target,
+		string,
+		oras.CopyOptions,
+	) (ocispec.Descriptor, error)
 	ReadFile(string) ([]byte, error)
 	ReadProfile([]byte) (client.Object, error)
 	StoreAdd(context.Context, *file.Store, string, string, string) (ocispec.Descriptor, error)

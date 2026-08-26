@@ -1,5 +1,5 @@
 /*
-Copyright 2025 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -62,7 +62,12 @@ func TestGetEnricherFilters(t *testing.T) {
 					" \"matchKeys\":[\"namespace\"],\"matchValues\":[\"default\"]}]",
 			},
 			want: []types.EnricherFilterOptions{
-				{Priority: 101, Level: "Metadata", MatchKeys: []string{"namespace"}, MatchValues: &[]string{"default"}},
+				{
+					Priority:    101,
+					Level:       "Metadata",
+					MatchKeys:   []string{"namespace"},
+					MatchValues: &[]string{"default"},
+				},
 			},
 			wantErr: false,
 		},
@@ -73,7 +78,12 @@ func TestGetEnricherFilters(t *testing.T) {
 					" \"matchKeys\":[\"syscallID\"],\"matchValues\":[\"23\"]}]",
 			},
 			want: []types.EnricherFilterOptions{
-				{Priority: 101, Level: "Metadata", MatchKeys: []string{"syscallID"}, MatchValues: &[]string{"23"}},
+				{
+					Priority:    101,
+					Level:       "Metadata",
+					MatchKeys:   []string{"syscallID"},
+					MatchValues: &[]string{"23"},
+				},
 			},
 			wantErr: false,
 		},
@@ -96,8 +106,18 @@ func TestGetEnricherFilters(t *testing.T) {
 					" \"matchKeys\":[\"msg\"],\"matchValues\":[\"audit\"]}]",
 			},
 			want: []types.EnricherFilterOptions{
-				{Priority: 101, Level: "Metadata", MatchKeys: []string{"namespace"}, MatchValues: &[]string{"default"}},
-				{Priority: 999, Level: "None", MatchKeys: []string{"msg"}, MatchValues: &[]string{"audit"}},
+				{
+					Priority:    101,
+					Level:       "Metadata",
+					MatchKeys:   []string{"namespace"},
+					MatchValues: &[]string{"default"},
+				},
+				{
+					Priority:    999,
+					Level:       "None",
+					MatchKeys:   []string{"msg"},
+					MatchValues: &[]string{"audit"},
+				},
 			},
 			wantErr: false,
 		},
@@ -112,7 +132,12 @@ func TestGetEnricherFilters(t *testing.T) {
 					"]",
 			},
 			want: []types.EnricherFilterOptions{
-				{Priority: 101, Level: "Metadata", MatchKeys: []string{"resource/pod"}, MatchValues: &[]string{"my-pod"}},
+				{
+					Priority:    101,
+					Level:       "Metadata",
+					MatchKeys:   []string{"resource/pod"},
+					MatchValues: &[]string{"my-pod"},
+				},
 				{Priority: 999, Level: "None", MatchKeys: []string{"msg"}},
 			},
 			wantErr: false,
@@ -195,7 +220,12 @@ func TestApplyEnricherFilters(t *testing.T) {
 					"timestamp":  "test",
 				},
 				enricherFilters: []types.EnricherFilterOptions{
-					{Priority: 101, Level: "None", MatchKeys: []string{"version"}, MatchValues: &[]string{"spo/v1_alpha"}},
+					{
+						Priority:    101,
+						Level:       "None",
+						MatchKeys:   []string{"version"},
+						MatchValues: &[]string{"spo/v1_alpha"},
+					},
 				},
 			},
 			want: types.EnricherLogLevelNone,
@@ -218,7 +248,12 @@ func TestApplyEnricherFilters(t *testing.T) {
 					"timestamp":  "test",
 				},
 				enricherFilters: []types.EnricherFilterOptions{
-					{Priority: 101, Level: "None", MatchKeys: []string{"syscallID"}, MatchValues: &[]string{"50"}},
+					{
+						Priority:    101,
+						Level:       "None",
+						MatchKeys:   []string{"syscallID"},
+						MatchValues: &[]string{"50"},
+					},
 				},
 			},
 			want: types.EnricherLogLevelNone,
@@ -264,7 +299,12 @@ func TestApplyEnricherFilters(t *testing.T) {
 					"timestamp": "test",
 				},
 				enricherFilters: []types.EnricherFilterOptions{
-					{Priority: 101, Level: "None", MatchKeys: []string{"resource/pod"}, MatchValues: &[]string{"my-pod"}},
+					{
+						Priority:    101,
+						Level:       "None",
+						MatchKeys:   []string{"resource/pod"},
+						MatchValues: &[]string{"my-pod"},
+					},
 				},
 			},
 			want: types.EnricherLogLevelNone,
@@ -310,7 +350,12 @@ func TestApplyEnricherFilters(t *testing.T) {
 				},
 				enricherFilters: []types.EnricherFilterOptions{
 					{Priority: 100, Level: "Metadata", MatchKeys: []string{"requestUID"}},
-					{Priority: 999, Level: "None", MatchKeys: []string{"version"}, MatchValues: &[]string{"spo/v1_alpha"}},
+					{
+						Priority:    999,
+						Level:       "None",
+						MatchKeys:   []string{"version"},
+						MatchValues: &[]string{"spo/v1_alpha"},
+					},
 				},
 			},
 			want: types.EnricherLogLevelMetadata,
@@ -333,7 +378,12 @@ func TestApplyEnricherFilters(t *testing.T) {
 				},
 				enricherFilters: []types.EnricherFilterOptions{
 					{Priority: 100, Level: "Metadata", MatchKeys: []string{"requestUID"}},
-					{Priority: 999, Level: "None", MatchKeys: []string{"version"}, MatchValues: &[]string{"spo/v1_alpha"}},
+					{
+						Priority:    999,
+						Level:       "None",
+						MatchKeys:   []string{"version"},
+						MatchValues: &[]string{"spo/v1_alpha"},
+					},
 				},
 			},
 			want: types.EnricherLogLevelNone,
@@ -344,7 +394,10 @@ func TestApplyEnricherFilters(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := ApplyEnricherFilters(tt.args.logMap, tt.args.enricherFilters); got != tt.want {
+			if got := ApplyEnricherFilters(
+				tt.args.logMap,
+				tt.args.enricherFilters,
+			); got != tt.want {
 				t.Errorf("ApplyEnricherFilters() = %v, want %v", got, tt.want)
 			}
 		})

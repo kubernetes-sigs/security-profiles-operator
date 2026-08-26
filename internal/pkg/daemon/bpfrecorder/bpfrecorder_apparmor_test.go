@@ -1,7 +1,7 @@
 //go:build linux && !no_bpf
 
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -103,9 +103,13 @@ func TestAllowAnyFiles(t *testing.T) {
 		want  []string
 	}{
 		{
-			name:  "allow any files if at least two files are already allowed",
-			paths: []string{"/etc/nginx/conf.d/default.conf", "/dev/null", "/etc/nginx/conf.d/sedIWASqqq"},
-			want:  []string{"/etc/nginx/conf.d/*", "/dev/null"},
+			name: "allow any files if at least two files are already allowed",
+			paths: []string{
+				"/etc/nginx/conf.d/default.conf",
+				"/dev/null",
+				"/etc/nginx/conf.d/sedIWASqqq",
+			},
+			want: []string{"/etc/nginx/conf.d/*", "/dev/null"},
 		},
 		{
 			name: "allow any files if more than two files are already allowed",

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Copyright 2024 The Kubernetes Authors.
+# Copyright The Kubernetes Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -85,7 +85,7 @@ EOF
 
 install_operator() {
   echo "Installing security-profiles-operator"
-  kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.17.2/cert-manager.yaml
+  kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.21.1/cert-manager.yaml
   k_wait -n cert-manager pod -l app.kubernetes.io/instance=cert-manager
 
   git apply hack/deploy-localhost.patch

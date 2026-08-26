@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -140,7 +140,9 @@ func TestRemoveLegacyNodeStatus(t *testing.T) {
 				if key.Name == "test-profile-"+nodeName {
 					if ns, ok := obj.(*secprofnodestatusapi.SecurityProfileNodeStatus); ok {
 						ns.Labels = map[string]string{
-							secprofnodestatusapi.StatusToProfLabel: util.KindBasedDNSLengthName(regularSeccompProfile()),
+							secprofnodestatusapi.StatusToProfLabel: util.KindBasedDNSLengthName(
+								regularSeccompProfile(),
+							),
 						}
 					}
 
@@ -195,7 +197,9 @@ func TestRemoveLegacyNodeStatus(t *testing.T) {
 				if key.Name == "test-profile-"+nodeName {
 					if ns, ok := obj.(*secprofnodestatusapi.SecurityProfileNodeStatus); ok {
 						ns.Labels = map[string]string{
-							secprofnodestatusapi.StatusToProfLabel: util.KindBasedDNSLengthName(regularSeccompProfile()),
+							secprofnodestatusapi.StatusToProfLabel: util.KindBasedDNSLengthName(
+								regularSeccompProfile(),
+							),
 						}
 					}
 

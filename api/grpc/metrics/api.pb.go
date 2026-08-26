@@ -1,5 +1,5 @@
 //
-//Copyright 2021 The Kubernetes Authors.
+//Copyright The Kubernetes Authors.
 //
 //Licensed under the Apache License, Version 2.0 (the "License");
 //you may not use this file except in compliance with the License.
@@ -22,10 +22,11 @@
 package api_metrics
 
 import (
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
+
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -37,14 +38,14 @@ const (
 
 type AuditRequest struct {
 	state         protoimpl.MessageState         `protogen:"open.v1"`
-	Node          string                         `protobuf:"bytes,1,opt,name=node,proto3" json:"node,omitempty"`
-	Namespace     string                         `protobuf:"bytes,2,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	Pod           string                         `protobuf:"bytes,3,opt,name=pod,proto3" json:"pod,omitempty"`
-	Container     string                         `protobuf:"bytes,4,opt,name=container,proto3" json:"container,omitempty"`
-	Executable    string                         `protobuf:"bytes,5,opt,name=executable,proto3" json:"executable,omitempty"`
-	SeccompReq    *AuditRequest_SeccompAuditReq  `protobuf:"bytes,6,opt,name=seccompReq,proto3" json:"seccompReq,omitempty"`
-	SelinuxReq    *AuditRequest_SelinuxAuditReq  `protobuf:"bytes,7,opt,name=selinuxReq,proto3" json:"selinuxReq,omitempty"`
-	ApparmorReq   *AuditRequest_ApparmorAuditReq `protobuf:"bytes,8,opt,name=apparmorReq,proto3" json:"apparmorReq,omitempty"`
+	Node          string                         `                   protobuf:"bytes,1,opt,name=node,proto3"        json:"node,omitempty"`
+	Namespace     string                         `                   protobuf:"bytes,2,opt,name=namespace,proto3"   json:"namespace,omitempty"`
+	Pod           string                         `                   protobuf:"bytes,3,opt,name=pod,proto3"         json:"pod,omitempty"`
+	Container     string                         `                   protobuf:"bytes,4,opt,name=container,proto3"   json:"container,omitempty"`
+	Executable    string                         `                   protobuf:"bytes,5,opt,name=executable,proto3"  json:"executable,omitempty"`
+	SeccompReq    *AuditRequest_SeccompAuditReq  `                   protobuf:"bytes,6,opt,name=seccompReq,proto3"  json:"seccompReq,omitempty"`
+	SelinuxReq    *AuditRequest_SelinuxAuditReq  `                   protobuf:"bytes,7,opt,name=selinuxReq,proto3"  json:"selinuxReq,omitempty"`
+	ApparmorReq   *AuditRequest_ApparmorAuditReq `                   protobuf:"bytes,8,opt,name=apparmorReq,proto3" json:"apparmorReq,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -137,9 +138,9 @@ func (x *AuditRequest) GetApparmorReq() *AuditRequest_ApparmorAuditReq {
 
 type BpfRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
-	Node           string                 `protobuf:"bytes,1,opt,name=node,proto3" json:"node,omitempty"`
-	MountNamespace uint32                 `protobuf:"varint,2,opt,name=mount_namespace,json=mountNamespace,proto3" json:"mount_namespace,omitempty"`
-	Profile        string                 `protobuf:"bytes,3,opt,name=profile,proto3" json:"profile,omitempty"`
+	Node           string                 `                   protobuf:"bytes,1,opt,name=node,proto3"                                 json:"node,omitempty"`
+	MountNamespace uint32                 `                   protobuf:"varint,2,opt,name=mount_namespace,json=mountNamespace,proto3" json:"mount_namespace,omitempty"`
+	Profile        string                 `                   protobuf:"bytes,3,opt,name=profile,proto3"                              json:"profile,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -233,7 +234,7 @@ func (*EmptyResponse) Descriptor() ([]byte, []int) {
 
 type AuditRequest_SeccompAuditReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Syscall       string                 `protobuf:"bytes,1,opt,name=syscall,proto3" json:"syscall,omitempty"`
+	Syscall       string                 `                   protobuf:"bytes,1,opt,name=syscall,proto3" json:"syscall,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -277,8 +278,8 @@ func (x *AuditRequest_SeccompAuditReq) GetSyscall() string {
 
 type AuditRequest_SelinuxAuditReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Scontext      string                 `protobuf:"bytes,1,opt,name=scontext,proto3" json:"scontext,omitempty"`
-	Tcontext      string                 `protobuf:"bytes,2,opt,name=tcontext,proto3" json:"tcontext,omitempty"`
+	Scontext      string                 `                   protobuf:"bytes,1,opt,name=scontext,proto3" json:"scontext,omitempty"`
+	Tcontext      string                 `                   protobuf:"bytes,2,opt,name=tcontext,proto3" json:"tcontext,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -329,10 +330,10 @@ func (x *AuditRequest_SelinuxAuditReq) GetTcontext() string {
 
 type AuditRequest_ApparmorAuditReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Profile       string                 `protobuf:"bytes,1,opt,name=profile,proto3" json:"profile,omitempty"`
-	Operation     string                 `protobuf:"bytes,2,opt,name=operation,proto3" json:"operation,omitempty"`
-	Apparmor      string                 `protobuf:"bytes,3,opt,name=apparmor,proto3" json:"apparmor,omitempty"`
-	Name          string                 `protobuf:"bytes,5,opt,name=name,proto3" json:"name,omitempty"`
+	Profile       string                 `                   protobuf:"bytes,1,opt,name=profile,proto3"   json:"profile,omitempty"`
+	Operation     string                 `                   protobuf:"bytes,2,opt,name=operation,proto3" json:"operation,omitempty"`
+	Apparmor      string                 `                   protobuf:"bytes,3,opt,name=apparmor,proto3"  json:"apparmor,omitempty"`
+	Name          string                 `                   protobuf:"bytes,5,opt,name=name,proto3"      json:"name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -467,7 +468,9 @@ var (
 
 func file_api_grpc_metrics_api_proto_rawDescGZIP() []byte {
 	file_api_grpc_metrics_api_proto_rawDescOnce.Do(func() {
-		file_api_grpc_metrics_api_proto_rawDescData = protoimpl.X.CompressGZIP(file_api_grpc_metrics_api_proto_rawDescData)
+		file_api_grpc_metrics_api_proto_rawDescData = protoimpl.X.CompressGZIP(
+			file_api_grpc_metrics_api_proto_rawDescData,
+		)
 	})
 	return file_api_grpc_metrics_api_proto_rawDescData
 }

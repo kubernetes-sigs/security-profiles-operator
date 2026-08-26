@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -80,7 +80,11 @@ type impl interface {
 		context.Context, enricherapi.EnricherClient, *enricherapi.AvcRequest,
 	) error
 	DialEnricher() (*grpc.ClientConn, error)
-	GetRecording(context.Context, client.Client, client.ObjectKey) (*profilerecordingapi.ProfileRecording, error)
+	GetRecording(
+		context.Context,
+		client.Client,
+		client.ObjectKey,
+	) (*profilerecordingapi.ProfileRecording, error)
 	ApparmorForProfile(
 		context.Context,
 		bpfrecorderapi.BpfRecorderClient,
@@ -124,7 +128,8 @@ func (*defaultImpl) ManagerGetClient(m manager.Manager) client.Client {
 func (*defaultImpl) ManagerGetEventRecorderFor(
 	m manager.Manager, name string,
 ) record.EventRecorder {
-	return m.GetEventRecorderFor(name) //nolint:staticcheck,nolintlint // TODO: migrate to GetEventRecorder
+	//nolint:staticcheck // TODO: migrate to GetEventRecorder
+	return m.GetEventRecorderFor(name)
 }
 
 func (*defaultImpl) GetPod(

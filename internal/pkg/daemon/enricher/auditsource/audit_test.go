@@ -1,5 +1,5 @@
 /*
-Copyright 2025 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -209,7 +209,10 @@ func Test_extractAuditLine(t *testing.T) {
 			"Should not extract suppressed lines",
 			`[ 3683.829070] kauditd_printk_skb: 1 callbacks suppressed`,
 			nil,
-			fmt.Errorf("unsupported log line: %s", `[ 3683.829070] kauditd_printk_skb: 1 callbacks suppressed`),
+			fmt.Errorf(
+				"unsupported log line: %s",
+				`[ 3683.829070] kauditd_printk_skb: 1 callbacks suppressed`,
+			),
 		},
 	}
 	for _, tt := range tests {

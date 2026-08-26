@@ -11,6 +11,7 @@ linters:
     - bidichk
     - bodyclose
     - canonicalheader
+    - clickhouselint
     - containedctx
     - contextcheck
     - copyloopvar
@@ -39,7 +40,7 @@ linters:
     - godot
     - godox
     - goheader
-    - gomodguard
+    - gomodguard_v2
     - goprintffuncname
     - gosec
     - gosmopolitan
@@ -100,7 +101,7 @@ linters:
     # - depguard
     # - embeddedstructfieldcheck
     # - err113
-    # - exhaustruct
+    # - exhaustruct_v5
     # - forbidigo
     # - funcorder
     # - funlen
@@ -134,6 +135,7 @@ linters:
       min-complexity: 40
     goconst:
       min-occurrences: 6
+      ignore-tests: true
     gocritic:
       enable-all: true
     godox:
@@ -176,9 +178,6 @@ linters:
           - godoclint
         path: api/
       - linters:
-          - staticcheck
-        text: "SA1019: scheme.Builder is deprecated"
-      - linters:
           - kubeapilinter
         path-except: api/
     paths:
@@ -191,12 +190,16 @@ formatters:
     - gofmt
     - gofumpt
     - goimports
+    - golines
+    - swaggo
   settings:
     gci:
       sections:
         - standard
         - default
         - localmodule
+    golines:
+      reformat-tags: false
   exclusions:
     generated: lax
     paths:

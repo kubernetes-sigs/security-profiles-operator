@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -549,7 +549,11 @@ func TestHandle(t *testing.T) {
 		mock := &recordingfakes.FakeImpl{}
 		tc.prepare(mock)
 
-		recorder := podSeccompRecorder{impl: mock, log: logr.Discard(), record: utils.NewSafeRecorder(nil)}
+		recorder := podSeccompRecorder{
+			impl:   mock,
+			log:    logr.Discard(),
+			record: utils.NewSafeRecorder(nil),
+		}
 		resp := recorder.Handle(t.Context(), tc.request)
 		tc.assert(resp)
 	}

@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -31,9 +31,8 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 )
 
+//nolint:paralleltest,tparallel // modifies environment variables and cannot run in parallel
 func Test_selinuxProfileHandler(t *testing.T) {
-	t.Parallel()
-
 	ns := "security-profiles-operator"
 	setenvCleanup(t, "OPERATOR_NAMESPACE", ns)
 
@@ -378,12 +377,22 @@ func Test_selinuxProfileHandler(t *testing.T) {
 				tt.existingObjs = append(tt.existingObjs, tt.profile)
 			}
 
-			cli := fake.NewClientBuilder().WithScheme(schemeInstance).WithObjects(tt.existingObjs...).Build()
-			key := types.NamespacedName{Name: tt.profile.GetName(), Namespace: tt.profile.GetNamespace()}
+			cli := fake.NewClientBuilder().
+				WithScheme(schemeInstance).
+				WithObjects(tt.existingObjs...).
+				Build()
+			key := types.NamespacedName{
+				Name:      tt.profile.GetName(),
+				Namespace: tt.profile.GetNamespace(),
+			}
 			sph, initerr := newSelinuxProfileHandler(t.Context(), cli, key)
 
 			if (initerr != nil) != tt.wantInitErr {
-				t.Errorf("newSelinuxProfileHandler() error = %v, wantErr %v", initerr, tt.wantInitErr)
+				t.Errorf(
+					"newSelinuxProfileHandler() error = %v, wantErr %v",
+					initerr,
+					tt.wantInitErr,
+				)
 			}
 			// There was an expected error
 			if (initerr != nil) && tt.wantInitErr {
@@ -392,7 +401,11 @@ func Test_selinuxProfileHandler(t *testing.T) {
 					if matcherr != nil {
 						t.Errorf("failed matching the error to expected string: %s", matcherr)
 					} else if !matched {
-						t.Errorf("The error didn't match expectation.\nExpected match for: %s\nGot instead: %s", wantMatch, initerr)
+						t.Errorf(
+							"The error didn't match expectation.\nExpected match for: %s\nGot instead: %s",
+							wantMatch,
+							initerr,
+						)
 					}
 				}
 
@@ -401,7 +414,11 @@ func Test_selinuxProfileHandler(t *testing.T) {
 
 			valerr := sph.Validate()
 			if (valerr != nil) != tt.wantValidateErr {
-				t.Errorf("selinuxProfileHandler.Validate() error = %v, wantErr %v", valerr, tt.wantValidateErr)
+				t.Errorf(
+					"selinuxProfileHandler.Validate() error = %v, wantErr %v",
+					valerr,
+					tt.wantValidateErr,
+				)
 			}
 			// there's an expected error
 			if (valerr != nil) && tt.wantValidateErr {
@@ -410,7 +427,11 @@ func Test_selinuxProfileHandler(t *testing.T) {
 					if matcherr != nil {
 						t.Errorf("failed matching the error to expected string: %s", matcherr)
 					} else if !matched {
-						t.Errorf("The error didn't match expectation.\nExpected match for: %s\nGot instead: %s", wantMatch, valerr)
+						t.Errorf(
+							"The error didn't match expectation.\nExpected match for: %s\nGot instead: %s",
+							wantMatch,
+							valerr,
+						)
 					}
 				}
 			}

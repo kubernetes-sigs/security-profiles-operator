@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -138,7 +138,7 @@ func (i *Info) String() string {
 
 		case reflect.Slice:
 			// Only expecting []string here; ignore other slices.
-			if s, ok := value.Interface().([]string); ok {
+			if s, ok := reflect.TypeAssert[[]string](value); ok {
 				const sep = "\n  "
 
 				valueString = sep + strings.Join(s, sep)

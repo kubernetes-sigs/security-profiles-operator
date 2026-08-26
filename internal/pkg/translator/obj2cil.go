@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -180,7 +180,12 @@ func Object2CIL(
 
 	for _, ttype := range selinuxprofileapi.SortLabelKeys(sp.Spec.Allow) {
 		for _, tclass := range selinuxprofileapi.SortObjectClassKeys(sp.Spec.Allow[ttype]) {
-			if err := validateSemanticRule(deniedOpts, ttype, tclass, sp.Spec.Allow[ttype][tclass]); err != nil {
+			if err := validateSemanticRule(
+				deniedOpts,
+				ttype,
+				tclass,
+				sp.Spec.Allow[ttype][tclass],
+			); err != nil {
 				return "", fmt.Errorf("invalid semantic rule for type %s, class %s: %w",
 					ttype, tclass, err)
 			}
@@ -237,7 +242,12 @@ func getCILAllowLine(
 	uniquePerms := sets.New(perms...).UnsortedList()
 	sort.Strings(uniquePerms)
 
-	return fmt.Sprintf("(allow process %s ( %s ( %s )))\n", ttypeFinal, tclass, strings.Join(uniquePerms, " "))
+	return fmt.Sprintf(
+		"(allow process %s ( %s ( %s )))\n",
+		ttypeFinal,
+		tclass,
+		strings.Join(uniquePerms, " "),
+	)
 }
 
 func getCILEnd() string {

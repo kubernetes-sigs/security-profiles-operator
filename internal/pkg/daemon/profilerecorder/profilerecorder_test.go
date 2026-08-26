@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -108,7 +108,9 @@ func TestCollectBpfProfilesProfileName(t *testing.T) {
 
 			mock := &profilerecorderfakes.FakeImpl{}
 			mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
-				Spec: spodapi.SPODSpec{Enricher: spodapi.SPODEnricherConfig{EnableBpfRecorder: ptrTrue()}},
+				Spec: spodapi.SPODSpec{
+					Enricher: spodapi.SPODEnricherConfig{EnableBpfRecorder: ptrTrue()},
+				},
 			}, nil)
 			mock.DialBpfRecorderReturns(nil, nil)
 			mock.SyscallsForProfileReturns(&bpfrecorderapi.SyscallsResponse{

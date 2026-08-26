@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -145,7 +145,9 @@ var (
 	// 5. A valid absolute path (including just "/")
 	// 6. An explicitly formatted ptrace rule injection hack
 	// Critically, it EXCLUDES commas, quotes, and newlines.
-	strictPathRegex = regexp.MustCompile(`^(?:/[a-zA-Z0-9_./*?+@{} -]*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$`)
+	strictPathRegex = regexp.MustCompile(
+		`^(?:/[a-zA-Z0-9_./*?+@{} -]*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$`,
+	)
 )
 
 func newApparmorData(name string, abstract *apparmorprofileapi.AppArmorAbstract) *ApparmorData {

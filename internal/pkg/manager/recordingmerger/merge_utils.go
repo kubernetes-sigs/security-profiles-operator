@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -104,7 +104,11 @@ func listPartialProfiles(
 
 		partialPrf, err := newMergeableProfile(clientObj)
 		if err != nil {
-			return fmt.Errorf("failed to create mergeable profile for %s: %w", clientObj.GetName(), err)
+			return fmt.Errorf(
+				"failed to create mergeable profile for %s: %w",
+				clientObj.GetName(),
+				err,
+			)
 		}
 
 		containerID := getContainerID(clientObj)
@@ -282,7 +286,9 @@ func (sp *MergeableSelinuxProfile) merge(other mergeableProfile) error {
 func addAllow(union, additional selinuxprofileapi.Allow) selinuxprofileapi.Allow {
 	for labelKey, permMap := range additional {
 		if _, ok := union[labelKey]; !ok {
-			union[labelKey] = make(map[selinuxprofileapi.ObjectClassKey]selinuxprofileapi.PermissionSet)
+			union[labelKey] = make(
+				map[selinuxprofileapi.ObjectClassKey]selinuxprofileapi.PermissionSet,
+			)
 		}
 
 		for objClass, perms := range permMap {

@@ -1,7 +1,7 @@
 //go:build linux && !no_bpf
 
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -241,19 +241,26 @@ func (r *Recorder) generateAppArmorProfile(mntns uint32) apparmorprofileapi.AppA
 	abstract := apparmorprofileapi.AppArmorAbstract{}
 	enabled := true
 
-	if len(processed.FileProcessed.AllowedExecutables) != 0 || len(processed.FileProcessed.AllowedLibraries) != 0 {
+	if len(processed.FileProcessed.AllowedExecutables) != 0 ||
+		len(processed.FileProcessed.AllowedLibraries) != 0 {
 		abstract.Executable = &apparmorprofileapi.AppArmorExecutablesRules{}
 
 		if len(processed.FileProcessed.AllowedExecutables) != 0 {
 			sort.Strings(processed.FileProcessed.AllowedExecutables)
-			ExecutableAllowedExecCopy := make([]string, len(processed.FileProcessed.AllowedExecutables))
+			ExecutableAllowedExecCopy := make(
+				[]string,
+				len(processed.FileProcessed.AllowedExecutables),
+			)
 			copy(ExecutableAllowedExecCopy, processed.FileProcessed.AllowedExecutables)
 			abstract.Executable.AllowedExecutables = ExecutableAllowedExecCopy
 		}
 
 		if len(processed.FileProcessed.AllowedLibraries) != 0 {
 			sort.Strings(processed.FileProcessed.AllowedLibraries)
-			ExecutableAllowedLibCopy := make([]string, len(processed.FileProcessed.AllowedLibraries))
+			ExecutableAllowedLibCopy := make(
+				[]string,
+				len(processed.FileProcessed.AllowedLibraries),
+			)
 			copy(ExecutableAllowedLibCopy, processed.FileProcessed.AllowedLibraries)
 			abstract.Executable.AllowedLibraries = ExecutableAllowedLibCopy
 		}
@@ -405,7 +412,10 @@ func (r *Recorder) buildProfile(writer io.Writer, names []string) error {
 	return r.buildProfileCRD(writer, &spec)
 }
 
-func (r *Recorder) buildProfileRaw(writer io.Writer, spec *seccompprofileapi.SeccompProfileSpec) error {
+func (r *Recorder) buildProfileRaw(
+	writer io.Writer,
+	spec *seccompprofileapi.SeccompProfileSpec,
+) error {
 	data, err := r.MarshalIndent(spec, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal JSON profile: %w", err)
@@ -418,7 +428,10 @@ func (r *Recorder) buildProfileRaw(writer io.Writer, spec *seccompprofileapi.Sec
 	return nil
 }
 
-func (r *Recorder) buildProfileCRD(writer io.Writer, spec *seccompprofileapi.SeccompProfileSpec) error {
+func (r *Recorder) buildProfileCRD(
+	writer io.Writer,
+	spec *seccompprofileapi.SeccompProfileSpec,
+) error {
 	profile := &seccompprofileapi.SeccompProfile{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "SeccompProfile",
@@ -438,7 +451,10 @@ func (r *Recorder) buildProfileCRD(writer io.Writer, spec *seccompprofileapi.Sec
 	return nil
 }
 
-func (r *Recorder) buildAppArmorProfileCRD(writer io.Writer, spec *apparmorprofileapi.AppArmorProfileSpec) error {
+func (r *Recorder) buildAppArmorProfileCRD(
+	writer io.Writer,
+	spec *apparmorprofileapi.AppArmorProfileSpec,
+) error {
 	profile := &apparmorprofileapi.AppArmorProfile{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "AppArmorProfile",
@@ -464,7 +480,10 @@ func (r *Recorder) buildAppArmorProfileCRD(writer io.Writer, spec *apparmorprofi
 	return nil
 }
 
-func (r *Recorder) buildAppArmorProfileRaw(writer io.Writer, spec *apparmorprofileapi.AppArmorProfileSpec) error {
+func (r *Recorder) buildAppArmorProfileRaw(
+	writer io.Writer,
+	spec *apparmorprofileapi.AppArmorProfileSpec,
+) error {
 	programName, err := filepath.Abs(r.options.commandOptions.Command())
 	if err != nil {
 		return fmt.Errorf("get program name: %w", err)

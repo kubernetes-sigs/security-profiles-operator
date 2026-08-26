@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -224,7 +224,10 @@ func (e *e2e) profileRecordingStaticSelinuxPod(recording string, waitConditions 
 
 	resourceName := selinuxRecordingName + "-nginx"
 
-	pathresult := e.retryGetSelinuxJsonpath("{.spec.allow.http_cache_port_t.tcp_socket}", resourceName)
+	pathresult := e.retryGetSelinuxJsonpath(
+		"{.spec.allow.http_cache_port_t.tcp_socket}",
+		resourceName,
+	)
 	e.Contains(pathresult, "name_bind")
 
 	e.kubectl("delete", "-f", recording)
@@ -306,12 +309,18 @@ func (e *e2e) profileRecordingSelinuxMultiContainer(
 
 	const profileNameRedis = selinuxRecordingName + "-redis"
 
-	redispathresult := e.retryGetSelinuxJsonpath("{.spec.allow.redis_port_t.tcp_socket}", profileNameRedis)
+	redispathresult := e.retryGetSelinuxJsonpath(
+		"{.spec.allow.redis_port_t.tcp_socket}",
+		profileNameRedis,
+	)
 	e.Contains(redispathresult, "name_bind")
 
 	const profileNameNginx = selinuxRecordingName + "-nginx"
 
-	nginxpathresult := e.retryGetSelinuxJsonpath("{.spec.allow.http_cache_port_t.tcp_socket}", profileNameNginx)
+	nginxpathresult := e.retryGetSelinuxJsonpath(
+		"{.spec.allow.http_cache_port_t.tcp_socket}",
+		profileNameNginx,
+	)
 	e.Contains(nginxpathresult, "name_bind")
 
 	const profileNameInit = recordingName + "-init"
@@ -450,7 +459,13 @@ func (e *e2e) testCaseRecordingFinalizers() {
 	e.logf("Testing that profile binding has pod reference")
 
 	if err := spoutil.Retry(func() error {
-		output := e.kubectl("get", "profilerecording", recordingName, "--output", "jsonpath={.status.activeWorkloads[0]}")
+		output := e.kubectl(
+			"get",
+			"profilerecording",
+			recordingName,
+			"--output",
+			"jsonpath={.status.activeWorkloads[0]}",
+		)
 		fmt.Println(output)
 
 		if output != podName {
@@ -466,7 +481,13 @@ func (e *e2e) testCaseRecordingFinalizers() {
 
 	// Check that the recording's finalizer is present. Don't retry anymore, the finalizer
 	// must be added at this point
-	output := e.kubectl("get", "profilerecording", recordingName, "--output", "jsonpath={.metadata.finalizers[0]}")
+	output := e.kubectl(
+		"get",
+		"profilerecording",
+		recordingName,
+		"--output",
+		"jsonpath={.metadata.finalizers[0]}",
+	)
 	e.Equal("active-seccomp-profile-recording-lock", output)
 
 	// Delete the pod and check that the resource is removed
@@ -535,7 +556,10 @@ func (e *e2e) profileRecordingSelinuxDeployment(
 
 	for _, sfx := range suffixes {
 		recordedProfileName := selinuxRecordingName + "-nginx-" + sfx
-		profileResult := e.retryGetSelinuxJsonpath("{.spec.allow.http_cache_port_t.tcp_socket}", recordedProfileName)
+		profileResult := e.retryGetSelinuxJsonpath(
+			"{.spec.allow.http_cache_port_t.tcp_socket}",
+			recordedProfileName,
+		)
 		e.Contains(profileResult, "name_bind")
 		e.kubectl("delete", "selinuxprofile", recordedProfileName)
 	}
@@ -575,7 +599,9 @@ spec:
 	return e.createRecordingTestDeploymentFromManifest(testDeployment)
 }
 
-func (e *e2e) createRecordingTestDeploymentFromManifest(manifest string) (since time.Time, deployName string) {
+func (e *e2e) createRecordingTestDeploymentFromManifest(
+	manifest string,
+) (since time.Time, deployName string) {
 	e.logf("Creating test deployment")
 
 	deployName = "my-deployment"
@@ -754,8 +780,18 @@ func (e *e2e) profileRecordingScaleDeployment(
 	e.kubectl("delete", "-f", recording)
 }
 
-func (e *e2e) getPodSuffixesByLabel(label string) []string { //nolint:unparam // it's better to keep the param around
-	podNamesString := e.kubectl("get", "pods", "-l", label, "-o", "jsonpath={.items[*].metadata.name}")
+//nolint:unparam // it's better to keep the param around
+func (e *e2e) getPodSuffixesByLabel(
+	label string,
+) []string {
+	podNamesString := e.kubectl(
+		"get",
+		"pods",
+		"-l",
+		label,
+		"-o",
+		"jsonpath={.items[*].metadata.name}",
+	)
 	podNames := strings.Fields(podNamesString)
 	suffixes := make([]string, 0, len(podNames))
 

@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -766,7 +766,9 @@ func getJsonEnricher(ctx *cli.Context, info *version.Info) (*enricher.JsonEnrich
 
 	opts := &enricher.JsonEnricherOptions{}
 
-	if auditLogIntervalSeconds := ctx.Int(auditLogIntervalSecondsParam); auditLogIntervalSeconds > 0 {
+	if auditLogIntervalSeconds := ctx.Int(
+		auditLogIntervalSecondsParam,
+	); auditLogIntervalSeconds > 0 {
 		opts.AuditFreq = time.Duration(auditLogIntervalSeconds) * time.Second
 	}
 
@@ -821,7 +823,8 @@ func runNonRootEnabler(ctx *cli.Context, info *version.Info) error {
 		kubeletDir = config.KubeletDir()
 	}
 
-	return nonrootenabler.New().Run(ctrl.Log.WithName(component), containerRuntime, kubeletDir, apparmor)
+	return nonrootenabler.New().
+		Run(ctrl.Log.WithName(component), containerRuntime, kubeletDir, apparmor)
 }
 
 func runWebhook(ctx *cli.Context, info *version.Info) error {
@@ -892,7 +895,12 @@ func runWebhook(ctx *cli.Context, info *version.Info) error {
 	binding.RegisterWebhook(hookserver, mgr.GetScheme(), mgr.GetClient())
 
 	//nolint:staticcheck,nolintlint // TODO: migrate to GetEventRecorder
-	recording.RegisterWebhook(hookserver, mgr.GetScheme(), mgr.GetEventRecorderFor("recording-webhook"), mgr.GetClient())
+	recording.RegisterWebhook(
+		hookserver,
+		mgr.GetScheme(),
+		mgr.GetEventRecorderFor("recording-webhook"),
+		mgr.GetClient(),
+	)
 	execmetadata.RegisterWebhook(hookserver)
 	validation.RegisterWebhook(hookserver, mgr.GetScheme())
 
@@ -914,8 +922,8 @@ func setupEnabledControllers(
 	met *metrics.Metrics,
 ) error {
 	for _, enableCtrl := range enabledControllers {
-		if enableCtrl.SchemeBuilder() != nil {
-			if err := enableCtrl.SchemeBuilder().AddToScheme(mgr.GetScheme()); err != nil {
+		if sb := enableCtrl.SchemeBuilder(); sb != nil {
+			if err := sb.AddToScheme(mgr.GetScheme()); err != nil {
 				return fmt.Errorf("add core operator APIs to scheme: %w", err)
 			}
 		}

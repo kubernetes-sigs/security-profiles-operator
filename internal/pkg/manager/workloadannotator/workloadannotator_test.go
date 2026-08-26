@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -101,7 +101,9 @@ func TestGetSeccompProfilesFromPod(t *testing.T) {
 			name: "SeccompProfileInAnnotation",
 			pod: corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{corev1.SeccompPodAnnotationKey: "localhost/" + profilePath},
+					Annotations: map[string]string{
+						corev1.SeccompPodAnnotationKey: "localhost/" + profilePath,
+					},
 				},
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{{Name: "container1", Image: "testimage"}},
@@ -142,7 +144,9 @@ func TestGetSeccompProfilesFromPod(t *testing.T) {
 			name: "SeccompProfileInAnnotationNoSlash",
 			pod: corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{corev1.SeccompPodAnnotationKey: "localhost/mariadb-seccomp-profile.json"},
+					Annotations: map[string]string{
+						corev1.SeccompPodAnnotationKey: "localhost/mariadb-seccomp-profile.json",
+					},
 				},
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{{Name: "container1", Image: "testimage"}},
@@ -154,7 +158,9 @@ func TestGetSeccompProfilesFromPod(t *testing.T) {
 			name: "SeccompProfileInPodAndContainerAndAnnotation",
 			pod: corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{corev1.SeccompPodAnnotationKey: "localhost/" + profilePath},
+					Annotations: map[string]string{
+						corev1.SeccompPodAnnotationKey: "localhost/" + profilePath,
+					},
 				},
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{

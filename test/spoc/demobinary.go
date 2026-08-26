@@ -1,7 +1,7 @@
 //go:build linux && !no_bpf
 
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -47,9 +47,21 @@ func main() {
 	capSysAdmin := flag.Bool("cap-sys-admin", false, "exercise CAP_SYS_ADMIN")
 	fileCreate := flag.String("file-create", "", "create file (e.g. /tmp/test)")
 	fileWrite := flag.String("file-write", "", "write file (e.g. /dev/null)")
-	fileRead := flag.String("file-read", "", "read file (e.g. /dev/null). Multiple files may be separated by comma.")
-	fileSymlink := flag.String("file-symlink", "", "Create symlink using the following syntax: OLD:NEW")
-	dirRead := flag.String("dir-read", "", "read directory (e.g. /dev/). Multiple directories may be separated by comma.")
+	fileRead := flag.String(
+		"file-read",
+		"",
+		"read file (e.g. /dev/null). Multiple files may be separated by comma.",
+	)
+	fileSymlink := flag.String(
+		"file-symlink",
+		"",
+		"Create symlink using the following syntax: OLD:NEW",
+	)
+	dirRead := flag.String(
+		"dir-read",
+		"",
+		"read directory (e.g. /dev/). Multiple directories may be separated by comma.",
+	)
 	fileRemove := flag.String("file-remove", "", "delete file (e.g. /tmp/test)")
 	dirCreate := flag.String("dir-create", "",
 		"create directory (e.g. /tmp/dir). Multiple directories may be separated by comma.")

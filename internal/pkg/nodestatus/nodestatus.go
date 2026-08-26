@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -80,7 +80,11 @@ func (nsf *StatusClient) Create(ctx context.Context) (bool, error) {
 	}
 
 	if err := nsf.createPolLabel(ctx); err != nil {
-		return false, fmt.Errorf("cannot create policy name label for %s: %w", nsf.pol.GetName(), err)
+		return false, fmt.Errorf(
+			"cannot create policy name label for %s: %w",
+			nsf.pol.GetName(),
+			err,
+		)
 	}
 
 	wasMigrated := nsf.removeLegacyNodeStatus(ctx)
@@ -165,7 +169,9 @@ func (nsf *StatusClient) statusObj(
 				secprofnodestatusapi.StatusToProfLabel: util.KindBasedDNSLengthName(nsf.pol),
 				secprofnodestatusapi.StatusToNodeLabel: nsf.nodeName,
 				secprofnodestatusapi.StatusStateLabel:  string(polState),
-				secprofnodestatusapi.StatusKindLabel:   nsf.pol.GetObjectKind().GroupVersionKind().Kind,
+				secprofnodestatusapi.StatusKindLabel: nsf.pol.GetObjectKind().
+					GroupVersionKind().
+					Kind,
 			},
 		},
 		Spec: secprofnodestatusapi.SecurityProfileNodeStatusSpec{
@@ -181,8 +187,16 @@ func (nsf *StatusClient) createNodeStatus(ctx context.Context) error {
 	initialStatus := nsf.initialStatus()
 	s := nsf.statusObj(initialStatus)
 
-	if setCtrlErr := controllerutil.SetControllerReference(nsf.pol, s, nsf.client.Scheme()); setCtrlErr != nil {
-		return fmt.Errorf("cannot set node status owner reference: %s: %w", nsf.pol.GetName(), setCtrlErr)
+	if setCtrlErr := controllerutil.SetControllerReference(
+		nsf.pol,
+		s,
+		nsf.client.Scheme(),
+	); setCtrlErr != nil {
+		return fmt.Errorf(
+			"cannot set node status owner reference: %s: %w",
+			nsf.pol.GetName(),
+			setCtrlErr,
+		)
 	}
 
 	err := nsf.client.Create(ctx, s)
@@ -370,7 +384,11 @@ func getFinalizerString(pol profilebase.SecurityProfileBase, nodeName string) st
 	return finalizerString
 }
 
-func handleRecordingFinalizer(ctx context.Context, c client.Client, pol profilebase.SecurityProfileBase) error {
+func handleRecordingFinalizer(
+	ctx context.Context,
+	c client.Client,
+	pol profilebase.SecurityProfileBase,
+) error {
 	// if this policy was not recorded, we don't need to do anything. This also covers the upgrade
 	// case because the finalizer is only added when the policy is recorded with the new version
 	polLabels := pol.GetLabels()
@@ -434,11 +452,17 @@ func handleRecordingFinalizer(ctx context.Context, c client.Client, pol profileb
 	}
 
 	// no other recordings, remove the finalizer
-	if !controllerutil.ContainsFinalizer(profilerecording, profilerecordingapi.RecordingHasUnmergedProfiles) {
+	if !controllerutil.ContainsFinalizer(
+		profilerecording,
+		profilerecordingapi.RecordingHasUnmergedProfiles,
+	) {
 		return nil
 	}
 
-	controllerutil.RemoveFinalizer(profilerecording, profilerecordingapi.RecordingHasUnmergedProfiles)
+	controllerutil.RemoveFinalizer(
+		profilerecording,
+		profilerecordingapi.RecordingHasUnmergedProfiles,
+	)
 
 	return c.Update(ctx, profilerecording)
 }

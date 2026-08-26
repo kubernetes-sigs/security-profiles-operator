@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -42,30 +42,32 @@ func (r *PodReconciler) Setup(
 
 	r.client = mgr.GetClient()
 	r.log = ctrl.Log.WithName(r.Name())
-	//nolint:staticcheck,nolintlint // TODO: migrate to GetEventRecorder
+	//nolint:staticcheck // TODO: migrate to GetEventRecorder
 	r.record = mgr.GetEventRecorderFor(name)
 
 	// Index Pods using seccomp profiles
-	if err := mgr.GetFieldIndexer().IndexField(ctx, &corev1.Pod{}, spOwnerKey, func(rawObj client.Object) []string {
-		pod, ok := rawObj.(*corev1.Pod)
-		if !ok {
-			return []string{}
-		}
+	if err := mgr.GetFieldIndexer().
+		IndexField(ctx, &corev1.Pod{}, spOwnerKey, func(rawObj client.Object) []string {
+			pod, ok := rawObj.(*corev1.Pod)
+			if !ok {
+				return []string{}
+			}
 
-		return getSeccompProfilesFromPod(pod)
-	}); err != nil {
+			return getSeccompProfilesFromPod(pod)
+		}); err != nil {
 		return fmt.Errorf("creating pod index: %w", err)
 	}
 
 	// Index Pods using selinux profiles
-	if err := mgr.GetFieldIndexer().IndexField(ctx, &corev1.Pod{}, seOwnerKey, func(rawObj client.Object) []string {
-		pod, ok := rawObj.(*corev1.Pod)
-		if !ok {
-			return []string{}
-		}
+	if err := mgr.GetFieldIndexer().
+		IndexField(ctx, &corev1.Pod{}, seOwnerKey, func(rawObj client.Object) []string {
+			pod, ok := rawObj.(*corev1.Pod)
+			if !ok {
+				return []string{}
+			}
 
-		return getSelinuxProfilesFromPod(ctx, r, pod)
-	}); err != nil {
+			return getSelinuxProfilesFromPod(ctx, r, pod)
+		}); err != nil {
 		return fmt.Errorf("creating pod index: %w", err)
 	}
 

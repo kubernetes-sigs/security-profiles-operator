@@ -1,5 +1,5 @@
 /*
-Copyright 2026 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -78,15 +78,21 @@ func ReconcileDeletion(
 		if !isTerminating {
 			log.Info("setting status to terminating")
 
-			if err := nsc.SetNodeStatus(ctx, secprofnodestatusapi.ProfileStateTerminating); err != nil {
+			if err := nsc.SetNodeStatus(
+				ctx,
+				secprofnodestatusapi.ProfileStateTerminating,
+			); err != nil {
 				log.Error(err, "cannot update profile status")
 				incError(reasons.CannotUpdateProfile)
 				rec.Event(profile, util.EventTypeWarning, reasons.CannotUpdateProfile, err.Error())
 
-				return reconcile.Result{}, fmt.Errorf("updating status for deleted profile: %w", err)
+				return reconcile.Result{}, fmt.Errorf(
+					"updating status for deleted profile: %w",
+					err,
+				)
 			}
 
-			return reconcile.Result{Requeue: true, RequeueAfter: Wait}, nil
+			return reconcile.Result{RequeueAfter: Wait}, nil
 		}
 	}
 
@@ -109,7 +115,10 @@ func ReconcileDeletion(
 		incError(reasons.CannotUpdateStatus)
 		rec.Event(profile, util.EventTypeWarning, reasons.CannotUpdateStatus, err.Error())
 
-		return ctrl.Result{}, fmt.Errorf("deleting node status/finalizer for deleted profile: %w", err)
+		return ctrl.Result{}, fmt.Errorf(
+			"deleting node status/finalizer for deleted profile: %w",
+			err,
+		)
 	}
 
 	return ctrl.Result{}, nil

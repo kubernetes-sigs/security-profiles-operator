@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -21,6 +21,7 @@ import (
 	"sort"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	profilebasev1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
@@ -187,7 +188,13 @@ func (sp *SelinuxProfile) ListProfilesByRecording(
 	cli client.Client,
 	recording, recordingNamespace string,
 ) ([]metav1.Object, error) {
-	return profilebasev1.ListProfilesByRecording(ctx, cli, recording, recordingNamespace, &SelinuxProfileList{})
+	return profilebasev1.ListProfilesByRecording(
+		ctx,
+		cli,
+		recording,
+		recordingNamespace,
+		&SelinuxProfileList{},
+	)
 }
 
 func (sp *SelinuxProfile) IsPartial() bool {
@@ -212,5 +219,9 @@ type SelinuxProfileList struct {
 }
 
 func init() { //nolint:gochecknoinits // required to init scheme
-	SchemeBuilder.Register(&SelinuxProfile{}, &SelinuxProfileList{})
+	SchemeBuilder.Register(func(s *runtime.Scheme) error {
+		s.AddKnownTypes(GroupVersion, &SelinuxProfile{}, &SelinuxProfileList{})
+
+		return nil
+	})
 }

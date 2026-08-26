@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -33,7 +33,7 @@ import (
 )
 
 const (
-	certmanager       = "https://github.com/cert-manager/cert-manager/releases/download/v1.17.2/cert-manager.yaml"
+	certmanager       = "https://github.com/cert-manager/cert-manager/releases/download/v1.21.1/cert-manager.yaml"
 	namespaceManifest = "deploy/namespace-operator.yaml"
 	testNamespace     = "test-ns"
 	defaultNamespace  = "default"
@@ -210,7 +210,11 @@ func (e *e2e) TestSecurityProfilesOperator() {
 	e.testNamespacedOperator(namespaceManifest, testNamespace, testCases, nodes)
 }
 
-func (e *e2e) testNamespacedOperator(manifest, namespace string, testCases []testCase, nodes []string) {
+func (e *e2e) testNamespacedOperator(
+	manifest, namespace string,
+	testCases []testCase,
+	nodes []string,
+) {
 	if e.skipNamespacedTests {
 		return
 	}
@@ -351,7 +355,12 @@ func (e *e2e) deployOperator(manifest string) {
 	// Wait for the operator to be ready
 	e.logf("Waiting for operator to be ready")
 	// Wait for deployment
-	e.waitInOperatorNSFor("condition=available", "deployment", "-l", "app=security-profiles-operator")
+	e.waitInOperatorNSFor(
+		"condition=available",
+		"deployment",
+		"-l",
+		"app=security-profiles-operator",
+	)
 	// Wait for all pods in deployment
 	e.waitInOperatorNSFor("condition=ready", "pod", "-l", "app=security-profiles-operator")
 	// Wait for all pods in DaemonSet
@@ -406,7 +415,11 @@ func (e *e2e) getSeccompProfile(name string) *seccompprofileapi.SeccompProfile {
 func (e *e2e) getSeccompProfileNodeStatus(
 	id, node string,
 ) *secprofnodestatusapi.SecurityProfileNodeStatus {
-	selector := fmt.Sprintf("spo.x-k8s.io/node-name=%s,spo.x-k8s.io/profile-id=SeccompProfile-%s", node, id)
+	selector := fmt.Sprintf(
+		"spo.x-k8s.io/node-name=%s,spo.x-k8s.io/profile-id=SeccompProfile-%s",
+		node,
+		id,
+	)
 	seccompProfileNodeStatusJSON := e.kubectl(
 		"get", "securityprofilenodestatus", "-l", selector, "-o", "json",
 	)
@@ -534,5 +547,13 @@ func (e *e2e) exists(args ...string) bool {
 func (e *e2e) getSeccompPolicyID(profile string) string {
 	ns := e.getCurrentContextNamespace(defaultNamespace)
 
-	return e.kubectl("get", "sp", "-n", ns, profile, "-o", "jsonpath={.metadata.labels.spo\\.x-k8s\\.io/profile-id}")
+	return e.kubectl(
+		"get",
+		"sp",
+		"-n",
+		ns,
+		profile,
+		"-o",
+		"jsonpath={.metadata.labels.spo\\.x-k8s\\.io/profile-id}",
+	)
 }

@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -120,7 +120,11 @@ func TestGenerateProfile(t *testing.T) {
 			name: "Path sanitization - good - path with wildcards",
 			abstract: &apparmorprofileapi.AppArmorAbstract{
 				Filesystem: &apparmorprofileapi.AppArmorFsRules{
-					ReadOnlyPaths: []string{"/var/log/**", "/etc/nginx/conf.d/*.conf", "/lib/tls/i686/cmov/lib*.so?"},
+					ReadOnlyPaths: []string{
+						"/var/log/**",
+						"/etc/nginx/conf.d/*.conf",
+						"/lib/tls/i686/cmov/lib*.so?",
+					},
 				},
 			},
 			wantErr: false,
@@ -129,7 +133,10 @@ func TestGenerateProfile(t *testing.T) {
 			name: "Path sanitization - good - path with special allowed characters and spaces",
 			abstract: &apparmorprofileapi.AppArmorAbstract{
 				Filesystem: &apparmorprofileapi.AppArmorFsRules{
-					ReadOnlyPaths: []string{"/opt/my-app/v1.2+3/run_app", "/My Documents/test file"},
+					ReadOnlyPaths: []string{
+						"/opt/my-app/v1.2+3/run_app",
+						"/My Documents/test file",
+					},
 				},
 			},
 			wantErr: false,
@@ -187,7 +194,9 @@ func TestGenerateProfile(t *testing.T) {
 			name: "Path sanitization - bad - quote injection attempt",
 			abstract: &apparmorprofileapi.AppArmorAbstract{
 				Filesystem: &apparmorprofileapi.AppArmorFsRules{
-					ReadOnlyPaths: []string{`/usr/bin/nginx" - r,`}, // Quotes are not in the allowed regex class
+					ReadOnlyPaths: []string{
+						`/usr/bin/nginx" - r,`,
+					}, // Quotes are not in the allowed regex class
 				},
 			},
 			wantErr: true,
@@ -214,7 +223,9 @@ func TestGenerateProfile(t *testing.T) {
 			name: "Path sanitization - bad - command chaining",
 			abstract: &apparmorprofileapi.AppArmorAbstract{
 				Filesystem: &apparmorprofileapi.AppArmorFsRules{
-					ReadOnlyPaths: []string{"/usr/bin/nginx ; rm -rf /"}, // Semicolon is not allowed
+					ReadOnlyPaths: []string{
+						"/usr/bin/nginx ; rm -rf /",
+					}, // Semicolon is not allowed
 				},
 			},
 			wantErr: true,

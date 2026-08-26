@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -20,8 +20,8 @@ import (
 	"context"
 	"net/http"
 
+	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 )
@@ -32,7 +32,7 @@ type Controller interface {
 	Name() string
 
 	// SchemeBuilder returns the registered scheme of the controller.
-	SchemeBuilder() *scheme.Builder
+	SchemeBuilder() runtime.SchemeBuilder
 
 	// Setup is the initialization of the controller.
 	Setup(context.Context, ctrl.Manager, *metrics.Metrics) error

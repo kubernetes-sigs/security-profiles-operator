@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ package v1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 type ProfileBindingKind string
@@ -95,5 +96,9 @@ type ProfileBindingList struct {
 }
 
 func init() { //nolint:gochecknoinits // required to register the scheme
-	SchemeBuilder.Register(&ProfileBinding{}, &ProfileBindingList{})
+	SchemeBuilder.Register(func(s *runtime.Scheme) error {
+		s.AddKnownTypes(GroupVersion, &ProfileBinding{}, &ProfileBindingList{})
+
+		return nil
+	})
 }

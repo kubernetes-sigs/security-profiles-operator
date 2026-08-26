@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -38,7 +38,11 @@ func (sr *SafeRecorder) Event(object runtime.Object, eventtype, reason, message 
 }
 
 // Eventf is just like Event, but with Sprintf for the message field.
-func (sr *SafeRecorder) Eventf(object runtime.Object, eventtype, reason, messageFmt string, args ...any) {
+func (sr *SafeRecorder) Eventf(
+	object runtime.Object,
+	eventtype, reason, messageFmt string,
+	args ...any,
+) {
 	if sr.recorder == nil {
 		return
 	}

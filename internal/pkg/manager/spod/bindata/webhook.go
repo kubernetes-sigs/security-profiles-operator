@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -100,7 +100,7 @@ var (
 	objectSelector = metav1.LabelSelector{
 		MatchExpressions: []metav1.LabelSelectorRequirement{
 			{
-				Key:      "name",
+				Key:      labelName,
 				Operator: metav1.LabelSelectorOpNotIn,
 				Values:   []string{config.OperatorName, webhookName},
 			},
@@ -251,7 +251,10 @@ func (w *Webhook) Create(ctx context.Context, c client.Client) error {
 	return nil
 }
 
-func applyWebhookOptions(cfg *admissionregv1.MutatingWebhookConfiguration, opts []spodapi.WebhookOptions) {
+func applyWebhookOptions(
+	cfg *admissionregv1.MutatingWebhookConfiguration,
+	opts []spodapi.WebhookOptions,
+) {
 	for i := range cfg.Webhooks {
 		var userOpt *spodapi.WebhookOptions
 
@@ -386,7 +389,11 @@ func (w *Webhook) webhookNeedsUpdate(existing *admissionregv1.MutatingWebhook, i
 	// Only compare managed labels, all others are out of scope
 	if existing.NamespaceSelector != nil && configured.NamespaceSelector != nil {
 		for _, label := range []string{EnableBindingLabel, EnableRecordingLabel} {
-			if namespaceSelectorUnequalForLabel(label, existing.NamespaceSelector, configured.NamespaceSelector) {
+			if namespaceSelectorUnequalForLabel(
+				label,
+				existing.NamespaceSelector,
+				configured.NamespaceSelector,
+			) {
 				w.log.V(1).Info("updating webhook configuration",
 					"existing NamespaceSelector", existing.NamespaceSelector,
 					"configured NamespaceSelector", configured.NamespaceSelector)
@@ -433,7 +440,10 @@ func (w *Webhook) webhookNeedsUpdate(existing *admissionregv1.MutatingWebhook, i
 
 // namespaceSelectorUnequalForLabel checks if the selected label matches the
 // provided LabelSelectors and returns true if they're unequal.
-func namespaceSelectorUnequalForLabel(label string, existing, configured *metav1.LabelSelector) bool {
+func namespaceSelectorUnequalForLabel(
+	label string,
+	existing, configured *metav1.LabelSelector,
+) bool {
 	var (
 		i, j                                 int
 		existingHasLabel, configuredHasLabel bool
@@ -488,7 +498,9 @@ func (w *Webhook) objectMap() map[string]client.Object {
 }
 
 // getWebhookConfig returns the webhooks in the order binding, recording, execMetadata and nodeDebuggingPodMetadata.
-func getWebhookConfig(execMetadataWebhookEnabled bool) *admissionregv1.MutatingWebhookConfiguration {
+func getWebhookConfig(
+	execMetadataWebhookEnabled bool,
+) *admissionregv1.MutatingWebhookConfiguration {
 	webhooks := []admissionregv1.MutatingWebhook{
 		{
 			Name:           binding.name,
@@ -622,8 +634,8 @@ var webhookDeployment = &appsv1.Deployment{
 		Replicas: &replicas,
 		Selector: &metav1.LabelSelector{
 			MatchLabels: map[string]string{
-				"app":  config.OperatorName,
-				"name": webhookName,
+				labelApp:  config.OperatorName,
+				labelName: webhookName,
 			},
 		},
 		Template: corev1.PodTemplateSpec{
@@ -633,8 +645,8 @@ var webhookDeployment = &appsv1.Deployment{
 					corev1.SeccompPodAnnotationKey: corev1.SeccompProfileRuntimeDefault,
 				},
 				Labels: map[string]string{
-					"app":  config.OperatorName,
-					"name": webhookName,
+					labelApp:  config.OperatorName,
+					labelName: webhookName,
 				},
 			},
 			Spec: corev1.PodSpec{
@@ -717,7 +729,7 @@ var webhookDeployment = &appsv1.Deployment{
 var webhookService = &corev1.Service{
 	ObjectMeta: metav1.ObjectMeta{
 		Name:   serviceName,
-		Labels: map[string]string{"app": config.OperatorName},
+		Labels: map[string]string{labelApp: config.OperatorName},
 	},
 	Spec: corev1.ServiceSpec{
 		Ports: []corev1.ServicePort{
@@ -727,8 +739,8 @@ var webhookService = &corev1.Service{
 			},
 		},
 		Selector: map[string]string{
-			"app":  config.OperatorName,
-			"name": webhookName,
+			labelApp:  config.OperatorName,
+			labelName: webhookName,
 		},
 	},
 }

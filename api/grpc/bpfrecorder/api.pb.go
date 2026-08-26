@@ -1,5 +1,5 @@
 //
-//Copyright 2021 The Kubernetes Authors.
+//Copyright The Kubernetes Authors.
 //
 //Licensed under the Apache License, Version 2.0 (the "License");
 //you may not use this file except in compliance with the License.
@@ -22,10 +22,11 @@
 package api_bpfrecorder
 
 import (
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
+
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -109,7 +110,7 @@ func (*EmptyResponse) Descriptor() ([]byte, []int) {
 
 type ProfileRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Name          string                 `                   protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -153,8 +154,8 @@ func (x *ProfileRequest) GetName() string {
 
 type SyscallsResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Syscalls      []string               `protobuf:"bytes,1,rep,name=syscalls,proto3" json:"syscalls,omitempty"`
-	GoArch        string                 `protobuf:"bytes,2,opt,name=go_arch,json=goArch,proto3" json:"go_arch,omitempty"`
+	Syscalls      []string               `                   protobuf:"bytes,1,rep,name=syscalls,proto3"            json:"syscalls,omitempty"`
+	GoArch        string                 `                   protobuf:"bytes,2,opt,name=go_arch,json=goArch,proto3" json:"go_arch,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -205,9 +206,9 @@ func (x *SyscallsResponse) GetGoArch() string {
 
 type ApparmorResponse struct {
 	state         protoimpl.MessageState   `protogen:"open.v1"`
-	Files         *ApparmorResponse_Files  `protobuf:"bytes,1,opt,name=files,proto3" json:"files,omitempty"`
-	Socket        *ApparmorResponse_Socket `protobuf:"bytes,2,opt,name=socket,proto3" json:"socket,omitempty"`
-	Capabilities  []string                 `protobuf:"bytes,3,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
+	Files         *ApparmorResponse_Files  `                   protobuf:"bytes,1,opt,name=files,proto3"        json:"files,omitempty"`
+	Socket        *ApparmorResponse_Socket `                   protobuf:"bytes,2,opt,name=socket,proto3"       json:"socket,omitempty"`
+	Capabilities  []string                 `                   protobuf:"bytes,3,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -265,11 +266,11 @@ func (x *ApparmorResponse) GetCapabilities() []string {
 
 type ApparmorResponse_Files struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
-	AllowedExecutables []string               `protobuf:"bytes,1,rep,name=allowed_executables,json=allowedExecutables,proto3" json:"allowed_executables,omitempty"`
-	AllowedLibraries   []string               `protobuf:"bytes,2,rep,name=allowed_libraries,json=allowedLibraries,proto3" json:"allowed_libraries,omitempty"`
-	ReadonlyPaths      []string               `protobuf:"bytes,3,rep,name=readonly_paths,json=readonlyPaths,proto3" json:"readonly_paths,omitempty"`
-	WriteonlyPaths     []string               `protobuf:"bytes,4,rep,name=writeonly_paths,json=writeonlyPaths,proto3" json:"writeonly_paths,omitempty"`
-	ReadwritePaths     []string               `protobuf:"bytes,5,rep,name=readwrite_paths,json=readwritePaths,proto3" json:"readwrite_paths,omitempty"`
+	AllowedExecutables []string               `                   protobuf:"bytes,1,rep,name=allowed_executables,json=allowedExecutables,proto3" json:"allowed_executables,omitempty"`
+	AllowedLibraries   []string               `                   protobuf:"bytes,2,rep,name=allowed_libraries,json=allowedLibraries,proto3"     json:"allowed_libraries,omitempty"`
+	ReadonlyPaths      []string               `                   protobuf:"bytes,3,rep,name=readonly_paths,json=readonlyPaths,proto3"           json:"readonly_paths,omitempty"`
+	WriteonlyPaths     []string               `                   protobuf:"bytes,4,rep,name=writeonly_paths,json=writeonlyPaths,proto3"         json:"writeonly_paths,omitempty"`
+	ReadwritePaths     []string               `                   protobuf:"bytes,5,rep,name=readwrite_paths,json=readwritePaths,proto3"         json:"readwrite_paths,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -341,9 +342,9 @@ func (x *ApparmorResponse_Files) GetReadwritePaths() []string {
 
 type ApparmorResponse_Socket struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	UseRaw        bool                   `protobuf:"varint,1,opt,name=use_raw,json=useRaw,proto3" json:"use_raw,omitempty"`
-	UseTcp        bool                   `protobuf:"varint,2,opt,name=use_tcp,json=useTcp,proto3" json:"use_tcp,omitempty"`
-	UseUdp        bool                   `protobuf:"varint,3,opt,name=use_udp,json=useUdp,proto3" json:"use_udp,omitempty"`
+	UseRaw        bool                   `                   protobuf:"varint,1,opt,name=use_raw,json=useRaw,proto3" json:"use_raw,omitempty"`
+	UseTcp        bool                   `                   protobuf:"varint,2,opt,name=use_tcp,json=useTcp,proto3" json:"use_tcp,omitempty"`
+	UseUdp        bool                   `                   protobuf:"varint,3,opt,name=use_udp,json=useUdp,proto3" json:"use_udp,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -478,7 +479,9 @@ var (
 
 func file_api_grpc_bpfrecorder_api_proto_rawDescGZIP() []byte {
 	file_api_grpc_bpfrecorder_api_proto_rawDescOnce.Do(func() {
-		file_api_grpc_bpfrecorder_api_proto_rawDescData = protoimpl.X.CompressGZIP(file_api_grpc_bpfrecorder_api_proto_rawDescData)
+		file_api_grpc_bpfrecorder_api_proto_rawDescData = protoimpl.X.CompressGZIP(
+			file_api_grpc_bpfrecorder_api_proto_rawDescData,
+		)
 	})
 	return file_api_grpc_bpfrecorder_api_proto_rawDescData
 }

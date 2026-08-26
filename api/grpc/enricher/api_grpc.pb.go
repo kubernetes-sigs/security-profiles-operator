@@ -1,5 +1,5 @@
 //
-//Copyright 2021 The Kubernetes Authors.
+//Copyright The Kubernetes Authors.
 //
 //Licensed under the Apache License, Version 2.0 (the "License");
 //you may not use this file except in compliance with the License.
@@ -23,6 +23,7 @@ package api_enricher
 
 import (
 	context "context"
+
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -44,8 +45,16 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type EnricherClient interface {
-	Syscalls(ctx context.Context, in *SyscallsRequest, opts ...grpc.CallOption) (*SyscallsResponse, error)
-	ResetSyscalls(ctx context.Context, in *SyscallsRequest, opts ...grpc.CallOption) (*EmptyResponse, error)
+	Syscalls(
+		ctx context.Context,
+		in *SyscallsRequest,
+		opts ...grpc.CallOption,
+	) (*SyscallsResponse, error)
+	ResetSyscalls(
+		ctx context.Context,
+		in *SyscallsRequest,
+		opts ...grpc.CallOption,
+	) (*EmptyResponse, error)
 	Avcs(ctx context.Context, in *AvcRequest, opts ...grpc.CallOption) (*AvcResponse, error)
 	ResetAvcs(ctx context.Context, in *AvcRequest, opts ...grpc.CallOption) (*EmptyResponse, error)
 }
@@ -58,7 +67,11 @@ func NewEnricherClient(cc grpc.ClientConnInterface) EnricherClient {
 	return &enricherClient{cc}
 }
 
-func (c *enricherClient) Syscalls(ctx context.Context, in *SyscallsRequest, opts ...grpc.CallOption) (*SyscallsResponse, error) {
+func (c *enricherClient) Syscalls(
+	ctx context.Context,
+	in *SyscallsRequest,
+	opts ...grpc.CallOption,
+) (*SyscallsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SyscallsResponse)
 	err := c.cc.Invoke(ctx, Enricher_Syscalls_FullMethodName, in, out, cOpts...)
@@ -68,7 +81,11 @@ func (c *enricherClient) Syscalls(ctx context.Context, in *SyscallsRequest, opts
 	return out, nil
 }
 
-func (c *enricherClient) ResetSyscalls(ctx context.Context, in *SyscallsRequest, opts ...grpc.CallOption) (*EmptyResponse, error) {
+func (c *enricherClient) ResetSyscalls(
+	ctx context.Context,
+	in *SyscallsRequest,
+	opts ...grpc.CallOption,
+) (*EmptyResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(EmptyResponse)
 	err := c.cc.Invoke(ctx, Enricher_ResetSyscalls_FullMethodName, in, out, cOpts...)
@@ -78,7 +95,11 @@ func (c *enricherClient) ResetSyscalls(ctx context.Context, in *SyscallsRequest,
 	return out, nil
 }
 
-func (c *enricherClient) Avcs(ctx context.Context, in *AvcRequest, opts ...grpc.CallOption) (*AvcResponse, error) {
+func (c *enricherClient) Avcs(
+	ctx context.Context,
+	in *AvcRequest,
+	opts ...grpc.CallOption,
+) (*AvcResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(AvcResponse)
 	err := c.cc.Invoke(ctx, Enricher_Avcs_FullMethodName, in, out, cOpts...)
@@ -88,7 +109,11 @@ func (c *enricherClient) Avcs(ctx context.Context, in *AvcRequest, opts ...grpc.
 	return out, nil
 }
 
-func (c *enricherClient) ResetAvcs(ctx context.Context, in *AvcRequest, opts ...grpc.CallOption) (*EmptyResponse, error) {
+func (c *enricherClient) ResetAvcs(
+	ctx context.Context,
+	in *AvcRequest,
+	opts ...grpc.CallOption,
+) (*EmptyResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(EmptyResponse)
 	err := c.cc.Invoke(ctx, Enricher_ResetAvcs_FullMethodName, in, out, cOpts...)
@@ -116,10 +141,17 @@ type EnricherServer interface {
 // pointer dereference when methods are called.
 type UnimplementedEnricherServer struct{}
 
-func (UnimplementedEnricherServer) Syscalls(context.Context, *SyscallsRequest) (*SyscallsResponse, error) {
+func (UnimplementedEnricherServer) Syscalls(
+	context.Context,
+	*SyscallsRequest,
+) (*SyscallsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Syscalls not implemented")
 }
-func (UnimplementedEnricherServer) ResetSyscalls(context.Context, *SyscallsRequest) (*EmptyResponse, error) {
+
+func (UnimplementedEnricherServer) ResetSyscalls(
+	context.Context,
+	*SyscallsRequest,
+) (*EmptyResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ResetSyscalls not implemented")
 }
 func (UnimplementedEnricherServer) Avcs(context.Context, *AvcRequest) (*AvcResponse, error) {
@@ -149,7 +181,12 @@ func RegisterEnricherServer(s grpc.ServiceRegistrar, srv EnricherServer) {
 	s.RegisterService(&Enricher_ServiceDesc, srv)
 }
 
-func _Enricher_Syscalls_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _Enricher_Syscalls_Handler(
+	srv interface{},
+	ctx context.Context,
+	dec func(interface{}) error,
+	interceptor grpc.UnaryServerInterceptor,
+) (interface{}, error) {
 	in := new(SyscallsRequest)
 	if err := dec(in); err != nil {
 		return nil, err
@@ -167,7 +204,12 @@ func _Enricher_Syscalls_Handler(srv interface{}, ctx context.Context, dec func(i
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Enricher_ResetSyscalls_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _Enricher_ResetSyscalls_Handler(
+	srv interface{},
+	ctx context.Context,
+	dec func(interface{}) error,
+	interceptor grpc.UnaryServerInterceptor,
+) (interface{}, error) {
 	in := new(SyscallsRequest)
 	if err := dec(in); err != nil {
 		return nil, err
@@ -185,7 +227,12 @@ func _Enricher_ResetSyscalls_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Enricher_Avcs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _Enricher_Avcs_Handler(
+	srv interface{},
+	ctx context.Context,
+	dec func(interface{}) error,
+	interceptor grpc.UnaryServerInterceptor,
+) (interface{}, error) {
 	in := new(AvcRequest)
 	if err := dec(in); err != nil {
 		return nil, err
@@ -203,7 +250,12 @@ func _Enricher_Avcs_Handler(srv interface{}, ctx context.Context, dec func(inter
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Enricher_ResetAvcs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _Enricher_ResetAvcs_Handler(
+	srv interface{},
+	ctx context.Context,
+	dec func(interface{}) error,
+	interceptor grpc.UnaryServerInterceptor,
+) (interface{}, error) {
 	in := new(AvcRequest)
 	if err := dec(in); err != nil {
 		return nil, err

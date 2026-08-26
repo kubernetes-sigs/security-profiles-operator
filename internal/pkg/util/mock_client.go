@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -327,32 +327,57 @@ func (c *MockClient) SubResource(string) client.SubResourceClient {
 }
 
 // Get calls MockClient's MockGet function.
-func (c *MockClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
+func (c *MockClient) Get(
+	ctx context.Context,
+	key client.ObjectKey,
+	obj client.Object,
+	_ ...client.GetOption,
+) error {
 	return c.MockGet(ctx, key, obj)
 }
 
 // List calls MockClient's MockList function.
-func (c *MockClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+func (c *MockClient) List(
+	ctx context.Context,
+	list client.ObjectList,
+	opts ...client.ListOption,
+) error {
 	return c.MockList(ctx, list, opts...)
 }
 
 // Create calls MockClient's MockCreate function.
-func (c *MockClient) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
+func (c *MockClient) Create(
+	ctx context.Context,
+	obj client.Object,
+	opts ...client.CreateOption,
+) error {
 	return c.MockCreate(ctx, obj, opts...)
 }
 
 // Delete calls MockClient's MockDelete function.
-func (c *MockClient) Delete(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
+func (c *MockClient) Delete(
+	ctx context.Context,
+	obj client.Object,
+	opts ...client.DeleteOption,
+) error {
 	return c.MockDelete(ctx, obj, opts...)
 }
 
 // DeleteAllOf calls MockClient's DeleteAllOf function.
-func (c *MockClient) DeleteAllOf(ctx context.Context, obj client.Object, opts ...client.DeleteAllOfOption) error {
+func (c *MockClient) DeleteAllOf(
+	ctx context.Context,
+	obj client.Object,
+	opts ...client.DeleteAllOfOption,
+) error {
 	return c.MockDeleteAllOf(ctx, obj, opts...)
 }
 
 // Update calls MockClient's MockUpdate function.
-func (c *MockClient) Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
+func (c *MockClient) Update(
+	ctx context.Context,
+	obj client.Object,
+	opts ...client.UpdateOption,
+) error {
 	return c.MockUpdate(ctx, obj, opts...)
 }
 
@@ -427,7 +452,10 @@ func (m *MockSubResourceWriter) Update(
 
 // Patch mocks the patch method.
 func (m *MockSubResourceWriter) Patch(
-	ctx context.Context, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption,
+	ctx context.Context,
+	obj client.Object,
+	patch client.Patch,
+	opts ...client.SubResourcePatchOption,
 ) error {
 	return m.MockPatch(ctx, obj, patch, opts...)
 }
@@ -445,7 +473,10 @@ type MockSubResourceReader struct {
 }
 
 func (m *MockSubResourceReader) Get(
-	ctx context.Context, obj client.Object, subResource client.Object, opts ...client.SubResourceGetOption,
+	ctx context.Context,
+	obj client.Object,
+	subResource client.Object,
+	opts ...client.SubResourceGetOption,
 ) error {
 	return m.MockGet(ctx, obj, subResource, opts...)
 }

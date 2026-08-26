@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -48,7 +48,12 @@ func (e *e2e) testCaseWebhookOptionsChange([]string) {
 
 	whDefault := e.getAllWebhookAttributes()
 
-	whPatch := fmt.Sprintf(`{"spec":{"webhook":{"options":[{"name":"binding.spo.io","failurePolicy":"Ignore","namespaceSelector":%s, "objectSelector":%s}]}}}`, whNamespaceSelector, whObjectSelector) //nolint:lll // very long patch line
+	//nolint:lll // very long patch line
+	whPatch := fmt.Sprintf(
+		`{"spec":{"webhook":{"options":[{"name":"binding.spo.io","failurePolicy":"Ignore","namespaceSelector":%s, "objectSelector":%s}]}}}`,
+		whNamespaceSelector,
+		whObjectSelector,
+	)
 	e.logf("Using patch: %s", whPatch)
 	e.kubectlOperatorNS("patch", "spod", "spod", "-p", whPatch, "--type=merge")
 	time.Sleep(defaultWaitTime)
@@ -60,10 +65,20 @@ func (e *e2e) testCaseWebhookOptionsChange([]string) {
 	e.JSONEq(whObjectSelector, whPatchedConfig[bindingIdx].objectSelector)
 	// check the other hook did not change
 	e.Equal("Fail", whPatchedConfig[recordingIdx].failurePolicy)
-	e.Equal(whDefault[recordingIdx].namespaceSelector, whPatchedConfig[recordingIdx].namespaceSelector)
+	e.Equal(
+		whDefault[recordingIdx].namespaceSelector,
+		whPatchedConfig[recordingIdx].namespaceSelector,
+	)
 
 	// go back to defaults
-	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"webhook":{"options":[]}}}`, "--type=merge")
+	e.kubectlOperatorNS(
+		"patch",
+		"spod",
+		"spod",
+		"-p",
+		`{"spec":{"webhook":{"options":[]}}}`,
+		"--type=merge",
+	)
 	time.Sleep(defaultWaitTime)
 
 	// check we are back to defaults
@@ -72,7 +87,10 @@ func (e *e2e) testCaseWebhookOptionsChange([]string) {
 	e.Equal(whDefault[bindingIdx].namespaceSelector, whRevertedConfig[bindingIdx].namespaceSelector)
 	// check the other hook did not change
 	e.Equal("Fail", whRevertedConfig[recordingIdx].failurePolicy)
-	e.Equal(whDefault[recordingIdx].namespaceSelector, whRevertedConfig[recordingIdx].namespaceSelector)
+	e.Equal(
+		whDefault[recordingIdx].namespaceSelector,
+		whRevertedConfig[recordingIdx].namespaceSelector,
+	)
 }
 
 func getWhConfigs() []*whConfigOutput {

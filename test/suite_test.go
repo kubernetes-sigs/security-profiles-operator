@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -40,10 +40,10 @@ import (
 )
 
 const (
-	kindVersion      = "v0.30.0"
-	kindImage        = "kindest/node:v1.34.0@sha256:7416a61b42b1662ca6ca89f02028ac133a309a2a30ba309614e8ec94d976dc5a"
-	kindDarwinSHA512 = "437aab801fe8f4f75ec36b40c4963a554898d0498261ac440713cc0faea63f577fe009df0c6f55ca46c0572bf8fa23e4d0c55297a39549302557d15b4ae6f59f" //nolint:lll // full length SHA
-	kindLinuxSHA512  = "ac4bf7294522d48c5f573d938981d392f66e6e8a868dcbbcb82bb9217fe6a16d005d7b0556353a2d0e498f0ec49d1d80505de9a954f2c10781b4aba216e02cf6" //nolint:lll // full length SHA
+	kindVersion      = "v0.32.0"
+	kindImage        = "kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5"
+	kindDarwinSHA512 = "d0f2f0a9502f73505be50a22ce6c03f3a266c0230a99774df5f0c0129662ac8d4abc124180a1d42f14849055041636d12d97c5b0c9678afc9f2745f611ba404e" //nolint:lll // full length SHA
+	kindLinuxSHA512  = "f27636cff87ae24ffd06672ea4f1f4814279f139d061a1cf28614f760f623a8167013d10b276b0862c1bc8fd932cab0bd793cd42aa997253902232df62d8966b" //nolint:lll // full length SHA
 )
 
 var (
@@ -331,13 +331,21 @@ func (e *kinde2e) SetupSuite() {
 		kindOS = "kind-linux-amd64"
 	}
 
-	e.downloadAndVerify(fmt.Sprintf("https://github.com/kubernetes-sigs/kind/releases/download/%s/%s",
-		kindVersion, kindOS), e.kindPath, SHA512)
+	e.downloadAndVerify(
+		fmt.Sprintf("https://github.com/kubernetes-sigs/kind/releases/download/%s/%s",
+			kindVersion, kindOS),
+		e.kindPath,
+		SHA512,
+	)
 
 	var err error
 
 	e.kubectlPath, err = exec.LookPath("kubectl")
-	e.updateManifest(e.operatorManifest, "value: .*quay.io/.*/selinuxd.*", "value: "+e.selinuxdImage)
+	e.updateManifest(
+		e.operatorManifest,
+		"value: .*quay.io/.*/selinuxd.*",
+		"value: "+e.selinuxdImage,
+	)
 	e.Require().NoError(err)
 }
 
@@ -488,7 +496,13 @@ func (e *openShifte2e) pushImageToRegistry() {
 		"--patch", "{\"spec\":{\"lookupPolicy\":{\"local\":true}}}", "--type=merge")
 
 	e.testImage = e.kubectl(
-		"get", "imagestreamtag", "-n", "openshift", testImageRef, "-o", "jsonpath={.image.dockerImageReference}",
+		"get",
+		"imagestreamtag",
+		"-n",
+		"openshift",
+		testImageRef,
+		"-o",
+		"jsonpath={.image.dockerImageReference}",
 	)
 }
 
@@ -531,7 +545,11 @@ func (e *vanilla) SetupSuite() {
 	e.waitForReadyPods = e.waitForReadyPodsVanilla
 	e.deployCertManager = e.deployCertManagerVanilla
 	e.setupRecordingSa = e.deployRecordingSa
-	e.updateManifest(e.operatorManifest, "value: .*quay.io/.*/selinuxd.*", "value: "+e.selinuxdImage)
+	e.updateManifest(
+		e.operatorManifest,
+		"value: .*quay.io/.*/selinuxd.*",
+		"value: "+e.selinuxdImage,
+	)
 	e.Require().NoError(err)
 }
 
@@ -758,10 +776,22 @@ func (e *e2e) enableSelinuxInSpod() {
 	selinuxEnabledInSPODDS := e.kubectlOperatorNS("get", "ds", "spod", "-o", "yaml")
 	if !strings.Contains(selinuxEnabledInSPODDS, "--with-selinux=true") {
 		e.logf("Enable selinux in SPOD")
-		e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"selinux":{"enable": true}}}`, "--type=merge")
-		e.kubectlOperatorNS("patch", "spod", "spod", "-p",
+		e.kubectlOperatorNS(
+			"patch",
+			"spod",
+			"spod",
+			"-p",
+			`{"spec":{"selinux":{"enable": true}}}`,
+			"--type=merge",
+		)
+		e.kubectlOperatorNS(
+			"patch",
+			"spod",
+			"spod",
+			"-p",
 			`{"spec":{"selinux":{"options":{"allowedSystemProfiles":["container","net_container"]}}}}`,
-			"--type=merge")
+			"--type=merge",
+		)
 
 		time.Sleep(defaultWaitTime)
 		e.waitInOperatorNSFor("condition=ready", "spod", "spod")
@@ -819,8 +849,14 @@ func (e *e2e) enableLogEnricherBpfInSpod() {
 
 func (e *e2e) enableLogEnricherInSpod() {
 	e.logf("Enable log-enricher in SPOD")
-	e.kubectlOperatorNS("patch", "spod", "spod", "-p",
-		`{"spec":{"enricher":{"enableJsonEnricher": false,"enableLogEnricher": true}}}`, "--type=merge")
+	e.kubectlOperatorNS(
+		"patch",
+		"spod",
+		"spod",
+		"-p",
+		`{"spec":{"enricher":{"enableJsonEnricher": false,"enableLogEnricher": true}}}`,
+		"--type=merge",
+	)
 
 	time.Sleep(defaultWaitTime)
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
@@ -881,8 +917,10 @@ func (e *e2e) enableJsonEnricherInSpod() {
 func (e *e2e) enableJsonEnricherInSpodFileOptions(logPath, enricherFilterJsonStr string) {
 	e.logf("Enable json-enricher in SPOD with 20 second flush interval")
 
-	jsonVolumeSource := fmt.Sprintf(`{\"hostPath\": {\"path\": \"%s\",\"type\": \"DirectoryOrCreate\"}}`,
-		filepath.Dir(logPath))
+	jsonVolumeSource := fmt.Sprintf(
+		`{\"hostPath\": {\"path\": \"%s\",\"type\": \"DirectoryOrCreate\"}}`,
+		filepath.Dir(logPath),
+	)
 
 	patchOperatorJson := "patch_operator.json"
 	_ = os.Remove(patchOperatorJson)
@@ -894,9 +932,12 @@ func (e *e2e) enableJsonEnricherInSpodFileOptions(logPath, enricherFilterJsonStr
 		return
 	}
 
-	_, writeErr := fmt.Fprintf(patchFile,
+	_, writeErr := fmt.Fprintf(
+		patchFile,
 		`{"data": {"json-enricher-log-volume-mount-path": "%s","json-enricher-log-volume-source.json":"%s"}}`,
-		filepath.Dir(logPath), jsonVolumeSource)
+		filepath.Dir(logPath),
+		jsonVolumeSource,
+	)
 	if writeErr != nil {
 		e.Fail(fmt.Sprintf("Failed to write file '%s': %v", patchOperatorJson, writeErr))
 
@@ -912,7 +953,13 @@ func (e *e2e) enableJsonEnricherInSpodFileOptions(logPath, enricherFilterJsonStr
 	e.logf("Printing the patch file '%s'", patchOperatorJson)
 	e.run("cat", patchOperatorJson)
 
-	e.kubectlOperatorNS("patch", "configmap", "security-profiles-operator-profile", "--patch-file", patchOperatorJson)
+	e.kubectlOperatorNS(
+		"patch",
+		"configmap",
+		"security-profiles-operator-profile",
+		"--patch-file",
+		patchOperatorJson,
+	)
 
 	e.logf("Rollout restart deployment security-profiles-operator")
 
@@ -968,7 +1015,14 @@ func (e *e2e) singleNodeTestCase() {
 
 func (e *e2e) enableBpfRecorderInSpod() {
 	e.logf("Enable bpf recorder in SPOD")
-	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enricher":{"enableBpfRecorder": true}}}`, "--type=merge")
+	e.kubectlOperatorNS(
+		"patch",
+		"spod",
+		"spod",
+		"-p",
+		`{"spec":{"enricher":{"enableBpfRecorder": true}}}`,
+		"--type=merge",
+	)
 
 	time.Sleep(defaultWaitTime)
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
@@ -978,7 +1032,14 @@ func (e *e2e) enableBpfRecorderInSpod() {
 
 func (e *e2e) enableMemoryOptimization() {
 	e.logf("Enable memory optimization in SPOD")
-	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enableMemoryOptimization": true}}`, "--type=merge")
+	e.kubectlOperatorNS(
+		"patch",
+		"spod",
+		"spod",
+		"-p",
+		`{"spec":{"enableMemoryOptimization": true}}`,
+		"--type=merge",
+	)
 	time.Sleep(defaultWaitTime)
 
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
@@ -987,7 +1048,14 @@ func (e *e2e) enableMemoryOptimization() {
 
 func (e *e2e) disableMemoryOptimization() {
 	e.logf("Enable memory optimization in SPOD")
-	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enableMemoryOptimization": false}}`, "--type=merge")
+	e.kubectlOperatorNS(
+		"patch",
+		"spod",
+		"spod",
+		"-p",
+		`{"spec":{"enableMemoryOptimization": false}}`,
+		"--type=merge",
+	)
 	time.Sleep(defaultWaitTime)
 
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
@@ -1098,8 +1166,12 @@ func (e *e2e) switchToRecordingNs(ns string) func() {
 
 func (e *e2e) checkExecWebhook(interval time.Duration, maxTimes int) bool {
 	for range maxTimes {
-		output := e.kubectlOperatorNS("get", "mutatingwebhookconfigurations", "spo-mutating-webhook-configuration",
-			`-o=jsonpath='{.webhooks[*].name}'`)
+		output := e.kubectlOperatorNS(
+			"get",
+			"mutatingwebhookconfigurations",
+			"spo-mutating-webhook-configuration",
+			`-o=jsonpath='{.webhooks[*].name}'`,
+		)
 		if !strings.Contains(output, "execmetadata.spo.io") {
 			time.Sleep(interval)
 		} else {
@@ -1143,14 +1215,26 @@ func (e *e2e) getSpodWebhookPodNames() []string {
 }
 
 // Check if pod is running.
-func (e *e2e) podRunning(name string, namespace *string, interval time.Duration, maxTimes int) bool {
+func (e *e2e) podRunning(
+	name string,
+	namespace *string,
+	interval time.Duration,
+	maxTimes int,
+) bool {
 	for range maxTimes {
 		var output string
 
 		var err error
 
 		if namespace != nil {
-			output, err = e.kubectlCommand("get", "pod", name, "-n", *namespace, `-o=jsonpath='{.status.phase}'`)
+			output, err = e.kubectlCommand(
+				"get",
+				"pod",
+				name,
+				"-n",
+				*namespace,
+				`-o=jsonpath='{.status.phase}'`,
+			)
 		} else {
 			output, err = e.kubectlCommand("get", "pod", name, `-o=jsonpath='{.status.phase}'`)
 		}
@@ -1176,8 +1260,11 @@ func (e *e2e) podRunning(name string, namespace *string, interval time.Duration,
 // Wait for terminating pods to be deleted.
 func (e *e2e) waitForTerminatingPods(interval time.Duration, maxTimes int) {
 	for range maxTimes {
-		output := e.kubectlOperatorNS("get", "pods",
-			`-o=jsonpath='{range .items[?(@.metadata.deletionTimestamp)]}{.metadata.name}{"\n"}{end}'`)
+		output := e.kubectlOperatorNS(
+			"get",
+			"pods",
+			`-o=jsonpath='{range .items[?(@.metadata.deletionTimestamp)]}{.metadata.name}{"\n"}{end}'`,
+		)
 		if strings.Trim(output, "'") != "" {
 			e.logf("Terminating pods found: %s", output)
 			time.Sleep(interval)

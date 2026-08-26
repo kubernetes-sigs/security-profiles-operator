@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -26,7 +26,7 @@ import (
 // DefaultLogEnricherProfile returns the default seccomp profile for log enricher.
 func DefaultLogEnricherProfile() *seccompprofileapi.SeccompProfile {
 	namespace := config.GetOperatorNamespace()
-	labels := map[string]string{"app": config.OperatorName}
+	labels := map[string]string{labelApp: config.OperatorName}
 
 	return &seccompprofileapi.SeccompProfile{
 		ObjectMeta: metav1.ObjectMeta{

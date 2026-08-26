@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -229,7 +229,11 @@ func TestWebhook_getWebhookConfig(t *testing.T) {
 	assert.ElementsMatch(t, []admissionregv1.OperationType{"CREATE", "DELETE"}, bindingOps)
 
 	recordingOps := webhookConfig.Webhooks[recording.index].Rules[0].Operations
-	assert.ElementsMatch(t, []admissionregv1.OperationType{"CREATE", "UPDATE", "DELETE"}, recordingOps)
+	assert.ElementsMatch(
+		t,
+		[]admissionregv1.OperationType{"CREATE", "UPDATE", "DELETE"},
+		recordingOps,
+	)
 
 	webhookConfig = getWebhookConfig(true)
 	require.Len(t, webhookConfig.Webhooks, 4)

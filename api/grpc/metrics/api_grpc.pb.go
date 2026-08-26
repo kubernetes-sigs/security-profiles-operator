@@ -1,5 +1,5 @@
 //
-//Copyright 2021 The Kubernetes Authors.
+//Copyright The Kubernetes Authors.
 //
 //Licensed under the Apache License, Version 2.0 (the "License");
 //you may not use this file except in compliance with the License.
@@ -23,6 +23,7 @@ package api_metrics
 
 import (
 	context "context"
+
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -42,8 +43,14 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type MetricsClient interface {
-	AuditInc(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[AuditRequest, EmptyResponse], error)
-	BpfInc(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[BpfRequest, EmptyResponse], error)
+	AuditInc(
+		ctx context.Context,
+		opts ...grpc.CallOption,
+	) (grpc.ClientStreamingClient[AuditRequest, EmptyResponse], error)
+	BpfInc(
+		ctx context.Context,
+		opts ...grpc.CallOption,
+	) (grpc.ClientStreamingClient[BpfRequest, EmptyResponse], error)
 }
 
 type metricsClient struct {
@@ -54,9 +61,16 @@ func NewMetricsClient(cc grpc.ClientConnInterface) MetricsClient {
 	return &metricsClient{cc}
 }
 
-func (c *metricsClient) AuditInc(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[AuditRequest, EmptyResponse], error) {
+func (c *metricsClient) AuditInc(
+	ctx context.Context,
+	opts ...grpc.CallOption,
+) (grpc.ClientStreamingClient[AuditRequest, EmptyResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &Metrics_ServiceDesc.Streams[0], Metrics_AuditInc_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(
+		ctx,
+		&Metrics_ServiceDesc.Streams[0],
+		Metrics_AuditInc_FullMethodName,
+		cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -67,9 +81,16 @@ func (c *metricsClient) AuditInc(ctx context.Context, opts ...grpc.CallOption) (
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type Metrics_AuditIncClient = grpc.ClientStreamingClient[AuditRequest, EmptyResponse]
 
-func (c *metricsClient) BpfInc(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[BpfRequest, EmptyResponse], error) {
+func (c *metricsClient) BpfInc(
+	ctx context.Context,
+	opts ...grpc.CallOption,
+) (grpc.ClientStreamingClient[BpfRequest, EmptyResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &Metrics_ServiceDesc.Streams[1], Metrics_BpfInc_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(
+		ctx,
+		&Metrics_ServiceDesc.Streams[1],
+		Metrics_BpfInc_FullMethodName,
+		cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -96,10 +117,15 @@ type MetricsServer interface {
 // pointer dereference when methods are called.
 type UnimplementedMetricsServer struct{}
 
-func (UnimplementedMetricsServer) AuditInc(grpc.ClientStreamingServer[AuditRequest, EmptyResponse]) error {
+func (UnimplementedMetricsServer) AuditInc(
+	grpc.ClientStreamingServer[AuditRequest, EmptyResponse],
+) error {
 	return status.Errorf(codes.Unimplemented, "method AuditInc not implemented")
 }
-func (UnimplementedMetricsServer) BpfInc(grpc.ClientStreamingServer[BpfRequest, EmptyResponse]) error {
+
+func (UnimplementedMetricsServer) BpfInc(
+	grpc.ClientStreamingServer[BpfRequest, EmptyResponse],
+) error {
 	return status.Errorf(codes.Unimplemented, "method BpfInc not implemented")
 }
 func (UnimplementedMetricsServer) mustEmbedUnimplementedMetricsServer() {}
@@ -124,14 +150,18 @@ func RegisterMetricsServer(s grpc.ServiceRegistrar, srv MetricsServer) {
 }
 
 func _Metrics_AuditInc_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(MetricsServer).AuditInc(&grpc.GenericServerStream[AuditRequest, EmptyResponse]{ServerStream: stream})
+	return srv.(MetricsServer).AuditInc(
+		&grpc.GenericServerStream[AuditRequest, EmptyResponse]{ServerStream: stream},
+	)
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type Metrics_AuditIncServer = grpc.ClientStreamingServer[AuditRequest, EmptyResponse]
 
 func _Metrics_BpfInc_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(MetricsServer).BpfInc(&grpc.GenericServerStream[BpfRequest, EmptyResponse]{ServerStream: stream})
+	return srv.(MetricsServer).BpfInc(
+		&grpc.GenericServerStream[BpfRequest, EmptyResponse]{ServerStream: stream},
+	)
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.

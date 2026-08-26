@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -68,7 +68,9 @@ func TestReconcile(t *testing.T) {
 				log:     log.Log,
 				metrics: metrics.New(),
 			},
-			req:        reconcile.Request{NamespacedName: types.NamespacedName{Namespace: namespace, Name: name}},
+			req: reconcile.Request{
+				NamespacedName: types.NamespacedName{Namespace: namespace, Name: name},
+			},
 			wantResult: reconcile.Result{},
 			wantErr:    nil,
 		},
@@ -82,7 +84,9 @@ func TestReconcile(t *testing.T) {
 				log:     log.Log,
 				metrics: metrics.New(),
 			},
-			req:        reconcile.Request{NamespacedName: types.NamespacedName{Namespace: namespace, Name: name}},
+			req: reconcile.Request{
+				NamespacedName: types.NamespacedName{Namespace: namespace, Name: name},
+			},
 			wantResult: reconcile.Result{},
 			wantErr: func() error {
 				if seccomp.IsEnabled() {
@@ -105,7 +109,9 @@ func TestReconcile(t *testing.T) {
 				save:    func(_ string, _ []byte) (bool, error) { return false, nil },
 				metrics: metrics.New(),
 			},
-			req:        reconcile.Request{NamespacedName: types.NamespacedName{Namespace: namespace, Name: name}},
+			req: reconcile.Request{
+				NamespacedName: types.NamespacedName{Namespace: namespace, Name: name},
+			},
 			wantResult: reconcile.Result{},
 			wantErr:    nil,
 		},

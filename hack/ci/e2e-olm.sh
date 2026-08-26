@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Copyright 2021 The Kubernetes Authors.
+# Copyright The Kubernetes Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,7 +15,7 @@
 
 set -euox pipefail
 
-OLM_VERSION=v0.30.0
+OLM_VERSION=v0.46.0
 
 REPO=localhost:5000
 IMG=${REPO}/security-profiles-operator:${GITHUB_SHA}
@@ -67,7 +67,7 @@ function deploy_deps() {
 
   # cert-manager first. This should be done using dependencies in the
   # future
-  kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.17.2/cert-manager.yaml
+  kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.21.1/cert-manager.yaml
   kubectl_wait -ncert-manager --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
 
   # All installation methods run off the same catalog

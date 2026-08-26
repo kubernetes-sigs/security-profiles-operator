@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -32,7 +32,11 @@ func (e *e2e) testCaseDefaultAndExampleProfiles(nodes []string) {
 
 	const exampleProfilePath = "examples/seccompprofile.yaml"
 
-	exampleProfileNames := [3]string{"profile-allow-unsafe", "profile-complain-unsafe", "profile-block-all"}
+	exampleProfileNames := [3]string{
+		"profile-allow-unsafe",
+		"profile-complain-unsafe",
+		"profile-block-all",
+	}
 
 	e.kubectl("create", "-f", exampleProfilePath)
 

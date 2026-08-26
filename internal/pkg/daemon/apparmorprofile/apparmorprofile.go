@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -27,10 +27,10 @@ import (
 	"github.com/go-logr/logr"
 	aa "github.com/pjbgf/go-apparmor/pkg/apparmor"
 	"github.com/pjbgf/go-apparmor/pkg/hostop"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
@@ -75,7 +75,7 @@ func (r *Reconciler) Name() string {
 }
 
 // SchemeBuilder returns the API scheme of the controller.
-func (r *Reconciler) SchemeBuilder() *scheme.Builder {
+func (r *Reconciler) SchemeBuilder() runtime.SchemeBuilder {
 	return apparmorprofileapi.SchemeBuilder
 }
 
@@ -99,7 +99,10 @@ func (r *Reconciler) checkAppArmor() error {
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=apparmorprofiles/finalizers,verbs=delete;get;update;patch
 
 // Reconcile reconciles a AppArmorProfile.
-func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+func (r *Reconciler) Reconcile(
+	ctx context.Context,
+	req reconcile.Request,
+) (reconcile.Result, error) {
 	logger := r.log.WithValues("apparmorprofile", req.Name, "namespace", req.Namespace)
 	logger.Info("Reconciling AppArmorProfile")
 
@@ -109,16 +112,22 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	// Pre-check if the node supports AppArmor
 	if !r.manager.Enabled() {
 		err := errors.New("profile not added")
-		logger.Error(err, fmt.Sprintf("node %q does not support apparmor", os.Getenv(config.NodeNameEnvKey)))
+		logger.Error(
+			err,
+			fmt.Sprintf("node %q does not support apparmor", os.Getenv(config.NodeNameEnvKey)),
+		)
 
 		if r.record != nil {
 			r.metrics.IncAppArmorProfileError(req.Name, reasonAppArmorNotSupported)
 			r.record.AnnotatedEventf(
 				&apparmorprofileapi.AppArmorProfile{},
-				map[string]string{os.Getenv(config.NodeNameEnvKey): "node does not support apparmor"},
+				map[string]string{
+					os.Getenv(config.NodeNameEnvKey): "node does not support apparmor",
+				},
 				util.EventTypeWarning,
 				reasonAppArmorNotSupported,
-				"%s", err.Error(),
+				"%s",
+				err.Error(),
 			)
 		}
 
@@ -177,11 +186,17 @@ func (r *Reconciler) reconcileAppArmorProfile(
 		return result, nil
 	}
 
-	isAlreadyInstalled, getErr := nodeStatus.Matches(ctx, secprofnodestatusapi.ProfileStateInstalled)
+	isAlreadyInstalled, getErr := nodeStatus.Matches(
+		ctx,
+		secprofnodestatusapi.ProfileStateInstalled,
+	)
 	if getErr != nil {
 		l.Error(getErr, "couldn't get current status")
 
-		return reconcile.Result{}, fmt.Errorf("getting status for installed AppArmorProfile: %w", getErr)
+		return reconcile.Result{}, fmt.Errorf(
+			"getting status for installed AppArmorProfile: %w",
+			getErr,
+		)
 	}
 
 	if isAlreadyInstalled {
@@ -190,12 +205,18 @@ func (r *Reconciler) reconcileAppArmorProfile(
 		return reconcile.Result{}, nil
 	}
 
-	if err := nodeStatus.SetNodeStatus(ctx, secprofnodestatusapi.ProfileStateInstalled); err != nil {
+	if err := nodeStatus.SetNodeStatus(
+		ctx,
+		secprofnodestatusapi.ProfileStateInstalled,
+	); err != nil {
 		l.Error(err, "cannot update node status")
 		r.metrics.IncAppArmorProfileError(sp.GetName(), common.ReasonCannotUpdateStatus)
 		r.record.Event(sp, util.EventTypeWarning, common.ReasonCannotUpdateStatus, err.Error())
 
-		return reconcile.Result{}, fmt.Errorf("updating status in AppArmorProfile reconciler: %w", err)
+		return reconcile.Result{}, fmt.Errorf(
+			"updating status in AppArmorProfile reconciler: %w",
+			err,
+		)
 	}
 
 	l.Info(

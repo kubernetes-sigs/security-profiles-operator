@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -60,14 +60,16 @@ func (e *e2e) testSeccompBpfProfileMerging() {
 
 	e.profileMergingTest(
 		"Bpf",
-		"SeccompProfile", "sp",
+		"SeccompProfile",
+		"sp",
 		"/bin/mknod /tmp/foo p",
 		"listen",
 		"mknod\n", // for some reason bpf recording always allows mknodat(), let's explicitly check mknod()
 		policyEnabledAfterRecording,
 		regexp.MustCompile(
 			`(?s)"container"="nginx".*"syscallName"="listen"`+
-				`.*"container"="nginx".*"syscallName"="listen"`))
+				`.*"container"="nginx".*"syscallName"="listen"`),
+	)
 }
 
 func (e *e2e) testSeccompLogsProfileMerging() {
@@ -188,7 +190,10 @@ spec:
 	case "Bpf":
 		profileNames := make([]string, 0, len(suffixes))
 		for _, sfx := range suffixes {
-			profileNames = append(profileNames, mergeProfileRecordingName+"-"+containerNameNginx+"-"+sfx)
+			profileNames = append(
+				profileNames,
+				mergeProfileRecordingName+"-"+containerNameNginx+"-"+sfx,
+			)
 		}
 
 		e.waitForBpfRecorderLogs(since, profileNames...)
@@ -197,7 +202,14 @@ spec:
 		e.Failf("unknown recorded method %s", recordedMethod)
 	}
 
-	podNamesString := e.kubectl("get", "pods", "-l", "app=alpine", "-o", "jsonpath={.items[*].metadata.name}")
+	podNamesString := e.kubectl(
+		"get",
+		"pods",
+		"-l",
+		"app=alpine",
+		"-o",
+		"jsonpath={.items[*].metadata.name}",
+	)
 	onePodName := strings.Fields(podNamesString)[0]
 	e.kubectl(
 		"exec", "-c", containerNameNginx, onePodName, "--", "bash", "-c", trigger,
@@ -269,7 +281,11 @@ spec:
 	e.kubectl("delete", resource, mergedProfileNginx, mergedProfileRedis)
 }
 
-func retryAssertPrfStatus(e *e2e, kind, name, enabledState string, isPolicyEnabled policyDisableSwitch) {
+func retryAssertPrfStatus(
+	e *e2e,
+	kind, name, enabledState string,
+	isPolicyEnabled policyDisableSwitch,
+) {
 	var profileStatus string
 
 	for range 10 {

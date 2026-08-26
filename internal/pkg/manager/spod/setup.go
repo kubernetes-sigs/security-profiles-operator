@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -49,8 +49,12 @@ const (
 )
 
 var (
-	ErrJsonEnricherVolSourceNotFound    = errors.New("no json enricher volume source in configmap found")
-	ErrJsonEnricherVolMountPathNotFound = errors.New("no json enricher mount path in configmap found")
+	ErrJsonEnricherVolSourceNotFound = errors.New(
+		"no json enricher volume source in configmap found",
+	)
+	ErrJsonEnricherVolMountPathNotFound = errors.New(
+		"no json enricher mount path in configmap found",
+	)
 )
 
 // daemonTunables defines the parameters to tune/modify for the
@@ -75,7 +79,7 @@ func (r *ReconcileSPOd) Setup(
 ) error {
 	r.client = mgr.GetClient()
 	r.log = ctrl.Log.WithName(r.Name())
-	//nolint:staticcheck,nolintlint // TODO: migrate to GetEventRecorder
+	//nolint:staticcheck // TODO: migrate to GetEventRecorder
 	r.record = mgr.GetEventRecorderFor(r.Name())
 	r.clientReader = mgr.GetAPIReader()
 
@@ -147,8 +151,14 @@ func (r *ReconcileSPOd) getTunables(ctx context.Context) (*daemonTunables, error
 		}
 	}
 
-	dt.seccompLocalhostProfile = util.GetSeccompLocalhostProfilePath(node, bindata.LocalSeccompProfilePath)
-	dt.bpfRecorderSeccompProfile = util.GetSeccompLocalhostProfilePath(node, bindata.LocalSeccompBpfRecorderProfilePath)
+	dt.seccompLocalhostProfile = util.GetSeccompLocalhostProfilePath(
+		node,
+		bindata.LocalSeccompProfilePath,
+	)
+	dt.bpfRecorderSeccompProfile = util.GetSeccompLocalhostProfilePath(
+		node,
+		bindata.LocalSeccompBpfRecorderProfilePath,
+	)
 	dt.containerRuntime = util.GetContainerRuntime(node)
 
 	dt.selinuxdImage, err = r.getSelinuxdImage(ctx, node)
@@ -156,16 +166,23 @@ func (r *ReconcileSPOd) getTunables(ctx context.Context) (*daemonTunables, error
 		return dt, fmt.Errorf("could not determine selinuxd image: %w", err)
 	}
 
-	dt.jsonEnricherLogVolumeSource, dt.jsonEnricherLogVolumeMountPath, err = r.getJsonEnricherVolume(ctx)
+	dt.jsonEnricherLogVolumeSource, dt.jsonEnricherLogVolumeMountPath, err = r.getJsonEnricherVolume(
+		ctx,
+	)
 	if err != nil &&
-		!errors.Is(err, ErrJsonEnricherVolSourceNotFound) && !errors.Is(err, ErrJsonEnricherVolMountPathNotFound) {
+		!errors.Is(
+			err,
+			ErrJsonEnricherVolSourceNotFound,
+		) && !errors.Is(err, ErrJsonEnricherVolMountPathNotFound) {
 		return dt, fmt.Errorf("could not determine json enricher volume: %w", err)
 	}
 
 	return dt, nil
 }
 
-func (r *ReconcileSPOd) getJsonEnricherVolume(ctx context.Context) (*corev1.VolumeSource, string, error) {
+func (r *ReconcileSPOd) getJsonEnricherVolume(
+	ctx context.Context,
+) (*corev1.VolumeSource, string, error) {
 	operatorCm, err := util.GetOperatorConfigMap(ctx, r.clientReader)
 	if err != nil {
 		return nil, "", err

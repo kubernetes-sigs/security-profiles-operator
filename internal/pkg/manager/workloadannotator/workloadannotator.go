@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -26,10 +26,10 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	errors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
@@ -64,7 +64,7 @@ func (r *PodReconciler) Name() string {
 }
 
 // SchemeBuilder returns the API scheme of the controller.
-func (r *PodReconciler) SchemeBuilder() *scheme.Builder {
+func (r *PodReconciler) SchemeBuilder() runtime.SchemeBuilder {
 	return nil
 }
 
@@ -77,7 +77,10 @@ func (r *PodReconciler) Healthz(*http.Request) error {
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 
 // Reconcile reacts to pod events and updates SeccompProfiles or SelinuxProfiles if in use or no longer in use by a pod.
-func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+func (r *PodReconciler) Reconcile(
+	ctx context.Context,
+	req reconcile.Request,
+) (reconcile.Result, error) {
 	logger := r.log.WithValues("pod", req.Name, "namespace", req.Namespace)
 
 	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
@@ -95,27 +98,49 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (r
 		return reconcile.Result{}, fmt.Errorf("looking up pod in pod reconciler: %w", err)
 	}
 
-	if errors.IsNotFound(err) { // this is a pod deletion, so update all seccomp/selinux profiles that were using it
+	if errors.IsNotFound(
+		err,
+	) { // this is a pod deletion, so update all seccomp/selinux profiles that were using it
 		seccompProfiles := &seccompprofileapi.SeccompProfileList{}
 		selinuxProfiles := &selinuxprofileapi.SelinuxProfileList{}
 
-		if err = r.client.List(ctx, seccompProfiles, client.MatchingFields{linkedPodsKey: podID}); err != nil {
-			return reconcile.Result{}, fmt.Errorf("listing SeccompProfiles for deleted pod: %w", err)
+		if err = r.client.List(
+			ctx,
+			seccompProfiles,
+			client.MatchingFields{linkedPodsKey: podID},
+		); err != nil {
+			return reconcile.Result{}, fmt.Errorf(
+				"listing SeccompProfiles for deleted pod: %w",
+				err,
+			)
 		}
 
-		if err = r.client.List(ctx, selinuxProfiles, client.MatchingFields{linkedPodsKey: podID}); err != nil {
-			return reconcile.Result{}, fmt.Errorf("listing SelinuxProfiles for deleted pod: %w", err)
+		if err = r.client.List(
+			ctx,
+			selinuxProfiles,
+			client.MatchingFields{linkedPodsKey: podID},
+		); err != nil {
+			return reconcile.Result{}, fmt.Errorf(
+				"listing SelinuxProfiles for deleted pod: %w",
+				err,
+			)
 		}
 
 		for i := range seccompProfiles.Items {
 			if err = r.updatePodReferencesForSeccomp(ctx, &seccompProfiles.Items[i]); err != nil {
-				return reconcile.Result{}, fmt.Errorf("updating SeccompProfile for deleted pod: %w", err)
+				return reconcile.Result{}, fmt.Errorf(
+					"updating SeccompProfile for deleted pod: %w",
+					err,
+				)
 			}
 		}
 
 		for j := range selinuxProfiles.Items {
 			if err = r.updatePodReferencesForSelinux(ctx, &selinuxProfiles.Items[j]); err != nil {
-				return reconcile.Result{}, fmt.Errorf("updating SelinuxProfile for deleted pod: %w", err)
+				return reconcile.Result{}, fmt.Errorf(
+					"updating SelinuxProfile for deleted pod: %w",
+					err,
+				)
 			}
 		}
 
@@ -133,16 +158,26 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (r
 		profileName := strings.TrimSuffix(profileElements[1], ".json")
 		seccompProfile := &seccompprofileapi.SeccompProfile{}
 
-		if err := r.client.Get(ctx, util.NamespacedName(profileName, profileNamespace), seccompProfile); err != nil {
+		if err := r.client.Get(
+			ctx,
+			util.NamespacedName(profileName, profileNamespace),
+			seccompProfile,
+		); err != nil {
 			logger.Error(err, "could not get seccomp profile for pod")
 
-			return reconcile.Result{}, fmt.Errorf("looking up SeccompProfile for new or updated pod: %w", err)
+			return reconcile.Result{}, fmt.Errorf(
+				"looking up SeccompProfile for new or updated pod: %w",
+				err,
+			)
 		}
 
 		if err := r.updatePodReferencesForSeccomp(ctx, seccompProfile); err != nil {
 			logger.Error(err, "could not update seccomp profile for pod")
 
-			return reconcile.Result{}, fmt.Errorf("updating SeccompProfile pod references for new or updated pod: %w", err)
+			return reconcile.Result{}, fmt.Errorf(
+				"updating SeccompProfile pod references for new or updated pod: %w",
+				err,
+			)
 		}
 	}
 
@@ -152,16 +187,26 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (r
 		profileName := strings.TrimSuffix(profileIndex, profileSuffix)
 
 		selinuxProfile := &selinuxprofileapi.SelinuxProfile{}
-		if err := r.client.Get(ctx, util.NamespacedName(profileName, ""), selinuxProfile); err != nil {
+		if err := r.client.Get(
+			ctx,
+			util.NamespacedName(profileName, ""),
+			selinuxProfile,
+		); err != nil {
 			logger.Error(err, "could not get selinux profile for pod")
 
-			return reconcile.Result{}, fmt.Errorf("looking up SelinuxProfile for new or updated pod: %w", err)
+			return reconcile.Result{}, fmt.Errorf(
+				"looking up SelinuxProfile for new or updated pod: %w",
+				err,
+			)
 		}
 
 		if err := r.updatePodReferencesForSelinux(ctx, selinuxProfile); err != nil {
 			logger.Error(err, "could not update selinux profile for pod")
 
-			return reconcile.Result{}, fmt.Errorf("updating SelinuxProfile pod references for new or updated pod: %w", err)
+			return reconcile.Result{}, fmt.Errorf(
+				"updating SelinuxProfile pod references for new or updated pod: %w",
+				err,
+			)
 		}
 	}
 
@@ -170,7 +215,10 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (r
 
 // updatePodReferencesForSeccomp updates a SeccompProfile with the identifiers of pods using it and ensures
 // it has a finalizer indicating it is in use to prevent it from being deleted.
-func (r *PodReconciler) updatePodReferencesForSeccomp(ctx context.Context, sp *seccompprofileapi.SeccompProfile) error {
+func (r *PodReconciler) updatePodReferencesForSeccomp(
+	ctx context.Context,
+	sp *seccompprofileapi.SeccompProfile,
+) error {
 	linkedPods := &corev1.PodList{}
 	profileReference := fmt.Sprintf("operator/%s.json", sp.GetName())
 
@@ -191,7 +239,11 @@ func (r *PodReconciler) updatePodReferencesForSeccomp(ctx context.Context, sp *s
 
 		updateErr := r.client.Status().Update(ctx, sp)
 		if updateErr != nil {
-			if err := r.client.Get(ctx, util.NamespacedName(sp.GetName(), sp.GetNamespace()), sp); err != nil {
+			if err := r.client.Get(
+				ctx,
+				util.NamespacedName(sp.GetName(), sp.GetNamespace()),
+				sp,
+			); err != nil {
 				return fmt.Errorf("retrieving profile: %w", err)
 			}
 
@@ -222,7 +274,10 @@ func (r *PodReconciler) updatePodReferencesForSeccomp(ctx context.Context, sp *s
 
 // updatePodReferencesForSelinux updates a SelinuxProfile with the identifiers of pods using it and ensures
 // it has a finalizer indicating it is in use to prevent it from being deleted.
-func (r *PodReconciler) updatePodReferencesForSelinux(ctx context.Context, se *selinuxprofileapi.SelinuxProfile) error {
+func (r *PodReconciler) updatePodReferencesForSelinux(
+	ctx context.Context,
+	se *selinuxprofileapi.SelinuxProfile,
+) error {
 	linkedPods := &corev1.PodList{}
 	profileReference := se.GetPolicyUsage()
 
@@ -243,7 +298,11 @@ func (r *PodReconciler) updatePodReferencesForSelinux(ctx context.Context, se *s
 
 		updateErr := r.client.Status().Update(ctx, se)
 		if updateErr != nil {
-			if err := r.client.Get(ctx, util.NamespacedName(se.GetName(), se.GetNamespace()), se); err != nil {
+			if err := r.client.Get(
+				ctx,
+				util.NamespacedName(se.GetName(), se.GetNamespace()),
+				se,
+			); err != nil {
 				return fmt.Errorf("retrieving profile: %w", err)
 			}
 
@@ -363,7 +422,12 @@ func isOperatorSeccompProfile(sp *corev1.SeccompProfile) bool {
 // isOperatorSelinuxType checks whether Selinux Type is created by the operator.
 // Selinux Type controlled by the operator has the form
 // "selinuxprofilename_namespace.process".
-func isOperatorSelinuxType(ctx context.Context, r *PodReconciler, se *corev1.SELinuxOptions, ns string) bool {
+func isOperatorSelinuxType(
+	ctx context.Context,
+	r *PodReconciler,
+	se *corev1.SELinuxOptions,
+	ns string,
+) bool {
 	if se == nil {
 		return false
 	}
@@ -378,7 +442,11 @@ func isOperatorSelinuxType(ctx context.Context, r *PodReconciler, se *corev1.SEL
 	if selinuxProfileName != se.Type {
 		selinuxProfile := &selinuxprofileapi.SelinuxProfile{}
 
-		err := r.client.Get(ctx, util.NamespacedName(strings.TrimSuffix(se.Type, suffix), ns), selinuxProfile)
+		err := r.client.Get(
+			ctx,
+			util.NamespacedName(strings.TrimSuffix(se.Type, suffix), ns),
+			selinuxProfile,
+		)
 		if err != nil {
 			return false
 		}

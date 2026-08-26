@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -190,7 +190,11 @@ func (*defaultImpl) CopyDirContentsLocal(src, dst string) error {
 	return helpers.CopyDirContentsLocal(src, dst)
 }
 
-func (*defaultImpl) SaveKubeletConfig(filename string, kubeletConfig []byte, perm os.FileMode) error {
+func (*defaultImpl) SaveKubeletConfig(
+	filename string,
+	kubeletConfig []byte,
+	perm os.FileMode,
+) error {
 	return os.WriteFile(filename, kubeletConfig, perm)
 }
 

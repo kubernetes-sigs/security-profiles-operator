@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -63,7 +63,9 @@ func (*defaultImpl) PullResultType(res *artifact.PullResult) artifact.PullResult
 	return res.Type()
 }
 
-func (*defaultImpl) PullResultSeccompProfile(res *artifact.PullResult) *seccompprofileapi.SeccompProfile {
+func (*defaultImpl) PullResultSeccompProfile(
+	res *artifact.PullResult,
+) *seccompprofileapi.SeccompProfile {
 	return res.SeccompProfile()
 }
 

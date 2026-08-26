@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -26,8 +26,10 @@ import (
 func (e *e2e) testCaseJsonEnricherFileOptions([]string) {
 	jsonLogFileName := "/tmp/json-logs/jsonEnricher.out"
 	//nolint:lll  // long filter.
-	e.jsonEnricherOnlyTestCaseFileOptions(jsonLogFileName,
-		`[{\"priority\":100,\"level\":\"Metadata\",\"matchKeys\":[\"requestUID\"]},{\"priority\":999, \"level\":\"None\",\"matchKeys\":[\"version\"],\"matchValues\":[\"spo/v1_alpha\"]}]`)
+	e.jsonEnricherOnlyTestCaseFileOptions(
+		jsonLogFileName,
+		`[{\"priority\":100,\"level\":\"Metadata\",\"matchKeys\":[\"requestUID\"]},{\"priority\":999, \"level\":\"None\",\"matchKeys\":[\"version\"],\"matchValues\":[\"spo/v1_alpha\"]}]`,
+	)
 
 	const (
 		profileName   = "jsonenricherprofile"
@@ -218,7 +220,12 @@ spec:
 }
 
 // Checks exec environment for the pod.
-func (e *e2e) checkExecEnvironment(podName string, namespace *string, interval time.Duration, maxTimes int) {
+func (e *e2e) checkExecEnvironment(
+	podName string,
+	namespace *string,
+	interval time.Duration,
+	maxTimes int,
+) {
 	if !e.podRunning(podName, namespace, interval, maxTimes) {
 		e.logf("Pod %s is not running", podName)
 		e.Fail("Pod is not running")

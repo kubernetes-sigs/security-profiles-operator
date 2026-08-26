@@ -1,5 +1,5 @@
 /*
-Copyright 2025 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -64,7 +64,14 @@ func getContainerInfo(
 		return item.Value(), nil
 	}
 
-	if err := populateContainerPodCache(ctx, nodeName, clientSet, impl, infoCache, logger); err != nil {
+	if err := populateContainerPodCache(
+		ctx,
+		nodeName,
+		clientSet,
+		impl,
+		infoCache,
+		logger,
+	); err != nil {
 		return nil, fmt.Errorf("get container info for pods: %w", err)
 	}
 
@@ -130,7 +137,12 @@ func populateCacheEntryForContainer(
 			if containerID == "" {
 				// This just means the container is still being created
 				// We can come back to this later
-				idemptyErr := handleContainerIDEmpty(pod.Name, containerName, &containerStatus, logger)
+				idemptyErr := handleContainerIDEmpty(
+					pod.Name,
+					containerName,
+					&containerStatus,
+					logger,
+				)
 				if errors.Is(idemptyErr, errContainerIDEmpty) {
 					errorToRetry = idemptyErr
 

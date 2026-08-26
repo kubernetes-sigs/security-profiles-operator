@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -102,7 +102,11 @@ func Test_getEffectiveSPOdJsonEnricher(t *testing.T) {
 			}
 
 			if tt.jsonEnricherOptsSet {
-				require.Equal(t, tt.dt.jsonEnricherImage, got.Spec.Template.Spec.Containers[4].Image)
+				require.Equal(
+					t,
+					tt.dt.jsonEnricherImage,
+					got.Spec.Template.Spec.Containers[4].Image,
+				)
 				require.Equal(t, tt.dt.jsonEnricherLogVolumeMountPath,
 					got.Spec.Template.Spec.Containers[4].VolumeMounts[4].MountPath)
 			}

@@ -1,5 +1,5 @@
 /*
-Copyright 2026 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -150,7 +150,12 @@ func TestValidatePolicy(t *testing.T) {
 				require.Error(t, err, "ValidatePolicy() should have returned an error")
 
 				if tt.errContains != "" {
-					require.Contains(t, err.Error(), tt.errContains, "Error message did not contain the expected substring")
+					require.Contains(
+						t,
+						err.Error(),
+						tt.errContains,
+						"Error message did not contain the expected substring",
+					)
 				}
 			} else {
 				require.NoError(t, err, "ValidatePolicy() returned an unexpected error")

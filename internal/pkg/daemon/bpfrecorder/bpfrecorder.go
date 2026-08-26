@@ -1,7 +1,7 @@
 //go:build linux && !no_bpf
 
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -210,7 +210,9 @@ func (b *BpfRecorder) Run() error {
 		return fmt.Errorf("retrieve current mount namespace: %w", err)
 	}
 
-	b.logger.Info("Got system mount namespace: " + strconv.FormatUint(uint64(b.excludeMountNamespace), 10))
+	b.logger.Info(
+		"Got system mount namespace: " + strconv.FormatUint(uint64(b.excludeMountNamespace), 10),
+	)
 
 	b.logger.Info("Loading BPF program")
 
@@ -422,7 +424,13 @@ func (b *BpfRecorder) getMntnsForProfileWithRetry(profile string) (uint32, error
 
 			if foundMntns, ok := b.getMntnsForProfile(profile); ok {
 				mntns = foundMntns
-				b.logger.Info("Found mount namespace for profile", "profile", profile, "mntns", mntns)
+				b.logger.Info(
+					"Found mount namespace for profile",
+					"profile",
+					profile,
+					"mntns",
+					mntns,
+				)
 
 				return nil
 			}
@@ -441,7 +449,13 @@ func (b *BpfRecorder) getMntnsForProfileWithRetry(profile string) (uint32, error
 
 func (b *BpfRecorder) getMntnsForProfile(profile string) (uint32, bool) {
 	if containerID, ok := b.containerIDToProfileMap.GetBackwards(profile); ok {
-		b.logger.Info("Found container id for profile", "containerID", containerID, "profile", profile)
+		b.logger.Info(
+			"Found container id for profile",
+			"containerID",
+			containerID,
+			"profile",
+			profile,
+		)
 
 		if mntns, ok := b.mntnsToContainerIDMap.GetBackwards(containerID); ok {
 			return mntns, true
@@ -526,7 +540,11 @@ func (b *BpfRecorder) Load() (err error) {
 			return fmt.Errorf("getting exclude_mntns map failed: %w", err)
 		}
 
-		if err := b.UpdateValue(excludeMntns, b.excludeMountNamespace, []byte{excludeMntnsEnabled}); err != nil {
+		if err := b.UpdateValue(
+			excludeMntns,
+			b.excludeMountNamespace,
+			[]byte{excludeMntnsEnabled},
+		); err != nil {
 			return fmt.Errorf("updating exclude_mntns map failed: %w", err)
 		}
 
@@ -677,7 +695,10 @@ func (b *BpfRecorder) findBtfPath() error {
 		return nil
 	}
 
-	return fmt.Errorf("we dropped support for in-memory btf, please use a kernel which supports %s", btf)
+	return fmt.Errorf(
+		"we dropped support for in-memory btf, please use a kernel which supports %s",
+		btf,
+	)
 }
 
 func (b *BpfRecorder) processEvents(events chan []byte) {
@@ -857,7 +878,9 @@ func (b *BpfRecorder) findProfileForContainerID(id string) (string, error) {
 			for p := range pods.Items {
 				pod := &pods.Items[p]
 				//nolint:gocritic // We explicitly do not want to append to the same slice
-				statuses := append(pod.Status.InitContainerStatuses, pod.Status.ContainerStatuses...)
+				statuses := append(
+					pod.Status.InitContainerStatuses,
+					pod.Status.ContainerStatuses...)
 				for c := range statuses {
 					containerStatus := statuses[c]
 					fullContainerID := containerStatus.ContainerID

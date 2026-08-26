@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -29,7 +29,10 @@ import (
 
 // ServiceMonitor returns the default ServiceMonitor for automatic metrics
 // retrieval via the prometheus operator.
-func ServiceMonitor(caInjectType CAInjectType, enableInsecureMetricsAccess bool) *v1.ServiceMonitor {
+func ServiceMonitor(
+	caInjectType CAInjectType,
+	enableInsecureMetricsAccess bool,
+) *v1.ServiceMonitor {
 	return &v1.ServiceMonitor{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "security-profiles-operator-monitor",
@@ -43,7 +46,7 @@ func ServiceMonitor(caInjectType CAInjectType, enableInsecureMetricsAccess bool)
 			Selector: metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{
 					{
-						Key:      "app",
+						Key:      labelApp,
 						Operator: metav1.LabelSelectorOpIn,
 						Values:   []string{config.OperatorName},
 					},
@@ -54,7 +57,11 @@ func ServiceMonitor(caInjectType CAInjectType, enableInsecureMetricsAccess bool)
 }
 
 // endpointFor provides a standard endpoint for the given URL path.
-func endpointFor(path string, caInjectType CAInjectType, enableInsecureMetricsAccess bool) v1.Endpoint {
+func endpointFor(
+	path string,
+	caInjectType CAInjectType,
+	enableInsecureMetricsAccess bool,
+) v1.Endpoint {
 	serverName := fmt.Sprintf("metrics.%s.svc", config.GetOperatorNamespace())
 	scheme := v1.Scheme("https")
 	port := "https"

@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -39,8 +39,14 @@ func (e *e2e) testCaseAllowedSyscallsValidation(nodes []string) {
 	const exampleProfilePath = "examples/seccompprofile-allowed-syscalls-validation.yaml"
 
 	e.logf("Changed allowed syscalls list in spod")
-	e.kubectlOperatorNS("patch", "spod", "spod", "-p",
-		`{"spec":{"security":{"allowedSyscalls": ["exit", "exit_group", "futex", "nanosleep"]}}}`, "--type=merge")
+	e.kubectlOperatorNS(
+		"patch",
+		"spod",
+		"spod",
+		"-p",
+		`{"spec":{"security":{"allowedSyscalls": ["exit", "exit_group", "futex", "nanosleep"]}}}`,
+		"--type=merge",
+	)
 
 	defer e.kubectlOperatorNS("patch", "spod", "spod", "--type=json",
 		"-p", `[{"op": "remove", "path": "/spec/security/allowedSyscalls"}]`)
@@ -101,8 +107,14 @@ func (e *e2e) testCaseAllowedSyscallsChange(nodes []string) {
 	const exampleProfilePath = "examples/seccompprofile-allowed-syscalls-change.yaml"
 	// Define an allowed syscalls list in the spod configuration
 	e.logf("Changed allowed syscalls list in spod")
-	e.kubectlOperatorNS("patch", "spod", "spod", "-p",
-		`{"spec":{"security":{"allowedSyscalls": ["exit", "exit_group", "futex", "nanosleep"]}}}`, "--type=merge")
+	e.kubectlOperatorNS(
+		"patch",
+		"spod",
+		"spod",
+		"-p",
+		`{"spec":{"security":{"allowedSyscalls": ["exit", "exit_group", "futex", "nanosleep"]}}}`,
+		"--type=merge",
+	)
 
 	defer e.kubectlOperatorNS("patch", "spod", "spod",
 		"--type=json", "-p", `[{"op": "remove", "path": "/spec/security/allowedSyscalls"}]`)
@@ -133,8 +145,14 @@ func (e *e2e) testCaseAllowedSyscallsChange(nodes []string) {
 	// Remove a syscall form allowed syscall list in order to invalidate the seccomp profile. The operator
 	// should now remove the seccomp profile because is not allowed anymore.
 	e.logf("Changed allowed syscalls list in spod to remove syscall")
-	e.kubectlOperatorNS("patch", "spod", "spod", "-p",
-		`{"spec":{"security":{"allowedSyscalls": ["exit", "exit_group", "futex"]}}}`, "--type=merge")
+	e.kubectlOperatorNS(
+		"patch",
+		"spod",
+		"spod",
+		"-p",
+		`{"spec":{"security":{"allowedSyscalls": ["exit", "exit_group", "futex"]}}}`,
+		"--type=merge",
+	)
 	time.Sleep(defaultWaitTime)
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
 	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultBpfRecorderOpTimeout)
@@ -212,8 +230,14 @@ spec:
 	// Define an allowed syscalls list in the spod configuration, this should disallow the
 	// seccomp profile and trigger a deletion.
 	e.logf("Changed allowed syscalls list in spod")
-	e.kubectlOperatorNS("patch", "spod", "spod", "-p",
-		`{"spec":{"security":{"allowedSyscalls": ["exit", "exit_group", "futex", "nanosleep"]}}}`, "--type=merge")
+	e.kubectlOperatorNS(
+		"patch",
+		"spod",
+		"spod",
+		"-p",
+		`{"spec":{"security":{"allowedSyscalls": ["exit", "exit_group", "futex", "nanosleep"]}}}`,
+		"--type=merge",
+	)
 
 	defer e.kubectlOperatorNS("patch", "spod", "spod", "--type=json", "-p",
 		`[{"op": "remove", "path": "/spec/security/allowedSyscalls"}]`)
@@ -265,7 +289,11 @@ spec:
 }
 
 func (e *e2e) existsSeccompProfileNodeStatus(id, node string) bool {
-	selector := fmt.Sprintf("spo.x-k8s.io/node-name=%s,spo.x-k8s.io/profile-id=SeccompProfile-%s", node, id)
+	selector := fmt.Sprintf(
+		"spo.x-k8s.io/node-name=%s,spo.x-k8s.io/profile-id=SeccompProfile-%s",
+		node,
+		id,
+	)
 	seccompProfileNodeStatusJSON := e.kubectl(
 		"get", "securityprofilenodestatus", "-l", selector, "-o", "json",
 	)

@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -78,12 +78,15 @@ const (
 	MetricsCertPath                                  = "/var/run/secrets/metrics"
 	SelinuxCustomTemplatesVolumeName                 = "selinux-custom-templates"
 	SelinuxModuleStorePath                           = "/var/lib/selinux"
+	labelApp                                         = "app"
+	labelName                                        = "name"
+	selinuxTypeSpcT                                  = "spc_t"
 )
 
 var DefaultSPOD = &spodapi.SecurityProfilesOperatorDaemon{
 	ObjectMeta: metav1.ObjectMeta{
 		Name:   config.SPOdName,
-		Labels: map[string]string{"app": config.OperatorName},
+		Labels: map[string]string{labelApp: config.OperatorName},
 	},
 	Spec: spodapi.SPODSpec{
 		Verbosity:                   0,
@@ -149,8 +152,8 @@ var Manifest = &appsv1.DaemonSet{
 		},
 		Selector: &metav1.LabelSelector{
 			MatchLabels: map[string]string{
-				"app":  config.OperatorName,
-				"name": config.SPOdName,
+				labelApp:  config.OperatorName,
+				labelName: config.SPOdName,
 			},
 		},
 		Template: corev1.PodTemplateSpec{
@@ -159,8 +162,8 @@ var Manifest = &appsv1.DaemonSet{
 					"openshift.io/scc": "privileged",
 				},
 				Labels: map[string]string{
-					"app":  config.OperatorName,
-					"name": config.SPOdName,
+					labelApp:  config.OperatorName,
+					labelName: config.SPOdName,
 				},
 			},
 			Spec: corev1.PodSpec{
@@ -196,12 +199,17 @@ var Manifest = &appsv1.DaemonSet{
 							ReadOnlyRootFilesystem:   &truly,
 							Capabilities: &corev1.Capabilities{
 								Drop: []corev1.Capability{"ALL"},
-								Add:  []corev1.Capability{"CHOWN", "FOWNER", "FSETID", "DAC_OVERRIDE"},
+								Add: []corev1.Capability{
+									"CHOWN",
+									"FOWNER",
+									"FSETID",
+									"DAC_OVERRIDE",
+								},
 							},
 							RunAsUser: &userRoot,
 							SELinuxOptions: &corev1.SELinuxOptions{
 								// TODO(jaosorior): Use a more restricted selinux type
-								Type: "spc_t",
+								Type: selinuxTypeSpcT,
 							},
 						},
 						Resources: corev1.ResourceRequirements{
@@ -287,12 +295,17 @@ semodule -R
 							Privileged:               &truly, // Required for semodule -R to reload the kernel policy
 							Capabilities: &corev1.Capabilities{
 								Drop: []corev1.Capability{"ALL"},
-								Add:  []corev1.Capability{"CHOWN", "FOWNER", "FSETID", "DAC_OVERRIDE"},
+								Add: []corev1.Capability{
+									"CHOWN",
+									"FOWNER",
+									"FSETID",
+									"DAC_OVERRIDE",
+								},
 							},
 							RunAsUser: &userRoot,
 							SELinuxOptions: &corev1.SELinuxOptions{
 								// TODO(jaosorior): Use a more restricted selinux type
-								Type: "spc_t",
+								Type: selinuxTypeSpcT,
 							},
 						},
 						Resources: corev1.ResourceRequirements{
@@ -365,7 +378,7 @@ semodule -R
 							RunAsGroup: &userRootless,
 							SELinuxOptions: &corev1.SELinuxOptions{
 								// TODO(jaosorior): Use a more restricted selinux type
-								Type: "spc_t",
+								Type: selinuxTypeSpcT,
 							},
 							SeccompProfile: &corev1.SeccompProfile{
 								Type:             corev1.SeccompProfileTypeLocalhost,
@@ -491,7 +504,12 @@ semodule -R
 							RunAsUser:              &userRoot,
 							RunAsGroup:             &userRoot,
 							Capabilities: &corev1.Capabilities{
-								Add: []corev1.Capability{"CHOWN", "FOWNER", "FSETID", "DAC_OVERRIDE"},
+								Add: []corev1.Capability{
+									"CHOWN",
+									"FOWNER",
+									"FSETID",
+									"DAC_OVERRIDE",
+								},
 							},
 							SELinuxOptions: &corev1.SELinuxOptions{
 								Type: "selinuxd.process",
@@ -542,7 +560,7 @@ semodule -R
 							RunAsGroup:             &userRoot,
 							SELinuxOptions: &corev1.SELinuxOptions{
 								// TODO(pjbgf): Use a more restricted selinux type
-								Type: "spc_t",
+								Type: selinuxTypeSpcT,
 							},
 						},
 						Resources: corev1.ResourceRequirements{
@@ -611,7 +629,7 @@ semodule -R
 							RunAsGroup:             &userRoot,
 							SELinuxOptions: &corev1.SELinuxOptions{
 								// TODO(pjbgf): Use a more restricted selinux type
-								Type: "spc_t",
+								Type: selinuxTypeSpcT,
 							},
 							SeccompProfile: &corev1.SeccompProfile{
 								Type:             corev1.SeccompProfileTypeLocalhost,
@@ -688,7 +706,7 @@ semodule -R
 							},
 							SELinuxOptions: &corev1.SELinuxOptions{
 								// TODO(pjbgf): Use a more restricted selinux type
-								Type: "spc_t",
+								Type: selinuxTypeSpcT,
 							},
 						},
 						Resources: corev1.ResourceRequirements{
@@ -933,8 +951,8 @@ var metricsService = &corev1.Service{
 	ObjectMeta: metav1.ObjectMeta{
 		Name: "metrics",
 		Labels: map[string]string{
-			"app":  config.OperatorName,
-			"name": config.SPOdName,
+			labelApp:  config.OperatorName,
+			labelName: config.SPOdName,
 		},
 	},
 	Spec: corev1.ServiceSpec{
@@ -946,13 +964,16 @@ var metricsService = &corev1.Service{
 			},
 		},
 		Selector: map[string]string{
-			"app":  config.OperatorName,
-			"name": config.SPOdName,
+			labelApp:  config.OperatorName,
+			labelName: config.SPOdName,
 		},
 	},
 }
 
-func CustomLogVolume(mountPath string, logVolumeSource *corev1.VolumeSource) (corev1.Volume, corev1.VolumeMount) {
+func CustomLogVolume(
+	mountPath string,
+	logVolumeSource *corev1.VolumeSource,
+) (corev1.Volume, corev1.VolumeMount) {
 	const volumeName = "json-enricher-log-output-volume"
 
 	return corev1.Volume{
@@ -1005,7 +1026,10 @@ func CustomHostKubeletVolume(path string) (corev1.Volume, corev1.VolumeMount) {
 		}
 }
 
-func CustomConfigMap(mountPath string, configVolSource *corev1.VolumeSource) (corev1.Volume, corev1.VolumeMount) {
+func CustomConfigMap(
+	mountPath string,
+	configVolSource *corev1.VolumeSource,
+) (corev1.Volume, corev1.VolumeMount) {
 	const volumeName = "json-enricher-filters-volume"
 
 	return corev1.Volume{

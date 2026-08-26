@@ -1,5 +1,5 @@
 /*
-Copyright 2025 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -213,8 +213,16 @@ func Test_addSelinuxCustomTemplatesVolume(t *testing.T) {
 	require.Equal(t, "test-templates", templateSpec.Volumes[0].ConfigMap.Name)
 	require.Empty(t, templateSpec.InitContainers[0].VolumeMounts)
 	require.Len(t, templateSpec.InitContainers[1].VolumeMounts, 1)
-	require.Equal(t, templateSpec.Volumes[0].Name, templateSpec.InitContainers[1].VolumeMounts[0].Name)
-	require.Equal(t, "/usr/share/selinuxd/templates", templateSpec.InitContainers[1].VolumeMounts[0].MountPath)
+	require.Equal(
+		t,
+		templateSpec.Volumes[0].Name,
+		templateSpec.InitContainers[1].VolumeMounts[0].Name,
+	)
+	require.Equal(
+		t,
+		"/usr/share/selinuxd/templates",
+		templateSpec.InitContainers[1].VolumeMounts[0].MountPath,
+	)
 }
 
 func containsString(slice []string, element string) bool {

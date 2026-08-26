@@ -1,5 +1,5 @@
 /*
-Copyright 2026 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,7 +18,6 @@ package selinuxprofile
 
 import (
 	"context"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -35,10 +34,8 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 )
 
-//nolint:paralleltest,tparallel // subtests modify environment variables and cannot run in parallel
+//nolint:paralleltest // subtests modify environment variables and cannot run in parallel
 func TestCreatePolicyReloadJob(t *testing.T) {
-	t.Parallel()
-
 	testNodeName := "test-node-12345"
 	testNamespace := "security-profiles-operator"
 	testPodName := "spod-test-pod"
@@ -221,7 +218,10 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 					require.Len(t, job.Spec.Template.Spec.Containers, 1)
 					require.Equal(t, "semodule-reload", job.Spec.Template.Spec.Containers[0].Name)
 					require.Equal(t, testImage, job.Spec.Template.Spec.Containers[0].Image)
-					require.True(t, *job.Spec.Template.Spec.Containers[0].SecurityContext.Privileged)
+					require.True(
+						t,
+						*job.Spec.Template.Spec.Containers[0].SecurityContext.Privileged,
+					)
 					require.Equal(t, "spc_t",
 						job.Spec.Template.Spec.Containers[0].SecurityContext.SELinuxOptions.Type)
 
@@ -256,22 +256,9 @@ func createTestJob(
 	}
 }
 
-// setenvCleanup sets an environment variable and registers a cleanup to restore it.
-// This is used instead of t.Setenv because t.Setenv panics when the parent test
-// has called t.Parallel().
 func setenvCleanup(t *testing.T, key, value string) {
 	t.Helper()
-
-	old, existed := os.LookupEnv(key)
-
-	os.Setenv(key, value) //nolint:usetesting // t.Setenv panics when parent uses t.Parallel
-	t.Cleanup(func() {
-		if existed {
-			os.Setenv(key, old) //nolint:usetesting // restoring in cleanup
-		} else {
-			os.Unsetenv(key)
-		}
-	})
+	t.Setenv(key, value)
 }
 
 func createTestJobWithCreationTime(

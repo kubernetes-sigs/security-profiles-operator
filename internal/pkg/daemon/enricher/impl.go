@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -72,7 +72,11 @@ type impl interface {
 	SendMetric(client api.Metrics_AuditIncClient, in *api.AuditRequest) error
 	Listen(string, string) (net.Listener, error)
 	Serve(*grpc.Server, net.Listener) error
-	AddToBacklog(cache *ttlcache.Cache[string, []*types.AuditLine], key string, value []*types.AuditLine)
+	AddToBacklog(
+		cache *ttlcache.Cache[string, []*types.AuditLine],
+		key string,
+		value []*types.AuditLine,
+	)
 	GetFromBacklog(cache *ttlcache.Cache[string, []*types.AuditLine], key string) []*types.AuditLine
 	FlushBacklog(cache *ttlcache.Cache[string, []*types.AuditLine], key string)
 	Chown(string, int, int) error
@@ -117,7 +121,10 @@ func (d *defaultImpl) Reason(tailFile *tail.Tail) error {
 	return tailFile.Err()
 }
 
-func (d *defaultImpl) ContainerIDForPID(cache *ttlcache.Cache[string, string], pid int) (string, error) {
+func (d *defaultImpl) ContainerIDForPID(
+	cache *ttlcache.Cache[string, string],
+	pid int,
+) (string, error) {
 	return util.ContainerIDForPID(cache, pid)
 }
 

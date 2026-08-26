@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -41,9 +41,19 @@ type defaultImpl struct {
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../../hack/boilerplate/boilerplate.generatego.txt
 //counterfeiter:generate . impl
 type impl interface {
-	GetProfileRecording(ctx context.Context, name, namespace string) (*profilerecordingapi.ProfileRecording, error)
-	ListProfileRecordings(context.Context, ...client.ListOption) (*profilerecordingapi.ProfileRecordingList, error)
-	ListRecordedPods(ctx context.Context, inNs string, selector *metav1.LabelSelector) (*corev1.PodList, error)
+	GetProfileRecording(
+		ctx context.Context,
+		name, namespace string,
+	) (*profilerecordingapi.ProfileRecording, error)
+	ListProfileRecordings(
+		context.Context,
+		...client.ListOption,
+	) (*profilerecordingapi.ProfileRecordingList, error)
+	ListRecordedPods(
+		ctx context.Context,
+		inNs string,
+		selector *metav1.LabelSelector,
+	) (*corev1.PodList, error)
 	UpdateResource(context.Context, logr.Logger, client.Object, string) error
 	UpdateResourceStatus(context.Context, logr.Logger, client.Object, string) error
 	DecodePod(admission.Request) (*corev1.Pod, error)

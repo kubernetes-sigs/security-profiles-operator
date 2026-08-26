@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -98,7 +98,12 @@ func (e *e2e) testCaseSelinuxMetrics(nodes []string) {
 
 	rawPolicyName := e.getSELinuxPolicyName("selinuxprofile", "errorlogger")
 	e.logf("assert errorlogger policy is installed")
-	e.assertSelinuxPolicyIsInstalled(nodes, rawPolicyName, maxNodeIterations, sleepBetweenIterations)
+	e.assertSelinuxPolicyIsInstalled(
+		nodes,
+		rawPolicyName,
+		maxNodeIterations,
+		sleepBetweenIterations,
+	)
 
 	e.logf("Deleting errorlogger profile")
 	e.kubectl("delete", "selinuxprofile", "errorlogger")

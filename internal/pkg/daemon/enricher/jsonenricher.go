@@ -1,5 +1,5 @@
 /*
-Copyright 2025 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -205,7 +205,8 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 			e.logger.V(config.VerboseLevel).Info("Emit audit log for process",
 				"pid", logItem.Key())
 			e.dispatchSeccompLine(auditLogBucket, nodeName)
-		})
+		},
+	)
 
 	e.logger.Info(fmt.Sprintf("Setting up caches with expiry of %v", defaultCacheTimeout))
 
@@ -255,6 +256,7 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 
 	bpfProcCache := bpfrecorder.NewBpfProcessCache(e.logger)
 
+	//nolint:staticcheck,nolintlint // platform-dependent: always true on non-linux
 	if err := bpfProcCache.Load(); err != nil {
 		e.logger.Info("Unable to load BPF module. Using auditd", "err", err.Error())
 	} else {
@@ -341,8 +343,11 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 }
 
 func (e *JsonEnricher) processEbpf(logBucket *types.LogBucket, auditLine *types.AuditLine) {
-	if e.bpfProcessCache != nil && logBucket.ProcessInfo != nil && logBucket.ProcessInfo.CmdLine == "" {
+	if e.bpfProcessCache != nil && logBucket.ProcessInfo != nil &&
+		logBucket.ProcessInfo.CmdLine == "" {
+		//nolint:staticcheck,nolintlint // platform-dependent
 		cmdLine, errCmdLine := e.bpfProcessCache.GetCmdLine(auditLine.ProcessID)
+		//nolint:staticcheck,nolintlint // platform-dependent
 		if errCmdLine == nil {
 			logBucket.ProcessInfo.CmdLine = cmdLine
 
@@ -354,8 +359,11 @@ func (e *JsonEnricher) processEbpf(logBucket *types.LogBucket, auditLine *types.
 		}
 	}
 
-	if e.bpfProcessCache != nil && logBucket.ProcessInfo != nil && logBucket.ProcessInfo.ExecRequestId == nil {
+	if e.bpfProcessCache != nil && logBucket.ProcessInfo != nil &&
+		logBucket.ProcessInfo.ExecRequestId == nil {
+		//nolint:staticcheck,nolintlint // platform-dependent
 		procEnv, errEnv := e.bpfProcessCache.GetEnv(auditLine.ProcessID)
+		//nolint:staticcheck,nolintlint // platform-dependent
 		if errEnv == nil {
 			reqId, ok := procEnv[requestIdEnv]
 			if !ok {
@@ -375,7 +383,11 @@ func (e *JsonEnricher) processEbpf(logBucket *types.LogBucket, auditLine *types.
 }
 
 // Returns nil if the containerInfo couldn't be loaded.
-func (e *JsonEnricher) fetchContainerInfo(ctx context.Context, processId int, nodeName string) *types.ContainerInfo {
+func (e *JsonEnricher) fetchContainerInfo(
+	ctx context.Context,
+	processId int,
+	nodeName string,
+) *types.ContainerInfo {
 	cID, errContainer := e.ContainerIDForPID(e.containerIDCache, processId)
 	e.logger.V(config.VerboseLevel).Info(
 		fmt.Sprintf("Container ID for Pid: %v with len %d", cID, len(cID)))
@@ -399,7 +411,11 @@ func (e *JsonEnricher) fetchContainerInfo(ctx context.Context, processId int, no
 }
 
 // Returns nil if the processInfo couldn't be loaded.
-func (e *JsonEnricher) fetchProcessInfo(processId int, executable string, uid, gid uint32) *types.ProcessInfo {
+func (e *JsonEnricher) fetchProcessInfo(
+	processId int,
+	executable string,
+	uid, gid uint32,
+) *types.ProcessInfo {
 	processInfo, err := GetProcessInfo(processId, executable, uid, gid, e.processCache, e.impl)
 	e.logger.V(config.VerboseLevel).Info(
 		fmt.Sprintf("Process Info: %v", processInfo))

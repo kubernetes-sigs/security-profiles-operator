@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -29,7 +29,14 @@ import (
 
 func (e *e2e) testCaseProfilingChange([]string) {
 	e.logf("Change profiling in spod")
-	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enableProfiling": true}}`, "--type=merge")
+	e.kubectlOperatorNS(
+		"patch",
+		"spod",
+		"spod",
+		"-p",
+		`{"spec":{"enableProfiling": true}}`,
+		"--type=merge",
+	)
 	time.Sleep(defaultWaitTime)
 
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
@@ -49,7 +56,14 @@ func (e *e2e) testCaseProfilingHTTP([]string) {
 	e.logf("Test profiling HTTP version")
 
 	e.logf("Enable spod profiling to test endpoint HTTP version")
-	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enableProfiling": true}}`, "--type=merge")
+	e.kubectlOperatorNS(
+		"patch",
+		"spod",
+		"spod",
+		"-p",
+		`{"spec":{"enableProfiling": true}}`,
+		"--type=merge",
+	)
 	time.Sleep(defaultWaitTime)
 
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")

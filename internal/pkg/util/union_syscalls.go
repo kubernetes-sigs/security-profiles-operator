@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -22,7 +22,9 @@ import (
 	seccompprofile "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 )
 
-func UnionSyscalls(syscalls, appliedSyscalls []seccompprofile.Syscall) ([]seccompprofile.Syscall, error) {
+func UnionSyscalls(
+	syscalls, appliedSyscalls []seccompprofile.Syscall,
+) ([]seccompprofile.Syscall, error) {
 	left := syscallsToOCI(syscalls)
 	right := syscallsToOCI(appliedSyscalls)
 	merged := seccomp.UnionSyscalls(left, right)

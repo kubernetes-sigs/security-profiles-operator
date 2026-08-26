@@ -1,7 +1,7 @@
 //go:build linux && !no_bpf
 
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -147,7 +147,11 @@ func (d *defaultImpl) GetMap(module *bpf.Module, mapName string) (*bpf.BPFMap, e
 	return module.GetMap(mapName)
 }
 
-func (d *defaultImpl) InitRingBuf(module *bpf.Module, mapName string, eventsChan chan []byte) (*bpf.RingBuffer, error) {
+func (d *defaultImpl) InitRingBuf(
+	module *bpf.Module,
+	mapName string,
+	eventsChan chan []byte,
+) (*bpf.RingBuffer, error) {
 	return module.InitRingBuf(mapName, eventsChan)
 }
 
@@ -175,7 +179,10 @@ func (d *defaultImpl) Write(file *os.File, b []byte) (n int, err error) {
 	return file.Write(b)
 }
 
-func (d *defaultImpl) ContainerIDForPID(cache *ttlcache.Cache[string, string], pid int) (string, error) {
+func (d *defaultImpl) ContainerIDForPID(
+	cache *ttlcache.Cache[string, string],
+	pid int,
+) (string, error) {
 	return util.ContainerIDForPID(cache, pid)
 }
 

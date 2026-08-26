@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -41,7 +41,12 @@ func AddFinalizer(ctx context.Context, c client.Client, pol client.Object, final
 }
 
 // RemoveFinalizer attempts to remove a finalizer from an object if present and update the object.
-func RemoveFinalizer(ctx context.Context, c client.Client, pol client.Object, finalizer string) error {
+func RemoveFinalizer(
+	ctx context.Context,
+	c client.Client,
+	pol client.Object,
+	finalizer string,
+) error {
 	if err := c.Get(ctx, NamespacedName(pol.GetName(), pol.GetNamespace()), pol); err != nil {
 		return fmt.Errorf("%s: %w", ErrGetProfile, err)
 	}

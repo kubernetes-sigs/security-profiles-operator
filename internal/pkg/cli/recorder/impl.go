@@ -1,7 +1,7 @@
 //go:build linux && !no_bpf
 
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -89,7 +89,11 @@ func (*defaultImpl) CommandWait(cmd *command.Command) error {
 	return cmd.Wait()
 }
 
-func (*defaultImpl) WaitForPidExit(b *bpfrecorder.BpfRecorder, ctx context.Context, pid uint32) error {
+func (*defaultImpl) WaitForPidExit(
+	b *bpfrecorder.BpfRecorder,
+	ctx context.Context,
+	pid uint32,
+) error {
 	return b.WaitForPidExit(ctx, pid)
 }
 
