@@ -1286,6 +1286,17 @@ spec:
               selinux:
                 description: selinux contains SELinux-specific configuration.
                 properties:
+                  customTemplatesConfigMap:
+                    description: |-
+                      customTemplatesConfigMap if defined, names a ConfigMap containing .cil
+                      files that replace the bundled selinuxd templates entirely. The ConfigMap
+                      must exist in the same namespace as the SPOD daemonset. Use this on
+                      distributions (e.g. Flatcar Linux) whose SELinux policy base is incompatible
+                      with the templates shipped with selinuxd. Note: changes to the ConfigMap
+                      contents require restarting the DaemonSet pods to take effect.
+                    maxLength: 253
+                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                    type: string
                   enable:
                     description: |-
                       enable tells the operator whether or not to enable SELinux support for
@@ -1298,8 +1309,27 @@ spec:
                       controller will not be started. Defaults to true when SELinux is enabled.
                     type: boolean
                   options:
+                    default: {}
                     description: options defines options specific to the SELinux functionality.
                     properties:
+                      allowedClasses:
+                        description: |-
+                          allowedClasses if specified, a list of SELinux object classes which are
+                          removed from the built-in denylist. Use this with care, as it relaxes a
+                          safe default for every translated policy.
+                        items:
+                          type: string
+                        type: array
+                        x-kubernetes-list-type: set
+                      allowedPermissions:
+                        description: |-
+                          allowedPermissions if specified, a list of SELinux permissions which are
+                          removed from the built-in denylist. Use this with care, as it relaxes a
+                          safe default for every translated policy.
+                        items:
+                          type: string
+                        type: array
+                        x-kubernetes-list-type: set
                       allowedSystemProfiles:
                         default:
                         - container
@@ -1307,6 +1337,15 @@ spec:
                           allowedSystemProfiles lists the profiles coming from the system itself
                           that are allowed to be inherited by workloads. Use this with care,
                           as this might provide a lot of permissions depending on the policy.
+                        items:
+                          type: string
+                        type: array
+                        x-kubernetes-list-type: set
+                      allowedTypes:
+                        description: |-
+                          allowedTypes if specified, a list of SELinux types which are removed
+                          from the built-in denylist. Use this with care, as it relaxes a safe
+                          default for every translated policy.
                         items:
                           type: string
                         type: array
@@ -2799,6 +2838,17 @@ spec:
               selinux:
                 description: selinux contains SELinux-specific configuration.
                 properties:
+                  customTemplatesConfigMap:
+                    description: |-
+                      customTemplatesConfigMap if defined, names a ConfigMap containing .cil
+                      files that replace the bundled selinuxd templates entirely. The ConfigMap
+                      must exist in the same namespace as the SPOD daemonset. Use this on
+                      distributions (e.g. Flatcar Linux) whose SELinux policy base is incompatible
+                      with the templates shipped with selinuxd. Note: changes to the ConfigMap
+                      contents require restarting the DaemonSet pods to take effect.
+                    maxLength: 253
+                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                    type: string
                   enable:
                     description: |-
                       enable tells the operator whether or not to enable SELinux support for
