@@ -25,7 +25,9 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
@@ -54,7 +56,9 @@ func NewController() controller.Controller {
 
 func selinuxProfileControllerBuild(b *ctrl.Builder, r reconcile.Reconciler) error {
 	return b.Named("selinuxprofile").
-		For(&selinuxprofileapi.SelinuxProfile{}).
+		For(&selinuxprofileapi.SelinuxProfile{}, builder.WithPredicates(
+			predicate.GenerationChangedPredicate{},
+		)).
 		Complete(r)
 }
 

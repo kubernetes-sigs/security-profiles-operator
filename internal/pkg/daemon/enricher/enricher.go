@@ -54,6 +54,29 @@ const (
 	maxCacheItems  uint64        = 1000
 )
 
+type syncSet struct {
+	mu  sync.RWMutex
+	set sets.Set[string]
+}
+
+func newSyncSet() *syncSet {
+	return &syncSet{set: sets.New[string]()}
+}
+
+func (s *syncSet) Insert(items ...string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.set.Insert(items...)
+}
+
+func (s *syncSet) UnsortedList() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.set.UnsortedList()
+}
+
 type LogEnricherOptions struct {
 	EnricherFiltersJson string
 	AuditSource         string
@@ -442,9 +465,9 @@ func (e *Enricher) dispatchSelinuxLine(
 				e.logger.Error(err, "marshall protobuf")
 			}
 
-			a, _ := e.avcs.LoadOrStore(info.RecordProfile, sets.New[string]())
+			a, _ := e.avcs.LoadOrStore(info.RecordProfile, newSyncSet())
 
-			stringSet, ok := a.(sets.Set[string])
+			stringSet, ok := a.(*syncSet)
 			if ok {
 				stringSet.Insert(string(jsonBytes))
 			}
@@ -506,9 +529,9 @@ func (e *Enricher) dispatchSeccompLine(
 	}
 
 	if info.RecordProfile != "" {
-		s, _ := e.syscalls.LoadOrStore(info.RecordProfile, sets.New[string]())
+		s, _ := e.syscalls.LoadOrStore(info.RecordProfile, newSyncSet())
 
-		stringSet, ok := s.(sets.Set[string])
+		stringSet, ok := s.(*syncSet)
 		if ok {
 			stringSet.Insert(syscallName)
 		}

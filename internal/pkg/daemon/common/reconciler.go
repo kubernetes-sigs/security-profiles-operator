@@ -97,6 +97,15 @@ func ReconcileDeletion(
 	}
 
 	if controllerutil.ContainsFinalizer(profile, util.HasActivePodsFinalizerString) {
+		if ts := profile.GetDeletionTimestamp(); ts != nil {
+			age := time.Since(ts.Time)
+			if age > 10*time.Minute {
+				log.Info("WARNING: profile stuck with active-pods finalizer for over 10 minutes, "+
+					"check if pods using this profile are still running",
+					"deletionAge", age.Round(time.Second).String())
+			}
+		}
+
 		log.Info("cannot delete profile in use by pod, requeuing")
 
 		return reconcile.Result{RequeueAfter: Wait}, nil

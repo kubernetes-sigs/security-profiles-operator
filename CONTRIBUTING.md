@@ -31,10 +31,12 @@ general k8s resources
 
 ## Prerequisites
 
-- [go](https://golang.org/dl/) version v1.15+.
-- [docker](https://docs.docker.com/install/) version 17.03+.
-- [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl/) version v1.19+.
-- Access to a Kubernetes v1.19+ cluster.
+- [go](https://golang.org/dl/) version v1.26+.
+- [docker](https://docs.docker.com/install/) version 24.0+ or [podman](https://podman.io/getting-started/installation) version 4.0+.
+- [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl/) version v1.30+.
+- Access to a Kubernetes v1.30+ cluster.
+
+For detailed development setup and build instructions, see [hacking.md](hacking.md).
 
 ## Contributing steps
 

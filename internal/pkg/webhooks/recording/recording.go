@@ -138,7 +138,7 @@ func (p *podSeccompRecorder) Handle(
 				err, "Could not get label selector from profile recording",
 			)
 
-			return admission.Errored(http.StatusInternalServerError, err)
+			return admission.Errored(http.StatusBadRequest, err)
 		}
 
 		if err := util.Retry(func() error {

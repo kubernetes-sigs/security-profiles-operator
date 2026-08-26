@@ -26,10 +26,8 @@ import (
 	_ "net/http/pprof" //nolint:gosec // required for profiling
 	"os"
 	"os/exec"
-	"os/signal"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
@@ -118,21 +116,6 @@ var (
 )
 
 func main() {
-	// This is required to close any open resource like a file
-	mainctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	sigChan := make(chan os.Signal, 1)
-
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	go func() {
-		sig := <-sigChan
-		// No logger may be available hence using fmt
-		fmt.Printf("\nReceived OS signal: %s. Initiating graceful shutdown...\n", sig)
-		cancel()
-	}()
-
 	app, info := cmd.DefaultApp()
 	app.Name = config.OperatorName
 	app.Usage = "Kubernetes Security Profiles Operator"
@@ -187,24 +170,28 @@ func main() {
 			},
 			Flags: []cli.Flag{
 				&cli.BoolFlag{
-					Name:  seccompFlag,
-					Usage: "Listen for seccomp API resources",
-					Value: true,
+					Name:    seccompFlag,
+					Usage:   "Listen for seccomp API resources",
+					Value:   true,
+					EnvVars: []string{config.EnableSeccompEnvKey},
 				},
 				&cli.BoolFlag{
-					Name:  selinuxFlag,
-					Usage: "Listen for SELinux API resources",
-					Value: false,
+					Name:    selinuxFlag,
+					Usage:   "Listen for SELinux API resources",
+					Value:   false,
+					EnvVars: []string{config.EnableSelinuxEnvKey},
 				},
 				&cli.BoolFlag{
-					Name:  apparmorFlag,
-					Usage: "Listen for AppArmor API resources",
-					Value: false,
+					Name:    apparmorFlag,
+					Usage:   "Listen for AppArmor API resources",
+					Value:   false,
+					EnvVars: []string{config.EnableApparmorEnvKey},
 				},
 				&cli.BoolFlag{
-					Name:  rawSelinuxFlag,
-					Usage: "Listen for RawSelinuxProfile API resources",
-					Value: false,
+					Name:    rawSelinuxFlag,
+					Usage:   "Listen for RawSelinuxProfile API resources",
+					Value:   false,
+					EnvVars: []string{config.EnableRawSelinuxEnvKey},
 				},
 				&cli.BoolFlag{
 					Name:    recordingFlag,
@@ -213,9 +200,10 @@ func main() {
 					EnvVars: []string{config.EnableRecordingEnvKey},
 				},
 				&cli.BoolFlag{
-					Name:  memOptimFlag,
-					Usage: "Enable memory optimization by watching only labeled pods",
-					Value: false,
+					Name:    memOptimFlag,
+					Usage:   "Enable memory optimization by watching only labeled pods",
+					Value:   false,
+					EnvVars: []string{config.EnableMemOptimEnvKey},
 				},
 				&cli.BoolFlag{
 					Name:    insecureMetricsAccessFlag,
@@ -307,14 +295,15 @@ func main() {
 					return fmt.Errorf("could not create json enricher: %w", err)
 				}
 
+				sigCtx := ctrl.SetupSignalHandler()
+
 				runErr := make(chan error)
-				go jsonEnricher.Run(mainctx, runErr)
+				go jsonEnricher.Run(sigCtx, runErr)
 
 				select {
-				case <-runErr:
-					return fmt.Errorf("error while executing JSON Enricher: %w", <-runErr)
-				case <-mainctx.Done():
-					// Cannot use CLI "After" as exit signal won't invoke it
+				case err := <-runErr:
+					return fmt.Errorf("error while executing JSON Enricher: %w", err)
+				case <-sigCtx.Done():
 					fmt.Printf("Exit JSON Enricher")
 					jsonEnricher.ExitJsonEnricher(ctx)
 
@@ -400,9 +389,8 @@ func main() {
 		},
 	}
 
-	if err := app.RunContext(mainctx, os.Args); err != nil {
+	if err := app.RunContext(context.Background(), os.Args); err != nil {
 		setupLog.Error(err, "running security-profiles-operator")
-		//nolint:gocritic // this is intentional to return to correct exit code
 		os.Exit(1)
 	}
 }

@@ -55,7 +55,9 @@ const (
 	selinuxdReadyURL        = selinuxdSockAddr + "/ready"
 	selinuxdSocketTimeout   = 5 * time.Second
 
-	selinuxdReadyKey = "ready"
+	selinuxdReadyKey     = "ready"
+	selinuxdPollInterval = 5 * time.Second
+	reconcileTimeout     = time.Minute
 )
 
 type sePolStatusType string
@@ -177,6 +179,9 @@ func (r *ReconcileSelinux) Reconcile(
 	ctx context.Context,
 	request reconcile.Request,
 ) (reconcile.Result, error) {
+	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
+	defer cancel()
+
 	reqLogger := r.log.WithValues(
 		"Request.Namespace",
 		request.Namespace,
@@ -287,9 +292,12 @@ func (r *ReconcileSelinux) reconcilePolicy(
 
 	if !selinuxdReady {
 		l.Info("selinuxd not yet up, requeue")
-		r.record.Event(sp, util.EventTypeWarning, reasonCannotContactSelinuxd, err.Error())
+		r.record.Event(
+			sp, util.EventTypeWarning,
+			reasonCannotContactSelinuxd, "selinuxd not yet ready",
+		)
 
-		return reconcile.Result{RequeueAfter: time.Second}, nil
+		return reconcile.Result{RequeueAfter: selinuxdPollInterval}, nil
 	}
 
 	if valErr := oh.Validate(); valErr != nil {
@@ -368,7 +376,7 @@ func (r *ReconcileSelinux) reconcilePolicy(
 			return reconcile.Result{}, fmt.Errorf("setting node status to in progress: %w", err)
 		}
 
-		return reconcile.Result{RequeueAfter: time.Second}, nil
+		return reconcile.Result{RequeueAfter: selinuxdPollInterval}, nil
 	}
 
 	l.Info("Checking if policy deployed", "policyName", sp.GetName())
@@ -385,7 +393,7 @@ func (r *ReconcileSelinux) reconcilePolicy(
 			return reconcile.Result{}, fmt.Errorf("setting node status to in progress: %w", err)
 		}
 
-		return reconcile.Result{RequeueAfter: time.Second}, nil
+		return reconcile.Result{RequeueAfter: selinuxdPollInterval}, nil
 	}
 
 	if err != nil {
@@ -513,7 +521,7 @@ func (r *ReconcileSelinux) reconcileDeletePolicy(
 	if !selinuxdReady {
 		l.Info("selinuxd not yet up, requeue")
 
-		return reconcile.Result{RequeueAfter: time.Second}, nil
+		return reconcile.Result{RequeueAfter: selinuxdPollInterval}, nil
 	}
 
 	res, err := r.reconcileDeletePolicyFile(sp, l)
@@ -567,7 +575,7 @@ func (r *ReconcileSelinux) reconcileDeletePolicy(
 	case installedStatus:
 		l.Info("Policy still installed, requeue")
 
-		return reconcile.Result{RequeueAfter: time.Second}, nil
+		return reconcile.Result{RequeueAfter: selinuxdPollInterval}, nil
 	case failedStatus:
 		if err := nodeStatus.SetNodeStatus(
 			ctx,
@@ -606,7 +614,7 @@ func (r *ReconcileSelinux) reconcileDeletePolicyFile(sp selinuxprofileapi.Selinu
 
 	err := os.Remove(policyPath)
 	if err == nil {
-		return reconcile.Result{RequeueAfter: time.Second}, nil
+		return reconcile.Result{RequeueAfter: selinuxdPollInterval}, nil
 	}
 
 	if osPathErr, ok := errors.AsType[*os.PathError](err); ok {
@@ -615,12 +623,8 @@ func (r *ReconcileSelinux) reconcileDeletePolicyFile(sp selinuxprofileapi.Selinu
 		}
 	}
 
-	return reconcile.Result{
-			RequeueAfter: time.Second,
-		}, fmt.Errorf(
-			"error removing policy file: %w",
-			err,
-		)
+	return reconcile.Result{RequeueAfter: selinuxdPollInterval},
+		fmt.Errorf("error removing policy file: %w", err)
 }
 
 func getPolicyStatus(
@@ -701,20 +705,18 @@ func writeFileIfDiffers(filePath string, contents []byte, l logr.Logger) (bool, 
 
 	file, err := os.OpenFile(filePath, os.O_RDONLY, filePermissions)
 	if os.IsNotExist(err) {
-		file.Close()
-
 		l.Info("Writing new policy file", "policyPath", filePath)
 
 		return true, os.WriteFile(filePath, contents, filePermissions)
 	} else if err != nil {
-		return false, fmt.Errorf("could not open for reading: %w"+filePath, err)
+		return false, fmt.Errorf("could not open for reading %s: %w", filePath, err)
 	}
 
 	defer file.Close()
 
 	existing, err := io.ReadAll(file)
 	if err != nil {
-		return false, fmt.Errorf("reading file : %w"+filePath, err)
+		return false, fmt.Errorf("reading file %s: %w", filePath, err)
 	}
 
 	if bytes.Equal(existing, contents) {

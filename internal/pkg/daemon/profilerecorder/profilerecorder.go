@@ -513,12 +513,28 @@ func (r *RecorderReconciler) collectLogProfiles(
 	return nil
 }
 
-func (r *RecorderReconciler) collectLogSeccompProfile(
+// logProfileCollector captures the type-specific operations needed for collecting
+// a log-based profile, allowing the shared skeleton in collectLogProfileGeneric
+// to be reused across seccomp and SELinux.
+type logProfileCollector struct {
+	// fetchData retrieves recorded data from the enricher. Returns (data, isEmpty, error).
+	// If isEmpty is true, the profile should be reset and skipped.
+	fetchData func(ctx context.Context) (any, bool, error)
+	// buildProfile constructs the profile object and its spec base from the fetched data.
+	buildProfile func(data any, labels map[string]string) (client.Object, *profilebase.SpecBase, error)
+	// applySpec sets the spec on the profile object during CreateOrUpdate.
+	applySpec func()
+	// resetData resets the enricher data for further recordings.
+	resetData func(ctx context.Context) error
+	// profileKind is used in log and event messages (e.g. "seccomp", "selinux").
+	profileKind string
+}
+
+func (r *RecorderReconciler) collectLogProfileGeneric(
 	ctx context.Context,
-	enricherClient enricherapi.EnricherClient,
 	parsedProfileName *parsedAnnotation,
 	profileNamespacedName types.NamespacedName,
-	profileID string,
+	collector logProfileCollector,
 ) error {
 	labels, err := profileLabels(
 		ctx,
@@ -530,9 +546,6 @@ func (r *RecorderReconciler) collectLogSeccompProfile(
 		return fmt.Errorf("creating profile labels: %w", err)
 	}
 
-	// Do this BEFORE reading the syscalls to hopefully minimize the
-	// race window in case reading the syscalls failed. In that case we just reconcile
-	// back here and loop through again
 	err = r.setRecordingFinalizers(
 		ctx,
 		labels,
@@ -543,80 +556,149 @@ func (r *RecorderReconciler) collectLogSeccompProfile(
 		return fmt.Errorf("setting finalizer on profilerecording: %w", err)
 	}
 
-	// Retrieve the syscalls for the recording
-	request := &enricherapi.SyscallsRequest{Profile: profileID}
-
-	response, err := r.Syscalls(ctx, enricherClient, request)
+	data, isEmpty, err := collector.fetchData(ctx)
 	if err != nil {
-		if grpcstatus.Convert(err).Code() == grpccodes.NotFound &&
-			grpcstatus.Convert(err).Message() == enricher.ErrorNoSyscalls {
-			if err := r.ResetSyscalls(ctx, enricherClient, request); err != nil {
-				return fmt.Errorf("reset syscalls for profile %s: %w", profileNamespacedName, err)
-			}
+		return err
+	}
 
-			r.log.Info("No syscalls found, resetting profile", "profileID", profileID)
+	if isEmpty {
+		return nil
+	}
 
-			return nil
+	profile, specBase, err := collector.buildProfile(data, labels)
+	if err != nil {
+		if profile != nil {
+			r.record.Event(profile, util.EventTypeWarning, reasonProfileCreationFailed, err.Error())
 		}
 
-		return fmt.Errorf("retrieve syscalls for profile %s: %w", profileID, err)
-	}
-
-	arch, err := r.goArchToSeccompArch(response.GetGoArch())
-	if err != nil {
-		return fmt.Errorf("get seccomp arch: %w", err)
-	}
-
-	profileSpec := &seccompprofileapi.SeccompProfileSpec{
-		DefaultAction: seccompprofileapi.ActErrno,
-		Architectures: []seccompprofileapi.Arch{arch},
-		Syscalls: []seccompprofileapi.Syscall{{
-			Action: seccompprofileapi.ActAllow,
-			Names:  response.GetSyscalls(),
-		}},
-	}
-
-	profile := &seccompprofileapi.SeccompProfile{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      profileNamespacedName.Name,
-			Namespace: profileNamespacedName.Namespace,
-			Labels:    labels,
-		},
-		Spec: *profileSpec,
+		return err
 	}
 
 	if err := r.setDisabled(ctx, r.client,
 		parsedProfileName.profileName, profileNamespacedName.Namespace,
-		&profileSpec.SpecBase); err != nil {
+		specBase); err != nil {
 		r.log.Error(err, "Cannot set the enabled flag")
 		r.record.Event(profile, util.EventTypeWarning, reasonProfileCreationFailed, err.Error())
 
-		return fmt.Errorf("format selinuxprofile resource: %w", err)
+		return fmt.Errorf("set disabled on %s profile: %w", collector.profileKind, err)
 	}
 
 	res, err := r.CreateOrUpdate(ctx, r.client, profile,
 		func() error {
-			profile.Spec = *profileSpec
+			collector.applySpec()
 
 			return nil
 		},
 	)
 	if err != nil {
-		r.log.Error(err, "Cannot create seccompprofile resource")
+		r.log.Error(err, "Cannot create profile resource")
 		r.record.Event(profile, util.EventTypeWarning, reasonProfileCreationFailed, err.Error())
 
-		return fmt.Errorf("create seccompProfile resource: %w", err)
+		return fmt.Errorf("create %s profile resource: %w", collector.profileKind, err)
 	}
 
 	r.log.Info("Created/updated profile", "action", res, "name", profileNamespacedName.Name)
-	r.record.Event(profile, util.EventTypeNormal, reasonProfileCreated, "seccomp profile created")
+	r.record.Event(profile, util.EventTypeNormal, reasonProfileCreated,
+		collector.profileKind+" profile created")
 
-	// Reset the syscalls for further recordings
-	if err := r.ResetSyscalls(ctx, enricherClient, request); err != nil {
-		return fmt.Errorf("reset syscalls for profile %s: %w", profileID, err)
+	if err := collector.resetData(ctx); err != nil {
+		return fmt.Errorf("reset %s data for profile %s: %w",
+			collector.profileKind, profileNamespacedName, err)
 	}
 
 	return nil
+}
+
+func (r *RecorderReconciler) collectLogSeccompProfile(
+	ctx context.Context,
+	enricherClient enricherapi.EnricherClient,
+	parsedProfileName *parsedAnnotation,
+	profileNamespacedName types.NamespacedName,
+	profileID string,
+) error {
+	request := &enricherapi.SyscallsRequest{Profile: profileID}
+
+	var (
+		profile     *seccompprofileapi.SeccompProfile
+		profileSpec *seccompprofileapi.SeccompProfileSpec
+	)
+
+	collector := logProfileCollector{
+		profileKind: "seccomp",
+		fetchData: func(ctx context.Context) (any, bool, error) {
+			response, err := r.Syscalls(ctx, enricherClient, request)
+			if err != nil {
+				if grpcstatus.Convert(err).Code() == grpccodes.NotFound &&
+					grpcstatus.Convert(err).Message() == enricher.ErrorNoSyscalls {
+					if err := r.ResetSyscalls(ctx, enricherClient, request); err != nil {
+						return nil, false, fmt.Errorf(
+							"reset syscalls for profile %s: %w",
+							profileNamespacedName, err,
+						)
+					}
+
+					r.log.Info(
+						"No syscalls found, resetting profile",
+						"profileID", profileID,
+					)
+
+					return nil, true, nil
+				}
+
+				return nil, false, fmt.Errorf(
+					"retrieve syscalls for profile %s: %w",
+					profileID, err,
+				)
+			}
+
+			return response, false, nil
+		},
+		buildProfile: func(
+			data any, labels map[string]string,
+		) (client.Object, *profilebase.SpecBase, error) {
+			response, ok := data.(*enricherapi.SyscallsResponse)
+			if !ok {
+				return nil, nil, fmt.Errorf(
+					"unexpected data type: %T", data,
+				)
+			}
+
+			arch, err := r.goArchToSeccompArch(response.GetGoArch())
+			if err != nil {
+				return nil, nil, fmt.Errorf("get seccomp arch: %w", err)
+			}
+
+			profileSpec = &seccompprofileapi.SeccompProfileSpec{
+				DefaultAction: seccompprofileapi.ActErrno,
+				Architectures: []seccompprofileapi.Arch{arch},
+				Syscalls: []seccompprofileapi.Syscall{{
+					Action: seccompprofileapi.ActAllow,
+					Names:  response.GetSyscalls(),
+				}},
+			}
+
+			profile = &seccompprofileapi.SeccompProfile{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      profileNamespacedName.Name,
+					Namespace: profileNamespacedName.Namespace,
+					Labels:    labels,
+				},
+				Spec: *profileSpec,
+			}
+
+			return profile, &profileSpec.SpecBase, nil
+		},
+		applySpec: func() {
+			profile.Spec = *profileSpec
+		},
+		resetData: func(ctx context.Context) error {
+			return r.ResetSyscalls(ctx, enricherClient, request)
+		},
+	}
+
+	return r.collectLogProfileGeneric(
+		ctx, parsedProfileName, profileNamespacedName, collector,
+	)
 }
 
 func (r *RecorderReconciler) collectLogSelinuxProfile(
@@ -626,117 +708,97 @@ func (r *RecorderReconciler) collectLogSelinuxProfile(
 	profileNamespacedName types.NamespacedName,
 	profileID string,
 ) error {
-	labels, err := profileLabels(
-		ctx,
-		r,
-		parsedProfileName.profileName,
-		parsedProfileName.cntName,
-		profileNamespacedName.Namespace)
-	if err != nil {
-		return fmt.Errorf("creating profile labels: %w", err)
-	}
-
-	// Do this BEFORE reading the AVCs to hopefully minimize the
-	// race window in case reading the AVCs failed. In that case we just reconcile
-	// back here and loop through again
-	err = r.setRecordingFinalizers(
-		ctx,
-		labels,
-		parsedProfileName.profileName,
-		profileNamespacedName.Namespace,
-	)
-	if err != nil {
-		return fmt.Errorf("setting finalizer on profilerecording: %w", err)
-	}
-
-	// Retrieve the AVCs for the recording
 	request := &enricherapi.AvcRequest{Profile: profileID}
 
-	response, err := r.Avcs(ctx, enricherClient, request)
-	if err != nil {
-		if grpcstatus.Convert(err).Code() == grpccodes.NotFound &&
-			grpcstatus.Convert(err).Message() == enricher.ErrorNoAvcs {
-			if err := r.ResetAvcs(ctx, enricherClient, request); err != nil {
-				return fmt.Errorf(
-					"reset selinuxprofile for profile %s: %w",
-					profileNamespacedName,
-					err,
+	var (
+		profile            *selinuxprofileapi.SelinuxProfile
+		selinuxProfileSpec selinuxprofileapi.SelinuxProfileSpec
+	)
+
+	collector := logProfileCollector{
+		profileKind: "selinux",
+		fetchData: func(ctx context.Context) (any, bool, error) {
+			response, err := r.Avcs(ctx, enricherClient, request)
+			if err != nil {
+				if grpcstatus.Convert(err).Code() == grpccodes.NotFound &&
+					grpcstatus.Convert(err).Message() == enricher.ErrorNoAvcs {
+					if err := r.ResetAvcs(ctx, enricherClient, request); err != nil {
+						return nil, false, fmt.Errorf(
+							"reset selinuxprofile for profile %s: %w",
+							profileNamespacedName, err,
+						)
+					}
+
+					r.log.Info(
+						"No AVCs found, resetting profile",
+						"profileID", profileID,
+					)
+
+					return nil, true, nil
+				}
+
+				return nil, false, fmt.Errorf(
+					"retrieve avcs for profile %s: %w",
+					profileID, err,
 				)
 			}
 
-			r.log.Info("No AVCs found, resetting profile", "profileID", profileID)
-
-			return nil
-		}
-
-		return fmt.Errorf("retrieve avcs for profile %s: %w", profileID, err)
-	}
-
-	selinuxProfileSpec := selinuxprofileapi.SelinuxProfileSpec{
-		Inherit: []selinuxprofileapi.PolicyRef{
-			{
-				Kind: selinuxprofileapi.SystemPolicyKind,
-				Name: "container",
-			},
+			return response, false, nil
 		},
-	}
+		buildProfile: func(
+			data any, labels map[string]string,
+		) (client.Object, *profilebase.SpecBase, error) {
+			response, ok := data.(*enricherapi.AvcResponse)
+			if !ok {
+				return nil, nil, fmt.Errorf(
+					"unexpected data type: %T", data,
+				)
+			}
 
-	profile := &selinuxprofileapi.SelinuxProfile{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      profileNamespacedName.Name,
-			Namespace: profileNamespacedName.Namespace,
-			Labels:    labels,
+			selinuxProfileSpec = selinuxprofileapi.SelinuxProfileSpec{
+				Inherit: []selinuxprofileapi.PolicyRef{
+					{
+						Kind: selinuxprofileapi.SystemPolicyKind,
+						Name: "container",
+					},
+				},
+			}
+
+			profile = &selinuxprofileapi.SelinuxProfile{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      profileNamespacedName.Name,
+					Namespace: profileNamespacedName.Namespace,
+					Labels:    labels,
+				},
+				Spec: selinuxProfileSpec,
+			}
+
+			var err error
+
+			selinuxProfileSpec.Allow, err = r.formatSelinuxProfile(
+				profile, response,
+			)
+			if err != nil {
+				r.log.Error(err, "Cannot format selinuxprofile")
+
+				return profile, nil, fmt.Errorf(
+					"format selinuxprofile resource: %w", err,
+				)
+			}
+
+			return profile, &selinuxProfileSpec.SpecBase, nil
 		},
-		Spec: selinuxProfileSpec,
-	}
-
-	selinuxProfileSpec.Allow, err = r.formatSelinuxProfile(profile, response)
-	if err != nil {
-		r.log.Error(err, "Cannot format selinuxprofile")
-		r.record.Event(profile, util.EventTypeWarning, reasonProfileCreationFailed, err.Error())
-
-		return fmt.Errorf("format selinuxprofile resource: %w", err)
-	}
-
-	r.log.Info("Created", "profile", profile)
-
-	if err := r.setDisabled(ctx, r.client,
-		parsedProfileName.profileName, profileNamespacedName.Namespace,
-		&selinuxProfileSpec.SpecBase); err != nil {
-		r.log.Error(err, "Cannot set the enabled flag")
-		r.record.Event(profile, util.EventTypeWarning, reasonProfileCreationFailed, err.Error())
-
-		return fmt.Errorf("format selinuxprofile resource: %w", err)
-	}
-
-	res, err := r.CreateOrUpdate(ctx, r.client, profile,
-		func() error {
+		applySpec: func() {
 			profile.Spec = selinuxProfileSpec
-
-			return nil
 		},
-	)
-	if err != nil {
-		r.log.Error(err, "Cannot create selinuxprofile resource")
-		r.record.Event(profile, util.EventTypeWarning, reasonProfileCreationFailed, err.Error())
-
-		return fmt.Errorf("create selinuxprofile resource: %w", err)
+		resetData: func(ctx context.Context) error {
+			return r.ResetAvcs(ctx, enricherClient, request)
+		},
 	}
 
-	r.log.Info("Created/updated selinux profile", "action", res, "name", profileNamespacedName)
-	r.record.Event(
-		profile,
-		util.EventTypeNormal,
-		reasonProfileCreated,
-		"selinuxprofile profile created",
+	return r.collectLogProfileGeneric(
+		ctx, parsedProfileName, profileNamespacedName, collector,
 	)
-
-	// Reset the selinuxprofile for further recordings
-	if err := r.ResetAvcs(ctx, enricherClient, request); err != nil {
-		return fmt.Errorf("reset selinuxprofile for profile %s: %w", profileNamespacedName, err)
-	}
-
-	return nil
 }
 
 func (r *RecorderReconciler) formatSelinuxProfile(
@@ -941,16 +1003,19 @@ func (r *RecorderReconciler) collectSeccompBpfProfile(
 	return profile, nil
 }
 
-//nolint:dupl // This requires a specific profile type which prevents the reducton of duplicated code
-func (r *RecorderReconciler) updateOrCreateSeccompResource(
+func (r *RecorderReconciler) updateOrCreateBpfResource(
 	ctx context.Context,
 	profileRecordingName string,
 	profileNamespace string,
-	profile *seccompprofileapi.SeccompProfile,
+	profile client.Object,
+	specBase *profilebase.SpecBase,
+	snapshotSpec func(),
+	applySpec func(),
+	profileKind string,
 ) error {
 	if err := r.setDisabled(ctx, r.client,
 		profileRecordingName, profileNamespace,
-		&profile.Spec.SpecBase); err != nil {
+		specBase); err != nil {
 		r.log.Error(err, "Cannot set the disable flag on profile",
 			"name", profileRecordingName,
 			"namespace", profileNamespace,
@@ -960,11 +1025,11 @@ func (r *RecorderReconciler) updateOrCreateSeccompResource(
 		return fmt.Errorf("disabling profile after recording: %w", err)
 	}
 
-	profileSpec := profile.Spec
+	snapshotSpec()
 
 	res, err := r.CreateOrUpdate(ctx, r.client, profile,
 		func() error {
-			profile.Spec = profileSpec
+			applySpec()
 
 			return nil
 		},
@@ -977,9 +1042,29 @@ func (r *RecorderReconciler) updateOrCreateSeccompResource(
 	}
 
 	r.log.Info("Created/updated profile", "action", res, "name", profileNamespace)
-	r.record.Event(profile, util.EventTypeNormal, reasonProfileCreated, "seccomp profile created")
+	r.record.Event(
+		profile, util.EventTypeNormal,
+		reasonProfileCreated, profileKind+" profile created",
+	)
 
 	return nil
+}
+
+func (r *RecorderReconciler) updateOrCreateSeccompResource(
+	ctx context.Context,
+	profileRecordingName string,
+	profileNamespace string,
+	profile *seccompprofileapi.SeccompProfile,
+) error {
+	var profileSpec seccompprofileapi.SeccompProfileSpec
+
+	return r.updateOrCreateBpfResource(
+		ctx, profileRecordingName, profileNamespace,
+		profile, &profile.Spec.SpecBase,
+		func() { profileSpec = profile.Spec },
+		func() { profile.Spec = profileSpec },
+		"seccomp",
+	)
 }
 
 func (r *RecorderReconciler) collectApparmorBpfProfile(
@@ -1112,45 +1197,21 @@ func (r *RecorderReconciler) generateAppArmorProfileAbstract(
 	return abstract
 }
 
-//nolint:dupl // This requires a specific profile type which prevents the reducton of duplicated code
 func (r *RecorderReconciler) updateOrCreateApparmorResource(
 	ctx context.Context,
 	profileRecordingName string,
 	profileNamespace string,
 	profile *apparmorprofileapi.AppArmorProfile,
 ) error {
-	if err := r.setDisabled(ctx, r.client,
-		profileRecordingName, profileNamespace,
-		&profile.Spec.SpecBase); err != nil {
-		r.log.Error(err, "Cannot set the disable flag on profile",
-			"name", profileRecordingName,
-			"namespace", profileNamespace,
-		)
-		r.record.Event(profile, util.EventTypeWarning, reasonProfileCreationFailed, err.Error())
+	var profileSpec apparmorprofileapi.AppArmorProfileSpec
 
-		return fmt.Errorf("disabling profile after recording: %w", err)
-	}
-
-	profileSpec := profile.Spec
-
-	res, err := r.CreateOrUpdate(ctx, r.client, profile,
-		func() error {
-			profile.Spec = profileSpec
-
-			return nil
-		},
+	return r.updateOrCreateBpfResource(
+		ctx, profileRecordingName, profileNamespace,
+		profile, &profile.Spec.SpecBase,
+		func() { profileSpec = profile.Spec },
+		func() { profile.Spec = profileSpec },
+		"apparmor",
 	)
-	if err != nil {
-		r.log.Error(err, "Cannot create profile resource")
-		r.record.Event(profile, util.EventTypeWarning, reasonProfileCreationFailed, err.Error())
-
-		return fmt.Errorf("creating profile resource: %w", err)
-	}
-
-	r.log.Info("Created/updated profile", "action", res, "name", profileNamespace)
-	r.record.Event(profile, util.EventTypeNormal, reasonProfileCreated, "apparmor profile created")
-
-	return nil
 }
 
 type parsedAnnotation struct {

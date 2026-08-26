@@ -31,9 +31,12 @@ RUN mkdir -p build
 
 # Use latest golang
 RUN ARCH=$(arch | sed 's|x86_64|amd64|g' | sed 's|aarch64|arm64|g') && \
-    GO_VERSION=$(curl -sSfL https://go.dev/VERSION?m=text | head -n1) && \
-    curl -sSfL https://go.dev/dl/${GO_VERSION}.linux-${ARCH}.tar.gz | \
-    tar -xzf - -C /usr/local
+    GO_VERSION=$(curl --proto '=https' --tlsv1.2 -sSfL https://go.dev/VERSION?m=text | head -n1) && \
+    curl --proto '=https' --tlsv1.2 -sSfL "https://go.dev/dl/${GO_VERSION}.linux-${ARCH}.tar.gz" -o /tmp/go.tar.gz && \
+    curl --proto '=https' --tlsv1.2 -sSfL "https://dl.google.com/go/${GO_VERSION}.linux-${ARCH}.tar.gz.sha256" -o /tmp/go.tar.gz.sha256 && \
+    echo "$(cat /tmp/go.tar.gz.sha256)  /tmp/go.tar.gz" | sha256sum --check && \
+    tar -xzf /tmp/go.tar.gz -C /usr/local && \
+    rm -f /tmp/go.tar.gz /tmp/go.tar.gz.sha256
 ENV PATH="/usr/local/go/bin:$PATH"
 
 ARG APPARMOR_ENABLED=0
