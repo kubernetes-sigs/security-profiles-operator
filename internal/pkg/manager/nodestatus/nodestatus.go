@@ -420,7 +420,26 @@ func (r *StatusReconciler) updateProfileStatus(
 }
 
 func profileStatusChanged(current, desired profilebaseapi.StatusBaseUser) bool {
-	return !reflect.DeepEqual(current, desired)
+	switch typedCurrent := current.(type) {
+	case *seccompprofileapi.SeccompProfile:
+		typedDesired, ok := desired.(*seccompprofileapi.SeccompProfile)
+
+		return !ok || !reflect.DeepEqual(typedCurrent.Status, typedDesired.Status)
+	case *selinuxprofileapi.SelinuxProfile:
+		typedDesired, ok := desired.(*selinuxprofileapi.SelinuxProfile)
+
+		return !ok || !reflect.DeepEqual(typedCurrent.Status, typedDesired.Status)
+	case *selinuxprofileapi.RawSelinuxProfile:
+		typedDesired, ok := desired.(*selinuxprofileapi.RawSelinuxProfile)
+
+		return !ok || !reflect.DeepEqual(typedCurrent.Status, typedDesired.Status)
+	case *apparmorapi.AppArmorProfile:
+		typedDesired, ok := desired.(*apparmorapi.AppArmorProfile)
+
+		return !ok || !reflect.DeepEqual(typedCurrent.Status, typedDesired.Status)
+	default:
+		return true
+	}
 }
 
 func daemonSetIsReady(ds *appsv1.DaemonSet) bool {
