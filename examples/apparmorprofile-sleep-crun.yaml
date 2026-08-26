@@ -14,7 +14,6 @@ spec:
         - dac_override
         - dac_read_search
         - mknod
-        - setgid
         - setpcap
         - sys_admin
     executable:
@@ -24,17 +23,10 @@ spec:
         - /lib/ld-musl-x86_64.so.1
     filesystem:
       readOnlyPaths:
-        - /@{pid}/mounts
-        - /@{pid}/setgroups
+        - /@{pid}/cgroup
         - /@{pid}/task/@{tid}/attr/apparmor/current
         - /etc/passwd
-        - /proc/@{pid}/cgroup
-        - /proc/@{pid}/uid_map
         - /run/
-        - /run/crun/.empty-directory/
-        - /sys/kernel/cap_last_cap
-        - /sys/module/apparmor/parameters/enabled
-        - /var/lib/containers/storage/overlay/*/merged/
         - /var/lib/containers/storage/overlay/*/merged/dev/
         - /var/lib/containers/storage/overlay/*/merged/etc/
         - /var/lib/containers/storage/overlay/*/merged/proc/
@@ -42,7 +34,6 @@ spec:
         - /var/lib/containers/storage/overlay/*/merged/sys/
         - /var/lib/containers/storage/overlay/*/merged/var/
       readWritePaths:
-        - /@{pid}/oom_score_adj
         - /dev/null
         - /var/lib/containers/storage/overlay/*/merged/dev/*
         - /var/lib/containers/storage/overlay/*/merged/dev/mqueue/

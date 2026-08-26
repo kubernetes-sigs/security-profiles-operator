@@ -31,8 +31,7 @@ webhooks:
         name: "webhook-service"
         path: "/mutate-v1-pod-binding"
       caBundle: "Cg=="
-    admissionReviewVersions: 
-    - v1beta1
+    admissionReviewVersions:
     - v1
   - name: recording.spo.io
     failurePolicy: Fail
@@ -59,5 +58,4 @@ webhooks:
         path: "/mutate-v1-pod-recording"
       caBundle: "Cg=="
     admissionReviewVersions:
-    - v1beta1
     - v1
