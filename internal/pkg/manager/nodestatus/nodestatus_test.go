@@ -31,28 +31,73 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
+	apparmorapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	profilebaseapi "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
+	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 )
 
 func TestProfileStatusChanged(t *testing.T) {
 	t.Parallel()
 
-	current := &seccompprofileapi.SeccompProfile{
-		ObjectMeta: metav1.ObjectMeta{Name: "test-profile"},
-		Status: seccompprofileapi.SeccompProfileStatus{
-			StatusBase: profilebaseapi.StatusBase{
-				Status: secprofnodestatusapi.ProfileStateInstalled,
+	testCases := []struct {
+		name    string
+		current profilebaseapi.StatusBaseUser
+	}{
+		{
+			name: "SeccompProfile",
+			current: &seccompprofileapi.SeccompProfile{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-profile"},
+				Status: seccompprofileapi.SeccompProfileStatus{
+					StatusBase: profilebaseapi.StatusBase{Status: secprofnodestatusapi.ProfileStateInstalled},
+				},
+			},
+		},
+		{
+			name: "SelinuxProfile",
+			current: &selinuxprofileapi.SelinuxProfile{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-profile"},
+				Status: selinuxprofileapi.SelinuxProfileStatus{
+					StatusBase: profilebaseapi.StatusBase{Status: secprofnodestatusapi.ProfileStateInstalled},
+				},
+			},
+		},
+		{
+			name: "RawSelinuxProfile",
+			current: &selinuxprofileapi.RawSelinuxProfile{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-profile"},
+				Status: selinuxprofileapi.SelinuxProfileStatus{
+					StatusBase: profilebaseapi.StatusBase{Status: secprofnodestatusapi.ProfileStateInstalled},
+				},
+			},
+		},
+		{
+			name: "AppArmorProfile",
+			current: &apparmorapi.AppArmorProfile{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-profile"},
+				Status: apparmorapi.AppArmorProfileStatus{
+					StatusBase: profilebaseapi.StatusBase{Status: secprofnodestatusapi.ProfileStateInstalled},
+				},
 			},
 		},
 	}
-	desired := current.DeepCopy()
 
-	require.False(t, profileStatusChanged(current, desired))
+	for i := range testCases {
+		testCase := testCases[i]
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-	desired.Status.Status = secprofnodestatusapi.ProfileStatePending
-	require.True(t, profileStatusChanged(current, desired))
+			desired := testCase.current.DeepCopyToStatusBaseIf()
+			require.False(t, profileStatusChanged(testCase.current, desired))
+
+			desired.SetAnnotations(map[string]string{"example": "value"})
+			require.False(t, profileStatusChanged(testCase.current, desired))
+
+			desired.GetStatusBase().Status = secprofnodestatusapi.ProfileStatePending
+			require.True(t, profileStatusChanged(testCase.current, desired))
+		})
+	}
 }
 
 func TestReconcileStatusRetriesConflictWithFreshGet(t *testing.T) {

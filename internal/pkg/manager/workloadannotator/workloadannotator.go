@@ -235,10 +235,19 @@ func (r *PodReconciler) updatePodReferencesForSeccomp(
 		pod := linkedPods.Items[i]
 		podList[i] = pod.Namespace + "/" + pod.Name
 	}
+
 	slices.Sort(podList)
+
+	profileDeleted := false
 
 	if err := util.Retry(func() error {
 		if err := r.reader.Get(ctx, util.NamespacedName(sp.GetName(), sp.GetNamespace()), sp); err != nil {
+			if errors.IsNotFound(err) {
+				profileDeleted = true
+
+				return nil
+			}
+
 			return fmt.Errorf("retrieving profile: %w", err)
 		}
 
@@ -255,6 +264,10 @@ func (r *PodReconciler) updatePodReferencesForSeccomp(
 		return nil
 	}, util.IsNotFoundOrConflict); err != nil {
 		return fmt.Errorf("updating SeccompProfile status: %w", err)
+	}
+
+	if profileDeleted {
+		return nil
 	}
 
 	if len(linkedPods.Items) > 0 {
@@ -281,6 +294,7 @@ func sameActiveWorkloads(current, desired []string) bool {
 
 	currentCopy := slices.Clone(current)
 	desiredCopy := slices.Clone(desired)
+
 	slices.Sort(currentCopy)
 	slices.Sort(desiredCopy)
 
@@ -308,25 +322,38 @@ func (r *PodReconciler) updatePodReferencesForSelinux(
 		podList[i] = pod.Namespace + "/" + pod.Name
 	}
 
-	if err := util.Retry(func() error {
-		se.Status.ActiveWorkloads = podList
+	slices.Sort(podList)
 
-		updateErr := r.client.Status().Update(ctx, se)
-		if updateErr != nil {
-			if err := r.client.Get(
-				ctx,
-				util.NamespacedName(se.GetName(), se.GetNamespace()),
-				se,
-			); err != nil {
-				return fmt.Errorf("retrieving profile: %w", err)
+	profileDeleted := false
+
+	if err := util.Retry(func() error {
+		if err := r.reader.Get(ctx, util.NamespacedName(se.GetName(), se.GetNamespace()), se); err != nil {
+			if errors.IsNotFound(err) {
+				profileDeleted = true
+
+				return nil
 			}
 
-			return fmt.Errorf("updating profile: %w", updateErr)
+			return fmt.Errorf("retrieving profile: %w", err)
+		}
+
+		if sameActiveWorkloads(se.Status.ActiveWorkloads, podList) {
+			return nil
+		}
+
+		se.Status.ActiveWorkloads = slices.Clone(podList)
+
+		if err := r.client.Status().Update(ctx, se); err != nil {
+			return fmt.Errorf("updating profile: %w", err)
 		}
 
 		return nil
 	}, util.IsNotFoundOrConflict); err != nil {
 		return fmt.Errorf("updating SelinuxProfile status: %w", err)
+	}
+
+	if profileDeleted {
+		return nil
 	}
 
 	if len(linkedPods.Items) > 0 {
