@@ -48,22 +48,14 @@ import (
 	metricsfilters "sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
-	webhookconversion "sigs.k8s.io/controller-runtime/pkg/webhook/conversion"
 
 	apparmorprofilev1 "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
-	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
 	profilebindingv1 "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
-	profilebindingv1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1alpha1"
 	profilerecordingv1 "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
-	profilerecording1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1"
 	seccompprofilev1 "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
-	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	secprofnodestatusv1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
-	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
 	selinuxprofilev1 "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
-	selxv1alpha2 "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha2"
 	spodv1 "sigs.k8s.io/security-profiles-operator/api/spod/v1"
-	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/cmd"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
@@ -512,32 +504,16 @@ func runManager(ctx *cli.Context, info *version.Info) error {
 		return fmt.Errorf("add certmanager API to scheme: %w", err)
 	}
 
-	if err := profilebindingv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
-		return fmt.Errorf("add profilebinding API to scheme: %w", err)
-	}
-
 	if err := profilebindingv1.AddToScheme(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("add profilebinding v1 API to scheme: %w", err)
-	}
-
-	if err := seccompprofileapi.AddToScheme(mgr.GetScheme()); err != nil {
-		return fmt.Errorf("add seccompprofile API to scheme: %w", err)
 	}
 
 	if err := seccompprofilev1.AddToScheme(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("add seccompprofile v1 API to scheme: %w", err)
 	}
 
-	if err := apparmorprofileapi.AddToScheme(mgr.GetScheme()); err != nil {
-		return fmt.Errorf("add apparmorprofile API to scheme: %w", err)
-	}
-
 	if err := apparmorprofilev1.AddToScheme(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("add apparmorprofile v1 API to scheme: %w", err)
-	}
-
-	if err := selxv1alpha2.AddToScheme(mgr.GetScheme()); err != nil {
-		return fmt.Errorf("add selinuxprofile API to scheme: %w", err)
 	}
 
 	if err := selinuxprofilev1.AddToScheme(mgr.GetScheme()); err != nil {
@@ -734,16 +710,8 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 	}
 
 	// This API provides status which is used by both seccomp and selinux
-	if err := secprofnodestatusv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
-		return fmt.Errorf("add per-node Status API to scheme: %w", err)
-	}
-
 	if err := secprofnodestatusv1.AddToScheme(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("add per-node Status v1 API to scheme: %w", err)
-	}
-
-	if err := spodv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
-		return fmt.Errorf("add SPOD config API to scheme: %w", err)
 	}
 
 	if err := spodv1.AddToScheme(mgr.GetScheme()); err != nil {
@@ -898,40 +866,20 @@ func runWebhook(ctx *cli.Context, info *version.Info) error {
 		return fmt.Errorf("create cluster webhook: %w", err)
 	}
 
-	if err := profilebindingv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
-		return fmt.Errorf("add profilebinding API to scheme: %w", err)
-	}
-
 	if err := profilebindingv1.AddToScheme(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("add profilebinding v1 API to scheme: %w", err)
-	}
-
-	if err := seccompprofileapi.AddToScheme(mgr.GetScheme()); err != nil {
-		return fmt.Errorf("add seccompprofile API to scheme: %w", err)
 	}
 
 	if err := seccompprofilev1.AddToScheme(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("add seccompprofile v1 API to scheme: %w", err)
 	}
 
-	if err := apparmorprofileapi.AddToScheme(mgr.GetScheme()); err != nil {
-		return fmt.Errorf("add apparmorprofile API to scheme: %w", err)
-	}
-
 	if err := apparmorprofilev1.AddToScheme(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("add apparmorprofile v1 API to scheme: %w", err)
 	}
 
-	if err := selxv1alpha2.AddToScheme(mgr.GetScheme()); err != nil {
-		return fmt.Errorf("add selinuxprofile API to scheme: %w", err)
-	}
-
 	if err := selinuxprofilev1.AddToScheme(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("add selinuxprofile v1 API to scheme: %w", err)
-	}
-
-	if err := profilerecording1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
-		return fmt.Errorf("add profilerecording API to scheme: %w", err)
 	}
 
 	if err := profilerecordingv1.AddToScheme(mgr.GetScheme()); err != nil {
@@ -947,9 +895,6 @@ func runWebhook(ctx *cli.Context, info *version.Info) error {
 	recording.RegisterWebhook(hookserver, mgr.GetScheme(), mgr.GetEventRecorderFor("recording-webhook"), mgr.GetClient())
 	execmetadata.RegisterWebhook(hookserver)
 	validation.RegisterWebhook(hookserver, mgr.GetScheme())
-
-	hookserver.Register("/convert",
-		webhookconversion.NewWebhookHandler(mgr.GetScheme(), webhookconversion.NewRegistry()))
 
 	sigHandler := ctrl.SetupSignalHandler()
 

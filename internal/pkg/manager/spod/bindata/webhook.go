@@ -43,7 +43,7 @@ var (
 	failurePolicyIgnore           = admissionregv1.Ignore
 	caBundle                      = []byte("Cg==")
 	sideEffects                   = admissionregv1.SideEffectClassNone
-	admissionReviewVersions       = []string{"v1beta1"}
+	admissionReviewVersions       = []string{"v1"}
 	bindingRules                  = []admissionregv1.RuleWithOperations{
 		{
 			Operations: []admissionregv1.OperationType{
@@ -596,7 +596,7 @@ func getValidatingWebhookConfig() *admissionregv1.ValidatingWebhookConfiguration
 						},
 						Rule: admissionregv1.Rule{
 							APIGroups:   []string{"security-profiles-operator.x-k8s.io"},
-							APIVersions: []string{"v1", "v1alpha2"},
+							APIVersions: []string{"v1"},
 							Resources:   []string{"rawselinuxprofiles"},
 						},
 					},

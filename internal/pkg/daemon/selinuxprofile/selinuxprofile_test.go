@@ -17,7 +17,6 @@ limitations under the License.
 package selinuxprofile
 
 import (
-	"os"
 	"regexp"
 	"testing"
 
@@ -36,8 +35,7 @@ func Test_selinuxProfileHandler(t *testing.T) {
 	t.Parallel()
 
 	ns := "security-profiles-operator"
-	//nolint:usetesting // we want to set the env here
-	os.Setenv("OPERATOR_NAMESPACE", ns)
+	setenvCleanup(t, "OPERATOR_NAMESPACE", ns)
 
 	schemeInstance := runtime.NewScheme()
 	if err := spodapi.AddToScheme(schemeInstance); err != nil {
