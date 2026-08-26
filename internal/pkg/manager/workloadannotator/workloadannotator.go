@@ -272,13 +272,13 @@ func (r *PodReconciler) updatePodReferencesForSeccomp(
 
 	if len(linkedPods.Items) > 0 {
 		if err := util.Retry(func() error {
-			return util.AddFinalizer(ctx, r.client, sp, util.HasActivePodsFinalizerString)
+			return client.IgnoreNotFound(util.AddFinalizer(ctx, r.client, sp, util.HasActivePodsFinalizerString))
 		}, util.IsNotFoundOrConflict); err != nil {
 			return fmt.Errorf("adding finalizer: %w", err)
 		}
 	} else {
 		if err := util.Retry(func() error {
-			return util.RemoveFinalizer(ctx, r.client, sp, util.HasActivePodsFinalizerString)
+			return client.IgnoreNotFound(util.RemoveFinalizer(ctx, r.client, sp, util.HasActivePodsFinalizerString))
 		}, util.IsNotFoundOrConflict); err != nil {
 			return fmt.Errorf("removing finalizer: %w", err)
 		}
@@ -358,13 +358,13 @@ func (r *PodReconciler) updatePodReferencesForSelinux(
 
 	if len(linkedPods.Items) > 0 {
 		if err := util.Retry(func() error {
-			return util.AddFinalizer(ctx, r.client, se, util.HasActivePodsFinalizerString)
+			return client.IgnoreNotFound(util.AddFinalizer(ctx, r.client, se, util.HasActivePodsFinalizerString))
 		}, util.IsNotFoundOrConflict); err != nil {
 			return fmt.Errorf("adding finalizer: %w", err)
 		}
 	} else {
 		if err := util.Retry(func() error {
-			return util.RemoveFinalizer(ctx, r.client, se, util.HasActivePodsFinalizerString)
+			return client.IgnoreNotFound(util.RemoveFinalizer(ctx, r.client, se, util.HasActivePodsFinalizerString))
 		}, util.IsNotFoundOrConflict); err != nil {
 			return fmt.Errorf("removing finalizer: %w", err)
 		}

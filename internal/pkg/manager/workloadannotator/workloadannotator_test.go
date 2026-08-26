@@ -206,6 +206,161 @@ func TestUpdatePodReferencesForSeccompIgnoresDeletedProfile(t *testing.T) {
 	require.NoError(t, r.updatePodReferencesForSeccomp(ctx, profile))
 }
 
+func TestUpdatePodReferencesIgnoresDeletionBeforeFinalizerUpdate(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name             string
+		profile          client.Object
+		ownerKey         string
+		profileReference string
+		update           func(context.Context, *PodReconciler, client.Object) error
+	}{
+		{
+			name: "SeccompProfile",
+			profile: &seccompprofileapi.SeccompProfile{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-profile"},
+				Status: seccompprofileapi.SeccompProfileStatus{
+					ActiveWorkloads: []string{"example/pod"},
+				},
+			},
+			ownerKey:         spOwnerKey,
+			profileReference: "operator/test-profile.json",
+			update: func(ctx context.Context, r *PodReconciler, object client.Object) error {
+				profile, ok := object.(*seccompprofileapi.SeccompProfile)
+				if !ok {
+					return errors.New("object is not a SeccompProfile")
+				}
+
+				return r.updatePodReferencesForSeccomp(ctx, profile)
+			},
+		},
+		{
+			name: "SelinuxProfile",
+			profile: &selinuxprofileapi.SelinuxProfile{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-profile"},
+				Status: selinuxprofileapi.SelinuxProfileStatus{
+					ActiveWorkloads: []string{"example/pod"},
+				},
+			},
+			ownerKey:         seOwnerKey,
+			profileReference: "test-profile.process",
+			update: func(ctx context.Context, r *PodReconciler, object client.Object) error {
+				profile, ok := object.(*selinuxprofileapi.SelinuxProfile)
+				if !ok {
+					return errors.New("object is not a SelinuxProfile")
+				}
+
+				return r.updatePodReferencesForSelinux(ctx, profile)
+			},
+		},
+	}
+
+	for i := range testCases {
+		testCase := testCases[i]
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			testScheme := runtime.NewScheme()
+			require.NoError(t, corev1.AddToScheme(testScheme))
+			require.NoError(t, seccompprofileapi.AddToScheme(testScheme))
+			require.NoError(t, selinuxprofileapi.AddToScheme(testScheme))
+
+			pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Namespace: "example", Name: "pod"}}
+			apiReader := fake.NewClientBuilder().
+				WithScheme(testScheme).
+				WithStatusSubresource(testCase.profile).
+				WithObjects(testCase.profile).
+				Build()
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(testScheme).
+				WithObjects(pod).
+				WithIndex(&corev1.Pod{}, testCase.ownerKey, func(client.Object) []string {
+					return []string{testCase.profileReference}
+				}).
+				Build()
+
+			r := &PodReconciler{client: fakeClient, reader: apiReader}
+			require.NoError(t, testCase.update(ctx, r, testCase.profile))
+		})
+	}
+}
+
+func TestUpdatePodReferencesIgnoresDeletionBeforeFinalizerRemoval(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name     string
+		profile  client.Object
+		ownerKey string
+		update   func(context.Context, *PodReconciler, client.Object) error
+	}{
+		{
+			name: "SeccompProfile",
+			profile: &seccompprofileapi.SeccompProfile{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "test-profile",
+					Finalizers: []string{util.HasActivePodsFinalizerString},
+				},
+			},
+			ownerKey: spOwnerKey,
+			update: func(ctx context.Context, r *PodReconciler, object client.Object) error {
+				profile, ok := object.(*seccompprofileapi.SeccompProfile)
+				if !ok {
+					return errors.New("object is not a SeccompProfile")
+				}
+
+				return r.updatePodReferencesForSeccomp(ctx, profile)
+			},
+		},
+		{
+			name: "SelinuxProfile",
+			profile: &selinuxprofileapi.SelinuxProfile{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "test-profile",
+					Finalizers: []string{util.HasActivePodsFinalizerString},
+				},
+			},
+			ownerKey: seOwnerKey,
+			update: func(ctx context.Context, r *PodReconciler, object client.Object) error {
+				profile, ok := object.(*selinuxprofileapi.SelinuxProfile)
+				if !ok {
+					return errors.New("object is not a SelinuxProfile")
+				}
+
+				return r.updatePodReferencesForSelinux(ctx, profile)
+			},
+		},
+	}
+
+	for i := range testCases {
+		testCase := testCases[i]
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			testScheme := runtime.NewScheme()
+			require.NoError(t, corev1.AddToScheme(testScheme))
+			require.NoError(t, seccompprofileapi.AddToScheme(testScheme))
+			require.NoError(t, selinuxprofileapi.AddToScheme(testScheme))
+
+			apiReader := fake.NewClientBuilder().
+				WithScheme(testScheme).
+				WithStatusSubresource(testCase.profile).
+				WithObjects(testCase.profile).
+				Build()
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(testScheme).
+				WithIndex(&corev1.Pod{}, testCase.ownerKey, func(client.Object) []string { return nil }).
+				Build()
+
+			r := &PodReconciler{client: fakeClient, reader: apiReader}
+			require.NoError(t, testCase.update(ctx, r, testCase.profile))
+		})
+	}
+}
+
 func TestUpdatePodReferencesForSelinuxSkipsEquivalentStatusUpdate(t *testing.T) {
 	t.Parallel()
 
