@@ -69,9 +69,11 @@ func (sph *rawSelinuxProfileHandler) Init(
 	cli client.Client,
 	key types.NamespacedName,
 ) error {
-	err := cli.Get(ctx, key, sph.rsp)
+	if err := cli.Get(ctx, key, sph.rsp); err != nil {
+		return fmt.Errorf("getting raw selinux profile: %w", err)
+	}
 
-	return err
+	return nil
 }
 
 func (sph *rawSelinuxProfileHandler) GetProfileObject() selinuxprofileapi.SelinuxProfileObject {

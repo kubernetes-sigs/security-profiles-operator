@@ -155,7 +155,7 @@ func TestMergeProfiles(t *testing.T) {
 						Spec: selinuxprofileapi.SelinuxProfileSpec{
 							Inherit: []selinuxprofileapi.PolicyRef{
 								{
-									Kind: "System",
+									Kind: selinuxprofileapi.SystemPolicyKind,
 									Name: "container",
 								},
 							},
@@ -171,7 +171,7 @@ func TestMergeProfiles(t *testing.T) {
 						Spec: selinuxprofileapi.SelinuxProfileSpec{
 							Inherit: []selinuxprofileapi.PolicyRef{
 								{
-									Kind: "System",
+									Kind: selinuxprofileapi.SystemPolicyKind,
 									Name: "container",
 								},
 							},

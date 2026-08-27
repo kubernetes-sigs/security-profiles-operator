@@ -146,7 +146,7 @@ func (b *BpfRecorder) Syscalls() *bpf.BPFMap {
 
 // Run the BpfRecorder.
 func (b *BpfRecorder) Run() error {
-	b.logger.Info(fmt.Sprintf("Setting up caches with expiry of %v", defaultCacheTimeout))
+	b.logger.Info("Setting up caches", "expiry", defaultCacheTimeout)
 
 	for _, cache := range []*ttlcache.Cache[string, string]{
 		b.pidToContainerIDCache,
@@ -530,9 +530,9 @@ func (b *BpfRecorder) Load() (err error) {
 		programName := []byte(filepath.Base(b.programName))
 		if len(programName) >= maxCommLen {
 			programName = programName[:maxCommLen-1]
-			b.logger.Info(fmt.Sprintf("Set truncated program name filter: '%s'", programName))
+			b.logger.Info("Set truncated program name filter", "programName", string(programName))
 		} else {
-			b.logger.Info(fmt.Sprintf("Set program name filter: '%s'", programName))
+			b.logger.Info("Set program name filter", "programName", string(programName))
 		}
 
 		programName = append(programName, 0)
@@ -583,7 +583,7 @@ func (b *BpfRecorder) Load() (err error) {
 
 	if b.Seccomp != nil {
 		if err := b.Seccomp.Load(b); err != nil {
-			return err
+			return fmt.Errorf("loading seccomp bpf hooks: %w", err)
 		}
 	}
 
@@ -661,7 +661,7 @@ func (b *BpfRecorder) StartRecording() (err error) {
 
 	if b.Seccomp != nil {
 		if err := b.Seccomp.StartRecording(b); err != nil {
-			return err
+			return fmt.Errorf("starting seccomp recording: %w", err)
 		}
 	}
 
@@ -684,13 +684,13 @@ func (b *BpfRecorder) StopRecording() error {
 
 	if b.Seccomp != nil {
 		if err := b.Seccomp.StopRecording(b); err != nil {
-			return err
+			return fmt.Errorf("stopping seccomp recording: %w", err)
 		}
 	}
 
 	if b.AppArmor != nil {
 		if err := b.AppArmor.StopRecording(b); err != nil {
-			return err
+			return fmt.Errorf("stopping apparmor recording: %w", err)
 		}
 	}
 
@@ -767,7 +767,7 @@ func (b *BpfRecorder) handleEvent(eventBytes []byte) {
 }
 
 func (b *BpfRecorder) handleNewPidEvent(e *bpfEvent) {
-	b.logger.Info(fmt.Sprintf("Received new pid: %d with mntns=%d", e.Pid, e.Mntns))
+	b.logger.Info("Received new pid", "pid", e.Pid, "mntns", e.Mntns)
 
 	pid := e.Pid
 	mntns := e.Mntns
@@ -812,7 +812,7 @@ func (b *BpfRecorder) handleNewPidEvent(e *bpfEvent) {
 }
 
 func (b *BpfRecorder) handleExitEvent(exitEvent *bpfEvent) {
-	b.logger.Info(fmt.Sprintf("record pid exit: %d.", exitEvent.Pid))
+	b.logger.Info("Record pid exit", "pid", exitEvent.Pid)
 	d, _ := b.recordedExits.LoadOrStore(exitEvent.Pid, make(chan bool))
 
 	done, ok := d.(chan bool)

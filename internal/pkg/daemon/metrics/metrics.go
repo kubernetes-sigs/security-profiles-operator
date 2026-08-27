@@ -54,7 +54,7 @@ const (
 	metricLabelValueProfileDelete = "delete"
 
 	// Metrics labels.
-	metricLabelOperation       = "operation"
+	metricsLabelOperation      = "operation"
 	metricsLabelContainer      = "container"
 	metricsLabelExecutable     = "executable"
 	metricsLabelNamespace      = "namespace"
@@ -104,7 +104,7 @@ func New() *Metrics {
 				Namespace: metricNamespace,
 				Help:      "Counter about seccomp profile operations.",
 			},
-			[]string{metricLabelOperation},
+			[]string{metricsLabelOperation},
 		),
 		metricSeccompProfileAudit: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
@@ -146,7 +146,7 @@ func New() *Metrics {
 				Namespace: metricNamespace,
 				Help:      "Counter about selinux profile operations.",
 			},
-			[]string{metricLabelOperation},
+			[]string{metricsLabelOperation},
 		),
 		metricSelinuxProfileAudit: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
@@ -177,7 +177,7 @@ func New() *Metrics {
 				Namespace: metricNamespace,
 				Help:      "Counter about apparmor profile operations.",
 			},
-			[]string{metricLabelOperation},
+			[]string{metricsLabelOperation},
 		),
 		metricAppArmorProfileAudit: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
@@ -191,7 +191,7 @@ func New() *Metrics {
 				metricsLabelPod,
 				metricsLabelContainer,
 				metricsLabelProfile,
-				metricLabelOperation,
+				metricsLabelOperation,
 				metricsLabelApparmor,
 			},
 		),
@@ -214,7 +214,7 @@ func New() *Metrics {
 			},
 			[]string{
 				metricsLabelProfile,
-				metricLabelOperation,
+				metricsLabelOperation,
 			},
 		),
 	}

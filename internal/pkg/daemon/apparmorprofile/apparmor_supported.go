@@ -198,11 +198,14 @@ func removeProfile(logger logr.Logger, profileName string) error {
 		}
 
 		if err := a.DeletePolicy(profileName); err != nil {
-			return err
+			return fmt.Errorf("deleting apparmor policy %s: %w", profileName, err)
 		}
 
 		return os.Remove(filepath.Join(targetProfileDir, profileFilename(profileName)))
 	})
+	if err != nil {
+		return fmt.Errorf("removing apparmor profile: %w", err)
+	}
 
-	return err
+	return nil
 }

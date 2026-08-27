@@ -17,11 +17,18 @@ limitations under the License.
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"runtime"
 	"strings"
 
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
+)
+
+var (
+	ErrParsePlatform     = errors.New("unable to parse platform")
+	ErrParseOS           = errors.New("unable to parse OS")
+	ErrParseArchitecture = errors.New("unable to parse architecture")
 )
 
 // ParsePlatform parses an OCI image spec platform from the provided string.
@@ -49,16 +56,16 @@ func ParsePlatform(input string) (*v1.Platform, error) {
 	case 1:
 		res.Architecture = runtime.GOARCH
 	default:
-		return nil, fmt.Errorf("unable to parse platform from %s", input)
+		return nil, fmt.Errorf("%w from %s", ErrParsePlatform, input)
 	}
 
 	res.OS = parts[0]
 	if res.OS == "" {
-		return nil, fmt.Errorf("unable to parse OS from %s", input)
+		return nil, fmt.Errorf("%w from %s", ErrParseOS, input)
 	}
 
 	if res.Architecture == "" {
-		return nil, fmt.Errorf("unable to parse architecture from %s", input)
+		return nil, fmt.Errorf("%w from %s", ErrParseArchitecture, input)
 	}
 
 	return res, nil

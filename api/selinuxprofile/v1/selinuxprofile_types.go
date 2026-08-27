@@ -18,6 +18,7 @@ package v1
 
 import (
 	"context"
+	"path/filepath"
 	"sort"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -48,8 +49,7 @@ type PolicyRef struct {
 	// SecurityProfilesOperatorDaemon instance.
 	// +optional
 	// +default="System"
-	// +kubebuilder:validation:Enum=System;SelinuxProfile;
-	Kind string `json:"kind,omitempty"`
+	Kind PolicyRefKind `json:"kind,omitempty"`
 	// name is the name of the policy that this inherits from.
 	// +required
 	// +kubebuilder:validation:MinLength=1
@@ -172,15 +172,16 @@ func (sp *SelinuxProfile) SetImplementationStatus() {
 }
 
 // GetPolicyName gets the policy module name in the format that
-// we're expecting for parsing.
+// we're expecting for parsing. filepath.Base is defense-in-depth
+// against path traversal; Kubernetes names cannot contain slashes.
 func (sp *SelinuxProfile) GetPolicyName() string {
-	return sp.GetName()
+	return filepath.Base(sp.GetName())
 }
 
 // GetPolicyUsage is the representation of how a pod will call this
 // SELinux module.
 func (sp *SelinuxProfile) GetPolicyUsage() string {
-	return sp.GetPolicyName() + ".process"
+	return selinuxPolicyUsage(sp.GetPolicyName())
 }
 
 func (sp *SelinuxProfile) ListProfilesByRecording(

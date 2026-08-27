@@ -85,7 +85,7 @@ func (sph *selinuxProfileHandler) Init(
 	}
 	// initiate the SelinuxProfile object
 	if err := sph.cli.Get(ctx, key, sph.sp); err != nil {
-		return err
+		return fmt.Errorf("getting selinux profile: %w", err)
 	}
 
 	// Matches alpha numerical names in upper and lower-case, as well as
@@ -118,23 +118,23 @@ func (sph *selinuxProfileHandler) Validate() error {
 	for _, inherit := range sph.sp.Spec.Inherit {
 		err := sph.validateAndTrackInherit(spod, inherit, sph.sp.GetNamespace())
 		if err != nil {
-			return err
+			return fmt.Errorf("validating inherit: %w", err)
 		}
 	}
 
 	for key, classperms := range sph.sp.Spec.Allow {
 		if err := sph.validateLabelKey(key); err != nil {
-			return err
+			return fmt.Errorf("validating label key: %w", err)
 		}
 
 		for objclass, perms := range classperms {
 			if err := sph.validateObjClass(objclass); err != nil {
-				return err
+				return fmt.Errorf("validating object class: %w", err)
 			}
 
 			for _, perm := range perms {
 				if err := sph.validatePermission(perm); err != nil {
-					return err
+					return fmt.Errorf("validating permission: %w", err)
 				}
 			}
 		}
@@ -150,9 +150,9 @@ func (sph *selinuxProfileHandler) validateAndTrackInherit(
 ) error {
 	switch ancestorRef.Kind {
 	// We default to System if Kind is left empty
-	case selinuxprofileapi.SystemPolicyKind, "":
+	case selinuxprofileapi.SystemPolicyKind, selinuxprofileapi.PolicyRefKind(""):
 		return sph.handleInheritSystemPolicy(spod, ancestorRef)
-	case "SelinuxProfile":
+	case selinuxprofileapi.SelinuxProfilePolicyKind:
 		return sph.handleInheritSPOPolicy(ancestorRef, namespace)
 	}
 
