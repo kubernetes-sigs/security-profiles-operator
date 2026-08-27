@@ -5,7 +5,7 @@ on:
       - main
   pull_request:
 env:
-  KIND_IMG_TAG: v1.36.1
+  KIND_IMG_TAG: v1.37.0
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -16,6 +16,7 @@ jobs:
   main:
     name: tests
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

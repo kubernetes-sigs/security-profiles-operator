@@ -58,13 +58,13 @@ dependencies:
       match: cert-manager/cert-manager
 
   - name: kind
-    version: 0.32.0
+    version: 0.33.0
     refPaths:
     - path: test/suite_test.go
       match: 'kindVersion\s+='
 
   - name: kind-image
-    version: 1.36.1
+    version: 1.37.0
     refPaths:
     - path: test/suite_test.go
       match: 'kindImage\s+='
@@ -72,7 +72,7 @@ dependencies:
       match: KIND_IMG_TAG
 
   - name: e2e-kubernetes
-    version: 1.36
+    version: 1.37
     refPaths:
     - path: hack/ci/Vagrantfile-fedora
       match: "KUBERNETES_VERSION="

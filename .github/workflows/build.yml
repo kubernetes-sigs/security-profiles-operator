@@ -18,6 +18,7 @@ permissions: {}
 jobs:
   macos:
     runs-on: macos-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -36,6 +37,7 @@ jobs:
           - ppc64le
     runs-on: ubuntu-24.04
     name: nix / ${{ matrix.arch }}
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
@@ -62,6 +64,7 @@ jobs:
           - ppc64le
     runs-on: ubuntu-24.04
     name: nix / spoc / ${{ matrix.arch }}
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
@@ -85,6 +88,7 @@ jobs:
     if: github.ref == 'refs/heads/main' || contains(github.ref, 'refs/tags')
     name: nix / spoc / push / ${{ matrix.arch }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     permissions:
       contents: write  # required for updating the release
       id-token: write  # required for sigstore signing
@@ -117,6 +121,7 @@ jobs:
 
   bpf:
     runs-on: ubuntu-24.04
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -134,6 +139,7 @@ jobs:
 
   build-image:
     runs-on: ubuntu-24.04
+    timeout-minutes: 40
     steps:
       - name: Remove unnecessary files
         run: |
@@ -175,6 +181,7 @@ jobs:
 
   operator-image:
     runs-on: ubuntu-24.04
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Docker Buildx
@@ -209,6 +216,7 @@ jobs:
 
   ubi-image:
     runs-on: ubuntu-24.04
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Docker Buildx
