@@ -17,6 +17,7 @@ jobs:
   analysis:
     name: scorecard
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       # Needed to upload the results to code-scanning dashboard.
       security-events: write

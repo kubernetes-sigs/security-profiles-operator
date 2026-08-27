@@ -85,8 +85,8 @@ Vagrant.configure("2") do |config|
       sysctl --system
 
       # Install k8s components
-      CNI_VERSION="v1.0.1"
-      RELEASE_VERSION="v0.16.2"
+      CNI_VERSION="v1.9.1"
+      RELEASE_VERSION="v0.21.1"
       DOWNLOAD_DIR=/opt/bin
       RELEASE="$(curl -sSL https://dl.k8s.io/release/stable.txt)"
 
