@@ -212,7 +212,7 @@ func (r *Reconciler) handleAllowedSyscallsChanged(
 	defer cancel()
 
 	seccompProfileList := &seccompprofileapi.SeccompProfileList{}
-	if err := r.client.List(ctx, seccompProfileList, &client.ListOptions{}); err != nil {
+	if err := r.client.List(ctx, seccompProfileList); err != nil {
 		r.log.Error(err, "cannot list seccomp profiles in the cluster")
 
 		return []reconcile.Request{}
@@ -227,10 +227,10 @@ func (r *Reconciler) handleAllowedSyscallsChanged(
 			spod.Spec.Security.AllowedSyscalls,
 			spod.Spec.Security.AllowedSeccompActions,
 		); err != nil {
-			r.log.Info(fmt.Sprintf("deleting not allowed seccomp profile %s/%s",
-				sp.GetNamespace(), sp.GetName()))
+			r.log.Info("deleting not allowed seccomp profile",
+				"namespace", sp.GetNamespace(), "name", sp.GetName())
 
-			if err := r.client.Delete(ctx, sp, &client.DeleteOptions{}); err != nil {
+			if err := r.client.Delete(ctx, sp); err != nil {
 				r.log.Error(err, "cannot delete not allowed seccomp profile")
 
 				continue

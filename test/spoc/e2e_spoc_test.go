@@ -338,7 +338,7 @@ func recordAppArmorTest(t *testing.T) {
 
 			if strings.Contains(
 				spocLogs.Text(),
-				fmt.Sprintf("record pid exit: %d.", cmd2.Process.Pid),
+				fmt.Sprintf("Record pid exit (pid=%d)", cmd2.Process.Pid),
 			) {
 				break
 			}

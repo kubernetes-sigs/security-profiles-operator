@@ -124,7 +124,7 @@ func Test_selinuxProfileHandler(t *testing.T) {
 				Spec: selinuxprofileapi.SelinuxProfileSpec{
 					Inherit: []selinuxprofileapi.PolicyRef{
 						{
-							Kind: "SelinuxProfile",
+							Kind: selinuxprofileapi.SelinuxProfilePolicyKind,
 							Name: "foo",
 						},
 					},
@@ -188,7 +188,7 @@ func Test_selinuxProfileHandler(t *testing.T) {
 				Spec: selinuxprofileapi.SelinuxProfileSpec{
 					Inherit: []selinuxprofileapi.PolicyRef{
 						{
-							Kind: "SelinuxProfile",
+							Kind: selinuxprofileapi.SelinuxProfilePolicyKind,
 							Name: "unexistent-ref",
 						},
 					},
@@ -250,7 +250,7 @@ func Test_selinuxProfileHandler(t *testing.T) {
 				Spec: selinuxprofileapi.SelinuxProfileSpec{
 					Inherit: []selinuxprofileapi.PolicyRef{
 						{
-							Kind: "SelinuxProfile",
+							Kind: selinuxprofileapi.SelinuxProfilePolicyKind,
 							Name: "foo",
 						},
 					},

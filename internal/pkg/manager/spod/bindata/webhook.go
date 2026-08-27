@@ -433,7 +433,7 @@ func (w *Webhook) webhookNeedsUpdate(existing *admissionregv1.MutatingWebhook, i
 		return true
 	}
 
-	w.log.V(1).Info("webbhook does not need update")
+	w.log.V(1).Info("webhook does not need update")
 
 	return false
 }

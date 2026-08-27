@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -123,15 +124,16 @@ func (sp *RawSelinuxProfile) SetImplementationStatus() {
 }
 
 // GetPolicyName gets the policy module name in the format that
-// we're expecting for parsing.
+// we're expecting for parsing. filepath.Base is defense-in-depth
+// against path traversal; Kubernetes names cannot contain slashes.
 func (sp *RawSelinuxProfile) GetPolicyName() string {
-	return sp.GetName()
+	return filepath.Base(sp.GetName())
 }
 
 // GetPolicyUsage is the representation of how a pod will call this
 // SELinux module.
 func (sp *RawSelinuxProfile) GetPolicyUsage() string {
-	return sp.GetPolicyName() + ".process"
+	return selinuxPolicyUsage(sp.GetPolicyName())
 }
 
 func (sp *RawSelinuxProfile) ListProfilesByRecording(

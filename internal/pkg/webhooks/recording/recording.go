@@ -115,9 +115,7 @@ func (p *podSeccompRecorder) Handle(
 	for i := range items {
 		item := items[i]
 		if !item.IsKindSupported() {
-			p.log.Info(fmt.Sprintf(
-				"recording kind %s not supported", item.Spec.Kind,
-			))
+			p.log.Info("recording kind not supported", "kind", item.Spec.Kind)
 
 			continue
 		}
@@ -228,10 +226,8 @@ func (p *podSeccompRecorder) updatePod(
 			}
 
 			pod.Annotations[key] = value
-			p.log.Info(fmt.Sprintf(
-				"adding recording annotation %s=%s to pod %s",
-				key, value, pod.Name,
-			))
+			p.log.Info("adding recording annotation to pod",
+				"key", key, "value", value, "pod", pod.Name)
 
 			podChanged = true
 
@@ -245,14 +241,8 @@ func (p *podSeccompRecorder) updatePod(
 			pod.Annotations[key] = value
 			podChanged = true
 
-			p.log.Info(
-				fmt.Sprintf(
-					"workload %s already has annotation %q, overwriting with %q.",
-					podName,
-					existingValue,
-					value,
-				),
-			)
+			p.log.Info("workload already has annotation, overwriting",
+				"workload", podName, "existingValue", existingValue, "newValue", value)
 		}
 	}
 
@@ -277,10 +267,8 @@ func (p *podSeccompRecorder) updateSecurityContext(
 		p.updateApparmorSecurityContext(ctr, pr)
 	}
 
-	p.log.Info(fmt.Sprintf(
-		"set SecurityContext for container %s: %+v",
-		ctr.Name, ctr.SecurityContext,
-	))
+	p.log.Info("set SecurityContext for container",
+		"container", ctr.Name, "securityContext", ctr.SecurityContext)
 }
 
 func (p *podSeccompRecorder) updateSeccompSecurityContext(

@@ -23,9 +23,18 @@ import (
 	profilebasev1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 )
 
+// PolicyRefKind describes the kind of policy that a SELinux profile inherits from.
+// +kubebuilder:validation:Enum=System;SelinuxProfile;
+type PolicyRefKind string
+
 const (
-	SystemPolicyKind = "System"
+	SystemPolicyKind         PolicyRefKind = "System"
+	SelinuxProfilePolicyKind PolicyRefKind = "SelinuxProfile"
 )
+
+func selinuxPolicyUsage(name string) string {
+	return name + ".process"
+}
 
 // +k8s:deepcopy-gen=false
 type SelinuxProfileObject interface {

@@ -230,7 +230,7 @@ func (p *podBinder) updatePod(
 		case profilebindingapi.ProfileBindingKindAppArmorProfile:
 			bindProfile, err = p.getAppArmorProfile(ctx, namespacedName)
 		default:
-			p.log.Info(fmt.Sprintf("profile kind %s not supported", profileKind))
+			p.log.Info("profile kind not supported", "kind", profileKind)
 
 			continue
 		}
@@ -253,7 +253,7 @@ func (p *podBinder) updatePod(
 				continue
 			}
 
-			p.log.Error(err, fmt.Sprintf("failed to get %v %#v", profileKind, namespacedName))
+			p.log.Error(err, "failed to get profile", "kind", profileKind, "name", namespacedName)
 
 			return pod, admission.Errored(http.StatusInternalServerError, err)
 		}
