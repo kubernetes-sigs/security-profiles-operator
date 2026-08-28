@@ -34,7 +34,7 @@ require (
 	golang.org/x/mod v0.40.0
 	golang.org/x/sync v0.22.0
 	gomodules.xyz/jsonpatch/v2 v2.5.0
-	google.golang.org/grpc v1.83.1
+	google.golang.org/grpc v1.83.2
 	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.6.2
 	google.golang.org/protobuf v1.36.12
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
