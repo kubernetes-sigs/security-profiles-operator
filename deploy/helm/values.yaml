@@ -46,6 +46,7 @@ enableAppArmor: false
 enableBpfRecorder: false
 enableProfiling: false
 verbosity: 0
+restrictToNamespace: ""
 
 nameOverride: ""
 fullnameOverride: ""

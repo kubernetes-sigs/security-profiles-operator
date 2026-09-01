@@ -32,6 +32,7 @@ please refer to [Installation Guide](https://github.com/kubernetes-sigs/security
 | nodeSelector                                | object | `{}` | `specify on which node to deploy the workload` |
 | podSecurityContext                          | object | `` | `pod security contexts`                        |
 | replicaCount                                | int | `3` | `the number of replicas of the pods`           |
+| restrictToNamespace                         | string | `""` | `restrict the operator to a single namespace`  |
 | resources.limits.memory                     | string | `"128Mi"` | `memory limits for the pod`                    |
 | resources.requests.cpu                      | string | `"250m"` | `cpu requests for the pod`                     |
 | resources.requests.memory                   | string | `"50Mi"` | `memory requests for pod`                      |
