@@ -971,6 +971,11 @@ func (r *ReconcileSPOd) getConfiguredJsonEnricher(cfg *spodapi.SecurityProfilesO
 func (r *ReconcileSPOd) getConfiguredWebook(cfg *spodapi.SecurityProfilesOperatorDaemon,
 	image string, pullPolicy corev1.PullPolicy, caInjectType bindata.CAInjectType,
 ) *bindata.Webhook {
+	webhookTolerations := cfg.Spec.Webhook.Tolerations
+	if len(webhookTolerations) == 0 {
+		webhookTolerations = cfg.Spec.Scheduling.Tolerations
+	}
+
 	webhook := bindata.GetWebhook(
 		r.log,
 		r.namespace,
@@ -978,7 +983,7 @@ func (r *ReconcileSPOd) getConfiguredWebook(cfg *spodapi.SecurityProfilesOperato
 		image,
 		pullPolicy,
 		caInjectType,
-		cfg.Spec.Scheduling.Tolerations,
+		webhookTolerations,
 		cfg.Spec.ImagePullSecrets,
 		isJsonEnricherEnabled(cfg),
 	)

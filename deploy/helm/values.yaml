@@ -47,6 +47,9 @@ enableBpfRecorder: false
 enableProfiling: false
 verbosity: 0
 
+webhook:
+  tolerations: []
+
 nameOverride: ""
 fullnameOverride: ""
 

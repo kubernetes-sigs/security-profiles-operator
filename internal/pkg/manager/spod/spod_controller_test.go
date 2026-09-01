@@ -225,6 +225,78 @@ func Test_addSelinuxCustomTemplatesVolume(t *testing.T) {
 	)
 }
 
+func Test_webhookTolerationsFallback(t *testing.T) {
+	t.Parallel()
+
+	daemonTolerations := []v1.Toleration{
+		{Operator: v1.TolerationOpExists},
+	}
+	webhookTolerations := []v1.Toleration{
+		{
+			Key:    "dedicated",
+			Value:  "webhook",
+			Effect: v1.TaintEffectNoSchedule,
+		},
+	}
+
+	for _, tc := range []struct {
+		name     string
+		cfg      *spodapi.SecurityProfilesOperatorDaemon
+		expected []v1.Toleration
+	}{
+		{
+			name: "falls back to daemon tolerations when webhook tolerations not set",
+			cfg: &spodapi.SecurityProfilesOperatorDaemon{
+				Spec: spodapi.SPODSpec{
+					Scheduling: spodapi.SPODSchedulingConfig{
+						Tolerations: daemonTolerations,
+					},
+				},
+			},
+			expected: daemonTolerations,
+		},
+		{
+			name: "uses webhook tolerations when set",
+			cfg: &spodapi.SecurityProfilesOperatorDaemon{
+				Spec: spodapi.SPODSpec{
+					Scheduling: spodapi.SPODSchedulingConfig{
+						Tolerations: daemonTolerations,
+					},
+					Webhook: spodapi.SPODWebhookConfig{
+						Tolerations: webhookTolerations,
+					},
+				},
+			},
+			expected: webhookTolerations,
+		},
+		{
+			name: "uses daemon tolerations when webhook tolerations are nil",
+			cfg: &spodapi.SecurityProfilesOperatorDaemon{
+				Spec: spodapi.SPODSpec{
+					Scheduling: spodapi.SPODSchedulingConfig{
+						Tolerations: daemonTolerations,
+					},
+					Webhook: spodapi.SPODWebhookConfig{
+						Tolerations: nil,
+					},
+				},
+			},
+			expected: daemonTolerations,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			tolerations := tc.cfg.Spec.Webhook.Tolerations
+			if len(tolerations) == 0 {
+				tolerations = tc.cfg.Spec.Scheduling.Tolerations
+			}
+
+			require.Equal(t, tc.expected, tolerations)
+		})
+	}
+}
+
 func containsString(slice []string, element string) bool {
 	return slices.Contains(slice, element)
 }
