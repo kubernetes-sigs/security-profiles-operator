@@ -172,6 +172,9 @@ linters:
       - std-error-handling
     rules:
       - linters:
+          - modernize
+        text: embedlit
+      - linters:
           - lll
         path: internal/pkg/daemon/bpfrecorder/generated.go
       - linters:

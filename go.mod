@@ -1,6 +1,6 @@
 module sigs.k8s.io/security-profiles-operator
 
-go 1.26.0
+go 1.27.0
 
 require (
 	github.com/acobaugh/osrelease v0.1.0
