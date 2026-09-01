@@ -1,6 +1,6 @@
 self: super:
 {
-  buildGoModule = super.buildGo126Module;
+  buildGoModule = super.buildGo127Module;
 
   gnutls = super.gnutls.overrideAttrs (old: {
     configureFlags = (old.configureFlags or [ ]) ++ [ "--disable-doc" ];
