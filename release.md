@@ -64,9 +64,9 @@ To run the tool from `$GOPATH/src/sigs.k8s.io/promo-tools`, just execute:
 This will automatically create a PR in the k/k8s.io repository. If this PR got
 merged, then we're finally ready to [create the
 release](https://github.com/kubernetes-sigs/security-profiles-operator/releases/new)
-directly on GitHub and add the release notes. The release notes can be generated
-by the [official Kubernetes Release Notes
-tool](https://github.com/kubernetes/release/tree/master/cmd/release-notes).
+directly on GitHub and add the release notes. The release notes will be
+auto-generated based on PR labels and the configuration in
+[`.github/release.yml`](.github/release.yml).
 
 Run `make nix-spoc` and attach the results from the `build` directory to the
 GitHub release.
