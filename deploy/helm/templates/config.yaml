@@ -28,6 +28,11 @@ spec:
     {{- with .Values.selinux.customTemplatesConfigMap }}
     customTemplatesConfigMap: {{ . | quote }}
     {{- end }}
+  {{- if .Values.webhook.tolerations }}
+  webhook:
+    tolerations:
+      {{- toYaml .Values.webhook.tolerations | nindent 6 }}
+  {{- end }}
   enricher:
     enableLogEnricher: {{ .Values.enableLogEnricher }}
     enableJsonEnricher: {{ .Values.enableJsonEnricher }}

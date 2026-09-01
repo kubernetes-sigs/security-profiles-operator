@@ -41,3 +41,4 @@ please refer to [Installation Guide](https://github.com/kubernetes-sigs/security
 | spoImage.tag                                | string | `"latest"` | `tag for spoImage`                             |
 | tolerations                                 | list | `[]` | `a list of pod tolerations rules`              |
 | verbosity                                   | int | `0` | `the log level for the spo`                    |
+| webhook.tolerations                         | list | `[]` | `webhook tolerations (inherits daemon tolerations when empty)` |

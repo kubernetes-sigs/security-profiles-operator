@@ -283,6 +283,11 @@ type SPODWebhookConfig struct {
 	// +listType=map
 	// +listMapKey=name
 	Options []WebhookOptions `json:"options,omitempty"`
+	// tolerations if specified, the webhook's tolerations. When not set,
+	// the webhook inherits the daemon's tolerations from the scheduling config.
+	// +optional
+	// +listType=atomic
+	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
 }
 
 // SPODSchedulingConfig contains scheduling-related configuration.

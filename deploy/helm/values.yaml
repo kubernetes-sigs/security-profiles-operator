@@ -48,6 +48,9 @@ enableProfiling: false
 verbosity: 0
 restrictToNamespace: ""
 
+webhook:
+  tolerations: []
+
 nameOverride: ""
 fullnameOverride: ""
 
