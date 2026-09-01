@@ -1,0 +1,38 @@
+changelog:
+  exclude:
+    labels:
+      - release-note-none
+  categories:
+    - title: API Changes
+      labels:
+        - kind/api-change
+    - title: Feature
+      labels:
+        - kind/feature
+    - title: Bug
+      labels:
+        - kind/bug
+    - title: Cleanup
+      labels:
+        - kind/cleanup
+    - title: Deprecation
+      labels:
+        - kind/deprecation
+    - title: Documentation
+      labels:
+        - kind/documentation
+    - title: Failing Test
+      labels:
+        - kind/failing-test
+    - title: Flake
+      labels:
+        - kind/flake
+    - title: Regression
+      labels:
+        - kind/regression
+    - title: Dependencies
+      labels:
+        - dependencies
+    - title: Other
+      labels:
+        - "*"
