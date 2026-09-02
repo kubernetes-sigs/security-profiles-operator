@@ -100,6 +100,7 @@ type Enricher struct {
 	auditLineCache   *ttlcache.Cache[string, []*types.AuditLine]
 	clientset        kubernetes.Interface
 	enricherFilters  []types.EnricherFilterOptions
+	grpcServer       *grpc.Server
 }
 
 // New returns a new Enricher instance.
@@ -172,11 +173,16 @@ func (e *Enricher) Run() error {
 		return fmt.Errorf("load in-cluster config: %w", err)
 	}
 
-	e.logger.Info(fmt.Sprintf("Setting up caches with expiry of %v", defaultCacheTimeout))
+	e.logger.Info("Setting up caches", "expiry", defaultCacheTimeout)
 
 	go e.containerIDCache.Start()
+	defer e.containerIDCache.Stop()
+
 	go e.infoCache.Start()
+	defer e.infoCache.Stop()
+
 	go e.auditLineCache.Start()
+	defer e.auditLineCache.Stop()
 
 	nodeName := e.Getenv(config.NodeNameEnvKey)
 	if nodeName == "" {
@@ -186,7 +192,7 @@ func (e *Enricher) Run() error {
 		return err
 	}
 
-	e.logger.Info("Starting log-enricher on node: " + nodeName)
+	e.logger.Info("Starting log-enricher on node", "node", nodeName)
 
 	e.logger.Info("Connecting to local GRPC server")
 
@@ -220,6 +226,7 @@ func (e *Enricher) Run() error {
 	if err := e.startGrpcServer(); err != nil {
 		return fmt.Errorf("start GRPC server: %w", err)
 	}
+	defer e.grpcServer.GracefulStop()
 
 	log, err := e.StartTail(e.source)
 	if err != nil {
@@ -228,7 +235,7 @@ func (e *Enricher) Run() error {
 
 	for auditLine := range log {
 		e.logger.V(config.VerboseLevel).
-			Info(fmt.Sprintf("Get container ID for PID: %d", auditLine.ProcessID))
+			Info("Get container ID for PID", "pid", auditLine.ProcessID)
 
 		cID, err := e.ContainerIDForPID(e.containerIDCache, auditLine.ProcessID)
 		if errors.Is(err, os.ErrNotExist) {
@@ -253,7 +260,7 @@ func (e *Enricher) Run() error {
 			continue
 		}
 
-		e.logger.V(config.VerboseLevel).Info("Get container info for: " + cID)
+		e.logger.V(config.VerboseLevel).Info("Get container info", "containerID", cID)
 
 		info, err := getContainerInfo(context.Background(),
 			nodeName, cID, e.clientset, e.impl, e.infoCache, e.logger)
@@ -308,14 +315,14 @@ func (e *Enricher) startGrpcServer() error {
 		return fmt.Errorf("change GRPC socket owner to rootless: %w", err)
 	}
 
-	grpcServer := grpc.NewServer(
+	e.grpcServer = grpc.NewServer(
 		grpc.MaxSendMsgSize(maxMsgSize),
 		grpc.MaxRecvMsgSize(maxMsgSize),
 	)
-	apienricher.RegisterEnricherServer(grpcServer, e)
+	apienricher.RegisterEnricherServer(e.grpcServer, e)
 
 	go func() {
-		if err := e.Serve(grpcServer, listener); err != nil {
+		if err := e.Serve(e.grpcServer, listener); err != nil {
 			e.logger.Error(err, "unable to run GRPC server")
 		}
 	}()

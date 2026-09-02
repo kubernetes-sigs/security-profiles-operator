@@ -66,7 +66,7 @@ type JsonEnricherOptions struct {
 }
 
 var JsonEnricherDefaultOptions = JsonEnricherOptions{
-	AuditFreq:           time.Duration(60) * time.Second,
+	AuditFreq:           time.Minute,
 	AuditLogPath:        "",
 	AuditLogMaxSize:     0,
 	AuditLogMaxAge:      0,
@@ -196,7 +196,7 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 		return
 	}
 
-	e.logger.Info("Starting audit JSON logging on node " + nodeName)
+	e.logger.Info("Starting audit JSON logging on node", "node", nodeName)
 
 	e.logLinesCache.OnEviction(
 		func(ctx context.Context, reason ttlcache.EvictionReason, logItem *ttlcache.Item[int, *types.LogBucket]) {
@@ -208,7 +208,7 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 		},
 	)
 
-	e.logger.Info(fmt.Sprintf("Setting up caches with expiry of %v", defaultCacheTimeout))
+	e.logger.Info("Setting up caches", "expiry", defaultCacheTimeout)
 
 	clusterConfig, err := e.InClusterConfig()
 	if err != nil {
@@ -225,9 +225,16 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 	}
 
 	go e.containerIDCache.Start()
+	defer e.containerIDCache.Stop()
+
 	go e.infoCache.Start()
+	defer e.infoCache.Stop()
+
 	go e.logLinesCache.Start()
+	defer e.logLinesCache.Stop()
+
 	go e.processCache.Start()
+	defer e.processCache.Stop()
 
 	// Use auditd logs as main source or syslog as fallback.
 	filePath := common.LogFilePath()
@@ -250,7 +257,7 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 		return
 	}
 
-	e.logger.Info("Reading from file " + filePath)
+	e.logger.Info("Reading from file", "path", filePath)
 
 	timePrev := time.Now()
 
@@ -279,7 +286,7 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 		}
 
 		line := l.Text
-		e.logger.V(config.VerboseLevel).Info("Got line: " + line)
+		e.logger.V(config.VerboseLevel).Info("Got line", "line", line)
 
 		if !auditsource.IsAuditLine(line) {
 			e.logger.V(config.VerboseLevel).Info("Not an audit line")
@@ -287,7 +294,7 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 			continue
 		}
 
-		e.logger.V(config.VerboseLevel).Info("AuditLine Parsed: " + line)
+		e.logger.V(config.VerboseLevel).Info("AuditLine parsed", "line", line)
 
 		auditLine, err := auditsource.ExtractAuditLine(line)
 		if err != nil {
@@ -389,8 +396,8 @@ func (e *JsonEnricher) fetchContainerInfo(
 	nodeName string,
 ) *types.ContainerInfo {
 	cID, errContainer := e.ContainerIDForPID(e.containerIDCache, processId)
-	e.logger.V(config.VerboseLevel).Info(
-		fmt.Sprintf("Container ID for Pid: %v with len %d", cID, len(cID)))
+	e.logger.V(config.VerboseLevel).Info("Container ID for PID",
+		"containerID", cID, "len", len(cID))
 
 	var containerInfo *types.ContainerInfo
 
@@ -404,8 +411,8 @@ func (e *JsonEnricher) fetchContainerInfo(
 		e.logger.V(config.VerboseLevel).Info("unable to get container Id", "err", errContainer)
 	}
 
-	e.logger.V(config.VerboseLevel).Info(
-		fmt.Sprintf("Container Info: %v", containerInfo))
+	e.logger.V(config.VerboseLevel).Info("Container info",
+		"containerInfo", containerInfo)
 
 	return containerInfo
 }
@@ -417,8 +424,8 @@ func (e *JsonEnricher) fetchProcessInfo(
 	uid, gid uint32,
 ) *types.ProcessInfo {
 	processInfo, err := GetProcessInfo(processId, executable, uid, gid, e.processCache, e.impl)
-	e.logger.V(config.VerboseLevel).Info(
-		fmt.Sprintf("Process Info: %v", processInfo))
+	e.logger.V(config.VerboseLevel).Info("Process info",
+		"processInfo", processInfo)
 
 	if err != nil {
 		e.logger.V(config.VerboseLevel).Info("get process info", "err", err)

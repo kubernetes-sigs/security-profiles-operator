@@ -148,11 +148,8 @@ func (b *BpfRecorder) Syscalls() *bpf.BPFMap {
 func (b *BpfRecorder) Run() error {
 	b.logger.Info("Setting up caches", "expiry", defaultCacheTimeout)
 
-	for _, cache := range []*ttlcache.Cache[string, string]{
-		b.pidToContainerIDCache,
-	} {
-		go cache.Start()
-	}
+	go b.pidToContainerIDCache.Start()
+	defer b.pidToContainerIDCache.Stop()
 
 	b.nodeName = b.Getenv(config.NodeNameEnvKey)
 	if b.nodeName == "" {
@@ -162,7 +159,7 @@ func (b *BpfRecorder) Run() error {
 		return err
 	}
 
-	b.logger.Info("Starting ebpf recorder on node: " + b.nodeName)
+	b.logger.Info("Starting ebpf recorder on node", "node", b.nodeName)
 
 	clusterConfig, err := b.InClusterConfig()
 	if err != nil {
@@ -352,7 +349,7 @@ func (b *BpfRecorder) SyscallsForProfile(
 		return nil, errors.New("not seccomp profiles recording running")
 	}
 
-	b.logger.Info("Getting syscalls for profile " + r.GetName())
+	b.logger.Info("Getting syscalls for profile", "profile", r.GetName())
 
 	mntns, err := b.getMntnsForProfileWithRetry(r.GetName())
 	if err != nil {
@@ -392,7 +389,7 @@ func (b *BpfRecorder) ApparmorForProfile(
 		return nil, errors.New("no apparmor profiles recording running")
 	}
 
-	b.logger.Info("Getting apparmor profile for profile " + r.GetName())
+	b.logger.Info("Getting apparmor profile", "profile", r.GetName())
 
 	mntns, err := b.getMntnsForProfileWithRetry(r.GetName())
 	if err != nil {
@@ -676,7 +673,7 @@ func (b *BpfRecorder) StopRecording() error {
 
 	b.logger.Info("Stop BPF recording: Detaching all programs...")
 
-	if err := b.UpdateValue(b.isRecordingBpfMap, 0, []byte{1}); err != nil {
+	if err := b.UpdateValue(b.isRecordingBpfMap, 0, []byte{0}); err != nil {
 		return fmt.Errorf("failed to update `is_recording`: %w", err)
 	}
 
@@ -1009,11 +1006,13 @@ func (b *BpfRecorder) WaitForPidExit(ctx context.Context, pid uint32) error {
 	}
 }
 
+var bpfLSMRegex = regexp.MustCompile(`(^|,)bpf(,|$)`)
+
 func BPFLSMEnabled() bool {
 	contents, err := os.ReadFile("/sys/kernel/security/lsm")
 	if err != nil {
 		return false
 	}
 
-	return regexp.MustCompile(`(^|,)bpf(,|$)`).Match(contents)
+	return bpfLSMRegex.Match(contents)
 }

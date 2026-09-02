@@ -36,8 +36,6 @@ func ReadProfile(content []byte) (client.Object, error) {
 
 	err := yaml.Unmarshal(content, &genericCRD)
 	if err != nil {
-		fmt.Println(err)
-
 		return nil, fmt.Errorf("cannot parse yaml: %w", err)
 	}
 

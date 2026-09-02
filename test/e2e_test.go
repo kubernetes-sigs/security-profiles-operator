@@ -507,10 +507,6 @@ func (e *e2e) getSELinuxPolicyUsage(kind, policy string) string {
 	return e.kubectl("get", kind, "-n", ns, policy, "-o", "jsonpath={.status.usage}")
 }
 
-func (e *e2e) sliceContainsString(slice []string, s string) bool {
-	return slices.Contains(slice, s)
-}
-
 func (e *e2e) waitForSpod() {
 	for i := range 50 {
 		output, err := command.New(

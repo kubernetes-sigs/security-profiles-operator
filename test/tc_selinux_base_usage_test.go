@@ -18,6 +18,7 @@ package e2e_test
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -381,7 +382,7 @@ func (e *e2e) assertSelinuxPolicyIsInstalled(
 
 		for _, node := range nodes {
 			policiesRaw := e.execNode(node, "semodule", "-l")
-			if !e.sliceContainsString(strings.Split(policiesRaw, "\n"), policy) {
+			if !slices.Contains(strings.Split(policiesRaw, "\n"), policy) {
 				missingPolName = node
 
 				break
@@ -413,7 +414,7 @@ func (e *e2e) assertSelinuxPolicyIsRemoved(
 
 		for _, node := range nodes {
 			policiesRaw := e.execNode(node, "semodule", "-l")
-			if e.sliceContainsString(strings.Split(policiesRaw, "\n"), policy) {
+			if slices.Contains(strings.Split(policiesRaw, "\n"), policy) {
 				missingPolName = node
 
 				break

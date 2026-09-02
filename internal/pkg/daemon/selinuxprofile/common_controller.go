@@ -148,8 +148,8 @@ func (r *ReconcileSelinux) SchemeBuilder() runtime.SchemeBuilder {
 }
 
 // Healthz is the liveness probe endpoint of the controller.
-func (r *ReconcileSelinux) Healthz(*http.Request) error {
-	ready, err := isSelinuxdReady(context.TODO(), r.httpc)
+func (r *ReconcileSelinux) Healthz(req *http.Request) error {
+	ready, err := isSelinuxdReady(req.Context(), r.httpc)
 	if err != nil {
 		return fmt.Errorf("getting health status: %w", err)
 	}
@@ -188,7 +188,7 @@ func (r *ReconcileSelinux) Reconcile(
 		"Request.Name",
 		request.Name,
 	)
-	reqLogger.Info("Reconciling object in " + r.controllerName)
+	reqLogger.Info("Reconciling object", "controller", r.controllerName)
 
 	// Fetch the object instance
 	oh, err := r.objectHandlerInit(ctx, r.client, request.NamespacedName)

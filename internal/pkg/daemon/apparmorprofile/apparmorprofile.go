@@ -257,7 +257,7 @@ func (r *Reconciler) handleDeletion(sp *apparmorprofileapi.AppArmorProfile) erro
 		return fmt.Errorf("unloading profile from host: %w", err)
 	}
 
-	r.log.Info("removed profile " + sp.GetProfileName())
+	r.log.Info("removed profile", "profile", sp.GetProfileName())
 	r.metrics.IncAppArmorProfileDelete()
 
 	return nil
@@ -274,10 +274,10 @@ func (r *Reconciler) logNodeInfo() {
 
 	err := mount.Do(func() error {
 		enabled, err := a.Enabled()
-		r.log.Info("apparmor enabled: " + ok(enabled, err))
+		r.log.Info("apparmor enabled", "status", ok(enabled, err))
 
 		enforceable, err := a.Enforceable()
-		r.log.Info("apparmor enforceable: " + ok(enforceable, err))
+		r.log.Info("apparmor enforceable", "status", ok(enforceable, err))
 
 		return nil
 	})
