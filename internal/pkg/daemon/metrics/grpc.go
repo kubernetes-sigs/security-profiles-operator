@@ -49,21 +49,28 @@ func (m *Metrics) ServeGRPC() error {
 		return fmt.Errorf("create listener: %w", err)
 	}
 
-	grpcServer := grpc.NewServer(
+	m.grpcServer = grpc.NewServer(
 		grpc.MaxSendMsgSize(maxMsgSize),
 		grpc.MaxRecvMsgSize(maxMsgSize),
 	)
-	api.RegisterMetricsServer(grpcServer, m)
+	api.RegisterMetricsServer(m.grpcServer, m)
 
 	go func() {
 		m.log.Info("Starting GRPC server API")
 
-		if err := grpcServer.Serve(listener); err != nil {
+		if err := m.grpcServer.Serve(listener); err != nil {
 			m.log.Error(err, "unable to run GRPC server")
 		}
 	}()
 
 	return nil
+}
+
+// GracefulStop gracefully stops the GRPC server.
+func (m *Metrics) GracefulStop() {
+	if m.grpcServer != nil {
+		m.grpcServer.GracefulStop()
+	}
 }
 
 // Dial can be used to connect to the default GRPC server by creating a new

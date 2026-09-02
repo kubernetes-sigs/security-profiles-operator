@@ -660,6 +660,7 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 	if err := met.ServeGRPC(); err != nil {
 		return fmt.Errorf("start metrics grpc server: %w", err)
 	}
+	defer met.GracefulStop()
 
 	disableHTTP2 := func(c *tls.Config) {
 		c.NextProtos = []string{"http/1.1"}

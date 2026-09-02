@@ -171,7 +171,7 @@ func loadProfile(logger logr.Logger, name, content string) (bool, error) {
 		return nil
 	})
 
-	return err != nil, err
+	return err == nil, err
 }
 
 func removeProfile(logger logr.Logger, profileName string) error {

@@ -24,6 +24,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"google.golang.org/grpc"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	api "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
@@ -80,6 +81,7 @@ type Metrics struct {
 	api.UnimplementedMetricsServer
 	impl                        impl
 	log                         logr.Logger
+	grpcServer                  *grpc.Server
 	metricSeccompProfile        *prometheus.CounterVec
 	metricSeccompProfileAudit   *prometheus.CounterVec
 	metricSeccompProfileBpf     *prometheus.CounterVec
@@ -235,7 +237,7 @@ func (m *Metrics) Register() error {
 		metricNameAppArmorProfileError:  m.metricAppArmorProfileError,
 		metricNameAppArmorProfileDenial: m.metricAppArmorProfileDenial,
 	} {
-		m.log.Info("Registering metric: " + name)
+		m.log.Info("Registering metric", "name", name)
 
 		if err := m.impl.Register(collector); err != nil {
 			return fmt.Errorf("register collector for %s metric: %w", name, err)

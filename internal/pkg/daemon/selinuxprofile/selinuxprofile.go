@@ -43,6 +43,9 @@ var (
 	ErrInvalidPermission       = errors.New("invalid permission")
 	ErrSystemInheritNotAllowed = errors.New("system profile not allowed")
 	ErrUnknownKindForEntry     = errors.New("unknown inherit kind for entry")
+
+	labelRegex        = regexp.MustCompile(`^([a-zA-Z0-9.\-_]+|@self)$`)
+	objClassPermRegex = regexp.MustCompile(`^[a-zA-Z0-9.\-_]+$`)
 )
 
 // NewController returns a new empty controller instance.
@@ -65,13 +68,11 @@ func selinuxProfileControllerBuild(b *ctrl.Builder, r reconcile.Reconciler) erro
 var _ SelinuxObjectHandler = &selinuxProfileHandler{}
 
 type selinuxProfileHandler struct {
-	sp                *selinuxprofileapi.SelinuxProfile
-	cli               client.Client
-	systemInherits    []string
-	objInherits       []selinuxprofileapi.SelinuxProfileObject
-	labelRegex        *regexp.Regexp
-	objClassPermRegex *regexp.Regexp
-	translatorOpts    *translator.Options
+	sp             *selinuxprofileapi.SelinuxProfile
+	cli            client.Client
+	systemInherits []string
+	objInherits    []selinuxprofileapi.SelinuxProfileObject
+	translatorOpts *translator.Options
 }
 
 func (sph *selinuxProfileHandler) Init(
@@ -87,18 +88,6 @@ func (sph *selinuxProfileHandler) Init(
 	if err := sph.cli.Get(ctx, key, sph.sp); err != nil {
 		return fmt.Errorf("getting selinux profile: %w", err)
 	}
-
-	// Matches alpha numerical names in upper and lower-case, as well as
-	// dashes and underscores. @self is also allowed explicitly.
-	// Must be at least one character.
-	// The characters must match from beginning to end of the string
-	sph.labelRegex = regexp.MustCompile(`^([a-zA-Z0-9.\-_]+|@self)$`)
-
-	// Matches alpha numerical names in upper and lower-case, as well as
-	// dashes and underscores.
-	// Must be at least one character.
-	// The characters must match from beginning to end of the string
-	sph.objClassPermRegex = regexp.MustCompile(`^[a-zA-Z0-9.\-_]+$`)
 
 	return nil
 }
@@ -162,7 +151,7 @@ func (sph *selinuxProfileHandler) validateAndTrackInherit(
 func (sph *selinuxProfileHandler) validateLabelKey(
 	key selinuxprofileapi.LabelKey,
 ) error {
-	if !sph.labelRegex.MatchString(string(key)) {
+	if !labelRegex.MatchString(string(key)) {
 		return fmt.Errorf("'%s' didn't match expected characters: %w", key, ErrInvalidLabelKey)
 	}
 
@@ -172,7 +161,7 @@ func (sph *selinuxProfileHandler) validateLabelKey(
 func (sph *selinuxProfileHandler) validateObjClass(
 	key selinuxprofileapi.ObjectClassKey,
 ) error {
-	if !sph.objClassPermRegex.MatchString(string(key)) {
+	if !objClassPermRegex.MatchString(string(key)) {
 		return fmt.Errorf("'%s' didn't match expected characters: %w", key, ErrInvalidObjClass)
 	}
 
@@ -182,7 +171,7 @@ func (sph *selinuxProfileHandler) validateObjClass(
 func (sph *selinuxProfileHandler) validatePermission(
 	perm string,
 ) error {
-	if !sph.objClassPermRegex.MatchString(perm) {
+	if !objClassPermRegex.MatchString(perm) {
 		return fmt.Errorf("'%s' didn't match expected characters: %w", perm, ErrInvalidPermission)
 	}
 

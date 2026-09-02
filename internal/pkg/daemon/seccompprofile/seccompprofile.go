@@ -435,7 +435,7 @@ func (r *Reconciler) resolveSyscallsForProfile(
 				OS:           runtime.GOOS,
 			}, signOpts)
 			if err != nil {
-				l.Error(err, "cannot pull base profile "+baseProfileName)
+				l.Error(err, "cannot pull base profile", "profile", baseProfileName)
 				r.IncSeccompProfileError(r.metrics, reasonCannotPullProfile)
 				r.RecordEvent(
 					r.record,
@@ -467,7 +467,7 @@ func (r *Reconciler) resolveSyscallsForProfile(
 			ctx, r.client, util.NamespacedName(baseProfileName, sp.GetNamespace()),
 		)
 		if err != nil {
-			l.Error(err, "cannot retrieve base profile "+baseProfileName)
+			l.Error(err, "cannot retrieve base profile", "profile", baseProfileName)
 			r.IncSeccompProfileError(r.metrics, reasonInvalidSeccompProfile)
 			r.RecordEvent(
 				r.record,
@@ -538,7 +538,7 @@ func (r *Reconciler) reconcileSeccompProfile(
 
 	profileContent, err := json.Marshal(outputProfile.Spec)
 	if err != nil {
-		l.Error(err, "cannot validate profile "+profileName)
+		l.Error(err, "cannot validate profile", "profile", profileName)
 		r.metrics.IncSeccompProfileError(reasonInvalidSeccompProfile)
 		r.record.Event(sp, util.EventTypeWarning, reasonInvalidSeccompProfile, err.Error())
 
@@ -656,7 +656,7 @@ func (r *Reconciler) handleDeletion(sp *seccompprofileapi.SeccompProfile) error 
 		return fmt.Errorf("removing profile from host: %w", err)
 	}
 
-	r.log.Info("removed profile " + profilePath)
+	r.log.Info("removed profile", "path", profilePath)
 	r.metrics.IncSeccompProfileDelete()
 
 	return nil

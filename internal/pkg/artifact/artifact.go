@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"maps"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -85,6 +84,21 @@ type Artifact struct {
 	logger logr.Logger
 }
 
+func (a *Artifact) setRepoCredentials(repo *remote.Repository, username, password string) {
+	if username != "" && password != "" {
+		a.logger.Info("Using username and password")
+
+		repo.Client = &auth.Client{
+			Client: retry.DefaultClient,
+			Cache:  auth.DefaultCache,
+			Credential: auth.StaticCredential(
+				repo.Reference.Registry,
+				auth.Credential{Username: username, Password: password},
+			),
+		}
+	}
+}
+
 // PullSignatureOptions options for verifying the OCI image signature during pulling.
 type PullSignatureOptions struct {
 	// DisableSignatureVerification disables signature verification during pulling.
@@ -118,11 +132,11 @@ func (a *Artifact) Push(
 
 	defer func() {
 		if err := a.RemoveAll(dir); err != nil {
-			a.logger.Info("Unable to remove temp dir: " + err.Error())
+			a.logger.Info("Unable to remove temp dir", "error", err)
 		}
 	}()
 
-	a.logger.Info("Creating file store in: " + dir)
+	a.logger.Info("Creating file store", "dir", dir)
 
 	store, err := a.FileNew(dir)
 	if err != nil {
@@ -131,7 +145,7 @@ func (a *Artifact) Push(
 
 	defer func() {
 		if err := a.FileClose(store); err != nil {
-			a.logger.Info("Unable to close file store: " + err.Error())
+			a.logger.Info("Unable to close file store", "error", err)
 		}
 	}()
 
@@ -140,14 +154,12 @@ func (a *Artifact) Push(
 
 	fileDescriptors := []v1.Descriptor{}
 
-	a.logger.Info("Adding " + strconv.Itoa(len(files)) + " profiles")
+	a.logger.Info("Adding profiles", "count", len(files))
 
 	for platform, file := range files {
-		a.logger.Info(
-			"Adding profile " + file +
-				" for platform " +
-				platformToString(platform) +
-				" to store",
+		a.logger.Info("Adding profile to store",
+			"file", file,
+			"platform", platformToString(platform),
 		)
 
 		absPath, err := a.FilepathAbs(file)
@@ -183,7 +195,7 @@ func (a *Artifact) Push(
 		return fmt.Errorf("pack files: %w", err)
 	}
 
-	a.logger.Info("Verifying reference: " + to)
+	a.logger.Info("Verifying reference", "ref", to)
 
 	parsedRef, err := a.ParseReference(to)
 	if err != nil {
@@ -192,32 +204,21 @@ func (a *Artifact) Push(
 
 	tag := parsedRef.Identifier()
 
-	a.logger.Info("Using tag: " + tag)
+	a.logger.Info("Using tag", "tag", tag)
 
 	if err = a.StoreTag(ctx, store, manifestDescriptor, tag); err != nil {
 		return fmt.Errorf("creating tag: %w", err)
 	}
 
 	ref := parsedRef.Context().Name()
-	a.logger.Info("Creating repository for " + ref)
+	a.logger.Info("Creating repository", "ref", ref)
 
 	repo, err := a.NewRepository(ref)
 	if err != nil {
 		return fmt.Errorf("create repository: %w", err)
 	}
 
-	if username != "" && password != "" {
-		a.logger.Info("Using username and password")
-
-		repo.Client = &auth.Client{
-			Client: retry.DefaultClient,
-			Cache:  auth.DefaultCache,
-			Credential: auth.StaticCredential(
-				repo.Reference.Registry,
-				auth.Credential{Username: username, Password: password},
-			),
-		}
-	}
+	a.setRepoCredentials(repo, username, password)
 
 	a.logger.Info("Copying profile to repository")
 
@@ -287,7 +288,7 @@ func (a *Artifact) Pull(
 
 	originalImage := from
 
-	a.logger.Info("Resolving digest of image: " + originalImage)
+	a.logger.Info("Resolving digest of image", "image", originalImage)
 
 	// Retrieve the immutable image digest before doing any verification to
 	// prevent a TOCTOU attack on the mutable tag of the base image, which
@@ -326,11 +327,11 @@ func (a *Artifact) Pull(
 
 	defer func() {
 		if err := a.RemoveAll(dir); err != nil {
-			a.logger.Info("Unable to remove temp dir: " + err.Error())
+			a.logger.Info("Unable to remove temp dir", "error", err)
 		}
 	}()
 
-	a.logger.Info("Creating file store in: " + dir)
+	a.logger.Info("Creating file store", "dir", dir)
 
 	store, err := a.FileNew(dir)
 	if err != nil {
@@ -339,7 +340,7 @@ func (a *Artifact) Pull(
 
 	defer func() {
 		if err := a.FileClose(store); err != nil {
-			a.logger.Info("Unable to close file store: " + err.Error())
+			a.logger.Info("Unable to close file store", "error", err)
 		}
 	}()
 
@@ -358,7 +359,7 @@ func (a *Artifact) Pull(
 	content := []byte{}
 
 	for _, name := range []string{profileName(platform), defaultProfileYAML} {
-		a.logger.Info("Trying to read profile: " + name)
+		a.logger.Info("Trying to read profile", "name", name)
 
 		content, err = a.ReadFile(filepath.Join(dir, name))
 		if err == nil {
@@ -416,18 +417,7 @@ func (a *Artifact) imageWithDigest(ctx context.Context, image, username, passwor
 			ref.Name(), err)
 	}
 
-	if username != "" && password != "" {
-		a.logger.Info("Using username and password")
-
-		repo.Client = &auth.Client{
-			Client: retry.DefaultClient,
-			Cache:  auth.DefaultCache,
-			Credential: auth.StaticCredential(
-				repo.Reference.Registry,
-				auth.Credential{Username: username, Password: password},
-			),
-		}
-	}
+	a.setRepoCredentials(repo, username, password)
 
 	desc, err := a.ResolveRepository(ctx, repo, ref.Identifier())
 	if err != nil {

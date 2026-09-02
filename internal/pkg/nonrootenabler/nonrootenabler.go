@@ -54,10 +54,10 @@ func (n *NonRootEnabler) Run(logger logr.Logger, runtime, kubeletDir string, app
 
 	const filePermissions os.FileMode = 0o644
 
-	logger.Info("Container runtime:" + runtime)
+	logger.Info("Container runtime", "runtime", runtime)
 
 	kubeleteSeccompDir := path.Join(config.HostRoot, kubeletDir, config.SeccompProfilesFolder)
-	logger.Info("Ensuring seccomp root path: " + kubeleteSeccompDir)
+	logger.Info("Ensuring seccomp root path", "path", kubeleteSeccompDir)
 
 	if err := n.MkdirAll(
 		kubeleteSeccompDir, dirPermissions,
@@ -68,7 +68,7 @@ func (n *NonRootEnabler) Run(logger logr.Logger, runtime, kubeletDir string, app
 		)
 	}
 
-	logger.Info("Ensuring operator root path: " + config.OperatorRoot)
+	logger.Info("Ensuring operator root path", "path", config.OperatorRoot)
 
 	if err := n.MkdirAll(
 		config.OperatorRoot, dirPermissions,
@@ -128,7 +128,7 @@ func (n *NonRootEnabler) Run(logger logr.Logger, runtime, kubeletDir string, app
 		return fmt.Errorf("change operator root permissions: %w", err)
 	}
 
-	logger.Info("Copying profiles into root path: " + kubeleteSeccompDir)
+	logger.Info("Copying profiles into root path", "path", kubeleteSeccompDir)
 
 	if err := n.CopyDirContentsLocal(
 		config.DefaultSpoProfilePath, kubeleteSeccompDir,
@@ -140,7 +140,7 @@ func (n *NonRootEnabler) Run(logger logr.Logger, runtime, kubeletDir string, app
 	if apparmor && aaManager.Enabled() {
 		for _, p := range []string{config.SpoApparmorProfile, config.BpfRecorderApparmorProfile} {
 			profile := path.Join(config.DefaultSpoProfilePath, p)
-			logger.Info("Installing apparmor profile: " + profile)
+			logger.Info("Installing apparmor profile", "profile", profile)
 
 			if err := n.InstallApparmor(aaManager, profile); err != nil {
 				return fmt.Errorf("installing apparmor profile: %w", err)

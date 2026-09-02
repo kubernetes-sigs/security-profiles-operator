@@ -65,7 +65,7 @@ func (a *AuditdSource) StartTail() (log chan *types.AuditLine, err error) {
 	go func() {
 		for l := range a.file.Lines {
 			line := l.Text
-			a.logger.V(config.VerboseLevel).Info("Got line: " + line)
+			a.logger.V(config.VerboseLevel).Info("Got line", "line", line)
 
 			if !IsAuditLine(line) {
 				a.logger.V(config.VerboseLevel).Info("Not an audit line")
