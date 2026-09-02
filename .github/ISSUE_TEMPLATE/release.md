@@ -69,7 +69,7 @@ We also provide `.sha512` sum files for the binaries.
 
 Feel free to provide us any kind of feedback in the official [Kubernetes Slack #security-profiles-operator channel][2].
 
-[0]: https://github.com/kubernetes-sigs/security-profiles-operator/blob/v{VERSION}/installation-usage.md
+[0]: https://github.com/kubernetes-sigs/security-profiles-operator/blob/v{VERSION}/installation.md
 [1]: https://github.com/sigstore/cosign
 [2]: https://app.slack.com/client/T09NY5SBT/C013FQNB0A2
 ````

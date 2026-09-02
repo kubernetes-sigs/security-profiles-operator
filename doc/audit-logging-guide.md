@@ -4,7 +4,7 @@
 
 This is a user guide to configure audit logging in a single node local Kubernetes cluster using the JSON log enricher feature. The same steps can be used for multi-node clusters and managed clusters as well. This guide provides step-by-step instructions for configuring audit logging and viewing the generated logs.
 
-Please note this is a user guide. Detailed documentation is available at [installation-usage.md](../installation-usage.md).
+Please note this is a user guide. Detailed documentation is available at [profiles.md](../profiles.md).
 
 The use case involves two personas:
 - **Auditor**: Configures the audit logging system and views the generated audit logs
@@ -19,7 +19,7 @@ To follow this guide, you'll need a Kubernetes cluster and a few command-line to
 
 ## Step 1: Install the Security-Profiles-Operator
 
-Install the SPO by following the detailed installation instructions at [Install Operator](../installation-usage.md#install-operator).
+Install the SPO by following the detailed installation instructions at [Install Operator](../installation.md#install-operator).
 
 ## Step 2: Configure SPO to Store Logs Locally
 
@@ -153,4 +153,4 @@ If you are using the CRI-O runtime, you must configure it to allow Seccomp profi
 
 You have successfully configured the JSON log enricher for audit logging on your Kubernetes cluster. The system will now capture and log administrative activities such as pod exec and node debugging sessions. 
 
-For detailed documentation and additional configuration options, please refer to the [installation-usage.md](../installation-usage.md) file.
+For detailed documentation and additional configuration options, please refer to the [profiles](../profiles.md) documentation.

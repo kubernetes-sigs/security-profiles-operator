@@ -50,7 +50,7 @@ dependencies:
     refPaths:
     - path: test/e2e_test.go
       match: cert-manager/cert-manager
-    - path: installation-usage.md
+    - path: installation.md
       match: cert-manager/cert-manager
     - path: hack/ci/e2e-olm.sh
       match: cert-manager/cert-manager
@@ -160,7 +160,7 @@ dependencies:
       match: "name: runc"
     - path: test/tc_base_profiles_test.go
       match: 'baseProfileNameRunc\s+='
-    - path: installation-usage.md
+    - path: profiles.md
       match: "baseProfileName: runc"
 
   - name: cosign
@@ -188,6 +188,10 @@ dependencies:
       match: "^appVersion: "
     - path: deploy/helm/Chart.yaml
       match: "^version: "
+    - path: deploy/helm/README.md
+      match: "Version-"
+    - path: deploy/helm/README.md
+      match: "AppVersion-"
 
   - name: clang-bpf
     version: 19

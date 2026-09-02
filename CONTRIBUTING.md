@@ -26,7 +26,7 @@ We have full documentation on how to get started contributing here:
 
 ## Prerequisites
 
-- [go](https://golang.org/dl/) version v1.26+.
+- [go](https://golang.org/dl/) version v1.27+.
 - [docker](https://docs.docker.com/install/) version 24.0+ or [podman](https://podman.io/getting-started/installation) version 4.0+.
 - [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl/) version v1.30+.
 - Access to a Kubernetes v1.30+ cluster.
