@@ -1,3 +1,7 @@
+**Note:** This RFC is a historical document from the initial proposal of the
+Security Profiles Operator. All features described here have been implemented.
+For current usage and configuration, refer to the [installation](installation.md) and [profiles](profiles.md) documentation.
+
 # Summary
 
 [summary]: #summary

@@ -59,11 +59,19 @@ sed -i 's;newTag: latest;newTag: v'"$VERSION"';g' $FILE
 FILES=(
     dependencies.yaml
     deploy/helm/Chart.yaml
-    installation-usage.md
+    deploy/helm/README.md
+    installation.md
 )
 for FILE in "${FILES[@]}"; do
     sed -i "s;$PREVIOUS_VERSION;$VERSION;g" "$FILE"
 done
+
+# Fix shields.io badge URL encoding (-- represents literal -)
+PREVIOUS_BADGE="${PREVIOUS_VERSION//-/--}"
+if [ "$PREVIOUS_BADGE" != "$PREVIOUS_VERSION" ]; then
+    VERSION_BADGE="${VERSION//-/--}"
+    sed -i "s;$PREVIOUS_BADGE;$VERSION_BADGE;g" deploy/helm/README.md
+fi
 
 # Update operatorhub replacement
 FILE=deploy/base/clusterserviceversion.yaml

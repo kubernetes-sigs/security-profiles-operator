@@ -6,11 +6,10 @@
 [![CII Best Practices](https://bestpractices.coreinfrastructure.org/projects/5368/badge)](https://bestpractices.coreinfrastructure.org/projects/5368)
 [![OCI security profiles](https://img.shields.io/badge/oci%3A%2F%2F-security%20profiles-blue?logo=kubernetes&logoColor=white)](https://github.com/orgs/security-profiles/packages)
 
-
 The _Security Profiles Operator_ (SPO) is an out-of-tree Kubernetes enhancement which aims to make
 it easier to create and use SELinux, seccomp and AppArmor security profiles in Kubernetes clusters.
 
-- [Installation and Usage](installation-usage.md)
+- [Documentation](installation-usage.md)
 - [Container Images](https://console.cloud.google.com/gcr/images/k8s-staging-sp-operator/GLOBAL/security-profiles-operator)
 - [Release Process](./release.md)
 - [Testgrid Dashboard](https://testgrid.k8s.io/sig-node-security-profiles-operator)
@@ -26,7 +25,7 @@ This is the parity of features across various security profiles supported by the
 | Remove unused profiles from cluster       |   Yes   | Yes     | Yes      |
 | Profile Recording (audit logs)            |   Yes   | Yes     | No       |
 | Profile Recording (eBPF)                  |   Yes   | No      | Yes      |
-| Profile Binding to container images       |   Yes   | No      | No       |
+| Profile Binding to container images       |   Yes   | Yes     | Yes      |
 | Audit log enrichment                      |   Yes   | Yes     | Yes      |
 | Audit In-Pod Activity JSON log enrichment |   Yes   | No      | No       |
 
@@ -65,7 +64,6 @@ the Kubernetes world:
 [4]: https://github.com/kubernetes/kubernetes/tree/c30da3839c8e13fdff59ef5115e982362b2c90ed/test/images/apparmor-loader
 [5]: https://github.com/openshift/machine-config-operator/tree/master/docs
 [6]: https://github.com/UKHomeOffice/seccomp-config
-
 
 ## Community, discussions, contributions, and support
 

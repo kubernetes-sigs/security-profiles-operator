@@ -1,12 +1,12 @@
 # security-profiles-operator
 
-![Version: 0.6.1-dev](https://img.shields.io/badge/Version-0.6.1--dev-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.6.1-dev](https://img.shields.io/badge/AppVersion-0.6.1--dev-informational?style=flat-square)
+![Version: 1.0.2-dev](https://img.shields.io/badge/Version-1.0.2--dev-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 1.0.2-dev](https://img.shields.io/badge/AppVersion-1.0.2--dev-informational?style=flat-square)
 
 The Kubernetes Security Profiles Operator.
 
 ## Installation
 
-please refer to [Installation Guide](https://github.com/kubernetes-sigs/security-profiles-operator/blob/main/installation-usage.md#installation-using-helm)
+please refer to [Installation Guide](https://github.com/kubernetes-sigs/security-profiles-operator/blob/main/installation.md#installation-using-helm)
 
 ## Values
 

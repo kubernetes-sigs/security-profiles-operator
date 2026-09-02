@@ -1,6 +1,6 @@
 # Migration Guide: API Graduation to v1
 
-Security Profiles Operator (SPO) 1.0.0 graduates all CRD APIs from alpha/beta to v1. This document covers what changed, what happens automatically, and what you should update. For general installation and usage instructions, see [installation-usage.md](../installation-usage.md).
+Security Profiles Operator (SPO) 1.0.0 graduates all CRD APIs from alpha/beta to v1. This document covers what changed, what happens automatically, and what you should update. For general installation and usage instructions, see the [documentation](../installation-usage.md).
 
 ## API version changes
 

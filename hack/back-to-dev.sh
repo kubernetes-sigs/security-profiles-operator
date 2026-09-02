@@ -54,7 +54,14 @@ sed -i "s;image: registry.k8s.io/security-profiles-operator/security-profiles-op
 sed -i "s/$VERSION/$DEV_VERSION/g" \
     dependencies.yaml \
     deploy/catalog-preamble.json \
-    deploy/helm/Chart.yaml
+    deploy/helm/Chart.yaml \
+    deploy/helm/README.md
+
+# Fix shields.io badge URL encoding (-- represents literal -)
+DEV_BADGE="${DEV_VERSION//-/--}"
+if [ "$DEV_BADGE" != "$DEV_VERSION" ]; then
+    sed -i "s;${DEV_VERSION}-informational;${DEV_BADGE}-informational;g" deploy/helm/README.md
+fi
 
 sed -i \
     -e 's;# \(newName: .*\);\1;g' \
