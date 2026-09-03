@@ -24,7 +24,7 @@ require (
 	github.com/pjbgf/go-apparmor v0.1.3-0.20241107184909-1375e5e7aa89
 	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.93.1
 	github.com/prometheus/client_golang v1.24.1
-	github.com/prometheus/client_model v0.6.2
+	github.com/prometheus/client_model v0.6.3
 	github.com/saschagrunert/security-profiles-merger v0.3.6
 	github.com/seccomp/libseccomp-golang v0.12.0
 	github.com/sigstore/cosign/v2 v2.6.5
