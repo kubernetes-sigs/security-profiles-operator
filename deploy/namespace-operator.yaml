@@ -2,7 +2,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.21.0
+    controller-gen.kubebuilder.io/version: v0.22.0
   labels:
     app: security-profiles-operator
   name: profilebindings.security-profiles-operator.x-k8s.io
@@ -142,7 +142,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.21.0
+    controller-gen.kubebuilder.io/version: v0.22.0
   labels:
     app: security-profiles-operator
   name: profilerecordings.security-profiles-operator.x-k8s.io
@@ -301,7 +301,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.21.0
+    controller-gen.kubebuilder.io/version: v0.22.0
   labels:
     app: security-profiles-operator
   name: seccompprofiles.security-profiles-operator.x-k8s.io
@@ -635,7 +635,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.21.0
+    controller-gen.kubebuilder.io/version: v0.22.0
   labels:
     app: security-profiles-operator
   name: securityprofilenodestatuses.security-profiles-operator.x-k8s.io
@@ -723,7 +723,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.21.0
+    controller-gen.kubebuilder.io/version: v0.22.0
   labels:
     app: security-profiles-operator
   name: securityprofilesoperatordaemons.security-profiles-operator.x-k8s.io
@@ -2353,7 +2353,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.21.0
+    controller-gen.kubebuilder.io/version: v0.22.0
   labels:
     app: security-profiles-operator
   name: rawselinuxprofiles.security-profiles-operator.x-k8s.io
@@ -2510,7 +2510,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.21.0
+    controller-gen.kubebuilder.io/version: v0.22.0
   labels:
     app: security-profiles-operator
   name: selinuxprofiles.security-profiles-operator.x-k8s.io
@@ -2712,7 +2712,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.21.0
+    controller-gen.kubebuilder.io/version: v0.22.0
   labels:
     app: security-profiles-operator
   name: apparmorprofiles.security-profiles-operator.x-k8s.io
