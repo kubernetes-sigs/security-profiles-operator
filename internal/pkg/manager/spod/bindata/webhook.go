@@ -39,8 +39,10 @@ import (
 var (
 	replicas                int32 = 3
 	defaultMode             int32 = 420
+	timeoutSeconds          int32 = 30
 	failurePolicyFail             = admissionregv1.Fail
 	failurePolicyIgnore           = admissionregv1.Ignore
+	reinvocationPolicy            = admissionregv1.IfNeededReinvocationPolicy
 	caBundle                      = []byte("Cg==")
 	sideEffects                   = admissionregv1.SideEffectClassNone
 	admissionReviewVersions       = []string{"v1"}
@@ -503,11 +505,13 @@ func getWebhookConfig(
 ) *admissionregv1.MutatingWebhookConfiguration {
 	webhooks := []admissionregv1.MutatingWebhook{
 		{
-			Name:           binding.name,
-			FailurePolicy:  &failurePolicyFail,
-			SideEffects:    &sideEffects,
-			Rules:          bindingRules,
-			ObjectSelector: &objectSelector,
+			Name:               binding.name,
+			FailurePolicy:      &failurePolicyFail,
+			SideEffects:        &sideEffects,
+			TimeoutSeconds:     &timeoutSeconds,
+			ReinvocationPolicy: &reinvocationPolicy,
+			Rules:              bindingRules,
+			ObjectSelector:     &objectSelector,
 			NamespaceSelector: &metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{
 					{
@@ -526,11 +530,13 @@ func getWebhookConfig(
 			AdmissionReviewVersions: admissionReviewVersions,
 		},
 		{
-			Name:           recording.name,
-			FailurePolicy:  &failurePolicyFail,
-			SideEffects:    &sideEffects,
-			Rules:          recordingRules,
-			ObjectSelector: &objectSelector,
+			Name:               recording.name,
+			FailurePolicy:      &failurePolicyFail,
+			SideEffects:        &sideEffects,
+			TimeoutSeconds:     &timeoutSeconds,
+			ReinvocationPolicy: &reinvocationPolicy,
+			Rules:              recordingRules,
+			ObjectSelector:     &objectSelector,
 			NamespaceSelector: &metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{
 					{
@@ -552,10 +558,12 @@ func getWebhookConfig(
 
 	if execMetadataWebhookEnabled {
 		webhooks = append(webhooks, admissionregv1.MutatingWebhook{
-			Name:          execMetadata.name,
-			FailurePolicy: &failurePolicyIgnore,
-			SideEffects:   &sideEffects,
-			Rules:         rulesExec,
+			Name:               execMetadata.name,
+			FailurePolicy:      &failurePolicyIgnore,
+			SideEffects:        &sideEffects,
+			TimeoutSeconds:     &timeoutSeconds,
+			ReinvocationPolicy: &reinvocationPolicy,
+			Rules:              rulesExec,
 			ClientConfig: admissionregv1.WebhookClientConfig{
 				CABundle: caBundle,
 				Service: &admissionregv1.ServiceReference{
@@ -565,10 +573,12 @@ func getWebhookConfig(
 			},
 			AdmissionReviewVersions: admissionReviewVersions,
 		}, admissionregv1.MutatingWebhook{
-			Name:          nodeDebuggingPodMetadata.name,
-			FailurePolicy: &failurePolicyIgnore,
-			SideEffects:   &sideEffects,
-			Rules:         rulesNodeDebuggingPod,
+			Name:               nodeDebuggingPodMetadata.name,
+			FailurePolicy:      &failurePolicyIgnore,
+			SideEffects:        &sideEffects,
+			TimeoutSeconds:     &timeoutSeconds,
+			ReinvocationPolicy: &reinvocationPolicy,
+			Rules:              rulesNodeDebuggingPod,
 			ClientConfig: admissionregv1.WebhookClientConfig{
 				CABundle: caBundle,
 				Service: &admissionregv1.ServiceReference{
@@ -598,9 +608,10 @@ func getValidatingWebhookConfig() *admissionregv1.ValidatingWebhookConfiguration
 		},
 		Webhooks: []admissionregv1.ValidatingWebhook{
 			{
-				Name:          rawSelinuxProfileValidation,
-				FailurePolicy: &failurePolicyFail,
-				SideEffects:   &sideEffects,
+				Name:           rawSelinuxProfileValidation,
+				FailurePolicy:  &failurePolicyFail,
+				SideEffects:    &sideEffects,
+				TimeoutSeconds: &timeoutSeconds,
 				Rules: []admissionregv1.RuleWithOperations{
 					{
 						Operations: []admissionregv1.OperationType{
@@ -641,8 +652,7 @@ var webhookDeployment = &appsv1.Deployment{
 		Template: corev1.PodTemplateSpec{
 			ObjectMeta: metav1.ObjectMeta{
 				Annotations: map[string]string{
-					"openshift.io/scc":             "privileged",
-					corev1.SeccompPodAnnotationKey: corev1.SeccompProfileRuntimeDefault,
+					"openshift.io/scc": "privileged",
 				},
 				Labels: map[string]string{
 					labelApp:  config.OperatorName,
@@ -650,6 +660,11 @@ var webhookDeployment = &appsv1.Deployment{
 				},
 			},
 			Spec: corev1.PodSpec{
+				SecurityContext: &corev1.PodSecurityContext{
+					SeccompProfile: &corev1.SeccompProfile{
+						Type: corev1.SeccompProfileTypeRuntimeDefault,
+					},
+				},
 				ServiceAccountName: serviceAccountName,
 				Containers: []corev1.Container{
 					{

@@ -112,12 +112,11 @@ func (r *ReconcileSPOd) Healthz(*http.Request) error {
 // +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=mutatingwebhookconfigurations,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingwebhookconfigurations,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=cert-manager.io,resources=issuers;certificates,verbs=get;list;watch;create;update;patch
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons,verbs=get;list;watch;create;update
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons/finalizers,verbs=delete;get;update;patch
 // Helpers:
-// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;
-// +kubebuilder:rbac:groups=coordination.k8s.io,namespace="security-profiles-operator",resources=leases,verbs=create;get;update;
+// +kubebuilder:rbac:groups=coordination.k8s.io,namespace="security-profiles-operator",resources=leases,verbs=create;get;update
 //
 // Needed for default profiles:
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles,verbs=get;list;watch;create;update;patch
@@ -130,7 +129,7 @@ func (r *ReconcileSPOd) Healthz(*http.Request) error {
 // +kubebuilder:rbac:groups=config.openshift.io,resources=clusteroperators,verbs=get;list;watch
 //
 // Needed to detect which runtime is active
-// +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;get
+// +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 //
 // Needed to detect the proper selinux image
 // +kubebuilder:rbac:groups="",resources=configmaps,resourceNames=security-profiles-operator-profile,verbs=get

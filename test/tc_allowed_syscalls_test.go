@@ -53,7 +53,7 @@ func (e *e2e) testCaseAllowedSyscallsValidation(nodes []string) {
 
 	time.Sleep(defaultWaitTime)
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
-	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultBpfRecorderOpTimeout)
+	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLongOpTimeout)
 
 	e.kubectl("create", "-f", exampleProfilePath)
 	defer e.kubectl("delete", "-f", exampleProfilePath)
@@ -121,7 +121,7 @@ func (e *e2e) testCaseAllowedSyscallsChange(nodes []string) {
 
 	time.Sleep(defaultWaitTime)
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
-	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultBpfRecorderOpTimeout)
+	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLongOpTimeout)
 
 	e.kubectl("create", "-f", exampleProfilePath)
 
@@ -155,7 +155,7 @@ func (e *e2e) testCaseAllowedSyscallsChange(nodes []string) {
 	)
 	time.Sleep(defaultWaitTime)
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
-	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultBpfRecorderOpTimeout)
+	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLongOpTimeout)
 
 	// Wait for profile to be deleted by the operator because it is not allowed anymore by the
 	// allowedSyscalls list.
@@ -244,7 +244,7 @@ spec:
 
 	time.Sleep(defaultWaitTime)
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
-	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultBpfRecorderOpTimeout)
+	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLongOpTimeout)
 
 	// Check that the profile is not deleted while the pod is active but only mark as
 	// terminated.

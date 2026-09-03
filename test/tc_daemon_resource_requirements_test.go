@@ -34,7 +34,7 @@ func (e *e2e) testCaseResourceRequirementsChange([]string) {
 	time.Sleep(defaultWaitTime)
 
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
-	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultBpfRecorderOpTimeout)
+	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLongOpTimeout)
 
 	updatedResourcesInSPODDS := e.kubectlOperatorNS("get", "ds", "spod", "-o", "yaml")
 

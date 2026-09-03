@@ -7,12 +7,13 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-permissions:
-  contents: write
+permissions: {}
 
 jobs:
   helm-package:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -22,7 +23,7 @@ jobs:
       - name: Set up Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
-          version: v3.8.1
+          version: v3.17.3
       - run: mkdir -p build
       - id: package
         run: |

@@ -41,8 +41,6 @@ COMMANDS:
    help, h     Shows a list of commands or help for one command
 ```
 
-<!-- TODO: add thoughts about required privileges to run spoc in containers -->
-
 [releases]: https://github.com/kubernetes-sigs/security-profiles-operator/releases/latest
 
 ### Record seccomp profiles for a command

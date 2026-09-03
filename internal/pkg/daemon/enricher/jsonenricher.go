@@ -45,15 +45,16 @@ import (
 type JsonEnricher struct {
 	apienricher.UnimplementedEnricherServer
 	impl
-	logger           logr.Logger
-	containerIDCache *ttlcache.Cache[string, string]
-	infoCache        *ttlcache.Cache[string, *types.ContainerInfo]
-	logLinesCache    *ttlcache.Cache[int, *types.LogBucket]
-	clientset        kubernetes.Interface
-	processCache     *ttlcache.Cache[int, *types.ProcessInfo]
-	logWriter        io.Writer
-	enricherFilters  []types.EnricherFilterOptions
-	bpfProcessCache  *bpfrecorder.BpfProcessCache
+	logger              logr.Logger
+	containerIDCache    *ttlcache.Cache[string, string]
+	infoCache           *ttlcache.Cache[string, *types.ContainerInfo]
+	logLinesCache       *ttlcache.Cache[int, *types.LogBucket]
+	clientset           kubernetes.Interface
+	processCache        *ttlcache.Cache[int, *types.ProcessInfo]
+	logWriter           io.Writer
+	enricherFilters     []types.EnricherFilterOptions
+	bpfProcessCache     *bpfrecorder.BpfProcessCache
+	auditLogOutputMutex sync.Mutex
 }
 
 type JsonEnricherOptions struct {
@@ -73,12 +74,6 @@ var JsonEnricherDefaultOptions = JsonEnricherOptions{
 	AuditLogMaxBackups:  0,
 	EnricherFiltersJson: "[]",
 }
-
-func NewJsonEnricher(logger logr.Logger) (*JsonEnricher, error) {
-	return NewJsonEnricherArgs(logger, &JsonEnricherOptions{})
-}
-
-var auditLogOutputMutex sync.Mutex
 
 func validate(opts JsonEnricherOptions) error {
 	if opts.AuditFreq < 0 {
@@ -134,7 +129,7 @@ func NewJsonEnricherArgs(logger logr.Logger, opts *JsonEnricherOptions) (*JsonEn
 	logger.Info("Enricher Filters", "filters", enricherFilters)
 
 	jsonEnricher := &JsonEnricher{
-		impl:   newDefaultImpl(),
+		impl:   newDefaultImpl(logger),
 		logger: logger,
 		containerIDCache: ttlcache.New(
 			ttlcache.WithTTL[string, string](defaultCacheTimeout),
@@ -523,8 +518,8 @@ func (e *JsonEnricher) dispatchSeccompLine(
 		return
 	}
 
-	auditLogOutputMutex.Lock()
-	defer auditLogOutputMutex.Unlock()
+	e.auditLogOutputMutex.Lock()
+	defer e.auditLogOutputMutex.Unlock()
 
 	e.PrintJsonOutput(e.logWriter, string(auditJson))
 }

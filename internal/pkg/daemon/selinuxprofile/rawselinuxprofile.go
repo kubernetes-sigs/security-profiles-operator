@@ -80,7 +80,7 @@ func (sph *rawSelinuxProfileHandler) GetProfileObject() selinuxprofileapi.Selinu
 	return sph.rsp
 }
 
-func (sph *rawSelinuxProfileHandler) Validate() error {
+func (sph *rawSelinuxProfileHandler) Validate(_ context.Context) error {
 	return sph.rsp.ValidatePolicy()
 }
 

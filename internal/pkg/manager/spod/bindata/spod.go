@@ -1035,25 +1035,6 @@ func CustomHostKubeletVolume(path string) (corev1.Volume, corev1.VolumeMount) {
 	return volume, mount
 }
 
-func CustomConfigMap(
-	mountPath string,
-	configVolSource *corev1.VolumeSource,
-) (corev1.Volume, corev1.VolumeMount) {
-	const volumeName = "json-enricher-filters-volume"
-
-	volume := corev1.Volume{
-		Name:         volumeName,
-		VolumeSource: *configVolSource,
-	}
-	mount := corev1.VolumeMount{
-		Name:      volumeName,
-		MountPath: mountPath,
-		ReadOnly:  false,
-	}
-
-	return volume, mount
-}
-
 func CustomTemplatesVolume(configMapName string) (corev1.Volume, corev1.VolumeMount) {
 	volume := corev1.Volume{
 		Name: SelinuxCustomTemplatesVolumeName,

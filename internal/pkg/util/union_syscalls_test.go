@@ -173,8 +173,7 @@ func TestUnionSyscalls(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := UnionSyscalls(tc.baseSyscalls, tc.appliedSyscalls)
-			require.NoError(t, err)
+			got := UnionSyscalls(tc.baseSyscalls, tc.appliedSyscalls)
 			require.Equal(t, tc.want, got)
 		})
 	}

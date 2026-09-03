@@ -13,7 +13,7 @@ webhooks:
     sideEffects: None
     rules:
       - operations: ["CREATE", "DELETE"]
-        apiGroups: ["*"]
+        apiGroups: [""]
         apiVersions: ["v1"]
         resources: ["pods"]
     objectSelector:
@@ -39,7 +39,7 @@ webhooks:
     sideEffects: None
     rules:
       - operations: ["CREATE", "UPDATE", "DELETE"]
-        apiGroups: ["*"]
+        apiGroups: [""]
         apiVersions: ["v1"]
         resources: ["pods"]
     objectSelector:

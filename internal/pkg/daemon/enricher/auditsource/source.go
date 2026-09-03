@@ -21,4 +21,5 @@ import "sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/type
 type AuditLineSource interface {
 	StartTail() (chan *types.AuditLine, error)
 	TailErr() error
+	Stop()
 }

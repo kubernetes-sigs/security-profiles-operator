@@ -28,6 +28,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/go-logr/logr"
 	"github.com/jellydator/ttlcache/v3"
 	"github.com/nxadm/tail"
 	"google.golang.org/grpc"
@@ -44,12 +45,14 @@ import (
 )
 
 type defaultImpl struct {
-	fsys fs.FS // Must be initialized by newDefaultImpl
+	fsys   fs.FS // Must be initialized by newDefaultImpl
+	logger logr.Logger
 }
 
-func newDefaultImpl() *defaultImpl {
+func newDefaultImpl(logger logr.Logger) *defaultImpl {
 	return &defaultImpl{
-		fsys: os.DirFS("/"),
+		fsys:   os.DirFS("/"),
+		logger: logger,
 	}
 }
 
@@ -275,6 +278,6 @@ func (d *defaultImpl) EnvForPid(pid int) (map[string]string, error) {
 func (d *defaultImpl) PrintJsonOutput(w io.Writer, output string) {
 	_, err := fmt.Fprintln(w, output)
 	if err != nil {
-		fmt.Printf("error printing json output: %v", err)
+		d.logger.Error(err, "error printing json output")
 	}
 }

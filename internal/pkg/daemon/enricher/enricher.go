@@ -135,7 +135,7 @@ func New(logger logr.Logger, opts *LogEnricherOptions) (*Enricher, error) {
 	}
 
 	return &Enricher{
-		impl:   newDefaultImpl(),
+		impl:   newDefaultImpl(logger),
 		source: source,
 		logger: logger,
 		containerIDCache: ttlcache.New(
@@ -226,12 +226,17 @@ func (e *Enricher) Run() error {
 	if err := e.startGrpcServer(); err != nil {
 		return fmt.Errorf("start GRPC server: %w", err)
 	}
-	defer e.grpcServer.GracefulStop()
+	defer func() {
+		if e.grpcServer != nil {
+			e.grpcServer.GracefulStop()
+		}
+	}()
 
 	log, err := e.StartTail(e.source)
 	if err != nil {
 		return fmt.Errorf("tail audit log: %w", err)
 	}
+	defer e.source.Stop()
 
 	for auditLine := range log {
 		e.logger.V(config.VerboseLevel).

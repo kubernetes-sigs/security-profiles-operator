@@ -15,7 +15,6 @@ spec:
   template:
     metadata:
       annotations:
-        seccomp.security.alpha.kubernetes.io/pod: runtime/default
         {{- include "security-profiles-operator.annotations" . | nindent 8 }}
       labels:
         {{- include "security-profiles-operator.selectorLabels" . | nindent 8 }}
@@ -41,7 +40,7 @@ spec:
           value: {{ .Values.restrictToNamespace | quote }}
         {{- end }}
         image: {{ .Values.spoImage.registry }}/{{ .Values.spoImage.repository }}:{{ .Values.spoImage.tag }}
-        imagePullPolicy: Always
+        imagePullPolicy: {{ .Values.spoImage.pullPolicy | default "Always" }}
         name: {{ .Chart.Name }}
         resources:
           {{- toYaml .Values.resources | nindent 10 }}
@@ -52,7 +51,7 @@ spec:
       securityContext:
       {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: security-profiles-operator
+      serviceAccountName: {{ include "security-profiles-operator.serviceAccountName" . }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

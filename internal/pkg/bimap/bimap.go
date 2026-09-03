@@ -94,13 +94,13 @@ func (m *BiMap[K, V]) GetBackwards(v V) (K, bool) {
 
 // Delete removes an element from the map by key in the forward direction.
 func (m *BiMap[K, V]) Delete(k K) {
-	v, ok := m.Get(k)
+	m.l.Lock()
+	defer m.l.Unlock()
+
+	v, ok := m.forward[k]
 	if !ok {
 		return
 	}
-
-	m.l.Lock()
-	defer m.l.Unlock()
 
 	delete(m.forward, k)
 	delete(m.backward, v)
@@ -108,13 +108,13 @@ func (m *BiMap[K, V]) Delete(k K) {
 
 // DeleteBackwards deletes an element from the map by key in the backward direction.
 func (m *BiMap[K, V]) DeleteBackwards(v V) {
-	k, ok := m.GetBackwards(v)
+	m.l.Lock()
+	defer m.l.Unlock()
+
+	k, ok := m.backward[v]
 	if !ok {
 		return
 	}
-
-	m.l.Lock()
-	defer m.l.Unlock()
 
 	delete(m.forward, k)
 	delete(m.backward, v)

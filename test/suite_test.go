@@ -19,7 +19,7 @@ package e2e_test
 import (
 	"errors"
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -586,42 +586,6 @@ func (e *e2e) setWorkDir() string {
 	return parentCwd
 }
 
-// Use the breakPoint function at a point where you want to pause a test.
-// The test will log a tempfile created bythe breakPoint() function and
-// wait for the file to be removed by the test user.
-//
-// (jhrozek): Maybe we should set a global timeout to continue?
-func (e *e2e) breakPoint() { //nolint:unused // used on demand
-	tmpfile, err := os.CreateTemp("", "testBreakpoint*.lock")
-	if err != nil {
-		e.logger.Error(err, "Can't create breakpoint file")
-
-		return
-	}
-
-	tmpfile.Close()
-
-	delChannel := make(chan struct{})
-
-	go func() {
-		for {
-			_, err := os.Stat(tmpfile.Name())
-			if err == nil {
-				e.logger.Info("breakpoint: File exists, waiting 5 secs", "fileName", tmpfile.Name())
-				time.Sleep(time.Second * 5)
-
-				continue
-			}
-
-			break
-		}
-
-		delChannel <- struct{}{}
-	}()
-
-	<-delChannel
-}
-
 func (e *e2e) run(cmd string, args ...string) string {
 	output, err := e.runCommand(cmd, args...)
 	e.Require().NoError(err)
@@ -703,12 +667,11 @@ const (
 )
 
 func (e *e2e) runAndRetryPodCMD(podCMD string) string {
-	r := rand.New(rand.NewSource(time.Now().UnixNano())) // #nosec
 	letters := []rune("abcdefghijklmnopqrstuvwxyz")
 	b := make([]rune, 10)
 
 	for i := range b {
-		b[i] = letters[r.Intn(len(letters))]
+		b[i] = letters[rand.IntN(len(letters))] //nolint:gosec // not security-sensitive
 	}
 
 	maxTries := 0
@@ -796,7 +759,7 @@ func (e *e2e) enableSelinuxInSpod() {
 		time.Sleep(defaultWaitTime)
 		e.waitInOperatorNSFor("condition=ready", "spod", "spod")
 
-		e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultSelinuxOpTimeout)
+		e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLongOpTimeout)
 	}
 }
 
@@ -861,7 +824,7 @@ func (e *e2e) enableLogEnricherInSpod() {
 	time.Sleep(defaultWaitTime)
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
 
-	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLogEnricherOpTimeout)
+	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLongOpTimeout)
 
 	e.waitForTerminatingPods(5*time.Second, 5)
 
@@ -883,7 +846,7 @@ func (e *e2e) enableLogEnricherInSpodWithFilters(enricherFilterJsonStr string) {
 	time.Sleep(defaultWaitTime)
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
 
-	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLogEnricherOpTimeout)
+	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLongOpTimeout)
 }
 
 func (e *e2e) enableJsonEnricherInSpod() {
@@ -909,7 +872,7 @@ func (e *e2e) enableJsonEnricherInSpod() {
 
 	e.logf("Done waiting for the rollout restart")
 
-	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLogEnricherOpTimeout)
+	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLongOpTimeout)
 
 	e.waitForTerminatingPods(5*time.Second, 5)
 }
@@ -990,7 +953,7 @@ func (e *e2e) enableJsonEnricherInSpodFileOptions(logPath, enricherFilterJsonStr
 	time.Sleep(defaultWaitTime * 2)
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
 
-	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLogEnricherOpTimeout)
+	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLongOpTimeout)
 }
 
 func (e *e2e) seccompOnlyTestCase() {
@@ -1027,7 +990,7 @@ func (e *e2e) enableBpfRecorderInSpod() {
 	time.Sleep(defaultWaitTime)
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
 
-	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultBpfRecorderOpTimeout)
+	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLongOpTimeout)
 }
 
 func (e *e2e) enableMemoryOptimization() {
@@ -1043,7 +1006,7 @@ func (e *e2e) enableMemoryOptimization() {
 	time.Sleep(defaultWaitTime)
 
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
-	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultBpfRecorderOpTimeout)
+	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLongOpTimeout)
 }
 
 func (e *e2e) disableMemoryOptimization() {
@@ -1059,7 +1022,7 @@ func (e *e2e) disableMemoryOptimization() {
 	time.Sleep(defaultWaitTime)
 
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
-	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultBpfRecorderOpTimeout)
+	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLongOpTimeout)
 }
 
 func (e *e2e) deployRecordingSa(namespace string) {

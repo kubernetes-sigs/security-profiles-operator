@@ -36,6 +36,10 @@ refer to SPO's [security model](security-model.md).
 
 The motivation behind the project can be found in the corresponding [RFC][0].
 
+The operator runs as a deployment in the cluster and manages daemon pods on
+each node. These daemon pods handle profile installation, recording, and
+enforcement for seccomp, SELinux, and AppArmor.
+
 - [Architecture](doc/architecture.svg)
 - [Use Stories](doc/user-stories.md)
 - [Personas](doc/personas.md)

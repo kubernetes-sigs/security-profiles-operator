@@ -211,6 +211,7 @@ spec:
                         SCMP_ACT_ERRNO and SCMP_ACT_TRACE allow to specify the errno
                         code to return.
                       format: int32
+                      maximum: 4095
                       minimum: 0
                       type: integer
                     names:

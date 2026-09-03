@@ -904,6 +904,7 @@ spec:
                         SCMP_ACT_ERRNO and SCMP_ACT_TRACE allow to specify the errno
                         code to return.
                       format: int32
+                      maximum: 4095
                       minimum: 0
                       type: integer
                     names:
@@ -1272,6 +1273,7 @@ spec:
                     description: |-
                       jsonEnricherFilters if defined, an optional JSON-format filter to
                       determine if log lines should be emitted for the json-enricher.
+                    maxLength: 1048576
                     type: string
                   jsonEnricherOptions:
                     description: jsonEnricherOptions defines options specific to the
@@ -1323,6 +1325,7 @@ spec:
                     description: |-
                       logEnricherFilters if defined, an optional JSON-format filter to
                       determine if log lines should be emitted for the log-enricher.
+                    maxLength: 1048576
                     type: string
                   logEnricherSource:
                     description: |-
@@ -2484,6 +2487,7 @@ spec:
               verbosity:
                 description: verbosity specifies the logging verbosity of the daemon.
                 format: int32
+                maximum: 10
                 minimum: 0
                 type: integer
               webhook:
@@ -3150,6 +3154,7 @@ rules:
   - security-profiles-operator.x-k8s.io
   resources:
   - rawselinuxprofiles
+  - securityprofilesoperatordaemons
   verbs:
   - create
   - get
@@ -3202,16 +3207,6 @@ rules:
   - delete
   - get
   - list
-  - watch
-- apiGroups:
-  - security-profiles-operator.x-k8s.io
-  resources:
-  - securityprofilesoperatordaemons
-  verbs:
-  - create
-  - get
-  - list
-  - update
   - watch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -3319,7 +3314,6 @@ rules:
 - apiGroups:
   - authentication.k8s.io
   resources:
-  - subjectaccessreviews
   - tokenreviews
   verbs:
   - create
@@ -4175,7 +4169,7 @@ webhooks:
       - security-profiles-operator-webhook
   rules:
   - apiGroups:
-    - '*'
+    - ""
     apiVersions:
     - v1
     operations:
@@ -4208,7 +4202,7 @@ webhooks:
       - security-profiles-operator-webhook
   rules:
   - apiGroups:
-    - '*'
+    - ""
     apiVersions:
     - v1
     operations:

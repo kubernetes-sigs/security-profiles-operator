@@ -93,7 +93,7 @@ func (e *e2e) testCaseSelinuxMetrics(nodes []string) {
 	defer cleanup()
 
 	e.logf("Waiting for profile to be reconciled")
-	e.kubectl("wait", "--timeout", defaultSelinuxOpTimeout,
+	e.kubectl("wait", "--timeout", defaultLongOpTimeout,
 		"--for", "condition=ready", "selinuxprofile", "errorlogger")
 
 	rawPolicyName := e.getSELinuxPolicyName("selinuxprofile", "errorlogger")

@@ -144,6 +144,7 @@ type SPODSpec struct {
 	// verbosity specifies the logging verbosity of the daemon.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=10
 	Verbosity int32 `json:"verbosity,omitempty"`
 	// enableProfiling tells the operator whether or not to enable profiling
 	// support for this SPOD instance.
@@ -244,6 +245,7 @@ type SPODEnricherConfig struct {
 	// logEnricherFilters if defined, an optional JSON-format filter to
 	// determine if log lines should be emitted for the log-enricher.
 	// +optional
+	// +kubebuilder:validation:MaxLength=1048576
 	LogEnricherFilters string `json:"logEnricherFilters,omitempty"`
 	// logEnricherSource determines which source should be used for audit
 	// logs. This defaults to "Auditd", but can be switched to "Bpf" on
@@ -258,6 +260,7 @@ type SPODEnricherConfig struct {
 	// jsonEnricherFilters if defined, an optional JSON-format filter to
 	// determine if log lines should be emitted for the json-enricher.
 	// +optional
+	// +kubebuilder:validation:MaxLength=1048576
 	JsonEnricherFilters string `json:"jsonEnricherFilters,omitempty"`
 	// jsonEnricherOptions defines options specific to the JSON enricher.
 	// +optional

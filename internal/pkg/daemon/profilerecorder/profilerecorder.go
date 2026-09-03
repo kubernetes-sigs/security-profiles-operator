@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"google.golang.org/grpc"
 	grpccodes "google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
 	corev1 "k8s.io/api/core/v1"
@@ -177,6 +178,10 @@ func (r *RecorderReconciler) getSPOD(
 
 // Healthz is the liveness probe endpoint of the controller.
 func (r *RecorderReconciler) Healthz(*http.Request) error {
+	if r.record == nil {
+		return errors.New("recorder reconciler not initialized")
+	}
+
 	return nil
 }
 
@@ -337,12 +342,12 @@ func (r *RecorderReconciler) Reconcile(
 
 func (r *RecorderReconciler) getBpfRecorderClient(
 	ctx context.Context,
-) (bpfrecorderapi.BpfRecorderClient, error) {
+) (bpfrecorderapi.BpfRecorderClient, *grpc.ClientConn, error) {
 	r.log.Info("Checking if bpf recorder is enabled")
 
 	spod, err := r.getSPOD(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("getting SPOD config: %w", err)
+		return nil, nil, fmt.Errorf("getting SPOD config: %w", err)
 	}
 
 	enableBpfRecorderEnv, err := strconv.ParseBool(os.Getenv(config.EnableBpfRecorderEnvKey))
@@ -351,26 +356,31 @@ func (r *RecorderReconciler) getBpfRecorderClient(
 	}
 
 	if !ptr.Deref(spod.Spec.Enricher.EnableBpfRecorder, false) && !enableBpfRecorderEnv {
-		return nil, errors.New("bpf recorder is not enabled")
+		return nil, nil, errors.New("bpf recorder is not enabled")
 	}
 
 	r.log.Info("Connecting to local GRPC bpf recorder server")
 
 	conn, err := r.DialBpfRecorder()
 	if err != nil {
-		return nil, fmt.Errorf("connect to bpf recorder GRPC server: %w", err)
+		return nil, nil, fmt.Errorf("connect to bpf recorder GRPC server: %w", err)
 	}
 
 	bpfRecorderClient := bpfrecorderapi.NewBpfRecorderClient(conn)
 
-	return bpfRecorderClient, nil
+	return bpfRecorderClient, conn, nil
 }
 
 func (r *RecorderReconciler) startBpfRecorder(ctx context.Context) error {
-	recorderClient, err := r.getBpfRecorderClient(ctx)
+	recorderClient, conn, err := r.getBpfRecorderClient(ctx)
 	if err != nil {
 		return fmt.Errorf("get bpf recorder client: %w", err)
 	}
+	defer func() {
+		if conn != nil {
+			conn.Close()
+		}
+	}()
 
 	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
@@ -381,10 +391,15 @@ func (r *RecorderReconciler) startBpfRecorder(ctx context.Context) error {
 }
 
 func (r *RecorderReconciler) stopBpfRecorder(ctx context.Context) error {
-	recorderClient, err := r.getBpfRecorderClient(ctx)
+	recorderClient, conn, err := r.getBpfRecorderClient(ctx)
 	if err != nil {
 		return fmt.Errorf("get bpf recorder client: %w", err)
 	}
+	defer func() {
+		if conn != nil {
+			conn.Close()
+		}
+	}()
 
 	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
@@ -465,6 +480,11 @@ func (r *RecorderReconciler) collectLogProfiles(
 	if err != nil {
 		return fmt.Errorf("connecting to local GRPC server: %w", err)
 	}
+	defer func() {
+		if conn != nil {
+			conn.Close()
+		}
+	}()
 
 	enricherClient := enricherapi.NewEnricherClient(conn)
 
@@ -825,10 +845,15 @@ func (r *RecorderReconciler) collectBpfProfiles(
 	podName types.NamespacedName,
 	profiles []profileToCollect,
 ) error {
-	recorderClient, err := r.getBpfRecorderClient(ctx)
+	recorderClient, conn, err := r.getBpfRecorderClient(ctx)
 	if err != nil {
 		return fmt.Errorf("get bpf recorder client: %w", err)
 	}
+	defer func() {
+		if conn != nil {
+			conn.Close()
+		}
+	}()
 
 	for _, profileToCollect := range profiles {
 		ptc := profileToCollect

@@ -489,10 +489,7 @@ func (r *Reconciler) resolveSyscallsForProfile(
 		)
 	}
 
-	newSyscalls, err := util.UnionSyscalls(baseProfile.Spec.Syscalls, inputSyscalls)
-	if err != nil {
-		return nil, fmt.Errorf("union syscalls: %w", err)
-	}
+	newSyscalls := util.UnionSyscalls(baseProfile.Spec.Syscalls, inputSyscalls)
 
 	return r.resolveSyscallsForProfile(ctx, baseProfile, newSyscalls, l, level+1)
 }
@@ -726,7 +723,7 @@ func allowProfile(
 	}
 
 	for _, allowedAction := range allowedActions {
-		if !containsAction(allAllowedActions, allowedAction) {
+		if !slices.Contains(allAllowedActions, allowedAction) {
 			return fmt.Errorf("%s: %s", errForbiddenAction, allowedAction)
 		}
 	}
@@ -746,8 +743,4 @@ func allowProfile(
 	}
 
 	return nil
-}
-
-func containsAction(actions []seccompprofileapi.Action, action seccompprofileapi.Action) bool {
-	return slices.Contains(actions, action)
 }

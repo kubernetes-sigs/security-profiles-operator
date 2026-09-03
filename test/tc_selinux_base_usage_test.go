@@ -171,7 +171,7 @@ func (e *e2e) selinuxBaseUsage(kind, policy, polName string, nodes []string) {
 	defer rmFn()
 
 	// Let's wait for the policy to be processed
-	e.kubectl("wait", "--timeout", defaultSelinuxOpTimeout,
+	e.kubectl("wait", "--timeout", defaultLongOpTimeout,
 		"--for", "condition=ready", kind, polName)
 
 	rawPolicyName := e.getSELinuxPolicyName(kind, polName)
@@ -225,7 +225,7 @@ func (e *e2e) testCaseSelinuxIncompletePolicy() {
 	defer removeFn()
 
 	// Let's wait for the policy to be processed
-	e.kubectl("wait", "--timeout", defaultSelinuxOpTimeout,
+	e.kubectl("wait", "--timeout", defaultLongOpTimeout,
 		"--for", "condition=ready", "selinuxprofile", enforcingProfileName)
 
 	e.logf("creating workload - it should become ready, but fail")
@@ -273,7 +273,7 @@ func (e *e2e) testCaseSelinuxNonDefaultTemplate(nodes []string) {
 	rmFn := e.writeAndCreate(netContainerPolicy, "net-container-policy.yml")
 	defer rmFn()
 
-	e.kubectl("wait", "--timeout", defaultSelinuxOpTimeout,
+	e.kubectl("wait", "--timeout", defaultLongOpTimeout,
 		"--for", "condition=ready", "selinuxprofile", netContainerPolicyName)
 
 	rawPolicyName := e.getSELinuxPolicyName("selinuxprofile", netContainerPolicyName)
@@ -302,7 +302,7 @@ func (e *e2e) testCaseSelinuxIncompletePermissivePolicy() {
 	defer removeFn()
 
 	// Let's wait for the policy to be processed
-	e.kubectl("wait", "--timeout", defaultSelinuxOpTimeout,
+	e.kubectl("wait", "--timeout", defaultLongOpTimeout,
 		"--for", "condition=ready", "selinuxprofile", permissiveProfileName)
 
 	e.logf("creating workload - it should become ready, but fail")
@@ -336,7 +336,7 @@ func (e *e2e) testCaseSelinuxIncompleteDisabledPolicy() {
 	defer removeFn()
 
 	// Let's wait for the policy to be processed, it will be ready=false
-	e.kubectl("wait", "--timeout", defaultSelinuxOpTimeout,
+	e.kubectl("wait", "--timeout", defaultLongOpTimeout,
 		"--for", "condition=ready=false", "selinuxprofile", disabledProfileName)
 
 	e.logf("creating workload - it should not even become ready")

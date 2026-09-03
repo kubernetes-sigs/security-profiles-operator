@@ -54,12 +54,12 @@ func (a *aaProfileManager) Enabled() bool {
 			hostop.WithLogger(a.logger),
 			hostop.WithAssumeContainer(),
 			hostop.WithAssumeHostPidNamespace())
-		a := aa.NewAppArmor(aa.WithLogger(a.logger))
+		appArmor := aa.NewAppArmor(aa.WithLogger(a.logger))
 
 		//nolint:errcheck //(pjbgf): default to false if we are not privileged enough.
 		_ = mount.Do(func() (err error) {
 			//nolint:errcheck //(pjbgf): default to false if we are not privileged enough.
-			hostSupportsAppArmor, _ = a.Enabled()
+			hostSupportsAppArmor, _ = appArmor.Enabled()
 
 			return nil
 		})
@@ -143,25 +143,30 @@ func loadProfile(logger logr.Logger, name, content string) (bool, error) {
 			targetProfileDir,
 			profileFilename(name),
 		)
-		//nolint:gosec // file permissions are fine
 		if err := os.WriteFile(
 			path,
 			[]byte(content),
-			0o644,
+			0o600,
 		); err != nil {
 			return fmt.Errorf("writing policy file: %w", err)
 		}
 
 		if err := a.LoadPolicy(path); err != nil {
+			os.Remove(path)
+
 			return fmt.Errorf("load policy: %w", err)
 		}
 
 		loaded, err := a.PolicyLoaded(name)
 		if err != nil {
+			os.Remove(path)
+
 			return fmt.Errorf("cannot check policy status: %w", err)
 		}
 
 		if !loaded {
+			os.Remove(path)
+
 			return fmt.Errorf(
 				"policy %q is not loaded: AppArmorProfile name must match defined policy",
 				name,

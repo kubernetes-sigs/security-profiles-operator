@@ -428,25 +428,41 @@ func initLogging(ctx *cli.Context) error {
 	return nil
 }
 
+var profilingServer *http.Server
+
 func initProfiling(ctx *cli.Context) {
 	enabled := ctx.Bool("profiling")
 	ctrl.Log.Info(fmt.Sprintf("Profiling support enabled: %v", enabled))
 
 	if enabled {
+		port := ctx.Uint("profiling-port")
+		endpoint := fmt.Sprintf(":%d", port)
+
+		ctrl.Log.Info("Starting profiling server", "endpoint", endpoint)
+
+		profilingServer = &http.Server{
+			Addr:              endpoint,
+			ReadHeaderTimeout: util.DefaultReadHeaderTimeout,
+		}
 		go func() {
-			port := ctx.Uint("profiling-port")
-			endpoint := fmt.Sprintf(":%d", port)
-
-			ctrl.Log.Info("Starting profiling server", "endpoint", endpoint)
-
-			server := &http.Server{
-				Addr:              endpoint,
-				ReadHeaderTimeout: util.DefaultReadHeaderTimeout,
-			}
-			if err := server.ListenAndServe(); err != nil {
+			if err := profilingServer.ListenAndServe(); err != nil &&
+				!errors.Is(err, http.ErrServerClosed) {
 				ctrl.Log.Error(err, "unable to run profiling server")
 			}
 		}()
+	}
+}
+
+func shutdownProfiling() {
+	if profilingServer != nil {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		ctrl.Log.Info("Shutting down profiling server")
+
+		if err := profilingServer.Shutdown(shutdownCtx); err != nil {
+			ctrl.Log.Error(err, "unable to shut down profiling server")
+		}
 	}
 }
 
@@ -462,6 +478,8 @@ func manageWebhook(ctx *cli.Context) bool {
 }
 
 func runManager(ctx *cli.Context, info *version.Info) error {
+	defer shutdownProfiling()
+
 	printInfo("security-profiles-operator", info)
 
 	cfg, err := ctrl.GetConfig()
@@ -471,10 +489,14 @@ func runManager(ctx *cli.Context, info *version.Info) error {
 
 	sigHandler := ctrl.SetupSignalHandler()
 
+	gracefulShutdownTimeout := 30 * time.Second
 	ctrlOpts := manager.Options{
-		Cache:            cache.Options{SyncPeriod: &sync},
-		LeaderElection:   true,
-		LeaderElectionID: "security-profiles-operator-lock",
+		Cache:                         cache.Options{SyncPeriod: &sync},
+		LeaderElection:                true,
+		LeaderElectionID:              "security-profiles-operator-lock",
+		LeaderElectionReleaseOnCancel: true,
+		HealthProbeBindAddress:        fmt.Sprintf(":%d", config.HealthProbePort),
+		GracefulShutdownTimeout:       &gracefulShutdownTimeout,
 	}
 
 	setControllerOptionsForNamespaces(&ctrlOpts)
@@ -563,8 +585,11 @@ func setControllerOptionsForNamespaces(opts *ctrl.Options) {
 	}
 
 	// ensure we listen to our own namespace
-	if !strings.Contains(namespace, config.GetOperatorNamespace()) {
-		namespace = namespace + "," + config.GetOperatorNamespace()
+	operatorNS, err := config.TryToGetOperatorNamespace()
+	if err != nil {
+		setupLog.Info("unable to get operator namespace, skipping operator namespace addition")
+	} else if !strings.Contains(namespace, operatorNS) {
+		namespace = namespace + "," + operatorNS
 	}
 
 	namespaceList := strings.Split(namespace, ",")

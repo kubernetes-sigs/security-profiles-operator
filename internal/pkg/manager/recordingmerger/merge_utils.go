@@ -165,12 +165,7 @@ func NormalizeProfile(obj client.Object) error {
 }
 
 func normalizeSeccompProfile(sp *seccompprofile.SeccompProfile) error {
-	normalized, err := util.UnionSyscalls(sp.Spec.Syscalls, nil)
-	if err != nil {
-		return fmt.Errorf("normalize syscalls: %w", err)
-	}
-
-	sp.Spec.Syscalls = normalized
+	sp.Spec.Syscalls = util.UnionSyscalls(sp.Spec.Syscalls, nil)
 
 	return nil
 }
@@ -249,12 +244,7 @@ func (sp *mergeableSeccompProfile) merge(other mergeableProfile) error {
 		return fmt.Errorf("cannot merge SeccompProfile with %T", other)
 	}
 
-	syscalls, err := util.UnionSyscalls(sp.Spec.Syscalls, otherSP.Spec.Syscalls)
-	if err != nil {
-		return fmt.Errorf("union syscalls: %w", err)
-	}
-
-	sp.Spec.Syscalls = syscalls
+	sp.Spec.Syscalls = util.UnionSyscalls(sp.Spec.Syscalls, otherSP.Spec.Syscalls)
 
 	return nil
 }

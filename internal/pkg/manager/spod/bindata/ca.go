@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	certmanagermetav1 "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
@@ -196,7 +197,9 @@ var metricsCert = certmanagerv1.Certificate{
 			Name: issuerName,
 			Kind: "Issuer",
 		},
-		SecretName: metricsServerCert,
+		SecretName:  metricsServerCert,
+		Duration:    &metav1.Duration{Duration: 365 * 24 * time.Hour},
+		RenewBefore: &metav1.Duration{Duration: 30 * 24 * time.Hour},
 		DNSNames: []string{
 			"metrics.security-profiles-operator",
 			"metrics.security-profiles-operator.svc",
@@ -220,7 +223,9 @@ var webhookCert = certmanagerv1.Certificate{
 			Name: issuerName,
 			Kind: "Issuer",
 		},
-		SecretName: webhookServerCert,
+		SecretName:  webhookServerCert,
+		Duration:    &metav1.Duration{Duration: 365 * 24 * time.Hour},
+		RenewBefore: &metav1.Duration{Duration: 30 * 24 * time.Hour},
 		DNSNames: []string{
 			"webhook-service.security-profiles-operator.svc",
 			"webhook-service.security-profiles-operator.svc.cluster.local",
