@@ -158,6 +158,7 @@ spec:
                     description: |-
                       jsonEnricherFilters if defined, an optional JSON-format filter to
                       determine if log lines should be emitted for the json-enricher.
+                    maxLength: 1048576
                     type: string
                   jsonEnricherOptions:
                     description: jsonEnricherOptions defines options specific to the
@@ -209,6 +210,7 @@ spec:
                     description: |-
                       logEnricherFilters if defined, an optional JSON-format filter to
                       determine if log lines should be emitted for the log-enricher.
+                    maxLength: 1048576
                     type: string
                   logEnricherSource:
                     description: |-
@@ -1370,6 +1372,7 @@ spec:
               verbosity:
                 description: verbosity specifies the logging verbosity of the daemon.
                 format: int32
+                maximum: 10
                 minimum: 0
                 type: integer
               webhook:

@@ -93,6 +93,12 @@ func (a *AuditdSource) TailErr() error {
 	return a.file.Err()
 }
 
+func (a *AuditdSource) Stop() {
+	if a.file != nil {
+		a.file.Cleanup()
+	}
+}
+
 // type IDs are defined at https://elixir.bootlin.com/linux/latest/source/include/uapi/linux/audit.h
 var (
 	seccompLineRegex = regexp.MustCompile(

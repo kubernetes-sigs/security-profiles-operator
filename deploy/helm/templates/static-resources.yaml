@@ -171,6 +171,7 @@ rules:
   - security-profiles-operator.x-k8s.io
   resources:
   - rawselinuxprofiles
+  - securityprofilesoperatordaemons
   verbs:
   - create
   - get
@@ -223,16 +224,6 @@ rules:
   - delete
   - get
   - list
-  - watch
-- apiGroups:
-  - security-profiles-operator.x-k8s.io
-  resources:
-  - securityprofilesoperatordaemons
-  verbs:
-  - create
-  - get
-  - list
-  - update
   - watch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -296,7 +287,6 @@ rules:
 - apiGroups:
   - authentication.k8s.io
   resources:
-  - subjectaccessreviews
   - tokenreviews
   verbs:
   - create

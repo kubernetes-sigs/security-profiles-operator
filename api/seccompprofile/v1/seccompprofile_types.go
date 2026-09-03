@@ -142,6 +142,7 @@ type Syscall struct {
 	// code to return.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=4095
 	ErrnoRet int32 `json:"errnoRet,omitempty"`
 	// args defines the specific syscall arguments in seccomp.
 	// +optional

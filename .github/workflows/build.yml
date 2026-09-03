@@ -242,7 +242,6 @@ jobs:
             type=ref,event=pr
             type=ref,event=tag
             type=sha,format=long
-      # TODO(jaosorior): Push UBI image too
       - name: Build
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:

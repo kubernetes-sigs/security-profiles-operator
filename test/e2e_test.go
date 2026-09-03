@@ -33,18 +33,13 @@ import (
 )
 
 const (
-	certmanager       = "https://github.com/cert-manager/cert-manager/releases/download/v1.21.1/cert-manager.yaml"
-	namespaceManifest = "deploy/namespace-operator.yaml"
-	testNamespace     = "test-ns"
-	defaultNamespace  = "default"
-	// NOTE(jaosorior): We should be able to decrease this once we
-	// migrate to a single daemonset-based implementation for the
-	// SELinux pieces.
-	defaultSelinuxOpTimeout     = "360s"
-	defaultLogEnricherOpTimeout = defaultSelinuxOpTimeout
-	defaultBpfRecorderOpTimeout = defaultSelinuxOpTimeout
-	defaultWaitTimeout          = "5m"
-	defaultWaitTime             = 15 * time.Second
+	certmanager          = "https://github.com/cert-manager/cert-manager/releases/download/v1.21.1/cert-manager.yaml"
+	namespaceManifest    = "deploy/namespace-operator.yaml"
+	testNamespace        = "test-ns"
+	defaultNamespace     = "default"
+	defaultLongOpTimeout = "360s"
+	defaultWaitTimeout   = "5m"
+	defaultWaitTime      = 15 * time.Second
 )
 
 // testCase define a type for a e2e test case.
@@ -78,13 +73,6 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			"Seccomp: Verify base profile merge",
 			e.testCaseBaseProfile,
 		},
-		// TODO: re-enable when we found a workaround to the flaky GitHub registry connection
-		/*
-			{
-				"Seccomp: Verify base profile merge from OCI registry",
-				e.testCaseBaseProfileOCI,
-			},
-		*/
 		{
 			"Seccomp: Allowed syscalls",
 			e.testCaseAllowedSyscalls,

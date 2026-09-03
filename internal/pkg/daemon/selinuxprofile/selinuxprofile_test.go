@@ -17,6 +17,7 @@ limitations under the License.
 package selinuxprofile
 
 import (
+	"context"
 	"regexp"
 	"testing"
 
@@ -412,7 +413,7 @@ func Test_selinuxProfileHandler(t *testing.T) {
 				return
 			}
 
-			valerr := sph.Validate()
+			valerr := sph.Validate(context.Background())
 			if (valerr != nil) != tt.wantValidateErr {
 				t.Errorf(
 					"selinuxProfileHandler.Validate() error = %v, wantErr %v",

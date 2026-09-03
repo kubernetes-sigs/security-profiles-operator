@@ -126,6 +126,8 @@ func (r *StatusReconciler) Reconcile(
 
 	prof, getProfErr := r.getProfileFromStatus(ctx, instance)
 	if getProfErr != nil {
+		r.record.Event(instance, v1.EventTypeWarning, "ReconcileError", getProfErr.Error())
+
 		return reconcile.Result{}, getProfErr
 	}
 
@@ -150,13 +152,21 @@ func (r *StatusReconciler) Reconcile(
 	// get all the other statuses
 	profLabel := instance.Labels[secprofnodestatusapi.StatusToProfLabel]
 	if profLabel == "" {
-		return reconcile.Result{}, errors.New("unlabeled node status")
+		logger.Info("Skipping unlabeled node status, will not requeue")
+		r.record.Event(instance, v1.EventTypeWarning, "ReconcileError", "unlabeled node status")
+
+		return reconcile.Result{}, nil
 	}
 
 	if util.KindBasedDNSLengthName(
 		prof,
 	) != instance.Labels[secprofnodestatusapi.StatusToProfLabel] {
-		return reconcile.Result{}, errors.New("status doesn't match owner")
+		logger.Info("Status doesn't match owner, will not requeue")
+		r.record.Event(
+			instance, v1.EventTypeWarning, "ReconcileError", "status doesn't match owner",
+		)
+
+		return reconcile.Result{}, nil
 	}
 
 	nodeStatusList, err := listStatusesForProfile(ctx, r.client, instance.Namespace, profLabel)

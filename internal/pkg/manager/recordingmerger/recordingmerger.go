@@ -42,7 +42,7 @@ const (
 	reconcileTimeout = 1 * time.Minute
 
 	errGetRecording       = "cannot get profile recording"
-	errMergingRec         = "cannot recorded profiles"
+	errMergingRec         = "cannot merge recorded profiles"
 	errCannotMergeKind    = "cannot merge profiles of kind"
 	errNoPartialProfiles  = "no partial profiles to merge"
 	errEmptyMergedProfile = "merged profile is empty"

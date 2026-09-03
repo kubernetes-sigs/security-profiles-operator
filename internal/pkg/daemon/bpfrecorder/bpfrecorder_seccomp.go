@@ -20,7 +20,7 @@ package bpfrecorder
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"strconv"
 	"unsafe"
 
@@ -89,19 +89,10 @@ func (s *SeccompRecorder) PopSyscalls(b *BpfRecorder, mntns uint32) ([]string, e
 	return sortUnique(syscallNames), nil
 }
 
-func sortUnique(input []string) (result []string) {
-	tmp := map[string]bool{}
-	for _, val := range input {
-		tmp[val] = true
-	}
+func sortUnique(input []string) []string {
+	slices.Sort(input)
 
-	for k := range tmp {
-		result = append(result, k)
-	}
-
-	sort.Strings(result)
-
-	return result
+	return slices.Compact(input)
 }
 
 func (s *SeccompRecorder) convertSyscallIDsToNames(b *BpfRecorder, syscalls []byte) []string {

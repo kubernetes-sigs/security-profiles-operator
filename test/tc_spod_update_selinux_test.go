@@ -80,5 +80,5 @@ func (e *e2e) testCaseSPODUpdateSelinux([]string) {
 	e.Contains(selinuxEnabledInSPODDS, "--with-selinux=true")
 
 	e.logf("waiting for final rollout")
-	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultSelinuxOpTimeout)
+	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLongOpTimeout)
 }

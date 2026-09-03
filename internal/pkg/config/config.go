@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path"
 	"path/filepath"
@@ -229,11 +230,11 @@ type KubeletConfig struct {
 
 // GetOperatorNamespace gets the namespace that the operator is currently running on.
 // Failure to get the namespace terminates the process.
+// Consider using TryToGetOperatorNamespace for proper error handling.
 func GetOperatorNamespace() string {
 	ns, err := TryToGetOperatorNamespace()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "unable to get operator namespace: %v\n", err)
-		os.Exit(1)
+		log.Fatalf("unable to get operator namespace: %v", err)
 	}
 
 	return ns

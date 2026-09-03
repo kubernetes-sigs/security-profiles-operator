@@ -26,7 +26,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"path"
 	"path/filepath"
 	"strconv"
 	"time"
@@ -127,6 +126,7 @@ func (r *ReconcileSelinux) Setup(
 	r.record = mgr.GetEventRecorderFor(r.controllerName)
 	r.metrics = met
 	r.httpc = &http.Client{
+		Timeout: 30 * time.Second,
 		Transport: &http.Transport{
 			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
 				return net.Dial("unix", bindata.SelinuxdSocketPath)
@@ -300,7 +300,7 @@ func (r *ReconcileSelinux) reconcilePolicy(
 		return reconcile.Result{RequeueAfter: selinuxdPollInterval}, nil
 	}
 
-	if valErr := oh.Validate(); valErr != nil {
+	if valErr := oh.Validate(ctx); valErr != nil {
 		if err := nodeStatus.SetNodeStatus(
 			ctx,
 			secprofnodestatusapi.ProfileStateError,
@@ -329,7 +329,8 @@ func (r *ReconcileSelinux) reconcilePolicy(
 		return reconcile.Result{}, nil
 	}
 
-	if firstInstall && isSystemSELinuxModule(bindata.SelinuxModuleStorePath, sp.GetPolicyName()) {
+	if firstInstall &&
+		isSystemSELinuxModule(bindata.SelinuxModuleStorePath, filepath.Clean(sp.GetPolicyName())) {
 		if err := nodeStatus.SetNodeStatus(
 			ctx,
 			secprofnodestatusapi.ProfileStateError,
@@ -490,7 +491,9 @@ func (r *ReconcileSelinux) reconcilePolicyFile(
 	oh SelinuxObjectHandler,
 	l logr.Logger,
 ) (bool, error) {
-	policyPath := path.Join(bindata.SelinuxDropDirectory, sp.GetPolicyName()+".cil")
+	policyPath := filepath.Join(
+		bindata.SelinuxDropDirectory, filepath.Clean(sp.GetPolicyName()+".cil"),
+	)
 
 	cil, parseErr := oh.GetCILPolicy()
 	if parseErr != nil {
@@ -608,7 +611,9 @@ func (r *ReconcileSelinux) reconcileDeletePolicy(
 func (r *ReconcileSelinux) reconcileDeletePolicyFile(sp selinuxprofileapi.SelinuxProfileObject,
 	l logr.Logger,
 ) (reconcile.Result, error) {
-	policyPath := path.Join(bindata.SelinuxDropDirectory, sp.GetPolicyName()+".cil")
+	policyPath := filepath.Join(
+		bindata.SelinuxDropDirectory, filepath.Clean(sp.GetPolicyName()+".cil"),
+	)
 
 	l.Info("Removing policy file", "policyPath", policyPath)
 
@@ -714,7 +719,9 @@ func writeFileIfDiffers(filePath string, contents []byte, l logr.Logger) (bool, 
 
 	defer file.Close()
 
-	existing, err := io.ReadAll(file)
+	const maxPolicyFileSize = 10 * 1024 * 1024 // 10MB
+
+	existing, err := io.ReadAll(io.LimitReader(file, maxPolicyFileSize))
 	if err != nil {
 		return false, fmt.Errorf("reading file %s: %w", filePath, err)
 	}

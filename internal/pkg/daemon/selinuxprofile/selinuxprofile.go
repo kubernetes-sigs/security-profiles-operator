@@ -96,8 +96,8 @@ func (sph *selinuxProfileHandler) GetProfileObject() selinuxprofileapi.SelinuxPr
 	return sph.sp
 }
 
-func (sph *selinuxProfileHandler) Validate() error {
-	spod, err := common.GetSPOD(context.Background(), sph.cli)
+func (sph *selinuxProfileHandler) Validate(ctx context.Context) error {
+	spod, err := common.GetSPOD(ctx, sph.cli)
 	if err != nil {
 		return fmt.Errorf("couldn't get spod configuration: %w", err)
 	}
@@ -105,7 +105,7 @@ func (sph *selinuxProfileHandler) Validate() error {
 	sph.handleSelinuxOptions(spod)
 
 	for _, inherit := range sph.sp.Spec.Inherit {
-		err := sph.validateAndTrackInherit(spod, inherit, sph.sp.GetNamespace())
+		err := sph.validateAndTrackInherit(ctx, spod, inherit, sph.sp.GetNamespace())
 		if err != nil {
 			return fmt.Errorf("validating inherit: %w", err)
 		}
@@ -133,6 +133,7 @@ func (sph *selinuxProfileHandler) Validate() error {
 }
 
 func (sph *selinuxProfileHandler) validateAndTrackInherit(
+	ctx context.Context,
 	spod *spodapi.SecurityProfilesOperatorDaemon,
 	ancestorRef selinuxprofileapi.PolicyRef,
 	namespace string,
@@ -142,7 +143,7 @@ func (sph *selinuxProfileHandler) validateAndTrackInherit(
 	case selinuxprofileapi.SystemPolicyKind, selinuxprofileapi.PolicyRefKind(""):
 		return sph.handleInheritSystemPolicy(spod, ancestorRef)
 	case selinuxprofileapi.SelinuxProfilePolicyKind:
-		return sph.handleInheritSPOPolicy(ancestorRef, namespace)
+		return sph.handleInheritSPOPolicy(ctx, ancestorRef, namespace)
 	}
 
 	return fmt.Errorf("%s/%s: %w", ancestorRef.Kind, ancestorRef.Name, ErrUnknownKindForEntry)
@@ -179,13 +180,14 @@ func (sph *selinuxProfileHandler) validatePermission(
 }
 
 func (sph *selinuxProfileHandler) handleInheritSPOPolicy(
+	ctx context.Context,
 	ancestorRef selinuxprofileapi.PolicyRef,
 	namespace string,
 ) error {
 	ancestor := &selinuxprofileapi.SelinuxProfile{}
 	key := types.NamespacedName{Name: ancestorRef.Name, Namespace: namespace}
 
-	err := sph.cli.Get(context.Background(), key, ancestor)
+	err := sph.cli.Get(ctx, key, ancestor)
 	if err != nil && kerrors.IsNotFound(err) {
 		return fmt.Errorf("couldn't find inherit reference %s/%s: %w",
 			ancestorRef.Kind, ancestorRef.Name, err)

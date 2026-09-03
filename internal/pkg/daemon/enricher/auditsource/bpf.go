@@ -51,6 +51,8 @@ func BpfSupported(logger logr.Logger) error {
 
 type BpfSource struct {
 	logger logr.Logger
+	module *libbpfgo.Module
+	buf    *libbpfgo.RingBuffer
 }
 
 func NewBpfSource(logger logr.Logger) (*BpfSource, error) {
@@ -89,6 +91,9 @@ func (b *BpfSource) StartTail() (chan *types.AuditLine, error) {
 		return nil, fmt.Errorf("init ringbuf: %w", err)
 	}
 
+	b.module = module
+	b.buf = buf
+
 	buf.Poll(300)
 
 	log := make(chan *types.AuditLine)
@@ -98,7 +103,7 @@ func (b *BpfSource) StartTail() (chan *types.AuditLine, error) {
 			if len(val) < 14 {
 				b.logger.Info("received invalid audit log message", "val", val)
 
-				break
+				continue
 			}
 
 			mntns := binary.LittleEndian.Uint32(val[0:4])
@@ -110,7 +115,7 @@ func (b *BpfSource) StartTail() (chan *types.AuditLine, error) {
 			if len(strs) < 3 {
 				b.logger.Info("received invalid audit log message", "val", val)
 
-				break
+				continue
 			}
 
 			op := string(strs[0])
@@ -148,6 +153,18 @@ func (b *BpfSource) StartTail() (chan *types.AuditLine, error) {
 	b.logger.Info("BPF module successfully loaded.")
 
 	return log, nil
+}
+
+func (b *BpfSource) Stop() {
+	if b.buf != nil {
+		b.buf.Stop()
+		b.buf = nil
+	}
+
+	if b.module != nil {
+		b.module.Close()
+		b.module = nil
+	}
 }
 
 func (b *BpfSource) TailErr() error {

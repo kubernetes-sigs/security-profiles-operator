@@ -66,3 +66,5 @@ Following the targets that can be used to test your changes locally.
 ## Contact Information
 
 - [Slack channel](https://kubernetes.slack.com/messages/security-profiles-operator)
+
+[golangci]: https://golangci-lint.run/

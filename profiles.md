@@ -1246,7 +1246,7 @@ spec:
   profileRef:
     kind: SeccompProfile
     name: profile-complain
-  image: *
+  image: "*"
 ```
 
 By default a binding applies to every pod in the namespace that runs a

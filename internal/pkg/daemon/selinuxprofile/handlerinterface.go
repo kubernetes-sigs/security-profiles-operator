@@ -32,7 +32,7 @@ type controllerBuilder func(*ctrl.Builder, reconcile.Reconciler) error
 type SelinuxObjectHandler interface {
 	Init(context.Context, client.Client, types.NamespacedName) error
 	GetProfileObject() selinuxprofileapi.SelinuxProfileObject
-	Validate() error
+	Validate(ctx context.Context) error
 	GetCILPolicy() (string, error)
 }
 

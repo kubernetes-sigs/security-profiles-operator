@@ -134,8 +134,12 @@ export E2E_CLUSTER_TYPE ?= kind
 
 DOCKERFILE ?= Dockerfile
 
+COLOR := \033[36m
+NOCOLOR := \033[0m
+
 # Utility targets
 
+.PHONY: all manifests generate
 all: $(BUILD_DIR)/$(PROJECT) $(BUILD_DIR)/$(CLI_BINARY) ## Build the project binaries
 
 .PHONY: help

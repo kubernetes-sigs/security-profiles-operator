@@ -19,7 +19,7 @@ package e2e_test
 import (
 	"errors"
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"strconv"
 	"strings"
 	"time"
@@ -40,7 +40,7 @@ func (e *e2e) testCaseProfilingChange([]string) {
 	time.Sleep(defaultWaitTime)
 
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
-	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultBpfRecorderOpTimeout)
+	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLongOpTimeout)
 
 	logs := e.kubectlOperatorNS(
 		"logs",
@@ -87,12 +87,11 @@ func (e *e2e) getProfilingEndpoint(i int) string {
 
 // This function is inspired by e2e.runAndRetryPodCMD().
 func (e *e2e) getProfilingHTTPVersion() string {
-	r := rand.New(rand.NewSource(time.Now().UnixNano())) // #nosec
 	letters := []rune("abcdefghijklmnopqrstuvwxyz")
 	b := make([]rune, 10)
 
 	for i := range b {
-		b[i] = letters[r.Intn(len(letters))]
+		b[i] = letters[rand.IntN(len(letters))] //nolint:gosec // not security-sensitive
 	}
 
 	nPodsOutput := e.kubectlOperatorNS("get", "daemonsets", "spod", "-o",

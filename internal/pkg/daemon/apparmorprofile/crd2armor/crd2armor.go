@@ -98,6 +98,8 @@ profile {{.Name}} flags=({{.ProfileMode}},attach_disconnected,mediate_deleted) {
 }
 `
 
+var parsedAppArmorTemplate = template.Must(template.New("apparmor").Parse(appArmorTemplate))
+
 // ApparmorData validated apparmor data which gets interpolated into the apparmor template.
 type ApparmorData struct {
 	Name       string
@@ -345,12 +347,7 @@ func GenerateProfile(
 		AllowMount:   allowMount,
 	}
 
-	tpl, err := template.New("apparmor").Parse(appArmorTemplate)
-	if err != nil {
-		return "", err
-	}
-
-	if err := tpl.Execute(&generated, templateArgs); err != nil {
+	if err := parsedAppArmorTemplate.Execute(&generated, templateArgs); err != nil {
 		return "", err
 	}
 

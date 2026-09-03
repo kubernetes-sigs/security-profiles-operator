@@ -104,9 +104,29 @@ func TestErrnoRetRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	require.Nil(t, errnoRetToOCI(0))
-	require.Equal(t, int32(0), errnoRetFromOCI(nil))
+
+	ret, err := errnoRetFromOCI(nil)
+	require.NoError(t, err)
+	require.Equal(t, int32(0), ret)
 
 	val := errnoRetToOCI(13)
 	require.Equal(t, uint(13), *val)
-	require.Equal(t, int32(13), errnoRetFromOCI(val))
+
+	ret, err = errnoRetFromOCI(val)
+	require.NoError(t, err)
+	require.Equal(t, int32(13), ret)
+}
+
+func TestErrnoRetNegativeSkipped(t *testing.T) {
+	t.Parallel()
+
+	require.Nil(t, errnoRetToOCI(-1))
+}
+
+func TestErrnoRetFromOCIOverflow(t *testing.T) {
+	t.Parallel()
+
+	overflow := uint(1 << 31)
+	_, err := errnoRetFromOCI(&overflow)
+	require.Error(t, err)
 }

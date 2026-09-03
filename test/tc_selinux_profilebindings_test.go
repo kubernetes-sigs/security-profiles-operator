@@ -177,7 +177,7 @@ spec:
 	e.writeAndCreate(selinuxTestProfile, "selinuxProfile-test.yml")
 
 	// Let's wait for the policy to be processed
-	e.kubectl("wait", "--timeout", defaultSelinuxOpTimeout,
+	e.kubectl("wait", "--timeout", defaultLongOpTimeout,
 		"--for", "condition=ready", "selinuxprofile", selinuxTestProfileName)
 
 	e.logf("Creating test profile binding")

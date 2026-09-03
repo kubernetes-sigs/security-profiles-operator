@@ -37,6 +37,8 @@ const (
 	ExecRequestUid = "SPO_EXEC_REQUEST_UID"
 )
 
+var execRequestUidRegex = regexp.MustCompile(`^` + ExecRequestUid + `=.*$`)
+
 type Handler struct {
 	log logr.Logger
 }
@@ -169,7 +171,7 @@ func (p Handler) getPodExecPatch(req *admission.Request) ([]jsonpatch.JsonPatchO
 	p.log.V(1).Info("execObject before mutate", "execObject", execObject)
 
 	execCommand, replaced := replaceRegexMatches(execObject.Command,
-		`^`+ExecRequestUid+`=.*$`, fmt.Sprintf("%s=%s", ExecRequestUid, req.UID))
+		execRequestUidRegex, fmt.Sprintf("%s=%s", ExecRequestUid, req.UID))
 
 	if !replaced {
 		execObject.Command = slices.Insert(execObject.Command, 0, "env",
@@ -187,9 +189,7 @@ func (p Handler) getPodExecPatch(req *admission.Request) ([]jsonpatch.JsonPatchO
 	}), nil
 }
 
-func replaceRegexMatches(slice []string, pattern, repl string) ([]string, bool) {
-	re := regexp.MustCompile(pattern)
-
+func replaceRegexMatches(slice []string, re *regexp.Regexp, repl string) ([]string, bool) {
 	replaced := false
 
 	for i, s := range slice {
@@ -213,7 +213,7 @@ func (p Handler) Handle(_ context.Context, req admission.Request) admission.Resp
 
 	patchFunc, ok := patchGenerators[req.Kind.Kind]
 	if !ok {
-		p.log.V(1).Error(nil, "Unrecognized kind", "kind", req.Kind.Kind)
+		p.log.V(1).Info("Unrecognized kind, allowing request", "kind", req.Kind.Kind)
 
 		return admission.Allowed("pod exec request unmodified")
 	}
