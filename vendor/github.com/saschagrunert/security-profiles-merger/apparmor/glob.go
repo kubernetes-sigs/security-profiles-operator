@@ -38,9 +38,10 @@ var (
 )
 
 const (
-	maxGlobPatternLen   = 4096
-	maxGlobAlternatives = 100
-	maxGlobCacheEntries = 1024
+	maxGlobPatternLen     = 4096
+	maxGlobAlternatives   = 100
+	maxGlobCacheEntries   = 1024
+	globCacheEvictDivisor = 4
 )
 
 func globToRegex(pattern string) *regexp.Regexp {
@@ -64,7 +65,16 @@ func globToRegex(pattern string) *regexp.Regexp {
 	}
 
 	if len(globCacheEntries) >= maxGlobCacheEntries {
-		globCacheEntries = make(map[string]*regexp.Regexp)
+		evictCount := maxGlobCacheEntries / globCacheEvictDivisor
+
+		for key := range globCacheEntries {
+			delete(globCacheEntries, key)
+
+			evictCount--
+			if evictCount == 0 {
+				break
+			}
+		}
 	}
 
 	globCacheEntries[pattern] = compiled

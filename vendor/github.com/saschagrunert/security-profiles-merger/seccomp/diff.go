@@ -138,6 +138,32 @@ func Diff(left, right *specs.LinuxSeccomp) (*ProfileDiff, error) {
 	return diff, nil
 }
 
+// DiffSyscalls compares two bare syscall slices and returns the syscall
+// portion of a profile diff. Multi-name entries are normalized to
+// one-name-per-entry before comparison. This is the syscall-slice analogue
+// of Diff, matching IntersectSyscalls and UnionSyscalls.
+//
+// This function does not validate its inputs.
+func DiffSyscalls(left, right []specs.LinuxSyscall) *SyscallsDiff {
+	leftMap := buildSyscallMap(left)
+	rightMap := buildSyscallMap(right)
+
+	var result SyscallsDiff
+
+	leftNames := slices.Sorted(maps.Keys(leftMap))
+	collectRemovedSyscalls(&result, leftNames, leftMap, rightMap)
+	collectAddedSyscalls(&result, slices.Sorted(maps.Keys(rightMap)), leftMap, rightMap)
+	collectChangedSyscalls(&result, leftNames, leftMap, rightMap)
+
+	if len(result.Added) == 0 &&
+		len(result.Removed) == 0 &&
+		len(result.Changed) == 0 {
+		return nil
+	}
+
+	return &result
+}
+
 func diffDefaultAction(
 	diff *ProfileDiff, left, right *specs.LinuxSeccomp,
 ) {
