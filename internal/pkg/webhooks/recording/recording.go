@@ -24,15 +24,12 @@ import (
 	"strings"
 
 	"github.com/go-logr/logr"
-	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
-	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -42,8 +39,6 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
-
-const finalizer = "active-seccomp-profile-recording-lock"
 
 type podSeccompRecorder struct {
 	impl
@@ -72,11 +67,8 @@ func RegisterWebhook(
 	)
 }
 
-//nolint:lll // required for kubebuilder
 // Security Profiles Operator Webhook RBAC permissions
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilerecordings,verbs=get;list;watch;create;update;patch
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilerecordings/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilerecordings/finalizers,verbs=delete;get;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilerecordings,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 
 //nolint:gocritic
@@ -93,14 +85,11 @@ func (p *podSeccompRecorder) Handle(
 		return admission.Errored(http.StatusInternalServerError, err)
 	}
 
-	pod := &corev1.Pod{}
-	if req.Operation != admissionv1.Delete {
-		pod, err = p.DecodePod(req)
-		if err != nil {
-			p.log.Error(err, "Failed to decode pod")
+	pod, err := p.DecodePod(req)
+	if err != nil {
+		p.log.Error(err, "Failed to decode pod")
 
-			return admission.Errored(http.StatusBadRequest, err)
-		}
+		return admission.Errored(http.StatusBadRequest, err)
 	}
 
 	podName := req.Name
@@ -137,17 +126,6 @@ func (p *podSeccompRecorder) Handle(
 			)
 
 			return admission.Errored(http.StatusBadRequest, err)
-		}
-
-		if err := util.Retry(func() error {
-			if err := p.setRecordingReferences(ctx, req.Operation,
-				&item, selector, podName, podLabels); err != nil {
-				return fmt.Errorf("adding pod tracking: %w", err)
-			}
-
-			return nil
-		}, kerrors.IsConflict); err != nil {
-			return admission.Errored(http.StatusInternalServerError, err)
 		}
 
 		if selector.Matches(podLabels) {
@@ -335,83 +313,6 @@ func (p *podSeccompRecorder) updateApparmorSecurityContext(
 		corev1.EventTypeWarning,
 		"AppArmorNotSupported",
 		"AppArmor log-based recording is not supported, container: %s", ctr.Name)
-}
-
-func (p *podSeccompRecorder) setRecordingReferences(
-	ctx context.Context,
-	op admissionv1.Operation,
-	profileRecording *profilerecordingapi.ProfileRecording,
-	selector labels.Selector,
-	podName string,
-	podLabels labels.Set,
-) error {
-	// we Get the recording again because remove is used in a retry loop
-	// to handle conflicts, we want to get the most recent one
-	profileRecording, err := p.GetProfileRecording(
-		ctx,
-		profileRecording.Name,
-		profileRecording.Namespace,
-	)
-	if kerrors.IsNotFound(err) {
-		// this can happen if the profile recording is deleted while we're reconciling
-		// just return without doing anything
-		return nil
-	} else if err != nil {
-		return fmt.Errorf("cannot retrieve profilerecording: %w", err)
-	}
-
-	if err := p.setActiveWorkloads(
-		ctx,
-		op,
-		profileRecording,
-		selector,
-		podName,
-		podLabels,
-	); err != nil {
-		return fmt.Errorf("cannot set active workloads: %w", err)
-	}
-
-	return p.setFinalizers(ctx, op, profileRecording, selector, podLabels)
-}
-
-func (p *podSeccompRecorder) setActiveWorkloads(
-	ctx context.Context,
-	op admissionv1.Operation,
-	profileRecording *profilerecordingapi.ProfileRecording,
-	selector labels.Selector,
-	podName string,
-	podLabels labels.Set,
-) error {
-	newActiveWorkloads := profileRecording.Status.ActiveWorkloads
-	if op == admissionv1.Delete {
-		newActiveWorkloads = utils.RemoveIfExists(newActiveWorkloads, podName)
-	} else if selector.Matches(podLabels) {
-		newActiveWorkloads = utils.AppendIfNotExists(newActiveWorkloads, podName)
-	}
-
-	profileRecording.Status.ActiveWorkloads = newActiveWorkloads
-
-	return p.UpdateResourceStatus(ctx, p.log, profileRecording, "profilerecording status")
-}
-
-func (p *podSeccompRecorder) setFinalizers(
-	ctx context.Context,
-	op admissionv1.Operation,
-	profileRecording *profilerecordingapi.ProfileRecording,
-	selector labels.Selector,
-	podLabels labels.Set,
-) error {
-	if op == admissionv1.Delete {
-		if controllerutil.ContainsFinalizer(profileRecording, finalizer) {
-			controllerutil.RemoveFinalizer(profileRecording, finalizer)
-		}
-	} else if selector.Matches(podLabels) {
-		if !controllerutil.ContainsFinalizer(profileRecording, finalizer) {
-			controllerutil.AddFinalizer(profileRecording, finalizer)
-		}
-	}
-
-	return p.UpdateResource(ctx, p.log, profileRecording, "profilerecording")
 }
 
 func (p *podSeccompRecorder) warnEventIfContainerPrivileged(

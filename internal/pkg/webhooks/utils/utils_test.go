@@ -29,67 +29,6 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
 
-func TestAppendIfNotExists(t *testing.T) {
-	t.Parallel()
-
-	for _, tc := range []struct {
-		provided, expected []string
-		item               string
-	}{
-		{
-			provided: []string{},
-			item:     "1",
-			expected: []string{"1"},
-		},
-		{
-			provided: []string{"1"},
-			item:     "1",
-			expected: []string{"1"},
-		},
-		{
-			provided: []string{"2"},
-			item:     "1",
-			expected: []string{"2", "1"},
-		},
-	} {
-		res := utils.AppendIfNotExists(tc.provided, tc.item)
-		require.Equal(t, tc.expected, res)
-	}
-}
-
-func TestRemoveIfExists(t *testing.T) {
-	t.Parallel()
-
-	for _, tc := range []struct {
-		provided, expected []string
-		item               string
-	}{
-		{
-			provided: []string{},
-			item:     "1",
-			expected: []string{},
-		},
-		{
-			provided: []string{"1"},
-			item:     "1",
-			expected: []string{},
-		},
-		{
-			provided: []string{"2"},
-			item:     "1",
-			expected: []string{"2"},
-		},
-		{
-			provided: []string{"1", "2", "3"},
-			item:     "2",
-			expected: []string{"1", "3"},
-		},
-	} {
-		res := utils.RemoveIfExists(tc.provided, tc.item)
-		require.Equal(t, tc.expected, res)
-	}
-}
-
 type fakeClient struct {
 	updateFails bool
 }

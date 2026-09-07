@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	spoutil "sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 func (e *e2e) testCaseSeccompProfileBinding(_ []string, image string) {
@@ -137,22 +139,38 @@ spec:
 	}
 
 	e.logf("Testing that profile binding has pod reference")
-	output = e.kubectl(
-		"get",
-		"profilebinding",
-		"hello-binding",
-		"--output",
-		"jsonpath={.status.activeWorkloads[0]}",
-	)
-	e.Equal(namespace+"/hello", output)
-	output = e.kubectl(
-		"get",
-		"profilebinding",
-		"hello-binding",
-		"--output",
-		"jsonpath={.metadata.finalizers[0]}",
-	)
-	e.Equal("active-workload-lock", output)
+
+	if err := spoutil.Retry(func() error {
+		output = e.kubectl(
+			"get", "profilebinding", "hello-binding",
+			"--output", "jsonpath={.status.activeWorkloads[0]}",
+		)
+		if output != namespace+"/hello" {
+			return fmt.Errorf("activeWorkloads not yet set: %s", output)
+		}
+
+		return nil
+	}, func(err error) bool {
+		return true
+	}); err != nil {
+		e.Fail("failed to find pod reference in binding status")
+	}
+
+	if err := spoutil.Retry(func() error {
+		output = e.kubectl(
+			"get", "profilebinding", "hello-binding",
+			"--output", "jsonpath={.metadata.finalizers[0]}",
+		)
+		if output != "active-workload-lock" {
+			return fmt.Errorf("finalizer not yet set: %s", output)
+		}
+
+		return nil
+	}, func(err error) bool {
+		return true
+	}); err != nil {
+		e.Fail("failed to find finalizer on binding")
+	}
 
 	e.logf("Testing that profile has pod reference")
 	output = e.kubectl("get", "seccompprofile", "profile-allow-unsafe",

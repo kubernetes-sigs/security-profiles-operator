@@ -3160,12 +3160,29 @@ rules:
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
+  - profilebindings
   - profilerecordings
   - profilerecordings/finalizers
   verbs:
   - get
   - list
+  - patch
+  - update
   - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - profilebindings/finalizers
+  - profilebindings/status
+  - profilerecordings/status
+  - rawselinuxprofiles/status
+  - seccompprofiles/status
+  - securityprofilesoperatordaemons/status
+  - selinuxprofiles/status
+  verbs:
+  - get
+  - patch
+  - update
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
@@ -3187,17 +3204,6 @@ rules:
   - selinuxprofiles/finalizers
   verbs:
   - delete
-  - get
-  - patch
-  - update
-- apiGroups:
-  - security-profiles-operator.x-k8s.io
-  resources:
-  - rawselinuxprofiles/status
-  - seccompprofiles/status
-  - securityprofilesoperatordaemons/status
-  - selinuxprofiles/status
-  verbs:
   - get
   - patch
   - update
@@ -3263,6 +3269,8 @@ rules:
   - security-profiles-operator.x-k8s.io
   resources:
   - apparmorprofiles
+  - profilebindings
+  - profilerecordings
   - rawselinuxprofiles
   - seccompprofiles
   - selinuxprofiles
@@ -3270,37 +3278,6 @@ rules:
   - get
   - list
   - watch
-- apiGroups:
-  - security-profiles-operator.x-k8s.io
-  resources:
-  - profilebindings
-  - profilerecordings
-  verbs:
-  - create
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - security-profiles-operator.x-k8s.io
-  resources:
-  - profilebindings/finalizers
-  - profilerecordings/finalizers
-  verbs:
-  - delete
-  - get
-  - patch
-  - update
-- apiGroups:
-  - security-profiles-operator.x-k8s.io
-  resources:
-  - profilebindings/status
-  - profilerecordings/status
-  verbs:
-  - get
-  - patch
-  - update
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole

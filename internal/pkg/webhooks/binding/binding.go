@@ -35,7 +35,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -45,10 +44,7 @@ import (
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
-
-const finalizer = "active-workload-lock"
 
 var ErrProfWithoutStatus = errors.New("profile hasn't been initialized with status")
 
@@ -101,10 +97,7 @@ func initContainerMap(m *sync.Map, spec *corev1.PodSpec) {
 }
 
 // Security Profiles Operator Webhook RBAC permissions
-//nolint:lll // required for kubebuilder
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilebindings,verbs=get;list;watch;create;update;patch
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilebindings/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilebindings/finalizers,verbs=delete;get;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilebindings,verbs=get;list;watch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=apparmorprofiles,verbs=get;list;watch
@@ -177,39 +170,28 @@ func (p *podBinder) updatePod(
 
 	var podProfileBinding *profilebindingapi.ProfileBinding
 
-	podID := req.Namespace + "/" + req.Name
 	pod := &corev1.Pod{}
 	podChanged := false
 
 	// Pod security context fields are immutable after creation, so only
 	// mutate on CREATE. UPDATE would produce a patch the API server rejects.
-	if req.Operation != admissionv1.Create && req.Operation != admissionv1.Delete {
+	if req.Operation != admissionv1.Create {
 		return pod, admission.Allowed("pod update, skipping mutation")
 	}
 
-	if req.Operation == admissionv1.Create {
-		pod, err = p.DecodePod(*req)
-		if err != nil {
-			p.log.Error(err, "failed to decode pod")
+	pod, err = p.DecodePod(*req)
+	if err != nil {
+		p.log.Error(err, "failed to decode pod")
 
-			return pod, admission.Errored(http.StatusBadRequest, err)
-		}
-
-		initContainerMap(&containers, &pod.Spec)
+		return pod, admission.Errored(http.StatusBadRequest, err)
 	}
+
+	initContainerMap(&containers, &pod.Spec)
 
 	for i := range profilebindings {
 		profileKind := profilebindings[i].Spec.ProfileRef.Kind
 
 		profileName := profilebindings[i].Spec.ProfileRef.Name
-
-		if req.Operation == admissionv1.Delete {
-			if err := p.removePodFromBinding(ctx, podID, &profilebindings[i]); err != nil {
-				return pod, admission.Errored(http.StatusInternalServerError, err)
-			}
-
-			continue
-		}
 
 		// Skip bindings whose podSelector does not match the pod's labels.
 		if !p.podMatchesSelector(pod, &profilebindings[i]) {
@@ -278,12 +260,6 @@ func (p *podBinder) updatePod(
 		for j := range containers {
 			podChanged = p.addSecurityContext(containers[j], bindProfile)
 		}
-
-		if podChanged {
-			if err := p.addPodToBinding(ctx, podID, &profilebindings[i]); err != nil {
-				return pod, admission.Errored(http.StatusInternalServerError, err)
-			}
-		}
 	}
 
 	if podChanged {
@@ -296,10 +272,6 @@ func (p *podBinder) updatePod(
 
 	if !p.addPodSecurityContext(pod, *podBindProfile) {
 		return pod, admission.Allowed("pod unchanged")
-	}
-
-	if err := p.addPodToBinding(ctx, podID, podProfileBinding); err != nil {
-		return pod, admission.Errored(http.StatusInternalServerError, err)
 	}
 
 	return pod, admission.Response{}
@@ -577,39 +549,4 @@ func (p *podBinder) addPodAppArmorContext(
 	}
 
 	return podChanged
-}
-
-func (p *podBinder) addPodToBinding(
-	ctx context.Context,
-	podID string,
-	pb *profilebindingapi.ProfileBinding,
-) error {
-	pb.Status.ActiveWorkloads = utils.AppendIfNotExists(pb.Status.ActiveWorkloads, podID)
-	if err := p.UpdateResourceStatus(ctx, p.log, pb, "profilebinding status"); err != nil {
-		return fmt.Errorf("add pod to binding: %w", err)
-	}
-
-	if !controllerutil.ContainsFinalizer(pb, finalizer) {
-		controllerutil.AddFinalizer(pb, finalizer)
-	}
-
-	return p.UpdateResource(ctx, p.log, pb, "profilebinding")
-}
-
-func (p *podBinder) removePodFromBinding(
-	ctx context.Context,
-	podID string,
-	pb *profilebindingapi.ProfileBinding,
-) error {
-	pb.Status.ActiveWorkloads = utils.RemoveIfExists(pb.Status.ActiveWorkloads, podID)
-	if err := p.UpdateResourceStatus(ctx, p.log, pb, "profilebinding status"); err != nil {
-		return fmt.Errorf("remove pod from binding: %w", err)
-	}
-
-	if len(pb.Status.ActiveWorkloads) == 0 &&
-		controllerutil.ContainsFinalizer(pb, finalizer) {
-		controllerutil.RemoveFinalizer(pb, finalizer)
-	}
-
-	return p.UpdateResource(ctx, p.log, pb, "profilebinding")
 }

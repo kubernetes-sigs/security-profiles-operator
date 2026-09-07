@@ -19,31 +19,10 @@ package utils
 import (
 	"context"
 	"fmt"
-	"slices"
 
 	"github.com/go-logr/logr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
-
-// AppendIfNotExists adds an item to the provided list if it not exists.
-func AppendIfNotExists(list []string, item string) []string {
-	if slices.Contains(list, item) {
-		return list
-	}
-
-	return append(list, item)
-}
-
-// RemoveIfExists removes an item from the provided list if it exists.
-func RemoveIfExists(list []string, item string) []string {
-	for i := range list {
-		if list[i] == item {
-			return append(list[:i], list[i+1:]...)
-		}
-	}
-
-	return list
-}
 
 // UpdateResource tries to update the provided object by using the
 // client.Writer. If the update fails, it automatically logs to the
@@ -52,26 +31,6 @@ func UpdateResource(
 	ctx context.Context,
 	logger logr.Logger,
 	c client.Writer,
-	object client.Object,
-	name string,
-) error {
-	if err := c.Update(ctx, object); err != nil {
-		msg := "failed to update resource " + name
-		logger.Error(err, msg)
-
-		return fmt.Errorf("%s: %w", msg, err)
-	}
-
-	return nil
-}
-
-// UpdateResourceStatus tries to update the provided object by using the
-// client.StatusWriter. If the update fails, it automatically logs to the
-// provided logger.
-func UpdateResourceStatus(
-	ctx context.Context,
-	logger logr.Logger,
-	c client.StatusWriter,
 	object client.Object,
 	name string,
 ) error {

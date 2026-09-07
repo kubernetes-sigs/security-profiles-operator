@@ -21,7 +21,6 @@ import (
 	"context"
 	"sync"
 
-	"github.com/go-logr/logr"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -101,34 +100,6 @@ type FakeImpl struct {
 	listProfileBindingsReturnsOnCall map[int]struct {
 		result1 *v1d.ProfileBindingList
 		result2 error
-	}
-	UpdateResourceStub        func(context.Context, logr.Logger, client.Object, string) error
-	updateResourceMutex       sync.RWMutex
-	updateResourceArgsForCall []struct {
-		arg1 context.Context
-		arg2 logr.Logger
-		arg3 client.Object
-		arg4 string
-	}
-	updateResourceReturns struct {
-		result1 error
-	}
-	updateResourceReturnsOnCall map[int]struct {
-		result1 error
-	}
-	UpdateResourceStatusStub        func(context.Context, logr.Logger, client.Object, string) error
-	updateResourceStatusMutex       sync.RWMutex
-	updateResourceStatusArgsForCall []struct {
-		arg1 context.Context
-		arg2 logr.Logger
-		arg3 client.Object
-		arg4 string
-	}
-	updateResourceStatusReturns struct {
-		result1 error
-	}
-	updateResourceStatusReturnsOnCall map[int]struct {
-		result1 error
 	}
 	invocations      map[string][][]interface{}
 	invocationsMutex sync.RWMutex
@@ -456,134 +427,6 @@ func (fake *FakeImpl) ListProfileBindingsReturnsOnCall(i int, result1 *v1d.Profi
 		result1 *v1d.ProfileBindingList
 		result2 error
 	}{result1, result2}
-}
-
-func (fake *FakeImpl) UpdateResource(arg1 context.Context, arg2 logr.Logger, arg3 client.Object, arg4 string) error {
-	fake.updateResourceMutex.Lock()
-	ret, specificReturn := fake.updateResourceReturnsOnCall[len(fake.updateResourceArgsForCall)]
-	fake.updateResourceArgsForCall = append(fake.updateResourceArgsForCall, struct {
-		arg1 context.Context
-		arg2 logr.Logger
-		arg3 client.Object
-		arg4 string
-	}{arg1, arg2, arg3, arg4})
-	stub := fake.UpdateResourceStub
-	fakeReturns := fake.updateResourceReturns
-	fake.recordInvocation("UpdateResource", []interface{}{arg1, arg2, arg3, arg4})
-	fake.updateResourceMutex.Unlock()
-	if stub != nil {
-		return stub(arg1, arg2, arg3, arg4)
-	}
-	if specificReturn {
-		return ret.result1
-	}
-	return fakeReturns.result1
-}
-
-func (fake *FakeImpl) UpdateResourceCallCount() int {
-	fake.updateResourceMutex.RLock()
-	defer fake.updateResourceMutex.RUnlock()
-	return len(fake.updateResourceArgsForCall)
-}
-
-func (fake *FakeImpl) UpdateResourceCalls(stub func(context.Context, logr.Logger, client.Object, string) error) {
-	fake.updateResourceMutex.Lock()
-	defer fake.updateResourceMutex.Unlock()
-	fake.UpdateResourceStub = stub
-}
-
-func (fake *FakeImpl) UpdateResourceArgsForCall(i int) (context.Context, logr.Logger, client.Object, string) {
-	fake.updateResourceMutex.RLock()
-	defer fake.updateResourceMutex.RUnlock()
-	argsForCall := fake.updateResourceArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3, argsForCall.arg4
-}
-
-func (fake *FakeImpl) UpdateResourceReturns(result1 error) {
-	fake.updateResourceMutex.Lock()
-	defer fake.updateResourceMutex.Unlock()
-	fake.UpdateResourceStub = nil
-	fake.updateResourceReturns = struct {
-		result1 error
-	}{result1}
-}
-
-func (fake *FakeImpl) UpdateResourceReturnsOnCall(i int, result1 error) {
-	fake.updateResourceMutex.Lock()
-	defer fake.updateResourceMutex.Unlock()
-	fake.UpdateResourceStub = nil
-	if fake.updateResourceReturnsOnCall == nil {
-		fake.updateResourceReturnsOnCall = make(map[int]struct {
-			result1 error
-		})
-	}
-	fake.updateResourceReturnsOnCall[i] = struct {
-		result1 error
-	}{result1}
-}
-
-func (fake *FakeImpl) UpdateResourceStatus(arg1 context.Context, arg2 logr.Logger, arg3 client.Object, arg4 string) error {
-	fake.updateResourceStatusMutex.Lock()
-	ret, specificReturn := fake.updateResourceStatusReturnsOnCall[len(fake.updateResourceStatusArgsForCall)]
-	fake.updateResourceStatusArgsForCall = append(fake.updateResourceStatusArgsForCall, struct {
-		arg1 context.Context
-		arg2 logr.Logger
-		arg3 client.Object
-		arg4 string
-	}{arg1, arg2, arg3, arg4})
-	stub := fake.UpdateResourceStatusStub
-	fakeReturns := fake.updateResourceStatusReturns
-	fake.recordInvocation("UpdateResourceStatus", []interface{}{arg1, arg2, arg3, arg4})
-	fake.updateResourceStatusMutex.Unlock()
-	if stub != nil {
-		return stub(arg1, arg2, arg3, arg4)
-	}
-	if specificReturn {
-		return ret.result1
-	}
-	return fakeReturns.result1
-}
-
-func (fake *FakeImpl) UpdateResourceStatusCallCount() int {
-	fake.updateResourceStatusMutex.RLock()
-	defer fake.updateResourceStatusMutex.RUnlock()
-	return len(fake.updateResourceStatusArgsForCall)
-}
-
-func (fake *FakeImpl) UpdateResourceStatusCalls(stub func(context.Context, logr.Logger, client.Object, string) error) {
-	fake.updateResourceStatusMutex.Lock()
-	defer fake.updateResourceStatusMutex.Unlock()
-	fake.UpdateResourceStatusStub = stub
-}
-
-func (fake *FakeImpl) UpdateResourceStatusArgsForCall(i int) (context.Context, logr.Logger, client.Object, string) {
-	fake.updateResourceStatusMutex.RLock()
-	defer fake.updateResourceStatusMutex.RUnlock()
-	argsForCall := fake.updateResourceStatusArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3, argsForCall.arg4
-}
-
-func (fake *FakeImpl) UpdateResourceStatusReturns(result1 error) {
-	fake.updateResourceStatusMutex.Lock()
-	defer fake.updateResourceStatusMutex.Unlock()
-	fake.UpdateResourceStatusStub = nil
-	fake.updateResourceStatusReturns = struct {
-		result1 error
-	}{result1}
-}
-
-func (fake *FakeImpl) UpdateResourceStatusReturnsOnCall(i int, result1 error) {
-	fake.updateResourceStatusMutex.Lock()
-	defer fake.updateResourceStatusMutex.Unlock()
-	fake.UpdateResourceStatusStub = nil
-	if fake.updateResourceStatusReturnsOnCall == nil {
-		fake.updateResourceStatusReturnsOnCall = make(map[int]struct {
-			result1 error
-		})
-	}
-	fake.updateResourceStatusReturnsOnCall[i] = struct {
-		result1 error
-	}{result1}
 }
 
 func (fake *FakeImpl) Invocations() map[string][][]interface{} {
