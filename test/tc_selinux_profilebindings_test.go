@@ -19,6 +19,8 @@ package e2e_test
 import (
 	"fmt"
 	"strings"
+
+	spoutil "sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 const (
@@ -50,22 +52,40 @@ func (e *e2e) testCaseSelinuxProfileBinding(image string) {
 	e.Equal(selinuxUsage, output)
 
 	e.logf("Testing that profile binding has pod reference")
-	output = e.kubectl(
-		"get",
-		"profilebinding",
-		selinuxBindingName,
-		"--output",
-		"jsonpath={.status.activeWorkloads[0]}",
-	)
-	e.Equal(fmt.Sprintf("%s/%s", namespace, testPodName), output)
-	output = e.kubectl(
-		"get",
-		"profilebinding",
-		selinuxBindingName,
-		"--output",
-		"jsonpath={.metadata.finalizers[0]}",
-	)
-	e.Equal("active-workload-lock", output)
+
+	expectedPodRef := fmt.Sprintf("%s/%s", namespace, testPodName)
+
+	if err := spoutil.Retry(func() error {
+		output = e.kubectl(
+			"get", "profilebinding", selinuxBindingName,
+			"--output", "jsonpath={.status.activeWorkloads[0]}",
+		)
+		if output != expectedPodRef {
+			return fmt.Errorf("activeWorkloads not yet set: %s", output)
+		}
+
+		return nil
+	}, func(err error) bool {
+		return true
+	}); err != nil {
+		e.Fail("failed to find pod reference in binding status")
+	}
+
+	if err := spoutil.Retry(func() error {
+		output = e.kubectl(
+			"get", "profilebinding", selinuxBindingName,
+			"--output", "jsonpath={.metadata.finalizers[0]}",
+		)
+		if output != "active-workload-lock" {
+			return fmt.Errorf("finalizer not yet set: %s", output)
+		}
+
+		return nil
+	}, func(err error) bool {
+		return true
+	}); err != nil {
+		e.Fail("failed to find finalizer on binding")
+	}
 
 	e.logf("Testing that profile has pod reference")
 	output = e.kubectl("get", "selinuxprofile", selinuxTestProfileName,

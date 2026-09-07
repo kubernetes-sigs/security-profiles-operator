@@ -64,8 +64,10 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/profilerecorder"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/seccompprofile"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/selinuxprofile"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/bindingtracker"
 	nodestatus "sigs.k8s.io/security-profiles-operator/internal/pkg/manager/nodestatus"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/recordingmerger"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/recordingtracker"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/workloadannotator"
@@ -85,6 +87,8 @@ const (
 	spodControllerFlag           string = "with-spod-controller"
 	workloadAnnotatorFlag        string = "with-workload-annotator"
 	recordingMergerFlag          string = "with-recording-merger"
+	recordingTrackerFlag         string = "with-recording-tracker"
+	bindingTrackerFlag           string = "with-binding-tracker"
 	recordingFlag                string = "with-recording"
 	seccompFlag                  string = "with-seccomp"
 	selinuxFlag                  string = "with-selinux"
@@ -157,6 +161,16 @@ func main() {
 					Name:  recordingMergerFlag,
 					Value: true,
 					Usage: "Enable the recording merger.",
+				},
+				&cli.BoolFlag{
+					Name:  recordingTrackerFlag,
+					Value: true,
+					Usage: "Enable the recording tracker.",
+				},
+				&cli.BoolFlag{
+					Name:  bindingTrackerFlag,
+					Value: true,
+					Usage: "Enable the binding tracker.",
 				},
 			},
 		},
@@ -518,6 +532,10 @@ func runManager(ctx *cli.Context, info *version.Info) error {
 		return fmt.Errorf("add profilebinding v1 API to scheme: %w", err)
 	}
 
+	if err := profilerecordingv1.AddToScheme(mgr.GetScheme()); err != nil {
+		return fmt.Errorf("add profilerecording v1 API to scheme: %w", err)
+	}
+
 	if err := seccompprofilev1.AddToScheme(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("add seccompprofile v1 API to scheme: %w", err)
 	}
@@ -550,6 +568,14 @@ func runManager(ctx *cli.Context, info *version.Info) error {
 
 	if ctx.Bool(recordingMergerFlag) {
 		enabledControllers = append(enabledControllers, recordingmerger.NewController())
+	}
+
+	if ctx.Bool(recordingTrackerFlag) {
+		enabledControllers = append(enabledControllers, recordingtracker.NewController())
+	}
+
+	if ctx.Bool(bindingTrackerFlag) {
+		enabledControllers = append(enabledControllers, bindingtracker.NewController())
 	}
 
 	setupLog.Info("enabled controllers", "controllers", enabledControllers)

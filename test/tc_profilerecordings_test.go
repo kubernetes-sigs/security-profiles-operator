@@ -479,16 +479,24 @@ func (e *e2e) testCaseRecordingFinalizers() {
 		e.Fail("failed to find pod name in status")
 	}
 
-	// Check that the recording's finalizer is present. Don't retry anymore, the finalizer
-	// must be added at this point
-	output := e.kubectl(
-		"get",
-		"profilerecording",
-		recordingName,
-		"--output",
-		"jsonpath={.metadata.finalizers[0]}",
-	)
-	e.Equal("active-seccomp-profile-recording-lock", output)
+	if err := spoutil.Retry(func() error {
+		output := e.kubectl(
+			"get",
+			"profilerecording",
+			recordingName,
+			"--output",
+			"jsonpath={.metadata.finalizers[0]}",
+		)
+		if output != "active-seccomp-profile-recording-lock" {
+			return fmt.Errorf("finalizer not yet set: %s", output)
+		}
+
+		return nil
+	}, func(err error) bool {
+		return true
+	}); err != nil {
+		e.Fail("failed to find finalizer on recording")
+	}
 
 	// Delete the pod and check that the resource is removed
 	e.kubectl("delete", "pod", podName)

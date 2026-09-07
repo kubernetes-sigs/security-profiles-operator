@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -30,7 +29,6 @@ import (
 	profilebindingapi "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
 
 type defaultImpl struct {
@@ -45,8 +43,6 @@ type impl interface {
 		context.Context,
 		...client.ListOption,
 	) (*profilebindingapi.ProfileBindingList, error)
-	UpdateResource(context.Context, logr.Logger, client.Object, string) error
-	UpdateResourceStatus(context.Context, logr.Logger, client.Object, string) error
 	DecodePod(admission.Request) (*corev1.Pod, error)
 	GetSeccompProfile(
 		context.Context,
@@ -71,24 +67,6 @@ func (d *defaultImpl) ListProfileBindings(
 	}
 
 	return profileBindings, nil
-}
-
-func (d *defaultImpl) UpdateResource(
-	ctx context.Context,
-	logger logr.Logger,
-	object client.Object,
-	name string,
-) error {
-	return utils.UpdateResource(ctx, logger, d.client, object, name)
-}
-
-func (d *defaultImpl) UpdateResourceStatus(
-	ctx context.Context,
-	logger logr.Logger,
-	object client.Object,
-	name string,
-) error {
-	return utils.UpdateResourceStatus(ctx, logger, d.client.Status(), object, name)
 }
 
 //nolint:gocritic

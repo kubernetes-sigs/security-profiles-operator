@@ -12,12 +12,12 @@ webhooks:
     timeoutSeconds: 5
     sideEffects: None
     rules:
-      - operations: ["CREATE", "DELETE"]
+      - operations: ["CREATE"]
         apiGroups: [""]
         apiVersions: ["v1"]
         resources: ["pods"]
     objectSelector:
-      matchExpressions: 
+      matchExpressions:
         - key: name
           operator: NotIn
           values: ["security-profiles-operator", "security-profiles-operator-webhook"]
@@ -38,12 +38,12 @@ webhooks:
     timeoutSeconds: 5
     sideEffects: None
     rules:
-      - operations: ["CREATE", "UPDATE", "DELETE"]
+      - operations: ["CREATE", "UPDATE"]
         apiGroups: [""]
         apiVersions: ["v1"]
         resources: ["pods"]
     objectSelector:
-      matchExpressions: 
+      matchExpressions:
         - key: name
           operator: NotIn
           values: ["security-profiles-operator", "security-profiles-operator-webhook"]

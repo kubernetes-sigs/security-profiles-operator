@@ -49,7 +49,7 @@ var (
 	bindingRules                  = []admissionregv1.RuleWithOperations{
 		{
 			Operations: []admissionregv1.OperationType{
-				"CREATE", "DELETE",
+				"CREATE",
 			},
 			Rule: admissionregv1.Rule{
 				APIGroups:   []string{""},
@@ -61,7 +61,7 @@ var (
 	recordingRules = []admissionregv1.RuleWithOperations{
 		{
 			Operations: []admissionregv1.OperationType{
-				"CREATE", "UPDATE", "DELETE",
+				"CREATE", "UPDATE",
 			},
 			Rule: admissionregv1.Rule{
 				APIGroups:   []string{""},
