@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/saschagrunert/security-profiles-merger/internal/merge"
 )
@@ -606,6 +607,25 @@ func normalizeProfile(profile *Profile) *Profile {
 		result.Filesystem.ReadOnlyPaths = normalizePaths(result.Filesystem.ReadOnlyPaths)
 		result.Filesystem.WriteOnlyPaths = normalizePaths(result.Filesystem.WriteOnlyPaths)
 		result.Filesystem.ReadWritePaths = normalizePaths(result.Filesystem.ReadWritePaths)
+	}
+
+	if result.Capabilities != nil {
+		result.Capabilities.AllowedCapabilities = normalizeCapabilities(
+			result.Capabilities.AllowedCapabilities,
+		)
+	}
+
+	return result
+}
+
+func normalizeCapabilities(caps []string) []string {
+	if caps == nil {
+		return nil
+	}
+
+	result := make([]string, len(caps))
+	for idx, c := range caps {
+		result[idx] = strings.ToUpper(c)
 	}
 
 	return result

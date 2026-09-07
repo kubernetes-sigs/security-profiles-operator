@@ -271,9 +271,22 @@ func validateEmptyCapabilities(caps []string) error {
 }
 
 func validateDuplicateCapabilities(caps []string) error {
-	return errors.Join(validateDuplicatesInSlice(
-		"AllowedCapabilities", caps, ErrDuplicateCapability,
-	)...)
+	seen := make(map[string]struct{}, len(caps))
+
+	var errs []error
+
+	for _, cap := range caps {
+		upper := strings.ToUpper(cap)
+		if _, ok := seen[upper]; ok {
+			errs = append(errs, fmt.Errorf(
+				"AllowedCapabilities: %q: %w", cap, ErrDuplicateCapability,
+			))
+		}
+
+		seen[upper] = struct{}{}
+	}
+
+	return errors.Join(errs...)
 }
 
 func validateCapabilityNames(caps []string) error {
