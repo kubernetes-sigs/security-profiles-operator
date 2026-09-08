@@ -295,7 +295,7 @@ func TestMergeProfiles(t *testing.T) {
 						},
 					},
 					Capability: &apparmorprofileapi.AppArmorCapabilityRules{
-						AllowedCapabilities: []string{"net_admin", "net_raw", "sys_admin"},
+						AllowedCapabilities: []string{"NET_ADMIN", "NET_RAW", "SYS_ADMIN"},
 					},
 				}, prof.Spec.Abstract)
 
@@ -371,7 +371,7 @@ func TestNormalizeAppArmorProfile(t *testing.T) {
 	require.Equal(t, []string{"/a", "/z"}, a.Filesystem.ReadOnlyPaths)
 	require.Equal(t, []string{"/a", "/z"}, a.Filesystem.WriteOnlyPaths)
 	require.Equal(t, []string{"/a", "/z"}, a.Filesystem.ReadWritePaths)
-	require.Equal(t, []string{"chown", "sys_admin"}, a.Capability.AllowedCapabilities)
+	require.Equal(t, []string{"CHOWN", "SYS_ADMIN"}, a.Capability.AllowedCapabilities)
 }
 
 func TestNormalizeCheckIdempotent(t *testing.T) {

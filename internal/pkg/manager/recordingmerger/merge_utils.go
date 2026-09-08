@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -152,7 +153,7 @@ func MergeProfiles(
 // NormalizeProfile normalizes a profile's internal representation to match
 // the format produced by the merger library. For SeccompProfiles, this
 // converts multi-name syscall entries to single-name-per-entry format.
-// For AppArmorProfiles, string slices are sorted alphabetically.
+// For AppArmorProfiles, string slices are sorted and capabilities are uppercased.
 func NormalizeProfile(obj client.Object) error {
 	switch p := obj.(type) {
 	case *seccompprofile.SeccompProfile:
@@ -185,6 +186,10 @@ func normalizeAppArmorProfile(ap *apparmorprofileapi.AppArmorProfile) {
 	}
 
 	if a.Capability != nil {
+		for i, c := range a.Capability.AllowedCapabilities {
+			a.Capability.AllowedCapabilities[i] = strings.ToUpper(c)
+		}
+
 		slices.Sort(a.Capability.AllowedCapabilities)
 	}
 }
