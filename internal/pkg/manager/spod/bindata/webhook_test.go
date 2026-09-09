@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	admissionregv1 "k8s.io/api/admissionregistration/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -237,4 +238,30 @@ func TestWebhook_getWebhookConfig(t *testing.T) {
 
 	webhookConfig = getWebhookConfig(true)
 	require.Len(t, webhookConfig.Webhooks, 4)
+}
+
+func TestWebhook_DeploymentSecurityContext(t *testing.T) {
+	t.Parallel()
+
+	sut := GetWebhook(
+		logr.Discard(), "test-ns", nil, "image", corev1.PullAlways,
+		CAInjectTypeCertManager, nil, nil, false,
+	)
+
+	podSpec := sut.deployment.Spec.Template.Spec
+	require.NotNil(t, podSpec.SecurityContext)
+	require.NotNil(t, podSpec.SecurityContext.SeccompProfile)
+	assert.Equal(t, corev1.SeccompProfileTypeRuntimeDefault, podSpec.SecurityContext.SeccompProfile.Type)
+
+	require.Len(t, podSpec.Containers, 1)
+	sc := podSpec.Containers[0].SecurityContext
+	require.NotNil(t, sc)
+	require.NotNil(t, sc.AllowPrivilegeEscalation)
+	assert.False(t, *sc.AllowPrivilegeEscalation)
+	require.NotNil(t, sc.ReadOnlyRootFilesystem)
+	assert.True(t, *sc.ReadOnlyRootFilesystem)
+	require.NotNil(t, sc.RunAsNonRoot)
+	assert.True(t, *sc.RunAsNonRoot)
+	require.NotNil(t, sc.Capabilities)
+	assert.Equal(t, []corev1.Capability{"ALL"}, sc.Capabilities.Drop)
 }

@@ -681,6 +681,10 @@ var webhookDeployment = &appsv1.Deployment{
 						SecurityContext: &corev1.SecurityContext{
 							AllowPrivilegeEscalation: &falsely,
 							ReadOnlyRootFilesystem:   &truly,
+							RunAsNonRoot:             &truly,
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"ALL"},
+							},
 						},
 						Resources: corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{

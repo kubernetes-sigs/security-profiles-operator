@@ -3984,7 +3984,11 @@ spec:
             memory: 50Mi
         securityContext:
           allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
           readOnlyRootFilesystem: true
+          runAsNonRoot: true
       securityContext:
         seccompProfile:
           type: RuntimeDefault
@@ -4043,7 +4047,11 @@ spec:
             memory: 32Mi
         securityContext:
           allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
           readOnlyRootFilesystem: true
+          runAsNonRoot: true
         volumeMounts:
         - mountPath: /tmp/k8s-webhook-server/serving-certs
           name: cert
