@@ -4002,7 +4002,11 @@ spec:
             memory: 50Mi
         securityContext:
           allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
           readOnlyRootFilesystem: true
+          runAsNonRoot: true
       securityContext:
         seccompProfile:
           type: RuntimeDefault

@@ -46,7 +46,11 @@ spec:
           {{- toYaml .Values.resources | nindent 10 }}
         securityContext:
           allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
           readOnlyRootFilesystem: true
+          runAsNonRoot: true
       {{- with .Values.podSecurityContext }}
       securityContext:
       {{- toYaml . | nindent 8 }}
