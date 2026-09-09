@@ -268,4 +268,5 @@ func TestWebhook_DeploymentSecurityContext(t *testing.T) {
 	assert.True(t, *sc.RunAsNonRoot)
 	require.NotNil(t, sc.Capabilities)
 	assert.Equal(t, []corev1.Capability{"ALL"}, sc.Capabilities.Drop)
+	assert.Empty(t, sc.Capabilities.Add)
 }
