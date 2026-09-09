@@ -19,7 +19,10 @@ limitations under the License.
 package converter
 
 import (
+	"bytes"
 	"errors"
+	"log"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -38,9 +41,11 @@ func TestRun(t *testing.T) {
 	}
 
 	for _, tc := range []struct {
-		name           string
-		input          string
-		outputContains []string
+		name              string
+		input             string
+		outputContains    []string
+		outputNotContains []string
+		logContains       string
 	}{
 		{
 			name: "AppArmor CRD in enforce mode by default",
@@ -97,23 +102,89 @@ spec:
 `,
 			outputContains: []string{`"defaultAction": "SCMP_ACT_ERRNO"`},
 		},
+		{
+			name: "seccomp without CRD only fields",
+			input: `
+apiVersion: security-profiles-operator.x-k8s.io/v1
+kind: SeccompProfile
+spec:
+  state: Enabled
+  baseProfileName: runc-v1.5.1
+  defaultAction: SCMP_ACT_ERRNO
+`,
+			outputContains:    []string{`"defaultAction": "SCMP_ACT_ERRNO"`},
+			outputNotContains: []string{`"state"`, `"baseProfileName"`},
+			logContains:       "Dropping base profile",
+		},
+		{
+			name: "seccomp with listener fields",
+			input: `
+apiVersion: security-profiles-operator.x-k8s.io/v1
+kind: SeccompProfile
+spec:
+  defaultAction: SCMP_ACT_ERRNO
+  listenerPath: /var/run/security-profiles-operator/agent.sock
+  listenerMetadata: some-metadata
+`,
+			outputContains:    []string{`"defaultAction": "SCMP_ACT_ERRNO"`},
+			outputNotContains: []string{`"listenerPath"`, `"listenerMetadata"`},
+			logContains:       "Dropping the listener fields",
+		},
+		{
+			name: "seccomp with listener metadata only",
+			input: `
+apiVersion: security-profiles-operator.x-k8s.io/v1
+kind: SeccompProfile
+spec:
+  defaultAction: SCMP_ACT_ERRNO
+  listenerMetadata: some-metadata
+`,
+			outputContains:    []string{`"defaultAction": "SCMP_ACT_ERRNO"`},
+			outputNotContains: []string{`"listenerMetadata"`},
+			logContains:       "Dropping the listener fields",
+		},
+		{
+			name: "seccomp using the notifier",
+			input: `
+apiVersion: security-profiles-operator.x-k8s.io/v1
+kind: SeccompProfile
+spec:
+  defaultAction: SCMP_ACT_ERRNO
+  listenerPath: /var/run/security-profiles-operator/agent.sock
+  syscalls:
+  - action: SCMP_ACT_NOTIFY
+    names:
+    - openat
+`,
+			outputNotContains: []string{`"listenerPath"`},
+			logContains:       "has to provide a listener path",
+		},
 	} {
-		input := tc.input
-		outputContains := tc.outputContains
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+			logs := &bytes.Buffer{}
+			log.SetOutput(logs)
+
+			defer log.SetOutput(os.Stderr)
 
 			mock := &converterfakes.FakeImpl{}
 			sut := New(defaultOptions())
 			sut.impl = mock
-			mock.ReadFileReturns([]byte(input), nil)
+			mock.ReadFileReturns([]byte(tc.input), nil)
 
 			err := sut.Run()
 			require.NoError(t, err)
 
 			_, actual, _ := mock.WriteFileArgsForCall(0)
-			for _, contain := range outputContains {
+			for _, contain := range tc.outputContains {
 				require.Contains(t, string(actual), contain)
+			}
+
+			for _, contain := range tc.outputNotContains {
+				require.NotContains(t, string(actual), contain)
+			}
+
+			if tc.logContains != "" {
+				require.Contains(t, logs.String(), tc.logContains)
 			}
 		})
 	}

@@ -18,6 +18,7 @@ package artifact
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -56,6 +57,8 @@ type impl interface {
 	ReadFile(string) ([]byte, error)
 	ReadProfile([]byte) (client.Object, error)
 	StoreAdd(context.Context, *file.Store, string, string, string) (ocispec.Descriptor, error)
+	StorePush(context.Context, *file.Store, ocispec.Descriptor, io.Reader) error
+	StoreFetch(context.Context, *file.Store, ocispec.Descriptor) (io.ReadCloser, error)
 	StoreTag(context.Context, *file.Store, ocispec.Descriptor, string) error
 	PackManifest(
 		context.Context, content.Pusher, oras.PackManifestVersion, string, oras.PackManifestOptions,
@@ -113,6 +116,20 @@ func (*defaultImpl) StoreAdd(
 	ctx context.Context, store *file.Store, name, mediaType, path string,
 ) (ocispec.Descriptor, error) {
 	return store.Add(ctx, name, mediaType, path)
+}
+
+//nolint:gocritic // intentional for the mock
+func (*defaultImpl) StorePush(
+	ctx context.Context, store *file.Store, desc ocispec.Descriptor, content io.Reader,
+) error {
+	return store.Push(ctx, desc, content)
+}
+
+//nolint:gocritic // intentional for the mock
+func (*defaultImpl) StoreFetch(
+	ctx context.Context, store *file.Store, desc ocispec.Descriptor,
+) (io.ReadCloser, error) {
+	return store.Fetch(ctx, desc)
 }
 
 //nolint:gocritic // intentional for the mock

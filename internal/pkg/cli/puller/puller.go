@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
 )
@@ -72,14 +73,29 @@ func (p *Puller) Run() error {
 
 	log.Printf("Got %s: %s", result.Type(), name)
 
-	log.Printf("Saving profile in: %s", p.options.outputFile)
+	outputFile := p.outputFile(result.IsRuntimeFormat())
+
+	log.Printf("Saving profile in: %s", outputFile)
 
 	const defaultFileMode = os.FileMode(0o644)
 	if err := p.WriteFile(
-		p.options.outputFile, result.Content(), defaultFileMode,
+		outputFile, result.Content(), defaultFileMode,
 	); err != nil {
 		return fmt.Errorf("save profile: %w", err)
 	}
 
 	return nil
+}
+
+// outputFile returns the location to save the profile in. The content of a
+// runtime format artifact is JSON, so the default YAML extension would be
+// misleading. An explicitly requested location is always used as is.
+func (p *Puller) outputFile(runtimeFormat bool) string {
+	const extYAML, extJSON = ".yaml", ".json"
+
+	if p.options.outputFileSet || !runtimeFormat {
+		return p.options.outputFile
+	}
+
+	return strings.TrimSuffix(p.options.outputFile, extYAML) + extJSON
 }

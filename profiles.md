@@ -1184,6 +1184,16 @@ artifact profiles also support different architectures, where the operator
 always tries to select the correct one via `runtime.GOOS`/`runtime.GOARCH` but
 also allows to fallback to a default profile.
 
+Base profiles can also be runtime format artifacts as defined by
+[KEP-6061](https://github.com/kubernetes/enhancements/issues/6061): a single
+layer containing an OCI runtime-spec seccomp profile in JSON with the media
+type `application/vnd.cncf.seccomp-profile.config.v1+json`, as pushed by
+`spoc push` from a raw JSON input (see
+[cli.md](cli.md#pushing-profiles-for-container-runtimes)). The operator merges
+them like profile CRD artifacts, which means only `spec.syscalls` of the base
+profile gets unioned into the referencing profile. All other fields are
+ignored, including the ones the CRD cannot express such as `defaultErrnoRet`.
+
 The operator internally caches pulled artifacts up to 24 hours for 1000
 profiles, means that they will be refreshed after that time period, if the stack
 is full or the operator daemon gets restarted. It is also possible to define

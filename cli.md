@@ -6,6 +6,7 @@
   - [Run commands with seccomp profiles](#run-commands-with-seccomp-profiles)
   - [Pull security profiles from OCI registries](#pull-security-profiles-from-oci-registries)
   - [Push security profiles to OCI registries](#push-security-profiles-to-oci-registries)
+  - [Pushing profiles for container runtimes](#pushing-profiles-for-container-runtimes)
   - [Using multiple platforms](#using-multiple-platforms)
 <!-- /toc -->
 
@@ -224,6 +225,80 @@ Please also note that signing is always required for push and pull. It is
 possible to add custom annotations to the security profile by using the
 `--annotations` / `-a` flag multiple times in `KEY:VALUE` format.
 
+### Pushing profiles for container runtimes
+
+Container runtimes consume seccomp profiles from OCI artifacts in the format
+defined by [KEP-6061](https://github.com/kubernetes/enhancements/issues/6061):
+exactly one layer containing the profile as OCI runtime-spec JSON, identified
+by the media type `application/vnd.cncf.seccomp-profile.config.v1+json`. This
+differs from the profile CRD artifacts above, which keep the generic
+`application/vnd.unknown.config.v1+json` artifact type together with the empty
+OCI config descriptor, and are used by the operator for `oci://` base
+profiles.
+
+`spoc push` produces the runtime format automatically when the input file is a
+raw runtime-spec seccomp profile in JSON, for example the output of
+`spoc convert`, which writes the profile spec without the fields that are
+specific to the operator (`state`, `baseProfileName` and the listener fields):
+
+```
+> spoc push -f ./profile.json ghcr.io/security-profiles/runc:v1.5.1
+```
+
+The media type is set on the manifest config as well as on `artifactType`, and
+the single layer is not platform qualified:
+
+```
+> skopeo inspect --raw docker://ghcr.io/security-profiles/runc:v1.5.1 | jq .
+{
+  "schemaVersion": 2,
+  "mediaType": "application/vnd.oci.image.manifest.v1+json",
+  "artifactType": "application/vnd.cncf.seccomp-profile.config.v1+json",
+  "config": {
+    "mediaType": "application/vnd.cncf.seccomp-profile.config.v1+json",
+    "digest": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "size": 2
+  },
+  "layers": [
+    {
+      "mediaType": "application/json",
+      "digest": "sha256:d6ad0c0d1f2eb0e0b0a2d16a44a8bb5a1e11e8fbc0a90e4e1a36ba4b7d1e3f9c",
+      "size": 1031,
+      "annotations": {
+        "org.opencontainers.image.title": "profile.json"
+      }
+    }
+  ],
+  "annotations": {
+    "org.opencontainers.image.created": "2026-09-09T07:32:11Z"
+  }
+}
+```
+
+The input has to decode strictly as a runtime-spec seccomp profile: unknown
+fields and trailing data are rejected and `defaultAction` is required. Such
+artifacts contain exactly one profile, so pushing several platforms into one
+artifact is rejected for this format; per-platform variants have to be pushed
+as separate artifacts.
+
+Profiles which are neither a profile CRD nor a runtime-spec profile are
+rejected, so that no artifact gets published which no consumer understands.
+Content container runtimes reject is reported as a warning: the listener
+fields, `SCMP_ACT_NOTIFY`, profiles above 1 MiB and syscalls with more than
+128 rule entries. The last two are runtime defaults rather than part of the
+format, so they do not fail the push.
+
+`spoc pull` and `oci://` base profile references accept both formats. Runtime
+format artifacts are recognized by their media type and read from their single
+layer, so layer names and annotations do not matter. For other artifacts, the
+layer names above are used, with a fallback to the single layer if there is
+exactly one and it is not bound to another platform. A runtime format artifact
+is exposed as a `SeccompProfile` named after the last path element of the
+reference (`runc` for the example above), whose spec drops fields the CRD
+cannot express, such as `defaultErrnoRet`. `spoc pull` writes the artifact
+content unchanged, so a runtime format artifact is saved as runtime-spec JSON
+and the default output file switches to a `.json` extension.
+
 ### Using multiple platforms
 
 `spoc push` supports specifying the target platforms for the profiles to be
@@ -249,8 +324,9 @@ The pushed artifact now contains both profiles, separated by their platform:
 {
   "schemaVersion": 2,
   "mediaType": "application/vnd.oci.image.manifest.v1+json",
+  "artifactType": "application/vnd.unknown.config.v1+json",
   "config": {
-    "mediaType": "application/vnd.unknown.config.v1+json",
+    "mediaType": "application/vnd.oci.empty.v1+json",
     "digest": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "size": 2
   },

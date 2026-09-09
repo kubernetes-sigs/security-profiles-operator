@@ -22,6 +22,7 @@ import (
 	"log"
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
+	profilebasev1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/apparmorprofile/crd2armor"
@@ -78,7 +79,39 @@ func (p *Converter) Run() error {
 
 		out = []byte(outStr)
 	case *seccompprofileapi.SeccompProfile:
-		out, err = json.MarshalIndent(obj.Spec, "", "  ")
+		// Drop the CRD only fields, they are not part of the OCI runtime-spec
+		// seccomp profile and would make the output unusable for container
+		// runtimes.
+		spec := obj.Spec
+		spec.SpecBase = profilebasev1.SpecBase{}
+
+		if spec.BaseProfileName != "" {
+			log.Printf(
+				"Dropping base profile %q, its syscalls are not part of the raw profile.",
+				spec.BaseProfileName,
+			)
+
+			spec.BaseProfileName = ""
+		}
+
+		// The listener fields are valid runtime-spec, but tie the profile to
+		// the seccomp agent of this operator and are rejected in KEP-6061
+		// artifacts.
+		if spec.ListenerPath != "" || spec.ListenerMetadata != "" {
+			log.Print("Dropping the listener fields, they are specific to this operator.")
+
+			spec.ListenerPath = ""
+			spec.ListenerMetadata = ""
+		}
+
+		if usesNotify(&spec) {
+			log.Printf(
+				"Profile uses %s, so its consumer has to provide a listener path.",
+				seccompprofileapi.ActNotify,
+			)
+		}
+
+		out, err = json.MarshalIndent(spec, "", "  ")
 		if err != nil {
 			return fmt.Errorf("marshal JSON profile: %w", err)
 		}
@@ -94,4 +127,20 @@ func (p *Converter) Run() error {
 	log.Printf("Successfully wrote raw profile to %s.", p.options.outputFile)
 
 	return nil
+}
+
+// usesNotify reports whether the profile relies on a seccomp notifier, which
+// needs a listener path that the converted raw profile no longer carries.
+func usesNotify(spec *seccompprofileapi.SeccompProfileSpec) bool {
+	if spec.DefaultAction == seccompprofileapi.ActNotify {
+		return true
+	}
+
+	for i := range spec.Syscalls {
+		if spec.Syscalls[i].Action == seccompprofileapi.ActNotify {
+			return true
+		}
+	}
+
+	return false
 }
