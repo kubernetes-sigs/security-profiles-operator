@@ -175,16 +175,21 @@ func main() {
 			},
 		},
 		&cli.Command{
-			Name:      "push",
-			Aliases:   []string{"p"},
-			Usage:     "push a profile to a container registry",
+			Name:    "push",
+			Aliases: []string{"p"},
+			Usage:   "push a profile to a container registry",
+			Description: "Profile CRDs are pushed as YAML artifacts for oci:// base profiles. " +
+				"A raw OCI runtime-spec seccomp profile in JSON is pushed in the KEP-6061 " +
+				"runtime format for container runtimes (single JSON layer, media type " +
+				"application/vnd.cncf.seccomp-profile.config.v1+json); exactly one profile " +
+				"is allowed in that format.",
 			Action:    push,
 			ArgsUsage: "FILE",
 			Flags: []cli.Flag{
 				&cli.StringSliceFlag{
 					Name:        pusher.FlagProfiles,
 					Aliases:     []string{"f"},
-					Usage:       "the profiles to be used",
+					Usage:       "the profiles to be used (profile CRD YAML or raw runtime-spec seccomp JSON)",
 					DefaultText: pusher.DefaultInputFile,
 					TakesFile:   true,
 				},
@@ -210,9 +215,13 @@ func main() {
 			},
 		},
 		&cli.Command{
-			Name:      "pull",
-			Aliases:   []string{"l"},
-			Usage:     "pull a profile from a container registry",
+			Name:    "pull",
+			Aliases: []string{"l"},
+			Usage:   "pull a profile from a container registry",
+			Description: "Profile CRD artifacts and KEP-6061 runtime format artifacts are " +
+				"supported; the artifact content is written unchanged, so runtime format " +
+				"artifacts are saved as runtime-spec JSON and the default output file " +
+				"switches to a .json extension.",
 			Action:    pull,
 			ArgsUsage: "IMAGE",
 			Flags: []cli.Flag{

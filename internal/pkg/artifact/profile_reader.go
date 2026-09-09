@@ -41,7 +41,7 @@ func ReadProfile(content []byte) (client.Object, error) {
 
 	kind, ok := genericCRD["kind"].(string)
 	if !ok {
-		return nil, fmt.Errorf("invalid yaml, kind missing: %w", err)
+		return nil, ErrNoKind
 	}
 
 	switch kind {

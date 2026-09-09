@@ -31,6 +31,7 @@ import (
 type Options struct {
 	pullFrom                     string
 	outputFile                   string
+	outputFileSet                bool
 	username                     string
 	password                     string
 	platform                     *v1.Platform
@@ -61,6 +62,7 @@ func FromContext(ctx *ucli.Context) (*Options, error) {
 
 	if ctx.IsSet(FlagOutputFile) {
 		options.outputFile = ctx.String(FlagOutputFile)
+		options.outputFileSet = true
 	}
 
 	if options.outputFile == "" {

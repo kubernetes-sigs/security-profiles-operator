@@ -82,3 +82,44 @@ func TestRun(t *testing.T) {
 		})
 	}
 }
+
+func TestOutputFile(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name          string
+		outputFile    string
+		outputFileSet bool
+		runtimeFormat bool
+		want          string
+	}{
+		{
+			name:          "default location for a runtime format artifact",
+			outputFile:    "/tmp/profile.yaml",
+			runtimeFormat: true,
+			want:          "/tmp/profile.json",
+		},
+		{
+			name:       "default location for a profile CRD artifact",
+			outputFile: "/tmp/profile.yaml",
+			want:       "/tmp/profile.yaml",
+		},
+		{
+			name:          "requested location is never changed",
+			outputFile:    "/tmp/my-profile.yaml",
+			outputFileSet: true,
+			runtimeFormat: true,
+			want:          "/tmp/my-profile.yaml",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			options := Default()
+			options.outputFile = tc.outputFile
+			options.outputFileSet = tc.outputFileSet
+
+			require.Equal(t, tc.want, New(options).outputFile(tc.runtimeFormat))
+		})
+	}
+}

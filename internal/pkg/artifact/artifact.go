@@ -17,9 +17,12 @@ limitations under the License.
 package artifact
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"path/filepath"
 	"strings"
@@ -27,10 +30,13 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/opencontainers/go-digest"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
+	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sigstore/cosign/v2/cmd/cosign/cli/generate"
 	"github.com/sigstore/cosign/v2/cmd/cosign/cli/options"
 	"github.com/sigstore/cosign/v2/cmd/cosign/cli/verify"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"oras.land/oras-go/v2"
+	"oras.land/oras-go/v2/content/file"
 	"oras.land/oras-go/v2/registry/remote"
 	"oras.land/oras-go/v2/registry/remote/auth"
 	"oras.land/oras-go/v2/registry/remote/retry"
@@ -50,7 +56,14 @@ type PullResult struct {
 	selinuxProfile  *selinuxprofileapi.SelinuxProfile
 	apparmorProfile *apparmorprofileapi.AppArmorProfile
 
-	content []byte
+	content       []byte
+	runtimeFormat bool
+}
+
+// IsRuntimeFormat returns whether the artifact used the KEP-6061 runtime
+// format, which means that the content is raw runtime-spec JSON.
+func (p *PullResult) IsRuntimeFormat() bool {
+	return p.runtimeFormat
 }
 
 // Type returns the PullResultType of the PullResult.
@@ -152,23 +165,31 @@ func (a *Artifact) Push(
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer cancel()
 
+	a.logger.Info("Reading profiles", "count", len(files))
+
+	entries, runtimeSpecProfiles, err := a.profileEntries(files)
+	if err != nil {
+		return err
+	}
+
+	if runtimeSpecProfiles > 0 && runtimeSpecProfiles != len(files) {
+		return ErrMixedProfileFormats
+	}
+
+	if runtimeSpecProfiles > 1 {
+		return ErrMultipleRuntimeSpecProfiles
+	}
+
 	fileDescriptors := []v1.Descriptor{}
 
-	a.logger.Info("Adding profiles", "count", len(files))
-
-	for platform, file := range files {
+	for _, entry := range entries {
 		a.logger.Info("Adding profile to store",
-			"file", file,
-			"platform", platformToString(platform),
+			"file", entry.absPath,
+			"platform", platformToString(entry.platform),
 		)
 
-		absPath, err := a.FilepathAbs(file)
-		if err != nil {
-			return fmt.Errorf("get absolute file path: %w", err)
-		}
-
 		fileDescriptor, err := a.StoreAdd(
-			ctx, store, profileName(platform), "", absPath,
+			ctx, store, entry.name, entry.layerMediaType, entry.absPath,
 		)
 		if err != nil {
 			return fmt.Errorf("add profile to store: %w", err)
@@ -176,20 +197,32 @@ func (a *Artifact) Push(
 
 		maps.Copy(fileDescriptor.Annotations, annotations)
 
-		fileDescriptor.Platform = platform
+		fileDescriptor.Platform = entry.platform
 		fileDescriptors = append(fileDescriptors, fileDescriptor)
 	}
 
-	a.logger.Info("Packing files")
+	mediaType := oras.MediaTypeUnknownConfig
+	packOptions := oras.PackManifestOptions{Layers: fileDescriptors}
+
+	if runtimeSpecProfiles > 0 {
+		mediaType = MediaTypeSeccompProfile
+
+		configDescriptor, err := a.pushConfig(ctx, store, mediaType)
+		if err != nil {
+			return fmt.Errorf("push config: %w", err)
+		}
+
+		packOptions.ConfigDescriptor = &configDescriptor
+	}
+
+	a.logger.Info("Packing files", "mediaType", mediaType)
 
 	manifestDescriptor, err := a.PackManifest(
 		ctx,
 		store,
 		oras.PackManifestVersion1_1,
-		oras.MediaTypeUnknownConfig,
-		oras.PackManifestOptions{
-			Layers: fileDescriptors,
-		},
+		mediaType,
+		packOptions,
 	)
 	if err != nil {
 		return fmt.Errorf("pack files: %w", err)
@@ -347,33 +380,43 @@ func (a *Artifact) Pull(
 	a.logger.Info("Copying profile from repository")
 	a.logger.Info("Source image", "image", from)
 
-	if _, err := a.Copy(
+	manifestDescriptor, err := a.Copy(
 		ctx, repo, sha.String(), store, sha.String(), oras.DefaultCopyOptions,
-	); err != nil {
+	)
+	if err != nil {
 		return nil, fmt.Errorf("copy from repository: %w", err)
 	}
 
 	a.logger.Info("Checking profile contents")
 
-	// Allow a fallback to defaultProfileYAML if no platform is available.
-	content := []byte{}
-
-	for _, name := range []string{profileName(platform), defaultProfileYAML} {
-		a.logger.Info("Trying to read profile", "name", name)
-
-		content, err = a.ReadFile(filepath.Join(dir, name))
-		if err == nil {
-			break
-		}
-	}
-
+	content, runtimeFormat, err := a.profileContent(
+		ctx, store, dir, &manifestDescriptor, platform,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("read profile: %w", err)
 	}
 
+	if runtimeFormat {
+		spec, err := runtimeSpecSeccompProfileSpec(content)
+		if err != nil {
+			return nil, fmt.Errorf("decode %s artifact: %w", MediaTypeSeccompProfile, err)
+		}
+
+		return seccompPullResult(originalImage, spec, content, true), nil
+	}
+
 	profile, err := a.ReadProfile(content)
 	if err != nil {
-		return nil, errors.Join(ErrDecodeYAML, err)
+		// Artifacts without the KEP-6061 media type may still hold a raw
+		// runtime-spec seccomp profile.
+		spec, specErr := runtimeSpecSeccompProfileSpec(content)
+		if specErr != nil {
+			return nil, errors.Join(ErrDecodeYAML, err, specErr)
+		}
+
+		a.logger.Info("Profile is an OCI runtime-spec seccomp profile")
+
+		return seccompPullResult(originalImage, spec, content, true), nil
 	}
 
 	switch obj := profile.(type) {
@@ -429,7 +472,416 @@ func (a *Artifact) imageWithDigest(ctx context.Context, image, username, passwor
 		desc.Digest.String()), repo, desc.Digest, nil
 }
 
-// profileName returns the name for the profile based on the platform.
+// profileEntry is a profile to be added to the artifact store on push.
+type profileEntry struct {
+	platform       *v1.Platform
+	absPath        string
+	name           string
+	layerMediaType string
+	runtimeSpec    bool
+}
+
+// profileEntries reads the provided files and derives the layer name and
+// media type for each of them. It also returns how many of them are raw OCI
+// runtime-spec seccomp profiles.
+func (a *Artifact) profileEntries(
+	files map[*v1.Platform]string,
+) ([]profileEntry, int, error) {
+	entries := make([]profileEntry, 0, len(files))
+	runtimeSpecProfiles := 0
+
+	for platform, file := range files {
+		absPath, err := a.FilepathAbs(file)
+		if err != nil {
+			return nil, 0, fmt.Errorf("get absolute file path: %w", err)
+		}
+
+		content, err := a.ReadFile(absPath)
+		if err != nil {
+			return nil, 0, fmt.Errorf("read profile: %w", err)
+		}
+
+		entry := profileEntry{
+			platform: platform,
+			absPath:  absPath,
+			name:     profileName(platform),
+		}
+
+		runtimeSpec, isRuntimeSpec, err := a.runtimeSpecSeccompProfile(content)
+		if err != nil {
+			return nil, 0, fmt.Errorf("profile %s: %w", file, err)
+		}
+
+		if isRuntimeSpec {
+			a.logger.Info("Profile is an OCI runtime-spec seccomp profile", "file", file)
+			a.warnRuntimeRestrictions(runtimeSpec, content, file)
+
+			// KEP-6061 artifacts hold exactly one platform independent
+			// profile, so the layer is neither named nor tagged per platform.
+			if platform != nil {
+				a.logger.Info(
+					"Ignoring platform, runtime format artifacts are platform independent",
+					"file", file,
+					"platform", platformToString(platform),
+				)
+			}
+
+			runtimeSpecProfiles++
+			entry.runtimeSpec = true
+			entry.platform = nil
+			entry.name = defaultProfileJSON
+			entry.layerMediaType = layerMediaTypeJSON
+		}
+
+		entries = append(entries, entry)
+	}
+
+	return entries, runtimeSpecProfiles, nil
+}
+
+// pushConfig pushes the manifest config blob of a runtime format artifact to
+// the store and returns its descriptor. ORAS defaults to the empty OCI config
+// descriptor, which would leave the media type identifying the artifact in
+// the manifest artifactType field only.
+func (a *Artifact) pushConfig(
+	ctx context.Context, store *file.Store, mediaType string,
+) (v1.Descriptor, error) {
+	descriptor := v1.Descriptor{
+		MediaType: mediaType,
+		Digest:    digest.FromBytes(emptyConfig),
+		Size:      int64(len(emptyConfig)),
+	}
+
+	if err := a.StorePush(ctx, store, descriptor, bytes.NewReader(emptyConfig)); err != nil {
+		return v1.Descriptor{}, fmt.Errorf("store config blob: %w", err)
+	}
+
+	return descriptor, nil
+}
+
+// profileContent returns the profile content of a pulled artifact, together
+// with whether the artifact uses the KEP-6061 runtime format. It prefers the
+// layer names used by push, but falls back to the single layer of the
+// artifact because KEP-6061 mandates no particular layer name.
+func (a *Artifact) profileContent(
+	ctx context.Context,
+	store *file.Store,
+	dir string,
+	manifestDescriptor *v1.Descriptor,
+	platform *v1.Platform,
+) (content []byte, runtimeFormat bool, err error) {
+	manifest, err := a.manifest(ctx, store, manifestDescriptor)
+	if err != nil {
+		return nil, false, err
+	}
+
+	// KEP-6061 identifies the artifact by the config media type, with the
+	// artifact type as fallback for the empty OCI config descriptor.
+	if manifest.Config.MediaType == MediaTypeSeccompProfile ||
+		manifest.ArtifactType == MediaTypeSeccompProfile {
+		a.logger.Info("Artifact is in the runtime format", "mediaType", MediaTypeSeccompProfile)
+
+		if len(manifest.Layers) != 1 {
+			return nil, false, fmt.Errorf("%w: got %d", ErrNoSingleLayer, len(manifest.Layers))
+		}
+
+		content, err := a.blobContent(ctx, store, &manifest.Layers[0])
+
+		return content, true, err
+	}
+
+	// profileName falls back to defaultProfileYAML if no platform is
+	// available, so only look for it separately if there is one.
+	names := []string{profileName(platform)}
+	if platform != nil {
+		names = append(names, defaultProfileYAML)
+	}
+
+	names = append(names, defaultProfileJSON)
+
+	for _, name := range names {
+		a.logger.Info("Trying to read profile", "name", name)
+
+		if content, err := a.ReadFile(filepath.Join(dir, name)); err == nil {
+			return content, false, nil
+		}
+	}
+
+	content, err = a.singleLayerContent(ctx, store, manifest, platform)
+
+	return content, false, err
+}
+
+// singleLayerContent returns the content of the only layer of an artifact,
+// which is the fallback for artifacts not using a layer name push produces.
+// It reads the layer through its descriptor, because KEP-6061 requires
+// neither a layer name nor the annotation the ORAS file store needs to
+// materialize a layer on disk. A layer bound to another platform is not
+// eligible, it would have been found by name for a matching one.
+func (a *Artifact) singleLayerContent(
+	ctx context.Context, store *file.Store, manifest *v1.Manifest, platform *v1.Platform,
+) ([]byte, error) {
+	if len(manifest.Layers) != 1 {
+		return nil, fmt.Errorf("%w: got %d", ErrNoSingleLayer, len(manifest.Layers))
+	}
+
+	layer := &manifest.Layers[0]
+	title := layer.Annotations[v1.AnnotationTitle]
+
+	if !layerMatchesPlatform(layer, platform) {
+		return nil, fmt.Errorf("%w: %s", ErrPlatformMismatch, title)
+	}
+
+	a.logger.Info("Falling back to single artifact layer", "title", title)
+
+	return a.blobContent(ctx, store, layer)
+}
+
+// layerMatchesPlatform reports whether the layer can be used for the
+// requested platform. Layers without a platform are only eligible if they are
+// not named for one either.
+func layerMatchesPlatform(layer *v1.Descriptor, platform *v1.Platform) bool {
+	if layer.Platform == nil {
+		return !platformQualifiedName.MatchString(layer.Annotations[v1.AnnotationTitle])
+	}
+
+	return platform != nil &&
+		layer.Platform.OS == platform.OS &&
+		layer.Platform.Architecture == platform.Architecture &&
+		layer.Platform.Variant == platform.Variant &&
+		layer.Platform.OSVersion == platform.OSVersion
+}
+
+// manifest returns the parsed manifest of a pulled artifact.
+func (a *Artifact) manifest(
+	ctx context.Context, store *file.Store, descriptor *v1.Descriptor,
+) (*v1.Manifest, error) {
+	content, err := a.blobContent(ctx, store, descriptor)
+	if err != nil {
+		return nil, fmt.Errorf("read manifest: %w", err)
+	}
+
+	manifest := &v1.Manifest{}
+	if err := json.Unmarshal(content, manifest); err != nil {
+		return nil, fmt.Errorf("unmarshal manifest: %w", err)
+	}
+
+	return manifest, nil
+}
+
+// blobContent returns the content of a blob from the store.
+func (a *Artifact) blobContent(
+	ctx context.Context, store *file.Store, descriptor *v1.Descriptor,
+) ([]byte, error) {
+	reader, err := a.StoreFetch(ctx, store, *descriptor)
+	if err != nil {
+		return nil, fmt.Errorf("fetch blob: %w", err)
+	}
+
+	defer func() {
+		if err := reader.Close(); err != nil {
+			a.logger.Info("Unable to close blob reader", "error", err)
+		}
+	}()
+
+	content, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("read blob: %w", err)
+	}
+
+	return content, nil
+}
+
+// seccompPullResult builds the PullResult for a raw OCI runtime-spec seccomp
+// profile, which carries no metadata of its own.
+func seccompPullResult(
+	image string,
+	spec *seccompprofileapi.SeccompProfileSpec,
+	content []byte,
+	runtimeFormat bool,
+) *PullResult {
+	return &PullResult{
+		typ: PullResultTypeSeccompProfile,
+		seccompProfile: &seccompprofileapi.SeccompProfile{
+			TypeMeta: metav1.TypeMeta{
+				Kind:       "SeccompProfile",
+				APIVersion: seccompprofileapi.GroupVersion.String(),
+			},
+			ObjectMeta: metav1.ObjectMeta{
+				Name: nameFromReference(image),
+			},
+			Spec: *spec,
+		},
+		content:       content,
+		runtimeFormat: runtimeFormat,
+	}
+}
+
+// runtimeSpecSeccompProfile reports whether content is a raw OCI runtime-spec
+// seccomp profile and returns it if so. A profile CRD is not one, but content
+// which is neither is an error, publishing it would create an artifact no
+// consumer understands.
+func (a *Artifact) runtimeSpecSeccompProfile(
+	content []byte,
+) (*specs.LinuxSeccomp, bool, error) {
+	_, profileErr := a.ReadProfile(content)
+	if profileErr == nil {
+		return nil, false, nil
+	}
+
+	runtimeSpec, err := decodeRuntimeSpecSeccompProfile(content)
+	if err != nil {
+		return nil, false, errors.Join(ErrDecodeYAML, profileErr, err)
+	}
+
+	return runtimeSpec, true, nil
+}
+
+// warnRuntimeRestrictions logs the parts of a profile which container
+// runtimes reject when they validate a KEP-6061 artifact.
+func (a *Artifact) warnRuntimeRestrictions(
+	runtimeSpec *specs.LinuxSeccomp, content []byte, path string,
+) {
+	if runtimeSpec.ListenerPath != "" || runtimeSpec.ListenerMetadata != "" {
+		a.logger.Info(
+			"Profile sets listener fields, which container runtimes reject",
+			"file", path,
+		)
+	}
+
+	if usesNotify(runtimeSpec) {
+		a.logger.Info(
+			"Profile uses "+string(specs.ActNotify)+", which container runtimes reject",
+			"file", path,
+		)
+	}
+
+	if len(content) > maxProfileSize {
+		a.logger.Info(
+			"Profile is larger than container runtimes accept by default",
+			"file", path,
+			"size", len(content),
+			"limit", maxProfileSize,
+		)
+	}
+
+	if syscall := exceedsSyscallEntries(runtimeSpec); syscall != "" {
+		a.logger.Info(
+			"Profile has more entries for a syscall than container runtimes accept by default",
+			"file", path,
+			"syscall", syscall,
+			"limit", maxSyscallEntries,
+		)
+	}
+}
+
+// exceedsSyscallEntries returns the first syscall which is referenced by more
+// rule entries than container runtimes accept, and an empty string if there
+// is none.
+func exceedsSyscallEntries(runtimeSpec *specs.LinuxSeccomp) string {
+	entries := map[string]int{}
+
+	for i := range runtimeSpec.Syscalls {
+		for _, name := range runtimeSpec.Syscalls[i].Names {
+			entries[name]++
+
+			if entries[name] > maxSyscallEntries {
+				return name
+			}
+		}
+	}
+
+	return ""
+}
+
+// usesNotify reports whether the profile relies on a seccomp notifier.
+func usesNotify(runtimeSpec *specs.LinuxSeccomp) bool {
+	if runtimeSpec.DefaultAction == specs.ActNotify {
+		return true
+	}
+
+	for i := range runtimeSpec.Syscalls {
+		if runtimeSpec.Syscalls[i].Action == specs.ActNotify {
+			return true
+		}
+	}
+
+	return false
+}
+
+// decodeRuntimeSpecSeccompProfile decodes the content of a KEP-6061 artifact,
+// a raw OCI runtime-spec seccomp profile. The content has to decode strictly
+// into the runtime-spec type, so unknown fields and trailing data are
+// rejected and defaultAction is required.
+func decodeRuntimeSpecSeccompProfile(content []byte) (*specs.LinuxSeccomp, error) {
+	decoder := json.NewDecoder(bytes.NewReader(content))
+	decoder.DisallowUnknownFields()
+
+	runtimeSpec := &specs.LinuxSeccomp{}
+	if err := decoder.Decode(runtimeSpec); err != nil {
+		return nil, fmt.Errorf("decode runtime-spec seccomp profile: %w", err)
+	}
+
+	if decoder.More() {
+		return nil, ErrTrailingData
+	}
+
+	if runtimeSpec.DefaultAction == "" {
+		return nil, ErrNoDefaultAction
+	}
+
+	return runtimeSpec, nil
+}
+
+// runtimeSpecSeccompProfileSpec converts the content of a KEP-6061 artifact
+// into a SeccompProfileSpec. Fields the CRD cannot express, such as
+// defaultErrnoRet, are dropped in the conversion. Values which do not fit the
+// CRD, for example syscall argument values beyond the signed 64 bit range,
+// are an error. Detection on push does not use this conversion, so profiles
+// the CRD cannot hold are still published in the right format.
+func runtimeSpecSeccompProfileSpec(
+	content []byte,
+) (*seccompprofileapi.SeccompProfileSpec, error) {
+	if _, err := decodeRuntimeSpecSeccompProfile(content); err != nil {
+		return nil, err
+	}
+
+	spec := &seccompprofileapi.SeccompProfileSpec{}
+	if err := json.Unmarshal(content, spec); err != nil {
+		return nil, fmt.Errorf("convert runtime-spec seccomp profile: %w", err)
+	}
+
+	return spec, nil
+}
+
+// nameFromReference derives a profile name from an image reference by taking
+// the last repository path element, so that pull results from runtime-spec
+// artifacts, which carry no metadata, still have a name.
+func nameFromReference(ref string) string {
+	name := ref
+	if idx := strings.Index(name, "@"); idx >= 0 {
+		name = name[:idx]
+	}
+
+	if idx := strings.LastIndex(name, "/"); idx >= 0 {
+		name = name[idx+1:]
+	}
+
+	if idx := strings.Index(name, ":"); idx >= 0 {
+		name = name[:idx]
+	}
+
+	name = strings.Trim(
+		invalidNameChars.ReplaceAllString(strings.ToLower(name), "-"), "-.",
+	)
+	if name == "" {
+		return defaultProfileName
+	}
+
+	return name
+}
+
+// profileName returns the layer name for the platform.
 func profileName(platform *v1.Platform) string {
 	name := strings.Builder{}
 	name.WriteString("profile")
@@ -448,13 +900,17 @@ func profileName(platform *v1.Platform) string {
 		}
 	}
 
-	name.WriteString(".yaml")
+	name.WriteString(extYAML)
 
 	return name.String()
 }
 
 // platformToString returns a string for the provided platform.
 func platformToString(platform *v1.Platform) string {
+	if platform == nil {
+		return ""
+	}
+
 	name := strings.Builder{}
 
 	for i, part := range []string{

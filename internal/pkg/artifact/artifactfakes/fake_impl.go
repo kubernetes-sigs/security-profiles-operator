@@ -19,6 +19,7 @@ package artifactfakes
 
 import (
 	"context"
+	"io"
 	"sync"
 
 	"github.com/google/go-containerregistry/pkg/name"
@@ -241,6 +242,35 @@ type FakeImpl struct {
 	storeAddReturnsOnCall map[int]struct {
 		result1 v1.Descriptor
 		result2 error
+	}
+	StoreFetchStub        func(context.Context, *file.Store, v1.Descriptor) (io.ReadCloser, error)
+	storeFetchMutex       sync.RWMutex
+	storeFetchArgsForCall []struct {
+		arg1 context.Context
+		arg2 *file.Store
+		arg3 v1.Descriptor
+	}
+	storeFetchReturns struct {
+		result1 io.ReadCloser
+		result2 error
+	}
+	storeFetchReturnsOnCall map[int]struct {
+		result1 io.ReadCloser
+		result2 error
+	}
+	StorePushStub        func(context.Context, *file.Store, v1.Descriptor, io.Reader) error
+	storePushMutex       sync.RWMutex
+	storePushArgsForCall []struct {
+		arg1 context.Context
+		arg2 *file.Store
+		arg3 v1.Descriptor
+		arg4 io.Reader
+	}
+	storePushReturns struct {
+		result1 error
+	}
+	storePushReturnsOnCall map[int]struct {
+		result1 error
 	}
 	StoreTagStub        func(context.Context, *file.Store, v1.Descriptor, string) error
 	storeTagMutex       sync.RWMutex
@@ -1252,6 +1282,136 @@ func (fake *FakeImpl) StoreAddReturnsOnCall(i int, result1 v1.Descriptor, result
 		result1 v1.Descriptor
 		result2 error
 	}{result1, result2}
+}
+
+func (fake *FakeImpl) StoreFetch(arg1 context.Context, arg2 *file.Store, arg3 v1.Descriptor) (io.ReadCloser, error) {
+	fake.storeFetchMutex.Lock()
+	ret, specificReturn := fake.storeFetchReturnsOnCall[len(fake.storeFetchArgsForCall)]
+	fake.storeFetchArgsForCall = append(fake.storeFetchArgsForCall, struct {
+		arg1 context.Context
+		arg2 *file.Store
+		arg3 v1.Descriptor
+	}{arg1, arg2, arg3})
+	stub := fake.StoreFetchStub
+	fakeReturns := fake.storeFetchReturns
+	fake.recordInvocation("StoreFetch", []interface{}{arg1, arg2, arg3})
+	fake.storeFetchMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) StoreFetchCallCount() int {
+	fake.storeFetchMutex.RLock()
+	defer fake.storeFetchMutex.RUnlock()
+	return len(fake.storeFetchArgsForCall)
+}
+
+func (fake *FakeImpl) StoreFetchCalls(stub func(context.Context, *file.Store, v1.Descriptor) (io.ReadCloser, error)) {
+	fake.storeFetchMutex.Lock()
+	defer fake.storeFetchMutex.Unlock()
+	fake.StoreFetchStub = stub
+}
+
+func (fake *FakeImpl) StoreFetchArgsForCall(i int) (context.Context, *file.Store, v1.Descriptor) {
+	fake.storeFetchMutex.RLock()
+	defer fake.storeFetchMutex.RUnlock()
+	argsForCall := fake.storeFetchArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *FakeImpl) StoreFetchReturns(result1 io.ReadCloser, result2 error) {
+	fake.storeFetchMutex.Lock()
+	defer fake.storeFetchMutex.Unlock()
+	fake.StoreFetchStub = nil
+	fake.storeFetchReturns = struct {
+		result1 io.ReadCloser
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) StoreFetchReturnsOnCall(i int, result1 io.ReadCloser, result2 error) {
+	fake.storeFetchMutex.Lock()
+	defer fake.storeFetchMutex.Unlock()
+	fake.StoreFetchStub = nil
+	if fake.storeFetchReturnsOnCall == nil {
+		fake.storeFetchReturnsOnCall = make(map[int]struct {
+			result1 io.ReadCloser
+			result2 error
+		})
+	}
+	fake.storeFetchReturnsOnCall[i] = struct {
+		result1 io.ReadCloser
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) StorePush(arg1 context.Context, arg2 *file.Store, arg3 v1.Descriptor, arg4 io.Reader) error {
+	fake.storePushMutex.Lock()
+	ret, specificReturn := fake.storePushReturnsOnCall[len(fake.storePushArgsForCall)]
+	fake.storePushArgsForCall = append(fake.storePushArgsForCall, struct {
+		arg1 context.Context
+		arg2 *file.Store
+		arg3 v1.Descriptor
+		arg4 io.Reader
+	}{arg1, arg2, arg3, arg4})
+	stub := fake.StorePushStub
+	fakeReturns := fake.storePushReturns
+	fake.recordInvocation("StorePush", []interface{}{arg1, arg2, arg3, arg4})
+	fake.storePushMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3, arg4)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) StorePushCallCount() int {
+	fake.storePushMutex.RLock()
+	defer fake.storePushMutex.RUnlock()
+	return len(fake.storePushArgsForCall)
+}
+
+func (fake *FakeImpl) StorePushCalls(stub func(context.Context, *file.Store, v1.Descriptor, io.Reader) error) {
+	fake.storePushMutex.Lock()
+	defer fake.storePushMutex.Unlock()
+	fake.StorePushStub = stub
+}
+
+func (fake *FakeImpl) StorePushArgsForCall(i int) (context.Context, *file.Store, v1.Descriptor, io.Reader) {
+	fake.storePushMutex.RLock()
+	defer fake.storePushMutex.RUnlock()
+	argsForCall := fake.storePushArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3, argsForCall.arg4
+}
+
+func (fake *FakeImpl) StorePushReturns(result1 error) {
+	fake.storePushMutex.Lock()
+	defer fake.storePushMutex.Unlock()
+	fake.StorePushStub = nil
+	fake.storePushReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) StorePushReturnsOnCall(i int, result1 error) {
+	fake.storePushMutex.Lock()
+	defer fake.storePushMutex.Unlock()
+	fake.StorePushStub = nil
+	if fake.storePushReturnsOnCall == nil {
+		fake.storePushReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.storePushReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
 }
 
 func (fake *FakeImpl) StoreTag(arg1 context.Context, arg2 *file.Store, arg3 v1.Descriptor, arg4 string) error {
