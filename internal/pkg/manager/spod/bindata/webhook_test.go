@@ -251,7 +251,11 @@ func TestWebhook_DeploymentSecurityContext(t *testing.T) {
 	podSpec := sut.deployment.Spec.Template.Spec
 	require.NotNil(t, podSpec.SecurityContext)
 	require.NotNil(t, podSpec.SecurityContext.SeccompProfile)
-	assert.Equal(t, corev1.SeccompProfileTypeRuntimeDefault, podSpec.SecurityContext.SeccompProfile.Type)
+	assert.Equal(
+		t,
+		corev1.SeccompProfileTypeRuntimeDefault,
+		podSpec.SecurityContext.SeccompProfile.Type,
+	)
 
 	require.Len(t, podSpec.Containers, 1)
 	sc := podSpec.Containers[0].SecurityContext
