@@ -40,6 +40,12 @@ import (
 func main() {
 	log.SetFlags(log.Lmicroseconds)
 
+	if err := newApp().Run(os.Args); err != nil {
+		log.Fatalf("Unable to run: %v", err)
+	}
+}
+
+func newApp() *cli.App {
 	app, _ := cmd.DefaultApp()
 	app.Usage = "Security Profiles Operator CLI"
 
@@ -260,7 +266,6 @@ func main() {
 				},
 				&cli.StringFlag{
 					Name:    puller.FlagAllowedOidcIssuerRegexp,
-					Aliases: []string{"o"},
 					EnvVars: []string{"ALLOWED_OIDC_ISSUER_REGEXP"},
 					Usage:   "regexp for allowed Oidc issuer in signature verification",
 				},
@@ -268,9 +273,7 @@ func main() {
 		},
 	)
 
-	if err := app.Run(os.Args); err != nil {
-		log.Fatalf("Unable to run: %v", err)
-	}
+	return app
 }
 
 // record runs the `spoc record` subcommand.
