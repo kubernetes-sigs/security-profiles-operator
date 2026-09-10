@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# Runs govulncheck and fails only on vulnerabilities that can actually be acted
+# on, meaning the ones with a fixed version available upstream.
+#
+# Reachable vulnerabilities without an upstream fix are reported but do not fail
+# the build, because there is nothing a bump could do about them. They stay
+# visible in the job output so that they get picked up once a fix lands.
+set -euo pipefail
+
+VERSION=${GOVULNCHECK_VERSION:?GOVULNCHECK_VERSION must be set}
+TAGS=${BUILDTAGS:-}
+
+REPORT=$(mktemp)
+trap 'rm -f "$REPORT"' EXIT
+
+# JSON output currently makes govulncheck exit 0 and leaves the verdict to the
+# caller, but it also documents exit code 3 for "vulnerabilities found". Accept
+# both and treat anything else as a broken run rather than a clean one.
+STATUS=0
+CGO_LDFLAGS= GOFLAGS=-mod=mod go run \
+    "golang.org/x/vuln/cmd/govulncheck@$VERSION" \
+    -format json -mode source -tags "${TAGS// /,}" ./... >"$REPORT" || STATUS=$?
+
+if [[ $STATUS -ne 0 && $STATUS -ne 3 ]]; then
+    echo "govulncheck failed with exit code $STATUS" >&2
+    exit "$STATUS"
+fi
+
+python3 - "$REPORT" <<'PY'
+import json
+import sys
+
+decoder = json.JSONDecoder()
+raw = open(sys.argv[1]).read()
+
+findings, osvs, idx, sane = [], {}, 0, False
+try:
+    while idx < len(raw):
+        while idx < len(raw) and raw[idx].isspace():
+            idx += 1
+        if idx >= len(raw):
+            break
+        obj, idx = decoder.raw_decode(raw, idx)
+        if "config" in obj:
+            sane = True
+        elif "finding" in obj:
+            findings.append(obj["finding"])
+        elif "osv" in obj and "id" in obj["osv"]:
+            osvs[obj["osv"]["id"]] = obj["osv"]
+except ValueError as err:
+    sys.exit(f"cannot parse the govulncheck report: {err}")
+
+# Without the config header the run did not get far enough to be trusted, and
+# an empty finding list would otherwise read as a clean result.
+if not sane:
+    sys.exit("govulncheck produced no report")
+
+# A finding is only reachable from our own code when its trace resolves down to
+# a concrete function; anything shallower is an import, not a call.
+fixable, unfixable = {}, {}
+for finding in findings:
+    trace = finding.get("trace") or []
+    if not trace or not trace[0].get("function"):
+        continue
+    target = fixable if finding.get("fixed_version") else unfixable
+    target.setdefault(finding["osv"], finding)
+
+
+def describe(osv_id, finding):
+    osv = osvs.get(osv_id, {})
+    summary = osv.get("summary") or osv.get("details", "").split("\n")[0]
+    # trace[0] is the vulnerable symbol itself, the tail is our own call site.
+    vulnerable = (finding.get("trace") or [{}])[0]
+    module = vulnerable.get("module", "?")
+    version = vulnerable.get("version", "?")
+    fixed = finding.get("fixed_version") or "no fix available"
+    return f"  {osv_id}  {module}@{version}  (fixed in: {fixed})\n    {summary}"
+
+
+if unfixable:
+    print("Reachable vulnerabilities without an upstream fix (not failing):")
+    for osv_id, finding in sorted(unfixable.items()):
+        print(describe(osv_id, finding))
+    print()
+
+if fixable:
+    print("Reachable vulnerabilities with a fix available:")
+    for osv_id, finding in sorted(fixable.items()):
+        print(describe(osv_id, finding))
+    print()
+    print("Update the affected modules to at least the listed fixed versions.")
+    sys.exit(1)
+
+print("No reachable vulnerability with an available fix.")
+PY

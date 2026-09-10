@@ -113,6 +113,26 @@ func TestDeleteBackwards(t *testing.T) {
 	assert.False(t, actual.ExistsBackwards(1), "should remove the element in backward direction")
 }
 
+func TestClear(t *testing.T) {
+	t.Parallel()
+
+	actual := bimap.New[string, int]()
+	actual.Insert("test1", 1)
+	actual.Insert("test2", 2)
+	actual.Clear()
+	assert.Equal(t, 0, actual.Size(), "should remove all elements")
+	assert.False(t, actual.Exists("test1"), "should remove the element in forward direction")
+	assert.False(t, actual.ExistsBackwards(1), "should remove the element in backward direction")
+
+	// The map has to stay usable after being cleared.
+	actual.Insert("test3", 3)
+	assert.Equal(t, 1, actual.Size(), "should accept elements again")
+
+	value, ok := actual.Get("test3")
+	assert.True(t, ok)
+	assert.Equal(t, 3, value)
+}
+
 func TestSize(t *testing.T) {
 	t.Parallel()
 

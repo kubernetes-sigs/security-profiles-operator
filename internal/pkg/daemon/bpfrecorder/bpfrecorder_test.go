@@ -23,12 +23,14 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"slices"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/aquasecurity/libbpfgo"
 	"github.com/go-logr/logr"
+	"github.com/jellydator/ttlcache/v3"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
@@ -764,6 +766,208 @@ func TestProcessEvents(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// TestRecordedExitsAreBounded asserts that exit events do not accumulate
+// forever. In-cluster nobody calls WaitForPidExit, so without a bound every
+// recorded process exit would leak an entry for the daemon's lifetime.
+func TestRecordedExitsAreBounded(t *testing.T) {
+	t.Parallel()
+
+	sut := New("", logr.Discard(), true, true)
+	sut.impl = &bpfrecorderfakes.FakeImpl{}
+
+	for pid := range uint32(maxCacheItems * 2) {
+		sut.handleExitEvent(&bpfEvent{Pid: pid, Type: uint8(eventTypeExit)})
+	}
+
+	require.LessOrEqual(t, uint64(sut.recentExits.Len()), maxCacheItems)
+}
+
+// TestWaitForPidExitSurvivesEviction asserts that a parked waiter is still
+// woken when the recorded exits are evicted or cleared underneath it. The
+// waiter owns its channel, so it cannot be dropped from the bounded cache.
+func TestWaitForPidExitSurvivesEviction(t *testing.T) {
+	t.Parallel()
+
+	sut := New("", logr.Discard(), true, true)
+	sut.impl = &bpfrecorderfakes.FakeImpl{}
+
+	const pid uint32 = 42
+
+	waitErr := make(chan error, 1)
+
+	go func() {
+		waitErr <- sut.WaitForPidExit(t.Context(), pid)
+	}()
+
+	// Let the waiter register, then churn the cache past its capacity and clear
+	// it, which is what StopRecording does.
+	require.Eventually(t, func() bool {
+		_, ok := sut.exitWaiters.Load(pid)
+
+		return ok
+	}, time.Minute, time.Millisecond)
+
+	for other := range uint32(maxCacheItems + 10) {
+		sut.recentExits.Set(other+1000, struct{}{}, ttlcache.DefaultTTL)
+	}
+
+	sut.recentExits.DeleteAll()
+
+	sut.handleExitEvent(&bpfEvent{Pid: pid, Type: uint8(eventTypeExit)})
+
+	select {
+	case err := <-waitErr:
+		require.NoError(t, err)
+	case <-time.After(time.Minute):
+		t.Fatal("waiter was not woken after the recorded exits were evicted")
+	}
+}
+
+// TestStopRecordingReleasesLookupTables asserts that the per-session lookup
+// tables are released once no recording is in progress any more.
+func TestStopRecordingReleasesLookupTables(t *testing.T) {
+	t.Parallel()
+
+	sut := New("", logr.Discard(), false, false)
+	mock := &bpfrecorderfakes.FakeImpl{}
+	sut.impl = mock
+
+	sut.mntnsToContainerIDMap.Insert(0x1010, "container-id")
+	sut.containerIDToProfileMap.Insert("container-id", "profile")
+	sut.handleExitEvent(&bpfEvent{Pid: 42, Type: uint8(eventTypeExit)})
+
+	require.Equal(t, 1, sut.mntnsToContainerIDMap.Size())
+	require.Equal(t, 1, sut.containerIDToProfileMap.Size())
+	require.Equal(t, 1, sut.recentExits.Len())
+
+	require.NoError(t, sut.StopRecording())
+
+	require.Equal(t, 0, sut.mntnsToContainerIDMap.Size())
+	require.Equal(t, 0, sut.containerIDToProfileMap.Size())
+	require.Equal(t, 0, sut.recentExits.Len())
+}
+
+// TestHandlerFromFinishedRecordingIsDiscarded asserts that a handler still in
+// flight when a recording stops cannot repopulate the lookup tables afterwards.
+func TestHandlerFromFinishedRecordingIsDiscarded(t *testing.T) {
+	t.Parallel()
+
+	sut := New("", logr.Discard(), false, false)
+	sut.impl = &bpfrecorderfakes.FakeImpl{}
+	sut.clientset = &kubernetes.Clientset{}
+
+	staleGeneration := sut.recordingGeneration.Load()
+
+	require.NoError(t, sut.StopRecording())
+
+	sut.handleNewPidEvent(42, 0x1010, staleGeneration)
+
+	require.Equal(t, 0, sut.mntnsToContainerIDMap.Size(),
+		"a handler from a finished recording must not repopulate the tables")
+}
+
+// TestWaitForPidExitWakesConcurrentWaiters asserts that every caller waiting on
+// the same pid is woken. Registering with Store rather than LoadOrStore used to
+// drop the earlier waiters, leaving them parked until their context expired.
+func TestWaitForPidExitWakesConcurrentWaiters(t *testing.T) {
+	t.Parallel()
+
+	sut := New("", logr.Discard(), true, true)
+	sut.impl = &bpfrecorderfakes.FakeImpl{}
+
+	const (
+		pid     uint32 = 42
+		waiters int    = 4
+	)
+
+	errs := make(chan error, waiters)
+
+	for range waiters {
+		go func() {
+			errs <- sut.WaitForPidExit(t.Context(), pid)
+		}()
+	}
+
+	// Wait until every caller is registered on the shared channel.
+	require.Eventually(t, func() bool {
+		waiter, ok := sut.exitWaiters.Load(pid)
+		if !ok {
+			return false
+		}
+
+		done, ok := waiter.(chan struct{})
+
+		return ok && done != nil
+	}, time.Minute, time.Millisecond)
+
+	sut.handleExitEvent(&bpfEvent{Pid: pid, Type: uint8(eventTypeExit)})
+
+	for range waiters {
+		select {
+		case err := <-errs:
+			require.NoError(t, err)
+		case <-time.After(time.Minute):
+			t.Fatal("a concurrent waiter was never woken")
+		}
+	}
+}
+
+// TestScheduleNewPidEventDropsWhenSaturated asserts that a full queue drops the
+// event instead of stalling the event processing loop. That loop also delivers
+// the AppArmor events, so blocking it makes the kernel drop recorded events.
+func TestScheduleNewPidEventDropsWhenSaturated(t *testing.T) {
+	t.Parallel()
+
+	logSink := &Logger{}
+	sut := New("", logr.New(logSink), true, true)
+	sut.impl = &bpfrecorderfakes.FakeImpl{}
+
+	// Fill the queue without starting the handlers.
+	sut.startPidHandlers.Do(func() {})
+
+	for range newPidQueueSize {
+		sut.newPidEvents <- newPidEvent{}
+	}
+
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		sut.scheduleNewPidEvent(42, 0x1010)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Minute):
+		t.Fatal("scheduleNewPidEvent blocked on a full queue")
+	}
+
+	logSink.mutex.RLock()
+	defer logSink.mutex.RUnlock()
+
+	require.Contains(t, logSink.messages,
+		"Dropping new pid event because the handler queue is full")
+}
+
+// TestScheduleNewPidEventRunsHandler asserts the normal path still dispatches.
+func TestScheduleNewPidEventRunsHandler(t *testing.T) {
+	t.Parallel()
+
+	logSink := &Logger{}
+	sut := New("", logr.New(logSink), true, true)
+	sut.impl = &bpfrecorderfakes.FakeImpl{}
+
+	sut.scheduleNewPidEvent(42, 0x1010)
+
+	require.Eventually(t, func() bool {
+		logSink.mutex.RLock()
+		defer logSink.mutex.RUnlock()
+
+		return slices.Contains(logSink.messages, "Received new pid")
+	}, time.Minute, time.Millisecond)
+}
+
 func TestHandleEvent(t *testing.T) {
 	t.Parallel()
 
@@ -899,7 +1103,7 @@ func TestNewPidEvent(t *testing.T) {
 
 		e := tc.prepare(sut, mock)
 
-		go sut.handleNewPidEvent(&e)
+		go sut.handleNewPidEvent(e.Pid, e.Mntns, sut.recordingGeneration.Load())
 
 		tc.assert(sut, logSink)
 	}

@@ -327,12 +327,16 @@ type SPODSecurityConfig struct {
 
 	// allowedIdentityRegexp regexp for allowed identity when verifying the signature of OCI
 	// image used to distribute the base profile in the cluster.
+	// The default ".*" matches any identity, which means a signature from any
+	// signer is accepted. That only proves the artifact was signed by somebody,
+	// not by somebody trusted, so set this to the identities you trust.
 	// +optional
 	// +default=".*"
 	AllowedIdentityRegexp string `json:"allowedIdentityRegexp,omitempty"`
 
 	// allowedOidcIssuerRegexp regexp for allowed Oidc issuer when verifying the signature of OCI
 	// image used to distribute the base profile in the cluster.
+	// As with allowedIdentityRegexp, the default ".*" matches any issuer.
 	// +optional
 	// +default=".*"
 	AllowedOidcIssuerRegexp string `json:"allowedOidcIssuerRegexp,omitempty"`

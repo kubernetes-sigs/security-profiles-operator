@@ -120,6 +120,15 @@ func (m *BiMap[K, V]) DeleteBackwards(v V) {
 	delete(m.backward, v)
 }
 
+// Clear removes all elements from the map.
+func (m *BiMap[K, V]) Clear() {
+	m.l.Lock()
+	defer m.l.Unlock()
+
+	clear(m.forward)
+	clear(m.backward)
+}
+
 // Size returns the size of the map.
 func (m *BiMap[K, V]) Size() int {
 	m.l.RLock()

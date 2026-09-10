@@ -38,6 +38,7 @@ import (
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"github.com/urfave/cli/v2"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -511,7 +512,7 @@ func runManager(ctx *cli.Context, info *version.Info) error {
 	}
 
 	// Fetch initial TLS configuration from OpenShift API Server
-	_, initialTLSProfile, initialTLSAdherencePolicy, isOpenShift, err := fetchTLSOptions(
+	tlsCfg, err := fetchTLSOptions(
 		ctx.Context, cfg,
 	)
 	if err != nil {
@@ -604,7 +605,7 @@ func runManager(ctx *cli.Context, info *version.Info) error {
 	sigHandler := ctrl.SetupSignalHandler()
 
 	return setupManagerWithTLSWatcher(
-		sigHandler, mgr, initialTLSProfile, initialTLSAdherencePolicy, isOpenShift, "manager",
+		sigHandler, mgr, &tlsCfg, "manager",
 	)
 }
 
@@ -675,52 +676,77 @@ func getEnabledControllers(ctx *cli.Context) []controller.Controller {
 	return controllers
 }
 
-// newMemoryOptimizedCache creates a memory optimized cache for daemon controller.
-// This will load into cache memory only the pods objects which are labeled for recording.
-func newMemoryOptimizedCache(ctx *cli.Context) cache.NewCacheFunc {
-	if ctx.Bool(memOptimFlag) {
-		return func(config *rest.Config, opts cache.Options) (cache.Cache, error) {
-			opts.SyncPeriod = &sync
-			opts.ByObject = map[client.Object]cache.ByObject{
-				&corev1.Pod{}: {
-					Label: labels.SelectorFromSet(labels.Set{
-						bindata.EnableRecordingLabel: "true",
-					}),
-				},
-			}
-			opts.DefaultLabelSelector = labels.Everything()
+// newDaemonCache creates the cache used by the daemon controllers.
+//
+// The daemon only ever acts on pods scheduled to its own node, so the pod cache
+// is always restricted to those. Without that restriction every node would hold
+// a copy of every pod in the cluster, which costs both memory per node and
+// watch bandwidth on the API server.
+//
+// When memory optimization is additionally enabled, only pods labeled for
+// recording are cached on top of that.
+func newDaemonCache(ctx *cli.Context) cache.NewCacheFunc {
+	byPod := cache.ByObject{}
 
-			return cache.New(config, opts)
-		}
+	if nodeName := os.Getenv(config.NodeNameEnvKey); nodeName != "" {
+		byPod.Field = fields.OneTermEqualSelector("spec.nodeName", nodeName)
+	} else {
+		setupLog.Info(
+			"Node name not set, caching pods cluster wide",
+			"env", config.NodeNameEnvKey,
+		)
 	}
 
-	return nil
+	if ctx.Bool(memOptimFlag) {
+		byPod.Label = labels.SelectorFromSet(labels.Set{
+			bindata.EnableRecordingLabel: "true",
+		})
+	}
+
+	return func(restConfig *rest.Config, opts cache.Options) (cache.Cache, error) {
+		opts.SyncPeriod = &sync
+		opts.ByObject = map[client.Object]cache.ByObject{&corev1.Pod{}: byPod}
+		opts.DefaultLabelSelector = labels.Everything()
+
+		return cache.New(restConfig, opts)
+	}
 }
 
-// fetchTLSOptions fetches TLS configuration from OpenShift APIServer and builds
-// TLS options for controller-runtime servers (webhook/metrics).
-// Returns TLS options slice, profile spec, adherence policy, whether OpenShift is detected, and any error.
-func fetchTLSOptions(ctx context.Context, cfg *rest.Config) (
-	_ []func(*tls.Config),
-	tlsProfile configv1.TLSProfileSpec,
-	tlsAdherence configv1.TLSAdherencePolicy,
-	isOpenShift bool,
-	err error,
-) {
+// tlsConfig is the TLS configuration used by the controller-runtime servers
+// (webhook and metrics) of a component.
+type tlsConfig struct {
+	// options are applied to the servers' *tls.Config.
+	options []func(*tls.Config)
+
+	// profile is the TLS profile the options were derived from.
+	profile configv1.TLSProfileSpec
+
+	// adherencePolicy says how strictly the cluster TLS profile is honored.
+	adherencePolicy configv1.TLSAdherencePolicy
+
+	// isOpenShift reports whether the cluster was detected as OpenShift.
+	isOpenShift bool
+}
+
+// fetchTLSOptions fetches the TLS configuration from the OpenShift APIServer
+// and builds the TLS configuration for the controller-runtime servers. On
+// non-OpenShift clusters it falls back to the Go defaults with a TLS 1.2
+// minimum version.
+func fetchTLSOptions(ctx context.Context, cfg *rest.Config) (_ tlsConfig, err error) {
+	var isOpenShift bool
+
 	setupLog.Info("detecting platform and fetching TLS configuration")
 
 	// Create scheme and register OpenShift config API
 	scheme := runtime.NewScheme()
 	if err := configv1.AddToScheme(scheme); err != nil {
-		return nil, configv1.TLSProfileSpec{}, configv1.TLSAdherencePolicyNoOpinion, false,
-			fmt.Errorf("add OpenShift config API to scheme: %w", err)
+		return tlsConfig{}, fmt.Errorf("add OpenShift config API to scheme: %w", err)
 	}
 
 	// Create pre-start client to detect platform and fetch TLS configuration
 	preStartClient, err := client.New(cfg, client.Options{Scheme: scheme})
 	if err != nil {
-		return nil, configv1.TLSProfileSpec{}, configv1.TLSAdherencePolicyNoOpinion, false,
-			fmt.Errorf("create pre-start client: %w", err)
+		return tlsConfig{}, fmt.Errorf("create pre-start client: %w", err)
 	}
 
 	// Create a timeout context for OpenShift detection to avoid long waits on non-OpenShift clusters
@@ -744,8 +770,7 @@ func fetchTLSOptions(ctx context.Context, cfg *rest.Config) (
 
 		isOpenShift = false
 	default:
-		return nil, configv1.TLSProfileSpec{}, configv1.TLSAdherencePolicyNoOpinion, false,
-			fmt.Errorf("detect OpenShift platform: %w", err)
+		return tlsConfig{}, fmt.Errorf("detect OpenShift platform: %w", err)
 	}
 
 	// Fetch TLS profile and adherence policy if on OpenShift
@@ -768,8 +793,7 @@ func fetchTLSOptions(ctx context.Context, cfg *rest.Config) (
 
 			initialTLSProfile, err = tlspkg.GetTLSProfileSpec(nil)
 			if err != nil {
-				return nil, configv1.TLSProfileSpec{}, configv1.TLSAdherencePolicyNoOpinion, false,
-					fmt.Errorf("get default TLS profile: %w", err)
+				return tlsConfig{}, fmt.Errorf("get default TLS profile: %w", err)
 			}
 		}
 
@@ -792,8 +816,7 @@ func fetchTLSOptions(ctx context.Context, cfg *rest.Config) (
 		// Use default TLS profile and adherence policy for non-OpenShift environments
 		initialTLSProfile, err = tlspkg.GetTLSProfileSpec(nil)
 		if err != nil {
-			return nil, configv1.TLSProfileSpec{}, configv1.TLSAdherencePolicyNoOpinion, false,
-				fmt.Errorf("get default TLS profile: %w", err)
+			return tlsConfig{}, fmt.Errorf("get default TLS profile: %w", err)
 		}
 
 		initialTLSAdherencePolicy = configv1.TLSAdherencePolicyNoOpinion
@@ -858,7 +881,12 @@ func fetchTLSOptions(ctx context.Context, cfg *rest.Config) (
 		})
 	}
 
-	return tlsOptions, initialTLSProfile, initialTLSAdherencePolicy, isOpenShift, nil
+	return tlsConfig{
+		options:         tlsOptions,
+		profile:         initialTLSProfile,
+		adherencePolicy: initialTLSAdherencePolicy,
+		isOpenShift:     isOpenShift,
+	}, nil
 }
 
 // setupManagerWithTLSWatcher sets up TLS watching for a manager and starts it.
@@ -866,9 +894,7 @@ func fetchTLSOptions(ctx context.Context, cfg *rest.Config) (
 func setupManagerWithTLSWatcher(
 	sigHandler context.Context,
 	mgr ctrl.Manager,
-	initialTLSProfile configv1.TLSProfileSpec,
-	initialTLSAdherencePolicy configv1.TLSAdherencePolicy,
-	isOpenShift bool,
+	tlsCfg *tlsConfig,
 	componentName string,
 ) error {
 	// Create a cancellable context derived from sigHandler for graceful shutdown on TLS config changes
@@ -879,8 +905,8 @@ func setupManagerWithTLSWatcher(
 	// This is only available in OpenShift environments
 	var tlsConfigChanged atomic.Bool
 
-	if isOpenShift {
-		if err := util.SetupTLSWatcher(mgr, initialTLSProfile, initialTLSAdherencePolicy,
+	if tlsCfg.isOpenShift {
+		if err := util.SetupTLSWatcher(mgr, tlsCfg.profile, tlsCfg.adherencePolicy,
 			func(ctx context.Context, oldProfile, newProfile configv1.TLSProfileSpec) {
 				tlsConfigChanged.Store(true)
 				cancelManager()
@@ -949,7 +975,7 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 	defer met.GracefulStop()
 
 	// Fetch initial TLS configuration from OpenShift API Server
-	metricsTLSOpts, initialTLSProfile, initialTLSAdherencePolicy, isOpenShift, err := fetchTLSOptions(
+	tlsCfg, err := fetchTLSOptions(
 		ctx.Context,
 		cfg,
 	)
@@ -960,7 +986,7 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 	ctrlOpts := ctrl.Options{
 		Cache:                  cache.Options{SyncPeriod: &sync},
 		HealthProbeBindAddress: fmt.Sprintf(":%d", config.HealthProbePort),
-		NewCache:               newMemoryOptimizedCache(ctx),
+		NewCache:               newDaemonCache(ctx),
 		Metrics: metricsserver.Options{
 			BindAddress:    fmt.Sprintf(":%d", bindata.ContainerPort),
 			CertDir:        bindata.MetricsCertPath,
@@ -969,7 +995,7 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 			ExtraHandlers: map[string]http.Handler{
 				metrics.HandlerPath: met.Handler(),
 			},
-			TLSOpts: metricsTLSOpts,
+			TLSOpts: tlsCfg.options,
 		},
 	}
 
@@ -1011,9 +1037,7 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 	return setupManagerWithTLSWatcher(
 		sigHandler,
 		mgr,
-		initialTLSProfile,
-		initialTLSAdherencePolicy,
-		isOpenShift,
+		&tlsCfg,
 		"daemon",
 	)
 }
@@ -1131,7 +1155,7 @@ func runWebhook(ctx *cli.Context, info *version.Info) error {
 	port := ctx.Int("port")
 
 	// Fetch initial TLS configuration from OpenShift API Server
-	webhookTLSOpts, initialTLSProfile, initialTLSAdherencePolicy, isOpenShift, err := fetchTLSOptions(
+	tlsCfg, err := fetchTLSOptions(
 		ctx.Context,
 		cfg,
 	)
@@ -1141,7 +1165,7 @@ func runWebhook(ctx *cli.Context, info *version.Info) error {
 
 	webhookServerOptions := webhook.Options{
 		Port:    port,
-		TLSOpts: webhookTLSOpts,
+		TLSOpts: tlsCfg.options,
 	}
 
 	webhookServer := webhook.NewServer(webhookServerOptions)
@@ -1201,7 +1225,7 @@ func runWebhook(ctx *cli.Context, info *version.Info) error {
 	sigHandler := ctrl.SetupSignalHandler()
 
 	return setupManagerWithTLSWatcher(
-		sigHandler, mgr, initialTLSProfile, initialTLSAdherencePolicy, isOpenShift, "webhook",
+		sigHandler, mgr, &tlsCfg, "webhook",
 	)
 }
 

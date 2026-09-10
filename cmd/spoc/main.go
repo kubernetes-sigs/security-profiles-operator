@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -300,6 +301,12 @@ func merge(ctx *cli.Context) error {
 	}
 
 	if err := merger.New(options).Run(); err != nil {
+		// In check mode an outdated base profile is a result, not a failure,
+		// so report it through the exit code only.
+		if errors.Is(err, merger.ErrBaseProfileOutdated) {
+			return cli.Exit("", 1)
+		}
+
 		return fmt.Errorf("launch merger: %w", err)
 	}
 

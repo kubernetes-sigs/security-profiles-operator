@@ -55,6 +55,8 @@ const (
 	maxMsgSize              int           = 16 * 1024 * 1024
 	maxCommLen              int           = 64
 	defaultCacheTimeout     time.Duration = time.Hour
+	maxNewPidHandlers       int           = 32
+	newPidQueueSize         int           = 1024
 	maxCacheItems           uint64        = 1000
 	defaultHostPid          uint32        = 1
 	defaultByteNum          int           = 4
@@ -92,9 +94,41 @@ type BpfRecorder struct {
 	AppArmor *AppArmorRecorder
 	Seccomp  *SeccompRecorder
 
-	startMu       sync.Mutex
-	pidSem        chan struct{}
-	recordedExits sync.Map
+	startMu sync.Mutex
+
+	// newPidEvents queues new pid events for a fixed pool of handlers. It is
+	// buffered so that the event processing loop never blocks on a slow
+	// handler: that loop also delivers the AppArmor events, so stalling it
+	// back pressures the ring buffer and makes the kernel drop recorded
+	// events. It is bounded so that a fork heavy workload cannot grow the
+	// queue until the recorder is out of memory.
+	newPidEvents     chan newPidEvent
+	startPidHandlers sync.Once
+
+	// recordingGeneration is bumped whenever a recording session ends. Handlers
+	// carry the generation their event was queued in and skip writing to the
+	// lookup tables once it no longer matches, so a handler still in flight
+	// cannot repopulate the tables after they were released.
+	recordingGeneration atomic.Uint64
+
+	// recentExits bounds how many exited PIDs are remembered so that
+	// WaitForPidExit can observe an exit that happened just before it started
+	// waiting. In-cluster nobody waits for those PIDs, so an unbounded map
+	// would leak an entry per recorded process exit.
+	recentExits *ttlcache.Cache[uint32, struct{}]
+
+	// exitWaiters holds a channel per caller currently inside WaitForPidExit.
+	// Waiters own their channel and remove it themselves, so it is bounded by
+	// the number of concurrent waiters and can never be evicted from under a
+	// parked caller.
+	exitWaiters sync.Map
+}
+
+// newPidEvent is the queued form of a new pid event.
+type newPidEvent struct {
+	pid        uint32
+	mntns      uint32
+	generation uint64
 }
 
 // We use a single shared event ringbuf for all userspace communication.
@@ -133,8 +167,12 @@ func New(programName string, logger logr.Logger, recordSeccomp, recordAppArmor b
 		programName:             programName,
 		AppArmor:                appArmor,
 		Seccomp:                 seccomp,
-		pidSem:                  make(chan struct{}, 32),
-		recordedExits:           sync.Map{},
+		newPidEvents:            make(chan newPidEvent, newPidQueueSize),
+		recentExits: ttlcache.New(
+			ttlcache.WithTTL[uint32, struct{}](defaultCacheTimeout),
+			ttlcache.WithCapacity[uint32, struct{}](maxCacheItems),
+			ttlcache.WithDisableTouchOnHit[uint32, struct{}](),
+		),
 	}
 }
 
@@ -150,6 +188,9 @@ func (b *BpfRecorder) Run() error {
 
 	go b.pidToContainerIDCache.Start()
 	defer b.pidToContainerIDCache.Stop()
+
+	go b.recentExits.Start()
+	defer b.recentExits.Stop()
 
 	b.nodeName = b.Getenv(config.NodeNameEnvKey)
 	if b.nodeName == "" {
@@ -691,9 +732,18 @@ func (b *BpfRecorder) StopRecording() error {
 		}
 	}
 
+	// Nothing is recording any more, so the per-session lookup tables can be
+	// released. Profiles are always collected before the recording is stopped.
+	// Ending the generation first makes handlers which are still in flight skip
+	// their writes. A handler which already passed that check can still land an
+	// entry here, which is why it re-checks afterwards and removes its own.
+	b.recordingGeneration.Add(1)
+	b.mntnsToContainerIDMap.Clear()
+	b.containerIDToProfileMap.Clear()
+	b.recentExits.DeleteAll()
+
 	b.logger.Info("Recording stopped.")
 
-	// XXX: It may be useful to clear out all existing maps here.
 	return nil
 }
 
@@ -734,13 +784,7 @@ func (b *BpfRecorder) handleEvent(eventBytes []byte) {
 
 	switch event.Type {
 	case uint8(eventTypeNewPid):
-		// handleNewPidEvent can be slow, and we don't want to block the event processing loop.
-		go func() {
-			b.pidSem <- struct{}{}
-			defer func() { <-b.pidSem }()
-
-			b.handleNewPidEvent(&event)
-		}()
+		b.scheduleNewPidEvent(event.Pid, event.Mntns)
 	case uint8(eventTypeExit):
 		b.handleExitEvent(&event)
 	case uint8(eventTypeAppArmorFile):
@@ -763,11 +807,47 @@ func (b *BpfRecorder) handleEvent(eventBytes []byte) {
 	}
 }
 
-func (b *BpfRecorder) handleNewPidEvent(e *bpfEvent) {
-	b.logger.Info("Received new pid", "pid", e.Pid, "mntns", e.Mntns)
+// scheduleNewPidEvent queues a new pid event for the handler pool.
+//
+// It never blocks: handleNewPidEvent does a cgroup lookup and can hit the
+// Kubernetes API, and the caller is the single event processing loop which also
+// delivers the AppArmor events over an unbuffered channel. Stalling it makes the
+// kernel drop recorded events, so a saturated queue drops the event instead.
+func (b *BpfRecorder) scheduleNewPidEvent(pid, mntns uint32) {
+	// The handlers live for the lifetime of the recorder. There is no teardown
+	// because both the daemon and spoc keep a recorder until the process exits,
+	// and a shutdown path would have to guard every send against a closed
+	// channel for no practical gain.
+	b.startPidHandlers.Do(func() {
+		for range maxNewPidHandlers {
+			go b.runPidHandler()
+		}
+	})
 
-	pid := e.Pid
-	mntns := e.Mntns
+	event := newPidEvent{
+		pid:        pid,
+		mntns:      mntns,
+		generation: b.recordingGeneration.Load(),
+	}
+
+	select {
+	case b.newPidEvents <- event:
+	default:
+		b.logger.Info(
+			"Dropping new pid event because the handler queue is full",
+			"pid", pid, "mntns", mntns, "queueSize", newPidQueueSize,
+		)
+	}
+}
+
+func (b *BpfRecorder) runPidHandler() {
+	for event := range b.newPidEvents {
+		b.handleNewPidEvent(event.pid, event.mntns, event.generation)
+	}
+}
+
+func (b *BpfRecorder) handleNewPidEvent(pid, mntns uint32, generation uint64) {
+	b.logger.Info("Received new pid", "pid", pid, "mntns", mntns)
 
 	if b.clientset == nil {
 		// spoc: we're running outside of a kubernetes context.
@@ -780,6 +860,15 @@ func (b *BpfRecorder) handleNewPidEvent(e *bpfEvent) {
 		b.logger.V(config.VerboseLevel).Info(
 			"No container ID found for PID",
 			"pid", pid, "mntns", mntns, "err", err.Error(),
+		)
+
+		return
+	}
+
+	if b.recordingGeneration.Load() != generation {
+		b.logger.V(config.VerboseLevel).Info(
+			"Discarding new pid event from a finished recording",
+			"pid", pid, "mntns", mntns, "containerID", containerID,
 		)
 
 		return
@@ -806,24 +895,30 @@ func (b *BpfRecorder) handleNewPidEvent(e *bpfEvent) {
 	)
 
 	b.trackProfileMetric(mntns, profile)
+
+	// The generation may have ended while the lookups above were running, in
+	// which case StopRecording has already cleared the tables and these entries
+	// would linger into the next recording.
+	if b.recordingGeneration.Load() != generation {
+		b.mntnsToContainerIDMap.Delete(mntns)
+		b.containerIDToProfileMap.Delete(containerID)
+	}
 }
 
 func (b *BpfRecorder) handleExitEvent(exitEvent *bpfEvent) {
 	b.logger.Info("Record pid exit", "pid", exitEvent.Pid)
-	d, _ := b.recordedExits.LoadOrStore(exitEvent.Pid, make(chan bool))
 
-	done, ok := d.(chan bool)
-	if !ok {
-		b.logger.Info("unexpected recordedExits type")
+	// Remember the exit first, so that a WaitForPidExit which registers right
+	// after this still observes it.
+	b.recentExits.Set(exitEvent.Pid, struct{}{}, ttlcache.DefaultTTL)
 
-		return
-	}
-
-	select {
-	case <-done:
-		// already closed
-	default:
-		close(done)
+	// LoadAndDelete hands the channel to exactly one caller, so a repeated exit
+	// event for the same pid cannot close it twice. Closing rather than sending
+	// wakes every waiter sharing the channel.
+	if waiter, ok := b.exitWaiters.LoadAndDelete(exitEvent.Pid); ok {
+		if done, ok := waiter.(chan struct{}); ok {
+			close(done)
+		}
 	}
 }
 
@@ -989,14 +1084,23 @@ func (b *BpfRecorder) findProfileForContainerID(id string) (string, error) {
 // When running outside of Kubernetes as spoc, we have the use case of
 // waiting for a specific PID to exit.
 func (b *BpfRecorder) WaitForPidExit(ctx context.Context, pid uint32) error {
-	d, _ := b.recordedExits.LoadOrStore(pid, make(chan bool))
-	done, ok := d.(chan bool)
+	// Concurrent waiters for the same pid share one channel, so that closing it
+	// wakes all of them. Registering happens before the recorded exits are
+	// consulted, so an exit landing between the two cannot be missed.
+	waiter, _ := b.exitWaiters.LoadOrStore(pid, make(chan struct{}))
 
+	done, ok := waiter.(chan struct{})
 	if !ok {
-		return fmt.Errorf("unexpected type: %T", d)
+		return fmt.Errorf("unexpected exit waiter type: %T", waiter)
 	}
 
-	defer b.recordedExits.Delete(pid)
+	// Only drop the registration if it is still ours, so giving up does not
+	// deregister a channel another waiter is parked on.
+	defer b.exitWaiters.CompareAndDelete(pid, done)
+
+	if b.recentExits.Get(pid) != nil {
+		return nil
+	}
 
 	select {
 	case <-done:

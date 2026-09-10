@@ -2347,12 +2347,16 @@ spec:
                     description: |-
                       allowedIdentityRegexp regexp for allowed identity when verifying the signature of OCI
                       image used to distribute the base profile in the cluster.
+                      The default ".*" matches any identity, which means a signature from any
+                      signer is accepted. That only proves the artifact was signed by somebody,
+                      not by somebody trusted, so set this to the identities you trust.
                     type: string
                   allowedOidcIssuerRegexp:
                     default: .*
                     description: |-
                       allowedOidcIssuerRegexp regexp for allowed Oidc issuer when verifying the signature of OCI
                       image used to distribute the base profile in the cluster.
+                      As with allowedIdentityRegexp, the default ".*" matches any issuer.
                     type: string
                   allowedSeccompActions:
                     description: allowedSeccompActions if specified, a list of allowed
@@ -2990,6 +2994,8 @@ rules:
   - update
 - apiGroups:
   - security.openshift.io
+  resourceNames:
+  - privileged
   resources:
   - securitycontextconstraints
   verbs:
@@ -3021,6 +3027,8 @@ rules:
   - update
 - apiGroups:
   - security.openshift.io
+  resourceNames:
+  - privileged
   resources:
   - securitycontextconstraints
   verbs:
@@ -3036,6 +3044,8 @@ metadata:
 rules:
 - apiGroups:
   - security.openshift.io
+  resourceNames:
+  - privileged
   resources:
   - securitycontextconstraints
   verbs:

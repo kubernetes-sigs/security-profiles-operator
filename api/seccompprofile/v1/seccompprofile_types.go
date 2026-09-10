@@ -39,6 +39,10 @@ var (
 
 const ExtJSON = ".json"
 
+// unsafeSegmentReplacement is used in place of a path element which would
+// otherwise escape the directory it gets joined into.
+const unsafeSegmentReplacement = "_"
+
 type Action = seccompapi.Action
 
 const (
@@ -240,13 +244,26 @@ func (sp *SeccompProfile) GetProfileFile() string {
 	return pfile
 }
 
+// pathSegment reduces s to a single path element which cannot escape the
+// directory it gets joined into. filepath.Base alone is not enough, because it
+// maps "..", "../.." and similar onto "..", which path.Join then resolves into
+// the parent directory. Every other result of filepath.Base is either a plain
+// name or something path.Join cleans away on its own.
+func pathSegment(s string) string {
+	if base := filepath.Base(s); base != ".." {
+		return base
+	}
+
+	return unsafeSegmentReplacement
+}
+
 func (sp *SeccompProfile) GetProfilePath() string {
 	pfile := sp.GetProfileFile()
 
 	return path.Join(
 		config.ProfilesRootPath(),
-		filepath.Base(sp.GetNamespace()),
-		filepath.Base(pfile),
+		pathSegment(sp.GetNamespace()),
+		pathSegment(pfile),
 	)
 }
 
@@ -255,8 +272,8 @@ func (sp *SeccompProfile) GetProfileOperatorPath() string {
 
 	return path.Join(
 		config.OperatorRoot,
-		filepath.Base(sp.GetNamespace()),
-		filepath.Base(pfile),
+		pathSegment(sp.GetNamespace()),
+		pathSegment(pfile),
 	)
 }
 

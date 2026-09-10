@@ -22,6 +22,7 @@ OPERATOR_SDK_VERSION ?= v1.42.3
 OPM_VERSION ?= v1.73.0
 ZEITGEIST_VERSION = v0.8.0
 MDTOC_VERSION = v1.4.0
+GOVULNCHECK_VERSION = v1.8.0
 CI_IMAGE ?= golang:$(shell sed -n 's;^go\s\(.*\);\1;p' go.mod)
 
 CONTROLLER_GEN_CMD := CGO_LDFLAGS= $(GO) run $(BUILD_FLAGS) -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen
@@ -402,7 +403,7 @@ internal/pkg/daemon/enricher/auditsource/bpf/enricher.bpf.o.%: $(BPF_ENRICHER_FI
 # Verification targets
 
 .PHONY: verify
-verify: verify-boilerplate verify-go-mod verify-go-lint verify-deployments verify-dependencies verify-toc verify-mocks verify-format ## Run all verification targets
+verify: verify-boilerplate verify-go-mod verify-go-lint verify-deployments verify-dependencies verify-toc verify-mocks verify-format verify-vulnerabilities ## Run all verification targets
 
 .PHONY: verify-in-a-container
 verify-in-a-container: ## Run all verification targets in a container
@@ -468,6 +469,10 @@ $(BUILD_DIR)/golangci-lint-kube-api-linter: $(BUILD_DIR)/golangci-lint
 	$(BUILD_DIR)/golangci-lint-kube-api-linter linters
 
 
+.PHONY: verify-vulnerabilities
+verify-vulnerabilities: ## Verify that no known vulnerability is reachable
+	GOVULNCHECK_VERSION=$(GOVULNCHECK_VERSION) BUILDTAGS='$(BUILDTAGS)' hack/govulncheck
+
 .PHONY: verify-dependencies
 verify-dependencies: $(BUILD_DIR)/zeitgeist ## Verify external dependencies
 	$(BUILD_DIR)/zeitgeist validate --local-only --base-path . --config dependencies.yaml
@@ -501,7 +506,7 @@ test-unit: $(BUILD_DIR) ## Run the unit tests
 	# remove all coverage files if exists
 	rm -rf *.out
 	# run the go tests and gen the file coverage-all used to do the integration with coverrals.io
-	$(GO) test -ldflags '$(LDVARS)' -tags '$(BUILDTAGS)' -race -v -test.coverprofile=$(BUILD_DIR)/coverage.out ./internal/...
+	$(GO) test -ldflags '$(LDVARS)' -tags '$(BUILDTAGS)' -race -v -test.coverprofile=$(BUILD_DIR)/coverage.out ./internal/... ./api/... ./cmd/...
 	$(GO) tool cover -html $(BUILD_DIR)/coverage.out -o $(BUILD_DIR)/coverage.html
 
 .PHONY: test-e2e

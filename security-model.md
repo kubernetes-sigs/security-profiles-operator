@@ -108,4 +108,37 @@ A high-level summary of object types accessed outside the `security-profiles-ope
 
 For the most up-to-date rbac requirements refer to the materialised [role.yaml](deploy/base/role.yaml) file.
 
+## OCI artifact signature verification
+
+Base profiles can be distributed as OCI artifacts and are signature verified on
+pull. Verification is controlled through the `spod` resource:
+
+```yaml
+spec:
+  security:
+    disableOciArtifactSignatureVerification: false
+    allowedIdentityRegexp: ".*"
+    allowedOidcIssuerRegexp: ".*"
+```
+
+The shipped defaults for `allowedIdentityRegexp` and `allowedOidcIssuerRegexp`
+match any value. With those defaults a signature is accepted regardless of who
+produced it, which only proves that the artifact was signed by somebody. An
+attacker able to publish to the referenced registry can sign with their own
+Fulcio identity and pass verification.
+
+Constrain both fields to the signers you actually trust, for example:
+
+```yaml
+spec:
+  security:
+    allowedIdentityRegexp: "^https://github\\.com/my-org/my-profiles/"
+    allowedOidcIssuerRegexp: "^https://token\\.actions\\.githubusercontent\\.com$"
+```
+
+The operator logs a warning when it recognises an unconstrained signer pattern,
+such as the shipped default, so an unintentionally permissive configuration is
+visible in the spod logs. That detection is best effort: an arbitrary regexp
+which happens to accept everything cannot be recognised as such.
+
 [least privilege principle]: https://en.wikipedia.org/wiki/Principle_of_least_privilege
