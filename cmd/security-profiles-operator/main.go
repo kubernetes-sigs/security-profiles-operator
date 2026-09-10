@@ -701,7 +701,7 @@ func newMemoryOptimizedCache(ctx *cli.Context) cache.NewCacheFunc {
 // TLS options for controller-runtime servers (webhook/metrics).
 // Returns TLS options slice, profile spec, adherence policy, whether OpenShift is detected, and any error.
 func fetchTLSOptions(ctx context.Context, cfg *rest.Config) (
-	tlsOpts []func(*tls.Config),
+	_ []func(*tls.Config),
 	tlsProfile configv1.TLSProfileSpec,
 	tlsAdherence configv1.TLSAdherencePolicy,
 	isOpenShift bool,
@@ -831,7 +831,7 @@ func fetchTLSOptions(ctx context.Context, cfg *rest.Config) (
 				"adherence-policy",
 				initialTLSAdherencePolicy,
 			)
-			// Apply OpenShift's default TLS profile when on OpenShift but adherence policy is NoOpinion
+			// Apply OpenShift's default TLS profile when adherence policy does not require honoring cluster settings
 			defaultProfile := configv1.TLSProfiles[libgocrypto.DefaultTLSProfileType]
 			if defaultProfile != nil {
 				defaultTLSConfig, unsupportedCiphers := tlspkg.NewTLSConfigFromProfile(
@@ -1118,8 +1118,8 @@ func runWebhook(ctx *cli.Context, info *version.Info) error {
 	// Warn if deprecated tls-min-version flag is used
 	if ctx.IsSet(tlsMinVersionParam) {
 		setupLog.Info(
-			"WARNING: --tls-min-version flag is deprecated and ignored. " +
-				"TLS configuration is now managed via OpenShift TLS profiles.",
+			"--tls-min-version flag is deprecated and ignored, " +
+				"TLS configuration is now managed via OpenShift TLS profiles",
 		)
 	}
 
