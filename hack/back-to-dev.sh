@@ -86,4 +86,12 @@ sed -i \
     -e 's;newTag: v'"$VERSION"';newTag: latest;g' \
     deploy/overlays/webhook/kustomization.yaml
 
+# Revert Helm chart values to staging
+sed -i \
+    -e 's;registry: registry.k8s.io;registry: gcr.io;g' \
+    -e 's;repository: security-profiles-operator/security-profiles-operator;repository: k8s-staging-sp-operator/security-profiles-operator;g' \
+    -e 's;tag: v'"$VERSION"';tag: latest;g' \
+    -e 's;pullPolicy: IfNotPresent;pullPolicy: Always;g' \
+    deploy/helm/values.yaml
+
 echo "Done. Commit the changes to a new branch and create a PR from it"

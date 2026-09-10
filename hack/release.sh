@@ -55,6 +55,13 @@ FILE=deploy/overlays/webhook/kustomization.yaml
 sed -i 's;newName: gcr.io/k8s-staging-sp-operator/security-profiles-operator;newName: registry.k8s.io/security-profiles-operator/security-profiles-operator;g' $FILE
 sed -i 's;newTag: latest;newTag: v'"$VERSION"';g' $FILE
 
+# Update Helm chart values to use release image
+FILE=deploy/helm/values.yaml
+sed -i 's;registry: gcr.io;registry: registry.k8s.io;g' $FILE
+sed -i 's;repository: k8s-staging-sp-operator/security-profiles-operator;repository: security-profiles-operator/security-profiles-operator;g' $FILE
+sed -i '0,/tag: latest/{s;tag: latest;tag: v'"$VERSION"';}' $FILE
+sed -i 's;pullPolicy: Always;pullPolicy: IfNotPresent;g' $FILE
+
 # Update dependencies.yaml
 FILES=(
     dependencies.yaml
