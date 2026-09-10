@@ -19,6 +19,8 @@ package pusher
 import (
 	"fmt"
 	"log"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
 )
 
 // Pusher is the main structure of this package.
@@ -45,6 +47,7 @@ func (p *Pusher) Run() error {
 		p.options.username,
 		p.options.password,
 		p.options.annotations,
+		&artifact.PushSignatureOptions{DisableSigning: p.options.disableSigning},
 	); err != nil {
 		return fmt.Errorf("push profile: %w", err)
 	}

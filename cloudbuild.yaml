@@ -17,6 +17,21 @@ steps:
       echo '{"default": [{"type": "insecureAcceptAnything"}]}' > /etc/containers/policy.json && \
       gcloud auth configure-docker && \
       make image-cross
+  - name: gcr.io/k8s-staging-test-infra/gcb-docker-gcloud:v20260205-38cfa9523f
+    entrypoint: bash
+    env:
+      - REGISTRY=gcr.io/$PROJECT_ID
+      - USERNAME=oauth2accesstoken
+    args:
+    - -c
+    - |
+      IMAGE=gcr.io/k8s-staging-sp-operator/security-profiles-operator-amd64:$_GIT_TAG && \
+      CONTAINER=$$(docker create $$IMAGE) && \
+      mkdir -p build && \
+      docker cp $$CONTAINER:/spoc build/spoc && \
+      docker rm $$CONTAINER && \
+      PASSWORD=$$(gcloud auth print-access-token) \
+      ./hack/push-test-artifacts.sh
 substitutions:
   # _GIT_TAG will be filled with a git-based tag for the image, of the form
   # vYYYYMMDD-hash, and can be used as a substitution

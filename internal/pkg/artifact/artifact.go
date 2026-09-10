@@ -124,6 +124,14 @@ type PullSignatureOptions struct {
 	AllowedOidcIssuerRegexp string
 }
 
+// PushSignatureOptions options for signing the OCI artifact during pushing.
+type PushSignatureOptions struct {
+	// DisableSigning skips signing the artifact after it has been pushed.
+	// Keyless signing needs an OIDC identity, which build systems and test
+	// environments do not necessarily have.
+	DisableSigning bool
+}
+
 // New returns a new Artifact instance.
 func New(logger logr.Logger) *Artifact {
 	return &Artifact{
@@ -137,6 +145,7 @@ func (a *Artifact) Push(
 	files map[*v1.Platform]string,
 	to, username, password string,
 	annotations map[string]string,
+	signOpts *PushSignatureOptions,
 ) error {
 	dir, err := a.MkdirTemp("", "push-")
 	if err != nil {
@@ -258,6 +267,14 @@ func (a *Artifact) Push(
 	descriptor, err := a.Copy(ctx, store, tag, repo, tag, oras.DefaultCopyOptions)
 	if err != nil {
 		return fmt.Errorf("copy to repository: %w", err)
+	}
+
+	a.logger.Info("Pushed artifact", "reference", fmt.Sprintf("%s@%s", ref, descriptor.Digest))
+
+	if signOpts != nil && signOpts.DisableSigning {
+		a.logger.Info("Signing disabled, not signing the OCI artifact")
+
+		return nil
 	}
 
 	a.logger.Info("Signing OCI artifact")

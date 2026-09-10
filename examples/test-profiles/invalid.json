@@ -1,0 +1,10 @@
+{
+  "defaultAction": "SCMP_ACT_ALLOW",
+  "listenerPath": "/run/seccomp-listener.sock",
+  "syscalls": [
+    {
+      "names": ["mount"],
+      "action": "SCMP_ACT_NOTIFY"
+    }
+  ]
+}

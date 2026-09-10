@@ -36,6 +36,9 @@ var (
 )
 
 const (
+	// FlagDisableSigning is the flag for skipping the artifact signature.
+	FlagDisableSigning string = "disable-signing"
+
 	// FlagProfiles is the flag for defining the input file locations.
 	FlagProfiles string = "profiles"
 
