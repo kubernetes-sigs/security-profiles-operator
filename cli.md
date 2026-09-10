@@ -7,6 +7,7 @@
   - [Pull security profiles from OCI registries](#pull-security-profiles-from-oci-registries)
   - [Push security profiles to OCI registries](#push-security-profiles-to-oci-registries)
   - [Pushing profiles for container runtimes](#pushing-profiles-for-container-runtimes)
+    - [Publishing base profiles](#publishing-base-profiles)
   - [Using multiple platforms](#using-multiple-platforms)
 <!-- /toc -->
 
@@ -160,19 +161,19 @@ The `spoc` client is able to pull security profiles from OCI artifact compatible
 registries. To do that, just run `spoc pull`:
 
 ```console
-> spoc pull ghcr.io/security-profiles/runc:v1.5.1
-16:32:29.795597 Pulling profile from: ghcr.io/security-profiles/runc:v1.5.1
+> spoc pull registry.k8s.io/security-profiles-operator/base/runc:v1.5.1
+16:32:29.795597 Pulling profile from: registry.k8s.io/security-profiles-operator/base/runc:v1.5.1
 16:32:29.795610 Verifying signature
 
-Verification for ghcr.io/security-profiles/runc:v1.5.1 --
+Verification for registry.k8s.io/security-profiles-operator/base/runc:v1.5.1 --
 The following checks were performed on each of these signatures:
   - Existence of the claims in the transparency log was verified offline
   - The code-signing certificate was verified using trusted certificate authority certificates
 
-[{"critical":{"identity":{"docker-reference":"ghcr.io/security-profiles/runc"},…}}]
+[{"critical":{"identity":{"docker-reference":"registry.k8s.io/security-profiles-operator/base/runc"},…}}]
 16:32:33.208695 Creating file store in: /tmp/pull-3199397214
-16:32:33.208713 Verifying reference: ghcr.io/security-profiles/runc:v1.5.1
-16:32:33.208718 Creating repository for ghcr.io/security-profiles/runc
+16:32:33.208713 Verifying reference: registry.k8s.io/security-profiles-operator/base/runc:v1.5.1
+16:32:33.208718 Creating repository for registry.k8s.io/security-profiles-operator/base/runc
 16:32:33.208742 Using tag: v1.5.1
 16:32:33.208743 Copying profile from repository
 16:32:34.119652 Reading profile
@@ -194,14 +195,14 @@ compatible registries. To do that, just run `spoc push`:
 ```
 > export USERNAME=my-user
 > export PASSWORD=my-pass
-> spoc push -f ./examples/baseprofile-crun.yaml ghcr.io/security-profiles/crun:v1.8.1
-16:35:43.899886 Pushing profile ./examples/baseprofile-crun.yaml to: ghcr.io/security-profiles/crun:v1.8.1
+> spoc push -f ./examples/baseprofile-crun.yaml registry.example.com/profiles/crun:v1.8.1
+16:35:43.899886 Pushing profile ./examples/baseprofile-crun.yaml to: registry.example.com/profiles/crun:v1.8.1
 16:35:43.899939 Creating file store in: /tmp/push-3618165827
 16:35:43.899947 Adding profile to store: ./examples/baseprofile-crun.yaml
 16:35:43.900061 Packing files
-16:35:43.900282 Verifying reference: ghcr.io/security-profiles/crun:v1.8.1
+16:35:43.900282 Verifying reference: registry.example.com/profiles/crun:v1.8.1
 16:35:43.900310 Using tag: v1.8.1
-16:35:43.900313 Creating repository for ghcr.io/security-profiles/crun
+16:35:43.900313 Creating repository for registry.example.com/profiles/crun
 16:35:43.900319 Using username and password
 16:35:43.900321 Copying profile to repository
 16:35:46.976108 Signing container image
@@ -217,7 +218,7 @@ Your browser will now be opened to:
 https://oauth2.sigstore.dev/auth/auth?access_type=…
 Successfully verified SCT...
 tlog entry created with index: 16520520
-Pushing signature to: ghcr.io/security-profiles/crun
+Pushing signature to: registry.example.com/profiles/crun
 ```
 
 We can specify a username and password in the same way as for `spoc pull`.
@@ -236,12 +237,36 @@ exactly one layer containing the profile as OCI runtime-spec JSON, identified
 by the media type `application/vnd.cncf.seccomp-profile.config.v1+json`. This
 differs from the profile CRD artifacts above, which keep the generic
 `application/vnd.unknown.config.v1+json` artifact type together with the empty
-OCI config descriptor, and are used by the operator for `oci://` base
-profiles.
+OCI config descriptor. The operator accepts either as an `oci://` base
+profile.
 
 The profiles the Kubernetes end-to-end tests for KEP-6061 consume are pushed
-from this repository by `make push-test-artifacts`, which also converts the
-recorded runtime base profiles into the runtime format.
+from this repository by `make push-test-artifacts`.
+
+The recorded base profiles are published by `make push-base-profiles` in the
+runtime format, one artifact per runtime with the recorded runtime version as
+the tag. Container runtimes consume them for `type: OCI` profiles, and the
+operator reads the same artifacts for `oci://` base profiles because it
+recognizes the format by media type, so one artifact serves both.
+
+The staging build publishes them to
+`gcr.io/k8s-staging-sp-operator/base/<runtime>:<version>`, which is where the
+end-to-end tests read them from, and they are promoted to
+`registry.k8s.io/security-profiles-operator/base/<runtime>:<version>`, which is
+what to reference from a cluster. The profile object keeps the name of the last
+path segment, so an artifact at `base/runc` is pulled as a `SeccompProfile`
+called `runc`.
+
+Promotion pins a digest per tag and tags in `registry.k8s.io` can never be
+repointed, so a profile re-recorded against the same runtime version needs a
+new tag.
+
+#### Publishing base profiles
+
+The recorded base profiles are published by `make push-base-profiles`, one
+artifact per runtime with the recorded runtime version as the tag. How they are
+recorded, updated, published and promoted is described in
+[Base profiles](release-baseprofiles.md).
 
 `spoc push` produces the runtime format automatically when the input file is a
 raw runtime-spec seccomp profile in JSON, for example the output of
@@ -249,14 +274,14 @@ raw runtime-spec seccomp profile in JSON, for example the output of
 specific to the operator (`state`, `baseProfileName` and the listener fields):
 
 ```
-> spoc push -f ./profile.json ghcr.io/security-profiles/runc:v1.5.1
+> spoc push -f ./profile.json registry.k8s.io/security-profiles-operator/base/runc:v1.5.1
 ```
 
 The media type is set on the manifest config as well as on `artifactType`, and
 the single layer is not platform qualified:
 
 ```
-> skopeo inspect --raw docker://ghcr.io/security-profiles/runc:v1.5.1 | jq .
+> skopeo inspect --raw docker://registry.k8s.io/security-profiles-operator/base/runc:v1.5.1 | jq .
 {
   "schemaVersion": 2,
   "mediaType": "application/vnd.oci.image.manifest.v1+json",
@@ -313,21 +338,21 @@ pushed. This can be done by using the `--platforms` / `-p` together with the
 `--profiles` / `-p` flag. For example, to push two profiles into one artifact:
 
 ```
-> spoc push -f ./profile-amd64.yaml -p linux/amd64 -f ./profile-arm64.yaml -p linux/arm64 ghcr.io/security-profiles/test:latest
-10:59:17.887884 Pushing profiles to: ghcr.io/security-profiles/test:latest
+> spoc push -f ./profile-amd64.yaml -p linux/amd64 -f ./profile-arm64.yaml -p linux/arm64 registry.example.com/profiles/test:latest
+10:59:17.887884 Pushing profiles to: registry.example.com/profiles/test:latest
 10:59:17.887970 Creating file store in: /tmp/push-2265359353
 10:59:17.887989 Adding 2 profiles
 10:59:17.887995 Adding profile ./profile-arm64.yaml for platform linux/arm64 to store
 10:59:17.888193 Adding profile ./profile-amd64.yaml for platform linux/amd64 to store
 10:59:17.888240 Packing files
 …
-Pushing signature to: ghcr.io/security-profiles/test
+Pushing signature to: registry.example.com/profiles/test
 ```
 
 The pushed artifact now contains both profiles, separated by their platform:
 
 ```
-> skopeo inspect --raw docker://ghcr.io/security-profiles/test:latest | jq .
+> skopeo inspect --raw docker://registry.example.com/profiles/test:latest | jq .
 {
   "schemaVersion": 2,
   "mediaType": "application/vnd.oci.image.manifest.v1+json",
@@ -387,8 +412,8 @@ The Security Profiles Operator will try to pull the correct profile by using
 way, for example if a profile does not support any platform:
 
 ```
-> spoc pull ghcr.io/security-profiles/runc:v1.5.1
-11:07:14.788840 Pulling profile from: ghcr.io/security-profiles/runc:v1.5.1
+> spoc pull registry.k8s.io/security-profiles-operator/base/runc:v1.5.1
+11:07:14.788840 Pulling profile from: registry.k8s.io/security-profiles-operator/base/runc:v1.5.1
 11:07:14.788852 Verifying signature
 …
 11:07:17.559037 Copying profile from repository
@@ -404,8 +429,8 @@ and if that does not work it falls back to `profile.yaml`. We can also directly
 specify which platform to pull:
 
 ```
-> spoc pull -p linux/arm64 ghcr.io/security-profiles/test:latest
-11:08:53.355689 Pulling profile from: ghcr.io/security-profiles/test:latest
+> spoc pull -p linux/arm64 registry.example.com/profiles/test:latest
+11:08:53.355689 Pulling profile from: registry.example.com/profiles/test:latest
 11:08:53.355724 Verifying signature
 …
 11:08:56.229418 Copying profile from repository

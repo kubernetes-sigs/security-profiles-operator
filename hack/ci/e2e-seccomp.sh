@@ -109,12 +109,6 @@ EOT
     -I epoll_pwait \
     examples
 
-  for RUNTIME in "${RUNTIMES[@]}"; do
-    echo "Verifying that the profile for runtime $RUNTIME is available in the GitHub container registry"
-    VERSION=$("$RUNTIME" --version | grep "$RUNTIME version" | grep -oP '\d+.*')
-    cosign verify --certificate-identity-regexp '.*' --certificate-oidc-issuer-regexp '.*' \
-      "ghcr.io/security-profiles/$RUNTIME:v$VERSION"
-  done
 }
 
 . "$(dirname "$0")/install-spo.sh"

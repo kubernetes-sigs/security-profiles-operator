@@ -1172,12 +1172,12 @@ metadata:
   name: profile1
 spec:
   defaultAction: SCMP_ACT_ERRNO
-  baseProfileName: oci://ghcr.io/security-profiles/runc:v1.5.1
+  baseProfileName: oci://registry.k8s.io/security-profiles-operator/base/runc:v1.5.1
 ```
 
 The resulting profile `profile1` will then contain all base syscalls from the
 remote `runc` profile. It is also possible to reference the base profile by its
-SHA256, like `oci://ghcr.io/security-profiles/runc@sha256:380…`. Please note
+SHA256, like `oci://registry.k8s.io/security-profiles-operator/base/runc@sha256:380…`. Please note
 that all profiles must be signed using [sigstore (cosign)](https://github.com/sigstore/cosign)
 signatures, otherwise the Security Profiles Operator will reject them. The OCI
 artifact profiles also support different architectures, where the operator
