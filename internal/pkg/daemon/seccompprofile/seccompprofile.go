@@ -294,7 +294,7 @@ func (r *Reconciler) checkSeccomp() error {
 
 // OpenShift ... This is ignored in other distros
 //nolint:lll // required for kubebuilder
-// +kubebuilder:rbac:groups=security.openshift.io,namespace="security-profiles-operator",resources=securitycontextconstraints,verbs=use
+// +kubebuilder:rbac:groups=security.openshift.io,namespace="security-profiles-operator",resourceNames=privileged,resources=securitycontextconstraints,verbs=use
 
 // Reconcile reconciles a SeccompProfile.
 func (r *Reconciler) Reconcile(

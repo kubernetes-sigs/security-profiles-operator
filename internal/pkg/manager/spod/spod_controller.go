@@ -125,7 +125,8 @@ func (r *ReconcileSPOd) Healthz(*http.Request) error {
 // +kubebuilder:rbac:groups=monitoring.coreos.com,resources=servicemonitors,verbs=get;list;watch;create;update;patch
 //
 // OpenShift (This is ignored in other distros):
-// +kubebuilder:rbac:groups=security.openshift.io,namespace="security-profiles-operator",resources=securitycontextconstraints,verbs=use
+//nolint:lll // required for kubebuilder
+// +kubebuilder:rbac:groups=security.openshift.io,namespace="security-profiles-operator",resourceNames=privileged,resources=securitycontextconstraints,verbs=use
 // +kubebuilder:rbac:groups=config.openshift.io,resources=clusteroperators,verbs=get;list;watch
 // +kubebuilder:rbac:groups=config.openshift.io,resources=apiservers,verbs=get;list;watch
 //
@@ -540,6 +541,22 @@ func (r *ReconcileSPOd) handleUpdate(
 	return nil
 }
 
+// baseContainer returns a deep copy of the base SPOd container with the given
+// index. Copying is required because the base SPOd is long lived and shared
+// across reconciliations, while its containers carry pointer fields (most
+// importantly SecurityContext) which the rendering below mutates. Handing out
+// the base container directly would persist per-reconciliation configuration
+// into the base and make it impossible to ever revert it.
+func (r *ReconcileSPOd) baseContainer(id int) corev1.Container {
+	return *r.baseSPOd.Spec.Template.Spec.Containers[id].DeepCopy()
+}
+
+// baseInitContainer returns a deep copy of the base SPOd init container with
+// the given index. See baseContainer for why the copy is required.
+func (r *ReconcileSPOd) baseInitContainer(id int) corev1.Container {
+	return *r.baseSPOd.Spec.Template.Spec.InitContainers[id].DeepCopy()
+}
+
 // getConfiguredSPOd gets a fully configured SPOd instance from a desired
 // configuration and the reference base SPOd.
 //
@@ -558,12 +575,12 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	templateSpec := &newSPOd.Spec.Template.Spec
 
 	templateSpec.InitContainers = []corev1.Container{
-		r.baseSPOd.Spec.Template.Spec.InitContainers[bindata.InitContainerIDNonRootenabler],
+		r.baseInitContainer(bindata.InitContainerIDNonRootenabler),
 	}
 	// Set Images
 	// Base workload
 	templateSpec.Containers = []corev1.Container{
-		r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDDaemon],
+		r.baseContainer(bindata.ContainerIDDaemon),
 	}
 	templateSpec.Containers[bindata.ContainerIDDaemon].Image = image
 
@@ -593,11 +610,11 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	if enableSelinux {
 		templateSpec.InitContainers = append(
 			templateSpec.InitContainers,
-			r.baseSPOd.Spec.Template.Spec.InitContainers[bindata.InitContainerIDSelinuxSharedPoliciesCopier],
+			r.baseInitContainer(bindata.InitContainerIDSelinuxSharedPoliciesCopier),
 		)
 		templateSpec.Containers = append(
 			templateSpec.Containers,
-			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDSelinuxd])
+			r.baseContainer(bindata.ContainerIDSelinuxd))
 
 		templateSpec.Containers[bindata.ContainerIDDaemon].VolumeMounts = append(
 			templateSpec.Containers[bindata.ContainerIDDaemon].VolumeMounts,
@@ -658,32 +675,28 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		fmt.Sprintf("--with-recording=%t", enableRecording))
 
 	if isLogEnricherEnabled(cfg) {
-		ctr := r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDLogEnricher]
+		ctr := r.baseContainer(bindata.ContainerIDLogEnricher)
 		ctr.Image = image
 
 		if useCustomHostProc {
 			ctr.VolumeMounts = append(ctr.VolumeMounts, mount)
 		}
+
+		r.configureLogEnricher(cfg, &ctr)
 
 		templateSpec.Containers = append(templateSpec.Containers, ctr)
 		// pass the log enricher env var to the daemon as the profile recorder is otherwise disabled
 		addEnvVar(templateSpec, config.EnableLogEnricherEnvKey)
-
-		r.getConfiguredLogEnricher(cfg)
 	}
 
 	// Bpf recorder parameters
 	if isBpfRecorderEnabled(cfg) {
-		ctr := r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDBpfRecorder]
+		ctr := r.baseContainer(bindata.ContainerIDBpfRecorder)
 		ctr.Image = image
 
 		if useCustomHostProc {
 			ctr.VolumeMounts = append(ctr.VolumeMounts, mount)
 		}
-
-		templateSpec.Containers = append(templateSpec.Containers, ctr)
-		// pass the bpf recorder env var to the daemon as the profile recorder is otherwise disabled
-		addEnvVar(templateSpec, config.EnableBpfRecorderEnvKey)
 
 		// Configure the apparmor profile for bpf-recorder when apparmor is enabled.
 		if ptr.Deref(cfg.Spec.EnableAppArmor, false) {
@@ -693,10 +706,14 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 				LocalhostProfile: &localApparmorProfile,
 			}
 		}
+
+		templateSpec.Containers = append(templateSpec.Containers, ctr)
+		// pass the bpf recorder env var to the daemon as the profile recorder is otherwise disabled
+		addEnvVar(templateSpec, config.EnableBpfRecorderEnvKey)
 	}
 
 	if isJsonEnricherEnabled(cfg) {
-		ctr := r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher]
+		ctr := r.baseContainer(bindata.ContainerIDJsonEnricher)
 		ctr.Image = image
 
 		if useCustomHostProc {
@@ -748,11 +765,11 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 			}
 		}
 
+		r.configureJsonEnricher(cfg, &ctr)
+
 		templateSpec.Containers = append(templateSpec.Containers, ctr)
 		// pass the json enricher env var to the daemon as the profile recorder is otherwise disabled
 		addEnvVar(templateSpec, config.EnableJsonEnricherEnvKey)
-
-		r.getConfiguredJsonEnricher(cfg)
 	}
 
 	// AppArmor parameters
@@ -874,13 +891,16 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	return newSPOd, nil
 }
 
-func (r *ReconcileSPOd) getConfiguredLogEnricher(cfg *spodapi.SecurityProfilesOperatorDaemon) {
+// configureLogEnricher applies the log enricher configuration to ctr.
+func (r *ReconcileSPOd) configureLogEnricher(
+	cfg *spodapi.SecurityProfilesOperatorDaemon, ctr *corev1.Container,
+) {
 	if cfg.Spec.Enricher.LogEnricherFilters != "" {
 		r.log.Info("Setting LogEnricherFilters",
 			"LogEnricherFilters", cfg.Spec.Enricher.LogEnricherFilters)
 
-		r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDLogEnricher].Args = addArgsConfig(
-			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDLogEnricher].Args,
+		ctr.Args = addArgsConfig(
+			ctr.Args,
 			"--enricher-filters-json="+cfg.Spec.Enricher.LogEnricherFilters,
 		)
 	}
@@ -892,77 +912,63 @@ func (r *ReconcileSPOd) getConfiguredLogEnricher(cfg *spodapi.SecurityProfilesOp
 			cfg.Spec.Enricher.LogEnricherSource,
 		)
 
-		r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDLogEnricher].Args = addArgsConfig(
-			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDLogEnricher].Args,
+		ctr.Args = addArgsConfig(
+			ctr.Args,
 			"--enricher-log-source="+string(cfg.Spec.Enricher.LogEnricherSource),
 		)
 	}
 }
 
-func (r *ReconcileSPOd) getConfiguredJsonEnricher(cfg *spodapi.SecurityProfilesOperatorDaemon) {
+// configureJsonEnricher applies the JSON enricher configuration to ctr.
+func (r *ReconcileSPOd) configureJsonEnricher(
+	cfg *spodapi.SecurityProfilesOperatorDaemon, ctr *corev1.Container,
+) {
 	if cfg.Spec.Enricher.JsonEnricherFilters != "" {
-		r.log.Info("Setting LogEnricherFilters",
+		r.log.Info("Setting JsonEnricherFilters",
 			"JsonEnricherFilters", cfg.Spec.Enricher.JsonEnricherFilters)
 
-		r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args = addArgsConfig(
-			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args,
+		ctr.Args = addArgsConfig(
+			ctr.Args,
 			"--enricher-filters-json="+cfg.Spec.Enricher.JsonEnricherFilters,
 		)
 	}
 
-	if cfg.Spec.Enricher.JsonEnricherOptions != nil {
-		r.log.Info(
-			"Setting JsonEnricherOpt",
-			"AuditLogIntervalSeconds",
-			cfg.Spec.Enricher.JsonEnricherOptions.AuditLogIntervalSeconds,
-			"AuditLogPath",
-			cfg.Spec.Enricher.JsonEnricherOptions.AuditLogPath,
-			"AuditLogMaxAge",
-			cfg.Spec.Enricher.JsonEnricherOptions.AuditLogMaxAge,
-			"AuditLogMaxSize",
-			cfg.Spec.Enricher.JsonEnricherOptions.AuditLogMaxSize,
-			"AuditLogMaxBackups",
-			cfg.Spec.Enricher.JsonEnricherOptions.AuditLogMaxBackups,
-		)
+	opts := cfg.Spec.Enricher.JsonEnricherOptions
+	if opts == nil {
+		return
+	}
 
-		if cfg.Spec.Enricher.JsonEnricherOptions.AuditLogIntervalSeconds != nil {
-			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args = addArgsConfig(
-				r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args,
-				fmt.Sprintf("--audit-log-interval-seconds=%d",
-					*cfg.Spec.Enricher.JsonEnricherOptions.AuditLogIntervalSeconds),
-			)
-		}
+	r.log.Info(
+		"Setting JsonEnricherOpt",
+		"AuditLogIntervalSeconds", opts.AuditLogIntervalSeconds,
+		"AuditLogPath", opts.AuditLogPath,
+		"AuditLogMaxAge", opts.AuditLogMaxAge,
+		"AuditLogMaxSize", opts.AuditLogMaxSize,
+		"AuditLogMaxBackups", opts.AuditLogMaxBackups,
+	)
 
-		if cfg.Spec.Enricher.JsonEnricherOptions.AuditLogMaxAge != nil {
-			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args = addArgsConfig(
-				r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args,
-				fmt.Sprintf("--audit-log-maxage=%d",
-					*cfg.Spec.Enricher.JsonEnricherOptions.AuditLogMaxAge),
-			)
-		}
+	if opts.AuditLogIntervalSeconds != nil {
+		ctr.Args = addArgsConfig(ctr.Args,
+			fmt.Sprintf("--audit-log-interval-seconds=%d", *opts.AuditLogIntervalSeconds))
+	}
 
-		if cfg.Spec.Enricher.JsonEnricherOptions.AuditLogMaxSize != nil {
-			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args = addArgsConfig(
-				r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args,
-				fmt.Sprintf("--audit-log-maxsize=%d",
-					*cfg.Spec.Enricher.JsonEnricherOptions.AuditLogMaxSize),
-			)
-		}
+	if opts.AuditLogMaxAge != nil {
+		ctr.Args = addArgsConfig(ctr.Args,
+			fmt.Sprintf("--audit-log-maxage=%d", *opts.AuditLogMaxAge))
+	}
 
-		if cfg.Spec.Enricher.JsonEnricherOptions.AuditLogMaxBackups != nil {
-			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args = addArgsConfig(
-				r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args,
-				fmt.Sprintf("--audit-log-maxbackup=%d",
-					*cfg.Spec.Enricher.JsonEnricherOptions.AuditLogMaxBackups),
-			)
-		}
+	if opts.AuditLogMaxSize != nil {
+		ctr.Args = addArgsConfig(ctr.Args,
+			fmt.Sprintf("--audit-log-maxsize=%d", *opts.AuditLogMaxSize))
+	}
 
-		if cfg.Spec.Enricher.JsonEnricherOptions.AuditLogPath != nil {
-			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args = addArgsConfig(
-				r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args,
-				"--audit-log-path="+(*cfg.Spec.Enricher.JsonEnricherOptions.AuditLogPath),
-			)
-		}
+	if opts.AuditLogMaxBackups != nil {
+		ctr.Args = addArgsConfig(ctr.Args,
+			fmt.Sprintf("--audit-log-maxbackup=%d", *opts.AuditLogMaxBackups))
+	}
+
+	if opts.AuditLogPath != nil {
+		ctr.Args = addArgsConfig(ctr.Args, "--audit-log-path="+*opts.AuditLogPath)
 	}
 }
 

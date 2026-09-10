@@ -118,9 +118,15 @@ type PullSignatureOptions struct {
 	DisableSignatureVerification bool
 
 	// AllowedIdentityRegexp regexp for allowed identities for signature verification.
+	//
+	// The default ".*" matches every identity, which means any valid keyless
+	// signature is accepted no matter who produced it. Set this to the
+	// identities you actually trust.
 	AllowedIdentityRegexp string
 
 	// AllowedOidcIssuerRegexp regexp for allowed Oidc issuer for signature verification.
+	//
+	// As with AllowedIdentityRegexp, the default ".*" matches every issuer.
 	AllowedOidcIssuerRegexp string
 }
 
@@ -130,6 +136,27 @@ type PushSignatureOptions struct {
 	// Keyless signing needs an OIDC identity, which build systems and test
 	// environments do not necessarily have.
 	DisableSigning bool
+}
+
+// hasUnconstrainedSigner reports whether the signer identity or the OIDC
+// issuer is left unconstrained, in which case verification does not establish
+// who signed the artifact.
+func (p *PullSignatureOptions) hasUnconstrainedSigner() bool {
+	return matchesAnything(p.AllowedIdentityRegexp) ||
+		matchesAnything(p.AllowedOidcIssuerRegexp)
+}
+
+// matchesAnything reports whether pattern accepts every value. Deciding that in
+// general is not possible, so this recognises the shipped default and the
+// spellings equivalent to it. A false result therefore means "not obviously
+// unconstrained" rather than "constrained".
+func matchesAnything(pattern string) bool {
+	switch strings.TrimSpace(pattern) {
+	case "", allowAllRegexp, ".+", "^.*$", "^.+$", "(.*)", "(.+)", "^", "$":
+		return true
+	}
+
+	return false
 }
 
 // New returns a new Artifact instance.
@@ -358,6 +385,18 @@ func (a *Artifact) Pull(
 
 	if !signOpts.DisableSignatureVerification {
 		a.logger.Info("Verifying signature")
+
+		if signOpts.hasUnconstrainedSigner() {
+			a.logger.Info(
+				"WARNING: signature verification is not constrained to a signer. "+
+					"A signature then only proves that the artifact was signed by "+
+					"somebody, not by somebody trusted. Set allowedIdentityRegexp "+
+					"and allowedOidcIssuerRegexp to the signers you trust.",
+				"allowedIdentityRegexp", signOpts.AllowedIdentityRegexp,
+				"allowedOidcIssuerRegexp", signOpts.AllowedOidcIssuerRegexp,
+				"image", originalImage,
+			)
+		}
 
 		v := verify.VerifyCommand{
 			CertVerifyOptions: options.CertVerifyOptions{

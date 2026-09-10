@@ -18,6 +18,7 @@ package merger
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -29,6 +30,11 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/recordingmerger"
 )
+
+// ErrBaseProfileOutdated is returned by Run in check mode when the base
+// profile differs from the merge result. Callers are expected to turn this
+// into a non-zero exit code without printing it as a failure.
+var ErrBaseProfileOutdated = errors.New("base profile needs an update")
 
 // Merger is the main structure of this package.
 type Merger struct {
@@ -87,16 +93,17 @@ func (p *Merger) Run() error {
 	if p.options.check {
 		if reflect.DeepEqual(baseProfile, merged) {
 			log.Println("Base profile is up-to-date.")
-			os.Exit(0)
-		} else {
-			log.Println("Base profile needs an update.")
 
-			if err := printer.PrintObj(merged, os.Stderr); err != nil {
-				return fmt.Errorf("print YAML: %w", err)
-			}
-
-			os.Exit(1)
+			return nil
 		}
+
+		log.Println("Base profile needs an update.")
+
+		if err := printer.PrintObj(merged, os.Stderr); err != nil {
+			return fmt.Errorf("print YAML: %w", err)
+		}
+
+		return ErrBaseProfileOutdated
 	}
 
 	var buffer bytes.Buffer

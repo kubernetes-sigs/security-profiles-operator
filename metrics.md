@@ -3,6 +3,7 @@
 <!-- toc -->
 - [Metrics](#metrics)
   - [Available metrics](#available-metrics)
+  - [Metric cardinality](#metric-cardinality)
   - [Automatic ServiceMonitor deployment](#automatic-servicemonitor-deployment)
 <!-- /toc -->
 
@@ -105,6 +106,37 @@ additional metrics are provided by the daemon, which are always prefixed with
 | `apparmor_profile_audit_total` | `node`, `namespace`, `pod`, `container`, `profile`, `operation`, `apparmor`                                                                                                                                | Counter | Amount of AppArmor profile audit operations. Requires the log-enricher to be enabled. |
 | `apparmor_profile_error_total` | `profile`, `reason={`<br>`AppArmorNotSupportedOnNode,`<br>`CannotLoadAppArmorProfile,`<br>`CannotUnloadAppArmorProfile,`<br>`CannotUpdateAppArmorProfile,`<br>`CannotUpdateNodeStatus`<br>`}`               | Counter | Amount of AppArmor profile errors.                                                   |
 | `apparmor_profile_denial_total`| `profile`, `operation`                                                                                                                                                                                     | Counter | Amount of AppArmor profile denials.                                                  |
+
+### Metric cardinality
+
+The `*_audit_total` metrics and `seccomp_profile_bpf_total` are labeled per
+workload. Their label sets contain values which change constantly on a busy
+cluster:
+
+- `pod` is unique per pod and turns over on every restart, rollout or job run
+- `syscall` has a few hundred possible values
+- `mount_namespace` is a raw kernel identifier, unique per container
+
+Every observed label combination becomes a distinct Prometheus time series which
+is kept for as long as the process lives, both in the spod DaemonSet and in
+Prometheus. On clusters with a lot of pod churn, or when the log enricher is
+enabled cluster wide, this adds up quickly.
+
+These metrics are most useful while recording or debugging a workload. If you
+scrape them permanently, consider dropping the high cardinality labels in the
+scrape config, for example:
+
+```yaml
+metricRelabelings:
+  - sourceLabels: [__name__]
+    regex: security_profiles_operator_.*_audit_total
+    targetLabel: pod
+    replacement: ""
+    action: replace
+```
+
+Alternatively, restrict the log enricher to the namespaces you are actively
+recording via `spec.enricher.logEnricherFilters`.
 
 ### Automatic ServiceMonitor deployment
 

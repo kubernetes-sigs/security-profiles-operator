@@ -17,12 +17,13 @@ limitations under the License.
 package spod
 
 import (
-	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/ptr"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
@@ -47,7 +48,16 @@ func Test_addAuditLogConfig(t *testing.T) {
 	require.NotContains(t, args, "planet=earth")
 }
 
-func Test_getConfiguredJsonEnricher(t *testing.T) {
+func newTestReconciler() *ReconcileSPOd {
+	return &ReconcileSPOd{
+		baseSPOd:  bindata.Manifest.DeepCopy(),
+		record:    record.NewFakeRecorder(100),
+		log:       logf.Log,
+		namespace: "security-profiles-operator",
+	}
+}
+
+func Test_configureJsonEnricher(t *testing.T) {
 	t.Parallel()
 
 	valTen := int32(10)
@@ -68,35 +78,14 @@ func Test_getConfiguredJsonEnricher(t *testing.T) {
 		},
 	}
 
-	r := &ReconcileSPOd{
-		baseSPOd: &appsv1.DaemonSet{
-			Spec: appsv1.DaemonSetSpec{
-				Template: v1.PodTemplateSpec{
-					Spec: v1.PodSpec{
-						Containers: []v1.Container{
-							{},
-							{},
-							{},
-							{},
-							{
-								Name: "test",
-								Args: []string{},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
+	ctr := v1.Container{Name: "json-enricher"}
+	newTestReconciler().configureJsonEnricher(cfg, &ctr)
 
-	r.getConfiguredJsonEnricher(cfg)
-	require.True(t, containsString(r.baseSPOd.Spec.Template.Spec.Containers[4].Args,
-		"--audit-log-interval-seconds=60"))
-	require.True(t, containsString(r.baseSPOd.Spec.Template.Spec.Containers[4].Args,
-		"--audit-log-maxsize=10"))
+	require.Contains(t, ctr.Args, "--audit-log-interval-seconds=60")
+	require.Contains(t, ctr.Args, "--audit-log-maxsize=10")
 }
 
-func Test_getConfiguredJsonEnricherNilInterval(t *testing.T) {
+func Test_configureJsonEnricherNilInterval(t *testing.T) {
 	t.Parallel()
 
 	valTen := int32(10)
@@ -113,35 +102,126 @@ func Test_getConfiguredJsonEnricherNilInterval(t *testing.T) {
 		},
 	}
 
-	r := &ReconcileSPOd{
-		baseSPOd: &appsv1.DaemonSet{
-			Spec: appsv1.DaemonSetSpec{
-				Template: v1.PodTemplateSpec{
-					Spec: v1.PodSpec{
-						Containers: []v1.Container{
-							{},
-							{},
-							{},
-							{},
-							{
-								Name: "test",
-								Args: []string{},
-							},
-						},
-					},
-				},
+	ctr := v1.Container{Name: "json-enricher"}
+	newTestReconciler().configureJsonEnricher(cfg, &ctr)
+
+	for _, arg := range ctr.Args {
+		require.NotContains(t, arg, "--audit-log-interval-seconds")
+	}
+
+	require.Contains(t, ctr.Args, "--audit-log-maxsize=10")
+}
+
+// Test_getConfiguredSPOdDoesNotMutateBase asserts that rendering the SPOd
+// leaves the long lived base SPOd untouched. Rendering used to write through
+// to the base, which made enabling AppArmor irreversible.
+func Test_getConfiguredSPOdDoesNotMutateBase(t *testing.T) {
+	t.Parallel()
+
+	r := newTestReconciler()
+	before := r.baseSPOd.DeepCopy()
+
+	cfg := &spodapi.SecurityProfilesOperatorDaemon{
+		Spec: spodapi.SPODSpec{
+			EnableAppArmor:  new(true),
+			EnableProfiling: new(true),
+			Verbosity:       1,
+			Selinux: spodapi.SPODSelinuxConfig{
+				Enable:  new(true),
+				TypeTag: "unconfined_t",
 			},
 		},
 	}
 
-	r.getConfiguredJsonEnricher(cfg)
+	_, err := r.getConfiguredSPOd(
+		t.Context(), cfg, "image", v1.PullAlways, bindata.CAInjectTypeCertManager,
+	)
+	require.NoError(t, err)
+	require.Equal(t, before, r.baseSPOd, "rendering must not mutate the base SPOd")
+}
 
-	for _, arg := range r.baseSPOd.Spec.Template.Spec.Containers[4].Args {
-		require.NotContains(t, arg, "--audit-log-interval-seconds")
+// Test_getConfiguredSPOdAppArmorIsRevertible asserts that disabling AppArmor
+// drops the elevated privileges the AppArmor code path grants to the daemon.
+func Test_getConfiguredSPOdAppArmorIsRevertible(t *testing.T) {
+	t.Parallel()
+
+	r := newTestReconciler()
+
+	render := func(apparmor bool) *v1.SecurityContext {
+		t.Helper()
+
+		cfg := &spodapi.SecurityProfilesOperatorDaemon{
+			Spec: spodapi.SPODSpec{EnableAppArmor: &apparmor},
+		}
+
+		ds, err := r.getConfiguredSPOd(
+			t.Context(), cfg, "image", v1.PullAlways, bindata.CAInjectTypeCertManager,
+		)
+		require.NoError(t, err)
+
+		return ds.Spec.Template.Spec.Containers[bindata.ContainerIDDaemon].SecurityContext
 	}
 
-	require.True(t, containsString(r.baseSPOd.Spec.Template.Spec.Containers[4].Args,
-		"--audit-log-maxsize=10"))
+	off := render(false)
+	require.False(t, ptr.Deref(off.Privileged, false))
+	require.True(t, ptr.Deref(off.ReadOnlyRootFilesystem, false))
+
+	on := render(true)
+	require.True(t, ptr.Deref(on.Privileged, false))
+	require.False(t, ptr.Deref(on.ReadOnlyRootFilesystem, true))
+
+	// Turning AppArmor back off must restore the unprivileged security context.
+	again := render(false)
+	require.False(t, ptr.Deref(again.Privileged, false),
+		"daemon must not stay privileged after AppArmor is disabled")
+	require.False(t, ptr.Deref(again.AllowPrivilegeEscalation, false))
+	require.True(t, ptr.Deref(again.ReadOnlyRootFilesystem, false))
+	require.Equal(t, off.RunAsUser, again.RunAsUser)
+}
+
+// Test_getConfiguredSPOdEnricherArgsAreRevertible asserts that removing an
+// enricher option from the SPOD removes the corresponding argument again.
+func Test_getConfiguredSPOdEnricherArgsAreRevertible(t *testing.T) {
+	t.Parallel()
+
+	r := newTestReconciler()
+
+	render := func(filters string) []string {
+		t.Helper()
+
+		cfg := &spodapi.SecurityProfilesOperatorDaemon{
+			Spec: spodapi.SPODSpec{
+				Enricher: spodapi.SPODEnricherConfig{
+					EnableLogEnricher:  new(true),
+					LogEnricherFilters: filters,
+				},
+			},
+		}
+
+		ds, err := r.getConfiguredSPOd(
+			t.Context(), cfg, "image", v1.PullAlways, bindata.CAInjectTypeCertManager,
+		)
+		require.NoError(t, err)
+
+		for i := range ds.Spec.Template.Spec.Containers {
+			ctr := &ds.Spec.Template.Spec.Containers[i]
+			if ctr.Name == bindata.LogEnricherContainerName {
+				return ctr.Args
+			}
+		}
+
+		t.Fatal("log enricher container not rendered")
+
+		return nil
+	}
+
+	// The filter must be applied on the very first render, not one
+	// reconciliation later.
+	require.Contains(t, render(`{"a":1}`), `--enricher-filters-json={"a":1}`)
+
+	for _, arg := range render("") {
+		require.NotContains(t, arg, "--enricher-filters-json")
+	}
 }
 
 func Test_addSelinuxCustomTemplatesVolumeEmpty(t *testing.T) {
@@ -295,8 +375,4 @@ func Test_webhookTolerationsFallback(t *testing.T) {
 			require.Equal(t, tc.expected, tolerations)
 		})
 	}
-}
-
-func containsString(slice []string, element string) bool {
-	return slices.Contains(slice, element)
 }

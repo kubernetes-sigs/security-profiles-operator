@@ -109,7 +109,7 @@ func initContainerMap(m *sync.Map, spec *corev1.PodSpec) {
 
 // OpenShift (This is ignored in other distros):
 //nolint:lll // required for kubebuilder
-// +kubebuilder:rbac:groups=security.openshift.io,namespace=security-profiles-operator,resources=securitycontextconstraints,verbs=use
+// +kubebuilder:rbac:groups=security.openshift.io,namespace=security-profiles-operator,resourceNames=privileged,resources=securitycontextconstraints,verbs=use
 
 //nolint:gocritic
 func (p *podBinder) Handle(ctx context.Context, req admission.Request) admission.Response {

@@ -256,6 +256,8 @@ rules:
   - update
 - apiGroups:
   - security.openshift.io
+  resourceNames:
+  - privileged
   resources:
   - securitycontextconstraints
   verbs:
@@ -397,6 +399,8 @@ metadata:
 rules:
 - apiGroups:
   - security.openshift.io
+  resourceNames:
+  - privileged
   resources:
   - securitycontextconstraints
   verbs:
@@ -473,6 +477,8 @@ rules:
   - update
 - apiGroups:
   - security.openshift.io
+  resourceNames:
+  - privileged
   resources:
   - securitycontextconstraints
   verbs:

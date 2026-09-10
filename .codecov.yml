@@ -31,3 +31,12 @@ comment:
   layout: "header, diff"
   behavior: default
   require_changes: false
+
+# Generated code is not hand written and not worth covering. Counting it
+# understates the coverage of the code that actually gets reviewed.
+ignore:
+  - "**/*fakes/**"
+  - "**/zz_generated*.go"
+  - "**/*.pb.go"
+  - "internal/pkg/daemon/bpfrecorder/generated.go"
+  - "internal/pkg/daemon/bpfrecorder/vmlinux/**"

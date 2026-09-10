@@ -227,6 +227,12 @@ dependencies:
       - path: Makefile
         match: "^MDTOC_VERSION"
 
+  - name: govulncheck
+    version: v1.8.0
+    refPaths:
+      - path: Makefile
+        match: "^GOVULNCHECK_VERSION"
+
   - name: yq
     version: 4.53.6
     refPaths:
