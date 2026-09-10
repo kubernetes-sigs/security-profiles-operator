@@ -58,11 +58,11 @@ var (
 	ErrDuplicateFlag = errors.New("duplicate seccomp flag")
 )
 
-// Validate checks that a seccomp profile contains only known actions.
-// Unknown actions are silently treated as maximally restrictive during
-// merge, which may produce unexpected results. Calling Validate before
-// merge surfaces these problems early. All validation failures are
-// collected and returned together.
+// Validate checks that a seccomp profile contains only known actions and
+// that every syscall entry has non-empty names. Intersect and Union run it
+// on every input and fail on the first invalid profile, so callers that
+// want to report all problems up front can call it themselves. All
+// validation failures are collected and returned together.
 func Validate(profile *specs.LinuxSeccomp) error {
 	if profile == nil {
 		return ErrNilProfile

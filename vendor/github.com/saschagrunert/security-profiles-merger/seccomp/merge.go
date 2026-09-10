@@ -19,7 +19,10 @@ package seccomp
 import (
 	"cmp"
 	"fmt"
+	"maps"
 	"slices"
+	"strconv"
+	"strings"
 
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 
@@ -35,9 +38,26 @@ var (
 
 // Intersect merges multiple seccomp profiles via intersection: the resulting
 // profile permits a syscall only if all input profiles permit it. For each
-// syscall, the more restrictive action is chosen. When argument filters differ
-// and the intersection cannot be computed precisely, the syscall is denied
-// (conservative).
+// syscall and argument combination, the more restrictive action is chosen.
+//
+// Argument filters are honored precisely where the OCI format can express
+// the result: filters on different argument indices are conjoined, identical
+// filters are kept, and multiple entries for the same syscall (an OR of
+// filters) are preserved. Where the exact intersection is not expressible,
+// for example conflicting conditions on the same argument index, the
+// affected calls fall back to the more restrictive surrounding action. The
+// result therefore never permits more than any input.
+//
+// Within a single profile, entries are evaluated the way runc and libseccomp
+// load them: entries equal to the profile default are ignored, an
+// unconditional entry applies to every call of its syscall and overrides
+// conditional entries for the same syscall (the first unconditional entry
+// wins), and otherwise the least restrictive action among matching
+// conditional entries applies. Several conditions on the same argument index
+// within one entry are alternatives, as runc loads them. The result never
+// carries an unconditional entry next to conditional entries for the same
+// syscall; where that would be needed, a single filter is rewritten with its
+// complement and anything else collapses to the more restrictive action.
 //
 // ListenerPath and ListenerMetadata are taken from the first profile.
 // When two profiles share the same default or syscall action, DefaultErrnoRet
@@ -49,8 +69,13 @@ var (
 // need precise architecture intersection should populate the native
 // architecture explicitly before merging.
 //
-// An empty Flags list is likewise treated as "unspecified" and defers to the
-// other profile, consistent with the architecture handling.
+// Flags are intersected as a set: a flag survives only if every profile
+// sets it. An empty Flags list means "no flags", so intersecting with it
+// yields no flags. This keeps a profile from enabling
+// SECCOMP_FILTER_FLAG_SPEC_ALLOW over a baseline that did not.
+//
+// Syscall entries in the result are grouped: names sharing the same action,
+// errno, and argument filters are emitted as one entry, sorted by name.
 //
 // This implements the profile merging semantics defined in KEP-6061 for CRI
 // runtimes merging OCI-pulled profiles with node baselines.
@@ -59,12 +84,22 @@ func Intersect(profiles ...*specs.LinuxSeccomp) (*specs.LinuxSeccomp, error) {
 }
 
 // Union merges multiple seccomp profiles via union: the resulting profile
-// permits a syscall if any input profile permits it. For each syscall, the
-// less restrictive action is chosen. Argument filters are combined.
+// permits a syscall if any input profile permits it. For each syscall and
+// argument combination, the less restrictive action is chosen.
+//
+// Argument filters are preserved: every conditional entry of every input is
+// kept, with its action raised to the least restrictive action any input
+// applies to calls matching the filter. Where the exact union is not
+// expressible the result over-approximates in the permissive direction, so
+// it never permits less than any input. The evaluation model within a
+// profile is the one described for Intersect.
 //
 // ListenerPath and ListenerMetadata are taken from the first profile.
 // When two profiles share the same default or syscall action, DefaultErrnoRet
 // and per-syscall ErrnoRet are taken from the earlier (leftmost) profile.
+//
+// Syscall entries in the result are grouped: names sharing the same action,
+// errno, and argument filters are emitted as one entry, sorted by name.
 //
 // This implements the merge semantics used by the Security Profiles Operator
 // for combining recorded profiles.
@@ -98,14 +133,7 @@ func foldProfiles(
 		return nil, fmt.Errorf("fold: %w", err)
 	}
 
-	// Remove before sort: SortFunc below accesses Names[0] unconditionally.
-	result.Syscalls = slices.DeleteFunc(result.Syscalls, func(s specs.LinuxSyscall) bool {
-		return len(s.Names) == 0
-	})
-
-	slices.SortFunc(result.Syscalls, func(a, b specs.LinuxSyscall) int {
-		return cmp.Compare(a.Names[0], b.Names[0])
-	})
+	result.Syscalls = regroupSyscalls(result.Syscalls)
 
 	slices.Sort(result.Architectures)
 	slices.Sort(result.Flags)
@@ -130,15 +158,22 @@ func mergeTwo(
 	merged := &specs.LinuxSeccomp{
 		DefaultAction:    pick(left.DefaultAction, right.DefaultAction),
 		DefaultErrnoRet:  defaultErrnoRet,
-		Syscalls:         mergeSyscalls(left, right, strategy, defaultErrnoRet),
 		ListenerPath:     left.ListenerPath,
 		ListenerMetadata: left.ListenerMetadata,
 	}
 
+	mergedDefault := &clause{
+		action:   merged.DefaultAction,
+		errnoRet: defaultErrnoRet,
+		args:     nil,
+	}
+
 	if strategy.isIntersect {
+		merged.Syscalls = intersectRules().mergeProfileSyscalls(left, right, mergedDefault)
 		merged.Architectures = intersectWithEmpty(left.Architectures, right.Architectures)
-		merged.Flags = intersectWithEmpty(left.Flags, right.Flags)
+		merged.Flags = merge.IntersectSlice(left.Flags, right.Flags)
 	} else {
+		merged.Syscalls = unionRules().mergeProfileSyscalls(left, right, mergedDefault)
 		merged.Architectures = merge.UnionSlice(left.Architectures, right.Architectures)
 		merged.Flags = merge.UnionSlice(left.Flags, right.Flags)
 	}
@@ -158,71 +193,105 @@ func intersectWithEmpty[T comparable](left, right []T) []T {
 	return merge.IntersectSlice(left, right)
 }
 
-// UnionSyscalls merges two syscall lists via union: for each syscall name,
-// the less restrictive action is chosen. Unlike Union, this function operates
-// on bare syscall slices without a profile-level DefaultAction, so no entries
-// are elided. Multi-name entries are normalized to one-name-per-entry and the
-// result is sorted by name.
-//
-// This function does not validate its inputs. Callers should ensure that
-// actions are known and that every entry has at least one name, or call
-// Validate on the enclosing profile first.
-func UnionSyscalls(left, right []specs.LinuxSyscall) []specs.LinuxSyscall {
-	strategy := mergeStrategy{pick: LessRestrictive, isIntersect: false}
-	leftMap := normalizeSyscallList(left)
-	rightMap := normalizeSyscallList(right)
+// regroupSyscalls drops entries without names, merges entries sharing the
+// same action, errno, and argument filters into one multi-name entry, and
+// sorts the result by first name, then by argument filter.
+func regroupSyscalls(syscalls []specs.LinuxSyscall) []specs.LinuxSyscall {
+	type group struct {
+		entry specs.LinuxSyscall
+		names map[string]struct{}
+	}
 
-	result := make([]specs.LinuxSyscall, 0, len(leftMap)+len(rightMap))
+	groups := make(map[string]*group)
 
-	for name, leftEntry := range leftMap {
-		if rightEntry, ok := rightMap[name]; ok {
-			result = append(result, *pickSyscall(leftEntry, rightEntry, strategy))
-		} else {
-			result = append(result, cloneSyscall(leftEntry))
+	for idx := range syscalls {
+		entry := &syscalls[idx]
+		if len(entry.Names) == 0 {
+			continue
+		}
+
+		key := groupKey(entry)
+
+		current, ok := groups[key]
+		if !ok {
+			current = &group{
+				entry: specs.LinuxSyscall{
+					Names:    nil,
+					Action:   entry.Action,
+					ErrnoRet: merge.ClonePtr(entry.ErrnoRet),
+					Args:     sortedArgs(entry.Args),
+				},
+				names: make(map[string]struct{}),
+			}
+			groups[key] = current
+		}
+
+		for _, name := range entry.Names {
+			current.names[name] = struct{}{}
 		}
 	}
 
-	for name, rightEntry := range rightMap {
-		if _, inLeft := leftMap[name]; !inLeft {
-			result = append(result, cloneSyscall(rightEntry))
-		}
+	result := make([]specs.LinuxSyscall, 0, len(groups))
+
+	for _, current := range groups {
+		current.entry.Names = slices.Sorted(maps.Keys(current.names))
+		result = append(result, current.entry)
 	}
 
 	slices.SortFunc(result, func(a, b specs.LinuxSyscall) int {
-		return cmp.Compare(a.Names[0], b.Names[0])
+		return cmp.Or(
+			cmp.Compare(a.Names[0], b.Names[0]),
+			cmp.Compare(argsKey(a.Args), argsKey(b.Args)),
+		)
 	})
 
 	return result
 }
 
+func groupKey(entry *specs.LinuxSyscall) string {
+	var builder strings.Builder
+
+	builder.WriteString(string(entry.Action))
+	builder.WriteByte('|')
+
+	if entry.ErrnoRet != nil {
+		builder.WriteString(strconv.FormatUint(uint64(*entry.ErrnoRet), 10))
+	}
+
+	builder.WriteByte('|')
+	builder.WriteString(argsKey(entry.Args))
+
+	return builder.String()
+}
+
+// UnionSyscalls merges two syscall lists via union: for each syscall name,
+// the less restrictive action is chosen per argument region, following the
+// same rules as Union. Unlike Union, this function operates on bare syscall
+// slices without a profile-level DefaultAction, so no entries are elided.
+// Entries sharing the same action, errno, and argument filters are grouped
+// into one multi-name entry, sorted by name.
+//
+// This function does not validate its inputs. Callers should ensure that
+// actions are known and that every entry has at least one name, or call
+// Validate on the enclosing profile first.
+func UnionSyscalls(left, right []specs.LinuxSyscall) []specs.LinuxSyscall {
+	return regroupSyscalls(unionRules().mergeBareSyscalls(left, right))
+}
+
 // IntersectSyscalls merges two syscall lists via intersection: for each
-// syscall name present in both lists, the more restrictive action is chosen.
-// Syscalls present in only one list are dropped. Unlike Intersect, this
-// function operates on bare syscall slices without a profile-level
-// DefaultAction. Multi-name entries are normalized to one-name-per-entry and
-// the result is sorted by name.
+// syscall name present in both lists, the more restrictive action is chosen
+// per argument region, following the same rules as Intersect. Syscalls
+// present in only one list are dropped. Unlike Intersect, this function
+// operates on bare syscall slices without a profile-level DefaultAction, so
+// a conditional entry survives only where the other list constrains the same
+// syscall. Entries sharing the same action, errno, and argument filters are
+// grouped into one multi-name entry, sorted by name.
 //
 // This function does not validate its inputs. Callers should ensure that
 // actions are known and that every entry has at least one name, or call
 // Validate on the enclosing profile first.
 func IntersectSyscalls(left, right []specs.LinuxSyscall) []specs.LinuxSyscall {
-	strategy := mergeStrategy{pick: MoreRestrictive, isIntersect: true}
-	leftMap := normalizeSyscallList(left)
-	rightMap := normalizeSyscallList(right)
-
-	result := make([]specs.LinuxSyscall, 0, min(len(leftMap), len(rightMap)))
-
-	for name, leftEntry := range leftMap {
-		if rightEntry, ok := rightMap[name]; ok {
-			result = append(result, *pickSyscall(leftEntry, rightEntry, strategy))
-		}
-	}
-
-	slices.SortFunc(result, func(a, b specs.LinuxSyscall) int {
-		return cmp.Compare(a.Names[0], b.Names[0])
-	})
-
-	return result
+	return regroupSyscalls(intersectRules().mergeBareSyscalls(left, right))
 }
 
 func cloneSyscall(syscall *specs.LinuxSyscall) specs.LinuxSyscall {
@@ -235,319 +304,6 @@ func cloneSyscall(syscall *specs.LinuxSyscall) specs.LinuxSyscall {
 	clone.ErrnoRet = merge.ClonePtr(syscall.ErrnoRet)
 
 	return clone
-}
-
-// normalizeSyscallList splits multi-name entries into one-name-per-entry and
-// merges duplicates. The most permissive action wins to capture the profile's
-// full permission envelope, regardless of entry ordering.
-func normalizeSyscallList(
-	syscalls []specs.LinuxSyscall,
-) map[string]*specs.LinuxSyscall {
-	withinProfile := mergeStrategy{pick: LessRestrictive, isIntersect: false}
-
-	normalized := make(map[string]*specs.LinuxSyscall)
-
-	for idx := range syscalls {
-		entry := &syscalls[idx]
-
-		for _, name := range entry.Names {
-			single := &specs.LinuxSyscall{
-				Names:    []string{name},
-				Action:   entry.Action,
-				ErrnoRet: merge.ClonePtr(entry.ErrnoRet),
-				Args:     slices.Clone(entry.Args),
-			}
-
-			if existing, ok := normalized[name]; ok {
-				normalized[name] = pickSyscall(existing, single, withinProfile)
-			} else {
-				normalized[name] = single
-			}
-		}
-	}
-
-	return normalized
-}
-
-func normalizeSyscalls(
-	profile *specs.LinuxSeccomp,
-) map[string]*specs.LinuxSyscall {
-	return normalizeSyscallList(profile.Syscalls)
-}
-
-func mergeSyscalls(
-	left, right *specs.LinuxSeccomp,
-	strategy mergeStrategy,
-	mergedDefaultErrnoRet *uint,
-) []specs.LinuxSyscall {
-	pick := strategy.pick
-	leftMap := normalizeSyscalls(left)
-	rightMap := normalizeSyscalls(right)
-
-	mergedDefault := pick(left.DefaultAction, right.DefaultAction)
-
-	result := make([]specs.LinuxSyscall, 0, len(leftMap)+len(rightMap))
-
-	for name, leftEntry := range leftMap {
-		entry := mergeSyscallEntry(
-			leftEntry, rightMap[name],
-			left.DefaultAction, right.DefaultAction,
-			left.DefaultErrnoRet, right.DefaultErrnoRet,
-			mergedDefault, mergedDefaultErrnoRet, strategy,
-		)
-		if entry != nil {
-			result = append(result, *entry)
-		}
-	}
-
-	for name, rightEntry := range rightMap {
-		if _, inLeft := leftMap[name]; inLeft {
-			continue
-		}
-
-		entry := mergeSyscallEntry(
-			nil, rightEntry,
-			left.DefaultAction, right.DefaultAction,
-			left.DefaultErrnoRet, right.DefaultErrnoRet,
-			mergedDefault, mergedDefaultErrnoRet, strategy,
-		)
-		if entry != nil {
-			result = append(result, *entry)
-		}
-	}
-
-	return result
-}
-
-func mergeSyscallEntry(
-	leftEntry, rightEntry *specs.LinuxSyscall,
-	leftDefault, rightDefault specs.LinuxSeccompAction,
-	leftDefaultErrnoRet, rightDefaultErrnoRet *uint,
-	mergedDefault specs.LinuxSeccompAction,
-	mergedDefaultErrnoRet *uint,
-	strategy mergeStrategy,
-) *specs.LinuxSyscall {
-	pick := strategy.pick
-
-	switch {
-	case leftEntry != nil && rightEntry != nil:
-		return mergeMatchedSyscall(
-			leftEntry, rightEntry, mergedDefault, mergedDefaultErrnoRet, strategy,
-		)
-	case leftEntry != nil:
-		return mergeUnmatchedSyscall(
-			leftEntry, rightDefault, rightDefaultErrnoRet,
-			mergedDefault, mergedDefaultErrnoRet, pick,
-		)
-	default:
-		return mergeUnmatchedSyscall(
-			rightEntry, leftDefault, leftDefaultErrnoRet,
-			mergedDefault, mergedDefaultErrnoRet, pick,
-		)
-	}
-}
-
-func mergeMatchedSyscall(
-	left, right *specs.LinuxSyscall,
-	mergedDefault specs.LinuxSeccompAction,
-	mergedDefaultErrnoRet *uint,
-	strategy mergeStrategy,
-) *specs.LinuxSyscall {
-	merged := pickSyscall(left, right, strategy)
-	if !actionsEquivalent(merged.Action, mergedDefault) ||
-		len(merged.Args) > 0 ||
-		!equalUintPtr(merged.ErrnoRet, mergedDefaultErrnoRet) {
-		return merged
-	}
-
-	return nil
-}
-
-func mergeUnmatchedSyscall(
-	entry *specs.LinuxSyscall,
-	otherDefault specs.LinuxSeccompAction,
-	otherDefaultErrnoRet *uint,
-	mergedDefault specs.LinuxSeccompAction,
-	mergedDefaultErrnoRet *uint,
-	pick func(first, second specs.LinuxSeccompAction) specs.LinuxSeccompAction,
-) *specs.LinuxSyscall {
-	effective := pick(entry.Action, otherDefault)
-
-	// pick() returns entry.Action when levels tie, and the only
-	// same-level pair (ActKill/ActKillThread) ignores ErrnoRet.
-	var errnoRet *uint
-	if actionsEquivalent(effective, entry.Action) {
-		errnoRet = merge.ClonePtr(entry.ErrnoRet)
-	} else {
-		errnoRet = merge.ClonePtr(otherDefaultErrnoRet)
-	}
-
-	if !actionsEquivalent(effective, mergedDefault) ||
-		len(entry.Args) > 0 ||
-		!equalUintPtr(errnoRet, mergedDefaultErrnoRet) {
-		return &specs.LinuxSyscall{
-			Names:    slices.Clone(entry.Names),
-			Action:   effective,
-			ErrnoRet: errnoRet,
-			Args:     slices.Clone(entry.Args),
-		}
-	}
-
-	return nil
-}
-
-func pickSyscall(
-	left, right *specs.LinuxSyscall,
-	strategy mergeStrategy,
-) *specs.LinuxSyscall {
-	pick := strategy.pick
-	pickedAction := pick(left.Action, right.Action)
-
-	result := &specs.LinuxSyscall{
-		Names:  left.Names,
-		Action: pickedAction,
-	}
-
-	if actionsEquivalent(pickedAction, left.Action) {
-		result.ErrnoRet = merge.ClonePtr(left.ErrnoRet)
-	} else {
-		result.ErrnoRet = merge.ClonePtr(right.ErrnoRet)
-	}
-
-	args, denied := mergeArgs(left.Args, right.Args, strategy.isIntersect)
-	if denied {
-		result.Action = specs.ActKillProcess
-		result.ErrnoRet = nil
-		result.Args = nil
-	} else {
-		result.Args = args
-	}
-
-	return result
-}
-
-func mergeArgs(
-	leftArgs, rightArgs []specs.LinuxSeccompArg,
-	isIntersect bool,
-) ([]specs.LinuxSeccompArg, bool) {
-	if isIntersect {
-		return intersectArgs(leftArgs, rightArgs)
-	}
-
-	return unionArgs(leftArgs, rightArgs)
-}
-
-func intersectArgs(
-	leftArgs, rightArgs []specs.LinuxSeccompArg,
-) ([]specs.LinuxSeccompArg, bool) {
-	if len(leftArgs) == 0 && len(rightArgs) == 0 {
-		return nil, false
-	}
-
-	if len(leftArgs) == 0 {
-		return slices.Clone(rightArgs), false
-	}
-
-	if len(rightArgs) == 0 {
-		return slices.Clone(leftArgs), false
-	}
-
-	if slices.Equal(leftArgs, rightArgs) {
-		return slices.Clone(leftArgs), false
-	}
-
-	return mergeArgsByIndex(leftArgs, rightArgs)
-}
-
-func mergeArgsByIndex(
-	leftArgs, rightArgs []specs.LinuxSeccompArg,
-) ([]specs.LinuxSeccompArg, bool) {
-	leftByIndex := groupArgsByIndex(leftArgs)
-	rightByIndex := groupArgsByIndex(rightArgs)
-
-	result := make([]specs.LinuxSeccompArg, 0, len(leftArgs)+len(rightArgs))
-
-	for idx, leftGroup := range leftByIndex {
-		rightGroup, inBoth := rightByIndex[idx]
-		if !inBoth {
-			result = append(result, leftGroup...)
-
-			continue
-		}
-
-		sortArgs(leftGroup)
-		sortArgs(rightGroup)
-
-		if !slices.Equal(leftGroup, rightGroup) {
-			return nil, true
-		}
-
-		result = append(result, leftGroup...)
-	}
-
-	for idx, rightGroup := range rightByIndex {
-		if _, inLeft := leftByIndex[idx]; !inLeft {
-			result = append(result, rightGroup...)
-		}
-	}
-
-	slices.SortFunc(result, func(a, b specs.LinuxSeccompArg) int {
-		return cmp.Compare(a.Index, b.Index)
-	})
-
-	return result, false
-}
-
-func sortArgs(args []specs.LinuxSeccompArg) {
-	slices.SortFunc(args, func(left, right specs.LinuxSeccompArg) int {
-		return cmp.Or(
-			cmp.Compare(left.Index, right.Index),
-			cmp.Compare(left.Value, right.Value),
-			cmp.Compare(left.ValueTwo, right.ValueTwo),
-			cmp.Compare(left.Op, right.Op),
-		)
-	})
-}
-
-func groupArgsByIndex(
-	args []specs.LinuxSeccompArg,
-) map[uint][]specs.LinuxSeccompArg {
-	grouped := make(map[uint][]specs.LinuxSeccompArg)
-
-	for _, arg := range args {
-		grouped[arg.Index] = append(grouped[arg.Index], arg)
-	}
-
-	return grouped
-}
-
-// unionArgs combines argument filters from two syscall entries. No args means
-// "match unconditionally", which is already the most permissive state.
-// Unioning with an unconstrained side yields unconstrained.
-//
-// When both sides have identical args the shared filters are preserved.
-// When args differ, the result drops to unconstrained (no args) because
-// OCI seccomp AND-joins args within a single entry and cannot express OR.
-// Dropping args over-approximates in the permissive direction, which is
-// correct for union semantics.
-func unionArgs(
-	leftArgs, rightArgs []specs.LinuxSeccompArg,
-) ([]specs.LinuxSeccompArg, bool) {
-	if len(leftArgs) == 0 || len(rightArgs) == 0 {
-		return nil, false
-	}
-
-	leftSorted := slices.Clone(leftArgs)
-	rightSorted := slices.Clone(rightArgs)
-
-	sortArgs(leftSorted)
-	sortArgs(rightSorted)
-
-	if slices.Equal(leftSorted, rightSorted) {
-		return slices.Clone(leftArgs), false
-	}
-
-	return nil, false
 }
 
 func mergeErrnoRet(
