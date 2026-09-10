@@ -21,23 +21,37 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"sigs.k8s.io/yaml"
+
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 )
 
-const (
-	baseProfileNameRunc = "runc-v1.5.1"
-	baseProfileNameCrun = "crun-v1.29.1"
-)
+// recordedBaseProfileName reads the name of the recorded base profile for a
+// runtime. The name carries the runtime version the profile was recorded
+// against, which changes whenever the container runtime packages in the job
+// change, so reading it keeps the test working without an edit per bump.
+func (e *e2e) recordedBaseProfileName(path string) string {
+	content, err := os.ReadFile(path)
+	e.Require().NoError(err)
+
+	profile := &seccompprofileapi.SeccompProfile{}
+	e.Require().NoError(yaml.Unmarshal(content, profile))
+	e.Require().NotEmpty(profile.Name)
+
+	return profile.Name
+}
 
 func (e *e2e) testCaseBaseProfile([]string) {
 	e.seccompOnlyTestCase()
 
 	baseProfilePath := "examples/baseprofile-runc.yaml"
-	baseProfileName := baseProfileNameRunc
 
 	if clusterType == clusterTypeVanilla && e.containerRuntime != containerRuntimeDocker {
 		baseProfilePath = "examples/baseprofile-crun.yaml"
-		baseProfileName = baseProfileNameCrun
 	}
+
+	baseProfileName := e.recordedBaseProfileName(baseProfilePath)
 
 	helloProfile := fmt.Sprintf(`
 apiVersion: security-profiles-operator.x-k8s.io/v1

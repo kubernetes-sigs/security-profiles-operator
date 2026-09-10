@@ -244,6 +244,13 @@ jobs:
           $RUN git config --global --add safe.directory /vagrant
       - name: Run E2E test to record seccomp profile
         run: $RUN hack/ci/e2e-seccomp.sh
+      # The recording runs against the repository as a synced folder, so a
+      # profile that changed can be committed as it is.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: recorded-base-profiles
+          path: examples/baseprofile-*.yaml
 
   e2e-apparmor-profile:
     needs: image

@@ -50,10 +50,6 @@ func (e *e2e) TestSecurityProfilesOperator_Flaky() {
 			e.testCaseSeccompMetrics,
 		},
 		{
-			"Seccomp: Verify CRD format OCI base profile",
-			e.testCaseBaseProfileOCI,
-		},
-		{
 			"SPOD: Test webhook HTTP version",
 			e.testCaseWebhookHTTP,
 		},

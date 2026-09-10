@@ -26,10 +26,17 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
-// runtimeFormatBaseProfileRepo holds the profiles from examples/test-profiles
-// as well as the recorded runtime base profiles in the format container runtimes
-// consume, pushed by hack/push-test-artifacts.sh.
-const runtimeFormatBaseProfileRepo = "oci://ghcr.io/security-profiles/seccomp-test-profiles:"
+// The recorded base profiles, one artifact per runtime. The test reads them
+// from the staging registry rather than from registry.k8s.io: staging is
+// anonymously readable, the staging build refreshes it on every merge, and it
+// carries a latest tag that follows the newest recording, so a runtime version
+// bump needs no edit here. registry.k8s.io only receives the versioned tags,
+// and only once a promotion lands.
+const (
+	baseProfileRegistry = "oci://gcr.io/k8s-staging-sp-operator/base/"
+	baseProfileRunc     = "runc:latest"
+	baseProfileCrun     = "crun:latest"
+)
 
 // testCaseBaseProfileOCIRuntimeFormat verifies that a base profile referencing
 // an artifact in the runtime format, a single raw runtime-spec JSON layer with
@@ -60,10 +67,12 @@ func (e *e2e) testCaseBaseProfileOCIRuntimeFormat(nodes []string) {
 		e.waitInOperatorNSFor("condition=ready", "spod", "spod")
 	}()
 
-	baseProfileName := runtimeFormatBaseProfileRepo + "baseprofile-runc"
+	artifact := baseProfileRunc
 	if clusterType == clusterTypeVanilla && e.containerRuntime != containerRuntimeDocker {
-		baseProfileName = runtimeFormatBaseProfileRepo + "baseprofile-crun"
+		artifact = baseProfileCrun
 	}
+
+	baseProfileName := baseProfileRegistry + artifact
 
 	profileName := fmt.Sprintf("hello-oci-runtime-%v", time.Now().Unix())
 	profileYAML := fmt.Sprintf(`

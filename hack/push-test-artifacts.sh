@@ -39,24 +39,26 @@ mkdir -p "$BUILD_DIR"
   printf ']}]}'
 } > "$oversized"
 
+SKIP_EXISTING="${SKIP_EXISTING:-true}"
+
 push() {
-  local file="$1" tag="$2"
-  echo "Pushing $file as $REGISTRY/$REPOSITORY:$tag"
-  "$SPOC" push --disable-signing -f "$file" "$REGISTRY/$REPOSITORY:$tag"
+  local file="$1" ref="$REGISTRY/$REPOSITORY:$2"
+
+  if [[ "$SKIP_EXISTING" == "true" ]] &&
+      "$SPOC" pull -s -o /dev/null "$ref" >/dev/null 2>&1; then
+    echo "Already published, skipping $ref"
+
+    return
+  fi
+
+  echo "Pushing $file as $ref"
+  "$SPOC" push --disable-signing -f "$file" "$ref"
 }
 
 push "$EXAMPLES/deny-chmod.json" deny-chmod
 push "$EXAMPLES/permissive.json" permissive
 push "$EXAMPLES/invalid.json" invalid
 push "$oversized" oversized
-
-# The recorded runtime base profiles in the runtime format, so that they can
-# serve as oci:// base profiles for the operator's own end-to-end tests.
-for runtime in runc crun; do
-  converted="$BUILD_DIR/baseprofile-$runtime.json"
-  "$SPOC" convert -o "$converted" "examples/baseprofile-$runtime.yaml"
-  push "$converted" "baseprofile-$runtime"
-done
 
 echo
 echo "Add the digests logged above to images.yaml in kubernetes/k8s.io under"

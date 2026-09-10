@@ -148,8 +148,6 @@ dependencies:
     refPaths:
     - path: examples/baseprofile-crun.yaml
       match: "name: crun"
-    - path: test/tc_base_profiles_test.go
-      match: 'baseProfileNameCrun\s+='
     - path: hack/install-crun
       match: "^CRUN_VERSION="
 
@@ -158,10 +156,10 @@ dependencies:
     refPaths:
     - path: examples/baseprofile-runc.yaml
       match: "name: runc"
-    - path: test/tc_base_profiles_test.go
-      match: 'baseProfileNameRunc\s+='
     - path: profiles.md
-      match: "baseProfileName: runc"
+      match: "baseProfileName: runc-"
+    - path: profiles.md
+      match: "base/runc:"
 
   - name: cosign
     version: v2.6.5

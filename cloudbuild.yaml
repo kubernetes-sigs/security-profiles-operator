@@ -30,8 +30,9 @@ steps:
       mkdir -p build && \
       docker cp $$CONTAINER:/spoc build/spoc && \
       docker rm $$CONTAINER && \
-      PASSWORD=$$(gcloud auth print-access-token) \
-      ./hack/push-test-artifacts.sh
+      export PASSWORD=$$(gcloud auth print-access-token) && \
+      ./hack/push-test-artifacts.sh && \
+      SIGN=false ./hack/push-base-profiles.sh
 substitutions:
   # _GIT_TAG will be filled with a git-based tag for the image, of the form
   # vYYYYMMDD-hash, and can be used as a substitution

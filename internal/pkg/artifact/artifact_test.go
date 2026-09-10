@@ -1067,7 +1067,7 @@ func TestNameFromReference(t *testing.T) {
 	for ref, want := range map[string]string{
 		"registry.example.com/security/profiles/api-server-seccomp@sha256:abc": "api-server-seccomp",
 		"localhost:5000/my_profile:v1":                                         "my-profile",
-		"ghcr.io/security-profiles/runc:v1.5.1":                                "runc",
+		"registry.k8s.io/security-profiles-operator/base/runc:v1.5.1":          "runc",
 		"registry.example.com/UPPER/-Weird_Name-:tag":                          "weird-name",
 		"registry.example.com/...":                                             "profile",
 		"profile":                                                              "profile",
