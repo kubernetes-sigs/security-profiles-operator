@@ -207,6 +207,11 @@ func main() {
 						spocli.EnvKeyPassword,
 					),
 				},
+				&cli.BoolFlag{
+					Name: pusher.FlagDisableSigning,
+					Usage: "do not sign the artifact after pushing it, " +
+						"for environments without an OIDC identity",
+				},
 				&cli.StringSliceFlag{
 					Name:    pusher.FlagPlatforms,
 					Aliases: []string{"p"},

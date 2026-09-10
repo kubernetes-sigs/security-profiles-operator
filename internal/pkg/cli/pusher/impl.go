@@ -29,13 +29,22 @@ type defaultImpl struct{}
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../../hack/boilerplate/boilerplate.generatego.txt
 //counterfeiter:generate . impl
 type impl interface {
-	Push(map[*v1.Platform]string, string, string, string, map[string]string) error
+	Push(
+		map[*v1.Platform]string,
+		string,
+		string,
+		string,
+		map[string]string,
+		*artifact.PushSignatureOptions,
+	) error
 }
 
 func (*defaultImpl) Push(
 	files map[*v1.Platform]string,
 	to, username, password string,
 	annotations map[string]string,
+	signOpts *artifact.PushSignatureOptions,
 ) error {
-	return artifact.New(logr.New(&cli.LogSink{})).Push(files, to, username, password, annotations)
+	return artifact.New(logr.New(&cli.LogSink{})).
+		Push(files, to, username, password, annotations, signOpts)
 }

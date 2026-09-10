@@ -221,9 +221,12 @@ Pushing signature to: ghcr.io/security-profiles/crun
 ```
 
 We can specify a username and password in the same way as for `spoc pull`.
-Please also note that signing is always required for push and pull. It is
-possible to add custom annotations to the security profile by using the
-`--annotations` / `-a` flag multiple times in `KEY:VALUE` format.
+Artifacts are signed on push and verified on pull by default. Keyless signing
+needs an OIDC identity, which build systems and test environments do not
+necessarily have, so `--disable-signing` skips it. Consumers of an unsigned
+artifact have to skip verification as well. It is possible to add custom
+annotations to the security profile by using the `--annotations` / `-a` flag
+multiple times in `KEY:VALUE` format.
 
 ### Pushing profiles for container runtimes
 
@@ -235,6 +238,10 @@ differs from the profile CRD artifacts above, which keep the generic
 `application/vnd.unknown.config.v1+json` artifact type together with the empty
 OCI config descriptor, and are used by the operator for `oci://` base
 profiles.
+
+The profiles the Kubernetes end-to-end tests for KEP-6061 consume are pushed
+from this repository by `make push-test-artifacts`, which also converts the
+recorded runtime base profiles into the runtime format.
 
 `spoc push` produces the runtime format automatically when the input file is a
 raw runtime-spec seccomp profile in JSON, for example the output of

@@ -19,16 +19,28 @@ package e2e_test
 import (
 	"fmt"
 	"os"
+	"path"
 	"strings"
 	"time"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
-// testCaseBaseProfileOCI covers the CRD artifact format. It is flaky because
-// it depends on artifacts published to a public registry, so it runs in the
-// flaky suite.
-func (e *e2e) testCaseBaseProfileOCI([]string) {
+// runtimeFormatBaseProfileRepo holds the profiles from examples/test-profiles
+// as well as the recorded runtime base profiles in the format container runtimes
+// consume, pushed by hack/push-test-artifacts.sh.
+const runtimeFormatBaseProfileRepo = "oci://ghcr.io/security-profiles/seccomp-test-profiles:"
+
+// testCaseBaseProfileOCIRuntimeFormat verifies that a base profile referencing
+// an artifact in the runtime format, a single raw runtime-spec JSON layer with
+// the seccomp config media type, is pulled, merged and applied. The artifact
+// side of that format is covered by unit tests; this exercises the operator
+// pulling one it did not create itself.
+func (e *e2e) testCaseBaseProfileOCIRuntimeFormat(nodes []string) {
 	e.seccompOnlyTestCase()
 
+	// The published artifacts are unsigned, because the build that pushes them
+	// has no OIDC identity for keyless signing.
 	e.kubectlOperatorNS(
 		"patch", "spod", "spod",
 		"-p", `{"spec":{"security":{"disableOciArtifactSignatureVerification": true}}}`,
@@ -38,7 +50,6 @@ func (e *e2e) testCaseBaseProfileOCI([]string) {
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
 	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLongOpTimeout)
 
-	// Other cases run after this one, so the daemon has to be left as found.
 	defer func() {
 		e.kubectlOperatorNS(
 			"patch", "spod", "spod",
@@ -49,16 +60,12 @@ func (e *e2e) testCaseBaseProfileOCI([]string) {
 		e.waitInOperatorNSFor("condition=ready", "spod", "spod")
 	}()
 
-	baseProfileName := "oci://ghcr.io/security-profiles/"
-
+	baseProfileName := runtimeFormatBaseProfileRepo + "baseprofile-runc"
 	if clusterType == clusterTypeVanilla && e.containerRuntime != containerRuntimeDocker {
-		baseProfileName += strings.ReplaceAll(baseProfileNameCrun, "-", ":")
-	} else {
-		baseProfileName += strings.ReplaceAll(baseProfileNameRunc, "-", ":")
+		baseProfileName = runtimeFormatBaseProfileRepo + "baseprofile-crun"
 	}
 
-	namespace := e.getCurrentContextNamespace(defaultNamespace)
-	profileName := fmt.Sprintf("profile-%v", time.Now().Unix())
+	profileName := fmt.Sprintf("hello-oci-runtime-%v", time.Now().Unix())
 	profileYAML := fmt.Sprintf(`
 apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: SeccompProfile
@@ -75,7 +82,42 @@ spec:
     - exit_group
 `, profileName, baseProfileName)
 
+	namespace := e.getCurrentContextNamespace(defaultNamespace)
 	podName := fmt.Sprintf("pod-%v", time.Now().Unix())
+
+	e.logf("Creating profile with a runtime format base profile")
+
+	profileFile, err := os.CreateTemp("", "profile-*.yaml")
+	e.Require().NoError(err)
+
+	defer os.Remove(profileFile.Name())
+
+	_, err = profileFile.WriteString(profileYAML)
+	e.Require().NoError(err)
+	e.Require().NoError(profileFile.Close())
+	e.kubectl("create", "-f", profileFile.Name())
+
+	defer e.kubectl("delete", "-f", profileFile.Name())
+
+	e.logf("Waiting for profile to be reconciled")
+	e.waitForProfile(profileName)
+
+	// The merged profile only exists on the node, the custom resource keeps
+	// the spec as written.
+	localhostProfile := e.kubectl(
+		"get", "sp", profileName, "-o", "jsonpath={.status.localhostProfile}",
+	)
+	e.Require().NotEmpty(localhostProfile)
+
+	e.logf("Verifying that the base profile got merged into %s", localhostProfile)
+
+	profilePath := path.Join(
+		e.nodeRootfsPrefix, config.KubeletSeccompRootPath(), localhostProfile,
+	)
+	merged := e.execNode(nodes[0], "cat", profilePath)
+	e.Contains(merged, "execve", "base profile syscalls are missing from the merged profile")
+	e.Contains(merged, "arch_prctl", "profile syscalls are missing from the merged profile")
+
 	podYAML := fmt.Sprintf(`
 apiVersion: v1
 kind: Pod
@@ -89,27 +131,9 @@ spec:
   securityContext:
     seccompProfile:
       type: Localhost
-      localhostProfile: operator/%s/%s.json
+      localhostProfile: %s
   restartPolicy: OnFailure
-`, podName, namespace, namespace, profileName)
-
-	e.logf("Creating profile")
-
-	profileFile, err := os.CreateTemp("", "profile-*.yaml")
-	e.Require().NoError(err)
-
-	defer os.Remove(profileFile.Name())
-
-	_, err = profileFile.WriteString(profileYAML)
-	e.Require().NoError(err)
-	err = profileFile.Close()
-	e.Require().NoError(err)
-	e.kubectl("create", "-f", profileFile.Name())
-
-	defer e.kubectl("delete", "-f", profileFile.Name())
-
-	e.logf("Waiting for profile to be reconciled")
-	e.waitForProfile(profileName)
+`, podName, namespace, localhostProfile)
 
 	e.logf("Creating pod")
 
@@ -120,8 +144,7 @@ spec:
 
 	_, err = podFile.WriteString(podYAML)
 	e.Require().NoError(err)
-	err = podFile.Close()
-	e.Require().NoError(err)
+	e.Require().NoError(podFile.Close())
 	e.kubectl("create", "-f", podFile.Name())
 
 	defer e.kubectl("delete", "pod", podName)
@@ -131,23 +154,34 @@ spec:
 
 	e.logf("Waiting for pod to be completed")
 
+	completed := false
+
 	for range 20 {
 		output := e.kubectl("get", "pod", podName)
 		if strings.Contains(output, "Completed") {
+			completed = true
+
 			break
 		}
 
 		if strings.Contains(output, "CreateContainerError") {
 			e.kubectlOperatorNS("logs", "-l", "name=spod")
-			e.kubectl("get", "sp", profileName, "-o", "yaml")
-			output := e.kubectl("describe", "pod", podName)
-			e.FailNowf("Unable to create container", output)
+			e.FailNowf(
+				"Unable to create container",
+				"%s", e.kubectl("describe", "pod", podName),
+			)
 		}
 
 		time.Sleep(time.Second)
 	}
 
+	if !completed {
+		e.FailNowf(
+			"Pod did not complete in time",
+			"%s", e.kubectl("describe", "pod", podName),
+		)
+	}
+
 	e.logf("Testing that container ran successfully")
-	output := e.kubectl("logs", podName)
-	e.Contains(output, "Hello from Docker!")
+	e.Contains(e.kubectl("logs", podName), "Hello from Docker!")
 }

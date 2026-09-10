@@ -51,6 +51,35 @@ func defaultDescriptor() ocispec.Descriptor {
 	return ocispec.Descriptor{Annotations: map[string]string{}}
 }
 
+func TestPushDisableSigning(t *testing.T) {
+	testRef, err := name.ParseReference("docker.io/foo/bar:v1")
+	require.NoError(t, err)
+
+	t.Parallel()
+
+	mock := &artifactfakes.FakeImpl{}
+	mock.StoreAddReturns(defaultDescriptor(), nil)
+	mock.ParseReferenceReturns(testRef, nil)
+	mock.NewRepositoryReturns(&remote.Repository{}, nil)
+	// Signing would fail if it ran at all.
+	mock.ClientSecretReturns("", errTest)
+
+	sut := New(logr.Discard())
+	sut.impl = mock
+
+	require.NoError(t, sut.Push(
+		map[*ocispec.Platform]string{
+			{OS: runtime.GOOS, Architecture: runtime.GOARCH}: "test",
+		},
+		"",
+		"",
+		"",
+		nil,
+		&PushSignatureOptions{DisableSigning: true},
+	))
+	require.Zero(t, mock.SignCmdCallCount())
+}
+
 func TestPush(t *testing.T) {
 	testRef, err := name.ParseReference("docker.io/foo/bar:v1")
 	require.NoError(t, err)
@@ -226,6 +255,7 @@ func TestPush(t *testing.T) {
 				"foo",
 				"bar",
 				map[string]string{"foo": "bar"},
+				nil,
 			)
 			assert(err)
 		})
@@ -725,7 +755,7 @@ func TestPushMediaTypes(t *testing.T) {
 			sut := New(logr.Discard())
 			sut.impl = mock
 
-			err := sut.Push(map[*ocispec.Platform]string{platform: "profile"}, "", "", "", nil)
+			err := sut.Push(map[*ocispec.Platform]string{platform: "profile"}, "", "", "", nil, nil)
 			require.NoError(t, err)
 
 			require.Equal(t, 1, mock.StoreAddCallCount())
@@ -918,7 +948,7 @@ func TestPushRuntimeSpecSeccompProfileErrors(t *testing.T) {
 			sut := New(logr.Discard())
 			sut.impl = mock
 
-			err := sut.Push(tc.files, "", "", "", nil)
+			err := sut.Push(tc.files, "", "", "", nil, nil)
 			require.ErrorIs(t, err, tc.wantErr)
 		})
 	}

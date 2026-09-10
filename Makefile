@@ -287,6 +287,10 @@ update-go-mod: ## Cleanup, vendor and verify go modules
 		$(GO) mod vendor && \
 		$(GO) mod verify
 
+.PHONY: push-test-artifacts
+push-test-artifacts: $(BUILD_DIR)/$(CLI_BINARY) ## Push the KEP-6061 e2e test artifacts to the staging registry
+	./hack/push-test-artifacts.sh
+
 .PHONY: update-mocks
 update-mocks: ## Update all generated mocks
 	$(GO) generate ./...

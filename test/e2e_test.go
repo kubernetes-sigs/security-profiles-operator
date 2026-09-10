@@ -74,6 +74,10 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			e.testCaseBaseProfile,
 		},
 		{
+			"Seccomp: Verify runtime format OCI base profile",
+			e.testCaseBaseProfileOCIRuntimeFormat,
+		},
+		{
 			"Seccomp: Allowed syscalls",
 			e.testCaseAllowedSyscalls,
 		},

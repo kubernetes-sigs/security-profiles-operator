@@ -31,11 +31,12 @@ import (
 
 // Options define all possible options for the pusher.
 type Options struct {
-	pushTo      string
-	inputFiles  map[*v1.Platform]string
-	username    string
-	password    string
-	annotations map[string]string
+	pushTo         string
+	inputFiles     map[*v1.Platform]string
+	username       string
+	password       string
+	annotations    map[string]string
+	disableSigning bool
 }
 
 // Default returns a default options instance.
@@ -100,6 +101,7 @@ func FromContext(ctx *ucli.Context) (*Options, error) {
 	}
 
 	options.password = os.Getenv(cli.EnvKeyPassword)
+	options.disableSigning = ctx.Bool(FlagDisableSigning)
 	options.annotations = map[string]string{}
 
 	for _, a := range ctx.StringSlice(FlagAnnotations) {
