@@ -26,17 +26,27 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
-// The recorded base profiles, one artifact per runtime. The test reads them
-// from the staging registry rather than from registry.k8s.io: staging is
-// anonymously readable, the staging build refreshes it on every merge, and it
-// carries a latest tag that follows the newest recording, so a runtime version
-// bump needs no edit here. registry.k8s.io only receives the versioned tags,
-// and only once a promotion lands.
-const (
-	baseProfileRegistry = "oci://gcr.io/k8s-staging-sp-operator/base/"
-	baseProfileRunc     = "runc:latest"
-	baseProfileCrun     = "crun:latest"
-)
+// The recorded base profiles live under this prefix, one artifact per runtime
+// with the recorded runtime version as the tag. On main this is the staging
+// registry, which the staging build refreshes on every merge, so a new
+// recording is available to the next test run without a promotion. The
+// release script points it at registry.k8s.io, so a release branch exercises
+// the promoted artifact, and the back-to-dev script switches it back.
+const baseProfileRegistry = "oci://gcr.io/k8s-staging-sp-operator/base/"
+
+// baseProfileArtifact returns the artifact reference of the recorded base
+// profile for the runtime. The tag is the version from the recorded profile's
+// metadata.name, so re-recording against a new runtime version needs no edit
+// here.
+func (e *e2e) baseProfileArtifact(runtime string) string {
+	name := e.recordedBaseProfileName(fmt.Sprintf("examples/baseprofile-%s.yaml", runtime))
+
+	version := strings.TrimPrefix(name, runtime+"-")
+	e.Require().NotEqual(name, version,
+		"recorded profile %q should be named <runtime>-<version>", name)
+
+	return baseProfileRegistry + runtime + ":" + version
+}
 
 // testCaseBaseProfileOCIRuntimeFormat verifies that a base profile referencing
 // an artifact in the runtime format, a single raw runtime-spec JSON layer with
@@ -67,12 +77,12 @@ func (e *e2e) testCaseBaseProfileOCIRuntimeFormat(nodes []string) {
 		e.waitInOperatorNSFor("condition=ready", "spod", "spod")
 	}()
 
-	artifact := baseProfileRunc
+	runtime := "runc"
 	if clusterType == clusterTypeVanilla && e.containerRuntime != containerRuntimeDocker {
-		artifact = baseProfileCrun
+		runtime = "crun"
 	}
 
-	baseProfileName := baseProfileRegistry + artifact
+	baseProfileName := e.baseProfileArtifact(runtime)
 
 	profileName := fmt.Sprintf("hello-oci-runtime-%v", time.Now().Unix())
 	profileYAML := fmt.Sprintf(`

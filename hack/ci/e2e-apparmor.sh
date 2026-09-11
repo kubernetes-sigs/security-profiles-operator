@@ -101,8 +101,7 @@ check_apparmor_profile_recording() {
 
   echo "Enable Apparmor profile"
   k patch spod spod --type=merge -p '{"spec":{"enableAppArmor":true}}'
-  k rollout status ds spod --timeout 360s
-  k_wait spod spod
+  wait_for_spod
 
   ensure_runtime_classes
 
@@ -175,8 +174,7 @@ check_apparmor_complain_mode() {
 
   echo "Enable Apparmor profile"
   k patch spod spod --type=merge -p '{"spec":{"enableAppArmor":true}}'
-  k rollout status ds spod --timeout 360s
-  k_wait spod spod
+  wait_for_spod
 
   echo "---------------------------"
   echo "Installing apparmor profile"

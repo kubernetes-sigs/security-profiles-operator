@@ -225,6 +225,10 @@ func newApp() *cli.App {
 						"container runtimes would reject it as a KEP-6061 " +
 						"artifact, for publishing test fixtures",
 				},
+				&cli.BoolFlag{
+					Name:  pusher.FlagPlainHTTP,
+					Usage: "use HTTP instead of HTTPS to reach the registry, for local registries in tests",
+				},
 				&cli.StringSliceFlag{
 					Name:    pusher.FlagPlatforms,
 					Aliases: []string{"p"},
@@ -269,6 +273,10 @@ func newApp() *cli.App {
 					Aliases: []string{"s"},
 					EnvVars: []string{"DISABLE_SIGNATURE_VERIFICATION"},
 					Usage:   "disable signature verification",
+				},
+				&cli.BoolFlag{
+					Name:  puller.FlagPlainHTTP,
+					Usage: "use HTTP instead of HTTPS to reach the registry, for local registries in tests",
 				},
 				&cli.StringFlag{
 					Name:    puller.FlagAllowedIdentityRegexp,

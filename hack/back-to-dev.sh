@@ -76,6 +76,7 @@ sed -i \
     hack/ci/e2e-olm.sh
 
 sed -i 's;registry.k8s.io;gcr.io/k8s-staging-sp-operator;g' test/e2e_test.go
+sed -i 's;registry.k8s.io/security-profiles-operator/base/;gcr.io/k8s-staging-sp-operator/base/;g' test/tc_base_profiles_oci_runtime_test.go
 
 sed -i 's;registry.k8s.io/security-profiles-operator.*;gcr.io/k8s-staging-sp-operator/security-profiles-operator:latest;g' \
     hack/deploy-localhost.patch

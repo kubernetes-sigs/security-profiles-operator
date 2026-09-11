@@ -29,9 +29,9 @@ REGISTRY="${REGISTRY:-gcr.io/k8s-staging-sp-operator}"
 # Keyless signing needs an OIDC identity. Publishing from a build system that
 # has none, such as the staging Cloud Build job, has to turn it off.
 SIGN="${SIGN:-true}"
-# Republishing identical content produces a new digest, because the artifact
-# carries a creation timestamp, so what is already published is left alone.
-# Set this to false to publish regardless.
+# Identical content yields the same digest, so republishing is a no-op for the
+# registry; what is already published is left alone to spare the pushes and
+# the latest repoint. Set this to false to publish regardless.
 SKIP_EXISTING="${SKIP_EXISTING:-true}"
 EXAMPLES="${EXAMPLES:-examples}"
 # Base profiles live under their own path, which keeps them apart from the test
@@ -93,11 +93,11 @@ for runtime in "${RUNTIMES[@]}"; do
   converted="$BUILD_DIR/baseprofile-$runtime.json"
   "$SPOC" convert -o "$converted" "$profile"
 
-  # latest follows the newest recording so that tests do not have to be updated
-  # for every runtime version. It moves only when a version is published, since
-  # repointing it on every build would leave a trail of untagged digests. It is
-  # deliberately never promoted: tags in registry.k8s.io cannot be repointed, so
-  # a promoted latest would be frozen at whatever it pointed to first.
+  # latest follows the newest recording for manual pulls; the tests derive the
+  # versioned tag from the recorded profile. It moves only when a version is
+  # published. It is deliberately never promoted: tags in registry.k8s.io cannot
+  # be repointed, so a promoted latest would be frozen at whatever it pointed to
+  # first.
   version_ref="$REGISTRY/$NAME_PREFIX$runtime:$version"
   latest_ref="$REGISTRY/$NAME_PREFIX$runtime:latest"
 

@@ -55,6 +55,7 @@ func TestSpoc(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("record", recordTest)
+	t.Run("push-pull", pushPullTest)
 }
 
 func recordTest(t *testing.T) {

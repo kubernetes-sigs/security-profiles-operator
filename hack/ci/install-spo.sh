@@ -27,6 +27,27 @@ k_wait() {
   k wait --timeout 120s --for condition=ready "$@"
 }
 
+# Waits until the spod daemonset finished rolling out and its generation
+# stayed unchanged for a grace period. A spec change makes the operator update
+# the daemonset more than once, and "rollout status" can return between two of
+# those updates, so a test that continues right away races the next restart.
+wait_for_spod() {
+  local generation previous=""
+  for ((i = 0; i < 30; i++)); do
+    k rollout status ds spod --timeout 360s
+    generation=$(k get ds spod -o jsonpath='{.metadata.generation}')
+    if [[ "$generation" == "$previous" ]]; then
+      k_wait spod spod
+      echo "spod daemonset settled at generation $generation"
+      return 0
+    fi
+    previous="$generation"
+    sleep 10
+  done
+  echo "spod daemonset did not settle"
+  return 1
+}
+
 wait_for_pod_name_label() {
   echo "Waiting for pod with label name=$1"
 

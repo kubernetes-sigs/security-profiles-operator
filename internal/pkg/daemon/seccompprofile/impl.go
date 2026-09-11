@@ -38,7 +38,7 @@ type defaultImpl struct{}
 //counterfeiter:generate . impl
 type impl interface {
 	Pull(context.Context, logr.Logger, string, string, string, *v1.Platform,
-		*artifact.PullSignatureOptions) (*artifact.PullResult, error)
+		*artifact.PullOptions) (*artifact.PullResult, error)
 	PullResultType(*artifact.PullResult) artifact.PullResultType
 	PullResultSeccompProfile(*artifact.PullResult) *seccompprofileapi.SeccompProfile
 	ClientGetProfile(
@@ -54,7 +54,7 @@ func (*defaultImpl) Pull(
 	l logr.Logger,
 	from, username, password string,
 	platform *v1.Platform,
-	signOpts *artifact.PullSignatureOptions,
+	signOpts *artifact.PullOptions,
 ) (*artifact.PullResult, error) {
 	return artifact.New(l).Pull(ctx, from, username, password, platform, signOpts)
 }

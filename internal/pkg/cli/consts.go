@@ -29,6 +29,9 @@ const (
 	// authentication.
 	FlagUsername string = "username"
 
+	// FlagPlainHTTP is the flag for talking to the registry over HTTP.
+	FlagPlainHTTP string = "plain-http"
+
 	// EnvKeyPassword is the environment variable key for defining the password
 	// for registry authentication.
 	EnvKeyPassword string = "PASSWORD"
