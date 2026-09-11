@@ -17,7 +17,7 @@ limitations under the License.
 package util
 
 import (
-	"github.com/saschagrunert/security-profiles-merger/seccomp"
+	"sigs.k8s.io/security-profiles-merger/seccomp"
 
 	seccompprofile "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 )

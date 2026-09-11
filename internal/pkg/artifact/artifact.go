@@ -40,6 +40,7 @@ import (
 	"oras.land/oras-go/v2/registry/remote"
 	"oras.land/oras-go/v2/registry/remote/auth"
 	"oras.land/oras-go/v2/registry/remote/retry"
+	"sigs.k8s.io/security-profiles-merger/seccomp"
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
@@ -130,12 +131,17 @@ type PullSignatureOptions struct {
 	AllowedOidcIssuerRegexp string
 }
 
-// PushSignatureOptions options for signing the OCI artifact during pushing.
-type PushSignatureOptions struct {
+// PushOptions are the options for pushing an OCI artifact.
+type PushOptions struct {
 	// DisableSigning skips signing the artifact after it has been pushed.
 	// Keyless signing needs an OIDC identity, which build systems and test
 	// environments do not necessarily have.
 	DisableSigning bool
+
+	// DisableArtifactValidation skips the validation container runtimes
+	// apply to a KEP-6061 artifact, so that deliberately invalid profiles
+	// can be published for testing. Runtimes still reject them when pulled.
+	DisableArtifactValidation bool
 }
 
 // hasUnconstrainedSigner reports whether the signer identity or the OIDC
@@ -172,7 +178,7 @@ func (a *Artifact) Push(
 	files map[*v1.Platform]string,
 	to, username, password string,
 	annotations map[string]string,
-	signOpts *PushSignatureOptions,
+	opts *PushOptions,
 ) error {
 	dir, err := a.MkdirTemp("", "push-")
 	if err != nil {
@@ -203,7 +209,9 @@ func (a *Artifact) Push(
 
 	a.logger.Info("Reading profiles", "count", len(files))
 
-	entries, runtimeSpecProfiles, err := a.profileEntries(files)
+	entries, runtimeSpecProfiles, err := a.profileEntries(
+		files, opts != nil && opts.DisableArtifactValidation,
+	)
 	if err != nil {
 		return err
 	}
@@ -298,7 +306,7 @@ func (a *Artifact) Push(
 
 	a.logger.Info("Pushed artifact", "reference", fmt.Sprintf("%s@%s", ref, descriptor.Digest))
 
-	if signOpts != nil && signOpts.DisableSigning {
+	if opts != nil && opts.DisableSigning {
 		a.logger.Info("Signing disabled, not signing the OCI artifact")
 
 		return nil
@@ -539,9 +547,10 @@ type profileEntry struct {
 
 // profileEntries reads the provided files and derives the layer name and
 // media type for each of them. It also returns how many of them are raw OCI
-// runtime-spec seccomp profiles.
+// runtime-spec seccomp profiles, which are validated the way container
+// runtimes validate them unless skipValidation is set.
 func (a *Artifact) profileEntries(
-	files map[*v1.Platform]string,
+	files map[*v1.Platform]string, skipValidation bool,
 ) ([]profileEntry, int, error) {
 	entries := make([]profileEntry, 0, len(files))
 	runtimeSpecProfiles := 0
@@ -570,7 +579,11 @@ func (a *Artifact) profileEntries(
 
 		if isRuntimeSpec {
 			a.logger.Info("Profile is an OCI runtime-spec seccomp profile", "file", file)
-			a.warnRuntimeRestrictions(runtimeSpec, content, file)
+
+			err := a.validateRuntimeSpec(runtimeSpec, content, file, skipValidation)
+			if err != nil {
+				return nil, 0, err
+			}
 
 			// KEP-6061 artifacts hold exactly one platform independent
 			// profile, so the layer is neither named nor tagged per platform.
@@ -793,22 +806,25 @@ func (a *Artifact) runtimeSpecSeccompProfile(
 	return runtimeSpec, true, nil
 }
 
-// warnRuntimeRestrictions logs the parts of a profile which container
-// runtimes reject when they validate a KEP-6061 artifact.
-func (a *Artifact) warnRuntimeRestrictions(
-	runtimeSpec *specs.LinuxSeccomp, content []byte, path string,
-) {
-	if runtimeSpec.ListenerPath != "" || runtimeSpec.ListenerMetadata != "" {
-		a.logger.Info(
-			"Profile sets listener fields, which container runtimes reject",
-			"file", path,
-		)
-	}
+// validateRuntimeSpec runs the validation container runtimes apply to a
+// KEP-6061 artifact and fails on content they reject, unless skip is set, in
+// which case the findings are only logged. The size limit is runtime
+// configuration rather than part of the format and only warns.
+func (a *Artifact) validateRuntimeSpec(
+	runtimeSpec *specs.LinuxSeccomp, content []byte, path string, skip bool,
+) error {
+	if err := seccomp.ValidateArtifact(runtimeSpec); err != nil {
+		if !skip {
+			return fmt.Errorf(
+				"profile %s: %w", path, errors.Join(ErrRuntimeRestrictions, err),
+			)
+		}
 
-	if usesNotify(runtimeSpec) {
 		a.logger.Info(
-			"Profile uses "+string(specs.ActNotify)+", which container runtimes reject",
+			"Profile contains content container runtimes reject, "+
+				"pushing it anyway because artifact validation is disabled",
 			"file", path,
+			"error", err.Error(),
 		)
 	}
 
@@ -821,48 +837,7 @@ func (a *Artifact) warnRuntimeRestrictions(
 		)
 	}
 
-	if syscall := exceedsSyscallEntries(runtimeSpec); syscall != "" {
-		a.logger.Info(
-			"Profile has more entries for a syscall than container runtimes accept by default",
-			"file", path,
-			"syscall", syscall,
-			"limit", maxSyscallEntries,
-		)
-	}
-}
-
-// exceedsSyscallEntries returns the first syscall which is referenced by more
-// rule entries than container runtimes accept, and an empty string if there
-// is none.
-func exceedsSyscallEntries(runtimeSpec *specs.LinuxSeccomp) string {
-	entries := map[string]int{}
-
-	for i := range runtimeSpec.Syscalls {
-		for _, name := range runtimeSpec.Syscalls[i].Names {
-			entries[name]++
-
-			if entries[name] > maxSyscallEntries {
-				return name
-			}
-		}
-	}
-
-	return ""
-}
-
-// usesNotify reports whether the profile relies on a seccomp notifier.
-func usesNotify(runtimeSpec *specs.LinuxSeccomp) bool {
-	if runtimeSpec.DefaultAction == specs.ActNotify {
-		return true
-	}
-
-	for i := range runtimeSpec.Syscalls {
-		if runtimeSpec.Syscalls[i].Action == specs.ActNotify {
-			return true
-		}
-	}
-
-	return false
+	return nil
 }
 
 // decodeRuntimeSpecSeccompProfile decodes the content of a KEP-6061 artifact,

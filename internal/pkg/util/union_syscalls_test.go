@@ -50,9 +50,7 @@ func TestUnionSyscalls(t *testing.T) {
 				},
 			},
 			want: []seccompprofileapi.Syscall{
-				{Names: []string{"a"}, Action: seccompprofileapi.ActAllow},
-				{Names: []string{"b"}, Action: seccompprofileapi.ActAllow},
-				{Names: []string{"c"}, Action: seccompprofileapi.ActAllow},
+				{Names: []string{"a", "b", "c"}, Action: seccompprofileapi.ActAllow},
 			},
 		},
 		{
@@ -65,9 +63,7 @@ func TestUnionSyscalls(t *testing.T) {
 			},
 			appliedSyscalls: []seccompprofileapi.Syscall{},
 			want: []seccompprofileapi.Syscall{
-				{Names: []string{"a"}, Action: seccompprofileapi.ActAllow},
-				{Names: []string{"b"}, Action: seccompprofileapi.ActAllow},
-				{Names: []string{"c"}, Action: seccompprofileapi.ActAllow},
+				{Names: []string{"a", "b", "c"}, Action: seccompprofileapi.ActAllow},
 			},
 		},
 		{
@@ -87,9 +83,16 @@ func TestUnionSyscalls(t *testing.T) {
 				},
 			},
 			want: []seccompprofileapi.Syscall{
-				{Names: []string{"a"}, Action: seccompprofileapi.ActAllow},
-				{Names: []string{"b"}, Action: seccompprofileapi.ActAllow},
-				{Names: []string{"c"}, Action: seccompprofileapi.ActAllow},
+				{
+					Names:  []string{"a", "b", "c"},
+					Action: seccompprofileapi.ActAllow,
+					Args:   []seccompprofileapi.Arg{{Index: ptr.To[int32](1), Value: 2}},
+				},
+				{
+					Names:  []string{"a", "b", "c"},
+					Action: seccompprofileapi.ActAllow,
+					Args:   []seccompprofileapi.Arg{{Index: ptr.To[int32](2), Value: 3}},
+				},
 			},
 		},
 		{
@@ -107,9 +110,7 @@ func TestUnionSyscalls(t *testing.T) {
 				},
 			},
 			want: []seccompprofileapi.Syscall{
-				{Names: []string{"a"}, Action: seccompprofileapi.ActAllow},
-				{Names: []string{"b"}, Action: seccompprofileapi.ActAllow},
-				{Names: []string{"c"}, Action: seccompprofileapi.ActAllow},
+				{Names: []string{"a", "b", "c"}, Action: seccompprofileapi.ActAllow},
 			},
 		},
 		{
@@ -127,12 +128,7 @@ func TestUnionSyscalls(t *testing.T) {
 				},
 			},
 			want: []seccompprofileapi.Syscall{
-				{Names: []string{"a"}, Action: seccompprofileapi.ActAllow},
-				{Names: []string{"b"}, Action: seccompprofileapi.ActAllow},
-				{Names: []string{"c"}, Action: seccompprofileapi.ActAllow},
-				{Names: []string{"d"}, Action: seccompprofileapi.ActAllow},
-				{Names: []string{"e"}, Action: seccompprofileapi.ActAllow},
-				{Names: []string{"f"}, Action: seccompprofileapi.ActAllow},
+				{Names: []string{"a", "b", "c", "d", "e", "f"}, Action: seccompprofileapi.ActAllow},
 			},
 		},
 		{
@@ -158,13 +154,8 @@ func TestUnionSyscalls(t *testing.T) {
 				},
 			},
 			want: []seccompprofileapi.Syscall{
-				{Names: []string{"a"}, Action: seccompprofileapi.ActAllow},
-				{Names: []string{"b"}, Action: seccompprofileapi.ActAllow},
-				{Names: []string{"c"}, Action: seccompprofileapi.ActAllow},
-				{Names: []string{"d"}, Action: seccompprofileapi.ActAllow},
-				{Names: []string{"x"}, Action: seccompprofileapi.ActLog},
-				{Names: []string{"y"}, Action: seccompprofileapi.ActLog},
-				{Names: []string{"z"}, Action: seccompprofileapi.ActLog},
+				{Names: []string{"a", "b", "c", "d"}, Action: seccompprofileapi.ActAllow},
+				{Names: []string{"x", "y", "z"}, Action: seccompprofileapi.ActLog},
 			},
 		},
 	}

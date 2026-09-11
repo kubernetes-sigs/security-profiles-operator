@@ -27,7 +27,6 @@ require (
 	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.93.1
 	github.com/prometheus/client_golang v1.24.1
 	github.com/prometheus/client_model v0.6.3
-	github.com/saschagrunert/security-profiles-merger v0.3.7
 	github.com/seccomp/libseccomp-golang v0.12.0
 	github.com/sigstore/cosign/v2 v2.6.5
 	github.com/stretchr/testify v1.12.1
@@ -51,6 +50,7 @@ require (
 	sigs.k8s.io/controller-runtime v0.25.0
 	sigs.k8s.io/controller-tools v0.22.0
 	sigs.k8s.io/release-utils v0.12.4
+	sigs.k8s.io/security-profiles-merger v0.4.1
 	sigs.k8s.io/yaml v1.6.0
 )
 

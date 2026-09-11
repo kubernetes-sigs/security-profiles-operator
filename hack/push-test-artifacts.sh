@@ -43,6 +43,7 @@ SKIP_EXISTING="${SKIP_EXISTING:-true}"
 
 push() {
   local file="$1" ref="$REGISTRY/$REPOSITORY:$2"
+  shift 2
 
   if [[ "$SKIP_EXISTING" == "true" ]] &&
       "$SPOC" pull -s -o /dev/null "$ref" >/dev/null 2>&1; then
@@ -52,12 +53,13 @@ push() {
   fi
 
   echo "Pushing $file as $ref"
-  "$SPOC" push --disable-signing -f "$file" "$ref"
+  "$SPOC" push --disable-signing "$@" -f "$file" "$ref"
 }
 
 push "$EXAMPLES/deny-chmod.json" deny-chmod
 push "$EXAMPLES/permissive.json" permissive
-push "$EXAMPLES/invalid.json" invalid
+# Deliberately rejected by container runtimes, so validation is disabled.
+push "$EXAMPLES/invalid.json" invalid --disable-artifact-validation
 push "$oversized" oversized
 
 echo

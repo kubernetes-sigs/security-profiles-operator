@@ -48,12 +48,12 @@ const (
 	// layerMediaTypeJSON is the layer media type of raw JSON profiles.
 	layerMediaTypeJSON = "application/json"
 
-	// maxProfileSize and maxSyscallEntries are the limits container runtimes
-	// apply by default when they validate a KEP-6061 artifact. They are
-	// runtime configuration rather than part of the format, so exceeding them
-	// is a warning on push and not an error.
-	maxProfileSize    = 1 << 20
-	maxSyscallEntries = 128
+	// maxProfileSize is the artifact size limit container runtimes apply by
+	// default when they validate a KEP-6061 artifact. It is runtime
+	// configuration rather than part of the format, so exceeding it is a
+	// warning on push and not an error. Everything else runtimes reject is
+	// checked with the merge library's ValidateArtifact and fails the push.
+	maxProfileSize = 1 << 20
 
 	// defaultTimeout is the default timeout for push and pull operations.
 	defaultTimeout = 5 * time.Minute
@@ -91,6 +91,14 @@ var (
 	// ErrTrailingData is returned when a raw runtime-spec seccomp profile is
 	// followed by additional data.
 	ErrTrailingData = errors.New("trailing data after runtime-spec seccomp profile")
+
+	// ErrRuntimeRestrictions is returned when a runtime-spec seccomp profile
+	// contains content container runtimes reject in a KEP-6061 artifact, such
+	// as SCMP_ACT_NOTIFY, listener settings or too many entries for one
+	// syscall.
+	ErrRuntimeRestrictions = errors.New(
+		"runtime-spec seccomp profile is rejected by container runtimes",
+	)
 
 	// ErrMultipleRuntimeSpecProfiles is returned when more than one OCI
 	// runtime-spec seccomp profile is pushed into one artifact, which must

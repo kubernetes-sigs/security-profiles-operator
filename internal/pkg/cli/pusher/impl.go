@@ -35,7 +35,7 @@ type impl interface {
 		string,
 		string,
 		map[string]string,
-		*artifact.PushSignatureOptions,
+		*artifact.PushOptions,
 	) error
 }
 
@@ -43,7 +43,7 @@ func (*defaultImpl) Push(
 	files map[*v1.Platform]string,
 	to, username, password string,
 	annotations map[string]string,
-	signOpts *artifact.PushSignatureOptions,
+	signOpts *artifact.PushOptions,
 ) error {
 	return artifact.New(logr.New(&cli.LogSink{})).
 		Push(files, to, username, password, annotations, signOpts)

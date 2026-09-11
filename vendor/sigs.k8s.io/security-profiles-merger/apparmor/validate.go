@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/saschagrunert/security-profiles-merger/internal/merge"
+	"sigs.k8s.io/security-profiles-merger/internal/merge"
 )
 
 var (
@@ -73,12 +73,14 @@ func isKnownCapability(name string) bool {
 
 // Validate checks an AppArmor profile for structural issues.
 // Capability names are validated against the known set of Linux
-// capabilities. Filesystem paths and executable paths are not validated.
+// capabilities. Filesystem paths and executable paths are not validated
+// beyond being non-empty.
 //
 // The checks catch issues that would produce confusing merge results:
 // duplicate paths across filesystem categories, which expand into
-// ambiguous permission sets. All validation failures are collected and
-// returned together.
+// ambiguous permission sets. Paths are compared in their normalized form,
+// as the merge functions see them. All validation failures are collected
+// and returned together.
 func Validate(profile *Profile) error {
 	if profile == nil {
 		return ErrNilProfile
@@ -92,12 +94,18 @@ func Validate(profile *Profile) error {
 	}
 
 	if profile.Filesystem != nil {
-		err := validateFilesystemPaths(profile.Filesystem)
+		normalized := &FilesystemRules{
+			ReadOnlyPaths:  normalizePaths(profile.Filesystem.ReadOnlyPaths),
+			WriteOnlyPaths: normalizePaths(profile.Filesystem.WriteOnlyPaths),
+			ReadWritePaths: normalizePaths(profile.Filesystem.ReadWritePaths),
+		}
+
+		err := validateFilesystemPaths(normalized)
 		if err != nil {
 			errs = append(errs, err)
 		}
 
-		err = validateDuplicatePathsInCategory(profile.Filesystem)
+		err = validateDuplicatePathsInCategory(normalized)
 		if err != nil {
 			errs = append(errs, err)
 		}
@@ -130,8 +138,9 @@ func Validate(profile *Profile) error {
 }
 
 // ValidateStrict performs all checks from Validate and additionally detects
-// duplicate paths in AllowedExecutables and AllowedLibraries. The merge path
-// handles duplicates by deduplication, so Validate permits them.
+// duplicate paths in AllowedExecutables and AllowedLibraries, compared in
+// their normalized form. The merge path handles duplicates by
+// deduplication, so Validate permits them.
 // ValidateStrict is intended for user-authored profiles where duplicates
 // are likely mistakes.
 func ValidateStrict(profile *Profile) error {
@@ -145,12 +154,12 @@ func ValidateStrict(profile *Profile) error {
 	if profile != nil && profile.Executable != nil {
 		errs = append(errs, validateDuplicatesInSlice(
 			"AllowedExecutables",
-			profile.Executable.AllowedExecutables,
+			normalizePaths(profile.Executable.AllowedExecutables),
 			ErrDuplicateExecutablePath,
 		)...)
 		errs = append(errs, validateDuplicatesInSlice(
 			"AllowedLibraries",
-			profile.Executable.AllowedLibraries,
+			normalizePaths(profile.Executable.AllowedLibraries),
 			ErrDuplicateExecutablePath,
 		)...)
 	}
