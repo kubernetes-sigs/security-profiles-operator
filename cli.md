@@ -236,6 +236,12 @@ The manifest's `org.opencontainers.image.created` annotation is fixed to
 builds convention). Pushing identical content again therefore yields the
 same digest instead of a new, untagged manifest.
 
+`spoc pull` refuses to fetch any artifact blob larger than 16 MiB, so a
+registry cannot make the client read arbitrary amounts of data. The
+credentials given via `--username` and `$PASSWORD` are used for the registry
+access of the signature as well, both when signing on push and when verifying
+on pull.
+
 `--plain-http` on `spoc push` and `spoc pull` reaches the registry over HTTP
 instead of HTTPS, for local registries in tests and other registries without
 TLS.

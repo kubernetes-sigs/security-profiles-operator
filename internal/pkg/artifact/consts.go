@@ -48,12 +48,20 @@ const (
 	// layerMediaTypeJSON is the layer media type of raw JSON profiles.
 	layerMediaTypeJSON = "application/json"
 
-	// maxProfileSize is the artifact size limit container runtimes apply by
-	// default when they validate a KEP-6061 artifact. It is runtime
+	// MaxRuntimeProfileSize is the artifact size limit container runtimes
+	// apply by default when they validate a KEP-6061 artifact. It is runtime
 	// configuration rather than part of the format, so exceeding it is a
 	// warning on push and not an error. Everything else runtimes reject is
 	// checked with the merge library's ValidateArtifact and fails the push.
-	maxProfileSize = 1 << 20
+	// The operator daemon uses it as the blob size limit for base profiles,
+	// since a bigger base profile could not be used by a runtime either.
+	MaxRuntimeProfileSize int64 = 1 << 20
+
+	// DefaultMaxBlobSize is the largest blob Pull copies from a registry
+	// unless PullOptions.MaxBlobSize sets a limit. Pulled profiles are read
+	// into memory, so the registry must not decide how much gets allocated.
+	// The default is far above any real profile.
+	DefaultMaxBlobSize int64 = 16 << 20
 
 	// defaultTimeout is the default timeout for push and pull operations.
 	defaultTimeout = 5 * time.Minute
@@ -130,6 +138,10 @@ var (
 	// ErrNoSingleLayer is returned when an artifact without a known profile
 	// layer name does not have exactly one layer to fall back to.
 	ErrNoSingleLayer = errors.New("artifact has no single layer to read the profile from")
+
+	// ErrBlobTooLarge is returned when a blob of the pulled artifact exceeds
+	// the size limit of the pull.
+	ErrBlobTooLarge = errors.New("artifact blob exceeds the size limit")
 
 	// ErrPlatformMismatch is returned when the only layer of an artifact is
 	// bound to another platform than the requested one.

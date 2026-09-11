@@ -1227,13 +1227,13 @@ func TestValidateRuntimeSpec(t *testing.T) {
 		{
 			name:        "oversized profile",
 			runtimeSpec: &specs.LinuxSeccomp{DefaultAction: specs.ActErrno},
-			content:     make([]byte, maxProfileSize+1),
+			content:     make([]byte, MaxRuntimeProfileSize+1),
 			wantLogs:    []string{"larger than container runtimes accept"},
 		},
 		{
 			name:        "profile at the size limit",
 			runtimeSpec: &specs.LinuxSeccomp{DefaultAction: specs.ActErrno},
-			content:     make([]byte, maxProfileSize),
+			content:     make([]byte, MaxRuntimeProfileSize),
 		},
 		{
 			name: "many distinct syscalls are fine",
@@ -1369,4 +1369,171 @@ func TestPushPlainHTTP(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.True(t, repo.PlainHTTP, "the repository must use plain HTTP when asked")
+}
+
+// TestPullBlobSizeLimit verifies that the pull refuses to copy blobs above
+// the size limit before fetching them, and that the limit defaults when the
+// options do not set one.
+func TestPullBlobSizeLimit(t *testing.T) {
+	t.Parallel()
+
+	testRef, err := name.ParseReference("docker.io/foo/bar:v1")
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		name      string
+		opts      *PullOptions
+		limit     int64
+		blobSize  int64
+		expectErr bool
+	}{
+		{
+			name:     "default limit accepts blob at the limit",
+			opts:     &PullOptions{},
+			limit:    DefaultMaxBlobSize,
+			blobSize: DefaultMaxBlobSize,
+		},
+		{
+			name:      "default limit rejects blob above the limit",
+			opts:      &PullOptions{},
+			limit:     DefaultMaxBlobSize,
+			blobSize:  DefaultMaxBlobSize + 1,
+			expectErr: true,
+		},
+		{
+			name:     "custom limit accepts blob at the limit",
+			opts:     &PullOptions{MaxBlobSize: 512},
+			limit:    512,
+			blobSize: 512,
+		},
+		{
+			name:      "custom limit rejects blob above the limit",
+			opts:      &PullOptions{MaxBlobSize: 512},
+			limit:     512,
+			blobSize:  513,
+			expectErr: true,
+		},
+		{
+			name:      "nil options use the default limit",
+			limit:     DefaultMaxBlobSize,
+			blobSize:  DefaultMaxBlobSize + 1,
+			expectErr: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			mock := &artifactfakes.FakeImpl{}
+			mock.NewRepositoryReturns(&remote.Repository{}, nil)
+			mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
+			mock.ParseReferenceReturns(testRef, nil)
+			mock.VerifyCmdReturns(nil)
+			mock.ReadFileReturns([]byte{}, nil)
+			mock.ReadProfileReturns(&seccompprofileapi.SeccompProfile{}, nil)
+			stubManifest(mock, &ocispec.Manifest{}, nil)
+
+			// Run the size check the way ORAS does for every node of the
+			// artifact and fail the copy on its error.
+			mock.CopyStub = func(
+				ctx context.Context, _ oras.ReadOnlyTarget, _ string,
+				_ oras.Target, _ string, opts oras.CopyOptions,
+			) (ocispec.Descriptor, error) {
+				require.NotNil(t, opts.PreCopy)
+
+				descriptor := testLayer("")
+				descriptor.Size = tc.blobSize
+
+				if err := opts.PreCopy(ctx, descriptor); err != nil {
+					return ocispec.Descriptor{}, err
+				}
+
+				return ocispec.Descriptor{}, nil
+			}
+
+			sut := New(logr.Discard())
+			sut.impl = mock
+
+			res, err := sut.Pull(t.Context(), "", "", "", nil, tc.opts)
+			if tc.expectErr {
+				require.ErrorIs(t, err, ErrBlobTooLarge)
+				require.ErrorContains(t, err, strconv.FormatInt(tc.limit, 10))
+				require.Nil(t, res)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, res)
+		})
+	}
+}
+
+// TestRegistryOptions verifies that signing and verification get the registry
+// credentials of the push or pull, so that signatures of private artifacts
+// are reachable with the same login as the artifact itself.
+func TestRegistryOptions(t *testing.T) {
+	t.Parallel()
+
+	testRef, err := name.ParseReference("docker.io/foo/bar:v1")
+	require.NoError(t, err)
+
+	t.Run("push", func(t *testing.T) {
+		t.Parallel()
+
+		mock := &artifactfakes.FakeImpl{}
+		mock.ReadFileReturns([]byte(`{"defaultAction":"SCMP_ACT_ERRNO"}`), nil)
+		mock.StoreAddReturns(defaultDescriptor(), nil)
+		mock.ParseReferenceReturns(testRef, nil)
+		mock.NewRepositoryReturns(&remote.Repository{}, nil)
+
+		sut := New(logr.Discard())
+		sut.impl = mock
+
+		err := sut.Push(
+			map[*ocispec.Platform]string{nil: "profile.json"},
+			"", "user", "secret", nil, &PushOptions{PlainHTTP: true},
+		)
+		require.NoError(t, err)
+		require.Equal(t, 1, mock.SignCmdCallCount())
+
+		_, _, signOpts, _ := mock.SignCmdArgsForCall(0)
+		require.True(t, signOpts.Registry.AllowHTTPRegistry)
+		require.Equal(t, "user", signOpts.Registry.AuthConfig.Username)
+		require.Equal(t, "secret", signOpts.Registry.AuthConfig.Password)
+	})
+
+	t.Run("pull", func(t *testing.T) {
+		t.Parallel()
+
+		mock := &artifactfakes.FakeImpl{}
+		mock.NewRepositoryReturns(&remote.Repository{}, nil)
+		mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
+		mock.ParseReferenceReturns(testRef, nil)
+		mock.ReadFileReturns([]byte{}, nil)
+		mock.ReadProfileReturns(&seccompprofileapi.SeccompProfile{}, nil)
+		stubManifest(mock, &ocispec.Manifest{}, nil)
+
+		sut := New(logr.Discard())
+		sut.impl = mock
+
+		_, err := sut.Pull(
+			t.Context(), "", "user", "secret", nil, &PullOptions{PlainHTTP: true},
+		)
+		require.NoError(t, err)
+		require.Equal(t, 1, mock.VerifyCmdCallCount())
+
+		_, verifyCmd, _ := mock.VerifyCmdArgsForCall(0)
+		require.True(t, verifyCmd.AllowHTTPRegistry)
+		require.Equal(t, "user", verifyCmd.AuthConfig.Username)
+		require.Equal(t, "secret", verifyCmd.AuthConfig.Password)
+	})
+
+	t.Run("anonymous", func(t *testing.T) {
+		t.Parallel()
+
+		opts := registryOptions("", "", false)
+		require.False(t, opts.AllowHTTPRegistry)
+		require.Empty(t, opts.AuthConfig.Username)
+		require.Empty(t, opts.AuthConfig.Password)
+	})
 }

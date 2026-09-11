@@ -31,8 +31,25 @@ k_wait() {
 # stayed unchanged for a grace period. A spec change makes the operator update
 # the daemonset more than once, and "rollout status" can return between two of
 # those updates, so a test that continues right away races the next restart.
+# With a daemonset generation as argument it first waits for the operator to
+# move the daemonset past that generation, because until then the unchanged
+# daemonset counts as rolled out, and fails if that does not happen.
 wait_for_spod() {
-  local generation previous=""
+  local generation previous="${1:-}"
+  if [[ -n "$previous" ]]; then
+    for ((i = 0; i < 30; i++)); do
+      generation=$(k get ds spod -o jsonpath='{.metadata.generation}')
+      if [[ "$generation" != "$previous" ]]; then
+        break
+      fi
+      sleep 2
+    done
+    if [[ "$generation" == "$previous" ]]; then
+      echo "spod daemonset generation $previous did not change"
+      return 1
+    fi
+  fi
+  previous=""
   for ((i = 0; i < 30; i++)); do
     k rollout status ds spod --timeout 360s
     generation=$(k get ds spod -o jsonpath='{.metadata.generation}')
@@ -128,10 +145,9 @@ install_operator() {
       echo "Error: DaemonSet 'spod' not found or could not get its status."
       exit 1
   fi
+  INITIAL_SPOD_DS_GENERATION=$(k get ds spod -o jsonpath='{.metadata.generation}')
   k patch spod spod --type=merge -p '{"spec":{"enricher":{"enableBpfRecorder":true}}}'
-  # Wait for security profiles operator to modify the spod daemonset
-  sleep 5
-  k rollout status ds spod --timeout 360s
+  wait_for_spod "$INITIAL_SPOD_DS_GENERATION"
   PATCHED_SPOD_DS_VERSION=$(k get controllerrevision -l name=spod --sort-by=.revision -o=jsonpath='{.items[-1].revision}' 2>/dev/null)
 
   if [ "$PATCHED_SPOD_DS_VERSION" -gt "$INITIAL_SPOD_DS_VERSION" ]; then
@@ -140,5 +156,4 @@ install_operator() {
       echo "Failure. The DaemonSet version did not change. It is still $PATCHED_SPOD_DS_VERSION."
       exit 1
   fi
-  k_wait spod spod
 }

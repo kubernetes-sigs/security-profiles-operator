@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/opencontainers/go-digest"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
@@ -137,6 +138,20 @@ type PullOptions struct {
 	//
 	// As with AllowedIdentityRegexp, the default ".*" matches every issuer.
 	AllowedOidcIssuerRegexp string
+
+	// MaxBlobSize is the largest blob of the artifact, in bytes, the pull
+	// copies from the registry. Bigger blobs fail the pull before they are
+	// fetched. Zero means DefaultMaxBlobSize.
+	MaxBlobSize int64
+}
+
+// maxBlobSize returns the blob size limit to apply on pull.
+func (p *PullOptions) maxBlobSize() int64 {
+	if p.MaxBlobSize > 0 {
+		return p.MaxBlobSize
+	}
+
+	return DefaultMaxBlobSize
 }
 
 // PushOptions are the options for pushing an OCI artifact.
@@ -343,7 +358,7 @@ func (a *Artifact) Push(
 		Upload:           true,
 		TlogUpload:       true,
 		SkipConfirmation: true,
-		Registry:         options.RegistryOptions{AllowHTTPRegistry: plainHTTP},
+		Registry:         registryOptions(username, password, plainHTTP),
 		Rekor:            options.RekorOptions{URL: options.DefaultRekorURL},
 		Fulcio:           options.FulcioOptions{URL: options.DefaultFulcioURL},
 		OIDC: options.OIDCOptions{
@@ -435,7 +450,7 @@ func (a *Artifact) Pull(
 		}
 
 		v := verify.VerifyCommand{
-			RegistryOptions: options.RegistryOptions{AllowHTTPRegistry: plainHTTP},
+			RegistryOptions: registryOptions(username, password, plainHTTP),
 			CertVerifyOptions: options.CertVerifyOptions{
 				CertIdentityRegexp:   signOpts.AllowedIdentityRegexp,
 				CertOidcIssuerRegexp: signOpts.AllowedOidcIssuerRegexp,
@@ -473,8 +488,11 @@ func (a *Artifact) Pull(
 	a.logger.Info("Copying profile from repository")
 	a.logger.Info("Source image", "image", from)
 
+	copyOptions := oras.DefaultCopyOptions
+	copyOptions.PreCopy = blobSizeLimit(signOpts.maxBlobSize())
+
 	manifestDescriptor, err := a.Copy(
-		ctx, repo, sha.String(), store, sha.String(), oras.DefaultCopyOptions,
+		ctx, repo, sha.String(), store, sha.String(), copyOptions,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("copy from repository: %w", err)
@@ -565,6 +583,36 @@ func (a *Artifact) imageWithDigest(
 
 	return fmt.Sprintf("%s@%s", ref.Context().Name(),
 		desc.Digest.String()), repo, desc.Digest, nil
+}
+
+// registryOptions returns the cosign registry options matching the registry
+// access ORAS uses, so that signing and verification reach the signature of
+// a private artifact with the caller's credentials instead of only the
+// ambient keychain.
+func registryOptions(username, password string, plainHTTP bool) options.RegistryOptions {
+	return options.RegistryOptions{
+		AllowHTTPRegistry: plainHTTP,
+		AuthConfig:        authn.AuthConfig{Username: username, Password: password},
+	}
+}
+
+// blobSizeLimit returns the ORAS PreCopy hook which rejects every blob of the
+// artifact larger than limit before it is fetched. ORAS reads the manifest
+// first to find the blobs, bounded by its own metadata limit, and runs the
+// hook on the manifest as well before storing it. The store then enforces the
+// descriptor sizes while copying, so nothing bigger reaches the profile
+// decoding either.
+func blobSizeLimit(limit int64) func(context.Context, v1.Descriptor) error {
+	return func(_ context.Context, desc v1.Descriptor) error {
+		if desc.Size > limit {
+			return fmt.Errorf(
+				"%w: blob %s (%s) has %d bytes, limit is %d",
+				ErrBlobTooLarge, desc.Digest, desc.MediaType, desc.Size, limit,
+			)
+		}
+
+		return nil
+	}
 }
 
 // profileEntry is a profile to be added to the artifact store on push.
@@ -769,7 +817,9 @@ func (a *Artifact) manifest(
 	return manifest, nil
 }
 
-// blobContent returns the content of a blob from the store.
+// blobContent returns the content of a blob from the store. The read is
+// bounded by the size limit of the pull: the store verified every blob
+// against its descriptor on copy, and the descriptors passed blobSizeLimit.
 func (a *Artifact) blobContent(
 	ctx context.Context, store *file.Store, descriptor *v1.Descriptor,
 ) ([]byte, error) {
@@ -859,12 +909,12 @@ func (a *Artifact) validateRuntimeSpec(
 		)
 	}
 
-	if len(content) > maxProfileSize {
+	if int64(len(content)) > MaxRuntimeProfileSize {
 		a.logger.Info(
 			"Profile is larger than container runtimes accept by default",
 			"file", path,
 			"size", len(content),
-			"limit", maxProfileSize,
+			"limit", MaxRuntimeProfileSize,
 		)
 	}
 
