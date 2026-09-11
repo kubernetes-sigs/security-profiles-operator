@@ -687,7 +687,7 @@ func TestPull(t *testing.T) {
 			sut := New(logr.Discard())
 			sut.impl = mock
 
-			res, err := sut.Pull(t.Context(), "", "foo", "bar", nil, &PullSignatureOptions{})
+			res, err := sut.Pull(t.Context(), "", "foo", "bar", nil, &PullOptions{})
 			assert(res, err)
 		})
 	}
@@ -1288,4 +1288,85 @@ func manyEntriesFor(syscall string) []specs.LinuxSyscall {
 	}
 
 	return entries
+}
+
+// Not parallel: it sets SOURCE_DATE_EPOCH, which the other push tests must
+// not observe.
+func TestPushCreatedAnnotation(t *testing.T) {
+	push := func(t *testing.T, annotations map[string]string) (string, error) {
+		t.Helper()
+
+		mock := &artifactfakes.FakeImpl{}
+		mock.ReadFileReturns([]byte(`{"defaultAction":"SCMP_ACT_ERRNO"}`), nil)
+		mock.StoreAddReturns(defaultDescriptor(), nil)
+
+		ref, err := name.ParseReference("docker.io/foo/bar:v1")
+		require.NoError(t, err)
+		mock.ParseReferenceReturns(ref, nil)
+		mock.NewRepositoryReturns(&remote.Repository{}, nil)
+
+		sut := New(logr.Discard())
+		sut.impl = mock
+
+		err = sut.Push(
+			map[*ocispec.Platform]string{nil: "profile.json"},
+			"", "", "", annotations, &PushOptions{DisableSigning: true},
+		)
+		if err != nil {
+			return "", err
+		}
+
+		require.Equal(t, 1, mock.PackManifestCallCount())
+		_, _, _, _, opts := mock.PackManifestArgsForCall(0)
+
+		return opts.ManifestAnnotations[ocispec.AnnotationCreated], nil
+	}
+
+	// Build environments such as nix-shell export SOURCE_DATE_EPOCH; empty
+	// counts as unset, so the default case is exercised regardless.
+	t.Setenv(envSourceDateEpoch, "")
+
+	created, err := push(t, nil)
+	require.NoError(t, err)
+	require.Equal(t, "1970-01-01T00:00:00Z", created,
+		"default must be fixed for reproducible digests")
+
+	created, err = push(t, map[string]string{ocispec.AnnotationCreated: "2026-09-11T07:00:00Z"})
+	require.NoError(t, err)
+	require.Equal(t, "2026-09-11T07:00:00Z", created, "an explicit annotation wins")
+
+	t.Setenv("SOURCE_DATE_EPOCH", "1789110000")
+
+	created, err = push(t, nil)
+	require.NoError(t, err)
+	require.Equal(t, "2026-09-11T07:00:00Z", created, "SOURCE_DATE_EPOCH is honored")
+
+	t.Setenv("SOURCE_DATE_EPOCH", "yesterday")
+
+	_, err = push(t, nil)
+	require.ErrorIs(t, err, ErrInvalidSourceDateEpoch)
+}
+
+func TestPushPlainHTTP(t *testing.T) {
+	t.Parallel()
+
+	repo := &remote.Repository{}
+	mock := &artifactfakes.FakeImpl{}
+	mock.ReadFileReturns([]byte(`{"defaultAction":"SCMP_ACT_ERRNO"}`), nil)
+	mock.StoreAddReturns(defaultDescriptor(), nil)
+
+	ref, err := name.ParseReference("docker.io/foo/bar:v1")
+	require.NoError(t, err)
+	mock.ParseReferenceReturns(ref, nil)
+	mock.NewRepositoryReturns(repo, nil)
+
+	sut := New(logr.Discard())
+	sut.impl = mock
+
+	err = sut.Push(
+		map[*ocispec.Platform]string{nil: "profile.json"},
+		"", "", "", nil, &PushOptions{DisableSigning: true, PlainHTTP: true},
+	)
+	require.NoError(t, err)
+	require.True(t, repo.PlainHTTP, "the repository must use plain HTTP when asked")
 }

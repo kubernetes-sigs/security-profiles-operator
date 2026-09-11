@@ -39,6 +39,7 @@ type Options struct {
 	disableSigning bool
 
 	disableArtifactValidation bool
+	plainHTTP                 bool
 }
 
 // Default returns a default options instance.
@@ -105,14 +106,16 @@ func FromContext(ctx *ucli.Context) (*Options, error) {
 	options.password = os.Getenv(cli.EnvKeyPassword)
 	options.disableSigning = ctx.Bool(FlagDisableSigning)
 	options.disableArtifactValidation = ctx.Bool(FlagDisableArtifactValidation)
+	options.plainHTTP = ctx.Bool(FlagPlainHTTP)
 	options.annotations = map[string]string{}
 
 	for _, a := range ctx.StringSlice(FlagAnnotations) {
-		split := strings.Split(a, ":")
+		// Only the first colon separates key and value, so that values
+		// such as RFC 3339 timestamps keep their own colons.
+		const parts = 2
 
-		const minparts = 2
-
-		if len(split) < minparts {
+		split := strings.SplitN(a, ":", parts)
+		if len(split) < parts {
 			return nil, fmt.Errorf("wrong annotation format: %s", a)
 		}
 

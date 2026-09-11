@@ -43,6 +43,9 @@ const (
 	// profiles which container runtimes would reject.
 	FlagDisableArtifactValidation string = "disable-artifact-validation"
 
+	// FlagPlainHTTP is the flag for talking to the registry over HTTP.
+	FlagPlainHTTP string = cli.FlagPlainHTTP
+
 	// FlagProfiles is the flag for defining the input file locations.
 	FlagProfiles string = "profiles"
 

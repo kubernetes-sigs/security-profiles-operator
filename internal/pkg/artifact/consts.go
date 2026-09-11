@@ -57,6 +57,16 @@ const (
 
 	// defaultTimeout is the default timeout for push and pull operations.
 	defaultTimeout = 5 * time.Minute
+
+	// annotationCreatedDefault is the org.opencontainers.image.created value
+	// a pushed manifest carries unless the caller sets the annotation or
+	// SOURCE_DATE_EPOCH. ORAS would stamp the current time, which makes
+	// identical content produce a new digest on every push.
+	annotationCreatedDefault = "1970-01-01T00:00:00Z"
+
+	// envSourceDateEpoch is the reproducible-builds convention for the
+	// timestamp to embed, in seconds since the Unix epoch.
+	envSourceDateEpoch = "SOURCE_DATE_EPOCH"
 )
 
 // emptyConfig is the content of the manifest config blob of a runtime format
@@ -91,6 +101,10 @@ var (
 	// ErrTrailingData is returned when a raw runtime-spec seccomp profile is
 	// followed by additional data.
 	ErrTrailingData = errors.New("trailing data after runtime-spec seccomp profile")
+
+	// ErrInvalidSourceDateEpoch is returned when SOURCE_DATE_EPOCH is set
+	// but is not an integer number of seconds.
+	ErrInvalidSourceDateEpoch = errors.New("SOURCE_DATE_EPOCH is not a number of seconds")
 
 	// ErrRuntimeRestrictions is returned when a runtime-spec seccomp profile
 	// contains content container runtimes reject in a KEP-6061 artifact, such

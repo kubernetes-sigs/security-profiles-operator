@@ -48,10 +48,11 @@ func (p *Puller) Run() error {
 		p.options.username,
 		p.options.password,
 		p.options.platform,
-		&artifact.PullSignatureOptions{
+		&artifact.PullOptions{
 			DisableSignatureVerification: p.options.disableSignatureVerification,
 			AllowedIdentityRegexp:        p.options.allowedIdentityRegexp,
 			AllowedOidcIssuerRegexp:      p.options.allowedOidcIssuerRegexp,
+			PlainHTTP:                    p.options.plainHTTP,
 		},
 	)
 	if err != nil {

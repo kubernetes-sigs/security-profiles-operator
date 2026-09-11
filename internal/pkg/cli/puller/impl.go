@@ -37,13 +37,13 @@ type impl interface {
 		string,
 		string,
 		*v1.Platform,
-		*artifact.PullSignatureOptions,
+		*artifact.PullOptions,
 	) (*artifact.PullResult, error)
 	WriteFile(string, []byte, os.FileMode) error
 }
 
 func (*defaultImpl) Pull(
-	from, username, password string, platform *v1.Platform, signOpts *artifact.PullSignatureOptions,
+	from, username, password string, platform *v1.Platform, signOpts *artifact.PullOptions,
 ) (*artifact.PullResult, error) {
 	return artifact.New(logr.New(&cli.LogSink{})).Pull(
 		context.Background(), from, username, password, platform, signOpts,

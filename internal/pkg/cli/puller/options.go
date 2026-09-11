@@ -38,6 +38,7 @@ type Options struct {
 	disableSignatureVerification bool
 	allowedIdentityRegexp        string
 	allowedOidcIssuerRegexp      string
+	plainHTTP                    bool
 }
 
 // Default returns a default options instance.
@@ -84,6 +85,8 @@ func FromContext(ctx *ucli.Context) (*Options, error) {
 	if ctx.IsSet(FlagAllowedOidcIssuerRegexp) {
 		options.allowedOidcIssuerRegexp = ctx.String(FlagAllowedOidcIssuerRegexp)
 	}
+
+	options.plainHTTP = ctx.Bool(FlagPlainHTTP)
 
 	options.password = os.Getenv(cli.EnvKeyPassword)
 

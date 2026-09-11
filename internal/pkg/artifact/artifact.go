@@ -24,8 +24,11 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/opencontainers/go-digest"
@@ -113,10 +116,15 @@ func (a *Artifact) setRepoCredentials(repo *remote.Repository, username, passwor
 	}
 }
 
-// PullSignatureOptions options for verifying the OCI image signature during pulling.
-type PullSignatureOptions struct {
+// PullOptions are the options for pulling an OCI artifact: how to reach the
+// registry and how to verify the artifact's signature.
+type PullOptions struct {
 	// DisableSignatureVerification disables signature verification during pulling.
 	DisableSignatureVerification bool
+
+	// PlainHTTP talks to the registry over HTTP instead of HTTPS, for local
+	// registries in tests. Signature verification then uses HTTP as well.
+	PlainHTTP bool
 
 	// AllowedIdentityRegexp regexp for allowed identities for signature verification.
 	//
@@ -142,12 +150,16 @@ type PushOptions struct {
 	// apply to a KEP-6061 artifact, so that deliberately invalid profiles
 	// can be published for testing. Runtimes still reject them when pulled.
 	DisableArtifactValidation bool
+
+	// PlainHTTP talks to the registry over HTTP instead of HTTPS, for local
+	// registries in tests. Signing then uses HTTP as well.
+	PlainHTTP bool
 }
 
 // hasUnconstrainedSigner reports whether the signer identity or the OIDC
 // issuer is left unconstrained, in which case verification does not establish
 // who signed the artifact.
-func (p *PullSignatureOptions) hasUnconstrainedSigner() bool {
+func (p *PullOptions) hasUnconstrainedSigner() bool {
 	return matchesAnything(p.AllowedIdentityRegexp) ||
 		matchesAnything(p.AllowedOidcIssuerRegexp)
 }
@@ -245,8 +257,18 @@ func (a *Artifact) Push(
 		fileDescriptors = append(fileDescriptors, fileDescriptor)
 	}
 
+	created, err := createdAnnotation(annotations)
+	if err != nil {
+		return err
+	}
+
 	mediaType := oras.MediaTypeUnknownConfig
-	packOptions := oras.PackManifestOptions{Layers: fileDescriptors}
+	packOptions := oras.PackManifestOptions{
+		Layers: fileDescriptors,
+		// ORAS stamps the current time otherwise, which gives identical
+		// content a different digest on every push.
+		ManifestAnnotations: map[string]string{v1.AnnotationCreated: created},
+	}
 
 	if runtimeSpecProfiles > 0 {
 		mediaType = MediaTypeSeccompProfile
@@ -295,6 +317,9 @@ func (a *Artifact) Push(
 		return fmt.Errorf("create repository: %w", err)
 	}
 
+	plainHTTP := opts != nil && opts.PlainHTTP
+	repo.PlainHTTP = plainHTTP
+
 	a.setRepoCredentials(repo, username, password)
 
 	a.logger.Info("Copying profile to repository")
@@ -318,6 +343,7 @@ func (a *Artifact) Push(
 		Upload:           true,
 		TlogUpload:       true,
 		SkipConfirmation: true,
+		Registry:         options.RegistryOptions{AllowHTTPRegistry: plainHTTP},
 		Rekor:            options.RekorOptions{URL: options.DefaultRekorURL},
 		Fulcio:           options.FulcioOptions{URL: options.DefaultFulcioURL},
 		OIDC: options.OIDCOptions{
@@ -366,7 +392,7 @@ func (a *Artifact) Pull(
 	c context.Context,
 	from, username, password string,
 	platform *v1.Platform,
-	signOpts *PullSignatureOptions,
+	signOpts *PullOptions,
 ) (*PullResult, error) {
 	ctx, cancel := context.WithTimeout(c, defaultTimeout)
 	defer cancel()
@@ -379,13 +405,15 @@ func (a *Artifact) Pull(
 	// prevent a TOCTOU attack on the mutable tag of the base image, which
 	// might lead to a malicious base profile being injected between
 	// verification and copying the content.
-	from, repo, sha, err := a.imageWithDigest(ctx, originalImage, username, password)
+	plainHTTP := signOpts != nil && signOpts.PlainHTTP
+
+	from, repo, sha, err := a.imageWithDigest(ctx, originalImage, username, password, plainHTTP)
 	if err != nil {
 		return nil, fmt.Errorf("resolving digest for image %q: %w", originalImage, err)
 	}
 
 	if signOpts == nil {
-		signOpts = &PullSignatureOptions{
+		signOpts = &PullOptions{
 			AllowedIdentityRegexp:   allowAllRegexp,
 			AllowedOidcIssuerRegexp: allowAllRegexp,
 		}
@@ -407,6 +435,7 @@ func (a *Artifact) Pull(
 		}
 
 		v := verify.VerifyCommand{
+			RegistryOptions: options.RegistryOptions{AllowHTTPRegistry: plainHTTP},
 			CertVerifyOptions: options.CertVerifyOptions{
 				CertIdentityRegexp:   signOpts.AllowedIdentityRegexp,
 				CertOidcIssuerRegexp: signOpts.AllowedOidcIssuerRegexp,
@@ -510,9 +539,9 @@ func (a *Artifact) Pull(
 // imageWithDigest transforms the given image into an image with digest instead of a tag.
 // It retrieves the digest from the remote repository. Returns the updated image with
 // digest and the repository and the digest as separate return arguments.
-func (a *Artifact) imageWithDigest(ctx context.Context, image, username, password string) (
-	string, *remote.Repository, digest.Digest, error,
-) {
+func (a *Artifact) imageWithDigest(
+	ctx context.Context, image, username, password string, plainHTTP bool,
+) (string, *remote.Repository, digest.Digest, error) {
 	ref, err := a.ParseReference(image)
 	if err != nil {
 		return "", nil, "", fmt.Errorf("parsing ref for image %q: %w", image, err)
@@ -523,6 +552,8 @@ func (a *Artifact) imageWithDigest(ctx context.Context, image, username, passwor
 		return "", nil, "", fmt.Errorf("creating repository for %q: %w",
 			ref.Name(), err)
 	}
+
+	repo.PlainHTTP = plainHTTP
 
 	a.setRepoCredentials(repo, username, password)
 
@@ -964,4 +995,26 @@ func platformToString(platform *v1.Platform) string {
 	}
 
 	return name.String()
+}
+
+// createdAnnotation returns the org.opencontainers.image.created value for
+// a pushed manifest: the caller's annotation if set, otherwise
+// SOURCE_DATE_EPOCH, otherwise a fixed epoch so that identical content
+// always produces the same digest.
+func createdAnnotation(annotations map[string]string) (string, error) {
+	if created, ok := annotations[v1.AnnotationCreated]; ok {
+		return created, nil
+	}
+
+	epoch, ok := os.LookupEnv(envSourceDateEpoch)
+	if !ok || epoch == "" {
+		return annotationCreatedDefault, nil
+	}
+
+	seconds, err := strconv.ParseInt(epoch, 10, 64)
+	if err != nil {
+		return "", fmt.Errorf("%w: %q", ErrInvalidSourceDateEpoch, epoch)
+	}
+
+	return time.Unix(seconds, 0).UTC().Format(time.RFC3339), nil
 }

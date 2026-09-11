@@ -415,7 +415,7 @@ func (r *Reconciler) resolveSyscallsForProfile(
 				spod.Spec.Security.AllowedOidcIssuerRegexp = allowedAllRegexp
 			}
 
-			signOpts := &artifact.PullSignatureOptions{
+			signOpts := &artifact.PullOptions{
 				DisableSignatureVerification: ptr.Deref(
 					spod.Spec.Security.DisableOCIArtifactSignatureVerification,
 					false,

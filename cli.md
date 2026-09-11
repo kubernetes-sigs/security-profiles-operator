@@ -227,7 +227,18 @@ needs an OIDC identity, which build systems and test environments do not
 necessarily have, so `--disable-signing` skips it. Consumers of an unsigned
 artifact have to skip verification as well. It is possible to add custom
 annotations to the security profile by using the `--annotations` / `-a` flag
-multiple times in `KEY:VALUE` format.
+multiple times in `KEY:VALUE` format; only the first colon separates the key
+from the value, so timestamps keep theirs.
+
+The manifest's `org.opencontainers.image.created` annotation is fixed to
+`1970-01-01T00:00:00Z` unless it is set explicitly with `--annotations` or
+`SOURCE_DATE_EPOCH` is exported (seconds since the epoch, the reproducible
+builds convention). Pushing identical content again therefore yields the
+same digest instead of a new, untagged manifest.
+
+`--plain-http` on `spoc push` and `spoc pull` reaches the registry over HTTP
+instead of HTTPS, for local registries in tests and other registries without
+TLS.
 
 ### Pushing profiles for container runtimes
 
@@ -302,7 +313,7 @@ the single layer is not platform qualified:
     }
   ],
   "annotations": {
-    "org.opencontainers.image.created": "2026-09-09T07:32:11Z"
+    "org.opencontainers.image.created": "1970-01-01T00:00:00Z"
   }
 }
 ```

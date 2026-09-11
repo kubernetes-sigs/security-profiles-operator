@@ -49,13 +49,16 @@ func TestFromContext(t *testing.T) {
 			prepare: func(set *flag.FlagSet) {
 				require.NoError(t, set.Parse([]string{"echo"}))
 				set.Var(cli.NewStringSlice(""), FlagAnnotations, "")
-				require.NoError(t, set.Set(FlagAnnotations, "foo:bar,hello:world"))
+				require.NoError(t, set.Set(FlagAnnotations,
+					"foo:bar,hello:world,org.opencontainers.image.created:2026-09-11T07:00:00Z",
+				))
 			},
 			assert: func(res *Options, err error) {
 				require.NoError(t, err)
-				assert.Len(t, res.annotations, 2)
+				assert.Len(t, res.annotations, 3)
 				assert.Equal(t, "bar", res.annotations["foo"])
 				assert.Equal(t, "world", res.annotations["hello"])
+				assert.Equal(t, "2026-09-11T07:00:00Z", res.annotations["org.opencontainers.image.created"])
 			},
 		},
 		{

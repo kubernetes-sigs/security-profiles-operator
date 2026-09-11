@@ -46,6 +46,8 @@ sed -i 's;image: .*;image: registry.k8s.io/security-profiles-operator/security-p
 sed -i 's;gcr.io.*catalog.*;registry.k8s.io/security-profiles-operator/security-profiles-operator-catalog:v'"$VERSION"'#${CATALOG_IMG}#g" examples/olm/install-resources.yaml;g' hack/ci/e2e-olm.sh
 sed -i 's;gcr.io/k8s-staging-sp-operator/;registry.k8s.io/;g' hack/ci/e2e-olm.sh
 sed -i 's;gcr.io/k8s-staging-sp-operator/;registry.k8s.io/;g' test/e2e_test.go
+# The base profile artifacts are promoted under the project name.
+sed -i 's;gcr.io/k8s-staging-sp-operator/base/;registry.k8s.io/security-profiles-operator/base/;g' test/tc_base_profiles_oci_runtime_test.go
 
 # Update patches
 sed -i 's;gcr.io.*;registry.k8s.io/security-profiles-operator/security-profiles-operator:v'"$VERSION"';g' hack/deploy-localhost.patch

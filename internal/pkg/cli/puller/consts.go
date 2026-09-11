@@ -40,6 +40,9 @@ const (
 	// regexp when verifying the image signature.
 	FlagAllowedIdentityRegexp string = "allowed-identity-regexp"
 
+	// FlagPlainHTTP is the flag for talking to the registry over HTTP.
+	FlagPlainHTTP string = cli.FlagPlainHTTP
+
 	// FlagAllowedOidcIssuerRegexp is the flag for defining the allowed Oidc issuers
 	// regexp when verifying the image signature.
 	FlagAllowedOidcIssuerRegexp string = "allowed-oidc-issuer-regexp"

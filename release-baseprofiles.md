@@ -25,9 +25,9 @@ recorded against as the tag:
 
 | Location | Purpose |
 | - | - |
-| `gcr.io/k8s-staging-sp-operator/base/<runtime>:<version>` | published on merge, anonymously readable, what the end-to-end tests read |
-| `gcr.io/k8s-staging-sp-operator/base/<runtime>:latest` | follows the newest recording, staging only, never promoted |
-| `registry.k8s.io/security-profiles-operator/base/<runtime>:<version>` | promoted from staging, what a cluster should reference |
+| `gcr.io/k8s-staging-sp-operator/base/<runtime>:<version>` | published on merge, anonymously readable, what the end-to-end tests read on `main` |
+| `gcr.io/k8s-staging-sp-operator/base/<runtime>:latest` | follows the newest recording, for manual pulls; staging only, never promoted |
+| `registry.k8s.io/security-profiles-operator/base/<runtime>:<version>` | promoted from staging, what a cluster should reference and what the end-to-end tests read on a release branch |
 
 They are published in the runtime format: a single layer holding the profile as
 OCI runtime-spec JSON, identified by the media type
@@ -60,10 +60,12 @@ repository has to change:
 
 - the end-to-end test that applies the profile reads `metadata.name` from the
   file
-- the end-to-end test that pulls the artifact uses the `latest` tag
+- the end-to-end test that pulls the artifact derives the tag from that name
 
-Merging publishes it: the staging build pushes the new version and repoints
-`latest`, so the next test run exercises the new recording.
+Merging publishes it: the staging build pushes the new version (and repoints
+`latest`), so the next test run exercises the new recording. Promote the new
+version before cutting a release, because `hack/release.sh` points the test at
+`registry.k8s.io`.
 
 ## Publishing by hand
 
@@ -78,11 +80,12 @@ registry or when the build cannot run:
 environments without an OIDC identity, and `SKIP_EXISTING=false` republishes a
 version that is already there.
 
-Versions that are already published are skipped, because an artifact carries a
-creation timestamp and republishing identical content only produces a new
-digest and a stray untagged one. Skipping is keyed on the version tag, so a
-profile that is re-recorded without the runtime version changing needs
-`SKIP_EXISTING=false` to reach the registry.
+Versions that are already published are skipped. Identical content yields the
+same digest (the manifest's creation timestamp is fixed unless
+`SOURCE_DATE_EPOCH` is set), so a republish would be a no-op for the registry;
+skipping only avoids the pushes and the `latest` repoint. Skipping is keyed on
+the version tag, so a profile that is re-recorded without the runtime version
+changing needs `SKIP_EXISTING=false` to reach the registry.
 
 ## Promoting to registry.k8s.io
 
