@@ -219,6 +219,12 @@ func newApp() *cli.App {
 					Usage: "do not sign the artifact after pushing it, " +
 						"for environments without an OIDC identity",
 				},
+				&cli.BoolFlag{
+					Name: pusher.FlagDisableArtifactValidation,
+					Usage: "push a runtime-spec seccomp profile even if " +
+						"container runtimes would reject it as a KEP-6061 " +
+						"artifact, for publishing test fixtures",
+				},
 				&cli.StringSliceFlag{
 					Name:    pusher.FlagPlatforms,
 					Aliases: []string{"p"},

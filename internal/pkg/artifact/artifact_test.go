@@ -38,6 +38,7 @@ import (
 	"oras.land/oras-go/v2/content/file"
 	"oras.land/oras-go/v2/registry/remote"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/security-profiles-merger/seccomp"
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
@@ -75,7 +76,7 @@ func TestPushDisableSigning(t *testing.T) {
 		"",
 		"",
 		nil,
-		&PushSignatureOptions{DisableSigning: true},
+		&PushOptions{DisableSigning: true},
 	))
 	require.Zero(t, mock.SignCmdCallCount())
 }
@@ -1142,11 +1143,11 @@ func TestPushConfigBlob(t *testing.T) {
 	require.Equal(t, emptyConfig, blob)
 }
 
-func TestWarnRuntimeRestrictions(t *testing.T) {
+func TestValidateRuntimeSpec(t *testing.T) {
 	t.Parallel()
 
-	manyNames := make([]string, 0, maxSyscallEntries+1)
-	for i := range maxSyscallEntries + 1 {
+	manyNames := make([]string, 0, seccomp.MaxArtifactEntriesPerSyscall+1)
+	for i := range seccomp.MaxArtifactEntriesPerSyscall + 1 {
 		manyNames = append(manyNames, "syscall"+strconv.Itoa(i))
 	}
 
@@ -1154,10 +1155,12 @@ func TestWarnRuntimeRestrictions(t *testing.T) {
 		name        string
 		runtimeSpec *specs.LinuxSeccomp
 		content     []byte
+		skip        bool
+		wantErr     error
 		wantLogs    []string
 	}{
 		{
-			name:        "nothing to warn about",
+			name:        "valid profile",
 			runtimeSpec: &specs.LinuxSeccomp{DefaultAction: specs.ActErrno},
 		},
 		{
@@ -1166,7 +1169,7 @@ func TestWarnRuntimeRestrictions(t *testing.T) {
 				DefaultAction: specs.ActErrno,
 				ListenerPath:  "/var/run/agent.sock",
 			},
-			wantLogs: []string{"listener fields"},
+			wantErr: seccomp.ErrListenerNotAllowed,
 		},
 		{
 			name: "listener metadata only",
@@ -1174,14 +1177,14 @@ func TestWarnRuntimeRestrictions(t *testing.T) {
 				DefaultAction:    specs.ActErrno,
 				ListenerMetadata: "meta",
 			},
-			wantLogs: []string{"listener fields"},
+			wantErr: seccomp.ErrListenerNotAllowed,
 		},
 		{
 			name: "notify as default action",
 			runtimeSpec: &specs.LinuxSeccomp{
 				DefaultAction: specs.ActNotify,
 			},
-			wantLogs: []string{string(specs.ActNotify)},
+			wantErr: seccomp.ErrNotifyNotAllowed,
 		},
 		{
 			name: "notify as syscall action",
@@ -1191,7 +1194,35 @@ func TestWarnRuntimeRestrictions(t *testing.T) {
 					{Names: []string{"openat"}, Action: specs.ActNotify},
 				},
 			},
-			wantLogs: []string{string(specs.ActNotify)},
+			wantErr: seccomp.ErrNotifyNotAllowed,
+		},
+		{
+			name: "too many entries for one syscall",
+			runtimeSpec: &specs.LinuxSeccomp{
+				DefaultAction: specs.ActErrno,
+				Syscalls:      manyEntriesFor("openat"),
+			},
+			wantErr: seccomp.ErrTooManyEntries,
+		},
+		{
+			name: "unknown architecture",
+			runtimeSpec: &specs.LinuxSeccomp{
+				DefaultAction: specs.ActErrno,
+				Architectures: []specs.Arch{"SCMP_ARCH_BOGUS"},
+			},
+			wantErr: seccomp.ErrUnknownArch,
+		},
+		{
+			name: "validation disabled logs instead of failing",
+			runtimeSpec: &specs.LinuxSeccomp{
+				DefaultAction: specs.ActErrno,
+				ListenerPath:  "/var/run/agent.sock",
+				Syscalls: []specs.LinuxSyscall{
+					{Names: []string{"openat"}, Action: specs.ActNotify},
+				},
+			},
+			skip:     true,
+			wantLogs: []string{"artifact validation is disabled", "listenerPath", string(specs.ActNotify)},
 		},
 		{
 			name:        "oversized profile",
@@ -1203,14 +1234,6 @@ func TestWarnRuntimeRestrictions(t *testing.T) {
 			name:        "profile at the size limit",
 			runtimeSpec: &specs.LinuxSeccomp{DefaultAction: specs.ActErrno},
 			content:     make([]byte, maxProfileSize),
-		},
-		{
-			name: "too many entries for one syscall",
-			runtimeSpec: &specs.LinuxSeccomp{
-				DefaultAction: specs.ActErrno,
-				Syscalls:      manyEntriesFor("openat"),
-			},
-			wantLogs: []string{"more entries for a syscall", "openat"},
 		},
 		{
 			name: "many distinct syscalls are fine",
@@ -1230,7 +1253,15 @@ func TestWarnRuntimeRestrictions(t *testing.T) {
 				logs.WriteString(args + "\n")
 			}, funcr.Options{}))
 
-			sut.warnRuntimeRestrictions(tc.runtimeSpec, tc.content, "profile.json")
+			err := sut.validateRuntimeSpec(tc.runtimeSpec, tc.content, "profile.json", tc.skip)
+
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, ErrRuntimeRestrictions)
+				require.ErrorIs(t, err, tc.wantErr)
+				require.Contains(t, err.Error(), "profile.json")
+			} else {
+				require.NoError(t, err)
+			}
 
 			if len(tc.wantLogs) == 0 {
 				require.Empty(t, logs.String())
@@ -1248,8 +1279,8 @@ func TestWarnRuntimeRestrictions(t *testing.T) {
 // manyEntriesFor returns more rule entries for the syscall than container
 // runtimes accept.
 func manyEntriesFor(syscall string) []specs.LinuxSyscall {
-	entries := make([]specs.LinuxSyscall, 0, maxSyscallEntries+1)
-	for range maxSyscallEntries + 1 {
+	entries := make([]specs.LinuxSyscall, 0, seccomp.MaxArtifactEntriesPerSyscall+1)
+	for range seccomp.MaxArtifactEntriesPerSyscall + 1 {
 		entries = append(entries, specs.LinuxSyscall{
 			Names:  []string{syscall},
 			Action: specs.ActAllow,

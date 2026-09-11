@@ -23,7 +23,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/saschagrunert/security-profiles-merger/internal/merge"
+	"sigs.k8s.io/security-profiles-merger/internal/merge"
 )
 
 var (
@@ -244,7 +244,7 @@ func (intersectStrategy) mergeFilesystem(left, right *FilesystemRules) *Filesyst
 
 	// Literal-vs-literal intersection via map lookup: O(n+m).
 	for path, leftPerm := range leftPerms {
-		if globTokenRe.MatchString(path) {
+		if IsGlobPattern(path) {
 			continue
 		}
 
@@ -320,7 +320,7 @@ func (unionStrategy) mergePaths(left, right []string) []string {
 	set := newPathSet(left)
 
 	for _, path := range right {
-		if globTokenRe.MatchString(path) || !set.matches(path) {
+		if !set.covers(path) {
 			set.add(path)
 		}
 	}
@@ -369,7 +369,7 @@ func addReadWritePaths(
 	readSet, writeSet, rwSet *pathSet,
 ) {
 	for _, path := range additions {
-		if rwSet.matches(path) {
+		if rwSet.covers(path) {
 			continue
 		}
 
@@ -379,7 +379,7 @@ func addReadWritePaths(
 			continue
 		}
 
-		isGlob := globTokenRe.MatchString(path)
+		isGlob := IsGlobPattern(path)
 
 		if !isGlob && (readSet.matches(path) || writeSet.matches(path)) {
 			rwSet.add(path)
@@ -401,7 +401,7 @@ func addReadOnlyPaths(
 	readSet, writeSet, rwSet *pathSet,
 ) {
 	for _, path := range additions {
-		if rwSet.matches(path) || readSet.matches(path) {
+		if rwSet.covers(path) || readSet.covers(path) {
 			continue
 		}
 
@@ -411,7 +411,7 @@ func addReadOnlyPaths(
 			continue
 		}
 
-		isGlob := globTokenRe.MatchString(path)
+		isGlob := IsGlobPattern(path)
 
 		if !isGlob && writeSet.matches(path) {
 			rwSet.add(path)
@@ -432,7 +432,7 @@ func addWriteOnlyPaths(
 	readSet, writeSet, rwSet *pathSet,
 ) {
 	for _, path := range additions {
-		if rwSet.matches(path) {
+		if rwSet.covers(path) {
 			continue
 		}
 
@@ -442,7 +442,7 @@ func addWriteOnlyPaths(
 			continue
 		}
 
-		isGlob := globTokenRe.MatchString(path)
+		isGlob := IsGlobPattern(path)
 
 		if !isGlob && readSet.matches(path) {
 			rwSet.add(path)
@@ -454,7 +454,7 @@ func addWriteOnlyPaths(
 			promoteCoveredLiterals(path, readSet, rwSet)
 		}
 
-		if !writeSet.matches(path) {
+		if !writeSet.covers(path) {
 			writeSet.add(path)
 		}
 	}
@@ -674,6 +674,25 @@ func normalizeGlobPath(path string) string {
 	return cleaned + path[len(prefix):]
 }
 
+// normalizeLiteralPath cleans a literal path but keeps a trailing slash,
+// which distinguishes a directory rule from a file rule in AppArmor.
+func normalizeLiteralPath(path string) string {
+	cleaned := filepath.Clean(path)
+	if strings.HasSuffix(path, "/") && cleaned != "/" {
+		cleaned += "/"
+	}
+
+	return cleaned
+}
+
+func normalizePath(path string) string {
+	if IsGlobPattern(path) {
+		return normalizeGlobPath(path)
+	}
+
+	return normalizeLiteralPath(path)
+}
+
 func normalizePaths(paths []string) []string {
 	if paths == nil {
 		return nil
@@ -682,11 +701,7 @@ func normalizePaths(paths []string) []string {
 	result := make([]string, len(paths))
 
 	for idx, p := range paths {
-		if globTokenRe.MatchString(p) {
-			result[idx] = normalizeGlobPath(p)
-		} else {
-			result[idx] = filepath.Clean(p)
-		}
+		result[idx] = normalizePath(p)
 	}
 
 	return result

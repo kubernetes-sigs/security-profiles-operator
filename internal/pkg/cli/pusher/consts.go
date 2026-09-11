@@ -39,6 +39,10 @@ const (
 	// FlagDisableSigning is the flag for skipping the artifact signature.
 	FlagDisableSigning string = "disable-signing"
 
+	// FlagDisableArtifactValidation is the flag for pushing runtime-spec
+	// profiles which container runtimes would reject.
+	FlagDisableArtifactValidation string = "disable-artifact-validation"
+
 	// FlagProfiles is the flag for defining the input file locations.
 	FlagProfiles string = "profiles"
 

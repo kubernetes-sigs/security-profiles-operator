@@ -89,3 +89,9 @@ func restrictiveness(action specs.LinuxSeccompAction) int {
 		return levelUnknown
 	}
 }
+
+// errnoSignificant reports whether ErrnoRet changes the runtime effect of an
+// action. Runtimes only pass the errno value along for ERRNO and TRACE.
+func errnoSignificant(action specs.LinuxSeccompAction) bool {
+	return action == specs.ActErrno || action == specs.ActTrace
+}

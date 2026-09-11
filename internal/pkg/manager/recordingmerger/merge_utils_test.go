@@ -124,20 +124,9 @@ func TestMergeProfiles(t *testing.T) {
 				t.Helper()
 
 				mergedProf := ifaceAsSortedSeccompProfile(mergedProfIface)
-				require.Len(t, mergedProf.Spec.Syscalls, 5)
-
-				for _, sc := range mergedProf.Spec.Syscalls {
-					require.Equal(t, seccompprofile.ActErrno, sc.Action)
-					require.Len(t, sc.Names, 1)
-				}
-
-				allNames := make([]string, 0, 5)
-
-				for _, sc := range mergedProf.Spec.Syscalls {
-					allNames = append(allNames, sc.Names[0])
-				}
-
-				require.ElementsMatch(t, []string{"a", "b", "c", "d", "e"}, allNames)
+				require.Len(t, mergedProf.Spec.Syscalls, 1)
+				require.Equal(t, seccompprofile.ActErrno, mergedProf.Spec.Syscalls[0].Action)
+				require.Equal(t, []string{"a", "b", "c", "d", "e"}, mergedProf.Spec.Syscalls[0].Names)
 
 				return nil
 			},
@@ -331,14 +320,8 @@ func TestNormalizeSeccompProfile(t *testing.T) {
 	}
 
 	require.NoError(t, NormalizeProfile(profile))
-	require.Len(t, profile.Spec.Syscalls, 2)
-
-	for _, sc := range profile.Spec.Syscalls {
-		require.Len(t, sc.Names, 1)
-	}
-
-	require.Equal(t, "read", profile.Spec.Syscalls[0].Names[0])
-	require.Equal(t, "write", profile.Spec.Syscalls[1].Names[0])
+	require.Len(t, profile.Spec.Syscalls, 1)
+	require.Equal(t, []string{"read", "write"}, profile.Spec.Syscalls[0].Names)
 }
 
 func TestNormalizeAppArmorProfile(t *testing.T) {

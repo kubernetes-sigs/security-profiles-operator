@@ -58,8 +58,6 @@ spec:
   - action: SCMP_ACT_ALLOW
     names:
     - bar
-  - action: SCMP_ACT_ALLOW
-    names:
     - foo
 status: {}
 `

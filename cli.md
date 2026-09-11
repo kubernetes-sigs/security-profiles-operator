@@ -315,10 +315,15 @@ as separate artifacts.
 
 Profiles which are neither a profile CRD nor a runtime-spec profile are
 rejected, so that no artifact gets published which no consumer understands.
-Content container runtimes reject is reported as a warning: the listener
-fields, `SCMP_ACT_NOTIFY`, profiles above 1 MiB and syscalls with more than
-128 rule entries. The last two are runtime defaults rather than part of the
-format, so they do not fail the push.
+Content that container runtimes reject fails the push, checked with the same
+`ValidateArtifact` from the
+[merge library](https://github.com/kubernetes-sigs/security-profiles-merger)
+that runtimes run: the listener fields, `SCMP_ACT_NOTIFY`, more than 128 rule
+entries for one syscall, and unknown architectures, flags or argument
+operators. `--disable-artifact-validation` pushes such a profile anyway, which
+exists for publishing test fixtures that runtimes are expected to reject.
+Profiles above 1 MiB only produce a warning, because the size limit is a
+runtime default rather than part of the format.
 
 `spoc pull` and `oci://` base profile references accept both formats. Runtime
 format artifacts are recognized by their media type and read from their single

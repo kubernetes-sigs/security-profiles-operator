@@ -37,6 +37,8 @@ type Options struct {
 	password       string
 	annotations    map[string]string
 	disableSigning bool
+
+	disableArtifactValidation bool
 }
 
 // Default returns a default options instance.
@@ -102,6 +104,7 @@ func FromContext(ctx *ucli.Context) (*Options, error) {
 
 	options.password = os.Getenv(cli.EnvKeyPassword)
 	options.disableSigning = ctx.Bool(FlagDisableSigning)
+	options.disableArtifactValidation = ctx.Bool(FlagDisableArtifactValidation)
 	options.annotations = map[string]string{}
 
 	for _, a := range ctx.StringSlice(FlagAnnotations) {

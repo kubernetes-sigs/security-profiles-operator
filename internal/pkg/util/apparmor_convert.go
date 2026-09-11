@@ -17,7 +17,7 @@ limitations under the License.
 package util
 
 import (
-	"github.com/saschagrunert/security-profiles-merger/apparmor"
+	"sigs.k8s.io/security-profiles-merger/apparmor"
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 )

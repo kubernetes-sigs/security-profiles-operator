@@ -25,7 +25,7 @@ import (
 )
 
 type FakeImpl struct {
-	PushStub        func(map[*v1.Platform]string, string, string, string, map[string]string, *artifact.PushSignatureOptions) error
+	PushStub        func(map[*v1.Platform]string, string, string, string, map[string]string, *artifact.PushOptions) error
 	pushMutex       sync.RWMutex
 	pushArgsForCall []struct {
 		arg1 map[*v1.Platform]string
@@ -33,7 +33,7 @@ type FakeImpl struct {
 		arg3 string
 		arg4 string
 		arg5 map[string]string
-		arg6 *artifact.PushSignatureOptions
+		arg6 *artifact.PushOptions
 	}
 	pushReturns struct {
 		result1 error
@@ -45,7 +45,7 @@ type FakeImpl struct {
 	invocationsMutex sync.RWMutex
 }
 
-func (fake *FakeImpl) Push(arg1 map[*v1.Platform]string, arg2 string, arg3 string, arg4 string, arg5 map[string]string, arg6 *artifact.PushSignatureOptions) error {
+func (fake *FakeImpl) Push(arg1 map[*v1.Platform]string, arg2 string, arg3 string, arg4 string, arg5 map[string]string, arg6 *artifact.PushOptions) error {
 	fake.pushMutex.Lock()
 	ret, specificReturn := fake.pushReturnsOnCall[len(fake.pushArgsForCall)]
 	fake.pushArgsForCall = append(fake.pushArgsForCall, struct {
@@ -54,7 +54,7 @@ func (fake *FakeImpl) Push(arg1 map[*v1.Platform]string, arg2 string, arg3 strin
 		arg3 string
 		arg4 string
 		arg5 map[string]string
-		arg6 *artifact.PushSignatureOptions
+		arg6 *artifact.PushOptions
 	}{arg1, arg2, arg3, arg4, arg5, arg6})
 	stub := fake.PushStub
 	fakeReturns := fake.pushReturns
@@ -75,13 +75,13 @@ func (fake *FakeImpl) PushCallCount() int {
 	return len(fake.pushArgsForCall)
 }
 
-func (fake *FakeImpl) PushCalls(stub func(map[*v1.Platform]string, string, string, string, map[string]string, *artifact.PushSignatureOptions) error) {
+func (fake *FakeImpl) PushCalls(stub func(map[*v1.Platform]string, string, string, string, map[string]string, *artifact.PushOptions) error) {
 	fake.pushMutex.Lock()
 	defer fake.pushMutex.Unlock()
 	fake.PushStub = stub
 }
 
-func (fake *FakeImpl) PushArgsForCall(i int) (map[*v1.Platform]string, string, string, string, map[string]string, *artifact.PushSignatureOptions) {
+func (fake *FakeImpl) PushArgsForCall(i int) (map[*v1.Platform]string, string, string, string, map[string]string, *artifact.PushOptions) {
 	fake.pushMutex.RLock()
 	defer fake.pushMutex.RUnlock()
 	argsForCall := fake.pushArgsForCall[i]

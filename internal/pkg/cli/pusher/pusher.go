@@ -47,7 +47,10 @@ func (p *Pusher) Run() error {
 		p.options.username,
 		p.options.password,
 		p.options.annotations,
-		&artifact.PushSignatureOptions{DisableSigning: p.options.disableSigning},
+		&artifact.PushOptions{
+			DisableSigning:            p.options.disableSigning,
+			DisableArtifactValidation: p.options.disableArtifactValidation,
+		},
 	); err != nil {
 		return fmt.Errorf("push profile: %w", err)
 	}
