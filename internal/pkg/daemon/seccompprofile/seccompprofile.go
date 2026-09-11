@@ -97,6 +97,11 @@ func NewController() controller.Controller {
 		baseProfiles: ttlcache.New(
 			ttlcache.WithTTL[string, *seccompprofileapi.SeccompProfile](defaultCacheTimeout),
 			ttlcache.WithCapacity[string, *seccompprofileapi.SeccompProfile](maxCacheItems),
+			// A base profile referenced by tag has to be pulled again after
+			// the TTL to pick up a new version, no matter how often it is
+			// used in between. Touching on hit would keep a busy profile
+			// stale forever.
+			ttlcache.WithDisableTouchOnHit[string, *seccompprofileapi.SeccompProfile](),
 		),
 	}
 }
@@ -415,25 +420,32 @@ func (r *Reconciler) resolveSyscallsForProfile(
 				spod.Spec.Security.AllowedOidcIssuerRegexp = allowedAllRegexp
 			}
 
-			signOpts := &artifact.PullOptions{
+			pullOpts := &artifact.PullOptions{
 				DisableSignatureVerification: ptr.Deref(
 					spod.Spec.Security.DisableOCIArtifactSignatureVerification,
 					false,
 				),
 				AllowedIdentityRegexp:   spod.Spec.Security.AllowedIdentityRegexp,
 				AllowedOidcIssuerRegexp: spod.Spec.Security.AllowedOidcIssuerRegexp,
+				// A base profile bigger than what container runtimes accept
+				// is of no use, and the registry must not decide how much
+				// memory the daemon allocates on every node.
+				MaxBlobSize: artifact.MaxRuntimeProfileSize,
 			}
 			l.Info(
 				"Pulling base profile: "+from,
-				"disableOCIArtifactSignatureVerification", signOpts.DisableSignatureVerification,
-				"allowedIdentityRegexp", signOpts.AllowedIdentityRegexp,
-				"allowedOidcIssuerRegexp", signOpts.AllowedOidcIssuerRegexp,
+				"disableOCIArtifactSignatureVerification", pullOpts.DisableSignatureVerification,
+				"allowedIdentityRegexp", pullOpts.AllowedIdentityRegexp,
+				"allowedOidcIssuerRegexp", pullOpts.AllowedOidcIssuerRegexp,
+				"maxBlobSize", pullOpts.MaxBlobSize,
 			)
 
+			// The pull is anonymous: the daemon has no registry credentials,
+			// so base profiles have to be publicly readable.
 			res, err := r.Pull(ctx, l, from, "", "", &v1.Platform{
 				Architecture: runtime.GOARCH,
 				OS:           runtime.GOOS,
-			}, signOpts)
+			}, pullOpts)
 			if err != nil {
 				l.Error(err, "cannot pull base profile", "profile", baseProfileName)
 				r.IncSeccompProfileError(r.metrics, reasonCannotPullProfile)

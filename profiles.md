@@ -1196,9 +1196,25 @@ ignored, including the ones the CRD cannot express such as `defaultErrnoRet`.
 
 The operator internally caches pulled artifacts up to 24 hours for 1000
 profiles, means that they will be refreshed after that time period, if the stack
-is full or the operator daemon gets restarted. It is also possible to define
+is full or the operator daemon gets restarted. Using a cached profile does not
+extend its cache time, so a base profile referenced by tag picks up a new
+version within 24 hours no matter how often it is used. Reference the base
+profile by digest to pin the exact content. It is also possible to define
 additional `baseProfileName` for existing base profiles, so the operator will
 recursively resolve them up to a level of 15 stacked profiles.
+
+A few limits apply to base profiles pulled by the operator:
+
+- The pull is anonymous. The operator daemon has no registry credentials, so
+  the artifact and its signature have to be publicly readable.
+- Every blob of the artifact has to be at most 1 MiB, the size limit container
+  runtimes apply to seccomp profile artifacts. Bigger blobs fail the pull
+  before they are fetched.
+- Signature verification accepts any valid signature by default, see the
+  [security model](security-model.md#oci-artifact-signature-verification) for
+  how to constrain it to the signers you trust. Disabling verification via
+  `disableOciArtifactSignatureVerification` makes the operator use whatever the
+  registry serves.
 
 Because the resulting syscalls may be hidden from the user, we additionally annotate
 the seccomp profile with the final results:

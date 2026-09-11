@@ -783,3 +783,57 @@ func TestResolveSyscallsForProfile(t *testing.T) {
 		})
 	}
 }
+
+// TestResolveSyscallsForProfileBaseProfileCache verifies that a remote base
+// profile is pulled once, anonymously and with the runtime size limit, and
+// that later resolutions of the same reference use the cache.
+func TestResolveSyscallsForProfileBaseProfileCache(t *testing.T) {
+	t.Parallel()
+
+	mock := &seccompprofilefakes.FakeImpl{}
+	mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{}, nil)
+	mock.PullResultTypeReturns(artifact.PullResultTypeSeccompProfile)
+	mock.PullResultSeccompProfileReturns(&seccompprofileapi.SeccompProfile{
+		Spec: seccompprofileapi.SeccompProfileSpec{
+			Syscalls: []seccompprofileapi.Syscall{
+				{Names: []string{"second"}, Action: seccompprofileapi.ActAllow},
+			},
+		},
+	})
+
+	sut, ok := NewController().(*Reconciler)
+	require.True(t, ok)
+
+	sut.impl = mock
+
+	sp := &seccompprofileapi.SeccompProfile{
+		Spec: seccompprofileapi.SeccompProfileSpec{
+			BaseProfileName: config.OCIProfilePrefix + "registry/base:v1",
+			Syscalls: []seccompprofileapi.Syscall{
+				{Names: []string{"first"}, Action: seccompprofileapi.ActAllow},
+			},
+		},
+	}
+
+	for range 3 {
+		syscalls, err := sut.resolveSyscallsForProfile(
+			t.Context(), sp, sp.Spec.Syscalls, logr.Discard(), 0,
+		)
+		require.NoError(t, err)
+		require.Len(t, syscalls, 1)
+		require.Equal(t, []string{"first", "second"}, syscalls[0].Names)
+	}
+
+	require.Equal(t, 1, mock.PullCallCount(), "later resolutions must use the cache")
+	require.Equal(t, 1, mock.GetSPODCallCount())
+
+	_, _, from, username, password, platform, opts := mock.PullArgsForCall(0)
+	require.Equal(t, "registry/base:v1", from)
+	require.Empty(t, username)
+	require.Empty(t, password)
+	require.NotNil(t, platform)
+	require.Equal(t, artifact.MaxRuntimeProfileSize, opts.MaxBlobSize)
+	require.False(t, opts.DisableSignatureVerification)
+	require.Equal(t, allowedAllRegexp, opts.AllowedIdentityRegexp)
+	require.Equal(t, allowedAllRegexp, opts.AllowedOidcIssuerRegexp)
+}
