@@ -17,16 +17,22 @@ limitations under the License.
 package spod
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 func Test_addAuditLogConfig(t *testing.T) {
@@ -222,6 +228,243 @@ func Test_getConfiguredSPOdEnricherArgsAreRevertible(t *testing.T) {
 	for _, arg := range render("") {
 		require.NotContains(t, arg, "--enricher-filters-json")
 	}
+}
+
+// renderedPodSpec renders the SPOd for the given spec and CA injection type
+// and returns its pod template spec. It also asserts that every volume mount
+// and volume device of the rendered containers is still backed by a volume.
+func renderedPodSpec(
+	t *testing.T, r *ReconcileSPOd, spec *spodapi.SPODSpec, caInjectType bindata.CAInjectType,
+) *v1.PodSpec {
+	t.Helper()
+
+	ds, err := r.getConfiguredSPOd(
+		t.Context(), &spodapi.SecurityProfilesOperatorDaemon{Spec: *spec},
+		"image", v1.PullAlways, caInjectType,
+	)
+	require.NoError(t, err)
+
+	podSpec := &ds.Spec.Template.Spec
+
+	volumes := map[string]bool{}
+	for i := range podSpec.Volumes {
+		volumes[podSpec.Volumes[i].Name] = true
+	}
+
+	for _, containers := range [][]v1.Container{podSpec.InitContainers, podSpec.Containers} {
+		for i := range containers {
+			for _, mount := range containers[i].VolumeMounts {
+				require.True(t, volumes[mount.Name],
+					"container %s mounts missing volume %s", containers[i].Name, mount.Name)
+			}
+
+			for _, device := range containers[i].VolumeDevices {
+				require.True(t, volumes[device.Name],
+					"container %s uses missing volume device %s", containers[i].Name, device.Name)
+			}
+		}
+	}
+
+	return podSpec
+}
+
+// renderedVolumeNames returns the names of every volume of the SPOd rendered
+// for the given spec.
+func renderedVolumeNames(
+	t *testing.T, r *ReconcileSPOd, spec *spodapi.SPODSpec, caInjectType bindata.CAInjectType,
+) map[string]bool {
+	t.Helper()
+
+	podSpec := renderedPodSpec(t, r, spec, caInjectType)
+
+	volumes := map[string]bool{}
+	for i := range podSpec.Volumes {
+		volumes[podSpec.Volumes[i].Name] = true
+	}
+
+	return volumes
+}
+
+func requireVolumes(t *testing.T, volumes map[string]bool, names []string, present bool) {
+	t.Helper()
+
+	for _, name := range names {
+		require.Equal(t, present, volumes[name], "volume %s", name)
+	}
+}
+
+var (
+	selinuxHostVolumes = []string{
+		"host-fsselinux-volume", "host-etcselinux-volume", "host-varlibselinux-volume",
+	}
+	enricherHostVolumes = []string{"host-auditlog-volume", "host-syslog-volume"}
+	bpfHostVolumes      = []string{
+		"sys-kernel-debug-volume", "sys-kernel-security-volume",
+		"sys-kernel-tracing-volume", "host-etc-osrelease-volume",
+	}
+)
+
+// Test_getConfiguredSPOdVolumesFollowFeatures asserts that the hostPath
+// volumes backing optional features are only rendered when a container of
+// that feature mounts them. The base SPOd declares all of them
+// unconditionally, so a SPOD with SELinux, the enrichers and the bpf recorder
+// disabled used to keep the SELinux, audit log and /sys/kernel host paths in
+// the DaemonSet on every node.
+func Test_getConfiguredSPOdVolumesFollowFeatures(t *testing.T) {
+	t.Parallel()
+
+	r := newTestReconciler()
+	certManager := bindata.CAInjectTypeCertManager
+
+	// Everything off: none of the SELinux, enricher or bpf host paths are needed.
+	off := renderedVolumeNames(t, r, &spodapi.SPODSpec{
+		Selinux: spodapi.SPODSelinuxConfig{Enable: new(false)},
+	}, certManager)
+	requireVolumes(t, off, selinuxHostVolumes, false)
+	requireVolumes(t, off, enricherHostVolumes, false)
+	requireVolumes(t, off, bpfHostVolumes, false)
+
+	selinux := renderedVolumeNames(t, r, &spodapi.SPODSpec{
+		Selinux: spodapi.SPODSelinuxConfig{Enable: new(true)},
+	}, certManager)
+	requireVolumes(t, selinux, selinuxHostVolumes, true)
+	requireVolumes(t, selinux, enricherHostVolumes, false)
+	requireVolumes(t, selinux, bpfHostVolumes, false)
+
+	// OpenShift default: Selinux.Enable is unset and getConfiguredSPOd turns
+	// SELinux on because of the CA injection type, so the SELinux volumes stay.
+	openshift := renderedVolumeNames(t, r, &spodapi.SPODSpec{}, bindata.CAInjectTypeOpenShift)
+	requireVolumes(t, openshift, selinuxHostVolumes, true)
+	requireVolumes(t, openshift, enricherHostVolumes, false)
+	requireVolumes(t, openshift, bpfHostVolumes, false)
+
+	// The same unset Selinux.Enable outside OpenShift keeps SELinux off.
+	noSelinux := renderedVolumeNames(t, r, &spodapi.SPODSpec{}, certManager)
+	requireVolumes(t, noSelinux, selinuxHostVolumes, false)
+
+	logEnricher := renderedVolumeNames(t, r, &spodapi.SPODSpec{
+		Enricher: spodapi.SPODEnricherConfig{EnableLogEnricher: new(true)},
+	}, certManager)
+	requireVolumes(t, logEnricher, enricherHostVolumes, true)
+	requireVolumes(t, logEnricher, selinuxHostVolumes, false)
+	requireVolumes(t, logEnricher, bpfHostVolumes, false)
+
+	bpfRecorder := renderedVolumeNames(t, r, &spodapi.SPODSpec{
+		Enricher: spodapi.SPODEnricherConfig{EnableBpfRecorder: new(true)},
+	}, certManager)
+	requireVolumes(t, bpfRecorder, bpfHostVolumes, true)
+	requireVolumes(t, bpfRecorder, selinuxHostVolumes, false)
+	requireVolumes(t, bpfRecorder, enricherHostVolumes, false)
+
+	// Every render starts from a fresh DeepCopy of baseSPOd, so pruning the
+	// rendered copy must not have removed anything from the base itself: a
+	// later render with the feature enabled still finds its volumes.
+	requireVolumes(t, renderedVolumeNames(t, r, &spodapi.SPODSpec{
+		Selinux: spodapi.SPODSelinuxConfig{Enable: new(true)},
+	}, certManager), selinuxHostVolumes, true)
+}
+
+// Test_getConfiguredSPOdJsonEnricherVolumes asserts that the JSON enricher
+// keeps exactly the host paths it mounts: the audit logs and the tracing
+// filesystems, but neither /sys/kernel/security nor /etc/os-release, which
+// only the bpf recorder needs. It also covers the log output volume read from
+// the operator ConfigMap: it is rendered with the enricher enabled and dropped
+// with the enricher disabled, where it used to stay in the DaemonSet.
+func Test_getConfiguredSPOdJsonEnricherVolumes(t *testing.T) {
+	// The JSON enricher volume lookup requires the operator namespace, so
+	// this test cannot run in parallel.
+	t.Setenv(config.OperatorNamespaceEnvKey, "security-profiles-operator")
+
+	const (
+		logVolumeName = "json-enricher-log-output-volume"
+		logMountPath  = "/var/log/spo"
+		logHostPath   = "/var/log/spo-json-enricher"
+	)
+
+	logVolumeSource := &v1.VolumeSource{
+		HostPath: &v1.HostPathVolumeSource{Path: logHostPath},
+	}
+	logVolumeSourceJson, err := json.Marshal(logVolumeSource)
+	require.NoError(t, err)
+
+	operatorConfigMap := &v1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      util.OperatorConfigMap,
+			Namespace: config.GetOperatorNamespace(),
+		},
+		Data: map[string]string{
+			util.JsonEnricherLogVolumeSourceJson: string(logVolumeSourceJson),
+			util.JsonEnricherLogVolumeMountPath:  logMountPath,
+		},
+	}
+
+	r := newTestReconciler()
+	r.clientReader = fake.NewClientBuilder().WithObjects(operatorConfigMap).Build()
+	// Like Setup, start from the effective SPOd, which already carries the log
+	// volume and its mount when the ConfigMap configures them.
+	r.baseSPOd = getEffectiveSPOd(&daemonTunables{
+		jsonEnricherLogVolumeSource:    logVolumeSource,
+		jsonEnricherLogVolumeMountPath: logMountPath,
+	})
+
+	on := renderedPodSpec(t, r, &spodapi.SPODSpec{
+		Enricher: spodapi.SPODEnricherConfig{EnableJsonEnricher: new(true)},
+	}, bindata.CAInjectTypeCertManager)
+
+	var logVolume *v1.Volume
+
+	for i := range on.Volumes {
+		if on.Volumes[i].Name == logVolumeName {
+			logVolume = &on.Volumes[i]
+		}
+	}
+
+	require.NotNil(t, logVolume, "volume %s", logVolumeName)
+	require.NotNil(t, logVolume.HostPath)
+	require.Equal(t, logHostPath, logVolume.HostPath.Path)
+
+	jsonEnricher := map[string]bool{}
+	for i := range on.Volumes {
+		jsonEnricher[on.Volumes[i].Name] = true
+	}
+
+	requireVolumes(t, jsonEnricher, enricherHostVolumes, true)
+	requireVolumes(t, jsonEnricher, []string{
+		"sys-kernel-debug-volume", "sys-kernel-tracing-volume",
+	}, true)
+	requireVolumes(t, jsonEnricher, []string{
+		"sys-kernel-security-volume", "host-etc-osrelease-volume",
+	}, false)
+	requireVolumes(t, jsonEnricher, selinuxHostVolumes, false)
+
+	// With the JSON enricher disabled its log output volume goes too.
+	off := renderedVolumeNames(t, r, &spodapi.SPODSpec{
+		Enricher: spodapi.SPODEnricherConfig{EnableJsonEnricher: new(false)},
+	}, bindata.CAInjectTypeCertManager)
+	requireVolumes(t, off, []string{logVolumeName}, false)
+	requireVolumes(t, off, enricherHostVolumes, false)
+}
+
+func Test_spodNeedsUpdateVolumeCount(t *testing.T) {
+	t.Parallel()
+
+	newDS := func(volumes ...string) *appsv1.DaemonSet {
+		ds := &appsv1.DaemonSet{}
+
+		podSpec := &ds.Spec.Template.Spec
+		for _, name := range volumes {
+			podSpec.Volumes = append(podSpec.Volumes, v1.Volume{Name: name})
+		}
+
+		return ds
+	}
+
+	require.False(t, spodNeedsUpdate(newDS("a", "b", "c"), newDS("a", "b", "c")))
+	require.True(t, spodNeedsUpdate(newDS("a", "b"), newDS("a", "b", "c")),
+		"dropping the trailing volume needs an update")
+	require.True(t, spodNeedsUpdate(newDS("a", "c"), newDS("a", "b", "c")),
+		"dropping a middle volume needs an update")
+	require.True(t, spodNeedsUpdate(newDS("a", "b", "c", "d"), newDS("a", "b", "c")))
 }
 
 func Test_addSelinuxCustomTemplatesVolumeEmpty(t *testing.T) {

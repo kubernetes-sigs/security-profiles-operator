@@ -888,7 +888,45 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	templateSpec.ImagePullSecrets = cfg.Spec.ImagePullSecrets
 	templateSpec.PriorityClassName = cfg.Spec.Scheduling.PriorityClassName
 
+	pruneUnmountedVolumes(templateSpec)
+
 	return newSPOd, nil
+}
+
+// pruneUnmountedVolumes drops every volume which no init container or
+// container of the rendered pod template uses, either as a volume mount or as
+// a raw block volume device, like the kubelet counts volume usage. The base
+// SPOd declares the volumes of all optional features (SELinux, log and JSON
+// enricher, bpf recorder) unconditionally while their containers are only
+// added when the feature is enabled. Without pruning, the hostPath volumes of
+// disabled features, like /sys/fs/selinux, /var/log/audit or
+// /sys/kernel/debug, stay part of the DaemonSet on every node.
+func pruneUnmountedVolumes(templateSpec *corev1.PodSpec) {
+	mounted := map[string]bool{}
+
+	for _, containers := range [][]corev1.Container{
+		templateSpec.InitContainers, templateSpec.Containers,
+	} {
+		for i := range containers {
+			for _, mount := range containers[i].VolumeMounts {
+				mounted[mount.Name] = true
+			}
+
+			for _, device := range containers[i].VolumeDevices {
+				mounted[device.Name] = true
+			}
+		}
+	}
+
+	volumes := make([]corev1.Volume, 0, len(templateSpec.Volumes))
+
+	for i := range templateSpec.Volumes {
+		if mounted[templateSpec.Volumes[i].Name] {
+			volumes = append(volumes, templateSpec.Volumes[i])
+		}
+	}
+
+	templateSpec.Volumes = volumes
 }
 
 // configureLogEnricher applies the log enricher configuration to ctr.
@@ -1176,9 +1214,12 @@ func profilingEnvsSpo(add int) []corev1.EnvVar {
 }
 
 func spodNeedsUpdate(configured, found *appsv1.DaemonSet) bool {
-	// If the length of the containers don't match, we clearly need an update.
-	// This way we avoid the expensive DeepDerivative check.
+	// If the length of the containers or volumes don't match, we clearly need
+	// an update. This way we avoid the expensive DeepDerivative check, and the
+	// volume count also catches a pruned trailing volume, which DeepDerivative
+	// would accept as a prefix match of the longer slice in the found object.
 	return (len(configured.Spec.Template.Spec.InitContainers) != len(found.Spec.Template.Spec.InitContainers) ||
 		len(configured.Spec.Template.Spec.Containers) != len(found.Spec.Template.Spec.Containers) ||
+		len(configured.Spec.Template.Spec.Volumes) != len(found.Spec.Template.Spec.Volumes) ||
 		!apiequality.Semantic.DeepDerivative(configured.Spec.Template, found.Spec.Template))
 }
