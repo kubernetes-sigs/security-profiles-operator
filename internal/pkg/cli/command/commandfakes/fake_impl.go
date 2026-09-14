@@ -288,15 +288,20 @@ func (fake *FakeImpl) CmdWaitReturnsOnCall(i int, result1 error) {
 }
 
 func (fake *FakeImpl) Command(arg1 string, arg2 ...string) *exec.Cmd {
+	var arg2Copy []string
+	if arg2 != nil {
+		arg2Copy = make([]string, len(arg2))
+		copy(arg2Copy, arg2)
+	}
 	fake.commandMutex.Lock()
 	ret, specificReturn := fake.commandReturnsOnCall[len(fake.commandArgsForCall)]
 	fake.commandArgsForCall = append(fake.commandArgsForCall, struct {
 		arg1 string
 		arg2 []string
-	}{arg1, arg2})
+	}{arg1, arg2Copy})
 	stub := fake.CommandStub
 	fakeReturns := fake.commandReturns
-	fake.recordInvocation("Command", []interface{}{arg1, arg2})
+	fake.recordInvocation("Command", []interface{}{arg1, arg2Copy})
 	fake.commandMutex.Unlock()
 	if stub != nil {
 		return stub(arg1, arg2...)
@@ -414,13 +419,18 @@ func (fake *FakeImpl) GetHomeDirectoryReturnsOnCall(i int, result1 string, resul
 }
 
 func (fake *FakeImpl) Notify(arg1 chan<- os.Signal, arg2 ...os.Signal) {
+	var arg2Copy []os.Signal
+	if arg2 != nil {
+		arg2Copy = make([]os.Signal, len(arg2))
+		copy(arg2Copy, arg2)
+	}
 	fake.notifyMutex.Lock()
 	fake.notifyArgsForCall = append(fake.notifyArgsForCall, struct {
 		arg1 chan<- os.Signal
 		arg2 []os.Signal
-	}{arg1, arg2})
+	}{arg1, arg2Copy})
 	stub := fake.NotifyStub
-	fake.recordInvocation("Notify", []interface{}{arg1, arg2})
+	fake.recordInvocation("Notify", []interface{}{arg1, arg2Copy})
 	fake.notifyMutex.Unlock()
 	if stub != nil {
 		fake.NotifyStub(arg1, arg2...)

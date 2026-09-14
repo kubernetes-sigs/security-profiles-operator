@@ -838,13 +838,18 @@ func (fake *FakeImpl) PidLoadReturnsOnCall(i int, result1 uint32) {
 }
 
 func (fake *FakeImpl) Printf(arg1 string, arg2 ...any) {
+	var arg2Copy []any
+	if arg2 != nil {
+		arg2Copy = make([]any, len(arg2))
+		copy(arg2Copy, arg2)
+	}
 	fake.printfMutex.Lock()
 	fake.printfArgsForCall = append(fake.printfArgsForCall, struct {
 		arg1 string
 		arg2 []any
-	}{arg1, arg2})
+	}{arg1, arg2Copy})
 	stub := fake.PrintfStub
-	fake.recordInvocation("Printf", []interface{}{arg1, arg2})
+	fake.recordInvocation("Printf", []interface{}{arg1, arg2Copy})
 	fake.printfMutex.Unlock()
 	if stub != nil {
 		fake.PrintfStub(arg1, arg2...)

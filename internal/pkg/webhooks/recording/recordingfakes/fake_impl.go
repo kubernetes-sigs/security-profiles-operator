@@ -266,15 +266,20 @@ func (fake *FakeImpl) LabelSelectorAsSelectorReturnsOnCall(i int, result1 labels
 }
 
 func (fake *FakeImpl) ListProfileRecordings(arg1 context.Context, arg2 ...client.ListOption) (*v1b.ProfileRecordingList, error) {
+	var arg2Copy []client.ListOption
+	if arg2 != nil {
+		arg2Copy = make([]client.ListOption, len(arg2))
+		copy(arg2Copy, arg2)
+	}
 	fake.listProfileRecordingsMutex.Lock()
 	ret, specificReturn := fake.listProfileRecordingsReturnsOnCall[len(fake.listProfileRecordingsArgsForCall)]
 	fake.listProfileRecordingsArgsForCall = append(fake.listProfileRecordingsArgsForCall, struct {
 		arg1 context.Context
 		arg2 []client.ListOption
-	}{arg1, arg2})
+	}{arg1, arg2Copy})
 	stub := fake.ListProfileRecordingsStub
 	fakeReturns := fake.listProfileRecordingsReturns
-	fake.recordInvocation("ListProfileRecordings", []interface{}{arg1, arg2})
+	fake.recordInvocation("ListProfileRecordings", []interface{}{arg1, arg2Copy})
 	fake.listProfileRecordingsMutex.Unlock()
 	if stub != nil {
 		return stub(arg1, arg2...)

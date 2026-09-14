@@ -939,13 +939,18 @@ func (fake *FakeImpl) MarshalIndentReturnsOnCall(i int, result1 []byte, result2 
 }
 
 func (fake *FakeImpl) Notify(arg1 chan<- os.Signal, arg2 ...os.Signal) {
+	var arg2Copy []os.Signal
+	if arg2 != nil {
+		arg2Copy = make([]os.Signal, len(arg2))
+		copy(arg2Copy, arg2)
+	}
 	fake.notifyMutex.Lock()
 	fake.notifyArgsForCall = append(fake.notifyArgsForCall, struct {
 		arg1 chan<- os.Signal
 		arg2 []os.Signal
-	}{arg1, arg2})
+	}{arg1, arg2Copy})
 	stub := fake.NotifyStub
-	fake.recordInvocation("Notify", []interface{}{arg1, arg2})
+	fake.recordInvocation("Notify", []interface{}{arg1, arg2Copy})
 	fake.notifyMutex.Unlock()
 	if stub != nil {
 		fake.NotifyStub(arg1, arg2...)

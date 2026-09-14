@@ -365,15 +365,20 @@ func (fake *FakeImpl) GetSelinuxProfileReturnsOnCall(i int, result1 *v1c.Selinux
 }
 
 func (fake *FakeImpl) ListProfileBindings(arg1 context.Context, arg2 ...client.ListOption) (*v1d.ProfileBindingList, error) {
+	var arg2Copy []client.ListOption
+	if arg2 != nil {
+		arg2Copy = make([]client.ListOption, len(arg2))
+		copy(arg2Copy, arg2)
+	}
 	fake.listProfileBindingsMutex.Lock()
 	ret, specificReturn := fake.listProfileBindingsReturnsOnCall[len(fake.listProfileBindingsArgsForCall)]
 	fake.listProfileBindingsArgsForCall = append(fake.listProfileBindingsArgsForCall, struct {
 		arg1 context.Context
 		arg2 []client.ListOption
-	}{arg1, arg2})
+	}{arg1, arg2Copy})
 	stub := fake.ListProfileBindingsStub
 	fakeReturns := fake.listProfileBindingsReturns
-	fake.recordInvocation("ListProfileBindings", []interface{}{arg1, arg2})
+	fake.recordInvocation("ListProfileBindings", []interface{}{arg1, arg2Copy})
 	fake.listProfileBindingsMutex.Unlock()
 	if stub != nil {
 		return stub(arg1, arg2...)

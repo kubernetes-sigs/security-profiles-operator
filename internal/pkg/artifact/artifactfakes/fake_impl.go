@@ -823,15 +823,20 @@ func (fake *FakeImpl) PackManifestReturnsOnCall(i int, result1 v1.Descriptor, re
 }
 
 func (fake *FakeImpl) ParseReference(arg1 string, arg2 ...name.Option) (name.Reference, error) {
+	var arg2Copy []name.Option
+	if arg2 != nil {
+		arg2Copy = make([]name.Option, len(arg2))
+		copy(arg2Copy, arg2)
+	}
 	fake.parseReferenceMutex.Lock()
 	ret, specificReturn := fake.parseReferenceReturnsOnCall[len(fake.parseReferenceArgsForCall)]
 	fake.parseReferenceArgsForCall = append(fake.parseReferenceArgsForCall, struct {
 		arg1 string
 		arg2 []name.Option
-	}{arg1, arg2})
+	}{arg1, arg2Copy})
 	stub := fake.ParseReferenceStub
 	fakeReturns := fake.parseReferenceReturns
-	fake.recordInvocation("ParseReference", []interface{}{arg1, arg2})
+	fake.recordInvocation("ParseReference", []interface{}{arg1, arg2Copy})
 	fake.parseReferenceMutex.Unlock()
 	if stub != nil {
 		return stub(arg1, arg2...)
