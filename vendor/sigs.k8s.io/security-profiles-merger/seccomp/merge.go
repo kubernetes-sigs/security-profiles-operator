@@ -18,6 +18,7 @@ package seccomp
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -34,6 +35,11 @@ var (
 	ErrNoProfiles = merge.ErrNoProfiles
 	// ErrNilProfile is returned when a nil profile is provided.
 	ErrNilProfile = merge.ErrNilProfile
+	// ErrDisjointArchitectures is returned by Intersect when two profiles
+	// list architectures but have none in common. An empty result would
+	// mean "native architecture only" to the runtime, which neither input
+	// permits.
+	ErrDisjointArchitectures = errors.New("no architecture in common")
 )
 
 // Intersect merges multiple seccomp profiles via intersection: the resulting
@@ -62,6 +68,10 @@ var (
 // ListenerPath and ListenerMetadata are taken from the first profile.
 // When two profiles share the same default or syscall action, DefaultErrnoRet
 // and per-syscall ErrnoRet are taken from the earlier (leftmost) profile.
+// Errno values are compared the way runtimes apply them: an unset errnoRet
+// on SCMP_ACT_ERRNO or SCMP_ACT_TRACE means EPERM, and errnoRet on any
+// other action is ignored. The result spells EPERM as an unset errnoRet and
+// drops ignored values.
 //
 // An empty Architectures list is treated as "unspecified" and defers to the
 // other profile. Per the OCI runtime-spec, empty means "native architecture
@@ -69,8 +79,9 @@ var (
 // need precise architecture intersection should populate the native
 // architecture explicitly before merging, for example with
 // PopulateNativeArchitecture. Two non-empty lists with no architecture in
-// common intersect to an empty list, which the runtime-spec again reads as
-// "native architecture only".
+// common cannot be intersected: an empty result would again mean "native
+// architecture only", which neither input permits, so Intersect returns
+// ErrDisjointArchitectures instead.
 //
 // Flags are merged by what they do. SECCOMP_FILTER_FLAG_SPEC_ALLOW loosens
 // confinement and survives only if every profile sets it, so a profile
@@ -113,6 +124,7 @@ func Intersect(profiles ...*specs.LinuxSeccomp) (*specs.LinuxSeccomp, error) {
 // ListenerPath and ListenerMetadata are taken from the first profile.
 // When two profiles share the same default or syscall action, DefaultErrnoRet
 // and per-syscall ErrnoRet are taken from the earlier (leftmost) profile.
+// Errno values are compared and spelled as described for Intersect.
 //
 // Flags mirror Intersect: SECCOMP_FILTER_FLAG_SPEC_ALLOW survives if any
 // profile sets it, SECCOMP_FILTER_FLAG_LOG only if every profile does, and
@@ -136,10 +148,10 @@ type mergeStrategy struct {
 func foldProfiles(
 	profiles []*specs.LinuxSeccomp, strategy mergeStrategy,
 ) (*specs.LinuxSeccomp, error) {
-	for _, profile := range profiles {
+	for idx, profile := range profiles {
 		err := Validate(profile)
 		if err != nil {
-			return nil, fmt.Errorf("validate: %w", err)
+			return nil, fmt.Errorf("validate profile %d: %w", idx, err)
 		}
 	}
 
@@ -153,11 +165,11 @@ func foldProfiles(
 		profiles,
 		cloneProfile,
 		func(a, b *specs.LinuxSeccomp) (*specs.LinuxSeccomp, error) {
-			return mergeTwo(a, b, strategy), nil
+			return mergeTwo(a, b, strategy)
 		},
 	)
 	if err != nil {
-		return nil, fmt.Errorf("fold: %w", err)
+		return nil, fmt.Errorf("merge: %w", err)
 	}
 
 	result.Syscalls = regroupSyscalls(result.Syscalls)
@@ -171,53 +183,58 @@ func foldProfiles(
 func mergeTwo(
 	left, right *specs.LinuxSeccomp,
 	strategy mergeStrategy,
-) *specs.LinuxSeccomp {
-	pick := strategy.pick
-
-	defaultErrnoRet := mergeErrnoRet(
-		left.DefaultErrnoRet,
-		right.DefaultErrnoRet,
-		left.DefaultAction,
-		right.DefaultAction,
-		pick,
-	)
+) (*specs.LinuxSeccomp, error) {
+	// The merged default follows the same tie-break as every other clause:
+	// the left side wins when the actions are equivalent, so its errno
+	// survives.
+	mergedDefault := pickClause(*defaultClause(left), *defaultClause(right), strategy.pick)
 
 	merged := &specs.LinuxSeccomp{
-		DefaultAction:    pick(left.DefaultAction, right.DefaultAction),
-		DefaultErrnoRet:  defaultErrnoRet,
+		DefaultAction:    mergedDefault.action,
+		DefaultErrnoRet:  outputErrno(mergedDefault.action, mergedDefault.errnoRet),
 		ListenerPath:     left.ListenerPath,
 		ListenerMetadata: left.ListenerMetadata,
 	}
 
-	mergedDefault := &clause{
-		action:   merged.DefaultAction,
-		errnoRet: defaultErrnoRet,
-		args:     nil,
-	}
-
 	merged.Flags = mergeFlags(left.Flags, right.Flags, strategy.isIntersect)
 
-	if strategy.isIntersect {
-		merged.Syscalls = intersectRules().mergeProfileSyscalls(left, right, mergedDefault)
-		merged.Architectures = intersectWithEmpty(left.Architectures, right.Architectures)
-	} else {
-		merged.Syscalls = unionRules().mergeProfileSyscalls(left, right, mergedDefault)
+	if !strategy.isIntersect {
+		merged.Syscalls = unionRules().mergeProfileSyscalls(left, right, &mergedDefault)
 		merged.Architectures = merge.UnionSlice(left.Architectures, right.Architectures)
+
+		return merged, nil
 	}
 
-	return merged
+	archs, err := intersectArchitectures(left.Architectures, right.Architectures)
+	if err != nil {
+		return nil, err
+	}
+
+	merged.Architectures = archs
+	merged.Syscalls = intersectRules().mergeProfileSyscalls(left, right, &mergedDefault)
+
+	return merged, nil
 }
 
-func intersectWithEmpty[T comparable](left, right []T) []T {
+// intersectArchitectures keeps the architectures both sides list. An empty
+// side is "unspecified" and defers to the other. Two non-empty sides with
+// nothing in common are an error, since an empty list would mean "native
+// architecture only" to the runtime.
+func intersectArchitectures(left, right []specs.Arch) ([]specs.Arch, error) {
 	if len(left) == 0 {
-		return slices.Clone(right)
+		return slices.Clone(right), nil
 	}
 
 	if len(right) == 0 {
-		return slices.Clone(left)
+		return slices.Clone(left), nil
 	}
 
-	return merge.IntersectSlice(left, right)
+	result := merge.IntersectSlice(left, right)
+	if len(result) == 0 {
+		return nil, fmt.Errorf("%w: %v and %v", ErrDisjointArchitectures, left, right)
+	}
+
+	return result, nil
 }
 
 // regroupSyscalls drops entries without names, merges entries sharing the
@@ -304,7 +321,8 @@ func groupKey(entry *specs.LinuxSyscall) string {
 
 // UnionSyscalls merges two syscall lists via union: for each syscall name,
 // the less restrictive action is chosen per argument region, following the
-// same rules as Union. Unlike Union, this function operates on bare syscall
+// same rules as Union, including how errno values are compared and spelled.
+// Unlike Union, this function operates on bare syscall
 // slices without a profile-level DefaultAction, so no entries are elided.
 // Entries sharing the same action, errno, and argument filters are grouped
 // into one multi-name entry, sorted by name.
@@ -318,7 +336,8 @@ func UnionSyscalls(left, right []specs.LinuxSyscall) []specs.LinuxSyscall {
 
 // IntersectSyscalls merges two syscall lists via intersection: for each
 // syscall name present in both lists, the more restrictive action is chosen
-// per argument region, following the same rules as Intersect. Syscalls
+// per argument region, following the same rules as Intersect, including
+// how errno values are compared and spelled. Syscalls
 // present in only one list are dropped. Unlike Intersect, this function
 // operates on bare syscall slices without a profile-level DefaultAction, so
 // a conditional entry survives only where the other list constrains the same
@@ -342,26 +361,6 @@ func cloneSyscall(syscall *specs.LinuxSyscall) specs.LinuxSyscall {
 	clone.ErrnoRet = merge.ClonePtr(syscall.ErrnoRet)
 
 	return clone
-}
-
-func mergeErrnoRet(
-	leftRet, rightRet *uint,
-	leftAction, rightAction specs.LinuxSeccompAction,
-	pick func(first, second specs.LinuxSeccompAction) specs.LinuxSeccompAction,
-) *uint {
-	// When both actions are equivalent, leftmost wins unconditionally,
-	// even if left's ErrnoRet is nil (meaning "no errno override").
-	if actionsEquivalent(leftAction, rightAction) {
-		return merge.ClonePtr(leftRet)
-	}
-
-	picked := pick(leftAction, rightAction)
-
-	if actionsEquivalent(picked, leftAction) {
-		return merge.ClonePtr(leftRet)
-	}
-
-	return merge.ClonePtr(rightRet)
 }
 
 func cloneProfile(profile *specs.LinuxSeccomp) *specs.LinuxSeccomp {

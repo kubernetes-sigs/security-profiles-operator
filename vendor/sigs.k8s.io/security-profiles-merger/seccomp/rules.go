@@ -52,7 +52,8 @@ func (c clause) unconditional() bool { return len(c.args) == 0 }
 
 // sameResult reports whether two clauses yield the same runtime effect,
 // ignoring their argument filters. ErrnoRet only matters for actions that
-// return it to the caller.
+// return it to the caller; clauses carry it in runtime form, so an unset
+// value on such an action has already become EPERM.
 func (c clause) sameResult(other clause) bool {
 	if !actionsEquivalent(c.action, other.action) {
 		return false
@@ -88,14 +89,14 @@ type syscallRules struct {
 	conditional   []clause
 }
 
-// collectRules splits syscall entries into per-name clause sets. Multi-name
-// entries contribute one clause per name. Entries equal to the profile
-// default are skipped when def is non-nil, the first unconditional entry wins
-// over later ones, and conditional entries are dropped for names that carry
-// an unconditional entry.
-func collectRules(syscalls []specs.LinuxSyscall, def *clause) map[string]*syscallRules {
-	rules := make(map[string]*syscallRules)
-
+// forEachClause expands syscall entries into clauses the way a runtime loads
+// them and calls visit once per entry index, syscall name, and clause.
+// Multi-name entries contribute one clause per name, and entries equal to
+// def are skipped when def is non-nil, as runtimes skip them.
+func forEachClause(
+	syscalls []specs.LinuxSyscall, def *clause,
+	visit func(idx int, name string, next clause),
+) {
 	for idx := range syscalls {
 		entry := &syscalls[idx]
 
@@ -105,16 +106,28 @@ func collectRules(syscalls []specs.LinuxSyscall, def *clause) map[string]*syscal
 			}
 
 			for _, name := range entry.Names {
-				current, ok := rules[name]
-				if !ok {
-					current = &syscallRules{unconditional: nil, conditional: nil}
-					rules[name] = current
-				}
-
-				current.add(next)
+				visit(idx, name, next)
 			}
 		}
 	}
+}
+
+// collectRules splits syscall entries into per-name clause sets. Entries
+// equal to the profile default are skipped when def is non-nil, the first
+// unconditional entry wins over later ones, and conditional entries are
+// dropped for names that carry an unconditional entry.
+func collectRules(syscalls []specs.LinuxSyscall, def *clause) map[string]*syscallRules {
+	rules := make(map[string]*syscallRules)
+
+	forEachClause(syscalls, def, func(_ int, name string, next clause) {
+		current, ok := rules[name]
+		if !ok {
+			current = &syscallRules{unconditional: nil, conditional: nil}
+			rules[name] = current
+		}
+
+		current.add(next)
+	})
 
 	for _, current := range rules {
 		if current.unconditional != nil {
@@ -131,7 +144,7 @@ func collectRules(syscalls []specs.LinuxSyscall, def *clause) map[string]*syscal
 func entryClauses(entry *specs.LinuxSyscall) []clause {
 	base := clause{
 		action:   entry.Action,
-		errnoRet: merge.ClonePtr(entry.ErrnoRet),
+		errnoRet: runtimeErrno(entry.Action, entry.ErrnoRet),
 		args:     nil,
 	}
 
@@ -145,7 +158,7 @@ func entryClauses(entry *specs.LinuxSyscall) []clause {
 
 	for _, arg := range entry.Args {
 		next := base
-		next.errnoRet = merge.ClonePtr(entry.ErrnoRet)
+		next.errnoRet = merge.ClonePtr(base.errnoRet)
 		next.args = []specs.LinuxSeccompArg{canonicalArg(arg)}
 		clauses = append(clauses, next)
 	}
@@ -616,7 +629,7 @@ func stricter(first, second clause) bool {
 func defaultClause(profile *specs.LinuxSeccomp) *clause {
 	return &clause{
 		action:   profile.DefaultAction,
-		errnoRet: merge.ClonePtr(profile.DefaultErrnoRet),
+		errnoRet: runtimeErrno(profile.DefaultAction, profile.DefaultErrnoRet),
 		args:     nil,
 	}
 }
@@ -740,7 +753,7 @@ func clauseToSyscall(name string, current clause) specs.LinuxSyscall {
 	return specs.LinuxSyscall{
 		Names:    []string{name},
 		Action:   current.action,
-		ErrnoRet: merge.ClonePtr(current.errnoRet),
+		ErrnoRet: outputErrno(current.action, current.errnoRet),
 		Args:     slices.Clone(current.args),
 	}
 }

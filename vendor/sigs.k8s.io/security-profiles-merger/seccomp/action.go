@@ -17,7 +17,15 @@ limitations under the License.
 // Package seccomp provides merge operations for seccomp profiles.
 package seccomp
 
-import specs "github.com/opencontainers/runtime-spec/specs-go"
+import (
+	specs "github.com/opencontainers/runtime-spec/specs-go"
+
+	"sigs.k8s.io/security-profiles-merger/internal/merge"
+)
+
+// defaultErrno is the errno runc and crun apply for SCMP_ACT_ERRNO and
+// SCMP_ACT_TRACE when errnoRet is unset: EPERM.
+const defaultErrno uint = 1
 
 // Restrictiveness levels, ordered from most restrictive (kill) to least
 // (allow). Notify sits between Errno and Trace: it blocks the syscall pending
@@ -94,4 +102,33 @@ func restrictiveness(action specs.LinuxSeccompAction) int {
 // action. Runtimes only pass the errno value along for ERRNO and TRACE.
 func errnoSignificant(action specs.LinuxSeccompAction) bool {
 	return action == specs.ActErrno || action == specs.ActTrace
+}
+
+// runtimeErrno returns the errno a runtime applies for an action: the
+// explicit value or EPERM for ERRNO and TRACE, and nil for every other
+// action, which ignores errnoRet. Clauses carry this form so that entries
+// differing only in how they spell EPERM compare equal.
+func runtimeErrno(action specs.LinuxSeccompAction, ret *uint) *uint {
+	if !errnoSignificant(action) {
+		return nil
+	}
+
+	if ret == nil {
+		val := defaultErrno
+
+		return &val
+	}
+
+	return merge.ClonePtr(ret)
+}
+
+// outputErrno returns the serialized form of an errno: nil when the runtime
+// ignores it or would apply EPERM anyway, so that merge results spell the
+// default the way most profiles do.
+func outputErrno(action specs.LinuxSeccompAction, ret *uint) *uint {
+	if !errnoSignificant(action) || ret == nil || *ret == defaultErrno {
+		return nil
+	}
+
+	return merge.ClonePtr(ret)
 }

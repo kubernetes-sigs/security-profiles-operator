@@ -77,12 +77,22 @@ var (
 	// name appears in more than MaxArtifactEntriesPerSyscall entries.
 	ErrTooManyEntries = errors.New("too many entries for syscall")
 	// ErrErrnoOutOfRange is returned when errnoRet or defaultErrnoRet
-	// exceeds the largest errno the kernel can return.
+	// exceeds the largest errno the kernel can return, on an action that
+	// returns it (SCMP_ACT_ERRNO or SCMP_ACT_TRACE).
 	ErrErrnoOutOfRange = errors.New("errno out of range")
 	// ErrUnusedValueTwo is returned by ValidateStrict when an argument
 	// condition sets valueTwo with an operator other than
 	// SCMP_CMP_MASKED_EQ, the only one that reads it.
 	ErrUnusedValueTwo = errors.New("valueTwo is only used by SCMP_CMP_MASKED_EQ")
+	// ErrUnusedErrnoRet is returned by ValidateStrict when errnoRet or
+	// defaultErrnoRet is set on an action other than SCMP_ACT_ERRNO or
+	// SCMP_ACT_TRACE, the only ones that return it.
+	ErrUnusedErrnoRet = errors.New("errnoRet is only used by SCMP_ACT_ERRNO and SCMP_ACT_TRACE")
+	// ErrConflictingEntries is returned by ValidateArtifact when two entries
+	// for the same syscall have the same shape but different results: both
+	// unconditional, or both carrying the same argument filter. A runtime
+	// keeps only one of them.
+	ErrConflictingEntries = errors.New("conflicting entries")
 )
 
 // MaxArtifactEntriesPerSyscall bounds how many entries may name the same
@@ -139,13 +149,19 @@ func Validate(profile *specs.LinuxSeccomp) error {
 // ValidateStrict performs all checks from Validate and additionally detects
 // duplicate syscall names across entries, unknown architectures, unknown
 // flags, unknown arg operators, out-of-range arg indices and errno values,
-// and valueTwo set on an operator that ignores it. The OCI runtime-spec
-// allows the same syscall to appear in multiple entries (for example with
-// different argument filters), so the merge path uses Validate which permits
-// this. ValidateStrict is intended for user-authored profiles where
-// duplicates are likely mistakes.
+// valueTwo set on an operator that ignores it, and errnoRet set on an action
+// that ignores it. The OCI runtime-spec allows the same syscall to appear in
+// multiple entries (for example with different argument filters), so the
+// merge path uses Validate which permits this. ValidateStrict is intended
+// for user-authored profiles where duplicates are likely mistakes.
 func ValidateStrict(profile *specs.LinuxSeccomp) error {
-	return validateWith(profile, validateDuplicateNames, validateShape, validateUnusedValueTwo)
+	return validateWith(
+		profile,
+		validateDuplicateNames,
+		validateShape,
+		validateUnusedValueTwo,
+		validateUnusedErrnoRet,
+	)
 }
 
 // ValidateArtifact validates a profile received from an untrusted source,
@@ -159,8 +175,13 @@ func ValidateStrict(profile *specs.LinuxSeccomp) error {
 // belong to the node-local listener. Duplicate syscall names are allowed, as
 // the OCI runtime-spec permits them and Intersect handles them, but no
 // syscall may appear in more than MaxArtifactEntriesPerSyscall entries,
-// which bounds the merge cost. valueTwo on an operator other than
-// SCMP_CMP_MASKED_EQ is accepted and ignored, as runtimes ignore it.
+// which bounds the merge cost, and entries for one syscall must not
+// conflict: two unconditional entries, or two entries with the same argument
+// filter, must yield the same result, since a runtime keeps only one of
+// them (ErrConflictingEntries). Entries equal to the default action do not
+// count, as runtimes skip them. valueTwo on an operator other than
+// SCMP_CMP_MASKED_EQ and errnoRet on an action other than SCMP_ACT_ERRNO or
+// SCMP_ACT_TRACE are accepted and ignored, as runtimes ignore them.
 // ValidateArtifact does not compare the profile against a baseline; callers
 // intersect the result with their baseline afterwards.
 func ValidateArtifact(profile *specs.LinuxSeccomp) error {
@@ -170,6 +191,7 @@ func ValidateArtifact(profile *specs.LinuxSeccomp) error {
 		validateNoNotify,
 		validateNoListener,
 		validateEntryCount,
+		validateConflictingEntries,
 	)
 }
 
@@ -206,19 +228,24 @@ func validateShape(profile *specs.LinuxSeccomp) error {
 	)
 }
 
+// validateErrnoRange checks errno values where a runtime reads them; values
+// on other actions are ignored at load time and reported by ValidateStrict
+// through validateUnusedErrnoRet instead.
 func validateErrnoRange(profile *specs.LinuxSeccomp) error {
 	var errs []error
 
-	if profile.DefaultErrnoRet != nil && *profile.DefaultErrnoRet > maxErrno {
+	ret := profile.DefaultErrnoRet
+	if ret != nil && errnoSignificant(profile.DefaultAction) && *ret > maxErrno {
 		errs = append(errs, fmt.Errorf(
-			"defaultErrnoRet: %w (%d, max %d)",
-			ErrErrnoOutOfRange, *profile.DefaultErrnoRet, maxErrno,
+			"defaultErrnoRet: %w (%d, max %d)", ErrErrnoOutOfRange, *ret, maxErrno,
 		))
 	}
 
 	for idx := range profile.Syscalls {
-		ret := profile.Syscalls[idx].ErrnoRet
-		if ret != nil && *ret > maxErrno {
+		entry := &profile.Syscalls[idx]
+
+		ret := entry.ErrnoRet
+		if ret != nil && errnoSignificant(entry.Action) && *ret > maxErrno {
 			errs = append(errs, fmt.Errorf(
 				"syscall entry %d errnoRet: %w (%d, max %d)",
 				idx, ErrErrnoOutOfRange, *ret, maxErrno,
@@ -246,8 +273,101 @@ func validateUnusedValueTwo(profile *specs.LinuxSeccomp) error {
 	return errors.Join(errs...)
 }
 
+func validateUnusedErrnoRet(profile *specs.LinuxSeccomp) error {
+	var errs []error
+
+	if profile.DefaultErrnoRet != nil && !errnoSignificant(profile.DefaultAction) {
+		errs = append(errs, fmt.Errorf(
+			"defaultErrnoRet: %w (%s)", ErrUnusedErrnoRet, profile.DefaultAction,
+		))
+	}
+
+	for idx := range profile.Syscalls {
+		entry := &profile.Syscalls[idx]
+		if entry.ErrnoRet != nil && !errnoSignificant(entry.Action) {
+			errs = append(errs, fmt.Errorf(
+				"syscall entry %d errnoRet: %w (%s)", idx, ErrUnusedErrnoRet, entry.Action,
+			))
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
 func validateDuplicateNames(profile *specs.LinuxSeccomp) error {
 	return validateDuplicateSyscallNames(profile.Syscalls)
+}
+
+// conflictTracker remembers the clauses seen for one syscall name, keyed by
+// their shape: the unconditional clause and one clause per argument filter.
+type conflictTracker struct {
+	unconditional *clause
+	conditional   map[string]clause
+}
+
+// record stores next and reports whether an earlier clause of the same shape
+// yields a different result.
+func (t *conflictTracker) record(next clause) bool {
+	if next.unconditional() {
+		if t.unconditional == nil {
+			t.unconditional = &next
+
+			return false
+		}
+
+		return !t.unconditional.sameResult(next)
+	}
+
+	key := sortedArgsKey(next.args)
+
+	prior, ok := t.conditional[key]
+	if !ok {
+		t.conditional[key] = next
+
+		return false
+	}
+
+	return !prior.sameResult(next)
+}
+
+// validateConflictingEntries rejects entries a runtime could not apply
+// together for one syscall: two unconditional entries with different
+// results, or two conditional entries with the same argument filter but
+// different results. libseccomp keeps only one of them, so the profile
+// would not load the way it reads. Entries are expanded the way the merge
+// loads them: entries equal to the profile default are skipped, and an
+// entry with several conditions on one argument index counts as one entry
+// per condition. Each syscall is reported once, at the first conflicting
+// entry.
+func validateConflictingEntries(profile *specs.LinuxSeccomp) error {
+	trackers := make(map[string]*conflictTracker)
+	reported := make(map[string]struct{})
+
+	var errs []error
+
+	def := defaultClause(profile)
+
+	forEachClause(profile.Syscalls, def, func(idx int, name string, next clause) {
+		if _, done := reported[name]; done {
+			return
+		}
+
+		tracker, ok := trackers[name]
+		if !ok {
+			tracker = &conflictTracker{unconditional: nil, conditional: map[string]clause{}}
+			trackers[name] = tracker
+		}
+
+		if tracker.record(next) {
+			reported[name] = struct{}{}
+
+			errs = append(errs, fmt.Errorf(
+				"syscall entry %d: %w for %q", idx, ErrConflictingEntries, name,
+			))
+		}
+	})
+
+	return errors.Join(errs...)
 }
 
 func validateNoNotify(profile *specs.LinuxSeccomp) error {
