@@ -111,6 +111,10 @@ type SyscallDetail struct {
 
 // Diff compares two seccomp profiles and returns a structured diff.
 // Unlike Intersect and Union, Diff does not validate profiles before comparing.
+// Errno values are compared the way runtimes apply them: an unset errnoRet
+// on SCMP_ACT_ERRNO or SCMP_ACT_TRACE equals EPERM, and errnoRet on any
+// other action is ignored. The diff reports errno values in that form, with
+// EPERM spelled as unset.
 // Returns ErrNilProfile if either profile is nil.
 func Diff(left, right *specs.LinuxSeccomp) (*ProfileDiff, error) {
 	if left == nil || right == nil {
@@ -141,8 +145,9 @@ func Diff(left, right *specs.LinuxSeccomp) (*ProfileDiff, error) {
 // DiffSyscalls compares two bare syscall slices and returns the syscall
 // portion of a profile diff. Multi-name entries are normalized to
 // one-name-per-entry and argument filters are sorted before comparison, so
-// entries differing only in filter order compare equal. This is the syscall-slice analogue
-// of Diff, matching IntersectSyscalls and UnionSyscalls.
+// entries differing only in filter order compare equal. Errno values are
+// compared as described for Diff. This is the syscall-slice analogue of
+// Diff, matching IntersectSyscalls and UnionSyscalls.
 //
 // This function does not validate its inputs.
 func DiffSyscalls(left, right []specs.LinuxSyscall) *SyscallsDiff {
@@ -183,11 +188,14 @@ func diffDefaultAction(
 func diffDefaultErrnoRet(
 	diff *ProfileDiff, left, right *specs.LinuxSeccomp,
 ) {
-	if !equalUintPtr(left.DefaultErrnoRet, right.DefaultErrnoRet) {
+	leftRet := outputErrno(left.DefaultAction, left.DefaultErrnoRet)
+	rightRet := outputErrno(right.DefaultAction, right.DefaultErrnoRet)
+
+	if !equalUintPtr(leftRet, rightRet) {
 		diff.Equal = false
 		diff.DefaultErrnoRet = &UintPtrDiff{
-			Left:  left.DefaultErrnoRet,
-			Right: right.DefaultErrnoRet,
+			Left:  leftRet,
+			Right: rightRet,
 		}
 	}
 }
@@ -324,7 +332,7 @@ func buildSyscallMap(
 			entry := SyscallEntry{
 				Name:     name,
 				Action:   action,
-				ErrnoRet: merge.ClonePtr(syscall.ErrnoRet),
+				ErrnoRet: outputErrno(action, syscall.ErrnoRet),
 				Args:     sortedArgs(syscall.Args),
 			}
 

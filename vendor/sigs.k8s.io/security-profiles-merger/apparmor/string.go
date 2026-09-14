@@ -35,11 +35,15 @@ func (p Profile) String() string {
 	var parts []string
 
 	if p.Executable != nil {
-		parts = append(parts, p.Executable.String())
+		if s := p.Executable.String(); s != "" {
+			parts = append(parts, s)
+		}
 	}
 
 	if p.Filesystem != nil {
-		parts = append(parts, p.Filesystem.String())
+		if s := p.Filesystem.String(); s != "" {
+			parts = append(parts, s)
+		}
 	}
 
 	if p.Network != nil {

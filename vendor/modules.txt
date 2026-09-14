@@ -2589,8 +2589,8 @@ sigs.k8s.io/release-utils/env
 sigs.k8s.io/release-utils/env/internal
 sigs.k8s.io/release-utils/helpers
 sigs.k8s.io/release-utils/version
-# sigs.k8s.io/security-profiles-merger v0.4.1
-## explicit; go 1.25.0
+# sigs.k8s.io/security-profiles-merger v0.4.2
+## explicit; go 1.24
 sigs.k8s.io/security-profiles-merger/apparmor
 sigs.k8s.io/security-profiles-merger/internal/merge
 sigs.k8s.io/security-profiles-merger/seccomp

@@ -20,7 +20,7 @@ package merge
 import (
 	"cmp"
 	"errors"
-	"fmt"
+	"path"
 	"slices"
 	"strings"
 )
@@ -34,8 +34,10 @@ var (
 	ErrEmptyPath = errors.New("empty path")
 )
 
-// Fold validates and merges a slice of profiles using pairwise reduction.
-// A single profile is cloned; two or more are merged left to right.
+// Fold merges a slice of profiles using pairwise reduction. A single profile
+// is cloned; two or more are merged left to right. Profiles must be non-nil:
+// callers validate them, reporting ErrNilProfile with the index, before
+// folding.
 func Fold[T any](
 	profiles []*T,
 	clone func(*T) *T,
@@ -43,12 +45,6 @@ func Fold[T any](
 ) (*T, error) {
 	if len(profiles) == 0 {
 		return nil, ErrNoProfiles
-	}
-
-	for idx, profile := range profiles {
-		if profile == nil {
-			return nil, fmt.Errorf("profile at index %d: %w", idx, ErrNilProfile)
-		}
 	}
 
 	if len(profiles) == 1 {
@@ -229,6 +225,19 @@ func unionSliceLarge[T comparable](left, right []T) []T {
 	}
 
 	return result
+}
+
+// CleanPath returns the shortest equivalent form of a profile path. Profile
+// paths are Linux paths whatever the host is, so this uses slash semantics
+// rather than the host's path separator, and "" cleans to ".".
+func CleanPath(profilePath string) string {
+	return path.Clean(profilePath)
+}
+
+// IsAbsPath reports whether a profile path starts at the root, using the
+// same slash semantics as CleanPath.
+func IsAbsPath(profilePath string) bool {
+	return path.IsAbs(profilePath)
 }
 
 // ClonePtr returns a shallow copy of the pointed-to value, or nil if ptr is nil.

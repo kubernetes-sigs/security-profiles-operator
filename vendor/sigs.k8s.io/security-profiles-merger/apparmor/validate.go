@@ -51,6 +51,12 @@ var (
 	// ErrDuplicateExecutablePath is returned when the same path appears
 	// more than once in AllowedExecutables or AllowedLibraries.
 	ErrDuplicateExecutablePath = errors.New("duplicate executable path")
+
+	// ErrGlobTooComplex is returned by ValidateStrict when a glob pattern
+	// exceeds the matcher's limits (4096 bytes, or 100 alternatives in
+	// total) and therefore never matches anything: intersection would
+	// silently drop it.
+	ErrGlobTooComplex = errors.New("glob pattern exceeds size or alternative limits")
 )
 
 func isKnownCapability(name string) bool {
@@ -139,10 +145,11 @@ func Validate(profile *Profile) error {
 
 // ValidateStrict performs all checks from Validate and additionally detects
 // duplicate paths in AllowedExecutables and AllowedLibraries, compared in
-// their normalized form. The merge path handles duplicates by
-// deduplication, so Validate permits them.
-// ValidateStrict is intended for user-authored profiles where duplicates
-// are likely mistakes.
+// their normalized form, and glob patterns that exceed the matcher's limits
+// and would never match. The merge path handles duplicates by
+// deduplication and drops unmatchable globs on intersection, so Validate
+// permits them. ValidateStrict is intended for user-authored profiles where
+// both are likely mistakes.
 func ValidateStrict(profile *Profile) error {
 	var errs []error
 
@@ -151,7 +158,11 @@ func ValidateStrict(profile *Profile) error {
 		errs = append(errs, err)
 	}
 
-	if profile != nil && profile.Executable != nil {
+	if profile == nil {
+		return errors.Join(errs...)
+	}
+
+	if profile.Executable != nil {
 		errs = append(errs, validateDuplicatesInSlice(
 			"AllowedExecutables",
 			normalizePaths(profile.Executable.AllowedExecutables),
@@ -164,7 +175,43 @@ func ValidateStrict(profile *Profile) error {
 		)...)
 	}
 
+	visitPathLists(profile, func(context string, paths []string) {
+		errs = append(errs, validateGlobLimits(context, normalizePaths(paths))...)
+	})
+
 	return errors.Join(errs...)
+}
+
+// visitPathLists calls visit for every list of paths in the profile, named
+// after its field.
+func visitPathLists(profile *Profile, visit func(context string, paths []string)) {
+	if profile.Executable != nil {
+		visit("AllowedExecutables", profile.Executable.AllowedExecutables)
+		visit("AllowedLibraries", profile.Executable.AllowedLibraries)
+	}
+
+	if profile.Filesystem != nil {
+		visit("ReadOnlyPaths", profile.Filesystem.ReadOnlyPaths)
+		visit("WriteOnlyPaths", profile.Filesystem.WriteOnlyPaths)
+		visit("ReadWritePaths", profile.Filesystem.ReadWritePaths)
+	}
+}
+
+// validateGlobLimits reports glob patterns that exceed the matcher's limits
+// and therefore never match. It runs on normalized patterns, the form the
+// merge matches, so it agrees with Intersect on what is dropped. The pattern
+// itself is left out of the message, since it is at least 4 KiB or has over
+// 100 alternatives.
+func validateGlobLimits(context string, paths []string) []error {
+	var errs []error
+
+	for idx, pattern := range paths {
+		if IsGlobPattern(pattern) && globNeverMatches(pattern) {
+			errs = append(errs, fmt.Errorf("%s[%d]: %w", context, idx, ErrGlobTooComplex))
+		}
+	}
+
+	return errs
 }
 
 func validateEmptyPaths(context string, paths []string) []error {
@@ -182,7 +229,7 @@ func validateEmptyPaths(context string, paths []string) []error {
 }
 
 // validateEmptyPathsInProfile checks for empty paths before normalization,
-// since filepath.Clean("") returns "." which would bypass Validate's check.
+// since cleaning "" yields "." which would bypass Validate's check.
 func validateEmptyPathsInProfile(profile *Profile) error {
 	if profile == nil {
 		return ErrNilProfile
@@ -190,26 +237,9 @@ func validateEmptyPathsInProfile(profile *Profile) error {
 
 	var errs []error
 
-	if profile.Executable != nil {
-		errs = append(errs, validateEmptyPaths(
-			"AllowedExecutables", profile.Executable.AllowedExecutables,
-		)...)
-		errs = append(errs, validateEmptyPaths(
-			"AllowedLibraries", profile.Executable.AllowedLibraries,
-		)...)
-	}
-
-	if profile.Filesystem != nil {
-		errs = append(errs, validateEmptyPaths(
-			"ReadOnlyPaths", profile.Filesystem.ReadOnlyPaths,
-		)...)
-		errs = append(errs, validateEmptyPaths(
-			"WriteOnlyPaths", profile.Filesystem.WriteOnlyPaths,
-		)...)
-		errs = append(errs, validateEmptyPaths(
-			"ReadWritePaths", profile.Filesystem.ReadWritePaths,
-		)...)
-	}
+	visitPathLists(profile, func(context string, paths []string) {
+		errs = append(errs, validateEmptyPaths(context, paths)...)
+	})
 
 	return errors.Join(errs...)
 }

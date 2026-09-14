@@ -19,7 +19,6 @@ package apparmor
 
 import (
 	"fmt"
-	"path/filepath"
 	"slices"
 	"strings"
 
@@ -63,10 +62,10 @@ type strategy interface {
 }
 
 func foldProfiles(profiles []*Profile, mergeOp strategy) (*Profile, error) {
-	for _, profile := range profiles {
+	for idx, profile := range profiles {
 		err := validateEmptyPathsInProfile(profile)
 		if err != nil {
-			return nil, fmt.Errorf("validate: %w", err)
+			return nil, fmt.Errorf("validate profile %d: %w", idx, err)
 		}
 	}
 
@@ -76,10 +75,10 @@ func foldProfiles(profiles []*Profile, mergeOp strategy) (*Profile, error) {
 		deduplicateProfile(normalized[idx])
 	}
 
-	for _, profile := range normalized {
+	for idx, profile := range normalized {
 		err := Validate(profile)
 		if err != nil {
-			return nil, fmt.Errorf("validate: %w", err)
+			return nil, fmt.Errorf("validate profile %d: %w", idx, err)
 		}
 	}
 
@@ -87,7 +86,7 @@ func foldProfiles(profiles []*Profile, mergeOp strategy) (*Profile, error) {
 		return mergeTwo(a, b, mergeOp), nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("fold: %w", err)
+		return nil, fmt.Errorf("merge: %w", err)
 	}
 
 	sortProfile(result)
@@ -666,7 +665,7 @@ func normalizeGlobPath(path string) string {
 		return path
 	}
 
-	cleaned := filepath.Clean(prefix)
+	cleaned := merge.CleanPath(prefix)
 	if cleaned != "/" {
 		cleaned += "/"
 	}
@@ -677,7 +676,7 @@ func normalizeGlobPath(path string) string {
 // normalizeLiteralPath cleans a literal path but keeps a trailing slash,
 // which distinguishes a directory rule from a file rule in AppArmor.
 func normalizeLiteralPath(path string) string {
-	cleaned := filepath.Clean(path)
+	cleaned := merge.CleanPath(path)
 	if strings.HasSuffix(path, "/") && cleaned != "/" {
 		cleaned += "/"
 	}
