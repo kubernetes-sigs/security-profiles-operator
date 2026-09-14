@@ -124,6 +124,11 @@ type FakeImpl struct {
 }
 
 func (fake *FakeImpl) ClientGetProfile(arg1 context.Context, arg2 client.Client, arg3 client.ObjectKey, arg4 ...client.GetOption) (*v1.SeccompProfile, error) {
+	var arg4Copy []client.GetOption
+	if arg4 != nil {
+		arg4Copy = make([]client.GetOption, len(arg4))
+		copy(arg4Copy, arg4)
+	}
 	fake.clientGetProfileMutex.Lock()
 	ret, specificReturn := fake.clientGetProfileReturnsOnCall[len(fake.clientGetProfileArgsForCall)]
 	fake.clientGetProfileArgsForCall = append(fake.clientGetProfileArgsForCall, struct {
@@ -131,10 +136,10 @@ func (fake *FakeImpl) ClientGetProfile(arg1 context.Context, arg2 client.Client,
 		arg2 client.Client
 		arg3 client.ObjectKey
 		arg4 []client.GetOption
-	}{arg1, arg2, arg3, arg4})
+	}{arg1, arg2, arg3, arg4Copy})
 	stub := fake.ClientGetProfileStub
 	fakeReturns := fake.clientGetProfileReturns
-	fake.recordInvocation("ClientGetProfile", []interface{}{arg1, arg2, arg3, arg4})
+	fake.recordInvocation("ClientGetProfile", []interface{}{arg1, arg2, arg3, arg4Copy})
 	fake.clientGetProfileMutex.Unlock()
 	if stub != nil {
 		return stub(arg1, arg2, arg3, arg4...)
