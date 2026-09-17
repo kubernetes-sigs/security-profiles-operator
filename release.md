@@ -58,10 +58,16 @@ To run the tool from `$GOPATH/src/sigs.k8s.io/promo-tools`, just execute:
 > kpromo pr \
     --fork <YOUR_GH_USERNAME> \
     --project sp-operator \
-    --tag v0.x.y
+    --tag v0.x.y \
+    --tag 0.x.y
 ```
 
-This will automatically create a PR in the k/k8s.io repository. If this PR got
+This will automatically create a PR in the k/k8s.io repository. The second
+`--tag` picks up the helm chart, which the staging build pushes as
+`us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/charts/security-profiles-operator` with the
+version without the `v` prefix.
+
+If this PR got
 merged, then we're finally ready to [create the
 release](https://github.com/kubernetes-sigs/security-profiles-operator/releases/new)
 directly on GitHub and add the release notes. The release notes will be

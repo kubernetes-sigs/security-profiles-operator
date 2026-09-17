@@ -146,6 +146,15 @@ helm install security-profiles-operator --namespace security-profiles-operator h
 # helm upgrade --install security-profiles-operator --namespace security-profiles-operator https://github.com/kubernetes-sigs/security-profiles-operator/releases/download/v${VERSION}/security-profiles-operator-${VERSION}.tgz
 ```
 
+Starting with the next release, the chart is also published as OCI artifact to
+`registry.k8s.io`, and can be installed with the same preparation from there:
+
+```shell
+helm install security-profiles-operator --namespace security-profiles-operator \
+  oci://registry.k8s.io/security-profiles-operator/charts/security-profiles-operator \
+  --version ${VERSION}
+```
+
 #### Troubleshooting and maintenance
 
 These CRDs are not templated, but will be installed by default when running a helm install for the chart.
