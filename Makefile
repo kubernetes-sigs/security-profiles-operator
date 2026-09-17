@@ -205,6 +205,7 @@ image: ## Build the container image
 .PHONY: image-arm64
 image-arm64: ## Build the container image for arm64
 	$(CONTAINER_RUNTIME) build -f $(DOCKERFILE) \
+		--platform linux/arm64 \
 		--build-arg version=$(VERSION) \
 		--build-arg target=spo-arm64 \
 		-t $(IMAGE) .
