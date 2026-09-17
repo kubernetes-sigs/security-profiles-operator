@@ -104,6 +104,7 @@ for runtime in "${RUNTIMES[@]}"; do
 
   if ! published "$version_ref"; then
     push "$converted" "$version_ref"
+    "$(dirname "${BASH_SOURCE[0]}")/attest-provenance.sh" "$version_ref"
     push "$converted" "$latest_ref"
   elif ! serves "$latest_ref" "$converted"; then
     push "$converted" "$latest_ref"

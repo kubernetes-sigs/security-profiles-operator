@@ -131,6 +131,9 @@ grants to every build account:
 - certificate identity: `sp-operator-sa@k8s-staging-images.iam.gserviceaccount.com`
 - issuer: `https://accounts.google.com`
 
+Newly published versions also get SLSA build provenance, see
+[staging attestations](release.md#staging-attestations).
+
 Versions that are already published but have no signature of the build
 account, for example because they were pushed with `SIGN=false`, are signed
 in place on the next build (`hack/sign-published.sh`). Until then,

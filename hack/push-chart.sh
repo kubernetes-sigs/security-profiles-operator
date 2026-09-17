@@ -84,3 +84,4 @@ if [[ -z "$DIGEST" ]]; then
 fi
 
 "$(dirname "${BASH_SOURCE[0]}")/sign-images.sh" "$REPO/$CHART@$DIGEST"
+"$(dirname "${BASH_SOURCE[0]}")/attest-provenance.sh" "$REPO/$CHART@$DIGEST"

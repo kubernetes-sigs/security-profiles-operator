@@ -15,6 +15,9 @@
 
 set -euox pipefail
 
+# shellcheck source=hack/lib/common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
+
 # just in case we're not using docker 20.10
 export DOCKER_CLI_EXPERIMENTAL=enabled
 # the Dockerfile relies on BUILDPLATFORM, which only BuildKit provides
@@ -30,39 +33,82 @@ ARCHES=(amd64 arm64 ppc64le)
 VERSION=v$(cat VERSION)
 TAGS=("$TAG" "$VERSION" latest)
 
-for ARCH in "${ARCHES[@]}"; do
+# The provenance records when the build started and the image the binaries
+# are built in, which is pinned to that digest for the build.
+mkdir -p build
+date -u +%Y-%m-%dT%H:%M:%SZ > build/build-started
+BUILD_IMAGE=$(resolve_digest "$(sed -n 's/^ARG BUILD_IMAGE=//p' Dockerfile)")
+echo "$BUILD_IMAGE" > build/build-image
+
+build_arch() {
+    local arch="$1" image_arch
+
     docker build \
-        --platform "linux/$ARCH" \
-        -t "$IMAGE-$ARCH:$TAG" \
-        -t "$IMAGE-$ARCH:$VERSION" \
-        -t "$IMAGE-$ARCH:latest" \
+        --platform "linux/$arch" \
+        -t "$IMAGE-$arch:$TAG" \
+        -t "$IMAGE-$arch:$VERSION" \
+        -t "$IMAGE-$arch:latest" \
         --build-arg version="$VERSION" \
-        --build-arg target="spo-$ARCH" \
+        --build-arg BUILD_IMAGE="$BUILD_IMAGE" \
+        --build-arg target="spo-$arch" \
         .
 
-    IMAGE_ARCH=$(docker image inspect --format '{{.Architecture}}' "$IMAGE-$ARCH:$TAG")
-    if [[ $IMAGE_ARCH != "$ARCH" ]]; then
-        echo "Image $IMAGE-$ARCH:$TAG has architecture $IMAGE_ARCH, expected $ARCH"
+    image_arch=$(docker image inspect --format '{{.Architecture}}' "$IMAGE-$arch:$TAG")
+    if [[ $image_arch != "$arch" ]]; then
+        echo "Image $IMAGE-$arch:$TAG has architecture $image_arch, expected $arch"
+        return 1
+    fi
+}
+
+push_arch() {
+    local arch="$1" t
+
+    for t in "${TAGS[@]}"; do
+        docker push "$IMAGE-$arch:$t"
+    done
+}
+
+build() {
+    prefixed "$1" build_arch "$1"
+}
+
+push() {
+    prefixed "$1" push_arch "$1"
+}
+
+# The nix builds of the architectures are independent, BuildKit shares the
+# common build stage between them.
+parallel_each build "${ARCHES[@]}"
+parallel_each push "${ARCHES[@]}"
+
+# The attestation step attests the per-arch images by digest
+: > build/image-digests
+for ARCH in "${ARCHES[@]}"; do
+    ARCH_DIGEST_IMG=$(docker inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$IMAGE-$ARCH:$TAG" |
+        grep -F "$IMAGE-$ARCH@sha256:" | head -1)
+    if [[ -z "$ARCH_DIGEST_IMG" ]]; then
+        echo "Unable to resolve the digest of $IMAGE-$ARCH:$TAG"
         exit 1
     fi
-
-    for T in "${TAGS[@]}"; do
-        docker push "$IMAGE-$ARCH:$T"
-    done
+    echo "$ARCH_DIGEST_IMG" >> build/image-digests
 done
 
-for T in "${TAGS[@]}"; do
-    docker manifest create --amend "$IMAGE:$T" \
-        "$IMAGE-amd64:$T" \
-        "$IMAGE-arm64:$T" \
-        "$IMAGE-ppc64le:$T"
+push_manifest() {
+    local tag="$1" arch
 
-    for ARCH in "${ARCHES[@]}"; do
-        docker manifest annotate --arch "$ARCH" "$IMAGE:$T" "$IMAGE-$ARCH:$T"
+    docker manifest create --amend "$IMAGE:$tag" \
+        "$IMAGE-amd64:$tag" \
+        "$IMAGE-arm64:$tag" \
+        "$IMAGE-ppc64le:$tag"
+
+    for arch in "${ARCHES[@]}"; do
+        docker manifest annotate --arch "$arch" "$IMAGE:$tag" "$IMAGE-$arch:$tag"
     done
 
-    docker manifest push --purge "$IMAGE:$T"
-done
+    docker manifest push --purge "$IMAGE:$tag"
+}
+
+parallel_each push_manifest "${TAGS[@]}"
 
 # Build and push the bundle and catalog image
 BUNDLE_IMG_BASE=$IMAGE-bundle
@@ -99,6 +145,15 @@ for I in "${IMAGES[@]}"; do
         docker push "$I:$T"
     done
 done
+
+# The bundle and catalog only get provenance, they contain no software
+CATALOG_DIGEST_IMG=$(docker inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$CATALOG_IMG" |
+    grep -F "$CATALOG_IMG_BASE@sha256:" | head -1)
+if [[ -z "$CATALOG_DIGEST_IMG" ]]; then
+    echo "Unable to resolve the digest of $CATALOG_IMG"
+    exit 1
+fi
+printf '%s\n' "$BUNDLE_DIGEST_IMG" "$CATALOG_DIGEST_IMG" > build/metadata-image-digests
 
 # Sign every pushed image once by digest, if SIGN=true
 SIGN_REFS=("$IMAGE:$TAG" "$BUNDLE_IMG_BASE:$TAG" "$CATALOG_IMG_BASE:$TAG")

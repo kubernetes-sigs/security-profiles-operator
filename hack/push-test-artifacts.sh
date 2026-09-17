@@ -61,6 +61,7 @@ push() {
 
   echo "Pushing $file as $ref"
   "$SPOC" push ${push_args[@]+"${push_args[@]}"} "$@" -f "$file" "$ref"
+  "$(dirname "${BASH_SOURCE[0]}")/attest-provenance.sh" "$ref"
 }
 
 push "$EXAMPLES/deny-chmod.json" deny-chmod
