@@ -1538,6 +1538,7 @@ func TestRegistryOptions(t *testing.T) {
 		mock.ParseReferenceReturns(testRef, nil)
 		mock.ReadFileReturns([]byte{}, nil)
 		mock.ReadProfileReturns(&seccompprofileapi.SeccompProfile{}, nil)
+		mock.SignatureBundleExistsReturns(true, nil)
 		stubManifest(mock, &ocispec.Manifest{}, nil)
 
 		sut := New(logr.Discard())
@@ -1553,13 +1554,49 @@ func TestRegistryOptions(t *testing.T) {
 		require.True(t, verifyCmd.AllowHTTPRegistry)
 		require.Equal(t, "user", verifyCmd.AuthConfig.Username)
 		require.Equal(t, "secret", verifyCmd.AuthConfig.Password)
-
-		// Bundles attached as OCI referrers are preferred, cosign falls back
-		// to legacy signature tags if there are none.
 		require.True(t, verifyCmd.CheckClaims)
 		require.True(t, verifyCmd.NewBundleFormat)
 		require.Positive(t, verifyCmd.MaxWorkers)
+
+		require.Equal(t, 1, mock.SignatureBundleExistsCallCount())
+		_, image, registryOpts := mock.SignatureBundleExistsArgsForCall(0)
+		require.Contains(t, image, "@")
+		require.True(t, registryOpts.AllowHTTPRegistry)
+		require.Equal(t, "user", registryOpts.AuthConfig.Username)
 	})
+
+	for _, tc := range []struct {
+		name      string
+		exists    bool
+		lookupErr error
+	}{
+		{name: "pull without signature bundles", exists: false},
+		{name: "pull with failed signature bundle lookup", lookupErr: errTest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			mock := &artifactfakes.FakeImpl{}
+			mock.NewRepositoryReturns(&remote.Repository{}, nil)
+			mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
+			mock.ParseReferenceReturns(testRef, nil)
+			mock.ReadFileReturns([]byte{}, nil)
+			mock.ReadProfileReturns(&seccompprofileapi.SeccompProfile{}, nil)
+			mock.SignatureBundleExistsReturns(tc.exists, tc.lookupErr)
+			stubManifest(mock, &ocispec.Manifest{}, nil)
+
+			sut := New(logr.Discard())
+			sut.impl = mock
+
+			_, err := sut.Pull(t.Context(), "", "", "", nil, nil)
+			require.NoError(t, err)
+
+			// Legacy signature tags are verified instead of bundles.
+			_, verifyCmd, _ := mock.VerifyCmdArgsForCall(0)
+			require.False(t, verifyCmd.NewBundleFormat)
+			require.True(t, verifyCmd.CheckClaims)
+		})
+	}
 
 	t.Run("anonymous", func(t *testing.T) {
 		t.Parallel()

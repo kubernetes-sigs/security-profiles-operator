@@ -18,16 +18,20 @@ package artifact
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 
 	ggcrname "github.com/google/go-containerregistry/pkg/name"
+	ggcrv1 "github.com/google/go-containerregistry/pkg/v1"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sigstore/cosign/v3/cmd/cosign/cli/options"
 	"github.com/sigstore/cosign/v3/cmd/cosign/cli/sign"
 	"github.com/sigstore/cosign/v3/cmd/cosign/cli/signcommon"
 	"github.com/sigstore/cosign/v3/cmd/cosign/cli/verify"
+	ociremote "github.com/sigstore/cosign/v3/pkg/oci/remote"
+	cosigntypes "github.com/sigstore/cosign/v3/pkg/types"
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/content/file"
@@ -70,6 +74,7 @@ type impl interface {
 		context.Context, *options.RootOptions, options.KeyOpts, options.SignOptions, []string,
 	) error
 	VerifyCmd(context.Context, verify.VerifyCommand, string) error
+	SignatureBundleExists(context.Context, string, *options.RegistryOptions) (bool, error)
 	ResolveRepository(context.Context, *remote.Repository, string) (ocispec.Descriptor, error)
 }
 
@@ -188,4 +193,45 @@ func (*defaultImpl) ResolveRepository(ctx context.Context,
 	repo *remote.Repository, reference string,
 ) (ocispec.Descriptor, error) {
 	return repo.Resolve(ctx, reference)
+}
+
+// SignatureBundleExists reports whether the image digest has a Sigstore
+// bundle with the cosign signature predicate attached as OCI referrer.
+func (*defaultImpl) SignatureBundleExists(
+	ctx context.Context, image string, o *options.RegistryOptions,
+) (bool, error) {
+	digest, err := ggcrname.NewDigest(image, o.NameOptions()...)
+	if err != nil {
+		return false, fmt.Errorf("parse image digest: %w", err)
+	}
+
+	clientOpts, err := o.ClientOpts(ctx)
+	if err != nil {
+		return false, fmt.Errorf("get registry client options: %w", err)
+	}
+
+	index, err := ociremote.Referrers(digest, "", clientOpts...)
+	if err != nil {
+		return false, fmt.Errorf("list referrers: %w", err)
+	}
+
+	return hasSignatureBundle(index), nil
+}
+
+// hasSignatureBundle reports whether the referrers contain a Sigstore bundle
+// with the cosign signature predicate. Bundles carry their predicate type as
+// annotation, attestations like SLSA provenance or promotion records use
+// other predicate types.
+func hasSignatureBundle(index *ggcrv1.IndexManifest) bool {
+	if index == nil {
+		return false
+	}
+
+	for i := range index.Manifests {
+		if index.Manifests[i].Annotations[ociremote.BundlePredicateType] == cosigntypes.CosignSignPredicateType {
+			return true
+		}
+	}
+
+	return false
 }

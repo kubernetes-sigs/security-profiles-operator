@@ -460,19 +460,32 @@ func (a *Artifact) Pull(
 			)
 		}
 
-		// Sigstore bundles attached as OCI referrers are verified if present,
-		// otherwise cosign falls back to legacy signature tags, which keeps
-		// already published artifacts working. Checking the claims binds the
-		// signed payload to the pulled digest, like cosign verify does by
-		// default.
+		registryOpts := registryOptions(username, password, plainHTTP)
+
+		// Sigstore signature bundles attached as OCI referrers are verified
+		// if present, otherwise the legacy signature tags, which keeps
+		// already published artifacts working. cosign would treat any bundle
+		// as signature, including attestations like promotion records, so
+		// only a bundle with the cosign signature predicate selects the
+		// bundle format.
+		signatureBundles, lookupErr := a.SignatureBundleExists(ctx, from, &registryOpts)
+		if lookupErr != nil {
+			a.logger.Info(
+				"Unable to look up signature bundles, verifying legacy signatures",
+				"error", lookupErr,
+			)
+		}
+
+		// Checking the claims binds the signed payload to the pulled digest,
+		// like cosign verify does by default.
 		v := verify.VerifyCommand{
-			RegistryOptions: registryOptions(username, password, plainHTTP),
+			RegistryOptions: registryOpts,
 			CertVerifyOptions: options.CertVerifyOptions{
 				CertIdentityRegexp:   signOpts.AllowedIdentityRegexp,
 				CertOidcIssuerRegexp: signOpts.AllowedOidcIssuerRegexp,
 			},
 			CheckClaims:     true,
-			NewBundleFormat: true,
+			NewBundleFormat: signatureBundles,
 			MaxWorkers:      verifyMaxWorkers,
 		}
 		if err := a.VerifyCmd(ctx, v, from); err != nil {
