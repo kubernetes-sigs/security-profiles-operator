@@ -14,9 +14,9 @@
 # limitations under the License.
 
 # Signs the given image references keylessly by digest. The signatures are
-# Sigstore bundles attached as OCI referrers. The identity comes from the
-# ambient credentials, for example the metadata server in Cloud Build.
-# SIGN=false skips signing.
+# Sigstore bundles attached as OCI referrers. The identity comes from
+# SIGSTORE_ID_TOKEN, which Cloud Build sets to an ID token of its service
+# account, or from the ambient credentials. SIGN=false skips signing.
 
 set -euo pipefail
 
@@ -54,7 +54,6 @@ for ref in "$@"; do
 
   echo "Signing ${ref%:*}@$digest"
   "$COSIGN" sign --yes \
-    --new-bundle-format \
     --use-signing-config \
     "${ref%:*}@$digest"
 done
