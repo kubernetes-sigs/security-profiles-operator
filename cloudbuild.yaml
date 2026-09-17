@@ -17,6 +17,8 @@ steps:
       mkdir -p /etc/containers && \
       echo '{"default": [{"type": "insecureAcceptAnything"}]}' > /etc/containers/policy.json && \
       gcloud auth configure-docker us-central1-docker.pkg.dev --quiet && \
+      SIGSTORE_ID_TOKEN=$$(gcloud auth print-identity-token --audiences=sigstore) && \
+      export SIGSTORE_ID_TOKEN && \
       make image-cross
   - name: gcr.io/k8s-staging-test-infra/gcb-docker-gcloud:v20260205-38cfa9523f
     entrypoint: bash
@@ -32,6 +34,8 @@ steps:
       docker cp $$CONTAINER:/spoc build/spoc && \
       docker rm $$CONTAINER && \
       export PASSWORD=$$(gcloud auth print-access-token) && \
+      SIGSTORE_ID_TOKEN=$$(gcloud auth print-identity-token --audiences=sigstore) && \
+      export SIGSTORE_ID_TOKEN && \
       ./hack/push-test-artifacts.sh && \
       ./hack/push-base-profiles.sh
 substitutions:

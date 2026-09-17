@@ -14,9 +14,9 @@
 # limitations under the License.
 
 # Pushes the seccomp profiles used by the Kubernetes e2e_node tests for
-# KEP-6061 as OCI artifacts. The artifacts are pushed unsigned because build
-# systems have no OIDC identity, and are promoted to registry.k8s.io from the
-# staging registry afterwards.
+# KEP-6061 as OCI artifacts. The artifacts are signed keylessly (see
+# push-base-profiles.sh) and promoted to registry.k8s.io from the staging
+# registry afterwards.
 
 set -euo pipefail
 
