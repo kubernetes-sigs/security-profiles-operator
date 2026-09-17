@@ -109,5 +109,6 @@ for runtime in "${RUNTIMES[@]}"; do
     push "$converted" "$latest_ref"
   else
     echo "Already published, skipping $runtime $version"
+    "$(dirname "${BASH_SOURCE[0]}")/sign-published.sh" "$version_ref"
   fi
 done
