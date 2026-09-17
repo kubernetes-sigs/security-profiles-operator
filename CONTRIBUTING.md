@@ -45,12 +45,16 @@ For detailed development setup and build instructions, see [hacking.md](hacking.
 
 Following the targets that can be used to test your changes locally.
 
-| Command             | Description                          | Is called in the CI? |
-| ------------------- | ------------------------------------ | -------------------- |
-| make test-unit      | Runs go tests                        | yes                  |
-| make test-e2e       | Runs the CI e2e tests locally        | yes                  |
-| make verify-go-lint | Run [golangci][golangci] lint checks | yes                  |
-| make verify         | Run all verification checks          | yes                  |
+| Command                     | Description                                  | Is called in the CI? |
+| --------------------------- | -------------------------------------------- | -------------------- |
+| make test-unit              | Runs go tests                                | yes                  |
+| make test-e2e               | Runs the CI e2e tests locally                | yes                  |
+| make verify-go-lint         | Run [golangci][golangci] lint checks         | yes                  |
+| make verify-vulnerabilities | Fail on reachable vulnerabilities with a fix | yes                  |
+| make verify                 | Run all verification checks                  | yes                  |
+
+CI also scans the built images with trivy. If a vulnerability check fails, see
+[vulnerability checks and assessments](hacking.md#vulnerability-checks-and-assessments).
 
 ## Where the CI Tests are configured
 

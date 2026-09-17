@@ -149,7 +149,11 @@ The attestations are:
   by [`hack/attest-vulns.sh`](hack/attest-vulns.sh). The VEX document marks a
   vulnerability as affected if one of the binaries uses the vulnerable symbols.
   A clean scan has an empty result and no VEX document, because OpenVEX needs at
-  least one statement.
+  least one statement. Affected statements point to the vulnerability entry and
+  the fixed version, if there is one. Maintainers assess findings in the
+  OpenVEX document, see
+  [vulnerability checks and assessments](hacking.md#vulnerability-checks-and-assessments).
+  The scan result still lists every finding.
 - Build environment (`https://in-toto.io/attestation/build-env/v1`) from the Go
   build information of the binaries, written by
   [`hack/attest-build-env.sh`](hack/attest-build-env.sh).

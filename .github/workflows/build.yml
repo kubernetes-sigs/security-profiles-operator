@@ -244,6 +244,7 @@ jobs:
             type=ref,event=tag
             type=sha,format=long
       - name: Build
+        id: build
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
@@ -251,6 +252,22 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           load: true
+      - name: Tag for the vulnerability scan
+        run: docker tag ${{ steps.build.outputs.imageid }} security-profiles-operator:scan
+      # Fails on every vulnerability with an available fix. Assessed findings
+      # are suppressed through .openvex.json, see hacking.md.
+      - name: Scan for fixable vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_VEX: .openvex.json
+          TRIVY_SHOW_SUPPRESSED: "true"
+        with:
+          image-ref: security-profiles-operator:scan
+          scanners: vuln
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+          version: v0.74.0
 
   ubi-image:
     runs-on: ubuntu-24.04
@@ -281,6 +298,7 @@ jobs:
             type=ref,event=tag
             type=sha,format=long
       - name: Build
+        id: build
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
@@ -288,3 +306,19 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           load: true
+      - name: Tag for the vulnerability scan
+        run: docker tag ${{ steps.build.outputs.imageid }} security-profiles-operator:scan
+      # Fails on every vulnerability with an available fix. Assessed findings
+      # are suppressed through .openvex.json, see hacking.md.
+      - name: Scan for fixable vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_VEX: .openvex.json
+          TRIVY_SHOW_SUPPRESSED: "true"
+        with:
+          image-ref: security-profiles-operator:scan
+          scanners: vuln
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+          version: v0.74.0

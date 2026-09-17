@@ -1,0 +1,93 @@
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "https://github.com/kubernetes-sigs/security-profiles-operator/blob/main/.openvex.json",
+  "author": "Security Profiles Operator maintainers",
+  "timestamp": "2026-09-17T16:00:00Z",
+  "version": 1,
+  "statements": [
+    {
+      "vulnerability": {
+        "name": "GO-2026-5932"
+      },
+      "products": [
+        {
+          "@id": "pkg:oci/security-profiles-operator",
+          "subcomponents": [
+            {
+              "@id": "pkg:golang/golang.org/x/crypto"
+            }
+          ]
+        },
+        {
+          "@id": "pkg:oci/security-profiles-operator-amd64",
+          "subcomponents": [
+            {
+              "@id": "pkg:golang/golang.org/x/crypto"
+            }
+          ]
+        },
+        {
+          "@id": "pkg:oci/security-profiles-operator-arm64",
+          "subcomponents": [
+            {
+              "@id": "pkg:golang/golang.org/x/crypto"
+            }
+          ]
+        },
+        {
+          "@id": "pkg:oci/security-profiles-operator-ppc64le",
+          "subcomponents": [
+            {
+              "@id": "pkg:golang/golang.org/x/crypto"
+            }
+          ]
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "The golang.org/x/crypto/openpgp packages are not linked since github.com/sigstore/rekor v1.5.4, which uses github.com/ProtonMail/go-crypto instead. Other golang.org/x/crypto packages are still used, so module based scanners still report the module."
+    },
+    {
+      "vulnerability": {
+        "name": "GO-2026-6225"
+      },
+      "products": [
+        {
+          "@id": "pkg:oci/security-profiles-operator",
+          "subcomponents": [
+            {
+              "@id": "pkg:golang/github.com/chrismellard/docker-credential-acr-env"
+            }
+          ]
+        },
+        {
+          "@id": "pkg:oci/security-profiles-operator-amd64",
+          "subcomponents": [
+            {
+              "@id": "pkg:golang/github.com/chrismellard/docker-credential-acr-env"
+            }
+          ]
+        },
+        {
+          "@id": "pkg:oci/security-profiles-operator-arm64",
+          "subcomponents": [
+            {
+              "@id": "pkg:golang/github.com/chrismellard/docker-credential-acr-env"
+            }
+          ]
+        },
+        {
+          "@id": "pkg:oci/security-profiles-operator-ppc64le",
+          "subcomponents": [
+            {
+              "@id": "pkg:golang/github.com/chrismellard/docker-credential-acr-env"
+            }
+          ]
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path",
+      "impact_statement": "The ACR credential helper is only used by the cosign registry option KubernetesKeychain (--k8s-keychain), which the operator and spoc never set, they pass registry credentials explicitly. Replacing the helper in cosign is tracked in https://github.com/sigstore/cosign/issues/3913."
+    }
+  ]
+}

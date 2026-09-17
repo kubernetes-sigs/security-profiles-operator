@@ -269,6 +269,12 @@ dependencies:
       - path: hack/lib/common.sh
         match: "^GOVULNCHECK_VERSION="
 
+  - name: trivy
+    version: v0.74.0
+    refPaths:
+      - path: .github/workflows/build.yml
+        match: "version: v0\\."
+
   - name: yq
     version: 4.53.6
     refPaths:
