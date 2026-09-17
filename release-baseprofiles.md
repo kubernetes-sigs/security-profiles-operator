@@ -25,8 +25,8 @@ recorded against as the tag:
 
 | Location | Purpose |
 | - | - |
-| `gcr.io/k8s-staging-sp-operator/base/<runtime>:<version>` | published on merge, anonymously readable, what the end-to-end tests read on `main` |
-| `gcr.io/k8s-staging-sp-operator/base/<runtime>:latest` | follows the newest recording, for manual pulls; staging only, never promoted |
+| `us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/base/<runtime>:<version>` | published on merge, anonymously readable, what the end-to-end tests read on `main` |
+| `us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/base/<runtime>:latest` | follows the newest recording, for manual pulls; staging only, never promoted |
 | `registry.k8s.io/security-profiles-operator/base/<runtime>:<version>` | promoted from staging, what a cluster should reference and what the end-to-end tests read on a release branch |
 
 They are published in the runtime format: a single layer holding the profile as
@@ -112,7 +112,7 @@ Both registries are anonymously readable:
 ```console
 > spoc pull -o /tmp/profile.json registry.k8s.io/security-profiles-operator/base/<runtime>:<version>
 > curl -fsSL -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
-    https://gcr.io/v2/k8s-staging-sp-operator/base/<runtime>/manifests/latest
+    https://us-central1-docker.pkg.dev/v2/k8s-staging-images/sp-operator/base/<runtime>/manifests/latest
 ```
 
 Artifacts published by the staging build are unsigned, since it has no OIDC

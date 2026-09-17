@@ -7,7 +7,7 @@ sortOptions:
   order: legacy
 
 images:
-- name: gcr.io/k8s-staging-sp-operator/security-profiles-operator
+- name: us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator
   newName: image-registry.openshift-image-registry.svc:5000/openshift/security-profiles-operator
   newTag: latest
 resources:

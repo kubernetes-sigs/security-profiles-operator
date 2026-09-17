@@ -330,8 +330,11 @@ func (e *e2e) deployOperator(manifest string) {
 	// ones from the nodes
 	e.logf("Setting imagePullPolicy to '%s' in manifest: %s", e.pullPolicy, manifest)
 	e.updateManifest(manifest, "imagePullPolicy: Always", "imagePullPolicy: "+e.pullPolicy)
-	e.updateManifest(manifest, "image: .*gcr.io/k8s-staging-sp-operator/.*", "image: "+e.testImage)
-	e.updateManifest(manifest, "value: .*gcr.io/k8s-staging-sp-operator/.*", "value: "+e.testImage)
+
+	const stagingImage = ".*us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/.*"
+
+	e.updateManifest(manifest, "image: "+stagingImage, "image: "+e.testImage)
+	e.updateManifest(manifest, "value: "+stagingImage, "value: "+e.testImage)
 
 	if e.selinuxEnabled {
 		e.updateManifest(manifest, "enableSelinux: false", "enableSelinux: true")

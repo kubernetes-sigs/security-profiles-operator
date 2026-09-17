@@ -36,8 +36,8 @@ please refer to [Installation Guide](https://github.com/kubernetes-sigs/security
 | resources.limits.memory                     | string | `"128Mi"` | `memory limits for the pod`                    |
 | resources.requests.cpu                      | string | `"250m"` | `cpu requests for the pod`                     |
 | resources.requests.memory                   | string | `"50Mi"` | `memory requests for pod`                      |
-| spoImage.registry                           | string | `"gcr.io"` | `the registry for the spoImage`                |
-| spoImage.repository                         | string | `"k8s-staging-sp-operator/security-profiles-operator"` | `the repository for the spoImage`              |
+| spoImage.registry                           | string | `"us-central1-docker.pkg.dev"` | `the registry for the spoImage`                |
+| spoImage.repository                         | string | `"k8s-staging-images/sp-operator/security-profiles-operator"` | `the repository for the spoImage`              |
 | spoImage.tag                                | string | `"latest"` | `tag for spoImage`                             |
 | tolerations                                 | list | `[]` | `a list of pod tolerations rules`              |
 | verbosity                                   | int | `0` | `the log level for the spo`                    |

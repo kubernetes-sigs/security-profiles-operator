@@ -1,6 +1,7 @@
 ---
 # See https://cloud.google.com/cloud-build/docs/build-config
 timeout: 1200s
+serviceAccount: projects/k8s-staging-images/serviceAccounts/sp-operator-sa@k8s-staging-images.iam.gserviceaccount.com
 options:
   substitution_option: ALLOW_LOOSE
   machineType: E2_HIGHCPU_8
@@ -15,17 +16,17 @@ steps:
     - |
       mkdir -p /etc/containers && \
       echo '{"default": [{"type": "insecureAcceptAnything"}]}' > /etc/containers/policy.json && \
-      gcloud auth configure-docker && \
+      gcloud auth configure-docker us-central1-docker.pkg.dev --quiet && \
       make image-cross
   - name: gcr.io/k8s-staging-test-infra/gcb-docker-gcloud:v20260205-38cfa9523f
     entrypoint: bash
     env:
-      - REGISTRY=gcr.io/$PROJECT_ID
+      - REGISTRY=us-central1-docker.pkg.dev/$PROJECT_ID/sp-operator
       - USERNAME=oauth2accesstoken
     args:
     - -c
     - |
-      IMAGE=gcr.io/k8s-staging-sp-operator/security-profiles-operator-amd64:$_GIT_TAG && \
+      IMAGE=us-central1-docker.pkg.dev/$PROJECT_ID/sp-operator/security-profiles-operator-amd64:$_GIT_TAG && \
       CONTAINER=$$(docker create $$IMAGE) && \
       mkdir -p build && \
       docker cp $$CONTAINER:/spoc build/spoc && \
@@ -38,9 +39,9 @@ substitutions:
   # vYYYYMMDD-hash, and can be used as a substitution
   _GIT_TAG: '12345'
 images:
-  - 'gcr.io/$PROJECT_ID/security-profiles-operator-amd64:$_GIT_TAG'
-  - 'gcr.io/$PROJECT_ID/security-profiles-operator-amd64:latest'
-  - 'gcr.io/$PROJECT_ID/security-profiles-operator-catalog:$_GIT_TAG'
-  - 'gcr.io/$PROJECT_ID/security-profiles-operator-catalog:latest'
-  - 'gcr.io/$PROJECT_ID/security-profiles-operator-bundle:$_GIT_TAG'
-  - 'gcr.io/$PROJECT_ID/security-profiles-operator-bundle:latest'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/sp-operator/security-profiles-operator-amd64:$_GIT_TAG'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/sp-operator/security-profiles-operator-amd64:latest'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/sp-operator/security-profiles-operator-catalog:$_GIT_TAG'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/sp-operator/security-profiles-operator-catalog:latest'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/sp-operator/security-profiles-operator-bundle:$_GIT_TAG'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/sp-operator/security-profiles-operator-bundle:latest'

@@ -2,8 +2,8 @@
 replicaCount: 3
 
 spoImage:
-  registry: gcr.io
-  repository: k8s-staging-sp-operator/security-profiles-operator
+  registry: us-central1-docker.pkg.dev
+  repository: k8s-staging-images/sp-operator/security-profiles-operator
   tag: latest
   pullPolicy: Always
 

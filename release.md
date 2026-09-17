@@ -15,7 +15,7 @@ The script basically:
 - bumps the [`VERSION`](VERSION) file to the target version
 - changes the `images` `newName`/`newTag` fields of
   [./deploy/kustomize-deployment/kustomization.yaml](deploy/kustomize-deployment/kustomization.yaml)
-  from `gcr.io/k8s-staging-sp-operator/security-profiles-operator` to
+  from `us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator` to
   `registry.k8s.io/security-profiles-operator/security-profiles-operator` (`newName`) and the
   corresponding tag (`newTag`).
   has to be run and the changes have to be committed.
@@ -24,7 +24,7 @@ The script basically:
 - changes [`hack/ci/e2e-olm.sh`](/hack/ci/e2e-olm.sh) to sed
   `"s#registry.k8s.io/security-profiles-operator/security-profiles-operator-catalog:v0.0.0#${CATALOG_IMG}#g"`
   instead of
-  `"s#gcr.io/k8s-staging-sp-operator/security-profiles-operator-catalog:latest#${CATALOG_IMG}#g"`
+  `"s#us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator-catalog:latest#${CATALOG_IMG}#g"`
   (please note to change the version `v0.0.0` to the upcoming release)
 - updates [./dependencies.yaml](./dependencies.yaml) `spo-current` version as
   well as its linked files. Run `make verify-dependencies` to verify the
@@ -78,7 +78,7 @@ After that, run the `./hack/back-to-dev.sh` script, which will:
   suffix `-dev`, for example `1.0.0-dev`.
 - changes the `images` `newName`/`newTag` fields in
   [./deploy/kustomize-deployment/kustomization.yaml](deploy/kustomize-deployment/kustomization.yaml)
-  back to `gcr.io/k8s-staging-sp-operator/security-profiles-operator`
+  back to `us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator`
   (`newName`) and `latest` (`newTag`) and runc `make bundle`
 - changes the tag in the same way in the OLM example manifest at
   [./examples/olm/install-resources.yaml](/examples/olm/install-resources.yaml)

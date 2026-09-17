@@ -33,7 +33,7 @@ echo "$VERSION" >VERSION
 
 # Update base kustomization
 FILE=deploy/kustomize-deployment/kustomization.yaml
-sed -i 's;newName: gcr.io;# newName: gcr.io;g' $FILE
+sed -i 's;newName: us-central1-docker.pkg.dev;# newName: us-central1-docker.pkg.dev;g' $FILE
 sed -i 's;newTag: latest;# newTag: latest;g' $FILE
 sed -i 's;# newName: registry.k8s.io;newName: registry.k8s.io;g' $FILE
 sed -i 's;# newTag: v.*;newTag: v'"$VERSION"';g' $FILE
@@ -43,24 +43,24 @@ sed -i 's;image: .*;image: registry.k8s.io/security-profiles-operator/security-p
 
 # Update e2e tests
 # shellcheck disable=SC2016
-sed -i 's;gcr.io.*catalog.*;registry.k8s.io/security-profiles-operator/security-profiles-operator-catalog:v'"$VERSION"'#${CATALOG_IMG}#g" examples/olm/install-resources.yaml;g' hack/ci/e2e-olm.sh
-sed -i 's;gcr.io/k8s-staging-sp-operator/;registry.k8s.io/;g' hack/ci/e2e-olm.sh
-sed -i 's;gcr.io/k8s-staging-sp-operator/;registry.k8s.io/;g' test/e2e_test.go
+sed -i 's;us-central1-docker.pkg.dev.*catalog.*;registry.k8s.io/security-profiles-operator/security-profiles-operator-catalog:v'"$VERSION"'#${CATALOG_IMG}#g" examples/olm/install-resources.yaml;g' hack/ci/e2e-olm.sh
+sed -i 's;us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/;registry.k8s.io/;g' hack/ci/e2e-olm.sh
+sed -i 's;us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/;registry.k8s.io/;g' test/e2e_test.go
 # The base profile artifacts are promoted under the project name.
-sed -i 's;gcr.io/k8s-staging-sp-operator/base/;registry.k8s.io/security-profiles-operator/base/;g' test/tc_base_profiles_oci_runtime_test.go
+sed -i 's;us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/base/;registry.k8s.io/security-profiles-operator/base/;g' test/tc_base_profiles_oci_runtime_test.go
 
 # Update patches
-sed -i 's;gcr.io.*;registry.k8s.io/security-profiles-operator/security-profiles-operator:v'"$VERSION"';g' hack/deploy-localhost.patch
+sed -i 's;us-central1-docker.pkg.dev.*;registry.k8s.io/security-profiles-operator/security-profiles-operator:v'"$VERSION"';g' hack/deploy-localhost.patch
 
 # Update webhook overlay
 FILE=deploy/overlays/webhook/kustomization.yaml
-sed -i 's;newName: gcr.io/k8s-staging-sp-operator/security-profiles-operator;newName: registry.k8s.io/security-profiles-operator/security-profiles-operator;g' $FILE
+sed -i 's;newName: us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator;newName: registry.k8s.io/security-profiles-operator/security-profiles-operator;g' $FILE
 sed -i 's;newTag: latest;newTag: v'"$VERSION"';g' $FILE
 
 # Update Helm chart values to use release image
 FILE=deploy/helm/values.yaml
-sed -i 's;registry: gcr.io;registry: registry.k8s.io;g' $FILE
-sed -i 's;repository: k8s-staging-sp-operator/security-profiles-operator;repository: security-profiles-operator/security-profiles-operator;g' $FILE
+sed -i 's;registry: us-central1-docker.pkg.dev;registry: registry.k8s.io;g' $FILE
+sed -i 's;repository: k8s-staging-images/sp-operator/security-profiles-operator;repository: security-profiles-operator/security-profiles-operator;g' $FILE
 sed -i '0,/tag: latest/{s;tag: latest;tag: v'"$VERSION"';}' $FILE
 sed -i 's;pullPolicy: Always;pullPolicy: IfNotPresent;g' $FILE
 
