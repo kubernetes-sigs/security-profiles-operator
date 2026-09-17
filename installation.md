@@ -140,10 +140,25 @@ kubectl annotate ns $spo_ns \
   --overwrite
 
 # Install the chart from the release URL (or a file path if desired).
-# Replace $VERSION with the desired release version (e.g. 1.0.1).
+# Replace $VERSION with the desired release version (e.g. 1.0.1). Starting with
+# 1.0.2, the chart archive is signed and has SLSA build provenance, see below.
 helm install security-profiles-operator --namespace security-profiles-operator https://github.com/kubernetes-sigs/security-profiles-operator/releases/download/v${VERSION}/security-profiles-operator-${VERSION}.tgz
 # Or update it with
 # helm upgrade --install security-profiles-operator --namespace security-profiles-operator https://github.com/kubernetes-sigs/security-profiles-operator/releases/download/v${VERSION}/security-profiles-operator-${VERSION}.tgz
+```
+
+To verify a downloaded chart archive before installing it:
+
+```shell
+curl -sSfLO https://github.com/kubernetes-sigs/security-profiles-operator/releases/download/v${VERSION}/security-profiles-operator-${VERSION}.tgz
+curl -sSfLO https://github.com/kubernetes-sigs/security-profiles-operator/releases/download/v${VERSION}/security-profiles-operator-${VERSION}.tgz.sigstore.json
+cosign verify-blob \
+  --certificate-identity https://github.com/kubernetes-sigs/security-profiles-operator/.github/workflows/helm-chart-package.yaml@refs/tags/v${VERSION} \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --bundle security-profiles-operator-${VERSION}.tgz.sigstore.json \
+  security-profiles-operator-${VERSION}.tgz
+gh attestation verify security-profiles-operator-${VERSION}.tgz \
+  --repo kubernetes-sigs/security-profiles-operator
 ```
 
 Starting with the next release, the chart is also published as OCI artifact to

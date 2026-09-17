@@ -31,3 +31,5 @@ extend-ignore-re = [
 
 [default.extend-words]
 bimap = "bimap"
+# in-toto attestation file suffix, as in spoc.intoto.jsonl
+intoto = "intoto"

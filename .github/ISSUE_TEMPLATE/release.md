@@ -55,14 +55,23 @@ $ cosign verify \
 
 Besides the operator image, we now also ship `spoc`, the official Security Profiles Operator Command Line Interface! Binaries for `amd64`, `arm64`, `ppc64le` and `s390x` are attached to this release.
 
-To verify the signature of `spoc`, download all release artifacts and run for `amd64` (works in the same way for `arm64`, `ppc64le`, `s390x` and the `spoc.spdx` SBOM with `spoc.spdx.bundle`):
+To verify the signature of `spoc`, download all release artifacts and run for `amd64` (works in the same way for `arm64`, `ppc64le`, `s390x` and the `spoc.spdx` SBOM with `spoc.spdx.sigstore.json`):
 
 ```
 $ cosign verify-blob \
     --certificate-identity https://github.com/kubernetes-sigs/security-profiles-operator/.github/workflows/build.yml@refs/tags/v{VERSION} \
     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-    --bundle spoc.amd64.bundle \
+    --bundle spoc.amd64.sigstore.json \
     spoc.amd64
+```
+
+The SLSA build provenance of the binaries and the SBOM is attached as `spoc.intoto.jsonl` and can be verified with the [GitHub CLI][3]:
+
+```
+$ gh attestation verify spoc.amd64 \
+    --bundle spoc.intoto.jsonl \
+    --repo kubernetes-sigs/security-profiles-operator \
+    --signer-workflow kubernetes-sigs/security-profiles-operator/.github/workflows/build.yml
 ```
 
 We also provide `.sha512` sum files for the binaries.
@@ -76,13 +85,26 @@ $ helm install security-profiles-operator \
     --version {VERSION}
 ```
 
-See the [installation guide][0] for the namespace preparation.
+See the [installation guide][0] for the namespace preparation. The chart archive attached to this release is signed and has SLSA build provenance, from the `helm-chart-package.yaml` workflow:
+
+```
+$ cosign verify-blob \
+    --certificate-identity https://github.com/kubernetes-sigs/security-profiles-operator/.github/workflows/helm-chart-package.yaml@refs/tags/v{VERSION} \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+    --bundle security-profiles-operator-{VERSION}.tgz.sigstore.json \
+    security-profiles-operator-{VERSION}.tgz
+$ gh attestation verify security-profiles-operator-{VERSION}.tgz \
+    --bundle security-profiles-operator-{VERSION}.intoto.jsonl \
+    --repo kubernetes-sigs/security-profiles-operator \
+    --signer-workflow kubernetes-sigs/security-profiles-operator/.github/workflows/helm-chart-package.yaml
+```
 
 Feel free to provide us any kind of feedback in the official [Kubernetes Slack #security-profiles-operator channel][2].
 
 [0]: https://github.com/kubernetes-sigs/security-profiles-operator/blob/v{VERSION}/installation.md
 [1]: https://github.com/sigstore/cosign
 [2]: https://app.slack.com/client/T09NY5SBT/C013FQNB0A2
+[3]: https://cli.github.com/manual/gh_attestation_verify
 ````
 
 </details>

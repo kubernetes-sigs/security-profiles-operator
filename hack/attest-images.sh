@@ -14,10 +14,10 @@
 # limitations under the License.
 
 # Attests SLSA provenance, the SBOM, the vulnerability scan with its VEX
-# document and the build environment for the image digests listed in
-# build/image-digests, and SLSA provenance for the bundle and catalog digests
-# in build/metadata-image-digests. hack/image-cross.sh writes both lists. The
-# images are attested in parallel.
+# document, the build environment and the Scorecard result for the image
+# digests listed in build/image-digests, and SLSA provenance for the bundle and
+# catalog digests in build/metadata-image-digests. hack/image-cross.sh writes
+# both lists. The images are attested in parallel.
 
 set -euo pipefail
 
@@ -61,4 +61,6 @@ attest_provenance() {
 }
 
 parallel_each attest_image "${IMAGES[@]}"
+# The Scorecard result is the same for all images, so it is fetched once.
+"$HACK_DIR/attest-scorecard.sh" "${IMAGES[@]}"
 parallel_each attest_provenance "${METADATA_IMAGES[@]}"
