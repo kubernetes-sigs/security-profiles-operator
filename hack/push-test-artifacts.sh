@@ -54,6 +54,7 @@ push() {
   if [[ "$SKIP_EXISTING" == "true" ]] &&
       "$SPOC" pull -s -o /dev/null "$ref" >/dev/null 2>&1; then
     echo "Already published, skipping $ref"
+    "$(dirname "${BASH_SOURCE[0]}")/sign-published.sh" "$ref"
 
     return
   fi

@@ -23,6 +23,10 @@ steps:
     env:
       - REGISTRY=us-central1-docker.pkg.dev/$PROJECT_ID/sp-operator
       - USERNAME=oauth2accesstoken
+      # Only signatures of the build account count for already published
+      # profiles, others get signed again.
+      - SIGNER_IDENTITY_REGEXP=^sp-operator-sa@$PROJECT_ID\.iam\.gserviceaccount\.com$$
+      - SIGNER_OIDC_ISSUER_REGEXP=^https://accounts\.google\.com$$
     args:
     - -c
     - |

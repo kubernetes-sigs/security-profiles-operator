@@ -131,6 +131,8 @@ grants to every build account:
 - certificate identity: `sp-operator-sa@k8s-staging-images.iam.gserviceaccount.com`
 - issuer: `https://accounts.google.com`
 
-Artifacts pushed with `SIGN=false` are unsigned, so verification has to be
-skipped for those with `spoc pull -s`. Manual runs of the scripts sign with
+Versions that are already published but have no signature of the build
+account, for example because they were pushed with `SIGN=false`, are signed
+in place on the next build (`hack/sign-published.sh`). Until then,
+verification has to be skipped for them with `spoc pull -s`. Manual runs of the scripts sign with
 the local identity, unless `SIGN=false` is set.
