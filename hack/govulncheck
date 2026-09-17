@@ -5,10 +5,17 @@
 # Reachable vulnerabilities without an upstream fix are reported but do not fail
 # the build, because there is nothing a bump could do about them. They stay
 # visible in the job output so that they get picked up once a fix lands.
+#
+# Vulnerabilities that maintainers assessed as not_affected or fixed for
+# pkg:oci/security-profiles-operator in .openvex.json don't fail either,
+# like in the trivy check and the staging attestations. An assessment claiming
+# that the vulnerable code or component is not present is ignored with a
+# warning, because a reachable finding shows that it is outdated.
 set -euo pipefail
 
 VERSION=${GOVULNCHECK_VERSION:?GOVULNCHECK_VERSION must be set}
 TAGS=${BUILDTAGS:-}
+VEX_FILE=${VEX_FILE:-$(dirname "${BASH_SOURCE[0]}")/../.openvex.json}
 
 REPORT=$(mktemp)
 trap 'rm -f "$REPORT"' EXIT
@@ -26,9 +33,12 @@ if [[ $STATUS -ne 0 && $STATUS -ne 3 ]]; then
     exit "$STATUS"
 fi
 
-python3 - "$REPORT" <<'PY'
+python3 - "$REPORT" "$VEX_FILE" <<'PY'
 import json
 import sys
+
+ASSESSED_PRODUCT = "pkg:oci/security-profiles-operator"
+NOT_PRESENT = {"vulnerable_code_not_present", "component_not_present"}
 
 decoder = json.JSONDecoder()
 raw = open(sys.argv[1]).read()
@@ -66,6 +76,32 @@ for finding in findings:
     target.setdefault(finding["osv"], finding)
 
 
+# Assessments from .openvex.json, keyed by the vulnerability name, which
+# may be the Go ID or one of its aliases.
+with open(sys.argv[2]) as document:
+    assessments = {
+        statement["vulnerability"]["name"]: statement
+        for statement in json.load(document).get("statements") or []
+        if statement.get("status") in ("not_affected", "fixed")
+        and any(p.get("@id") == ASSESSED_PRODUCT for p in statement.get("products") or [])
+    }
+
+def assessment(osv_id):
+    names = [osv_id] + osvs.get(osv_id, {}).get("aliases", [])
+    return next((assessments[n] for n in names if n in assessments), None)
+
+
+assessed = {}
+for osv_id in sorted(fixable):
+    statement = assessment(osv_id)
+    if statement is None:
+        continue
+    if statement.get("justification") in NOT_PRESENT:
+        print(f"WARNING: {osv_id} is reachable, ignoring its outdated assessment in {sys.argv[2]}")
+        continue
+    assessed[osv_id] = (fixable.pop(osv_id), statement)
+
+
 def describe(osv_id, finding):
     osv = osvs.get(osv_id, {})
     summary = osv.get("summary") or osv.get("details", "").split("\n")[0]
@@ -81,6 +117,17 @@ if unfixable:
     print("Reachable vulnerabilities without an upstream fix (not failing):")
     for osv_id, finding in sorted(unfixable.items()):
         print(describe(osv_id, finding))
+        statement = assessment(osv_id)
+        if statement is not None:
+            print(f"    assessed in {sys.argv[2]}, {statement['status']}: "
+                  f"{statement.get('justification') or statement.get('impact_statement', '')}")
+    print()
+
+if assessed:
+    print(f"Reachable vulnerabilities with a fix available, assessed in {sys.argv[2]} (not failing):")
+    for osv_id, (finding, statement) in sorted(assessed.items()):
+        print(describe(osv_id, finding))
+        print(f"    {statement['status']}: {statement.get('justification') or statement.get('impact_statement', '')}")
     print()
 
 if fixable:
@@ -88,7 +135,8 @@ if fixable:
     for osv_id, finding in sorted(fixable.items()):
         print(describe(osv_id, finding))
     print()
-    print("Update the affected modules to at least the listed fixed versions.")
+    print("Update the affected modules to at least the listed fixed versions, or assess them in .openvex.json,")
+    print("see https://github.com/kubernetes-sigs/security-profiles-operator/blob/main/hacking.md#vulnerability-checks-and-assessments")
     sys.exit(1)
 
 print("No reachable vulnerability with an available fix.")

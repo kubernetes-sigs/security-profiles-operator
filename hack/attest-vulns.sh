@@ -21,6 +21,15 @@
 # VEX document, because an OpenVEX document needs at least one statement. The Go
 # vulnerability database has no severity scores, so the scan results carry
 # none.
+#
+# Maintainers assess findings in the OpenVEX document .openvex.json. Its
+# statement replaces the assessment of a found vulnerability with the same name
+# when one of its products is the image purl without version. A not_affected
+# statement needs a justification or an impact statement. Statements claiming
+# that the vulnerable code or component is not present are ignored with a
+# warning when govulncheck finds the vulnerable symbols, because the claim is
+# outdated then. Affected statements without an action statement name the
+# module, the fixed version if there is one, and the vulnerability entry.
 
 # jq programs are single quoted on purpose
 # shellcheck disable=SC2016
@@ -30,6 +39,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
 BINARIES=(security-profiles-operator spoc)
+VEX_FILE="${VEX_FILE:-$(dirname "${BASH_SOURCE[0]}")/../.openvex.json}"
 
 if ! signing_enabled; then
   echo "Signing disabled, not attesting vulnerability scans: $*"
@@ -39,6 +49,17 @@ fi
 for ref in "$@"; do
   require_digest "$ref"
 done
+
+if ! "$(jq_bin)" -e '
+    .statements | all(
+      (.vulnerability.name | type == "string")
+      and ((.products // []) | length > 0)
+      and (.status | IN("not_affected", "affected", "fixed", "under_investigation"))
+      and (.status != "not_affected" or .justification != null or .impact_statement != null)
+    )' "$VEX_FILE" >/dev/null; then
+  echo "Invalid statements in $VEX_FILE" >&2
+  exit 1
+fi
 
 # govulncheck reports findings with exit code 0 in the JSON and OpenVEX
 # formats, but documents exit code 3 for them as well.
@@ -70,9 +91,28 @@ for ref in "$@"; do
 
   # One statement per vulnerability for the image. A vulnerability counts as
   # affected if any binary uses it, the affected modules are kept as
-  # subcomponents.
+  # subcomponents. A maintained statement replaces the assessment.
+  cat "$scans"/*.govulncheck.json >"$scans/findings.json"
+
+  outdated=$("$(jq_bin)" -rs \
+    --slurpfile assessments "$VEX_FILE" \
+    --arg genericProduct "pkg:oci/$name" \
+    '[.[] | (.statements // [])[] | select(.status == "affected") | .vulnerability.name]
+    | unique[] as $found
+    | $assessments[0].statements[]
+    | select(.vulnerability.name == $found
+        and any(.products[]; ."@id" == $genericProduct)
+        and (.justification | IN("vulnerable_code_not_present", "component_not_present")))
+    | $found' "$scans"/*.openvex.json)
+  for vulnerability in $outdated; do
+    echo "WARNING: govulncheck finds $vulnerability in $ref, ignoring its outdated assessment in $VEX_FILE" >&2
+  done
+
   vex="$BUILD_DIR/attestations/$name.openvex.json"
   "$(jq_bin)" -s \
+    --slurpfile assessments "$VEX_FILE" \
+    --slurpfile findings "$scans/findings.json" \
+    --arg genericProduct "pkg:oci/$name" \
     --arg id "https://console.cloud.google.com/cloud-build/builds/${BUILD_ID:-local}#$name-vex" \
     --arg author "$REPOSITORY_URL/blob/main/hack/attest-vulns.sh" \
     --arg timestamp "$finished" \
@@ -93,6 +133,31 @@ for ref in "$@"; do
                 "@id": $product,
                 subcomponents: ([.[].products[].subcomponents[]?] | unique)
               }]}
+            | .vulnerability.name as $name
+            | ($assessments[0].statements
+                | map(select(.vulnerability.name == $name
+                    and any(.products[]; ."@id" == $genericProduct)))
+                | last) as $assessment
+            | if $assessment != null
+                and (.status != "affected"
+                  or ($assessment.justification
+                    | IN("vulnerable_code_not_present", "component_not_present")
+                    | not))
+              then
+                del(.status, .justification, .impact_statement, .action_statement)
+                + ($assessment | del(.vulnerability, .products, .timestamp, .last_updated))
+              elif .status == "affected" and .action_statement == null then
+                ([$findings[] | .finding? | select(.osv == $name)] | first) as $finding
+                | ($finding.trace[0].module // "the affected module") as $module
+                | .action_statement = (
+                    if ($finding.fixed_version // null) == null then
+                      "No fixed version of \($module) is available, see \(.vulnerability."@id" // $name)."
+                    else
+                      "Update \($module) to \($finding.fixed_version) or later, see \(.vulnerability."@id" // $name)."
+                    end
+                  )
+              else .
+              end
           )
       )
     }' "$scans"/*.openvex.json >"$vex"

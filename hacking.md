@@ -66,12 +66,69 @@ Here's the process for contributing your changes:
 
 3.  **Verify:**
     * Run the command `make verify`. This command executes automated checks (like code style) to ensure your changes meet the project's standards. Make sure this command passes without any errors.
+    * If a vulnerability check fails, see [vulnerability checks and assessments](#vulnerability-checks-and-assessments).
 
 4.  **PR Description:**
     * When you create your Pull Request to merge your changes back into the main repository, please provide a clear description.
     * Specifically, make sure to clearly indicate:
         * **Type of PR:** What kind of change is this?
         * **User-facing change:** If your changes will be noticeable to users of the project, briefly explain what those changes are. If not, you must state "NONE"
+
+## Vulnerability checks and assessments
+
+Two checks keep known vulnerabilities out:
+
+- `make verify-vulnerabilities` runs govulncheck on the source and fails when
+  the code calls a vulnerable function that has a fixed version upstream.
+- The `operator-image` and `ubi-image` jobs in
+  [`.github/workflows/build.yml`](.github/workflows/build.yml) scan the built
+  images with trivy and fail on every vulnerability with an available fix,
+  including the OS packages of the UBI image.
+
+Vulnerabilities without a fix are reported but don't fail either check. Both
+checks can also fail when a fix gets published for a dependency the operator
+already uses, without any change in the pull request. Updating the dependency,
+usually through a Dependabot pull request, resolves that for all pull requests.
+
+When a check fails, update the affected module or image to the fixed version.
+Only if the vulnerability doesn't affect the operator, for example because the
+vulnerable code is never executed, assess it in the OpenVEX document
+[`.openvex.json`](.openvex.json) in the same pull request:
+
+```console
+> vexctl add --in-place .openvex.json \
+    --vuln GO-2026-1234 \
+    --status not_affected \
+    --justification vulnerable_code_not_in_execute_path \
+    --impact-statement "Why the code can't be reached, with links to upstream issues." \
+    --product pkg:oci/security-profiles-operator,pkg:oci/security-profiles-operator-amd64,pkg:oci/security-profiles-operator-arm64,pkg:oci/security-profiles-operator-ppc64le \
+    --subcomponents pkg:golang/example.com/vulnerable/module
+```
+
+A statement:
+
+- names the vulnerability as reported by govulncheck or trivy, an alias like
+  the CVE works for govulncheck as well
+- lists the images as products without version, each with the affected
+  package as subcomponent, like the golden templates of
+  [`vexctl generate`](https://github.com/openvex/vexctl):
+  `pkg:oci/security-profiles-operator` for both checks, the per-arch
+  `pkg:oci/security-profiles-operator-{amd64,arm64,ppc64le}` for the staging
+  attestations
+- has a `status`, and for `not_affected` a
+  [justification](https://github.com/openvex/spec/blob/main/OPENVEX-SPEC.md#status-justifications)
+  plus an `impact_statement` that explains the assessment
+
+`vexctl add` increases the document `version` and sets `last_updated`, do
+that by hand when editing the file directly. Remove statements once the
+vulnerability is fixed or no longer found.
+
+Neither check fails on `not_affected` or `fixed` statements. Both list the
+assessed findings in their output. A `vulnerable_code_not_present` or
+`component_not_present` statement is ignored with a warning when govulncheck
+finds the vulnerable code again. The staging build also applies the
+assessments to the VEX documents it attests, see
+[staging attestations](release.md#staging-attestations).
 
 ## Running unit tests and viewing coverage
 SPO uses the Go's `testing` library augmented with [testify](https://github.com/stretchr/testify)
