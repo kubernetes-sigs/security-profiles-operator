@@ -11,9 +11,6 @@ steps:
     env:
       - TAG=$_GIT_TAG
       - HOME=/root  # for docker buildx
-      # The Cloud Build metadata server provides no ID tokens, so keyless
-      # signing is off until the build gets one via impersonation.
-      - SIGN=false
     args:
     - -c
     - |
@@ -26,7 +23,6 @@ steps:
     env:
       - REGISTRY=us-central1-docker.pkg.dev/$PROJECT_ID/sp-operator
       - USERNAME=oauth2accesstoken
-      - SIGN=false
     args:
     - -c
     - |
