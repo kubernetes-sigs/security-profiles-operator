@@ -71,7 +71,25 @@ CATALOG_IMG_BASE=$IMAGE-catalog
 export BUNDLE_IMG=$BUNDLE_IMG_BASE:$VERSION
 export CATALOG_IMG=$CATALOG_IMG_BASE:$VERSION
 
-make bundle-build bundle-push catalog-build catalog-push CONTAINER_RUNTIME=docker
+make bundle-build bundle-push CONTAINER_RUNTIME=docker
+
+# The catalog is rendered from the pushed staging bundle by digest. Released
+# catalogs reference the bundle in the production registry it gets promoted
+# to, because staging images are not kept. Development catalogs keep the
+# staging bundle, which is never promoted.
+BUNDLE_DIGEST_IMG=$(docker inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$BUNDLE_IMG" |
+    grep -F "$BUNDLE_IMG_BASE@sha256:" | head -1)
+if [[ -z "$BUNDLE_DIGEST_IMG" ]]; then
+    echo "Unable to resolve the digest of $BUNDLE_IMG"
+    exit 1
+fi
+
+CATALOG_ARGS=(BUNDLE_IMGS="$BUNDLE_DIGEST_IMG")
+if [[ "$VERSION" != *-dev ]]; then
+    CATALOG_ARGS+=(CATALOG_BUNDLE_REPO=registry.k8s.io/security-profiles-operator/security-profiles-operator-bundle)
+fi
+
+make catalog-build catalog-push CONTAINER_RUNTIME=docker "${CATALOG_ARGS[@]}"
 
 # Ensure all tags are up to date
 IMAGES=("$BUNDLE_IMG_BASE" "$CATALOG_IMG_BASE")

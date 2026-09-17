@@ -671,6 +671,13 @@ BUNDLE_IMGS ?= $(BUNDLE_IMG)
 # The image tag given to the resulting catalog image (e.g. make catalog-build CATALOG_IMG=example.com/operator-catalog:v0.2.0).
 CATALOG_IMG ?= $(PROJECT)-catalog:v$(VERSION)
 
+# The repository the catalog references the bundle from, if it differs from
+# the one it is rendered from, for example the production registry the staging
+# bundle gets promoted to. BUNDLE_IMGS has to be a single bundle pinned by
+# digest then, which promotion keeps.
+CATALOG_BUNDLE_REPO ?=
+BUNDLE_REPO = $(firstword $(subst @, ,$(BUNDLE_IMGS)))
+
 # Build a catalog image by adding bundle images to an empty catalog using the operator package manager tool, 'opm'.
 # This target uses the file-based catalog format (https://olm.operatorframework.io/docs/reference/file-based-catalogs/)
 .PHONY: catalog-build
@@ -679,6 +686,11 @@ catalog-build: opm ## Build a catalog image.
 	$(eval CATALOG_DOCKERFILE := $(TMP_DIR).Dockerfile)
 	cp deploy/catalog-preamble.json $(TMP_DIR)/security-profiles-operator-catalog.json
 	XDG_RUNTIME_DIR=$(TMP_DIR) $(OPM) $(OPM_EXTRA_ARGS) render $(BUNDLE_IMGS) >> $(TMP_DIR)/security-profiles-operator-catalog.json
+ifneq ($(CATALOG_BUNDLE_REPO),)
+	@case "$(BUNDLE_IMGS)" in *,*) echo "CATALOG_BUNDLE_REPO needs a single bundle image" >&2; exit 1;; *@sha256:*) ;; *) echo "CATALOG_BUNDLE_REPO needs BUNDLE_IMGS pinned by digest" >&2; exit 1;; esac
+	$(SED) 's#"$(BUNDLE_REPO)@sha256:#"$(CATALOG_BUNDLE_REPO)@sha256:#g' $(TMP_DIR)/security-profiles-operator-catalog.json
+	! grep -F '"$(BUNDLE_REPO)@' $(TMP_DIR)/security-profiles-operator-catalog.json
+endif
 	XDG_RUNTIME_DIR=$(TMP_DIR) $(OPM) generate dockerfile $(TMP_DIR)
 	$(CONTAINER_RUNTIME) build -f $(CATALOG_DOCKERFILE) -t $(CATALOG_IMG) $(shell dirname $(TMP_DIR))
 	rm -rf $(TMP_DIR) $(CATALOG_DOCKERFILE)
