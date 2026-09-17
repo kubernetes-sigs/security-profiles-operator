@@ -169,6 +169,12 @@ dependencies:
     - path: hack/ci/Vagrantfile-debian
       match: "COSIGN_VERSION="
 
+  - name: cosign for staging signing
+    version: v3.1.3
+    refPaths:
+    - path: hack/sign-images.sh
+      match: "COSIGN_VERSION="
+
   - name: bom
     version: v0.7.1
     refPaths:

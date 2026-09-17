@@ -99,3 +99,10 @@ for I in "${IMAGES[@]}"; do
         docker push "$I:$T"
     done
 done
+
+# Sign every pushed image once by digest, if SIGN=true
+SIGN_REFS=("$IMAGE:$TAG" "$BUNDLE_IMG_BASE:$TAG" "$CATALOG_IMG_BASE:$TAG")
+for ARCH in "${ARCHES[@]}"; do
+    SIGN_REFS+=("$IMAGE-$ARCH:$TAG")
+done
+"$(dirname "${BASH_SOURCE[0]}")/sign-images.sh" "${SIGN_REFS[@]}"
