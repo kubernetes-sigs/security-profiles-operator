@@ -101,9 +101,14 @@ Promote the versioned tag only. Tags in `registry.k8s.io` cannot be repointed,
 so a promoted `latest` would be frozen at whatever it pointed to first, and
 content re-recorded under a version that was already promoted needs a new tag.
 
-`kpromo` cannot sign its commit, so it fails with `invalid checksum` when
-`commit.gpgsign` is set. Run it with a `GIT_CONFIG_GLOBAL` that turns signing
-off.
+`kpromo` up to v4.6.0 fails with `invalid checksum` when git writes the index
+without checksum, which `index.skipHash` (enabled by `feature.manyFiles`) does.
+Run it with the setting turned off:
+
+```console
+> GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=index.skipHash GIT_CONFIG_VALUE_0=false \
+    kpromo pr --project sp-operator --image base/<runtime> --tag <version>
+```
 
 ## Verifying
 
@@ -115,9 +120,9 @@ Both registries are anonymously readable:
     https://us-central1-docker.pkg.dev/v2/k8s-staging-images/sp-operator/base/<runtime>/manifests/latest
 ```
 
-The staging build signs the images and profiles it pushes as Sigstore bundles.
-It runs as the `sp-operator-sa@k8s-staging-images` service account, and cosign
-gets the identity token for keyless signing from the metadata server. Artifacts pushed with
-`SIGN=false` are unsigned, so verification has to be skipped for those with
-`spoc pull -s`. Manual runs of the scripts sign as well, with the local
-identity, unless `SIGN=false` is set.
+The staging build runs as the `sp-operator-sa@k8s-staging-images` service
+account, but pushes unsigned for now (`SIGN=false` in `cloudbuild.yaml`),
+because the Cloud Build metadata server provides no ID token for keyless
+signing. Verification has to be skipped for unsigned artifacts with
+`spoc pull -s`. Manual runs of the scripts sign as Sigstore bundles with the
+local identity, unless `SIGN=false` is set.
