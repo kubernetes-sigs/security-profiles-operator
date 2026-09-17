@@ -120,9 +120,17 @@ Both registries are anonymously readable:
     https://us-central1-docker.pkg.dev/v2/k8s-staging-images/sp-operator/base/<runtime>/manifests/latest
 ```
 
-The staging build runs as the `sp-operator-sa@k8s-staging-images` service
-account, but pushes unsigned for now (`SIGN=false` in `cloudbuild.yaml`),
-because the Cloud Build metadata server provides no ID token for keyless
-signing. Verification has to be skipped for unsigned artifacts with
-`spoc pull -s`. Manual runs of the scripts sign as Sigstore bundles with the
-local identity, unless `SIGN=false` is set.
+The staging build signs the images, profiles and the chart it pushes as
+Sigstore bundles. It runs as the `sp-operator-sa@k8s-staging-images` service
+account, and cosign gets the ID token for keyless signing from the metadata
+server. Cloud Build only issues ID tokens to service accounts that hold
+`roles/iam.serviceAccountOpenIdTokenCreator` on themselves, which
+[kubernetes/k8s.io](https://github.com/kubernetes/k8s.io/blob/main/infra/gcp/terraform/k8s-staging-images/registries.tf)
+grants to every build account:
+
+- certificate identity: `sp-operator-sa@k8s-staging-images.iam.gserviceaccount.com`
+- issuer: `https://accounts.google.com`
+
+Artifacts pushed with `SIGN=false` are unsigned, so verification has to be
+skipped for those with `spoc pull -s`. Manual runs of the scripts sign with
+the local identity, unless `SIGN=false` is set.
