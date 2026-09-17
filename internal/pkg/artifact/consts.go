@@ -66,6 +66,10 @@ const (
 	// defaultTimeout is the default timeout for push and pull operations.
 	defaultTimeout = 5 * time.Minute
 
+	// verifyMaxWorkers is the number of parallel signature verifications,
+	// the default of cosign verify.
+	verifyMaxWorkers = 10
+
 	// annotationCreatedDefault is the org.opencontainers.image.created value
 	// a pushed manifest carries unless the caller sets the annotation or
 	// SOURCE_DATE_EPOCH. ORAS would stamp the current time, which makes

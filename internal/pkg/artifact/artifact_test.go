@@ -78,6 +78,7 @@ func TestPushDisableSigning(t *testing.T) {
 		nil,
 		&PushOptions{DisableSigning: true},
 	))
+	require.Zero(t, mock.LoadSigningMaterialCallCount())
 	require.Zero(t, mock.SignCmdCallCount())
 }
 
@@ -123,6 +124,18 @@ func TestPush(t *testing.T) {
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.SignCmdReturns(errTest)
+			},
+			assert: func(err error) {
+				require.ErrorIs(t, err, errTest)
+			},
+		},
+		{
+			name: "failure on LoadSigningMaterial",
+			prepare: func(mock *artifactfakes.FakeImpl) {
+				mock.StoreAddReturns(defaultDescriptor(), nil)
+				mock.ParseReferenceReturns(testRef, nil)
+				mock.NewRepositoryReturns(&remote.Repository{}, nil)
+				mock.LoadSigningMaterialReturns(errTest)
 			},
 			assert: func(err error) {
 				require.ErrorIs(t, err, errTest)
@@ -1496,10 +1509,24 @@ func TestRegistryOptions(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, 1, mock.SignCmdCallCount())
 
-		_, _, signOpts, _ := mock.SignCmdArgsForCall(0)
+		_, _, keyOpts, signOpts, imgs := mock.SignCmdArgsForCall(0)
 		require.True(t, signOpts.Registry.AllowHTTPRegistry)
 		require.Equal(t, "user", signOpts.Registry.AuthConfig.Username)
 		require.Equal(t, "secret", signOpts.Registry.AuthConfig.Password)
+
+		// Signatures are Sigstore bundles attached as OCI referrers to the
+		// pushed digest, signed with the services of the signing config.
+		require.True(t, signOpts.NewBundleFormat)
+		require.True(t, signOpts.UseSigningConfig)
+		require.True(t, signOpts.TlogUpload)
+		require.True(t, keyOpts.NewBundleFormat)
+		require.Len(t, imgs, 1)
+		require.Contains(t, imgs[0], "@")
+
+		require.Equal(t, 1, mock.LoadSigningMaterialCallCount())
+		_, loadedKeyOpts, loadedSignOpts := mock.LoadSigningMaterialArgsForCall(0)
+		require.True(t, loadedKeyOpts.NewBundleFormat)
+		require.True(t, loadedSignOpts.UseSigningConfig)
 	})
 
 	t.Run("pull", func(t *testing.T) {
@@ -1526,6 +1553,12 @@ func TestRegistryOptions(t *testing.T) {
 		require.True(t, verifyCmd.AllowHTTPRegistry)
 		require.Equal(t, "user", verifyCmd.AuthConfig.Username)
 		require.Equal(t, "secret", verifyCmd.AuthConfig.Password)
+
+		// Bundles attached as OCI referrers are preferred, cosign falls back
+		// to legacy signature tags if there are none.
+		require.True(t, verifyCmd.CheckClaims)
+		require.True(t, verifyCmd.NewBundleFormat)
+		require.Positive(t, verifyCmd.MaxWorkers)
 	})
 
 	t.Run("anonymous", func(t *testing.T) {

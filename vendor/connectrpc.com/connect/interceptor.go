@@ -1,4 +1,4 @@
-// Copyright 2021-2025 The Connect Authors
+// Copyright 2021-2026 The Connect Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -31,6 +31,8 @@ var (
 // The type of the request and response structs depend on the codec being used.
 // When using Protobuf, request.Any() and response.Any() will always be
 // [proto.Message] implementations.
+//
+// On return, response is non-nil if and only if err is nil.
 type UnaryFunc func(context.Context, AnyRequest) (AnyResponse, error)
 
 // StreamingClientFunc is the generic signature of a streaming RPC from the client's
