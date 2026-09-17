@@ -258,11 +258,14 @@ nix-spoc: nix-spoc-amd64 nix-spoc-arm64 nix-spoc-ppc64le nix-spoc-s390x ## Build
 
 # The SBOM lists the spoc binaries and the Go module dependencies. The ignore
 # patterns keep the repository files out of it, go.mod and go.sum stay because
-# bom needs at least one file in the scanned directory.
+# bom needs at least one file in the scanned directory. Module mode makes bom
+# read the dependency licenses from the module cache, with the vendor directory
+# it clones every dependency repository instead.
 .PHONY: spoc-sbom
 spoc-sbom: ## Generate and sign the SBOM for the spoc binaries in the build directory
 	bom version
-	bom generate \
+	go mod download
+	GOFLAGS=-mod=mod bom generate \
 		-l Apache-2.0 \
 		--name spoc \
 		-d . \
