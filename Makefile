@@ -240,6 +240,8 @@ nix-ppc64le: ## Build the binaries via nix for ppc64le
 nix-s390x: ## Build the binaries via nix for s390x
 	$(call nix-build-to,s390x)
 
+SPOC_ARCHES := amd64 arm64 ppc64le s390x
+
 define nix-build-sign-spoc-to
 	$(NIX) build .#spoc-$(1)
 	cp -f result/spoc $(BUILD_DIR)/spoc.$(1)
@@ -251,11 +253,22 @@ endef
 
 .PHONY: nix-spoc
 nix-spoc: nix-spoc-amd64 nix-spoc-arm64 nix-spoc-ppc64le nix-spoc-s390x ## Build all spoc binaries via nix.
+	$(MAKE) spoc-sbom
+
+# The SBOM lists the spoc binaries and the Go module dependencies. The ignore
+# patterns keep the repository files out of it, go.mod and go.sum stay because
+# bom needs at least one file in the scanned directory.
+.PHONY: spoc-sbom
+spoc-sbom: ## Generate and sign the SBOM for the spoc binaries in the build directory
 	bom version
 	bom generate \
 		-l Apache-2.0 \
 		--name spoc \
-		-d $(BUILD_DIR) \
+		-d . \
+		--ignore '*' \
+		--ignore '!go.mod' \
+		--ignore '!go.sum' \
+		$(foreach arch,$(SPOC_ARCHES),-f $(BUILD_DIR)/spoc.$(arch)) \
 		-o $(BUILD_DIR)/spoc.spdx
 	cosign sign-blob -y \
 		$(BUILD_DIR)/spoc.spdx \
