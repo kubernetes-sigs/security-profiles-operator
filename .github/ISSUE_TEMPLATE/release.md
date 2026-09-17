@@ -55,17 +55,28 @@ $ cosign verify \
 
 Besides the operator image, we now also ship `spoc`, the official Security Profiles Operator Command Line Interface! Binaries for `amd64`, `arm64`, `ppc64le` and `s390x` are attached to this release.
 
-To verify the signature of `spoc`, download all release artifacts and run for `amd64` (works in the same way for `arm64`, `ppc64le` and `s390x`):
+To verify the signature of `spoc`, download all release artifacts and run for `amd64` (works in the same way for `arm64`, `ppc64le`, `s390x` and the `spoc.spdx` SBOM with `spoc.spdx.bundle`):
 
 ```
 $ cosign verify-blob \
-    --certificate-identity sgrunert@redhat.com \
-    --certificate-oidc-issuer https://github.com/login/oauth \
+    --certificate-identity https://github.com/kubernetes-sigs/security-profiles-operator/.github/workflows/build.yml@refs/tags/v{VERSION} \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com \
     --bundle spoc.amd64.bundle \
     spoc.amd64
 ```
 
 We also provide `.sha512` sum files for the binaries.
+
+The helm chart is available as OCI artifact as well:
+
+```
+$ helm install security-profiles-operator \
+    --namespace security-profiles-operator \
+    oci://registry.k8s.io/security-profiles-operator/charts/security-profiles-operator \
+    --version {VERSION}
+```
+
+See the [installation guide][0] for the namespace preparation.
 
 Feel free to provide us any kind of feedback in the official [Kubernetes Slack #security-profiles-operator channel][2].
 

@@ -9,9 +9,11 @@ on:
 env:
   NIX_VERSION: '2.35.2'
   BOM_VERSION: v0.7.1
+# Runs on main and releases publish images, spoc binaries and the SBOM, so only
+# pull request runs are cancelled by newer pushes.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions: {}
 
