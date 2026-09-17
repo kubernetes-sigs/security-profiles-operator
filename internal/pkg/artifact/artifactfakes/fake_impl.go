@@ -24,8 +24,8 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/sigstore/cosign/v2/cmd/cosign/cli/options"
-	"github.com/sigstore/cosign/v2/cmd/cosign/cli/verify"
+	"github.com/sigstore/cosign/v3/cmd/cosign/cli/options"
+	"github.com/sigstore/cosign/v3/cmd/cosign/cli/verify"
 	oras "oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/content/file"
@@ -101,6 +101,19 @@ type FakeImpl struct {
 	filepathAbsReturnsOnCall map[int]struct {
 		result1 string
 		result2 error
+	}
+	LoadSigningMaterialStub        func(context.Context, *options.KeyOpts, *options.SignOptions) error
+	loadSigningMaterialMutex       sync.RWMutex
+	loadSigningMaterialArgsForCall []struct {
+		arg1 context.Context
+		arg2 *options.KeyOpts
+		arg3 *options.SignOptions
+	}
+	loadSigningMaterialReturns struct {
+		result1 error
+	}
+	loadSigningMaterialReturnsOnCall map[int]struct {
+		result1 error
 	}
 	MkdirTempStub        func(string, string) (string, error)
 	mkdirTempMutex       sync.RWMutex
@@ -212,13 +225,14 @@ type FakeImpl struct {
 		result1 v1.Descriptor
 		result2 error
 	}
-	SignCmdStub        func(*options.RootOptions, options.KeyOpts, options.SignOptions, []string) error
+	SignCmdStub        func(context.Context, *options.RootOptions, options.KeyOpts, options.SignOptions, []string) error
 	signCmdMutex       sync.RWMutex
 	signCmdArgsForCall []struct {
-		arg1 *options.RootOptions
-		arg2 options.KeyOpts
-		arg3 options.SignOptions
-		arg4 []string
+		arg1 context.Context
+		arg2 *options.RootOptions
+		arg3 options.KeyOpts
+		arg4 options.SignOptions
+		arg5 []string
 	}
 	signCmdReturns struct {
 		result1 error
@@ -623,6 +637,69 @@ func (fake *FakeImpl) FilepathAbsReturnsOnCall(i int, result1 string, result2 er
 		result1 string
 		result2 error
 	}{result1, result2}
+}
+
+func (fake *FakeImpl) LoadSigningMaterial(arg1 context.Context, arg2 *options.KeyOpts, arg3 *options.SignOptions) error {
+	fake.loadSigningMaterialMutex.Lock()
+	ret, specificReturn := fake.loadSigningMaterialReturnsOnCall[len(fake.loadSigningMaterialArgsForCall)]
+	fake.loadSigningMaterialArgsForCall = append(fake.loadSigningMaterialArgsForCall, struct {
+		arg1 context.Context
+		arg2 *options.KeyOpts
+		arg3 *options.SignOptions
+	}{arg1, arg2, arg3})
+	stub := fake.LoadSigningMaterialStub
+	fakeReturns := fake.loadSigningMaterialReturns
+	fake.recordInvocation("LoadSigningMaterial", []interface{}{arg1, arg2, arg3})
+	fake.loadSigningMaterialMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) LoadSigningMaterialCallCount() int {
+	fake.loadSigningMaterialMutex.RLock()
+	defer fake.loadSigningMaterialMutex.RUnlock()
+	return len(fake.loadSigningMaterialArgsForCall)
+}
+
+func (fake *FakeImpl) LoadSigningMaterialCalls(stub func(context.Context, *options.KeyOpts, *options.SignOptions) error) {
+	fake.loadSigningMaterialMutex.Lock()
+	defer fake.loadSigningMaterialMutex.Unlock()
+	fake.LoadSigningMaterialStub = stub
+}
+
+func (fake *FakeImpl) LoadSigningMaterialArgsForCall(i int) (context.Context, *options.KeyOpts, *options.SignOptions) {
+	fake.loadSigningMaterialMutex.RLock()
+	defer fake.loadSigningMaterialMutex.RUnlock()
+	argsForCall := fake.loadSigningMaterialArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *FakeImpl) LoadSigningMaterialReturns(result1 error) {
+	fake.loadSigningMaterialMutex.Lock()
+	defer fake.loadSigningMaterialMutex.Unlock()
+	fake.LoadSigningMaterialStub = nil
+	fake.loadSigningMaterialReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) LoadSigningMaterialReturnsOnCall(i int, result1 error) {
+	fake.loadSigningMaterialMutex.Lock()
+	defer fake.loadSigningMaterialMutex.Unlock()
+	fake.LoadSigningMaterialStub = nil
+	if fake.loadSigningMaterialReturnsOnCall == nil {
+		fake.loadSigningMaterialReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.loadSigningMaterialReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
 }
 
 func (fake *FakeImpl) MkdirTemp(arg1 string, arg2 string) (string, error) {
@@ -1152,26 +1229,27 @@ func (fake *FakeImpl) ResolveRepositoryReturnsOnCall(i int, result1 v1.Descripto
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) SignCmd(arg1 *options.RootOptions, arg2 options.KeyOpts, arg3 options.SignOptions, arg4 []string) error {
-	var arg4Copy []string
-	if arg4 != nil {
-		arg4Copy = make([]string, len(arg4))
-		copy(arg4Copy, arg4)
+func (fake *FakeImpl) SignCmd(arg1 context.Context, arg2 *options.RootOptions, arg3 options.KeyOpts, arg4 options.SignOptions, arg5 []string) error {
+	var arg5Copy []string
+	if arg5 != nil {
+		arg5Copy = make([]string, len(arg5))
+		copy(arg5Copy, arg5)
 	}
 	fake.signCmdMutex.Lock()
 	ret, specificReturn := fake.signCmdReturnsOnCall[len(fake.signCmdArgsForCall)]
 	fake.signCmdArgsForCall = append(fake.signCmdArgsForCall, struct {
-		arg1 *options.RootOptions
-		arg2 options.KeyOpts
-		arg3 options.SignOptions
-		arg4 []string
-	}{arg1, arg2, arg3, arg4Copy})
+		arg1 context.Context
+		arg2 *options.RootOptions
+		arg3 options.KeyOpts
+		arg4 options.SignOptions
+		arg5 []string
+	}{arg1, arg2, arg3, arg4, arg5Copy})
 	stub := fake.SignCmdStub
 	fakeReturns := fake.signCmdReturns
-	fake.recordInvocation("SignCmd", []interface{}{arg1, arg2, arg3, arg4Copy})
+	fake.recordInvocation("SignCmd", []interface{}{arg1, arg2, arg3, arg4, arg5Copy})
 	fake.signCmdMutex.Unlock()
 	if stub != nil {
-		return stub(arg1, arg2, arg3, arg4)
+		return stub(arg1, arg2, arg3, arg4, arg5)
 	}
 	if specificReturn {
 		return ret.result1
@@ -1185,17 +1263,17 @@ func (fake *FakeImpl) SignCmdCallCount() int {
 	return len(fake.signCmdArgsForCall)
 }
 
-func (fake *FakeImpl) SignCmdCalls(stub func(*options.RootOptions, options.KeyOpts, options.SignOptions, []string) error) {
+func (fake *FakeImpl) SignCmdCalls(stub func(context.Context, *options.RootOptions, options.KeyOpts, options.SignOptions, []string) error) {
 	fake.signCmdMutex.Lock()
 	defer fake.signCmdMutex.Unlock()
 	fake.SignCmdStub = stub
 }
 
-func (fake *FakeImpl) SignCmdArgsForCall(i int) (*options.RootOptions, options.KeyOpts, options.SignOptions, []string) {
+func (fake *FakeImpl) SignCmdArgsForCall(i int) (context.Context, *options.RootOptions, options.KeyOpts, options.SignOptions, []string) {
 	fake.signCmdMutex.RLock()
 	defer fake.signCmdMutex.RUnlock()
 	argsForCall := fake.signCmdArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3, argsForCall.arg4
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3, argsForCall.arg4, argsForCall.arg5
 }
 
 func (fake *FakeImpl) SignCmdReturns(result1 error) {

@@ -1,4 +1,4 @@
-// Copyright 2021-2025 The Connect Authors
+// Copyright 2021-2026 The Connect Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,6 +22,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -389,7 +390,7 @@ func wrapIfLikelyWithGRPCNotUsedError(err error) error {
 // the StreamError type is exported. When x/net/http2 gets vendored into
 // net/http, though, all these types become unexported...so we're left with
 // string munging.
-func wrapIfRSTError(err error) error {
+func wrapIfRSTError(ctx context.Context, err error) error {
 	const (
 		streamErrPrefix = "stream error: "
 		fromPeerSuffix  = "; received from peer"
@@ -426,6 +427,18 @@ func wrapIfRSTError(err error) error {
 	case "REFUSED_STREAM":
 		return NewError(CodeUnavailable, err)
 	case "CANCEL":
+		if deadline, ok := ctx.Deadline(); ok && time.Now().After(deadline) {
+			// Some server implementations will cancel the HTTP/2 stream with
+			// a RST_STREAM frame when they observe that the client's deadline
+			// has elapsed.
+			// We don't inspect ctx.Err() because we could be racing with the
+			// timer goroutine that is setting it. But there is no race when
+			// directly inspecting the context's deadline. In fact, if we get
+			// here, we have likely already examined ctx.Err() in a prior call
+			// to wrapIfContextError but observed a nil error and then fell
+			// through to here.
+			return NewError(CodeDeadlineExceeded, err)
+		}
 		return NewError(CodeCanceled, err)
 	case "ENHANCE_YOUR_CALM":
 		return NewError(CodeResourceExhausted, fmt.Errorf("bandwidth exhausted: %w", err))

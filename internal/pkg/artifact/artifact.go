@@ -35,9 +35,9 @@ import (
 	"github.com/opencontainers/go-digest"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
-	"github.com/sigstore/cosign/v2/cmd/cosign/cli/generate"
-	"github.com/sigstore/cosign/v2/cmd/cosign/cli/options"
-	"github.com/sigstore/cosign/v2/cmd/cosign/cli/verify"
+	"github.com/sigstore/cosign/v3/cmd/cosign/cli/generate"
+	"github.com/sigstore/cosign/v3/cmd/cosign/cli/options"
+	"github.com/sigstore/cosign/v3/cmd/cosign/cli/verify"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content/file"
@@ -354,10 +354,14 @@ func (a *Artifact) Push(
 
 	a.logger.Info("Signing OCI artifact")
 
+	// Sign into a Sigstore bundle attached as OCI referrer, using the
+	// service URLs from the Sigstore signing config.
 	o := &options.SignOptions{
 		Upload:           true,
 		TlogUpload:       true,
 		SkipConfirmation: true,
+		NewBundleFormat:  true,
+		UseSigningConfig: true,
 		Registry:         registryOptions(username, password, plainHTTP),
 		Rekor:            options.RekorOptions{URL: options.DefaultRekorURL},
 		Fulcio:           options.FulcioOptions{URL: options.DefaultFulcioURL},
@@ -372,27 +376,34 @@ func (a *Artifact) Push(
 		return fmt.Errorf("get OIDC client secret: %w", err)
 	}
 
+	ko := options.KeyOpts{
+		KeyRef:                         o.Key,
+		PassFunc:                       generate.GetPass,
+		Sk:                             o.SecurityKey.Use,
+		Slot:                           o.SecurityKey.Slot,
+		FulcioURL:                      o.Fulcio.URL,
+		IDToken:                        o.Fulcio.IdentityToken,
+		RekorURL:                       o.Rekor.URL,
+		OIDCIssuer:                     o.OIDC.Issuer,
+		OIDCClientID:                   o.OIDC.ClientID,
+		OIDCClientSecret:               oidcClientSecret,
+		OIDCRedirectURL:                o.OIDC.RedirectURL,
+		OIDCDisableProviders:           o.OIDC.DisableAmbientProviders,
+		OIDCProvider:                   o.OIDC.Provider,
+		SkipConfirmation:               o.SkipConfirmation,
+		TSAServerURL:                   o.TSAServerURL,
+		IssueCertificateForExistingKey: o.IssueCertificate,
+		NewBundleFormat:                o.NewBundleFormat,
+	}
+
+	if err := a.LoadSigningMaterial(ctx, &ko, o); err != nil {
+		return fmt.Errorf("load signing material: %w", err)
+	}
+
 	if err := a.SignCmd(
+		ctx,
 		&options.RootOptions{Timeout: defaultTimeout},
-		options.KeyOpts{
-			KeyRef:                         o.Key,
-			PassFunc:                       generate.GetPass,
-			Sk:                             o.SecurityKey.Use,
-			Slot:                           o.SecurityKey.Slot,
-			FulcioURL:                      o.Fulcio.URL,
-			IDToken:                        o.Fulcio.IdentityToken,
-			InsecureSkipFulcioVerify:       o.Fulcio.InsecureSkipFulcioVerify,
-			RekorURL:                       o.Rekor.URL,
-			OIDCIssuer:                     o.OIDC.Issuer,
-			OIDCClientID:                   o.OIDC.ClientID,
-			OIDCClientSecret:               oidcClientSecret,
-			OIDCRedirectURL:                o.OIDC.RedirectURL,
-			OIDCDisableProviders:           o.OIDC.DisableAmbientProviders,
-			OIDCProvider:                   o.OIDC.Provider,
-			SkipConfirmation:               o.SkipConfirmation,
-			TSAServerURL:                   o.TSAServerURL,
-			IssueCertificateForExistingKey: o.IssueCertificate,
-		},
+		ko,
 		*o,
 		[]string{fmt.Sprintf("%s@%s", ref, descriptor.Digest)},
 	); err != nil {
@@ -449,12 +460,20 @@ func (a *Artifact) Pull(
 			)
 		}
 
+		// Sigstore bundles attached as OCI referrers are verified if present,
+		// otherwise cosign falls back to legacy signature tags, which keeps
+		// already published artifacts working. Checking the claims binds the
+		// signed payload to the pulled digest, like cosign verify does by
+		// default.
 		v := verify.VerifyCommand{
 			RegistryOptions: registryOptions(username, password, plainHTTP),
 			CertVerifyOptions: options.CertVerifyOptions{
 				CertIdentityRegexp:   signOpts.AllowedIdentityRegexp,
 				CertOidcIssuerRegexp: signOpts.AllowedOidcIssuerRegexp,
 			},
+			CheckClaims:     true,
+			NewBundleFormat: true,
+			MaxWorkers:      verifyMaxWorkers,
 		}
 		if err := a.VerifyCmd(ctx, v, from); err != nil {
 			return nil, fmt.Errorf("verify signature: %w", err)

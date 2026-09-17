@@ -222,7 +222,11 @@ Pushing signature to: registry.example.com/profiles/crun
 ```
 
 We can specify a username and password in the same way as for `spoc pull`.
-Artifacts are signed on push and verified on pull by default. Keyless signing
+Artifacts are signed on push and verified on pull by default. The signature
+is a Sigstore bundle that is attached to the pushed digest through the OCI
+referrers API, so the registry has to support it. On pull, bundles are
+verified if the artifact has any, otherwise the legacy cosign signature tags
+of artifacts pushed by older `spoc` versions are verified. Keyless signing
 needs an OIDC identity, which build systems and test environments do not
 necessarily have, so `--disable-signing` skips it. Consumers of an unsigned
 artifact have to skip verification as well. It is possible to add custom

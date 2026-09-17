@@ -24,6 +24,7 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/sha512"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
@@ -246,6 +247,10 @@ func (meta *Metadata[T]) Sign(signer signature.Signer) (*Signature, error) {
 // threshold of keys for the delegated role delegatedRole
 func (meta *Metadata[T]) VerifyDelegate(delegatedRole string, delegatedMetadata any) error {
 	i := any(meta)
+	// keyed by SHA-256 of the PKIX-marshaled public key bytes, not by keyID,
+	// so two *Key records that resolve to the same underlying public key
+	// (e.g. registered under both "ecdsa" and "ecdsa-sha2-nistp256") count
+	// as a single threshold contribution.
 	signingKeys := map[string]bool{}
 	var keys map[string]*Key
 	var roleKeyIDs []string
@@ -316,6 +321,12 @@ func (meta *Metadata[T]) VerifyDelegate(delegatedRole string, delegatedMetadata 
 		if err != nil {
 			return err
 		}
+		pubBytes, err := x509.MarshalPKIXPublicKey(publicKey)
+		if err != nil {
+			return err
+		}
+		pubFingerprint := sha256.Sum256(pubBytes)
+		fingerprint := hex.EncodeToString(pubFingerprint[:])
 		// use corresponding hash function for key type
 		hash := crypto.Hash(0)
 		if key.Type != KeyTypeEd25519 {
@@ -396,10 +407,10 @@ func (meta *Metadata[T]) VerifyDelegate(delegatedRole string, delegatedMetadata 
 		// verify if the signature for that payload corresponds to the given key
 		if err := verifier.VerifySignature(bytes.NewReader(sign.Signature), bytes.NewReader(payload)); err != nil {
 			// failed to verify the metadata with that key ID
-			log.Info("Failed to verify %s with key ID %s", delegatedRole, keyID)
+			log.Info("Failed to verify role with key ID", "role", delegatedRole, "ID", keyID)
 		} else {
-			// save the verified keyID only if verification passed
-			signingKeys[keyID] = true
+			// save the verified public-key fingerprint only if verification passed
+			signingKeys[fingerprint] = true
 			log.Info("Verified with key", "role", delegatedRole, "ID", keyID)
 		}
 	}

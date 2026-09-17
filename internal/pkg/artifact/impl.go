@@ -24,9 +24,10 @@ import (
 
 	ggcrname "github.com/google/go-containerregistry/pkg/name"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/sigstore/cosign/v2/cmd/cosign/cli/options"
-	"github.com/sigstore/cosign/v2/cmd/cosign/cli/sign"
-	"github.com/sigstore/cosign/v2/cmd/cosign/cli/verify"
+	"github.com/sigstore/cosign/v3/cmd/cosign/cli/options"
+	"github.com/sigstore/cosign/v3/cmd/cosign/cli/sign"
+	"github.com/sigstore/cosign/v3/cmd/cosign/cli/signcommon"
+	"github.com/sigstore/cosign/v3/cmd/cosign/cli/verify"
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/content/file"
@@ -64,7 +65,10 @@ type impl interface {
 		context.Context, content.Pusher, oras.PackManifestVersion, string, oras.PackManifestOptions,
 	) (ocispec.Descriptor, error)
 	ClientSecret(options.OIDCOptions) (string, error)
-	SignCmd(*options.RootOptions, options.KeyOpts, options.SignOptions, []string) error
+	LoadSigningMaterial(context.Context, *options.KeyOpts, *options.SignOptions) error
+	SignCmd(
+		context.Context, *options.RootOptions, options.KeyOpts, options.SignOptions, []string,
+	) error
 	VerifyCmd(context.Context, verify.VerifyCommand, string) error
 	ResolveRepository(context.Context, *remote.Repository, string) (ocispec.Descriptor, error)
 }
@@ -152,12 +156,25 @@ func (*defaultImpl) ClientSecret(o options.OIDCOptions) (string, error) {
 	return o.ClientSecret()
 }
 
+// LoadSigningMaterial loads the trusted root and the signing config from the
+// Sigstore TUF repository, like cosign sign does.
+func (*defaultImpl) LoadSigningMaterial(
+	ctx context.Context, ko *options.KeyOpts, o *options.SignOptions,
+) error {
+	return signcommon.LoadTrustedMaterialAndSigningConfig(
+		ctx, ko, o.UseSigningConfig, o.SigningConfigPath,
+		o.Rekor.URL, o.Fulcio.URL, o.OIDC.Issuer, o.TSAServerURL, o.TrustedRootPath, o.TlogUpload,
+		o.NewBundleFormat, "", o.Key, o.IssueCertificate, o.Output, "",
+		o.OutputCertificate, o.OutputPayload, o.OutputSignature, "",
+	)
+}
+
 //nolint:gocritic // intentional for the mock
 func (*defaultImpl) SignCmd(
-	ro *options.RootOptions, ko options.KeyOpts,
+	ctx context.Context, ro *options.RootOptions, ko options.KeyOpts,
 	signOpts options.SignOptions, imgs []string,
 ) error {
-	return sign.SignCmd(ro, ko, signOpts, imgs)
+	return sign.SignCmd(ctx, ro, ko, signOpts, imgs)
 }
 
 //nolint:gocritic // intentional for the mock

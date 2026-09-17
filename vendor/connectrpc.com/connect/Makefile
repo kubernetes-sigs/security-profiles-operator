@@ -9,9 +9,10 @@ MAKEFLAGS += --no-print-directory
 BIN := .tmp/bin
 export PATH := $(abspath $(BIN)):$(PATH)
 export GOBIN := $(abspath $(BIN))
-COPYRIGHT_YEARS := 2021-2025
-LICENSE_IGNORE := --ignore /testdata/
-BUF_VERSION := 1.50.1
+COPYRIGHT_YEARS := 2021-2026
+LICENSE_IGNORE := --ignore .github/ --ignore ".*\.ya?ml"
+BUF_VERSION := 1.69.0
+GOLANGCI_LINT_VERSION ?= v2.11.4
 
 .PHONY: help
 help: ## Describe useful make targets
@@ -112,7 +113,7 @@ $(BIN)/license-header: Makefile
 
 $(BIN)/golangci-lint: Makefile
 	@mkdir -p $(@D)
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.7
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 
 $(BIN)/protoc-gen-go: Makefile go.mod
 	@mkdir -p $(@D)
