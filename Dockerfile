@@ -13,8 +13,11 @@
 # limitations under the License.
 
 # to pin base image below may require further changes on build/release processes
+# The staging build passes BUILD_IMAGE by digest, to record it in the provenance.
+ARG BUILD_IMAGE=quay.io/security-profiles-operator/build:latest
+
 # The build stages run on the build platform, nix cross compiles for the target.
-FROM --platform=$BUILDPLATFORM quay.io/security-profiles-operator/build:latest AS build
+FROM --platform=$BUILDPLATFORM $BUILD_IMAGE AS build
 
 COPY . /work
 

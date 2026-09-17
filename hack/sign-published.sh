@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Signs the given image references keylessly by digest. The signatures are
 # Signs already published artifacts that have no valid signature yet, for
 # example versions that were published before the build could sign. Artifacts
 # signed by SIGNER_IDENTITY_REGEXP (any identity by default) are left alone.

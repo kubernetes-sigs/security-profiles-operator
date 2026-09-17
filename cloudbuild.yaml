@@ -1,6 +1,6 @@
 ---
 # See https://cloud.google.com/cloud-build/docs/build-config
-timeout: 1800s
+timeout: 2400s
 serviceAccount: projects/k8s-staging-images/serviceAccounts/sp-operator-sa@k8s-staging-images.iam.gserviceaccount.com
 options:
   substitution_option: ALLOW_LOOSE
@@ -23,6 +23,11 @@ steps:
     env:
       - REGISTRY=us-central1-docker.pkg.dev/$PROJECT_ID/sp-operator
       - USERNAME=oauth2accesstoken
+      - TAG=$_GIT_TAG
+      - BUILD_ID=$BUILD_ID
+      - PROJECT_ID=$PROJECT_ID
+      - PROJECT_NUMBER=$PROJECT_NUMBER
+      - SERVICE_ACCOUNT_EMAIL=$SERVICE_ACCOUNT_EMAIL
       # Only signatures of the build account count for already published
       # profiles, others get signed again.
       - SIGNER_IDENTITY_REGEXP=^sp-operator-sa@$PROJECT_ID\.iam\.gserviceaccount\.com$$
@@ -39,14 +44,20 @@ steps:
       ./hack/push-test-artifacts.sh && \
       ./hack/push-base-profiles.sh && \
       ./hack/push-chart.sh
+  # Attesting runs last, so that a failure there doesn't keep the profiles and
+  # the chart from being published.
+  - name: golang:1.27.1-bookworm@sha256:648f440f42a0958804efb24df176f806f9d353b41f1c0627f666428e40310f6b
+    entrypoint: bash
+    env:
+      - TAG=$_GIT_TAG
+      - BUILD_ID=$BUILD_ID
+      - PROJECT_ID=$PROJECT_ID
+      - PROJECT_NUMBER=$PROJECT_NUMBER
+      - SERVICE_ACCOUNT_EMAIL=$SERVICE_ACCOUNT_EMAIL
+    args:
+    - -c
+    - ./hack/attest-images.sh
 substitutions:
   # _GIT_TAG will be filled with a git-based tag for the image, of the form
   # vYYYYMMDD-hash, and can be used as a substitution
   _GIT_TAG: '12345'
-images:
-  - 'us-central1-docker.pkg.dev/$PROJECT_ID/sp-operator/security-profiles-operator-amd64:$_GIT_TAG'
-  - 'us-central1-docker.pkg.dev/$PROJECT_ID/sp-operator/security-profiles-operator-amd64:latest'
-  - 'us-central1-docker.pkg.dev/$PROJECT_ID/sp-operator/security-profiles-operator-catalog:$_GIT_TAG'
-  - 'us-central1-docker.pkg.dev/$PROJECT_ID/sp-operator/security-profiles-operator-catalog:latest'
-  - 'us-central1-docker.pkg.dev/$PROJECT_ID/sp-operator/security-profiles-operator-bundle:$_GIT_TAG'
-  - 'us-central1-docker.pkg.dev/$PROJECT_ID/sp-operator/security-profiles-operator-bundle:latest'

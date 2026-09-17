@@ -20,12 +20,10 @@
 
 set -euo pipefail
 
-SIGN="${SIGN:-true}"
-COSIGN_VERSION=v3.1.3
-COSIGN_SHA256=4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71
-COSIGN="${COSIGN:-}"
+# shellcheck source=hack/lib/common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
-if [[ "$SIGN" != "true" ]]; then
+if ! signing_enabled; then
   echo "Signing disabled, not signing: $*"
   exit 0
 fi
@@ -35,31 +33,17 @@ if [[ $# -eq 0 ]]; then
   exit 1
 fi
 
-if [[ -z "$COSIGN" ]]; then
-  COSIGN="$(mktemp -d)/cosign"
-  curl -sSfL --retry 5 --retry-delay 3 -o "$COSIGN" \
-    "https://github.com/sigstore/cosign/releases/download/$COSIGN_VERSION/cosign-linux-amd64"
-  echo "$COSIGN_SHA256  $COSIGN" | sha256sum -c -
-  chmod +x "$COSIGN"
-fi
+COSIGN="$(cosign_bin)"
 
 # All tags of an image point to the same digest, so signing one reference
 # per image is enough. References that already contain a digest, for example
 # OCI artifacts like helm charts, are signed as given.
-for ref in "$@"; do
-  if [[ "$ref" == *@sha256:* ]]; then
-    target="$ref"
-  else
-    digest=$(docker buildx imagetools inspect "$ref" --format '{{json .Manifest.Digest}}' | tr -d '"')
-    if [[ -z "$digest" ]]; then
-      echo "Unable to resolve the digest of $ref" >&2
-      exit 1
-    fi
-    target="${ref%:*}@$digest"
-  fi
+sign() {
+  local target
 
+  target="$(resolve_digest "$1")"
   echo "Signing $target"
-  "$COSIGN" sign --yes \
-    --use-signing-config \
-    "$target"
-done
+  "$COSIGN" sign --yes --use-signing-config "$target"
+}
+
+parallel_each sign "$@"

@@ -103,3 +103,66 @@ PR](https://github.com/k8s-operatorhub/community-operators/pull/1672).
 
 The last step about the release creation is to send a release announcement to
 the [#security-profiles-operator Slack channel](https://kubernetes.slack.com/messages/security-profiles-operator).
+
+## Staging attestations
+
+The `post-security-profiles-operator-push-image` job builds and signs everything
+in the staging registry as the `sp-operator-sa@k8s-staging-images` service
+account. Signatures and attestations are Sigstore bundles attached as OCI
+referrers, `SIGN=false` skips all of them.
+
+| Artifact                                           | Signature | Provenance | SBOM, vulnerability scan, VEX, build environment |
+| -------------------------------------------------- | --------- | ---------- | ------------------------------------------------ |
+| `security-profiles-operator-{amd64,arm64,ppc64le}` | yes       | yes        | yes                                              |
+| `security-profiles-operator` (manifest list)       | yes       |            |                                                  |
+| `security-profiles-operator-{bundle,catalog}`      | yes       | yes        |                                                  |
+| `charts/security-profiles-operator`                | yes       | yes        |                                                  |
+| `base/*` and `seccomp-test-profiles`               | yes       | yes        |                                                  |
+
+Provenance is only attested when an artifact gets pushed, so profiles that were
+already published don't get provenance from later builds. If the check for an
+existing version fails, the build pushes the identical content again, which
+keeps its digest and gets a second provenance attestation from that build. Profiles, the bundle,
+the catalog and the chart contain no software packages, which is why they have
+no SBOM, vulnerability scan or VEX document. The manifest list only carries
+the signature: verifiers like nri-supply-chain use the attestations of an index
+digest instead of the platform ones as soon as there are any, so partial
+attestations on the manifest list would hide the per-arch ones.
+
+The attestations are:
+
+- SLSA build provenance (`https://slsa.dev/provenance/v1`), written by
+  [`hack/attest-provenance.sh`](hack/attest-provenance.sh). This section
+  documents its build type: `externalParameters.source` is the git repository
+  and ref with the built commit, `config` the Cloud Build configuration and
+  `tag` the image tag. `resolvedDependencies` lists the source and the image the
+  binaries are built in. `internalParameters` names the Cloud Build project and
+  service account, `runDetails.metadata.invocationId` links to the build. The
+  build job writes and signs the provenance itself, so `runDetails.builder.id`
+  names the `post-security-profiles-operator-push-image` job.
+- SPDX SBOM (`https://spdx.dev/Document`), written by
+  [`hack/attest-sbom.sh`](hack/attest-sbom.sh). It lists the image together with
+  the Go modules of the repository, because bom cannot read the module
+  information of the binaries yet.
+- Vulnerability scan (`https://in-toto.io/attestation/vulns/v0.2`) and OpenVEX
+  document (`https://openvex.dev/ns`) from govulncheck in binary mode, written
+  by [`hack/attest-vulns.sh`](hack/attest-vulns.sh). The VEX document marks a
+  vulnerability as affected if one of the binaries uses the vulnerable symbols.
+  A clean scan has an empty result and no VEX document, because OpenVEX needs at
+  least one statement.
+- Build environment (`https://in-toto.io/attestation/build-env/v1`) from the Go
+  build information of the binaries, written by
+  [`hack/attest-build-env.sh`](hack/attest-build-env.sh).
+
+To verify them, use the predicate type and the signing identity, for example:
+
+```console
+> cosign verify-attestation \
+    --type https://slsa.dev/provenance/v1 \
+    --certificate-identity sp-operator-sa@k8s-staging-images.iam.gserviceaccount.com \
+    --certificate-oidc-issuer https://accounts.google.com \
+    us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator-amd64:latest
+```
+
+The attestations stay in the staging registry, the image promotion does not copy
+them to `registry.k8s.io` yet.
