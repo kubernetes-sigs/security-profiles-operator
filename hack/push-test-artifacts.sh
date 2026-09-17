@@ -40,6 +40,12 @@ mkdir -p "$BUILD_DIR"
 } > "$oversized"
 
 SKIP_EXISTING="${SKIP_EXISTING:-true}"
+SIGN="${SIGN:-true}"
+
+push_args=()
+if [[ "$SIGN" != "true" ]]; then
+  push_args+=(--disable-signing)
+fi
 
 push() {
   local file="$1" ref="$REGISTRY/$REPOSITORY:$2"
@@ -53,7 +59,7 @@ push() {
   fi
 
   echo "Pushing $file as $ref"
-  "$SPOC" push --disable-signing "$@" -f "$file" "$ref"
+  "$SPOC" push ${push_args[@]+"${push_args[@]}"} "$@" -f "$file" "$ref"
 }
 
 push "$EXAMPLES/deny-chmod.json" deny-chmod

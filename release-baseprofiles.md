@@ -115,5 +115,9 @@ Both registries are anonymously readable:
     https://us-central1-docker.pkg.dev/v2/k8s-staging-images/sp-operator/base/<runtime>/manifests/latest
 ```
 
-Artifacts published by the staging build are unsigned, since it has no OIDC
-identity, so verification has to be skipped for those with `spoc pull -s`.
+The staging build signs the images and profiles it pushes as Sigstore bundles.
+It runs as the `sp-operator-sa@k8s-staging-images` service account, and cosign
+gets the identity token for keyless signing from the metadata server. Artifacts pushed with
+`SIGN=false` are unsigned, so verification has to be skipped for those with
+`spoc pull -s`. Manual runs of the scripts sign as well, with the local
+identity, unless `SIGN=false` is set.

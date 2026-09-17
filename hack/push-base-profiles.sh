@@ -26,8 +26,8 @@ set -euo pipefail
 BUILD_DIR="${BUILD_DIR:-build}"
 SPOC="${SPOC:-$BUILD_DIR/spoc}"
 REGISTRY="${REGISTRY:-us-central1-docker.pkg.dev/k8s-staging-images/sp-operator}"
-# Keyless signing needs an OIDC identity. Publishing from a build system that
-# has none, such as the staging Cloud Build job, has to turn it off.
+# Keyless signing needs an OIDC identity, the staging Cloud Build job gets one
+# for its service account from the metadata server. Set this to false to publish unsigned.
 SIGN="${SIGN:-true}"
 # Identical content yields the same digest, so republishing is a no-op for the
 # registry; what is already published is left alone to spare the pushes and
