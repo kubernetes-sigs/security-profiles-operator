@@ -240,6 +240,21 @@ type FakeImpl struct {
 	signCmdReturnsOnCall map[int]struct {
 		result1 error
 	}
+	SignatureBundleExistsStub        func(context.Context, string, *options.RegistryOptions) (bool, error)
+	signatureBundleExistsMutex       sync.RWMutex
+	signatureBundleExistsArgsForCall []struct {
+		arg1 context.Context
+		arg2 string
+		arg3 *options.RegistryOptions
+	}
+	signatureBundleExistsReturns struct {
+		result1 bool
+		result2 error
+	}
+	signatureBundleExistsReturnsOnCall map[int]struct {
+		result1 bool
+		result2 error
+	}
 	StoreAddStub        func(context.Context, *file.Store, string, string, string) (v1.Descriptor, error)
 	storeAddMutex       sync.RWMutex
 	storeAddArgsForCall []struct {
@@ -1297,6 +1312,72 @@ func (fake *FakeImpl) SignCmdReturnsOnCall(i int, result1 error) {
 	fake.signCmdReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
+}
+
+func (fake *FakeImpl) SignatureBundleExists(arg1 context.Context, arg2 string, arg3 *options.RegistryOptions) (bool, error) {
+	fake.signatureBundleExistsMutex.Lock()
+	ret, specificReturn := fake.signatureBundleExistsReturnsOnCall[len(fake.signatureBundleExistsArgsForCall)]
+	fake.signatureBundleExistsArgsForCall = append(fake.signatureBundleExistsArgsForCall, struct {
+		arg1 context.Context
+		arg2 string
+		arg3 *options.RegistryOptions
+	}{arg1, arg2, arg3})
+	stub := fake.SignatureBundleExistsStub
+	fakeReturns := fake.signatureBundleExistsReturns
+	fake.recordInvocation("SignatureBundleExists", []interface{}{arg1, arg2, arg3})
+	fake.signatureBundleExistsMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) SignatureBundleExistsCallCount() int {
+	fake.signatureBundleExistsMutex.RLock()
+	defer fake.signatureBundleExistsMutex.RUnlock()
+	return len(fake.signatureBundleExistsArgsForCall)
+}
+
+func (fake *FakeImpl) SignatureBundleExistsCalls(stub func(context.Context, string, *options.RegistryOptions) (bool, error)) {
+	fake.signatureBundleExistsMutex.Lock()
+	defer fake.signatureBundleExistsMutex.Unlock()
+	fake.SignatureBundleExistsStub = stub
+}
+
+func (fake *FakeImpl) SignatureBundleExistsArgsForCall(i int) (context.Context, string, *options.RegistryOptions) {
+	fake.signatureBundleExistsMutex.RLock()
+	defer fake.signatureBundleExistsMutex.RUnlock()
+	argsForCall := fake.signatureBundleExistsArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *FakeImpl) SignatureBundleExistsReturns(result1 bool, result2 error) {
+	fake.signatureBundleExistsMutex.Lock()
+	defer fake.signatureBundleExistsMutex.Unlock()
+	fake.SignatureBundleExistsStub = nil
+	fake.signatureBundleExistsReturns = struct {
+		result1 bool
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) SignatureBundleExistsReturnsOnCall(i int, result1 bool, result2 error) {
+	fake.signatureBundleExistsMutex.Lock()
+	defer fake.signatureBundleExistsMutex.Unlock()
+	fake.SignatureBundleExistsStub = nil
+	if fake.signatureBundleExistsReturnsOnCall == nil {
+		fake.signatureBundleExistsReturnsOnCall = make(map[int]struct {
+			result1 bool
+			result2 error
+		})
+	}
+	fake.signatureBundleExistsReturnsOnCall[i] = struct {
+		result1 bool
+		result2 error
+	}{result1, result2}
 }
 
 func (fake *FakeImpl) StoreAdd(arg1 context.Context, arg2 *file.Store, arg3 string, arg4 string, arg5 string) (v1.Descriptor, error) {
