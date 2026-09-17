@@ -68,8 +68,9 @@ directly on GitHub and add the release notes. The release notes will be
 auto-generated based on PR labels and the configuration in
 [`.github/release.yml`](.github/release.yml).
 
-Run `make nix-spoc` and attach the results from the `build` directory to the
-GitHub release.
+Publishing the release triggers the [`build`](.github/workflows/build.yml)
+workflow, which attaches the signed `spoc` binaries for all architectures and
+the signed `spoc.spdx` SBOM to the release. Verify that they are present.
 
 After that, run the `./hack/back-to-dev.sh` script, which will:
 
