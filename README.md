@@ -10,7 +10,7 @@ The _Security Profiles Operator_ (SPO) is an out-of-tree Kubernetes enhancement 
 it easier to create and use SELinux, seccomp and AppArmor security profiles in Kubernetes clusters.
 
 - [Documentation](installation-usage.md)
-- [Container Images](https://console.cloud.google.com/artifacts/docker/k8s-staging-sp-operator/us/gcr.io)
+- [Container Images](https://console.cloud.google.com/artifacts/docker/k8s-staging-images/us-central1/sp-operator)
 - [Release Process](./release.md)
 - [Base Profiles](./release-baseprofiles.md)
 - [Testgrid Dashboard](https://testgrid.k8s.io/sig-node-security-profiles-operator)

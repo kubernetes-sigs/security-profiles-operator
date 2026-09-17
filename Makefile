@@ -758,7 +758,7 @@ deploy-prebuilt-openshift-dev: push-prebuilt-image-openshift-dev do-deploy-opens
 .PHONY: deploy
 deploy:
 	mkdir -p build/deploy && cp deploy/operator.yaml build/deploy/
-	$(SED) "s#gcr.io/k8s-staging-sp-operator/security-profiles-operator:latest#$(IMAGE)#g" build/deploy/operator.yaml
+	$(SED) "s#us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator:latest#$(IMAGE)#g" build/deploy/operator.yaml
 	$(SED) "s#replicas: 3#replicas: 1#g" build/deploy/operator.yaml
 	kubectl apply -f build/deploy/operator.yaml
 	kubectl apply -f examples/config.yaml

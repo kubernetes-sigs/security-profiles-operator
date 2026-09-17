@@ -29,7 +29,7 @@ directly from the [available releases][releases], or by running it within the
 official container images:
 
 ```console
-> podman run -it gcr.io/k8s-staging-sp-operator/security-profiles-operator:latest spoc
+> podman run -it us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator:latest spoc
 NAME:
    spoc - Security Profiles Operator CLI
 
@@ -271,7 +271,7 @@ operator reads the same artifacts for `oci://` base profiles because it
 recognizes the format by media type, so one artifact serves both.
 
 The staging build publishes them to
-`gcr.io/k8s-staging-sp-operator/base/<runtime>:<version>`, which is where the
+`us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/base/<runtime>:<version>`, which is where the
 end-to-end tests read them from, and they are promoted to
 `registry.k8s.io/security-profiles-operator/base/<runtime>:<version>`, which is
 what to reference from a cluster. The profile object keeps the name of the last

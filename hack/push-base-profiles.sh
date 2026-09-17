@@ -25,7 +25,7 @@ set -euo pipefail
 
 BUILD_DIR="${BUILD_DIR:-build}"
 SPOC="${SPOC:-$BUILD_DIR/spoc}"
-REGISTRY="${REGISTRY:-gcr.io/k8s-staging-sp-operator}"
+REGISTRY="${REGISTRY:-us-central1-docker.pkg.dev/k8s-staging-images/sp-operator}"
 # Keyless signing needs an OIDC identity. Publishing from a build system that
 # has none, such as the staging Cloud Build job, has to turn it off.
 SIGN="${SIGN:-true}"

@@ -20,7 +20,7 @@ export DOCKER_CLI_EXPERIMENTAL=enabled
 # the Dockerfile relies on BUILDPLATFORM, which only BuildKit provides
 export DOCKER_BUILDKIT=1
 
-REGISTRY=gcr.io/k8s-staging-sp-operator
+REGISTRY=us-central1-docker.pkg.dev/k8s-staging-images/sp-operator
 IMAGE=$REGISTRY/security-profiles-operator
 TAG=${TAG:-$(git describe --tags --always --dirty)}
 
