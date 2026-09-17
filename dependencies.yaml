@@ -169,6 +169,16 @@ dependencies:
     - path: hack/ci/Vagrantfile-debian
       match: "COSIGN_VERSION="
 
+  - name: helm
+    version: v3.17.3
+    refPaths:
+    - path: hack/push-chart.sh
+      match: "HELM_VERSION="
+    - path: .github/workflows/helm-chart-package.yaml
+      match: "version: v3"
+    - path: .github/workflows/helm-chart-lint.yaml
+      match: "version: v3"
+
   - name: cosign for staging signing
     version: v3.1.3
     refPaths:
