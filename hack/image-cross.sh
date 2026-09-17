@@ -17,6 +17,8 @@ set -euox pipefail
 
 # just in case we're not using docker 20.10
 export DOCKER_CLI_EXPERIMENTAL=enabled
+# the Dockerfile relies on BUILDPLATFORM, which only BuildKit provides
+export DOCKER_BUILDKIT=1
 
 REGISTRY=gcr.io/k8s-staging-sp-operator
 IMAGE=$REGISTRY/security-profiles-operator
@@ -30,12 +32,20 @@ TAGS=("$TAG" "$VERSION" latest)
 
 for ARCH in "${ARCHES[@]}"; do
     docker build \
+        --platform "linux/$ARCH" \
         -t "$IMAGE-$ARCH:$TAG" \
         -t "$IMAGE-$ARCH:$VERSION" \
         -t "$IMAGE-$ARCH:latest" \
         --build-arg version="$VERSION" \
         --build-arg target="spo-$ARCH" \
         .
+
+    IMAGE_ARCH=$(docker image inspect --format '{{.Architecture}}' "$IMAGE-$ARCH:$TAG")
+    if [[ $IMAGE_ARCH != "$ARCH" ]]; then
+        echo "Image $IMAGE-$ARCH:$TAG has architecture $IMAGE_ARCH, expected $ARCH"
+        exit 1
+    fi
+
     for T in "${TAGS[@]}"; do
         docker push "$IMAGE-$ARCH:$T"
     done
