@@ -75,8 +75,14 @@ auto-generated based on PR labels and the configuration in
 [`.github/release.yml`](.github/release.yml).
 
 Publishing the release triggers the [`build`](.github/workflows/build.yml)
-workflow, which attaches the signed `spoc` binaries for all architectures and
-the signed `spoc.spdx` SBOM to the release. Verify that they are present.
+workflow, which attaches the `spoc` binaries for all architectures and the
+`spoc.spdx` SBOM with their signatures (`*.sigstore.json`), checksums and SLSA
+build provenance (`spoc.intoto.jsonl`) to the release. The
+[`helm-chart-package`](.github/workflows/helm-chart-package.yaml) workflow
+attaches the chart archive with its signature and provenance. Nothing has to
+be built or uploaded by hand, `make nix-spoc` is only meant for local builds.
+Verify that the files are present. The provenance is also stored in the
+[GitHub attestation store](https://github.com/kubernetes-sigs/security-profiles-operator/attestations).
 
 After that, run the `./hack/back-to-dev.sh` script, which will:
 
@@ -113,7 +119,7 @@ referrers, `SIGN=false` skips all of them.
 
 | Artifact                                           | Signature | Provenance | SBOM, vulnerability scan, VEX, build environment |
 | -------------------------------------------------- | --------- | ---------- | ------------------------------------------------ |
-| `security-profiles-operator-{amd64,arm64,ppc64le}` | yes       | yes        | yes                                              |
+| `security-profiles-operator-{amd64,arm64,ppc64le}` | yes       | yes        | yes, plus the Scorecard result                   |
 | `security-profiles-operator` (manifest list)       | yes       |            |                                                  |
 | `security-profiles-operator-{bundle,catalog}`      | yes       | yes        |                                                  |
 | `charts/security-profiles-operator`                | yes       | yes        |                                                  |
@@ -157,6 +163,11 @@ The attestations are:
 - Build environment (`https://in-toto.io/attestation/build-env/v1`) from the Go
   build information of the binaries, written by
   [`hack/attest-build-env.sh`](hack/attest-build-env.sh).
+- OpenSSF Scorecard result (`https://scorecard.dev/result/v0.1`, a provisional
+  predicate type) of this repository from the public Scorecard API, written by
+  [`hack/attest-scorecard.sh`](hack/attest-scorecard.sh). It describes the
+  commit Scorecard scanned last, and is skipped with a warning when the API is
+  unavailable.
 
 To verify them, use the predicate type and the signing identity, for example:
 

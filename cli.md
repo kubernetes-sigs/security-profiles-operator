@@ -43,6 +43,23 @@ COMMANDS:
    help, h     Shows a list of commands or help for one command
 ```
 
+The released binaries are signed and have SLSA build provenance. Verify them
+after downloading, for example for `amd64` and `$VERSION` like `v1.0.2`:
+
+```console
+> cosign verify-blob \
+    --certificate-identity https://github.com/kubernetes-sigs/security-profiles-operator/.github/workflows/build.yml@refs/tags/$VERSION \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+    --bundle spoc.amd64.sigstore.json \
+    spoc.amd64
+> gh attestation verify spoc.amd64 \
+    --bundle spoc.intoto.jsonl \
+    --repo kubernetes-sigs/security-profiles-operator
+```
+
+Releases before `v1.0.2` name the signature `spoc.amd64.bundle` and have no
+provenance.
+
 [releases]: https://github.com/kubernetes-sigs/security-profiles-operator/releases/latest
 
 ### Record seccomp profiles for a command

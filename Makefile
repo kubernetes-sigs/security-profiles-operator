@@ -248,7 +248,7 @@ define nix-build-sign-spoc-to
 	cp -f result/spoc $(BUILD_DIR)/spoc.$(1)
 	cosign sign-blob -y \
 		$(BUILD_DIR)/spoc.$(1) \
-		--bundle $(BUILD_DIR)/spoc.$(1).bundle
+		--bundle $(BUILD_DIR)/spoc.$(1).sigstore.json
 	cd $(BUILD_DIR) && sha512sum spoc.$(1) > spoc.$(1).sha512
 endef
 
@@ -276,7 +276,7 @@ spoc-sbom: ## Generate and sign the SBOM for the spoc binaries in the build dire
 		-o $(BUILD_DIR)/spoc.spdx
 	cosign sign-blob -y \
 		$(BUILD_DIR)/spoc.spdx \
-		--bundle $(BUILD_DIR)/spoc.spdx.bundle
+		--bundle $(BUILD_DIR)/spoc.spdx.sigstore.json
 
 .PHONY: nix-spoc-amd64
 nix-spoc-amd64: $(BUILD_DIR) ## Build and sign the spoc binary via nix for amd64
