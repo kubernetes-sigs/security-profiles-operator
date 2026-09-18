@@ -36,6 +36,16 @@ BUILD_DIR := build
 APPARMOR_ENABLED ?= 1
 BPF_ENABLED ?= 1
 
+# Booting a test VM takes under 7 minutes, so anything beyond this is a hang
+# rather than a slow host. GNU coreutils' timeout is called gtimeout on macOS,
+# and where neither exists the boot just stays unbounded as it was before.
+VAGRANT_UP_TIMEOUT ?= 20m
+TIMEOUT_CMD := $(shell command -v timeout || command -v gtimeout)
+ifneq ($(TIMEOUT_CMD),)
+VAGRANT_UP_LIMIT := $(TIMEOUT_CMD) -k 1m $(VAGRANT_UP_TIMEOUT)
+VAGRANT_DESTROY_LIMIT := $(TIMEOUT_CMD) -k 30s 5m
+endif
+
 CLANG ?= clang
 LLVM_STRIP ?= llvm-strip
 ARCH ?= $(shell uname -m | \
@@ -350,9 +360,15 @@ define vagrant-up
 		$(CONTAINER_RUNTIME) save -o image.tar $(IMAGE); \
 	fi
 	ln -sf hack/ci/Vagrantfile-$(1) Vagrantfile
-	# Retry in case provisioning failed because of some temporarily unavailable
-	# remote resource (like the VM image)
-	vagrant up
+	# A half provisioned VM cannot be resumed by another `vagrant up`, so retry
+	# from a clean one in case a temporarily unavailable remote resource (like
+	# the VM image or a package mirror) broke the boot. The timeouts are what
+	# make that retry reachable: VirtualBox does hang while starting a VM, and
+	# a `vagrant up` that never returns just burns the whole CI job.
+	$(VAGRANT_UP_LIMIT) vagrant up || { \
+		$(VAGRANT_DESTROY_LIMIT) vagrant destroy -f || true; \
+		$(VAGRANT_UP_LIMIT) vagrant up; \
+	}
 endef
 
 .PHONY: vagrant-up-fedora

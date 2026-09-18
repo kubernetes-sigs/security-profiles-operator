@@ -21,7 +21,9 @@ package main_test
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,6 +31,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -42,7 +45,25 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
 )
 
-const spocPath = "../../build/spoc"
+var errRecorderStuck = errors.New("recorder did not exit on its own, killed it")
+
+const (
+	spocPath = "../../build/spoc"
+
+	// spocLogTimeout bounds how long a test waits for a single expected line of
+	// recorder output.
+	spocLogTimeout = time.Minute
+
+	// spocShutdownTimeout bounds how long a test waits for an interrupted
+	// recorder to write out its profile and exit. Far above the second this
+	// takes in practice, so a loaded CI machine does not trip it, and low
+	// enough that the waits of a single test case still add up to less than
+	// the timeout of the test binary itself.
+	spocShutdownTimeout = 2 * time.Minute
+
+	// pkillNoMatch is what pkill exits with when no process matched.
+	pkillNoMatch = 1
+)
 
 //nolint:paralleltest // should not run in parallel
 func TestSpoc(t *testing.T) {
@@ -306,9 +327,9 @@ func recordAppArmorTest(t *testing.T) {
 			demobinary,
 		)
 		stderr, err := cmd.StderrPipe()
-		spocLogs := bufio.NewScanner(stderr)
-
 		require.NoError(t, err)
+
+		spocLogs := scanLines(stderr)
 
 		var stdout bytes.Buffer
 
@@ -318,57 +339,205 @@ func recordAppArmorTest(t *testing.T) {
 		err = cmd.Start()
 		require.NoError(t, err)
 
-		t.Log("waiting for SPOC to set up...")
+		// A test case that gives up early must not leave the recorder attached
+		// for the ones after it. The flag keeps this off the happy path, which
+		// reaps the recorder itself, kill included, and where a second Wait
+		// would race the first one.
+		reaped := false
 
-		for spocLogs.Scan() {
-			t.Log(spocLogs.Text())
-
-			if strings.Contains(spocLogs.Text(), recorder.WaitForSigIntMessage) {
-				break
+		t.Cleanup(func() {
+			if reaped {
+				return
 			}
-		}
+
+			// Keep reading, silently because logging after the test case
+			// completed panics: a recorder blocked writing into a pipe nobody
+			// drains any more never gets to handle the signal below.
+			go func() {
+				for range spocLogs {
+				}
+			}()
+
+			// Best effort: the recorder may also have died on its own, which is
+			// what the test case is failing about.
+			//nolint:errcheck // nothing left to report it to
+			interruptRecorder(cmd.Process.Pid)
+			//nolint:errcheck // same
+			waitOrKill(cmd)
+		})
+
+		t.Log("waiting for SPOC to set up...")
+		waitForLog(t, spocLogs, recorder.WaitForSigIntMessage)
+
 		// Run binary...
 		cmd2 := exec.Command(demobinary, "--net-tcp")
 		err = cmd2.Run()
 		require.NoError(t, err)
 
 		t.Log("waiting for SPOC to register process exit...")
-
-		for spocLogs.Scan() {
-			t.Log(spocLogs.Text())
-
-			if strings.Contains(
-				spocLogs.Text(),
-				fmt.Sprintf("Record pid exit (pid=%d)", cmd2.Process.Pid),
-			) {
-				break
-			}
-		}
+		waitForLog(t, spocLogs,
+			fmt.Sprintf("Record pid exit (pid=%d)", cmd2.Process.Pid))
 
 		// Wait until events are processed and stop the recorder...
 		t.Log("sending SIGINT...")
-		// We cannot simply use cmd.Process.Signal here as sudo will not forward
-		// SIGINT when running outside of a pty (i.e. in CI)
-		//nolint:gosec // not a security risk
-		err = exec.Command(
-			"sudo",
-			"setsid",
-			"kill",
-			"-SIGINT",
-			strconv.Itoa(cmd.Process.Pid),
-		).Run()
-		require.NoError(t, err)
+		require.NoError(t, interruptRecorder(cmd.Process.Pid))
 
 		// useful when binary crashed.
-		for spocLogs.Scan() {
-			t.Log(spocLogs.Text())
-		}
+		drainLogs(t, spocLogs)
 
-		err = cmd.Wait()
-		require.NoError(t, err)
+		reaped = true
+
+		require.NoError(t, waitOrKill(cmd))
 
 		require.Contains(t, stdout.String(), "allowTcp", "did not find TCP permission in profile")
 	})
+}
+
+// interruptRecorder stops a running spoc recorder. We cannot simply use
+// Process.Signal here as sudo will not forward SIGINT when running outside of a
+// pty (i.e. in CI).
+func interruptRecorder(pid int) error {
+	//nolint:gosec // not a security risk
+	if err := exec.Command(
+		"sudo",
+		"setsid",
+		"kill",
+		"-SIGINT",
+		strconv.Itoa(pid),
+	).Run(); err != nil {
+		return fmt.Errorf("interrupt recorder: %w", err)
+	}
+
+	return nil
+}
+
+// killRecorder kills a spoc recorder that did not stop on its own. The kill
+// targets the child of sudo rather than sudo itself, which runs as root and
+// would just orphan the recorder.
+func killRecorder(pid int) error {
+	//nolint:gosec // not a security risk
+	err := exec.Command(
+		"sudo",
+		"pkill",
+		"-KILL",
+		"-P",
+		strconv.Itoa(pid),
+	).Run()
+
+	// Nothing to match means the recorder exited just after we gave up on it,
+	// which is the outcome the kill was after anyway.
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == pkillNoMatch {
+		return nil
+	}
+
+	if err != nil {
+		return fmt.Errorf("kill recorder: %w", err)
+	}
+
+	return nil
+}
+
+// waitOrKill reaps the recorder and kills it if it does not shut down. Waiting
+// for it indefinitely would spend the whole test binary timeout on a single
+// test case, which is what the SIGINT before it is meant to avoid.
+func waitOrKill(cmd *exec.Cmd) error {
+	done := make(chan error, 1)
+
+	go func() {
+		done <- cmd.Wait()
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			return fmt.Errorf("wait for recorder: %w", err)
+		}
+
+		return nil
+	case <-time.After(spocShutdownTimeout):
+	}
+
+	killErr := killRecorder(cmd.Process.Pid)
+
+	// Reap it either way: a kill that failed still leaves a Wait outstanding,
+	// and nobody else is going to collect the process.
+	select {
+	case <-done:
+	case <-time.After(spocShutdownTimeout):
+	}
+
+	if killErr != nil {
+		return killErr
+	}
+
+	return errRecorderStuck
+}
+
+// scanLines pumps the recorder output into a channel. The reader lives in its
+// own goroutine so that waitForLog can give up on a line that never arrives,
+// and it never logs itself: a t.Log after the test completed panics.
+func scanLines(r io.Reader) <-chan string {
+	lines := make(chan string)
+
+	go func() {
+		defer close(lines)
+
+		scanner := bufio.NewScanner(r)
+		for scanner.Scan() {
+			lines <- scanner.Text()
+		}
+	}()
+
+	return lines
+}
+
+// waitForLog consumes the recorder output until it contains match. Waiting
+// forever would burn the whole test binary timeout and take every other test
+// case down with it, so a missing line fails this one instead.
+func waitForLog(t *testing.T, lines <-chan string, match string) {
+	t.Helper()
+
+	timeout := time.After(spocLogTimeout)
+
+	for {
+		select {
+		case line, ok := <-lines:
+			if !ok {
+				t.Fatalf("spoc exited before logging %q", match)
+			}
+
+			t.Log(line)
+
+			if strings.Contains(line, match) {
+				return
+			}
+		case <-timeout:
+			t.Fatalf("timed out waiting for %q in the spoc output", match)
+		}
+	}
+}
+
+// drainLogs logs whatever the recorder has left to say, which is useful when it
+// crashed. Bounded like waitForLog, because a recorder that never closes its
+// output would otherwise block until the test binary times out.
+func drainLogs(t *testing.T, lines <-chan string) {
+	t.Helper()
+
+	timeout := time.After(spocShutdownTimeout)
+
+	for {
+		select {
+		case line, ok := <-lines:
+			if !ok {
+				return
+			}
+
+			t.Log(line)
+		case <-timeout:
+			t.Fatal("timed out waiting for the spoc output to end")
+		}
+	}
 }
 
 func recordAppArmorUnsupportedTest(t *testing.T) {

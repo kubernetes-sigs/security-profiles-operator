@@ -947,7 +947,11 @@ func (b *BpfRecorder) handleNewPidEvent(pid, mntns uint32, generation uint64) {
 }
 
 func (b *BpfRecorder) handleExitEvent(exitEvent *bpfEvent) {
-	b.logger.V(config.VerboseLevel).Info("Record pid exit", "pid", exitEvent.Pid)
+	// Logged at the default level, unlike the other per-process events: an exit
+	// only reaches userspace for a pid the recorder actually tracks, and spoc
+	// --no-proc-start has no other way to tell that the recording caught up with
+	// an externally started process before it is stopped.
+	b.logger.Info("Record pid exit", "pid", exitEvent.Pid)
 
 	// Remember the exit first, so that a WaitForPidExit which registers right
 	// after this still observes it.
