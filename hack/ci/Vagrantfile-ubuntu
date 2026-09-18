@@ -29,6 +29,24 @@ Vagrant.configure("2") do |config|
       # Use a non-localhost DNS to avoid cluster DNS lookup loops
       echo "nameserver 8.8.8.8" > /etc/resolv.conf
 
+      # Mirrors regularly serve a package index that is newer than their pool,
+      # which makes the install 404 on a version that is already gone. Retry
+      # with a refreshed index rather than failing the whole boot, because a
+      # second `vagrant up` cannot resume a provisioning run that has started.
+      # A mirror dropping mid unpack leaves dpkg interrupted, which every
+      # further install refuses to touch, so each attempt clears that first.
+      apt_install() {
+        for _ in 1 2 3; do
+          dpkg --configure -a || true
+          apt-get update -o Acquire::Retries=3 &&
+            apt-get install -y -o Acquire::Retries=3 "$@" &&
+            return 0
+          sleep 15
+        done
+
+        return 1
+      }
+
       # Install Go
       GO_VERSION=$(curl -sSfL "https://go.dev/VERSION?m=text" | head -n1)
       curl -sSfL -o- https://go.dev/dl/$GO_VERSION.linux-amd64.tar.gz |
@@ -40,8 +58,7 @@ Vagrant.configure("2") do |config|
       echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/$KUBERNETES_VERSION/deb/ /" | tee /etc/apt/sources.list.d/kubernetes.list
       curl -fsSL https://download.opensuse.org/repositories/isv:/cri-o:/prerelease:/main/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/cri-o-apt-keyring.gpg
       echo "deb [signed-by=/etc/apt/keyrings/cri-o-apt-keyring.gpg] https://download.opensuse.org/repositories/isv:/cri-o:/prerelease:/main/deb/ /" | tee /etc/apt/sources.list.d/cri-o.list
-      apt-get update
-      apt-get install -y \
+      apt_install \
         build-essential \
         cri-o \
         kubelet \
