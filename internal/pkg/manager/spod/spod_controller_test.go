@@ -23,9 +23,11 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 )
 
@@ -222,6 +224,128 @@ func Test_getConfiguredSPOdEnricherArgsAreRevertible(t *testing.T) {
 	for _, arg := range render("") {
 		require.NotContains(t, arg, "--enricher-filters-json")
 	}
+}
+
+// featureVolumeNames renders the SPOd for the given spec and returns the set
+// of volume names of the pod template. It also asserts that every volume mount
+// of the rendered containers is still backed by a volume.
+func featureVolumeNames(
+	t *testing.T, r *ReconcileSPOd, spec *spodapi.SPODSpec,
+) map[string]bool {
+	t.Helper()
+
+	ds, err := r.getConfiguredSPOd(
+		t.Context(), &spodapi.SecurityProfilesOperatorDaemon{Spec: *spec},
+		"image", v1.PullAlways, bindata.CAInjectTypeCertManager,
+	)
+	require.NoError(t, err)
+
+	podSpec := &ds.Spec.Template.Spec
+
+	volumes := map[string]bool{}
+	for i := range podSpec.Volumes {
+		volumes[podSpec.Volumes[i].Name] = true
+	}
+
+	for _, containers := range [][]v1.Container{podSpec.InitContainers, podSpec.Containers} {
+		for i := range containers {
+			for _, mount := range containers[i].VolumeMounts {
+				require.True(t, volumes[mount.Name],
+					"container %s mounts missing volume %s", containers[i].Name, mount.Name)
+			}
+		}
+	}
+
+	return volumes
+}
+
+func requireVolumes(t *testing.T, volumes map[string]bool, names []string, present bool) {
+	t.Helper()
+
+	for _, name := range names {
+		require.Equal(t, present, volumes[name], "volume %s", name)
+	}
+}
+
+var (
+	selinuxHostVolumes = []string{
+		"host-fsselinux-volume", "host-etcselinux-volume", "host-varlibselinux-volume",
+	}
+	enricherHostVolumes = []string{"host-auditlog-volume", "host-syslog-volume"}
+	bpfHostVolumes      = []string{
+		"sys-kernel-debug-volume", "sys-kernel-security-volume",
+		"sys-kernel-tracing-volume", "host-etc-osrelease-volume",
+	}
+)
+
+// Test_getConfiguredSPOdVolumesFollowFeatures asserts that the hostPath
+// volumes backing optional features are only rendered when a container of
+// that feature mounts them. The base SPOd declares all of them
+// unconditionally, so a SPOD with SELinux, the enrichers and the bpf recorder
+// disabled used to keep the SELinux, audit log and /sys/kernel host paths in
+// the DaemonSet on every node.
+func Test_getConfiguredSPOdVolumesFollowFeatures(t *testing.T) {
+	t.Parallel()
+
+	r := newTestReconciler()
+
+	// AppArmor only: none of the SELinux, enricher or bpf host paths are needed.
+	off := featureVolumeNames(t, r, &spodapi.SPODSpec{
+		EnableAppArmor: new(true),
+		Selinux:        spodapi.SPODSelinuxConfig{Enable: new(false)},
+	})
+	requireVolumes(t, off, selinuxHostVolumes, false)
+	requireVolumes(t, off, enricherHostVolumes, false)
+	requireVolumes(t, off, bpfHostVolumes, false)
+
+	selinux := featureVolumeNames(t, r, &spodapi.SPODSpec{
+		Selinux: spodapi.SPODSelinuxConfig{Enable: new(true)},
+	})
+	requireVolumes(t, selinux, selinuxHostVolumes, true)
+	requireVolumes(t, selinux, enricherHostVolumes, false)
+	requireVolumes(t, selinux, bpfHostVolumes, false)
+
+	logEnricher := featureVolumeNames(t, r, &spodapi.SPODSpec{
+		Enricher: spodapi.SPODEnricherConfig{EnableLogEnricher: new(true)},
+	})
+	requireVolumes(t, logEnricher, enricherHostVolumes, true)
+	requireVolumes(t, logEnricher, selinuxHostVolumes, false)
+	requireVolumes(t, logEnricher, bpfHostVolumes, false)
+
+	bpfRecorder := featureVolumeNames(t, r, &spodapi.SPODSpec{
+		Enricher: spodapi.SPODEnricherConfig{EnableBpfRecorder: new(true)},
+	})
+	requireVolumes(t, bpfRecorder, bpfHostVolumes, true)
+	requireVolumes(t, bpfRecorder, selinuxHostVolumes, false)
+	requireVolumes(t, bpfRecorder, enricherHostVolumes, false)
+
+	// Disabling a feature again must drop its volumes again.
+	requireVolumes(t, featureVolumeNames(t, r, &spodapi.SPODSpec{}), selinuxHostVolumes, false)
+}
+
+// Test_getConfiguredSPOdJsonEnricherVolumes asserts that the JSON enricher
+// keeps exactly the host paths it mounts: the audit logs and the tracing
+// filesystems, but neither /sys/kernel/security nor /etc/os-release, which
+// only the bpf recorder needs.
+func Test_getConfiguredSPOdJsonEnricherVolumes(t *testing.T) {
+	// The JSON enricher volume lookup requires the operator namespace, so
+	// this test cannot run in parallel.
+	t.Setenv(config.OperatorNamespaceEnvKey, "security-profiles-operator")
+
+	r := newTestReconciler()
+	r.clientReader = fake.NewClientBuilder().Build()
+
+	jsonEnricher := featureVolumeNames(t, r, &spodapi.SPODSpec{
+		Enricher: spodapi.SPODEnricherConfig{EnableJsonEnricher: new(true)},
+	})
+	requireVolumes(t, jsonEnricher, enricherHostVolumes, true)
+	requireVolumes(t, jsonEnricher, []string{
+		"sys-kernel-debug-volume", "sys-kernel-tracing-volume",
+	}, true)
+	requireVolumes(t, jsonEnricher, []string{
+		"sys-kernel-security-volume", "host-etc-osrelease-volume",
+	}, false)
+	requireVolumes(t, jsonEnricher, selinuxHostVolumes, false)
 }
 
 func Test_addSelinuxCustomTemplatesVolumeEmpty(t *testing.T) {

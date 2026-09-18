@@ -877,7 +877,40 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	templateSpec.ImagePullSecrets = cfg.Spec.ImagePullSecrets
 	templateSpec.PriorityClassName = cfg.Spec.Scheduling.PriorityClassName
 
+	pruneUnmountedVolumes(templateSpec)
+
 	return newSPOd, nil
+}
+
+// pruneUnmountedVolumes drops every volume which no init container or
+// container of the rendered pod template mounts. The base SPOd declares the
+// volumes of all optional features (SELinux, log and JSON enricher, bpf
+// recorder) unconditionally while their containers are only added when the
+// feature is enabled. Without pruning, the hostPath volumes of disabled
+// features, like /sys/fs/selinux, /var/log/audit or /sys/kernel/debug, stay
+// part of the DaemonSet on every node.
+func pruneUnmountedVolumes(templateSpec *corev1.PodSpec) {
+	mounted := map[string]bool{}
+
+	for _, containers := range [][]corev1.Container{
+		templateSpec.InitContainers, templateSpec.Containers,
+	} {
+		for i := range containers {
+			for _, mount := range containers[i].VolumeMounts {
+				mounted[mount.Name] = true
+			}
+		}
+	}
+
+	volumes := make([]corev1.Volume, 0, len(templateSpec.Volumes))
+
+	for i := range templateSpec.Volumes {
+		if mounted[templateSpec.Volumes[i].Name] {
+			volumes = append(volumes, templateSpec.Volumes[i])
+		}
+	}
+
+	templateSpec.Volumes = volumes
 }
 
 // configureLogEnricher applies the log enricher configuration to ctr.
