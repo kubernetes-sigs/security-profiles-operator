@@ -28,6 +28,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -45,7 +46,6 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/apparmorprofile/crd2armor"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/recordingmerger"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 const (
@@ -381,7 +381,7 @@ func (r *Recorder) buildProfile(writer io.Writer, names []string) error {
 		diff := []string{}
 
 		for _, syscall := range r.options.baseSyscalls {
-			if !util.Contains(names, syscall) {
+			if !slices.Contains(names, syscall) {
 				names = append(names, syscall)
 				diff = append(diff, syscall)
 			}

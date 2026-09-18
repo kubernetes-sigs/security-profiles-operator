@@ -18,7 +18,6 @@ package enricher
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"runtime"
 
@@ -40,17 +39,14 @@ const (
 func (e *Enricher) Syscalls(
 	_ context.Context, r *api.SyscallsRequest,
 ) (*api.SyscallsResponse, error) {
-	syscalls, ok := e.syscalls.Load(r.GetProfile())
-	if !ok {
+	item := e.syscalls.Get(r.GetProfile())
+	if item == nil {
 		st := status.New(codes.NotFound, ErrorNoSyscalls)
 
 		return nil, st.Err()
 	}
 
-	stringSet, ok := syscalls.(*syncSet)
-	if !ok {
-		return nil, errors.New("syscalls are no string set")
-	}
+	stringSet := item.Value()
 
 	return &api.SyscallsResponse{
 		Syscalls: stringSet.UnsortedList(),
@@ -71,8 +67,8 @@ func (e *Enricher) ResetSyscalls(
 func (e *Enricher) Avcs(
 	_ context.Context, r *api.AvcRequest,
 ) (*api.AvcResponse, error) {
-	avcs, ok := e.avcs.Load(r.GetProfile())
-	if !ok {
+	item := e.avcs.Get(r.GetProfile())
+	if item == nil {
 		st := status.New(codes.NotFound, ErrorNoAvcs)
 
 		return nil, st.Err()
@@ -80,12 +76,7 @@ func (e *Enricher) Avcs(
 
 	avcList := make([]*api.AvcResponse_SelinuxAvc, 0)
 
-	stringSet, ok := avcs.(*syncSet)
-	if !ok {
-		return nil, errors.New("avcs are no string set")
-	}
-
-	jsonList := stringSet.UnsortedList()
+	jsonList := item.Value().UnsortedList()
 	for i := range jsonList {
 		avc := &api.AvcResponse_SelinuxAvc{}
 

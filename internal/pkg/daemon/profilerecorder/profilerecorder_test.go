@@ -250,6 +250,55 @@ func TestSetup(t *testing.T) {
 	}
 }
 
+// logsRecordingList returns a recording named "profile" that selects every pod
+// and records every container with the log recorder.
+func logsRecordingList(kind recordingapi.ProfileRecordingKind) *recordingapi.ProfileRecordingList {
+	return &recordingapi.ProfileRecordingList{
+		Items: []recordingapi.ProfileRecording{{
+			ObjectMeta: metav1.ObjectMeta{Name: "profile"},
+			Spec: recordingapi.ProfileRecordingSpec{
+				Kind:        kind,
+				Recorder:    recordingapi.ProfileRecorderLogs,
+				PodSelector: &metav1.LabelSelector{},
+			},
+		}},
+	}
+}
+
+// testAnnotationValue is a well-formed recording annotation: the recorded
+// profile name is built from the first two fields, so it has to be fixed for an
+// exact assertion.
+const testAnnotationValue = "profile_ctr_4bbwm_1700000000"
+
+// bpfApparmorRecordingList is bpfSeccompRecordingList for AppArmor profiles.
+func bpfApparmorRecordingList() *recordingapi.ProfileRecordingList {
+	return &recordingapi.ProfileRecordingList{
+		Items: []recordingapi.ProfileRecording{{
+			ObjectMeta: metav1.ObjectMeta{Name: "profile"},
+			Spec: recordingapi.ProfileRecordingSpec{
+				Kind:        recordingapi.ProfileRecordingKindAppArmorProfile,
+				Recorder:    recordingapi.ProfileRecorderBpf,
+				PodSelector: &metav1.LabelSelector{},
+			},
+		}},
+	}
+}
+
+// bpfSeccompRecordingList returns a recording named "profile" that selects every
+// pod and records every container with the BPF recorder.
+func bpfSeccompRecordingList() *recordingapi.ProfileRecordingList {
+	return &recordingapi.ProfileRecordingList{
+		Items: []recordingapi.ProfileRecording{{
+			ObjectMeta: metav1.ObjectMeta{Name: "profile"},
+			Spec: recordingapi.ProfileRecordingSpec{
+				Kind:        recordingapi.ProfileRecordingKindSeccompProfile,
+				Recorder:    recordingapi.ProfileRecorderBpf,
+				PodSelector: &metav1.LabelSelector{},
+			},
+		}},
+	}
+}
+
 func TestReconcile(t *testing.T) {
 	t.Parallel()
 
@@ -282,17 +331,21 @@ func TestReconcile(t *testing.T) {
 				assert.NoError(t, err)
 			},
 		},
-		{ //nolint:dupl // test duplicates are fine
+		{
 			// seccomp BPF success record
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodPending},
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							config.SeccompProfileRecordBpfAnnotationKey: "profile",
+							config.SeccompProfileRecordBpfAnnotationKey + "ctr": testAnnotationValue,
 						},
 					},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "ctr"}},
+					},
 				}, nil)
+				mock.ListRecordingsReturns(bpfSeccompRecordingList(), nil)
 				mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
 					Spec: spodapi.SPODSpec{Enricher: spodapi.SPODEnricherConfig{EnableBpfRecorder: ptrTrue()}},
 				}, nil)
@@ -308,10 +361,41 @@ func TestReconcile(t *testing.T) {
 				assert.Equal(t, recordingapi.ProfileRecorderBpf, pod.recorder)
 				assert.Len(t, pod.profiles, 1)
 				assert.Equal(t, recordingapi.ProfileRecordingKindSeccompProfile, pod.profiles[0].kind)
-				assert.Equal(t, "profile", pod.profiles[0].name)
+				assert.Equal(t, testAnnotationValue, pod.profiles[0].name)
 				// already tracking
 				_, retryErr := sut.Reconcile(t.Context(), testRequest)
 				assert.NoError(t, retryErr)
+			},
+		},
+		{
+			// A trace annotation that no ProfileRecording asks for must not
+			// start a recording: the annotation is attacker controlled in any
+			// namespace where the recording webhook does not run.
+			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
+				value := fmt.Sprintf("spoofed_ctr_4bbwm_%d", time.Now().Unix())
+				mock.GetPodReturns(&corev1.Pod{
+					Status: corev1.PodStatus{Phase: corev1.PodPending},
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							config.SeccompProfileRecordBpfAnnotationKey + "ctr": value,
+						},
+					},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "ctr"}},
+					},
+				}, nil)
+				// Only an unrelated recording exists.
+				mock.ListRecordingsReturns(bpfSeccompRecordingList(), nil)
+				mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
+					Spec: spodapi.SPODSpec{Enricher: spodapi.SPODEnricherConfig{EnableBpfRecorder: ptrTrue()}},
+				}, nil)
+				mock.DialBpfRecorderReturns(nil, nil)
+			},
+			assert: func(sut *RecorderReconciler, err error) {
+				require.NoError(t, err)
+
+				_, ok := sut.podsToWatch.Load(testRequest.String())
+				assert.False(t, ok, "an unauthorized annotation must not be recorded")
 			},
 		},
 		{ // seccomp BPF success collect
@@ -554,7 +638,7 @@ func TestReconcile(t *testing.T) {
 				assert.Error(t, err)
 			},
 		},
-		{ //nolint:dupl // test duplicates are fine
+		{
 			// seccomp BPF SyscallsForProfile returns not found
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
 				profileName := fmt.Sprintf("profile_replica-123_4bbwm_%d", time.Now().Unix())
@@ -627,10 +711,14 @@ func TestReconcile(t *testing.T) {
 					Status: corev1.PodStatus{Phase: corev1.PodPending},
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							config.SeccompProfileRecordBpfAnnotationKey: "profile-123",
+							config.SeccompProfileRecordBpfAnnotationKey: fmt.Sprintf("profile_ctr_4bbwm_%d", time.Now().Unix()),
 						},
 					},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "ctr"}},
+					},
 				}, nil)
+				mock.ListRecordingsReturns(bpfSeccompRecordingList(), nil)
 				mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
 					Spec: spodapi.SPODSpec{Enricher: spodapi.SPODEnricherConfig{EnableBpfRecorder: ptrTrue()}},
 				}, nil)
@@ -640,16 +728,21 @@ func TestReconcile(t *testing.T) {
 				assert.Error(t, err)
 			},
 		},
-		{ // seccomp BPF StartBpfRecorder fails
+		{ //nolint:dupl // test duplicates are fine
+			// seccomp BPF StartBpfRecorder fails
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodPending},
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							config.SeccompProfileRecordBpfAnnotationKey: "profile",
+							config.SeccompProfileRecordBpfAnnotationKey: fmt.Sprintf("profile_ctr_4bbwm_%d", time.Now().Unix()),
 						},
 					},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "ctr"}},
+					},
 				}, nil)
+				mock.ListRecordingsReturns(bpfSeccompRecordingList(), nil)
 				mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
 					Spec: spodapi.SPODSpec{Enricher: spodapi.SPODEnricherConfig{EnableBpfRecorder: ptrTrue()}},
 				}, nil)
@@ -666,10 +759,14 @@ func TestReconcile(t *testing.T) {
 					Status: corev1.PodStatus{Phase: corev1.PodPending},
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							config.SeccompProfileRecordBpfAnnotationKey: "profile",
+							config.SeccompProfileRecordBpfAnnotationKey: fmt.Sprintf("profile_ctr_4bbwm_%d", time.Now().Unix()),
 						},
 					},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "ctr"}},
+					},
 				}, nil)
+				mock.ListRecordingsReturns(bpfSeccompRecordingList(), nil)
 				mock.GetSPODReturns(nil, errTest)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
@@ -682,10 +779,14 @@ func TestReconcile(t *testing.T) {
 					Status: corev1.PodStatus{Phase: corev1.PodPending},
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							config.SeccompProfileRecordBpfAnnotationKey: "profile",
+							config.SeccompProfileRecordBpfAnnotationKey: fmt.Sprintf("profile_ctr_4bbwm_%d", time.Now().Unix()),
 						},
 					},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "ctr"}},
+					},
 				}, nil)
+				mock.ListRecordingsReturns(bpfSeccompRecordingList(), nil)
 				mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
 					Spec: spodapi.SPODSpec{Enricher: spodapi.SPODEnricherConfig{EnableBpfRecorder: new(bool)}},
 				}, nil)
@@ -700,10 +801,14 @@ func TestReconcile(t *testing.T) {
 					Status: corev1.PodStatus{Phase: corev1.PodPending},
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							config.SeccompProfileRecordBpfAnnotationKey: "profile",
+							config.SeccompProfileRecordBpfAnnotationKey: fmt.Sprintf("profile_ctr_4bbwm_%d", time.Now().Unix()),
 						},
 					},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "ctr"}},
+					},
 				}, nil)
+				mock.ListRecordingsReturns(bpfSeccompRecordingList(), nil)
 				mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
 					Spec: spodapi.SPODSpec{Enricher: spodapi.SPODEnricherConfig{}},
 				}, nil)
@@ -712,17 +817,21 @@ func TestReconcile(t *testing.T) {
 				assert.Error(t, err)
 			},
 		},
-		{ //nolint:dupl // test duplicates are fine
+		{
 			// apparmor BPF success record
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodPending},
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							config.ApparmorProfileRecordBpfAnnotationKey: "profile",
+							config.ApparmorProfileRecordBpfAnnotationKey: fmt.Sprintf("profile_ctr_4bbwm_%d", time.Now().Unix()),
 						},
 					},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "ctr"}},
+					},
 				}, nil)
+				mock.ListRecordingsReturns(bpfApparmorRecordingList(), nil)
 				mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
 					Spec: spodapi.SPODSpec{Enricher: spodapi.SPODEnricherConfig{EnableBpfRecorder: ptrTrue()}},
 				}, nil)
@@ -738,7 +847,7 @@ func TestReconcile(t *testing.T) {
 				assert.Equal(t, recordingapi.ProfileRecorderBpf, pod.recorder)
 				assert.Len(t, pod.profiles, 1)
 				assert.Equal(t, recordingapi.ProfileRecordingKindAppArmorProfile, pod.profiles[0].kind)
-				assert.Equal(t, "profile", pod.profiles[0].name)
+				assert.Regexp(t, `^profile_ctr_4bbwm_\d+$`, pod.profiles[0].name)
 				// already tracking
 				_, retryErr := sut.Reconcile(t.Context(), testRequest)
 				assert.NoError(t, retryErr)
@@ -964,7 +1073,7 @@ func TestReconcile(t *testing.T) {
 				assert.Error(t, err)
 			},
 		},
-		{ //nolint:dupl // test duplicates are fine
+		{
 			// apparmor BPF ApparmorForProfile returns not found
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
 				profileName := fmt.Sprintf("profile_replica-123_4bbwm_%d", time.Now().Unix())
@@ -1037,10 +1146,14 @@ func TestReconcile(t *testing.T) {
 					Status: corev1.PodStatus{Phase: corev1.PodPending},
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							config.ApparmorProfileRecordBpfAnnotationKey: "profile-123",
+							config.ApparmorProfileRecordBpfAnnotationKey: fmt.Sprintf("profile_ctr_4bbwm_%d", time.Now().Unix()),
 						},
 					},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "ctr"}},
+					},
 				}, nil)
+				mock.ListRecordingsReturns(bpfApparmorRecordingList(), nil)
 				mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
 					Spec: spodapi.SPODSpec{Enricher: spodapi.SPODEnricherConfig{EnableBpfRecorder: ptrTrue()}},
 				}, nil)
@@ -1050,16 +1163,21 @@ func TestReconcile(t *testing.T) {
 				assert.Error(t, err)
 			},
 		},
-		{ // apparmor BPF StartBpfRecorder fails
+		{ //nolint:dupl // test duplicates are fine
+			// apparmor BPF StartBpfRecorder fails
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodPending},
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							config.ApparmorProfileRecordBpfAnnotationKey: "profile",
+							config.ApparmorProfileRecordBpfAnnotationKey: fmt.Sprintf("profile_ctr_4bbwm_%d", time.Now().Unix()),
 						},
 					},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "ctr"}},
+					},
 				}, nil)
+				mock.ListRecordingsReturns(bpfApparmorRecordingList(), nil)
 				mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
 					Spec: spodapi.SPODSpec{Enricher: spodapi.SPODEnricherConfig{EnableBpfRecorder: ptrTrue()}},
 				}, nil)
@@ -1076,10 +1194,14 @@ func TestReconcile(t *testing.T) {
 					Status: corev1.PodStatus{Phase: corev1.PodPending},
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							config.ApparmorProfileRecordBpfAnnotationKey: "profile",
+							config.ApparmorProfileRecordBpfAnnotationKey: fmt.Sprintf("profile_ctr_4bbwm_%d", time.Now().Unix()),
 						},
 					},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "ctr"}},
+					},
 				}, nil)
+				mock.ListRecordingsReturns(bpfApparmorRecordingList(), nil)
 				mock.GetSPODReturns(nil, errTest)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
@@ -1092,10 +1214,14 @@ func TestReconcile(t *testing.T) {
 					Status: corev1.PodStatus{Phase: corev1.PodPending},
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							config.ApparmorProfileRecordBpfAnnotationKey: "profile",
+							config.ApparmorProfileRecordBpfAnnotationKey: fmt.Sprintf("profile_ctr_4bbwm_%d", time.Now().Unix()),
 						},
 					},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "ctr"}},
+					},
 				}, nil)
+				mock.ListRecordingsReturns(bpfApparmorRecordingList(), nil)
 				mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
 					Spec: spodapi.SPODSpec{Enricher: spodapi.SPODEnricherConfig{EnableBpfRecorder: new(bool)}},
 				}, nil)
@@ -1110,10 +1236,14 @@ func TestReconcile(t *testing.T) {
 					Status: corev1.PodStatus{Phase: corev1.PodPending},
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							config.ApparmorProfileRecordBpfAnnotationKey: "profile",
+							config.ApparmorProfileRecordBpfAnnotationKey: fmt.Sprintf("profile_ctr_4bbwm_%d", time.Now().Unix()),
 						},
 					},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "ctr"}},
+					},
 				}, nil)
+				mock.ListRecordingsReturns(bpfApparmorRecordingList(), nil)
 				mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
 					Spec: spodapi.SPODSpec{Enricher: spodapi.SPODEnricherConfig{}},
 				}, nil)
@@ -1167,10 +1297,14 @@ func TestReconcile(t *testing.T) {
 					Status: corev1.PodStatus{Phase: corev1.PodPending},
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							config.SeccompProfileRecordLogsAnnotationKey: "profile",
+							config.SeccompProfileRecordLogsAnnotationKey: fmt.Sprintf("profile_ctr_4bbwm_%d", time.Now().Unix()),
 						},
 					},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "ctr"}},
+					},
 				}, nil)
+				mock.ListRecordingsReturns(logsRecordingList(recordingapi.ProfileRecordingKindSeccompProfile), nil)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
 				require.NoError(t, err)
@@ -1182,7 +1316,7 @@ func TestReconcile(t *testing.T) {
 				assert.Equal(t, recordingapi.ProfileRecorderLogs, pod.recorder)
 				assert.Len(t, pod.profiles, 1)
 				assert.Equal(t, recordingapi.ProfileRecordingKindSeccompProfile, pod.profiles[0].kind)
-				assert.Equal(t, "profile", pod.profiles[0].name)
+				assert.Regexp(t, `^profile_ctr_4bbwm_\d+$`, pod.profiles[0].name)
 				// already tracking
 				_, retryErr := sut.Reconcile(t.Context(), testRequest)
 				assert.NoError(t, retryErr)
@@ -1195,10 +1329,14 @@ func TestReconcile(t *testing.T) {
 					Status: corev1.PodStatus{Phase: corev1.PodPending},
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							config.SelinuxProfileRecordLogsAnnotationKey: "profile",
+							config.SelinuxProfileRecordLogsAnnotationKey: fmt.Sprintf("profile_ctr_4bbwm_%d", time.Now().Unix()),
 						},
 					},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "ctr"}},
+					},
 				}, nil)
+				mock.ListRecordingsReturns(logsRecordingList(recordingapi.ProfileRecordingKindSelinuxProfile), nil)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
 				require.NoError(t, err)
@@ -1210,7 +1348,7 @@ func TestReconcile(t *testing.T) {
 				assert.Equal(t, recordingapi.ProfileRecorderLogs, pod.recorder)
 				assert.Len(t, pod.profiles, 1)
 				assert.Equal(t, recordingapi.ProfileRecordingKindSelinuxProfile, pod.profiles[0].kind)
-				assert.Equal(t, "profile", pod.profiles[0].name)
+				assert.Regexp(t, `^profile_ctr_4bbwm_\d+$`, pod.profiles[0].name)
 				// already tracking
 				_, retryErr := sut.Reconcile(t.Context(), testRequest)
 				assert.NoError(t, retryErr)
@@ -1916,4 +2054,270 @@ func TestIsPodWithTraceAnnotation(t *testing.T) {
 		res := sut.isPodWithTraceAnnotation(obj)
 		tc.assert(res)
 	}
+}
+
+// The UDP branch used to test GetUseTcp(), so a UDP-only workload produced an
+// AppArmor profile with no network rules at all while a TCP-only workload was
+// granted UDP it never used.
+func TestGenerateAppArmorProfileAbstractProtocols(t *testing.T) {
+	t.Parallel()
+
+	enabled := true
+
+	for name, tc := range map[string]struct {
+		socket   *bpfrecorderapi.ApparmorResponse_Socket
+		wantRaw  *bool
+		wantTCP  *bool
+		wantUDP  *bool
+		wantNone bool
+	}{
+		"udp only": {
+			socket:  &bpfrecorderapi.ApparmorResponse_Socket{UseUdp: true},
+			wantUDP: &enabled,
+		},
+		"tcp only": {
+			socket:  &bpfrecorderapi.ApparmorResponse_Socket{UseTcp: true},
+			wantTCP: &enabled,
+		},
+		"tcp and udp": {
+			socket:  &bpfrecorderapi.ApparmorResponse_Socket{UseTcp: true, UseUdp: true},
+			wantTCP: &enabled,
+			wantUDP: &enabled,
+		},
+		"raw only": {
+			socket:  &bpfrecorderapi.ApparmorResponse_Socket{UseRaw: true},
+			wantRaw: &enabled,
+		},
+		"no socket usage": {
+			socket:   &bpfrecorderapi.ApparmorResponse_Socket{},
+			wantNone: true,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			r := &RecorderReconciler{}
+			abstract := r.generateAppArmorProfileAbstract(
+				&bpfrecorderapi.ApparmorResponse{Socket: tc.socket},
+			)
+
+			if tc.wantNone {
+				require.Nil(t, abstract.Network)
+
+				return
+			}
+
+			require.NotNil(t, abstract.Network)
+			require.Equal(t, tc.wantRaw, abstract.Network.AllowRaw)
+
+			if tc.wantTCP == nil && tc.wantUDP == nil {
+				require.Nil(t, abstract.Network.Protocols)
+
+				return
+			}
+
+			require.NotNil(t, abstract.Network.Protocols)
+			require.Equal(t, tc.wantTCP, abstract.Network.Protocols.AllowTCP)
+			require.Equal(t, tc.wantUDP, abstract.Network.Protocols.AllowUDP)
+		})
+	}
+}
+
+// TestReconcileDoesNotArmRecorderWithoutAuthorization pins down the ordering the
+// authorization gate depends on: nothing with a side effect may run before a
+// pod's recording annotations have been matched against a ProfileRecording.
+// Arming the node's BPF recorder is such a side effect, and it used to be
+// reachable from a pod annotation alone.
+func TestReconcileDoesNotArmRecorderWithoutAuthorization(t *testing.T) {
+	t.Parallel()
+
+	testRequest := reconcile.Request{
+		NamespacedName: types.NamespacedName{Namespace: "namespace", Name: "name"},
+	}
+
+	for _, tc := range []struct {
+		name       string
+		annotation string
+		recordings *recordingapi.ProfileRecordingList
+	}{
+		{
+			// A malformed value must not be passed through: doing so makes the
+			// profile list non-empty, which arms the recorder.
+			name:       "malformed annotation",
+			annotation: "junk",
+			recordings: &recordingapi.ProfileRecordingList{},
+		},
+		{
+			name:       "no matching profile recording",
+			annotation: "other-recording_ctr_4bbwm_1700000000",
+			recordings: &recordingapi.ProfileRecordingList{},
+		},
+		{
+			name:       "recording exists but selects no pods",
+			annotation: testAnnotationValue,
+			recordings: &recordingapi.ProfileRecordingList{
+				Items: []recordingapi.ProfileRecording{{
+					ObjectMeta: metav1.ObjectMeta{Name: "profile"},
+					Spec: recordingapi.ProfileRecordingSpec{
+						Kind:     recordingapi.ProfileRecordingKindSeccompProfile,
+						Recorder: recordingapi.ProfileRecorderBpf,
+						PodSelector: &metav1.LabelSelector{
+							MatchLabels: map[string]string{"app": "something-else"},
+						},
+					},
+				}},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			mock := &profilerecorderfakes.FakeImpl{}
+			mock.GetPodReturns(&corev1.Pod{
+				Status: corev1.PodStatus{Phase: corev1.PodPending},
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						config.SeccompProfileRecordBpfAnnotationKey: tc.annotation,
+					},
+				},
+				Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "ctr"}}},
+			}, nil)
+			mock.ListRecordingsReturns(tc.recordings, nil)
+			mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
+				Spec: spodapi.SPODSpec{
+					Enricher: spodapi.SPODEnricherConfig{EnableBpfRecorder: ptrTrue()},
+				},
+			}, nil)
+
+			sut := &RecorderReconciler{
+				impl:   mock,
+				log:    logr.Discard(),
+				record: record.NewFakeRecorder(10),
+			}
+
+			_, err := sut.Reconcile(t.Context(), testRequest)
+			require.NoError(t, err)
+
+			assert.Zero(t, mock.DialBpfRecorderCallCount(), "the recorder must not be dialed")
+			assert.Zero(t, mock.StartBpfRecorderCallCount(), "the recorder must not be armed")
+
+			_, tracked := sut.podsToWatch.Load(testRequest.String())
+			assert.False(t, tracked, "the pod must not be watched")
+		})
+	}
+}
+
+// TestProfilePartialRecordingGone covers what happens when the ProfileRecording
+// disappears while replica pods are still being collected. Answering "not
+// partial" would drop the per-replica suffix and make every replica overwrite
+// the same cluster-scoped profile name, so this has to be reported as terminal.
+func TestProfilePartialRecordingGone(t *testing.T) {
+	t.Parallel()
+
+	mock := &profilerecorderfakes.FakeImpl{}
+	mock.ClientGetReturns(kerrors.NewNotFound(schema.GroupResource{}, "recording"))
+
+	sut := &RecorderReconciler{impl: mock, log: logr.Discard()}
+
+	partial, err := profilePartial(t.Context(), sut, "recording", "ns")
+	require.ErrorIs(t, err, errRecordingGone)
+	require.False(t, partial)
+	require.True(t, unrecordable(err), "the reconciler must release the pod for this error")
+
+	_, err = profileLabels(t.Context(), sut, "recording", "ctr", "ns")
+	require.ErrorIs(t, err, errRecordingGone)
+}
+
+func TestProfilePartialMergeStrategy(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name        string
+		strategy    recordingapi.ProfileMergeStrategy
+		wantPartial bool
+	}{
+		{name: "no merging", strategy: recordingapi.ProfileMergeNone, wantPartial: false},
+		{name: "merge containers", strategy: recordingapi.ProfileMergeContainers, wantPartial: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			mock := &profilerecorderfakes.FakeImpl{}
+			mock.ClientGetCalls(func(
+				_ context.Context, _ client.Client,
+				_ client.ObjectKey, obj client.Object,
+			) error {
+				recording, ok := obj.(*recordingapi.ProfileRecording)
+				require.True(t, ok)
+
+				recording.Spec.MergeStrategy = tc.strategy
+
+				return nil
+			})
+
+			sut := &RecorderReconciler{impl: mock, log: logr.Discard()}
+
+			partial, err := profilePartial(t.Context(), sut, "recording", "ns")
+			require.NoError(t, err)
+			require.Equal(t, tc.wantPartial, partial)
+		})
+	}
+}
+
+// TestReleaseUnrecordablePod covers the cleanup for a pod that can never be
+// collected: without it the watch entry leaks and, for the BPF recorder, the
+// node stays armed for the lifetime of the daemon.
+func TestReleaseUnrecordablePod(t *testing.T) {
+	t.Parallel()
+
+	podName := types.NamespacedName{Namespace: "ns", Name: "pod"}
+
+	t.Run("bpf recorder is stopped", func(t *testing.T) {
+		t.Parallel()
+
+		mock := &profilerecorderfakes.FakeImpl{}
+		mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
+			Spec: spodapi.SPODSpec{
+				Enricher: spodapi.SPODEnricherConfig{EnableBpfRecorder: ptrTrue()},
+			},
+		}, nil)
+
+		sut := &RecorderReconciler{impl: mock, log: logr.Discard()}
+		sut.podsToWatch.Store(podName.String(), podToWatch{
+			recorder: recordingapi.ProfileRecorderBpf,
+		})
+
+		sut.releaseUnrecordablePod(t.Context(), podName)
+
+		_, tracked := sut.podsToWatch.Load(podName.String())
+		require.False(t, tracked)
+		require.Equal(t, 1, mock.StopBpfRecorderCallCount())
+	})
+
+	t.Run("log recorder only drops the watch", func(t *testing.T) {
+		t.Parallel()
+
+		mock := &profilerecorderfakes.FakeImpl{}
+		sut := &RecorderReconciler{impl: mock, log: logr.Discard()}
+		sut.podsToWatch.Store(podName.String(), podToWatch{
+			recorder: recordingapi.ProfileRecorderLogs,
+		})
+
+		sut.releaseUnrecordablePod(t.Context(), podName)
+
+		_, tracked := sut.podsToWatch.Load(podName.String())
+		require.False(t, tracked)
+		require.Zero(t, mock.StopBpfRecorderCallCount())
+	})
+
+	t.Run("unknown pod is a no-op", func(t *testing.T) {
+		t.Parallel()
+
+		mock := &profilerecorderfakes.FakeImpl{}
+		sut := &RecorderReconciler{impl: mock, log: logr.Discard()}
+
+		sut.releaseUnrecordablePod(t.Context(), podName)
+
+		require.Zero(t, mock.StopBpfRecorderCallCount())
+	})
 }

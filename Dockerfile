@@ -12,9 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# to pin base image below may require further changes on build/release processes
-# The staging build passes BUILD_IMAGE by digest, to record it in the provenance.
-ARG BUILD_IMAGE=quay.io/security-profiles-operator/build:latest
+# Pinned by digest: a mutable tag here means the toolchain that compiles every
+# released binary can be replaced remotely without any change in this repo, and
+# the provenance would still verify. Bump together with the build image.
+ARG BUILD_IMAGE=quay.io/security-profiles-operator/build@sha256:b2cf855f3f56e1c393233d1bccf49965a17914863a6835633899e71b9218762f
 
 # The build stages run on the build platform, nix cross compiles for the target.
 FROM --platform=$BUILDPLATFORM $BUILD_IMAGE AS build

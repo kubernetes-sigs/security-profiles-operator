@@ -36,7 +36,7 @@ func (a *aaProfileManager) RemoveProfile(profilebaseapi.StatusBaseUser) error {
 	return errAppArmorNotSupported
 }
 
-func (a *aaProfileManager) InstallProfile(profilebaseapi.StatusBaseUser) (bool, error) {
+func (a *aaProfileManager) InstallProfile(profilebaseapi.StatusBaseUser, bool) (bool, error) {
 	return false, errAppArmorNotSupported
 }
 
@@ -44,10 +44,14 @@ func loadProfile(logr.Logger, string, string) (bool, error) {
 	return false, errAppArmorNotSupported
 }
 
-func removeProfile(logr.Logger, string) error {
+func removeProfile(logr.Logger, string, string) error {
 	return errAppArmorNotSupported
 }
 
 func checkProfileExist(logr.Logger, string) bool {
+	return false
+}
+
+func profileManagedByUs(logr.Logger, string) bool {
 	return false
 }

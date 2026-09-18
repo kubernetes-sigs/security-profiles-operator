@@ -64,10 +64,12 @@ type ContainerInfo struct {
 }
 
 type ProcessInfo struct {
-	Pid           int
-	CmdLine       string
-	Uid           uint32
-	Gid           uint32
+	Pid     int
+	CmdLine string
+	// Uid and Gid are nil when the audit line carried no uid=/gid= field.
+	// They must not default to 0, which would attribute the record to root.
+	Uid           *uint32
+	Gid           *uint32
 	Executable    string
 	ExecRequestId *string
 }

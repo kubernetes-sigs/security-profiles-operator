@@ -26,9 +26,15 @@ ENV USER=root
 
 ARG NIX_VERSION=2.35.2
 
+# Checksum of nix-${NIX_VERSION}-x86_64-linux.tar.xz. Every other tool this
+# repo downloads is checksum-pinned; without this one nix is the only
+# unverified binary input in the whole build chain.
+ARG NIX_SHA256=0c3960a9792331a22081c3c7a5d8465db9b17c50b3acdf18587fa4c6f2cb1158
+
 RUN \
   export ARCH=x86_64 && \
   wget https://nixos.org/releases/nix/nix-${NIX_VERSION}/nix-${NIX_VERSION}-${ARCH}-linux.tar.xz && \
+  echo "${NIX_SHA256}  nix-${NIX_VERSION}-${ARCH}-linux.tar.xz" | sha256sum --check && \
   tar xf nix-${NIX_VERSION}-${ARCH}-linux.tar.xz && \
   groupadd -r -g 30000 nixbld && \
   for i in $(seq 1 30); do useradd -rM -u $((30000 + i)) -G nixbld nixbld$i ; done && \

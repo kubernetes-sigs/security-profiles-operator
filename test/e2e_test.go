@@ -40,6 +40,9 @@ const (
 	defaultLongOpTimeout = "360s"
 	defaultWaitTimeout   = "5m"
 	defaultWaitTime      = 15 * time.Second
+	// defaultWaitDuration mirrors defaultWaitTimeout for waits done in Go
+	// rather than handed to kubectl.
+	defaultWaitDuration = 5 * time.Minute
 )
 
 // testCase define a type for a e2e test case.
@@ -217,10 +220,12 @@ func (e *e2e) testNamespacedOperator(
 
 	e.logf("testing namespace operator")
 
-	for _, tc := range testCases {
+	for i := range testCases {
 		// Replace re-deploy the operator with a namespaced alternative.
-		if tc.description == "Seccomp: Re-deploy the operator" {
-			tc.fn = e.testCaseReDeployNamespaceOperator
+		// This has to assign through the slice: ranging by value would only
+		// mutate a copy and leave the cluster-wide case in place.
+		if testCases[i].description == "Seccomp: Re-deploy the operator" {
+			testCases[i].fn = e.testCaseReDeployNamespaceOperator
 		}
 	}
 
@@ -368,12 +373,22 @@ func (e *e2e) deployOperator(manifest string) {
 	e.waitInOperatorNSFor("condition=ready", "pod", "-l", "name=spod")
 	// Execute the kubectl command to fetch logs from SPOD pods
 	e.kubectl("logs", "-l", "spod-labels")
-	// Wait for spod to be available
+	// Wait for spod to be available. Bounded on purpose: an unbounded loop here
+	// can only end at the go test timeout, which reports a whole-suite timeout
+	// rather than the step that actually got stuck.
+	deadline := time.Now().Add(defaultWaitDuration)
+
 	for {
 		if res, err := command.New(
 			e.kubectlPath, "-n", config.OperatorName, "get", "spod", "spod",
 		).Run(); err == nil && res.Success() {
-			break
+			return
+		}
+
+		if time.Now().After(deadline) {
+			e.Fail("timed out waiting for the spod resource to become available")
+
+			return
 		}
 
 		time.Sleep(time.Second)

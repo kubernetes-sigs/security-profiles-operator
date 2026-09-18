@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -36,7 +37,6 @@ import (
 
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
 
@@ -129,9 +129,13 @@ func (p *podSeccompRecorder) Handle(
 		}
 
 		if selector.Matches(podLabels) {
-			podChanged, err = p.updatePod(pod, podName, &item)
+			changed, err := p.updatePod(pod, podName, &item)
 			if err != nil {
 				return admission.Errored(http.StatusInternalServerError, err)
+			}
+
+			if changed {
+				podChanged = true
 			}
 
 			// for any matched pod, check the name of the recording in case the recording
@@ -162,7 +166,7 @@ func (p *podSeccompRecorder) shouldRecordContainer(containerName string,
 		return true
 	}
 
-	return util.Contains(profileRecording.Spec.Containers, containerName)
+	return slices.Contains(profileRecording.Spec.Containers, containerName)
 }
 
 func (p *podSeccompRecorder) updatePod(

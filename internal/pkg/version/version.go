@@ -17,6 +17,7 @@ limitations under the License.
 package version
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -98,11 +99,14 @@ func Get() (*Info, error) {
 	}
 
 	return &Info{
-		Version:       version,
+		// version and buildDate are injected via -ldflags at release build
+		// time; fall back so that a plain "go build"/"go test" still yields a
+		// usable Info rather than empty fields.
+		Version:       cmp.Or(version, info.Main.Version, unknown),
 		GitCommit:     gitCommit,
 		GitCommitDate: gitCommitDate,
 		GitTreeState:  gitTreeState,
-		BuildDate:     buildDate,
+		BuildDate:     cmp.Or(buildDate, unknown),
 		GoVersion:     info.GoVersion,
 		Compiler:      runtime.Compiler,
 		Platform:      fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),

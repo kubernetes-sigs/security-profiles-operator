@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"slices"
 
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -34,11 +33,6 @@ func NamespacedName(name, namespace string) types.NamespacedName {
 		Name:      name,
 		Namespace: namespace,
 	}
-}
-
-// Contains returns true if the slice a contains string b.
-func Contains(a []string, b string) bool {
-	return slices.Contains(a, b)
 }
 
 // LengthName creates a string of maximum defined length.

@@ -40,6 +40,23 @@ date -u +%Y-%m-%dT%H:%M:%SZ > build/build-started
 BUILD_IMAGE=$(resolve_digest "$(sed -n 's/^ARG BUILD_IMAGE=//p' Dockerfile)")
 echo "$BUILD_IMAGE" > build/build-image
 
+# The build image is the toolchain that compiles the released binaries, so
+# verify it is the one this project published before building against it.
+#
+# Off by default until the chicken and egg is resolved: the digest pinned in
+# Dockerfile predates build image signing, so nothing has signed it yet. Once
+# main has published a signed build image and ARG BUILD_IMAGE is re-pinned to
+# that digest, flip this default to true.
+if [[ "${VERIFY_BUILD_IMAGE:-false}" == "true" ]]; then
+    : "${BUILD_IMAGE_IDENTITY_REGEXP:=^https://github\.com/kubernetes-sigs/security-profiles-operator/}"
+    : "${BUILD_IMAGE_OIDC_ISSUER_REGEXP:=^https://token\.actions\.githubusercontent\.com$}"
+
+    "$(cosign_bin)" verify \
+        --certificate-identity-regexp "$BUILD_IMAGE_IDENTITY_REGEXP" \
+        --certificate-oidc-issuer-regexp "$BUILD_IMAGE_OIDC_ISSUER_REGEXP" \
+        "$BUILD_IMAGE" >/dev/null
+fi
+
 build_arch() {
     local arch="$1" image_arch
 
@@ -96,10 +113,14 @@ done
 push_manifest() {
     local tag="$1" arch
 
-    docker manifest create --amend "$IMAGE:$tag" \
-        "$IMAGE-amd64:$tag" \
-        "$IMAGE-arm64:$tag" \
-        "$IMAGE-ppc64le:$tag"
+    # Build the member list from ARCHES so that re-enabling an architecture
+    # cannot silently produce a manifest that is missing it.
+    local members=()
+    for arch in "${ARCHES[@]}"; do
+        members+=("$IMAGE-$arch:$tag")
+    done
+
+    docker manifest create --amend "$IMAGE:$tag" "${members[@]}"
 
     for arch in "${ARCHES[@]}"; do
         docker manifest annotate --arch "$arch" "$IMAGE:$tag" "$IMAGE-$arch:$tag"

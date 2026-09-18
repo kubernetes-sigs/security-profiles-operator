@@ -1091,6 +1091,7 @@ spec:
             description: status contains the observed state of the SecurityProfileNodeStatus.
             properties:
               status:
+                default: Pending
                 description: status is the installation status of the profile on this
                   node.
                 enum:
@@ -1280,6 +1281,7 @@ spec:
                       JSON enricher.
                     properties:
                       auditLogIntervalSeconds:
+                        default: 60
                         description: |-
                           auditLogIntervalSeconds specifies the interval, in seconds, at which
                           the accumulated audit log data is output in JSON format. For each
@@ -1306,6 +1308,7 @@ spec:
                         minimum: 0
                         type: integer
                       auditLogMaxSize:
+                        default: 100
                         description: |-
                           auditLogMaxSize specifies the maximum size in megabytes of the audit
                           log file before it gets rotated. If left unspecified it defaults to
@@ -1328,6 +1331,7 @@ spec:
                     maxLength: 1048576
                     type: string
                   logEnricherSource:
+                    default: Auditd
                     description: |-
                       logEnricherSource determines which source should be used for audit
                       logs. This defaults to "Auditd", but can be switched to "Bpf" on
@@ -2410,6 +2414,7 @@ spec:
                       this SPOD instance.
                     type: boolean
                   enableRawSelinuxProfiles:
+                    default: true
                     description: |-
                       enableRawSelinuxProfiles tells the operator whether or not to enable
                       RawSelinuxProfile support. When disabled, the RawSelinuxProfile
@@ -2506,6 +2511,9 @@ spec:
                       properties:
                         failurePolicy:
                           description: failurePolicy sets the webhook failure policy.
+                          enum:
+                          - Ignore
+                          - Fail
                           type: string
                         name:
                           description: name specifies which webhook to configure.
@@ -3038,6 +3046,16 @@ metadata:
   namespace: security-profiles-operator
 rules:
 - apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - watch
+- apiGroups:
   - security.openshift.io
   resourceNames:
   - privileged
@@ -3311,16 +3329,6 @@ rules:
   - subjectaccessreviews
   verbs:
   - create
-- apiGroups:
-  - batch
-  resources:
-  - jobs
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - watch
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:

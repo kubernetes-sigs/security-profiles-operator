@@ -25,11 +25,13 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/nxadm/tail"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/enricherfakes"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 )
 
 const (
@@ -53,8 +55,11 @@ const (
 	containerIDJsonTest      = "218ce99dd8b33f6f9b6565863d7cd47dc880963ddd2cd987bcb2d330c65144bf"
 	cmdLineJsonTest          = "/bin/sh "
 	invalidLineJsonTest      = "this line is not a valid line for the parser"
-	auditLogFlushTimeSeconds = 5
-	envForJsonTest           = "KUBERNETES_SERVICE_PORT=443\nKUBERNETES_PORT=tcp://172.30.0.1:443\n" +
+	auditLogFlushTimeSeconds = 2
+	// auditLogFlushSlackSeconds is how much later than the flush interval the
+	// output may still arrive before the test calls it a failure.
+	auditLogFlushSlackSeconds = 8
+	envForJsonTest            = "KUBERNETES_SERVICE_PORT=443\nKUBERNETES_PORT=tcp://172.30.0.1:443\n" +
 		"HOSTNAME=my-pod\nHOME=/root\nPKG_RELEASE=1~buster\nREQUEST_USER_NAME=containersetthis\n" +
 		"SERVICE_URL=http://my-service.default.svc.cluster.local\nTERM=xterm\n" +
 		"KUBERNETES_PORT_443_TCP_ADDR=172.30.0.1\nNGINX_VERSION=1.19.1\n" +
@@ -228,6 +233,7 @@ func TestJsonRun(t *testing.T) {
 
 					for mock.PrintJsonOutputCallCount() != 1 {
 						// Wait for PrintJsonOutputCallCount() to be called
+						time.Sleep(time.Millisecond)
 					}
 
 					endTime := time.Now()
@@ -236,12 +242,15 @@ func TestJsonRun(t *testing.T) {
 					// Ensure that it's not less than flush time
 					require.Less(t, float64(auditLogFlushTimeSeconds), executionTime.Seconds())
 
-					// Ensure that it's not very long after the flush time
-					require.Less(t, executionTime.Seconds(), float64(auditLogFlushTimeSeconds*2))
+					// Ensure that it's not very long after the flush time. The
+					// slack is absolute, not a multiple of the flush time: a
+					// short flush interval would otherwise leave a loaded CI
+					// runner only a second or two to schedule this goroutine.
+					require.Less(t, executionTime.Seconds(), float64(auditLogFlushTimeSeconds)+auditLogFlushSlackSeconds)
 
 					auditMap := make(map[string]any)
 					_, output := mock.PrintJsonOutputArgsForCall(0)
-					errUnmarshal := json.Unmarshal([]byte(output), &auditMap)
+					errUnmarshal := json.Unmarshal(output, &auditMap)
 					require.NoError(t, errUnmarshal)
 
 					executable := auditMap["executable"]
@@ -280,6 +289,7 @@ func TestJsonRun(t *testing.T) {
 
 					for mock.PrintJsonOutputCallCount() != 1 {
 						// Wait for PrintJsonOutputCallCount() to be called
+						time.Sleep(time.Millisecond)
 					}
 
 					lineChan <- &tail.Line{
@@ -289,18 +299,19 @@ func TestJsonRun(t *testing.T) {
 
 					for mock.PrintJsonOutputCallCount() != 2 {
 						// Wait for PrintJsonOutputCallCount() to be called
+						time.Sleep(time.Millisecond)
 					}
 
 					auditMap := make(map[string]any)
 					_, output := mock.PrintJsonOutputArgsForCall(0)
-					errUnmarshal := json.Unmarshal([]byte(output), &auditMap)
+					errUnmarshal := json.Unmarshal(output, &auditMap)
 					require.NoError(t, errUnmarshal)
 
 					executable := auditMap["executable"]
 					require.Equal(t, executableBusybox, executable)
 
 					_, output = mock.PrintJsonOutputArgsForCall(1)
-					errUnmarshal = json.Unmarshal([]byte(output), &auditMap)
+					errUnmarshal = json.Unmarshal(output, &auditMap)
 					require.NoError(t, errUnmarshal)
 
 					executable = auditMap["executable"]
@@ -369,5 +380,67 @@ func TestJsonRun(t *testing.T) {
 
 			tc.assert(mock, lineChan, err)
 		}
+	}
+}
+
+// TestDispatchSeccompLineUidGid pins down how an unknown uid or gid is emitted.
+// They are pointers so that a missing audit field is not reported as 0, which
+// would attribute the record to root. Serializing the nil pointer would put
+// null in the output instead, which breaks any consumer parsing these as
+// integers, so the keys are left out entirely.
+func TestDispatchSeccompLineUidGid(t *testing.T) {
+	t.Parallel()
+
+	uid := uint32(1000)
+	gid := uint32(2000)
+
+	for _, tc := range []struct {
+		name     string
+		uid, gid *uint32
+		wantUID  any
+		wantGID  any
+	}{
+		{name: "known uid and gid", uid: &uid, gid: &gid, wantUID: float64(1000), wantGID: float64(2000)},
+		{name: "unknown uid and gid", uid: nil, gid: nil, wantUID: nil, wantGID: nil},
+		{name: "only uid known", uid: &uid, gid: nil, wantUID: float64(1000), wantGID: nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			mock := &enricherfakes.FakeImpl{}
+
+			sut, err := NewJsonEnricherArgs(logr.Discard(), nil)
+			require.NoError(t, err)
+
+			sut.impl = mock
+
+			sut.dispatchSeccompLine(&types.LogBucket{
+				TimestampID: "1613173578.156:2945",
+				ProcessInfo: &types.ProcessInfo{
+					Pid: 1234,
+					Uid: tc.uid,
+					Gid: tc.gid,
+				},
+			}, "test-node")
+
+			require.Equal(t, 1, mock.PrintJsonOutputCallCount())
+
+			_, output := mock.PrintJsonOutputArgsForCall(0)
+
+			auditMap := map[string]any{}
+			require.NoError(t, json.Unmarshal(output, &auditMap))
+
+			// A missing key, never an explicit null.
+			if tc.wantUID == nil {
+				assert.NotContains(t, string(output), `"uid"`)
+			}
+
+			if tc.wantGID == nil {
+				assert.NotContains(t, string(output), `"gid"`)
+			}
+
+			assert.Equal(t, tc.wantUID, auditMap["uid"])
+			assert.Equal(t, tc.wantGID, auditMap["gid"])
+		})
 	}
 }

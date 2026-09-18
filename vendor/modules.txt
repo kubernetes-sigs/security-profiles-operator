@@ -234,9 +234,6 @@ github.com/ProtonMail/go-crypto/openpgp/x448
 # github.com/ThalesIgnite/crypto11 v1.2.5
 ## explicit; go 1.13
 github.com/ThalesIgnite/crypto11
-# github.com/acobaugh/osrelease v0.1.0
-## explicit; go 1.17
-github.com/acobaugh/osrelease
 # github.com/agnivade/levenshtein v1.2.1
 ## explicit; go 1.21
 github.com/agnivade/levenshtein

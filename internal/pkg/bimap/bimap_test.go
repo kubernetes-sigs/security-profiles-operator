@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/bimap"
 )
@@ -141,4 +142,60 @@ func TestSize(t *testing.T) {
 	actual.Insert("test2", 2)
 	actual.Insert("test3", 3)
 	assert.Equal(t, 3, actual.Size(), "should retrieve the right size from the map")
+}
+
+// A BiMap is a bijection: reusing either side has to evict the mapping it
+// replaces. Without that the two directions desync and a reverse lookup returns
+// a key that no longer maps to the value.
+func TestInsertKeepsBijection(t *testing.T) {
+	t.Parallel()
+
+	t.Run("reusing a value evicts the old key", func(t *testing.T) {
+		t.Parallel()
+
+		m := bimap.New[string, int]()
+		m.Insert("first", 1)
+		m.Insert("second", 1)
+
+		_, ok := m.Get("first")
+		require.False(t, ok, "the old key must be gone")
+
+		value, ok := m.Get("second")
+		require.True(t, ok)
+		require.Equal(t, 1, value)
+
+		key, ok := m.GetBackwards(1)
+		require.True(t, ok)
+		require.Equal(t, "second", key)
+		require.Equal(t, 1, m.Size())
+	})
+
+	t.Run("reusing a key evicts the old value", func(t *testing.T) {
+		t.Parallel()
+
+		m := bimap.New[string, int]()
+		m.Insert("key", 1)
+		m.Insert("key", 2)
+
+		_, ok := m.GetBackwards(1)
+		require.False(t, ok, "the old value must be gone")
+
+		key, ok := m.GetBackwards(2)
+		require.True(t, ok)
+		require.Equal(t, "key", key)
+		require.Equal(t, 1, m.Size())
+	})
+
+	t.Run("reinserting the same pair is a no-op", func(t *testing.T) {
+		t.Parallel()
+
+		m := bimap.New[string, int]()
+		m.Insert("key", 1)
+		m.Insert("key", 1)
+
+		value, ok := m.Get("key")
+		require.True(t, ok)
+		require.Equal(t, 1, value)
+		require.Equal(t, 1, m.Size())
+	})
 }

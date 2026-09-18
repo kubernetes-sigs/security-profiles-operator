@@ -27,18 +27,28 @@ RUN dnf install -y \
   libbpf \
   && dnf clean all
 
-ADD . /work
-RUN mkdir -p build
-
-# Use latest golang
+# Install the Go toolchain from the version go.mod targets. Copying go.mod
+# first keeps this layer cached until the project actually changes Go version.
+# A two-component directive ("go 1.28") is legal in go.mod but there is no
+# go1.28 release tarball, only go1.28.0, so the patch level is filled in.
+# Resolving go.dev/VERSION here instead would be worse than it looks: this layer
+# sits above the source COPY, so the "latest" it returns is frozen by the build
+# cache at whatever it happened to be, leaving the shipped toolchain pinned to a
+# version nobody chose and unrecorded in the provenance.
+COPY go.mod /tmp/go.mod
 RUN ARCH=$(arch | sed 's|x86_64|amd64|g' | sed 's|aarch64|arm64|g') && \
-    GO_VERSION=$(curl --proto '=https' --tlsv1.2 -sSfL https://go.dev/VERSION?m=text | head -n1) && \
+    GO_MOD_VERSION=$(sed -n 's;^go[[:space:]]\(.*\);\1;p' /tmp/go.mod) && \
+    case "$GO_MOD_VERSION" in *.*.*) ;; *) GO_MOD_VERSION="$GO_MOD_VERSION.0" ;; esac && \
+    GO_VERSION=go$GO_MOD_VERSION && \
     curl --proto '=https' --tlsv1.2 -sSfL "https://go.dev/dl/${GO_VERSION}.linux-${ARCH}.tar.gz" -o /tmp/go.tar.gz && \
     curl --proto '=https' --tlsv1.2 -sSfL "https://dl.google.com/go/${GO_VERSION}.linux-${ARCH}.tar.gz.sha256" -o /tmp/go.tar.gz.sha256 && \
     echo "$(cat /tmp/go.tar.gz.sha256)  /tmp/go.tar.gz" | sha256sum --check && \
     tar -xzf /tmp/go.tar.gz -C /usr/local && \
-    rm -f /tmp/go.tar.gz /tmp/go.tar.gz.sha256
+    rm -f /tmp/go.tar.gz /tmp/go.tar.gz.sha256 /tmp/go.mod
 ENV PATH="/usr/local/go/bin:$PATH"
+
+COPY . /work
+RUN mkdir -p build
 
 ARG APPARMOR_ENABLED=0
 ARG BPF_ENABLED=0

@@ -147,7 +147,8 @@ helm install security-profiles-operator --namespace security-profiles-operator h
 # helm upgrade --install security-profiles-operator --namespace security-profiles-operator https://github.com/kubernetes-sigs/security-profiles-operator/releases/download/v${VERSION}/security-profiles-operator-${VERSION}.tgz
 ```
 
-To verify a downloaded chart archive before installing it:
+To verify a downloaded chart archive before installing it. This needs cosign v3
+or later, since cosign v2 cannot read the bundle format:
 
 ```shell
 curl -sSfLO https://github.com/kubernetes-sigs/security-profiles-operator/releases/download/v${VERSION}/security-profiles-operator-${VERSION}.tgz
@@ -162,7 +163,11 @@ gh attestation verify security-profiles-operator-${VERSION}.tgz \
 ```
 
 Starting with the next release, the chart is also published as OCI artifact to
-`registry.k8s.io`, and can be installed with the same preparation from there:
+`registry.k8s.io`, and can be installed with the same preparation from there.
+Note that only the release-attached `.tgz` above can be verified today: the OCI
+chart is packaged separately, so its digest differs from the release archive,
+and its signature and attestations currently stay in the staging registry rather
+than being promoted alongside the artifact (see `release.md`):
 
 ```shell
 helm install security-profiles-operator --namespace security-profiles-operator \

@@ -88,7 +88,6 @@ import (
 
 const (
 	spocCmd                      string = "spoc"
-	jsonFlag                     string = "json"
 	nodeStatusControllerFlag     string = "with-nodestatus-controller"
 	spodControllerFlag           string = "with-spod-controller"
 	workloadAnnotatorFlag        string = "with-workload-annotator"

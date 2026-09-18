@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"sync"
 	"unsafe"
 
 	bpf "github.com/aquasecurity/libbpfgo"
@@ -30,9 +31,13 @@ import (
 )
 
 type SeccompRecorder struct {
-	logger               logr.Logger
-	syscalls             *bpf.BPFMap
-	syscallIDtoNameCache map[string]string
+	logger   logr.Logger
+	syscalls *bpf.BPFMap
+	// syscallIDtoNameCacheMutex guards syscallIDtoNameCache. PopSyscalls runs
+	// from the SyscallsForProfile gRPC handler, which holds only a read lock on
+	// the recorder, so concurrent calls would otherwise write the map at once.
+	syscallIDtoNameCacheMutex sync.RWMutex
+	syscallIDtoNameCache      map[string]string
 }
 
 func newSeccompRecorder(logger logr.Logger) *SeccompRecorder {
@@ -117,7 +122,10 @@ func (s *SeccompRecorder) convertSyscallIDsToNames(b *BpfRecorder, syscalls []by
 func (s *SeccompRecorder) syscallNameForID(b *BpfRecorder, id int) (string, error) {
 	key := strconv.Itoa(id)
 
+	s.syscallIDtoNameCacheMutex.RLock()
 	item, ok := s.syscallIDtoNameCache[key]
+	s.syscallIDtoNameCacheMutex.RUnlock()
+
 	if ok {
 		return item, nil
 	}
@@ -127,7 +135,9 @@ func (s *SeccompRecorder) syscallNameForID(b *BpfRecorder, id int) (string, erro
 		return "", fmt.Errorf("get syscall name for ID %d: %w", id, err)
 	}
 
+	s.syscallIDtoNameCacheMutex.Lock()
 	s.syscallIDtoNameCache[key] = name
+	s.syscallIDtoNameCacheMutex.Unlock()
 
 	return name, nil
 }

@@ -22,11 +22,13 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	"slices"
 	"time"
 
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -245,10 +247,10 @@ func (r *StatusReconciler) Reconcile(
 		// if nodeName is not in currentNodeNames and there isn't a mismatch in statuses/nodes, remove it from the finalizers
 		for i := range nodeStatusList.Items {
 			nodeStatus := &nodeStatusList.Items[i]
-			if !util.ContainsSubstring(
+			if !slices.Contains(
 				currentNodeNames,
 				nodeStatus.Spec.NodeName,
-			) { // string not in list
+			) { // node name not in list
 				// Found a finalizer for a node that doesn't exist
 				finalizerNodeString := util.GetFinalizerNodeString(nodeStatus.Spec.NodeName)
 				if err := util.RemoveFinalizer(
@@ -285,7 +287,9 @@ func (r *StatusReconciler) removeStatusForDeletedNode(ctx context.Context,
 		node := &v1.Node{}
 
 		if err := r.client.Get(ctx, types.NamespacedName{Name: nodeName}, node); err != nil {
-			if util.IsNotFoundOrConflict(err) {
+			// Only a NotFound proves the node is gone. Treating a Conflict as
+			// deletion would strip the finalizer of a live node's status.
+			if kerrors.IsNotFound(err) {
 				logger.Info("Removing node status for removed node", "node", nodeName)
 
 				if err := r.client.Delete(ctx, &nodeStatusList.Items[i]); err != nil {

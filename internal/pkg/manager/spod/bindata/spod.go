@@ -1012,29 +1012,6 @@ func CustomHostProcVolume(path string) (corev1.Volume, corev1.VolumeMount) {
 	return volume, mount
 }
 
-// CustomHostKubeletVolume returns a new host path volume for custom kubelet path
-// as well as corresponding mount used for non-root-enabler.
-func CustomHostKubeletVolume(path string) (corev1.Volume, corev1.VolumeMount) {
-	const volumeName = "host-kubelet-volume"
-
-	volume := corev1.Volume{
-		Name: volumeName,
-		VolumeSource: corev1.VolumeSource{
-			HostPath: &corev1.HostPathVolumeSource{
-				Path: path,
-				Type: &hostPathDirectory,
-			},
-		},
-	}
-	mount := corev1.VolumeMount{
-		Name:      volumeName,
-		MountPath: path,
-		ReadOnly:  false,
-	}
-
-	return volume, mount
-}
-
 func CustomTemplatesVolume(configMapName string) (corev1.Volume, corev1.VolumeMount) {
 	volume := corev1.Volume{
 		Name: SelinuxCustomTemplatesVolumeName,

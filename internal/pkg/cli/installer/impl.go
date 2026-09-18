@@ -48,5 +48,7 @@ func (*defaultImpl) AppArmorInstallProfile(
 	manager apparmorprofile.ProfileManager,
 	p profilebaseapi.StatusBaseUser,
 ) (bool, error) {
-	return manager.InstallProfile(p)
+	// No node status to consult here, so ownership rests on the marker alone:
+	// spoc must not overwrite a profile the host owns either.
+	return manager.InstallProfile(p, false)
 }

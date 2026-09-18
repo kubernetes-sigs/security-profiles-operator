@@ -85,6 +85,11 @@ type impl interface {
 		client.Client,
 		client.ObjectKey,
 	) (*profilerecordingapi.ProfileRecording, error)
+	ListRecordings(
+		context.Context,
+		client.Client,
+		string,
+	) (*profilerecordingapi.ProfileRecordingList, error)
 	ApparmorForProfile(
 		context.Context,
 		bpfrecorderapi.BpfRecorderClient,
@@ -173,6 +178,18 @@ func (*defaultImpl) SyscallsForProfile(
 	req *bpfrecorderapi.ProfileRequest,
 ) (*bpfrecorderapi.SyscallsResponse, error) {
 	return c.SyscallsForProfile(ctx, req)
+}
+
+func (*defaultImpl) ListRecordings(
+	ctx context.Context,
+	cli client.Client,
+	namespace string,
+) (*profilerecordingapi.ProfileRecordingList, error) {
+	recordings := &profilerecordingapi.ProfileRecordingList{}
+
+	err := cli.List(ctx, recordings, client.InNamespace(namespace))
+
+	return recordings, err
 }
 
 func (*defaultImpl) ApparmorForProfile(

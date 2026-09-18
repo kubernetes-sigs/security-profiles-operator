@@ -78,11 +78,25 @@ var stateOrder = map[ProfileState]int{
 // the overall status of a profile. The idea is that if, e.g. one in three profiles is already
 // installed, but the two others are pending, the overall state should be pending.
 func LowerOfTwoStates(currentLowest, candidate ProfileState) ProfileState {
+	// An unset state is not in stateOrder and would otherwise rank 0, tying
+	// with ProfileStateError and making the result depend on the order the
+	// node statuses happen to be listed in. Treat it as the documented default.
+	currentLowest = orDefaultState(currentLowest)
+	candidate = orDefaultState(candidate)
+
 	if stateOrder[currentLowest] > stateOrder[candidate] {
 		return candidate
 	}
 
 	return currentLowest
+}
+
+func orDefaultState(state ProfileState) ProfileState {
+	if state == "" {
+		return ProfileStatePending
+	}
+
+	return state
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -120,6 +134,7 @@ type SecurityProfileNodeStatusSpec struct {
 type SecurityProfileNodeStatusStatus struct {
 	// status is the installation status of the profile on this node.
 	// +optional
+	// +default="Pending"
 	Status ProfileState `json:"status,omitempty"`
 }
 

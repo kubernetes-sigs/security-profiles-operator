@@ -64,6 +64,7 @@ spec:
             description: status contains the observed state of the SecurityProfileNodeStatus.
             properties:
               status:
+                default: Pending
                 description: status is the installation status of the profile on this
                   node.
                 enum:

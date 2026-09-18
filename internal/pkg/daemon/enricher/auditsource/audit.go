@@ -67,15 +67,11 @@ func (a *AuditdSource) StartTail() (log chan *types.AuditLine, err error) {
 			line := l.Text
 			a.logger.V(config.VerboseLevel).Info("Got line", "line", line)
 
-			if !IsAuditLine(line) {
-				a.logger.V(config.VerboseLevel).Info("Not an audit line")
-
-				continue
-			}
-
+			// ExtractAuditLine already reports non-matching lines, so
+			// calling IsAuditLine first would just run the same regexes twice.
 			auditLine, err := ExtractAuditLine(line)
 			if err != nil {
-				a.logger.Error(err, "extract audit line")
+				a.logger.V(config.VerboseLevel).Info("Not an audit line")
 
 				continue
 			}
@@ -124,8 +120,16 @@ var (
 	minAppArmorCapturesExpected = 9
 )
 
+// auditPrefilter is a cheap substring every supported audit line contains. It
+// avoids running three unanchored regexes over lines that cannot match.
+const auditPrefilter = "audit("
+
 // IsAuditLine checks whether logLine is a supported audit line.
 func IsAuditLine(logLine string) bool {
+	if !strings.Contains(logLine, auditPrefilter) {
+		return false
+	}
+
 	captures := seccompLineRegex.FindStringSubmatch(logLine)
 	if len(captures) >= minSeccompCapturesExpected {
 		return true
@@ -143,6 +147,10 @@ func IsAuditLine(logLine string) bool {
 
 // ExtractAuditLine extracts an auditline from logLine.
 func ExtractAuditLine(logLine string) (*types.AuditLine, error) {
+	if !strings.Contains(logLine, auditPrefilter) {
+		return nil, fmt.Errorf("unsupported log line: %s", logLine)
+	}
+
 	if seccomp := extractSeccompLine(logLine); seccomp != nil {
 		return seccomp, nil
 	}

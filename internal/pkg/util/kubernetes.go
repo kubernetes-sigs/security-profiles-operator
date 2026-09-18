@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -100,7 +101,23 @@ func GetKubeletDirFromNodeLabel(ctx context.Context, c client.Reader) (string, e
 	}
 
 	if kubeletDir, ok := node.Labels[config.KubeletDirNodeLabelKey]; ok {
-		return strings.ReplaceAll(kubeletDir, "-", "/"), nil
+		// The label encodes the path with "/" replaced by "-", so the value is
+		// always relative ("mnt-resource-kubelet" means "/mnt/resource/kubelet");
+		// a label value cannot start with "-" either way.
+		dir := "/" + strings.ReplaceAll(kubeletDir, "-", "/")
+
+		// The result ends up in a host filesystem path that the non-root enabler
+		// creates, symlinks and copies into as root. Label values may contain
+		// dots, so reject anything that is not already clean rather than letting
+		// "..-..-..-etc" escape the host root.
+		if filepath.Clean(dir) != dir {
+			return "", fmt.Errorf(
+				"invalid %s label on node %s: %q is not a clean path",
+				config.KubeletDirNodeLabelKey, nodeName, dir,
+			)
+		}
+
+		return dir, nil
 	}
 
 	return "", fmt.Errorf("no %s label found on node %s", config.KubeletDirNodeLabelKey, nodeName)

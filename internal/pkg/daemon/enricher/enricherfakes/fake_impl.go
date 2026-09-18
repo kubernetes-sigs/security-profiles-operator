@@ -226,11 +226,11 @@ type FakeImpl struct {
 		result1 *kubernetes.Clientset
 		result2 error
 	}
-	PrintJsonOutputStub        func(io.Writer, string)
+	PrintJsonOutputStub        func(io.Writer, []byte)
 	printJsonOutputMutex       sync.RWMutex
 	printJsonOutputArgsForCall []struct {
 		arg1 io.Writer
-		arg2 string
+		arg2 []byte
 	}
 	ReasonStub        func(*tail.Tail) error
 	reasonMutex       sync.RWMutex
@@ -1277,14 +1277,19 @@ func (fake *FakeImpl) NewForConfigReturnsOnCall(i int, result1 *kubernetes.Clien
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) PrintJsonOutput(arg1 io.Writer, arg2 string) {
+func (fake *FakeImpl) PrintJsonOutput(arg1 io.Writer, arg2 []byte) {
+	var arg2Copy []byte
+	if arg2 != nil {
+		arg2Copy = make([]byte, len(arg2))
+		copy(arg2Copy, arg2)
+	}
 	fake.printJsonOutputMutex.Lock()
 	fake.printJsonOutputArgsForCall = append(fake.printJsonOutputArgsForCall, struct {
 		arg1 io.Writer
-		arg2 string
-	}{arg1, arg2})
+		arg2 []byte
+	}{arg1, arg2Copy})
 	stub := fake.PrintJsonOutputStub
-	fake.recordInvocation("PrintJsonOutput", []interface{}{arg1, arg2})
+	fake.recordInvocation("PrintJsonOutput", []interface{}{arg1, arg2Copy})
 	fake.printJsonOutputMutex.Unlock()
 	if stub != nil {
 		fake.PrintJsonOutputStub(arg1, arg2)
@@ -1297,13 +1302,13 @@ func (fake *FakeImpl) PrintJsonOutputCallCount() int {
 	return len(fake.printJsonOutputArgsForCall)
 }
 
-func (fake *FakeImpl) PrintJsonOutputCalls(stub func(io.Writer, string)) {
+func (fake *FakeImpl) PrintJsonOutputCalls(stub func(io.Writer, []byte)) {
 	fake.printJsonOutputMutex.Lock()
 	defer fake.printJsonOutputMutex.Unlock()
 	fake.PrintJsonOutputStub = stub
 }
 
-func (fake *FakeImpl) PrintJsonOutputArgsForCall(i int) (io.Writer, string) {
+func (fake *FakeImpl) PrintJsonOutputArgsForCall(i int) (io.Writer, []byte) {
 	fake.printJsonOutputMutex.RLock()
 	defer fake.printJsonOutputMutex.RUnlock()
 	argsForCall := fake.printJsonOutputArgsForCall[i]

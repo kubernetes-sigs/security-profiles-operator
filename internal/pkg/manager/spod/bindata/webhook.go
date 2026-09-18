@@ -99,7 +99,11 @@ var (
 			"app.kubernetes.io/managed-by": "kubectl-debug",
 		},
 	}
-	objectSelector = metav1.LabelSelector{
+
+	// excludeOperatorPods keeps a webhook off the operator's own pods, which
+	// must not depend on the webhook being up to start. It matches a pod label,
+	// so a pod author can claim it to opt out.
+	excludeOperatorPods = metav1.LabelSelector{
 		MatchExpressions: []metav1.LabelSelectorRequirement{
 			{
 				Key:      labelName,
@@ -109,6 +113,47 @@ var (
 		},
 	}
 )
+
+// requireLabel selects namespaces carrying the webhook's enable label.
+func requireLabel(requiredLabel string) *metav1.LabelSelector {
+	return &metav1.LabelSelector{
+		MatchExpressions: []metav1.LabelSelectorRequirement{
+			{
+				Key:      requiredLabel,
+				Operator: metav1.LabelSelectorOpExists,
+			},
+		},
+	}
+}
+
+// excludeOperatorNamespace additionally keeps a webhook out of the operator's
+// own namespace. Unlike excludeOperatorPods this cannot be opted out of by the
+// pod author, because "kubernetes.io/metadata.name" is set by the API server.
+//
+// It is used for binding and not for recording, and the asymmetry is
+// deliberate. Escaping the binding webhook means running without the profile a
+// ProfileBinding enforces, so that exclusion has to be unforgeable, and nothing
+// binds profiles to workloads in the operator's own namespace. Escaping the
+// recording webhook only means not being recorded, which is no one's security
+// boundary, and recording a workload that runs in the operator namespace is a
+// supported thing to do: the CI base profile recording does exactly that.
+//
+// The namespace is the one the controller itself is running in, passed down
+// from GetWebhook, rather than read from the environment here: guessing the
+// default install namespace would silently stop excluding the operator on any
+// install that uses a different namespace.
+func excludeOperatorNamespace(requiredLabel, operatorNamespace string) *metav1.LabelSelector {
+	selector := requireLabel(requiredLabel)
+	selector.MatchExpressions = append(selector.MatchExpressions,
+		metav1.LabelSelectorRequirement{
+			Key:      corev1.LabelMetadataName,
+			Operator: metav1.LabelSelectorOpNotIn,
+			Values:   []string{operatorNamespace},
+		},
+	)
+
+	return selector
+}
 
 const (
 	// EnableRecordingLabel this label can be applied to a namespace or a pod
@@ -178,7 +223,7 @@ func GetWebhook(
 	ctr.Image = image
 	ctr.ImagePullPolicy = pullPolicy
 
-	cfg := getWebhookConfig(execMetadataWebhookEnabled).DeepCopy()
+	cfg := getWebhookConfig(execMetadataWebhookEnabled, namespace).DeepCopy()
 	cfg.Namespace = namespace
 	cfg.Webhooks[binding.index].ClientConfig.Service.Namespace = namespace
 	cfg.Webhooks[recording.index].ClientConfig.Service.Namespace = namespace
@@ -502,6 +547,7 @@ func (w *Webhook) objectMap() map[string]client.Object {
 // getWebhookConfig returns the webhooks in the order binding, recording, execMetadata and nodeDebuggingPodMetadata.
 func getWebhookConfig(
 	execMetadataWebhookEnabled bool,
+	operatorNamespace string,
 ) *admissionregv1.MutatingWebhookConfiguration {
 	webhooks := []admissionregv1.MutatingWebhook{
 		{
@@ -511,15 +557,7 @@ func getWebhookConfig(
 			TimeoutSeconds:     &timeoutSeconds,
 			ReinvocationPolicy: &reinvocationPolicy,
 			Rules:              bindingRules,
-			ObjectSelector:     &objectSelector,
-			NamespaceSelector: &metav1.LabelSelector{
-				MatchExpressions: []metav1.LabelSelectorRequirement{
-					{
-						Key:      EnableBindingLabel,
-						Operator: metav1.LabelSelectorOpExists,
-					},
-				},
-			},
+			NamespaceSelector:  excludeOperatorNamespace(EnableBindingLabel, operatorNamespace),
 			ClientConfig: admissionregv1.WebhookClientConfig{
 				CABundle: caBundle,
 				Service: &admissionregv1.ServiceReference{
@@ -536,15 +574,8 @@ func getWebhookConfig(
 			TimeoutSeconds:     &timeoutSeconds,
 			ReinvocationPolicy: &reinvocationPolicy,
 			Rules:              recordingRules,
-			ObjectSelector:     &objectSelector,
-			NamespaceSelector: &metav1.LabelSelector{
-				MatchExpressions: []metav1.LabelSelectorRequirement{
-					{
-						Key:      EnableRecordingLabel,
-						Operator: metav1.LabelSelectorOpExists,
-					},
-				},
-			},
+			ObjectSelector:     &excludeOperatorPods,
+			NamespaceSelector:  requireLabel(EnableRecordingLabel),
 			ClientConfig: admissionregv1.WebhookClientConfig{
 				CABundle: caBundle,
 				Service: &admissionregv1.ServiceReference{

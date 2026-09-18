@@ -36,6 +36,7 @@ import (
 	"go.podman.io/common/pkg/seccomp"
 	apiruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -740,10 +741,15 @@ func allowProfile(
 		}
 	}
 
+	// Hoisted out of the loop: a linear scan per syscall makes this O(n*m),
+	// and handleAllowedSyscallsChanged runs it over every profile in the
+	// cluster whenever the SPOD changes.
+	allowed := sets.New(allowedSyscalls...)
+
 	for _, action := range allowedActions {
 		if actionCalls, ok := syscalls[action]; ok {
 			for call := range actionCalls {
-				if !util.Contains(allowedSyscalls, call) {
+				if !allowed.Has(call) {
 					return fmt.Errorf("%s: %s", errForbiddenSyscall, call)
 				}
 			}

@@ -19,7 +19,7 @@ package util
 import (
 	"context"
 	"fmt"
-	"strings"
+	"slices"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -93,23 +93,24 @@ func FinalizersMatchCurrentNodes(ctx context.Context,
 		return false, fmt.Errorf("error getting list of node names from api: %w", err)
 	}
 
+	return finalizersMatchNodeNames(currentNodeNames, nodeStatusList)
+}
+
+// finalizersMatchNodeNames is the pure part of FinalizersMatchCurrentNodes,
+// split out so that the node name comparison can be tested without a cluster.
+func finalizersMatchNodeNames(
+	currentNodeNames []string,
+	nodeStatusList *secprofnodestatusapi.SecurityProfileNodeStatusList,
+) (bool, error) {
 	for i := range nodeStatusList.Items {
 		nodeStatus := &nodeStatusList.Items[i]
-		if !ContainsSubstring(currentNodeNames, nodeStatus.Spec.NodeName) {
+		// Exact match: a substring check would treat a removed "worker-1" as
+		// still present while "worker-10" exists.
+		if !slices.Contains(currentNodeNames, nodeStatus.Spec.NodeName) {
 			// We've found a node that doesn't exist anymore
 			return false, nil
 		}
 	}
 
 	return true, nil
-}
-
-func ContainsSubstring(list []string, str string) bool {
-	for _, item := range list {
-		if strings.Contains(item, str) {
-			return true
-		}
-	}
-
-	return false
 }

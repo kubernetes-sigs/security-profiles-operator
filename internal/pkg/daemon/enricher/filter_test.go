@@ -22,6 +22,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 )
@@ -400,6 +401,38 @@ func TestApplyEnricherFilters(t *testing.T) {
 			); got != tt.want {
 				t.Errorf("ApplyEnricherFilters() = %v, want %v", got, tt.want)
 			}
+		})
+	}
+}
+
+// matchAnyFilterValue used to return on the first numerically parseable entry,
+// so only the first element of matchValues was ever effective and a line
+// matching any later value was logged despite the filter saying otherwise.
+func TestApplyEnricherFiltersMatchesAnyNumericValue(t *testing.T) {
+	t.Parallel()
+
+	filters := []types.EnricherFilterOptions{{
+		MatchKeys:   []string{"syscallID"},
+		MatchValues: &[]string{"1", "2", "3"},
+		Level:       types.EnricherLogLevelNone,
+	}}
+
+	for name, tc := range map[string]struct {
+		syscallID any
+		want      types.EnricherLogLevel
+	}{
+		"first value matches":  {syscallID: 1, want: types.EnricherLogLevelNone},
+		"middle value matches": {syscallID: 2, want: types.EnricherLogLevelNone},
+		"last value matches":   {syscallID: 3, want: types.EnricherLogLevelNone},
+		"no value matches":     {syscallID: 9, want: types.EnricherLogLevelMetadata},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			got := ApplyEnricherFilters(
+				map[string]any{"syscallID": tc.syscallID}, filters,
+			)
+			require.Equal(t, tc.want, got)
 		})
 	}
 }

@@ -1,7 +1,22 @@
 { pkgs, buildGoModule }:
 with pkgs; buildGoModule rec {
   name = "security-profiles-operator";
-  src = nix-gitignore.gitignoreSourcePure [ ../.gitignore ] ./..;
+  # Only the inputs the build actually reads. Taking the whole worktree makes
+  # every docs, workflow or hack script change alter the derivation hash, which
+  # costs every nix CI job a full rebuild instead of a cache hit.
+  src = lib.fileset.toSource {
+    root = ./..;
+    fileset = lib.fileset.unions [
+      ../api
+      ../cmd
+      ../internal
+      ../vendor
+      ../go.mod
+      ../go.sum
+      ../Makefile
+      ../VERSION
+    ];
+  };
   vendorHash = null;
   doCheck = false;
   outputs = [ "out" ];

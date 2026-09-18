@@ -40,7 +40,6 @@ import (
 	api "sigs.k8s.io/security-profiles-operator/api/grpc/bpfrecorder"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder/bpfrecorderfakes"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 const (
@@ -736,6 +735,38 @@ func (l *Logger) Error(_ error, msg string, _ ...any) {
 	l.mutex.Unlock()
 }
 
+// snapshot returns a copy of the recorded messages.
+func (l *Logger) snapshot() []string {
+	l.mutex.RLock()
+	defer l.mutex.RUnlock()
+
+	return slices.Clone(l.messages)
+}
+
+// requireLogged waits for msg to be logged. The recorder handles events on its
+// own goroutines, so the assertion has to poll; on failure it reports what was
+// actually logged instead of a bare "false".
+func requireLogged(t *testing.T, logger *Logger, msg string) {
+	t.Helper()
+
+	var seen []string
+
+	// The lookup this waits on retries with backoff, so the deadline has to
+	// cover the whole retry sequence rather than a fixed number of polls.
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		seen = logger.snapshot()
+		if slices.Contains(seen, msg) {
+			return
+		}
+
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	require.Failf(t, "message never logged",
+		"waited for %q, logged messages were: %v", msg, seen)
+}
+
 func TestProcessEvents(t *testing.T) {
 	t.Parallel()
 
@@ -834,17 +865,24 @@ func TestStopRecordingReleasesLookupTables(t *testing.T) {
 
 	sut.mntnsToContainerIDMap.Insert(0x1010, "container-id")
 	sut.containerIDToProfileMap.Insert("container-id", "profile")
+	sut.containersWithoutProfile.Set("other-container", struct{}{}, ttlcache.DefaultTTL)
 	sut.handleExitEvent(&bpfEvent{Pid: 42, Type: uint8(eventTypeExit)})
 
 	require.Equal(t, 1, sut.mntnsToContainerIDMap.Size())
 	require.Equal(t, 1, sut.containerIDToProfileMap.Size())
 	require.Equal(t, 1, sut.recentExits.Len())
+	require.Equal(t, 1, sut.containersWithoutProfile.Len())
 
 	require.NoError(t, sut.StopRecording())
 
 	require.Equal(t, 0, sut.mntnsToContainerIDMap.Size())
 	require.Equal(t, 0, sut.containerIDToProfileMap.Size())
 	require.Equal(t, 0, sut.recentExits.Len())
+
+	// The negative cache is per session too: a pod update can add recording
+	// annotations to a container that is already running, and an entry kept
+	// from the previous session would suppress the lookup for its whole TTL.
+	require.Equal(t, 0, sut.containersWithoutProfile.Len())
 }
 
 // TestHandlerFromFinishedRecordingIsDiscarded asserts that a handler still in
@@ -1046,21 +1084,7 @@ func TestNewPidEvent(t *testing.T) {
 				}
 			},
 			assert: func(sut *BpfRecorder, logger *Logger) {
-				success := false
-
-				for range 100 {
-					logger.mutex.RLock()
-					success = util.Contains(logger.messages, "No container ID found for PID")
-					logger.mutex.RUnlock()
-
-					if success {
-						break
-					}
-
-					time.Sleep(100 * time.Millisecond)
-				}
-
-				require.True(t, success)
+				requireLogged(t, logger, "No container ID found for PID")
 			},
 		},
 		{ // unable to find profile in cluster for container ID
@@ -1075,21 +1099,7 @@ func TestNewPidEvent(t *testing.T) {
 				}
 			},
 			assert: func(sut *BpfRecorder, logger *Logger) {
-				success := false
-
-				for range 100 {
-					logger.mutex.RLock()
-					success = util.Contains(logger.messages, "Unable to find profile in cluster for container ID")
-					logger.mutex.RUnlock()
-
-					if success {
-						break
-					}
-
-					time.Sleep(200 * time.Millisecond)
-				}
-
-				require.True(t, success)
+				requireLogged(t, logger, "Unable to find profile in cluster for container ID")
 			},
 		},
 	} {

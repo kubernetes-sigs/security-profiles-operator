@@ -50,6 +50,16 @@ var errContainerIDEmpty = errors.New("container ID is empty")
 // Cluster scoped
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 
+// defaultContainerBackoff is the retry backoff used when a container ID cannot
+// be found in the node's pod list yet.
+func defaultContainerBackoff() wait.Backoff {
+	return wait.Backoff{
+		Duration: backoffDuration,
+		Factor:   backoffFactor,
+		Steps:    backoffSteps,
+	}
+}
+
 func getContainerInfo(
 	ctx context.Context,
 	nodeName, targetContainerID string,
@@ -57,6 +67,7 @@ func getContainerInfo(
 	impl impl,
 	infoCache *ttlcache.Cache[string, *types.ContainerInfo],
 	logger logr.Logger,
+	backoff wait.Backoff,
 ) (*types.ContainerInfo, error) {
 	// Check the cache first
 	item := infoCache.Get(targetContainerID)
@@ -66,6 +77,7 @@ func getContainerInfo(
 
 	if err := populateContainerPodCache(
 		ctx,
+		backoff,
 		nodeName,
 		clientSet,
 		impl,
@@ -85,16 +97,11 @@ func getContainerInfo(
 
 func populateContainerPodCache(
 	ctx context.Context,
+	containerRetryBackoff wait.Backoff,
 	nodeName string, clientset kubernetes.Interface, impl impl,
 	infoCache *ttlcache.Cache[string, *types.ContainerInfo],
 	logger logr.Logger,
 ) error {
-	containerRetryBackoff := wait.Backoff{
-		Duration: backoffDuration,
-		Factor:   backoffFactor,
-		Steps:    backoffSteps,
-	}
-
 	ctxwithTimeout, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 
@@ -130,7 +137,9 @@ func populateCacheEntryForContainer(
 			pod.Status.ContainerStatuses, pod.Status.EphemeralContainerStatuses)
 
 		for c := range statuses {
-			containerStatus := statuses[c]
+			// Index rather than copy: v1.ContainerStatus is a large struct and
+			// this runs for every container of every pod on the node.
+			containerStatus := &statuses[c]
 			containerID := containerStatus.ContainerID
 			containerName := containerStatus.Name
 
@@ -140,7 +149,7 @@ func populateCacheEntryForContainer(
 				idemptyErr := handleContainerIDEmpty(
 					pod.Name,
 					containerName,
-					&containerStatus,
+					containerStatus,
 					logger,
 				)
 				if errors.Is(idemptyErr, errContainerIDEmpty) {

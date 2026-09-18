@@ -195,9 +195,13 @@ func (r *PolicyMergeReconciler) mergeTypedProfiles(
 				reasonMergedEmptyProfile,
 				errEmptyMergedProfile,
 			)
-			r.log.Info(errEmptyMergedProfile)
+			r.log.Info(errEmptyMergedProfile, "container", cntName)
 
-			return nil
+			// Defensive only: mergeMergeableProfiles returns a nil profile just
+			// with a non-nil error, which is handled above. If that ever
+			// changes, skip only this container, because the remaining ones
+			// still need to be merged and their partial profiles cleaned up.
+			continue
 		}
 
 		mergedRecordingName := mergedProfileName(profileRecording.Name, cntPartialProfiles[0])

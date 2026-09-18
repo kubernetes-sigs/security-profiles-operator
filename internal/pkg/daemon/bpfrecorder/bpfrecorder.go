@@ -19,7 +19,6 @@ limitations under the License.
 package bpfrecorder
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -59,9 +58,6 @@ const (
 	newPidQueueSize         int           = 1024
 	maxCacheItems           uint64        = 1000
 	defaultHostPid          uint32        = 1
-	defaultByteNum          int           = 4
-	recordingSeccomp        int           = 1
-	recordingAppArmor       int           = 2
 	pathMax                 int           = 4096
 	eventTypeNewPid         int           = 0
 	eventTypeExit           int           = 1
@@ -81,15 +77,20 @@ type BpfRecorder struct {
 	btfPath                 string
 	pidToContainerIDCache   *ttlcache.Cache[string, string]
 	mntnsToContainerIDMap   *bimap.BiMap[uint32, string]
-	containerIDToProfileMap *bimap.BiMap[string, string]
-	nodeName                string
-	clientset               *kubernetes.Clientset
-	excludeMountNamespace   uint32
-	attachUnattachMutex     sync.RWMutex
-	metricsClient           apimetrics.Metrics_BpfIncClient
-	programName             string
-	module                  *bpf.Module
-	isRecordingBpfMap       *bpf.BPFMap
+	containerIDToProfileMap *containerProfiles
+	// containersWithoutProfile remembers container IDs that were found in the
+	// cluster but carry no recording annotation. Without it every event from
+	// every unannotated container on the node triggers a fresh node-wide pod
+	// list, because only positive lookups were cached.
+	containersWithoutProfile *ttlcache.Cache[string, struct{}]
+	nodeName                 string
+	clientset                *kubernetes.Clientset
+	excludeMountNamespace    uint32
+	attachUnattachMutex      sync.RWMutex
+	metricsClient            apimetrics.Metrics_BpfIncClient
+	programName              string
+	module                   *bpf.Module
+	isRecordingBpfMap        *bpf.BPFMap
 
 	AppArmor *AppArmorRecorder
 	Seccomp  *SeccompRecorder
@@ -141,6 +142,31 @@ type bpfEvent struct {
 	Data  [pathMax]uint8
 }
 
+var errShortEvent = errors.New("event shorter than the expected structure")
+
+// bpfEventSize is the packed wire size of bpfEvent, matching the packed C
+// struct in recorder.bpf.c. encoding/binary inserts no padding, so this is
+// simply the sum of the field widths.
+const bpfEventSize = 4 + 4 + 1 + 8 + pathMax
+
+// unmarshal decodes a bpfEvent from the raw ring buffer bytes. This is a manual
+// decode on purpose: binary.Read reflects over the 4096-byte Data array for
+// every single event, which costs ~240x more than reading the fields directly
+// and is hot enough on a busy node to make the ring buffer drop events.
+func (e *bpfEvent) unmarshal(raw []byte) bool {
+	if len(raw) < bpfEventSize {
+		return false
+	}
+
+	e.Pid = binary.LittleEndian.Uint32(raw[0:4])
+	e.Mntns = binary.LittleEndian.Uint32(raw[4:8])
+	e.Type = raw[8]
+	e.Flags = binary.LittleEndian.Uint64(raw[9:17])
+	copy(e.Data[:], raw[17:bpfEventSize])
+
+	return true
+}
+
 // New returns a new BpfRecorder instance.
 func New(programName string, logger logr.Logger, recordSeccomp, recordAppArmor bool) *BpfRecorder {
 	var seccomp *SeccompRecorder
@@ -162,12 +188,17 @@ func New(programName string, logger logr.Logger, recordSeccomp, recordAppArmor b
 			ttlcache.WithCapacity[string, string](maxCacheItems),
 		),
 		mntnsToContainerIDMap:   bimap.New[uint32, string](),
-		containerIDToProfileMap: bimap.New[string, string](),
-		attachUnattachMutex:     sync.RWMutex{},
-		programName:             programName,
-		AppArmor:                appArmor,
-		Seccomp:                 seccomp,
-		newPidEvents:            make(chan newPidEvent, newPidQueueSize),
+		containerIDToProfileMap: newContainerProfiles(),
+		containersWithoutProfile: ttlcache.New(
+			ttlcache.WithTTL[string, struct{}](defaultCacheTimeout),
+			ttlcache.WithCapacity[string, struct{}](maxCacheItems),
+			ttlcache.WithDisableTouchOnHit[string, struct{}](),
+		),
+		attachUnattachMutex: sync.RWMutex{},
+		programName:         programName,
+		AppArmor:            appArmor,
+		Seccomp:             seccomp,
+		newPidEvents:        make(chan newPidEvent, newPidQueueSize),
 		recentExits: ttlcache.New(
 			ttlcache.WithTTL[uint32, struct{}](defaultCacheTimeout),
 			ttlcache.WithCapacity[uint32, struct{}](maxCacheItems),
@@ -191,6 +222,9 @@ func (b *BpfRecorder) Run() error {
 
 	go b.recentExits.Start()
 	defer b.recentExits.Stop()
+
+	go b.containersWithoutProfile.Start()
+	defer b.containersWithoutProfile.Stop()
 
 	b.nodeName = b.Getenv(config.NodeNameEnvKey)
 	if b.nodeName == "" {
@@ -741,6 +775,11 @@ func (b *BpfRecorder) StopRecording() error {
 	b.mntnsToContainerIDMap.Clear()
 	b.containerIDToProfileMap.Clear()
 	b.recentExits.DeleteAll()
+	// The negative cache is per session as well. A pod update can add recording
+	// annotations to a container that is already running, so an entry taken in
+	// one session must not suppress the lookup in the next one for the rest of
+	// its hour-long TTL.
+	b.containersWithoutProfile.DeleteAll()
 
 	b.logger.Info("Recording stopped.")
 
@@ -775,9 +814,11 @@ func (b *BpfRecorder) processEvents(events chan []byte) {
 func (b *BpfRecorder) handleEvent(eventBytes []byte) {
 	var event bpfEvent
 
-	err := binary.Read(bytes.NewReader(eventBytes), binary.LittleEndian, &event)
-	if err != nil {
-		b.logger.Error(err, "Couldn't read event structure")
+	if !event.unmarshal(eventBytes) {
+		b.logger.Error(
+			errShortEvent, "Couldn't read event structure",
+			"got", len(eventBytes), "want", bpfEventSize,
+		)
 
 		return
 	}
@@ -847,7 +888,7 @@ func (b *BpfRecorder) runPidHandler() {
 }
 
 func (b *BpfRecorder) handleNewPidEvent(pid, mntns uint32, generation uint64) {
-	b.logger.Info("Received new pid", "pid", pid, "mntns", mntns)
+	b.logger.V(config.VerboseLevel).Info("Received new pid", "pid", pid, "mntns", mntns)
 
 	if b.clientset == nil {
 		// spoc: we're running outside of a kubernetes context.
@@ -906,7 +947,7 @@ func (b *BpfRecorder) handleNewPidEvent(pid, mntns uint32, generation uint64) {
 }
 
 func (b *BpfRecorder) handleExitEvent(exitEvent *bpfEvent) {
-	b.logger.Info("Record pid exit", "pid", exitEvent.Pid)
+	b.logger.V(config.VerboseLevel).Info("Record pid exit", "pid", exitEvent.Pid)
 
 	// Remember the exit first, so that a WaitForPidExit which registers right
 	// after this still observes it.
@@ -954,9 +995,19 @@ func (b *BpfRecorder) trackProfileMetric(mntns uint32, profile string) {
 	}
 }
 
+var errNoProfileForContainer = errors.New("container has no recording annotation")
+
 func (b *BpfRecorder) findProfileForContainerID(id string) (string, error) {
+	if b.containersWithoutProfile.Get(id) != nil {
+		// Returned once per BPF event from an unannotated container, so no
+		// wrapping: the caller logs the container ID separately.
+		return "", errNoProfileForContainer
+	}
+
 	if profile, ok := b.containerIDToProfileMap.Get(id); ok {
-		b.logger.Info("Found profile in cache", "containerID", id, "profile", profile)
+		b.logger.V(config.VerboseLevel).Info(
+			"Found profile in cache", "containerID", id, "profile", profile,
+		)
 
 		return profile, nil
 	}
@@ -980,7 +1031,8 @@ func (b *BpfRecorder) findProfileForContainerID(id string) (string, error) {
 		},
 		func() error {
 			try++
-			b.logger.Info("Looking up container ID in cluster", "id", id, "try", try)
+			b.logger.V(config.VerboseLevel).
+				Info("Looking up container ID in cluster", "id", id, "try", try)
 
 			pods, err := b.ListPods(ctx, b.clientset, b.nodeName)
 			if err != nil {
@@ -1077,7 +1129,11 @@ func (b *BpfRecorder) findProfileForContainerID(id string) (string, error) {
 		return profile, nil
 	}
 
-	return "", fmt.Errorf("container ID not found: %s", id)
+	// The container exists but is not being recorded. Remember that, so the
+	// next event from it does not list every pod on the node again.
+	b.containersWithoutProfile.Set(id, struct{}{}, ttlcache.DefaultTTL)
+
+	return "", errNoProfileForContainer
 }
 
 // WaitForPidExit waits for a specific PID to exit.

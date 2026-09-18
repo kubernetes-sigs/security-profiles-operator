@@ -27,6 +27,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -164,7 +165,9 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 				objs = append([]runtime.Object{testPod}, objs...)
 			}
 
-			readerObjs := []runtime.Object{testPod}
+			// The dedup List goes through the uncached API reader, which in a
+			// real cluster serves the same objects as the cached client.
+			readerObjs := append([]runtime.Object{testPod}, tt.existingObjs...)
 			if tt.nodeName == "" {
 				readerObjs = nil
 			}
@@ -283,4 +286,53 @@ func createTestJobWithCreationTime(
 			Failed:    failed,
 		},
 	}
+}
+
+func TestAsLabelValue(t *testing.T) {
+	t.Parallel()
+
+	// Profile and node names may be up to 253 characters, which the API server
+	// rejects as a label value. Without shortening, both the dedup List and the
+	// Job create fail validation and policy reloads stop happening on the node.
+	const maxLen = 63
+
+	longName := strings.Repeat("a", 253)
+	otherLongName := strings.Repeat("a", 252) + "b"
+
+	t.Run("short names are passed through unchanged", func(t *testing.T) {
+		t.Parallel()
+
+		for _, name := range []string{
+			"",
+			"node-1",
+			"my.policy_name-1",
+			strings.Repeat("a", maxLen),
+		} {
+			require.Equal(t, name, asLabelValue(name))
+		}
+	})
+
+	t.Run("long names are shortened to a valid label value", func(t *testing.T) {
+		t.Parallel()
+
+		got := asLabelValue(longName)
+		require.Len(t, got, maxLen)
+		require.True(t, strings.HasPrefix(got, "a"))
+
+		errs := validation.IsValidLabelValue(got)
+		require.Empty(t, errs)
+	})
+
+	t.Run("names differing only past the cut do not collide", func(t *testing.T) {
+		t.Parallel()
+
+		require.NotEqual(t, asLabelValue(longName), asLabelValue(otherLongName))
+	})
+
+	t.Run("shortening is deterministic", func(t *testing.T) {
+		t.Parallel()
+
+		first := asLabelValue(longName)
+		require.Equal(t, first, asLabelValue(longName))
+	})
 }

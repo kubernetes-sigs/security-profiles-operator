@@ -135,11 +135,6 @@ func TestReconcile(t *testing.T) {
 func TestSaveProfileOnDisk(t *testing.T) {
 	t.Parallel()
 
-	// TODO: fix root user execution for this test
-	if os.Getuid() == 0 {
-		t.Skip("Test does not work as root user")
-	}
-
 	dir := t.TempDir()
 	cases := []struct {
 		name        string
@@ -148,6 +143,11 @@ func TestSaveProfileOnDisk(t *testing.T) {
 		contents    string
 		wantErr     string
 		fileCreated bool
+		// needsNonRoot marks cases that rely on the filesystem denying access.
+		// Root bypasses permission bits, so only those cases are skipped rather
+		// than the whole test, which used to make this a no-op in root
+		// containers and leave the happy path untested there.
+		needsNonRoot bool
 	}{
 		{
 			name:        "CreateDirsAndWriteFile",
@@ -162,10 +162,11 @@ func TestSaveProfileOnDisk(t *testing.T) {
 				require.NoError(t, os.MkdirAll(targetDir, dirPermissionMode))
 				require.NoError(t, os.Chmod(targetDir, 0))
 			},
-			fileName:    path.Join(dir, "/test/nopermissions/filename.json"),
-			contents:    "some content",
-			fileCreated: false,
-			wantErr:     "cannot save profile: open " + dir + "/test/nopermissions/filename.json: permission denied",
+			fileName:     path.Join(dir, "/test/nopermissions/filename.json"),
+			contents:     "some content",
+			fileCreated:  false,
+			wantErr:      "cannot save profile: open " + dir + "/test/nopermissions/filename.json: permission denied",
+			needsNonRoot: true,
 		},
 		{
 			name: "NoPermissionToWriteDir",
@@ -174,16 +175,21 @@ func TestSaveProfileOnDisk(t *testing.T) {
 				require.NoError(t, os.MkdirAll(targetDir, dirPermissionMode))
 				require.NoError(t, os.Chmod(targetDir, 0))
 			},
-			fileName:    path.Join(dir, "/nopermissions/test/filename.json"),
-			contents:    "some content",
-			fileCreated: false,
-			wantErr:     "cannot create operator directory: mkdir " + dir + "/nopermissions/test: permission denied",
+			fileName:     path.Join(dir, "/nopermissions/test/filename.json"),
+			contents:     "some content",
+			fileCreated:  false,
+			wantErr:      "cannot create operator directory: mkdir " + dir + "/nopermissions/test: permission denied",
+			needsNonRoot: true,
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+
+			if tc.needsNonRoot && os.Getuid() == 0 {
+				t.Skip("root bypasses the permission bits this case relies on")
+			}
 
 			if tc.setup != nil {
 				tc.setup()

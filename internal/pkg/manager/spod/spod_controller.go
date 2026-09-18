@@ -386,11 +386,7 @@ func (r *ReconcileSPOd) handleCreate(
 
 	r.log.Info("Deploying operator daemonset")
 
-	if err := r.client.Create(ctx, newSPOd); err != nil {
-		if errors.IsAlreadyExists(err) {
-			return nil
-		}
-
+	if err := r.client.Create(ctx, newSPOd); err != nil && !errors.IsAlreadyExists(err) {
 		return fmt.Errorf("creating operator DaemonSet: %w", err)
 	}
 
@@ -413,11 +409,7 @@ func (r *ReconcileSPOd) handleCreate(
 
 	r.log.Info("Deploying metrics service")
 
-	if err := r.client.Create(ctx, metricsService); err != nil {
-		if errors.IsAlreadyExists(err) {
-			return nil
-		}
-
+	if err := r.client.Create(ctx, metricsService); err != nil && !errors.IsAlreadyExists(err) {
 		return fmt.Errorf("creating metrics service: %w", err)
 	}
 
@@ -502,11 +494,8 @@ func (r *ReconcileSPOd) handleUpdate(
 
 		if errors.IsNotFound(err) {
 			// Handle new default profile
-			if createErr := r.client.Create(ctx, profile); createErr != nil {
-				if errors.IsAlreadyExists(createErr) {
-					return nil
-				}
-
+			if createErr := r.client.Create(ctx, profile); createErr != nil &&
+				!errors.IsAlreadyExists(createErr) {
 				return fmt.Errorf(
 					"creating operator default profile %s: %w",
 					profile.Name,

@@ -21,11 +21,13 @@ package enricher
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/enricherfakes"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
@@ -42,6 +44,25 @@ const (
 )
 
 var errTest = errors.New("test")
+
+// waitForCallCount spins until want calls have been recorded, failing the test
+// rather than hanging until the package timeout if that never happens.
+func waitForCallCount(t *testing.T, count func() int, want int) {
+	t.Helper()
+
+	// Generous: the backlog cases wait on a container lookup that retries with
+	// the production backoff. The point of the deadline is only to fail instead
+	// of hanging until the package timeout.
+	deadline := time.Now().Add(3 * time.Minute)
+
+	for count() != want {
+		if time.Now().After(deadline) {
+			t.Fatalf("expected %d calls, got %d before the deadline", want, count())
+		}
+
+		time.Sleep(time.Millisecond)
+	}
+}
 
 func TestRun(t *testing.T) {
 	t.Parallel()
@@ -70,9 +91,7 @@ func TestRun(t *testing.T) {
 				}}}, nil)
 			},
 			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine, err error) {
-				for mock.StartTailCallCount() != 1 {
-					// Wait for StartTail() to be called
-				}
+				waitForCallCount(t, mock.StartTailCallCount, 1)
 
 				lineChan <- &types.AuditLine{
 					AuditType:    types.AuditTypeSeccomp,
@@ -80,9 +99,7 @@ func TestRun(t *testing.T) {
 					SystemCallID: 10,
 				}
 
-				for mock.SendMetricCallCount() != 1 {
-					// Wait for MetricsAuditIncCallCount to be called
-				}
+				waitForCallCount(t, mock.SendMetricCallCount, 1)
 
 				_, res := mock.SendMetricArgsForCall(0)
 				require.Equal(t, node, res.GetNode())
@@ -198,17 +215,13 @@ func TestRun(t *testing.T) {
 				mock.SendMetricReturns(errTest)
 			},
 			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine, err error) {
-				for mock.StartTailCallCount() != 1 {
-					// Wait for StartTail() to be called
-				}
+				waitForCallCount(t, mock.StartTailCallCount, 1)
 
 				lineChan <- &types.AuditLine{
 					AuditType: types.AuditTypeSeccomp,
 				}
 
-				for mock.SendMetricCallCount() != 1 {
-					// Wait for MetricsAuditIncCallCount to be called
-				}
+				waitForCallCount(t, mock.SendMetricCallCount, 1)
 
 				require.NoError(t, err)
 			},
@@ -256,10 +269,7 @@ func TestRun(t *testing.T) {
 				}}}, nil)
 			},
 			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine, err error) {
-				for mock.StartTailCallCount() != 1 {
-					// Wait for StartTail() to be called. We should hit continue
-					// in the loop, failing the find the container ID
-				}
+				waitForCallCount(t, mock.StartTailCallCount, 1)
 
 				avcLine := &types.AuditLine{
 					AuditType:    types.AuditTypeSelinux,
@@ -275,10 +285,7 @@ func TestRun(t *testing.T) {
 
 				lineChan <- avcLine
 
-				for mock.AddToBacklogCallCount() != 1 {
-					// Make sure the backlog was added to, because the
-					// pod information shouldn't be available yet
-				}
+				waitForCallCount(t, mock.AddToBacklogCallCount, 1)
 				// nothing should be read from the backlog yet
 				require.Equal(t, 0, mock.GetFromBacklogCallCount())
 
@@ -293,19 +300,11 @@ func TestRun(t *testing.T) {
 				// should be still only one write to backlog
 				require.Equal(t, 1, mock.AddToBacklogCallCount())
 
-				for mock.GetFromBacklogCallCount() != 1 {
-					// Make sure the backlog was read from when the avcs
-					// were dispatched
-				}
+				waitForCallCount(t, mock.GetFromBacklogCallCount, 1)
 
-				for mock.FlushBacklogCallCount() != 1 {
-					// Make sure the backlog was flushed. This ensures
-					// that it was not empty and the mock entry was
-					// actually processed
-				}
+				waitForCallCount(t, mock.FlushBacklogCallCount, 1)
 
-				for mock.SendMetricCallCount() != 2 {
-				}
+				waitForCallCount(t, mock.SendMetricCallCount, 2)
 
 				_, firstSysCall := mock.SendMetricArgsForCall(0)
 				require.NotNil(t, firstSysCall.GetSelinuxReq())
@@ -325,15 +324,21 @@ func TestRun(t *testing.T) {
 		require.NoError(t, errCreate)
 
 		sut.impl = mock
-
-		var err error
+		// Do not spend the production metrics-dial backoff as test wall-clock
+		// time. containerBackoff deliberately keeps its production value: the
+		// backlog cases below depend on a container lookup that retries.
+		sut.metricsBackoff = wait.Backoff{Duration: time.Millisecond, Factor: 1, Steps: 5}
 
 		if tc.runAsync {
-			go func() { err = sut.Run() }()
-		} else {
-			err = sut.Run()
-		}
+			// Run only returns when the enricher shuts down, so the async cases
+			// assert on its side effects rather than its return value. Sharing
+			// an `err` variable with the goroutine would be a data race.
+			//nolint:errcheck // Run only returns on shutdown; see above.
+			go func() { sut.Run() }()
 
-		tc.assert(mock, lineChan, err)
+			tc.assert(mock, lineChan, nil)
+		} else {
+			tc.assert(mock, lineChan, sut.Run())
+		}
 	}
 }

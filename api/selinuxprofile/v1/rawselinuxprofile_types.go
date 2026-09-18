@@ -82,6 +82,12 @@ type RawSelinuxProfileSpec struct {
 	// Common spec fields for all profiles.
 	profilebasev1.SpecBase `json:",inline"`
 
+	// Deliberately not +required: this is a served v1 API, and requiring a field
+	// that was optional rejects every write to an object that already exists
+	// without it, including its status updates and finalizer removal. MinLength
+	// already rejects an empty policy. The blank line below keeps this out of
+	// the generated CRD description.
+
 	// policy is the raw SELinux policy module content.
 	// +optional
 	// +kubebuilder:validation:MinLength=1
@@ -105,7 +111,7 @@ type RawSelinuxProfile struct {
 
 	// spec defines the desired state of the RawSelinuxProfile.
 	// +optional
-	Spec RawSelinuxProfileSpec `json:"spec,omitempty"`
+	Spec RawSelinuxProfileSpec `json:"spec,omitzero"`
 	// status contains the observed state of the RawSelinuxProfile.
 	// +optional
 	Status SelinuxProfileStatus `json:"status,omitempty"`

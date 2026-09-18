@@ -120,13 +120,21 @@ type FakeProfileManager struct {
 	enabled   bool
 	installed bool
 	err       error
+
+	// gotPreviouslyInstalled records what the reconciler passed, so a test can
+	// assert that the node status is what vouches for an unmarked profile.
+	gotPreviouslyInstalled bool
 }
 
 func (f *FakeProfileManager) Enabled() bool {
 	return f.enabled
 }
 
-func (f *FakeProfileManager) InstallProfile(profilebaseapi.StatusBaseUser) (bool, error) {
+func (f *FakeProfileManager) InstallProfile(
+	_ profilebaseapi.StatusBaseUser, previouslyInstalled bool,
+) (bool, error) {
+	f.gotPreviouslyInstalled = previouslyInstalled
+
 	return f.installed, f.err
 }
 
