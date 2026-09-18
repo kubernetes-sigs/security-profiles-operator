@@ -38,5 +38,5 @@ jobs:
           ct lint
           --chart-dirs deploy/helm
           --target-branch ${{ github.event.repository.default_branch }}
-          --lint-conf hack/ci/chart-test-lintconf
+          --lint-conf hack/ci/chart-test-lintconf.yaml
           --chart-yaml-schema hack/ci/chart_schema.yaml

@@ -32,12 +32,12 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/encoding/protojson"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 
 	apienricher "sigs.k8s.io/security-profiles-operator/api/grpc/enricher"
 	apimetrics "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/auditsource"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
@@ -95,12 +95,23 @@ type Enricher struct {
 	logger           logr.Logger
 	containerIDCache *ttlcache.Cache[string, string]
 	infoCache        *ttlcache.Cache[string, *types.ContainerInfo]
-	syscalls         sync.Map
-	avcs             sync.Map
-	auditLineCache   *ttlcache.Cache[string, []*types.AuditLine]
-	clientset        kubernetes.Interface
-	enricherFilters  []types.EnricherFilterOptions
-	grpcServer       *grpc.Server
+	// syscalls and avcs accumulate per recorded profile. They are normally
+	// drained by the Reset* RPCs, but a recording that never completes (pod
+	// force-deleted, recording removed) would otherwise keep its entry for the
+	// lifetime of the daemon, so they are bounded like every other cache here.
+	syscalls        *ttlcache.Cache[string, *syncSet]
+	avcs            *ttlcache.Cache[string, *syncSet]
+	auditLineCache  *ttlcache.Cache[string, []*types.AuditLine]
+	clientset       kubernetes.Interface
+	enricherFilters []types.EnricherFilterOptions
+	grpcServer      *grpc.Server
+	// metricsBackoff is the retry backoff used when dialling the local metrics
+	// server. It is a field so that tests do not have to spend the production
+	// backoff as wall-clock time.
+	metricsBackoff wait.Backoff
+	// containerBackoff is the retry backoff for container lookups, a field for
+	// the same reason as metricsBackoff.
+	containerBackoff wait.Backoff
 }
 
 // New returns a new Enricher instance.
@@ -134,7 +145,7 @@ func New(logger logr.Logger, opts *LogEnricherOptions) (*Enricher, error) {
 		source = auditsource.NewAuditdSource(logger)
 	}
 
-	return &Enricher{
+	e := &Enricher{
 		impl:   newDefaultImpl(logger),
 		source: source,
 		logger: logger,
@@ -146,8 +157,20 @@ func New(logger logr.Logger, opts *LogEnricherOptions) (*Enricher, error) {
 			ttlcache.WithTTL[string, *types.ContainerInfo](defaultCacheTimeout),
 			ttlcache.WithCapacity[string, *types.ContainerInfo](maxCacheItems),
 		),
-		syscalls: sync.Map{},
-		avcs:     sync.Map{},
+		// The syscall and AVC sets are the recording itself, not a cache of
+		// something re-derivable: the recorder deletes each entry explicitly
+		// once it has collected the profile (grpc.go Syscalls/Avcs reset).
+		// Expiring them on a timer silently truncates any recording whose
+		// workload goes quiet for longer than the TTL, and the recorder then
+		// sees "no syscalls" and writes no profile at all.
+		syscalls: ttlcache.New(
+			ttlcache.WithTTL[string, *syncSet](ttlcache.NoTTL),
+			ttlcache.WithCapacity[string, *syncSet](maxCacheItems),
+		),
+		avcs: ttlcache.New(
+			ttlcache.WithTTL[string, *syncSet](ttlcache.NoTTL),
+			ttlcache.WithCapacity[string, *syncSet](maxCacheItems),
+		),
 		auditLineCache: ttlcache.New(
 			ttlcache.WithTTL[string, []*types.AuditLine](defaultCacheTimeout),
 			ttlcache.WithCapacity[string, []*types.AuditLine](maxCacheItems),
@@ -156,8 +179,35 @@ func New(logger logr.Logger, opts *LogEnricherOptions) (*Enricher, error) {
 			// if/when the cache is full.
 			ttlcache.WithDisableTouchOnHit[string, []*types.AuditLine](),
 		),
-		enricherFilters: enricherFilters,
-	}, nil
+		enricherFilters:  enricherFilters,
+		metricsBackoff:   util.DefaultBackoff(),
+		containerBackoff: defaultContainerBackoff(),
+	}
+
+	// Say plainly when a recording is dropped for capacity. Otherwise the
+	// recorder just reports "no syscalls found" and writes no profile, with
+	// nothing explaining why.
+	for name, cache := range map[string]*ttlcache.Cache[string, *syncSet]{
+		"syscalls": e.syscalls,
+		"avcs":     e.avcs,
+	} {
+		cache.OnEviction(func(
+			_ context.Context, reason ttlcache.EvictionReason,
+			item *ttlcache.Item[string, *syncSet],
+		) {
+			if reason != ttlcache.EvictionReasonCapacityReached {
+				return
+			}
+
+			logger.Info(
+				"Dropping a recording because the cache is full: "+
+					"the profile will be recorded incomplete or not at all",
+				"cache", name, "profile", item.Key(), "capacity", maxCacheItems,
+			)
+		})
+	}
+
+	return e, nil
 }
 
 // Run the log-enricher to scrap audit logs and enrich them with
@@ -184,6 +234,12 @@ func (e *Enricher) Run() error {
 	go e.auditLineCache.Start()
 	defer e.auditLineCache.Stop()
 
+	go e.syscalls.Start()
+	defer e.syscalls.Stop()
+
+	go e.avcs.Start()
+	defer e.avcs.Stop()
+
 	nodeName := e.Getenv(config.NodeNameEnvKey)
 	if nodeName == "" {
 		err := fmt.Errorf("%s environment variable not set", config.NodeNameEnvKey)
@@ -201,7 +257,7 @@ func (e *Enricher) Run() error {
 		metricsClient apimetrics.Metrics_AuditIncClient
 	)
 
-	if err := util.Retry(func() (err error) {
+	if err := util.RetryEx(&e.metricsBackoff, func() (err error) {
 		conn, err = e.Dial()
 		if err != nil {
 			return fmt.Errorf("connecting to local GRPC server: %w", err)
@@ -268,7 +324,7 @@ func (e *Enricher) Run() error {
 		e.logger.V(config.VerboseLevel).Info("Get container info", "containerID", cID)
 
 		info, err := getContainerInfo(context.Background(),
-			nodeName, cID, e.clientset, e.impl, e.infoCache, e.logger)
+			nodeName, cID, e.clientset, e.impl, e.infoCache, e.logger, e.containerBackoff)
 		if err != nil {
 			e.logger.Error(
 				err, "container ID not found in cluster",
@@ -420,14 +476,36 @@ func (e *Enricher) dispatchAuditLine(
 	return nil
 }
 
+// logLevelFor resolves the configured filters for a log record given as logr
+// key/value pairs. The pairs are what the logger wants, so the map the filters
+// need is only materialised when filters are actually configured; building one
+// per audit line otherwise costs an allocation and 11 map inserts for nothing.
+func (e *Enricher) logLevelFor(kv []any) types.EnricherLogLevel {
+	if len(e.enricherFilters) == 0 {
+		return types.EnricherLogLevelMetadata
+	}
+
+	logMap := make(map[string]any, len(kv)/2)
+	for i := 0; i+1 < len(kv); i += 2 {
+		key, ok := kv[i].(string)
+		if !ok {
+			continue
+		}
+
+		logMap[key] = kv[i+1]
+	}
+
+	return ApplyEnricherFilters(logMap, e.enricherFilters)
+}
+
 func (e *Enricher) dispatchSelinuxLine(
 	metricsClient apimetrics.Metrics_AuditIncClient,
 	nodeName string,
 	auditLine *types.AuditLine,
 	info *types.ContainerInfo,
 ) {
-	logMap := common.NewOrderedMap()
-	logMap.BulkSet("timestamp", auditLine.TimestampID,
+	kv := []any{
+		"timestamp", auditLine.TimestampID,
 		"type", auditLine.AuditType,
 		"profile", info.RecordProfile,
 		"node", nodeName,
@@ -437,13 +515,14 @@ func (e *Enricher) dispatchSelinuxLine(
 		"perm", auditLine.Perm,
 		"scontext", auditLine.Scontext,
 		"tcontext", auditLine.Tcontext,
-		"tclass", auditLine.Tclass)
+		"tclass", auditLine.Tclass,
+	}
 
-	logLevel := ApplyEnricherFilters(logMap.Values(), e.enricherFilters)
+	logLevel := e.logLevelFor(kv)
 	if logLevel == types.EnricherLogLevelNone {
-		e.logger.V(config.VerboseLevel).Info("Skip logging", logMap.BulkGet()...)
+		e.logger.V(config.VerboseLevel).Info("Skip logging", kv...)
 	} else {
-		e.logger.Info("audit", logMap.BulkGet()...)
+		e.logger.Info("audit", kv...)
 
 		if err := e.SendMetric(
 			metricsClient,
@@ -477,11 +556,9 @@ func (e *Enricher) dispatchSelinuxLine(
 				e.logger.Error(err, "marshall protobuf")
 			}
 
-			a, _ := e.avcs.LoadOrStore(info.RecordProfile, newSyncSet())
-
-			stringSet, ok := a.(*syncSet)
-			if ok {
-				stringSet.Insert(string(jsonBytes))
+			item, _ := e.avcs.GetOrSetFunc(info.RecordProfile, newSyncSet)
+			if item != nil {
+				item.Value().Insert(string(jsonBytes))
 			}
 		}
 	}
@@ -504,8 +581,7 @@ func (e *Enricher) dispatchSeccompLine(
 		return
 	}
 
-	logMap := common.NewOrderedMap()
-	logMap.BulkSet(
+	kv := []any{
 		"timestamp", auditLine.TimestampID,
 		"type", auditLine.AuditType,
 		"node", nodeName,
@@ -515,13 +591,14 @@ func (e *Enricher) dispatchSeccompLine(
 		"executable", auditLine.Executable,
 		"pid", auditLine.ProcessID,
 		"syscallID", auditLine.SystemCallID,
-		"syscallName", syscallName)
+		"syscallName", syscallName,
+	}
 
-	logLevel := ApplyEnricherFilters(logMap.Values(), e.enricherFilters)
+	logLevel := e.logLevelFor(kv)
 	if logLevel == types.EnricherLogLevelNone {
-		e.logger.V(config.VerboseLevel).Info("Skip logging", logMap.BulkGet()...)
+		e.logger.V(config.VerboseLevel).Info("Skip logging", kv...)
 	} else {
-		e.logger.Info("audit", logMap.BulkGet()...)
+		e.logger.Info("audit", kv...)
 
 		if err := e.SendMetric(
 			metricsClient,
@@ -541,11 +618,9 @@ func (e *Enricher) dispatchSeccompLine(
 	}
 
 	if info.RecordProfile != "" {
-		s, _ := e.syscalls.LoadOrStore(info.RecordProfile, newSyncSet())
-
-		stringSet, ok := s.(*syncSet)
-		if ok {
-			stringSet.Insert(syscallName)
+		item, _ := e.syscalls.GetOrSetFunc(info.RecordProfile, newSyncSet)
+		if item != nil {
+			item.Value().Insert(syscallName)
 		}
 	}
 }
@@ -556,8 +631,8 @@ func (e *Enricher) dispatchApparmorLine(
 	auditLine *types.AuditLine,
 	info *types.ContainerInfo,
 ) {
-	logMap := common.NewOrderedMap()
-	logMap.BulkSet("timestamp", auditLine.TimestampID,
+	kv := []any{
+		"timestamp", auditLine.TimestampID,
 		"type", auditLine.AuditType,
 		"node", nodeName,
 		"namespace", info.Namespace,
@@ -568,20 +643,21 @@ func (e *Enricher) dispatchApparmorLine(
 		"apparmor", auditLine.Apparmor,
 		"operation", auditLine.Operation,
 		"profile", auditLine.Profile,
-		"name", auditLine.Name)
-
-	if auditLine.ExtraInfo != "" {
-		logMap.Put("extra_info", auditLine.ExtraInfo)
+		"name", auditLine.Name,
 	}
 
-	logLevel := ApplyEnricherFilters(logMap.Values(), e.enricherFilters)
+	if auditLine.ExtraInfo != "" {
+		kv = append(kv, "extra_info", auditLine.ExtraInfo)
+	}
+
+	logLevel := e.logLevelFor(kv)
 	if logLevel == types.EnricherLogLevelNone {
-		e.logger.V(1).Info("skip logging", logMap.BulkGet()...)
+		e.logger.V(1).Info("skip logging", kv...)
 
 		return
 	}
 
-	e.logger.Info("audit", logMap.BulkGet()...)
+	e.logger.Info("audit", kv...)
 
 	if err := e.SendMetric(
 		metricsClient,

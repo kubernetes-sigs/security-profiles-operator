@@ -44,7 +44,9 @@ COMMANDS:
 ```
 
 The released binaries are signed and have SLSA build provenance. Verify them
-after downloading, for example for `amd64` and `$VERSION` like `v1.0.2`:
+after downloading, for example for `amd64` and `$VERSION` like `v1.0.2`.
+The commands below need cosign v3 or later: the bundle format they use is
+not understood by cosign v2.
 
 ```console
 > cosign verify-blob \

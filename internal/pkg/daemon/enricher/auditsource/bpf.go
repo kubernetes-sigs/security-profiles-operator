@@ -76,18 +76,26 @@ func (b *BpfSource) StartTail() (chan *types.AuditLine, error) {
 		return nil, fmt.Errorf("load bpf module: %w", err)
 	}
 
+	// Every failure below has to release the module, otherwise the loaded
+	// programs and maps stay pinned for the lifetime of the process.
 	if err := module.BPFLoadObject(); err != nil {
+		module.Close()
+
 		return nil, fmt.Errorf("load bpf object: %w", err)
 	}
 
 	if err := module.AttachPrograms(); err != nil {
-		return nil, fmt.Errorf("load bpf object: %w", err)
+		module.Close()
+
+		return nil, fmt.Errorf("attach bpf programs: %w", err)
 	}
 
 	events := make(chan []byte)
 
 	buf, err := module.InitRingBuf("audit_log", events)
 	if err != nil {
+		module.Close()
+
 		return nil, fmt.Errorf("init ringbuf: %w", err)
 	}
 

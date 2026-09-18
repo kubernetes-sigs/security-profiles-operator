@@ -1004,3 +1004,67 @@ func TestNewContainerMap(t *testing.T) {
 		})
 	}
 }
+
+// podChanged used to be assigned rather than accumulated across the container
+// and binding loops, so a binding that mutated an earlier container was
+// discarded whenever the last container evaluated already carried the bound
+// context. The pod was then admitted unmutated and ran unconfined.
+func TestHandleAccumulatesChangesAcrossContainers(t *testing.T) {
+	t.Parallel()
+
+	const boundType = "bound_type.process"
+
+	mock := &bindingfakes.FakeImpl{}
+	mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
+		Items: []profilebindingapi.ProfileBinding{
+			{
+				Spec: profilebindingapi.ProfileBindingSpec{
+					ProfileRef: profilebindingapi.ProfileRef{
+						Kind: profilebindingapi.ProfileBindingKindSelinuxProfile,
+					},
+					Image: "foo",
+				},
+			},
+		},
+	}, nil)
+	mock.GetSelinuxProfileReturns(&selinuxprofileapi.SelinuxProfile{
+		Status: selinuxprofileapi.SelinuxProfileStatus{
+			StatusBase: profilebaseapi.StatusBase{Status: "Installed"},
+			Usage:      boundType,
+		},
+	}, nil)
+
+	// Two containers of the same bound image. The second already carries the
+	// bound SELinux type, the first carries none.
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{GenerateName: "pod-"},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{Name: "unconstrained", Image: "foo"},
+				{
+					Name:  "already-bound",
+					Image: "foo",
+					SecurityContext: &corev1.SecurityContext{
+						SELinuxOptions: &corev1.SELinuxOptions{Type: boundType},
+					},
+				},
+			},
+		},
+	}
+	mock.DecodePodReturns(pod.DeepCopy(), nil)
+
+	raw, err := json.Marshal(pod)
+	require.NoError(t, err)
+
+	binder := podBinder{impl: mock, log: logr.Discard()}
+	resp := binder.Handle(t.Context(), admission.Request{
+		AdmissionRequest: admissionv1.AdmissionRequest{
+			Operation: admissionv1.Create,
+			Object:    runtime.RawExtension{Raw: raw},
+		},
+	})
+
+	require.True(t, resp.Allowed)
+	require.NotEmpty(t, resp.Patches,
+		"the first container's binding must not be dropped because the second already matched")
+}

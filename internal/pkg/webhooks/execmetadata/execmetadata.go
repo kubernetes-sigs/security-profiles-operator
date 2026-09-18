@@ -78,8 +78,11 @@ func (p Handler) getNodeDebuggingPodPatch(
 		corev1.EnvVar{Name: ExecRequestUid, Value: string(req.UID)},
 	)
 
+	// "add" rather than "replace": Container.Env is omitempty, so the member is
+	// absent for a container that declares no environment variables and RFC 6902
+	// "replace" on a missing member is an error. "add" upserts in both cases.
 	patches = append(patches, jsonpatch.JsonPatchOperation{
-		Operation: "replace",
+		Operation: "add",
 		Path:      "/spec/containers/0/env",
 		Value:     container.Env,
 	})
@@ -127,7 +130,7 @@ func (p Handler) getEphemeralContainerPatch(
 			)
 
 			patches = append(patches, jsonpatch.JsonPatchOperation{
-				Operation: "replace",
+				Operation: "add",
 				Path:      "/spec/ephemeralContainers/" + strconv.Itoa(i) + "/env",
 				Value:     container.Env,
 			})

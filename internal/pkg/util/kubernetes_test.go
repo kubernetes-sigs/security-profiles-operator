@@ -471,3 +471,91 @@ func TestGetOperatorConfigMap(t *testing.T) {
 		})
 	}
 }
+
+func TestGetKubeletDirFromNodeLabel(t *testing.T) {
+	const nodeName = "test-node"
+
+	for _, tc := range []struct {
+		name    string
+		label   string
+		want    string
+		wantErr bool
+	}{
+		{
+			name:  "documented example",
+			label: "mnt-resource-kubelet",
+			want:  "/mnt/resource/kubelet",
+		},
+		{
+			name:  "single segment",
+			label: "kubelet",
+			want:  "/kubelet",
+		},
+		{
+			name:  "segment containing dots",
+			label: "var-lib-my.kubelet",
+			want:  "/var/lib/my.kubelet",
+		},
+		{
+			// "..-..-..-etc" would otherwise resolve to /etc once the non-root
+			// enabler joins it onto the host root, and it creates, symlinks and
+			// copies into that path as root.
+			name:    "path traversal escaping the host root",
+			label:   "..-..-..-etc",
+			wantErr: true,
+		},
+		{
+			name:    "traversal in the middle",
+			label:   "var-lib-..-..-etc",
+			wantErr: true,
+		},
+		{
+			name:    "single dot segment",
+			label:   "var-.-lib",
+			wantErr: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(config.NodeNameEnvKey, nodeName)
+
+			c := fake.NewClientBuilder().WithObjects(&corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   nodeName,
+					Labels: map[string]string{config.KubeletDirNodeLabelKey: tc.label},
+				},
+			}).Build()
+
+			got, err := GetKubeletDirFromNodeLabel(t.Context(), c)
+			if tc.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestGetKubeletDirFromNodeLabelErrors(t *testing.T) {
+	const nodeName = "test-node"
+
+	t.Run("no node name in environment", func(t *testing.T) {
+		t.Setenv(config.NodeNameEnvKey, "")
+
+		_, err := GetKubeletDirFromNodeLabel(t.Context(), fake.NewClientBuilder().Build())
+		require.Error(t, err)
+	})
+
+	t.Run("no label on the node", func(t *testing.T) {
+		t.Setenv(config.NodeNameEnvKey, nodeName)
+
+		c := fake.NewClientBuilder().WithObjects(&corev1.Node{
+			ObjectMeta: metav1.ObjectMeta{Name: nodeName},
+		}).Build()
+
+		_, err := GetKubeletDirFromNodeLabel(t.Context(), c)
+		require.Error(t, err)
+	})
+}

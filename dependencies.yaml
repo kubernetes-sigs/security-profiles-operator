@@ -111,6 +111,12 @@ dependencies:
     - path: Dockerfile.build-image
       match: tag
 
+  - name: build-image
+    version: sha256:b2cf855f3f56e1c393233d1bccf49965a17914863a6835633899e71b9218762f
+    refPaths:
+    - path: Dockerfile
+      match: "^ARG BUILD_IMAGE="
+
   - name: nix
     version: 2.35.2
     refPaths:
@@ -118,6 +124,13 @@ dependencies:
       match: "^ARG NIX_VERSION"
     - path: .github/workflows/build.yml
       match: "NIX_VERSION:"
+
+  # Must be bumped together with nix above.
+  - name: nix-sha256
+    version: 0c3960a9792331a22081c3c7a5d8465db9b17c50b3acdf18587fa4c6f2cb1158
+    refPaths:
+    - path: Dockerfile.build-image
+      match: "^ARG NIX_SHA256"
 
   - name: gcb-docker-gcloud
     version: v20260205-38cfa9523f
@@ -162,7 +175,7 @@ dependencies:
       match: "base/runc:"
 
   - name: cosign
-    version: v2.6.5
+    version: v3.1.3
     refPaths:
     - path: hack/ci/Vagrantfile-ubuntu
       match: "COSIGN_VERSION="

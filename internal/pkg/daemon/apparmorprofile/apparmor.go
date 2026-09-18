@@ -21,18 +21,20 @@ import (
 )
 
 type aaProfileManager struct {
-	loadProfile       func(_ logr.Logger, _, _ string) (bool, error)
-	removeProfile     func(_ logr.Logger, _ string) error
-	checkProfileExist func(_ logr.Logger, _ string) bool
+	loadProfile        func(_ logr.Logger, _, _ string) (bool, error)
+	removeProfile      func(_ logr.Logger, _, _ string) error
+	checkProfileExist  func(_ logr.Logger, _ string) bool
+	profileManagedByUs func(_ logr.Logger, _ string) bool
 
 	logger logr.Logger
 }
 
 func NewAppArmorProfileManager(logger logr.Logger) ProfileManager {
 	return &aaProfileManager{
-		loadProfile:       loadProfile,
-		removeProfile:     removeProfile,
-		checkProfileExist: checkProfileExist,
-		logger:            logger,
+		loadProfile:        loadProfile,
+		removeProfile:      removeProfile,
+		checkProfileExist:  checkProfileExist,
+		profileManagedByUs: profileManagedByUs,
+		logger:             logger,
 	}
 }

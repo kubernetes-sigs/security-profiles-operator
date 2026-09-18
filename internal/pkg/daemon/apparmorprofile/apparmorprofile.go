@@ -166,17 +166,9 @@ func (r *Reconciler) reconcileAppArmorProfile(
 		return r.reconcileDeletion(ctx, sp, nodeStatus)
 	}
 
-	// TODO: backoff policy
-	updated, err := r.manager.InstallProfile(sp)
-	if err != nil {
-		l.Error(err, "cannot load profile into node")
-		r.metrics.IncAppArmorProfileError(sp.GetName(), reasonCannotLoadProfile)
-		r.record.Event(sp, util.EventTypeWarning, reasonCannotLoadProfile, err.Error())
-
-		return reconcile.Result{}, fmt.Errorf("cannot load profile into node: %w", err)
-	}
-
-	// The object is not being deleted
+	// The object is not being deleted. This has to happen before the
+	// reconcilable check, so that a partial or disabled profile still reports a
+	// node status, exactly like the seccomp and SELinux reconcilers do.
 	created, result, ensureErr := common.EnsureNodeStatus(ctx, nodeStatus, l)
 	if ensureErr != nil {
 		return result, ensureErr
@@ -186,6 +178,17 @@ func (r *Reconciler) reconcileAppArmorProfile(
 		return result, nil
 	}
 
+	// A partial profile is still being recorded and a disabled one must not be
+	// enforced, so neither may be loaded into the kernel. The seccomp and SELinux
+	// reconcilers make the same check.
+	if !sp.IsReconcilable() {
+		l.Info("Profile is partial or disabled, skipping")
+
+		return reconcile.Result{}, nil
+	}
+
+	// Read before installing: a profile this node has already installed is ours
+	// even if its policy file predates the ownership marker.
 	isAlreadyInstalled, getErr := nodeStatus.Matches(
 		ctx,
 		secprofnodestatusapi.ProfileStateInstalled,
@@ -197,6 +200,16 @@ func (r *Reconciler) reconcileAppArmorProfile(
 			"getting status for installed AppArmorProfile: %w",
 			getErr,
 		)
+	}
+
+	// TODO: backoff policy
+	updated, err := r.manager.InstallProfile(sp, isAlreadyInstalled)
+	if err != nil {
+		l.Error(err, "cannot load profile into node")
+		r.metrics.IncAppArmorProfileError(sp.GetName(), reasonCannotLoadProfile)
+		r.record.Event(sp, util.EventTypeWarning, reasonCannotLoadProfile, err.Error())
+
+		return reconcile.Result{}, fmt.Errorf("cannot load profile into node: %w", err)
 	}
 
 	if isAlreadyInstalled {

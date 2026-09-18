@@ -172,6 +172,7 @@ The attestations are:
 To verify them, use the predicate type and the signing identity, for example:
 
 ```console
+> # Needs cosign v3 or later.
 > cosign verify-attestation \
     --type https://slsa.dev/provenance/v1 \
     --certificate-identity sp-operator-sa@k8s-staging-images.iam.gserviceaccount.com \
@@ -181,3 +182,12 @@ To verify them, use the predicate type and the signing identity, for example:
 
 The attestations stay in the staging registry, the image promotion does not copy
 them to `registry.k8s.io` yet.
+
+This is the single largest gap in the supply chain story: everything above is
+produced for the staging images, while users install from `registry.k8s.io`,
+where only the krel signature is present. Until the referrers are promoted,
+do not advertise SLSA provenance for the promoted images. Closing it needs
+either the image promoter to copy the OCI referrers alongside the manifest, or
+a post promotion workflow that re-attests the promoted digest from a job that
+can prove it observed the promotion. Both require a change outside this
+repository, in kubernetes/k8s.io.

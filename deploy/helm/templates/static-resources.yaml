@@ -306,16 +306,6 @@ rules:
   verbs:
   - create
 - apiGroups:
-  - batch
-  resources:
-  - jobs
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - watch
-- apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
   - apparmorprofiles
@@ -397,6 +387,16 @@ metadata:
   name: spod
   namespace: '{{ .Release.Namespace }}'
 rules:
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - watch
 - apiGroups:
   - security.openshift.io
   resourceNames:

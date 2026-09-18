@@ -56,7 +56,13 @@ func (e *e2e) waitForBpfRecorderLogs(since time.Time, profiles ...string) {
 		time.Sleep(3 * time.Second)
 	}
 
-	e.logf("Timeout waiting for bpf recorder to start recording profiles %v", profiles)
+	// Do not return here: giving up quietly lets the test carry on and fail
+	// later with a confusing mismatch instead of reporting what actually
+	// timed out.
+	e.Failf(
+		"timed out waiting for the bpf recorder",
+		"profiles never recorded: %v", profiles,
+	)
 }
 
 func (e *e2e) testCaseBpfRecorderKubectlRun() {

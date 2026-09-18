@@ -52,7 +52,6 @@ const (
 	selinuxdSockAddr        = "http://unix"
 	selinuxdPoliciesBaseURL = selinuxdSockAddr + "/policies/"
 	selinuxdReadyURL        = selinuxdSockAddr + "/ready"
-	selinuxdSocketTimeout   = 5 * time.Second
 
 	selinuxdReadyKey     = "ready"
 	selinuxdPollInterval = 5 * time.Second
@@ -171,7 +170,11 @@ func (r *ReconcileSelinux) Healthz(req *http.Request) error {
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=rawselinuxprofiles/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=rawselinuxprofiles/finalizers,verbs=delete;get;update;patch
 
-// +kubebuilder:rbac:groups=batch,resources=jobs,verbs=create;delete;get;list;watch
+// The policy reload Job is only ever created in the operator namespace, see
+// createPolicyReloadJob. Keeping this namespaced prevents a compromised node
+// from creating a Job with an arbitrary service account anywhere in the cluster.
+//nolint:lll // required for kubebuilder
+// +kubebuilder:rbac:groups=batch,namespace="security-profiles-operator",resources=jobs,verbs=create;delete;get;list;watch
 
 // Reconcile reads that state of the cluster for a SelinuxProfile object and makes changes based on the state read
 // and what is in the `SelinuxProfile.Spec`.
@@ -192,7 +195,14 @@ func (r *ReconcileSelinux) Reconcile(
 
 	// Fetch the object instance
 	oh, err := r.objectHandlerInit(ctx, r.client, request.NamespacedName)
-	if err != nil && !kerrors.IsNotFound(err) {
+	if err != nil {
+		if kerrors.IsNotFound(err) {
+			// The object is gone. Continuing here would operate on the
+			// zero-valued object the handler allocated and drive a reconcile
+			// against an empty key, which can only fail and requeue forever.
+			return reconcile.Result{}, nil
+		}
+
 		return reconcile.Result{}, err
 	}
 

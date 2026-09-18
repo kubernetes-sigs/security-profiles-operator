@@ -18,15 +18,16 @@ package v1
 
 import (
 	"context"
+	"maps"
 	"path/filepath"
-	"sort"
+	"slices"
+	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	profilebasev1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 const (
@@ -105,18 +106,18 @@ type PermissionSet []string
 type Allow map[LabelKey]map[ObjectClassKey]PermissionSet
 
 func SortLabelKeys(allow Allow) []LabelKey {
-	keys := util.MapKeys(allow)
-	sort.SliceStable(keys, func(i, j int) bool {
-		return keys[i].String() < keys[j].String()
+	keys := slices.Collect(maps.Keys(allow))
+	slices.SortStableFunc(keys, func(a, b LabelKey) int {
+		return strings.Compare(a.String(), b.String())
 	})
 
 	return keys
 }
 
 func SortObjectClassKeys(ock map[ObjectClassKey]PermissionSet) []ObjectClassKey {
-	keys := util.MapKeys(ock)
-	sort.SliceStable(keys, func(i, j int) bool {
-		return keys[i].String() < keys[j].String()
+	keys := slices.Collect(maps.Keys(ock))
+	slices.SortStableFunc(keys, func(a, b ObjectClassKey) int {
+		return strings.Compare(a.String(), b.String())
 	})
 
 	return keys

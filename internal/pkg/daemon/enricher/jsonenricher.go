@@ -32,6 +32,7 @@ import (
 	"github.com/nxadm/tail"
 	"github.com/urfave/cli/v2"
 	"gopkg.in/natefinch/lumberjack.v2"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 
 	apienricher "sigs.k8s.io/security-profiles-operator/api/grpc/enricher"
@@ -55,6 +56,7 @@ type JsonEnricher struct {
 	enricherFilters     []types.EnricherFilterOptions
 	bpfProcessCache     *bpfrecorder.BpfProcessCache
 	auditLogOutputMutex sync.Mutex
+	containerBackoff    wait.Backoff
 }
 
 type JsonEnricherOptions struct {
@@ -147,8 +149,9 @@ func NewJsonEnricherArgs(logger logr.Logger, opts *JsonEnricherOptions) (*JsonEn
 			ttlcache.WithTTL[int, *types.ProcessInfo](defaultCacheTimeout),
 			ttlcache.WithCapacity[int, *types.ProcessInfo](maxCacheItems),
 		),
-		enricherFilters: enricherFilters,
-		bpfProcessCache: nil,
+		enricherFilters:  enricherFilters,
+		bpfProcessCache:  nil,
+		containerBackoff: defaultContainerBackoff(),
 	}
 
 	w, err := getWriter(actualOpts)
@@ -283,7 +286,10 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 		line := l.Text
 		e.logger.V(config.VerboseLevel).Info("Got line", "line", line)
 
-		if !auditsource.IsAuditLine(line) {
+		// ExtractAuditLine rejects non-audit lines itself, so an IsAuditLine
+		// call here would only repeat the same regex matching.
+		auditLine, err := auditsource.ExtractAuditLine(line)
+		if err != nil {
 			e.logger.V(config.VerboseLevel).Info("Not an audit line")
 
 			continue
@@ -291,23 +297,25 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 
 		e.logger.V(config.VerboseLevel).Info("AuditLine parsed", "line", line)
 
-		auditLine, err := auditsource.ExtractAuditLine(line)
-		if err != nil {
-			e.logger.Error(err, "extract audit line")
-
-			continue
-		}
-
 		if auditLine.AuditType != types.AuditTypeSeccomp {
 			e.logger.V(config.VerboseLevel).Info("Only seccomp supported")
 
 			continue
 		}
 
+		// A single Get: Has() followed by Get() can race with expiry or the
+		// cache janitor, and Get() returns nil for an item that vanished in
+		// between, which would panic in Value().
 		var logBucket *types.LogBucket
-		if e.logLinesCache.Has(auditLine.ProcessID) {
-			logBucket = e.logLinesCache.Get(auditLine.ProcessID).Value()
-		} else {
+
+		cached := false
+
+		if item := e.logLinesCache.Get(auditLine.ProcessID); item != nil {
+			logBucket = item.Value()
+			cached = logBucket != nil
+		}
+
+		if logBucket == nil {
 			logBucket = &types.LogBucket{
 				SyscallIds:    sync.Map{},
 				ContainerInfo: nil,
@@ -318,14 +326,19 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 
 		// Capture proc/pid/(cmdLine/environ) early; these files are ephemeral on some OS (e.g., Ubuntu).
 		if logBucket.ProcessInfo == nil {
-			uid, gid, err := auditsource.GetUidGid(line)
-			if err != nil {
+			// Keep uid/gid nil when the line carries none: defaulting to the
+			// zero value would attribute the record to root.
+			var uidPtr, gidPtr *uint32
+
+			if uid, gid, err := auditsource.GetUidGid(line); err != nil {
 				e.logger.V(config.VerboseLevel).Info(
 					"unable to get uid and gid", "line", line)
+			} else {
+				uidPtr, gidPtr = &uid, &gid
 			}
 
 			logBucket.ProcessInfo = e.fetchProcessInfo(auditLine.ProcessID,
-				auditLine.Executable, uid, gid)
+				auditLine.Executable, uidPtr, gidPtr)
 		}
 
 		e.processEbpf(logBucket, auditLine)
@@ -336,7 +349,7 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 
 		logBucket.SyscallIds.LoadOrStore(auditLine.SystemCallID, struct{}{})
 
-		if !e.logLinesCache.Has(auditLine.ProcessID) {
+		if !cached {
 			e.logLinesCache.Set(auditLine.ProcessID, logBucket, ttlcache.DefaultTTL)
 		}
 	}
@@ -398,7 +411,7 @@ func (e *JsonEnricher) fetchContainerInfo(
 
 	if errContainer == nil && cID != "" {
 		info, errGetContainerInfo := getContainerInfo(ctx,
-			nodeName, cID, e.clientset, e.impl, e.infoCache, e.logger)
+			nodeName, cID, e.clientset, e.impl, e.infoCache, e.logger, e.containerBackoff)
 		if errGetContainerInfo == nil {
 			containerInfo = info
 		}
@@ -416,7 +429,7 @@ func (e *JsonEnricher) fetchContainerInfo(
 func (e *JsonEnricher) fetchProcessInfo(
 	processId int,
 	executable string,
-	uid, gid uint32,
+	uid, gid *uint32,
 ) *types.ProcessInfo {
 	processInfo, err := GetProcessInfo(processId, executable, uid, gid, e.processCache, e.impl)
 	e.logger.V(config.VerboseLevel).Info("Process info",
@@ -491,13 +504,22 @@ func (e *JsonEnricher) dispatchSeccompLine(
 		"auditID":    uuid.New().String(),
 		"executable": logBucket.ProcessInfo.Executable,
 		"cmdLine":    logBucket.ProcessInfo.CmdLine,
-		"uid":        logBucket.ProcessInfo.Uid,
-		"gid":        logBucket.ProcessInfo.Gid,
 		"resource":   resource,
 		"pid":        logBucket.ProcessInfo.Pid,
 		"node":       node,
 		"syscalls":   syscallNames,
 		"timestamp":  isoTimestamp,
+	}
+
+	// Set only when the audit line carried them. They must not default to 0,
+	// which would attribute the record to root, and emitting null instead would
+	// break any consumer parsing them as integers.
+	if logBucket.ProcessInfo.Uid != nil {
+		auditMap["uid"] = *logBucket.ProcessInfo.Uid
+	}
+
+	if logBucket.ProcessInfo.Gid != nil {
+		auditMap["gid"] = *logBucket.ProcessInfo.Gid
 	}
 
 	if logBucket.ProcessInfo.ExecRequestId != nil {
@@ -521,7 +543,7 @@ func (e *JsonEnricher) dispatchSeccompLine(
 	e.auditLogOutputMutex.Lock()
 	defer e.auditLogOutputMutex.Unlock()
 
-	e.PrintJsonOutput(e.logWriter, string(auditJson))
+	e.PrintJsonOutput(e.logWriter, auditJson)
 }
 
 func (e *JsonEnricher) ExitJsonEnricher(_ *cli.Context) {

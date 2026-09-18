@@ -86,7 +86,7 @@ type impl interface {
 	Stat(string) (os.FileInfo, error)
 	RemoveAll(string) error
 	CmdlineForPID(pid int) (string, error)
-	PrintJsonOutput(w io.Writer, output string)
+	PrintJsonOutput(w io.Writer, output []byte)
 	EnvForPid(pid int) (map[string]string, error)
 }
 
@@ -275,9 +275,24 @@ func (d *defaultImpl) EnvForPid(pid int) (map[string]string, error) {
 	return envMap, nil
 }
 
-func (d *defaultImpl) PrintJsonOutput(w io.Writer, output string) {
-	_, err := fmt.Fprintln(w, output)
-	if err != nil {
+// newline is written after each record; a package-level value keeps it off the
+// per-line allocation path.
+var newline = []byte{'\n'}
+
+func (d *defaultImpl) PrintJsonOutput(w io.Writer, output []byte) {
+	// Write the marshalled bytes directly: converting to a string copies the
+	// whole record and fmt.Fprintln adds a reflective formatting pass, once per
+	// emitted audit line.
+	// The newline goes out separately because appending it reallocates and
+	// copies the record; callers hold the output mutex, so the two writes
+	// cannot interleave.
+	if _, err := w.Write(output); err != nil {
+		d.logger.Error(err, "error printing json output")
+
+		return
+	}
+
+	if _, err := w.Write(newline); err != nil {
 		d.logger.Error(err, "error printing json output")
 	}
 }

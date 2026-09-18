@@ -44,7 +44,8 @@ To install the operator, run:
 $ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/v{VERSION}/deploy/operator.yaml
 ```
 
-You can also verify the container image signature by using [cosign][1]:
+You can also verify the container image signature by using [cosign][1] (v3 or
+later; cosign v2 cannot read the bundle format used below):
 
 ```
 $ cosign verify \

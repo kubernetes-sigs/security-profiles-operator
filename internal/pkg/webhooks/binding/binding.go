@@ -28,12 +28,12 @@ import (
 	"github.com/google/go-cmp/cmp"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -258,19 +258,19 @@ func (p *podBinder) updatePod(
 		}
 
 		for j := range containers {
-			podChanged = p.addSecurityContext(containers[j], bindProfile)
+			if p.addSecurityContext(containers[j], bindProfile) {
+				podChanged = true
+			}
 		}
 	}
 
-	if podChanged {
-		return pod, admission.Response{}
+	if podBindProfile != nil && podProfileBinding != nil {
+		if p.addPodSecurityContext(pod, *podBindProfile) {
+			podChanged = true
+		}
 	}
 
-	if podBindProfile == nil || podProfileBinding == nil {
-		return pod, admission.Allowed("pod unchanged")
-	}
-
-	if !p.addPodSecurityContext(pod, *podBindProfile) {
+	if !podChanged {
 		return pod, admission.Allowed("pod unchanged")
 	}
 
@@ -389,7 +389,7 @@ func (p *podBinder) addSeccompContext(
 	// Make sure that the bound profile is really in the pod security context if already a profile
 	// exists, otherwise it can be easily overwritten with something less permissive like
 	// "type": "Unconfined", even though a specific profile is enforced through a binding.
-	if !ptr.Equal(c.SecurityContext.SeccompProfile, &sp) {
+	if !equality.Semantic.DeepEqual(c.SecurityContext.SeccompProfile, &sp) {
 		c.SecurityContext.SeccompProfile = &sp
 
 		return true
@@ -419,7 +419,7 @@ func (p *podBinder) addSelinuxContext(
 	// Make sure that the bound profile is really in the pod security context if the profile exists,
 	// otherwise it can be easily overwritten with something less permissive, even though a specific
 	// profile is enforced through a binding.
-	if !ptr.Equal(c.SecurityContext.SELinuxOptions, &sl) {
+	if !equality.Semantic.DeepEqual(c.SecurityContext.SELinuxOptions, &sl) {
 		c.SecurityContext.SELinuxOptions = &sl
 
 		return true
@@ -450,7 +450,7 @@ func (p *podBinder) addAppArmorContext(
 	// Make sure that the bound profile is really in the pod security context, otherwise
 	// it can be easily overwritten with something less permissive, even though a specific
 	// profile is enforced through a binding.
-	if !ptr.Equal(c.SecurityContext.AppArmorProfile, &aa) {
+	if !equality.Semantic.DeepEqual(c.SecurityContext.AppArmorProfile, &aa) {
 		c.SecurityContext.AppArmorProfile = &aa
 
 		return true

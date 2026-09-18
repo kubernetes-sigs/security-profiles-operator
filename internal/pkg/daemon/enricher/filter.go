@@ -108,8 +108,8 @@ func matchAnyFilterValue(logValue any, filter types.EnricherFilterOptions) bool 
 		// `any` can't be used due to json restrictions.
 		valueInt, errValue := strconv.Atoi(value)
 		if errValue == nil {
-			if retrievedInt, ok := convertToInt(logValue); ok {
-				return valueInt == retrievedInt
+			if retrievedInt, ok := convertToInt(logValue); ok && valueInt == retrievedInt {
+				return true
 			}
 		}
 	}
@@ -134,6 +134,17 @@ func convertToInt(val any) (int, bool) {
 		}
 
 		return int(v), true
+	case uint32:
+		return int(v), true
+	case *uint32:
+		// Uid and Gid are optional, so the record carries a pointer. Without
+		// these two cases a filter on uid/gid with a numeric matchValue never
+		// matches anything.
+		if v == nil {
+			return 0, false
+		}
+
+		return int(*v), true
 	default:
 		return 0, false
 	}

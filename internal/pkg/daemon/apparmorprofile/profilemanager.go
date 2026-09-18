@@ -24,7 +24,11 @@ type ProfileManager interface {
 	Enabled() bool
 
 	// InstallProfile ensure the profile is installed/copied/loaded into the host.
-	InstallProfile(p profilebaseapi.StatusBaseUser) (bool, error)
+	// ownedByUs reports that the caller has independent evidence that this
+	// operator installed the profile, which makes it ours even when its policy
+	// file predates the ownership marker: this node's status already records it
+	// as installed, or it is one of the operator's own bundled profiles.
+	InstallProfile(p profilebaseapi.StatusBaseUser, ownedByUs bool) (bool, error)
 
 	// RemoveProfile ensure the profile is uninstalled/deleted/unloaded from the host.
 	RemoveProfile(p profilebaseapi.StatusBaseUser) error

@@ -85,6 +85,7 @@ type JsonEnricherOptions struct {
 	// The default is 60 seconds. Increasing this interval will reduce the
 	// rate at which logs are written.
 	// +optional
+	// +default=60
 	// +kubebuilder:validation:Minimum=1
 	AuditLogIntervalSeconds *int32 `json:"auditLogIntervalSeconds,omitempty"`
 	// auditLogPath specifies the path for the accumulated audit log data.
@@ -97,6 +98,7 @@ type JsonEnricherOptions struct {
 	// log file before it gets rotated. If left unspecified it defaults to
 	// 100 MB.
 	// +optional
+	// +default=100
 	// +kubebuilder:validation:Minimum=1
 	AuditLogMaxSize *int32 `json:"auditLogMaxSize,omitempty"`
 	// auditLogMaxBackups specifies the maximum number of old audit log
@@ -121,6 +123,7 @@ type WebhookOptions struct {
 	Name string `json:"name,omitempty"`
 	// failurePolicy sets the webhook failure policy.
 	// +optional
+	// +kubebuilder:validation:Enum=Ignore;Fail
 	FailurePolicy *admissionregv1.FailurePolicyType `json:"failurePolicy,omitempty"`
 	// namespaceSelector sets the webhook's namespace selector.
 	// +optional
@@ -214,6 +217,7 @@ type SPODSelinuxConfig struct {
 	// RawSelinuxProfile support. When disabled, the RawSelinuxProfile
 	// controller will not be started. Defaults to true when SELinux is enabled.
 	// +optional
+	// +default=true
 	EnableRawSelinuxProfiles *bool `json:"enableRawSelinuxProfiles,omitempty"`
 	// typeTag is the SELinux type tag applied to the security context of SPOD.
 	// +optional
@@ -251,6 +255,7 @@ type SPODEnricherConfig struct {
 	// logs. This defaults to "Auditd", but can be switched to "Bpf" on
 	// systems where auditd is unavailable.
 	// +optional
+	// +default="Auditd"
 	LogEnricherSource LogEnricherSource `json:"logEnricherSource,omitempty"`
 	// enableJsonEnricher tells the operator whether or not to enable audit
 	// JSON enrichment support for this SPOD instance.

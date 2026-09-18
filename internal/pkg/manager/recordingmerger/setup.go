@@ -42,11 +42,23 @@ func (r *PolicyMergeReconciler) Setup(
 	return ctrl.NewControllerManagedBy(mgr).
 		Named(r.Name()).
 		For(&profilerecordingapi.ProfileRecording{}, builder.WithPredicates(
-			predicate.Funcs{
-				CreateFunc:  func(event.CreateEvent) bool { return false },
-				UpdateFunc:  func(event.UpdateEvent) bool { return false },
-				GenericFunc: func(event.GenericEvent) bool { return false },
-			},
+			mergePredicate(),
 		)).
 		Complete(r)
+}
+
+// mergePredicate selects the events the merger needs. Only a deletion is of
+// interest, and because the recording carries the has-unmerged-profiles
+// finalizer that deletion arrives as an update setting the deletion timestamp.
+// The delete event only fires once the finalizer is gone, which is what this
+// controller is responsible for removing, so filtering updates out would leave
+// every recording stuck in Terminating with its profiles never merged.
+func mergePredicate() predicate.Funcs {
+	return predicate.Funcs{
+		CreateFunc: func(event.CreateEvent) bool { return false },
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			return e.ObjectNew != nil && !e.ObjectNew.GetDeletionTimestamp().IsZero()
+		},
+		GenericFunc: func(event.GenericEvent) bool { return false },
+	}
 }

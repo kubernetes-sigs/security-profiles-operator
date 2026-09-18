@@ -43,10 +43,20 @@ func NewFromMap[K comparable, V comparable](values map[K]V) *BiMap[K, V] {
 	return biMap
 }
 
-// Insert inserts a new element in the BiMap.
+// Insert inserts a new element in the BiMap. A BiMap is a bijection, so an
+// insert that reuses either side evicts the mapping it replaces. Without that
+// eviction the two directions desync and lookups return stale counterparts.
 func (m *BiMap[K, V]) Insert(k K, v V) {
 	m.l.Lock()
 	defer m.l.Unlock()
+
+	if oldV, ok := m.forward[k]; ok && oldV != v {
+		delete(m.backward, oldV)
+	}
+
+	if oldK, ok := m.backward[v]; ok && oldK != k {
+		delete(m.forward, oldK)
+	}
 
 	m.forward[k] = v
 	m.backward[v] = k

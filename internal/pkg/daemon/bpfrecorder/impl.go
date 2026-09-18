@@ -28,7 +28,6 @@ import (
 	"strconv"
 	"unsafe"
 
-	"github.com/acobaugh/osrelease"
 	bpf "github.com/aquasecurity/libbpfgo"
 	"github.com/blang/semver/v4"
 	"github.com/jellydator/ttlcache/v3"
@@ -61,27 +60,20 @@ type impl interface {
 	BPFLoadObject(*bpf.Module) error
 	GetProgram(*bpf.Module, string) (*bpf.BPFProg, error)
 	AttachGeneric(*bpf.BPFProg) (*bpf.BPFLink, error)
-	DestroyLink(*bpf.BPFLink) error
 	GetMap(*bpf.Module, string) (*bpf.BPFMap, error)
 	InitRingBuf(*bpf.Module, string, chan []byte) (*bpf.RingBuffer, error)
 	Stat(string) (os.FileInfo, error)
 	Unmarshal([]byte, any) error
-	ReadOSRelease() (map[string]string, error)
 	Uname() (types.Arch, *semver.Version, error)
-	TempFile(string, string) (*os.File, error)
 	Write(*os.File, []byte) (int, error)
 	ContainerIDForPID(*ttlcache.Cache[string, string], int) (string, error)
 	GetValue(*bpf.BPFMap, uint32) ([]byte, error)
-	GetValue64(*bpf.BPFMap, uint64) ([]byte, error)
 	UpdateValue(*bpf.BPFMap, uint32, []byte) error
-	UpdateValue64(*bpf.BPFMap, uint64, []byte) error
 	DeleteKey(*bpf.BPFMap, uint32) error
-	DeleteKey64(*bpf.BPFMap, uint64) error
 	ListPods(context.Context, *kubernetes.Clientset, string) (*v1.PodList, error)
 	GetName(seccomp.ScmpSyscall) (string, error)
 	RemoveAll(string) error
 	Chown(string, int, int) error
-	CloseModule(*bpf.Module)
 	PollRingBuffer(*bpf.RingBuffer, int)
 	GoArch() string
 	Readlink(string) (string, error)
@@ -139,10 +131,6 @@ func (d *defaultImpl) AttachGeneric(prog *bpf.BPFProg) (*bpf.BPFLink, error) {
 	return prog.AttachGeneric()
 }
 
-func (d *defaultImpl) DestroyLink(link *bpf.BPFLink) error {
-	return link.Destroy()
-}
-
 func (d *defaultImpl) GetMap(module *bpf.Module, mapName string) (*bpf.BPFMap, error) {
 	return module.GetMap(mapName)
 }
@@ -163,16 +151,8 @@ func (d *defaultImpl) Unmarshal(data []byte, v any) error {
 	return json.Unmarshal(data, v)
 }
 
-func (d *defaultImpl) ReadOSRelease() (map[string]string, error) {
-	return osrelease.Read()
-}
-
 func (d *defaultImpl) Uname() (types.Arch, *semver.Version, error) {
 	return util.Uname()
-}
-
-func (d *defaultImpl) TempFile(dir, pattern string) (*os.File, error) {
-	return os.CreateTemp(dir, pattern)
 }
 
 func (d *defaultImpl) Write(file *os.File, b []byte) (n int, err error) {
@@ -194,14 +174,6 @@ func (d *defaultImpl) GetValue(m *bpf.BPFMap, key uint32) ([]byte, error) {
 	return m.GetValue(unsafe.Pointer(&key))
 }
 
-func (d *defaultImpl) GetValue64(m *bpf.BPFMap, key uint64) ([]byte, error) {
-	if m == nil {
-		return nil, errors.New("provided bpf map is nil")
-	}
-
-	return m.GetValue(unsafe.Pointer(&key))
-}
-
 func (d *defaultImpl) UpdateValue(m *bpf.BPFMap, key uint32, value []byte) error {
 	if m == nil {
 		return errors.New("provided bpf map is nil")
@@ -210,23 +182,7 @@ func (d *defaultImpl) UpdateValue(m *bpf.BPFMap, key uint32, value []byte) error
 	return m.Update(unsafe.Pointer(&key), unsafe.Pointer(&value[0]))
 }
 
-func (d *defaultImpl) UpdateValue64(m *bpf.BPFMap, key uint64, value []byte) error {
-	if m == nil {
-		return errors.New("provided bpf map is nil")
-	}
-
-	return m.Update(unsafe.Pointer(&key), unsafe.Pointer(&value[0]))
-}
-
 func (d *defaultImpl) DeleteKey(m *bpf.BPFMap, key uint32) error {
-	if m == nil {
-		return errors.New("provided bpf map is nil")
-	}
-
-	return m.DeleteKey(unsafe.Pointer(&key))
-}
-
-func (d *defaultImpl) DeleteKey64(m *bpf.BPFMap, key uint64) error {
 	if m == nil {
 		return errors.New("provided bpf map is nil")
 	}
@@ -260,10 +216,6 @@ func (d *defaultImpl) GoArch() string {
 
 func (d *defaultImpl) PollRingBuffer(b *bpf.RingBuffer, timeout int) {
 	b.Poll(timeout)
-}
-
-func (d *defaultImpl) CloseModule(m *bpf.Module) {
-	m.Close()
 }
 
 func (d *defaultImpl) Readlink(name string) (string, error) {

@@ -57,7 +57,6 @@ const (
 	// Metrics labels.
 	metricsLabelOperation      = "operation"
 	metricsLabelContainer      = "container"
-	metricsLabelExecutable     = "executable"
 	metricsLabelNamespace      = "namespace"
 	metricsLabelNode           = "node"
 	metricsLabelPod            = "pod"

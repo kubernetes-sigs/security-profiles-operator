@@ -18,6 +18,8 @@ package selinuxprofile
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -40,6 +42,25 @@ const (
 	reloadJobNamePrefix = "selinux-policy-reload-"
 	reloadJobTTL        = int32(120) // 2 minutes TTL after completion
 )
+
+// maxLabelValueLength is the Kubernetes limit for a label value.
+const maxLabelValueLength = 63
+
+// asLabelValue makes an arbitrary name usable as a label value. Profile and node
+// names may be up to 253 characters, which the API server rejects as a label
+// value, so a long name is shortened and disambiguated with a hash of the
+// original. Without this the dedup List and the Job create both fail validation
+// and policy reloads silently stop happening on that node.
+func asLabelValue(name string) string {
+	if len(name) <= maxLabelValueLength {
+		return name
+	}
+
+	sum := sha256.Sum256([]byte(name))
+	suffix := "-" + hex.EncodeToString(sum[:])[:8]
+
+	return name[:maxLabelValueLength-len(suffix)] + suffix
+}
 
 // createPolicyReloadJob creates a short-lived privileged Job to run semodule -R
 // on the current node. This is needed because on RHEL 9/OpenShift 4.20+,
@@ -66,13 +87,17 @@ func (r *ReconcileSelinux) createPolicyReloadJob(
 	}
 
 	// Check if a reload job for this node is already running or was recently created
+	// Read through the uncached API reader: r.client is backed by a
+	// cluster-scoped cache, so listing through it would start a cluster-wide
+	// Job informer, which the namespaced Jobs Role deliberately cannot
+	// LIST/WATCH. client.InNamespace only filters the cache in memory.
 	existingJobs := &batchv1.JobList{}
-	if err := r.client.List(ctx, existingJobs,
+	if err := r.clientReader.List(ctx, existingJobs,
 		client.InNamespace(namespace),
 		client.MatchingLabels{
 			"app":    "selinux-policy-reload",
-			"node":   nodeName,
-			"policy": policyName,
+			"node":   asLabelValue(nodeName),
+			"policy": asLabelValue(policyName),
 			"action": action,
 		}); err != nil {
 		l.Error(err, "Failed to list existing reload jobs")
@@ -120,8 +145,8 @@ func (r *ReconcileSelinux) createPolicyReloadJob(
 			Namespace: namespace,
 			Labels: map[string]string{
 				"app":     "selinux-policy-reload",
-				"node":    nodeName,
-				"policy":  policyName,
+				"node":    asLabelValue(nodeName),
+				"policy":  asLabelValue(policyName),
 				"action":  action,
 				"created": strconv.FormatInt(time.Now().Unix(), 10),
 			},
@@ -133,8 +158,8 @@ func (r *ReconcileSelinux) createPolicyReloadJob(
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: map[string]string{
 						"app":    "selinux-policy-reload",
-						"node":   nodeName,
-						"policy": policyName,
+						"node":   asLabelValue(nodeName),
+						"policy": asLabelValue(policyName),
 					},
 				},
 				Spec: corev1.PodSpec{

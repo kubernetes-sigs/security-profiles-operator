@@ -42,7 +42,7 @@ const (
 )
 
 func GetProcessInfo(
-	pid int, executable string, uid, gid uint32,
+	pid int, executable string, uid, gid *uint32,
 	processCache *ttlcache.Cache[int, *types.ProcessInfo],
 	impl impl,
 ) (*types.ProcessInfo, error) {
@@ -69,7 +69,7 @@ func GetProcessInfo(
 }
 
 func populateProcessCache(
-	pid int, executable string, uid, gid uint32,
+	pid int, executable string, uid, gid *uint32,
 	processCache *ttlcache.Cache[int, *types.ProcessInfo],
 	impl impl,
 ) []error {

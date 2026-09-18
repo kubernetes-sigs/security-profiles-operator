@@ -22,10 +22,11 @@ import (
 	"reflect"
 	"testing"
 
+	jsonpatch "github.com/evanphx/json-patch/v5"
 	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/require"
-	"gomodules.xyz/jsonpatch/v2"
+	gomodulesjsonpatch "gomodules.xyz/jsonpatch/v2"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -112,9 +113,9 @@ func TestHandler_Handle(t *testing.T) {
 				}, "pods"),
 			}},
 			want: admission.Response{
-				Patches: []jsonpatch.JsonPatchOperation{
+				Patches: []gomodulesjsonpatch.JsonPatchOperation{
 					{
-						Operation: "replace",
+						Operation: "add",
 						Path:      "/spec/containers/0/env",
 						Value: []corev1.EnvVar{
 							{Name: "SPO_EXEC_REQUEST_UID", Value: "test-uid"},
@@ -151,9 +152,9 @@ func TestHandler_Handle(t *testing.T) {
 				}, "pods/ephemeralcontainers"),
 			}},
 			want: admission.Response{
-				Patches: []jsonpatch.JsonPatchOperation{
+				Patches: []gomodulesjsonpatch.JsonPatchOperation{
 					{
-						Operation: "replace",
+						Operation: "add",
 						Path:      "/spec/ephemeralContainers/0/env",
 						Value: []corev1.EnvVar{
 							{Name: "SPO_EXEC_REQUEST_UID", Value: "test-uid"},
@@ -196,9 +197,9 @@ func TestHandler_Handle(t *testing.T) {
 				}, "pods/ephemeralcontainers"),
 			}},
 			want: admission.Response{
-				Patches: []jsonpatch.JsonPatchOperation{
+				Patches: []gomodulesjsonpatch.JsonPatchOperation{
 					{
-						Operation: "replace",
+						Operation: "add",
 						Path:      "/spec/ephemeralContainers/0/env",
 						Value: []corev1.EnvVar{
 							{Name: "SPO_EXEC_REQUEST_UID", Value: "test-uid"},
@@ -230,7 +231,7 @@ func TestHandler_Handle(t *testing.T) {
 				}),
 			}},
 			want: admission.Response{
-				Patches: []jsonpatch.JsonPatchOperation{
+				Patches: []gomodulesjsonpatch.JsonPatchOperation{
 					{
 						Operation: "add",
 						Path:      "/command",
@@ -267,7 +268,7 @@ func TestHandler_Handle(t *testing.T) {
 				}),
 			}},
 			want: admission.Response{
-				Patches: []jsonpatch.JsonPatchOperation{
+				Patches: []gomodulesjsonpatch.JsonPatchOperation{
 					{
 						Operation: "add",
 						Path:      "/command",
@@ -306,6 +307,60 @@ func TestHandler_Handle(t *testing.T) {
 					t.Errorf("response mismatch (-want +got):\n%s", diff)
 				}
 			}
+		})
+	}
+}
+
+// TestHandlerPatchAppliesToContainerWithoutEnv pins down why the patch uses
+// "add" and not "replace". Container.Env is omitempty, so a container that
+// declares no environment has no /spec/containers/0/env member at all, and RFC
+// 6902 makes "replace" on a missing member an error. Asserting the expected
+// operation literal alone would not catch a regression here: this test applies
+// the produced patch to the original object, which fails outright if the
+// operation is wrong.
+func TestHandlerPatchAppliesToContainerWithoutEnv(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		resource string
+		pod      *corev1.Pod
+	}{
+		{
+			name:     "node debugging pod without env",
+			resource: "pods",
+			pod: &corev1.Pod{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{Name: "debugger"}},
+				},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			req := admission.Request{AdmissionRequest: getPodAdmRequest(t, tc.pod, tc.resource)}
+
+			resp := Handler{log: logr.Discard()}.Handle(t.Context(), req)
+			require.True(t, resp.Allowed)
+			require.NotEmpty(t, resp.Patches)
+
+			raw, err := json.Marshal(resp.Patches)
+			require.NoError(t, err)
+
+			patch, err := jsonpatch.DecodePatch(raw)
+			require.NoError(t, err)
+
+			patched, err := patch.Apply(req.Object.Raw)
+			require.NoError(t, err, "the produced patch must be applicable to the original object")
+
+			result := &corev1.Pod{}
+			require.NoError(t, json.Unmarshal(patched, result))
+			require.Len(t, result.Spec.Containers, 1)
+			require.Contains(t, result.Spec.Containers[0].Env, corev1.EnvVar{
+				Name:  ExecRequestUid,
+				Value: "test-uid",
+			})
 		})
 	}
 }

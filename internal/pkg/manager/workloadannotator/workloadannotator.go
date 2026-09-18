@@ -219,24 +219,30 @@ func (r *PodReconciler) Reconcile(
 	return reconcile.Result{}, nil
 }
 
-// updatePodReferencesForSeccomp updates a SeccompProfile with the identifiers of pods using it and ensures
-// it has a finalizer indicating it is in use to prevent it from being deleted.
-func (r *PodReconciler) updatePodReferencesForSeccomp(
+// updatePodReferences updates a profile with the identifiers of the pods using
+// it and ensures it carries a finalizer indicating it is in use, so that it
+// cannot be deleted from under a running workload. It is shared by every
+// profile kind: the kinds differ only in how pods reference them and in where
+// the active workload list lives.
+func updatePodReferences[T client.Object](
 	ctx context.Context,
-	sp *seccompprofileapi.SeccompProfile,
+	r *PodReconciler,
+	prof T,
+	kind, ownerKey, profileReference string,
+	getActiveWorkloads func(T) []string,
+	setActiveWorkloads func(T, []string),
 ) error {
 	linkedPods := &corev1.PodList{}
-	profileReference := fmt.Sprintf("operator/%s.json", sp.GetName())
 
-	err := r.client.List(ctx, linkedPods, client.MatchingFields{spOwnerKey: profileReference})
+	err := r.client.List(ctx, linkedPods, client.MatchingFields{ownerKey: profileReference})
 	if util.IgnoreNotFound(err) != nil {
-		return fmt.Errorf("listing pods to update seccompProfile: %w", err)
+		return fmt.Errorf("listing pods to update %s: %w", kind, err)
 	}
 
 	podList := make([]string, len(linkedPods.Items))
 
 	for i := range linkedPods.Items {
-		pod := linkedPods.Items[i]
+		pod := &linkedPods.Items[i]
 		podList[i] = pod.Namespace + "/" + pod.Name
 	}
 
@@ -247,8 +253,8 @@ func (r *PodReconciler) updatePodReferencesForSeccomp(
 	if err := util.Retry(func() error {
 		if err := r.reader.Get(
 			ctx,
-			util.NamespacedName(sp.GetName(), sp.GetNamespace()),
-			sp,
+			util.NamespacedName(prof.GetName(), prof.GetNamespace()),
+			prof,
 		); err != nil {
 			if errors.IsNotFound(err) {
 				profileDeleted = true
@@ -259,19 +265,19 @@ func (r *PodReconciler) updatePodReferencesForSeccomp(
 			return fmt.Errorf("retrieving profile: %w", err)
 		}
 
-		if sameActiveWorkloads(sp.Status.ActiveWorkloads, podList) {
+		if sameActiveWorkloads(getActiveWorkloads(prof), podList) {
 			return nil
 		}
 
-		sp.Status.ActiveWorkloads = slices.Clone(podList)
+		setActiveWorkloads(prof, slices.Clone(podList))
 
-		if err := r.client.Status().Update(ctx, sp); err != nil {
+		if err := r.client.Status().Update(ctx, prof); err != nil {
 			return fmt.Errorf("updating profile: %w", err)
 		}
 
 		return nil
 	}, util.IsNotFoundOrConflict); err != nil {
-		return fmt.Errorf("updating SeccompProfile status: %w", err)
+		return fmt.Errorf("updating %s status: %w", kind, err)
 	}
 
 	if profileDeleted {
@@ -281,22 +287,38 @@ func (r *PodReconciler) updatePodReferencesForSeccomp(
 	if len(linkedPods.Items) > 0 {
 		if err := util.Retry(func() error {
 			return client.IgnoreNotFound(
-				util.AddFinalizer(ctx, r.client, sp, util.HasActivePodsFinalizerString),
+				util.AddFinalizer(ctx, r.client, prof, util.HasActivePodsFinalizerString),
 			)
 		}, util.IsNotFoundOrConflict); err != nil {
 			return fmt.Errorf("adding finalizer: %w", err)
 		}
-	} else {
-		if err := util.Retry(func() error {
-			return client.IgnoreNotFound(
-				util.RemoveFinalizer(ctx, r.client, sp, util.HasActivePodsFinalizerString),
-			)
-		}, util.IsNotFoundOrConflict); err != nil {
-			return fmt.Errorf("removing finalizer: %w", err)
-		}
+
+		return nil
+	}
+
+	if err := util.Retry(func() error {
+		return client.IgnoreNotFound(
+			util.RemoveFinalizer(ctx, r.client, prof, util.HasActivePodsFinalizerString),
+		)
+	}, util.IsNotFoundOrConflict); err != nil {
+		return fmt.Errorf("removing finalizer: %w", err)
 	}
 
 	return nil
+}
+
+// updatePodReferencesForSeccomp updates a SeccompProfile with the identifiers of pods using it and ensures
+// it has a finalizer indicating it is in use to prevent it from being deleted.
+func (r *PodReconciler) updatePodReferencesForSeccomp(
+	ctx context.Context,
+	sp *seccompprofileapi.SeccompProfile,
+) error {
+	return updatePodReferences(
+		ctx, r, sp,
+		"seccompProfile", spOwnerKey, fmt.Sprintf("operator/%s.json", sp.GetName()),
+		func(p *seccompprofileapi.SeccompProfile) []string { return p.Status.ActiveWorkloads },
+		func(p *seccompprofileapi.SeccompProfile, w []string) { p.Status.ActiveWorkloads = w },
+	)
 }
 
 func sameActiveWorkloads(current, desired []string) bool {
@@ -319,78 +341,12 @@ func (r *PodReconciler) updatePodReferencesForSelinux(
 	ctx context.Context,
 	se *selinuxprofileapi.SelinuxProfile,
 ) error {
-	linkedPods := &corev1.PodList{}
-	profileReference := se.GetPolicyUsage()
-
-	err := r.client.List(ctx, linkedPods, client.MatchingFields{seOwnerKey: profileReference})
-	if util.IgnoreNotFound(err) != nil {
-		return fmt.Errorf("listing pods to update selinuxProfile: %w", err)
-	}
-
-	podList := make([]string, len(linkedPods.Items))
-
-	for i := range linkedPods.Items {
-		pod := linkedPods.Items[i]
-		podList[i] = pod.Namespace + "/" + pod.Name
-	}
-
-	slices.Sort(podList)
-
-	profileDeleted := false
-
-	if err := util.Retry(func() error {
-		if err := r.reader.Get(
-			ctx,
-			util.NamespacedName(se.GetName(), se.GetNamespace()),
-			se,
-		); err != nil {
-			if errors.IsNotFound(err) {
-				profileDeleted = true
-
-				return nil
-			}
-
-			return fmt.Errorf("retrieving profile: %w", err)
-		}
-
-		if sameActiveWorkloads(se.Status.ActiveWorkloads, podList) {
-			return nil
-		}
-
-		se.Status.ActiveWorkloads = slices.Clone(podList)
-
-		if err := r.client.Status().Update(ctx, se); err != nil {
-			return fmt.Errorf("updating profile: %w", err)
-		}
-
-		return nil
-	}, util.IsNotFoundOrConflict); err != nil {
-		return fmt.Errorf("updating SelinuxProfile status: %w", err)
-	}
-
-	if profileDeleted {
-		return nil
-	}
-
-	if len(linkedPods.Items) > 0 {
-		if err := util.Retry(func() error {
-			return client.IgnoreNotFound(
-				util.AddFinalizer(ctx, r.client, se, util.HasActivePodsFinalizerString),
-			)
-		}, util.IsNotFoundOrConflict); err != nil {
-			return fmt.Errorf("adding finalizer: %w", err)
-		}
-	} else {
-		if err := util.Retry(func() error {
-			return client.IgnoreNotFound(
-				util.RemoveFinalizer(ctx, r.client, se, util.HasActivePodsFinalizerString),
-			)
-		}, util.IsNotFoundOrConflict); err != nil {
-			return fmt.Errorf("removing finalizer: %w", err)
-		}
-	}
-
-	return nil
+	return updatePodReferences(
+		ctx, r, se,
+		"selinuxProfile", seOwnerKey, se.GetPolicyUsage(),
+		func(p *selinuxprofileapi.SelinuxProfile) []string { return p.Status.ActiveWorkloads },
+		func(p *selinuxprofileapi.SelinuxProfile, w []string) { p.Status.ActiveWorkloads = w },
+	)
 }
 
 // getSeccompProfilesFromPod returns a slice of strings representing seccomp profiles required by the pod.
@@ -410,7 +366,7 @@ func getSeccompProfilesFromPod(pod *corev1.Pod) []string {
 		sc := containers[i].SecurityContext
 		if sc != nil && isOperatorSeccompProfile(sc.SeccompProfile) {
 			profileString := *containers[i].SecurityContext.SeccompProfile.LocalhostProfile
-			if !util.Contains(profiles, profileString) {
+			if !slices.Contains(profiles, profileString) {
 				profiles = append(profiles, profileString)
 			}
 		}
@@ -424,7 +380,7 @@ func getSeccompProfilesFromPod(pod *corev1.Pod) []string {
 			LocalhostProfile: &profileString,
 		}
 
-		if !util.Contains(profiles, profileString) && isOperatorSeccompProfile(spCheck) {
+		if !slices.Contains(profiles, profileString) && isOperatorSeccompProfile(spCheck) {
 			profiles = append(profiles, profileString)
 		}
 	}
@@ -452,7 +408,7 @@ func getSelinuxProfilesFromPod(ctx context.Context, r *PodReconciler, pod *corev
 		if sc != nil {
 			if isOperatorSelinuxType(ctx, r, sc.SELinuxOptions, "") {
 				profileString := containers[i].SecurityContext.SELinuxOptions.Type
-				if !util.Contains(profiles, profileString) {
+				if !slices.Contains(profiles, profileString) {
 					profiles = append(profiles, profileString)
 				}
 			}

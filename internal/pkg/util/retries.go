@@ -34,13 +34,18 @@ func IsNotFoundOrConflict(err error) bool {
 	return kerrors.IsNotFound(err) || kerrors.IsConflict(err)
 }
 
-// Retry attempts to execute fn up to 5 times if its failure meets retryCondition.
-func Retry(fn func() error, retryCondition func(error) bool) error {
-	backoff := wait.Backoff{
+// DefaultBackoff returns the retry backoff used by Retry.
+func DefaultBackoff() wait.Backoff {
+	return wait.Backoff{
 		Duration: backoffDuration,
 		Factor:   backoffFactor,
 		Steps:    backoffSteps,
 	}
+}
+
+// Retry attempts to execute fn up to 5 times if its failure meets retryCondition.
+func Retry(fn func() error, retryCondition func(error) bool) error {
+	backoff := DefaultBackoff()
 
 	return RetryEx(&backoff, fn, retryCondition)
 }

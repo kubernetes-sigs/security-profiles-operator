@@ -60,6 +60,22 @@ done
 BUILD_STARTED="${BUILD_STARTED:-$(cat "$BUILD_DIR/build-started")}"
 BUILD_IMAGE="$(cat "$BUILD_DIR/build-image")"
 
+# The nixpkgs revision the build toolchain is pinned to. It materially affects
+# the output, so it belongs in resolvedDependencies alongside the source and the
+# build image.
+# `jq -r` prints the string "null" for a missing node, which would end up in a
+# provenance that still verifies while claiming a gitCommit of "null", so fail
+# loudly instead. The lock file is addressed relative to this script, not to the
+# working directory.
+FLAKE_LOCK="$(dirname "${BASH_SOURCE[0]}")/../flake.lock"
+NIXPKGS_REV=$("$(jq_bin)" -er \
+  '.nodes.nixpkgs.locked.rev // error("no nixpkgs rev in flake.lock")' "$FLAKE_LOCK")
+NIXPKGS_URL=$("$(jq_bin)" -er '
+  .nodes.nixpkgs.locked
+  | if .type != "github" then error("unexpected nixpkgs lock type \(.type)") else . end
+  | "git+https://github.com/\(.owner // error("no nixpkgs owner in flake.lock"))/\(.repo // error("no nixpkgs repo in flake.lock"))"
+  ' "$FLAKE_LOCK")
+
 # The workspace comes from another user, so git needs to be told to trust it.
 COMMIT=$(git -c safe.directory='*' rev-parse HEAD)
 REF=$(git -c safe.directory='*' symbolic-ref -q HEAD || echo "$COMMIT")
@@ -76,6 +92,8 @@ for ref in "${REFS[@]}"; do
     --arg commit "$COMMIT" \
     --arg buildImage "${BUILD_IMAGE%@*}" \
     --arg buildImageDigest "${BUILD_IMAGE#*@sha256:}" \
+    --arg nixpkgsURL "$NIXPKGS_URL" \
+    --arg nixpkgsRev "$NIXPKGS_REV" \
     --arg tag "$TAG" \
     --arg project "$PROJECT_ID" \
     --arg serviceAccount "${SERVICE_ACCOUNT_EMAIL:-}" \
@@ -96,7 +114,8 @@ for ref in "${REFS[@]}"; do
         },
         resolvedDependencies: [
           {uri: $source, digest: {gitCommit: $commit}},
-          {uri: "oci://\($buildImage)", digest: {sha256: $buildImageDigest}}
+          {uri: "oci://\($buildImage)", digest: {sha256: $buildImageDigest}},
+          {uri: $nixpkgsURL, digest: {gitCommit: $nixpkgsRev}}
         ]
       },
       runDetails: {

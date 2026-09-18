@@ -214,7 +214,12 @@ func (*defaultImpl) InstallApparmor(manager apparmorprofile.ProfileManager, file
 		return errors.New("failed converting apparmor profile")
 	}
 
-	if _, err := manager.InstallProfile(ap); err != nil {
+	// These are the operator's own bundled profiles, shipped in the image, so
+	// they are ours by construction. Passing false here would make the init
+	// container fail on every upgrade from a release that installed them before
+	// the ownership marker existed: the policy is loaded and its file carries no
+	// marker, so the guard would refuse to replace it and crash-loop the pod.
+	if _, err := manager.InstallProfile(ap, true); err != nil {
 		return fmt.Errorf("installing apparmor profile: %w", err)
 	}
 

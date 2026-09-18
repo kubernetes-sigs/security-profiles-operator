@@ -19,7 +19,6 @@ limitations under the License.
 package bpfrecorder
 
 import (
-	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -49,6 +48,42 @@ type bpfExecEvent struct {
 	Env      [maxEnv][maxEnvLen]uint8
 	ArgsLen  uint32
 	EnvLen   uint32
+}
+
+// bpfExecEventSize is the packed wire size of bpfExecEvent.
+const bpfExecEventSize = bpfEventSize +
+	maxFileNameLen +
+	maxArgs*maxArgLen +
+	maxEnv*maxEnvLen +
+	4 + 4
+
+// unmarshal decodes a bpfExecEvent from the raw ring buffer bytes, avoiding the
+// reflection cost of binary.Read over the embedded fixed-size arrays.
+func (e *bpfExecEvent) unmarshal(raw []byte) bool {
+	if len(raw) < bpfExecEventSize {
+		return false
+	}
+
+	if !e.bpfEvent.unmarshal(raw) {
+		return false
+	}
+
+	off := bpfEventSize
+	off += copy(e.Filename[:], raw[off:off+maxFileNameLen])
+
+	for i := range maxArgs {
+		off += copy(e.Args[i][:], raw[off:off+maxArgLen])
+	}
+
+	for i := range maxEnv {
+		off += copy(e.Env[i][:], raw[off:off+maxEnvLen])
+	}
+
+	e.ArgsLen = binary.LittleEndian.Uint32(raw[off : off+4])
+	off += 4
+	e.EnvLen = binary.LittleEndian.Uint32(raw[off : off+4])
+
+	return true
 }
 
 type BpfProcessInfo struct {
@@ -183,9 +218,11 @@ func (b *BpfProcessCache) processEvents(events chan []byte) {
 func (b *BpfProcessCache) handleEvent(eventBytes []byte) {
 	var execEvent bpfExecEvent
 
-	errExecEvent := binary.Read(bytes.NewReader(eventBytes), binary.LittleEndian, &execEvent)
-	if errExecEvent != nil {
-		b.logger.Error(errExecEvent, "Couldn't read event structure")
+	if !execEvent.unmarshal(eventBytes) {
+		b.logger.Error(
+			errShortEvent, "Couldn't read event structure",
+			"got", len(eventBytes), "want", bpfExecEventSize,
+		)
 
 		return
 	}

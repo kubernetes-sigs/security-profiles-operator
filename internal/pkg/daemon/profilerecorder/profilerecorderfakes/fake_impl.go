@@ -179,6 +179,21 @@ type FakeImpl struct {
 		result1 seccomp.Arch
 		result2 error
 	}
+	ListRecordingsStub        func(context.Context, client.Client, string) (*v1a.ProfileRecordingList, error)
+	listRecordingsMutex       sync.RWMutex
+	listRecordingsArgsForCall []struct {
+		arg1 context.Context
+		arg2 client.Client
+		arg3 string
+	}
+	listRecordingsReturns struct {
+		result1 *v1a.ProfileRecordingList
+		result2 error
+	}
+	listRecordingsReturnsOnCall map[int]struct {
+		result1 *v1a.ProfileRecordingList
+		result2 error
+	}
 	ManagerGetClientStub        func(manager.Manager) client.Client
 	managerGetClientMutex       sync.RWMutex
 	managerGetClientArgsForCall []struct {
@@ -946,6 +961,72 @@ func (fake *FakeImpl) GoArchToSeccompArchReturnsOnCall(i int, result1 seccomp.Ar
 	}
 	fake.goArchToSeccompArchReturnsOnCall[i] = struct {
 		result1 seccomp.Arch
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) ListRecordings(arg1 context.Context, arg2 client.Client, arg3 string) (*v1a.ProfileRecordingList, error) {
+	fake.listRecordingsMutex.Lock()
+	ret, specificReturn := fake.listRecordingsReturnsOnCall[len(fake.listRecordingsArgsForCall)]
+	fake.listRecordingsArgsForCall = append(fake.listRecordingsArgsForCall, struct {
+		arg1 context.Context
+		arg2 client.Client
+		arg3 string
+	}{arg1, arg2, arg3})
+	stub := fake.ListRecordingsStub
+	fakeReturns := fake.listRecordingsReturns
+	fake.recordInvocation("ListRecordings", []interface{}{arg1, arg2, arg3})
+	fake.listRecordingsMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) ListRecordingsCallCount() int {
+	fake.listRecordingsMutex.RLock()
+	defer fake.listRecordingsMutex.RUnlock()
+	return len(fake.listRecordingsArgsForCall)
+}
+
+func (fake *FakeImpl) ListRecordingsCalls(stub func(context.Context, client.Client, string) (*v1a.ProfileRecordingList, error)) {
+	fake.listRecordingsMutex.Lock()
+	defer fake.listRecordingsMutex.Unlock()
+	fake.ListRecordingsStub = stub
+}
+
+func (fake *FakeImpl) ListRecordingsArgsForCall(i int) (context.Context, client.Client, string) {
+	fake.listRecordingsMutex.RLock()
+	defer fake.listRecordingsMutex.RUnlock()
+	argsForCall := fake.listRecordingsArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *FakeImpl) ListRecordingsReturns(result1 *v1a.ProfileRecordingList, result2 error) {
+	fake.listRecordingsMutex.Lock()
+	defer fake.listRecordingsMutex.Unlock()
+	fake.ListRecordingsStub = nil
+	fake.listRecordingsReturns = struct {
+		result1 *v1a.ProfileRecordingList
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) ListRecordingsReturnsOnCall(i int, result1 *v1a.ProfileRecordingList, result2 error) {
+	fake.listRecordingsMutex.Lock()
+	defer fake.listRecordingsMutex.Unlock()
+	fake.ListRecordingsStub = nil
+	if fake.listRecordingsReturnsOnCall == nil {
+		fake.listRecordingsReturnsOnCall = make(map[int]struct {
+			result1 *v1a.ProfileRecordingList
+			result2 error
+		})
+	}
+	fake.listRecordingsReturnsOnCall[i] = struct {
+		result1 *v1a.ProfileRecordingList
 		result2 error
 	}{result1, result2}
 }

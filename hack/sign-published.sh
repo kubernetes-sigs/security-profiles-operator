@@ -15,7 +15,11 @@
 
 # Signs already published artifacts that have no valid signature yet, for
 # example versions that were published before the build could sign. Artifacts
-# signed by SIGNER_IDENTITY_REGEXP (any identity by default) are left alone.
+# signed by SIGNER_IDENTITY_REGEXP are left alone. The two regexps are never
+# defaulted to ".*": that would mean an attacker's signature counts as "already
+# signed" and suppresses re-signing. When they are unset, as on a manual run,
+# nothing is treated as already signed and every ref is signed again, which is
+# harmless because a second signature is simply added.
 # SIGN=false skips signing.
 
 set -euo pipefail
@@ -23,19 +27,23 @@ set -euo pipefail
 BUILD_DIR="${BUILD_DIR:-build}"
 SPOC="${SPOC:-$BUILD_DIR/spoc}"
 SIGN="${SIGN:-true}"
-SIGNER_IDENTITY_REGEXP="${SIGNER_IDENTITY_REGEXP:-.*}"
-SIGNER_OIDC_ISSUER_REGEXP="${SIGNER_OIDC_ISSUER_REGEXP:-.*}"
+SIGNER_IDENTITY_REGEXP="${SIGNER_IDENTITY_REGEXP:-}"
+SIGNER_OIDC_ISSUER_REGEXP="${SIGNER_OIDC_ISSUER_REGEXP:-}"
 
 if [[ "$SIGN" != "true" ]]; then
   exit 0
 fi
 
 for ref in "$@"; do
-  if "$SPOC" pull -o /dev/null \
-      --allowed-identity-regexp "$SIGNER_IDENTITY_REGEXP" \
-      --allowed-oidc-issuer-regexp "$SIGNER_OIDC_ISSUER_REGEXP" \
-      "$ref" >/dev/null 2>&1; then
-    continue
+  if [[ -n "$SIGNER_IDENTITY_REGEXP" && -n "$SIGNER_OIDC_ISSUER_REGEXP" ]]; then
+    if "$SPOC" pull -o /dev/null \
+        --allowed-identity-regexp "$SIGNER_IDENTITY_REGEXP" \
+        --allowed-oidc-issuer-regexp "$SIGNER_OIDC_ISSUER_REGEXP" \
+        "$ref" >/dev/null 2>&1; then
+      continue
+    fi
+  else
+    echo "No signer identity configured, signing $ref without checking for an existing signature"
   fi
 
   echo "No valid signature on $ref, signing it"

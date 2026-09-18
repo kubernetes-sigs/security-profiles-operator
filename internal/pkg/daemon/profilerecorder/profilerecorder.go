@@ -36,6 +36,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	k8slabels "k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -80,7 +81,17 @@ const (
 
 var errNameNotValid = errors.New(
 	"recording name is not valid DNS1123 subdomain, check profileRecording events")
-var errRecordedProfileNotFound = errors.New("recorded profile not found")
+
+var (
+	errRecordedProfileNotFound = errors.New("recorded profile not found")
+	errRecordingGone           = errors.New("profile recording no longer exists")
+)
+
+// unrecordable reports whether a collect error means the pod can never be
+// collected, so that the reconciler releases it instead of requeuing forever.
+func unrecordable(err error) bool {
+	return errors.Is(err, errNameNotValid) || errors.Is(err, errRecordingGone)
+}
 
 // NewController returns a new empty controller instance.
 func NewController() controller.Controller {
@@ -214,6 +225,128 @@ func (r *RecorderReconciler) isPodWithTraceAnnotation(obj runtime.Object) bool {
 	return false
 }
 
+// shouldRecordContainer mirrors the webhook's container selection: an empty
+// container list means every container of the pod is recorded.
+func shouldRecordContainer(
+	containerName string, recording *profilerecordingapi.ProfileRecording,
+) bool {
+	if recording.Spec.Containers == nil {
+		return true
+	}
+
+	return slices.Contains(recording.Spec.Containers, containerName)
+}
+
+// authorizedProfiles drops the profiles whose annotation is not backed by a
+// ProfileRecording that selects this pod.
+//
+// The trace annotations are written by the recording webhook, but that webhook
+// is gated by a namespace selector, so in a namespace where it never runs the
+// pod author controls them outright. Profiles are cluster scoped and the
+// recorded profile is named after the annotation, so an unfiltered annotation
+// lets any user who can create a pod drive this privileged daemon into
+// creating or overwriting an arbitrarily named profile that other namespaces
+// may rely on.
+func (r *RecorderReconciler) authorizedProfiles(
+	ctx context.Context,
+	pod *corev1.Pod,
+	profiles []profileToCollect,
+	recorder profilerecordingapi.ProfileRecorder,
+) ([]profileToCollect, error) {
+	if len(profiles) == 0 {
+		return profiles, nil
+	}
+
+	recordings, err := r.ListRecordings(ctx, r.client, pod.Namespace)
+	if err != nil {
+		return nil, fmt.Errorf("list profile recordings: %w", err)
+	}
+
+	podLabels := k8slabels.Set(pod.GetLabels())
+	authorized := make([]profileToCollect, 0, len(profiles))
+
+	for _, profile := range profiles {
+		// The annotation value starts with the recording and container name.
+		// The trailing nonce and timestamp are not predictable, and are not
+		// security relevant because the recorded profile is named from the
+		// first two fields.
+		parsed, err := parseProfileAnnotation(profile.name)
+		if err != nil {
+			// Report it here and drop it. Passing it through would make the
+			// caller see a non-empty profile list and arm the node's BPF
+			// recorder, which is exactly what authorization must prevent, and
+			// the downstream handling requeues such an annotation forever.
+			r.log.Info(
+				"Ignoring malformed recording annotation",
+				"pod", pod.Name, "namespace", pod.Namespace,
+				"annotation", profile.name, "error", err.Error(),
+			)
+			r.record.Event(pod, util.EventTypeWarning, reasonAnnotationParsing,
+				"ignoring malformed recording annotation: "+err.Error())
+
+			continue
+		}
+
+		if r.recordingAuthorizes(recordings, podLabels, parsed, profile.kind, recorder) {
+			authorized = append(authorized, profile)
+
+			continue
+		}
+
+		r.log.Info(
+			"Ignoring recording annotation with no matching profile recording",
+			"pod", pod.Name, "namespace", pod.Namespace,
+			"recording", parsed.profileName, "container", parsed.cntName,
+		)
+		r.record.Event(pod, util.EventTypeWarning, reasonAnnotationParsing,
+			"ignoring recording annotation with no matching profile recording: "+
+				parsed.profileName)
+	}
+
+	return authorized, nil
+}
+
+// recordingAuthorizes reports whether one of the recordings asks for exactly
+// this profile: same name, same kind, same recorder, a selector that matches
+// the pod and a container the recording covers.
+func (r *RecorderReconciler) recordingAuthorizes(
+	recordings *profilerecordingapi.ProfileRecordingList,
+	podLabels k8slabels.Set,
+	parsed *parsedAnnotation,
+	kind profilerecordingapi.ProfileRecordingKind,
+	recorder profilerecordingapi.ProfileRecorder,
+) bool {
+	for i := range recordings.Items {
+		recording := &recordings.Items[i]
+
+		if recording.Name != parsed.profileName ||
+			recording.Spec.Kind != kind ||
+			recording.Spec.Recorder != recorder {
+			continue
+		}
+
+		selector, err := metav1.LabelSelectorAsSelector(recording.Spec.PodSelector)
+		if err != nil {
+			r.log.Error(err, "Invalid pod selector on profile recording",
+				"recording", recording.Name)
+
+			continue
+		}
+
+		if !selector.Matches(podLabels) {
+			continue
+		}
+
+		if !shouldRecordContainer(parsed.cntName, recording) {
+			continue
+		}
+
+		return true
+	}
+
+	return false
+}
+
 // Reconcile reconciles a pod event for profile recording.
 //
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
@@ -230,9 +363,12 @@ func (r *RecorderReconciler) Reconcile(
 	if err != nil {
 		if kerrors.IsNotFound(err) {
 			collErr := r.collectProfile(ctx, req.NamespacedName)
-			if errors.Is(collErr, errNameNotValid) {
+			if unrecordable(collErr) {
 				logger.Error(collErr, "cannot collect profile")
-				// not reconcilable, no need to requeue
+				// Not reconcilable, so nothing will ever collect this pod:
+				// release it rather than leaking the watch and the recorder.
+				r.releaseUnrecordablePod(ctx, req.NamespacedName)
+
 				return reconcile.Result{}, nil
 			} else if collErr != nil {
 				return reconcile.Result{}, fmt.Errorf(
@@ -286,18 +422,33 @@ func (r *RecorderReconciler) Reconcile(
 			profiles = logProfiles
 			recorder = profilerecordingapi.ProfileRecorderLogs
 		} else if len(bpfProfiles) > 0 {
-			if err := r.startBpfRecorder(ctx); err != nil {
-				logger.Error(err, "unable to start bpf recorder")
-
-				return reconcile.Result{}, err
-			}
-
 			profiles = bpfProfiles
 			recorder = profilerecordingapi.ProfileRecorderBpf
 		} else {
 			logger.Info("No log or bpf annotations found on pod")
 
 			return reconcile.Result{}, nil
+		}
+
+		// Authorize before anything with side effects: arming the node's BPF
+		// recorder must not be reachable from a pod annotation alone.
+		profiles, err = r.authorizedProfiles(ctx, pod, profiles, recorder)
+		if err != nil {
+			return reconcile.Result{}, err
+		}
+
+		if len(profiles) == 0 {
+			logger.Info("No profile recording requests the annotations on this pod")
+
+			return reconcile.Result{}, nil
+		}
+
+		if recorder == profilerecordingapi.ProfileRecorderBpf {
+			if err := r.startBpfRecorder(ctx); err != nil {
+				logger.Error(err, "unable to start bpf recorder")
+
+				return reconcile.Result{}, err
+			}
 		}
 
 		for _, prf := range profiles {
@@ -328,9 +479,12 @@ func (r *RecorderReconciler) Reconcile(
 
 	if pod.Status.Phase == corev1.PodSucceeded {
 		collErr := r.collectProfile(ctx, req.NamespacedName)
-		if errors.Is(collErr, errNameNotValid) {
+		if unrecordable(collErr) {
 			logger.Error(collErr, "cannot collect profile")
-			// not reconcilable, no need to requeue
+			// Not reconcilable, so nothing will ever collect this pod:
+			// release it rather than leaking the watch and the recorder.
+			r.releaseUnrecordablePod(ctx, req.NamespacedName)
+
 			return reconcile.Result{}, nil
 		} else if collErr != nil {
 			return reconcile.Result{}, fmt.Errorf("collect profile for succeeded pod: %w", collErr)
@@ -407,6 +561,29 @@ func (r *RecorderReconciler) stopBpfRecorder(ctx context.Context) error {
 	r.log.Info("Stopping BPF recorder on node")
 
 	return r.StopBpfRecorder(ctx, recorderClient)
+}
+
+// releaseUnrecordablePod drops a pod whose profiles can never be collected. It
+// must undo whatever Reconcile set up, otherwise the watch entry leaks and, for
+// the BPF recorder, the node stays armed for the lifetime of the daemon.
+func (r *RecorderReconciler) releaseUnrecordablePod(
+	ctx context.Context, podName types.NamespacedName,
+) {
+	n := podName.String()
+
+	value, ok := r.podsToWatch.Load(n)
+	if !ok {
+		return
+	}
+
+	if podToWatch, ok := value.(podToWatch); ok &&
+		podToWatch.recorder == profilerecordingapi.ProfileRecorderBpf {
+		if err := r.stopBpfRecorder(ctx); err != nil {
+			r.log.Error(err, "Unable to stop bpf recorder for unrecordable pod")
+		}
+	}
+
+	r.podsToWatch.Delete(n)
 }
 
 func (r *RecorderReconciler) collectProfile(
@@ -1205,7 +1382,7 @@ func (r *RecorderReconciler) generateAppArmorProfileAbstract(
 			net.Protocols = &proto
 		}
 
-		if response.GetSocket().GetUseTcp() {
+		if response.GetSocket().GetUseUdp() {
 			proto.AllowUDP = &enabled
 			net.Protocols = &proto
 		}
@@ -1306,18 +1483,32 @@ func createProfileNameForRecording(
 	), nil
 }
 
-// parseLogAnnotations parses the provided annotations and extracts the
-// mandatory output profiles for the log recorder.
-func parseLogAnnotations(annotations map[string]string) (res []profileToCollect, err error) {
+// annotationKind maps an annotation key prefix to the profile kind it records.
+type annotationKind struct {
+	prefix string
+	kind   profilerecordingapi.ProfileRecordingKind
+}
+
+// parseAnnotations parses the provided annotations and extracts the mandatory
+// output profiles for the recorder described by kinds.
+func parseAnnotations(
+	annotations map[string]string, kinds []annotationKind,
+) (res []profileToCollect, err error) {
 	for key, profile := range annotations {
 		var collectProfile profileToCollect
 
-		//nolint:gocritic
-		if strings.HasPrefix(key, config.SeccompProfileRecordLogsAnnotationKey) {
-			collectProfile.kind = profilerecordingapi.ProfileRecordingKindSeccompProfile
-		} else if strings.HasPrefix(key, config.SelinuxProfileRecordLogsAnnotationKey) {
-			collectProfile.kind = profilerecordingapi.ProfileRecordingKindSelinuxProfile
-		} else {
+		matched := false
+
+		for _, k := range kinds {
+			if strings.HasPrefix(key, k.prefix) {
+				collectProfile.kind = k.kind
+				matched = true
+
+				break
+			}
+		}
+
+		if !matched {
 			continue
 		}
 
@@ -1336,34 +1527,34 @@ func parseLogAnnotations(annotations map[string]string) (res []profileToCollect,
 	return res, nil
 }
 
+// parseLogAnnotations parses the provided annotations and extracts the
+// mandatory output profiles for the log recorder.
+func parseLogAnnotations(annotations map[string]string) ([]profileToCollect, error) {
+	return parseAnnotations(annotations, []annotationKind{
+		{
+			config.SeccompProfileRecordLogsAnnotationKey,
+			profilerecordingapi.ProfileRecordingKindSeccompProfile,
+		},
+		{
+			config.SelinuxProfileRecordLogsAnnotationKey,
+			profilerecordingapi.ProfileRecordingKindSelinuxProfile,
+		},
+	})
+}
+
 // parseBpfAnnotations parses the provided annotations and extracts the
 // mandatory output profiles for the bpf recorder.
-func parseBpfAnnotations(annotations map[string]string) (res []profileToCollect, err error) {
-	for key, profile := range annotations {
-		var collectProfile profileToCollect
-
-		//nolint:gocritic
-		if strings.HasPrefix(key, config.SeccompProfileRecordBpfAnnotationKey) {
-			collectProfile.kind = profilerecordingapi.ProfileRecordingKindSeccompProfile
-		} else if strings.HasPrefix(key, config.ApparmorProfileRecordBpfAnnotationKey) {
-			collectProfile.kind = profilerecordingapi.ProfileRecordingKindAppArmorProfile
-		} else {
-			continue
-		}
-
-		if profile == "" {
-			return nil, fmt.Errorf(
-				"%s: providing output profile is mandatory",
-				errInvalidAnnotation,
-			)
-		}
-
-		collectProfile.name = profile
-
-		res = append(res, collectProfile)
-	}
-
-	return res, nil
+func parseBpfAnnotations(annotations map[string]string) ([]profileToCollect, error) {
+	return parseAnnotations(annotations, []annotationKind{
+		{
+			config.SeccompProfileRecordBpfAnnotationKey,
+			profilerecordingapi.ProfileRecordingKindSeccompProfile,
+		},
+		{
+			config.ApparmorProfileRecordBpfAnnotationKey,
+			profilerecordingapi.ProfileRecordingKindAppArmorProfile,
+		},
+	})
 }
 
 type seProfileBuilder struct {
@@ -1493,9 +1684,11 @@ func profilePartial(
 	err := r.ClientGet(
 		ctx, r.client, client.ObjectKey{Name: profileName, Namespace: namespace}, &recorder)
 	if kerrors.IsNotFound(err) {
-		// in case the recording disappeared, we consider the profiles ready and let
-		// the admin deal with them
-		return true, err
+		// Nothing is left to merge the partial profiles, and answering "not
+		// partial" here would drop the per-replica suffix and make every
+		// replica overwrite the same profile name. Report it as terminal so the
+		// reconciler releases the pod instead of requeuing forever.
+		return false, errRecordingGone
 	} else if err != nil {
 		return false, err
 	}

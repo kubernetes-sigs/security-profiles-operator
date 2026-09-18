@@ -122,11 +122,6 @@ type FakeImpl struct {
 	closeGRPCReturnsOnCall map[int]struct {
 		result1 error
 	}
-	CloseModuleStub        func(*libbpfgo.Module)
-	closeModuleMutex       sync.RWMutex
-	closeModuleArgsForCall []struct {
-		arg1 *libbpfgo.Module
-	}
 	ContainerIDForPIDStub        func(*ttlcache.Cache[string, string], int) (string, error)
 	containerIDForPIDMutex       sync.RWMutex
 	containerIDForPIDArgsForCall []struct {
@@ -151,29 +146,6 @@ type FakeImpl struct {
 		result1 error
 	}
 	deleteKeyReturnsOnCall map[int]struct {
-		result1 error
-	}
-	DeleteKey64Stub        func(*libbpfgo.BPFMap, uint64) error
-	deleteKey64Mutex       sync.RWMutex
-	deleteKey64ArgsForCall []struct {
-		arg1 *libbpfgo.BPFMap
-		arg2 uint64
-	}
-	deleteKey64Returns struct {
-		result1 error
-	}
-	deleteKey64ReturnsOnCall map[int]struct {
-		result1 error
-	}
-	DestroyLinkStub        func(*libbpfgo.BPFLink) error
-	destroyLinkMutex       sync.RWMutex
-	destroyLinkArgsForCall []struct {
-		arg1 *libbpfgo.BPFLink
-	}
-	destroyLinkReturns struct {
-		result1 error
-	}
-	destroyLinkReturnsOnCall map[int]struct {
 		result1 error
 	}
 	DialMetricsStub        func() (*grpc.ClientConn, error)
@@ -240,20 +212,6 @@ type FakeImpl struct {
 		result2 error
 	}
 	getValueReturnsOnCall map[int]struct {
-		result1 []byte
-		result2 error
-	}
-	GetValue64Stub        func(*libbpfgo.BPFMap, uint64) ([]byte, error)
-	getValue64Mutex       sync.RWMutex
-	getValue64ArgsForCall []struct {
-		arg1 *libbpfgo.BPFMap
-		arg2 uint64
-	}
-	getValue64Returns struct {
-		result1 []byte
-		result2 error
-	}
-	getValue64ReturnsOnCall map[int]struct {
 		result1 []byte
 		result2 error
 	}
@@ -392,18 +350,6 @@ type FakeImpl struct {
 		arg1 *libbpfgo.RingBuffer
 		arg2 int
 	}
-	ReadOSReleaseStub        func() (map[string]string, error)
-	readOSReleaseMutex       sync.RWMutex
-	readOSReleaseArgsForCall []struct {
-	}
-	readOSReleaseReturns struct {
-		result1 map[string]string
-		result2 error
-	}
-	readOSReleaseReturnsOnCall map[int]struct {
-		result1 map[string]string
-		result2 error
-	}
 	ReadlinkStub        func(string) (string, error)
 	readlinkMutex       sync.RWMutex
 	readlinkArgsForCall []struct {
@@ -465,20 +411,6 @@ type FakeImpl struct {
 		result1 os.FileInfo
 		result2 error
 	}
-	TempFileStub        func(string, string) (*os.File, error)
-	tempFileMutex       sync.RWMutex
-	tempFileArgsForCall []struct {
-		arg1 string
-		arg2 string
-	}
-	tempFileReturns struct {
-		result1 *os.File
-		result2 error
-	}
-	tempFileReturnsOnCall map[int]struct {
-		result1 *os.File
-		result2 error
-	}
 	UnameStub        func() (types.Arch, *semver.Version, error)
 	unameMutex       sync.RWMutex
 	unameArgsForCall []struct {
@@ -516,19 +448,6 @@ type FakeImpl struct {
 		result1 error
 	}
 	updateValueReturnsOnCall map[int]struct {
-		result1 error
-	}
-	UpdateValue64Stub        func(*libbpfgo.BPFMap, uint64, []byte) error
-	updateValue64Mutex       sync.RWMutex
-	updateValue64ArgsForCall []struct {
-		arg1 *libbpfgo.BPFMap
-		arg2 uint64
-		arg3 []byte
-	}
-	updateValue64Returns struct {
-		result1 error
-	}
-	updateValue64ReturnsOnCall map[int]struct {
 		result1 error
 	}
 	WriteStub        func(*os.File, []byte) (int, error)
@@ -984,38 +903,6 @@ func (fake *FakeImpl) CloseGRPCReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
-func (fake *FakeImpl) CloseModule(arg1 *libbpfgo.Module) {
-	fake.closeModuleMutex.Lock()
-	fake.closeModuleArgsForCall = append(fake.closeModuleArgsForCall, struct {
-		arg1 *libbpfgo.Module
-	}{arg1})
-	stub := fake.CloseModuleStub
-	fake.recordInvocation("CloseModule", []interface{}{arg1})
-	fake.closeModuleMutex.Unlock()
-	if stub != nil {
-		fake.CloseModuleStub(arg1)
-	}
-}
-
-func (fake *FakeImpl) CloseModuleCallCount() int {
-	fake.closeModuleMutex.RLock()
-	defer fake.closeModuleMutex.RUnlock()
-	return len(fake.closeModuleArgsForCall)
-}
-
-func (fake *FakeImpl) CloseModuleCalls(stub func(*libbpfgo.Module)) {
-	fake.closeModuleMutex.Lock()
-	defer fake.closeModuleMutex.Unlock()
-	fake.CloseModuleStub = stub
-}
-
-func (fake *FakeImpl) CloseModuleArgsForCall(i int) *libbpfgo.Module {
-	fake.closeModuleMutex.RLock()
-	defer fake.closeModuleMutex.RUnlock()
-	argsForCall := fake.closeModuleArgsForCall[i]
-	return argsForCall.arg1
-}
-
 func (fake *FakeImpl) ContainerIDForPID(arg1 *ttlcache.Cache[string, string], arg2 int) (string, error) {
 	fake.containerIDForPIDMutex.Lock()
 	ret, specificReturn := fake.containerIDForPIDReturnsOnCall[len(fake.containerIDForPIDArgsForCall)]
@@ -1139,129 +1026,6 @@ func (fake *FakeImpl) DeleteKeyReturnsOnCall(i int, result1 error) {
 		})
 	}
 	fake.deleteKeyReturnsOnCall[i] = struct {
-		result1 error
-	}{result1}
-}
-
-func (fake *FakeImpl) DeleteKey64(arg1 *libbpfgo.BPFMap, arg2 uint64) error {
-	fake.deleteKey64Mutex.Lock()
-	ret, specificReturn := fake.deleteKey64ReturnsOnCall[len(fake.deleteKey64ArgsForCall)]
-	fake.deleteKey64ArgsForCall = append(fake.deleteKey64ArgsForCall, struct {
-		arg1 *libbpfgo.BPFMap
-		arg2 uint64
-	}{arg1, arg2})
-	stub := fake.DeleteKey64Stub
-	fakeReturns := fake.deleteKey64Returns
-	fake.recordInvocation("DeleteKey64", []interface{}{arg1, arg2})
-	fake.deleteKey64Mutex.Unlock()
-	if stub != nil {
-		return stub(arg1, arg2)
-	}
-	if specificReturn {
-		return ret.result1
-	}
-	return fakeReturns.result1
-}
-
-func (fake *FakeImpl) DeleteKey64CallCount() int {
-	fake.deleteKey64Mutex.RLock()
-	defer fake.deleteKey64Mutex.RUnlock()
-	return len(fake.deleteKey64ArgsForCall)
-}
-
-func (fake *FakeImpl) DeleteKey64Calls(stub func(*libbpfgo.BPFMap, uint64) error) {
-	fake.deleteKey64Mutex.Lock()
-	defer fake.deleteKey64Mutex.Unlock()
-	fake.DeleteKey64Stub = stub
-}
-
-func (fake *FakeImpl) DeleteKey64ArgsForCall(i int) (*libbpfgo.BPFMap, uint64) {
-	fake.deleteKey64Mutex.RLock()
-	defer fake.deleteKey64Mutex.RUnlock()
-	argsForCall := fake.deleteKey64ArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
-}
-
-func (fake *FakeImpl) DeleteKey64Returns(result1 error) {
-	fake.deleteKey64Mutex.Lock()
-	defer fake.deleteKey64Mutex.Unlock()
-	fake.DeleteKey64Stub = nil
-	fake.deleteKey64Returns = struct {
-		result1 error
-	}{result1}
-}
-
-func (fake *FakeImpl) DeleteKey64ReturnsOnCall(i int, result1 error) {
-	fake.deleteKey64Mutex.Lock()
-	defer fake.deleteKey64Mutex.Unlock()
-	fake.DeleteKey64Stub = nil
-	if fake.deleteKey64ReturnsOnCall == nil {
-		fake.deleteKey64ReturnsOnCall = make(map[int]struct {
-			result1 error
-		})
-	}
-	fake.deleteKey64ReturnsOnCall[i] = struct {
-		result1 error
-	}{result1}
-}
-
-func (fake *FakeImpl) DestroyLink(arg1 *libbpfgo.BPFLink) error {
-	fake.destroyLinkMutex.Lock()
-	ret, specificReturn := fake.destroyLinkReturnsOnCall[len(fake.destroyLinkArgsForCall)]
-	fake.destroyLinkArgsForCall = append(fake.destroyLinkArgsForCall, struct {
-		arg1 *libbpfgo.BPFLink
-	}{arg1})
-	stub := fake.DestroyLinkStub
-	fakeReturns := fake.destroyLinkReturns
-	fake.recordInvocation("DestroyLink", []interface{}{arg1})
-	fake.destroyLinkMutex.Unlock()
-	if stub != nil {
-		return stub(arg1)
-	}
-	if specificReturn {
-		return ret.result1
-	}
-	return fakeReturns.result1
-}
-
-func (fake *FakeImpl) DestroyLinkCallCount() int {
-	fake.destroyLinkMutex.RLock()
-	defer fake.destroyLinkMutex.RUnlock()
-	return len(fake.destroyLinkArgsForCall)
-}
-
-func (fake *FakeImpl) DestroyLinkCalls(stub func(*libbpfgo.BPFLink) error) {
-	fake.destroyLinkMutex.Lock()
-	defer fake.destroyLinkMutex.Unlock()
-	fake.DestroyLinkStub = stub
-}
-
-func (fake *FakeImpl) DestroyLinkArgsForCall(i int) *libbpfgo.BPFLink {
-	fake.destroyLinkMutex.RLock()
-	defer fake.destroyLinkMutex.RUnlock()
-	argsForCall := fake.destroyLinkArgsForCall[i]
-	return argsForCall.arg1
-}
-
-func (fake *FakeImpl) DestroyLinkReturns(result1 error) {
-	fake.destroyLinkMutex.Lock()
-	defer fake.destroyLinkMutex.Unlock()
-	fake.DestroyLinkStub = nil
-	fake.destroyLinkReturns = struct {
-		result1 error
-	}{result1}
-}
-
-func (fake *FakeImpl) DestroyLinkReturnsOnCall(i int, result1 error) {
-	fake.destroyLinkMutex.Lock()
-	defer fake.destroyLinkMutex.Unlock()
-	fake.DestroyLinkStub = nil
-	if fake.destroyLinkReturnsOnCall == nil {
-		fake.destroyLinkReturnsOnCall = make(map[int]struct {
-			result1 error
-		})
-	}
-	fake.destroyLinkReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
 }
@@ -1576,71 +1340,6 @@ func (fake *FakeImpl) GetValueReturnsOnCall(i int, result1 []byte, result2 error
 		})
 	}
 	fake.getValueReturnsOnCall[i] = struct {
-		result1 []byte
-		result2 error
-	}{result1, result2}
-}
-
-func (fake *FakeImpl) GetValue64(arg1 *libbpfgo.BPFMap, arg2 uint64) ([]byte, error) {
-	fake.getValue64Mutex.Lock()
-	ret, specificReturn := fake.getValue64ReturnsOnCall[len(fake.getValue64ArgsForCall)]
-	fake.getValue64ArgsForCall = append(fake.getValue64ArgsForCall, struct {
-		arg1 *libbpfgo.BPFMap
-		arg2 uint64
-	}{arg1, arg2})
-	stub := fake.GetValue64Stub
-	fakeReturns := fake.getValue64Returns
-	fake.recordInvocation("GetValue64", []interface{}{arg1, arg2})
-	fake.getValue64Mutex.Unlock()
-	if stub != nil {
-		return stub(arg1, arg2)
-	}
-	if specificReturn {
-		return ret.result1, ret.result2
-	}
-	return fakeReturns.result1, fakeReturns.result2
-}
-
-func (fake *FakeImpl) GetValue64CallCount() int {
-	fake.getValue64Mutex.RLock()
-	defer fake.getValue64Mutex.RUnlock()
-	return len(fake.getValue64ArgsForCall)
-}
-
-func (fake *FakeImpl) GetValue64Calls(stub func(*libbpfgo.BPFMap, uint64) ([]byte, error)) {
-	fake.getValue64Mutex.Lock()
-	defer fake.getValue64Mutex.Unlock()
-	fake.GetValue64Stub = stub
-}
-
-func (fake *FakeImpl) GetValue64ArgsForCall(i int) (*libbpfgo.BPFMap, uint64) {
-	fake.getValue64Mutex.RLock()
-	defer fake.getValue64Mutex.RUnlock()
-	argsForCall := fake.getValue64ArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
-}
-
-func (fake *FakeImpl) GetValue64Returns(result1 []byte, result2 error) {
-	fake.getValue64Mutex.Lock()
-	defer fake.getValue64Mutex.Unlock()
-	fake.GetValue64Stub = nil
-	fake.getValue64Returns = struct {
-		result1 []byte
-		result2 error
-	}{result1, result2}
-}
-
-func (fake *FakeImpl) GetValue64ReturnsOnCall(i int, result1 []byte, result2 error) {
-	fake.getValue64Mutex.Lock()
-	defer fake.getValue64Mutex.Unlock()
-	fake.GetValue64Stub = nil
-	if fake.getValue64ReturnsOnCall == nil {
-		fake.getValue64ReturnsOnCall = make(map[int]struct {
-			result1 []byte
-			result2 error
-		})
-	}
-	fake.getValue64ReturnsOnCall[i] = struct {
 		result1 []byte
 		result2 error
 	}{result1, result2}
@@ -2301,62 +2000,6 @@ func (fake *FakeImpl) PollRingBufferArgsForCall(i int) (*libbpfgo.RingBuffer, in
 	return argsForCall.arg1, argsForCall.arg2
 }
 
-func (fake *FakeImpl) ReadOSRelease() (map[string]string, error) {
-	fake.readOSReleaseMutex.Lock()
-	ret, specificReturn := fake.readOSReleaseReturnsOnCall[len(fake.readOSReleaseArgsForCall)]
-	fake.readOSReleaseArgsForCall = append(fake.readOSReleaseArgsForCall, struct {
-	}{})
-	stub := fake.ReadOSReleaseStub
-	fakeReturns := fake.readOSReleaseReturns
-	fake.recordInvocation("ReadOSRelease", []interface{}{})
-	fake.readOSReleaseMutex.Unlock()
-	if stub != nil {
-		return stub()
-	}
-	if specificReturn {
-		return ret.result1, ret.result2
-	}
-	return fakeReturns.result1, fakeReturns.result2
-}
-
-func (fake *FakeImpl) ReadOSReleaseCallCount() int {
-	fake.readOSReleaseMutex.RLock()
-	defer fake.readOSReleaseMutex.RUnlock()
-	return len(fake.readOSReleaseArgsForCall)
-}
-
-func (fake *FakeImpl) ReadOSReleaseCalls(stub func() (map[string]string, error)) {
-	fake.readOSReleaseMutex.Lock()
-	defer fake.readOSReleaseMutex.Unlock()
-	fake.ReadOSReleaseStub = stub
-}
-
-func (fake *FakeImpl) ReadOSReleaseReturns(result1 map[string]string, result2 error) {
-	fake.readOSReleaseMutex.Lock()
-	defer fake.readOSReleaseMutex.Unlock()
-	fake.ReadOSReleaseStub = nil
-	fake.readOSReleaseReturns = struct {
-		result1 map[string]string
-		result2 error
-	}{result1, result2}
-}
-
-func (fake *FakeImpl) ReadOSReleaseReturnsOnCall(i int, result1 map[string]string, result2 error) {
-	fake.readOSReleaseMutex.Lock()
-	defer fake.readOSReleaseMutex.Unlock()
-	fake.ReadOSReleaseStub = nil
-	if fake.readOSReleaseReturnsOnCall == nil {
-		fake.readOSReleaseReturnsOnCall = make(map[int]struct {
-			result1 map[string]string
-			result2 error
-		})
-	}
-	fake.readOSReleaseReturnsOnCall[i] = struct {
-		result1 map[string]string
-		result2 error
-	}{result1, result2}
-}
-
 func (fake *FakeImpl) Readlink(arg1 string) (string, error) {
 	fake.readlinkMutex.Lock()
 	ret, specificReturn := fake.readlinkReturnsOnCall[len(fake.readlinkArgsForCall)]
@@ -2670,71 +2313,6 @@ func (fake *FakeImpl) StatReturnsOnCall(i int, result1 os.FileInfo, result2 erro
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) TempFile(arg1 string, arg2 string) (*os.File, error) {
-	fake.tempFileMutex.Lock()
-	ret, specificReturn := fake.tempFileReturnsOnCall[len(fake.tempFileArgsForCall)]
-	fake.tempFileArgsForCall = append(fake.tempFileArgsForCall, struct {
-		arg1 string
-		arg2 string
-	}{arg1, arg2})
-	stub := fake.TempFileStub
-	fakeReturns := fake.tempFileReturns
-	fake.recordInvocation("TempFile", []interface{}{arg1, arg2})
-	fake.tempFileMutex.Unlock()
-	if stub != nil {
-		return stub(arg1, arg2)
-	}
-	if specificReturn {
-		return ret.result1, ret.result2
-	}
-	return fakeReturns.result1, fakeReturns.result2
-}
-
-func (fake *FakeImpl) TempFileCallCount() int {
-	fake.tempFileMutex.RLock()
-	defer fake.tempFileMutex.RUnlock()
-	return len(fake.tempFileArgsForCall)
-}
-
-func (fake *FakeImpl) TempFileCalls(stub func(string, string) (*os.File, error)) {
-	fake.tempFileMutex.Lock()
-	defer fake.tempFileMutex.Unlock()
-	fake.TempFileStub = stub
-}
-
-func (fake *FakeImpl) TempFileArgsForCall(i int) (string, string) {
-	fake.tempFileMutex.RLock()
-	defer fake.tempFileMutex.RUnlock()
-	argsForCall := fake.tempFileArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
-}
-
-func (fake *FakeImpl) TempFileReturns(result1 *os.File, result2 error) {
-	fake.tempFileMutex.Lock()
-	defer fake.tempFileMutex.Unlock()
-	fake.TempFileStub = nil
-	fake.tempFileReturns = struct {
-		result1 *os.File
-		result2 error
-	}{result1, result2}
-}
-
-func (fake *FakeImpl) TempFileReturnsOnCall(i int, result1 *os.File, result2 error) {
-	fake.tempFileMutex.Lock()
-	defer fake.tempFileMutex.Unlock()
-	fake.TempFileStub = nil
-	if fake.tempFileReturnsOnCall == nil {
-		fake.tempFileReturnsOnCall = make(map[int]struct {
-			result1 *os.File
-			result2 error
-		})
-	}
-	fake.tempFileReturnsOnCall[i] = struct {
-		result1 *os.File
-		result2 error
-	}{result1, result2}
-}
-
 func (fake *FakeImpl) Uname() (types.Arch, *semver.Version, error) {
 	fake.unameMutex.Lock()
 	ret, specificReturn := fake.unameReturnsOnCall[len(fake.unameArgsForCall)]
@@ -2925,74 +2503,6 @@ func (fake *FakeImpl) UpdateValueReturnsOnCall(i int, result1 error) {
 		})
 	}
 	fake.updateValueReturnsOnCall[i] = struct {
-		result1 error
-	}{result1}
-}
-
-func (fake *FakeImpl) UpdateValue64(arg1 *libbpfgo.BPFMap, arg2 uint64, arg3 []byte) error {
-	var arg3Copy []byte
-	if arg3 != nil {
-		arg3Copy = make([]byte, len(arg3))
-		copy(arg3Copy, arg3)
-	}
-	fake.updateValue64Mutex.Lock()
-	ret, specificReturn := fake.updateValue64ReturnsOnCall[len(fake.updateValue64ArgsForCall)]
-	fake.updateValue64ArgsForCall = append(fake.updateValue64ArgsForCall, struct {
-		arg1 *libbpfgo.BPFMap
-		arg2 uint64
-		arg3 []byte
-	}{arg1, arg2, arg3Copy})
-	stub := fake.UpdateValue64Stub
-	fakeReturns := fake.updateValue64Returns
-	fake.recordInvocation("UpdateValue64", []interface{}{arg1, arg2, arg3Copy})
-	fake.updateValue64Mutex.Unlock()
-	if stub != nil {
-		return stub(arg1, arg2, arg3)
-	}
-	if specificReturn {
-		return ret.result1
-	}
-	return fakeReturns.result1
-}
-
-func (fake *FakeImpl) UpdateValue64CallCount() int {
-	fake.updateValue64Mutex.RLock()
-	defer fake.updateValue64Mutex.RUnlock()
-	return len(fake.updateValue64ArgsForCall)
-}
-
-func (fake *FakeImpl) UpdateValue64Calls(stub func(*libbpfgo.BPFMap, uint64, []byte) error) {
-	fake.updateValue64Mutex.Lock()
-	defer fake.updateValue64Mutex.Unlock()
-	fake.UpdateValue64Stub = stub
-}
-
-func (fake *FakeImpl) UpdateValue64ArgsForCall(i int) (*libbpfgo.BPFMap, uint64, []byte) {
-	fake.updateValue64Mutex.RLock()
-	defer fake.updateValue64Mutex.RUnlock()
-	argsForCall := fake.updateValue64ArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
-}
-
-func (fake *FakeImpl) UpdateValue64Returns(result1 error) {
-	fake.updateValue64Mutex.Lock()
-	defer fake.updateValue64Mutex.Unlock()
-	fake.UpdateValue64Stub = nil
-	fake.updateValue64Returns = struct {
-		result1 error
-	}{result1}
-}
-
-func (fake *FakeImpl) UpdateValue64ReturnsOnCall(i int, result1 error) {
-	fake.updateValue64Mutex.Lock()
-	defer fake.updateValue64Mutex.Unlock()
-	fake.UpdateValue64Stub = nil
-	if fake.updateValue64ReturnsOnCall == nil {
-		fake.updateValue64ReturnsOnCall = make(map[int]struct {
-			result1 error
-		})
-	}
-	fake.updateValue64ReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
 }

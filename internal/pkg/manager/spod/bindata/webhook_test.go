@@ -25,6 +25,8 @@ import (
 	admissionregv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
 const testLabel = "test"
@@ -223,8 +225,50 @@ func TestWebhook_NeedsUpdate(t *testing.T) {
 func TestWebhook_getWebhookConfig(t *testing.T) {
 	t.Parallel()
 
-	webhookConfig := getWebhookConfig(false)
+	webhookConfig := getWebhookConfig(false, "custom-operator-ns")
 	require.Len(t, webhookConfig.Webhooks, 2)
+
+	// Binding is a security boundary, so the operator's namespace is excluded by
+	// the namespace the controller actually runs in rather than by a pod label a
+	// pod author could claim, and not by a guessed default namespace either.
+	bindingHook := webhookConfig.Webhooks[binding.index]
+	require.NotNil(t, bindingHook.NamespaceSelector)
+	assert.Nil(t, bindingHook.ObjectSelector)
+
+	var excluded []string
+
+	for _, expr := range bindingHook.NamespaceSelector.MatchExpressions {
+		if expr.Key == corev1.LabelMetadataName {
+			assert.Equal(t, metav1.LabelSelectorOpNotIn, expr.Operator)
+
+			excluded = expr.Values
+		}
+	}
+
+	assert.Equal(t, []string{"custom-operator-ns"}, excluded)
+
+	// Recording is not a security boundary and has to keep working for
+	// workloads that run in the operator's namespace, so only the operator's own
+	// pods are kept out, by label.
+	recordingHook := webhookConfig.Webhooks[recording.index]
+	require.NotNil(t, recordingHook.NamespaceSelector)
+
+	for _, expr := range recordingHook.NamespaceSelector.MatchExpressions {
+		assert.NotEqual(t, corev1.LabelMetadataName, expr.Key,
+			"recording must not be disabled for the operator namespace")
+	}
+
+	require.NotNil(t, recordingHook.ObjectSelector)
+	require.Len(t, recordingHook.ObjectSelector.MatchExpressions, 1)
+	excludedPods := recordingHook.ObjectSelector.MatchExpressions[0]
+	assert.Equal(t, metav1.LabelSelectorOpNotIn, excludedPods.Operator)
+	assert.Contains(t, excludedPods.Values, config.OperatorName)
+
+	// Both still require the namespace to opt in.
+	for _, wh := range webhookConfig.Webhooks {
+		require.NotNil(t, wh.NamespaceSelector)
+		assert.NotEmpty(t, wh.NamespaceSelector.MatchExpressions)
+	}
 
 	bindingOps := webhookConfig.Webhooks[binding.index].Rules[0].Operations
 	assert.ElementsMatch(t, []admissionregv1.OperationType{"CREATE"}, bindingOps)
@@ -236,7 +280,7 @@ func TestWebhook_getWebhookConfig(t *testing.T) {
 		recordingOps,
 	)
 
-	webhookConfig = getWebhookConfig(true)
+	webhookConfig = getWebhookConfig(true, "custom-operator-ns")
 	require.Len(t, webhookConfig.Webhooks, 4)
 }
 

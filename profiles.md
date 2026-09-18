@@ -657,6 +657,19 @@ Ensure that the spod daemon has AppArmor enabled:
 securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
 ```
 
+The operator never overwrites an AppArmor profile it does not own. Ownership is
+recorded as a marker comment in the first line of the policy file it installs
+under `/etc/apparmor.d`, so an `AppArmorProfile` named after a profile the
+distribution ships (`crun`, `busybox`, ...) is rejected with `profile exists`
+rather than replacing the host's profile, and deleting such a custom resource
+leaves the host's profile alone.
+
+Profiles installed by an operator version older than the one that introduced the
+marker do not carry it. They are adopted automatically: the node status already
+records them as installed on that node, which is what proves they are the
+operator's, and the first reconcile after the upgrade rewrites them with the
+marker.
+
 #### Record AppArmor profile
 
 The operator is able to record AppArmor profiles for a workload only using the built-in eBPF recorder.
