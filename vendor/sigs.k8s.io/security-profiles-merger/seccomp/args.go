@@ -28,14 +28,25 @@ import (
 
 // canonicalArg returns the condition as a runtime evaluates it: libseccomp
 // reads valueTwo only for SCMP_CMP_MASKED_EQ, so it is cleared for every
-// other operator. Without this, conditions that differ only in an ignored
-// valueTwo would be treated as different filters.
+// other operator, and for SCMP_CMP_MASKED_EQ it masks valueTwo with the mask
+// in value before comparing, so bits outside the mask are cleared. Without
+// this, conditions that differ only in ignored bits would be treated as
+// different filters.
 func canonicalArg(arg specs.LinuxSeccompArg) specs.LinuxSeccompArg {
-	if arg.Op != specs.OpMaskedEqual {
+	if arg.Op == specs.OpMaskedEqual {
+		arg.ValueTwo &= arg.Value
+	} else {
 		arg.ValueTwo = 0
 	}
 
 	return arg
+}
+
+// tautology reports whether a canonical condition holds for every value.
+// libseccomp drops such a condition from its rule: a SCMP_CMP_MASKED_EQ
+// with an empty mask.
+func tautology(arg specs.LinuxSeccompArg) bool {
+	return arg.Op == specs.OpMaskedEqual && arg.Value == 0
 }
 
 // sortedArgs returns a sorted, canonical copy of the argument filters.
@@ -72,6 +83,19 @@ func argsKey(args []specs.LinuxSeccompArg) string {
 	return sortedArgsKey(sortedArgs(args))
 }
 
+// argKeyBytes sizes the key builder for a typical condition, which runs to
+// about eighteen bytes ("0:SCMP_CMP_EQ:0:0;"). It is a hint, not a bound: a
+// longer one costs a regrowth, which is what this saves on the hot path.
+//
+// Sizing it generously would not be free. Builder.String hands out a string
+// backed by the whole buffer without copying it, so every byte reserved
+// here stays live for as long as the key does, and these keys sit in maps
+// for the length of a merge. Measured over the artifact-sized benchmarks, a
+// hint of 24 allocates fewer bytes than no hint at all while removing the
+// same 30% of allocations; a hint of 64 removes those allocations but ends
+// up costing more bytes than not growing.
+const argKeyBytes = 24
+
 // sortedArgsKey formats args that are already sorted and canonical, as
 // clause args always are, without copying them first. It is the hot path of
 // the merge: every clause comparison and grouping goes through it.
@@ -81,6 +105,8 @@ func sortedArgsKey(args []specs.LinuxSeccompArg) string {
 	}
 
 	var builder strings.Builder
+
+	builder.Grow(len(args) * argKeyBytes)
 
 	for _, arg := range args {
 		builder.WriteString(strconv.FormatUint(uint64(arg.Index), 10))
@@ -221,7 +247,8 @@ func condInterval(arg specs.LinuxSeccompArg) (uint64, uint64, bool) {
 	}
 }
 
-// condHolds evaluates a single argument condition against a concrete value.
+// condHolds evaluates a single argument condition against a concrete value
+// the way the program libseccomp compiles for a 64-bit architecture does.
 // Unknown operators never hold.
 func condHolds(arg specs.LinuxSeccompArg, value uint64) bool {
 	switch arg.Op {
@@ -238,7 +265,8 @@ func condHolds(arg specs.LinuxSeccompArg, value uint64) bool {
 	case specs.OpGreaterThan:
 		return value > arg.Value
 	case specs.OpMaskedEqual:
-		return value&arg.Value == arg.ValueTwo
+		// libseccomp masks the datum as well, see canonicalArg.
+		return value&arg.Value == arg.ValueTwo&arg.Value
 	default:
 		return false
 	}

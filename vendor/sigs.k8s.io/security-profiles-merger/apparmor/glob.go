@@ -24,190 +24,209 @@ import (
 )
 
 var (
-	// neverMatchRe is a fallback regex that matches nothing.
-	neverMatchRe = regexp.MustCompile(`^(?:$.)$`)
-
 	// globCacheMu protects globCacheEntries.
 	globCacheMu sync.RWMutex
 
-	// globCacheEntries stores compiled glob regexes keyed by pattern.
-	globCacheEntries = make(map[string]*regexp.Regexp)
+	// globCacheEntries stores analyzed patterns keyed by pattern.
+	globCacheEntries = make(map[string]*globMatcher)
+
+	// globCacheBytes is the total pattern length globCacheEntries holds. A
+	// compiled program grows with its pattern, so bounding the patterns
+	// bounds what the cache retains, which an entry count alone does not:
+	// maxGlobCacheEntries patterns of maxGlobPatternLen would be megabytes.
+	globCacheBytes int
 )
 
 const (
-	maxGlobPatternLen     = 4096
+	maxGlobPatternLen     = MaxPathLen
 	maxGlobAlternatives   = 100
 	maxGlobCacheEntries   = 1024
+	maxGlobCacheBytes     = 256 << 10
 	globCacheEvictDivisor = 4
-	// escapedLen is the length of a backslash-escaped literal.
-	escapedLen = 2
+
+	// maxMergePathPairs bounds the pattern comparisons merging one category
+	// of paths may cost. Matching a literal against a pattern costs a
+	// regular expression evaluation, and every literal of one side may have
+	// to be tried against every pattern of the other, so the work grows with
+	// the product of the two counts. The prefix index removes most of those
+	// pairs when the patterns are rooted in different directories, but
+	// patterns sharing one prefix all land in the same bucket and the
+	// product is then what the merge pays: without a bound, two profiles of
+	// a few thousand paths under one directory take minutes, and nothing
+	// stops a profile from being larger still.
+	//
+	// Past the bound the merge falls back to a result that needs no
+	// matching, conservative for an intersection and equivalent for a union
+	// (see addVerbatimGlobs and unionVerbatim). The bound admits two
+	// profiles of MaxArtifactPaths paths each, so a profile a runtime
+	// accepts is merged exactly.
+	maxMergePathPairs = 1 << 20
+	// maxMergePathWork bounds the same matching by the bytes it compares,
+	// not only by the number of comparisons. One comparison runs a pattern's
+	// program over a name, so it costs about the length of the pattern plus
+	// the length of the name, and a profile chooses both: two profiles of a
+	// quarter megabyte, well inside MaxArtifactPaths and the pair bound,
+	// took two minutes to intersect while allocating almost nothing. The
+	// budget is the pair bound at the length of a path a profile names.
+	maxMergePathWork = maxMergePathPairs * typicalPathLen
+	// typicalPathLen is the path length the pair bound assumes.
+	typicalPathLen = 64
 )
 
-// globToken is one lexical element of an AppArmor path pattern.
-type globToken int
+// patternSyntax holds the bytes that make a path need analysis: glob
+// metacharacters, the escape character, and NUL, which no profile can hold.
+const patternSyntax = "\\*?[]{}\x00"
+
+// globStatus says whether a glob pattern can be matched.
+type globStatus int
 
 const (
-	// tokenLiteral is a literal character, possibly backslash-escaped.
-	tokenLiteral globToken = iota
-	// tokenStar is "*": any characters except "/".
-	tokenStar
-	// tokenDoubleStar is "**": any characters including "/".
-	tokenDoubleStar
-	// tokenQuestion is "?": a single character except "/".
-	tokenQuestion
-	// tokenClass is "[...]": a character class, optionally negated with
-	// "^" or "!".
-	tokenClass
-	// tokenAlternation is "{a,b,...}": alternatives, which may nest and may
-	// themselves contain glob tokens.
-	tokenAlternation
+	// globUsable is a pattern the matcher models exactly.
+	globUsable globStatus = iota
+	// globTooComplex is a pattern past the matcher's size or alternative
+	// limits. AppArmor may accept it, but this package matches nothing
+	// with it.
+	globTooComplex
+	// globInvalid is a pattern apparmor_parser rejects, or accepts with a
+	// meaning this package does not model. It matches nothing.
+	globInvalid
 )
 
-// scanToken classifies the token starting at pos and returns the index just
-// past it. Unbalanced "[" and "{" are literals.
-func scanToken(pattern string, pos int) (int, globToken) {
-	switch pattern[pos] {
-	case '\\':
-		return min(pos+escapedLen, len(pattern)), tokenLiteral
-	case '*':
-		if pos+1 < len(pattern) && pattern[pos+1] == '*' {
-			return pos + len("**"), tokenDoubleStar
-		}
-
-		return pos + 1, tokenStar
-	case '?':
-		return pos + 1, tokenQuestion
-	case '[':
-		if end, ok := scanClass(pattern, pos); ok {
-			return end, tokenClass
-		}
-	case '{':
-		if end, ok := scanAlternation(pattern, pos); ok {
-			return end, tokenAlternation
-		}
-	}
-
-	return pos + 1, tokenLiteral
+// globMatcher is the analyzed form of a path.
+type globMatcher struct {
+	// expr matches the latin1-mapped names the pattern covers. It is nil
+	// for a literal and for a pattern that matches nothing.
+	expr   *regexp.Regexp
+	kind   patternKind
+	status globStatus
+	// literal holds the bytes of the literal text before the first glob
+	// token, which every matched name starts with. For a literal path it
+	// is the file name the path denotes.
+	literal string
+	// prefix is literal up to and including its last "/", or "". It is
+	// the key the prefix index files a glob under.
+	prefix string
+	// starStar reports a usable pattern that is its literal prefix
+	// followed by "**", and nothing else.
+	starStar bool
 }
 
-// scanClass finds the closing bracket of a character class starting at pos.
-// A "]" directly after the opening bracket (or after a leading negation) is a
-// member, not the terminator.
-func scanClass(pattern string, pos int) (int, bool) {
-	idx := pos + 1
-
-	if idx < len(pattern) && (pattern[idx] == '^' || pattern[idx] == '!') {
-		idx++
-	}
-
-	if idx < len(pattern) && pattern[idx] == ']' {
-		idx++
-	}
-
-	for idx < len(pattern) {
-		switch pattern[idx] {
-		case '\\':
-			idx += 2
-		case ']':
-			return idx + 1, true
-		default:
-			idx++
-		}
-	}
-
-	return 0, false
+// usable reports whether the matcher can match anything.
+func (matcher *globMatcher) usable() bool {
+	return matcher.expr != nil
 }
 
-// scanAlternation finds the closing brace matching the one at pos, honoring
-// nested braces, character classes, and escapes.
-func scanAlternation(pattern string, pos int) (int, bool) {
-	depth := 0
+// matches reports whether the pattern covers the file name.
+func (matcher *globMatcher) matches(name string) bool {
+	return matcher.expr != nil && matcher.expr.MatchString(latin1(name))
+}
 
-	for idx := pos; idx < len(pattern); idx++ {
-		switch pattern[idx] {
-		case '\\':
-			idx++
-		case '[':
-			idx = skipClass(pattern, idx)
-		case '{':
-			depth++
-		case '}':
-			depth--
-			if depth == 0 {
-				return idx + 1, true
-			}
-		}
+// expandedBy reports whether the "**" pattern base grants every canonical path
+// the glob matches, so that intersecting the two leaves the glob. base
+// matches its literal prefix P followed by at least one character that is
+// not "/". Every name the glob matches starts with the glob's prefix, which
+// starts with P, so the only canonical name the glob may match and base may
+// not is P itself. The guarantee holds over canonical paths only: absolute,
+// without "//", "." or ".." components, which are the only names the kernel
+// hands AppArmor. A glob whose literal prefix holds "//" (spelled with an
+// escaped slash, as in "/etc/\/foo/*") matches no canonical path, and is
+// never narrowed. A "/" after a "/" spelled by an alternation or a class,
+// as in "/etc/{\/a,b}" or "/etc/[/]x", is not detected: such a glob may
+// match a name with "//" that base does not, but no such name reaches
+// AppArmor. A base with an empty prefix is never used, since a relative
+// pattern cannot be loaded.
+func (matcher *globMatcher) expandedBy(base *globMatcher) bool {
+	if !base.starStar || base.prefix == "" || !matcher.usable() ||
+		!strings.HasPrefix(matcher.prefix, base.prefix) ||
+		strings.Contains(matcher.prefix, "//") {
+		return false
 	}
 
-	return 0, false
+	return matcher.prefix != base.prefix || !matcher.matches(base.prefix)
 }
 
-// splitAlternatives splits the inside of an alternation at top-level commas,
-// ignoring commas inside nested braces or character classes.
-func splitAlternatives(inner string) []string {
-	var (
-		result []string
-		depth  int
-		start  int
-	)
+// literalMatcher is the analysis of a path without pattern syntax.
+func literalMatcher(path string) *globMatcher {
+	name := filterSlashes(path)
 
-	for idx := 0; idx < len(inner); idx++ {
-		switch inner[idx] {
-		case '\\':
-			idx++
-		case '[':
-			idx = skipClass(inner, idx)
-		case '{':
-			depth++
-		case '}':
-			depth--
-		case ',':
-			if depth == 0 {
-				result = append(result, inner[start:idx])
-				start = idx + 1
-			}
-		}
+	return &globMatcher{
+		expr:     nil,
+		kind:     kindLiteral,
+		status:   globUsable,
+		literal:  name,
+		prefix:   name[:strings.LastIndexByte(name, '/')+1],
+		starStar: false,
+	}
+}
+
+// analyzePattern runs a path through the parser port and compiles the
+// resulting regex, unless compile is false.
+func analyzePattern(pattern string, compile bool) *globMatcher {
+	conv := convertPattern(filterSlashes(decodeEscapes(pattern)))
+
+	matcher := &globMatcher{
+		expr:     nil,
+		kind:     conv.kind,
+		status:   globInvalid,
+		literal:  "",
+		prefix:   "",
+		starStar: false,
 	}
 
-	return append(result, inner[start:])
-}
-
-// skipClass returns the index of the last byte of the character class
-// starting at pos, or pos itself when the bracket is not a class.
-func skipClass(pattern string, pos int) int {
-	if end, ok := scanClass(pattern, pos); ok {
-		return end - 1
+	if conv.kind == kindInvalid {
+		return matcher
 	}
 
-	return pos
-}
+	matcher.literal = literalBytes(conv.regex[:conv.literalEnd])
+	matcher.prefix = matcher.literal[:strings.LastIndexByte(matcher.literal, '/')+1]
 
-// firstGlobToken returns the index of the first glob token in pattern, or
-// -1 when the pattern is a plain literal.
-func firstGlobToken(pattern string) int {
-	for pos := 0; pos < len(pattern); {
-		end, kind := scanToken(pattern, pos)
-		if kind != tokenLiteral {
-			return pos
-		}
+	if conv.kind == kindLiteral {
+		matcher.status = globUsable
 
-		pos = end
+		return matcher
 	}
 
-	return -1
+	if !compile || conv.alternatives > maxGlobAlternatives {
+		matcher.status = globTooComplex
+
+		return matcher
+	}
+
+	fragment, ok := translateRegex(conv.regex)
+	if !ok {
+		return matcher
+	}
+
+	expr, err := regexp.Compile(`^` + fragment + `$`)
+	if err != nil {
+		matcher.status = globTooComplex
+
+		return matcher
+	}
+
+	matcher.expr = expr
+	matcher.status = globUsable
+	matcher.starStar = conv.starStarOnly
+
+	return matcher
 }
 
-// IsGlobPattern reports whether the path contains AppArmor glob tokens:
-// "*", "**", "?", character classes "[...]", or alternations "{a,b}".
-// Backslash-escaped characters are literals.
-func IsGlobPattern(path string) bool {
-	return firstGlobToken(path) >= 0
-}
+// matcherFor returns the analysis of a path, caching it for paths with
+// pattern syntax. A path past the length limit is analyzed without being
+// compiled or cached: it matches nothing, and caching it would evict the
+// patterns worth keeping.
+func matcherFor(path string) *globMatcher {
+	if !strings.ContainsAny(path, patternSyntax) {
+		return literalMatcher(path)
+	}
 
-func globToRegex(pattern string) *regexp.Regexp {
+	if len(path) > maxGlobPatternLen {
+		return analyzePattern(path, false)
+	}
+
 	globCacheMu.RLock()
 
-	if cached, ok := globCacheEntries[pattern]; ok {
+	if cached, ok := globCacheEntries[path]; ok {
 		globCacheMu.RUnlock()
 
 		return cached
@@ -215,530 +234,271 @@ func globToRegex(pattern string) *regexp.Regexp {
 
 	globCacheMu.RUnlock()
 
-	compiled := compileGlob(pattern)
+	analyzed := analyzePattern(path, true)
 
 	globCacheMu.Lock()
 	defer globCacheMu.Unlock()
 
-	if cached, ok := globCacheEntries[pattern]; ok {
+	if cached, ok := globCacheEntries[path]; ok {
 		return cached
 	}
 
-	if len(globCacheEntries) >= maxGlobCacheEntries {
-		evictCount := maxGlobCacheEntries / globCacheEvictDivisor
+	evictGlobCache(len(path))
 
-		for key := range globCacheEntries {
-			delete(globCacheEntries, key)
+	globCacheEntries[path] = analyzed
+	globCacheBytes += len(path)
 
-			evictCount--
-			if evictCount == 0 {
-				break
-			}
-		}
-	}
-
-	globCacheEntries[pattern] = compiled
-
-	return compiled
+	return analyzed
 }
 
-// globNeverMatches reports whether a glob pattern exceeds the size limits
-// and therefore matches nothing.
-func globNeverMatches(pattern string) bool {
-	return globToRegex(pattern) == neverMatchRe
+// evictGlobCache makes room for a pattern of the given length, dropping
+// entries until the cache is under both its entry and byte bounds. Callers
+// hold globCacheMu.
+func evictGlobCache(incoming int) {
+	overCount := len(globCacheEntries) >= maxGlobCacheEntries
+	overBytes := globCacheBytes+incoming > maxGlobCacheBytes
+
+	if !overCount && !overBytes {
+		return
+	}
+
+	// An entry-count overflow evicts a quarter of the cache at once, so the
+	// next insertions do not overflow again. A byte overflow evicts only
+	// until the incoming pattern fits: the byte bound holds far fewer than a
+	// quarter of the entry bound's worth of long patterns, so a fixed quota
+	// would empty the cache every time.
+	quota := 0
+	if overCount {
+		quota = maxGlobCacheEntries / globCacheEvictDivisor
+	}
+
+	for key := range globCacheEntries {
+		if quota <= 0 && globCacheBytes+incoming <= maxGlobCacheBytes {
+			break
+		}
+
+		delete(globCacheEntries, key)
+		globCacheBytes -= len(key)
+		quota--
+	}
 }
 
-func compileGlob(pattern string) *regexp.Regexp {
-	if len(pattern) > maxGlobPatternLen {
-		return neverMatchRe
-	}
-
-	budget := maxGlobAlternatives
-
-	fragment, ok := globFragment(pattern, &budget, '/')
-	if !ok {
-		return neverMatchRe
-	}
-
-	compiled, err := regexp.Compile("^" + fragment + "$")
-	if err != nil {
-		return neverMatchRe
-	}
-
-	return compiled
+// IsGlobPattern reports whether the path is a pattern rather than the name
+// of a single file: whether it contains AppArmor glob tokens ("*", "**",
+// "?", character classes "[...]", or alternations "{a,b}"), or pattern
+// syntax apparmor_parser rejects, such as an unbalanced bracket or brace or
+// a trailing backslash. Backslash-escaped characters are literals. The
+// merge functions treat a rejected pattern as matching nothing.
+func IsGlobPattern(path string) bool {
+	return strings.ContainsAny(path, patternSyntax) && matcherFor(path).kind != kindLiteral
 }
 
-// globFragment translates a pattern into an unanchored regex fragment. The
-// budget bounds the total number of alternatives across nested groups. prev
-// is the byte preceding the pattern in its enclosing context ('/' for a
-// whole path, '{' or ',' inside an alternation) and decides whether a
-// leading "*" or "**" starts a path component.
-func globFragment(pattern string, budget *int, prev byte) (string, bool) {
-	var builder strings.Builder
-
-	for pos := 0; pos < len(pattern); {
-		end, kind := scanToken(pattern, pos)
-
-		before := prev
-		if pos > 0 {
-			before = pattern[pos-1]
-		}
-
-		fragment, ok := tokenFragment(pattern[pos:end], kind, budget, before == '/')
-		if !ok {
-			return "", false
-		}
-
-		builder.WriteString(fragment)
-
-		pos = end
+// forEachAncestor calls visit with every literal prefix a glob pattern could
+// have and still match name: the empty prefix, which belongs to patterns
+// starting with a glob token, and every directory prefix of name. A glob's
+// prefix is either empty or ends in "/" (see globMatcher.prefix), so this is
+// exactly the set of prefixes name starts with. It stops when visit returns
+// true, which it then reports.
+func forEachAncestor(name string, visit func(prefix string) bool) bool {
+	if visit("") {
+		return true
 	}
 
-	return builder.String(), true
+	for idx := range len(name) {
+		if name[idx] == '/' && visit(name[:idx+1]) {
+			return true
+		}
+	}
+
+	return false
 }
 
-// tokenFragment translates one token into a regex fragment. Only an
-// alternation can fail, by exhausting the budget. As in the AppArmor parser,
-// "*" and "**" at the start of a path component match at least one
-// character, so "/dir/**" does not match "/dir/" itself.
-func tokenFragment(
-	token string, kind globToken, budget *int, componentStart bool,
-) (string, bool) {
-	switch kind {
-	case tokenDoubleStar:
-		if componentStart {
-			return `[^/\000][^\000]*`, true
-		}
+// pathKey identifies the rule a path spells, so that two spellings of one
+// rule compare equal. A path without pattern syntax is identified by the
+// name it denotes, with repeated slashes collapsed and escape sequences
+// resolved, since apparmor_parser resolves them before it compiles the rule:
+// "/a/b" and `/a/\b` are one rule for one file. A pattern is identified by
+// the regular expression it compiles to, which two spellings of one pattern
+// share, and by its text when it compiles to nothing, since patterns that
+// match nothing are not thereby the same rule.
+type pathKey struct {
+	glob bool
+	text string
+}
 
-		return `[^\000]*`, true
-	case tokenStar:
-		if componentStart {
-			return `[^/\000][^/\000]*`, true
-		}
+// keyForPath returns the identity of a path.
+func keyForPath(path string) pathKey {
+	matcher := matcherFor(path)
 
-		return `[^/\000]*`, true
-	case tokenQuestion:
-		return `[^/\000]`, true
-	case tokenClass:
-		return classFragment(token), true
-	case tokenAlternation:
-		return alternationFragment(token, budget)
-	case tokenLiteral:
-		return regexp.QuoteMeta(unescape(token)), true
+	switch {
+	case matcher.kind == kindLiteral:
+		return pathKey{glob: false, text: matcher.literal}
+	case matcher.expr != nil:
+		return pathKey{glob: true, text: matcher.expr.String()}
 	default:
-		return regexp.QuoteMeta(token), true
+		return pathKey{glob: true, text: path}
 	}
 }
 
-// alternationFragment translates a "{a,b,...}" token, compiling each
-// alternative recursively.
-func alternationFragment(token string, budget *int) (string, bool) {
-	alternatives := splitAlternatives(token[1 : len(token)-1])
+// exceedsPairBudget reports whether matching two sides against each other
+// would cost more comparisons than maxMergePathPairs. The literals of each
+// side are matched against the patterns of the other, and the patterns of
+// each side against the "**" patterns of the other, which costs one
+// comparison per pair as well. Counting the products rather than the paths
+// keeps a profile of many literals and no patterns, which needs no matching
+// at all, inside the budget whatever its size.
+// The counts are widened to uint64 first: they come from untrusted profiles,
+// and on a 32-bit platform their products overflow an int at roughly 27k
+// paths a side, which would turn the budget off exactly for the inputs it
+// exists for. Only ValidateArtifact bounds the path count, and the merge
+// runs Validate, so an unvalidated profile reaches this directly.
+func exceedsPairBudget(
+	leftLiterals, leftGlobs, rightLiterals, rightGlobs, longest int,
+) bool {
+	pairs := pathCount(leftLiterals)*pathCount(rightGlobs) +
+		pathCount(rightLiterals)*pathCount(leftGlobs) +
+		pathCount(leftGlobs)*pathCount(rightGlobs)
 
-	*budget -= len(alternatives)
-	if *budget < 0 {
-		return "", false
-	}
-
-	var builder strings.Builder
-
-	builder.WriteString("(?:")
-
-	for idx, alternative := range alternatives {
-		if idx > 0 {
-			builder.WriteByte('|')
-		}
-
-		fragment, ok := globFragment(alternative, budget, '{')
-		if !ok {
-			return "", false
-		}
-
-		builder.WriteString(fragment)
-	}
-
-	builder.WriteByte(')')
-
-	return builder.String(), true
-}
-
-// unescape strips the backslash from an escaped literal token.
-func unescape(token string) string {
-	if len(token) == escapedLen && token[0] == '\\' {
-		return token[1:]
-	}
-
-	return token
-}
-
-// unescapeLiteral returns the file name denoted by a literal path, with
-// backslash escapes resolved, for matching against glob regexes.
-func unescapeLiteral(path string) string {
-	if !strings.Contains(path, `\`) {
-		return path
-	}
-
-	var builder strings.Builder
-
-	for pos := 0; pos < len(path); pos++ {
-		if path[pos] == '\\' && pos+1 < len(path) {
-			pos++
-		}
-
-		builder.WriteByte(path[pos])
-	}
-
-	return builder.String()
-}
-
-// classFragment translates a "[...]" token into a regex character class.
-// Ranges ("a-z") are kept; every other member is escaped.
-func classFragment(token string) string {
-	inner := token[1 : len(token)-1]
-
-	var builder strings.Builder
-
-	builder.WriteByte('[')
-
-	if inner != "" && (inner[0] == '^' || inner[0] == '!') {
-		builder.WriteByte('^')
-
-		inner = inner[1:]
-	}
-
-	members := []rune(inner)
-
-	for idx := 0; idx < len(members); idx++ {
-		if members[idx] == '\\' && idx+1 < len(members) {
-			idx++
-
-			// Quote rather than re-escape: "\d" must stay a literal "d".
-			builder.WriteString(regexp.QuoteMeta(string(members[idx])))
-
-			continue
-		}
-
-		builder.WriteString(classMember(members, idx))
-	}
-
-	builder.WriteByte(']')
-
-	return builder.String()
-}
-
-// classMember renders the class member at idx, keeping "-" as a range
-// operator between two members and escaping regex metacharacters.
-func classMember(members []rune, idx int) string {
-	char := members[idx]
-
-	if char == '-' && idx > 0 && idx+1 < len(members) {
-		return "-"
-	}
-
-	if strings.ContainsRune(`\][^-`, char) {
-		return `\` + string(char)
-	}
-
-	return string(char)
-}
-
-type apparmorPath struct {
-	pattern string
-	expr    *regexp.Regexp
-}
-
-type pathSet struct {
-	globs    []apparmorPath
-	literals map[string]struct{}
-}
-
-func newPathSet(patterns []string) pathSet {
-	set := pathSet{
-		globs:    make([]apparmorPath, 0, len(patterns)),
-		literals: make(map[string]struct{}, len(patterns)),
-	}
-
-	seen := make(map[string]struct{}, len(patterns))
-
-	for _, pat := range patterns {
-		if _, ok := seen[pat]; ok {
-			continue
-		}
-
-		seen[pat] = struct{}{}
-
-		if IsGlobPattern(pat) {
-			set.globs = append(set.globs, apparmorPath{
-				pattern: pat, expr: globToRegex(pat),
-			})
-		} else {
-			set.literals[pat] = struct{}{}
-		}
-	}
-
-	return set
-}
-
-// matches reports whether a literal path is present or covered by a glob.
-func (set *pathSet) matches(path string) bool {
-	if _, ok := set.literals[path]; ok {
+	if pairs > maxMergePathPairs {
 		return true
 	}
 
-	name := unescapeLiteral(path)
-
-	for _, entry := range set.globs {
-		if entry.expr.MatchString(name) {
-			return true
-		}
+	// longest bounds both the pattern and the name of every pair. At or
+	// below the assumed length, a pair costs no more than the pair bound
+	// already allows for.
+	if longest <= typicalPathLen {
+		return false
 	}
 
-	return false
+	return pairs*pathCount(longest) > maxMergePathWork
 }
 
-// covers reports whether the set already grants everything the path grants:
-// a literal is covered when present or matched by a glob, a glob only when
-// present verbatim, since matching a pattern string against another glob's
-// regex does not indicate language inclusion.
-func (set *pathSet) covers(path string) bool {
-	if IsGlobPattern(path) {
-		return slices.ContainsFunc(set.globs, func(existing apparmorPath) bool {
-			return existing.pattern == path
-		})
-	}
-
-	return set.matches(path)
+// pathCount widens a count of paths for the arithmetic above. Every count it
+// is given is the length of a slice or a map, so the conversion cannot wrap.
+func pathCount(count int) uint64 {
+	//nolint:gosec // a length is never negative
+	return uint64(count)
 }
 
-func (set *pathSet) add(pattern string) {
-	if IsGlobPattern(pattern) {
-		expr := globToRegex(pattern)
+// prefixIndex groups patterns by a literal prefix so that a candidate is
+// tested only against the patterns whose prefix it starts with, rather than
+// against every pattern. Without it, matching n paths against m globs costs
+// n*m regex evaluations, which a profile with many paths turns into the
+// dominant cost of a merge.
+type prefixIndex map[string][]string
 
-		// Remove exact duplicate glob.
-		set.globs = slices.DeleteFunc(set.globs, func(existing apparmorPath) bool {
-			return existing.pattern == pattern
-		})
-
-		// Prune literals subsumed by this glob. Glob-vs-glob
-		// subsumption is not attempted because matching a glob
-		// pattern string against another glob's regex does not
-		// reliably indicate language inclusion.
-		for lit := range set.literals {
-			if expr.MatchString(unescapeLiteral(lit)) {
-				delete(set.literals, lit)
-			}
-		}
-
-		set.globs = append(set.globs, apparmorPath{
-			pattern: pattern, expr: expr,
-		})
-	} else {
-		set.literals[pattern] = struct{}{}
-	}
+func (index prefixIndex) add(prefix, pattern string) {
+	index[prefix] = append(index[prefix], pattern)
 }
 
-func (set *pathSet) popExact(path string) bool {
-	if _, ok := set.literals[path]; ok {
-		delete(set.literals, path)
-
-		return true
+// candidates calls visit for every pattern whose prefix name starts with,
+// stopping early when visit returns true.
+func (index prefixIndex) candidates(name string, visit func(pattern string) bool) {
+	if len(index) == 0 {
+		return
 	}
 
-	for idx, entry := range set.globs {
-		if entry.pattern == path {
-			set.globs = slices.Delete(set.globs, idx, idx+1)
-
-			return true
-		}
-	}
-
-	return false
+	forEachAncestor(name, func(prefix string) bool {
+		return slices.ContainsFunc(index[prefix], visit)
+	})
 }
 
-func (set *pathSet) popCoveredLiterals(glob string) []string {
-	expr := globToRegex(glob)
-
-	var popped []string
-
-	for lit := range set.literals {
-		if expr.MatchString(unescapeLiteral(lit)) {
-			popped = append(popped, lit)
-		}
-	}
-
-	for _, lit := range popped {
-		delete(set.literals, lit)
-	}
-
-	return popped
-}
-
-func (set *pathSet) patterns() []string {
-	total := len(set.globs) + len(set.literals)
-	if total == 0 {
-		return nil
-	}
-
-	ret := make([]string, 0, total)
-
-	for lit := range set.literals {
-		ret = append(ret, lit)
-	}
-
-	for _, entry := range set.globs {
-		ret = append(ret, entry.pattern)
-	}
-
-	return ret
-}
-
-// intersectPaths returns paths permitted by both sides, with glob awareness.
-// Non-glob paths are kept when matched by a glob on the other side.
-// For glob-vs-glob, prefix-based narrowing is attempted: if one glob's literal
-// prefix contains the other's, the more specific pattern is kept. Otherwise,
-// exact string match is used (conservative).
-func intersectPaths(left, right []string) []string {
-	leftSet := newPathSet(left)
-	rightSet := newPathSet(right)
-
-	seen := make(map[string]struct{})
-
-	var result []string
-
-	addPath := func(path string) {
-		if _, ok := seen[path]; !ok {
-			seen[path] = struct{}{}
-			result = append(result, path)
-		}
-	}
-
-	addMatchedLiterals(left, &rightSet, addPath)
-	addMatchedLiterals(right, &leftSet, addPath)
-
-	for _, leftPath := range left {
-		if !IsGlobPattern(leftPath) || globNeverMatches(leftPath) {
-			continue
-		}
-
-		for _, rightPath := range right {
-			if !IsGlobPattern(rightPath) || globNeverMatches(rightPath) {
-				continue
-			}
-
-			if narrowed := narrowGlobs(leftPath, rightPath); narrowed != "" {
-				addPath(narrowed)
-			}
-		}
-	}
-
-	return result
-}
-
-func addMatchedLiterals(
-	paths []string, matcher *pathSet, addPath func(string),
-) {
-	for _, path := range paths {
-		if !IsGlobPattern(path) && matcher.matches(path) {
-			addPath(path)
-		}
+// addStarStar files a "**" pattern under its prefix, if it is one.
+func (index prefixIndex) addStarStar(pattern string, matcher *globMatcher) {
+	if matcher.starStar && matcher.prefix != "" {
+		index.add(matcher.prefix, pattern)
 	}
 }
 
 type fsPathEntry struct {
-	path string
-	perm fsPermission
-	expr *regexp.Regexp
+	path    string
+	perm    fsPermission
+	matcher *globMatcher
 }
 
-func buildFsEntries(perms map[string]fsPermission) []fsPathEntry {
-	entries := make([]fsPathEntry, 0, len(perms))
+// fsSide holds one side of a filesystem intersection, split into literal
+// entries and glob entries, with the glob entries indexed for matching.
+type fsSide struct {
+	literals []fsPathEntry
+	globs    map[string]fsPathEntry
+	// byPrefix indexes every glob by the literal prefix a path must start
+	// with to match it.
+	byPrefix prefixIndex
+	// starStar indexes the "**" globs, the only ones that can narrow
+	// another glob.
+	starStar prefixIndex
+	// longest is the length of the longest path of the side.
+	longest int
+}
+
+// grants returns the permissions the globs of the side grant the file name.
+func (side fsSide) grants(name string) fsPermission {
+	var granted fsPermission
+
+	side.byPrefix.candidates(name, func(pattern string) bool {
+		entry := side.globs[pattern]
+		if entry.matcher.matches(name) {
+			granted = granted.union(entry.perm)
+		}
+
+		return granted.read && granted.write
+	})
+
+	return granted
+}
+
+func buildFsSide(perms map[string]fsPermission) fsSide {
+	side := fsSide{
+		literals: make([]fsPathEntry, 0, len(perms)),
+		globs:    make(map[string]fsPathEntry, len(perms)),
+		byPrefix: make(prefixIndex),
+		starStar: make(prefixIndex),
+		longest:  0,
+	}
 
 	for path, perm := range perms {
-		var expr *regexp.Regexp
+		matcher := matcherFor(path)
 
-		if IsGlobPattern(path) {
-			expr = globToRegex(path)
-			if expr == neverMatchRe {
-				// An oversize pattern grants nothing, so it cannot
-				// contribute to an intersection.
-				continue
-			}
+		side.longest = max(side.longest, len(path))
+
+		if matcher.kind == kindLiteral {
+			side.literals = append(side.literals, fsPathEntry{
+				path: path, perm: perm, matcher: matcher,
+			})
+
+			continue
 		}
 
-		entries = append(entries, fsPathEntry{
-			path: path,
-			perm: perm,
-			expr: expr,
-		})
-	}
-
-	return entries
-}
-
-// matchIntersectPaths returns the narrower path when one covers the other
-// via glob matching, the path itself for exact matches, or empty string
-// when the paths don't interact. For glob-vs-glob, prefix-based narrowing
-// is used when possible, falling back to exact string match.
-func matchIntersectPaths(left, right fsPathEntry) string {
-	if left.path == right.path {
-		return left.path
-	}
-
-	switch {
-	case left.expr == nil && right.expr != nil:
-		if right.expr.MatchString(unescapeLiteral(left.path)) {
-			return left.path
+		if !matcher.usable() {
+			// A pattern that matches nothing cannot contribute to an
+			// intersection.
+			continue
 		}
-	case left.expr != nil && right.expr == nil:
-		if left.expr.MatchString(unescapeLiteral(right.path)) {
-			return right.path
-		}
-	case left.expr != nil && right.expr != nil:
-		return narrowGlobs(left.path, right.path)
+
+		side.globs[path] = fsPathEntry{path: path, perm: perm, matcher: matcher}
+		side.byPrefix.add(matcher.prefix, path)
+		side.starStar.addStarStar(path, matcher)
 	}
 
-	return ""
+	return side
 }
 
-// globLiteralPrefix extracts the leading literal path segments before the
-// first glob token. For example, "/var/log/**" returns "/var/log/",
-// "/var/*/foo" returns "/var/", and "**" returns "".
-func globLiteralPrefix(pattern string) string {
-	first := firstGlobToken(pattern)
-	if first < 0 {
-		return pattern
+// dropUnusableGlobs returns the paths without the glob patterns that match
+// nothing, reusing the slice when there are none. It returns nil when it
+// drops every path, as a pairwise intersection does.
+func dropUnusableGlobs(paths []string) []string {
+	unusable := func(path string) bool {
+		return IsGlobPattern(path) && !matcherFor(path).usable()
 	}
 
-	prefix := pattern[:first]
-
-	lastSlash := strings.LastIndex(prefix, "/")
-	if lastSlash >= 0 {
-		return prefix[:lastSlash+1]
+	if !slices.ContainsFunc(paths, unusable) {
+		return paths
 	}
 
-	return ""
-}
-
-// narrowGlobs returns the more specific glob when the other one is the
-// "**" expansion of a literal prefix that contains the specific glob's
-// prefix, so that "/etc/**" narrows to "/etc/*.conf" as well as to
-// "/etc/foo/*.conf". Exact string matches are kept as-is. If neither glob
-// contains the other in this way, returns empty string.
-func narrowGlobs(left, right string) string {
-	if left == right {
-		return left
+	kept := slices.DeleteFunc(slices.Clone(paths), unusable)
+	if len(kept) == 0 {
+		return nil
 	}
 
-	leftPrefix := globLiteralPrefix(left)
-	rightPrefix := globLiteralPrefix(right)
-
-	if left == leftPrefix+"**" && strings.HasPrefix(rightPrefix, leftPrefix) {
-		return right
-	}
-
-	if right == rightPrefix+"**" && strings.HasPrefix(leftPrefix, rightPrefix) {
-		return left
-	}
-
-	return ""
+	return kept
 }

@@ -50,7 +50,7 @@ require (
 	sigs.k8s.io/controller-runtime v0.25.1
 	sigs.k8s.io/controller-tools v0.22.0
 	sigs.k8s.io/release-utils v0.12.4
-	sigs.k8s.io/security-profiles-merger v0.4.2
+	sigs.k8s.io/security-profiles-merger v0.5.1
 	sigs.k8s.io/yaml v1.6.0
 )
 
