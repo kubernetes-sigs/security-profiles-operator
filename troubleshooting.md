@@ -2,6 +2,7 @@
 
 <!-- toc -->
 - [Troubleshooting](#troubleshooting)
+  - [The operator runs but no <code>spod</code> DaemonSet appears](#the-operator-runs-but-no-spod-daemonset-appears)
   - [Enable CPU and memory profiling](#enable-cpu-and-memory-profiling)
   - [Use a custom <code>/proc</code> location for nested environments like <code>kind</code>](#use-a-custom-proc-location-for-nested-environments-like-kind)
   - [Notes on OpenShift and SCCs](#notes-on-openshift-and-sccs)
@@ -38,6 +39,42 @@ Please note corrupted seccomp profiles can disrupt your workloads. Therefore, en
 - Not creating that user on the actual node.
 - Restricting the user ID to only security-profiles-operator (for example, using [Pod Security Standards](https://kubernetes.io/docs/concepts/security/pod-security-standards/)).
 - Not allowing other workloads to map any part of the path `/var/lib/kubelet/seccomp/operator`.
+
+### The operator runs but no `spod` DaemonSet appears
+
+An operator Deployment which reports `Running` can still be doing nothing at
+all. The manager waits for every informer cache before it starts a single
+controller, and that wait has no timeout, so one resource it is not allowed to
+list stops `spod` from ever being created. The
+`SecurityProfilesOperatorDaemon` then stays without a state:
+
+```sh
+$ kubectl -n security-profiles-operator get ds
+No resources found in security-profiles-operator namespace.
+
+$ kubectl get securityprofilesoperatordaemons -A
+NAMESPACE                    NAME   STATE
+security-profiles-operator   spod
+```
+
+The manager log names the resource, repeating every few seconds:
+
+```
+E0918 14:49:17.170072 1 runtime.go:252] "Failed to watch" err="failed to list *v1.ProfileBinding: profilebindings.security-profiles-operator.x-k8s.io is forbidden: User \"system:serviceaccount:security-profiles-operator:security-profiles-operator\" cannot list resource \"profilebindings\" in API group \"security-profiles-operator.x-k8s.io\" at the cluster scope" logger="controller-runtime.cache.UnhandledError"
+```
+
+The operator reports this state through its readiness probe, so its pods stay
+`0/1` ready while the caches do not sync.
+
+A missing permission like that means the deployed RBAC is older than the
+operator image, which happens when the two come from different versions. Verify
+that the manifests and the image belong together, for example that a Helm
+install did not leave `spoImage.tag` at `latest`:
+
+```sh
+kubectl -n security-profiles-operator get deploy security-profiles-operator \
+  -o jsonpath='{.spec.template.spec.containers[0].image}'
+```
 
 ### Enable CPU and memory profiling
 

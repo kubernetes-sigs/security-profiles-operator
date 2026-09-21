@@ -4,10 +4,16 @@ kind: AppArmorProfile
 metadata:
   name: test-profile
   annotations:
-    description: Block writing to any files in the disk.
+    description: Block writing to any files in the disk and all network access.
 spec:
   abstract:
     filesystem: # Denies all file write and read access.
       readOnlyPaths: []
       writeOnlyPaths: []
       readWritePaths: []
+    network: # Denies all network access.
+      allowRaw: false
+      # allowedProtocols is an object and not a list of protocol names.
+      allowedProtocols:
+        allowTcp: false
+        allowUdp: false

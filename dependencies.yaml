@@ -70,6 +70,8 @@ dependencies:
       match: 'kindImage\s+='
     - path: .github/workflows/olm_tests.yaml
       match: KIND_IMG_TAG
+    - path: .github/workflows/test.yml
+      match: KIND_IMG_TAG
 
   - name: e2e-kubernetes
     version: 1.37

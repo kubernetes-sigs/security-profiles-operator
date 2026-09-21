@@ -113,6 +113,10 @@ const (
 	enricherLogSourceParam   string = "enricher-log-source"
 	// Deprecated: TLS version is now managed via OpenShift TLS profiles.
 	tlsMinVersionParam string = "tls-min-version"
+
+	// cacheSyncCheckTimeout bounds a single readiness check, so that it polls
+	// the informer caches rather than waiting for them.
+	cacheSyncCheckTimeout time.Duration = 5 * time.Second
 )
 
 var (
@@ -533,6 +537,10 @@ func runManager(ctx *cli.Context, info *version.Info) error {
 	mgr, err := ctrl.NewManager(cfg, ctrlOpts)
 	if err != nil {
 		return fmt.Errorf("create cluster manager: %w", err)
+	}
+
+	if err := addCacheSyncReadyzCheck(mgr); err != nil {
+		return err
 	}
 
 	if err := configv1.AddToScheme(mgr.GetScheme()); err != nil {
@@ -1228,6 +1236,32 @@ func runWebhook(ctx *cli.Context, info *version.Info) error {
 	)
 }
 
+// addCacheSyncReadyzCheck marks the operator as not ready while the informer
+// caches are not synced. `Manager.Start` serves the health endpoints before it
+// waits for the caches, and that wait has no timeout, so a single informer which
+// cannot list its resource (RBAC forbidding it, for example) keeps every
+// controller from ever starting while the process still answers health checks.
+// Without this check such an operator looks perfectly healthy while doing
+// nothing at all.
+func addCacheSyncReadyzCheck(mgr ctrl.Manager) error {
+	if err := mgr.AddReadyzCheck("cache-sync", func(req *http.Request) error {
+		// Bound the check, because a cache which never syncs is the state to
+		// report rather than to wait for.
+		ctx, cancel := context.WithTimeout(req.Context(), cacheSyncCheckTimeout)
+		defer cancel()
+
+		if !mgr.GetCache().WaitForCacheSync(ctx) {
+			return errors.New("informer caches are not synced")
+		}
+
+		return nil
+	}); err != nil {
+		return fmt.Errorf("add cache sync readiness check: %w", err)
+	}
+
+	return nil
+}
+
 func setupEnabledControllers(
 	ctx context.Context,
 	enabledControllers []controller.Controller,
@@ -1245,10 +1279,11 @@ func setupEnabledControllers(
 			return fmt.Errorf("setup %s controller: %w", enableCtrl.Name(), err)
 		}
 
-		if met != nil {
-			if err := mgr.AddHealthzCheck(enableCtrl.Name(), enableCtrl.Healthz); err != nil {
-				return fmt.Errorf("add readiness check to controller: %w", err)
-			}
+		// Unconditionally, because controller-runtime only serves the liveness
+		// endpoint at all once a check is registered, and the manager passes no
+		// metrics while still exposing the health probe address.
+		if err := mgr.AddHealthzCheck(enableCtrl.Name(), enableCtrl.Healthz); err != nil {
+			return fmt.Errorf("add health check to controller: %w", err)
 		}
 	}
 

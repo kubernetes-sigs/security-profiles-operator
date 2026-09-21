@@ -1,8 +1,8 @@
 diff --git a/deploy/operator.yaml b/deploy/operator.yaml
-index d7bf1964..d2a9c614 100644
+index b28039488..5442463fb 100644
 --- a/deploy/operator.yaml
 +++ b/deploy/operator.yaml
-@@ -2954,7 +2954,7 @@ metadata:
+@@ -3953,7 +3953,7 @@ metadata:
    name: security-profiles-operator
    namespace: security-profiles-operator
  spec:
@@ -11,7 +11,7 @@ index d7bf1964..d2a9c614 100644
    selector:
      matchLabels:
        app: security-profiles-operator
-@@ -2988,8 +2988,8 @@ spec:
+@@ -3991,8 +3991,8 @@ spec:
                fieldPath: spec.nodeName
          - name: KUBELET_DIR
            value: /var/lib/kubelet
@@ -19,6 +19,6 @@ index d7bf1964..d2a9c614 100644
 -        imagePullPolicy: Always
 +        image: localhost/security-profiles-operator:latest
 +        imagePullPolicy: IfNotPresent
-         name: security-profiles-operator
-         resources:
-           limits:
+         livenessProbe:
+           failureThreshold: 3
+           httpGet:
