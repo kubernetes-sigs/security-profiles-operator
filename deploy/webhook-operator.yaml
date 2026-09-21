@@ -3993,7 +3993,24 @@ spec:
           value: /var/lib/kubelet
         image: us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator:latest
         imagePullPolicy: Always
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /healthz
+            port: health
+          periodSeconds: 10
         name: security-profiles-operator
+        ports:
+        - containerPort: 8085
+          name: health
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /readyz
+            port: health
+          periodSeconds: 10
+          timeoutSeconds: 6
         resources:
           limits:
             cpu: 500m
@@ -4008,6 +4025,12 @@ spec:
             - ALL
           readOnlyRootFilesystem: true
           runAsNonRoot: true
+        startupProbe:
+          failureThreshold: 30
+          httpGet:
+            path: /healthz
+            port: health
+          periodSeconds: 3
       securityContext:
         seccompProfile:
           type: RuntimeDefault

@@ -42,6 +42,39 @@ spec:
         image: {{ .Values.spoImage.registry }}/{{ .Values.spoImage.repository }}:{{ .Values.spoImage.tag }}
         imagePullPolicy: {{ .Values.spoImage.pullPolicy | default "Always" }}
         name: {{ .Chart.Name }}
+        ports:
+        - name: health
+          containerPort: 8085
+          protocol: TCP
+        # Startup is gated separately, so that a slow start does not make the
+        # liveness probe restart a manager which is still coming up. The budget
+        # is generous because the health server only binds inside
+        # `Manager.Start`, after up to two ten second API calls which detect
+        # OpenShift and fetch its TLS profile.
+        startupProbe:
+          httpGet:
+            path: /healthz
+            port: health
+          failureThreshold: 30
+          periodSeconds: 3
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: health
+          failureThreshold: 3
+          periodSeconds: 10
+        # The manager serves the health endpoints before it waits for its
+        # informer caches, so only readiness can tell a working operator from
+        # one which never started a single controller.
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: health
+          failureThreshold: 3
+          periodSeconds: 10
+          # Above the timeout the check itself uses, so that it reports an
+          # unsynced cache rather than being cut off before it can.
+          timeoutSeconds: 6
         resources:
           {{- toYaml .Values.resources | nindent 10 }}
         securityContext:
