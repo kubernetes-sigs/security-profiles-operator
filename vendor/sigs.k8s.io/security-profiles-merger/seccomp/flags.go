@@ -41,7 +41,8 @@ const (
 	flagHardening
 	// flagListener changes how notifications are delivered:
 	// SECCOMP_FILTER_FLAG_WAIT_KILLABLE_RECV only matters together with a
-	// listener, which is taken from the first profile, so the flag is too.
+	// listener, which is taken from the first profile that sets one, so the
+	// flag is taken from that profile too.
 	flagListener
 )
 
@@ -60,10 +61,16 @@ func polarityOf(flag specs.LinuxSeccompFlag) flagPolarity {
 
 // keepFlag decides whether a flag survives a merge given where it is set.
 // A permissive flag under intersection and a hardening flag under union
-// need every profile; the other two combinations need any profile.
-func keepFlag(polarity flagPolarity, inLeft, inRight, intersect bool) bool {
+// need every profile; the other two combinations need any profile. A
+// listener flag belongs to the listener, so it follows the profile the
+// listener comes from and is dropped when that profile does not set it.
+func keepFlag(polarity flagPolarity, inLeft, inRight, intersect, listenerFromLeft bool) bool {
 	if polarity == flagListener {
-		return inLeft
+		if listenerFromLeft {
+			return inLeft
+		}
+
+		return inRight
 	}
 
 	needsEvery := (polarity == flagPermissive) == intersect
@@ -77,7 +84,7 @@ func keepFlag(polarity flagPolarity, inLeft, inRight, intersect bool) bool {
 // mergeFlags combines the flag lists of two profiles according to each
 // flag's polarity. An empty list means "no flags".
 func mergeFlags(
-	left, right []specs.LinuxSeccompFlag, intersect bool,
+	left, right []specs.LinuxSeccompFlag, intersect, listenerFromLeft bool,
 ) []specs.LinuxSeccompFlag {
 	var result []specs.LinuxSeccompFlag
 
@@ -85,7 +92,7 @@ func mergeFlags(
 		inLeft := slices.Contains(left, flag)
 		inRight := slices.Contains(right, flag)
 
-		if keepFlag(polarityOf(flag), inLeft, inRight, intersect) {
+		if keepFlag(polarityOf(flag), inLeft, inRight, intersect, listenerFromLeft) {
 			result = append(result, flag)
 		}
 	}

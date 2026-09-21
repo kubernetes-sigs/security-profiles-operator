@@ -19,6 +19,8 @@ package apparmor
 import (
 	"fmt"
 	"strings"
+
+	"sigs.k8s.io/security-profiles-merger/internal/merge"
 )
 
 // FormatProfile returns a human-readable representation of an AppArmor profile.
@@ -64,11 +66,11 @@ func (e ExecutableRules) String() string {
 	var parts []string
 
 	if len(e.AllowedExecutables) > 0 {
-		parts = append(parts, "exec:"+strings.Join(e.AllowedExecutables, ","))
+		parts = append(parts, "exec:"+strings.Join(merge.SafeTexts(e.AllowedExecutables), ","))
 	}
 
 	if len(e.AllowedLibraries) > 0 {
-		parts = append(parts, "lib:"+strings.Join(e.AllowedLibraries, ","))
+		parts = append(parts, "lib:"+strings.Join(merge.SafeTexts(e.AllowedLibraries), ","))
 	}
 
 	return strings.Join(parts, " ")
@@ -79,15 +81,15 @@ func (f FilesystemRules) String() string {
 	var parts []string
 
 	if len(f.ReadOnlyPaths) > 0 {
-		parts = append(parts, "r:"+strings.Join(f.ReadOnlyPaths, ","))
+		parts = append(parts, "r:"+strings.Join(merge.SafeTexts(f.ReadOnlyPaths), ","))
 	}
 
 	if len(f.WriteOnlyPaths) > 0 {
-		parts = append(parts, "w:"+strings.Join(f.WriteOnlyPaths, ","))
+		parts = append(parts, "w:"+strings.Join(merge.SafeTexts(f.WriteOnlyPaths), ","))
 	}
 
 	if len(f.ReadWritePaths) > 0 {
-		parts = append(parts, "rw:"+strings.Join(f.ReadWritePaths, ","))
+		parts = append(parts, "rw:"+strings.Join(merge.SafeTexts(f.ReadWritePaths), ","))
 	}
 
 	return strings.Join(parts, " ")
@@ -132,5 +134,5 @@ func (c CapabilityRules) String() string {
 		return "caps:none"
 	}
 
-	return "caps:" + strings.Join(c.AllowedCapabilities, ",")
+	return "caps:" + strings.Join(merge.SafeTexts(c.AllowedCapabilities), ",")
 }

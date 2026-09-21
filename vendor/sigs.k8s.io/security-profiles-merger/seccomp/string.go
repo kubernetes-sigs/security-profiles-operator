@@ -21,6 +21,8 @@ import (
 	"strings"
 
 	specs "github.com/opencontainers/runtime-spec/specs-go"
+
+	"sigs.k8s.io/security-profiles-merger/internal/merge"
 )
 
 // FormatProfile returns a human-readable representation of a seccomp profile.
@@ -31,7 +33,7 @@ func FormatProfile(profile *specs.LinuxSeccomp) string {
 
 	var parts []string
 
-	parts = append(parts, "default:"+string(profile.DefaultAction))
+	parts = append(parts, "default:"+merge.SafeText(string(profile.DefaultAction)))
 
 	if profile.DefaultErrnoRet != nil {
 		parts = append(parts, fmt.Sprintf("defaultErrno:%d", *profile.DefaultErrnoRet))
@@ -40,7 +42,7 @@ func FormatProfile(profile *specs.LinuxSeccomp) string {
 	if len(profile.Architectures) > 0 {
 		archs := make([]string, len(profile.Architectures))
 		for idx, arch := range profile.Architectures {
-			archs[idx] = string(arch)
+			archs[idx] = merge.SafeText(string(arch))
 		}
 
 		parts = append(parts, "arch:"+strings.Join(archs, ","))
@@ -49,17 +51,19 @@ func FormatProfile(profile *specs.LinuxSeccomp) string {
 	if len(profile.Flags) > 0 {
 		flags := make([]string, len(profile.Flags))
 		for idx, flag := range profile.Flags {
-			flags[idx] = string(flag)
+			flags[idx] = merge.SafeText(string(flag))
 		}
 
 		parts = append(parts, "flags:"+strings.Join(flags, ","))
 	}
 
 	if profile.ListenerPath != "" {
-		parts = append(parts, "listener:"+profile.ListenerPath)
+		parts = append(parts, "listener:"+merge.SafeText(profile.ListenerPath))
 
 		if profile.ListenerMetadata != "" {
-			parts = append(parts, "listenerMeta:"+profile.ListenerMetadata)
+			parts = append(
+				parts, "listenerMeta:"+merge.SafeText(profile.ListenerMetadata),
+			)
 		}
 	}
 
@@ -72,21 +76,21 @@ func FormatProfile(profile *specs.LinuxSeccomp) string {
 
 // String returns a human-readable representation of the syscall entry.
 func (e SyscallEntry) String() string {
-	action := string(e.Action)
+	action := merge.SafeText(string(e.Action))
 	if e.ErrnoRet != nil {
 		action = fmt.Sprintf("%s(errno:%d)", action, *e.ErrnoRet)
 	}
 
 	if len(e.Args) == 0 {
-		return e.Name + "->" + action
+		return merge.SafeText(e.Name) + "->" + action
 	}
 
-	return fmt.Sprintf("%s(%s)->%s", e.Name, formatArgs(e.Args), action)
+	return fmt.Sprintf("%s(%s)->%s", merge.SafeText(e.Name), formatArgs(e.Args), action)
 }
 
 // String returns a human-readable representation of the syscall detail.
 func (d SyscallDetail) String() string {
-	action := string(d.Action)
+	action := merge.SafeText(string(d.Action))
 	if d.ErrnoRet != nil {
 		action = fmt.Sprintf("%s(errno:%d)", action, *d.ErrnoRet)
 	}
@@ -103,9 +107,14 @@ func formatArgs(args []specs.LinuxSeccompArg) string {
 
 	for idx, arg := range args {
 		if arg.Op == specs.OpMaskedEqual {
-			parts[idx] = fmt.Sprintf("[%d]%s:%d:%d", arg.Index, arg.Op, arg.Value, arg.ValueTwo)
+			parts[idx] = fmt.Sprintf(
+				"[%d]%s:%d:%d",
+				arg.Index, merge.SafeText(string(arg.Op)), arg.Value, arg.ValueTwo,
+			)
 		} else {
-			parts[idx] = fmt.Sprintf("[%d]%s:%d", arg.Index, arg.Op, arg.Value)
+			parts[idx] = fmt.Sprintf(
+				"[%d]%s:%d", arg.Index, merge.SafeText(string(arg.Op)), arg.Value,
+			)
 		}
 	}
 
@@ -113,8 +122,8 @@ func formatArgs(args []specs.LinuxSeccompArg) string {
 }
 
 func formatSyscall(syscall specs.LinuxSyscall) string {
-	names := strings.Join(syscall.Names, ",")
-	action := string(syscall.Action)
+	names := strings.Join(merge.SafeTexts(syscall.Names), ",")
+	action := merge.SafeText(string(syscall.Action))
 
 	if syscall.ErrnoRet != nil {
 		action = fmt.Sprintf("%s(errno:%d)", action, *syscall.ErrnoRet)

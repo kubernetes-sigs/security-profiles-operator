@@ -14,7 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package seccomp provides merge operations for seccomp profiles.
 package seccomp
 
 import (
@@ -46,33 +45,76 @@ const (
 const levelUnknown = -1
 
 // MoreRestrictive returns the more restrictive of two seccomp actions.
-// If an action is unknown, it is treated as the most restrictive (kill).
+// An unknown action is ranked as the most restrictive there is and reported
+// as SCMP_ACT_KILL_PROCESS, so that a caller writing the result into a
+// profile writes an action a runtime loads rather than the unknown one back,
+// and one no less restrictive than the rank it was given.
 func MoreRestrictive(first, second specs.LinuxSeccompAction) specs.LinuxSeccompAction {
-	firstLevel := restrictiveness(first)
-	secondLevel := restrictiveness(second)
-
-	if firstLevel <= secondLevel {
-		return first
-	}
-
-	return second
+	return knownAction(moreRestrictive(first, second))
 }
 
 // LessRestrictive returns the less restrictive of two seccomp actions.
-// If an action is unknown, it is treated as the most restrictive (kill).
+// An unknown action is ranked and reported as MoreRestrictive reports it.
 func LessRestrictive(first, second specs.LinuxSeccompAction) specs.LinuxSeccompAction {
-	firstLevel := restrictiveness(first)
-	secondLevel := restrictiveness(second)
+	return knownAction(lessRestrictive(first, second))
+}
 
-	if firstLevel >= secondLevel {
+// knownAction replaces an action this package does not know with
+// SCMP_ACT_KILL_PROCESS, the action of the rank the ranking gives it: an
+// unknown action sorts above every known one, so standing in for it with
+// anything less restrictive would report less than was asked for.
+func knownAction(action specs.LinuxSeccompAction) specs.LinuxSeccompAction {
+	if restrictiveness(action) == levelUnknown {
+		return specs.ActKillProcess
+	}
+
+	return action
+}
+
+// moreRestrictive and lessRestrictive rank two actions without rewriting
+// either. The merge picks between two clauses by asking which action wins
+// and then keeping that clause whole (see pickClause), so it needs the
+// action it passed in back, unknown or not: a profile the merge reads
+// unvalidated, as IntersectSyscalls does, keeps the action it carries rather
+// than having it turn into SCMP_ACT_KILL on one side of the comparison and
+// not the other.
+func moreRestrictive(first, second specs.LinuxSeccompAction) specs.LinuxSeccompAction {
+	if restrictiveness(first) <= restrictiveness(second) {
 		return first
 	}
 
 	return second
 }
 
-func actionsEquivalent(a, b specs.LinuxSeccompAction) bool {
-	return restrictiveness(a) == restrictiveness(b)
+func lessRestrictive(first, second specs.LinuxSeccompAction) specs.LinuxSeccompAction {
+	if restrictiveness(first) >= restrictiveness(second) {
+		return first
+	}
+
+	return second
+}
+
+// actionsEquivalent reports whether two actions have the same effect.
+// Unknown actions are equivalent only to themselves, so that unvalidated
+// profiles (as Diff accepts) do not conflate distinct unknown actions.
+func actionsEquivalent(first, second specs.LinuxSeccompAction) bool {
+	level := restrictiveness(first)
+	if level == levelUnknown {
+		return first == second
+	}
+
+	return level == restrictiveness(second)
+}
+
+// canonicalAction spells SCMP_ACT_KILL_THREAD as SCMP_ACT_KILL, which
+// libseccomp defines as the same action. Clauses are built in this form, so
+// every result spells the action the same way.
+func canonicalAction(action specs.LinuxSeccompAction) specs.LinuxSeccompAction {
+	if action == specs.ActKillThread {
+		return specs.ActKill
+	}
+
+	return action
 }
 
 func restrictiveness(action specs.LinuxSeccompAction) int {

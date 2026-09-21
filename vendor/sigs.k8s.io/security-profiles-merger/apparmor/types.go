@@ -20,11 +20,12 @@ package apparmor
 // This type mirrors the structure used by the Security Profiles Operator
 // without depending on its CRD types.
 //
-// Nil fields mean "unspecified" and defer to the other profile during merge.
-// A non-nil field with empty contents (e.g. &CapabilityRules{}) means
-// "explicitly no permissions". This distinction affects merge results:
-// intersecting {caps: [NET_ADMIN]} with {caps: nil} yields [NET_ADMIN],
-// while intersecting {caps: [NET_ADMIN]} with {caps: []} yields [].
+// A nil field means the profile says nothing about that section, which to
+// AppArmor denies everything the section covers. Intersect treats it as an
+// explicit empty section (e.g. &CapabilityRules{}), so intersecting
+// {caps: [NET_ADMIN]} with {caps: nil} yields [] like {caps: []} does. Union
+// lets a nil section defer to the other profile, which grants the same as
+// an empty one would; only the shape of the result differs.
 type Profile struct {
 	Executable   *ExecutableRules `json:"executable,omitempty"`
 	Filesystem   *FilesystemRules `json:"filesystem,omitempty"`
