@@ -14,10 +14,8 @@
 # limitations under the License.
 
 # Attests an SPDX SBOM (https://spdx.dev/Document) for each given image digest.
-# The images are built from scratch and bom cannot read the module information
-# of Go binaries yet (kubernetes-sigs/bom#347), so the SBOM lists the image
-# together with the Go modules of this repository. Runs from the repository
-# root and needs go.
+# bom extracts the Go binary dependencies directly from the image, so the SBOM
+# includes actual build-time module versions.
 
 set -euo pipefail
 
@@ -33,33 +31,16 @@ for ref in "$@"; do
   require_digest "$ref"
 done
 
-# bom reads the module licenses from the module cache, with the vendor
-# directory it would clone every dependency repository instead. The read-only
-# module mode never writes go.mod or go.sum, which keeps parallel runs apart.
-go mod download
-
 mkdir -p "$BUILD_DIR/attestations"
 
 for ref in "$@"; do
   name="$(image_name "$ref")"
   sbom="$BUILD_DIR/attestations/$name.spdx.json"
 
-  # bom keeps its license data in fixed paths below the temporary directory,
-  # so parallel runs need their own.
-  tmp="$BUILD_DIR/tmp/$name"
-  mkdir -p "$tmp"
-
   echo "Generating the SBOM for $ref"
-  # The ignore patterns keep the repository files out of the SBOM, go.mod and
-  # go.sum stay because bom needs at least one file in the scanned directory.
-  TMPDIR="$(realpath "$tmp")" GOFLAGS=-mod=readonly "$(bom_bin)" generate \
-    --format json \
-    -l Apache-2.0 \
+  "$(bom_bin)" generate \
+    --format spdx3-json \
     --name "$name" \
-    -d . \
-    --ignore '*' \
-    --ignore '!go.mod' \
-    --ignore '!go.sum' \
     -i "$ref" \
     -o "$sbom"
 
