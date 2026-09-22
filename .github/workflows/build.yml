@@ -8,7 +8,7 @@ on:
   pull_request:
 env:
   NIX_VERSION: '2.35.2'
-  BOM_VERSION: v0.7.1
+  BOM_VERSION: v0.8.0
 # Runs on main and releases publish images, spoc binaries and the SBOM, so only
 # pull request runs are cancelled by newer pushes.
 concurrency:
@@ -179,21 +179,21 @@ jobs:
             build/spoc.arm64
             build/spoc.ppc64le
             build/spoc.s390x
-            build/spoc.spdx
+            build/spoc.spdx.json
       - run: cp "${{ steps.provenance.outputs.bundle-path }}" build/spoc.intoto.jsonl
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: spoc-sbom
           path: |
-            build/spoc.spdx
-            build/spoc.spdx.sigstore.json
+            build/spoc.spdx.json
+            build/spoc.spdx.json.sigstore.json
             build/spoc.intoto.jsonl
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
-            build/spoc.spdx
-            build/spoc.spdx.sigstore.json
+            build/spoc.spdx.json
+            build/spoc.spdx.json.sigstore.json
             build/spoc.intoto.jsonl
 
   bpf:

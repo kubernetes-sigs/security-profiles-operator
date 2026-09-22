@@ -28,7 +28,7 @@ import sys
 WORKFLOW = ".github/workflows/build.yml"
 
 # The SBOM is a subject too, but it is not per-architecture.
-NON_ARCH_SUBJECTS = {"build/spoc.spdx"}
+NON_ARCH_SUBJECTS = {"build/spoc.spdx.json"}
 
 
 def block(text, header, pattern):
