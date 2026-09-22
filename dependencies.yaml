@@ -201,7 +201,7 @@ dependencies:
       match: "^COSIGN_VERSION="
 
   - name: bom
-    version: v0.7.1
+    version: v0.8.0
     refPaths:
     - path: .github/workflows/build.yml
       match: "BOM_VERSION:"

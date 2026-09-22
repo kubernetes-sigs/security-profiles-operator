@@ -266,27 +266,22 @@ endef
 nix-spoc: nix-spoc-amd64 nix-spoc-arm64 nix-spoc-ppc64le nix-spoc-s390x ## Build all spoc binaries via nix.
 	$(MAKE) spoc-sbom
 
-# The SBOM lists the spoc binaries and the Go module dependencies. The ignore
-# patterns keep the repository files out of it, go.mod and go.sum stay because
-# bom needs at least one file in the scanned directory. Module mode makes bom
-# read the dependency licenses from the module cache, with the vendor directory
-# it clones every dependency repository instead.
 .PHONY: spoc-sbom
 spoc-sbom: ## Generate and sign the SBOM for the spoc binaries in the build directory
 	bom version
 	go mod download
 	GOFLAGS=-mod=mod bom generate \
-		-l Apache-2.0 \
+		--format spdx3-json \
 		--name spoc \
 		-d . \
 		--ignore '*' \
 		--ignore '!go.mod' \
 		--ignore '!go.sum' \
 		$(foreach arch,$(SPOC_ARCHES),-f $(BUILD_DIR)/spoc.$(arch)) \
-		-o $(BUILD_DIR)/spoc.spdx
+		-o $(BUILD_DIR)/spoc.spdx.json
 	cosign sign-blob -y \
-		$(BUILD_DIR)/spoc.spdx \
-		--bundle $(BUILD_DIR)/spoc.spdx.sigstore.json
+		$(BUILD_DIR)/spoc.spdx.json \
+		--bundle $(BUILD_DIR)/spoc.spdx.json.sigstore.json
 
 .PHONY: nix-spoc-amd64
 nix-spoc-amd64: $(BUILD_DIR) ## Build and sign the spoc binary via nix for amd64
