@@ -63,7 +63,10 @@ FROM registry.access.redhat.com/ubi9/ubi-minimal@sha256:984df0a2b8d9011d419b0ad2
 ARG version
 USER root
 
-RUN microdnf install -y \
+RUN microdnf update -y \
+  curl-minimal \
+  libcurl-minimal \
+  && microdnf install -y \
   libseccomp \
   libbpf \
   && microdnf clean all
