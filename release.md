@@ -76,7 +76,7 @@ auto-generated based on PR labels and the configuration in
 
 Publishing the release triggers the [`build`](.github/workflows/build.yml)
 workflow, which attaches the `spoc` binaries for all architectures and the
-`spoc.spdx` SBOM with their signatures (`*.sigstore.json`), checksums and SLSA
+`spoc.spdx.json` SBOM with their signatures (`*.sigstore.json`), checksums and SLSA
 build provenance (`spoc.intoto.jsonl`) to the release. The
 [`helm-chart-package`](.github/workflows/helm-chart-package.yaml) workflow
 attaches the chart archive with its signature and provenance. Nothing has to
@@ -146,10 +146,10 @@ The attestations are:
   service account, `runDetails.metadata.invocationId` links to the build. The
   build job writes and signs the provenance itself, so `runDetails.builder.id`
   names the `post-security-profiles-operator-push-image` job.
-- SPDX SBOM (`https://spdx.dev/Document`), written by
-  [`hack/attest-sbom.sh`](hack/attest-sbom.sh). It lists the image together with
-  the Go modules of the repository, because bom cannot read the module
-  information of the binaries yet.
+- SPDX 3 SBOM (`https://spdx.dev/Document`), written by
+  [`hack/attest-sbom.sh`](hack/attest-sbom.sh). bom extracts the Go binary
+  dependencies directly from the image, so the SBOM includes the actual
+  build-time module versions.
 - Vulnerability scan (`https://in-toto.io/attestation/vulns/v0.2`) and OpenVEX
   document (`https://openvex.dev/ns`) from govulncheck in binary mode, written
   by [`hack/attest-vulns.sh`](hack/attest-vulns.sh). The VEX document marks a
