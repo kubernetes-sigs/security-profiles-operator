@@ -336,7 +336,7 @@ func (e *e2e) deployOperator(manifest string) {
 	e.logf("Setting imagePullPolicy to '%s' in manifest: %s", e.pullPolicy, manifest)
 	e.updateManifest(manifest, "imagePullPolicy: Always", "imagePullPolicy: "+e.pullPolicy)
 
-	const stagingImage = ".*registry.k8s.io/.*"
+	const stagingImage = ".*us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/.*"
 
 	e.updateManifest(manifest, "image: "+stagingImage, "image: "+e.testImage)
 	e.updateManifest(manifest, "value: "+stagingImage, "value: "+e.testImage)

@@ -4009,7 +4009,7 @@ spec:
               fieldPath: spec.nodeName
         - name: KUBELET_DIR
           value: /var/lib/kubelet
-        image: registry.k8s.io/security-profiles-operator/security-profiles-operator:v1.1.0
+        image: us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator:latest
         imagePullPolicy: Always
         livenessProbe:
           failureThreshold: 3
