@@ -126,8 +126,12 @@ vulnerability is fixed or no longer found.
 Neither check fails on `not_affected` or `fixed` statements. Both list the
 assessed findings in their output. A `vulnerable_code_not_present` or
 `component_not_present` statement is ignored with a warning when govulncheck
-finds the vulnerable code again. The staging build also applies the
-assessments to the VEX documents it attests, see
+observes the vulnerable code again, which needs the symbol table that the
+binaries keep because `LDFLAGS` in the [`Makefile`](Makefile) drops DWARF with
+`-w` but not the symbols with `-s`. Without it govulncheck can only report
+which vulnerable modules a binary contains, and reports the packages and
+symbols of the advisory rather than the ones in the binary. The staging build
+also applies the assessments to the VEX documents it attests, see
 [staging attestations](release.md#staging-attestations).
 
 ## Running unit tests and viewing coverage
