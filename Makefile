@@ -122,11 +122,16 @@ else
   EXTLDFLAGS :=
 endif
 
+# -w drops DWARF, but the symbol table has to stay: govulncheck reads it to
+# tell which packages of a vulnerable module the binary actually uses. With
+# -s it falls back to module level and reports every vulnerability of every
+# module in the build info as affected, which makes the attested VEX
+# documents claim vulnerabilities the binaries don't contain.
 LINKMODE_EXTERNAL ?= yes
 ifeq ($(LINKMODE_EXTERNAL), yes)
-  LDFLAGS := -s -w -linkmode external $(EXTLDFLAGS) $(LDVARS)
+  LDFLAGS := -w -linkmode external $(EXTLDFLAGS) $(LDVARS)
 else
-  LDFLAGS := -s -w $(EXTLDFLAGS) $(LDVARS)
+  LDFLAGS := -w $(EXTLDFLAGS) $(LDVARS)
 endif
 
 export CONTAINER_RUNTIME ?= $(if $(shell which podman 2>/dev/null),podman,docker)

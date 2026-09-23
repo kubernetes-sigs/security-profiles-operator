@@ -27,9 +27,16 @@
 # when one of its products is the image purl without version. A not_affected
 # statement needs a justification or an impact statement. Statements claiming
 # that the vulnerable code or component is not present are ignored with a
-# warning when govulncheck finds the vulnerable symbols, because the claim is
+# warning when govulncheck observes the vulnerable symbols, because the claim is
 # outdated then. Affected statements without an action statement name the
 # module, the fixed version if there is one, and the vulnerability entry.
+#
+# Symbols are only observed when the binary carries a symbol table. Without one
+# govulncheck falls back to module level and reports the packages and symbols of
+# the advisory instead of the ones in the binary, with a wildcard in place of
+# the symbol name. Those findings say that a vulnerable module is present, not
+# that its code is, so they never invalidate an assessment. The binaries are
+# built without -s for this reason, see LDFLAGS in the Makefile.
 
 # jq programs are single quoted on purpose
 # shellcheck disable=SC2016
@@ -94,24 +101,40 @@ for ref in "$@"; do
   # subcomponents. A maintained statement replaces the assessment.
   cat "$scans"/*.govulncheck.json >"$scans/findings.json"
 
+  # Vulnerabilities whose symbols govulncheck actually saw in the binaries. A
+  # trace without a concrete function is a module or package level finding.
+  observed=$("$(jq_bin)" -s \
+    '[.[] | .finding? | select(.trace[0].function? // "" | test("\\*$") | not)
+      | select(.trace[0].function != null) | .osv] | unique' "$scans/findings.json")
+
+  wildcards=$("$(jq_bin)" -s \
+    '[.[] | .finding? | select(.trace[0].function? // "" | test("\\*$"))] | length' \
+    "$scans/findings.json")
+  if [[ "$wildcards" -gt 0 ]]; then
+    echo "WARNING: binaries of $ref have no symbol table, govulncheck can only report which vulnerable modules they contain" >&2
+  fi
+
   outdated=$("$(jq_bin)" -rs \
     --slurpfile assessments "$VEX_FILE" \
+    --argjson observed "$observed" \
     --arg genericProduct "pkg:oci/$name" \
     '[.[] | (.statements // [])[] | select(.status == "affected") | .vulnerability.name]
     | unique[] as $found
+    | select($found | IN($observed[]))
     | $assessments[0].statements[]
     | select(.vulnerability.name == $found
         and any(.products[]; ."@id" == $genericProduct)
         and (.justification | IN("vulnerable_code_not_present", "component_not_present")))
     | $found' "$scans"/*.openvex.json)
   for vulnerability in $outdated; do
-    echo "WARNING: govulncheck finds $vulnerability in $ref, ignoring its outdated assessment in $VEX_FILE" >&2
+    echo "WARNING: govulncheck observes $vulnerability in $ref, ignoring its outdated assessment in $VEX_FILE" >&2
   done
 
   vex="$BUILD_DIR/attestations/$name.openvex.json"
   "$(jq_bin)" -s \
     --slurpfile assessments "$VEX_FILE" \
     --slurpfile findings "$scans/findings.json" \
+    --argjson observed "$observed" \
     --arg genericProduct "pkg:oci/$name" \
     --arg id "https://console.cloud.google.com/cloud-build/builds/${BUILD_ID:-local}#$name-vex" \
     --arg author "$REPOSITORY_URL/blob/main/hack/attest-vulns.sh" \
@@ -142,7 +165,8 @@ for ref in "$@"; do
                 and (.status != "affected"
                   or ($assessment.justification
                     | IN("vulnerable_code_not_present", "component_not_present")
-                    | not))
+                    | not)
+                  or ($name | IN($observed[]) | not))
               then
                 del(.status, .justification, .impact_statement, .action_statement)
                 + ($assessment | del(.vulnerability, .products, .timestamp, .last_updated))
