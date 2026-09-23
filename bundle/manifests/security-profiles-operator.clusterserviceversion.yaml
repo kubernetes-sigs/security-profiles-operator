@@ -9,7 +9,7 @@ metadata:
           "kind": "AppArmorProfile",
           "metadata": {
             "annotations": {
-              "description": "Block writing to any files in the disk."
+              "description": "Block writing to any files in the disk and all network access."
             },
             "name": "test-profile"
           },
@@ -19,6 +19,13 @@ metadata:
                 "readOnlyPaths": [],
                 "readWritePaths": [],
                 "writeOnlyPaths": []
+              },
+              "network": {
+                "allowRaw": false,
+                "allowedProtocols": {
+                  "allowTcp": false,
+                  "allowUdp": false
+                }
               }
             }
           }
@@ -251,17 +258,17 @@ metadata:
       ]
     capabilities: Basic Install
     categories: Security
-    containerImage: us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator:latest
-    createdAt: "2026-08-26T08:14:08Z"
-    olm.skipRange: '>=1.0.0 <1.0.2-dev'
+    containerImage: registry.k8s.io/security-profiles-operator/security-profiles-operator:v1.1.0
+    createdAt: "2026-09-23T10:00:45Z"
+    olm.skipRange: '>=1.0.0 <1.1.0'
     operatorframework.io/cluster-monitoring: "true"
     operatorframework.io/os.linux: supported
     operatorframework.io/suggested-namespace: security-profiles-operator
     operators.openshift.io/valid-subscription: '["OpenShift Kubernetes Engine", "OpenShift
       Container Platform", "OpenShift Platform Plus"]'
-    operators.operatorframework.io/builder: operator-sdk-v1.42.2
+    operators.operatorframework.io/builder: operator-sdk-v1.42.3
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v4
-  name: security-profiles-operator.v1.0.2-dev
+  name: security-profiles-operator.v1.1.0
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
@@ -433,16 +440,34 @@ spec:
         - apiGroups:
           - security-profiles-operator.x-k8s.io
           resources:
+          - profilebindings
           - profilerecordings
           - profilerecordings/finalizers
           verbs:
           - get
           - list
+          - patch
+          - update
           - watch
         - apiGroups:
           - security-profiles-operator.x-k8s.io
           resources:
+          - profilebindings/finalizers
+          - profilebindings/status
+          - profilerecordings/status
+          - rawselinuxprofiles/status
+          - seccompprofiles/status
+          - securityprofilesoperatordaemons/status
+          - selinuxprofiles/status
+          verbs:
+          - get
+          - patch
+          - update
+        - apiGroups:
+          - security-profiles-operator.x-k8s.io
+          resources:
           - rawselinuxprofiles
+          - securityprofilesoperatordaemons
           verbs:
           - create
           - get
@@ -459,17 +484,6 @@ spec:
           - selinuxprofiles/finalizers
           verbs:
           - delete
-          - get
-          - patch
-          - update
-        - apiGroups:
-          - security-profiles-operator.x-k8s.io
-          resources:
-          - rawselinuxprofiles/status
-          - seccompprofiles/status
-          - securityprofilesoperatordaemons/status
-          - selinuxprofiles/status
-          verbs:
           - get
           - patch
           - update
@@ -496,16 +510,6 @@ spec:
           - get
           - list
           - watch
-        - apiGroups:
-          - security-profiles-operator.x-k8s.io
-          resources:
-          - securityprofilesoperatordaemons
-          verbs:
-          - create
-          - get
-          - list
-          - update
-          - watch
         serviceAccountName: security-profiles-operator
       - rules:
         - apiGroups:
@@ -526,48 +530,11 @@ spec:
           - security-profiles-operator.x-k8s.io
           resources:
           - apparmorprofiles
+          - profilebindings
+          - profilerecordings
           - rawselinuxprofiles
           - seccompprofiles
           - selinuxprofiles
-          verbs:
-          - get
-          - list
-          - watch
-        - apiGroups:
-          - security-profiles-operator.x-k8s.io
-          resources:
-          - profilebindings
-          - profilerecordings
-          verbs:
-          - create
-          - get
-          - list
-          - patch
-          - update
-          - watch
-        - apiGroups:
-          - security-profiles-operator.x-k8s.io
-          resources:
-          - profilebindings/finalizers
-          - profilerecordings/finalizers
-          verbs:
-          - delete
-          - get
-          - patch
-          - update
-        - apiGroups:
-          - security-profiles-operator.x-k8s.io
-          resources:
-          - profilebindings/status
-          - profilerecordings/status
-          verbs:
-          - get
-          - patch
-          - update
-        - apiGroups:
-          - config.openshift.io
-          resources:
-          - apiservers
           verbs:
           - get
           - list
@@ -595,7 +562,6 @@ spec:
         - apiGroups:
           - authentication.k8s.io
           resources:
-          - subjectaccessreviews
           - tokenreviews
           verbs:
           - create
@@ -605,16 +571,6 @@ spec:
           - subjectaccessreviews
           verbs:
           - create
-        - apiGroups:
-          - batch
-          resources:
-          - jobs
-          verbs:
-          - create
-          - delete
-          - get
-          - list
-          - watch
         - apiGroups:
           - security-profiles-operator.x-k8s.io
           resources:
@@ -683,14 +639,6 @@ spec:
           - get
           - list
           - watch
-        - apiGroups:
-          - config.openshift.io
-          resources:
-          - apiservers
-          verbs:
-          - get
-          - list
-          - watch
         serviceAccountName: spod
       deployments:
       - label:
@@ -735,9 +683,26 @@ spec:
                       fieldPath: spec.nodeName
                 - name: KUBELET_DIR
                   value: /var/lib/kubelet
-                image: us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator:latest
+                image: registry.k8s.io/security-profiles-operator/security-profiles-operator:v1.1.0
                 imagePullPolicy: Always
+                livenessProbe:
+                  failureThreshold: 3
+                  httpGet:
+                    path: /healthz
+                    port: health
+                  periodSeconds: 10
                 name: security-profiles-operator
+                ports:
+                - containerPort: 8085
+                  name: health
+                  protocol: TCP
+                readinessProbe:
+                  failureThreshold: 3
+                  httpGet:
+                    path: /readyz
+                    port: health
+                  periodSeconds: 10
+                  timeoutSeconds: 6
                 resources:
                   limits:
                     cpu: 500m
@@ -752,6 +717,12 @@ spec:
                     - ALL
                   readOnlyRootFilesystem: true
                   runAsNonRoot: true
+                startupProbe:
+                  failureThreshold: 30
+                  httpGet:
+                    path: /healthz
+                    port: health
+                  periodSeconds: 3
               securityContext:
                 seccompProfile:
                   type: RuntimeDefault
@@ -778,6 +749,8 @@ spec:
           - update
         - apiGroups:
           - security.openshift.io
+          resourceNames:
+          - privileged
           resources:
           - securitycontextconstraints
           verbs:
@@ -802,6 +775,8 @@ spec:
           - update
         - apiGroups:
           - security.openshift.io
+          resourceNames:
+          - privileged
           resources:
           - securitycontextconstraints
           verbs:
@@ -809,7 +784,19 @@ spec:
         serviceAccountName: spo-webhook
       - rules:
         - apiGroups:
+          - batch
+          resources:
+          - jobs
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - watch
+        - apiGroups:
           - security.openshift.io
+          resourceNames:
+          - privileged
           resources:
           - securitycontextconstraints
           verbs:
@@ -851,4 +838,4 @@ spec:
   - image: quay.io/security-profiles-operator/selinuxd-fedora:latest
     name: selinuxd-fedora
   replaces: security-profiles-operator.v1.0.0
-  version: 1.0.2-dev
+  version: 1.1.0

@@ -32,7 +32,7 @@ import (
 // recording is available to the next test run without a promotion. The
 // release script points it at registry.k8s.io, so a release branch exercises
 // the promoted artifact, and the back-to-dev script switches it back.
-const baseProfileRegistry = "oci://us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/base/"
+const baseProfileRegistry = "oci://registry.k8s.io/security-profiles-operator/base/"
 
 // baseProfileArtifact returns the artifact reference of the recorded base
 // profile for the runtime. The tag is the version from the recorded profile's
