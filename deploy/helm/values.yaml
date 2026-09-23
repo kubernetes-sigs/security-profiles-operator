@@ -2,10 +2,10 @@
 replicaCount: 3
 
 spoImage:
-  registry: registry.k8s.io
-  repository: security-profiles-operator/security-profiles-operator
-  tag: v1.1.0
-  pullPolicy: IfNotPresent
+  registry: us-central1-docker.pkg.dev
+  repository: k8s-staging-images/sp-operator/security-profiles-operator
+  tag: latest
+  pullPolicy: Always
 
 selinuxdImage:
   default:

@@ -29,18 +29,19 @@ echo "Bumping current version '$VERSION' back to development version '$DEV_VERSI
 
 echo "$DEV_VERSION" >VERSION
 
+VERSION_RE="${VERSION//./\\.}"
 sed -i \
     -e "s;image: registry.k8s.io/security-profiles-operator/security-profiles-operator.*;image: us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator:latest;g" \
-    -e "s/$VERSION/$DEV_VERSION/g" \
+    -e "s/$VERSION_RE/$DEV_VERSION/g" \
     deploy/namespace-operator.yaml \
     deploy/openshift-downstream.yaml \
     deploy/operator.yaml \
     deploy/webhook-operator.yaml
 
 sed -i \
-    -e 's;\(olm.skipRange.*\)'"$VERSION"';\1'"$DEV_VERSION"';g' \
-    -e 's;\(name: security-profiles-operator.v\)'"$VERSION"';\1'"$DEV_VERSION"';g' \
-    -e 's;\(version: \)'"$VERSION"';\1'"$DEV_VERSION"';g' \
+    -e 's;\(olm.skipRange.*\)'"$VERSION_RE"';\1'"$DEV_VERSION"';g' \
+    -e 's;\(name: security-profiles-operator.v\)'"$VERSION_RE"';\1'"$DEV_VERSION"';g' \
+    -e 's;\(version: \)'"$VERSION_RE"';\1'"$DEV_VERSION"';g' \
     -e 's;image: registry.k8s.io/security-profiles-operator/security-profiles-operator.*;image: us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator:latest;g' \
     -e 's;containerImage: registry.k8s.io/security-profiles-operator/security-profiles-operator.*;containerImage: us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator:latest;g' \
     bundle/manifests/security-profiles-operator.clusterserviceversion.yaml
@@ -51,7 +52,7 @@ sed -i "s;registry.k8s.io/security-profiles-operator/security-profiles-operator-
 sed -i "s;image: registry.k8s.io/security-profiles-operator/security-profiles-operator.*;image: image-registry.openshift-image-registry.svc:5000/openshift/security-profiles-operator:latest;g" \
     deploy/openshift-dev.yaml
 
-sed -i "s/$VERSION/$DEV_VERSION/g" \
+sed -i "s/$VERSION_RE/$DEV_VERSION/g" \
     dependencies.yaml \
     deploy/catalog-preamble.json \
     deploy/helm/Chart.yaml \
@@ -60,7 +61,8 @@ sed -i "s/$VERSION/$DEV_VERSION/g" \
 # Fix shields.io badge URL encoding (-- represents literal -)
 DEV_BADGE="${DEV_VERSION//-/--}"
 if [ "$DEV_BADGE" != "$DEV_VERSION" ]; then
-    sed -i "s;${DEV_VERSION}-informational;${DEV_BADGE}-informational;g" deploy/helm/README.md
+    DEV_VERSION_RE="${DEV_VERSION//./\\.}"
+    sed -i "s;${DEV_VERSION_RE}-informational;${DEV_BADGE}-informational;g" deploy/helm/README.md
 fi
 
 sed -i \

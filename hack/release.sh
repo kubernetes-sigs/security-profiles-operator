@@ -65,6 +65,7 @@ sed -i '0,/tag: latest/{s;tag: latest;tag: v'"$VERSION"';}' $FILE
 sed -i 's;pullPolicy: Always;pullPolicy: IfNotPresent;g' $FILE
 
 # Update dependencies.yaml
+PREVIOUS_VERSION_RE="${PREVIOUS_VERSION//./\\.}"
 FILES=(
     dependencies.yaml
     deploy/helm/Chart.yaml
@@ -72,7 +73,7 @@ FILES=(
     installation.md
 )
 for FILE in "${FILES[@]}"; do
-    sed -i "s;$PREVIOUS_VERSION;$VERSION;g" "$FILE"
+    sed -i "s;$PREVIOUS_VERSION_RE;$VERSION;g" "$FILE"
 done
 
 # Update the release the documentation verifies. The loop above only replaces
@@ -82,8 +83,9 @@ sed -i -E "s;(export VERSION=v)[0-9]+\.[0-9]+\.[0-9]+;\1$VERSION;" verification.
 # Fix shields.io badge URL encoding (-- represents literal -)
 PREVIOUS_BADGE="${PREVIOUS_VERSION//-/--}"
 if [ "$PREVIOUS_BADGE" != "$PREVIOUS_VERSION" ]; then
+    PREVIOUS_BADGE_RE="${PREVIOUS_BADGE//./\\.}"
     VERSION_BADGE="${VERSION//-/--}"
-    sed -i "s;$PREVIOUS_BADGE;$VERSION_BADGE;g" deploy/helm/README.md
+    sed -i "s;$PREVIOUS_BADGE_RE;$VERSION_BADGE;g" deploy/helm/README.md
 fi
 
 # Update operatorhub replacement

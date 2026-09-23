@@ -6,11 +6,11 @@ sortOptions:
 
 images:
 - name: security-profiles-operator
-  # newName: us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator
-  # newTag: latest
+  newName: us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator
+  newTag: latest
   # For images to be released:
-  newName: registry.k8s.io/security-profiles-operator/security-profiles-operator
-  newTag: v1.1.0
+  # newName: registry.k8s.io/security-profiles-operator/security-profiles-operator
+  # newTag: v1.1.1
 
 
 resources:

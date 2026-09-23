@@ -227,7 +227,7 @@ dependencies:
       match: "name: golang:"
 
   - name: spo-current
-    version: 1.1.0
+    version: 1.1.1-dev
     refPaths:
     - path: VERSION
       match: ^.*
