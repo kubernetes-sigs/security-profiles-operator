@@ -75,6 +75,10 @@ for FILE in "${FILES[@]}"; do
     sed -i "s;$PREVIOUS_VERSION;$VERSION;g" "$FILE"
 done
 
+# Update the release the documentation verifies. The loop above only replaces
+# the previous development version, which the documentation never mentions.
+sed -i -E "s;(export VERSION=v)[0-9]+\.[0-9]+\.[0-9]+;\1$VERSION;" verification.md
+
 # Fix shields.io badge URL encoding (-- represents literal -)
 PREVIOUS_BADGE="${PREVIOUS_VERSION//-/--}"
 if [ "$PREVIOUS_BADGE" != "$PREVIOUS_VERSION" ]; then

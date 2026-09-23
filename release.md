@@ -29,6 +29,9 @@ The script basically:
 - updates [./dependencies.yaml](./dependencies.yaml) `spo-current` version as
   well as its linked files. Run `make verify-dependencies` to verify the
   results.
+- updates the release that [`verification.md`](verification.md) verifies.
+  `hack/back-to-dev.sh` leaves it alone, so the documentation keeps pointing at
+  the release instead of the development version.
 - updates ./hack/deploy-localhost.patch to match the new deployment
 - updates [./deploy/base/clusterserviceversion.yaml](./deploy/base/clusterserviceversion.yaml)
   to change `replaces` to the latest available version on OperatorHub as well as
@@ -70,9 +73,14 @@ version without the `v` prefix.
 If this PR got
 merged, then we're finally ready to [create the
 release](https://github.com/kubernetes-sigs/security-profiles-operator/releases/new)
-directly on GitHub and add the release notes. The release notes will be
-auto-generated based on PR labels and the configuration in
-[`.github/release.yml`](.github/release.yml).
+directly on GitHub and add the release notes. The changelog is auto-generated
+based on PR labels and the configuration in
+[`.github/release.yml`](.github/release.yml). The introduction above it is
+written by hand, start from
+[`.github/release-notes-template.md`](.github/release-notes-template.md) and
+replace the version. The verification commands live in
+[`verification.md`](verification.md), so the release only links them and they
+stay correct for all releases.
 
 Publishing the release triggers the [`build`](.github/workflows/build.yml)
 workflow, which attaches the `spoc` binaries for all architectures and the
