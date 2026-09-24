@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
@@ -629,4 +630,24 @@ func TestGetSeccompProfilesFromPod(t *testing.T) {
 			require.Equal(t, []string{}, got)
 		})
 	}
+}
+
+func TestActiveWorkloadRequests(t *testing.T) {
+	t.Parallel()
+
+	want := []reconcile.Request{
+		{NamespacedName: client.ObjectKey{Namespace: "default", Name: "pod-a"}},
+		{NamespacedName: client.ObjectKey{Namespace: "other", Name: "pod-b"}},
+	}
+	workloads := []string{"default/pod-a", "invalid", "other/pod-b"}
+
+	sp := &seccompprofileapi.SeccompProfile{}
+	sp.Status.ActiveWorkloads = workloads
+	require.Equal(t, want, activeWorkloadRequests(t.Context(), sp))
+
+	se := &selinuxprofileapi.SelinuxProfile{}
+	se.Status.ActiveWorkloads = workloads
+	require.Equal(t, want, activeWorkloadRequests(t.Context(), se))
+
+	require.Empty(t, activeWorkloadRequests(t.Context(), &corev1.Pod{}))
 }

@@ -41,6 +41,7 @@ import (
 
 	bpfrecorderapi "sigs.k8s.io/security-profiles-operator/api/grpc/bpfrecorder"
 	enricherapi "sigs.k8s.io/security-profiles-operator/api/grpc/enricher"
+	profilebase "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	recordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
@@ -2320,4 +2321,123 @@ func TestReleaseUnrecordablePod(t *testing.T) {
 
 		require.Zero(t, mock.StopBpfRecorderCallCount())
 	})
+}
+
+func TestSetRecordingFinalizersSkipsDeletedRecording(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name          string
+		deleting      bool
+		wantFinalizer bool
+	}{
+		{name: "active recording", wantFinalizer: true},
+		{name: "recording being deleted", deleting: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			recording := &recordingapi.ProfileRecording{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "recording",
+					Namespace:  "ns",
+					Finalizers: []string{"other"},
+				},
+			}
+			if tc.deleting {
+				recording.DeletionTimestamp = &metav1.Time{Time: time.Now()}
+			}
+
+			scheme := apiruntime.NewScheme()
+			require.NoError(t, recordingapi.AddToScheme(scheme))
+			kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(recording).Build()
+
+			sut := &RecorderReconciler{client: kubeClient, log: logr.Discard()}
+
+			require.NoError(t, sut.setRecordingFinalizers(
+				t.Context(),
+				map[string]string{profilebase.ProfilePartialLabel: "true"},
+				recording.Name, recording.Namespace,
+			))
+
+			got := &recordingapi.ProfileRecording{}
+			require.NoError(t, kubeClient.Get(
+				t.Context(), client.ObjectKeyFromObject(recording), got,
+			))
+			require.Equal(t, tc.wantFinalizer,
+				controllerutil.ContainsFinalizer(got, recordingapi.RecordingHasUnmergedProfiles))
+		})
+	}
+}
+
+func TestCollectBpfProfilesSkipsProfileOfOtherRecording(t *testing.T) {
+	t.Parallel()
+
+	recording := &recordingapi.ProfileRecording{
+		ObjectMeta: metav1.ObjectMeta{Name: "recording", Namespace: "recording-ns"},
+	}
+	scheme := apiruntime.NewScheme()
+	require.NoError(t, recordingapi.AddToScheme(scheme))
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(recording).Build()
+
+	mock := &profilerecorderfakes.FakeImpl{}
+	mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
+		Spec: spodapi.SPODSpec{
+			Enricher: spodapi.SPODEnricherConfig{EnableBpfRecorder: ptrTrue()},
+		},
+	}, nil)
+	mock.SyscallsForProfileReturns(&bpfrecorderapi.SyscallsResponse{
+		Syscalls: []string{"read"},
+		GoArch:   runtime.GOARCH,
+	}, nil)
+	mock.ClientGetCalls(func(
+		_ context.Context, _ client.Client, _ types.NamespacedName, obj client.Object,
+	) error {
+		recordingResult, ok := obj.(*recordingapi.ProfileRecording)
+		require.True(t, ok)
+		recording.DeepCopyInto(recordingResult)
+
+		return nil
+	})
+	mock.GetRecordingReturns(recording, nil)
+
+	mutated := false
+
+	mock.CreateOrUpdateCalls(func(
+		_ context.Context,
+		_ client.Client,
+		obj client.Object,
+		mutate controllerutil.MutateFn,
+	) (controllerutil.OperationResult, error) {
+		// Simulate an existing profile recorded in another namespace.
+		obj.SetResourceVersion("1")
+		obj.SetLabels(map[string]string{
+			recordingapi.ProfileToRecordingLabel:          recording.Name,
+			recordingapi.ProfileToRecordingNamespaceLabel: "other-ns",
+		})
+
+		err := mutate()
+		mutated = err == nil
+
+		return controllerutil.OperationResultNone, err
+	})
+
+	sut := &RecorderReconciler{
+		impl:   mock,
+		client: kubeClient,
+		log:    logr.Discard(),
+		record: record.NewFakeRecorder(10),
+	}
+	err := sut.collectBpfProfiles(
+		t.Context(),
+		"",
+		types.NamespacedName{Name: "pod", Namespace: recording.Namespace},
+		[]profileToCollect{{
+			kind: recordingapi.ProfileRecordingKindSeccompProfile,
+			name: "recording_container_nonce_timestamp",
+		}},
+	)
+	require.NoError(t, err)
+	require.Equal(t, 1, mock.CreateOrUpdateCallCount())
+	require.False(t, mutated, "the profile of the other recording must not be updated")
 }

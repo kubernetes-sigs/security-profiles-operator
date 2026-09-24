@@ -186,6 +186,12 @@ func (r *RecordingTrackerReconciler) handlePodCreateOrUpdate(
 	for i := range recordings.Items {
 		recording := &recordings.Items[i]
 
+		// The API server rejects adding finalizers to an object which is
+		// being deleted, so retrying would never succeed.
+		if !recording.GetDeletionTimestamp().IsZero() {
+			continue
+		}
+
 		selector, err := metav1.LabelSelectorAsSelector(recording.Spec.PodSelector)
 		if err != nil {
 			logger.Error(err, "invalid podSelector", "recording", recording.Name)

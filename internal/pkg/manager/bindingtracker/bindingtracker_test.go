@@ -240,3 +240,19 @@ func TestPodDeletedFinalizerKeptWhenOtherPodsTracked(t *testing.T) {
 	require.Equal(t, []string{"default/other-pod"}, updated.Status.ActiveWorkloads)
 	require.Contains(t, updated.GetFinalizers(), finalizer)
 }
+
+func TestActiveWorkloadRequests(t *testing.T) {
+	t.Parallel()
+
+	binding := &profilebindingapi.ProfileBinding{
+		Status: profilebindingapi.ProfileBindingStatus{
+			ActiveWorkloads: []string{"default/pod-a", "invalid", "other/pod-b"},
+		},
+	}
+
+	require.Equal(t, []reconcile.Request{
+		{NamespacedName: client.ObjectKey{Namespace: "default", Name: "pod-a"}},
+		{NamespacedName: client.ObjectKey{Namespace: "other", Name: "pod-b"}},
+	}, activeWorkloadRequests(t.Context(), binding))
+	require.Empty(t, activeWorkloadRequests(t.Context(), &corev1.Pod{}))
+}

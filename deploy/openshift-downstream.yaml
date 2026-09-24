@@ -3104,6 +3104,21 @@ rules:
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
+  - apparmorprofiles
+  - seccompprofiles
+  - selinuxprofiles
+  verbs:
+  - create
+  - delete
+  - deletecollection
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
   - profilebindings
   - profilerecordings
   - profilerecordings/finalizers
@@ -3151,20 +3166,6 @@ rules:
   - get
   - patch
   - update
-- apiGroups:
-  - security-profiles-operator.x-k8s.io
-  resources:
-  - seccompprofiles
-  - selinuxprofiles
-  verbs:
-  - create
-  - delete
-  - deletecollection
-  - get
-  - list
-  - patch
-  - update
-  - watch
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:

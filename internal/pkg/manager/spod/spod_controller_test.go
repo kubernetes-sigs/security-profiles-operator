@@ -467,6 +467,72 @@ func Test_spodNeedsUpdateVolumeCount(t *testing.T) {
 	require.True(t, spodNeedsUpdate(newDS("a", "b", "c", "d"), newDS("a", "b", "c")))
 }
 
+func Test_spodNeedsUpdateClearedFields(t *testing.T) {
+	t.Parallel()
+
+	for name, set := range map[string]func(*appsv1.DaemonSet){
+		"affinity": func(ds *appsv1.DaemonSet) {
+			ds.Spec.Template.Spec.Affinity = &v1.Affinity{NodeAffinity: &v1.NodeAffinity{}}
+		},
+		"tolerations": func(ds *appsv1.DaemonSet) {
+			ds.Spec.Template.Spec.Tolerations = []v1.Toleration{{Key: "key"}}
+		},
+		"priorityClassName": func(ds *appsv1.DaemonSet) {
+			ds.Spec.Template.Spec.PriorityClassName = "high"
+		},
+		"imagePullSecrets": func(ds *appsv1.DaemonSet) {
+			ds.Spec.Template.Spec.ImagePullSecrets = []v1.LocalObjectReference{{Name: "secret"}}
+		},
+		"apparmor annotation": func(ds *appsv1.DaemonSet) {
+			ds.Annotations = map[string]string{appArmorAnnotation: "unconfined"}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			found := &appsv1.DaemonSet{}
+			set(found)
+
+			require.True(t, spodNeedsUpdate(&appsv1.DaemonSet{}, found), "clearing needs an update")
+			require.True(t, spodNeedsUpdate(found, &appsv1.DaemonSet{}), "setting needs an update")
+			require.False(t, spodNeedsUpdate(found.DeepCopy(), found))
+		})
+	}
+}
+
+// DeepDerivative accepts a configured slice which is a prefix of the found one,
+// so a removed trailing argument, like the one of a disabled feature, has to be
+// detected by the length checks.
+func Test_spodNeedsUpdateRemovedTrailingContainerFields(t *testing.T) {
+	t.Parallel()
+
+	for name, set := range map[string]func(*v1.Container){
+		"args": func(c *v1.Container) { c.Args = append(c.Args, "--flag") },
+		"env":  func(c *v1.Container) { c.Env = append(c.Env, v1.EnvVar{Name: "ENV"}) },
+		"volumeMounts": func(c *v1.Container) {
+			c.VolumeMounts = append(c.VolumeMounts, v1.VolumeMount{Name: "vol"})
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			configured := &appsv1.DaemonSet{}
+			configured.Spec.Template.Spec.Containers = []v1.Container{{Name: "ctr"}}
+			configured.Spec.Template.Spec.InitContainers = []v1.Container{{Name: "init"}}
+
+			foundCtr := configured.DeepCopy()
+			set(&foundCtr.Spec.Template.Spec.Containers[0])
+			require.True(t, spodNeedsUpdate(configured, foundCtr))
+
+			foundInit := configured.DeepCopy()
+			set(&foundInit.Spec.Template.Spec.InitContainers[0])
+			require.True(t, spodNeedsUpdate(configured, foundInit))
+
+			require.False(t, spodNeedsUpdate(foundCtr.DeepCopy(), foundCtr))
+		})
+	}
+}
+
 func Test_addSelinuxCustomTemplatesVolumeEmpty(t *testing.T) {
 	t.Parallel()
 
