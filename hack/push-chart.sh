@@ -27,7 +27,7 @@ CHART_DIR="${CHART_DIR:-deploy/helm}"
 REGISTRY="${REGISTRY:-us-central1-docker.pkg.dev/k8s-staging-images/sp-operator}"
 SKIP_EXISTING="${SKIP_EXISTING:-true}"
 HELM_VERSION=v3.22.0
-HELM_SHA256=ee88b3c851ae6466a3de507f7be73fe94d54cbf2987cbaa3d1a3832ea331f2cd
+HELM_SHA256=1e4ab49e429626cf6c6958d914248b78c9730803c2751b87627e171dc800e7bb
 HELM="${HELM:-}"
 
 REPO="$REGISTRY/charts"
