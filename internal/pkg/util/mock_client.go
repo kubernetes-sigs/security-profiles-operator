@@ -87,30 +87,9 @@ type MockIsObjectNamespacedFn func(obj runtime.Object) (bool, error)
 // test or update the contents of an Object.
 type ObjectFn func(obj client.Object) error
 
-// An RuntimeObjectFn operates on the supplied runtime Object. You might use an
-// ObjectFn to test or update the contents of an Object.
-type RuntimeObjectFn func(obj runtime.Object) error
-
-// An ObjectListFn operates on the supplied ObjectList. You might use an
-// ObjectListFn to test or update the contents of an ObjectList.
-type ObjectListFn func(obj client.ObjectList) error
-
 // NewMockGetFn returns a MockGetFn that returns the supplied error.
 func NewMockGetFn(err error, ofn ...ObjectFn) MockGetFn {
 	return func(_ context.Context, _ client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-		for _, fn := range ofn {
-			if err := fn(obj); err != nil {
-				return err
-			}
-		}
-
-		return err
-	}
-}
-
-// NewMockListFn returns a MockListFn that returns the supplied error.
-func NewMockListFn(err error, ofn ...ObjectListFn) MockListFn {
-	return func(_ context.Context, obj client.ObjectList, _ ...client.ListOption) error {
 		for _, fn := range ofn {
 			if err := fn(obj); err != nil {
 				return err
@@ -147,55 +126,9 @@ func NewMockDeleteFn(err error, ofn ...ObjectFn) MockDeleteFn {
 	}
 }
 
-// NewMockDeleteAllOfFn returns a MockDeleteAllOfFn that returns the supplied error.
-func NewMockDeleteAllOfFn(err error, ofn ...ObjectFn) MockDeleteAllOfFn {
-	return func(_ context.Context, obj client.Object, _ ...client.DeleteAllOfOption) error {
-		for _, fn := range ofn {
-			if err := fn(obj); err != nil {
-				return err
-			}
-		}
-
-		return err
-	}
-}
-
 // NewMockUpdateFn returns a MockUpdateFn that returns the supplied error.
 func NewMockUpdateFn(err error, ofn ...ObjectFn) MockUpdateFn {
 	return func(_ context.Context, obj client.Object, _ ...client.UpdateOption) error {
-		for _, fn := range ofn {
-			if err := fn(obj); err != nil {
-				return err
-			}
-		}
-
-		return err
-	}
-}
-
-// NewMockPatchFn returns a MockPatchFn that returns the supplied error.
-func NewMockPatchFn(err error, ofn ...ObjectFn) MockPatchFn {
-	return func(_ context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) error {
-		for _, fn := range ofn {
-			if err := fn(obj); err != nil {
-				return err
-			}
-		}
-
-		return err
-	}
-}
-
-// NewMockApplyFn returns a MockApplyFn that returns the supplied error.
-func NewMockApplyFn(err error) MockApplyFn {
-	return func(_ context.Context, _ runtime.ApplyConfiguration, _ ...client.ApplyOption) error {
-		return nil
-	}
-}
-
-// NewMockSubResourceWriterCreateFn returns a MockSubResourceWriterCreateFn that returns the supplied error.
-func NewMockSubResourceWriterCreateFn(err error, ofn ...ObjectFn) MockSubResourceWriterCreateFn {
-	return func(_ context.Context, obj, subResource client.Object, _ ...client.SubResourceCreateOption) error {
 		for _, fn := range ofn {
 			if err := fn(obj); err != nil {
 				return err
@@ -219,49 +152,10 @@ func NewMockSubResourceWriterUpdateFn(err error, ofn ...ObjectFn) MockSubResourc
 	}
 }
 
-// NewMockSubResourceWriterPatchFn returns a MockSubResourceWriterPatchFn that returns the supplied error.
-func NewMockSubResourceWriterPatchFn(err error, ofn ...ObjectFn) MockSubResourceWriterPatchFn {
-	return func(_ context.Context, obj client.Object, _ client.Patch, _ ...client.SubResourcePatchOption) error {
-		for _, fn := range ofn {
-			if err := fn(obj); err != nil {
-				return err
-			}
-		}
-
-		return err
-	}
-}
-
 // NewMockSchemeFn returns a MockSchemeFn that returns the scheme.
 func NewMockSchemeFn(scheme *runtime.Scheme) MockSchemeFn {
 	return func() *runtime.Scheme {
 		return scheme
-	}
-}
-
-// NewMockGroupVersionKindForFn returns a MockGroupVersionKindForFn that returns the supplied error.
-func NewMockGroupVersionKindForFn(err error, ofn ...RuntimeObjectFn) MockGroupVersionKindForFn {
-	return func(obj runtime.Object) (schema.GroupVersionKind, error) {
-		for _, fn := range ofn {
-			if err := fn(obj); err != nil {
-				return schema.GroupVersionKind{}, err
-			}
-		}
-
-		return schema.GroupVersionKind{}, err
-	}
-}
-
-// NewMockIsObjectNamespacedFn returns a MockIsObjectNamespacedFn that returns the supplied error.
-func NewMockIsObjectNamespacedFn(err error, ofn ...RuntimeObjectFn) MockIsObjectNamespacedFn {
-	return func(obj runtime.Object) (bool, error) {
-		for _, fn := range ofn {
-			if err := fn(obj); err != nil {
-				return false, err
-			}
-		}
-
-		return false, err
 	}
 }
 
@@ -288,29 +182,6 @@ type MockClient struct {
 	MockScheme              MockSchemeFn
 	MockGroupVersionKindFor MockGroupVersionKindForFn
 	MockIsObjectNamespaced  MockIsObjectNamespacedFn
-}
-
-// NewMockClient returns a MockClient that does nothing when its methods are
-// called.
-func NewMockClient() *MockClient {
-	return &MockClient{
-		MockGet:         NewMockGetFn(nil),
-		MockList:        NewMockListFn(nil),
-		MockCreate:      NewMockCreateFn(nil),
-		MockDelete:      NewMockDeleteFn(nil),
-		MockDeleteAllOf: NewMockDeleteAllOfFn(nil),
-		MockUpdate:      NewMockUpdateFn(nil),
-		MockPatch:       NewMockPatchFn(nil),
-		MockApply:       NewMockApplyFn(nil),
-
-		MockSubResourceWriterCreate: NewMockSubResourceWriterCreateFn(nil),
-		MockSubResourceWriterUpdate: NewMockSubResourceWriterUpdateFn(nil),
-		MockSubResourceWriterPatch:  NewMockSubResourceWriterPatchFn(nil),
-
-		MockScheme:              NewMockSchemeFn(nil),
-		MockGroupVersionKindFor: NewMockGroupVersionKindForFn(nil),
-		MockIsObjectNamespaced:  NewMockIsObjectNamespacedFn(nil),
-	}
 }
 
 func (c *MockClient) SubResource(string) client.SubResourceClient {

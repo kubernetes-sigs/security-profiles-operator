@@ -1224,11 +1224,10 @@ func runWebhook(ctx *cli.Context, info *version.Info) error {
 	hookserver := mgr.GetWebhookServer()
 	binding.RegisterWebhook(hookserver, mgr.GetScheme(), mgr.GetClient())
 
-	//nolint:staticcheck,nolintlint // TODO: migrate to GetEventRecorder
 	recording.RegisterWebhook(
 		hookserver,
 		mgr.GetScheme(),
-		mgr.GetEventRecorderFor("recording-webhook"),
+		util.NewEventRecorder(mgr, "recording-webhook"),
 		mgr.GetClient(),
 	)
 	execmetadata.RegisterWebhook(hookserver)

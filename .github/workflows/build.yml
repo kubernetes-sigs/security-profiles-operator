@@ -201,24 +201,21 @@ jobs:
           path: build/*.sigstore.json
 
   # SLSA Build L3 provenance for the binaries and the SBOM, generated from their
-  # digests by the isolated reusable workflow of the SLSA generator. Reusable
-  # workflows can only be referenced by tag, the generator verifies its own ref.
+  # digests by the isolated provenance workflow.
   spoc-provenance:
     needs: spoc-sbom
     name: spoc / provenance
     permissions:
-      actions: read  # required for reading the workflow run
-      contents: write  # required for uploading the provenance to the release
+      attestations: write  # required for storing the provenance
       id-token: write  # required for signing the provenance
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
+    uses: ./.github/workflows/provenance.yml
     with:
       base64-subjects: ${{ needs.spoc-sbom.outputs.hashes }}
       provenance-name: spoc.intoto.jsonl
-      upload-assets: ${{ startsWith(github.ref, 'refs/tags/') }}
 
-  # The only job besides the provenance generator that can write to the
-  # release. It runs no repository code, it uploads the binaries, checksums,
-  # signatures and the SBOM of the jobs above.
+  # The only job that can write to the release. It runs no repository code, it
+  # uploads the binaries, checksums, signatures, the SBOM and the provenance of
+  # the jobs above.
   spoc-release:
     needs: [spoc-sign, spoc-provenance]
     if: startsWith(github.ref, 'refs/tags/')
@@ -230,7 +227,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: spoc-*
+          pattern: spoc*
           path: build
           merge-multiple: true
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3

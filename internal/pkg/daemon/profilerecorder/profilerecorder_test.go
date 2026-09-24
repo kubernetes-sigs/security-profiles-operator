@@ -33,7 +33,7 @@ import (
 	apiruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -155,7 +155,7 @@ func TestCollectBpfProfilesProfileName(t *testing.T) {
 				impl:   mock,
 				client: kubeClient,
 				log:    logr.Discard(),
-				record: record.NewFakeRecorder(10),
+				record: events.NewFakeRecorder(10),
 			}
 			err := sut.collectBpfProfiles(
 				t.Context(),
@@ -1922,7 +1922,7 @@ func TestReconcile(t *testing.T) {
 		sut := &RecorderReconciler{
 			impl:   mock,
 			log:    logr.Discard(),
-			record: record.NewFakeRecorder(10),
+			record: events.NewFakeRecorder(10),
 		}
 		tc.prepare(sut, mock)
 
@@ -2193,7 +2193,7 @@ func TestReconcileDoesNotArmRecorderWithoutAuthorization(t *testing.T) {
 			sut := &RecorderReconciler{
 				impl:   mock,
 				log:    logr.Discard(),
-				record: record.NewFakeRecorder(10),
+				record: events.NewFakeRecorder(10),
 			}
 
 			_, err := sut.Reconcile(t.Context(), testRequest)
@@ -2426,7 +2426,7 @@ func TestCollectBpfProfilesSkipsProfileOfOtherRecording(t *testing.T) {
 		impl:   mock,
 		client: kubeClient,
 		log:    logr.Discard(),
-		record: record.NewFakeRecorder(10),
+		record: events.NewFakeRecorder(10),
 	}
 	err := sut.collectBpfProfiles(
 		t.Context(),

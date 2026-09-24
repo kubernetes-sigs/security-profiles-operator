@@ -31,7 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -82,7 +82,7 @@ func TestReconcile(t *testing.T) {
 				client: &util.MockClient{
 					MockGet: util.NewMockGetFn(errOops),
 				},
-				record:  record.NewFakeRecorder(10),
+				record:  events.NewFakeRecorder(10),
 				log:     log.Log,
 				metrics: metrics.New(),
 			},
@@ -107,7 +107,7 @@ func TestReconcile(t *testing.T) {
 					MockSubResourceWriterUpdate: util.NewMockSubResourceWriterUpdateFn(nil),
 				},
 				log:     log.Log,
-				record:  record.NewFakeRecorder(10),
+				record:  events.NewFakeRecorder(10),
 				save:    func(_ string, _ []byte) (bool, error) { return false, nil },
 				metrics: metrics.New(),
 			},

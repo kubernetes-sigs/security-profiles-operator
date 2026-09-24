@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -57,7 +56,7 @@ func ReconcileDeletion(
 	nsc *nodestatus.StatusClient,
 	cl client.Client,
 	log logr.Logger,
-	rec record.EventRecorder,
+	rec util.EventRecorder,
 	reasons DeletionReasons,
 	incError func(reason string),
 	handleDeletion func() error,
@@ -84,7 +83,15 @@ func ReconcileDeletion(
 			); err != nil {
 				log.Error(err, "cannot update profile status")
 				incError(reasons.CannotUpdateProfile)
-				rec.Event(profile, util.EventTypeWarning, reasons.CannotUpdateProfile, err.Error())
+				rec.Eventf(
+					profile,
+					nil,
+					util.EventTypeWarning,
+					reasons.CannotUpdateProfile,
+					util.EventActionUpdate,
+					"%s",
+					err.Error(),
+				)
 
 				return reconcile.Result{}, fmt.Errorf(
 					"updating status for deleted profile: %w",
@@ -114,7 +121,15 @@ func ReconcileDeletion(
 	if err := handleDeletion(); err != nil {
 		log.Error(err, "cannot delete profile")
 		incError(reasons.CannotRemoveProfile)
-		rec.Event(profile, util.EventTypeWarning, reasons.CannotRemoveProfile, err.Error())
+		rec.Eventf(
+			profile,
+			nil,
+			util.EventTypeWarning,
+			reasons.CannotRemoveProfile,
+			util.EventActionRemove,
+			"%s",
+			err.Error(),
+		)
 
 		return ctrl.Result{}, fmt.Errorf("handling deletion for deleted profile: %w", err)
 	}
@@ -122,7 +137,15 @@ func ReconcileDeletion(
 	if err := nsc.Remove(ctx, cl); err != nil {
 		log.Error(err, "cannot remove node status/finalizer from profile")
 		incError(reasons.CannotUpdateStatus)
-		rec.Event(profile, util.EventTypeWarning, reasons.CannotUpdateStatus, err.Error())
+		rec.Eventf(
+			profile,
+			nil,
+			util.EventTypeWarning,
+			reasons.CannotUpdateStatus,
+			util.EventActionUpdate,
+			"%s",
+			err.Error(),
+		)
 
 		return ctrl.Result{}, fmt.Errorf(
 			"deleting node status/finalizer for deleted profile: %w",

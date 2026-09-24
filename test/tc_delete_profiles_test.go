@@ -166,66 +166,70 @@ spec:
 	} {
 		e.logf("> > Running test case for deleted profiles and pods: %s", testCase.description)
 
-		profileCleanup := e.writeAndCreate(deleteProfile, "delete-profile*.yaml")
-		defer profileCleanup() //nolint:gocritic // TODO: is this intentional?
+		// Run each case in its own function so that the deferred cleanups
+		// happen at the end of every iteration.
+		func() {
+			profileCleanup := e.writeAndCreate(deleteProfile, "delete-profile*.yaml")
+			defer profileCleanup()
 
-		e.waitForProfile(deleteProfileName)
-		e.logf("Create fake node status for profile")
-		e.writeAndCreate(fakeNodeStatus, "fake-node-status*.yaml")
+			e.waitForProfile(deleteProfileName)
+			e.logf("Create fake node status for profile")
+			e.writeAndCreate(fakeNodeStatus, "fake-node-status*.yaml")
 
-		podCleanup := e.writeAndCreate(testCase.podManifest, "delete-pod*.yaml")
-		defer podCleanup() //nolint:gocritic // TODO: is this intention?
+			podCleanup := e.writeAndCreate(testCase.podManifest, "delete-pod*.yaml")
+			defer podCleanup()
 
-		e.waitFor("condition=ready", "pod", deletePodName)
-		e.waitForProfileActivePodsFinalizer(deleteProfileName)
-		e.logf("Ensuring profile cannot be deleted while pod is active")
-		e.kubectl("delete", "seccompprofile", deleteProfileName, "--wait=0")
+			e.waitFor("condition=ready", "pod", deletePodName)
+			e.waitForProfileActivePodsFinalizer(deleteProfileName)
+			e.logf("Ensuring profile cannot be deleted while pod is active")
+			e.kubectl("delete", "seccompprofile", deleteProfileName, "--wait=0")
 
-		e.logf("Waiting for profile to be marked as terminating but not deleted")
-		// TODO(jhrozek): deleting manifests as Ready=False, reason=Deleting, can we wait in a nicer way?
-		for range 10 {
-			sp := e.getSeccompProfile(deleteProfileName)
+			e.logf("Waiting for profile to be marked as terminating but not deleted")
+			// TODO(jhrozek): deleting manifests as Ready=False, reason=Deleting, can we wait in a nicer way?
+			for range 10 {
+				sp := e.getSeccompProfile(deleteProfileName)
 
-			conReady := sp.Status.GetReadyCondition()
-			if conReady.Reason == string(common.ReasonDeleting) {
-				break
+				conReady := sp.Status.GetReadyCondition()
+				if conReady.Reason == string(common.ReasonDeleting) {
+					break
+				}
+
+				time.Sleep(time.Second)
 			}
 
-			time.Sleep(time.Second)
-		}
+			// At this point it must be terminating or else we haven't matched the condition above
+			sp := e.getSeccompProfile(deleteProfileName)
+			e.Equal(secprofnodestatusapi.ProfileStateTerminating, sp.Status.Status)
 
-		// At this point it must be terminating or else we haven't matched the condition above
-		sp := e.getSeccompProfile(deleteProfileName)
-		e.Equal(secprofnodestatusapi.ProfileStateTerminating, sp.Status.Status)
+			// The node statuses should still be there, just terminating
+			nodeStatuses := e.getAllSeccompProfileNodeStatuses(deleteProfileName)
+			for i := range nodeStatuses.Items {
+				e.Equal(
+					secprofnodestatusapi.ProfileStateTerminating,
+					nodeStatuses.Items[i].Status.Status,
+				)
+				// On each node, there should still be the profile on the disk
+				nodeWithPodName := nodeStatuses.Items[i].Spec.NodeName
+				profileOperatorPath := path.Join(e.nodeRootfsPrefix, sp.GetProfileOperatorPath())
+				e.execNode(nodeWithPodName, "test", "-f", profileOperatorPath)
+			}
 
-		// The node statuses should still be there, just terminating
-		nodeStatuses := e.getAllSeccompProfileNodeStatuses(deleteProfileName)
-		for i := range nodeStatuses.Items {
-			e.Equal(
-				secprofnodestatusapi.ProfileStateTerminating,
-				nodeStatuses.Items[i].Status.Status,
-			)
-			// On each node, there should still be the profile on the disk
-			nodeWithPodName := nodeStatuses.Items[i].Spec.NodeName
-			profileOperatorPath := path.Join(e.nodeRootfsPrefix, sp.GetProfileOperatorPath())
-			e.execNode(nodeWithPodName, "test", "-f", profileOperatorPath)
-		}
+			isDeleted := make(chan bool)
 
-		isDeleted := make(chan bool)
+			go func() {
+				e.waitFor( //nolint:testifylint // intentional goroutine usage
+					"delete",
+					"seccompprofile",
+					deleteProfileName,
+				)
 
-		go func() {
-			e.waitFor( //nolint:testifylint // intentional goroutine usage
-				"delete",
-				"seccompprofile",
-				deleteProfileName,
-			)
+				isDeleted <- true
+			}()
 
-			isDeleted <- true
+			e.kubectl("delete", "pod", deletePodName)
+
+			// Wait a bit for the seccompprofile to be actually deleted
+			<-isDeleted
 		}()
-
-		e.kubectl("delete", "pod", deletePodName)
-
-		// Wait a bit for the seccompprofile to be actually deleted
-		<-isDeleted
 	}
 }

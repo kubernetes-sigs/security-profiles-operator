@@ -34,7 +34,7 @@ cert-manager via `kubectl`, if you're **not** running on
 [OpenShift](https://www.redhat.com/en/technologies/cloud-computing/openshift):
 
 ```sh
-$ kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.21.1/cert-manager.yaml
+$ kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.21.2/cert-manager.yaml
 $ kubectl --namespace cert-manager wait --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
 ```
 
@@ -125,7 +125,7 @@ You may also specify a different target namespace with `--namespace mynamespace`
 ```shell
 # Install cert-manager if it is not already installed (TODO: The helm
 # chart might do this one day - see issue 1062 for details):
-kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.21.1/cert-manager.yaml
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.21.2/cert-manager.yaml
 kubectl --namespace cert-manager wait --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
 
 # Create the namespace beforehand

@@ -33,7 +33,7 @@ OPM_SHA256_darwin_arm64 = 4fc7d0c692e94f1c9e79b6c5b18006901f750bd730412860f77e2b
 ZEITGEIST_VERSION = v0.8.0
 MDTOC_VERSION = v1.4.0
 GOVULNCHECK_VERSION = v1.8.0
-CI_IMAGE ?= golang:$(shell sed -n 's;^go\s\(.*\);\1;p' go.mod)
+CI_IMAGE ?= golang:$(shell hack/go-version.sh)
 
 CONTROLLER_GEN_CMD := CGO_LDFLAGS= $(GO) run $(BUILD_FLAGS) -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen
 
@@ -245,7 +245,8 @@ define nix-build-to
 	cp -f result/* $(BUILD_DIR)/$(1)
 endef
 
-# TODO: add nix-s390x when the nix toolchain is fixed
+# TODO: add nix-s390x when the nix musl toolchain is fixed. spoc is not affected
+# because nix-spoc-s390x builds against glibc.
 .PHONY: nix
 nix: nix-amd64 nix-arm64 nix-ppc64le  ## Build all binaries via nix and create a build.tar.gz
 	tar cvfz build.tar.gz -C $(BUILD_DIR) amd64 arm64 ppc64le
@@ -451,7 +452,7 @@ internal/pkg/daemon/enricher/auditsource/bpf/enricher.bpf.o.%: $(BPF_ENRICHER_FI
 # Verification targets
 
 .PHONY: verify
-verify: verify-boilerplate verify-go-mod verify-go-lint verify-deployments verify-dependencies verify-toc verify-mocks verify-format verify-vulnerabilities ## Run all verification targets
+verify: verify-boilerplate verify-go-mod verify-go-lint verify-deployments verify-dependencies verify-toc verify-mocks verify-proto verify-format verify-vulnerabilities ## Run all verification targets
 
 .PHONY: verify-in-a-container
 verify-in-a-container: ## Run all verification targets in a container
@@ -538,6 +539,10 @@ verify-toc: update-toc ## Verify the table of contents for the documentation
 verify-mocks: update-mocks ## Verify the content of the generated mocks
 	hack/tree-status
 
+.PHONY: verify-proto
+verify-proto: update-proto ## Verify the generated GRPC protocol definitions
+	hack/tree-status
+
 .PHONY: verify-bpf
 verify-bpf: update-bpf ## Verify the generated bpf code
 	hack/tree-status
@@ -585,7 +590,7 @@ manifests: $(BUILD_DIR)/kubernetes-split-yaml $(BUILD_DIR)/kustomize
 
 # Generate deepcopy code
 generate:
-	$(CONTROLLER_GEN_CMD) object:headerFile="hack/boilerplate/boilerplate.go.txt",year=$(shell date -u "+%Y") paths="./api/..."
+	$(CONTROLLER_GEN_CMD) object:headerFile="hack/boilerplate/boilerplate.go.txt" paths="./api/..."
 	$(CONTROLLER_GEN_CMD) rbac:roleName=security-profiles-operator paths="./internal/pkg/manager/..." output:rbac:stdout > deploy/base/role.yaml
 	$(CONTROLLER_GEN_CMD) rbac:roleName=spod paths="./internal/pkg/daemon/..." output:rbac:stdout >> deploy/base/role.yaml
 	$(CONTROLLER_GEN_CMD) rbac:roleName=spo-webhook paths="./internal/pkg/webhooks/..." output:rbac:stdout >> deploy/base/role.yaml

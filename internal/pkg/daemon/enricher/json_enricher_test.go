@@ -316,7 +316,7 @@ func TestJsonRun(t *testing.T) {
 
 					executable = auditMap["executable"]
 					require.Equal(t, executableNginx, executable)
-					//nolint:all
+					//nolint:testifylint // cmdLineJsonTest is a command line, not JSON
 					require.Equal(t, cmdLineJsonTest, auditMap["cmdLine"])
 					require.Equal(t, "da83c434-91f0-4696-a04e-75d08b6d80b2", auditMap["requestUID"])
 				},

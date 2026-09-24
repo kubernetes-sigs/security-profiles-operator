@@ -22,7 +22,7 @@
 set -Eeuo pipefail
 
 NAMESPACE=security-profiles-operator
-CERT_MANAGER_VERSION=v1.21.1
+CERT_MANAGER_VERSION=v1.21.2
 IMAGE_ARCHIVE="${IMAGE_ARCHIVE:-image.tar}"
 WAIT_TIMEOUT=300s
 

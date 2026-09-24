@@ -25,7 +25,6 @@ import (
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
 	controllerruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -35,6 +34,7 @@ import (
 	api_enricher "sigs.k8s.io/security-profiles-operator/api/grpc/enricher"
 	v1a "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 	v1b "sigs.k8s.io/security-profiles-operator/api/spod/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 type FakeImpl struct {
@@ -205,17 +205,17 @@ type FakeImpl struct {
 	managerGetClientReturnsOnCall map[int]struct {
 		result1 client.Client
 	}
-	ManagerGetEventRecorderForStub        func(manager.Manager, string) record.EventRecorder
-	managerGetEventRecorderForMutex       sync.RWMutex
-	managerGetEventRecorderForArgsForCall []struct {
+	ManagerGetEventRecorderStub        func(manager.Manager, string) util.EventRecorder
+	managerGetEventRecorderMutex       sync.RWMutex
+	managerGetEventRecorderArgsForCall []struct {
 		arg1 manager.Manager
 		arg2 string
 	}
-	managerGetEventRecorderForReturns struct {
-		result1 record.EventRecorder
+	managerGetEventRecorderReturns struct {
+		result1 util.EventRecorder
 	}
-	managerGetEventRecorderForReturnsOnCall map[int]struct {
-		result1 record.EventRecorder
+	managerGetEventRecorderReturnsOnCall map[int]struct {
+		result1 util.EventRecorder
 	}
 	NewClientStub        func(controllerruntime.Manager) (client.Client, error)
 	newClientMutex       sync.RWMutex
@@ -1092,17 +1092,17 @@ func (fake *FakeImpl) ManagerGetClientReturnsOnCall(i int, result1 client.Client
 	}{result1}
 }
 
-func (fake *FakeImpl) ManagerGetEventRecorderFor(arg1 manager.Manager, arg2 string) record.EventRecorder {
-	fake.managerGetEventRecorderForMutex.Lock()
-	ret, specificReturn := fake.managerGetEventRecorderForReturnsOnCall[len(fake.managerGetEventRecorderForArgsForCall)]
-	fake.managerGetEventRecorderForArgsForCall = append(fake.managerGetEventRecorderForArgsForCall, struct {
+func (fake *FakeImpl) ManagerGetEventRecorder(arg1 manager.Manager, arg2 string) util.EventRecorder {
+	fake.managerGetEventRecorderMutex.Lock()
+	ret, specificReturn := fake.managerGetEventRecorderReturnsOnCall[len(fake.managerGetEventRecorderArgsForCall)]
+	fake.managerGetEventRecorderArgsForCall = append(fake.managerGetEventRecorderArgsForCall, struct {
 		arg1 manager.Manager
 		arg2 string
 	}{arg1, arg2})
-	stub := fake.ManagerGetEventRecorderForStub
-	fakeReturns := fake.managerGetEventRecorderForReturns
-	fake.recordInvocation("ManagerGetEventRecorderFor", []interface{}{arg1, arg2})
-	fake.managerGetEventRecorderForMutex.Unlock()
+	stub := fake.ManagerGetEventRecorderStub
+	fakeReturns := fake.managerGetEventRecorderReturns
+	fake.recordInvocation("ManagerGetEventRecorder", []interface{}{arg1, arg2})
+	fake.managerGetEventRecorderMutex.Unlock()
 	if stub != nil {
 		return stub(arg1, arg2)
 	}
@@ -1112,45 +1112,45 @@ func (fake *FakeImpl) ManagerGetEventRecorderFor(arg1 manager.Manager, arg2 stri
 	return fakeReturns.result1
 }
 
-func (fake *FakeImpl) ManagerGetEventRecorderForCallCount() int {
-	fake.managerGetEventRecorderForMutex.RLock()
-	defer fake.managerGetEventRecorderForMutex.RUnlock()
-	return len(fake.managerGetEventRecorderForArgsForCall)
+func (fake *FakeImpl) ManagerGetEventRecorderCallCount() int {
+	fake.managerGetEventRecorderMutex.RLock()
+	defer fake.managerGetEventRecorderMutex.RUnlock()
+	return len(fake.managerGetEventRecorderArgsForCall)
 }
 
-func (fake *FakeImpl) ManagerGetEventRecorderForCalls(stub func(manager.Manager, string) record.EventRecorder) {
-	fake.managerGetEventRecorderForMutex.Lock()
-	defer fake.managerGetEventRecorderForMutex.Unlock()
-	fake.ManagerGetEventRecorderForStub = stub
+func (fake *FakeImpl) ManagerGetEventRecorderCalls(stub func(manager.Manager, string) util.EventRecorder) {
+	fake.managerGetEventRecorderMutex.Lock()
+	defer fake.managerGetEventRecorderMutex.Unlock()
+	fake.ManagerGetEventRecorderStub = stub
 }
 
-func (fake *FakeImpl) ManagerGetEventRecorderForArgsForCall(i int) (manager.Manager, string) {
-	fake.managerGetEventRecorderForMutex.RLock()
-	defer fake.managerGetEventRecorderForMutex.RUnlock()
-	argsForCall := fake.managerGetEventRecorderForArgsForCall[i]
+func (fake *FakeImpl) ManagerGetEventRecorderArgsForCall(i int) (manager.Manager, string) {
+	fake.managerGetEventRecorderMutex.RLock()
+	defer fake.managerGetEventRecorderMutex.RUnlock()
+	argsForCall := fake.managerGetEventRecorderArgsForCall[i]
 	return argsForCall.arg1, argsForCall.arg2
 }
 
-func (fake *FakeImpl) ManagerGetEventRecorderForReturns(result1 record.EventRecorder) {
-	fake.managerGetEventRecorderForMutex.Lock()
-	defer fake.managerGetEventRecorderForMutex.Unlock()
-	fake.ManagerGetEventRecorderForStub = nil
-	fake.managerGetEventRecorderForReturns = struct {
-		result1 record.EventRecorder
+func (fake *FakeImpl) ManagerGetEventRecorderReturns(result1 util.EventRecorder) {
+	fake.managerGetEventRecorderMutex.Lock()
+	defer fake.managerGetEventRecorderMutex.Unlock()
+	fake.ManagerGetEventRecorderStub = nil
+	fake.managerGetEventRecorderReturns = struct {
+		result1 util.EventRecorder
 	}{result1}
 }
 
-func (fake *FakeImpl) ManagerGetEventRecorderForReturnsOnCall(i int, result1 record.EventRecorder) {
-	fake.managerGetEventRecorderForMutex.Lock()
-	defer fake.managerGetEventRecorderForMutex.Unlock()
-	fake.ManagerGetEventRecorderForStub = nil
-	if fake.managerGetEventRecorderForReturnsOnCall == nil {
-		fake.managerGetEventRecorderForReturnsOnCall = make(map[int]struct {
-			result1 record.EventRecorder
+func (fake *FakeImpl) ManagerGetEventRecorderReturnsOnCall(i int, result1 util.EventRecorder) {
+	fake.managerGetEventRecorderMutex.Lock()
+	defer fake.managerGetEventRecorderMutex.Unlock()
+	fake.ManagerGetEventRecorderStub = nil
+	if fake.managerGetEventRecorderReturnsOnCall == nil {
+		fake.managerGetEventRecorderReturnsOnCall = make(map[int]struct {
+			result1 util.EventRecorder
 		})
 	}
-	fake.managerGetEventRecorderForReturnsOnCall[i] = struct {
-		result1 record.EventRecorder
+	fake.managerGetEventRecorderReturnsOnCall[i] = struct {
+		result1 util.EventRecorder
 	}{result1}
 }
 

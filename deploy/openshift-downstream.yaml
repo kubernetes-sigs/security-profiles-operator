@@ -3091,6 +3091,14 @@ rules:
   - list
   - watch
 - apiGroups:
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+  - update
+- apiGroups:
   - monitoring.coreos.com
   resources:
   - servicemonitors
@@ -3253,6 +3261,14 @@ rules:
   verbs:
   - get
 - apiGroups:
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+  - update
+- apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
   - apparmorprofiles
@@ -3383,6 +3399,14 @@ rules:
   - clusteroperators
   verbs:
   - get
+- apiGroups:
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+  - update
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:

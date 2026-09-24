@@ -29,6 +29,25 @@ const (
 	EventTypeWarning string = "Warning"
 )
 
+// Actions of the events.k8s.io/v1 events the operator emits. The action says
+// what the reporting controller did or failed to do to the regarding object.
+const (
+	// EventActionInstall is installing a profile on a node.
+	EventActionInstall = "Install"
+	// EventActionRemove is removing a profile from a node.
+	EventActionRemove = "Remove"
+	// EventActionUpdate is updating an object, including its status.
+	EventActionUpdate = "Update"
+	// EventActionRecord is recording a profile from a workload.
+	EventActionRecord = "Record"
+	// EventActionMerge is merging recorded profiles.
+	EventActionMerge = "Merge"
+	// EventActionReconcile is a reconciliation that fails as a whole.
+	EventActionReconcile = "Reconcile"
+	// EventActionMutate is a mutating admission webhook changing a pod.
+	EventActionMutate = "Mutate"
+)
+
 const (
 	// OperatorConfigMap corresponds to the configMap created from deploy/base/profiles.
 	OperatorConfigMap = "security-profiles-operator-profile"

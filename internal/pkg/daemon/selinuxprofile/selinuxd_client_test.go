@@ -134,7 +134,6 @@ func (t *rewriteHostTransport) RoundTrip(req *http.Request) (*http.Response, err
 	req.URL.Scheme = "http"
 	req.URL.Host = t.host
 
-	//nolint:wrapcheck // a test transport passes the error through unchanged
 	return http.DefaultTransport.RoundTrip(req)
 }
 

@@ -33,16 +33,6 @@ func New[K comparable, V comparable]() *BiMap[K, V] {
 	}
 }
 
-// NewFromMap creates a new BiMap from a normal map.
-func NewFromMap[K comparable, V comparable](values map[K]V) *BiMap[K, V] {
-	biMap := New[K, V]()
-	for k, v := range values {
-		biMap.Insert(k, v)
-	}
-
-	return biMap
-}
-
 // Insert inserts a new element in the BiMap. A BiMap is a bijection, so an
 // insert that reuses either side evicts the mapping it replaces. Without that
 // eviction the two directions desync and lookups return stale counterparts.

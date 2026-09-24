@@ -104,6 +104,7 @@ func initContainerMap(m *sync.Map, spec *corev1.PodSpec) {
 
 //nolint:lll // required for kubebuilder
 // +kubebuilder:rbac:groups=core,resources=events,verbs=create
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch;update
 // +kubebuilder:rbac:groups=coordination.k8s.io,namespace=security-profiles-operator,resources=leases,verbs=create
 // +kubebuilder:rbac:groups=coordination.k8s.io,namespace=security-profiles-operator,resourceNames=security-profiles-operator-webhook-lock,resources=leases,verbs=get;patch;update
 
@@ -359,7 +360,7 @@ func (p *podBinder) getSeccompProfile(
 		}, func(inErr error) bool {
 			return errors.Is(inErr, ErrProfWithoutStatus) || kerrors.IsNotFound(inErr)
 		})
-	//nolint:wrapcheck // already wrapped
+
 	return seccompProfile, err
 }
 
@@ -382,7 +383,7 @@ func (p *podBinder) getSelinuxProfile(
 		}, func(inErr error) bool {
 			return errors.Is(inErr, ErrProfWithoutStatus) || kerrors.IsNotFound(inErr)
 		})
-	//nolint:wrapcheck // error is already wrapped
+
 	return selinuxProfile, err
 }
 
@@ -405,7 +406,7 @@ func (p *podBinder) getAppArmorProfile(
 		}, func(inErr error) bool {
 			return errors.Is(inErr, ErrProfWithoutStatus) || kerrors.IsNotFound(inErr)
 		})
-	//nolint:wrapcheck // already wrapped
+
 	return appArmorProfile, err
 }
 

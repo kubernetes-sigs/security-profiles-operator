@@ -41,7 +41,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
-	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -104,7 +103,7 @@ type RecorderReconciler struct {
 	impl
 	client        client.Client
 	log           logr.Logger
-	record        record.EventRecorder
+	record        util.EventRecorder
 	nodeAddresses []string
 	podsToWatch   sync.Map
 }
@@ -171,7 +170,7 @@ func (r *RecorderReconciler) Setup(
 
 	r.client = r.ManagerGetClient(mgr)
 	r.nodeAddresses = nodeAddresses
-	r.record = r.ManagerGetEventRecorderFor(mgr, name)
+	r.record = r.ManagerGetEventRecorder(mgr, name)
 
 	return r.NewControllerManagedBy(
 		mgr, name, r.isPodWithTraceAnnotation, r.isPodOnLocalNode, r,
@@ -281,8 +280,15 @@ func (r *RecorderReconciler) authorizedProfiles(
 				"pod", pod.Name, "namespace", pod.Namespace,
 				"annotation", profile.name, "error", err.Error(),
 			)
-			r.record.Event(pod, util.EventTypeWarning, reasonAnnotationParsing,
-				"ignoring malformed recording annotation: "+err.Error())
+			r.record.Eventf(
+				pod,
+				nil,
+				util.EventTypeWarning,
+				reasonAnnotationParsing,
+				util.EventActionRecord,
+				"%s",
+				"ignoring malformed recording annotation: "+err.Error(),
+			)
 
 			continue
 		}
@@ -298,9 +304,16 @@ func (r *RecorderReconciler) authorizedProfiles(
 			"pod", pod.Name, "namespace", pod.Namespace,
 			"recording", parsed.profileName, "container", parsed.cntName,
 		)
-		r.record.Event(pod, util.EventTypeWarning, reasonAnnotationParsing,
+		r.record.Eventf(
+			pod,
+			nil,
+			util.EventTypeWarning,
+			reasonAnnotationParsing,
+			util.EventActionRecord,
+			"%s",
 			"ignoring recording annotation with no matching profile recording: "+
-				parsed.profileName)
+				parsed.profileName,
+		)
 	}
 
 	return authorized, nil
@@ -397,7 +410,15 @@ func (r *RecorderReconciler) Reconcile(
 			// Malformed annotations could be set by users directly, which is
 			// why we are ignoring them.
 			logger.Info("Ignoring because unable to parse log annotation", "error", err)
-			r.record.Event(pod, util.EventTypeWarning, reasonAnnotationParsing, err.Error())
+			r.record.Eventf(
+				pod,
+				nil,
+				util.EventTypeWarning,
+				reasonAnnotationParsing,
+				util.EventActionRecord,
+				"%s",
+				err.Error(),
+			)
 
 			return reconcile.Result{}, nil
 		}
@@ -407,7 +428,15 @@ func (r *RecorderReconciler) Reconcile(
 			// Malformed annotations could be set by users directly, which is
 			// why we are ignoring them.
 			logger.Info("Ignoring because unable to parse bpf annotation", "error", err)
-			r.record.Event(pod, util.EventTypeWarning, reasonAnnotationParsing, err.Error())
+			r.record.Eventf(
+				pod,
+				nil,
+				util.EventTypeWarning,
+				reasonAnnotationParsing,
+				util.EventActionRecord,
+				"%s",
+				err.Error(),
+			)
 
 			return reconcile.Result{}, nil
 		}
@@ -474,7 +503,14 @@ func (r *RecorderReconciler) Reconcile(
 			req.String(),
 			podToWatch{baseName, recorder, profiles},
 		)
-		r.record.Event(pod, util.EventTypeNormal, reasonProfileRecording, "Recording profiles")
+		r.record.Eventf(
+			pod,
+			nil,
+			util.EventTypeNormal,
+			reasonProfileRecording,
+			util.EventActionRecord,
+			"Recording profiles",
+		)
 	}
 
 	if pod.Status.Phase == corev1.PodSucceeded {
@@ -765,7 +801,15 @@ func (r *RecorderReconciler) collectLogProfileGeneric(
 	profile, specBase, err := collector.buildProfile(data, labels)
 	if err != nil {
 		if profile != nil {
-			r.record.Event(profile, util.EventTypeWarning, reasonProfileCreationFailed, err.Error())
+			r.record.Eventf(
+				profile,
+				nil,
+				util.EventTypeWarning,
+				reasonProfileCreationFailed,
+				util.EventActionRecord,
+				"%s",
+				err.Error(),
+			)
 		}
 
 		return err
@@ -775,7 +819,15 @@ func (r *RecorderReconciler) collectLogProfileGeneric(
 		parsedProfileName.profileName, profileNamespacedName.Namespace,
 		specBase); err != nil {
 		r.log.Error(err, "Cannot set the enabled flag")
-		r.record.Event(profile, util.EventTypeWarning, reasonProfileCreationFailed, err.Error())
+		r.record.Eventf(
+			profile,
+			nil,
+			util.EventTypeWarning,
+			reasonProfileCreationFailed,
+			util.EventActionRecord,
+			"%s",
+			err.Error(),
+		)
 
 		return fmt.Errorf("set disabled on %s profile: %w", collector.profileKind, err)
 	}
@@ -795,7 +847,15 @@ func (r *RecorderReconciler) collectLogProfileGeneric(
 	)
 	if err != nil {
 		r.log.Error(err, "Cannot create profile resource")
-		r.record.Event(profile, util.EventTypeWarning, reasonProfileCreationFailed, err.Error())
+		r.record.Eventf(
+			profile,
+			nil,
+			util.EventTypeWarning,
+			reasonProfileCreationFailed,
+			util.EventActionRecord,
+			"%s",
+			err.Error(),
+		)
 
 		// Retrying cannot resolve the conflict, so drop the recorded data.
 		if !errors.Is(err, util.ErrProfileOwnedByOtherRecording) {
@@ -803,8 +863,15 @@ func (r *RecorderReconciler) collectLogProfileGeneric(
 		}
 	} else {
 		r.log.Info("Created/updated profile", "action", res, "name", profileNamespacedName.Name)
-		r.record.Event(profile, util.EventTypeNormal, reasonProfileCreated,
-			collector.profileKind+" profile created")
+		r.record.Eventf(
+			profile,
+			nil,
+			util.EventTypeNormal,
+			reasonProfileCreated,
+			util.EventActionRecord,
+			"%s",
+			collector.profileKind+" profile created",
+		)
 	}
 
 	if err := collector.resetData(ctx); err != nil {
@@ -1231,7 +1298,15 @@ func (r *RecorderReconciler) updateOrCreateBpfResource(
 			"name", profileRecordingName,
 			"namespace", profileNamespace,
 		)
-		r.record.Event(profile, util.EventTypeWarning, reasonProfileCreationFailed, err.Error())
+		r.record.Eventf(
+			profile,
+			nil,
+			util.EventTypeWarning,
+			reasonProfileCreationFailed,
+			util.EventActionRecord,
+			"%s",
+			err.Error(),
+		)
 
 		return fmt.Errorf("disabling profile after recording: %w", err)
 	}
@@ -1253,7 +1328,15 @@ func (r *RecorderReconciler) updateOrCreateBpfResource(
 	)
 	if err != nil {
 		r.log.Error(err, "Cannot create profile resource")
-		r.record.Event(profile, util.EventTypeWarning, reasonProfileCreationFailed, err.Error())
+		r.record.Eventf(
+			profile,
+			nil,
+			util.EventTypeWarning,
+			reasonProfileCreationFailed,
+			util.EventActionRecord,
+			"%s",
+			err.Error(),
+		)
 
 		// Retrying cannot resolve the conflict, so drop the recorded data.
 		if errors.Is(err, util.ErrProfileOwnedByOtherRecording) {
@@ -1264,9 +1347,14 @@ func (r *RecorderReconciler) updateOrCreateBpfResource(
 	}
 
 	r.log.Info("Created/updated profile", "action", res, "name", profileNamespace)
-	r.record.Event(
-		profile, util.EventTypeNormal,
-		reasonProfileCreated, profileKind+" profile created",
+	r.record.Eventf(
+		profile,
+		nil,
+		util.EventTypeNormal,
+		reasonProfileCreated,
+		util.EventActionRecord,
+		"%s",
+		profileKind+" profile created",
 	)
 
 	return nil

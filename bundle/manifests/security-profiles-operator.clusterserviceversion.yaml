@@ -258,8 +258,8 @@ metadata:
       ]
     capabilities: Basic Install
     categories: Security
-    containerImage: us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator:latest
-    createdAt: "2026-09-24T07:57:40Z"
+    containerImage: registry.k8s.io/security-profiles-operator/security-profiles-operator:v1.1.0
+    createdAt: "2026-09-24T09:18:44Z"
     olm.skipRange: '>=1.0.0 <1.1.1-dev'
     operatorframework.io/cluster-monitoring: "true"
     operatorframework.io/os.linux: supported
@@ -427,6 +427,14 @@ spec:
           - list
           - watch
         - apiGroups:
+          - events.k8s.io
+          resources:
+          - events
+          verbs:
+          - create
+          - patch
+          - update
+        - apiGroups:
           - monitoring.coreos.com
           resources:
           - servicemonitors
@@ -542,6 +550,14 @@ spec:
           verbs:
           - get
         - apiGroups:
+          - events.k8s.io
+          resources:
+          - events
+          verbs:
+          - create
+          - patch
+          - update
+        - apiGroups:
           - security-profiles-operator.x-k8s.io
           resources:
           - apparmorprofiles
@@ -600,6 +616,14 @@ spec:
           - clusteroperators
           verbs:
           - get
+        - apiGroups:
+          - events.k8s.io
+          resources:
+          - events
+          verbs:
+          - create
+          - patch
+          - update
         - apiGroups:
           - security-profiles-operator.x-k8s.io
           resources:

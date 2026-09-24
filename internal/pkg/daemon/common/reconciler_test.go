@@ -24,7 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -207,7 +207,7 @@ func TestReconcileDeletion(t *testing.T) {
 			incErrorCalled := false
 			incError := func(_ string) { incErrorCalled = true }
 
-			recorder := record.NewFakeRecorder(10)
+			recorder := events.NewFakeRecorder(10)
 
 			gotResult, gotErr := ReconcileDeletion(
 				t.Context(), tc.profile, nsc, tc.mockClient,

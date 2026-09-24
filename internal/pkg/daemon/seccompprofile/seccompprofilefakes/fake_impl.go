@@ -24,12 +24,12 @@ import (
 	"github.com/go-logr/logr"
 	v1b "github.com/opencontainers/image-spec/specs-go/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	v1 "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	v1a "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 type FakeImpl struct {
@@ -110,14 +110,15 @@ type FakeImpl struct {
 	pullResultTypeReturnsOnCall map[int]struct {
 		result1 artifact.PullResultType
 	}
-	RecordEventStub        func(record.EventRecorder, runtime.Object, string, string, string)
+	RecordEventStub        func(util.EventRecorder, runtime.Object, string, string, string, string)
 	recordEventMutex       sync.RWMutex
 	recordEventArgsForCall []struct {
-		arg1 record.EventRecorder
+		arg1 util.EventRecorder
 		arg2 runtime.Object
 		arg3 string
 		arg4 string
 		arg5 string
+		arg6 string
 	}
 	invocations      map[string][][]interface{}
 	invocationsMutex sync.RWMutex
@@ -485,20 +486,21 @@ func (fake *FakeImpl) PullResultTypeReturnsOnCall(i int, result1 artifact.PullRe
 	}{result1}
 }
 
-func (fake *FakeImpl) RecordEvent(arg1 record.EventRecorder, arg2 runtime.Object, arg3 string, arg4 string, arg5 string) {
+func (fake *FakeImpl) RecordEvent(arg1 util.EventRecorder, arg2 runtime.Object, arg3 string, arg4 string, arg5 string, arg6 string) {
 	fake.recordEventMutex.Lock()
 	fake.recordEventArgsForCall = append(fake.recordEventArgsForCall, struct {
-		arg1 record.EventRecorder
+		arg1 util.EventRecorder
 		arg2 runtime.Object
 		arg3 string
 		arg4 string
 		arg5 string
-	}{arg1, arg2, arg3, arg4, arg5})
+		arg6 string
+	}{arg1, arg2, arg3, arg4, arg5, arg6})
 	stub := fake.RecordEventStub
-	fake.recordInvocation("RecordEvent", []interface{}{arg1, arg2, arg3, arg4, arg5})
+	fake.recordInvocation("RecordEvent", []interface{}{arg1, arg2, arg3, arg4, arg5, arg6})
 	fake.recordEventMutex.Unlock()
 	if stub != nil {
-		fake.RecordEventStub(arg1, arg2, arg3, arg4, arg5)
+		fake.RecordEventStub(arg1, arg2, arg3, arg4, arg5, arg6)
 	}
 }
 
@@ -508,17 +510,17 @@ func (fake *FakeImpl) RecordEventCallCount() int {
 	return len(fake.recordEventArgsForCall)
 }
 
-func (fake *FakeImpl) RecordEventCalls(stub func(record.EventRecorder, runtime.Object, string, string, string)) {
+func (fake *FakeImpl) RecordEventCalls(stub func(util.EventRecorder, runtime.Object, string, string, string, string)) {
 	fake.recordEventMutex.Lock()
 	defer fake.recordEventMutex.Unlock()
 	fake.RecordEventStub = stub
 }
 
-func (fake *FakeImpl) RecordEventArgsForCall(i int) (record.EventRecorder, runtime.Object, string, string, string) {
+func (fake *FakeImpl) RecordEventArgsForCall(i int) (util.EventRecorder, runtime.Object, string, string, string, string) {
 	fake.recordEventMutex.RLock()
 	defer fake.recordEventMutex.RUnlock()
 	argsForCall := fake.recordEventArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3, argsForCall.arg4, argsForCall.arg5
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3, argsForCall.arg4, argsForCall.arg5, argsForCall.arg6
 }
 
 func (fake *FakeImpl) Invocations() map[string][][]interface{} {

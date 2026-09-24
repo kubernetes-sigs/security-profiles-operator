@@ -81,18 +81,10 @@ jobs:
     env:
       RUN: ./hack/ci/run-fedora.sh
     steps:
-      - name: Set up vagrant
-        run: |
-          curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
-          echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
-          sudo apt-get update
-          sudo apt-get install -y vagrant virtualbox
-      - name: Unload KVM modules
-        run: |
-          sudo modprobe -r kvm_amd kvm_intel kvm || true
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: ./.github/actions/setup-vagrant
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: image
@@ -108,11 +100,11 @@ jobs:
           $RUN git config --global --add safe.directory /vagrant
       - name: Run E2E tests
         run: $RUN hack/ci/e2e-fedora.sh
+      # Flaky tests get one retry, failing twice in a row fails the job.
       - name: Run Flaky E2E tests
-        continue-on-error: true
         run: |
           $RUN "echo \"export E2E_TEST_FLAKY_TESTS_ONLY=true\" >> /vagrant/hack/ci/env.sh"
-          $RUN hack/ci/e2e-fedora.sh
+          $RUN hack/ci/e2e-fedora.sh || $RUN hack/ci/e2e-fedora.sh
 
   e2e-ubuntu:
     needs: image
@@ -121,18 +113,10 @@ jobs:
     env:
       RUN: ./hack/ci/run-ubuntu.sh
     steps:
-      - name: Set up vagrant
-        run: |
-          curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
-          echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
-          sudo apt-get update
-          sudo apt-get install -y vagrant virtualbox
-      - name: Unload KVM modules
-        run: |
-          sudo modprobe -r kvm_amd kvm_intel kvm || true
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: ./.github/actions/setup-vagrant
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: image
@@ -148,11 +132,11 @@ jobs:
           $RUN git config --global --add safe.directory /vagrant
       - name: Run E2E tests
         run: $RUN hack/ci/e2e-ubuntu.sh
+      # Flaky tests get one retry, failing twice in a row fails the job.
       - name: Run Flaky E2E tests
-        continue-on-error: true
         run: |
           $RUN "echo \"export E2E_TEST_FLAKY_TESTS_ONLY=true\" >> /vagrant/hack/ci/env.sh"
-          $RUN hack/ci/e2e-ubuntu.sh
+          $RUN hack/ci/e2e-ubuntu.sh || $RUN hack/ci/e2e-ubuntu.sh
 
   e2e-flatcar:
     needs: image
@@ -161,18 +145,10 @@ jobs:
     env:
       RUN: ./hack/ci/run-flatcar.sh
     steps:
-      - name: Set up vagrant
-        run: |
-          curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
-          echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
-          sudo apt-get update
-          sudo apt-get install -y vagrant virtualbox
-      - name: Unload KVM modules
-        run: |
-          sudo modprobe -r kvm_amd kvm_intel kvm || true
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: ./.github/actions/setup-vagrant
       - name: Upgrade vagrant box
         run: |
           ln -sf hack/ci/Vagrantfile-flatcar Vagrantfile
@@ -189,11 +165,11 @@ jobs:
           $RUN kubectl get nodes -o wide
       - name: Run E2E tests
         run: $RUN hack/ci/e2e-flatcar-dev-container.sh
+      # Flaky tests get one retry, failing twice in a row fails the job.
       - name: Run Flaky E2E tests
-        continue-on-error: true
         run: |
           $RUN "echo \"export E2E_TEST_FLAKY_TESTS_ONLY=true\" >> /vagrant/hack/ci/env-flatcar.sh"
-          $RUN hack/ci/e2e-flatcar-dev-container.sh
+          $RUN hack/ci/e2e-flatcar-dev-container.sh || $RUN hack/ci/e2e-flatcar-dev-container.sh
 
   e2e-spoc:
     needs: image
@@ -202,18 +178,10 @@ jobs:
     env:
       RUN: ./hack/ci/run-debian.sh
     steps:
-      - name: Set up vagrant
-        run: |
-          curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
-          echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
-          sudo apt-get update
-          sudo apt-get install -y vagrant virtualbox
-      - name: Unload KVM modules
-        run: |
-          sudo modprobe -r kvm_amd kvm_intel kvm || true
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: ./.github/actions/setup-vagrant
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: image
@@ -237,18 +205,10 @@ jobs:
     env:
       RUN: ./hack/ci/run-debian.sh
     steps:
-      - name: Set up vagrant
-        run: |
-          curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
-          echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
-          sudo apt-get update
-          sudo apt-get install -y vagrant virtualbox
-      - name: Unload KVM modules
-        run: |
-          sudo modprobe -r kvm_amd kvm_intel kvm || true
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: ./.github/actions/setup-vagrant
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: image
@@ -279,18 +239,10 @@ jobs:
     env:
       RUN: ./hack/ci/run-debian.sh
     steps:
-      - name: Set up vagrant
-        run: |
-          curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
-          echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
-          sudo apt-get update
-          sudo apt-get install -y vagrant virtualbox
-      - name: Unload KVM modules
-        run: |
-          sudo modprobe -r kvm_amd kvm_intel kvm || true
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: ./.github/actions/setup-vagrant
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: image

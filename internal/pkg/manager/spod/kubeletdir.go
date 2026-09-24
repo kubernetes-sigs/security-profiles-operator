@@ -76,8 +76,14 @@ func (r *ReconcileSPOd) nodeKubeletDirs(
 					"node", node.Name, "error", err.Error(),
 				)
 				r.record.Eventf(
-					spod, util.EventTypeWarning, reasonInvalidKubeletDirLabel,
-					"Ignoring kubelet directory label of node %s: %v", node.Name, err,
+					spod,
+					nil,
+					util.EventTypeWarning,
+					reasonInvalidKubeletDirLabel,
+					util.EventActionReconcile,
+					"Ignoring kubelet directory label of node %s: %v",
+					node.Name,
+					err,
 				)
 			}
 

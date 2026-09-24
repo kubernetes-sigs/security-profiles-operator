@@ -103,7 +103,7 @@ dependencies:
       match: "^OLM_VERSION"
 
   - name: cert-manager
-    version: 1.21.1
+    version: 1.21.2
     refPaths:
     - path: test/e2e_test.go
       match: cert-manager/cert-manager
@@ -113,6 +113,8 @@ dependencies:
       match: cert-manager/cert-manager
     - path: hack/ci/install-spo.sh
       match: cert-manager/cert-manager
+    - path: hack/ci/install-helm-chart.sh
+      match: ^CERT_MANAGER_VERSION
 
   - name: kind
     version: 0.33.0

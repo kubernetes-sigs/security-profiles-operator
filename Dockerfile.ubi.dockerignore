@@ -6,5 +6,6 @@ test/
 _output
 examples/
 hack/
+!hack/go-version.sh
 *.md
 Dockerfile.*

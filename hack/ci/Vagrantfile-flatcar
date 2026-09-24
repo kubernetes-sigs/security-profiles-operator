@@ -65,7 +65,7 @@ Vagrant.configure("2") do |config|
 
       # Install Go
       mkdir /opt/go
-      GO_VERSION=$(curl -sSfL "https://go.dev/VERSION?m=text" | head -n1)
+      GO_VERSION=go$(bash /vagrant/hack/go-version.sh /vagrant/go.mod)
       curl -sSfL -o- https://go.dev/dl/$GO_VERSION.linux-amd64.tar.gz |
         tar xfz - -C /opt
 

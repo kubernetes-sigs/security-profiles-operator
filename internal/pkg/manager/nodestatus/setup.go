@@ -23,6 +23,7 @@ import (
 
 	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 // Setup adds a controller that reconciles the SPOd DaemonSet.
@@ -34,10 +35,7 @@ func (r *StatusReconciler) Setup(
 	r.client = mgr.GetClient()
 	r.reader = mgr.GetAPIReader()
 	r.log = ctrl.Log.WithName(r.Name())
-	//nolint:staticcheck // TODO: migrate to GetEventRecorder
-	r.record = mgr.GetEventRecorderFor(
-		r.Name(),
-	)
+	r.record = util.NewEventRecorder(mgr, r.Name())
 
 	// Register a special reconciler for status events
 	return ctrl.NewControllerManagedBy(mgr).

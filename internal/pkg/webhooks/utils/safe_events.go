@@ -18,48 +18,28 @@ package utils
 
 import (
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
+// SafeRecorder is an event recorder that tolerates a nil recorder.
 type SafeRecorder struct {
-	recorder record.EventRecorder
+	recorder util.EventRecorder
 }
 
-func NewSafeRecorder(recorder record.EventRecorder) *SafeRecorder {
+func NewSafeRecorder(recorder util.EventRecorder) *SafeRecorder {
 	return &SafeRecorder{recorder: recorder}
 }
 
-func (sr *SafeRecorder) Event(object runtime.Object, eventtype, reason, message string) {
-	if sr.recorder == nil {
-		return
-	}
-
-	sr.recorder.Event(object, eventtype, reason, message)
-}
-
-// Eventf is just like Event, but with Sprintf for the message field.
+// Eventf records an events.k8s.io/v1 event, see util.EventRecorder.
 func (sr *SafeRecorder) Eventf(
-	object runtime.Object,
-	eventtype, reason, messageFmt string,
+	regarding, related runtime.Object,
+	eventtype, reason, action, note string,
 	args ...any,
 ) {
 	if sr.recorder == nil {
 		return
 	}
 
-	sr.recorder.Eventf(object, eventtype, reason, messageFmt, args...)
-}
-
-// AnnotatedEventf is just like eventf, but with annotations attached.
-func (sr *SafeRecorder) AnnotatedEventf(
-	object runtime.Object,
-	annotations map[string]string,
-	eventtype, reason, messageFmt string,
-	args ...any,
-) {
-	if sr.recorder == nil {
-		return
-	}
-
-	sr.recorder.AnnotatedEventf(object, annotations, eventtype, reason, messageFmt, args...)
+	sr.recorder.Eventf(regarding, related, eventtype, reason, action, note, args...)
 }

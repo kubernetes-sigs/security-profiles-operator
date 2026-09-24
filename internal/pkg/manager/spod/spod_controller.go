@@ -36,7 +36,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -80,7 +79,7 @@ type ReconcileSPOd struct {
 	clientReader   client.Reader
 	scheme         *runtime.Scheme
 	baseSPOd       *appsv1.DaemonSet
-	record         record.EventRecorder
+	record         util.EventRecorder
 	log            logr.Logger
 	watchNamespace string
 	namespace      string
@@ -111,6 +110,7 @@ func (r *ReconcileSPOd) Healthz(*http.Request) error {
 //
 // Used for event generation:
 // +kubebuilder:rbac:groups=core,resources=events,verbs=create
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch;update
 //
 // Operand:
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch
@@ -230,10 +230,13 @@ func (r *ReconcileSPOd) Reconcile(
 				serviceMonitor,
 			)
 			if createErr != nil {
-				r.record.Event(
+				r.record.Eventf(
 					spod,
+					nil,
 					util.EventTypeWarning,
 					reasonCannotCreateSPOD,
+					util.EventActionReconcile,
+					"%s",
 					createErr.Error(),
 				)
 
@@ -277,7 +280,15 @@ func (r *ReconcileSPOd) Reconcile(
 			ctx, spod, updatedSPod, webhook, metricsService, certManagerResources, serviceMonitor,
 		)
 		if updateErr != nil {
-			r.record.Event(spod, util.EventTypeWarning, reasonCannotUpdateSPOD, updateErr.Error())
+			r.record.Eventf(
+				spod,
+				nil,
+				util.EventTypeWarning,
+				reasonCannotUpdateSPOD,
+				util.EventActionUpdate,
+				"%s",
+				updateErr.Error(),
+			)
 
 			return reconcile.Result{}, updateErr
 		}
@@ -650,10 +661,13 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 			fmt.Sprintf("--with-raw-selinux=%t", enableRawSelinux))
 
 		if err := addSelinuxCustomTemplatesVolume(cfg, templateSpec); err != nil {
-			r.record.Event(
+			r.record.Eventf(
 				cfg,
+				nil,
 				util.EventTypeWarning,
 				reasonCannotMountCustomTemplates,
+				util.EventActionReconcile,
+				"%s",
 				err.Error(),
 			)
 

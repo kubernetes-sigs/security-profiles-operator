@@ -89,7 +89,8 @@ build provenance (`spoc.intoto.jsonl`) to the release. The
 [`helm-chart-package`](.github/workflows/helm-chart-package.yaml) workflow
 attaches the chart archive with its signature and provenance. Nothing has to
 be built or uploaded by hand, `make nix-spoc` is only meant for local builds.
-Verify that the files are present. The SLSA GitHub generator creates the
+Verify that the files are present. The reusable
+[`provenance`](.github/workflows/provenance.yml) workflow creates the
 provenance of both workflows, see
 [SLSA build levels](verification.md#slsa-build-levels).
 

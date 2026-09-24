@@ -28,7 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -149,7 +149,7 @@ func TestReconcileDeletionWithActivePods(t *testing.T) {
 	// is about to be removed although pods still use it.
 	r := &ReconcileSelinux{
 		client:            cli,
-		record:            record.NewFakeRecorder(10),
+		record:            events.NewFakeRecorder(10),
 		log:               logr.Discard(),
 		objectHandlerInit: newSelinuxProfileHandler,
 	}
@@ -219,7 +219,7 @@ func TestReconcileDeletionWithFailedRemoval(t *testing.T) {
 
 			r := &ReconcileSelinux{
 				client:            cli,
-				record:            record.NewFakeRecorder(10),
+				record:            events.NewFakeRecorder(10),
 				metrics:           metrics.New(),
 				log:               logr.Discard(),
 				objectHandlerInit: newSelinuxProfileHandler,
