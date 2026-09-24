@@ -25,6 +25,7 @@ import (
 	"errors"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -38,6 +39,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 
 	api "sigs.k8s.io/security-profiles-operator/api/grpc/bpfrecorder"
+	apimetrics "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder/bpfrecorderfakes"
 )
@@ -1117,4 +1119,40 @@ func TestNewPidEvent(t *testing.T) {
 
 		tc.assert(sut, logSink)
 	}
+}
+
+// TestTrackProfileMetricSerializesSends asserts that concurrent pid handlers
+// never call Send on the shared metrics stream at the same time, which gRPC
+// does not allow.
+func TestTrackProfileMetricSerializesSends(t *testing.T) {
+	t.Parallel()
+
+	sut := New("", logr.Discard(), true, true)
+	mock := &bpfrecorderfakes.FakeImpl{}
+	sut.impl = mock
+
+	var inFlight, overlaps atomic.Int32
+
+	mock.SendMetricCalls(func(apimetrics.Metrics_BpfIncClient, *apimetrics.BpfRequest) error {
+		if inFlight.Add(1) > 1 {
+			overlaps.Add(1)
+		}
+
+		time.Sleep(time.Millisecond)
+		inFlight.Add(-1)
+
+		return nil
+	})
+
+	var wg sync.WaitGroup
+	for i := range 10 {
+		wg.Go(func() {
+			sut.trackProfileMetric(uint32(i), "profile")
+		})
+	}
+
+	wg.Wait()
+
+	require.Equal(t, 10, mock.SendMetricCallCount())
+	require.Zero(t, overlaps.Load())
 }

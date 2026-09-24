@@ -24,8 +24,11 @@ import (
 	"github.com/stretchr/testify/require"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	profilebase "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	seccompprofile "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
@@ -228,11 +231,85 @@ func TestRemoveLegacyNodeStatus(t *testing.T) {
 				pol:      tc.profile,
 				nodeName: nodeName,
 				client:   cl,
+				kind:     tc.profile.GetObjectKind().GroupVersionKind().Kind,
 			}
 
 			got := sc.removeLegacyNodeStatus(context.Background())
 			require.Equal(t, tc.wantMigrated, got)
 		})
+	}
+}
+
+// TestCreateAndRemoveWithClearedTypeMeta verifies that the node status name
+// stays stable when the TypeMeta of the profile is empty or gets cleared, so
+// that Remove deletes the same status object that Create made.
+func TestCreateAndRemoveWithClearedTypeMeta(t *testing.T) {
+	const nodeName = "worker-1"
+
+	t.Setenv(config.NodeNameEnvKey, nodeName)
+
+	scheme := runtime.NewScheme()
+	require.NoError(t, seccompprofile.AddToScheme(scheme))
+	require.NoError(t, secprofnodestatusapi.AddToScheme(scheme))
+
+	clearTypeMeta := func(obj client.Object) {
+		obj.GetObjectKind().SetGroupVersionKind(schema.GroupVersionKind{})
+	}
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(regularSeccompProfile()).
+		WithStatusSubresource(&secprofnodestatusapi.SecurityProfileNodeStatus{}).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Update: func(
+				ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption,
+			) error {
+				err := c.Update(ctx, obj, opts...)
+				clearTypeMeta(obj)
+
+				return err
+			},
+		}).
+		Build()
+
+	for _, withTypeMeta := range []bool{true, false} {
+		pol := &seccompprofile.SeccompProfile{}
+		key := client.ObjectKeyFromObject(regularSeccompProfile())
+		require.NoError(t, cl.Get(t.Context(), key, pol))
+
+		if !withTypeMeta {
+			clearTypeMeta(pol)
+		}
+
+		sc, err := NewForProfile(pol, cl)
+		require.NoError(t, err)
+
+		_, err = sc.Create(t.Context())
+		require.NoError(t, err)
+
+		statuses := &secprofnodestatusapi.SecurityProfileNodeStatusList{}
+		require.NoError(t, cl.List(t.Context(), statuses))
+		require.Len(t, statuses.Items, 1)
+		require.Equal(t, "seccompprofile-test-profile-worker-1", statuses.Items[0].Name)
+		require.Equal(t, "SeccompProfile-test-profile",
+			statuses.Items[0].Labels[secprofnodestatusapi.StatusToProfLabel])
+		require.Equal(t, "SeccompProfile",
+			statuses.Items[0].Labels[secprofnodestatusapi.StatusKindLabel])
+		require.Equal(t, "SeccompProfile-test-profile",
+			pol.GetLabels()[secprofnodestatusapi.StatusToProfLabel])
+
+		exists, err := sc.Exists(t.Context())
+		require.NoError(t, err)
+		require.True(t, exists)
+
+		require.NoError(t, sc.Remove(t.Context(), cl))
+		require.NoError(t, cl.List(t.Context(), statuses))
+		require.Empty(t, statuses.Items)
+
+		// Drop the label so that the next iteration sets it again.
+		require.NoError(t, cl.Get(t.Context(), client.ObjectKeyFromObject(pol), pol))
+		delete(pol.Labels, secprofnodestatusapi.StatusToProfLabel)
+		require.NoError(t, cl.Update(t.Context(), pol))
 	}
 }
 

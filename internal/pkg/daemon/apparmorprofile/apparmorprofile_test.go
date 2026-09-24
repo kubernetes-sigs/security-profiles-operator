@@ -190,6 +190,7 @@ func TestHandleDeletionOwnership(t *testing.T) {
 			t.Setenv(config.NodeNameEnvKey, "worker-1")
 
 			profile := &apparmorprofileapi.AppArmorProfile{
+				TypeMeta:   metav1.TypeMeta{Kind: "AppArmorProfile"},
 				ObjectMeta: metav1.ObjectMeta{Name: "docker-default"},
 			}
 			manager := &FakeProfileManager{}

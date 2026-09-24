@@ -228,8 +228,23 @@ func (r *Reconciler) handleAllowedSyscallsChanged(
 
 	for i := range seccompProfileList.Items {
 		sp := &seccompProfileList.Items[i]
+
+		// Validate the merged syscalls, like validateProfile does, so that
+		// syscalls inherited from base profiles are checked as well.
+		merged := sp.DeepCopy()
+
+		syscalls, err := r.resolveSyscallsForProfile(ctx, merged, merged.Spec.Syscalls, r.log, 0)
+		if err != nil {
+			r.log.Error(err, "cannot resolve syscalls of seccomp profile",
+				"namespace", sp.GetNamespace(), "name", sp.GetName())
+
+			continue
+		}
+
+		merged.Spec.Syscalls = syscalls
+
 		if err := allowProfile(
-			sp,
+			merged,
 			spod.Spec.Security.AllowedSyscalls,
 			spod.Spec.Security.AllowedSeccompActions,
 		); err != nil {
@@ -702,7 +717,7 @@ func saveProfileOnDisk(fileName string, content []byte) (updated bool, err error
 		return false, nil
 	}
 
-	if err := os.WriteFile(fileName, content, filePermissionMode); err != nil {
+	if err := util.WriteFileAtomic(fileName, content, filePermissionMode); err != nil {
 		return false, fmt.Errorf("%s: %w", errSavingProfile, err)
 	}
 

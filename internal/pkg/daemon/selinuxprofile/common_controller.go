@@ -36,12 +36,14 @@ import (
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/nodestatus"
@@ -90,8 +92,13 @@ const (
 // blank assignment to verify that ReconcileSelinux implements `reconcile.Reconciler`.
 var _ reconcile.Reconciler = &ReconcileSelinux{}
 
-// errPolicyNotFound is returned if no policy has been found.
-var errPolicyNotFound = errors.New("policy not found")
+var (
+	// errPolicyNotFound is returned if no policy has been found.
+	errPolicyNotFound = errors.New("policy not found")
+
+	// errPolicyRemovalFailed is returned if selinuxd failed to remove a policy.
+	errPolicyRemovalFailed = errors.New("selinuxd failed to remove the policy")
+)
 
 // ReconcileSelinux reconciles a Selinux profile objects.
 type ReconcileSelinux struct {
@@ -109,6 +116,16 @@ type ReconcileSelinux struct {
 	objectHandlerInit SelinuxObjectHandlerInit
 	ctrlBuilder       controllerBuilder
 	httpc             *http.Client
+	// moduleStorePath overrides the host SELinux module store for testing.
+	moduleStorePath string
+}
+
+func (r *ReconcileSelinux) selinuxModuleStorePath() string {
+	if r.moduleStorePath != "" {
+		return r.moduleStorePath
+	}
+
+	return bindata.SelinuxModuleStorePath
 }
 
 // Setup adds a controller that reconciles selinux profiles.
@@ -260,6 +277,13 @@ func (r *ReconcileSelinux) Reconcile(
 		return reconcile.Result{}, nil
 	}
 
+	// Keep the policy installed as long as running pods still use it.
+	if controllerutil.ContainsFinalizer(instance, util.HasActivePodsFinalizerString) {
+		reqLogger.Info("cannot delete profile in use by pod, requeuing")
+
+		return reconcile.Result{RequeueAfter: common.Wait}, nil
+	}
+
 	res, err := r.reconcileDeletePolicy(ctx, instance, nodeStatus, reqLogger)
 	if err != nil {
 		reqLogger.Error(err, "cannot delete policy or requeue")
@@ -340,7 +364,7 @@ func (r *ReconcileSelinux) reconcilePolicy(
 	}
 
 	if firstInstall &&
-		isSystemSELinuxModule(bindata.SelinuxModuleStorePath, filepath.Clean(sp.GetPolicyName())) {
+		isSELinuxModuleInstalled(r.selinuxModuleStorePath(), filepath.Clean(sp.GetPolicyName())) {
 		if err := nodeStatus.SetNodeStatus(
 			ctx,
 			secprofnodestatusapi.ProfileStateError,
@@ -590,26 +614,22 @@ func (r *ReconcileSelinux) reconcileDeletePolicy(
 
 		return reconcile.Result{RequeueAfter: selinuxdPollInterval}, nil
 	case failedStatus:
-		if err := nodeStatus.SetNodeStatus(
-			ctx,
-			secprofnodestatusapi.ProfileStateError,
-		); err != nil {
-			r.metrics.IncSelinuxProfileError(reasonCannotRemovePolicy)
-
+		// selinuxd keeps a Failed status from an earlier install until it
+		// processes the removal of the policy file, and it keeps the last
+		// status if removing the module fails. The removal is only done
+		// once the module is gone from the module store.
+		policyName := filepath.Clean(sp.GetPolicyName())
+		if isSELinuxModuleInstalled(r.selinuxModuleStorePath(), policyName) {
 			return reconcile.Result{}, fmt.Errorf(
-				"updating SELinux policy with installation: %w",
-				err,
+				"%w %s on %s: %s",
+				errPolicyRemovalFailed,
+				sp.GetPolicyName(),
+				os.Getenv(config.NodeNameEnvKey),
+				polStatus.Msg,
 			)
 		}
 
-		evstr := fmt.Sprintf(
-			"Failed to save profile to disk on %s: %s",
-			os.Getenv(config.NodeNameEnvKey),
-			polStatus.Msg,
-		)
-		r.record.Event(sp, util.EventTypeWarning, reasonCannotInstallPolicy, evstr)
-
-		return reconcile.Result{}, nil
+		l.Info("Policy reported as failed but the module is not installed")
 	}
 
 	r.metrics.IncSelinuxProfileDelete()
@@ -722,7 +742,7 @@ func writeFileIfDiffers(filePath string, contents []byte, l logr.Logger) (bool, 
 	if os.IsNotExist(err) {
 		l.Info("Writing new policy file", "policyPath", filePath)
 
-		return true, os.WriteFile(filePath, contents, filePermissions)
+		return true, util.WriteFileAtomic(filePath, contents, filePermissions)
 	} else if err != nil {
 		return false, fmt.Errorf("could not open for reading %s: %w", filePath, err)
 	}
@@ -742,13 +762,13 @@ func writeFileIfDiffers(filePath string, contents []byte, l logr.Logger) (bool, 
 
 	l.Info("Updating policy file", "policyPath", filePath)
 
-	return true, os.WriteFile(filePath, contents, filePermissions)
+	return true, util.WriteFileAtomic(filePath, contents, filePermissions)
 }
 
-// isSystemSELinuxModule checks whether an SELinux module with the given name
-// is already installed in the host's module store. The store layout is
+// isSELinuxModuleInstalled checks whether an SELinux module with the given name
+// is installed in the host's module store. The store layout is
 // /var/lib/selinux/<policy_type>/active/modules/<priority>/<module_name>/.
-func isSystemSELinuxModule(moduleStorePath, name string) bool {
+func isSELinuxModuleInstalled(moduleStorePath, name string) bool {
 	policyTypes, err := os.ReadDir(moduleStorePath)
 	if err != nil {
 		return false

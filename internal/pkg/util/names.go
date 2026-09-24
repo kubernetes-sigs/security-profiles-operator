@@ -106,7 +106,11 @@ func CheckRecordingOwner(profile client.Object, recordingName, recordingNamespac
 }
 
 func KindBasedDNSLengthName(obj client.Object) string {
-	kind := obj.GetObjectKind().GroupVersionKind().Kind
+	return KindNameDNSLengthName(obj.GetObjectKind().GroupVersionKind().Kind, obj.GetName())
+}
 
-	return DNSLengthName(kind, "%s-%s", kind, obj.GetName())
+// KindNameDNSLengthName is like KindBasedDNSLengthName but takes the kind
+// explicitly, for objects whose TypeMeta may have been cleared.
+func KindNameDNSLengthName(kind, name string) string {
+	return DNSLengthName(kind, "%s-%s", kind, name)
 }

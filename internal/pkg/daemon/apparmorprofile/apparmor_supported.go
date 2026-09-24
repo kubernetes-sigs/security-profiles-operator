@@ -34,6 +34,7 @@ import (
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	profilebaseapi "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/apparmorprofile/crd2armor"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 var (
@@ -292,7 +293,13 @@ func loadProfile(logger logr.Logger, name, content string) (bool, error) {
 			targetProfileDir,
 			profileFilename(name),
 		)
-		if err := os.WriteFile(
+
+		previous, readErr := os.ReadFile(path)
+		if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
+			return fmt.Errorf("reading existing policy file: %w", readErr)
+		}
+
+		if err := util.WriteFileAtomic(
 			path,
 			[]byte(managedByMarker+content),
 			0o600,
@@ -300,21 +307,35 @@ func loadProfile(logger logr.Logger, name, content string) (bool, error) {
 			return fmt.Errorf("writing policy file: %w", err)
 		}
 
+		// The kernel keeps the previously loaded policy when loading an
+		// update fails, so put its file back instead of removing it.
+		restore := func() {
+			if readErr != nil {
+				os.Remove(path)
+
+				return
+			}
+
+			if err := util.WriteFileAtomic(path, previous, 0o600); err != nil {
+				logger.Error(err, "Cannot restore previous policy file", "path", path)
+			}
+		}
+
 		if err := a.LoadPolicy(path); err != nil {
-			os.Remove(path)
+			restore()
 
 			return fmt.Errorf("load policy: %w", err)
 		}
 
 		loaded, err := a.PolicyLoaded(name)
 		if err != nil {
-			os.Remove(path)
+			restore()
 
 			return fmt.Errorf("cannot check policy status: %w", err)
 		}
 
 		if !loaded {
-			os.Remove(path)
+			restore()
 
 			return fmt.Errorf(
 				"policy %q is not loaded: AppArmorProfile name must match defined policy",

@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -48,6 +49,11 @@ type StatusClient struct {
 	nodeName        string
 	finalizerString string
 	client          client.Client
+
+	// kind is the profile kind, resolved once on construction so that names
+	// and labels do not depend on the TypeMeta of pol, which is empty for
+	// objects decoded by the uncached typed client.
+	kind string
 }
 
 func NewForProfile(pol profilebase.SecurityProfileBase, c client.Client) (*StatusClient, error) {
@@ -56,16 +62,47 @@ func NewForProfile(pol profilebase.SecurityProfileBase, c client.Client) (*Statu
 		return nil, errors.New("cannot determine node name")
 	}
 
+	kind, err := profileKind(pol, c)
+	if err != nil {
+		return nil, err
+	}
+
 	return &StatusClient{
 		pol:             pol,
+		kind:            kind,
 		nodeName:        nodeName,
 		finalizerString: getFinalizerString(pol, nodeName),
 		client:          c,
 	}, nil
 }
 
+// profileKind returns the kind of the profile. It falls back to the scheme if
+// the TypeMeta is empty, which is the case for objects decoded by the uncached
+// typed client.
+func profileKind(pol profilebase.SecurityProfileBase, c client.Client) (string, error) {
+	if kind := pol.GetObjectKind().GroupVersionKind().Kind; kind != "" {
+		return kind, nil
+	}
+
+	if c == nil {
+		return "", fmt.Errorf("cannot determine kind of profile %s without a client", pol.GetName())
+	}
+
+	gvk, err := apiutil.GVKForObject(pol, c.Scheme())
+	if err != nil {
+		return "", fmt.Errorf("cannot determine kind of profile %s: %w", pol.GetName(), err)
+	}
+
+	return gvk.Kind, nil
+}
+
+// profileID returns the value of the StatusToProfLabel for the profile.
+func (nsf *StatusClient) profileID() string {
+	return util.KindNameDNSLengthName(nsf.kind, nsf.pol.GetName())
+}
+
 func (nsf *StatusClient) perNodeStatusName() string {
-	kind := strings.ToLower(nsf.pol.GetObjectKind().GroupVersionKind().Kind)
+	kind := strings.ToLower(nsf.kind)
 
 	return util.DNSLengthName(kind, "%s-%s-%s", kind, nsf.pol.GetName(), nsf.nodeName)
 }
@@ -120,7 +157,7 @@ func (nsf *StatusClient) removeLegacyNodeStatus(ctx context.Context) bool {
 	// Verify the object belongs to this profile. A profile named
 	// "<kind>-<other>" has a legacy name that collides with the
 	// new-format name of profile "<other>".
-	if old.Labels[secprofnodestatusapi.StatusToProfLabel] != util.KindBasedDNSLengthName(nsf.pol) {
+	if old.Labels[secprofnodestatusapi.StatusToProfLabel] != nsf.profileID() {
 		return false
 	}
 
@@ -151,7 +188,7 @@ func (nsf *StatusClient) createPolLabel(ctx context.Context) error {
 			return nil
 		}
 
-		labels[secprofnodestatusapi.StatusToProfLabel] = util.KindBasedDNSLengthName(nsf.pol)
+		labels[secprofnodestatusapi.StatusToProfLabel] = nsf.profileID()
 		nsf.pol.SetLabels(labels)
 
 		return nsf.client.Update(ctx, nsf.pol)
@@ -166,12 +203,10 @@ func (nsf *StatusClient) statusObj(
 			Name:      nsf.perNodeStatusName(),
 			Namespace: nsf.pol.GetNamespace(),
 			Labels: map[string]string{
-				secprofnodestatusapi.StatusToProfLabel: util.KindBasedDNSLengthName(nsf.pol),
+				secprofnodestatusapi.StatusToProfLabel: nsf.profileID(),
 				secprofnodestatusapi.StatusToNodeLabel: nsf.nodeName,
 				secprofnodestatusapi.StatusStateLabel:  string(polState),
-				secprofnodestatusapi.StatusKindLabel: nsf.pol.GetObjectKind().
-					GroupVersionKind().
-					Kind,
+				secprofnodestatusapi.StatusKindLabel:   nsf.kind,
 			},
 		},
 		Spec: secprofnodestatusapi.SecurityProfileNodeStatusSpec{
