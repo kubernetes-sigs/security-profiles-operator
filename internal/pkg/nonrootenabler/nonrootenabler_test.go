@@ -45,7 +45,7 @@ func TestRun(t *testing.T) {
 		},
 		"success symlink exists": {
 			prepare: func(mock *nonrootenablerfakes.FakeImpl) {
-				mock.LstatReturns(nil, errTest)
+				mock.LstatReturnsOnCall(0, nil, errTest)
 			},
 			shouldError: false,
 		},
@@ -63,8 +63,20 @@ func TestRun(t *testing.T) {
 		},
 		"failure on Symlink": {
 			prepare: func(mock *nonrootenablerfakes.FakeImpl) {
-				mock.LstatReturns(nil, os.ErrNotExist)
+				mock.LstatReturnsOnCall(0, nil, os.ErrNotExist)
 				mock.SymlinkReturns(errTest)
+			},
+			shouldError: true,
+		},
+		"failure on kubelet directory not mounted": {
+			prepare: func(mock *nonrootenablerfakes.FakeImpl) {
+				mock.MountedReturns(false, nil)
+			},
+			shouldError: true,
+		},
+		"failure on Mounted": {
+			prepare: func(mock *nonrootenablerfakes.FakeImpl) {
+				mock.MountedReturns(false, errTest)
 			},
 			shouldError: true,
 		},
@@ -104,6 +116,7 @@ func TestRun(t *testing.T) {
 
 			sut := nonrootenabler.New()
 			mock := &nonrootenablerfakes.FakeImpl{}
+			mock.MountedReturns(true, nil)
 			tc.prepare(mock)
 			sut.SetImpl(mock)
 
@@ -119,6 +132,29 @@ func TestRun(t *testing.T) {
 	}
 }
 
+// TestRunKubeletDirNotMounted asserts that nothing gets written when the
+// kubelet directory of the node is not a mount point from the host, because
+// the writes would otherwise end up in the container filesystem or in another
+// mounted directory, for example when the label points to a parent of it.
+func TestRunKubeletDirNotMounted(t *testing.T) {
+	t.Parallel()
+
+	sut := nonrootenabler.New()
+	mock := &nonrootenablerfakes.FakeImpl{}
+	mock.MountedReturns(false, nil)
+	sut.SetImpl(mock)
+
+	require.ErrorIs(t,
+		sut.Run(logr.Discard(), "", "/mnt/resource/kubelet", false),
+		nonrootenabler.ErrKubeletDirNotMounted,
+	)
+	require.Equal(t, 1, mock.MountedCallCount())
+	require.Equal(t, "/host/mnt/resource/kubelet", mock.MountedArgsForCall(0))
+	require.Zero(t, mock.MkdirAllCallCount())
+	require.Zero(t, mock.SymlinkCallCount())
+	require.Zero(t, mock.CopyDirContentsLocalCallCount())
+}
+
 // TestRunWritesExpectedPaths asserts what Run actually does to the node, rather
 // than only that it returned no error.
 func TestRunWritesExpectedPaths(t *testing.T) {
@@ -126,14 +162,21 @@ func TestRunWritesExpectedPaths(t *testing.T) {
 
 	sut := nonrootenabler.New()
 	mock := &nonrootenablerfakes.FakeImpl{}
-	mock.LstatReturns(nil, os.ErrNotExist)
+	mock.MountedReturns(true, nil)
+	mock.LstatReturnsOnCall(0, nil, os.ErrNotExist)
 	sut.SetImpl(mock)
 
 	require.NoError(t, sut.Run(logr.Discard(), "", config.KubeletDir(), false))
 
-	wantSeccompDir := path.Join(
-		config.HostRoot, config.KubeletDir(), config.SeccompProfilesFolder,
-	)
+	// The kubelet directory is the only host path mounted below the host
+	// root, so it has to be checked before anything gets written there.
+	wantKubeletDir := path.Join(config.HostRoot, config.KubeletDir())
+
+	require.Equal(t, 1, mock.MountedCallCount())
+	require.Equal(t, wantKubeletDir, mock.MountedArgsForCall(0))
+	require.Equal(t, 1, mock.LstatCallCount())
+
+	wantSeccompDir := path.Join(wantKubeletDir, config.SeccompProfilesFolder)
 
 	require.Equal(t, 2, mock.MkdirAllCallCount())
 	gotDir, gotPerm := mock.MkdirAllArgsForCall(0)

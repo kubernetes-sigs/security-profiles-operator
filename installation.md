@@ -233,6 +233,18 @@ kubelet.kubernetes.io/directory-location: mnt-resource-kubelet
 Where the value of the label is the kubelet root directory path, by replacing `/` with `-`. For example the value above is translated
 by the operator from `mnt-resource-kubelet` into path `/mnt/resource/kubelet`.
 
+The last component of the path has to be `kubelet`, for example `var-lib-k0s-kubelet` (`/var/lib/k0s/kubelet`) or
+`var-snap-microk8s-common-var-lib-kubelet` (`/var/snap/microk8s/common/var/lib/kubelet`). Kubelets can set this label
+on their own node, so the operator ignores other values, reports them as `InvalidKubeletDirLabel` warning event on the
+spod object and uses the default kubelet root directory for such nodes.
+
+The spod daemonset only mounts the kubelet root directories from the host, not the whole host filesystem. Because
+the daemonset uses the same pod template on every node, each distinct directory from these labels gets mounted
+(and created if missing) on all nodes. Adding a node with a new kubelet root directory, or changing the label to a
+new directory, rolls out the spod daemonset on all nodes. Directories which are no longer referenced by any node,
+for example after removing the label or the last node using it, stay mounted until the spod daemonset gets rolled
+out for another reason, like a spod configuration change or a new kubelet root directory.
+
 ### Set a custom priority class name for spod daemon pod
 
 The default priority class name of the spod daemon pod is set to `system-node-critical`. A custom priority class name can be configured

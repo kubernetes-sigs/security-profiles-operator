@@ -99,6 +99,19 @@ type FakeImpl struct {
 	mkdirAllReturnsOnCall map[int]struct {
 		result1 error
 	}
+	MountedStub        func(string) (bool, error)
+	mountedMutex       sync.RWMutex
+	mountedArgsForCall []struct {
+		arg1 string
+	}
+	mountedReturns struct {
+		result1 bool
+		result2 error
+	}
+	mountedReturnsOnCall map[int]struct {
+		result1 bool
+		result2 error
+	}
 	SaveKubeletConfigStub        func(string, []byte, os.FileMode) error
 	saveKubeletConfigMutex       sync.RWMutex
 	saveKubeletConfigArgsForCall []struct {
@@ -501,6 +514,70 @@ func (fake *FakeImpl) MkdirAllReturnsOnCall(i int, result1 error) {
 	fake.mkdirAllReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
+}
+
+func (fake *FakeImpl) Mounted(arg1 string) (bool, error) {
+	fake.mountedMutex.Lock()
+	ret, specificReturn := fake.mountedReturnsOnCall[len(fake.mountedArgsForCall)]
+	fake.mountedArgsForCall = append(fake.mountedArgsForCall, struct {
+		arg1 string
+	}{arg1})
+	stub := fake.MountedStub
+	fakeReturns := fake.mountedReturns
+	fake.recordInvocation("Mounted", []interface{}{arg1})
+	fake.mountedMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) MountedCallCount() int {
+	fake.mountedMutex.RLock()
+	defer fake.mountedMutex.RUnlock()
+	return len(fake.mountedArgsForCall)
+}
+
+func (fake *FakeImpl) MountedCalls(stub func(string) (bool, error)) {
+	fake.mountedMutex.Lock()
+	defer fake.mountedMutex.Unlock()
+	fake.MountedStub = stub
+}
+
+func (fake *FakeImpl) MountedArgsForCall(i int) string {
+	fake.mountedMutex.RLock()
+	defer fake.mountedMutex.RUnlock()
+	argsForCall := fake.mountedArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeImpl) MountedReturns(result1 bool, result2 error) {
+	fake.mountedMutex.Lock()
+	defer fake.mountedMutex.Unlock()
+	fake.MountedStub = nil
+	fake.mountedReturns = struct {
+		result1 bool
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) MountedReturnsOnCall(i int, result1 bool, result2 error) {
+	fake.mountedMutex.Lock()
+	defer fake.mountedMutex.Unlock()
+	fake.MountedStub = nil
+	if fake.mountedReturnsOnCall == nil {
+		fake.mountedReturnsOnCall = make(map[int]struct {
+			result1 bool
+			result2 error
+		})
+	}
+	fake.mountedReturnsOnCall[i] = struct {
+		result1 bool
+		result2 error
+	}{result1, result2}
 }
 
 func (fake *FakeImpl) SaveKubeletConfig(arg1 string, arg2 []byte, arg3 os.FileMode) error {

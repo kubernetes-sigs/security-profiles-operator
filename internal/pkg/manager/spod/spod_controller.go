@@ -24,6 +24,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -56,6 +57,7 @@ const (
 	reasonCannotCreateSPOD           string = "CannotCreateSPOD"
 	reasonCannotUpdateSPOD           string = "CannotUpdateSPOD"
 	reasonCannotMountCustomTemplates string = "CannotMountCustomTemplates"
+	reasonInvalidKubeletDirLabel     string = "InvalidKubeletDirLabel"
 
 	appArmorAnnotation = "container.seccomp.security.alpha.kubernetes.io/security-profiles-operator"
 )
@@ -82,6 +84,11 @@ type ReconcileSPOd struct {
 	log            logr.Logger
 	watchNamespace string
 	namespace      string
+
+	// kubeletDirMu guards invalidKubeletDirLabels, which maps the nodes with
+	// an invalid kubelet directory label to the reported label value.
+	kubeletDirMu            sync.Mutex
+	invalidKubeletDirLabels map[string]string
 }
 
 // Name returns the name of the controller.
@@ -130,7 +137,7 @@ func (r *ReconcileSPOd) Healthz(*http.Request) error {
 // +kubebuilder:rbac:groups=config.openshift.io,resources=clusteroperators,verbs=get;list;watch
 // +kubebuilder:rbac:groups=config.openshift.io,resources=apiservers,verbs=get;list;watch
 //
-// Needed to detect which runtime is active
+// Needed to detect which runtime is active and custom kubelet directories
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 //
 // Needed to detect the proper selinux image
@@ -193,6 +200,11 @@ func (r *ReconcileSPOd) Reconcile(
 		return reconcile.Result{}, fmt.Errorf("get configured SPOD: %w", err)
 	}
 
+	kubeletDirs, err := r.nodeKubeletDirs(ctx, spod)
+	if err != nil {
+		return reconcile.Result{}, fmt.Errorf("get node kubelet directories: %w", err)
+	}
+
 	webhook := r.getConfiguredWebook(spod, image, pullPolicy, caInjectType)
 	metricsService := bindata.GetMetricsService(r.namespace, caInjectType)
 	serviceMonitor := bindata.ServiceMonitor(caInjectType,
@@ -206,6 +218,8 @@ func (r *ReconcileSPOd) Reconcile(
 	foundSPOd := &appsv1.DaemonSet{}
 	if err := r.client.Get(ctx, spodKey, foundSPOd); err != nil {
 		if errors.IsNotFound(err) {
+			addKubeletDirVolumes(&configuredSPOd.Spec.Template.Spec, kubeletDirs)
+
 			createErr := r.handleCreate(
 				ctx,
 				spod,
@@ -231,6 +245,11 @@ func (r *ReconcileSPOd) Reconcile(
 
 		return reconcile.Result{}, fmt.Errorf("getting spod DaemonSet: %w", err)
 	}
+
+	addKubeletDirVolumes(
+		&configuredSPOd.Spec.Template.Spec,
+		kubeletDirsToMount(configuredSPOd, foundSPOd, kubeletDirs),
+	)
 
 	spodUpdate := spodNeedsUpdate(configuredSPOd, foundSPOd)
 

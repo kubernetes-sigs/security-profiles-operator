@@ -24,6 +24,7 @@ import (
 	"path"
 
 	"github.com/go-logr/logr"
+	"github.com/moby/sys/mountinfo"
 	"sigs.k8s.io/release-utils/helpers"
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
@@ -31,6 +32,10 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/apparmorprofile"
 )
+
+// ErrKubeletDirNotMounted is returned if the kubelet directory of the node is
+// not mounted from the host.
+var ErrKubeletDirNotMounted = errors.New("kubelet directory not mounted")
 
 // NonRootEnabler is the main type of this package.
 type NonRootEnabler struct {
@@ -56,7 +61,31 @@ func (n *NonRootEnabler) Run(logger logr.Logger, runtime, kubeletDir string, app
 
 	logger.Info("Container runtime", "runtime", runtime)
 
-	kubeleteSeccompDir := path.Join(config.HostRoot, kubeletDir, config.SeccompProfilesFolder)
+	// Only the kubelet directories are mounted from the host below
+	// config.HostRoot, not the host root filesystem. Fail if the one of this
+	// node is missing rather than writing into the container filesystem. The
+	// operator adds the mount once it has seen the node label and the pod
+	// gets recreated.
+	// The path has to be a mount point itself: it exists as well for a parent
+	// of another mount, like /host/var/lib for /host/var/lib/kubelet.
+	hostKubeletDir := path.Join(config.HostRoot, kubeletDir)
+
+	mounted, err := n.Mounted(hostKubeletDir)
+	if err != nil {
+		return fmt.Errorf(
+			"checking if kubelet directory %s is mounted at %s: %w",
+			kubeletDir, hostKubeletDir, err,
+		)
+	}
+
+	if !mounted {
+		return fmt.Errorf(
+			"%w: kubelet directory %s at %s",
+			ErrKubeletDirNotMounted, kubeletDir, hostKubeletDir,
+		)
+	}
+
+	kubeleteSeccompDir := path.Join(hostKubeletDir, config.SeccompProfilesFolder)
 	logger.Info("Ensuring seccomp root path", "path", kubeleteSeccompDir)
 
 	if err := n.MkdirAll(
@@ -157,6 +186,7 @@ type impl interface {
 	MkdirAll(dirpath string, perm os.FileMode) error
 	Chmod(name string, mode os.FileMode) error
 	Lstat(name string) (os.FileInfo, error)
+	Mounted(name string) (bool, error)
 	Symlink(oldname, newname string) error
 	Lchown(name string, uid, gid int) error
 	CopyDirContentsLocal(src, dst string) error
@@ -176,6 +206,10 @@ func (*defaultImpl) Chmod(name string, perm os.FileMode) error {
 
 func (*defaultImpl) Lstat(name string) (os.FileInfo, error) {
 	return os.Lstat(name)
+}
+
+func (*defaultImpl) Mounted(name string) (bool, error) {
+	return mountinfo.Mounted(name)
 }
 
 func (*defaultImpl) Symlink(oldname, newname string) error {
