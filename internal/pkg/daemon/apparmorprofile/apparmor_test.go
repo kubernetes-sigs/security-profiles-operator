@@ -117,6 +117,26 @@ func TestInstallProfile(t *testing.T) {
 			wantResult:          true,
 		},
 		{
+			// A runtime loads its default profile without a file under
+			// /etc/apparmor.d, so it must be refused even when nothing is
+			// loaded yet and even when the node status vouches for it.
+			name: "refuses a container runtime default profile",
+			sut: aaProfileManager{
+				loadProfile: func(_ logr.Logger, _, _ string) (bool, error) {
+					t.Error("a runtime default profile must never be loaded")
+
+					return true, nil
+				},
+				checkProfileExist:  func(_ logr.Logger, _ string) bool { return false },
+				profileManagedByUs: func(_ logr.Logger, _ string) bool { return false },
+			},
+			profile: &apparmorprofileapi.AppArmorProfile{ObjectMeta: metav1.ObjectMeta{
+				Name: "cri-containerd.apparmor.d",
+			}},
+			previouslyInstalled: true,
+			wantErr:             errors.New(errRuntimeProfile),
+		},
+		{
 			name: "valid profile CRD",
 			sut: aaProfileManager{
 				loadProfile:        func(_ logr.Logger, _, _ string) (bool, error) { return false, nil },
@@ -145,10 +165,11 @@ func TestRemoveProfile(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name    string
-		sut     aaProfileManager
-		profile profilebaseapi.StatusBaseUser
-		wantErr error
+		name      string
+		sut       aaProfileManager
+		profile   profilebaseapi.StatusBaseUser
+		ownedByUs bool
+		wantErr   error
 	}{
 		{
 			name:    "invalid profile CRD",
@@ -159,9 +180,29 @@ func TestRemoveProfile(t *testing.T) {
 		{
 			name: "valid profile CRD",
 			sut: aaProfileManager{
-				removeProfile: func(_ logr.Logger, _, _ string) error { return nil },
+				removeProfile: func(_ logr.Logger, _, _ string, ownedByUs bool) error {
+					if ownedByUs {
+						return errors.New("ownership must be passed through")
+					}
+
+					return nil
+				},
 			},
 			profile: &apparmorprofileapi.AppArmorProfile{},
+		},
+		{
+			name: "passes the ownership evidence through",
+			sut: aaProfileManager{
+				removeProfile: func(_ logr.Logger, _, _ string, ownedByUs bool) error {
+					if !ownedByUs {
+						return errors.New("ownership must be passed through")
+					}
+
+					return nil
+				},
+			},
+			profile:   &apparmorprofileapi.AppArmorProfile{},
+			ownedByUs: true,
 		},
 	}
 
@@ -169,7 +210,11 @@ func TestRemoveProfile(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			gotErr := tc.sut.RemoveProfile(tc.profile)
+			gotErr := tc.sut.RemoveProfile(tc.profile, tc.ownedByUs)
+			if tc.wantErr == nil {
+				require.NoError(t, gotErr)
+			}
+
 			if tc.wantErr != nil {
 				require.EqualError(t, gotErr, tc.wantErr.Error())
 			}
@@ -301,5 +346,80 @@ func TestFileHasContent(t *testing.T) {
 
 			require.Equal(t, tc.expect, fileHasContent(path, tc.want))
 		})
+	}
+}
+
+// TestPolicyFileOwned covers what allows a removal to unload a profile. A
+// missing policy file used to count as ours, so deleting an AppArmorProfile
+// named after a profile a container runtime loaded without a file, such as
+// docker-default, unloaded it from the host.
+func TestPolicyFileOwned(t *testing.T) {
+	t.Parallel()
+
+	const policy = "profile foo {\n}\n"
+
+	for _, tc := range []struct {
+		name      string
+		content   string
+		write     bool
+		ownedByUs bool
+		want      bool
+	}{
+		{
+			name:    "a file carrying our marker",
+			content: managedByMarker + policy,
+			write:   true,
+			want:    true,
+		},
+		{
+			name:    "a file we wrote before the marker existed",
+			content: policy,
+			write:   true,
+			want:    true,
+		},
+		{
+			name:      "a host profile, even when the node status vouches for it",
+			content:   "abi <abi/4.0>,\nprofile foo {\n}\n",
+			write:     true,
+			ownedByUs: true,
+			want:      false,
+		},
+		{
+			name: "no file and no evidence we installed it",
+			want: false,
+		},
+		{
+			name:      "no file but installed by us on this node",
+			ownedByUs: true,
+			want:      true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			path := filepath.Join(t.TempDir(), "profile")
+			if tc.write {
+				require.NoError(t, os.WriteFile(path, []byte(tc.content), 0o600))
+			}
+
+			require.Equal(t, tc.want, policyFileOwned(path, policy, tc.ownedByUs))
+		})
+	}
+}
+
+func TestIsRuntimeProfile(t *testing.T) {
+	t.Parallel()
+
+	for name, want := range map[string]bool{
+		"docker-default":            true,
+		"cri-containerd.apparmor.d": true,
+		"crio-default":              true,
+		"crio-default-1.30.0":       true,
+		"containers-default-0.60.0": true,
+		"docker-default-custom":     false,
+		"my-profile":                false,
+		"containers-default":        false,
+	} {
+		require.Equal(t, want, isRuntimeProfile(name), name)
 	}
 }

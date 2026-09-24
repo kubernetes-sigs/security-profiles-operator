@@ -23,7 +23,12 @@ import (
 
 const (
 	whNamespaceSelector = `{"matchExpressions":[{"key":"prod","operator":"In","values":["true"]}]}`
-	whObjectSelector    = `{"matchExpressions":[{"key":"record-pod","operator":"In","values":["true"]}]}`
+	// The binding webhook always excludes the operator namespace, also from a
+	// user provided selector.
+	whBindingNamespaceSelector = `{"matchExpressions":[` +
+		`{"key":"prod","operator":"In","values":["true"]},` +
+		`{"key":"kubernetes.io/metadata.name","operator":"NotIn","values":["security-profiles-operator"]}]}`
+	whObjectSelector = `{"matchExpressions":[{"key":"record-pod","operator":"In","values":["true"]}]}`
 )
 
 type whConfigOutput struct {
@@ -61,7 +66,7 @@ func (e *e2e) testCaseWebhookOptionsChange([]string) {
 	// check the configured hook
 	whPatchedConfig := e.getAllWebhookAttributes()
 	e.Equal("Ignore", whPatchedConfig[bindingIdx].failurePolicy)
-	e.JSONEq(whNamespaceSelector, whPatchedConfig[bindingIdx].namespaceSelector)
+	e.JSONEq(whBindingNamespaceSelector, whPatchedConfig[bindingIdx].namespaceSelector)
 	e.JSONEq(whObjectSelector, whPatchedConfig[bindingIdx].objectSelector)
 	// check the other hook did not change
 	e.Equal("Fail", whPatchedConfig[recordingIdx].failurePolicy)

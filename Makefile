@@ -648,6 +648,8 @@ bundle: operator-sdk deployments ## Generate bundle manifests and metadata, then
 	$(SED) "s/\(olm.skipRange: '>=.*\)<.*'/\1<$(VERSION)'/" deploy/base/clusterserviceversion.yaml
 	$(SED) "s/\(\"name\": \"security-profiles-operator.v\).*\"/\1$(VERSION)\"/" deploy/catalog-preamble.json
 	$(SED) "s/\(\"skipRange\": \">=.*\)<.*\"/\1<$(VERSION)\"/" deploy/catalog-preamble.json
+	# operator-sdk never removes files, so start clean to not ship stale manifests
+	rm -rf ./bundle/manifests ./bundle/metadata
 	cat $(OLM_EXAMPLES) $(BUNDLE_OPERATOR_MANIFEST) deploy/base/clusterserviceversion.yaml | $(OPERATOR_SDK) generate bundle -q --overwrite $(BUNDLE_SA_OPTS) --version $(VERSION) $(BUNDLE_METADATA_OPTS)
 	git restore deploy/base/clusterserviceversion.yaml
 	mkdir -p ./bundle/tests/scorecard
@@ -664,7 +666,8 @@ bundle-push: ## Push the bundle image.
 
 .PHONY: verify-bundle
 verify-bundle: bundle ## Verify the bundle doesn't alter the state of the tree
-	git diff -I'^    createdAt: '
+	git diff --exit-code -I'^    createdAt: ' -I'^    containerImage: ' -- bundle
+	test -z "$$(git ls-files --others --exclude-standard -- bundle)"
 
 .PHONY: opm
 OPM = $(BUILD_DIR)/opm

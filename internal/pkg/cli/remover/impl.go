@@ -48,5 +48,7 @@ func (*defaultImpl) AppArmorRemoveProfile(
 	manager apparmorprofile.ProfileManager,
 	p profilebaseapi.StatusBaseUser,
 ) error {
-	return manager.RemoveProfile(p)
+	// The user explicitly asked to remove this profile from the local host, so
+	// there is no custom resource whose name could target a runtime profile.
+	return manager.RemoveProfile(p, true)
 }

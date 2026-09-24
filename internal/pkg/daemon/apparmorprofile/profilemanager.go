@@ -31,5 +31,9 @@ type ProfileManager interface {
 	InstallProfile(p profilebaseapi.StatusBaseUser, ownedByUs bool) (bool, error)
 
 	// RemoveProfile ensure the profile is uninstalled/deleted/unloaded from the host.
-	RemoveProfile(p profilebaseapi.StatusBaseUser) error
+	// ownedByUs reports that the caller has independent evidence that this
+	// operator installed the profile on this node. It is what allows unloading
+	// a profile whose policy file is gone, because a container runtime loads its
+	// default profile without any file to establish ownership from.
+	RemoveProfile(p profilebaseapi.StatusBaseUser, ownedByUs bool) error
 }

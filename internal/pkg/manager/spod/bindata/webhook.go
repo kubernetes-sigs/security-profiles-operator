@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"slices"
 
 	"github.com/go-logr/logr"
 	admissionregv1 "k8s.io/api/admissionregistration/v1"
@@ -143,14 +144,27 @@ func requireLabel(requiredLabel string) *metav1.LabelSelector {
 // default install namespace would silently stop excluding the operator on any
 // install that uses a different namespace.
 func excludeOperatorNamespace(requiredLabel, operatorNamespace string) *metav1.LabelSelector {
-	selector := requireLabel(requiredLabel)
-	selector.MatchExpressions = append(selector.MatchExpressions,
-		metav1.LabelSelectorRequirement{
-			Key:      corev1.LabelMetadataName,
-			Operator: metav1.LabelSelectorOpNotIn,
-			Values:   []string{operatorNamespace},
-		},
+	return withOperatorNamespaceExcluded(requireLabel(requiredLabel), operatorNamespace)
+}
+
+// withOperatorNamespaceExcluded appends the operator namespace exclusion to
+// selector, unless it is already there, and returns it.
+func withOperatorNamespaceExcluded(
+	selector *metav1.LabelSelector, operatorNamespace string,
+) *metav1.LabelSelector {
+	exclusion := metav1.LabelSelectorRequirement{
+		Key:      corev1.LabelMetadataName,
+		Operator: metav1.LabelSelectorOpNotIn,
+		Values:   []string{operatorNamespace},
+	}
+
+	excluded := slices.ContainsFunc(
+		selector.MatchExpressions,
+		func(r metav1.LabelSelectorRequirement) bool { return reflect.DeepEqual(r, exclusion) },
 	)
+	if !excluded {
+		selector.MatchExpressions = append(selector.MatchExpressions, exclusion)
+	}
 
 	return selector
 }
@@ -252,7 +266,7 @@ func GetWebhook(
 	}
 
 	// then apply the user-specified opts
-	applyWebhookOptions(cfg, webhookOpts)
+	applyWebhookOptions(cfg, webhookOpts, namespace)
 
 	valCfg := getValidatingWebhookConfig().DeepCopy()
 	valCfg.Namespace = namespace
@@ -301,6 +315,7 @@ func (w *Webhook) Create(ctx context.Context, c client.Client) error {
 func applyWebhookOptions(
 	cfg *admissionregv1.MutatingWebhookConfiguration,
 	opts []spodapi.WebhookOptions,
+	operatorNamespace string,
 ) {
 	for i := range cfg.Webhooks {
 		var userOpt *spodapi.WebhookOptions
@@ -319,7 +334,14 @@ func applyWebhookOptions(
 			}
 
 			if userOpt.NamespaceSelector != nil {
-				hook.NamespaceSelector = userOpt.NamespaceSelector
+				hook.NamespaceSelector = userOpt.NamespaceSelector.DeepCopy()
+
+				// A custom selector narrows or widens which namespaces opt in,
+				// but must not lift the operator namespace exclusion that
+				// makes binding a security boundary.
+				if hook.Name == binding.name {
+					withOperatorNamespaceExcluded(hook.NamespaceSelector, operatorNamespace)
+				}
 			}
 
 			if userOpt.ObjectSelector != nil {
@@ -435,7 +457,9 @@ func (w *Webhook) webhookNeedsUpdate(existing *admissionregv1.MutatingWebhook, i
 
 	// Only compare managed labels, all others are out of scope
 	if existing.NamespaceSelector != nil && configured.NamespaceSelector != nil {
-		for _, label := range []string{EnableBindingLabel, EnableRecordingLabel} {
+		for _, label := range []string{
+			EnableBindingLabel, EnableRecordingLabel, corev1.LabelMetadataName,
+		} {
 			if namespaceSelectorUnequalForLabel(
 				label,
 				existing.NamespaceSelector,
@@ -485,44 +509,33 @@ func (w *Webhook) webhookNeedsUpdate(existing *admissionregv1.MutatingWebhook, i
 	return false
 }
 
-// namespaceSelectorUnequalForLabel checks if the selected label matches the
-// provided LabelSelectors and returns true if they're unequal.
+// namespaceSelectorUnequalForLabel returns true if the expressions for label
+// differ between the provided LabelSelectors. All expressions for the label are
+// compared, because a user selector may already carry one for the same key as
+// an expression the operator appends.
 func namespaceSelectorUnequalForLabel(
 	label string,
 	existing, configured *metav1.LabelSelector,
 ) bool {
-	var (
-		i, j                                 int
-		existingHasLabel, configuredHasLabel bool
+	return !reflect.DeepEqual(
+		expressionsForLabel(label, existing),
+		expressionsForLabel(label, configured),
 	)
+}
 
-	for i = range existing.MatchExpressions {
-		if existing.MatchExpressions[i].Key == label {
-			existingHasLabel = true
+// expressionsForLabel returns the match expressions of selector for label.
+func expressionsForLabel(
+	label string, selector *metav1.LabelSelector,
+) []metav1.LabelSelectorRequirement {
+	var res []metav1.LabelSelectorRequirement
 
-			break
+	for _, expr := range selector.MatchExpressions {
+		if expr.Key == label {
+			res = append(res, expr)
 		}
 	}
 
-	for j = range configured.MatchExpressions {
-		if configured.MatchExpressions[j].Key == label {
-			configuredHasLabel = true
-
-			break
-		}
-	}
-
-	if existingHasLabel != configuredHasLabel {
-		return true
-	}
-
-	// Check if values match
-	if existingHasLabel && configuredHasLabel &&
-		!reflect.DeepEqual(existing.MatchExpressions[i], configured.MatchExpressions[j]) {
-		return true
-	}
-
-	return false
+	return res
 }
 
 func (w *Webhook) Update(ctx context.Context, c client.Client) error {
