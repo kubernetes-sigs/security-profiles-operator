@@ -17,11 +17,28 @@ limitations under the License.
 package selinuxprofile
 
 import (
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
+	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/nodestatus"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 func TestIsSystemSELinuxModule(t *testing.T) {
@@ -84,7 +101,7 @@ func TestIsSystemSELinuxModule(t *testing.T) {
 			t.Parallel()
 
 			store := setup(t, tc.modules...)
-			got := isSystemSELinuxModule(store, tc.query)
+			got := isSELinuxModuleInstalled(store, tc.query)
 			require.Equal(t, tc.want, got)
 		})
 	}
@@ -93,6 +110,149 @@ func TestIsSystemSELinuxModule(t *testing.T) {
 func TestIsSystemSELinuxModuleNonexistentPath(t *testing.T) {
 	t.Parallel()
 
-	got := isSystemSELinuxModule("/nonexistent/path", "kerberos")
+	got := isSELinuxModuleInstalled("/nonexistent/path", "kerberos")
 	require.False(t, got)
+}
+
+func TestReconcileDeletionWithActivePods(t *testing.T) {
+	t.Setenv(config.NodeNameEnvKey, "test-node")
+
+	scheme := runtime.NewScheme()
+	require.NoError(t, selinuxprofileapi.AddToScheme(scheme))
+	require.NoError(t, secprofnodestatusapi.AddToScheme(scheme))
+
+	profile := &selinuxprofileapi.SelinuxProfile{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: selinuxprofileapi.GroupVersion.String(),
+			Kind:       "SelinuxProfile",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "profile",
+			Namespace:  "default",
+			Finalizers: []string{util.HasActivePodsFinalizerString},
+		},
+	}
+
+	cli := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(profile).
+		WithStatusSubresource(&secprofnodestatusapi.SecurityProfileNodeStatus{}).
+		Build()
+
+	nsc, err := nodestatus.NewForProfile(profile, cli)
+	require.NoError(t, err)
+	_, err = nsc.Create(t.Context())
+	require.NoError(t, err)
+	require.NoError(t, cli.Delete(t.Context(), profile))
+
+	// The httpc is nil on purpose: reaching selinuxd would mean the policy
+	// is about to be removed although pods still use it.
+	r := &ReconcileSelinux{
+		client:            cli,
+		record:            record.NewFakeRecorder(10),
+		log:               logr.Discard(),
+		objectHandlerInit: newSelinuxProfileHandler,
+	}
+
+	res, err := r.Reconcile(t.Context(), reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: "profile", Namespace: "default"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{RequeueAfter: common.Wait}, res)
+}
+
+// A Failed status from selinuxd during deletion must keep the finalizer while
+// the module is still installed, and must not block the deletion when the
+// module is gone.
+func TestReconcileDeletionWithFailedRemoval(t *testing.T) {
+	const policyName = "spo-test-failed-removal"
+
+	for name, tc := range map[string]struct {
+		moduleInstalled bool
+		wantErr         error
+		wantFinalizer   bool
+	}{
+		"module still installed": {
+			moduleInstalled: true,
+			wantErr:         errPolicyRemovalFailed,
+			wantFinalizer:   true,
+		},
+		"module not installed": {
+			moduleInstalled: false,
+			wantFinalizer:   false,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(config.NodeNameEnvKey, "test-node")
+
+			store := t.TempDir()
+			modulesDir := filepath.Join(store, "targeted", "active", "modules", "400")
+			require.NoError(t, os.MkdirAll(modulesDir, 0o755))
+
+			if tc.moduleInstalled {
+				require.NoError(t, os.Mkdir(filepath.Join(modulesDir, policyName), 0o755))
+			}
+
+			scheme := runtime.NewScheme()
+			require.NoError(t, selinuxprofileapi.AddToScheme(scheme))
+			require.NoError(t, secprofnodestatusapi.AddToScheme(scheme))
+
+			profile := &selinuxprofileapi.SelinuxProfile{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: selinuxprofileapi.GroupVersion.String(),
+					Kind:       "SelinuxProfile",
+				},
+				ObjectMeta: metav1.ObjectMeta{Name: policyName, Namespace: "default"},
+			}
+
+			cli := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(profile).
+				WithStatusSubresource(&secprofnodestatusapi.SecurityProfileNodeStatus{}).
+				Build()
+
+			nsc, err := nodestatus.NewForProfile(profile, cli)
+			require.NoError(t, err)
+			_, err = nsc.Create(t.Context())
+			require.NoError(t, err)
+			require.NoError(t, cli.Delete(t.Context(), profile))
+
+			r := &ReconcileSelinux{
+				client:            cli,
+				record:            record.NewFakeRecorder(10),
+				metrics:           metrics.New(),
+				log:               logr.Discard(),
+				objectHandlerInit: newSelinuxProfileHandler,
+				moduleStorePath:   store,
+				httpc: selinuxdTestClient(t, func(w http.ResponseWriter, req *http.Request) {
+					if req.URL.Path == "/ready" {
+						writeBody(t, w, `{"ready": true}`)
+
+						return
+					}
+
+					writeBody(t, w, `{"status": "Failed", "msg": "semodule failed"}`)
+				}),
+			}
+
+			key := types.NamespacedName{Name: policyName, Namespace: "default"}
+			_, err = r.Reconcile(t.Context(), reconcile.Request{NamespacedName: key})
+
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+
+			got := &selinuxprofileapi.SelinuxProfile{}
+			getErr := cli.Get(t.Context(), key, got)
+
+			if tc.wantFinalizer {
+				require.NoError(t, getErr)
+				require.Contains(t, got.GetFinalizers(), util.GetFinalizerNodeString("test-node"))
+			} else {
+				require.True(t, kerrors.IsNotFound(getErr), "profile should be gone: %v", getErr)
+			}
+		})
+	}
 }

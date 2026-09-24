@@ -28,9 +28,11 @@ import (
 	"go.podman.io/common/pkg/seccomp"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -162,10 +164,11 @@ func TestSaveProfileOnDisk(t *testing.T) {
 				require.NoError(t, os.MkdirAll(targetDir, dirPermissionMode))
 				require.NoError(t, os.Chmod(targetDir, 0))
 			},
-			fileName:     path.Join(dir, "/test/nopermissions/filename.json"),
-			contents:     "some content",
-			fileCreated:  false,
-			wantErr:      "cannot save profile: open " + dir + "/test/nopermissions/filename.json: permission denied",
+			fileName:    path.Join(dir, "/test/nopermissions/filename.json"),
+			contents:    "some content",
+			fileCreated: false,
+			wantErr: "cannot save profile: creating temporary file: open " +
+				dir + "/test/nopermissions/.tmp-",
 			needsNonRoot: true,
 		},
 		{
@@ -203,7 +206,7 @@ func TestSaveProfileOnDisk(t *testing.T) {
 				require.NoError(t, gotErr)
 				require.NoError(t, statErr)
 			} else {
-				require.Equal(t, tc.wantErr, gotErr.Error())
+				require.ErrorContains(t, gotErr, tc.wantErr)
 				require.Error(t, statErr)
 			}
 
@@ -842,4 +845,54 @@ func TestResolveSyscallsForProfileBaseProfileCache(t *testing.T) {
 	require.False(t, opts.DisableSignatureVerification)
 	require.Equal(t, allowedAllRegexp, opts.AllowedIdentityRegexp)
 	require.Equal(t, allowedAllRegexp, opts.AllowedOidcIssuerRegexp)
+}
+
+// TestHandleAllowedSyscallsChangedUsesBaseProfile asserts that syscalls
+// inherited from a base profile are validated when the allowed syscalls of
+// the SPOD change, the same way validateProfile does on reconcile.
+func TestHandleAllowedSyscallsChangedUsesBaseProfile(t *testing.T) {
+	t.Parallel()
+
+	scheme := runtime.NewScheme()
+	require.NoError(t, seccompprofileapi.AddToScheme(scheme))
+
+	profile := &seccompprofileapi.SeccompProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: "child", Namespace: "default"},
+		Spec: seccompprofileapi.SeccompProfileSpec{
+			BaseProfileName: "parent",
+			Syscalls: []seccompprofileapi.Syscall{
+				{Names: []string{"read"}, Action: seccompprofileapi.ActAllow},
+			},
+		},
+	}
+
+	mock := &seccompprofilefakes.FakeImpl{}
+	mock.ClientGetProfileReturns(&seccompprofileapi.SeccompProfile{
+		Spec: seccompprofileapi.SeccompProfileSpec{
+			Syscalls: []seccompprofileapi.Syscall{
+				{Names: []string{"write"}, Action: seccompprofileapi.ActAllow},
+			},
+		},
+	}, nil)
+
+	sut, ok := NewController().(*Reconciler)
+	require.True(t, ok)
+
+	sut.impl = mock
+	sut.log = logr.Discard()
+	sut.client = fake.NewClientBuilder().WithScheme(scheme).WithObjects(profile).Build()
+
+	spod := &spodapi.SecurityProfilesOperatorDaemon{
+		Spec: spodapi.SPODSpec{
+			Security: spodapi.SPODSecurityConfig{AllowedSyscalls: []string{"read"}},
+		},
+	}
+
+	requests := sut.handleAllowedSyscallsChanged(t.Context(), spod)
+	require.Len(t, requests, 1)
+	require.Equal(t, "child", requests[0].Name)
+
+	key := types.NamespacedName{Name: "child", Namespace: "default"}
+	err := sut.client.Get(t.Context(), key, profile)
+	require.True(t, kerrors.IsNotFound(err))
 }

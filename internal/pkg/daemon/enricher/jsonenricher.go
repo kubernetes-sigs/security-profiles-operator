@@ -144,6 +144,9 @@ func NewJsonEnricherArgs(logger logr.Logger, opts *JsonEnricherOptions) (*JsonEn
 		logLinesCache: ttlcache.New(
 			ttlcache.WithTTL[int, *types.LogBucket](actualOpts.AuditFreq),
 			ttlcache.WithCapacity[int, *types.LogBucket](maxCacheItems),
+			// Buckets are flushed on eviction. Touching them on every hit
+			// would keep a busy process from ever emitting its records.
+			ttlcache.WithDisableTouchOnHit[int, *types.LogBucket](),
 		),
 		processCache: ttlcache.New(
 			ttlcache.WithTTL[int, *types.ProcessInfo](defaultCacheTimeout),

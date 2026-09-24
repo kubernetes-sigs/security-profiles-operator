@@ -97,6 +97,11 @@ type BpfRecorder struct {
 
 	startMu sync.Mutex
 
+	// metricsSendMu serializes sends on metricsClient. The pid handlers
+	// report metrics concurrently, but a gRPC stream does not allow
+	// concurrent calls to Send.
+	metricsSendMu sync.Mutex
+
 	// newPidEvents queues new pid events for a fixed pool of handlers. It is
 	// buffered so that the event processing loop never blocks on a slow
 	// handler: that loop also delivers the AppArmor events, so stalling it
@@ -990,6 +995,9 @@ func (b *BpfRecorder) FindProcMountNamespace(pid uint32) (uint32, error) {
 }
 
 func (b *BpfRecorder) trackProfileMetric(mntns uint32, profile string) {
+	b.metricsSendMu.Lock()
+	defer b.metricsSendMu.Unlock()
+
 	if err := b.SendMetric(b.metricsClient, &apimetrics.BpfRequest{
 		Node:           b.nodeName,
 		Profile:        profile,

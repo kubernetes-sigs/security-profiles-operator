@@ -444,3 +444,22 @@ func TestDispatchSeccompLineUidGid(t *testing.T) {
 		})
 	}
 }
+
+// TestJsonEnricherLogLinesCacheNoTouch asserts that reading a log bucket does
+// not extend its lifetime. Buckets are only flushed on eviction, so touching
+// them on every hit would keep a busy process from ever emitting its records.
+func TestJsonEnricherLogLinesCacheNoTouch(t *testing.T) {
+	t.Parallel()
+
+	sut, err := NewJsonEnricherArgs(logr.Discard(), nil)
+	require.NoError(t, err)
+
+	item := sut.logLinesCache.Set(1, &types.LogBucket{}, time.Hour)
+	expiresAt := item.ExpiresAt()
+
+	time.Sleep(10 * time.Millisecond)
+
+	hit := sut.logLinesCache.Get(1)
+	require.NotNil(t, hit)
+	require.Equal(t, expiresAt, hit.ExpiresAt())
+}
