@@ -168,6 +168,30 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			"TLS: Verify TLS profile on OpenShift",
 			e.testCaseTLSProfileOpenShift,
 		},
+		{
+			"Audit Logging: Exec and Rsh Commands",
+			e.testCaseAuditLoggingExecRsh,
+		},
+		{
+			"Audit Logging: File Rotation",
+			e.testCaseAuditLoggingRotation,
+		},
+		{
+			"Audit Logging: Multi-Namespace Concurrent Sessions",
+			e.testCaseAuditLoggingMultiNamespace,
+		},
+		{
+			"Audit Logging: RequestUID Correlation",
+			e.testCaseAuditLoggingRequestUIDCorrelation,
+		},
+		{
+			"Audit Logging: Seccomp Profile Coverage",
+			e.testCaseAuditLoggingSeccompProfileCoverage,
+		},
+		{
+			"Audit Logging: Webhook Integration",
+			e.testCaseAuditLoggingWebhookIntegration,
+		},
 	}
 	for _, testCase := range testCases {
 		tc := testCase
