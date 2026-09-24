@@ -182,6 +182,36 @@ func (e *e2e) testCases() []testCase {
 			fn:          e.testCaseTLSProfileOpenShift,
 		},
 		{
+			description:     "Audit Logging: Exec and Rsh Commands",
+			fn:              e.testCaseAuditLoggingExecRsh,
+			clusterWideOnly: true,
+		},
+		{
+			description:     "Audit Logging: File Rotation",
+			fn:              e.testCaseAuditLoggingRotation,
+			clusterWideOnly: true,
+		},
+		{
+			description:     "Audit Logging: Multi-Namespace Concurrent Sessions",
+			fn:              e.testCaseAuditLoggingMultiNamespace,
+			clusterWideOnly: true,
+		},
+		{
+			description:     "Audit Logging: RequestUID Correlation",
+			fn:              e.testCaseAuditLoggingRequestUIDCorrelation,
+			clusterWideOnly: true,
+		},
+		{
+			description:     "Audit Logging: Seccomp Profile Coverage",
+			fn:              e.testCaseAuditLoggingSeccompProfileCoverage,
+			clusterWideOnly: true,
+		},
+		{
+			description:     "Audit Logging: Webhook Integration",
+			fn:              e.testCaseAuditLoggingWebhookIntegration,
+			clusterWideOnly: true,
+		},
+		{
 			description:     "Selinux: Verify profile binding: image",
 			fn:              func([]string) { e.testCaseSelinuxProfileBinding("busybox:latest") },
 			clusterWideOnly: true,
