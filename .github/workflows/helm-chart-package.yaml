@@ -15,6 +15,8 @@ jobs:
     timeout-minutes: 15
     outputs:
       tgz-name: ${{ steps.package.outputs.helm_tgz_name }}
+      hashes: ${{ steps.package.outputs.hashes }}
+      provenance-name: ${{ steps.package.outputs.provenance_name }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -28,27 +30,48 @@ jobs:
       - run: mkdir -p build
       - id: package
         run: |
+          set -o pipefail
           helm_output="$(helm package -d build deploy/helm)"
           tgz_path="${helm_output##*saved it to: }"
           echo "helm chart tgz path: '${tgz_path}'"
           [ ! -f "${tgz_path}" ] && echo "failed to find helm chart from 'helm package' stdout" && exit 1
-          echo "helm_tgz_path=${tgz_path}" >> "$GITHUB_OUTPUT"
-          echo "helm_tgz_name=${tgz_path##*/}" >> "$GITHUB_OUTPUT"
+          tgz_name="${tgz_path##*/}"
+          hashes=$(cd build && sha256sum "${tgz_name}" | base64 -w0)
+          {
+            echo "helm_tgz_path=${tgz_path}"
+            echo "helm_tgz_name=${tgz_name}"
+            echo "provenance_name=${tgz_name%.tgz}.intoto.jsonl"
+            echo "hashes=${hashes}"
+          } >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ steps.package.outputs.helm_tgz_name}}
           path: ${{ steps.package.outputs.helm_tgz_path}}
           if-no-files-found: error
 
-  # The released chart is signed, gets SLSA build provenance and is attached to
-  # the release. Only this job holds write permissions, pull requests only
-  # package the chart.
-  helm-release:
+  # SLSA Build L3 provenance for the released chart, generated from its digest
+  # by the isolated reusable workflow of the SLSA generator. Reusable workflows
+  # can only be referenced by tag, the generator verifies its own ref.
+  helm-provenance:
     needs: helm-package
+    if: github.event_name == 'release'
+    permissions:
+      actions: read  # required for reading the workflow run
+      contents: write  # required for uploading the provenance to the release
+      id-token: write  # required for signing the provenance
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
+    with:
+      base64-subjects: ${{ needs.helm-package.outputs.hashes }}
+      provenance-name: ${{ needs.helm-package.outputs.provenance-name }}
+      upload-assets: true
+
+  # Signs the released chart and attaches it to the release. It runs no
+  # repository code, pull requests only package the chart.
+  helm-release:
+    needs: [helm-package, helm-provenance]
     if: github.event_name == 'release'
     runs-on: ubuntu-24.04
     permissions:
-      attestations: write  # required for the build provenance
       contents: write  # required for updating the release
       id-token: write  # required for sigstore signing
     timeout-minutes: 15
@@ -62,13 +85,6 @@ jobs:
           path: build
       - name: Sign
         run: cosign sign-blob -y "$TGZ_PATH" --bundle "$TGZ_PATH.sigstore.json"
-      - id: provenance
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-path: ${{ env.TGZ_PATH }}
-      - env:
-          BUNDLE_PATH: ${{ steps.provenance.outputs.bundle-path }}
-        run: cp "$BUNDLE_PATH" "${TGZ_PATH%.tgz}.intoto.jsonl"
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: |
