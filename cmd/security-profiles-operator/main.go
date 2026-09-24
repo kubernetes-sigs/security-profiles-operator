@@ -1134,13 +1134,18 @@ func runNonRootEnabler(ctx *cli.Context, info *version.Info) error {
 		return fmt.Errorf("creating manager: %w", err)
 	}
 
+	logger := ctrl.Log.WithName(component)
+
+	// The operator ignores the same invalid labels, so the default kubelet
+	// directory is the one mounted for such nodes.
 	kubeletDir, err := util.GetKubeletDirFromNodeLabel(ctx.Context, mgr.GetAPIReader())
 	if err != nil {
 		kubeletDir = config.KubeletDir()
+		logger.Info("Using the default kubelet directory", "dir", kubeletDir, "reason", err.Error())
 	}
 
 	return nonrootenabler.New().
-		Run(ctrl.Log.WithName(component), containerRuntime, kubeletDir, apparmor)
+		Run(logger, containerRuntime, kubeletDir, apparmor)
 }
 
 func runWebhook(ctx *cli.Context, info *version.Info) error {

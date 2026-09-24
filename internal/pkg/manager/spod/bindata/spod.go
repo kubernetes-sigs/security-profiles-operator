@@ -42,6 +42,12 @@ var (
 	openshiftCertAnnotation            = "service.beta.openshift.io/serving-cert-secret-name"
 	localSeccompProfilePath            = LocalSeccompProfilePath
 	localSeccompBpfRecorderProfilePath = LocalSeccompBpfRecorderProfilePath
+
+	// kubeletDirVolume is the host kubelet root directory known to the
+	// operator, which the non-root enabler mounts below config.HostRoot.
+	kubeletDirVolume, kubeletDirVolumeMount = KubeletDirVolume(
+		KubeletDirVolumeName, config.KubeletDir(),
+	)
 )
 
 const (
@@ -81,6 +87,7 @@ const (
 	labelApp                                         = "app"
 	labelName                                        = "name"
 	selinuxTypeSpcT                                  = "spc_t"
+	KubeletDirVolumeName                             = "host-kubelet-dir-volume"
 )
 
 var DefaultSPOD = &spodapi.SecurityProfilesOperatorDaemon{
@@ -181,18 +188,15 @@ var Manifest = &appsv1.DaemonSet{
 						ImagePullPolicy: corev1.PullAlways,
 						VolumeMounts: []corev1.VolumeMount{
 							{
-								Name:      "host-varlib-volume",
-								MountPath: "/var/lib",
+								Name:      "host-operator-volume",
+								MountPath: config.OperatorRoot,
 							},
 							{
 								Name:      "operator-profiles-volume",
 								MountPath: "/opt/spo-profiles",
 								ReadOnly:  true,
 							},
-							{
-								Name:      "host-root-volume",
-								MountPath: config.HostRoot,
-							},
+							kubeletDirVolumeMount,
 						},
 						SecurityContext: &corev1.SecurityContext{
 							AllowPrivilegeEscalation: &falsely,
@@ -737,17 +741,6 @@ semodule -R
 					},
 				},
 				Volumes: []corev1.Volume{
-					// /var/lib is used as symlinks cannot be created across
-					// different volumes
-					{
-						Name: "host-varlib-volume",
-						VolumeSource: corev1.VolumeSource{
-							HostPath: &corev1.HostPathVolumeSource{
-								Path: "/var/lib",
-								Type: &hostPathDirectory,
-							},
-						},
-					},
 					{
 						Name: "host-operator-volume",
 						VolumeSource: corev1.VolumeSource{
@@ -892,15 +885,7 @@ semodule -R
 							EmptyDir: &corev1.EmptyDirVolumeSource{},
 						},
 					},
-					{
-						Name: "host-root-volume",
-						VolumeSource: corev1.VolumeSource{
-							HostPath: &corev1.HostPathVolumeSource{
-								Path: "/",
-								Type: &hostPathDirectory,
-							},
-						},
-					},
+					kubeletDirVolume,
 					{
 						Name: "home-volume",
 						VolumeSource: corev1.VolumeSource{
@@ -984,6 +969,30 @@ func CustomLogVolume(
 		Name:      volumeName,
 		MountPath: mountPath,
 		ReadOnly:  false,
+	}
+
+	return volume, mount
+}
+
+// KubeletDirVolume returns a hostPath volume with the given name for the
+// kubelet root directory dir on the host, as well as the corresponding mount
+// for the non-root enabler. The mount keeps the host path below
+// config.HostRoot, which is where the non-root enabler expects the kubelet
+// directory. DirectoryOrCreate is used because the operator cannot know which
+// of the configured kubelet directories exist on a given node.
+func KubeletDirVolume(name, dir string) (corev1.Volume, corev1.VolumeMount) {
+	volume := corev1.Volume{
+		Name: name,
+		VolumeSource: corev1.VolumeSource{
+			HostPath: &corev1.HostPathVolumeSource{
+				Path: dir,
+				Type: &hostPathDirectoryOrCreate,
+			},
+		},
+	}
+	mount := corev1.VolumeMount{
+		Name:      name,
+		MountPath: filepath.Join(config.HostRoot, dir),
 	}
 
 	return volume, mount

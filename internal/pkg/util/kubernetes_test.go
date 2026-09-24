@@ -493,8 +493,20 @@ func TestGetKubeletDirFromNodeLabel(t *testing.T) {
 		},
 		{
 			name:  "segment containing dots",
-			label: "var-lib-my.kubelet",
-			want:  "/var/lib/my.kubelet",
+			label: "var-lib-my.dir-kubelet",
+			want:  "/var/lib/my.dir/kubelet",
+		},
+		{
+			// Kubelets can set this label on their own node, so it must not
+			// point to arbitrary host directories.
+			name:    "not a kubelet directory",
+			label:   "etc-cron.d",
+			wantErr: true,
+		},
+		{
+			name:    "kubelet as a prefix of the last segment",
+			label:   "var-lib-kubelet.d",
+			wantErr: true,
 		},
 		{
 			// "..-..-..-etc" would otherwise resolve to /etc once the non-root
@@ -558,4 +570,51 @@ func TestGetKubeletDirFromNodeLabelErrors(t *testing.T) {
 		_, err := GetKubeletDirFromNodeLabel(t.Context(), c)
 		require.Error(t, err)
 	})
+}
+
+func TestKubeletDirFromNodeLabels(t *testing.T) {
+	t.Parallel()
+
+	dir, ok, err := KubeletDirFromNodeLabels(nil)
+	require.NoError(t, err)
+	require.False(t, ok)
+	require.Empty(t, dir)
+
+	dir, ok, err = KubeletDirFromNodeLabels(map[string]string{
+		config.KubeletDirNodeLabelKey: "mnt-resource-kubelet",
+	})
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, "/mnt/resource/kubelet", dir)
+
+	for value, want := range map[string]string{
+		"var-lib-kubelet":                          "/var/lib/kubelet",
+		"var-lib-k0s-kubelet":                      "/var/lib/k0s/kubelet",
+		"var-snap-microk8s-common-var-lib-kubelet": "/var/snap/microk8s/common/var/lib/kubelet",
+		"kubelet": "/kubelet",
+	} {
+		dir, ok, err = KubeletDirFromNodeLabels(map[string]string{
+			config.KubeletDirNodeLabelKey: value,
+		})
+		require.NoError(t, err, value)
+		require.True(t, ok, value)
+		require.Equal(t, want, dir, value)
+	}
+
+	for _, value := range []string{
+		"..-etc",
+		"var-lib-kubelet-..-..-etc-kubelet",
+		"etc-cron.d",
+		"root-.ssh",
+		"etc",
+		"var-lib-kubelet-pods",
+		"var-lib-kubelet.d",
+		"var-lib-kubelet-",
+		"",
+	} {
+		_, _, err = KubeletDirFromNodeLabels(map[string]string{
+			config.KubeletDirNodeLabelKey: value,
+		})
+		require.Error(t, err, value)
+	}
 }

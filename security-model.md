@@ -26,6 +26,27 @@ During initialisation it also uses the capabilities:
 - `FSETID`
 - `DAC_OVERRIDE`
 
+The init container does not mount the host root filesystem. It only mounts:
+
+- `/var/lib/security-profiles-operator` (created if missing), the operator root which holds the
+  profiles and is handed over to the non-root user.
+- The kubelet root directory, by default `/var/lib/kubelet` or the value of the `KUBELET_DIR`
+  environment variable of the operator, below `/host` (created if missing). It creates the
+  `seccomp` directory there, including the `operator` symlink pointing to the operator root.
+
+Nodes can configure a custom kubelet root directory through the
+`kubelet.kubernetes.io/directory-location` label. The DaemonSet uses the same pod template on
+every node, so the operator mounts each distinct kubelet directory found in these labels into
+the init container on all nodes. Kubernetes creates such a directory on nodes where it does not
+exist yet, while the init container only writes into the kubelet directory of its own node.
+Kubelets can set this label on their own node object, so the operator only accepts directories
+whose last path component is `kubelet`, which keeps a single node from getting arbitrary host
+directories mounted on all nodes.
+
+When AppArmor is enabled, the profiles are installed through the host mount namespace, which
+requires a privileged init container and `HostPID` instead of a host path mount of
+`/etc/apparmor.d`.
+
 
 ### Running Mode
 
@@ -47,9 +68,14 @@ The running permissions for the three core technologies supported:
 
 Throughout their operation they require read and write permissions into host paths:
 
-- `/var/lib/kubelet/seccomp`
-- `/etc/selinux.d`
-- `/etc/apparmor.d`
+- `/var/lib/security-profiles-operator` (seccomp profiles, linked from the kubelet `seccomp`
+  directory)
+- `/tmp/security-profiles-operator-recordings` (recorded profiles before they get reconciled)
+- `/etc/selinux`, `/var/lib/selinux` and `/sys/fs/selinux` (only when SELinux is enabled)
+- `/etc/apparmor.d` (only when AppArmor is enabled, through the host mount namespace)
+
+Host paths of optional features, like the audit logs for the log enricher or `/sys/kernel` for
+the bpf recorder, are only mounted when the feature is enabled.
 
 ### Profile Generation Mode (auto-generating security profiles)
 

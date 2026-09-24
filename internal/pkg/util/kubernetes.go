@@ -100,27 +100,66 @@ func GetKubeletDirFromNodeLabel(ctx context.Context, c client.Reader) (string, e
 		return "", fmt.Errorf("getting node object for %s: %w", nodeName, err)
 	}
 
-	if kubeletDir, ok := node.Labels[config.KubeletDirNodeLabelKey]; ok {
-		// The label encodes the path with "/" replaced by "-", so the value is
-		// always relative ("mnt-resource-kubelet" means "/mnt/resource/kubelet");
-		// a label value cannot start with "-" either way.
-		dir := "/" + strings.ReplaceAll(kubeletDir, "-", "/")
-
-		// The result ends up in a host filesystem path that the non-root enabler
-		// creates, symlinks and copies into as root. Label values may contain
-		// dots, so reject anything that is not already clean rather than letting
-		// "..-..-..-etc" escape the host root.
-		if filepath.Clean(dir) != dir {
-			return "", fmt.Errorf(
-				"invalid %s label on node %s: %q is not a clean path",
-				config.KubeletDirNodeLabelKey, nodeName, dir,
-			)
-		}
-
-		return dir, nil
+	dir, ok, err := KubeletDirFromNodeLabels(node.Labels)
+	if err != nil {
+		return "", fmt.Errorf("invalid label on node %s: %w", nodeName, err)
 	}
 
-	return "", fmt.Errorf("no %s label found on node %s", config.KubeletDirNodeLabelKey, nodeName)
+	if !ok {
+		return "", fmt.Errorf(
+			"no %s label found on node %s", config.KubeletDirNodeLabelKey, nodeName,
+		)
+	}
+
+	return dir, nil
+}
+
+// kubeletDirBase is the last path component every kubelet root directory
+// from a node label has to have.
+const kubeletDirBase = "kubelet"
+
+// ValidateKubeletDir returns an error if the given kubelet root directory from
+// a node label is not a clean absolute path ending with "kubelet".
+func ValidateKubeletDir(dir string) error {
+	// The result ends up in a host filesystem path that the non-root enabler
+	// creates, symlinks and copies into as root. Label values may contain
+	// dots, so reject anything that is not already clean rather than letting
+	// "..-..-..-etc" escape the host root.
+	if !filepath.IsAbs(dir) || filepath.Clean(dir) != dir {
+		return fmt.Errorf("%q is not a clean absolute path", dir)
+	}
+
+	// Kubelets can set their own kubelet.kubernetes.io labels, even with the
+	// NodeRestriction admission plugin, and the operator mounts (and creates)
+	// every distinct directory read-write on all nodes. Only accept paths which
+	// look like a kubelet root directory, so that a single compromised node
+	// cannot get arbitrary host directories like /etc/cron.d mounted.
+	if filepath.Base(dir) != kubeletDirBase {
+		return fmt.Errorf("%q does not end with %q", dir, kubeletDirBase)
+	}
+
+	return nil
+}
+
+// KubeletDirFromNodeLabels parses the kubelet directory path from the given
+// node labels. It returns false if the kubelet directory label is not set and
+// an error if the label is not a clean absolute path ending with "kubelet".
+func KubeletDirFromNodeLabels(labels map[string]string) (dir string, ok bool, err error) {
+	kubeletDir, ok := labels[config.KubeletDirNodeLabelKey]
+	if !ok {
+		return "", false, nil
+	}
+
+	// The label encodes the path with "/" replaced by "-", so the value is
+	// always relative ("mnt-resource-kubelet" means "/mnt/resource/kubelet");
+	// a label value cannot start with "-" either way.
+	dir = "/" + strings.ReplaceAll(kubeletDir, "-", "/")
+
+	if err := ValidateKubeletDir(dir); err != nil {
+		return "", false, fmt.Errorf("%s label: %w", config.KubeletDirNodeLabelKey, err)
+	}
+
+	return dir, true, nil
 }
 
 type selinuxdImageMap struct {

@@ -27,8 +27,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
@@ -97,16 +99,25 @@ func (r *ReconcileSPOd) Setup(
 	r.watchNamespace = dt.watchNamespace
 	r.namespace = config.GetOperatorNamespace()
 
+	inOperatorNamespace := builder.WithPredicates(predicate.Funcs{
+		CreateFunc:  func(e event.CreateEvent) bool { return isInOperatorNamespace(e.Object) },
+		DeleteFunc:  func(e event.DeleteEvent) bool { return isInOperatorNamespace(e.Object) },
+		UpdateFunc:  func(e event.UpdateEvent) bool { return isInOperatorNamespace(e.ObjectNew) },
+		GenericFunc: func(e event.GenericEvent) bool { return isInOperatorNamespace(e.Object) },
+	})
+
 	return ctrl.NewControllerManagedBy(mgr).
 		Named(r.Name()).
-		For(&spodapi.SecurityProfilesOperatorDaemon{}).
-		Owns(&appsv1.DaemonSet{}).
-		WithEventFilter(predicate.Funcs{
-			CreateFunc:  func(e event.CreateEvent) bool { return isInOperatorNamespace(e.Object) },
-			DeleteFunc:  func(e event.DeleteEvent) bool { return isInOperatorNamespace(e.Object) },
-			UpdateFunc:  func(e event.UpdateEvent) bool { return isInOperatorNamespace(e.ObjectNew) },
-			GenericFunc: func(e event.GenericEvent) bool { return isInOperatorNamespace(e.Object) },
-		}).
+		For(&spodapi.SecurityProfilesOperatorDaemon{}, inOperatorNamespace).
+		Owns(&appsv1.DaemonSet{}, inOperatorNamespace).
+		// Nodes can configure a custom kubelet directory through a label,
+		// which the SPOd has to mount for the non-root enabler.
+		Watches(
+			&corev1.Node{},
+			handler.EnqueueRequestsFromMapFunc(r.spodsForNode),
+			builder.OnlyMetadata,
+			builder.WithPredicates(kubeletDirLabelChanged()),
+		).
 		Complete(r)
 }
 
