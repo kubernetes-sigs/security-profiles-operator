@@ -1132,7 +1132,7 @@ spec:
 If you're not using runc but the alternative
 [crun](https://github.com/containers/crun), then you can do the same by using
 the [corresponding example profile](./examples/baseprofile-crun.yaml) (tested
-with version 1.29.1).
+with version 1.30).
 
 #### Recording profiles without applying them
 

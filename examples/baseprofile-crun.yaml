@@ -2,10 +2,11 @@
 apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: SeccompProfile
 metadata:
-  name: crun-v1.29.1
+  name: crun-v1.30
 spec:
   defaultAction: SCMP_ACT_ERRNO
   architectures:
+    - SCMP_ARCH_AARCH64
     - SCMP_ARCH_X86_64
   syscalls:
     - action: SCMP_ACT_ALLOW
@@ -19,8 +20,10 @@ spec:
         - close_range
         - dup
         - dup2
+        - dup3
         - execve
         - exit_group
+        - faccessat
         - fchdir
         - fchmodat
         - fchown

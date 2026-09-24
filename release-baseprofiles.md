@@ -39,24 +39,31 @@ object is named after the last path segment, so `base/runc` is pulled as a
 
 ## How a profile is recorded
 
-The `e2e-seccomp-profile` job records the profiles rather than a person doing
-it. It boots a virtual machine, runs a workload under the profile recorder for
-each runtime, writes the recorded syscalls into
-`examples/baseprofile-<runtime>.yaml`, and sets `metadata.name` to
-`<runtime>-v<version>` from the runtime installed in the machine.
+The `e2e-seccomp-profile` jobs record the profiles rather than a person doing
+it, one job per architecture (`amd64` and `arm64`). Each boots a
+[kubernix](https://github.com/saschagrunert/kubernix) cluster on the runner and
+runs a workload under the profile recorder for each runtime. The runtimes are
+the upstream release binaries of the versions in `dependencies.yaml`, pinned by
+`hack/ci/kubernix-overlay.nix`.
 
-The job then diffs the working tree and fails if anything changed, ignoring
+The `e2e-seccomp-profile-update` job then merges the recordings of all
+architectures into `examples/baseprofile-<runtime>.yaml`: the profile lists
+every recorded architecture and the union of their syscalls, because the
+published artifact is platform independent and runtimes skip syscalls that do
+not exist on the architecture they run on. It sets `metadata.name` to
+`<runtime>-v<version>` from the recorded runtime version.
+
+The job diffs the working tree and fails if anything changed, ignoring
 syscalls known to appear at random. A failure is the signal that a profile is
-due for an update, and it is expected whenever the container runtime packages
-in the job change. The job log shows which syscalls came and went, and the
-regenerated files are attached to the run as the `recorded-base-profiles`
-artifact.
+due for an update, and it is expected whenever a runtime version changes. The
+job log shows which syscalls came and went, and the regenerated files are
+attached to the run as the `recorded-base-profiles` artifact.
 
 ## Updating a profile
 
-Commit the regenerated `examples/baseprofile-<runtime>.yaml`, either from the
-uploaded artifact or by rerunning the recording locally. Nothing else in the
-repository has to change:
+Commit the regenerated `examples/baseprofile-<runtime>.yaml` from the uploaded
+artifact, which holds the profiles merged from the recordings of all
+architectures. Nothing else in the repository has to change:
 
 - the end-to-end test that applies the profile reads `metadata.name` from the
   file

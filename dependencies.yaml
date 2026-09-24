@@ -225,12 +225,14 @@ dependencies:
       match: "^VERSION="
 
   - name: crun
-    version: 1.29.1
+    version: 1.30
     refPaths:
     - path: examples/baseprofile-crun.yaml
       match: "name: crun"
     - path: hack/install-crun
       match: "^CRUN_VERSION="
+    - path: hack/ci/kubernix-overlay.nix
+      match: "crunVersion ="
 
   - name: runc
     version: v1.5.1
@@ -241,6 +243,14 @@ dependencies:
       match: "baseProfileName: runc-"
     - path: profiles.md
       match: "base/runc:"
+    - path: hack/ci/kubernix-overlay.nix
+      match: "runcVersion ="
+
+  - name: kubernix
+    version: v0.4.1
+    refPaths:
+    - path: hack/ci/install-kubernix.sh
+      match: "^KUBERNIX_VERSION="
 
   - name: cosign
     version: v3.1.3

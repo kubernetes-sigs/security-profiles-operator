@@ -6,6 +6,7 @@ metadata:
 spec:
   defaultAction: SCMP_ACT_ERRNO
   architectures:
+    - SCMP_ARCH_AARCH64
     - SCMP_ARCH_X86_64
   syscalls:
     - action: SCMP_ACT_ALLOW
@@ -20,6 +21,7 @@ spec:
         - epoll_ctl
         - epoll_pwait
         - execve
+        - exit
         - exit_group
         - faccessat2
         - fcntl
@@ -32,6 +34,7 @@ spec:
         - getppid
         - gettid
         - getuid
+        - madvise
         - mmap
         - mprotect
         - nanosleep
@@ -43,8 +46,8 @@ spec:
         - readlink
         - readlinkat
         - recvfrom
+        - rt_sigprocmask
         - rt_sigreturn
-        - sched_yield
         - set_tid_address
         - setgid
         - setgroups
