@@ -336,20 +336,20 @@ spec:
 ```
 
 You can find the profile path of the seccomp profile by checking the
-`seccompProfile.localhostProfile` attribute (remember to use the `wide`
+`status.localhostProfile` attribute (remember to use the `wide`
 output mode):
 
 ```sh
 $ kubectl get seccompprofile profile1 --output wide
-NAME       STATUS   AGE   SECCOMPPROFILE.LOCALHOSTPROFILE
-profile1   Active   14s   operator/profile1.json
+NAME       STATUS      AGE   LOCALHOSTPROFILE
+profile1   Installed   14s   operator/profile1.json
 ```
 
 You can apply the profile to an existing application, such as a Deployment or
 DaemonSet:
 
 ```sh
-kubectl --namespace my-namespace patch deployment myapp --patch '{"spec": {"template": {"spec": {"securityContext": {"seccompProfile": {"type": "Localhost", "localhostProfile": "'$(kubectl --namespace my-namespace get seccompprofile profile1 --output=jsonpath='{.status.seccompProfile\.localhostProfile}')'}}}}}}'
+kubectl --namespace my-namespace patch deployment myapp --patch '{"spec": {"template": {"spec": {"securityContext": {"seccompProfile": {"type": "Localhost", "localhostProfile": "'$(kubectl get seccompprofile profile1 --output=jsonpath='{.status.localhostProfile}')'"}}}}}}'
 deployment.apps/myapp patched
 ```
 
@@ -772,9 +772,6 @@ kubectl get apparmorprofile -o yaml
 
 _Known limitations:_
 
-- The reconciler will simply load the profiles across the cluster. If an
-  existing profile with the same name exists, it will be replaced. This might cause
-  an existing profile to be overwritten (See [issue 2582](https://github.com/kubernetes-sigs/security-profiles-operator/issues/2582) for details).
 - Restrictive profiles may block sub processes to be created, or a container from
   successfully loading. To work around the issue, set the AppArmor profile to
   complain mode by setting `.spec.mode` to `Complain`.
@@ -838,14 +835,19 @@ that you wish to use in your cluster.
 
 In particular, the `SelinuxProfile` kind:
 
-- restricts the profiles to inherit from to the current namespace or a system-wide profile. Because there
+- restricts the profiles to inherit from to other `SelinuxProfile` objects or a system-wide profile. Because there
   are typically many profiles installed on the system, but only a subset should be used by cluster workloads,
-  the inheritable system profiles are listed in the `spod` instance in `spec.selinuxOptions.allowedSystemProfiles`.
+  the inheritable system profiles are listed in the `spod` instance in `spec.selinux.options.allowedSystemProfiles`.
   Depending on what distribution your nodes run, the base profile might vary, on RHEL-based systems, you might
   want to look at what profiles are shipped in the `container-selinux` RPM package.
 - performs basic validation of the permissions, classes and labels
+- allows to restrict the SELinux types, classes and permissions which can be used in the profiles by
+  `spec.selinux.options.deniedTypes`, `deniedClasses` and `deniedPermissions` of the `spod` instance. The
+  operator also denies some of them by default, and `allowedTypes`, `allowedClasses` and `allowedPermissions`
+  remove entries from that built-in denylist. Use the latter with care, because they relax a safe default for
+  every profile.
 - adds a new keyword `@self` that describes the process using the policy. This allows to reuse a policy between
-  workloads and namespaces easily, as the "usage" of the policy (see below) is based on the name and namespace.
+  workloads and namespaces easily, as the "usage" of the policy (see below) is based on the profile name.
 
 Below is an example of a policy that can be used with a non-privileged nginx workload:
 
@@ -992,7 +994,7 @@ kubectl get selinuxprofile
 # Output should show the selinux profile.
 
 NAME                              USAGE                                     STATE
-nginx-recording-nginx-container   nginx-recording-nginx-container.process   partial
+nginx-recording-nginx-container   nginx-recording-nginx-container.process   Partial
 
 # The content of the profile can be inspected.
 
@@ -1001,7 +1003,7 @@ kubectl get selinuxprofile -o yaml
 
 #### Use SELinux profile
 
-SELinux profiles are referenced based on their `USAGE` type name, which is `<ProfileName>_.process`.
+SELinux profiles are referenced based on their `USAGE` type name, which is `<ProfileName>.process`.
 
 Use this SELinux type in the workload manifest in the `.spec.containers[].securityContext.seLinuxOptions` attribute:
 
@@ -1027,19 +1029,20 @@ The pod should properly start and run.
 
 The Security Profiles Operator Daemon (SPOD) supports advanced filtering of emitted logs through its enrichers,
 allowing users to focus on relevant events.
-Log filtering is managed by an array of filter rules configured directly on the SPOD resource. Two distinct fields are
-available, each controlling a different enricher:
+Log filtering is managed by a list of filter rules configured directly on the SPOD resource. The rules are provided as
+a JSON-encoded string containing an array of filter objects. Two distinct fields are available in `spec.enricher`, each
+controlling a different enricher:
 
 - `jsonEnricherFilters`: Applies filtering to the Audit JSON Log Enricher.
 - `logEnricherFilters`: Applies filtering to the Log Enricher.
 
-Example: Enabling Log Enricher and providing an empty filter array (no custom filtering)
+Example: Enabling Log Enricher and providing an empty filter list (no custom filtering)
 
 ```shell
-kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enricher":{"enableLogEnricher":true,"logEnricherFilters":[]}}}'
+kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enricher":{"enableLogEnricher":true,"logEnricherFilters":"[]"}}}'
 ```
 
-Each object within the `jsonEnricherFilters` or `logEnricherFilters` array conforms to the following structure:
+Each object within the JSON array encoded in `jsonEnricherFilters` or `logEnricherFilters` conforms to the following structure:
 
 | Field       | Type          | Description                                                                                                                                                                                                                                                                                                                 | Example Value                 |
 | ----------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
@@ -1088,7 +1091,7 @@ The following JSON filter configuration can be used with the command below:
 ```
 
 ```
-kubectl -n security-profiles-operator patch spod spod --type=merge -p {"spec":{"enricher":{"enableJsonEnricher": true, "jsonEnricherFilters": "[{\"priority\":100,\"level\":\"Metadata\",\"matchKeys\":[\"requestUID\"]},{\"priority\":999, \"level\":\"None\",\"matchKeys\":[\"version\"],\"matchValues\":[\"spo/v1_alpha\"]}]"}}}
+kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enricher":{"enableJsonEnricher": true, "jsonEnricherFilters": "[{\"priority\":100,\"level\":\"Metadata\",\"matchKeys\":[\"requestUID\"]},{\"priority\":999, \"level\":\"None\",\"matchKeys\":[\"version\"],\"matchValues\":[\"spo/v1_alpha\"]}]"}}}'
 ```
 
 2. Filtering Logs for a Specific Kubernetes Namespace:
@@ -1096,7 +1099,7 @@ kubectl -n security-profiles-operator patch spod spod --type=merge -p {"spec":{"
 This example logs log-enricher entries only from the default namespace and drops any other log lines for seccomp profile.
 
 ```
-kubectl -n security-profiles-operator patch spod spod --type=merge -p {"spec":{"enricher":{"enableLogEnricher": true, "logEnricherFilters": "[{\"priority\":100,\"level\":\"Metadata\",\"matchKeys\":[\"namespace\"],\"matchValues\":[\"default\"]},{\"priority\":999, \"level\":\"None\",\"matchKeys\":[\"type\"],\"matchValues\":[\"seccomp\"]}]"}}}
+kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enricher":{"enableLogEnricher": true, "logEnricherFilters": "[{\"priority\":100,\"level\":\"Metadata\",\"matchKeys\":[\"namespace\"],\"matchValues\":[\"default\"]},{\"priority\":999, \"level\":\"None\",\"matchKeys\":[\"type\"],\"matchValues\":[\"seccomp\"]}]"}}}'
 ```
 
 ### General Considerations
@@ -1258,8 +1261,8 @@ $ kubectl label ns spo-test spo.x-k8s.io/enable-binding=
 ```
 
 To bind a Pod that uses an 'nginx:1.19.1' image to the 'profile-complain'
-example seccomp profile, create a ProfileBinding in the same namespace as both
-the Pod and the SeccompProfile:
+example seccomp profile, create a ProfileBinding in the same namespace as the
+Pod (seccomp profiles are cluster-scoped):
 
 ```yaml
 apiVersion: security-profiles-operator.x-k8s.io/v1

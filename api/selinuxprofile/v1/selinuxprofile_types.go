@@ -72,7 +72,7 @@ type SelinuxProfileSpec struct {
 	profilebasev1.SpecBase `json:",inline"`
 
 	// inherit specifies a SELinuxProfile or set of profiles that this inherits from.
-	// Note that they need to be in the same namespace.
+	// Referenced SelinuxProfiles are cluster-scoped and resolved by name.
 	// +optional
 	// +default=[{"kind":"System","name":"container"}]
 	// +listType=atomic

@@ -80,6 +80,13 @@ done
 # the previous development version, which the documentation never mentions.
 sed -i -E "s;(export VERSION=v)[0-9]+\.[0-9]+\.[0-9]+;\1$VERSION;" verification.md
 
+# Update the versioned install manifests and the spoc image and version.
+sed -i -E "s;(raw\.githubusercontent\.com/kubernetes-sigs/security-profiles-operator/v)[0-9]+\.[0-9]+\.[0-9]+/;\1$VERSION/;g" installation.md
+sed -i -E \
+    -e "s;(security-profiles-operator/security-profiles-operator:v)[0-9]+\.[0-9]+\.[0-9]+;\1$VERSION;g" \
+    -e "s;^(   v)[0-9]+\.[0-9]+\.[0-9]+\$;\1$VERSION;" \
+    cli.md
+
 # Fix shields.io badge URL encoding (-- represents literal -)
 PREVIOUS_BADGE="${PREVIOUS_VERSION//-/--}"
 if [ "$PREVIOUS_BADGE" != "$PREVIOUS_VERSION" ]; then

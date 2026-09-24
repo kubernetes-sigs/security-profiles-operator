@@ -4,6 +4,9 @@
 - [Command Line Interface (CLI)](#command-line-interface-cli)
   - [Record seccomp profiles for a command](#record-seccomp-profiles-for-a-command)
   - [Run commands with seccomp profiles](#run-commands-with-seccomp-profiles)
+  - [Merge security profiles](#merge-security-profiles)
+  - [Convert profiles to their raw format](#convert-profiles-to-their-raw-format)
+  - [Install and remove AppArmor profiles](#install-and-remove-apparmor-profiles)
   - [Pull security profiles from OCI registries](#pull-security-profiles-from-oci-registries)
   - [Push security profiles to OCI registries](#push-security-profiles-to-oci-registries)
   - [Pushing profiles for container runtimes](#pushing-profiles-for-container-runtimes)
@@ -21,27 +24,47 @@ to interact with the operator itself.
 
 For now, the CLI is able to:
 
-- Record seccomp profiles for a command in YAML (CRD) and JSON (OCI) format.
+- Record seccomp and AppArmor profiles for a command in YAML (CRD) and raw
+  format.
 - Run commands with applied seccomp profiles in both formats.
+- Merge multiple security profiles into a combined one.
+- Convert seccomp and AppArmor profile CRDs to their raw format.
+- Install and remove AppArmor profiles on the local machine.
+- Push security profiles to and pull them from OCI registries.
 
 `spoc` can be retrieved either by downloading the statically linked binary
 directly from the [available releases][releases], or by running it within the
 official container images:
 
 ```console
-> podman run -it us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator:latest spoc
+> podman run -it registry.k8s.io/security-profiles-operator/security-profiles-operator:v1.1.0 spoc
 NAME:
    spoc - Security Profiles Operator CLI
 
 USAGE:
-   spoc [global options] command [command options] [arguments...]
+   spoc [global options] command [command options]
+
+VERSION:
+   v1.1.0
 
 COMMANDS:
    version, v  display detailed version information
    record, r   run a command and record the security profile
+   merge, m    merge multiple security profiles
+   convert, c  convert a security profile to its raw format
+   install, i  install a security profile on the local machine
+   remove, rm  remove a security profile from the local machine
    run, x      run a command using a security profile
+   push, p     push a profile to a container registry
+   pull, l     pull a profile from a container registry
    help, h     Shows a list of commands or help for one command
+
+GLOBAL OPTIONS:
+   --help, -h     show help
+   --version, -v  print the version
 ```
+
+Every command documents its flags via `spoc <command> --help`.
 
 The released binaries are signed and have SLSA build provenance. See
 [verifying the released artifacts](verification.md#command-line-binaries) for
@@ -97,7 +120,8 @@ within Kubernetes. This behavior can be disabled by using `spoc record
 -b/--base-syscalls`.
 
 It is also possible to change the format to JSON via `spoc record -t/--type
-raw-seccomp`:
+raw-seccomp`. The other supported types are `apparmor`, `raw-apparmor` and
+`all`:
 
 ```console
 > sudo spoc record -t raw-seccomp echo test
@@ -157,6 +181,48 @@ is not allowed any more:
 2023/03/10 10:25:38 Running command with PID: 594242
 chmod: changing permissions of '/tmp/profile-chmod.json': Operation not permitted
 2023/03/10 10:25:38 Command did not exit successfully: exit status 1
+```
+
+### Merge security profiles
+
+`spoc merge` combines multiple seccomp, SELinux or AppArmor profile CRDs of the
+same kind into one profile. Permissions are additive, and for AppArmor the
+first profile may additionally contain glob paths:
+
+```console
+> spoc merge -o /tmp/merged.yaml /tmp/profile-a.yaml /tmp/profile-b.yaml
+```
+
+The output defaults to `/tmp/profile.yaml`. With `--check` / `-c`, no output
+file is written. Instead, `spoc merge` exits with an error if the first profile
+is not a superset of all others, which is useful to check whether a base
+profile is up to date.
+
+### Convert profiles to their raw format
+
+`spoc convert` turns a `SeccompProfile` CRD into a raw OCI runtime-spec seccomp
+profile in JSON, and an `AppArmorProfile` CRD into a raw AppArmor profile. The
+result is written to stdout unless `--output-file` / `-o` is set:
+
+```console
+> spoc convert -o /tmp/profile.json /tmp/profile.yaml
+```
+
+Fields which are specific to the operator, like the base profile name and the
+listener fields, are dropped from seccomp profiles. For AppArmor,
+`--program-name` / `-p` sets the path of the confined program. Without it, an
+unattached profile named after the CRD is created.
+
+### Install and remove AppArmor profiles
+
+`spoc install` loads an `AppArmorProfile` CRD into the kernel of the local
+machine, and `spoc remove` unloads it again. Both take the profile file
+(default `/tmp/profile.yaml`) and optionally the path of the executable which
+should be confined, which is used as the profile name:
+
+```console
+> sudo spoc install /tmp/profile.yaml /usr/bin/my-app
+> sudo spoc remove /tmp/profile.yaml /usr/bin/my-app
 ```
 
 ### Pull security profiles from OCI registries
@@ -233,7 +299,11 @@ verified if the artifact has any, otherwise the legacy cosign signature tags
 of artifacts pushed by older `spoc` versions are verified. Keyless signing
 needs an OIDC identity, which build systems and test environments do not
 necessarily have, so `--disable-signing` skips it. Consumers of an unsigned
-artifact have to skip verification as well. It is possible to add custom
+artifact have to skip verification as well, by using `spoc pull
+--disable-signature-verification` / `-s` or by exporting
+`DISABLE_SIGNATURE_VERIFICATION=true`. The identities and OIDC issuers accepted
+during verification can be restricted with `--allowed-identity-regexp` / `-i`
+and `--allowed-oidc-issuer-regexp`. It is possible to add custom
 annotations to the security profile by using the `--annotations` / `-a` flag
 multiple times in `KEY:VALUE` format; only the first colon separates the key
 from the value, so timestamps keep theirs.
@@ -365,7 +435,7 @@ and the default output file switches to a `.json` extension.
 
 `spoc push` supports specifying the target platforms for the profiles to be
 pushed. This can be done by using the `--platforms` / `-p` together with the
-`--profiles` / `-p` flag. For example, to push two profiles into one artifact:
+`--profiles` / `-f` flag. For example, to push two profiles into one artifact:
 
 ```
 > spoc push -f ./profile-amd64.yaml -p linux/amd64 -f ./profile-arm64.yaml -p linux/arm64 registry.example.com/profiles/test:latest

@@ -74,9 +74,9 @@ type SeccompProfileSpec struct {
 	// Common spec fields for all profiles.
 	profilebasev1.SpecBase `json:",inline"`
 
-	// baseProfileName is the name of base profile (in the same namespace) that
-	// will be unioned into this profile. Base profiles can be references as
-	// remote OCI artifacts as well when prefixed with `oci://`.
+	// baseProfileName is the name of the base profile (a cluster-scoped
+	// SeccompProfile) that will be unioned into this profile. Base profiles can
+	// be referenced as remote OCI artifacts as well when prefixed with `oci://`.
 	// +optional
 	BaseProfileName string `json:"baseProfileName,omitempty"`
 
