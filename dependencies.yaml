@@ -260,6 +260,13 @@ dependencies:
     - path: .github/workflows/helm-chart-lint.yaml
       match: "version: v3"
 
+  # Must be bumped together with helm above.
+  - name: helm-sha256-linux-amd64
+    version: 1e4ab49e429626cf6c6958d914248b78c9730803c2751b87627e171dc800e7bb
+    refPaths:
+    - path: hack/push-chart.sh
+      match: "^HELM_SHA256="
+
   - name: cosign for staging signing
     version: v3.1.3
     refPaths:
