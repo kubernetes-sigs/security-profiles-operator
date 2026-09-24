@@ -16,10 +16,10 @@
 """Checks that every published spoc architecture has a provenance subject.
 
 Adding an architecture to the nix-spoc-push matrix without adding it to the
-attest-build-provenance subject-path would publish a release artifact with no
-provenance, and the release job cannot catch that: by the time it runs, the
-binaries are already uploaded. Running this on every pull request means the
-change that adds the architecture fails instead.
+provenance SUBJECTS in the spoc-sbom job would publish a release artifact
+with no provenance, and nothing in the release jobs catches that. Running this
+on every pull request means the change that adds the architecture fails
+instead.
 """
 
 import re
@@ -28,7 +28,7 @@ import sys
 WORKFLOW = ".github/workflows/build.yml"
 
 # The SBOM is a subject too, but it is not per-architecture.
-NON_ARCH_SUBJECTS = {"build/spoc.spdx.json"}
+NON_ARCH_SUBJECTS = {"spoc.spdx.json"}
 
 
 def block(text, header, pattern):
@@ -63,14 +63,14 @@ def main():
         "  nix-spoc-push:\n    strategy:\n      fail-fast: false\n      matrix:\n        arch:\n",
         re.compile(r"- (\S+)"),
     )
-    subjects = block(text, "          subject-path: |\n", re.compile(r"(build/\S+)"))
+    subjects = block(text, "          SUBJECTS: |\n", re.compile(r"(spoc\.\S+)"))
 
     if not arches:
         sys.exit(f"could not read the nix-spoc-push architectures from {WORKFLOW}")
     if not subjects:
         sys.exit(f"could not read the provenance subjects from {WORKFLOW}")
 
-    want = {f"build/spoc.{arch}" for arch in arches}
+    want = {f"spoc.{arch}" for arch in arches}
     got = set(subjects) - NON_ARCH_SUBJECTS
 
     failed = False

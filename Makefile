@@ -271,49 +271,49 @@ SPOC_ARCHES := amd64 arm64 ppc64le s390x
 # The released binaries are always built from source. Only their dependencies
 # (the inputDerivation closure) may come from the binary caches, so that a
 # poisoned cache entry cannot stand in for them.
-define nix-build-sign-spoc-to
+define nix-build-spoc-to
 	$(NIX) build --no-link .#spoc-$(1).inputDerivation
 	$(NIX) build --option substitute false .#spoc-$(1)
 	cp -f result/spoc $(BUILD_DIR)/spoc.$(1)
-	cosign sign-blob -y \
-		$(BUILD_DIR)/spoc.$(1) \
-		--bundle $(BUILD_DIR)/spoc.$(1).sigstore.json
 	cd $(BUILD_DIR) && sha512sum spoc.$(1) > spoc.$(1).sha512
 endef
 
 .PHONY: nix-spoc
 nix-spoc: nix-spoc-amd64 nix-spoc-arm64 nix-spoc-ppc64le nix-spoc-s390x ## Build all spoc binaries via nix.
-	$(MAKE) spoc-sbom
+	$(MAKE) spoc-sbom spoc-sign
+
+# The build workflow signs in a separate job, so that the build steps never
+# hold the signing identity.
+.PHONY: spoc-sign
+spoc-sign: ## Sign the spoc binaries and their SBOM in the build directory
+	$(foreach file,$(SPOC_ARCHES:%=spoc.%) spoc.spdx.json,cosign sign-blob -y $(BUILD_DIR)/$(file) --bundle $(BUILD_DIR)/$(file).sigstore.json &&) true
 
 # bom lists the Go modules from the build information embedded in the
 # binaries, so the SBOM has the versions that were actually built in.
 .PHONY: spoc-sbom
-spoc-sbom: ## Generate and sign the SBOM for the spoc binaries in the build directory
+spoc-sbom: ## Generate the SBOM for the spoc binaries in the build directory
 	bom version
 	bom generate \
 		--format spdx3-json \
 		--name spoc \
 		$(foreach arch,$(SPOC_ARCHES),-f $(BUILD_DIR)/spoc.$(arch)) \
 		-o $(BUILD_DIR)/spoc.spdx.json
-	cosign sign-blob -y \
-		$(BUILD_DIR)/spoc.spdx.json \
-		--bundle $(BUILD_DIR)/spoc.spdx.json.sigstore.json
 
 .PHONY: nix-spoc-amd64
-nix-spoc-amd64: $(BUILD_DIR) ## Build and sign the spoc binary via nix for amd64
-	$(call nix-build-sign-spoc-to,amd64)
+nix-spoc-amd64: $(BUILD_DIR) ## Build the spoc binary via nix for amd64
+	$(call nix-build-spoc-to,amd64)
 
 .PHONY: nix-spoc-arm64
-nix-spoc-arm64: $(BUILD_DIR) ## Build and sign the spoc binary via nix for arm64
-	$(call nix-build-sign-spoc-to,arm64)
+nix-spoc-arm64: $(BUILD_DIR) ## Build the spoc binary via nix for arm64
+	$(call nix-build-spoc-to,arm64)
 
 .PHONY: nix-spoc-ppc64le
-nix-spoc-ppc64le: $(BUILD_DIR) ## Build and sign the spoc binary via nix for ppc64le
-	$(call nix-build-sign-spoc-to,ppc64le)
+nix-spoc-ppc64le: $(BUILD_DIR) ## Build the spoc binary via nix for ppc64le
+	$(call nix-build-spoc-to,ppc64le)
 
 .PHONY: nix-spoc-s390x
-nix-spoc-s390x: $(BUILD_DIR) ## Build and sign the spoc binary via nix for s390x
-	$(call nix-build-sign-spoc-to,s390x)
+nix-spoc-s390x: $(BUILD_DIR) ## Build the spoc binary via nix for s390x
+	$(call nix-build-spoc-to,s390x)
 
 .PHONY: update-nixpkgs
 update-nixpkgs: ## Update the pinned nixpkgs to the latest master

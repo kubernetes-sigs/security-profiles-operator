@@ -6,12 +6,25 @@ page collects the verification commands for all of them, so a release only has
 to link here.
 
 The commands need [cosign][cosign] v3 or later, because the signatures use the
-Sigstore bundle format that cosign v2 cannot read. The provenance checks use
-the [GitHub CLI][gh]. The examples verify the latest release, set `VERSION` to
-the tag of the [release][releases] at hand:
+Sigstore bundle format that cosign v2 cannot read. The provenance checks of the
+release assets use [slsa-verifier][slsa-verifier]. The examples verify the
+latest release, set `VERSION` to the tag of the [release][releases] at hand:
 
 ```console
-> export VERSION=v1.1.0
+> export VERSION=$(gh release view -R kubernetes-sigs/security-profiles-operator --json tagName -q .tagName)
+```
+
+Releases up to v1.1.0 carry GitHub build provenance from the build jobs
+instead. Verify it with the [GitHub CLI][gh], here for `spoc.amd64`. The same
+command works for `spoc.spdx.json`, and for the chart archive without
+`--bundle` and with the `helm-chart-package.yaml` signer workflow:
+
+```console
+> gh attestation verify spoc.amd64 \
+    --bundle spoc.intoto.jsonl \
+    --repo kubernetes-sigs/security-profiles-operator \
+    --signer-workflow kubernetes-sigs/security-profiles-operator/.github/workflows/build.yml \
+    --source-ref refs/tags/$VERSION
 ```
 
 ## What a release provides
@@ -31,6 +44,20 @@ attaches SLSA provenance, an SPDX SBOM, a vulnerability scan, an OpenVEX
 document, the build environment and the OpenSSF Scorecard result as OCI
 referrers. The image promotion does not copy those to `registry.k8s.io` yet,
 see [staging attestations](release.md#staging-attestations).
+
+## SLSA build levels
+
+The `spoc` binaries, their SBOM and the Helm chart archive on the release page
+are built on GitHub Actions and meet [SLSA Build L3][slsa-l3]. The build jobs
+hold no signing identity and no write access. They only pass the digests of
+their outputs to the [SLSA GitHub generator][slsa-generator], whose isolated
+reusable workflow generates and signs the provenance. Separate jobs that run no
+repository code sign the artifacts and attach them to the release.
+
+The container images, the operator bundle and catalog, the Helm chart on
+`registry.k8s.io` and the security profiles are built on Cloud Build and stay
+at SLSA Build L2. Their provenance is signed with the same service account and
+in the same build as the build steps, so the build steps could forge it.
 
 ## Container image
 
@@ -65,11 +92,10 @@ both, here for `amd64`:
     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
     --bundle spoc.amd64.sigstore.json \
     spoc.amd64
-> gh attestation verify spoc.amd64 \
-    --bundle spoc.intoto.jsonl \
-    --repo kubernetes-sigs/security-profiles-operator \
-    --signer-workflow kubernetes-sigs/security-profiles-operator/.github/workflows/build.yml \
-    --source-ref refs/tags/$VERSION
+> slsa-verifier verify-artifact spoc.amd64 \
+    --provenance-path spoc.intoto.jsonl \
+    --source-uri github.com/kubernetes-sigs/security-profiles-operator \
+    --source-tag $VERSION
 ```
 
 The release also carries a `.sha512` sum per binary.
@@ -87,11 +113,10 @@ provenance:
     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
     --bundle spoc.spdx.json.sigstore.json \
     spoc.spdx.json
-> gh attestation verify spoc.spdx.json \
-    --bundle spoc.intoto.jsonl \
-    --repo kubernetes-sigs/security-profiles-operator \
-    --signer-workflow kubernetes-sigs/security-profiles-operator/.github/workflows/build.yml \
-    --source-ref refs/tags/$VERSION
+> slsa-verifier verify-artifact spoc.spdx.json \
+    --provenance-path spoc.intoto.jsonl \
+    --source-uri github.com/kubernetes-sigs/security-profiles-operator \
+    --source-tag $VERSION
 ```
 
 ## Helm chart
@@ -105,10 +130,10 @@ The chart archive attached to the release is signed by the
     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
     --bundle security-profiles-operator-${VERSION#v}.tgz.sigstore.json \
     security-profiles-operator-${VERSION#v}.tgz
-> gh attestation verify security-profiles-operator-${VERSION#v}.tgz \
-    --repo kubernetes-sigs/security-profiles-operator \
-    --signer-workflow kubernetes-sigs/security-profiles-operator/.github/workflows/helm-chart-package.yaml \
-    --source-ref refs/tags/$VERSION
+> slsa-verifier verify-artifact security-profiles-operator-${VERSION#v}.tgz \
+    --provenance-path security-profiles-operator-${VERSION#v}.intoto.jsonl \
+    --source-uri github.com/kubernetes-sigs/security-profiles-operator \
+    --source-tag $VERSION
 ```
 
 The chart is also published as an OCI artifact to `registry.k8s.io`. It is
@@ -134,3 +159,6 @@ commands to verify them.
 [releases]: https://github.com/kubernetes-sigs/security-profiles-operator/releases/latest
 [sigstore]: https://www.sigstore.dev
 [slsa]: https://slsa.dev
+[slsa-generator]: https://github.com/slsa-framework/slsa-github-generator
+[slsa-l3]: https://slsa.dev/spec/v1.0/levels#build-l3
+[slsa-verifier]: https://github.com/slsa-framework/slsa-verifier
