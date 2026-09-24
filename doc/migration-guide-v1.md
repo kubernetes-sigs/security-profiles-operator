@@ -1,6 +1,6 @@
 # Migration Guide: API Graduation to v1
 
-Security Profiles Operator (SPO) 1.0.0 graduates all CRD APIs from alpha/beta to v1. This document covers what changed, what happens automatically, and what you should update. For general installation and usage instructions, see the [documentation](../installation-usage.md).
+Security Profiles Operator (SPO) 1.0.0 graduates all CRD APIs from alpha/beta to v1. SPO 1.1.0 removed the old API versions. This document covers what changed, how to upgrade, and what you should update. For general installation and usage instructions, see the [documentation](../installation-usage.md).
 
 ## API version changes
 
@@ -35,27 +35,67 @@ Several enum fields changed from uppercase/lowercase to PascalCase in v1:
 | SPOD | `spec.enricher.logEnricherSource` | `auditd` | `Auditd` |
 | SPOD | `spec.enricher.logEnricherSource` | `bpf` | `Bpf` |
 
-## Automatic conversion
+## Removal of the old API versions
 
-Conversion webhooks handle translation between old and new API versions
-transparently. This means:
+SPO 1.0.x serves the old API versions (`v1alpha1`, `v1alpha2`, `v1beta1`)
+next to v1 and translates between them using conversion webhooks. v1 is the
+storage version starting with 1.0.0.
 
-- **Old manifests still work.** You can continue applying resources using
-  `v1alpha1`, `v1alpha2`, or `v1beta1` `apiVersion` values. The conversion
-  webhook translates them to v1 before storage.
-- **Old API versions are still served.** `kubectl get` with an old API version
-  returns the resource with old-style enum values, even though v1 is the
-  storage version.
-- **Existing resources in etcd are migrated on next write.** When the operator
-  upgrades, resources stored under old versions are converted to v1 the next
-  time they are updated.
+SPO 1.1.0 removed the old API versions and the conversion webhooks. All CRDs
+serve only v1, which means:
 
-No data is lost during conversion. All fields are preserved across versions.
+- **Old manifests no longer work.** Applying resources with a `v1alpha1`,
+  `v1alpha2` or `v1beta1` `apiVersion` fails. Manifests have to use
+  `security-profiles-operator.x-k8s.io/v1` and the PascalCase enum values.
+- **Old API versions are no longer served.** `kubectl get` and API clients
+  have to use v1.
+- **Direct upgrades from pre-1.0 releases are not supported.** Upgrade to
+  1.0.x first, so that the conversion webhooks are available while the stored
+  objects are migrated to v1. The `olm.skipRange` of the OLM bundle therefore
+  starts at `>=1.0.0`.
+
+## Upgrade path
+
+1. **Upgrade to 1.0.x.** Install the latest 1.0.x release and wait for the
+   operator and the daemon to become ready.
+
+2. **Migrate the stored objects to v1.** Objects written before the upgrade
+   to 1.0.x stay stored in their old API version until they are written again.
+   Rewrite them while the 1.0.x conversion webhooks are still available, for
+   example:
+   ```bash
+   for crd in seccompprofiles selinuxprofiles rawselinuxprofiles \
+     apparmorprofiles profilerecordings profilebindings \
+     securityprofilesoperatordaemons securityprofilenodestatuses; do
+     kubectl get "$crd.security-profiles-operator.x-k8s.io" -A -o json |
+       kubectl replace -f -
+   done
+   ```
+   `kubectl replace` reports an error for resource types without any objects,
+   which can be ignored. Rerun the loop if it reports conflicts, which occur
+   when the operator updates an object at the same time.
+
+   Then remove the old versions from the stored versions of each CRD:
+   ```bash
+   for crd in seccompprofiles selinuxprofiles rawselinuxprofiles \
+     apparmorprofiles profilerecordings profilebindings \
+     securityprofilesoperatordaemons securityprofilenodestatuses; do
+     kubectl patch crd "$crd.security-profiles-operator.x-k8s.io" \
+       --subresource=status --type=merge -p '{"status":{"storedVersions":["v1"]}}'
+   done
+   ```
+   The Kubernetes API server rejects CRD updates which remove a version that is
+   still listed in `status.storedVersions`, so this step is required before
+   installing 1.1.x.
+
+3. **Update your manifests and clients to v1** (see
+   [Recommended actions](#recommended-actions)).
+
+4. **Upgrade to 1.1.x.**
 
 ## Recommended actions
 
-While automatic conversion provides backward compatibility, we recommend
-updating to v1:
+Update everything that references the SPO APIs to v1:
 
 1. **Update YAML manifests.** Change `apiVersion` from
    `security-profiles-operator.x-k8s.io/v1alpha1` (or `v1alpha2`, `v1beta1`)
@@ -77,13 +117,6 @@ updating to v1:
 4. **Update scripts that parse enum strings.** If automation or monitoring
    checks for specific enum string values (e.g., checking SPOD status for
    `"RUNNING"`), update those checks to use PascalCase (`"Running"`).
-
-## Deprecation timeline
-
-Old API versions (`v1alpha1`, `v1alpha2`, `v1beta1`) remain served in 1.0.0
-for backward compatibility. They will be removed in a future release, at least
-one minor version after 1.0.0. Plan to migrate your manifests to v1 before
-that removal.
 
 ## Examples
 

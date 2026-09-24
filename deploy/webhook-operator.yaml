@@ -776,9 +776,9 @@ spec:
                 x-kubernetes-list-type: set
               baseProfileName:
                 description: |-
-                  baseProfileName is the name of base profile (in the same namespace) that
-                  will be unioned into this profile. Base profiles can be references as
-                  remote OCI artifacts as well when prefixed with `oci://`.
+                  baseProfileName is the name of the base profile (a cluster-scoped
+                  SeccompProfile) that will be unioned into this profile. Base profiles can
+                  be referenced as remote OCI artifacts as well when prefixed with `oci://`.
                 type: string
               defaultAction:
                 description: |-
@@ -2817,7 +2817,7 @@ spec:
                   name: container
                 description: |-
                   inherit specifies a SELinuxProfile or set of profiles that this inherits from.
-                  Note that they need to be in the same namespace.
+                  Referenced SelinuxProfiles are cluster-scoped and resolved by name.
                 items:
                   properties:
                     kind:

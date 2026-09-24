@@ -56,15 +56,11 @@ nameOverride: ""
 fullnameOverride: ""
 
 serviceAccount:
-  # Specifies whether a service account should be created
+  # If name is not set, use the generated fullname when create is true and
+  # "default" otherwise
   create: true
-  # Annotations to add to the service account
-  annotations: {}
   # The name of the service account to use.
-  # If not set and create is true, a name is generated using the fullname template
   name: ""
-
-podAnnotations: {}
 
 podSecurityContext: {}
   # fsGroup: 2000
@@ -98,12 +94,10 @@ daemon:
       memory: 64Mi
       ephemeral-storage: 50Mi
 
+# Do not set the replica count of the operator deployment, for example when
+# it is scaled externally
 autoscaling:
   enabled: false
-  minReplicas: 1
-  maxReplicas: 100
-  # targetCPUUtilizationPercentage: 80
-  # targetMemoryUtilizationPercentage: 80
 
 nodeSelector: {}
 

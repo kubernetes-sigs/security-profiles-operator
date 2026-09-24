@@ -15,6 +15,7 @@
   - [Set logging verbosity](#set-logging-verbosity)
   - [Pull images from private registry](#pull-images-from-private-registry)
   - [Configure the SELinux type](#configure-the-selinux-type)
+  - [Configure SELinux support](#configure-selinux-support)
   - [Customise the daemon resource requirements](#customise-the-daemon-resource-requirements)
   - [Restrict the allowed syscalls in seccomp profiles](#restrict-the-allowed-syscalls-in-seccomp-profiles)
   - [Constrain spod scheduling](#constrain-spod-scheduling)
@@ -38,11 +39,15 @@ $ kubectl --namespace cert-manager wait --for condition=ready pod -l app.kuberne
 ```
 
 OpenShift ships its own CA injector which means we can skip installing
-cert-manager. After this step, apply the operator manifest:
+cert-manager. After this step, apply the operator manifest of the desired
+release:
 
 ```sh
-$ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/main/deploy/operator.yaml
+$ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/v1.1.0/deploy/operator.yaml
 ```
+
+The manifests on the `main` branch reference the development images from the
+staging registry and are not meant for production use.
 
 ### Installation using OLM from operatorhub.io
 
@@ -92,17 +97,20 @@ $ kubectl get ip,csv,sub -nsecurity-profiles-operator
 
 The SPO upstream also creates bundles and catalogs for both released versions
 and after every commit to the `main` branch. Provided that your cluster uses OLM
-(see above) you can install SPO using:
+(see above) you can install a released version using:
 
 ```sh
-$ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/main/examples/olm/install-resources.yaml
+$ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/v1.1.0/examples/olm/install-resources.yaml
 ```
+
+The same file on the `main` branch installs the latest development catalog from
+the staging registry.
 
 Note that on OpenShift, the OLM catalogs are deployed into the `openshift-marketplace` namespace, so you'd
 need to replace the namespaces before deploying:
 
 ```shell
-manifest=https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/main/examples/olm/install-resources.yaml
+manifest=https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/v1.1.0/examples/olm/install-resources.yaml
 $ curl $manifest | sed "s#olm#openshift-marketplace#g" | oc apply -f -
 ```
 
@@ -150,7 +158,7 @@ helm install security-profiles-operator --namespace security-profiles-operator h
 To verify a downloaded chart archive before installing it, see
 [verifying the released artifacts](verification.md#helm-chart).
 
-Starting with the next release, the chart is also published as OCI artifact to
+Since v1.1.0, the chart is also published as OCI artifact to
 `registry.k8s.io`, and can be installed with the same preparation from there.
 Note that only the release-attached `.tgz` above can be verified today: the OCI
 chart is packaged separately, so its digest differs from the release archive,
@@ -288,14 +296,34 @@ The `ds/spod` should now be updated by the manager with the new SELinux type, an
             type: unconfined_t
 ```
 
+### Configure SELinux support
+
+Besides `selinux.enable` and `selinux.typeTag`, the `selinux` section of the
+SPOD configuration provides the following settings:
+
+- `enableRawSelinuxProfiles` (default `true`): set it to `false` to not start
+  the `RawSelinuxProfile` controller.
+- `customTemplatesConfigMap`: the name of a ConfigMap in the operator namespace
+  containing `.cil` files which replace the templates bundled with selinuxd.
+  This is useful on distributions like Flatcar Linux, whose SELinux policy base
+  is incompatible with the bundled templates. Changes to the ConfigMap contents
+  require restarting the daemon pods.
+- `options`: restrictions for the `SelinuxProfile` objects, see the
+  [SELinux profile](profiles.md#selinux-profile) section.
+
+```
+kubectl -n security-profiles-operator patch spod spod --type merge -p \
+  '{"spec":{"selinux":{"enableRawSelinuxProfiles":false,"customTemplatesConfigMap":"my-templates"}}}'
+```
+
 ### Customise the daemon resource requirements
 
 The default resource requirements of the daemon container can be adjusted by using the field `daemonResourceRequirements`
 from the SPOD configuration as follows:
 
 ```
-kubectl -n security-profiles-operator patch spod spod --type merge -p
-'{"spec":{"daemonResourceRequirements": {"requests": {"memory": "256Mi", "cpu": "250m"}, "limits": {"memory": "512Mi", "cpu": "500m"}}}}'
+kubectl -n security-profiles-operator patch spod spod --type merge -p \
+  '{"spec":{"daemonResourceRequirements": {"requests": {"memory": "256Mi", "cpu": "250m"}, "limits": {"memory": "512Mi", "cpu": "500m"}}}}'
 ```
 
 These values can also be specified via the Helm chart.
@@ -307,8 +335,8 @@ syscall can be allowed in a seccomp profile installed via the operator. This can
 list of allowed syscalls in the spod configuration as follows:
 
 ```
-kubectl -n security-profiles-operator patch spod spod --type merge -p
-'{"spec":{"security":{"allowedSyscalls": ["exit", "exit_group", "futex", "nanosleep"]}}}'
+kubectl -n security-profiles-operator patch spod spod --type merge -p \
+  '{"spec":{"security":{"allowedSyscalls": ["exit", "exit_group", "futex", "nanosleep"]}}}'
 ```
 
 From now on, the operator will only install the seccomp profiles which have only a subset of syscalls defined
@@ -317,18 +345,28 @@ into the allowed list. All profiles not complying with this rule, it will be rej
 Also every time when the list of allowed syscalls is modified in the spod configuration, the operator will
 automatically identify the already installed profiles which are not compliant and remove them.
 
+By default, the syscalls of all rules using the actions `SCMP_ACT_ALLOW`, `SCMP_ACT_LOG`, `SCMP_ACT_TRACE` and
+`SCMP_ACT_NOTIFY` are checked against the allowed list, and profiles using one of these actions as
+`defaultAction` are rejected. The checked actions can be limited to a subset of them by using
+`security.allowedSeccompActions`:
+
+```
+kubectl -n security-profiles-operator patch spod spod --type merge -p \
+  '{"spec":{"security":{"allowedSeccompActions": ["SCMP_ACT_ALLOW"]}}}'
+```
+
 ### Constrain spod scheduling
 
 You can constrain the spod scheduling via the spod configuration by setting either the `tolerations` or `affinity`.
 
 ```
-kubectl -n security-profiles-operator patch spod spod --type merge -p
-'{"spec":{"scheduling":{"tolerations": [{...}]}}}'
+kubectl -n security-profiles-operator patch spod spod --type merge -p \
+  '{"spec":{"scheduling":{"tolerations": [{...}]}}}'
 ```
 
 ```
-kubectl -n security-profiles-operator patch spod spod --type merge -p
-'{"spec":{"scheduling":{"affinity": {...}}}}'
+kubectl -n security-profiles-operator patch spod spod --type merge -p \
+  '{"spec":{"scheduling":{"affinity": {...}}}}'
 ```
 
 These settings are also available in the Helm chart.
@@ -373,7 +411,7 @@ operator deployment to run in a single namespace, use the
 ```sh
 NAMESPACE=<your-namespace>
 
-curl https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/main/deploy/namespace-operator.yaml | sed "s/NS_REPLACE/$NAMESPACE/g" | kubectl apply -f -
+curl https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/v1.1.0/deploy/namespace-operator.yaml | sed "s/NS_REPLACE/$NAMESPACE/g" | kubectl apply -f -
 ```
 
 #### Restricting to a Single Namespace when installing using OLM
@@ -439,6 +477,11 @@ To view the resulting `MutatingWebhookConfiguration`, call:
 ```shell
 $ kubectl get MutatingWebhookConfiguration spo-mutating-webhook-configuration -oyaml
 ```
+
+The webhook configuration and its related resources can also be deployed statically, for example by using the
+`deploy/webhook-operator.yaml` manifest, which runs the operator with `--webhook=false`. In this case, the operator
+sets `webhook.staticConfig` to `true` in the SPOD it creates, and does not create or update the webhook configuration
+and its related resources, so `webhook.options` do not apply either.
 
 The Exec Metadata and Node Debugging Pod Metadata Webhook works in conjunction with the JSON Log Enricher. It's enabled only when JSON Log Enricher is
 enabled. For details on its configuration, please refer to the [JSON Log Enricher](profiles.md#audit-json-log-enricher) section.

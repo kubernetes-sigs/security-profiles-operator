@@ -14,7 +14,8 @@ The feature scope of the security-profiles-operator is right now limited to:
 - Providing a Command Line Interface `spoc` for use cases not including Kubernetes.
 
 > **Upgrading to v1?** See the [Migration Guide](doc/migration-guide-v1.md) for
-> details on API version changes, enum normalization, and conversion webhooks.
+> details on API version changes, enum normalization, and the required upgrade
+> path through 1.0.x.
 
 ## Architecture
 

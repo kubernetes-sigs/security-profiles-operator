@@ -48,7 +48,7 @@ kubectl rollout restart deployment security-profiles-operator -n security-profil
 Patch the SPOD daemon set to enable the JSON Enricher and filter logs for user activity.
 
 ```bash
-kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{ "enableJsonEnricher":true,"verbosity":0,"jsonEnricherOptions":{"auditLogIntervalSeconds":20,"auditLogPath":"/tmp/logs/audit1.log","auditLogMaxSize":500,"auditLogMaxBackups":2,"auditLogMaxAge":10}, "jsonEnricherFilters":"[{\"priority\":100,\"level\":\"Metadata\",\"matchKeys\":[\"requestUID\"]},{\"priority\":999, \"level\":\"None\",\"matchKeys\":[\"version\"],\"matchValues\":[\"spo/v1_alpha\"]}]"}}'
+kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"verbosity":0,"enricher":{"enableJsonEnricher":true,"jsonEnricherOptions":{"auditLogIntervalSeconds":20,"auditLogPath":"/tmp/logs/audit1.log","auditLogMaxSize":500,"auditLogMaxBackups":2,"auditLogMaxAge":10}, "jsonEnricherFilters":"[{\"priority\":100,\"level\":\"Metadata\",\"matchKeys\":[\"requestUID\"]},{\"priority\":999, \"level\":\"None\",\"matchKeys\":[\"version\"],\"matchValues\":[\"spo/v1_alpha\"]}]"}}}'
 ```
 
 ## Step 4: Create and Apply a Seccomp Profile

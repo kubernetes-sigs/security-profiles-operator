@@ -86,6 +86,20 @@ spec:
         secretName: metrics-server-cert
 ```
 
+Access to the metrics endpoints of the daemon can be made unauthenticated by
+setting `enableInsecureMetricsAccess` in the SPOD configuration. This disables
+TLS and authentication for those endpoints, and the automatically deployed
+`ServiceMonitor` (see below) then scrapes them via HTTP. Only use this in
+trusted environments:
+
+```
+> kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableInsecureMetricsAccess":true}}'
+```
+
+Setting the environment variable `ENABLE_INSECURE_METRICS_ACCESS=true` in the
+operator deployment makes the daemon endpoints unauthenticated as well, but
+does not switch the `ServiceMonitor` to HTTP, so prefer the SPOD field.
+
 ### Available metrics
 
 The controller-runtime (`/metrics`) as well as the DaemonSet endpoint
