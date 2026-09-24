@@ -50,7 +50,11 @@ ENV ENV=/etc/profile \
   NIX_SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
   NIX_PATH=/nix/var/nix/profiles/per-user/root/channels
 
-RUN nix-env -iA cachix -f https://cachix.org/api/v1/install && \
+# Cachix comes from the nixpkgs revision locked in flake.lock, which nix
+# verifies by its narHash.
+COPY flake.nix flake.lock /flake/
+RUN nix-env -i "$(nix build --inputs-from path:/flake nixpkgs#cachix --no-link --print-out-paths)" && \
+  rm -rf /flake && \
   cachix use security-profiles-operator && \
   nix-collect-garbage --delete-old -d && \
   nix-store --optimise && \

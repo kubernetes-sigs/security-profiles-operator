@@ -8,7 +8,6 @@ on:
   pull_request:
 env:
   NIX_VERSION: '2.35.2'
-  BOM_VERSION: v0.8.0
 # Runs on main and releases publish images, spoc binaries and the SBOM, so only
 # pull request runs are cancelled by newer pushes.
 concurrency:
@@ -52,7 +51,7 @@ jobs:
       - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
         with:
           name: security-profiles-operator
-          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+          authToken: "${{ github.event_name == 'push' && secrets.CACHIX_AUTH_TOKEN || '' }}"
           pushFilter: security-profiles-operator
       - run: make nix-${{ matrix.arch }}
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -82,7 +81,7 @@ jobs:
       - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
         with:
           name: security-profiles-operator
-          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+          authToken: "${{ github.event_name == 'push' && secrets.CACHIX_AUTH_TOKEN || '' }}"
           pushFilter: security-profiles-operator
       - run: nix build .#spoc-${{ matrix.arch }}
 
@@ -95,12 +94,11 @@ jobs:
           - arm64
           - ppc64le
           - s390x
-    if: github.ref == 'refs/heads/main' || contains(github.ref, 'refs/tags')
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
     name: nix / spoc / push / ${{ matrix.arch }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
-      contents: write  # required for updating the release
       id-token: write  # required for sigstore signing
     steps:
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
@@ -113,21 +111,14 @@ jobs:
       - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
         with:
           name: security-profiles-operator
-          # Pull-only for release builds: this job produces the binaries that
-          # ship, so it should not also hold a credential that can write to the
-          # binary cache those binaries are substituted from.
-          authToken: "${{ !startsWith(github.ref, 'refs/tags/') && secrets.CACHIX_AUTH_TOKEN || '' }}"
-          pushFilter: security-profiles-operator
+          # Pull-only: this job produces the binaries that ship, so it never
+          # holds a credential that can write to the binary cache. The binaries
+          # themselves are always built from source.
       - run: make nix-spoc-${{ matrix.arch }}
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: spoc-${{ matrix.arch }}
           path: |
-            build/*
-      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
-        if: startsWith(github.ref, 'refs/tags/')
-        with:
-          files: |
             build/*
 
   provenance-subjects:
@@ -143,26 +134,22 @@ jobs:
 
   spoc-sbom:
     needs: nix-spoc-push
-    if: github.ref == 'refs/heads/main' || contains(github.ref, 'refs/tags')
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
     name: spoc / sbom
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
       attestations: write  # required for the build provenance
-      contents: write  # required for updating the release
       id-token: write  # required for sigstore signing
     steps:
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: ./go.mod
-      - run: |
-          sudo curl -sSfL --retry 5 --retry-delay 3 -o /usr/bin/bom \
-            https://github.com/kubernetes-sigs/bom/releases/download/${{ env.BOM_VERSION }}/bom-amd64-linux
-          sudo chmod +x /usr/bin/bom
+      - name: Install bom
+        run: |
+          source hack/lib/common.sh
+          sudo install -m 0755 "$(bom_bin)" /usr/bin/bom
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: spoc-*
@@ -188,13 +175,27 @@ jobs:
             build/spoc.spdx.json
             build/spoc.spdx.json.sigstore.json
             build/spoc.intoto.jsonl
+
+  # The only job that can write to the release. It runs no repository code, it
+  # uploads the binaries, signatures, SBOM and provenance of the jobs above.
+  spoc-release:
+    needs: spoc-sbom
+    if: startsWith(github.ref, 'refs/tags/')
+    name: spoc / release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write  # required for updating the release
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: spoc-*
+          path: build
+          merge-multiple: true
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
-        if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
-            build/spoc.spdx.json
-            build/spoc.spdx.json.sigstore.json
-            build/spoc.intoto.jsonl
+            build/*
 
   bpf:
     runs-on: ubuntu-24.04
@@ -212,7 +213,7 @@ jobs:
       - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
         with:
           name: security-profiles-operator
-          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+          authToken: "${{ github.event_name == 'push' && secrets.CACHIX_AUTH_TOKEN || '' }}"
           pushFilter: security-profiles-operator
       - run: make verify-bpf
 

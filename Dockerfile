@@ -15,7 +15,7 @@
 # Pinned by digest: a mutable tag here means the toolchain that compiles every
 # released binary can be replaced remotely without any change in this repo, and
 # the provenance would still verify. Bump together with the build image.
-ARG BUILD_IMAGE=quay.io/security-profiles-operator/build@sha256:b2cf855f3f56e1c393233d1bccf49965a17914863a6835633899e71b9218762f
+ARG BUILD_IMAGE=quay.io/security-profiles-operator/build@sha256:4eb34d389b920396114362cdf2ad8a56cb6e95cc471295ec40f9faf9d1a9a188
 
 # The build stages run on the build platform, nix cross compiles for the target.
 FROM --platform=$BUILDPLATFORM $BUILD_IMAGE AS build
@@ -25,7 +25,11 @@ COPY . /work
 FROM build AS make
 
 ARG target=default
-RUN nix build path:.#$target --extra-experimental-features 'nix-command flakes'
+# The binaries are always built from source. Only their dependencies (the
+# inputDerivation closure) may come from the binary caches, so that a poisoned
+# cache entry cannot stand in for them.
+RUN nix build path:.#$target.inputDerivation --no-link --extra-experimental-features 'nix-command flakes' && \
+  nix build path:.#$target --option substitute false --extra-experimental-features 'nix-command flakes'
 
 FROM scratch
 ARG version

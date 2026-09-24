@@ -23,13 +23,14 @@
 # none.
 #
 # Maintainers assess findings in the OpenVEX document .openvex.json. Its
-# statement replaces the assessment of a found vulnerability with the same name
-# when one of its products is the image purl without version. A not_affected
-# statement needs a justification or an impact statement. Statements claiming
-# that the vulnerable code or component is not present are ignored with a
-# warning when govulncheck observes the vulnerable symbols, because the claim is
-# outdated then. Affected statements without an action statement name the
-# module, the fixed version if there is one, and the vulnerability entry.
+# statement replaces the assessment of a found vulnerability whose name or one
+# of its aliases it names, when one of its products is the image purl without
+# version. A not_affected statement needs a justification or an impact
+# statement. Statements claiming that the vulnerable code or component is not
+# present are ignored with a warning when govulncheck observes the vulnerable
+# symbols, because the claim is outdated then. Affected statements without an
+# action statement name the module, the fixed version if there is one, and the
+# vulnerability entry.
 #
 # Symbols are only observed when the binary carries a symbol table. Without one
 # govulncheck falls back to module level and reports the packages and symbols of
@@ -114,17 +115,24 @@ for ref in "$@"; do
     echo "WARNING: binaries of $ref have no symbol table, govulncheck can only report which vulnerable modules they contain" >&2
   fi
 
+  # The aliases of each vulnerability, assessments may name any of them.
+  aliases=$("$(jq_bin)" -s \
+    'map(select(.osv) | {key: .osv.id, value: (.osv.aliases // [])}) | from_entries' \
+    "$scans/findings.json")
+
   outdated=$("$(jq_bin)" -rs \
     --slurpfile assessments "$VEX_FILE" \
     --argjson observed "$observed" \
+    --argjson aliases "$aliases" \
     --arg genericProduct "pkg:oci/$name" \
     '[.[] | (.statements // [])[] | select(.status == "affected") | .vulnerability.name]
     | unique[] as $found
     | select($found | IN($observed[]))
-    | $assessments[0].statements[]
-    | select(.vulnerability.name == $found
+    | ([$found] + ($aliases[$found] // [])) as $names
+    | select(any($assessments[0].statements[];
+        (.vulnerability.name | IN($names[]))
         and any(.products[]; ."@id" == $genericProduct)
-        and (.justification | IN("vulnerable_code_not_present", "component_not_present")))
+        and (.justification | IN("vulnerable_code_not_present", "component_not_present"))))
     | $found' "$scans"/*.openvex.json)
   for vulnerability in $outdated; do
     echo "WARNING: govulncheck observes $vulnerability in $ref, ignoring its outdated assessment in $VEX_FILE" >&2
@@ -135,6 +143,7 @@ for ref in "$@"; do
     --slurpfile assessments "$VEX_FILE" \
     --slurpfile findings "$scans/findings.json" \
     --argjson observed "$observed" \
+    --argjson aliases "$aliases" \
     --arg genericProduct "pkg:oci/$name" \
     --arg id "https://console.cloud.google.com/cloud-build/builds/${BUILD_ID:-local}#$name-vex" \
     --arg author "$REPOSITORY_URL/blob/main/hack/attest-vulns.sh" \
@@ -157,8 +166,9 @@ for ref in "$@"; do
                 subcomponents: ([.[].products[].subcomponents[]?] | unique)
               }]}
             | .vulnerability.name as $name
+            | ([$name] + ($aliases[$name] // [])) as $names
             | ($assessments[0].statements
-                | map(select(.vulnerability.name == $name
+                | map(select((.vulnerability.name | IN($names[]))
                     and any(.products[]; ."@id" == $genericProduct)))
                 | last) as $assessment
             | if $assessment != null

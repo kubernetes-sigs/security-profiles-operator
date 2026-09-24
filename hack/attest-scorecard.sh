@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Signs the given image references keylessly by digest. The signatures are
 # Attests the latest OpenSSF Scorecard result of this repository
 # (https://scorecard.dev/result/v0.1, the provisional predicate type that
 # verifiers like nri-supply-chain recognize) for each given image digest. The
