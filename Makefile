@@ -20,6 +20,16 @@ REPO_INFRA_VERSION = v0.2.6
 KUSTOMIZE_VERSION = 5.8.1
 OPERATOR_SDK_VERSION ?= v1.42.3
 OPM_VERSION ?= v1.73.0
+# Checksums of the operator-sdk and opm release binaries per GOOS_GOARCH, bump
+# them together with the versions above.
+OPERATOR_SDK_SHA256_linux_amd64 = 887a3bb0d63ccc4ca47a522d0c8ffac56d9d5246f6a2bd886b4ed23eb2e2672f
+OPERATOR_SDK_SHA256_linux_arm64 = 6db93cd821b429f0bb514cea4bbb5553827d273fc8aa211f13e14798599d31cd
+OPERATOR_SDK_SHA256_darwin_amd64 = 7cb0f24bb63b6383a117291ee4c808953c5dd789d5877da98051aa68b41f40ac
+OPERATOR_SDK_SHA256_darwin_arm64 = 098ae8b9dbe7dfd557e8e7ed0f1996736922dd4b984621df2aa033f225cae161
+OPM_SHA256_linux_amd64 = cc0768c3ca915ad1fb72f88ad7cfcb533870fdbb6af83de290b66a5439a28140
+OPM_SHA256_linux_arm64 = e6996b9d87d7a6844b721e055bb8cdf8437c4eaeed1e824a26860acab933cf94
+OPM_SHA256_darwin_amd64 = 4450ec3486a857c86f263f1776b5ca97dd9e209f6711687de2d0e1641d248e76
+OPM_SHA256_darwin_arm64 = 4fc7d0c692e94f1c9e79b6c5b18006901f750bd730412860f77e2b49c83ddd26
 ZEITGEIST_VERSION = v0.8.0
 MDTOC_VERSION = v1.4.0
 GOVULNCHECK_VERSION = v1.8.0
@@ -258,8 +268,12 @@ nix-s390x: ## Build the binaries via nix for s390x
 
 SPOC_ARCHES := amd64 arm64 ppc64le s390x
 
+# The released binaries are always built from source. Only their dependencies
+# (the inputDerivation closure) may come from the binary caches, so that a
+# poisoned cache entry cannot stand in for them.
 define nix-build-sign-spoc-to
-	$(NIX) build .#spoc-$(1)
+	$(NIX) build --no-link .#spoc-$(1).inputDerivation
+	$(NIX) build --option substitute false .#spoc-$(1)
 	cp -f result/spoc $(BUILD_DIR)/spoc.$(1)
 	cosign sign-blob -y \
 		$(BUILD_DIR)/spoc.$(1) \
@@ -271,17 +285,14 @@ endef
 nix-spoc: nix-spoc-amd64 nix-spoc-arm64 nix-spoc-ppc64le nix-spoc-s390x ## Build all spoc binaries via nix.
 	$(MAKE) spoc-sbom
 
+# bom lists the Go modules from the build information embedded in the
+# binaries, so the SBOM has the versions that were actually built in.
 .PHONY: spoc-sbom
 spoc-sbom: ## Generate and sign the SBOM for the spoc binaries in the build directory
 	bom version
-	go mod download
-	GOFLAGS=-mod=mod bom generate \
+	bom generate \
 		--format spdx3-json \
 		--name spoc \
-		-d . \
-		--ignore '*' \
-		--ignore '!go.mod' \
-		--ignore '!go.sum' \
 		$(foreach arch,$(SPOC_ARCHES),-f $(BUILD_DIR)/spoc.$(arch)) \
 		-o $(BUILD_DIR)/spoc.spdx.json
 	cosign sign-blob -y \
@@ -582,6 +593,10 @@ generate:
 ## Bundle packaging begins here
 ## read more at https://sdk.operatorframework.io/docs/olm-integration/tutorial-bundle/
 
+# The GOOS_GOARCH of the downloaded tools, which selects their checksum.
+TOOLS_PLATFORM = $(shell go env GOOS)_$(shell go env GOARCH)
+SHA256SUM ?= $(shell command -v sha256sum 2>/dev/null || echo shasum -a 256)
+
 .PHONY: operator-sdk
 OPERATOR_SDK = $(BUILD_DIR)/operator-sdk
 operator-sdk: $(BUILD_DIR) ## Download sdk locally if necessary.
@@ -590,9 +605,10 @@ ifeq (,$(shell which operator-sdk 2>/dev/null))
 	@{ \
 	set -e ;\
 	mkdir -p $(dir $(OPERATOR_SDK)) ;\
-	OS=$(shell go env GOOS) && ARCH=$(shell go env GOARCH) && \
-	curl -sSLo $(OPERATOR_SDK) https://github.com/operator-framework/operator-sdk/releases/download/${OPERATOR_SDK_VERSION}/operator-sdk_$${OS}_$${ARCH} ;\
-	chmod +x $(OPERATOR_SDK) ;\
+	curl -sSfLo $(OPERATOR_SDK).download https://github.com/operator-framework/operator-sdk/releases/download/$(OPERATOR_SDK_VERSION)/operator-sdk_$(TOOLS_PLATFORM) ;\
+	echo "$(OPERATOR_SDK_SHA256_$(TOOLS_PLATFORM))  $(OPERATOR_SDK).download" | $(SHA256SUM) -c - ;\
+	chmod +x $(OPERATOR_SDK).download ;\
+	mv $(OPERATOR_SDK).download $(OPERATOR_SDK) ;\
 	}
 else
 OPERATOR_SDK = $(shell which operator-sdk)
@@ -674,9 +690,10 @@ ifeq (,$(shell which opm 2>/dev/null))
 	@{ \
 	set -e ;\
 	mkdir -p $(dir $(OPM)) ;\
-	OS=$(shell go env GOOS) && ARCH=$(shell go env GOARCH) && \
-	curl -sSLo $(OPM) https://github.com/operator-framework/operator-registry/releases/download/$(OPM_VERSION)/$${OS}-$${ARCH}-opm ;\
-	chmod +x $(OPM) ;\
+	curl -sSfLo $(OPM).download https://github.com/operator-framework/operator-registry/releases/download/$(OPM_VERSION)/$(subst _,-,$(TOOLS_PLATFORM))-opm ;\
+	echo "$(OPM_SHA256_$(TOOLS_PLATFORM))  $(OPM).download" | $(SHA256SUM) -c - ;\
+	chmod +x $(OPM).download ;\
+	mv $(OPM).download $(OPM) ;\
 	}
 else
 OPM = $(shell which opm)
@@ -697,6 +714,10 @@ CATALOG_IMG ?= $(PROJECT)-catalog:v$(VERSION)
 CATALOG_BUNDLE_REPO ?=
 BUNDLE_REPO = $(firstword $(subst @, ,$(BUNDLE_IMGS)))
 
+# The base and builder image of the catalog, opm defaults to its latest tag.
+# Bump together with OPM_VERSION.
+OPM_IMAGE ?= quay.io/operator-framework/opm:$(OPM_VERSION)@sha256:e5a6220603fb4504d58c6e3e488386b817e3695c906a62ee0370b5faedc3799a
+
 # Build a catalog image by adding bundle images to an empty catalog using the operator package manager tool, 'opm'.
 # This target uses the file-based catalog format (https://olm.operatorframework.io/docs/reference/file-based-catalogs/)
 .PHONY: catalog-build
@@ -710,7 +731,7 @@ ifneq ($(CATALOG_BUNDLE_REPO),)
 	$(SED) 's#"$(BUNDLE_REPO)@sha256:#"$(CATALOG_BUNDLE_REPO)@sha256:#g' $(TMP_DIR)/security-profiles-operator-catalog.json
 	! grep -F '"$(BUNDLE_REPO)@' $(TMP_DIR)/security-profiles-operator-catalog.json
 endif
-	XDG_RUNTIME_DIR=$(TMP_DIR) $(OPM) generate dockerfile $(TMP_DIR)
+	XDG_RUNTIME_DIR=$(TMP_DIR) $(OPM) generate dockerfile -i $(OPM_IMAGE) -b $(OPM_IMAGE) $(TMP_DIR)
 	$(CONTAINER_RUNTIME) build -f $(CATALOG_DOCKERFILE) -t $(CATALOG_IMG) $(shell dirname $(TMP_DIR))
 	rm -rf $(TMP_DIR) $(CATALOG_DOCKERFILE)
 

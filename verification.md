@@ -67,7 +67,9 @@ both, here for `amd64`:
     spoc.amd64
 > gh attestation verify spoc.amd64 \
     --bundle spoc.intoto.jsonl \
-    --repo kubernetes-sigs/security-profiles-operator
+    --repo kubernetes-sigs/security-profiles-operator \
+    --signer-workflow kubernetes-sigs/security-profiles-operator/.github/workflows/build.yml \
+    --source-ref refs/tags/$VERSION
 ```
 
 The release also carries a `.sha512` sum per binary.
@@ -87,7 +89,9 @@ provenance:
     spoc.spdx.json
 > gh attestation verify spoc.spdx.json \
     --bundle spoc.intoto.jsonl \
-    --repo kubernetes-sigs/security-profiles-operator
+    --repo kubernetes-sigs/security-profiles-operator \
+    --signer-workflow kubernetes-sigs/security-profiles-operator/.github/workflows/build.yml \
+    --source-ref refs/tags/$VERSION
 ```
 
 ## Helm chart
@@ -102,7 +106,9 @@ The chart archive attached to the release is signed by the
     --bundle security-profiles-operator-${VERSION#v}.tgz.sigstore.json \
     security-profiles-operator-${VERSION#v}.tgz
 > gh attestation verify security-profiles-operator-${VERSION#v}.tgz \
-    --repo kubernetes-sigs/security-profiles-operator
+    --repo kubernetes-sigs/security-profiles-operator \
+    --signer-workflow kubernetes-sigs/security-profiles-operator/.github/workflows/helm-chart-package.yaml \
+    --source-ref refs/tags/$VERSION
 ```
 
 The chart is also published as an OCI artifact to `registry.k8s.io`. It is

@@ -33,11 +33,68 @@ dependencies:
     - path: Makefile
       match: "^OPERATOR_SDK_VERSION"
 
+  # Must be bumped together with operator-sdk above.
+  - name: operator-sdk-sha256-linux-amd64
+    version: 887a3bb0d63ccc4ca47a522d0c8ffac56d9d5246f6a2bd886b4ed23eb2e2672f
+    refPaths:
+    - path: Makefile
+      match: "^OPERATOR_SDK_SHA256_linux_amd64"
+
+  - name: operator-sdk-sha256-linux-arm64
+    version: 6db93cd821b429f0bb514cea4bbb5553827d273fc8aa211f13e14798599d31cd
+    refPaths:
+    - path: Makefile
+      match: "^OPERATOR_SDK_SHA256_linux_arm64"
+
+  - name: operator-sdk-sha256-darwin-amd64
+    version: 7cb0f24bb63b6383a117291ee4c808953c5dd789d5877da98051aa68b41f40ac
+    refPaths:
+    - path: Makefile
+      match: "^OPERATOR_SDK_SHA256_darwin_amd64"
+
+  - name: operator-sdk-sha256-darwin-arm64
+    version: 098ae8b9dbe7dfd557e8e7ed0f1996736922dd4b984621df2aa033f225cae161
+    refPaths:
+    - path: Makefile
+      match: "^OPERATOR_SDK_SHA256_darwin_arm64"
+
   - name: opm
     version: v1.73.0
     refPaths:
     - path: Makefile
       match: "^OPM_VERSION"
+
+  # Must be bumped together with opm above.
+  - name: opm-sha256-linux-amd64
+    version: cc0768c3ca915ad1fb72f88ad7cfcb533870fdbb6af83de290b66a5439a28140
+    refPaths:
+    - path: Makefile
+      match: "^OPM_SHA256_linux_amd64"
+
+  - name: opm-sha256-linux-arm64
+    version: e6996b9d87d7a6844b721e055bb8cdf8437c4eaeed1e824a26860acab933cf94
+    refPaths:
+    - path: Makefile
+      match: "^OPM_SHA256_linux_arm64"
+
+  - name: opm-sha256-darwin-amd64
+    version: 4450ec3486a857c86f263f1776b5ca97dd9e209f6711687de2d0e1641d248e76
+    refPaths:
+    - path: Makefile
+      match: "^OPM_SHA256_darwin_amd64"
+
+  - name: opm-sha256-darwin-arm64
+    version: 4fc7d0c692e94f1c9e79b6c5b18006901f750bd730412860f77e2b49c83ddd26
+    refPaths:
+    - path: Makefile
+      match: "^OPM_SHA256_darwin_arm64"
+
+  # Must be bumped together with opm above.
+  - name: opm-image-digest
+    version: sha256:e5a6220603fb4504d58c6e3e488386b817e3695c906a62ee0370b5faedc3799a
+    refPaths:
+    - path: Makefile
+      match: "^OPM_IMAGE"
 
   - name: olm
     version: v0.46.0
@@ -114,7 +171,7 @@ dependencies:
       match: tag
 
   - name: build-image
-    version: sha256:b2cf855f3f56e1c393233d1bccf49965a17914863a6835633899e71b9218762f
+    version: sha256:4eb34d389b920396114362cdf2ad8a56cb6e95cc471295ec40f9faf9d1a9a188
     refPaths:
     - path: Dockerfile
       match: "^ARG BUILD_IMAGE="
@@ -136,6 +193,13 @@ dependencies:
 
   - name: gcb-docker-gcloud
     version: v20260205-38cfa9523f
+    refPaths:
+    - path: cloudbuild.yaml
+      match: gcr.io/k8s-staging-test-infra/gcb-docker-gcloud
+
+  # Must be bumped together with gcb-docker-gcloud above.
+  - name: gcb-docker-gcloud-digest
+    version: sha256:ff388e0dc16351e96f8464e2e185b74a7578a5ccb7a112cf3393468e59e6e2d2
     refPaths:
     - path: cloudbuild.yaml
       match: gcr.io/k8s-staging-test-infra/gcb-docker-gcloud
@@ -203,8 +267,6 @@ dependencies:
   - name: bom
     version: v0.8.0
     refPaths:
-    - path: .github/workflows/build.yml
-      match: "BOM_VERSION:"
     - path: hack/lib/common.sh
       match: "^BOM_VERSION="
 

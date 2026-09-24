@@ -42,16 +42,22 @@ signing_enabled() {
 }
 
 # Downloads a static binary once, verifies its checksum and prints its path.
+# Callers run it in a command substitution, where bash ignores errexit, so every
+# failure returns explicitly and prints no path.
 download_tool() {
   local name="$1" url="$2" sha256="$3" path="$TOOLS_DIR/$1" download
 
   if [[ ! -x "$path" ]]; then
-    mkdir -p "$TOOLS_DIR"
-    download="$(mktemp "$path.XXXXXX")"
-    curl -sSfL --retry 5 --retry-delay 3 -o "$download" "$url"
-    echo "$sha256  $download" | sha256sum -c - >&2
-    chmod +x "$download"
-    mv "$download" "$path"
+    mkdir -p "$TOOLS_DIR" || return 1
+    download="$(mktemp "$path.XXXXXX")" || return 1
+    if ! curl -sSfL --retry 5 --retry-delay 3 -o "$download" "$url" ||
+      ! echo "$sha256  $download" | sha256sum -c - >&2; then
+      rm -f "$download"
+      echo "Failed to download and verify $name from $url" >&2
+      return 1
+    fi
+    chmod +x "$download" || return 1
+    mv "$download" "$path" || return 1
   fi
 
   echo "$path"

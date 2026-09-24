@@ -41,14 +41,10 @@ BUILD_IMAGE=$(resolve_digest "$(sed -n 's/^ARG BUILD_IMAGE=//p' Dockerfile)")
 echo "$BUILD_IMAGE" > build/build-image
 
 # The build image is the toolchain that compiles the released binaries, so
-# verify it is the one this project published before building against it.
-#
-# Off by default until the chicken and egg is resolved: the digest pinned in
-# Dockerfile predates build image signing, so nothing has signed it yet. Once
-# main has published a signed build image and ARG BUILD_IMAGE is re-pinned to
-# that digest, flip this default to true.
-if [[ "${VERIFY_BUILD_IMAGE:-false}" == "true" ]]; then
-    : "${BUILD_IMAGE_IDENTITY_REGEXP:=^https://github\.com/kubernetes-sigs/security-profiles-operator/}"
+# verify it is the one this project published before building against it: the
+# build workflow signs it on pushes to main.
+if [[ "${VERIFY_BUILD_IMAGE:-true}" == "true" ]]; then
+    : "${BUILD_IMAGE_IDENTITY_REGEXP:=^https://github\.com/kubernetes-sigs/security-profiles-operator/\.github/workflows/build\.yml@refs/heads/main$}"
     : "${BUILD_IMAGE_OIDC_ISSUER_REGEXP:=^https://token\.actions\.githubusercontent\.com$}"
 
     "$(cosign_bin)" verify \
