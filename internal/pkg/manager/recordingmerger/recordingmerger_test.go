@@ -25,7 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -108,7 +108,7 @@ func newMergeReconciler(t *testing.T, objs ...client.Object) *PolicyMergeReconci
 			WithObjects(objs...).
 			Build(),
 		log:    logr.Discard(),
-		record: record.NewFakeRecorder(20),
+		record: events.NewFakeRecorder(20),
 	}
 }
 

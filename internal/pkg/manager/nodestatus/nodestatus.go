@@ -34,7 +34,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -70,7 +69,7 @@ type StatusReconciler struct {
 	client client.Client
 	reader client.Reader
 	log    logr.Logger
-	record record.EventRecorder
+	record util.EventRecorder
 }
 
 // Name returns the name of the controller.
@@ -128,7 +127,15 @@ func (r *StatusReconciler) Reconcile(
 
 	prof, getProfErr := r.getProfileFromStatus(ctx, instance)
 	if getProfErr != nil {
-		r.record.Event(instance, v1.EventTypeWarning, "ReconcileError", getProfErr.Error())
+		r.record.Eventf(
+			instance,
+			nil,
+			v1.EventTypeWarning,
+			"ReconcileError",
+			util.EventActionReconcile,
+			"%s",
+			getProfErr.Error(),
+		)
 
 		return reconcile.Result{}, getProfErr
 	}
@@ -155,7 +162,14 @@ func (r *StatusReconciler) Reconcile(
 	profLabel := instance.Labels[secprofnodestatusapi.StatusToProfLabel]
 	if profLabel == "" {
 		logger.Info("Skipping unlabeled node status, will not requeue")
-		r.record.Event(instance, v1.EventTypeWarning, "ReconcileError", "unlabeled node status")
+		r.record.Eventf(
+			instance,
+			nil,
+			v1.EventTypeWarning,
+			"ReconcileError",
+			util.EventActionReconcile,
+			"unlabeled node status",
+		)
 
 		return reconcile.Result{}, nil
 	}
@@ -164,8 +178,13 @@ func (r *StatusReconciler) Reconcile(
 		prof,
 	) != instance.Labels[secprofnodestatusapi.StatusToProfLabel] {
 		logger.Info("Status doesn't match owner, will not requeue")
-		r.record.Event(
-			instance, v1.EventTypeWarning, "ReconcileError", "status doesn't match owner",
+		r.record.Eventf(
+			instance,
+			nil,
+			v1.EventTypeWarning,
+			"ReconcileError",
+			util.EventActionReconcile,
+			"status doesn't match owner",
 		)
 
 		return reconcile.Result{}, nil

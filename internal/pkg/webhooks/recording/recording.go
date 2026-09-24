@@ -30,7 +30,6 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation"
-	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -38,6 +37,7 @@ import (
 
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
 
@@ -50,7 +50,7 @@ type podSeccompRecorder struct {
 func RegisterWebhook(
 	server webhook.Server,
 	scheme *runtime.Scheme,
-	rec record.EventRecorder,
+	rec util.EventRecorder,
 	c client.Client,
 ) {
 	server.Register(
@@ -273,8 +273,10 @@ func (p *podSeccompRecorder) updateSeccompSecurityContext(
 	} else {
 		p.record.Eventf(
 			pr,
+			nil,
 			corev1.EventTypeWarning,
 			"SecurityContextAlreadySet",
+			util.EventActionMutate,
 			"Container %s had SecurityContext already set, the profile recorder overwrote it",
 			ctr.Name,
 		)
@@ -302,8 +304,10 @@ func (p *podSeccompRecorder) updateSelinuxSecurityContext(
 	} else {
 		p.record.Eventf(
 			pr,
+			nil,
 			corev1.EventTypeWarning,
 			"SecurityContextAlreadySet",
+			util.EventActionMutate,
 			"Container %s had SecurityContext already set, the profile recorder overwrote it",
 			ctr.Name,
 		)
@@ -321,8 +325,10 @@ func (p *podSeccompRecorder) updateApparmorSecurityContext(
 	}
 
 	p.record.Eventf(pr,
+		nil,
 		corev1.EventTypeWarning,
 		"AppArmorNotSupported",
+		util.EventActionMutate,
 		"AppArmor log-based recording is not supported, container: %s", ctr.Name)
 }
 
@@ -342,8 +348,10 @@ func (p *podSeccompRecorder) warnEventIfContainerPrivileged(
 
 	p.record.Eventf(
 		profileRecording,
+		nil,
 		corev1.EventTypeWarning,
 		"PrivilegedContainer",
+		util.EventActionMutate,
 		"Container %s in pod %s is privileged, cannot use log-based profile recording",
 		ctr.Name,
 		pod.Name,
@@ -361,8 +369,10 @@ func (p *podSeccompRecorder) warnEventIfNameTooLong(
 	}
 
 	p.record.Eventf(profileRecording,
+		nil,
 		corev1.EventTypeWarning,
 		"NameNotDNSLabel",
+		util.EventActionMutate,
 		"The recording name %s is not a DNS1123 label and can't be used as a label: %s",
 		profileRecording.Name,
 		strings.Join(errs, ","))

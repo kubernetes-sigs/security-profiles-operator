@@ -37,7 +37,6 @@ import (
 	apiruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -114,7 +113,7 @@ type Reconciler struct {
 	impl
 	client       client.Client
 	log          logr.Logger
-	record       record.EventRecorder
+	record       util.EventRecorder
 	save         saver
 	metrics      *metrics.Metrics
 	baseProfiles *ttlcache.Cache[string, *seccompprofileapi.SeccompProfile]
@@ -182,8 +181,7 @@ func (r *Reconciler) Setup(
 ) error {
 	r.client = mgr.GetClient()
 	r.log = ctrl.Log.WithName(r.Name())
-	//nolint:staticcheck // TODO: migrate to GetEventRecorder
-	r.record = mgr.GetEventRecorderFor("profile")
+	r.record = util.NewEventRecorder(mgr, "profile")
 	r.save = saveProfileOnDisk
 	r.metrics = met
 
@@ -282,13 +280,12 @@ func (r *Reconciler) checkSeccomp() error {
 
 		if r.record != nil {
 			r.metrics.IncSeccompProfileError(reasonSeccompNotSupported)
-			r.record.AnnotatedEventf(
-				&seccompprofileapi.SeccompProfile{},
-				map[string]string{
-					os.Getenv(config.NodeNameEnvKey): "node does not support seccomp",
-				},
+			r.record.Eventf(
+				util.EventNode(os.Getenv(config.NodeNameEnvKey)),
+				nil,
 				util.EventTypeWarning,
 				reasonSeccompNotSupported,
+				util.EventActionInstall,
 				"%s",
 				err.Error(),
 			)
@@ -312,6 +309,7 @@ func (r *Reconciler) checkSeccomp() error {
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=events,verbs=create;get;patch;update
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch;update
 
 // OpenShift ... This is ignored in other distros
 //nolint:lll // required for kubebuilder
@@ -470,6 +468,7 @@ func (r *Reconciler) resolveSyscallsForProfile(
 					sp,
 					util.EventTypeWarning,
 					reasonCannotPullProfile,
+					util.EventActionInstall,
 					err.Error(),
 				)
 
@@ -502,6 +501,7 @@ func (r *Reconciler) resolveSyscallsForProfile(
 				sp,
 				util.EventTypeWarning,
 				reasonInvalidSeccompProfile,
+				util.EventActionInstall,
 				err.Error(),
 			)
 
@@ -554,7 +554,15 @@ func (r *Reconciler) reconcileSeccompProfile(
 	if err := r.validateProfile(ctx, outputProfile); err != nil {
 		l.Error(err, "validate profile")
 		r.metrics.IncSeccompProfileError(reasonProfileNotAllowed)
-		r.record.Event(sp, util.EventTypeWarning, reasonProfileNotAllowed, err.Error())
+		r.record.Eventf(
+			sp,
+			nil,
+			util.EventTypeWarning,
+			reasonProfileNotAllowed,
+			util.EventActionInstall,
+			"%s",
+			err.Error(),
+		)
 
 		return reconcile.Result{}, fmt.Errorf("validating profile: %w", err)
 	}
@@ -565,7 +573,15 @@ func (r *Reconciler) reconcileSeccompProfile(
 	if err != nil {
 		l.Error(err, "cannot validate profile", "profile", profileName)
 		r.metrics.IncSeccompProfileError(reasonInvalidSeccompProfile)
-		r.record.Event(sp, util.EventTypeWarning, reasonInvalidSeccompProfile, err.Error())
+		r.record.Eventf(
+			sp,
+			nil,
+			util.EventTypeWarning,
+			reasonInvalidSeccompProfile,
+			util.EventActionInstall,
+			"%s",
+			err.Error(),
+		)
 
 		return reconcile.Result{}, fmt.Errorf("cannot validate profile: %w", err)
 	}
@@ -594,7 +610,15 @@ func (r *Reconciler) reconcileSeccompProfile(
 	if err != nil {
 		l.Error(err, "cannot save profile into disk")
 		r.metrics.IncSeccompProfileError(reasonCannotSaveProfile)
-		r.record.Event(sp, util.EventTypeWarning, reasonCannotSaveProfile, err.Error())
+		r.record.Eventf(
+			sp,
+			nil,
+			util.EventTypeWarning,
+			reasonCannotSaveProfile,
+			util.EventActionInstall,
+			"%s",
+			err.Error(),
+		)
 
 		return reconcile.Result{}, fmt.Errorf("cannot save profile into disk: %w", err)
 	}
@@ -603,7 +627,15 @@ func (r *Reconciler) reconcileSeccompProfile(
 		evstr := "Successfully saved profile to disk on " + os.Getenv(config.NodeNameEnvKey)
 		l.Info(evstr)
 		r.metrics.IncSeccompProfileUpdate()
-		r.record.Event(sp, util.EventTypeNormal, reasonSavedProfile, evstr)
+		r.record.Eventf(
+			sp,
+			nil,
+			util.EventTypeNormal,
+			reasonSavedProfile,
+			util.EventActionInstall,
+			"%s",
+			evstr,
+		)
 	}
 
 	l.Info("Checking node status")
@@ -635,7 +667,15 @@ func (r *Reconciler) reconcileSeccompProfile(
 	); err != nil {
 		l.Error(err, "cannot update node status")
 		r.metrics.IncSeccompProfileError(common.ReasonCannotUpdateStatus)
-		r.record.Event(sp, util.EventTypeWarning, common.ReasonCannotUpdateStatus, err.Error())
+		r.record.Eventf(
+			sp,
+			nil,
+			util.EventTypeWarning,
+			common.ReasonCannotUpdateStatus,
+			util.EventActionUpdate,
+			"%s",
+			err.Error(),
+		)
 
 		return reconcile.Result{}, fmt.Errorf(
 			"updating status in SeccompProfile reconciler: %w",

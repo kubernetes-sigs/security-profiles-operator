@@ -33,7 +33,6 @@ import (
 	"github.com/go-logr/logr"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -109,7 +108,7 @@ type ReconcileSelinux struct {
 	// the cache is filtered or otherwise not expected to contain an object.
 	clientReader      client.Reader
 	scheme            *runtime.Scheme
-	record            record.EventRecorder
+	record            util.EventRecorder
 	metrics           *metrics.Metrics
 	log               logr.Logger
 	controllerName    string
@@ -138,8 +137,7 @@ func (r *ReconcileSelinux) Setup(
 	r.client = mgr.GetClient()
 	r.clientReader = mgr.GetAPIReader()
 	r.scheme = mgr.GetScheme()
-	//nolint:staticcheck // TODO: migrate to GetEventRecorder
-	r.record = mgr.GetEventRecorderFor(r.controllerName)
+	r.record = util.NewEventRecorder(mgr, r.controllerName)
 	r.metrics = met
 	r.httpc = &http.Client{
 		Timeout: 30 * time.Second,
@@ -257,7 +255,15 @@ func (r *ReconcileSelinux) Reconcile(
 	); err != nil {
 		reqLogger.Error(err, "cannot update SELinux profile status")
 		r.metrics.IncSelinuxProfileError(reasonCannotUpdatePolicyStatus)
-		r.record.Event(instance, util.EventTypeWarning, reasonCannotUpdatePolicyStatus, err.Error())
+		r.record.Eventf(
+			instance,
+			nil,
+			util.EventTypeWarning,
+			reasonCannotUpdatePolicyStatus,
+			util.EventActionUpdate,
+			"%s",
+			err.Error(),
+		)
 
 		return reconcile.Result{}, fmt.Errorf(
 			"updating status for deleted SELinux profile: %w",
@@ -288,7 +294,15 @@ func (r *ReconcileSelinux) Reconcile(
 	if err != nil {
 		reqLogger.Error(err, "cannot delete policy or requeue")
 		r.metrics.IncSelinuxProfileError(reasonCannotRemovePolicy)
-		r.record.Event(instance, util.EventTypeWarning, reasonCannotRemovePolicy, err.Error())
+		r.record.Eventf(
+			instance,
+			nil,
+			util.EventTypeWarning,
+			reasonCannotRemovePolicy,
+			util.EventActionRemove,
+			"%s",
+			err.Error(),
+		)
 
 		return res, err
 	} else if res.RequeueAfter > 0 || res.Requeue { //nolint:staticcheck // Requeue expresses immediate requeue intent
@@ -300,7 +314,15 @@ func (r *ReconcileSelinux) Reconcile(
 	if err := nodeStatus.Remove(ctx, r.client); err != nil {
 		reqLogger.Error(err, "cannot remove finalizer from SELinux profile")
 		r.metrics.IncSelinuxProfileError(reasonCannotUpdatePolicyStatus)
-		r.record.Event(instance, util.EventTypeWarning, reasonCannotUpdatePolicyStatus, err.Error())
+		r.record.Eventf(
+			instance,
+			nil,
+			util.EventTypeWarning,
+			reasonCannotUpdatePolicyStatus,
+			util.EventActionUpdate,
+			"%s",
+			err.Error(),
+		)
 
 		return ctrl.Result{}, fmt.Errorf("deleting finalizer for deleted SELinux profile: %w", err)
 	}
@@ -319,16 +341,28 @@ func (r *ReconcileSelinux) reconcilePolicy(
 	selinuxdReady, err := isSelinuxdReady(ctx, r.httpc)
 	if err != nil {
 		r.metrics.IncSelinuxProfileError(reasonCannotContactSelinuxd)
-		r.record.Event(sp, util.EventTypeWarning, reasonCannotContactSelinuxd, err.Error())
+		r.record.Eventf(
+			sp,
+			nil,
+			util.EventTypeWarning,
+			reasonCannotContactSelinuxd,
+			util.EventActionInstall,
+			"%s",
+			err.Error(),
+		)
 
 		return reconcile.Result{}, fmt.Errorf("contacting selinuxd: %w", err)
 	}
 
 	if !selinuxdReady {
 		l.Info("selinuxd not yet up, requeue")
-		r.record.Event(
-			sp, util.EventTypeWarning,
-			reasonCannotContactSelinuxd, "selinuxd not yet ready",
+		r.record.Eventf(
+			sp,
+			nil,
+			util.EventTypeWarning,
+			reasonCannotContactSelinuxd,
+			util.EventActionInstall,
+			"selinuxd not yet ready",
 		)
 
 		return reconcile.Result{RequeueAfter: selinuxdPollInterval}, nil
@@ -340,7 +374,15 @@ func (r *ReconcileSelinux) reconcilePolicy(
 			secprofnodestatusapi.ProfileStateError,
 		); err != nil {
 			r.metrics.IncSelinuxProfileError(reasonCannotUpdatePolicyStatus)
-			r.record.Event(sp, util.EventTypeWarning, reasonCannotUpdatePolicyStatus, err.Error())
+			r.record.Eventf(
+				sp,
+				nil,
+				util.EventTypeWarning,
+				reasonCannotUpdatePolicyStatus,
+				util.EventActionUpdate,
+				"%s",
+				err.Error(),
+			)
 
 			return reconcile.Result{}, fmt.Errorf("setting node status to error: %w", err)
 		}
@@ -352,7 +394,15 @@ func (r *ReconcileSelinux) reconcilePolicy(
 		)
 
 		r.metrics.IncSelinuxProfileError(reasonCannotInstallPolicy)
-		r.record.Event(sp, util.EventTypeWarning, reasonCannotInstallPolicy, evstr)
+		r.record.Eventf(
+			sp,
+			nil,
+			util.EventTypeWarning,
+			reasonCannotInstallPolicy,
+			util.EventActionInstall,
+			"%s",
+			evstr,
+		)
 
 		return reconcile.Result{}, nil
 	}
@@ -370,7 +420,15 @@ func (r *ReconcileSelinux) reconcilePolicy(
 			secprofnodestatusapi.ProfileStateError,
 		); err != nil {
 			r.metrics.IncSelinuxProfileError(reasonCannotUpdatePolicyStatus)
-			r.record.Event(sp, util.EventTypeWarning, reasonCannotUpdatePolicyStatus, err.Error())
+			r.record.Eventf(
+				sp,
+				nil,
+				util.EventTypeWarning,
+				reasonCannotUpdatePolicyStatus,
+				util.EventActionUpdate,
+				"%s",
+				err.Error(),
+			)
 
 			return reconcile.Result{}, fmt.Errorf("setting node status to error: %w", err)
 		}
@@ -382,7 +440,15 @@ func (r *ReconcileSelinux) reconcilePolicy(
 		)
 
 		r.metrics.IncSelinuxProfileError(reasonSystemModuleConflict)
-		r.record.Event(sp, util.EventTypeWarning, reasonSystemModuleConflict, evstr)
+		r.record.Eventf(
+			sp,
+			nil,
+			util.EventTypeWarning,
+			reasonSystemModuleConflict,
+			util.EventActionInstall,
+			"%s",
+			evstr,
+		)
 
 		return reconcile.Result{}, nil
 	}
@@ -390,7 +456,15 @@ func (r *ReconcileSelinux) reconcilePolicy(
 	policyUpdated, err := r.reconcilePolicyFile(sp, oh, l)
 	if err != nil {
 		r.metrics.IncSelinuxProfileError(reasonCannotWritePolicyFile)
-		r.record.Event(sp, util.EventTypeWarning, reasonCannotWritePolicyFile, err.Error())
+		r.record.Eventf(
+			sp,
+			nil,
+			util.EventTypeWarning,
+			reasonCannotWritePolicyFile,
+			util.EventActionInstall,
+			"%s",
+			err.Error(),
+		)
 
 		return reconcile.Result{}, fmt.Errorf("creating policy file: %w", err)
 	}
@@ -406,7 +480,15 @@ func (r *ReconcileSelinux) reconcilePolicy(
 			secprofnodestatusapi.ProfileStateInProgress,
 		); err != nil {
 			r.metrics.IncSelinuxProfileError(reasonCannotUpdatePolicyStatus)
-			r.record.Event(sp, util.EventTypeWarning, reasonCannotUpdatePolicyStatus, err.Error())
+			r.record.Eventf(
+				sp,
+				nil,
+				util.EventTypeWarning,
+				reasonCannotUpdatePolicyStatus,
+				util.EventActionUpdate,
+				"%s",
+				err.Error(),
+			)
 
 			return reconcile.Result{}, fmt.Errorf("setting node status to in progress: %w", err)
 		}
@@ -423,7 +505,15 @@ func (r *ReconcileSelinux) reconcilePolicy(
 			secprofnodestatusapi.ProfileStateInProgress,
 		); err != nil {
 			r.metrics.IncSelinuxProfileError(reasonCannotUpdatePolicyStatus)
-			r.record.Event(sp, util.EventTypeWarning, reasonCannotUpdatePolicyStatus, err.Error())
+			r.record.Eventf(
+				sp,
+				nil,
+				util.EventTypeWarning,
+				reasonCannotUpdatePolicyStatus,
+				util.EventActionUpdate,
+				"%s",
+				err.Error(),
+			)
 
 			return reconcile.Result{}, fmt.Errorf("setting node status to in progress: %w", err)
 		}
@@ -433,7 +523,15 @@ func (r *ReconcileSelinux) reconcilePolicy(
 
 	if err != nil {
 		r.metrics.IncSelinuxProfileError(reasonCannotGetPolicyStatus)
-		r.record.Event(sp, util.EventTypeWarning, reasonCannotGetPolicyStatus, err.Error())
+		r.record.Eventf(
+			sp,
+			nil,
+			util.EventTypeWarning,
+			reasonCannotGetPolicyStatus,
+			util.EventActionInstall,
+			"%s",
+			err.Error(),
+		)
 
 		return reconcile.Result{}, fmt.Errorf("looking up policy status: %w", err)
 	}
@@ -446,7 +544,15 @@ func (r *ReconcileSelinux) reconcilePolicy(
 		evstr := "Successfully saved profile to disk on " + os.Getenv(config.NodeNameEnvKey)
 
 		r.metrics.IncSelinuxProfileUpdate()
-		r.record.Event(sp, util.EventTypeNormal, reasonInstalledPolicy, evstr)
+		r.record.Eventf(
+			sp,
+			nil,
+			util.EventTypeNormal,
+			reasonInstalledPolicy,
+			util.EventActionInstall,
+			"%s",
+			evstr,
+		)
 
 		reloadGeneration := strconv.FormatInt(sp.GetGeneration(), 10)
 
@@ -471,10 +577,13 @@ func (r *ReconcileSelinux) reconcilePolicy(
 					err,
 					"Failed to create policy reload job, policy may not be active until manual reload",
 				)
-				r.record.Event(
+				r.record.Eventf(
 					sp,
+					nil,
 					util.EventTypeWarning,
 					reasonCannotReloadPolicy,
+					util.EventActionInstall,
+					"%s",
 					fmt.Sprintf(
 						"Failed to create policy reload job on %s: %s",
 						os.Getenv(config.NodeNameEnvKey),
@@ -503,14 +612,30 @@ func (r *ReconcileSelinux) reconcilePolicy(
 		)
 
 		r.metrics.IncSelinuxProfileError(reasonCannotInstallPolicy)
-		r.record.Event(sp, util.EventTypeWarning, reasonCannotInstallPolicy, evstr)
+		r.record.Eventf(
+			sp,
+			nil,
+			util.EventTypeWarning,
+			reasonCannotInstallPolicy,
+			util.EventActionInstall,
+			"%s",
+			evstr,
+		)
 	}
 
 	l.Info("Policy deployed", "status", polState)
 
 	if err := nodeStatus.SetNodeStatus(ctx, polState); err != nil {
 		r.metrics.IncSelinuxProfileError(reasonCannotUpdatePolicyStatus)
-		r.record.Event(sp, util.EventTypeWarning, reasonCannotUpdatePolicyStatus, err.Error())
+		r.record.Eventf(
+			sp,
+			nil,
+			util.EventTypeWarning,
+			reasonCannotUpdatePolicyStatus,
+			util.EventActionUpdate,
+			"%s",
+			err.Error(),
+		)
 
 		return reconcile.Result{}, fmt.Errorf("setting profile status: %w", err)
 	}
@@ -585,9 +710,16 @@ func (r *ReconcileSelinux) reconcileDeletePolicy(
 			jobCreated, err := r.createPolicyReloadJob(ctx, sp.GetPolicyName(), "remove", l)
 			if err != nil {
 				l.Error(err, "Failed to create policy reload job after removal")
-				r.record.Event(sp, util.EventTypeWarning, reasonCannotReloadPolicy,
+				r.record.Eventf(
+					sp,
+					nil,
+					util.EventTypeWarning,
+					reasonCannotReloadPolicy,
+					util.EventActionRemove,
+					"%s",
 					fmt.Sprintf("Failed to create policy reload job after removal on %s: %s",
-						os.Getenv(config.NodeNameEnvKey), err.Error()))
+						os.Getenv(config.NodeNameEnvKey), err.Error()),
+				)
 			} else if jobCreated {
 				if err := nodeStatus.SetAnnotation(
 					ctx,

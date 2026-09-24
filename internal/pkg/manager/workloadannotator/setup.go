@@ -35,6 +35,7 @@ import (
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 // Setup adds a controller that reconciles the SPOd DaemonSet.
@@ -48,8 +49,7 @@ func (r *PodReconciler) Setup(
 	r.client = mgr.GetClient()
 	r.reader = mgr.GetAPIReader()
 	r.log = ctrl.Log.WithName(r.Name())
-	//nolint:staticcheck // TODO: migrate to GetEventRecorder
-	r.record = mgr.GetEventRecorderFor(name)
+	r.record = util.NewEventRecorder(mgr, name)
 
 	// Index Pods using seccomp profiles
 	if err := mgr.GetFieldIndexer().

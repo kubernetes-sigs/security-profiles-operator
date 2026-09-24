@@ -26,6 +26,7 @@ import (
 
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 // Setup adds a controller that reconciles any profilerecordings.
@@ -36,8 +37,7 @@ func (r *PolicyMergeReconciler) Setup(
 ) error {
 	r.client = mgr.GetClient()
 	r.log = ctrl.Log.WithName(r.Name())
-	//nolint:staticcheck // TODO: migrate to GetEventRecorder
-	r.record = mgr.GetEventRecorderFor(r.Name())
+	r.record = util.NewEventRecorder(mgr, r.Name())
 
 	return ctrl.NewControllerManagedBy(mgr).
 		Named(r.Name()).

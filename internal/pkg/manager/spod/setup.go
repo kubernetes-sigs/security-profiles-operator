@@ -80,8 +80,7 @@ func (r *ReconcileSPOd) Setup(
 ) error {
 	r.client = mgr.GetClient()
 	r.log = ctrl.Log.WithName(r.Name())
-	//nolint:staticcheck // TODO: migrate to GetEventRecorder
-	r.record = mgr.GetEventRecorderFor(r.Name())
+	r.record = util.NewEventRecorder(mgr, r.Name())
 	r.clientReader = mgr.GetAPIReader()
 
 	dt, err := r.getTunables(ctx)

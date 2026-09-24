@@ -1,0 +1,45 @@
+name: provenance
+# SLSA Build L3 provenance for release assets, generated from their digests by
+# this isolated reusable workflow. The callers build without OIDC token or
+# attestation access and only pass the digests, so the build steps cannot forge
+# the provenance. Verifiers pin this file as the signer workflow.
+on:
+  workflow_call:
+    inputs:
+      base64-subjects:
+        description: The base64 encoded sha256sum output of the subjects.
+        required: true
+        type: string
+      provenance-name:
+        description: The file and artifact name of the provenance bundle.
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  provenance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      attestations: write  # required for storing the provenance
+      id-token: write  # required for signing the provenance
+    steps:
+      - name: Decode subjects
+        env:
+          SUBJECTS: ${{ inputs.base64-subjects }}
+        run: echo "$SUBJECTS" | base64 -d > "$RUNNER_TEMP/subjects.sha256"
+      - id: attest
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-checksums: ${{ runner.temp }}/subjects.sha256
+      - name: Rename bundle
+        env:
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+          NAME: ${{ inputs.provenance-name }}
+        run: cp "$BUNDLE" "$RUNNER_TEMP/$NAME"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.provenance-name }}
+          path: ${{ runner.temp }}/${{ inputs.provenance-name }}
+          if-no-files-found: error

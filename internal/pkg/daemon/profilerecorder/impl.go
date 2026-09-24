@@ -23,7 +23,6 @@ import (
 	"google.golang.org/grpc"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -39,6 +38,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 type defaultImpl struct{}
@@ -52,7 +52,7 @@ type impl interface {
 		manager.Manager, string, func(obj runtime.Object) bool,
 		func(obj runtime.Object) bool, reconcile.Reconciler) error
 	ManagerGetClient(manager.Manager) client.Client
-	ManagerGetEventRecorderFor(manager.Manager, string) record.EventRecorder
+	ManagerGetEventRecorder(manager.Manager, string) util.EventRecorder
 	GetPod(context.Context, client.Client, client.ObjectKey) (*corev1.Pod, error)
 	GetSPOD(context.Context, client.Client) (*spodapi.SecurityProfilesOperatorDaemon, error)
 	DialBpfRecorder() (*grpc.ClientConn, error)
@@ -130,11 +130,10 @@ func (*defaultImpl) ManagerGetClient(m manager.Manager) client.Client {
 	return m.GetClient()
 }
 
-func (*defaultImpl) ManagerGetEventRecorderFor(
+func (*defaultImpl) ManagerGetEventRecorder(
 	m manager.Manager, name string,
-) record.EventRecorder {
-	//nolint:staticcheck // TODO: migrate to GetEventRecorder
-	return m.GetEventRecorderFor(name)
+) util.EventRecorder {
+	return util.NewEventRecorder(m, name)
 }
 
 func (*defaultImpl) GetPod(

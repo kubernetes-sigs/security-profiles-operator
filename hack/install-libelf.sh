@@ -15,9 +15,8 @@
 
 set -euo pipefail
 
-# TODO: remove this script once the debian image (via golang:1.25 or higher) ships
-# the fixed libelf version.
-#
+# TODO: remove this script once the Debian release the golang images are based
+# on ships the fixed libelf version. Debian trixie (golang:1.27) has 0.192.
 apt-get install -y \
     bzip2 \
     m4 \

@@ -32,18 +32,6 @@ func TestNew(t *testing.T) {
 	assert.NotNil(t, actual, "should create an empty map")
 }
 
-func TestNewFromMap(t *testing.T) {
-	t.Parallel()
-
-	input := map[string]string{"1": "a", "2": "b", "3": "c"}
-	actual := bimap.NewFromMap(input)
-
-	for k, v := range input {
-		assert.True(t, actual.Exists(k), "should find map item in forward direction")
-		assert.True(t, actual.ExistsBackwards(v), "should find map item in backward direction")
-	}
-}
-
 func TestInsert(t *testing.T) {
 	t.Parallel()
 

@@ -24,6 +24,7 @@ import (
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 // Setup adds a controller that reconciles AppArmor profiles.
@@ -34,8 +35,7 @@ func (r *Reconciler) Setup(
 ) error {
 	r.client = mgr.GetClient()
 	r.log = ctrl.Log.WithName(r.Name())
-	//nolint:staticcheck // TODO: migrate to GetEventRecorder
-	r.record = mgr.GetEventRecorderFor("apparmorprofile")
+	r.record = util.NewEventRecorder(mgr, "apparmorprofile")
 	r.metrics = met
 	r.manager = NewAppArmorProfileManager(r.log)
 

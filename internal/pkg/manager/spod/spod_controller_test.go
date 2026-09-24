@@ -24,7 +24,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -57,7 +57,7 @@ func Test_addAuditLogConfig(t *testing.T) {
 func newTestReconciler() *ReconcileSPOd {
 	return &ReconcileSPOd{
 		baseSPOd:  bindata.Manifest.DeepCopy(),
-		record:    record.NewFakeRecorder(100),
+		record:    events.NewFakeRecorder(100),
 		log:       logf.Log,
 		namespace: "security-profiles-operator",
 	}

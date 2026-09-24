@@ -28,7 +28,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	errors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -57,7 +56,7 @@ type PodReconciler struct {
 	client client.Client
 	reader client.Reader
 	log    logr.Logger
-	record record.EventRecorder
+	record util.EventRecorder
 }
 
 // Name returns the name of the controller.
@@ -166,7 +165,15 @@ func (r *PodReconciler) Reconcile(
 			seccompProfile,
 		); err != nil {
 			logger.Error(err, "could not get seccomp profile for pod")
-			r.record.Event(pod, corev1.EventTypeWarning, "ReconcileError", err.Error())
+			r.record.Eventf(
+				pod,
+				nil,
+				corev1.EventTypeWarning,
+				"ReconcileError",
+				util.EventActionReconcile,
+				"%s",
+				err.Error(),
+			)
 
 			return reconcile.Result{}, fmt.Errorf(
 				"looking up SeccompProfile for new or updated pod: %w",
@@ -176,7 +183,15 @@ func (r *PodReconciler) Reconcile(
 
 		if err := r.updatePodReferencesForSeccomp(ctx, seccompProfile); err != nil {
 			logger.Error(err, "could not update seccomp profile for pod")
-			r.record.Event(pod, corev1.EventTypeWarning, "ReconcileError", err.Error())
+			r.record.Eventf(
+				pod,
+				nil,
+				corev1.EventTypeWarning,
+				"ReconcileError",
+				util.EventActionReconcile,
+				"%s",
+				err.Error(),
+			)
 
 			return reconcile.Result{}, fmt.Errorf(
 				"updating SeccompProfile pod references for new or updated pod: %w",
@@ -197,7 +212,15 @@ func (r *PodReconciler) Reconcile(
 			selinuxProfile,
 		); err != nil {
 			logger.Error(err, "could not get selinux profile for pod")
-			r.record.Event(pod, corev1.EventTypeWarning, "ReconcileError", err.Error())
+			r.record.Eventf(
+				pod,
+				nil,
+				corev1.EventTypeWarning,
+				"ReconcileError",
+				util.EventActionReconcile,
+				"%s",
+				err.Error(),
+			)
 
 			return reconcile.Result{}, fmt.Errorf(
 				"looking up SelinuxProfile for new or updated pod: %w",
@@ -207,7 +230,15 @@ func (r *PodReconciler) Reconcile(
 
 		if err := r.updatePodReferencesForSelinux(ctx, selinuxProfile); err != nil {
 			logger.Error(err, "could not update selinux profile for pod")
-			r.record.Event(pod, corev1.EventTypeWarning, "ReconcileError", err.Error())
+			r.record.Eventf(
+				pod,
+				nil,
+				corev1.EventTypeWarning,
+				"ReconcileError",
+				util.EventActionReconcile,
+				"%s",
+				err.Error(),
+			)
 
 			return reconcile.Result{}, fmt.Errorf(
 				"updating SelinuxProfile pod references for new or updated pod: %w",

@@ -22,7 +22,6 @@ import (
 	"github.com/go-logr/logr"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
@@ -30,6 +29,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 type defaultImpl struct{}
@@ -45,7 +45,7 @@ type impl interface {
 		context.Context, client.Client, client.ObjectKey, ...client.GetOption,
 	) (*seccompprofileapi.SeccompProfile, error)
 	IncSeccompProfileError(*metrics.Metrics, string)
-	RecordEvent(record.EventRecorder, runtime.Object, string, string, string)
+	RecordEvent(util.EventRecorder, runtime.Object, string, string, string, string)
 	GetSPOD(context.Context, client.Client) (*spodapi.SecurityProfilesOperatorDaemon, error)
 }
 
@@ -83,9 +83,9 @@ func (*defaultImpl) IncSeccompProfileError(m *metrics.Metrics, reason string) {
 }
 
 func (*defaultImpl) RecordEvent(
-	r record.EventRecorder, object runtime.Object, eventtype, reason, message string,
+	r util.EventRecorder, object runtime.Object, eventtype, reason, action, message string,
 ) {
-	r.Event(object, eventtype, reason, message)
+	r.Eventf(object, nil, eventtype, reason, action, "%s", message)
 }
 
 func (*defaultImpl) GetSPOD(

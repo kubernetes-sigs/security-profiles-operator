@@ -28,7 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -50,7 +50,7 @@ func newNode(name, kubeletDirLabel string) *v1.Node {
 func Test_nodeKubeletDirs(t *testing.T) {
 	t.Parallel()
 
-	recorder := record.NewFakeRecorder(100)
+	recorder := events.NewFakeRecorder(100)
 	r := newTestReconciler()
 	r.record = recorder
 	spod := &spodapi.SecurityProfilesOperatorDaemon{}
@@ -81,7 +81,7 @@ func Test_nodeKubeletDirs(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, wantDirs, dirs)
 
-	events := func() []string {
+	recorded := func() []string {
 		got := []string{}
 
 		for {
@@ -94,7 +94,7 @@ func Test_nodeKubeletDirs(t *testing.T) {
 		}
 	}
 
-	got := events()
+	got := recorded()
 	require.Len(t, got, 3)
 
 	for _, node := range []string{"invalid", "cron", "ssh"} {
@@ -108,7 +108,7 @@ func Test_nodeKubeletDirs(t *testing.T) {
 	dirs, err = r.nodeKubeletDirs(t.Context(), spod)
 	require.NoError(t, err)
 	require.Equal(t, wantDirs, dirs)
-	require.Empty(t, events())
+	require.Empty(t, recorded())
 
 	// A changed invalid value gets reported again.
 	cron := &v1.Node{}
@@ -119,7 +119,7 @@ func Test_nodeKubeletDirs(t *testing.T) {
 	_, err = r.nodeKubeletDirs(t.Context(), spod)
 	require.NoError(t, err)
 
-	got = events()
+	got = recorded()
 	require.Len(t, got, 1)
 	require.Contains(t, got[0], "node cron:")
 
