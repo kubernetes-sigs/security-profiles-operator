@@ -124,37 +124,40 @@ jobs:
           $RUN "echo \"export E2E_TEST_FLAKY_TESTS_ONLY=true\" >> /vagrant/hack/ci/env.sh"
           $RUN hack/ci/e2e-fedora.sh || $RUN hack/ci/e2e-fedora.sh
 
+  # Runs the e2e suite on a kubernix cluster on the runner, which is the node.
   e2e-ubuntu:
     needs: image
     runs-on: ubuntu-24.04
     timeout-minutes: 90
-    env:
-      RUN: ./hack/ci/run-ubuntu.sh
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: ./.github/actions/setup-vagrant
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ./go.mod
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: image
           path: .
-      - name: Boot Virtual Machine
-        run: make vagrant-up-ubuntu
-      - name: Show environment information
-        run: |
-          $RUN kubectl wait --for=condition=ready --timeout=60s nodes --all
-          $RUN kubectl get nodes -o wide
-      - name: Set up git config
-        run: |
-          $RUN git config --global --add safe.directory /vagrant
+      - name: Start kubernix
+        run: hack/ci/start-kubernix.sh image.tar
       - name: Run E2E tests
-        run: $RUN hack/ci/e2e-ubuntu.sh
+        run: hack/ci/e2e-ubuntu.sh
       # Flaky tests get one retry, failing twice in a row fails the job.
       - name: Run Flaky E2E tests
+        env:
+          E2E_TEST_FLAKY_TESTS_ONLY: 'true'
+        run: hack/ci/e2e-ubuntu.sh || hack/ci/e2e-ubuntu.sh
+      - name: Show kubernix logs
+        if: failure()
         run: |
-          $RUN "echo \"export E2E_TEST_FLAKY_TESTS_ONLY=true\" >> /vagrant/hack/ci/env.sh"
-          $RUN hack/ci/e2e-ubuntu.sh || $RUN hack/ci/e2e-ubuntu.sh
+          . hack/ci/install-kubernix.sh
+          print_kubernix_logs
 
   e2e-flatcar:
     needs: image
@@ -215,6 +218,23 @@ jobs:
           $RUN git config --global --add safe.directory /vagrant
       - name: Run spoc E2E tests
         run: $RUN hack/ci/e2e-spoc.sh
+
+  # spoc runs on the host and needs no cluster. The runner kernel has no BPF
+  # LSM, so the AppArmor recording tests skip here and run on the VM above.
+  e2e-spoc-arm64:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ./go.mod
+      - name: Install dependencies
+        run: sudo hack/install-packages
+      - name: Run spoc E2E tests
+        run: hack/ci/e2e-spoc.sh
 
   # Records the base profiles of the OCI runtimes on a kubernix cluster per
   # architecture. The recordings get merged into the profiles in examples by

@@ -103,7 +103,6 @@ func TestHandle(t *testing.T) {
 					},
 				}, nil)
 
-				mock.GetOperatorNamespaceReturns("test-ns")
 				mock.DecodePodReturns(testPod.DeepCopy(), nil)
 				mock.LabelSelectorAsSelectorReturns(labels.Everything(), nil)
 			},
@@ -138,7 +137,6 @@ func TestHandle(t *testing.T) {
 					},
 				}, nil)
 
-				mock.GetOperatorNamespaceReturns("test-ns")
 				mock.DecodePodReturns(testPod.DeepCopy(), nil)
 				mock.LabelSelectorAsSelectorReturns(labels.Everything(), nil)
 			},
@@ -254,7 +252,7 @@ func TestHandle(t *testing.T) {
 				pod.Annotations = map[string]string{
 					"io.containers.trace-logs/container": "my-little-profile-recording-container-0-1661693966",
 				}
-				localhostProfile := "operator//log-enricher-trace.json"
+				localhostProfile := "operator/log-enricher-trace.json"
 				pod.Spec.SecurityContext = &corev1.PodSecurityContext{
 					SeccompProfile: &corev1.SeccompProfile{
 						Type:             corev1.SeccompProfileTypeLocalhost,
@@ -326,4 +324,21 @@ func TestHandle(t *testing.T) {
 		resp := recorder.Handle(t.Context(), tc.request)
 		tc.assert(resp)
 	}
+}
+
+func TestUpdateSeccompSecurityContext(t *testing.T) {
+	t.Parallel()
+
+	ctr := &corev1.Container{Name: "container"}
+	(&podSeccompRecorder{}).updateSeccompSecurityContext(
+		ctr, &profilerecordingapi.ProfileRecording{},
+	)
+
+	// Seccomp profiles are cluster scoped, so the path must not contain a
+	// namespace directory, otherwise the kubelet cannot find the profile.
+	require.Equal(t, corev1.SeccompProfileTypeLocalhost, ctr.SecurityContext.SeccompProfile.Type)
+	require.Equal(
+		t, "operator/log-enricher-trace.json",
+		*ctr.SecurityContext.SeccompProfile.LocalhostProfile,
+	)
 }

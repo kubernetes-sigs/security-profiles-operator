@@ -19,8 +19,8 @@ package recording
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
+	"path"
 	"slices"
 	"strings"
 
@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
@@ -283,10 +284,11 @@ func (p *podSeccompRecorder) updateSeccompSecurityContext(
 	}
 
 	ctr.SecurityContext.SeccompProfile.Type = corev1.SeccompProfileTypeLocalhost
-	profile := fmt.Sprintf(
-		"operator/%s/%s.json",
-		p.GetOperatorNamespace(),
-		config.LogEnricherProfile,
+	// Seccomp profiles are cluster scoped, so the file of the log enricher
+	// profile has no namespace directory.
+	profile := path.Join(
+		config.OperatorProfilesFolder,
+		config.LogEnricherProfile+seccompprofileapi.ExtJSON,
 	)
 	ctr.SecurityContext.SeccompProfile.LocalhostProfile = &profile
 }

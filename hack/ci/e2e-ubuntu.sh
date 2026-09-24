@@ -21,6 +21,14 @@ export E2E_TEST_JSON_ENRICHER=true
 export E2E_TEST_SECCOMP=false
 export E2E_TEST_FLAKY_TESTS_ONLY=${E2E_TEST_FLAKY_TESTS_ONLY:-false}
 
+# The suite deploys the tracked manifests and restores the cluster wide one
+# with git afterwards, so the kubelet directory of the node gets set in place
+# before every run.
+if [[ -n "${SPO_KUBELET_DIR:-}" ]]; then
+  sed -i "s;value: /var/lib/kubelet$;value: $SPO_KUBELET_DIR;" \
+    deploy/operator.yaml deploy/namespace-operator.yaml
+fi
+
 if "${E2E_TEST_FLAKY_TESTS_ONLY}"; then
   make test-flaky-e2e
 else

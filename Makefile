@@ -387,10 +387,6 @@ endef
 vagrant-up-fedora: ## Boot the Vagrant Fedora based test VM
 	$(call vagrant-up,fedora,build)
 
-.PHONY: vagrant-up-ubuntu
-vagrant-up-ubuntu: ## Boot the Vagrant Ubuntu based test VM
-	$(call vagrant-up,ubuntu,build)
-
 .PHONY: vagrant-up-debian
 vagrant-up-debian: ## Boot the Vagrant Debian based test VM
 	$(call vagrant-up,debian,build)
