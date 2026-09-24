@@ -119,13 +119,15 @@ spec:
 
 	namespace := e.getCurrentContextNamespace(defaultNamespace)
 
+	// Seccomp profiles are cluster scoped, their files have no namespace
+	// directory.
 	if image == "*" || image == "'*'" {
 		e.logf("Profile Binding has * image, Testing that pod has securityContext")
 		output = e.kubectl(
 			"get", "pod", "hello",
 			"--output", "jsonpath={.spec.securityContext.seccompProfile.localhostProfile}",
 		)
-		e.Equal(fmt.Sprintf("operator/%s/profile-allow-unsafe.json", namespace), output)
+		e.Equal("operator/profile-allow-unsafe.json", output)
 	} else {
 		e.logf("Testing that pod container has securityContext for specific image")
 		output = e.kubectl(
@@ -135,7 +137,7 @@ spec:
 			"--output",
 			"jsonpath={.spec.containers[0].securityContext.seccompProfile.localhostProfile}",
 		)
-		e.Equal(fmt.Sprintf("operator/%s/profile-allow-unsafe.json", namespace), output)
+		e.Equal("operator/profile-allow-unsafe.json", output)
 	}
 
 	e.logf("Testing that profile binding has pod reference")

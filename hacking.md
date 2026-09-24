@@ -300,7 +300,8 @@ source file:
      cluster. This is the default as well as used for the
     `pull-security-profiles-operator-test-e2e` prow target in GitHub.
   - `vanilla` - Run tests against a vanilla kubernetes cluster. This is
-     used in GitHub Actions CI for Fedora and Ubuntu based e2e tests.
+     used in GitHub Actions CI for the Fedora based e2e tests on a VM and
+     the Ubuntu based e2e tests on a kubernix cluster on the runner.
   - `openshift` - Red Hat OpenShift.
 - `E2E_SKIP_BUILD_IMAGES` - Currently used by OpenShift tests only. By
    default, images are rebuilt before being pushed to the repository.
@@ -328,7 +329,29 @@ source file:
    using our eBPF recorder. Defaults to false, and none of the Fedora, Ubuntu
    or Flatcar based CI jobs currently enable it.
 
-### Running the Fedora or Ubuntu e2e tests on a local VM
+### Running the Ubuntu e2e tests on kubernix
+
+The Ubuntu based e2e tests and the seccomp base profile recording run on a
+[kubernix](https://github.com/saschagrunert/kubernix) cluster directly on the
+GitHub Actions runner, which is the only node of the cluster. The same works
+on a Linux machine with [Nix](https://nixos.org/download) installed, but only
+use a disposable one: `hack/ci/start-kubernix.sh` runs the cluster as root and
+changes the host, for example its hostname and DNS resolver.
+
+```console
+> make image
+> podman save -o image.tar security-profiles-operator
+> hack/ci/start-kubernix.sh image.tar
+> export SPO_KUBELET_DIR=/var/lib/kubernix/kubelet/kubernix/run
+> hack/ci/e2e-ubuntu.sh
+```
+
+`hack/ci/e2e-ubuntu.sh` sets the kubelet directory of kubernix in
+`deploy/operator.yaml` and `deploy/namespace-operator.yaml`, restore them with
+`git checkout deploy` afterwards. The logs of the cluster components are below
+`/var/lib/kubernix`.
+
+### Running the Fedora e2e tests on a local VM
 Some e2e tests, especially the SELinux based ones require a VM,
 because the tests need a kernel with SELinux support. Let's show how
 to run the Fedora-based e2e tests locally and how to debug SPO at

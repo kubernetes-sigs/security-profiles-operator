@@ -117,11 +117,13 @@ type e2e struct {
 }
 
 func defaultWaitForReadyPods(e *e2e) {
-	e.logf("Waiting for all pods to become ready")
+	e.logf("Waiting for all cluster pods to become ready")
+	// Only the pods of the cluster itself, because a failed test can leave
+	// its pods behind, which would fail every following run as well.
 	// Terminated pods never become ready, like the node debugging pods which
 	// tests leave behind because kubectl debug cannot remove them.
 	e.waitFor(
-		"condition=ready", "pods", "--all", "--all-namespaces",
+		"condition=ready", "pods", "--all", "--namespace", "kube-system",
 		"--field-selector", "status.phase!=Succeeded,status.phase!=Failed",
 	)
 }

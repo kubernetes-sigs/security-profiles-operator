@@ -104,7 +104,10 @@ start_kubernix() {
   # Use the kubectl matching the cluster version.
   # shellcheck disable=SC2016
   kubernix_env sh -c 'ln -sf "$(command -v kubectl)" /usr/local/bin/kubectl'
-  sudo install -D -m 0600 -o "$(id -u)" -g "$(id -g)" \
+  # kubectl writes a lock file next to the kubeconfig, so the directory has to
+  # belong to the user as well.
+  mkdir -p "$HOME/.kube"
+  sudo install -m 0600 -o "$(id -u)" -g "$(id -g)" \
     "$KUBERNIX_ROOT/kubeconfig/admin.kubeconfig" "$HOME/.kube/config"
 
   kubectl wait --for=condition=ready --timeout=120s nodes --all

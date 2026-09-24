@@ -20,11 +20,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"path"
+	"slices"
 	"time"
 
 	"sigs.k8s.io/security-profiles-operator/api/common"
 	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 func (e *e2e) testCaseAllowedSyscalls(nodes []string) {
@@ -226,6 +228,25 @@ spec:
 	defer podCleanup()
 
 	e.waitFor("condition=ready", "pod", allowPodName)
+
+	// The active pod only protects the profile from the deletion below once
+	// its finalizer is set, which happens asynchronously.
+	e.logf("Waiting for the profile to be marked as in use")
+
+	inUse := false
+
+	for range 30 {
+		finalizers := e.getSeccompProfile(allowProfileName).Finalizers
+		if slices.Contains(finalizers, util.HasActivePodsFinalizerString) {
+			inUse = true
+
+			break
+		}
+
+		time.Sleep(time.Second)
+	}
+
+	e.Require().True(inUse, "profile %s not marked as in use", allowProfileName)
 
 	// Define an allowed syscalls list in the spod configuration, this should disallow the
 	// seccomp profile and trigger a deletion.

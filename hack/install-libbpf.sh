@@ -23,4 +23,9 @@ curl -sSfL --retry 5 --retry-delay 3 \
 DIR="libbpf-$VERSION"
 trap 'rm -rf -- "$DIR"' EXIT
 
-make -C "$DIR/src" BUILD_STATIC_ONLY=y install install_uapi_headers -j8
+# libbpf installs into lib64 on every 64 bit architecture, which the linker
+# does not search on arm64 Ubuntu. Use the library directory of the compiler.
+LIBDIR=$(realpath -m "/usr/lib/$(gcc -print-multi-os-directory)")
+
+make -C "$DIR/src" BUILD_STATIC_ONLY=y LIBDIR="$LIBDIR" \
+    install install_uapi_headers -j8
