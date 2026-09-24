@@ -124,13 +124,19 @@ EOF
 install_operator() {
   echo "Installing security-profiles-operator"
   kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.21.2/cert-manager.yaml
-  k_wait -n cert-manager pod -l app.kubernetes.io/instance=cert-manager
+  # The deployments exist right after the apply, their pods may not yet.
+  kubectl -n cert-manager wait --timeout 300s --for condition=available deployment --all
 
   git apply hack/deploy-localhost.patch
+  # The operator passes its kubelet directory on to spod, which installs the
+  # profiles, including its own, below it.
+  if [[ -n "${SPO_KUBELET_DIR:-}" ]]; then
+    sed -i "s;value: /var/lib/kubelet$;value: $SPO_KUBELET_DIR;" deploy/operator.yaml
+  fi
   kubectl apply -f deploy/operator.yaml
   kubectl label ns security-profiles-operator spo.x-k8s.io/enable-recording=
 
-  k_wait pod -l name=security-profiles-operator
+  k wait --timeout 300s --for condition=available deployment security-profiles-operator
 
   wait_for_pod_name_label security-profiles-operator-webhook
   k_wait pod -l name=security-profiles-operator-webhook

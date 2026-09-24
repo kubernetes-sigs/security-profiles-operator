@@ -74,6 +74,24 @@ jobs:
           name: image
           path: image.tar
 
+  # Cross built, because the final image stage only copies the binaries.
+  image-arm64:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: hack/install-crun
+      - run: make image-arm64
+        env:
+          XDG_RUNTIME_DIR: ''
+      - run: podman save -o image.tar security-profiles-operator
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: image-arm64
+          path: image.tar
+
   e2e-fedora:
     needs: image
     runs-on: ubuntu-24.04
@@ -198,36 +216,68 @@ jobs:
       - name: Run spoc E2E tests
         run: $RUN hack/ci/e2e-spoc.sh
 
+  # Records the base profiles of the OCI runtimes on a kubernix cluster per
+  # architecture. The recordings get merged into the profiles in examples by
+  # e2e-seccomp-profile-update.
   e2e-seccomp-profile:
-    needs: image
-    runs-on: ubuntu-24.04
+    needs: [image, image-arm64]
+    name: e2e-seccomp-profile / ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
-    env:
-      RUN: ./hack/ci/run-debian.sh
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+            image: image
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            image: image-arm64
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: ./.github/actions/setup-vagrant
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: image
+          name: ${{ matrix.image }}
           path: .
-      - name: Boot Virtual Machine
-        run: make vagrant-up-debian
-      - name: Show environment information
-        run: |
-          $RUN kubectl wait --for=condition=ready --timeout=60s nodes --all
-          $RUN kubectl get nodes -o wide
-      - name: Set up git config
-        run: |
-          $RUN git config --global --add safe.directory /vagrant
-      - name: Run E2E test to record seccomp profile
-        run: $RUN hack/ci/e2e-seccomp.sh
-      # The recording runs against the repository as a synced folder, so a
-      # profile that changed can be committed as it is.
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - name: Record seccomp profiles
+        run: hack/ci/e2e-seccomp.sh build/recordings/${{ matrix.arch }}
+      - name: Show kubernix logs
         if: failure()
+        run: |
+          . hack/ci/install-kubernix.sh
+          print_kubernix_logs
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: seccomp-recording-${{ matrix.arch }}
+          path: build/recordings
+          if-no-files-found: error
+
+  e2e-seccomp-profile-update:
+    needs: e2e-seccomp-profile
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: seccomp-recording-*
+          path: build/recordings
+          merge-multiple: true
+      - name: Merge the recordings into the base profiles
+        run: hack/ci/update-base-profiles.sh build/recordings
+      # A profile that changed can be committed as it is. The merge marks when
+      # it regenerated all profiles, an earlier failure leaves them unchanged.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure() && hashFiles('build/merged') != ''
         with:
           name: recorded-base-profiles
           path: examples/baseprofile-*.yaml

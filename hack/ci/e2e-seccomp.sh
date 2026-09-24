@@ -15,10 +15,15 @@
 
 set -euo pipefail
 
+# Records the base profiles of the OCI runtimes on the architecture of the
+# host and writes them into the directory given as first argument, from which
+# update-base-profiles.sh merges the recordings of all architectures.
 record_seccomp_profiles() {
   echo "Recording seccomp profiles"
   PODNAME=test-pod
   RECORDING=test-recording-$PODNAME
+  OUTPUT_DIR=$1
+  mkdir -p "$OUTPUT_DIR"
 
   TMP_DIR=$(mktemp -d)
   trap 'rm -rf $TMP_DIR' EXIT
@@ -29,12 +34,10 @@ record_seccomp_profiles() {
   k apply -f examples/profilerecording-seccomp-bpf.yaml
 
   RUNTIMES=(runc crun)
-  # Default location for CRI-O specific runtime binaries
-  export PATH="/usr/libexec/crio:$PATH"
 
   for RUNTIME in "${RUNTIMES[@]}"; do
     echo "For runtime $RUNTIME"
-    BASEPROFILE=examples/baseprofile-$RUNTIME.yaml
+    OUTPUT=$OUTPUT_DIR/$RUNTIME.json
 
     POD_FILE="$TMP_DIR/pod.yml"
     cat <<EOT >"$POD_FILE"
@@ -73,47 +76,28 @@ EOT
 
     wait_for seccompprofile $RECORDING
 
-    echo "Patching existing base seccomp profile"
-    yq -i ".spec.syscalls = $(
-      k get seccompprofile $RECORDING -o json | jq .spec.syscalls -c
-    )" "$BASEPROFILE"
-
     echo "Getting runtime version"
-    VERSION=$("$RUNTIME" --version | grep "$RUNTIME version" | grep -oP '\d+.*')
-    yq -i '.metadata.name = "'"$RUNTIME"'-v'"$VERSION"'"' "$BASEPROFILE"
+    VERSION=$(kubernix_env "$RUNTIME" --version | grep "$RUNTIME version" | grep -oP '\d+.*')
 
-    echo "-----------------------"
-    echo "$BASEPROFILE"
-    echo "-----------------------"
-    cat "$BASEPROFILE"
-    echo "-----------------------"
+    echo "Writing recording to $OUTPUT"
+    k get seccompprofile $RECORDING -o json |
+      jq --arg version "$VERSION" \
+        '{version: $version, architectures: .spec.architectures, syscalls: .spec.syscalls}' \
+        >"$OUTPUT"
+    cat "$OUTPUT"
 
     echo "Deleting seccomp profile"
     k delete seccompprofile $RECORDING
   done
 
-  # There is a weird phenomenon where we have a `runc` process
-  # that uses `setns` to join the container mount namespace.
-  # As a consequence, we sometimes get all the funny syscalls emitted
-  # by the Go runtime, which we need to ignore.
   print_spo_logs
-  echo "Diffing output while ignoring flaky syscalls"
-  git diff --exit-code -U0 \
-    -I rt_sigreturn \
-    -I sched_yield \
-    -I tgkill \
-    -I exit \
-    -I madvise \
-    -I rt_sigprocmask \
-    -I sigaltstack \
-    -I epoll_pwait \
-    examples
-
 }
 
 . "$(dirname "$0")/install-spo.sh"
-. "$(dirname "$0")/install-yq.sh"
+. "$(dirname "$0")/install-kubernix.sh"
 
-install_yq
+install_kubernix
+start_kubernix
+load_image image.tar
 install_operator
-record_seccomp_profiles
+record_seccomp_profiles "${1:-build/recordings}"

@@ -118,7 +118,12 @@ type e2e struct {
 
 func defaultWaitForReadyPods(e *e2e) {
 	e.logf("Waiting for all pods to become ready")
-	e.waitFor("condition=ready", "pods", "--all", "--all-namespaces")
+	// Terminated pods never become ready, like the node debugging pods which
+	// tests leave behind because kubectl debug cannot remove them.
+	e.waitFor(
+		"condition=ready", "pods", "--all", "--all-namespaces",
+		"--field-selector", "status.phase!=Succeeded,status.phase!=Failed",
+	)
 }
 
 type kinde2e struct {
