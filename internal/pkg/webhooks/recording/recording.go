@@ -25,6 +25,7 @@ import (
 	"strings"
 
 	"github.com/go-logr/logr"
+	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -129,7 +130,7 @@ func (p *podSeccompRecorder) Handle(
 		}
 
 		if selector.Matches(podLabels) {
-			changed, err := p.updatePod(pod, podName, &item)
+			changed, err := p.updatePod(pod, podName, &item, req.Operation == admissionv1.Create)
 			if err != nil {
 				return admission.Errored(http.StatusInternalServerError, err)
 			}
@@ -173,6 +174,7 @@ func (p *podSeccompRecorder) updatePod(
 	pod *corev1.Pod,
 	podName string,
 	profileRecording *profilerecordingapi.ProfileRecording,
+	isCreate bool,
 ) (podChanged bool, err error) {
 	// Collect containers as references to not copy them during modification
 	ctrs := []*corev1.Container{}
@@ -197,9 +199,14 @@ func (p *podSeccompRecorder) updatePod(
 			return false, err
 		}
 
-		p.warnEventIfContainerPrivileged(profileRecording, ctr, pod)
+		// Container security contexts are immutable after creation, so they
+		// can only be set on CREATE. Mutating them on UPDATE would produce a
+		// patch the API server rejects, which blocks any further pod update.
+		if isCreate {
+			p.warnEventIfContainerPrivileged(profileRecording, ctr, pod)
 
-		p.updateSecurityContext(ctr, profileRecording)
+			p.updateSecurityContext(ctr, profileRecording)
+		}
 
 		existingValue, ok := pod.GetAnnotations()[key]
 		if !ok {

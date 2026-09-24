@@ -17,6 +17,7 @@ limitations under the License.
 package binding
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -31,6 +32,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
@@ -1067,4 +1069,136 @@ func TestHandleAccumulatesChangesAcrossContainers(t *testing.T) {
 	require.True(t, resp.Allowed)
 	require.NotEmpty(t, resp.Patches,
 		"the first container's binding must not be dropped because the second already matched")
+}
+
+// Wildcard bindings used to be tracked in a single variable, so only the last
+// one applied, and they never overrode a value the pod or a container set
+// itself. A pod could then escape a namespace wide binding by setting
+// Unconfined.
+func TestUpdatePodWildcardBindings(t *testing.T) {
+	t.Parallel()
+
+	const (
+		wildcardSeccomp = "operator/wildcard.json"
+		boundSeccomp    = "operator/bound.json"
+		wildcardSelinux = "wildcard_type.process"
+	)
+
+	bindings := []profilebindingapi.ProfileBinding{
+		{
+			Spec: profilebindingapi.ProfileBindingSpec{
+				ProfileRef: profilebindingapi.ProfileRef{
+					Kind: profilebindingapi.ProfileBindingKindSeccompProfile,
+					Name: "wildcard",
+				},
+				Image: profilebindingapi.SelectAllContainersImage,
+			},
+		},
+		{
+			Spec: profilebindingapi.ProfileBindingSpec{
+				ProfileRef: profilebindingapi.ProfileRef{
+					Kind: profilebindingapi.ProfileBindingKindSelinuxProfile,
+					Name: "wildcard",
+				},
+				Image: profilebindingapi.SelectAllContainersImage,
+			},
+		},
+		{
+			Spec: profilebindingapi.ProfileBindingSpec{
+				ProfileRef: profilebindingapi.ProfileRef{
+					Kind: profilebindingapi.ProfileBindingKindSeccompProfile,
+					Name: "bound",
+				},
+				Image: "bound",
+			},
+		},
+	}
+
+	mock := &bindingfakes.FakeImpl{}
+	mock.GetSeccompProfileCalls(func(_ context.Context, key types.NamespacedName) (
+		*seccompprofileapi.SeccompProfile, error,
+	) {
+		localhostProfile := wildcardSeccomp
+		if key.Name == "bound" {
+			localhostProfile = boundSeccomp
+		}
+
+		return &seccompprofileapi.SeccompProfile{
+			Status: seccompprofileapi.SeccompProfileStatus{
+				StatusBase: profilebaseapi.StatusBase{
+					Status: secprofnodestatusapi.ProfileStateInstalled,
+				},
+				LocalhostProfile: localhostProfile,
+			},
+		}, nil
+	})
+	mock.GetSelinuxProfileReturns(&selinuxprofileapi.SelinuxProfile{
+		Status: selinuxprofileapi.SelinuxProfileStatus{
+			StatusBase: profilebaseapi.StatusBase{
+				Status: secprofnodestatusapi.ProfileStateInstalled,
+			},
+			Usage: wildcardSelinux,
+		},
+	}, nil)
+
+	unconfined := &corev1.SecurityContext{
+		SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeUnconfined},
+	}
+	mock.DecodePodReturns(&corev1.Pod{
+		Spec: corev1.PodSpec{
+			SecurityContext: &corev1.PodSecurityContext{
+				SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeUnconfined},
+				SELinuxOptions: &corev1.SELinuxOptions{Type: "spc_t", Level: "s0:c1,c2"},
+			},
+			InitContainers: []corev1.Container{
+				{Name: "init", Image: "foo", SecurityContext: unconfined.DeepCopy()},
+			},
+			Containers: []corev1.Container{
+				{Name: "plain", Image: "foo"},
+				{Name: "unconfined", Image: "foo", SecurityContext: unconfined.DeepCopy()},
+				{Name: "bound", Image: "bound", SecurityContext: unconfined.DeepCopy()},
+			},
+		},
+	}, nil)
+
+	binder := podBinder{impl: mock, log: logr.Discard()}
+	pod, resp := binder.updatePod(t.Context(), bindings, &admission.Request{
+		AdmissionRequest: admissionv1.AdmissionRequest{Operation: admissionv1.Create},
+	})
+	require.Equal(t, admission.Response{}, resp)
+
+	seccompOf := func(profile string) *corev1.SeccompProfile {
+		return &corev1.SeccompProfile{
+			Type:             corev1.SeccompProfileTypeLocalhost,
+			LocalhostProfile: &profile,
+		}
+	}
+
+	// Both wildcard kinds apply on pod level, overriding the pod's own value.
+	// The SELinux level is kept, because the cluster may require it.
+	require.Equal(t, seccompOf(wildcardSeccomp), pod.Spec.SecurityContext.SeccompProfile)
+	require.Equal(
+		t,
+		&corev1.SELinuxOptions{Type: wildcardSelinux, Level: "s0:c1,c2"},
+		pod.Spec.SecurityContext.SELinuxOptions,
+	)
+
+	// Containers without an own value inherit the pod level one.
+	require.Nil(t, pod.Spec.Containers[0].SecurityContext)
+
+	// Container level values would take precedence, so they are overwritten.
+	require.Equal(
+		t,
+		seccompOf(wildcardSeccomp),
+		pod.Spec.InitContainers[0].SecurityContext.SeccompProfile,
+	)
+	require.Equal(
+		t,
+		seccompOf(wildcardSeccomp),
+		pod.Spec.Containers[1].SecurityContext.SeccompProfile,
+	)
+
+	// Image specific bindings take precedence over wildcard bindings.
+	require.Equal(t, seccompOf(boundSeccomp), pod.Spec.Containers[2].SecurityContext.SeccompProfile)
+	require.Nil(t, pod.Spec.Containers[2].SecurityContext.SELinuxOptions)
 }
