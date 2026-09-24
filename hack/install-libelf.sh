@@ -22,7 +22,7 @@ apt-get install -y \
     m4 \
     zlib1g-dev
 
-VERSION=0.193
+VERSION=0.196
 curl -sSfL --retry 5 --retry-delay 3 \
     "https://sourceware.org/elfutils/ftp/$VERSION/elfutils-$VERSION.tar.bz2" -o- |
     tar xfj -
@@ -30,7 +30,12 @@ curl -sSfL --retry 5 --retry-delay 3 \
 DIR="elfutils-$VERSION"
 trap 'rm -rf -- "$DIR"' EXIT
 
+# Only libelf is needed, the other elfutils components are not built. Their
+# architecture backends do not build everywhere, for example aarch64_initreg.c
+# of 0.196 on arm64 Ubuntu 24.04.
 pushd "$DIR"
-./configure --prefix=/usr
-make install -j8
+./configure --prefix=/usr --disable-debuginfod --disable-libdebuginfod
+make -C lib -j8
+make -C libelf install -j8
+make -C config install
 popd

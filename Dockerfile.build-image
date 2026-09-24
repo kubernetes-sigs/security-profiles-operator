@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# hash below relates to tag: bookworm-v1.0.4
-FROM registry.k8s.io/build-image/debian-base@sha256:0a17678966f63e82e9c5e246d9e654836a33e13650a698adefede61bb5ca099e
+# hash below relates to tag: bookworm-v1.0.8
+FROM registry.k8s.io/build-image/debian-base@sha256:bb933ac3606ff3f69854a7eba5da1eaef5064ef62d83f3cb0e4be40eb53522e0
 WORKDIR /work
 
 RUN apt-get update && \
