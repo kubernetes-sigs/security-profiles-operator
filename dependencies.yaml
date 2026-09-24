@@ -1,6 +1,6 @@
 dependencies:
   - name: golangci-lint
-    version: 2.13.1
+    version: 2.14.0
     refPaths:
     - path: Makefile
       match: "^GOLANGCI_LINT_VERSION"
@@ -59,39 +59,39 @@ dependencies:
       match: "^OPERATOR_SDK_SHA256_darwin_arm64"
 
   - name: opm
-    version: v1.73.0
+    version: v1.74.0
     refPaths:
     - path: Makefile
       match: "^OPM_VERSION"
 
   # Must be bumped together with opm above.
   - name: opm-sha256-linux-amd64
-    version: cc0768c3ca915ad1fb72f88ad7cfcb533870fdbb6af83de290b66a5439a28140
+    version: cf1bd699be72e0a4511208afdf45444fc47d21eb2ffed0c204520ff50b5a4691
     refPaths:
     - path: Makefile
       match: "^OPM_SHA256_linux_amd64"
 
   - name: opm-sha256-linux-arm64
-    version: e6996b9d87d7a6844b721e055bb8cdf8437c4eaeed1e824a26860acab933cf94
+    version: 348a9682975eb220bea3b98b83aa82dc6d2630e6868331ed9bf14f97e462d8be
     refPaths:
     - path: Makefile
       match: "^OPM_SHA256_linux_arm64"
 
   - name: opm-sha256-darwin-amd64
-    version: 4450ec3486a857c86f263f1776b5ca97dd9e209f6711687de2d0e1641d248e76
+    version: a448e5972689036cb1168b83e18195b193bb513399c234d402c425b073a52ea6
     refPaths:
     - path: Makefile
       match: "^OPM_SHA256_darwin_amd64"
 
   - name: opm-sha256-darwin-arm64
-    version: 4fc7d0c692e94f1c9e79b6c5b18006901f750bd730412860f77e2b49c83ddd26
+    version: 0ce2671c543e637ae24cb98dfeeec1a9554e3955a72c59eb872750eaf915627f
     refPaths:
     - path: Makefile
       match: "^OPM_SHA256_darwin_arm64"
 
   # Must be bumped together with opm above.
   - name: opm-image-digest
-    version: sha256:e5a6220603fb4504d58c6e3e488386b817e3695c906a62ee0370b5faedc3799a
+    version: sha256:b32d3891616662620da08d7f0ec42c2e69fa2de43427dc975d35b12f7a969a0f
     refPaths:
     - path: Makefile
       match: "^OPM_IMAGE"
@@ -141,25 +141,25 @@ dependencies:
       match: "KUBERNETES_VERSION="
 
   - name: e2e-fedora
-    version: 39
+    version: 44
     refPaths:
     - path: hack/ci/Vagrantfile-fedora
       match: 'config.vm.box = '
 
   - name: e2e-fedora-image-url
-    version: 39-1.5
+    version: 44-1.7
     refPaths:
       - path: hack/ci/Vagrantfile-fedora
         match: Fedora-Cloud-Base-Vagrant
 
   - name: debian-base-digest
-    version: sha256:0a17678966f63e82e9c5e246d9e654836a33e13650a698adefede61bb5ca099e
+    version: sha256:bb933ac3606ff3f69854a7eba5da1eaef5064ef62d83f3cb0e4be40eb53522e0
     refPaths:
     - path: Dockerfile.build-image
       match: registry.k8s.io/build-image/debian-base
 
   - name: debian-base
-    version: bookworm-v1.0.4
+    version: bookworm-v1.0.8
     refPaths:
     - path: Dockerfile.build-image
       match: tag
@@ -205,7 +205,7 @@ dependencies:
       match: "^VERSION="
 
   - name: libelf
-    version: 0.193
+    version: 0.196
     refPaths:
     - path: hack/install-libelf.sh
       match: "^VERSION="
@@ -251,7 +251,7 @@ dependencies:
       match: "COSIGN_VERSION="
 
   - name: helm
-    version: v3.17.3
+    version: v3.22.0
     refPaths:
     - path: hack/push-chart.sh
       match: "HELM_VERSION="
@@ -315,7 +315,7 @@ dependencies:
       match: llvm_\d+
 
   - name: clang-ci
-    version: 21
+    version: 23
     refPaths:
     - path: hack/pull-security-profiles-operator-verify
       match: "^CLANG_VERSION="

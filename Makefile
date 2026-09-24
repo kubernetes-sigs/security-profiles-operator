@@ -14,22 +14,22 @@
 
 GO ?= go
 
-GOLANGCI_LINT_VERSION = v2.13.1
+GOLANGCI_LINT_VERSION = v2.14.0
 KAL_VERSION = v0.0.0-20260716143926-092fe0c72997
 REPO_INFRA_VERSION = v0.2.6
 KUSTOMIZE_VERSION = 5.8.1
 OPERATOR_SDK_VERSION ?= v1.42.3
-OPM_VERSION ?= v1.73.0
+OPM_VERSION ?= v1.74.0
 # Checksums of the operator-sdk and opm release binaries per GOOS_GOARCH, bump
 # them together with the versions above.
 OPERATOR_SDK_SHA256_linux_amd64 = 887a3bb0d63ccc4ca47a522d0c8ffac56d9d5246f6a2bd886b4ed23eb2e2672f
 OPERATOR_SDK_SHA256_linux_arm64 = 6db93cd821b429f0bb514cea4bbb5553827d273fc8aa211f13e14798599d31cd
 OPERATOR_SDK_SHA256_darwin_amd64 = 7cb0f24bb63b6383a117291ee4c808953c5dd789d5877da98051aa68b41f40ac
 OPERATOR_SDK_SHA256_darwin_arm64 = 098ae8b9dbe7dfd557e8e7ed0f1996736922dd4b984621df2aa033f225cae161
-OPM_SHA256_linux_amd64 = cc0768c3ca915ad1fb72f88ad7cfcb533870fdbb6af83de290b66a5439a28140
-OPM_SHA256_linux_arm64 = e6996b9d87d7a6844b721e055bb8cdf8437c4eaeed1e824a26860acab933cf94
-OPM_SHA256_darwin_amd64 = 4450ec3486a857c86f263f1776b5ca97dd9e209f6711687de2d0e1641d248e76
-OPM_SHA256_darwin_arm64 = 4fc7d0c692e94f1c9e79b6c5b18006901f750bd730412860f77e2b49c83ddd26
+OPM_SHA256_linux_amd64 = cf1bd699be72e0a4511208afdf45444fc47d21eb2ffed0c204520ff50b5a4691
+OPM_SHA256_linux_arm64 = 348a9682975eb220bea3b98b83aa82dc6d2630e6868331ed9bf14f97e462d8be
+OPM_SHA256_darwin_amd64 = a448e5972689036cb1168b83e18195b193bb513399c234d402c425b073a52ea6
+OPM_SHA256_darwin_arm64 = 0ce2671c543e637ae24cb98dfeeec1a9554e3955a72c59eb872750eaf915627f
 ZEITGEIST_VERSION = v0.8.0
 MDTOC_VERSION = v1.4.0
 GOVULNCHECK_VERSION = v1.8.0
@@ -720,7 +720,7 @@ BUNDLE_REPO = $(firstword $(subst @, ,$(BUNDLE_IMGS)))
 
 # The base and builder image of the catalog, opm defaults to its latest tag.
 # Bump together with OPM_VERSION.
-OPM_IMAGE ?= quay.io/operator-framework/opm:$(OPM_VERSION)@sha256:e5a6220603fb4504d58c6e3e488386b817e3695c906a62ee0370b5faedc3799a
+OPM_IMAGE ?= quay.io/operator-framework/opm:$(OPM_VERSION)@sha256:b32d3891616662620da08d7f0ec42c2e69fa2de43427dc975d35b12f7a969a0f
 
 # Build a catalog image by adding bundle images to an empty catalog using the operator package manager tool, 'opm'.
 # This target uses the file-based catalog format (https://olm.operatorframework.io/docs/reference/file-based-catalogs/)
