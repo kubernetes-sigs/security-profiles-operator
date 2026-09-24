@@ -307,6 +307,20 @@ rules:
   verbs:
   - create
 - apiGroups:
+  - config.openshift.io
+  resources:
+  - apiservers
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - config.openshift.io
+  resources:
+  - clusteroperators
+  verbs:
+  - get
+- apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
   - apparmorprofiles
@@ -433,6 +447,20 @@ rules:
   - get
   - list
   - watch
+- apiGroups:
+  - config.openshift.io
+  resources:
+  - apiservers
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - config.openshift.io
+  resources:
+  - clusteroperators
+  verbs:
+  - get
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:

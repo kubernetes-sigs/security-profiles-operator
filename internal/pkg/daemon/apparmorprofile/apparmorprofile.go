@@ -27,6 +27,7 @@ import (
 	"github.com/go-logr/logr"
 	aa "github.com/pjbgf/go-apparmor/pkg/apparmor"
 	"github.com/pjbgf/go-apparmor/pkg/hostop"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -53,6 +54,12 @@ const (
 	reasonCannotUnloadProfile   string = "CannotUnloadAppArmorProfile"
 	reasonCannotUpdateProfile   string = "CannotUpdateAppArmorProfile"
 	reasonLoadedAppArmorProfile string = "LoadedAppArmorProfile"
+
+	// installedAnnotation is set on this node's status once the profile has
+	// been loaded here. The status itself moves to terminating before the
+	// profile is removed, so the annotation is what still proves on removal
+	// that this operator installed the profile on this node.
+	installedAnnotation = "spo.x-k8s.io/apparmor-profile-installed"
 )
 
 // NewController returns a new empty controller instance.
@@ -212,6 +219,12 @@ func (r *Reconciler) reconcileAppArmorProfile(
 		return reconcile.Result{}, fmt.Errorf("cannot load profile into node: %w", err)
 	}
 
+	if err := nodeStatus.SetAnnotation(ctx, installedAnnotation, "true"); err != nil {
+		l.Error(err, "cannot record profile installation in node status")
+
+		return reconcile.Result{}, fmt.Errorf("recording profile installation: %w", err)
+	}
+
 	if isAlreadyInstalled {
 		l.Info("Already in the expected Installed state")
 
@@ -261,12 +274,21 @@ func (r *Reconciler) reconcileDeletion(
 			CannotUpdateStatus:  common.ReasonCannotUpdateStatus,
 		},
 		func(reason string) { r.metrics.IncAppArmorProfileError(sp.GetName(), reason) },
-		func() error { return r.handleDeletion(sp) },
+		func() error { return r.handleDeletion(ctx, sp, nsc) },
 	)
 }
 
-func (r *Reconciler) handleDeletion(sp *apparmorprofileapi.AppArmorProfile) error {
-	if err := r.manager.RemoveProfile(sp); err != nil {
+func (r *Reconciler) handleDeletion(
+	ctx context.Context,
+	sp *apparmorprofileapi.AppArmorProfile,
+	nodeStatus *nodestatus.StatusClient,
+) error {
+	installed, err := nodeStatus.GetAnnotation(ctx, installedAnnotation)
+	if err != nil && !kerrors.IsNotFound(err) {
+		return fmt.Errorf("checking if the profile was installed on this node: %w", err)
+	}
+
+	if err := r.manager.RemoveProfile(sp, installed == "true"); err != nil {
 		return fmt.Errorf("unloading profile from host: %w", err)
 	}
 

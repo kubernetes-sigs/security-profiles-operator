@@ -16,15 +16,13 @@ webhooks:
         apiGroups: [""]
         apiVersions: ["v1"]
         resources: ["pods"]
-    objectSelector:
-      matchExpressions:
-        - key: name
-          operator: NotIn
-          values: ["security-profiles-operator", "security-profiles-operator-webhook"]
     namespaceSelector:
       matchExpressions:
         - key: spo.x-k8s.io/enable-binding
           operator: Exists
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values: ["security-profiles-operator"]
     clientConfig:
       service:
         namespace: "security-profiles-operator"

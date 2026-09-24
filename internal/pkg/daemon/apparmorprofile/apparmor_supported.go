@@ -46,6 +46,7 @@ const (
 
 	errInvalidCustomResourceType string = "invalid CRD kind"
 	errProfileExists             string = "profile exists"
+	errRuntimeProfile            string = "profile name is reserved for a container runtime"
 
 	// managedByMarker is written as the first line of every policy file this
 	// operator installs, and is what makes a profile ours. Mere existence of a
@@ -76,7 +77,7 @@ func (a *aaProfileManager) Enabled() bool {
 	return hostSupportsAppArmor
 }
 
-func (a *aaProfileManager) RemoveProfile(bp profilebaseapi.StatusBaseUser) error {
+func (a *aaProfileManager) RemoveProfile(bp profilebaseapi.StatusBaseUser, ownedByUs bool) error {
 	profile, ok := bp.(*apparmorprofileapi.AppArmorProfile)
 	if !ok {
 		return errors.New(errInvalidCustomResourceType)
@@ -101,7 +102,7 @@ func (a *aaProfileManager) RemoveProfile(bp profilebaseapi.StatusBaseUser) error
 		policy = ""
 	}
 
-	return a.removeProfile(a.logger, profile.GetProfileName(), policy)
+	return a.removeProfile(a.logger, profile.GetProfileName(), policy, ownedByUs)
 }
 
 func (a *aaProfileManager) InstallProfile(
@@ -110,6 +111,13 @@ func (a *aaProfileManager) InstallProfile(
 	profile, ok := bp.(*apparmorprofileapi.AppArmorProfile)
 	if !ok {
 		return false, errors.New(errInvalidCustomResourceType)
+	}
+
+	// A runtime's default profile may not be loaded yet, so the ownership check
+	// below would let an AppArmorProfile claim its name and later replace or
+	// unload it. Nothing legitimate needs to install one of those names.
+	if isRuntimeProfile(profile.GetProfileName()) {
+		return false, errors.New(errRuntimeProfile)
 	}
 
 	// Avoid overwriting a profile that the host already owns. A policy that is
@@ -140,6 +148,38 @@ func (a *aaProfileManager) InstallProfile(
 	}
 
 	return a.loadProfile(a.logger, profile.GetProfileName(), policy)
+}
+
+// runtimeProfiles are the default profiles container runtimes load into the
+// kernel themselves, usually without a policy file under targetProfileDir.
+// Workloads depend on them, so an AppArmorProfile must never replace them.
+var runtimeProfiles = map[string]struct{}{
+	"cri-containerd.apparmor.d": {},
+	"crio-default":              {},
+	"docker-default":            {},
+}
+
+// runtimeProfilePrefixes cover the runtime default profiles whose name carries
+// the version of the runtime that loaded them.
+var runtimeProfilePrefixes = []string{
+	"containers-default-",
+	"crio-default-",
+}
+
+// isRuntimeProfile reports whether name is a container runtime's default
+// profile.
+func isRuntimeProfile(name string) bool {
+	if _, ok := runtimeProfiles[name]; ok {
+		return true
+	}
+
+	for _, prefix := range runtimeProfilePrefixes {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func profileFilename(profileName string) string {
@@ -288,7 +328,22 @@ func loadProfile(logger logr.Logger, name, content string) (bool, error) {
 	return err == nil, err
 }
 
-func removeProfile(logger logr.Logger, profileName, policy string) error {
+// policyFileOwned reports whether removing the profile whose policy file lives
+// at path may unload it. A file carrying our marker, or holding exactly the
+// policy we would generate, is ours. A missing file proves nothing either way:
+// container runtimes load their default profiles (docker-default,
+// cri-containerd.apparmor.d, ...) without writing one here, so only ownedByUs,
+// the caller's evidence that this operator installed the profile on this node,
+// makes it ours. It must be called inside the host mount namespace.
+func policyFileOwned(path, policy string, ownedByUs bool) bool {
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return ownedByUs
+	}
+
+	return fileManagedByUs(path) || fileHasContent(path, policy)
+}
+
+func removeProfile(logger logr.Logger, profileName, policy string, ownedByUs bool) error {
 	mount := hostop.NewMountHostOp(
 		hostop.WithLogger(logger),
 		hostop.WithAssumeContainer(),
@@ -298,19 +353,11 @@ func removeProfile(logger logr.Logger, profileName, policy string) error {
 	err := mount.Do(func() error {
 		path := filepath.Join(targetProfileDir, profileFilename(profileName))
 
-		_, statErr := os.Stat(path)
-		fileMissing := errors.Is(statErr, os.ErrNotExist)
-
 		// Deleting a custom resource must never unload or delete a profile the
 		// host owns. Without this, creating an AppArmorProfile named after a
 		// host profile and deleting it again removes the host's profile, even
 		// though InstallProfile refused to overwrite it.
-		//
-		// A missing file is not a host profile to protect: there is nothing at
-		// our managed location to own. Treating it as "not ours" would leave a
-		// policy this operator loaded, and whose file someone has since removed,
-		// in the kernel with no way to unload it.
-		if !fileMissing && !fileManagedByUs(path) && !fileHasContent(path, policy) {
+		if !policyFileOwned(path, policy, ownedByUs) {
 			logger.Info(
 				"profile is not managed by this operator: skipping deletion",
 				"profile-name",

@@ -26,6 +26,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
@@ -104,6 +105,31 @@ func TestNamespaceSelectorUnequalForLabel(t *testing.T) {
 			}},
 			configured: &metav1.LabelSelector{},
 			expected:   true,
+		},
+		{
+			// A user expression for the same key as the operator namespace
+			// exclusion must not hide that the exclusion is missing.
+			name: "label requirements are not equal (configured has an additional expression)",
+			existing: &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{
+				{
+					Key:      testLabel,
+					Operator: metav1.LabelSelectorOpIn,
+					Values:   []string{"foo"},
+				},
+			}},
+			configured: &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{
+				{
+					Key:      testLabel,
+					Operator: metav1.LabelSelectorOpIn,
+					Values:   []string{"foo"},
+				},
+				{
+					Key:      testLabel,
+					Operator: metav1.LabelSelectorOpNotIn,
+					Values:   []string{"bar"},
+				},
+			}},
+			expected: true,
 		},
 	} {
 		existing := tc.existing
@@ -186,6 +212,20 @@ func TestWebhook_NeedsUpdate(t *testing.T) {
 			configured: &admissionregv1.MutatingWebhook{
 				Name:              "foo",
 				NamespaceSelector: &metav1.LabelSelector{},
+			},
+			expected: true,
+		},
+		{
+			// Otherwise a cluster set up before the exclusion existed would
+			// never receive it.
+			name: "operator namespace exclusion missing",
+			existing: &admissionregv1.MutatingWebhook{
+				Name:              "foo",
+				NamespaceSelector: requireLabel(EnableBindingLabel),
+			},
+			configured: &admissionregv1.MutatingWebhook{
+				Name:              "foo",
+				NamespaceSelector: excludeOperatorNamespace(EnableBindingLabel, "spo"),
 			},
 			expected: true,
 		},
@@ -282,6 +322,55 @@ func TestWebhook_getWebhookConfig(t *testing.T) {
 
 	webhookConfig = getWebhookConfig(true, "custom-operator-ns")
 	require.Len(t, webhookConfig.Webhooks, 4)
+}
+
+// TestApplyWebhookOptionsKeepsOperatorNamespaceExcluded covers a custom binding
+// namespace selector. It used to replace the whole selector and with it the
+// operator namespace exclusion, so binding applied to the operator's own pods.
+func TestApplyWebhookOptionsKeepsOperatorNamespaceExcluded(t *testing.T) {
+	t.Parallel()
+
+	const operatorNamespace = "custom-operator-ns"
+
+	userSelector := &metav1.LabelSelector{
+		MatchExpressions: []metav1.LabelSelectorRequirement{{
+			Key:      "team",
+			Operator: metav1.LabelSelectorOpIn,
+			Values:   []string{"a"},
+		}},
+	}
+
+	cfg := getWebhookConfig(false, operatorNamespace)
+	applyWebhookOptions(cfg, []spodapi.WebhookOptions{
+		{Name: binding.name, NamespaceSelector: userSelector},
+		{Name: recording.name, NamespaceSelector: userSelector},
+	}, operatorNamespace)
+
+	assert.Equal(t, []metav1.LabelSelectorRequirement{
+		userSelector.MatchExpressions[0],
+		{
+			Key:      corev1.LabelMetadataName,
+			Operator: metav1.LabelSelectorOpNotIn,
+			Values:   []string{operatorNamespace},
+		},
+	}, cfg.Webhooks[binding.index].NamespaceSelector.MatchExpressions)
+
+	// Recording deliberately has no namespace exclusion.
+	assert.Equal(t, userSelector.MatchExpressions,
+		cfg.Webhooks[recording.index].NamespaceSelector.MatchExpressions)
+
+	// The user's options stay untouched.
+	assert.Len(t, userSelector.MatchExpressions, 1)
+
+	// A user selector that already excludes the operator namespace does not
+	// get a duplicate expression.
+	excluding := excludeOperatorNamespace(EnableBindingLabel, operatorNamespace)
+	cfg = getWebhookConfig(false, operatorNamespace)
+	applyWebhookOptions(cfg, []spodapi.WebhookOptions{
+		{Name: binding.name, NamespaceSelector: excluding},
+	}, operatorNamespace)
+	assert.Equal(t, excluding.MatchExpressions,
+		cfg.Webhooks[binding.index].NamespaceSelector.MatchExpressions)
 }
 
 func TestWebhook_DeploymentSecurityContext(t *testing.T) {

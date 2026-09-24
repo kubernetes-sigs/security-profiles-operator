@@ -259,7 +259,7 @@ metadata:
     capabilities: Basic Install
     categories: Security
     containerImage: us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator:latest
-    createdAt: "2026-09-23T10:00:45Z"
+    createdAt: "2026-09-24T07:57:40Z"
     olm.skipRange: '>=1.0.0 <1.1.1-dev'
     operatorframework.io/cluster-monitoring: "true"
     operatorframework.io/os.linux: supported
@@ -528,6 +528,20 @@ spec:
           - list
           - watch
         - apiGroups:
+          - config.openshift.io
+          resources:
+          - apiservers
+          verbs:
+          - get
+          - list
+          - watch
+        - apiGroups:
+          - config.openshift.io
+          resources:
+          - clusteroperators
+          verbs:
+          - get
+        - apiGroups:
           - security-profiles-operator.x-k8s.io
           resources:
           - apparmorprofiles
@@ -572,6 +586,20 @@ spec:
           - subjectaccessreviews
           verbs:
           - create
+        - apiGroups:
+          - config.openshift.io
+          resources:
+          - apiservers
+          verbs:
+          - get
+          - list
+          - watch
+        - apiGroups:
+          - config.openshift.io
+          resources:
+          - clusteroperators
+          verbs:
+          - get
         - apiGroups:
           - security-profiles-operator.x-k8s.io
           resources:

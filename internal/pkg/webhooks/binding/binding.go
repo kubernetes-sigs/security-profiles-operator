@@ -111,6 +111,10 @@ func initContainerMap(m *sync.Map, spec *corev1.PodSpec) {
 //nolint:lll // required for kubebuilder
 // +kubebuilder:rbac:groups=security.openshift.io,namespace=security-profiles-operator,resourceNames=privileged,resources=securitycontextconstraints,verbs=use
 
+// OpenShift cluster TLS profile detection and watch (ignored in other distros):
+// +kubebuilder:rbac:groups=config.openshift.io,resources=clusteroperators,verbs=get
+// +kubebuilder:rbac:groups=config.openshift.io,resources=apiservers,verbs=get;list;watch
+
 //nolint:gocritic
 func (p *podBinder) Handle(ctx context.Context, req admission.Request) admission.Response {
 	profileBindings, err := p.ListProfileBindings(ctx, client.InNamespace(req.Namespace))

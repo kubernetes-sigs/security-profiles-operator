@@ -3280,6 +3280,20 @@ rules:
   - list
   - watch
 - apiGroups:
+  - config.openshift.io
+  resources:
+  - apiservers
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - config.openshift.io
+  resources:
+  - clusteroperators
+  verbs:
+  - get
+- apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
   - apparmorprofiles
@@ -3330,6 +3344,20 @@ rules:
   - subjectaccessreviews
   verbs:
   - create
+- apiGroups:
+  - config.openshift.io
+  resources:
+  - apiservers
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - config.openshift.io
+  resources:
+  - clusteroperators
+  verbs:
+  - get
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
@@ -4188,13 +4216,10 @@ webhooks:
     matchExpressions:
     - key: spo.x-k8s.io/enable-binding
       operator: Exists
-  objectSelector:
-    matchExpressions:
-    - key: name
+    - key: kubernetes.io/metadata.name
       operator: NotIn
       values:
       - security-profiles-operator
-      - security-profiles-operator-webhook
   rules:
   - apiGroups:
     - ""

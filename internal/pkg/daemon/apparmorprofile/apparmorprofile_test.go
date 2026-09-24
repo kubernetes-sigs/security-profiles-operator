@@ -17,19 +17,26 @@ limitations under the License.
 package apparmorprofile
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	_ "github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	profilebaseapi "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/nodestatus"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -124,6 +131,9 @@ type FakeProfileManager struct {
 	// gotPreviouslyInstalled records what the reconciler passed, so a test can
 	// assert that the node status is what vouches for an unmarked profile.
 	gotPreviouslyInstalled bool
+
+	// gotRemoveOwnedByUs records what the reconciler passed on removal.
+	gotRemoveOwnedByUs bool
 }
 
 func (f *FakeProfileManager) Enabled() bool {
@@ -138,6 +148,76 @@ func (f *FakeProfileManager) InstallProfile(
 	return f.installed, f.err
 }
 
-func (f *FakeProfileManager) RemoveProfile(profilebaseapi.StatusBaseUser) error {
+func (f *FakeProfileManager) RemoveProfile(_ profilebaseapi.StatusBaseUser, ownedByUs bool) error {
+	f.gotRemoveOwnedByUs = ownedByUs
+
 	return f.err
+}
+
+// TestHandleDeletionOwnership covers the evidence passed on removal. Only this
+// node's status recording a successful install may vouch for a profile whose
+// policy file is gone, otherwise deleting an AppArmorProfile named after a
+// container runtime's default profile would unload it from the host.
+func TestHandleDeletionOwnership(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		getErr      error
+		annotations map[string]string
+		want        bool
+		wantErr     bool
+	}{
+		{
+			name:        "installed on this node",
+			annotations: map[string]string{installedAnnotation: "true"},
+			want:        true,
+		},
+		{
+			name: "never installed on this node",
+			want: false,
+		},
+		{
+			name:   "no node status",
+			getErr: kerrors.NewNotFound(schema.GroupResource{}, "status"),
+			want:   false,
+		},
+		{
+			name:    "node status cannot be read",
+			getErr:  errors.New("boom"),
+			wantErr: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(config.NodeNameEnvKey, "worker-1")
+
+			profile := &apparmorprofileapi.AppArmorProfile{
+				ObjectMeta: metav1.ObjectMeta{Name: "docker-default"},
+			}
+			manager := &FakeProfileManager{}
+			rec := &Reconciler{
+				client: &util.MockClient{
+					MockGet: func(_ context.Context, _ client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
+						obj.SetAnnotations(tc.annotations)
+
+						return tc.getErr
+					},
+				},
+				log:     log.Log,
+				metrics: metrics.New(),
+				manager: manager,
+			}
+
+			nodeStatus, err := nodestatus.NewForProfile(profile, rec.client)
+			require.NoError(t, err)
+
+			err = rec.handleDeletion(t.Context(), profile, nodeStatus)
+			if tc.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, tc.want, manager.gotRemoveOwnedByUs)
+		})
+	}
 }
