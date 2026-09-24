@@ -22,8 +22,76 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 	seccompprofile "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 )
+
+func TestCheckRecordingOwner(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name            string
+		resourceVersion string
+		labels          map[string]string
+		wantErr         bool
+	}{
+		{
+			name: "new profile",
+			labels: map[string]string{
+				profilerecordingapi.ProfileToRecordingNamespaceLabel: "other",
+			},
+		},
+		{
+			name:            "existing profile without labels",
+			resourceVersion: "1",
+		},
+		{
+			name:            "existing profile of the same recording",
+			resourceVersion: "1",
+			labels: map[string]string{
+				profilerecordingapi.ProfileToRecordingLabel:          "rec",
+				profilerecordingapi.ProfileToRecordingNamespaceLabel: "ns",
+			},
+		},
+		{
+			name:            "existing profile of another namespace",
+			resourceVersion: "1",
+			labels: map[string]string{
+				profilerecordingapi.ProfileToRecordingLabel:          "rec",
+				profilerecordingapi.ProfileToRecordingNamespaceLabel: "other",
+			},
+			wantErr: true,
+		},
+		{
+			name:            "existing profile of another recording",
+			resourceVersion: "1",
+			labels: map[string]string{
+				profilerecordingapi.ProfileToRecordingLabel:          "other",
+				profilerecordingapi.ProfileToRecordingNamespaceLabel: "ns",
+			},
+			wantErr: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			profile := &seccompprofile.SeccompProfile{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            "rec-ctr",
+					ResourceVersion: tc.resourceVersion,
+					Labels:          tc.labels,
+				},
+			}
+
+			err := CheckRecordingOwner(profile, "rec", "ns")
+			if tc.wantErr {
+				require.ErrorIs(t, err, ErrProfileOwnedByOtherRecording)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
 
 func TestNameHashing(t *testing.T) {
 	t.Parallel()

@@ -782,6 +782,12 @@ func (r *RecorderReconciler) collectLogProfileGeneric(
 
 	res, err := r.CreateOrUpdate(ctx, r.client, profile,
 		func() error {
+			if err := util.CheckRecordingOwner(
+				profile, parsedProfileName.profileName, profileNamespacedName.Namespace,
+			); err != nil {
+				return fmt.Errorf("check profile owner: %w", err)
+			}
+
 			collector.applySpec()
 
 			return nil
@@ -791,12 +797,15 @@ func (r *RecorderReconciler) collectLogProfileGeneric(
 		r.log.Error(err, "Cannot create profile resource")
 		r.record.Event(profile, util.EventTypeWarning, reasonProfileCreationFailed, err.Error())
 
-		return fmt.Errorf("create %s profile resource: %w", collector.profileKind, err)
+		// Retrying cannot resolve the conflict, so drop the recorded data.
+		if !errors.Is(err, util.ErrProfileOwnedByOtherRecording) {
+			return fmt.Errorf("create %s profile resource: %w", collector.profileKind, err)
+		}
+	} else {
+		r.log.Info("Created/updated profile", "action", res, "name", profileNamespacedName.Name)
+		r.record.Event(profile, util.EventTypeNormal, reasonProfileCreated,
+			collector.profileKind+" profile created")
 	}
-
-	r.log.Info("Created/updated profile", "action", res, "name", profileNamespacedName.Name)
-	r.record.Event(profile, util.EventTypeNormal, reasonProfileCreated,
-		collector.profileKind+" profile created")
 
 	if err := collector.resetData(ctx); err != nil {
 		return fmt.Errorf("reset %s data for profile %s: %w",
@@ -1231,6 +1240,12 @@ func (r *RecorderReconciler) updateOrCreateBpfResource(
 
 	res, err := r.CreateOrUpdate(ctx, r.client, profile,
 		func() error {
+			if err := util.CheckRecordingOwner(
+				profile, profileRecordingName, profileNamespace,
+			); err != nil {
+				return fmt.Errorf("check profile owner: %w", err)
+			}
+
 			applySpec()
 
 			return nil
@@ -1239,6 +1254,11 @@ func (r *RecorderReconciler) updateOrCreateBpfResource(
 	if err != nil {
 		r.log.Error(err, "Cannot create profile resource")
 		r.record.Event(profile, util.EventTypeWarning, reasonProfileCreationFailed, err.Error())
+
+		// Retrying cannot resolve the conflict, so drop the recorded data.
+		if errors.Is(err, util.ErrProfileOwnedByOtherRecording) {
+			return nil
+		}
 
 		return fmt.Errorf("creating profile resource: %w", err)
 	}
@@ -1774,12 +1794,23 @@ func (r *RecorderReconciler) setRecordingFinalizers(
 		return fmt.Errorf("get recording: %w", err)
 	}
 
-	if !controllerutil.ContainsFinalizer(
+	if controllerutil.ContainsFinalizer(
 		&recording,
 		profilerecordingapi.RecordingHasUnmergedProfiles,
 	) {
-		controllerutil.AddFinalizer(&recording, profilerecordingapi.RecordingHasUnmergedProfiles)
+		return nil
 	}
+
+	// The API server rejects adding finalizers to an object which is being
+	// deleted, so retrying would never succeed.
+	if !recording.GetDeletionTimestamp().IsZero() {
+		r.log.Info("Not adding finalizer to recording being deleted",
+			"recording", profileRecordingName, "namespace", namespace)
+
+		return nil
+	}
+
+	controllerutil.AddFinalizer(&recording, profilerecordingapi.RecordingHasUnmergedProfiles)
 
 	if err := utils.UpdateResource(ctx, r.log, r.client, &recording, recording.Kind); err != nil {
 		return fmt.Errorf("update recording: %w", err)

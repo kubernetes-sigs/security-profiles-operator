@@ -86,6 +86,7 @@ func (r *PolicyMergeReconciler) Healthz(*http.Request) error {
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilerecordings/finalizers,verbs=get;list;watch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles,verbs=get;list;watch;create;update;patch;delete;deletecollection
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles,verbs=get;list;watch;create;update;patch;delete;deletecollection
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=apparmorprofiles,verbs=get;list;watch;create;update;patch;delete;deletecollection
 
 // Reconcile reconciles a NodeStatus.
 func (r *PolicyMergeReconciler) Reconcile(
@@ -206,6 +207,26 @@ func (r *PolicyMergeReconciler) mergeTypedProfiles(
 
 		mergedRecordingName := mergedProfileName(profileRecording.Name, cntPartialProfiles[0])
 
+		if err := r.mergeExistingProfile(
+			ctx, profileRecording, mergedRecordingName, mergedProfile, profileItem,
+		); err != nil {
+			r.record.Event(
+				profileRecording,
+				util.EventTypeWarning,
+				reasonCannotCreateUpdate,
+				err.Error(),
+			)
+
+			// Retrying cannot resolve the conflict, so skip the container.
+			if errors.Is(err, util.ErrProfileOwnedByOtherRecording) {
+				r.log.Error(err, "Skipping merged profile", "container", cntName)
+
+				continue
+			}
+
+			return fmt.Errorf("cannot merge existing profile: %w", err)
+		}
+
 		r.log.V(1).
 			Info("Computed syscall coverage", "container", cntName, "coverage", coverageAnnotation)
 
@@ -226,6 +247,62 @@ func (r *PolicyMergeReconciler) mergeTypedProfiles(
 	}
 
 	return deletePartialProfiles(ctx, r.client, profileItem, profileRecording)
+}
+
+// mergeExistingProfile merges the already existing merged profile into the
+// provided one. The partial profiles get deleted after each merge, so partial
+// profiles collected later would otherwise replace the earlier merge result.
+// Profiles created before the recording belong to a previous recording with the
+// same name and get replaced like before.
+func (r *PolicyMergeReconciler) mergeExistingProfile(
+	ctx context.Context,
+	profileRecording *profilerecordingapi.ProfileRecording,
+	name string,
+	mergedProfile mergeableProfile,
+	profileItem client.Object,
+) error {
+	existing, ok := profileItem.DeepCopyObject().(client.Object)
+	if !ok {
+		return fmt.Errorf("object %T is not a client.Object", profileItem)
+	}
+
+	if err := r.client.Get(ctx, util.NamespacedName(name, ""), existing); err != nil {
+		if util.IgnoreNotFound(err) == nil {
+			return nil
+		}
+
+		return fmt.Errorf("get existing merged profile: %w", err)
+	}
+
+	if err := util.CheckRecordingOwner(
+		existing, profileRecording.Name, profileRecording.Namespace,
+	); err != nil {
+		return fmt.Errorf("check merged profile owner: %w", err)
+	}
+
+	// Merged profiles always carry the recording labels, so an existing
+	// profile without them was not created by the merger and gets replaced.
+	if _, ok := existing.GetLabels()[profilerecordingapi.ProfileToRecordingLabel]; !ok {
+		return nil
+	}
+
+	existingCreated := existing.GetCreationTimestamp()
+	recordingCreated := profileRecording.GetCreationTimestamp()
+
+	if existingCreated.Before(&recordingCreated) {
+		return nil
+	}
+
+	existingProfile, err := newMergeableProfile(existing)
+	if err != nil {
+		return fmt.Errorf("cannot create mergeable profile: %w", err)
+	}
+
+	if err := mergedProfile.merge(existingProfile); err != nil {
+		return fmt.Errorf("failed to merge existing profile %s: %w", name, err)
+	}
+
+	return nil
 }
 
 type createUpdateFn func(

@@ -192,6 +192,94 @@ func TestReconcile(t *testing.T) {
 	})
 }
 
+func mergedSyscalls(t *testing.T, r *PolicyMergeReconciler, container string) []string {
+	t.Helper()
+
+	merged := &seccompprofile.SeccompProfile{}
+	require.NoError(t, r.client.Get(t.Context(),
+		types.NamespacedName{Name: testRecording + "-" + container}, merged))
+
+	var names []string
+	for _, s := range merged.Spec.Syscalls {
+		names = append(names, s.Names...)
+	}
+
+	return names
+}
+
+// Partial profiles get deleted after each merge, so a later merge round has to
+// keep the result of the earlier ones.
+func TestMergeProfilesKeepsExistingMergedProfile(t *testing.T) {
+	t.Parallel()
+
+	recording := testMergeRecording(profilerecordingapi.ProfileRecordingKindSeccompProfile, true)
+	r := newMergeReconciler(t, recording, partialSeccomp("partial-a", "redis", "read"))
+
+	require.NoError(t, r.mergeProfiles(t.Context(), recording))
+	require.ElementsMatch(t, []string{"read"}, mergedSyscalls(t, r, "redis"))
+
+	require.NoError(t, r.client.Create(t.Context(), partialSeccomp("partial-b", "redis", "write")))
+	require.NoError(t, r.mergeProfiles(t.Context(), recording))
+	require.ElementsMatch(t, []string{"read", "write"}, mergedSyscalls(t, r, "redis"))
+}
+
+// Only a merged profile created by this recording gets merged into the result,
+// others, like the one of a deleted recording with the same name, get replaced.
+func TestMergeProfilesReplacesUnrelatedMergedProfile(t *testing.T) {
+	t.Parallel()
+
+	for name, modify := range map[string]func(*seccompprofile.SeccompProfile){
+		"created before the recording": func(p *seccompprofile.SeccompProfile) {
+			p.CreationTimestamp = metav1.NewTime(time.Now().Add(-time.Hour))
+		},
+		"without recording labels": func(p *seccompprofile.SeccompProfile) {
+			p.Labels = nil
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			recording := testMergeRecording(
+				profilerecordingapi.ProfileRecordingKindSeccompProfile,
+				true,
+			)
+			recording.CreationTimestamp = metav1.NewTime(time.Now())
+
+			existing := partialSeccomp(testRecording+"-redis", "redis", "exec")
+			delete(existing.Labels, profilebase.ProfilePartialLabel)
+			existing.CreationTimestamp = metav1.NewTime(time.Now().Add(time.Hour))
+			modify(existing)
+
+			r := newMergeReconciler(
+				t,
+				recording,
+				existing,
+				partialSeccomp("partial-a", "redis", "read"),
+			)
+
+			require.NoError(t, r.mergeProfiles(t.Context(), recording))
+			require.ElementsMatch(t, []string{"read"}, mergedSyscalls(t, r, "redis"))
+		})
+	}
+}
+
+// Profiles are cluster scoped, so a same named recording in another namespace
+// must not overwrite the merged profile of this one.
+func TestMergeProfilesSkipsProfileOfOtherRecording(t *testing.T) {
+	t.Parallel()
+
+	recording := testMergeRecording(profilerecordingapi.ProfileRecordingKindSeccompProfile, true)
+
+	other := partialSeccomp(testRecording+"-nginx", "nginx", "exec")
+	other.Labels[profilerecordingapi.ProfileToRecordingNamespaceLabel] = "other-ns"
+	delete(other.Labels, profilebase.ProfilePartialLabel)
+
+	r := newMergeReconciler(t, recording, other, partialSeccomp("partial-a", "nginx", "read"))
+
+	require.NoError(t, r.mergeProfiles(t.Context(), recording))
+	require.ElementsMatch(t, []string{"exec"}, mergedSyscalls(t, r, "nginx"))
+}
+
 // mergeProfiles dispatches on the recording kind; an unknown kind has to be
 // reported rather than silently doing nothing.
 func TestMergeProfilesUnknownKind(t *testing.T) {

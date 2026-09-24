@@ -18,6 +18,7 @@ package recordingtracker
 
 import (
 	"testing"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
@@ -263,4 +264,94 @@ func TestNoRecordingsInNamespace(t *testing.T) {
 		NamespacedName: client.ObjectKeyFromObject(pod),
 	})
 	require.NoError(t, err)
+}
+
+func TestPodMatchesRecordingBeingDeleted(t *testing.T) {
+	t.Parallel()
+
+	scheme := newTestScheme(t)
+
+	recording := &profilerecordingapi.ProfileRecording{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "test-recording",
+			Namespace:         "default",
+			DeletionTimestamp: &metav1.Time{Time: time.Now()},
+			Finalizers:        []string{"other"},
+		},
+		Spec: profilerecordingapi.ProfileRecordingSpec{
+			PodSelector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"app": "test"},
+			},
+		},
+	}
+
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-pod",
+			Namespace: "default",
+			Labels:    map[string]string{"app": "test"},
+		},
+	}
+
+	c := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(recording).
+		WithObjects(recording, pod).
+		WithIndex(&profilerecordingapi.ProfileRecording{}, linkedPodsKey, recordingIndexFunc).
+		Build()
+
+	r := newReconciler(c)
+
+	_, err := r.Reconcile(t.Context(), reconcile.Request{
+		NamespacedName: client.ObjectKeyFromObject(pod),
+	})
+	require.NoError(t, err)
+
+	updated := &profilerecordingapi.ProfileRecording{}
+	require.NoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(recording), updated))
+	require.Empty(t, updated.Status.ActiveWorkloads)
+	require.NotContains(t, updated.GetFinalizers(), finalizer)
+}
+
+func TestActiveWorkloadRequestsReleasesStalePods(t *testing.T) {
+	t.Parallel()
+
+	scheme := newTestScheme(t)
+
+	// The pod got deleted while the operator was down, so no delete event
+	// for it will ever be observed.
+	recording := &profilerecordingapi.ProfileRecording{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "test-recording",
+			Namespace:  "default",
+			Finalizers: []string{finalizer},
+		},
+		Status: profilerecordingapi.ProfileRecordingStatus{
+			ActiveWorkloads: []string{"deleted-pod"},
+		},
+	}
+
+	c := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(recording).
+		WithObjects(recording).
+		WithIndex(&profilerecordingapi.ProfileRecording{}, linkedPodsKey, recordingIndexFunc).
+		Build()
+
+	r := newReconciler(c)
+
+	requests := activeWorkloadRequests(t.Context(), recording)
+	require.Equal(t, []reconcile.Request{{
+		NamespacedName: client.ObjectKey{Namespace: "default", Name: "deleted-pod"},
+	}}, requests)
+
+	for _, req := range requests {
+		_, err := r.Reconcile(t.Context(), req)
+		require.NoError(t, err)
+	}
+
+	updated := &profilerecordingapi.ProfileRecording{}
+	require.NoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(recording), updated))
+	require.Empty(t, updated.Status.ActiveWorkloads)
+	require.NotContains(t, updated.GetFinalizers(), finalizer)
 }

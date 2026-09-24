@@ -248,6 +248,12 @@ func (r *ReconcileSPOd) Reconcile(
 		updatedSPod := foundSPOd.DeepCopy()
 		updatedSPod.Spec.Template = configuredSPOd.Spec.Template
 
+		if v, ok := configuredSPOd.Annotations[appArmorAnnotation]; ok {
+			metav1.SetMetaDataAnnotation(&updatedSPod.ObjectMeta, appArmorAnnotation, v)
+		} else {
+			delete(updatedSPod.Annotations, appArmorAnnotation)
+		}
+
 		updateErr := r.handleUpdate(
 			ctx, spod, updatedSPod, webhook, metricsService, certManagerResources, serviceMonitor,
 		)
@@ -458,7 +464,9 @@ func (r *ReconcileSPOd) handleUpdate(
 
 	r.log.Info("Updating operator daemonset")
 
-	if err := r.client.Patch(ctx, spodInstance, client.Merge); err != nil {
+	// A JSON merge patch would keep fields which got cleared in the
+	// configuration, like the affinity, so update the whole object instead.
+	if err := r.client.Update(ctx, spodInstance); err != nil {
 		return fmt.Errorf("updating operator DaemonSet: %w", err)
 	}
 
@@ -1203,12 +1211,41 @@ func profilingEnvsSpo(add int) []corev1.EnvVar {
 }
 
 func spodNeedsUpdate(configured, found *appsv1.DaemonSet) bool {
+	cSpec, fSpec := &configured.Spec.Template.Spec, &found.Spec.Template.Spec
+
 	// If the length of the containers or volumes don't match, we clearly need
 	// an update. This way we avoid the expensive DeepDerivative check, and the
 	// volume count also catches a pruned trailing volume, which DeepDerivative
 	// would accept as a prefix match of the longer slice in the found object.
-	return (len(configured.Spec.Template.Spec.InitContainers) != len(found.Spec.Template.Spec.InitContainers) ||
-		len(configured.Spec.Template.Spec.Containers) != len(found.Spec.Template.Spec.Containers) ||
-		len(configured.Spec.Template.Spec.Volumes) != len(found.Spec.Template.Spec.Volumes) ||
+	// The same applies to the arguments, environment variables and volume
+	// mounts of the containers, for example when profiling gets disabled.
+	// DeepDerivative also ignores fields which are unset in the configured
+	// object, so the scheduling fields and the AppArmor annotation are compared
+	// explicitly to detect when they got cleared.
+	return (len(cSpec.InitContainers) != len(fSpec.InitContainers) ||
+		len(cSpec.Containers) != len(fSpec.Containers) ||
+		len(cSpec.Volumes) != len(fSpec.Volumes) ||
+		containerListsDiffer(cSpec.InitContainers, fSpec.InitContainers) ||
+		containerListsDiffer(cSpec.Containers, fSpec.Containers) ||
+		cSpec.PriorityClassName != fSpec.PriorityClassName ||
+		!apiequality.Semantic.DeepEqual(cSpec.Affinity, fSpec.Affinity) ||
+		!apiequality.Semantic.DeepEqual(cSpec.Tolerations, fSpec.Tolerations) ||
+		!apiequality.Semantic.DeepEqual(cSpec.ImagePullSecrets, fSpec.ImagePullSecrets) ||
+		configured.Annotations[appArmorAnnotation] != found.Annotations[appArmorAnnotation] ||
 		!apiequality.Semantic.DeepDerivative(configured.Spec.Template, found.Spec.Template))
+}
+
+// containerListsDiffer reports if the containers at the same index have a
+// different number of arguments, environment variables or volume mounts. Both
+// lists are expected to have the same length.
+func containerListsDiffer(configured, found []corev1.Container) bool {
+	for i := range configured {
+		if len(configured[i].Args) != len(found[i].Args) ||
+			len(configured[i].Env) != len(found[i].Env) ||
+			len(configured[i].VolumeMounts) != len(found[i].VolumeMounts) {
+			return true
+		}
+	}
+
+	return false
 }

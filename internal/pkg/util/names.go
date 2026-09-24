@@ -26,6 +26,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 )
 
 func NamespacedName(name, namespace string) types.NamespacedName {
@@ -71,6 +73,36 @@ func DNSLengthName(hashPrefix, format string, a ...any) string {
 	name, _ := lengthName(validation.DNS1123LabelMaxLength, hashPrefix, format, a...)
 
 	return name
+}
+
+// ErrProfileOwnedByOtherRecording is returned by CheckRecordingOwner if a
+// profile got recorded by another profile recording.
+var ErrProfileOwnedByOtherRecording = errors.New("profile belongs to another profile recording")
+
+// CheckRecordingOwner verifies that an existing profile was recorded by the
+// recording with the provided name and namespace. Recorded profiles are
+// cluster scoped and named after the recording, so recordings with the same
+// name in different namespaces would otherwise overwrite each other's profiles.
+// Objects which do not exist yet or carry no recording labels pass the check.
+func CheckRecordingOwner(profile client.Object, recordingName, recordingNamespace string) error {
+	if profile.GetResourceVersion() == "" {
+		return nil
+	}
+
+	labels := profile.GetLabels()
+
+	name, hasName := labels[profilerecordingapi.ProfileToRecordingLabel]
+	namespace, hasNamespace := labels[profilerecordingapi.ProfileToRecordingNamespaceLabel]
+
+	if (hasName && name != recordingName) || (hasNamespace && namespace != recordingNamespace) {
+		return fmt.Errorf(
+			"%w: profile %s was recorded by %s/%s, not by %s/%s",
+			ErrProfileOwnedByOtherRecording, profile.GetName(),
+			namespace, name, recordingNamespace, recordingName,
+		)
+	}
+
+	return nil
 }
 
 func KindBasedDNSLengthName(obj client.Object) string {
