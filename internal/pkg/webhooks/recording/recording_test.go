@@ -109,6 +109,7 @@ func TestHandle(t *testing.T) {
 			},
 			request: admission.Request{
 				AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Create,
 					Object: runtime.RawExtension{
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
@@ -122,6 +123,43 @@ func TestHandle(t *testing.T) {
 			assert: func(resp admission.Response) {
 				require.True(t, resp.Allowed)
 				require.Len(t, resp.Patches, 2) // 2 because security context and the annotation
+			},
+		},
+		{ // success pod update only tracks, security context is immutable
+			prepare: func(mock *recordingfakes.FakeImpl) {
+				mock.ListProfileRecordingsReturns(&profilerecordingapi.ProfileRecordingList{
+					Items: []profilerecordingapi.ProfileRecording{
+						{
+							Spec: profilerecordingapi.ProfileRecordingSpec{
+								Kind:     profilerecordingapi.ProfileRecordingKindSeccompProfile,
+								Recorder: profilerecordingapi.ProfileRecorderLogs,
+							},
+						},
+					},
+				}, nil)
+
+				mock.GetOperatorNamespaceReturns("test-ns")
+				mock.DecodePodReturns(testPod.DeepCopy(), nil)
+				mock.LabelSelectorAsSelectorReturns(labels.Everything(), nil)
+			},
+			request: admission.Request{
+				AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Update,
+					Object: runtime.RawExtension{
+						Raw: func() []byte {
+							b, err := json.Marshal(testPod.DeepCopy())
+							require.NoError(t, err)
+
+							return b
+						}(),
+					},
+				},
+			},
+			assert: func(resp admission.Response) {
+				require.True(t, resp.Allowed)
+				require.Len(t, resp.Patches, 1)
+				require.Equal(t, "add", resp.Patches[0].Operation)
+				require.Equal(t, "/metadata/annotations", resp.Patches[0].Path)
 			},
 		},
 		{ // success pod changed
@@ -228,6 +266,7 @@ func TestHandle(t *testing.T) {
 			},
 			request: admission.Request{
 				AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Create,
 					Object: runtime.RawExtension{
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())

@@ -164,11 +164,15 @@ func (p *podBinder) updatePod(
 ) (*corev1.Pod, admission.Response) {
 	var err error
 
-	var podBindProfile *any
-
 	var containers sync.Map
 
-	var podProfileBinding *profilebindingapi.ProfileBinding
+	// Wildcard bindings apply per profile kind, so a SeccompProfile and a
+	// SelinuxProfile wildcard binding can both be enforced on the same pod.
+	wildcardProfiles := map[profilebindingapi.ProfileBindingKind]any{}
+
+	// Containers already bound by an image specific binding per profile kind.
+	// Wildcard bindings act as a default and must not override them.
+	boundContainers := map[profilebindingapi.ProfileBindingKind]map[*corev1.Container]bool{}
 
 	pod := &corev1.Pod{}
 	podChanged := false
@@ -241,8 +245,7 @@ func (p *podBinder) updatePod(
 		}
 
 		if profilebindings[i].Spec.Image == profilebindingapi.SelectAllContainersImage {
-			podBindProfile = &bindProfile
-			podProfileBinding = &profilebindings[i]
+			wildcardProfiles[profileKind] = bindProfile
 
 			continue
 		}
@@ -257,15 +260,21 @@ func (p *podBinder) updatePod(
 			continue
 		}
 
+		if boundContainers[profileKind] == nil {
+			boundContainers[profileKind] = map[*corev1.Container]bool{}
+		}
+
 		for j := range containers {
+			boundContainers[profileKind][containers[j]] = true
+
 			if p.addSecurityContext(containers[j], bindProfile) {
 				podChanged = true
 			}
 		}
 	}
 
-	if podBindProfile != nil && podProfileBinding != nil {
-		if p.addPodSecurityContext(pod, *podBindProfile) {
+	for kind, bindProfile := range wildcardProfiles {
+		if p.applyWildcardProfile(pod, bindProfile, boundContainers[kind]) {
 			podChanged = true
 		}
 	}
@@ -275,6 +284,56 @@ func (p *podBinder) updatePod(
 	}
 
 	return pod, admission.Response{}
+}
+
+// applyWildcardProfile sets the profile of a wildcard binding on the pod
+// security context. Containers which set their own value of the same kind
+// would take precedence over the pod level value, so they get overwritten as
+// well, unless an image specific binding already bound them.
+func (p *podBinder) applyWildcardProfile(
+	pod *corev1.Pod, bindProfile any, bound map[*corev1.Container]bool,
+) bool {
+	podChanged := p.addPodSecurityContext(pod, bindProfile)
+
+	ctrs := make([]*corev1.Container, 0, len(pod.Spec.InitContainers)+len(pod.Spec.Containers))
+	for i := range pod.Spec.InitContainers {
+		ctrs = append(ctrs, &pod.Spec.InitContainers[i])
+	}
+
+	for i := range pod.Spec.Containers {
+		ctrs = append(ctrs, &pod.Spec.Containers[i])
+	}
+
+	for _, c := range ctrs {
+		if bound[c] || !hasContainerContext(c, bindProfile) {
+			continue
+		}
+
+		if p.addSecurityContext(c, bindProfile) {
+			podChanged = true
+		}
+	}
+
+	return podChanged
+}
+
+// hasContainerContext returns true if the container sets its own security
+// context value for the kind of the provided profile.
+func hasContainerContext(c *corev1.Container, bindProfile any) bool {
+	if c.SecurityContext == nil {
+		return false
+	}
+
+	switch bindProfile.(type) {
+	case *seccompprofileapi.SeccompProfile:
+		return c.SecurityContext.SeccompProfile != nil
+	case *selinuxprofileapi.SelinuxProfile:
+		return c.SecurityContext.SELinuxOptions != nil
+	case *apparmorprofileapi.AppArmorProfile:
+		return c.SecurityContext.AppArmorProfile != nil
+	default:
+		return false
+	}
 }
 
 func (p *podBinder) getSeccompProfile(
@@ -401,31 +460,33 @@ func (p *podBinder) addSeccompContext(
 func (p *podBinder) addSelinuxContext(
 	c *corev1.Container, selinuxProfile *selinuxprofileapi.SelinuxProfile,
 ) bool {
-	usage := selinuxProfile.Status.Usage
-	sl := corev1.SELinuxOptions{
-		Type: usage,
-	}
-
 	if c.SecurityContext == nil {
 		c.SecurityContext = &corev1.SecurityContext{}
 	}
 
-	if c.SecurityContext.SELinuxOptions == nil {
-		c.SecurityContext.SELinuxOptions = &sl
-
-		return true
-	}
-
-	// Make sure that the bound profile is really in the pod security context if the profile exists,
+	// Make sure that the bound profile is really in the container security context if the profile exists,
 	// otherwise it can be easily overwritten with something less permissive, even though a specific
 	// profile is enforced through a binding.
-	if !equality.Semantic.DeepEqual(c.SecurityContext.SELinuxOptions, &sl) {
-		c.SecurityContext.SELinuxOptions = &sl
+	return setSelinuxType(&c.SecurityContext.SELinuxOptions, selinuxProfile.Status.Usage)
+}
+
+// setSelinuxType sets the SELinux type of the provided options. Other fields
+// like the MCS level are kept, because they may be required by the cluster,
+// for example set by the OpenShift SCC admission.
+func setSelinuxType(opts **corev1.SELinuxOptions, usage string) bool {
+	if *opts == nil {
+		*opts = &corev1.SELinuxOptions{Type: usage}
 
 		return true
 	}
 
-	return false
+	if (*opts).Type == usage {
+		return false
+	}
+
+	(*opts).Type = usage
+
+	return true
 }
 
 func (p *podBinder) addAppArmorContext(
@@ -483,7 +544,6 @@ func (p *podBinder) addPodSecurityContext(
 func (p *podBinder) addPodSeccompContext(
 	pod *corev1.Pod, seccompProfile *seccompprofileapi.SeccompProfile,
 ) bool {
-	podChanged := false
 	profileRef := seccompProfile.Status.LocalhostProfile
 	sp := corev1.SeccompProfile{
 		Type:             corev1.SeccompProfileTypeLocalhost,
@@ -494,43 +554,34 @@ func (p *podBinder) addPodSeccompContext(
 		pod.Spec.SecurityContext = &corev1.PodSecurityContext{}
 	}
 
-	if pod.Spec.SecurityContext.SeccompProfile != nil {
-		p.log.Info("cannot override existing seccomp profile for pod or container")
-	} else {
-		pod.Spec.SecurityContext.SeccompProfile = &sp
-		podChanged = true
+	// Overwrite any existing value, otherwise it can be replaced with
+	// something less permissive, even though a profile is enforced through a
+	// binding.
+	if equality.Semantic.DeepEqual(pod.Spec.SecurityContext.SeccompProfile, &sp) {
+		return false
 	}
 
-	return podChanged
+	pod.Spec.SecurityContext.SeccompProfile = &sp
+
+	return true
 }
 
 func (p *podBinder) addPodSelinuxContext(
 	pod *corev1.Pod, selinuxProfile *selinuxprofileapi.SelinuxProfile,
 ) bool {
-	podChanged := false
-	usage := selinuxProfile.Status.Usage
-	sl := corev1.SELinuxOptions{
-		Type: usage,
-	}
-
 	if pod.Spec.SecurityContext == nil {
 		pod.Spec.SecurityContext = &corev1.PodSecurityContext{}
 	}
 
-	if pod.Spec.SecurityContext.SELinuxOptions != nil {
-		p.log.Info("cannot override existing selinux profile for pod or container")
-	} else {
-		pod.Spec.SecurityContext.SELinuxOptions = &sl
-		podChanged = true
-	}
-
-	return podChanged
+	// Overwrite any existing value, otherwise it can be replaced with
+	// something less permissive, even though a profile is enforced through a
+	// binding.
+	return setSelinuxType(&pod.Spec.SecurityContext.SELinuxOptions, selinuxProfile.Status.Usage)
 }
 
 func (p *podBinder) addPodAppArmorContext(
 	pod *corev1.Pod, appArmorProfile *apparmorprofileapi.AppArmorProfile,
 ) bool {
-	podChanged := false
 	profileName := appArmorProfile.GetProfileName()
 	aa := corev1.AppArmorProfile{
 		Type:             corev1.AppArmorProfileTypeLocalhost,
@@ -541,12 +592,14 @@ func (p *podBinder) addPodAppArmorContext(
 		pod.Spec.SecurityContext = &corev1.PodSecurityContext{}
 	}
 
-	if pod.Spec.SecurityContext.AppArmorProfile != nil {
-		p.log.Info("cannot override existing apparmor profile for pod or container")
-	} else {
-		pod.Spec.SecurityContext.AppArmorProfile = &aa
-		podChanged = true
+	// Overwrite any existing value, otherwise it can be replaced with
+	// something less permissive, even though a profile is enforced through a
+	// binding.
+	if equality.Semantic.DeepEqual(pod.Spec.SecurityContext.AppArmorProfile, &aa) {
+		return false
 	}
 
-	return podChanged
+	pod.Spec.SecurityContext.AppArmorProfile = &aa
+
+	return true
 }
