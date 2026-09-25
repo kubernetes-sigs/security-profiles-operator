@@ -259,7 +259,7 @@ metadata:
     capabilities: Basic Install
     categories: Security
     containerImage: registry.k8s.io/security-profiles-operator/security-profiles-operator:v1.1.0
-    createdAt: "2026-09-24T09:18:44Z"
+    createdAt: "2026-09-25T06:44:34Z"
     olm.skipRange: '>=1.0.0 <1.1.1-dev'
     operatorframework.io/cluster-monitoring: "true"
     operatorframework.io/os.linux: supported
@@ -351,72 +351,56 @@ spec:
           - list
           - watch
         - apiGroups:
-          - ""
+          - admissionregistration.k8s.io
+          resourceNames:
+          - spo-mutating-webhook-configuration
           resources:
-          - services
+          - mutatingwebhookconfigurations
           verbs:
-          - create
-          - get
-          - list
           - patch
           - update
-          - watch
         - apiGroups:
           - admissionregistration.k8s.io
           resources:
           - mutatingwebhookconfigurations
+          - validatingadmissionpolicies
+          - validatingadmissionpolicybindings
           - validatingwebhookconfigurations
           verbs:
           - create
           - get
           - list
-          - patch
-          - update
           - watch
         - apiGroups:
-          - apps
+          - admissionregistration.k8s.io
+          resourceNames:
+          - spo-recording-profiles
           resources:
-          - daemonsets
+          - validatingadmissionpolicies
+          - validatingadmissionpolicybindings
+          verbs:
+          - update
+        - apiGroups:
+          - admissionregistration.k8s.io
+          resourceNames:
+          - spo-validating-webhook-configuration
+          resources:
+          - validatingwebhookconfigurations
+          verbs:
+          - patch
+          - update
+        - apiGroups:
+          - authentication.k8s.io
+          resources:
+          - tokenreviews
           verbs:
           - create
-          - get
-          - list
-          - patch
-          - update
-          - watch
         - apiGroups:
-          - apps
+          - authorization.k8s.io
           resources:
-          - daemonsets/finalizers
-          verbs:
-          - delete
-          - get
-          - patch
-          - update
-        - apiGroups:
-          - apps
-          resources:
-          - deployments
+          - subjectaccessreviews
           verbs:
           - create
-          - delete
-          - get
-          - list
-          - patch
-          - update
-          - watch
-        - apiGroups:
-          - cert-manager.io
-          resources:
-          - certificates
-          - issuers
-          verbs:
-          - create
-          - get
-          - list
-          - patch
-          - update
-          - watch
         - apiGroups:
           - config.openshift.io
           resources:
@@ -434,17 +418,6 @@ spec:
           - create
           - patch
           - update
-        - apiGroups:
-          - monitoring.coreos.com
-          resources:
-          - servicemonitors
-          verbs:
-          - create
-          - get
-          - list
-          - patch
-          - update
-          - watch
         - apiGroups:
           - security-profiles-operator.x-k8s.io
           resources:
@@ -535,6 +508,18 @@ spec:
           - get
           - list
           - watch
+        - apiGroups:
+          - authentication.k8s.io
+          resources:
+          - tokenreviews
+          verbs:
+          - create
+        - apiGroups:
+          - authorization.k8s.io
+          resources:
+          - subjectaccessreviews
+          verbs:
+          - create
         - apiGroups:
           - config.openshift.io
           resources:
@@ -706,6 +691,8 @@ spec:
           strategy: {}
           template:
             metadata:
+              annotations:
+                openshift.io/required-scc: restricted-v2
               labels:
                 app: security-profiles-operator
                 name: security-profiles-operator
@@ -793,6 +780,49 @@ spec:
       permissions:
       - rules:
         - apiGroups:
+          - ""
+          resources:
+          - services
+          verbs:
+          - create
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - apps
+          resources:
+          - daemonsets
+          - deployments
+          verbs:
+          - create
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - apps
+          resources:
+          - daemonsets/finalizers
+          verbs:
+          - get
+          - patch
+          - update
+        - apiGroups:
+          - cert-manager.io
+          resources:
+          - certificates
+          - issuers
+          verbs:
+          - create
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
           - coordination.k8s.io
           resources:
           - leases
@@ -801,9 +831,20 @@ spec:
           - get
           - update
         - apiGroups:
+          - monitoring.coreos.com
+          resources:
+          - servicemonitors
+          verbs:
+          - create
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
           - security.openshift.io
           resourceNames:
-          - privileged
+          - restricted-v2
           resources:
           - securitycontextconstraints
           verbs:
@@ -827,9 +868,15 @@ spec:
           - patch
           - update
         - apiGroups:
+          - security-profiles-operator.x-k8s.io
+          resources:
+          - securityprofilesoperatordaemons
+          verbs:
+          - get
+        - apiGroups:
           - security.openshift.io
           resourceNames:
-          - privileged
+          - restricted-v2
           resources:
           - securitycontextconstraints
           verbs:

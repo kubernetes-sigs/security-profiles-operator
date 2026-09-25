@@ -325,3 +325,10 @@ which can be deleted afterwards if no profiles should be kept:
 ```sh
 kubectl get crds -o name | grep security-profiles-operator.x-k8s.io | xargs kubectl delete
 ```
+
+The admission policies which the operator creates at runtime are not part of
+any manifest, so remove them as well:
+
+```sh
+kubectl delete validatingadmissionpolicies,validatingadmissionpolicybindings -l app=security-profiles-operator
+```

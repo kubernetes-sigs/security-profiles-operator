@@ -21,188 +21,30 @@ import (
 	"context"
 	"sync"
 
-	v1 "k8s.io/api/core/v1"
-	v1a "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
-	v1b "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
+	v1 "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 )
 
 type FakeImpl struct {
-	DecodePodStub        func(admission.Request) (*v1.Pod, error)
-	decodePodMutex       sync.RWMutex
-	decodePodArgsForCall []struct {
-		arg1 admission.Request
-	}
-	decodePodReturns struct {
-		result1 *v1.Pod
-		result2 error
-	}
-	decodePodReturnsOnCall map[int]struct {
-		result1 *v1.Pod
-		result2 error
-	}
-	LabelSelectorAsSelectorStub        func(*v1a.LabelSelector) (labels.Selector, error)
-	labelSelectorAsSelectorMutex       sync.RWMutex
-	labelSelectorAsSelectorArgsForCall []struct {
-		arg1 *v1a.LabelSelector
-	}
-	labelSelectorAsSelectorReturns struct {
-		result1 labels.Selector
-		result2 error
-	}
-	labelSelectorAsSelectorReturnsOnCall map[int]struct {
-		result1 labels.Selector
-		result2 error
-	}
-	ListProfileRecordingsStub        func(context.Context, ...client.ListOption) (*v1b.ProfileRecordingList, error)
+	ListProfileRecordingsStub        func(context.Context, ...client.ListOption) (*v1.ProfileRecordingList, error)
 	listProfileRecordingsMutex       sync.RWMutex
 	listProfileRecordingsArgsForCall []struct {
 		arg1 context.Context
 		arg2 []client.ListOption
 	}
 	listProfileRecordingsReturns struct {
-		result1 *v1b.ProfileRecordingList
+		result1 *v1.ProfileRecordingList
 		result2 error
 	}
 	listProfileRecordingsReturnsOnCall map[int]struct {
-		result1 *v1b.ProfileRecordingList
+		result1 *v1.ProfileRecordingList
 		result2 error
 	}
 	invocations      map[string][][]interface{}
 	invocationsMutex sync.RWMutex
 }
 
-func (fake *FakeImpl) DecodePod(arg1 admission.Request) (*v1.Pod, error) {
-	fake.decodePodMutex.Lock()
-	ret, specificReturn := fake.decodePodReturnsOnCall[len(fake.decodePodArgsForCall)]
-	fake.decodePodArgsForCall = append(fake.decodePodArgsForCall, struct {
-		arg1 admission.Request
-	}{arg1})
-	stub := fake.DecodePodStub
-	fakeReturns := fake.decodePodReturns
-	fake.recordInvocation("DecodePod", []interface{}{arg1})
-	fake.decodePodMutex.Unlock()
-	if stub != nil {
-		return stub(arg1)
-	}
-	if specificReturn {
-		return ret.result1, ret.result2
-	}
-	return fakeReturns.result1, fakeReturns.result2
-}
-
-func (fake *FakeImpl) DecodePodCallCount() int {
-	fake.decodePodMutex.RLock()
-	defer fake.decodePodMutex.RUnlock()
-	return len(fake.decodePodArgsForCall)
-}
-
-func (fake *FakeImpl) DecodePodCalls(stub func(admission.Request) (*v1.Pod, error)) {
-	fake.decodePodMutex.Lock()
-	defer fake.decodePodMutex.Unlock()
-	fake.DecodePodStub = stub
-}
-
-func (fake *FakeImpl) DecodePodArgsForCall(i int) admission.Request {
-	fake.decodePodMutex.RLock()
-	defer fake.decodePodMutex.RUnlock()
-	argsForCall := fake.decodePodArgsForCall[i]
-	return argsForCall.arg1
-}
-
-func (fake *FakeImpl) DecodePodReturns(result1 *v1.Pod, result2 error) {
-	fake.decodePodMutex.Lock()
-	defer fake.decodePodMutex.Unlock()
-	fake.DecodePodStub = nil
-	fake.decodePodReturns = struct {
-		result1 *v1.Pod
-		result2 error
-	}{result1, result2}
-}
-
-func (fake *FakeImpl) DecodePodReturnsOnCall(i int, result1 *v1.Pod, result2 error) {
-	fake.decodePodMutex.Lock()
-	defer fake.decodePodMutex.Unlock()
-	fake.DecodePodStub = nil
-	if fake.decodePodReturnsOnCall == nil {
-		fake.decodePodReturnsOnCall = make(map[int]struct {
-			result1 *v1.Pod
-			result2 error
-		})
-	}
-	fake.decodePodReturnsOnCall[i] = struct {
-		result1 *v1.Pod
-		result2 error
-	}{result1, result2}
-}
-
-func (fake *FakeImpl) LabelSelectorAsSelector(arg1 *v1a.LabelSelector) (labels.Selector, error) {
-	fake.labelSelectorAsSelectorMutex.Lock()
-	ret, specificReturn := fake.labelSelectorAsSelectorReturnsOnCall[len(fake.labelSelectorAsSelectorArgsForCall)]
-	fake.labelSelectorAsSelectorArgsForCall = append(fake.labelSelectorAsSelectorArgsForCall, struct {
-		arg1 *v1a.LabelSelector
-	}{arg1})
-	stub := fake.LabelSelectorAsSelectorStub
-	fakeReturns := fake.labelSelectorAsSelectorReturns
-	fake.recordInvocation("LabelSelectorAsSelector", []interface{}{arg1})
-	fake.labelSelectorAsSelectorMutex.Unlock()
-	if stub != nil {
-		return stub(arg1)
-	}
-	if specificReturn {
-		return ret.result1, ret.result2
-	}
-	return fakeReturns.result1, fakeReturns.result2
-}
-
-func (fake *FakeImpl) LabelSelectorAsSelectorCallCount() int {
-	fake.labelSelectorAsSelectorMutex.RLock()
-	defer fake.labelSelectorAsSelectorMutex.RUnlock()
-	return len(fake.labelSelectorAsSelectorArgsForCall)
-}
-
-func (fake *FakeImpl) LabelSelectorAsSelectorCalls(stub func(*v1a.LabelSelector) (labels.Selector, error)) {
-	fake.labelSelectorAsSelectorMutex.Lock()
-	defer fake.labelSelectorAsSelectorMutex.Unlock()
-	fake.LabelSelectorAsSelectorStub = stub
-}
-
-func (fake *FakeImpl) LabelSelectorAsSelectorArgsForCall(i int) *v1a.LabelSelector {
-	fake.labelSelectorAsSelectorMutex.RLock()
-	defer fake.labelSelectorAsSelectorMutex.RUnlock()
-	argsForCall := fake.labelSelectorAsSelectorArgsForCall[i]
-	return argsForCall.arg1
-}
-
-func (fake *FakeImpl) LabelSelectorAsSelectorReturns(result1 labels.Selector, result2 error) {
-	fake.labelSelectorAsSelectorMutex.Lock()
-	defer fake.labelSelectorAsSelectorMutex.Unlock()
-	fake.LabelSelectorAsSelectorStub = nil
-	fake.labelSelectorAsSelectorReturns = struct {
-		result1 labels.Selector
-		result2 error
-	}{result1, result2}
-}
-
-func (fake *FakeImpl) LabelSelectorAsSelectorReturnsOnCall(i int, result1 labels.Selector, result2 error) {
-	fake.labelSelectorAsSelectorMutex.Lock()
-	defer fake.labelSelectorAsSelectorMutex.Unlock()
-	fake.LabelSelectorAsSelectorStub = nil
-	if fake.labelSelectorAsSelectorReturnsOnCall == nil {
-		fake.labelSelectorAsSelectorReturnsOnCall = make(map[int]struct {
-			result1 labels.Selector
-			result2 error
-		})
-	}
-	fake.labelSelectorAsSelectorReturnsOnCall[i] = struct {
-		result1 labels.Selector
-		result2 error
-	}{result1, result2}
-}
-
-func (fake *FakeImpl) ListProfileRecordings(arg1 context.Context, arg2 ...client.ListOption) (*v1b.ProfileRecordingList, error) {
+func (fake *FakeImpl) ListProfileRecordings(arg1 context.Context, arg2 ...client.ListOption) (*v1.ProfileRecordingList, error) {
 	var arg2Copy []client.ListOption
 	if arg2 != nil {
 		arg2Copy = make([]client.ListOption, len(arg2))
@@ -233,7 +75,7 @@ func (fake *FakeImpl) ListProfileRecordingsCallCount() int {
 	return len(fake.listProfileRecordingsArgsForCall)
 }
 
-func (fake *FakeImpl) ListProfileRecordingsCalls(stub func(context.Context, ...client.ListOption) (*v1b.ProfileRecordingList, error)) {
+func (fake *FakeImpl) ListProfileRecordingsCalls(stub func(context.Context, ...client.ListOption) (*v1.ProfileRecordingList, error)) {
 	fake.listProfileRecordingsMutex.Lock()
 	defer fake.listProfileRecordingsMutex.Unlock()
 	fake.ListProfileRecordingsStub = stub
@@ -246,28 +88,28 @@ func (fake *FakeImpl) ListProfileRecordingsArgsForCall(i int) (context.Context, 
 	return argsForCall.arg1, argsForCall.arg2
 }
 
-func (fake *FakeImpl) ListProfileRecordingsReturns(result1 *v1b.ProfileRecordingList, result2 error) {
+func (fake *FakeImpl) ListProfileRecordingsReturns(result1 *v1.ProfileRecordingList, result2 error) {
 	fake.listProfileRecordingsMutex.Lock()
 	defer fake.listProfileRecordingsMutex.Unlock()
 	fake.ListProfileRecordingsStub = nil
 	fake.listProfileRecordingsReturns = struct {
-		result1 *v1b.ProfileRecordingList
+		result1 *v1.ProfileRecordingList
 		result2 error
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) ListProfileRecordingsReturnsOnCall(i int, result1 *v1b.ProfileRecordingList, result2 error) {
+func (fake *FakeImpl) ListProfileRecordingsReturnsOnCall(i int, result1 *v1.ProfileRecordingList, result2 error) {
 	fake.listProfileRecordingsMutex.Lock()
 	defer fake.listProfileRecordingsMutex.Unlock()
 	fake.ListProfileRecordingsStub = nil
 	if fake.listProfileRecordingsReturnsOnCall == nil {
 		fake.listProfileRecordingsReturnsOnCall = make(map[int]struct {
-			result1 *v1b.ProfileRecordingList
+			result1 *v1.ProfileRecordingList
 			result2 error
 		})
 	}
 	fake.listProfileRecordingsReturnsOnCall[i] = struct {
-		result1 *v1b.ProfileRecordingList
+		result1 *v1.ProfileRecordingList
 		result2 error
 	}{result1, result2}
 }

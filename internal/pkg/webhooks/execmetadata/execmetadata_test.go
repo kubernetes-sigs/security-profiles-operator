@@ -34,18 +34,24 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
-func getPodAdmRequest(t *testing.T, pod *corev1.Pod, resource string) admissionv1.AdmissionRequest {
+// getPodAdmRequest returns a pod admission request like the API server sends
+// it, with the sub resource separate from the resource.
+func getPodAdmRequest(
+	t *testing.T, pod *corev1.Pod, subResource string,
+) admissionv1.AdmissionRequest {
 	t.Helper()
 
 	return admissionv1.AdmissionRequest{
 		UID: "test-uid",
 		Kind: metav1.GroupVersionKind{
-			Kind: "Pod",
+			Version: "v1",
+			Kind:    "Pod",
 		},
 		Resource: metav1.GroupVersionResource{
-			Group:    "",
-			Resource: resource,
+			Version:  "v1",
+			Resource: "pods",
 		},
+		SubResource: subResource,
 		Object: runtime.RawExtension{
 			Raw: func() []byte {
 				b, err := json.Marshal(pod.DeepCopy())
@@ -110,7 +116,7 @@ func TestHandler_Handle(t *testing.T) {
 							},
 						},
 					},
-				}, "pods"),
+				}, ""),
 			}},
 			want: admission.Response{
 				Patches: []gomodulesjsonpatch.JsonPatchOperation{
@@ -149,7 +155,7 @@ func TestHandler_Handle(t *testing.T) {
 							},
 						},
 					},
-				}, "pods/ephemeralcontainers"),
+				}, ephemeralContainersSubResource),
 			}},
 			want: admission.Response{
 				Patches: []gomodulesjsonpatch.JsonPatchOperation{
@@ -194,7 +200,7 @@ func TestHandler_Handle(t *testing.T) {
 							},
 						},
 					},
-				}, "pods/ephemeralcontainers"),
+				}, ephemeralContainersSubResource),
 			}},
 			want: admission.Response{
 				Patches: []gomodulesjsonpatch.JsonPatchOperation{
@@ -328,7 +334,7 @@ func TestHandlerPatchAppliesToContainerWithoutEnv(t *testing.T) {
 	}{
 		{
 			name:     "node debugging pod without env",
-			resource: "pods",
+			resource: "",
 			pod: &corev1.Pod{
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{{Name: "debugger"}},
@@ -363,4 +369,57 @@ func TestHandlerPatchAppliesToContainerWithoutEnv(t *testing.T) {
 			})
 		})
 	}
+}
+
+// Only ephemeral containers which get added by the request must be patched,
+// because the env of existing ones cannot be changed anymore.
+func TestHandlerPatchesOnlyNewEphemeralContainers(t *testing.T) {
+	t.Parallel()
+
+	ephemeral := func(name string) corev1.EphemeralContainer {
+		return corev1.EphemeralContainer{
+			EphemeralContainerCommon: corev1.EphemeralContainerCommon{Name: name},
+		}
+	}
+
+	oldPod := &corev1.Pod{
+		Spec: corev1.PodSpec{
+			EphemeralContainers: []corev1.EphemeralContainer{ephemeral("existing")},
+		},
+	}
+	newPod := oldPod.DeepCopy()
+	newPod.Spec.EphemeralContainers = append(newPod.Spec.EphemeralContainers, ephemeral("new"))
+
+	req := getPodAdmRequest(t, newPod, ephemeralContainersSubResource)
+	req.Operation = admissionv1.Update
+	req.OldObject = runtime.RawExtension{Raw: func() []byte {
+		b, err := json.Marshal(oldPod)
+		require.NoError(t, err)
+
+		return b
+	}()}
+
+	resp := Handler{
+		log: logr.Discard(),
+	}.Handle(
+		t.Context(),
+		admission.Request{AdmissionRequest: req},
+	)
+	require.True(t, resp.Allowed)
+	require.Len(t, resp.Patches, 1)
+	require.Equal(t, "/spec/ephemeralContainers/1/env", resp.Patches[0].Path)
+}
+
+func TestHandlerIgnoresOtherSubResources(t *testing.T) {
+	t.Parallel()
+
+	resp := Handler{log: logr.Discard()}.Handle(t.Context(), admission.Request{
+		AdmissionRequest: getPodAdmRequest(t, &corev1.Pod{
+			Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "ctr"}}},
+		}, "status"),
+	})
+
+	require.True(t, resp.Allowed)
+	require.Empty(t, resp.Patches)
+	require.Equal(t, "pod exec request unmodified", resp.Result.Message)
 }

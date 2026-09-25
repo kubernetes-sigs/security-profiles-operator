@@ -26,6 +26,7 @@ import (
 	_ "net/http/pprof" //nolint:gosec // required for profiling
 	"os"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -37,6 +38,7 @@ import (
 	libgocrypto "github.com/openshift/library-go/pkg/crypto"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"github.com/urfave/cli/v2"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
@@ -103,6 +105,7 @@ const (
 	memOptimFlag                 string = "with-mem-optim"
 	insecureMetricsAccessFlag    string = "with-insecure-metrics-access"
 	defaultWebhookPort           int    = 9443
+	metricsPort                  int    = 8443
 	auditLogIntervalSecondsParam string = "audit-log-interval-seconds"
 	auditLogPathParam            string = "audit-log-path"
 	auditLogMaxSizeParam         string = "audit-log-maxsize"
@@ -135,261 +138,289 @@ func main() {
 		"to manage their seccomp or AppArmor profiles and apply them to Kubernetes' workloads."
 
 	app.Commands = append(app.Commands,
-		&cli.Command{
-			Before:  initialize,
-			Name:    "manager",
-			Aliases: []string{"m"},
-			Usage:   "run the manager",
-			Action: func(ctx *cli.Context) error {
-				return runManager(ctx, info)
-			},
-			Flags: []cli.Flag{
-				&cli.BoolFlag{
-					Name:    webhookFlag,
-					Aliases: []string{"w"},
-					Value:   true,
-					Usage:   "the webhook k8s resources are managed by the operator(default true)",
-				},
-				&cli.BoolFlag{
-					Name:  nodeStatusControllerFlag,
-					Value: true,
-					Usage: "Enable the node status controller.",
-				},
-				&cli.BoolFlag{
-					Name:  spodControllerFlag,
-					Value: true,
-					Usage: "Enable the SPOD controller.",
-				},
-				&cli.BoolFlag{
-					Name:  workloadAnnotatorFlag,
-					Value: true,
-					Usage: "Enable the workload annotator.",
-				},
-				&cli.BoolFlag{
-					Name:  recordingMergerFlag,
-					Value: true,
-					Usage: "Enable the recording merger.",
-				},
-				&cli.BoolFlag{
-					Name:  recordingTrackerFlag,
-					Value: true,
-					Usage: "Enable the recording tracker.",
-				},
-				&cli.BoolFlag{
-					Name:  bindingTrackerFlag,
-					Value: true,
-					Usage: "Enable the binding tracker.",
-				},
-			},
-		},
-		&cli.Command{
-			Before:  initialize,
-			Name:    "daemon",
-			Aliases: []string{"d"},
-			Usage:   "run the daemon",
-			Action: func(ctx *cli.Context) error {
-				return runDaemon(ctx, info)
-			},
-			Flags: []cli.Flag{
-				&cli.BoolFlag{
-					Name:    seccompFlag,
-					Usage:   "Listen for seccomp API resources",
-					Value:   true,
-					EnvVars: []string{config.EnableSeccompEnvKey},
-				},
-				&cli.BoolFlag{
-					Name:    selinuxFlag,
-					Usage:   "Listen for SELinux API resources",
-					Value:   false,
-					EnvVars: []string{config.EnableSelinuxEnvKey},
-				},
-				&cli.BoolFlag{
-					Name:    apparmorFlag,
-					Usage:   "Listen for AppArmor API resources",
-					Value:   false,
-					EnvVars: []string{config.EnableApparmorEnvKey},
-				},
-				&cli.BoolFlag{
-					Name:    rawSelinuxFlag,
-					Usage:   "Listen for RawSelinuxProfile API resources",
-					Value:   false,
-					EnvVars: []string{config.EnableRawSelinuxEnvKey},
-				},
-				&cli.BoolFlag{
-					Name:    recordingFlag,
-					Usage:   "Listen for ProfileRecording API resources",
-					Value:   false,
-					EnvVars: []string{config.EnableRecordingEnvKey},
-				},
-				&cli.BoolFlag{
-					Name:    memOptimFlag,
-					Usage:   "Enable memory optimization by watching only labeled pods",
-					Value:   false,
-					EnvVars: []string{config.EnableMemOptimEnvKey},
-				},
-				&cli.BoolFlag{
-					Name:    insecureMetricsAccessFlag,
-					Usage:   "Allow unauthenticated access to metrics endpoint",
-					Value:   false,
-					EnvVars: []string{config.EnableInsecureMetricsAccessEnvKey},
-				},
-			},
-		},
-		&cli.Command{
-			Before:  initialize,
-			Name:    "webhook",
-			Aliases: []string{"w"},
-			Usage:   "run the webhook",
-			Action: func(ctx *cli.Context) error {
-				return runWebhook(ctx, info)
-			},
-			Flags: []cli.Flag{
-				&cli.IntFlag{
-					Name:    "port",
-					Aliases: []string{"p"},
-					Value:   defaultWebhookPort,
-					Usage:   "the port on which to expose the webhook service (default 9443)",
-				},
-				&cli.BoolFlag{
-					Name:    "static",
-					Aliases: []string{"s"},
-					Value:   false,
-					Usage:   "the webhook k8s resources are statically managed (default false)",
-				},
-				&cli.StringFlag{
-					Name:   tlsMinVersionParam,
-					Hidden: true,
-					Usage:  "DEPRECATED: TLS configuration is now managed via OpenShift TLS profiles. This flag is ignored.",
-				},
-			},
-		},
-		&cli.Command{
-			Before: initialize,
-			Name:   "non-root-enabler",
-			Usage:  "run the non root enabler",
-			Action: func(ctx *cli.Context) error {
-				return runNonRootEnabler(ctx, info)
-			},
-			Flags: []cli.Flag{
-				&cli.StringFlag{
-					Name:    "runtime",
-					Aliases: []string{"r"},
-					Value:   "",
-					Usage:   "the container runtime in the cluster (values: cri-o, containerd, docker)",
-				},
-				&cli.BoolFlag{
-					Name:    "apparmor",
-					Aliases: []string{"a"},
-					Usage:   "enable installation of apparmor profiles for spo",
-					EnvVars: []string{config.AppArmorEnvKey},
-				},
-			},
-		},
-		&cli.Command{
-			Before:  initialize,
-			Name:    "log-enricher",
-			Aliases: []string{"l"},
-			Usage:   "run the audit's log enricher",
-			Flags: []cli.Flag{
-				&cli.StringFlag{
-					Name:  enricherFiltersJsonParam,
-					Value: "",
-					Usage: "Log Enricher filters JSON.",
-				},
-				&cli.StringFlag{
-					Name:  enricherLogSourceParam,
-					Value: "",
-					Usage: "Log source to ingest (`Bpf` or `Auditd`)",
-				},
-			},
-			Action: func(ctx *cli.Context) error {
-				return runLogEnricher(ctx, info)
-			},
-		},
-		&cli.Command{
-			Before:  initialize,
-			Name:    "json-enricher",
-			Aliases: []string{"j"},
-			Usage:   "run the audit's json enricher",
-			Action: func(ctx *cli.Context) error {
-				jsonEnricher, err := getJsonEnricher(ctx, info)
-				if err != nil {
-					return fmt.Errorf("could not create json enricher: %w", err)
-				}
-
-				sigCtx := ctrl.SetupSignalHandler()
-
-				runErr := make(chan error)
-				go jsonEnricher.Run(sigCtx, runErr)
-
-				select {
-				case err := <-runErr:
-					return fmt.Errorf("error while executing JSON Enricher: %w", err)
-				case <-sigCtx.Done():
-					fmt.Printf("Exit JSON Enricher")
-					jsonEnricher.ExitJsonEnricher(ctx)
-
-					return nil
-				}
-			},
-			Flags: []cli.Flag{
-				&cli.IntFlag{
-					Name:    auditLogIntervalSecondsParam,
-					Aliases: []string{"a"},
-					Value:   60,
-					Usage:   "Audit log interval in seconds for the JSON Log Enricher.",
-				},
-				&cli.StringFlag{
-					Name:  auditLogPathParam,
-					Value: "",
-					Usage: "Audit log file path for the JSON Log Enricher. Default is stdout.",
-				},
-				&cli.IntFlag{
-					Name:  auditLogMaxBackupParam,
-					Value: 0,
-					Usage: "Audit log max file backup for the JSON Log Enricher. " +
-						"The maximum number of old audit log files to retain. " +
-						"Setting a value of 0 will mean there's no restriction on the number of files.",
-				},
-				&cli.IntFlag{
-					Name:  auditLogMaxSizeParam,
-					Value: 100,
-					Usage: "Audit log max file size for the JSON Log Enricher. " +
-						"The maximum size in megabytes of the audit log file before it gets rotated.",
-				},
-				&cli.IntFlag{
-					Name:  auditLogMaxAgeParam,
-					Value: 0,
-					Usage: "Audit log max age for the JSON Log Enricher. " +
-						"The maximum number of days to retain old audit log files based " +
-						"on the timestamp encoded in their filename.",
-				},
-				&cli.StringFlag{
-					Name:  enricherFiltersJsonParam,
-					Value: "",
-					Usage: "JSON Enricher filters JSON file path.",
-				},
-			},
-		},
-		&cli.Command{
-			Before:  initialize,
-			Name:    "bpf-recorder",
-			Aliases: []string{"b"},
-			Usage:   "run the bpf recorder",
-			Action: func(ctx *cli.Context) error {
-				return runBPFRecorder(ctx, info)
-			},
-		},
-		&cli.Command{
-			Name:     spocCmd,
-			Aliases:  []string{"s"},
-			Usage:    "run the CLI",
-			Action:   runCLI,
-			HideHelp: true,
-		},
+		managerCommand(info),
+		daemonCommand(info),
+		webhookCommand(info),
+		nonRootEnablerCommand(info),
+		logEnricherCommand(info),
+		jsonEnricherCommand(info),
+		bpfRecorderCommand(info),
+		spocCommand(),
 	)
 
-	app.Flags = []cli.Flag{
+	app.Flags = globalFlags()
+
+	if err := app.RunContext(context.Background(), os.Args); err != nil {
+		// Check if this is a TLS configuration change requiring restart
+		if errors.Is(err, ErrTLSConfigChanged) {
+			os.Exit(0) // intentional exit to trigger pod restart
+		}
+
+		setupLog.Error(err, "running security-profiles-operator")
+		os.Exit(1)
+	}
+}
+
+func managerCommand(info *version.Info) *cli.Command {
+	return &cli.Command{
+		Before:  initialize,
+		Name:    "manager",
+		Aliases: []string{"m"},
+		Usage:   "run the manager",
+		Action: func(ctx *cli.Context) error {
+			return runManager(ctx, info)
+		},
+		Flags: []cli.Flag{
+			&cli.BoolFlag{
+				Name:    webhookFlag,
+				Aliases: []string{"w"},
+				Value:   true,
+				Usage:   "the webhook k8s resources are managed by the operator(default true)",
+			},
+			&cli.BoolFlag{
+				Name:  nodeStatusControllerFlag,
+				Value: true,
+				Usage: "Enable the node status controller.",
+			},
+			&cli.BoolFlag{
+				Name:  spodControllerFlag,
+				Value: true,
+				Usage: "Enable the SPOD controller.",
+			},
+			&cli.BoolFlag{
+				Name:  workloadAnnotatorFlag,
+				Value: true,
+				Usage: "Enable the workload annotator.",
+			},
+			&cli.BoolFlag{
+				Name:  recordingMergerFlag,
+				Value: true,
+				Usage: "Enable the recording merger.",
+			},
+			&cli.BoolFlag{
+				Name:  recordingTrackerFlag,
+				Value: true,
+				Usage: "Enable the recording tracker.",
+			},
+			&cli.BoolFlag{
+				Name:  bindingTrackerFlag,
+				Value: true,
+				Usage: "Enable the binding tracker.",
+			},
+		},
+	}
+}
+
+func daemonCommand(info *version.Info) *cli.Command {
+	return &cli.Command{
+		Before:  initialize,
+		Name:    "daemon",
+		Aliases: []string{"d"},
+		Usage:   "run the daemon",
+		Action: func(ctx *cli.Context) error {
+			return runDaemon(ctx, info)
+		},
+		Flags: []cli.Flag{
+			&cli.BoolFlag{
+				Name:    seccompFlag,
+				Usage:   "Listen for seccomp API resources",
+				Value:   true,
+				EnvVars: []string{config.EnableSeccompEnvKey},
+			},
+			&cli.BoolFlag{
+				Name:    selinuxFlag,
+				Usage:   "Listen for SELinux API resources",
+				Value:   false,
+				EnvVars: []string{config.EnableSelinuxEnvKey},
+			},
+			&cli.BoolFlag{
+				Name:    apparmorFlag,
+				Usage:   "Listen for AppArmor API resources",
+				Value:   false,
+				EnvVars: []string{config.EnableApparmorEnvKey},
+			},
+			&cli.BoolFlag{
+				Name:    rawSelinuxFlag,
+				Usage:   "Listen for RawSelinuxProfile API resources",
+				Value:   false,
+				EnvVars: []string{config.EnableRawSelinuxEnvKey},
+			},
+			&cli.BoolFlag{
+				Name:    recordingFlag,
+				Usage:   "Listen for ProfileRecording API resources",
+				Value:   false,
+				EnvVars: []string{config.EnableRecordingEnvKey},
+			},
+			&cli.BoolFlag{
+				Name:    memOptimFlag,
+				Usage:   "Enable memory optimization by watching only labeled pods",
+				Value:   false,
+				EnvVars: []string{config.EnableMemOptimEnvKey},
+			},
+			&cli.BoolFlag{
+				Name:    insecureMetricsAccessFlag,
+				Usage:   "Allow unauthenticated access to metrics endpoint",
+				Value:   false,
+				EnvVars: []string{config.EnableInsecureMetricsAccessEnvKey},
+			},
+		},
+	}
+}
+
+func webhookCommand(info *version.Info) *cli.Command {
+	return &cli.Command{
+		Before:  initialize,
+		Name:    "webhook",
+		Aliases: []string{"w"},
+		Usage:   "run the webhook",
+		Action: func(ctx *cli.Context) error {
+			return runWebhook(ctx, info)
+		},
+		Flags: []cli.Flag{
+			&cli.IntFlag{
+				Name:    "port",
+				Aliases: []string{"p"},
+				Value:   defaultWebhookPort,
+				Usage:   "the port on which to expose the webhook service (default 9443)",
+			},
+			&cli.BoolFlag{
+				Name:    "static",
+				Aliases: []string{"s"},
+				Value:   false,
+				Usage:   "the webhook k8s resources are statically managed (default false)",
+			},
+			&cli.StringFlag{
+				Name:   tlsMinVersionParam,
+				Hidden: true,
+				Usage:  "DEPRECATED: TLS configuration is now managed via OpenShift TLS profiles. This flag is ignored.",
+			},
+		},
+	}
+}
+
+func nonRootEnablerCommand(info *version.Info) *cli.Command {
+	return &cli.Command{
+		Before: initialize,
+		Name:   "non-root-enabler",
+		Usage:  "run the non root enabler",
+		Action: func(ctx *cli.Context) error {
+			return runNonRootEnabler(ctx, info)
+		},
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:    "runtime",
+				Aliases: []string{"r"},
+				Value:   "",
+				Usage:   "the container runtime in the cluster (values: cri-o, containerd, docker)",
+			},
+			&cli.BoolFlag{
+				Name:    "apparmor",
+				Aliases: []string{"a"},
+				Usage:   "enable installation of apparmor profiles for spo",
+				EnvVars: []string{config.AppArmorEnvKey},
+			},
+		},
+	}
+}
+
+func logEnricherCommand(info *version.Info) *cli.Command {
+	return &cli.Command{
+		Before:  initialize,
+		Name:    "log-enricher",
+		Aliases: []string{"l"},
+		Usage:   "run the audit's log enricher",
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:  enricherFiltersJsonParam,
+				Value: "",
+				Usage: "Log Enricher filters JSON.",
+			},
+			&cli.StringFlag{
+				Name:  enricherLogSourceParam,
+				Value: "",
+				Usage: "Log source to ingest (`Bpf` or `Auditd`)",
+			},
+		},
+		Action: func(ctx *cli.Context) error {
+			return runLogEnricher(ctx, info)
+		},
+	}
+}
+
+func jsonEnricherCommand(info *version.Info) *cli.Command {
+	return &cli.Command{
+		Before:  initialize,
+		Name:    "json-enricher",
+		Aliases: []string{"j"},
+		Usage:   "run the audit's json enricher",
+		Action: func(ctx *cli.Context) error {
+			return runJsonEnricher(ctx, info)
+		},
+		Flags: []cli.Flag{
+			&cli.IntFlag{
+				Name:    auditLogIntervalSecondsParam,
+				Aliases: []string{"a"},
+				Value:   60,
+				Usage:   "Audit log interval in seconds for the JSON Log Enricher.",
+			},
+			&cli.StringFlag{
+				Name:  auditLogPathParam,
+				Value: "",
+				Usage: "Audit log file path for the JSON Log Enricher. Default is stdout.",
+			},
+			&cli.IntFlag{
+				Name:  auditLogMaxBackupParam,
+				Value: 0,
+				Usage: "Audit log max file backup for the JSON Log Enricher. " +
+					"The maximum number of old audit log files to retain. " +
+					"Setting a value of 0 will mean there's no restriction on the number of files.",
+			},
+			&cli.IntFlag{
+				Name:  auditLogMaxSizeParam,
+				Value: 100,
+				Usage: "Audit log max file size for the JSON Log Enricher. " +
+					"The maximum size in megabytes of the audit log file before it gets rotated.",
+			},
+			&cli.IntFlag{
+				Name:  auditLogMaxAgeParam,
+				Value: 0,
+				Usage: "Audit log max age for the JSON Log Enricher. " +
+					"The maximum number of days to retain old audit log files based " +
+					"on the timestamp encoded in their filename.",
+			},
+			&cli.StringFlag{
+				Name:  enricherFiltersJsonParam,
+				Value: "",
+				Usage: "JSON Enricher filters JSON file path.",
+			},
+		},
+	}
+}
+
+func bpfRecorderCommand(info *version.Info) *cli.Command {
+	return &cli.Command{
+		Before:  initialize,
+		Name:    "bpf-recorder",
+		Aliases: []string{"b"},
+		Usage:   "run the bpf recorder",
+		Action: func(ctx *cli.Context) error {
+			return runBPFRecorder(ctx, info)
+		},
+	}
+}
+
+func spocCommand() *cli.Command {
+	return &cli.Command{
+		Name:     spocCmd,
+		Aliases:  []string{"s"},
+		Usage:    "run the CLI",
+		Action:   runCLI,
+		HideHelp: true,
+	}
+}
+
+func globalFlags() []cli.Flag {
+	return []cli.Flag{
 		&cli.IntFlag{
 			Name:    "verbosity",
 			Aliases: []string{"V"},
@@ -409,16 +440,6 @@ func main() {
 			Value:   config.DefaultProfilingPort,
 			EnvVars: []string{config.ProfilingPortEnvKey},
 		},
-	}
-
-	if err := app.RunContext(context.Background(), os.Args); err != nil {
-		// Check if this is a TLS configuration change requiring restart
-		if errors.Is(err, ErrTLSConfigChanged) {
-			os.Exit(0) // intentional exit to trigger pod restart
-		}
-
-		setupLog.Error(err, "running security-profiles-operator")
-		os.Exit(1)
 	}
 }
 
@@ -522,6 +543,11 @@ func runManager(ctx *cli.Context, info *version.Info) error {
 		return fmt.Errorf("fetch TLS options: %w", err)
 	}
 
+	operatorNamespace, err := config.TryToGetOperatorNamespace()
+	if err != nil {
+		return fmt.Errorf("get operator namespace: %w", err)
+	}
+
 	gracefulShutdownTimeout := 30 * time.Second
 	ctrlOpts := manager.Options{
 		Cache:                         cache.Options{SyncPeriod: &sync},
@@ -530,9 +556,11 @@ func runManager(ctx *cli.Context, info *version.Info) error {
 		LeaderElectionReleaseOnCancel: true,
 		HealthProbeBindAddress:        fmt.Sprintf(":%d", config.HealthProbePort),
 		GracefulShutdownTimeout:       &gracefulShutdownTimeout,
+		Metrics:                       secureMetricsOptions(&tlsCfg),
 	}
 
 	setControllerOptionsForNamespaces(&ctrlOpts)
+	restrictOperandCache(&ctrlOpts, operatorNamespace)
 
 	mgr, err := ctrl.NewManager(cfg, ctrlOpts)
 	if err != nil {
@@ -622,38 +650,73 @@ func setControllerOptionsForNamespaces(opts *ctrl.Options) {
 		namespace = os.Getenv("WATCH_NAMESPACE")
 	}
 
-	// listen globally
-	if namespace == "" {
+	operatorNS, err := config.TryToGetOperatorNamespace()
+	if err != nil {
+		setupLog.Info("unable to get operator namespace, skipping operator namespace addition")
+	}
+
+	// Supports multiple namespaces set in WATCH_NAMESPACE (e.g ns1,ns2).
+	// This is not intended to be used for excluding namespaces, which is better
+	// done via a predicate. A high number of namespaces may cause performance
+	// issues.
+	namespaces := watchNamespaces(namespace, operatorNS)
+	if len(namespaces) == 0 {
 		setupLog.Info("watching all namespaces")
 
 		return
 	}
 
-	// ensure we listen to our own namespace
-	operatorNS, err := config.TryToGetOperatorNamespace()
-	if err != nil {
-		setupLog.Info("unable to get operator namespace, skipping operator namespace addition")
-	} else if !strings.Contains(namespace, operatorNS) {
-		namespace = namespace + "," + operatorNS
+	opts.Cache.DefaultNamespaces = make(map[string]cache.Config, len(namespaces))
+	for _, ns := range namespaces {
+		opts.Cache.DefaultNamespaces[ns] = cache.Config{}
 	}
 
-	namespaceList := strings.Split(namespace, ",")
-	// Add support for MultiNamespace set in WATCH_NAMESPACE (e.g ns1,ns2)
-	// Note that this is not intended to be used for excluding namespaces, this is better done via a Predicate
-	// Also note that you may face performance issues when using this with a high number of namespaces.
-	// More Info: https://godoc.org/github.com/kubernetes-sigs/controller-runtime/pkg/cache#MultiNamespacedCacheBuilder
-	// Adding "" adds cluster namespaced resources
-	if strings.Contains(namespace, ",") {
-		opts.Cache.DefaultNamespaces = make(map[string]cache.Config, len(namespaceList))
-		for _, ns := range namespaceList {
-			opts.Cache.DefaultNamespaces[ns] = cache.Config{}
+	setupLog.Info("watching namespaces", "namespaces", namespaces)
+}
+
+// watchNamespaces returns the namespaces of the comma separated list, always
+// including the operator namespace, because the operator has to read its own
+// configuration. An empty list means that all namespaces are watched.
+func watchNamespaces(namespaces, operatorNamespace string) []string {
+	if namespaces == "" {
+		return nil
+	}
+
+	var res []string
+
+	for ns := range strings.SplitSeq(namespaces, ",") {
+		ns = strings.TrimSpace(ns)
+		if ns == "" || slices.Contains(res, ns) {
+			continue
 		}
 
-		setupLog.Info("watching multiple namespaces", "namespaces", namespaceList)
-	} else {
-		// listen to a specific namespace only
-		opts.Cache.DefaultNamespaces = map[string]cache.Config{namespace: {}}
-		setupLog.Info("watching single namespace", "namespace", namespace)
+		res = append(res, ns)
+	}
+
+	if operatorNamespace != "" && !slices.Contains(res, operatorNamespace) {
+		res = append(res, operatorNamespace)
+	}
+
+	return res
+}
+
+// restrictOperandCache limits the cache of the operand kinds to the operator
+// namespace. The operator creates them only there and its RBAC permissions are
+// scoped to that namespace, so a cluster wide informer would not be allowed to
+// list them.
+func restrictOperandCache(opts *ctrl.Options, operatorNamespace string) {
+	if opts.Cache.ByObject == nil {
+		opts.Cache.ByObject = map[client.Object]cache.ByObject{}
+	}
+
+	for _, obj := range []client.Object{
+		&appsv1.DaemonSet{},
+		&appsv1.Deployment{},
+		&corev1.Service{},
+	} {
+		opts.Cache.ByObject[obj] = cache.ByObject{
+			Namespaces: map[string]cache.Config{operatorNamespace: {}},
+		}
 	}
 }
 
@@ -739,9 +802,7 @@ type tlsConfig struct {
 // and builds the TLS configuration for the controller-runtime servers. On
 // non-OpenShift clusters it falls back to the Go defaults with a TLS 1.2
 // minimum version.
-func fetchTLSOptions(ctx context.Context, cfg *rest.Config) (_ tlsConfig, err error) {
-	var isOpenShift bool
-
+func fetchTLSOptions(ctx context.Context, cfg *rest.Config) (tlsConfig, error) {
 	setupLog.Info("detecting platform and fetching TLS configuration")
 
 	// Create scheme and register OpenShift config API
@@ -756,13 +817,21 @@ func fetchTLSOptions(ctx context.Context, cfg *rest.Config) (_ tlsConfig, err er
 		return tlsConfig{}, fmt.Errorf("create pre-start client: %w", err)
 	}
 
+	return fetchClusterTLSOptions(ctx, preStartClient)
+}
+
+// fetchClusterTLSOptions detects the platform and fetches the TLS profile of
+// the cluster with the provided client.
+func fetchClusterTLSOptions(ctx context.Context, preStartClient client.Client) (tlsConfig, error) {
+	var isOpenShift bool
+
 	// Create a timeout context for OpenShift detection to avoid long waits on non-OpenShift clusters
 	// Use 10 seconds to handle slow or loaded API servers during rolling restarts
 	detectCtx, detectCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer detectCancel()
 
 	// Detect if we're running on OpenShift using the same pattern as bindata/ca.go
-	err = preStartClient.Get(detectCtx,
+	err := preStartClient.Get(detectCtx,
 		types.NamespacedName{Name: "openshift-apiserver"},
 		&configv1.ClusterOperator{},
 	)
@@ -829,6 +898,16 @@ func fetchTLSOptions(ctx context.Context, cfg *rest.Config) (_ tlsConfig, err er
 		initialTLSAdherencePolicy = configv1.TLSAdherencePolicyNoOpinion
 	}
 
+	return newTLSConfig(isOpenShift, initialTLSProfile, initialTLSAdherencePolicy), nil
+}
+
+// newTLSConfig builds the TLS configuration for the provided platform, TLS
+// profile and adherence policy.
+func newTLSConfig(
+	isOpenShift bool,
+	initialTLSProfile configv1.TLSProfileSpec,
+	initialTLSAdherencePolicy configv1.TLSAdherencePolicy,
+) tlsConfig {
 	// Build TLS options - always disable HTTP/2
 	tlsOptions := []func(config *tls.Config){
 		func(c *tls.Config) {
@@ -893,7 +972,20 @@ func fetchTLSOptions(ctx context.Context, cfg *rest.Config) (_ tlsConfig, err er
 		profile:         initialTLSProfile,
 		adherencePolicy: initialTLSAdherencePolicy,
 		isOpenShift:     isOpenShift,
-	}, nil
+	}
+}
+
+// secureMetricsOptions returns the metrics server options of the manager and
+// the webhook. The metrics are served via TLS and require an authenticated and
+// authorized client, like the ones of the daemon. No certificate is mounted
+// for these components, so the server uses a self-signed one.
+func secureMetricsOptions(tlsCfg *tlsConfig) metricsserver.Options {
+	return metricsserver.Options{
+		BindAddress:    fmt.Sprintf(":%d", metricsPort),
+		SecureServing:  true,
+		FilterProvider: metricsfilters.WithAuthenticationAndAuthorization,
+		TLSOpts:        tlsCfg.options,
+	}
 }
 
 // setupManagerWithTLSWatcher sets up TLS watching for a manager and starts it.
@@ -1075,6 +1167,28 @@ func runLogEnricher(ctx *cli.Context, info *version.Info) error {
 	return logEnricher.Run()
 }
 
+func runJsonEnricher(ctx *cli.Context, info *version.Info) error {
+	jsonEnricher, err := getJsonEnricher(ctx, info)
+	if err != nil {
+		return fmt.Errorf("could not create json enricher: %w", err)
+	}
+
+	sigCtx := ctrl.SetupSignalHandler()
+
+	runErr := make(chan error)
+	go jsonEnricher.Run(sigCtx, runErr)
+
+	select {
+	case err := <-runErr:
+		return fmt.Errorf("error while executing JSON Enricher: %w", err)
+	case <-sigCtx.Done():
+		fmt.Printf("Exit JSON Enricher")
+		jsonEnricher.ExitJsonEnricher(ctx)
+
+		return nil
+	}
+}
+
 func getJsonEnricher(ctx *cli.Context, info *version.Info) (*enricher.JsonEnricher, error) {
 	const component = "json-enricher"
 
@@ -1187,6 +1301,7 @@ func runWebhook(ctx *cli.Context, info *version.Info) error {
 		LeaderElection:   true,
 		LeaderElectionID: "security-profiles-operator-webhook-lock",
 		WebhookServer:    webhookServer,
+		Metrics:          secureMetricsOptions(&tlsCfg),
 	}
 
 	mgr, err := ctrl.NewManager(cfg, ctrlOpts)
@@ -1219,10 +1334,21 @@ func runWebhook(ctx *cli.Context, info *version.Info) error {
 		return fmt.Errorf("add profilerecording v1 API to scheme: %w", err)
 	}
 
+	if err := spodv1.AddToScheme(mgr.GetScheme()); err != nil {
+		return fmt.Errorf("add SPOD config v1 API to scheme: %w", err)
+	}
+
 	setupLog.Info("registering webhooks")
 
 	hookserver := mgr.GetWebhookServer()
-	binding.RegisterWebhook(hookserver, mgr.GetScheme(), mgr.GetClient())
+	binding.RegisterWebhook(
+		hookserver,
+		mgr.GetScheme(),
+		util.NewEventRecorder(mgr, "binding-webhook"),
+		mgr.GetClient(),
+		mgr.GetAPIReader(),
+		tlsCfg.isOpenShift,
+	)
 
 	recording.RegisterWebhook(
 		hookserver,

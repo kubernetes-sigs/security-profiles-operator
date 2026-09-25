@@ -76,14 +76,17 @@ func DNSLengthName(hashPrefix, format string, a ...any) string {
 }
 
 // ErrProfileOwnedByOtherRecording is returned by CheckRecordingOwner if a
-// profile got recorded by another profile recording.
+// profile got recorded by another profile recording or was not recorded at
+// all.
 var ErrProfileOwnedByOtherRecording = errors.New("profile belongs to another profile recording")
 
 // CheckRecordingOwner verifies that an existing profile was recorded by the
 // recording with the provided name and namespace. Recorded profiles are
 // cluster scoped and named after the recording, so recordings with the same
 // name in different namespaces would otherwise overwrite each other's profiles.
-// Objects which do not exist yet or carry no recording labels pass the check.
+// Objects which do not exist yet pass the check. Existing objects without the
+// recording label were not recorded and are treated as foreign, because a
+// recording must never replace a profile written by somebody else.
 func CheckRecordingOwner(profile client.Object, recordingName, recordingNamespace string) error {
 	if profile.GetResourceVersion() == "" {
 		return nil
@@ -94,7 +97,17 @@ func CheckRecordingOwner(profile client.Object, recordingName, recordingNamespac
 	name, hasName := labels[profilerecordingapi.ProfileToRecordingLabel]
 	namespace, hasNamespace := labels[profilerecordingapi.ProfileToRecordingNamespaceLabel]
 
-	if (hasName && name != recordingName) || (hasNamespace && namespace != recordingNamespace) {
+	if !hasName {
+		return fmt.Errorf(
+			"%w: profile %s was not recorded, refusing to overwrite it by %s/%s",
+			ErrProfileOwnedByOtherRecording, profile.GetName(),
+			recordingNamespace, recordingName,
+		)
+	}
+
+	// Profiles recorded before the namespace label existed only carry the
+	// recording name.
+	if name != recordingName || (hasNamespace && namespace != recordingNamespace) {
 		return fmt.Errorf(
 			"%w: profile %s was recorded by %s/%s, not by %s/%s",
 			ErrProfileOwnedByOtherRecording, profile.GetName(),

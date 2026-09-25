@@ -27,6 +27,7 @@ import (
 	"github.com/go-logr/logr"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -44,8 +45,9 @@ import (
 
 type podSeccompRecorder struct {
 	impl
-	log    logr.Logger
-	record *utils.SafeRecorder
+	decoder admission.Decoder
+	log     logr.Logger
+	record  *utils.SafeRecorder
 }
 
 func RegisterWebhook(
@@ -58,12 +60,10 @@ func RegisterWebhook(
 		"/mutate-v1-pod-recording",
 		&webhook.Admission{
 			Handler: &podSeccompRecorder{
-				impl: &defaultImpl{
-					client:  c,
-					decoder: admission.NewDecoder(scheme),
-				},
-				log:    logf.Log.WithName("recording"),
-				record: utils.NewSafeRecorder(rec),
+				impl:    &defaultImpl{client: c},
+				decoder: admission.NewDecoder(scheme),
+				log:     logf.Log.WithName("recording"),
+				record:  utils.NewSafeRecorder(rec),
 			},
 		},
 	)
@@ -87,8 +87,8 @@ func (p *podSeccompRecorder) Handle(
 		return admission.Errored(http.StatusInternalServerError, err)
 	}
 
-	pod, err := p.DecodePod(req)
-	if err != nil {
+	pod := &corev1.Pod{}
+	if err := p.decoder.Decode(req, pod); err != nil {
 		p.log.Error(err, "Failed to decode pod")
 
 		return admission.Errored(http.StatusBadRequest, err)
@@ -119,9 +119,7 @@ func (p *podSeccompRecorder) Handle(
 			continue
 		}
 
-		selector, err := p.LabelSelectorAsSelector(
-			item.Spec.PodSelector,
-		)
+		selector, err := metav1.LabelSelectorAsSelector(item.Spec.PodSelector)
 		if err != nil {
 			p.log.Error(
 				err, "Could not get label selector from profile recording",
@@ -224,7 +222,10 @@ func (p *podSeccompRecorder) updatePod(
 			continue
 		}
 
-		if existingValue != value {
+		// The value carries a random nonce and a timestamp, so it differs on
+		// every admission. Keep a value of this recording and container,
+		// otherwise every pod update would rename the recorded profile.
+		if !isRecordingAnnotationValue(existingValue, profileRecording.Name, ctr.Name) {
 			// Overwrite the existing value with the expected value to avoid that
 			// an attacker will spoof a profile recording into its own controlled
 			// profile instead of the one expected.
@@ -237,6 +238,21 @@ func (p *podSeccompRecorder) updatePod(
 	}
 
 	return podChanged, nil
+}
+
+// isRecordingAnnotationValue returns true if the annotation value has the
+// format "<recording>_<container>_<nonce>_<timestamp>" for the provided
+// recording and container. The profile name is derived only from the recording
+// and container, so such a value cannot redirect the recorded profile.
+func isRecordingAnnotationValue(value, recordingName, ctrName string) bool {
+	suffix, ok := strings.CutPrefix(value, recordingName+"_"+ctrName+"_")
+	if !ok {
+		return false
+	}
+
+	nonce, timestamp, ok := strings.Cut(suffix, "_")
+
+	return ok && nonce != "" && timestamp != "" && !strings.Contains(timestamp, "_")
 }
 
 func (p *podSeccompRecorder) updateSecurityContext(

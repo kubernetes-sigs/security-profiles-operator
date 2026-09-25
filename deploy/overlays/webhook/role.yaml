@@ -1,3 +1,26 @@
 ---
-- path: /rules/3
-  op: remove
+# The webhook configurations are static in this overlay, so the operator does
+# not need to manage them. The test operations make the build fail instead of
+# changing the wrong rule if the generated rules change.
+- op: test
+  path: /rules/6/resourceNames
+  value: ["spo-validating-webhook-configuration"]
+- op: remove
+  path: /rules/6
+- op: test
+  path: /rules/4/resources
+  value:
+    - mutatingwebhookconfigurations
+    - validatingadmissionpolicies
+    - validatingadmissionpolicybindings
+    - validatingwebhookconfigurations
+- op: replace
+  path: /rules/4/resources
+  value:
+    - validatingadmissionpolicies
+    - validatingadmissionpolicybindings
+- op: test
+  path: /rules/3/resourceNames
+  value: ["spo-mutating-webhook-configuration"]
+- op: remove
+  path: /rules/3

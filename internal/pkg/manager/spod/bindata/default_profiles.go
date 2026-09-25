@@ -24,15 +24,14 @@ import (
 )
 
 // DefaultLogEnricherProfile returns the default seccomp profile for log enricher.
+// Seccomp profiles are cluster scoped, so it has no namespace.
 func DefaultLogEnricherProfile() *seccompprofileapi.SeccompProfile {
-	namespace := config.GetOperatorNamespace()
 	labels := map[string]string{labelApp: config.OperatorName}
 
 	return &seccompprofileapi.SeccompProfile{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      config.LogEnricherProfile,
-			Namespace: namespace,
-			Labels:    labels,
+			Name:   config.LogEnricherProfile,
+			Labels: labels,
 		},
 		Spec: seccompprofileapi.SeccompProfileSpec{
 			DefaultAction: seccompprofileapi.ActLog,

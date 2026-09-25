@@ -44,6 +44,22 @@ func TestCheckRecordingOwner(t *testing.T) {
 		{
 			name:            "existing profile without labels",
 			resourceVersion: "1",
+			wantErr:         true,
+		},
+		{
+			name:            "existing profile with only the namespace label",
+			resourceVersion: "1",
+			labels: map[string]string{
+				profilerecordingapi.ProfileToRecordingNamespaceLabel: "ns",
+			},
+			wantErr: true,
+		},
+		{
+			name:            "existing profile recorded before the namespace label",
+			resourceVersion: "1",
+			labels: map[string]string{
+				profilerecordingapi.ProfileToRecordingLabel: "rec",
+			},
 		},
 		{
 			name:            "existing profile of the same recording",

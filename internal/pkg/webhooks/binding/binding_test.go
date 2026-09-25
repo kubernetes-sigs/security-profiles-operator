@@ -21,7 +21,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"sync"
 	"testing"
 
 	"github.com/go-logr/logr"
@@ -41,6 +40,7 @@ import (
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
+	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/binding/bindingfakes"
 )
 
@@ -75,6 +75,19 @@ var (
 	}
 )
 
+func newTestBinder(t *testing.T, mock *bindingfakes.FakeImpl) *podBinder {
+	t.Helper()
+
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+
+	return &podBinder{
+		impl:    mock,
+		decoder: admission.NewDecoder(scheme),
+		log:     logr.Discard(),
+	}
+}
+
 func TestHandle(t *testing.T) {
 	t.Parallel()
 
@@ -86,11 +99,11 @@ func TestHandle(t *testing.T) {
 		{ // success pod unchanged
 			prepare: func(mock *bindingfakes.FakeImpl) {
 				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{}, nil)
-				mock.DecodePodReturns(&corev1.Pod{}, nil)
 			},
 			request: admission.Request{
 				AdmissionRequest: admissionv1.AdmissionRequest{
 					Operation: admissionv1.Create,
+					Object:    runtime.RawExtension{Raw: []byte("{}")},
 				},
 			},
 			assert: func(resp admission.Response) {
@@ -141,11 +154,11 @@ func TestHandle(t *testing.T) {
 		{ // error failed to decode pod
 			prepare: func(mock *bindingfakes.FakeImpl) {
 				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{}, nil)
-				mock.DecodePodReturns(nil, errTest)
 			},
 			request: admission.Request{
 				AdmissionRequest: admissionv1.AdmissionRequest{
 					Operation: admissionv1.Create,
+					Object:    runtime.RawExtension{Raw: []byte("{")},
 				},
 			},
 			assert: func(resp admission.Response) {
@@ -167,7 +180,6 @@ func TestHandle(t *testing.T) {
 						},
 					},
 				}, nil)
-				mock.DecodePodReturns(testPod.DeepCopy(), nil)
 				mock.GetSeccompProfileReturns(&seccompprofileapi.SeccompProfile{
 					Status: seccompprofileapi.SeccompProfileStatus{
 						StatusBase: profilebaseapi.StatusBase{
@@ -211,7 +223,6 @@ func TestHandle(t *testing.T) {
 						},
 					},
 				}, nil)
-				mock.DecodePodReturns(testPodWithLabels.DeepCopy(), nil)
 				mock.GetSeccompProfileReturns(&seccompprofileapi.SeccompProfile{
 					Status: seccompprofileapi.SeccompProfileStatus{
 						StatusBase: profilebaseapi.StatusBase{
@@ -255,7 +266,6 @@ func TestHandle(t *testing.T) {
 						},
 					},
 				}, nil)
-				mock.DecodePodReturns(testPodWithLabels.DeepCopy(), nil)
 				mock.GetSeccompProfileReturns(&seccompprofileapi.SeccompProfile{
 					Status: seccompprofileapi.SeccompProfileStatus{
 						StatusBase: profilebaseapi.StatusBase{
@@ -298,7 +308,6 @@ func TestHandle(t *testing.T) {
 						},
 					},
 				}, nil)
-				mock.DecodePodReturns(testPod.DeepCopy(), nil)
 				mock.GetSeccompProfileReturns(&seccompprofileapi.SeccompProfile{
 					Status: seccompprofileapi.SeccompProfileStatus{
 						StatusBase: profilebaseapi.StatusBase{
@@ -339,7 +348,6 @@ func TestHandle(t *testing.T) {
 						},
 					},
 				}, nil)
-				mock.DecodePodReturns(testPod.DeepCopy(), nil)
 				mock.GetSeccompProfileReturns(&seccompprofileapi.SeccompProfile{
 					Status: seccompprofileapi.SeccompProfileStatus{
 						StatusBase: profilebaseapi.StatusBase{
@@ -370,7 +378,9 @@ func TestHandle(t *testing.T) {
 			},
 			assert: func(resp admission.Response) {
 				require.True(t, resp.Allowed)
-				require.Len(t, resp.Patches, 2) // add localProfile, replace type with Localhost
+				// add the pod level profile, and on the container level replace
+				// the type with Localhost and add the localhostProfile
+				require.Len(t, resp.Patches, 3)
 			},
 		},
 		{ // selinux success pod changed
@@ -387,7 +397,6 @@ func TestHandle(t *testing.T) {
 						},
 					},
 				}, nil)
-				mock.DecodePodReturns(testPod.DeepCopy(), nil)
 				mock.GetSelinuxProfileReturns(&selinuxprofileapi.SelinuxProfile{
 					Status: selinuxprofileapi.SelinuxProfileStatus{
 						StatusBase: profilebaseapi.StatusBase{
@@ -428,7 +437,6 @@ func TestHandle(t *testing.T) {
 						},
 					},
 				}, nil)
-				mock.DecodePodReturns(testPod.DeepCopy(), nil)
 				mock.GetSelinuxProfileReturns(&selinuxprofileapi.SelinuxProfile{
 					Status: selinuxprofileapi.SelinuxProfileStatus{
 						StatusBase: profilebaseapi.StatusBase{
@@ -476,7 +484,6 @@ func TestHandle(t *testing.T) {
 						},
 					},
 				}, nil)
-				mock.DecodePodReturns(testPod.DeepCopy(), nil)
 				mock.GetSelinuxProfileReturns(&selinuxprofileapi.SelinuxProfile{
 					Status: selinuxprofileapi.SelinuxProfileStatus{
 						StatusBase: profilebaseapi.StatusBase{
@@ -518,7 +525,6 @@ func TestHandle(t *testing.T) {
 						},
 					},
 				}, nil)
-				mock.DecodePodReturns(testPod.DeepCopy(), nil)
 				mock.GetAppArmorProfileReturns(&apparmorprofileapi.AppArmorProfile{
 					Status: apparmorprofileapi.AppArmorProfileStatus{
 						StatusBase: profilebaseapi.StatusBase{
@@ -559,7 +565,6 @@ func TestHandle(t *testing.T) {
 						},
 					},
 				}, nil)
-				mock.DecodePodReturns(testPod.DeepCopy(), nil)
 				mock.GetAppArmorProfileReturns(&apparmorprofileapi.AppArmorProfile{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "test-apparmor-profile",
@@ -592,7 +597,8 @@ func TestHandle(t *testing.T) {
 			},
 			assert: func(resp admission.Response) {
 				require.True(t, resp.Allowed)
-				require.Len(t, resp.Patches, 2)
+				// the pod level profile and both container level fields
+				require.Len(t, resp.Patches, 3)
 			},
 		},
 		//nolint:dupl // test duplicates are fine
@@ -610,7 +616,6 @@ func TestHandle(t *testing.T) {
 						},
 					},
 				}, nil)
-				mock.DecodePodReturns(testPod.DeepCopy(), nil)
 				mock.GetAppArmorProfileReturns(&apparmorprofileapi.AppArmorProfile{
 					Status: apparmorprofileapi.AppArmorProfileStatus{
 						StatusBase: profilebaseapi.StatusBase{
@@ -650,7 +655,6 @@ func TestHandle(t *testing.T) {
 						},
 					},
 				}, nil)
-				mock.DecodePodReturns(testPod.DeepCopy(), nil)
 				mock.GetAppArmorProfileReturns(nil, errTest)
 			},
 			request: admission.Request{
@@ -670,8 +674,9 @@ func TestHandle(t *testing.T) {
 				require.Equal(t, http.StatusInternalServerError, int(resp.Result.Code))
 			},
 		},
-		//nolint:dupl // test duplicates are fine
-		{ // failure get apparmor profile without status
+		{ // success skip apparmor profile without status of a disabled kind
+			// No daemon reports a status if the SPOD does not enable the
+			// profile kind, so rejecting the pod would block it forever.
 			prepare: func(mock *bindingfakes.FakeImpl) {
 				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
 					Items: []profilebindingapi.ProfileBinding{
@@ -680,11 +685,12 @@ func TestHandle(t *testing.T) {
 								ProfileRef: profilebindingapi.ProfileRef{
 									Kind: profilebindingapi.ProfileBindingKindAppArmorProfile,
 								},
+								Image: "foo",
 							},
 						},
 					},
 				}, nil)
-				mock.DecodePodReturns(testPod.DeepCopy(), nil)
+				mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{}, nil)
 				mock.GetAppArmorProfileReturns(&apparmorprofileapi.AppArmorProfile{
 					Status: apparmorprofileapi.AppArmorProfileStatus{},
 				}, nil)
@@ -703,7 +709,8 @@ func TestHandle(t *testing.T) {
 				},
 			},
 			assert: func(resp admission.Response) {
-				require.Equal(t, http.StatusInternalServerError, int(resp.Result.Code))
+				require.True(t, resp.Allowed)
+				require.Empty(t, resp.Patches)
 			},
 		},
 		{ // success unsupported kind
@@ -719,7 +726,6 @@ func TestHandle(t *testing.T) {
 						},
 					},
 				}, nil)
-				mock.DecodePodReturns(testPod.DeepCopy(), nil)
 				mock.GetSeccompProfileReturns(&seccompprofileapi.SeccompProfile{
 					Status: seccompprofileapi.SeccompProfileStatus{
 						StatusBase: profilebaseapi.StatusBase{
@@ -746,8 +752,10 @@ func TestHandle(t *testing.T) {
 				require.Empty(t, resp.Patches)
 			},
 		},
-		//nolint:dupl // test duplicates are fine
-		{ // failure get seccomp profile malicious
+		{ // failure seccomp profile without status
+			// Seccomp is always enabled, so the status is only missing until
+			// a daemon installed the profile, and the pod must not run
+			// without it in the meantime.
 			prepare: func(mock *bindingfakes.FakeImpl) {
 				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
 					Items: []profilebindingapi.ProfileBinding{
@@ -756,11 +764,11 @@ func TestHandle(t *testing.T) {
 								ProfileRef: profilebindingapi.ProfileRef{
 									Kind: profilebindingapi.ProfileBindingKindSeccompProfile,
 								},
+								Image: profilebindingapi.SelectAllContainersImage,
 							},
 						},
 					},
 				}, nil)
-				mock.DecodePodReturns(testPod.DeepCopy(), nil)
 				mock.GetSeccompProfileReturns(&seccompprofileapi.SeccompProfile{
 					Status: seccompprofileapi.SeccompProfileStatus{},
 				}, nil)
@@ -795,7 +803,6 @@ func TestHandle(t *testing.T) {
 						},
 					},
 				}, nil)
-				mock.DecodePodReturns(testPod.DeepCopy(), nil)
 				mock.GetSeccompProfileReturns(nil, errTest)
 			},
 			request: admission.Request{
@@ -829,7 +836,6 @@ func TestHandle(t *testing.T) {
 						},
 					},
 				}, nil)
-				mock.DecodePodReturns(testPod.DeepCopy(), nil)
 				mock.GetAppArmorProfileReturns(nil, kerrors.NewNotFound(schema.GroupResource{}, "test-profile"))
 			},
 			request: admission.Request{
@@ -854,133 +860,70 @@ func TestHandle(t *testing.T) {
 		mock := &bindingfakes.FakeImpl{}
 		tc.prepare(mock)
 
-		binder := podBinder{impl: mock, log: logr.Discard()}
+		binder := newTestBinder(t, mock)
 		resp := binder.Handle(t.Context(), tc.request)
 		tc.assert(resp)
 	}
 }
 
-func TestNewContainerMap(t *testing.T) {
+func TestContainersByImage(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
 		name    string
 		podSpec *corev1.PodSpec
-		want    map[string]containerList
+		want    map[string][]string
 	}{
 		{
 			name:    "NoContainers",
 			podSpec: &corev1.PodSpec{},
-			want:    map[string]containerList{},
+			want:    map[string][]string{},
 		},
 		{
 			name: "OnlyContainers",
 			podSpec: &corev1.PodSpec{
 				Containers: []corev1.Container{
-					{
-						Name:  "web",
-						Image: "nginx",
-					},
-					{
-						Name:  "sidecar",
-						Image: "sidecar-image",
-					},
+					{Name: "web", Image: "nginx"},
+					{Name: "sidecar", Image: "sidecar-image"},
 				},
 			},
-			want: map[string]containerList{
-				"nginx": {
-					{
-						Name:  "web",
-						Image: "nginx",
-					},
-				},
-				"sidecar-image": {
-					{
-						Name:  "sidecar",
-						Image: "sidecar-image",
-					},
-				},
+			want: map[string][]string{
+				"nginx":         {"web"},
+				"sidecar-image": {"sidecar"},
 			},
 		},
 		{
 			name: "OnlyInitContainers",
 			podSpec: &corev1.PodSpec{
 				InitContainers: []corev1.Container{
-					{
-						Name:  "step1",
-						Image: "busybox",
-					},
-					{
-						Name:  "step2",
-						Image: "bash",
-					},
+					{Name: "step1", Image: "busybox"},
+					{Name: "step2", Image: "bash"},
 				},
 			},
-			want: map[string]containerList{
-				"busybox": {
-					{
-						Name:  "step1",
-						Image: "busybox",
-					},
-				},
-				"bash": {
-					{
-						Name:  "step2",
-						Image: "bash",
-					},
-				},
+			want: map[string][]string{
+				"busybox": {"step1"},
+				"bash":    {"step2"},
 			},
 		},
 		{
 			name: "ContainersAndInitContainers",
 			podSpec: &corev1.PodSpec{
-				InitContainers: []corev1.Container{{
-					Name:  "init",
-					Image: "bash",
-				}},
-				Containers: []corev1.Container{{
-					Name:  "app",
-					Image: "nginx",
-				}},
+				InitContainers: []corev1.Container{{Name: "init", Image: "bash"}},
+				Containers:     []corev1.Container{{Name: "app", Image: "nginx"}},
 			},
-			want: map[string]containerList{
-				"bash": {
-					{
-						Name:  "init",
-						Image: "bash",
-					},
-				},
-				"nginx": {
-					{
-						Name:  "app",
-						Image: "nginx",
-					},
-				},
+			want: map[string][]string{
+				"bash":  {"init"},
+				"nginx": {"app"},
 			},
 		},
 		{
 			name: "DuplicateImages",
 			podSpec: &corev1.PodSpec{
-				InitContainers: []corev1.Container{{
-					Name:  "init",
-					Image: "bash",
-				}},
-				Containers: []corev1.Container{{
-					Name:  "app",
-					Image: "bash",
-				}},
+				InitContainers: []corev1.Container{{Name: "init", Image: "bash"}},
+				Containers:     []corev1.Container{{Name: "app", Image: "bash"}},
 			},
-			want: map[string]containerList{
-				"bash": {
-					{
-						Name:  "app",
-						Image: "bash",
-					},
-					{
-						Name:  "init",
-						Image: "bash",
-					},
-				},
+			want: map[string][]string{
+				"bash": {"init", "app"},
 			},
 		},
 	}
@@ -989,20 +932,15 @@ func TestNewContainerMap(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			var result sync.Map
+			got := map[string][]string{}
 
-			initContainerMap(&result, tc.podSpec)
-			result.Range(func(k, v any) bool {
-				ks, ok := k.(string)
-				require.True(t, ok)
+			for image, ctrs := range containersByImage(podContainers(&corev1.Pod{Spec: *tc.podSpec})) {
+				for _, c := range ctrs {
+					got[image] = append(got[image], c.Name)
+				}
+			}
 
-				vl, ok := v.(containerList)
-				require.True(t, ok)
-
-				require.Equal(t, tc.want[ks], vl)
-
-				return true
-			})
+			require.Equal(t, tc.want, got)
 		})
 	}
 }
@@ -1053,12 +991,11 @@ func TestHandleAccumulatesChangesAcrossContainers(t *testing.T) {
 			},
 		},
 	}
-	mock.DecodePodReturns(pod.DeepCopy(), nil)
 
 	raw, err := json.Marshal(pod)
 	require.NoError(t, err)
 
-	binder := podBinder{impl: mock, log: logr.Discard()}
+	binder := newTestBinder(t, mock)
 	resp := binder.Handle(t.Context(), admission.Request{
 		AdmissionRequest: admissionv1.AdmissionRequest{
 			Operation: admissionv1.Create,
@@ -1144,7 +1081,7 @@ func TestUpdatePodWildcardBindings(t *testing.T) {
 	unconfined := &corev1.SecurityContext{
 		SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeUnconfined},
 	}
-	mock.DecodePodReturns(&corev1.Pod{
+	rawPod, err := json.Marshal(&corev1.Pod{
 		Spec: corev1.PodSpec{
 			SecurityContext: &corev1.PodSecurityContext{
 				SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeUnconfined},
@@ -1159,11 +1096,15 @@ func TestUpdatePodWildcardBindings(t *testing.T) {
 				{Name: "bound", Image: "bound", SecurityContext: unconfined.DeepCopy()},
 			},
 		},
-	}, nil)
+	})
+	require.NoError(t, err)
 
-	binder := podBinder{impl: mock, log: logr.Discard()}
+	binder := newTestBinder(t, mock)
 	pod, resp := binder.updatePod(t.Context(), bindings, &admission.Request{
-		AdmissionRequest: admissionv1.AdmissionRequest{Operation: admissionv1.Create},
+		AdmissionRequest: admissionv1.AdmissionRequest{
+			Operation: admissionv1.Create,
+			Object:    runtime.RawExtension{Raw: rawPod},
+		},
 	})
 	require.Equal(t, admission.Response{}, resp)
 

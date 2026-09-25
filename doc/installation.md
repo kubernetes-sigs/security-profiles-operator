@@ -525,6 +525,9 @@ And patch the `spod/spod` instance:
 $ kubectl -n security-profiles-operator patch spod spod --patch-file /tmp/spod-wh.patch --type=merge
 ```
 
+The remaining fields of the webhooks, like `timeoutSeconds` and `rules`, are owned by the operator,
+which reverts manual changes to them. Configure the webhooks only through `webhook.options`.
+
 To view the resulting `MutatingWebhookConfiguration`, call:
 
 ```shell

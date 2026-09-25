@@ -16,6 +16,10 @@ webhooks:
         apiGroups: [""]
         apiVersions: ["v1"]
         resources: ["pods"]
+      - operations: ["UPDATE"]
+        apiGroups: [""]
+        apiVersions: ["v1"]
+        resources: ["pods/ephemeralcontainers"]
     namespaceSelector:
       matchExpressions:
         - key: spo.x-k8s.io/enable-binding

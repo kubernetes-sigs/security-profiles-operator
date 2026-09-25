@@ -37,7 +37,7 @@ func (sr *SafeRecorder) Eventf(
 	eventtype, reason, action, note string,
 	args ...any,
 ) {
-	if sr.recorder == nil {
+	if sr == nil || sr.recorder == nil {
 		return
 	}
 
