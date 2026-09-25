@@ -35,7 +35,13 @@ import (
 
 const (
 	ExecRequestUid = "SPO_EXEC_REQUEST_UID"
+
+	// ephemeralContainersSubResource is the pod sub resource used to add
+	// ephemeral containers to a running pod, for example by `kubectl debug`.
+	ephemeralContainersSubResource = "ephemeralcontainers"
 )
+
+var errUnsupportedSubResource = errors.New("unsupported pod sub resource")
 
 var execRequestUidRegex = regexp.MustCompile(`^` + ExecRequestUid + `=.*$`)
 
@@ -46,11 +52,17 @@ type Handler struct {
 // Ensure ExecMetadataHandler implements admission.Handler at compile time.
 var _ admission.Handler = (*Handler)(nil)
 
+// getPodPatch returns the patch for a pod. The API server sends requests for
+// the ephemeral containers sub resource with the "pods" resource and the sub
+// resource set separately, so the sub resource decides about the patch.
 func (p Handler) getPodPatch(req *admission.Request) ([]jsonpatch.JsonPatchOperation, error) {
-	if req.Resource.Resource == "pods" {
+	switch req.SubResource {
+	case "":
 		return p.getNodeDebuggingPodPatch(req)
-	} else {
+	case ephemeralContainersSubResource:
 		return p.getEphemeralContainerPatch(req)
+	default:
+		return nil, fmt.Errorf("%w: %s", errUnsupportedSubResource, req.SubResource)
 	}
 }
 
@@ -105,36 +117,43 @@ func (p Handler) getEphemeralContainerPatch(
 
 	p.log.V(1).Info("podObject before mutate", "execPodObject", podObject)
 
-	type void struct{}
+	// The env of already created ephemeral containers cannot be changed. Their
+	// names are unique, see
+	// https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#ephemeralcontainer-v1-core
+	existing := map[string]bool{}
 
-	ephemeralContainersWithStatus := make(map[string]void)
+	if len(req.OldObject.Raw) > 0 {
+		oldPod := corev1.Pod{}
+		if err := json.Unmarshal(req.OldObject.Raw, &oldPod); err != nil {
+			return patches, fmt.Errorf("failed to unmarshal old pod object: %w", err)
+		}
 
-	// Name of Ephemeral Containers should be unique.
-	// Ref: https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#ephemeralcontainer-v1-core .
-	//nolint:intrange // This conflicts with (consider pointers or indexing) (gocritic)
-	for i := 0; i < len(podObject.Status.EphemeralContainerStatuses); i++ {
-		ephemeralContainersWithStatus[podObject.Status.EphemeralContainerStatuses[i].Name] = void{}
+		for i := range oldPod.Spec.EphemeralContainers {
+			existing[oldPod.Spec.EphemeralContainers[i].Name] = true
+		}
 	}
 
-	//nolint:intrange // This conflicts with (consider pointers or indexing) (gocritic)
-	for i := 0; i < len(podObject.Spec.EphemeralContainers); i++ {
-		container := podObject.Spec.EphemeralContainers[i]
+	for i := range podObject.Status.EphemeralContainerStatuses {
+		existing[podObject.Status.EphemeralContainerStatuses[i].Name] = true
+	}
 
-		_, exists := ephemeralContainersWithStatus[container.Name]
-		// You can't change env of a already created ephemeral container.
-		if !exists {
-			container.Env = removeExistingEnv(container.Env, ExecRequestUid)
-			container.Env = append(
-				container.Env,
-				corev1.EnvVar{Name: ExecRequestUid, Value: string(req.UID)},
-			)
-
-			patches = append(patches, jsonpatch.JsonPatchOperation{
-				Operation: "add",
-				Path:      "/spec/ephemeralContainers/" + strconv.Itoa(i) + "/env",
-				Value:     container.Env,
-			})
+	for i := range podObject.Spec.EphemeralContainers {
+		container := &podObject.Spec.EphemeralContainers[i]
+		if existing[container.Name] {
+			continue
 		}
+
+		container.Env = removeExistingEnv(container.Env, ExecRequestUid)
+		container.Env = append(
+			container.Env,
+			corev1.EnvVar{Name: ExecRequestUid, Value: string(req.UID)},
+		)
+
+		patches = append(patches, jsonpatch.JsonPatchOperation{
+			Operation: "add",
+			Path:      "/spec/ephemeralContainers/" + strconv.Itoa(i) + "/env",
+			Value:     container.Env,
+		})
 	}
 
 	p.log.V(1).Info("podObject after mutate", "podObject", podObject)

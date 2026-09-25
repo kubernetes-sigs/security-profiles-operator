@@ -403,3 +403,59 @@ func TestWebhook_DeploymentSecurityContext(t *testing.T) {
 	assert.Equal(t, []corev1.Capability{"ALL"}, sc.Capabilities.Drop)
 	assert.Empty(t, sc.Capabilities.Add)
 }
+
+func TestWebhook_getWebhookConfigHardening(t *testing.T) {
+	t.Parallel()
+
+	webhookConfig := getWebhookConfig(true, "custom-operator-ns")
+
+	for _, wh := range webhookConfig.Webhooks {
+		require.NotNil(t, wh.TimeoutSeconds)
+		assert.Equal(t, int32(10), *wh.TimeoutSeconds, wh.Name)
+	}
+
+	// Ephemeral containers must not escape the binding.
+	bindingRules := webhookConfig.Webhooks[binding.index].Rules
+	require.Len(t, bindingRules, 2)
+	assert.Equal(t, []string{"pods/ephemeralcontainers"}, bindingRules[1].Resources)
+	assert.Equal(t, []admissionregv1.OperationType{"UPDATE"}, bindingRules[1].Operations)
+
+	// Execs into system namespaces are not rewritten.
+	execHook := webhookConfig.Webhooks[execMetadata.index]
+	require.NotNil(t, execHook.NamespaceSelector)
+	require.Len(t, execHook.NamespaceSelector.MatchExpressions, 1)
+
+	expr := execHook.NamespaceSelector.MatchExpressions[0]
+	assert.Equal(t, corev1.LabelMetadataName, expr.Key)
+	assert.Equal(t, metav1.LabelSelectorOpNotIn, expr.Operator)
+	assert.Contains(t, expr.Values, metav1.NamespaceSystem)
+	assert.Contains(t, expr.Values, "custom-operator-ns")
+}
+
+// Rules and timeouts are not tunable, but change between releases, so an
+// existing configuration of an older release has to be updated.
+func TestWebhook_NeedsUpdateRulesAndTimeouts(t *testing.T) {
+	t.Parallel()
+
+	configured := getWebhookConfig(false, "ns")
+	w := Webhook{log: logr.Discard(), config: configured}
+
+	existing := configured.Webhooks[binding.index].DeepCopy()
+	assert.False(t, w.webhookNeedsUpdate(existing, binding.index))
+
+	existing.TimeoutSeconds = new(int32(30))
+	assert.True(t, w.webhookNeedsUpdate(existing, binding.index))
+
+	existing = configured.Webhooks[binding.index].DeepCopy()
+	existing.Rules = existing.Rules[:1]
+	assert.True(t, w.webhookNeedsUpdate(existing, binding.index))
+}
+
+func TestWebhook_DeploymentRequiredSCC(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, "restricted-v2",
+		webhookDeployment.Spec.Template.Annotations[openshiftRequiredSCCAnnotation])
+	assert.Equal(t, "privileged",
+		Manifest.Spec.Template.Annotations[openshiftRequiredSCCAnnotation])
+}

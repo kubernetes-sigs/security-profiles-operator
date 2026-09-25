@@ -24,7 +24,10 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -220,9 +223,12 @@ func (r *PolicyMergeReconciler) mergeTypedProfiles(
 
 		mergedRecordingName := mergedProfileName(profileRecording.Name, cntPartialProfiles[0])
 
-		if err := r.mergeExistingProfile(
-			ctx, profileRecording, mergedRecordingName, mergedProfile, profileItem,
-		); err != nil {
+		r.log.V(1).
+			Info("Computed syscall coverage", "container", cntName, "coverage", coverageAnnotation)
+
+		res, err := createUpdateMergedProfile(
+			ctx, r.client, profileRecording, mergedRecordingName, mergedProfile, coverageAnnotation)
+		if err != nil {
 			r.record.Eventf(
 				profileRecording,
 				nil,
@@ -240,25 +246,6 @@ func (r *PolicyMergeReconciler) mergeTypedProfiles(
 				continue
 			}
 
-			return fmt.Errorf("cannot merge existing profile: %w", err)
-		}
-
-		r.log.V(1).
-			Info("Computed syscall coverage", "container", cntName, "coverage", coverageAnnotation)
-
-		res, err := createUpdateMergedProfile(
-			ctx, r.client, profileRecording, mergedRecordingName, mergedProfile, coverageAnnotation)
-		if err != nil {
-			r.record.Eventf(
-				profileRecording,
-				nil,
-				util.EventTypeWarning,
-				reasonCannotCreateUpdate,
-				util.EventActionMerge,
-				"%s",
-				err.Error(),
-			)
-
 			return fmt.Errorf("cannot create or update merged profile: action:  %w", err)
 		}
 
@@ -266,62 +253,6 @@ func (r *PolicyMergeReconciler) mergeTypedProfiles(
 	}
 
 	return deletePartialProfiles(ctx, r.client, profileItem, profileRecording)
-}
-
-// mergeExistingProfile merges the already existing merged profile into the
-// provided one. The partial profiles get deleted after each merge, so partial
-// profiles collected later would otherwise replace the earlier merge result.
-// Profiles created before the recording belong to a previous recording with the
-// same name and get replaced like before.
-func (r *PolicyMergeReconciler) mergeExistingProfile(
-	ctx context.Context,
-	profileRecording *profilerecordingapi.ProfileRecording,
-	name string,
-	mergedProfile mergeableProfile,
-	profileItem client.Object,
-) error {
-	existing, ok := profileItem.DeepCopyObject().(client.Object)
-	if !ok {
-		return fmt.Errorf("object %T is not a client.Object", profileItem)
-	}
-
-	if err := r.client.Get(ctx, util.NamespacedName(name, ""), existing); err != nil {
-		if util.IgnoreNotFound(err) == nil {
-			return nil
-		}
-
-		return fmt.Errorf("get existing merged profile: %w", err)
-	}
-
-	if err := util.CheckRecordingOwner(
-		existing, profileRecording.Name, profileRecording.Namespace,
-	); err != nil {
-		return fmt.Errorf("check merged profile owner: %w", err)
-	}
-
-	// Merged profiles always carry the recording labels, so an existing
-	// profile without them was not created by the merger and gets replaced.
-	if _, ok := existing.GetLabels()[profilerecordingapi.ProfileToRecordingLabel]; !ok {
-		return nil
-	}
-
-	existingCreated := existing.GetCreationTimestamp()
-	recordingCreated := profileRecording.GetCreationTimestamp()
-
-	if existingCreated.Before(&recordingCreated) {
-		return nil
-	}
-
-	existingProfile, err := newMergeableProfile(existing)
-	if err != nil {
-		return fmt.Errorf("cannot create mergeable profile: %w", err)
-	}
-
-	if err := mergedProfile.merge(existingProfile); err != nil {
-		return fmt.Errorf("failed to merge existing profile %s: %w", name, err)
-	}
-
-	return nil
 }
 
 type createUpdateFn func(
@@ -427,6 +358,120 @@ func createUpdateApparmorProfile(
 	)
 }
 
+// mergeRetryBackoff is used to retry writing a merged profile if another
+// writer, like the profile recorder of a node or another merge, changed or
+// created it concurrently.
+var mergeRetryBackoff = wait.Backoff{
+	Steps:    10,
+	Duration: 10 * time.Millisecond,
+	Factor:   1.5,
+	Jitter:   0.5,
+}
+
+// isWriteConflict returns true if the write lost against a concurrent writer.
+func isWriteConflict(err error) bool {
+	return kerrors.IsConflict(err) || kerrors.IsAlreadyExists(err)
+}
+
+// newProfileObject returns an empty profile of the kind with the meta data of
+// a merged profile, or nil for unsupported kinds.
+func newProfileObject(
+	kind profilerecordingapi.ProfileRecordingKind,
+	mergedRecordingName string,
+	profileRecording *profilerecordingapi.ProfileRecording,
+) client.Object {
+	meta := *mergedObjectMeta(mergedRecordingName, profileRecording.Name, profileRecording.Namespace)
+
+	switch kind {
+	case profilerecordingapi.ProfileRecordingKindSeccompProfile:
+		return &seccompprofile.SeccompProfile{ObjectMeta: meta}
+	case profilerecordingapi.ProfileRecordingKindSelinuxProfile:
+		return &selinuxprofileapi.SelinuxProfile{ObjectMeta: meta}
+	case profilerecordingapi.ProfileRecordingKindAppArmorProfile:
+		return &apparmorprofileapi.AppArmorProfile{ObjectMeta: meta}
+	default:
+		return nil
+	}
+}
+
+// setMergedSpec sets the spec of the merged profile on the object.
+func setMergedSpec(obj client.Object, merged mergeableProfile) error {
+	switch o := obj.(type) {
+	case *seccompprofile.SeccompProfile:
+		p, ok := merged.getProfile().(*seccompprofile.SeccompProfile)
+		if !ok {
+			return errors.New("cannot convert merged profile to SeccompProfile")
+		}
+
+		o.Spec = *p.Spec.DeepCopy()
+	case *selinuxprofileapi.SelinuxProfile:
+		p, ok := merged.getProfile().(*selinuxprofileapi.SelinuxProfile)
+		if !ok {
+			return errors.New("cannot convert merged profile to SelinuxProfile")
+		}
+
+		o.Spec = *p.Spec.DeepCopy()
+	case *apparmorprofileapi.AppArmorProfile:
+		p, ok := merged.getProfile().(*apparmorprofileapi.AppArmorProfile)
+		if !ok {
+			return errors.New("cannot convert merged profile to AppArmorProfile")
+		}
+
+		o.Spec = *p.Spec.DeepCopy()
+	default:
+		return fmt.Errorf("cannot set merged spec on %T", obj)
+	}
+
+	return nil
+}
+
+// mergeInto merges the provided partial profiles into the freshly fetched
+// object. The partial profiles get deleted after each merge and the profile
+// recorder may write into the same profile, so the existing profile has to
+// be kept. Profiles created before the recording belong to a previous
+// recording with the same name and get replaced.
+func mergeInto(
+	obj client.Object,
+	partial mergeableProfile,
+	profileRecording *profilerecordingapi.ProfileRecording,
+) error {
+	partialObj, ok := partial.getProfile().DeepCopyObject().(client.Object)
+	if !ok {
+		return fmt.Errorf("copy %T: not a client.Object", partial.getProfile())
+	}
+
+	// Merge into a copy, because a retry after a conflict starts over.
+	merged, err := newMergeableProfile(partialObj)
+	if err != nil {
+		return fmt.Errorf("cannot create mergeable profile: %w", err)
+	}
+
+	existingCreated := obj.GetCreationTimestamp()
+	recordingCreated := profileRecording.GetCreationTimestamp()
+
+	if obj.GetResourceVersion() != "" && !existingCreated.Before(&recordingCreated) {
+		existingObj, ok := obj.DeepCopyObject().(client.Object)
+		if !ok {
+			return fmt.Errorf("copy %T: not a client.Object", obj)
+		}
+
+		existing, err := newMergeableProfile(existingObj)
+		if err != nil {
+			return fmt.Errorf("cannot create mergeable profile: %w", err)
+		}
+
+		if err := merged.merge(existing); err != nil {
+			return fmt.Errorf("failed to merge existing profile %s: %w", obj.GetName(), err)
+		}
+	}
+
+	return setMergedSpec(obj, merged)
+}
+
+// createUpdateProfile merges the partial profiles into the merged profile of
+// the recording. The merge happens on the freshly fetched profile within the
+// write, so that concurrent writers do not lose each other's changes, and the
+// write gets retried if it lost against one of them.
 func createUpdateProfile(
 	ctx context.Context,
 	cl client.Client,
@@ -435,78 +480,37 @@ func createUpdateProfile(
 	mergedProfiles mergeableProfile,
 	kind profilerecordingapi.ProfileRecordingKind,
 	coverageAnnotation string,
-) (controllerutil.OperationResult, error) {
-	switch kind {
-	case profilerecordingapi.ProfileRecordingKindSeccompProfile:
-		mergedSp := &seccompprofile.SeccompProfile{
-			ObjectMeta: *mergedObjectMeta(mergedRecordingName, profileRecording.Name, profileRecording.Namespace),
-		}
-
-		mergedProf, ok := mergedProfiles.getProfile().(*seccompprofile.SeccompProfile)
-		if !ok {
-			return controllerutil.OperationResultNone, errors.New(
-				"cannot convert merged profile to SeccompProfile",
-			)
-		}
-
-		mergedSpec := mergedProf.Spec.DeepCopy()
-		mergedSp.Spec = *mergedSpec
-
-		return controllerutil.CreateOrUpdate(ctx, cl, mergedSp,
-			func() error {
-				mergedSp.Spec = *mergedSpec
-
-				setSyscallCoverageAnnotation(mergedSp, coverageAnnotation)
-
-				return nil
-			},
-		)
-
-	case profilerecordingapi.ProfileRecordingKindSelinuxProfile:
-		mergedSp := &selinuxprofileapi.SelinuxProfile{
-			ObjectMeta: *mergedObjectMeta(mergedRecordingName, profileRecording.Name, profileRecording.Namespace),
-		}
-
-		mergedProf, ok := mergedProfiles.getProfile().(*selinuxprofileapi.SelinuxProfile)
-		if !ok {
-			return controllerutil.OperationResultNone, errors.New(
-				"cannot convert merged profile to SelinuxProfile",
-			)
-		}
-
-		mergedSpec := mergedProf.Spec.DeepCopy()
-		mergedSp.Spec = *mergedSpec
-
-		return controllerutil.CreateOrUpdate(ctx, cl, mergedSp,
-			func() error {
-				mergedSp.Spec = *mergedSpec
-
-				return nil
-			},
-		)
-	case profilerecordingapi.ProfileRecordingKindAppArmorProfile:
-		mergedSp := &apparmorprofileapi.AppArmorProfile{
-			ObjectMeta: *mergedObjectMeta(mergedRecordingName, profileRecording.Name, profileRecording.Namespace),
-		}
-
-		mergedProf, ok := mergedProfiles.getProfile().(*apparmorprofileapi.AppArmorProfile)
-		if !ok {
-			return controllerutil.OperationResultNone, errors.New(
-				"cannot convert merged profile to AppArmorProfile",
-			)
-		}
-
-		mergedSpec := mergedProf.Spec.DeepCopy()
-		mergedSp.Spec = *mergedSpec
-
-		return controllerutil.CreateOrUpdate(ctx, cl, mergedSp,
-			func() error {
-				mergedSp.Spec = *mergedSpec
-
-				return nil
-			},
-		)
-	default:
+) (res controllerutil.OperationResult, err error) {
+	if newProfileObject(kind, mergedRecordingName, profileRecording) == nil {
 		return controllerutil.OperationResultNone, nil
 	}
+
+	err = retry.OnError(mergeRetryBackoff, isWriteConflict, func() error {
+		obj := newProfileObject(kind, mergedRecordingName, profileRecording)
+
+		var writeErr error
+
+		res, writeErr = controllerutil.CreateOrUpdate(ctx, cl, obj, func() error {
+			if err := util.CheckRecordingOwner(
+				obj, profileRecording.Name, profileRecording.Namespace,
+			); err != nil {
+				return fmt.Errorf("check merged profile owner: %w", err)
+			}
+
+			if err := mergeInto(obj, mergedProfiles, profileRecording); err != nil {
+				return err
+			}
+
+			// The coverage is only computed for seccomp profiles.
+			if kind == profilerecordingapi.ProfileRecordingKindSeccompProfile {
+				setSyscallCoverageAnnotation(obj, coverageAnnotation)
+			}
+
+			return nil
+		})
+
+		return writeErr
+	})
+
+	return res, err
 }

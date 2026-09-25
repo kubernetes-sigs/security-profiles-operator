@@ -23,9 +23,11 @@ import (
 	"fmt"
 	"os"
 
+	admissionregv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -95,7 +97,6 @@ func (r *ReconcileSPOd) Setup(
 	}
 
 	r.scheme = mgr.GetScheme()
-	r.watchNamespace = dt.watchNamespace
 	r.namespace = config.GetOperatorNamespace()
 
 	inOperatorNamespace := builder.WithPredicates(predicate.Funcs{
@@ -105,7 +106,7 @@ func (r *ReconcileSPOd) Setup(
 		GenericFunc: func(e event.GenericEvent) bool { return isInOperatorNamespace(e.Object) },
 	})
 
-	return ctrl.NewControllerManagedBy(mgr).
+	b := ctrl.NewControllerManagedBy(mgr).
 		Named(r.Name()).
 		For(&spodapi.SecurityProfilesOperatorDaemon{}, inOperatorNamespace).
 		Owns(&appsv1.DaemonSet{}, inOperatorNamespace).
@@ -116,8 +117,39 @@ func (r *ReconcileSPOd) Setup(
 			handler.EnqueueRequestsFromMapFunc(r.spodsForNode),
 			builder.OnlyMetadata,
 			builder.WithPredicates(kubeletDirLabelChanged()),
-		).
-		Complete(r)
+		)
+
+	// Restore the admission policies if they get changed or deleted. Clusters
+	// which do not serve their API skip them.
+	if servesAdmissionPolicies(mgr.GetRESTMapper()) {
+		isAdmissionPolicy := builder.WithPredicates(predicate.NewPredicateFuncs(
+			func(obj client.Object) bool { return bindata.IsAdmissionPolicyName(obj.GetName()) },
+		))
+
+		for _, obj := range []client.Object{
+			&admissionregv1.ValidatingAdmissionPolicy{},
+			&admissionregv1.ValidatingAdmissionPolicyBinding{},
+		} {
+			b = b.Watches(
+				obj,
+				handler.EnqueueRequestsFromMapFunc(r.spodsForNode),
+				isAdmissionPolicy,
+			)
+		}
+	}
+
+	return b.Complete(r)
+}
+
+// servesAdmissionPolicies returns true if the cluster serves the
+// ValidatingAdmissionPolicy API.
+func servesAdmissionPolicies(mapper meta.RESTMapper) bool {
+	_, err := mapper.RESTMapping(
+		admissionregv1.SchemeGroupVersion.WithKind("ValidatingAdmissionPolicy").GroupKind(),
+		admissionregv1.SchemeGroupVersion.Version,
+	)
+
+	return err == nil
 }
 
 func (r *ReconcileSPOd) createConfigIfNotExist(ctx context.Context) error {

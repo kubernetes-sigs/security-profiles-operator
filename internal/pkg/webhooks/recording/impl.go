@@ -20,18 +20,13 @@ import (
 	"context"
 	"fmt"
 
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 )
 
 type defaultImpl struct {
-	client  client.Client
-	decoder admission.Decoder
+	client client.Client
 }
 
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../../hack/boilerplate/boilerplate.generatego.txt
@@ -41,8 +36,6 @@ type impl interface {
 		context.Context,
 		...client.ListOption,
 	) (*profilerecordingapi.ProfileRecordingList, error)
-	DecodePod(admission.Request) (*corev1.Pod, error)
-	LabelSelectorAsSelector(*metav1.LabelSelector) (labels.Selector, error)
 }
 
 func (d *defaultImpl) ListProfileRecordings(
@@ -54,20 +47,4 @@ func (d *defaultImpl) ListProfileRecordings(
 	}
 
 	return profileRecordings, nil
-}
-
-//nolint:gocritic
-func (d *defaultImpl) DecodePod(req admission.Request) (*corev1.Pod, error) {
-	pod := &corev1.Pod{}
-	if err := d.decoder.Decode(req, pod); err != nil {
-		return nil, fmt.Errorf("decode pod: %w", err)
-	}
-
-	return pod, nil
-}
-
-func (*defaultImpl) LabelSelectorAsSelector(
-	ps *metav1.LabelSelector,
-) (labels.Selector, error) {
-	return metav1.LabelSelectorAsSelector(ps)
 }

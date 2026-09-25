@@ -483,9 +483,6 @@ func Test_spodNeedsUpdateClearedFields(t *testing.T) {
 		"imagePullSecrets": func(ds *appsv1.DaemonSet) {
 			ds.Spec.Template.Spec.ImagePullSecrets = []v1.LocalObjectReference{{Name: "secret"}}
 		},
-		"apparmor annotation": func(ds *appsv1.DaemonSet) {
-			ds.Annotations = map[string]string{appArmorAnnotation: "unconfined"}
-		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -498,6 +495,18 @@ func Test_spodNeedsUpdateClearedFields(t *testing.T) {
 			require.False(t, spodNeedsUpdate(found.DeepCopy(), found))
 		})
 	}
+}
+
+// The legacy AppArmor annotation never had an effect and gets removed from
+// existing DaemonSets.
+func Test_spodNeedsUpdateLegacyAppArmorAnnotation(t *testing.T) {
+	t.Parallel()
+
+	found := &appsv1.DaemonSet{}
+	found.Annotations = map[string]string{legacyAppArmorAnnotation: "unconfined"}
+
+	require.True(t, spodNeedsUpdate(&appsv1.DaemonSet{}, found))
+	require.False(t, spodNeedsUpdate(&appsv1.DaemonSet{}, &appsv1.DaemonSet{}))
 }
 
 // DeepDerivative accepts a configured slice which is a prefix of the found one,

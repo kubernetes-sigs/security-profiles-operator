@@ -62,8 +62,10 @@ spec:
 	e.logf("Waiting for profile to be reconciled")
 	e.waitForProfile(profileName)
 
+	// The exec metadata webhook excludes the operator namespace, so run the
+	// test pod in its own namespace.
 	e.logf("Creating test pod")
-	e.getCurrentContextNamespace(defaultNamespace)
+	defer e.switchToNs(jsonEnricherTestNamespace)()
 
 	pod := fmt.Sprintf(`
 apiVersion: v1
@@ -112,6 +114,9 @@ spec:
 	e.Contains(output, "\"namespace\"")
 }
 
+// jsonEnricherTestNamespace is the namespace of the JSON enricher test pods.
+const jsonEnricherTestNamespace = "spo-json-enricher-test"
+
 func stringContainsAny(fullString string, substrings ...string) bool {
 	for _, sub := range substrings {
 		if strings.Contains(fullString, sub) {
@@ -156,8 +161,10 @@ spec:
 	e.logf("Waiting for profile to be reconciled")
 	e.waitForProfile(profileName)
 
+	// The exec metadata webhook excludes the operator namespace, so run the
+	// test pod in its own namespace.
 	e.logf("Creating test pod")
-	e.getCurrentContextNamespace(defaultNamespace)
+	defer e.switchToNs(jsonEnricherTestNamespace)()
 
 	pod := fmt.Sprintf(`
 apiVersion: v1

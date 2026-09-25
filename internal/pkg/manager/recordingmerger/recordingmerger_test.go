@@ -34,6 +34,7 @@ import (
 	profilebase "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 	seccompprofile "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 const (
@@ -232,9 +233,6 @@ func TestMergeProfilesReplacesUnrelatedMergedProfile(t *testing.T) {
 		"created before the recording": func(p *seccompprofile.SeccompProfile) {
 			p.CreationTimestamp = metav1.NewTime(time.Now().Add(-time.Hour))
 		},
-		"without recording labels": func(p *seccompprofile.SeccompProfile) {
-			p.Labels = nil
-		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -277,6 +275,44 @@ func TestMergeProfilesSkipsProfileOfOtherRecording(t *testing.T) {
 	r := newMergeReconciler(t, recording, other, partialSeccomp("partial-a", "nginx", "read"))
 
 	require.NoError(t, r.mergeProfiles(t.Context(), recording))
+	require.ElementsMatch(t, []string{"exec"}, mergedSyscalls(t, r, "nginx"))
+}
+
+// A profile which was not recorded, for example one written by a cluster
+// admin, must never be replaced by a recording with a matching name.
+func TestMergeProfilesSkipsProfileWithoutRecordingLabels(t *testing.T) {
+	t.Parallel()
+
+	recording := testMergeRecording(profilerecordingapi.ProfileRecordingKindSeccompProfile, true)
+
+	foreign := partialSeccomp(testRecording+"-nginx", "nginx", "exec")
+	foreign.Labels = nil
+
+	r := newMergeReconciler(t, recording, foreign, partialSeccomp("partial-a", "nginx", "read"))
+
+	require.NoError(t, r.mergeProfiles(t.Context(), recording))
+	require.ElementsMatch(t, []string{"exec"}, mergedSyscalls(t, r, "nginx"))
+}
+
+// The owner check also has to hold when the profile appears between merging
+// the existing profile and writing the result.
+func TestCreateUpdateProfileRefusesForeignProfile(t *testing.T) {
+	t.Parallel()
+
+	recording := testMergeRecording(profilerecordingapi.ProfileRecordingKindSeccompProfile, true)
+
+	foreign := partialSeccomp(testRecording+"-nginx", "nginx", "exec")
+	foreign.Labels = nil
+
+	r := newMergeReconciler(t, recording, foreign)
+
+	merged, err := newMergeableProfile(partialSeccomp("partial-a", "nginx", "read"))
+	require.NoError(t, err)
+
+	_, err = createUpdateSeccompProfile(
+		t.Context(), r.client, recording, testRecording+"-nginx", merged, "",
+	)
+	require.ErrorIs(t, err, util.ErrProfileOwnedByOtherRecording)
 	require.ElementsMatch(t, []string{"exec"}, mergedSyscalls(t, r, "nginx"))
 }
 

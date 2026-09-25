@@ -23,7 +23,6 @@ import (
 	"log"
 	"os"
 	"path"
-	"path/filepath"
 
 	"sigs.k8s.io/release-utils/env"
 )
@@ -210,14 +209,6 @@ const (
 	// BpfRecorderApparmorProfileName is the name of the apparmor profile used by
 	// the bpf-recorder container part of spod dameonset.
 	BpfRecorderApparmorProfileName = "bpfrecorder-apparmor"
-)
-
-// ProfileRecordingOutputPath is the path where the recorded profiles will be
-// stored. Those profiles are going to be reconciled into native CRDs and
-// therefore have a limited lifetime.
-var ProfileRecordingOutputPath = filepath.Join(
-	os.TempDir(),
-	"security-profiles-operator-recordings",
 )
 
 var ErrPodNamespaceEnvNotFound = errors.New("the env variable OPERATOR_NAMESPACE hasn't been set")

@@ -11,6 +11,10 @@ spec:
       name: security-profiles-operator
   template:
     metadata:
+      annotations:
+        # The operator needs no privileges, so pin the most restricted SCC
+        # on OpenShift.
+        openshift.io/required-scc: restricted-v2
       labels:
         name: security-profiles-operator
     spec:

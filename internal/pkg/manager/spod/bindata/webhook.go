@@ -31,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
@@ -38,16 +39,23 @@ import (
 )
 
 var (
-	replicas                int32 = 3
-	defaultMode             int32 = 420
-	timeoutSeconds          int32 = 30
+	replicas    int32 = 3
+	defaultMode int32 = 420
+	// timeoutSeconds bounds how long a request waits for a webhook. The
+	// handlers only read from the informer cache, so they either answer quickly
+	// or not at all, and a hanging webhook must not stall pod admission for
+	// long.
+	timeoutSeconds          int32 = 10
+	allScopes                     = admissionregv1.AllScopes
 	failurePolicyFail             = admissionregv1.Fail
 	failurePolicyIgnore           = admissionregv1.Ignore
 	reinvocationPolicy            = admissionregv1.IfNeededReinvocationPolicy
 	caBundle                      = []byte("Cg==")
 	sideEffects                   = admissionregv1.SideEffectClassNone
 	admissionReviewVersions       = []string{"v1"}
-	bindingRules                  = []admissionregv1.RuleWithOperations{
+	// The scope of the rules is set to its default explicitly, so that the
+	// configured rules compare equal to the ones returned by the API server.
+	bindingRules = []admissionregv1.RuleWithOperations{
 		{
 			Operations: []admissionregv1.OperationType{
 				"CREATE",
@@ -56,6 +64,20 @@ var (
 				APIGroups:   []string{""},
 				APIVersions: []string{"v1"},
 				Resources:   []string{"pods"},
+				Scope:       &allScopes,
+			},
+		},
+		{
+			// Ephemeral containers are added to running pods, so they have to
+			// be bound as well to not escape the enforced profiles.
+			Operations: []admissionregv1.OperationType{
+				"UPDATE",
+			},
+			Rule: admissionregv1.Rule{
+				APIGroups:   []string{""},
+				APIVersions: []string{"v1"},
+				Resources:   []string{"pods/ephemeralcontainers"},
+				Scope:       &allScopes,
 			},
 		},
 	}
@@ -68,6 +90,7 @@ var (
 				APIGroups:   []string{""},
 				APIVersions: []string{"v1"},
 				Resources:   []string{"pods"},
+				Scope:       &allScopes,
 			},
 		},
 	}
@@ -80,6 +103,7 @@ var (
 				APIGroups:   []string{""},
 				APIVersions: []string{"v1"},
 				Resources:   []string{"pods/exec", "pods/ephemeralcontainers"},
+				Scope:       &allScopes,
 			},
 		},
 	}
@@ -92,6 +116,7 @@ var (
 				APIGroups:   []string{""},
 				APIVersions: []string{"v1"},
 				Resources:   []string{"pods"},
+				Scope:       &allScopes,
 			},
 		},
 	}
@@ -114,6 +139,32 @@ var (
 		},
 	}
 )
+
+// systemNamespaces are the namespaces of the cluster components. Execs into
+// their pods do not get the exec metadata injected, because the injected
+// command requires an env binary in the container image, which minimal system
+// images often do not ship.
+var systemNamespaces = []string{
+	metav1.NamespaceSystem,
+	metav1.NamespacePublic,
+	corev1.NamespaceNodeLease,
+}
+
+// excludeSystemNamespaces selects all namespaces except the system ones and
+// the operator namespace. Namespaces cannot be matched by prefix, so for
+// example OpenShift namespaces have to be excluded through the webhook
+// options of the SPOD, which replace this selector.
+func excludeSystemNamespaces(operatorNamespace string) *metav1.LabelSelector {
+	return &metav1.LabelSelector{
+		MatchExpressions: []metav1.LabelSelectorRequirement{
+			{
+				Key:      corev1.LabelMetadataName,
+				Operator: metav1.LabelSelectorOpNotIn,
+				Values:   append(slices.Clone(systemNamespaces), operatorNamespace),
+			},
+		},
+	}
+}
 
 // requireLabel selects namespaces carrying the webhook's enable label.
 func requireLabel(requiredLabel string) *metav1.LabelSelector {
@@ -179,6 +230,10 @@ const (
 )
 
 const (
+	// openshiftRequiredSCCAnnotation pins the SCC which OpenShift admits a pod
+	// with, instead of choosing one of the SCCs the pod is allowed to use.
+	openshiftRequiredSCCAnnotation = "openshift.io/required-scc"
+
 	webhookName                  = config.OperatorName + "-webhook"
 	webhookConfigName            = "spo-mutating-webhook-configuration"
 	validatingWebhookConfigName  = "spo-validating-webhook-configuration"
@@ -238,7 +293,6 @@ func GetWebhook(
 	ctr.ImagePullPolicy = pullPolicy
 
 	cfg := getWebhookConfig(execMetadataWebhookEnabled, namespace).DeepCopy()
-	cfg.Namespace = namespace
 	cfg.Webhooks[binding.index].ClientConfig.Service.Namespace = namespace
 	cfg.Webhooks[recording.index].ClientConfig.Service.Namespace = namespace
 
@@ -269,7 +323,6 @@ func GetWebhook(
 	applyWebhookOptions(cfg, webhookOpts, namespace)
 
 	valCfg := getValidatingWebhookConfig().DeepCopy()
-	valCfg.Namespace = namespace
 	valCfg.Webhooks[0].ClientConfig.Service.Namespace = namespace
 
 	switch caInjectType {
@@ -290,6 +343,12 @@ func GetWebhook(
 		validatingConfig: valCfg,
 		service:          service,
 	}
+}
+
+// RecordingNamespaceSelector returns the namespace selector of the recording
+// webhook, which selects all namespaces if nil.
+func (w *Webhook) RecordingNamespaceSelector() *metav1.LabelSelector {
+	return w.config.Webhooks[recording.index].NamespaceSelector
 }
 
 func (w *Webhook) Create(ctx context.Context, c client.Client) error {
@@ -355,7 +414,7 @@ func (w *Webhook) NeedsUpdate(ctx context.Context, c client.Client) (bool, error
 	existingWebHook := admissionregv1.MutatingWebhookConfiguration{}
 
 	if err := c.Get(ctx,
-		types.NamespacedName{Namespace: w.config.Namespace, Name: w.config.Name},
+		types.NamespacedName{Name: w.config.Name},
 		&existingWebHook); err != nil {
 		return false, err
 	}
@@ -390,10 +449,7 @@ func (w *Webhook) NeedsUpdate(ctx context.Context, c client.Client) (bool, error
 
 	existingValidating := admissionregv1.ValidatingWebhookConfiguration{}
 	if err := c.Get(ctx,
-		types.NamespacedName{
-			Namespace: w.validatingConfig.Namespace,
-			Name:      w.validatingConfig.Name,
-		},
+		types.NamespacedName{Name: w.validatingConfig.Name},
 		&existingValidating); err != nil {
 		if errors.IsNotFound(err) {
 			return true, nil
@@ -406,12 +462,36 @@ func (w *Webhook) NeedsUpdate(ctx context.Context, c client.Client) (bool, error
 		return true, nil
 	}
 
+	for i := range existingValidating.Webhooks {
+		existing := &existingValidating.Webhooks[i]
+		configured := &w.validatingConfig.Webhooks[i]
+
+		if !ptr.Equal(existing.TimeoutSeconds, configured.TimeoutSeconds) ||
+			!reflect.DeepEqual(existing.Rules, configured.Rules) {
+			w.log.V(1).Info("updating validating webhook configuration", "name", configured.Name)
+
+			return true, nil
+		}
+	}
+
 	return false, nil
 }
 
 // only compare the settings that are tunable in spod now.
 func (w *Webhook) webhookNeedsUpdate(existing *admissionregv1.MutatingWebhook, index int) bool {
 	configured := w.config.Webhooks[index]
+
+	// The rules and timeouts are not tunable, but change between releases.
+	if !ptr.Equal(existing.TimeoutSeconds, configured.TimeoutSeconds) ||
+		!reflect.DeepEqual(existing.Rules, configured.Rules) {
+		w.log.V(1).Info("updating webhook configuration",
+			"existing TimeoutSeconds", existing.TimeoutSeconds,
+			"configured TimeoutSeconds", configured.TimeoutSeconds,
+			"existing Rules", existing.Rules,
+			"configured Rules", configured.Rules)
+
+		return true
+	}
 
 	// comparing pointers, not values
 	if existing.FailurePolicy == nil && configured.FailurePolicy != nil ||
@@ -608,6 +688,7 @@ func getWebhookConfig(
 			TimeoutSeconds:     &timeoutSeconds,
 			ReinvocationPolicy: &reinvocationPolicy,
 			Rules:              rulesExec,
+			NamespaceSelector:  excludeSystemNamespaces(operatorNamespace),
 			ClientConfig: admissionregv1.WebhookClientConfig{
 				CABundle: caBundle,
 				Service: &admissionregv1.ServiceReference{
@@ -665,6 +746,7 @@ func getValidatingWebhookConfig() *admissionregv1.ValidatingWebhookConfiguration
 							APIGroups:   []string{"security-profiles-operator.x-k8s.io"},
 							APIVersions: []string{"v1"},
 							Resources:   []string{"rawselinuxprofiles"},
+							Scope:       &allScopes,
 						},
 					},
 				},
@@ -696,7 +778,9 @@ var webhookDeployment = &appsv1.Deployment{
 		Template: corev1.PodTemplateSpec{
 			ObjectMeta: metav1.ObjectMeta{
 				Annotations: map[string]string{
-					"openshift.io/scc": "privileged",
+					// The webhook needs no privileges, so pin the most
+					// restricted SCC on OpenShift.
+					openshiftRequiredSCCAnnotation: "restricted-v2",
 				},
 				Labels: map[string]string{
 					labelApp:  config.OperatorName,

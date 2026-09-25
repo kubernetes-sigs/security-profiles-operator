@@ -21,42 +21,42 @@ import (
 	"context"
 	"sync"
 
-	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
-	v1a "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
+	v1 "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	v1d "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
 	v1b "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	v1c "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
+	v1a "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 )
 
 type FakeImpl struct {
-	DecodePodStub        func(admission.Request) (*v1.Pod, error)
-	decodePodMutex       sync.RWMutex
-	decodePodArgsForCall []struct {
-		arg1 admission.Request
-	}
-	decodePodReturns struct {
-		result1 *v1.Pod
-		result2 error
-	}
-	decodePodReturnsOnCall map[int]struct {
-		result1 *v1.Pod
-		result2 error
-	}
-	GetAppArmorProfileStub        func(context.Context, types.NamespacedName) (*v1a.AppArmorProfile, error)
+	GetAppArmorProfileStub        func(context.Context, types.NamespacedName) (*v1.AppArmorProfile, error)
 	getAppArmorProfileMutex       sync.RWMutex
 	getAppArmorProfileArgsForCall []struct {
 		arg1 context.Context
 		arg2 types.NamespacedName
 	}
 	getAppArmorProfileReturns struct {
-		result1 *v1a.AppArmorProfile
+		result1 *v1.AppArmorProfile
 		result2 error
 	}
 	getAppArmorProfileReturnsOnCall map[int]struct {
-		result1 *v1a.AppArmorProfile
+		result1 *v1.AppArmorProfile
+		result2 error
+	}
+	GetSPODStub        func(context.Context, types.NamespacedName) (*v1a.SecurityProfilesOperatorDaemon, error)
+	getSPODMutex       sync.RWMutex
+	getSPODArgsForCall []struct {
+		arg1 context.Context
+		arg2 types.NamespacedName
+	}
+	getSPODReturns struct {
+		result1 *v1a.SecurityProfilesOperatorDaemon
+		result2 error
+	}
+	getSPODReturnsOnCall map[int]struct {
+		result1 *v1a.SecurityProfilesOperatorDaemon
 		result2 error
 	}
 	GetSeccompProfileStub        func(context.Context, types.NamespacedName) (*v1b.SeccompProfile, error)
@@ -105,71 +105,7 @@ type FakeImpl struct {
 	invocationsMutex sync.RWMutex
 }
 
-func (fake *FakeImpl) DecodePod(arg1 admission.Request) (*v1.Pod, error) {
-	fake.decodePodMutex.Lock()
-	ret, specificReturn := fake.decodePodReturnsOnCall[len(fake.decodePodArgsForCall)]
-	fake.decodePodArgsForCall = append(fake.decodePodArgsForCall, struct {
-		arg1 admission.Request
-	}{arg1})
-	stub := fake.DecodePodStub
-	fakeReturns := fake.decodePodReturns
-	fake.recordInvocation("DecodePod", []interface{}{arg1})
-	fake.decodePodMutex.Unlock()
-	if stub != nil {
-		return stub(arg1)
-	}
-	if specificReturn {
-		return ret.result1, ret.result2
-	}
-	return fakeReturns.result1, fakeReturns.result2
-}
-
-func (fake *FakeImpl) DecodePodCallCount() int {
-	fake.decodePodMutex.RLock()
-	defer fake.decodePodMutex.RUnlock()
-	return len(fake.decodePodArgsForCall)
-}
-
-func (fake *FakeImpl) DecodePodCalls(stub func(admission.Request) (*v1.Pod, error)) {
-	fake.decodePodMutex.Lock()
-	defer fake.decodePodMutex.Unlock()
-	fake.DecodePodStub = stub
-}
-
-func (fake *FakeImpl) DecodePodArgsForCall(i int) admission.Request {
-	fake.decodePodMutex.RLock()
-	defer fake.decodePodMutex.RUnlock()
-	argsForCall := fake.decodePodArgsForCall[i]
-	return argsForCall.arg1
-}
-
-func (fake *FakeImpl) DecodePodReturns(result1 *v1.Pod, result2 error) {
-	fake.decodePodMutex.Lock()
-	defer fake.decodePodMutex.Unlock()
-	fake.DecodePodStub = nil
-	fake.decodePodReturns = struct {
-		result1 *v1.Pod
-		result2 error
-	}{result1, result2}
-}
-
-func (fake *FakeImpl) DecodePodReturnsOnCall(i int, result1 *v1.Pod, result2 error) {
-	fake.decodePodMutex.Lock()
-	defer fake.decodePodMutex.Unlock()
-	fake.DecodePodStub = nil
-	if fake.decodePodReturnsOnCall == nil {
-		fake.decodePodReturnsOnCall = make(map[int]struct {
-			result1 *v1.Pod
-			result2 error
-		})
-	}
-	fake.decodePodReturnsOnCall[i] = struct {
-		result1 *v1.Pod
-		result2 error
-	}{result1, result2}
-}
-
-func (fake *FakeImpl) GetAppArmorProfile(arg1 context.Context, arg2 types.NamespacedName) (*v1a.AppArmorProfile, error) {
+func (fake *FakeImpl) GetAppArmorProfile(arg1 context.Context, arg2 types.NamespacedName) (*v1.AppArmorProfile, error) {
 	fake.getAppArmorProfileMutex.Lock()
 	ret, specificReturn := fake.getAppArmorProfileReturnsOnCall[len(fake.getAppArmorProfileArgsForCall)]
 	fake.getAppArmorProfileArgsForCall = append(fake.getAppArmorProfileArgsForCall, struct {
@@ -195,7 +131,7 @@ func (fake *FakeImpl) GetAppArmorProfileCallCount() int {
 	return len(fake.getAppArmorProfileArgsForCall)
 }
 
-func (fake *FakeImpl) GetAppArmorProfileCalls(stub func(context.Context, types.NamespacedName) (*v1a.AppArmorProfile, error)) {
+func (fake *FakeImpl) GetAppArmorProfileCalls(stub func(context.Context, types.NamespacedName) (*v1.AppArmorProfile, error)) {
 	fake.getAppArmorProfileMutex.Lock()
 	defer fake.getAppArmorProfileMutex.Unlock()
 	fake.GetAppArmorProfileStub = stub
@@ -208,28 +144,93 @@ func (fake *FakeImpl) GetAppArmorProfileArgsForCall(i int) (context.Context, typ
 	return argsForCall.arg1, argsForCall.arg2
 }
 
-func (fake *FakeImpl) GetAppArmorProfileReturns(result1 *v1a.AppArmorProfile, result2 error) {
+func (fake *FakeImpl) GetAppArmorProfileReturns(result1 *v1.AppArmorProfile, result2 error) {
 	fake.getAppArmorProfileMutex.Lock()
 	defer fake.getAppArmorProfileMutex.Unlock()
 	fake.GetAppArmorProfileStub = nil
 	fake.getAppArmorProfileReturns = struct {
-		result1 *v1a.AppArmorProfile
+		result1 *v1.AppArmorProfile
 		result2 error
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) GetAppArmorProfileReturnsOnCall(i int, result1 *v1a.AppArmorProfile, result2 error) {
+func (fake *FakeImpl) GetAppArmorProfileReturnsOnCall(i int, result1 *v1.AppArmorProfile, result2 error) {
 	fake.getAppArmorProfileMutex.Lock()
 	defer fake.getAppArmorProfileMutex.Unlock()
 	fake.GetAppArmorProfileStub = nil
 	if fake.getAppArmorProfileReturnsOnCall == nil {
 		fake.getAppArmorProfileReturnsOnCall = make(map[int]struct {
-			result1 *v1a.AppArmorProfile
+			result1 *v1.AppArmorProfile
 			result2 error
 		})
 	}
 	fake.getAppArmorProfileReturnsOnCall[i] = struct {
-		result1 *v1a.AppArmorProfile
+		result1 *v1.AppArmorProfile
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) GetSPOD(arg1 context.Context, arg2 types.NamespacedName) (*v1a.SecurityProfilesOperatorDaemon, error) {
+	fake.getSPODMutex.Lock()
+	ret, specificReturn := fake.getSPODReturnsOnCall[len(fake.getSPODArgsForCall)]
+	fake.getSPODArgsForCall = append(fake.getSPODArgsForCall, struct {
+		arg1 context.Context
+		arg2 types.NamespacedName
+	}{arg1, arg2})
+	stub := fake.GetSPODStub
+	fakeReturns := fake.getSPODReturns
+	fake.recordInvocation("GetSPOD", []interface{}{arg1, arg2})
+	fake.getSPODMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) GetSPODCallCount() int {
+	fake.getSPODMutex.RLock()
+	defer fake.getSPODMutex.RUnlock()
+	return len(fake.getSPODArgsForCall)
+}
+
+func (fake *FakeImpl) GetSPODCalls(stub func(context.Context, types.NamespacedName) (*v1a.SecurityProfilesOperatorDaemon, error)) {
+	fake.getSPODMutex.Lock()
+	defer fake.getSPODMutex.Unlock()
+	fake.GetSPODStub = stub
+}
+
+func (fake *FakeImpl) GetSPODArgsForCall(i int) (context.Context, types.NamespacedName) {
+	fake.getSPODMutex.RLock()
+	defer fake.getSPODMutex.RUnlock()
+	argsForCall := fake.getSPODArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *FakeImpl) GetSPODReturns(result1 *v1a.SecurityProfilesOperatorDaemon, result2 error) {
+	fake.getSPODMutex.Lock()
+	defer fake.getSPODMutex.Unlock()
+	fake.GetSPODStub = nil
+	fake.getSPODReturns = struct {
+		result1 *v1a.SecurityProfilesOperatorDaemon
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) GetSPODReturnsOnCall(i int, result1 *v1a.SecurityProfilesOperatorDaemon, result2 error) {
+	fake.getSPODMutex.Lock()
+	defer fake.getSPODMutex.Unlock()
+	fake.GetSPODStub = nil
+	if fake.getSPODReturnsOnCall == nil {
+		fake.getSPODReturnsOnCall = make(map[int]struct {
+			result1 *v1a.SecurityProfilesOperatorDaemon
+			result2 error
+		})
+	}
+	fake.getSPODReturnsOnCall[i] = struct {
+		result1 *v1a.SecurityProfilesOperatorDaemon
 		result2 error
 	}{result1, result2}
 }

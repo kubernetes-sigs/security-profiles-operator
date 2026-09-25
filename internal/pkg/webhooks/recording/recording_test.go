@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/go-logr/logr"
@@ -27,7 +28,6 @@ import (
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
@@ -50,20 +50,64 @@ var (
 			},
 		},
 	}
+
+	// selectAll matches every pod, unlike a nil selector.
+	selectAll = &metav1.LabelSelector{}
 )
+
+func rawPod(t *testing.T, pod *corev1.Pod) runtime.RawExtension {
+	t.Helper()
+
+	b, err := json.Marshal(pod)
+	require.NoError(t, err)
+
+	return runtime.RawExtension{Raw: b}
+}
+
+func newTestRecorder(t *testing.T, mock *recordingfakes.FakeImpl) *podSeccompRecorder {
+	t.Helper()
+
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+
+	return &podSeccompRecorder{
+		impl:    mock,
+		decoder: admission.NewDecoder(scheme),
+		log:     logr.Discard(),
+		record:  utils.NewSafeRecorder(nil),
+	}
+}
 
 func TestHandle(t *testing.T) {
 	t.Parallel()
 
+	trackedPod := testPod.DeepCopy()
+	trackedPod.Annotations = map[string]string{
+		"io.containers.trace-logs/container": "my-little-profile-recording-container-0-1661693966",
+	}
+	localhostProfile := "operator/log-enricher-trace.json"
+	trackedPod.Spec.SecurityContext = &corev1.PodSecurityContext{
+		SeccompProfile: &corev1.SeccompProfile{
+			Type:             corev1.SeccompProfileTypeLocalhost,
+			LocalhostProfile: &localhostProfile,
+		},
+	}
+
 	for _, tc := range []struct {
+		name    string
 		prepare func(*recordingfakes.FakeImpl)
 		request admission.Request
 		assert  func(admission.Response)
 	}{
-		{ // success pod unchanged
+		{
+			name: "success pod unchanged",
 			prepare: func(mock *recordingfakes.FakeImpl) {
 				mock.ListProfileRecordingsReturns(&profilerecordingapi.ProfileRecordingList{}, nil)
-				mock.DecodePodReturns(&corev1.Pod{}, nil)
+			},
+			request: admission.Request{
+				AdmissionRequest: admissionv1.AdmissionRequest{
+					Object: rawPod(t, &corev1.Pod{}),
+				},
 			},
 			assert: func(resp admission.Response) {
 				require.True(t, resp.Allowed)
@@ -71,7 +115,8 @@ func TestHandle(t *testing.T) {
 				require.Equal(t, "pod unchanged", resp.Result.Message)
 			},
 		},
-		{ // error could not list profile recordings
+		{
+			name: "error could not list profile recordings",
 			prepare: func(mock *recordingfakes.FakeImpl) {
 				mock.ListProfileRecordingsReturns(nil, errTest)
 			},
@@ -79,44 +124,39 @@ func TestHandle(t *testing.T) {
 				require.Equal(t, http.StatusInternalServerError, int(resp.Result.Code))
 			},
 		},
-		{ // error failed to decode pod
+		{
+			name: "error failed to decode pod",
 			prepare: func(mock *recordingfakes.FakeImpl) {
 				mock.ListProfileRecordingsReturns(&profilerecordingapi.ProfileRecordingList{}, nil)
-				mock.DecodePodReturns(nil, errTest)
+			},
+			request: admission.Request{
+				AdmissionRequest: admissionv1.AdmissionRequest{
+					Object: runtime.RawExtension{Raw: []byte("{")},
+				},
 			},
 			assert: func(resp admission.Response) {
 				require.Equal(t, http.StatusBadRequest, int(resp.Result.Code))
 			},
 		},
-		// todo: bad combination, selinux + hook
-		// todo: actually look at the content of the patches
-		{ // success pod changed - tailing logs
+		{
+			name: "success pod changed - tailing logs",
 			prepare: func(mock *recordingfakes.FakeImpl) {
 				mock.ListProfileRecordingsReturns(&profilerecordingapi.ProfileRecordingList{
 					Items: []profilerecordingapi.ProfileRecording{
 						{
 							Spec: profilerecordingapi.ProfileRecordingSpec{
-								Kind:     profilerecordingapi.ProfileRecordingKindSelinuxProfile,
-								Recorder: profilerecordingapi.ProfileRecorderLogs,
+								Kind:        profilerecordingapi.ProfileRecordingKindSelinuxProfile,
+								Recorder:    profilerecordingapi.ProfileRecorderLogs,
+								PodSelector: selectAll,
 							},
 						},
 					},
 				}, nil)
-
-				mock.DecodePodReturns(testPod.DeepCopy(), nil)
-				mock.LabelSelectorAsSelectorReturns(labels.Everything(), nil)
 			},
 			request: admission.Request{
 				AdmissionRequest: admissionv1.AdmissionRequest{
 					Operation: admissionv1.Create,
-					Object: runtime.RawExtension{
-						Raw: func() []byte {
-							b, err := json.Marshal(testPod.DeepCopy())
-							require.NoError(t, err)
-
-							return b
-						}(),
-					},
+					Object:    rawPod(t, testPod),
 				},
 			},
 			assert: func(resp admission.Response) {
@@ -124,33 +164,25 @@ func TestHandle(t *testing.T) {
 				require.Len(t, resp.Patches, 2) // 2 because security context and the annotation
 			},
 		},
-		{ // success pod update only tracks, security context is immutable
+		{
+			name: "success pod update only tracks, security context is immutable",
 			prepare: func(mock *recordingfakes.FakeImpl) {
 				mock.ListProfileRecordingsReturns(&profilerecordingapi.ProfileRecordingList{
 					Items: []profilerecordingapi.ProfileRecording{
 						{
 							Spec: profilerecordingapi.ProfileRecordingSpec{
-								Kind:     profilerecordingapi.ProfileRecordingKindSeccompProfile,
-								Recorder: profilerecordingapi.ProfileRecorderLogs,
+								Kind:        profilerecordingapi.ProfileRecordingKindSeccompProfile,
+								Recorder:    profilerecordingapi.ProfileRecorderLogs,
+								PodSelector: selectAll,
 							},
 						},
 					},
 				}, nil)
-
-				mock.DecodePodReturns(testPod.DeepCopy(), nil)
-				mock.LabelSelectorAsSelectorReturns(labels.Everything(), nil)
 			},
 			request: admission.Request{
 				AdmissionRequest: admissionv1.AdmissionRequest{
 					Operation: admissionv1.Update,
-					Object: runtime.RawExtension{
-						Raw: func() []byte {
-							b, err := json.Marshal(testPod.DeepCopy())
-							require.NoError(t, err)
-
-							return b
-						}(),
-					},
+					Object:    rawPod(t, testPod),
 				},
 			},
 			assert: func(resp admission.Response) {
@@ -160,32 +192,24 @@ func TestHandle(t *testing.T) {
 				require.Equal(t, "/metadata/annotations", resp.Patches[0].Path)
 			},
 		},
-		{ // success pod changed
+		{
+			name: "success pod changed",
 			prepare: func(mock *recordingfakes.FakeImpl) {
 				mock.ListProfileRecordingsReturns(&profilerecordingapi.ProfileRecordingList{
 					Items: []profilerecordingapi.ProfileRecording{
 						{
 							Spec: profilerecordingapi.ProfileRecordingSpec{
-								Kind:     profilerecordingapi.ProfileRecordingKindSeccompProfile,
-								Recorder: profilerecordingapi.ProfileRecorderBpf,
+								Kind:        profilerecordingapi.ProfileRecordingKindSeccompProfile,
+								Recorder:    profilerecordingapi.ProfileRecorderBpf,
+								PodSelector: selectAll,
 							},
 						},
 					},
 				}, nil)
-
-				mock.DecodePodReturns(testPod.DeepCopy(), nil)
-				mock.LabelSelectorAsSelectorReturns(labels.Everything(), nil)
 			},
 			request: admission.Request{
 				AdmissionRequest: admissionv1.AdmissionRequest{
-					Object: runtime.RawExtension{
-						Raw: func() []byte {
-							b, err := json.Marshal(testPod.DeepCopy())
-							require.NoError(t, err)
-
-							return b
-						}(),
-					},
+					Object: rawPod(t, testPod),
 				},
 			},
 			assert: func(resp admission.Response) {
@@ -193,7 +217,8 @@ func TestHandle(t *testing.T) {
 				require.Len(t, resp.Patches, 1)
 			},
 		},
-		{ // success no seccomp profile
+		{
+			name: "success no seccomp profile",
 			prepare: func(mock *recordingfakes.FakeImpl) {
 				mock.ListProfileRecordingsReturns(&profilerecordingapi.ProfileRecordingList{
 					Items: []profilerecordingapi.ProfileRecording{
@@ -204,34 +229,48 @@ func TestHandle(t *testing.T) {
 						},
 					},
 				}, nil)
-
-				mock.DecodePodReturns(testPod.DeepCopy(), nil)
+			},
+			request: admission.Request{
+				AdmissionRequest: admissionv1.AdmissionRequest{
+					Object: rawPod(t, testPod),
+				},
 			},
 			assert: func(resp admission.Response) {
 				require.True(t, resp.Allowed)
 				require.Empty(t, resp.Patches)
 			},
 		},
-		{ // failure LabelSelectorAsSelector
+		{
+			name: "failure invalid pod selector",
 			prepare: func(mock *recordingfakes.FakeImpl) {
 				mock.ListProfileRecordingsReturns(&profilerecordingapi.ProfileRecordingList{
 					Items: []profilerecordingapi.ProfileRecording{
 						{
 							Spec: profilerecordingapi.ProfileRecordingSpec{
-								Kind: profilerecordingapi.ProfileRecordingKindSeccompProfile,
+								Kind:     profilerecordingapi.ProfileRecordingKindSeccompProfile,
+								Recorder: profilerecordingapi.ProfileRecorderBpf,
+								PodSelector: &metav1.LabelSelector{
+									MatchExpressions: []metav1.LabelSelectorRequirement{{
+										Key:      "app",
+										Operator: "Invalid",
+									}},
+								},
 							},
 						},
 					},
 				}, nil)
-
-				mock.DecodePodReturns(testPod.DeepCopy(), nil)
-				mock.LabelSelectorAsSelectorReturns(nil, errTest)
+			},
+			request: admission.Request{
+				AdmissionRequest: admissionv1.AdmissionRequest{
+					Object: rawPod(t, testPod),
+				},
 			},
 			assert: func(resp admission.Response) {
 				require.Equal(t, http.StatusBadRequest, int(resp.Result.Code))
 			},
 		},
-		{ // success pod already tracked
+		{
+			name: "success pod already tracked",
 			prepare: func(mock *recordingfakes.FakeImpl) {
 				mock.ListProfileRecordingsReturns(&profilerecordingapi.ProfileRecordingList{
 					Items: []profilerecordingapi.ProfileRecording{
@@ -241,71 +280,45 @@ func TestHandle(t *testing.T) {
 								Namespace: "test-ns",
 							},
 							Spec: profilerecordingapi.ProfileRecordingSpec{
-								Kind:     profilerecordingapi.ProfileRecordingKindSeccompProfile,
-								Recorder: profilerecordingapi.ProfileRecorderLogs,
+								Kind:        profilerecordingapi.ProfileRecordingKindSeccompProfile,
+								Recorder:    profilerecordingapi.ProfileRecorderLogs,
+								PodSelector: selectAll,
 							},
 						},
 					},
 				}, nil)
-
-				pod := testPod.DeepCopy()
-				pod.Annotations = map[string]string{
-					"io.containers.trace-logs/container": "my-little-profile-recording-container-0-1661693966",
-				}
-				localhostProfile := "operator/log-enricher-trace.json"
-				pod.Spec.SecurityContext = &corev1.PodSecurityContext{
-					SeccompProfile: &corev1.SeccompProfile{
-						Type:             corev1.SeccompProfileTypeLocalhost,
-						LocalhostProfile: &localhostProfile,
-					},
-				}
-				mock.DecodePodReturns(pod, nil)
-				mock.LabelSelectorAsSelectorReturns(labels.Everything(), nil)
 			},
 			request: admission.Request{
 				AdmissionRequest: admissionv1.AdmissionRequest{
 					Operation: admissionv1.Create,
-					Object: runtime.RawExtension{
-						Raw: func() []byte {
-							b, err := json.Marshal(testPod.DeepCopy())
-							require.NoError(t, err)
-
-							return b
-						}(),
-					},
+					Object:    rawPod(t, trackedPod),
 				},
 			},
 			assert: func(resp admission.Response) {
 				require.True(t, resp.Allowed)
-				require.Len(t, resp.Patches, 3) // 3 because pod + container security context and the annotation
+				// 2 because the container security context and the annotation,
+				// which does not have the expected format.
+				require.Len(t, resp.Patches, 2)
 			},
 		},
-		{ // success apparmor profile recording should be admitted
+		{
+			name: "success apparmor profile recording should be admitted",
 			prepare: func(mock *recordingfakes.FakeImpl) {
 				mock.ListProfileRecordingsReturns(&profilerecordingapi.ProfileRecordingList{
 					Items: []profilerecordingapi.ProfileRecording{
 						{
 							Spec: profilerecordingapi.ProfileRecordingSpec{
-								Kind:     profilerecordingapi.ProfileRecordingKindAppArmorProfile,
-								Recorder: profilerecordingapi.ProfileRecorderBpf,
+								Kind:        profilerecordingapi.ProfileRecordingKindAppArmorProfile,
+								Recorder:    profilerecordingapi.ProfileRecorderBpf,
+								PodSelector: selectAll,
 							},
 						},
 					},
 				}, nil)
-
-				mock.DecodePodReturns(testPod.DeepCopy(), nil)
-				mock.LabelSelectorAsSelectorReturns(labels.Everything(), nil)
 			},
 			request: admission.Request{
 				AdmissionRequest: admissionv1.AdmissionRequest{
-					Object: runtime.RawExtension{
-						Raw: func() []byte {
-							b, err := json.Marshal(testPod.DeepCopy())
-							require.NoError(t, err)
-
-							return b
-						}(),
-					},
+					Object: rawPod(t, testPod),
 				},
 			},
 			assert: func(resp admission.Response) {
@@ -313,16 +326,77 @@ func TestHandle(t *testing.T) {
 			},
 		},
 	} {
-		mock := &recordingfakes.FakeImpl{}
-		tc.prepare(mock)
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-		recorder := podSeccompRecorder{
-			impl:   mock,
-			log:    logr.Discard(),
-			record: utils.NewSafeRecorder(nil),
-		}
-		resp := recorder.Handle(t.Context(), tc.request)
-		tc.assert(resp)
+			mock := &recordingfakes.FakeImpl{}
+			tc.prepare(mock)
+
+			resp := newTestRecorder(t, mock).Handle(t.Context(), tc.request)
+			tc.assert(resp)
+		})
+	}
+}
+
+// The annotation value carries a random nonce and a timestamp, so it differs
+// on every admission. It used to be rewritten on every pod update, which
+// renamed the recorded profile between the recording start and its
+// collection. Values of the recording itself have to be kept.
+func TestHandleKeepsRecordingAnnotation(t *testing.T) {
+	t.Parallel()
+
+	const key = "io.containers.trace-logs/container"
+
+	for _, tc := range []struct {
+		name     string
+		existing string
+		keep     bool
+	}{
+		{name: "own recording", existing: "rec_container_abcde_1661693966", keep: true},
+		{name: "other recording", existing: "other_container_abcde_1661693966"},
+		{name: "other container", existing: "rec_other_abcde_1661693966"},
+		{name: "recording prefix", existing: "rec_container_injected"},
+		{name: "additional parts", existing: "rec_container_abcde_1661693966_x"},
+		{name: "empty", existing: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			mock := &recordingfakes.FakeImpl{}
+			mock.ListProfileRecordingsReturns(&profilerecordingapi.ProfileRecordingList{
+				Items: []profilerecordingapi.ProfileRecording{{
+					ObjectMeta: metav1.ObjectMeta{Name: "rec", Namespace: "ns"},
+					Spec: profilerecordingapi.ProfileRecordingSpec{
+						Kind:        profilerecordingapi.ProfileRecordingKindSeccompProfile,
+						Recorder:    profilerecordingapi.ProfileRecorderLogs,
+						PodSelector: selectAll,
+					},
+				}},
+			}, nil)
+
+			pod := testPod.DeepCopy()
+			pod.Annotations = map[string]string{key: tc.existing}
+
+			resp := newTestRecorder(t, mock).Handle(t.Context(), admission.Request{
+				AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Update,
+					Object:    rawPod(t, pod),
+				},
+			})
+
+			require.True(t, resp.Allowed)
+
+			if tc.keep {
+				require.Empty(t, resp.Patches)
+
+				return
+			}
+
+			require.Len(t, resp.Patches, 1)
+			value, ok := resp.Patches[0].Value.(string)
+			require.True(t, ok)
+			require.True(t, strings.HasPrefix(value, "rec_container_"), value)
+		})
 	}
 }
 

@@ -16,6 +16,7 @@ spec:
     metadata:
       annotations:
         {{- include "security-profiles-operator.annotations" . | nindent 8 }}
+        openshift.io/required-scc: restricted-v2
       labels:
         {{- include "security-profiles-operator.selectorLabels" . | nindent 8 }}
     spec:

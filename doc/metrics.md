@@ -86,6 +86,15 @@ spec:
         secretName: metrics-server-cert
 ```
 
+The operator and webhook pods serve their own controller-runtime metrics on
+port 8443 via TLS, with a self-signed certificate. These endpoints are not part
+of the `metrics` service and require a bearer token of a service account bound
+to the `spo-metrics-client` cluster role as well:
+
+```
+> curl -ks -H "Authorization: Bearer $TOKEN" https://<pod-ip>:8443/metrics
+```
+
 Access to the metrics endpoints of the daemon can be made unauthenticated by
 setting `enableInsecureMetricsAccess` in the SPOD configuration. This disables
 TLS and authentication for those endpoints, and the automatically deployed

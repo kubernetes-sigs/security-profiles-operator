@@ -13,7 +13,7 @@ spec:
   template:
     metadata:
       annotations:
-        openshift.io/scc: privileged
+        openshift.io/required-scc: restricted-v2
       labels:
         name: security-profiles-operator-webhook
         app: security-profiles-operator

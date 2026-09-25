@@ -166,7 +166,9 @@ var Manifest = &appsv1.DaemonSet{
 		Template: corev1.PodTemplateSpec{
 			ObjectMeta: metav1.ObjectMeta{
 				Annotations: map[string]string{
-					"openshift.io/scc": "privileged",
+					// The containers of the SPOd require host access, so pin
+					// the privileged SCC on OpenShift.
+					openshiftRequiredSCCAnnotation: "privileged",
 				},
 				Labels: map[string]string{
 					labelApp:  config.OperatorName,
@@ -349,10 +351,6 @@ semodule -R
 							{
 								Name:      "selinuxd-private-volume",
 								MountPath: SelinuxdPrivateDir,
-							},
-							{
-								Name:      "profile-recording-output-volume",
-								MountPath: config.ProfileRecordingOutputPath,
 							},
 							{
 								Name:      "grpc-server-volume",
@@ -616,6 +614,7 @@ semodule -R
 							{
 								Name:      "host-etc-osrelease-volume",
 								MountPath: etcOSReleasePath,
+								ReadOnly:  true,
 							},
 							{
 								Name:      "tmp-volume",
@@ -799,15 +798,6 @@ semodule -R
 							HostPath: &corev1.HostPathVolumeSource{
 								Path: "/var/lib/selinux",
 								Type: &hostPathDirectory,
-							},
-						},
-					},
-					{
-						Name: "profile-recording-output-volume",
-						VolumeSource: corev1.VolumeSource{
-							HostPath: &corev1.HostPathVolumeSource{
-								Path: config.ProfileRecordingOutputPath,
-								Type: &hostPathDirectoryOrCreate,
 							},
 						},
 					},

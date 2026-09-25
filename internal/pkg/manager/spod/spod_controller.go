@@ -58,7 +58,13 @@ const (
 	reasonCannotMountCustomTemplates string = "CannotMountCustomTemplates"
 	reasonInvalidKubeletDirLabel     string = "InvalidKubeletDirLabel"
 
-	appArmorAnnotation = "container.seccomp.security.alpha.kubernetes.io/security-profiles-operator"
+	reasonCannotApplyAdmissionPolicies string = "CannotApplyAdmissionPolicies"
+
+	// legacyAppArmorAnnotation got set on the DaemonSet by previous versions.
+	// It never had an effect, because it is the removed seccomp annotation and
+	// annotations on the DaemonSet do not apply to its pods. It gets removed
+	// from existing DaemonSets.
+	legacyAppArmorAnnotation = "container.seccomp.security.alpha.kubernetes.io/security-profiles-operator"
 )
 
 // NewController returns a new empty controller instance.
@@ -76,13 +82,12 @@ type ReconcileSPOd struct {
 	client client.Client
 	// clientReader reads object directly from api-server, this is useful when
 	// the cache is not ready (e.g. when listing the cluster nodes).
-	clientReader   client.Reader
-	scheme         *runtime.Scheme
-	baseSPOd       *appsv1.DaemonSet
-	record         util.EventRecorder
-	log            logr.Logger
-	watchNamespace string
-	namespace      string
+	clientReader client.Reader
+	scheme       *runtime.Scheme
+	baseSPOd     *appsv1.DaemonSet
+	record       util.EventRecorder
+	log          logr.Logger
+	namespace    string
 
 	// kubeletDirMu guards invalidKubeletDirLabels, which maps the nodes with
 	// an invalid kubelet directory label to the reported label value.
@@ -112,13 +117,18 @@ func (r *ReconcileSPOd) Healthz(*http.Request) error {
 // +kubebuilder:rbac:groups=core,resources=events,verbs=create
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch;update
 //
-// Operand:
-// +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch
-// +kubebuilder:rbac:groups=apps,resources=deployments;daemonsets,verbs=get;list;watch;create;update;patch
-// +kubebuilder:rbac:groups=apps,resources=deployments;daemonsets/finalizers,verbs=delete;get;update;patch
-// +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=mutatingwebhookconfigurations,verbs=get;list;watch;create;update;patch
-// +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingwebhookconfigurations,verbs=get;list;watch;create;update;patch
-// +kubebuilder:rbac:groups=cert-manager.io,resources=issuers;certificates,verbs=get;list;watch;create;update;patch
+// Operand, which lives in the operator namespace. The manager cache for these
+// kinds is restricted to that namespace by the manager command.
+// +kubebuilder:rbac:groups="",namespace="security-profiles-operator",resources=services,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=apps,namespace="security-profiles-operator",resources=deployments;daemonsets,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=apps,namespace="security-profiles-operator",resources=daemonsets/finalizers,verbs=get;update;patch
+// +kubebuilder:rbac:groups=cert-manager.io,namespace="security-profiles-operator",resources=issuers;certificates,verbs=get;list;watch;create;update;patch
+//
+// Webhook configurations are cluster scoped. Create cannot be restricted by
+// name, but modifications are limited to the operator owned configurations.
+// +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=mutatingwebhookconfigurations;validatingwebhookconfigurations,verbs=get;list;watch;create
+// +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=mutatingwebhookconfigurations,resourceNames=spo-mutating-webhook-configuration,verbs=update;patch
+// +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingwebhookconfigurations,resourceNames=spo-validating-webhook-configuration,verbs=update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons/finalizers,verbs=delete;get;update;patch
@@ -129,11 +139,11 @@ func (r *ReconcileSPOd) Healthz(*http.Request) error {
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles,verbs=get;list;watch;create;update;patch
 //
 // Needed for the ServiceMonitor
-// +kubebuilder:rbac:groups=monitoring.coreos.com,resources=servicemonitors,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=monitoring.coreos.com,namespace="security-profiles-operator",resources=servicemonitors,verbs=get;list;watch;create;update;patch
 //
 // OpenShift (This is ignored in other distros):
 //nolint:lll // required for kubebuilder
-// +kubebuilder:rbac:groups=security.openshift.io,namespace="security-profiles-operator",resourceNames=privileged,resources=securitycontextconstraints,verbs=use
+// +kubebuilder:rbac:groups=security.openshift.io,namespace="security-profiles-operator",resourceNames=restricted-v2,resources=securitycontextconstraints,verbs=use
 // +kubebuilder:rbac:groups=config.openshift.io,resources=clusteroperators,verbs=get;list;watch
 // +kubebuilder:rbac:groups=config.openshift.io,resources=apiservers,verbs=get;list;watch
 //
@@ -142,6 +152,14 @@ func (r *ReconcileSPOd) Healthz(*http.Request) error {
 //
 // Needed to detect the proper selinux image
 // +kubebuilder:rbac:groups="",resources=configmaps,resourceNames=security-profiles-operator-profile,verbs=get
+//
+// Needed to authenticate and authorize metrics requests
+// +kubebuilder:rbac:groups=authentication.k8s.io,resources=tokenreviews,verbs=create
+// +kubebuilder:rbac:groups=authorization.k8s.io,resources=subjectaccessreviews,verbs=create
+//
+// Needed for the admission policies, see bindata.AdmissionPolicies
+// +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingadmissionpolicies;validatingadmissionpolicybindings,verbs=get;list;watch;create
+// +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingadmissionpolicies;validatingadmissionpolicybindings,resourceNames=spo-recording-profiles,verbs=update
 
 // Reconcile reads that state of the cluster for a SPOD object and makes changes based on the state read
 // and what is in the `ConfigMap.Spec`.
@@ -206,6 +224,8 @@ func (r *ReconcileSPOd) Reconcile(
 	}
 
 	webhook := r.getConfiguredWebook(spod, image, pullPolicy, caInjectType)
+	r.applyAdmissionPolicies(ctx, spod, webhook)
+
 	metricsService := bindata.GetMetricsService(r.namespace, caInjectType)
 	serviceMonitor := bindata.ServiceMonitor(caInjectType,
 		ptr.Deref(spod.Spec.EnableInsecureMetricsAccess, false))
@@ -269,12 +289,7 @@ func (r *ReconcileSPOd) Reconcile(
 
 		updatedSPod := foundSPOd.DeepCopy()
 		updatedSPod.Spec.Template = configuredSPOd.Spec.Template
-
-		if v, ok := configuredSPOd.Annotations[appArmorAnnotation]; ok {
-			metav1.SetMetaDataAnnotation(&updatedSPod.ObjectMeta, appArmorAnnotation, v)
-		} else {
-			delete(updatedSPod.Annotations, appArmorAnnotation)
-		}
+		delete(updatedSPod.Annotations, legacyAppArmorAnnotation)
 
 		updateErr := r.handleUpdate(
 			ctx, spod, updatedSPod, webhook, metricsService, certManagerResources, serviceMonitor,
@@ -305,6 +320,40 @@ func (r *ReconcileSPOd) Reconcile(
 	}
 
 	return reconcile.Result{}, nil
+}
+
+// applyAdmissionPolicies applies the admission policies of the operator,
+// which for example restrict the use of the recording profiles to the
+// namespaces selected by the recording webhook. The policies are watched, so
+// changed or deleted ones are restored. Failures are reported but do not block
+// the reconciliation, and the policies get applied again on the next one.
+func (r *ReconcileSPOd) applyAdmissionPolicies(
+	ctx context.Context,
+	spod *spodapi.SecurityProfilesOperatorDaemon,
+	webhook *bindata.Webhook,
+) {
+	policies := bindata.GetAdmissionPolicies(webhook.RecordingNamespaceSelector())
+
+	if err := policies.Apply(ctx, r.client); err != nil {
+		if bindata.IsNotFound(err) {
+			r.log.V(config.VerboseLevel).Info(
+				"ValidatingAdmissionPolicy API not available, skipping the admission policies",
+			)
+
+			return
+		}
+
+		r.log.Error(err, "Cannot apply the admission policies")
+		r.record.Eventf(
+			spod,
+			nil,
+			util.EventTypeWarning,
+			reasonCannotApplyAdmissionPolicies,
+			util.EventActionReconcile,
+			"%s",
+			err.Error(),
+		)
+	}
 }
 
 func (r *ReconcileSPOd) handleInitialStatus(
@@ -429,11 +478,6 @@ func (r *ReconcileSPOd) handleCreate(
 	r.log.Info("Deploying operator default profiles")
 
 	for _, profile := range r.defaultProfiles(cfg) {
-		// Adapt the namespace if we watch only a single one
-		if r.watchNamespace != "" {
-			profile.Namespace = r.watchNamespace
-		}
-
 		if err := r.client.Create(ctx, profile); err != nil {
 			if errors.IsAlreadyExists(err) {
 				continue
@@ -503,15 +547,7 @@ func (r *ReconcileSPOd) handleUpdate(
 	r.log.Info("Updating operator default profiles")
 
 	for _, profile := range r.defaultProfiles(cfg) {
-		// Adapt the namespace if we watch only a single one
-		if r.watchNamespace != "" {
-			profile.Namespace = r.watchNamespace
-		}
-
-		pKey := types.NamespacedName{
-			Name:      profile.GetName(),
-			Namespace: profile.GetNamespace(),
-		}
+		pKey := types.NamespacedName{Name: profile.GetName()}
 		foundProfile := &seccompprofileapi.SeccompProfile{}
 
 		var err error
@@ -586,8 +622,6 @@ func (r *ReconcileSPOd) baseInitContainer(id int) corev1.Container {
 
 // getConfiguredSPOd gets a fully configured SPOd instance from a desired
 // configuration and the reference base SPOd.
-//
-//nolint:gocognit,gocyclo // large function with many config branches
 func (r *ReconcileSPOd) getConfiguredSPOd(
 	ctx context.Context,
 	cfg *spodapi.SecurityProfilesOperatorDaemon,
@@ -629,56 +663,106 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		templateSpec.Containers[bindata.ContainerIDDaemon].Resources = *cfg.Spec.DaemonResourceRequirements
 	}
 
-	// SELinux parameters
+	if err := r.configureSelinux(cfg, templateSpec, caInjectType); err != nil {
+		return nil, err
+	}
+
+	r.configureRecording(ctx, cfg, templateSpec, image)
+	configureAppArmor(cfg, templateSpec)
+
+	// Enable memory optimization for spod controller
+	if ptr.Deref(cfg.Spec.EnableMemoryOptimization, false) {
+		templateSpec.Containers[bindata.ContainerIDDaemon].Args = append(
+			templateSpec.Containers[bindata.ContainerIDDaemon].Args,
+			"--with-mem-optim=true")
+	}
+
+	if isInsecureMetricsEnabled(cfg) {
+		templateSpec.Containers[bindata.ContainerIDDaemon].Args = append(
+			templateSpec.Containers[bindata.ContainerIDDaemon].Args,
+			"--with-insecure-metrics-access=true")
+	}
+
+	configureContainerDefaults(cfg, templateSpec, pullPolicy)
+
+	templateSpec.Tolerations = cfg.Spec.Scheduling.Tolerations
+	templateSpec.Affinity = cfg.Spec.Scheduling.Affinity
+	templateSpec.ImagePullSecrets = cfg.Spec.ImagePullSecrets
+	templateSpec.PriorityClassName = cfg.Spec.Scheduling.PriorityClassName
+
+	pruneUnmountedVolumes(templateSpec)
+
+	return newSPOd, nil
+}
+
+// configureSelinux adds the SELinux containers and parameters if SELinux
+// support is enabled, which is the default on OpenShift.
+func (r *ReconcileSPOd) configureSelinux(
+	cfg *spodapi.SecurityProfilesOperatorDaemon,
+	templateSpec *corev1.PodSpec,
+	caInjectType bindata.CAInjectType,
+) error {
 	enableSelinux := (cfg.Spec.Selinux.Enable != nil && *cfg.Spec.Selinux.Enable) ||
 		// enable SELinux support per default in OpenShift
 		(cfg.Spec.Selinux.Enable == nil && caInjectType == bindata.CAInjectTypeOpenShift)
 
-	if enableSelinux {
-		templateSpec.InitContainers = append(
-			templateSpec.InitContainers,
-			r.baseInitContainer(bindata.InitContainerIDSelinuxSharedPoliciesCopier),
-		)
-		templateSpec.Containers = append(
-			templateSpec.Containers,
-			r.baseContainer(bindata.ContainerIDSelinuxd))
-
-		templateSpec.Containers[bindata.ContainerIDDaemon].VolumeMounts = append(
-			templateSpec.Containers[bindata.ContainerIDDaemon].VolumeMounts,
-			corev1.VolumeMount{
-				Name:      "host-varlibselinux-volume",
-				MountPath: bindata.SelinuxModuleStorePath,
-				ReadOnly:  true,
-			})
-
-		templateSpec.Containers[bindata.ContainerIDDaemon].Args = append(
-			templateSpec.Containers[bindata.ContainerIDDaemon].Args,
-			"--with-selinux=true")
-
-		enableRawSelinux := ptr.Deref(cfg.Spec.Selinux.EnableRawSelinuxProfiles, true)
-		templateSpec.Containers[bindata.ContainerIDDaemon].Args = append(
-			templateSpec.Containers[bindata.ContainerIDDaemon].Args,
-			fmt.Sprintf("--with-raw-selinux=%t", enableRawSelinux))
-
-		if err := addSelinuxCustomTemplatesVolume(cfg, templateSpec); err != nil {
-			r.record.Eventf(
-				cfg,
-				nil,
-				util.EventTypeWarning,
-				reasonCannotMountCustomTemplates,
-				util.EventActionReconcile,
-				"%s",
-				err.Error(),
+	if !enableSelinux {
+		if cfg.Spec.Selinux.CustomTemplatesConfigMap != "" {
+			r.log.Info(
+				"customTemplatesConfigMap is set but SELinux is disabled, the field will be ignored",
 			)
-
-			return nil, fmt.Errorf("unable to mount custom SELinux templates: %w", err)
 		}
-	} else if cfg.Spec.Selinux.CustomTemplatesConfigMap != "" {
-		r.log.Info(
-			"customTemplatesConfigMap is set but SELinux is disabled, the field will be ignored",
-		)
+
+		return nil
 	}
 
+	templateSpec.InitContainers = append(
+		templateSpec.InitContainers,
+		r.baseInitContainer(bindata.InitContainerIDSelinuxSharedPoliciesCopier),
+	)
+	templateSpec.Containers = append(
+		templateSpec.Containers,
+		r.baseContainer(bindata.ContainerIDSelinuxd))
+
+	daemon := &templateSpec.Containers[bindata.ContainerIDDaemon]
+	daemon.VolumeMounts = append(daemon.VolumeMounts, corev1.VolumeMount{
+		Name:      "host-varlibselinux-volume",
+		MountPath: bindata.SelinuxModuleStorePath,
+		ReadOnly:  true,
+	})
+
+	enableRawSelinux := ptr.Deref(cfg.Spec.Selinux.EnableRawSelinuxProfiles, true)
+	daemon.Args = append(daemon.Args,
+		"--with-selinux=true",
+		fmt.Sprintf("--with-raw-selinux=%t", enableRawSelinux),
+	)
+
+	if err := addSelinuxCustomTemplatesVolume(cfg, templateSpec); err != nil {
+		r.record.Eventf(
+			cfg,
+			nil,
+			util.EventTypeWarning,
+			reasonCannotMountCustomTemplates,
+			util.EventActionReconcile,
+			"%s",
+			err.Error(),
+		)
+
+		return fmt.Errorf("unable to mount custom SELinux templates: %w", err)
+	}
+
+	return nil
+}
+
+// configureRecording adds the containers of the enabled recorders and
+// enrichers and enables the profile recording controller of the daemon if
+// any of them is enabled.
+func (r *ReconcileSPOd) configureRecording(
+	ctx context.Context,
+	cfg *spodapi.SecurityProfilesOperatorDaemon,
+	templateSpec *corev1.PodSpec,
+	image string,
+) {
 	// Custom host proc volume
 	useCustomHostProc := cfg.Spec.HostProcVolumePath != bindata.DefaultHostProcPath &&
 		cfg.Spec.HostProcVolumePath != ""
@@ -704,223 +788,171 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		templateSpec.Containers[bindata.ContainerIDDaemon].Args,
 		fmt.Sprintf("--with-recording=%t", enableRecording))
 
-	if isLogEnricherEnabled(cfg) {
-		ctr := r.baseContainer(bindata.ContainerIDLogEnricher)
+	// addContainer adds the base container with the provided ID and passes
+	// the env var to the daemon, as the profile recorder is otherwise disabled.
+	addContainer := func(id int, envKey string, configure func(*corev1.Container)) {
+		ctr := r.baseContainer(id)
 		ctr.Image = image
 
 		if useCustomHostProc {
 			ctr.VolumeMounts = append(ctr.VolumeMounts, mount)
 		}
 
-		r.configureLogEnricher(cfg, &ctr)
+		configure(&ctr)
 
 		templateSpec.Containers = append(templateSpec.Containers, ctr)
-		// pass the log enricher env var to the daemon as the profile recorder is otherwise disabled
-		addEnvVar(templateSpec, config.EnableLogEnricherEnvKey)
+		addEnvVar(templateSpec, envKey)
 	}
 
-	// Bpf recorder parameters
+	if isLogEnricherEnabled(cfg) {
+		addContainer(bindata.ContainerIDLogEnricher, config.EnableLogEnricherEnvKey,
+			func(ctr *corev1.Container) { r.configureLogEnricher(cfg, ctr) })
+	}
+
 	if isBpfRecorderEnabled(cfg) {
-		ctr := r.baseContainer(bindata.ContainerIDBpfRecorder)
-		ctr.Image = image
-
-		if useCustomHostProc {
-			ctr.VolumeMounts = append(ctr.VolumeMounts, mount)
-		}
-
-		// Configure the apparmor profile for bpf-recorder when apparmor is enabled.
-		if ptr.Deref(cfg.Spec.EnableAppArmor, false) {
-			localApparmorProfile := config.BpfRecorderApparmorProfileName
-			ctr.SecurityContext.AppArmorProfile = &corev1.AppArmorProfile{
-				Type:             corev1.AppArmorProfileTypeLocalhost,
-				LocalhostProfile: &localApparmorProfile,
-			}
-		}
-
-		templateSpec.Containers = append(templateSpec.Containers, ctr)
-		// pass the bpf recorder env var to the daemon as the profile recorder is otherwise disabled
-		addEnvVar(templateSpec, config.EnableBpfRecorderEnvKey)
+		addContainer(bindata.ContainerIDBpfRecorder, config.EnableBpfRecorderEnvKey,
+			func(ctr *corev1.Container) {
+				// Configure the apparmor profile for bpf-recorder when apparmor is enabled.
+				if ptr.Deref(cfg.Spec.EnableAppArmor, false) {
+					ctr.SecurityContext.AppArmorProfile = &corev1.AppArmorProfile{
+						Type:             corev1.AppArmorProfileTypeLocalhost,
+						LocalhostProfile: new(config.BpfRecorderApparmorProfileName),
+					}
+				}
+			})
 	}
 
 	if isJsonEnricherEnabled(cfg) {
-		ctr := r.baseContainer(bindata.ContainerIDJsonEnricher)
-		ctr.Image = image
+		addContainer(bindata.ContainerIDJsonEnricher, config.EnableJsonEnricherEnvKey,
+			func(ctr *corev1.Container) {
+				r.addJsonEnricherLogVolume(ctx, templateSpec, ctr)
+				r.configureJsonEnricher(cfg, ctr)
+			})
+	}
+}
 
-		if useCustomHostProc {
-			ctr.VolumeMounts = append(ctr.VolumeMounts, mount)
-		}
-
-		// Dynamically read the json-enricher log volume configuration from the ConfigMap
-		// during each reconciliation to handle ConfigMap updates without requiring operator restart
-		jsonEnricherLogVolumeSource, jsonEnricherLogVolumeMountPath, err := r.getJsonEnricherVolume(
-			ctx,
-		)
-		if err == nil && jsonEnricherLogVolumeSource != nil {
-			logVolume, logMount := bindata.CustomLogVolume(
-				jsonEnricherLogVolumeMountPath,
-				jsonEnricherLogVolumeSource,
-			)
-			// Replace existing volume or append if not found.
-			// Using replace (not skip) so that ConfigMap changes to the volume source
-			// or mount path are applied even when baseSPOd already has an older version.
-			volumeReplaced := false
-
-			for i := range templateSpec.Volumes {
-				if templateSpec.Volumes[i].Name == logVolume.Name {
-					templateSpec.Volumes[i] = logVolume
-					volumeReplaced = true
-
-					break
-				}
-			}
-
-			if !volumeReplaced {
-				templateSpec.Volumes = append(templateSpec.Volumes, logVolume)
-			}
-
-			// Replace existing mount or append if not found.
-			mountReplaced := false
-
-			for i, m := range ctr.VolumeMounts {
-				if m.Name == logMount.Name {
-					ctr.VolumeMounts[i] = logMount
-					mountReplaced = true
-
-					break
-				}
-			}
-
-			if !mountReplaced {
-				ctr.VolumeMounts = append(ctr.VolumeMounts, logMount)
-			}
-		}
-
-		r.configureJsonEnricher(cfg, &ctr)
-
-		templateSpec.Containers = append(templateSpec.Containers, ctr)
-		// pass the json enricher env var to the daemon as the profile recorder is otherwise disabled
-		addEnvVar(templateSpec, config.EnableJsonEnricherEnvKey)
+// addJsonEnricherLogVolume adds the optional log volume of the json enricher.
+// Its configuration is read from the ConfigMap during each reconciliation to
+// handle ConfigMap updates without requiring an operator restart.
+func (r *ReconcileSPOd) addJsonEnricherLogVolume(
+	ctx context.Context,
+	templateSpec *corev1.PodSpec,
+	ctr *corev1.Container,
+) {
+	logVolumeSource, logVolumeMountPath, err := r.getJsonEnricherVolume(ctx)
+	if err != nil || logVolumeSource == nil {
+		return
 	}
 
-	// AppArmor parameters
-	if ptr.Deref(cfg.Spec.EnableAppArmor, false) {
-		falsely, truly := false, true
+	logVolume, logMount := bindata.CustomLogVolume(logVolumeMountPath, logVolumeSource)
 
-		var userRoot int64
-		// A more privileged mode is required when apparmor is enabled.
-		// TODO: review security model and provide a dynamic approach that can be case specific
-		sc := templateSpec.Containers[bindata.ContainerIDDaemon].SecurityContext
-		sc.AllowPrivilegeEscalation = &truly
-		sc.Privileged = &truly
-		sc.ReadOnlyRootFilesystem = &falsely
-		sc.RunAsUser = &userRoot
-		sc.RunAsGroup = &userRoot
-
-		localSpoApparmorProfile := config.SpoApparmorProfileName
-		sc.AppArmorProfile = &corev1.AppArmorProfile{
-			Type:             corev1.AppArmorProfileTypeLocalhost,
-			LocalhostProfile: &localSpoApparmorProfile,
-		}
-
-		templateSpec.Containers[bindata.ContainerIDDaemon].Args = append(
-			templateSpec.Containers[bindata.ContainerIDDaemon].Args,
-			"--with-apparmor=true")
-
-		// Remove AppArmor constraints to be able to manage AppArmor.
-		if newSPOd.Annotations == nil {
-			newSPOd.Annotations = make(map[string]string)
-		}
-
-		newSPOd.Annotations[appArmorAnnotation] = "unconfined"
-
-		// A more privileged init container is required when apparmor is enabled, in order
-		// to install the apparmor profile for spo itself.
-		templateSpec.InitContainers[bindata.InitContainerIDNonRootenabler].Args = append(
-			templateSpec.InitContainers[bindata.InitContainerIDNonRootenabler].Args,
-			"--apparmor=true")
-		isc := templateSpec.InitContainers[bindata.InitContainerIDNonRootenabler].SecurityContext
-		isc.AllowPrivilegeEscalation = &truly
-		isc.Privileged = &truly
-		isc.ReadOnlyRootFilesystem = &falsely
-		isc.RunAsUser = &userRoot
-		isc.RunAsGroup = &userRoot
-
-		// HostPID is required for AppArmor in order to get access to the host ns
-		// when installing the Apparmor profiles.
-		templateSpec.HostPID = true
+	// Replace an existing volume or mount instead of skipping it, so that
+	// ConfigMap changes to the volume source or mount path are applied even
+	// when the base SPOd already has an older version.
+	volumeIndex := slices.IndexFunc(templateSpec.Volumes, func(v corev1.Volume) bool {
+		return v.Name == logVolume.Name
+	})
+	if volumeIndex >= 0 {
+		templateSpec.Volumes[volumeIndex] = logVolume
+	} else {
+		templateSpec.Volumes = append(templateSpec.Volumes, logVolume)
 	}
 
-	// Enable memory optimization for spod controller
-	if ptr.Deref(cfg.Spec.EnableMemoryOptimization, false) {
-		templateSpec.Containers[bindata.ContainerIDDaemon].Args = append(
-			templateSpec.Containers[bindata.ContainerIDDaemon].Args,
-			"--with-mem-optim=true")
+	mountIndex := slices.IndexFunc(ctr.VolumeMounts, func(m corev1.VolumeMount) bool {
+		return m.Name == logMount.Name
+	})
+	if mountIndex >= 0 {
+		ctr.VolumeMounts[mountIndex] = logMount
+	} else {
+		ctr.VolumeMounts = append(ctr.VolumeMounts, logMount)
+	}
+}
+
+// configureAppArmor configures the daemon and the non root enabler to manage
+// AppArmor profiles, if enabled.
+//
+// Loading AppArmor profiles requires write access to the securityfs of the
+// host and the host PID namespace, which is why both containers run
+// privileged. Replacing that with dedicated capabilities requires runtime
+// validation on AppArmor enabled nodes.
+func configureAppArmor(cfg *spodapi.SecurityProfilesOperatorDaemon, templateSpec *corev1.PodSpec) {
+	if !ptr.Deref(cfg.Spec.EnableAppArmor, false) {
+		return
 	}
 
-	if isInsecureMetricsEnabled(cfg) {
-		templateSpec.Containers[bindata.ContainerIDDaemon].Args = append(
-			templateSpec.Containers[bindata.ContainerIDDaemon].Args,
-			"--with-insecure-metrics-access=true")
+	var userRoot int64
+
+	sc := templateSpec.Containers[bindata.ContainerIDDaemon].SecurityContext
+	sc.AllowPrivilegeEscalation = new(true)
+	sc.Privileged = new(true)
+	sc.ReadOnlyRootFilesystem = new(false)
+	sc.RunAsUser = &userRoot
+	sc.RunAsGroup = &userRoot
+	sc.AppArmorProfile = &corev1.AppArmorProfile{
+		Type:             corev1.AppArmorProfileTypeLocalhost,
+		LocalhostProfile: new(config.SpoApparmorProfileName),
 	}
+
+	templateSpec.Containers[bindata.ContainerIDDaemon].Args = append(
+		templateSpec.Containers[bindata.ContainerIDDaemon].Args,
+		"--with-apparmor=true")
+
+	// The init container installs the AppArmor profile of the operator itself.
+	templateSpec.InitContainers[bindata.InitContainerIDNonRootenabler].Args = append(
+		templateSpec.InitContainers[bindata.InitContainerIDNonRootenabler].Args,
+		"--apparmor=true")
+	isc := templateSpec.InitContainers[bindata.InitContainerIDNonRootenabler].SecurityContext
+	isc.AllowPrivilegeEscalation = new(true)
+	isc.Privileged = new(true)
+	isc.ReadOnlyRootFilesystem = new(false)
+	isc.RunAsUser = &userRoot
+	isc.RunAsGroup = &userRoot
+
+	// HostPID is required for AppArmor in order to get access to the host ns
+	// when installing the Apparmor profiles.
+	templateSpec.HostPID = true
+}
+
+// configureContainerDefaults sets the options which apply to all init
+// containers and containers.
+func configureContainerDefaults(
+	cfg *spodapi.SecurityProfilesOperatorDaemon,
+	templateSpec *corev1.PodSpec,
+	pullPolicy corev1.PullPolicy,
+) {
+	// Update the SELinux type tag only when AppArmor is not enabled this is to prevent a crash.
+	// The SELinux type tag needs to be configured independent of EnableSelinux flag, because the
+	// SELinux can be active on the node regardless if the SELinux feature is enabled or not in the operator.
+	// For instance, on Flatcar Linux SELinux type tag needs to be set to 'unconfined_t' instead of 'spc_t'
+	// even though SELinux is disabled in order to get the containers to start.
+	configureSelinuxTag := !ptr.Deref(cfg.Spec.EnableAppArmor, false)
 
 	for i := range templateSpec.InitContainers {
-		// Set image pull policy
-		templateSpec.InitContainers[i].ImagePullPolicy = pullPolicy
+		ctr := &templateSpec.InitContainers[i]
+		ctr.ImagePullPolicy = pullPolicy
+		ctr.Env = append(ctr.Env, verbosityEnv(cfg.Spec.Verbosity))
 
-		// Set the logging verbosity
-		templateSpec.InitContainers[i].Env = append(
-			templateSpec.InitContainers[i].Env,
-			verbosityEnv(cfg.Spec.Verbosity),
-		)
-
-		// Update the SELinux type tag only when AppArmor is not enabled this is to prevent a crash.
-		// The SELinux type tag needs to be configured independent of EnableSelinux flag, because the
-		// SELinux can be active on the node regardless if the SELinux feature is enabled or not in the operator.
-		// For instance, on Flatcar Linux SELinux type tag needs to be set to 'unconfined_t' instead of 'spc_t'
-		// even though SELinux is disabled in order to get the containers to start.
-		if !ptr.Deref(cfg.Spec.EnableAppArmor, false) {
-			configureSeLinuxTag(
-				templateSpec.InitContainers[i].SecurityContext,
-				cfg.Spec.Selinux.TypeTag,
-			)
+		if configureSelinuxTag {
+			configureSeLinuxTag(ctr.SecurityContext, cfg.Spec.Selinux.TypeTag)
 		}
 	}
 
 	for i := range templateSpec.Containers {
-		// Set image pull policy
-		templateSpec.Containers[i].ImagePullPolicy = pullPolicy
+		ctr := &templateSpec.Containers[i]
+		ctr.ImagePullPolicy = pullPolicy
+		ctr.Env = append(ctr.Env, verbosityEnv(cfg.Spec.Verbosity))
 
-		// Set the logging verbosity
-		templateSpec.Containers[i].Env = append(
-			templateSpec.Containers[i].Env,
-			verbosityEnv(cfg.Spec.Verbosity),
-		)
-
-		// Enable profiling if requested
 		if ptr.Deref(cfg.Spec.EnableProfiling, false) {
 			enableContainerProfiling(templateSpec, i)
 		}
-		// Update the SELinux type tag only when AppArmor is not enabled this is to prevent a crash.
-		// The SELinux type tag needs to be configured independent of EnableSelinux flag, because the
-		// SELinux can be active on the node regardless if the SELinux feature is enabled or not in the operator.
-		// For instance, on Flatcar Linux SELinux type tag needs to be set to 'unconfined_t' instead of 'spc_t'
-		// even though SELinux is disabled in order to get the containers to start.
-		if !ptr.Deref(cfg.Spec.EnableAppArmor, false) {
+
+		if configureSelinuxTag {
 			configureSeLinuxTag(
 				templateSpec.Containers[i].SecurityContext,
 				cfg.Spec.Selinux.TypeTag,
 			)
 		}
 	}
-
-	templateSpec.Tolerations = cfg.Spec.Scheduling.Tolerations
-	templateSpec.Affinity = cfg.Spec.Scheduling.Affinity
-	templateSpec.ImagePullSecrets = cfg.Spec.ImagePullSecrets
-	templateSpec.PriorityClassName = cfg.Spec.Scheduling.PriorityClassName
-
-	pruneUnmountedVolumes(templateSpec)
-
-	return newSPOd, nil
 }
 
 // pruneUnmountedVolumes drops every volume which no init container or
@@ -1253,8 +1285,8 @@ func spodNeedsUpdate(configured, found *appsv1.DaemonSet) bool {
 	// The same applies to the arguments, environment variables and volume
 	// mounts of the containers, for example when profiling gets disabled.
 	// DeepDerivative also ignores fields which are unset in the configured
-	// object, so the scheduling fields and the AppArmor annotation are compared
-	// explicitly to detect when they got cleared.
+	// object, so the scheduling fields are compared explicitly to detect when
+	// they got cleared. The legacy AppArmor annotation only needs to be removed.
 	return (len(cSpec.InitContainers) != len(fSpec.InitContainers) ||
 		len(cSpec.Containers) != len(fSpec.Containers) ||
 		len(cSpec.Volumes) != len(fSpec.Volumes) ||
@@ -1264,7 +1296,7 @@ func spodNeedsUpdate(configured, found *appsv1.DaemonSet) bool {
 		!apiequality.Semantic.DeepEqual(cSpec.Affinity, fSpec.Affinity) ||
 		!apiequality.Semantic.DeepEqual(cSpec.Tolerations, fSpec.Tolerations) ||
 		!apiequality.Semantic.DeepEqual(cSpec.ImagePullSecrets, fSpec.ImagePullSecrets) ||
-		configured.Annotations[appArmorAnnotation] != found.Annotations[appArmorAnnotation] ||
+		found.Annotations[legacyAppArmorAnnotation] != "" ||
 		!apiequality.Semantic.DeepDerivative(configured.Spec.Template, found.Spec.Template))
 }
 

@@ -20,20 +20,19 @@ import (
 	"context"
 	"fmt"
 
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	profilebindingapi "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
+	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 )
 
 type defaultImpl struct {
-	client  client.Client
-	decoder admission.Decoder
+	client client.Client
+	reader client.Reader
 }
 
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../../hack/boilerplate/boilerplate.generatego.txt
@@ -43,7 +42,6 @@ type impl interface {
 		context.Context,
 		...client.ListOption,
 	) (*profilebindingapi.ProfileBindingList, error)
-	DecodePod(admission.Request) (*corev1.Pod, error)
 	GetSeccompProfile(
 		context.Context,
 		types.NamespacedName,
@@ -56,6 +54,10 @@ type impl interface {
 		context.Context,
 		types.NamespacedName,
 	) (*apparmorprofileapi.AppArmorProfile, error)
+	GetSPOD(
+		context.Context,
+		types.NamespacedName,
+	) (*spodapi.SecurityProfilesOperatorDaemon, error)
 }
 
 func (d *defaultImpl) ListProfileBindings(
@@ -67,16 +69,6 @@ func (d *defaultImpl) ListProfileBindings(
 	}
 
 	return profileBindings, nil
-}
-
-//nolint:gocritic
-func (d *defaultImpl) DecodePod(req admission.Request) (*corev1.Pod, error) {
-	pod := &corev1.Pod{}
-	if err := d.decoder.Decode(req, pod); err != nil {
-		return nil, fmt.Errorf("decode pod: %w", err)
-	}
-
-	return pod, nil
 }
 
 func (d *defaultImpl) GetSeccompProfile(
@@ -112,4 +104,17 @@ func (d *defaultImpl) GetAppArmorProfile(
 	}
 
 	return appArmorProfile, nil
+}
+
+// GetSPOD reads the SPOD directly from the API server, because it is only
+// needed for bindings to profiles without status.
+func (d *defaultImpl) GetSPOD(
+	ctx context.Context, key types.NamespacedName,
+) (*spodapi.SecurityProfilesOperatorDaemon, error) {
+	spod := &spodapi.SecurityProfilesOperatorDaemon{}
+	if err := d.reader.Get(ctx, key, spod); err != nil {
+		return nil, fmt.Errorf("get spod: %w", err)
+	}
+
+	return spod, nil
 }

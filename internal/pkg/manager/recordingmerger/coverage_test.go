@@ -611,6 +611,10 @@ func TestCreateUpdateProfile_CoverageAnnotation(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{
 				Name:        mergedName,
 				Annotations: map[string]string{"user.example.com/keep": "yes"},
+				Labels: map[string]string{
+					profilerecordingapi.ProfileToRecordingLabel:          recordingName,
+					profilerecordingapi.ProfileToRecordingNamespaceLabel: namespace,
+				},
 			},
 		}
 		cl := fake.NewClientBuilder().
