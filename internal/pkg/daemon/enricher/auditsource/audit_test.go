@@ -122,6 +122,7 @@ func Test_extractAuditLine(t *testing.T) {
 				SystemCallID: 0,
 				ProcessID:    3109464,
 				Executable:   "/bin/busybox",
+				Arch:         "c000003e",
 			},
 			nil,
 		},
@@ -135,6 +136,7 @@ func Test_extractAuditLine(t *testing.T) {
 				SystemCallID: 3,
 				ProcessID:    2039886,
 				Executable:   "/bin/ls",
+				Arch:         "c000003e",
 			},
 			nil,
 		},
@@ -204,6 +206,136 @@ func Test_extractAuditLine(t *testing.T) {
 				ExtraInfo:   "requested_mask='x' denied_mask='x' fsuid=65534 ouid=0",
 			},
 			nil,
+		},
+		{
+			"Should extract seccomp log lines with a hex encoded executable",
+			//nolint:lll // no need to wrap
+			`type=SECCOMP msg=audit(1613596317.899:6462): auid=4294967295 uid=0 gid=0 ses=4294967295 pid=2039887 comm=6D7920617070 exe=2F6F70742F6D79206170702F62696E sig=0 arch=c000003e syscall=2 compat=0 ip=0x7f62dce3d4c7 code=0x7ffc0000`,
+			&types.AuditLine{
+				AuditType:    "seccomp",
+				TimestampID:  "1613596317.899:6462",
+				SystemCallID: 2,
+				ProcessID:    2039887,
+				Executable:   "/opt/my app/bin",
+				Arch:         "c000003e",
+			},
+			nil,
+		},
+		{
+			"Should extract seccomp log lines of a compat syscall",
+			//nolint:lll // no need to wrap
+			`type=SECCOMP msg=audit(1613596317.899:6463): auid=4294967295 uid=0 gid=0 ses=4294967295 pid=2039888 comm="app32" exe="/app32" sig=0 arch=40000003 syscall=102 compat=1 ip=0xf7f2a549 code=0x7ffc0000`,
+			&types.AuditLine{
+				AuditType:    "seccomp",
+				TimestampID:  "1613596317.899:6463",
+				SystemCallID: 102,
+				ProcessID:    2039888,
+				Executable:   "/app32",
+				Arch:         "40000003",
+			},
+			nil,
+		},
+		{
+			"Should ignore the fields auditd appends",
+			"type=SECCOMP msg=audit(1613596317.899:6461): auid=4294967295 uid=0 gid=0 " +
+				"pid=2039886 comm=\"ls\" exe=\"/bin/ls\" sig=0 arch=c000003e syscall=3 compat=0 " +
+				"ip=0x7f62dce3d4c7 code=0x7ffc0000\x1dAUID=\"unset\" UID=\"root\" ARCH=x86_64 SYSCALL=close pid=1",
+			&types.AuditLine{
+				AuditType:    "seccomp",
+				TimestampID:  "1613596317.899:6461",
+				SystemCallID: 3,
+				ProcessID:    2039886,
+				Executable:   "/bin/ls",
+				Arch:         "c000003e",
+			},
+			nil,
+		},
+		{
+			"Should extract apparmor log lines with a hex encoded comm",
+			//nolint:lll // no need to wrap
+			`audit: type=1400 audit(1668191154.949:65): apparmor="DENIED" operation="open" profile="profile-name" name="/etc/shadow" pid=4167 comm=4332204361636865 requested_mask="r" denied_mask="r" fsuid=0 ouid=0`,
+			&types.AuditLine{
+				AuditType:   "apparmor",
+				TimestampID: "1668191154.949:65",
+				ProcessID:   4167,
+				Apparmor:    "DENIED",
+				Operation:   "open",
+				Profile:     "profile-name",
+				Name:        "/etc/shadow",
+				Executable:  "C2 Cache",
+				ExtraInfo:   "requested_mask='r' denied_mask='r' fsuid=0 ouid=0",
+			},
+			nil,
+		},
+		{
+			"Should extract apparmor capability log lines",
+			//nolint:lll // no need to wrap
+			`type=AVC msg=audit(1668191154.949:66): apparmor="DENIED" operation="capable" class="cap" profile="profile-name" pid=4168 comm="ping" capability=13  capname="net_raw"`,
+			&types.AuditLine{
+				AuditType:   "apparmor",
+				TimestampID: "1668191154.949:66",
+				ProcessID:   4168,
+				Apparmor:    "DENIED",
+				Operation:   "capable",
+				Profile:     "profile-name",
+				Executable:  "ping",
+				ExtraInfo:   "capability=13 capname='net_raw'",
+			},
+			nil,
+		},
+		{
+			"Should extract apparmor network log lines",
+			//nolint:lll // no need to wrap
+			`audit: type=1400 audit(1668191154.949:67): apparmor="DENIED" operation="create" class="net" profile="profile-name" pid=4169 comm="curl" family="inet" sock_type="raw" protocol=1 requested_mask="create" denied_mask="create"`,
+			&types.AuditLine{
+				AuditType:   "apparmor",
+				TimestampID: "1668191154.949:67",
+				ProcessID:   4169,
+				Apparmor:    "DENIED",
+				Operation:   "create",
+				Profile:     "profile-name",
+				Executable:  "curl",
+				ExtraInfo: "family='inet' sock_type='raw' protocol=1 " +
+					"requested_mask='create' denied_mask='create'",
+			},
+			nil,
+		},
+		{
+			"Should extract selinux lines of the kernel log",
+			//nolint:lll // no need to wrap
+			`[  12.345678] audit: type=1400 audit(1613173578.156:2946): avc:  denied  { write } for  pid=75594 comm="app" name="data" dev="tmpfs" ino=612460 scontext=system_u:system_r:container_t:s0:c4,c808 tcontext=system_u:object_r:var_lib_t:s0 tclass=dir permissive=0`,
+			&types.AuditLine{
+				AuditType:   "selinux",
+				TimestampID: "1613173578.156:2946",
+				ProcessID:   75594,
+				Perm:        "write",
+				Scontext:    "system_u:system_r:container_t:s0:c4,c808",
+				Tcontext:    "system_u:object_r:var_lib_t:s0",
+				Tclass:      "dir",
+			},
+			nil,
+		},
+		{
+			"Should extract seccomp lines of s390",
+			`type=SECCOMP msg=audit(1613596317.899:6464): pid=7 comm="a" exe="/a" arch=16 syscall=102 compat=0`,
+			&types.AuditLine{
+				AuditType:    "seccomp",
+				TimestampID:  "1613596317.899:6464",
+				SystemCallID: 102,
+				ProcessID:    7,
+				Executable:   "/a",
+				Arch:         "16",
+			},
+			nil,
+		},
+		{
+			"Should not extract seccomp lines without a syscall",
+			`type=SECCOMP msg=audit(1613596317.899:6461): pid=2039886 comm="ls" exe="/bin/ls"`,
+			nil,
+			fmt.Errorf(
+				"unsupported log line: %s",
+				`type=SECCOMP msg=audit(1613596317.899:6461): pid=2039886 comm="ls" exe="/bin/ls"`,
+			),
 		},
 		{
 			"Should not extract suppressed lines",

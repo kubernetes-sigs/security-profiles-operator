@@ -21,6 +21,8 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -39,10 +41,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	bpfrecorderapi "sigs.k8s.io/security-profiles-operator/api/grpc/bpfrecorder"
 	enricherapi "sigs.k8s.io/security-profiles-operator/api/grpc/enricher"
 	profilebase "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	recordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
@@ -136,7 +140,6 @@ func TestCollectBpfProfilesProfileName(t *testing.T) {
 					return nil
 				}
 			})
-			mock.GetRecordingReturns(recording, nil)
 
 			createdName := ""
 
@@ -165,9 +168,12 @@ func TestCollectBpfProfilesProfileName(t *testing.T) {
 					kind: recordingapi.ProfileRecordingKindSeccompProfile,
 					name: "recording_container_nonce_timestamp",
 				}},
+				nil,
 			)
 			require.NoError(t, err)
 			require.Equal(t, tc.expected, createdName)
+			require.Equal(t, 1, mock.ResetSyscallsForProfileCallCount(),
+				"the recorded data is dropped once the profile is stored")
 		})
 	}
 }
@@ -442,11 +448,6 @@ func TestReconcile(t *testing.T) {
 
 					return "", nil
 				})
-				mock.GetRecordingReturns(&recordingapi.ProfileRecording{
-					Spec: recordingapi.ProfileRecordingSpec{
-						DisableProfileAfterRecording: false,
-					},
-				}, nil)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
 				assert.NoError(t, err)
@@ -902,11 +903,6 @@ func TestReconcile(t *testing.T) {
 
 					return "", nil
 				})
-				mock.GetRecordingReturns(&recordingapi.ProfileRecording{
-					Spec: recordingapi.ProfileRecordingSpec{
-						DisableProfileAfterRecording: false,
-					},
-				}, nil)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
 				assert.NoError(t, err)
@@ -1395,11 +1391,6 @@ func TestReconcile(t *testing.T) {
 
 					return "", nil
 				})
-				mock.GetRecordingReturns(&recordingapi.ProfileRecording{
-					Spec: recordingapi.ProfileRecordingSpec{
-						DisableProfileAfterRecording: false,
-					},
-				}, nil)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
 				assert.NoError(t, err)
@@ -1774,11 +1765,6 @@ func TestReconcile(t *testing.T) {
 
 					return "", nil
 				})
-				mock.GetRecordingReturns(&recordingapi.ProfileRecording{
-					Spec: recordingapi.ProfileRecordingSpec{
-						DisableProfileAfterRecording: false,
-					},
-				}, nil)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
 				assert.NoError(t, err)
@@ -2208,37 +2194,140 @@ func TestReconcileDoesNotArmRecorderWithoutAuthorization(t *testing.T) {
 	}
 }
 
-// TestProfilePartialRecordingGone covers what happens when the ProfileRecording
-// disappears while replica pods are still being collected. Answering "not
-// partial" would drop the per-replica suffix and make every replica overwrite
-// the same cluster-scoped profile name, so this has to be reported as terminal.
-func TestProfilePartialRecordingGone(t *testing.T) {
+// TestReconcileRecordsRunningPod asserts that a pod first seen when it already
+// runs, for example after the daemon restarted, is still recorded.
+func TestReconcileRecordsRunningPod(t *testing.T) {
+	t.Parallel()
+
+	request := reconcile.Request{
+		NamespacedName: types.NamespacedName{Namespace: "namespace", Name: "name"},
+	}
+
+	mock := &profilerecorderfakes.FakeImpl{}
+	mock.GetPodReturns(&corev1.Pod{
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{
+				config.SeccompProfileRecordBpfAnnotationKey + "ctr": testAnnotationValue,
+			},
+		},
+		Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "ctr"}}},
+	}, nil)
+
+	recordings := bpfSeccompRecordingList()
+	recordings.Items[0].Spec.MergeStrategy = recordingapi.ProfileMergeContainers
+	recordings.Items[0].Spec.DisableProfileAfterRecording = true
+	mock.ListRecordingsReturns(recordings, nil)
+	mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
+		Spec: spodapi.SPODSpec{Enricher: spodapi.SPODEnricherConfig{EnableBpfRecorder: ptrTrue()}},
+	}, nil)
+
+	recorder := events.NewFakeRecorder(10)
+	sut := &RecorderReconciler{impl: mock, log: logr.Discard(), record: recorder}
+
+	_, err := sut.Reconcile(t.Context(), request)
+	require.NoError(t, err)
+
+	value, ok := sut.podsToWatch.Load(request.String())
+	require.True(t, ok)
+
+	watched, ok := value.(podToWatch)
+	require.True(t, ok)
+	require.Equal(t, recordingState{partial: true, disable: true}, watched.recordings["profile"])
+	require.Equal(t, 1, mock.StartBpfRecorderCallCount())
+
+	var warned bool
+
+	for len(recorder.Events) > 0 {
+		if strings.Contains(<-recorder.Events, reasonRecordingIncomplete) {
+			warned = true
+		}
+	}
+
+	require.True(t, warned, "the profile may be incomplete, which has to be reported")
+}
+
+// TestResolveProfileTargetRecordingGone covers what happens when the
+// ProfileRecording disappears while its pods are still being collected. With
+// nothing known about it the pod can never be collected. Otherwise the state
+// captured when the pod started being recorded is used, and a partial profile
+// is merged right away, as nothing would merge it any more.
+func TestResolveProfileTargetRecordingGone(t *testing.T) {
 	t.Parallel()
 
 	mock := &profilerecorderfakes.FakeImpl{}
 	mock.ClientGetReturns(kerrors.NewNotFound(schema.GroupResource{}, "recording"))
 
 	sut := &RecorderReconciler{impl: mock, log: logr.Discard()}
+	parsed := &parsedAnnotation{profileName: "recording", cntName: "ctr"}
+	podName := types.NamespacedName{Name: "pod", Namespace: "ns"}
 
-	partial, err := profilePartial(t.Context(), sut, "recording", "ns")
+	_, err := sut.resolveProfileTarget(t.Context(), parsed, "", podName, nil)
 	require.ErrorIs(t, err, errRecordingGone)
-	require.False(t, partial)
 	require.True(t, unrecordable(err), "the reconciler must release the pod for this error")
 
-	_, err = profileLabels(t.Context(), sut, "recording", "ctr", "ns")
-	require.ErrorIs(t, err, errRecordingGone)
+	target, err := sut.resolveProfileTarget(t.Context(), parsed, "abcde", podName,
+		map[string]recordingState{"recording": {partial: true, disable: true}})
+	require.NoError(t, err)
+	require.True(t, target.merge)
+	require.True(t, target.state.disable)
+	require.Nil(t, target.recording)
+	require.Equal(t, "recording-ctr", target.name.Name)
+	require.NotContains(t, target.labels, profilebase.ProfilePartialLabel)
+
+	target, err = sut.resolveProfileTarget(t.Context(), parsed, "abcde", podName,
+		map[string]recordingState{"recording": {}})
+	require.NoError(t, err)
+	require.False(t, target.merge)
+	require.Equal(t, "recording-ctr-abcde", target.name.Name)
 }
 
-func TestProfilePartialMergeStrategy(t *testing.T) {
+func TestResolveProfileTarget(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
 		name        string
 		strategy    recordingapi.ProfileMergeStrategy
+		deleting    bool
+		finalizer   bool
 		wantPartial bool
+		wantMerge   bool
+		wantName    string
 	}{
-		{name: "no merging", strategy: recordingapi.ProfileMergeNone, wantPartial: false},
-		{name: "merge containers", strategy: recordingapi.ProfileMergeContainers, wantPartial: true},
+		{
+			name:     "no merging",
+			strategy: recordingapi.ProfileMergeNone,
+			wantName: "recording-ctr",
+		},
+		{
+			name:        "merge containers",
+			strategy:    recordingapi.ProfileMergeContainers,
+			wantPartial: true,
+			wantName:    "recording-ctr-pod",
+		},
+		{
+			// The merger may be done already, so a partial profile would be
+			// left behind.
+			name:      "merge containers of a recording being deleted",
+			strategy:  recordingapi.ProfileMergeContainers,
+			deleting:  true,
+			finalizer: true,
+			wantMerge: true,
+			wantName:  "recording-ctr",
+		},
+		{
+			name:      "merge containers of a recording which does not wait for them",
+			strategy:  recordingapi.ProfileMergeContainers,
+			deleting:  true,
+			wantMerge: true,
+			wantName:  "recording-ctr",
+		},
+		{
+			name:     "no merging of a recording being deleted",
+			strategy: recordingapi.ProfileMergeNone,
+			deleting: true,
+			wantName: "recording-ctr",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -2251,18 +2340,55 @@ func TestProfilePartialMergeStrategy(t *testing.T) {
 				recording, ok := obj.(*recordingapi.ProfileRecording)
 				require.True(t, ok)
 
+				recording.Name = "recording"
 				recording.Spec.MergeStrategy = tc.strategy
+
+				if tc.deleting {
+					recording.DeletionTimestamp = &metav1.Time{Time: time.Now()}
+				}
+
+				if tc.finalizer {
+					recording.Finalizers = []string{recordingapi.RecordingHasUnmergedProfiles}
+				}
 
 				return nil
 			})
 
 			sut := &RecorderReconciler{impl: mock, log: logr.Discard()}
 
-			partial, err := profilePartial(t.Context(), sut, "recording", "ns")
+			target, err := sut.resolveProfileTarget(
+				t.Context(),
+				&parsedAnnotation{profileName: "recording", cntName: "ctr"},
+				"",
+				types.NamespacedName{Name: "pod", Namespace: "ns"},
+				nil,
+			)
 			require.NoError(t, err)
+			require.Equal(t, tc.wantName, target.name.Name)
+			require.Equal(t, tc.wantMerge, target.merge)
+			require.Equal(t, "recording", target.labels[recordingapi.ProfileToRecordingLabel])
+			require.Equal(t, "ns", target.labels[recordingapi.ProfileToRecordingNamespaceLabel])
+			require.Equal(t, "ctr", target.labels[recordingapi.ProfileToContainerLabel])
+
+			_, partial := target.labels[profilebase.ProfilePartialLabel]
 			require.Equal(t, tc.wantPartial, partial)
 		})
 	}
+}
+
+func TestResolveProfileTargetInvalidName(t *testing.T) {
+	t.Parallel()
+
+	sut := &RecorderReconciler{impl: &profilerecorderfakes.FakeImpl{}, log: logr.Discard()}
+
+	_, err := sut.resolveProfileTarget(
+		t.Context(),
+		&parsedAnnotation{profileName: "Invalid.Name", cntName: "ctr"},
+		"",
+		types.NamespacedName{Name: "pod", Namespace: "ns"},
+		nil,
+	)
+	require.ErrorIs(t, err, errNameNotValid)
 }
 
 // TestReleaseUnrecordablePod covers the cleanup for a pod that can never be
@@ -2286,6 +2412,10 @@ func TestReleaseUnrecordablePod(t *testing.T) {
 		sut := &RecorderReconciler{impl: mock, log: logr.Discard()}
 		sut.podsToWatch.Store(podName.String(), podToWatch{
 			recorder: recordingapi.ProfileRecorderBpf,
+			profiles: []profileToCollect{
+				{kind: recordingapi.ProfileRecordingKindSeccompProfile, name: "seccomp"},
+				{kind: recordingapi.ProfileRecordingKindAppArmorProfile, name: "apparmor"},
+			},
 		})
 
 		sut.releaseUnrecordablePod(t.Context(), podName)
@@ -2293,15 +2423,25 @@ func TestReleaseUnrecordablePod(t *testing.T) {
 		_, tracked := sut.podsToWatch.Load(podName.String())
 		require.False(t, tracked)
 		require.Equal(t, 1, mock.StopBpfRecorderCallCount())
+
+		// The recorded data would otherwise stay until the recorder stops.
+		require.Equal(t, 1, mock.ResetSyscallsForProfileCallCount())
+		_, _, req := mock.ResetSyscallsForProfileArgsForCall(0)
+		require.Equal(t, "seccomp", req.GetName())
+		require.Equal(t, 1, mock.ResetApparmorForProfileCallCount())
 	})
 
-	t.Run("log recorder only drops the watch", func(t *testing.T) {
+	t.Run("log recorder drops the enricher data", func(t *testing.T) {
 		t.Parallel()
 
 		mock := &profilerecorderfakes.FakeImpl{}
 		sut := &RecorderReconciler{impl: mock, log: logr.Discard()}
 		sut.podsToWatch.Store(podName.String(), podToWatch{
 			recorder: recordingapi.ProfileRecorderLogs,
+			profiles: []profileToCollect{
+				{kind: recordingapi.ProfileRecordingKindSeccompProfile, name: "seccomp"},
+				{kind: recordingapi.ProfileRecordingKindSelinuxProfile, name: "selinux"},
+			},
 		})
 
 		sut.releaseUnrecordablePod(t.Context(), podName)
@@ -2309,6 +2449,13 @@ func TestReleaseUnrecordablePod(t *testing.T) {
 		_, tracked := sut.podsToWatch.Load(podName.String())
 		require.False(t, tracked)
 		require.Zero(t, mock.StopBpfRecorderCallCount())
+
+		require.Equal(t, 1, mock.ResetSyscallsCallCount())
+		_, _, syscallsReq := mock.ResetSyscallsArgsForCall(0)
+		require.Equal(t, "seccomp", syscallsReq.GetProfile())
+		require.Equal(t, 1, mock.ResetAvcsCallCount())
+		_, _, avcReq := mock.ResetAvcsArgsForCall(0)
+		require.Equal(t, "selinux", avcReq.GetProfile())
 	})
 
 	t.Run("unknown pod is a no-op", func(t *testing.T) {
@@ -2323,7 +2470,7 @@ func TestReleaseUnrecordablePod(t *testing.T) {
 	})
 }
 
-func TestSetRecordingFinalizersSkipsDeletedRecording(t *testing.T) {
+func TestHoldRecordingSkipsDeletedRecording(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
@@ -2352,13 +2499,17 @@ func TestSetRecordingFinalizersSkipsDeletedRecording(t *testing.T) {
 			require.NoError(t, recordingapi.AddToScheme(scheme))
 			kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(recording).Build()
 
+			stored := &recordingapi.ProfileRecording{}
+			require.NoError(t, kubeClient.Get(
+				t.Context(), client.ObjectKeyFromObject(recording), stored,
+			))
+
 			sut := &RecorderReconciler{client: kubeClient, log: logr.Discard()}
 
-			require.NoError(t, sut.setRecordingFinalizers(
-				t.Context(),
-				map[string]string{profilebase.ProfilePartialLabel: "true"},
-				recording.Name, recording.Namespace,
-			))
+			require.NoError(t, sut.holdRecording(t.Context(), &profileTarget{
+				state:     recordingState{partial: true},
+				recording: stored,
+			}))
 
 			got := &recordingapi.ProfileRecording{}
 			require.NoError(t, kubeClient.Get(
@@ -2368,6 +2519,354 @@ func TestSetRecordingFinalizersSkipsDeletedRecording(t *testing.T) {
 				controllerutil.ContainsFinalizer(got, recordingapi.RecordingHasUnmergedProfiles))
 		})
 	}
+}
+
+// TestCollectBpfProfileKeepsDataOnFailure asserts that the recorded data is
+// only dropped once the profile is stored, so that the retry has it.
+func TestCollectBpfProfileKeepsDataOnFailure(t *testing.T) {
+	t.Parallel()
+
+	recording := &recordingapi.ProfileRecording{
+		ObjectMeta: metav1.ObjectMeta{Name: "recording", Namespace: "ns"},
+	}
+
+	mock := &profilerecorderfakes.FakeImpl{}
+	mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
+		Spec: spodapi.SPODSpec{
+			Enricher: spodapi.SPODEnricherConfig{EnableBpfRecorder: ptrTrue()},
+		},
+	}, nil)
+	mock.ApparmorForProfileReturns(&bpfrecorderapi.ApparmorResponse{
+		Capabilities: []string{"net_raw"},
+	}, nil)
+	mock.ClientGetCalls(func(
+		_ context.Context, _ client.Client, _ types.NamespacedName, obj client.Object,
+	) error {
+		recordingResult, ok := obj.(*recordingapi.ProfileRecording)
+		require.True(t, ok)
+		recording.DeepCopyInto(recordingResult)
+
+		return nil
+	})
+	mock.CreateOrUpdateReturnsOnCall(0, "", errTest)
+	mock.CreateOrUpdateReturnsOnCall(1, controllerutil.OperationResultCreated, nil)
+
+	sut := &RecorderReconciler{
+		impl:   mock,
+		log:    logr.Discard(),
+		record: events.NewFakeRecorder(10),
+	}
+
+	profiles := []profileToCollect{{
+		kind: recordingapi.ProfileRecordingKindAppArmorProfile,
+		name: "recording_container_nonce_timestamp",
+	}}
+	podName := types.NamespacedName{Name: "pod", Namespace: recording.Namespace}
+
+	err := sut.collectBpfProfiles(t.Context(), "", podName, profiles, nil)
+	require.ErrorIs(t, err, errTest)
+	require.Zero(t, mock.ResetApparmorForProfileCallCount())
+	require.Zero(t, mock.StopBpfRecorderCallCount())
+
+	err = sut.collectBpfProfiles(t.Context(), "", podName, profiles, nil)
+	require.NoError(t, err)
+	require.Equal(t, 1, mock.ResetApparmorForProfileCallCount())
+	require.Equal(t, 1, mock.StopBpfRecorderCallCount())
+}
+
+// TestStoreProfileMergesProfileOfRecordingGone asserts that a partial profile
+// collected after its recording is gone is merged into the final profile
+// instead of being left behind unmerged.
+func TestStoreProfileMergesProfileOfRecordingGone(t *testing.T) {
+	t.Parallel()
+
+	scheme := apiruntime.NewScheme()
+	require.NoError(t, seccompprofileapi.AddToScheme(scheme))
+	require.NoError(t, recordingapi.AddToScheme(scheme))
+
+	labels := map[string]string{
+		recordingapi.ProfileToRecordingLabel:          "recording",
+		recordingapi.ProfileToRecordingNamespaceLabel: "ns",
+		recordingapi.ProfileToContainerLabel:          "ctr",
+	}
+
+	merged := &seccompprofileapi.SeccompProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: "recording-ctr", Labels: labels},
+		Spec: seccompprofileapi.SeccompProfileSpec{
+			DefaultAction: seccompprofileapi.ActErrno,
+			Syscalls: []seccompprofileapi.Syscall{{
+				Action: seccompprofileapi.ActAllow,
+				Names:  []string{"read"},
+			}},
+		},
+	}
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(merged).Build()
+
+	mock := &profilerecorderfakes.FakeImpl{}
+	mock.ClientGetCalls(func(
+		ctx context.Context, c client.Client, key types.NamespacedName, obj client.Object,
+	) error {
+		return c.Get(ctx, key, obj)
+	})
+	mock.CreateOrUpdateCalls(controllerutil.CreateOrUpdate)
+
+	sut := &RecorderReconciler{
+		impl:   mock,
+		client: kubeClient,
+		log:    logr.Discard(),
+		record: events.NewFakeRecorder(10),
+	}
+
+	target, err := sut.resolveProfileTarget(
+		t.Context(),
+		&parsedAnnotation{profileName: "recording", cntName: "ctr"},
+		"",
+		types.NamespacedName{Name: "pod", Namespace: "ns"},
+		map[string]recordingState{"recording": {partial: true}},
+	)
+	require.NoError(t, err)
+	require.True(t, target.merge)
+
+	profile := &seccompprofileapi.SeccompProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: target.name.Name, Labels: target.labels},
+		Spec: seccompprofileapi.SeccompProfileSpec{
+			DefaultAction: seccompprofileapi.ActErrno,
+			Syscalls: []seccompprofileapi.Syscall{{
+				Action: seccompprofileapi.ActAllow,
+				Names:  []string{"write"},
+			}},
+		},
+	}
+
+	require.NoError(
+		t,
+		sut.storeProfile(t.Context(), target, profile, &profile.Spec.SpecBase, "seccomp"),
+	)
+
+	got := &seccompprofileapi.SeccompProfile{}
+	require.NoError(t, kubeClient.Get(t.Context(), client.ObjectKey{Name: "recording-ctr"}, got))
+
+	var names []string
+	for _, syscall := range got.Spec.Syscalls {
+		names = append(names, syscall.Names...)
+	}
+
+	require.ElementsMatch(t, []string{"read", "write"}, names)
+}
+
+// TestCollectBpfProfileOfRecordingWhoseMergeFinished asserts that a partial
+// profile collected while the recording is being deleted ends up merged, even
+// when the merger already finished and nothing would merge it any more.
+func TestCollectBpfProfileOfRecordingWhoseMergeFinished(t *testing.T) {
+	t.Parallel()
+
+	recording := &recordingapi.ProfileRecording{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "recording",
+			Namespace:         "ns",
+			Finalizers:        []string{recordingapi.RecordingHasUnmergedProfiles},
+			DeletionTimestamp: &metav1.Time{Time: time.Now()},
+		},
+		Spec: recordingapi.ProfileRecordingSpec{
+			MergeStrategy: recordingapi.ProfileMergeContainers,
+		},
+	}
+
+	scheme := apiruntime.NewScheme()
+	require.NoError(t, recordingapi.AddToScheme(scheme))
+	require.NoError(t, seccompprofileapi.AddToScheme(scheme))
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(recording).Build()
+
+	mock := &profilerecorderfakes.FakeImpl{}
+	mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
+		Spec: spodapi.SPODSpec{
+			Enricher: spodapi.SPODEnricherConfig{EnableBpfRecorder: ptrTrue()},
+		},
+	}, nil)
+	mock.SyscallsForProfileReturns(&bpfrecorderapi.SyscallsResponse{
+		Syscalls: []string{"read"},
+		GoArch:   runtime.GOARCH,
+	}, nil)
+	mock.ClientGetCalls(func(
+		ctx context.Context, c client.Client, key types.NamespacedName, obj client.Object,
+	) error {
+		return c.Get(ctx, key, obj)
+	})
+	mock.CreateOrUpdateCalls(controllerutil.CreateOrUpdate)
+
+	sut := &RecorderReconciler{
+		impl:   mock,
+		client: kubeClient,
+		log:    logr.Discard(),
+		record: events.NewFakeRecorder(10),
+	}
+
+	require.NoError(t, sut.collectBpfProfiles(
+		t.Context(),
+		"",
+		types.NamespacedName{Name: "pod", Namespace: recording.Namespace},
+		[]profileToCollect{{
+			kind: recordingapi.ProfileRecordingKindSeccompProfile,
+			name: "recording_ctr_nonce_timestamp",
+		}},
+		nil,
+	))
+
+	profiles := &seccompprofileapi.SeccompProfileList{}
+	require.NoError(t, kubeClient.List(t.Context(), profiles))
+	require.Len(t, profiles.Items, 1)
+	require.Equal(t, "recording-ctr", profiles.Items[0].Name)
+	require.NotContains(t, profiles.Items[0].Labels, profilebase.ProfilePartialLabel)
+}
+
+// TestCollectBpfProfileRejected asserts that a profile the API server rejects
+// for good is dropped instead of being retried forever, which would keep the
+// node's recorder running.
+func TestCollectBpfProfileRejected(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		rejection error
+		attempts  int
+	}{
+		{rejection: kerrors.NewInvalid(schema.GroupKind{Kind: "SeccompProfile"}, "p", nil), attempts: 1},
+		{rejection: kerrors.NewRequestEntityTooLargeError("too large"), attempts: 1},
+		// A permission may not have been granted yet.
+		{rejection: kerrors.NewForbidden(schema.GroupResource{}, "p", errTest), attempts: maxForbiddenAttempts},
+	} {
+		recording := &recordingapi.ProfileRecording{
+			ObjectMeta: metav1.ObjectMeta{Name: "recording", Namespace: "ns"},
+		}
+
+		mock := &profilerecorderfakes.FakeImpl{}
+		mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
+			Spec: spodapi.SPODSpec{
+				Enricher: spodapi.SPODEnricherConfig{EnableBpfRecorder: ptrTrue()},
+			},
+		}, nil)
+		mock.SyscallsForProfileReturns(&bpfrecorderapi.SyscallsResponse{
+			Syscalls: []string{"read"},
+			GoArch:   runtime.GOARCH,
+		}, nil)
+		mock.ClientGetCalls(func(
+			_ context.Context, _ client.Client, _ types.NamespacedName, obj client.Object,
+		) error {
+			recordingResult, ok := obj.(*recordingapi.ProfileRecording)
+			require.True(t, ok)
+			recording.DeepCopyInto(recordingResult)
+
+			return nil
+		})
+		mock.CreateOrUpdateReturns("", tc.rejection)
+
+		recorder := events.NewFakeRecorder(10)
+		sut := &RecorderReconciler{impl: mock, log: logr.Discard(), record: recorder}
+
+		for attempt := 1; attempt <= tc.attempts; attempt++ {
+			err := sut.collectBpfProfiles(
+				t.Context(),
+				"",
+				types.NamespacedName{Name: "pod", Namespace: recording.Namespace},
+				[]profileToCollect{{
+					kind: recordingapi.ProfileRecordingKindSeccompProfile,
+					name: "recording_ctr_nonce_timestamp",
+				}},
+				nil,
+			)
+			require.Contains(t, <-recorder.Events, reasonProfileCreationFailed)
+
+			if attempt < tc.attempts {
+				require.Error(t, err)
+				require.Zero(t, mock.ResetSyscallsForProfileCallCount())
+
+				continue
+			}
+
+			require.NoError(t, err)
+		}
+
+		require.Equal(t, 1, mock.ResetSyscallsForProfileCallCount())
+		require.Equal(t, 1, mock.StopBpfRecorderCallCount())
+	}
+}
+
+// TestCollectBpfProfileRetriesTransientErrors asserts that other errors are
+// still retried with the recorded data kept.
+func TestCollectBpfProfileRetriesTransientErrors(t *testing.T) {
+	t.Parallel()
+
+	recording := &recordingapi.ProfileRecording{
+		ObjectMeta: metav1.ObjectMeta{Name: "recording", Namespace: "ns"},
+	}
+
+	mock := &profilerecorderfakes.FakeImpl{}
+	mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
+		Spec: spodapi.SPODSpec{
+			Enricher: spodapi.SPODEnricherConfig{EnableBpfRecorder: ptrTrue()},
+		},
+	}, nil)
+	mock.SyscallsForProfileReturns(&bpfrecorderapi.SyscallsResponse{
+		Syscalls: []string{"read"},
+		GoArch:   runtime.GOARCH,
+	}, nil)
+	mock.ClientGetCalls(func(
+		_ context.Context, _ client.Client, _ types.NamespacedName, obj client.Object,
+	) error {
+		recordingResult, ok := obj.(*recordingapi.ProfileRecording)
+		require.True(t, ok)
+		recording.DeepCopyInto(recordingResult)
+
+		return nil
+	})
+	mock.CreateOrUpdateReturns("", kerrors.NewServiceUnavailable("unavailable"))
+
+	sut := &RecorderReconciler{impl: mock, log: logr.Discard(), record: events.NewFakeRecorder(10)}
+
+	require.Error(t, sut.collectBpfProfiles(
+		t.Context(),
+		"",
+		types.NamespacedName{Name: "pod", Namespace: recording.Namespace},
+		[]profileToCollect{{
+			kind: recordingapi.ProfileRecordingKindSeccompProfile,
+			name: "recording_ctr_nonce_timestamp",
+		}},
+		nil,
+	))
+	require.Zero(t, mock.ResetSyscallsForProfileCallCount())
+	require.Zero(t, mock.StopBpfRecorderCallCount())
+}
+
+// TestStoreProfileDisables asserts that disableProfileAfterRecording is
+// applied from the recording state.
+func TestStoreProfileDisables(t *testing.T) {
+	t.Parallel()
+
+	mock := &profilerecorderfakes.FakeImpl{}
+
+	var stored *seccompprofileapi.SeccompProfile
+
+	mock.CreateOrUpdateCalls(func(
+		_ context.Context, _ client.Client, obj client.Object, mutate controllerutil.MutateFn,
+	) (controllerutil.OperationResult, error) {
+		require.NoError(t, mutate())
+
+		var ok bool
+
+		stored, ok = obj.(*seccompprofileapi.SeccompProfile)
+		require.True(t, ok)
+
+		return controllerutil.OperationResultCreated, nil
+	})
+
+	sut := &RecorderReconciler{impl: mock, log: logr.Discard(), record: events.NewFakeRecorder(10)}
+	profile := &seccompprofileapi.SeccompProfile{ObjectMeta: metav1.ObjectMeta{Name: "p"}}
+
+	require.NoError(t, sut.storeProfile(t.Context(), &profileTarget{
+		name:  types.NamespacedName{Name: "p"},
+		state: recordingState{disable: true},
+	}, profile, &profile.Spec.SpecBase, "seccomp"))
+
+	require.Equal(t, profilebase.SpecStateDisabled, stored.Spec.State)
 }
 
 func TestCollectBpfProfilesSkipsProfileOfOtherRecording(t *testing.T) {
@@ -2399,7 +2898,6 @@ func TestCollectBpfProfilesSkipsProfileOfOtherRecording(t *testing.T) {
 
 		return nil
 	})
-	mock.GetRecordingReturns(recording, nil)
 
 	mutated := false
 
@@ -2436,8 +2934,211 @@ func TestCollectBpfProfilesSkipsProfileOfOtherRecording(t *testing.T) {
 			kind: recordingapi.ProfileRecordingKindSeccompProfile,
 			name: "recording_container_nonce_timestamp",
 		}},
+		nil,
 	)
 	require.NoError(t, err)
 	require.Equal(t, 1, mock.CreateOrUpdateCallCount())
 	require.False(t, mutated, "the profile of the other recording must not be updated")
+}
+
+// TestStoreProfileConcurrentMerges asserts that nodes merging into the same
+// profile at once do not lose each other's updates.
+func TestStoreProfileConcurrentMerges(t *testing.T) {
+	t.Parallel()
+
+	scheme := apiruntime.NewScheme()
+	require.NoError(t, seccompprofileapi.AddToScheme(scheme))
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	mock := &profilerecorderfakes.FakeImpl{}
+	mock.CreateOrUpdateCalls(controllerutil.CreateOrUpdate)
+
+	sut := &RecorderReconciler{
+		impl:   mock,
+		client: kubeClient,
+		log:    logr.Discard(),
+		record: events.NewFakeRecorder(100),
+	}
+
+	labels := map[string]string{
+		recordingapi.ProfileToRecordingLabel:          "recording",
+		recordingapi.ProfileToRecordingNamespaceLabel: "ns",
+		recordingapi.ProfileToContainerLabel:          "ctr",
+	}
+
+	const nodes = 8
+
+	var wg sync.WaitGroup
+
+	for node := range nodes {
+		wg.Go(func() {
+			profile := &seccompprofileapi.SeccompProfile{
+				ObjectMeta: metav1.ObjectMeta{Name: "recording-ctr", Labels: labels},
+				Spec: seccompprofileapi.SeccompProfileSpec{
+					DefaultAction: seccompprofileapi.ActErrno,
+					Syscalls: []seccompprofileapi.Syscall{{
+						Action: seccompprofileapi.ActAllow,
+						Names:  []string{fmt.Sprintf("syscall_%d", node)},
+					}},
+				},
+			}
+
+			assert.NoError(t, sut.storeProfile(t.Context(), &profileTarget{
+				name:          types.NamespacedName{Name: "recording-ctr", Namespace: "ns"},
+				recordingName: "recording",
+				labels:        labels,
+				merge:         true,
+			}, profile, &profile.Spec.SpecBase, "seccomp"))
+		})
+	}
+
+	wg.Wait()
+
+	got := &seccompprofileapi.SeccompProfile{}
+	require.NoError(t, kubeClient.Get(t.Context(), client.ObjectKey{Name: "recording-ctr"}, got))
+
+	var names []string
+	for _, syscall := range got.Spec.Syscalls {
+		names = append(names, syscall.Names...)
+	}
+
+	require.Len(t, names, nodes)
+}
+
+// storeMergedAppArmorProfile stores the recorded AppArmor profile of a
+// recording which is gone next to the stored merged profile, and returns the
+// AppArmor profiles stored afterwards by name.
+func storeMergedAppArmorProfile(
+	t *testing.T,
+	stored, recorded *apparmorprofileapi.AppArmorAbstract,
+	recorder *events.FakeRecorder,
+) map[string]apparmorprofileapi.AppArmorProfile {
+	t.Helper()
+
+	scheme := apiruntime.NewScheme()
+	require.NoError(t, apparmorprofileapi.AddToScheme(scheme))
+	require.NoError(t, recordingapi.AddToScheme(scheme))
+
+	labels := map[string]string{
+		recordingapi.ProfileToRecordingLabel:          "recording",
+		recordingapi.ProfileToRecordingNamespaceLabel: "ns",
+		recordingapi.ProfileToContainerLabel:          "ctr",
+	}
+
+	merged := &apparmorprofileapi.AppArmorProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: "recording-ctr", Namespace: "ns", Labels: labels},
+		Spec:       apparmorprofileapi.AppArmorProfileSpec{Abstract: *stored},
+	}
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(merged).Build()
+
+	mock := &profilerecorderfakes.FakeImpl{}
+	mock.ClientGetCalls(func(
+		ctx context.Context, c client.Client, key types.NamespacedName, obj client.Object,
+	) error {
+		return c.Get(ctx, key, obj)
+	})
+	mock.CreateOrUpdateCalls(controllerutil.CreateOrUpdate)
+
+	sut := &RecorderReconciler{
+		impl:   mock,
+		client: kubeClient,
+		log:    logr.Discard(),
+		record: recorder,
+	}
+
+	target, err := sut.resolveProfileTarget(
+		t.Context(),
+		&parsedAnnotation{profileName: "recording", cntName: "ctr"},
+		"",
+		types.NamespacedName{Name: "pod", Namespace: "ns"},
+		map[string]recordingState{"recording": {partial: true}},
+	)
+	require.NoError(t, err)
+	require.True(t, target.merge)
+
+	profile := &apparmorprofileapi.AppArmorProfile{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: target.name.Name, Namespace: target.name.Namespace, Labels: target.labels,
+		},
+		Spec: apparmorprofileapi.AppArmorProfileSpec{Abstract: *recorded},
+	}
+
+	require.NoError(
+		t,
+		sut.storeProfile(t.Context(), target, profile, &profile.Spec.SpecBase, "apparmor"),
+	)
+
+	profiles := &apparmorprofileapi.AppArmorProfileList{}
+	require.NoError(t, kubeClient.List(t.Context(), profiles))
+
+	byName := map[string]apparmorprofileapi.AppArmorProfile{}
+	for i := range profiles.Items {
+		byName[profiles.Items[i].Name] = profiles.Items[i]
+	}
+
+	return byName
+}
+
+// TestStoreProfileMergesAppArmorVariables asserts that recorded AppArmor
+// profiles are merged although the recorder writes /proc paths with the pid
+// variable, which the merger cannot interpret.
+func TestStoreProfileMergesAppArmorVariables(t *testing.T) {
+	t.Parallel()
+
+	recorder := events.NewFakeRecorder(10)
+	profiles := storeMergedAppArmorProfile(t,
+		&apparmorprofileapi.AppArmorAbstract{
+			Filesystem: &apparmorprofileapi.AppArmorFsRules{
+				ReadOnlyPaths: []string{"/etc/passwd", "/proc/@{pid}/maps"},
+			},
+		},
+		&apparmorprofileapi.AppArmorAbstract{
+			Filesystem: &apparmorprofileapi.AppArmorFsRules{
+				ReadOnlyPaths: []string{"/proc/@{pid}/status"},
+			},
+		},
+		recorder,
+	)
+
+	require.Len(t, profiles, 1)
+	require.Equal(t,
+		[]string{"/etc/passwd", "/proc/@{pid}/maps", "/proc/@{pid}/status"},
+		profiles["recording-ctr"].Spec.Abstract.Filesystem.ReadOnlyPaths,
+	)
+	require.Contains(t, <-recorder.Events, reasonProfileCreated)
+}
+
+// TestStoreProfileKeepsProfileWhoseMergeFails asserts that a profile which
+// cannot be merged into the final profile is stored as a partial profile
+// instead of being retried forever.
+func TestStoreProfileKeepsProfileWhoseMergeFails(t *testing.T) {
+	t.Parallel()
+
+	stored := &apparmorprofileapi.AppArmorAbstract{
+		Filesystem: &apparmorprofileapi.AppArmorFsRules{
+			// The merger rejects a path granted by two rules.
+			ReadOnlyPaths:  []string{"/etc/passwd"},
+			ReadWritePaths: []string{"/etc/passwd"},
+		},
+	}
+	recorded := &apparmorprofileapi.AppArmorAbstract{
+		Filesystem: &apparmorprofileapi.AppArmorFsRules{
+			ReadOnlyPaths: []string{"/proc/@{pid}/status"},
+		},
+	}
+
+	recorder := events.NewFakeRecorder(10)
+	profiles := storeMergedAppArmorProfile(t, stored, recorded, recorder)
+
+	require.Contains(t, <-recorder.Events, reasonProfileMergeFailed)
+	require.Contains(t, <-recorder.Events, reasonProfileCreated)
+
+	require.Len(t, profiles, 2)
+	require.Equal(t, *stored, profiles["recording-ctr"].Spec.Abstract)
+
+	partial, ok := profiles["recording-ctr-pod"]
+	require.True(t, ok)
+	require.Equal(t, *recorded, partial.Spec.Abstract)
+	require.Equal(t, "true", partial.Labels[profilebase.ProfilePartialLabel])
+	require.Equal(t, "recording", partial.Labels[recordingapi.ProfileToRecordingLabel])
 }

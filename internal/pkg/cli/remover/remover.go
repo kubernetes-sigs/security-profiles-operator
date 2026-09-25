@@ -69,7 +69,7 @@ func (p *Remover) Run() error {
 			return fmt.Errorf("cannot remove apparmor profile: %w", err)
 		}
 
-		p.logger.Info("Removing AppArmor profile", "profileName", obj.Name)
+		p.logger.Info("Removing AppArmor profile", "profile", obj.Name)
 
 		if err := p.AppArmorRemoveProfile(manager, obj); err != nil {
 			return fmt.Errorf("remove apparmor profile: %w", err)

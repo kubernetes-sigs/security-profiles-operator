@@ -20,18 +20,15 @@ package bpfrecorder
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net"
 	"os"
-	"runtime"
-	"strconv"
 	"unsafe"
 
 	bpf "github.com/aquasecurity/libbpfgo"
-	"github.com/blang/semver/v4"
 	"github.com/jellydator/ttlcache/v3"
 	seccomp "github.com/seccomp/libseccomp-golang"
+	"golang.org/x/sys/unix"
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -39,7 +36,6 @@ import (
 	"k8s.io/client-go/rest"
 
 	apimetrics "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder/types"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
@@ -49,7 +45,6 @@ type defaultImpl struct{}
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../../hack/boilerplate/boilerplate.generatego.bpf.txt
 //counterfeiter:generate . impl
 type impl interface {
-	Getenv(string) string
 	InClusterConfig() (*rest.Config, error)
 	NewForConfig(*rest.Config) (*kubernetes.Clientset, error)
 	Listen(string, string) (net.Listener, error)
@@ -63,30 +58,25 @@ type impl interface {
 	GetMap(*bpf.Module, string) (*bpf.BPFMap, error)
 	InitRingBuf(*bpf.Module, string, chan []byte) (*bpf.RingBuffer, error)
 	Stat(string) (os.FileInfo, error)
-	Unmarshal([]byte, any) error
-	Uname() (types.Arch, *semver.Version, error)
-	Write(*os.File, []byte) (int, error)
 	ContainerIDForPID(*ttlcache.Cache[string, string], int) (string, error)
 	GetValue(*bpf.BPFMap, uint32) ([]byte, error)
 	UpdateValue(*bpf.BPFMap, uint32, []byte) error
 	DeleteKey(*bpf.BPFMap, uint32) error
+	GetValue64(*bpf.BPFMap, uint64) ([]byte, error)
+	UpdateValue64(*bpf.BPFMap, uint64, []byte) error
+	DeleteKey64(*bpf.BPFMap, uint64) error
+	IsCgroupV2() bool
 	ListPods(context.Context, *kubernetes.Clientset, string) (*v1.PodList, error)
 	GetName(seccomp.ScmpSyscall) (string, error)
 	RemoveAll(string) error
 	Chown(string, int, int) error
 	PollRingBuffer(*bpf.RingBuffer, int)
-	GoArch() string
 	Readlink(string) (string, error)
-	ParseUint(string) (uint32, error)
 	DialMetrics() (*grpc.ClientConn, error)
 	BpfIncClient(client apimetrics.MetricsClient) (apimetrics.Metrics_BpfIncClient, error)
 	CloseGRPC(*grpc.ClientConn) error
 	SendMetric(apimetrics.Metrics_BpfIncClient, *apimetrics.BpfRequest) error
 	InitGlobalVariable(*bpf.Module, string, any) error
-}
-
-func (d *defaultImpl) Getenv(key string) string {
-	return os.Getenv(key)
 }
 
 func (d *defaultImpl) InClusterConfig() (*rest.Config, error) {
@@ -147,18 +137,6 @@ func (d *defaultImpl) Stat(name string) (os.FileInfo, error) {
 	return os.Stat(name)
 }
 
-func (d *defaultImpl) Unmarshal(data []byte, v any) error {
-	return json.Unmarshal(data, v)
-}
-
-func (d *defaultImpl) Uname() (types.Arch, *semver.Version, error) {
-	return util.Uname()
-}
-
-func (d *defaultImpl) Write(file *os.File, b []byte) (n int, err error) {
-	return file.Write(b)
-}
-
 func (d *defaultImpl) ContainerIDForPID(
 	cache *ttlcache.Cache[string, string],
 	pid int,
@@ -190,6 +168,42 @@ func (d *defaultImpl) DeleteKey(m *bpf.BPFMap, key uint32) error {
 	return m.DeleteKey(unsafe.Pointer(&key))
 }
 
+func (d *defaultImpl) GetValue64(m *bpf.BPFMap, key uint64) ([]byte, error) {
+	if m == nil {
+		return nil, errors.New("provided bpf map is nil")
+	}
+
+	return m.GetValue(unsafe.Pointer(&key))
+}
+
+func (d *defaultImpl) UpdateValue64(m *bpf.BPFMap, key uint64, value []byte) error {
+	if m == nil {
+		return errors.New("provided bpf map is nil")
+	}
+
+	return m.Update(unsafe.Pointer(&key), unsafe.Pointer(&value[0]))
+}
+
+func (d *defaultImpl) DeleteKey64(m *bpf.BPFMap, key uint64) error {
+	if m == nil {
+		return errors.New("provided bpf map is nil")
+	}
+
+	return m.DeleteKey(unsafe.Pointer(&key))
+}
+
+// IsCgroupV2 reports whether the host runs the unified cgroup hierarchy only.
+// On hybrid or legacy hosts the cgroup ID seen by BPF does not identify a
+// container.
+func (d *defaultImpl) IsCgroupV2() bool {
+	var st unix.Statfs_t
+	if err := unix.Statfs("/sys/fs/cgroup", &st); err != nil {
+		return false
+	}
+
+	return st.Type == unix.CGROUP2_SUPER_MAGIC
+}
+
 func (d *defaultImpl) ListPods(
 	ctx context.Context, c *kubernetes.Clientset, nodeName string,
 ) (*v1.PodList, error) {
@@ -210,22 +224,12 @@ func (d *defaultImpl) Chown(name string, uid, gid int) error {
 	return os.Chown(name, uid, gid)
 }
 
-func (d *defaultImpl) GoArch() string {
-	return runtime.GOARCH
-}
-
 func (d *defaultImpl) PollRingBuffer(b *bpf.RingBuffer, timeout int) {
 	b.Poll(timeout)
 }
 
 func (d *defaultImpl) Readlink(name string) (string, error) {
 	return os.Readlink(name)
-}
-
-func (d *defaultImpl) ParseUint(s string) (uint32, error) {
-	value, err := strconv.ParseUint(s, 10, 32)
-
-	return uint32(value), err
 }
 
 func (d *defaultImpl) DialMetrics() (*grpc.ClientConn, error) {

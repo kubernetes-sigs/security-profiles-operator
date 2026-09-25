@@ -20,7 +20,6 @@ package recorder
 
 import (
 	"context"
-	"encoding/json"
 	"io"
 	"os"
 	"os/signal"
@@ -28,7 +27,6 @@ import (
 
 	"github.com/aquasecurity/libbpfgo"
 	libseccomp "github.com/seccomp/libseccomp-golang"
-	"go.podman.io/common/pkg/seccomp"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/printers"
 
@@ -52,12 +50,10 @@ type impl interface {
 	SyscallsIterator(*bpfrecorder.BpfRecorder) *libbpfgo.BPFMapIterator
 	IteratorNext(*libbpfgo.BPFMapIterator) bool
 	IteratorKey(*libbpfgo.BPFMapIterator) []byte
-	SyscallsGetValue(*bpfrecorder.BpfRecorder, uint32) ([]byte, error)
+	SyscallsGetValue(*bpfrecorder.BpfRecorder, uint64) ([]byte, error)
 	GetName(libseccomp.ScmpSyscall) (string, error)
-	MarshalIndent(any, string, string) ([]byte, error)
 	Create(string) (io.WriteCloser, error)
 	PrintObj(printers.YAMLPrinter, runtime.Object, io.Writer) error
-	GoArchToSeccompArch(string) (seccomp.Arch, error)
 	Notify(chan<- os.Signal, ...os.Signal)
 }
 
@@ -109,16 +105,12 @@ func (*defaultImpl) IteratorKey(it *libbpfgo.BPFMapIterator) []byte {
 	return it.Key()
 }
 
-func (*defaultImpl) SyscallsGetValue(b *bpfrecorder.BpfRecorder, mntns uint32) ([]byte, error) {
+func (*defaultImpl) SyscallsGetValue(b *bpfrecorder.BpfRecorder, mntns uint64) ([]byte, error) {
 	return b.Syscalls().GetValue(unsafe.Pointer(&mntns))
 }
 
 func (*defaultImpl) GetName(s libseccomp.ScmpSyscall) (string, error) {
 	return s.GetName()
-}
-
-func (*defaultImpl) MarshalIndent(v any, prefix, indent string) ([]byte, error) {
-	return json.MarshalIndent(v, prefix, indent)
 }
 
 func (*defaultImpl) Create(name string) (io.WriteCloser, error) {
@@ -127,10 +119,6 @@ func (*defaultImpl) Create(name string) (io.WriteCloser, error) {
 
 func (*defaultImpl) PrintObj(p printers.YAMLPrinter, obj runtime.Object, w io.Writer) error {
 	return p.PrintObj(obj, w)
-}
-
-func (*defaultImpl) GoArchToSeccompArch(arch string) (seccomp.Arch, error) {
-	return seccomp.GoArchToSeccompArch(arch)
 }
 
 func (*defaultImpl) Notify(c chan<- os.Signal, sig ...os.Signal) {

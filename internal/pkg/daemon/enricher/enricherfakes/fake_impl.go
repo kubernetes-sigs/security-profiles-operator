@@ -36,13 +36,6 @@ import (
 )
 
 type FakeImpl struct {
-	AddToBacklogStub        func(*ttlcache.Cache[string, []*types.AuditLine], string, []*types.AuditLine)
-	addToBacklogMutex       sync.RWMutex
-	addToBacklogArgsForCall []struct {
-		arg1 *ttlcache.Cache[string, []*types.AuditLine]
-		arg2 string
-		arg3 []*types.AuditLine
-	}
 	AuditIncStub        func(api_metrics.MetricsClient) (api_metrics.Metrics_AuditIncClient, error)
 	auditIncMutex       sync.RWMutex
 	auditIncArgsForCall []struct {
@@ -131,35 +124,6 @@ type FakeImpl struct {
 	envForPidReturnsOnCall map[int]struct {
 		result1 map[string]string
 		result2 error
-	}
-	FlushBacklogStub        func(*ttlcache.Cache[string, []*types.AuditLine], string)
-	flushBacklogMutex       sync.RWMutex
-	flushBacklogArgsForCall []struct {
-		arg1 *ttlcache.Cache[string, []*types.AuditLine]
-		arg2 string
-	}
-	GetFromBacklogStub        func(*ttlcache.Cache[string, []*types.AuditLine], string) []*types.AuditLine
-	getFromBacklogMutex       sync.RWMutex
-	getFromBacklogArgsForCall []struct {
-		arg1 *ttlcache.Cache[string, []*types.AuditLine]
-		arg2 string
-	}
-	getFromBacklogReturns struct {
-		result1 []*types.AuditLine
-	}
-	getFromBacklogReturnsOnCall map[int]struct {
-		result1 []*types.AuditLine
-	}
-	GetenvStub        func(string) string
-	getenvMutex       sync.RWMutex
-	getenvArgsForCall []struct {
-		arg1 string
-	}
-	getenvReturns struct {
-		result1 string
-	}
-	getenvReturnsOnCall map[int]struct {
-		result1 string
 	}
 	InClusterConfigStub        func() (*rest.Config, error)
 	inClusterConfigMutex       sync.RWMutex
@@ -331,45 +295,6 @@ type FakeImpl struct {
 	}
 	invocations      map[string][][]interface{}
 	invocationsMutex sync.RWMutex
-}
-
-func (fake *FakeImpl) AddToBacklog(arg1 *ttlcache.Cache[string, []*types.AuditLine], arg2 string, arg3 []*types.AuditLine) {
-	var arg3Copy []*types.AuditLine
-	if arg3 != nil {
-		arg3Copy = make([]*types.AuditLine, len(arg3))
-		copy(arg3Copy, arg3)
-	}
-	fake.addToBacklogMutex.Lock()
-	fake.addToBacklogArgsForCall = append(fake.addToBacklogArgsForCall, struct {
-		arg1 *ttlcache.Cache[string, []*types.AuditLine]
-		arg2 string
-		arg3 []*types.AuditLine
-	}{arg1, arg2, arg3Copy})
-	stub := fake.AddToBacklogStub
-	fake.recordInvocation("AddToBacklog", []interface{}{arg1, arg2, arg3Copy})
-	fake.addToBacklogMutex.Unlock()
-	if stub != nil {
-		fake.AddToBacklogStub(arg1, arg2, arg3)
-	}
-}
-
-func (fake *FakeImpl) AddToBacklogCallCount() int {
-	fake.addToBacklogMutex.RLock()
-	defer fake.addToBacklogMutex.RUnlock()
-	return len(fake.addToBacklogArgsForCall)
-}
-
-func (fake *FakeImpl) AddToBacklogCalls(stub func(*ttlcache.Cache[string, []*types.AuditLine], string, []*types.AuditLine)) {
-	fake.addToBacklogMutex.Lock()
-	defer fake.addToBacklogMutex.Unlock()
-	fake.AddToBacklogStub = stub
-}
-
-func (fake *FakeImpl) AddToBacklogArgsForCall(i int) (*ttlcache.Cache[string, []*types.AuditLine], string, []*types.AuditLine) {
-	fake.addToBacklogMutex.RLock()
-	defer fake.addToBacklogMutex.RUnlock()
-	argsForCall := fake.addToBacklogArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
 }
 
 func (fake *FakeImpl) AuditInc(arg1 api_metrics.MetricsClient) (api_metrics.Metrics_AuditIncClient, error) {
@@ -807,162 +732,6 @@ func (fake *FakeImpl) EnvForPidReturnsOnCall(i int, result1 map[string]string, r
 		result1 map[string]string
 		result2 error
 	}{result1, result2}
-}
-
-func (fake *FakeImpl) FlushBacklog(arg1 *ttlcache.Cache[string, []*types.AuditLine], arg2 string) {
-	fake.flushBacklogMutex.Lock()
-	fake.flushBacklogArgsForCall = append(fake.flushBacklogArgsForCall, struct {
-		arg1 *ttlcache.Cache[string, []*types.AuditLine]
-		arg2 string
-	}{arg1, arg2})
-	stub := fake.FlushBacklogStub
-	fake.recordInvocation("FlushBacklog", []interface{}{arg1, arg2})
-	fake.flushBacklogMutex.Unlock()
-	if stub != nil {
-		fake.FlushBacklogStub(arg1, arg2)
-	}
-}
-
-func (fake *FakeImpl) FlushBacklogCallCount() int {
-	fake.flushBacklogMutex.RLock()
-	defer fake.flushBacklogMutex.RUnlock()
-	return len(fake.flushBacklogArgsForCall)
-}
-
-func (fake *FakeImpl) FlushBacklogCalls(stub func(*ttlcache.Cache[string, []*types.AuditLine], string)) {
-	fake.flushBacklogMutex.Lock()
-	defer fake.flushBacklogMutex.Unlock()
-	fake.FlushBacklogStub = stub
-}
-
-func (fake *FakeImpl) FlushBacklogArgsForCall(i int) (*ttlcache.Cache[string, []*types.AuditLine], string) {
-	fake.flushBacklogMutex.RLock()
-	defer fake.flushBacklogMutex.RUnlock()
-	argsForCall := fake.flushBacklogArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
-}
-
-func (fake *FakeImpl) GetFromBacklog(arg1 *ttlcache.Cache[string, []*types.AuditLine], arg2 string) []*types.AuditLine {
-	fake.getFromBacklogMutex.Lock()
-	ret, specificReturn := fake.getFromBacklogReturnsOnCall[len(fake.getFromBacklogArgsForCall)]
-	fake.getFromBacklogArgsForCall = append(fake.getFromBacklogArgsForCall, struct {
-		arg1 *ttlcache.Cache[string, []*types.AuditLine]
-		arg2 string
-	}{arg1, arg2})
-	stub := fake.GetFromBacklogStub
-	fakeReturns := fake.getFromBacklogReturns
-	fake.recordInvocation("GetFromBacklog", []interface{}{arg1, arg2})
-	fake.getFromBacklogMutex.Unlock()
-	if stub != nil {
-		return stub(arg1, arg2)
-	}
-	if specificReturn {
-		return ret.result1
-	}
-	return fakeReturns.result1
-}
-
-func (fake *FakeImpl) GetFromBacklogCallCount() int {
-	fake.getFromBacklogMutex.RLock()
-	defer fake.getFromBacklogMutex.RUnlock()
-	return len(fake.getFromBacklogArgsForCall)
-}
-
-func (fake *FakeImpl) GetFromBacklogCalls(stub func(*ttlcache.Cache[string, []*types.AuditLine], string) []*types.AuditLine) {
-	fake.getFromBacklogMutex.Lock()
-	defer fake.getFromBacklogMutex.Unlock()
-	fake.GetFromBacklogStub = stub
-}
-
-func (fake *FakeImpl) GetFromBacklogArgsForCall(i int) (*ttlcache.Cache[string, []*types.AuditLine], string) {
-	fake.getFromBacklogMutex.RLock()
-	defer fake.getFromBacklogMutex.RUnlock()
-	argsForCall := fake.getFromBacklogArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
-}
-
-func (fake *FakeImpl) GetFromBacklogReturns(result1 []*types.AuditLine) {
-	fake.getFromBacklogMutex.Lock()
-	defer fake.getFromBacklogMutex.Unlock()
-	fake.GetFromBacklogStub = nil
-	fake.getFromBacklogReturns = struct {
-		result1 []*types.AuditLine
-	}{result1}
-}
-
-func (fake *FakeImpl) GetFromBacklogReturnsOnCall(i int, result1 []*types.AuditLine) {
-	fake.getFromBacklogMutex.Lock()
-	defer fake.getFromBacklogMutex.Unlock()
-	fake.GetFromBacklogStub = nil
-	if fake.getFromBacklogReturnsOnCall == nil {
-		fake.getFromBacklogReturnsOnCall = make(map[int]struct {
-			result1 []*types.AuditLine
-		})
-	}
-	fake.getFromBacklogReturnsOnCall[i] = struct {
-		result1 []*types.AuditLine
-	}{result1}
-}
-
-func (fake *FakeImpl) Getenv(arg1 string) string {
-	fake.getenvMutex.Lock()
-	ret, specificReturn := fake.getenvReturnsOnCall[len(fake.getenvArgsForCall)]
-	fake.getenvArgsForCall = append(fake.getenvArgsForCall, struct {
-		arg1 string
-	}{arg1})
-	stub := fake.GetenvStub
-	fakeReturns := fake.getenvReturns
-	fake.recordInvocation("Getenv", []interface{}{arg1})
-	fake.getenvMutex.Unlock()
-	if stub != nil {
-		return stub(arg1)
-	}
-	if specificReturn {
-		return ret.result1
-	}
-	return fakeReturns.result1
-}
-
-func (fake *FakeImpl) GetenvCallCount() int {
-	fake.getenvMutex.RLock()
-	defer fake.getenvMutex.RUnlock()
-	return len(fake.getenvArgsForCall)
-}
-
-func (fake *FakeImpl) GetenvCalls(stub func(string) string) {
-	fake.getenvMutex.Lock()
-	defer fake.getenvMutex.Unlock()
-	fake.GetenvStub = stub
-}
-
-func (fake *FakeImpl) GetenvArgsForCall(i int) string {
-	fake.getenvMutex.RLock()
-	defer fake.getenvMutex.RUnlock()
-	argsForCall := fake.getenvArgsForCall[i]
-	return argsForCall.arg1
-}
-
-func (fake *FakeImpl) GetenvReturns(result1 string) {
-	fake.getenvMutex.Lock()
-	defer fake.getenvMutex.Unlock()
-	fake.GetenvStub = nil
-	fake.getenvReturns = struct {
-		result1 string
-	}{result1}
-}
-
-func (fake *FakeImpl) GetenvReturnsOnCall(i int, result1 string) {
-	fake.getenvMutex.Lock()
-	defer fake.getenvMutex.Unlock()
-	fake.GetenvStub = nil
-	if fake.getenvReturnsOnCall == nil {
-		fake.getenvReturnsOnCall = make(map[int]struct {
-			result1 string
-		})
-	}
-	fake.getenvReturnsOnCall[i] = struct {
-		result1 string
-	}{result1}
 }
 
 func (fake *FakeImpl) InClusterConfig() (*rest.Config, error) {

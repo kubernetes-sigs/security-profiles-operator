@@ -42,7 +42,11 @@ const (
 )
 
 type bpfExecEvent struct {
-	bpfEvent
+	Pid      uint32
+	Mntns    uint32
+	Key      uint64
+	Type     uint8
+	Flags    uint64
 	Filename [maxFileNameLen]uint8
 	Args     [maxArgs][maxArgLen]uint8
 	Env      [maxEnv][maxEnvLen]uint8
@@ -51,7 +55,7 @@ type bpfExecEvent struct {
 }
 
 // bpfExecEventSize is the packed wire size of bpfExecEvent.
-const bpfExecEventSize = bpfEventSize +
+const bpfExecEventSize = bpfEventHeaderSize +
 	maxFileNameLen +
 	maxArgs*maxArgLen +
 	maxEnv*maxEnvLen +
@@ -64,11 +68,9 @@ func (e *bpfExecEvent) unmarshal(raw []byte) bool {
 		return false
 	}
 
-	if !e.bpfEvent.unmarshal(raw) {
-		return false
-	}
+	e.Pid, e.Mntns, e.Key, e.Type, e.Flags = unmarshalHeader(raw)
 
-	off := bpfEventSize
+	off := bpfEventHeaderSize
 	off += copy(e.Filename[:], raw[off:off+maxFileNameLen])
 
 	for i := range maxArgs {
@@ -116,15 +118,9 @@ func (b *BpfProcessCache) Load() (err error) {
 
 	b.logger.Info("Loading bpf module...")
 
-	var bpfObject []byte
-
-	switch b.recorder.GoArch() {
-	case "amd64":
-		bpfObject = bpfAmd64
-	case "arm64":
-		bpfObject = bpfArm64
-	default:
-		return fmt.Errorf("architecture %s is currently unsupported", runtime.GOARCH)
+	bpfObject, err := bpfObjectForArch(runtime.GOARCH)
+	if err != nil {
+		return err
 	}
 
 	module, err = b.recorder.NewModuleFromBufferArgs(&bpf.NewModuleArgs{
@@ -138,22 +134,23 @@ func (b *BpfProcessCache) Load() (err error) {
 
 	b.recorder.module = module
 
+	// The recorder shares the BPF program, but only the process cache needs
+	// the arguments and environment of each exec.
+	if err := b.recorder.InitGlobalVariable(module, globalCaptureExecArgs, true); err != nil {
+		return fmt.Errorf("init global variable: %w", err)
+	}
+
 	b.logger.Info("Loading bpf object from module")
 
 	if err := b.recorder.BPFLoadObject(module); err != nil {
 		return fmt.Errorf("load bpf object: %w", err)
 	}
 
-	procCacheHooks := []string{
-		"sys_enter_execve",
-		"sys_enter_getgid",
-	}
-
 	if err := b.recorder.loadPrograms(procCacheHooks); err != nil {
 		return fmt.Errorf("loading base hooks: %w", err)
 	}
 
-	b.recorder.isRecordingBpfMap, err = b.recorder.GetMap(b.recorder.module, "is_recording")
+	b.recorder.isRecordingBpfMap, err = b.recorder.GetMap(b.recorder.module, mapIsRecording)
 	if err != nil {
 		return fmt.Errorf("getting `is_recording` map: %w", err)
 	}
@@ -164,7 +161,7 @@ func (b *BpfProcessCache) Load() (err error) {
 
 	ringbuf, err := b.recorder.InitRingBuf(
 		b.recorder.module,
-		"events",
+		mapEvents,
 		events,
 	)
 	if err != nil {
@@ -216,6 +213,12 @@ func (b *BpfProcessCache) processEvents(events chan []byte) {
 }
 
 func (b *BpfProcessCache) handleEvent(eventBytes []byte) {
+	// The exec hook also reports the start of containers, which carries no
+	// process information.
+	if len(eventBytes) >= bpfEventHeaderSize && eventBytes[16] != eventTypeExecveEnter {
+		return
+	}
+
 	var execEvent bpfExecEvent
 
 	if !execEvent.unmarshal(eventBytes) {

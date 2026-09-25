@@ -69,7 +69,7 @@ func (p *Installer) Run() error {
 			return fmt.Errorf("cannot create apparmor profile: %w", err)
 		}
 
-		p.logger.Info("Installing AppArmor profile", "profileName", obj.Name)
+		p.logger.Info("Installing AppArmor profile", "profile", obj.Name)
 
 		if _, err := p.AppArmorInstallProfile(manager, obj); err != nil {
 			return fmt.Errorf("install apparmor profile: %w", err)

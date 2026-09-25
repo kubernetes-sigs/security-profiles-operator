@@ -23,15 +23,18 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"slices"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/aquasecurity/libbpfgo"
 	"github.com/go-logr/logr"
 	"github.com/jellydator/ttlcache/v3"
+	seccomp "github.com/seccomp/libseccomp-golang"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
@@ -42,6 +45,7 @@ import (
 	apimetrics "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder/bpfrecorderfakes"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 const (
@@ -69,8 +73,6 @@ func TestRun(t *testing.T) {
 	}{
 		{ // Success
 			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns(node)
-				mock.GoArchReturns(validGoArch)
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 				mock.DialMetricsReturns(&grpc.ClientConn{}, nil)
 			},
@@ -78,17 +80,8 @@ func TestRun(t *testing.T) {
 				require.NoError(t, err)
 			},
 		},
-		{ // Getenv returns nothing
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns("")
-			},
-			assert: func(err error) {
-				require.Error(t, err)
-			},
-		},
 		{ // InClusterConfig fails
 			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns(node)
 				mock.InClusterConfigReturns(nil, errTest)
 			},
 			assert: func(err error) {
@@ -97,7 +90,6 @@ func TestRun(t *testing.T) {
 		},
 		{ // NewForConfig fails
 			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns(node)
 				mock.NewForConfigReturns(nil, errTest)
 			},
 			assert: func(err error) {
@@ -106,7 +98,6 @@ func TestRun(t *testing.T) {
 		},
 		{ // RemoveAll fails
 			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns(node)
 				mock.RemoveAllReturns(errTest)
 			},
 			assert: func(err error) {
@@ -115,7 +106,6 @@ func TestRun(t *testing.T) {
 		},
 		{ // Listen fails
 			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns(node)
 				mock.ListenReturns(nil, errTest)
 			},
 			assert: func(err error) {
@@ -124,7 +114,6 @@ func TestRun(t *testing.T) {
 		},
 		{ // Chown fails
 			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns(node)
 				mock.ChownReturns(errTest)
 			},
 			assert: func(err error) {
@@ -133,7 +122,6 @@ func TestRun(t *testing.T) {
 		},
 		{ // connectMetrics:DialMetrics fails
 			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns(node)
 				mock.DialMetricsReturns(nil, errTest)
 			},
 			assert: func(err error) {
@@ -142,7 +130,6 @@ func TestRun(t *testing.T) {
 		},
 		{ // connectMetrics:BpfIncClient fails
 			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns(node)
 				mock.DialMetricsReturns(&grpc.ClientConn{}, nil)
 				mock.CloseGRPCReturns(errTest)
 				mock.BpfIncClientReturns(nil, errTest)
@@ -153,17 +140,15 @@ func TestRun(t *testing.T) {
 		},
 		{ // Readlink fails
 			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns(node)
 				mock.ReadlinkReturns("", errTest)
 			},
 			assert: func(err error) {
 				require.Error(t, err)
 			},
 		},
-		{ // Atoi fails
+		{ // ParseUint fails
 			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns(node)
-				mock.ParseUintReturns(0, errTest)
+				mock.ReadlinkReturns("mnt:[invalid]", nil)
 			},
 			assert: func(err error) {
 				require.Error(t, err)
@@ -171,17 +156,7 @@ func TestRun(t *testing.T) {
 		},
 		{ // ServeFails
 			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns(node)
 				mock.ServeReturns(errTest)
-			},
-			assert: func(err error) {
-				require.Error(t, err)
-			},
-		},
-		{ // load wrong GOARCH
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns(node)
-				mock.GoArchReturns("invalid")
 			},
 			assert: func(err error) {
 				require.Error(t, err)
@@ -189,8 +164,6 @@ func TestRun(t *testing.T) {
 		},
 		{ // load:NewModuleFromBufferArgs fails
 			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns(node)
-				mock.GoArchReturns(validGoArch)
 				mock.NewModuleFromBufferArgsReturns(nil, errTest)
 			},
 			assert: func(err error) {
@@ -199,8 +172,6 @@ func TestRun(t *testing.T) {
 		},
 		{ // load:InitGlobalVariable fails
 			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns(node)
-				mock.GoArchReturns(validGoArch)
 				mock.InitGlobalVariableReturns(errTest)
 			},
 			assert: func(err error) {
@@ -209,8 +180,6 @@ func TestRun(t *testing.T) {
 		},
 		{ // load:BPFLoadObject fails
 			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns(node)
-				mock.GoArchReturns(validGoArch)
 				mock.BPFLoadObjectReturns(errTest)
 			},
 			assert: func(err error) {
@@ -219,8 +188,6 @@ func TestRun(t *testing.T) {
 		},
 		{ // load:GetProgram fails
 			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns(node)
-				mock.GoArchReturns(validGoArch)
 				mock.GetProgramReturns(nil, errTest)
 			},
 			assert: func(err error) {
@@ -229,8 +196,6 @@ func TestRun(t *testing.T) {
 		},
 		{ // load:AttachGeneric fails
 			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns(node)
-				mock.GoArchReturns(validGoArch)
 				mock.AttachGenericReturns(nil, errTest)
 			},
 			assert: func(err error) {
@@ -239,8 +204,6 @@ func TestRun(t *testing.T) {
 		},
 		{ // load:GetMap fails
 			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns(node)
-				mock.GoArchReturns(validGoArch)
 				mock.GetMapReturns(nil, errTest)
 			},
 			assert: func(err error) {
@@ -250,8 +213,6 @@ func TestRun(t *testing.T) {
 
 		{ // load:InitRingBuf fails
 			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns(node)
-				mock.GoArchReturns(validGoArch)
 				mock.InitRingBufReturns(nil, errTest)
 			},
 			assert: func(err error) {
@@ -260,14 +221,38 @@ func TestRun(t *testing.T) {
 		},
 	} {
 		mock := &bpfrecorderfakes.FakeImpl{}
+		mock.ReadlinkReturns("mnt:[4026531841]", nil)
 		tc.prepare(mock)
 
 		sut := New("test", logr.Discard(), true, false)
 		sut.impl = mock
+		sut.nodeName = node
 
 		err := sut.Run()
 		tc.assert(err)
 	}
+}
+
+func TestRunWithoutNodeName(t *testing.T) {
+	t.Setenv(config.NodeNameEnvKey, "")
+
+	sut := New("test", logr.Discard(), true, false)
+	sut.impl = &bpfrecorderfakes.FakeImpl{}
+
+	require.Error(t, sut.Run())
+}
+
+func TestBpfObjectForArch(t *testing.T) {
+	t.Parallel()
+
+	for _, arch := range []string{"amd64", "arm64"} {
+		object, err := bpfObjectForArch(arch)
+		require.NoError(t, err)
+		require.NotEmpty(t, object)
+	}
+
+	_, err := bpfObjectForArch("invalid")
+	require.Error(t, err)
 }
 
 func TestLoad(t *testing.T) {
@@ -279,18 +264,9 @@ func TestLoad(t *testing.T) {
 	}{
 		{ // Success
 			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GoArchReturns(validGoArch)
 			},
 			assert: func(sut *BpfRecorder, err error) {
 				require.NoError(t, err)
-			},
-		},
-		{ // load failed wrong GOARCH
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GoArchReturns("invalid")
-			},
-			assert: func(sut *BpfRecorder, err error) {
-				require.Error(t, err)
 			},
 		},
 		{ // Error attaching
@@ -354,7 +330,6 @@ func TestStart(t *testing.T) {
 		sut := New("", logr.Discard(), true, true)
 		sut.impl = mock
 
-		mock.GoArchReturns(validGoArch)
 		mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 
 		err := sut.Load()
@@ -391,7 +366,6 @@ func TestStop(t *testing.T) {
 		},
 		{ // Success with start
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
-				mock.GoArchReturns(validGoArch)
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 
 				err := sut.Load()
@@ -406,7 +380,6 @@ func TestStop(t *testing.T) {
 		},
 		{ // Success with double start
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
-				mock.GoArchReturns(validGoArch)
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 
 				err := sut.Load()
@@ -443,7 +416,6 @@ func TestSyscallsForProfile(t *testing.T) {
 	}{
 		{ // Success
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
-				mock.GoArchReturns(validGoArch)
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 
 				err := sut.Load()
@@ -451,15 +423,14 @@ func TestSyscallsForProfile(t *testing.T) {
 				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
 				require.NoError(t, err)
 				sut.containerIDToProfileMap.Insert(containerID, profile)
-				sut.mntnsToContainerIDMap.Insert(mntns, containerID)
-				mock.GetValueReturns([]byte{0, 1, 1, 1}, nil)
+				sut.containerKeys.Insert(uint64(mntns), containerID)
+				mock.GetValue64Returns([]byte{0, 1, 1, 1}, nil)
 				mock.GetNameReturnsOnCall(0, "syscall_a", nil)
 				mock.GetNameReturnsOnCall(1, "syscall_b", nil)
 				mock.GetNameReturnsOnCall(2, "syscall_c", nil)
 				mock.GetNameReturnsOnCall(3, "syscall_a", nil)
 				mock.GetNameReturnsOnCall(4, "syscall_b", nil)
 				mock.GetNameReturnsOnCall(5, "syscall_c", nil)
-				mock.DeleteKeyReturnsOnCall(0, errTest)
 			},
 			assert: func(sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
 				require.NoError(t, err)
@@ -471,7 +442,6 @@ func TestSyscallsForProfile(t *testing.T) {
 		},
 		{ // Success with unable to resolve syscall name
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
-				mock.GoArchReturns(validGoArch)
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 
 				err := sut.Load()
@@ -479,8 +449,8 @@ func TestSyscallsForProfile(t *testing.T) {
 				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
 				require.NoError(t, err)
 				sut.containerIDToProfileMap.Insert(containerID, profile)
-				sut.mntnsToContainerIDMap.Insert(mntns, containerID)
-				mock.GetValueReturns([]byte{1, 1, 1}, nil)
+				sut.containerKeys.Insert(uint64(mntns), containerID)
+				mock.GetValue64Returns([]byte{1, 1, 1}, nil)
 				mock.GetNameReturnsOnCall(0, "", errTest)
 				mock.GetNameReturnsOnCall(1, "syscall_a", nil)
 				mock.GetNameReturnsOnCall(2, "syscall_b", nil)
@@ -509,7 +479,6 @@ func TestSyscallsForProfile(t *testing.T) {
 		},
 		{ // no PID for container
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
-				mock.GoArchReturns(validGoArch)
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 
 				err := sut.Load()
@@ -523,7 +492,6 @@ func TestSyscallsForProfile(t *testing.T) {
 		},
 		{ // no syscall found for profile
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
-				mock.GoArchReturns(validGoArch)
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 
 				err := sut.Load()
@@ -531,16 +499,15 @@ func TestSyscallsForProfile(t *testing.T) {
 				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
 				require.NoError(t, err)
 				sut.containerIDToProfileMap.Insert(containerID, profile)
-				sut.mntnsToContainerIDMap.Insert(mntns, containerID)
-				mock.GetValueReturns(nil, errTest)
+				sut.containerKeys.Insert(uint64(mntns), containerID)
+				mock.GetValue64Returns(nil, errTest)
 			},
 			assert: func(sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
 				require.Error(t, err)
 			},
 		},
-		{ // Failed to clean syscalls map
+		{ // Reading does not remove the syscalls
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
-				mock.GoArchReturns(validGoArch)
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 
 				err := sut.Load()
@@ -548,15 +515,18 @@ func TestSyscallsForProfile(t *testing.T) {
 				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
 				require.NoError(t, err)
 				sut.containerIDToProfileMap.Insert(containerID, profile)
-				sut.mntnsToContainerIDMap.Insert(mntns, containerID)
-				mock.GetValueReturns([]byte{1, 1, 1}, nil)
+				sut.containerKeys.Insert(uint64(mntns), containerID)
+				mock.GetValue64Returns([]byte{1, 1, 1}, nil)
 				mock.GetNameReturnsOnCall(0, "syscall_a", nil)
 				mock.GetNameReturnsOnCall(1, "syscall_b", nil)
 				mock.GetNameReturnsOnCall(2, "syscall_c", nil)
-				mock.DeleteKeyReturns(errTest)
 			},
 			assert: func(sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
 				require.NoError(t, err)
+
+				mock, ok := sut.impl.(*bpfrecorderfakes.FakeImpl)
+				require.True(t, ok)
+				require.Zero(t, mock.DeleteKey64CallCount())
 				require.Len(t, resp.GetSyscalls(), 3)
 				require.Equal(t, "syscall_a", resp.GetSyscalls()[0])
 				require.Equal(t, "syscall_b", resp.GetSyscalls()[1])
@@ -581,7 +551,7 @@ func TestSyscallsForProfile(t *testing.T) {
 func TestApparmorForProfile(t *testing.T) {
 	t.Parallel()
 
-	mID := mntnsID(mntns)
+	mID := recordingKey(mntns)
 
 	for _, tc := range []struct {
 		name    string
@@ -591,7 +561,6 @@ func TestApparmorForProfile(t *testing.T) {
 		{ // Success
 			name: "success",
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
-				mock.GoArchReturns(validGoArch)
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 
 				err := sut.Load()
@@ -599,18 +568,18 @@ func TestApparmorForProfile(t *testing.T) {
 				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
 				require.NoError(t, err)
 				sut.containerIDToProfileMap.Insert(containerID, profile)
-				sut.mntnsToContainerIDMap.Insert(mntns, containerID)
-				sut.AppArmor.recordedSocketsUse = map[mntnsID]*BpfAppArmorSocketTypes{
+				sut.containerKeys.Insert(uint64(mntns), containerID)
+				sut.AppArmor.recordedSocketsUse = map[recordingKey]*BpfAppArmorSocketTypes{
 					mID: {
 						UseRaw: false,
 						UseTCP: true,
 						UseUDP: false,
 					},
 				}
-				sut.AppArmor.recordedCapabilities = map[mntnsID][]int{
+				sut.AppArmor.recordedCapabilities = map[recordingKey][]int{
 					mID: {1, 2, 3},
 				}
-				sut.AppArmor.recordedFiles = map[mntnsID]map[string]*fileAccess{
+				sut.AppArmor.recordedFiles = map[recordingKey]map[string]*fileAccess{
 					mID: {
 						"/home/user/test": &fileAccess{spawn: true},
 					},
@@ -628,7 +597,6 @@ func TestApparmorForProfile(t *testing.T) {
 		{ // Success only for right mntns
 			name: "success only for right mntns",
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
-				mock.GoArchReturns(validGoArch)
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 
 				err := sut.Load()
@@ -636,18 +604,18 @@ func TestApparmorForProfile(t *testing.T) {
 				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
 				require.NoError(t, err)
 				sut.containerIDToProfileMap.Insert(containerID, profile)
-				sut.mntnsToContainerIDMap.Insert(mntns, containerID)
-				sut.AppArmor.recordedSocketsUse = map[mntnsID]*BpfAppArmorSocketTypes{
+				sut.containerKeys.Insert(uint64(mntns), containerID)
+				sut.AppArmor.recordedSocketsUse = map[recordingKey]*BpfAppArmorSocketTypes{
 					mID: {
 						UseRaw: false,
 						UseTCP: true,
 						UseUDP: false,
 					},
 				}
-				sut.AppArmor.recordedCapabilities = map[mntnsID][]int{
+				sut.AppArmor.recordedCapabilities = map[recordingKey][]int{
 					mID: {1, 2, 3},
 				}
-				sut.AppArmor.recordedFiles = map[mntnsID]map[string]*fileAccess{
+				sut.AppArmor.recordedFiles = map[recordingKey]map[string]*fileAccess{
 					mID: {
 						"/home/user/test1": &fileAccess{spawn: true},
 					},
@@ -684,7 +652,6 @@ func TestApparmorForProfile(t *testing.T) {
 		{ // no PID for container
 			name: "no pid for container available",
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
-				mock.GoArchReturns(validGoArch)
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 
 				err := sut.Load()
@@ -865,19 +832,19 @@ func TestStopRecordingReleasesLookupTables(t *testing.T) {
 	mock := &bpfrecorderfakes.FakeImpl{}
 	sut.impl = mock
 
-	sut.mntnsToContainerIDMap.Insert(0x1010, "container-id")
+	sut.containerKeys.Insert(0x1010, "container-id")
 	sut.containerIDToProfileMap.Insert("container-id", "profile")
 	sut.containersWithoutProfile.Set("other-container", struct{}{}, ttlcache.DefaultTTL)
 	sut.handleExitEvent(&bpfEvent{Pid: 42, Type: uint8(eventTypeExit)})
 
-	require.Equal(t, 1, sut.mntnsToContainerIDMap.Size())
+	require.Equal(t, 1, sut.containerKeys.Size())
 	require.Equal(t, 1, sut.containerIDToProfileMap.Size())
 	require.Equal(t, 1, sut.recentExits.Len())
 	require.Equal(t, 1, sut.containersWithoutProfile.Len())
 
 	require.NoError(t, sut.StopRecording())
 
-	require.Equal(t, 0, sut.mntnsToContainerIDMap.Size())
+	require.Equal(t, 0, sut.containerKeys.Size())
 	require.Equal(t, 0, sut.containerIDToProfileMap.Size())
 	require.Equal(t, 0, sut.recentExits.Len())
 
@@ -900,9 +867,9 @@ func TestHandlerFromFinishedRecordingIsDiscarded(t *testing.T) {
 
 	require.NoError(t, sut.StopRecording())
 
-	sut.handleNewPidEvent(42, 0x1010, staleGeneration)
+	sut.handleNewPidEvent(42, 0x1010, 0x1010, staleGeneration)
 
-	require.Equal(t, 0, sut.mntnsToContainerIDMap.Size(),
+	require.Equal(t, 0, sut.containerKeys.Size(),
 		"a handler from a finished recording must not repopulate the tables")
 }
 
@@ -974,7 +941,7 @@ func TestScheduleNewPidEventDropsWhenSaturated(t *testing.T) {
 	go func() {
 		defer close(done)
 
-		sut.scheduleNewPidEvent(42, 0x1010)
+		sut.scheduleNewPidEvent(42, 0x1010, 0x1010)
 	}()
 
 	select {
@@ -998,7 +965,7 @@ func TestScheduleNewPidEventRunsHandler(t *testing.T) {
 	sut := New("", logr.New(logSink), true, true)
 	sut.impl = &bpfrecorderfakes.FakeImpl{}
 
-	sut.scheduleNewPidEvent(42, 0x1010)
+	sut.scheduleNewPidEvent(42, 0x1010, 0x1010)
 
 	require.Eventually(t, func() bool {
 		logSink.mutex.RLock()
@@ -1054,25 +1021,25 @@ func TestNewPidEvent(t *testing.T) {
 				return bpfEvent{
 					Pid:   42,
 					Mntns: 0x1010,
+					Key:   0x1010,
 					Type:  uint8(eventTypeNewPid),
 				}
 			},
 			assert: func(sut *BpfRecorder, logger *Logger) {
-				var foundMntns uint32
+				var foundKeys []uint64
 
 				for range 100 {
-					if containerID, ok := sut.containerIDToProfileMap.GetBackwards("profile.json"); ok {
-						if actualMntns, ok := sut.mntnsToContainerIDMap.GetBackwards(containerID); ok {
-							foundMntns = actualMntns
+					containerIDs := sut.containerIDToProfileMap.Containers("profile.json")
+					if keys := sut.containerKeys.KeysOf(containerIDs); len(keys) > 0 {
+						foundKeys = keys
 
-							break
-						}
+						break
 					}
 
 					time.Sleep(100 * time.Millisecond)
 				}
 
-				require.Equal(t, uint32(0x1010), foundMntns)
+				require.Equal(t, []uint64{0x1010}, foundKeys)
 			},
 		},
 		{ // unable to find container ID for PID
@@ -1082,6 +1049,7 @@ func TestNewPidEvent(t *testing.T) {
 				return bpfEvent{
 					Pid:   42,
 					Mntns: 0x1010,
+					Key:   0x1010,
 					Type:  uint8(eventTypeNewPid),
 				}
 			},
@@ -1097,6 +1065,7 @@ func TestNewPidEvent(t *testing.T) {
 				return bpfEvent{
 					Pid:   42,
 					Mntns: 0x1010,
+					Key:   0x1010,
 					Type:  uint8(eventTypeNewPid),
 				}
 			},
@@ -1115,7 +1084,7 @@ func TestNewPidEvent(t *testing.T) {
 
 		e := tc.prepare(sut, mock)
 
-		go sut.handleNewPidEvent(e.Pid, e.Mntns, sut.recordingGeneration.Load())
+		go sut.handleNewPidEvent(e.Pid, e.Mntns, e.Key, sut.recordingGeneration.Load())
 
 		tc.assert(sut, logSink)
 	}
@@ -1129,6 +1098,7 @@ func TestTrackProfileMetricSerializesSends(t *testing.T) {
 
 	sut := New("", logr.Discard(), true, true)
 	mock := &bpfrecorderfakes.FakeImpl{}
+	mock.DialMetricsReturns(&grpc.ClientConn{}, nil)
 	sut.impl = mock
 
 	var inFlight, overlaps atomic.Int32
@@ -1144,6 +1114,10 @@ func TestTrackProfileMetricSerializesSends(t *testing.T) {
 		return nil
 	})
 
+	require.NoError(t, sut.connectMetrics())
+
+	go sut.metrics.Run(t.Context())
+
 	var wg sync.WaitGroup
 	for i := range 10 {
 		wg.Go(func() {
@@ -1153,6 +1127,344 @@ func TestTrackProfileMetricSerializesSends(t *testing.T) {
 
 	wg.Wait()
 
-	require.Equal(t, 10, mock.SendMetricCallCount())
+	require.Eventually(t, func() bool {
+		return mock.SendMetricCallCount() == 10
+	}, time.Minute, time.Millisecond)
 	require.Zero(t, overlaps.Load())
+}
+
+// TestTrackProfileMetricReconnects asserts that a broken metrics stream, for
+// example after the metrics server restarted, is opened again instead of
+// failing every later update.
+func TestTrackProfileMetricReconnects(t *testing.T) {
+	t.Parallel()
+
+	sut := New("", logr.Discard(), true, true)
+	mock := &bpfrecorderfakes.FakeImpl{}
+	mock.DialMetricsReturns(&grpc.ClientConn{}, nil)
+	mock.SendMetricReturnsOnCall(0, errTest)
+	sut.impl = mock
+
+	require.NoError(t, sut.connectMetrics())
+	require.Equal(t, 1, mock.DialMetricsCallCount())
+
+	go sut.metrics.Run(t.Context())
+
+	sut.trackProfileMetric(1, "profile")
+
+	require.Eventually(t, func() bool {
+		return mock.SendMetricCallCount() == 2
+	}, time.Minute, time.Millisecond)
+	require.Equal(t, 2, mock.DialMetricsCallCount())
+	require.Equal(t, 1, mock.CloseGRPCCallCount())
+}
+
+func newRecordingRecorder(
+	t *testing.T,
+	recordSeccomp, recordAppArmor bool,
+) (*BpfRecorder, *bpfrecorderfakes.FakeImpl) {
+	t.Helper()
+
+	sut := New("", logr.Discard(), recordSeccomp, recordAppArmor)
+	mock := &bpfrecorderfakes.FakeImpl{}
+	mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
+	sut.impl = mock
+
+	require.NoError(t, sut.Load())
+
+	_, err := sut.Start(t.Context(), &api.EmptyRequest{})
+	require.NoError(t, err)
+
+	return sut, mock
+}
+
+// TestResetSyscallsForProfile asserts that the recorded syscalls are only
+// dropped once the profile got stored, and that a retried collection of a
+// stored profile does not wait for data which is gone.
+func TestResetSyscallsForProfile(t *testing.T) {
+	t.Parallel()
+
+	sut, mock := newRecordingRecorder(t, true, true)
+
+	sut.containerIDToProfileMap.Insert(containerID, profile)
+	sut.containerIDToProfileMap.Insert(containerID, "apparmor-profile")
+	sut.containerKeys.Insert(1, containerID)
+	sut.containerKeys.Insert(2, containerID)
+
+	_, err := sut.ResetSyscallsForProfile(t.Context(), &api.ProfileRequest{Name: profile})
+	require.NoError(t, err)
+
+	require.Equal(t, 2, mock.DeleteKey64CallCount())
+
+	_, key := mock.DeleteKey64ArgsForCall(0)
+	require.Equal(t, uint64(1), key)
+
+	_, key = mock.DeleteKey64ArgsForCall(1)
+	require.Equal(t, uint64(2), key)
+
+	// The AppArmor profile of the same container is still to be collected.
+	require.Equal(t, []uint64{1, 2}, sut.containerKeys.Keys(containerID))
+
+	start := time.Now()
+	_, err = sut.SyscallsForProfile(t.Context(), &api.ProfileRequest{Name: profile})
+	require.ErrorIs(t, err, ErrNotFound)
+	require.Less(
+		t,
+		time.Since(start),
+		time.Second,
+		"a collected profile must not be looked up again",
+	)
+
+	_, err = sut.ResetApparmorForProfile(t.Context(), &api.ProfileRequest{Name: "apparmor-profile"})
+	require.NoError(t, err)
+	require.Empty(t, sut.containerKeys.Keys(containerID))
+
+	// Starting a new recording forgets the collected profiles.
+	require.NoError(t, sut.StopRecording())
+
+	_, collected := sut.collectedProfiles.Load(profile)
+	require.False(t, collected)
+}
+
+// TestSyscallsForProfileMergesAllKeys asserts that the syscalls of every key of
+// a container end up in its profile.
+func TestSyscallsForProfileMergesAllKeys(t *testing.T) {
+	t.Parallel()
+
+	sut, mock := newRecordingRecorder(t, true, false)
+
+	sut.containerIDToProfileMap.Insert(containerID, profile)
+	sut.containerKeys.Insert(1, containerID)
+	sut.containerKeys.Insert(2, containerID)
+
+	mock.GetValue64ReturnsOnCall(0, []byte{1, 0, 0}, nil)
+	mock.GetValue64ReturnsOnCall(1, []byte{0, 0, 1}, nil)
+	mock.GetNameCalls(func(id seccomp.ScmpSyscall) (string, error) {
+		return fmt.Sprintf("syscall_%d", id), nil
+	})
+
+	resp, err := sut.SyscallsForProfile(t.Context(), &api.ProfileRequest{Name: profile})
+	require.NoError(t, err)
+	require.Equal(t, []string{"syscall_0", "syscall_2"}, resp.GetSyscalls())
+}
+
+// TestSyscallsForProfileWithoutData asserts that a container which recorded
+// nothing is reported as not found instead of failing the collection forever.
+func TestSyscallsForProfileWithoutData(t *testing.T) {
+	t.Parallel()
+
+	sut, mock := newRecordingRecorder(t, true, false)
+
+	sut.containerIDToProfileMap.Insert(containerID, profile)
+	sut.containerKeys.Insert(1, containerID)
+
+	mock.GetValue64Returns(nil, syscall.ENOENT)
+
+	_, err := sut.SyscallsForProfile(t.Context(), &api.ProfileRequest{Name: profile})
+	require.ErrorIs(t, err, ErrNotFound)
+}
+
+// TestApparmorForProfileWithoutData asserts that no empty profile is handed
+// out, which would replace a stored one with a profile that allows nothing.
+func TestApparmorForProfileWithoutData(t *testing.T) {
+	t.Parallel()
+
+	sut, _ := newRecordingRecorder(t, false, true)
+
+	sut.containerIDToProfileMap.Insert(containerID, profile)
+	sut.containerKeys.Insert(1, containerID)
+
+	_, err := sut.ApparmorForProfile(t.Context(), &api.ProfileRequest{Name: profile})
+	require.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestCheckLostEvents(t *testing.T) {
+	t.Parallel()
+
+	logSink := &Logger{}
+	sut := New("", logr.New(logSink), true, true)
+	mock := &bpfrecorderfakes.FakeImpl{}
+	sut.impl = mock
+	sut.lostEventsBpfMap = &libbpfgo.BPFMap{}
+
+	perCPU := func(values ...uint64) []byte {
+		raw := make([]byte, 8*len(values))
+		for i, v := range values {
+			binary.LittleEndian.PutUint64(raw[8*i:], v)
+		}
+
+		return raw
+	}
+
+	mock.GetValueCalls(func(_ *libbpfgo.BPFMap, reason uint32) ([]byte, error) {
+		if reason == lostRingbuf {
+			return perCPU(2, 3), nil
+		}
+
+		return perCPU(0, 0), nil
+	})
+
+	sut.checkLostEvents()
+
+	require.Equal(t, uint64(5), sut.lostEvents[lostRingbuf])
+	require.Contains(t, logSink.snapshot(),
+		"WARNING: the BPF ring buffer was full, recorded profiles may be incomplete")
+	require.NotContains(t, logSink.snapshot(),
+		"WARNING: too many workloads are recorded at once, "+
+			"recorded seccomp profiles may be incomplete")
+}
+
+func podWithContainer(annotations map[string]string) *v1.PodList {
+	return &v1.PodList{Items: []v1.Pod{{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        pod,
+			Namespace:   namespace,
+			Annotations: annotations,
+		},
+		Status: v1.PodStatus{
+			ContainerStatuses: []v1.ContainerStatus{{
+				ContainerID: crioPrefix + containerID,
+				Name:        "ctr",
+			}},
+		},
+	}}}
+}
+
+// TestNewPidEventForEveryKey asserts that a process reported again under a
+// new key adds that key to its container.
+func TestNewPidEventForEveryKey(t *testing.T) {
+	t.Parallel()
+
+	sut := New("", logr.Discard(), false, false)
+	mock := &bpfrecorderfakes.FakeImpl{}
+	sut.impl = mock
+	sut.clientset = &kubernetes.Clientset{}
+
+	mock.ContainerIDForPIDReturns(containerID, nil)
+	mock.ListPodsReturns(podWithContainer(map[string]string{
+		config.SeccompProfileRecordBpfAnnotationKey + "ctr": profile,
+	}), nil)
+
+	sut.handleNewPidEvent(42, 1, 1, sut.recordingGeneration.Load())
+
+	// The same process is reported again after moving to another key.
+	sut.handleNewPidEvent(42, 1, 2, sut.recordingGeneration.Load())
+
+	require.Equal(t, 2, mock.ContainerIDForPIDCallCount())
+	require.Equal(t, []uint64{1, 2}, sut.containerKeys.Keys(containerID))
+}
+
+// TestNewPidEventExcludesUnrecordedContainers asserts that the data of
+// workloads which are not recorded is dropped and no longer recorded, so that
+// it does not fill up the maps.
+func TestNewPidEventExcludesUnrecordedContainers(t *testing.T) {
+	t.Parallel()
+
+	for _, uniqueKeys := range []bool{true, false} {
+		sut := New("", logr.Discard(), true, true)
+		mock := &bpfrecorderfakes.FakeImpl{}
+		sut.impl = mock
+		sut.clientset = &kubernetes.Clientset{}
+		sut.uniqueKeys = uniqueKeys
+		sut.excludeKeysBpfMap = &libbpfgo.BPFMap{}
+
+		mock.ContainerIDForPIDReturns(containerID, nil)
+		mock.ListPodsReturns(podWithContainer(nil), nil)
+
+		sut.AppArmor.handleFileEvent(fileEvent(7, flagRead, "/etc/passwd"))
+
+		sut.handleNewPidEvent(42, 1, 7, sut.recordingGeneration.Load())
+
+		require.Zero(t, sut.containerKeys.Size())
+
+		if !uniqueKeys {
+			// Mount namespace inode numbers are reused.
+			require.Zero(t, mock.UpdateValue64CallCount())
+			require.Contains(t, sut.AppArmor.recordedFiles, recordingKey(7))
+
+			continue
+		}
+
+		require.Equal(t, 1, mock.UpdateValue64CallCount())
+
+		_, key, _ := mock.UpdateValue64ArgsForCall(0)
+		require.Equal(t, uint64(7), key)
+
+		require.Equal(t, 1, mock.DeleteKey64CallCount())
+		require.NotContains(t, sut.AppArmor.recordedFiles, recordingKey(7))
+
+		// Events still in flight are dropped.
+		sut.AppArmor.handleFileEvent(fileEvent(7, flagRead, "/etc/passwd"))
+		require.NotContains(t, sut.AppArmor.recordedFiles, recordingKey(7))
+	}
+}
+
+// TestNewPidEventExcludesHostProcesses asserts that processes outside of any
+// container are not recorded either.
+func TestNewPidEventExcludesHostProcesses(t *testing.T) {
+	t.Parallel()
+
+	sut := New("", logr.Discard(), true, false)
+	mock := &bpfrecorderfakes.FakeImpl{}
+	sut.impl = mock
+	sut.clientset = &kubernetes.Clientset{}
+	sut.uniqueKeys = true
+	sut.excludeKeysBpfMap = &libbpfgo.BPFMap{}
+
+	mock.ContainerIDForPIDReturns("", util.ErrContainerIDNotFound)
+
+	sut.handleNewPidEvent(42, 1, 7, sut.recordingGeneration.Load())
+
+	require.Equal(t, 1, mock.UpdateValue64CallCount())
+	require.Zero(t, mock.ListPodsCallCount())
+}
+
+// TestResetProfileOfRestartedContainer asserts that the data of every run of a
+// restarted container belongs to its profile.
+func TestResetProfileOfRestartedContainer(t *testing.T) {
+	t.Parallel()
+
+	sut, mock := newRecordingRecorder(t, true, false)
+
+	sut.containerIDToProfileMap.Insert("first-run", profile)
+	sut.containerIDToProfileMap.Insert("second-run", profile)
+	sut.containerKeys.Insert(1, "first-run")
+	sut.containerKeys.Insert(2, "second-run")
+
+	mock.GetValue64ReturnsOnCall(0, []byte{1, 0}, nil)
+	mock.GetValue64ReturnsOnCall(1, []byte{0, 1}, nil)
+	mock.GetNameCalls(func(id seccomp.ScmpSyscall) (string, error) {
+		return fmt.Sprintf("syscall_%d", id), nil
+	})
+
+	resp, err := sut.SyscallsForProfile(t.Context(), &api.ProfileRequest{Name: profile})
+	require.NoError(t, err)
+	require.Equal(t, []string{"syscall_0", "syscall_1"}, resp.GetSyscalls())
+
+	_, err = sut.ResetSyscallsForProfile(t.Context(), &api.ProfileRequest{Name: profile})
+	require.NoError(t, err)
+	require.Equal(t, 2, mock.DeleteKey64CallCount())
+	require.Zero(t, sut.containerKeys.Size())
+}
+
+// TestExcludeKeyAfterSessionEnded asserts that a handler which is still in
+// flight when the recording stops does not exclude a key in the next session.
+func TestExcludeKeyAfterSessionEnded(t *testing.T) {
+	t.Parallel()
+
+	sut := New("", logr.Discard(), true, true)
+	mock := &bpfrecorderfakes.FakeImpl{}
+	sut.impl = mock
+	sut.uniqueKeys = true
+	sut.excludeKeysBpfMap = &libbpfgo.BPFMap{}
+
+	generation := sut.recordingGeneration.Load()
+
+	require.NoError(t, sut.StopRecording())
+
+	sut.excludeKey(7, generation)
+	require.Zero(t, mock.UpdateValue64CallCount())
+
+	sut.excludeKey(7, sut.recordingGeneration.Load())
+	require.Equal(t, 1, mock.UpdateValue64CallCount())
 }

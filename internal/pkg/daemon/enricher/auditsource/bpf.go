@@ -49,6 +49,9 @@ func BpfSupported(logger logr.Logger) error {
 	return nil
 }
 
+// auditLogRingBuf is the ring buffer of enricher.bpf.c.
+const auditLogRingBuf = "audit_log"
+
 type BpfSource struct {
 	logger logr.Logger
 	module *libbpfgo.Module
@@ -92,7 +95,7 @@ func (b *BpfSource) StartTail() (chan *types.AuditLine, error) {
 
 	events := make(chan []byte)
 
-	buf, err := module.InitRingBuf("audit_log", events)
+	buf, err := module.InitRingBuf(auditLogRingBuf, events)
 	if err != nil {
 		module.Close()
 

@@ -31,22 +31,21 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder/bpfrecorderfakes"
 )
 
+// newExecEvent returns an exec event with the header set, laid out like the
+// packed C struct in recorder.bpf.c.
+func newExecEvent() []byte {
+	eventBytes := make([]byte, bpfExecEventSize)
+
+	binary.LittleEndian.PutUint32(eventBytes[0:], 1) // PID = 1
+	eventBytes[16] = eventTypeExecveEnter
+
+	return eventBytes
+}
+
 func getEventDataFileName() []byte {
-	eventBytes := make([]byte, 8729)
+	eventBytes := newExecEvent()
 
-	eventBytes[0] = 0x01 // Example PID byte
-	eventBytes[1] = 0x00
-	eventBytes[2] = 0x00
-	eventBytes[3] = 0x00 // PID = 1
-
-	eventBytes[8+4096] = 'f' // Start of filename
-	eventBytes[8+4096+1] = 'o'
-	eventBytes[8+4096+2] = 'o'
-	eventBytes[8+4096+3] = '.'
-	eventBytes[8+4096+4] = 't'
-	eventBytes[8+4096+5] = 'x'
-	eventBytes[8+4096+6] = 't'
-	eventBytes[8+4096+7] = 0 // Null terminator
+	copy(eventBytes[bpfEventHeaderSize:], "foo.txt\x00")
 
 	return eventBytes
 }
@@ -58,26 +57,18 @@ const (
 	MAX_FILENAME_LEN = 128
 	MAX_ARG_LEN      = 64
 	MAX_ENV_LEN      = 64
-	PATH_MAX         = 4096
 )
 
 func getArgsEnvData() []byte {
-	const totalCStructSize = 8729
+	eventBytes := newExecEvent()
 
-	eventBytes := make([]byte, totalCStructSize)
-
-	eventBytes[0] = 0x01 // Example PID byte
-	eventBytes[1] = 0x00
-	eventBytes[2] = 0x00
-	eventBytes[3] = 0x00 // PID = 1
-
-	filenameOffset := 4 + 4 + 1 + 8 + PATH_MAX // = 4113
+	filenameOffset := bpfEventHeaderSize
 
 	copy(eventBytes[filenameOffset:], "myapp")
 
 	eventBytes[filenameOffset+5] = 0 // Null terminator
 
-	argsOffset := filenameOffset + MAX_FILENAME_LEN // = 4241
+	argsOffset := filenameOffset + MAX_FILENAME_LEN
 	sampleArgs := []string{"arg1", "--flag", "value with spaces", "last_arg"}
 
 	for i, arg := range sampleArgs {
@@ -92,7 +83,7 @@ func getArgsEnvData() []byte {
 		}
 	}
 
-	envOffset := argsOffset + MAX_ARGS*MAX_ARG_LEN // = 5521
+	envOffset := argsOffset + MAX_ARGS*MAX_ARG_LEN
 
 	sampleEnv := []string{"HOME=/root", "SPO_EXEC_REQUEST_UID=dde426d5-123e-4296-b9ff-afd6eee83ee9"}
 	for i, env := range sampleEnv {
@@ -107,11 +98,11 @@ func getArgsEnvData() []byte {
 		}
 	}
 
-	argsLenOffset := envOffset + MAX_ENV*MAX_ENV_LEN // = 8721
+	argsLenOffset := envOffset + MAX_ENV*MAX_ENV_LEN
 
 	binary.LittleEndian.PutUint32(eventBytes[argsLenOffset:], uint32(len(sampleArgs)))
 
-	envLenOffset := argsLenOffset + 4 // = 8725
+	envLenOffset := argsLenOffset + 4
 
 	binary.LittleEndian.PutUint32(eventBytes[envLenOffset:], uint32(len(sampleEnv)))
 
@@ -163,7 +154,6 @@ func TestBpfProcessCache_GetCmdLineEnv(t *testing.T) {
 
 			b := NewBpfProcessCache(logr.Discard())
 			mock := &bpfrecorderfakes.FakeImpl{}
-			mock.GoArchReturns(validGoArch)
 			mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 
 			b.recorder.impl = mock
@@ -213,4 +203,21 @@ func TestBpfProcessCache_GetCmdLineEnv(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestBpfProcessCacheIgnoresOtherEvents asserts that the container start event
+// the exec hook also sends is not taken for a broken exec event.
+func TestBpfProcessCacheIgnoresOtherEvents(t *testing.T) {
+	t.Parallel()
+
+	b := NewBpfProcessCache(logr.Discard())
+
+	event := make([]byte, bpfEventHeaderSize)
+	binary.LittleEndian.PutUint32(event[0:], 1)
+	event[16] = byte(eventTypeClearMntns)
+
+	b.handleEvent(event)
+
+	_, err := b.GetCmdLine(1)
+	require.Error(t, err)
 }

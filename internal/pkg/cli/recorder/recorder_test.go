@@ -21,10 +21,10 @@ package recorder
 import (
 	"bytes"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"go.podman.io/common/pkg/seccomp"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/recorder/recorderfakes"
 )
@@ -115,6 +115,9 @@ func TestRun(t *testing.T) {
 			assert: func(mock *recorderfakes.FakeImpl, err error) {
 				require.NoError(t, err)
 				require.Equal(t, 1, mock.CreateCallCount())
+				require.Equal(t,
+					strings.TrimSuffix(DefaultOutputFile, ".yaml")+".json",
+					mock.CreateArgsForCall(0))
 			},
 		},
 		{
@@ -151,33 +154,6 @@ func TestRun(t *testing.T) {
 				options.typ = TypeRawSeccomp
 
 				return options
-			},
-			assert: func(mock *recorderfakes.FakeImpl, err error) {
-				require.ErrorIs(t, err, errTest)
-			},
-		},
-		{
-			name: "failure raw seccomp profile on MarshalIndent",
-			prepare: func(mock *recorderfakes.FakeImpl) *Options {
-				defaultMock(mock)
-				mock.MarshalIndentReturns(nil, errTest)
-
-				options := Default()
-				options.typ = TypeRawSeccomp
-
-				return options
-			},
-			assert: func(mock *recorderfakes.FakeImpl, err error) {
-				require.ErrorIs(t, err, errTest)
-			},
-		},
-		{
-			name: "failure seccomp on GoArchToSeccompArch",
-			prepare: func(mock *recorderfakes.FakeImpl) *Options {
-				defaultMock(mock)
-				mock.GoArchToSeccompArchReturns(seccomp.Arch(""), errTest)
-
-				return Default()
 			},
 			assert: func(mock *recorderfakes.FakeImpl, err error) {
 				require.ErrorIs(t, err, errTest)
@@ -303,4 +279,29 @@ func TestRun(t *testing.T) {
 			assert(mock, err)
 		})
 	}
+}
+
+func TestOutFile(t *testing.T) {
+	t.Parallel()
+
+	base := strings.TrimSuffix(DefaultOutputFile, ".yaml")
+
+	for typ, want := range map[Type]string{
+		TypeSeccomp:     DefaultOutputFile,
+		TypeApparmor:    DefaultOutputFile,
+		TypeAll:         DefaultOutputFile,
+		TypeRawSeccomp:  base + ".json",
+		TypeRawAppArmor: base + ".apparmor",
+	} {
+		options := Default()
+		options.typ = typ
+
+		require.Equal(t, want, New(options).outFile(), "type %s", typ)
+	}
+
+	options := Default()
+	options.typ = TypeRawSeccomp
+	options.outputFile = "/custom/file.yaml"
+
+	require.Equal(t, "/custom/file.yaml", New(options).outFile())
 }

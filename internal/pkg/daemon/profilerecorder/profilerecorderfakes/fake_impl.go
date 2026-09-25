@@ -32,8 +32,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	api_bpfrecorder "sigs.k8s.io/security-profiles-operator/api/grpc/bpfrecorder"
 	api_enricher "sigs.k8s.io/security-profiles-operator/api/grpc/enricher"
-	v1a "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
-	v1b "sigs.k8s.io/security-profiles-operator/api/spod/v1"
+	v1b "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
+	v1a "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -137,33 +137,18 @@ type FakeImpl struct {
 		result1 *v1.Pod
 		result2 error
 	}
-	GetRecordingStub        func(context.Context, client.Client, client.ObjectKey) (*v1a.ProfileRecording, error)
-	getRecordingMutex       sync.RWMutex
-	getRecordingArgsForCall []struct {
-		arg1 context.Context
-		arg2 client.Client
-		arg3 client.ObjectKey
-	}
-	getRecordingReturns struct {
-		result1 *v1a.ProfileRecording
-		result2 error
-	}
-	getRecordingReturnsOnCall map[int]struct {
-		result1 *v1a.ProfileRecording
-		result2 error
-	}
-	GetSPODStub        func(context.Context, client.Client) (*v1b.SecurityProfilesOperatorDaemon, error)
+	GetSPODStub        func(context.Context, client.Client) (*v1a.SecurityProfilesOperatorDaemon, error)
 	getSPODMutex       sync.RWMutex
 	getSPODArgsForCall []struct {
 		arg1 context.Context
 		arg2 client.Client
 	}
 	getSPODReturns struct {
-		result1 *v1b.SecurityProfilesOperatorDaemon
+		result1 *v1a.SecurityProfilesOperatorDaemon
 		result2 error
 	}
 	getSPODReturnsOnCall map[int]struct {
-		result1 *v1b.SecurityProfilesOperatorDaemon
+		result1 *v1a.SecurityProfilesOperatorDaemon
 		result2 error
 	}
 	GoArchToSeccompArchStub        func(string) (seccomp.Arch, error)
@@ -179,7 +164,7 @@ type FakeImpl struct {
 		result1 seccomp.Arch
 		result2 error
 	}
-	ListRecordingsStub        func(context.Context, client.Client, string) (*v1a.ProfileRecordingList, error)
+	ListRecordingsStub        func(context.Context, client.Client, string) (*v1b.ProfileRecordingList, error)
 	listRecordingsMutex       sync.RWMutex
 	listRecordingsArgsForCall []struct {
 		arg1 context.Context
@@ -187,11 +172,11 @@ type FakeImpl struct {
 		arg3 string
 	}
 	listRecordingsReturns struct {
-		result1 *v1a.ProfileRecordingList
+		result1 *v1b.ProfileRecordingList
 		result2 error
 	}
 	listRecordingsReturnsOnCall map[int]struct {
-		result1 *v1a.ProfileRecordingList
+		result1 *v1b.ProfileRecordingList
 		result2 error
 	}
 	ManagerGetClientStub        func(manager.Manager) client.Client
@@ -245,6 +230,19 @@ type FakeImpl struct {
 	newControllerManagedByReturnsOnCall map[int]struct {
 		result1 error
 	}
+	ResetApparmorForProfileStub        func(context.Context, api_bpfrecorder.BpfRecorderClient, *api_bpfrecorder.ProfileRequest) error
+	resetApparmorForProfileMutex       sync.RWMutex
+	resetApparmorForProfileArgsForCall []struct {
+		arg1 context.Context
+		arg2 api_bpfrecorder.BpfRecorderClient
+		arg3 *api_bpfrecorder.ProfileRequest
+	}
+	resetApparmorForProfileReturns struct {
+		result1 error
+	}
+	resetApparmorForProfileReturnsOnCall map[int]struct {
+		result1 error
+	}
 	ResetAvcsStub        func(context.Context, api_enricher.EnricherClient, *api_enricher.AvcRequest) error
 	resetAvcsMutex       sync.RWMutex
 	resetAvcsArgsForCall []struct {
@@ -269,6 +267,19 @@ type FakeImpl struct {
 		result1 error
 	}
 	resetSyscallsReturnsOnCall map[int]struct {
+		result1 error
+	}
+	ResetSyscallsForProfileStub        func(context.Context, api_bpfrecorder.BpfRecorderClient, *api_bpfrecorder.ProfileRequest) error
+	resetSyscallsForProfileMutex       sync.RWMutex
+	resetSyscallsForProfileArgsForCall []struct {
+		arg1 context.Context
+		arg2 api_bpfrecorder.BpfRecorderClient
+		arg3 *api_bpfrecorder.ProfileRequest
+	}
+	resetSyscallsForProfileReturns struct {
+		result1 error
+	}
+	resetSyscallsForProfileReturnsOnCall map[int]struct {
 		result1 error
 	}
 	StartBpfRecorderStub        func(context.Context, api_bpfrecorder.BpfRecorderClient) error
@@ -770,73 +781,7 @@ func (fake *FakeImpl) GetPodReturnsOnCall(i int, result1 *v1.Pod, result2 error)
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) GetRecording(arg1 context.Context, arg2 client.Client, arg3 client.ObjectKey) (*v1a.ProfileRecording, error) {
-	fake.getRecordingMutex.Lock()
-	ret, specificReturn := fake.getRecordingReturnsOnCall[len(fake.getRecordingArgsForCall)]
-	fake.getRecordingArgsForCall = append(fake.getRecordingArgsForCall, struct {
-		arg1 context.Context
-		arg2 client.Client
-		arg3 client.ObjectKey
-	}{arg1, arg2, arg3})
-	stub := fake.GetRecordingStub
-	fakeReturns := fake.getRecordingReturns
-	fake.recordInvocation("GetRecording", []interface{}{arg1, arg2, arg3})
-	fake.getRecordingMutex.Unlock()
-	if stub != nil {
-		return stub(arg1, arg2, arg3)
-	}
-	if specificReturn {
-		return ret.result1, ret.result2
-	}
-	return fakeReturns.result1, fakeReturns.result2
-}
-
-func (fake *FakeImpl) GetRecordingCallCount() int {
-	fake.getRecordingMutex.RLock()
-	defer fake.getRecordingMutex.RUnlock()
-	return len(fake.getRecordingArgsForCall)
-}
-
-func (fake *FakeImpl) GetRecordingCalls(stub func(context.Context, client.Client, client.ObjectKey) (*v1a.ProfileRecording, error)) {
-	fake.getRecordingMutex.Lock()
-	defer fake.getRecordingMutex.Unlock()
-	fake.GetRecordingStub = stub
-}
-
-func (fake *FakeImpl) GetRecordingArgsForCall(i int) (context.Context, client.Client, client.ObjectKey) {
-	fake.getRecordingMutex.RLock()
-	defer fake.getRecordingMutex.RUnlock()
-	argsForCall := fake.getRecordingArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
-}
-
-func (fake *FakeImpl) GetRecordingReturns(result1 *v1a.ProfileRecording, result2 error) {
-	fake.getRecordingMutex.Lock()
-	defer fake.getRecordingMutex.Unlock()
-	fake.GetRecordingStub = nil
-	fake.getRecordingReturns = struct {
-		result1 *v1a.ProfileRecording
-		result2 error
-	}{result1, result2}
-}
-
-func (fake *FakeImpl) GetRecordingReturnsOnCall(i int, result1 *v1a.ProfileRecording, result2 error) {
-	fake.getRecordingMutex.Lock()
-	defer fake.getRecordingMutex.Unlock()
-	fake.GetRecordingStub = nil
-	if fake.getRecordingReturnsOnCall == nil {
-		fake.getRecordingReturnsOnCall = make(map[int]struct {
-			result1 *v1a.ProfileRecording
-			result2 error
-		})
-	}
-	fake.getRecordingReturnsOnCall[i] = struct {
-		result1 *v1a.ProfileRecording
-		result2 error
-	}{result1, result2}
-}
-
-func (fake *FakeImpl) GetSPOD(arg1 context.Context, arg2 client.Client) (*v1b.SecurityProfilesOperatorDaemon, error) {
+func (fake *FakeImpl) GetSPOD(arg1 context.Context, arg2 client.Client) (*v1a.SecurityProfilesOperatorDaemon, error) {
 	fake.getSPODMutex.Lock()
 	ret, specificReturn := fake.getSPODReturnsOnCall[len(fake.getSPODArgsForCall)]
 	fake.getSPODArgsForCall = append(fake.getSPODArgsForCall, struct {
@@ -862,7 +807,7 @@ func (fake *FakeImpl) GetSPODCallCount() int {
 	return len(fake.getSPODArgsForCall)
 }
 
-func (fake *FakeImpl) GetSPODCalls(stub func(context.Context, client.Client) (*v1b.SecurityProfilesOperatorDaemon, error)) {
+func (fake *FakeImpl) GetSPODCalls(stub func(context.Context, client.Client) (*v1a.SecurityProfilesOperatorDaemon, error)) {
 	fake.getSPODMutex.Lock()
 	defer fake.getSPODMutex.Unlock()
 	fake.GetSPODStub = stub
@@ -875,28 +820,28 @@ func (fake *FakeImpl) GetSPODArgsForCall(i int) (context.Context, client.Client)
 	return argsForCall.arg1, argsForCall.arg2
 }
 
-func (fake *FakeImpl) GetSPODReturns(result1 *v1b.SecurityProfilesOperatorDaemon, result2 error) {
+func (fake *FakeImpl) GetSPODReturns(result1 *v1a.SecurityProfilesOperatorDaemon, result2 error) {
 	fake.getSPODMutex.Lock()
 	defer fake.getSPODMutex.Unlock()
 	fake.GetSPODStub = nil
 	fake.getSPODReturns = struct {
-		result1 *v1b.SecurityProfilesOperatorDaemon
+		result1 *v1a.SecurityProfilesOperatorDaemon
 		result2 error
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) GetSPODReturnsOnCall(i int, result1 *v1b.SecurityProfilesOperatorDaemon, result2 error) {
+func (fake *FakeImpl) GetSPODReturnsOnCall(i int, result1 *v1a.SecurityProfilesOperatorDaemon, result2 error) {
 	fake.getSPODMutex.Lock()
 	defer fake.getSPODMutex.Unlock()
 	fake.GetSPODStub = nil
 	if fake.getSPODReturnsOnCall == nil {
 		fake.getSPODReturnsOnCall = make(map[int]struct {
-			result1 *v1b.SecurityProfilesOperatorDaemon
+			result1 *v1a.SecurityProfilesOperatorDaemon
 			result2 error
 		})
 	}
 	fake.getSPODReturnsOnCall[i] = struct {
-		result1 *v1b.SecurityProfilesOperatorDaemon
+		result1 *v1a.SecurityProfilesOperatorDaemon
 		result2 error
 	}{result1, result2}
 }
@@ -965,7 +910,7 @@ func (fake *FakeImpl) GoArchToSeccompArchReturnsOnCall(i int, result1 seccomp.Ar
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) ListRecordings(arg1 context.Context, arg2 client.Client, arg3 string) (*v1a.ProfileRecordingList, error) {
+func (fake *FakeImpl) ListRecordings(arg1 context.Context, arg2 client.Client, arg3 string) (*v1b.ProfileRecordingList, error) {
 	fake.listRecordingsMutex.Lock()
 	ret, specificReturn := fake.listRecordingsReturnsOnCall[len(fake.listRecordingsArgsForCall)]
 	fake.listRecordingsArgsForCall = append(fake.listRecordingsArgsForCall, struct {
@@ -992,7 +937,7 @@ func (fake *FakeImpl) ListRecordingsCallCount() int {
 	return len(fake.listRecordingsArgsForCall)
 }
 
-func (fake *FakeImpl) ListRecordingsCalls(stub func(context.Context, client.Client, string) (*v1a.ProfileRecordingList, error)) {
+func (fake *FakeImpl) ListRecordingsCalls(stub func(context.Context, client.Client, string) (*v1b.ProfileRecordingList, error)) {
 	fake.listRecordingsMutex.Lock()
 	defer fake.listRecordingsMutex.Unlock()
 	fake.ListRecordingsStub = stub
@@ -1005,28 +950,28 @@ func (fake *FakeImpl) ListRecordingsArgsForCall(i int) (context.Context, client.
 	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
 }
 
-func (fake *FakeImpl) ListRecordingsReturns(result1 *v1a.ProfileRecordingList, result2 error) {
+func (fake *FakeImpl) ListRecordingsReturns(result1 *v1b.ProfileRecordingList, result2 error) {
 	fake.listRecordingsMutex.Lock()
 	defer fake.listRecordingsMutex.Unlock()
 	fake.ListRecordingsStub = nil
 	fake.listRecordingsReturns = struct {
-		result1 *v1a.ProfileRecordingList
+		result1 *v1b.ProfileRecordingList
 		result2 error
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) ListRecordingsReturnsOnCall(i int, result1 *v1a.ProfileRecordingList, result2 error) {
+func (fake *FakeImpl) ListRecordingsReturnsOnCall(i int, result1 *v1b.ProfileRecordingList, result2 error) {
 	fake.listRecordingsMutex.Lock()
 	defer fake.listRecordingsMutex.Unlock()
 	fake.ListRecordingsStub = nil
 	if fake.listRecordingsReturnsOnCall == nil {
 		fake.listRecordingsReturnsOnCall = make(map[int]struct {
-			result1 *v1a.ProfileRecordingList
+			result1 *v1b.ProfileRecordingList
 			result2 error
 		})
 	}
 	fake.listRecordingsReturnsOnCall[i] = struct {
-		result1 *v1a.ProfileRecordingList
+		result1 *v1b.ProfileRecordingList
 		result2 error
 	}{result1, result2}
 }
@@ -1283,6 +1228,69 @@ func (fake *FakeImpl) NewControllerManagedByReturnsOnCall(i int, result1 error) 
 	}{result1}
 }
 
+func (fake *FakeImpl) ResetApparmorForProfile(arg1 context.Context, arg2 api_bpfrecorder.BpfRecorderClient, arg3 *api_bpfrecorder.ProfileRequest) error {
+	fake.resetApparmorForProfileMutex.Lock()
+	ret, specificReturn := fake.resetApparmorForProfileReturnsOnCall[len(fake.resetApparmorForProfileArgsForCall)]
+	fake.resetApparmorForProfileArgsForCall = append(fake.resetApparmorForProfileArgsForCall, struct {
+		arg1 context.Context
+		arg2 api_bpfrecorder.BpfRecorderClient
+		arg3 *api_bpfrecorder.ProfileRequest
+	}{arg1, arg2, arg3})
+	stub := fake.ResetApparmorForProfileStub
+	fakeReturns := fake.resetApparmorForProfileReturns
+	fake.recordInvocation("ResetApparmorForProfile", []interface{}{arg1, arg2, arg3})
+	fake.resetApparmorForProfileMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) ResetApparmorForProfileCallCount() int {
+	fake.resetApparmorForProfileMutex.RLock()
+	defer fake.resetApparmorForProfileMutex.RUnlock()
+	return len(fake.resetApparmorForProfileArgsForCall)
+}
+
+func (fake *FakeImpl) ResetApparmorForProfileCalls(stub func(context.Context, api_bpfrecorder.BpfRecorderClient, *api_bpfrecorder.ProfileRequest) error) {
+	fake.resetApparmorForProfileMutex.Lock()
+	defer fake.resetApparmorForProfileMutex.Unlock()
+	fake.ResetApparmorForProfileStub = stub
+}
+
+func (fake *FakeImpl) ResetApparmorForProfileArgsForCall(i int) (context.Context, api_bpfrecorder.BpfRecorderClient, *api_bpfrecorder.ProfileRequest) {
+	fake.resetApparmorForProfileMutex.RLock()
+	defer fake.resetApparmorForProfileMutex.RUnlock()
+	argsForCall := fake.resetApparmorForProfileArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *FakeImpl) ResetApparmorForProfileReturns(result1 error) {
+	fake.resetApparmorForProfileMutex.Lock()
+	defer fake.resetApparmorForProfileMutex.Unlock()
+	fake.ResetApparmorForProfileStub = nil
+	fake.resetApparmorForProfileReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) ResetApparmorForProfileReturnsOnCall(i int, result1 error) {
+	fake.resetApparmorForProfileMutex.Lock()
+	defer fake.resetApparmorForProfileMutex.Unlock()
+	fake.ResetApparmorForProfileStub = nil
+	if fake.resetApparmorForProfileReturnsOnCall == nil {
+		fake.resetApparmorForProfileReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.resetApparmorForProfileReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
 func (fake *FakeImpl) ResetAvcs(arg1 context.Context, arg2 api_enricher.EnricherClient, arg3 *api_enricher.AvcRequest) error {
 	fake.resetAvcsMutex.Lock()
 	ret, specificReturn := fake.resetAvcsReturnsOnCall[len(fake.resetAvcsArgsForCall)]
@@ -1405,6 +1413,69 @@ func (fake *FakeImpl) ResetSyscallsReturnsOnCall(i int, result1 error) {
 		})
 	}
 	fake.resetSyscallsReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) ResetSyscallsForProfile(arg1 context.Context, arg2 api_bpfrecorder.BpfRecorderClient, arg3 *api_bpfrecorder.ProfileRequest) error {
+	fake.resetSyscallsForProfileMutex.Lock()
+	ret, specificReturn := fake.resetSyscallsForProfileReturnsOnCall[len(fake.resetSyscallsForProfileArgsForCall)]
+	fake.resetSyscallsForProfileArgsForCall = append(fake.resetSyscallsForProfileArgsForCall, struct {
+		arg1 context.Context
+		arg2 api_bpfrecorder.BpfRecorderClient
+		arg3 *api_bpfrecorder.ProfileRequest
+	}{arg1, arg2, arg3})
+	stub := fake.ResetSyscallsForProfileStub
+	fakeReturns := fake.resetSyscallsForProfileReturns
+	fake.recordInvocation("ResetSyscallsForProfile", []interface{}{arg1, arg2, arg3})
+	fake.resetSyscallsForProfileMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) ResetSyscallsForProfileCallCount() int {
+	fake.resetSyscallsForProfileMutex.RLock()
+	defer fake.resetSyscallsForProfileMutex.RUnlock()
+	return len(fake.resetSyscallsForProfileArgsForCall)
+}
+
+func (fake *FakeImpl) ResetSyscallsForProfileCalls(stub func(context.Context, api_bpfrecorder.BpfRecorderClient, *api_bpfrecorder.ProfileRequest) error) {
+	fake.resetSyscallsForProfileMutex.Lock()
+	defer fake.resetSyscallsForProfileMutex.Unlock()
+	fake.ResetSyscallsForProfileStub = stub
+}
+
+func (fake *FakeImpl) ResetSyscallsForProfileArgsForCall(i int) (context.Context, api_bpfrecorder.BpfRecorderClient, *api_bpfrecorder.ProfileRequest) {
+	fake.resetSyscallsForProfileMutex.RLock()
+	defer fake.resetSyscallsForProfileMutex.RUnlock()
+	argsForCall := fake.resetSyscallsForProfileArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *FakeImpl) ResetSyscallsForProfileReturns(result1 error) {
+	fake.resetSyscallsForProfileMutex.Lock()
+	defer fake.resetSyscallsForProfileMutex.Unlock()
+	fake.ResetSyscallsForProfileStub = nil
+	fake.resetSyscallsForProfileReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) ResetSyscallsForProfileReturnsOnCall(i int, result1 error) {
+	fake.resetSyscallsForProfileMutex.Lock()
+	defer fake.resetSyscallsForProfileMutex.Unlock()
+	fake.ResetSyscallsForProfileStub = nil
+	if fake.resetSyscallsForProfileReturnsOnCall == nil {
+		fake.resetSyscallsForProfileReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.resetSyscallsForProfileReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
 }

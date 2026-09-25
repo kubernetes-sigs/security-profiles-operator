@@ -28,22 +28,22 @@ import (
 // recording annotation per profile kind, so a pod recorded for both seccomp and
 // AppArmor produces two profiles for the same container ID. Every one of them
 // has to resolve back to that container, because that reverse lookup is how the
-// recorder finds the mount namespace to collect a profile from; a bijection
-// would evict the first profile when the second one is inserted and the first
-// would silently never be collected.
+// recorder finds the recorded data to collect a profile from.
 //
-// Profile names are unique, so the reverse direction stays a plain map.
+// A profile can also belong to several containers: a restarted container gets
+// a new ID but carries the same annotation, and the profile has to cover what
+// every run of it did.
 type containerProfiles struct {
 	l sync.RWMutex
-	// byContainer keeps insertion order, so Get is stable.
+	// Both directions keep insertion order, so Get is stable.
 	byContainer map[string][]string
-	byProfile   map[string]string
+	byProfile   map[string][]string
 }
 
 func newContainerProfiles() *containerProfiles {
 	return &containerProfiles{
 		byContainer: map[string][]string{},
-		byProfile:   map[string]string{},
+		byProfile:   map[string][]string{},
 	}
 }
 
@@ -52,31 +52,13 @@ func (c *containerProfiles) Insert(containerID, profile string) {
 	c.l.Lock()
 	defer c.l.Unlock()
 
-	// A profile belongs to exactly one container, so re-pointing it has to
-	// detach it from the one it was on.
-	if oldID, ok := c.byProfile[profile]; ok && oldID != containerID {
-		c.removeProfileFrom(oldID, profile)
-	}
-
 	if !slices.Contains(c.byContainer[containerID], profile) {
 		c.byContainer[containerID] = append(c.byContainer[containerID], profile)
 	}
 
-	c.byProfile[profile] = containerID
-}
-
-// removeProfileFrom drops profile from a container's list. Callers hold the lock.
-func (c *containerProfiles) removeProfileFrom(containerID, profile string) {
-	profiles := slices.DeleteFunc(c.byContainer[containerID], func(p string) bool {
-		return p == profile
-	})
-	if len(profiles) == 0 {
-		delete(c.byContainer, containerID)
-
-		return
+	if !slices.Contains(c.byProfile[profile], containerID) {
+		c.byProfile[profile] = append(c.byProfile[profile], containerID)
 	}
-
-	c.byContainer[containerID] = profiles
 }
 
 // Get returns the first profile recorded for containerID.
@@ -100,26 +82,49 @@ func (c *containerProfiles) GetAll(containerID string) []string {
 	return slices.Clone(c.byContainer[containerID])
 }
 
-// GetBackwards returns the container ID a profile is recorded for.
-func (c *containerProfiles) GetBackwards(profile string) (string, bool) {
+// Containers returns the containers a profile is recorded for.
+func (c *containerProfiles) Containers(profile string) []string {
 	c.l.RLock()
 	defer c.l.RUnlock()
 
-	containerID, ok := c.byProfile[profile]
-
-	return containerID, ok
+	return slices.Clone(c.byProfile[profile])
 }
 
-// Delete forgets a container and every profile recorded for it.
+// Delete forgets a container and drops it from every profile recorded for it.
 func (c *containerProfiles) Delete(containerID string) {
 	c.l.Lock()
 	defer c.l.Unlock()
 
 	for _, profile := range c.byContainer[containerID] {
-		delete(c.byProfile, profile)
+		c.byProfile[profile] = without(c.byProfile[profile], containerID)
+		if len(c.byProfile[profile]) == 0 {
+			delete(c.byProfile, profile)
+		}
 	}
 
 	delete(c.byContainer, containerID)
+}
+
+// DeleteProfile forgets a single profile. It returns the containers which have
+// no profile left to be recorded for.
+func (c *containerProfiles) DeleteProfile(profile string) []string {
+	c.l.Lock()
+	defer c.l.Unlock()
+
+	var unused []string
+
+	for _, containerID := range c.byProfile[profile] {
+		c.byContainer[containerID] = without(c.byContainer[containerID], profile)
+		if len(c.byContainer[containerID]) == 0 {
+			delete(c.byContainer, containerID)
+
+			unused = append(unused, containerID)
+		}
+	}
+
+	delete(c.byProfile, profile)
+
+	return unused
 }
 
 // Clear forgets everything.
@@ -137,4 +142,8 @@ func (c *containerProfiles) Size() int {
 	defer c.l.RUnlock()
 
 	return len(c.byContainer)
+}
+
+func without(list []string, item string) []string {
+	return slices.DeleteFunc(list, func(s string) bool { return s == item })
 }

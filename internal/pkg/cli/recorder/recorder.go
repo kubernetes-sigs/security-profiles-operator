@@ -21,6 +21,7 @@ package recorder
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -29,12 +30,12 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
 	libseccomp "github.com/seccomp/libseccomp-golang"
+	"go.podman.io/common/pkg/seccomp"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/cli-runtime/pkg/printers"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -165,11 +166,11 @@ func (r *Recorder) Run() error {
 func (r *Recorder) outFile() string {
 	outFile := r.options.outputFile
 	if outFile == DefaultOutputFile {
-		if r.options.typ == TypeRawAppArmor {
+		if r.options.typ == TypeRawSeccomp {
 			outFile = strings.TrimSuffix(outFile, ".yaml") + ".json"
 		}
 
-		if r.options.typ == TypeRawSeccomp {
+		if r.options.typ == TypeRawAppArmor {
 			outFile = strings.TrimSuffix(outFile, ".yaml") + ".apparmor"
 		}
 	}
@@ -187,8 +188,9 @@ func (r *Recorder) processSeccomp(writer io.Writer, mntns uint32) error {
 
 	it := r.SyscallsIterator(r.bpfRecorder)
 	for r.IteratorNext(it) {
-		currentMntns := binary.LittleEndian.Uint32(r.IteratorKey(it))
-		if mntns != 0 && currentMntns != mntns {
+		// spoc records per mount namespace, so the keys are mount namespaces.
+		currentMntns := binary.LittleEndian.Uint64(r.IteratorKey(it))
+		if mntns != 0 && currentMntns != uint64(mntns) {
 			continue
 		}
 
@@ -235,113 +237,39 @@ func (r *Recorder) processSeccomp(writer io.Writer, mntns uint32) error {
 	return nil
 }
 
-func (r *Recorder) generateAppArmorProfile(mntns uint32) apparmorprofileapi.AppArmorAbstract {
-	processed := r.bpfRecorder.AppArmor.GetAppArmorProcessed(mntns)
+func (r *Recorder) generateAppArmorProfile(mntns uint64) apparmorprofileapi.AppArmorAbstract {
+	processed, _ := r.bpfRecorder.AppArmor.GetAppArmorProcessed([]uint64{mntns})
 
-	abstract := apparmorprofileapi.AppArmorAbstract{}
-	enabled := true
-
-	if len(processed.FileProcessed.AllowedExecutables) != 0 ||
-		len(processed.FileProcessed.AllowedLibraries) != 0 {
-		abstract.Executable = &apparmorprofileapi.AppArmorExecutablesRules{}
-
-		if len(processed.FileProcessed.AllowedExecutables) != 0 {
-			sort.Strings(processed.FileProcessed.AllowedExecutables)
-			ExecutableAllowedExecCopy := make(
-				[]string,
-				len(processed.FileProcessed.AllowedExecutables),
-			)
-			copy(ExecutableAllowedExecCopy, processed.FileProcessed.AllowedExecutables)
-			abstract.Executable.AllowedExecutables = ExecutableAllowedExecCopy
-		}
-
-		if len(processed.FileProcessed.AllowedLibraries) != 0 {
-			sort.Strings(processed.FileProcessed.AllowedLibraries)
-			ExecutableAllowedLibCopy := make(
-				[]string,
-				len(processed.FileProcessed.AllowedLibraries),
-			)
-			copy(ExecutableAllowedLibCopy, processed.FileProcessed.AllowedLibraries)
-			abstract.Executable.AllowedLibraries = ExecutableAllowedLibCopy
-		}
-	}
-
-	if (len(processed.FileProcessed.ReadOnlyPaths) != 0) ||
-		(len(processed.FileProcessed.WriteOnlyPaths) != 0) ||
-		(len(processed.FileProcessed.ReadWritePaths) != 0) {
-		files := apparmorprofileapi.AppArmorFsRules{}
-
-		if len(processed.FileProcessed.ReadOnlyPaths) != 0 {
-			sort.Strings(processed.FileProcessed.ReadOnlyPaths)
-			FileReadOnlyCopy := make([]string, len(processed.FileProcessed.ReadOnlyPaths))
-			copy(FileReadOnlyCopy, processed.FileProcessed.ReadOnlyPaths)
-			files.ReadOnlyPaths = FileReadOnlyCopy
-		}
-
-		if len(processed.FileProcessed.WriteOnlyPaths) != 0 {
-			sort.Strings(processed.FileProcessed.WriteOnlyPaths)
-			FileWriteOnlyCopy := make([]string, len(processed.FileProcessed.WriteOnlyPaths))
-			copy(FileWriteOnlyCopy, processed.FileProcessed.WriteOnlyPaths)
-			files.WriteOnlyPaths = FileWriteOnlyCopy
-		}
-
-		if len(processed.FileProcessed.ReadWritePaths) != 0 {
-			sort.Strings(processed.FileProcessed.ReadWritePaths)
-			FileReadWriteCopy := make([]string, len(processed.FileProcessed.ReadWritePaths))
-			copy(FileReadWriteCopy, processed.FileProcessed.ReadWritePaths)
-			files.ReadWritePaths = FileReadWriteCopy
-		}
-
-		abstract.Filesystem = &files
-	}
-
-	if processed.Socket.UseRaw || processed.Socket.UseTCP || processed.Socket.UseUDP {
-		net := apparmorprofileapi.AppArmorNetworkRules{}
-		proto := apparmorprofileapi.AppArmorAllowedProtocols{}
-
-		if processed.Socket.UseRaw {
-			net.AllowRaw = &enabled
-		}
-
-		if processed.Socket.UseTCP {
-			proto.AllowTCP = &enabled
-			net.Protocols = &proto
-		}
-
-		if processed.Socket.UseUDP {
-			proto.AllowUDP = &enabled
-			net.Protocols = &proto
-		}
-
-		abstract.Network = &net
-	}
-
-	if len(processed.Capabilities) != 0 {
-		capabilities := apparmorprofileapi.AppArmorCapabilityRules{}
-		capabilities.AllowedCapabilities = processed.Capabilities
-		abstract.Capability = &capabilities
-	}
-
-	return abstract
+	return crd2armor.AbstractFromRecording(&crd2armor.RecordedAccess{
+		AllowedExecutables: processed.FileProcessed.AllowedExecutables,
+		AllowedLibraries:   processed.FileProcessed.AllowedLibraries,
+		ReadOnlyPaths:      processed.FileProcessed.ReadOnlyPaths,
+		WriteOnlyPaths:     processed.FileProcessed.WriteOnlyPaths,
+		ReadWritePaths:     processed.FileProcessed.ReadWritePaths,
+		UseRaw:             processed.Socket.UseRaw,
+		UseTCP:             processed.Socket.UseTCP,
+		UseUDP:             processed.Socket.UseUDP,
+		Capabilities:       processed.Capabilities,
+	})
 }
 
 func (r *Recorder) processAppArmor(writer io.Writer, mntns uint32) error {
 	var spec apparmorprofileapi.AppArmorProfileSpec
 
 	if mntns > 0 {
-		abstract := r.generateAppArmorProfile(mntns)
+		abstract := r.generateAppArmorProfile(uint64(mntns))
 		spec = apparmorprofileapi.AppArmorProfileSpec{
 			Abstract: abstract,
 		}
 	} else {
 		// Special case of CLI recording with --no-proc: We span all mount namespaces.
-		mountNamespaces := r.bpfRecorder.AppArmor.GetKnownMntns()
+		mountNamespaces := r.bpfRecorder.AppArmor.GetKnownKeys()
 		parts := make([]client.Object, 0, len(mountNamespaces))
 
 		for _, mntns := range mountNamespaces {
 			profile := apparmorprofileapi.AppArmorProfile{
 				Spec: apparmorprofileapi.AppArmorProfileSpec{
-					Abstract: r.generateAppArmorProfile(uint32(mntns)),
+					Abstract: r.generateAppArmorProfile(mntns),
 				},
 			}
 			parts = append(parts, &profile)
@@ -390,7 +318,7 @@ func (r *Recorder) buildProfile(writer io.Writer, names []string) error {
 		log.Printf("Adding base syscalls: %s", strings.Join(diff, ", "))
 	}
 
-	sort.Strings(names)
+	slices.Sort(names)
 
 	spec := seccompprofileapi.SeccompProfileSpec{
 		DefaultAction: seccompprofileapi.ActErrno,
@@ -416,7 +344,7 @@ func (r *Recorder) buildProfileRaw(
 	writer io.Writer,
 	spec *seccompprofileapi.SeccompProfileSpec,
 ) error {
-	data, err := r.MarshalIndent(spec, "", "  ")
+	data, err := json.MarshalIndent(spec, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal JSON profile: %w", err)
 	}
@@ -504,7 +432,7 @@ func (r *Recorder) buildAppArmorProfileRaw(
 }
 
 func (r *Recorder) goArchToSeccompArch(goarch string) (seccompprofileapi.Arch, error) {
-	seccompArch, err := r.GoArchToSeccompArch(goarch)
+	seccompArch, err := seccomp.GoArchToSeccompArch(goarch)
 	if err != nil {
 		return "", fmt.Errorf("convert golang to seccomp arch: %w", err)
 	}

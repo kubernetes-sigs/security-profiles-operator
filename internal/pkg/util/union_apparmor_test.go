@@ -112,6 +112,77 @@ func TestUnionAppArmor(t *testing.T) {
 		require.Equal(t, new(true), got.Network.Protocols.AllowUDP)
 	})
 
+	t.Run("paths with variables are unioned", func(t *testing.T) {
+		t.Parallel()
+
+		base := &apparmorprofileapi.AppArmorAbstract{
+			Executable: &apparmorprofileapi.AppArmorExecutablesRules{
+				AllowedExecutables: []string{"/bin/sh", "/proc/@{pid}/exe"},
+			},
+			Filesystem: &apparmorprofileapi.AppArmorFsRules{
+				ReadOnlyPaths: []string{
+					"/etc/passwd", "/proc/@{pid}/maps", "/proc/@{pid}/status",
+				},
+				WriteOnlyPaths: []string{"/proc/@{pid}/task/@{tid}/comm"},
+			},
+		}
+		additions := &apparmorprofileapi.AppArmorAbstract{
+			Executable: &apparmorprofileapi.AppArmorExecutablesRules{
+				AllowedExecutables: []string{"/proc/@{pid}/exe"},
+			},
+			Filesystem: &apparmorprofileapi.AppArmorFsRules{
+				ReadOnlyPaths:  []string{"/proc/@{pid}/task/@{tid}/comm", "/@{pid}/mounts"},
+				WriteOnlyPaths: []string{"/proc/@{pid}/status"},
+				ReadWritePaths: []string{"/tmp"},
+			},
+		}
+
+		got, err := UnionAppArmor(base, additions)
+		require.NoError(t, err)
+		require.Equal(t, apparmorprofileapi.AppArmorAbstract{
+			Executable: &apparmorprofileapi.AppArmorExecutablesRules{
+				AllowedExecutables: []string{"/bin/sh", "/proc/@{pid}/exe"},
+			},
+			Filesystem: &apparmorprofileapi.AppArmorFsRules{
+				ReadOnlyPaths: []string{
+					"/@{pid}/mounts", "/etc/passwd", "/proc/@{pid}/maps",
+				},
+				ReadWritePaths: []string{
+					"/proc/@{pid}/status", "/proc/@{pid}/task/@{tid}/comm", "/tmp",
+				},
+			},
+		}, got)
+
+		// The inputs are left as they are.
+		require.Equal(t, []string{
+			"/etc/passwd", "/proc/@{pid}/maps", "/proc/@{pid}/status",
+		}, base.Filesystem.ReadOnlyPaths)
+		require.Equal(t,
+			[]string{"/proc/@{pid}/exe"}, additions.Executable.AllowedExecutables)
+	})
+
+	t.Run("paths with variables are merged into missing sections", func(t *testing.T) {
+		t.Parallel()
+
+		got, err := UnionAppArmor(
+			&apparmorprofileapi.AppArmorAbstract{},
+			&apparmorprofileapi.AppArmorAbstract{
+				Executable: &apparmorprofileapi.AppArmorExecutablesRules{
+					AllowedLibraries: []string{"/proc/@{pid}/lib.so"},
+				},
+				Filesystem: &apparmorprofileapi.AppArmorFsRules{
+					ReadWritePaths: []string{"/proc/@{pid}/attr/current"},
+				},
+			},
+		)
+		require.NoError(t, err)
+		require.NotNil(t, got.Executable)
+		require.Equal(t, []string{"/proc/@{pid}/lib.so"}, got.Executable.AllowedLibraries)
+		require.NotNil(t, got.Filesystem)
+		require.Equal(t,
+			[]string{"/proc/@{pid}/attr/current"}, got.Filesystem.ReadWritePaths)
+	})
+
 	t.Run("merging with an empty profile keeps the other side", func(t *testing.T) {
 		t.Parallel()
 

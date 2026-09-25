@@ -142,6 +142,35 @@ func TestGenerateProfile(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "Path quoting - paths with spaces are quoted",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Executable: &apparmorprofileapi.AppArmorExecutablesRules{
+					AllowedExecutables: []string{"/opt/my app/bin"},
+					AllowedLibraries:   []string{"/opt/my app/lib.so"},
+				},
+				Filesystem: &apparmorprofileapi.AppArmorFsRules{
+					ReadOnlyPaths:  []string{"/My Documents/test file", "/etc/passwd"},
+					WriteOnlyPaths: []string{"/var/log/my app.log"},
+					ReadWritePaths: []string{"/tmp/@{pid}/a b/*"},
+				},
+			},
+			mustContain: []string{
+				`"/opt/my app/bin" ixr,`,
+				`"/opt/my app/lib.so" mr,`,
+				`"/My Documents/test file" r,`,
+				`deny "/My Documents/test file" wlk,`,
+				`"/var/log/my app.log" wlk,`,
+				`deny "/var/log/my app.log" r,`,
+				`"/tmp/@{pid}/a b/*" rwlk,`,
+				"  /etc/passwd r,",
+			},
+			mustNotContain: []string{
+				"  /My Documents/test file r,",
+				`"/etc/passwd"`,
+			},
+			wantErr: false,
+		},
+		{
 			name: "Path sanitization - good - only root",
 			abstract: &apparmorprofileapi.AppArmorAbstract{
 				Filesystem: &apparmorprofileapi.AppArmorFsRules{

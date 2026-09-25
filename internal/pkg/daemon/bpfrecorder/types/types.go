@@ -16,9 +16,4 @@ limitations under the License.
 
 package types
 
-type (
-	Os        string
-	OsVersion string
-	Arch      string
-	Kernel    string
-)
+type Arch string

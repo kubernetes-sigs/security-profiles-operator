@@ -425,12 +425,14 @@ const file_api_grpc_bpfrecorder_api_proto_rawDesc = "" +
 	"\x06Socket\x12\x17\n" +
 	"\ause_raw\x18\x01 \x01(\bR\x06useRaw\x12\x17\n" +
 	"\ause_tcp\x18\x02 \x01(\bR\x06useTcp\x12\x17\n" +
-	"\ause_udp\x18\x03 \x01(\bR\x06useUdp2\xd8\x02\n" +
+	"\ause_udp\x18\x03 \x01(\bR\x06useUdp2\x94\x04\n" +
 	"\vBpfRecorder\x12H\n" +
 	"\x05Start\x12\x1d.api_bpfrecorder.EmptyRequest\x1a\x1e.api_bpfrecorder.EmptyResponse\"\x00\x12G\n" +
 	"\x04Stop\x12\x1d.api_bpfrecorder.EmptyRequest\x1a\x1e.api_bpfrecorder.EmptyResponse\"\x00\x12Z\n" +
 	"\x12SyscallsForProfile\x12\x1f.api_bpfrecorder.ProfileRequest\x1a!.api_bpfrecorder.SyscallsResponse\"\x00\x12Z\n" +
-	"\x12ApparmorForProfile\x12\x1f.api_bpfrecorder.ProfileRequest\x1a!.api_bpfrecorder.ApparmorResponse\"\x00B\x12Z\x10/api_bpfrecorderb\x06proto3"
+	"\x12ApparmorForProfile\x12\x1f.api_bpfrecorder.ProfileRequest\x1a!.api_bpfrecorder.ApparmorResponse\"\x00\x12\\\n" +
+	"\x17ResetSyscallsForProfile\x12\x1f.api_bpfrecorder.ProfileRequest\x1a\x1e.api_bpfrecorder.EmptyResponse\"\x00\x12\\\n" +
+	"\x17ResetApparmorForProfile\x12\x1f.api_bpfrecorder.ProfileRequest\x1a\x1e.api_bpfrecorder.EmptyResponse\"\x00B\x12Z\x10/api_bpfrecorderb\x06proto3"
 
 var (
 	file_api_grpc_bpfrecorder_api_proto_rawDescOnce sync.Once
@@ -461,12 +463,16 @@ var file_api_grpc_bpfrecorder_api_proto_depIdxs = []int32{
 	0, // 3: api_bpfrecorder.BpfRecorder.Stop:input_type -> api_bpfrecorder.EmptyRequest
 	2, // 4: api_bpfrecorder.BpfRecorder.SyscallsForProfile:input_type -> api_bpfrecorder.ProfileRequest
 	2, // 5: api_bpfrecorder.BpfRecorder.ApparmorForProfile:input_type -> api_bpfrecorder.ProfileRequest
-	1, // 6: api_bpfrecorder.BpfRecorder.Start:output_type -> api_bpfrecorder.EmptyResponse
-	1, // 7: api_bpfrecorder.BpfRecorder.Stop:output_type -> api_bpfrecorder.EmptyResponse
-	3, // 8: api_bpfrecorder.BpfRecorder.SyscallsForProfile:output_type -> api_bpfrecorder.SyscallsResponse
-	4, // 9: api_bpfrecorder.BpfRecorder.ApparmorForProfile:output_type -> api_bpfrecorder.ApparmorResponse
-	6, // [6:10] is the sub-list for method output_type
-	2, // [2:6] is the sub-list for method input_type
+	2, // 6: api_bpfrecorder.BpfRecorder.ResetSyscallsForProfile:input_type -> api_bpfrecorder.ProfileRequest
+	2, // 7: api_bpfrecorder.BpfRecorder.ResetApparmorForProfile:input_type -> api_bpfrecorder.ProfileRequest
+	1, // 8: api_bpfrecorder.BpfRecorder.Start:output_type -> api_bpfrecorder.EmptyResponse
+	1, // 9: api_bpfrecorder.BpfRecorder.Stop:output_type -> api_bpfrecorder.EmptyResponse
+	3, // 10: api_bpfrecorder.BpfRecorder.SyscallsForProfile:output_type -> api_bpfrecorder.SyscallsResponse
+	4, // 11: api_bpfrecorder.BpfRecorder.ApparmorForProfile:output_type -> api_bpfrecorder.ApparmorResponse
+	1, // 12: api_bpfrecorder.BpfRecorder.ResetSyscallsForProfile:output_type -> api_bpfrecorder.EmptyResponse
+	1, // 13: api_bpfrecorder.BpfRecorder.ResetApparmorForProfile:output_type -> api_bpfrecorder.EmptyResponse
+	8, // [8:14] is the sub-list for method output_type
+	2, // [2:8] is the sub-list for method input_type
 	2, // [2:2] is the sub-list for extension type_name
 	2, // [2:2] is the sub-list for extension extendee
 	0, // [0:2] is the sub-list for field type_name

@@ -59,7 +59,6 @@ func newDefaultImpl(logger logr.Logger) *defaultImpl {
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../../hack/boilerplate/boilerplate.generatego.txt
 //counterfeiter:generate . impl
 type impl interface {
-	Getenv(key string) string
 	Dial() (*grpc.ClientConn, error)
 	Close(*grpc.ClientConn) error
 	StartTail(src auditsource.AuditLineSource) (chan *types.AuditLine, error)
@@ -75,23 +74,12 @@ type impl interface {
 	SendMetric(client api.Metrics_AuditIncClient, in *api.AuditRequest) error
 	Listen(string, string) (net.Listener, error)
 	Serve(*grpc.Server, net.Listener) error
-	AddToBacklog(
-		cache *ttlcache.Cache[string, []*types.AuditLine],
-		key string,
-		value []*types.AuditLine,
-	)
-	GetFromBacklog(cache *ttlcache.Cache[string, []*types.AuditLine], key string) []*types.AuditLine
-	FlushBacklog(cache *ttlcache.Cache[string, []*types.AuditLine], key string)
 	Chown(string, int, int) error
 	Stat(string) (os.FileInfo, error)
 	RemoveAll(string) error
 	CmdlineForPID(pid int) (string, error)
 	PrintJsonOutput(w io.Writer, output []byte)
 	EnvForPid(pid int) (map[string]string, error)
-}
-
-func (d *defaultImpl) Getenv(key string) string {
-	return os.Getenv(key)
 }
 
 func (d *defaultImpl) Dial() (*grpc.ClientConn, error) {
@@ -153,29 +141,6 @@ func (d *defaultImpl) AuditInc(
 	client api.MetricsClient,
 ) (api.Metrics_AuditIncClient, error) {
 	return client.AuditInc(context.Background())
-}
-
-func (d *defaultImpl) AddToBacklog(
-	cache *ttlcache.Cache[string, []*types.AuditLine], key string, value []*types.AuditLine,
-) {
-	cache.Set(key, value, ttlcache.DefaultTTL)
-}
-
-func (d *defaultImpl) GetFromBacklog(
-	cache *ttlcache.Cache[string, []*types.AuditLine], key string,
-) []*types.AuditLine {
-	item := cache.Get(key)
-	if item == nil {
-		return nil
-	}
-
-	return item.Value()
-}
-
-func (d *defaultImpl) FlushBacklog(
-	cache *ttlcache.Cache[string, []*types.AuditLine], key string,
-) {
-	cache.Delete(key)
 }
 
 func (d *defaultImpl) SendMetric(

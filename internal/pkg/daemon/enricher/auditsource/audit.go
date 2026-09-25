@@ -17,6 +17,7 @@ limitations under the License.
 package auditsource
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -97,52 +98,136 @@ func (a *AuditdSource) Stop() {
 
 // type IDs are defined at https://elixir.bootlin.com/linux/latest/source/include/uapi/linux/audit.h
 var (
-	seccompLineRegex = regexp.MustCompile(
-		// Fixed audit:.*?type prefix to allow spaces.
-		`(type=SECCOMP|audit:.*?type=1326).*?audit\(([^)]+)\).*?pid=(\d+).*?exe="([^"]*)".*?syscall=(\d+).*`,
-	)
-	selinuxLineRegex = regexp.MustCompile(
-		// Fixed \{\s*(.*?)\s*\} to drop trailing spaces inside the perm brackets.
-		`type=AVC.*?audit\(([^)]+)\).*?\{\s*(.*?)\s*\}.*?pid=(\d+).*?scontext=(\S+).*?tcontext=(\S+).*?tclass=(\w+).*`,
-	)
-	apparmorLineRegex = regexp.MustCompile(
-		//nolint:lll // no need to wrap regex
-		// Fixed audit:.*?type prefix to allow spaces.
-		`(type=APPARMOR|audit:.*?type=1400).*?audit\(([^)]+)\).*?apparmor="([^"]*)".*?operation="([^"]*)".*?profile="([^"]*)".*?name="([^"]*)".*?pid=(\d+).*?comm="([^"]*)"\s*(.*)`,
-	)
+	// auditHeaderRegex matches the record type and the timestamp of an audit
+	// record, as written by auditd (type=SECCOMP msg=audit(...):) and by the
+	// kernel to its log (audit: type=1326 audit(...):).
+	auditHeaderRegex = regexp.MustCompile(`type=(\w+)\s+(?:msg=)?audit\(([^)]+)\):?`)
+
+	selinuxPermsRegex = regexp.MustCompile(`\{\s*(.*?)\s*\}`)
 
 	uidGidRegex = regexp.MustCompile(`.*?\suid=(\d+).*?\sgid=(\d+).*`)
 )
 
-var (
-	minSeccompCapturesExpected  = 5
-	minSelinuxCapturesExpected  = 7
-	minAppArmorCapturesExpected = 9
-)
-
 // auditPrefilter is a cheap substring every supported audit line contains. It
-// avoids running three unanchored regexes over lines that cannot match.
+// avoids parsing lines that cannot match.
 const auditPrefilter = "audit("
+
+// auditdEnrichmentSeparator separates the fields auditd interprets and appends
+// to a record from the fields the kernel logged.
+const auditdEnrichmentSeparator = '\x1d'
+
+// untrustedFields are logged by the kernel with audit_log_untrustedstring:
+// quoted if they are plain, and hex encoded without quotes if they contain a
+// space, a quote or a control character.
+var untrustedFields = map[string]bool{
+	"comm":    true,
+	"exe":     true,
+	"name":    true,
+	"path":    true,
+	"profile": true,
+	"target":  true,
+	"peer":    true,
+}
+
+// auditField is a single key=value pair of an audit record.
+type auditField struct {
+	key string
+	// value is unquoted and decoded.
+	value string
+	// raw is the value as it was logged.
+	raw string
+}
+
+// auditFields are the key=value pairs of an audit record in the logged order.
+type auditFields []auditField
+
+func (f auditFields) get(key string) (string, bool) {
+	for i := range f {
+		if f[i].key == key {
+			return f[i].value, true
+		}
+	}
+
+	return "", false
+}
+
+// parseAuditFields tokenizes the key=value pairs of an audit record. Tokens
+// without a `=` are skipped.
+func parseAuditFields(record string) auditFields {
+	var fields auditFields
+
+	for i := 0; i < len(record); {
+		// Skip separators.
+		if record[i] == ' ' {
+			i++
+
+			continue
+		}
+
+		start := i
+		for i < len(record) && record[i] != ' ' && record[i] != '=' {
+			i++
+		}
+
+		if i >= len(record) || record[i] != '=' {
+			// A token without a value, like "avc:" or "denied".
+			continue
+		}
+
+		key := record[start:i]
+		i++ // skip '='
+
+		var raw, value string
+
+		if i < len(record) && record[i] == '"' {
+			closing := strings.IndexByte(record[i+1:], '"')
+			if closing < 0 {
+				raw, value = record[i:], record[i+1:]
+			} else {
+				raw, value = record[i:i+closing+2], record[i+1:i+1+closing]
+			}
+
+			i += len(raw)
+		} else {
+			valueStart := i
+			for i < len(record) && record[i] != ' ' {
+				i++
+			}
+
+			raw = record[valueStart:i]
+			value = raw
+
+			if untrustedFields[key] {
+				value = decodeUntrusted(raw)
+			}
+		}
+
+		fields = append(fields, auditField{key: key, value: value, raw: raw})
+	}
+
+	return fields
+}
+
+// decodeUntrusted decodes a hex encoded untrusted string. Values which are
+// not valid hex are returned as they are.
+func decodeUntrusted(raw string) string {
+	if raw == "" || raw == "(null)" || len(raw)%2 != 0 {
+		return raw
+	}
+
+	decoded, err := hex.DecodeString(raw)
+	if err != nil {
+		return raw
+	}
+
+	return string(decoded)
+}
 
 // IsAuditLine checks whether logLine is a supported audit line.
 func IsAuditLine(logLine string) bool {
-	if !strings.Contains(logLine, auditPrefilter) {
-		return false
-	}
+	_, err := ExtractAuditLine(logLine)
 
-	captures := seccompLineRegex.FindStringSubmatch(logLine)
-	if len(captures) >= minSeccompCapturesExpected {
-		return true
-	}
-
-	captures = selinuxLineRegex.FindStringSubmatch(logLine)
-	if len(captures) >= minSelinuxCapturesExpected {
-		return true
-	}
-
-	captures = apparmorLineRegex.FindStringSubmatch(logLine)
-
-	return len(captures) >= minAppArmorCapturesExpected
+	return err == nil
 }
 
 // ExtractAuditLine extracts an auditline from logLine.
@@ -151,90 +236,174 @@ func ExtractAuditLine(logLine string) (*types.AuditLine, error) {
 		return nil, fmt.Errorf("unsupported log line: %s", logLine)
 	}
 
-	if seccomp := extractSeccompLine(logLine); seccomp != nil {
-		return seccomp, nil
+	record := logLine
+	if i := strings.IndexByte(record, auditdEnrichmentSeparator); i >= 0 {
+		record = record[:i]
 	}
 
-	if selinux := extractSelinuxLine(logLine); selinux != nil {
-		return selinux, nil
+	header := auditHeaderRegex.FindStringSubmatchIndex(record)
+	if header == nil {
+		return nil, fmt.Errorf("unsupported log line: %s", logLine)
 	}
 
-	if apparmor := extractApparmorLine(logLine); apparmor != nil {
-		return apparmor, nil
+	recordType := record[header[2]:header[3]]
+	timestamp := record[header[4]:header[5]]
+	body := record[header[1]:]
+	fields := parseAuditFields(body)
+
+	var line *types.AuditLine
+
+	switch recordType {
+	case "SECCOMP", "1326":
+		line = extractSeccompLine(fields)
+	case "AVC", "1400", "APPARMOR", "APPARMOR_DENIED", "APPARMOR_ALLOWED",
+		"APPARMOR_AUDIT", "1503", "1502", "1501":
+		// AppArmor records share the AVC type with SELinux.
+		if _, ok := fields.get("apparmor"); ok {
+			line = extractApparmorLine(fields)
+		} else {
+			line = extractSelinuxLine(body, fields)
+		}
 	}
 
-	return nil, fmt.Errorf("unsupported log line: %s", logLine)
+	if line == nil {
+		return nil, fmt.Errorf("unsupported log line: %s", logLine)
+	}
+
+	line.TimestampID = timestamp
+
+	return line, nil
 }
 
-func extractSeccompLine(logLine string) *types.AuditLine {
-	captures := seccompLineRegex.FindStringSubmatch(logLine)
-	if len(captures) < minSeccompCapturesExpected {
+func extractSeccompLine(fields auditFields) *types.AuditLine {
+	pid, okPid := fields.get("pid")
+	syscall, okSyscall := fields.get("syscall")
+
+	if !okPid || !okSyscall {
 		return nil
 	}
 
-	line := types.AuditLine{
-		AuditType:   types.AuditTypeSeccomp,
-		TimestampID: captures[2],
-		Executable:  captures[4],
+	syscallID, err := strconv.ParseInt(syscall, 10, 32)
+	if err != nil {
+		return nil
 	}
 
-	extractProcessId(&line, captures[3])
+	exe, _ := fields.get("exe")
+	arch, _ := fields.get("arch")
 
-	if syscallID, err := strconv.ParseInt(captures[5], 10, 32); err == nil {
-		line.SystemCallID = int32(syscallID)
+	line := types.AuditLine{
+		AuditType:    types.AuditTypeSeccomp,
+		Executable:   exe,
+		SystemCallID: int32(syscallID),
+		Arch:         arch,
+	}
+
+	if !extractProcessID(&line, pid) {
+		return nil
 	}
 
 	return &line
 }
 
-func extractProcessId(line *types.AuditLine, capturedProcessID string) {
-	if pid, err := strconv.Atoi(capturedProcessID); err == nil {
-		line.ProcessID = pid
+// extractProcessID sets the process ID of line and reports whether it is a
+// valid one.
+func extractProcessID(line *types.AuditLine, capturedProcessID string) bool {
+	pid, err := strconv.Atoi(capturedProcessID)
+	if err != nil {
+		return false
 	}
+
+	line.ProcessID = pid
+
+	return true
 }
 
-func extractSelinuxLine(logLine string) *types.AuditLine {
-	captures := selinuxLineRegex.FindStringSubmatch(logLine)
-	if len(captures) < minSelinuxCapturesExpected {
+func extractSelinuxLine(body string, fields auditFields) *types.AuditLine {
+	perms := selinuxPermsRegex.FindStringSubmatch(body)
+	pid, okPid := fields.get("pid")
+	scontext, okScontext := fields.get("scontext")
+	tcontext, okTcontext := fields.get("tcontext")
+	tclass, okTclass := fields.get("tclass")
+
+	if perms == nil || !okPid || !okScontext || !okTcontext || !okTclass {
 		return nil
 	}
 
 	line := types.AuditLine{
-		AuditType:   types.AuditTypeSelinux,
-		TimestampID: captures[1],
-		Perm:        captures[2],
+		AuditType: types.AuditTypeSelinux,
+		Perm:      perms[1],
+		Scontext:  scontext,
+		Tcontext:  tcontext,
+		Tclass:    tclass,
 	}
 
-	extractProcessId(&line, captures[3])
-
-	line.Scontext = captures[4]
-	line.Tcontext = captures[5]
-	line.Tclass = captures[6]
+	if !extractProcessID(&line, pid) {
+		return nil
+	}
 
 	return &line
 }
 
-func extractApparmorLine(logLine string) *types.AuditLine {
-	captures := apparmorLineRegex.FindStringSubmatch(logLine)
-	if len(captures) < minAppArmorCapturesExpected {
+// apparmorKnownFields are stored in dedicated fields of the audit line, every
+// other field goes into its extra info.
+var apparmorKnownFields = map[string]bool{
+	"apparmor":  true,
+	"operation": true,
+	"profile":   true,
+	"name":      true,
+	"pid":       true,
+	"comm":      true,
+}
+
+// extractApparmorLine extracts file, capability and network records alike:
+// only the latter carry no name, they log capname or the socket family
+// instead, which end up in the extra info.
+func extractApparmorLine(fields auditFields) *types.AuditLine {
+	apparmor, _ := fields.get("apparmor")
+	operation, okOperation := fields.get("operation")
+	pid, okPid := fields.get("pid")
+
+	if !okOperation || !okPid {
 		return nil
 	}
 
+	profile, _ := fields.get("profile")
+	name, _ := fields.get("name")
+	comm, _ := fields.get("comm")
+
 	line := types.AuditLine{
-		AuditType:   types.AuditTypeApparmor,
-		TimestampID: captures[2],
-		Apparmor:    captures[3],
-		Operation:   captures[4],
-		Profile:     captures[5],
-		Name:        captures[6],
-		Executable:  captures[8],
+		AuditType:  types.AuditTypeApparmor,
+		Apparmor:   apparmor,
+		Operation:  operation,
+		Profile:    profile,
+		Name:       name,
+		Executable: comm,
 	}
 
-	extractProcessId(&line, captures[7])
-
-	if len(captures) > minAppArmorCapturesExpected {
-		line.ExtraInfo = strings.ReplaceAll(captures[9], "\"", "'")
+	if !extractProcessID(&line, pid) {
+		return nil
 	}
+
+	// Only the fields logged after the process are extra info, the ones
+	// before describe the record itself.
+	extra := []string{}
+	afterComm := false
+
+	for _, field := range fields {
+		if field.key == "comm" {
+			afterComm = true
+
+			continue
+		}
+
+		if !afterComm || apparmorKnownFields[field.key] {
+			continue
+		}
+
+		extra = append(extra, field.key+"="+strings.ReplaceAll(field.raw, "\"", "'"))
+	}
+
+	line.ExtraInfo = strings.Join(extra, " ")
 
 	return &line
 }

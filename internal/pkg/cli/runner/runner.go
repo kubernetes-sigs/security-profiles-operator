@@ -19,6 +19,7 @@ limitations under the License.
 package runner
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -29,10 +30,12 @@ import (
 	"github.com/nxadm/tail"
 	"github.com/opencontainers/runtime-spec/specs-go"
 	libseccomp "github.com/seccomp/libseccomp-golang"
+	"sigs.k8s.io/yaml"
 
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/command"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/auditsource"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 )
 
@@ -40,6 +43,8 @@ import (
 type Runner struct {
 	impl
 	options *Options
+	// pid is the process ID used for enricher filtering.
+	pid atomic.Uint32
 }
 
 // New returns a new Runner instance.
@@ -49,9 +54,6 @@ func New(options *Options) *Runner {
 		options: options,
 	}
 }
-
-// pid is the process ID used for enricher filtering.
-var pid uint32
 
 // Run the Runner.
 func (r *Runner) Run() error {
@@ -66,18 +68,18 @@ func (r *Runner) Run() error {
 		log.Print("Assuming YAML profile")
 
 		seccompProfile := &seccompprofileapi.SeccompProfile{}
-		if err := r.YamlUnmarshal(content, seccompProfile); err != nil {
+		if err := yaml.Unmarshal(content, seccompProfile); err != nil {
 			return fmt.Errorf("unmarshal YAML profile: %w", err)
 		}
 
-		content, err = r.JSONMarshal(seccompProfile.Spec)
+		content, err = json.Marshal(seccompProfile.Spec)
 		if err != nil {
 			return fmt.Errorf("remarshal JSON profile: %w", err)
 		}
 	}
 
 	runtimeSpecConfig := &specs.LinuxSeccomp{}
-	if err := r.JSONUnmarshal(content, runtimeSpecConfig); err != nil {
+	if err := json.Unmarshal(content, runtimeSpecConfig); err != nil {
 		return fmt.Errorf("unmarshal JSON profile: %w", err)
 	}
 
@@ -103,7 +105,7 @@ func (r *Runner) Run() error {
 		return fmt.Errorf("run command: %w", err)
 	}
 
-	atomic.StoreUint32(&pid, newPid)
+	r.pid.Store(newPid)
 
 	if err := r.CommandWait(cmd); err != nil {
 		return fmt.Errorf("wait for command: %w", err)
@@ -146,19 +148,13 @@ func (r *Runner) startEnricher() {
 			break
 		}
 
-		line := l.Text
-		if !r.IsAuditLine(line) {
-			continue
-		}
-
-		auditLine, err := r.ExtractAuditLine(line)
+		auditLine, err := auditsource.ExtractAuditLine(l.Text)
 		if err != nil {
-			log.Printf("Unable to extract audit line: %v", err)
-
+			// Not an audit line spoc understands.
 			continue
 		}
 
-		currentPid := r.PidLoad()
+		currentPid := r.pid.Load()
 		if currentPid != 0 && auditLine.ProcessID == int(currentPid) {
 			r.printAuditLine(auditLine)
 		}

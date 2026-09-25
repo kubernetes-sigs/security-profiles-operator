@@ -36,6 +36,9 @@ type AuditLine struct {
 	// seccomp
 	SystemCallID int32
 	Executable   string
+	// Arch is the audit architecture of the syscall, for example c000003e for
+	// x86_64. Empty if the record does not carry one.
+	Arch string
 
 	// selinux
 	Scontext string
@@ -74,10 +77,18 @@ type ProcessInfo struct {
 	ExecRequestId *string
 }
 type LogBucket struct {
+	// SyscallIds holds the recorded syscalls as SyscallKey.
 	SyscallIds    sync.Map
 	ContainerInfo *ContainerInfo
 	ProcessInfo   *ProcessInfo
 	TimestampID   string
+}
+
+// SyscallKey identifies a syscall. The numbers differ per architecture, and a
+// process can use the syscalls of several ones.
+type SyscallKey struct {
+	ID   int32
+	Arch string
 }
 
 type EnricherLogLevel string

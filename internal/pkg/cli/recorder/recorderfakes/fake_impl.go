@@ -28,7 +28,6 @@ import (
 
 	"github.com/aquasecurity/libbpfgo"
 	seccomp "github.com/seccomp/libseccomp-golang"
-	seccompa "go.podman.io/common/pkg/seccomp"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/printers"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/command"
@@ -110,19 +109,6 @@ type FakeImpl struct {
 		result1 string
 		result2 error
 	}
-	GoArchToSeccompArchStub        func(string) (seccompa.Arch, error)
-	goArchToSeccompArchMutex       sync.RWMutex
-	goArchToSeccompArchArgsForCall []struct {
-		arg1 string
-	}
-	goArchToSeccompArchReturns struct {
-		result1 seccompa.Arch
-		result2 error
-	}
-	goArchToSeccompArchReturnsOnCall map[int]struct {
-		result1 seccompa.Arch
-		result2 error
-	}
 	IteratorKeyStub        func(*libbpfgo.BPFMapIterator) []byte
 	iteratorKeyMutex       sync.RWMutex
 	iteratorKeyArgsForCall []struct {
@@ -155,21 +141,6 @@ type FakeImpl struct {
 	}
 	loadBpfRecorderReturnsOnCall map[int]struct {
 		result1 error
-	}
-	MarshalIndentStub        func(any, string, string) ([]byte, error)
-	marshalIndentMutex       sync.RWMutex
-	marshalIndentArgsForCall []struct {
-		arg1 any
-		arg2 string
-		arg3 string
-	}
-	marshalIndentReturns struct {
-		result1 []byte
-		result2 error
-	}
-	marshalIndentReturnsOnCall map[int]struct {
-		result1 []byte
-		result2 error
 	}
 	NotifyStub        func(chan<- os.Signal, ...os.Signal)
 	notifyMutex       sync.RWMutex
@@ -212,11 +183,11 @@ type FakeImpl struct {
 	stopBpfRecordingReturnsOnCall map[int]struct {
 		result1 error
 	}
-	SyscallsGetValueStub        func(*bpfrecorder.BpfRecorder, uint32) ([]byte, error)
+	SyscallsGetValueStub        func(*bpfrecorder.BpfRecorder, uint64) ([]byte, error)
 	syscallsGetValueMutex       sync.RWMutex
 	syscallsGetValueArgsForCall []struct {
 		arg1 *bpfrecorder.BpfRecorder
-		arg2 uint32
+		arg2 uint64
 	}
 	syscallsGetValueReturns struct {
 		result1 []byte
@@ -625,70 +596,6 @@ func (fake *FakeImpl) GetNameReturnsOnCall(i int, result1 string, result2 error)
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) GoArchToSeccompArch(arg1 string) (seccompa.Arch, error) {
-	fake.goArchToSeccompArchMutex.Lock()
-	ret, specificReturn := fake.goArchToSeccompArchReturnsOnCall[len(fake.goArchToSeccompArchArgsForCall)]
-	fake.goArchToSeccompArchArgsForCall = append(fake.goArchToSeccompArchArgsForCall, struct {
-		arg1 string
-	}{arg1})
-	stub := fake.GoArchToSeccompArchStub
-	fakeReturns := fake.goArchToSeccompArchReturns
-	fake.recordInvocation("GoArchToSeccompArch", []interface{}{arg1})
-	fake.goArchToSeccompArchMutex.Unlock()
-	if stub != nil {
-		return stub(arg1)
-	}
-	if specificReturn {
-		return ret.result1, ret.result2
-	}
-	return fakeReturns.result1, fakeReturns.result2
-}
-
-func (fake *FakeImpl) GoArchToSeccompArchCallCount() int {
-	fake.goArchToSeccompArchMutex.RLock()
-	defer fake.goArchToSeccompArchMutex.RUnlock()
-	return len(fake.goArchToSeccompArchArgsForCall)
-}
-
-func (fake *FakeImpl) GoArchToSeccompArchCalls(stub func(string) (seccompa.Arch, error)) {
-	fake.goArchToSeccompArchMutex.Lock()
-	defer fake.goArchToSeccompArchMutex.Unlock()
-	fake.GoArchToSeccompArchStub = stub
-}
-
-func (fake *FakeImpl) GoArchToSeccompArchArgsForCall(i int) string {
-	fake.goArchToSeccompArchMutex.RLock()
-	defer fake.goArchToSeccompArchMutex.RUnlock()
-	argsForCall := fake.goArchToSeccompArchArgsForCall[i]
-	return argsForCall.arg1
-}
-
-func (fake *FakeImpl) GoArchToSeccompArchReturns(result1 seccompa.Arch, result2 error) {
-	fake.goArchToSeccompArchMutex.Lock()
-	defer fake.goArchToSeccompArchMutex.Unlock()
-	fake.GoArchToSeccompArchStub = nil
-	fake.goArchToSeccompArchReturns = struct {
-		result1 seccompa.Arch
-		result2 error
-	}{result1, result2}
-}
-
-func (fake *FakeImpl) GoArchToSeccompArchReturnsOnCall(i int, result1 seccompa.Arch, result2 error) {
-	fake.goArchToSeccompArchMutex.Lock()
-	defer fake.goArchToSeccompArchMutex.Unlock()
-	fake.GoArchToSeccompArchStub = nil
-	if fake.goArchToSeccompArchReturnsOnCall == nil {
-		fake.goArchToSeccompArchReturnsOnCall = make(map[int]struct {
-			result1 seccompa.Arch
-			result2 error
-		})
-	}
-	fake.goArchToSeccompArchReturnsOnCall[i] = struct {
-		result1 seccompa.Arch
-		result2 error
-	}{result1, result2}
-}
-
 func (fake *FakeImpl) IteratorKey(arg1 *libbpfgo.BPFMapIterator) []byte {
 	fake.iteratorKeyMutex.Lock()
 	ret, specificReturn := fake.iteratorKeyReturnsOnCall[len(fake.iteratorKeyArgsForCall)]
@@ -870,72 +777,6 @@ func (fake *FakeImpl) LoadBpfRecorderReturnsOnCall(i int, result1 error) {
 	fake.loadBpfRecorderReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
-}
-
-func (fake *FakeImpl) MarshalIndent(arg1 any, arg2 string, arg3 string) ([]byte, error) {
-	fake.marshalIndentMutex.Lock()
-	ret, specificReturn := fake.marshalIndentReturnsOnCall[len(fake.marshalIndentArgsForCall)]
-	fake.marshalIndentArgsForCall = append(fake.marshalIndentArgsForCall, struct {
-		arg1 any
-		arg2 string
-		arg3 string
-	}{arg1, arg2, arg3})
-	stub := fake.MarshalIndentStub
-	fakeReturns := fake.marshalIndentReturns
-	fake.recordInvocation("MarshalIndent", []interface{}{arg1, arg2, arg3})
-	fake.marshalIndentMutex.Unlock()
-	if stub != nil {
-		return stub(arg1, arg2, arg3)
-	}
-	if specificReturn {
-		return ret.result1, ret.result2
-	}
-	return fakeReturns.result1, fakeReturns.result2
-}
-
-func (fake *FakeImpl) MarshalIndentCallCount() int {
-	fake.marshalIndentMutex.RLock()
-	defer fake.marshalIndentMutex.RUnlock()
-	return len(fake.marshalIndentArgsForCall)
-}
-
-func (fake *FakeImpl) MarshalIndentCalls(stub func(any, string, string) ([]byte, error)) {
-	fake.marshalIndentMutex.Lock()
-	defer fake.marshalIndentMutex.Unlock()
-	fake.MarshalIndentStub = stub
-}
-
-func (fake *FakeImpl) MarshalIndentArgsForCall(i int) (any, string, string) {
-	fake.marshalIndentMutex.RLock()
-	defer fake.marshalIndentMutex.RUnlock()
-	argsForCall := fake.marshalIndentArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
-}
-
-func (fake *FakeImpl) MarshalIndentReturns(result1 []byte, result2 error) {
-	fake.marshalIndentMutex.Lock()
-	defer fake.marshalIndentMutex.Unlock()
-	fake.MarshalIndentStub = nil
-	fake.marshalIndentReturns = struct {
-		result1 []byte
-		result2 error
-	}{result1, result2}
-}
-
-func (fake *FakeImpl) MarshalIndentReturnsOnCall(i int, result1 []byte, result2 error) {
-	fake.marshalIndentMutex.Lock()
-	defer fake.marshalIndentMutex.Unlock()
-	fake.MarshalIndentStub = nil
-	if fake.marshalIndentReturnsOnCall == nil {
-		fake.marshalIndentReturnsOnCall = make(map[int]struct {
-			result1 []byte
-			result2 error
-		})
-	}
-	fake.marshalIndentReturnsOnCall[i] = struct {
-		result1 []byte
-		result2 error
-	}{result1, result2}
 }
 
 func (fake *FakeImpl) Notify(arg1 chan<- os.Signal, arg2 ...os.Signal) {
@@ -1161,12 +1002,12 @@ func (fake *FakeImpl) StopBpfRecordingReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
-func (fake *FakeImpl) SyscallsGetValue(arg1 *bpfrecorder.BpfRecorder, arg2 uint32) ([]byte, error) {
+func (fake *FakeImpl) SyscallsGetValue(arg1 *bpfrecorder.BpfRecorder, arg2 uint64) ([]byte, error) {
 	fake.syscallsGetValueMutex.Lock()
 	ret, specificReturn := fake.syscallsGetValueReturnsOnCall[len(fake.syscallsGetValueArgsForCall)]
 	fake.syscallsGetValueArgsForCall = append(fake.syscallsGetValueArgsForCall, struct {
 		arg1 *bpfrecorder.BpfRecorder
-		arg2 uint32
+		arg2 uint64
 	}{arg1, arg2})
 	stub := fake.SyscallsGetValueStub
 	fakeReturns := fake.syscallsGetValueReturns
@@ -1187,13 +1028,13 @@ func (fake *FakeImpl) SyscallsGetValueCallCount() int {
 	return len(fake.syscallsGetValueArgsForCall)
 }
 
-func (fake *FakeImpl) SyscallsGetValueCalls(stub func(*bpfrecorder.BpfRecorder, uint32) ([]byte, error)) {
+func (fake *FakeImpl) SyscallsGetValueCalls(stub func(*bpfrecorder.BpfRecorder, uint64) ([]byte, error)) {
 	fake.syscallsGetValueMutex.Lock()
 	defer fake.syscallsGetValueMutex.Unlock()
 	fake.SyscallsGetValueStub = stub
 }
 
-func (fake *FakeImpl) SyscallsGetValueArgsForCall(i int) (*bpfrecorder.BpfRecorder, uint32) {
+func (fake *FakeImpl) SyscallsGetValueArgsForCall(i int) (*bpfrecorder.BpfRecorder, uint64) {
 	fake.syscallsGetValueMutex.RLock()
 	defer fake.syscallsGetValueMutex.RUnlock()
 	argsForCall := fake.syscallsGetValueArgsForCall[i]
