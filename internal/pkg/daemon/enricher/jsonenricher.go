@@ -29,7 +29,6 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/google/uuid"
 	"github.com/jellydator/ttlcache/v3"
-	"github.com/nxadm/tail"
 	"github.com/urfave/cli/v2"
 	"gopkg.in/natefinch/lumberjack.v2"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -265,14 +264,7 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 	// If the file does not exist, then tail will wait for it to appear
 	tailFile, err := e.TailFile(
 		filePath,
-		tail.Config{
-			ReOpen: true,
-			Follow: true,
-			Location: &tail.SeekInfo{
-				Offset: 0,
-				Whence: io.SeekEnd,
-			},
-		},
+		common.LogTailConfig(),
 	)
 	if err != nil {
 		runErr <- fmt.Errorf("tailing file: %w", err)

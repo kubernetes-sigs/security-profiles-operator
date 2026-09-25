@@ -159,11 +159,43 @@ func (e *e2e) waitForEnricherLogs(since time.Time, conditions ...*regexp.Regexp)
 		}
 
 		if matchAll {
-			break
+			return
 		}
 
 		time.Sleep(3 * time.Second)
 	}
+
+	e.logf("The enricher did not log all expected lines: %v", conditions)
+}
+
+// enricherLogLine matches a line of the log enricher which has the key and
+// value pairs, in the order the enricher logs them.
+func enricherLogLine(keysAndValues ...string) *regexp.Regexp {
+	pairs := make([]string, 0, len(keysAndValues)/2)
+	for i := 0; i+1 < len(keysAndValues); i += 2 {
+		pairs = append(pairs,
+			" "+regexp.QuoteMeta(keysAndValues[i])+`="`+regexp.QuoteMeta(keysAndValues[i+1])+`"`,
+		)
+	}
+
+	return regexp.MustCompile(`(?m)` + strings.Join(pairs, ".*"))
+}
+
+// waitForEnricherLogsOfPods waits for a line of the log enricher with the key
+// and value pairs for each pod. A condition matching the lines of any pod
+// would be met by the first pod, while the lines of the others are still to
+// be processed.
+func (e *e2e) waitForEnricherLogsOfPods(
+	since time.Time, podNames []string, keysAndValues ...string,
+) {
+	conditions := make([]*regexp.Regexp, 0, len(podNames))
+	for _, podName := range podNames {
+		conditions = append(conditions, enricherLogLine(
+			append([]string{"pod", podName}, keysAndValues...)...,
+		))
+	}
+
+	e.waitForEnricherLogs(since, conditions...)
 }
 
 func (e *e2e) testCaseProfileRecordingStaticPodLogs() {
@@ -174,7 +206,7 @@ func (e *e2e) testCaseProfileRecordingStaticPodLogs() {
 
 	e.profileRecordingStaticPod(
 		exampleRecordingSeccompLogsPath,
-		regexp.MustCompile(`(?m)"syscallName"="listen"`),
+		enricherLogLine("syscallName", "listen"),
 	)
 }
 
@@ -187,7 +219,7 @@ func (e *e2e) testCaseProfileRecordingStaticPodSELinuxLogs() {
 
 	e.profileRecordingStaticSelinuxPod(
 		exampleRecordingSelinuxLogsPath,
-		regexp.MustCompile(`(?m)"perm"="listen"`),
+		enricherLogLine("perm", "listen"),
 	)
 }
 
@@ -263,8 +295,8 @@ func (e *e2e) testCaseProfileRecordingMultiContainerLogs() {
 
 	e.profileRecordingMultiContainer(
 		exampleRecordingSeccompLogsPath,
-		regexp.MustCompile(`(?m)"container"="nginx".*"syscallName"="listen"`),
-		regexp.MustCompile(`(?m)"container"="redis".*"syscallName"="epoll_wait"`),
+		enricherLogLine("container", "nginx", "syscallName", "listen"),
+		enricherLogLine("container", "redis", "syscallName", "epoll_wait"),
 	)
 }
 
@@ -275,7 +307,7 @@ func (e *e2e) testCaseProfileRecordingSpecificContainerLogs() {
 	defer restoreNs()
 
 	e.profileRecordingSpecificContainer(exampleRecordingSeccompSpecificContainerLogsPath,
-		regexp.MustCompile(`(?m)"container"="nginx".*"syscallName"="epoll_wait"`),
+		enricherLogLine("container", "nginx", "syscallName", "epoll_wait"),
 	)
 }
 
@@ -288,8 +320,8 @@ func (e *e2e) testCaseProfileRecordingMultiContainerSELinuxLogs() {
 
 	e.profileRecordingSelinuxMultiContainer(
 		exampleRecordingSelinuxLogsPath,
-		regexp.MustCompile(`(?m)"container"="nginx".*"perm"="listen"`),
-		regexp.MustCompile(`(?m)"container"="redis".*"perm"="name_bind"`),
+		enricherLogLine("container", "nginx", "perm", "listen"),
+		enricherLogLine("container", "redis", "perm", "name_bind"),
 	)
 }
 
@@ -409,9 +441,7 @@ func (e *e2e) testCaseProfileRecordingDeploymentLogs() {
 
 	e.profileRecordingDeployment(
 		exampleRecordingSeccompLogsPath,
-		regexp.MustCompile(
-			`(?s)"container"="nginx".*"syscallName"="listen"`+
-				`.*"container"="nginx".*"syscallName"="listen"`),
+		"container", "nginx", "syscallName", "listen",
 	)
 }
 
@@ -423,9 +453,7 @@ func (e *e2e) testCaseProfileRecordingDeploymentScaleUpDownLogs() {
 
 	e.profileRecordingScaleDeployment(
 		exampleRecordingSeccompLogsPath,
-		regexp.MustCompile(
-			`(?s)"container"="nginx".*"syscallName"="listen"`+
-				`.*"container"="nginx".*"syscallName"="listen"`),
+		"container", "nginx", "syscallName", "listen",
 	)
 }
 
@@ -438,8 +466,7 @@ func (e *e2e) testCaseProfileRecordingSelinuxDeploymentLogs() {
 
 	e.profileRecordingSelinuxDeployment(
 		exampleRecordingSelinuxLogsPath,
-		regexp.MustCompile(`(?s)"perm"="listen"`+
-			`.*"perm"="listen"`),
+		"perm", "listen",
 	)
 }
 
@@ -455,7 +482,7 @@ func (e *e2e) testCaseRecordingFinalizers() {
 	e.kubectl("create", "-f", exampleRecordingSeccompLogsPath)
 
 	since, podName := e.createRecordingTestPod()
-	e.waitForEnricherLogs(since, regexp.MustCompile(`(?m)"syscallName"="listen"`))
+	e.waitForEnricherLogs(since, enricherLogLine("syscallName", "listen"))
 
 	// Check that the recording's status contains the resource. Retry to avoid
 	// test races.
@@ -520,23 +547,21 @@ func (e *e2e) testCaseProfileRecordingWithMemoryOptimization() {
 
 	e.profileRecordingStaticPod(
 		exampleRecordingSeccompLogsPath,
-		regexp.MustCompile(`(?m)"syscallName"="listen"`),
+		enricherLogLine("syscallName", "listen"),
 	)
 }
 
-func (e *e2e) profileRecordingDeployment(
-	recording string, waitConditions ...*regexp.Regexp,
-) {
+func (e *e2e) profileRecordingDeployment(recording string, logLine ...string) {
 	e.logf("Creating recording for deployment test")
 	e.kubectl("create", "-f", recording)
 
 	since, deployName := e.createRecordingTestDeployment()
 
-	if waitConditions != nil {
-		e.waitForEnricherLogs(since, waitConditions...)
-	}
+	podNames := e.getRecordingPodNames("app=alpine")
+	e.waitForEnricherLogsOfPods(since, podNames, logLine...)
 
-	suffixes := e.getPodSuffixesByLabel("app=alpine")
+	suffixes := podSuffixes(podNames)
+
 	e.kubectl("delete", "deploy", deployName)
 
 	for _, sfx := range suffixes {
@@ -549,18 +574,17 @@ func (e *e2e) profileRecordingDeployment(
 	e.kubectl("delete", "-f", recording)
 }
 
-func (e *e2e) profileRecordingSelinuxDeployment(
-	recording string, waitConditions ...*regexp.Regexp,
-) {
+func (e *e2e) profileRecordingSelinuxDeployment(recording string, logLine ...string) {
 	e.logf("Creating recording for deployment test")
 	e.kubectl("create", "-f", recording)
 
 	since, deployName := e.createRecordingTestDeployment()
-	if waitConditions != nil {
-		e.waitForEnricherLogs(since, waitConditions...)
-	}
 
-	suffixes := e.getPodSuffixesByLabel("app=alpine")
+	podNames := e.getRecordingPodNames("app=alpine")
+	e.waitForEnricherLogsOfPods(since, podNames, logLine...)
+
+	suffixes := podSuffixes(podNames)
+
 	e.kubectl("delete", "deploy", deployName)
 
 	fmt.Println(e.kubectl("get", "sp"))
@@ -760,24 +784,24 @@ spec:
 
 // tests that scaling the deployment allows to record all replicas
 // independent of what happens with the deployment.
-func (e *e2e) profileRecordingScaleDeployment(
-	recording string, waitConditions ...*regexp.Regexp,
-) {
+func (e *e2e) profileRecordingScaleDeployment(recording string, logLine ...string) {
 	e.logf("Creating recording for deployment test")
 	e.kubectl("create", "-f", recording)
 
 	since, deployName := e.createRecordingTestDeployment()
 
-	if waitConditions != nil {
-		e.waitForEnricherLogs(since, waitConditions...)
-	}
+	e.waitForEnricherLogsOfPods(since, e.getRecordingPodNames("app=alpine"), logLine...)
 
 	e.kubectl("scale", "deploy", "--replicas=5", deployName)
 	e.waitFor("condition=available", "deploy", deployName)
 	// wait for the pods to be ready as per the readinessProbe
 	e.kubectl("rollout", "status", "deploy", deployName)
 
-	suffixes := e.getPodSuffixesByLabel("app=alpine")
+	podNames := e.getRecordingPodNames("app=alpine")
+	e.waitForEnricherLogsOfPods(since, podNames, logLine...)
+
+	suffixes := podSuffixes(podNames)
+
 	e.kubectl("delete", "deploy", deployName)
 
 	// check the expected number of policies was created
@@ -791,19 +815,25 @@ func (e *e2e) profileRecordingScaleDeployment(
 	e.kubectl("delete", "-f", recording)
 }
 
-//nolint:unparam // it's better to keep the param around
-func (e *e2e) getPodSuffixesByLabel(
-	label string,
-) []string {
-	podNamesString := e.kubectl(
+func (e *e2e) getPodSuffixesByLabel(label string) []string {
+	return podSuffixes(e.getRecordingPodNames(label))
+}
+
+// getRecordingPodNames returns the names of the pods with the label in the
+// current namespace.
+func (e *e2e) getRecordingPodNames(label string) []string {
+	return strings.Fields(e.kubectl(
 		"get",
 		"pods",
 		"-l",
 		label,
 		"-o",
 		"jsonpath={.items[*].metadata.name}",
-	)
-	podNames := strings.Fields(podNamesString)
+	))
+}
+
+// podSuffixes returns the random suffixes of the pod names.
+func podSuffixes(podNames []string) []string {
 	suffixes := make([]string, 0, len(podNames))
 
 	for _, podName := range podNames {

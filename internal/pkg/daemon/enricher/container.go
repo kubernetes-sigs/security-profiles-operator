@@ -89,6 +89,8 @@ type containerLookup struct {
 	missing *ttlcache.Cache[string, struct{}]
 	logger  logr.Logger
 	backoff wait.Backoff
+	// listings counts how often the pods of the node were listed.
+	listings uint64
 }
 
 func (l *containerLookup) getContainerInfo(
@@ -127,6 +129,8 @@ func (l *containerLookup) populateContainerPodCache(
 ) error {
 	ctxwithTimeout, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
+
+	l.listings++
 
 	backoff := l.backoff
 

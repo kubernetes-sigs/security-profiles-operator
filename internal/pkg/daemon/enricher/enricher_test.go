@@ -567,3 +567,50 @@ func TestRunDispatchesBacklogAfterMissingWindow(t *testing.T) {
 	waitForCallCount(t, mock.SendMetricCallCount, 3)
 	require.Zero(t, sut.auditLineCache.Len())
 }
+
+// TestRunDispatchesBacklogOfListedContainer asserts that the backlog of a
+// container is sent once listing the pods for another container finds it,
+// without waiting for another line of its own.
+func TestRunDispatchesBacklogOfListedContainer(t *testing.T) {
+	t.Parallel()
+
+	const otherContainerID = "e1d4c1dbd3b5d9a4e9e2f6f5a1c8f1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8"
+
+	lineChan := make(chan *types.AuditLine)
+	mock := &enricherfakes.FakeImpl{}
+	mock.StartTailReturns(lineChan, nil)
+	mock.ContainerIDForPIDReturnsOnCall(0, containerID, nil)
+	mock.ContainerIDForPIDReturnsOnCall(1, otherContainerID, nil)
+	mock.ListPodsReturnsOnCall(0, &v1.PodList{}, nil)
+	mock.ListPodsReturns(&v1.PodList{Items: []v1.Pod{{
+		ObjectMeta: metav1.ObjectMeta{Name: pod, Namespace: namespace},
+		Status: v1.PodStatus{
+			ContainerStatuses: []v1.ContainerStatus{
+				{ContainerID: crioPrefix + containerID},
+				{ContainerID: crioPrefix + otherContainerID},
+			},
+		},
+	}}}, nil)
+
+	sut, err := New(logr.Discard(), nil)
+	require.NoError(t, err)
+
+	sut.impl = mock
+	sut.nodeName = node
+	sut.metricsBackoff = wait.Backoff{Duration: time.Millisecond, Factor: 1, Steps: 5}
+	sut.containerBackoff = wait.Backoff{Duration: time.Millisecond, Factor: 1, Steps: 1}
+
+	//nolint:errcheck // Run only returns on shutdown.
+	go func() { sut.Run() }()
+
+	// The container is not listed yet.
+	lineChan <- &types.AuditLine{AuditType: types.AuditTypeSeccomp, ProcessID: 1}
+
+	waitForCallCount(t, sut.auditLineCache.Len, 1)
+
+	// Listing the pods for another container finds it as well.
+	lineChan <- &types.AuditLine{AuditType: types.AuditTypeSeccomp, ProcessID: 2}
+
+	waitForCallCount(t, mock.SendMetricCallCount, 2)
+	require.Zero(t, sut.auditLineCache.Len())
+}

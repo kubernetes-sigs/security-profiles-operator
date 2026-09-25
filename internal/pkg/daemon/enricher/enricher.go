@@ -362,7 +362,13 @@ func (e *Enricher) Run() error {
 
 		e.logger.V(config.VerboseLevel).Info("Get container info", "containerID", cID)
 
+		listings := containers.listings
+
 		info, err := containers.getContainerInfo(context.Background(), cID)
+		if containers.listings != listings {
+			e.dispatchListedBacklogs(nodeName)
+		}
+
 		if err != nil {
 			e.logger.Error(
 				err, "container ID not found in cluster",
@@ -555,6 +561,17 @@ func (e *Enricher) dispatchBacklog(nodeName string, info *types.ContainerInfo) {
 	for _, auditLine := range item.Value() {
 		if err := e.dispatchAuditLine(nodeName, auditLine, info); err != nil {
 			e.logger.Error(err, "dispatch audit line")
+		}
+	}
+}
+
+// dispatchListedBacklogs sends the backlogged lines of the containers the pod
+// list has now. Otherwise they would wait for another line of their container,
+// which may never come for a container whose processes exited.
+func (e *Enricher) dispatchListedBacklogs(nodeName string) {
+	for _, containerID := range e.auditLineCache.Keys() {
+		if item := e.infoCache.Get(containerID); item != nil {
+			e.dispatchBacklog(nodeName, item.Value())
 		}
 	}
 }

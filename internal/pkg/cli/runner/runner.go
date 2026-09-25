@@ -21,13 +21,11 @@ package runner
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"path/filepath"
 	"sync/atomic"
 	"time"
 
-	"github.com/nxadm/tail"
 	"github.com/opencontainers/runtime-spec/specs-go"
 	libseccomp "github.com/seccomp/libseccomp-golang"
 	"sigs.k8s.io/yaml"
@@ -124,14 +122,7 @@ func (r *Runner) startEnricher() {
 
 	tailFile, err := r.TailFile(
 		filePath,
-		tail.Config{
-			ReOpen: true,
-			Follow: true,
-			Location: &tail.SeekInfo{
-				Offset: 0,
-				Whence: io.SeekEnd,
-			},
-		},
+		common.LogTailConfig(),
 	)
 	if err != nil {
 		log.Printf("Unable to tail file: %v", err)
