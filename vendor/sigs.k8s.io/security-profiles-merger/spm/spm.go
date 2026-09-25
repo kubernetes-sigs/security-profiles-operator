@@ -16,39 +16,28 @@ limitations under the License.
 
 // Package spm holds the few declarations the seccomp, apparmor and landlock
 // packages have in common, so that each names them once rather than three
-// times.
+// times:
 //
-// It is deliberately small. The three profile types have no common shape:
-// a seccomp profile is a specs.LinuxSeccomp, an AppArmor profile is a set of
-// path and capability lists, and a Landlock profile is a set of access
-// rights and rules, and there is no useful operation over "a profile" that
-// does not first know which of the three it has. This package therefore
-// does not try to abstract over the profiles themselves; it only carries
-// what is genuinely identical across them:
-//
-//   - SliceDiff, which is the one diff shape all three produce.
+//   - SliceDiff, the one diff shape all three produce.
 //     seccomp.SliceDiff, landlock.RightsDiff and apparmor.StringSliceDiff
-//     are alias declarations of it, not separate structs, so a value of one
-//     is a value of the others.
-//   - The sentinel errors below and InputError, which each package
-//     re-exports, so that errors.Is against the sentinel here matches an
+//     are alias declarations of it, so a value of one is a value of the
+//     others.
+//   - InputError and the sentinel errors below, which each package
+//     re-exports, so that errors.Is against a sentinel here matches an
 //     error any of the three returned.
-//   - MaxPathLen, the one size limit two of them share.
-//   - Diff, the one method the three diff results share, so that code
-//     holding a diff of an undetermined type can still ask whether the two
-//     profiles were equal.
+//   - MaxPathLen, the path length limit of apparmor and landlock.
+//   - Diff, the one method the three diff results share.
 //
-// Nothing needs to import this package to use the aliases or the sentinels:
-// each package re-exports them under its own name. Import it to write code
-// that works with more than one profile type, or to match a sentinel error
-// without picking one of the three packages arbitrarily.
+// Nothing needs to import this package: each profile package re-exports
+// what it uses under its own name. Import it to match a sentinel without
+// picking one of the three packages arbitrarily, or to hold a diff whose
+// profile type was decided elsewhere.
 //
-// Anything beyond this belongs in the profile package that knows the type.
-// This module's own CLI is the worked example: cmd/spm dispatches over a
-// table of per-type function values, because a merge, a validation and a
-// format need the concrete profile type to say anything at all.
-//
-// The name matches the spm command, which is this module's CLI.
+// It is deliberately small. The three profile types have no common shape,
+// and no operation over "a profile" can say anything before it knows which
+// of the three it has, so anything beyond this belongs in the package that
+// knows the type. The spm command, whose name this package shares, is the
+// worked example: it dispatches over a table of per-type function values.
 package spm
 
 import (
@@ -70,8 +59,9 @@ var (
 	ErrRelativePath = errors.New("relative path (must be absolute)")
 	// ErrPathTooLong is returned by the apparmor and landlock packages when
 	// a path is longer than MaxPathLen bytes, which is longer than any
-	// Linux path. It is checked before anything else, so an oversized path
-	// costs no further work.
+	// Linux path. It is checked before the path is scanned, so an oversized
+	// path costs no further work; only the count limits of ValidateArtifact
+	// and ValidateStrict run before it.
 	ErrPathTooLong = errors.New("path exceeds " + strconv.Itoa(MaxPathLen) + " bytes")
 	// ErrMoreProblems stands in for the validation failures a report left
 	// out. A profile holds as many failures as it holds rules, and an
@@ -95,6 +85,12 @@ var (
 	// to carry, and a member of a newer format is lost in the permissive
 	// direction.
 	ErrUnknownField = errors.New("unknown field")
+	// ErrMisspelledField is returned by UnmarshalStrict of every package
+	// when a member names a field only ignoring case, such as "Syscalls"
+	// or "\u017fyscalls" for "syscalls". encoding/json fills the field from
+	// it, while a reader that compares names exactly drops it, so the two
+	// read different rules from one profile.
+	ErrMisspelledField = errors.New("misspelled field")
 	// ErrInvalidUTF8 is returned by UnmarshalStrict of every package when
 	// the document holds a byte that is not valid UTF-8, or a \u escape
 	// spelling half a surrogate pair. encoding/json replaces both with
@@ -110,8 +106,9 @@ var (
 )
 
 // InputError is returned by Intersect and Union of every package when one of
-// the profiles they were given fails validation. Index is that profile's
-// position among the arguments and Err what its validation reported.
+// the profiles they were given is nil or fails validation. Index is that
+// profile's position among the arguments and Err what its validation
+// reported.
 //
 // A caller merging inputs of different standing needs to know which one
 // failed, not only that one did: a runtime refusing an artifact rejects a

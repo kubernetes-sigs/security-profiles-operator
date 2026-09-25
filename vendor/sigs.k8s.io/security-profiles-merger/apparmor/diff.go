@@ -49,7 +49,8 @@ type ProfileDiff struct {
 	Capabilities *StringSliceDiff `json:"capabilities,omitempty"`
 }
 
-// IsEqual returns whether the two compared profiles are identical.
+// IsEqual reports whether the two compared profiles are equivalent after
+// normalization, as Equal does.
 func (d ProfileDiff) IsEqual() bool { return d.Equal }
 
 // StringSliceDiff represents added and removed items in a string slice.
@@ -75,8 +76,8 @@ type BoolPtrDiff struct {
 	Right *bool `json:"right"`
 }
 
-// Diff compares two AppArmor profiles and returns a structured diff.
-// Unlike Intersect and Union, Diff does not validate profiles before comparing.
+// Diff compares two AppArmor profiles and returns a structured diff. Unlike
+// Intersect and Union, Diff does not validate profiles before comparing.
 //
 // Profiles are compared by what AppArmor loads from them, so a profile and
 // its merge result compare equal unless the merge changed what the profile
@@ -84,11 +85,11 @@ type BoolPtrDiff struct {
 // reads them: /foo//bar, /foo/bar and an escaped spelling of either are one
 // rule (while /foo/./bar, which matches nothing, is another), and an omitted
 // section or network boolean is compared as the explicit empty section or
-// false that it denies the same as, which is how Intersect writes it. A profile that says nothing
-// about raw sockets and one that forbids them are therefore equal, and
-// Diff(p, Intersect(p)) is equal unless p has glob patterns that match
-// nothing, which Intersect drops.
-// Returns ErrNilProfile if either profile is nil.
+// false that it denies the same as, which is how Intersect writes it. A
+// profile that says nothing about raw sockets and one that forbids them are
+// therefore equal, and Diff(p, Intersect(p)) is equal unless p has glob
+// patterns that match nothing, which Intersect drops. It returns
+// ErrNilProfile if either profile is nil.
 func Diff(left, right *Profile) (*ProfileDiff, error) {
 	if left == nil || right == nil {
 		return nil, ErrNilProfile

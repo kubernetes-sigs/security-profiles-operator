@@ -19,6 +19,7 @@ package apparmor
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"sigs.k8s.io/security-profiles-merger/internal/merge"
@@ -26,16 +27,19 @@ import (
 )
 
 var (
-	// ErrDuplicatePath is returned when a path appears in multiple
-	// filesystem rule categories within the same profile.
+	// ErrDuplicatePath is returned when a path appears in more than one
+	// filesystem rule category of a profile, however each is spelled. Every
+	// validator reports it, and so does a merge.
 	ErrDuplicatePath = errors.New("duplicate path across filesystem categories")
 
-	// ErrDuplicatePathInCategory is returned when a path appears more than
-	// once within the same filesystem rule category.
+	// ErrDuplicatePathInCategory is returned by the validators when a path
+	// appears more than once within one filesystem rule category. The merge
+	// folds such duplicates instead.
 	ErrDuplicatePathInCategory = errors.New("duplicate path within category")
 
-	// ErrDuplicateCapability is returned when the same capability appears
-	// more than once in AllowedCapabilities.
+	// ErrDuplicateCapability is returned by the validators when a
+	// capability appears more than once in AllowedCapabilities, compared
+	// case-insensitively. The merge folds such duplicates instead.
 	ErrDuplicateCapability = errors.New("duplicate capability")
 
 	// ErrUnknownCapability is returned by ValidateStrict when a profile
@@ -47,11 +51,12 @@ var (
 	ErrEmptyPath = spm.ErrEmptyPath
 
 	// ErrEmptyCapability is returned when a capability entry is an empty
-	// string.
+	// string. Every validator reports it, and so does a merge.
 	ErrEmptyCapability = errors.New("empty capability")
 
-	// ErrDuplicateExecutablePath is returned when the same path appears
-	// more than once in AllowedExecutables or AllowedLibraries.
+	// ErrDuplicateExecutablePath is returned by ValidateStrict when the
+	// same path appears more than once in AllowedExecutables or
+	// AllowedLibraries.
 	ErrDuplicateExecutablePath = errors.New("duplicate executable path")
 
 	// ErrGlobTooComplex is returned by ValidateStrict and ValidateArtifact
@@ -71,10 +76,12 @@ var (
 	// matching nothing.
 	ErrInvalidGlob = errors.New("invalid AppArmor path pattern")
 
-	// ErrPathTooLong is returned by Validate when a path is longer than
-	// 4096 bytes, the longest pattern the matcher accepts and longer than
-	// any Linux path. Validate checks the length before anything else, so
-	// an oversized path costs no further work.
+	// ErrPathTooLong is returned by every validator and by a merge when a
+	// path is longer than MaxPathLen, the longest pattern the matcher
+	// accepts and longer than any Linux path. The length is checked before
+	// any other path check, so an oversized path costs no further work;
+	// only the size limits of ValidateArtifact and ValidateStrict come
+	// first.
 	ErrPathTooLong = spm.ErrPathTooLong
 
 	// ErrDotComponent is returned by ValidateStrict and ValidateArtifact
@@ -87,7 +94,8 @@ var (
 	// variable such as @{HOME}. Variables are expanded by the AppArmor
 	// parser from definitions this package does not have, so it cannot tell
 	// which files such a path covers and would match it as a literal "@"
-	// followed by an alternation.
+	// followed by an alternation. The parser resolves escapes before it
+	// expands variables, so `\x40{HOME}` is reported as well.
 	ErrUnsupportedVariable = errors.New("AppArmor variables are not supported")
 
 	// ErrRelativePath is returned by ValidateStrict and ValidateArtifact
@@ -102,9 +110,12 @@ var (
 	// continue the path. Each has an escaped form the parser accepts and
 	// this package resolves, so `/tmp/a\ b` names the file "/tmp/a b"
 	// while "/tmp/a b" does not load at all. Beyond not loading, such a path
-	// is how an untrusted profile smuggles rules into a consumer that writes
+	// is how an artifact smuggles rules into a consumer that writes
 	// its paths into a profile file: a newline ends the rule the consumer
-	// renders and starts one the profile author chose.
+	// renders and starts one the profile author chose. A backslash the
+	// lexer does not read as an escape is reported too: one after a comma,
+	// as in `/a,\ b`, where the space ends the path all the same, and one
+	// that ends the path, which escapes the space rendered after it.
 	ErrUnquotablePath = errors.New("path contains a character that must be escaped")
 
 	// ErrNulInPath is returned by ValidateStrict and ValidateArtifact when a
@@ -118,10 +129,9 @@ var (
 
 	// ErrInvalidCapabilityName is returned by ValidateArtifact and
 	// ValidateStrict when a capability name holds a character that cannot
-	// spell one. A capability
-	// is a word of letters, digits and "_", so a name holding anything else
-	// does not load, and, like a path, is how an untrusted profile smuggles
-	// rules into a consumer that renders it.
+	// spell one. A capability is a word of letters, digits and "_", so a
+	// name holding anything else does not load, and, like a path, is how an
+	// artifact smuggles rules into a consumer that renders it.
 	//
 	// ValidateArtifact checks the spelling but not the name: a name this
 	// package does not know may be one a newer kernel does. ValidateStrict
@@ -150,8 +160,8 @@ const MaxPathLen = spm.MaxPathLen
 
 // MaxArtifactPaths bounds how many paths a profile accepted by
 // ValidateArtifact or ValidateStrict may hold, counted over every path list
-// of the profile.
-// Profiles of the size KEP-6061 recommends runtimes accept name a few dozen.
+// of the profile. Profiles of the size KEP-6061 recommends runtimes accept
+// name a few dozen.
 //
 // A merge matches the literal paths of one profile against the patterns of
 // the other, which costs one comparison per pair, so the work grows with the
@@ -159,8 +169,11 @@ const MaxPathLen = spm.MaxPathLen
 // bound that work themselves and fall back to a conservative result past
 // their budget, so no profile can hold a runtime in a merge; this cap
 // rejects an over-large profile up front instead, where the reason can still
-// be reported, and keeps every accepted profile inside the merge's budget
-// when it is merged with another profile of this size.
+// be reported. It keeps an accepted profile inside the merge's pair budget
+// when it is merged with another profile of this size, and inside its work
+// budget, which weighs a comparison by the lengths of the pattern and the
+// name, when its paths are a few dozen bytes long and it is merged with a
+// baseline of a few kilobytes of paths.
 const MaxArtifactPaths = 1024
 
 // MaxArtifactPatternBytes bounds the total length of the glob patterns of a
@@ -174,8 +187,12 @@ const MaxArtifactPaths = 1024
 // patterns do not fit it is recompiled instead of reused: a profile of a
 // thousand four-kilobyte patterns spent 38 seconds in ValidateArtifact and
 // 14 in a merge against a four-rule baseline, none of it in matching. The
-// bound admits two profiles of this size at once and leaves room for a node
-// baseline, so a profile a runtime accepts is compiled once.
+// byte bound admits two profiles of this size at once and leaves room for a
+// baseline. The cache also holds at most 1024 patterns, as many as
+// MaxArtifactPaths admits, so a profile a runtime accepts is compiled once
+// unless it and the profiles merged with it spell more patterns than that
+// together; past it a quarter of the cache is evicted, and an evicted
+// pattern is compiled again when it is next used.
 //
 // Profiles of the size KEP-6061 recommends runtimes accept spell a few
 // patterns of a few dozen bytes each.
@@ -233,7 +250,8 @@ func isKnownCapability(name string) bool {
 
 // Validate checks an AppArmor profile for structural issues. It reports:
 //
-//   - paths longer than 4096 bytes (ErrPathTooLong), before anything else;
+//   - paths longer than MaxPathLen (ErrPathTooLong), on their own and
+//     before anything else;
 //   - empty paths (ErrEmptyPath);
 //   - paths referencing AppArmor variables, which the merge cannot
 //     interpret (ErrUnsupportedVariable);
@@ -243,35 +261,24 @@ func isKnownCapability(name string) bool {
 //     listed more than once, compared case-insensitively
 //     (ErrDuplicateCapability).
 //
-// Paths are not validated beyond that. Patterns apparmor_parser rejects
-// pass Validate and match nothing in the merge; ValidateStrict and
-// ValidateArtifact report them. Duplicate executable and library paths pass
-// Validate, as the merge deduplicates them; ValidateStrict reports them.
+// Paths are compared as the merge matches them, with repeated slashes
+// collapsed and escape sequences resolved, so "/etc//passwd",
+// "/etc/passwd" and `/etc/\passwd` are one path. Nothing else is checked:
+// patterns apparmor_parser rejects, duplicate executable and library paths
+// and capability names outside the known set pass here and are reported by
+// ValidateArtifact or ValidateStrict.
 //
-// Capability names are not checked against the known set: the kernel gains
-// capabilities over time, and failing a merge because one input names a
-// capability newer than this package would leave callers unable to merge at
-// all. The merge treats capability names as opaque, so an unknown name
-// survives an intersection only when every profile grants it. ValidateStrict
-// reports unknown names for user-authored profiles, where they are typos.
+// Validate is what Intersect and Union run on each input after folding the
+// duplicates within one list, so a merge fails on what Validate reports
+// except a path or capability listed twice in one list. A profile listing
+// one path twice is still worth reporting wherever a profile is checked
+// rather than merged, since it says twice what it means once. See the
+// Validation section of the package documentation.
 //
-// The duplicate checks are not a precondition of the merge: Intersect and
-// Union fold the duplicates of a list together before they validate, so they
-// accept a profile listing one path twice in one category, however it is
-// spelled. The check is here because a profile that grants one path under two
-// rules says twice what it means once, which is a mistake worth reporting
-// wherever a profile is checked rather than merged. Paths are compared as the
-// merge matches them: repeated slashes collapsed and escape sequences
-// resolved, so "/etc//passwd", "/etc/passwd" and `/etc/\passwd` are one
-// path, and naming one file in two categories fails a merge whichever way the
-// two are spelled.
-//
-// Validation failures are collected and returned together, except that an
-// oversized path is reported on its own: every other check would scan the
-// path the length check already refused. Very many failures are reported as
-// the first of them followed by a count of the rest, which matches
-// ErrMoreProblems: a sentinel a profile violates can therefore be absent
-// from the error that reports it.
+// Failures are collected and returned together, up to 32: past that the
+// error lists the first 32 and a count of the rest and matches
+// ErrMoreProblems, so a sentinel a profile violates can be absent from the
+// error that reports it.
 func Validate(profile *Profile) error {
 	if profile == nil {
 		return ErrNilProfile
@@ -338,26 +345,20 @@ func validateStructure(profile *Profile) (bool, error) {
 	return false, merge.JoinLimited(errs...)
 }
 
-// ValidateStrict is the strictest of the three: it rejects everything
-// ValidateArtifact rejects and, on top of that, capability names outside the
-// known set of Linux capabilities and duplicate paths in AllowedExecutables
-// and AllowedLibraries, compared as the merge matches them. A profile that
-// passes here therefore passes ValidateArtifact and Validate, which is the
-// same lattice the seccomp and landlock packages use.
+// ValidateStrict validates a profile a person wrote. It rejects everything
+// ValidateArtifact rejects and, on top of that, capability names outside
+// the known set of Linux capabilities (ErrUnknownCapability) and duplicate
+// paths in AllowedExecutables or AllowedLibraries, compared as the merge
+// matches them (ErrDuplicateExecutablePath). A profile that passes here
+// therefore passes ValidateArtifact and Validate, the same order of
+// strictness the seccomp and landlock packages use.
 //
-// From ValidateArtifact it takes the count of paths (ErrTooManyPaths,
-// checked first and on its own) and every path that package rejects:
-// relative paths (ErrRelativePath), patterns apparmor_parser rejects
-// (ErrInvalidGlob), glob patterns past the matcher's limits
-// (ErrGlobTooComplex), "." or ".." components (ErrDotComponent), characters
-// that must be escaped (ErrUnquotablePath), and NUL bytes (ErrNulInPath).
-// The merge deduplicates executable and library paths, drops unmatchable
-// globs on intersection, and treats capability names as opaque, so Validate
-// permits all of them.
-// ValidateStrict is intended for user-authored profiles where all of these
-// are likely mistakes, MaxArtifactPaths included: a profile that large is
-// generated rather than written, and a generator is exactly what the bound
-// is there to keep in hand.
+// It applies the limits ValidateArtifact applies (MaxArtifactPaths,
+// MaxArtifactPatternBytes and MaxArtifactCapabilities), first and on their
+// own: a profile that large is generated rather than written, and a
+// generator is what the limits are there to keep in hand. The merge
+// deduplicates executable and library paths and treats capability names as
+// opaque, so Validate and ValidateArtifact accept both.
 func ValidateStrict(profile *Profile) error {
 	errs, err := artifactErrors(profile)
 	if err != nil {
@@ -384,31 +385,28 @@ func ValidateStrict(profile *Profile) error {
 	return merge.JoinLimited(errs...)
 }
 
-// ValidateArtifact validates a profile received from an untrusted source,
-// such as an OCI artifact pulled by a container runtime. It performs all
-// checks from Validate and additionally rejects what a runtime could not
-// load or would silently drop: relative paths, which apparmor_parser does
-// not accept for a file rule (ErrRelativePath), patterns apparmor_parser
-// rejects (ErrInvalidGlob), glob patterns past the matcher's limits
-// (ErrGlobTooComplex), which never match and would vanish from an
-// intersection without a trace, paths with "." or ".." components
-// (ErrDotComponent) or a NUL byte (ErrNulInPath), which match nothing, and
-// paths holding a character apparmor_parser's lexer does not accept
-// unescaped (ErrUnquotablePath), which a consumer rendering the profile
-// would turn into rules of the author's choosing.
+// ValidateArtifact validates an artifact: a profile the caller did not
+// write, such as one a container runtime pulled from a registry. It runs
+// every check of Validate and adds what a runtime could not load or would
+// silently drop: relative paths (ErrRelativePath), patterns apparmor_parser
+// rejects (ErrInvalidGlob), patterns past the matcher's limits
+// (ErrGlobTooComplex), which would vanish from an intersection without a
+// trace, "." or ".." components (ErrDotComponent) and NUL bytes
+// (ErrNulInPath), which match nothing, characters apparmor_parser's lexer
+// does not accept unescaped (ErrUnquotablePath), which a consumer rendering
+// the profile would turn into rules of the author's choosing, and capability
+// names that are not a word of letters, digits and "_"
+// (ErrInvalidCapabilityName). See the Paths the validators reject section
+// of the package documentation.
 //
-// Capability names are checked the same way: a name must be a word of
-// letters, digits and "_" (ErrInvalidCapabilityName), but need not be one
-// this package knows, since a newer kernel may know it and the merge treats
-// the name as opaque.
+// A profile past MaxArtifactPaths (ErrTooManyPaths),
+// MaxArtifactPatternBytes (ErrTooManyPatternBytes) or
+// MaxArtifactCapabilities (ErrTooManyCapabilities) is refused first and on
+// its own, rather than scanned.
 //
-// A profile may hold at most MaxArtifactPaths paths (ErrTooManyPaths),
-// which is checked first and on its own, so that an over-large profile is
-// refused rather than scanned.
-//
-// Duplicate executable and library paths are accepted, as the merge
-// deduplicates them. Duplicate filesystem paths and capabilities are
-// rejected, as Validate rejects them.
+// A capability name need not be one this package knows, since a newer
+// kernel may know it, and duplicate executable and library paths are
+// accepted, as the merge deduplicates them; ValidateStrict reports both.
 // ValidateArtifact does not compare the profile against a baseline; callers
 // intersect the result with their baseline afterwards.
 func ValidateArtifact(profile *Profile) error {
@@ -509,7 +507,8 @@ func validateLoadablePaths(profile *Profile) []error {
 
 	visitPathLists(profile, func(context string, paths []string) {
 		// Normalizing never changes whether a path is absolute, which
-		// characters it holds, or which escapes it spells, so those checks
+		// characters it holds, or which escapes it spells beyond dropping
+		// escaped slashes from a run of slashes, so those checks
 		// read the raw paths and report them as written. The pattern checks
 		// apply to the normalized form, which is what the merge matches.
 		normalized := normalizePaths(paths)
@@ -687,10 +686,14 @@ func rejectPaths(
 	return errs
 }
 
-// validateNoVariables reports paths that reference an AppArmor variable.
+// validateNoVariables reports paths that reference an AppArmor variable. The
+// parser resolves escapes before it expands variables, so `\x40{HOME}`
+// references one as much as "@{HOME}" does: the check looks at the path with
+// its escapes resolved too.
 func validateNoVariables(context string, paths []string) []error {
 	return rejectPaths(context, paths, func(path string) bool {
-		return strings.Contains(path, "@{")
+		return strings.Contains(path, "@{") ||
+			strings.Contains(decodeEscapes(path), "@{")
 	}, ErrUnsupportedVariable, true)
 }
 
@@ -710,6 +713,23 @@ func validateAbsolutePaths(context string, paths []string) []error {
 // does not go on, which hasUnquotableChar decides per occurrence.
 const unquotableChars = " \t\r\n\"!,"
 
+// lexerPath is the token apparmor_parser's lexer (parser_lex.l) reads as the
+// path of a file rule, anchored so that it has to span the whole path:
+//
+//	ID_CHARS  [^ \t\r\n"!,]
+//	ID        {ID_CHARS}|(,{ID_CHARS})|(\\[ ]|\\\t|\\\"|\\!|\\,)
+//	LABEL     (\/|...){ID}*
+//
+// A backslash is an ID_CHARS character of its own, and a comma takes the
+// character after it as a plain one, never as the start of an escape. The
+// lexer takes the longest run of IDs, so where no split of the path into IDs
+// exists, the token a consumer renders ends inside the path and the rest is
+// read as profile syntax: in `/tmp/x,\ r,capability,/y` the comma takes the
+// backslash, the space ends the token, and "r,capability,/y" follows it as
+// rules. QUOTED_ID, the form a double quote opens, is never how a consumer
+// renders a path and so does not apply.
+var lexerPath = regexp.MustCompile(`^(?:[^ \t\r\n"!,]|,[^ \t\r\n"!,]|\\[ \t"!,])+$`)
+
 // hasUnquotableChar reports whether a path holds a character of that set
 // unescaped. A backslash makes the character after it part of the path,
 // which is how a profile spells a path holding a space or a comma, and the
@@ -726,7 +746,15 @@ const unquotableChars = " \t\r\n\"!,"
 // ends mid-path and a second rule of the path author's choosing. The two-
 // character forms spell the same paths safely (\n, \r, \t, or \x0a), so
 // nothing is lost by refusing this one.
+//
+// Pairing each backslash with the next byte is how the merge reads a path,
+// not how the lexer splits it, so the path also has to be one token to the
+// lexer (see splitsLexerToken).
 func hasUnquotableChar(path string) bool {
+	if splitsLexerToken(path) {
+		return true
+	}
+
 	for idx := 0; idx < len(path); idx++ {
 		char := path[idx]
 
@@ -747,6 +775,16 @@ func hasUnquotableChar(path string) bool {
 	}
 
 	return false
+}
+
+// splitsLexerToken reports whether apparmor_parser's lexer, reading the path
+// as a consumer renders it in "  <path> <perms>,", would end the path's token
+// anywhere but at its end: where the path is not a run of IDs (see
+// lexerPath), or where it ends in a backslash, which the lexer reads as
+// escaping the space after the path, so that even `/a\\` runs on into the
+// permissions that follow it.
+func splitsLexerToken(path string) bool {
+	return strings.HasSuffix(path, `\`) || !lexerPath.MatchString(path)
 }
 
 // isControlByte reports whether a byte is one no rule can carry in the

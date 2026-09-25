@@ -14,12 +14,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package strictjson finds what encoding/json accepts silently and a
-// profile from somewhere else must not carry: members repeated within one
-// object, members the target type has no field for, bytes that are not valid
-// UTF-8, and data behind the document. The command and the three profile
-// packages share it, so that a library caller can refuse the same documents
-// the command refuses.
+// Package strictjson finds what encoding/json accepts silently and an
+// artifact must not carry: members repeated within one object, members the
+// target type has no field for, members that name a field only ignoring
+// case, bytes that are not valid UTF-8, and data behind the document. The
+// command and the three profile packages share it, so that a library caller
+// can refuse the same documents the command refuses.
 package strictjson
 
 import (

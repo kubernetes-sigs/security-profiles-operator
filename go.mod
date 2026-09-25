@@ -50,7 +50,7 @@ require (
 	oras.land/oras-go/v2 v2.6.2
 	sigs.k8s.io/controller-runtime v0.25.1
 	sigs.k8s.io/release-utils v0.12.4
-	sigs.k8s.io/security-profiles-merger v0.5.1
+	sigs.k8s.io/security-profiles-merger v0.6.0
 	sigs.k8s.io/yaml v1.6.0
 )
 

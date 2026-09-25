@@ -57,6 +57,49 @@ func QuoteBounded(value string) string {
 	return strconv.Quote(value[:end]) + "..."
 }
 
+// MaxMessageBytes bounds a message built from text the caller did not
+// write, such as the literal a JSON decoder quotes back from the document
+// it refused.
+const MaxMessageBytes = 512
+
+// BoundedText truncates text to MaxMessageBytes on a rune boundary, marking
+// the elision so that it is never mistaken for the text. A decoder quotes
+// the literal it refused, and a document chooses how long that is: a
+// megabyte-long number otherwise reaches a runtime's log as a megabyte of
+// error.
+func BoundedText(text string) string {
+	if len(text) <= MaxMessageBytes {
+		return text
+	}
+
+	end := MaxMessageBytes
+	for end > 0 && !utf8.RuneStart(text[end]) {
+		end--
+	}
+
+	return text[:end] + "..."
+}
+
+// BoundedError returns err with its message bounded by BoundedText. errors.Is
+// and errors.As still see err itself, so a caller matching a decoder's error
+// type is unaffected. It returns nil for a nil err.
+func BoundedError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	return &boundedError{err: err}
+}
+
+// boundedError is the result of BoundedError.
+type boundedError struct {
+	err error
+}
+
+func (b *boundedError) Error() string { return BoundedText(b.err.Error()) }
+
+func (b *boundedError) Unwrap() error { return b.err }
+
 // JoinLimited joins up to MaxJoinedErrors non-nil errors, following them with
 // a count of the ones it left out. It returns nil when every error is nil and
 // the error itself when exactly one is non-nil, matching errors.Join.

@@ -149,8 +149,7 @@ const maxLoadedClauses = 1 << 16
 // oversized syscall costs its own filters rather than every filter of the
 // profile.
 func collectRules(syscalls []specs.LinuxSyscall, def *clause) map[string]*syscallRules {
-	counts, total := clauseCounts(syscalls, def)
-	summarized := oversizedNames(counts, total)
+	summarized := summarizedNames(syscalls, def)
 
 	rules := summarizeRules(syscalls, def, summarized)
 
@@ -180,6 +179,14 @@ func collectRules(syscalls []specs.LinuxSyscall, def *clause) map[string]*syscal
 	}
 
 	return rules
+}
+
+// summarizedNames returns the syscalls collectRules reads in summarized
+// form, or nil when every syscall fits the budget.
+func summarizedNames(syscalls []specs.LinuxSyscall, def *clause) map[string]bool {
+	counts, total := clauseCounts(syscalls, def)
+
+	return oversizedNames(counts, total)
 }
 
 // entryClauseCount counts the clauses one entry loads for each of its names,
@@ -485,14 +492,31 @@ type ruleMerger struct {
 	// emitted for the overlap of two conditional clauses to express "both
 	// filters hold". Union keeps every input clause instead.
 	intersect bool
+	// narrow reports that the filter the result is loaded into covers an
+	// architecture libseccomp compiles 32-bit comparisons for, where a
+	// condition against a value above 32 bits tests something else than it
+	// says (see narrowArchitectures). settleInputs then reads a syscall
+	// carrying such a condition the way it reads one outside the safe
+	// shapes.
+	narrow bool
+	// native is the architecture a runtime always adds to the filter of the
+	// result, which the merge cannot drop from it: the one of the running
+	// program.
+	native specs.Arch
 }
 
 func intersectRules() ruleMerger {
-	return ruleMerger{pick: moreRestrictive, intersect: true}
+	return ruleMerger{
+		pick: moreRestrictive, intersect: true, narrow: false,
+		native: runningArchitecture(),
+	}
 }
 
 func unionRules() ruleMerger {
-	return ruleMerger{pick: lessRestrictive, intersect: false}
+	return ruleMerger{
+		pick: lessRestrictive, intersect: false, narrow: false,
+		native: runningArchitecture(),
+	}
 }
 
 func (m ruleMerger) pickClause(left, right clause) clause {
@@ -527,7 +551,11 @@ func (m ruleMerger) collapse(def *clause, conditional []clause) *clause {
 // settleInputs reads the rules of one input the way the merge can rely on:
 // a syscall whose conditional clauses do not form a safe shape, or that was
 // summarized for exceeding the collectRules budget, is replaced by the clause
-// collapse returns, or removed when that is nil.
+// collapse returns, or removed when that is nil. With m.narrow, so is a
+// syscall with a condition against a value above 32 bits: libseccomp
+// compares only the lower 32 bits of it on a 32-bit architecture, where the
+// syscall's rules then mean something the model does not read, while a call
+// still gets the default or the action of one of them.
 func (m ruleMerger) settleInputs(rules map[string]*syscallRules, def *clause) {
 	for name, current := range rules {
 		if current.summary != nil {
@@ -546,7 +574,8 @@ func (m ruleMerger) settleInputs(rules map[string]*syscallRules, def *clause) {
 		}
 
 		current.conditional = unifyErrno(current.conditional)
-		if safeShape(current.conditional) {
+		if safeShape(current.conditional) &&
+			(!m.narrow || !slices.ContainsFunc(current.conditional, wideClause)) {
 			continue
 		}
 

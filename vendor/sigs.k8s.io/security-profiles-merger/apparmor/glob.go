@@ -58,19 +58,28 @@ const (
 	// Past the bound the merge falls back to a result that needs no
 	// matching, conservative for an intersection and equivalent for a union
 	// (see addVerbatimGlobs and unionVerbatim). The bound admits two
-	// profiles of MaxArtifactPaths paths each, so a profile a runtime
-	// accepts is merged exactly.
+	// profiles of MaxArtifactPaths paths each.
 	maxMergePathPairs = 1 << 20
-	// maxMergePathWork bounds the same matching by the bytes it compares,
-	// not only by the number of comparisons. One comparison runs a pattern's
-	// program over a name, so it costs about the length of the pattern plus
-	// the length of the name, and a profile chooses both: two profiles of a
-	// quarter megabyte, well inside MaxArtifactPaths and the pair bound,
-	// took two minutes to intersect while allocating almost nothing. The
-	// budget is the pair bound at the length of a path a profile names.
-	maxMergePathWork = maxMergePathPairs * typicalPathLen
-	// typicalPathLen is the path length the pair bound assumes.
+	// maxMergePathWork bounds the same matching by the work each comparison
+	// costs, not only by the number of comparisons. One comparison runs a
+	// pattern's program over a name, and the regexp package simulates that
+	// program with one thread per instruction it can be at, so a comparison
+	// costs up to the length of the pattern times the length of the name,
+	// and a profile chooses both: fifteen patterns of 2040 stars against a
+	// thousand literals of four kilobytes, well inside every artifact limit
+	// and the pair bound, took over a minute and a half to intersect, some
+	// 85 milliseconds a comparison. The budget is that product summed over
+	// every pair, which is the product of the bytes the two sides hold (see
+	// exceedsPairBudget), and it admits a profile of MaxArtifactPaths paths
+	// of typicalPathLen bytes against a node baseline of baselinePathBytes.
+	// At the budget the costliest comparisons take about a second and a half
+	// in total.
+	maxMergePathWork = MaxArtifactPaths * typicalPathLen * baselinePathBytes
+	// typicalPathLen is the path length the budgets assume a profile names.
 	typicalPathLen = 64
+	// baselinePathBytes is the total length of the paths of the largest
+	// node baseline the work budget admits against a full artifact.
+	baselinePathBytes = 4 << 10
 )
 
 // patternSyntax holds the bytes that make a path need analysis: glob
@@ -340,41 +349,56 @@ func keyForPath(path string) pathKey {
 	}
 }
 
+// sideSize counts the paths of one side of a merge and the bytes they hold,
+// split into literals and patterns, which is what the budgets weigh.
+type sideSize struct {
+	literals, globs         int
+	literalBytes, globBytes int
+}
+
 // exceedsPairBudget reports whether matching two sides against each other
-// would cost more comparisons than maxMergePathPairs. The literals of each
-// side are matched against the patterns of the other, and the patterns of
-// each side against the "**" patterns of the other, which costs one
-// comparison per pair as well. Counting the products rather than the paths
-// keeps a profile of many literals and no patterns, which needs no matching
-// at all, inside the budget whatever its size.
+// would cost more comparisons than maxMergePathPairs, or more work than
+// maxMergePathWork. The literals of each side are matched against the
+// patterns of the other, and the patterns of each side against the "**"
+// patterns of the other, which costs one comparison per pair as well.
+// Counting the products rather than the paths keeps a profile of many
+// literals and no patterns, which needs no matching at all, inside the
+// budget whatever its size.
+//
+// A comparison costs up to the pattern's length times the name's, and summed
+// over every pair of two sets that is the product of their total lengths, so
+// the work is weighed from the bytes each side holds rather than from its
+// longest path: a few long patterns against many long names cost what their
+// bytes say, where the longest path times the pair count would assume each
+// comparison costs only the sum of the two lengths.
+//
 // The counts are widened to uint64 first: they come from untrusted profiles,
 // and on a 32-bit platform their products overflow an int at roughly 27k
 // paths a side, which would turn the budget off exactly for the inputs it
 // exists for. Only ValidateArtifact bounds the path count, and the merge
-// runs Validate, so an unvalidated profile reaches this directly.
-func exceedsPairBudget(
-	leftLiterals, leftGlobs, rightLiterals, rightGlobs, longest int,
-) bool {
-	pairs := pathCount(leftLiterals)*pathCount(rightGlobs) +
-		pathCount(rightLiterals)*pathCount(leftGlobs) +
-		pathCount(leftGlobs)*pathCount(rightGlobs)
+// runs Validate, so an unvalidated profile reaches this directly. The work
+// is weighed only once the pairs are inside their bound, and the merge
+// validates every path's length first, so each of its products is at most
+// maxMergePathPairs times MaxPathLen squared and none wraps.
+func exceedsPairBudget(left, right sideSize) bool {
+	pairs := pathCount(left.literals)*pathCount(right.globs) +
+		pathCount(right.literals)*pathCount(left.globs) +
+		pathCount(left.globs)*pathCount(right.globs)
 
 	if pairs > maxMergePathPairs {
 		return true
 	}
 
-	// longest bounds both the pattern and the name of every pair. At or
-	// below the assumed length, a pair costs no more than the pair bound
-	// already allows for.
-	if longest <= typicalPathLen {
-		return false
-	}
+	work := pathCount(left.literalBytes)*pathCount(right.globBytes) +
+		pathCount(right.literalBytes)*pathCount(left.globBytes) +
+		pathCount(left.globBytes)*pathCount(right.globBytes)
 
-	return pairs*pathCount(longest) > maxMergePathWork
+	return work > maxMergePathWork
 }
 
-// pathCount widens a count of paths for the arithmetic above. Every count it
-// is given is the length of a slice or a map, so the conversion cannot wrap.
+// pathCount widens a count of paths or bytes for the arithmetic above. Every
+// count it is given is the length of a slice, a map or a string, or a sum of
+// such lengths, so the conversion cannot wrap.
 func pathCount(count int) uint64 {
 	//nolint:gosec // a length is never negative
 	return uint64(count)
@@ -427,8 +451,19 @@ type fsSide struct {
 	// starStar indexes the "**" globs, the only ones that can narrow
 	// another glob.
 	starStar prefixIndex
-	// longest is the length of the longest path of the side.
-	longest int
+	// literalBytes and globBytes are the total lengths of the literals and
+	// of the globs of the side, which the work budget weighs.
+	literalBytes, globBytes int
+}
+
+// size is what the budgets weigh of the side.
+func (side fsSide) size() sideSize {
+	return sideSize{
+		literals:     len(side.literals),
+		globs:        len(side.globs),
+		literalBytes: side.literalBytes,
+		globBytes:    side.globBytes,
+	}
 }
 
 // grants returns the permissions the globs of the side grant the file name.
@@ -453,15 +488,16 @@ func buildFsSide(perms map[string]fsPermission) fsSide {
 		globs:    make(map[string]fsPathEntry, len(perms)),
 		byPrefix: make(prefixIndex),
 		starStar: make(prefixIndex),
-		longest:  0,
+
+		literalBytes: 0,
+		globBytes:    0,
 	}
 
 	for path, perm := range perms {
 		matcher := matcherFor(path)
 
-		side.longest = max(side.longest, len(path))
-
 		if matcher.kind == kindLiteral {
+			side.literalBytes += len(path)
 			side.literals = append(side.literals, fsPathEntry{
 				path: path, perm: perm, matcher: matcher,
 			})
@@ -475,6 +511,7 @@ func buildFsSide(perms map[string]fsPermission) fsSide {
 			continue
 		}
 
+		side.globBytes += len(path)
 		side.globs[path] = fsPathEntry{path: path, perm: perm, matcher: matcher}
 		side.byPrefix.add(matcher.prefix, path)
 		side.starStar.addStarStar(path, matcher)
