@@ -21,6 +21,10 @@ The script basically:
   has to be run and the changes have to be committed.
 - changes the `image` in the `CatalogSource` in the same way at
   [./examples/olm/install-resources.yaml](/examples/olm/install-resources.yaml)
+- changes the image of the webhook overlay
+  [./deploy/overlays/webhook/kustomization.yaml](../deploy/overlays/webhook/kustomization.yaml)
+  and the image, tag and pull policy in the Helm chart
+  [values](../deploy/helm/values.yaml) in the same way
 - changes [`hack/ci/e2e-olm.sh`](/hack/ci/e2e-olm.sh) to sed
   `"s#registry.k8s.io/security-profiles-operator/security-profiles-operator-catalog:v0.0.0#${CATALOG_IMG}#g"`
   instead of
@@ -32,6 +36,9 @@ The script basically:
 - updates the release that [`verification.md`](verification.md) verifies.
   `hack/back-to-dev.sh` leaves it alone, so the documentation keeps pointing at
   the release instead of the development version.
+- updates the versioned install manifests in
+  [`installation.md`](installation.md) and the `spoc` image and version in
+  [`cli.md`](cli.md)
 - updates ./hack/deploy-localhost.patch to match the new deployment
 - updates [./deploy/base/clusterserviceversion.yaml](../deploy/base/clusterserviceversion.yaml)
   to change `replaces` to the latest available version on OperatorHub as well as
@@ -49,7 +56,7 @@ directly](https://prow.k8s.io/?job=post-security-profiles-operator-push-image).
 If the image got built successfully, then we can create a second PR to [the
 k8s.io GitHub repository](https://github.com/kubernetes/k8s.io). This PR
 promotes the built container images (the manifest as well as the builds for
-`amd64` and `arm`).
+`amd64`, `arm64` and `ppc64le`).
 
 We can use the tool
 [`kpromo`](https://github.com/kubernetes-sigs/promo-tools#kpromo) to allow
@@ -70,6 +77,18 @@ This will automatically create a PR in the k/k8s.io repository. The second
 `us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/charts/security-profiles-operator` with the
 version without the `v` prefix.
 
+Before the first release with the Cachix free build image workflow, pin
+`BUILD_IMAGE` in [`Dockerfile`](../Dockerfile) to a build image which the
+`build-image` job of `main` built and `build-image-sign` signed, so that the
+toolchain is not one that was built with the caches.
+
+The promotion copies the images by digest, but not their attestations, see
+[staging attestations](#staging-attestations). Once the promotion PR is
+merged, check that the attestations still apply to what users install: the
+per-architecture images on `registry.k8s.io` have to have the digests the
+staging build attested, which the commands in
+[verification.md](verification.md#container-image) verify for a release.
+
 If this PR got
 merged, then we're finally ready to [create the
 release](https://github.com/kubernetes-sigs/security-profiles-operator/releases/new)
@@ -84,8 +103,10 @@ stay correct for all releases.
 
 Publishing the release triggers the [`build`](../.github/workflows/build.yml)
 workflow, which attaches the `spoc` binaries for all architectures and the
-`spoc.spdx.json` SBOM with their signatures (`*.sigstore.json`), checksums and SLSA
-build provenance (`spoc.intoto.jsonl`) to the release. The
+`spoc.spdx.json` and `spoc-native.spdx.json` SBOMs with their signatures
+(`*.sigstore.json`), checksums and SLSA build provenance (`spoc.intoto.jsonl`)
+to the release. Its `spoc / reproducible` job checks that the released
+`spoc.amd64` is bit for bit the `spoc` of the promoted image of the release. The
 [`helm-chart-package`](../.github/workflows/helm-chart-package.yaml) workflow
 attaches the chart archive with its signature and provenance. Nothing has to
 be built or uploaded by hand, `make nix-spoc` is only meant for local builds.
@@ -96,8 +117,8 @@ provenance of both workflows, see
 
 After that, run the `./hack/back-to-dev.sh` script, which will:
 
-- bumps the [`VERSION`](../VERSION) file to the next minor version, but now including the
-  suffix `-dev`, for example `1.0.0-dev`.
+- bumps the [`VERSION`](../VERSION) file to the next patch version, but now
+  including the suffix `-dev`, for example `1.1.1-dev` after `1.1.0`.
 - changes the `images` `newName`/`newTag` fields in
   [./deploy/kustomize-deployment/kustomization.yaml](../deploy/kustomize-deployment/kustomization.yaml)
   back to `us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator`
@@ -108,6 +129,9 @@ After that, run the `./hack/back-to-dev.sh` script, which will:
 - reverts the changes to [`deploy/helm/Chart.yaml`](/deploy/helm/Chart.yaml)
 - reverts the changes to [`hack/deploy-localhost.patch`](/hack/deploy-localhost.patch)
 - reverts the changes to [`test/e2e_test.go`](/test/e2e_test.go)
+- reverts the webhook overlay and the Helm chart values to the staging image
+- sets the development version in the catalog preamble
+  [`deploy/catalog-preamble.json`](../deploy/catalog-preamble.json)
 - updates [./dependencies.yaml](../dependencies.yaml) `spo-current` version as
   well as its linked files. Run `make verify-dependencies` to verify the
   results.
@@ -149,17 +173,24 @@ The attestations are:
 
 - SLSA build provenance (`https://slsa.dev/provenance/v1`), written by
   [`hack/attest-provenance.sh`](../hack/attest-provenance.sh). This section
-  documents its build type: `externalParameters.source` is the git repository
-  and ref with the built commit, `config` the Cloud Build configuration and
-  `tag` the image tag. `resolvedDependencies` lists the source and the image the
-  binaries are built in. `internalParameters` names the Cloud Build project and
-  service account, `runDetails.metadata.invocationId` links to the build. The
-  build job writes and signs the provenance itself, so `runDetails.builder.id`
-  names the `post-security-profiles-operator-push-image` job.
-- SPDX 3 SBOM (`https://spdx.dev/Document`), written by
+  documents its build type, the `buildType` of a provenance links to this
+  section of the built commit: `externalParameters.source` is the git
+  repository and ref with the built commit, `config` the Cloud Build
+  configuration and `tag` the image tag. `resolvedDependencies` lists the
+  source, the image the binaries are built in and the nixpkgs revision.
+  `internalParameters` names the Cloud Build project and service account,
+  `runDetails.metadata.invocationId` links to the build. The build writes and
+  signs the provenance itself, which makes it SLSA Build L1, so
+  `runDetails.builder.id` names the Cloud Build configuration of the repository
+  and the service account it runs as,
+  `https://cloudbuild.googleapis.com/projects/k8s-staging-images/serviceAccounts/sp-operator-sa@k8s-staging-images.iam.gserviceaccount.com/cloudbuild.yaml`.
+- SPDX SBOMs (`https://spdx.dev/Document`), written by
   [`hack/attest-sbom.sh`](../hack/attest-sbom.sh). bom extracts the Go binary
-  dependencies directly from the image, so the SBOM includes the actual
-  build-time module versions.
+  dependencies directly from the image, so the SPDX 3 SBOM includes the actual
+  build-time module versions. The binaries link C libraries like libseccomp
+  and libbpf statically, which the image build lists from the nix build inputs
+  in an SPDX 2.3 SBOM at `/sbom/native-libraries.spdx.json` of the image
+  ([`hack/native-sbom.sh`](../hack/native-sbom.sh)), which is attested as well.
 - Vulnerability scan (`https://in-toto.io/attestation/vulns/v0.2`) and OpenVEX
   document (`https://openvex.dev/ns`) from govulncheck in binary mode, written
   by [`hack/attest-vulns.sh`](../hack/attest-vulns.sh). The VEX document marks a

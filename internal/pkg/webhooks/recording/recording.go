@@ -73,7 +73,7 @@ func RegisterWebhook(
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilerecordings,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 
-//nolint:gocritic
+//nolint:gocritic // hugeParam: admission.Handler defines the signature
 func (p *podSeccompRecorder) Handle(
 	ctx context.Context,
 	req admission.Request,

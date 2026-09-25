@@ -58,24 +58,9 @@ func (e *e2e) testCaseBaseProfileOCIRuntimeFormat(nodes []string) {
 
 	// The published artifacts are unsigned, because the build that pushes them
 	// has no OIDC identity for keyless signing.
-	e.kubectlOperatorNS(
-		"patch", "spod", "spod",
-		"-p", `{"spec":{"security":{"disableOciArtifactSignatureVerification": true}}}`,
-		"--type=merge",
-	)
-	time.Sleep(defaultWaitTime)
-	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
-	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLongOpTimeout)
+	e.patchSpod(`{"spec":{"security":{"disableOciArtifactSignatureVerification": true}}}`)
 
-	defer func() {
-		e.kubectlOperatorNS(
-			"patch", "spod", "spod",
-			"-p", `{"spec":{"security":{"disableOciArtifactSignatureVerification": false}}}`,
-			"--type=merge",
-		)
-		time.Sleep(defaultWaitTime)
-		e.waitInOperatorNSFor("condition=ready", "spod", "spod")
-	}()
+	defer e.patchSpod(`{"spec":{"security":{"disableOciArtifactSignatureVerification": false}}}`)
 
 	runtime := "runc"
 	if clusterType == clusterTypeVanilla && e.containerRuntime != containerRuntimeDocker {

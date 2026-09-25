@@ -1,0 +1,28 @@
+name: dependencies
+# The pull request checks only verify that the pinned versions in
+# dependencies.yaml agree with each other. This checks the dependencies which
+# have an upstream for newer releases once a week and fails when there are any.
+on:
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  upstream:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read  # required for reading the upstream releases
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ./go.mod
+      - name: Check for newer upstream versions
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: make verify-dependencies-upstream

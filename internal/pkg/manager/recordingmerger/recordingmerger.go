@@ -161,7 +161,6 @@ func (r *PolicyMergeReconciler) mergeTypedProfiles(
 	ctx context.Context,
 	profileRecording *profilerecordingapi.ProfileRecording,
 	createUpdateMergedProfile createUpdateFn,
-	profileItem client.Object,
 	listItem client.ObjectList,
 ) error {
 	partialProfiles, listedProfiles, err := listPartialProfiles(
@@ -277,7 +276,6 @@ func (r *PolicyMergeReconciler) mergeSeccompProfiles(
 		ctx,
 		profileRecording,
 		createUpdateSeccompProfile,
-		&seccompprofile.SeccompProfile{},
 		&seccompprofile.SeccompProfileList{})
 }
 
@@ -289,7 +287,6 @@ func (r *PolicyMergeReconciler) mergeSelinuxProfiles(
 		ctx,
 		profileRecording,
 		createUpdateSelinuxProfile,
-		&selinuxprofileapi.SelinuxProfile{},
 		&selinuxprofileapi.SelinuxProfileList{})
 }
 
@@ -301,7 +298,6 @@ func (r *PolicyMergeReconciler) mergeAppArmorProfiles(
 		ctx,
 		profileRecording,
 		createUpdateApparmorProfile,
-		&apparmorprofileapi.AppArmorProfile{},
 		&apparmorprofileapi.AppArmorProfileList{},
 	)
 }

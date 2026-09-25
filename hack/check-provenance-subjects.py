@@ -27,8 +27,8 @@ import sys
 
 WORKFLOW = ".github/workflows/build.yml"
 
-# The SBOM is a subject too, but it is not per-architecture.
-NON_ARCH_SUBJECTS = {"spoc.spdx.json"}
+# The SBOMs are subjects too, but they are not per-architecture.
+NON_ARCH_SUBJECTS = {"spoc.spdx.json", "spoc-native.spdx.json"}
 
 
 def block(text, header, pattern):
@@ -63,7 +63,7 @@ def main():
         "  nix-spoc-push:\n    strategy:\n      fail-fast: false\n      matrix:\n        arch:\n",
         re.compile(r"- (\S+)"),
     )
-    subjects = block(text, "          SUBJECTS: |\n", re.compile(r"(spoc\.\S+)"))
+    subjects = block(text, "          SUBJECTS: |\n", re.compile(r"(spoc[.-]\S+)"))
 
     if not arches:
         sys.exit(f"could not read the nix-spoc-push architectures from {WORKFLOW}")

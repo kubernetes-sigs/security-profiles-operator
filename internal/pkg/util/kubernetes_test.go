@@ -33,6 +33,7 @@ import (
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/utiltest"
 )
 
 func TestGetSeccompLocalhostProfilePath(t *testing.T) {
@@ -407,8 +408,10 @@ func TestGetOperatorConfigMap(t *testing.T) {
 		{
 			name: "Should return not found when getting configmap fails",
 			args: args{
-				c: &MockClient{
-					MockGet: NewMockGetFn(kerrors.NewNotFound(schema.GroupResource{}, "test")),
+				c: &utiltest.MockClient{
+					MockGet: utiltest.NewMockGetFn(
+						kerrors.NewNotFound(schema.GroupResource{}, "test"),
+					),
 				},
 			},
 			want:    nil,
@@ -417,8 +420,8 @@ func TestGetOperatorConfigMap(t *testing.T) {
 		{
 			name: "Should return error when getting configmap fails",
 			args: args{
-				c: &MockClient{
-					MockGet: NewMockGetFn(kerrors.NewForbidden(
+				c: &utiltest.MockClient{
+					MockGet: utiltest.NewMockGetFn(kerrors.NewForbidden(
 						schema.GroupResource{}, "test", errors.New("test"))),
 				},
 			},

@@ -79,7 +79,26 @@ const (
 	// envSourceDateEpoch is the reproducible-builds convention for the
 	// timestamp to embed, in seconds since the Unix epoch.
 	envSourceDateEpoch = "SOURCE_DATE_EPOCH"
+
+	// OfficialSignerIdentityRegexp matches the identities which sign the
+	// artifacts this project publishes: the service account of the staging
+	// build and the Kubernetes image promoter, which signs everything it
+	// promotes to registry.k8s.io.
+	OfficialSignerIdentityRegexp = `^(sp-operator-sa@k8s-staging-images|krel-trust@k8s-releng-prod)` +
+		`\.iam\.gserviceaccount\.com$`
+
+	// OfficialSignerOidcIssuerRegexp matches the OIDC issuer of the official
+	// signer identities.
+	OfficialSignerOidcIssuerRegexp = `^https://accounts\.google\.com$`
 )
+
+// officialRepositories are the repository prefixes of the artifacts this
+// project publishes. Pulls from them verify the official signers unless the
+// caller changed the default signer regexps.
+var officialRepositories = []string{
+	"registry.k8s.io/security-profiles-operator/",
+	"us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/",
+}
 
 // emptyConfig is the content of the manifest config blob of a runtime format
 // artifact. The profile itself is the layer, the config only carries the

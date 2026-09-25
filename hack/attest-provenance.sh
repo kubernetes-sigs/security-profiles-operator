@@ -17,10 +17,11 @@
 # image or artifact, tags are resolved to their digest. The staging build
 # records its own run, because Cloud Build only generates provenance into
 # Artifact Analysis, which staging projects don't use. The provenance is
-# written and signed by the build job itself, so the builder is that job and
-# not Google's build platform. Runs from the repository root with the git
-# directory and reads the build details from the environment, it does nothing
-# outside of Cloud Build:
+# written and signed by the build itself, so it meets SLSA Build L1 only: the
+# builder is the Cloud Build configuration of this repository running as the
+# service account of the staging project, not Google's build platform. Runs
+# from the repository root with the git directory and reads the build details
+# from the environment, it does nothing outside of Cloud Build:
 #
 # - BUILD_ID, PROJECT_ID and PROJECT_NUMBER: the Cloud Build substitutions
 # - TAG: the image tag of the build
@@ -35,9 +36,6 @@ set -euo pipefail
 
 # shellcheck source=hack/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
-
-BUILD_TYPE="$REPOSITORY_URL/blob/main/doc/release.md#staging-attestations"
-BUILDER_ID=https://prow.k8s.io/job-history/gs/kubernetes-ci-logs/logs/post-security-profiles-operator-push-image
 
 if ! signing_enabled; then
   echo "Signing disabled, not attesting provenance: $*"
@@ -79,6 +77,13 @@ NIXPKGS_URL=$("$(jq_bin)" -er '
 # The workspace comes from another user, so git needs to be told to trust it.
 COMMIT=$(git -c safe.directory='*' rev-parse HEAD)
 REF=$(git -c safe.directory='*' symbolic-ref -q HEAD || echo "$COMMIT")
+
+# The build type is documented in doc/release.md, pinned to the built commit so
+# that the documentation cannot change after the fact.
+BUILD_TYPE="$REPOSITORY_URL/blob/$COMMIT/doc/release.md#staging-attestations"
+# The builder is what runs the build: the Cloud Build configuration of the
+# repository as the service account of the staging project.
+BUILDER_ID="https://cloudbuild.googleapis.com/projects/$PROJECT_ID/serviceAccounts/${SERVICE_ACCOUNT_EMAIL:-unknown}/cloudbuild.yaml"
 
 mkdir -p "$BUILD_DIR/attestations"
 

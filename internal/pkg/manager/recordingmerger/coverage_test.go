@@ -503,7 +503,6 @@ func TestMergeTypedProfiles_ComputesCoverageBeforeMerge(t *testing.T) {
 
 			return controllerutil.OperationResultNone, nil
 		},
-		&seccompprofile.SeccompProfile{},
 		&seccompprofile.SeccompProfileList{},
 	)
 	require.NoError(t, err)

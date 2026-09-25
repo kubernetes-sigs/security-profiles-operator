@@ -735,6 +735,38 @@ func (e *e2e) waitInOperatorNSFor(args ...string) {
 	)
 }
 
+// patchSpod merge patches the SPOD and waits until the change is rolled out.
+func (e *e2e) patchSpod(patch string) {
+	generation := e.spodDaemonSetGeneration()
+	e.kubectlOperatorNS("patch", "spod", "spod", "-p", patch, "--type=merge")
+	e.waitForSpodRollout(generation)
+}
+
+// spodDaemonSetGeneration returns the generation of the spod daemon set, to
+// pass to waitForSpodRollout after changing the SPOD.
+func (e *e2e) spodDaemonSetGeneration() string {
+	return e.kubectlOperatorNS("get", "ds", "spod", "-o", "jsonpath={.metadata.generation}")
+}
+
+// waitForSpodRollout waits until the operator applied a change of the SPOD to
+// the spod daemon set and the daemon set is rolled out. The ready condition of
+// the SPOD can still be the one from before the change, so the new daemon set
+// generation tells when the operator got to it. Changes which the daemon set
+// does not reflect leave the generation alone, the wait for it gives up after
+// defaultWaitTime then.
+func (e *e2e) waitForSpodRollout(previousGeneration string) {
+	for start := time.Now(); time.Since(start) < defaultWaitTime; {
+		if e.spodDaemonSetGeneration() != previousGeneration {
+			break
+		}
+
+		time.Sleep(time.Second)
+	}
+
+	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
+	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLongOpTimeout)
+}
+
 func (e *e2e) logf(format string, a ...any) {
 	e.logger.Info(fmt.Sprintf(format, a...))
 }
@@ -751,27 +783,10 @@ func (e *e2e) enableSelinuxInSpod() {
 	selinuxEnabledInSPODDS := e.kubectlOperatorNS("get", "ds", "spod", "-o", "yaml")
 	if !strings.Contains(selinuxEnabledInSPODDS, "--with-selinux=true") {
 		e.logf("Enable selinux in SPOD")
-		e.kubectlOperatorNS(
-			"patch",
-			"spod",
-			"spod",
-			"-p",
-			`{"spec":{"selinux":{"enable": true}}}`,
-			"--type=merge",
+		e.patchSpod(
+			`{"spec":{"selinux":{"enable": true,` +
+				`"options":{"allowedSystemProfiles":["container","net_container"]}}}}`,
 		)
-		e.kubectlOperatorNS(
-			"patch",
-			"spod",
-			"spod",
-			"-p",
-			`{"spec":{"selinux":{"options":{"allowedSystemProfiles":["container","net_container"]}}}}`,
-			"--type=merge",
-		)
-
-		time.Sleep(defaultWaitTime)
-		e.waitInOperatorNSFor("condition=ready", "spod", "spod")
-
-		e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLongOpTimeout)
 	}
 }
 
@@ -824,19 +839,7 @@ func (e *e2e) enableLogEnricherBpfInSpod() {
 
 func (e *e2e) enableLogEnricherInSpod() {
 	e.logf("Enable log-enricher in SPOD")
-	e.kubectlOperatorNS(
-		"patch",
-		"spod",
-		"spod",
-		"-p",
-		`{"spec":{"enricher":{"enableJsonEnricher": false,"enableLogEnricher": true}}}`,
-		"--type=merge",
-	)
-
-	time.Sleep(defaultWaitTime)
-	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
-
-	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLongOpTimeout)
+	e.patchSpod(`{"spec":{"enricher":{"enableJsonEnricher": false,"enableLogEnricher": true}}}`)
 
 	e.waitForTerminatingPods(5*time.Second, 5)
 
@@ -851,24 +854,16 @@ func (e *e2e) enableLogEnricherInSpod() {
 
 func (e *e2e) enableLogEnricherInSpodWithFilters(enricherFilterJsonStr string) {
 	e.logf("Enable log-enricher in SPOD")
-	e.kubectlOperatorNS("patch", "spod", "spod", "-p",
-		"{\"spec\":{\"enricher\":{\"enableJsonEnricher\": false,\"enableLogEnricher\": true"+
-			",\"logEnricherFilters\":"+enricherFilterJsonStr+"}}}", "--type=merge")
-
-	time.Sleep(defaultWaitTime)
-	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
-
-	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLongOpTimeout)
+	e.patchSpod(
+		"{\"spec\":{\"enricher\":{\"enableJsonEnricher\": false,\"enableLogEnricher\": true" +
+			",\"logEnricherFilters\":" + enricherFilterJsonStr + "}}}",
+	)
 }
 
 func (e *e2e) enableJsonEnricherInSpod() {
 	e.logf("Enable json-enricher in SPOD with 20 second flush interval")
-	e.kubectlOperatorNS("patch", "spod", "spod", "-p",
-		`{"spec":{"enricher":{"enableLogEnricher": false, "enableJsonEnricher": true,
-		"jsonEnricherOptions":{"auditLogIntervalSeconds":20}}}}`, "--type=merge")
-
-	time.Sleep(defaultWaitTime)
-	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
+	e.patchSpod(`{"spec":{"enricher":{"enableLogEnricher": false, "enableJsonEnricher": true,
+		"jsonEnricherOptions":{"auditLogIntervalSeconds":20}}}}`)
 
 	if !e.checkExecWebhook(5*time.Second, 5) {
 		e.Fail("Webhooks are not ready")
@@ -955,17 +950,13 @@ func (e *e2e) enableJsonEnricherInSpodFileOptions(logPath, enricherFilterJsonStr
 
 	_ = os.Remove(patchOperatorJson)
 
-	e.kubectlOperatorNS("patch", "spod", "spod", "-p",
+	e.patchSpod(
 		fmt.Sprintf(`{"spec":{"enricher":{"enableLogEnricher": false,"enableJsonEnricher": true,
 		"jsonEnricherOptions":{"auditLogIntervalSeconds":20,"auditLogPath": "%s"},"jsonEnricherFilters": "%s"}}}`,
-			logPath, enricherFilterJsonStr), "--type=merge")
+			logPath, enricherFilterJsonStr),
+	)
 
 	e.logf("Patched the SPOD")
-
-	time.Sleep(defaultWaitTime * 2)
-	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
-
-	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLongOpTimeout)
 }
 
 func (e *e2e) seccompOnlyTestCase() {
@@ -990,51 +981,17 @@ func (e *e2e) singleNodeTestCase() {
 
 func (e *e2e) enableBpfRecorderInSpod() {
 	e.logf("Enable bpf recorder in SPOD")
-	e.kubectlOperatorNS(
-		"patch",
-		"spod",
-		"spod",
-		"-p",
-		`{"spec":{"enricher":{"enableBpfRecorder": true}}}`,
-		"--type=merge",
-	)
-
-	time.Sleep(defaultWaitTime)
-	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
-
-	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLongOpTimeout)
+	e.patchSpod(`{"spec":{"enricher":{"enableBpfRecorder": true}}}`)
 }
 
 func (e *e2e) enableMemoryOptimization() {
 	e.logf("Enable memory optimization in SPOD")
-	e.kubectlOperatorNS(
-		"patch",
-		"spod",
-		"spod",
-		"-p",
-		`{"spec":{"enableMemoryOptimization": true}}`,
-		"--type=merge",
-	)
-	time.Sleep(defaultWaitTime)
-
-	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
-	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLongOpTimeout)
+	e.patchSpod(`{"spec":{"enableMemoryOptimization": true}}`)
 }
 
 func (e *e2e) disableMemoryOptimization() {
-	e.logf("Enable memory optimization in SPOD")
-	e.kubectlOperatorNS(
-		"patch",
-		"spod",
-		"spod",
-		"-p",
-		`{"spec":{"enableMemoryOptimization": false}}`,
-		"--type=merge",
-	)
-	time.Sleep(defaultWaitTime)
-
-	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
-	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLongOpTimeout)
+	e.logf("Disable memory optimization in SPOD")
+	e.patchSpod(`{"spec":{"enableMemoryOptimization": false}}`)
 }
 
 func (e *e2e) deployRecordingSa(namespace string) {

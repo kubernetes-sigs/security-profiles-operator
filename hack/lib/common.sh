@@ -220,7 +220,7 @@ extract_binaries() {
   if [[ ! -d "$dir" ]]; then
     mkdir -p "$dir.extract"
     "$(crane_bin)" export "$ref" - |
-      tar -xf - -C "$dir.extract" security-profiles-operator spoc
+      tar -xf - -C "$dir.extract" security-profiles-operator spoc sbom
     mv "$dir.extract" "$dir"
   fi
 

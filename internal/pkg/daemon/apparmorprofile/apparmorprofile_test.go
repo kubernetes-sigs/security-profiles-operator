@@ -36,7 +36,7 @@ import (
 	profilebaseapi "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/nodestatus"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/utiltest"
 )
 
 func TestReconcile(t *testing.T) {
@@ -55,8 +55,10 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "ProfileNotFound",
 			rec: &Reconciler{
-				client: &util.MockClient{
-					MockGet: util.NewMockGetFn(kerrors.NewNotFound(schema.GroupResource{}, name)),
+				client: &utiltest.MockClient{
+					MockGet: utiltest.NewMockGetFn(
+						kerrors.NewNotFound(schema.GroupResource{}, name),
+					),
 				},
 				log:     log.Log,
 				metrics: metrics.New(),
@@ -71,10 +73,10 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "GotProfile",
 			rec: &Reconciler{
-				client: &util.MockClient{
-					MockGet:                     util.NewMockGetFn(nil),
-					MockUpdate:                  util.NewMockUpdateFn(nil),
-					MockSubResourceWriterUpdate: util.NewMockSubResourceWriterUpdateFn(nil),
+				client: &utiltest.MockClient{
+					MockGet:                     utiltest.NewMockGetFn(nil),
+					MockUpdate:                  utiltest.NewMockUpdateFn(nil),
+					MockSubResourceWriterUpdate: utiltest.NewMockSubResourceWriterUpdateFn(nil),
 				},
 				log:     log.Log,
 				record:  events.NewFakeRecorder(10),
@@ -90,10 +92,10 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "NotEnabled",
 			rec: &Reconciler{
-				client: &util.MockClient{
-					MockGet:                     util.NewMockGetFn(nil),
-					MockUpdate:                  util.NewMockUpdateFn(nil),
-					MockSubResourceWriterUpdate: util.NewMockSubResourceWriterUpdateFn(nil),
+				client: &utiltest.MockClient{
+					MockGet:                     utiltest.NewMockGetFn(nil),
+					MockUpdate:                  utiltest.NewMockUpdateFn(nil),
+					MockSubResourceWriterUpdate: utiltest.NewMockSubResourceWriterUpdateFn(nil),
 				},
 				log:     log.Log,
 				record:  events.NewFakeRecorder(10),
@@ -196,7 +198,7 @@ func TestHandleDeletionOwnership(t *testing.T) {
 			}
 			manager := &FakeProfileManager{}
 			rec := &Reconciler{
-				client: &util.MockClient{
+				client: &utiltest.MockClient{
 					MockGet: func(_ context.Context, _ client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
 						obj.SetAnnotations(tc.annotations)
 

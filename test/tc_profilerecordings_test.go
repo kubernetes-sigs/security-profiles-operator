@@ -24,7 +24,7 @@ import (
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v2"
+	"sigs.k8s.io/yaml"
 
 	spoutil "sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
@@ -38,7 +38,8 @@ const (
 )
 
 func (e *e2e) waitForJsonEnricherLogs(since time.Time, conditions ...*regexp.Regexp) {
-	for range 10 {
+	// 60 seconds, which covers the flush interval of the JSON enricher.
+	for range 20 {
 		e.logf("Waiting for JSON enricher to record syscalls")
 		logs := e.kubectlOperatorNS(
 			"logs",
@@ -84,12 +85,12 @@ func (e *e2e) waitForJsonEnricherFileLogs(logFilePath string, conditions ...*reg
 
 		for _, podName := range podNamesSlice {
 			type Item struct {
-				MountPath string `yaml:"mountPath"`
-				Name      string `yaml:"name"`
+				MountPath string `json:"mountPath"`
+				Name      string `json:"name"`
 			}
 
 			type Config struct {
-				VolumeMounts []Item `yaml:"volumeMounts"`
+				VolumeMounts []Item `json:"volumeMounts"`
 			}
 
 			config := Config{

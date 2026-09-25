@@ -1,6 +1,9 @@
 dependencies:
   - name: golangci-lint
     version: 2.14.0
+    upstream:
+      flavour: github
+      url: golangci/golangci-lint
     refPaths:
     - path: Makefile
       match: "^GOLANGCI_LINT_VERSION"
@@ -29,6 +32,9 @@ dependencies:
 
   - name: operator-sdk
     version: v1.42.3
+    upstream:
+      flavour: github
+      url: operator-framework/operator-sdk
     refPaths:
     - path: Makefile
       match: "^OPERATOR_SDK_VERSION"
@@ -60,6 +66,9 @@ dependencies:
 
   - name: opm
     version: v1.74.0
+    upstream:
+      flavour: github
+      url: operator-framework/operator-registry
     refPaths:
     - path: Makefile
       match: "^OPM_VERSION"
@@ -98,12 +107,18 @@ dependencies:
 
   - name: olm
     version: v0.46.0
+    upstream:
+      flavour: github
+      url: operator-framework/operator-lifecycle-manager
     refPaths:
     - path: hack/ci/e2e-olm.sh
       match: "^OLM_VERSION"
 
   - name: cert-manager
     version: 1.21.2
+    upstream:
+      flavour: github
+      url: cert-manager/cert-manager
     refPaths:
     - path: test/e2e_test.go
       match: cert-manager/cert-manager
@@ -118,6 +133,9 @@ dependencies:
 
   - name: kind
     version: 0.33.0
+    upstream:
+      flavour: github
+      url: kubernetes-sigs/kind
     refPaths:
     - path: test/suite_test.go
       match: 'kindVersion\s+='
@@ -154,6 +172,12 @@ dependencies:
     - path: hack/ci/Vagrantfile-debian
       match: "KUBERNETES_VERSION="
 
+  - name: e2e-debian-box
+    version: 4.3.12
+    refPaths:
+    - path: hack/ci/Vagrantfile-debian
+      match: "config.vm.box_version = "
+
   - name: e2e-fedora
     version: 44
     refPaths:
@@ -186,6 +210,9 @@ dependencies:
 
   - name: nix
     version: 2.35.2
+    upstream:
+      flavour: github
+      url: NixOS/nix
     refPaths:
     - path: Dockerfile.build-image
       match: "^ARG NIX_VERSION"
@@ -214,6 +241,9 @@ dependencies:
 
   - name: libbpf
     version: 1.7.0
+    upstream:
+      flavour: github
+      url: libbpf/libbpf
     refPaths:
     - path: hack/install-libbpf.sh
       match: "^VERSION="
@@ -232,6 +262,9 @@ dependencies:
 
   - name: crun
     version: 1.30
+    upstream:
+      flavour: github
+      url: containers/crun
     refPaths:
     - path: examples/baseprofile-crun.yaml
       match: "name: crun"
@@ -242,6 +275,9 @@ dependencies:
 
   - name: runc
     version: v1.5.1
+    upstream:
+      flavour: github
+      url: opencontainers/runc
     refPaths:
     - path: examples/baseprofile-runc.yaml
       match: "name: runc"
@@ -254,24 +290,36 @@ dependencies:
 
   - name: kubernix
     version: v0.4.1
+    upstream:
+      flavour: github
+      url: saschagrunert/kubernix
     refPaths:
     - path: hack/ci/install-kubernix.sh
       match: "^KUBERNIX_VERSION="
 
   - name: cosign
     version: v3.1.3
+    upstream:
+      flavour: github
+      url: sigstore/cosign
     refPaths:
     - path: hack/ci/Vagrantfile-debian
       match: "COSIGN_VERSION="
 
   - name: helm
     version: v3.22.0
+    upstream:
+      flavour: github
+      url: helm/helm
+      constraints: "< 4.0.0"
     refPaths:
     - path: hack/push-chart.sh
       match: "HELM_VERSION="
     - path: .github/workflows/helm-chart-package.yaml
       match: "version: v3"
     - path: .github/workflows/helm-chart-lint.yaml
+      match: "version: v3"
+    - path: .github/workflows/test.yml
       match: "version: v3"
 
   # Must be bumped together with helm above.
@@ -283,31 +331,64 @@ dependencies:
 
   - name: cosign for staging signing
     version: v3.1.3
+    upstream:
+      flavour: github
+      url: sigstore/cosign
     refPaths:
     - path: hack/lib/common.sh
       match: "^COSIGN_VERSION="
 
+  # Must be bumped together with cosign for staging signing above.
+  - name: cosign-sha256-linux-amd64
+    version: 4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71
+    refPaths:
+    - path: hack/lib/common.sh
+      match: "^COSIGN_SHA256="
+
   - name: bom
     version: v0.8.0
+    upstream:
+      flavour: github
+      url: kubernetes-sigs/bom
     refPaths:
     - path: hack/lib/common.sh
       match: "^BOM_VERSION="
 
-  - name: jq for staging attestations
+  # Must be bumped together with bom above.
+  - name: bom-sha256-amd64-linux
+    version: cafd00b75a8df860fec54d19b9e24fb48556c0848d0abf9e40cd2eabb11a8710
+    refPaths:
+    - path: hack/lib/common.sh
+      match: "^BOM_SHA256="
+
+  - name: jq
     version: 1.8.2
     refPaths:
     - path: hack/lib/common.sh
       match: "^JQ_VERSION="
 
+  # Must be bumped together with jq above.
+  - name: jq-sha256-linux-amd64
+    version: b1c22172dd303f3be49e935aa56aa48a8b7a46e0bc838b4997d3bb451495870f
+    refPaths:
+    - path: hack/lib/common.sh
+      match: "^JQ_SHA256="
+
   - name: crane for staging attestations
     version: v0.22.1
+    upstream:
+      flavour: github
+      url: google/go-containerregistry
     refPaths:
     - path: hack/lib/common.sh
       match: "^CRANE_VERSION="
 
-  - name: golang image for staging attestations
+  # nix brings its own Go, make verify-go-version checks that it matches.
+  - name: golang
     version: 1.27.1
     refPaths:
+    - path: go.mod
+      match: "^toolchain go"
     - path: cloudbuild.yaml
       match: "name: golang:"
 
@@ -351,12 +432,18 @@ dependencies:
 
   - name: zeitgeist
     version: 0.8.0
+    upstream:
+      flavour: github
+      url: kubernetes-sigs/zeitgeist
     refPaths:
       - path: Makefile
         match: "^ZEITGEIST_VERSION"
 
   - name: mdtoc
     version: v1.4.0
+    upstream:
+      flavour: github
+      url: kubernetes-sigs/mdtoc
     refPaths:
       - path: Makefile
         match: "^MDTOC_VERSION"
@@ -369,14 +456,35 @@ dependencies:
       - path: hack/lib/common.sh
         match: "^GOVULNCHECK_VERSION="
 
+  - name: gotestsum
+    version: v1.13.0
+    upstream:
+      flavour: github
+      url: gotestyourself/gotestsum
+    refPaths:
+      - path: Makefile
+        match: "^GOTESTSUM_VERSION"
+
+  - name: python for chart-testing
+    version: 3.13
+    refPaths:
+      - path: .github/workflows/helm-chart-lint.yaml
+        match: "python-version:"
+
   - name: trivy
     version: v0.74.0
+    upstream:
+      flavour: github
+      url: aquasecurity/trivy
     refPaths:
       - path: .github/workflows/build.yml
         match: "version: v0\\."
 
   - name: yq
     version: 4.53.6
+    upstream:
+      flavour: github
+      url: mikefarah/yq
     refPaths:
       - path: hack/ci/install-yq.sh
         match: "YQ_VERSION="

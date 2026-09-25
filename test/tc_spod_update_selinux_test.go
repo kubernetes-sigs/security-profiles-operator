@@ -16,8 +16,6 @@ limitations under the License.
 
 package e2e_test
 
-import "time"
-
 func (e *e2e) testCaseSPODUpdateSelinux([]string) {
 	e.selinuxOnlyTestCase()
 
@@ -46,39 +44,16 @@ func (e *e2e) testCaseSPODUpdateSelinux([]string) {
 	e.Contains(selinuxEnabledInSPODDS, "--with-selinux=true")
 
 	e.logf("Disable selinux from SPOD")
-	e.kubectlOperatorNS(
-		"patch",
-		"spod",
-		"spod",
-		"-p",
-		`{"spec":{"selinux":{"enable": false}}}`,
-		"--type=merge",
-	)
-
-	time.Sleep(defaultWaitTime)
-	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
+	e.patchSpod(`{"spec":{"selinux":{"enable": false}}}`)
 
 	e.logf("assert selinux is disabled in the spod DS")
 	selinuxDisabledInSPODDS := e.kubectlOperatorNS("get", "ds", "spod", "-o", "yaml")
 	e.NotContains(selinuxDisabledInSPODDS, "--with-selinux=true")
 
 	e.logf("Re-enable selinux in SPOD")
-	e.kubectlOperatorNS(
-		"patch",
-		"spod",
-		"spod",
-		"-p",
-		`{"spec":{"selinux":{"enable": true}}}`,
-		"--type=merge",
-	)
-
-	time.Sleep(defaultWaitTime)
-	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
+	e.patchSpod(`{"spec":{"selinux":{"enable": true}}}`)
 
 	e.logf("assert selinux is enabled in the spod DS")
 	selinuxEnabledInSPODDS = e.kubectlOperatorNS("get", "ds", "spod", "-o", "yaml")
 	e.Contains(selinuxEnabledInSPODDS, "--with-selinux=true")
-
-	e.logf("waiting for final rollout")
-	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLongOpTimeout)
 }

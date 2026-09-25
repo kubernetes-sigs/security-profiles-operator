@@ -184,7 +184,7 @@ func newEphemeralContainers(pod, oldPod *corev1.Pod) []*corev1.Container {
 // +kubebuilder:rbac:groups=config.openshift.io,resources=clusteroperators,verbs=get
 // +kubebuilder:rbac:groups=config.openshift.io,resources=apiservers,verbs=get;list;watch
 
-//nolint:gocritic
+//nolint:gocritic // hugeParam: admission.Handler defines the signature
 func (p *podBinder) Handle(ctx context.Context, req admission.Request) admission.Response {
 	profileBindings, err := p.ListProfileBindings(ctx, client.InNamespace(req.Namespace))
 	if err != nil {

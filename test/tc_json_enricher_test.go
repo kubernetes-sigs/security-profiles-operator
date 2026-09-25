@@ -96,12 +96,11 @@ spec:
 	// In 5 seconds the process info will be captured.
 	e.kubectl("exec", "-i", podName, "--", "sleep", "5")
 
-	// Wait for the flush interval.
-	time.Sleep(20 * time.Second)
-
-	// wait for at least one component of the expected logs to appear
+	// The polls below cover the flush interval of 20 seconds. Wait for the
+	// exec record itself, since other records may be flushed before it.
 	output := e.waitForJsonEnricherFileLogs(jsonLogFileName,
-		regexp.MustCompile(`(?m)"requestUID"`))
+		regexp.MustCompile(`(?m)"requestUID"`),
+		regexp.MustCompile(`"sleep"|"/"`))
 
 	e.Contains(output, "\"auditID\"")
 	e.Contains(output, "\"requestUID\"")
@@ -207,11 +206,11 @@ spec:
 	e.Contains(nodeDebuggingPodEnvOutput, "SPO_EXEC_REQUEST_UID")
 	e.logf("The env output has SPO_EXEC_REQUEST_UID")
 
-	// Wait for the flush interval.
-	time.Sleep(20 * time.Second)
-
-	// wait for at least one component of the expected logs to appear
-	e.waitForJsonEnricherLogs(since, regexp.MustCompile(`(?m)"requestUID"`))
+	// The polls below cover the flush interval of 20 seconds. Wait for the
+	// exec record itself, since other records may be flushed before it.
+	e.waitForJsonEnricherLogs(since,
+		regexp.MustCompile(`(?m)"requestUID"`),
+		regexp.MustCompile(`sleep 5`))
 	e.logf("Checking JSON enricher output")
 	output := e.kubectlOperatorNS("logs", "-l", "name=spod", "-c", "json-enricher")
 

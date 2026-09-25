@@ -498,12 +498,12 @@ func (r *ReconcileSPOd) handleCreate(
 	if err := r.client.Create(
 		ctx, serviceMonitor,
 	); err != nil {
-		//nolint:gocritic
-		if bindata.IsNotFound(err) {
+		switch {
+		case bindata.IsNotFound(err):
 			r.log.Info("Service monitor resource does not seem to exist, ignoring")
-		} else if errors.IsAlreadyExists(err) {
+		case errors.IsAlreadyExists(err):
 			r.log.Info("Service monitor already exist, skipping")
-		} else {
+		default:
 			return fmt.Errorf("creating service monitor: %w", err)
 		}
 	}

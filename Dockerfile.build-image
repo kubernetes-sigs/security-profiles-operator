@@ -50,19 +50,25 @@ ENV ENV=/etc/profile \
   NIX_SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
   NIX_PATH=/nix/var/nix/profiles/per-user/root/channels
 
-# Cachix comes from the nixpkgs revision locked in flake.lock, which nix
-# verifies by its narHash.
-COPY flake.nix flake.lock /flake/
-RUN nix-env -i "$(nix build --inputs-from path:/flake nixpkgs#cachix --no-link --print-out-paths)" && \
-  rm -rf /flake && \
-  cachix use security-profiles-operator && \
-  nix-collect-garbage --delete-old -d && \
+# Only the dependencies of the released binaries are cached in the image, the
+# binaries themselves are always built from source in the image build (see
+# Dockerfile). Everything comes from cache.nixos.org or is built here, never
+# from the project's Cachix cache: CI jobs which run repository code write to
+# that one, so it must not be able to reach the released toolchain. Pull
+# requests, which only check that the image builds, can set CACHIX to the
+# cache name to save the time.
+ARG CACHIX=
+COPY . /build
+RUN if [ -n "$CACHIX" ]; then \
+    nix-env -i "$(nix build --inputs-from path:/build nixpkgs#cachix --no-link --print-out-paths)" && \
+    cachix use "$CACHIX"; \
+  fi && \
+  nix build --no-link \
+    path:/build#spo-amd64.inputDerivation \
+    path:/build#spo-arm64.inputDerivation \
+    path:/build#spo-ppc64le.inputDerivation && \
+  rm -rf /build && \
   nix-store --optimise && \
   nix-store --verify --check-contents
-
-# Cache build dependencies
-COPY . /build
-RUN nix build path:/build#default
-RUN rm -rf /build
 
 # vim: ft=dockerfile

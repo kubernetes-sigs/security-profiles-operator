@@ -61,19 +61,14 @@ EOT
 
     k apply -f "$POD_FILE"
 
+    # A pod which never completes leaves no recording, so fail here instead
+    # of waiting for the profile.
     echo "Waiting for pod to be completed"
-    for ((i = 0; i < 10; i++)); do
-      if k get pods $PODNAME | grep -q Completed; then
-        echo "Pod completed"
-        break
-      fi
-      echo "Still waiting ($i)"
-      sleep 5
-    done
+    k wait --for=jsonpath='{.status.phase}'=Succeeded --timeout=120s pod/$PODNAME
 
-    echo "Deleting pod"
-    k delete -f "$POD_FILE"
-
+    # The recorder collects the profile when the pod succeeded. Deleting the
+    # pod before that records the syscalls of the runtime tearing down the
+    # container, like umount2, into the profile.
     wait_for seccompprofile $RECORDING
 
     echo "Getting runtime version"
@@ -85,6 +80,11 @@ EOT
         '{version: $version, architectures: .spec.architectures, syscalls: .spec.syscalls}' \
         >"$OUTPUT"
     cat "$OUTPUT"
+
+    # kubectl waits until the pod is gone, so no late recording of it can
+    # reach the next runtime.
+    echo "Deleting pod"
+    k delete -f "$POD_FILE"
 
     echo "Deleting seccomp profile"
     k delete seccompprofile $RECORDING

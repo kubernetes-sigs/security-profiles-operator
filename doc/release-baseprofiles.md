@@ -138,6 +138,11 @@ grants to every build account:
 - certificate identity: `sp-operator-sa@k8s-staging-images.iam.gserviceaccount.com`
 - issuer: `https://accounts.google.com`
 
+`spoc pull` and the daemon verify profiles from both registries against this
+identity or the one of the image promoter unless they are configured with
+other signer regexps, see
+[verifying security profiles](verification.md#security-profiles).
+
 Newly published versions also get SLSA build provenance, see
 [staging attestations](release.md#staging-attestations).
 

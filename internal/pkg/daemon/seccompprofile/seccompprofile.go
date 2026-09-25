@@ -485,11 +485,16 @@ func (r *Reconciler) resolveSyscallsForProfile(
 				// memory the daemon allocates on every node.
 				MaxBlobSize: artifact.MaxRuntimeProfileSize,
 			}
+			// The official repositories get verified against the official
+			// signers while the regexps are left at the default.
+			identity, issuer := pullOpts.Signer(from)
 			l.Info(
 				"Pulling base profile: "+from,
 				"disableOCIArtifactSignatureVerification", pullOpts.DisableSignatureVerification,
 				"allowedIdentityRegexp", pullOpts.AllowedIdentityRegexp,
 				"allowedOidcIssuerRegexp", pullOpts.AllowedOidcIssuerRegexp,
+				"verifiedIdentityRegexp", identity,
+				"verifiedOidcIssuerRegexp", issuer,
 				"maxBlobSize", pullOpts.MaxBlobSize,
 			)
 
