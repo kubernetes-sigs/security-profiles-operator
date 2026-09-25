@@ -19,11 +19,12 @@ limitations under the License.
 package bpfrecorder
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
 	"sync"
-	"unsafe"
+	"syscall"
 
 	bpf "github.com/aquasecurity/libbpfgo"
 	"github.com/go-logr/logr"
@@ -50,7 +51,7 @@ func newSeccompRecorder(logger logr.Logger) *SeccompRecorder {
 func (s *SeccompRecorder) Load(b *BpfRecorder) error {
 	s.logger.Info("Getting syscalls map")
 
-	syscalls, err := b.GetMap(b.module, "mntns_syscalls")
+	syscalls, err := b.GetMap(b.module, mapRecordedSyscalls)
 	if err != nil {
 		return fmt.Errorf("get syscalls map: %w", err)
 	}
@@ -66,32 +67,62 @@ func (s *SeccompRecorder) StartRecording(b *BpfRecorder) error {
 }
 
 func (s *SeccompRecorder) StopRecording(b *BpfRecorder) error {
-	it := b.BPFMapIterator(s.syscalls)
-	for b.BPFMapIteratorNext(it) {
-		key := it.Key()
-		if err := s.syscalls.DeleteKey(unsafe.Pointer(&key[0])); err != nil {
-			return fmt.Errorf("failed to clean up syscalls map: %w", err)
-		}
+	if err := clearBpfMap(b, s.syscalls); err != nil {
+		return fmt.Errorf("failed to clean up syscalls map: %w", err)
 	}
 
 	return nil
 }
 
-func (s *SeccompRecorder) PopSyscalls(b *BpfRecorder, mntns uint32) ([]string, error) {
-	syscalls, err := b.GetValue(s.syscalls, mntns)
-	if err != nil {
-		s.logger.Error(err, "No syscalls found for mntns", "mntns", mntns)
+// Syscalls returns the names of the syscalls recorded for keys. The data stays
+// in the map until Clear is called.
+func (s *SeccompRecorder) Syscalls(b *BpfRecorder, keys []uint64) ([]string, error) {
+	var (
+		merged  []byte
+		lastErr error
+	)
 
-		return nil, fmt.Errorf("no syscalls found for mntns: %d", mntns)
+	for _, key := range keys {
+		syscalls, err := b.GetValue64(s.syscalls, key)
+		if err != nil {
+			if !errors.Is(err, syscall.ENOENT) {
+				s.logger.Error(err, "Unable to read syscalls", "key", key)
+				lastErr = err
+			}
+
+			continue
+		}
+
+		if merged == nil {
+			merged = make([]byte, len(syscalls))
+		}
+
+		for id, set := range syscalls {
+			if set == 1 && id < len(merged) {
+				merged[id] = 1
+			}
+		}
 	}
 
-	syscallNames := s.convertSyscallIDsToNames(b, syscalls)
+	if merged == nil {
+		if lastErr != nil {
+			return nil, fmt.Errorf("read syscalls: %w", lastErr)
+		}
 
-	if err := b.DeleteKey(s.syscalls, mntns); err != nil {
-		s.logger.Error(err, "Unable to cleanup syscalls map", "mntns", mntns)
+		// Nothing was recorded, which is not going to change on a retry.
+		return nil, ErrNotFound
 	}
 
-	return sortUnique(syscallNames), nil
+	return sortUnique(s.convertSyscallIDsToNames(b, merged)), nil
+}
+
+// Clear drops the syscalls recorded for keys.
+func (s *SeccompRecorder) Clear(b *BpfRecorder, keys []uint64) {
+	for _, key := range keys {
+		if err := b.DeleteKey64(s.syscalls, key); err != nil && !errors.Is(err, syscall.ENOENT) {
+			s.logger.Error(err, "Unable to cleanup syscalls map", "key", key)
+		}
+	}
 }
 
 func sortUnique(input []string) []string {

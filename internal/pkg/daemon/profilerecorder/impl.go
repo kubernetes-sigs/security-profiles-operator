@@ -80,11 +80,6 @@ type impl interface {
 		context.Context, enricherapi.EnricherClient, *enricherapi.AvcRequest,
 	) error
 	DialEnricher() (*grpc.ClientConn, error)
-	GetRecording(
-		context.Context,
-		client.Client,
-		client.ObjectKey,
-	) (*profilerecordingapi.ProfileRecording, error)
 	ListRecordings(
 		context.Context,
 		client.Client,
@@ -95,6 +90,16 @@ type impl interface {
 		bpfrecorderapi.BpfRecorderClient,
 		*bpfrecorderapi.ProfileRequest,
 	) (*bpfrecorderapi.ApparmorResponse, error)
+	ResetSyscallsForProfile(
+		context.Context,
+		bpfrecorderapi.BpfRecorderClient,
+		*bpfrecorderapi.ProfileRequest,
+	) error
+	ResetApparmorForProfile(
+		context.Context,
+		bpfrecorderapi.BpfRecorderClient,
+		*bpfrecorderapi.ProfileRequest,
+	) error
 }
 
 func (*defaultImpl) NewClient(mgr ctrl.Manager) (client.Client, error) {
@@ -199,6 +204,26 @@ func (*defaultImpl) ApparmorForProfile(
 	return c.ApparmorForProfile(ctx, req)
 }
 
+func (*defaultImpl) ResetSyscallsForProfile(
+	ctx context.Context,
+	c bpfrecorderapi.BpfRecorderClient,
+	req *bpfrecorderapi.ProfileRequest,
+) error {
+	_, err := c.ResetSyscallsForProfile(ctx, req)
+
+	return err
+}
+
+func (*defaultImpl) ResetApparmorForProfile(
+	ctx context.Context,
+	c bpfrecorderapi.BpfRecorderClient,
+	req *bpfrecorderapi.ProfileRequest,
+) error {
+	_, err := c.ResetApparmorForProfile(ctx, req)
+
+	return err
+}
+
 func (*defaultImpl) CreateOrUpdate(
 	ctx context.Context,
 	c client.Client,
@@ -242,16 +267,4 @@ func (*defaultImpl) ResetAvcs(
 
 func (*defaultImpl) DialEnricher() (*grpc.ClientConn, error) {
 	return enricher.Dial()
-}
-
-func (*defaultImpl) GetRecording(
-	ctx context.Context,
-	cli client.Client,
-	key client.ObjectKey,
-) (*profilerecordingapi.ProfileRecording, error) {
-	recording := profilerecordingapi.ProfileRecording{}
-
-	err := cli.Get(ctx, key, &recording)
-
-	return &recording, err
 }

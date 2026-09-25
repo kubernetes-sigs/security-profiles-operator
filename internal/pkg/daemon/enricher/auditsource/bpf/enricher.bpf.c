@@ -57,14 +57,21 @@ int BPF_KPROBE(kprobe__aa_audit, int type, struct aa_profile * profile,
     u8 complain = (BPF_CORE_READ(profile, mode) == APPARMOR_COMPLAIN);
     const char * name_ptr = BPF_CORE_READ(ad, name);
     const char * op_ptr = BPF_CORE_READ(ad, op);
-    struct task_struct * task = (void *)bpf_get_current_task();
-    const char * comm_ptr = BPF_CORE_READ(task, comm);
 
     char op[16];
     long op_len = read_kernel_str(op, sizeof(op), op_ptr);
 
+    // bpf_get_current_comm always terminates the name, the length includes
+    // the terminator like the one of the other strings.
     char comm[TASK_COMM_LEN] = {};
-    long comm_len = read_kernel_str(comm, sizeof(comm), comm_ptr);
+    bpf_get_current_comm(comm, sizeof(comm));
+    long comm_len = sizeof(comm);
+    for (int i = 0; i < TASK_COMM_LEN; i++) {
+        if (comm[i] == 0) {
+            comm_len = i + 1;
+            break;
+        }
+    }
 
     char name[256];
     long name_len = read_kernel_str(name, sizeof(name), name_ptr);

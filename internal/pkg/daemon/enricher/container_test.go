@@ -26,7 +26,9 @@ import (
 	"golang.org/x/sync/errgroup"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/enricherfakes"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 )
 
@@ -81,6 +83,35 @@ func Test_populateCacheEntryForContainer(t *testing.T) {
 											Time: time.Now(),
 										},
 									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name:        "container which will not start does not hide the others",
+			want:        1,
+			expectError: false,
+			args: args{
+				pod: &v1.Pod{
+					Status: v1.PodStatus{
+						ContainerStatuses: []v1.ContainerStatus{
+							{
+								Name:        "no-image",
+								ContainerID: "",
+								State: v1.ContainerState{
+									Waiting: &v1.ContainerStateWaiting{
+										Reason: "ImagePullBackOff",
+									},
+								},
+							},
+							{
+								Name:        "running",
+								ContainerID: "cri-o://a7afc479dcef795780f76309b93f6087602f92e60cc352e01e89d596530d3bf3",
+								State: v1.ContainerState{
+									Running: &v1.ContainerStateRunning{},
 								},
 							},
 						},
@@ -185,4 +216,116 @@ func Test_populateCacheEntryForContainer(t *testing.T) {
 			}
 		})
 	}
+}
+
+const (
+	lookupTestPod         = "lookup-pod"
+	lookupTestContainerID = "218ce99dd8b33f6f9b6565863d7cd47dc880963ddd2cd987bcb2d330c65144bf"
+)
+
+func newTestContainerLookup(mock *enricherfakes.FakeImpl) *containerLookup {
+	return &containerLookup{
+		nodeName: "lookup-node",
+		impl:     mock,
+		infoCache: ttlcache.New(
+			ttlcache.WithTTL[string, *types.ContainerInfo](defaultCacheTimeout),
+		),
+		missing: newMissingContainerCache(),
+		logger:  logr.Discard(),
+		backoff: wait.Backoff{Duration: time.Millisecond, Factor: 1, Steps: 3},
+	}
+}
+
+func podList(statuses ...v1.ContainerStatus) *v1.PodList {
+	return &v1.PodList{Items: []v1.Pod{{
+		ObjectMeta: metav1.ObjectMeta{Name: lookupTestPod, Namespace: "lookup-namespace"},
+		Status:     v1.PodStatus{ContainerStatuses: statuses},
+	}}}
+}
+
+func TestGetContainerInfo(t *testing.T) {
+	t.Parallel()
+
+	creating := v1.ContainerStatus{
+		Name: "creating",
+		State: v1.ContainerState{
+			Waiting: &v1.ContainerStateWaiting{Reason: "ContainerCreating"},
+		},
+	}
+	running := v1.ContainerStatus{
+		Name:        "running",
+		ContainerID: "cri-o://" + lookupTestContainerID,
+	}
+
+	t.Run("stops retrying once the container is found", func(t *testing.T) {
+		t.Parallel()
+
+		mock := &enricherfakes.FakeImpl{}
+		mock.ListPodsReturns(podList(creating, running), nil)
+
+		sut := newTestContainerLookup(mock)
+
+		info, err := sut.getContainerInfo(t.Context(), lookupTestContainerID)
+		require.NoError(t, err)
+		require.Equal(t, lookupTestPod, info.PodName)
+		require.Equal(t, 1, mock.ListPodsCallCount())
+	})
+
+	t.Run("finds an init container listed while the others wait for it", func(t *testing.T) {
+		t.Parallel()
+
+		initializing := v1.ContainerStatus{
+			Name: "main",
+			State: v1.ContainerState{
+				Waiting: &v1.ContainerStateWaiting{Reason: "PodInitializing"},
+			},
+		}
+		initCreating := creating
+		initCreating.Name = running.Name
+
+		mock := &enricherfakes.FakeImpl{}
+		mock.ListPodsReturnsOnCall(0, podList(initCreating, initializing), nil)
+		mock.ListPodsReturns(podList(running, initializing), nil)
+
+		sut := newTestContainerLookup(mock)
+
+		info, err := sut.getContainerInfo(t.Context(), lookupTestContainerID)
+		require.NoError(t, err)
+		require.Equal(t, running.Name, info.ContainerName)
+		require.Equal(t, 2, mock.ListPodsCallCount())
+	})
+
+	t.Run("remembers missing containers", func(t *testing.T) {
+		t.Parallel()
+
+		mock := &enricherfakes.FakeImpl{}
+		mock.ListPodsReturns(podList(running), nil)
+
+		sut := newTestContainerLookup(mock)
+
+		_, err := sut.getContainerInfo(t.Context(), "unknown")
+		require.ErrorIs(t, err, errNoContainerInfo)
+
+		// Answered without listing all pods again.
+		_, err = sut.getContainerInfo(t.Context(), "unknown")
+		require.ErrorIs(t, err, errContainerRecentlyMissing)
+		require.Equal(t, 1, mock.ListPodsCallCount())
+
+		// Other containers are still looked up.
+		_, err = sut.getContainerInfo(t.Context(), lookupTestContainerID)
+		require.NoError(t, err)
+	})
+
+	t.Run("reports the retry error", func(t *testing.T) {
+		t.Parallel()
+
+		mock := &enricherfakes.FakeImpl{}
+		mock.ListPodsReturns(podList(creating), nil)
+
+		sut := newTestContainerLookup(mock)
+
+		_, err := sut.getContainerInfo(t.Context(), lookupTestContainerID)
+		require.ErrorIs(t, err, errContainerIDEmpty)
+		require.Equal(t, 3, mock.ListPodsCallCount())
+	})
 }

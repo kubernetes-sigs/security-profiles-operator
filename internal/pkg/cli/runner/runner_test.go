@@ -20,6 +20,7 @@ package runner
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -27,7 +28,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/runner/runnerfakes"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 )
 
 var errTest = errors.New("test")
@@ -37,6 +37,7 @@ func TestRun(t *testing.T) {
 
 	for _, tc := range []struct {
 		name    string
+		profile string
 		prepare func(mock *runnerfakes.FakeImpl)
 		assert  func(error)
 	}{
@@ -57,30 +58,32 @@ func TestRun(t *testing.T) {
 			},
 		},
 		{
-			name: "failure on YamlUnmarshal",
+			name:    "success with JSON profile",
+			profile: "profile.json",
 			prepare: func(mock *runnerfakes.FakeImpl) {
-				mock.YamlUnmarshalReturns(errTest)
+				mock.ReadFileReturns([]byte(`{"defaultAction":"SCMP_ACT_ERRNO"}`), nil)
 			},
 			assert: func(err error) {
-				require.ErrorIs(t, err, errTest)
+				require.NoError(t, err)
 			},
 		},
 		{
-			name: "failure on JSONMarshal",
+			name: "failure on invalid YAML profile",
 			prepare: func(mock *runnerfakes.FakeImpl) {
-				mock.JSONMarshalReturns(nil, errTest)
+				mock.ReadFileReturns([]byte("{"), nil)
 			},
 			assert: func(err error) {
-				require.ErrorIs(t, err, errTest)
+				require.ErrorContains(t, err, "unmarshal YAML profile")
 			},
 		},
 		{
-			name: "failure on JSONUnmarshal",
+			name:    "failure on invalid JSON profile",
+			profile: "profile.json",
 			prepare: func(mock *runnerfakes.FakeImpl) {
-				mock.JSONUnmarshalReturns(errTest)
+				mock.ReadFileReturns([]byte("{"), nil)
 			},
 			assert: func(err error) {
-				require.ErrorIs(t, err, errTest)
+				require.ErrorContains(t, err, "unmarshal JSON profile")
 			},
 		},
 		{
@@ -122,6 +125,7 @@ func TestRun(t *testing.T) {
 	} {
 		prepare := tc.prepare
 		assert := tc.assert
+		profile := tc.profile
 
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -129,7 +133,12 @@ func TestRun(t *testing.T) {
 			mock := &runnerfakes.FakeImpl{}
 			prepare(mock)
 
-			sut := New(Default())
+			options := Default()
+			if profile != "" {
+				options.profile = profile
+			}
+
+			sut := New(options)
 			sut.impl = mock
 
 			err := sut.Run()
@@ -170,16 +179,9 @@ func TestStartEnricher(t *testing.T) {
 			name: "success with seccomp line",
 			prepare: func(mock *runnerfakes.FakeImpl, lineChan chan *tail.Line) {
 				mock.LinesReturns(lineChan)
-				mock.IsAuditLineReturns(true)
-				mock.ExtractAuditLineReturns(
-					&types.AuditLine{
-						AuditType: types.AuditTypeSeccomp,
-						ProcessID: testPid,
-					}, nil)
-				mock.PidLoadReturns(testPid)
 			},
 			assert: func(mock *runnerfakes.FakeImpl, lineChan chan *tail.Line) {
-				lineChan <- &tail.Line{}
+				lineChan <- &tail.Line{Text: seccompLine(testPid)}
 
 				waitForFunctionCall(t, mock.PrintfCallCount)
 
@@ -191,17 +193,10 @@ func TestStartEnricher(t *testing.T) {
 			name: "success with seccomp line but unidentified syscall number",
 			prepare: func(mock *runnerfakes.FakeImpl, lineChan chan *tail.Line) {
 				mock.LinesReturns(lineChan)
-				mock.IsAuditLineReturns(true)
-				mock.ExtractAuditLineReturns(
-					&types.AuditLine{
-						AuditType: types.AuditTypeSeccomp,
-						ProcessID: testPid,
-					}, nil)
-				mock.PidLoadReturns(testPid)
 				mock.GetNameReturns("", errTest)
 			},
 			assert: func(mock *runnerfakes.FakeImpl, lineChan chan *tail.Line) {
-				lineChan <- &tail.Line{}
+				lineChan <- &tail.Line{Text: seccompLine(testPid)}
 
 				waitForFunctionCall(t, mock.GetNameCallCount)
 				require.Zero(t, mock.PrintfCallCount())
@@ -211,16 +206,12 @@ func TestStartEnricher(t *testing.T) {
 			name: "success with AppArmor line",
 			prepare: func(mock *runnerfakes.FakeImpl, lineChan chan *tail.Line) {
 				mock.LinesReturns(lineChan)
-				mock.IsAuditLineReturns(true)
-				mock.ExtractAuditLineReturns(
-					&types.AuditLine{
-						AuditType: types.AuditTypeApparmor,
-						ProcessID: testPid,
-					}, nil)
-				mock.PidLoadReturns(testPid)
 			},
 			assert: func(mock *runnerfakes.FakeImpl, lineChan chan *tail.Line) {
-				lineChan <- &tail.Line{}
+				lineChan <- &tail.Line{Text: fmt.Sprintf(
+					`audit: type=1400 audit(1668191154.949:64): apparmor="DENIED" `+
+						`operation="exec" profile="p" name="/bin/x" pid=%d comm="x"`, testPid,
+				)}
 
 				waitForFunctionCall(t, mock.PrintfCallCount)
 				arg, _ := mock.PrintfArgsForCall(0)
@@ -231,16 +222,13 @@ func TestStartEnricher(t *testing.T) {
 			name: "success with SELinux line",
 			prepare: func(mock *runnerfakes.FakeImpl, lineChan chan *tail.Line) {
 				mock.LinesReturns(lineChan)
-				mock.IsAuditLineReturns(true)
-				mock.ExtractAuditLineReturns(
-					&types.AuditLine{
-						AuditType: types.AuditTypeSelinux,
-						ProcessID: testPid,
-					}, nil)
-				mock.PidLoadReturns(testPid)
 			},
 			assert: func(mock *runnerfakes.FakeImpl, lineChan chan *tail.Line) {
-				lineChan <- &tail.Line{}
+				lineChan <- &tail.Line{Text: fmt.Sprintf(
+					`type=AVC msg=audit(1613173578.156:2945): avc:  denied  { read } for  `+
+						`pid=%d comm="x" scontext=system_u:system_r:container_t:s0 `+
+						`tcontext=system_u:object_r:var_lib_t:s0 tclass=lnk_file permissive=0`, testPid,
+				)}
 
 				waitForFunctionCall(t, mock.PrintfCallCount)
 				arg, _ := mock.PrintfArgsForCall(0)
@@ -248,28 +236,31 @@ func TestStartEnricher(t *testing.T) {
 			},
 		},
 		{
-			name: "failure on ExtractAuditLine",
+			name: "line of another process",
 			prepare: func(mock *runnerfakes.FakeImpl, lineChan chan *tail.Line) {
 				mock.LinesReturns(lineChan)
-				mock.IsAuditLineReturns(true)
-				mock.ExtractAuditLineReturns(nil, errTest)
 			},
 			assert: func(mock *runnerfakes.FakeImpl, lineChan chan *tail.Line) {
-				lineChan <- &tail.Line{}
+				lineChan <- &tail.Line{Text: seccompLine(testPid + 1)}
 
-				require.Zero(t, mock.PidLoadCallCount())
+				lineChan <- &tail.Line{Text: seccompLine(testPid)}
+
+				waitForFunctionCall(t, mock.PrintfCallCount)
+				require.Equal(t, 1, mock.GetNameCallCount())
 			},
 		},
 		{
-			name: "failure on IsAuditLine",
+			name: "no audit line",
 			prepare: func(mock *runnerfakes.FakeImpl, lineChan chan *tail.Line) {
 				mock.LinesReturns(lineChan)
-				mock.IsAuditLineReturns(false)
 			},
 			assert: func(mock *runnerfakes.FakeImpl, lineChan chan *tail.Line) {
-				lineChan <- &tail.Line{}
+				lineChan <- &tail.Line{Text: "not an audit line"}
 
-				require.Zero(t, mock.PidLoadCallCount())
+				lineChan <- &tail.Line{Text: seccompLine(testPid)}
+
+				waitForFunctionCall(t, mock.PrintfCallCount)
+				require.Equal(t, 1, mock.PrintfCallCount())
 			},
 		},
 		{
@@ -280,7 +271,7 @@ func TestStartEnricher(t *testing.T) {
 			assert: func(mock *runnerfakes.FakeImpl, lineChan chan *tail.Line) {
 				lineChan <- &tail.Line{Err: errTest}
 
-				require.Zero(t, mock.PidLoadCallCount())
+				require.Zero(t, mock.PrintfCallCount())
 			},
 		},
 		{
@@ -305,10 +296,18 @@ func TestStartEnricher(t *testing.T) {
 
 			sut := New(Default())
 			sut.impl = mock
+			sut.pid.Store(testPid)
 
 			go sut.startEnricher()
 
 			assert(mock, lineChan)
 		})
 	}
+}
+
+func seccompLine(pid int) string {
+	return fmt.Sprintf(
+		`type=SECCOMP msg=audit(1613596317.899:6461): auid=4294967295 uid=0 gid=0 `+
+			`pid=%d comm="ls" exe="/bin/ls" sig=0 arch=c000003e syscall=3 compat=0`, pid,
+	)
 }

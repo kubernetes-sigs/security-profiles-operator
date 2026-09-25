@@ -64,8 +64,35 @@ func TestBpfEventUnmarshalRejectsShortInput(t *testing.T) {
 	var event bpfEvent
 
 	require.False(t, event.unmarshal(nil))
-	require.False(t, event.unmarshal(randomBytes(t, bpfEventSize-1)))
+	require.False(t, event.unmarshal(randomBytes(t, bpfEventHeaderSize-1)))
+	require.True(t, event.unmarshal(randomBytes(t, bpfEventHeaderSize)))
 	require.True(t, event.unmarshal(randomBytes(t, bpfEventSize)))
+}
+
+// Events without data and file events only carry as much data as they need.
+func TestBpfEventUnmarshalVariableSize(t *testing.T) {
+	t.Parallel()
+
+	raw := make([]byte, bpfEventHeaderSize, bpfEventHeaderSize+8)
+	binary.LittleEndian.PutUint32(raw[0:], 42)
+	binary.LittleEndian.PutUint32(raw[4:], 0x1010)
+	binary.LittleEndian.PutUint64(raw[8:], 0xdeadbeef)
+	raw[16] = uint8(eventTypeAppArmorFile)
+	binary.LittleEndian.PutUint64(raw[17:], flagRead)
+	raw = append(raw, "/a/b\x00"...)
+
+	// A previous, longer path must not shine through.
+	var event bpfEvent
+
+	copy(event.Data[:], "/previous/long/path")
+
+	require.True(t, event.unmarshal(raw))
+	require.Equal(t, uint32(42), event.Pid)
+	require.Equal(t, uint32(0x1010), event.Mntns)
+	require.Equal(t, uint64(0xdeadbeef), event.Key)
+	require.Equal(t, uint8(eventTypeAppArmorFile), event.Type)
+	require.Equal(t, flagRead, event.Flags)
+	require.Equal(t, "/a/b", fileDataToString(&event.Data))
 }
 
 func TestBpfExecEventUnmarshalMatchesBinaryRead(t *testing.T) {

@@ -36,10 +36,10 @@ profile {{.Name}} flags=({{.ProfileMode}},attach_disconnected,mediate_deleted) {
 
   # Executable rules
 {{ if ne .Data.Executable nil }}{{ if ne .Data.Executable.AllowedExecutables nil }}
-{{range $allowed := .Data.Executable.AllowedExecutables}}  {{$allowed}} ixr,
+{{range $allowed := .Data.Executable.AllowedExecutables}}  {{path $allowed}} ixr,
 {{end}}{{end}}
 {{ if ne .Data.Executable.AllowedLibraries nil }}
-{{range $allowedlib := .Data.Executable.AllowedLibraries}}  {{$allowedlib}} mr,
+{{range $allowedlib := .Data.Executable.AllowedLibraries}}  {{path $allowedlib}} mr,
 {{end}}{{end}}{{end}}
   {{ if .AllowMount }}
   /sbin/fsck ixr,
@@ -48,17 +48,17 @@ profile {{.Name}} flags=({{.ProfileMode}},attach_disconnected,mediate_deleted) {
 
   # Filesystem rules
 {{ if ne .Data.Filesystem nil }}{{ if ne .Data.Filesystem.ReadOnlyPaths nil }}
-{{range $readonly := .Data.Filesystem.ReadOnlyPaths}}  {{$readonly}} r,
+{{range $readonly := .Data.Filesystem.ReadOnlyPaths}}  {{path $readonly}} r,
 {{end}}
-{{ if not .ComplainMode }}{{range $readonly := .Data.Filesystem.ReadOnlyPaths}}  deny {{$readonly}} wlk,
+{{ if not .ComplainMode }}{{range $readonly := .Data.Filesystem.ReadOnlyPaths}}  deny {{path $readonly}} wlk,
 {{end}}{{end}}{{end}}
 {{ if ne .Data.Filesystem.WriteOnlyPaths nil }}
-{{range $writeonly := .Data.Filesystem.WriteOnlyPaths}}  {{$writeonly}} wlk,
+{{range $writeonly := .Data.Filesystem.WriteOnlyPaths}}  {{path $writeonly}} wlk,
 {{end}}
-{{ if not .ComplainMode }}{{range $writeonly := .Data.Filesystem.WriteOnlyPaths}}  deny {{$writeonly}} r,
+{{ if not .ComplainMode }}{{range $writeonly := .Data.Filesystem.WriteOnlyPaths}}  deny {{path $writeonly}} r,
 {{end}}{{end}}{{end}}
 {{ if ne .Data.Filesystem.ReadWritePaths nil }}
-{{range $readwrite := .Data.Filesystem.ReadWritePaths}}  {{$readwrite}} rwlk,
+{{range $readwrite := .Data.Filesystem.ReadWritePaths}}  {{path $readwrite}} rwlk,
 {{end}}{{end}}{{end}}
 
   # Network rules
@@ -98,7 +98,21 @@ profile {{.Name}} flags=({{.ProfileMode}},attach_disconnected,mediate_deleted) {
 }
 `
 
-var parsedAppArmorTemplate = template.Must(template.New("apparmor").Parse(appArmorTemplate))
+var parsedAppArmorTemplate = template.Must(
+	template.New("apparmor").Funcs(template.FuncMap{"path": quotePath}).Parse(appArmorTemplate),
+)
+
+// quotePath quotes paths which contain spaces, as AppArmor would otherwise
+// read them as separate tokens and reject the whole profile. Globbing and
+// variables still work inside the quotes. The validation guarantees that a
+// path cannot contain quotes itself.
+func quotePath(path string) string {
+	if strings.HasPrefix(path, "/") && strings.Contains(path, " ") {
+		return `"` + path + `"`
+	}
+
+	return path
+}
 
 // ApparmorData validated apparmor data which gets interpolated into the apparmor template.
 type ApparmorData struct {

@@ -27,9 +27,9 @@ import (
 // bijection. A pod selected by both a seccomp and an AppArmor ProfileRecording
 // carries one annotation per kind, so findProfileForContainerID inserts twice
 // under the same container ID. Evicting the first profile would make the
-// reverse lookup fail for it, and the recorder resolves the mount namespace to
-// collect from through exactly that lookup, so the profile would silently never
-// be collected.
+// reverse lookup fail for it, and the recorder resolves the data to collect
+// from through exactly that lookup, so the profile would silently never be
+// collected.
 func TestContainerProfilesKeepsEveryProfileOfAContainer(t *testing.T) {
 	t.Parallel()
 
@@ -38,13 +38,29 @@ func TestContainerProfilesKeepsEveryProfileOfAContainer(t *testing.T) {
 	sut.Insert("container-1", "apparmor-profile")
 
 	for _, profile := range []string{"seccomp-profile", "apparmor-profile"} {
-		containerID, ok := sut.GetBackwards(profile)
-		require.True(t, ok, "profile %s must resolve back to its container", profile)
-		assert.Equal(t, "container-1", containerID)
+		assert.Equal(t, []string{"container-1"}, sut.Containers(profile),
+			"profile %s must resolve back to its container", profile)
 	}
 
 	assert.Equal(t, []string{"seccomp-profile", "apparmor-profile"}, sut.GetAll("container-1"))
 	assert.Equal(t, 1, sut.Size(), "both profiles belong to one container")
+}
+
+// TestContainerProfilesKeepsRestartedContainers asserts that a restarted
+// container, which gets a new ID but carries the same annotation, adds to the
+// profile instead of replacing what the first run recorded.
+func TestContainerProfilesKeepsRestartedContainers(t *testing.T) {
+	t.Parallel()
+
+	sut := newContainerProfiles()
+	sut.Insert("first-run", "profile")
+	sut.Insert("second-run", "profile")
+	sut.Insert("second-run", "profile")
+
+	assert.Equal(t, []string{"first-run", "second-run"}, sut.Containers("profile"))
+
+	sut.Delete("first-run")
+	assert.Equal(t, []string{"second-run"}, sut.Containers("profile"))
 }
 
 func TestContainerProfiles(t *testing.T) {
@@ -70,39 +86,11 @@ func TestContainerProfiles(t *testing.T) {
 		_, ok := sut.Get("nope")
 		assert.False(t, ok)
 
-		_, ok = sut.GetBackwards("nope")
-		assert.False(t, ok)
-
+		assert.Empty(t, sut.Containers("nope"))
 		assert.Empty(t, sut.GetAll("nope"))
 	})
 
-	t.Run("inserting the same pair twice does not duplicate it", func(t *testing.T) {
-		t.Parallel()
-
-		sut := newContainerProfiles()
-		sut.Insert("container-1", "profile")
-		sut.Insert("container-1", "profile")
-
-		assert.Equal(t, []string{"profile"}, sut.GetAll("container-1"))
-	})
-
-	t.Run("a profile belongs to one container at a time", func(t *testing.T) {
-		t.Parallel()
-
-		sut := newContainerProfiles()
-		sut.Insert("container-1", "profile")
-		sut.Insert("container-2", "profile")
-
-		containerID, ok := sut.GetBackwards("profile")
-		require.True(t, ok)
-		assert.Equal(t, "container-2", containerID)
-
-		// container-1 no longer holds it, and holds nothing else, so it is gone.
-		assert.Empty(t, sut.GetAll("container-1"))
-		assert.Equal(t, 1, sut.Size())
-	})
-
-	t.Run("delete forgets the container and all of its profiles", func(t *testing.T) {
+	t.Run("delete forgets the container and its profiles", func(t *testing.T) {
 		t.Parallel()
 
 		sut := newContainerProfiles()
@@ -112,14 +100,9 @@ func TestContainerProfiles(t *testing.T) {
 
 		sut.Delete("container-1")
 
-		_, ok := sut.GetBackwards("seccomp")
-		assert.False(t, ok)
-		_, ok = sut.GetBackwards("apparmor")
-		assert.False(t, ok)
-
-		containerID, ok := sut.GetBackwards("other")
-		require.True(t, ok)
-		assert.Equal(t, "container-2", containerID)
+		assert.Empty(t, sut.Containers("seccomp"))
+		assert.Empty(t, sut.Containers("apparmor"))
+		assert.Equal(t, []string{"container-2"}, sut.Containers("other"))
 		assert.Equal(t, 1, sut.Size())
 	})
 
@@ -133,8 +116,25 @@ func TestContainerProfiles(t *testing.T) {
 		sut.Clear()
 
 		assert.Equal(t, 0, sut.Size())
-
-		_, ok := sut.GetBackwards("seccomp")
-		assert.False(t, ok)
+		assert.Empty(t, sut.Containers("seccomp"))
 	})
+}
+
+func TestContainerProfilesDeleteProfile(t *testing.T) {
+	t.Parallel()
+
+	sut := newContainerProfiles()
+	sut.Insert("container-1", "seccomp-profile")
+	sut.Insert("container-1", "apparmor-profile")
+	sut.Insert("container-2", "seccomp-profile")
+
+	// Collecting one kind must leave the other one resolvable.
+	assert.Equal(t, []string{"container-2"}, sut.DeleteProfile("seccomp-profile"))
+	assert.Empty(t, sut.Containers("seccomp-profile"))
+	assert.Equal(t, []string{"container-1"}, sut.Containers("apparmor-profile"))
+
+	assert.Equal(t, []string{"container-1"}, sut.DeleteProfile("apparmor-profile"))
+	assert.Zero(t, sut.Size())
+
+	assert.Empty(t, sut.DeleteProfile("unknown"))
 }

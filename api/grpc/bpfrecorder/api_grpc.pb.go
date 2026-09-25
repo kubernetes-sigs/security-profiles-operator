@@ -34,10 +34,12 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	BpfRecorder_Start_FullMethodName              = "/api_bpfrecorder.BpfRecorder/Start"
-	BpfRecorder_Stop_FullMethodName               = "/api_bpfrecorder.BpfRecorder/Stop"
-	BpfRecorder_SyscallsForProfile_FullMethodName = "/api_bpfrecorder.BpfRecorder/SyscallsForProfile"
-	BpfRecorder_ApparmorForProfile_FullMethodName = "/api_bpfrecorder.BpfRecorder/ApparmorForProfile"
+	BpfRecorder_Start_FullMethodName                   = "/api_bpfrecorder.BpfRecorder/Start"
+	BpfRecorder_Stop_FullMethodName                    = "/api_bpfrecorder.BpfRecorder/Stop"
+	BpfRecorder_SyscallsForProfile_FullMethodName      = "/api_bpfrecorder.BpfRecorder/SyscallsForProfile"
+	BpfRecorder_ApparmorForProfile_FullMethodName      = "/api_bpfrecorder.BpfRecorder/ApparmorForProfile"
+	BpfRecorder_ResetSyscallsForProfile_FullMethodName = "/api_bpfrecorder.BpfRecorder/ResetSyscallsForProfile"
+	BpfRecorder_ResetApparmorForProfile_FullMethodName = "/api_bpfrecorder.BpfRecorder/ResetApparmorForProfile"
 )
 
 // BpfRecorderClient is the client API for BpfRecorder service.
@@ -46,8 +48,13 @@ const (
 type BpfRecorderClient interface {
 	Start(ctx context.Context, in *EmptyRequest, opts ...grpc.CallOption) (*EmptyResponse, error)
 	Stop(ctx context.Context, in *EmptyRequest, opts ...grpc.CallOption) (*EmptyResponse, error)
+	// SyscallsForProfile and ApparmorForProfile return the recorded data without
+	// removing it, so that a failure to persist the profile can be retried. The
+	// Reset calls drop the data once the profile has been stored.
 	SyscallsForProfile(ctx context.Context, in *ProfileRequest, opts ...grpc.CallOption) (*SyscallsResponse, error)
 	ApparmorForProfile(ctx context.Context, in *ProfileRequest, opts ...grpc.CallOption) (*ApparmorResponse, error)
+	ResetSyscallsForProfile(ctx context.Context, in *ProfileRequest, opts ...grpc.CallOption) (*EmptyResponse, error)
+	ResetApparmorForProfile(ctx context.Context, in *ProfileRequest, opts ...grpc.CallOption) (*EmptyResponse, error)
 }
 
 type bpfRecorderClient struct {
@@ -98,14 +105,39 @@ func (c *bpfRecorderClient) ApparmorForProfile(ctx context.Context, in *ProfileR
 	return out, nil
 }
 
+func (c *bpfRecorderClient) ResetSyscallsForProfile(ctx context.Context, in *ProfileRequest, opts ...grpc.CallOption) (*EmptyResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EmptyResponse)
+	err := c.cc.Invoke(ctx, BpfRecorder_ResetSyscallsForProfile_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *bpfRecorderClient) ResetApparmorForProfile(ctx context.Context, in *ProfileRequest, opts ...grpc.CallOption) (*EmptyResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EmptyResponse)
+	err := c.cc.Invoke(ctx, BpfRecorder_ResetApparmorForProfile_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // BpfRecorderServer is the server API for BpfRecorder service.
 // All implementations must embed UnimplementedBpfRecorderServer
 // for forward compatibility.
 type BpfRecorderServer interface {
 	Start(context.Context, *EmptyRequest) (*EmptyResponse, error)
 	Stop(context.Context, *EmptyRequest) (*EmptyResponse, error)
+	// SyscallsForProfile and ApparmorForProfile return the recorded data without
+	// removing it, so that a failure to persist the profile can be retried. The
+	// Reset calls drop the data once the profile has been stored.
 	SyscallsForProfile(context.Context, *ProfileRequest) (*SyscallsResponse, error)
 	ApparmorForProfile(context.Context, *ProfileRequest) (*ApparmorResponse, error)
+	ResetSyscallsForProfile(context.Context, *ProfileRequest) (*EmptyResponse, error)
+	ResetApparmorForProfile(context.Context, *ProfileRequest) (*EmptyResponse, error)
 	mustEmbedUnimplementedBpfRecorderServer()
 }
 
@@ -127,6 +159,12 @@ func (UnimplementedBpfRecorderServer) SyscallsForProfile(context.Context, *Profi
 }
 func (UnimplementedBpfRecorderServer) ApparmorForProfile(context.Context, *ProfileRequest) (*ApparmorResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ApparmorForProfile not implemented")
+}
+func (UnimplementedBpfRecorderServer) ResetSyscallsForProfile(context.Context, *ProfileRequest) (*EmptyResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ResetSyscallsForProfile not implemented")
+}
+func (UnimplementedBpfRecorderServer) ResetApparmorForProfile(context.Context, *ProfileRequest) (*EmptyResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ResetApparmorForProfile not implemented")
 }
 func (UnimplementedBpfRecorderServer) mustEmbedUnimplementedBpfRecorderServer() {}
 func (UnimplementedBpfRecorderServer) testEmbeddedByValue()                     {}
@@ -221,6 +259,42 @@ func _BpfRecorder_ApparmorForProfile_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _BpfRecorder_ResetSyscallsForProfile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProfileRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BpfRecorderServer).ResetSyscallsForProfile(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: BpfRecorder_ResetSyscallsForProfile_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BpfRecorderServer).ResetSyscallsForProfile(ctx, req.(*ProfileRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _BpfRecorder_ResetApparmorForProfile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProfileRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BpfRecorderServer).ResetApparmorForProfile(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: BpfRecorder_ResetApparmorForProfile_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BpfRecorderServer).ResetApparmorForProfile(ctx, req.(*ProfileRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // BpfRecorder_ServiceDesc is the grpc.ServiceDesc for BpfRecorder service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -243,6 +317,14 @@ var BpfRecorder_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ApparmorForProfile",
 			Handler:    _BpfRecorder_ApparmorForProfile_Handler,
+		},
+		{
+			MethodName: "ResetSyscallsForProfile",
+			Handler:    _BpfRecorder_ResetSyscallsForProfile_Handler,
+		},
+		{
+			MethodName: "ResetApparmorForProfile",
+			Handler:    _BpfRecorder_ResetApparmorForProfile_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

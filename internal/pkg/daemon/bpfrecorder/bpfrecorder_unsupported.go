@@ -67,3 +67,18 @@ func (b *BpfRecorder) SyscallsForProfile(
 ) (*api.SyscallsResponse, error) {
 	return nil, errUnsupported
 }
+
+// ResetSyscallsForProfile drops the syscalls recorded for the provided profile.
+func (b *BpfRecorder) ResetSyscallsForProfile(
+	context.Context, *api.ProfileRequest,
+) (*api.EmptyResponse, error) {
+	return nil, errUnsupported
+}
+
+// ResetApparmorForProfile drops the AppArmor data recorded for the provided
+// profile.
+func (b *BpfRecorder) ResetApparmorForProfile(
+	context.Context, *api.ProfileRequest,
+) (*api.EmptyResponse, error) {
+	return nil, errUnsupported
+}

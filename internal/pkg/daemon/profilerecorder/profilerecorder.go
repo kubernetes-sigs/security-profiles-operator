@@ -20,13 +20,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"os"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -41,6 +42,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -57,9 +59,11 @@ import (
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/apparmorprofile/crd2armor"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/recordingmerger"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
@@ -68,12 +72,12 @@ const (
 	// default reconcile timeout.
 	reconcileTimeout = 1 * time.Minute
 
-	errInvalidAnnotation = "invalid Annotation"
-
 	reasonProfileRecording      string = "ProfileRecording"
 	reasonProfileCreated        string = "ProfileCreated"
 	reasonProfileCreationFailed string = "CannotCreateProfile"
+	reasonProfileMergeFailed    string = "CannotMergeProfile"
 	reasonAnnotationParsing     string = "AnnotationParsing"
+	reasonRecordingIncomplete   string = "RecordingIncomplete"
 
 	seContextRequiredParts = 3
 )
@@ -82,8 +86,13 @@ var errNameNotValid = errors.New(
 	"recording name is not valid DNS1123 subdomain, check profileRecording events")
 
 var (
+	errInvalidAnnotation = errors.New("invalid annotation")
+	// errProfileRejected is returned when the API server rejects a recorded
+	// profile for good, which retrying cannot change.
+	errProfileRejected         = errors.New("recorded profile rejected")
 	errRecordedProfileNotFound = errors.New("recorded profile not found")
 	errRecordingGone           = errors.New("profile recording no longer exists")
+	errMergeFailed             = errors.New("merge profile")
 )
 
 // unrecordable reports whether a collect error means the pod can never be
@@ -106,6 +115,9 @@ type RecorderReconciler struct {
 	record        util.EventRecorder
 	nodeAddresses []string
 	podsToWatch   sync.Map
+	// forbiddenAttempts counts per profile how often storing it was
+	// forbidden.
+	forbiddenAttempts sync.Map
 }
 
 type profileToCollect struct {
@@ -117,6 +129,24 @@ type podToWatch struct {
 	baseName types.NamespacedName
 	recorder profilerecordingapi.ProfileRecorder
 	profiles []profileToCollect
+	// recordings holds the state of the recordings the profiles belong to,
+	// keyed by recording name, as it was when the pod started being recorded.
+	recordings map[string]recordingState
+}
+
+// recordingState holds what storing a recorded profile needs to know about
+// its ProfileRecording. It is captured when a pod starts being recorded, so
+// that the profiles of a pod which outlives its recording are still stored.
+type recordingState struct {
+	partial bool
+	disable bool
+}
+
+func recordingStateOf(recording *profilerecordingapi.ProfileRecording) recordingState {
+	return recordingState{
+		partial: recording.Spec.MergeStrategy == profilerecordingapi.ProfileMergeContainers,
+		disable: recording.Spec.DisableProfileAfterRecording,
+	}
 }
 
 // Name returns the name of the controller.
@@ -251,18 +281,19 @@ func (r *RecorderReconciler) authorizedProfiles(
 	pod *corev1.Pod,
 	profiles []profileToCollect,
 	recorder profilerecordingapi.ProfileRecorder,
-) ([]profileToCollect, error) {
+) ([]profileToCollect, map[string]recordingState, error) {
 	if len(profiles) == 0 {
-		return profiles, nil
+		return profiles, nil, nil
 	}
 
 	recordings, err := r.ListRecordings(ctx, r.client, pod.Namespace)
 	if err != nil {
-		return nil, fmt.Errorf("list profile recordings: %w", err)
+		return nil, nil, fmt.Errorf("list profile recordings: %w", err)
 	}
 
 	podLabels := k8slabels.Set(pod.GetLabels())
 	authorized := make([]profileToCollect, 0, len(profiles))
+	states := map[string]recordingState{}
 
 	for _, profile := range profiles {
 		// The annotation value starts with the recording and container name.
@@ -293,8 +324,11 @@ func (r *RecorderReconciler) authorizedProfiles(
 			continue
 		}
 
-		if r.recordingAuthorizes(recordings, podLabels, parsed, profile.kind, recorder) {
+		if recording := r.recordingAuthorizes(
+			recordings, podLabels, parsed, profile.kind, recorder,
+		); recording != nil {
 			authorized = append(authorized, profile)
+			states[recording.Name] = recordingStateOf(recording)
 
 			continue
 		}
@@ -316,19 +350,19 @@ func (r *RecorderReconciler) authorizedProfiles(
 		)
 	}
 
-	return authorized, nil
+	return authorized, states, nil
 }
 
-// recordingAuthorizes reports whether one of the recordings asks for exactly
-// this profile: same name, same kind, same recorder, a selector that matches
-// the pod and a container the recording covers.
+// recordingAuthorizes returns the recording which asks for exactly this
+// profile: same name, same kind, same recorder, a selector that matches the
+// pod and a container the recording covers. It returns nil if there is none.
 func (r *RecorderReconciler) recordingAuthorizes(
 	recordings *profilerecordingapi.ProfileRecordingList,
 	podLabels k8slabels.Set,
 	parsed *parsedAnnotation,
 	kind profilerecordingapi.ProfileRecordingKind,
 	recorder profilerecordingapi.ProfileRecorder,
-) bool {
+) *profilerecordingapi.ProfileRecording {
 	for i := range recordings.Items {
 		recording := &recordings.Items[i]
 
@@ -354,10 +388,10 @@ func (r *RecorderReconciler) recordingAuthorizes(
 			continue
 		}
 
-		return true
+		return recording
 	}
 
-	return false
+	return nil
 }
 
 // Reconcile reconciles a pod event for profile recording.
@@ -399,7 +433,10 @@ func (r *RecorderReconciler) Reconcile(
 		return reconcile.Result{}, fmt.Errorf("cannot get pod: %w", err)
 	}
 
-	if pod.Status.Phase == corev1.PodPending {
+	// Pods are normally picked up while pending. A running pod which is not
+	// tracked yet was missed, for example because the daemon restarted, and
+	// is still recorded rather than never.
+	if pod.Status.Phase == corev1.PodPending || pod.Status.Phase == corev1.PodRunning {
 		if _, ok := r.podsToWatch.Load(req.String()); ok {
 			// We're tracking this pod already
 			return reconcile.Result{}, nil
@@ -446,14 +483,14 @@ func (r *RecorderReconciler) Reconcile(
 			recorder profilerecordingapi.ProfileRecorder
 		)
 
-		//nolint:gocritic // should be intentionally no switch
-		if len(logProfiles) > 0 {
+		switch {
+		case len(logProfiles) > 0:
 			profiles = logProfiles
 			recorder = profilerecordingapi.ProfileRecorderLogs
-		} else if len(bpfProfiles) > 0 {
+		case len(bpfProfiles) > 0:
 			profiles = bpfProfiles
 			recorder = profilerecordingapi.ProfileRecorderBpf
-		} else {
+		default:
 			logger.Info("No log or bpf annotations found on pod")
 
 			return reconcile.Result{}, nil
@@ -461,7 +498,7 @@ func (r *RecorderReconciler) Reconcile(
 
 		// Authorize before anything with side effects: arming the node's BPF
 		// recorder must not be reachable from a pod annotation alone.
-		profiles, err = r.authorizedProfiles(ctx, pod, profiles, recorder)
+		profiles, recordings, err := r.authorizedProfiles(ctx, pod, profiles, recorder)
 		if err != nil {
 			return reconcile.Result{}, err
 		}
@@ -501,7 +538,7 @@ func (r *RecorderReconciler) Reconcile(
 
 		r.podsToWatch.Store(
 			req.String(),
-			podToWatch{baseName, recorder, profiles},
+			podToWatch{baseName, recorder, profiles, recordings},
 		)
 		r.record.Eventf(
 			pod,
@@ -511,6 +548,21 @@ func (r *RecorderReconciler) Reconcile(
 			util.EventActionRecord,
 			"Recording profiles",
 		)
+
+		// The BPF recorder only sees what happens after it got armed, while
+		// the log enricher records from the audit log regardless.
+		if pod.Status.Phase == corev1.PodRunning &&
+			recorder == profilerecordingapi.ProfileRecorderBpf {
+			logger.Info("Started recording an already running pod, the profile may be incomplete")
+			r.record.Eventf(
+				pod,
+				nil,
+				util.EventTypeWarning,
+				reasonRecordingIncomplete,
+				util.EventActionRecord,
+				"Recording started after the pod was already running, the profiles may be incomplete",
+			)
+		}
 	}
 
 	if pod.Status.Phase == corev1.PodSucceeded {
@@ -600,8 +652,9 @@ func (r *RecorderReconciler) stopBpfRecorder(ctx context.Context) error {
 }
 
 // releaseUnrecordablePod drops a pod whose profiles can never be collected. It
-// must undo whatever Reconcile set up, otherwise the watch entry leaks and, for
-// the BPF recorder, the node stays armed for the lifetime of the daemon.
+// must undo whatever Reconcile set up, otherwise the watch entry leaks, the
+// recorded data stays in the recorders until they are full and, for the BPF
+// recorder, the node stays armed for the lifetime of the daemon.
 func (r *RecorderReconciler) releaseUnrecordablePod(
 	ctx context.Context, podName types.NamespacedName,
 ) {
@@ -612,14 +665,93 @@ func (r *RecorderReconciler) releaseUnrecordablePod(
 		return
 	}
 
-	if podToWatch, ok := value.(podToWatch); ok &&
-		podToWatch.recorder == profilerecordingapi.ProfileRecorderBpf {
-		if err := r.stopBpfRecorder(ctx); err != nil {
-			r.log.Error(err, "Unable to stop bpf recorder for unrecordable pod")
+	if podToWatch, ok := value.(podToWatch); ok {
+		switch podToWatch.recorder {
+		case profilerecordingapi.ProfileRecorderBpf:
+			r.releaseBpfProfiles(ctx, podToWatch.profiles)
+		case profilerecordingapi.ProfileRecorderLogs:
+			r.releaseLogProfiles(ctx, podToWatch.profiles)
 		}
 	}
 
 	r.podsToWatch.Delete(n)
+}
+
+// releaseBpfProfiles drops the data the BPF recorder holds for profiles and
+// stops the recorder.
+func (r *RecorderReconciler) releaseBpfProfiles(ctx context.Context, profiles []profileToCollect) {
+	recorderClient, conn, err := r.getBpfRecorderClient(ctx)
+	if err != nil {
+		r.log.Error(err, "Unable to release bpf recorder for unrecordable pod")
+
+		return
+	}
+	defer func() {
+		if conn != nil {
+			conn.Close()
+		}
+	}()
+
+	for _, prf := range profiles {
+		if err := r.resetBpfProfile(ctx, recorderClient, prf); err != nil {
+			r.log.Error(
+				err,
+				"Unable to reset recorded data for unrecordable pod",
+				"profile",
+				prf.name,
+			)
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
+	defer cancel()
+
+	if err := r.StopBpfRecorder(ctx, recorderClient); err != nil {
+		r.log.Error(err, "Unable to stop bpf recorder for unrecordable pod")
+	}
+}
+
+// releaseLogProfiles drops the data the log enricher holds for profiles.
+func (r *RecorderReconciler) releaseLogProfiles(ctx context.Context, profiles []profileToCollect) {
+	conn, err := r.DialEnricher()
+	if err != nil {
+		r.log.Error(err, "Unable to connect to the enricher for unrecordable pod")
+
+		return
+	}
+	defer func() {
+		if conn != nil {
+			conn.Close()
+		}
+	}()
+
+	enricherClient := enricherapi.NewEnricherClient(conn)
+
+	for _, prf := range profiles {
+		var err error
+
+		switch prf.kind {
+		case profilerecordingapi.ProfileRecordingKindSeccompProfile:
+			err = r.ResetSyscalls(
+				ctx,
+				enricherClient,
+				&enricherapi.SyscallsRequest{Profile: prf.name},
+			)
+		case profilerecordingapi.ProfileRecordingKindSelinuxProfile:
+			err = r.ResetAvcs(ctx, enricherClient, &enricherapi.AvcRequest{Profile: prf.name})
+		case profilerecordingapi.ProfileRecordingKindAppArmorProfile:
+			continue
+		}
+
+		if err != nil {
+			r.log.Error(
+				err,
+				"Unable to reset recorded data for unrecordable pod",
+				"profile",
+				prf.name,
+			)
+		}
+	}
 }
 
 func (r *RecorderReconciler) collectProfile(
@@ -646,7 +778,7 @@ func (r *RecorderReconciler) collectProfile(
 
 	if podToWatch.recorder == profilerecordingapi.ProfileRecorderLogs {
 		if err := r.collectLogProfiles(
-			ctx, replicaSuffix, podName, podToWatch.profiles,
+			ctx, replicaSuffix, podName, podToWatch.profiles, podToWatch.recordings,
 		); err != nil {
 			return fmt.Errorf("collect log profile: %w", err)
 		}
@@ -654,7 +786,7 @@ func (r *RecorderReconciler) collectProfile(
 
 	if podToWatch.recorder == profilerecordingapi.ProfileRecorderBpf {
 		if err := r.collectBpfProfiles(
-			ctx, replicaSuffix, podName, podToWatch.profiles,
+			ctx, replicaSuffix, podName, podToWatch.profiles, podToWatch.recordings,
 		); err != nil {
 			return fmt.Errorf("collect bpf profile: %w", err)
 		}
@@ -670,6 +802,7 @@ func (r *RecorderReconciler) collectLogProfiles(
 	replicaSuffix string,
 	podName types.NamespacedName,
 	profiles []profileToCollect,
+	recordings map[string]recordingState,
 ) error {
 	r.log.Info("Checking if enricher is enabled")
 
@@ -707,31 +840,19 @@ func (r *RecorderReconciler) collectLogProfiles(
 			return fmt.Errorf("parse profile raw annotation: %w", err)
 		}
 
-		profileNamespacedName, err := createProfileNameForRecording(
-			ctx, r, parsedProfileAnnotation, replicaSuffix, podName)
+		target, err := r.resolveProfileTarget(
+			ctx, parsedProfileAnnotation, replicaSuffix, podName, recordings)
 		if err != nil {
-			return fmt.Errorf("create profile name: %w", err)
+			return fmt.Errorf("resolve profile target: %w", err)
 		}
 
-		r.log.Info("Collecting profile", "name", profileNamespacedName, "kind", prf.kind)
+		r.log.Info("Collecting profile", "name", target.name, "kind", prf.kind)
 
 		switch prf.kind {
 		case profilerecordingapi.ProfileRecordingKindSeccompProfile:
-			err = r.collectLogSeccompProfile(
-				ctx,
-				enricherClient,
-				parsedProfileAnnotation,
-				profileNamespacedName,
-				prf.name,
-			)
+			err = r.collectLogSeccompProfile(ctx, enricherClient, target, prf.name)
 		case profilerecordingapi.ProfileRecordingKindSelinuxProfile:
-			err = r.collectLogSelinuxProfile(
-				ctx,
-				enricherClient,
-				parsedProfileAnnotation,
-				profileNamespacedName,
-				prf.name,
-			)
+			err = r.collectLogSelinuxProfile(ctx, enricherClient, target, prf.name)
 		case profilerecordingapi.ProfileRecordingKindAppArmorProfile:
 			err = errors.New("log recorder doesn't support apparmor profile recording")
 		default:
@@ -755,8 +876,6 @@ type logProfileCollector struct {
 	fetchData func(ctx context.Context) (any, bool, error)
 	// buildProfile constructs the profile object and its spec base from the fetched data.
 	buildProfile func(data any, labels map[string]string) (client.Object, *profilebase.SpecBase, error)
-	// applySpec sets the spec on the profile object during CreateOrUpdate.
-	applySpec func()
 	// resetData resets the enricher data for further recordings.
 	resetData func(ctx context.Context) error
 	// profileKind is used in log and event messages (e.g. "seccomp", "selinux").
@@ -765,27 +884,10 @@ type logProfileCollector struct {
 
 func (r *RecorderReconciler) collectLogProfileGeneric(
 	ctx context.Context,
-	parsedProfileName *parsedAnnotation,
-	profileNamespacedName types.NamespacedName,
+	target *profileTarget,
 	collector logProfileCollector,
 ) error {
-	labels, err := profileLabels(
-		ctx,
-		r,
-		parsedProfileName.profileName,
-		parsedProfileName.cntName,
-		profileNamespacedName.Namespace)
-	if err != nil {
-		return fmt.Errorf("creating profile labels: %w", err)
-	}
-
-	err = r.setRecordingFinalizers(
-		ctx,
-		labels,
-		parsedProfileName.profileName,
-		profileNamespacedName.Namespace,
-	)
-	if err != nil {
+	if err := r.holdRecording(ctx, target); err != nil {
 		return fmt.Errorf("setting finalizer on profilerecording: %w", err)
 	}
 
@@ -798,7 +900,7 @@ func (r *RecorderReconciler) collectLogProfileGeneric(
 		return nil
 	}
 
-	profile, specBase, err := collector.buildProfile(data, labels)
+	profile, specBase, err := collector.buildProfile(data, target.labels)
 	if err != nil {
 		if profile != nil {
 			r.record.Eventf(
@@ -815,68 +917,17 @@ func (r *RecorderReconciler) collectLogProfileGeneric(
 		return err
 	}
 
-	if err := r.setDisabled(ctx, r.client,
-		parsedProfileName.profileName, profileNamespacedName.Namespace,
-		specBase); err != nil {
-		r.log.Error(err, "Cannot set the enabled flag")
-		r.record.Eventf(
-			profile,
-			nil,
-			util.EventTypeWarning,
-			reasonProfileCreationFailed,
-			util.EventActionRecord,
-			"%s",
-			err.Error(),
-		)
-
-		return fmt.Errorf("set disabled on %s profile: %w", collector.profileKind, err)
-	}
-
-	res, err := r.CreateOrUpdate(ctx, r.client, profile,
-		func() error {
-			if err := util.CheckRecordingOwner(
-				profile, parsedProfileName.profileName, profileNamespacedName.Namespace,
-			); err != nil {
-				return fmt.Errorf("check profile owner: %w", err)
-			}
-
-			collector.applySpec()
-
-			return nil
-		},
-	)
-	if err != nil {
-		r.log.Error(err, "Cannot create profile resource")
-		r.record.Eventf(
-			profile,
-			nil,
-			util.EventTypeWarning,
-			reasonProfileCreationFailed,
-			util.EventActionRecord,
-			"%s",
-			err.Error(),
-		)
-
-		// Retrying cannot resolve the conflict, so drop the recorded data.
-		if !errors.Is(err, util.ErrProfileOwnedByOtherRecording) {
-			return fmt.Errorf("create %s profile resource: %w", collector.profileKind, err)
+	if err := r.storeProfile(ctx, target, profile, specBase, collector.profileKind); err != nil {
+		if !errors.Is(err, errProfileRejected) {
+			return err
 		}
-	} else {
-		r.log.Info("Created/updated profile", "action", res, "name", profileNamespacedName.Name)
-		r.record.Eventf(
-			profile,
-			nil,
-			util.EventTypeNormal,
-			reasonProfileCreated,
-			util.EventActionRecord,
-			"%s",
-			collector.profileKind+" profile created",
-		)
+
+		r.log.Error(err, "Dropping rejected profile", "profile", target.name.Name)
 	}
 
 	if err := collector.resetData(ctx); err != nil {
 		return fmt.Errorf("reset %s data for profile %s: %w",
-			collector.profileKind, profileNamespacedName, err)
+			collector.profileKind, target.name, err)
 	}
 
 	return nil
@@ -885,16 +936,11 @@ func (r *RecorderReconciler) collectLogProfileGeneric(
 func (r *RecorderReconciler) collectLogSeccompProfile(
 	ctx context.Context,
 	enricherClient enricherapi.EnricherClient,
-	parsedProfileName *parsedAnnotation,
-	profileNamespacedName types.NamespacedName,
+	target *profileTarget,
 	profileID string,
 ) error {
 	request := &enricherapi.SyscallsRequest{Profile: profileID}
-
-	var (
-		profile     *seccompprofileapi.SeccompProfile
-		profileSpec *seccompprofileapi.SeccompProfileSpec
-	)
+	profileNamespacedName := target.name
 
 	collector := logProfileCollector{
 		profileKind: "seccomp",
@@ -941,52 +987,40 @@ func (r *RecorderReconciler) collectLogSeccompProfile(
 				return nil, nil, fmt.Errorf("get seccomp arch: %w", err)
 			}
 
-			profileSpec = &seccompprofileapi.SeccompProfileSpec{
-				DefaultAction: seccompprofileapi.ActErrno,
-				Architectures: []seccompprofileapi.Arch{arch},
-				Syscalls: []seccompprofileapi.Syscall{{
-					Action: seccompprofileapi.ActAllow,
-					Names:  response.GetSyscalls(),
-				}},
-			}
-
-			profile = &seccompprofileapi.SeccompProfile{
+			profile := &seccompprofileapi.SeccompProfile{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      profileNamespacedName.Name,
 					Namespace: profileNamespacedName.Namespace,
 					Labels:    labels,
 				},
-				Spec: *profileSpec,
+				Spec: seccompprofileapi.SeccompProfileSpec{
+					DefaultAction: seccompprofileapi.ActErrno,
+					Architectures: []seccompprofileapi.Arch{arch},
+					Syscalls: []seccompprofileapi.Syscall{{
+						Action: seccompprofileapi.ActAllow,
+						Names:  response.GetSyscalls(),
+					}},
+				},
 			}
 
-			return profile, &profileSpec.SpecBase, nil
-		},
-		applySpec: func() {
-			profile.Spec = *profileSpec
+			return profile, &profile.Spec.SpecBase, nil
 		},
 		resetData: func(ctx context.Context) error {
 			return r.ResetSyscalls(ctx, enricherClient, request)
 		},
 	}
 
-	return r.collectLogProfileGeneric(
-		ctx, parsedProfileName, profileNamespacedName, collector,
-	)
+	return r.collectLogProfileGeneric(ctx, target, collector)
 }
 
 func (r *RecorderReconciler) collectLogSelinuxProfile(
 	ctx context.Context,
 	enricherClient enricherapi.EnricherClient,
-	parsedProfileName *parsedAnnotation,
-	profileNamespacedName types.NamespacedName,
+	target *profileTarget,
 	profileID string,
 ) error {
 	request := &enricherapi.AvcRequest{Profile: profileID}
-
-	var (
-		profile            *selinuxprofileapi.SelinuxProfile
-		selinuxProfileSpec selinuxprofileapi.SelinuxProfileSpec
-	)
+	profileNamespacedName := target.name
 
 	collector := logProfileCollector{
 		profileKind: "selinux",
@@ -1028,29 +1062,23 @@ func (r *RecorderReconciler) collectLogSelinuxProfile(
 				)
 			}
 
-			selinuxProfileSpec = selinuxprofileapi.SelinuxProfileSpec{
-				Inherit: []selinuxprofileapi.PolicyRef{
-					{
-						Kind: selinuxprofileapi.SystemPolicyKind,
-						Name: "container",
-					},
-				},
-			}
-
-			profile = &selinuxprofileapi.SelinuxProfile{
+			profile := &selinuxprofileapi.SelinuxProfile{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      profileNamespacedName.Name,
 					Namespace: profileNamespacedName.Namespace,
 					Labels:    labels,
 				},
-				Spec: selinuxProfileSpec,
+				Spec: selinuxprofileapi.SelinuxProfileSpec{
+					Inherit: []selinuxprofileapi.PolicyRef{
+						{
+							Kind: selinuxprofileapi.SystemPolicyKind,
+							Name: "container",
+						},
+					},
+				},
 			}
 
-			var err error
-
-			selinuxProfileSpec.Allow, err = r.formatSelinuxProfile(
-				profile, response,
-			)
+			allow, err := r.formatSelinuxProfile(profile, response)
 			if err != nil {
 				r.log.Error(err, "Cannot format selinuxprofile")
 
@@ -1059,19 +1087,16 @@ func (r *RecorderReconciler) collectLogSelinuxProfile(
 				)
 			}
 
-			return profile, &selinuxProfileSpec.SpecBase, nil
-		},
-		applySpec: func() {
-			profile.Spec = selinuxProfileSpec
+			profile.Spec.Allow = allow
+
+			return profile, &profile.Spec.SpecBase, nil
 		},
 		resetData: func(ctx context.Context) error {
 			return r.ResetAvcs(ctx, enricherClient, request)
 		},
 	}
 
-	return r.collectLogProfileGeneric(
-		ctx, parsedProfileName, profileNamespacedName, collector,
-	)
+	return r.collectLogProfileGeneric(ctx, target, collector)
 }
 
 func (r *RecorderReconciler) formatSelinuxProfile(
@@ -1097,6 +1122,7 @@ func (r *RecorderReconciler) collectBpfProfiles(
 	replicaSuffix string,
 	podName types.NamespacedName,
 	profiles []profileToCollect,
+	recordings map[string]recordingState,
 ) error {
 	recorderClient, conn, err := r.getBpfRecorderClient(ctx)
 	if err != nil {
@@ -1109,117 +1135,10 @@ func (r *RecorderReconciler) collectBpfProfiles(
 	}()
 
 	for _, profileToCollect := range profiles {
-		ptc := profileToCollect
-
-		parsedProfileName, err := parseProfileAnnotation(profileToCollect.name)
-		if err != nil {
-			return fmt.Errorf("parse profile raw annotation: %w", err)
-		}
-
-		profileNamespacedName, err := createProfileNameForRecording(
-			ctx, r, parsedProfileName, replicaSuffix, podName)
-		if err != nil {
-			return fmt.Errorf("create profile name: %w", err)
-		}
-
-		labels, err := profileLabels(
-			ctx,
-			r,
-			parsedProfileName.profileName,
-			parsedProfileName.cntName,
-			profileNamespacedName.Namespace)
-		if err != nil {
-			return fmt.Errorf("creating profile labels: %w", err)
-		}
-
-		// Do this BEFORE reading the syscalls to hopefully minimize the
-		// race window in case reading the syscalls failed. In that case we just reconcile
-		// back here and loop through again
-		err = r.setRecordingFinalizers(
-			ctx,
-			labels,
-			parsedProfileName.profileName,
-			profileNamespacedName.Namespace,
-		)
-		if err != nil {
-			return fmt.Errorf("setting finalizer on profilerecording: %w", err)
-		}
-
-		r.log.Info(
-			"Collecting BPF profile",
-			"name",
-			profileToCollect.name,
-			"kind",
-			profileToCollect.kind,
-		)
-
-		switch profileToCollect.kind {
-		case profilerecordingapi.ProfileRecordingKindSeccompProfile:
-			seccompProfile, err := r.collectSeccompBpfProfile(
-				ctx,
-				recorderClient,
-				&ptc,
-				profileNamespacedName,
-				labels,
-			)
-			if err != nil {
-				// skip empty profiles
-				if errors.Is(err, errRecordedProfileNotFound) {
-					continue
-				}
-
-				return fmt.Errorf("collecting seccomp profile %s: %w", profileToCollect.name, err)
-			}
-
-			err = r.updateOrCreateSeccompResource(
-				ctx, parsedProfileName.profileName, profileNamespacedName.Namespace, seccompProfile)
-			if err != nil {
-				return fmt.Errorf(
-					"creating/updating seccomp profile %s: %w",
-					profileToCollect.name,
-					err,
-				)
-			}
-		case profilerecordingapi.ProfileRecordingKindAppArmorProfile:
-			apparmorProfile, err := r.collectApparmorBpfProfile(
-				ctx,
-				recorderClient,
-				&ptc,
-				profileNamespacedName,
-				labels,
-			)
-			if err != nil {
-				// skip empty profiles
-				if errors.Is(err, errRecordedProfileNotFound) {
-					continue
-				}
-
-				return fmt.Errorf("collecting apparmor profile %s: %w", profileToCollect.name, err)
-			}
-
-			err = r.updateOrCreateApparmorResource(
-				ctx,
-				parsedProfileName.profileName,
-				profileNamespacedName.Namespace,
-				apparmorProfile,
-			)
-			if err != nil {
-				return fmt.Errorf(
-					"creating/updating apparmor profile %s: %w",
-					profileToCollect.name,
-					err,
-				)
-			}
-		case profilerecordingapi.ProfileRecordingKindSelinuxProfile:
-			r.log.Info(
-				"Profile kind not supported by BPF recoder",
-				"name",
-				profileToCollect.name,
-				"kind",
-				profileToCollect.kind,
-			)
-
-			continue
+		if err := r.collectBpfProfile(
+			ctx, recorderClient, replicaSuffix, podName, profileToCollect, recordings,
+		); err != nil {
+			return err
 		}
 	}
 
@@ -1227,6 +1146,140 @@ func (r *RecorderReconciler) collectBpfProfiles(
 		r.log.Error(err, "Unable to stop bpf recorder")
 
 		return fmt.Errorf("stop bpf recorder: %w", err)
+	}
+
+	return nil
+}
+
+// collectBpfProfile stores a single profile recorded by the BPF recorder. The
+// recorder only drops its data once the profile got stored, so that a failure
+// on the way is retried with the complete data.
+func (r *RecorderReconciler) collectBpfProfile(
+	ctx context.Context,
+	recorderClient bpfrecorderapi.BpfRecorderClient,
+	replicaSuffix string,
+	podName types.NamespacedName,
+	ptc profileToCollect,
+	recordings map[string]recordingState,
+) error {
+	if ptc.kind == profilerecordingapi.ProfileRecordingKindSelinuxProfile {
+		r.log.Info(
+			"Profile kind not supported by BPF recoder",
+			"name",
+			ptc.name,
+			"kind",
+			ptc.kind,
+		)
+
+		return nil
+	}
+
+	parsedProfileName, err := parseProfileAnnotation(ptc.name)
+	if err != nil {
+		return fmt.Errorf("parse profile raw annotation: %w", err)
+	}
+
+	target, err := r.resolveProfileTarget(
+		ctx,
+		parsedProfileName,
+		replicaSuffix,
+		podName,
+		recordings,
+	)
+	if err != nil {
+		return fmt.Errorf("resolve profile target: %w", err)
+	}
+
+	// Do this BEFORE reading the syscalls to hopefully minimize the
+	// race window in case reading the syscalls failed. In that case we just reconcile
+	// back here and loop through again
+	if err := r.holdRecording(ctx, target); err != nil {
+		return fmt.Errorf("setting finalizer on profilerecording: %w", err)
+	}
+
+	r.log.Info("Collecting BPF profile", "name", ptc.name, "kind", ptc.kind)
+
+	var (
+		profile  client.Object
+		specBase *profilebase.SpecBase
+		kind     string
+	)
+
+	switch ptc.kind {
+	case profilerecordingapi.ProfileRecordingKindSeccompProfile:
+		seccompProfile, err := r.collectSeccompBpfProfile(
+			ctx,
+			recorderClient,
+			&ptc,
+			target.name,
+			target.labels,
+		)
+		if err != nil {
+			// skip empty profiles
+			if errors.Is(err, errRecordedProfileNotFound) {
+				return nil
+			}
+
+			return fmt.Errorf("collecting seccomp profile %s: %w", ptc.name, err)
+		}
+
+		profile, specBase, kind = seccompProfile, &seccompProfile.Spec.SpecBase, "seccomp"
+	case profilerecordingapi.ProfileRecordingKindAppArmorProfile:
+		apparmorProfile, err := r.collectApparmorBpfProfile(
+			ctx,
+			recorderClient,
+			&ptc,
+			target.name,
+			target.labels,
+		)
+		if err != nil {
+			// skip empty profiles
+			if errors.Is(err, errRecordedProfileNotFound) {
+				return nil
+			}
+
+			return fmt.Errorf("collecting apparmor profile %s: %w", ptc.name, err)
+		}
+
+		profile, specBase, kind = apparmorProfile, &apparmorProfile.Spec.SpecBase, "apparmor"
+	case profilerecordingapi.ProfileRecordingKindSelinuxProfile:
+		// Skipped above.
+		return nil
+	default:
+		return fmt.Errorf("unrecognized kind %s", ptc.kind)
+	}
+
+	if err := r.storeProfile(ctx, target, profile, specBase, kind); err != nil {
+		if !errors.Is(err, errProfileRejected) {
+			return fmt.Errorf("creating/updating %s profile %s: %w", kind, ptc.name, err)
+		}
+
+		// Drop the data like for a stored profile, so that the recorder
+		// can be released.
+		r.log.Error(err, "Dropping rejected profile", "profile", target.name.Name)
+	}
+
+	if err := r.resetBpfProfile(ctx, recorderClient, ptc); err != nil {
+		return fmt.Errorf("reset recorded data of %s: %w", ptc.name, err)
+	}
+
+	return nil
+}
+
+// resetBpfProfile drops the data the BPF recorder holds for a profile.
+func (r *RecorderReconciler) resetBpfProfile(
+	ctx context.Context,
+	recorderClient bpfrecorderapi.BpfRecorderClient,
+	ptc profileToCollect,
+) error {
+	request := &bpfrecorderapi.ProfileRequest{Name: ptc.name}
+
+	switch ptc.kind {
+	case profilerecordingapi.ProfileRecordingKindSeccompProfile:
+		return r.ResetSyscallsForProfile(ctx, recorderClient, request)
+	case profilerecordingapi.ProfileRecordingKindAppArmorProfile:
+		return r.ResetApparmorForProfile(ctx, recorderClient, request)
+	case profilerecordingapi.ProfileRecordingKindSelinuxProfile:
 	}
 
 	return nil
@@ -1281,102 +1334,6 @@ func (r *RecorderReconciler) collectSeccompBpfProfile(
 	return profile, nil
 }
 
-func (r *RecorderReconciler) updateOrCreateBpfResource(
-	ctx context.Context,
-	profileRecordingName string,
-	profileNamespace string,
-	profile client.Object,
-	specBase *profilebase.SpecBase,
-	snapshotSpec func(),
-	applySpec func(),
-	profileKind string,
-) error {
-	if err := r.setDisabled(ctx, r.client,
-		profileRecordingName, profileNamespace,
-		specBase); err != nil {
-		r.log.Error(err, "Cannot set the disable flag on profile",
-			"name", profileRecordingName,
-			"namespace", profileNamespace,
-		)
-		r.record.Eventf(
-			profile,
-			nil,
-			util.EventTypeWarning,
-			reasonProfileCreationFailed,
-			util.EventActionRecord,
-			"%s",
-			err.Error(),
-		)
-
-		return fmt.Errorf("disabling profile after recording: %w", err)
-	}
-
-	snapshotSpec()
-
-	res, err := r.CreateOrUpdate(ctx, r.client, profile,
-		func() error {
-			if err := util.CheckRecordingOwner(
-				profile, profileRecordingName, profileNamespace,
-			); err != nil {
-				return fmt.Errorf("check profile owner: %w", err)
-			}
-
-			applySpec()
-
-			return nil
-		},
-	)
-	if err != nil {
-		r.log.Error(err, "Cannot create profile resource")
-		r.record.Eventf(
-			profile,
-			nil,
-			util.EventTypeWarning,
-			reasonProfileCreationFailed,
-			util.EventActionRecord,
-			"%s",
-			err.Error(),
-		)
-
-		// Retrying cannot resolve the conflict, so drop the recorded data.
-		if errors.Is(err, util.ErrProfileOwnedByOtherRecording) {
-			return nil
-		}
-
-		return fmt.Errorf("creating profile resource: %w", err)
-	}
-
-	r.log.Info("Created/updated profile", "action", res, "name", profileNamespace)
-	r.record.Eventf(
-		profile,
-		nil,
-		util.EventTypeNormal,
-		reasonProfileCreated,
-		util.EventActionRecord,
-		"%s",
-		profileKind+" profile created",
-	)
-
-	return nil
-}
-
-func (r *RecorderReconciler) updateOrCreateSeccompResource(
-	ctx context.Context,
-	profileRecordingName string,
-	profileNamespace string,
-	profile *seccompprofileapi.SeccompProfile,
-) error {
-	var profileSpec seccompprofileapi.SeccompProfileSpec
-
-	return r.updateOrCreateBpfResource(
-		ctx, profileRecordingName, profileNamespace,
-		profile, &profile.Spec.SpecBase,
-		func() { profileSpec = profile.Spec },
-		func() { profile.Spec = profileSpec },
-		"seccomp",
-	)
-}
-
 func (r *RecorderReconciler) collectApparmorBpfProfile(
 	ctx context.Context,
 	recorderClient bpfrecorderapi.BpfRecorderClient,
@@ -1419,109 +1376,17 @@ func (r *RecorderReconciler) collectApparmorBpfProfile(
 func (r *RecorderReconciler) generateAppArmorProfileAbstract(
 	response *bpfrecorderapi.ApparmorResponse,
 ) apparmorprofileapi.AppArmorAbstract {
-	abstract := apparmorprofileapi.AppArmorAbstract{}
-	enabled := true
-
-	if len(response.GetFiles().GetAllowedExecutables()) != 0 ||
-		len(response.GetFiles().GetAllowedLibraries()) != 0 {
-		abstract.Executable = &apparmorprofileapi.AppArmorExecutablesRules{}
-
-		if len(response.GetFiles().GetAllowedExecutables()) != 0 {
-			sort.Strings(response.GetFiles().GetAllowedExecutables())
-			ExecutableAllowedExecCopy := make(
-				[]string,
-				len(response.GetFiles().GetAllowedExecutables()),
-			)
-			copy(ExecutableAllowedExecCopy, response.GetFiles().GetAllowedExecutables())
-			abstract.Executable.AllowedExecutables = ExecutableAllowedExecCopy
-		}
-
-		if len(response.GetFiles().GetAllowedLibraries()) != 0 {
-			sort.Strings(response.GetFiles().GetAllowedLibraries())
-			ExecutableAllowedLibCopy := make(
-				[]string,
-				len(response.GetFiles().GetAllowedLibraries()),
-			)
-			copy(ExecutableAllowedLibCopy, response.GetFiles().GetAllowedLibraries())
-			abstract.Executable.AllowedLibraries = ExecutableAllowedLibCopy
-		}
-	}
-
-	if (len(response.GetFiles().GetReadonlyPaths()) != 0) ||
-		(len(response.GetFiles().GetWriteonlyPaths()) != 0) ||
-		(len(response.GetFiles().GetReadwritePaths()) != 0) {
-		files := apparmorprofileapi.AppArmorFsRules{}
-
-		if len(response.GetFiles().GetReadonlyPaths()) != 0 {
-			sort.Strings(response.GetFiles().GetReadonlyPaths())
-			FileReadOnlyCopy := make([]string, len(response.GetFiles().GetReadonlyPaths()))
-			copy(FileReadOnlyCopy, response.GetFiles().GetReadonlyPaths())
-			files.ReadOnlyPaths = FileReadOnlyCopy
-		}
-
-		if len(response.GetFiles().GetWriteonlyPaths()) != 0 {
-			sort.Strings(response.GetFiles().GetWriteonlyPaths())
-			FileWriteOnlyCopy := make([]string, len(response.GetFiles().GetWriteonlyPaths()))
-			copy(FileWriteOnlyCopy, response.GetFiles().GetWriteonlyPaths())
-			files.WriteOnlyPaths = FileWriteOnlyCopy
-		}
-
-		if len(response.GetFiles().GetReadwritePaths()) != 0 {
-			sort.Strings(response.GetFiles().GetReadwritePaths())
-			FileReadWriteCopy := make([]string, len(response.GetFiles().GetReadwritePaths()))
-			copy(FileReadWriteCopy, response.GetFiles().GetReadwritePaths())
-			files.ReadWritePaths = FileReadWriteCopy
-		}
-
-		abstract.Filesystem = &files
-	}
-
-	if response.GetSocket().GetUseRaw() || response.GetSocket().GetUseTcp() ||
-		response.GetSocket().GetUseUdp() {
-		net := apparmorprofileapi.AppArmorNetworkRules{}
-		proto := apparmorprofileapi.AppArmorAllowedProtocols{}
-
-		if response.GetSocket().GetUseRaw() {
-			net.AllowRaw = &enabled
-		}
-
-		if response.GetSocket().GetUseTcp() {
-			proto.AllowTCP = &enabled
-			net.Protocols = &proto
-		}
-
-		if response.GetSocket().GetUseUdp() {
-			proto.AllowUDP = &enabled
-			net.Protocols = &proto
-		}
-
-		abstract.Network = &net
-	}
-
-	if len(response.GetCapabilities()) != 0 {
-		capabilities := apparmorprofileapi.AppArmorCapabilityRules{}
-		capabilities.AllowedCapabilities = response.GetCapabilities()
-		abstract.Capability = &capabilities
-	}
-
-	return abstract
-}
-
-func (r *RecorderReconciler) updateOrCreateApparmorResource(
-	ctx context.Context,
-	profileRecordingName string,
-	profileNamespace string,
-	profile *apparmorprofileapi.AppArmorProfile,
-) error {
-	var profileSpec apparmorprofileapi.AppArmorProfileSpec
-
-	return r.updateOrCreateBpfResource(
-		ctx, profileRecordingName, profileNamespace,
-		profile, &profile.Spec.SpecBase,
-		func() { profileSpec = profile.Spec },
-		func() { profile.Spec = profileSpec },
-		"apparmor",
-	)
+	return crd2armor.AbstractFromRecording(&crd2armor.RecordedAccess{
+		AllowedExecutables: response.GetFiles().GetAllowedExecutables(),
+		AllowedLibraries:   response.GetFiles().GetAllowedLibraries(),
+		ReadOnlyPaths:      response.GetFiles().GetReadonlyPaths(),
+		WriteOnlyPaths:     response.GetFiles().GetWriteonlyPaths(),
+		ReadWritePaths:     response.GetFiles().GetReadwritePaths(),
+		UseRaw:             response.GetSocket().GetUseRaw(),
+		UseTCP:             response.GetSocket().GetUseTcp(),
+		UseUDP:             response.GetSocket().GetUseUdp(),
+		Capabilities:       response.GetCapabilities(),
+	})
 }
 
 type parsedAnnotation struct {
@@ -1565,30 +1430,363 @@ func createProfileName(cntName, replicaSuffix, namespace, profileName string) ty
 	}
 }
 
-func createProfileNameForRecording(
+// profileTarget describes where and how a collected profile is stored.
+type profileTarget struct {
+	name          types.NamespacedName
+	labels        map[string]string
+	recordingName string
+	state         recordingState
+	// recording is nil if the recording does not exist any more.
+	recording *profilerecordingapi.ProfileRecording
+	// merge stores the profile merged into the final profile of the recording
+	// instead of as a partial profile. Nothing would merge a partial profile
+	// any more once its recording is gone, or about to be gone without
+	// waiting for it.
+	merge bool
+	// partialName is the name of the partial profile stored if merging fails.
+	partialName types.NamespacedName
+}
+
+// resolveProfileTarget determines how the profile for the parsed annotation is
+// stored. The recording is looked up again, as it is authoritative, but the
+// state captured when the pod started being recorded is used once it is gone.
+func (r *RecorderReconciler) resolveProfileTarget(
 	ctx context.Context,
-	r *RecorderReconciler,
-	profile *parsedAnnotation,
+	parsed *parsedAnnotation,
 	replicaSuffix string,
 	podName types.NamespacedName,
-) (types.NamespacedName, error) {
-	if replicaSuffix == "" {
-		partial, err := profilePartial(ctx, r, profile.profileName, podName.Namespace)
-		if err != nil {
-			return types.NamespacedName{}, fmt.Errorf("determine profile merge strategy: %w", err)
+	recordings map[string]recordingState,
+) (*profileTarget, error) {
+	if errs := validation.IsDNS1123Label(parsed.profileName); len(errs) > 0 {
+		return nil, errNameNotValid
+	}
+
+	target := &profileTarget{recordingName: parsed.profileName}
+	recording := &profilerecordingapi.ProfileRecording{}
+
+	err := r.ClientGet(
+		ctx,
+		r.client,
+		client.ObjectKey{Name: parsed.profileName, Namespace: podName.Namespace},
+		recording,
+	)
+
+	switch {
+	case kerrors.IsNotFound(err):
+		state, ok := recordings[parsed.profileName]
+		if !ok {
+			// Nothing tells how the recording wanted its profiles stored.
+			return nil, errRecordingGone
 		}
 
-		if partial {
-			replicaSuffix = podName.Name
+		target.state = state
+		target.merge = state.partial
+	case err != nil:
+		return nil, fmt.Errorf("get recording: %w", err)
+	default:
+		target.recording = recording
+		target.state = recordingStateOf(recording)
+
+		// The merger may already be done with a recording which is being
+		// deleted, and nothing would merge a partial profile stored now.
+		target.merge = target.state.partial && !recording.GetDeletionTimestamp().IsZero()
+	}
+
+	partial := target.state.partial && !target.merge
+
+	partialSuffix := replicaSuffix
+	if partialSuffix == "" {
+		partialSuffix = podName.Name
+	}
+
+	switch {
+	case target.merge:
+		// The name the recording merger gives the merged profile.
+		replicaSuffix = ""
+		target.partialName = createProfileName(
+			parsed.cntName,
+			partialSuffix,
+			podName.Namespace,
+			parsed.profileName,
+		)
+	case partial:
+		replicaSuffix = partialSuffix
+	}
+
+	target.name = createProfileName(
+		parsed.cntName,
+		replicaSuffix,
+		podName.Namespace,
+		parsed.profileName,
+	)
+	target.labels = map[string]string{
+		profilerecordingapi.ProfileToRecordingLabel:          parsed.profileName,
+		profilerecordingapi.ProfileToContainerLabel:          parsed.cntName,
+		profilerecordingapi.ProfileToRecordingNamespaceLabel: podName.Namespace,
+	}
+
+	if partial {
+		target.labels[profilebase.ProfilePartialLabel] = "true"
+	}
+
+	return target, nil
+}
+
+// holdRecording adds the finalizer which keeps the recording around until its
+// partial profiles are merged.
+func (r *RecorderReconciler) holdRecording(ctx context.Context, target *profileTarget) error {
+	recording := target.recording
+	if !target.state.partial || target.merge || recording == nil {
+		return nil
+	}
+
+	if controllerutil.ContainsFinalizer(
+		recording,
+		profilerecordingapi.RecordingHasUnmergedProfiles,
+	) {
+		return nil
+	}
+
+	// The API server rejects adding finalizers to an object which is being
+	// deleted, so retrying would never succeed.
+	if !recording.GetDeletionTimestamp().IsZero() {
+		r.log.Info("Not adding finalizer to recording being deleted",
+			"recording", recording.Name, "namespace", recording.Namespace)
+
+		return nil
+	}
+
+	controllerutil.AddFinalizer(recording, profilerecordingapi.RecordingHasUnmergedProfiles)
+
+	if err := utils.UpdateResource(ctx, r.log, r.client, recording, recording.Kind); err != nil {
+		return fmt.Errorf("update recording: %w", err)
+	}
+
+	return nil
+}
+
+// storeProfile creates or updates the collected profile as target describes.
+func (r *RecorderReconciler) storeProfile(
+	ctx context.Context,
+	target *profileTarget,
+	profile client.Object,
+	specBase *profilebase.SpecBase,
+	kind string,
+) error {
+	if target.state.disable {
+		specBase.State = profilebase.SpecStateDisabled
+	}
+
+	desired, ok := profile.DeepCopyObject().(client.Object)
+	if !ok {
+		return fmt.Errorf("object %T is not a client.Object", profile)
+	}
+
+	var res controllerutil.OperationResult
+
+	// Several nodes can merge into the same profile at once. The merge is
+	// done against the object fetched right before the update, which fails
+	// on a conflicting write in between and is then done again.
+	err := retry.OnError(retry.DefaultRetry, func(err error) bool {
+		return kerrors.IsConflict(err) || kerrors.IsAlreadyExists(err)
+	}, func() error {
+		stored, ok := desired.DeepCopyObject().(client.Object)
+		if !ok {
+			return fmt.Errorf("object %T is not a client.Object", desired)
+		}
+
+		var err error
+
+		res, err = r.CreateOrUpdate(ctx, r.client, stored, func() error {
+			if err := util.CheckRecordingOwner(
+				stored, target.recordingName, target.name.Namespace,
+			); err != nil {
+				return fmt.Errorf("check profile owner: %w", err)
+			}
+
+			spec := desired
+			if target.merge {
+				if spec, err = mergeStoredProfile(stored, desired); err != nil {
+					return fmt.Errorf("%w: %w", errMergeFailed, err)
+				}
+			}
+
+			return copySpec(stored, spec)
+		})
+
+		return err
+	})
+	if errors.Is(err, errMergeFailed) {
+		return r.storePartialProfile(ctx, target, profile, kind, err)
+	}
+
+	if err != nil {
+		r.log.Error(err, "Cannot create profile resource")
+		r.record.Eventf(
+			profile,
+			nil,
+			util.EventTypeWarning,
+			reasonProfileCreationFailed,
+			util.EventActionRecord,
+			"%s",
+			err.Error(),
+		)
+
+		// Retrying cannot resolve the conflict, so drop the recorded data.
+		if errors.Is(err, util.ErrProfileOwnedByOtherRecording) {
+			return nil
+		}
+
+		if r.rejectedForGood(target.name.Name, err) {
+			return fmt.Errorf("%w: %w", errProfileRejected, err)
+		}
+
+		return fmt.Errorf("create %s profile resource: %w", kind, err)
+	}
+
+	r.forbiddenAttempts.Delete(target.name.Name)
+
+	r.log.Info("Created/updated profile", "action", res, "name", target.name.Name)
+	r.record.Eventf(
+		profile,
+		nil,
+		util.EventTypeNormal,
+		reasonProfileCreated,
+		util.EventActionRecord,
+		"%s",
+		kind+" profile created",
+	)
+
+	return nil
+}
+
+// storePartialProfile stores the profile as a partial one after merging it
+// failed. Merging would fail again, so the recorded data is kept this way
+// instead of being retried for good.
+func (r *RecorderReconciler) storePartialProfile(
+	ctx context.Context,
+	target *profileTarget,
+	profile client.Object,
+	kind string,
+	mergeErr error,
+) error {
+	r.log.Error(mergeErr, "Cannot merge profile, storing it as partial profile",
+		"profile", target.name.Name, "partialProfile", target.partialName.Name)
+	r.record.Eventf(
+		profile,
+		nil,
+		util.EventTypeWarning,
+		reasonProfileMergeFailed,
+		util.EventActionRecord,
+		"%s",
+		mergeErr.Error(),
+	)
+
+	target.merge = false
+	target.name = target.partialName
+	target.labels = maps.Clone(target.labels)
+	target.labels[profilebase.ProfilePartialLabel] = "true"
+
+	partial, ok := profile.DeepCopyObject().(client.Object)
+	if !ok {
+		return fmt.Errorf("object %T is not a client.Object", profile)
+	}
+
+	partial.SetName(target.name.Name)
+	partial.SetLabels(target.labels)
+
+	return r.storeProfile(ctx, target, partial, specBaseOf(partial), kind)
+}
+
+// maxForbiddenAttempts is how often storing a profile is tried when the API
+// server forbids it, which can also be caused by a permission not granted yet.
+const maxForbiddenAttempts = 5
+
+// rejectedForGood reports whether the API server will reject the profile
+// again, in which case retrying would only keep the recording going for good.
+func (r *RecorderReconciler) rejectedForGood(name string, err error) bool {
+	if kerrors.IsInvalid(err) || kerrors.IsRequestEntityTooLargeError(err) ||
+		kerrors.IsBadRequest(err) {
+		return true
+	}
+
+	if !kerrors.IsForbidden(err) {
+		return false
+	}
+
+	value, _ := r.forbiddenAttempts.LoadOrStore(name, new(atomic.Int32))
+
+	attempts, ok := value.(*atomic.Int32)
+	if !ok || attempts.Add(1) >= maxForbiddenAttempts {
+		r.forbiddenAttempts.Delete(name)
+
+		return true
+	}
+
+	return false
+}
+
+// mergeStoredProfile returns desired merged with the stored profile, the way
+// the recording merger does it for partial profiles. A profile of anything
+// else than the recording is not merged: storing replaces it, or is rejected
+// as it belongs to another recording.
+func mergeStoredProfile(stored, desired client.Object) (client.Object, error) {
+	if stored.GetResourceVersion() == "" {
+		return desired, nil
+	}
+
+	if _, recorded := stored.GetLabels()[profilerecordingapi.ProfileToRecordingLabel]; !recorded {
+		return desired, nil
+	}
+
+	merged, err := recordingmerger.MergeProfiles([]client.Object{stored, desired})
+	if err != nil {
+		return nil, fmt.Errorf("merge with stored profile: %w", err)
+	}
+
+	specBaseOf(merged).State = specBaseOf(desired).State
+
+	return merged, nil
+}
+
+// specBaseOf returns the base spec of a recorded profile.
+func specBaseOf(obj client.Object) *profilebase.SpecBase {
+	switch p := obj.(type) {
+	case *seccompprofileapi.SeccompProfile:
+		return &p.Spec.SpecBase
+	case *selinuxprofileapi.SelinuxProfile:
+		return &p.Spec.SpecBase
+	case *apparmorprofileapi.AppArmorProfile:
+		return &p.Spec.SpecBase
+	default:
+		return &profilebase.SpecBase{}
+	}
+}
+
+// copySpec sets the spec of dst to the one of src.
+func copySpec(dst, src client.Object) error {
+	switch d := dst.(type) {
+	case *seccompprofileapi.SeccompProfile:
+		if s, ok := src.(*seccompprofileapi.SeccompProfile); ok {
+			s.Spec.DeepCopyInto(&d.Spec)
+
+			return nil
+		}
+	case *selinuxprofileapi.SelinuxProfile:
+		if s, ok := src.(*selinuxprofileapi.SelinuxProfile); ok {
+			s.Spec.DeepCopyInto(&d.Spec)
+
+			return nil
+		}
+	case *apparmorprofileapi.AppArmorProfile:
+		if s, ok := src.(*apparmorprofileapi.AppArmorProfile); ok {
+			s.Spec.DeepCopyInto(&d.Spec)
+
+			return nil
 		}
 	}
 
-	return createProfileName(
-		profile.cntName,
-		replicaSuffix,
-		podName.Namespace,
-		profile.profileName,
-	), nil
+	return fmt.Errorf("cannot copy the spec of %T to %T", src, dst)
 }
 
 // annotationKind maps an annotation key prefix to the profile kind it records.
@@ -1622,7 +1820,7 @@ func parseAnnotations(
 
 		if profile == "" {
 			return nil, fmt.Errorf(
-				"%s: providing output profile is mandatory",
+				"%w: providing output profile is mandatory",
 				errInvalidAnnotation,
 			)
 		}
@@ -1719,7 +1917,7 @@ func (sb *seProfileBuilder) addAvc(avc *enricherapi.AvcResponse_SelinuxAvc) erro
 }
 
 func (sb *seProfileBuilder) Format() (selinuxprofileapi.Allow, error) {
-	sort.Strings(sb.keys)
+	slices.Sort(sb.keys)
 
 	for _, key := range sb.keys {
 		val := sb.permMap[key]
@@ -1746,7 +1944,7 @@ func (sb *seProfileBuilder) writeLineFromKeyVal(key string, val sets.Set[string]
 
 	typePerms := sb.policyBuilder[selinuxprofileapi.LabelKey(setype)]
 	l := val.UnsortedList()
-	sort.Strings(l)
+	slices.Sort(l)
 	typePerms[selinuxprofileapi.ObjectClassKey(tclass)] = selinuxprofileapi.PermissionSet(l)
 
 	return nil
@@ -1782,127 +1980,4 @@ func (r *RecorderReconciler) goArchToSeccompArch(goarch string) (seccompprofilea
 	}
 
 	return seccompprofileapi.Arch(seccompArch), nil
-}
-
-func profilePartial(
-	ctx context.Context, r *RecorderReconciler, profileName, namespace string,
-) (bool, error) {
-	recorder := profilerecordingapi.ProfileRecording{}
-
-	err := r.ClientGet(
-		ctx, r.client, client.ObjectKey{Name: profileName, Namespace: namespace}, &recorder)
-	if kerrors.IsNotFound(err) {
-		// Nothing is left to merge the partial profiles, and answering "not
-		// partial" here would drop the per-replica suffix and make every
-		// replica overwrite the same profile name. Report it as terminal so the
-		// reconciler releases the pod instead of requeuing forever.
-		return false, errRecordingGone
-	} else if err != nil {
-		return false, err
-	}
-
-	var profilePartial bool
-
-	switch recorder.Spec.MergeStrategy {
-	case profilerecordingapi.ProfileMergeNone:
-		profilePartial = false
-	case profilerecordingapi.ProfileMergeContainers:
-		profilePartial = true
-	}
-
-	return profilePartial, nil
-}
-
-func profileLabels(
-	ctx context.Context, r *RecorderReconciler, recordingName, cntName, namespace string,
-) (map[string]string, error) {
-	errs := validation.IsDNS1123Label(recordingName)
-	if len(errs) > 0 {
-		return nil, errNameNotValid
-	}
-
-	labels := map[string]string{
-		profilerecordingapi.ProfileToRecordingLabel:          recordingName,
-		profilerecordingapi.ProfileToContainerLabel:          cntName,
-		profilerecordingapi.ProfileToRecordingNamespaceLabel: namespace,
-	}
-
-	partial, err := profilePartial(ctx, r, recordingName, namespace)
-	if err != nil {
-		return nil, err
-	}
-
-	if partial {
-		labels[profilebase.ProfilePartialLabel] = "true"
-	}
-
-	return labels, nil
-}
-
-func (r *RecorderReconciler) setDisabled(
-	ctx context.Context,
-	cli client.Client,
-	profileRecordingName, namespace string,
-	profileSpecBase *profilebase.SpecBase,
-) error {
-	recording, err := r.GetRecording(
-		ctx,
-		cli,
-		types.NamespacedName{Name: profileRecordingName, Namespace: namespace},
-	)
-	if err != nil {
-		return fmt.Errorf("get recording: %w", err)
-	}
-
-	if recording.Spec.DisableProfileAfterRecording {
-		profileSpecBase.State = profilebase.SpecStateDisabled
-	}
-
-	return nil
-}
-
-func (r *RecorderReconciler) setRecordingFinalizers(
-	ctx context.Context,
-	labels map[string]string,
-	profileRecordingName, namespace string,
-) error {
-	_, ok := labels[profilebase.ProfilePartialLabel]
-	if !ok {
-		return nil
-	}
-
-	recording := profilerecordingapi.ProfileRecording{}
-	if err := r.client.Get(
-		ctx,
-		types.NamespacedName{
-			Name:      profileRecordingName,
-			Namespace: namespace,
-		},
-		&recording); err != nil {
-		return fmt.Errorf("get recording: %w", err)
-	}
-
-	if controllerutil.ContainsFinalizer(
-		&recording,
-		profilerecordingapi.RecordingHasUnmergedProfiles,
-	) {
-		return nil
-	}
-
-	// The API server rejects adding finalizers to an object which is being
-	// deleted, so retrying would never succeed.
-	if !recording.GetDeletionTimestamp().IsZero() {
-		r.log.Info("Not adding finalizer to recording being deleted",
-			"recording", profileRecordingName, "namespace", namespace)
-
-		return nil
-	}
-
-	controllerutil.AddFinalizer(&recording, profilerecordingapi.RecordingHasUnmergedProfiles)
-
-	if err := utils.UpdateResource(ctx, r.log, r.client, &recording, recording.Kind); err != nil {
-		return fmt.Errorf("update recording: %w", err)
-	}
-
-	return nil
 }

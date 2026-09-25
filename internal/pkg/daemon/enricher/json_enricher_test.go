@@ -203,7 +203,6 @@ func TestJsonRun(t *testing.T) {
 			{ // test a basic case of sending the log
 				runAsync: true,
 				prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {
-					mock.GetenvReturns(nodeJsonTest)
 					mock.LinesReturns(lineChan)
 					mock.ContainerIDForPIDReturns(containerIDJsonTest, nil)
 					mock.ListPodsReturns(&v1.PodList{Items: []v1.Pod{{
@@ -260,7 +259,6 @@ func TestJsonRun(t *testing.T) {
 			{ // test multiple lines
 				runAsync: true,
 				prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {
-					mock.GetenvReturns(nodeJsonTest)
 					mock.LinesReturns(lineChan)
 					mock.ContainerIDForPIDReturns(containerIDJsonTest, nil)
 					mock.CmdlineForPIDReturns(cmdLineJsonTest, nil)
@@ -324,7 +322,6 @@ func TestJsonRun(t *testing.T) {
 			{ // test invalid
 				runAsync: true,
 				prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {
-					mock.GetenvReturns(nodeJsonTest)
 					mock.LinesReturns(lineChan)
 					mock.ContainerIDForPIDReturns(containerIDJsonTest, nil)
 					mock.ListPodsReturns(&v1.PodList{Items: []v1.Pod{{
@@ -369,6 +366,7 @@ func TestJsonRun(t *testing.T) {
 			require.NoError(t, jErr)
 
 			sut.impl = mock
+			sut.nodeName = nodeJsonTest
 
 			var err chan error
 

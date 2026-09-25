@@ -17,9 +17,10 @@ limitations under the License.
 package enricher
 
 import (
+	"cmp"
 	"encoding/json"
 	"reflect"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -41,8 +42,8 @@ func GetEnricherFilters(
 	}
 
 	// Lower the priority value, higher the precedence
-	sort.Slice(enricherFilters, func(i, j int) bool {
-		return enricherFilters[i].Priority < enricherFilters[j].Priority
+	slices.SortStableFunc(enricherFilters, func(a, b types.EnricherFilterOptions) int {
+		return cmp.Compare(a.Priority, b.Priority)
 	})
 
 	return enricherFilters, nil

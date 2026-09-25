@@ -23,6 +23,12 @@ import "errors"
 var errUnsupportedPlatform = errors.New("unsupported platform")
 
 // syscallName returns the syscall name for the provided ID.
-func syscallName(int32) (string, error) {
+func syscallName(int32, string) (string, error) {
 	return "", errUnsupportedPlatform
+}
+
+// isNativeArch reports whether arch is the audit architecture of the native
+// syscalls.
+func isNativeArch(string) bool {
+	return true
 }

@@ -19,10 +19,8 @@ limitations under the License.
 package runner
 
 import (
-	"encoding/json"
 	"log"
 	"os"
-	"sync/atomic"
 
 	"github.com/nxadm/tail"
 	"github.com/opencontainers/runc/libcontainer/configs"
@@ -30,11 +28,8 @@ import (
 	"github.com/opencontainers/runc/libcontainer/specconv"
 	"github.com/opencontainers/runtime-spec/specs-go"
 	libseccomp "github.com/seccomp/libseccomp-golang"
-	"sigs.k8s.io/yaml"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/command"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/auditsource"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 )
 
 type defaultImpl struct{}
@@ -43,36 +38,18 @@ type defaultImpl struct{}
 //counterfeiter:generate . impl
 type impl interface {
 	ReadFile(string) ([]byte, error)
-	YamlUnmarshal([]byte, any) error
-	JSONMarshal(any) ([]byte, error)
-	JSONUnmarshal([]byte, any) error
 	SetupSeccomp(*specs.LinuxSeccomp) (*configs.Seccomp, error)
 	InitSeccomp(*configs.Seccomp) (int, error)
 	CommandRun(*command.Command) (uint32, error)
 	CommandWait(*command.Command) error
 	TailFile(string, tail.Config) (*tail.Tail, error)
 	Lines(*tail.Tail) chan *tail.Line
-	IsAuditLine(string) bool
-	ExtractAuditLine(string) (*types.AuditLine, error)
 	GetName(libseccomp.ScmpSyscall) (string, error)
-	PidLoad() uint32
 	Printf(format string, v ...any)
 }
 
 func (*defaultImpl) ReadFile(name string) ([]byte, error) {
 	return os.ReadFile(name)
-}
-
-func (*defaultImpl) YamlUnmarshal(y []byte, o any) error {
-	return yaml.Unmarshal(y, o)
-}
-
-func (*defaultImpl) JSONMarshal(v any) ([]byte, error) {
-	return json.Marshal(v)
-}
-
-func (*defaultImpl) JSONUnmarshal(data []byte, v any) error {
-	return json.Unmarshal(data, v)
 }
 
 func (*defaultImpl) SetupSeccomp(config *specs.LinuxSeccomp) (*configs.Seccomp, error) {
@@ -99,20 +76,8 @@ func (*defaultImpl) Lines(tailFile *tail.Tail) chan *tail.Line {
 	return tailFile.Lines
 }
 
-func (*defaultImpl) IsAuditLine(line string) bool {
-	return auditsource.IsAuditLine(line)
-}
-
-func (*defaultImpl) ExtractAuditLine(line string) (*types.AuditLine, error) {
-	return auditsource.ExtractAuditLine(line)
-}
-
 func (*defaultImpl) GetName(s libseccomp.ScmpSyscall) (string, error) {
 	return s.GetName()
-}
-
-func (*defaultImpl) PidLoad() uint32 {
-	return atomic.LoadUint32(&pid)
 }
 
 func (*defaultImpl) Printf(format string, v ...any) {

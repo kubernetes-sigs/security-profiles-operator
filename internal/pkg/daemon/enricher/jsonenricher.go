@@ -49,6 +49,8 @@ type JsonEnricher struct {
 	logger              logr.Logger
 	containerIDCache    *ttlcache.Cache[string, string]
 	infoCache           *ttlcache.Cache[string, *types.ContainerInfo]
+	missingContainers   *ttlcache.Cache[string, struct{}]
+	containers          *containerLookup
 	logLinesCache       *ttlcache.Cache[int, *types.LogBucket]
 	clientset           kubernetes.Interface
 	processCache        *ttlcache.Cache[int, *types.ProcessInfo]
@@ -57,6 +59,8 @@ type JsonEnricher struct {
 	bpfProcessCache     *bpfrecorder.BpfProcessCache
 	auditLogOutputMutex sync.Mutex
 	containerBackoff    wait.Backoff
+	// nodeName defaults to the value of the node name environment variable.
+	nodeName string
 }
 
 type JsonEnricherOptions struct {
@@ -141,6 +145,7 @@ func NewJsonEnricherArgs(logger logr.Logger, opts *JsonEnricherOptions) (*JsonEn
 			ttlcache.WithTTL[string, *types.ContainerInfo](defaultCacheTimeout),
 			ttlcache.WithCapacity[string, *types.ContainerInfo](maxCacheItems),
 		),
+		missingContainers: newMissingContainerCache(),
 		logLinesCache: ttlcache.New(
 			ttlcache.WithTTL[int, *types.LogBucket](actualOpts.AuditFreq),
 			ttlcache.WithCapacity[int, *types.LogBucket](maxCacheItems),
@@ -187,7 +192,11 @@ func getWriter(opts JsonEnricherOptions) (io.Writer, error) {
 }
 
 func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
-	nodeName := e.Getenv(config.NodeNameEnvKey)
+	if e.nodeName == "" {
+		e.nodeName = os.Getenv(config.NodeNameEnvKey)
+	}
+
+	nodeName := e.nodeName
 	if nodeName == "" {
 		err := fmt.Errorf("%s environment variable not set", config.NodeNameEnvKey)
 		e.logger.Error(err, "unable to run enricher")
@@ -231,6 +240,19 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 	go e.infoCache.Start()
 	defer e.infoCache.Stop()
 
+	go e.missingContainers.Start()
+	defer e.missingContainers.Stop()
+
+	e.containers = &containerLookup{
+		nodeName:  nodeName,
+		clientSet: e.clientset,
+		impl:      e.impl,
+		infoCache: e.infoCache,
+		missing:   e.missingContainers,
+		logger:    e.logger,
+		backoff:   e.containerBackoff,
+	}
+
 	go e.logLinesCache.Start()
 	defer e.logLinesCache.Stop()
 
@@ -266,7 +288,7 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 
 	//nolint:staticcheck,nolintlint // platform-dependent: always true on non-linux
 	if err := bpfProcCache.Load(); err != nil {
-		e.logger.Info("Unable to load BPF module. Using auditd", "err", err.Error())
+		e.logger.Info("Unable to load BPF module. Using auditd", "error", err.Error())
 	} else {
 		e.bpfProcessCache = bpfProcCache
 	}
@@ -347,10 +369,12 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 		e.processEbpf(logBucket, auditLine)
 
 		if logBucket.ContainerInfo == nil {
-			logBucket.ContainerInfo = e.fetchContainerInfo(ctx, auditLine.ProcessID, nodeName)
+			logBucket.ContainerInfo = e.fetchContainerInfo(ctx, auditLine.ProcessID)
 		}
 
-		logBucket.SyscallIds.LoadOrStore(auditLine.SystemCallID, struct{}{})
+		logBucket.SyscallIds.LoadOrStore(
+			types.SyscallKey{ID: auditLine.SystemCallID, Arch: auditLine.Arch}, struct{}{},
+		)
 
 		if !cached {
 			e.logLinesCache.Set(auditLine.ProcessID, logBucket, ttlcache.DefaultTTL)
@@ -369,10 +393,10 @@ func (e *JsonEnricher) processEbpf(logBucket *types.LogBucket, auditLine *types.
 		if errCmdLine == nil {
 			logBucket.ProcessInfo.CmdLine = cmdLine
 
-			e.logger.V(1).Info("cmdline found in eBPF",
+			e.logger.V(config.VerboseLevel).Info("cmdline found in eBPF",
 				"processId", auditLine.ProcessID, "cmdLine", cmdLine)
 		} else {
-			e.logger.V(1).Info("cmdline not found in eBPF also",
+			e.logger.V(config.VerboseLevel).Info("cmdline not found in eBPF also",
 				"processId", auditLine.ProcessID)
 		}
 	}
@@ -385,16 +409,17 @@ func (e *JsonEnricher) processEbpf(logBucket *types.LogBucket, auditLine *types.
 		if errEnv == nil {
 			reqId, ok := procEnv[requestIdEnv]
 			if !ok {
-				e.logger.V(1).Info("exec request id info not found in eBPF also",
+				e.logger.V(config.VerboseLevel).Info("exec request id info not found in eBPF also",
 					"processId", auditLine.ProcessID)
 			} else {
 				logBucket.ProcessInfo.ExecRequestId = &reqId
 
-				e.logger.V(1).Info("exec request id info found in eBPF", "reqId", reqId,
-					"processId", auditLine.ProcessID)
+				e.logger.V(config.VerboseLevel).
+					Info("exec request id info found in eBPF", "reqId", reqId,
+						"processId", auditLine.ProcessID)
 			}
 		} else {
-			e.logger.V(1).Error(errEnv, "fetching exec request id",
+			e.logger.V(config.VerboseLevel).Error(errEnv, "fetching exec request id",
 				"processId", auditLine.ProcessID)
 		}
 	}
@@ -404,7 +429,6 @@ func (e *JsonEnricher) processEbpf(logBucket *types.LogBucket, auditLine *types.
 func (e *JsonEnricher) fetchContainerInfo(
 	ctx context.Context,
 	processId int,
-	nodeName string,
 ) *types.ContainerInfo {
 	cID, errContainer := e.ContainerIDForPID(e.containerIDCache, processId)
 	e.logger.V(config.VerboseLevel).Info("Container ID for PID",
@@ -412,14 +436,13 @@ func (e *JsonEnricher) fetchContainerInfo(
 
 	var containerInfo *types.ContainerInfo
 
-	if errContainer == nil && cID != "" {
-		info, errGetContainerInfo := getContainerInfo(ctx,
-			nodeName, cID, e.clientset, e.impl, e.infoCache, e.logger, e.containerBackoff)
+	if errContainer == nil && cID != "" && e.containers != nil {
+		info, errGetContainerInfo := e.containers.getContainerInfo(ctx, cID)
 		if errGetContainerInfo == nil {
 			containerInfo = info
 		}
 	} else {
-		e.logger.V(config.VerboseLevel).Info("unable to get container Id", "err", errContainer)
+		e.logger.V(config.VerboseLevel).Info("unable to get container Id", "error", errContainer)
 	}
 
 	e.logger.V(config.VerboseLevel).Info("Container info",
@@ -439,7 +462,7 @@ func (e *JsonEnricher) fetchProcessInfo(
 		"processInfo", processInfo)
 
 	if err != nil {
-		e.logger.V(config.VerboseLevel).Info("get process info", "err", err)
+		e.logger.V(config.VerboseLevel).Info("get process info", "error", err)
 	}
 
 	return processInfo
@@ -451,16 +474,16 @@ func (e *JsonEnricher) dispatchSeccompLine(
 	var syscallNames []string
 
 	logBucket.SyscallIds.Range(func(k, _ any) bool {
-		syscallId, errKey := k.(int32)
-		if !errKey {
+		syscall, ok := k.(types.SyscallKey)
+		if !ok {
 			return false
 		}
 
-		syscallName, err := syscallName(syscallId)
+		syscallName, err := syscallName(syscall.ID, syscall.Arch)
 		if err != nil {
 			e.logger.Error(
 				err,
-				"no syscall name found for ID", "syscallId", syscallId,
+				"no syscall name found for ID", "syscallId", syscall.ID, "arch", syscall.Arch,
 			)
 		} else {
 			syscallNames = append(syscallNames, syscallName)

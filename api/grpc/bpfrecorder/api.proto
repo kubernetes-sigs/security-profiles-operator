@@ -22,8 +22,13 @@ option go_package = "/api_bpfrecorder";
 service BpfRecorder {
   rpc Start(EmptyRequest) returns (EmptyResponse) {}
   rpc Stop(EmptyRequest) returns (EmptyResponse) {}
+  // SyscallsForProfile and ApparmorForProfile return the recorded data without
+  // removing it, so that a failure to persist the profile can be retried. The
+  // Reset calls drop the data once the profile has been stored.
   rpc SyscallsForProfile(ProfileRequest) returns (SyscallsResponse) {}
   rpc ApparmorForProfile(ProfileRequest) returns (ApparmorResponse) {}
+  rpc ResetSyscallsForProfile(ProfileRequest) returns (EmptyResponse) {}
+  rpc ResetApparmorForProfile(ProfileRequest) returns (EmptyResponse) {}
 }
 
 message EmptyRequest {}

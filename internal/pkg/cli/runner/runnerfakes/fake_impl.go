@@ -28,7 +28,6 @@ import (
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	seccomp "github.com/seccomp/libseccomp-golang"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/command"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 )
 
 type FakeImpl struct {
@@ -56,19 +55,6 @@ type FakeImpl struct {
 	commandWaitReturnsOnCall map[int]struct {
 		result1 error
 	}
-	ExtractAuditLineStub        func(string) (*types.AuditLine, error)
-	extractAuditLineMutex       sync.RWMutex
-	extractAuditLineArgsForCall []struct {
-		arg1 string
-	}
-	extractAuditLineReturns struct {
-		result1 *types.AuditLine
-		result2 error
-	}
-	extractAuditLineReturnsOnCall map[int]struct {
-		result1 *types.AuditLine
-		result2 error
-	}
 	GetNameStub        func(seccomp.ScmpSyscall) (string, error)
 	getNameMutex       sync.RWMutex
 	getNameArgsForCall []struct {
@@ -95,42 +81,6 @@ type FakeImpl struct {
 		result1 int
 		result2 error
 	}
-	IsAuditLineStub        func(string) bool
-	isAuditLineMutex       sync.RWMutex
-	isAuditLineArgsForCall []struct {
-		arg1 string
-	}
-	isAuditLineReturns struct {
-		result1 bool
-	}
-	isAuditLineReturnsOnCall map[int]struct {
-		result1 bool
-	}
-	JSONMarshalStub        func(any) ([]byte, error)
-	jSONMarshalMutex       sync.RWMutex
-	jSONMarshalArgsForCall []struct {
-		arg1 any
-	}
-	jSONMarshalReturns struct {
-		result1 []byte
-		result2 error
-	}
-	jSONMarshalReturnsOnCall map[int]struct {
-		result1 []byte
-		result2 error
-	}
-	JSONUnmarshalStub        func([]byte, any) error
-	jSONUnmarshalMutex       sync.RWMutex
-	jSONUnmarshalArgsForCall []struct {
-		arg1 []byte
-		arg2 any
-	}
-	jSONUnmarshalReturns struct {
-		result1 error
-	}
-	jSONUnmarshalReturnsOnCall map[int]struct {
-		result1 error
-	}
 	LinesStub        func(*tail.Tail) chan *tail.Line
 	linesMutex       sync.RWMutex
 	linesArgsForCall []struct {
@@ -141,16 +91,6 @@ type FakeImpl struct {
 	}
 	linesReturnsOnCall map[int]struct {
 		result1 chan *tail.Line
-	}
-	PidLoadStub        func() uint32
-	pidLoadMutex       sync.RWMutex
-	pidLoadArgsForCall []struct {
-	}
-	pidLoadReturns struct {
-		result1 uint32
-	}
-	pidLoadReturnsOnCall map[int]struct {
-		result1 uint32
 	}
 	PrintfStub        func(string, ...any)
 	printfMutex       sync.RWMutex
@@ -197,18 +137,6 @@ type FakeImpl struct {
 	tailFileReturnsOnCall map[int]struct {
 		result1 *tail.Tail
 		result2 error
-	}
-	YamlUnmarshalStub        func([]byte, any) error
-	yamlUnmarshalMutex       sync.RWMutex
-	yamlUnmarshalArgsForCall []struct {
-		arg1 []byte
-		arg2 any
-	}
-	yamlUnmarshalReturns struct {
-		result1 error
-	}
-	yamlUnmarshalReturnsOnCall map[int]struct {
-		result1 error
 	}
 	invocations      map[string][][]interface{}
 	invocationsMutex sync.RWMutex
@@ -339,70 +267,6 @@ func (fake *FakeImpl) CommandWaitReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
-func (fake *FakeImpl) ExtractAuditLine(arg1 string) (*types.AuditLine, error) {
-	fake.extractAuditLineMutex.Lock()
-	ret, specificReturn := fake.extractAuditLineReturnsOnCall[len(fake.extractAuditLineArgsForCall)]
-	fake.extractAuditLineArgsForCall = append(fake.extractAuditLineArgsForCall, struct {
-		arg1 string
-	}{arg1})
-	stub := fake.ExtractAuditLineStub
-	fakeReturns := fake.extractAuditLineReturns
-	fake.recordInvocation("ExtractAuditLine", []interface{}{arg1})
-	fake.extractAuditLineMutex.Unlock()
-	if stub != nil {
-		return stub(arg1)
-	}
-	if specificReturn {
-		return ret.result1, ret.result2
-	}
-	return fakeReturns.result1, fakeReturns.result2
-}
-
-func (fake *FakeImpl) ExtractAuditLineCallCount() int {
-	fake.extractAuditLineMutex.RLock()
-	defer fake.extractAuditLineMutex.RUnlock()
-	return len(fake.extractAuditLineArgsForCall)
-}
-
-func (fake *FakeImpl) ExtractAuditLineCalls(stub func(string) (*types.AuditLine, error)) {
-	fake.extractAuditLineMutex.Lock()
-	defer fake.extractAuditLineMutex.Unlock()
-	fake.ExtractAuditLineStub = stub
-}
-
-func (fake *FakeImpl) ExtractAuditLineArgsForCall(i int) string {
-	fake.extractAuditLineMutex.RLock()
-	defer fake.extractAuditLineMutex.RUnlock()
-	argsForCall := fake.extractAuditLineArgsForCall[i]
-	return argsForCall.arg1
-}
-
-func (fake *FakeImpl) ExtractAuditLineReturns(result1 *types.AuditLine, result2 error) {
-	fake.extractAuditLineMutex.Lock()
-	defer fake.extractAuditLineMutex.Unlock()
-	fake.ExtractAuditLineStub = nil
-	fake.extractAuditLineReturns = struct {
-		result1 *types.AuditLine
-		result2 error
-	}{result1, result2}
-}
-
-func (fake *FakeImpl) ExtractAuditLineReturnsOnCall(i int, result1 *types.AuditLine, result2 error) {
-	fake.extractAuditLineMutex.Lock()
-	defer fake.extractAuditLineMutex.Unlock()
-	fake.ExtractAuditLineStub = nil
-	if fake.extractAuditLineReturnsOnCall == nil {
-		fake.extractAuditLineReturnsOnCall = make(map[int]struct {
-			result1 *types.AuditLine
-			result2 error
-		})
-	}
-	fake.extractAuditLineReturnsOnCall[i] = struct {
-		result1 *types.AuditLine
-		result2 error
-	}{result1, result2}
-}
-
 func (fake *FakeImpl) GetName(arg1 seccomp.ScmpSyscall) (string, error) {
 	fake.getNameMutex.Lock()
 	ret, specificReturn := fake.getNameReturnsOnCall[len(fake.getNameArgsForCall)]
@@ -531,198 +395,6 @@ func (fake *FakeImpl) InitSeccompReturnsOnCall(i int, result1 int, result2 error
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) IsAuditLine(arg1 string) bool {
-	fake.isAuditLineMutex.Lock()
-	ret, specificReturn := fake.isAuditLineReturnsOnCall[len(fake.isAuditLineArgsForCall)]
-	fake.isAuditLineArgsForCall = append(fake.isAuditLineArgsForCall, struct {
-		arg1 string
-	}{arg1})
-	stub := fake.IsAuditLineStub
-	fakeReturns := fake.isAuditLineReturns
-	fake.recordInvocation("IsAuditLine", []interface{}{arg1})
-	fake.isAuditLineMutex.Unlock()
-	if stub != nil {
-		return stub(arg1)
-	}
-	if specificReturn {
-		return ret.result1
-	}
-	return fakeReturns.result1
-}
-
-func (fake *FakeImpl) IsAuditLineCallCount() int {
-	fake.isAuditLineMutex.RLock()
-	defer fake.isAuditLineMutex.RUnlock()
-	return len(fake.isAuditLineArgsForCall)
-}
-
-func (fake *FakeImpl) IsAuditLineCalls(stub func(string) bool) {
-	fake.isAuditLineMutex.Lock()
-	defer fake.isAuditLineMutex.Unlock()
-	fake.IsAuditLineStub = stub
-}
-
-func (fake *FakeImpl) IsAuditLineArgsForCall(i int) string {
-	fake.isAuditLineMutex.RLock()
-	defer fake.isAuditLineMutex.RUnlock()
-	argsForCall := fake.isAuditLineArgsForCall[i]
-	return argsForCall.arg1
-}
-
-func (fake *FakeImpl) IsAuditLineReturns(result1 bool) {
-	fake.isAuditLineMutex.Lock()
-	defer fake.isAuditLineMutex.Unlock()
-	fake.IsAuditLineStub = nil
-	fake.isAuditLineReturns = struct {
-		result1 bool
-	}{result1}
-}
-
-func (fake *FakeImpl) IsAuditLineReturnsOnCall(i int, result1 bool) {
-	fake.isAuditLineMutex.Lock()
-	defer fake.isAuditLineMutex.Unlock()
-	fake.IsAuditLineStub = nil
-	if fake.isAuditLineReturnsOnCall == nil {
-		fake.isAuditLineReturnsOnCall = make(map[int]struct {
-			result1 bool
-		})
-	}
-	fake.isAuditLineReturnsOnCall[i] = struct {
-		result1 bool
-	}{result1}
-}
-
-func (fake *FakeImpl) JSONMarshal(arg1 any) ([]byte, error) {
-	fake.jSONMarshalMutex.Lock()
-	ret, specificReturn := fake.jSONMarshalReturnsOnCall[len(fake.jSONMarshalArgsForCall)]
-	fake.jSONMarshalArgsForCall = append(fake.jSONMarshalArgsForCall, struct {
-		arg1 any
-	}{arg1})
-	stub := fake.JSONMarshalStub
-	fakeReturns := fake.jSONMarshalReturns
-	fake.recordInvocation("JSONMarshal", []interface{}{arg1})
-	fake.jSONMarshalMutex.Unlock()
-	if stub != nil {
-		return stub(arg1)
-	}
-	if specificReturn {
-		return ret.result1, ret.result2
-	}
-	return fakeReturns.result1, fakeReturns.result2
-}
-
-func (fake *FakeImpl) JSONMarshalCallCount() int {
-	fake.jSONMarshalMutex.RLock()
-	defer fake.jSONMarshalMutex.RUnlock()
-	return len(fake.jSONMarshalArgsForCall)
-}
-
-func (fake *FakeImpl) JSONMarshalCalls(stub func(any) ([]byte, error)) {
-	fake.jSONMarshalMutex.Lock()
-	defer fake.jSONMarshalMutex.Unlock()
-	fake.JSONMarshalStub = stub
-}
-
-func (fake *FakeImpl) JSONMarshalArgsForCall(i int) any {
-	fake.jSONMarshalMutex.RLock()
-	defer fake.jSONMarshalMutex.RUnlock()
-	argsForCall := fake.jSONMarshalArgsForCall[i]
-	return argsForCall.arg1
-}
-
-func (fake *FakeImpl) JSONMarshalReturns(result1 []byte, result2 error) {
-	fake.jSONMarshalMutex.Lock()
-	defer fake.jSONMarshalMutex.Unlock()
-	fake.JSONMarshalStub = nil
-	fake.jSONMarshalReturns = struct {
-		result1 []byte
-		result2 error
-	}{result1, result2}
-}
-
-func (fake *FakeImpl) JSONMarshalReturnsOnCall(i int, result1 []byte, result2 error) {
-	fake.jSONMarshalMutex.Lock()
-	defer fake.jSONMarshalMutex.Unlock()
-	fake.JSONMarshalStub = nil
-	if fake.jSONMarshalReturnsOnCall == nil {
-		fake.jSONMarshalReturnsOnCall = make(map[int]struct {
-			result1 []byte
-			result2 error
-		})
-	}
-	fake.jSONMarshalReturnsOnCall[i] = struct {
-		result1 []byte
-		result2 error
-	}{result1, result2}
-}
-
-func (fake *FakeImpl) JSONUnmarshal(arg1 []byte, arg2 any) error {
-	var arg1Copy []byte
-	if arg1 != nil {
-		arg1Copy = make([]byte, len(arg1))
-		copy(arg1Copy, arg1)
-	}
-	fake.jSONUnmarshalMutex.Lock()
-	ret, specificReturn := fake.jSONUnmarshalReturnsOnCall[len(fake.jSONUnmarshalArgsForCall)]
-	fake.jSONUnmarshalArgsForCall = append(fake.jSONUnmarshalArgsForCall, struct {
-		arg1 []byte
-		arg2 any
-	}{arg1Copy, arg2})
-	stub := fake.JSONUnmarshalStub
-	fakeReturns := fake.jSONUnmarshalReturns
-	fake.recordInvocation("JSONUnmarshal", []interface{}{arg1Copy, arg2})
-	fake.jSONUnmarshalMutex.Unlock()
-	if stub != nil {
-		return stub(arg1, arg2)
-	}
-	if specificReturn {
-		return ret.result1
-	}
-	return fakeReturns.result1
-}
-
-func (fake *FakeImpl) JSONUnmarshalCallCount() int {
-	fake.jSONUnmarshalMutex.RLock()
-	defer fake.jSONUnmarshalMutex.RUnlock()
-	return len(fake.jSONUnmarshalArgsForCall)
-}
-
-func (fake *FakeImpl) JSONUnmarshalCalls(stub func([]byte, any) error) {
-	fake.jSONUnmarshalMutex.Lock()
-	defer fake.jSONUnmarshalMutex.Unlock()
-	fake.JSONUnmarshalStub = stub
-}
-
-func (fake *FakeImpl) JSONUnmarshalArgsForCall(i int) ([]byte, any) {
-	fake.jSONUnmarshalMutex.RLock()
-	defer fake.jSONUnmarshalMutex.RUnlock()
-	argsForCall := fake.jSONUnmarshalArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
-}
-
-func (fake *FakeImpl) JSONUnmarshalReturns(result1 error) {
-	fake.jSONUnmarshalMutex.Lock()
-	defer fake.jSONUnmarshalMutex.Unlock()
-	fake.JSONUnmarshalStub = nil
-	fake.jSONUnmarshalReturns = struct {
-		result1 error
-	}{result1}
-}
-
-func (fake *FakeImpl) JSONUnmarshalReturnsOnCall(i int, result1 error) {
-	fake.jSONUnmarshalMutex.Lock()
-	defer fake.jSONUnmarshalMutex.Unlock()
-	fake.JSONUnmarshalStub = nil
-	if fake.jSONUnmarshalReturnsOnCall == nil {
-		fake.jSONUnmarshalReturnsOnCall = make(map[int]struct {
-			result1 error
-		})
-	}
-	fake.jSONUnmarshalReturnsOnCall[i] = struct {
-		result1 error
-	}{result1}
-}
-
 func (fake *FakeImpl) Lines(arg1 *tail.Tail) chan *tail.Line {
 	fake.linesMutex.Lock()
 	ret, specificReturn := fake.linesReturnsOnCall[len(fake.linesArgsForCall)]
@@ -781,59 +453,6 @@ func (fake *FakeImpl) LinesReturnsOnCall(i int, result1 chan *tail.Line) {
 	}
 	fake.linesReturnsOnCall[i] = struct {
 		result1 chan *tail.Line
-	}{result1}
-}
-
-func (fake *FakeImpl) PidLoad() uint32 {
-	fake.pidLoadMutex.Lock()
-	ret, specificReturn := fake.pidLoadReturnsOnCall[len(fake.pidLoadArgsForCall)]
-	fake.pidLoadArgsForCall = append(fake.pidLoadArgsForCall, struct {
-	}{})
-	stub := fake.PidLoadStub
-	fakeReturns := fake.pidLoadReturns
-	fake.recordInvocation("PidLoad", []interface{}{})
-	fake.pidLoadMutex.Unlock()
-	if stub != nil {
-		return stub()
-	}
-	if specificReturn {
-		return ret.result1
-	}
-	return fakeReturns.result1
-}
-
-func (fake *FakeImpl) PidLoadCallCount() int {
-	fake.pidLoadMutex.RLock()
-	defer fake.pidLoadMutex.RUnlock()
-	return len(fake.pidLoadArgsForCall)
-}
-
-func (fake *FakeImpl) PidLoadCalls(stub func() uint32) {
-	fake.pidLoadMutex.Lock()
-	defer fake.pidLoadMutex.Unlock()
-	fake.PidLoadStub = stub
-}
-
-func (fake *FakeImpl) PidLoadReturns(result1 uint32) {
-	fake.pidLoadMutex.Lock()
-	defer fake.pidLoadMutex.Unlock()
-	fake.PidLoadStub = nil
-	fake.pidLoadReturns = struct {
-		result1 uint32
-	}{result1}
-}
-
-func (fake *FakeImpl) PidLoadReturnsOnCall(i int, result1 uint32) {
-	fake.pidLoadMutex.Lock()
-	defer fake.pidLoadMutex.Unlock()
-	fake.PidLoadStub = nil
-	if fake.pidLoadReturnsOnCall == nil {
-		fake.pidLoadReturnsOnCall = make(map[int]struct {
-			result1 uint32
-		})
-	}
-	fake.pidLoadReturnsOnCall[i] = struct {
-		result1 uint32
 	}{result1}
 }
 
@@ -1066,73 +685,6 @@ func (fake *FakeImpl) TailFileReturnsOnCall(i int, result1 *tail.Tail, result2 e
 		result1 *tail.Tail
 		result2 error
 	}{result1, result2}
-}
-
-func (fake *FakeImpl) YamlUnmarshal(arg1 []byte, arg2 any) error {
-	var arg1Copy []byte
-	if arg1 != nil {
-		arg1Copy = make([]byte, len(arg1))
-		copy(arg1Copy, arg1)
-	}
-	fake.yamlUnmarshalMutex.Lock()
-	ret, specificReturn := fake.yamlUnmarshalReturnsOnCall[len(fake.yamlUnmarshalArgsForCall)]
-	fake.yamlUnmarshalArgsForCall = append(fake.yamlUnmarshalArgsForCall, struct {
-		arg1 []byte
-		arg2 any
-	}{arg1Copy, arg2})
-	stub := fake.YamlUnmarshalStub
-	fakeReturns := fake.yamlUnmarshalReturns
-	fake.recordInvocation("YamlUnmarshal", []interface{}{arg1Copy, arg2})
-	fake.yamlUnmarshalMutex.Unlock()
-	if stub != nil {
-		return stub(arg1, arg2)
-	}
-	if specificReturn {
-		return ret.result1
-	}
-	return fakeReturns.result1
-}
-
-func (fake *FakeImpl) YamlUnmarshalCallCount() int {
-	fake.yamlUnmarshalMutex.RLock()
-	defer fake.yamlUnmarshalMutex.RUnlock()
-	return len(fake.yamlUnmarshalArgsForCall)
-}
-
-func (fake *FakeImpl) YamlUnmarshalCalls(stub func([]byte, any) error) {
-	fake.yamlUnmarshalMutex.Lock()
-	defer fake.yamlUnmarshalMutex.Unlock()
-	fake.YamlUnmarshalStub = stub
-}
-
-func (fake *FakeImpl) YamlUnmarshalArgsForCall(i int) ([]byte, any) {
-	fake.yamlUnmarshalMutex.RLock()
-	defer fake.yamlUnmarshalMutex.RUnlock()
-	argsForCall := fake.yamlUnmarshalArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
-}
-
-func (fake *FakeImpl) YamlUnmarshalReturns(result1 error) {
-	fake.yamlUnmarshalMutex.Lock()
-	defer fake.yamlUnmarshalMutex.Unlock()
-	fake.YamlUnmarshalStub = nil
-	fake.yamlUnmarshalReturns = struct {
-		result1 error
-	}{result1}
-}
-
-func (fake *FakeImpl) YamlUnmarshalReturnsOnCall(i int, result1 error) {
-	fake.yamlUnmarshalMutex.Lock()
-	defer fake.yamlUnmarshalMutex.Unlock()
-	fake.YamlUnmarshalStub = nil
-	if fake.yamlUnmarshalReturnsOnCall == nil {
-		fake.yamlUnmarshalReturnsOnCall = make(map[int]struct {
-			result1 error
-		})
-	}
-	fake.yamlUnmarshalReturnsOnCall[i] = struct {
-		result1 error
-	}{result1}
 }
 
 func (fake *FakeImpl) Invocations() map[string][][]interface{} {

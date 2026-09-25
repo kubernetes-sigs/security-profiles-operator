@@ -19,6 +19,7 @@ limitations under the License.
 package bpfrecorder
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -27,12 +28,14 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
+	"unsafe"
 
 	bpf "github.com/aquasecurity/libbpfgo"
 	"github.com/go-logr/logr"
@@ -44,8 +47,8 @@ import (
 
 	api "sigs.k8s.io/security-profiles-operator/api/grpc/bpfrecorder"
 	apimetrics "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/bimap"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -65,7 +68,20 @@ const (
 	eventTypeAppArmorSocket int           = 3
 	eventTypeAppArmorCap    int           = 4
 	eventTypeClearMntns     int           = 5
+	eventTypeExecveEnter    uint8         = 6
 	excludeMntnsEnabled     byte          = 1
+
+	// lostEventsInterval is how often the kernel side drop counters are
+	// checked while a recording is running.
+	lostEventsInterval = 30 * time.Second
+)
+
+// Indexes of the lost_events map, see recorder.bpf.c.
+const (
+	lostRingbuf uint32 = iota
+	lostSyscallsMapFull
+	lostFileEventBusy
+	lostReasons
 )
 
 // BpfRecorder is the main structure of this package.
@@ -76,8 +92,12 @@ type BpfRecorder struct {
 	startRequests           int64
 	btfPath                 string
 	pidToContainerIDCache   *ttlcache.Cache[string, string]
-	mntnsToContainerIDMap   *bimap.BiMap[uint32, string]
+	containerKeys           *containerKeys
 	containerIDToProfileMap *containerProfiles
+	// collectedProfiles holds the profiles whose data was reset after they had
+	// been persisted, so that a retried collection is told right away that
+	// there is nothing left to collect.
+	collectedProfiles sync.Map
 	// containersWithoutProfile remembers container IDs that were found in the
 	// cluster but carry no recording annotation. Without it every event from
 	// every unannotated container on the node triggers a fresh node-wide pod
@@ -87,20 +107,28 @@ type BpfRecorder struct {
 	clientset                *kubernetes.Clientset
 	excludeMountNamespace    uint32
 	attachUnattachMutex      sync.RWMutex
-	metricsClient            apimetrics.Metrics_BpfIncClient
+	metrics                  *metrics.Sender[*apimetrics.BpfRequest]
 	programName              string
 	module                   *bpf.Module
 	isRecordingBpfMap        *bpf.BPFMap
+	activePidsBpfMap         *bpf.BPFMap
+	childPidsBpfMap          *bpf.BPFMap
+	excludeKeysBpfMap        *bpf.BPFMap
+	seccompInitBpfMap        *bpf.BPFMap
+	apparmorInitBpfMap       *bpf.BPFMap
+	lostEventsBpfMap         *bpf.BPFMap
+	// lostEvents holds the drop counters last reported, guarded by
+	// lostEventsMu.
+	lostEvents   [lostReasons]uint64
+	lostEventsMu sync.Mutex
+	// uniqueKeys is set if the BPF program stores the recorded data under
+	// keys which are never reused.
+	uniqueKeys bool
 
 	AppArmor *AppArmorRecorder
 	Seccomp  *SeccompRecorder
 
 	startMu sync.Mutex
-
-	// metricsSendMu serializes sends on metricsClient. The pid handlers
-	// report metrics concurrently, but a gRPC stream does not allow
-	// concurrent calls to Send.
-	metricsSendMu sync.Mutex
 
 	// newPidEvents queues new pid events for a fixed pool of handlers. It is
 	// buffered so that the event processing loop never blocks on a slow
@@ -134,14 +162,19 @@ type BpfRecorder struct {
 type newPidEvent struct {
 	pid        uint32
 	mntns      uint32
+	key        uint64
 	generation uint64
 }
 
 // We use a single shared event ringbuf for all userspace communication.
 // This ensures that all previous events have already been processed.
+//
+// Key is the key the recorded data is stored under, the cgroup ID or the mount
+// namespace, see get_key in recorder.bpf.c.
 type bpfEvent struct {
 	Pid   uint32
 	Mntns uint32
+	Key   uint64
 	Type  uint8
 	Flags uint64
 	Data  [pathMax]uint8
@@ -149,25 +182,38 @@ type bpfEvent struct {
 
 var errShortEvent = errors.New("event shorter than the expected structure")
 
-// bpfEventSize is the packed wire size of bpfEvent, matching the packed C
-// struct in recorder.bpf.c. encoding/binary inserts no padding, so this is
-// simply the sum of the field widths.
-const bpfEventSize = 4 + 4 + 1 + 8 + pathMax
+const (
+	// bpfEventHeaderSize is the packed wire size of the event header, matching
+	// the packed C struct in recorder.bpf.c. encoding/binary inserts no
+	// padding, so this is simply the sum of the field widths.
+	bpfEventHeaderSize = 4 + 4 + 8 + 1 + 8
+
+	// bpfEventSize is the size of the largest event. Events without data are
+	// only sent as the header, file events only with the used part of Data.
+	bpfEventSize = bpfEventHeaderSize + pathMax
+)
+
+// unmarshalHeader decodes the event header shared by all events.
+func unmarshalHeader(raw []byte) (pid, mntns uint32, key uint64, typ uint8, flags uint64) {
+	return binary.LittleEndian.Uint32(raw[0:4]),
+		binary.LittleEndian.Uint32(raw[4:8]),
+		binary.LittleEndian.Uint64(raw[8:16]),
+		raw[16],
+		binary.LittleEndian.Uint64(raw[17:25])
+}
 
 // unmarshal decodes a bpfEvent from the raw ring buffer bytes. This is a manual
 // decode on purpose: binary.Read reflects over the 4096-byte Data array for
 // every single event, which costs ~240x more than reading the fields directly
 // and is hot enough on a busy node to make the ring buffer drop events.
 func (e *bpfEvent) unmarshal(raw []byte) bool {
-	if len(raw) < bpfEventSize {
+	if len(raw) < bpfEventHeaderSize {
 		return false
 	}
 
-	e.Pid = binary.LittleEndian.Uint32(raw[0:4])
-	e.Mntns = binary.LittleEndian.Uint32(raw[4:8])
-	e.Type = raw[8]
-	e.Flags = binary.LittleEndian.Uint64(raw[9:17])
-	copy(e.Data[:], raw[17:bpfEventSize])
+	e.Pid, e.Mntns, e.Key, e.Type, e.Flags = unmarshalHeader(raw)
+	n := copy(e.Data[:], raw[bpfEventHeaderSize:])
+	clear(e.Data[n:])
 
 	return true
 }
@@ -192,7 +238,7 @@ func New(programName string, logger logr.Logger, recordSeccomp, recordAppArmor b
 			ttlcache.WithTTL[string, string](defaultCacheTimeout),
 			ttlcache.WithCapacity[string, string](maxCacheItems),
 		),
-		mntnsToContainerIDMap:   bimap.New[uint32, string](),
+		containerKeys:           newContainerKeys(),
 		containerIDToProfileMap: newContainerProfiles(),
 		containersWithoutProfile: ttlcache.New(
 			ttlcache.WithTTL[string, struct{}](defaultCacheTimeout),
@@ -231,7 +277,10 @@ func (b *BpfRecorder) Run() error {
 	go b.containersWithoutProfile.Start()
 	defer b.containersWithoutProfile.Stop()
 
-	b.nodeName = b.Getenv(config.NodeNameEnvKey)
+	if b.nodeName == "" {
+		b.nodeName = os.Getenv(config.NodeNameEnvKey)
+	}
+
 	if b.nodeName == "" {
 		err := fmt.Errorf("%s environment variable not set", config.NodeNameEnvKey)
 		b.logger.Error(err, "unable to run recorder")
@@ -272,18 +321,14 @@ func (b *BpfRecorder) Run() error {
 
 	b.logger.Info("Connecting to metrics server")
 
-	conn, err := b.connectMetrics()
-	if err != nil {
+	if err := b.connectMetrics(); err != nil {
 		return fmt.Errorf("connect to metrics server: %w", err)
 	}
 
-	if conn != nil {
-		defer func() {
-			if err := b.CloseGRPC(conn); err != nil {
-				b.logger.Error(err, "unable to close GRPC connection")
-			}
-		}()
-	}
+	metricsCtx, stopMetrics := context.WithCancel(context.Background())
+	defer stopMetrics()
+
+	go b.metrics.Run(metricsCtx)
 
 	b.excludeMountNamespace, err = b.FindProcMountNamespace(defaultHostPid)
 	if err != nil {
@@ -329,30 +374,49 @@ func (b *BpfRecorder) Run() error {
 	return b.Serve(grpcServer, listener)
 }
 
-func (b *BpfRecorder) connectMetrics() (conn *grpc.ClientConn, err error) {
-	if err := util.Retry(func() (err error) {
-		conn, err = b.DialMetrics()
-		if err != nil {
-			return fmt.Errorf("connecting to local metrics GRPC server: %w", err)
-		}
+// connectMetrics sets up the metrics sender and waits for the initial stream,
+// so that a daemon which cannot reach the metrics server at all fails early.
+// The sender re-opens the stream on its own if it breaks later on.
+func (b *BpfRecorder) connectMetrics() error {
+	b.metrics = metrics.NewSender(b.logger, metrics.DefaultSenderQueueSize, b.openMetricsStream)
 
-		client := apimetrics.NewMetricsClient(conn)
-
-		b.metricsClient, err = b.BpfIncClient(client)
-		if err != nil {
-			if err := b.CloseGRPC(conn); err != nil {
-				b.logger.Error(err, "Unable to close GRPC connection")
-			}
-
-			return fmt.Errorf("create metrics bpf client: %w", err)
-		}
-
-		return nil
-	}, func(err error) bool { return true }); err != nil {
-		return nil, fmt.Errorf("connect to local GRPC server: %w", err)
+	if err := util.Retry(b.metrics.Connect, func(error) bool { return true }); err != nil {
+		return fmt.Errorf("connect to local GRPC server: %w", err)
 	}
 
-	return conn, nil
+	return nil
+}
+
+// bpfMetricsStream sends through the impl, so that tests can fake the stream.
+type bpfMetricsStream struct {
+	b      *BpfRecorder
+	client apimetrics.Metrics_BpfIncClient
+}
+
+func (s bpfMetricsStream) Send(req *apimetrics.BpfRequest) error {
+	return s.b.SendMetric(s.client, req)
+}
+
+func (b *BpfRecorder) openMetricsStream() (metrics.Stream[*apimetrics.BpfRequest], func(), error) {
+	conn, err := b.DialMetrics()
+	if err != nil {
+		return nil, nil, fmt.Errorf("connecting to local metrics GRPC server: %w", err)
+	}
+
+	release := func() {
+		if err := b.CloseGRPC(conn); err != nil {
+			b.logger.Error(err, "Unable to close GRPC connection")
+		}
+	}
+
+	client, err := b.BpfIncClient(apimetrics.NewMetricsClient(conn))
+	if err != nil {
+		release()
+
+		return nil, nil, fmt.Errorf("create metrics bpf client: %w", err)
+	}
+
+	return bpfMetricsStream{b: b, client: client}, release, nil
 }
 
 // Dial can be used to connect to the default GRPC server by creating a new
@@ -418,6 +482,8 @@ func (b *BpfRecorder) Stop(
 }
 
 // SyscallsForProfile returns the syscall names for the provided profile name.
+// The recorded data stays in place until ResetSyscallsForProfile is called, so
+// that the caller can retry if persisting the profile fails.
 func (b *BpfRecorder) SyscallsForProfile(
 	_ context.Context, r *api.ProfileRequest,
 ) (*api.SyscallsResponse, error) {
@@ -431,17 +497,17 @@ func (b *BpfRecorder) SyscallsForProfile(
 
 	b.logger.Info("Getting syscalls for profile", "profile", r.GetName())
 
-	mntns, err := b.getMntnsForProfileWithRetry(r.GetName())
+	keys, err := b.getKeysForProfileWithRetry(r.GetName())
 	if err != nil {
 		return nil, err
 	}
 
 	b.attachUnattachMutex.RLock()
-	syscalls, err := b.Seccomp.PopSyscalls(b, mntns)
+	syscalls, err := b.Seccomp.Syscalls(b, keys)
 	b.attachUnattachMutex.RUnlock()
 
 	if err != nil {
-		b.logger.Error(err, "Failed to get syscalls for mntns", "mntns", mntns)
+		b.logger.Error(err, "Failed to get syscalls", "profile", r.GetName(), "keys", keys)
 
 		return nil, err
 	}
@@ -449,7 +515,7 @@ func (b *BpfRecorder) SyscallsForProfile(
 	b.logger.Info(
 		fmt.Sprintf("Found %d syscalls for profile", len(syscalls)),
 		"profile", r.GetName(),
-		"mntns", mntns,
+		"keys", keys,
 	)
 
 	return &api.SyscallsResponse{
@@ -458,6 +524,25 @@ func (b *BpfRecorder) SyscallsForProfile(
 	}, nil
 }
 
+// ResetSyscallsForProfile drops the syscalls recorded for the provided
+// profile. It is called once the profile has been persisted.
+func (b *BpfRecorder) ResetSyscallsForProfile(
+	_ context.Context, r *api.ProfileRequest,
+) (*api.EmptyResponse, error) {
+	if b.Seccomp == nil {
+		return nil, errors.New("not seccomp profiles recording running")
+	}
+
+	b.resetProfile(r.GetName(), func(keys []uint64) {
+		b.Seccomp.Clear(b, keys)
+	})
+
+	return &api.EmptyResponse{}, nil
+}
+
+// ApparmorForProfile returns the AppArmor rules for the provided profile name.
+// The recorded data stays in place until ResetApparmorForProfile is called, so
+// that the caller can retry if persisting the profile fails.
 func (b *BpfRecorder) ApparmorForProfile(
 	_ context.Context, r *api.ProfileRequest,
 ) (*api.ApparmorResponse, error) {
@@ -471,14 +556,22 @@ func (b *BpfRecorder) ApparmorForProfile(
 
 	b.logger.Info("Getting apparmor profile", "profile", r.GetName())
 
-	mntns, err := b.getMntnsForProfileWithRetry(r.GetName())
+	keys, err := b.getKeysForProfileWithRetry(r.GetName())
 	if err != nil {
 		return nil, err
 	}
 
 	b.attachUnattachMutex.RLock()
-	apparmor := b.AppArmor.GetAppArmorProcessed(mntns)
+	apparmor, ok := b.AppArmor.GetAppArmorProcessed(keys)
 	b.attachUnattachMutex.RUnlock()
+
+	if !ok {
+		// Never hand out an empty profile: it would replace the one stored
+		// for this recording with one that allows nothing.
+		b.logger.Info("No apparmor data recorded for profile", "profile", r.GetName(), "keys", keys)
+
+		return nil, ErrNotFound
+	}
 
 	return &api.ApparmorResponse{
 		Files: &api.ApparmorResponse_Files{
@@ -497,7 +590,53 @@ func (b *BpfRecorder) ApparmorForProfile(
 	}, nil
 }
 
-func (b *BpfRecorder) getMntnsForProfileWithRetry(profile string) (uint32, error) {
+// ResetApparmorForProfile drops the AppArmor data recorded for the provided
+// profile. It is called once the profile has been persisted.
+func (b *BpfRecorder) ResetApparmorForProfile(
+	_ context.Context, r *api.ProfileRequest,
+) (*api.EmptyResponse, error) {
+	if b.AppArmor == nil {
+		return nil, errors.New("no apparmor profiles recording running")
+	}
+
+	b.resetProfile(r.GetName(), b.AppArmor.Clear)
+
+	return &api.EmptyResponse{}, nil
+}
+
+// resetProfile drops the data of a collected profile with clearData. The keys
+// of its containers are only forgotten once no other profile of them is left
+// to collect, as a container can be recorded for seccomp and AppArmor at the
+// same time.
+func (b *BpfRecorder) resetProfile(profile string, clearData func([]uint64)) {
+	containerIDs := b.containerIDToProfileMap.Containers(profile)
+	if len(containerIDs) == 0 {
+		return
+	}
+
+	b.attachUnattachMutex.RLock()
+	b.containerKeys.WithKeysOf(containerIDs, func(keys []uint64) {
+		b.logger.Info("Resetting recorded data for profile",
+			"profile", profile, "containerIDs", containerIDs, "keys", keys)
+
+		clearData(keys)
+	})
+	b.attachUnattachMutex.RUnlock()
+
+	b.collectedProfiles.Store(profile, struct{}{})
+
+	for _, containerID := range b.containerIDToProfileMap.DeleteProfile(profile) {
+		b.containerKeys.DeleteContainer(containerID)
+	}
+}
+
+func (b *BpfRecorder) getKeysForProfileWithRetry(profile string) ([]uint64, error) {
+	if _, collected := b.collectedProfiles.Load(profile); collected {
+		b.logger.Info("Profile was already collected", "profile", profile)
+
+		return nil, ErrNotFound
+	}
+
 	// There is a chance to miss the PID if concurrent processes are being
 	// analyzed. If we request the `SyscallsForProfile` exactly between two
 	// events, while the first one is from a different recording container and
@@ -505,66 +644,49 @@ func (b *BpfRecorder) getMntnsForProfileWithRetry(profile string) (uint32, error
 	// this race by retrying, but with a more loose backoff strategy than
 	// retrying to retrieve the in-cluster container ID.
 	var (
-		mntns uint32
-		try   = -1
+		keys []uint64
+		try  = -1
 	)
 
 	if err := util.Retry(
 		func() error {
 			try++
-			b.logger.Info("Looking up mount namespace for profile", "profile", profile, "try", try)
+			b.logger.Info("Looking up recording keys for profile", "profile", profile, "try", try)
 
-			if foundMntns, ok := b.getMntnsForProfile(profile); ok {
-				mntns = foundMntns
-				b.logger.Info(
-					"Found mount namespace for profile",
-					"profile",
-					profile,
-					"mntns",
-					mntns,
-				)
+			if found := b.getKeysForProfile(profile); len(found) > 0 {
+				keys = found
+				b.logger.Info("Found recording keys for profile", "profile", profile, "keys", keys)
 
 				return nil
 			}
 
-			b.logger.Info("No mount namespace found for profile", "profile", profile)
+			b.logger.Info("No recording keys found for profile", "profile", profile)
 
 			return ErrNotFound
 		},
 		func(error) bool { return true },
 	); err != nil {
-		return mntns, ErrNotFound
+		return nil, ErrNotFound
 	}
 
-	return mntns, nil
+	return keys, nil
 }
 
-func (b *BpfRecorder) getMntnsForProfile(profile string) (uint32, bool) {
-	if containerID, ok := b.containerIDToProfileMap.GetBackwards(profile); ok {
-		b.logger.Info(
-			"Found container id for profile",
-			"containerID",
-			containerID,
-			"profile",
-			profile,
-		)
-
-		if mntns, ok := b.mntnsToContainerIDMap.GetBackwards(containerID); ok {
-			return mntns, true
-		}
+func (b *BpfRecorder) getKeysForProfile(profile string) []uint64 {
+	containerIDs := b.containerIDToProfileMap.Containers(profile)
+	if len(containerIDs) == 0 {
+		return nil
 	}
 
-	return 0, false
-}
+	b.logger.Info(
+		"Found container ids for profile",
+		"containerIDs",
+		containerIDs,
+		"profile",
+		profile,
+	)
 
-var baseHooks = []string{
-	"sys_enter",
-	"sys_exit_clone",
-	"sys_enter_execve",
-	"sys_enter_getgid",
-	"sys_enter_prctl",
-	"sched_process_exec",
-	"sched_process_exit",
+	return b.containerKeys.KeysOf(containerIDs)
 }
 
 // Load loads the BPF code, does relocations, and gets references to the programs we want to attach.
@@ -581,15 +703,9 @@ func (b *BpfRecorder) Load() (err error) {
 		return fmt.Errorf("find btf: %w", err)
 	}
 
-	var bpfObject []byte
-
-	switch b.GoArch() {
-	case "amd64":
-		bpfObject = bpfAmd64
-	case "arm64":
-		bpfObject = bpfArm64
-	default:
-		return fmt.Errorf("architecture %s is currently unsupported", runtime.GOARCH)
+	bpfObject, err := bpfObjectForArch(runtime.GOARCH)
+	if err != nil {
+		return err
 	}
 
 	module, err = b.NewModuleFromBufferArgs(&bpf.NewModuleArgs{
@@ -614,10 +730,36 @@ func (b *BpfRecorder) Load() (err error) {
 
 		programName = append(programName, 0)
 		if err := b.InitGlobalVariable(
-			module, "filter_name", programName,
+			module, globalFilterName, programName,
 		); err != nil {
 			return fmt.Errorf("init global variable: %w", err)
 		}
+	}
+
+	// In-cluster, record per cgroup where the host supports it, and per
+	// mount namespace sequence number otherwise. Mount namespace inode
+	// numbers are reused as soon as a container exits, so a container started
+	// before a finished one got collected would add its data to the same key.
+	// spoc records processes on the host, which share their cgroup with
+	// unrelated processes, and matches the recorded data with the mount
+	// namespace inode it finds in /proc, so it stays with those.
+	switch {
+	case b.clientset == nil:
+		b.logger.Info("Recording per mount namespace")
+	case b.IsCgroupV2():
+		if err := b.InitGlobalVariable(module, globalUseCgroupID, true); err != nil {
+			return fmt.Errorf("init global variable: %w", err)
+		}
+
+		b.uniqueKeys = true
+		b.logger.Info("Recording per cgroup")
+	default:
+		if err := b.InitGlobalVariable(module, globalUseMntnsSeq, true); err != nil {
+			return fmt.Errorf("init global variable: %w", err)
+		}
+
+		b.uniqueKeys = true
+		b.logger.Info("Recording per mount namespace sequence number")
 	}
 
 	b.logger.Info("Loading bpf object from module")
@@ -627,7 +769,7 @@ func (b *BpfRecorder) Load() (err error) {
 	}
 
 	if b.excludeMountNamespace != 0 {
-		excludeMntns, err := b.GetMap(module, "exclude_mntns")
+		excludeMntns, err := b.GetMap(module, mapExcludeMntns)
 		if err != nil {
 			return fmt.Errorf("getting exclude_mntns map failed: %w", err)
 		}
@@ -664,9 +806,22 @@ func (b *BpfRecorder) Load() (err error) {
 		}
 	}
 
-	b.isRecordingBpfMap, err = b.GetMap(b.module, "is_recording")
+	b.isRecordingBpfMap, err = b.GetMap(b.module, mapIsRecording)
 	if err != nil {
 		return fmt.Errorf("getting `is_recording` map: %w", err)
+	}
+
+	for name, bpfMap := range map[string]**bpf.BPFMap{
+		mapActivePids:          &b.activePidsBpfMap,
+		mapChildPids:           &b.childPidsBpfMap,
+		mapExcludeKeys:         &b.excludeKeysBpfMap,
+		mapSeccompInitialized:  &b.seccompInitBpfMap,
+		mapApparmorInitialized: &b.apparmorInitBpfMap,
+		mapLostEvents:          &b.lostEventsBpfMap,
+	} {
+		if *bpfMap, err = b.GetMap(b.module, name); err != nil {
+			return fmt.Errorf("getting `%s` map: %w", name, err)
+		}
 	}
 
 	const timeout = 300
@@ -675,7 +830,7 @@ func (b *BpfRecorder) Load() (err error) {
 
 	ringbuf, err := b.InitRingBuf(
 		b.module,
-		"events",
+		mapEvents,
 		events,
 	)
 	if err != nil {
@@ -685,10 +840,95 @@ func (b *BpfRecorder) Load() (err error) {
 	b.PollRingBuffer(ringbuf, timeout)
 
 	go b.processEvents(events)
+	go b.reportLostEvents()
 
 	b.logger.Info("BPF module successfully loaded.")
 
 	return nil
+}
+
+// reportLostEvents periodically logs the data the BPF program had to drop.
+// Such drops make the recorded profiles incomplete, so they must not go
+// unnoticed.
+func (b *BpfRecorder) reportLostEvents() {
+	ticker := time.NewTicker(lostEventsInterval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		b.checkLostEvents()
+	}
+}
+
+func (b *BpfRecorder) checkLostEvents() {
+	if b.lostEventsBpfMap == nil {
+		return
+	}
+
+	b.lostEventsMu.Lock()
+	defer b.lostEventsMu.Unlock()
+
+	for reason := range lostReasons {
+		value, err := b.GetValue(b.lostEventsBpfMap, reason)
+		if err != nil {
+			b.logger.Error(err, "Unable to read lost events counter", "reason", reason)
+
+			continue
+		}
+
+		total := sumPerCPU(value)
+
+		lost := total - b.lostEvents[reason]
+		if total < b.lostEvents[reason] || lost == 0 {
+			b.lostEvents[reason] = total
+
+			continue
+		}
+
+		b.lostEvents[reason] = total
+
+		switch reason {
+		case lostRingbuf:
+			b.logger.Info(
+				"WARNING: the BPF ring buffer was full, recorded profiles may be incomplete",
+				"lostEvents", lost, "lostEventsTotal", total,
+			)
+		case lostFileEventBusy:
+			b.logger.Info(
+				"WARNING: file events were dropped by concurrent hooks, "+
+					"recorded AppArmor profiles may be incomplete",
+				"lostFileEvents", lost, "lostFileEventsTotal", total,
+			)
+		case lostSyscallsMapFull:
+			b.logger.Info(
+				"WARNING: too many workloads are recorded at once, "+
+					"recorded seccomp profiles may be incomplete",
+				"lostSyscalls", lost, "lostSyscallsTotal", total,
+			)
+		}
+	}
+}
+
+// sumPerCPU sums the u64 values of a per CPU map element.
+func sumPerCPU(value []byte) uint64 {
+	var sum uint64
+
+	for i := 0; i+8 <= len(value); i += 8 {
+		sum += binary.LittleEndian.Uint64(value[i : i+8])
+	}
+
+	return sum
+}
+
+// bpfObjectForArch returns the compiled BPF program for the architecture.
+func bpfObjectForArch(arch string) ([]byte, error) {
+	switch arch {
+	case "amd64":
+		return bpfAmd64, nil
+	case "arm64":
+		return bpfArm64, nil
+	default:
+		return nil, fmt.Errorf("architecture %s is currently unsupported", arch)
+	}
 }
 
 func (b *BpfRecorder) loadPrograms(programNames []string) error {
@@ -717,6 +957,12 @@ func (b *BpfRecorder) StartRecording() (err error) {
 
 	if b.module == nil {
 		return ErrStartBeforeLoad
+	}
+
+	// Start with fresh process tracking, the maps are not maintained while
+	// nothing is recording.
+	if err := b.clearPidMaps(); err != nil {
+		return err
 	}
 
 	if err := b.UpdateValue(b.isRecordingBpfMap, 0, []byte{1}); err != nil {
@@ -771,14 +1017,21 @@ func (b *BpfRecorder) StopRecording() error {
 		}
 	}
 
+	if err := b.clearPidMaps(); err != nil {
+		return err
+	}
+
+	b.checkLostEvents()
+
 	// Nothing is recording any more, so the per-session lookup tables can be
 	// released. Profiles are always collected before the recording is stopped.
 	// Ending the generation first makes handlers which are still in flight skip
 	// their writes. A handler which already passed that check can still land an
 	// entry here, which is why it re-checks afterwards and removes its own.
 	b.recordingGeneration.Add(1)
-	b.mntnsToContainerIDMap.Clear()
+	b.containerKeys.Clear()
 	b.containerIDToProfileMap.Clear()
+	b.collectedProfiles.Clear()
 	b.recentExits.DeleteAll()
 	// The negative cache is per session as well. A pod update can add recording
 	// annotations to a container that is already running, so an entry taken in
@@ -787,6 +1040,46 @@ func (b *BpfRecorder) StopRecording() error {
 	b.containersWithoutProfile.DeleteAll()
 
 	b.logger.Info("Recording stopped.")
+
+	return nil
+}
+
+// clearPidMaps empties the per session tracking maps. A PID which exited while
+// nothing was recording stays in them otherwise, so a new process reusing that
+// PID would never be reported.
+func (b *BpfRecorder) clearPidMaps() error {
+	for _, bpfMap := range []*bpf.BPFMap{
+		b.activePidsBpfMap, b.childPidsBpfMap, b.excludeKeysBpfMap,
+		b.seccompInitBpfMap, b.apparmorInitBpfMap,
+	} {
+		if err := clearBpfMap(b, bpfMap); err != nil {
+			return fmt.Errorf("clear process tracking map: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// clearBpfMap deletes all keys of bpfMap. The keys are collected first, as
+// deleting while iterating makes the iteration start over.
+func clearBpfMap(b *BpfRecorder, bpfMap *bpf.BPFMap) error {
+	if bpfMap == nil {
+		return nil
+	}
+
+	var keys [][]byte
+
+	it := b.BPFMapIterator(bpfMap)
+	for b.BPFMapIteratorNext(it) {
+		keys = append(keys, bytes.Clone(it.Key()))
+	}
+
+	for _, key := range keys {
+		if err := bpfMap.DeleteKey(unsafe.Pointer(&key[0])); err != nil &&
+			!errors.Is(err, syscall.ENOENT) {
+			return fmt.Errorf("delete key: %w", err)
+		}
+	}
 
 	return nil
 }
@@ -830,11 +1123,10 @@ func (b *BpfRecorder) handleEvent(eventBytes []byte) {
 
 	switch event.Type {
 	case uint8(eventTypeNewPid):
-		b.scheduleNewPidEvent(event.Pid, event.Mntns)
+		b.scheduleNewPidEvent(event.Pid, event.Mntns, event.Key)
 	case uint8(eventTypeExit):
 		b.handleExitEvent(&event)
 	case uint8(eventTypeAppArmorFile):
-		// b.AppArmor may be null if debug_add_canary_file reports a file event.
 		if b.AppArmor != nil {
 			b.AppArmor.handleFileEvent(&event)
 		}
@@ -848,7 +1140,7 @@ func (b *BpfRecorder) handleEvent(eventBytes []byte) {
 		}
 	case uint8(eventTypeClearMntns):
 		if b.AppArmor != nil {
-			b.AppArmor.clearMntns(&event)
+			b.AppArmor.clearKey(&event)
 		}
 	}
 }
@@ -859,7 +1151,7 @@ func (b *BpfRecorder) handleEvent(eventBytes []byte) {
 // Kubernetes API, and the caller is the single event processing loop which also
 // delivers the AppArmor events over an unbuffered channel. Stalling it makes the
 // kernel drop recorded events, so a saturated queue drops the event instead.
-func (b *BpfRecorder) scheduleNewPidEvent(pid, mntns uint32) {
+func (b *BpfRecorder) scheduleNewPidEvent(pid, mntns uint32, key uint64) {
 	// The handlers live for the lifetime of the recorder. There is no teardown
 	// because both the daemon and spoc keep a recorder until the process exits,
 	// and a shutdown path would have to guard every send against a closed
@@ -873,6 +1165,7 @@ func (b *BpfRecorder) scheduleNewPidEvent(pid, mntns uint32) {
 	event := newPidEvent{
 		pid:        pid,
 		mntns:      mntns,
+		key:        key,
 		generation: b.recordingGeneration.Load(),
 	}
 
@@ -888,25 +1181,32 @@ func (b *BpfRecorder) scheduleNewPidEvent(pid, mntns uint32) {
 
 func (b *BpfRecorder) runPidHandler() {
 	for event := range b.newPidEvents {
-		b.handleNewPidEvent(event.pid, event.mntns, event.generation)
+		b.handleNewPidEvent(event.pid, event.mntns, event.key, event.generation)
 	}
 }
 
-func (b *BpfRecorder) handleNewPidEvent(pid, mntns uint32, generation uint64) {
-	b.logger.V(config.VerboseLevel).Info("Received new pid", "pid", pid, "mntns", mntns)
+func (b *BpfRecorder) handleNewPidEvent(pid, mntns uint32, key, generation uint64) {
+	b.logger.V(config.VerboseLevel).Info("Received new pid", "pid", pid, "mntns", mntns, "key", key)
 
 	if b.clientset == nil {
 		// spoc: we're running outside of a kubernetes context.
 		return
 	}
 
-	// Look up the container ID based on PID from cgroup file.
+	// Look up the container ID based on PID from cgroup file. The cache is
+	// keyed by PID and process start time, so a process reusing a PID gets
+	// its own entry.
 	containerID, err := b.ContainerIDForPID(b.pidToContainerIDCache, int(pid))
 	if err != nil {
 		b.logger.V(config.VerboseLevel).Info(
 			"No container ID found for PID",
-			"pid", pid, "mntns", mntns, "err", err.Error(),
+			"pid", pid, "mntns", mntns, "error", err.Error(),
 		)
+
+		// The process runs outside of any container.
+		if errors.Is(err, util.ErrContainerIDNotFound) {
+			b.excludeKey(key, generation)
+		}
 
 		return
 	}
@@ -920,15 +1220,24 @@ func (b *BpfRecorder) handleNewPidEvent(pid, mntns uint32, generation uint64) {
 		return
 	}
 
-	b.mntnsToContainerIDMap.Insert(mntns, containerID)
+	b.containerKeys.Insert(key, containerID)
 
 	b.logger.V(config.VerboseLevel).Info(
 		"Found container ID for PID", "pid", pid,
-		"mntns", mntns, "containerID", containerID,
+		"mntns", mntns, "key", key, "containerID", containerID,
 	)
 
 	profile, err := b.findProfileForContainerID(containerID)
 	if err != nil {
+		if errors.Is(err, errNoProfileForContainer) {
+			// The container exists and is not recorded, its data would
+			// only fill up the maps.
+			b.containerKeys.Delete(key)
+			b.excludeKey(key, generation)
+
+			return
+		}
+
 		b.logger.Error(err, "Unable to find profile in cluster for container ID",
 			"id", containerID, "pid", pid, "mntns", mntns)
 
@@ -946,8 +1255,47 @@ func (b *BpfRecorder) handleNewPidEvent(pid, mntns uint32, generation uint64) {
 	// which case StopRecording has already cleared the tables and these entries
 	// would linger into the next recording.
 	if b.recordingGeneration.Load() != generation {
-		b.mntnsToContainerIDMap.Delete(mntns)
+		b.containerKeys.Delete(key)
 		b.containerIDToProfileMap.Delete(containerID)
+	}
+}
+
+// excludeKey stops recording a workload which is not recorded, and drops what
+// got recorded for it so far. This is only done with keys which are never
+// reused: an excluded mount namespace inode number could belong to a recorded
+// container later on.
+func (b *BpfRecorder) excludeKey(key, generation uint64) {
+	if !b.uniqueKeys {
+		return
+	}
+
+	b.attachUnattachMutex.RLock()
+	defer b.attachUnattachMutex.RUnlock()
+
+	// StopRecording holds the write lock while it ends the session and clears
+	// the maps, so the session cannot end in between.
+	if b.recordingGeneration.Load() != generation {
+		return
+	}
+
+	b.logger.V(config.VerboseLevel).Info("Excluding workload from recording", "key", key)
+
+	if b.excludeKeysBpfMap != nil {
+		if err := b.UpdateValue64(
+			b.excludeKeysBpfMap,
+			key,
+			[]byte{excludeMntnsEnabled},
+		); err != nil {
+			b.logger.Error(err, "Unable to exclude workload from recording", "key", key)
+		}
+	}
+
+	if b.Seccomp != nil {
+		b.Seccomp.Clear(b, []uint64{key})
+	}
+
+	if b.AppArmor != nil {
+		b.AppArmor.Exclude(key)
 	}
 }
 
@@ -986,25 +1334,24 @@ func (b *BpfRecorder) FindProcMountNamespace(pid uint32) (uint32, error) {
 	stripped := strings.TrimPrefix(res, "mnt:[")
 	stripped = strings.TrimSuffix(stripped, "]")
 
-	ns, err := b.ParseUint(stripped)
+	ns, err := strconv.ParseUint(stripped, 10, 32)
 	if err != nil {
 		return 0, fmt.Errorf("convert namespace to integer: %w", err)
 	}
 
-	return ns, nil
+	return uint32(ns), nil
 }
 
 func (b *BpfRecorder) trackProfileMetric(mntns uint32, profile string) {
-	b.metricsSendMu.Lock()
-	defer b.metricsSendMu.Unlock()
+	if b.metrics == nil {
+		return
+	}
 
-	if err := b.SendMetric(b.metricsClient, &apimetrics.BpfRequest{
+	b.metrics.Send(&apimetrics.BpfRequest{
 		Node:           b.nodeName,
 		Profile:        profile,
 		MountNamespace: mntns,
-	}); err != nil {
-		b.logger.Error(err, "Unable to update metrics")
-	}
+	})
 }
 
 var errNoProfileForContainer = errors.New("container has no recording annotation")
@@ -1057,10 +1404,10 @@ func (b *BpfRecorder) findProfileForContainerID(id string) (string, error) {
 
 			for p := range pods.Items {
 				pod := &pods.Items[p]
-				//nolint:gocritic // We explicitly do not want to append to the same slice
-				statuses := append(
+
+				statuses := slices.Concat(
 					pod.Status.InitContainerStatuses,
-					pod.Status.ContainerStatuses...)
+					pod.Status.ContainerStatuses)
 				for c := range statuses {
 					containerStatus := statuses[c]
 					fullContainerID := containerStatus.ContainerID
