@@ -24,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
 
+	"sigs.k8s.io/security-profiles-operator/api/common"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
@@ -113,6 +114,10 @@ type ProfileRecordingSpec struct {
 
 // ProfileRecordingStatus contains status of the ProfileRecording.
 type ProfileRecordingStatus struct {
+	// The Ready condition reports whether the recording can record, which
+	// depends on a supported combination of kind and recorder.
+	common.ConditionedStatus `json:",inline"`
+
 	// activeWorkloads lists the workloads currently using this recording.
 	// +optional
 	// +listType=set

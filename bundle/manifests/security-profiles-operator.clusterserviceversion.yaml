@@ -436,18 +436,20 @@ spec:
         - apiGroups:
           - security-profiles-operator.x-k8s.io
           resources:
-          - profilebindings
-          - profilerecordings
-          - profilerecordings/finalizers
+          - apparmorprofiles/finalizers
+          - rawselinuxprofiles/finalizers
+          - seccompprofiles/finalizers
+          - securityprofilesoperatordaemons/finalizers
+          - selinuxprofiles/finalizers
           verbs:
+          - delete
           - get
-          - list
           - patch
           - update
-          - watch
         - apiGroups:
           - security-profiles-operator.x-k8s.io
           resources:
+          - apparmorprofiles/status
           - profilebindings/finalizers
           - profilebindings/status
           - profilerecordings/status
@@ -462,6 +464,18 @@ spec:
         - apiGroups:
           - security-profiles-operator.x-k8s.io
           resources:
+          - profilebindings
+          - profilerecordings
+          - profilerecordings/finalizers
+          verbs:
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - security-profiles-operator.x-k8s.io
+          resources:
           - rawselinuxprofiles
           - securityprofilesoperatordaemons
           verbs:
@@ -471,18 +485,6 @@ spec:
           - patch
           - update
           - watch
-        - apiGroups:
-          - security-profiles-operator.x-k8s.io
-          resources:
-          - rawselinuxprofiles/finalizers
-          - seccompprofiles/finalizers
-          - securityprofilesoperatordaemons/finalizers
-          - selinuxprofiles/finalizers
-          verbs:
-          - delete
-          - get
-          - patch
-          - update
         - apiGroups:
           - security-profiles-operator.x-k8s.io
           resources:

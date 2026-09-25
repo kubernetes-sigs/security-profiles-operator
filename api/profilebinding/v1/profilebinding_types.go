@@ -19,6 +19,8 @@ package v1
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+
+	"sigs.k8s.io/security-profiles-operator/api/common"
 )
 
 type ProfileBindingKind string
@@ -63,6 +65,9 @@ type ProfileRef struct {
 
 // ProfileBindingStatus contains status of the Profilebinding.
 type ProfileBindingStatus struct {
+	// The Ready condition reports whether the referenced profile exists.
+	common.ConditionedStatus `json:",inline"`
+
 	// activeWorkloads lists the workloads currently using this binding.
 	// +optional
 	// +listType=set

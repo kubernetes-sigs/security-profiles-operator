@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
@@ -40,10 +41,10 @@ import (
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/seccompprofile/seccompprofilefakes"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/nodestatus"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -99,11 +100,9 @@ type reconcileEnv struct {
 }
 
 // newReconcileEnv sets up a reconciler with a fake API server containing the
-// given objects. Tests using it cannot run in parallel because the node name
-// comes from the environment.
+// given objects.
 func newReconcileEnv(t *testing.T, objs ...client.Object) *reconcileEnv {
 	t.Helper()
-	t.Setenv(config.NodeNameEnvKey, testNode)
 
 	scheme := testScheme(t)
 
@@ -155,11 +154,12 @@ func newReconcileEnv(t *testing.T, objs ...client.Object) *reconcileEnv {
 	env.impl.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{}, nil)
 
 	env.rec = &Reconciler{
-		impl:    env.impl,
-		client:  env.cli,
-		log:     log.Log,
-		record:  env.recorder,
-		metrics: metrics.New(),
+		impl:     env.impl,
+		client:   env.cli,
+		log:      log.Log,
+		record:   env.recorder,
+		metrics:  metrics.New(),
+		nodeName: testNode,
 		save: func(p string, c []byte) (bool, error) {
 			if env.saveErr != nil {
 				return false, env.saveErr
@@ -218,11 +218,12 @@ func TestReconcileSeccompProfileNil(t *testing.T) {
 
 	r := &Reconciler{}
 	_, err := r.reconcileSeccompProfile(t.Context(), nil, log.Log)
-	require.EqualError(t, err, errSeccompProfileNil)
+	require.ErrorIs(t, err, errSeccompProfileNil)
 }
 
-//nolint:paralleltest // uses t.Setenv
 func TestReconcileSeccompProfileInstall(t *testing.T) {
+	t.Parallel()
+
 	env := newReconcileEnv(t, newTestProfile())
 
 	// The first pass only registers the node: finalizer, label and a
@@ -282,8 +283,9 @@ func TestReconcileSeccompProfileInstall(t *testing.T) {
 	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, env.nodeStatus(t).Status.Status)
 }
 
-//nolint:paralleltest // uses t.Setenv
 func TestReconcileSeccompProfileDisabled(t *testing.T) {
+	t.Parallel()
+
 	sp := newTestProfile()
 	sp.Spec.State = profilebaseapi.SpecStateDisabled
 	env := newReconcileEnv(t, sp)
@@ -300,8 +302,9 @@ func TestReconcileSeccompProfileDisabled(t *testing.T) {
 	require.Equal(t, secprofnodestatusapi.ProfileStateDisabled, env.nodeStatus(t).Status.Status)
 }
 
-//nolint:paralleltest // uses t.Setenv
 func TestReconcileSeccompProfileSaveError(t *testing.T) {
+	t.Parallel()
+
 	env := newReconcileEnv(t, newTestProfile())
 
 	_, err := env.reconcile(t)
@@ -319,8 +322,9 @@ func TestReconcileSeccompProfileSaveError(t *testing.T) {
 	require.Equal(t, secprofnodestatusapi.ProfileStatePending, env.nodeStatus(t).Status.Status)
 }
 
-//nolint:paralleltest // uses t.Setenv
 func TestReconcileSeccompProfileNotAllowed(t *testing.T) {
+	t.Parallel()
+
 	env := newReconcileEnv(t, newTestProfile())
 	env.impl.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
 		Spec: spodapi.SPODSpec{
@@ -329,7 +333,8 @@ func TestReconcileSeccompProfileNotAllowed(t *testing.T) {
 	}, nil)
 
 	_, err := env.reconcile(t)
-	require.ErrorContains(t, err, errForbiddenSyscall+": write")
+	require.ErrorIs(t, err, errForbiddenSyscall)
+	require.ErrorContains(t, err, "syscall not allowed: write")
 
 	evs := env.events()
 	require.Len(t, evs, 1)
@@ -340,8 +345,9 @@ func TestReconcileSeccompProfileNotAllowed(t *testing.T) {
 	require.Empty(t, env.saved)
 }
 
-//nolint:paralleltest // uses t.Setenv
 func TestReconcileSeccompProfileGetSPODError(t *testing.T) {
+	t.Parallel()
+
 	env := newReconcileEnv(t, newTestProfile())
 	env.impl.GetSPODReturns(nil, errors.New("no spod"))
 
@@ -350,8 +356,9 @@ func TestReconcileSeccompProfileGetSPODError(t *testing.T) {
 	require.Nil(t, env.nodeStatus(t))
 }
 
-//nolint:paralleltest // uses t.Setenv
 func TestReconcileSeccompProfileMergeError(t *testing.T) {
+	t.Parallel()
+
 	sp := newTestProfile()
 	sp.Spec.BaseProfileName = "missing"
 	env := newReconcileEnv(t, sp)
@@ -363,22 +370,18 @@ func TestReconcileSeccompProfileMergeError(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, reconcile.Result{RequeueAfter: common.Wait}, res)
 
-	require.Equal(t, 1, env.impl.RecordEventCallCount())
-	_, obj, eventType, reason, action, note := env.impl.RecordEventArgsForCall(0)
-	gotProfile, ok := obj.(*seccompprofileapi.SeccompProfile)
-	require.True(t, ok)
-	require.Equal(t, testProfile, gotProfile.GetName())
-	require.Equal(t, util.EventTypeWarning, eventType)
-	require.Equal(t, reasonInvalidSeccompProfile, reason)
-	require.Equal(t, util.EventActionInstall, action)
-	require.Equal(t, "not there", note)
+	require.Equal(t,
+		[]string{util.EventTypeWarning + " " + reasonInvalidSeccompProfile + " not there"},
+		env.events(),
+	)
 
 	require.Nil(t, env.nodeStatus(t))
 	require.Empty(t, env.saved)
 }
 
-//nolint:paralleltest // uses t.Setenv
 func TestReconcileSeccompProfileDeletion(t *testing.T) {
+	t.Parallel()
+
 	env := newReconcileEnv(t, newTestProfile())
 
 	for range 2 {
@@ -409,8 +412,186 @@ func TestReconcileSeccompProfileDeletion(t *testing.T) {
 	require.True(t, kerrors.IsNotFound(err), "profile should be gone, got %v", err)
 }
 
-//nolint:paralleltest // uses t.Setenv
+// A profile named "foo.json" is stored in the same file as a profile named
+// "foo". The later one must not overwrite the file of the earlier one.
+func TestReconcileSeccompProfileFileConflict(t *testing.T) {
+	t.Parallel()
+
+	owner := newTestProfile()
+	owner.CreationTimestamp = metav1.Unix(100, 0)
+
+	conflicting := newTestProfile()
+	conflicting.Name = testProfile + seccompprofileapi.ExtJSON
+	conflicting.CreationTimestamp = metav1.Unix(200, 0)
+
+	env := newReconcileEnv(t, owner, conflicting)
+	key := types.NamespacedName{Namespace: testNamespace, Name: conflicting.Name}
+
+	reconcileConflicting := func() (reconcile.Result, error) {
+		sp := &seccompprofileapi.SeccompProfile{}
+		require.NoError(t, env.cli.Get(t.Context(), key, sp))
+
+		return env.rec.reconcileSeccompProfile(t.Context(), sp, log.Log)
+	}
+
+	_, err := reconcileConflicting()
+	require.NoError(t, err)
+
+	res, err := reconcileConflicting()
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{RequeueAfter: fileConflictRetry}, res)
+	require.Empty(t, env.saved, "the file of the other profile must not be overwritten")
+	require.Equal(t, secprofnodestatusapi.ProfileStateError, env.nodeStatus(t).Status.Status)
+
+	gotEvents := env.events()
+	require.Len(t, gotEvents, 1)
+	require.Contains(t, gotEvents[0], "Warning "+reasonProfileFileConflict)
+	require.Contains(t, gotEvents[0],
+		conflicting.Name+" is stored as "+conflicting.Name+" like "+testProfile)
+
+	// The owner is unaffected by the later profile.
+	other, err := fileOwner(t.Context(), env.rec.apiReader(), owner)
+	require.NoError(t, err)
+	require.Empty(t, other)
+
+	// Deleting the later profile keeps the file of the owner.
+	env.rec.profileRoot = t.TempDir()
+	ownerFile := env.rec.profilePath(owner)
+	require.NoError(t, os.WriteFile(ownerFile, []byte("owner"), 0o600))
+
+	require.NoError(t, env.rec.handleDeletion(t.Context(), conflicting))
+
+	content, err := os.ReadFile(ownerFile)
+	require.NoError(t, err)
+	require.Equal(t, "owner", string(content))
+
+	// Once the owner goes away, the later profile takes the file over, so
+	// deleting the owner keeps it as well.
+	storedOwner := &seccompprofileapi.SeccompProfile{}
+	require.NoError(t, env.cli.Get(t.Context(), testProfileKey, storedOwner))
+
+	now := metav1.Now()
+	storedOwner.DeletionTimestamp = &now
+	require.NoError(t, env.rec.handleDeletion(t.Context(), storedOwner))
+	require.FileExists(t, ownerFile)
+}
+
+func TestFileOwnerSkipsInactiveOwners(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		mutateOwner func(*seccompprofileapi.SeccompProfile)
+		wantOwner   bool
+	}{
+		"active owner": {wantOwner: true},
+		"disabled owner": {
+			mutateOwner: func(sp *seccompprofileapi.SeccompProfile) { sp.Spec.State = profilebaseapi.SpecStateDisabled },
+		},
+		"partial owner": {
+			mutateOwner: func(sp *seccompprofileapi.SeccompProfile) {
+				sp.Labels = map[string]string{profilebaseapi.ProfilePartialLabel: "true"}
+			},
+		},
+		"owner being deleted": {
+			mutateOwner: func(sp *seccompprofileapi.SeccompProfile) {
+				now := metav1.Now()
+				sp.DeletionTimestamp = &now
+				sp.Finalizers = []string{"test"}
+			},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			owner := newTestProfile()
+			owner.CreationTimestamp = metav1.Unix(100, 0)
+
+			if tc.mutateOwner != nil {
+				tc.mutateOwner(owner)
+			}
+
+			later := newTestProfile()
+			later.Name = testProfile + seccompprofileapi.ExtJSON
+			later.CreationTimestamp = metav1.Unix(200, 0)
+
+			env := newReconcileEnv(t, owner, later)
+
+			got, err := fileOwner(t.Context(), env.rec.apiReader(), later)
+			require.NoError(t, err)
+
+			if tc.wantOwner {
+				require.Equal(t, testProfile, got)
+			} else {
+				require.Empty(t, got)
+			}
+		})
+	}
+}
+
+// The ownership is decided with the API server, not with a cache which may
+// not know the other profile yet.
+func TestFileOwnerReadsFromAPIServer(t *testing.T) {
+	t.Parallel()
+
+	owner := newTestProfile()
+	owner.CreationTimestamp = metav1.Unix(100, 0)
+
+	later := newTestProfile()
+	later.Name = testProfile + seccompprofileapi.ExtJSON
+	later.CreationTimestamp = metav1.Unix(200, 0)
+
+	env := newReconcileEnv(t, later)
+	env.rec.reader = newReconcileEnv(t, owner, later).cli
+
+	got, err := fileOwner(t.Context(), env.rec.apiReader(), later)
+	require.NoError(t, err)
+	require.Equal(t, testProfile, got)
+}
+
+func TestSiblingRequests(t *testing.T) {
+	t.Parallel()
+
+	for name, want := range map[string]string{
+		"foo":      "foo.json",
+		"foo.json": "foo",
+	} {
+		requests := siblingRequests(t.Context(), &seccompprofileapi.SeccompProfile{
+			ObjectMeta: metav1.ObjectMeta{Name: name},
+		})
+		require.Equal(
+			t,
+			[]reconcile.Request{{NamespacedName: types.NamespacedName{Name: want}}},
+			requests,
+		)
+	}
+
+	require.Empty(t, siblingRequests(t.Context(), &seccompprofileapi.SeccompProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: ".json"},
+	}))
+}
+
+func TestOwnsFileBefore(t *testing.T) {
+	t.Parallel()
+
+	older := &seccompprofileapi.SeccompProfile{ObjectMeta: metav1.ObjectMeta{
+		Name: "b", CreationTimestamp: metav1.Unix(1, 0),
+	}}
+	newer := &seccompprofileapi.SeccompProfile{ObjectMeta: metav1.ObjectMeta{
+		Name: "a", CreationTimestamp: metav1.Unix(2, 0),
+	}}
+	sameTime := &seccompprofileapi.SeccompProfile{ObjectMeta: metav1.ObjectMeta{
+		Name: "c", CreationTimestamp: metav1.Unix(1, 0),
+	}}
+
+	require.True(t, ownsFileBefore(older, newer))
+	require.False(t, ownsFileBefore(newer, older))
+	require.True(t, ownsFileBefore(older, sameTime), "the name decides on a tie")
+	require.False(t, ownsFileBefore(sameTime, older))
+}
+
 func TestReconcileSeccompProfileDeletionInUse(t *testing.T) {
+	t.Parallel()
+
 	env := newReconcileEnv(t, newTestProfile())
 
 	for range 2 {
@@ -499,4 +680,64 @@ func TestHandleAllowedSyscallsChanged(t *testing.T) {
 			require.Len(t, list.Items, 2-len(want))
 		})
 	}
+}
+
+// The API server is only asked if the cache shows a profile sharing the file
+// or if the file on disk would change.
+func TestHandleFileConflictAvoidsUncachedReads(t *testing.T) {
+	t.Parallel()
+
+	later := newTestProfile()
+	later.Name = testProfile + seccompprofileapi.ExtJSON
+	later.CreationTimestamp = metav1.Unix(200, 0)
+
+	owner := newTestProfile()
+	owner.CreationTimestamp = metav1.Unix(100, 0)
+
+	env := newReconcileEnv(t, later)
+	env.rec.profileRoot = t.TempDir()
+
+	apiReads := 0
+	env.rec.reader = interceptor.NewClient(
+		fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(owner, later).Build(),
+		interceptor.Funcs{Get: func(
+			ctx context.Context, c client.WithWatch, key client.ObjectKey,
+			obj client.Object, opts ...client.GetOption,
+		) error {
+			apiReads++
+
+			return c.Get(ctx, key, obj, opts...)
+		}},
+	)
+
+	nodeStatus, err := nodestatus.NewForProfileOnNode(later, env.cli, testNode)
+	require.NoError(t, err)
+
+	content := []byte("content")
+	path := env.rec.profilePath(later)
+	require.NoError(t, os.WriteFile(path, content, 0o600))
+
+	// The file stays the same and the cache knows no other profile.
+	conflict, err := env.rec.handleFileConflict(
+		t.Context(),
+		later,
+		nodeStatus,
+		path,
+		content,
+		log.Log,
+	)
+	require.NoError(t, err)
+	require.False(t, conflict)
+	require.Zero(t, apiReads)
+
+	// A changed file is only written if the API server confirms the owner.
+	_, err = nodeStatus.Create(t.Context())
+	require.NoError(t, err)
+
+	conflict, err = env.rec.handleFileConflict(
+		t.Context(), later, nodeStatus, path, []byte("changed"), log.Log,
+	)
+	require.NoError(t, err)
+	require.True(t, conflict)
+	require.Equal(t, 1, apiReads)
 }

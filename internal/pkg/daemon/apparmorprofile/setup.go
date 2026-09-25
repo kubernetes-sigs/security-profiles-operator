@@ -18,11 +18,13 @@ package apparmorprofile
 
 import (
 	"context"
+	"os"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
@@ -38,6 +40,7 @@ func (r *Reconciler) Setup(
 	r.record = util.NewEventRecorder(mgr, "apparmorprofile")
 	r.metrics = met
 	r.manager = NewAppArmorProfileManager(r.log)
+	r.nodeName = os.Getenv(config.NodeNameEnvKey)
 
 	r.logNodeInfo()
 

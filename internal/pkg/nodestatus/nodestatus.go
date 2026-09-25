@@ -26,6 +26,7 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -56,10 +57,26 @@ type StatusClient struct {
 	kind string
 }
 
+// ErrNoNodeName is returned if the node name cannot be determined.
+var ErrNoNodeName = errors.New("cannot determine node name")
+
+// NewForProfile returns a status client for the node set in the node name
+// environment variable.
 func NewForProfile(pol profilebase.SecurityProfileBase, c client.Client) (*StatusClient, error) {
 	nodeName, ok := os.LookupEnv(config.NodeNameEnvKey)
 	if !ok {
-		return nil, errors.New("cannot determine node name")
+		return nil, ErrNoNodeName
+	}
+
+	return NewForProfileOnNode(pol, c, nodeName)
+}
+
+// NewForProfileOnNode returns a status client for the provided node.
+func NewForProfileOnNode(
+	pol profilebase.SecurityProfileBase, c client.Client, nodeName string,
+) (*StatusClient, error) {
+	if nodeName == "" {
+		return nil, ErrNoNodeName
 	}
 
 	kind, err := profileKind(pol, c)
@@ -124,10 +141,10 @@ func (nsf *StatusClient) Create(ctx context.Context) (bool, error) {
 		)
 	}
 
-	wasMigrated := nsf.removeLegacyNodeStatus(ctx)
+	wasMigrated, legacyState := nsf.removeLegacyNodeStatus(ctx)
 
 	// if object does not exist, add it
-	if err := nsf.createNodeStatus(ctx); err != nil {
+	if err := nsf.createNodeStatus(ctx, legacyState); err != nil {
 		return false, fmt.Errorf("cannot create node status for %s: %w", nsf.pol.GetName(), err)
 	}
 
@@ -136,11 +153,14 @@ func (nsf *StatusClient) Create(ctx context.Context) (bool, error) {
 
 // removeLegacyNodeStatus removes old-format status objects that used
 // <profileName>-<nodeName> instead of <kind>-<profileName>-<nodeName>.
-// Returns true if a legacy status was found and removed (upgrade migration).
-func (nsf *StatusClient) removeLegacyNodeStatus(ctx context.Context) bool {
+// Returns true and the state of the legacy status if one was found and
+// removed (upgrade migration).
+func (nsf *StatusClient) removeLegacyNodeStatus(
+	ctx context.Context,
+) (bool, secprofnodestatusapi.ProfileState) {
 	legacyName := nsf.pol.GetName() + "-" + nsf.nodeName
 	if legacyName == nsf.perNodeStatusName() {
-		return false
+		return false, ""
 	}
 
 	old := &secprofnodestatusapi.SecurityProfileNodeStatus{}
@@ -151,23 +171,23 @@ func (nsf *StatusClient) removeLegacyNodeStatus(ctx context.Context) bool {
 			log.Error(err, "failed to look up legacy node status", "name", legacyName)
 		}
 
-		return false
+		return false, ""
 	}
 
 	// Verify the object belongs to this profile. A profile named
 	// "<kind>-<other>" has a legacy name that collides with the
 	// new-format name of profile "<other>".
 	if old.Labels[secprofnodestatusapi.StatusToProfLabel] != nsf.profileID() {
-		return false
+		return false, ""
 	}
 
 	if err := nsf.client.Delete(ctx, old); err != nil && !kerrors.IsNotFound(err) {
 		log.Error(err, "failed to remove legacy node status", "name", legacyName)
 
-		return false
+		return false, ""
 	}
 
-	return true
+	return true, old.Status.Status
 }
 
 func (nsf *StatusClient) createFinalizer(ctx context.Context) error {
@@ -178,6 +198,12 @@ func (nsf *StatusClient) createFinalizer(ctx context.Context) error {
 
 func (nsf *StatusClient) createPolLabel(ctx context.Context) error {
 	return util.Retry(func() error {
+		// Re-fetch on every attempt: a failed update leaves the label in the
+		// local object, and the retry must not mistake it for a stored one.
+		if err := nsf.client.Get(ctx, client.ObjectKeyFromObject(nsf.pol), nsf.pol); err != nil {
+			return fmt.Errorf("getting profile: %w", err)
+		}
+
 		labels := nsf.pol.GetLabels()
 		if labels == nil {
 			labels = make(map[string]string)
@@ -218,8 +244,17 @@ func (nsf *StatusClient) statusObj(
 	}
 }
 
-func (nsf *StatusClient) createNodeStatus(ctx context.Context) error {
+// createNodeStatus creates the node status. A status migrated from a legacy
+// status keeps the state of the legacy one, which tells for example whether
+// the profile got installed on the node already.
+func (nsf *StatusClient) createNodeStatus(
+	ctx context.Context, legacyState secprofnodestatusapi.ProfileState,
+) error {
 	initialStatus := nsf.initialStatus()
+	if initialStatus == secprofnodestatusapi.ProfileStatePending && legacyState != "" {
+		initialStatus = legacyState
+	}
+
 	s := nsf.statusObj(initialStatus)
 
 	if setCtrlErr := controllerutil.SetControllerReference(
@@ -302,13 +337,14 @@ func (nsf *StatusClient) removeNodeStatus(ctx context.Context, c client.Client) 
 }
 
 func (nsf *StatusClient) Exists(ctx context.Context) (bool, error) {
-	f := nsf.finalizerExists()
+	f := nsf.FinalizerExists()
 	s, err := nsf.nodeStatusExists(ctx)
 
 	return s && f, err
 }
 
-func (nsf *StatusClient) finalizerExists() bool {
+// FinalizerExists returns true if the profile carries the finalizer of this node.
+func (nsf *StatusClient) FinalizerExists() bool {
 	return controllerutil.ContainsFinalizer(nsf.pol, nsf.finalizerString)
 }
 
@@ -329,32 +365,43 @@ func (nsf *StatusClient) SetNodeStatus(
 	ctx context.Context,
 	polState secprofnodestatusapi.ProfileState,
 ) error {
-	status := secprofnodestatusapi.SecurityProfileNodeStatus{}
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		status := secprofnodestatusapi.SecurityProfileNodeStatus{}
 
-	err := nsf.client.Get(ctx, nsf.perNodeStatusNamespacedName(), &status)
-	if kerrors.IsNotFound(err) && polState == secprofnodestatusapi.ProfileStateTerminating {
-		// it's OK if we're about to terminate a profile but it was already gone
+		err := nsf.client.Get(ctx, nsf.perNodeStatusNamespacedName(), &status)
+		if kerrors.IsNotFound(err) && polState == secprofnodestatusapi.ProfileStateTerminating {
+			// it's OK if we're about to terminate a profile but it was already gone
+			return nil
+		} else if err != nil {
+			return fmt.Errorf("retrieving the current status: %w", err)
+		}
+
+		if status.Labels == nil {
+			status.Labels = map[string]string{}
+		}
+
+		if status.Labels[secprofnodestatusapi.StatusStateLabel] != string(polState) {
+			status.Labels[secprofnodestatusapi.StatusStateLabel] = string(polState)
+
+			// The update refreshes the resource version of status, which
+			// is required for the status update below. Reading it again
+			// from the cache could return the previous version.
+			if err := nsf.client.Update(ctx, &status); err != nil {
+				return fmt.Errorf("updating node status labels: %w", err)
+			}
+		}
+
+		if status.Status.Status == polState {
+			return nil
+		}
+
+		status.Status.Status = polState
+		if err := nsf.client.Status().Update(ctx, &status); err != nil {
+			return fmt.Errorf("updating node status: %w", err)
+		}
+
 		return nil
-	} else if err != nil {
-		return fmt.Errorf("retrieving the current status: %w", err)
-	}
-
-	status.Labels[secprofnodestatusapi.StatusStateLabel] = string(polState)
-	if err := nsf.client.Update(ctx, &status); err != nil {
-		return fmt.Errorf("updating node status labels: %w", err)
-	}
-
-	// Re-fetch to get the updated resourceVersion after the label update.
-	if err := nsf.client.Get(ctx, nsf.perNodeStatusNamespacedName(), &status); err != nil {
-		return fmt.Errorf("re-fetching node status: %w", err)
-	}
-
-	status.Status.Status = polState
-	if err := nsf.client.Status().Update(ctx, &status); err != nil {
-		return fmt.Errorf("updating node status: %w", err)
-	}
-
-	return nil
+	})
 }
 
 func (nsf *StatusClient) GetAnnotation(ctx context.Context, key string) (string, error) {
@@ -391,6 +438,16 @@ func (nsf *StatusClient) SetAnnotation(ctx context.Context, key, value string) e
 	}
 
 	return nil
+}
+
+// State returns the state of the profile on the node.
+func (nsf *StatusClient) State(ctx context.Context) (secprofnodestatusapi.ProfileState, error) {
+	status := secprofnodestatusapi.SecurityProfileNodeStatus{}
+	if err := nsf.client.Get(ctx, nsf.perNodeStatusNamespacedName(), &status); err != nil {
+		return "", fmt.Errorf("getting node status: %w", err)
+	}
+
+	return status.Status.Status, nil
 }
 
 func (nsf *StatusClient) Matches(

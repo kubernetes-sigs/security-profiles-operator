@@ -36,6 +36,7 @@ import (
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/nodestatus"
 )
 
 const (
@@ -72,9 +73,9 @@ func (r *ReconcileSelinux) createPolicyReloadJob(
 	action string,
 	l logr.Logger,
 ) (bool, error) {
-	nodeName := os.Getenv(config.NodeNameEnvKey)
+	nodeName := r.nodeName
 	if nodeName == "" {
-		return false, errors.New("NODE_NAME environment variable not set")
+		return false, nodestatus.ErrNoNodeName
 	}
 
 	namespace := config.GetOperatorNamespace()

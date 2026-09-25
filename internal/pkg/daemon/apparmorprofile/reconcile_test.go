@@ -19,7 +19,6 @@ package apparmorprofile
 import (
 	"context"
 	"errors"
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -39,7 +38,6 @@ import (
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	profilebaseapi "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
@@ -178,11 +176,12 @@ func newTestReconciler(
 	rec := events.NewFakeRecorder(10)
 
 	return &Reconciler{
-		client:  cli,
-		log:     log.Log,
-		record:  rec,
-		metrics: metrics.New(),
-		manager: manager,
+		client:   cli,
+		log:      log.Log,
+		record:   rec,
+		metrics:  metrics.New(),
+		manager:  manager,
+		nodeName: testNode,
 	}, cli, rec
 }
 
@@ -242,7 +241,7 @@ func reconcileUntilInstalled(t *testing.T, r *Reconciler) {
 }
 
 func TestReconcileNotSupportedEmitsNodeEvent(t *testing.T) {
-	t.Setenv(config.NodeNameEnvKey, testNode)
+	t.Parallel()
 
 	manager := &countingProfileManager{enabled: false}
 	r, _, rec := newTestReconciler(t, manager, nil, testAppArmorProfile())
@@ -256,7 +255,7 @@ func TestReconcileNotSupportedEmitsNodeEvent(t *testing.T) {
 }
 
 func TestReconcileNotSupportedWithoutRecorder(t *testing.T) {
-	t.Setenv(config.NodeNameEnvKey, testNode)
+	t.Parallel()
 
 	r, _, _ := newTestReconciler(t, &countingProfileManager{}, nil)
 	r.record = nil
@@ -267,7 +266,7 @@ func TestReconcileNotSupportedWithoutRecorder(t *testing.T) {
 }
 
 func TestReconcileGetError(t *testing.T) {
-	t.Setenv(config.NodeNameEnvKey, testNode)
+	t.Parallel()
 
 	errGet := errors.New("get failed")
 	r, _, _ := newTestReconciler(t, &countingProfileManager{enabled: true}, &interceptor.Funcs{
@@ -280,11 +279,11 @@ func TestReconcileGetError(t *testing.T) {
 
 	_, err := r.Reconcile(t.Context(), testRequest())
 	require.ErrorIs(t, err, errGet)
-	require.ErrorContains(t, err, common.ErrGetProfile)
+	require.ErrorIs(t, err, common.ErrGetProfile)
 }
 
 func TestReconcileInstallsProfile(t *testing.T) {
-	t.Setenv(config.NodeNameEnvKey, testNode)
+	t.Parallel()
 
 	manager := &countingProfileManager{enabled: true, updated: true}
 	r, cli, rec := newTestReconciler(t, manager, nil, testAppArmorProfile())
@@ -335,7 +334,7 @@ func TestReconcileInstallsProfile(t *testing.T) {
 }
 
 func TestReconcileUnchangedProfileEmitsNoEvent(t *testing.T) {
-	t.Setenv(config.NodeNameEnvKey, testNode)
+	t.Parallel()
 
 	manager := &countingProfileManager{enabled: true, updated: false}
 	r, cli, rec := newTestReconciler(t, manager, nil, testAppArmorProfile())
@@ -351,7 +350,7 @@ func TestReconcileUnchangedProfileEmitsNoEvent(t *testing.T) {
 }
 
 func TestReconcileInstallError(t *testing.T) {
-	t.Setenv(config.NodeNameEnvKey, testNode)
+	t.Parallel()
 
 	errInstall := errors.New("apparmor_parser failed")
 	manager := &countingProfileManager{enabled: true, installErr: errInstall}
@@ -367,7 +366,7 @@ func TestReconcileInstallError(t *testing.T) {
 }
 
 func TestReconcileStatusUpdateError(t *testing.T) {
-	t.Setenv(config.NodeNameEnvKey, testNode)
+	t.Parallel()
 
 	errUpdate := errors.New("update failed")
 	manager := &countingProfileManager{enabled: true}
@@ -400,6 +399,8 @@ func TestReconcileStatusUpdateError(t *testing.T) {
 }
 
 func TestReconcileSkipsNotReconcilableProfiles(t *testing.T) {
+	t.Parallel()
+
 	for _, tc := range []struct {
 		name       string
 		modify     func(*apparmorprofileapi.AppArmorProfile)
@@ -421,7 +422,7 @@ func TestReconcileSkipsNotReconcilableProfiles(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv(config.NodeNameEnvKey, testNode)
+			t.Parallel()
 
 			profile := testAppArmorProfile()
 			tc.modify(profile)
@@ -446,7 +447,7 @@ func deletingProfile(t *testing.T, cli client.Client) {
 }
 
 func TestReconcileDeletion(t *testing.T) {
-	t.Setenv(config.NodeNameEnvKey, testNode)
+	t.Parallel()
 
 	manager := &countingProfileManager{enabled: true}
 	r, cli, _ := newTestReconciler(t, manager, nil, testAppArmorProfile())
@@ -483,8 +484,29 @@ func TestReconcileDeletion(t *testing.T) {
 	)
 }
 
+// A foreground deletion removes the owned node statuses before the profile.
+// The node must still unload the profile and drop its finalizer.
+func TestReconcileDeletionWithoutNodeStatus(t *testing.T) {
+	t.Parallel()
+
+	manager := &countingProfileManager{enabled: true}
+	r, cli, _ := newTestReconciler(t, manager, nil, testAppArmorProfile())
+
+	reconcileUntilInstalled(t, r)
+	require.NoError(t, cli.Delete(t.Context(), getNodeStatus(t, cli)))
+	deletingProfile(t, cli)
+
+	res, err := r.Reconcile(t.Context(), testRequest())
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{}, res)
+	require.Equal(t, 1, manager.removes)
+
+	err = cli.Get(t.Context(), testRequest().NamespacedName, &apparmorprofileapi.AppArmorProfile{})
+	require.True(t, kerrors.IsNotFound(err), "profile should be gone, got %v", err)
+}
+
 func TestReconcileDeletionWaitsForActivePods(t *testing.T) {
-	t.Setenv(config.NodeNameEnvKey, testNode)
+	t.Parallel()
 
 	profile := testAppArmorProfile()
 	profile.SetFinalizers([]string{util.HasActivePodsFinalizerString})
@@ -505,7 +527,7 @@ func TestReconcileDeletionWaitsForActivePods(t *testing.T) {
 }
 
 func TestReconcileDeletionRemoveError(t *testing.T) {
-	t.Setenv(config.NodeNameEnvKey, testNode)
+	t.Parallel()
 
 	errRemove := errors.New("cannot unload")
 	manager := &countingProfileManager{enabled: true, removeErr: errRemove}
@@ -532,9 +554,7 @@ func TestReconcileDeletionRemoveError(t *testing.T) {
 }
 
 func TestReconcileWithoutNodeName(t *testing.T) {
-	// NewForProfile checks presence, not content, so unset the variable.
-	t.Setenv(config.NodeNameEnvKey, "")
-	require.NoError(t, os.Unsetenv(config.NodeNameEnvKey))
+	t.Parallel()
 
 	r, _, _ := newTestReconciler(
 		t,
@@ -542,6 +562,8 @@ func TestReconcileWithoutNodeName(t *testing.T) {
 		nil,
 		testAppArmorProfile(),
 	)
+
+	r.nodeName = ""
 
 	_, err := r.Reconcile(t.Context(), testRequest())
 	require.ErrorContains(t, err, "cannot determine node name")
@@ -552,7 +574,7 @@ func TestReconcileAppArmorProfileNil(t *testing.T) {
 
 	r := &Reconciler{}
 	_, err := r.reconcileAppArmorProfile(t.Context(), nil, log.Log)
-	require.EqualError(t, err, errAppArmorProfileNil)
+	require.ErrorIs(t, err, errAppArmorProfileNil)
 }
 
 func TestHealthz(t *testing.T) {

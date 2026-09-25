@@ -43,6 +43,13 @@ var (
 	ErrInvalidPermission       = errors.New("invalid permission")
 	ErrSystemInheritNotAllowed = errors.New("system profile not allowed")
 	ErrUnknownKindForEntry     = errors.New("unknown inherit kind for entry")
+	ErrInheritNotFound         = errors.New("inherited profile not found")
+	ErrInheritCycle            = errors.New("inherited profiles form a cycle")
+	ErrInheritTooDeep          = errors.New("inheritance too deep")
+
+	// errTemporaryValidation marks validation failures which are caused by
+	// the API server and not by the profile, so they have to be retried.
+	errTemporaryValidation = errors.New("temporary validation failure")
 
 	labelRegex        = regexp.MustCompile(`^([a-zA-Z0-9.\-_]+|@self)$`)
 	objClassPermRegex = regexp.MustCompile(`^[a-zA-Z0-9.\-_]+$`)
@@ -99,7 +106,7 @@ func (sph *selinuxProfileHandler) GetProfileObject() selinuxprofileapi.SelinuxPr
 func (sph *selinuxProfileHandler) Validate(ctx context.Context) error {
 	spod, err := common.GetSPOD(ctx, sph.cli)
 	if err != nil {
-		return fmt.Errorf("couldn't get spod configuration: %w", err)
+		return fmt.Errorf("%w: couldn't get spod configuration: %w", errTemporaryValidation, err)
 	}
 
 	sph.handleSelinuxOptions(spod)
@@ -187,17 +194,104 @@ func (sph *selinuxProfileHandler) handleInheritSPOPolicy(
 	ancestor := &selinuxprofileapi.SelinuxProfile{}
 	key := types.NamespacedName{Name: ancestorRef.Name, Namespace: namespace}
 
-	err := sph.cli.Get(ctx, key, ancestor)
-	if err != nil && kerrors.IsNotFound(err) {
-		return fmt.Errorf("couldn't find inherit reference %s/%s: %w",
-			ancestorRef.Kind, ancestorRef.Name, err)
+	if err := sph.cli.Get(ctx, key, ancestor); err != nil {
+		if kerrors.IsNotFound(err) {
+			return fmt.Errorf("couldn't find inherit reference %s/%s: %w",
+				ancestorRef.Kind, ancestorRef.Name, ErrInheritNotFound)
+		}
+
+		return fmt.Errorf("%w: getting inherit reference %s/%s: %w",
+			errTemporaryValidation, ancestorRef.Kind, ancestorRef.Name, err)
 	}
 
-	// TODO(jaosorior): Handle dependencies... we could force a waiting period
-	// until the ancestor policy would be installed
+	if err := sph.checkInheritCycle(ctx, ancestor, namespace); err != nil {
+		return err
+	}
+
+	// The reconciler waits until the ancestor is installed on the node
+	// before installing this policy, see inheritedProfilesInstalled.
 	sph.objInherits = append(sph.objInherits, ancestor)
 
 	return nil
+}
+
+// maxInheritDepth limits the length of a chain of inherited profiles.
+const maxInheritDepth = 32
+
+// inheritEntry is a profile in the chain of inherited profiles, together with
+// its distance from the profile which gets checked.
+type inheritEntry struct {
+	profile *selinuxprofileapi.SelinuxProfile
+	depth   int
+}
+
+// checkInheritCycle returns an error if the profile inherits from itself,
+// directly or through the profiles it inherits from, or if the chain of
+// inherited profiles is too deep. Such a profile could never be installed,
+// because each profile waits for its ancestors.
+func (sph *selinuxProfileHandler) checkInheritCycle(
+	ctx context.Context, ancestor *selinuxprofileapi.SelinuxProfile, namespace string,
+) error {
+	visited := map[string]bool{}
+	queue := []inheritEntry{{profile: ancestor, depth: 1}}
+
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+
+		if current.profile.GetName() == sph.sp.GetName() {
+			return fmt.Errorf("%w: %s inherits from itself", ErrInheritCycle, sph.sp.GetName())
+		}
+
+		if current.depth > maxInheritDepth {
+			return fmt.Errorf(
+				"%w: more than %d levels", ErrInheritTooDeep, maxInheritDepth,
+			)
+		}
+
+		if visited[current.profile.GetName()] {
+			continue
+		}
+
+		visited[current.profile.GetName()] = true
+
+		for _, ref := range current.profile.Spec.Inherit {
+			if ref.Kind != selinuxprofileapi.SelinuxProfilePolicyKind {
+				continue
+			}
+
+			if ref.Name == sph.sp.GetName() {
+				return fmt.Errorf("%w: %s inherits from itself", ErrInheritCycle, sph.sp.GetName())
+			}
+
+			next := &selinuxprofileapi.SelinuxProfile{}
+
+			err := sph.cli.Get(
+				ctx,
+				types.NamespacedName{Name: ref.Name, Namespace: namespace},
+				next,
+			)
+			if kerrors.IsNotFound(err) {
+				// The reconcile of the ancestor reports the missing profile.
+				continue
+			}
+
+			if err != nil {
+				return fmt.Errorf("%w: getting inherit reference %s: %w",
+					errTemporaryValidation, ref.Name, err)
+			}
+
+			queue = append(queue, inheritEntry{profile: next, depth: current.depth + 1})
+		}
+	}
+
+	return nil
+}
+
+// inheritedProfiles returns the profiles of the operator which the policy
+// inherits from. It is only valid after Validate.
+func (sph *selinuxProfileHandler) inheritedProfiles() []selinuxprofileapi.SelinuxProfileObject {
+	return sph.objInherits
 }
 
 func (sph *selinuxProfileHandler) handleSelinuxOptions(

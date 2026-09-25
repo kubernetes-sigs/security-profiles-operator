@@ -98,7 +98,7 @@ func (a *aaProfileManager) RemoveProfile(bp profilebaseapi.StatusBaseUser, owned
 		// Without the generated policy only the marker can establish ownership,
 		// which is still correct, just less forgiving on upgrade.
 		a.logger.Info("cannot generate policy for ownership check",
-			"profile-name", profile.GetProfileName(), "error", err.Error())
+			"profile", profile.GetProfileName(), "error", err.Error())
 
 		policy = ""
 	}
@@ -212,7 +212,7 @@ func checkProfileExist(logger logr.Logger, profileName string) bool {
 		return nil
 	}); err != nil {
 		logger.Info("cannot check policy status: assuming the profile exists",
-			"profile-name", profileName, "error", err.Error())
+			"profile", profileName, "error", err.Error())
 
 		return true
 	}
@@ -239,7 +239,7 @@ func profileManagedByUs(logger logr.Logger, profileName string) bool {
 		return nil
 	}); err != nil {
 		logger.Info("cannot check profile ownership: assuming the profile is not ours",
-			"profile-name", profileName, "error", err.Error())
+			"profile", profileName, "error", err.Error())
 
 		return false
 	}
@@ -381,7 +381,7 @@ func removeProfile(logger logr.Logger, profileName, policy string, ownedByUs boo
 		if !policyFileOwned(path, policy, ownedByUs) {
 			logger.Info(
 				"profile is not managed by this operator: skipping deletion",
-				"profile-name",
+				"profile",
 				profileName,
 			)
 
@@ -400,7 +400,7 @@ func removeProfile(logger logr.Logger, profileName, policy string, ownedByUs boo
 		} else {
 			logger.Info(
 				"profile is not loaded into host: removing the policy file only",
-				"profile-name",
+				"profile",
 				profileName,
 			)
 		}

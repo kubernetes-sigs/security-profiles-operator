@@ -139,7 +139,7 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 			wantJobCreated: false,
 		},
 		{
-			name:           "fails when NODE_NAME not set",
+			name:           "fails without node name",
 			nodeName:       "",
 			namespace:      testNamespace,
 			policyName:     "test-policy",
@@ -151,7 +151,6 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			setenvCleanup(t, config.NodeNameEnvKey, tt.nodeName)
 			setenvCleanup(t, config.OperatorNamespaceEnvKey, tt.namespace)
 
 			if tt.nodeName != "" {
@@ -184,6 +183,7 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 			r := &ReconcileSelinux{
 				client:       fakeClient,
 				clientReader: fakeClientReader,
+				nodeName:     tt.nodeName,
 			}
 
 			logger := logf.Log.WithName("test")

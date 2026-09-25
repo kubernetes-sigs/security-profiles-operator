@@ -164,7 +164,12 @@ func (r *PolicyMergeReconciler) mergeTypedProfiles(
 	profileItem client.Object,
 	listItem client.ObjectList,
 ) error {
-	partialProfiles, err := listPartialProfiles(ctx, r.client, listItem, profileRecording)
+	partialProfiles, listedProfiles, err := listPartialProfiles(
+		ctx,
+		r.client,
+		listItem,
+		profileRecording,
+	)
 	if err != nil {
 		return fmt.Errorf("cannot list partial profiles: %w", err)
 	}
@@ -252,7 +257,7 @@ func (r *PolicyMergeReconciler) mergeTypedProfiles(
 		r.log.Info("Created/updated profile", "action", res, "name", mergedRecordingName)
 	}
 
-	return deletePartialProfiles(ctx, r.client, profileItem, profileRecording)
+	return deletePartialProfiles(ctx, r.client, listedProfiles)
 }
 
 type createUpdateFn func(

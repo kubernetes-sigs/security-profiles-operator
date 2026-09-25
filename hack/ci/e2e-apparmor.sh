@@ -136,7 +136,8 @@ check_apparmor_profile_recording() {
           .metadata.finalizers,
           .metadata.generation,
           .metadata.resourceVersion,
-          .metadata.uid)
+          .metadata.uid,
+          .status)
       ' "$APPARMOR_REFERENCE_PROFILE_FILE-$runtime.yaml"
 
     echo "------------------------------------"

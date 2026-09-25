@@ -53,7 +53,7 @@ func testScheme(t *testing.T) *runtime.Scheme {
 // newFakeClient returns a fake client that, like the cache backed client of
 // the manager, returns objects with their type meta set. The status client
 // derives the status names from the kind of the profile.
-func newFakeClient(t *testing.T, objs ...client.Object) client.Client {
+func newFakeClient(t *testing.T, objs ...client.Object) client.WithWatch {
 	t.Helper()
 
 	scheme := testScheme(t)
@@ -240,6 +240,9 @@ func TestCreateMigratesLegacyStatus(t *testing.T) {
 				secprofnodestatusapi.StatusToProfLabel: util.KindBasedDNSLengthName(sp),
 			},
 		},
+		Status: secprofnodestatusapi.SecurityProfileNodeStatusStatus{
+			Status: secprofnodestatusapi.ProfileStateInstalled,
+		},
 	}
 
 	c := newFakeClient(t, sp.DeepCopy(), legacy)
@@ -252,8 +255,14 @@ func TestCreateMigratesLegacyStatus(t *testing.T) {
 	_, err = nodeStatus(t, c, legacy.Name)
 	require.True(t, kerrors.IsNotFound(err))
 
-	_, err = nodeStatus(t, c, wantStatusName)
+	// The migrated status keeps the state of the legacy one.
+	status, err := nodeStatus(t, c, wantStatusName)
 	require.NoError(t, err)
+	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, status.Status.Status)
+
+	state, err := sc.State(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, state)
 }
 
 func TestExists(t *testing.T) {
@@ -508,4 +517,74 @@ func TestRemovePartialProfileWithoutRecording(t *testing.T) {
 
 	// A recording that is already gone is not an error.
 	require.NoError(t, sc.Remove(context.Background(), c))
+}
+
+func TestCreatePolLabelPersistsAfterConflict(t *testing.T) {
+	t.Parallel()
+
+	sp := regularSeccompProfile()
+	base := newFakeClient(t, sp.DeepCopy())
+	conflicts := 0
+
+	// The first label update fails with a conflict, like it does when many
+	// daemons add their finalizers at once.
+	c := interceptor.NewClient(base, interceptor.Funcs{
+		Update: func(
+			ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.UpdateOption,
+		) error {
+			if _, ok := obj.GetLabels()[secprofnodestatusapi.StatusToProfLabel]; ok &&
+				conflicts == 0 {
+				conflicts++
+
+				return kerrors.NewConflict(
+					seccompprofile.GroupVersion.WithResource("seccompprofiles").GroupResource(),
+					obj.GetName(), nil,
+				)
+			}
+
+			return cl.Update(ctx, obj, opts...)
+		},
+	})
+
+	sc := newStatusClient(t, sp, c)
+	require.NoError(t, sc.createPolLabel(context.Background()))
+	require.Equal(t, 1, conflicts)
+	require.Equal(t,
+		sc.profileID(),
+		storedProfile(t, base, sp.GetName()).Labels[secprofnodestatusapi.StatusToProfLabel],
+	)
+}
+
+func TestSetNodeStatusSkipsUnchangedStatus(t *testing.T) {
+	t.Parallel()
+
+	sp := preparedProfile()
+	existing := newStatusClient(t, sp, nil).statusObj(secprofnodestatusapi.ProfileStateInstalled)
+	base := newFakeClient(t, sp.DeepCopy(), existing)
+	updates := 0
+
+	c := interceptor.NewClient(base, interceptor.Funcs{
+		Update: func(
+			ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.UpdateOption,
+		) error {
+			updates++
+
+			return cl.Update(ctx, obj, opts...)
+		},
+		SubResourceUpdate: func(
+			ctx context.Context, cl client.Client, sub string, obj client.Object,
+			opts ...client.SubResourceUpdateOption,
+		) error {
+			updates++
+
+			return cl.SubResource(sub).Update(ctx, obj, opts...)
+		},
+	})
+
+	sc := newStatusClient(t, sp, c)
+	require.NoError(
+		t,
+		sc.SetNodeStatus(context.Background(), secprofnodestatusapi.ProfileStateInstalled),
+	)
+	require.Zero(t, updates)
 }
