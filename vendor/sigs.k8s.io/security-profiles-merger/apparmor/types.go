@@ -59,6 +59,12 @@ type AllowedProtocols struct {
 }
 
 // CapabilityRules defines which Linux capabilities are permitted.
+//
+// Names are compared case-insensitively, and the merge functions return them
+// upper-cased ("CHOWN", "NET_ADMIN"). apparmor_parser accepts capability
+// names in lower case only, so a consumer rendering these as
+// "capability <name>," rules must lower-case each name first; written as the
+// merge returns them, the profile does not load.
 type CapabilityRules struct {
 	AllowedCapabilities []string `json:"allowedCapabilities,omitempty"`
 }

@@ -23,22 +23,26 @@ import (
 	"sigs.k8s.io/security-profiles-merger/spm"
 )
 
-// ErrDuplicateKey, ErrUnknownField, ErrInvalidUTF8 and ErrUnexpectedData are
-// returned by UnmarshalStrict for a document encoding/json would decode
-// without a word: one repeating a member, holding a member no field reads,
-// holding a byte the decoder replaces, or followed by more data. See the spm
-// package for each.
+// ErrDuplicateKey, ErrUnknownField, ErrMisspelledField, ErrInvalidUTF8 and
+// ErrUnexpectedData are returned by UnmarshalStrict for a document
+// encoding/json would decode without a word: one repeating a member, holding
+// a member no field reads, holding a member that names a field only ignoring
+// case, holding a byte the decoder replaces, or followed by more data. See
+// the spm package for each.
 var (
-	ErrDuplicateKey   = spm.ErrDuplicateKey
-	ErrUnknownField   = spm.ErrUnknownField
-	ErrInvalidUTF8    = spm.ErrInvalidUTF8
-	ErrUnexpectedData = spm.ErrUnexpectedData
+	ErrDuplicateKey    = spm.ErrDuplicateKey
+	ErrUnknownField    = spm.ErrUnknownField
+	ErrMisspelledField = spm.ErrMisspelledField
+	ErrInvalidUTF8     = spm.ErrInvalidUTF8
+	ErrUnexpectedData  = spm.ErrUnexpectedData
 )
 
 // UnmarshalStrict decodes a seccomp profile and rejects what encoding/json accepts
-// silently: members the profile type has no field for, members repeated
-// within one object, bytes that are not valid UTF-8, and data behind the
-// profile.
+// silently: members the profile type has no field for, members that name a
+// field only ignoring case, members repeated within one object, bytes that
+// are not valid UTF-8, data behind the profile, and a document that is not
+// a JSON object, such as null. Its error messages are bounded in length,
+// however long the literals the document quotes.
 //
 // Each loses something a reader of an untrusted profile must not lose. A
 // misspelled or unknown member drops the rule it was meant to carry. A
@@ -46,11 +50,13 @@ var (
 // elsewhere, so a scanner and the runtime can read one document as two
 // profiles. A byte that is not valid UTF-8 is replaced with U+FFFD, so
 // names that differ only there decode alike and merge into one rule. Use
-// this instead of json.Unmarshal wherever the document comes from somewhere
-// else, and validate the result with ValidateArtifact afterwards.
+// this instead of json.Unmarshal for an artifact, and validate the result
+// with ValidateArtifact afterwards.
 //
-// The profile is decoded into as json.Unmarshal decodes into it, so pass a
-// zero profile: a member the document omits keeps the value it had.
+// The document is decoded into a fresh profile, which replaces the one
+// given only when decoding succeeds: a member the document omits is zero in
+// the result, whatever the given profile held, and an error leaves it as it
+// was.
 func UnmarshalStrict(data []byte, profile *specs.LinuxSeccomp) error {
 	if profile == nil {
 		return ErrNilProfile

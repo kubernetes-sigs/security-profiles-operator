@@ -25,15 +25,18 @@ import (
 
 // FormatProfile returns a human-readable representation of an AppArmor profile.
 func FormatProfile(profile *Profile) string {
-	if profile == nil {
-		return "Profile{<nil>}"
-	}
-
 	return profile.String()
 }
 
-// String returns a human-readable representation of the profile.
-func (p Profile) String() string {
+// String returns a human-readable representation of the profile, or
+// "Profile{<nil>}" for a nil profile, as FormatProfile does. The receiver is
+// a pointer so that calling String on a nil profile reports it rather than
+// panicking.
+func (p *Profile) String() string {
+	if p == nil {
+		return "Profile{<nil>}"
+	}
+
 	var parts []string
 
 	if p.Executable != nil {

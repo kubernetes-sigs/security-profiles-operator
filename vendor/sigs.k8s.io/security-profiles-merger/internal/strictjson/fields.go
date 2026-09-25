@@ -176,21 +176,76 @@ func decoderFieldName(err error) (string, bool) {
 // report every one. Members are matched to fields the way encoding/json
 // does: by the exact JSON name first, case-insensitively otherwise.
 func UnknownFields(raw []byte, target reflect.Type) ([]string, int) {
-	var document any
+	found := walkFields(raw, target)
 
-	err := json.Unmarshal(raw, &document)
-	if err != nil {
+	return found.unknown.paths, found.unknown.omitted
+}
+
+// MisspelledFieldsOf reports the members of raw whose name matches a field
+// of T only ignoring case, such as "Syscalls" or "\u017fyscalls" for
+// "syscalls". encoding/json fills the field from such a member, while a
+// reader that compares names exactly, as a C runtime does, drops it: the
+// two read different rules from one document. Neither DisallowUnknownFields
+// nor UnknownFieldsOf objects to one, since the decoder knows the field.
+//
+// Enumerating them costs what UnknownFieldsOf's walk costs, so a scan of the
+// member names runs first and the walk only follows when a name could be a
+// misspelling of some field of T.
+func MisspelledFieldsOf[T any](raw []byte) ([]string, int) {
+	target := reflect.TypeFor[T]()
+	if !mayMisspell(raw, fieldSpellings(target)) {
 		return nil, 0
 	}
 
-	var found pathCollector
+	found := walkFields(raw, target)
+
+	return found.misspelled.paths, found.misspelled.omitted
+}
+
+// HasField reports whether a member of the given name fills a field of the
+// struct type target, matched the way encoding/json matches it: exactly or
+// ignoring case.
+func HasField(target reflect.Type, name string) bool {
+	for target.Kind() == reflect.Pointer {
+		target = target.Elem()
+	}
+
+	if target.Kind() != reflect.Struct {
+		return false
+	}
+
+	_, known, _ := jsonFields(target).lookup(name)
+
+	return known
+}
+
+// fieldFindings are the members a walk of a document found wanting.
+type fieldFindings struct {
+	// unknown holds the members no field reads.
+	unknown pathCollector
+	// misspelled holds the members a field reads only ignoring case.
+	misspelled pathCollector
+}
+
+// walkFields walks a document against the target type. A document that is
+// not valid JSON yields no findings; it is the decoder's to refuse.
+func walkFields(raw []byte, target reflect.Type) *fieldFindings {
+	var (
+		document any
+		found    fieldFindings
+	)
+
+	err := json.Unmarshal(raw, &document)
+	if err != nil {
+		return &found
+	}
 
 	walkUnknownFields(document, target, "", &found)
 
-	return found.paths, found.omitted
+	return &found
 }
 
-func walkUnknownFields(value any, typ reflect.Type, prefix string, found *pathCollector) {
+func walkUnknownFields(value any, typ reflect.Type, prefix string, found *fieldFindings) {
 	for typ.Kind() == reflect.Pointer {
 		typ = typ.Elem()
 	}
@@ -210,7 +265,7 @@ func walkUnknownFields(value any, typ reflect.Type, prefix string, found *pathCo
 	}
 }
 
-func walkSliceItems(value any, typ reflect.Type, prefix string, found *pathCollector) {
+func walkSliceItems(value any, typ reflect.Type, prefix string, found *fieldFindings) {
 	// []byte and json.RawMessage take any JSON value.
 	if typ.Elem().Kind() == reflect.Uint8 {
 		return
@@ -226,7 +281,7 @@ func walkSliceItems(value any, typ reflect.Type, prefix string, found *pathColle
 	}
 }
 
-func walkMapValues(value any, typ reflect.Type, prefix string, found *pathCollector) {
+func walkMapValues(value any, typ reflect.Type, prefix string, found *fieldFindings) {
 	object, ok := value.(map[string]any)
 	if !ok {
 		return
@@ -237,7 +292,7 @@ func walkMapValues(value any, typ reflect.Type, prefix string, found *pathCollec
 	}
 }
 
-func walkStructFields(value any, typ reflect.Type, prefix string, found *pathCollector) {
+func walkStructFields(value any, typ reflect.Type, prefix string, found *fieldFindings) {
 	object, ok := value.(map[string]any)
 	if !ok {
 		return
@@ -246,14 +301,107 @@ func walkStructFields(value any, typ reflect.Type, prefix string, found *pathCol
 	fields := jsonFields(typ)
 
 	for _, key := range slices.Sorted(maps.Keys(object)) {
-		fieldType, known := fields.lookup(key)
+		fieldType, known, exact := fields.lookup(key)
 		if !known {
-			found.add(joinFieldPath(prefix, key))
+			found.unknown.add(joinFieldPath(prefix, key))
 
 			continue
 		}
 
+		// The decoder reads the member, so what it holds is walked like
+		// any other; the name itself is what another reader drops.
+		if !exact {
+			found.misspelled.add(joinFieldPath(prefix, key))
+		}
+
 		walkUnknownFields(object[key], fieldType, joinFieldPath(prefix, key), found)
+	}
+}
+
+// fieldSpelling is how the fields of a type graph spell one folded name.
+type fieldSpelling struct {
+	// name is the spelling of the first field found with the folded name.
+	name string
+	// several reports whether fields of different structs spell it
+	// differently, in which case any member with the folded name may be a
+	// misspelling of one of them.
+	several bool
+}
+
+// fieldSpellings maps the folded name of every field of every struct type
+// reachable from target to how those fields spell it.
+func fieldSpellings(target reflect.Type) map[string]fieldSpelling {
+	spellings := map[string]fieldSpelling{}
+	seen := map[reflect.Type]bool{}
+	pending := []reflect.Type{target}
+
+	for len(pending) > 0 {
+		typ := elementType(pending[len(pending)-1])
+		pending = pending[:len(pending)-1]
+
+		if typ.Kind() != reflect.Struct || seen[typ] {
+			continue
+		}
+
+		seen[typ] = true
+
+		for name, fieldType := range jsonFields(typ).exact {
+			addSpelling(spellings, name)
+
+			pending = append(pending, fieldType)
+		}
+	}
+
+	return spellings
+}
+
+// elementType returns the type a value of typ holds its members in: the
+// type itself, or the element type of a pointer, slice, array or map.
+func elementType(typ reflect.Type) reflect.Type {
+	for typ.Kind() == reflect.Pointer || typ.Kind() == reflect.Slice ||
+		typ.Kind() == reflect.Array || typ.Kind() == reflect.Map {
+		typ = typ.Elem()
+	}
+
+	return typ
+}
+
+// addSpelling records how a field spells its folded name.
+func addSpelling(spellings map[string]fieldSpelling, name string) {
+	folded := foldName(name)
+
+	spelling, exists := spellings[folded]
+	if !exists {
+		spellings[folded] = fieldSpelling{name: name, several: false}
+	} else if spelling.name != name {
+		spellings[folded] = fieldSpelling{name: spelling.name, several: true}
+	}
+}
+
+// mayMisspell reports whether raw holds a string that folds to the name of
+// a field but is not spelled the way every such field spells it. A member
+// the walk would report as misspelled is such a string, so a document
+// without one needs no walk. String values are scanned as well as member
+// names, which only costs a walk the document did not need.
+func mayMisspell(raw []byte, spellings map[string]fieldSpelling) bool {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			return false
+		}
+
+		text, isString := token.(string)
+		if !isString {
+			continue
+		}
+
+		spelling, exists := spellings[foldName(text)]
+		if exists && (spelling.several || spelling.name != text) {
+			return true
+		}
 	}
 }
 
@@ -308,14 +456,16 @@ type fieldSet struct {
 	folded map[string]reflect.Type
 }
 
-func (set fieldSet) lookup(key string) (reflect.Type, bool) {
+// lookup returns the type of the field a member fills, whether one does,
+// and whether the member names it exactly rather than only ignoring case.
+func (set fieldSet) lookup(key string) (reflect.Type, bool, bool) {
 	if fieldType, ok := set.exact[key]; ok {
-		return fieldType, true
+		return fieldType, true, true
 	}
 
 	fieldType, ok := set.folded[foldName(key)]
 
-	return fieldType, ok
+	return fieldType, ok, false
 }
 
 // jsonFields collects the JSON-visible fields of a struct type, including

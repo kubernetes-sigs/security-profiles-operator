@@ -10,6 +10,10 @@ updates:
     - "release-note-none"
     - "ok-to-test"
   open-pull-requests-limit: 10
+  ignore:
+    # Newer releases moved to cel.dev/cel-go, which Dependabot cannot follow.
+    # Switch together with the Kubernetes libraries.
+    - dependency-name: "github.com/google/cel-go"
   groups:
     kubernetes:
       patterns:

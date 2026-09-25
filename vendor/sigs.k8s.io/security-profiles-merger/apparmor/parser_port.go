@@ -251,6 +251,76 @@ func filterSlashes(path string) string {
 	return builder.String()
 }
 
+// filterRawSlashes collapses repeated slashes in a path as written, before
+// its escape sequences are resolved, so that the result means to the parser
+// what the path does. The parser resolves escapes first and filters slashes
+// after (see decodeEscapes and filterSlashes), so an escape denoting "/", as
+// in `\x2f`, `\057` or `\d047`, counts as a slash of the run it borders:
+// `///\x2fetc` names "/etc", not "//etc". Each run keeps its first slash as
+// written and drops the rest, and a leading run of exactly two slashes is
+// kept whole, as filterSlashes does. Other escapes are left as written.
+func filterRawSlashes(path string) string {
+	if strings.IndexByte(path, '\\') < 0 {
+		return filterSlashes(path)
+	}
+
+	units := rawUnits(path)
+
+	var builder strings.Builder
+
+	builder.Grow(len(path))
+
+	start := 0
+
+	if len(units) >= 2 && units[0].slash && units[1].slash &&
+		(len(units) == 2 || !units[2].slash) {
+		builder.WriteString(path[:units[1].end])
+
+		start = 2
+	}
+
+	seenSlash := false
+
+	for _, current := range units[start:] {
+		if !current.slash || !seenSlash {
+			builder.WriteString(path[current.start:current.end])
+		}
+
+		seenSlash = current.slash
+	}
+
+	return builder.String()
+}
+
+// rawUnit is a part of a path as written that decodeEscapes turns into one
+// piece of its result: an escape sequence it resolves, or a single byte.
+type rawUnit struct {
+	start, end int
+	// slash reports that the unit denotes "/".
+	slash bool
+}
+
+// rawUnits splits a path into the units decodeEscapes reads it as.
+func rawUnits(path string) []rawUnit {
+	units := make([]rawUnit, 0, len(path))
+
+	for pos := 0; pos < len(path); {
+		if path[pos] == '\\' && pos+1 < len(path) {
+			if val, end, ok := escapeSequence(path, pos+1, ""); ok {
+				units = append(units, rawUnit{start: pos, end: end, slash: val == '/'})
+				pos = end
+
+				continue
+			}
+		}
+
+		units = append(units, rawUnit{start: pos, end: pos + 1, slash: path[pos] == '/'})
+		pos++
+	}
+
+	return units
+}
+
 // conversion is the result of convertPattern.
 type conversion struct {
 	// regex is the pattern in libapparmor_re syntax.

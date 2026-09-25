@@ -14,7 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package merge provides shared utilities for security profile merge operations.
+// Package merge holds what the three profile packages and the command share
+// beyond the public spm package: the generic merge primitives (Fold and the
+// slice helpers), the bounds on error reports (JoinLimited, BoundedError,
+// QuoteBounded) and the quoting of profile values for output (SafeText,
+// SafeName).
 package merge
 
 import (

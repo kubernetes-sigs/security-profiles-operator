@@ -32,7 +32,9 @@ import (
 
 // ProfileDiff describes the differences between two seccomp profiles.
 type ProfileDiff struct {
-	// Equal is true when the two profiles are identical.
+	// Equal is true when the two profiles load the same filter, compared in
+	// the normalized form Diff describes, even where they are spelled
+	// differently.
 	Equal bool `json:"equal"`
 
 	// DefaultAction is set when the default actions differ.
@@ -57,7 +59,8 @@ type ProfileDiff struct {
 	Syscalls *SyscallsDiff `json:"syscalls,omitempty"`
 }
 
-// IsEqual returns whether the two compared profiles are identical.
+// IsEqual reports Equal: whether the two profiles compare equal in the
+// normalized form Diff describes.
 func (d ProfileDiff) IsEqual() bool { return d.Equal }
 
 // ActionDiff represents a change in seccomp action.
@@ -111,30 +114,26 @@ type SyscallDetail struct {
 	Args     []specs.LinuxSeccompArg  `json:"args,omitempty"`
 }
 
-// Diff compares two seccomp profiles and returns a structured diff.
-// Unlike Intersect and Union, Diff does not validate profiles before comparing.
+// Diff compares two seccomp profiles by the rules a runtime loads from them
+// and returns a structured diff. Unlike Intersect and Union, it does not
+// validate the profiles. It returns ErrNilProfile if either profile is nil.
 //
-// Profiles are compared by the rules a runtime loads from them, as described
-// for Intersect: entries equal to the profile default are ignored, an
-// unconditional entry hides the conditional entries for its syscall and the
-// first one wins, several conditions on one argument index are alternatives,
-// conditions compare as libseccomp evaluates them, exact duplicates are
-// dropped, and SCMP_ACT_KILL_THREAD equals SCMP_ACT_KILL. Errno values are
-// compared the way runtimes apply them: an unset errnoRet on SCMP_ACT_ERRNO
-// or SCMP_ACT_TRACE equals EPERM, and errnoRet on any other action is
-// ignored. The diff reports entries in that form, with EPERM spelled as
-// unset. Rules are not rewritten beyond that: two rules with the same filter
-// and different results both remain, as does a rule that libseccomp's order
-// of evaluation never reaches. A profile and its merge result therefore
-// compare equal when the merge kept every syscall in its loaded form, and
-// Diff(p, Intersect(p)) reports exactly the syscalls whose rules Intersect
-// collapsed because they do not form a safe shape.
+// Entries are normalized as a merge reads them: entries equal to the
+// profile default are ignored, an unconditional entry hides the conditional
+// entries for its syscall, conditions compare as libseccomp evaluates them,
+// exact duplicates are dropped, and errno values and SCMP_ACT_KILL_THREAD
+// are canonicalized. Rules are not rewritten beyond that, so
+// Diff(p, Intersect(p)) reports exactly what Intersect settled. Diff does
+// not check whether libseccomp accepts the rules: two profiles holding the
+// same rules in a different order compare equal although a runtime may
+// load only one of them. A syscall past the read budget is compared by the
+// entries that load it rather than by its rules.
+//
 // Architectures are compared with the architecture of the running program
-// (see NativeArchitecture) implied on both sides, as runtimes always cover
-// the native one. A profile destined for another architecture therefore
-// compares differently here than it would on the target node; use
-// DiffForArch to name that architecture explicitly.
-// Returns ErrNilProfile if either profile is nil.
+// (see NativeArchitecture) implied on both sides, so a profile destined for
+// another architecture compares differently here than on the target node;
+// use DiffForArch to name that architecture. See the Diff section of the
+// package documentation.
 func Diff(left, right *specs.LinuxSeccomp) (*ProfileDiff, error) {
 	native, ok := NativeArchitecture()
 	if !ok {
@@ -196,18 +195,124 @@ func DiffForArch(
 //
 // This function does not validate its inputs.
 func DiffSyscalls(left, right []specs.LinuxSyscall) *SyscallsDiff {
-	return diffSyscallMaps(buildSyscallMap(left, nil), buildSyscallMap(right, nil))
+	return diffSyscallLists(left, right, nil, nil)
+}
+
+// diffSyscallLists compares two syscall lists by the rules a runtime loads
+// from them and returns nil when they are equal. leftDef and rightDef are
+// the profile defaults, or nil for bare lists.
+//
+// A syscall read in summarized form on either side (see collectRules) is
+// listed by the two clauses a collapse could pick rather than by its rules,
+// and two different rule sets can share those. Such a syscall is compared by
+// the entries that load its rules instead, which costs one pass over the
+// lists: it is equal only where both sides load the same rules from entries
+// in the same order.
+func diffSyscallLists(left, right []specs.LinuxSyscall, leftDef, rightDef *clause) *SyscallsDiff {
+	summarized := summarizedNames(left, leftDef)
+	for name := range summarizedNames(right, rightDef) {
+		if summarized == nil {
+			summarized = make(map[string]bool)
+		}
+
+		summarized[name] = true
+	}
+
+	var leftLoaded, rightLoaded map[string][]string
+	if len(summarized) > 0 {
+		leftLoaded = loadedEntryKeys(left, leftDef, summarized)
+		rightLoaded = loadedEntryKeys(right, rightDef, summarized)
+	}
+
+	return diffSyscallMaps(
+		buildSyscallMap(left, leftDef), buildSyscallMap(right, rightDef),
+		func(name string) (bool, bool) {
+			if !summarized[name] {
+				return false, false
+			}
+
+			return true, slices.Equal(leftLoaded[name], rightLoaded[name])
+		},
+	)
+}
+
+// loadedEntryKeys returns, for every syscall in only, a key per entry that
+// loads rules for it, in entry order and without exact repeats, which add
+// nothing at load time. Two lists with the same keys for a syscall load the
+// same rules for it in the same order.
+func loadedEntryKeys(
+	syscalls []specs.LinuxSyscall, def *clause, only map[string]bool,
+) map[string][]string {
+	keys := make(map[string][]string)
+	seen := make(map[string]map[string]struct{})
+
+	for idx := range syscalls {
+		entry := &syscalls[idx]
+		if !slices.ContainsFunc(entry.Names, func(name string) bool { return only[name] }) {
+			continue
+		}
+
+		key := loadedEntryKey(entry, def)
+		if key == "" {
+			continue
+		}
+
+		for _, name := range entry.Names {
+			if !only[name] {
+				continue
+			}
+
+			byKey, ok := seen[name]
+			if !ok {
+				byKey = make(map[string]struct{})
+				seen[name] = byKey
+			}
+
+			if _, dup := byKey[key]; dup {
+				continue
+			}
+
+			byKey[key] = struct{}{}
+			keys[name] = append(keys[name], key)
+		}
+	}
+
+	return keys
+}
+
+// loadedEntryKey formats the rules one entry loads for each of its names,
+// or returns "" when it loads none. Every clause key is prefixed with its
+// length, since Diff does not validate and an action may hold any byte.
+func loadedEntryKey(entry *specs.LinuxSyscall, def *clause) string {
+	var builder strings.Builder
+
+	for _, next := range entryClauses(entry) {
+		if def != nil && next.sameResult(*def) {
+			continue
+		}
+
+		key := clauseKey(next)
+		builder.WriteString(strconv.Itoa(len(key)))
+		builder.WriteByte(':')
+		builder.WriteString(key)
+	}
+
+	return builder.String()
 }
 
 // diffSyscallMaps compares two per-name entry maps and returns nil when
-// they are equal.
-func diffSyscallMaps(leftMap, rightMap map[string][]SyscallEntry) *SyscallsDiff {
+// they are equal. decided reports for a syscall whether its entries are
+// compared some other way, and if so whether they are equal.
+func diffSyscallMaps(
+	leftMap, rightMap map[string][]SyscallEntry,
+	decided func(name string) (bool, bool),
+) *SyscallsDiff {
 	var result SyscallsDiff
 
 	leftNames := slices.Sorted(maps.Keys(leftMap))
 	collectRemovedSyscalls(&result, leftNames, leftMap, rightMap)
 	collectAddedSyscalls(&result, slices.Sorted(maps.Keys(rightMap)), leftMap, rightMap)
-	collectChangedSyscalls(&result, leftNames, leftMap, rightMap)
+	collectChangedSyscalls(&result, leftNames, leftMap, rightMap, decided)
 
 	if len(result.Added) == 0 &&
 		len(result.Removed) == 0 &&
@@ -319,9 +424,8 @@ func diffListener(
 func diffSyscallEntries(
 	diff *ProfileDiff, left, right *specs.LinuxSeccomp,
 ) {
-	syscallsDiff := diffSyscallMaps(
-		buildSyscallMap(left.Syscalls, defaultClause(left)),
-		buildSyscallMap(right.Syscalls, defaultClause(right)),
+	syscallsDiff := diffSyscallLists(
+		left.Syscalls, right.Syscalls, defaultClause(left), defaultClause(right),
 	)
 	if syscallsDiff != nil {
 		diff.Equal = false
@@ -357,6 +461,7 @@ func collectChangedSyscalls(
 	syscallsDiff *SyscallsDiff,
 	names []string,
 	leftMap, rightMap map[string][]SyscallEntry,
+	decided func(name string) (bool, bool),
 ) {
 	for _, name := range names {
 		leftEntries := leftMap[name]
@@ -366,7 +471,14 @@ func collectChangedSyscalls(
 			continue
 		}
 
-		if !equalSyscallEntrySlices(leftEntries, rightEntries) {
+		var equal bool
+		if done, same := decided(name); done {
+			equal = same
+		} else {
+			equal = equalSyscallEntrySlices(leftEntries, rightEntries)
+		}
+
+		if !equal {
 			syscallsDiff.Changed = append(syscallsDiff.Changed, SyscallChange{
 				Name:  name,
 				Left:  entriesToDetails(leftEntries),

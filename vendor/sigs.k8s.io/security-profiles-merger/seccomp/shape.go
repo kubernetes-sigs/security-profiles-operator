@@ -18,6 +18,7 @@ package seccomp
 
 import (
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -177,6 +178,18 @@ func uniformResult(clauses []clause) bool {
 	}
 
 	return !shared.intersects(&wide)
+}
+
+// wideClause reports whether a clause compares an argument against a value
+// or mask above 32 bits, which libseccomp truncates on 32-bit architectures.
+// Clause arguments are canonical, so a valueTwo outside the mask of a
+// SCMP_CMP_MASKED_EQ has already been cleared.
+func wideClause(current clause) bool {
+	return slices.ContainsFunc(current.args, wideArg)
+}
+
+func wideArg(arg specs.LinuxSeccompArg) bool {
+	return arg.Value > lower32 || arg.ValueTwo > lower32
 }
 
 func isRangeOp(op specs.LinuxSeccompOperator) bool {
