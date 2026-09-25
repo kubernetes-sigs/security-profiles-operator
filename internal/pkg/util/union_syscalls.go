@@ -22,9 +22,10 @@ import (
 	seccompprofile "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 )
 
+// UnionSyscalls merges two lists of syscalls into one.
 func UnionSyscalls(
 	syscalls, appliedSyscalls []seccompprofile.Syscall,
-) []seccompprofile.Syscall {
+) ([]seccompprofile.Syscall, error) {
 	left := syscallsToOCI(syscalls)
 	right := syscallsToOCI(appliedSyscalls)
 	merged := seccomp.UnionSyscalls(left, right)

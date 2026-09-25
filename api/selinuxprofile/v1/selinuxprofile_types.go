@@ -83,7 +83,9 @@ type SelinuxProfileSpec struct {
 	// +optional
 	// +default="Enforcing"
 	Mode SelinuxMode `json:"mode,omitempty"`
-	// allow defines the allow policy for the profile.
+	// allow defines the allow policy for the profile. It maps SELinux types
+	// (or "@self" for the profile's own type) to object classes and their
+	// permissions.
 	// +optional
 	Allow Allow `json:"allow,omitempty"`
 }
@@ -100,9 +102,15 @@ func (ock ObjectClassKey) String() string {
 	return string(ock)
 }
 
+// PermissionSet is a list of SELinux permissions.
+// +kubebuilder:validation:items:Pattern=`^[-a-zA-Z0-9._]+$`
 type PermissionSet []string
 
 // Allow defines the allow policy for the profile.
+//
+// +kubebuilder:validation:XValidation:rule="self.all(k, k.matches('^([-a-zA-Z0-9._]+|@self)$'))",message="types may only contain alphanumeric characters, '.', '-' and '_', or be '@self'"
+//
+//nolint:lll // CEL rules cannot be wrapped
 type Allow map[LabelKey]map[ObjectClassKey]PermissionSet
 
 func SortLabelKeys(allow Allow) []LabelKey {
@@ -146,6 +154,7 @@ type SelinuxProfileStatus struct {
 // +kubebuilder:resource:path=selinuxprofiles,scope=Cluster
 // +kubebuilder:printcolumn:name="Usage",type="string",JSONPath=`.status.usage`
 // +kubebuilder:printcolumn:name="State",type="string",JSONPath=`.status.status`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 type SelinuxProfile struct {
 	metav1.TypeMeta `json:",inline"`
 	// metadata contains the object metadata.
@@ -157,7 +166,7 @@ type SelinuxProfile struct {
 	Spec SelinuxProfileSpec `json:"spec,omitempty"`
 	// status contains the observed state of the SelinuxProfile.
 	// +optional
-	Status SelinuxProfileStatus `json:"status,omitempty"`
+	Status SelinuxProfileStatus `json:"status,omitzero"`
 }
 
 func (sp *SelinuxProfile) GetStatusBase() *profilebasev1.StatusBase {

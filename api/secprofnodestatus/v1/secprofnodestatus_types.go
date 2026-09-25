@@ -119,14 +119,17 @@ type SecurityProfileNodeStatus struct {
 	Spec SecurityProfileNodeStatusSpec `json:"spec,omitzero"`
 	// status contains the observed state of the SecurityProfileNodeStatus.
 	// +optional
-	Status SecurityProfileNodeStatusStatus `json:"status,omitempty"`
+	Status SecurityProfileNodeStatusStatus `json:"status,omitzero"`
 }
 
 // SecurityProfileNodeStatusSpec defines the desired state of SecurityProfileNodeStatus.
 type SecurityProfileNodeStatusSpec struct {
 	// nodeName is the name of the node on which the profile is installed.
+	// It cannot be changed after creation.
 	// +required
 	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="nodeName is immutable"
 	NodeName string `json:"nodeName,omitempty"`
 }
 

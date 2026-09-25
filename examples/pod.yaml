@@ -5,9 +5,10 @@ metadata:
 spec:
   containers:
   - name: test-container
-    # Use the seccomp field for Kubernetes versions > v1.19.0
-    # securityContext:
-      # seccompProfile:
-        # type: Localhost
-        # localhostProfile: operator/nginx-1.23.2.json
     image: nginx:1.23.2
+    securityContext:
+      seccompProfile:
+        type: Localhost
+        # Installed from the profile-complain-unsafe SeccompProfile of
+        # examples/seccompprofile.yaml.
+        localhostProfile: operator/profile-complain-unsafe.json

@@ -1,4 +1,4 @@
-[Installation and Usage](installation-usage.md) | [Installation](installation.md) | [Profiles](profiles.md) | [CLI](cli.md) | [Metrics](metrics.md) | **Troubleshooting**
+[Documentation](README.md) | [Installation](installation.md) | [Profiles](profiles.md) | [CLI](cli.md) | [Metrics](metrics.md) | **Troubleshooting**
 
 <!-- toc -->
 - [Troubleshooting](#troubleshooting)
@@ -13,32 +13,51 @@
 
 ## Troubleshooting
 
-Confirm that the profile is being reconciled:
+Confirm that the profile is installed. The operator aggregates the state of
+every node into the profile status:
 
 ```sh
-$ kubectl -n security-profiles-operator logs security-profiles-operator-mzw9t
-I1019 19:34:14.942464       1 main.go:90] setup "msg"="starting security-profiles-operator" ...
-I1019 19:34:15.348389       1 listener.go:44] controller-runtime/metrics "msg"="metrics server is starting to listen"  "addr"=":8080"
-I1019 19:34:15.349076       1 main.go:126] setup "msg"="starting manager"
-I1019 19:34:15.349449       1 internal.go:391] controller-runtime/manager "msg"="starting metrics server"  "path"="/metrics"
-I1019 19:34:15.450674       1 controller.go:149] controller "msg"="Starting Controller" "controller"="profile" "reconcilerGroup"="security-profiles-operator.x-k8s.io" "reconcilerKind"="SeccompProfile"
-I1019 19:34:15.450757       1 controller.go:176] controller "msg"="Starting workers" "controller"="profile" "reconcilerGroup"="security-profiles-operator.x-k8s.io" "reconcilerKind"="SeccompProfile" "worker count"=1
-I1019 19:34:15.453102       1 profile.go:148] profile "msg"="Reconciled profile from SeccompProfile" "namespace"="security-profiles-operator" "profile"="nginx-1.19.1" "name"="nginx-1.19.1" "resource version"="728"
+$ kubectl get seccompprofiles
+NAME            STATUS      AGE
+profile-block   Installed   2m
 ```
 
-Confirm that the seccomp profiles are saved into the correct path:
+The state of each node is available from the `SecurityProfileNodeStatus`
+objects, which also point to the node that failed if the profile is not
+installed everywhere:
 
 ```sh
-$ kubectl exec -t -n security-profiles-operator security-profiles-operator-v6p2h -- ls /var/lib/kubelet/seccomp/operator/my-workload
+$ kubectl get securityprofilenodestatuses -o wide
+NAME                            STATUS      AGE   NODE
+profile-block-node-1            Installed   2m    node-1
+```
+
+The events of the profile carry the error message of a failed installation:
+
+```sh
+kubectl describe seccompprofile profile-block
+```
+
+The `spod` daemon installs the profiles on each node, so its logs show how
+the profile got reconciled:
+
+```sh
+kubectl -n security-profiles-operator logs ds/spod -c security-profiles-operator
+```
+
+Seccomp profiles are cluster scoped and the daemon writes them to
+`/var/lib/kubelet/seccomp/operator` on every node. Confirm that the profile
+files exist:
+
+```sh
+$ kubectl -n security-profiles-operator exec ds/spod -c security-profiles-operator -- ls /var/lib/kubelet/seccomp/operator
 profile-block.json
 profile-complain.json
 ```
 
-Please note corrupted seccomp profiles can disrupt your workloads. Therefore, ensure that the user used cannot be abused by:
-
-- Not creating that user on the actual node.
-- Restricting the user ID to only security-profiles-operator (for example, using [Pod Security Standards](https://kubernetes.io/docs/concepts/security/pod-security-standards/)).
-- Not allowing other workloads to map any part of the path `/var/lib/kubelet/seccomp/operator`.
+Please note that corrupted seccomp profiles can disrupt your workloads.
+Therefore, do not allow other workloads to write to any part of the path
+`/var/lib/kubelet/seccomp/operator` on the nodes.
 
 ### The operator runs but no `spod` DaemonSet appears
 
@@ -91,14 +110,14 @@ The containers of the daemon should now indicate that it's serving the profiling
 endpoint, where every container is using a different port:
 
 ```
-> k logs --selector name=spod -c security-profiles-operator | grep "Starting profiling"
-I1202 15:14:40.276363 2185724 main.go:226]  "msg"="Starting profiling server"  "endpoint"="localhost:6060"
+> kubectl -n security-profiles-operator logs --selector name=spod -c security-profiles-operator | grep "Starting profiling"
+I1202 15:14:40.276363 2185724 main.go:226]  "msg"="Starting profiling server"  "endpoint"=":6060"
 
-> k logs --selector name=spod -c log-enricher | grep "Starting profiling"
-I1202 15:14:40.364046 2185814 main.go:226]  "msg"="Starting profiling server"  "endpoint"="localhost:6061"
+> kubectl -n security-profiles-operator logs --selector name=spod -c log-enricher | grep "Starting profiling"
+I1202 15:14:40.364046 2185814 main.go:226]  "msg"="Starting profiling server"  "endpoint"=":6061"
 
-> k logs --selector name=spod -c bpf-recorder | grep "Starting profiling"
-I1202 15:14:40.457506 2185914 main.go:226]  "msg"="Starting profiling server"  "endpoint"="localhost:6062"
+> kubectl -n security-profiles-operator logs --selector name=spod -c bpf-recorder | grep "Starting profiling"
+I1202 15:14:40.457506 2185914 main.go:226]  "msg"="Starting profiling server"  "endpoint"=":6062"
 ```
 
 Then use the pprof tool to look at the heap profile:
@@ -124,16 +143,17 @@ go tool pprof /tmp/heap.selinuxd
 ```
 
 For a study of the facility in action, please visit:
-https://blog.golang.org/2011/06/profiling-go-programs.html
+https://go.dev/blog/pprof
 
 ### Use a custom `/proc` location for nested environments like `kind`
 
 The operator configuration supports specifying a custom `/proc` location, which
 is required for the container ID retrieval of the log-enricher as well as the
-bpf-recorder. To use a custom path for `/proc`, just patch the spod accordingly:
+bpf-recorder. The path has to be `/proc` or a directory below it, for example
+`/proc/host`. To use a custom path for `/proc`, patch the spod accordingly:
 
 ```
-kubectl patch spod spod --type=merge -p '{"spec":{"hostProcVolumePath":"/my-proc"}}'
+kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"hostProcVolumePath":"/proc/host"}}'
 ```
 
 ### Notes on OpenShift and SCCs
@@ -208,7 +228,7 @@ runAsUser:
 seLinuxContext:
   type: MustRunAs
   seLinuxOptions:
-    type: test-selinux-recording-nginx-0_nginx-secure.process
+    type: test-selinux-recording-nginx-0.process
 supplementalGroups:
   type: RunAsAny
 users:
@@ -224,9 +244,8 @@ volumes:
 
 Please note that a common mistake when creating custom SCCs is to bind them to a wide range of users or SAs
 through the `group` attribute, e.g. the `system:authenticated` group. Make sure your SCC is only usable by
-the serviceAccount it is supposed to be used by. Please refer to the [OCP documentation](https://docs.openshift.com/container-platform/4.9/authentication/managing-security-context-constraints.html)
-or [this Red Hat blog post](https://cloud.redhat.com/blog/managing-sccs-in-openshift) for more information
-on managing SCCs.
+the serviceAccount it is supposed to be used by. Please refer to the [OpenShift documentation on managing SCCs](https://docs.redhat.com/en/documentation/openshift_container_platform/4.19/html/authentication_and_authorization/managing-pod-security-policies)
+for more information.
 
 Then we create the appropriate role:
 
@@ -278,9 +297,31 @@ running with the appropriate profile.
 
 ## Uninstalling
 
-To uninstall, remove the profiles before removing the rest of the operator:
+To uninstall, remove the bindings, recordings and profiles before removing the
+rest of the operator, so that the operator can remove the installed profiles
+from the nodes:
 
 ```sh
-$ kubectl delete seccompprofiles --all
-$ kubectl delete -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/main/deploy/operator.yaml
+kubectl delete profilebindings --all --all-namespaces
+kubectl delete profilerecordings --all --all-namespaces
+kubectl delete seccompprofiles --all
+kubectl delete selinuxprofiles --all
+kubectl delete rawselinuxprofiles --all
+kubectl delete apparmorprofiles --all
+```
+
+Profiles that are still used by running pods are only removed once those pods
+are gone. Then remove the operator with the manifest it was installed from,
+where `VERSION` is the installed release version, for example `1.1.0`:
+
+```sh
+kubectl delete -f "https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/v${VERSION}/deploy/operator.yaml"
+```
+
+For Helm and OLM installations, use `helm uninstall` or remove the
+`Subscription` and `ClusterServiceVersion` instead. Neither removes the CRDs,
+which can be deleted afterwards if no profiles should be kept:
+
+```sh
+kubectl get crds -o name | grep security-profiles-operator.x-k8s.io | xargs kubectl delete
 ```

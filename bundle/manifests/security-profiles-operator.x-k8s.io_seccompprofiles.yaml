@@ -126,6 +126,7 @@ spec:
                 description: |-
                   listenerPath is the path of UNIX domain socket to contact a seccomp
                   agent for SCMP_ACT_NOTIFY.
+                maxLength: 107
                 pattern: ^/var/run/security-profiles-operator/[a-zA-Z0-9_\-\.]+$
                 type: string
               state:
@@ -173,6 +174,7 @@ spec:
                             description: index is the index for syscall arguments
                               in seccomp.
                             format: int32
+                            maximum: 5
                             minimum: 0
                             type: integer
                           op:
@@ -196,8 +198,9 @@ spec:
                             minimum: 0
                             type: integer
                           valueTwo:
-                            description: valueTwo is the second value for syscall
-                              arguments in seccomp.
+                            description: |-
+                              valueTwo is the second value for syscall arguments in seccomp. It is
+                              only used by the SCMP_CMP_MASKED_EQ operator.
                             format: int64
                             minimum: 0
                             type: integer
@@ -212,7 +215,8 @@ spec:
                       description: |-
                         errnoRet is the errno return code to use. Some actions like
                         SCMP_ACT_ERRNO and SCMP_ACT_TRACE allow to specify the errno
-                        code to return.
+                        code to return. A value of 0 is treated like an unset field, so the
+                        container runtime returns EPERM.
                       format: int32
                       maximum: 4095
                       minimum: 0

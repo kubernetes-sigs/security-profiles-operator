@@ -43,7 +43,7 @@ The `spoc` binaries, their SBOM and the Helm chart archive on the release page
 are built on GitHub Actions and meet [SLSA Build L3][slsa-l3]. The build jobs
 hold no signing identity and no write access. They only pass the digests of
 their outputs to the isolated reusable
-[`provenance`](.github/workflows/provenance.yml) workflow, which generates and
+[`provenance`](../.github/workflows/provenance.yml) workflow, which generates and
 signs the provenance as a [GitHub artifact attestation][attestations]. Separate
 jobs that run no repository code sign the artifacts and attach them to the
 release.
@@ -75,7 +75,7 @@ a build are attached to the staging images and are not copied to
 
 ## Command line binaries
 
-`spoc` is built and signed by the [`build`](.github/workflows/build.yml)
+`spoc` is built and signed by the [`build`](../.github/workflows/build.yml)
 workflow for `amd64`, `arm64`, `ppc64le` and `s390x`. Download the binary, its
 signature and the provenance from the [release page][releases], then verify
 both, here for `amd64`:
@@ -118,7 +118,7 @@ provenance:
 ## Helm chart
 
 The chart archive attached to the release is signed by the
-[`helm-chart-package`](.github/workflows/helm-chart-package.yaml) workflow:
+[`helm-chart-package`](../.github/workflows/helm-chart-package.yaml) workflow:
 
 ```console
 > cosign verify-blob \

@@ -1,4 +1,4 @@
-[Installation and Usage](installation-usage.md) | [Installation](installation.md) | **Profiles** | [CLI](cli.md) | [Metrics](metrics.md) | [Troubleshooting](troubleshooting.md)
+[Documentation](README.md) | [Installation](installation.md) | **Profiles** | [CLI](cli.md) | [Metrics](metrics.md) | [Troubleshooting](troubleshooting.md)
 
 <!-- toc -->
 - [Create and Install Security Profiles](#create-and-install-security-profiles)
@@ -388,7 +388,7 @@ This log format and the configuration is similar to how Kubernetes itself record
 - Tracking when someone uses commands like kubectl exec to get into a running container and run commands or scripts.
 - Monitoring activities in debug containers where users might run various tools.
 
-For a complete walkthrough of configuring audit logging, see the [Audit Logging Guide](doc/audit-logging-guide.md).
+For a complete walkthrough of configuring audit logging, see the [Audit Logging Guide](audit-logging-guide.md).
 
 To start using this feature, you need to have the Security Profiles Operator installed in your Kubernetes cluster.
 Once it's installed, you can enable the JSON log enricher with this command:
@@ -396,6 +396,11 @@ Once it's installed, you can enable the JSON log enricher with this command:
 ```sh
 kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enricher":{"enableJsonEnricher":true}}}'
 ```
+
+Alternatively, make sure the operator deployment sets the `ENABLE_JSON_ENRICHER`
+variable to `true`, either by setting the environment variable in the deployment or
+by enabling the variable through a `Subscription` resource, when installing the
+operator using OLM.
 
 The audit JSON log enricher uses eBPF as a supplemental data source. While processing auditd logs from
 `/var/log/audit/audit.log`, the enricher attempts to fetch ephemeral data from `/proc/<pid>` directories. Due to a
@@ -488,7 +493,7 @@ To enable audit logging for a single pod, follow these steps:
 
    Create a file (e.g., profile1.yaml) with the following content:
 
-   ```shell
+   ```yaml
    apiVersion: security-profiles-operator.x-k8s.io/v1
    kind: SeccompProfile
    metadata:
@@ -1109,7 +1114,7 @@ kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{
 An example of the minimum required syscalls for a runtime such as
 [runc](https://github.com/opencontainers/runc) (tested on version 1.0.0) to
 launch a container can be found in [the
-examples](./examples/baseprofile-runc.yaml). You can use this example as a
+examples](../examples/baseprofile-runc.yaml). You can use this example as a
 starting point for creating custom profiles for your application. You can also
 programmatically combine it with your custom profiles in order to build
 application-specific profiles that only specify syscalls that are required on
@@ -1131,7 +1136,7 @@ spec:
 
 If you're not using runc but the alternative
 [crun](https://github.com/containers/crun), then you can do the same by using
-the [corresponding example profile](./examples/baseprofile-crun.yaml) (tested
+the [corresponding example profile](../examples/baseprofile-crun.yaml) (tested
 with version 1.30).
 
 #### Recording profiles without applying them

@@ -63,8 +63,15 @@ const (
 )
 
 // ProfileRecordingSpec defines the desired state of ProfileRecording.
+//
+// +kubebuilder:validation:XValidation:rule="self.kind != 'SelinuxProfile' || self.recorder == 'Logs'",message="SelinuxProfile recordings only support the Logs recorder"
+// +kubebuilder:validation:XValidation:rule="self.kind != 'AppArmorProfile' || self.recorder == 'Bpf'",message="AppArmorProfile recordings only support the Bpf recorder"
+//
+//nolint:lll // CEL rules cannot be wrapped
 type ProfileRecordingSpec struct {
-	// kind specifies the type of object to be recorded.
+	// kind specifies the type of object to be recorded. SelinuxProfile
+	// recordings require the Logs recorder and AppArmorProfile recordings
+	// require the Bpf recorder.
 	// +required
 	// +kubebuilder:validation:Enum=SeccompProfile;SelinuxProfile;AppArmorProfile
 	Kind ProfileRecordingKind `json:"kind,omitempty"`
@@ -92,6 +99,7 @@ type ProfileRecordingSpec struct {
 	// in the pod.
 	// +optional
 	// +listType=set
+	// +kubebuilder:validation:items:MaxLength=63
 	Containers []string `json:"containers,omitempty"`
 
 	// disableProfileAfterRecording indicates whether the profile should be
@@ -116,6 +124,9 @@ type ProfileRecordingStatus struct {
 // ProfileRecording is the Schema for the profilerecordings API.
 // +kubebuilder:storageversion
 // +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Kind",type=string,JSONPath=`.spec.kind`
+// +kubebuilder:printcolumn:name="Recorder",type=string,JSONPath=`.spec.recorder`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 // +kubebuilder:printcolumn:name="PodSelector",type=string,priority=10,JSONPath=`.spec.podSelector`
 type ProfileRecording struct {
 	metav1.TypeMeta `json:",inline"`
@@ -128,7 +139,7 @@ type ProfileRecording struct {
 	Spec ProfileRecordingSpec `json:"spec,omitzero"`
 	// status contains the observed state of the ProfileRecording.
 	// +optional
-	Status ProfileRecordingStatus `json:"status,omitempty"`
+	Status ProfileRecordingStatus `json:"status,omitzero"`
 }
 
 func (pr *ProfileRecording) CtrAnnotation(ctrName string) (key, value string, err error) {

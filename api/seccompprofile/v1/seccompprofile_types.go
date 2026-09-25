@@ -95,6 +95,7 @@ type SeccompProfileSpec struct {
 	// listenerPath is the path of UNIX domain socket to contact a seccomp
 	// agent for SCMP_ACT_NOTIFY.
 	// +optional
+	// +kubebuilder:validation:MaxLength=107
 	// +kubebuilder:validation:Pattern=`^/var/run/security-profiles-operator/[a-zA-Z0-9_\-\.]+$`
 	ListenerPath string `json:"listenerPath,omitempty"`
 	// listenerMetadata contains opaque data to pass to the seccomp agent.
@@ -143,7 +144,8 @@ type Syscall struct {
 	Action Action `json:"action,omitempty"`
 	// errnoRet is the errno return code to use. Some actions like
 	// SCMP_ACT_ERRNO and SCMP_ACT_TRACE allow to specify the errno
-	// code to return.
+	// code to return. A value of 0 is treated like an unset field, so the
+	// container runtime returns EPERM.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=4095
@@ -160,12 +162,14 @@ type Arg struct {
 	// index is the index for syscall arguments in seccomp.
 	// +required
 	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=5
 	Index *int32 `json:"index,omitempty"`
 	// value is the value for syscall arguments in seccomp.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	Value int64 `json:"value,omitempty"`
-	// valueTwo is the second value for syscall arguments in seccomp.
+	// valueTwo is the second value for syscall arguments in seccomp. It is
+	// only used by the SCMP_CMP_MASKED_EQ operator.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	ValueTwo int64 `json:"valueTwo,omitempty"`
@@ -216,7 +220,7 @@ type SeccompProfile struct {
 	Spec SeccompProfileSpec `json:"spec,omitzero"`
 	// status contains the observed state of the SeccompProfile.
 	// +optional
-	Status SeccompProfileStatus `json:"status,omitempty"`
+	Status SeccompProfileStatus `json:"status,omitzero"`
 }
 
 func (sp *SeccompProfile) GetStatusBase() *profilebasev1.StatusBase {

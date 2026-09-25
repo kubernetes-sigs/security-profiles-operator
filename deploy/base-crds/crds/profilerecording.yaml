@@ -14,6 +14,15 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
+    - jsonPath: .spec.kind
+      name: Kind
+      type: string
+    - jsonPath: .spec.recorder
+      name: Recorder
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
     - jsonPath: .spec.podSelector
       name: PodSelector
       priority: 10
@@ -49,6 +58,7 @@ spec:
                   only specific containers to record instead of all containers present
                   in the pod.
                 items:
+                  maxLength: 63
                   type: string
                 type: array
                 x-kubernetes-list-type: set
@@ -61,7 +71,10 @@ spec:
                   for all profiles might not be needed. Defaults to false.
                 type: boolean
               kind:
-                description: kind specifies the type of object to be recorded.
+                description: |-
+                  kind specifies the type of object to be recorded. SelinuxProfile
+                  recordings require the Logs recorder and AppArmorProfile recordings
+                  require the Bpf recorder.
                 enum:
                 - SeccompProfile
                 - SelinuxProfile
@@ -136,6 +149,11 @@ spec:
             - podSelector
             - recorder
             type: object
+            x-kubernetes-validations:
+            - message: SelinuxProfile recordings only support the Logs recorder
+              rule: self.kind != 'SelinuxProfile' || self.recorder == 'Logs'
+            - message: AppArmorProfile recordings only support the Bpf recorder
+              rule: self.kind != 'AppArmorProfile' || self.recorder == 'Bpf'
           status:
             description: status contains the observed state of the ProfileRecording.
             properties:

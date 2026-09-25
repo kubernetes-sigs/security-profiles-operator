@@ -37,10 +37,12 @@ type AppArmorExecutablesRules struct {
 	// allowedExecutables is a list of allowed executables.
 	// +optional
 	// +listType=set
+	// +kubebuilder:validation:items:Pattern=`^(?:/[a-zA-Z0-9_./*?+@{} -]*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$`
 	AllowedExecutables []string `json:"allowedExecutables,omitempty"`
 	// allowedLibraries is a list of allowed libraries.
 	// +optional
 	// +listType=set
+	// +kubebuilder:validation:items:Pattern=`^(?:/[a-zA-Z0-9_./*?+@{} -]*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$`
 	AllowedLibraries []string `json:"allowedLibraries,omitempty"`
 }
 
@@ -49,14 +51,17 @@ type AppArmorFsRules struct {
 	// readOnlyPaths is a list of allowed read only file paths.
 	// +optional
 	// +listType=set
+	// +kubebuilder:validation:items:Pattern=`^(?:/[a-zA-Z0-9_./*?+@{} -]*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$`
 	ReadOnlyPaths []string `json:"readOnlyPaths,omitempty"`
 	// writeOnlyPaths is a list of allowed write only file paths.
 	// +optional
 	// +listType=set
+	// +kubebuilder:validation:items:Pattern=`^(?:/[a-zA-Z0-9_./*?+@{} -]*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$`
 	WriteOnlyPaths []string `json:"writeOnlyPaths,omitempty"`
 	// readWritePaths is a list of allowed read write file paths.
 	// +optional
 	// +listType=set
+	// +kubebuilder:validation:items:Pattern=`^(?:/[a-zA-Z0-9_./*?+@{} -]*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$`
 	ReadWritePaths []string `json:"readWritePaths,omitempty"`
 }
 
@@ -82,9 +87,12 @@ type AppArmorNetworkRules struct {
 
 // AppArmorCapabilityRules stores the rules of allowed Linux capabilities.
 type AppArmorCapabilityRules struct {
-	// allowedCapabilities is a list of allowed capabilities.
+	// allowedCapabilities is a list of allowed capabilities, written in
+	// lower case without the "CAP_" prefix, for example "net_bind_service".
 	// +optional
 	// +listType=set
+	//nolint:lll // the capability pattern cannot be wrapped
+	// +kubebuilder:validation:items:Pattern=`^\s*(?i:chown|dac_override|dac_read_search|fowner|fsetid|kill|setgid|setuid|setpcap|linux_immutable|net_bind_service|net_broadcast|net_admin|net_raw|ipc_lock|ipc_owner|sys_module|sys_rawio|sys_chroot|sys_ptrace|sys_pacct|sys_admin|sys_boot|sys_nice|sys_resource|sys_time|sys_tty_config|mknod|lease|audit_write|audit_control|setfcap|mac_override|mac_admin|syslog|wake_alarm|block_suspend|audit_read|perfmon|bpf|checkpoint_restore)\s*$`
 	AllowedCapabilities []string `json:"allowedCapabilities,omitempty"`
 }
 
@@ -143,6 +151,7 @@ type AppArmorProfileStatus struct {
 // +kubebuilder:resource:shortName=aa,scope=Cluster
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Status",type="string",JSONPath=`.status.status`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 type AppArmorProfile struct {
 	metav1.TypeMeta `json:",inline"`
 	// metadata contains the object metadata.
@@ -154,7 +163,7 @@ type AppArmorProfile struct {
 	Spec AppArmorProfileSpec `json:"spec,omitempty"`
 	// status contains the observed state of the AppArmor profile.
 	// +optional
-	Status AppArmorProfileStatus `json:"status,omitempty"`
+	Status AppArmorProfileStatus `json:"status,omitzero"`
 }
 
 func (sp *AppArmorProfile) GetStatusBase() *profilebasev1.StatusBase {

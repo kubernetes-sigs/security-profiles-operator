@@ -31,7 +31,7 @@ We have full documentation on how to get started contributing here:
 - [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl/) version v1.30+.
 - Access to a Kubernetes v1.30+ cluster.
 
-For detailed development setup and build instructions, see [hacking.md](hacking.md).
+For detailed development setup and build instructions, see [hacking.md](doc/hacking.md).
 
 ## Contributing steps
 
@@ -54,7 +54,7 @@ Following the targets that can be used to test your changes locally.
 | make verify                 | Run all verification checks                  | yes                  |
 
 CI also scans the built images with trivy. If a vulnerability check fails, see
-[vulnerability checks and assessments](hacking.md#vulnerability-checks-and-assessments).
+[vulnerability checks and assessments](doc/hacking.md#vulnerability-checks-and-assessments).
 
 ## Where the CI Tests are configured
 

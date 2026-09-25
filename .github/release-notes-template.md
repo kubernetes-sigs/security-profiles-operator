@@ -1,7 +1,7 @@
 <!--
 Template for the hand-written part of a GitHub release body. Copy everything
 below the line into the release, replace VERSION, write the summary paragraph,
-and let GitHub generate the changelog underneath. See release.md.
+and let GitHub generate the changelog underneath. See doc/release.md.
 -->
 
 ---
@@ -29,7 +29,7 @@ for the container images, the binaries, the SBOM and the helm chart.
 Feel free to provide us any kind of feedback in the official [Kubernetes Slack
 #security-profiles-operator channel][slack].
 
-[docs]: https://github.com/kubernetes-sigs/security-profiles-operator/blob/VERSION/installation-usage.md
-[helm]: https://github.com/kubernetes-sigs/security-profiles-operator/blob/VERSION/installation.md#installation-using-helm
-[verification]: https://github.com/kubernetes-sigs/security-profiles-operator/blob/VERSION/verification.md
+[docs]: https://github.com/kubernetes-sigs/security-profiles-operator/blob/VERSION/doc/README.md
+[helm]: https://github.com/kubernetes-sigs/security-profiles-operator/blob/VERSION/doc/installation.md#installation-using-helm
+[verification]: https://github.com/kubernetes-sigs/security-profiles-operator/blob/VERSION/doc/verification.md
 [slack]: https://kubernetes.slack.com/messages/security-profiles-operator

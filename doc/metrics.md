@@ -1,4 +1,4 @@
-[Installation and Usage](installation-usage.md) | [Installation](installation.md) | [Profiles](profiles.md) | [CLI](cli.md) | **Metrics** | [Troubleshooting](troubleshooting.md)
+[Documentation](README.md) | [Installation](installation.md) | [Profiles](profiles.md) | [CLI](cli.md) | **Metrics** | [Troubleshooting](troubleshooting.md)
 
 <!-- toc -->
 - [Metrics](#metrics)
@@ -204,8 +204,8 @@ Forwarding from 127.0.0.1:9090 -> 9090
 Forwarding from [::1]:9090 -> 9090
 ```
 
-![prometheus targets](doc/img/prometheus-targets.png)
+![prometheus targets](img/prometheus-targets.png)
 
 The OpenShift UI is now able to display the operator metrics, too:
 
-![prometheus targets](doc/img/openshift-metrics.png)
+![prometheus targets](img/openshift-metrics.png)

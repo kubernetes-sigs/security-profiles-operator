@@ -13,7 +13,20 @@ spec:
     singular: profilebinding
   scope: Namespaced
   versions:
-  - name: v1
+  - additionalPrinterColumns:
+    - jsonPath: .spec.profileRef.kind
+      name: Kind
+      type: string
+    - jsonPath: .spec.profileRef.name
+      name: Profile
+      type: string
+    - jsonPath: .spec.image
+      name: Image
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1
     schema:
       openAPIV3Schema:
         description: ProfileBinding is the Schema for the profilebindings API.
@@ -94,8 +107,9 @@ spec:
                 type: object
                 x-kubernetes-map-type: atomic
               profileRef:
-                description: profileRef references a SeccompProfile or other profile
-                  type in the current namespace.
+                description: |-
+                  profileRef references the cluster-scoped SeccompProfile, SelinuxProfile
+                  or AppArmorProfile to bind.
                 properties:
                   kind:
                     description: kind specifies the type of object to be bound.
@@ -105,8 +119,9 @@ spec:
                     - AppArmorProfile
                     type: string
                   name:
-                    description: name is the name of the profile within the current
-                      namespace to which to bind the selected pods.
+                    description: name is the name of the cluster-scoped profile to
+                      bind the selected pods to.
+                    maxLength: 253
                     minLength: 1
                     type: string
                 required:

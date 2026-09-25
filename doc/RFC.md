@@ -1,6 +1,9 @@
 **Note:** This RFC is a historical document from the initial proposal of the
-Security Profiles Operator. All features described here have been implemented.
-For current usage and configuration, refer to the [installation](installation.md) and [profiles](profiles.md) documentation.
+Security Profiles Operator. Most of the features described here have been
+implemented, but some details changed since then. For example, the operator no
+longer watches the `seccomp.security.alpha.kubernetes.io` annotations, which
+Kubernetes removed in favor of the `seccompProfile` field of the security
+context. For current usage and configuration, refer to the [installation](installation.md) and [profiles](profiles.md) documentation.
 
 # Summary
 

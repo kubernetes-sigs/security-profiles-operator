@@ -1,4 +1,4 @@
-[Installation and Usage](installation-usage.md) | [Installation](installation.md) | [Profiles](profiles.md) | **CLI** | [Metrics](metrics.md) | [Troubleshooting](troubleshooting.md)
+[Documentation](README.md) | [Installation](installation.md) | [Profiles](profiles.md) | **CLI** | [Metrics](metrics.md) | [Troubleshooting](troubleshooting.md)
 
 <!-- toc -->
 - [Command Line Interface (CLI)](#command-line-interface-cli)
@@ -64,7 +64,9 @@ GLOBAL OPTIONS:
    --version, -v  print the version
 ```
 
-Every command documents its flags via `spoc <command> --help`.
+Every command documents its flags via `spoc <command> --help`. `spoc version`
+prints detailed version information, and `spoc version --json` / `-j` prints it
+as JSON.
 
 The released binaries are signed and have SLSA build provenance. See
 [verifying the released artifacts](verification.md#command-line-binaries) for
@@ -107,7 +109,6 @@ spec:
         - access
         - …
         - write
-status: {}
 ```
 
 The output file path can be specified as well by using `spoc record
@@ -150,13 +151,25 @@ raw-seccomp`. The other supported types are `apparmor`, `raw-apparmor` and
 All commands are interruptible by using Ctrl^C, while `spoc record` will still
 write the resulting seccomp profile after process terminating.
 
+`spoc record` drops the privileges of `sudo` when starting the command, so
+that the command runs as the user who invoked `sudo`. Use `--privileged` to
+run the command with the privileges of `spoc` instead. With `--no-proc-start`,
+`spoc record` does not start a command at all, but records all processes
+matching the command name until it gets interrupted by Ctrl^C or `SIGINT`. This
+is useful for processes which are started by another tool, like a service
+manager:
+
+```console
+> sudo spoc record --no-proc-start my-daemon
+```
+
 ### Run commands with seccomp profiles
 
 If we now want to test the resulting profile, then `spoc` is able to run any
 command by using seccomp profiles via `spoc run`:
 
 ```console
-> sudo spoc run -p /tmp/profile.yaml echo test
+> sudo spoc run -p /tmp/profile.json echo test
 2023/03/10 10:20:00 Reading file /tmp/profile.json
 2023/03/10 10:20:00 Setting up seccomp
 2023/03/10 10:20:00 Load seccomp profile
@@ -169,6 +182,10 @@ If we now modify the profile, for example by forbidding `chmod`:
 ```console
 > jq 'del(.syscalls[0].names[] | select(. | contains("chmod")))' /tmp/profile.json > /tmp/profile-chmod.json
 ```
+
+`spoc run` reads raw JSON profiles if the file name ends with `.json`, and
+`SeccompProfile` CRDs in YAML otherwise. The `--type` / `-t` flag selects the
+profile type, which is `seccomp`, the only supported type for now.
 
 Then running `chmod` via `spoc run` will now throw an error, because the syscall
 is not allowed any more:
@@ -256,6 +273,15 @@ The profile can be now found in `/tmp/profile.yaml` or the specified output file
 `--output-file` / `-o`. If username and password authentication is required,
 either use the `--username`, `-u` flag or export the `USERNAME` environment
 variable. To set the password, export the `PASSWORD` environment variable.
+
+`spoc pull` verifies the signature of the artifact. The signer can be
+restricted with `--allowed-identity-regexp` / `-i` (or the
+`ALLOWED_IDENTITIES_REGEXP` environment variable) and
+`--allowed-oidc-issuer-regexp` (or `ALLOWED_OIDC_ISSUER_REGEXP`), see
+[verifying the released artifacts](verification.md) for the values of the
+official profiles. The verification can be disabled with
+`--disable-signature-verification` / `-s` (or
+`DISABLE_SIGNATURE_VERIFICATION`).
 
 ### Push security profiles to OCI registries
 

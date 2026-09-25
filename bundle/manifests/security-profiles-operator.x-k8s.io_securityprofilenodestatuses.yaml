@@ -56,10 +56,15 @@ spec:
             description: spec defines the desired state of the SecurityProfileNodeStatus.
             properties:
               nodeName:
-                description: nodeName is the name of the node on which the profile
-                  is installed.
+                description: |-
+                  nodeName is the name of the node on which the profile is installed.
+                  It cannot be changed after creation.
+                maxLength: 253
                 minLength: 1
                 type: string
+                x-kubernetes-validations:
+                - message: nodeName is immutable
+                  rule: self == oldSelf
             required:
             - nodeName
             type: object

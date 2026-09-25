@@ -23,6 +23,9 @@ spec:
     - jsonPath: .status.status
       name: State
       type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
     name: v1
     schema:
       openAPIV3Schema:
@@ -51,12 +54,21 @@ spec:
               allow:
                 additionalProperties:
                   additionalProperties:
+                    description: PermissionSet is a list of SELinux permissions.
                     items:
+                      pattern: ^[-a-zA-Z0-9._]+$
                       type: string
                     type: array
                   type: object
-                description: allow defines the allow policy for the profile.
+                description: |-
+                  allow defines the allow policy for the profile. It maps SELinux types
+                  (or "@self" for the profile's own type) to object classes and their
+                  permissions.
                 type: object
+                x-kubernetes-validations:
+                - message: types may only contain alphanumeric characters, '.', '-'
+                    and '_', or be '@self'
+                  rule: self.all(k, k.matches('^([-a-zA-Z0-9._]+|@self)$'))
               inherit:
                 default:
                 - kind: System

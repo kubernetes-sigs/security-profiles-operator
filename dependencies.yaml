@@ -107,7 +107,7 @@ dependencies:
     refPaths:
     - path: test/e2e_test.go
       match: cert-manager/cert-manager
-    - path: installation.md
+    - path: doc/installation.md
       match: cert-manager/cert-manager
     - path: hack/ci/e2e-olm.sh
       match: cert-manager/cert-manager
@@ -131,6 +131,20 @@ dependencies:
       match: KIND_IMG_TAG
     - path: .github/workflows/test.yml
       match: KIND_IMG_TAG
+
+  - name: minimum-kubernetes
+    version: 1.30
+    refPaths:
+    - path: deploy/helm/Chart.yaml
+      match: "^kubeVersion:"
+    - path: doc/installation.md
+      match: "The operator requires Kubernetes v"
+    - path: CONTRIBUTING.md
+      match: "Access to a Kubernetes v"
+    - path: CONTRIBUTING.md
+      match: "kubectl.*version v"
+    - path: deploy/base/clusterserviceversion.yaml
+      match: "minKubeVersion:"
 
   - name: e2e-kubernetes
     version: 1.37
@@ -231,9 +245,9 @@ dependencies:
     refPaths:
     - path: examples/baseprofile-runc.yaml
       match: "name: runc"
-    - path: profiles.md
+    - path: doc/profiles.md
       match: "baseProfileName: runc-"
-    - path: profiles.md
+    - path: doc/profiles.md
       match: "base/runc:"
     - path: hack/ci/kubernix-overlay.nix
       match: "runcVersion ="

@@ -1,7 +1,8 @@
-[Installation and Usage](installation-usage.md) | **Installation** | [Profiles](profiles.md) | [CLI](cli.md) | [Metrics](metrics.md) | [Troubleshooting](troubleshooting.md)
+[Documentation](README.md) | **Installation** | [Profiles](profiles.md) | [CLI](cli.md) | [Metrics](metrics.md) | [Troubleshooting](troubleshooting.md)
 
 <!-- toc -->
 - [Install Operator](#install-operator)
+  - [Requirements](#requirements)
   - [Installation using OLM from operatorhub.io](#installation-using-olm-from-operatorhubio)
     - [OpenShift](#openshift)
     - [Other Kubernetes distributions](#other-kubernetes-distributions)
@@ -9,6 +10,7 @@
   - [Installation using helm](#installation-using-helm)
     - [Troubleshooting and maintenance](#troubleshooting-and-maintenance)
   - [Installation on AKS](#installation-on-aks)
+- [Upgrading](#upgrading)
 - [Configure Operator](#configure-operator)
   - [Configure a custom kubelet root directory](#configure-a-custom-kubelet-root-directory)
   - [Set a custom priority class name for spod daemon pod](#set-a-custom-priority-class-name-for-spod-daemon-pod)
@@ -28,8 +30,13 @@
 
 ## Install Operator
 
-The operator container image consists of an image manifest which supports the
-architectures `amd64` and `arm64` for now. To deploy the operator, first install
+### Requirements
+
+The operator requires Kubernetes v1.30 or later. The operator container image
+consists of an image manifest which supports the architectures `amd64`,
+`arm64` and `ppc64le`.
+
+To deploy the operator, first install
 cert-manager via `kubectl`, if you're **not** running on
 [OpenShift](https://www.redhat.com/en/technologies/cloud-computing/openshift):
 
@@ -52,7 +59,7 @@ staging registry and are not meant for production use.
 ### Installation using OLM from operatorhub.io
 
 It is also possible to install packages from [operatorhub.io](https://operatorhub.io/operator/security-profiles-operator)
-using [OLM](https://operator-framework.github.io/olm-book/).
+using [OLM](https://olm.operatorframework.io/).
 
 #### OpenShift
 
@@ -67,19 +74,19 @@ metadata:
   namespace: openshift-marketplace
 spec:
   displayName: Community Operators
-  image: quay.io/operator-framework/upstream-community-operators:latest
+  image: quay.io/operatorhubio/catalog:latest
   publisher: OperatorHub.io
   sourceType: grpc
 ```
 
 After that, the Security Profiles Operator should then be installable via OperatorHub.
 
-![openshift installation](doc/img/openshift-install.png)
+![openshift installation](img/openshift-install.png)
 
 #### Other Kubernetes distributions
 
 To install SPO, first make sure that OLM
-itself is [installed](https://operator-framework.github.io/olm-book/docs/install-olm.html). Then install
+itself is [installed](https://olm.operatorframework.io/docs/getting-started/). Then install
 SPO using the provided manifest:
 
 ```sh
@@ -163,7 +170,8 @@ Since v1.1.0, the chart is also published as OCI artifact to
 Note that only the release-attached `.tgz` above can be verified today: the OCI
 chart is packaged separately, so its digest differs from the release archive,
 and its signature and attestations currently stay in the staging registry rather
-than being promoted alongside the artifact (see `release.md`):
+than being promoted alongside the artifact (see
+[staging attestations](release.md#staging-attestations)):
 
 ```shell
 helm install security-profiles-operator --namespace security-profiles-operator \
@@ -174,7 +182,8 @@ helm install security-profiles-operator --namespace security-profiles-operator \
 #### Troubleshooting and maintenance
 
 These CRDs are not templated, but will be installed by default when running a helm install for the chart.
-There is no support at this time for upgrading or deleting CRDs using Helm. [[docs](https://helm.sh/docs/chart_best_practices/custom_resource_definitions/)]
+Helm does not upgrade or delete CRDs [[docs](https://helm.sh/docs/chart_best_practices/custom_resource_definitions/)],
+see [Upgrading](#upgrading) for how to update them.
 
 To remove everything or to do a new installation from scratch be sure to remove them first.
 
@@ -187,7 +196,6 @@ export spo_ns=spo
 
 # WARNING: following command will DELETE every CRD related to this project
 kubectl get crds --no-headers |grep security-profiles-operator |cut -d' ' -f1 |xargs kubectl delete crd
-kubectl get -n $spo_ns crds --no-headers |grep security-profiles-operator |cut -d' ' -f1 |xargs kubectl delete -n $spo_ns crd
 
 # Uninstall the chart release from the namespace
 helm uninstall --namespace $spo_ns security-profiles-operator
@@ -214,6 +222,35 @@ $ kubectl -nsecurity-profiles-operator get spod spod
 NAME   STATE
 spod   Running
 ```
+
+## Upgrading
+
+Read the release notes of every release between the installed one and the
+target release before upgrading. Upgrades from releases before v1.0.0 have to
+go through the latest v1.0.x release first, see the
+[Migration Guide](migration-guide-v1.md).
+
+For installations from the release manifests, apply the manifest of the new
+release, for example:
+
+```sh
+kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/v1.1.0/deploy/operator.yaml
+```
+
+For Helm installations, apply the CRDs of the new release before upgrading the
+chart, because Helm never updates the CRDs of an installed chart. Replace
+`$VERSION` with the target release version, as in the installation
+instructions above:
+
+```shell
+kubectl apply --server-side --force-conflicts -f \
+  "https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/v${VERSION}/deploy/helm/crds/crds.yaml"
+helm upgrade security-profiles-operator --namespace security-profiles-operator \
+  https://github.com/kubernetes-sigs/security-profiles-operator/releases/download/v${VERSION}/security-profiles-operator-${VERSION}.tgz
+```
+
+OLM installations are upgraded by OLM according to the `installPlanApproval`
+of their `Subscription`, including the CRDs.
 
 ## Configure Operator
 
@@ -272,7 +309,7 @@ securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
 The daemon should now indicate that it's using the new logging verbosity:
 
 ```
-> k logs --selector name=spod security-profiles-operator | head -n1
+> kubectl -n security-profiles-operator logs --selector name=spod -c security-profiles-operator | head -n1
 I1111 15:13:16.942837       1 main.go:182]  "msg"="Set logging verbosity to 1"
 ```
 
@@ -294,7 +331,7 @@ securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
 The `ds/spod` should now be updated by the manager with the new SELinux type, and all daemon pods recreated:
 
 ```
- kubectl get ds spod -o yaml | grep unconfined_t -B2
+> kubectl -n security-profiles-operator get ds spod -o yaml | grep unconfined_t -B2
           runAsUser: 65535
           seLinuxOptions:
             type: unconfined_t
@@ -412,9 +449,10 @@ metadata:
 
 ### Restricting to a Single Namespace
 
-The security-profiles-operator can optionally be run to watch SeccompProfiles in
-a single namespace. This is advantageous because it allows for tightening the
-RBAC permissions required by the operator's ServiceAccount. To modify the
+The security-profiles-operator can optionally be restricted to a single
+namespace. The profiles are cluster scoped and not affected by this, but the
+namespaced resources, like `ProfileBinding` and `ProfileRecording` objects and
+the pods they select, are only watched in that namespace. To modify the
 operator deployment to run in a single namespace, use the
 `namespace-operator.yaml` manifest with your namespace of choice:
 
@@ -448,6 +486,8 @@ for more details on tuning the operator's configuration with the `Subscription` 
 
 Both profile binding and profile recording make use of webhooks. Their configuration (an instance of
 `MutatingWebhookConfiguration` CR) is managed by SPO itself and not part of the deployed YAML manifests.
+The mutating webhooks are `binding.spo.io`, `recording.spo.io`, `execmetadata.spo.io` and
+`nodedebuggingpod.spo.io`.
 While the defaults should be acceptable for the majority of users and the webhooks do nothing unless an
 instance of either `ProfileBinding` or `ProfileRecording` exists in a namespace and in addition the
 namespace must be labeled with either `spo.x-k8s.io/enable-binding` or `spo.x-k8s.io/enable-recording`
@@ -462,7 +502,8 @@ if the webhooks had a bug that would prevent them from running at all,
 other namespaces or resources wouldn't be affected.
 
 For example, to set the `binding.spo.io` webhook's configuration to ignore errors as well as restrict it
-to a subset of namespaces labeled with `spo.x-k8s.io/bind-here=true`, create a following patch file:
+to a subset of namespaces labeled with `spo.x-k8s.io/bind-here=true`, create the following patch file
+`/tmp/spod-wh.patch`:
 
 ```yaml
 spec:
@@ -481,7 +522,7 @@ spec:
 And patch the `spod/spod` instance:
 
 ```shell
-$ kubectl -n security-profiles-operator patch spod spod -p $(cat /tmp/spod-wh.patch) --type=merge
+$ kubectl -n security-profiles-operator patch spod spod --patch-file /tmp/spod-wh.patch --type=merge
 ```
 
 To view the resulting `MutatingWebhookConfiguration`, call:
@@ -497,3 +538,9 @@ and its related resources, so `webhook.options` do not apply either.
 
 The Exec Metadata and Node Debugging Pod Metadata Webhook works in conjunction with the JSON Log Enricher. It's enabled only when JSON Log Enricher is
 enabled. For details on its configuration, please refer to the [JSON Log Enricher](profiles.md#audit-json-log-enricher) section.
+
+Next to the mutating webhooks, SPO manages the `spo-validating-webhook-configuration`
+`ValidatingWebhookConfiguration`. Its `rawselinuxprofile-validation.spo.io` webhook
+rejects `RawSelinuxProfile` objects with CIL statements which would affect the
+whole node instead of the profile, like `class`, `role` or `typepermissive`. It uses
+the `Fail` failure policy and cannot be configured with `webhook.options`.

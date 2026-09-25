@@ -53,6 +53,12 @@ In most cases you will need a container image. You can build by running:
 make image
 ```
 
+The default `Dockerfile` builds the operator with nix, which always includes
+eBPF and AppArmor support, so `BPF_ENABLED` and `APPARMOR_ENABLED` have no
+effect on `make image`. `Dockerfile.ubi` builds without both features, unless
+the `BPF_ENABLED=1` and `APPARMOR_ENABLED=1` build arguments are passed to the
+container build directly.
+
 ## Submitting a Pull Request (PR)
 
 Here's the process for contributing your changes:
@@ -65,7 +71,7 @@ Here's the process for contributing your changes:
     * Build a container image of your changes. This ensures your code runs in a kubernetes environment (Ex: OpenShift).
 
 3.  **Verify:**
-    * Run the command `make verify`. This command executes automated checks (like code style) to ensure your changes meet the project's standards. Make sure this command passes without any errors.
+    * Run the command `make verify`. This command executes automated checks (like code style) to ensure your changes meet the project's standards. Make sure this command passes without any errors. The CI also runs `make verify-bpf`, which rebuilds the committed BPF objects, and `make verify-bundle`, which regenerates the OLM bundle. Both are not part of `make verify`, run them when changing the BPF programs or the deployment manifests.
     * If a vulnerability check fails, see [vulnerability checks and assessments](#vulnerability-checks-and-assessments).
 
 4.  **PR Description:**
@@ -81,7 +87,7 @@ Two checks keep known vulnerabilities out:
 - `make verify-vulnerabilities` runs govulncheck on the source and fails when
   the code calls a vulnerable function that has a fixed version upstream.
 - The `operator-image` and `ubi-image` jobs in
-  [`.github/workflows/build.yml`](.github/workflows/build.yml) scan the built
+  [`.github/workflows/build.yml`](../.github/workflows/build.yml) scan the built
   images with trivy and fail on every vulnerability with an available fix,
   including the OS packages of the UBI image.
 
@@ -93,7 +99,7 @@ usually through a Dependabot pull request, resolves that for all pull requests.
 When a check fails, update the affected module or image to the fixed version.
 Only if the vulnerability doesn't affect the operator, for example because the
 vulnerable code is never executed, assess it in the OpenVEX document
-[`.openvex.json`](.openvex.json) in the same pull request:
+[`.openvex.json`](../.openvex.json) in the same pull request:
 
 ```console
 > vexctl add --in-place .openvex.json \
@@ -127,7 +133,7 @@ Neither check fails on `not_affected` or `fixed` statements. Both list the
 assessed findings in their output. A `vulnerable_code_not_present` or
 `component_not_present` statement is ignored with a warning when govulncheck
 observes the vulnerable code again, which needs the symbol table that the
-binaries keep because `LDFLAGS` in the [`Makefile`](Makefile) drops DWARF with
+binaries keep because `LDFLAGS` in the [`Makefile`](../Makefile) drops DWARF with
 `-w` but not the symbols with `-s`. Without it govulncheck can only report
 which vulnerable modules a binary contains, and reports the packages and
 symbols of the advisory rather than the ones in the binary. The staging build
@@ -165,7 +171,7 @@ directly, but through implementing an interface called `impl`:
 ```go
 type Enricher struct {
 	apienricher.UnimplementedEnricherServer
-	impl             impl
+	impl
 	logger           logr.Logger
     ...
 }
@@ -181,14 +187,14 @@ type defaultImpl struct{}
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate
 //counterfeiter:generate . impl
 type impl interface {
-	ListPods(c *kubernetes.Clientset, nodeName string) (*v1.PodList, error)
+	ListPods(ctx context.Context, c kubernetes.Interface, nodeName string) (*v1.PodList, error)
     ...
 }
 
 func (d *defaultImpl) ListPods(
-	c *kubernetes.Clientset, nodeName string,
+	ctx context.Context, c kubernetes.Interface, nodeName string,
 ) (*v1.PodList, error) {
-	return c.CoreV1().Pods("").List(context.TODO(), metav1.ListOptions{
+	return c.CoreV1().Pods("").List(ctx, metav1.ListOptions{
 		FieldSelector: "spec.nodeName=" + nodeName,
 	})
 }
@@ -247,15 +253,15 @@ OpenShift cluster's configuration file, and you need to be successfully logged i
 For convenience, the `Makefile` contains a target called `deploy-openshift-dev` which
 deploys SPO in an OpenShift cluster with the appropriate defaults (SELinux is on by default)
 and the appropriate settings (no cert-manager needed). It should be noted that `deploy-openshift-dev`
-will not enable eBPF and app-armor capabilities (APPARMOR_ENABLED=0, BPF_ENABLED=0).
+builds the image from `Dockerfile.ubi`, which does not include the eBPF and AppArmor support.
 
 If you modify the code and need to push the images to the cluster again, use the
 `push-openshift-dev` Makefile target. Because the targets use the `ImageStream` feature
 of OpenShift, simply pushing the new images will trigger a new rollout of the deployments
 and DaemonSets.
 
-To build the SPO image with eBPF enabled, simply use `BPF_ENABLED=1 make image`, which will compile the image and 
-make it available locally at `localhost/security-profiles-operator:latest`. Once built, you can deploy this pre-built 
+To build the SPO image with eBPF enabled, use `make image`, which builds the image with nix and
+makes it available locally at `localhost/security-profiles-operator:latest`. Once built, you can deploy this pre-built 
 image to OpenShift by running `make deploy-prebuilt-openshift-dev`. Subsequently, if you need to push this locally 
 built image to image registry used by OpenShift, execute `make push-prebuilt-image-openshift-dev`.
 
@@ -264,11 +270,13 @@ At the moment, there's no teardown target provided. At the same time, some
 custom resources, notably the policies themselves use finalizers which prevent
 them from being removed if the operator itself is not running anymore. The
 best way to remove the operator is to remove the policies first, followed
-by removing the deployment:
+by removing the deployment, see [Uninstalling](troubleshooting.md#uninstalling):
 ```shell
 kubectl delete sp --all
 kubectl delete selinuxprofiles --all
-kubectl delete -f deploy/operator.yaml  
+kubectl delete rawselinuxprofiles --all
+kubectl delete apparmorprofiles --all
+kubectl delete -f deploy/operator.yaml
 ```
 
 On OpenShift, delete the OpenShift specific manifest instead after deleting
@@ -276,6 +284,8 @@ the policies:
 ```shell
 oc delete sp --all
 oc delete selinuxprofiles --all
+oc delete rawselinuxprofiles --all
+oc delete apparmorprofiles --all
 oc delete -f deploy/openshift-dev.yaml
 ```
 
@@ -305,7 +315,7 @@ source file:
   - `openshift` - Red Hat OpenShift.
 - `E2E_SKIP_BUILD_IMAGES` - Currently used by OpenShift tests only. By
    default, images are rebuilt before being pushed to the repository.
-   Setting this variable to `false` disables building the images, which
+   Setting this variable to `true` disables building the images, which
    results in faster test iteration.
 - `E2E_SPO_IMAGE` - Set to test a custom image. Depending on the value of
    `E2E_CLUSTER_TYPE`, this variable triggers different behavior:
@@ -357,7 +367,7 @@ because the tests need a kernel with SELinux support. Let's show how
 to run the Fedora-based e2e tests locally and how to debug SPO at
 the same time. Having [vagrant](https://www.vagrantup.com/downloads)
 installed is a prerequisite. This section more-or-less follows the [github CI
-workflow](https://github.com/kubernetes-sigs/security-profiles-operator/blob/main/.github/workflows/test.yml#L68),
+workflow](https://github.com/kubernetes-sigs/security-profiles-operator/blob/main/.github/workflows/test.yml),
 just in greater detail.
 
 Note that the vagrant based tests only rebuild the SPO image if the file
@@ -432,20 +442,17 @@ on a high level, this needs to be done:
 
 ## Building the operator image with support for AppArmor
 
-The AppArmor functionality is conditionally built based on a compilation tag,
-to enable it an environment variable `APPARMOR_ENABLED` must be used and set to
-`true`. By default, this is set to `false`.
-
-Example:
-
-`APPARMOR_ENABLED=true make image`
+The AppArmor functionality is conditionally built based on the `apparmor`
+build tag. Local builds with `make` enable it by default, set
+`APPARMOR_ENABLED=0` to disable it. The image built by `make image` always
+includes the AppArmor support, see [Building SPO locally](#building-spo-locally).
 
 A full process of building, pushing it to a registry and deploying it into a cluster:
 
 ```sh
 export IMAGE=<registry-and-image-name>:<label>
 
-APPARMOR_ENABLED=true make image
+make image
 docker push "${IMAGE}"
 
 make deploy
