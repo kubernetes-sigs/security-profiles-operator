@@ -101,7 +101,8 @@ func (m *Metrics) AuditInc(
 			return fmt.Errorf("record syscalls: %w", err)
 		}
 
-		if r.GetSeccompReq() != nil { //nolint:gocritic
+		switch {
+		case r.GetSeccompReq() != nil:
 			m.IncSeccompProfileAudit(
 				r.GetNode(),
 				r.GetNamespace(),
@@ -109,7 +110,7 @@ func (m *Metrics) AuditInc(
 				r.GetContainer(),
 				r.GetSeccompReq().GetSyscall(),
 			)
-		} else if r.GetSelinuxReq() != nil {
+		case r.GetSelinuxReq() != nil:
 			m.IncSelinuxProfileAudit(
 				r.GetNode(),
 				r.GetNamespace(),
@@ -118,7 +119,7 @@ func (m *Metrics) AuditInc(
 				r.GetSelinuxReq().GetScontext(),
 				r.GetSelinuxReq().GetTcontext(),
 			)
-		} else if r.GetApparmorReq() != nil {
+		case r.GetApparmorReq() != nil:
 			m.IncAppArmorProfileAudit(
 				r.GetNode(),
 				r.GetNamespace(),

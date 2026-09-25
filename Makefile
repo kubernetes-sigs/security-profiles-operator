@@ -33,6 +33,9 @@ OPM_SHA256_darwin_arm64 = 0ce2671c543e637ae24cb98dfeeec1a9554e3955a72c59eb872750
 ZEITGEIST_VERSION = v0.8.0
 MDTOC_VERSION = v1.4.0
 GOVULNCHECK_VERSION = v1.8.0
+GOTESTSUM_VERSION = v1.13.0
+# Runs outside of the module, so it needs no vendoring.
+GOTESTSUM := GOFLAGS= $(GO) run gotest.tools/gotestsum@$(GOTESTSUM_VERSION)
 CI_IMAGE ?= golang:$(shell hack/go-version.sh)
 
 CONTROLLER_GEN_CMD := CGO_LDFLAGS= $(GO) run $(BUILD_FLAGS) -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen
@@ -63,7 +66,6 @@ ARCH ?= $(shell uname -m | \
 	sed 's/aarch64/arm64/' | \
 	sed 's/ppc64le/powerpc/' | \
 	sed 's/mips.*/mips/')
-INCLUDES := -I$(BUILD_DIR)
 
 DATE_FMT = +'%Y-%m-%dT%H:%M:%SZ'
 ifdef SOURCE_DATE_EPOCH
@@ -84,9 +86,9 @@ BPF_ENABLED = 0
 endif
 
 ifneq ($(shell uname -s), Darwin)
-LINT_BUILDTAGS := e2e,netgo,osusergo,seccomp,-tools
+LINT_BUILDTAGS := e2e,netgo,osusergo,seccomp
 else
-LINT_BUILDTAGS := e2e,netgo,osusergo,-tools
+LINT_BUILDTAGS := e2e,netgo,osusergo
 endif
 
 ifneq ($(shell uname -s), Darwin)
@@ -206,7 +208,7 @@ clean: ## Clean the build directory
 $(BUILD_DIR)/kustomize: $(BUILD_DIR)
 	if [ ! -f $@ ]; then \
 		export URL=https://raw.githubusercontent.com/kubernetes-sigs/kustomize && \
-		curl -sfL $$URL/master/hack/install_kustomize.sh \
+		curl -sfL $$URL/kustomize/v$(KUSTOMIZE_VERSION)/hack/install_kustomize.sh \
 			| bash -s $(KUSTOMIZE_VERSION) $(PWD)/$(BUILD_DIR); \
 	fi
 
@@ -286,19 +288,21 @@ nix-spoc: nix-spoc-amd64 nix-spoc-arm64 nix-spoc-ppc64le nix-spoc-s390x ## Build
 # The build workflow signs in a separate job, so that the build steps never
 # hold the signing identity.
 .PHONY: spoc-sign
-spoc-sign: ## Sign the spoc binaries and their SBOM in the build directory
-	$(foreach file,$(SPOC_ARCHES:%=spoc.%) spoc.spdx.json,cosign sign-blob -y $(BUILD_DIR)/$(file) --bundle $(BUILD_DIR)/$(file).sigstore.json &&) true
+spoc-sign: ## Sign the spoc binaries and their SBOMs in the build directory
+	$(foreach file,$(SPOC_ARCHES:%=spoc.%) spoc.spdx.json spoc-native.spdx.json,cosign sign-blob -y $(BUILD_DIR)/$(file) --bundle $(BUILD_DIR)/$(file).sigstore.json &&) true
 
 # bom lists the Go modules from the build information embedded in the
-# binaries, so the SBOM has the versions that were actually built in.
+# binaries, so the SBOM has the versions that were actually built in. The C
+# libraries the binaries link statically come from the nix build inputs.
 .PHONY: spoc-sbom
-spoc-sbom: ## Generate the SBOM for the spoc binaries in the build directory
+spoc-sbom: ## Generate the SBOMs for the spoc binaries in the build directory
 	bom version
 	bom generate \
 		--format spdx3-json \
 		--name spoc \
 		$(foreach arch,$(SPOC_ARCHES),-f $(BUILD_DIR)/spoc.$(arch)) \
 		-o $(BUILD_DIR)/spoc.spdx.json
+	hack/native-sbom.sh spoc-native $(BUILD_DIR)/spoc-native.spdx.json $(SPOC_ARCHES:%=spoc-%)
 
 .PHONY: nix-spoc-amd64
 nix-spoc-amd64: $(BUILD_DIR) ## Build the spoc binary via nix for amd64
@@ -404,7 +408,9 @@ $(BUILD_DIR)/mdtoc: $(BUILD_DIR)
 update-toc: $(BUILD_DIR)/mdtoc ## Update the table of contents for the documentation
 	git grep --name-only '<!-- toc -->' | grep -v Makefile | xargs $(BUILD_DIR)/mdtoc -i
 
-$(BUILD_DIR)/recorder.bpf.o: $(BUILD_DIR) ## Build the BPF module
+# Called by nix/derivation-bpf.nix with ARCH set to the kernel architecture
+# name of the vmlinux directory, use make update-bpf to build them.
+$(BUILD_DIR)/recorder.bpf.o: $(BUILD_DIR)
 	$(CLANG) -g -O2 \
 		-target bpf \
 		-D__TARGET_ARCH_$(ARCH) \
@@ -414,7 +420,7 @@ $(BUILD_DIR)/recorder.bpf.o: $(BUILD_DIR) ## Build the BPF module
 		-o $@
 	$(LLVM_STRIP) -g $@
 
-$(BUILD_DIR)/enricher.bpf.o: $(BUILD_DIR) ## Build the BPF module
+$(BUILD_DIR)/enricher.bpf.o: $(BUILD_DIR)
 	$(CLANG) -g -O2 \
 		-target bpf \
 		-D__TARGET_ARCH_$(ARCH) \
@@ -500,18 +506,24 @@ verify-deployments: deployments ## Verify the generated deployments
 verify-go-lint: $(BUILD_DIR)/golangci-lint-kube-api-linter ## Verify the golang code by linting
 	GL_DEBUG=gocritic $(BUILD_DIR)/golangci-lint-kube-api-linter run --build-tags $(LINT_BUILDTAGS)
 
-$(BUILD_DIR)/golangci-lint:
+# The binaries are versioned, so that a bump of GOLANGCI_LINT_VERSION or
+# .custom-gcl.yml rebuilds them instead of linting with a stale binary.
+GOLANGCI_LINT := $(BUILD_DIR)/golangci-lint-$(GOLANGCI_LINT_VERSION)
+
+$(GOLANGCI_LINT): $(BUILD_DIR)
 	export \
 		VERSION=$(GOLANGCI_LINT_VERSION) \
 		URL=https://raw.githubusercontent.com/golangci/golangci-lint \
-		BINDIR=$(BUILD_DIR) && \
+		BINDIR=$(BUILD_DIR)/golangci-lint-install && \
 	curl -sfL $$URL/$$VERSION/install.sh | sh -s $$VERSION
-	$(BUILD_DIR)/golangci-lint version
+	mv $(BUILD_DIR)/golangci-lint-install/golangci-lint $@
+	rm -rf $(BUILD_DIR)/golangci-lint-install
+	$@ version
 
-$(BUILD_DIR)/golangci-lint-kube-api-linter: $(BUILD_DIR)/golangci-lint
-	CGO_ENABLED=0 GOFLAGS=-mod=mod $(BUILD_DIR)/golangci-lint custom
-	$(BUILD_DIR)/golangci-lint-kube-api-linter version
-	$(BUILD_DIR)/golangci-lint-kube-api-linter linters
+$(BUILD_DIR)/golangci-lint-kube-api-linter: $(GOLANGCI_LINT) .custom-gcl.yml
+	CGO_ENABLED=0 GOFLAGS=-mod=mod $(GOLANGCI_LINT) custom
+	$@ version
+	$@ linters
 
 
 .PHONY: verify-vulnerabilities
@@ -521,6 +533,15 @@ verify-vulnerabilities: ## Verify that no known vulnerability is reachable
 .PHONY: verify-dependencies
 verify-dependencies: $(BUILD_DIR)/zeitgeist ## Verify external dependencies
 	$(BUILD_DIR)/zeitgeist validate --local-only --base-path . --config dependencies.yaml
+
+# Checks the dependencies with an upstream in dependencies.yaml for newer
+# releases, which the local check above does not. Needs GITHUB_TOKEN.
+.PHONY: verify-dependencies-upstream
+verify-dependencies-upstream: $(BUILD_DIR) ## Verify that the external dependencies are up to date
+	GOFLAGS= $(GO) run sigs.k8s.io/zeitgeist/remote/zeitgeist@$(ZEITGEIST_VERSION) \
+		validate --base-path . --config dependencies.yaml > $(BUILD_DIR)/zeitgeist-upstream.log
+	cat $(BUILD_DIR)/zeitgeist-upstream.log
+	! grep -q "^Update available for dependency" $(BUILD_DIR)/zeitgeist-upstream.log
 
 $(BUILD_DIR)/zeitgeist: $(BUILD_DIR)
 	curl -sSfL -o $(BUILD_DIR)/zeitgeist -L \
@@ -543,6 +564,18 @@ verify-proto: update-proto ## Verify the generated GRPC protocol definitions
 verify-bpf: update-bpf ## Verify the generated bpf code
 	hack/tree-status
 
+# go.mod, the Dockerfiles and the workflows derive the Go version from go.mod
+# and dependencies.yaml tracks the pinned copies, but nix brings its own Go
+# with the nixpkgs revision in flake.lock.
+.PHONY: verify-go-version
+verify-go-version: ## Verify that nix builds with the Go version of go.mod
+	@nix_go="$$($(NIX) eval --raw .#default.go.version)" && \
+	go_mod="$$(hack/go-version.sh)" && \
+	if [ "$$nix_go" != "$$go_mod" ]; then \
+		echo "nix builds with Go $$nix_go, but go.mod wants $$go_mod" >&2; \
+		exit 1; \
+	fi
+
 .PHONY: verify-format
 verify-format: ## Verify the code format
 	clang-format -i $(shell find . -type f -name '*.c' -or -name '*.proto' | grep -v ./vendor)
@@ -552,9 +585,6 @@ verify-format: ## Verify the code format
 
 .PHONY: test-unit
 test-unit: $(BUILD_DIR) ## Run the unit tests
-	# remove all coverage files if exists
-	rm -rf *.out
-	# run the go tests and gen the file coverage-all used to do the integration with coverrals.io
 	$(GO) test -ldflags '$(LDVARS)' -tags '$(BUILDTAGS)' -race -v -test.coverprofile=$(BUILD_DIR)/coverage.out ./internal/... ./api/... ./cmd/...
 	$(GO) tool cover -html $(BUILD_DIR)/coverage.out -o $(BUILD_DIR)/coverage.html
 
@@ -564,14 +594,23 @@ test-e2e: ## Run the end-to-end tests
 	E2E_SKIP_FLAKY_TESTS=true \
 	$(GO) test -parallel 1 -timeout 60m -count=1 ./test -v $(ARGS)
 
+# Failed flaky tests get one retry. gotestsum records the retries in the JUnit
+# report, so a test which only passes on retry stays visible. The suite method
+# is selected with -run, since gotestsum appends the package after the go test
+# flags and go test stops parsing packages at the first unknown flag.
 .PHONY: test-flaky-e2e
-test-flaky-e2e: ## Only run the flaky end-to-end tests
+test-flaky-e2e: $(BUILD_DIR) ## Only run the flaky end-to-end tests
 	CGO_LDFLAGS= \
 	E2E_SKIP_FLAKY_TESTS=false \
-	$(GO) test -parallel 1 -timeout 20m -count=1 ./test -v -testify.m '^(TestSecurityProfilesOperator_Flaky)$$'
+	$(GOTESTSUM) \
+		--format standard-verbose \
+		--junitfile $(BUILD_DIR)/junit-flaky-e2e.xml \
+		--packages ./test \
+		--rerun-fails=1 \
+		-- -parallel 1 -timeout 20m -count=1 -run '^TestSuite$$/^TestSecurityProfilesOperator_Flaky$$'
 
 .PHONY: test-spoc-e2e
-test-spoc-e2e: build/spoc
+test-spoc-e2e: build/spoc ## Run the spoc end-to-end tests
 	$(GO) test -v ./test/spoc $(ARGS)
 
 # Generate CRD manifests

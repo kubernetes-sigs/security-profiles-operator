@@ -44,7 +44,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/seccompprofile/seccompprofilefakes"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/utiltest"
 )
 
 func TestReconcile(t *testing.T) {
@@ -64,8 +64,10 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "ProfileNotFound",
 			rec: &Reconciler{
-				client: &util.MockClient{
-					MockGet: util.NewMockGetFn(kerrors.NewNotFound(schema.GroupResource{}, name)),
+				client: &utiltest.MockClient{
+					MockGet: utiltest.NewMockGetFn(
+						kerrors.NewNotFound(schema.GroupResource{}, name),
+					),
 				},
 				log:     log.Log,
 				metrics: metrics.New(),
@@ -79,8 +81,8 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "ErrGetProfileIfSeccompEnabled",
 			rec: &Reconciler{
-				client: &util.MockClient{
-					MockGet: util.NewMockGetFn(errOops),
+				client: &utiltest.MockClient{
+					MockGet: utiltest.NewMockGetFn(errOops),
 				},
 				record:  events.NewFakeRecorder(10),
 				log:     log.Log,
@@ -101,10 +103,10 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "GotProfile",
 			rec: &Reconciler{
-				client: &util.MockClient{
-					MockGet:                     util.NewMockGetFn(nil),
-					MockUpdate:                  util.NewMockUpdateFn(nil),
-					MockSubResourceWriterUpdate: util.NewMockSubResourceWriterUpdateFn(nil),
+				client: &utiltest.MockClient{
+					MockGet:                     utiltest.NewMockGetFn(nil),
+					MockUpdate:                  utiltest.NewMockUpdateFn(nil),
+					MockSubResourceWriterUpdate: utiltest.NewMockSubResourceWriterUpdateFn(nil),
 				},
 				log:     log.Log,
 				record:  events.NewFakeRecorder(10),

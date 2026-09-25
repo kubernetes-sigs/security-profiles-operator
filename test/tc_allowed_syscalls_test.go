@@ -41,21 +41,13 @@ func (e *e2e) testCaseAllowedSyscallsValidation(nodes []string) {
 	const exampleProfilePath = "examples/seccompprofile-allowed-syscalls-validation.yaml"
 
 	e.logf("Changed allowed syscalls list in spod")
-	e.kubectlOperatorNS(
-		"patch",
-		"spod",
-		"spod",
-		"-p",
-		`{"spec":{"security":{"allowedSyscalls": ["exit", "exit_group", "futex", "nanosleep"]}}}`,
-		"--type=merge",
-	)
-
+	// Removing the list again must not depend on the rollout succeeding.
 	defer e.kubectlOperatorNS("patch", "spod", "spod", "--type=json",
 		"-p", `[{"op": "remove", "path": "/spec/security/allowedSyscalls"}]`)
 
-	time.Sleep(defaultWaitTime)
-	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
-	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLongOpTimeout)
+	e.patchSpod(
+		`{"spec":{"security":{"allowedSyscalls": ["exit", "exit_group", "futex", "nanosleep"]}}}`,
+	)
 
 	e.kubectl("create", "-f", exampleProfilePath)
 	defer e.kubectl("delete", "-f", exampleProfilePath)
@@ -109,21 +101,13 @@ func (e *e2e) testCaseAllowedSyscallsChange(nodes []string) {
 	const exampleProfilePath = "examples/seccompprofile-allowed-syscalls-change.yaml"
 	// Define an allowed syscalls list in the spod configuration
 	e.logf("Changed allowed syscalls list in spod")
-	e.kubectlOperatorNS(
-		"patch",
-		"spod",
-		"spod",
-		"-p",
-		`{"spec":{"security":{"allowedSyscalls": ["exit", "exit_group", "futex", "nanosleep"]}}}`,
-		"--type=merge",
-	)
-
+	// Removing the list again must not depend on the rollout succeeding.
 	defer e.kubectlOperatorNS("patch", "spod", "spod",
 		"--type=json", "-p", `[{"op": "remove", "path": "/spec/security/allowedSyscalls"}]`)
 
-	time.Sleep(defaultWaitTime)
-	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
-	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLongOpTimeout)
+	e.patchSpod(
+		`{"spec":{"security":{"allowedSyscalls": ["exit", "exit_group", "futex", "nanosleep"]}}}`,
+	)
 
 	e.kubectl("create", "-f", exampleProfilePath)
 
@@ -147,17 +131,7 @@ func (e *e2e) testCaseAllowedSyscallsChange(nodes []string) {
 	// Remove a syscall form allowed syscall list in order to invalidate the seccomp profile. The operator
 	// should now remove the seccomp profile because is not allowed anymore.
 	e.logf("Changed allowed syscalls list in spod to remove syscall")
-	e.kubectlOperatorNS(
-		"patch",
-		"spod",
-		"spod",
-		"-p",
-		`{"spec":{"security":{"allowedSyscalls": ["exit", "exit_group", "futex"]}}}`,
-		"--type=merge",
-	)
-	time.Sleep(defaultWaitTime)
-	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
-	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLongOpTimeout)
+	e.patchSpod(`{"spec":{"security":{"allowedSyscalls": ["exit", "exit_group", "futex"]}}}`)
 
 	// Wait for profile to be deleted by the operator because it is not allowed anymore by the
 	// allowedSyscalls list.
@@ -251,21 +225,13 @@ spec:
 	// Define an allowed syscalls list in the spod configuration, this should disallow the
 	// seccomp profile and trigger a deletion.
 	e.logf("Changed allowed syscalls list in spod")
-	e.kubectlOperatorNS(
-		"patch",
-		"spod",
-		"spod",
-		"-p",
-		`{"spec":{"security":{"allowedSyscalls": ["exit", "exit_group", "futex", "nanosleep"]}}}`,
-		"--type=merge",
-	)
-
+	// Removing the list again must not depend on the rollout succeeding.
 	defer e.kubectlOperatorNS("patch", "spod", "spod", "--type=json", "-p",
 		`[{"op": "remove", "path": "/spec/security/allowedSyscalls"}]`)
 
-	time.Sleep(defaultWaitTime)
-	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
-	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLongOpTimeout)
+	e.patchSpod(
+		`{"spec":{"security":{"allowedSyscalls": ["exit", "exit_group", "futex", "nanosleep"]}}}`,
+	)
 
 	// Check that the profile is not deleted while the pod is active but only mark as
 	// terminated.

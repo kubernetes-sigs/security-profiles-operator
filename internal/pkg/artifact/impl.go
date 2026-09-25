@@ -62,18 +62,18 @@ type impl interface {
 	ReadFile(string) ([]byte, error)
 	ReadProfile([]byte) (client.Object, error)
 	StoreAdd(context.Context, *file.Store, string, string, string) (ocispec.Descriptor, error)
-	StorePush(context.Context, *file.Store, ocispec.Descriptor, io.Reader) error
-	StoreFetch(context.Context, *file.Store, ocispec.Descriptor) (io.ReadCloser, error)
-	StoreTag(context.Context, *file.Store, ocispec.Descriptor, string) error
+	StorePush(context.Context, *file.Store, *ocispec.Descriptor, io.Reader) error
+	StoreFetch(context.Context, *file.Store, *ocispec.Descriptor) (io.ReadCloser, error)
+	StoreTag(context.Context, *file.Store, *ocispec.Descriptor, string) error
 	PackManifest(
 		context.Context, content.Pusher, oras.PackManifestVersion, string, oras.PackManifestOptions,
 	) (ocispec.Descriptor, error)
-	ClientSecret(options.OIDCOptions) (string, error)
+	ClientSecret(*options.OIDCOptions) (string, error)
 	LoadSigningMaterial(context.Context, *options.KeyOpts, *options.SignOptions) error
 	SignCmd(
-		context.Context, *options.RootOptions, options.KeyOpts, options.SignOptions, []string,
+		context.Context, *options.RootOptions, *options.KeyOpts, *options.SignOptions, []string,
 	) error
-	VerifyCmd(context.Context, verify.VerifyCommand, string) error
+	VerifyCmd(context.Context, *verify.VerifyCommand, string) error
 	SignatureBundleExists(context.Context, string, *options.RegistryOptions) (bool, error)
 	ResolveRepository(context.Context, *remote.Repository, string) (ocispec.Descriptor, error)
 }
@@ -127,25 +127,22 @@ func (*defaultImpl) StoreAdd(
 	return store.Add(ctx, name, mediaType, path)
 }
 
-//nolint:gocritic // intentional for the mock
 func (*defaultImpl) StorePush(
-	ctx context.Context, store *file.Store, desc ocispec.Descriptor, content io.Reader,
+	ctx context.Context, store *file.Store, desc *ocispec.Descriptor, r io.Reader,
 ) error {
-	return store.Push(ctx, desc, content)
+	return store.Push(ctx, *desc, r)
 }
 
-//nolint:gocritic // intentional for the mock
 func (*defaultImpl) StoreFetch(
-	ctx context.Context, store *file.Store, desc ocispec.Descriptor,
+	ctx context.Context, store *file.Store, desc *ocispec.Descriptor,
 ) (io.ReadCloser, error) {
-	return store.Fetch(ctx, desc)
+	return store.Fetch(ctx, *desc)
 }
 
-//nolint:gocritic // intentional for the mock
 func (*defaultImpl) StoreTag(
-	ctx context.Context, store *file.Store, desc ocispec.Descriptor, ref string,
+	ctx context.Context, store *file.Store, desc *ocispec.Descriptor, ref string,
 ) error {
-	return store.Tag(ctx, desc, ref)
+	return store.Tag(ctx, *desc, ref)
 }
 
 func (*defaultImpl) PackManifest(
@@ -156,8 +153,7 @@ func (*defaultImpl) PackManifest(
 	return oras.PackManifest(ctx, pusher, packManifestVersion, artifactType, opts)
 }
 
-//nolint:gocritic // intentional for the mock
-func (*defaultImpl) ClientSecret(o options.OIDCOptions) (string, error) {
+func (*defaultImpl) ClientSecret(o *options.OIDCOptions) (string, error) {
 	return o.ClientSecret()
 }
 
@@ -174,17 +170,15 @@ func (*defaultImpl) LoadSigningMaterial(
 	)
 }
 
-//nolint:gocritic // intentional for the mock
 func (*defaultImpl) SignCmd(
-	ctx context.Context, ro *options.RootOptions, ko options.KeyOpts,
-	signOpts options.SignOptions, imgs []string,
+	ctx context.Context, ro *options.RootOptions, ko *options.KeyOpts,
+	signOpts *options.SignOptions, imgs []string,
 ) error {
-	return sign.SignCmd(ctx, ro, ko, signOpts, imgs)
+	return sign.SignCmd(ctx, ro, *ko, *signOpts, imgs)
 }
 
-//nolint:gocritic // intentional for the mock
 func (*defaultImpl) VerifyCmd(
-	ctx context.Context, cmd verify.VerifyCommand, image string,
+	ctx context.Context, cmd *verify.VerifyCommand, image string,
 ) error {
 	return cmd.Exec(ctx, []string{image})
 }

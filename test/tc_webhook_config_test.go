@@ -17,7 +17,9 @@ limitations under the License.
 package e2e_test
 
 import (
+	"encoding/json"
 	"fmt"
+	"reflect"
 	"time"
 )
 
@@ -61,10 +63,13 @@ func (e *e2e) testCaseWebhookOptionsChange([]string) {
 	)
 	e.logf("Using patch: %s", whPatch)
 	e.kubectlOperatorNS("patch", "spod", "spod", "-p", whPatch, "--type=merge")
-	time.Sleep(defaultWaitTime)
 
 	// check the configured hook
-	whPatchedConfig := e.getAllWebhookAttributes()
+	whPatchedConfig := e.waitForWebhookAttributes(func(config []*whConfigOutput) bool {
+		return config[bindingIdx].failurePolicy == "Ignore" &&
+			jsonEqual(whBindingNamespaceSelector, config[bindingIdx].namespaceSelector) &&
+			jsonEqual(whObjectSelector, config[bindingIdx].objectSelector)
+	})
 	e.Equal("Ignore", whPatchedConfig[bindingIdx].failurePolicy)
 	e.JSONEq(whBindingNamespaceSelector, whPatchedConfig[bindingIdx].namespaceSelector)
 	e.JSONEq(whObjectSelector, whPatchedConfig[bindingIdx].objectSelector)
@@ -84,10 +89,13 @@ func (e *e2e) testCaseWebhookOptionsChange([]string) {
 		`{"spec":{"webhook":{"options":[]}}}`,
 		"--type=merge",
 	)
-	time.Sleep(defaultWaitTime)
 
 	// check we are back to defaults
-	whRevertedConfig := e.getAllWebhookAttributes()
+	whRevertedConfig := e.waitForWebhookAttributes(func(config []*whConfigOutput) bool {
+		return config[bindingIdx].failurePolicy == whDefault[bindingIdx].failurePolicy &&
+			config[bindingIdx].namespaceSelector == whDefault[bindingIdx].namespaceSelector &&
+			config[bindingIdx].objectSelector == whDefault[bindingIdx].objectSelector
+	})
 	e.Equal("Fail", whRevertedConfig[bindingIdx].failurePolicy)
 	e.Equal(whDefault[bindingIdx].namespaceSelector, whRevertedConfig[bindingIdx].namespaceSelector)
 	// check the other hook did not change
@@ -96,6 +104,34 @@ func (e *e2e) testCaseWebhookOptionsChange([]string) {
 		whDefault[recordingIdx].namespaceSelector,
 		whRevertedConfig[recordingIdx].namespaceSelector,
 	)
+}
+
+// waitForWebhookAttributes waits until the webhook attributes are the expected
+// ones and returns them. The operator does not apply all attributes of a
+// change of the webhook options at once, so every checked attribute has to be
+// waited for. The caller asserts the returned attributes, which fails with the
+// last state if they never got there.
+func (e *e2e) waitForWebhookAttributes(done func([]*whConfigOutput) bool) []*whConfigOutput {
+	var config []*whConfigOutput
+	for start := time.Now(); time.Since(start) < 4*defaultWaitTime; time.Sleep(time.Second) {
+		config = e.getAllWebhookAttributes()
+		if done(config) {
+			break
+		}
+	}
+
+	return config
+}
+
+// jsonEqual reports whether both strings are the same JSON document.
+func jsonEqual(expected, actual string) bool {
+	var expectedValue, actualValue any
+	if json.Unmarshal([]byte(expected), &expectedValue) != nil ||
+		json.Unmarshal([]byte(actual), &actualValue) != nil {
+		return false
+	}
+
+	return reflect.DeepEqual(expectedValue, actualValue)
 }
 
 func getWhConfigs() []*whConfigOutput {

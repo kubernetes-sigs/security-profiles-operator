@@ -22,25 +22,13 @@ import (
 	"math/rand/v2"
 	"strconv"
 	"strings"
-	"time"
 
 	spoutil "sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 func (e *e2e) testCaseProfilingChange([]string) {
 	e.logf("Change profiling in spod")
-	e.kubectlOperatorNS(
-		"patch",
-		"spod",
-		"spod",
-		"-p",
-		`{"spec":{"enableProfiling": true}}`,
-		"--type=merge",
-	)
-	time.Sleep(defaultWaitTime)
-
-	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
-	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLongOpTimeout)
+	e.patchSpod(`{"spec":{"enableProfiling": true}}`)
 
 	logs := e.kubectlOperatorNS(
 		"logs",
@@ -56,17 +44,7 @@ func (e *e2e) testCaseProfilingHTTP([]string) {
 	e.logf("Test profiling HTTP version")
 
 	e.logf("Enable spod profiling to test endpoint HTTP version")
-	e.kubectlOperatorNS(
-		"patch",
-		"spod",
-		"spod",
-		"-p",
-		`{"spec":{"enableProfiling": true}}`,
-		"--type=merge",
-	)
-	time.Sleep(defaultWaitTime)
-
-	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
+	e.patchSpod(`{"spec":{"enableProfiling": true}}`)
 
 	output := e.getProfilingHTTPVersion()
 	e.Contains(output, "1.1\n")

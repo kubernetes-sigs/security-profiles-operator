@@ -4,6 +4,8 @@ updates:
   directory: "/"
   schedule:
     interval: daily
+  cooldown:
+    default-days: 7
   labels:
     - "release-note-none"
     - "ok-to-test"
@@ -17,6 +19,8 @@ updates:
   directory: "/"
   schedule:
     interval: daily
+  cooldown:
+    default-days: 7
   open-pull-requests-limit: 10
   labels:
     - "release-note-none"
@@ -29,6 +33,8 @@ updates:
   directory: "/"
   schedule:
     interval: weekly
+  cooldown:
+    default-days: 7
   labels:
     - "release-note-none"
     - "ok-to-test"

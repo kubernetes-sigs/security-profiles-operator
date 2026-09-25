@@ -16,25 +16,11 @@ limitations under the License.
 
 package e2e_test
 
-import (
-	"time"
-)
-
 func (e *e2e) testCaseResourceRequirementsChange([]string) {
 	e.logf("Change resource requirements in spod")
-	e.kubectlOperatorNS(
-		"patch",
-		"spod",
-		"spod",
-		"-p",
-		`{"spec":{"daemonResourceRequirements": 
-		{"requests": {"memory": "256Mi", "cpu": "250m"}, 
-		"limits": {"memory": "512Mi", "cpu": "500m"}}}}`,
-		"--type=merge")
-	time.Sleep(defaultWaitTime)
-
-	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
-	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLongOpTimeout)
+	e.patchSpod(`{"spec":{"daemonResourceRequirements":
+		{"requests": {"memory": "256Mi", "cpu": "250m"},
+		"limits": {"memory": "512Mi", "cpu": "500m"}}}}`)
 
 	updatedResourcesInSPODDS := e.kubectlOperatorNS("get", "ds", "spod", "-o", "yaml")
 

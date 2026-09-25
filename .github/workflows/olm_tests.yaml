@@ -6,14 +6,34 @@ on:
   pull_request:
 env:
   KIND_IMG_TAG: v1.37.0
+# Only pull request runs are cancelled by newer pushes, runs on main or for a
+# release always complete.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions: {}
 
 jobs:
+  # Documentation only pull requests skip the tests, see hack/ci/code-changed.sh.
+  changes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.changes.outputs.code }}
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        fetch-depth: 2
+        persist-credentials: false
+    - id: changes
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+      run: hack/ci/code-changed.sh
+
   main:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     name: tests
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -25,8 +45,8 @@ jobs:
 
     - name: Download binaries
       run: |
-        mkdir -p ${GITHUB_WORKSPACE}/build
-        echo "${GITHUB_WORKSPACE}/build" >> ${GITHUB_PATH}
+        mkdir -p "${GITHUB_WORKSPACE}/build"
+        echo "${GITHUB_WORKSPACE}/build" >> "${GITHUB_PATH}"
         make operator-sdk opm
 
     - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0

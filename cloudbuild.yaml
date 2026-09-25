@@ -13,9 +13,12 @@ steps:
       - HOME=/root  # for docker buildx
     args:
     - -c
+    # Tools on containers/image need a signature policy. Only the staging
+    # repository, from which the catalog is rendered by the digest this build
+    # pushed, is accepted without signature, everything else is rejected.
     - |
       mkdir -p /etc/containers && \
-      echo '{"default": [{"type": "insecureAcceptAnything"}]}' > /etc/containers/policy.json && \
+      echo '{"default": [{"type": "reject"}], "transports": {"docker": {"us-central1-docker.pkg.dev/k8s-staging-images/sp-operator": [{"type": "insecureAcceptAnything"}]}, "docker-daemon": {"": [{"type": "insecureAcceptAnything"}]}}}' > /etc/containers/policy.json && \
       gcloud auth configure-docker us-central1-docker.pkg.dev --quiet && \
       make image-cross
   - name: gcr.io/k8s-staging-test-infra/gcb-docker-gcloud:v20260205-38cfa9523f@sha256:ff388e0dc16351e96f8464e2e185b74a7578a5ccb7a112cf3393468e59e6e2d2

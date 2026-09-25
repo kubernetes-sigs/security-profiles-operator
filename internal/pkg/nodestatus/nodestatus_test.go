@@ -36,6 +36,7 @@ import (
 	selinuxprofile "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/utiltest"
 )
 
 // Expected shorten the node name if length exceed the limit.
@@ -222,7 +223,7 @@ func TestRemoveLegacyNodeStatus(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			cl := &util.MockClient{
+			cl := &utiltest.MockClient{
 				MockGet:    tc.mockGet,
 				MockDelete: tc.mockDelete,
 			}

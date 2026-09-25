@@ -27,6 +27,7 @@ linters:
     - exhaustive
     - exptostd
     - fatcontext
+    - funlen
     - forcetypeassert
     - ginkgolinter
     - gocheckcompilerdirectives
@@ -54,6 +55,7 @@ linters:
     - kubeapilinter
     - lll
     - loggercheck
+    - maintidx
     - makezero
     - mirror
     - misspell
@@ -104,13 +106,11 @@ linters:
     # - exhaustruct_v5
     # - forbidigo
     # - funcorder
-    # - funlen
     # - gochecknoglobals
     # - gomoddirectives
     # - inamedparam
     # - interfacebloat
     # - ireturn
-    # - maintidx
     # - mnd
     # - noctx
     # - noinlineerr
@@ -131,6 +131,12 @@ linters:
     errcheck:
       check-type-assertions: true
       check-blank: true
+    # Catches new oversized functions. The existing ones above the limits are
+    # excluded by name below until they get split up.
+    funlen:
+      lines: 150
+      statements: 80
+      ignore-comments: true
     gocognit:
       min-complexity: 40
     goconst:
@@ -143,9 +149,6 @@ linters:
         - BUG
         - FIXME
         - HACK
-    gomoddirectives:
-      replace-allow-list:
-        - golang.org/x/sys
     gosec:
       excludes:
         - G115
@@ -155,6 +158,9 @@ linters:
         - G704
     nestif:
       min-complexity: 15
+    nolintlint:
+      require-explanation: true
+      require-specific: true
     revive:
       rules:
         - name: unused-parameter
@@ -183,6 +189,57 @@ linters:
       - linters:
           - kubeapilinter
         path-except: api/
+      # Table driven tests are long by nature.
+      - linters:
+          - funlen
+          - maintidx
+        path: (_test\.go|^test/)
+      - linters:
+          - funlen
+          - maintidx
+        path: cmd/security-profiles-operator/main\.go
+        text: "Function (name: main,|'main')"
+      - linters:
+          - funlen
+        path: cmd/spoc/main\.go
+        text: Function 'newApp'
+      - linters:
+          - funlen
+        path: internal/pkg/daemon/enricher/jsonenricher\.go
+        text: Function 'Run'
+      - linters:
+          - funlen
+        path: internal/pkg/daemon/seccompprofile/seccompprofile\.go
+        text: Function 'reconcileSeccompProfile'
+      - linters:
+          - funlen
+          - maintidx
+        path: internal/pkg/daemon/selinuxprofile/common_controller\.go
+        text: "Function (name: reconcilePolicy,|'reconcilePolicy')"
+      - linters:
+          - funlen
+        path: internal/pkg/daemon/profilerecorder/profilerecorder\.go
+        text: Function 'Reconcile'
+      - linters:
+          - funlen
+        path: internal/pkg/daemon/selinuxprofile/reload_job\.go
+        text: Function 'createPolicyReloadJob'
+      - linters:
+          - funlen
+        path: internal/pkg/manager/nodestatus/nodestatus\.go
+        text: Function 'Reconcile'
+      - linters:
+          - funlen
+        path: internal/pkg/manager/spod/spod_controller\.go
+        text: Function '(Reconcile|getConfiguredSPOd)'
+      - linters:
+          - maintidx
+        path: internal/pkg/manager/spod/spod_controller\.go
+        text: "Function name: getConfiguredSPOd,"
+      - linters:
+          - funlen
+        path: internal/pkg/manager/workloadannotator/workloadannotator\.go
+        text: Function 'Reconcile'
     paths:
       - third_party$
       - builtin$

@@ -224,7 +224,7 @@ func replaceRegexMatches(slice []string, re *regexp.Regexp, repl string) ([]stri
 	return slice, replaced
 }
 
-//nolint:gocritic
+//nolint:gocritic // hugeParam: admission.Handler defines the signature
 func (p Handler) Handle(_ context.Context, req admission.Request) admission.Response {
 	p.log.V(1).Info("Executing execmetadata webhook")
 

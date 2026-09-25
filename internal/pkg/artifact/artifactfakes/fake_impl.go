@@ -34,10 +34,10 @@ import (
 )
 
 type FakeImpl struct {
-	ClientSecretStub        func(options.OIDCOptions) (string, error)
+	ClientSecretStub        func(*options.OIDCOptions) (string, error)
 	clientSecretMutex       sync.RWMutex
 	clientSecretArgsForCall []struct {
-		arg1 options.OIDCOptions
+		arg1 *options.OIDCOptions
 	}
 	clientSecretReturns struct {
 		result1 string
@@ -225,13 +225,13 @@ type FakeImpl struct {
 		result1 v1.Descriptor
 		result2 error
 	}
-	SignCmdStub        func(context.Context, *options.RootOptions, options.KeyOpts, options.SignOptions, []string) error
+	SignCmdStub        func(context.Context, *options.RootOptions, *options.KeyOpts, *options.SignOptions, []string) error
 	signCmdMutex       sync.RWMutex
 	signCmdArgsForCall []struct {
 		arg1 context.Context
 		arg2 *options.RootOptions
-		arg3 options.KeyOpts
-		arg4 options.SignOptions
+		arg3 *options.KeyOpts
+		arg4 *options.SignOptions
 		arg5 []string
 	}
 	signCmdReturns struct {
@@ -272,12 +272,12 @@ type FakeImpl struct {
 		result1 v1.Descriptor
 		result2 error
 	}
-	StoreFetchStub        func(context.Context, *file.Store, v1.Descriptor) (io.ReadCloser, error)
+	StoreFetchStub        func(context.Context, *file.Store, *v1.Descriptor) (io.ReadCloser, error)
 	storeFetchMutex       sync.RWMutex
 	storeFetchArgsForCall []struct {
 		arg1 context.Context
 		arg2 *file.Store
-		arg3 v1.Descriptor
+		arg3 *v1.Descriptor
 	}
 	storeFetchReturns struct {
 		result1 io.ReadCloser
@@ -287,12 +287,12 @@ type FakeImpl struct {
 		result1 io.ReadCloser
 		result2 error
 	}
-	StorePushStub        func(context.Context, *file.Store, v1.Descriptor, io.Reader) error
+	StorePushStub        func(context.Context, *file.Store, *v1.Descriptor, io.Reader) error
 	storePushMutex       sync.RWMutex
 	storePushArgsForCall []struct {
 		arg1 context.Context
 		arg2 *file.Store
-		arg3 v1.Descriptor
+		arg3 *v1.Descriptor
 		arg4 io.Reader
 	}
 	storePushReturns struct {
@@ -301,12 +301,12 @@ type FakeImpl struct {
 	storePushReturnsOnCall map[int]struct {
 		result1 error
 	}
-	StoreTagStub        func(context.Context, *file.Store, v1.Descriptor, string) error
+	StoreTagStub        func(context.Context, *file.Store, *v1.Descriptor, string) error
 	storeTagMutex       sync.RWMutex
 	storeTagArgsForCall []struct {
 		arg1 context.Context
 		arg2 *file.Store
-		arg3 v1.Descriptor
+		arg3 *v1.Descriptor
 		arg4 string
 	}
 	storeTagReturns struct {
@@ -315,11 +315,11 @@ type FakeImpl struct {
 	storeTagReturnsOnCall map[int]struct {
 		result1 error
 	}
-	VerifyCmdStub        func(context.Context, verify.VerifyCommand, string) error
+	VerifyCmdStub        func(context.Context, *verify.VerifyCommand, string) error
 	verifyCmdMutex       sync.RWMutex
 	verifyCmdArgsForCall []struct {
 		arg1 context.Context
-		arg2 verify.VerifyCommand
+		arg2 *verify.VerifyCommand
 		arg3 string
 	}
 	verifyCmdReturns struct {
@@ -332,11 +332,11 @@ type FakeImpl struct {
 	invocationsMutex sync.RWMutex
 }
 
-func (fake *FakeImpl) ClientSecret(arg1 options.OIDCOptions) (string, error) {
+func (fake *FakeImpl) ClientSecret(arg1 *options.OIDCOptions) (string, error) {
 	fake.clientSecretMutex.Lock()
 	ret, specificReturn := fake.clientSecretReturnsOnCall[len(fake.clientSecretArgsForCall)]
 	fake.clientSecretArgsForCall = append(fake.clientSecretArgsForCall, struct {
-		arg1 options.OIDCOptions
+		arg1 *options.OIDCOptions
 	}{arg1})
 	stub := fake.ClientSecretStub
 	fakeReturns := fake.clientSecretReturns
@@ -357,13 +357,13 @@ func (fake *FakeImpl) ClientSecretCallCount() int {
 	return len(fake.clientSecretArgsForCall)
 }
 
-func (fake *FakeImpl) ClientSecretCalls(stub func(options.OIDCOptions) (string, error)) {
+func (fake *FakeImpl) ClientSecretCalls(stub func(*options.OIDCOptions) (string, error)) {
 	fake.clientSecretMutex.Lock()
 	defer fake.clientSecretMutex.Unlock()
 	fake.ClientSecretStub = stub
 }
 
-func (fake *FakeImpl) ClientSecretArgsForCall(i int) options.OIDCOptions {
+func (fake *FakeImpl) ClientSecretArgsForCall(i int) *options.OIDCOptions {
 	fake.clientSecretMutex.RLock()
 	defer fake.clientSecretMutex.RUnlock()
 	argsForCall := fake.clientSecretArgsForCall[i]
@@ -1244,7 +1244,7 @@ func (fake *FakeImpl) ResolveRepositoryReturnsOnCall(i int, result1 v1.Descripto
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) SignCmd(arg1 context.Context, arg2 *options.RootOptions, arg3 options.KeyOpts, arg4 options.SignOptions, arg5 []string) error {
+func (fake *FakeImpl) SignCmd(arg1 context.Context, arg2 *options.RootOptions, arg3 *options.KeyOpts, arg4 *options.SignOptions, arg5 []string) error {
 	var arg5Copy []string
 	if arg5 != nil {
 		arg5Copy = make([]string, len(arg5))
@@ -1255,8 +1255,8 @@ func (fake *FakeImpl) SignCmd(arg1 context.Context, arg2 *options.RootOptions, a
 	fake.signCmdArgsForCall = append(fake.signCmdArgsForCall, struct {
 		arg1 context.Context
 		arg2 *options.RootOptions
-		arg3 options.KeyOpts
-		arg4 options.SignOptions
+		arg3 *options.KeyOpts
+		arg4 *options.SignOptions
 		arg5 []string
 	}{arg1, arg2, arg3, arg4, arg5Copy})
 	stub := fake.SignCmdStub
@@ -1278,13 +1278,13 @@ func (fake *FakeImpl) SignCmdCallCount() int {
 	return len(fake.signCmdArgsForCall)
 }
 
-func (fake *FakeImpl) SignCmdCalls(stub func(context.Context, *options.RootOptions, options.KeyOpts, options.SignOptions, []string) error) {
+func (fake *FakeImpl) SignCmdCalls(stub func(context.Context, *options.RootOptions, *options.KeyOpts, *options.SignOptions, []string) error) {
 	fake.signCmdMutex.Lock()
 	defer fake.signCmdMutex.Unlock()
 	fake.SignCmdStub = stub
 }
 
-func (fake *FakeImpl) SignCmdArgsForCall(i int) (context.Context, *options.RootOptions, options.KeyOpts, options.SignOptions, []string) {
+func (fake *FakeImpl) SignCmdArgsForCall(i int) (context.Context, *options.RootOptions, *options.KeyOpts, *options.SignOptions, []string) {
 	fake.signCmdMutex.RLock()
 	defer fake.signCmdMutex.RUnlock()
 	argsForCall := fake.signCmdArgsForCall[i]
@@ -1448,13 +1448,13 @@ func (fake *FakeImpl) StoreAddReturnsOnCall(i int, result1 v1.Descriptor, result
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) StoreFetch(arg1 context.Context, arg2 *file.Store, arg3 v1.Descriptor) (io.ReadCloser, error) {
+func (fake *FakeImpl) StoreFetch(arg1 context.Context, arg2 *file.Store, arg3 *v1.Descriptor) (io.ReadCloser, error) {
 	fake.storeFetchMutex.Lock()
 	ret, specificReturn := fake.storeFetchReturnsOnCall[len(fake.storeFetchArgsForCall)]
 	fake.storeFetchArgsForCall = append(fake.storeFetchArgsForCall, struct {
 		arg1 context.Context
 		arg2 *file.Store
-		arg3 v1.Descriptor
+		arg3 *v1.Descriptor
 	}{arg1, arg2, arg3})
 	stub := fake.StoreFetchStub
 	fakeReturns := fake.storeFetchReturns
@@ -1475,13 +1475,13 @@ func (fake *FakeImpl) StoreFetchCallCount() int {
 	return len(fake.storeFetchArgsForCall)
 }
 
-func (fake *FakeImpl) StoreFetchCalls(stub func(context.Context, *file.Store, v1.Descriptor) (io.ReadCloser, error)) {
+func (fake *FakeImpl) StoreFetchCalls(stub func(context.Context, *file.Store, *v1.Descriptor) (io.ReadCloser, error)) {
 	fake.storeFetchMutex.Lock()
 	defer fake.storeFetchMutex.Unlock()
 	fake.StoreFetchStub = stub
 }
 
-func (fake *FakeImpl) StoreFetchArgsForCall(i int) (context.Context, *file.Store, v1.Descriptor) {
+func (fake *FakeImpl) StoreFetchArgsForCall(i int) (context.Context, *file.Store, *v1.Descriptor) {
 	fake.storeFetchMutex.RLock()
 	defer fake.storeFetchMutex.RUnlock()
 	argsForCall := fake.storeFetchArgsForCall[i]
@@ -1514,13 +1514,13 @@ func (fake *FakeImpl) StoreFetchReturnsOnCall(i int, result1 io.ReadCloser, resu
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) StorePush(arg1 context.Context, arg2 *file.Store, arg3 v1.Descriptor, arg4 io.Reader) error {
+func (fake *FakeImpl) StorePush(arg1 context.Context, arg2 *file.Store, arg3 *v1.Descriptor, arg4 io.Reader) error {
 	fake.storePushMutex.Lock()
 	ret, specificReturn := fake.storePushReturnsOnCall[len(fake.storePushArgsForCall)]
 	fake.storePushArgsForCall = append(fake.storePushArgsForCall, struct {
 		arg1 context.Context
 		arg2 *file.Store
-		arg3 v1.Descriptor
+		arg3 *v1.Descriptor
 		arg4 io.Reader
 	}{arg1, arg2, arg3, arg4})
 	stub := fake.StorePushStub
@@ -1542,13 +1542,13 @@ func (fake *FakeImpl) StorePushCallCount() int {
 	return len(fake.storePushArgsForCall)
 }
 
-func (fake *FakeImpl) StorePushCalls(stub func(context.Context, *file.Store, v1.Descriptor, io.Reader) error) {
+func (fake *FakeImpl) StorePushCalls(stub func(context.Context, *file.Store, *v1.Descriptor, io.Reader) error) {
 	fake.storePushMutex.Lock()
 	defer fake.storePushMutex.Unlock()
 	fake.StorePushStub = stub
 }
 
-func (fake *FakeImpl) StorePushArgsForCall(i int) (context.Context, *file.Store, v1.Descriptor, io.Reader) {
+func (fake *FakeImpl) StorePushArgsForCall(i int) (context.Context, *file.Store, *v1.Descriptor, io.Reader) {
 	fake.storePushMutex.RLock()
 	defer fake.storePushMutex.RUnlock()
 	argsForCall := fake.storePushArgsForCall[i]
@@ -1578,13 +1578,13 @@ func (fake *FakeImpl) StorePushReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
-func (fake *FakeImpl) StoreTag(arg1 context.Context, arg2 *file.Store, arg3 v1.Descriptor, arg4 string) error {
+func (fake *FakeImpl) StoreTag(arg1 context.Context, arg2 *file.Store, arg3 *v1.Descriptor, arg4 string) error {
 	fake.storeTagMutex.Lock()
 	ret, specificReturn := fake.storeTagReturnsOnCall[len(fake.storeTagArgsForCall)]
 	fake.storeTagArgsForCall = append(fake.storeTagArgsForCall, struct {
 		arg1 context.Context
 		arg2 *file.Store
-		arg3 v1.Descriptor
+		arg3 *v1.Descriptor
 		arg4 string
 	}{arg1, arg2, arg3, arg4})
 	stub := fake.StoreTagStub
@@ -1606,13 +1606,13 @@ func (fake *FakeImpl) StoreTagCallCount() int {
 	return len(fake.storeTagArgsForCall)
 }
 
-func (fake *FakeImpl) StoreTagCalls(stub func(context.Context, *file.Store, v1.Descriptor, string) error) {
+func (fake *FakeImpl) StoreTagCalls(stub func(context.Context, *file.Store, *v1.Descriptor, string) error) {
 	fake.storeTagMutex.Lock()
 	defer fake.storeTagMutex.Unlock()
 	fake.StoreTagStub = stub
 }
 
-func (fake *FakeImpl) StoreTagArgsForCall(i int) (context.Context, *file.Store, v1.Descriptor, string) {
+func (fake *FakeImpl) StoreTagArgsForCall(i int) (context.Context, *file.Store, *v1.Descriptor, string) {
 	fake.storeTagMutex.RLock()
 	defer fake.storeTagMutex.RUnlock()
 	argsForCall := fake.storeTagArgsForCall[i]
@@ -1642,12 +1642,12 @@ func (fake *FakeImpl) StoreTagReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
-func (fake *FakeImpl) VerifyCmd(arg1 context.Context, arg2 verify.VerifyCommand, arg3 string) error {
+func (fake *FakeImpl) VerifyCmd(arg1 context.Context, arg2 *verify.VerifyCommand, arg3 string) error {
 	fake.verifyCmdMutex.Lock()
 	ret, specificReturn := fake.verifyCmdReturnsOnCall[len(fake.verifyCmdArgsForCall)]
 	fake.verifyCmdArgsForCall = append(fake.verifyCmdArgsForCall, struct {
 		arg1 context.Context
-		arg2 verify.VerifyCommand
+		arg2 *verify.VerifyCommand
 		arg3 string
 	}{arg1, arg2, arg3})
 	stub := fake.VerifyCmdStub
@@ -1669,13 +1669,13 @@ func (fake *FakeImpl) VerifyCmdCallCount() int {
 	return len(fake.verifyCmdArgsForCall)
 }
 
-func (fake *FakeImpl) VerifyCmdCalls(stub func(context.Context, verify.VerifyCommand, string) error) {
+func (fake *FakeImpl) VerifyCmdCalls(stub func(context.Context, *verify.VerifyCommand, string) error) {
 	fake.verifyCmdMutex.Lock()
 	defer fake.verifyCmdMutex.Unlock()
 	fake.VerifyCmdStub = stub
 }
 
-func (fake *FakeImpl) VerifyCmdArgsForCall(i int) (context.Context, verify.VerifyCommand, string) {
+func (fake *FakeImpl) VerifyCmdArgsForCall(i int) (context.Context, *verify.VerifyCommand, string) {
 	fake.verifyCmdMutex.RLock()
 	defer fake.verifyCmdMutex.RUnlock()
 	argsForCall := fake.verifyCmdArgsForCall[i]

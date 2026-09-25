@@ -16,17 +16,9 @@ limitations under the License.
 
 package e2e_test
 
-import (
-	"time"
-)
-
 func (e *e2e) testCaseVerbosityChange([]string) {
 	e.logf("Change verbosity in spod")
-	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"verbosity": 1}}`, "--type=merge")
-	time.Sleep(defaultWaitTime)
-
-	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
-	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLongOpTimeout)
+	e.patchSpod(`{"spec":{"verbosity": 1}}`)
 
 	logs := e.kubectlOperatorNS(
 		"logs",

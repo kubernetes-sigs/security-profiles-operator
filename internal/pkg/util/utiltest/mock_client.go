@@ -14,7 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package util
+// Package utiltest provides a configurable controller-runtime client for
+// unit tests.
+package utiltest
 
 import (
 	"context"

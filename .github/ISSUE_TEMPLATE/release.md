@@ -44,7 +44,7 @@ To install the operator, run:
 $ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/v{VERSION}/deploy/operator.yaml
 ```
 
-Besides the operator image, we also ship `spoc`, the official Security Profiles Operator Command Line Interface. Binaries for `amd64`, `arm64`, `ppc64le` and `s390x` are attached to this release, together with their signatures, `.sha512` sums, the `spoc.spdx.json` SBOM and the `spoc.intoto.jsonl` SLSA build provenance.
+Besides the operator image, we also ship `spoc`, the official Security Profiles Operator Command Line Interface. Binaries for `amd64`, `arm64`, `ppc64le` and `s390x` are attached to this release, together with their signatures, `.sha512` sums, the `spoc.spdx.json` and `spoc-native.spdx.json` SBOMs and the `spoc.intoto.jsonl` SLSA build provenance.
 
 The helm chart is available as OCI artifact as well:
 

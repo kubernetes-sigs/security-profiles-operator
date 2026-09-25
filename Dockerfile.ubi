@@ -12,10 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# go-toolset uses RH's Go fork which uses OpenSSL for FIPS-certified crypto
-# if this is not desirable, pass -tags no_openssl to SPO build
-# see https://access.redhat.com/documentation/en-us/red_hat_developer_tools/2018.4/html/using_go_toolset/chap-changes
-# for more details
+# The go-toolset image only provides dnf and the C toolchain here. The build
+# uses the upstream Go release of go.mod installed below, which comes first in
+# PATH, not the Red Hat Go of the image with its OpenSSL based FIPS crypto.
 
 # hash below referred to latest
 FROM registry.access.redhat.com/ubi8/go-toolset@sha256:93b85580bf0737559318b12baa82cf034db7fce7a6c095c593ff156c09b50339 AS build
@@ -61,9 +60,9 @@ FROM registry.access.redhat.com/ubi9/ubi-minimal@sha256:8ebe2ad8fdf3cab3e5a53c1e
 ARG version
 USER root
 
+# Update all packages of the base image, since the vulnerability scan fails on
+# any fixed package the base image does not include yet.
 RUN microdnf update -y \
-  curl-minimal \
-  libcurl-minimal \
   && microdnf install -y \
   libseccomp \
   libbpf \

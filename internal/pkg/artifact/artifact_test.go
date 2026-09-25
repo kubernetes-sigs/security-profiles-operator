@@ -560,7 +560,7 @@ func TestPull(t *testing.T) {
 				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.StoreFetchStub = func(
-					_ context.Context, _ *file.Store, _ ocispec.Descriptor,
+					_ context.Context, _ *file.Store, _ *ocispec.Descriptor,
 				) (io.ReadCloser, error) {
 					return io.NopCloser(strings.NewReader("not json")), nil
 				}
@@ -585,7 +585,7 @@ func TestPull(t *testing.T) {
 
 				first := true
 				mock.StoreFetchStub = func(
-					_ context.Context, _ *file.Store, _ ocispec.Descriptor,
+					_ context.Context, _ *file.Store, _ *ocispec.Descriptor,
 				) (io.ReadCloser, error) {
 					if first {
 						first = false
@@ -797,7 +797,7 @@ func TestPushMediaTypes(t *testing.T) {
 
 			require.Equal(t, 1, mock.StorePushCallCount())
 			_, _, configDescriptor, _ := mock.StorePushArgsForCall(0)
-			require.Equal(t, *opts.ConfigDescriptor, configDescriptor)
+			require.Equal(t, opts.ConfigDescriptor, configDescriptor)
 		})
 	}
 }
@@ -1117,7 +1117,7 @@ func stubManifest(
 	}
 
 	mock.StoreFetchStub = func(
-		_ context.Context, _ *file.Store, descriptor ocispec.Descriptor,
+		_ context.Context, _ *file.Store, descriptor *ocispec.Descriptor,
 	) (io.ReadCloser, error) {
 		if blob, ok := blobs[descriptor.Digest]; ok {
 			return io.NopCloser(strings.NewReader(blob)), nil
@@ -1605,5 +1605,136 @@ func TestRegistryOptions(t *testing.T) {
 		require.False(t, opts.AllowHTTPRegistry)
 		require.Empty(t, opts.AuthConfig.Username)
 		require.Empty(t, opts.AuthConfig.Password)
+	})
+}
+
+func TestPullDefaultSigner(t *testing.T) {
+	t.Parallel()
+
+	const officialImage = "registry.k8s.io/security-profiles-operator/base/runc:v1.5.1"
+
+	for _, tc := range []struct {
+		name, image      string
+		opts             *PullOptions
+		identity, issuer string
+	}{
+		{
+			name:     "official repository",
+			image:    officialImage,
+			identity: OfficialSignerIdentityRegexp,
+			issuer:   OfficialSignerOidcIssuerRegexp,
+		},
+		{
+			name:     "staging repository",
+			image:    "us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/base/runc:latest",
+			opts:     &PullOptions{},
+			identity: OfficialSignerIdentityRegexp,
+			issuer:   OfficialSignerOidcIssuerRegexp,
+		},
+		{
+			name:     "official repository with the default regexps of spoc and the SPOD",
+			image:    officialImage,
+			opts:     &PullOptions{AllowedIdentityRegexp: ".*", AllowedOidcIssuerRegexp: ".*"},
+			identity: OfficialSignerIdentityRegexp,
+			issuer:   OfficialSignerOidcIssuerRegexp,
+		},
+		{
+			name:     "official repository with own identity",
+			image:    officialImage,
+			opts:     &PullOptions{AllowedIdentityRegexp: "^me$", AllowedOidcIssuerRegexp: ".*"},
+			identity: "^me$",
+			issuer:   ".*",
+		},
+		{
+			name:     "official repository with own issuer",
+			image:    officialImage,
+			opts:     &PullOptions{AllowedOidcIssuerRegexp: "^https://issuer$"},
+			identity: "",
+			issuer:   "^https://issuer$",
+		},
+		{
+			name:     "official repository with any signer",
+			image:    officialImage,
+			opts:     &PullOptions{AllowedIdentityRegexp: "^.*$", AllowedOidcIssuerRegexp: "^.*$"},
+			identity: "^.*$",
+			issuer:   "^.*$",
+		},
+		{
+			name:     "other repository with the default regexps",
+			image:    "registry.example.com/security-profiles-operator/base/runc:v1.5.1",
+			opts:     &PullOptions{AllowedIdentityRegexp: ".*", AllowedOidcIssuerRegexp: ".*"},
+			identity: ".*",
+			issuer:   ".*",
+		},
+		{
+			name:     "other repository",
+			image:    "registry.k8s.io/other/base/runc:v1.5.1",
+			identity: ".*",
+			issuer:   ".*",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ref, err := name.ParseReference(tc.image)
+			require.NoError(t, err)
+
+			mock := &artifactfakes.FakeImpl{}
+			mock.NewRepositoryReturns(&remote.Repository{}, nil)
+			mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
+			mock.ParseReferenceReturns(ref, nil)
+			mock.ReadProfileReturns(&seccompprofileapi.SeccompProfile{}, nil)
+			stubManifest(mock, &ocispec.Manifest{}, nil)
+
+			sut := New(logr.Discard())
+			sut.impl = mock
+
+			_, err = sut.Pull(t.Context(), tc.image, "", "", nil, tc.opts)
+			require.NoError(t, err)
+
+			_, verifyCmd, _ := mock.VerifyCmdArgsForCall(0)
+			require.Equal(t, tc.identity, verifyCmd.CertIdentityRegexp)
+			require.Equal(t, tc.issuer, verifyCmd.CertOidcIssuerRegexp)
+		})
+	}
+
+	t.Run("signer", func(t *testing.T) {
+		t.Parallel()
+
+		opts := &PullOptions{AllowedIdentityRegexp: ".*", AllowedOidcIssuerRegexp: ".*"}
+
+		identity, issuer := opts.Signer(officialImage)
+		require.Equal(t, OfficialSignerIdentityRegexp, identity)
+		require.Equal(t, OfficialSignerOidcIssuerRegexp, issuer)
+
+		identity, issuer = opts.Signer("registry.example.com/profile:v1")
+		require.Equal(t, ".*", identity)
+		require.Equal(t, ".*", issuer)
+	})
+
+	t.Run("official signers", func(t *testing.T) {
+		t.Parallel()
+
+		require.Regexp(
+			t,
+			OfficialSignerIdentityRegexp,
+			"krel-trust@k8s-releng-prod.iam.gserviceaccount.com",
+		)
+		require.Regexp(
+			t,
+			OfficialSignerIdentityRegexp,
+			"sp-operator-sa@k8s-staging-images.iam.gserviceaccount.com",
+		)
+		require.NotRegexp(
+			t,
+			OfficialSignerIdentityRegexp,
+			"sp-operator-sa@k8s-staging-imagesXiam.gserviceaccount.com",
+		)
+		require.NotRegexp(
+			t,
+			OfficialSignerIdentityRegexp,
+			"evil-sp-operator-sa@k8s-staging-images.iam.gserviceaccount.com",
+		)
+		require.Regexp(t, OfficialSignerOidcIssuerRegexp, "https://accounts.google.com")
 	})
 }
