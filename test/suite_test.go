@@ -114,6 +114,11 @@ type e2e struct {
 	waitForReadyPods      func()
 	deployCertManager     func()
 	setupRecordingSa      func(namespace string)
+	// testStart and subTestStart are when the current test and sub test
+	// started, to dump the logs since then.
+	testStart        time.Time
+	subTestStart     time.Time
+	diagnosticsTimer *time.Timer
 }
 
 func defaultWaitForReadyPods(e *e2e) {

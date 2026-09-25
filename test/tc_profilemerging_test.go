@@ -18,7 +18,6 @@ package e2e_test
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 
@@ -66,9 +65,6 @@ func (e *e2e) testSeccompBpfProfileMerging() {
 		"listen",
 		"mknod\n", // for some reason bpf recording always allows mknodat(), let's explicitly check mknod()
 		policyEnabledAfterRecording,
-		regexp.MustCompile(
-			`(?s)"container"="nginx".*"syscallName"="listen"`+
-				`.*"container"="nginx".*"syscallName"="listen"`),
 	)
 }
 
@@ -84,9 +80,7 @@ func (e *e2e) testSeccompLogsProfileMerging() {
 		"/bin/mknod /tmp/foo p",
 		"listen", "mknod",
 		policyEnabledAfterRecording,
-		regexp.MustCompile(
-			`(?s)"container"="nginx".*"syscallName"="listen"`+
-				`.*"container"="nginx".*"syscallName"="listen"`))
+		"container", "nginx", "syscallName", "listen")
 }
 
 func (e *e2e) testSelinuxLogsProfileMerging() {
@@ -102,8 +96,7 @@ func (e *e2e) testSelinuxLogsProfileMerging() {
 		"curl localhost:8080",
 		"name_bind", "name_connect",
 		policyEnabledAfterRecording,
-		regexp.MustCompile(`(?s)"perm"="listen"`+
-			`.*"perm"="listen"`),
+		"perm", "listen",
 	)
 }
 
@@ -120,15 +113,14 @@ func (e *e2e) testSelinuxLogsDisabledProfileMerging() {
 		"curl localhost:8080",
 		"name_bind", "name_connect",
 		policyDisabledAfterRecording,
-		regexp.MustCompile(`(?s)"perm"="listen"`+
-			`.*"perm"="listen"`),
+		"perm", "listen",
 	)
 }
 
 func (e *e2e) profileMergingTest(
 	recordedMethod, recorderKind, resource, trigger, commonAction, triggeredAction string,
 	isPolicyDisabled policyDisableSwitch,
-	conditions ...*regexp.Regexp,
+	logLine ...string,
 ) {
 	const testDeploymentMultiContainer = `
 apiVersion: apps/v1
@@ -181,11 +173,12 @@ spec:
 	defer deleteManifestFn()
 
 	since, deployName := e.createRecordingTestDeploymentFromManifest(testDeploymentMultiContainer)
-	suffixes := e.getPodSuffixesByLabel("app=alpine")
+	podNames := e.getRecordingPodNames("app=alpine")
+	suffixes := podSuffixes(podNames)
 
 	switch recordedMethod {
 	case "Logs":
-		e.waitForEnricherLogs(since, conditions...)
+		e.waitForEnricherLogsOfPods(since, podNames, logLine...)
 
 	case "Bpf":
 		profileNames := make([]string, 0, len(suffixes))

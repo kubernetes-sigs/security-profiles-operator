@@ -18,7 +18,6 @@ package e2e_test
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 )
@@ -107,7 +106,7 @@ spec:
 	e.NotContains(envOutput, "SPO_EXEC_REQUEST_UID")
 
 	// wait for at least one component of the expected logs to appear
-	e.waitForEnricherLogs(since, regexp.MustCompile(`(?m)"syscallName"="listen"`))
+	e.waitForEnricherLogs(since, enricherLogLine("syscallName", "listen"))
 
 	e.logf("Checking log enricher output")
 	output := e.kubectlOperatorNS(
@@ -231,7 +230,7 @@ spec:
 	}
 
 	// wait for at least one component of the expected logs to appear
-	e.waitForEnricherLogs(since, regexp.MustCompile(`(?m)"syscallName"="execve"`))
+	e.waitForEnricherLogs(since, enricherLogLine("syscallName", "execve"))
 
 	e.logf("Checking log enricher output")
 	output := e.kubectlOperatorNS(

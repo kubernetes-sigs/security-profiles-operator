@@ -395,14 +395,6 @@ func (e *e2e) deployOperator(manifest string) {
 	}
 }
 
-func (e *e2e) cleanupOperator(manifest string) {
-	// Clean up the operator
-	e.logf("Cleaning up operator")
-	e.kubectl("delete", "seccompprofiles", "--all", "--all-namespaces")
-	e.kubectl("delete", "selinuxprofiles", "--all", "--all-namespaces")
-	e.kubectl("delete", "--ignore-not-found", "-f", manifest)
-}
-
 func (e *e2e) getWorkerNodes() []string {
 	e.logf("Getting worker nodes")
 	nodesOutput := e.kubectl(

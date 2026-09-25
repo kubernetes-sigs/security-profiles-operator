@@ -19,11 +19,13 @@ package common
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/nxadm/tail"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/release-utils/helpers"
@@ -56,6 +58,22 @@ func GetSPOD(
 	}
 
 	return spod, nil
+}
+
+// LogTailConfig is the configuration for following the audit log from its
+// current end on. Only complete lines are returned: otherwise tail returns a
+// line which is still being written at the end of the file and then seeks to
+// the new end, skipping everything written while the line was processed.
+func LogTailConfig() tail.Config {
+	return tail.Config{
+		ReOpen:        true,
+		Follow:        true,
+		CompleteLines: true,
+		Location: &tail.SeekInfo{
+			Offset: 0,
+			Whence: io.SeekEnd,
+		},
+	}
 }
 
 // LogFilePath returns either the path to the audit logs or falls back to

@@ -20,7 +20,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"regexp"
 	"strconv"
 	"strings"
@@ -49,14 +48,7 @@ func (a *AuditdSource) StartTail() (log chan *types.AuditLine, err error) {
 	filePath := common.LogFilePath()
 
 	// If the file does not exist, then tail will wait for it to appear
-	a.file, err = tail.TailFile(filePath, tail.Config{
-		ReOpen: true,
-		Follow: true,
-		Location: &tail.SeekInfo{
-			Offset: 0,
-			Whence: io.SeekEnd,
-		},
-	})
+	a.file, err = tail.TailFile(filePath, common.LogTailConfig())
 	if err != nil {
 		return nil, err
 	}
