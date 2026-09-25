@@ -19,6 +19,9 @@ spec:
     - jsonPath: .status.state
       name: State
       type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
     name: v1
     schema:
       openAPIV3Schema:
@@ -1295,14 +1298,16 @@ spec:
                   enable:
                     description: |-
                       enable tells the operator whether or not to enable SELinux support for
-                      this SPOD instance.
+                      this SPOD instance. If unset, SELinux support is enabled on OpenShift
+                      and disabled everywhere else.
                     type: boolean
                   enableRawSelinuxProfiles:
                     default: true
                     description: |-
                       enableRawSelinuxProfiles tells the operator whether or not to enable
                       RawSelinuxProfile support. When disabled, the RawSelinuxProfile
-                      controller will not be started. Defaults to true when SELinux is enabled.
+                      controller will not be started. It only has an effect when SELinux
+                      support is enabled. Defaults to true.
                     type: boolean
                   options:
                     default: {}
@@ -1400,7 +1405,10 @@ spec:
                           - Fail
                           type: string
                         name:
-                          description: name specifies which webhook to configure.
+                          description: |-
+                            name specifies which webhook to configure. Valid values are
+                            binding.spo.io, recording.spo.io, execmetadata.spo.io and
+                            nodedebuggingpod.spo.io.
                           minLength: 1
                           type: string
                         namespaceSelector:

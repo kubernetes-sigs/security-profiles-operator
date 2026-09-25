@@ -368,7 +368,7 @@ jobs:
       - name: Tag for the vulnerability scan
         run: docker tag ${{ steps.build.outputs.imageid }} security-profiles-operator:scan
       # Fails on every vulnerability with an available fix. Assessed findings
-      # are suppressed through .openvex.json, see hacking.md.
+      # are suppressed through .openvex.json, see doc/hacking.md.
       - name: Scan for fixable vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         env:
@@ -426,7 +426,7 @@ jobs:
       - name: Tag for the vulnerability scan
         run: docker tag ${{ steps.build.outputs.imageid }} security-profiles-operator:scan
       # Fails on every vulnerability with an available fix. Assessed findings
-      # are suppressed through .openvex.json, see hacking.md.
+      # are suppressed through .openvex.json, see doc/hacking.md.
       - name: Scan for fixable vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         env:

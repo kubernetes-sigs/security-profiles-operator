@@ -878,6 +878,7 @@ spec:
   - email: dev@kubernetes.io
     name: Kubernetes upstream
   maturity: beta
+  minKubeVersion: 1.30.0
   provider:
     name: Kubernetes SIGs
     url: https://github.com/kubernetes-sigs

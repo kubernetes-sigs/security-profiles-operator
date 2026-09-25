@@ -132,7 +132,7 @@ A high-level summary of object types accessed outside the `security-profiles-ope
 - pods
 
 
-For the most up-to-date rbac requirements refer to the materialised [role.yaml](deploy/base/role.yaml) file.
+For the most up-to-date rbac requirements refer to the materialised [role.yaml](../deploy/base/role.yaml) file.
 
 ## OCI artifact signature verification
 

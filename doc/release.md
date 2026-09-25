@@ -6,15 +6,15 @@ opening a new `Release vx.y.z` issue and applying the `tide/merge-blocker` label
 if appropriate.
 
 The overall process should not take longer than a couple of minutes, but it is
-required to have one of the repository [owners](./OWNERS) at hand to be able to
+required to have one of the repository [owners](../OWNERS) at hand to be able to
 merge the PRs.
 
 Run the `./hack/release.sh x.y.z` script by replacing the appropriate version.
 The script basically:
 
-- bumps the [`VERSION`](VERSION) file to the target version
+- bumps the [`VERSION`](../VERSION) file to the target version
 - changes the `images` `newName`/`newTag` fields of
-  [./deploy/kustomize-deployment/kustomization.yaml](deploy/kustomize-deployment/kustomization.yaml)
+  [./deploy/kustomize-deployment/kustomization.yaml](../deploy/kustomize-deployment/kustomization.yaml)
   from `us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator` to
   `registry.k8s.io/security-profiles-operator/security-profiles-operator` (`newName`) and the
   corresponding tag (`newTag`).
@@ -26,14 +26,14 @@ The script basically:
   instead of
   `"s#us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator-catalog:latest#${CATALOG_IMG}#g"`
   (please note to change the version `v0.0.0` to the upcoming release)
-- updates [./dependencies.yaml](./dependencies.yaml) `spo-current` version as
+- updates [./dependencies.yaml](../dependencies.yaml) `spo-current` version as
   well as its linked files. Run `make verify-dependencies` to verify the
   results.
 - updates the release that [`verification.md`](verification.md) verifies.
   `hack/back-to-dev.sh` leaves it alone, so the documentation keeps pointing at
   the release instead of the development version.
 - updates ./hack/deploy-localhost.patch to match the new deployment
-- updates [./deploy/base/clusterserviceversion.yaml](./deploy/base/clusterserviceversion.yaml)
+- updates [./deploy/base/clusterserviceversion.yaml](../deploy/base/clusterserviceversion.yaml)
   to change `replaces` to the latest available version on OperatorHub as well as
   update the `containerImage`.
 - runs `make bundle`
@@ -75,31 +75,31 @@ merged, then we're finally ready to [create the
 release](https://github.com/kubernetes-sigs/security-profiles-operator/releases/new)
 directly on GitHub and add the release notes. The changelog is auto-generated
 based on PR labels and the configuration in
-[`.github/release.yml`](.github/release.yml). The introduction above it is
+[`.github/release.yml`](../.github/release.yml). The introduction above it is
 written by hand, start from
-[`.github/release-notes-template.md`](.github/release-notes-template.md) and
+[`.github/release-notes-template.md`](../.github/release-notes-template.md) and
 replace the version. The verification commands live in
 [`verification.md`](verification.md), so the release only links them and they
 stay correct for all releases.
 
-Publishing the release triggers the [`build`](.github/workflows/build.yml)
+Publishing the release triggers the [`build`](../.github/workflows/build.yml)
 workflow, which attaches the `spoc` binaries for all architectures and the
 `spoc.spdx.json` SBOM with their signatures (`*.sigstore.json`), checksums and SLSA
 build provenance (`spoc.intoto.jsonl`) to the release. The
-[`helm-chart-package`](.github/workflows/helm-chart-package.yaml) workflow
+[`helm-chart-package`](../.github/workflows/helm-chart-package.yaml) workflow
 attaches the chart archive with its signature and provenance. Nothing has to
 be built or uploaded by hand, `make nix-spoc` is only meant for local builds.
 Verify that the files are present. The reusable
-[`provenance`](.github/workflows/provenance.yml) workflow creates the
+[`provenance`](../.github/workflows/provenance.yml) workflow creates the
 provenance of both workflows, see
 [SLSA build levels](verification.md#slsa-build-levels).
 
 After that, run the `./hack/back-to-dev.sh` script, which will:
 
-- bumps the [`VERSION`](VERSION) file to the next minor version, but now including the
+- bumps the [`VERSION`](../VERSION) file to the next minor version, but now including the
   suffix `-dev`, for example `1.0.0-dev`.
 - changes the `images` `newName`/`newTag` fields in
-  [./deploy/kustomize-deployment/kustomization.yaml](deploy/kustomize-deployment/kustomization.yaml)
+  [./deploy/kustomize-deployment/kustomization.yaml](../deploy/kustomize-deployment/kustomization.yaml)
   back to `us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator`
   (`newName`) and `latest` (`newTag`) and runc `make bundle`
 - changes the tag in the same way in the OLM example manifest at
@@ -108,7 +108,7 @@ After that, run the `./hack/back-to-dev.sh` script, which will:
 - reverts the changes to [`deploy/helm/Chart.yaml`](/deploy/helm/Chart.yaml)
 - reverts the changes to [`hack/deploy-localhost.patch`](/hack/deploy-localhost.patch)
 - reverts the changes to [`test/e2e_test.go`](/test/e2e_test.go)
-- updates [./dependencies.yaml](./dependencies.yaml) `spo-current` version as
+- updates [./dependencies.yaml](../dependencies.yaml) `spo-current` version as
   well as its linked files. Run `make verify-dependencies` to verify the
   results.
 
@@ -148,7 +148,7 @@ attestations on the manifest list would hide the per-arch ones.
 The attestations are:
 
 - SLSA build provenance (`https://slsa.dev/provenance/v1`), written by
-  [`hack/attest-provenance.sh`](hack/attest-provenance.sh). This section
+  [`hack/attest-provenance.sh`](../hack/attest-provenance.sh). This section
   documents its build type: `externalParameters.source` is the git repository
   and ref with the built commit, `config` the Cloud Build configuration and
   `tag` the image tag. `resolvedDependencies` lists the source and the image the
@@ -157,12 +157,12 @@ The attestations are:
   build job writes and signs the provenance itself, so `runDetails.builder.id`
   names the `post-security-profiles-operator-push-image` job.
 - SPDX 3 SBOM (`https://spdx.dev/Document`), written by
-  [`hack/attest-sbom.sh`](hack/attest-sbom.sh). bom extracts the Go binary
+  [`hack/attest-sbom.sh`](../hack/attest-sbom.sh). bom extracts the Go binary
   dependencies directly from the image, so the SBOM includes the actual
   build-time module versions.
 - Vulnerability scan (`https://in-toto.io/attestation/vulns/v0.2`) and OpenVEX
   document (`https://openvex.dev/ns`) from govulncheck in binary mode, written
-  by [`hack/attest-vulns.sh`](hack/attest-vulns.sh). The VEX document marks a
+  by [`hack/attest-vulns.sh`](../hack/attest-vulns.sh). The VEX document marks a
   vulnerability as affected if one of the binaries uses the vulnerable symbols.
   A clean scan has an empty result and no VEX document, because OpenVEX needs at
   least one statement. Affected statements point to the vulnerability entry and
@@ -172,10 +172,10 @@ The attestations are:
   The scan result still lists every finding.
 - Build environment (`https://in-toto.io/attestation/build-env/v1`) from the Go
   build information of the binaries, written by
-  [`hack/attest-build-env.sh`](hack/attest-build-env.sh).
+  [`hack/attest-build-env.sh`](../hack/attest-build-env.sh).
 - OpenSSF Scorecard result (`https://scorecard.dev/result/v0.1`, a provisional
   predicate type) of this repository from the public Scorecard API, written by
-  [`hack/attest-scorecard.sh`](hack/attest-scorecard.sh). It describes the
+  [`hack/attest-scorecard.sh`](../hack/attest-scorecard.sh). It describes the
   commit Scorecard scanned last, and is skipped with a warning when the API is
   unavailable.
 

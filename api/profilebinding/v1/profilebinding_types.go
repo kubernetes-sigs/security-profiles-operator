@@ -32,7 +32,8 @@ const (
 
 // ProfileBindingSpec defines the desired state of ProfileBinding.
 type ProfileBindingSpec struct {
-	// profileRef references a SeccompProfile or other profile type in the current namespace.
+	// profileRef references the cluster-scoped SeccompProfile, SelinuxProfile
+	// or AppArmorProfile to bind.
 	// +required
 	ProfileRef ProfileRef `json:"profileRef,omitzero"`
 	// image specifies the container image name within pod containers to match to the profile.
@@ -53,9 +54,10 @@ type ProfileRef struct {
 	// +required
 	// +kubebuilder:validation:Enum=SeccompProfile;SelinuxProfile;AppArmorProfile
 	Kind ProfileBindingKind `json:"kind,omitempty"`
-	// name is the name of the profile within the current namespace to which to bind the selected pods.
+	// name is the name of the cluster-scoped profile to bind the selected pods to.
 	// +required
 	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
 	Name string `json:"name,omitempty"`
 }
 
@@ -72,6 +74,10 @@ type ProfileBindingStatus struct {
 // ProfileBinding is the Schema for the profilebindings API.
 // +kubebuilder:storageversion
 // +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Kind",type=string,JSONPath=`.spec.profileRef.kind`
+// +kubebuilder:printcolumn:name="Profile",type=string,JSONPath=`.spec.profileRef.name`
+// +kubebuilder:printcolumn:name="Image",type=string,JSONPath=`.spec.image`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 type ProfileBinding struct {
 	metav1.TypeMeta `json:",inline"`
 	// metadata contains the object metadata.
@@ -83,7 +89,7 @@ type ProfileBinding struct {
 	Spec ProfileBindingSpec `json:"spec,omitzero"`
 	// status contains the observed state of the ProfileBinding.
 	// +optional
-	Status ProfileBindingStatus `json:"status,omitempty"`
+	Status ProfileBindingStatus `json:"status,omitzero"`
 }
 
 // +kubebuilder:object:root=true

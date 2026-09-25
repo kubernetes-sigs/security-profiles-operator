@@ -1,6 +1,6 @@
 # Migration Guide: API Graduation to v1
 
-Security Profiles Operator (SPO) 1.0.0 graduates all CRD APIs from alpha/beta to v1. SPO 1.1.0 removed the old API versions. This document covers what changed, how to upgrade, and what you should update. For general installation and usage instructions, see the [documentation](../installation-usage.md).
+Security Profiles Operator (SPO) 1.0.0 graduates all CRD APIs from alpha/beta to v1. SPO 1.1.0 removed the old API versions. This document covers what changed, how to upgrade, and what you should update. For general installation and usage instructions, see the [documentation](README.md).
 
 ## API version changes
 
@@ -91,7 +91,17 @@ serve only v1, which means:
 3. **Update your manifests and clients to v1** (see
    [Recommended actions](#recommended-actions)).
 
-4. **Upgrade to 1.1.x.**
+4. **Upgrade to 1.1.x.** Helm installs the CRDs from the chart's `crds`
+   directory only on the first install and never updates them, so a
+   `helm upgrade` keeps the 1.0.x CRDs. They still serve the old API
+   versions and point to the conversion webhook which 1.1.x removed. Apply
+   the CRDs of the new release before running `helm upgrade`, where
+   `VERSION` is the release version to upgrade to, for example `1.1.0`:
+   ```bash
+   kubectl apply --server-side --force-conflicts -f \
+     "https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/v${VERSION}/deploy/helm/crds/crds.yaml"
+   ```
+   The manifest and OLM installations update the CRDs on their own.
 
 ## Recommended actions
 

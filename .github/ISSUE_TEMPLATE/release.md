@@ -61,9 +61,9 @@ All release artifacts are signed with [Sigstore][1]. The [verification guide][2]
 
 Feel free to provide us any kind of feedback in the official [Kubernetes Slack #security-profiles-operator channel][3].
 
-[0]: https://github.com/kubernetes-sigs/security-profiles-operator/blob/v{VERSION}/installation.md
+[0]: https://github.com/kubernetes-sigs/security-profiles-operator/blob/v{VERSION}/doc/installation.md
 [1]: https://www.sigstore.dev
-[2]: https://github.com/kubernetes-sigs/security-profiles-operator/blob/v{VERSION}/verification.md
+[2]: https://github.com/kubernetes-sigs/security-profiles-operator/blob/v{VERSION}/doc/verification.md
 [3]: https://app.slack.com/client/T09NY5SBT/C013FQNB0A2
 ````
 

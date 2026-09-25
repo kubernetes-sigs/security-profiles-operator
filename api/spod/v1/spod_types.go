@@ -117,7 +117,9 @@ type JsonEnricherOptions struct {
 
 // WebhookOptions defines per-webhook configuration options.
 type WebhookOptions struct {
-	// name specifies which webhook to configure.
+	// name specifies which webhook to configure. Valid values are
+	// binding.spo.io, recording.spo.io, execmetadata.spo.io and
+	// nodedebuggingpod.spo.io.
 	// +required
 	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name,omitempty"`
@@ -210,12 +212,14 @@ type SPODSpec struct {
 // SPODSelinuxConfig contains SELinux-specific configuration.
 type SPODSelinuxConfig struct {
 	// enable tells the operator whether or not to enable SELinux support for
-	// this SPOD instance.
+	// this SPOD instance. If unset, SELinux support is enabled on OpenShift
+	// and disabled everywhere else.
 	// +optional
 	Enable *bool `json:"enable,omitempty"`
 	// enableRawSelinuxProfiles tells the operator whether or not to enable
 	// RawSelinuxProfile support. When disabled, the RawSelinuxProfile
-	// controller will not be started. Defaults to true when SELinux is enabled.
+	// controller will not be started. It only has an effect when SELinux
+	// support is enabled. Defaults to true.
 	// +optional
 	// +default=true
 	EnableRawSelinuxProfiles *bool `json:"enableRawSelinuxProfiles,omitempty"`
@@ -380,6 +384,7 @@ type SPODStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:path=securityprofilesoperatordaemons,shortName=spod
 // +kubebuilder:printcolumn:name="State",type="string",JSONPath=`.status.state`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 type SecurityProfilesOperatorDaemon struct {
 	metav1.TypeMeta `json:",inline"`
 	// metadata contains the object metadata.
@@ -391,7 +396,7 @@ type SecurityProfilesOperatorDaemon struct {
 	Spec SPODSpec `json:"spec,omitempty"`
 	// status contains the observed state of the SecurityProfilesOperatorDaemon.
 	// +optional
-	Status SPODStatus `json:"status,omitempty"`
+	Status SPODStatus `json:"status,omitzero"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

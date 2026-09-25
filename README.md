@@ -4,15 +4,23 @@
 [![test](https://github.com/kubernetes-sigs/security-profiles-operator/actions/workflows/test.yml/badge.svg)](https://github.com/kubernetes-sigs/security-profiles-operator/actions/workflows/test.yml)
 [![coverage](https://codecov.io/gh/kubernetes-sigs/security-profiles-operator/branch/main/graph/badge.svg?token=37VIWSZ1ZT)](https://codecov.io/gh/kubernetes-sigs/security-profiles-operator)
 [![CII Best Practices](https://bestpractices.coreinfrastructure.org/projects/5368/badge)](https://bestpractices.coreinfrastructure.org/projects/5368)
-[![OCI security profiles](https://img.shields.io/badge/oci%3A%2F%2F-security%20profiles-blue?logo=kubernetes&logoColor=white)](cli.md#pushing-profiles-for-container-runtimes)
+[![OCI security profiles](https://img.shields.io/badge/oci%3A%2F%2F-security%20profiles-blue?logo=kubernetes&logoColor=white)](doc/cli.md#pushing-profiles-for-container-runtimes)
 
 The _Security Profiles Operator_ (SPO) is an out-of-tree Kubernetes enhancement which aims to make
 it easier to create and use SELinux, seccomp and AppArmor security profiles in Kubernetes clusters.
 
-- [Documentation](installation-usage.md)
+- [Documentation](doc/README.md)
+  - [Installation and Configuration](doc/installation.md)
+  - [Upgrading](doc/installation.md#upgrading)
+  - [Security Profiles](doc/profiles.md)
+  - [Command Line Interface (CLI)](doc/cli.md)
+  - [Metrics](doc/metrics.md)
+  - [Troubleshooting](doc/troubleshooting.md)
+  - [Security Model](doc/security-model.md)
+  - [Verifying Releases](doc/verification.md)
 - [Container Images](https://console.cloud.google.com/artifacts/docker/k8s-staging-images/us-central1/sp-operator)
-- [Release Process](./release.md)
-- [Base Profiles](./release-baseprofiles.md)
+- [Release Process](doc/release.md)
+- [Base Profiles](doc/release-baseprofiles.md)
 - [Testgrid Dashboard](https://testgrid.k8s.io/sig-node-security-profiles-operator)
 
 ## Features
@@ -31,7 +39,7 @@ This is the parity of features across various security profiles supported by the
 | Audit In-Pod Activity JSON log enrichment |   Yes   | No      | No       |
 
 For information about the security model and what permissions each feature requires,
-refer to SPO's [security model](security-model.md).
+refer to SPO's [security model](doc/security-model.md).
 
 ## Resources
 
@@ -42,12 +50,12 @@ each node. These daemon pods handle profile installation, recording, and
 enforcement for seccomp, SELinux, and AppArmor.
 
 - [Architecture](doc/architecture.svg)
-- [Use Stories](doc/user-stories.md)
+- [User Stories](doc/user-stories.md)
 - [Personas](doc/personas.md)
 - [Audit Logging Guide](doc/audit-logging-guide.md)
 - [Migration Guide: API v1 Graduation](doc/migration-guide-v1.md)
 
-[0]: RFC.md
+[0]: doc/RFC.md
 
 Related Kubernetes Enhancement Proposals (KEPs) which have direct influence on
 this project:
@@ -72,7 +80,7 @@ the Kubernetes world:
 
 ## Community, discussions, contributions, and support
 
-If you're interested in contributing to SPO, please see the [developer focused document](hacking.md).
+If you're interested in contributing to SPO, please see the [developer focused document](doc/hacking.md).
 
 We schedule a monthly meeting every last Thursday of a month.
 
@@ -85,7 +93,7 @@ Learn how to engage with the Kubernetes community on the [community page](http:/
 You can reach the maintainers of this project at:
 
 - [Slack #security-profiles-operator](https://kubernetes.slack.com/messages/security-profiles-operator)
-- [Mailing List](https://groups.google.com/forum/#!forum/kubernetes-dev)
+- [Mailing List](https://groups.google.com/a/kubernetes.io/g/dev)
 
 ### Code of conduct
 

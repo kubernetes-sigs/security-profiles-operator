@@ -57,7 +57,6 @@ spec:
     names:
     - bar
     - foo
-status: {}
 `
 
 const SelinuxA = `

@@ -136,7 +136,7 @@ if fixable:
         print(describe(osv_id, finding))
     print()
     print("Update the affected modules to at least the listed fixed versions, or assess them in .openvex.json,")
-    print("see https://github.com/kubernetes-sigs/security-profiles-operator/blob/main/hacking.md#vulnerability-checks-and-assessments")
+    print("see https://github.com/kubernetes-sigs/security-profiles-operator/blob/main/doc/hacking.md#vulnerability-checks-and-assessments")
     sys.exit(1)
 
 print("No reachable vulnerability with an available fix.")

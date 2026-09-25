@@ -103,6 +103,7 @@ type RawSelinuxProfileSpec struct {
 // +kubebuilder:resource:path=rawselinuxprofiles,scope=Cluster
 // +kubebuilder:printcolumn:name="Usage",type="string",JSONPath=`.status.usage`
 // +kubebuilder:printcolumn:name="State",type="string",JSONPath=`.status.status`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 type RawSelinuxProfile struct {
 	metav1.TypeMeta `json:",inline"`
 	// metadata contains the object metadata.
@@ -114,7 +115,7 @@ type RawSelinuxProfile struct {
 	Spec RawSelinuxProfileSpec `json:"spec,omitzero"`
 	// status contains the observed state of the RawSelinuxProfile.
 	// +optional
-	Status SelinuxProfileStatus `json:"status,omitempty"`
+	Status SelinuxProfileStatus `json:"status,omitzero"`
 }
 
 func (sp *RawSelinuxProfile) GetStatusBase() *profilebasev1.StatusBase {

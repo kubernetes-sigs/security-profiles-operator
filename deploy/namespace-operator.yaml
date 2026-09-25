@@ -15,7 +15,20 @@ spec:
     singular: profilebinding
   scope: Namespaced
   versions:
-  - name: v1
+  - additionalPrinterColumns:
+    - jsonPath: .spec.profileRef.kind
+      name: Kind
+      type: string
+    - jsonPath: .spec.profileRef.name
+      name: Profile
+      type: string
+    - jsonPath: .spec.image
+      name: Image
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1
     schema:
       openAPIV3Schema:
         description: ProfileBinding is the Schema for the profilebindings API.
@@ -96,8 +109,9 @@ spec:
                 type: object
                 x-kubernetes-map-type: atomic
               profileRef:
-                description: profileRef references a SeccompProfile or other profile
-                  type in the current namespace.
+                description: |-
+                  profileRef references the cluster-scoped SeccompProfile, SelinuxProfile
+                  or AppArmorProfile to bind.
                 properties:
                   kind:
                     description: kind specifies the type of object to be bound.
@@ -107,8 +121,9 @@ spec:
                     - AppArmorProfile
                     type: string
                   name:
-                    description: name is the name of the profile within the current
-                      namespace to which to bind the selected pods.
+                    description: name is the name of the cluster-scoped profile to
+                      bind the selected pods to.
+                    maxLength: 253
                     minLength: 1
                     type: string
                 required:
@@ -156,6 +171,15 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
+    - jsonPath: .spec.kind
+      name: Kind
+      type: string
+    - jsonPath: .spec.recorder
+      name: Recorder
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
     - jsonPath: .spec.podSelector
       name: PodSelector
       priority: 10
@@ -191,6 +215,7 @@ spec:
                   only specific containers to record instead of all containers present
                   in the pod.
                 items:
+                  maxLength: 63
                   type: string
                 type: array
                 x-kubernetes-list-type: set
@@ -203,7 +228,10 @@ spec:
                   for all profiles might not be needed. Defaults to false.
                 type: boolean
               kind:
-                description: kind specifies the type of object to be recorded.
+                description: |-
+                  kind specifies the type of object to be recorded. SelinuxProfile
+                  recordings require the Logs recorder and AppArmorProfile recordings
+                  require the Bpf recorder.
                 enum:
                 - SeccompProfile
                 - SelinuxProfile
@@ -278,6 +306,11 @@ spec:
             - podSelector
             - recorder
             type: object
+            x-kubernetes-validations:
+            - message: SelinuxProfile recordings only support the Logs recorder
+              rule: self.kind != 'SelinuxProfile' || self.recorder == 'Logs'
+            - message: AppArmorProfile recordings only support the Bpf recorder
+              rule: self.kind != 'AppArmorProfile' || self.recorder == 'Bpf'
           status:
             description: status contains the observed state of the ProfileRecording.
             properties:
@@ -424,6 +457,7 @@ spec:
                 description: |-
                   listenerPath is the path of UNIX domain socket to contact a seccomp
                   agent for SCMP_ACT_NOTIFY.
+                maxLength: 107
                 pattern: ^/var/run/security-profiles-operator/[a-zA-Z0-9_\-\.]+$
                 type: string
               state:
@@ -471,6 +505,7 @@ spec:
                             description: index is the index for syscall arguments
                               in seccomp.
                             format: int32
+                            maximum: 5
                             minimum: 0
                             type: integer
                           op:
@@ -494,8 +529,9 @@ spec:
                             minimum: 0
                             type: integer
                           valueTwo:
-                            description: valueTwo is the second value for syscall
-                              arguments in seccomp.
+                            description: |-
+                              valueTwo is the second value for syscall arguments in seccomp. It is
+                              only used by the SCMP_CMP_MASKED_EQ operator.
                             format: int64
                             minimum: 0
                             type: integer
@@ -510,7 +546,8 @@ spec:
                       description: |-
                         errnoRet is the errno return code to use. Some actions like
                         SCMP_ACT_ERRNO and SCMP_ACT_TRACE allow to specify the errno
-                        code to return.
+                        code to return. A value of 0 is treated like an unset field, so the
+                        container runtime returns EPERM.
                       format: int32
                       maximum: 4095
                       minimum: 0
@@ -688,10 +725,15 @@ spec:
             description: spec defines the desired state of the SecurityProfileNodeStatus.
             properties:
               nodeName:
-                description: nodeName is the name of the node on which the profile
-                  is installed.
+                description: |-
+                  nodeName is the name of the node on which the profile is installed.
+                  It cannot be changed after creation.
+                maxLength: 253
                 minLength: 1
                 type: string
+                x-kubernetes-validations:
+                - message: nodeName is immutable
+                  rule: self == oldSelf
             required:
             - nodeName
             type: object
@@ -743,6 +785,9 @@ spec:
     - jsonPath: .status.state
       name: State
       type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
     name: v1
     schema:
       openAPIV3Schema:
@@ -2019,14 +2064,16 @@ spec:
                   enable:
                     description: |-
                       enable tells the operator whether or not to enable SELinux support for
-                      this SPOD instance.
+                      this SPOD instance. If unset, SELinux support is enabled on OpenShift
+                      and disabled everywhere else.
                     type: boolean
                   enableRawSelinuxProfiles:
                     default: true
                     description: |-
                       enableRawSelinuxProfiles tells the operator whether or not to enable
                       RawSelinuxProfile support. When disabled, the RawSelinuxProfile
-                      controller will not be started. Defaults to true when SELinux is enabled.
+                      controller will not be started. It only has an effect when SELinux
+                      support is enabled. Defaults to true.
                     type: boolean
                   options:
                     default: {}
@@ -2124,7 +2171,10 @@ spec:
                           - Fail
                           type: string
                         name:
-                          description: name specifies which webhook to configure.
+                          description: |-
+                            name specifies which webhook to configure. Valid values are
+                            binding.spo.io, recording.spo.io, execmetadata.spo.io and
+                            nodedebuggingpod.spo.io.
                           minLength: 1
                           type: string
                         namespaceSelector:
@@ -2385,6 +2435,9 @@ spec:
     - jsonPath: .status.status
       name: State
       type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
     name: v1
     schema:
       openAPIV3Schema:
@@ -2542,6 +2595,9 @@ spec:
     - jsonPath: .status.status
       name: State
       type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
     name: v1
     schema:
       openAPIV3Schema:
@@ -2570,12 +2626,21 @@ spec:
               allow:
                 additionalProperties:
                   additionalProperties:
+                    description: PermissionSet is a list of SELinux permissions.
                     items:
+                      pattern: ^[-a-zA-Z0-9._]+$
                       type: string
                     type: array
                   type: object
-                description: allow defines the allow policy for the profile.
+                description: |-
+                  allow defines the allow policy for the profile. It maps SELinux types
+                  (or "@self" for the profile's own type) to object classes and their
+                  permissions.
                 type: object
+                x-kubernetes-validations:
+                - message: types may only contain alphanumeric characters, '.', '-'
+                    and '_', or be '@self'
+                  rule: self.all(k, k.matches('^([-a-zA-Z0-9._]+|@self)$'))
               inherit:
                 default:
                 - kind: System
@@ -2743,6 +2808,9 @@ spec:
     - jsonPath: .status.status
       name: Status
       type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
     name: v1
     schema:
       openAPIV3Schema:
@@ -2777,8 +2845,11 @@ spec:
                     description: capability defines rules for Linux capabilities.
                     properties:
                       allowedCapabilities:
-                        description: allowedCapabilities is a list of allowed capabilities.
+                        description: |-
+                          allowedCapabilities is a list of allowed capabilities, written in
+                          lower case without the "CAP_" prefix, for example "net_bind_service".
                         items:
+                          pattern: ^\s*(?i:chown|dac_override|dac_read_search|fowner|fsetid|kill|setgid|setuid|setpcap|linux_immutable|net_bind_service|net_broadcast|net_admin|net_raw|ipc_lock|ipc_owner|sys_module|sys_rawio|sys_chroot|sys_ptrace|sys_pacct|sys_admin|sys_boot|sys_nice|sys_resource|sys_time|sys_tty_config|mknod|lease|audit_write|audit_control|setfcap|mac_override|mac_admin|syslog|wake_alarm|block_suspend|audit_read|perfmon|bpf|checkpoint_restore)\s*$
                           type: string
                         type: array
                         x-kubernetes-list-type: set
@@ -2789,12 +2860,14 @@ spec:
                       allowedExecutables:
                         description: allowedExecutables is a list of allowed executables.
                         items:
+                          pattern: ^(?:/[a-zA-Z0-9_./*?+@{} -]*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$
                           type: string
                         type: array
                         x-kubernetes-list-type: set
                       allowedLibraries:
                         description: allowedLibraries is a list of allowed libraries.
                         items:
+                          pattern: ^(?:/[a-zA-Z0-9_./*?+@{} -]*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$
                           type: string
                         type: array
                         x-kubernetes-list-type: set
@@ -2806,6 +2879,7 @@ spec:
                         description: readOnlyPaths is a list of allowed read only
                           file paths.
                         items:
+                          pattern: ^(?:/[a-zA-Z0-9_./*?+@{} -]*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$
                           type: string
                         type: array
                         x-kubernetes-list-type: set
@@ -2813,6 +2887,7 @@ spec:
                         description: readWritePaths is a list of allowed read write
                           file paths.
                         items:
+                          pattern: ^(?:/[a-zA-Z0-9_./*?+@{} -]*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$
                           type: string
                         type: array
                         x-kubernetes-list-type: set
@@ -2820,6 +2895,7 @@ spec:
                         description: writeOnlyPaths is a list of allowed write only
                           file paths.
                         items:
+                          pattern: ^(?:/[a-zA-Z0-9_./*?+@{} -]*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$
                           type: string
                         type: array
                         x-kubernetes-list-type: set

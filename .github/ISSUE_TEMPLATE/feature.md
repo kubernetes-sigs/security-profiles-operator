@@ -21,5 +21,5 @@ to help people understand what the feature is trying to solve and how it's
 meant to help the target personas.
 
 If this would help a target persona that's not currently listed, please add it
-to the document in docs/personas.md
+to the document in doc/personas.md
  -->

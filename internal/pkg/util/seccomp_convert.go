@@ -17,6 +17,7 @@ limitations under the License.
 package util
 
 import (
+	"errors"
 	"fmt"
 	"math"
 
@@ -24,6 +25,10 @@ import (
 
 	seccompprofile "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 )
+
+// ErrSeccompArgOutOfRange is returned if a runtime-spec seccomp value does
+// not fit into the SeccompProfile API.
+var ErrSeccompArgOutOfRange = errors.New("seccomp value out of range")
 
 func syscallsToOCI(syscalls []seccompprofile.Syscall) []specs.LinuxSyscall {
 	result := make([]specs.LinuxSyscall, len(syscalls))
@@ -40,24 +45,29 @@ func syscallsToOCI(syscalls []seccompprofile.Syscall) []specs.LinuxSyscall {
 	return result
 }
 
-func syscallsFromOCI(syscalls []specs.LinuxSyscall) []seccompprofile.Syscall {
+func syscallsFromOCI(syscalls []specs.LinuxSyscall) ([]seccompprofile.Syscall, error) {
 	result := make([]seccompprofile.Syscall, 0, len(syscalls))
 
 	for _, sc := range syscalls {
 		errnoRet, err := errnoRetFromOCI(sc.ErrnoRet)
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("syscalls %v: %w", sc.Names, err)
+		}
+
+		args, err := argsFromOCI(sc.Args)
+		if err != nil {
+			return nil, fmt.Errorf("syscalls %v: %w", sc.Names, err)
 		}
 
 		result = append(result, seccompprofile.Syscall{
 			Names:    sc.Names,
 			Action:   seccompprofile.Action(sc.Action),
 			ErrnoRet: errnoRet,
-			Args:     argsFromOCI(sc.Args),
+			Args:     args,
 		})
 	}
 
-	return result
+	return result, nil
 }
 
 func argsToOCI(args []seccompprofile.Arg) []specs.LinuxSeccompArg {
@@ -84,24 +94,27 @@ func argsToOCI(args []seccompprofile.Arg) []specs.LinuxSeccompArg {
 	return result
 }
 
-func argsFromOCI(args []specs.LinuxSeccompArg) []seccompprofile.Arg {
+// argsFromOCI converts the runtime-spec syscall arguments into the CRD
+// representation. Arguments which the CRD cannot hold are an error instead of
+// being dropped, because dropping an argument would widen the rule.
+func argsFromOCI(args []specs.LinuxSeccompArg) ([]seccompprofile.Arg, error) {
 	if len(args) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	result := make([]seccompprofile.Arg, 0, len(args))
 
 	for _, arg := range args {
 		if arg.Index > math.MaxInt32 {
-			continue
+			return nil, fmt.Errorf("%w: index %d", ErrSeccompArgOutOfRange, arg.Index)
 		}
 
 		if arg.Value > math.MaxInt64 {
-			continue
+			return nil, fmt.Errorf("%w: value %d", ErrSeccompArgOutOfRange, arg.Value)
 		}
 
 		if arg.ValueTwo > math.MaxInt64 {
-			continue
+			return nil, fmt.Errorf("%w: valueTwo %d", ErrSeccompArgOutOfRange, arg.ValueTwo)
 		}
 
 		idx := int32(arg.Index)
@@ -113,11 +126,7 @@ func argsFromOCI(args []specs.LinuxSeccompArg) []seccompprofile.Arg {
 		})
 	}
 
-	if len(result) == 0 {
-		return nil
-	}
-
-	return result
+	return result, nil
 }
 
 func errnoRetToOCI(errnoRet int32) *uint {
@@ -136,7 +145,7 @@ func errnoRetFromOCI(errnoRet *uint) (int32, error) {
 	}
 
 	if *errnoRet > math.MaxInt32 {
-		return 0, fmt.Errorf("errnoRet value %d exceeds math.MaxInt32", *errnoRet)
+		return 0, fmt.Errorf("%w: errnoRet %d", ErrSeccompArgOutOfRange, *errnoRet)
 	}
 
 	return int32(*errnoRet), nil

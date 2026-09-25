@@ -6,7 +6,7 @@ The Kubernetes Security Profiles Operator.
 
 ## Installation
 
-please refer to [Installation Guide](https://github.com/kubernetes-sigs/security-profiles-operator/blob/main/installation.md#installation-using-helm)
+please refer to [Installation Guide](https://github.com/kubernetes-sigs/security-profiles-operator/blob/main/doc/installation.md#installation-using-helm)
 
 ## Values
 

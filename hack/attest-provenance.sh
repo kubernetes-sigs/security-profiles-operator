@@ -36,7 +36,7 @@ set -euo pipefail
 # shellcheck source=hack/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
-BUILD_TYPE="$REPOSITORY_URL/blob/main/release.md#staging-attestations"
+BUILD_TYPE="$REPOSITORY_URL/blob/main/doc/release.md#staging-attestations"
 BUILDER_ID=https://prow.k8s.io/job-history/gs/kubernetes-ci-logs/logs/post-security-profiles-operator-push-image
 
 if ! signing_enabled; then

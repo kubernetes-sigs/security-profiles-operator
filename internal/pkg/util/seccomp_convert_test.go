@@ -17,6 +17,7 @@ limitations under the License.
 package util
 
 import (
+	"math"
 	"testing"
 
 	specs "github.com/opencontainers/runtime-spec/specs-go"
@@ -55,8 +56,22 @@ func TestSyscallsRoundTrip(t *testing.T) {
 	require.Equal(t, uint(13), *oci[1].ErrnoRet)
 	require.Nil(t, oci[2].ErrnoRet)
 
-	roundTripped := syscallsFromOCI(oci)
+	roundTripped, err := syscallsFromOCI(oci)
+	require.NoError(t, err)
 	require.Equal(t, input, roundTripped)
+}
+
+func TestSyscallsFromOCIOutOfRange(t *testing.T) {
+	t.Parallel()
+
+	_, err := syscallsFromOCI([]specs.LinuxSyscall{{
+		Names:  []string{"personality"},
+		Action: specs.ActAllow,
+		Args: []specs.LinuxSeccompArg{
+			{Index: 0, Value: math.MaxUint64, Op: specs.OpEqualTo},
+		},
+	}})
+	require.ErrorIs(t, err, ErrSeccompArgOutOfRange)
 }
 
 func TestArgsRoundTrip(t *testing.T) {
@@ -73,7 +88,8 @@ func TestArgsRoundTrip(t *testing.T) {
 	require.Equal(t, uint64(1), oci[0].Value)
 	require.Equal(t, specs.OpEqualTo, oci[0].Op)
 
-	roundTripped := argsFromOCI(oci)
+	roundTripped, err := argsFromOCI(oci)
+	require.NoError(t, err)
 	require.Equal(t, input, roundTripped)
 }
 
@@ -82,8 +98,14 @@ func TestArgsEmptyNil(t *testing.T) {
 
 	require.Nil(t, argsToOCI(nil))
 	require.Nil(t, argsToOCI([]seccompprofile.Arg{}))
-	require.Nil(t, argsFromOCI(nil))
-	require.Nil(t, argsFromOCI([]specs.LinuxSeccompArg{}))
+
+	args, err := argsFromOCI(nil)
+	require.NoError(t, err)
+	require.Nil(t, args)
+
+	args, err = argsFromOCI([]specs.LinuxSeccompArg{})
+	require.NoError(t, err)
+	require.Nil(t, args)
 }
 
 func TestArgsNilIndex(t *testing.T) {
@@ -96,8 +118,22 @@ func TestArgsNilIndex(t *testing.T) {
 	oci := argsToOCI(input)
 	require.Equal(t, uint(0), oci[0].Index)
 
-	roundTripped := argsFromOCI(oci)
+	roundTripped, err := argsFromOCI(oci)
+	require.NoError(t, err)
 	require.Equal(t, int32(0), *roundTripped[0].Index)
+}
+
+func TestArgsFromOCIOutOfRange(t *testing.T) {
+	t.Parallel()
+
+	for _, arg := range []specs.LinuxSeccompArg{
+		{Index: math.MaxInt32 + 1},
+		{Value: math.MaxInt64 + 1},
+		{ValueTwo: math.MaxUint64},
+	} {
+		_, err := argsFromOCI([]specs.LinuxSeccompArg{arg})
+		require.ErrorIs(t, err, ErrSeccompArgOutOfRange)
+	}
 }
 
 func TestErrnoRetRoundTrip(t *testing.T) {
@@ -128,5 +164,5 @@ func TestErrnoRetFromOCIOverflow(t *testing.T) {
 
 	overflow := uint(1 << 31)
 	_, err := errnoRetFromOCI(&overflow)
-	require.Error(t, err)
+	require.ErrorIs(t, err, ErrSeccompArgOutOfRange)
 }
