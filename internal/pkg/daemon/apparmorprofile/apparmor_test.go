@@ -423,3 +423,16 @@ func TestIsRuntimeProfile(t *testing.T) {
 		require.Equal(t, want, isRuntimeProfile(name), name)
 	}
 }
+
+func TestProfileFilename(t *testing.T) {
+	t.Parallel()
+
+	for name, want := range map[string]string{
+		"profile":      "profile",
+		"/usr/bin/foo": "usr.bin.foo",
+		"a/b/":         "a.b",
+		"..":           "",
+	} {
+		require.Equal(t, want, profileFilename(name), name)
+	}
+}

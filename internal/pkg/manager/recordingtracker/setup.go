@@ -62,6 +62,19 @@ func (r *RecordingTrackerReconciler) Setup(
 		return fmt.Errorf("creating profile recording index: %w", err)
 	}
 
+	if err := ctrl.NewControllerManagedBy(mgr).
+		Named(name+"-status").
+		For(&profilerecordingapi.ProfileRecording{}, builder.WithPredicates(
+			predicate.GenerationChangedPredicate{},
+		)).
+		Complete(&recordingStatusReconciler{
+			client: r.client,
+			reader: r.reader,
+			log:    r.log.WithName("status"),
+		}); err != nil {
+		return fmt.Errorf("creating recording status controller: %w", err)
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		Named(name).
 		For(&corev1.Pod{}, builder.WithPredicates(predicate.Funcs{

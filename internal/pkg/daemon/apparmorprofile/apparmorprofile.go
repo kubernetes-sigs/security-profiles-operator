@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -35,7 +34,6 @@ import (
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
@@ -46,8 +44,6 @@ import (
 const (
 	// default reconcile timeout.
 	reconcileTimeout = 1 * time.Minute
-
-	errAppArmorProfileNil = "apparmor profile cannot be nil"
 
 	reasonAppArmorNotSupported  string = "AppArmorNotSupportedOnNode"
 	reasonCannotLoadProfile     string = "CannotLoadAppArmorProfile"
@@ -62,6 +58,8 @@ const (
 	installedAnnotation = "spo.x-k8s.io/apparmor-profile-installed"
 )
 
+var errAppArmorProfileNil = errors.New("apparmor profile cannot be nil")
+
 // NewController returns a new empty controller instance.
 func NewController() controller.Controller {
 	return &Reconciler{}
@@ -69,11 +67,31 @@ func NewController() controller.Controller {
 
 // A Reconciler reconciles AppArmor profiles.
 type Reconciler struct {
-	client  client.Client
-	log     logr.Logger
-	record  util.EventRecorder
-	metrics *metrics.Metrics
-	manager ProfileManager
+	client   client.Client
+	log      logr.Logger
+	record   util.EventRecorder
+	metrics  *metrics.Metrics
+	manager  ProfileManager
+	nodeName string
+}
+
+// reportError increments the error metric of the profile for reason and
+// records a warning event on it.
+func (r *Reconciler) reportError(
+	sp *apparmorprofileapi.AppArmorProfile,
+	reason, action string,
+	err error,
+) {
+	r.errorReporter(sp).Report(sp, reason, action, err.Error())
+}
+
+func (r *Reconciler) errorReporter(sp *apparmorprofileapi.AppArmorProfile) common.ErrorReporter {
+	return common.ErrorReporter{
+		Record: r.record,
+		IncError: func(reason string) {
+			r.metrics.IncAppArmorProfileError(sp.GetName(), reason)
+		},
+	}
 }
 
 // Name returns the name of the controller.
@@ -93,7 +111,7 @@ func (r *Reconciler) Healthz(*http.Request) error {
 
 func (r *Reconciler) checkAppArmor() error {
 	if !r.manager.Enabled() {
-		return fmt.Errorf("node %q does not support apparmor", os.Getenv(config.NodeNameEnvKey))
+		return fmt.Errorf("node %q does not support apparmor", r.nodeName)
 	}
 
 	return nil
@@ -110,7 +128,7 @@ func (r *Reconciler) Reconcile(
 	ctx context.Context,
 	req reconcile.Request,
 ) (reconcile.Result, error) {
-	logger := r.log.WithValues("apparmorprofile", req.Name, "namespace", req.Namespace)
+	logger := r.log.WithValues("profile", req.Name)
 	logger.Info("Reconciling AppArmorProfile")
 
 	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
@@ -121,13 +139,13 @@ func (r *Reconciler) Reconcile(
 		err := errors.New("profile not added")
 		logger.Error(
 			err,
-			fmt.Sprintf("node %q does not support apparmor", os.Getenv(config.NodeNameEnvKey)),
+			fmt.Sprintf("node %q does not support apparmor", r.nodeName),
 		)
 
 		if r.record != nil {
 			r.metrics.IncAppArmorProfileError(req.Name, reasonAppArmorNotSupported)
 			r.record.Eventf(
-				util.EventNode(os.Getenv(config.NodeNameEnvKey)),
+				util.EventNode(r.nodeName),
 				&apparmorprofileapi.AppArmorProfile{
 					ObjectMeta: metav1.ObjectMeta{Name: req.Name},
 				},
@@ -152,7 +170,7 @@ func (r *Reconciler) Reconcile(
 			return reconcile.Result{}, nil
 		}
 
-		return reconcile.Result{}, fmt.Errorf("%s: %w", common.ErrGetProfile, err)
+		return reconcile.Result{}, fmt.Errorf("%w: %w", common.ErrGetProfile, err)
 	}
 
 	return r.reconcileAppArmorProfile(ctx, appArmorProfile, logger)
@@ -162,10 +180,10 @@ func (r *Reconciler) reconcileAppArmorProfile(
 	ctx context.Context, sp *apparmorprofileapi.AppArmorProfile, l logr.Logger,
 ) (reconcile.Result, error) {
 	if sp == nil {
-		return reconcile.Result{}, errors.New(errAppArmorProfileNil)
+		return reconcile.Result{}, errAppArmorProfileNil
 	}
 
-	nodeStatus, err := nodestatus.NewForProfile(sp, r.client)
+	nodeStatus, err := nodestatus.NewForProfileOnNode(sp, r.client, r.nodeName)
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("cannot create nodeStatus: %w", err)
 	}
@@ -177,13 +195,13 @@ func (r *Reconciler) reconcileAppArmorProfile(
 	// The object is not being deleted. This has to happen before the
 	// reconcilable check, so that a partial or disabled profile still reports a
 	// node status, exactly like the seccomp and SELinux reconcilers do.
-	created, result, ensureErr := common.EnsureNodeStatus(ctx, nodeStatus, l)
-	if ensureErr != nil {
-		return result, ensureErr
+	created, _, err := common.EnsureNodeStatus(ctx, nodeStatus, l)
+	if err != nil {
+		return reconcile.Result{}, err
 	}
 
 	if created {
-		return result, nil
+		return reconcile.Result{RequeueAfter: common.Wait}, nil
 	}
 
 	// A partial profile is still being recorded and a disabled one must not be
@@ -210,36 +228,19 @@ func (r *Reconciler) reconcileAppArmorProfile(
 		)
 	}
 
-	// TODO: backoff policy
+	// A failed installation returns an error, so the controller retries it
+	// with the exponential backoff of its rate limiter.
 	updated, err := r.manager.InstallProfile(sp, isAlreadyInstalled)
 	if err != nil {
 		l.Error(err, "cannot load profile into node")
-		r.metrics.IncAppArmorProfileError(sp.GetName(), reasonCannotLoadProfile)
-		r.record.Eventf(
-			sp,
-			nil,
-			util.EventTypeWarning,
-			reasonCannotLoadProfile,
-			util.EventActionInstall,
-			"%s",
-			err.Error(),
-		)
+		r.reportError(sp, reasonCannotLoadProfile, util.EventActionInstall, err)
 
 		return reconcile.Result{}, fmt.Errorf("cannot load profile into node: %w", err)
 	}
 
 	if err := nodeStatus.SetAnnotation(ctx, installedAnnotation, "true"); err != nil {
 		l.Error(err, "cannot record profile installation in node status")
-		r.metrics.IncAppArmorProfileError(sp.GetName(), common.ReasonCannotUpdateStatus)
-		r.record.Eventf(
-			sp,
-			nil,
-			util.EventTypeWarning,
-			common.ReasonCannotUpdateStatus,
-			util.EventActionUpdate,
-			"%s",
-			err.Error(),
-		)
+		r.reportError(sp, common.ReasonCannotUpdateStatus, util.EventActionUpdate, err)
 
 		return reconcile.Result{}, fmt.Errorf("recording profile installation: %w", err)
 	}
@@ -255,16 +256,7 @@ func (r *Reconciler) reconcileAppArmorProfile(
 		secprofnodestatusapi.ProfileStateInstalled,
 	); err != nil {
 		l.Error(err, "cannot update node status")
-		r.metrics.IncAppArmorProfileError(sp.GetName(), common.ReasonCannotUpdateStatus)
-		r.record.Eventf(
-			sp,
-			nil,
-			util.EventTypeWarning,
-			common.ReasonCannotUpdateStatus,
-			util.EventActionUpdate,
-			"%s",
-			err.Error(),
-		)
+		r.reportError(sp, common.ReasonCannotUpdateStatus, util.EventActionUpdate, err)
 
 		return reconcile.Result{}, fmt.Errorf(
 			"updating status in AppArmorProfile reconciler: %w",
@@ -279,7 +271,7 @@ func (r *Reconciler) reconcileAppArmorProfile(
 	)
 
 	if updated {
-		evstr := "Successfully loaded profile into node " + os.Getenv(config.NodeNameEnvKey)
+		evstr := "Successfully loaded profile into node " + r.nodeName
 
 		r.metrics.IncAppArmorProfileUpdate()
 		r.record.Eventf(
@@ -302,14 +294,19 @@ func (r *Reconciler) reconcileDeletion(
 	nsc *nodestatus.StatusClient,
 ) (reconcile.Result, error) {
 	return common.ReconcileDeletion(
-		ctx, sp, nsc, r.client, r.log, r.record,
+		ctx,
+		sp,
+		nsc,
+		r.client,
+		r.log,
+		r.record,
 		common.DeletionReasons{
 			CannotUpdateProfile: reasonCannotUpdateProfile,
 			CannotRemoveProfile: reasonCannotUnloadProfile,
 			CannotUpdateStatus:  common.ReasonCannotUpdateStatus,
 		},
-		func(reason string) { r.metrics.IncAppArmorProfileError(sp.GetName(), reason) },
-		func() error { return r.handleDeletion(ctx, sp, nsc) },
+		r.errorReporter(sp).IncError,
+		func() (reconcile.Result, error) { return reconcile.Result{}, r.handleDeletion(ctx, sp, nsc) },
 	)
 }
 

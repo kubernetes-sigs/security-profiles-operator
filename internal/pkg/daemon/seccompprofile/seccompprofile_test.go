@@ -92,7 +92,7 @@ func TestReconcile(t *testing.T) {
 			wantResult: reconcile.Result{},
 			wantErr: func() error {
 				if seccomp.IsEnabled() {
-					return fmt.Errorf("%s: %w", common.ErrGetProfile, errOops)
+					return fmt.Errorf("%w: %w", common.ErrGetProfile, errOops)
 				}
 
 				return nil
@@ -318,7 +318,7 @@ func TestAllowProfile(t *testing.T) {
 					},
 				},
 			},
-			want: fmt.Errorf("%s: %s", errForbiddenSyscall, "a"),
+			want: fmt.Errorf("%w: %s", errForbiddenSyscall, "a"),
 		},
 		{
 			name:            "ProfileWithEmptySyscalls",
@@ -372,7 +372,7 @@ func TestAllowProfile(t *testing.T) {
 					},
 				},
 			},
-			want: fmt.Errorf("%s: %s", errForbiddenSyscall, "d"),
+			want: fmt.Errorf("%w: %s", errForbiddenSyscall, "d"),
 		},
 		{
 			name:            "AllAllowedActions",
@@ -449,7 +449,7 @@ func TestAllowProfile(t *testing.T) {
 					DefaultAction: seccompprofileapi.ActAllow,
 				},
 			},
-			want: errors.New(errForbiddenProfile),
+			want: errForbiddenProfile,
 		},
 		{
 			name:            "DeniedAll",
@@ -482,7 +482,7 @@ func TestAllowProfile(t *testing.T) {
 					},
 				},
 			},
-			want: fmt.Errorf("%s: %s", errForbiddenAction, seccompprofileapi.ActErrno),
+			want: fmt.Errorf("%w: %s", errForbiddenAction, seccompprofileapi.ActErrno),
 		},
 	}
 
@@ -784,6 +784,8 @@ func TestResolveSyscallsForProfile(t *testing.T) {
 			require.True(t, ok)
 
 			sut.impl = mock
+			sut.metrics = metrics.New()
+			sut.record = events.NewFakeRecorder(10)
 
 			syscalls, err := sut.resolveSyscallsForProfile(
 				t.Context(), sp, sp.Spec.Syscalls, logr.Discard(), 0,
@@ -814,6 +816,8 @@ func TestResolveSyscallsForProfileBaseProfileCache(t *testing.T) {
 	require.True(t, ok)
 
 	sut.impl = mock
+	sut.metrics = metrics.New()
+	sut.record = events.NewFakeRecorder(10)
 
 	sp := &seccompprofileapi.SeccompProfile{
 		Spec: seccompprofileapi.SeccompProfileSpec{
@@ -879,6 +883,8 @@ func TestHandleAllowedSyscallsChangedUsesBaseProfile(t *testing.T) {
 	require.True(t, ok)
 
 	sut.impl = mock
+	sut.metrics = metrics.New()
+	sut.record = events.NewFakeRecorder(10)
 	sut.log = logr.Discard()
 	sut.client = fake.NewClientBuilder().WithScheme(scheme).WithObjects(profile).Build()
 

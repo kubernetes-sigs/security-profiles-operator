@@ -19,6 +19,7 @@ package workloadannotator
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -32,11 +33,24 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
+
+// podIndex returns an index function over pods for the provided extractor.
+func podIndex(extract func(*corev1.Pod) []string) client.IndexerFunc {
+	return func(rawObj client.Object) []string {
+		pod, ok := rawObj.(*corev1.Pod)
+		if !ok {
+			return []string{}
+		}
+
+		return extract(pod)
+	}
+}
 
 // Setup adds a controller that reconciles the SPOd DaemonSet.
 func (r *PodReconciler) Setup(
@@ -51,78 +65,121 @@ func (r *PodReconciler) Setup(
 	r.log = ctrl.Log.WithName(r.Name())
 	r.record = util.NewEventRecorder(mgr, name)
 
-	// Index Pods using seccomp profiles
-	if err := mgr.GetFieldIndexer().
-		IndexField(ctx, &corev1.Pod{}, spOwnerKey, func(rawObj client.Object) []string {
-			pod, ok := rawObj.(*corev1.Pod)
-			if !ok {
-				return []string{}
-			}
+	indexer := mgr.GetFieldIndexer()
 
-			return getSeccompProfilesFromPod(pod)
-		}); err != nil {
-		return fmt.Errorf("creating pod index: %w", err)
-	}
-
-	// Index Pods using selinux profiles
-	if err := mgr.GetFieldIndexer().
-		IndexField(ctx, &corev1.Pod{}, seOwnerKey, func(rawObj client.Object) []string {
-			pod, ok := rawObj.(*corev1.Pod)
-			if !ok {
-				return []string{}
-			}
-
-			return getSelinuxProfilesFromPod(ctx, r, pod)
-		}); err != nil {
-		return fmt.Errorf("creating pod index: %w", err)
+	for key, extract := range map[string]func(*corev1.Pod) []string{
+		spOwnerKey: getSeccompProfilesFromPod,
+		seOwnerKey: getSelinuxProfilesFromPod,
+		aaOwnerKey: getAppArmorProfilesFromPod,
+	} {
+		if err := indexer.IndexField(ctx, &corev1.Pod{}, key, podIndex(extract)); err != nil {
+			return fmt.Errorf("creating pod index %s: %w", key, err)
+		}
 	}
 
 	// Index SeccompProfiles with active pods
-	if err := mgr.GetFieldIndexer().IndexField(
-		ctx, &seccompprofileapi.SeccompProfile{}, linkedPodsKey, func(rawObj client.Object) []string {
+	if err := indexer.IndexField(
+		ctx,
+		&seccompprofileapi.SeccompProfile{},
+		linkedPodsKey,
+		func(rawObj client.Object) []string {
 			sp, ok := rawObj.(*seccompprofileapi.SeccompProfile)
 			if !ok {
 				return []string{}
 			}
 
 			return sp.Status.ActiveWorkloads
-		}); err != nil {
+		},
+	); err != nil {
 		return fmt.Errorf("creating seccomp profile index: %w", err)
 	}
 
+	// Index the AppArmor and raw SELinux profiles in use, which have no list
+	// of active workloads to index.
+	for _, obj := range []client.Object{
+		&apparmorprofileapi.AppArmorProfile{}, &selinuxprofileapi.RawSelinuxProfile{},
+	} {
+		if err := indexer.IndexField(ctx, obj, inUseKey, inUseIndex); err != nil {
+			return fmt.Errorf("creating in-use profile index: %w", err)
+		}
+	}
+
 	// Index SelinuxProfile with active pods
-	if err := mgr.GetFieldIndexer().IndexField(
-		ctx, &selinuxprofileapi.SelinuxProfile{}, linkedPodsKey, func(rawObj client.Object) []string {
+	if err := indexer.IndexField(
+		ctx,
+		&selinuxprofileapi.SelinuxProfile{},
+		linkedPodsKey,
+		func(rawObj client.Object) []string {
 			sp, ok := rawObj.(*selinuxprofileapi.SelinuxProfile)
 			if !ok {
 				return []string{}
 			}
 
 			return sp.Status.ActiveWorkloads
-		}); err != nil {
+		},
+	); err != nil {
 		return fmt.Errorf("creating selinux profile index: %w", err)
+	}
+
+	profileWatch := handler.EnqueueRequestsFromMapFunc(r.profileWorkloadRequests)
+
+	if err := ctrl.NewControllerManagedBy(mgr).
+		Named(name+"-apparmor").
+		For(&apparmorprofileapi.AppArmorProfile{}, builder.WithPredicates(profileCreatedPredicate)).
+		Complete(&profileReleaser[*apparmorprofileapi.AppArmorProfile]{
+			pods:   r,
+			newObj: func() *apparmorprofileapi.AppArmorProfile { return &apparmorprofileapi.AppArmorProfile{} },
+			release: func(ctx context.Context, r *PodReconciler, p *apparmorprofileapi.AppArmorProfile) error {
+				return r.updatePodReferencesForAppArmor(ctx, p)
+			},
+		}); err != nil {
+		return fmt.Errorf("creating AppArmorProfile releaser: %w", err)
+	}
+
+	if err := ctrl.NewControllerManagedBy(mgr).
+		Named(name+"-rawselinux").
+		For(&selinuxprofileapi.RawSelinuxProfile{}, builder.WithPredicates(profileCreatedPredicate)).
+		Complete(&profileReleaser[*selinuxprofileapi.RawSelinuxProfile]{
+			pods:   r,
+			newObj: func() *selinuxprofileapi.RawSelinuxProfile { return &selinuxprofileapi.RawSelinuxProfile{} },
+			release: func(ctx context.Context, r *PodReconciler, p *selinuxprofileapi.RawSelinuxProfile) error {
+				return r.updatePodReferencesForRawSelinux(ctx, p)
+			},
+		}); err != nil {
+		return fmt.Errorf("creating RawSelinuxProfile releaser: %w", err)
 	}
 
 	// Register a special reconciler for pod events
 	return ctrl.NewControllerManagedBy(mgr).
 		Named(name).
 		For(&corev1.Pod{}, builder.WithPredicates(predicate.Funcs{
-			CreateFunc:  func(e event.CreateEvent) bool { return r.hasValidProfile(ctx, e.Object) },
-			DeleteFunc:  func(e event.DeleteEvent) bool { return r.hasValidProfile(ctx, e.Object) },
-			UpdateFunc:  func(e event.UpdateEvent) bool { return r.hasValidProfile(ctx, e.ObjectNew) },
-			GenericFunc: func(e event.GenericEvent) bool { return r.hasValidProfile(ctx, e.Object) },
+			CreateFunc:  func(e event.CreateEvent) bool { return hasProfile(e.Object) },
+			DeleteFunc:  func(e event.DeleteEvent) bool { return hasProfile(e.Object) },
+			UpdateFunc:  func(e event.UpdateEvent) bool { return hasProfile(e.ObjectNew) },
+			GenericFunc: func(e event.GenericEvent) bool { return hasProfile(e.Object) },
 		})).
 		// Reconcile the pods using a profile once the profile enters the
-		// cache, for example after an operator restart. Pods deleted while no
-		// delete event could be observed are then released from the profile.
+		// cache, for example after an operator restart or if the profile got
+		// created after the pod. Pods deleted while no delete event could be
+		// observed are then released from the profile.
 		Watches(
 			&seccompprofileapi.SeccompProfile{},
-			handler.EnqueueRequestsFromMapFunc(activeWorkloadRequests),
+			profileWatch,
 			builder.WithPredicates(profileCreatedPredicate),
 		).
 		Watches(
 			&selinuxprofileapi.SelinuxProfile{},
-			handler.EnqueueRequestsFromMapFunc(activeWorkloadRequests),
+			profileWatch,
+			builder.WithPredicates(profileCreatedPredicate),
+		).
+		Watches(
+			&selinuxprofileapi.RawSelinuxProfile{},
+			profileWatch,
+			builder.WithPredicates(profileCreatedPredicate),
+		).
+		Watches(
+			&apparmorprofileapi.AppArmorProfile{},
+			profileWatch,
 			builder.WithPredicates(profileCreatedPredicate),
 		).
 		Complete(r)
@@ -136,8 +193,48 @@ var profileCreatedPredicate = predicate.Funcs{
 	GenericFunc: func(event.GenericEvent) bool { return false },
 }
 
+// profileWorkloadRequests maps a profile to reconcile requests for the pods
+// which use it, either according to its status or to the pod index.
+func (r *PodReconciler) profileWorkloadRequests(
+	ctx context.Context,
+	obj client.Object,
+) []reconcile.Request {
+	requests := activeWorkloadRequests(ctx, obj)
+
+	var ownerKey, reference string
+
+	switch profile := obj.(type) {
+	case *seccompprofileapi.SeccompProfile:
+		ownerKey, reference = spOwnerKey, seccompProfileReference(profile)
+	case *selinuxprofileapi.SelinuxProfile:
+		ownerKey, reference = seOwnerKey, profile.GetPolicyUsage()
+	case *selinuxprofileapi.RawSelinuxProfile:
+		ownerKey, reference = seOwnerKey, profile.GetPolicyUsage()
+	case *apparmorprofileapi.AppArmorProfile:
+		ownerKey, reference = aaOwnerKey, profile.GetProfileName()
+	default:
+		return requests
+	}
+
+	pods := &corev1.PodList{}
+	if err := r.client.List(ctx, pods, client.MatchingFields{ownerKey: reference}); err != nil {
+		r.log.Error(err, "cannot list pods using profile", "profile", obj.GetName())
+
+		return requests
+	}
+
+	for i := range pods.Items {
+		request := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&pods.Items[i])}
+		if !slices.Contains(requests, request) {
+			requests = append(requests, request)
+		}
+	}
+
+	return requests
+}
+
 // activeWorkloadRequests maps a profile to reconcile requests for the pods
-// using it.
+// in its list of active workloads.
 func activeWorkloadRequests(_ context.Context, obj client.Object) []reconcile.Request {
 	var podIDs []string
 
@@ -165,24 +262,15 @@ func activeWorkloadRequests(_ context.Context, obj client.Object) []reconcile.Re
 	return requests
 }
 
-func hasSeccompProfile(obj runtime.Object) bool {
+// hasProfile returns true if the pod references a profile which can be
+// managed by the operator.
+func hasProfile(obj runtime.Object) bool {
 	pod, ok := obj.(*corev1.Pod)
 	if !ok {
 		return false
 	}
 
-	return len(getSeccompProfilesFromPod(pod)) > 0
-}
-
-func hasSelinuxProfile(ctx context.Context, r *PodReconciler, obj runtime.Object) bool {
-	pod, ok := obj.(*corev1.Pod)
-	if !ok {
-		return false
-	}
-
-	return len(getSelinuxProfilesFromPod(ctx, r, pod)) > 0
-}
-
-func (r *PodReconciler) hasValidProfile(ctx context.Context, obj runtime.Object) bool {
-	return hasSeccompProfile(obj) || hasSelinuxProfile(ctx, r, obj)
+	return len(getSeccompProfilesFromPod(pod)) > 0 ||
+		len(getSelinuxProfilesFromPod(pod)) > 0 ||
+		len(getAppArmorProfilesFromPod(pod)) > 0
 }

@@ -22,8 +22,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -68,124 +70,111 @@ func testNodeStatus(
 ) *nodestatus.StatusClient {
 	t.Helper()
 
-	nsc, err := nodestatus.NewForProfile(profile, cl)
+	nsc, err := nodestatus.NewForProfileOnNode(profile, cl, testNodeName)
 	require.NoError(t, err)
 
 	return nsc
 }
 
-//nolint:paralleltest // subtests modify environment variables and cannot run in parallel
+// statusGetFn returns a get function that reports a node status in the
+// provided state and leaves all other objects untouched.
+func statusGetFn(state secprofnodestatusapi.ProfileState) func(
+	context.Context, client.ObjectKey, client.Object, ...client.GetOption,
+) error {
+	return func(_ context.Context, _ client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
+		if ns, ok := obj.(*secprofnodestatusapi.SecurityProfileNodeStatus); ok {
+			ns.Status.Status = state
+			ns.Labels = map[string]string{
+				secprofnodestatusapi.StatusStateLabel: string(state),
+			}
+		}
+
+		return nil
+	}
+}
+
 func TestReconcileDeletion(t *testing.T) {
-	t.Setenv("NODE_NAME", testNodeName)
+	t.Parallel()
 
 	errTest := errors.New("test error")
+	finalizer := util.GetFinalizerNodeString(testNodeName)
 
 	cases := []struct {
 		name           string
 		profile        *seccompprofileapi.SeccompProfile
 		mockClient     *util.MockClient
-		handleDeletion func() error
+		handleDeletion func() (reconcile.Result, error)
 		wantResult     reconcile.Result
 		wantErr        bool
 		wantIncError   bool
+		wantHandled    bool
 	}{
 		{
-			name:    "NoStatusExists_NoDeletionNeeded",
+			name:    "NoFinalizer_NothingToDo",
 			profile: testProfile(),
 			mockClient: &util.MockClient{
-				MockGet:    util.NewMockGetFn(errors.New("not found")),
-				MockUpdate: util.NewMockUpdateFn(nil),
-				MockDelete: util.NewMockDeleteFn(nil),
+				MockGet:    util.NewMockGetFn(errors.New("must not be called")),
 				MockScheme: util.NewMockSchemeFn(testScheme()),
 			},
-			handleDeletion: func() error { return nil },
-			wantResult:     reconcile.Result{},
-			wantErr:        true,
+			wantResult: reconcile.Result{},
 		},
 		{
 			name:    "StatusExistsNotTerminating_SetsTerminatingAndRequeues",
-			profile: testProfile(util.GetFinalizerNodeString(testNodeName)),
+			profile: testProfile(finalizer),
 			mockClient: &util.MockClient{
-				MockGet: func(_ context.Context, _ client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
-					if ns, ok := obj.(*secprofnodestatusapi.SecurityProfileNodeStatus); ok {
-						ns.Status.Status = secprofnodestatusapi.ProfileStatePending
-						ns.Labels = map[string]string{
-							secprofnodestatusapi.StatusStateLabel: string(
-								secprofnodestatusapi.ProfileStatePending,
-							),
-						}
-					}
-
-					return nil
-				},
+				MockGet:                     statusGetFn(secprofnodestatusapi.ProfileStatePending),
 				MockUpdate:                  util.NewMockUpdateFn(nil),
 				MockSubResourceWriterUpdate: util.NewMockSubResourceWriterUpdateFn(nil),
 				MockScheme:                  util.NewMockSchemeFn(testScheme()),
 			},
-			handleDeletion: func() error { return nil },
-			wantResult:     reconcile.Result{RequeueAfter: Wait},
-			wantErr:        false,
+			wantResult: reconcile.Result{RequeueAfter: Wait},
 		},
 		{
-			name: "StatusExistsTerminating_ActivePodsFinalizer_Requeues",
-			profile: testProfile(
-				util.GetFinalizerNodeString(testNodeName),
-				util.HasActivePodsFinalizerString,
-			),
+			name:    "StatusExistsTerminating_ActivePodsFinalizer_Requeues",
+			profile: testProfile(finalizer, util.HasActivePodsFinalizerString),
 			mockClient: &util.MockClient{
-				MockGet: func(_ context.Context, _ client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
-					if ns, ok := obj.(*secprofnodestatusapi.SecurityProfileNodeStatus); ok {
-						ns.Status.Status = secprofnodestatusapi.ProfileStateTerminating
-						ns.Labels = map[string]string{
-							secprofnodestatusapi.StatusStateLabel: string(
-								secprofnodestatusapi.ProfileStateTerminating,
-							),
-						}
-					}
-
-					return nil
-				},
+				MockGet:    statusGetFn(secprofnodestatusapi.ProfileStateTerminating),
 				MockScheme: util.NewMockSchemeFn(testScheme()),
 			},
-			handleDeletion: func() error { return nil },
-			wantResult:     reconcile.Result{RequeueAfter: Wait},
-			wantErr:        false,
+			wantResult: reconcile.Result{RequeueAfter: Wait},
 		},
 		{
 			name:    "HandleDeletionFails",
-			profile: testProfile(util.GetFinalizerNodeString(testNodeName)),
+			profile: testProfile(finalizer),
 			mockClient: &util.MockClient{
-				MockGet: func(_ context.Context, _ client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
-					if ns, ok := obj.(*secprofnodestatusapi.SecurityProfileNodeStatus); ok {
-						ns.Status.Status = secprofnodestatusapi.ProfileStateTerminating
-						ns.Labels = map[string]string{
-							secprofnodestatusapi.StatusStateLabel: string(
-								secprofnodestatusapi.ProfileStateTerminating,
-							),
-						}
-					}
-
-					return nil
-				},
+				MockGet:    statusGetFn(secprofnodestatusapi.ProfileStateTerminating),
 				MockScheme: util.NewMockSchemeFn(testScheme()),
 			},
-			handleDeletion: func() error { return errTest },
+			handleDeletion: func() (reconcile.Result, error) { return reconcile.Result{}, errTest },
 			wantResult:     reconcile.Result{},
 			wantErr:        true,
 			wantIncError:   true,
+			wantHandled:    true,
 		},
 		{
-			name:    "HappyPath_DeletionSucceeds",
-			profile: testProfile(util.GetFinalizerNodeString(testNodeName)),
+			name:    "HandleDeletionRequeues_KeepsStatus",
+			profile: testProfile(finalizer),
 			mockClient: &util.MockClient{
-				MockGet: func(_ context.Context, _ client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
-					if ns, ok := obj.(*secprofnodestatusapi.SecurityProfileNodeStatus); ok {
-						ns.Status.Status = secprofnodestatusapi.ProfileStateTerminating
-						ns.Labels = map[string]string{
-							secprofnodestatusapi.StatusStateLabel: string(
-								secprofnodestatusapi.ProfileStateTerminating,
-							),
-						}
+				MockGet:    statusGetFn(secprofnodestatusapi.ProfileStateTerminating),
+				MockUpdate: util.NewMockUpdateFn(errors.New("must not be called")),
+				MockDelete: util.NewMockDeleteFn(errors.New("must not be called")),
+				MockScheme: util.NewMockSchemeFn(testScheme()),
+			},
+			handleDeletion: func() (reconcile.Result, error) {
+				return reconcile.Result{RequeueAfter: Wait}, nil
+			},
+			wantResult:  reconcile.Result{RequeueAfter: Wait},
+			wantHandled: true,
+		},
+		{
+			// A foreground deletion removes the node statuses first. The
+			// finalizer of the node must still be removed.
+			name:    "StatusGoneFinalizerPresent_DeletesProfile",
+			profile: testProfile(finalizer),
+			mockClient: &util.MockClient{
+				MockGet: func(_ context.Context, key client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
+					if _, ok := obj.(*secprofnodestatusapi.SecurityProfileNodeStatus); ok {
+						return kerrors.NewNotFound(schema.GroupResource{}, key.Name)
 					}
 
 					return nil
@@ -194,24 +183,48 @@ func TestReconcileDeletion(t *testing.T) {
 				MockDelete: util.NewMockDeleteFn(nil),
 				MockScheme: util.NewMockSchemeFn(testScheme()),
 			},
-			handleDeletion: func() error { return nil },
-			wantResult:     reconcile.Result{},
-			wantErr:        false,
+			wantResult:  reconcile.Result{},
+			wantHandled: true,
+		},
+		{
+			name:    "HappyPath_DeletionSucceeds",
+			profile: testProfile(finalizer),
+			mockClient: &util.MockClient{
+				MockGet:    statusGetFn(secprofnodestatusapi.ProfileStateTerminating),
+				MockUpdate: util.NewMockUpdateFn(nil),
+				MockDelete: util.NewMockDeleteFn(nil),
+				MockScheme: util.NewMockSchemeFn(testScheme()),
+			},
+			wantResult:  reconcile.Result{},
+			wantHandled: true,
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			nsc := testNodeStatus(t, tc.profile, tc.mockClient)
 
 			incErrorCalled := false
 			incError := func(_ string) { incErrorCalled = true }
 
+			handled := false
+			handleDeletion := func() (reconcile.Result, error) {
+				handled = true
+
+				if tc.handleDeletion != nil {
+					return tc.handleDeletion()
+				}
+
+				return reconcile.Result{}, nil
+			}
+
 			recorder := events.NewFakeRecorder(10)
 
 			gotResult, gotErr := ReconcileDeletion(
 				t.Context(), tc.profile, nsc, tc.mockClient,
-				log.Log, recorder, testReasons(), incError, tc.handleDeletion,
+				log.Log, recorder, testReasons(), incError, handleDeletion,
 			)
 
 			if tc.wantErr {
@@ -221,24 +234,20 @@ func TestReconcileDeletion(t *testing.T) {
 			}
 
 			require.Equal(t, tc.wantResult, gotResult)
-
-			if tc.wantIncError {
-				require.True(t, incErrorCalled, "expected incError to be called")
-			}
+			require.Equal(t, tc.wantIncError, incErrorCalled)
+			require.Equal(t, tc.wantHandled, handled)
 		})
 	}
 }
 
-//nolint:paralleltest // subtests modify environment variables and cannot run in parallel
 func TestEnsureNodeStatus(t *testing.T) {
-	t.Setenv("NODE_NAME", testNodeName)
+	t.Parallel()
 
 	cases := []struct {
 		name        string
 		profile     *seccompprofileapi.SeccompProfile
 		mockClient  *util.MockClient
 		wantCreated bool
-		wantResult  reconcile.Result
 		wantErr     bool
 	}{
 		{
@@ -248,9 +257,6 @@ func TestEnsureNodeStatus(t *testing.T) {
 				MockGet:    util.NewMockGetFn(nil),
 				MockScheme: util.NewMockSchemeFn(testScheme()),
 			},
-			wantCreated: false,
-			wantResult:  reconcile.Result{},
-			wantErr:     false,
 		},
 		{
 			name:    "ExistsCheckFails",
@@ -259,9 +265,7 @@ func TestEnsureNodeStatus(t *testing.T) {
 				MockGet:    util.NewMockGetFn(errors.New("api error")),
 				MockScheme: util.NewMockSchemeFn(testScheme()),
 			},
-			wantCreated: false,
-			wantResult:  reconcile.Result{},
-			wantErr:     true,
+			wantErr: true,
 		},
 		{
 			name:    "CreatedSuccessfully",
@@ -275,16 +279,16 @@ func TestEnsureNodeStatus(t *testing.T) {
 				MockScheme:                  util.NewMockSchemeFn(testScheme()),
 			},
 			wantCreated: true,
-			wantResult:  reconcile.Result{RequeueAfter: Wait},
-			wantErr:     false,
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			nsc := testNodeStatus(t, tc.profile, tc.mockClient)
 
-			gotCreated, gotResult, gotErr := EnsureNodeStatus(t.Context(), nsc, log.Log)
+			gotCreated, _, gotErr := EnsureNodeStatus(t.Context(), nsc, log.Log)
 
 			if tc.wantErr {
 				require.Error(t, gotErr)
@@ -293,7 +297,25 @@ func TestEnsureNodeStatus(t *testing.T) {
 			}
 
 			require.Equal(t, tc.wantCreated, gotCreated)
-			require.Equal(t, tc.wantResult, gotResult)
 		})
 	}
+}
+
+func TestErrorReporter(t *testing.T) {
+	t.Parallel()
+
+	reasons := []string{}
+	recorder := events.NewFakeRecorder(1)
+	reporter := ErrorReporter{
+		Record:   recorder,
+		IncError: func(reason string) { reasons = append(reasons, reason) },
+	}
+
+	reporter.Report(testProfile(), "Reason", util.EventActionUpdate, "message")
+
+	require.Equal(t, []string{"Reason"}, reasons)
+	require.Equal(t, "Warning Reason message", <-recorder.Events)
+
+	// A reporter without recorder or metric must not panic.
+	ErrorReporter{}.Report(testProfile(), "Reason", util.EventActionUpdate, "message")
 }

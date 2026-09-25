@@ -34,7 +34,6 @@ import (
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	profilebaseapi "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/nodestatus"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
@@ -159,6 +158,8 @@ func (f *FakeProfileManager) RemoveProfile(_ profilebaseapi.StatusBaseUser, owne
 // policy file is gone, otherwise deleting an AppArmorProfile named after a
 // container runtime's default profile would unload it from the host.
 func TestHandleDeletionOwnership(t *testing.T) {
+	t.Parallel()
+
 	for _, tc := range []struct {
 		name        string
 		getErr      error
@@ -187,7 +188,7 @@ func TestHandleDeletionOwnership(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv(config.NodeNameEnvKey, "worker-1")
+			t.Parallel()
 
 			profile := &apparmorprofileapi.AppArmorProfile{
 				TypeMeta:   metav1.TypeMeta{Kind: "AppArmorProfile"},
@@ -207,7 +208,7 @@ func TestHandleDeletionOwnership(t *testing.T) {
 				manager: manager,
 			}
 
-			nodeStatus, err := nodestatus.NewForProfile(profile, rec.client)
+			nodeStatus, err := nodestatus.NewForProfileOnNode(profile, rec.client, "worker-1")
 			require.NoError(t, err)
 
 			err = rec.handleDeletion(t.Context(), profile, nodeStatus)

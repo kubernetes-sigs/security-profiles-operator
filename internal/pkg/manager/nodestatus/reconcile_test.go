@@ -447,6 +447,82 @@ func TestRemoveStatusForDeletedNodeKeepsLiveNodes(t *testing.T) {
 	))
 }
 
+func spodPod(node string) *corev1.Pod {
+	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "spod-" + node,
+			Namespace: operatorNS,
+			Labels:    map[string]string{"name": "spod"},
+		},
+		Spec: corev1.PodSpec{NodeName: node},
+	}
+}
+
+func selectingSpodDS(desired, available int32) *appsv1.DaemonSet {
+	ds := spodDS(desired, available)
+	ds.Spec.Selector = &metav1.LabelSelector{MatchLabels: map[string]string{"name": "spod"}}
+	ds.Generation = 2
+	ds.Status.ObservedGeneration = 2
+	ds.Status.CurrentNumberScheduled = desired
+	ds.Status.UpdatedNumberScheduled = desired
+
+	return ds
+}
+
+func TestReconcileRemovesStatusOfUnscheduledNode(t *testing.T) {
+	t.Setenv(config.OperatorNamespaceEnvKey, operatorNS)
+
+	live := testNodeStatus("worker-1", secprofnodestatusapi.ProfileStateInstalled)
+	tainted := testNodeStatus("worker-2", secprofnodestatusapi.ProfileStateInstalled)
+	profile := testProfile(
+		secprofnodestatusapi.ProfileStateInstalled,
+		util.GetFinalizerNodeString("worker-1"),
+		util.GetFinalizerNodeString("worker-2"),
+	)
+
+	// Both nodes exist, but only worker-1 still runs a SPOd pod.
+	r, c, _ := newTestReconciler(t, profile, live, tainted, selectingSpodDS(1, 1),
+		testNode("worker-1"), testNode("worker-2"), spodPod("worker-1"))
+
+	res, err := reconcileStatus(t, r, live)
+	require.NoError(t, err)
+	require.Equal(t, time.Second, res.RequeueAfter)
+
+	err = c.Get(context.Background(), client.ObjectKeyFromObject(tainted),
+		&secprofnodestatusapi.SecurityProfileNodeStatus{})
+	require.True(t, kerrors.IsNotFound(err))
+	require.Equal(t,
+		[]string{util.GetFinalizerNodeString("worker-1")},
+		storedProfile(t, c).Finalizers,
+	)
+}
+
+func TestReconcileAggregatesWithoutStaleStatus(t *testing.T) {
+	t.Setenv(config.OperatorNamespaceEnvKey, operatorNS)
+
+	first := testNodeStatus("worker-1", secprofnodestatusapi.ProfileStateInstalled)
+	second := testNodeStatus("worker-2", secprofnodestatusapi.ProfileStateInstalled)
+	profile := testProfile(
+		secprofnodestatusapi.ProfileStatePending,
+		util.GetFinalizerNodeString("worker-1"),
+		util.GetFinalizerNodeString("worker-2"),
+	)
+
+	// The SPOd pod list is incomplete, so nothing must be removed, but the
+	// reconciler must not requeue forever either.
+	r, c, _ := newTestReconciler(t, profile, first, second, selectingSpodDS(1, 1),
+		testNode("worker-1"), testNode("worker-2"))
+
+	res, err := reconcileStatus(t, r, first)
+	require.NoError(t, err)
+	require.Equal(t, dsWait, res.RequeueAfter)
+	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, storedProfile(t, c).Status.Status)
+
+	require.NoError(t, c.Get(context.Background(), client.ObjectKeyFromObject(second),
+		&secprofnodestatusapi.SecurityProfileNodeStatus{}))
+	require.Len(t, storedProfile(t, c).Finalizers, 2)
+}
+
 func TestListStatusesForProfile(t *testing.T) {
 	t.Parallel()
 
@@ -529,6 +605,34 @@ func TestUpdateProfileStatus(t *testing.T) {
 			require.Equal(t, string(tc.wantReason), ready.Reason)
 		})
 	}
+}
+
+func TestUpdateProfileStatusSetsObservedGeneration(t *testing.T) {
+	t.Parallel()
+
+	profile := testProfile("")
+	profile.Generation = 3
+	r, c, _ := newTestReconciler(t, profile)
+
+	require.NoError(t, r.reconcileStatus(
+		context.Background(), profile, secprofnodestatusapi.ProfileStateInstalled, logr.Discard(),
+	))
+
+	first := storedProfile(t, c).Status.GetReadyCondition()
+	require.Equal(t, int64(3), first.ObservedGeneration)
+
+	// A new generation in the same state keeps the transition time.
+	sp := storedProfile(t, c)
+	sp.Generation = 4
+	require.NoError(t, c.Update(context.Background(), sp))
+
+	require.NoError(t, r.reconcileStatus(
+		context.Background(), sp, secprofnodestatusapi.ProfileStateInstalled, logr.Discard(),
+	))
+
+	second := storedProfile(t, c).Status.GetReadyCondition()
+	require.Equal(t, storedProfile(t, c).Generation, second.ObservedGeneration)
+	require.Equal(t, first.LastTransitionTime, second.LastTransitionTime)
 }
 
 func TestUpdateProfileStatusSkipsUnchangedStatus(t *testing.T) {
@@ -618,4 +722,82 @@ func TestDaemonSetReadiness(t *testing.T) {
 			require.Equal(t, tc.wantUpdating, daemonSetIsUpdating(ds))
 		})
 	}
+}
+
+// A live node whose SPOd pod is being replaced must keep its status and
+// finalizer, even if another node which runs a pod is no longer scheduled.
+//
+//nolint:paralleltest // uses t.Setenv
+func TestReconcileKeepsStatusOfNodeWithReplacedPod(t *testing.T) {
+	t.Setenv(config.OperatorNamespaceEnvKey, operatorNS)
+
+	for name, tc := range map[string]struct {
+		mutateDS func(*appsv1.DaemonSet)
+		pods     []client.Object
+	}{
+		"terminating pod on the node": {
+			pods: func() []client.Object {
+				terminating := spodPod("worker-2")
+				terminating.Finalizers = []string{"test"}
+				now := metav1.Now()
+				terminating.DeletionTimestamp = &now
+
+				return []client.Object{spodPod("worker-1"), terminating}
+			}(),
+		},
+		"pod on unscheduled node": {
+			mutateDS: func(ds *appsv1.DaemonSet) { ds.Status.NumberMisscheduled = 1 },
+			pods:     []client.Object{spodPod("worker-1"), spodPod("worker-3")},
+		},
+		"status of the daemonset is stale": {
+			mutateDS: func(ds *appsv1.DaemonSet) { ds.Generation = 3 },
+			pods:     []client.Object{spodPod("worker-1")},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			first := testNodeStatus("worker-1", secprofnodestatusapi.ProfileStateInstalled)
+			second := testNodeStatus("worker-2", secprofnodestatusapi.ProfileStateInstalled)
+			profile := testProfile(
+				secprofnodestatusapi.ProfileStateInstalled,
+				util.GetFinalizerNodeString("worker-1"),
+				util.GetFinalizerNodeString("worker-2"),
+			)
+
+			ds := selectingSpodDS(1, 1)
+			if tc.mutateDS != nil {
+				tc.mutateDS(ds)
+			}
+
+			objs := append([]client.Object{
+				profile, first, second, ds,
+				testNode("worker-1"), testNode("worker-2"), testNode("worker-3"),
+			}, tc.pods...)
+			r, c, _ := newTestReconciler(t, objs...)
+
+			res, err := reconcileStatus(t, r, first)
+			require.NoError(t, err)
+			require.Equal(t, dsWait, res.RequeueAfter)
+			require.NoError(t, c.Get(context.Background(), client.ObjectKeyFromObject(second),
+				&secprofnodestatusapi.SecurityProfileNodeStatus{}))
+			require.Len(t, storedProfile(t, c).Finalizers, 2)
+		})
+	}
+}
+
+func TestStatusRequestsForProfile(t *testing.T) {
+	t.Parallel()
+
+	status := testNodeStatus("worker-1", secprofnodestatusapi.ProfileStateInstalled)
+	r, _, _ := newTestReconciler(t, status)
+
+	requests := r.statusRequests("SeccompProfile")(context.Background(), testProfile(""))
+	require.Equal(
+		t,
+		[]reconcile.Request{{NamespacedName: client.ObjectKeyFromObject(status)}},
+		requests,
+	)
+
+	other := testProfile("")
+	other.Name = "other"
+	require.Empty(t, r.statusRequests("SeccompProfile")(context.Background(), other))
 }

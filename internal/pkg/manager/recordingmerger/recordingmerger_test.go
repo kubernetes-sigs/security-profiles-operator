@@ -325,3 +325,32 @@ func TestMergeProfilesPerKind(t *testing.T) {
 		require.NoError(t, r.mergeProfiles(t.Context(), recording))
 	})
 }
+
+// A partial profile created after the listing, for example by another pod of
+// the recording, must survive the cleanup so that the next merge includes it.
+func TestDeletePartialProfilesOnlyDeletesListed(t *testing.T) {
+	t.Parallel()
+
+	recording := testMergeRecording(profilerecordingapi.ProfileRecordingKindSeccompProfile, true)
+	r := newMergeReconciler(t, recording,
+		partialSeccomp("first", "ctr", "read"),
+		partialSeccomp("unlabeled", "", "write"),
+	)
+
+	_, listed, err := listPartialProfiles(
+		t.Context(), r.client, &seccompprofile.SeccompProfileList{}, recording,
+	)
+	require.NoError(t, err)
+	require.Len(t, listed, 2, "partial profiles without container are cleaned up as well")
+
+	require.NoError(t, r.client.Create(t.Context(), partialSeccomp("late", "ctr", "open")))
+	require.NoError(t, deletePartialProfiles(t.Context(), r.client, listed))
+
+	list := &seccompprofile.SeccompProfileList{}
+	require.NoError(t, r.client.List(t.Context(), list))
+	require.Len(t, list.Items, 1)
+	require.Equal(t, "late", list.Items[0].Name)
+
+	// A profile which is already gone is not an error.
+	require.NoError(t, deletePartialProfiles(t.Context(), r.client, listed))
+}

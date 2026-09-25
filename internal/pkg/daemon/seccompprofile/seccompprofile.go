@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
@@ -62,13 +63,6 @@ const (
 	// default reconcile timeout.
 	reconcileTimeout = 5 * time.Minute
 
-	errSeccompProfileNil   = "seccomp profile cannot be nil"
-	errSavingProfile       = "cannot save profile"
-	errCreatingOperatorDir = "cannot create operator directory"
-	errForbiddenSyscall    = "syscall not allowed"
-	errForbiddenProfile    = "seccomp profile not allowed"
-	errForbiddenAction     = "seccomp action not allowed"
-
 	filePermissionMode os.FileMode = 0o644
 
 	// MkdirAll won't create a directory if it does not have the execute bit.
@@ -83,11 +77,22 @@ const (
 	reasonCannotUpdateProfile   string = "CannotUpdateSeccompProfile"
 	reasonProfileNotAllowed     string = "ProfileNotAllowed"
 	reasonSavedProfile          string = "SavedSeccompProfile"
+	reasonProfileFileConflict   string = "SeccompProfileFileConflict"
 
 	defaultCacheTimeout time.Duration = 24 * time.Hour
 	maxCacheItems       uint64        = 1000
 
 	allowedAllRegexp string = ".*"
+)
+
+var (
+	errSeccompNotSupported = errors.New("seccomp not supported")
+	errSeccompProfileNil   = errors.New("seccomp profile cannot be nil")
+	errSavingProfile       = errors.New("cannot save profile")
+	errCreatingOperatorDir = errors.New("cannot create operator directory")
+	errForbiddenSyscall    = errors.New("syscall not allowed")
+	errForbiddenProfile    = errors.New("seccomp profile not allowed")
+	errForbiddenAction     = errors.New("seccomp action not allowed")
 )
 
 // NewController returns a new empty controller instance.
@@ -117,6 +122,40 @@ type Reconciler struct {
 	save         saver
 	metrics      *metrics.Metrics
 	baseProfiles *ttlcache.Cache[string, *seccompprofileapi.SeccompProfile]
+	nodeName     string
+	// reader reads directly from the API server. It confirms which of two
+	// profiles owns a shared file before the file gets written, which must
+	// not depend on the cache.
+	reader client.Reader
+	// profileRoot overrides the directory of the profile files for testing.
+	profileRoot string
+}
+
+// profilePath returns the path of the file of the profile on the node.
+func (r *Reconciler) profilePath(sp *seccompprofileapi.SeccompProfile) string {
+	if r.profileRoot != "" {
+		return filepath.Join(r.profileRoot, sp.GetProfileFile())
+	}
+
+	return sp.GetProfilePath()
+}
+
+// apiReader returns the reader for uncached lookups.
+func (r *Reconciler) apiReader() client.Reader {
+	if r.reader != nil {
+		return r.reader
+	}
+
+	return r.client
+}
+
+// reportError increments the error metric for reason and records a warning
+// event on obj.
+func (r *Reconciler) reportError(obj apiruntime.Object, reason, action string, err error) {
+	common.ErrorReporter{
+		Record:   r.record,
+		IncError: r.metrics.IncSeccompProfileError,
+	}.Report(obj, reason, action, err.Error())
 }
 
 // Name returns the name of the controller.
@@ -184,11 +223,19 @@ func (r *Reconciler) Setup(
 	r.record = util.NewEventRecorder(mgr, "profile")
 	r.save = saveProfileOnDisk
 	r.metrics = met
+	r.nodeName = os.Getenv(config.NodeNameEnvKey)
+	r.reader = mgr.GetAPIReader()
 
 	// Register the regular reconciler to manage SeccompProfiles
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("profile").
 		For(&seccompprofileapi.SeccompProfile{}).
+		// Profiles named "foo" and "foo.json" share a file, so a change of
+		// one of them can change which one owns the file.
+		Watches(
+			&seccompprofileapi.SeccompProfile{},
+			handler.EnqueueRequestsFromMapFunc(siblingRequests),
+		).
 		Watches(
 			&spodapi.SecurityProfilesOperatorDaemon{},
 			handler.EnqueueRequestsFromMapFunc(r.handleAllowedSyscallsChanged),
@@ -275,19 +322,11 @@ func (r *Reconciler) Healthz(*http.Request) error {
 // checkSeccomp verifies if the seccomp is supported by the node.
 func (r *Reconciler) checkSeccomp() error {
 	if !seccomp.IsSupported() {
-		err := errors.New("seccomp not supported")
-		err = fmt.Errorf("node %q: %w", os.Getenv(config.NodeNameEnvKey), err)
+		err := fmt.Errorf("node %q: %w", r.nodeName, errSeccompNotSupported)
 
 		if r.record != nil {
-			r.metrics.IncSeccompProfileError(reasonSeccompNotSupported)
-			r.record.Eventf(
-				util.EventNode(os.Getenv(config.NodeNameEnvKey)),
-				nil,
-				util.EventTypeWarning,
-				reasonSeccompNotSupported,
-				util.EventActionInstall,
-				"%s",
-				err.Error(),
+			r.reportError(
+				util.EventNode(r.nodeName), reasonSeccompNotSupported, util.EventActionInstall, err,
 			)
 		}
 
@@ -340,7 +379,7 @@ func (r *Reconciler) Reconcile(
 			return reconcile.Result{}, nil
 		}
 
-		return reconcile.Result{}, fmt.Errorf("%s: %w", common.ErrGetProfile, err)
+		return reconcile.Result{}, fmt.Errorf("%w: %w", common.ErrGetProfile, err)
 	}
 
 	return r.reconcileSeccompProfile(ctx, seccompProfile, logger)
@@ -462,15 +501,7 @@ func (r *Reconciler) resolveSyscallsForProfile(
 			}, pullOpts)
 			if err != nil {
 				l.Error(err, "cannot pull base profile", "profile", baseProfileName)
-				r.IncSeccompProfileError(r.metrics, reasonCannotPullProfile)
-				r.RecordEvent(
-					r.record,
-					sp,
-					util.EventTypeWarning,
-					reasonCannotPullProfile,
-					util.EventActionInstall,
-					err.Error(),
-				)
+				r.reportError(sp, reasonCannotPullProfile, util.EventActionInstall, err)
 
 				return nil, fmt.Errorf("retrieve base profile %s from OCI registry: %w", from, err)
 			}
@@ -495,15 +526,7 @@ func (r *Reconciler) resolveSyscallsForProfile(
 		)
 		if err != nil {
 			l.Error(err, "cannot retrieve base profile", "profile", baseProfileName)
-			r.IncSeccompProfileError(r.metrics, reasonInvalidSeccompProfile)
-			r.RecordEvent(
-				r.record,
-				sp,
-				util.EventTypeWarning,
-				reasonInvalidSeccompProfile,
-				util.EventActionInstall,
-				err.Error(),
-			)
+			r.reportError(sp, reasonInvalidSeccompProfile, util.EventActionInstall, err)
 
 			return nil, fmt.Errorf("merging base profile: %w", err)
 		}
@@ -529,12 +552,12 @@ func (r *Reconciler) reconcileSeccompProfile(
 	ctx context.Context, sp *seccompprofileapi.SeccompProfile, l logr.Logger,
 ) (reconcile.Result, error) {
 	if sp == nil {
-		return reconcile.Result{}, errors.New(errSeccompProfileNil)
+		return reconcile.Result{}, errSeccompProfileNil
 	}
 
 	profileName := sp.Name
 
-	nodeStatus, err := nodestatus.NewForProfile(sp, r.client)
+	nodeStatus, err := nodestatus.NewForProfileOnNode(sp, r.client, r.nodeName)
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("cannot create nodeStatus: %w", err)
 	}
@@ -556,16 +579,7 @@ func (r *Reconciler) reconcileSeccompProfile(
 
 	if err := r.validateProfile(ctx, outputProfile); err != nil {
 		l.Error(err, "validate profile")
-		r.metrics.IncSeccompProfileError(reasonProfileNotAllowed)
-		r.record.Eventf(
-			sp,
-			nil,
-			util.EventTypeWarning,
-			reasonProfileNotAllowed,
-			util.EventActionInstall,
-			"%s",
-			err.Error(),
-		)
+		r.reportError(sp, reasonProfileNotAllowed, util.EventActionInstall, err)
 
 		return reconcile.Result{}, fmt.Errorf("validating profile: %w", err)
 	}
@@ -575,30 +589,21 @@ func (r *Reconciler) reconcileSeccompProfile(
 	profileContent, err := json.Marshal(outputProfile.Spec)
 	if err != nil {
 		l.Error(err, "cannot validate profile", "profile", profileName)
-		r.metrics.IncSeccompProfileError(reasonInvalidSeccompProfile)
-		r.record.Eventf(
-			sp,
-			nil,
-			util.EventTypeWarning,
-			reasonInvalidSeccompProfile,
-			util.EventActionInstall,
-			"%s",
-			err.Error(),
-		)
+		r.reportError(sp, reasonInvalidSeccompProfile, util.EventActionInstall, err)
 
 		return reconcile.Result{}, fmt.Errorf("cannot validate profile: %w", err)
 	}
 
-	profilePath := sp.GetProfilePath()
+	profilePath := r.profilePath(sp)
 
 	// The object is not being deleted
-	created, result, ensureErr := common.EnsureNodeStatus(ctx, nodeStatus, l)
-	if ensureErr != nil {
-		return result, ensureErr
+	created, _, err := common.EnsureNodeStatus(ctx, nodeStatus, l)
+	if err != nil {
+		return reconcile.Result{}, err
 	}
 
 	if created {
-		return result, nil
+		return reconcile.Result{RequeueAfter: common.Wait}, nil
 	}
 
 	if !sp.IsReconcilable() {
@@ -607,27 +612,27 @@ func (r *Reconciler) reconcileSeccompProfile(
 		return reconcile.Result{}, nil
 	}
 
+	conflict, err := r.handleFileConflict(ctx, sp, nodeStatus, profilePath, profileContent, l)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+
+	if conflict {
+		return reconcile.Result{RequeueAfter: fileConflictRetry}, nil
+	}
+
 	l.Info("Saving profile to disk")
 
 	updated, err := r.save(profilePath, profileContent)
 	if err != nil {
 		l.Error(err, "cannot save profile into disk")
-		r.metrics.IncSeccompProfileError(reasonCannotSaveProfile)
-		r.record.Eventf(
-			sp,
-			nil,
-			util.EventTypeWarning,
-			reasonCannotSaveProfile,
-			util.EventActionInstall,
-			"%s",
-			err.Error(),
-		)
+		r.reportError(sp, reasonCannotSaveProfile, util.EventActionInstall, err)
 
 		return reconcile.Result{}, fmt.Errorf("cannot save profile into disk: %w", err)
 	}
 
 	if updated {
-		evstr := "Successfully saved profile to disk on " + os.Getenv(config.NodeNameEnvKey)
+		evstr := "Successfully saved profile to disk on " + r.nodeName
 		l.Info(evstr)
 		r.metrics.IncSeccompProfileUpdate()
 		r.record.Eventf(
@@ -669,16 +674,7 @@ func (r *Reconciler) reconcileSeccompProfile(
 		secprofnodestatusapi.ProfileStateInstalled,
 	); err != nil {
 		l.Error(err, "cannot update node status")
-		r.metrics.IncSeccompProfileError(common.ReasonCannotUpdateStatus)
-		r.record.Eventf(
-			sp,
-			nil,
-			util.EventTypeWarning,
-			common.ReasonCannotUpdateStatus,
-			util.EventActionUpdate,
-			"%s",
-			err.Error(),
-		)
+		r.reportError(sp, common.ReasonCannotUpdateStatus, util.EventActionUpdate, err)
 
 		return reconcile.Result{}, fmt.Errorf(
 			"updating status in SeccompProfile reconciler: %w",
@@ -707,15 +703,173 @@ func (r *Reconciler) reconcileDeletion(
 			CannotRemoveProfile: reasonCannotRemoveProfile,
 			CannotUpdateStatus:  common.ReasonCannotUpdateStatus,
 		},
-		func(reason string) { r.metrics.IncSeccompProfileError(reason) },
-		func() error { return r.handleDeletion(sp) },
+		r.metrics.IncSeccompProfileError,
+		func() (reconcile.Result, error) { return reconcile.Result{}, r.handleDeletion(ctx, sp) },
 	)
 }
 
-func (r *Reconciler) handleDeletion(sp *seccompprofileapi.SeccompProfile) error {
-	profilePath := sp.GetProfilePath()
+// fileConflictRetry is the time after which a profile whose file is owned by
+// another profile is checked again, so that it gets installed once the other
+// profile is gone.
+const fileConflictRetry = time.Minute
 
-	err := os.Remove(profilePath)
+// errProfileFileConflict is returned if the file of a profile is owned by
+// another profile.
+var errProfileFileConflict = errors.New("profile file is already used by another profile")
+
+// siblingName returns the name of the other profile which can share the file
+// of a profile with the provided name. The file of a profile gets a ".json"
+// suffix unless its name already has it, so "foo" and "foo.json" share
+// operator/foo.json.
+func siblingName(name string) string {
+	if trimmed, ok := strings.CutSuffix(name, seccompprofileapi.ExtJSON); ok {
+		return trimmed
+	}
+
+	return name + seccompprofileapi.ExtJSON
+}
+
+// siblingRequests enqueues the profile which can share the file of obj.
+func siblingRequests(_ context.Context, obj client.Object) []reconcile.Request {
+	name := siblingName(obj.GetName())
+	if name == "" {
+		return nil
+	}
+
+	return []reconcile.Request{{NamespacedName: util.NamespacedName(name, obj.GetNamespace())}}
+}
+
+// sibling returns the other profile which is stored in the same file as sp,
+// if there is one.
+func sibling(
+	ctx context.Context, reader client.Reader, sp *seccompprofileapi.SeccompProfile,
+) (*seccompprofileapi.SeccompProfile, bool, error) {
+	name := siblingName(sp.GetName())
+	if name == "" {
+		return nil, false, nil
+	}
+
+	other := &seccompprofileapi.SeccompProfile{}
+	if err := reader.Get(ctx, util.NamespacedName(name, sp.GetNamespace()), other); err != nil {
+		if util.IgnoreNotFound(err) == nil {
+			return nil, false, nil
+		}
+
+		return nil, false, fmt.Errorf("looking up profile %s: %w", name, err)
+	}
+
+	if other.GetProfileFile() != sp.GetProfileFile() {
+		return nil, false, nil
+	}
+
+	return other, true, nil
+}
+
+// fileOwner returns the name of the other profile which is stored in the same
+// file as sp and owns it, or an empty string. A profile which is being deleted
+// or which is not installed, because it is disabled or partial, owns nothing.
+// Otherwise the profile created first owns the file, and the name decides on
+// a tie.
+func fileOwner(
+	ctx context.Context, reader client.Reader, sp *seccompprofileapi.SeccompProfile,
+) (string, error) {
+	other, found, err := sibling(ctx, reader, sp)
+	if err != nil || !found {
+		return "", err
+	}
+
+	if !other.GetDeletionTimestamp().IsZero() || !other.IsReconcilable() {
+		return "", nil
+	}
+
+	if sp.IsReconcilable() && sp.GetDeletionTimestamp().IsZero() && !ownsFileBefore(other, sp) {
+		return "", nil
+	}
+
+	return other.GetName(), nil
+}
+
+// fileDiffers returns true if the file at filePath does not hold content.
+func fileDiffers(filePath string, content []byte) bool {
+	existing, err := os.ReadFile(filePath)
+	if err != nil {
+		return true
+	}
+
+	return !bytes.Equal(existing, content)
+}
+
+// ownsFileBefore returns true if profile a takes precedence over profile b
+// for a file they share.
+func ownsFileBefore(a, b *seccompprofileapi.SeccompProfile) bool {
+	ta, tb := a.GetCreationTimestamp(), b.GetCreationTimestamp()
+	if !ta.Equal(&tb) {
+		return ta.Before(&tb)
+	}
+
+	return a.GetName() < b.GetName()
+}
+
+// handleFileConflict marks the profile as failed if another profile owns its
+// file on disk. It returns true if there is a conflict.
+func (r *Reconciler) handleFileConflict(
+	ctx context.Context,
+	sp *seccompprofileapi.SeccompProfile,
+	nodeStatus *nodestatus.StatusClient,
+	profilePath string,
+	content []byte,
+	l logr.Logger,
+) (bool, error) {
+	// Usually there is no other profile with the same file, which the cache
+	// shows without asking the API server on every reconcile. A profile
+	// which is missing from the cache only matters if the file changes.
+	_, cached, err := sibling(ctx, r.client, sp)
+	if err != nil {
+		return false, err
+	}
+
+	if !cached && !fileDiffers(profilePath, content) {
+		return false, nil
+	}
+
+	owner, err := fileOwner(ctx, r.apiReader(), sp)
+	if err != nil || owner == "" {
+		return false, err
+	}
+
+	conflictErr := fmt.Errorf(
+		"%w: %s is stored as %s like %s, rename one of them",
+		errProfileFileConflict, sp.GetName(), sp.GetProfileFile(), owner,
+	)
+	l.Error(conflictErr, "Not saving profile")
+	r.reportError(sp, reasonProfileFileConflict, util.EventActionInstall, conflictErr)
+
+	if err := nodeStatus.SetNodeStatus(ctx, secprofnodestatusapi.ProfileStateError); err != nil {
+		return true, fmt.Errorf("setting node status to error: %w", err)
+	}
+
+	return true, nil
+}
+
+func (r *Reconciler) handleDeletion(
+	ctx context.Context,
+	sp *seccompprofileapi.SeccompProfile,
+) error {
+	// The file belongs to another profile, which must keep it. This is also
+	// the case if the other profile lost the file to this one, because it
+	// takes the file over once this profile is gone.
+	owner, err := fileOwner(ctx, r.apiReader(), sp)
+	if err != nil {
+		return err
+	}
+
+	if owner != "" {
+		return nil
+	}
+
+	profilePath := r.profilePath(sp)
+
+	err = os.Remove(profilePath)
 	if os.IsNotExist(err) {
 		return nil
 	}
@@ -752,7 +906,7 @@ func (r *Reconciler) validateProfile(
 
 func saveProfileOnDisk(fileName string, content []byte) (updated bool, err error) {
 	if err := os.MkdirAll(path.Dir(fileName), dirPermissionMode); err != nil {
-		return false, fmt.Errorf("%s: %w", errCreatingOperatorDir, err)
+		return false, fmt.Errorf("%w: %w", errCreatingOperatorDir, err)
 	}
 
 	existingContent, err := os.ReadFile(fileName)
@@ -761,7 +915,7 @@ func saveProfileOnDisk(fileName string, content []byte) (updated bool, err error
 	}
 
 	if err := util.WriteFileAtomic(fileName, content, filePermissionMode); err != nil {
-		return false, fmt.Errorf("%s: %w", errSavingProfile, err)
+		return false, fmt.Errorf("%w: %w", errSavingProfile, err)
 	}
 
 	return true, nil
@@ -795,7 +949,7 @@ func allowProfile(
 
 	for _, allowedAction := range allowedActions {
 		if !slices.Contains(allAllowedActions, allowedAction) {
-			return fmt.Errorf("%s: %s", errForbiddenAction, allowedAction)
+			return fmt.Errorf("%w: %s", errForbiddenAction, allowedAction)
 		}
 	}
 
@@ -808,13 +962,13 @@ func allowProfile(
 		if actionCalls, ok := syscalls[action]; ok {
 			for call := range actionCalls {
 				if !allowed.Has(call) {
-					return fmt.Errorf("%s: %s", errForbiddenSyscall, call)
+					return fmt.Errorf("%w: %s", errForbiddenSyscall, call)
 				}
 			}
 		}
 
 		if profile.Spec.DefaultAction == action && len(allowedSyscalls) > 0 {
-			return errors.New(errForbiddenProfile)
+			return errForbiddenProfile
 		}
 	}
 

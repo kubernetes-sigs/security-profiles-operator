@@ -18,10 +18,12 @@ package common
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -34,9 +36,34 @@ import (
 
 const (
 	Wait                     = 10 * time.Second
-	ErrGetProfile            = "cannot get profile"
 	ReasonCannotUpdateStatus = "CannotUpdateNodeStatus"
+
+	// stuckFinalizerWarningAge is the deletion age after which a profile that
+	// is still in use by pods gets a warning in the logs.
+	stuckFinalizerWarningAge = 10 * time.Minute
 )
+
+// ErrGetProfile is returned if a profile cannot be retrieved.
+var ErrGetProfile = errors.New("cannot get profile")
+
+// ErrorReporter increments the error metric of a controller and records a
+// warning event for the affected object.
+type ErrorReporter struct {
+	Record   util.EventRecorder
+	IncError func(reason string)
+}
+
+// Report increments the error metric for reason and records a warning event
+// with the provided action and message on obj.
+func (e ErrorReporter) Report(obj runtime.Object, reason, action, msg string) {
+	if e.IncError != nil {
+		e.IncError(reason)
+	}
+
+	if e.Record != nil {
+		e.Record.Eventf(obj, nil, util.EventTypeWarning, reason, action, "%s", msg)
+	}
+}
 
 // DeletionReasons holds profile-type-specific event reason strings used
 // during deletion reconciliation.
@@ -50,6 +77,8 @@ type DeletionReasons struct {
 // profile controllers. Profile-specific behavior is injected via callbacks:
 // incError increments the appropriate error metric, and handleDeletion
 // performs the actual profile removal (e.g., file delete or kernel unload).
+// handleDeletion can request a requeue, for example to wait for an
+// asynchronous removal, in which case the node status is kept.
 func ReconcileDeletion(
 	ctx context.Context,
 	profile client.Object,
@@ -59,8 +88,18 @@ func ReconcileDeletion(
 	rec util.EventRecorder,
 	reasons DeletionReasons,
 	incError func(reason string),
-	handleDeletion func() error,
+	handleDeletion func() (reconcile.Result, error),
 ) (reconcile.Result, error) {
+	reporter := ErrorReporter{Record: rec, IncError: incError}
+
+	// The node status API removes the finalizer of this node only after the
+	// profile is gone from the node, so without it there is nothing left to
+	// do. The node status alone is not a reliable signal: a foreground
+	// deletion removes the owned node statuses before the profile.
+	if !nsc.FinalizerExists() {
+		return ctrl.Result{}, nil
+	}
+
 	hasStatus, err := nsc.Exists(ctx)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("checking if node status exists: %w", err)
@@ -82,14 +121,10 @@ func ReconcileDeletion(
 				secprofnodestatusapi.ProfileStateTerminating,
 			); err != nil {
 				log.Error(err, "cannot update profile status")
-				incError(reasons.CannotUpdateProfile)
-				rec.Eventf(
+				reporter.Report(
 					profile,
-					nil,
-					util.EventTypeWarning,
 					reasons.CannotUpdateProfile,
 					util.EventActionUpdate,
-					"%s",
 					err.Error(),
 				)
 
@@ -106,7 +141,7 @@ func ReconcileDeletion(
 	if controllerutil.ContainsFinalizer(profile, util.HasActivePodsFinalizerString) {
 		if ts := profile.GetDeletionTimestamp(); ts != nil {
 			age := time.Since(ts.Time)
-			if age > 10*time.Minute {
+			if age > stuckFinalizerWarningAge {
 				log.Info("WARNING: profile stuck with active-pods finalizer for over 10 minutes, "+
 					"check if pods using this profile are still running",
 					"deletionAge", age.Round(time.Second).String())
@@ -118,34 +153,23 @@ func ReconcileDeletion(
 		return reconcile.Result{RequeueAfter: Wait}, nil
 	}
 
-	if err := handleDeletion(); err != nil {
+	res, err := handleDeletion()
+	if err != nil {
 		log.Error(err, "cannot delete profile")
-		incError(reasons.CannotRemoveProfile)
-		rec.Eventf(
-			profile,
-			nil,
-			util.EventTypeWarning,
-			reasons.CannotRemoveProfile,
-			util.EventActionRemove,
-			"%s",
-			err.Error(),
-		)
+		reporter.Report(profile, reasons.CannotRemoveProfile, util.EventActionRemove, err.Error())
 
-		return ctrl.Result{}, fmt.Errorf("handling deletion for deleted profile: %w", err)
+		return res, fmt.Errorf("handling deletion for deleted profile: %w", err)
+	}
+
+	if res.RequeueAfter > 0 {
+		log.Info("Requeuing the deletion to make sure the profile is gone")
+
+		return res, nil
 	}
 
 	if err := nsc.Remove(ctx, cl); err != nil {
 		log.Error(err, "cannot remove node status/finalizer from profile")
-		incError(reasons.CannotUpdateStatus)
-		rec.Eventf(
-			profile,
-			nil,
-			util.EventTypeWarning,
-			reasons.CannotUpdateStatus,
-			util.EventActionUpdate,
-			"%s",
-			err.Error(),
-		)
+		reporter.Report(profile, reasons.CannotUpdateStatus, util.EventActionUpdate, err.Error())
 
 		return ctrl.Result{}, fmt.Errorf(
 			"deleting node status/finalizer for deleted profile: %w",
@@ -157,27 +181,29 @@ func ReconcileDeletion(
 }
 
 // EnsureNodeStatus checks whether the node status for a profile exists and
-// creates it if it does not. Returns (true, requeueResult, nil) when the
-// status was just created, signaling that the caller should requeue.
+// creates it if it does not. created is true when the status was just
+// created, and wasMigrated is true if it replaced a legacy status object
+// from a previous operator version.
 func EnsureNodeStatus(
 	ctx context.Context,
 	nsc *nodestatus.StatusClient,
 	log logr.Logger,
-) (bool, reconcile.Result, error) {
+) (created, wasMigrated bool, err error) {
 	exists, err := nsc.Exists(ctx)
 	if err != nil {
-		return false, reconcile.Result{}, fmt.Errorf("checking if node status exists: %w", err)
+		return false, false, fmt.Errorf("checking if node status exists: %w", err)
 	}
 
-	if !exists {
-		if _, err := nsc.Create(ctx); err != nil {
-			return false, reconcile.Result{}, fmt.Errorf("cannot ensure node status: %w", err)
-		}
-
-		log.Info("Created an initial status for this node")
-
-		return true, reconcile.Result{RequeueAfter: Wait}, nil
+	if exists {
+		return false, false, nil
 	}
 
-	return false, reconcile.Result{}, nil
+	wasMigrated, err = nsc.Create(ctx)
+	if err != nil {
+		return false, false, fmt.Errorf("cannot ensure node status: %w", err)
+	}
+
+	log.Info("Created an initial status for this node")
+
+	return true, wasMigrated, nil
 }

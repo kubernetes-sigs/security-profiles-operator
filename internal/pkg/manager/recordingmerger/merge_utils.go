@@ -23,6 +23,7 @@ import (
 	"slices"
 	"strings"
 
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -78,12 +79,15 @@ func mergeMergeableProfiles(profiles []mergeableProfile) (mergeableProfile, erro
 
 type perContainerMergeableProfiles map[string][]mergeableProfile
 
+// listPartialProfiles returns the partial profiles of the recording grouped by
+// container, and a copy of every listed partial profile for the cleanup after
+// the merge.
 func listPartialProfiles(
 	ctx context.Context,
 	cli client.Client,
 	list client.ObjectList,
 	recording *profilerecordingapi.ProfileRecording,
-) (perContainerMergeableProfiles, error) {
+) (perContainerMergeableProfiles, []client.Object, error) {
 	if err := cli.List(
 		ctx,
 		list,
@@ -92,16 +96,25 @@ func listPartialProfiles(
 			profilerecordingapi.ProfileToRecordingNamespaceLabel: recording.Namespace,
 			profilebase.ProfilePartialLabel:                      "true",
 		}); err != nil {
-		return nil, fmt.Errorf("listing partial profiles for %s: %w", recording.Name, err)
+		return nil, nil, fmt.Errorf("listing partial profiles for %s: %w", recording.Name, err)
 	}
 
 	partialProfiles := make(perContainerMergeableProfiles)
+
+	var listed []client.Object
 
 	if err := meta.EachListItem(list, func(obj runtime.Object) error {
 		clientObj, ok := obj.(client.Object)
 		if !ok {
 			return fmt.Errorf("object %T is not a client.Object", obj)
 		}
+
+		copied, ok := clientObj.DeepCopyObject().(client.Object)
+		if !ok {
+			return fmt.Errorf("copy of %T is not a client.Object", obj)
+		}
+
+		listed = append(listed, copied)
 
 		partialPrf, err := newMergeableProfile(clientObj)
 		if err != nil {
@@ -112,9 +125,10 @@ func listPartialProfiles(
 			)
 		}
 
+		// A partial profile without container cannot be merged, it is only
+		// cleaned up.
 		containerID := getContainerID(clientObj)
 		if containerID == "" {
-			// todo: log
 			return nil
 		}
 
@@ -122,10 +136,10 @@ func listPartialProfiles(
 
 		return nil
 	}); err != nil {
-		return nil, fmt.Errorf("iterating over partial profiles: %w", err)
+		return nil, nil, fmt.Errorf("iterating over partial profiles: %w", err)
 	}
 
-	return partialProfiles, nil
+	return partialProfiles, listed, nil
 }
 
 func MergeProfiles(
@@ -208,20 +222,23 @@ func getContainerID(prf client.Object) string {
 	return labels[profilerecordingapi.ProfileToContainerLabel]
 }
 
-func deletePartialProfiles(
-	ctx context.Context,
-	cli client.Client,
-	prf client.Object,
-	recording *profilerecordingapi.ProfileRecording,
-) error {
-	return cli.DeleteAllOf(
-		ctx,
-		prf,
-		client.MatchingLabels{
-			profilerecordingapi.ProfileToRecordingLabel:          recording.Name,
-			profilerecordingapi.ProfileToRecordingNamespaceLabel: recording.Namespace,
-			profilebase.ProfilePartialLabel:                      "true",
-		})
+// deletePartialProfiles deletes the provided partial profiles. It only deletes
+// the listed objects, so that a partial profile which was created after the
+// listing, for example by another pod of the recording, is kept for the next
+// merge.
+func deletePartialProfiles(ctx context.Context, cli client.Client, profiles []client.Object) error {
+	var errs []error
+
+	for _, prf := range profiles {
+		uid := prf.GetUID()
+
+		err := cli.Delete(ctx, prf, client.Preconditions{UID: &uid})
+		if err != nil && !kerrors.IsNotFound(err) && !kerrors.IsConflict(err) {
+			errs = append(errs, fmt.Errorf("deleting partial profile %s: %w", prf.GetName(), err))
+		}
+	}
+
+	return errors.Join(errs...)
 }
 
 func newMergeableProfile(obj client.Object) (mergeableProfile, error) {

@@ -34,7 +34,6 @@ import (
 
 	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/nodestatus"
@@ -115,7 +114,7 @@ func TestIsSystemSELinuxModuleNonexistentPath(t *testing.T) {
 }
 
 func TestReconcileDeletionWithActivePods(t *testing.T) {
-	t.Setenv(config.NodeNameEnvKey, "test-node")
+	t.Parallel()
 
 	scheme := runtime.NewScheme()
 	require.NoError(t, selinuxprofileapi.AddToScheme(scheme))
@@ -139,7 +138,7 @@ func TestReconcileDeletionWithActivePods(t *testing.T) {
 		WithStatusSubresource(&secprofnodestatusapi.SecurityProfileNodeStatus{}).
 		Build()
 
-	nsc, err := nodestatus.NewForProfile(profile, cli)
+	nsc, err := nodestatus.NewForProfileOnNode(profile, cli, "test-node")
 	require.NoError(t, err)
 	_, err = nsc.Create(t.Context())
 	require.NoError(t, err)
@@ -152,6 +151,7 @@ func TestReconcileDeletionWithActivePods(t *testing.T) {
 		record:            events.NewFakeRecorder(10),
 		log:               logr.Discard(),
 		objectHandlerInit: newSelinuxProfileHandler,
+		nodeName:          "test-node",
 	}
 
 	res, err := r.Reconcile(t.Context(), reconcile.Request{
@@ -165,6 +165,8 @@ func TestReconcileDeletionWithActivePods(t *testing.T) {
 // the module is still installed, and must not block the deletion when the
 // module is gone.
 func TestReconcileDeletionWithFailedRemoval(t *testing.T) {
+	t.Parallel()
+
 	const policyName = "spo-test-failed-removal"
 
 	for name, tc := range map[string]struct {
@@ -183,7 +185,7 @@ func TestReconcileDeletionWithFailedRemoval(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			t.Setenv(config.NodeNameEnvKey, "test-node")
+			t.Parallel()
 
 			store := t.TempDir()
 			modulesDir := filepath.Join(store, "targeted", "active", "modules", "400")
@@ -211,7 +213,7 @@ func TestReconcileDeletionWithFailedRemoval(t *testing.T) {
 				WithStatusSubresource(&secprofnodestatusapi.SecurityProfileNodeStatus{}).
 				Build()
 
-			nsc, err := nodestatus.NewForProfile(profile, cli)
+			nsc, err := nodestatus.NewForProfileOnNode(profile, cli, "test-node")
 			require.NoError(t, err)
 			_, err = nsc.Create(t.Context())
 			require.NoError(t, err)
@@ -224,6 +226,7 @@ func TestReconcileDeletionWithFailedRemoval(t *testing.T) {
 				log:               logr.Discard(),
 				objectHandlerInit: newSelinuxProfileHandler,
 				moduleStorePath:   store,
+				nodeName:          "test-node",
 				httpc: selinuxdTestClient(t, func(w http.ResponseWriter, req *http.Request) {
 					if req.URL.Path == "/ready" {
 						writeBody(t, w, `{"ready": true}`)
@@ -236,6 +239,12 @@ func TestReconcileDeletionWithFailedRemoval(t *testing.T) {
 			}
 
 			key := types.NamespacedName{Name: policyName, Namespace: "default"}
+
+			// The first pass marks the node status as terminating.
+			res, err := r.Reconcile(t.Context(), reconcile.Request{NamespacedName: key})
+			require.NoError(t, err)
+			require.Equal(t, reconcile.Result{RequeueAfter: common.Wait}, res)
+
 			_, err = r.Reconcile(t.Context(), reconcile.Request{NamespacedName: key})
 
 			if tc.wantErr != nil {

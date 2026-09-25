@@ -234,7 +234,7 @@ func TestRemoveLegacyNodeStatus(t *testing.T) {
 				kind:     tc.profile.GetObjectKind().GroupVersionKind().Kind,
 			}
 
-			got := sc.removeLegacyNodeStatus(context.Background())
+			got, _ := sc.removeLegacyNodeStatus(context.Background())
 			require.Equal(t, tc.wantMigrated, got)
 		})
 	}

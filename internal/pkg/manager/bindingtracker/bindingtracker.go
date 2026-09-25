@@ -116,54 +116,8 @@ func (r *BindingTrackerReconciler) handlePodDeletion(
 		binding := &bindings.Items[i]
 		logger.Info("Removing deleted pod from binding", "binding", binding.Name)
 
-		if err := util.Retry(func() error {
-			if err := r.reader.Get(
-				ctx, util.NamespacedName(binding.GetName(), binding.GetNamespace()), binding,
-			); err != nil {
-				if errors.IsNotFound(err) {
-					return nil
-				}
-
-				return fmt.Errorf("retrieving binding: %w", err)
-			}
-
-			updated := removeIfExists(binding.Status.ActiveWorkloads, podID)
-			if len(updated) == len(binding.Status.ActiveWorkloads) {
-				return nil
-			}
-
-			binding.Status.ActiveWorkloads = updated
-
-			if err := r.client.Status().Update(ctx, binding); err != nil {
-				return fmt.Errorf("updating binding status: %w", err)
-			}
-
-			return nil
-		}, util.IsNotFoundOrConflict); err != nil {
-			return reconcile.Result{},
-				fmt.Errorf("updating binding status for deleted pod: %w", err)
-		}
-
-		if err := util.Retry(func() error {
-			if err := r.reader.Get(
-				ctx, util.NamespacedName(binding.GetName(), binding.GetNamespace()), binding,
-			); err != nil {
-				if errors.IsNotFound(err) {
-					return nil
-				}
-
-				return fmt.Errorf("retrieving binding: %w", err)
-			}
-
-			if len(binding.Status.ActiveWorkloads) == 0 {
-				return client.IgnoreNotFound(
-					util.RemoveFinalizer(ctx, r.client, binding, finalizer),
-				)
-			}
-
-			return nil
-		}, util.IsNotFoundOrConflict); err != nil {
-			return reconcile.Result{}, fmt.Errorf("removing finalizer for deleted pod: %w", err)
+		if err := r.untrackPod(ctx, binding, podID); err != nil {
+			return reconcile.Result{}, fmt.Errorf("untracking deleted pod: %w", err)
 		}
 	}
 
@@ -181,54 +135,142 @@ func (r *BindingTrackerReconciler) handlePodCreateOrUpdate(
 		return reconcile.Result{}, fmt.Errorf("listing bindings: %w", err)
 	}
 
-	podLabels := labels.Set(pod.GetLabels())
-
 	for i := range bindings.Items {
 		binding := &bindings.Items[i]
 
-		if !podMatchesSelector(binding, podLabels) {
+		// A binding which is being deleted must not track new pods: the API
+		// server rejects adding finalizers to it.
+		if podMatchesBinding(binding, pod) && binding.GetDeletionTimestamp().IsZero() {
+			logger.Info("Tracking pod in binding", "binding", binding.Name)
+
+			if err := r.trackPod(ctx, binding, podID); err != nil {
+				return reconcile.Result{}, err
+			}
+
 			continue
 		}
 
-		logger.Info("Tracking pod in binding", "binding", binding.Name)
-
-		if err := util.Retry(func() error {
-			if err := r.reader.Get(
-				ctx, util.NamespacedName(binding.GetName(), binding.GetNamespace()), binding,
-			); err != nil {
-				if errors.IsNotFound(err) {
-					return nil
-				}
-
-				return fmt.Errorf("retrieving binding: %w", err)
-			}
-
-			updated := appendIfNotExists(binding.Status.ActiveWorkloads, podID)
-			if len(updated) == len(binding.Status.ActiveWorkloads) {
-				return nil
-			}
-
-			binding.Status.ActiveWorkloads = updated
-
-			if err := r.client.Status().Update(ctx, binding); err != nil {
-				return fmt.Errorf("updating binding status: %w", err)
-			}
-
-			return nil
-		}, util.IsNotFoundOrConflict); err != nil {
-			return reconcile.Result{}, fmt.Errorf("updating binding status: %w", err)
-		}
-
-		if err := util.Retry(func() error {
-			return client.IgnoreNotFound(
-				util.AddFinalizer(ctx, r.client, binding, finalizer),
+		if slices.Contains(binding.Status.ActiveWorkloads, podID) &&
+			!podMatchesBinding(binding, pod) {
+			logger.Info(
+				"Removing pod which no longer matches from binding",
+				"binding",
+				binding.Name,
 			)
-		}, util.IsNotFoundOrConflict); err != nil {
-			return reconcile.Result{}, fmt.Errorf("adding finalizer: %w", err)
+
+			if err := r.untrackPod(ctx, binding, podID); err != nil {
+				return reconcile.Result{}, fmt.Errorf("untracking pod: %w", err)
+			}
 		}
 	}
 
 	return reconcile.Result{}, nil
+}
+
+// trackPod adds the pod to the active workloads of the binding and ensures
+// the finalizer.
+func (r *BindingTrackerReconciler) trackPod(
+	ctx context.Context, binding *profilebindingapi.ProfileBinding, podID string,
+) error {
+	if err := util.Retry(func() error {
+		if err := r.reader.Get(
+			ctx, util.NamespacedName(binding.GetName(), binding.GetNamespace()), binding,
+		); err != nil {
+			if errors.IsNotFound(err) {
+				return nil
+			}
+
+			return fmt.Errorf("retrieving binding: %w", err)
+		}
+
+		updated := appendIfNotExists(binding.Status.ActiveWorkloads, podID)
+		if len(updated) == len(binding.Status.ActiveWorkloads) {
+			return nil
+		}
+
+		binding.Status.ActiveWorkloads = updated
+
+		if err := r.client.Status().Update(ctx, binding); err != nil {
+			return fmt.Errorf("updating binding status: %w", err)
+		}
+
+		return nil
+	}, util.IsNotFoundOrConflict); err != nil {
+		return fmt.Errorf("updating binding status: %w", err)
+	}
+
+	if err := util.Retry(func() error {
+		return client.IgnoreNotFound(
+			util.AddFinalizer(ctx, r.client, binding, finalizer),
+		)
+	}, util.IsNotFoundOrConflict); err != nil {
+		return fmt.Errorf("adding finalizer: %w", err)
+	}
+
+	return nil
+}
+
+// untrackPod removes the pod from the active workloads of the binding and
+// drops the finalizer once no workload is left.
+func (r *BindingTrackerReconciler) untrackPod(
+	ctx context.Context, binding *profilebindingapi.ProfileBinding, podID string,
+) error {
+	if err := util.Retry(func() error {
+		if err := r.reader.Get(
+			ctx, util.NamespacedName(binding.GetName(), binding.GetNamespace()), binding,
+		); err != nil {
+			if errors.IsNotFound(err) {
+				return nil
+			}
+
+			return fmt.Errorf("retrieving binding: %w", err)
+		}
+
+		updated := removeIfExists(binding.Status.ActiveWorkloads, podID)
+		if len(updated) == len(binding.Status.ActiveWorkloads) {
+			return nil
+		}
+
+		binding.Status.ActiveWorkloads = updated
+
+		if err := r.client.Status().Update(ctx, binding); err != nil {
+			return fmt.Errorf("updating binding status: %w", err)
+		}
+
+		return nil
+	}, util.IsNotFoundOrConflict); err != nil {
+		return fmt.Errorf("updating binding status: %w", err)
+	}
+
+	if err := util.Retry(func() error {
+		if err := r.reader.Get(
+			ctx, util.NamespacedName(binding.GetName(), binding.GetNamespace()), binding,
+		); err != nil {
+			if errors.IsNotFound(err) {
+				return nil
+			}
+
+			return fmt.Errorf("retrieving binding: %w", err)
+		}
+
+		if len(binding.Status.ActiveWorkloads) == 0 {
+			return client.IgnoreNotFound(
+				util.RemoveFinalizer(ctx, r.client, binding, finalizer),
+			)
+		}
+
+		return nil
+	}, util.IsNotFoundOrConflict); err != nil {
+		return fmt.Errorf("removing finalizer: %w", err)
+	}
+
+	return nil
+}
+
+// podMatchesBinding returns true if the binding webhook applies the binding to
+// the pod: the pod labels match the selector and a container uses the image.
+func podMatchesBinding(pb *profilebindingapi.ProfileBinding, pod *corev1.Pod) bool {
+	return podMatchesSelector(pb, labels.Set(pod.GetLabels())) && podUsesImage(pb, pod)
 }
 
 func podMatchesSelector(
@@ -245,6 +287,32 @@ func podMatchesSelector(
 	}
 
 	return selector.Matches(podLabels)
+}
+
+func podUsesImage(pb *profilebindingapi.ProfileBinding, pod *corev1.Pod) bool {
+	if pb.Spec.Image == profilebindingapi.SelectAllContainersImage {
+		return true
+	}
+
+	for i := range pod.Spec.Containers {
+		if pod.Spec.Containers[i].Image == pb.Spec.Image {
+			return true
+		}
+	}
+
+	for i := range pod.Spec.InitContainers {
+		if pod.Spec.InitContainers[i].Image == pb.Spec.Image {
+			return true
+		}
+	}
+
+	for i := range pod.Spec.EphemeralContainers {
+		if pod.Spec.EphemeralContainers[i].Image == pb.Spec.Image {
+			return true
+		}
+	}
+
+	return false
 }
 
 func appendIfNotExists(list []string, item string) []string {

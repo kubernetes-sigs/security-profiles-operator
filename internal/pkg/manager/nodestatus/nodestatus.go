@@ -102,6 +102,12 @@ func (r *StatusReconciler) Healthz(*http.Request) error {
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles/finalizers,verbs=delete;get;update;patch
 
+// Security Profiles Operator RBAC permissions to manage AppArmorProfile
+//nolint:lll // required for kubebuilder
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=apparmorprofiles,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=apparmorprofiles/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=apparmorprofiles/finalizers,verbs=delete;get;update;patch
+
 // Security Profiles Operator RBAC permissions to manage Node Statuses
 //nolint:lll // required for kubebuilder
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilenodestatuses,verbs=get;list;watch;delete
@@ -212,75 +218,59 @@ func (r *StatusReconciler) Reconcile(
 	hasStatuses := len(nodeStatusList.Items)
 	wantsStatuses := spodDS.Status.DesiredNumberScheduled
 
+	requeue := reconcile.Result{}
+
 	if wantsStatuses > int32(hasStatuses) {
 		logger.Info("Not updating policy: not all statuses are ready",
 			"has", hasStatuses, "wants", wantsStatuses)
 		// Don't reconcile again, let's just wait for another update
 		return reconcile.Result{}, nil
 	} else if wantsStatuses < int32(hasStatuses) {
-		// this happens when nodes are removed from the cluster
+		// this happens when nodes are removed from the cluster or no longer
+		// run the SPOd, for example because of a new taint
 		logger.Info("Removing extra statuses", "has", hasStatuses, "wants", wantsStatuses)
 
-		nodeName, err := r.removeStatusForDeletedNode(ctx, nodeStatusList, lprof)
+		removed, err := r.removeStaleStatuses(ctx, prof, spodDS, nodeStatusList, lprof)
 		if err != nil {
 			return reconcile.Result{}, fmt.Errorf("cannot remove extra statuses: %w", err)
 		}
 
-		if nodeName != "" {
-			// remove the deleted node finalizer string from the profile
-			logger.Info(
-				"Removing finalizer from profile",
-				"profile",
-				prof.GetName(),
-				"node",
-				nodeName,
-			)
-
-			if err := util.RemoveFinalizer(
-				ctx,
-				r.client,
-				prof,
-				util.GetFinalizerNodeString(nodeName),
-			); err != nil {
-				return reconcile.Result{}, fmt.Errorf(
-					"cannot remove finalizer from profile: %w",
-					err,
-				)
-			}
+		if removed {
+			return reconcile.Result{RequeueAfter: time.Second}, nil
 		}
 
-		return reconcile.Result{RequeueAfter: time.Second}, nil
+		// The stale statuses cannot be identified yet, for example while
+		// the DaemonSet rolls out. Aggregate the existing ones and check again
+		// later instead of requeuing every second.
+		logger.Info("No stale status identified, aggregating the existing statuses")
+
+		requeue = reconcile.Result{RequeueAfter: dsWait}
 	}
 
-	statusMatch, err := util.FinalizersMatchCurrentNodes(ctx, nodeStatusList)
-	if err != nil {
-		return reconcile.Result{}, fmt.Errorf("cannot compare statuses and finalizers: %w", err)
+	nodes := &v1.NodeList{}
+	if err := r.client.List(ctx, nodes); err != nil {
+		return reconcile.Result{}, fmt.Errorf("cannot get node list: %w", err)
 	}
 
-	if !statusMatch { // if the finalizers don't match the current nodes
-		// Get current list of nodes
-		currentNodeNames, err := util.GetNodeList(ctx)
-		if err != nil {
-			return reconcile.Result{}, fmt.Errorf("cannot get node list: %w", err)
+	currentNodeNames := make([]string, 0, len(nodes.Items))
+	for i := range nodes.Items {
+		currentNodeNames = append(currentNodeNames, nodes.Items[i].Name)
+	}
+
+	// Remove the finalizers of statuses whose node does not exist anymore.
+	for i := range nodeStatusList.Items {
+		nodeName := nodeStatusList.Items[i].Spec.NodeName
+		if slices.Contains(currentNodeNames, nodeName) {
+			continue
 		}
-		// if nodeName is not in currentNodeNames and there isn't a mismatch in statuses/nodes, remove it from the finalizers
-		for i := range nodeStatusList.Items {
-			nodeStatus := &nodeStatusList.Items[i]
-			if !slices.Contains(
-				currentNodeNames,
-				nodeStatus.Spec.NodeName,
-			) { // node name not in list
-				// Found a finalizer for a node that doesn't exist
-				finalizerNodeString := util.GetFinalizerNodeString(nodeStatus.Spec.NodeName)
-				if err := util.RemoveFinalizer(
-					ctx,
-					r.client,
-					prof,
-					finalizerNodeString,
-				); err != nil {
-					return reconcile.Result{}, fmt.Errorf("cannot remove finalizer: %w", err)
-				}
-			}
+
+		if err := util.RemoveFinalizer(
+			ctx,
+			r.client,
+			prof,
+			util.GetFinalizerNodeString(nodeName),
+		); err != nil {
+			return reconcile.Result{}, fmt.Errorf("cannot remove finalizer: %w", err)
 		}
 	}
 
@@ -294,7 +284,125 @@ func (r *StatusReconciler) Reconcile(
 
 	logger.V(config.VerboseLevel).Info("Setting the status to", "Status", lowestCommonState)
 
-	return reconcile.Result{}, r.reconcileStatus(ctx, prof, lowestCommonState, lprof)
+	return requeue, r.reconcileStatus(ctx, prof, lowestCommonState, lprof)
+}
+
+// removeStaleStatuses removes the statuses and finalizers of nodes which have
+// been deleted or no longer run a SPOd pod. It returns true if any status was
+// removed.
+func (r *StatusReconciler) removeStaleStatuses(
+	ctx context.Context,
+	prof client.Object,
+	spodDS *appsv1.DaemonSet,
+	nodeStatusList *secprofnodestatusapi.SecurityProfileNodeStatusList,
+	logger logr.Logger,
+) (bool, error) {
+	nodeName, err := r.removeStatusForDeletedNode(ctx, nodeStatusList, logger)
+	if err != nil {
+		return false, err
+	}
+
+	var staleNodes []string
+
+	if nodeName != "" {
+		staleNodes = []string{nodeName}
+	} else {
+		staleNodes, err = r.removeStatusForUnscheduledNodes(ctx, spodDS, nodeStatusList, logger)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	for _, node := range staleNodes {
+		logger.Info("Removing finalizer from profile", "node", node)
+
+		if err := util.RemoveFinalizer(
+			ctx, r.client, prof, util.GetFinalizerNodeString(node),
+		); err != nil {
+			return false, fmt.Errorf("cannot remove finalizer from profile: %w", err)
+		}
+	}
+
+	return len(staleNodes) > 0, nil
+}
+
+// removeStatusForUnscheduledNodes removes the statuses of live nodes which do
+// not run a SPOd pod anymore. The daemon on such a node can never remove its
+// finalizer, so deleting the profile would hang forever. A node counts as not
+// running the SPOd only if the DaemonSet status proves that every node it
+// schedules to runs exactly one up to date pod, and no pod runs anywhere else.
+// Then a node without a pod, including a terminating one, is not scheduled.
+func (r *StatusReconciler) removeStatusForUnscheduledNodes(
+	ctx context.Context,
+	spodDS *appsv1.DaemonSet,
+	nodeStatusList *secprofnodestatusapi.SecurityProfileNodeStatusList,
+	logger logr.Logger,
+) ([]string, error) {
+	if spodDS.Spec.Selector == nil {
+		return nil, nil
+	}
+
+	selector, err := metav1.LabelSelectorAsSelector(spodDS.Spec.Selector)
+	if err != nil {
+		return nil, fmt.Errorf("cannot parse SPOd selector: %w", err)
+	}
+
+	pods := &v1.PodList{}
+	if err := r.client.List(ctx, pods,
+		client.InNamespace(spodDS.Namespace),
+		client.MatchingLabelsSelector{Selector: selector},
+	); err != nil {
+		return nil, fmt.Errorf("cannot list SPOd pods: %w", err)
+	}
+
+	// Terminating pods count as present: their daemon may still run.
+	spodNodes := make(map[string]bool, len(pods.Items))
+
+	for i := range pods.Items {
+		if pods.Items[i].Spec.NodeName != "" {
+			spodNodes[pods.Items[i].Spec.NodeName] = true
+		}
+	}
+
+	if !daemonSetSettled(spodDS, len(spodNodes)) {
+		logger.Info("Not removing statuses of live nodes while the SPOd is not settled")
+
+		return nil, nil
+	}
+
+	var removed []string
+
+	for i := range nodeStatusList.Items {
+		nodeName := nodeStatusList.Items[i].Spec.NodeName
+		if spodNodes[nodeName] {
+			continue
+		}
+
+		logger.Info("Removing node status for node without SPOd pod", "node", nodeName)
+
+		err := r.client.Delete(ctx, &nodeStatusList.Items[i])
+		if client.IgnoreNotFound(err) != nil {
+			return nil, fmt.Errorf("cannot delete node status: %w", err)
+		}
+
+		removed = append(removed, nodeName)
+	}
+
+	return removed, nil
+}
+
+// daemonSetSettled returns true if the status of the DaemonSet is current and
+// shows that the pods run on exactly the nodes it schedules to: every
+// scheduled node runs an up to date pod, no pod runs on a node it does not
+// schedule to, and the pod list has one node per scheduled node.
+func daemonSetSettled(ds *appsv1.DaemonSet, podNodes int) bool {
+	status := &ds.Status
+
+	return status.ObservedGeneration == ds.Generation &&
+		status.NumberMisscheduled == 0 &&
+		status.CurrentNumberScheduled == status.DesiredNumberScheduled &&
+		status.UpdatedNumberScheduled == status.DesiredNumberScheduled &&
+		int32(podNodes) == status.DesiredNumberScheduled
 }
 
 // removeStatusForDeletedNode removes the status for a node that has been deleted.
@@ -409,34 +517,34 @@ func (r *StatusReconciler) updateProfileStatus(
 
 	outStatus := pCopy.GetStatusBase()
 
+	var condition metav1.Condition
+
 	switch state {
 	case secprofnodestatusapi.ProfileStatePending, "":
 		outStatus.Status = secprofnodestatusapi.ProfileStatePending
-		outStatus.SetConditions(common.Creating())
+		condition = common.Creating()
 	case secprofnodestatusapi.ProfileStateInProgress:
-		outStatus.SetConditions(common.Creating())
 		outStatus.Status = secprofnodestatusapi.ProfileStateInProgress
+		condition = common.Creating()
 	case secprofnodestatusapi.ProfileStateInstalled:
 		outStatus.Status = secprofnodestatusapi.ProfileStateInstalled
-		outStatus.SetConditions(common.Available())
+		condition = common.Available()
 	case secprofnodestatusapi.ProfileStateTerminating:
 		outStatus.Status = secprofnodestatusapi.ProfileStateTerminating
-		outStatus.SetConditions(common.Deleting())
+		condition = common.Deleting()
 	case secprofnodestatusapi.ProfileStateError:
 		outStatus.Status = secprofnodestatusapi.ProfileStateError
-		outStatus.SetConditions(common.Unavailable(
-			"profile failed to install on one or more nodes",
-		))
+		condition = common.Unavailable("profile failed to install on one or more nodes")
 	case secprofnodestatusapi.ProfileStatePartial:
 		outStatus.Status = secprofnodestatusapi.ProfileStatePartial
-		outStatus.SetConditions(common.Unavailable(
-			"profile is only partially installed across nodes",
-		))
+		condition = common.Unavailable("profile is only partially installed across nodes")
 	case secprofnodestatusapi.ProfileStateDisabled:
 		outStatus.Status = secprofnodestatusapi.ProfileStateDisabled
-		outStatus.SetConditions(common.Unavailable(
-			"profile type is disabled in the SPOD configuration",
-		))
+		condition = common.Unavailable("profile type is disabled in the SPOD configuration")
+	}
+
+	if condition.Type != "" {
+		outStatus.SetConditionForGeneration(&condition, pCopy.GetGeneration())
 	}
 
 	if !profileStatusChanged(prof, pCopy) {

@@ -21,9 +21,11 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -41,6 +43,7 @@ import (
 	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/nodestatus"
@@ -106,7 +109,6 @@ func newReconcileFixture(
 ) *reconcileFixture {
 	t.Helper()
 
-	t.Setenv(config.NodeNameEnvKey, testReconcileNode)
 	t.Setenv(config.OperatorNamespaceEnvKey, testReconcileNamespace)
 	t.Setenv("POD_NAME", testReconcilePod)
 
@@ -131,13 +133,16 @@ func newReconcileFixture(
 	recorder := events.NewFakeRecorder(20)
 
 	r := &ReconcileSelinux{
-		client:         cli,
-		clientReader:   cli,
-		scheme:         scheme,
-		record:         recorder,
-		metrics:        metrics.New(),
-		log:            logf.Log.WithName("test"),
-		controllerName: "selinuxprofile",
+		client:          cli,
+		clientReader:    cli,
+		scheme:          scheme,
+		record:          recorder,
+		metrics:         metrics.New(),
+		log:             logf.Log.WithName("test"),
+		controllerName:  "selinuxprofile",
+		nodeName:        testReconcileNode,
+		policyDir:       t.TempDir(),
+		moduleStorePath: t.TempDir(),
 		objectHandlerInit: func(
 			ctx context.Context, c client.Client, key types.NamespacedName,
 		) (SelinuxObjectHandler, error) {
@@ -233,7 +238,8 @@ func (f *reconcileFixture) events() []string {
 
 // prepareDeletion installs the node status and finalizer as a previous
 // reconcile would have, then deletes the profile so that only the finalizer
-// keeps it around.
+// keeps it around. The node status is already terminating, like after the
+// first deletion pass.
 func (f *reconcileFixture) prepareDeletion(t *testing.T) {
 	t.Helper()
 
@@ -241,15 +247,54 @@ func (f *reconcileFixture) prepareDeletion(t *testing.T) {
 	sp := f.profile(t)
 	sp.SetGroupVersionKind(selinuxprofileapi.GroupVersion.WithKind("SelinuxProfile"))
 
-	ns, err := nodestatus.NewForProfile(sp, f.client)
+	ns, err := nodestatus.NewForProfileOnNode(sp, f.client, testReconcileNode)
 	require.NoError(t, err)
 
 	_, err = ns.Create(ctx)
 	require.NoError(t, err)
+	require.NoError(t, ns.SetNodeStatus(ctx, secprofnodestatusapi.ProfileStateTerminating))
 	require.NoError(t, f.client.Delete(ctx, f.profile(t)))
 
 	deleted := f.profile(t)
 	require.False(t, deleted.GetDeletionTimestamp().IsZero())
+}
+
+//nolint:paralleltest // uses t.Setenv
+func TestReconcileDeletionMarksStatusTerminating(t *testing.T) {
+	f := newReconcileFixture(t, testProfile(), nil, selinuxd(t, true, http.StatusNotFound, ""))
+	ctx := context.Background()
+
+	ns, err := nodestatus.NewForProfileOnNode(f.profile(t), f.client, testReconcileNode)
+	require.NoError(t, err)
+	_, err = ns.Create(ctx)
+	require.NoError(t, err)
+	require.NoError(t, f.client.Delete(ctx, f.profile(t)))
+
+	res, err := f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{RequeueAfter: common.Wait}, res)
+	require.Equal(t, secprofnodestatusapi.ProfileStateTerminating, f.nodeStatus(t).Status.Status)
+	require.Len(t, f.profile(t).GetFinalizers(), 1)
+}
+
+// A foreground deletion removes the owned node statuses before the profile.
+// The policy must still be removed and the finalizer of the node dropped,
+// otherwise the profile is stuck in deletion forever.
+//
+//nolint:paralleltest // uses t.Setenv
+func TestReconcileDeletionWithoutNodeStatus(t *testing.T) {
+	f := newReconcileFixture(t, testProfile(), nil, selinuxd(t, true, http.StatusNotFound, ""))
+	f.prepareDeletion(t)
+
+	ctx := context.Background()
+	require.NoError(t, f.client.Delete(ctx, f.nodeStatus(t)))
+
+	res, err := f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{}, res)
+
+	err = f.client.Get(ctx, f.request.NamespacedName, &selinuxprofileapi.SelinuxProfile{})
+	require.True(t, kerrors.IsNotFound(err), "profile should be deleted, got %v", err)
 }
 
 //nolint:paralleltest // uses t.Setenv
@@ -330,6 +375,94 @@ func TestReconcileValidationFailure(t *testing.T) {
 }
 
 //nolint:paralleltest // uses t.Setenv
+func TestReconcileMissingInheritIsRetried(t *testing.T) {
+	f := newReconcileFixture(t, testProfile(), ErrInheritNotFound,
+		selinuxd(t, true, http.StatusOK, ""))
+
+	res, err := f.r.Reconcile(context.Background(), f.request)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{RequeueAfter: inheritRetryInterval}, res,
+		"the inherited profile may still be created")
+	require.Equal(t, secprofnodestatusapi.ProfileStateError, f.nodeStatus(t).Status.Status)
+}
+
+//nolint:paralleltest // uses t.Setenv
+func TestReconcileTemporaryValidationFailure(t *testing.T) {
+	f := newReconcileFixture(t, testProfile(), errTemporaryValidation,
+		selinuxd(t, true, http.StatusOK, ""))
+
+	_, err := f.r.Reconcile(context.Background(), f.request)
+	require.ErrorIs(t, err, errTemporaryValidation)
+	require.Equal(t, secprofnodestatusapi.ProfileStatePending, f.nodeStatus(t).Status.Status,
+		"an API server failure is not a problem of the profile")
+	require.Empty(t, f.events())
+}
+
+// inheritingFakeHandler is a fakeHandler whose policy inherits from other
+// profiles of the operator.
+type inheritingFakeHandler struct {
+	fakeHandler
+
+	ancestors []selinuxprofileapi.SelinuxProfileObject
+}
+
+func (f *inheritingFakeHandler) inheritedProfiles() []selinuxprofileapi.SelinuxProfileObject {
+	return f.ancestors
+}
+
+//nolint:paralleltest // uses t.Setenv
+func TestReconcileWaitsForInheritedProfile(t *testing.T) {
+	ancestor := testProfile()
+	ancestor.Name = "ancestor"
+
+	f := newReconcileFixture(t, testProfile(), nil, selinuxd(t, true, http.StatusOK, ""))
+	require.NoError(t, f.client.Create(context.Background(), ancestor))
+
+	f.r.objectHandlerInit = func(
+		ctx context.Context, c client.Client, key types.NamespacedName,
+	) (SelinuxObjectHandler, error) {
+		oh := &inheritingFakeHandler{
+			fakeHandler: fakeHandler{sp: &selinuxprofileapi.SelinuxProfile{}},
+			ancestors:   []selinuxprofileapi.SelinuxProfileObject{ancestor},
+		}
+
+		err := oh.Init(ctx, c, key)
+
+		return oh, err
+	}
+
+	// The ancestor has no node status on this node yet.
+	res, err := f.r.Reconcile(context.Background(), f.request)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{RequeueAfter: common.Wait}, res)
+
+	status := &secprofnodestatusapi.SecurityProfileNodeStatus{}
+	require.NoError(t, f.client.Get(context.Background(), types.NamespacedName{
+		Namespace: testReconcileNamespace,
+		Name:      "selinuxprofile-" + testReconcileProfile + "-" + testReconcileNode,
+	}, status))
+	require.Equal(t, secprofnodestatusapi.ProfileStatePending, status.Status.Status)
+
+	// Once the ancestor is installed on the node, the installation proceeds.
+	ns, err := nodestatus.NewForProfileOnNode(ancestor, f.client, testReconcileNode)
+	require.NoError(t, err)
+	_, err = ns.Create(context.Background())
+	require.NoError(t, err)
+	require.NoError(
+		t,
+		ns.SetNodeStatus(context.Background(), secprofnodestatusapi.ProfileStateInstalled),
+	)
+
+	installed, err := f.r.inheritedProfilesInstalled(
+		context.Background(), &inheritingFakeHandler{
+			ancestors: []selinuxprofileapi.SelinuxProfileObject{ancestor},
+		}, logr.Discard(),
+	)
+	require.NoError(t, err)
+	require.True(t, installed)
+}
+
+//nolint:paralleltest // uses t.Setenv
 func TestReconcileDisabledProfileIsSkipped(t *testing.T) {
 	sp := testProfile()
 	sp.Spec.State = profilebasev1.SpecStateDisabled
@@ -365,16 +498,8 @@ func TestReconcilePartialProfileIsSkipped(t *testing.T) {
 
 //nolint:paralleltest // uses t.Setenv
 func TestReconcilePolicyFileWriteFailure(t *testing.T) {
-	if _, err := os.Stat(bindata.SelinuxDropDirectory); err == nil {
-		t.Skipf("%s exists on this host, the policy file could be written",
-			bindata.SelinuxDropDirectory)
-	}
-
-	if isSELinuxModuleInstalled(bindata.SelinuxModuleStorePath, testReconcileProfile) {
-		t.Skip("the test profile name collides with a system module on this host")
-	}
-
 	f := newReconcileFixture(t, testProfile(), nil, selinuxd(t, true, http.StatusOK, ""))
+	f.r.policyDir = filepath.Join(t.TempDir(), "missing")
 
 	_, err := f.r.Reconcile(context.Background(), f.request)
 	require.ErrorContains(t, err, "creating policy file")
@@ -382,6 +507,101 @@ func TestReconcilePolicyFileWriteFailure(t *testing.T) {
 	evts := f.events()
 	require.Len(t, evts, 1)
 	require.True(t, strings.HasPrefix(evts[0], "Warning "+reasonCannotWritePolicyFile+" "))
+}
+
+func (f *reconcileFixture) reloadJobs(t *testing.T) []batchv1.Job {
+	t.Helper()
+
+	jobs := &batchv1.JobList{}
+	require.NoError(t, f.client.List(context.Background(), jobs,
+		client.InNamespace(testReconcileNamespace)))
+
+	return jobs.Items
+}
+
+//nolint:paralleltest // uses t.Setenv
+func TestReconcileInstallsPolicy(t *testing.T) {
+	f := newReconcileFixture(t, testProfile(), nil,
+		selinuxd(t, true, http.StatusOK, `{"status": "Installed", "msg": ""}`))
+	ctx := context.Background()
+
+	// The first pass writes the policy and gives selinuxd time to install it.
+	res, err := f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+	require.Equal(t, selinuxdPollInterval, res.RequeueAfter)
+	require.Equal(t, secprofnodestatusapi.ProfileStateInProgress, f.nodeStatus(t).Status.Status)
+
+	content, err := os.ReadFile(filepath.Join(f.r.policyDir, testReconcileProfile+".cil"))
+	require.NoError(t, err)
+	require.Equal(t, "(blockinherit container)", string(content))
+
+	// Then the installation is reported and the kernel policy reloaded.
+	res, err = f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{}, res)
+	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, f.nodeStatus(t).Status.Status)
+	require.Equal(t, "1", f.nodeStatus(t).Annotations[reloadInstallGenerationAnnotation])
+	require.Len(t, f.reloadJobs(t), 1)
+	require.Equal(t, "install", f.reloadJobs(t)[0].Labels["action"])
+	require.Contains(t, f.events(), "Normal "+reasonInstalledPolicy+
+		" Successfully saved profile to disk on "+testReconcileNode)
+
+	// The reload is done once per generation.
+	_, err = f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+	require.Len(t, f.reloadJobs(t), 1)
+}
+
+//nolint:paralleltest // uses t.Setenv
+func TestReconcileInstallationFailed(t *testing.T) {
+	f := newReconcileFixture(t, testProfile(), nil,
+		selinuxd(t, true, http.StatusOK, `{"status": "Failed", "msg": "semodule failed"}`))
+	ctx := context.Background()
+
+	_, err := f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+
+	res, err := f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{}, res)
+	require.Equal(t, secprofnodestatusapi.ProfileStateError, f.nodeStatus(t).Status.Status)
+	require.Empty(t, f.reloadJobs(t))
+	require.Contains(t, f.events(), "Warning "+reasonCannotInstallPolicy+
+		" Failed to save profile to disk on "+testReconcileNode+": semodule failed")
+}
+
+//nolint:paralleltest // uses t.Setenv
+func TestReconcilePolicyNotInstalledYet(t *testing.T) {
+	f := newReconcileFixture(t, testProfile(), nil, selinuxd(t, true, http.StatusNotFound, ""))
+	ctx := context.Background()
+
+	_, err := f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+
+	res, err := f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+	require.Equal(t, selinuxdPollInterval, res.RequeueAfter)
+	require.Equal(t, secprofnodestatusapi.ProfileStateInProgress, f.nodeStatus(t).Status.Status)
+}
+
+//nolint:paralleltest // uses t.Setenv
+func TestReconcileSystemModuleConflict(t *testing.T) {
+	f := newReconcileFixture(t, testProfile(), nil, selinuxd(t, true, http.StatusOK, ""))
+	require.NoError(t, os.MkdirAll(filepath.Join(
+		f.r.moduleStorePath, "targeted", "active", "modules", "100", testReconcileProfile,
+	), 0o755))
+
+	res, err := f.r.Reconcile(context.Background(), f.request)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{}, res)
+	require.Equal(t, secprofnodestatusapi.ProfileStateError, f.nodeStatus(t).Status.Status)
+
+	evts := f.events()
+	require.Len(t, evts, 1)
+	require.True(t, strings.HasPrefix(evts[0], "Warning "+reasonSystemModuleConflict+" "))
+
+	_, err = os.Stat(filepath.Join(f.r.policyDir, testReconcileProfile+".cil"))
+	require.True(t, os.IsNotExist(err), "the system module must not be replaced")
 }
 
 //nolint:paralleltest // uses t.Setenv

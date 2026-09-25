@@ -32,7 +32,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	profilebindingapi "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
+	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 )
 
@@ -61,6 +64,45 @@ func (r *BindingTrackerReconciler) Setup(
 		},
 	); err != nil {
 		return fmt.Errorf("creating profile binding index: %w", err)
+	}
+
+	if err := mgr.GetFieldIndexer().IndexField(
+		ctx, &profilebindingapi.ProfileBinding{}, profileRefKey, profileRefIndex,
+	); err != nil {
+		return fmt.Errorf("creating profile reference index: %w", err)
+	}
+
+	status := &bindingStatusReconciler{
+		client: r.client,
+		reader: r.reader,
+		log:    r.log.WithName("status"),
+	}
+
+	// Creating or deleting a profile changes the Ready condition of the
+	// bindings which refer to it.
+	profileEvents := builder.WithPredicates(predicate.Funcs{
+		CreateFunc:  func(event.CreateEvent) bool { return true },
+		DeleteFunc:  func(event.DeleteEvent) bool { return true },
+		UpdateFunc:  func(event.UpdateEvent) bool { return false },
+		GenericFunc: func(event.GenericEvent) bool { return false },
+	})
+
+	if err := ctrl.NewControllerManagedBy(mgr).
+		Named(name+"-status").
+		For(&profilebindingapi.ProfileBinding{}, builder.WithPredicates(
+			predicate.GenerationChangedPredicate{},
+		)).
+		Watches(&seccompprofileapi.SeccompProfile{}, handler.EnqueueRequestsFromMapFunc(
+			status.bindingRequests(profilebindingapi.ProfileBindingKindSeccompProfile),
+		), profileEvents).
+		Watches(&selinuxprofileapi.SelinuxProfile{}, handler.EnqueueRequestsFromMapFunc(
+			status.bindingRequests(profilebindingapi.ProfileBindingKindSelinuxProfile),
+		), profileEvents).
+		Watches(&apparmorprofileapi.AppArmorProfile{}, handler.EnqueueRequestsFromMapFunc(
+			status.bindingRequests(profilebindingapi.ProfileBindingKindAppArmorProfile),
+		), profileEvents).
+		Complete(status); err != nil {
+		return fmt.Errorf("creating binding status controller: %w", err)
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).

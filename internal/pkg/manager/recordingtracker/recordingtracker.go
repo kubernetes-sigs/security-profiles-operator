@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -33,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
@@ -116,54 +118,8 @@ func (r *RecordingTrackerReconciler) handlePodDeletion(
 		recording := &recordings.Items[i]
 		logger.Info("Removing deleted pod from recording", "recording", recording.Name)
 
-		if err := util.Retry(func() error {
-			if err := r.reader.Get(
-				ctx, util.NamespacedName(recording.GetName(), recording.GetNamespace()), recording,
-			); err != nil {
-				if errors.IsNotFound(err) {
-					return nil
-				}
-
-				return fmt.Errorf("retrieving recording: %w", err)
-			}
-
-			updated := removeIfExists(recording.Status.ActiveWorkloads, podName)
-			if len(updated) == len(recording.Status.ActiveWorkloads) {
-				return nil
-			}
-
-			recording.Status.ActiveWorkloads = updated
-
-			if err := r.client.Status().Update(ctx, recording); err != nil {
-				return fmt.Errorf("updating recording status: %w", err)
-			}
-
-			return nil
-		}, util.IsNotFoundOrConflict); err != nil {
-			return reconcile.Result{},
-				fmt.Errorf("updating recording status for deleted pod: %w", err)
-		}
-
-		if err := util.Retry(func() error {
-			if err := r.reader.Get(
-				ctx, util.NamespacedName(recording.GetName(), recording.GetNamespace()), recording,
-			); err != nil {
-				if errors.IsNotFound(err) {
-					return nil
-				}
-
-				return fmt.Errorf("retrieving recording: %w", err)
-			}
-
-			if len(recording.Status.ActiveWorkloads) == 0 {
-				return client.IgnoreNotFound(
-					util.RemoveFinalizer(ctx, r.client, recording, finalizer),
-				)
-			}
-
-			return nil
-		}, util.IsNotFoundOrConflict); err != nil {
-			return reconcile.Result{}, fmt.Errorf("removing finalizer for deleted pod: %w", err)
+		if err := r.untrackPod(ctx, recording, podName); err != nil {
+			return reconcile.Result{}, fmt.Errorf("untracking deleted pod: %w", err)
 		}
 	}
 
@@ -186,12 +142,6 @@ func (r *RecordingTrackerReconciler) handlePodCreateOrUpdate(
 	for i := range recordings.Items {
 		recording := &recordings.Items[i]
 
-		// The API server rejects adding finalizers to an object which is
-		// being deleted, so retrying would never succeed.
-		if !recording.GetDeletionTimestamp().IsZero() {
-			continue
-		}
-
 		selector, err := metav1.LabelSelectorAsSelector(recording.Spec.PodSelector)
 		if err != nil {
 			logger.Error(err, "invalid podSelector", "recording", recording.Name)
@@ -200,48 +150,158 @@ func (r *RecordingTrackerReconciler) handlePodCreateOrUpdate(
 		}
 
 		if !selector.Matches(podLabels) {
+			// The pod keeps being recorded while it carries the recording
+			// annotations of the webhook, even if its labels changed.
+			if slices.Contains(recording.Status.ActiveWorkloads, podName) &&
+				!podRecordedBy(pod, recording.Name) {
+				logger.Info("Removing pod which is no longer recorded", "recording", recording.Name)
+
+				if err := r.untrackPod(ctx, recording, podName); err != nil {
+					return reconcile.Result{}, fmt.Errorf("untracking pod: %w", err)
+				}
+			}
+
+			continue
+		}
+
+		// The API server rejects adding finalizers to an object which is
+		// being deleted, so retrying would never succeed.
+		if !recording.GetDeletionTimestamp().IsZero() {
 			continue
 		}
 
 		logger.Info("Tracking pod in recording", "recording", recording.Name)
 
-		if err := util.Retry(func() error {
-			if err := r.reader.Get(
-				ctx, util.NamespacedName(recording.GetName(), recording.GetNamespace()), recording,
-			); err != nil {
-				if errors.IsNotFound(err) {
-					return nil
-				}
-
-				return fmt.Errorf("retrieving recording: %w", err)
-			}
-
-			updated := appendIfNotExists(recording.Status.ActiveWorkloads, podName)
-			if len(updated) == len(recording.Status.ActiveWorkloads) {
-				return nil
-			}
-
-			recording.Status.ActiveWorkloads = updated
-
-			if err := r.client.Status().Update(ctx, recording); err != nil {
-				return fmt.Errorf("updating recording status: %w", err)
-			}
-
-			return nil
-		}, util.IsNotFoundOrConflict); err != nil {
-			return reconcile.Result{}, fmt.Errorf("updating recording status: %w", err)
-		}
-
-		if err := util.Retry(func() error {
-			return client.IgnoreNotFound(
-				util.AddFinalizer(ctx, r.client, recording, finalizer),
-			)
-		}, util.IsNotFoundOrConflict); err != nil {
-			return reconcile.Result{}, fmt.Errorf("adding finalizer: %w", err)
+		if err := r.trackPod(ctx, recording, podName); err != nil {
+			return reconcile.Result{}, err
 		}
 	}
 
 	return reconcile.Result{}, nil
+}
+
+// recordingAnnotationKeys are the prefixes of the pod annotations which the
+// recording webhook sets.
+var recordingAnnotationKeys = []string{
+	config.SeccompProfileRecordLogsAnnotationKey,
+	config.SeccompProfileRecordBpfAnnotationKey,
+	config.ApparmorProfileRecordBpfAnnotationKey,
+	config.SelinuxProfileRecordLogsAnnotationKey,
+}
+
+// podRecordedBy returns true if the pod carries a recording annotation of the
+// recording. The annotation values start with the recording name followed by
+// an underscore, which is not valid in object names.
+func podRecordedBy(pod *corev1.Pod, recordingName string) bool {
+	for key, value := range pod.GetAnnotations() {
+		for _, prefix := range recordingAnnotationKeys {
+			if strings.HasPrefix(key, prefix) && strings.HasPrefix(value, recordingName+"_") {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// trackPod adds the pod to the active workloads of the recording and ensures
+// the finalizer.
+func (r *RecordingTrackerReconciler) trackPod(
+	ctx context.Context, recording *profilerecordingapi.ProfileRecording, podName string,
+) error {
+	if err := util.Retry(func() error {
+		if err := r.reader.Get(
+			ctx, util.NamespacedName(recording.GetName(), recording.GetNamespace()), recording,
+		); err != nil {
+			if errors.IsNotFound(err) {
+				return nil
+			}
+
+			return fmt.Errorf("retrieving recording: %w", err)
+		}
+
+		updated := appendIfNotExists(recording.Status.ActiveWorkloads, podName)
+		if len(updated) == len(recording.Status.ActiveWorkloads) {
+			return nil
+		}
+
+		recording.Status.ActiveWorkloads = updated
+
+		if err := r.client.Status().Update(ctx, recording); err != nil {
+			return fmt.Errorf("updating recording status: %w", err)
+		}
+
+		return nil
+	}, util.IsNotFoundOrConflict); err != nil {
+		return fmt.Errorf("updating recording status: %w", err)
+	}
+
+	if err := util.Retry(func() error {
+		return client.IgnoreNotFound(
+			util.AddFinalizer(ctx, r.client, recording, finalizer),
+		)
+	}, util.IsNotFoundOrConflict); err != nil {
+		return fmt.Errorf("adding finalizer: %w", err)
+	}
+
+	return nil
+}
+
+// untrackPod removes the pod from the active workloads of the recording and
+// drops the finalizer once no workload is left.
+func (r *RecordingTrackerReconciler) untrackPod(
+	ctx context.Context, recording *profilerecordingapi.ProfileRecording, podName string,
+) error {
+	if err := util.Retry(func() error {
+		if err := r.reader.Get(
+			ctx, util.NamespacedName(recording.GetName(), recording.GetNamespace()), recording,
+		); err != nil {
+			if errors.IsNotFound(err) {
+				return nil
+			}
+
+			return fmt.Errorf("retrieving recording: %w", err)
+		}
+
+		updated := removeIfExists(recording.Status.ActiveWorkloads, podName)
+		if len(updated) == len(recording.Status.ActiveWorkloads) {
+			return nil
+		}
+
+		recording.Status.ActiveWorkloads = updated
+
+		if err := r.client.Status().Update(ctx, recording); err != nil {
+			return fmt.Errorf("updating recording status: %w", err)
+		}
+
+		return nil
+	}, util.IsNotFoundOrConflict); err != nil {
+		return fmt.Errorf("updating recording status: %w", err)
+	}
+
+	if err := util.Retry(func() error {
+		if err := r.reader.Get(
+			ctx, util.NamespacedName(recording.GetName(), recording.GetNamespace()), recording,
+		); err != nil {
+			if errors.IsNotFound(err) {
+				return nil
+			}
+
+			return fmt.Errorf("retrieving recording: %w", err)
+		}
+
+		if len(recording.Status.ActiveWorkloads) == 0 {
+			return client.IgnoreNotFound(
+				util.RemoveFinalizer(ctx, r.client, recording, finalizer),
+			)
+		}
+
+		return nil
+	}, util.IsNotFoundOrConflict); err != nil {
+		return fmt.Errorf("removing finalizer: %w", err)
+	}
+
+	return nil
 }
 
 func appendIfNotExists(list []string, item string) []string {
