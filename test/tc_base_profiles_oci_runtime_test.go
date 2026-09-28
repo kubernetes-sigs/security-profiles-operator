@@ -17,11 +17,15 @@ limitations under the License.
 package e2e_test
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path"
 	"strings"
 	"time"
+
+	"oras.land/oras-go/v2/errdef"
+	"oras.land/oras-go/v2/registry/remote"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
@@ -45,7 +49,30 @@ func (e *e2e) baseProfileArtifact(runtime string) string {
 	e.Require().NotEqual(name, version,
 		"recorded profile %q should be named <runtime>-<version>", name)
 
-	return baseProfileRegistry + runtime + ":" + version
+	repository := baseProfileRegistry + runtime
+
+	return repository + ":" + e.publishedBaseProfileTag(repository, version)
+}
+
+// publishedBaseProfileTag returns the tag if the artifact is published, and
+// latest otherwise. The staging build publishes a re-recorded profile only
+// after its pull request merged, so the pull request which bumps a runtime
+// would otherwise test an artifact which does not exist yet.
+func (e *e2e) publishedBaseProfileTag(repository, tag string) string {
+	repo, err := remote.NewRepository(strings.TrimPrefix(repository, "oci://"))
+	e.Require().NoError(err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	if _, err := repo.Resolve(ctx, tag); err != nil {
+		e.Require().ErrorIs(err, errdef.ErrNotFound, "resolve base profile %s:%s", repository, tag)
+		e.logf("Base profile %s:%s is not published yet, using latest", repository, tag)
+
+		return "latest"
+	}
+
+	return tag
 }
 
 // testCaseBaseProfileOCIRuntimeFormat verifies that a base profile referencing
