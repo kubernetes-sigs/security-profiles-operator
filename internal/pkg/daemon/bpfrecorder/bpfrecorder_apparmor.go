@@ -43,6 +43,12 @@ const (
 	sockRaw      uint64 = 3
 	sockTypeMask uint64 = 0xF
 
+	// The socket domain is sent in the upper half of the flags.
+	sockDomainShift        = 32
+	afUnix          uint64 = 1
+	afInet          uint64 = 2
+	afInet6         uint64 = 10
+
 	// maxTrackedPaths limits the number of unique paths recorded per mount namespace
 	// to prevent memory exhaustion (OOM) attacks from malicious workloads.
 	maxTrackedPaths = 10000
@@ -50,6 +56,9 @@ const (
 	// maxTrackedKeys limits the number of distinct workloads tracked to
 	// prevent unbounded map growth when many containers start concurrently.
 	maxTrackedKeys = 1000
+
+	// maxNormalizedPaths bounds the cache of normalized file paths.
+	maxNormalizedPaths = 4096
 )
 
 var (
@@ -94,6 +103,18 @@ type AppArmorRecorder struct {
 	// for them which are still in flight are dropped.
 	excluded     map[recordingKey]struct{}
 	lockExcluded sync.RWMutex
+
+	// normalizedPaths caches the result of normalizePath per path as the
+	// kernel reports it. The same paths are accessed over and over again, and
+	// normalizing runs a couple of regular expressions over them.
+	normalizedPaths     map[string]normalizedPath
+	lockNormalizedPaths sync.Mutex
+}
+
+// normalizedPath is a path as it goes into the profile.
+type normalizedPath struct {
+	path     string
+	excluded bool
 }
 
 type fileAccess struct {
@@ -135,6 +156,7 @@ func newAppArmorRecorder(logger logr.Logger, programName string) *AppArmorRecord
 		lockRecordedFiles:        sync.Mutex{},
 		maxPathsWarned:           map[recordingKey]bool{},
 		excluded:                 map[recordingKey]struct{}{},
+		normalizedPaths:          map[string]normalizedPath{},
 	}
 }
 
@@ -198,16 +220,41 @@ func (b *AppArmorRecorder) StopRecording(r *BpfRecorder) error {
 	clear(b.excluded)
 	b.lockExcluded.Unlock()
 
+	b.lockNormalizedPaths.Lock()
+	clear(b.normalizedPaths)
+	b.lockNormalizedPaths.Unlock()
+
 	return nil
+}
+
+// normalizePath returns the path the profile gets for a path the kernel
+// reported, and whether it is left out of the profile.
+func (b *AppArmorRecorder) normalizePath(fileName string) normalizedPath {
+	b.lockNormalizedPaths.Lock()
+	defer b.lockNormalizedPaths.Unlock()
+
+	if normalized, ok := b.normalizedPaths[fileName]; ok {
+		return normalized
+	}
+
+	path := ReplaceVarianceInFilePath(sanitizeFilePath(fileName))
+	normalized := normalizedPath{path: path, excluded: shouldExcludeFile(path)}
+
+	// Paths with PIDs or random names keep coming, so the cache starts over
+	// instead of growing without bounds.
+	if len(b.normalizedPaths) >= maxNormalizedPaths {
+		clear(b.normalizedPaths)
+	}
+
+	b.normalizedPaths[fileName] = normalized
+
+	return normalized
 }
 
 func (b *AppArmorRecorder) handleFileEvent(fileEvent *bpfEvent) {
 	if b.isExcluded(fileEvent.Key) {
 		return
 	}
-
-	b.lockRecordedFiles.Lock()
-	defer b.lockRecordedFiles.Unlock()
 
 	fileName := fileDataToString(&fileEvent.Data)
 
@@ -220,18 +267,21 @@ func (b *AppArmorRecorder) handleFileEvent(fileEvent *bpfEvent) {
 		return
 	}
 
-	fileName = sanitizeFilePath(fileName)
-	fileName = ReplaceVarianceInFilePath(fileName)
+	normalized := b.normalizePath(fileName)
+	fileName = normalized.path
 
 	b.logger.V(config.VerboseLevel).Info("File access",
 		"filename", fileName, "flags", fileEvent.Flags, "pid", fileEvent.Pid,
 		"mntns", fileEvent.Mntns, "key", fileEvent.Key)
 
-	if shouldExcludeFile(fileName) {
+	if normalized.excluded {
 		b.logger.V(config.VerboseLevel).Info("Exclude file", "filename", fileName)
 
 		return
 	}
+
+	b.lockRecordedFiles.Lock()
+	defer b.lockRecordedFiles.Unlock()
 
 	key := recordingKey(fileEvent.Key)
 	if _, ok := b.recordedFiles[key]; !ok {
@@ -279,6 +329,11 @@ func (b *AppArmorRecorder) handleSocketEvent(socketEvent *bpfEvent) {
 		return
 	}
 
+	var use BpfAppArmorSocketTypes
+	if !socketUse(socketEvent.Flags, &use) {
+		return
+	}
+
 	b.lockRecordedSocketsUse.Lock()
 	defer b.lockRecordedSocketsUse.Unlock()
 
@@ -287,15 +342,42 @@ func (b *AppArmorRecorder) handleSocketEvent(socketEvent *bpfEvent) {
 		b.recordedSocketsUse[key] = &BpfAppArmorSocketTypes{}
 	}
 
-	socketType := socketEvent.Flags & sockTypeMask
-	switch socketType {
-	case sockRaw:
-		b.recordedSocketsUse[key].UseRaw = true
-	case sockStream:
-		b.recordedSocketsUse[key].UseTCP = true
-	case sockDgram:
-		b.recordedSocketsUse[key].UseUDP = true
+	recorded := b.recordedSocketsUse[key]
+	recorded.UseRaw = recorded.UseRaw || use.UseRaw
+	recorded.UseTCP = recorded.UseTCP || use.UseTCP
+	recorded.UseUDP = recorded.UseUDP || use.UseUDP
+}
+
+// socketUse sets the network rule a socket with the domain and type in flags
+// needs in use. It reports false if the socket needs none of them.
+//
+// The tcp and udp rules only cover the internet domains. The raw rule allows
+// raw sockets of any domain, so the raw sockets of the others, like the netlink
+// ones, still need it. Unix domain sockets are not covered by network rules.
+func socketUse(flags uint64, use *BpfAppArmorSocketTypes) bool {
+	domain := flags >> sockDomainShift
+	socketType := flags & sockTypeMask
+
+	if socketType == sockRaw && domain != afUnix {
+		use.UseRaw = true
+
+		return true
 	}
+
+	if domain != afInet && domain != afInet6 {
+		return false
+	}
+
+	switch socketType {
+	case sockStream:
+		use.UseTCP = true
+	case sockDgram:
+		use.UseUDP = true
+	default:
+		return false
+	}
+
+	return true
 }
 
 func (b *AppArmorRecorder) handleCapabilityEvent(capEvent *bpfEvent) {

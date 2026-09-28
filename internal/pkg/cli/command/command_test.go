@@ -19,7 +19,10 @@ package command
 import (
 	"errors"
 	"os"
+	"os/exec"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -74,6 +77,22 @@ func TestRun(t *testing.T) {
 			assert: func(mock *commandfakes.FakeImpl, runErr, waitErr error) {
 				require.Error(t, runErr)
 				require.NoError(t, waitErr)
+				require.Equal(t, 1, mock.StopCallCount())
+			},
+		},
+		{
+			name:    "signals are restored after Wait",
+			prepare: func(mock *commandfakes.FakeImpl) {},
+			assert: func(mock *commandfakes.FakeImpl, runErr, waitErr error) {
+				require.NoError(t, runErr)
+				require.NoError(t, waitErr)
+				require.Equal(t, 1, mock.NotifyCallCount())
+				require.Equal(t, 1, mock.StopCallCount())
+
+				_, signals := mock.NotifyArgsForCall(0)
+				require.ElementsMatch(t,
+					[]os.Signal{os.Interrupt, syscall.SIGTERM, syscall.SIGHUP}, signals,
+				)
 			},
 		},
 	} {
@@ -95,4 +114,125 @@ func TestRun(t *testing.T) {
 			assert(mock, runErr, waitErr)
 		})
 	}
+}
+
+func TestRunForwardsSignals(t *testing.T) {
+	t.Parallel()
+
+	mock := &commandfakes.FakeImpl{}
+
+	var signals chan<- os.Signal
+
+	mock.NotifyCalls(func(c chan<- os.Signal, _ ...os.Signal) { signals = c })
+
+	forwarded := make(chan os.Signal, 3)
+
+	mock.SignalCalls(func(_ *exec.Cmd, sig os.Signal) error {
+		forwarded <- sig
+
+		// A failed forward must not end the forwarding.
+		return errTest
+	})
+
+	sut := New(Default())
+	sut.impl = mock
+
+	_, err := sut.Run()
+	require.NoError(t, err)
+
+	for _, sig := range []os.Signal{syscall.SIGTERM, os.Interrupt, syscall.SIGHUP} {
+		signals <- sig
+
+		select {
+		case got := <-forwarded:
+			require.Equal(t, sig, got)
+		case <-time.After(10 * time.Second):
+			require.FailNow(t, "signal not forwarded", "%v", sig)
+		}
+	}
+
+	require.NoError(t, sut.Wait())
+	require.Equal(t, 1, mock.StopCallCount())
+}
+
+func TestRunPreStart(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name      string
+		preErr    error
+		startErr  error
+		expectErr bool
+		started   int
+		postCalls int
+	}{
+		{name: "success", started: 1, postCalls: 1},
+		{name: "failure on start", startErr: errTest, expectErr: true, started: 1, postCalls: 1},
+		{name: "failure on PreStart", preErr: errTest, expectErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			mock := &commandfakes.FakeImpl{}
+			mock.CommandReturns(exec.Command("true"))
+			mock.CmdStartReturns(tc.startErr)
+
+			postCalls := 0
+			options := Default()
+			options.PreStart = func(cmd *exec.Cmd) (func(), error) {
+				cmd.Path = "/changed"
+
+				return func() { postCalls++ }, tc.preErr
+			}
+
+			sut := New(options)
+			sut.impl = mock
+
+			_, err := sut.Run()
+			if tc.expectErr {
+				require.ErrorIs(t, err, errTest)
+			} else {
+				require.NoError(t, err)
+			}
+
+			require.Equal(t, tc.started, mock.CmdStartCallCount())
+			require.Equal(t, tc.postCalls, postCalls)
+
+			if tc.started > 0 {
+				require.Equal(t, "/changed", mock.CmdStartArgsForCall(0).Path)
+			}
+		})
+	}
+}
+
+func TestExitCode(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name   string
+		cmd    []string
+		code   int
+		exited bool
+	}{
+		{name: "success", cmd: []string{"true"}},
+		{name: "exit status", cmd: []string{"sh", "-c", "exit 3"}, code: 3, exited: true},
+		{name: "killed by signal", cmd: []string{"sh", "-c", "kill -TERM $$"}, code: 143, exited: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			//nolint:gosec // fixed test commands
+			err := exec.Command(tc.cmd[0], tc.cmd[1:]...).Run()
+			if !tc.exited {
+				require.NoError(t, err)
+			}
+
+			code, exited := ExitCode(err)
+			require.Equal(t, tc.exited, exited)
+			require.Equal(t, tc.code, code)
+		})
+	}
+
+	_, exited := ExitCode(errTest)
+	require.False(t, exited)
 }

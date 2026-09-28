@@ -17,15 +17,17 @@ limitations under the License.
 package binding
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/google/go-cmp/cmp"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -34,6 +36,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -58,11 +61,12 @@ const (
 
 	// profileLookupTimeout bounds the time the retried profile lookups of a
 	// single admission request may take, so that the webhook answers before
-	// the API server gives up on it. The static webhook configuration uses a
-	// timeout of five seconds, the operator managed one ten seconds.
+	// the API server gives up on it. The webhook configurations use a
+	// timeout of ten seconds.
 	profileLookupTimeout = 3 * time.Second
 
 	reasonProfileWithoutStatus = "ProfileWithoutStatus"
+	reasonBindingConflict      = "ProfileBindingConflict"
 )
 
 type podBinder struct {
@@ -186,6 +190,13 @@ func newEphemeralContainers(pod, oldPod *corev1.Pod) []*corev1.Container {
 
 //nolint:gocritic // hugeParam: admission.Handler defines the signature
 func (p *podBinder) Handle(ctx context.Context, req admission.Request) admission.Response {
+	// A dry-run request must not have side effects, which includes events.
+	if ptr.Deref(req.DryRun, false) {
+		dryRun := *p
+		dryRun.record = nil
+		p = &dryRun
+	}
+
 	profileBindings, err := p.ListProfileBindings(ctx, client.InNamespace(req.Namespace))
 	if err != nil {
 		p.log.Error(err, "could not list profile bindings")
@@ -195,9 +206,9 @@ func (p *podBinder) Handle(ctx context.Context, req admission.Request) admission
 
 	profilebindings := profileBindings.Items
 
-	pod, admissionResponse := p.updatePod(ctx, profilebindings, &req)
-	if !cmp.Equal(admissionResponse, admission.Response{}) {
-		return admissionResponse
+	pod, warnings, admissionResponse := p.updatePod(ctx, profilebindings, &req)
+	if admissionResponse != nil {
+		return admissionResponse.WithWarnings(warnings...)
 	}
 
 	marshaledPod, err := json.Marshal(pod)
@@ -207,7 +218,86 @@ func (p *podBinder) Handle(ctx context.Context, req admission.Request) admission
 		return admission.Errored(http.StatusInternalServerError, err)
 	}
 
-	return admission.PatchResponseFromRaw(req.Object.Raw, marshaledPod)
+	return admission.PatchResponseFromRaw(req.Object.Raw, marshaledPod).WithWarnings(warnings...)
+}
+
+// sortBindings returns the bindings sorted by creation time and name, so that
+// conflicting bindings get resolved the same way on every admission: the
+// oldest binding wins.
+func sortBindings(bindings []profilebindingapi.ProfileBinding) []*profilebindingapi.ProfileBinding {
+	res := make([]*profilebindingapi.ProfileBinding, 0, len(bindings))
+	for i := range bindings {
+		res = append(res, &bindings[i])
+	}
+
+	slices.SortStableFunc(res, func(a, b *profilebindingapi.ProfileBinding) int {
+		if c := a.CreationTimestamp.Compare(b.CreationTimestamp.Time); c != 0 {
+			return c
+		}
+
+		return cmp.Compare(a.Name, b.Name)
+	})
+
+	return res
+}
+
+// conflict records that the binding was not applied, because an older binding
+// of the same profile kind already binds a different profile, and returns a
+// warning for the admission response. An empty container means the pod level.
+func (p *podBinder) conflict(
+	pb, winner *profilebindingapi.ProfileBinding, podName, container string,
+) string {
+	target := "pod " + podName
+	if container != "" {
+		target = fmt.Sprintf("container %s of pod %s", container, podName)
+	}
+
+	msg := fmt.Sprintf(
+		"profile binding %s was not applied to %s, because the older binding %s already binds %s %s",
+		pb.Name,
+		target,
+		winner.Name,
+		winner.Spec.ProfileRef.Kind,
+		winner.Spec.ProfileRef.Name,
+	)
+
+	p.log.Info(msg)
+	p.record.Eventf(
+		pb, nil, corev1.EventTypeWarning, reasonBindingConflict, util.EventActionMutate, "%s", msg,
+	)
+
+	return msg
+}
+
+// setAppliedBindings sets the annotation listing the bindings applied to the
+// pod, which the binding tracker uses to only track pods using a binding. A
+// value set by the pod author gets replaced. It returns true if the pod
+// changed.
+func setAppliedBindings(pod *corev1.Pod, applied sets.Set[string]) bool {
+	existing, exists := pod.Annotations[profilebindingapi.AppliedBindingsAnnotation]
+
+	if applied.Len() == 0 {
+		if !exists {
+			return false
+		}
+
+		delete(pod.Annotations, profilebindingapi.AppliedBindingsAnnotation)
+
+		return true
+	}
+
+	value := strings.Join(sets.List(applied), ",")
+	if exists && existing == value {
+		return false
+	}
+
+	if pod.Annotations == nil {
+		pod.Annotations = map[string]string{}
+	}
+
+	pod.Annotations[profilebindingapi.AppliedBindingsAnnotation] = value
+
+	return true
 }
 
 // podMatchesSelector reports whether the binding's podSelector matches the
@@ -233,13 +323,18 @@ func (p *podBinder) podMatchesSelector(
 // wildcardFunc applies the profile of a wildcard binding and returns whether
 // the pod got changed. Containers in bound are already bound by an image
 // specific binding of the same kind.
-type wildcardFunc func(pod *corev1.Pod, bindProfile any, bound map[*corev1.Container]bool) bool
+type wildcardFunc func(
+	pod *corev1.Pod, bindProfile any, bound map[*corev1.Container]*profilebindingapi.ProfileBinding,
+) bool
 
+// updatePod applies the bindings to the pod. It returns the mutated pod, the
+// warnings for the admission response and, unless the pod has to be patched,
+// the admission response.
 func (p *podBinder) updatePod(
 	ctx context.Context,
 	profilebindings []profilebindingapi.ProfileBinding,
 	req *admission.Request,
-) (*corev1.Pod, admission.Response) {
+) (*corev1.Pod, []string, *admission.Response) {
 	isEphemeral := req.Operation == admissionv1.Update &&
 		req.SubResource == ephemeralContainersSubResource
 
@@ -247,14 +342,19 @@ func (p *podBinder) updatePod(
 	// mutate on CREATE and when ephemeral containers get added. Other updates
 	// would produce a patch the API server rejects.
 	if !isEphemeral && (req.Operation != admissionv1.Create || req.SubResource != "") {
-		return nil, admission.Allowed("pod update, skipping mutation")
+		return nil, nil, new(admission.Allowed("pod update, skipping mutation"))
 	}
 
 	pod := &corev1.Pod{}
 	if err := p.decoder.Decode(*req, pod); err != nil {
 		p.log.Error(err, "failed to decode pod")
 
-		return nil, admission.Errored(http.StatusBadRequest, err)
+		return nil, nil, new(admission.Errored(http.StatusBadRequest, err))
+	}
+
+	podName := req.Name
+	if podName == "" {
+		podName = pod.GenerateName
 	}
 
 	var (
@@ -267,7 +367,7 @@ func (p *podBinder) updatePod(
 		if err := p.decoder.DecodeRaw(req.OldObject, oldPod); err != nil {
 			p.log.Error(err, "failed to decode old pod")
 
-			return nil, admission.Errored(http.StatusBadRequest, err)
+			return nil, nil, new(admission.Errored(http.StatusBadRequest, err))
 		}
 
 		ctrs = newEphemeralContainers(pod, oldPod)
@@ -282,22 +382,9 @@ func (p *podBinder) updatePod(
 		enabled:       map[profilebindingapi.ProfileBindingKind]bool{},
 	}
 
-	images := containersByImage(ctrs)
+	state := newBindState(podName, ctrs)
 
-	// Wildcard bindings apply per profile kind, so a SeccompProfile and a
-	// SelinuxProfile wildcard binding can both be enforced on the same pod.
-	wildcardProfiles := map[profilebindingapi.ProfileBindingKind]any{}
-
-	// Containers already bound by an image specific binding per profile kind.
-	// Wildcard bindings act as a default and must not override them.
-	boundContainers := map[profilebindingapi.ProfileBindingKind]map[*corev1.Container]bool{}
-
-	podChanged := false
-
-	for i := range profilebindings {
-		pb := &profilebindings[i]
-		profileKind := pb.Spec.ProfileRef.Kind
-
+	for _, pb := range sortBindings(profilebindings) {
 		// Skip bindings whose podSelector does not match the pod's labels.
 		if !p.podMatchesSelector(pod, pb) {
 			continue
@@ -305,43 +392,120 @@ func (p *podBinder) updatePod(
 
 		bindProfile, skip, err := p.getProfile(ctx, lookup, pb, req.Namespace)
 		if err != nil {
-			return pod, admission.Errored(http.StatusInternalServerError, err)
+			return pod, state.warnings, new(admission.Errored(http.StatusInternalServerError, err))
 		}
 
 		if skip {
 			continue
 		}
 
-		if pb.Spec.Image == profilebindingapi.SelectAllContainersImage {
-			wildcardProfiles[profileKind] = bindProfile
+		p.applyBinding(state, pb, bindProfile)
+	}
+
+	for kind, bindProfile := range state.wildcardProfiles {
+		state.applied.Insert(state.wildcardBindings[kind].Name)
+
+		if applyWildcard(pod, bindProfile, state.boundBy[kind]) {
+			state.podChanged = true
+		}
+	}
+
+	// The ephemeralcontainers subresource only accepts changes to the
+	// ephemeral containers, so the annotation is only set on creation.
+	if !isEphemeral && setAppliedBindings(pod, state.applied) {
+		state.podChanged = true
+	}
+
+	if !state.podChanged {
+		return pod, state.warnings, new(admission.Allowed("pod unchanged"))
+	}
+
+	return pod, state.warnings, nil
+}
+
+// bindState is the state of applying the bindings to a pod.
+type bindState struct {
+	podName string
+
+	// images are the containers to bind by their image.
+	images map[string][]*corev1.Container
+
+	// Wildcard bindings apply per profile kind, so a SeccompProfile and a
+	// SelinuxProfile wildcard binding can both be enforced on the same pod.
+	wildcardProfiles map[profilebindingapi.ProfileBindingKind]any
+	wildcardBindings map[profilebindingapi.ProfileBindingKind]*profilebindingapi.ProfileBinding
+
+	// boundBy is the image specific binding which bound a container per
+	// profile kind. Wildcard bindings act as a default and must not override
+	// them.
+	boundBy map[profilebindingapi.ProfileBindingKind]map[*corev1.Container]*profilebindingapi.ProfileBinding
+
+	// applied are the names of the applied bindings.
+	applied sets.Set[string]
+
+	warnings   []string
+	podChanged bool
+}
+
+func newBindState(podName string, ctrs []*corev1.Container) *bindState {
+	return &bindState{
+		podName:          podName,
+		images:           containersByImage(ctrs),
+		wildcardProfiles: map[profilebindingapi.ProfileBindingKind]any{},
+		wildcardBindings: map[profilebindingapi.ProfileBindingKind]*profilebindingapi.ProfileBinding{},
+		boundBy:          map[profilebindingapi.ProfileBindingKind]map[*corev1.Container]*profilebindingapi.ProfileBinding{},
+		applied:          sets.New[string](),
+	}
+}
+
+// applyBinding applies an image specific binding to the containers and
+// records a wildcard binding, which gets applied after all image specific
+// ones. The bindings have to be passed in the order of sortBindings: of
+// conflicting bindings of the same profile kind, the oldest one wins, so that
+// a new binding cannot silently replace the profile enforced by an existing
+// one.
+func (p *podBinder) applyBinding(
+	state *bindState, pb *profilebindingapi.ProfileBinding, bindProfile any,
+) {
+	profileKind := pb.Spec.ProfileRef.Kind
+
+	if pb.Spec.Image == profilebindingapi.SelectAllContainersImage {
+		if winner, ok := state.wildcardBindings[profileKind]; ok {
+			if winner.Spec.ProfileRef.Name != pb.Spec.ProfileRef.Name {
+				state.warnings = append(state.warnings, p.conflict(pb, winner, state.podName, ""))
+			}
+
+			return
+		}
+
+		state.wildcardBindings[profileKind] = pb
+		state.wildcardProfiles[profileKind] = bindProfile
+
+		return
+	}
+
+	if state.boundBy[profileKind] == nil {
+		state.boundBy[profileKind] = map[*corev1.Container]*profilebindingapi.ProfileBinding{}
+	}
+
+	for _, c := range state.images[pb.Spec.Image] {
+		if winner, ok := state.boundBy[profileKind][c]; ok {
+			if winner.Spec.ProfileRef.Name != pb.Spec.ProfileRef.Name {
+				state.warnings = append(
+					state.warnings, p.conflict(pb, winner, state.podName, c.Name),
+				)
+			}
 
 			continue
 		}
 
-		if boundContainers[profileKind] == nil {
-			boundContainers[profileKind] = map[*corev1.Container]bool{}
-		}
+		state.boundBy[profileKind][c] = pb
+		state.applied.Insert(pb.Name)
 
-		for _, c := range images[pb.Spec.Image] {
-			boundContainers[profileKind][c] = true
-
-			if p.addSecurityContext(c, bindProfile) {
-				podChanged = true
-			}
+		if p.addSecurityContext(c, bindProfile) {
+			state.podChanged = true
 		}
 	}
-
-	for kind, bindProfile := range wildcardProfiles {
-		if applyWildcard(pod, bindProfile, boundContainers[kind]) {
-			podChanged = true
-		}
-	}
-
-	if !podChanged {
-		return pod, admission.Allowed("pod unchanged")
-	}
-
-	return pod, admission.Response{}
 }
 
 // profileLookup holds the state of the profile lookups of an admission
@@ -504,12 +668,14 @@ func (p *podBinder) profileKindEnabled(
 // would take precedence over the pod level value, so they get overwritten as
 // well, unless an image specific binding already bound them.
 func (p *podBinder) applyWildcardProfile(
-	pod *corev1.Pod, bindProfile any, bound map[*corev1.Container]bool,
+	pod *corev1.Pod,
+	bindProfile any,
+	bound map[*corev1.Container]*profilebindingapi.ProfileBinding,
 ) bool {
 	podChanged := p.addPodSecurityContext(pod, bindProfile)
 
 	for _, c := range podContainers(pod) {
-		if bound[c] || !hasContainerContext(c, bindProfile) {
+		if _, ok := bound[c]; ok || !hasContainerContext(c, bindProfile) {
 			continue
 		}
 
@@ -526,11 +692,15 @@ func (p *podBinder) applyWildcardProfile(
 // ephemeral containers, because the pod security context cannot be changed
 // when they get added, and the pod might have been created before the binding.
 func (p *podBinder) applyWildcardProfileToContainers(ctrs []*corev1.Container) wildcardFunc {
-	return func(_ *corev1.Pod, bindProfile any, bound map[*corev1.Container]bool) bool {
+	return func(
+		_ *corev1.Pod,
+		bindProfile any,
+		bound map[*corev1.Container]*profilebindingapi.ProfileBinding,
+	) bool {
 		podChanged := false
 
 		for _, c := range ctrs {
-			if bound[c] {
+			if _, ok := bound[c]; ok {
 				continue
 			}
 

@@ -135,7 +135,7 @@ func TestUpdatePodEphemeralContainers(t *testing.T) {
 	)
 
 	binder := newTestBinder(t, mock)
-	pod, resp := binder.updatePod(t.Context(), bindings, &admission.Request{
+	pod, _, resp := binder.updatePod(t.Context(), bindings, &admission.Request{
 		AdmissionRequest: admissionv1.AdmissionRequest{
 			Operation:   admissionv1.Update,
 			SubResource: ephemeralContainersSubResource,
@@ -143,7 +143,7 @@ func TestUpdatePodEphemeralContainers(t *testing.T) {
 			OldObject:   rawObject(t, oldPod),
 		},
 	})
-	require.Equal(t, admission.Response{}, resp)
+	require.Nil(t, resp)
 
 	// The pod security context and existing containers cannot be changed.
 	require.Nil(t, pod.Spec.SecurityContext)
@@ -218,7 +218,7 @@ func TestUpdatePodSkipsOtherUpdates(t *testing.T) {
 
 	for _, subResource := range []string{"", "status", "resize"} {
 		mock := &bindingfakes.FakeImpl{}
-		_, resp := newTestBinder(t, mock).updatePod(t.Context(), nil, &admission.Request{
+		_, _, resp := newTestBinder(t, mock).updatePod(t.Context(), nil, &admission.Request{
 			AdmissionRequest: admissionv1.AdmissionRequest{
 				Operation:   admissionv1.Update,
 				SubResource: subResource,
@@ -255,7 +255,7 @@ func TestUpdatePodProfileWithoutStatusRecordsEvent(t *testing.T) {
 	binder.record = utils.NewSafeRecorder(recorder)
 
 	start := time.Now()
-	pod, resp := binder.updatePod(t.Context(), []profilebindingapi.ProfileBinding{{
+	pod, _, resp := binder.updatePod(t.Context(), []profilebindingapi.ProfileBinding{{
 		ObjectMeta: metav1.ObjectMeta{Name: "binding"},
 		Spec: profilebindingapi.ProfileBindingSpec{
 			ProfileRef: profilebindingapi.ProfileRef{
@@ -300,7 +300,7 @@ func TestUpdatePodEnabledProfileWithoutStatusRejects(t *testing.T) {
 	}}
 
 	start := time.Now()
-	_, resp := newTestBinder(t, mock).updatePod(
+	_, _, resp := newTestBinder(t, mock).updatePod(
 		t.Context(),
 		[]profilebindingapi.ProfileBinding{binding, binding},
 		&admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
@@ -314,7 +314,7 @@ func TestUpdatePodEnabledProfileWithoutStatusRejects(t *testing.T) {
 	require.Greater(t, mock.GetAppArmorProfileCallCount(), 1, "the lookup must be retried")
 	require.Equal(t, 1, mock.GetSPODCallCount(), "the SPOD is read once per request")
 
-	// The static webhook configuration uses a timeout of five seconds.
+	// The webhook configurations use a timeout of ten seconds.
 	require.Less(t, time.Since(start), profileLookupTimeout+time.Second)
 }
 
@@ -334,7 +334,7 @@ func TestUpdatePodSPODContextDone(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	_, resp := newTestBinder(t, mock).updatePod(ctx, []profilebindingapi.ProfileBinding{{
+	_, _, resp := newTestBinder(t, mock).updatePod(ctx, []profilebindingapi.ProfileBinding{{
 		Spec: profilebindingapi.ProfileBindingSpec{
 			ProfileRef: profilebindingapi.ProfileRef{
 				Kind: profilebindingapi.ProfileBindingKindAppArmorProfile,

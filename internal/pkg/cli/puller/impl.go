@@ -33,6 +33,7 @@ type defaultImpl struct{}
 //counterfeiter:generate . impl
 type impl interface {
 	Pull(
+		context.Context,
 		string,
 		string,
 		string,
@@ -43,10 +44,13 @@ type impl interface {
 }
 
 func (*defaultImpl) Pull(
-	from, username, password string, platform *v1.Platform, signOpts *artifact.PullOptions,
+	ctx context.Context,
+	from, username, password string,
+	platform *v1.Platform,
+	signOpts *artifact.PullOptions,
 ) (*artifact.PullResult, error) {
 	return artifact.New(logr.New(&cli.LogSink{})).Pull(
-		context.Background(), from, username, password, platform, signOpts,
+		ctx, from, username, password, platform, signOpts,
 	)
 }
 

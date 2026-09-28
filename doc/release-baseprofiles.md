@@ -80,7 +80,7 @@ The staging build publishes on merge, so this is only needed to bootstrap a new
 registry or when the build cannot run:
 
 ```console
-> USERNAME=<user> PASSWORD=<token> make push-base-profiles
+> SPOC_USERNAME=<user> SPOC_PASSWORD=<token> make push-base-profiles
 ```
 
 `REGISTRY` selects where to publish, `SIGN=false` skips signing for

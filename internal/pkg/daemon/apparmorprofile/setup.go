@@ -44,6 +44,10 @@ func (r *Reconciler) Setup(
 
 	r.logNodeInfo()
 
+	if r.manager.Enabled() {
+		removeStaleTempFiles(r.log)
+	}
+
 	// Register the regular reconciler to manage AppArmorProfiles
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("apparmorprofile").

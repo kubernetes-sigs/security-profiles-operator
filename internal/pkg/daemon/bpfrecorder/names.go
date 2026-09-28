@@ -37,6 +37,7 @@ const (
 	globalUseMntnsSeq      = "use_mntns_seq"
 	globalCaptureExecArgs  = "capture_exec_args"
 	progSysEnterExecve     = "sys_enter_execve"
+	progSysEnterExecveat   = "sys_enter_execveat"
 	progSysEnterGetgid     = "sys_enter_getgid"
 	progSysEnter           = "sys_enter"
 	progSysEnterPrctl      = "sys_enter_prctl"
@@ -70,6 +71,7 @@ var (
 		progSysEnter,
 		progSchedProcessFork,
 		progSysEnterExecve,
+		progSysEnterExecveat,
 		progSysEnterGetgid,
 		progSysEnterPrctl,
 		progSchedProcessExec,
@@ -92,6 +94,7 @@ var (
 	// procCacheHooks are attached by the process cache.
 	procCacheHooks = []string{
 		progSysEnterExecve,
+		progSysEnterExecveat,
 		progSysEnterGetgid,
 	}
 )

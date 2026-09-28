@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/recordingmerger"
 )
 
@@ -111,8 +112,7 @@ func (p *Merger) Run() error {
 		return fmt.Errorf("print YAML: %w", err)
 	}
 
-	const filePermissions = 0o600
-	if err := p.WriteFile(p.options.outputFile, buffer.Bytes(), filePermissions); err != nil {
+	if err := p.WriteFile(p.options.outputFile, buffer.Bytes(), cli.FilePermissions); err != nil {
 		return fmt.Errorf("failed to write output file: %w", err)
 	}
 

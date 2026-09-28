@@ -19,6 +19,7 @@ limitations under the License.
 package recorder
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/json"
@@ -31,6 +32,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -112,7 +114,7 @@ func (r *Recorder) Run() error {
 		// command execution is managed externally,
 		// so we play dumb and just wait for SIGINT.
 		ch := make(chan os.Signal, 1)
-		r.Notify(ch, os.Interrupt)
+		r.Notify(ch, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 		log.Print(WaitForSigIntMessage)
 		<-ch
 	} else {
@@ -123,9 +125,13 @@ func (r *Recorder) Run() error {
 			return fmt.Errorf("run command: %w", err)
 		}
 
-		mntns, err = r.FindProcMountNamespace(r.bpfRecorder, uint32(os.Getpid()))
+		// The command shares the mount namespace of spoc, which is still
+		// there if the command exits right away.
+		spocPid := os.Getpid()
+
+		mntns, err = r.FindProcMountNamespace(r.bpfRecorder, uint32(spocPid))
 		if err != nil {
-			return fmt.Errorf("finding mntns of PID %d: %w", pid, err)
+			return fmt.Errorf("finding mntns of spoc PID %d: %w", spocPid, err)
 		}
 
 		if err := r.CommandWait(cmd); err != nil {
@@ -142,23 +148,45 @@ func (r *Recorder) Run() error {
 		}
 	}
 
-	file, err := r.Create(r.outFile())
-	if err != nil {
-		return fmt.Errorf("create file: %w", err)
-	}
-	defer file.Close()
+	// Build the profile before creating the file, so that a failure leaves
+	// no empty file behind.
+	profile := &bytes.Buffer{}
 
 	if recordAppArmor {
-		if err := r.processAppArmor(file, mntns); err != nil {
+		if err := r.processAppArmor(profile, mntns); err != nil {
 			return fmt.Errorf("build apparmor profile: %w", err)
 		}
 	}
 
 	if recordSeccomp {
-		if err := r.processSeccomp(file, mntns); err != nil {
+		if err := r.processSeccomp(profile, mntns); err != nil {
 			return fmt.Errorf("build seccomp profile: %w", err)
 		}
 	}
+
+	return r.writeProfile(profile.Bytes())
+}
+
+// writeProfile writes the profile to the output file.
+func (r *Recorder) writeProfile(profile []byte) error {
+	file, err := r.Create(r.outFile())
+	if err != nil {
+		return fmt.Errorf("create file: %w", err)
+	}
+
+	if _, err := file.Write(profile); err != nil {
+		if closeErr := file.Close(); closeErr != nil {
+			log.Printf("Unable to close %s: %v", r.outFile(), closeErr)
+		}
+
+		return fmt.Errorf("write file: %w", err)
+	}
+
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close file: %w", err)
+	}
+
+	log.Printf("Wrote profile to: %s", r.outFile())
 
 	return nil
 }
@@ -288,10 +316,6 @@ func (r *Recorder) processAppArmor(writer io.Writer, mntns uint32) error {
 		spec = prof.Spec
 	}
 
-	defer func() {
-		log.Printf("Wrote apparmor profile to: %s", r.outFile())
-	}()
-
 	if r.options.typ == TypeRawAppArmor {
 		return r.buildAppArmorProfileRaw(writer, &spec)
 	}
@@ -328,10 +352,6 @@ func (r *Recorder) buildProfile(writer io.Writer, names []string) error {
 			Names:  names,
 		}},
 	}
-
-	defer func() {
-		log.Printf("Wrote seccomp profile to: %s", r.outFile())
-	}()
 
 	if r.options.typ == TypeRawSeccomp {
 		return r.buildProfileRaw(writer, &spec)

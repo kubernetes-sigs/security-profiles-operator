@@ -36,7 +36,6 @@ import (
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"go.podman.io/common/pkg/seccomp"
 	apiruntime "k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -78,6 +77,7 @@ const (
 	reasonProfileNotAllowed     string = "ProfileNotAllowed"
 	reasonSavedProfile          string = "SavedSeccompProfile"
 	reasonProfileFileConflict   string = "SeccompProfileFileConflict"
+	reasonInvalidSPODConfig     string = "InvalidSeccompSPODConfig"
 
 	defaultCacheTimeout time.Duration = 24 * time.Hour
 	maxCacheItems       uint64        = 1000
@@ -93,7 +93,32 @@ var (
 	errForbiddenSyscall    = errors.New("syscall not allowed")
 	errForbiddenProfile    = errors.New("seccomp profile not allowed")
 	errForbiddenAction     = errors.New("seccomp action not allowed")
+
+	// errInvalidBaseProfile marks base profile errors which retrying cannot
+	// fix, only a change of the profiles can.
+	errInvalidBaseProfile = errors.New("invalid base profile")
+
+	// errBaseProfileNotCached is returned if resolving the syscalls of a
+	// profile requires pulling a base profile, which is not allowed.
+	errBaseProfileNotCached = errors.New("base profile not cached")
 )
+
+// syscallsAnnotation is the annotation which shows the syscalls of a profile
+// merged with the ones of its base profiles.
+const syscallsAnnotation = "syscalls"
+
+// syscallsAnnotationKey returns the key of the annotation for the merged
+// syscalls. A base profile from an OCI registry is pulled for the architecture
+// of the node, so the result can differ between the nodes of a cluster with
+// mixed architectures. Those results get one annotation per architecture,
+// otherwise the nodes would overwrite each other forever.
+func syscallsAnnotationKey(archSpecific bool) string {
+	if archSpecific {
+		return syscallsAnnotation + "-" + runtime.GOARCH
+	}
+
+	return syscallsAnnotation
+}
 
 // NewController returns a new empty controller instance.
 func NewController() controller.Controller {
@@ -173,7 +198,8 @@ type AllowedSyscallsChangedPredicate struct {
 	predicate.Funcs
 }
 
-// Update implements default update event filter for checking SPOD's AllowedSyscalls change.
+// Update implements default update event filter for checking SPOD's
+// AllowedSyscalls and AllowedSeccompActions change.
 func (AllowedSyscallsChangedPredicate) Update(e event.UpdateEvent) bool {
 	if e.ObjectOld == nil || e.ObjectNew == nil {
 		return false
@@ -187,6 +213,12 @@ func (AllowedSyscallsChangedPredicate) Update(e event.UpdateEvent) bool {
 	newSpod, ok := e.ObjectNew.(*spodapi.SecurityProfilesOperatorDaemon)
 	if !ok {
 		return false
+	}
+
+	if !sets.New(newSpod.Spec.Security.AllowedSeccompActions...).Equal(
+		sets.New(oldSpod.Spec.Security.AllowedSeccompActions...),
+	) {
+		return true
 	}
 
 	if len(newSpod.Spec.Security.AllowedSyscalls) != len(oldSpod.Spec.Security.AllowedSyscalls) {
@@ -214,7 +246,7 @@ func (AllowedSyscallsChangedPredicate) Update(e event.UpdateEvent) bool {
 
 // Setup adds a controller that reconciles seccomp profiles.
 func (r *Reconciler) Setup(
-	_ context.Context,
+	ctx context.Context,
 	mgr ctrl.Manager,
 	met *metrics.Metrics,
 ) error {
@@ -226,6 +258,14 @@ func (r *Reconciler) Setup(
 	r.nodeName = os.Getenv(config.NodeNameEnvKey)
 	r.reader = mgr.GetAPIReader()
 
+	removeStaleTempFiles(r.log, config.ProfilesRootPath())
+
+	if err := mgr.GetFieldIndexer().IndexField(
+		ctx, &seccompprofileapi.SeccompProfile{}, baseProfileIndex, indexBaseProfile,
+	); err != nil {
+		return fmt.Errorf("creating base profile index: %w", err)
+	}
+
 	// Register the regular reconciler to manage SeccompProfiles
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("profile").
@@ -235,6 +275,13 @@ func (r *Reconciler) Setup(
 		Watches(
 			&seccompprofileapi.SeccompProfile{},
 			handler.EnqueueRequestsFromMapFunc(siblingRequests),
+		).
+		// A profile whose base profile is missing or invalid is not retried
+		// on its own, so a change of the base profile has to wake it up.
+		Watches(
+			&seccompprofileapi.SeccompProfile{},
+			handler.EnqueueRequestsFromMapFunc(r.derivedProfileRequests),
+			builder.WithPredicates(predicate.GenerationChangedPredicate{}),
 		).
 		Watches(
 			&spodapi.SecurityProfilesOperatorDaemon{},
@@ -255,10 +302,6 @@ func (r *Reconciler) handleAllowedSyscallsChanged(
 		return []reconcile.Request{}
 	}
 
-	if len(spod.Spec.Security.AllowedSyscalls) == 0 {
-		return []reconcile.Request{}
-	}
-
 	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
 
@@ -269,19 +312,53 @@ func (r *Reconciler) handleAllowedSyscallsChanged(
 		return []reconcile.Request{}
 	}
 
-	reconcileRequests := []reconcile.Request{}
+	// Every profile gets validated again, so that the ones which got rejected
+	// before get installed if they are allowed now.
+	reconcileRequests := make([]reconcile.Request, 0, len(seccompProfileList.Items))
+	for i := range seccompProfileList.Items {
+		reconcileRequests = append(reconcileRequests, reconcile.Request{
+			NamespacedName: client.ObjectKeyFromObject(&seccompProfileList.Items[i]),
+		})
+	}
+
+	if len(spod.Spec.Security.AllowedSyscalls) == 0 {
+		return reconcileRequests
+	}
+
+	// An invalid configuration rejects every profile. Deleting all of them
+	// because of a mistake in the SPOD cannot be undone.
+	if _, err := checkedActions(spod.Spec.Security.AllowedSeccompActions); err != nil {
+		r.log.Error(err, "Not deleting seccomp profiles because of an invalid SPOD configuration")
+
+		if r.record != nil {
+			r.record.Eventf(
+				spod, nil, util.EventTypeWarning, reasonInvalidSPODConfig, util.EventActionUpdate,
+				"Invalid allowedSeccompActions, no seccomp profile gets installed: %s", err.Error(),
+			)
+		}
+
+		return reconcileRequests
+	}
 
 	for i := range seccompProfileList.Items {
 		sp := &seccompProfileList.Items[i]
+		if !sp.GetDeletionTimestamp().IsZero() {
+			continue
+		}
 
 		// Validate the merged syscalls, like validateProfile does, so that
-		// syscalls inherited from base profiles are checked as well.
+		// syscalls inherited from base profiles are checked as well. This
+		// runs on every node while handling the event, so base profiles are
+		// not pulled here. A profile whose base profile is not cached gets
+		// validated by its reconcile.
 		merged := sp.DeepCopy()
 
-		syscalls, err := r.resolveSyscallsForProfile(ctx, merged, merged.Spec.Syscalls, r.log, 0)
+		syscalls, _, err := r.resolveSyscallsForProfile(
+			ctx, merged, merged.Spec.Syscalls, r.log, 0, false,
+		)
 		if err != nil {
-			r.log.Error(err, "cannot resolve syscalls of seccomp profile",
-				"namespace", sp.GetNamespace(), "name", sp.GetName())
+			r.log.Info("Cannot resolve syscalls of seccomp profile, leaving it to its reconcile",
+				"namespace", sp.GetNamespace(), "name", sp.GetName(), "error", err.Error())
 
 			continue
 		}
@@ -294,24 +371,97 @@ func (r *Reconciler) handleAllowedSyscallsChanged(
 			spod.Spec.Security.AllowedSeccompActions,
 		); err != nil {
 			r.log.Info("deleting not allowed seccomp profile",
-				"namespace", sp.GetNamespace(), "name", sp.GetName())
+				"namespace", sp.GetNamespace(), "name", sp.GetName(), "reason", err.Error())
 
-			if err := r.client.Delete(ctx, sp); err != nil {
+			// Every node deletes the profile, so it may be gone already.
+			err := r.client.Delete(ctx, sp)
+			if util.IgnoreNotFound(err) != nil {
 				r.log.Error(err, "cannot delete not allowed seccomp profile")
-
-				continue
 			}
-
-			reconcileRequests = append(reconcileRequests, reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Name:      sp.GetName(),
-					Namespace: sp.GetNamespace(),
-				},
-			})
 		}
 	}
 
 	return reconcileRequests
+}
+
+// removeStaleTempFiles removes the temporary files of interrupted profile
+// writes. They live next to the profiles, which are stored in a directory per
+// namespace below root.
+func removeStaleTempFiles(l logr.Logger, root string) {
+	common.RemoveStaleTempFiles(l, root)
+
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			l.Error(err, "Cannot list profile directories", "dir", root)
+		}
+
+		return
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			common.RemoveStaleTempFiles(l, filepath.Join(root, entry.Name()))
+		}
+	}
+}
+
+// baseProfileIndex indexes the profiles by the name of their local base
+// profile.
+const baseProfileIndex = "spec.baseProfileName"
+
+func indexBaseProfile(obj client.Object) []string {
+	sp, ok := obj.(*seccompprofileapi.SeccompProfile)
+	if !ok || sp.Spec.BaseProfileName == "" ||
+		strings.HasPrefix(sp.Spec.BaseProfileName, config.OCIProfilePrefix) {
+		return nil
+	}
+
+	return []string{sp.Spec.BaseProfileName}
+}
+
+// derivedProfileRequests enqueues the profiles which use obj as their base
+// profile, directly or through other base profiles. A profile further down the
+// chain has to be enqueued as well: the profiles in between do not change
+// their generation when they get installed, so this watch would not see them.
+func (r *Reconciler) derivedProfileRequests(
+	ctx context.Context, obj client.Object,
+) []reconcile.Request {
+	var requests []reconcile.Request
+
+	seen := map[string]bool{obj.GetName(): true}
+	bases := []string{obj.GetName()}
+
+	for len(bases) > 0 {
+		base := bases[0]
+		bases = bases[1:]
+
+		list := &seccompprofileapi.SeccompProfileList{}
+		if err := r.client.List(
+			ctx, list,
+			client.InNamespace(obj.GetNamespace()),
+			client.MatchingFields{baseProfileIndex: base},
+		); err != nil {
+			r.log.Error(err, "cannot list seccomp profiles to find derived profiles")
+
+			return requests
+		}
+
+		for i := range list.Items {
+			name := list.Items[i].GetName()
+			if seen[name] {
+				continue
+			}
+
+			seen[name] = true
+			bases = append(bases, name)
+			requests = append(requests, reconcile.Request{
+				NamespacedName: client.ObjectKeyFromObject(&list.Items[i]),
+			})
+		}
+	}
+
+	return requests
 }
 
 // Healthz is the liveness probe endpoint of the controller.
@@ -389,140 +539,119 @@ func (r *Reconciler) mergeBaseProfile(
 	ctx context.Context, sp *seccompprofileapi.SeccompProfile, l logr.Logger,
 ) (*seccompprofileapi.SeccompProfile, error) {
 	// Recursively resolve the syscalls
-	finalSyscalls, err := r.resolveSyscallsForProfile(ctx, sp, sp.Spec.Syscalls, l, 0)
+	finalSyscalls, archSpecific, err := r.resolveSyscallsForProfile(
+		ctx, sp, sp.Spec.Syscalls, l, 0, true,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("resolve syscalls: %w", err)
 	}
 
-	// Update the final syscalls in the profile for visibility
-	scBytes, err := json.Marshal(finalSyscalls)
+	if err := r.annotateSyscalls(ctx, sp, finalSyscalls, archSpecific, l); err != nil {
+		return nil, err
+	}
+
+	merged := sp.DeepCopy()
+	merged.Spec.Syscalls = finalSyscalls
+
+	return merged, nil
+}
+
+// annotateSyscalls shows the merged syscalls in an annotation of the profile,
+// because the syscalls of the base profiles are hidden from the user
+// otherwise.
+func (r *Reconciler) annotateSyscalls(
+	ctx context.Context,
+	sp *seccompprofileapi.SeccompProfile,
+	syscalls []seccompprofileapi.Syscall,
+	archSpecific bool,
+	l logr.Logger,
+) error {
+	scBytes, err := json.Marshal(syscalls)
 	if err != nil {
-		return nil, fmt.Errorf("marshal syscalls to JSON: %w", err)
+		return fmt.Errorf("marshal syscalls to JSON: %w", err)
 	}
 
-	jsonSyscalls := string(scBytes)
+	key := syscallsAnnotationKey(archSpecific)
+	value := string(scBytes)
 
-	const key = "syscalls"
-	if sp.Annotations[key] != jsonSyscalls {
-		l.Info("Updating syscall annotations", "profile", sp.Name)
+	// The annotation of the other kind is stale: the base profiles changed,
+	// or the shared one got written by a version which put every result
+	// into it.
+	staleKey := syscallsAnnotationKey(!archSpecific)
+	_, hasStale := sp.GetAnnotations()[staleKey]
 
-		if sp.Annotations == nil {
-			sp.Annotations = make(map[string]string)
-		}
-
-		sp.Annotations[key] = jsonSyscalls
-
-		if err := r.client.Update(ctx, sp); err != nil {
-			return nil, fmt.Errorf("update seccomp profile annotations: %w", err)
-		}
+	if sp.GetAnnotations()[key] == value && !hasStale {
+		return nil
 	}
 
-	sp.Spec.Syscalls = finalSyscalls
+	l.Info("Updating syscall annotations", "profile", sp.Name, "annotation", key)
 
-	return sp, nil
+	patch := client.MergeFrom(sp.DeepCopy())
+
+	if sp.Annotations == nil {
+		sp.Annotations = make(map[string]string)
+	}
+
+	sp.Annotations[key] = value
+	delete(sp.Annotations, staleKey)
+
+	// Patching only the annotations does not conflict with the other nodes
+	// updating the profile at the same time.
+	if err := r.client.Patch(ctx, sp, patch); err != nil {
+		return fmt.Errorf("update seccomp profile annotations: %w", err)
+	}
+
+	return nil
 }
 
 // resolveSyscallsForProfile recursively resolves the syscalls for base
 // profiles up to a depth level of 15 is also caches the results when pulling
-// from OCI artifacts.
+// from OCI artifacts. If pull is false, a base profile which is not cached
+// fails with errBaseProfileNotCached instead of getting pulled. archSpecific
+// is true if an OCI base profile got used, which is pulled for the
+// architecture of the node.
 func (r *Reconciler) resolveSyscallsForProfile(
 	ctx context.Context,
 	sp *seccompprofileapi.SeccompProfile,
 	inputSyscalls []seccompprofileapi.Syscall,
 	l logr.Logger,
 	level uint8,
-) ([]seccompprofileapi.Syscall, error) {
+	pull bool,
+) (syscalls []seccompprofileapi.Syscall, archSpecific bool, err error) {
 	const maxLevel = 15
 	if level >= maxLevel {
-		return nil, fmt.Errorf(
-			"max recursion level of %d is reached for resolving base profiles",
-			maxLevel,
+		return nil, false, fmt.Errorf(
+			"%w: max recursion level of %d is reached for resolving base profiles",
+			errInvalidBaseProfile, maxLevel,
 		)
 	}
 
 	baseProfileName := sp.Spec.BaseProfileName
 	if baseProfileName == "" {
 		// No base profile at all
-		return inputSyscalls, nil
+		return inputSyscalls, false, nil
 	}
 
 	l.Info("Resolving syscalls for profile", "recursion", level)
 
 	var baseProfile *seccompprofileapi.SeccompProfile
 
-	if after, ok := strings.CutPrefix(baseProfileName, config.OCIProfilePrefix); ok {
-		// Pull remote base profile from an OCI artifact registry
-		from := after
+	if from, ok := strings.CutPrefix(baseProfileName, config.OCIProfilePrefix); ok {
+		archSpecific = true
 
-		item := r.baseProfiles.Get(from)
-		if item != nil {
+		if item := r.baseProfiles.Get(from); item != nil {
 			l.Info("Using cached base profile", "baseProfile", from)
 
 			baseProfile = item.Value()
 		} else {
-			spod, err := r.GetSPOD(ctx, r.client)
+			if !pull {
+				return nil, false, fmt.Errorf("%w: %s", errBaseProfileNotCached, from)
+			}
+
+			baseProfile, err = r.pullBaseProfile(ctx, sp, from, l)
 			if err != nil {
-				return nil, fmt.Errorf("retrieving the SPOD configuration: %w", err)
+				return nil, false, err
 			}
-
-			if spod.Spec.Security.AllowedIdentityRegexp == "" {
-				spod.Spec.Security.AllowedIdentityRegexp = allowedAllRegexp
-			}
-
-			if spod.Spec.Security.AllowedOidcIssuerRegexp == "" {
-				spod.Spec.Security.AllowedOidcIssuerRegexp = allowedAllRegexp
-			}
-
-			pullOpts := &artifact.PullOptions{
-				DisableSignatureVerification: ptr.Deref(
-					spod.Spec.Security.DisableOCIArtifactSignatureVerification,
-					false,
-				),
-				AllowedIdentityRegexp:   spod.Spec.Security.AllowedIdentityRegexp,
-				AllowedOidcIssuerRegexp: spod.Spec.Security.AllowedOidcIssuerRegexp,
-				// A base profile bigger than what container runtimes accept
-				// is of no use, and the registry must not decide how much
-				// memory the daemon allocates on every node.
-				MaxBlobSize: artifact.MaxRuntimeProfileSize,
-			}
-			// The official repositories get verified against the official
-			// signers while the regexps are left at the default.
-			identity, issuer := pullOpts.Signer(from)
-			l.Info(
-				"Pulling base profile: "+from,
-				"disableOCIArtifactSignatureVerification", pullOpts.DisableSignatureVerification,
-				"allowedIdentityRegexp", pullOpts.AllowedIdentityRegexp,
-				"allowedOidcIssuerRegexp", pullOpts.AllowedOidcIssuerRegexp,
-				"verifiedIdentityRegexp", identity,
-				"verifiedOidcIssuerRegexp", issuer,
-				"maxBlobSize", pullOpts.MaxBlobSize,
-			)
-
-			// The pull is anonymous: the daemon has no registry credentials,
-			// so base profiles have to be publicly readable.
-			res, err := r.Pull(ctx, l, from, "", "", &v1.Platform{
-				Architecture: runtime.GOARCH,
-				OS:           runtime.GOOS,
-			}, pullOpts)
-			if err != nil {
-				l.Error(err, "cannot pull base profile", "profile", baseProfileName)
-				r.reportError(sp, reasonCannotPullProfile, util.EventActionInstall, err)
-
-				return nil, fmt.Errorf("retrieve base profile %s from OCI registry: %w", from, err)
-			}
-
-			resType := r.PullResultType(res)
-			if resType != artifact.PullResultTypeSeccompProfile {
-				return nil, fmt.Errorf("pull result type %s is not a seccomp profile", resType)
-			}
-
-			baseProfile = r.PullResultSeccompProfile(res)
-			r.baseProfiles.Set(from, baseProfile, ttlcache.DefaultTTL)
-
-			l.Info(
-				"Set remote base seccomp profile",
-				"baseProfile", baseProfile.Name,
-			)
 		}
 	} else {
 		// Local base profile
@@ -530,10 +659,15 @@ func (r *Reconciler) resolveSyscallsForProfile(
 			ctx, r.client, util.NamespacedName(baseProfileName, sp.GetNamespace()),
 		)
 		if err != nil {
-			l.Error(err, "cannot retrieve base profile", "profile", baseProfileName)
-			r.reportError(sp, reasonInvalidSeccompProfile, util.EventActionInstall, err)
+			if util.IgnoreNotFound(err) == nil {
+				// derivedProfileRequests enqueues the profile again once
+				// the base profile gets created.
+				return nil, false, fmt.Errorf(
+					"%w: %s not found", errInvalidBaseProfile, baseProfileName,
+				)
+			}
 
-			return nil, fmt.Errorf("merging base profile: %w", err)
+			return nil, false, fmt.Errorf("retrieving base profile %s: %w", baseProfileName, err)
 		}
 
 		baseProfile = profile
@@ -547,10 +681,94 @@ func (r *Reconciler) resolveSyscallsForProfile(
 
 	newSyscalls, err := util.UnionSyscalls(baseProfile.Spec.Syscalls, inputSyscalls)
 	if err != nil {
-		return nil, fmt.Errorf("merging base profile syscalls: %w", err)
+		return nil, false, fmt.Errorf(
+			"%w: merging base profile syscalls: %w", errInvalidBaseProfile, err,
+		)
 	}
 
-	return r.resolveSyscallsForProfile(ctx, baseProfile, newSyscalls, l, level+1)
+	syscalls, baseArchSpecific, err := r.resolveSyscallsForProfile(
+		ctx, baseProfile, newSyscalls, l, level+1, pull,
+	)
+
+	return syscalls, archSpecific || baseArchSpecific, err
+}
+
+// pullBaseProfile pulls the base profile of sp from the OCI artifact registry
+// and caches it.
+func (r *Reconciler) pullBaseProfile(
+	ctx context.Context,
+	sp *seccompprofileapi.SeccompProfile,
+	from string,
+	l logr.Logger,
+) (*seccompprofileapi.SeccompProfile, error) {
+	spod, err := r.GetSPOD(ctx, r.client)
+	if err != nil {
+		return nil, fmt.Errorf("retrieving the SPOD configuration: %w", err)
+	}
+
+	if spod.Spec.Security.AllowedIdentityRegexp == "" {
+		spod.Spec.Security.AllowedIdentityRegexp = allowedAllRegexp
+	}
+
+	if spod.Spec.Security.AllowedOidcIssuerRegexp == "" {
+		spod.Spec.Security.AllowedOidcIssuerRegexp = allowedAllRegexp
+	}
+
+	pullOpts := &artifact.PullOptions{
+		DisableSignatureVerification: ptr.Deref(
+			spod.Spec.Security.DisableOCIArtifactSignatureVerification,
+			false,
+		),
+		AllowedIdentityRegexp:   spod.Spec.Security.AllowedIdentityRegexp,
+		AllowedOidcIssuerRegexp: spod.Spec.Security.AllowedOidcIssuerRegexp,
+		// A base profile bigger than what container runtimes accept
+		// is of no use, and the registry must not decide how much
+		// memory the daemon allocates on every node.
+		MaxBlobSize: artifact.MaxRuntimeProfileSize,
+	}
+	// The official repositories get verified against the official
+	// signers while the regexps are left at the default.
+	identity, issuer := pullOpts.Signer(from)
+	l.Info(
+		"Pulling base profile: "+from,
+		"disableOCIArtifactSignatureVerification", pullOpts.DisableSignatureVerification,
+		"allowedIdentityRegexp", pullOpts.AllowedIdentityRegexp,
+		"allowedOidcIssuerRegexp", pullOpts.AllowedOidcIssuerRegexp,
+		"verifiedIdentityRegexp", identity,
+		"verifiedOidcIssuerRegexp", issuer,
+		"maxBlobSize", pullOpts.MaxBlobSize,
+	)
+
+	// No credentials are passed: the pull only uses a docker config in the
+	// daemon container, which is usually missing, so base profiles have to
+	// be publicly readable.
+	res, err := r.Pull(ctx, l, from, "", "", &v1.Platform{
+		Architecture: runtime.GOARCH,
+		OS:           runtime.GOOS,
+	}, pullOpts)
+	if err != nil {
+		l.Error(err, "cannot pull base profile", "profile", sp.Spec.BaseProfileName)
+		r.reportError(sp, reasonCannotPullProfile, util.EventActionInstall, err)
+
+		return nil, fmt.Errorf("retrieve base profile %s from OCI registry: %w", from, err)
+	}
+
+	resType := r.PullResultType(res)
+	if resType != artifact.PullResultTypeSeccompProfile {
+		return nil, fmt.Errorf(
+			"%w: pull result type %s is not a seccomp profile", errInvalidBaseProfile, resType,
+		)
+	}
+
+	baseProfile := r.PullResultSeccompProfile(res)
+	r.baseProfiles.Set(from, baseProfile, ttlcache.DefaultTTL)
+
+	l.Info(
+		"Set remote base seccomp profile",
+		"baseProfile", baseProfile.Name,
+	)
+
+	return baseProfile, nil
 }
 
 func (r *Reconciler) reconcileSeccompProfile(
@@ -571,20 +789,49 @@ func (r *Reconciler) reconcileSeccompProfile(
 		return r.reconcileDeletion(ctx, sp, nodeStatus)
 	}
 
+	// The object is not being deleted
+	created, _, err := common.EnsureNodeStatus(ctx, nodeStatus, l)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+
+	if created {
+		return reconcile.Result{RequeueAfter: common.Wait}, nil
+	}
+
+	if !sp.IsReconcilable() {
+		if sp.IsDisabled() && !sp.IsPartial() {
+			return r.reconcileDisabled(ctx, sp, nodeStatus, l)
+		}
+
+		l.Info("Profile is partial, skipping")
+
+		return reconcile.Result{}, nil
+	}
+
 	l.Info("Merge possible base profile")
 
 	outputProfile, err := r.mergeBaseProfile(ctx, sp, l)
 	if err != nil {
+		if errors.Is(err, errInvalidBaseProfile) {
+			return r.rejectProfile(ctx, sp, nodeStatus, reasonInvalidSeccompProfile, err, l)
+		}
+
+		// For example the registry of an OCI base profile is unreachable,
+		// which is retried with backoff.
 		l.Error(err, "merge base profile")
 
-		return reconcile.Result{RequeueAfter: common.Wait}, nil
+		return reconcile.Result{}, fmt.Errorf("merging base profile: %w", err)
 	}
 
 	l.Info("Validate profile")
 
 	if err := r.validateProfile(ctx, outputProfile); err != nil {
+		if profileNotAllowed(err) {
+			return r.rejectProfile(ctx, sp, nodeStatus, reasonProfileNotAllowed, err, l)
+		}
+
 		l.Error(err, "validate profile")
-		r.reportError(sp, reasonProfileNotAllowed, util.EventActionInstall, err)
 
 		return reconcile.Result{}, fmt.Errorf("validating profile: %w", err)
 	}
@@ -600,22 +847,6 @@ func (r *Reconciler) reconcileSeccompProfile(
 	}
 
 	profilePath := r.profilePath(sp)
-
-	// The object is not being deleted
-	created, _, err := common.EnsureNodeStatus(ctx, nodeStatus, l)
-	if err != nil {
-		return reconcile.Result{}, err
-	}
-
-	if created {
-		return reconcile.Result{RequeueAfter: common.Wait}, nil
-	}
-
-	if !sp.IsReconcilable() {
-		l.Info("Profile is partial or disabled, skipping")
-
-		return reconcile.Result{}, nil
-	}
 
 	conflict, err := r.handleFileConflict(ctx, sp, nodeStatus, profilePath, profileContent, l)
 	if err != nil {
@@ -692,6 +923,73 @@ func (r *Reconciler) reconcileSeccompProfile(
 		"resource version", sp.GetResourceVersion(),
 		"name", sp.GetName(),
 	)
+
+	return reconcile.Result{}, nil
+}
+
+// rejectProfile marks a profile which cannot be installed until it, one of
+// its base profiles or the SPOD configuration changes. Each of them triggers
+// a reconcile, so it is not retried.
+func (r *Reconciler) rejectProfile(
+	ctx context.Context,
+	sp *seccompprofileapi.SeccompProfile,
+	nodeStatus *nodestatus.StatusClient,
+	reason string,
+	rejectErr error,
+	l logr.Logger,
+) (reconcile.Result, error) {
+	l.Error(rejectErr, "Not installing profile")
+	r.reportError(sp, reason, util.EventActionInstall, rejectErr)
+
+	if err := nodeStatus.SetNodeStatus(ctx, secprofnodestatusapi.ProfileStateError); err != nil {
+		r.reportError(sp, common.ReasonCannotUpdateStatus, util.EventActionUpdate, err)
+
+		return reconcile.Result{}, fmt.Errorf("setting node status to error: %w", err)
+	}
+
+	return reconcile.Result{}, nil
+}
+
+// reconcileDisabled removes a disabled profile from the node, which may have
+// installed it before it got disabled.
+func (r *Reconciler) reconcileDisabled(
+	ctx context.Context,
+	sp *seccompprofileapi.SeccompProfile,
+	nodeStatus *nodestatus.StatusClient,
+	l logr.Logger,
+) (reconcile.Result, error) {
+	state, err := nodeStatus.State(ctx)
+	if err != nil {
+		return reconcile.Result{}, fmt.Errorf("getting node status: %w", err)
+	}
+
+	if state == secprofnodestatusapi.ProfileStateDisabled {
+		l.Info("Profile is disabled, skipping")
+
+		return reconcile.Result{}, nil
+	}
+
+	if common.InUse(sp) {
+		l.Info("Not removing disabled profile which is in use by pods, requeuing")
+
+		return reconcile.Result{RequeueAfter: common.InUseRetry}, nil
+	}
+
+	// This keeps the file if another profile owns it.
+	if err := r.handleDeletion(ctx, sp); err != nil {
+		l.Error(err, "cannot remove disabled profile")
+		r.reportError(sp, reasonCannotRemoveProfile, util.EventActionRemove, err)
+
+		return reconcile.Result{}, fmt.Errorf("removing disabled profile: %w", err)
+	}
+
+	if err := nodeStatus.SetNodeStatus(ctx, secprofnodestatusapi.ProfileStateDisabled); err != nil {
+		r.reportError(sp, common.ReasonCannotUpdateStatus, util.EventActionUpdate, err)
+
+		return reconcile.Result{}, fmt.Errorf("setting node status to disabled: %w", err)
+	}
+
+	l.Info("Removed disabled profile from the node")
 
 	return reconcile.Result{}, nil
 }
@@ -926,6 +1224,42 @@ func saveProfileOnDisk(fileName string, content []byte) (updated bool, err error
 	return true, nil
 }
 
+// profileNotAllowed returns true if err is a rejection of the profile by the
+// SPOD configuration, which retrying cannot change.
+func profileNotAllowed(err error) bool {
+	return errors.Is(err, errForbiddenSyscall) ||
+		errors.Is(err, errForbiddenProfile) ||
+		errors.Is(err, errForbiddenAction)
+}
+
+// checkableActions are the actions whose syscalls can be checked against the
+// allowed syscalls of the SPOD.
+var checkableActions = []seccompprofileapi.Action{
+	seccompprofileapi.ActAllow,
+	seccompprofileapi.ActLog,
+	seccompprofileapi.ActTrace,
+	seccompprofileapi.ActNotify,
+}
+
+// checkedActions returns the actions whose syscalls get checked for the
+// allowedSeccompActions of the SPOD. It fails if they contain an action which
+// cannot be checked.
+func checkedActions(
+	allowedActions []seccompprofileapi.Action,
+) ([]seccompprofileapi.Action, error) {
+	if len(allowedActions) == 0 {
+		return checkableActions, nil
+	}
+
+	for _, allowedAction := range allowedActions {
+		if !slices.Contains(checkableActions, allowedAction) {
+			return nil, fmt.Errorf("%w: %s", errForbiddenAction, allowedAction)
+		}
+	}
+
+	return allowedActions, nil
+}
+
 func allowProfile(
 	profile *seccompprofileapi.SeccompProfile,
 	allowedSyscalls []string,
@@ -942,20 +1276,9 @@ func allowProfile(
 		}
 	}
 
-	allAllowedActions := []seccompprofileapi.Action{
-		seccompprofileapi.ActAllow,
-		seccompprofileapi.ActLog,
-		seccompprofileapi.ActTrace,
-		seccompprofileapi.ActNotify,
-	}
-	if len(allowedActions) == 0 {
-		allowedActions = allAllowedActions
-	}
-
-	for _, allowedAction := range allowedActions {
-		if !slices.Contains(allAllowedActions, allowedAction) {
-			return fmt.Errorf("%w: %s", errForbiddenAction, allowedAction)
-		}
+	allowedActions, err := checkedActions(allowedActions)
+	if err != nil {
+		return err
 	}
 
 	// Hoisted out of the loop: a linear scan per syscall makes this O(n*m),

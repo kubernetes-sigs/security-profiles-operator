@@ -25,6 +25,7 @@ import (
 	"net"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/aquasecurity/libbpfgo"
 	ttlcache "github.com/jellydator/ttlcache/v3"
@@ -96,6 +97,19 @@ type FakeImpl struct {
 		result1 api_metrics.Metrics_BpfIncClient
 		result2 error
 	}
+	CgroupPathForIDStub        func(uint64) (string, error)
+	cgroupPathForIDMutex       sync.RWMutex
+	cgroupPathForIDArgsForCall []struct {
+		arg1 uint64
+	}
+	cgroupPathForIDReturns struct {
+		result1 string
+		result2 error
+	}
+	cgroupPathForIDReturnsOnCall map[int]struct {
+		result1 string
+		result2 error
+	}
 	ChownStub        func(string, int, int) error
 	chownMutex       sync.RWMutex
 	chownArgsForCall []struct {
@@ -133,6 +147,19 @@ type FakeImpl struct {
 	containerIDForPIDReturnsOnCall map[int]struct {
 		result1 string
 		result2 error
+	}
+	DeleteActivePidStub        func(*libbpfgo.BPFMap, uint32, uint64) error
+	deleteActivePidMutex       sync.RWMutex
+	deleteActivePidArgsForCall []struct {
+		arg1 *libbpfgo.BPFMap
+		arg2 uint32
+		arg3 uint64
+	}
+	deleteActivePidReturns struct {
+		result1 error
+	}
+	deleteActivePidReturnsOnCall map[int]struct {
+		result1 error
 	}
 	DeleteKeyStub        func(*libbpfgo.BPFMap, uint32) error
 	deleteKeyMutex       sync.RWMutex
@@ -318,6 +345,19 @@ type FakeImpl struct {
 		result1 net.Listener
 		result2 error
 	}
+	MapKeysStub        func(*libbpfgo.BPFMap) ([][]byte, error)
+	mapKeysMutex       sync.RWMutex
+	mapKeysArgsForCall []struct {
+		arg1 *libbpfgo.BPFMap
+	}
+	mapKeysReturns struct {
+		result1 [][]byte
+		result2 error
+	}
+	mapKeysReturnsOnCall map[int]struct {
+		result1 [][]byte
+		result2 error
+	}
 	NewForConfigStub        func(*rest.Config) (*kubernetes.Clientset, error)
 	newForConfigMutex       sync.RWMutex
 	newForConfigArgsForCall []struct {
@@ -435,6 +475,31 @@ type FakeImpl struct {
 		result1 error
 	}
 	updateValue64ReturnsOnCall map[int]struct {
+		result1 error
+	}
+	UptimeStub        func() (time.Duration, error)
+	uptimeMutex       sync.RWMutex
+	uptimeArgsForCall []struct {
+	}
+	uptimeReturns struct {
+		result1 time.Duration
+		result2 error
+	}
+	uptimeReturnsOnCall map[int]struct {
+		result1 time.Duration
+		result2 error
+	}
+	VerifyProcessStub        func(uint32, uint32, time.Duration) error
+	verifyProcessMutex       sync.RWMutex
+	verifyProcessArgsForCall []struct {
+		arg1 uint32
+		arg2 uint32
+		arg3 time.Duration
+	}
+	verifyProcessReturns struct {
+		result1 error
+	}
+	verifyProcessReturnsOnCall map[int]struct {
 		result1 error
 	}
 	invocations      map[string][][]interface{}
@@ -752,6 +817,70 @@ func (fake *FakeImpl) BpfIncClientReturnsOnCall(i int, result1 api_metrics.Metri
 	}{result1, result2}
 }
 
+func (fake *FakeImpl) CgroupPathForID(arg1 uint64) (string, error) {
+	fake.cgroupPathForIDMutex.Lock()
+	ret, specificReturn := fake.cgroupPathForIDReturnsOnCall[len(fake.cgroupPathForIDArgsForCall)]
+	fake.cgroupPathForIDArgsForCall = append(fake.cgroupPathForIDArgsForCall, struct {
+		arg1 uint64
+	}{arg1})
+	stub := fake.CgroupPathForIDStub
+	fakeReturns := fake.cgroupPathForIDReturns
+	fake.recordInvocation("CgroupPathForID", []interface{}{arg1})
+	fake.cgroupPathForIDMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) CgroupPathForIDCallCount() int {
+	fake.cgroupPathForIDMutex.RLock()
+	defer fake.cgroupPathForIDMutex.RUnlock()
+	return len(fake.cgroupPathForIDArgsForCall)
+}
+
+func (fake *FakeImpl) CgroupPathForIDCalls(stub func(uint64) (string, error)) {
+	fake.cgroupPathForIDMutex.Lock()
+	defer fake.cgroupPathForIDMutex.Unlock()
+	fake.CgroupPathForIDStub = stub
+}
+
+func (fake *FakeImpl) CgroupPathForIDArgsForCall(i int) uint64 {
+	fake.cgroupPathForIDMutex.RLock()
+	defer fake.cgroupPathForIDMutex.RUnlock()
+	argsForCall := fake.cgroupPathForIDArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeImpl) CgroupPathForIDReturns(result1 string, result2 error) {
+	fake.cgroupPathForIDMutex.Lock()
+	defer fake.cgroupPathForIDMutex.Unlock()
+	fake.CgroupPathForIDStub = nil
+	fake.cgroupPathForIDReturns = struct {
+		result1 string
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) CgroupPathForIDReturnsOnCall(i int, result1 string, result2 error) {
+	fake.cgroupPathForIDMutex.Lock()
+	defer fake.cgroupPathForIDMutex.Unlock()
+	fake.CgroupPathForIDStub = nil
+	if fake.cgroupPathForIDReturnsOnCall == nil {
+		fake.cgroupPathForIDReturnsOnCall = make(map[int]struct {
+			result1 string
+			result2 error
+		})
+	}
+	fake.cgroupPathForIDReturnsOnCall[i] = struct {
+		result1 string
+		result2 error
+	}{result1, result2}
+}
+
 func (fake *FakeImpl) Chown(arg1 string, arg2 int, arg3 int) error {
 	fake.chownMutex.Lock()
 	ret, specificReturn := fake.chownReturnsOnCall[len(fake.chownArgsForCall)]
@@ -939,6 +1068,69 @@ func (fake *FakeImpl) ContainerIDForPIDReturnsOnCall(i int, result1 string, resu
 		result1 string
 		result2 error
 	}{result1, result2}
+}
+
+func (fake *FakeImpl) DeleteActivePid(arg1 *libbpfgo.BPFMap, arg2 uint32, arg3 uint64) error {
+	fake.deleteActivePidMutex.Lock()
+	ret, specificReturn := fake.deleteActivePidReturnsOnCall[len(fake.deleteActivePidArgsForCall)]
+	fake.deleteActivePidArgsForCall = append(fake.deleteActivePidArgsForCall, struct {
+		arg1 *libbpfgo.BPFMap
+		arg2 uint32
+		arg3 uint64
+	}{arg1, arg2, arg3})
+	stub := fake.DeleteActivePidStub
+	fakeReturns := fake.deleteActivePidReturns
+	fake.recordInvocation("DeleteActivePid", []interface{}{arg1, arg2, arg3})
+	fake.deleteActivePidMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) DeleteActivePidCallCount() int {
+	fake.deleteActivePidMutex.RLock()
+	defer fake.deleteActivePidMutex.RUnlock()
+	return len(fake.deleteActivePidArgsForCall)
+}
+
+func (fake *FakeImpl) DeleteActivePidCalls(stub func(*libbpfgo.BPFMap, uint32, uint64) error) {
+	fake.deleteActivePidMutex.Lock()
+	defer fake.deleteActivePidMutex.Unlock()
+	fake.DeleteActivePidStub = stub
+}
+
+func (fake *FakeImpl) DeleteActivePidArgsForCall(i int) (*libbpfgo.BPFMap, uint32, uint64) {
+	fake.deleteActivePidMutex.RLock()
+	defer fake.deleteActivePidMutex.RUnlock()
+	argsForCall := fake.deleteActivePidArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *FakeImpl) DeleteActivePidReturns(result1 error) {
+	fake.deleteActivePidMutex.Lock()
+	defer fake.deleteActivePidMutex.Unlock()
+	fake.DeleteActivePidStub = nil
+	fake.deleteActivePidReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) DeleteActivePidReturnsOnCall(i int, result1 error) {
+	fake.deleteActivePidMutex.Lock()
+	defer fake.deleteActivePidMutex.Unlock()
+	fake.DeleteActivePidStub = nil
+	if fake.deleteActivePidReturnsOnCall == nil {
+		fake.deleteActivePidReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.deleteActivePidReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
 }
 
 func (fake *FakeImpl) DeleteKey(arg1 *libbpfgo.BPFMap, arg2 uint32) error {
@@ -1814,6 +2006,70 @@ func (fake *FakeImpl) ListenReturnsOnCall(i int, result1 net.Listener, result2 e
 	}{result1, result2}
 }
 
+func (fake *FakeImpl) MapKeys(arg1 *libbpfgo.BPFMap) ([][]byte, error) {
+	fake.mapKeysMutex.Lock()
+	ret, specificReturn := fake.mapKeysReturnsOnCall[len(fake.mapKeysArgsForCall)]
+	fake.mapKeysArgsForCall = append(fake.mapKeysArgsForCall, struct {
+		arg1 *libbpfgo.BPFMap
+	}{arg1})
+	stub := fake.MapKeysStub
+	fakeReturns := fake.mapKeysReturns
+	fake.recordInvocation("MapKeys", []interface{}{arg1})
+	fake.mapKeysMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) MapKeysCallCount() int {
+	fake.mapKeysMutex.RLock()
+	defer fake.mapKeysMutex.RUnlock()
+	return len(fake.mapKeysArgsForCall)
+}
+
+func (fake *FakeImpl) MapKeysCalls(stub func(*libbpfgo.BPFMap) ([][]byte, error)) {
+	fake.mapKeysMutex.Lock()
+	defer fake.mapKeysMutex.Unlock()
+	fake.MapKeysStub = stub
+}
+
+func (fake *FakeImpl) MapKeysArgsForCall(i int) *libbpfgo.BPFMap {
+	fake.mapKeysMutex.RLock()
+	defer fake.mapKeysMutex.RUnlock()
+	argsForCall := fake.mapKeysArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeImpl) MapKeysReturns(result1 [][]byte, result2 error) {
+	fake.mapKeysMutex.Lock()
+	defer fake.mapKeysMutex.Unlock()
+	fake.MapKeysStub = nil
+	fake.mapKeysReturns = struct {
+		result1 [][]byte
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) MapKeysReturnsOnCall(i int, result1 [][]byte, result2 error) {
+	fake.mapKeysMutex.Lock()
+	defer fake.mapKeysMutex.Unlock()
+	fake.MapKeysStub = nil
+	if fake.mapKeysReturnsOnCall == nil {
+		fake.mapKeysReturnsOnCall = make(map[int]struct {
+			result1 [][]byte
+			result2 error
+		})
+	}
+	fake.mapKeysReturnsOnCall[i] = struct {
+		result1 [][]byte
+		result2 error
+	}{result1, result2}
+}
+
 func (fake *FakeImpl) NewForConfig(arg1 *rest.Config) (*kubernetes.Clientset, error) {
 	fake.newForConfigMutex.Lock()
 	ret, specificReturn := fake.newForConfigReturnsOnCall[len(fake.newForConfigArgsForCall)]
@@ -2420,6 +2676,125 @@ func (fake *FakeImpl) UpdateValue64ReturnsOnCall(i int, result1 error) {
 		})
 	}
 	fake.updateValue64ReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) Uptime() (time.Duration, error) {
+	fake.uptimeMutex.Lock()
+	ret, specificReturn := fake.uptimeReturnsOnCall[len(fake.uptimeArgsForCall)]
+	fake.uptimeArgsForCall = append(fake.uptimeArgsForCall, struct {
+	}{})
+	stub := fake.UptimeStub
+	fakeReturns := fake.uptimeReturns
+	fake.recordInvocation("Uptime", []interface{}{})
+	fake.uptimeMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) UptimeCallCount() int {
+	fake.uptimeMutex.RLock()
+	defer fake.uptimeMutex.RUnlock()
+	return len(fake.uptimeArgsForCall)
+}
+
+func (fake *FakeImpl) UptimeCalls(stub func() (time.Duration, error)) {
+	fake.uptimeMutex.Lock()
+	defer fake.uptimeMutex.Unlock()
+	fake.UptimeStub = stub
+}
+
+func (fake *FakeImpl) UptimeReturns(result1 time.Duration, result2 error) {
+	fake.uptimeMutex.Lock()
+	defer fake.uptimeMutex.Unlock()
+	fake.UptimeStub = nil
+	fake.uptimeReturns = struct {
+		result1 time.Duration
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) UptimeReturnsOnCall(i int, result1 time.Duration, result2 error) {
+	fake.uptimeMutex.Lock()
+	defer fake.uptimeMutex.Unlock()
+	fake.UptimeStub = nil
+	if fake.uptimeReturnsOnCall == nil {
+		fake.uptimeReturnsOnCall = make(map[int]struct {
+			result1 time.Duration
+			result2 error
+		})
+	}
+	fake.uptimeReturnsOnCall[i] = struct {
+		result1 time.Duration
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) VerifyProcess(arg1 uint32, arg2 uint32, arg3 time.Duration) error {
+	fake.verifyProcessMutex.Lock()
+	ret, specificReturn := fake.verifyProcessReturnsOnCall[len(fake.verifyProcessArgsForCall)]
+	fake.verifyProcessArgsForCall = append(fake.verifyProcessArgsForCall, struct {
+		arg1 uint32
+		arg2 uint32
+		arg3 time.Duration
+	}{arg1, arg2, arg3})
+	stub := fake.VerifyProcessStub
+	fakeReturns := fake.verifyProcessReturns
+	fake.recordInvocation("VerifyProcess", []interface{}{arg1, arg2, arg3})
+	fake.verifyProcessMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) VerifyProcessCallCount() int {
+	fake.verifyProcessMutex.RLock()
+	defer fake.verifyProcessMutex.RUnlock()
+	return len(fake.verifyProcessArgsForCall)
+}
+
+func (fake *FakeImpl) VerifyProcessCalls(stub func(uint32, uint32, time.Duration) error) {
+	fake.verifyProcessMutex.Lock()
+	defer fake.verifyProcessMutex.Unlock()
+	fake.VerifyProcessStub = stub
+}
+
+func (fake *FakeImpl) VerifyProcessArgsForCall(i int) (uint32, uint32, time.Duration) {
+	fake.verifyProcessMutex.RLock()
+	defer fake.verifyProcessMutex.RUnlock()
+	argsForCall := fake.verifyProcessArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *FakeImpl) VerifyProcessReturns(result1 error) {
+	fake.verifyProcessMutex.Lock()
+	defer fake.verifyProcessMutex.Unlock()
+	fake.VerifyProcessStub = nil
+	fake.verifyProcessReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) VerifyProcessReturnsOnCall(i int, result1 error) {
+	fake.verifyProcessMutex.Lock()
+	defer fake.verifyProcessMutex.Unlock()
+	fake.VerifyProcessStub = nil
+	if fake.verifyProcessReturnsOnCall == nil {
+		fake.verifyProcessReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.verifyProcessReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
 }

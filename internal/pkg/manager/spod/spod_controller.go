@@ -226,7 +226,15 @@ func (r *ReconcileSPOd) Reconcile(
 	webhook := r.getConfiguredWebook(spod, image, pullPolicy, caInjectType)
 	r.applyAdmissionPolicies(ctx, spod, webhook)
 
+	// The metrics service is owned by the SPOD, so that it gets restored if
+	// it gets deleted.
 	metricsService := bindata.GetMetricsService(r.namespace, caInjectType)
+	if err := controllerutil.SetControllerReference(spod, metricsService, r.scheme); err != nil {
+		return reconcile.Result{}, fmt.Errorf(
+			"setting metrics service controller reference: %w", err,
+		)
+	}
+
 	serviceMonitor := bindata.ServiceMonitor(caInjectType,
 		ptr.Deref(spod.Spec.EnableInsecureMetricsAccess, false))
 
@@ -274,6 +282,10 @@ func (r *ReconcileSPOd) Reconcile(
 		kubeletDirsToMount(configuredSPOd, foundSPOd, kubeletDirs),
 	)
 
+	if err := r.ensureMetricsService(ctx, spod, metricsService); err != nil {
+		return reconcile.Result{}, err
+	}
+
 	spodUpdate := spodNeedsUpdate(configuredSPOd, foundSPOd)
 
 	var hookUpdate bool
@@ -311,15 +323,65 @@ func (r *ReconcileSPOd) Reconcile(
 		return reconcile.Result{}, r.handleUpdatingStatus(ctx, spod, logger)
 	}
 
-	if foundSPOd.Status.NumberReady == foundSPOd.Status.DesiredNumberScheduled {
+	if daemonSetRolledOut(foundSPOd) {
 		condready := spod.Status.GetReadyCondition()
 		// Don't pollute the logs. Let's only update when needed.
 		if condready.Status != metav1.ConditionTrue {
 			return reconcile.Result{}, r.handleRunningStatus(ctx, spod, logger)
 		}
+	} else if spod.Status.State == spodapi.SPODStateRunning {
+		// Pods of the SPOd became unavailable, for example because they
+		// crash or a node got added which cannot run them.
+		return reconcile.Result{}, r.handleUpdatingStatus(ctx, spod, logger)
 	}
 
 	return reconcile.Result{}, nil
+}
+
+// daemonSetRolledOut returns true if the DaemonSet controller observed the
+// current spec and every scheduled pod is up to date and available.
+func daemonSetRolledOut(ds *appsv1.DaemonSet) bool {
+	status := &ds.Status
+
+	return status.ObservedGeneration >= ds.Generation &&
+		status.UpdatedNumberScheduled == status.DesiredNumberScheduled &&
+		status.NumberAvailable == status.DesiredNumberScheduled &&
+		status.NumberReady == status.DesiredNumberScheduled
+}
+
+// ensureMetricsService creates the metrics service if it is missing, for
+// example because it got deleted, and makes the SPOD its owner, so that its
+// deletion is noticed.
+func (r *ReconcileSPOd) ensureMetricsService(
+	ctx context.Context,
+	spod *spodapi.SecurityProfilesOperatorDaemon,
+	metricsService *corev1.Service,
+) error {
+	found := &corev1.Service{}
+
+	err := r.client.Get(ctx, client.ObjectKeyFromObject(metricsService), found)
+	if errors.IsNotFound(err) {
+		r.log.Info("Creating missing metrics service")
+
+		if err := r.client.Create(ctx, metricsService.DeepCopy()); err != nil &&
+			!errors.IsAlreadyExists(err) {
+			return fmt.Errorf("creating metrics service: %w", err)
+		}
+
+		return nil
+	}
+
+	if err != nil {
+		return fmt.Errorf("getting metrics service: %w", err)
+	}
+
+	if !metav1.IsControlledBy(found, spod) {
+		if err := r.client.Patch(ctx, metricsService.DeepCopy(), client.Merge); err != nil {
+			return fmt.Errorf("updating metrics service owner: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // applyAdmissionPolicies applies the admission policies of the operator,
@@ -585,15 +647,13 @@ func (r *ReconcileSPOd) handleUpdate(
 
 	r.log.Info("Updating metrics service")
 
-	if err := r.client.Patch(ctx, metricsService, client.Merge); err != nil {
+	if err := patchOrCreate(ctx, r.client, metricsService); err != nil {
 		return fmt.Errorf("updating metrics service: %w", err)
 	}
 
 	r.log.Info("Updating operator service monitor")
 
-	if err := r.client.Patch(
-		ctx, serviceMonitor, client.Merge,
-	); err != nil {
+	if err := patchOrCreate(ctx, r.client, serviceMonitor); err != nil {
 		if bindata.IsNotFound(err) {
 			r.log.Info("Service monitor resource does not seem to exist, ignoring")
 		} else {
@@ -602,6 +662,16 @@ func (r *ReconcileSPOd) handleUpdate(
 	}
 
 	return nil
+}
+
+// patchOrCreate merge patches the object and creates it if it does not exist.
+func patchOrCreate(ctx context.Context, c client.Client, obj client.Object) error {
+	err := c.Patch(ctx, obj, client.Merge)
+	if errors.IsNotFound(err) {
+		return c.Create(ctx, obj)
+	}
+
+	return err
 }
 
 // baseContainer returns a deep copy of the base SPOd container with the given
@@ -927,13 +997,20 @@ func configureContainerDefaults(
 	// even though SELinux is disabled in order to get the containers to start.
 	configureSelinuxTag := !ptr.Deref(cfg.Spec.EnableAppArmor, false)
 
+	// The API server only defaults the type tag if the SPOD has a selinux
+	// section, and an empty type would drop the one of the base SPOd.
+	typeTag := cfg.Spec.Selinux.TypeTag
+	if typeTag == "" {
+		typeTag = bindata.DefaultSelinuxTypeTag
+	}
+
 	for i := range templateSpec.InitContainers {
 		ctr := &templateSpec.InitContainers[i]
 		ctr.ImagePullPolicy = pullPolicy
 		ctr.Env = append(ctr.Env, verbosityEnv(cfg.Spec.Verbosity))
 
 		if configureSelinuxTag {
-			configureSeLinuxTag(ctr.SecurityContext, cfg.Spec.Selinux.TypeTag)
+			configureSeLinuxTag(ctr.SecurityContext, typeTag)
 		}
 	}
 
@@ -947,10 +1024,7 @@ func configureContainerDefaults(
 		}
 
 		if configureSelinuxTag {
-			configureSeLinuxTag(
-				templateSpec.Containers[i].SecurityContext,
-				cfg.Spec.Selinux.TypeTag,
-			)
+			configureSeLinuxTag(templateSpec.Containers[i].SecurityContext, typeTag)
 		}
 	}
 }

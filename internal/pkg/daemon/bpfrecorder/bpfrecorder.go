@@ -40,8 +40,10 @@ import (
 	bpf "github.com/aquasecurity/libbpfgo"
 	"github.com/go-logr/logr"
 	"github.com/jellydator/ttlcache/v3"
+	"golang.org/x/sync/singleflight"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 
@@ -74,6 +76,33 @@ const (
 	// lostEventsInterval is how often the kernel side drop counters are
 	// checked while a recording is running.
 	lostEventsInterval = 30 * time.Second
+
+	// missingContainerTimeout is how long a container which was not found in
+	// the pod list of the node is not looked up again. Such containers are
+	// usually not managed by Kubernetes, like the ones of podman or of a
+	// container engine running in a pod, and every lookup lists all pods of
+	// the node.
+	missingContainerTimeout = time.Minute
+
+	// maintenanceInterval is how often the recorder looks for data nobody is
+	// going to collect.
+	maintenanceInterval = time.Minute
+
+	// staleKeySweeps is how many maintenance runs in a row a key has to be
+	// without container and without processes before its data is dropped.
+	// The grace period covers the lookups of processes which were just
+	// reported.
+	staleKeySweeps = 2
+
+	// abandonedRecordingTimeout is how long a recording keeps running after
+	// the last pod to record left the node. It covers the collection of the
+	// profiles, which only happens once the pods are gone.
+	abandonedRecordingTimeout = 10 * time.Minute
+
+	// uncollectedRecordingTimeout is abandonedRecordingTimeout while profiles
+	// of the recording are not collected yet. A failing collection is retried
+	// with a backoff of up to about 17 minutes.
+	uncollectedRecordingTimeout = time.Hour
 )
 
 // Indexes of the lost_events map, see recorder.bpf.c.
@@ -81,6 +110,7 @@ const (
 	lostRingbuf uint32 = iota
 	lostSyscallsMapFull
 	lostFileEventBusy
+	lostCompatSyscall
 	lostReasons
 )
 
@@ -124,6 +154,36 @@ type BpfRecorder struct {
 	// uniqueKeys is set if the BPF program stores the recorded data under
 	// keys which are never reused.
 	uniqueKeys bool
+	// cgroupKeys is set if the keys are cgroup IDs.
+	cgroupKeys bool
+
+	// staleKeys counts the maintenance runs in a row which found a key
+	// without container and processes. Only used by the maintenance.
+	staleKeys map[uint64]int
+	// idleSince is when the maintenance first found no pod to record on the
+	// node while a recording was running. Guarded by startMu.
+	idleSince time.Time
+	// lastStart is when a recording was last requested. Guarded by startMu.
+	lastStart time.Time
+	// now returns the current time, a field so that tests can move it.
+	now func() time.Time
+
+	// containersNotFound remembers container IDs which were not found in the
+	// cluster, so that the processes of a container which is not managed by
+	// Kubernetes do not list every pod of the node again and again.
+	containersNotFound *ttlcache.Cache[string, struct{}]
+	// profileLookups makes the handlers of processes of the same container
+	// share a single lookup.
+	profileLookups singleflight.Group
+
+	// droppedNewPidEvents counts the new pid events the handlers had no room
+	// for.
+	droppedNewPidEvents atomic.Uint64
+	// droppedPids holds the processes whose event did not fit into the
+	// queue. They are removed from the active_pids map once the queue has
+	// room again, so that the BPF program reports them again.
+	droppedPids   map[droppedPid]struct{}
+	droppedPidsMu sync.Mutex
 
 	AppArmor *AppArmorRecorder
 	Seccomp  *SeccompRecorder
@@ -158,12 +218,21 @@ type BpfRecorder struct {
 	exitWaiters sync.Map
 }
 
+// droppedPid is a process whose new pid event was dropped.
+type droppedPid struct {
+	pid uint32
+	key uint64
+}
+
 // newPidEvent is the queued form of a new pid event.
 type newPidEvent struct {
 	pid        uint32
 	mntns      uint32
 	key        uint64
 	generation uint64
+	// seenAt is the time since boot the event was received at, see
+	// verifyProcess.
+	seenAt time.Duration
 }
 
 // We use a single shared event ringbuf for all userspace communication.
@@ -245,6 +314,13 @@ func New(programName string, logger logr.Logger, recordSeccomp, recordAppArmor b
 			ttlcache.WithCapacity[string, struct{}](maxCacheItems),
 			ttlcache.WithDisableTouchOnHit[string, struct{}](),
 		),
+		containersNotFound: ttlcache.New(
+			ttlcache.WithTTL[string, struct{}](missingContainerTimeout),
+			ttlcache.WithCapacity[string, struct{}](maxCacheItems),
+			ttlcache.WithDisableTouchOnHit[string, struct{}](),
+		),
+		staleKeys:           map[uint64]int{},
+		now:                 time.Now,
 		attachUnattachMutex: sync.RWMutex{},
 		programName:         programName,
 		AppArmor:            appArmor,
@@ -276,6 +352,9 @@ func (b *BpfRecorder) Run() error {
 
 	go b.containersWithoutProfile.Start()
 	defer b.containersWithoutProfile.Stop()
+
+	go b.containersNotFound.Start()
+	defer b.containersNotFound.Stop()
 
 	if b.nodeName == "" {
 		b.nodeName = os.Getenv(config.NodeNameEnvKey)
@@ -363,6 +442,11 @@ func (b *BpfRecorder) Run() error {
 
 	b.logger.Info("BPF start/stop self-test successful.")
 
+	maintenanceCtx, stopMaintenance := context.WithCancel(context.Background())
+	defer stopMaintenance()
+
+	go b.runMaintenance(maintenanceCtx)
+
 	b.logger.Info("Starting GRPC API server")
 
 	grpcServer := grpc.NewServer(
@@ -439,6 +523,8 @@ func (b *BpfRecorder) Start(
 	b.startMu.Lock()
 	defer b.startMu.Unlock()
 
+	b.lastStart = b.now()
+
 	if atomic.LoadInt64(&b.startRequests) == 0 {
 		b.logger.Info("Starting bpf recorder")
 
@@ -485,7 +571,7 @@ func (b *BpfRecorder) Stop(
 // The recorded data stays in place until ResetSyscallsForProfile is called, so
 // that the caller can retry if persisting the profile fails.
 func (b *BpfRecorder) SyscallsForProfile(
-	_ context.Context, r *api.ProfileRequest,
+	ctx context.Context, r *api.ProfileRequest,
 ) (*api.SyscallsResponse, error) {
 	if atomic.LoadInt64(&b.startRequests) == 0 {
 		return nil, errors.New("bpf recorder not running")
@@ -497,7 +583,7 @@ func (b *BpfRecorder) SyscallsForProfile(
 
 	b.logger.Info("Getting syscalls for profile", "profile", r.GetName())
 
-	keys, err := b.getKeysForProfileWithRetry(r.GetName())
+	keys, err := b.getKeysForProfileWithRetry(ctx, r.GetName())
 	if err != nil {
 		return nil, err
 	}
@@ -544,7 +630,7 @@ func (b *BpfRecorder) ResetSyscallsForProfile(
 // The recorded data stays in place until ResetApparmorForProfile is called, so
 // that the caller can retry if persisting the profile fails.
 func (b *BpfRecorder) ApparmorForProfile(
-	_ context.Context, r *api.ProfileRequest,
+	ctx context.Context, r *api.ProfileRequest,
 ) (*api.ApparmorResponse, error) {
 	if atomic.LoadInt64(&b.startRequests) == 0 {
 		return nil, errors.New("bpf recorder not running")
@@ -556,7 +642,7 @@ func (b *BpfRecorder) ApparmorForProfile(
 
 	b.logger.Info("Getting apparmor profile", "profile", r.GetName())
 
-	keys, err := b.getKeysForProfileWithRetry(r.GetName())
+	keys, err := b.getKeysForProfileWithRetry(ctx, r.GetName())
 	if err != nil {
 		return nil, err
 	}
@@ -630,12 +716,18 @@ func (b *BpfRecorder) resetProfile(profile string, clearData func([]uint64)) {
 	}
 }
 
-func (b *BpfRecorder) getKeysForProfileWithRetry(profile string) ([]uint64, error) {
+func (b *BpfRecorder) getKeysForProfileWithRetry(
+	ctx context.Context, profile string,
+) ([]uint64, error) {
 	if _, collected := b.collectedProfiles.Load(profile); collected {
 		b.logger.Info("Profile was already collected", "profile", profile)
 
 		return nil, ErrNotFound
 	}
+
+	lookupCtx, cancel := context.WithTimeout(ctx, defaultTimeout)
+	b.cacheProfilesOfUnresolvedContainers(lookupCtx)
+	cancel()
 
 	// There is a chance to miss the PID if concurrent processes are being
 	// analyzed. If we request the `SyscallsForProfile` exactly between two
@@ -752,6 +844,7 @@ func (b *BpfRecorder) Load() (err error) {
 		}
 
 		b.uniqueKeys = true
+		b.cgroupKeys = true
 		b.logger.Info("Recording per cgroup")
 	default:
 		if err := b.InitGlobalVariable(module, globalUseMntnsSeq, true); err != nil {
@@ -904,6 +997,12 @@ func (b *BpfRecorder) checkLostEvents() {
 					"recorded seccomp profiles may be incomplete",
 				"lostSyscalls", lost, "lostSyscallsTotal", total,
 			)
+		case lostCompatSyscall:
+			b.logger.Info(
+				"WARNING: 32 bit syscalls are not recorded, "+
+					"recorded seccomp profiles of 32 bit programs are incomplete",
+				"lostSyscalls", lost, "lostSyscallsTotal", total,
+			)
 		}
 	}
 }
@@ -1038,6 +1137,7 @@ func (b *BpfRecorder) StopRecording() error {
 	// one session must not suppress the lookup in the next one for the rest of
 	// its hour-long TTL.
 	b.containersWithoutProfile.DeleteAll()
+	b.containersNotFound.DeleteAll()
 
 	b.logger.Info("Recording stopped.")
 
@@ -1162,30 +1262,85 @@ func (b *BpfRecorder) scheduleNewPidEvent(pid, mntns uint32, key uint64) {
 		}
 	})
 
+	// A failure only skips the check of the process start time.
+	seenAt, err := b.Uptime()
+	if err != nil {
+		seenAt = 0
+	}
+
 	event := newPidEvent{
 		pid:        pid,
 		mntns:      mntns,
 		key:        key,
 		generation: b.recordingGeneration.Load(),
+		seenAt:     seenAt,
 	}
 
 	select {
 	case b.newPidEvents <- event:
 	default:
-		b.logger.Info(
-			"Dropping new pid event because the handler queue is full",
-			"pid", pid, "mntns", mntns, "queueSize", newPidQueueSize,
-		)
+		// The BPF program reports a process only once. It gets forgotten
+		// there once the handlers caught up, not right away, because every
+		// syscall of the process would report it again into the full queue
+		// and flood the ring buffer.
+		b.droppedPidsMu.Lock()
+		if len(b.droppedPids) < newPidQueueSize {
+			if b.droppedPids == nil {
+				b.droppedPids = map[droppedPid]struct{}{}
+			}
+
+			b.droppedPids[droppedPid{pid: pid, key: key}] = struct{}{}
+		}
+		b.droppedPidsMu.Unlock()
+
+		// A process can be dropped more than once, so only a sample of the
+		// drops is logged.
+		if dropped := b.droppedNewPidEvents.Add(1); dropped%1000 == 1 {
+			b.logger.Info(
+				"Dropping new pid event because the handler queue is full",
+				"pid", pid, "mntns", mntns, "queueSize", newPidQueueSize, "droppedTotal", dropped,
+			)
+		}
 	}
 }
 
 func (b *BpfRecorder) runPidHandler() {
 	for event := range b.newPidEvents {
-		b.handleNewPidEvent(event.pid, event.mntns, event.key, event.generation)
+		b.handleNewPidEvent(event)
+		b.reportDroppedPidsAgain()
 	}
 }
 
-func (b *BpfRecorder) handleNewPidEvent(pid, mntns uint32, key, generation uint64) {
+// reportDroppedPidsAgain removes the processes whose event was dropped from
+// the active_pids map once the queue is at most half full, so that the BPF
+// program reports them again with their next syscall.
+func (b *BpfRecorder) reportDroppedPidsAgain() {
+	if len(b.newPidEvents) > newPidQueueSize/2 {
+		return
+	}
+
+	b.droppedPidsMu.Lock()
+	dropped := b.droppedPids
+	b.droppedPids = nil
+	b.droppedPidsMu.Unlock()
+
+	if b.activePidsBpfMap == nil {
+		return
+	}
+
+	for d := range dropped {
+		if err := b.DeleteActivePid(b.activePidsBpfMap, d.pid, d.key); err != nil &&
+			!errors.Is(err, syscall.ENOENT) {
+			b.logger.V(config.VerboseLevel).Info(
+				"Unable to report dropped pid again", "pid", d.pid, "key", d.key, "error", err.Error(),
+			)
+		}
+	}
+}
+
+func (b *BpfRecorder) handleNewPidEvent(event newPidEvent) {
+	pid, mntns, key, generation := event.pid, event.mntns, event.key, event.generation
+
 	b.logger.V(config.VerboseLevel).Info("Received new pid", "pid", pid, "mntns", mntns, "key", key)
 
 	if b.clientset == nil {
@@ -1193,17 +1348,22 @@ func (b *BpfRecorder) handleNewPidEvent(pid, mntns uint32, key, generation uint6
 		return
 	}
 
-	// Look up the container ID based on PID from cgroup file. The cache is
-	// keyed by PID and process start time, so a process reusing a PID gets
-	// its own entry.
-	containerID, err := b.ContainerIDForPID(b.pidToContainerIDCache, int(pid))
+	// The keys are never reused in-cluster, so a key which got mapped to a
+	// recorded container already needs no lookup for its other processes.
+	if profile, ok := b.profileOfKey(key); ok {
+		b.trackProfileMetric(mntns, profile)
+
+		return
+	}
+
+	containerID, err := b.containerIDForKey(&event)
 	if err != nil {
 		b.logger.V(config.VerboseLevel).Info(
 			"No container ID found for PID",
-			"pid", pid, "mntns", mntns, "error", err.Error(),
+			"pid", pid, "mntns", mntns, "key", key, "error", err.Error(),
 		)
 
-		// The process runs outside of any container.
+		// The workload runs outside of any container.
 		if errors.Is(err, util.ErrContainerIDNotFound) {
 			b.excludeKey(key, generation)
 		}
@@ -1238,6 +1398,15 @@ func (b *BpfRecorder) handleNewPidEvent(pid, mntns uint32, key, generation uint6
 			return
 		}
 
+		// Containers which are not managed by Kubernetes are reported with
+		// every process they start.
+		if errors.Is(err, errContainerNotInCluster) {
+			b.logger.V(config.VerboseLevel).Info("Container not found in cluster",
+				"id", containerID, "pid", pid, "mntns", mntns, "error", err.Error())
+
+			return
+		}
+
 		b.logger.Error(err, "Unable to find profile in cluster for container ID",
 			"id", containerID, "pid", pid, "mntns", mntns)
 
@@ -1258,6 +1427,91 @@ func (b *BpfRecorder) handleNewPidEvent(pid, mntns uint32, key, generation uint6
 		b.containerKeys.Delete(key)
 		b.containerIDToProfileMap.Delete(containerID)
 	}
+}
+
+// errProcessChanged is returned by verifyProcess if the PID of a reported
+// process belongs to another process by now.
+var errProcessChanged = errors.New("process changed since it was reported")
+
+// containerIDForKey returns the ID of the container of the workload which
+// records under the key of event. It only fails with util.ErrContainerIDNotFound
+// if the workload is known to run outside of any container.
+func (b *BpfRecorder) containerIDForKey(event *newPidEvent) (string, error) {
+	// A cgroup ID is never reused, so the path of the cgroup tells the
+	// container even after the reported process exited or its PID got
+	// reused. Only a path with a container ID is taken, anything else is left
+	// to the lookup by PID.
+	if b.cgroupKeys {
+		path, err := b.CgroupPathForID(event.key)
+		if err == nil {
+			if ids := util.ContainerIDRegex.FindAllString(path, -1); len(ids) > 0 {
+				// The last one, like ContainerIDForPID does.
+				return ids[len(ids)-1], nil
+			}
+		} else {
+			b.logger.V(config.VerboseLevel).Info(
+				"Unable to resolve cgroup", "key", event.key, "error", err.Error(),
+			)
+		}
+	}
+
+	// The cache is keyed by PID and process start time, so a process reusing a
+	// PID gets its own entry.
+	containerID, err := b.ContainerIDForPID(b.pidToContainerIDCache, int(event.pid))
+	if err != nil && !errors.Is(err, util.ErrContainerIDNotFound) {
+		return "", err
+	}
+
+	// The PID may belong to another process by now. Its container must not be
+	// taken for the one of the key: the key would record for the profile of
+	// another workload, or the data of a recorded one would get dropped as not
+	// recorded.
+	if verifyErr := b.VerifyProcess(event.pid, event.mntns, event.seenAt); verifyErr != nil {
+		return "", fmt.Errorf("verify pid %d: %w", event.pid, verifyErr)
+	}
+
+	return containerID, err
+}
+
+// verifyProcess checks that the process with the PID is still the one which
+// was reported at seenAt, the time since boot, in the mount namespace mntns.
+// seenAt is not checked if it is zero.
+func verifyProcess(
+	pid, mntns uint32,
+	seenAt time.Duration,
+	startTime func(int) (time.Duration, error),
+	readlink func(string) (string, error),
+) error {
+	started, err := startTime(int(pid))
+	if err != nil {
+		return fmt.Errorf("get process start time: %w", err)
+	}
+
+	if seenAt > 0 && started > seenAt {
+		return fmt.Errorf("%w: pid %d started after it was reported", errProcessChanged, pid)
+	}
+
+	link, err := readlink(fmt.Sprintf("/proc/%d/ns/mnt", pid))
+	if err != nil {
+		return fmt.Errorf("read mount namespace: %w", err)
+	}
+
+	if want := fmt.Sprintf("mnt:[%d]", mntns); link != want {
+		return fmt.Errorf("%w: pid %d runs in %s instead of %s", errProcessChanged, pid, link, want)
+	}
+
+	return nil
+}
+
+// profileOfKey returns the profile the data of a key is recorded for, if the
+// key got mapped to a recorded container.
+func (b *BpfRecorder) profileOfKey(key uint64) (string, bool) {
+	containerID, ok := b.containerKeys.Get(key)
+	if !ok {
+		return "", false
+	}
+
+	return b.containerIDToProfileMap.Get(containerID)
 }
 
 // excludeKey stops recording a workload which is not recorded, and drops what
@@ -1354,7 +1608,30 @@ func (b *BpfRecorder) trackProfileMetric(mntns uint32, profile string) {
 	})
 }
 
-var errNoProfileForContainer = errors.New("container has no recording annotation")
+var (
+	errNoProfileForContainer = errors.New("container has no recording annotation")
+
+	// errContainerNotInCluster is returned if no pod of the node has the
+	// container.
+	errContainerNotInCluster = errors.New("container ID not found in cluster")
+
+	// errContainerNotListedYet is errContainerNotInCluster while the pod
+	// status does not tell the IDs of all containers yet.
+	errContainerNotListedYet = fmt.Errorf(
+		"%w, containers are still being created", errContainerNotInCluster,
+	)
+
+	// errContainerNotSyncedYet is errContainerNotInCluster while the status of
+	// a recorded pod may not tell the ID of a restarted container yet.
+	errContainerNotSyncedYet = fmt.Errorf(
+		"%w, the pod status may not be synced yet", errContainerNotInCluster,
+	)
+)
+
+// containerStatusSyncTimeout is how long a container which is not in the pod
+// status is looked up again while a pod of the node is recorded. The kubelet
+// updates the status within a few seconds after it (re)started a container.
+const containerStatusSyncTimeout = 3 * time.Second
 
 func (b *BpfRecorder) findProfileForContainerID(id string) (string, error) {
 	if b.containersWithoutProfile.Get(id) != nil {
@@ -1371,6 +1648,30 @@ func (b *BpfRecorder) findProfileForContainerID(id string) (string, error) {
 		return profile, nil
 	}
 
+	if b.containersNotFound.Get(id) != nil {
+		return "", errContainerNotInCluster
+	}
+
+	// The handlers of the processes of one container share a lookup, instead
+	// of each of them listing the pods of the node.
+	profile, err, _ := b.profileLookups.Do(id, func() (any, error) {
+		return b.lookupProfileForContainerID(id)
+	})
+	if err != nil {
+		return "", err
+	}
+
+	profileName, ok := profile.(string)
+	if !ok {
+		return "", fmt.Errorf("unexpected profile type: %T", profile)
+	}
+
+	return profileName, nil
+}
+
+// lookupProfileForContainerID searches the pods of the node for the container
+// and caches the profiles of all containers it finds.
+func (b *BpfRecorder) lookupProfileForContainerID(id string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer cancel()
 
@@ -1381,6 +1682,7 @@ func (b *BpfRecorder) findProfileForContainerID(id string) (string, error) {
 	)
 
 	try := -1
+	start := time.Now()
 
 	if err := util.RetryEx(
 		&wait.Backoff{
@@ -1402,79 +1704,45 @@ func (b *BpfRecorder) findProfileForContainerID(id string) (string, error) {
 				return errors.New("no pods found in cluster")
 			}
 
+			pending, recorded := false, false
+
 			for p := range pods.Items {
 				pod := &pods.Items[p]
 
-				statuses := slices.Concat(
-					pod.Status.InitContainerStatuses,
-					pod.Status.ContainerStatuses)
-				for c := range statuses {
-					containerStatus := statuses[c]
-					fullContainerID := containerStatus.ContainerID
-					containerName := containerStatus.Name
+				pending = pending || containersPending(pod)
+				recorded = recorded || recordsBpf(pod)
 
-					// The container ID is not yet available in the container status of the pod.
-					// This container can be skipped for now, the status will be checked again later.
-					if fullContainerID == "" {
-						b.logger.Info(
-							"Container ID not yet available in cluster",
-							"containerID", id,
-							"podName", pod.Name,
-							"containerName", containerName,
-						)
-
-						continue
-					}
-
-					containerID := util.ContainerIDRegex.FindString(fullContainerID)
-					if containerID == "" {
-						b.logger.Error(err,
-							"Unable to parse container ID from container status available in pod",
-							"fullContainerID", fullContainerID,
-							"podName", pod.Name,
-							"containerName", containerName,
-						)
-
-						continue
-					}
-
-					b.logger.V(config.VerboseLevel).Info(
-						"Found Container ID in cluster",
-						"containerID", containerID,
-						"podName", pod.Name,
-						"containerName", containerName,
-					)
-
-					for _, annotation := range []string{
-						config.SeccompProfileRecordBpfAnnotationKey,
-						config.ApparmorProfileRecordBpfAnnotationKey,
-					} {
-						key := annotation + containerName
-
-						profile, ok := pod.Annotations[key]
-						if ok && profile != "" {
-							b.logger.Info(
-								"Cache this profile found in cluster",
-								"profile", profile,
-								"containerID", containerID,
-								"podName", pod.Name,
-								"containerName", containerName,
-							)
-							b.containerIDToProfileMap.Insert(containerID, profile)
-						}
-					}
-
-					// Stop looking for this container ID regadless of a profile was found or not.
-					if containerID == id {
-						return nil
-					}
+				// Stop looking for this container ID regardless of a profile
+				// was found or not.
+				if b.cacheProfilesOfPod(pod, id) {
+					return nil
 				}
 			}
 
-			return fmt.Errorf("container ID not found in cluster: %s", id)
+			// A container which is not listed yet can only belong to a pod
+			// whose containers are still being created.
+			if pending {
+				return fmt.Errorf("%w: %s", errContainerNotListedYet, id)
+			}
+
+			// A restarted container runs before the pod status tells its
+			// ID, which still is the one of the previous run.
+			if recorded && time.Since(start) < containerStatusSyncTimeout {
+				return fmt.Errorf("%w: %s", errContainerNotSyncedYet, id)
+			}
+
+			return fmt.Errorf("%w: %s", errContainerNotInCluster, id)
 		},
-		func(error) bool { return true },
+		func(err error) bool {
+			return !errors.Is(err, errContainerNotInCluster) ||
+				errors.Is(err, errContainerNotListedYet) ||
+				errors.Is(err, errContainerNotSyncedYet)
+		},
 	); err != nil {
+		if errors.Is(err, errContainerNotInCluster) {
+			b.containersNotFound.Set(id, struct{}{}, ttlcache.DefaultTTL)
+		}
+
 		return "", fmt.Errorf("searching container ID %s: %w", id, err)
 	}
 
@@ -1493,6 +1761,142 @@ func (b *BpfRecorder) findProfileForContainerID(id string) (string, error) {
 	b.containersWithoutProfile.Set(id, struct{}{}, ttlcache.DefaultTTL)
 
 	return "", errNoProfileForContainer
+}
+
+// cacheProfilesOfUnresolvedContainers caches the profiles of the containers of
+// the node if a container which records data has no profile. The lookup for
+// the processes of a container gives up if the pod status does not tell its ID
+// soon enough, like for a restarted container on a busy node. Nothing would
+// look up the container again otherwise, which loses its data.
+func (b *BpfRecorder) cacheProfilesOfUnresolvedContainers(ctx context.Context) {
+	if b.clientset == nil {
+		return
+	}
+
+	unresolved := slices.ContainsFunc(b.containerKeys.Containers(), func(id string) bool {
+		_, ok := b.containerIDToProfileMap.Get(id)
+
+		return !ok
+	})
+	if !unresolved {
+		return
+	}
+
+	pods, err := b.ListPods(ctx, b.clientset, b.nodeName)
+	if err != nil || pods == nil {
+		b.logger.Error(err, "Unable to list the pods to look up unresolved containers")
+
+		return
+	}
+
+	for i := range pods.Items {
+		b.cacheProfilesOfPod(&pods.Items[i], "")
+	}
+}
+
+// cacheProfilesOfPod caches the profiles recorded for the containers of the
+// pod. It returns true if the pod has the container with the ID.
+func (b *BpfRecorder) cacheProfilesOfPod(pod *v1.Pod, id string) bool {
+	statuses := slices.Concat(
+		pod.Status.InitContainerStatuses,
+		pod.Status.ContainerStatuses)
+	for c := range statuses {
+		containerStatus := statuses[c]
+		fullContainerID := containerStatus.ContainerID
+		containerName := containerStatus.Name
+
+		// The container ID is not yet available in the container status of the pod.
+		// This container can be skipped for now, the status will be checked again later.
+		if fullContainerID == "" {
+			b.logger.V(config.VerboseLevel).Info(
+				"Container ID not yet available in cluster",
+				"containerID", id,
+				"podName", pod.Name,
+				"containerName", containerName,
+			)
+
+			continue
+		}
+
+		containerID := util.ContainerIDRegex.FindString(fullContainerID)
+		if containerID == "" {
+			b.logger.Error(errors.New("invalid container ID"),
+				"Unable to parse container ID from container status available in pod",
+				"fullContainerID", fullContainerID,
+				"podName", pod.Name,
+				"containerName", containerName,
+			)
+
+			continue
+		}
+
+		b.logger.V(config.VerboseLevel).Info(
+			"Found Container ID in cluster",
+			"containerID", containerID,
+			"podName", pod.Name,
+			"containerName", containerName,
+		)
+
+		for _, annotation := range []string{
+			config.SeccompProfileRecordBpfAnnotationKey,
+			config.ApparmorProfileRecordBpfAnnotationKey,
+		} {
+			key := annotation + containerName
+
+			profile, ok := pod.Annotations[key]
+			if ok && profile != "" {
+				b.logger.Info(
+					"Cache this profile found in cluster",
+					"profile", profile,
+					"containerID", containerID,
+					"podName", pod.Name,
+					"containerName", containerName,
+				)
+				b.containerIDToProfileMap.Insert(containerID, profile)
+			}
+		}
+
+		if containerID == id {
+			return true
+		}
+	}
+
+	return false
+}
+
+// containersPending reports whether the status of the pod does not tell the ID
+// of each of its containers yet, because they are still being created. A pod
+// which finished, for example one rejected by the kubelet or evicted, creates
+// no containers anymore, and neither does a container which terminated
+// without ID. Such pods can stay on the node for a long time and must not keep
+// the lookups of unknown containers retrying.
+func containersPending(pod *v1.Pod) bool {
+	if pod.Status.Phase == v1.PodSucceeded || pod.Status.Phase == v1.PodFailed {
+		return false
+	}
+
+	statuses := slices.Concat(pod.Status.InitContainerStatuses, pod.Status.ContainerStatuses)
+	if len(statuses) < len(pod.Spec.InitContainers)+len(pod.Spec.Containers) {
+		return true
+	}
+
+	for i := range statuses {
+		if statuses[i].ContainerID != "" {
+			continue
+		}
+
+		state := &statuses[i].State
+		if state.Waiting == nil && state.Running == nil && state.Terminated == nil {
+			return true
+		}
+
+		if state.Waiting != nil && (state.Waiting.Reason == "ContainerCreating" ||
+			state.Waiting.Reason == "PodInitializing") {
+			return true
+		}
+	}
+
+	return false
 }
 
 // WaitForPidExit waits for a specific PID to exit.

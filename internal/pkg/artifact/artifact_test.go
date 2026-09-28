@@ -69,6 +69,7 @@ func TestPushDisableSigning(t *testing.T) {
 	sut.impl = mock
 
 	require.NoError(t, sut.Push(
+		t.Context(),
 		map[*ocispec.Platform]string{
 			{OS: runtime.GOOS, Architecture: runtime.GOARCH}: "test",
 		},
@@ -258,6 +259,7 @@ func TestPush(t *testing.T) {
 			sut.impl = mock
 
 			err := sut.Push(
+				t.Context(),
 				map[*ocispec.Platform]string{
 					{
 						OS:           runtime.GOOS,
@@ -293,7 +295,6 @@ func TestPull(t *testing.T) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
 				mock.ParseReferenceReturns(testRef, nil)
-				mock.ReadFileReturns([]byte{}, nil)
 				mock.ReadProfileReturns(&seccompprofileapi.SeccompProfile{}, nil)
 				mock.RemoveAllReturns(errTest)
 				mock.FileCloseReturns(errTest)
@@ -312,7 +313,6 @@ func TestPull(t *testing.T) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
 				mock.ParseReferenceReturns(testRef, nil)
-				mock.ReadFileReturns([]byte{}, nil)
 				mock.ReadProfileReturns(&seccompprofileapi.SeccompProfile{}, nil)
 			},
 			assert: func(res *PullResult, err error) {
@@ -329,7 +329,6 @@ func TestPull(t *testing.T) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
 				mock.ParseReferenceReturns(testRef, nil)
-				mock.ReadFileReturns([]byte{}, nil)
 				mock.ReadProfileReturns(&selinuxprofileapi.SelinuxProfile{}, nil)
 			},
 			assert: func(res *PullResult, err error) {
@@ -346,7 +345,6 @@ func TestPull(t *testing.T) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
 				mock.ParseReferenceReturns(testRef, nil)
-				mock.ReadFileReturns([]byte{}, nil)
 				mock.ReadProfileReturns(&apparmorprofileapi.AppArmorProfile{}, nil)
 			},
 			assert: func(res *PullResult, err error) {
@@ -363,7 +361,7 @@ func TestPull(t *testing.T) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
 				mock.ParseReferenceReturns(testRef, nil)
-				mock.ReadFileReturns([]byte(rawSeccompJSON), nil)
+				stubProfile(mock, rawSeccompJSON)
 				mock.ReadProfileReturns(nil, errTest)
 			},
 			assert: func(res *PullResult, err error) {
@@ -383,7 +381,6 @@ func TestPull(t *testing.T) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
 				mock.ParseReferenceReturns(testRef, nil)
-				mock.ReadFileReturns([]byte{}, nil)
 				mock.ReadProfileReturns(nil, errTest)
 			},
 			assert: func(res *PullResult, err error) {
@@ -403,7 +400,6 @@ func TestPull(t *testing.T) {
 					Config: ocispec.Descriptor{MediaType: MediaTypeSeccompProfile},
 					Layers: []ocispec.Descriptor{testLayer("")},
 				}, map[digest.Digest]string{testLayer("").Digest: rawSeccompJSON})
-				mock.ReadFileReturns(nil, errTest)
 				mock.ReadProfileReturns(nil, errTest)
 			},
 			assert: func(res *PullResult, err error) {
@@ -424,7 +420,6 @@ func TestPull(t *testing.T) {
 					ArtifactType: MediaTypeSeccompProfile,
 					Layers:       []ocispec.Descriptor{testLayer("")},
 				}, map[digest.Digest]string{testLayer("").Digest: rawSeccompJSON})
-				mock.ReadFileReturns(nil, errTest)
 				mock.ReadProfileReturns(nil, errTest)
 			},
 			assert: func(res *PullResult, err error) {
@@ -475,7 +470,6 @@ func TestPull(t *testing.T) {
 				stubManifest(mock, &ocispec.Manifest{
 					Layers: []ocispec.Descriptor{testLayer("seccomp.json")},
 				}, map[digest.Digest]string{testLayer("seccomp.json").Digest: rawSeccompJSON})
-				mock.ReadFileReturns(nil, errTest)
 				mock.ReadProfileReturns(nil, errTest)
 			},
 			assert: func(res *PullResult, err error) {
@@ -494,7 +488,6 @@ func TestPull(t *testing.T) {
 				stubManifest(mock, &ocispec.Manifest{
 					Layers: []ocispec.Descriptor{testLayer("profile-linux-arm64.yaml")},
 				}, nil)
-				mock.ReadFileReturns(nil, errTest)
 			},
 			assert: func(res *PullResult, err error) {
 				require.ErrorIs(t, err, ErrPlatformMismatch)
@@ -514,7 +507,6 @@ func TestPull(t *testing.T) {
 				stubManifest(mock, &ocispec.Manifest{
 					Layers: []ocispec.Descriptor{layer},
 				}, nil)
-				mock.ReadFileReturns(nil, errTest)
 			},
 			assert: func(res *PullResult, err error) {
 				require.ErrorIs(t, err, ErrPlatformMismatch)
@@ -527,7 +519,6 @@ func TestPull(t *testing.T) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
 				mock.ParseReferenceReturns(testRef, nil)
-				mock.ReadFileReturns(nil, errTest)
 				stubManifest(mock, &ocispec.Manifest{
 					Layers: []ocispec.Descriptor{
 						testLayer("profile-linux-amd64.yaml"),
@@ -576,7 +567,6 @@ func TestPull(t *testing.T) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
 				mock.ParseReferenceReturns(testRef, nil)
-				mock.ReadFileReturns(nil, errTest)
 
 				manifest, err := json.Marshal(ocispec.Manifest{
 					Layers: []ocispec.Descriptor{testLayer("seccomp.json")},
@@ -694,7 +684,7 @@ func TestPull(t *testing.T) {
 			t.Parallel()
 
 			mock := &artifactfakes.FakeImpl{}
-			stubManifest(mock, &ocispec.Manifest{}, nil)
+			stubProfile(mock, "")
 			prepare(mock)
 
 			sut := New(logr.Discard())
@@ -769,7 +759,15 @@ func TestPushMediaTypes(t *testing.T) {
 			sut := New(logr.Discard())
 			sut.impl = mock
 
-			err := sut.Push(map[*ocispec.Platform]string{platform: "profile"}, "", "", "", nil, nil)
+			err := sut.Push(
+				t.Context(),
+				map[*ocispec.Platform]string{platform: "profile"},
+				"",
+				"",
+				"",
+				nil,
+				nil,
+			)
 			require.NoError(t, err)
 
 			require.Equal(t, 1, mock.StoreAddCallCount())
@@ -962,7 +960,7 @@ func TestPushRuntimeSpecSeccompProfileErrors(t *testing.T) {
 			sut := New(logr.Discard())
 			sut.impl = mock
 
-			err := sut.Push(tc.files, "", "", "", nil, nil)
+			err := sut.Push(t.Context(), tc.files, "", "", "", nil, nil)
 			require.ErrorIs(t, err, tc.wantErr)
 		})
 	}
@@ -1104,6 +1102,15 @@ func testLayer(title string) ocispec.Descriptor {
 	}
 
 	return descriptor
+}
+
+// stubProfile makes StoreFetch return an artifact with a platform
+// independent profile layer of the content.
+func stubProfile(mock *artifactfakes.FakeImpl, content string) {
+	layer := testLayer(defaultProfileYAML)
+	stubManifest(mock, &ocispec.Manifest{
+		Layers: []ocispec.Descriptor{layer},
+	}, map[digest.Digest]string{layer.Digest: content})
 }
 
 // stubManifest makes StoreFetch return the manifest for every descriptor
@@ -1322,6 +1329,7 @@ func TestPushCreatedAnnotation(t *testing.T) {
 		sut.impl = mock
 
 		err = sut.Push(
+			t.Context(),
 			map[*ocispec.Platform]string{nil: "profile.json"},
 			"", "", "", annotations, &PushOptions{DisableSigning: true},
 		)
@@ -1377,6 +1385,7 @@ func TestPushPlainHTTP(t *testing.T) {
 	sut.impl = mock
 
 	err = sut.Push(
+		t.Context(),
 		map[*ocispec.Platform]string{nil: "profile.json"},
 		"", "", "", nil, &PushOptions{DisableSigning: true, PlainHTTP: true},
 	)
@@ -1441,9 +1450,8 @@ func TestPullBlobSizeLimit(t *testing.T) {
 			mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
 			mock.ParseReferenceReturns(testRef, nil)
 			mock.VerifyCmdReturns(nil)
-			mock.ReadFileReturns([]byte{}, nil)
 			mock.ReadProfileReturns(&seccompprofileapi.SeccompProfile{}, nil)
-			stubManifest(mock, &ocispec.Manifest{}, nil)
+			stubProfile(mock, "")
 
 			// Run the size check the way ORAS does for every node of the
 			// artifact and fail the copy on its error.
@@ -1503,6 +1511,7 @@ func TestRegistryOptions(t *testing.T) {
 		sut.impl = mock
 
 		err := sut.Push(
+			t.Context(),
 			map[*ocispec.Platform]string{nil: "profile.json"},
 			"", "user", "secret", nil, &PushOptions{PlainHTTP: true},
 		)
@@ -1536,10 +1545,9 @@ func TestRegistryOptions(t *testing.T) {
 		mock.NewRepositoryReturns(&remote.Repository{}, nil)
 		mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
 		mock.ParseReferenceReturns(testRef, nil)
-		mock.ReadFileReturns([]byte{}, nil)
 		mock.ReadProfileReturns(&seccompprofileapi.SeccompProfile{}, nil)
 		mock.SignatureBundleExistsReturns(true, nil)
-		stubManifest(mock, &ocispec.Manifest{}, nil)
+		stubProfile(mock, "")
 
 		sut := New(logr.Discard())
 		sut.impl = mock
@@ -1580,10 +1588,9 @@ func TestRegistryOptions(t *testing.T) {
 			mock.NewRepositoryReturns(&remote.Repository{}, nil)
 			mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
 			mock.ParseReferenceReturns(testRef, nil)
-			mock.ReadFileReturns([]byte{}, nil)
 			mock.ReadProfileReturns(&seccompprofileapi.SeccompProfile{}, nil)
 			mock.SignatureBundleExistsReturns(tc.exists, tc.lookupErr)
-			stubManifest(mock, &ocispec.Manifest{}, nil)
+			stubProfile(mock, "")
 
 			sut := New(logr.Discard())
 			sut.impl = mock
@@ -1684,7 +1691,7 @@ func TestPullDefaultSigner(t *testing.T) {
 			mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
 			mock.ParseReferenceReturns(ref, nil)
 			mock.ReadProfileReturns(&seccompprofileapi.SeccompProfile{}, nil)
-			stubManifest(mock, &ocispec.Manifest{}, nil)
+			stubProfile(mock, "")
 
 			sut := New(logr.Discard())
 			sut.impl = mock

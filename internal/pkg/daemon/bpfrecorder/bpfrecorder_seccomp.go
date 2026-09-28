@@ -131,6 +131,9 @@ func sortUnique(input []string) []string {
 	return slices.Compact(input)
 }
 
+// convertSyscallIDsToNames resolves the IDs with the native architecture. The
+// BPF program leaves out the syscalls of 32 bit tasks, whose numbers belong to
+// another architecture, so a profile of a 32 bit program is incomplete.
 func (s *SeccompRecorder) convertSyscallIDsToNames(b *BpfRecorder, syscalls []byte) []string {
 	result := []string{}
 

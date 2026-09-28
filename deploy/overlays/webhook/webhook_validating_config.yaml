@@ -1,0 +1,27 @@
+---
+# Keep in sync with getValidatingWebhookConfig in
+# internal/pkg/manager/spod/bindata/webhook.go.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: spo-validating-webhook-configuration
+  annotations:
+    cert-manager.io/inject-ca-from: "security-profiles-operator/webhook-cert"
+webhooks:
+  - name: rawselinuxprofile-validation.spo.io
+    failurePolicy: Fail
+    timeoutSeconds: 10
+    sideEffects: NoneOnDryRun
+    rules:
+      - operations: ["CREATE", "UPDATE"]
+        apiGroups: ["security-profiles-operator.x-k8s.io"]
+        apiVersions: ["v1"]
+        resources: ["rawselinuxprofiles"]
+    clientConfig:
+      service:
+        namespace: "security-profiles-operator"
+        name: "webhook-service"
+        path: "/validate-rawselinuxprofile"
+      caBundle: "Cg=="
+    admissionReviewVersions:
+    - v1

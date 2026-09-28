@@ -50,8 +50,7 @@ spec:
 
 	e.logf("Creating test profile")
 
-	cleanup := e.writeAndCreate(profile, "metrics-profile*.yaml")
-	defer cleanup()
+	e.writeAndCreate(profile, "metrics-profile*.yaml")
 
 	e.logf("Waiting for profile to be reconciled")
 	e.waitForProfile(profileName)
@@ -89,8 +88,7 @@ func (e *e2e) testCaseSelinuxMetrics(nodes []string) {
 
 	e.logf("Creating test errorlogger policy")
 
-	cleanup := e.writeAndCreate(errorloggerPolicy, "errorlogger-policy.yml")
-	defer cleanup()
+	e.writeAndCreate(errorloggerPolicy, "errorlogger-policy.yml")
 
 	e.logf("Waiting for profile to be reconciled")
 	e.kubectl("wait", "--timeout", defaultLongOpTimeout,

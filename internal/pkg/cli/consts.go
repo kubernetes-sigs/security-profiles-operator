@@ -16,11 +16,6 @@ limitations under the License.
 
 package cli
 
-import (
-	"os"
-	"path/filepath"
-)
-
 const (
 	// FlagOutputFile is the flag for defining the output file location.
 	FlagOutputFile string = "output-file"
@@ -29,13 +24,37 @@ const (
 	// authentication.
 	FlagUsername string = "username"
 
+	// FlagPasswordStdin is the flag for reading the password for registry
+	// authentication from stdin.
+	FlagPasswordStdin string = "password-stdin"
+
 	// FlagPlainHTTP is the flag for talking to the registry over HTTP.
 	FlagPlainHTTP string = "plain-http"
 
+	// EnvKeyUsername is the environment variable key for defining the
+	// username for registry authentication if the flag is not set.
+	EnvKeyUsername string = "SPOC_USERNAME"
+
 	// EnvKeyPassword is the environment variable key for defining the password
 	// for registry authentication.
-	EnvKeyPassword string = "PASSWORD"
+	EnvKeyPassword string = "SPOC_PASSWORD"
+
+	// EnvKeyUsernameDeprecated is the former environment variable key for the
+	// username, still used with a warning in favor of EnvKeyUsername. It is
+	// only used together with a password, because it commonly holds the login
+	// name.
+	EnvKeyUsernameDeprecated string = "USERNAME"
+
+	// EnvKeyPasswordDeprecated is the former environment variable key for the
+	// password, still used with a warning in favor of EnvKeyPassword.
+	EnvKeyPasswordDeprecated string = "PASSWORD"
+
+	// FilePermissions are the permissions of the profiles spoc writes. They
+	// contain no secrets.
+	FilePermissions = 0o644
 )
 
-// DefaultFile defines the default input and output location for profiles.
-var DefaultFile = filepath.Join(os.TempDir(), "profile.yaml")
+// DefaultFile defines the default input and output location for profiles. It
+// is relative to the working directory, a fixed path in the shared temporary
+// directory could be prepared by other users.
+var DefaultFile = "profile.yaml"

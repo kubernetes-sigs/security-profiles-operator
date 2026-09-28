@@ -190,3 +190,57 @@ func TestHandle(t *testing.T) {
 		})
 	}
 }
+
+// Updates which do not change the policy used to be validated as well, so
+// objects stored before a rule got tightened could not even have their
+// finalizers removed.
+func TestHandleUpdate(t *testing.T) {
+	t.Parallel()
+
+	const (
+		valid   = "(allow process self (tcp_socket (listen)))"
+		invalid = "(block test_t)"
+	)
+
+	now := metav1.Now()
+
+	for _, tc := range []struct {
+		name      string
+		oldPolicy string
+		newPolicy string
+		deleting  bool
+		allowed   bool
+	}{
+		{name: "unchanged invalid policy", oldPolicy: invalid, newPolicy: invalid, allowed: true},
+		{name: "invalid policy being deleted", oldPolicy: valid, newPolicy: invalid, deleting: true, allowed: true},
+		{name: "changed to invalid policy", oldPolicy: valid, newPolicy: invalid},
+		{name: "changed to valid policy", oldPolicy: invalid, newPolicy: valid, allowed: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			req := rawSelinuxProfileRequest(t, tc.newPolicy)
+			req.Operation = admissionv1.Update
+			req.OldObject = rawSelinuxProfileRequest(t, tc.oldPolicy).Object
+
+			if tc.deleting {
+				rsp := &selinuxprofileapi.RawSelinuxProfile{}
+				require.NoError(t, json.Unmarshal(req.Object.Raw, rsp))
+				rsp.DeletionTimestamp = &now
+
+				raw, err := json.Marshal(rsp)
+				require.NoError(t, err)
+
+				req.Object.Raw = raw
+			}
+
+			v := &rawSelinuxProfileValidator{
+				decoder: admission.NewDecoder(newScheme(t)),
+				log:     logf.Log.WithName("test"),
+			}
+
+			resp := v.Handle(context.Background(), req)
+			require.Equal(t, tc.allowed, resp.Allowed)
+		})
+	}
+}

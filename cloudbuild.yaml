@@ -43,7 +43,8 @@ steps:
       mkdir -p build && \
       docker cp $$CONTAINER:/spoc build/spoc && \
       docker rm $$CONTAINER && \
-      export PASSWORD=$$(gcloud auth print-access-token) && \
+      export USERNAME=oauth2accesstoken PASSWORD=$$(gcloud auth print-access-token) && \
+      export SPOC_USERNAME=$$USERNAME SPOC_PASSWORD=$$PASSWORD && \
       ./hack/push-test-artifacts.sh && \
       ./hack/push-base-profiles.sh && \
       ./hack/push-chart.sh

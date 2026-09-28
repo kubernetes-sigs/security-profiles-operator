@@ -51,8 +51,7 @@ spec:
     - listen
 `, profileName)
 
-	profileCleanup := e.writeAndCreate(profile, "test-profile-*.yaml")
-	defer profileCleanup()
+	e.writeAndCreate(profile, "test-profile-*.yaml")
 	defer e.kubectl("delete", "sp", profileName)
 
 	e.logf("Waiting for profile to be reconciled")
@@ -79,8 +78,7 @@ spec:
 
 	since := time.Now()
 
-	podCleanup := e.writeAndCreate(pod, "test-pod-*.yaml")
-	defer podCleanup()
+	e.writeAndCreate(pod, "test-pod-*.yaml")
 	defer e.kubectl("delete", "pod", podName)
 
 	e.waitForProfile(profileName)
@@ -179,8 +177,7 @@ spec:
     - getpid
 `, profileName)
 
-	profileCleanup := e.writeAndCreate(profile, "test-profile-*.yaml")
-	defer profileCleanup()
+	e.writeAndCreate(profile, "test-profile-*.yaml")
 	defer e.kubectl("delete", "sp", profileName)
 
 	e.logf("Waiting for profile to be reconciled")
@@ -207,8 +204,7 @@ spec:
 
 	since := time.Now()
 
-	podCleanup := e.writeAndCreate(pod, "test-pod-*.yaml")
-	defer podCleanup()
+	e.writeAndCreate(pod, "test-pod-*.yaml")
 	defer e.kubectl("delete", "pod", podName)
 
 	e.waitForProfile(profileName)

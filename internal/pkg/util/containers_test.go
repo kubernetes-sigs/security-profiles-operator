@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/jellydator/ttlcache/v3"
 	"github.com/stretchr/testify/require"
@@ -165,6 +166,28 @@ func TestGetProcessStartTimeTicks_CacheMissOnRecycledPID(t *testing.T) {
 		time2,
 		"expected different start times for a recycled PID to prevent cache poisoning",
 	)
+}
+
+func TestProcessStartTime(t *testing.T) {
+	t.Parallel()
+
+	reader := func(pid int) ([]byte, error) {
+		return fmt.Appendf(nil, "%d (bash) %s 12345 1234", pid, testStatFiller), nil
+	}
+
+	started, err := processStartTime(1234, reader)
+	require.NoError(t, err)
+	require.Equal(t, 123450*time.Millisecond, started)
+
+	_, err = processStartTime(1234, func(int) ([]byte, error) {
+		return nil, os.ErrNotExist
+	})
+	require.ErrorIs(t, err, os.ErrNotExist)
+
+	_, err = processStartTime(1234, func(pid int) ([]byte, error) {
+		return fmt.Appendf(nil, "%d (bash) %s nan 1234", pid, testStatFiller), nil
+	})
+	require.Error(t, err)
 }
 
 const (

@@ -22,6 +22,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/go-logr/logr"
 	configv1 "github.com/openshift/api/config/v1"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
@@ -262,4 +263,62 @@ func TestCommands(t *testing.T) {
 	}
 
 	require.NotEmpty(t, globalFlags())
+}
+
+//nolint:paralleltest // uses t.Setenv
+func TestNonRootEnablerKubeletDir(t *testing.T) {
+	const nodeName = "node"
+
+	t.Setenv(config.NodeNameEnvKey, nodeName)
+	t.Setenv(config.KubeletDirEnvKey, "/data/kubelet")
+
+	nodeWithLabel := func(value string) *corev1.Node {
+		node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: nodeName}}
+		if value != "" {
+			node.Labels = map[string]string{config.KubeletDirNodeLabelKey: value}
+		}
+
+		return node
+	}
+
+	for name, tc := range map[string]struct {
+		node    *corev1.Node
+		getErr  error
+		want    string
+		wantErr bool
+	}{
+		"label":         {node: nodeWithLabel("mnt-resource-kubelet"), want: "/mnt/resource/kubelet"},
+		"no label":      {node: nodeWithLabel(""), want: "/data/kubelet"},
+		"invalid label": {node: nodeWithLabel("usr-bin-kubelet"), want: "/data/kubelet"},
+		// A transient API error must not silently pick another directory.
+		"API error": {node: nodeWithLabel("mnt-resource-kubelet"), getErr: errTest, wantErr: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := fake.NewClientBuilder().
+				WithObjects(tc.node).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Get: func(
+						ctx context.Context, c client.WithWatch, key client.ObjectKey,
+						obj client.Object, opts ...client.GetOption,
+					) error {
+						if tc.getErr != nil {
+							return tc.getErr
+						}
+
+						return c.Get(ctx, key, obj, opts...)
+					},
+				}).
+				Build()
+
+			got, err := nonRootEnablerKubeletDir(t.Context(), logr.Discard(), c)
+			if tc.wantErr {
+				require.ErrorIs(t, err, tc.getErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
 }

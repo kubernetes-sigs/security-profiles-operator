@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -137,11 +138,15 @@ func (r *BindingTrackerReconciler) handlePodCreateOrUpdate(
 
 	for i := range bindings.Items {
 		binding := &bindings.Items[i]
+		tracked := slices.Contains(binding.Status.ActiveWorkloads, podID)
+		uses := podUsesBinding(binding, pod, tracked)
 
 		// A binding which is being deleted must not track new pods: the API
 		// server rejects adding finalizers to it.
-		if podMatchesBinding(binding, pod) && binding.GetDeletionTimestamp().IsZero() {
-			logger.Info("Tracking pod in binding", "binding", binding.Name)
+		if uses && binding.GetDeletionTimestamp().IsZero() {
+			if !tracked {
+				logger.Info("Tracking pod in binding", "binding", binding.Name)
+			}
 
 			if err := r.trackPod(ctx, binding, podID); err != nil {
 				return reconcile.Result{}, err
@@ -150,8 +155,7 @@ func (r *BindingTrackerReconciler) handlePodCreateOrUpdate(
 			continue
 		}
 
-		if slices.Contains(binding.Status.ActiveWorkloads, podID) &&
-			!podMatchesBinding(binding, pod) {
+		if tracked && !uses {
 			logger.Info(
 				"Removing pod which no longer matches from binding",
 				"binding",
@@ -267,6 +271,27 @@ func (r *BindingTrackerReconciler) untrackPod(
 	return nil
 }
 
+// podUsesBinding returns true if the binding webhook applied the binding to
+// the pod, which it records in an annotation of the pod. Pods created before
+// the webhook set the annotation stay tracked while they match the binding,
+// but do not get tracked anew, because matching the binding does not mean that
+// the webhook applied it, for example in a namespace without binding enabled.
+func podUsesBinding(pb *profilebindingapi.ProfileBinding, pod *corev1.Pod, tracked bool) bool {
+	applied, ok := pod.GetAnnotations()[profilebindingapi.AppliedBindingsAnnotation]
+	if !ok {
+		return tracked && podMatchesBinding(pb, pod)
+	}
+
+	if slices.Contains(strings.Split(applied, ","), pb.GetName()) {
+		return true
+	}
+
+	// The annotation cannot be changed when ephemeral containers get added,
+	// so the bindings the webhook applied to them are not listed.
+	return podMatchesSelector(pb, labels.Set(pod.GetLabels())) &&
+		ephemeralContainersUseImage(pb, pod)
+}
+
 // podMatchesBinding returns true if the binding webhook applies the binding to
 // the pod: the pod labels match the selector and a container uses the image.
 func podMatchesBinding(pb *profilebindingapi.ProfileBinding, pod *corev1.Pod) bool {
@@ -306,8 +331,13 @@ func podUsesImage(pb *profilebindingapi.ProfileBinding, pod *corev1.Pod) bool {
 		}
 	}
 
+	return ephemeralContainersUseImage(pb, pod)
+}
+
+func ephemeralContainersUseImage(pb *profilebindingapi.ProfileBinding, pod *corev1.Pod) bool {
 	for i := range pod.Spec.EphemeralContainers {
-		if pod.Spec.EphemeralContainers[i].Image == pb.Spec.Image {
+		if pb.Spec.Image == profilebindingapi.SelectAllContainersImage ||
+			pod.Spec.EphemeralContainers[i].Image == pb.Spec.Image {
 			return true
 		}
 	}

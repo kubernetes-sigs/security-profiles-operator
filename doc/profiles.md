@@ -854,6 +854,10 @@ In particular, the `SelinuxProfile` kind:
 - adds a new keyword `@self` that describes the process using the policy. This allows to reuse a policy between
   workloads and namespaces easily, as the "usage" of the policy (see below) is based on the profile name.
 
+A `RawSelinuxProfile` can only inherit the container templates of udica, for example with
+`(blockinherit container)`, and must not use statements which change the policy of the whole node, like
+`typepermissive`.
+
 Below is an example of a policy that can be used with a non-privileged nginx workload:
 
 ```yaml
@@ -1112,7 +1116,7 @@ kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{
 #### Base syscalls for a container runtime
 
 An example of the minimum required syscalls for a runtime such as
-[runc](https://github.com/opencontainers/runc) (tested on version 1.0.0) to
+[runc](https://github.com/opencontainers/runc) (recorded with version 1.5.1) to
 launch a container can be found in [the
 examples](../examples/baseprofile-runc.yaml). You can use this example as a
 starting point for creating custom profiles for your application. You can also
@@ -1249,8 +1253,15 @@ Annotations:  syscalls:
 API Version:  security-profiles-operator.x-k8s.io/v1
 ```
 
-We provide all available base profiles as part of the ["Security Profiles"
-GitHub organization](https://github.com/orgs/security-profiles/packages).
+If an `oci://` base profile is involved, each node pulls it for its own
+architecture, so the result can differ between architectures. The annotation
+is then named after the architecture of the node, for example `syscalls-amd64`
+and `syscalls-arm64`.
+
+We provide the base profiles of [the examples](../examples) as signed OCI
+artifacts at `registry.k8s.io/security-profiles-operator/base/<runtime>`, tagged
+with the runtime version, for example
+`registry.k8s.io/security-profiles-operator/base/crun:v1.30`.
 
 #### Bind workloads to profiles with ProfileBindings
 
@@ -1344,7 +1355,7 @@ actually used.
 
 In this case, it might be useful to merge the per-container profiles
 into a single profile. This can be done by setting the `mergeStrategy`
-attribute to `containers` in the `ProfileRecording`. Note that the following
+attribute to `Containers` in the `ProfileRecording`. Note that the following
 example uses a `SeccompProfile` as the `kind` but the same applies to
 `SelinuxProfile` as well.
 

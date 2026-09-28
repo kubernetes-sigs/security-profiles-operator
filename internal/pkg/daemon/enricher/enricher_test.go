@@ -22,6 +22,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -484,6 +485,55 @@ func TestBacklogIsKeptPerContainer(t *testing.T) {
 	require.Zero(t, sut.auditLineCache.Len())
 }
 
+// TestBacklogKeepsDistinctLinesWhenFull asserts that a full backlog still
+// keeps the lines which differ from the kept ones, so that a recording does
+// not miss the syscalls a container issues after a burst of other ones.
+func TestBacklogKeepsDistinctLinesWhenFull(t *testing.T) {
+	t.Parallel()
+
+	sut, err := New(logr.Discard(), nil)
+	require.NoError(t, err)
+
+	const containerID = "container"
+
+	line := func(timestamp string, syscallID int32) *types.AuditLine {
+		return &types.AuditLine{
+			AuditType:    types.AuditTypeSeccomp,
+			ProcessID:    1,
+			TimestampID:  timestamp,
+			SystemCallID: syscallID,
+		}
+	}
+
+	for i := range int32(auditBacklogMax) {
+		require.NoError(t, sut.addToBacklog(containerID, line(strconv.Itoa(int(i)), i%2)))
+	}
+
+	// A repeated line is dropped, also from another process, while a new
+	// syscall is kept.
+	require.NoError(t, sut.addToBacklog(containerID, line("repeated", 1)))
+
+	forked := line("forked", 1)
+	forked.ProcessID = 2
+	require.NoError(t, sut.addToBacklog(containerID, forked))
+	require.NoError(t, sut.addToBacklog(containerID, line("listen", 50)))
+	require.NoError(t, sut.addToBacklog(containerID, line("listen-again", 50)))
+
+	backlog := sut.auditLineCache.Get(containerID).Value()
+	lines, dropped := backlog.snapshot()
+	require.Len(t, lines, auditBacklogMax+1)
+	require.Equal(t, "listen", lines[auditBacklogMax].TimestampID)
+	require.EqualValues(t, 3, dropped)
+
+	// The distinct lines are bounded as well.
+	for i := range int32(auditBacklogDistinctMax) {
+		require.NoError(t, sut.addToBacklog(containerID, line("", 100+i)))
+	}
+
+	lines, _ = backlog.snapshot()
+	require.Len(t, lines, auditBacklogDistinctMax)
+}
+
 // TestBacklogIsDispatchedPerContainer asserts that finding a container sends
 // the backlog of all of its processes, not only the one of the process whose
 // line found it: the others may stay idle until their lines expire.
@@ -554,7 +604,18 @@ func TestRunDispatchesBacklogAfterMissingWindow(t *testing.T) {
 	require.Eventually(t, func() bool {
 		item := sut.auditLineCache.Get(containerID)
 
-		return item != nil && len(item.Value()) == 2
+		if item == nil {
+			return false
+		}
+
+		lines, _ := item.Value().snapshot()
+
+		return len(lines) == 2
+	}, time.Minute, time.Millisecond)
+
+	// The container is looked up in the background.
+	require.Eventually(t, func() bool {
+		return sut.missingContainers.Has(containerID)
 	}, time.Minute, time.Millisecond)
 	require.Equal(t, 1, mock.ListPodsCallCount())
 

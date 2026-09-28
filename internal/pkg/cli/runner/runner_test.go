@@ -21,16 +21,21 @@ package runner
 import (
 	"errors"
 	"fmt"
+	"os/exec"
 	"testing"
 	"time"
 
 	"github.com/nxadm/tail"
 	"github.com/stretchr/testify/require"
 
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/command"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/runner/runnerfakes"
 )
 
 var errTest = errors.New("test")
+
+const seccompProfileYAML = "apiVersion: security-profiles-operator.x-k8s.io/v1\n" +
+	"kind: SeccompProfile\nspec:\n  defaultAction: SCMP_ACT_ERRNO\n"
 
 func TestRun(t *testing.T) {
 	t.Parallel()
@@ -96,12 +101,32 @@ func TestRun(t *testing.T) {
 			},
 		},
 		{
-			name: "failure on InitSeccomp",
+			name: "failure on YAML profile of another kind",
 			prepare: func(mock *runnerfakes.FakeImpl) {
-				mock.InitSeccompReturns(0, errTest)
+				mock.ReadFileReturns([]byte("apiVersion: security-profiles-operator.x-k8s.io/v1\n"+
+					"kind: AppArmorProfile\n"), nil)
 			},
 			assert: func(err error) {
-				require.ErrorIs(t, err, errTest)
+				require.ErrorContains(t, err, "expected a SeccompProfile, got AppArmorProfile")
+			},
+		},
+		{
+			name: "failure on YAML profile without kind",
+			prepare: func(mock *runnerfakes.FakeImpl) {
+				mock.ReadFileReturns([]byte("spec:\n  defaultAction: SCMP_ACT_ERRNO\n"), nil)
+			},
+			assert: func(err error) {
+				require.ErrorContains(t, err, "unmarshal YAML profile")
+			},
+		},
+		{
+			name: "failure on YAML profile with base profile",
+			prepare: func(mock *runnerfakes.FakeImpl) {
+				mock.ReadFileReturns([]byte(seccompProfileYAML+"  baseProfileName: runc-v1.2.3\n"), nil)
+			},
+			assert: func(err error) {
+				require.ErrorIs(t, err, ErrBaseProfile)
+				require.ErrorContains(t, err, "runc-v1.2.3")
 			},
 		},
 		{
@@ -122,6 +147,17 @@ func TestRun(t *testing.T) {
 				require.ErrorIs(t, err, errTest)
 			},
 		},
+		{
+			name: "failure on CommandWait keeps the exit code",
+			prepare: func(mock *runnerfakes.FakeImpl) {
+				mock.CommandWaitReturns(exec.Command("sh", "-c", "exit 42").Run())
+			},
+			assert: func(err error) {
+				code, exited := command.ExitCode(err)
+				require.True(t, exited)
+				require.Equal(t, 42, code)
+			},
+		},
 	} {
 		prepare := tc.prepare
 		assert := tc.assert
@@ -131,6 +167,7 @@ func TestRun(t *testing.T) {
 			t.Parallel()
 
 			mock := &runnerfakes.FakeImpl{}
+			mock.ReadFileReturns([]byte(seccompProfileYAML), nil)
 			prepare(mock)
 
 			options := Default()
@@ -140,6 +177,7 @@ func TestRun(t *testing.T) {
 
 			sut := New(options)
 			sut.impl = mock
+			sut.enricherGracePeriod = 0
 
 			err := sut.Run()
 			assert(err)

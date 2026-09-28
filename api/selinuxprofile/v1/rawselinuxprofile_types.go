@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -36,7 +37,6 @@ import (
 // or should not be allowed within a namespace-scoped container profile.
 var restrictedDirectives = map[string]struct{}{
 	"block":            {},
-	"blockinherit":     {},
 	"blockstart":       {},
 	"booleanif":        {},
 	"category":         {},
@@ -71,6 +71,31 @@ var restrictedDirectives = map[string]struct{}{
 	"userrole":         {},
 }
 
+// inheritableTemplates are the container templates of udica, which selinuxd
+// installs. A raw policy may inherit them with blockinherit, like the
+// SelinuxProfile inherits system profiles. Inheriting any other block, like
+// the one of a permissive profile, would sidestep the restricted directives.
+var inheritableTemplates = map[string]struct{}{
+	"config_container": {},
+	"container":        {},
+	"home_container":   {},
+	"log_container":    {},
+	"net_container":    {},
+	"tmp_container":    {},
+	"tty_container":    {},
+	"virt_container":   {},
+	"x_container":      {},
+}
+
+var (
+	// blockinheritRegex finds each blockinherit statement, which
+	// blockinheritStatementRegex then has to match completely.
+	blockinheritRegex          = regexp.MustCompile(`(?i)\(\s*blockinherit`)
+	blockinheritStatementRegex = regexp.MustCompile(
+		`^(?i:\(\s*blockinherit)\s+([A-Za-z0-9_]+)\s*\)`,
+	)
+)
+
 var (
 	// Ensure RawSelinuxProfile implements the StatusBaseUser and SecurityProfileBase interfaces.
 	_ profilebasev1.StatusBaseUser      = &RawSelinuxProfile{}
@@ -98,12 +123,20 @@ type RawSelinuxProfileSpec struct {
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // RawSelinuxProfile is the Schema for the rawselinuxprofiles API.
+//
+// The name is used as the name of a CIL block, which has to start with a
+// letter and must not contain dots. Existing objects are exempt, so that they
+// can still be updated and deleted.
+//
+// +kubebuilder:validation:XValidation:rule="oldSelf.hasValue() || self.metadata.name.matches('^[a-z][-a-z0-9]*$')",optionalOldSelf=true,message="name must start with a letter and may only contain lowercase alphanumeric characters and '-'"
 // +kubebuilder:storageversion
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:path=rawselinuxprofiles,scope=Cluster
 // +kubebuilder:printcolumn:name="Usage",type="string",JSONPath=`.status.usage`
 // +kubebuilder:printcolumn:name="State",type="string",JSONPath=`.status.status`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
+//
+//nolint:lll // CEL rules cannot be wrapped
 type RawSelinuxProfile struct {
 	metav1.TypeMeta `json:",inline"`
 	// metadata contains the object metadata.
@@ -172,6 +205,10 @@ func (sp *RawSelinuxProfile) ValidatePolicy() error {
 		return errors.New("policy must not contain null bytes")
 	}
 
+	if err := validateBlockInherits(policy); err != nil {
+		return err
+	}
+
 	// Prevent block escape via unbalanced parentheses.
 	depth := 0
 	directive := []rune{}
@@ -234,6 +271,26 @@ func (sp *RawSelinuxProfile) ValidatePolicy() error {
 
 	if depth != 0 {
 		return errors.New("invalid policy: unbalanced parentheses")
+	}
+
+	return nil
+}
+
+func validateBlockInherits(policy string) error {
+	for _, loc := range blockinheritRegex.FindAllStringIndex(policy, -1) {
+		match := blockinheritStatementRegex.FindStringSubmatch(policy[loc[0]:])
+		if match == nil {
+			return errors.New(
+				"invalid policy: blockinherit must name a single template, like (blockinherit container)",
+			)
+		}
+
+		if _, ok := inheritableTemplates[match[1]]; !ok {
+			return fmt.Errorf(
+				"invalid policy: blockinherit of '%s' is not allowed, only of the container templates",
+				match[1],
+			)
+		}
 	}
 
 	return nil

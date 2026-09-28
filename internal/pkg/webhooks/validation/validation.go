@@ -21,6 +21,7 @@ import (
 	"net/http"
 
 	"github.com/go-logr/logr"
+	admissionv1 "k8s.io/api/admission/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -28,8 +29,6 @@ import (
 
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 )
-
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=rawselinuxprofiles,verbs=get;list;watch
 
 type rawSelinuxProfileValidator struct {
 	decoder admission.Decoder
@@ -57,6 +56,26 @@ func (v *rawSelinuxProfileValidator) Handle(
 		v.log.Error(err, "failed to decode RawSelinuxProfile")
 
 		return admission.Errored(http.StatusBadRequest, err)
+	}
+
+	// Updates which do not change the policy, like status updates or the
+	// removal of a finalizer, must not be rejected. Otherwise objects stored
+	// before a validation rule got tightened could never be deleted.
+	if req.Operation == admissionv1.Update {
+		if rsp.GetDeletionTimestamp() != nil {
+			return admission.Allowed("object is being deleted")
+		}
+
+		old := &selinuxprofileapi.RawSelinuxProfile{}
+		if err := v.decoder.DecodeRaw(req.OldObject, old); err != nil {
+			v.log.Error(err, "failed to decode old RawSelinuxProfile")
+
+			return admission.Errored(http.StatusBadRequest, err)
+		}
+
+		if old.Spec.Policy == rsp.Spec.Policy {
+			return admission.Allowed("policy unchanged")
+		}
 	}
 
 	if err := rsp.ValidatePolicy(); err != nil {

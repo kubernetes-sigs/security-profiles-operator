@@ -19,6 +19,7 @@ limitations under the License.
 package apparmorprofile
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -34,6 +35,7 @@ import (
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	profilebaseapi "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/apparmorprofile/crd2armor"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -287,66 +289,113 @@ func loadProfile(logger logr.Logger, name, content string) (bool, error) {
 		hostop.WithAssumeHostPidNamespace())
 	a := aa.NewAppArmor(aa.WithLogger(logger))
 
-	err := mount.Do(func() error {
+	var updated bool
+
+	err := mount.Do(func() (err error) {
 		// AppArmor convention: A profile for /bin/foo is typically named `bin.foo`.
 		path := filepath.Join(
 			targetProfileDir,
 			profileFilename(name),
 		)
 
-		previous, readErr := os.ReadFile(path)
-		if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
-			return fmt.Errorf("reading existing policy file: %w", readErr)
-		}
+		updated, err = loadPolicyFile(logger, a, path, name, content)
 
-		if err := util.WriteFileAtomic(
-			path,
-			[]byte(managedByMarker+content),
-			0o600,
-		); err != nil {
-			return fmt.Errorf("writing policy file: %w", err)
-		}
-
-		// The kernel keeps the previously loaded policy when loading an
-		// update fails, so put its file back instead of removing it.
-		restore := func() {
-			if readErr != nil {
-				os.Remove(path)
-
-				return
-			}
-
-			if err := util.WriteFileAtomic(path, previous, 0o600); err != nil {
-				logger.Error(err, "Cannot restore previous policy file", "path", path)
-			}
-		}
-
-		if err := a.LoadPolicy(path); err != nil {
-			restore()
-
-			return fmt.Errorf("load policy: %w", err)
-		}
-
-		loaded, err := a.PolicyLoaded(name)
-		if err != nil {
-			restore()
-
-			return fmt.Errorf("cannot check policy status: %w", err)
-		}
-
-		if !loaded {
-			restore()
-
-			return fmt.Errorf(
-				"policy %q is not loaded: AppArmorProfile name must match defined policy",
-				name,
-			)
-		}
-
-		return nil
+		return err
 	})
 
-	return err == nil, err
+	return updated, err
+}
+
+// policyLoader loads AppArmor policies into the kernel.
+type policyLoader interface {
+	LoadPolicy(fileName string) error
+	PolicyLoaded(policyName string) (bool, error)
+}
+
+// loadPolicyFile writes the policy with the given content to path and loads
+// it. It returns false without touching anything if the file holds the
+// policy already and it is loaded, so that a restart of the daemon or a
+// resync neither rewrites every policy file nor runs apparmor_parser for
+// each of them. It must be called inside the host mount namespace.
+func loadPolicyFile(
+	logger logr.Logger, a policyLoader, path, name, content string,
+) (bool, error) {
+	policy := []byte(managedByMarker + content)
+
+	previous, readErr := os.ReadFile(path)
+	if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
+		return false, fmt.Errorf("reading existing policy file: %w", readErr)
+	}
+
+	if readErr == nil && bytes.Equal(previous, policy) {
+		loaded, err := a.PolicyLoaded(name)
+		if err != nil {
+			return false, fmt.Errorf("cannot check policy status: %w", err)
+		}
+
+		if loaded {
+			return false, nil
+		}
+	}
+
+	if err := util.WriteFileAtomic(path, policy, 0o600); err != nil {
+		return false, fmt.Errorf("writing policy file: %w", err)
+	}
+
+	// The kernel keeps the previously loaded policy when loading an
+	// update fails, so put its file back instead of removing it.
+	restore := func() {
+		if readErr != nil {
+			os.Remove(path)
+
+			return
+		}
+
+		if err := util.WriteFileAtomic(path, previous, 0o600); err != nil {
+			logger.Error(err, "Cannot restore previous policy file", "path", path)
+		}
+	}
+
+	if err := a.LoadPolicy(path); err != nil {
+		restore()
+
+		return false, fmt.Errorf("load policy: %w", err)
+	}
+
+	loaded, err := a.PolicyLoaded(name)
+	if err != nil {
+		restore()
+
+		return false, fmt.Errorf("cannot check policy status: %w", err)
+	}
+
+	if !loaded {
+		restore()
+
+		return false, fmt.Errorf(
+			"policy %q is not loaded: AppArmorProfile name must match defined policy",
+			name,
+		)
+	}
+
+	return true, nil
+}
+
+// removeStaleTempFiles removes the temporary files of interrupted policy file
+// writes from the host.
+func removeStaleTempFiles(logger logr.Logger) {
+	mount := hostop.NewMountHostOp(
+		hostop.WithLogger(logger),
+		hostop.WithAssumeContainer(),
+		hostop.WithAssumeHostPidNamespace())
+
+	if err := mount.Do(func() error {
+		common.RemoveStaleTempFiles(logger, targetProfileDir)
+
+		return nil
+	}); err != nil {
+		logger.Error(err, "Cannot remove stale temporary files", "dir", targetProfileDir)
+	}
 }
 
 // policyFileOwned reports whether removing the profile whose policy file lives

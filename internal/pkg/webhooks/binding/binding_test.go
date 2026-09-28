@@ -21,10 +21,13 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"testing"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
+	"gomodules.xyz/jsonpatch/v2"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
@@ -32,6 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
@@ -42,6 +46,7 @@ import (
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/binding/bindingfakes"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
 
 var (
@@ -862,6 +867,11 @@ func TestHandle(t *testing.T) {
 
 		binder := newTestBinder(t, mock)
 		resp := binder.Handle(t.Context(), tc.request)
+		// The cases count the security context patches, the annotation of
+		// the applied bindings is covered by TestHandleAppliedBindings.
+		resp.Patches = slices.DeleteFunc(resp.Patches, func(op jsonpatch.JsonPatchOperation) bool {
+			return op.Path == "/metadata/annotations"
+		})
 		tc.assert(resp)
 	}
 }
@@ -1100,13 +1110,13 @@ func TestUpdatePodWildcardBindings(t *testing.T) {
 	require.NoError(t, err)
 
 	binder := newTestBinder(t, mock)
-	pod, resp := binder.updatePod(t.Context(), bindings, &admission.Request{
+	pod, _, resp := binder.updatePod(t.Context(), bindings, &admission.Request{
 		AdmissionRequest: admissionv1.AdmissionRequest{
 			Operation: admissionv1.Create,
 			Object:    runtime.RawExtension{Raw: rawPod},
 		},
 	})
-	require.Equal(t, admission.Response{}, resp)
+	require.Nil(t, resp)
 
 	seccompOf := func(profile string) *corev1.SeccompProfile {
 		return &corev1.SeccompProfile{
@@ -1142,4 +1152,220 @@ func TestUpdatePodWildcardBindings(t *testing.T) {
 	// Image specific bindings take precedence over wildcard bindings.
 	require.Equal(t, seccompOf(boundSeccomp), pod.Spec.Containers[2].SecurityContext.SeccompProfile)
 	require.Nil(t, pod.Spec.Containers[2].SecurityContext.SELinuxOptions)
+}
+
+// seccompBinding returns a seccomp profile binding created at the provided
+// offset in seconds.
+func seccompBinding(name, profile, image string, created int64) profilebindingapi.ProfileBinding {
+	return profilebindingapi.ProfileBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              name,
+			CreationTimestamp: metav1.NewTime(time.Unix(created, 0)),
+		},
+		Spec: profilebindingapi.ProfileBindingSpec{
+			ProfileRef: profilebindingapi.ProfileRef{
+				Kind: profilebindingapi.ProfileBindingKindSeccompProfile,
+				Name: profile,
+			},
+			Image: image,
+		},
+	}
+}
+
+// localhostSeccompProfiles returns the profiles with the localhost profile set
+// to the profile name.
+func localhostSeccompProfiles(_ context.Context, key types.NamespacedName) (
+	*seccompprofileapi.SeccompProfile, error,
+) {
+	return &seccompprofileapi.SeccompProfile{
+		Status: seccompprofileapi.SeccompProfileStatus{
+			StatusBase: profilebaseapi.StatusBase{
+				Status: secprofnodestatusapi.ProfileStateInstalled,
+			},
+			LocalhostProfile: key.Name,
+		},
+	}, nil
+}
+
+// Conflicting bindings used to be applied in the random order of the informer
+// list, so the last one won. The oldest binding has to win deterministically,
+// and the others have to be reported.
+func TestUpdatePodConflictingBindings(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		bindings []profilebindingapi.ProfileBinding
+		want     string
+		wantPod  bool
+		warnings int
+	}{
+		{
+			name: "image bindings, oldest first",
+			bindings: []profilebindingapi.ProfileBinding{
+				seccompBinding("old", "old-profile", "foo", 1),
+				seccompBinding("new", "new-profile", "foo", 2),
+			},
+			want:     "old-profile",
+			warnings: 1,
+		},
+		{
+			name: "image bindings, newest first",
+			bindings: []profilebindingapi.ProfileBinding{
+				seccompBinding("new", "new-profile", "foo", 2),
+				seccompBinding("old", "old-profile", "foo", 1),
+			},
+			want:     "old-profile",
+			warnings: 1,
+		},
+		{
+			name: "image bindings created at the same time are ordered by name",
+			bindings: []profilebindingapi.ProfileBinding{
+				seccompBinding("b", "b-profile", "foo", 1),
+				seccompBinding("a", "a-profile", "foo", 1),
+			},
+			want:     "a-profile",
+			warnings: 1,
+		},
+		{
+			name: "wildcard bindings, newest first",
+			bindings: []profilebindingapi.ProfileBinding{
+				seccompBinding("new", "new-profile", profilebindingapi.SelectAllContainersImage, 2),
+				seccompBinding("old", "old-profile", profilebindingapi.SelectAllContainersImage, 1),
+			},
+			want:     "old-profile",
+			wantPod:  true,
+			warnings: 1,
+		},
+		{
+			name: "bindings of the same profile do not conflict",
+			bindings: []profilebindingapi.ProfileBinding{
+				seccompBinding("new", "profile", "foo", 2),
+				seccompBinding("old", "profile", "foo", 1),
+			},
+			want: "profile",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			mock := &bindingfakes.FakeImpl{}
+			mock.GetSeccompProfileCalls(localhostSeccompProfiles)
+
+			recorder := events.NewFakeRecorder(10)
+			binder := newTestBinder(t, mock)
+			binder.record = utils.NewSafeRecorder(recorder)
+
+			pod, warnings, resp := binder.updatePod(t.Context(), tc.bindings, &admission.Request{
+				AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Create,
+					Object:    rawObject(t, testPod),
+				},
+			})
+			require.Nil(t, resp)
+			require.Len(t, warnings, tc.warnings)
+			require.Len(t, recorder.Events, tc.warnings)
+
+			if tc.wantPod {
+				require.Equal(
+					t, tc.want, *pod.Spec.SecurityContext.SeccompProfile.LocalhostProfile,
+				)
+
+				return
+			}
+
+			require.Nil(t, pod.Spec.SecurityContext)
+			require.Equal(
+				t, tc.want, *pod.Spec.Containers[0].SecurityContext.SeccompProfile.LocalhostProfile,
+			)
+		})
+	}
+}
+
+// The binding webhook marks the pods with the bindings it applied, so that
+// the binding tracker only tracks pods which use a binding. A value set by the
+// pod author must not survive.
+func TestHandleAppliedBindings(t *testing.T) {
+	t.Parallel()
+
+	mock := &bindingfakes.FakeImpl{}
+	mock.GetSeccompProfileCalls(localhostSeccompProfiles)
+	mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
+		Items: []profilebindingapi.ProfileBinding{
+			seccompBinding("image", "image-profile", "foo", 1),
+			seccompBinding("other-image", "image-profile", "bar", 1),
+			seccompBinding(
+				"wildcard", "wildcard-profile", profilebindingapi.SelectAllContainersImage, 1,
+			),
+		},
+	}, nil)
+
+	pod := testPod.DeepCopy()
+	pod.Annotations = map[string]string{
+		profilebindingapi.AppliedBindingsAnnotation: "spoofed",
+	}
+
+	resp := newTestBinder(t, mock).Handle(t.Context(), admission.Request{
+		AdmissionRequest: admissionv1.AdmissionRequest{
+			Operation: admissionv1.Create,
+			Object:    rawObject(t, pod),
+		},
+	})
+	require.True(t, resp.Allowed)
+	require.Contains(t, resp.Patches, jsonpatch.JsonPatchOperation{
+		Operation: "replace",
+		Path:      "/metadata/annotations/spo.x-k8s.io~1profile-bindings",
+		Value:     "image,wildcard",
+	})
+
+	// Without an applied binding, a spoofed value gets removed.
+	mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{}, nil)
+
+	resp = newTestBinder(t, mock).Handle(t.Context(), admission.Request{
+		AdmissionRequest: admissionv1.AdmissionRequest{
+			Operation: admissionv1.Create,
+			Object:    rawObject(t, pod),
+		},
+	})
+	require.True(t, resp.Allowed)
+	require.Equal(t, []jsonpatch.JsonPatchOperation{{
+		Operation: "remove",
+		Path:      "/metadata/annotations",
+	}}, resp.Patches)
+}
+
+// Dry-run requests must not have side effects like events.
+func TestHandleDryRunRecordsNoEvents(t *testing.T) {
+	t.Parallel()
+
+	mock := &bindingfakes.FakeImpl{}
+	mock.GetSeccompProfileCalls(localhostSeccompProfiles)
+	mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
+		Items: []profilebindingapi.ProfileBinding{
+			seccompBinding("old", "old-profile", "foo", 1),
+			seccompBinding("new", "new-profile", "foo", 2),
+		},
+	}, nil)
+
+	for _, dryRun := range []bool{true, false} {
+		recorder := events.NewFakeRecorder(10)
+		binder := newTestBinder(t, mock)
+		binder.record = utils.NewSafeRecorder(recorder)
+
+		resp := binder.Handle(t.Context(), admission.Request{
+			AdmissionRequest: admissionv1.AdmissionRequest{
+				Operation: admissionv1.Create,
+				Object:    rawObject(t, testPod),
+				DryRun:    new(dryRun),
+			},
+		})
+		require.True(t, resp.Allowed)
+		require.Len(t, resp.Warnings, 1, "the client gets warned in both cases")
+
+		if dryRun {
+			require.Empty(t, recorder.Events)
+		} else {
+			require.Len(t, recorder.Events, 1)
+		}
+	}
 }

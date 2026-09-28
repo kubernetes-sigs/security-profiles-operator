@@ -23,8 +23,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	admissionregv1 "k8s.io/api/admissionregistration/v1"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
@@ -458,4 +464,221 @@ func TestWebhook_DeploymentRequiredSCC(t *testing.T) {
 		webhookDeployment.Spec.Template.Annotations[openshiftRequiredSCCAnnotation])
 	assert.Equal(t, "privileged",
 		Manifest.Spec.Template.Annotations[openshiftRequiredSCCAnnotation])
+}
+
+func newTestWebhook(t *testing.T, tolerations []corev1.Toleration) *Webhook {
+	t.Helper()
+
+	return GetWebhook(
+		logr.Discard(), "spo-ns", nil, "image", corev1.PullAlways,
+		CAInjectTypeCertManager, tolerations, nil, false,
+	)
+}
+
+func TestWebhook_CertManagerAnnotationUsesNamespace(t *testing.T) {
+	t.Parallel()
+
+	w := newTestWebhook(t, nil)
+
+	assert.Equal(t, "spo-ns/webhook-cert", w.config.Annotations[certManagerInjectAnnotation])
+	assert.Equal(
+		t,
+		"spo-ns/webhook-cert",
+		w.validatingConfig.Annotations[certManagerInjectAnnotation],
+	)
+}
+
+// The binding and recording webhooks record events, which they skip for dry
+// run requests.
+func TestWebhook_SideEffects(t *testing.T) {
+	t.Parallel()
+
+	cfg := getWebhookConfig(true, "ns")
+	for _, hook := range []webhook{binding, recording} {
+		assert.Equal(t, admissionregv1.SideEffectClassNoneOnDryRun,
+			*cfg.Webhooks[hook.index].SideEffects, hook.name)
+	}
+
+	w := Webhook{log: logr.Discard(), config: cfg}
+	existing := cfg.Webhooks[binding.index].DeepCopy()
+	existing.SideEffects = &sideEffects
+	assert.True(t, w.webhookNeedsUpdate(existing, binding.index))
+}
+
+func TestWebhook_DeploymentAvailability(t *testing.T) {
+	t.Parallel()
+
+	w := newTestWebhook(t, nil)
+	podSpec := w.deployment.Spec.Template.Spec
+
+	probe := podSpec.Containers[0].ReadinessProbe
+	require.NotNil(t, probe)
+	require.NotNil(t, probe.HTTPGet)
+	assert.Equal(t, "/readyz", probe.HTTPGet.Path)
+	assert.Equal(t, int32(config.HealthProbePort), probe.HTTPGet.Port.IntVal)
+
+	require.NotNil(t, podSpec.Affinity)
+	require.NotNil(t, podSpec.Affinity.PodAntiAffinity)
+	terms := podSpec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution
+	require.Len(t, terms, 1)
+	assert.Equal(t, w.deployment.Spec.Selector, terms[0].PodAffinityTerm.LabelSelector)
+}
+
+func webhookTestClient(t *testing.T, objs ...client.Object) client.Client {
+	t.Helper()
+
+	scheme := runtime.NewScheme()
+	require.NoError(t, clientgoscheme.AddToScheme(scheme))
+
+	return fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
+}
+
+// The API server fills in defaults when it stores the deployment, which must
+// not make the deployment look outdated forever.
+func TestDeploymentNeedsUpdateIgnoresServerDefaults(t *testing.T) {
+	t.Parallel()
+
+	w := newTestWebhook(t, nil)
+	stored := w.deployment.DeepCopy()
+
+	podSpec := &stored.Spec.Template.Spec
+	podSpec.RestartPolicy = corev1.RestartPolicyAlways
+	podSpec.DNSPolicy = corev1.DNSClusterFirst
+	podSpec.SchedulerName = corev1.DefaultSchedulerName
+	podSpec.TerminationGracePeriodSeconds = ptr.To[int64](30)
+
+	for i := range podSpec.Containers {
+		ctr := &podSpec.Containers[i]
+		ctr.TerminationMessagePath = corev1.TerminationMessagePathDefault
+		ctr.TerminationMessagePolicy = corev1.TerminationMessageReadFile
+
+		if probe := ctr.ReadinessProbe; probe != nil {
+			probe.TimeoutSeconds = 1
+			probe.PeriodSeconds = 10
+			probe.SuccessThreshold = 1
+			probe.FailureThreshold = 3
+			probe.HTTPGet.Scheme = corev1.URISchemeHTTP
+		}
+	}
+
+	assert.False(t, deploymentNeedsUpdate(w.deployment, stored))
+}
+
+// A missing configuration must not block the reconciliation, it gets created
+// again.
+func TestWebhook_UpdateCreatesMissingObjects(t *testing.T) {
+	t.Parallel()
+
+	w := newTestWebhook(t, nil)
+	c := webhookTestClient(t)
+	ctx := t.Context()
+
+	needsUpdate, err := w.NeedsUpdate(ctx, c)
+	require.NoError(t, err)
+	require.True(t, needsUpdate)
+
+	require.NoError(t, w.Update(ctx, c))
+
+	for _, obj := range []client.Object{
+		&admissionregv1.MutatingWebhookConfiguration{},
+		&admissionregv1.ValidatingWebhookConfiguration{},
+		&appsv1.Deployment{},
+		&corev1.Service{},
+	} {
+		var key client.ObjectKey
+
+		switch obj.(type) {
+		case *admissionregv1.MutatingWebhookConfiguration:
+			key = client.ObjectKeyFromObject(w.config)
+		case *admissionregv1.ValidatingWebhookConfiguration:
+			key = client.ObjectKeyFromObject(w.validatingConfig)
+		case *appsv1.Deployment:
+			key = client.ObjectKeyFromObject(w.deployment)
+		case *corev1.Service:
+			key = client.ObjectKeyFromObject(w.service)
+		}
+
+		require.NoError(t, c.Get(ctx, key, obj), "%T", obj)
+	}
+
+	needsUpdate, err = newTestWebhook(t, nil).NeedsUpdate(ctx, c)
+	require.NoError(t, err)
+	require.False(t, needsUpdate)
+}
+
+// The CA bundle gets injected into the configurations after they got
+// created, so writing the configured placeholder would break the webhooks.
+func TestWebhook_UpdateKeepsInjectedCABundle(t *testing.T) {
+	t.Parallel()
+
+	injected := []byte("injected")
+	c := webhookTestClient(t)
+	ctx := t.Context()
+
+	require.NoError(t, newTestWebhook(t, nil).Create(ctx, c))
+
+	mutating := &admissionregv1.MutatingWebhookConfiguration{}
+	require.NoError(t, c.Get(ctx, client.ObjectKey{Name: webhookConfigName}, mutating))
+
+	for i := range mutating.Webhooks {
+		mutating.Webhooks[i].ClientConfig.CABundle = injected
+	}
+
+	require.NoError(t, c.Update(ctx, mutating))
+
+	validating := &admissionregv1.ValidatingWebhookConfiguration{}
+	require.NoError(t, c.Get(ctx, client.ObjectKey{Name: validatingWebhookConfigName}, validating))
+	validating.Webhooks[0].ClientConfig.CABundle = injected
+	require.NoError(t, c.Update(ctx, validating))
+
+	// Both an update and a create of existing configurations keep the bundle.
+	require.NoError(t, newTestWebhook(t, nil).Update(ctx, c))
+	require.NoError(t, newTestWebhook(t, nil).Create(ctx, c))
+
+	require.NoError(t, c.Get(ctx, client.ObjectKey{Name: webhookConfigName}, mutating))
+
+	for i := range mutating.Webhooks {
+		assert.Equal(t, injected, mutating.Webhooks[i].ClientConfig.CABundle)
+	}
+
+	require.NoError(t, c.Get(ctx, client.ObjectKey{Name: validatingWebhookConfigName}, validating))
+	assert.Equal(t, injected, validating.Webhooks[0].ClientConfig.CABundle)
+}
+
+// Changes of the deployment, like cleared tolerations, have to be detected
+// and applied.
+func TestWebhook_DeploymentUpdate(t *testing.T) {
+	t.Parallel()
+
+	custom := []corev1.Toleration{{Key: "custom", Operator: corev1.TolerationOpExists}}
+	c := webhookTestClient(t)
+	ctx := t.Context()
+
+	require.NoError(t, newTestWebhook(t, custom).Create(ctx, c))
+
+	w := newTestWebhook(t, nil)
+
+	needsUpdate, err := w.NeedsUpdate(ctx, c)
+	require.NoError(t, err)
+	require.True(t, needsUpdate)
+
+	require.NoError(t, w.Update(ctx, c))
+
+	deployment := &appsv1.Deployment{}
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(w.deployment), deployment))
+	assert.Equal(t, webhookDeployment.Spec.Template.Spec.Tolerations,
+		deployment.Spec.Template.Spec.Tolerations)
+
+	needsUpdate, err = newTestWebhook(t, nil).NeedsUpdate(ctx, c)
+	require.NoError(t, err)
+	require.False(t, needsUpdate)
+
+	// An image change is detected as well.
+	image := GetWebhook(
+		logr.Discard(), "spo-ns", nil, "new-image", corev1.PullAlways,
+		CAInjectTypeCertManager, nil, nil, false,
+	)
+	needsUpdate, err = image.NeedsUpdate(ctx, c)
+	require.NoError(t, err)
+	require.True(t, needsUpdate)
 }

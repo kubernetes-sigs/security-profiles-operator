@@ -36,17 +36,20 @@ import (
 	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	profilebasev1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
+	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/nodestatus"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 const (
@@ -695,6 +698,298 @@ func TestReconcileDeletionReloadJobFailure(t *testing.T) {
 	evts := f.events()
 	require.Len(t, evts, 1)
 	require.True(t, strings.HasPrefix(evts[0], "Warning "+reasonCannotReloadPolicy+" "))
+}
+
+// runningReloadJob returns an unfinished reload job of the test policy.
+func runningReloadJob(action string) *batchv1.Job {
+	return createTestJob(
+		testReconcileNamespace, "running-"+action,
+		testReconcileNode, testReconcileProfile, action, 0, 0,
+	)
+}
+
+// A reload which has to wait for a running job is retried, because nothing
+// else triggers a reconcile of the installed profile.
+//
+//nolint:paralleltest // uses t.Setenv
+func TestReconcileRetriesReloadAfterRunningJob(t *testing.T) {
+	f := newReconcileFixture(t, testProfile(), nil,
+		selinuxd(t, true, http.StatusOK, `{"status": "Installed", "msg": ""}`))
+	ctx := context.Background()
+
+	running := runningReloadJob("install")
+	require.NoError(t, f.client.Create(ctx, running))
+
+	_, err := f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+
+	res, err := f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{RequeueAfter: reloadJobRetryInterval}, res)
+	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, f.nodeStatus(t).Status.Status)
+	require.Empty(t, f.nodeStatus(t).Annotations[reloadInstallGenerationAnnotation])
+	require.Len(t, f.reloadJobs(t), 1)
+	require.Len(t, f.events(), 1)
+
+	// Once the running job finished, the reload happens, without reporting
+	// the installation again.
+	running.Status.Succeeded = 1
+	require.NoError(t, f.client.Status().Update(ctx, running))
+
+	res, err = f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{}, res)
+	require.Equal(t, "1", f.nodeStatus(t).Annotations[reloadInstallGenerationAnnotation])
+	require.Len(t, f.reloadJobs(t), 2)
+	require.Empty(t, f.events())
+
+	// A new generation is reloaded again, although the last job is recent.
+	for _, job := range f.reloadJobs(t) {
+		job.Status.Succeeded = 1
+		require.NoError(t, f.client.Status().Update(ctx, &job))
+	}
+
+	sp := f.profile(t)
+	sp.Generation = 2
+	require.NoError(t, f.client.Update(ctx, sp))
+
+	res, err = f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{}, res)
+	require.Equal(t, "2", f.nodeStatus(t).Annotations[reloadInstallGenerationAnnotation])
+	require.Len(t, f.reloadJobs(t), 3)
+}
+
+func TestReconcileRetriesFailedReloadJobCreation(t *testing.T) {
+	f := newReconcileFixture(t, testProfile(), nil,
+		selinuxd(t, true, http.StatusOK, `{"status": "Installed", "msg": ""}`))
+	ctx := context.Background()
+
+	_, err := f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+
+	// Without the own pod the reload job cannot find the selinuxd image.
+	t.Setenv("POD_NAME", "missing-pod")
+
+	_, err = f.r.Reconcile(ctx, f.request)
+	require.ErrorContains(t, err, "creating policy reload job")
+	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, f.nodeStatus(t).Status.Status)
+	require.Empty(t, f.nodeStatus(t).Annotations[reloadInstallGenerationAnnotation])
+	require.Contains(t, strings.Join(f.events(), "\n"), "Warning "+reasonCannotReloadPolicy)
+}
+
+//nolint:paralleltest // uses t.Setenv
+func TestReconcileDeletionWaitsForRunningReloadJob(t *testing.T) {
+	f := newReconcileFixture(t, testProfile(), nil,
+		selinuxd(t, true, http.StatusNotFound, ""))
+	f.prepareDeletion(t)
+
+	require.NoError(t, f.client.Create(context.Background(), runningReloadJob("remove")))
+
+	res, err := f.r.Reconcile(context.Background(), f.request)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{RequeueAfter: reloadJobRetryInterval}, res)
+	require.Len(t, f.profile(t).GetFinalizers(), 1,
+		"the finalizer must stay until the removal got reloaded")
+}
+
+// setSelinuxd replaces the selinuxd the reconciler talks to.
+func (f *reconcileFixture) setSelinuxd(t *testing.T, handler http.HandlerFunc) {
+	t.Helper()
+
+	f.r.httpc = selinuxdTestClient(t, handler)
+}
+
+// A policy which got installed and is disabled afterwards has to be removed
+// from the node, but only once the pods using it are gone.
+//
+//nolint:paralleltest // uses t.Setenv
+func TestReconcileEnabledToDisabled(t *testing.T) {
+	f := newReconcileFixture(t, testProfile(), nil,
+		selinuxd(t, true, http.StatusOK, `{"status": "Installed", "msg": ""}`))
+	ctx := context.Background()
+
+	for range 2 {
+		_, err := f.r.Reconcile(ctx, f.request)
+		require.NoError(t, err)
+	}
+
+	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, f.nodeStatus(t).Status.Status)
+
+	policyFile := filepath.Join(f.r.policyDir, testReconcileProfile+".cil")
+	require.FileExists(t, policyFile)
+
+	sp := f.profile(t)
+	sp.Spec.State = profilebasev1.SpecStateDisabled
+	sp.Generation = 2
+	sp.SetFinalizers(append(sp.GetFinalizers(), util.HasActivePodsFinalizerString))
+	require.NoError(t, f.client.Update(ctx, sp))
+
+	res, err := f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{RequeueAfter: common.InUseRetry}, res)
+	require.FileExists(t, policyFile)
+
+	sp = f.profile(t)
+	sp.SetFinalizers([]string{util.GetFinalizerNodeString(testReconcileNode)})
+	require.NoError(t, f.client.Update(ctx, sp))
+
+	// The policy file goes first, then selinuxd removes the module.
+	res, err = f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+	require.Equal(t, selinuxdPollInterval, res.RequeueAfter)
+	require.NoFileExists(t, policyFile)
+	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, f.nodeStatus(t).Status.Status)
+
+	f.setSelinuxd(t, selinuxd(t, true, http.StatusNotFound, ""))
+
+	res, err = f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{}, res)
+	require.Equal(t, secprofnodestatusapi.ProfileStateDisabled, f.nodeStatus(t).Status.Status)
+	require.Equal(t, "2", f.nodeStatus(t).Annotations[reloadRemoveGenerationAnnotation])
+
+	var removeJobs int
+
+	for _, job := range f.reloadJobs(t) {
+		if job.Labels["action"] == "remove" {
+			removeJobs++
+		}
+	}
+
+	require.Equal(t, 1, removeJobs)
+
+	// Nothing is left to do for the disabled profile.
+	res, err = f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{}, res)
+	require.Len(t, f.reloadJobs(t), 2)
+}
+
+// testRawProfile returns a RawSelinuxProfile with the name of the test
+// profile, which gives it the same policy name.
+func testRawProfile(created int64) *selinuxprofileapi.RawSelinuxProfile {
+	return &selinuxprofileapi.RawSelinuxProfile{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              testReconcileProfile,
+			Namespace:         testReconcileNamespace,
+			CreationTimestamp: metav1.Unix(created, 0),
+		},
+	}
+}
+
+// A SelinuxProfile and a RawSelinuxProfile of the same name share the policy
+// file and module. The later one must not replace the policy of the other.
+//
+//nolint:paralleltest // uses t.Setenv
+func TestReconcilePolicyNameConflict(t *testing.T) {
+	sp := testProfile()
+	sp.CreationTimestamp = metav1.Unix(200, 0)
+
+	f := newReconcileFixture(t, sp, nil,
+		selinuxd(t, true, http.StatusOK, `{"status": "Installed", "msg": ""}`))
+	ctx := context.Background()
+
+	raw := testRawProfile(100)
+	require.NoError(t, f.client.Create(ctx, raw))
+
+	policyFile := filepath.Join(f.r.policyDir, testReconcileProfile+".cil")
+	require.NoError(t, os.WriteFile(policyFile, []byte("raw policy"), 0o600))
+
+	res, err := f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{}, res)
+	require.Equal(t, secprofnodestatusapi.ProfileStateError, f.nodeStatus(t).Status.Status)
+
+	evts := f.events()
+	require.Len(t, evts, 1)
+	require.True(t, strings.HasPrefix(evts[0], "Warning "+reasonPolicyNameConflict+" "), evts[0])
+	require.Contains(t, evts[0], "RawSelinuxProfile "+testReconcileProfile)
+
+	content, err := os.ReadFile(policyFile)
+	require.NoError(t, err)
+	require.Equal(t, "raw policy", string(content), "the policy of the owner must stay")
+
+	// Deleting the later profile keeps the policy of the owner as well.
+	f.prepareDeletion(t)
+
+	res, err = f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{}, res)
+	require.FileExists(t, policyFile)
+	require.Empty(t, f.reloadJobs(t))
+
+	err = f.client.Get(ctx, f.request.NamespacedName, &selinuxprofileapi.SelinuxProfile{})
+	require.True(t, kerrors.IsNotFound(err), "profile should be deleted, got %v", err)
+}
+
+//nolint:paralleltest // uses t.Setenv
+func TestReconcilePolicyNameConflictResolved(t *testing.T) {
+	sp := testProfile()
+	sp.CreationTimestamp = metav1.Unix(200, 0)
+
+	f := newReconcileFixture(t, sp, nil,
+		selinuxd(t, true, http.StatusOK, `{"status": "Installed", "msg": ""}`))
+	ctx := context.Background()
+
+	raw := testRawProfile(100)
+	require.NoError(t, f.client.Create(ctx, raw))
+
+	_, err := f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+	require.Equal(t, secprofnodestatusapi.ProfileStateError, f.nodeStatus(t).Status.Status)
+
+	// Once the owner is gone, the watch enqueues the profile, which then
+	// installs its policy.
+	require.NoError(t, f.client.Delete(ctx, raw))
+
+	res, err := f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+	require.Equal(t, selinuxdPollInterval, res.RequeueAfter)
+	require.FileExists(t, filepath.Join(f.r.policyDir, testReconcileProfile+".cil"))
+}
+
+func TestOwnsPolicyBefore(t *testing.T) {
+	t.Parallel()
+
+	older := testProfile()
+	older.CreationTimestamp = metav1.Unix(100, 0)
+
+	newer := testRawProfile(200)
+	require.True(t, ownsPolicyBefore(older, newer))
+	require.False(t, ownsPolicyBefore(newer, older))
+
+	// On a tie the SelinuxProfile wins, whichever is asked.
+	sameTime := testRawProfile(100)
+	require.True(t, ownsPolicyBefore(older, sameTime))
+	require.False(t, ownsPolicyBefore(sameTime, older))
+}
+
+func TestSelinuxOptionsChangedPredicate(t *testing.T) {
+	t.Parallel()
+
+	old := &spodapi.SecurityProfilesOperatorDaemon{}
+	changed := old.DeepCopy()
+	changed.Spec.Selinux.Options.AllowedSystemProfiles = []string{"container"}
+
+	unrelated := old.DeepCopy()
+	unrelated.Spec.Security.AllowedSyscalls = []string{"read"}
+
+	require.True(t, selinuxOptionsChangedPredicate.Update(
+		event.UpdateEvent{ObjectOld: old, ObjectNew: changed}))
+	require.False(t, selinuxOptionsChangedPredicate.Update(
+		event.UpdateEvent{ObjectOld: old, ObjectNew: unrelated}))
+	require.False(t, selinuxOptionsChangedPredicate.Create(event.CreateEvent{Object: old}))
+}
+
+//nolint:paralleltest // uses t.Setenv
+func TestSelinuxProfileRequests(t *testing.T) {
+	f := newReconcileFixture(t, testProfile(), nil, selinuxd(t, true, http.StatusOK, ""))
+
+	reqs := f.r.selinuxProfileRequests(
+		context.Background(), &spodapi.SecurityProfilesOperatorDaemon{},
+	)
+	require.Equal(t, []reconcile.Request{f.request}, reqs)
 }
 
 func TestHealthz(t *testing.T) {

@@ -44,11 +44,15 @@ func (e *e2e) testCaseSelinuxProfileBinding(image string) {
 	e.logf("Getting selinux profile usage")
 	selinuxUsage := e.getSELinuxPolicyUsage("selinuxprofile", selinuxTestProfileName)
 
+	// A wildcard binding sets the pod security context, an image specific one
+	// the one of the container.
+	securityContextPath := "{.spec.initContainers[0].securityContext.seLinuxOptions.type}"
+	if image == "'*'" {
+		securityContextPath = "{.spec.securityContext.seLinuxOptions.type}"
+	}
+
 	e.logf("Testing that pod has securityContext")
-	output := e.kubectl(
-		"get", "pod", testPodName,
-		"--output", "jsonpath={.spec.initContainers[0].securityContext.seLinuxOptions.type}",
-	)
+	output := e.kubectl("get", "pod", testPodName, "--output", "jsonpath="+securityContextPath)
 	e.Equal(selinuxUsage, output)
 
 	e.logf("Testing that profile binding has pod reference")

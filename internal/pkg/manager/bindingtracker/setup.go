@@ -111,7 +111,9 @@ func (r *BindingTrackerReconciler) Setup(
 			CreateFunc: func(_ event.CreateEvent) bool { return true },
 			DeleteFunc: func(_ event.DeleteEvent) bool { return true },
 			UpdateFunc: func(e event.UpdateEvent) bool {
-				return !reflect.DeepEqual(e.ObjectOld.GetLabels(), e.ObjectNew.GetLabels())
+				return !reflect.DeepEqual(e.ObjectOld.GetLabels(), e.ObjectNew.GetLabels()) ||
+					e.ObjectOld.GetAnnotations()[profilebindingapi.AppliedBindingsAnnotation] !=
+						e.ObjectNew.GetAnnotations()[profilebindingapi.AppliedBindingsAnnotation]
 			},
 			GenericFunc: func(_ event.GenericEvent) bool { return true },
 		})).

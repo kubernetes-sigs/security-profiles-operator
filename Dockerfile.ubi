@@ -23,7 +23,6 @@ WORKDIR /work
 
 RUN dnf install -y \
   libseccomp-devel \
-  libbpf \
   && dnf clean all
 
 # Install the Go toolchain from the version go.mod targets, preferring its
@@ -65,7 +64,6 @@ USER root
 RUN microdnf update -y \
   && microdnf install -y \
   libseccomp \
-  libbpf \
   && microdnf clean all
 
 LABEL name="Security Profiles Operator" \

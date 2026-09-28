@@ -114,12 +114,12 @@ endif
 export CGO_LDFLAGS
 export CGO_ENABLED=1
 
-BUILD_FILES := $(shell find . -type f -name '*.go' -or -name '*.mod' -or -name '*.sum' -or -name 'recorder.bpf.o.*' -not -name '*_test.go')
+BUILD_FILES := $(shell find . -type f \( -name '*.go' -or -name '*.mod' -or -name '*.sum' -or -name 'recorder.bpf.o.*' \) -not -name '*_test.go')
 BPF_RECORDER_PATH := internal/pkg/daemon/bpfrecorder/bpf
-BPF_RECORDER_FILES := $(shell find internal/pkg/daemon/bpfrecorder/bpf -type f -name '*.c' -or -name '*.h')
+BPF_RECORDER_FILES := $(shell find internal/pkg/daemon/bpfrecorder/bpf -type f \( -name '*.c' -or -name '*.h' \))
 BPF_RECORDER_OUTPUT_FILES := $(shell find internal/pkg/daemon/bpfrecorder/bpf -type f -name 'recorder.bpf.o.*')
 BPF_ENRICHER_PATH := internal/pkg/daemon/enricher/auditsource/bpf
-BPF_ENRICHER_FILES := $(shell find internal/pkg/daemon/enricher/auditsource/bpf -type f -name '*.c' -or -name '*.h')
+BPF_ENRICHER_FILES := $(shell find internal/pkg/daemon/enricher/auditsource/bpf -type f \( -name '*.c' -or -name '*.h' \))
 BPF_ENRICHER_OUTPUT_FILES := $(shell find internal/pkg/daemon/enricher/auditsource/bpf -type f -name 'enricher.bpf.o.*')
 BPF_OUTPUT_FILES := $(BPF_RECORDER_OUTPUT_FILES) $(BPF_ENRICHER_OUTPUT_FILES)
 export GOFLAGS?=-mod=vendor
@@ -588,18 +588,40 @@ test-unit: $(BUILD_DIR) ## Run the unit tests
 	$(GO) test -ldflags '$(LDVARS)' -tags '$(BUILDTAGS)' -race -v -test.coverprofile=$(BUILD_DIR)/coverage.out ./internal/... ./api/... ./cmd/...
 	$(GO) tool cover -html $(BUILD_DIR)/coverage.out -o $(BUILD_DIR)/coverage.html
 
+# E2E_TEST_BINARY is a prebuilt e2e test binary (go test -c ./test) to run
+# instead of building the tests. CI builds it outside of the test VMs, where
+# compiling the tests takes more than 10 minutes. The binary runs in ./test,
+# like go test runs it, and ARGS are test binary flags then (-test.run=...).
+E2E_TEST_BINARY ?=
+E2E_TEST_PACKAGE := $(GO_PROJECT)/test
+# E2E_TEST_SKIP is a regular expression of the e2e tests to skip, see -skip in
+# go help testflag.
+E2E_TEST_SKIP ?=
+E2E_TEST_SKIP_FLAG := $(if $(E2E_TEST_SKIP),-test.skip='$(E2E_TEST_SKIP)')
+
 .PHONY: test-e2e
 test-e2e: ## Run the end-to-end tests
+ifeq ($(E2E_TEST_BINARY),)
 	CGO_LDFLAGS= \
 	E2E_SKIP_FLAKY_TESTS=true \
-	$(GO) test -parallel 1 -timeout 60m -count=1 ./test -v $(ARGS)
+	$(GO) test -parallel 1 -timeout 60m -count=1 ./test -v $(E2E_TEST_SKIP_FLAG) $(ARGS)
+else
+	cd test && \
+	E2E_SKIP_FLAKY_TESTS=true \
+	$(abspath $(E2E_TEST_BINARY)) -test.parallel=1 -test.timeout=60m -test.count=1 -test.v \
+		$(E2E_TEST_SKIP_FLAG) $(ARGS)
+endif
 
 # Failed flaky tests get one retry. gotestsum records the retries in the JUnit
 # report, so a test which only passes on retry stays visible. The suite method
 # is selected with -run, since gotestsum appends the package after the go test
-# flags and go test stops parsing packages at the first unknown flag.
+# flags and go test stops parsing packages at the first unknown flag. A
+# prebuilt binary runs as raw command, to which gotestsum appends the
+# -test.run flag and the package of the retried tests, which the binary
+# ignores.
 .PHONY: test-flaky-e2e
 test-flaky-e2e: $(BUILD_DIR) ## Only run the flaky end-to-end tests
+ifeq ($(E2E_TEST_BINARY),)
 	CGO_LDFLAGS= \
 	E2E_SKIP_FLAKY_TESTS=false \
 	$(GOTESTSUM) \
@@ -607,7 +629,21 @@ test-flaky-e2e: $(BUILD_DIR) ## Only run the flaky end-to-end tests
 		--junitfile $(BUILD_DIR)/junit-flaky-e2e.xml \
 		--packages ./test \
 		--rerun-fails=1 \
-		-- -parallel 1 -timeout 20m -count=1 -run '^TestSuite$$/^TestSecurityProfilesOperator_Flaky$$'
+		-- -parallel 1 -timeout 20m -count=1 -run '^TestSuite$$/^TestSecurityProfilesOperator_Flaky$$' \
+		$(E2E_TEST_SKIP_FLAG)
+else
+	cd test && \
+	CGO_LDFLAGS= \
+	E2E_SKIP_FLAKY_TESTS=false \
+	$(GOTESTSUM) \
+		--format standard-verbose \
+		--junitfile $(abspath $(BUILD_DIR))/junit-flaky-e2e.xml \
+		--rerun-fails=1 \
+		--raw-command \
+		-- $(GO) tool test2json -t -p $(E2E_TEST_PACKAGE) \
+		$(abspath $(E2E_TEST_BINARY)) -test.v=test2json -test.parallel=1 -test.timeout=20m -test.count=1 \
+		-test.run='^TestSuite$$/^TestSecurityProfilesOperator_Flaky$$' $(E2E_TEST_SKIP_FLAG)
+endif
 
 .PHONY: test-spoc-e2e
 test-spoc-e2e: build/spoc ## Run the spoc end-to-end tests

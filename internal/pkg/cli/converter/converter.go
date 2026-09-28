@@ -25,6 +25,7 @@ import (
 	profilebasev1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/apparmorprofile/crd2armor"
 )
 
@@ -119,8 +120,7 @@ func (p *Converter) Run() error {
 		return fmt.Errorf("cannot convert %T to raw profile", obj)
 	}
 
-	const filePermissions = 0o600
-	if err := p.WriteFile(p.options.outputFile, out, filePermissions); err != nil {
+	if err := p.WriteFile(p.options.outputFile, out, cli.FilePermissions); err != nil {
 		return fmt.Errorf("failed to write output file: %w", err)
 	}
 

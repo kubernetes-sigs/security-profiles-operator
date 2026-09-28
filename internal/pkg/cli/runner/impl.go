@@ -24,7 +24,6 @@ import (
 
 	"github.com/nxadm/tail"
 	"github.com/opencontainers/runc/libcontainer/configs"
-	"github.com/opencontainers/runc/libcontainer/seccomp"
 	"github.com/opencontainers/runc/libcontainer/specconv"
 	"github.com/opencontainers/runtime-spec/specs-go"
 	libseccomp "github.com/seccomp/libseccomp-golang"
@@ -39,7 +38,6 @@ type defaultImpl struct{}
 type impl interface {
 	ReadFile(string) ([]byte, error)
 	SetupSeccomp(*specs.LinuxSeccomp) (*configs.Seccomp, error)
-	InitSeccomp(*configs.Seccomp) (int, error)
 	CommandRun(*command.Command) (uint32, error)
 	CommandWait(*command.Command) error
 	TailFile(string, tail.Config) (*tail.Tail, error)
@@ -54,10 +52,6 @@ func (*defaultImpl) ReadFile(name string) ([]byte, error) {
 
 func (*defaultImpl) SetupSeccomp(config *specs.LinuxSeccomp) (*configs.Seccomp, error) {
 	return specconv.SetupSeccomp(config)
-}
-
-func (*defaultImpl) InitSeccomp(config *configs.Seccomp) (int, error) {
-	return seccomp.InitSeccomp(config)
 }
 
 func (*defaultImpl) CommandRun(cmd *command.Command) (uint32, error) {

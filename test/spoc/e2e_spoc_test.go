@@ -77,6 +77,7 @@ func TestSpoc(t *testing.T) {
 
 	t.Run("record", recordTest)
 	t.Run("push-pull", pushPullTest)
+	t.Run("run", runTest)
 }
 
 func recordTest(t *testing.T) {

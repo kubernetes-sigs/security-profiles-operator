@@ -63,6 +63,30 @@ func recordingIndexFunc(obj client.Object) []string {
 func TestPodMatchesRecording(t *testing.T) {
 	t.Parallel()
 
+	for name, tc := range map[string]struct {
+		annotations map[string]string
+		wantTracked bool
+	}{
+		"recorded by the webhook": {
+			annotations: map[string]string{
+				config.SeccompProfileRecordBpfAnnotationKey + "ctr": "test-recording_ctr_123_456",
+			},
+			wantTracked: true,
+		},
+		// For example a pod created before the recording.
+		"not recorded by the webhook": {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			testPodMatchesRecording(t, tc.annotations, tc.wantTracked)
+		})
+	}
+}
+
+func testPodMatchesRecording(t *testing.T, annotations map[string]string, wantTracked bool) {
+	t.Helper()
+
 	scheme := newTestScheme(t)
 
 	recording := &profilerecordingapi.ProfileRecording{
@@ -81,9 +105,10 @@ func TestPodMatchesRecording(t *testing.T) {
 
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-pod",
-			Namespace: "default",
-			Labels:    map[string]string{"app": "test"},
+			Name:        "test-pod",
+			Namespace:   "default",
+			Labels:      map[string]string{"app": "test"},
+			Annotations: annotations,
 		},
 	}
 
@@ -103,6 +128,14 @@ func TestPodMatchesRecording(t *testing.T) {
 
 	updated := &profilerecordingapi.ProfileRecording{}
 	require.NoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(recording), updated))
+
+	if !wantTracked {
+		require.Empty(t, updated.Status.ActiveWorkloads)
+		require.NotContains(t, updated.GetFinalizers(), finalizer)
+
+		return
+	}
+
 	require.Contains(t, updated.Status.ActiveWorkloads, "test-pod")
 	require.Contains(t, updated.GetFinalizers(), finalizer)
 }
@@ -368,6 +401,9 @@ func TestPodMatchesRecordingBeingDeleted(t *testing.T) {
 			Name:      "test-pod",
 			Namespace: "default",
 			Labels:    map[string]string{"app": "test"},
+			Annotations: map[string]string{
+				config.SeccompProfileRecordBpfAnnotationKey + "ctr": "test-recording_ctr_123_456",
+			},
 		},
 	}
 

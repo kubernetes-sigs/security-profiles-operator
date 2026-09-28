@@ -21,6 +21,8 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -44,16 +46,22 @@ const (
 
 	// missingContainerTimeout is how long a container which was not found in
 	// the pod list is not looked up again. The lookup lists every pod on the
-	// node and can retry for a while, which stalls the audit log processing.
+	// node and can retry for a while.
 	// It is shorter than backlogTimeout, so that the lines of a container the
 	// pod status just did not list yet are still dispatched.
 	missingContainerTimeout = 10 * time.Second
+
+	// maxPendingLookups bounds the containers waiting for a lookup. A
+	// container which does not fit is looked up once a later line of it
+	// arrives.
+	maxPendingLookups = 1024
 )
 
 var (
 	errContainerIDEmpty         = errors.New("container ID is empty")
 	errNoContainerInfo          = errors.New("no container info for container ID")
 	errContainerRecentlyMissing = errors.New("container ID was not found in the pod list recently")
+	errContainerLookupPending   = errors.New("container is being looked up")
 )
 
 // NOTE(jaosorior): Should this actually be namespace-scoped?
@@ -89,8 +97,6 @@ type containerLookup struct {
 	missing *ttlcache.Cache[string, struct{}]
 	logger  logr.Logger
 	backoff wait.Backoff
-	// listings counts how often the pods of the node were listed.
-	listings uint64
 }
 
 func (l *containerLookup) getContainerInfo(
@@ -121,6 +127,115 @@ func (l *containerLookup) getContainerInfo(
 	return nil, errNoContainerInfo
 }
 
+// asyncContainerLookup looks containers up in the background. A lookup lists
+// the pods of the node and retries while containers are being created, which
+// must not stall the processing of the audit lines.
+type asyncContainerLookup struct {
+	lookup *containerLookup
+	queue  chan string
+	// pending holds the containers in the queue or being looked up. The value
+	// is set if a line asked for the container again in the meantime.
+	pending   map[string]bool
+	pendingMu sync.Mutex
+	// resolved receives a value whenever a lookup finished, so that the lines
+	// waiting for the containers it found can be sent.
+	resolved chan struct{}
+	// dropped counts the lookups which did not fit into the queue.
+	dropped atomic.Uint64
+}
+
+func newAsyncContainerLookup(lookup *containerLookup) *asyncContainerLookup {
+	return &asyncContainerLookup{
+		lookup:   lookup,
+		queue:    make(chan string, maxPendingLookups),
+		pending:  map[string]bool{},
+		resolved: make(chan struct{}, 1),
+	}
+}
+
+// get returns the info of a container if it is known. Otherwise it has the
+// container looked up and fails with errContainerLookupPending, unless the
+// container was not found recently.
+func (a *asyncContainerLookup) get(containerID string) (*types.ContainerInfo, error) {
+	if item := a.lookup.infoCache.Get(containerID); item != nil {
+		return item.Value(), nil
+	}
+
+	if a.lookup.missing.Has(containerID) {
+		return nil, errContainerRecentlyMissing
+	}
+
+	a.pendingMu.Lock()
+	defer a.pendingMu.Unlock()
+
+	if _, ok := a.pending[containerID]; ok {
+		a.pending[containerID] = true
+
+		return nil, errContainerLookupPending
+	}
+
+	select {
+	case a.queue <- containerID:
+		a.pending[containerID] = false
+	default:
+		// A later line of the container asks again, so only a sample of the
+		// drops is logged.
+		if dropped := a.dropped.Add(1); dropped%100 == 1 {
+			a.lookup.logger.Info(
+				"Too many containers to look up, retrying with the next line",
+				"containerID", containerID, "queueSize", maxPendingLookups, "droppedTotal", dropped,
+			)
+		}
+	}
+
+	return nil, errContainerLookupPending
+}
+
+// run looks up the requested containers until ctx is done.
+func (a *asyncContainerLookup) run(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case containerID := <-a.queue:
+			if _, err := a.lookup.getContainerInfo(ctx, containerID); err != nil {
+				a.lookup.logger.V(config.VerboseLevel).Info(
+					"Container not found in cluster", "containerID", containerID, "error", err.Error(),
+				)
+			}
+
+			a.requeueOrDone(containerID)
+
+			select {
+			case a.resolved <- struct{}{}:
+			default:
+			}
+		}
+	}
+}
+
+// requeueOrDone ends the lookup of a container. A line which asked for it
+// while it was looked up would have started a lookup of its own after this one,
+// so a container which was not found is looked up again. That lookup honors
+// the cache of missing containers, like the one of the line would have.
+func (a *asyncContainerLookup) requeueOrDone(containerID string) {
+	a.pendingMu.Lock()
+	defer a.pendingMu.Unlock()
+
+	askedAgain := a.pending[containerID]
+	delete(a.pending, containerID)
+
+	if !askedAgain || a.lookup.infoCache.Has(containerID) {
+		return
+	}
+
+	select {
+	case a.queue <- containerID:
+		a.pending[containerID] = false
+	default:
+	}
+}
+
 // populateContainerPodCache caches the containers of all pods on the node. It
 // retries while containers are being created, as the target container might
 // be one of them, but stops as soon as the target container got cached.
@@ -129,8 +244,6 @@ func (l *containerLookup) populateContainerPodCache(
 ) error {
 	ctxwithTimeout, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
-
-	l.listings++
 
 	backoff := l.backoff
 

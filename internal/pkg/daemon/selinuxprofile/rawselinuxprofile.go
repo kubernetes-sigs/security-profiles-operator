@@ -27,16 +27,16 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 )
 
-// The underscore is not a valid character in a pod, so we can
-// safely use it as a separator.
-const profileWrapper = `(block {{.Name}}_{{.Namespace}}
+// The block is named after the policy, so that its process type is the usage
+// of the profile, like the one of a SelinuxProfile.
+const profileWrapper = `(block {{.Name}}
     {{.Policy}}
 )`
 
@@ -49,11 +49,18 @@ func NewRawController() controller.Controller {
 	}
 }
 
-func rawSelinuxProfileControllerBuild(b *ctrl.Builder, r reconcile.Reconciler) error {
+func rawSelinuxProfileControllerBuild(b *ctrl.Builder, r *ReconcileSelinux) error {
 	return b.Named("rawselinuxprofile").
 		For(&selinuxprofileapi.RawSelinuxProfile{}, builder.WithPredicates(
 			predicate.GenerationChangedPredicate{},
 		)).
+		// A SelinuxProfile of the same name has the same policy name, so its
+		// creation or removal changes which of them owns the policy.
+		Watches(
+			&selinuxprofileapi.SelinuxProfile{},
+			&handler.EnqueueRequestForObject{},
+			builder.WithPredicates(existenceChangedPredicate),
+		).
 		Complete(r)
 }
 
@@ -95,13 +102,11 @@ func (sph *rawSelinuxProfileHandler) wrapPolicy() (string, error) {
 	// replace empty lines
 	parsedpolicy = strings.TrimSpace(parsedpolicy)
 	data := struct {
-		Name      string
-		Namespace string
-		Policy    string
+		Name   string
+		Policy string
 	}{
-		Name:      sph.rsp.GetName(),
-		Namespace: sph.rsp.GetNamespace(),
-		Policy:    parsedpolicy,
+		Name:   sph.rsp.GetPolicyName(),
+		Policy: parsedpolicy,
 	}
 
 	var result bytes.Buffer

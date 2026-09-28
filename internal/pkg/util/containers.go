@@ -21,10 +21,12 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jellydator/ttlcache/v3"
 )
@@ -47,9 +49,41 @@ var (
 	errContainerIDSearchFailed = errors.New("failed looking for container ID")
 )
 
+// clockTicks is the unit of the times in /proc/<pid>/stat. The kernel reports
+// them in USER_HZ, which is 100 on every architecture Linux runs on.
+const clockTicks = 100
+
 // procFileReader reads a /proc/<pid>/<file> for a given PID, allowing
 // dependency injection in tests.
 type procFileReader func(pid int) ([]byte, error)
+
+// ProcessStartTime returns when the process with the provided PID started,
+// relative to the boot of the system like CLOCK_BOOTTIME.
+func ProcessStartTime(pid int) (time.Duration, error) {
+	return processStartTime(pid, func(pid int) ([]byte, error) {
+		return os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	})
+}
+
+func processStartTime(pid int, reader procFileReader) (time.Duration, error) {
+	raw, err := getProcessStartTimeTicks(pid, reader)
+	if err != nil {
+		return 0, err
+	}
+
+	const tick = time.Second / clockTicks
+
+	ticks, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse start time of pid %d: %w", pid, err)
+	}
+
+	if ticks < 0 || ticks > math.MaxInt64/int64(tick) {
+		return 0, fmt.Errorf("start time of pid %d out of range: %d", pid, ticks)
+	}
+
+	return time.Duration(ticks) * tick, nil
+}
 
 // ContainerIDForPID tries to find the 64 digit container ID for the provided
 // PID by using its cgroup. It supports caching via the cache argument.

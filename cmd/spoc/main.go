@@ -28,6 +28,7 @@ import (
 
 	"sigs.k8s.io/security-profiles-operator/cmd"
 	spocli "sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/command"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/converter"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/installer"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/merger"
@@ -39,6 +40,10 @@ import (
 )
 
 func main() {
+	// spoc run re-executes itself to confine the command, which has to
+	// happen before anything else.
+	runner.Init()
+
 	log.SetFlags(log.Lmicroseconds)
 
 	if err := newApp().Run(os.Args); err != nil {
@@ -92,7 +97,7 @@ func newApp() *cli.App {
 				},
 				&cli.BoolFlag{
 					Name:  recorder.FlagNoProcStart,
-					Usage: "do not start the target command and record until ctrl+c/SIGINT.",
+					Usage: "do not start the target command and record until ctrl+c/SIGINT, SIGTERM or SIGHUP.",
 				},
 				&cli.BoolFlag{
 					Name:  recorder.FlagPrivileged,
@@ -160,9 +165,11 @@ func newApp() *cli.App {
 			ArgsUsage: "PROFILE EXECUTABLE",
 		},
 		&cli.Command{
-			Name:      "run",
-			Aliases:   []string{"x"},
-			Usage:     "run a command using a security profile",
+			Name:    "run",
+			Aliases: []string{"x"},
+			Usage:   "run a command using a security profile",
+			Description: "The command runs confined by the seccomp profile, and the denials " +
+				"found in the audit log are printed. spoc exits with the exit code of the command.",
 			Action:    run,
 			ArgsUsage: "COMMAND",
 			Flags: []cli.Flag{
@@ -205,15 +212,8 @@ func newApp() *cli.App {
 					Aliases: []string{"a"},
 					Usage:   "the annotations to be set in `KEY:VALUE` format",
 				},
-				&cli.StringFlag{
-					Name:    pusher.FlagUsername,
-					Aliases: []string{"u"},
-					EnvVars: []string{"USERNAME"},
-					Usage: fmt.Sprintf(
-						"the username for registry authentication, use $%s for defining a password",
-						spocli.EnvKeyPassword,
-					),
-				},
+				usernameFlag(),
+				passwordStdinFlag(),
 				&cli.BoolFlag{
 					Name: pusher.FlagDisableSigning,
 					Usage: "do not sign the artifact after pushing it, " +
@@ -232,7 +232,9 @@ func newApp() *cli.App {
 				&cli.StringSliceFlag{
 					Name:    pusher.FlagPlatforms,
 					Aliases: []string{"p"},
-					Usage:   "the platforms to be used in format: os[/arch][/variant][:os_version]",
+					Usage: "the platforms to be used in format: os[/arch][/variant][:os_version], " +
+						"one per profile. Without platforms, the single profile is platform independent " +
+						"and gets pulled on every platform",
 				},
 			},
 		},
@@ -254,15 +256,8 @@ func newApp() *cli.App {
 					DefaultText: puller.DefaultOutputFile,
 					TakesFile:   true,
 				},
-				&cli.StringFlag{
-					Name:    puller.FlagUsername,
-					Aliases: []string{"u"},
-					EnvVars: []string{"USERNAME"},
-					Usage: fmt.Sprintf(
-						"the username for registry authentication, use $%s for defining a password",
-						spocli.EnvKeyPassword,
-					),
-				},
+				usernameFlag(),
+				passwordStdinFlag(),
 				&cli.StringFlag{
 					Name:    puller.FlagPlatform,
 					Aliases: []string{"p"},
@@ -294,6 +289,32 @@ func newApp() *cli.App {
 	)
 
 	return app
+}
+
+// usernameFlag returns the flag for the username of the registry
+// authentication.
+func usernameFlag() cli.Flag {
+	return &cli.StringFlag{
+		Name:    spocli.FlagUsername,
+		Aliases: []string{"u"},
+		Usage: fmt.Sprintf(
+			"the username for registry authentication (default: $%s), "+
+				"the password is read from $%s or with --%s from stdin. "+
+				"Without both, the docker config credentials are used. "+
+				"$%s and $%s are deprecated and still used with a warning",
+			spocli.EnvKeyUsername, spocli.EnvKeyPassword, spocli.FlagPasswordStdin,
+			spocli.EnvKeyUsernameDeprecated, spocli.EnvKeyPasswordDeprecated,
+		),
+	}
+}
+
+// passwordStdinFlag returns the flag for reading the password of the
+// registry authentication from stdin.
+func passwordStdinFlag() cli.Flag {
+	return &cli.BoolFlag{
+		Name:  spocli.FlagPasswordStdin,
+		Usage: "read the password for registry authentication from stdin",
+	}
 }
 
 // record runs the `spoc record` subcommand.
@@ -380,6 +401,13 @@ func run(ctx *cli.Context) error {
 	}
 
 	if err := runner.New(options).Run(); err != nil {
+		// Pass the exit code of the command on, like a shell does.
+		if code, exited := command.ExitCode(err); exited {
+			log.Printf("Command failed: %v", err)
+
+			return cli.Exit("", code)
+		}
+
 		return fmt.Errorf("launch runner: %w", err)
 	}
 

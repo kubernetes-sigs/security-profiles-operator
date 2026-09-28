@@ -79,6 +79,9 @@ func TestPodMatchesBindingNilSelector(t *testing.T) {
 	}
 
 	pod := testPod(nil, "test-image")
+	pod.Annotations = map[string]string{
+		profilebindingapi.AppliedBindingsAnnotation: "test-binding",
+	}
 
 	c := fake.NewClientBuilder().
 		WithScheme(scheme).
@@ -191,7 +194,9 @@ func TestPodMatchesBindingImage(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			updated := reconcileTestPod(t, testBinding(tc.bindingImage),
+			// Pods created before the binding webhook annotated them stay
+			// tracked while they match the binding.
+			updated := reconcileTestPod(t, testBinding(tc.bindingImage, "default/test-pod"),
 				testPod(map[string]string{"app": "bound"}, tc.podImages...))
 
 			if tc.wantTracked {
@@ -210,8 +215,87 @@ func TestInitContainerImageMatchesBinding(t *testing.T) {
 	pod := testPod(map[string]string{"app": "bound"}, "busybox")
 	pod.Spec.InitContainers = []corev1.Container{{Name: "init", Image: "nginx"}}
 
-	updated := reconcileTestPod(t, testBinding("nginx"), pod)
+	updated := reconcileTestPod(t, testBinding("nginx", "default/test-pod"), pod)
 	require.Equal(t, []string{"default/test-pod"}, updated.Status.ActiveWorkloads)
+}
+
+// Pods used to be tracked when they matched a binding, even if the webhook
+// never applied it, for example in a namespace without binding enabled. Only
+// the bindings the webhook recorded on the pod are tracked now.
+func TestPodTrackedByAppliedBindings(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		annotation     *string
+		tracked        bool
+		podLabels      map[string]string
+		ephemeralImage string
+		wantTracked    bool
+	}{
+		"applied binding": {
+			annotation: new("other,test-binding"), podLabels: map[string]string{"app": "bound"},
+			wantTracked: true,
+		},
+		"applied binding, labels changed afterwards": {
+			annotation: new("test-binding"), podLabels: map[string]string{"app": "other"},
+			wantTracked: true,
+		},
+		"matching pod without annotation is not tracked anew": {
+			podLabels: map[string]string{"app": "bound"},
+		},
+		"matching pod with other bindings": {
+			annotation: new("other"), podLabels: map[string]string{"app": "bound"},
+		},
+		"tracked pod with other bindings gets untracked": {
+			annotation: new("other"), tracked: true, podLabels: map[string]string{"app": "bound"},
+		},
+		"tracked pod without applied bindings gets untracked": {
+			annotation: new(""), tracked: true, podLabels: map[string]string{"app": "bound"},
+		},
+		"binding applied to an ephemeral container": {
+			annotation: new("other"), podLabels: map[string]string{"app": "bound"},
+			ephemeralImage: "debug", wantTracked: true,
+		},
+		"ephemeral container of a pod not matching the selector": {
+			annotation: new("other"), podLabels: map[string]string{"app": "other"},
+			ephemeralImage: "debug",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			binding := testBinding("nginx")
+			if tc.tracked {
+				binding = testBinding("nginx", "default/test-pod")
+			}
+
+			pod := testPod(tc.podLabels, "nginx")
+			if tc.ephemeralImage != "" {
+				binding.Spec.Image = tc.ephemeralImage
+				pod.Spec.EphemeralContainers = []corev1.EphemeralContainer{{
+					EphemeralContainerCommon: corev1.EphemeralContainerCommon{
+						Name: "debugger", Image: tc.ephemeralImage,
+					},
+				}}
+			}
+
+			if tc.annotation != nil {
+				pod.Annotations = map[string]string{
+					profilebindingapi.AppliedBindingsAnnotation: *tc.annotation,
+				}
+			}
+
+			updated := reconcileTestPod(t, binding, pod)
+
+			if tc.wantTracked {
+				require.Equal(t, []string{"default/test-pod"}, updated.Status.ActiveWorkloads)
+				require.Contains(t, updated.GetFinalizers(), finalizer)
+			} else {
+				require.Empty(t, updated.Status.ActiveWorkloads)
+				require.NotContains(t, updated.GetFinalizers(), finalizer)
+			}
+		})
+	}
 }
 
 func TestPodNoLongerMatchingIsUntracked(t *testing.T) {

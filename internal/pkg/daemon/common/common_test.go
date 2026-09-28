@@ -45,6 +45,10 @@ func Test_AuditTimeToIso(t *testing.T) {
 
 	isoTimestamp, err := AuditTimeToIso("1746611740.574:325")
 	require.NoError(t, err)
+	require.Equal(t, "2025-05-07T09:55:40.574Z", isoTimestamp)
+
+	isoTimestamp, err = AuditTimeToIso("1746611740:325")
+	require.NoError(t, err)
 	require.Equal(t, "2025-05-07T09:55:40.000Z", isoTimestamp)
 
 	_, errInvalid1 := AuditTimeToIso("invalid")

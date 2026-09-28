@@ -83,6 +83,36 @@ func TestValidatePolicy(t *testing.T) {
 
 		// --- 3. Directive Restrictions (Global State Protection) ---
 		{
+			name: "Inherit a container template",
+			policy: "(blockinherit container)\n" +
+				"(allow process var_log_t (dir (open read)))\n( BLOCKINHERIT\tnet_container )",
+			wantErr: false,
+		},
+		{
+			name:        "Inherit another block",
+			policy:      "(blockinherit permissive-profile_)",
+			wantErr:     true,
+			errContains: "must name a single template",
+		},
+		{
+			name:        "Inherit a block which is not a container template",
+			policy:      "(blockinherit spc)",
+			wantErr:     true,
+			errContains: "blockinherit of 'spc' is not allowed",
+		},
+		{
+			name:        "Inherit a nested block",
+			policy:      "(blockinherit container.process)",
+			wantErr:     true,
+			errContains: "must name a single template",
+		},
+		{
+			name:        "Inherit more than one block at once",
+			policy:      "(blockinherit container x)",
+			wantErr:     true,
+			errContains: "must name a single template",
+		},
+		{
 			name:        "Restricted directive: typepermissive",
 			policy:      "(typepermissive spc_t)",
 			wantErr:     true,

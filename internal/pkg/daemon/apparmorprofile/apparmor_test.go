@@ -436,3 +436,79 @@ func TestProfileFilename(t *testing.T) {
 		require.Equal(t, want, profileFilename(name), name)
 	}
 }
+
+// fakePolicyLoader is a policyLoader which tracks the loaded policies.
+type fakePolicyLoader struct {
+	loaded  map[string]bool
+	loads   int
+	loadErr error
+}
+
+func (f *fakePolicyLoader) LoadPolicy(string) error {
+	f.loads++
+	if f.loadErr != nil {
+		return f.loadErr
+	}
+
+	f.loaded["test"] = true
+
+	return nil
+}
+
+func (f *fakePolicyLoader) PolicyLoaded(name string) (bool, error) {
+	return f.loaded[name], nil
+}
+
+func TestLoadPolicyFile(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "test")
+	loader := &fakePolicyLoader{loaded: map[string]bool{}}
+
+	updated, err := loadPolicyFile(logr.Discard(), loader, path, "test", "policy")
+	require.NoError(t, err)
+	require.True(t, updated)
+	require.Equal(t, 1, loader.loads)
+
+	content, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, managedByMarker+"policy", string(content))
+
+	// An unchanged and loaded policy is neither written nor loaded again.
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+
+	updated, err = loadPolicyFile(logr.Discard(), loader, path, "test", "policy")
+	require.NoError(t, err)
+	require.False(t, updated)
+	require.Equal(t, 1, loader.loads)
+
+	unchanged, err := os.Stat(path)
+	require.NoError(t, err)
+	require.True(t, os.SameFile(info, unchanged), "the file must not be replaced")
+
+	// A policy which is not loaded anymore, for example after a reboot, is
+	// loaded again.
+	loader.loaded["test"] = false
+
+	updated, err = loadPolicyFile(logr.Discard(), loader, path, "test", "policy")
+	require.NoError(t, err)
+	require.True(t, updated)
+	require.Equal(t, 2, loader.loads)
+
+	// A changed policy is written and loaded.
+	updated, err = loadPolicyFile(logr.Discard(), loader, path, "test", "changed")
+	require.NoError(t, err)
+	require.True(t, updated)
+	require.Equal(t, 3, loader.loads)
+
+	// A failed load restores the previous file.
+	loader.loadErr = errors.New("parser failed")
+
+	_, err = loadPolicyFile(logr.Discard(), loader, path, "test", "broken")
+	require.ErrorContains(t, err, "parser failed")
+
+	content, err = os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, managedByMarker+"changed", string(content))
+}

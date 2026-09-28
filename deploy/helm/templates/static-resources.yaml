@@ -485,14 +485,6 @@ rules:
   verbs:
   - create
 - apiGroups:
-  - ""
-  resources:
-  - pods
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
   - authentication.k8s.io
   resources:
   - tokenreviews
@@ -532,7 +524,6 @@ rules:
   - apparmorprofiles
   - profilebindings
   - profilerecordings
-  - rawselinuxprofiles
   - seccompprofiles
   - selinuxprofiles
   verbs:
@@ -772,6 +763,85 @@ metadata:
   namespace: '{{ .Release.Namespace }}'
 type: kubernetes.io/service-account-token
 ---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  annotations:
+    meta.helm.sh/release-name: security-profiles-operator
+    meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
+  labels:
+    app: security-profiles-operator
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: security-profiles-operator
+  name: spo-spod-jobs
+spec:
+  failurePolicy: Fail
+  matchConditions:
+  - expression: request.userInfo.username == 'system:serviceaccount:' + request.namespace
+      + ':spod'
+    name: spod-service-account
+  matchConstraints:
+    resourceRules:
+    - apiGroups:
+      - batch
+      apiVersions:
+      - '*'
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - jobs
+  validations:
+  - expression: has(variables.podSpec.serviceAccountName) && variables.podSpec.serviceAccountName
+      == 'spod'
+    message: Jobs of the spod service account have to run as the spod service account
+    reason: Forbidden
+  - expression: has(variables.podSpec.nodeName) && variables.podSpec.nodeName != ''
+      && (size(variables.requestNodes) == 0 || variables.podSpec.nodeName in variables.requestNodes)
+    message: Jobs of the spod service account have to run on the node of the requesting
+      pod
+    reason: Forbidden
+  - expression: '!(has(variables.podSpec.hostNetwork) && variables.podSpec.hostNetwork)
+      && !(has(variables.podSpec.hostPID) && variables.podSpec.hostPID) && !(has(variables.podSpec.hostIPC)
+      && variables.podSpec.hostIPC)'
+    message: Jobs of the spod service account must not use host namespaces
+    reason: Forbidden
+  - expression: size(variables.podSpec.containers) == 1 && (!has(variables.podSpec.initContainers)
+      || size(variables.podSpec.initContainers) == 0) && variables.podSpec.containers.all(c,
+      !has(c.envFrom) && (!has(c.env) || c.env.all(e, !has(e.valueFrom))))
+    message: Jobs of the spod service account have to run a single container without
+      environment from secrets or config maps
+    reason: Forbidden
+  - expression: '!has(variables.podSpec.volumes) || variables.podSpec.volumes.all(v,
+      has(v.hostPath) && v.hostPath.path in [''/sys/fs/selinux'', ''/etc/selinux'',
+      ''/var/lib/selinux''] && has(v.hostPath.type) && v.hostPath.type == ''Directory'')'
+    message: Jobs of the spod service account may only mount the SELinux host paths
+      as directories
+    reason: Forbidden
+  variables:
+  - expression: object.spec.template.spec
+    name: podSpec
+  - expression: 'has(request.userInfo.extra) && ''authentication.kubernetes.io/node-name''
+      in request.userInfo.extra ? request.userInfo.extra[''authentication.kubernetes.io/node-name'']
+      : []'
+    name: requestNodes
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  annotations:
+    meta.helm.sh/release-name: security-profiles-operator
+    meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
+  labels:
+    app: security-profiles-operator
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: security-profiles-operator
+  name: spo-spod-jobs
+spec:
+  policyName: spo-spod-jobs
+  validationActions:
+  - Deny
+---
 apiVersion: v1
 data:
   bpf-recorder.json: |-
@@ -816,6 +886,9 @@ data:
             "capget",
             "capset",
             "chdir",
+            "clock_getres",
+            "clock_gettime",
+            "clock_gettime64",
             "clone",
             "clone3",
             "close",
@@ -844,6 +917,7 @@ data:
             "getsockname",
             "getsockopt",
             "gettid",
+            "gettimeofday",
             "ioctl",
             "listen",
             "lseek",
@@ -882,6 +956,7 @@ data:
             "statfs",
             "statx",
             "tgkill",
+            "time",
             "uname",
             "write"
           ],
@@ -979,6 +1054,9 @@ data:
             "capget",
             "capset",
             "chdir",
+            "clock_getres",
+            "clock_gettime",
+            "clock_gettime64",
             "clone",
             "clone3",
             "close",
@@ -1005,6 +1083,7 @@ data:
             "getsockname",
             "getsockopt",
             "gettid",
+            "gettimeofday",
             "inotify_add_watch",
             "inotify_init1",
             "listen",
@@ -1043,6 +1122,7 @@ data:
             "statfs",
             "statx",
             "tgkill",
+            "time",
             "uname",
             "unshare",
             "unlinkat",

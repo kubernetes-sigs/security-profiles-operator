@@ -529,6 +529,28 @@ func TestGetKubeletDirFromNodeLabel(t *testing.T) {
 			label:   "var-.-lib",
 			wantErr: true,
 		},
+		{
+			// A file on some nodes, which would stop the SPOd on all nodes
+			// once mounted.
+			name:    "kubelet binary",
+			label:   "usr-bin-kubelet",
+			wantErr: true,
+		},
+		{
+			name:    "kubelet binary outside of the system directories",
+			label:   "opt-bin-kubelet",
+			wantErr: true,
+		},
+		{
+			name:    "below a system directory",
+			label:   "etc-kubernetes-kubelet",
+			wantErr: true,
+		},
+		{
+			name:  "nested state directory",
+			label: "var-snap-microk8s-common-var-lib-kubelet",
+			want:  "/var/snap/microk8s/common/var/lib/kubelet",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv(config.NodeNameEnvKey, nodeName)
@@ -542,7 +564,7 @@ func TestGetKubeletDirFromNodeLabel(t *testing.T) {
 
 			got, err := GetKubeletDirFromNodeLabel(t.Context(), c)
 			if tc.wantErr {
-				require.Error(t, err)
+				require.ErrorIs(t, err, ErrInvalidKubeletDirLabel)
 
 				return
 			}
@@ -571,7 +593,16 @@ func TestGetKubeletDirFromNodeLabelErrors(t *testing.T) {
 		}).Build()
 
 		_, err := GetKubeletDirFromNodeLabel(t.Context(), c)
+		require.ErrorIs(t, err, ErrKubeletDirLabelNotFound)
+	})
+
+	t.Run("node not found", func(t *testing.T) {
+		t.Setenv(config.NodeNameEnvKey, nodeName)
+
+		_, err := GetKubeletDirFromNodeLabel(t.Context(), fake.NewClientBuilder().Build())
 		require.Error(t, err)
+		require.NotErrorIs(t, err, ErrKubeletDirLabelNotFound)
+		require.NotErrorIs(t, err, ErrInvalidKubeletDirLabel)
 	})
 }
 

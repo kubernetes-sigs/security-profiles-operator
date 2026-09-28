@@ -32,6 +32,11 @@ const (
 	SelectAllContainersImage          string             = "*"
 )
 
+// AppliedBindingsAnnotation is set by the binding webhook on the pods it
+// applied bindings to. Its value is the comma separated list of the names of
+// the applied bindings in the namespace of the pod.
+const AppliedBindingsAnnotation = "spo.x-k8s.io/profile-bindings"
+
 // ProfileBindingSpec defines the desired state of ProfileBinding.
 type ProfileBindingSpec struct {
 	// profileRef references the cluster-scoped SeccompProfile, SelinuxProfile
@@ -47,6 +52,8 @@ type ProfileBindingSpec struct {
 	// standard label selector semantics. An empty or omitted podSelector matches
 	// all pods in the namespace.
 	// +optional
+	//nolint:lll // CEL rules cannot be wrapped
+	// +kubebuilder:validation:XValidation:rule="!has(self.matchExpressions) || self.matchExpressions.all(e, e.operator in ['In', 'NotIn'] ? (has(e.values) && size(e.values) > 0) : (e.operator in ['Exists', 'DoesNotExist'] && (!has(e.values) || size(e.values) == 0)))",message="matchExpressions operator must be In, NotIn, Exists or DoesNotExist, In and NotIn require values, Exists and DoesNotExist must not have values"
 	PodSelector *metav1.LabelSelector `json:"podSelector,omitempty"`
 }
 

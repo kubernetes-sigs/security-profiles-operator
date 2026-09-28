@@ -19,6 +19,7 @@ package nodestatus
 import (
 	"context"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -54,10 +55,14 @@ func (r *StatusReconciler) Setup(
 		predicate.Funcs{DeleteFunc: func(event.DeleteEvent) bool { return false }},
 	)
 
-	// Register a special reconciler for status events
+	// Register a special reconciler for status events. Every status of a
+	// profile leads to the same aggregated profile status, so the events of
+	// all statuses of a profile are mapped to the same request, which the
+	// work queue deduplicates.
 	return ctrl.NewControllerManagedBy(mgr).
 		Named(r.Name()).
-		For(&secprofnodestatusapi.SecurityProfileNodeStatus{}).
+		Watches(&secprofnodestatusapi.SecurityProfileNodeStatus{},
+			handler.EnqueueRequestsFromMapFunc(r.siblingStatusRequests)).
 		Watches(&seccompprofileapi.SeccompProfile{},
 			handler.EnqueueRequestsFromMapFunc(r.statusRequests("SeccompProfile")),
 			generationChanged).
@@ -73,24 +78,51 @@ func (r *StatusReconciler) Setup(
 		Complete(r)
 }
 
-// statusRequests returns a map function which enqueues one node status of a
-// profile of the provided kind. Every node status leads to the same aggregated
-// profile status, so one is enough.
+// statusRequests returns a map function which enqueues the request of a
+// profile of the provided kind. It aggregates the node statuses of the
+// profile, and removes the finalizers of deleted nodes if the profile is being
+// deleted, whose node statuses may be gone already.
 func (r *StatusReconciler) statusRequests(kind string) handler.MapFunc {
-	return func(ctx context.Context, obj client.Object) []reconcile.Request {
-		list, err := listStatusesForProfile(
-			ctx, r.client, obj.GetNamespace(), util.KindNameDNSLengthName(kind, obj.GetName()),
-		)
-		if err != nil {
-			r.log.Error(err, "cannot list node statuses of profile", "profile", obj.GetName())
-
-			return nil
-		}
-
-		if len(list.Items) == 0 {
-			return nil
-		}
-
-		return []reconcile.Request{{NamespacedName: client.ObjectKeyFromObject(&list.Items[0])}}
+	return func(_ context.Context, obj client.Object) []reconcile.Request {
+		return []reconcile.Request{profileRequest(kind, obj.GetNamespace(), obj.GetName())}
 	}
+}
+
+// siblingStatusRequests maps an event of a node status to the request of its
+// profile, so that the statuses of a profile share a single request which the
+// work queue deduplicates. A status which does not match its owner is
+// reconciled on its own, which reports the mismatch.
+func (r *StatusReconciler) siblingStatusRequests(
+	_ context.Context, obj client.Object,
+) []reconcile.Request {
+	owner := metav1.GetControllerOf(obj)
+	label := obj.GetLabels()[secprofnodestatusapi.StatusToProfLabel]
+
+	if owner == nil || label == "" || util.KindNameDNSLengthName(owner.Kind, owner.Name) != label {
+		return []reconcile.Request{{NamespacedName: client.ObjectKeyFromObject(obj)}}
+	}
+
+	return []reconcile.Request{profileRequest(owner.Kind, obj.GetNamespace(), owner.Name)}
+}
+
+// firstOwnedStatus returns the status with the lowest name which is
+// controlled by the profile of the provided kind and name, or nil if there is
+// none. Statuses without that owner cannot be reconciled for the profile.
+func firstOwnedStatus(
+	list *secprofnodestatusapi.SecurityProfileNodeStatusList, kind, name string,
+) *secprofnodestatusapi.SecurityProfileNodeStatus {
+	var first *secprofnodestatusapi.SecurityProfileNodeStatus
+
+	for i := range list.Items {
+		owner := metav1.GetControllerOf(&list.Items[i])
+		if owner == nil || owner.Kind != kind || owner.Name != name {
+			continue
+		}
+
+		if first == nil || list.Items[i].Name < first.Name {
+			first = &list.Items[i]
+		}
+	}
+
+	return first
 }

@@ -453,6 +453,45 @@ func TestReconcile(t *testing.T) {
 				assert.NoError(t, err)
 			},
 		},
+		{
+			// A failed pod is collected like a succeeded one, it does not run
+			// anymore either.
+			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
+				profileName := fmt.Sprintf("profile_replica-123_4bbwm_%d", time.Now().Unix())
+				sut.podsToWatch.Store(testRequest.String(), podToWatch{
+					recorder: recordingapi.ProfileRecorderBpf,
+					profiles: []profileToCollect{{
+						kind: recordingapi.ProfileRecordingKindSeccompProfile,
+						name: profileName,
+					}},
+				})
+
+				mock.GetPodReturns(&corev1.Pod{
+					Status: corev1.PodStatus{Phase: corev1.PodFailed},
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							config.SeccompProfileRecordBpfAnnotationKey: profileName,
+						},
+					},
+				}, nil)
+				mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
+					Spec: spodapi.SPODSpec{Enricher: spodapi.SPODEnricherConfig{EnableBpfRecorder: ptrTrue()}},
+				}, nil)
+				mock.DialBpfRecorderReturns(nil, nil)
+				mock.SyscallsForProfileReturns(
+					&bpfrecorderapi.SyscallsResponse{
+						Syscalls: []string{"prctl", "mkdir"},
+						GoArch:   runtime.GOARCH,
+					}, nil,
+				)
+			},
+			assert: func(sut *RecorderReconciler, err error) {
+				require.NoError(t, err)
+
+				_, ok := sut.podsToWatch.Load(testRequest.String())
+				assert.False(t, ok, "the failed pod must be collected")
+			},
+		},
 		{ //nolint:dupl // test duplicates are fine
 			// seccomp BPF GoArchToSeccompArch fails
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
@@ -1659,7 +1698,17 @@ func TestReconcile(t *testing.T) {
 				}, nil)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.Error(t, err)
+				// The enricher got disabled while recording, so the pod is
+				// given up instead of retried forever.
+				require.NoError(t, err)
+
+				_, ok := sut.podsToWatch.Load(testRequest.String())
+				assert.False(t, ok)
+
+				recorder, ok := sut.record.(*events.FakeRecorder)
+				require.True(t, ok)
+				require.Len(t, recorder.Events, 1)
+				assert.Contains(t, <-recorder.Events, "Warning "+reasonRecordingAbandoned)
 			},
 		},
 		{ // logs seccomp EnableLogEnricher nil (defaults to disabled)
@@ -1689,7 +1738,17 @@ func TestReconcile(t *testing.T) {
 				}, nil)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.Error(t, err)
+				// The enricher got disabled while recording, so the pod is
+				// given up instead of retried forever.
+				require.NoError(t, err)
+
+				_, ok := sut.podsToWatch.Load(testRequest.String())
+				assert.False(t, ok)
+
+				recorder, ok := sut.record.(*events.FakeRecorder)
+				require.True(t, ok)
+				require.Len(t, recorder.Events, 1)
+				assert.Contains(t, <-recorder.Events, "Warning "+reasonRecordingAbandoned)
 			},
 		},
 		{ // logs seccomp failed GetSPOD

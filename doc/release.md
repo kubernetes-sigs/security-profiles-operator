@@ -18,18 +18,17 @@ The script basically:
   from `us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator` to
   `registry.k8s.io/security-profiles-operator/security-profiles-operator` (`newName`) and the
   corresponding tag (`newTag`).
-  has to be run and the changes have to be committed.
 - changes the `image` in the `CatalogSource` in the same way at
   [./examples/olm/install-resources.yaml](/examples/olm/install-resources.yaml)
 - changes the image of the webhook overlay
   [./deploy/overlays/webhook/kustomization.yaml](../deploy/overlays/webhook/kustomization.yaml)
   and the image, tag and pull policy in the Helm chart
   [values](../deploy/helm/values.yaml) in the same way
-- changes [`hack/ci/e2e-olm.sh`](/hack/ci/e2e-olm.sh) to sed
-  `"s#registry.k8s.io/security-profiles-operator/security-profiles-operator-catalog:v0.0.0#${CATALOG_IMG}#g"`
+- changes [`hack/ci/e2e-olm.sh`](/hack/ci/e2e-olm.sh) and the e2e tests to
+  use the released images from `registry.k8s.io` instead of the staging ones,
+  for example `registry.k8s.io/security-profiles-operator/security-profiles-operator-catalog:vx.y.z`
   instead of
-  `"s#us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator-catalog:latest#${CATALOG_IMG}#g"`
-  (please note to change the version `v0.0.0` to the upcoming release)
+  `us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator-catalog:latest`
 - updates [./dependencies.yaml](../dependencies.yaml) `spo-current` version as
   well as its linked files. Run `make verify-dependencies` to verify the
   results.

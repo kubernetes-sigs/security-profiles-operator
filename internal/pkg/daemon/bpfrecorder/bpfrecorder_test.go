@@ -867,7 +867,9 @@ func TestHandlerFromFinishedRecordingIsDiscarded(t *testing.T) {
 
 	require.NoError(t, sut.StopRecording())
 
-	sut.handleNewPidEvent(42, 0x1010, 0x1010, staleGeneration)
+	sut.handleNewPidEvent(
+		newPidEvent{pid: 42, mntns: 0x1010, key: 0x1010, generation: staleGeneration},
+	)
 
 	require.Equal(t, 0, sut.containerKeys.Size(),
 		"a handler from a finished recording must not repopulate the tables")
@@ -1084,7 +1086,14 @@ func TestNewPidEvent(t *testing.T) {
 
 		e := tc.prepare(sut, mock)
 
-		go sut.handleNewPidEvent(e.Pid, e.Mntns, e.Key, sut.recordingGeneration.Load())
+		go sut.handleNewPidEvent(
+			newPidEvent{
+				pid:        e.Pid,
+				mntns:      e.Mntns,
+				key:        e.Key,
+				generation: sut.recordingGeneration.Load(),
+			},
+		)
 
 		tc.assert(sut, logSink)
 	}
@@ -1345,10 +1354,14 @@ func TestNewPidEventForEveryKey(t *testing.T) {
 		config.SeccompProfileRecordBpfAnnotationKey + "ctr": profile,
 	}), nil)
 
-	sut.handleNewPidEvent(42, 1, 1, sut.recordingGeneration.Load())
+	sut.handleNewPidEvent(
+		newPidEvent{pid: 42, mntns: 1, key: 1, generation: sut.recordingGeneration.Load()},
+	)
 
 	// The same process is reported again after moving to another key.
-	sut.handleNewPidEvent(42, 1, 2, sut.recordingGeneration.Load())
+	sut.handleNewPidEvent(
+		newPidEvent{pid: 42, mntns: 1, key: 2, generation: sut.recordingGeneration.Load()},
+	)
 
 	require.Equal(t, 2, mock.ContainerIDForPIDCallCount())
 	require.Equal(t, []uint64{1, 2}, sut.containerKeys.Keys(containerID))
@@ -1373,7 +1386,9 @@ func TestNewPidEventExcludesUnrecordedContainers(t *testing.T) {
 
 		sut.AppArmor.handleFileEvent(fileEvent(7, flagRead, "/etc/passwd"))
 
-		sut.handleNewPidEvent(42, 1, 7, sut.recordingGeneration.Load())
+		sut.handleNewPidEvent(
+			newPidEvent{pid: 42, mntns: 1, key: 7, generation: sut.recordingGeneration.Load()},
+		)
 
 		require.Zero(t, sut.containerKeys.Size())
 
@@ -1413,7 +1428,9 @@ func TestNewPidEventExcludesHostProcesses(t *testing.T) {
 
 	mock.ContainerIDForPIDReturns("", util.ErrContainerIDNotFound)
 
-	sut.handleNewPidEvent(42, 1, 7, sut.recordingGeneration.Load())
+	sut.handleNewPidEvent(
+		newPidEvent{pid: 42, mntns: 1, key: 7, generation: sut.recordingGeneration.Load()},
+	)
 
 	require.Equal(t, 1, mock.UpdateValue64CallCount())
 	require.Zero(t, mock.ListPodsCallCount())

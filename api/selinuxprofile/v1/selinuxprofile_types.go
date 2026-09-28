@@ -51,9 +51,11 @@ type PolicyRef struct {
 	// +optional
 	// +default="System"
 	Kind PolicyRefKind `json:"kind,omitempty"`
-	// name is the name of the policy that this inherits from.
+	// name is the name of the policy that this inherits from. It may only
+	// contain alphanumeric characters, '.', '-' and '_'.
 	// +required
 	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:Pattern=`^[-a-zA-Z0-9._]+$`
 	Name string `json:"name,omitempty"`
 }
 
@@ -108,10 +110,19 @@ type PermissionSet []string
 
 // Allow defines the allow policy for the profile.
 //
+// +kubebuilder:validation:MaxProperties=1024
 // +kubebuilder:validation:XValidation:rule="self.all(k, k.matches('^([-a-zA-Z0-9._]+|@self)$'))",message="types may only contain alphanumeric characters, '.', '-' and '_', or be '@self'"
 //
 //nolint:lll // CEL rules cannot be wrapped
-type Allow map[LabelKey]map[ObjectClassKey]PermissionSet
+type Allow map[LabelKey]ObjectClassPermissions
+
+// ObjectClassPermissions maps SELinux object classes to their permissions.
+//
+// +kubebuilder:validation:MaxProperties=256
+// +kubebuilder:validation:XValidation:rule="self.all(k, k.matches('^[-a-zA-Z0-9._]+$'))",message="object classes may only contain alphanumeric characters, '.', '-' and '_'"
+//
+//nolint:lll // CEL rules cannot be wrapped
+type ObjectClassPermissions map[ObjectClassKey]PermissionSet
 
 func SortLabelKeys(allow Allow) []LabelKey {
 	keys := slices.Collect(maps.Keys(allow))
@@ -149,12 +160,20 @@ type SelinuxProfileStatus struct {
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // SelinuxProfile is the Schema for the selinuxprofiles API.
+//
+// The name is used as the name of a CIL block, which has to start with a
+// letter and must not contain dots. Existing objects are exempt, so that they
+// can still be updated and deleted.
+//
+// +kubebuilder:validation:XValidation:rule="oldSelf.hasValue() || self.metadata.name.matches('^[a-z][-a-z0-9]*$')",optionalOldSelf=true,message="name must start with a letter and may only contain lowercase alphanumeric characters and '-'"
 // +kubebuilder:storageversion
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:path=selinuxprofiles,scope=Cluster
 // +kubebuilder:printcolumn:name="Usage",type="string",JSONPath=`.status.usage`
 // +kubebuilder:printcolumn:name="State",type="string",JSONPath=`.status.status`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
+//
+//nolint:lll // CEL rules cannot be wrapped
 type SelinuxProfile struct {
 	metav1.TypeMeta `json:",inline"`
 	// metadata contains the object metadata.

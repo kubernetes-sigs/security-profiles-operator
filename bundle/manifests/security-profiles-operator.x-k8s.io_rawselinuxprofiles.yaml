@@ -29,7 +29,12 @@ spec:
     name: v1
     schema:
       openAPIV3Schema:
-        description: RawSelinuxProfile is the Schema for the rawselinuxprofiles API.
+        description: |-
+          RawSelinuxProfile is the Schema for the rawselinuxprofiles API.
+
+          The name is used as the name of a CIL block, which has to start with a
+          letter and must not contain dots. Existing objects are exempt, so that they
+          can still be updated and deleted.
         properties:
           apiVersion:
             description: |-
@@ -154,6 +159,11 @@ spec:
                 type: string
             type: object
         type: object
+        x-kubernetes-validations:
+        - message: name must start with a letter and may only contain lowercase alphanumeric
+            characters and '-'
+          optionalOldSelf: true
+          rule: oldSelf.hasValue() || self.metadata.name.matches('^[a-z][-a-z0-9]*$')
     served: true
     storage: true
     subresources:

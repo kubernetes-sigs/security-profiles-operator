@@ -21,13 +21,16 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	goruntime "runtime"
 	"strings"
 	"testing"
 
+	"github.com/jellydator/ttlcache/v3"
 	"github.com/stretchr/testify/require"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -125,6 +128,7 @@ func newReconcileEnv(t *testing.T, objs ...client.Object) *reconcileEnv {
 			WithScheme(scheme).
 			WithObjects(objs...).
 			WithStatusSubresource(&secprofnodestatusapi.SecurityProfileNodeStatus{}).
+			WithIndex(&seccompprofileapi.SeccompProfile{}, baseProfileIndex, indexBaseProfile).
 			WithInterceptorFuncs(interceptor.Funcs{
 				Get: func(
 					ctx context.Context, c client.WithWatch, key client.ObjectKey,
@@ -240,7 +244,6 @@ func TestReconcileSeccompProfileInstall(t *testing.T) {
 		"SeccompProfile-"+testProfile,
 		sp.GetLabels()[secprofnodestatusapi.StatusToProfLabel],
 	)
-	require.Contains(t, sp.GetAnnotations(), "syscalls")
 
 	status := env.nodeStatus(t)
 	require.NotNil(t, status)
@@ -253,6 +256,12 @@ func TestReconcileSeccompProfileInstall(t *testing.T) {
 	res, err = env.reconcile(t)
 	require.NoError(t, err)
 	require.Equal(t, reconcile.Result{}, res)
+
+	require.NoError(t, env.cli.Get(t.Context(), testProfileKey, sp))
+	require.JSONEq(t,
+		`[{"names":["read","write"],"action":"SCMP_ACT_ALLOW"}]`,
+		sp.GetAnnotations()[syscallsAnnotation],
+	)
 
 	require.Len(t, env.saved, 1)
 	require.Equal(t, sp.GetProfilePath(), env.saved[0].path)
@@ -333,15 +342,21 @@ func TestReconcileSeccompProfileNotAllowed(t *testing.T) {
 	}, nil)
 
 	_, err := env.reconcile(t)
-	require.ErrorIs(t, err, errForbiddenSyscall)
-	require.ErrorContains(t, err, "syscall not allowed: write")
+	require.NoError(t, err)
+
+	// A rejected profile is not retried until it or the SPOD changes, which
+	// both trigger a reconcile.
+	res, err := env.reconcile(t)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{}, res)
 
 	evs := env.events()
 	require.Len(t, evs, 1)
 	require.True(t, strings.HasPrefix(evs[0], "Warning "+reasonProfileNotAllowed+" "), evs[0])
+	require.Contains(t, evs[0], "syscall not allowed: write")
 
-	// Rejected profiles do not get a node status or a file on disk.
-	require.Nil(t, env.nodeStatus(t))
+	// Rejected profiles show the error and do not get a file on disk.
+	require.Equal(t, secprofnodestatusapi.ProfileStateError, env.nodeStatus(t).Status.Status)
 	require.Empty(t, env.saved)
 }
 
@@ -352,8 +367,13 @@ func TestReconcileSeccompProfileGetSPODError(t *testing.T) {
 	env.impl.GetSPODReturns(nil, errors.New("no spod"))
 
 	_, err := env.reconcile(t)
+	require.NoError(t, err)
+
+	// A failure of the API server is retried with backoff.
+	_, err = env.reconcile(t)
 	require.ErrorContains(t, err, "retrieving the SPOD configuration: no spod")
-	require.Nil(t, env.nodeStatus(t))
+	require.Equal(t, secprofnodestatusapi.ProfileStatePending, env.nodeStatus(t).Status.Status)
+	require.Empty(t, env.saved)
 }
 
 func TestReconcileSeccompProfileMergeError(t *testing.T) {
@@ -362,21 +382,203 @@ func TestReconcileSeccompProfileMergeError(t *testing.T) {
 	sp := newTestProfile()
 	sp.Spec.BaseProfileName = "missing"
 	env := newReconcileEnv(t, sp)
-	env.impl.ClientGetProfileReturns(nil, errors.New("not there"))
+	env.impl.ClientGetProfileReturns(nil, errors.New("api down"))
 
-	// A base profile that cannot be resolved is retried later instead of
-	// failing the reconcile.
+	_, err := env.reconcile(t)
+	require.NoError(t, err)
+
+	// A base profile which cannot be looked up is retried with backoff.
+	_, err = env.reconcile(t)
+	require.ErrorContains(t, err, "api down")
+	require.Empty(t, env.events())
+	require.Equal(t, secprofnodestatusapi.ProfileStatePending, env.nodeStatus(t).Status.Status)
+
+	// A missing base profile is shown and not retried: the profile gets
+	// enqueued once the base profile is created.
+	env.impl.ClientGetProfileReturns(nil, kerrors.NewNotFound(schema.GroupResource{}, "missing"))
+
 	res, err := env.reconcile(t)
 	require.NoError(t, err)
-	require.Equal(t, reconcile.Result{RequeueAfter: common.Wait}, res)
+	require.Equal(t, reconcile.Result{}, res)
 
-	require.Equal(t,
-		[]string{util.EventTypeWarning + " " + reasonInvalidSeccompProfile + " not there"},
-		env.events(),
-	)
-
-	require.Nil(t, env.nodeStatus(t))
+	evs := env.events()
+	require.Len(t, evs, 1)
+	require.True(t, strings.HasPrefix(evs[0], "Warning "+reasonInvalidSeccompProfile+" "), evs[0])
+	require.Contains(t, evs[0], "missing not found")
+	require.Equal(t, secprofnodestatusapi.ProfileStateError, env.nodeStatus(t).Status.Status)
 	require.Empty(t, env.saved)
+}
+
+func TestDerivedProfileRequests(t *testing.T) {
+	t.Parallel()
+
+	base := newTestProfile()
+	base.Name = "base"
+
+	derived := newTestProfile()
+	derived.Name = "derived"
+	derived.Spec.BaseProfileName = "base"
+
+	// Profiles further down the chain have to be enqueued as well, and a
+	// cycle must not loop.
+	derivedTwice := newTestProfile()
+	derivedTwice.Name = "derived-twice"
+	derivedTwice.Spec.BaseProfileName = "derived"
+
+	cycle := newTestProfile()
+	cycle.Name = "cycle"
+	cycle.Spec.BaseProfileName = "derived-twice"
+
+	base.Spec.BaseProfileName = "cycle"
+
+	other := newTestProfile()
+	other.Name = "other"
+	other.Spec.BaseProfileName = "another"
+
+	env := newReconcileEnv(t, base, derived, derivedTwice, cycle, other)
+
+	reqs := env.rec.derivedProfileRequests(t.Context(), base)
+	require.Equal(t, []reconcile.Request{
+		{NamespacedName: types.NamespacedName{Namespace: testNamespace, Name: "derived"}},
+		{NamespacedName: types.NamespacedName{Namespace: testNamespace, Name: "derived-twice"}},
+		{NamespacedName: types.NamespacedName{Namespace: testNamespace, Name: "cycle"}},
+	}, reqs)
+}
+
+// A profile which got installed and is disabled afterwards has to be removed
+// from the node.
+func TestReconcileSeccompProfileEnabledToDisabled(t *testing.T) {
+	t.Parallel()
+
+	env := newReconcileEnv(t, newTestProfile())
+	env.rec.profileRoot = t.TempDir()
+	env.rec.save = saveProfileOnDisk
+
+	for range 2 {
+		_, err := env.reconcile(t)
+		require.NoError(t, err)
+	}
+
+	sp := &seccompprofileapi.SeccompProfile{}
+	require.NoError(t, env.cli.Get(t.Context(), testProfileKey, sp))
+
+	profilePath := env.rec.profilePath(sp)
+	require.FileExists(t, profilePath)
+	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, env.nodeStatus(t).Status.Status)
+
+	// Pods still use the profile, so it stays until they are gone.
+	sp.Spec.State = profilebaseapi.SpecStateDisabled
+	sp.SetFinalizers(append(sp.GetFinalizers(), util.HasActivePodsFinalizerString))
+	require.NoError(t, env.cli.Update(t.Context(), sp))
+
+	res, err := env.reconcile(t)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{RequeueAfter: common.InUseRetry}, res)
+	require.FileExists(t, profilePath)
+	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, env.nodeStatus(t).Status.Status)
+
+	require.NoError(t, env.cli.Get(t.Context(), testProfileKey, sp))
+	sp.SetFinalizers([]string{util.GetFinalizerNodeString(testNode)})
+	require.NoError(t, env.cli.Update(t.Context(), sp))
+
+	res, err = env.reconcile(t)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{}, res)
+	require.NoFileExists(t, profilePath)
+	require.Equal(t, secprofnodestatusapi.ProfileStateDisabled, env.nodeStatus(t).Status.Status)
+
+	// Enabling it again installs it again.
+	require.NoError(t, env.cli.Get(t.Context(), testProfileKey, sp))
+	sp.Spec.State = profilebaseapi.SpecStateEnabled
+	require.NoError(t, env.cli.Update(t.Context(), sp))
+
+	_, err = env.reconcile(t)
+	require.NoError(t, err)
+	require.FileExists(t, profilePath)
+	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, env.nodeStatus(t).Status.Status)
+}
+
+// A disabled profile which shares its file with an installed profile must not
+// remove the file of the other profile.
+func TestReconcileSeccompProfileDisabledKeepsFileOfOtherProfile(t *testing.T) {
+	t.Parallel()
+
+	disabled := newTestProfile()
+	disabled.CreationTimestamp = metav1.Unix(100, 0)
+	disabled.Spec.State = profilebaseapi.SpecStateDisabled
+
+	owner := newTestProfile()
+	owner.Name = testProfile + seccompprofileapi.ExtJSON
+	owner.CreationTimestamp = metav1.Unix(200, 0)
+
+	env := newReconcileEnv(t, disabled, owner)
+	env.rec.profileRoot = t.TempDir()
+
+	ownerFile := env.rec.profilePath(owner)
+	require.NoError(t, os.WriteFile(ownerFile, []byte("owner"), 0o600))
+
+	_, err := env.reconcile(t)
+	require.NoError(t, err)
+
+	// Pretend the profile got installed before it was disabled.
+	stored := &seccompprofileapi.SeccompProfile{}
+	require.NoError(t, env.cli.Get(t.Context(), testProfileKey, stored))
+	ns, err := nodestatus.NewForProfileOnNode(stored, env.cli, testNode)
+	require.NoError(t, err)
+	require.NoError(t, ns.SetNodeStatus(t.Context(), secprofnodestatusapi.ProfileStateInstalled))
+
+	_, err = env.reconcile(t)
+	require.NoError(t, err)
+	require.FileExists(t, ownerFile)
+	require.Equal(t, secprofnodestatusapi.ProfileStateDisabled, env.nodeStatus(t).Status.Status)
+}
+
+// Nodes of different architectures resolve OCI base profiles differently, so
+// each architecture writes its own annotation instead of fighting over one.
+func TestAnnotateSyscallsPerArchitecture(t *testing.T) {
+	t.Parallel()
+
+	sp := newTestProfile()
+	sp.Annotations = map[string]string{
+		// Written by a version which put every result into it.
+		syscallsAnnotation: "stale",
+		// Written by a node of another architecture.
+		"syscalls-otherarch": "other",
+	}
+	env := newReconcileEnv(t, sp)
+
+	syscalls := []seccompprofileapi.Syscall{
+		{Names: []string{"read"}, Action: seccompprofileapi.ActAllow},
+	}
+	archKey := syscallsAnnotationKey(true)
+	require.Equal(t, syscallsAnnotation+"-"+goruntime.GOARCH, archKey)
+
+	stored := func() *seccompprofileapi.SeccompProfile {
+		got := &seccompprofileapi.SeccompProfile{}
+		require.NoError(t, env.cli.Get(t.Context(), testProfileKey, got))
+
+		return got
+	}
+
+	require.NoError(t, env.rec.annotateSyscalls(t.Context(), stored(), syscalls, true, log.Log))
+
+	got := stored()
+	require.JSONEq(t, `[{"names":["read"],"action":"SCMP_ACT_ALLOW"}]`, got.Annotations[archKey])
+	require.NotContains(t, got.Annotations, syscallsAnnotation,
+		"the shared annotation would flap between the architectures")
+	require.Equal(t, "other", got.Annotations["syscalls-otherarch"])
+
+	// An unchanged result is not written again.
+	rv := got.GetResourceVersion()
+	require.NoError(t, env.rec.annotateSyscalls(t.Context(), got, syscalls, true, log.Log))
+	require.Equal(t, rv, stored().GetResourceVersion())
+
+	// Without an OCI base profile the result is the same everywhere.
+	require.NoError(t, env.rec.annotateSyscalls(t.Context(), stored(), syscalls, false, log.Log))
+
+	got = stored()
+	require.Contains(t, got.Annotations, syscallsAnnotation)
+	require.NotContains(t, got.Annotations, archKey)
 }
 
 func TestReconcileSeccompProfileDeletion(t *testing.T) {
@@ -633,23 +835,39 @@ func TestHandleAllowedSyscallsChanged(t *testing.T) {
 		},
 	}
 
+	invalidSPOD := spod.DeepCopy()
+	invalidSPOD.Spec.Security.AllowedSeccompActions = []seccompprofileapi.Action{
+		seccompprofileapi.ActErrno,
+	}
+
 	for _, tc := range []struct {
-		name        string
-		obj         client.Object
-		wantDeleted []string
+		name         string
+		obj          client.Object
+		wantRequests []string
+		wantDeleted  []string
+		wantEvent    string
 	}{
 		{
-			name:        "deletes profiles using forbidden syscalls",
-			obj:         spod,
-			wantDeleted: []string{"forbidden"},
+			name:         "deletes profiles using forbidden syscalls",
+			obj:          spod,
+			wantRequests: []string{"allowed", "forbidden"},
+			wantDeleted:  []string{"forbidden"},
 		},
 		{
-			name: "ignores an empty allow list",
-			obj:  &spodapi.SecurityProfilesOperatorDaemon{},
+			name:         "checks all profiles again for an empty allow list",
+			obj:          &spodapi.SecurityProfilesOperatorDaemon{},
+			wantRequests: []string{"allowed", "forbidden"},
 		},
 		{
-			name: "ignores other objects",
-			obj:  allowed.DeepCopy(),
+			name:         "never deletes profiles because of an invalid action",
+			obj:          invalidSPOD,
+			wantRequests: []string{"allowed", "forbidden"},
+			wantEvent:    "Warning " + reasonInvalidSPODConfig,
+		},
+		{
+			name:         "ignores other objects",
+			obj:          allowed.DeepCopy(),
+			wantRequests: []string{},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -659,7 +877,8 @@ func TestHandleAllowedSyscallsChanged(t *testing.T) {
 				WithScheme(testScheme(t)).
 				WithObjects(allowed.DeepCopy(), forbidden.DeepCopy()).
 				Build()
-			r := &Reconciler{client: cli, log: log.Log}
+			recorder := events.NewFakeRecorder(10)
+			r := &Reconciler{client: cli, log: log.Log, record: recorder}
 
 			reqs := r.handleAllowedSyscallsChanged(t.Context(), tc.obj)
 
@@ -668,18 +887,84 @@ func TestHandleAllowedSyscallsChanged(t *testing.T) {
 				got = append(got, req.Name)
 			}
 
-			want := tc.wantDeleted
-			if want == nil {
-				want = []string{}
-			}
-
-			require.Equal(t, want, got)
+			require.Equal(t, tc.wantRequests, got)
 
 			list := &seccompprofileapi.SeccompProfileList{}
 			require.NoError(t, cli.List(t.Context(), list))
-			require.Len(t, list.Items, 2-len(want))
+			require.Len(t, list.Items, 2-len(tc.wantDeleted))
+
+			for _, sp := range list.Items {
+				require.NotContains(t, tc.wantDeleted, sp.Name)
+			}
+
+			if tc.wantEvent == "" {
+				require.Empty(t, recorder.Events)
+			} else {
+				require.Len(t, recorder.Events, 1)
+				require.Contains(t, <-recorder.Events, tc.wantEvent)
+			}
 		})
 	}
+}
+
+// Every node handles the SPOD change and deletes the same profiles, so a
+// profile which another node deleted already is not an error.
+func TestHandleAllowedSyscallsChangedToleratesDeletedProfile(t *testing.T) {
+	t.Parallel()
+
+	forbidden := newTestProfile()
+	forbidden.Name = "forbidden"
+
+	deletes := 0
+	cli := fake.NewClientBuilder().
+		WithScheme(testScheme(t)).
+		WithObjects(forbidden).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Delete: func(
+				context.Context, client.WithWatch, client.Object, ...client.DeleteOption,
+			) error {
+				deletes++
+
+				return kerrors.NewNotFound(schema.GroupResource{}, "forbidden")
+			},
+		}).
+		Build()
+	r := &Reconciler{client: cli, log: log.Log}
+
+	reqs := r.handleAllowedSyscallsChanged(t.Context(), &spodapi.SecurityProfilesOperatorDaemon{
+		Spec: spodapi.SPODSpec{
+			Security: spodapi.SPODSecurityConfig{AllowedSyscalls: []string{"read"}},
+		},
+	})
+	require.Len(t, reqs, 1)
+	require.Equal(t, 1, deletes)
+}
+
+// Resolving a profile must not pull its OCI base profile while handling the
+// SPOD event. The reconcile of the profile validates it instead.
+func TestHandleAllowedSyscallsChangedDoesNotPull(t *testing.T) {
+	t.Parallel()
+
+	sp := newTestProfile()
+	sp.Spec.BaseProfileName = "oci://registry/base:v1"
+
+	env := newReconcileEnv(t, sp)
+	env.rec.baseProfiles = ttlcache.New[string, *seccompprofileapi.SeccompProfile]()
+
+	spod := &spodapi.SecurityProfilesOperatorDaemon{
+		Spec: spodapi.SPODSpec{
+			Security: spodapi.SPODSecurityConfig{AllowedSyscalls: []string{"exit"}},
+		},
+	}
+
+	reqs := env.rec.handleAllowedSyscallsChanged(t.Context(), spod)
+	require.Len(t, reqs, 1)
+	require.Zero(t, env.impl.PullCallCount())
+
+	require.NoError(
+		t,
+		env.cli.Get(t.Context(), testProfileKey, &seccompprofileapi.SeccompProfile{}),
+	)
 }
 
 // The API server is only asked if the cache shows a profile sharing the file

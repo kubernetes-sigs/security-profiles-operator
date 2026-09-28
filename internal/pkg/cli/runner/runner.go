@@ -20,6 +20,7 @@ package runner
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"path/filepath"
@@ -28,13 +29,19 @@ import (
 
 	"github.com/opencontainers/runtime-spec/specs-go"
 	libseccomp "github.com/seccomp/libseccomp-golang"
-	"sigs.k8s.io/yaml"
 
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/command"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/auditsource"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
+)
+
+// ErrBaseProfile is returned for profiles referencing a base profile, which
+// spoc run cannot resolve.
+var ErrBaseProfile = errors.New(
+	"base profiles are not supported, merge the base profile into the profile first",
 )
 
 // Runner is the main structure of this package.
@@ -43,13 +50,17 @@ type Runner struct {
 	options *Options
 	// pid is the process ID used for enricher filtering.
 	pid atomic.Uint32
+	// enricherGracePeriod is how long to wait for audit logs after the
+	// command exited.
+	enricherGracePeriod time.Duration
 }
 
 // New returns a new Runner instance.
 func New(options *Options) *Runner {
 	return &Runner{
-		impl:    &defaultImpl{},
-		options: options,
+		impl:                &defaultImpl{},
+		options:             options,
+		enricherGracePeriod: time.Second,
 	}
 }
 
@@ -65,14 +76,9 @@ func (r *Runner) Run() error {
 	if filepath.Ext(r.options.profile) != seccompprofileapi.ExtJSON {
 		log.Print("Assuming YAML profile")
 
-		seccompProfile := &seccompprofileapi.SeccompProfile{}
-		if err := yaml.Unmarshal(content, seccompProfile); err != nil {
-			return fmt.Errorf("unmarshal YAML profile: %w", err)
-		}
-
-		content, err = json.Marshal(seccompProfile.Spec)
+		content, err = specFromCRD(content)
 		if err != nil {
-			return fmt.Errorf("remarshal JSON profile: %w", err)
+			return err
 		}
 	}
 
@@ -81,21 +87,17 @@ func (r *Runner) Run() error {
 		return fmt.Errorf("unmarshal JSON profile: %w", err)
 	}
 
-	go r.startEnricher()
-
+	// The profile gets loaded by the run helper, check it before starting
+	// anything.
 	log.Print("Setting up seccomp")
 
-	libConfig, err := r.SetupSeccomp(runtimeSpecConfig)
-	if err != nil {
+	if _, err := r.SetupSeccomp(runtimeSpecConfig); err != nil {
 		return fmt.Errorf("convert profile: %w", err)
 	}
 
-	log.Print("Load seccomp profile")
+	go r.startEnricher()
 
-	if _, err := r.InitSeccomp(libConfig); err != nil {
-		return fmt.Errorf("init profile: %w", err)
-	}
-
+	r.options.commandOptions.PreStart = confine(runtimeSpecConfig)
 	cmd := command.New(r.options.commandOptions)
 
 	newPid, err := r.CommandRun(cmd)
@@ -105,14 +107,44 @@ func (r *Runner) Run() error {
 
 	r.pid.Store(newPid)
 
-	if err := r.CommandWait(cmd); err != nil {
-		return fmt.Errorf("wait for command: %w", err)
+	waitErr := r.CommandWait(cmd)
+
+	// Wait for the late syscalls from the audit logs, which matter most if
+	// the command failed.
+	time.Sleep(r.enricherGracePeriod)
+
+	if waitErr != nil {
+		return fmt.Errorf("wait for command: %w", waitErr)
 	}
 
-	// Wait for the late syscalls from the audit logs.
-	time.Sleep(time.Second)
-
 	return nil
+}
+
+// specFromCRD returns the spec of a SeccompProfile CRD as runtime-spec JSON.
+func specFromCRD(content []byte) ([]byte, error) {
+	profile, err := artifact.ReadProfile(content)
+	if err != nil {
+		return nil, fmt.Errorf("unmarshal YAML profile: %w", err)
+	}
+
+	seccompProfile, ok := profile.(*seccompprofileapi.SeccompProfile)
+	if !ok {
+		return nil, fmt.Errorf(
+			"unmarshal YAML profile: expected a SeccompProfile, got %s",
+			profile.GetObjectKind().GroupVersionKind().Kind,
+		)
+	}
+
+	if name := seccompProfile.Spec.BaseProfileName; name != "" {
+		return nil, fmt.Errorf("profile references base profile %q: %w", name, ErrBaseProfile)
+	}
+
+	content, err = json.Marshal(seccompProfile.Spec)
+	if err != nil {
+		return nil, fmt.Errorf("remarshal JSON profile: %w", err)
+	}
+
+	return content, nil
 }
 
 func (r *Runner) startEnricher() {

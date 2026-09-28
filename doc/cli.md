@@ -84,14 +84,14 @@ followed by any command and arguments:
 2023/03/10.10.09:09 Loading bpf module
 …
 2023/03/10.10.09:13 Adding base syscalls: capget, capset, chdir, …
-2023/03/10.10.09:13 Wrote seccomp profile to: /tmp/profile.yaml
+2023/03/10.10.09:13 Wrote seccomp profile to: profile.yaml
 2023/03/10.10.09:13 Unloading bpf module
 ```
 
 Now the seccomp profile should be written in the CRD format:
 
 ```console
-> cat /tmp/profile.yaml
+> cat profile.yaml
 ```
 
 ```yaml
@@ -127,12 +127,12 @@ raw-seccomp`. The other supported types are `apparmor`, `raw-apparmor` and
 ```console
 > sudo spoc record -t raw-seccomp echo test
 …
-2023/03/10 10:15:17 Wrote seccomp profile to: /tmp/profile.json
+2023/03/10 10:15:17 Wrote seccomp profile to: profile.json
 2023/03/10 10:15:17 Unloading bpf module
 ```
 
 ```console
-> jq . /tmp/profile.json
+> jq . profile.json
 ```
 
 ```json
@@ -169,10 +169,9 @@ If we now want to test the resulting profile, then `spoc` is able to run any
 command by using seccomp profiles via `spoc run`:
 
 ```console
-> sudo spoc run -p /tmp/profile.json echo test
-2023/03/10 10:20:00 Reading file /tmp/profile.json
+> sudo spoc run -p profile.json echo test
+2023/03/10 10:20:00 Reading file profile.json
 2023/03/10 10:20:00 Setting up seccomp
-2023/03/10 10:20:00 Load seccomp profile
 2023/03/10 10:20:00 Running command with PID: 567625
 test
 ```
@@ -180,24 +179,28 @@ test
 If we now modify the profile, for example by forbidding `chmod`:
 
 ```console
-> jq 'del(.syscalls[0].names[] | select(. | contains("chmod")))' /tmp/profile.json > /tmp/profile-chmod.json
+> jq 'del(.syscalls[0].names[] | select(. | contains("chmod")))' profile.json > profile-chmod.json
 ```
 
 `spoc run` reads raw JSON profiles if the file name ends with `.json`, and
-`SeccompProfile` CRDs in YAML otherwise. The `--type` / `-t` flag selects the
-profile type, which is `seccomp`, the only supported type for now.
+`SeccompProfile` CRDs in YAML otherwise. Other kinds and profiles with a
+`baseProfileName` are rejected, because the syscalls of the base profile would
+be missing. The `--type` / `-t` flag selects the profile type, which is
+`seccomp`, the only supported type for now. The profile is loaded in the
+process of the command right before it gets executed, so `spoc` itself is not
+confined. `SIGINT`, `SIGTERM` and `SIGHUP` are forwarded to the command, and
+`spoc run` exits with the exit code of the command.
 
 Then running `chmod` via `spoc run` will now throw an error, because the syscall
 is not allowed any more:
 
 ```console
-> sudo spoc run -p /tmp/profile-chmod.json chmod +x /tmp/profile-chmod.json
-2023/03/10 10:25:38 Reading file /tmp/profile-chmod.json
+> sudo spoc run -p profile-chmod.json chmod +x profile-chmod.json
+2023/03/10 10:25:38 Reading file profile-chmod.json
 2023/03/10 10:25:38 Setting up seccomp
-2023/03/10 10:25:38 Load seccomp profile
 2023/03/10 10:25:38 Running command with PID: 594242
-chmod: changing permissions of '/tmp/profile-chmod.json': Operation not permitted
-2023/03/10 10:25:38 Command did not exit successfully: exit status 1
+chmod: changing permissions of 'profile-chmod.json': Operation not permitted
+2023/03/10 10:25:38 Command failed: wait for command: exit status 1
 ```
 
 ### Merge security profiles
@@ -210,7 +213,7 @@ first profile may additionally contain glob paths:
 > spoc merge -o /tmp/merged.yaml /tmp/profile-a.yaml /tmp/profile-b.yaml
 ```
 
-The output defaults to `/tmp/profile.yaml`. With `--check` / `-c`, no output
+The output defaults to `profile.yaml`. With `--check` / `-c`, no output
 file is written. Instead, `spoc merge` exits with an error if the first profile
 is not a superset of all others, which is useful to check whether a base
 profile is up to date.
@@ -222,7 +225,7 @@ profile in JSON, and an `AppArmorProfile` CRD into a raw AppArmor profile. The
 result is written to stdout unless `--output-file` / `-o` is set:
 
 ```console
-> spoc convert -o /tmp/profile.json /tmp/profile.yaml
+> spoc convert -o profile.json profile.yaml
 ```
 
 Fields which are specific to the operator, like the base profile name and the
@@ -234,12 +237,12 @@ unattached profile named after the CRD is created.
 
 `spoc install` loads an `AppArmorProfile` CRD into the kernel of the local
 machine, and `spoc remove` unloads it again. Both take the profile file
-(default `/tmp/profile.yaml`) and optionally the path of the executable which
+(default `profile.yaml`) and optionally the path of the executable which
 should be confined, which is used as the profile name:
 
 ```console
-> sudo spoc install /tmp/profile.yaml /usr/bin/my-app
-> sudo spoc remove /tmp/profile.yaml /usr/bin/my-app
+> sudo spoc install profile.yaml /usr/bin/my-app
+> sudo spoc remove profile.yaml /usr/bin/my-app
 ```
 
 ### Pull security profiles from OCI registries
@@ -266,13 +269,18 @@ The following checks were performed on each of these signatures:
 16:32:34.119652 Reading profile
 16:32:34.119677 Trying to unmarshal seccomp profile
 16:32:34.120114 Got SeccompProfile: runc-v1.5.1
-16:32:34.120119 Saving profile in: /tmp/profile.yaml
+16:32:34.120119 Saving profile in: profile.yaml
 ```
 
-The profile can be now found in `/tmp/profile.yaml` or the specified output file
-`--output-file` / `-o`. If username and password authentication is required,
-either use the `--username`, `-u` flag or export the `USERNAME` environment
-variable. To set the password, export the `PASSWORD` environment variable.
+The profile can be now found in `profile.yaml` in the current directory or the
+specified output file `--output-file` / `-o`. Profiles are written with the
+permissions `0644`. If username and password authentication is required, either
+use the `--username`, `-u` flag or export the `SPOC_USERNAME` environment
+variable. To set the password, export the `SPOC_PASSWORD` environment variable
+or pass it on stdin with `--password-stdin`. Giving only one of both is an
+error. Without any of them, the credentials of the docker config (for example
+from `docker login`) are used. The former `USERNAME` and `PASSWORD` environment
+variables still work, but print a deprecation warning.
 
 `spoc pull` verifies the signature of the artifact. The signer can be
 restricted with `--allowed-identity-regexp` / `-i` (or the
@@ -289,8 +297,8 @@ The `spoc` client is also able to push security profiles from OCI artifact
 compatible registries. To do that, just run `spoc push`:
 
 ```
-> export USERNAME=my-user
-> export PASSWORD=my-pass
+> export SPOC_USERNAME=my-user
+> export SPOC_PASSWORD=my-pass
 > spoc push -f ./examples/baseprofile-crun.yaml registry.example.com/profiles/crun:v1.8.1
 16:35:43.899886 Pushing profile ./examples/baseprofile-crun.yaml to: registry.example.com/profiles/crun:v1.8.1
 16:35:43.899939 Creating file store in: /tmp/push-3618165827
@@ -342,7 +350,7 @@ same digest instead of a new, untagged manifest.
 
 `spoc pull` refuses to fetch any artifact blob larger than 16 MiB, so a
 registry cannot make the client read arbitrary amounts of data. The
-credentials given via `--username` and `$PASSWORD` are used for the registry
+credentials given via `--username` and `$SPOC_PASSWORD` are used for the registry
 access of the signature as well, both when signing on push and when verifying
 on pull.
 
@@ -523,19 +531,24 @@ The pushed artifact now contains both profiles, separated by their platform:
 There are a few fallback scenarios included in the CLI:
 
 - If neither a platform nor an input file is specified, then `spoc` will fallback
-  to the default profile (`/tmp/profile.yaml`) and platform
-  (`runtime.GOOS`/`runtime.GOARCH`).
+  to the default profile (`profile.yaml`) and push it without a platform, so
+  that it gets pulled on every platform.
 - If only one platform is specified, then `spoc` will apply it and use the
-  default profile.
-- If only one input file is specified, then `spoc` will apply it and use the
-  default platform.
+  default profile. Several platforms without input files are rejected.
+- If only one input file is specified, then `spoc` will push it without a
+  platform.
 - If multiple platforms and input files are provided, then `spoc` requires them
   to match their occurrences. Platforms have to be unique as well.
 
 The Security Profiles Operator will try to pull the correct profile by using
 `runtime.GOOS`/`runtime.GOARCH`, but also falls back to the default profile
-(without any platform specified), if it exists. `spoc pull` behaves in the same
-way, for example if a profile does not support any platform:
+(without any platform specified), if it exists. The default variant of an
+architecture matches no variant, so `linux/arm64/v8` pulls a profile pushed for
+`linux/arm64` and the other way around. Artifacts behind an OCI image index are
+resolved to the manifest of the matching platform. Only the selected layer is
+downloaded, and artifacts with more than 128 layers are rejected. `spoc pull`
+behaves in the same way, for example if a profile does not support any
+platform:
 
 ```
 > spoc pull registry.k8s.io/security-profiles-operator/base/runc:v1.5.1
@@ -547,7 +560,7 @@ way, for example if a profile does not support any platform:
 11:07:18.359209 Trying to read profile: profile.yaml
 11:07:18.359224 Trying to unmarshal seccomp profile
 11:07:18.359728 Got SeccompProfile: runc-v1.5.1
-11:07:18.359732 Saving profile in: /tmp/profile.yaml
+11:07:18.359732 Saving profile in: profile.yaml
 ```
 
 We can see from the logs that `spoc` tries to read `profile-linux-amd64.yaml`,
@@ -563,5 +576,5 @@ specify which platform to pull:
 11:08:57.311964 Trying to read profile: profile-linux-arm64.yaml
 11:08:57.311981 Trying to unmarshal seccomp profile
 11:08:57.312473 Got SeccompProfile: crun-v1.8.4
-11:08:57.312476 Saving profile in: /tmp/profile.yaml
+11:08:57.312476 Saving profile in: profile.yaml
 ```

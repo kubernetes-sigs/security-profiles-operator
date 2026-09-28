@@ -21,6 +21,7 @@ import (
 	"log"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
 )
 
 // Pusher is the main structure of this package.
@@ -41,7 +42,11 @@ func New(options *Options) *Pusher {
 func (p *Pusher) Run() error {
 	log.Printf("Pushing profiles to: %s", p.options.pushTo)
 
+	ctx, stop := cli.SignalContext()
+	defer stop()
+
 	if err := p.Push(
+		ctx,
 		p.options.inputFiles,
 		p.options.pushTo,
 		p.options.username,

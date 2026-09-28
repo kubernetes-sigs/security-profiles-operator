@@ -1,0 +1,83 @@
+---
+# The spod service account may create Jobs in the operator namespace to reload
+# the SELinux policy on its node, see createPolicyReloadJob in
+# internal/pkg/daemon/selinuxprofile/reload_job.go. RBAC cannot restrict the
+# content of a Job, so this policy limits the Jobs of the spod service account
+# to the shape of the reload Job: pinned to the node of the requesting daemon
+# pod, running as spod, without host namespaces and only mounting the SELinux
+# host paths. Otherwise a compromised daemon could run a privileged pod with
+# another service account or on another node.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: spo-spod-jobs
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - apiGroups: ["batch"]
+      apiVersions: ["*"]
+      operations: ["CREATE", "UPDATE"]
+      resources: ["jobs"]
+  matchConditions:
+  # The spod service account only has access to Jobs in the operator
+  # namespace, which is not known here.
+  - name: spod-service-account
+    expression: >-
+      request.userInfo.username == 'system:serviceaccount:' + request.namespace + ':spod'
+  variables:
+  - name: podSpec
+    expression: object.spec.template.spec
+  # The node of the pod the service account token was issued for. It is
+  # available since Kubernetes 1.30 for projected service account tokens.
+  - name: requestNodes
+    expression: >-
+      has(request.userInfo.extra) &&
+      'authentication.kubernetes.io/node-name' in request.userInfo.extra ?
+      request.userInfo.extra['authentication.kubernetes.io/node-name'] : []
+  validations:
+  - expression: >-
+      has(variables.podSpec.serviceAccountName) &&
+      variables.podSpec.serviceAccountName == 'spod'
+    message: Jobs of the spod service account have to run as the spod service account
+    reason: Forbidden
+  - expression: >-
+      has(variables.podSpec.nodeName) && variables.podSpec.nodeName != '' &&
+      (size(variables.requestNodes) == 0 || variables.podSpec.nodeName in variables.requestNodes)
+    message: Jobs of the spod service account have to run on the node of the requesting pod
+    reason: Forbidden
+  - expression: >-
+      !(has(variables.podSpec.hostNetwork) && variables.podSpec.hostNetwork) &&
+      !(has(variables.podSpec.hostPID) && variables.podSpec.hostPID) &&
+      !(has(variables.podSpec.hostIPC) && variables.podSpec.hostIPC)
+    message: Jobs of the spod service account must not use host namespaces
+    reason: Forbidden
+  - expression: >-
+      size(variables.podSpec.containers) == 1 &&
+      (!has(variables.podSpec.initContainers) || size(variables.podSpec.initContainers) == 0) &&
+      variables.podSpec.containers.all(c, !has(c.envFrom) &&
+      (!has(c.env) || c.env.all(e, !has(e.valueFrom))))
+    message: >-
+      Jobs of the spod service account have to run a single container without
+      environment from secrets or config maps
+    reason: Forbidden
+  # The type has to be Directory, which is what the reload Job uses, so that
+  # the host paths cannot be replaced by something else, like a socket or a
+  # device.
+  - expression: >-
+      !has(variables.podSpec.volumes) ||
+      variables.podSpec.volumes.all(v, has(v.hostPath) &&
+      v.hostPath.path in ['/sys/fs/selinux', '/etc/selinux', '/var/lib/selinux'] &&
+      has(v.hostPath.type) && v.hostPath.type == 'Directory')
+    message: >-
+      Jobs of the spod service account may only mount the SELinux host paths as
+      directories
+    reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: spo-spod-jobs
+spec:
+  policyName: spo-spod-jobs
+  validationActions: ["Deny"]

@@ -21,7 +21,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
           persist-credentials: false
 
       - name: Set up Helm
@@ -36,12 +35,15 @@ jobs:
       - name: Set up chart-testing
         uses: helm/chart-testing-action@6ec842c01de15ebb84c8627d2744a0c2f2755c9f # v2.8.0
 
+      # deploy/helm is the chart itself, not a directory of charts, so it gets
+      # linted explicitly: --chart-dirs would find no changed chart below it.
+      # The chart version only changes on releases and the chart lists no
+      # maintainers, so neither gets checked.
       - name: Run chart-testing (lint)
-        env:
-          TARGET_BRANCH: ${{ github.event.repository.default_branch }}
         run: >
           ct lint
-          --chart-dirs deploy/helm
-          --target-branch "$TARGET_BRANCH"
+          --charts deploy/helm
+          --check-version-increment=false
+          --validate-maintainers=false
           --lint-conf hack/ci/chart-test-lintconf.yaml
           --chart-yaml-schema hack/ci/chart_schema.yaml

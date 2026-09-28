@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"slices"
 	"time"
 )
 
@@ -28,9 +29,47 @@ const (
 	exampleRecordingBpfSpecificContainerPath = "examples/profilerecording-seccomp-bpf-specific-container.yaml"
 )
 
-func (e *e2e) waitForBpfRecorderLogs(since time.Time, profiles ...string) {
+// waitForBpfRecorderLogs waits for the bpf recorder to find the profiles of
+// the containers of the recording. The recorder logs the profile annotation of
+// the pod, "<recording>_<container>_<nonce>_<timestamp>", not the name of the
+// resulting profile.
+func (e *e2e) waitForBpfRecorderLogs(since time.Time, containers ...string) {
+	patterns := make([]string, 0, len(containers))
+	for _, container := range containers {
+		patterns = append(patterns,
+			`Found profile in cluster for container ID.+profile="`+
+				regexp.QuoteMeta(recordingName+"_"+container+"_"))
+	}
+
+	e.waitForBpfRecorderLogPatterns(since, patterns)
+}
+
+// waitForBpfRecorderPodLogs waits for the bpf recorder to find the profile of
+// the container in each of the pods, whose profiles are named after the pod.
+func (e *e2e) waitForBpfRecorderPodLogs(
+	since time.Time,
+	recording, container string,
+	pods ...string,
+) {
+	patterns := make([]string, 0, len(pods))
+	for _, pod := range pods {
+		patterns = append(patterns,
+			`Cache this profile found in cluster.+profile="`+
+				regexp.QuoteMeta(recording+"_"+container+"_")+
+				`[^"]+".+podName="`+regexp.QuoteMeta(pod)+`"`)
+	}
+
+	e.waitForBpfRecorderLogPatterns(since, patterns)
+}
+
+func (e *e2e) waitForBpfRecorderLogPatterns(since time.Time, patterns []string) {
+	regexes := make([]*regexp.Regexp, 0, len(patterns))
+	for _, pattern := range patterns {
+		regexes = append(regexes, regexp.MustCompile(pattern))
+	}
+
 	for range 15 {
-		e.logf("Waiting for bpf recorder to start recording profiles %v", profiles)
+		e.logf("Waiting for bpf recorder to start recording %v", patterns)
 		logs := e.kubectlOperatorNS(
 			"logs",
 			"--since-time="+since.Format(time.RFC3339),
@@ -38,18 +77,9 @@ func (e *e2e) waitForBpfRecorderLogs(since time.Time, profiles ...string) {
 			"bpf-recorder",
 		)
 
-		matches := 0
-
-		for _, profile := range profiles {
-			pattern := "Found profile in cluster for container ID.+" + profile
-
-			testRegex := regexp.MustCompile(pattern)
-			if testRegex.MatchString(logs) {
-				matches++
-			}
-		}
-
-		if matches == len(profiles) {
+		if !slices.ContainsFunc(regexes, func(r *regexp.Regexp) bool {
+			return !r.MatchString(logs)
+		}) {
 			return
 		}
 
@@ -61,7 +91,7 @@ func (e *e2e) waitForBpfRecorderLogs(since time.Time, profiles ...string) {
 	// timed out.
 	e.Failf(
 		"timed out waiting for the bpf recorder",
-		"profiles never recorded: %v", profiles,
+		"never logged: %v", patterns,
 	)
 }
 
@@ -97,7 +127,8 @@ func (e *e2e) testCaseBpfRecorderStaticPod() {
 	since, podName := e.createRecordingTestPod()
 
 	resourceName := recordingName + "-nginx"
-	e.waitForBpfRecorderLogs(since, resourceName)
+
+	e.waitForBpfRecorderLogs(since, "nginx")
 
 	e.kubectl("delete", "pod", podName)
 
@@ -136,7 +167,7 @@ func (e *e2e) testCaseBpfRecorderMultiContainer() {
 
 	const profileNameInit = recordingName + "-init"
 
-	e.waitForBpfRecorderLogs(since, profileNameRedis, profileNameNginx)
+	e.waitForBpfRecorderLogs(since, "redis", "nginx")
 
 	e.kubectl("delete", "pod", podName)
 
@@ -198,6 +229,10 @@ spec:
 	err = testFile.Close()
 	e.Require().NoError(err)
 
+	// The recorder finds the profiles as soon as the containers start, which
+	// is before the deployment is available.
+	since := time.Now()
+
 	e.kubectl("create", "-f", testFile.Name())
 
 	const deployName = "my-deployment"
@@ -205,13 +240,13 @@ spec:
 	e.retryGet("deploy", deployName)
 	e.waitFor("condition=available", "deploy", deployName)
 
-	suffixes := e.getPodSuffixesByLabel("app=alpine")
-	e.Len(suffixes, 2)
+	podNames := e.getRecordingPodNames()
+	suffixes := podSuffixes(podNames)
+	e.Require().Len(suffixes, 2)
 
-	since := time.Now()
 	profileName0 := recordingName + "-nginx-" + suffixes[0]
 	profileName1 := recordingName + "-nginx-" + suffixes[1]
-	e.waitForBpfRecorderLogs(since, profileName0, profileName1)
+	e.waitForBpfRecorderPodLogs(since, recordingName, "nginx", podNames...)
 
 	e.kubectl("delete", "deploy", deployName)
 
@@ -240,7 +275,7 @@ func (e *e2e) testCaseBpfRecorderParallel() {
 
 	const profileNameSecondCtr = recordingName + "-rec-1"
 
-	e.waitForBpfRecorderLogs(since, profileNameFirstCtr, profileNameSecondCtr)
+	e.waitForBpfRecorderLogs(since, "rec-0", "rec-1")
 
 	for _, podName := range podNames {
 		e.kubectl("delete", "pod", podName)
@@ -313,7 +348,7 @@ func (e *e2e) testCaseBpfRecorderSelectContainer() {
 
 	const profileNameNginx = recordingName + "-nginx"
 
-	e.waitForBpfRecorderLogs(since, profileNameNginx)
+	e.waitForBpfRecorderLogs(since, "nginx")
 
 	e.kubectl("delete", "pod", podName)
 
@@ -349,7 +384,8 @@ func (e *e2e) testCaseBpfRecorderWithMemoryOptimization() {
 	since, podName := e.createRecordingTestPod()
 
 	resourceName := recordingName + "-nginx"
-	e.waitForBpfRecorderLogs(since, resourceName)
+
+	e.waitForBpfRecorderLogs(since, "nginx")
 
 	e.kubectl("delete", "pod", podName)
 

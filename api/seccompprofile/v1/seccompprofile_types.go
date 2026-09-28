@@ -83,10 +83,12 @@ type SeccompProfileSpec struct {
 	// defaultAction is the default action for seccomp. Valid values are:
 	// SCMP_ACT_KILL, SCMP_ACT_KILL_PROCESS, SCMP_ACT_KILL_THREAD,
 	// SCMP_ACT_TRAP, SCMP_ACT_ERRNO, SCMP_ACT_TRACE, SCMP_ACT_ALLOW,
-	// SCMP_ACT_LOG, SCMP_ACT_NOTIFY.
+	// SCMP_ACT_LOG. SCMP_ACT_NOTIFY is not supported as the default action
+	// by container runtimes.
 	// +required
 	//nolint:lll // required for kubebuilder
 	// +kubebuilder:validation:Enum=SCMP_ACT_KILL;SCMP_ACT_KILL_PROCESS;SCMP_ACT_KILL_THREAD;SCMP_ACT_TRAP;SCMP_ACT_ERRNO;SCMP_ACT_TRACE;SCMP_ACT_ALLOW;SCMP_ACT_LOG;SCMP_ACT_NOTIFY
+	// +kubebuilder:validation:XValidation:rule="self != 'SCMP_ACT_NOTIFY'",message="SCMP_ACT_NOTIFY cannot be used as the default action"
 	DefaultAction Action `json:"defaultAction,omitempty"`
 	// architectures specifies the architecture used for system calls.
 	// +optional

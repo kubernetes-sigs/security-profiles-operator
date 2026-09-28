@@ -246,10 +246,18 @@ func TryToGetOperatorNamespace() (string, error) {
 // when is set or the default Kubernetes path.
 func KubeletDir() string {
 	cfg, err := GetKubeletConfigFromFile()
-	if err == nil {
+	if err == nil && cfg.KubeletDir != "" {
 		return cfg.KubeletDir
 	}
 
+	return DefaultKubeletDir()
+}
+
+// DefaultKubeletDir returns the kubelet directory from the environment
+// variable if set, or the default Kubernetes path. Unlike KubeletDir it
+// ignores the kubelet config file, which the non-root enabler persists on the
+// node and which therefore can be outdated.
+func DefaultKubeletDir() string {
 	kubeletDir := env.Default(KubeletDirEnvKey, "")
 	if kubeletDir == "" {
 		return DefaultKubeletPath

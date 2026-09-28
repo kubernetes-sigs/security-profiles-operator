@@ -16,19 +16,65 @@
 set -euo pipefail
 
 export E2E_CLUSTER_TYPE=vanilla
-# TODO: re-enable when SELinux tests are fixed
-#
-export E2E_TEST_SELINUX=false
-export E2E_TEST_LOG_ENRICHER=true
-export E2E_TEST_JSON_ENRICHER=true
-# Disable the eBPF recorder since seccomp is disabled, and apparmor
-# is not supported.
-export E2E_TEST_BPF_RECORDER=false
 # These are already tested in the standard e2e test.
 # No need to test them here.
 export E2E_TEST_SECCOMP=false
 
-export E2E_SELINUXD_IMAGE=quay.io/security-profiles-operator/selinuxd-fedora
+# The SELinux tests restart the spod with SELinux support many times, which
+# takes about a minute each, so CI runs them in a VM of their own.
+case ${E2E_FEDORA_SUITE:-enricher} in
+enricher)
+  export E2E_TEST_SELINUX=false
+  export E2E_TEST_BPF_RECORDER=false
+  export E2E_TEST_LOG_ENRICHER=true
+  export E2E_TEST_JSON_ENRICHER=true
+  ;;
+selinux)
+  # The VM runs SELinux enforcing with CRI-O's SELinux support enabled, so
+  # this is the only CI job that can run the SELinux tests.
+  export E2E_TEST_SELINUX=true
+  # The Fedora kernel provides the BTF the BPF recorder needs. It records
+  # seccomp profiles independent of E2E_TEST_SECCOMP, which only gates the
+  # tests of installing profiles.
+  export E2E_TEST_BPF_RECORDER=true
+  # The SELinux recording and the profile merging tests record through it.
+  export E2E_TEST_LOG_ENRICHER=true
+  export E2E_TEST_JSON_ENRICHER=false
+  # Running the SELinux tests for the namespaced operator as well does not
+  # fit into the test timeout. The enricher suite covers the namespaced
+  # operator.
+  export E2E_SKIP_NAMESPACED_TESTS=true
+  # The enricher suite runs these as well, and with SELinux support each
+  # restart of the spod takes about a minute.
+  E2E_TEST_SKIP='//cluster-wide:_(Log_Enricher|SPOD:_(Change|Enable|Profiling)'
+  E2E_TEST_SKIP+='|Seccomp:_Verify_profile_recording_logs)'
+  export E2E_TEST_SKIP
+  ;;
+*)
+  echo "Unknown E2E_FEDORA_SUITE: $E2E_FEDORA_SUITE" >&2
+  exit 1
+  ;;
+esac
+
+# CI builds selinuxd for the Fedora release of the VM outside of it, see
+# hack/ci/build-selinuxd-fedora.sh.
+export E2E_SELINUXD_IMAGE=localhost/selinuxd-fedora:latest
+
+if "$E2E_TEST_SELINUX" && ! podman image exists "$E2E_SELINUXD_IMAGE"; then
+  if [[ -f selinuxd-fedora.tar ]]; then
+    podman load -i selinuxd-fedora.tar
+  else
+    hack/ci/build-selinuxd-fedora.sh "$E2E_SELINUXD_IMAGE"
+  fi
+fi
+
+# CI compiles the tests outside of the VM, see E2E_TEST_BINARY in the Makefile.
+# The artifact download loses the executable bit.
+if [[ -f build/e2e.test ]]; then
+  chmod +x build/e2e.test
+  export E2E_TEST_BINARY=build/e2e.test
+fi
+
 export E2E_TEST_FLAKY_TESTS_ONLY=${E2E_TEST_FLAKY_TESTS_ONLY:-false}
 
 if "${E2E_TEST_FLAKY_TESTS_ONLY}"; then

@@ -19,10 +19,14 @@ limitations under the License.
 package bpfrecorder
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
+	"fmt"
 	"net"
 	"os"
+	"time"
 	"unsafe"
 
 	bpf "github.com/aquasecurity/libbpfgo"
@@ -77,6 +81,11 @@ type impl interface {
 	CloseGRPC(*grpc.ClientConn) error
 	SendMetric(apimetrics.Metrics_BpfIncClient, *apimetrics.BpfRequest) error
 	InitGlobalVariable(*bpf.Module, string, any) error
+	CgroupPathForID(uint64) (string, error)
+	Uptime() (time.Duration, error)
+	VerifyProcess(pid, mntns uint32, seenAt time.Duration) error
+	DeleteActivePid(m *bpf.BPFMap, pid uint32, key uint64) error
+	MapKeys(*bpf.BPFMap) ([][]byte, error)
 }
 
 func (d *defaultImpl) InClusterConfig() (*rest.Config, error) {
@@ -255,4 +264,92 @@ func (d *defaultImpl) SendMetric(
 
 func (d *defaultImpl) InitGlobalVariable(module *bpf.Module, name string, value any) error {
 	return module.InitGlobalVariable(name, value)
+}
+
+// cgroupRoot is where the cgroup v2 hierarchy is mounted.
+const cgroupRoot = "/sys/fs/cgroup"
+
+// fileIDKernfs is the type of the file handles of kernfs, which are the 64 bit
+// IDs of its nodes. The ID of a cgroup is the one of its directory.
+const fileIDKernfs = 0xfe
+
+// CgroupPathForID returns the path of the cgroup v2 with the provided ID. It
+// does not depend on any process of the cgroup, so it still works after they
+// exited or their PIDs got reused. The path is relative to the root of the
+// hierarchy, also when the caller runs in a cgroup namespace.
+func (d *defaultImpl) CgroupPathForID(id uint64) (string, error) {
+	mount, err := unix.Open(cgroupRoot, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return "", fmt.Errorf("open cgroup root: %w", err)
+	}
+	defer unix.Close(mount)
+
+	handle := make([]byte, 8)
+	binary.NativeEndian.PutUint64(handle, id)
+
+	fd, err := unix.OpenByHandleAt(
+		mount, unix.NewFileHandle(fileIDKernfs, handle), unix.O_RDONLY|unix.O_PATH|unix.O_CLOEXEC,
+	)
+	if err != nil {
+		return "", fmt.Errorf("open cgroup %d: %w", id, err)
+	}
+	defer unix.Close(fd)
+
+	path, err := os.Readlink(fmt.Sprintf("/proc/self/fd/%d", fd))
+	if err != nil {
+		return "", fmt.Errorf("resolve cgroup %d: %w", id, err)
+	}
+
+	return path, nil
+}
+
+// Uptime returns the time since boot, like the start times of processes.
+func (d *defaultImpl) Uptime() (time.Duration, error) {
+	var ts unix.Timespec
+	if err := unix.ClockGettime(unix.CLOCK_BOOTTIME, &ts); err != nil {
+		return 0, fmt.Errorf("get boot time: %w", err)
+	}
+
+	return time.Duration(ts.Nano()), nil
+}
+
+// VerifyProcess checks that the process with the PID is the one the BPF
+// program reported at seenAt, see verifyProcess.
+func (d *defaultImpl) VerifyProcess(pid, mntns uint32, seenAt time.Duration) error {
+	return verifyProcess(pid, mntns, seenAt, util.ProcessStartTime, os.Readlink)
+}
+
+// DeleteActivePid removes a process from the active_pids map, so that the BPF
+// program reports it again.
+func (d *defaultImpl) DeleteActivePid(m *bpf.BPFMap, pid uint32, key uint64) error {
+	if m == nil {
+		return errors.New("provided bpf map is nil")
+	}
+
+	// struct pid_key of recorder.bpf.c.
+	raw := make([]byte, 16)
+	binary.NativeEndian.PutUint32(raw[0:4], pid)
+	binary.NativeEndian.PutUint64(raw[8:16], key)
+
+	return m.DeleteKey(unsafe.Pointer(&raw[0]))
+}
+
+// MapKeys returns a copy of every key of the map.
+func (d *defaultImpl) MapKeys(m *bpf.BPFMap) ([][]byte, error) {
+	if m == nil {
+		return nil, errors.New("provided bpf map is nil")
+	}
+
+	var keys [][]byte
+
+	it := m.Iterator()
+	for it.Next() {
+		keys = append(keys, bytes.Clone(it.Key()))
+	}
+
+	if err := it.Err(); err != nil {
+		return nil, fmt.Errorf("iterate map: %w", err)
+	}
+
+	return keys, nil
 }

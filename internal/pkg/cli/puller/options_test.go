@@ -21,7 +21,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/urfave/cli/v2"
+	ucli "github.com/urfave/cli/v2"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
 )
 
 func TestFromContext(t *testing.T) {
@@ -35,13 +37,22 @@ func TestFromContext(t *testing.T) {
 		{
 			name: "success",
 			prepare: func(set *flag.FlagSet) {
-				set.String(FlagUsername, "", "")
-				require.NoError(t, set.Set(FlagUsername, "username"))
 				require.NoError(t, set.Parse([]string{"echo"}))
 			},
 			assert: func(opts *Options, err error) {
 				require.NoError(t, err)
 				require.False(t, opts.disableSignatureVerification)
+			},
+		},
+		{
+			name: "failure username without password",
+			prepare: func(set *flag.FlagSet) {
+				set.String(FlagUsername, "", "")
+				require.NoError(t, set.Set(FlagUsername, "username"))
+				require.NoError(t, set.Parse([]string{"echo"}))
+			},
+			assert: func(_ *Options, err error) {
+				require.ErrorIs(t, err, cli.ErrIncompleteCredentials)
 			},
 		},
 		{
@@ -113,8 +124,8 @@ func TestFromContext(t *testing.T) {
 			set := flag.NewFlagSet("", flag.ExitOnError)
 			prepare(set)
 
-			app := cli.NewApp()
-			ctx := cli.NewContext(app, set, nil)
+			app := ucli.NewApp()
+			ctx := ucli.NewContext(app, set, nil)
 
 			opts, err := FromContext(ctx)
 			assert(opts, err)

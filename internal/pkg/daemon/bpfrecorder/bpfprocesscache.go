@@ -32,7 +32,14 @@ import (
 )
 
 const (
-	processCacheTimeout = time.Minute
+	// processCacheTimeout is how long the arguments of an exec are kept. The
+	// audit log is read with a delay, so a short lived process is often gone
+	// before its lines are processed.
+	processCacheTimeout = 2 * time.Minute
+	// maxProcessCacheItems bounds the execs kept. It covers the execs of the
+	// host and the containers within the timeout, as the JSON enricher emits
+	// the lines of both.
+	maxProcessCacheItems uint64 = 8 * 1024
 	// These have to match the C data structure in recorder.bpf.c.
 	maxArgs        int = 20
 	maxEnv         int = 50
@@ -106,7 +113,7 @@ func NewBpfProcessCache(logger logr.Logger) *BpfProcessCache {
 		logger:   logger,
 		cache: ttlcache.New(
 			ttlcache.WithTTL[int, *BpfProcessInfo](processCacheTimeout),
-			ttlcache.WithCapacity[int, *BpfProcessInfo](maxCacheItems),
+			ttlcache.WithCapacity[int, *BpfProcessInfo](maxProcessCacheItems),
 		),
 	}
 

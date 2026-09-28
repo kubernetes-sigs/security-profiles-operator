@@ -26,6 +26,7 @@ import (
 	admissionregv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -52,6 +53,7 @@ var (
 	reinvocationPolicy            = admissionregv1.IfNeededReinvocationPolicy
 	caBundle                      = []byte("Cg==")
 	sideEffects                   = admissionregv1.SideEffectClassNone
+	sideEffectsNoneOnDryRun       = admissionregv1.SideEffectClassNoneOnDryRun
 	admissionReviewVersions       = []string{"v1"}
 	// The scope of the rules is set to its default explicitly, so that the
 	// configured rules compare equal to the ones returned by the API server.
@@ -243,6 +245,7 @@ const (
 	webhookServerCert            = "webhook-server-cert"
 	rawSelinuxProfileValidation  = "rawselinuxprofile-validation.spo.io"
 	rawSelinuxProfileWebhookPath = "/validate-rawselinuxprofile"
+	certManagerInjectAnnotation  = "cert-manager.io/inject-ca-from"
 )
 
 type webhook struct {
@@ -304,10 +307,14 @@ func GetWebhook(
 	service := webhookService.DeepCopy()
 	service.Namespace = namespace
 
+	// cert-manager looks up the certificate in the namespace the operator
+	// created it in, see GetCertManagerResources.
+	certManagerCA := namespace + "/" + webhookCert.Name
+
 	switch caInjectType {
 	case CAInjectTypeCertManager:
 		cfg.Annotations = map[string]string{
-			"cert-manager.io/inject-ca-from": config.OperatorName + "/webhook-cert",
+			certManagerInjectAnnotation: certManagerCA,
 		}
 	case CAInjectTypeOpenShift:
 		// if there's any OCP specific webhook opts, apply them here
@@ -328,7 +335,7 @@ func GetWebhook(
 	switch caInjectType {
 	case CAInjectTypeCertManager:
 		valCfg.Annotations = map[string]string{
-			"cert-manager.io/inject-ca-from": config.OperatorName + "/webhook-cert",
+			certManagerInjectAnnotation: certManagerCA,
 		}
 	case CAInjectTypeOpenShift:
 		valCfg.Annotations = map[string]string{
@@ -356,7 +363,7 @@ func (w *Webhook) Create(ctx context.Context, c client.Client) error {
 		if err := c.Create(ctx, o); err != nil {
 			if errors.IsAlreadyExists(err) {
 				if k == "config" || k == "validatingConfig" {
-					if err := c.Patch(ctx, o, client.Merge); err != nil {
+					if err := w.update(ctx, c, o); err != nil {
 						return fmt.Errorf("updating %s: %w", k, err)
 					}
 				}
@@ -416,7 +423,19 @@ func (w *Webhook) NeedsUpdate(ctx context.Context, c client.Client) (bool, error
 	if err := c.Get(ctx,
 		types.NamespacedName{Name: w.config.Name},
 		&existingWebHook); err != nil {
+		if errors.IsNotFound(err) {
+			w.log.V(1).Info("creating missing webhook configuration")
+
+			return true, nil
+		}
+
 		return false, err
+	}
+
+	if annotationsDiffer(w.config.Annotations, existingWebHook.Annotations) {
+		w.log.V(1).Info("updating webhook configuration annotations")
+
+		return true, nil
 	}
 
 	if len(existingWebHook.Webhooks) != len(w.config.Webhooks) {
@@ -458,7 +477,8 @@ func (w *Webhook) NeedsUpdate(ctx context.Context, c client.Client) (bool, error
 		return false, err
 	}
 
-	if len(existingValidating.Webhooks) != len(w.validatingConfig.Webhooks) {
+	if len(existingValidating.Webhooks) != len(w.validatingConfig.Webhooks) ||
+		annotationsDiffer(w.validatingConfig.Annotations, existingValidating.Annotations) {
 		return true, nil
 	}
 
@@ -467,6 +487,7 @@ func (w *Webhook) NeedsUpdate(ctx context.Context, c client.Client) (bool, error
 		configured := &w.validatingConfig.Webhooks[i]
 
 		if !ptr.Equal(existing.TimeoutSeconds, configured.TimeoutSeconds) ||
+			!ptr.Equal(existing.SideEffects, configured.SideEffects) ||
 			!reflect.DeepEqual(existing.Rules, configured.Rules) {
 			w.log.V(1).Info("updating validating webhook configuration", "name", configured.Name)
 
@@ -474,15 +495,95 @@ func (w *Webhook) NeedsUpdate(ctx context.Context, c client.Client) (bool, error
 		}
 	}
 
+	return w.workloadNeedsUpdate(ctx, c)
+}
+
+// workloadNeedsUpdate returns true if the webhook deployment differs from the
+// configured one, or if the service is missing.
+func (w *Webhook) workloadNeedsUpdate(ctx context.Context, c client.Client) (bool, error) {
+	existingDeployment := &appsv1.Deployment{}
+	if err := c.Get(ctx, client.ObjectKeyFromObject(w.deployment), existingDeployment); err != nil {
+		if errors.IsNotFound(err) {
+			return true, nil
+		}
+
+		return false, fmt.Errorf("getting webhook deployment: %w", err)
+	}
+
+	if deploymentNeedsUpdate(w.deployment, existingDeployment) {
+		w.log.V(1).Info("updating webhook deployment")
+
+		return true, nil
+	}
+
+	for _, o := range []struct {
+		key client.ObjectKey
+		obj client.Object
+	}{
+		{client.ObjectKeyFromObject(w.service), &corev1.Service{}},
+	} {
+		key := o.key
+		if err := c.Get(ctx, key, o.obj); err != nil {
+			if errors.IsNotFound(err) {
+				w.log.V(1).Info("creating missing webhook object", "name", key.Name)
+
+				return true, nil
+			}
+
+			return false, fmt.Errorf("getting webhook object %s: %w", key.Name, err)
+		}
+	}
+
 	return false, nil
+}
+
+// deploymentNeedsUpdate returns true if the found webhook deployment differs
+// from the configured one. DeepDerivative ignores the fields which are unset
+// in the configured deployment, like the ones defaulted by the API server, so
+// the fields which can get cleared are compared explicitly.
+func deploymentNeedsUpdate(configured, found *appsv1.Deployment) bool {
+	cSpec, fSpec := &configured.Spec.Template.Spec, &found.Spec.Template.Spec
+
+	if len(cSpec.Containers) != len(fSpec.Containers) ||
+		len(cSpec.Volumes) != len(fSpec.Volumes) {
+		return true
+	}
+
+	for i := range cSpec.Containers {
+		if len(cSpec.Containers[i].Args) != len(fSpec.Containers[i].Args) ||
+			len(cSpec.Containers[i].Env) != len(fSpec.Containers[i].Env) ||
+			len(cSpec.Containers[i].VolumeMounts) != len(fSpec.Containers[i].VolumeMounts) ||
+			(cSpec.Containers[i].ReadinessProbe == nil) != (fSpec.Containers[i].ReadinessProbe == nil) {
+			return true
+		}
+	}
+
+	return !apiequality.Semantic.DeepEqual(cSpec.Tolerations, fSpec.Tolerations) ||
+		!apiequality.Semantic.DeepEqual(cSpec.ImagePullSecrets, fSpec.ImagePullSecrets) ||
+		!apiequality.Semantic.DeepEqual(cSpec.Affinity, fSpec.Affinity) ||
+		!apiequality.Semantic.DeepDerivative(configured.Spec.Template, found.Spec.Template)
+}
+
+// annotationsDiffer returns true if any of the configured annotations is
+// missing or different in the existing ones.
+func annotationsDiffer(configured, existing map[string]string) bool {
+	for k, v := range configured {
+		if existing[k] != v {
+			return true
+		}
+	}
+
+	return false
 }
 
 // only compare the settings that are tunable in spod now.
 func (w *Webhook) webhookNeedsUpdate(existing *admissionregv1.MutatingWebhook, index int) bool {
 	configured := w.config.Webhooks[index]
 
-	// The rules and timeouts are not tunable, but change between releases.
+	// The rules, timeouts and side effects are not tunable, but change
+	// between releases.
 	if !ptr.Equal(existing.TimeoutSeconds, configured.TimeoutSeconds) ||
+		!ptr.Equal(existing.SideEffects, configured.SideEffects) ||
 		!reflect.DeepEqual(existing.Rules, configured.Rules) {
 		w.log.V(1).Info("updating webhook configuration",
 			"existing TimeoutSeconds", existing.TimeoutSeconds,
@@ -618,10 +719,103 @@ func expressionsForLabel(
 	return res
 }
 
+// Update updates the webhook objects, and creates the ones which are missing.
 func (w *Webhook) Update(ctx context.Context, c client.Client) error {
 	for k, o := range w.objectMap() {
-		if err := c.Patch(ctx, o, client.Merge); err != nil {
+		if err := w.update(ctx, c, o); err != nil {
 			return fmt.Errorf("updating %s: %w", k, err)
+		}
+	}
+
+	return nil
+}
+
+// update writes the configured object and creates it if it does not exist.
+func (w *Webhook) update(ctx context.Context, c client.Client, obj client.Object) error {
+	switch o := obj.(type) {
+	case *appsv1.Deployment:
+		return updateDeployment(ctx, c, o)
+	case *admissionregv1.MutatingWebhookConfiguration:
+		if err := keepMutatingCABundles(ctx, c, o); err != nil {
+			return err
+		}
+	case *admissionregv1.ValidatingWebhookConfiguration:
+		if err := keepValidatingCABundles(ctx, c, o); err != nil {
+			return err
+		}
+	}
+
+	err := c.Patch(ctx, obj, client.Merge)
+	if errors.IsNotFound(err) {
+		err = c.Create(ctx, obj)
+	}
+
+	return err
+}
+
+// updateDeployment replaces the spec of the webhook deployment. A JSON merge
+// patch would keep fields which got cleared in the configuration, like the
+// tolerations or the image pull secrets.
+func updateDeployment(ctx context.Context, c client.Client, configured *appsv1.Deployment) error {
+	found := &appsv1.Deployment{}
+	if err := c.Get(ctx, client.ObjectKeyFromObject(configured), found); err != nil {
+		if errors.IsNotFound(err) {
+			return c.Create(ctx, configured)
+		}
+
+		return fmt.Errorf("getting deployment: %w", err)
+	}
+
+	updated := found.DeepCopy()
+	updated.Spec = *configured.Spec.DeepCopy()
+
+	return c.Update(ctx, updated)
+}
+
+// keepMutatingCABundles copies the CA bundles which got injected into the
+// existing configuration into the configured one. A merge patch replaces the
+// whole list of webhooks, so the placeholder bundle would otherwise break the
+// webhooks until the CA gets injected again.
+func keepMutatingCABundles(
+	ctx context.Context, c client.Client, configured *admissionregv1.MutatingWebhookConfiguration,
+) error {
+	existing := &admissionregv1.MutatingWebhookConfiguration{}
+	if err := c.Get(ctx, client.ObjectKeyFromObject(configured), existing); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+
+	bundles := make(map[string][]byte, len(existing.Webhooks))
+	for i := range existing.Webhooks {
+		bundles[existing.Webhooks[i].Name] = existing.Webhooks[i].ClientConfig.CABundle
+	}
+
+	for i := range configured.Webhooks {
+		if bundle := bundles[configured.Webhooks[i].Name]; len(bundle) > 0 {
+			configured.Webhooks[i].ClientConfig.CABundle = bundle
+		}
+	}
+
+	return nil
+}
+
+// keepValidatingCABundles is like keepMutatingCABundles for the validating
+// webhook configuration.
+func keepValidatingCABundles(
+	ctx context.Context, c client.Client, configured *admissionregv1.ValidatingWebhookConfiguration,
+) error {
+	existing := &admissionregv1.ValidatingWebhookConfiguration{}
+	if err := c.Get(ctx, client.ObjectKeyFromObject(configured), existing); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+
+	bundles := make(map[string][]byte, len(existing.Webhooks))
+	for i := range existing.Webhooks {
+		bundles[existing.Webhooks[i].Name] = existing.Webhooks[i].ClientConfig.CABundle
+	}
+
+	for i := range configured.Webhooks {
+		if bundle := bundles[configured.Webhooks[i].Name]; len(bundle) > 0 {
+			configured.Webhooks[i].ClientConfig.CABundle = bundle
 		}
 	}
 
@@ -644,9 +838,11 @@ func getWebhookConfig(
 ) *admissionregv1.MutatingWebhookConfiguration {
 	webhooks := []admissionregv1.MutatingWebhook{
 		{
-			Name:               binding.name,
-			FailurePolicy:      &failurePolicyFail,
-			SideEffects:        &sideEffects,
+			Name:          binding.name,
+			FailurePolicy: &failurePolicyFail,
+			// The binding and recording webhooks record events, but not
+			// for dry run requests.
+			SideEffects:        &sideEffectsNoneOnDryRun,
 			TimeoutSeconds:     &timeoutSeconds,
 			ReinvocationPolicy: &reinvocationPolicy,
 			Rules:              bindingRules,
@@ -663,7 +859,7 @@ func getWebhookConfig(
 		{
 			Name:               recording.name,
 			FailurePolicy:      &failurePolicyFail,
-			SideEffects:        &sideEffects,
+			SideEffects:        &sideEffectsNoneOnDryRun,
 			TimeoutSeconds:     &timeoutSeconds,
 			ReinvocationPolicy: &reinvocationPolicy,
 			Rules:              recordingRules,
@@ -838,6 +1034,43 @@ var webhookDeployment = &appsv1.Deployment{
 								Name:          "webhook",
 								ContainerPort: ContainerPort,
 								Protocol:      corev1.ProtocolTCP,
+							},
+						},
+						// The replica only gets admission requests once its
+						// webhook server runs and its caches are synced.
+						// The values are the defaults of the API server, which
+						// have to be set explicitly, because the comparison
+						// with the existing deployment does not ignore unset
+						// numbers.
+						ReadinessProbe: &corev1.Probe{
+							ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{
+								Path:   "/readyz",
+								Port:   intstr.FromInt32(config.HealthProbePort),
+								Scheme: corev1.URISchemeHTTP,
+							}},
+							TimeoutSeconds:   1,
+							PeriodSeconds:    10,
+							SuccessThreshold: 1,
+							FailureThreshold: 3,
+						},
+					},
+				},
+				// Spread the replicas, so that a single node going down does
+				// not take the webhook down.
+				Affinity: &corev1.Affinity{
+					PodAntiAffinity: &corev1.PodAntiAffinity{
+						PreferredDuringSchedulingIgnoredDuringExecution: []corev1.WeightedPodAffinityTerm{
+							{
+								Weight: 100,
+								PodAffinityTerm: corev1.PodAffinityTerm{
+									LabelSelector: &metav1.LabelSelector{
+										MatchLabels: map[string]string{
+											labelApp:  config.OperatorName,
+											labelName: webhookName,
+										},
+									},
+									TopologyKey: corev1.LabelHostname,
+								},
 							},
 						},
 					},

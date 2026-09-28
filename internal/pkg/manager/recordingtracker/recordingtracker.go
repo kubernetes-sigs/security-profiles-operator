@@ -27,8 +27,6 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -137,24 +135,17 @@ func (r *RecordingTrackerReconciler) handlePodCreateOrUpdate(
 		return reconcile.Result{}, fmt.Errorf("listing recordings: %w", err)
 	}
 
-	podLabels := labels.Set(pod.GetLabels())
-
 	for i := range recordings.Items {
 		recording := &recordings.Items[i]
 
-		selector, err := metav1.LabelSelectorAsSelector(recording.Spec.PodSelector)
-		if err != nil {
-			logger.Error(err, "invalid podSelector", "recording", recording.Name)
-
-			continue
-		}
-
-		if !selector.Matches(podLabels) {
-			// The pod keeps being recorded while it carries the recording
-			// annotations of the webhook, even if its labels changed.
-			if slices.Contains(recording.Status.ActiveWorkloads, podName) &&
-				!podRecordedBy(pod, recording.Name) {
-				logger.Info("Removing pod which is no longer recorded", "recording", recording.Name)
+		// Only the pods which the recording webhook annotated get recorded.
+		// A pod which matches the selector without the annotations, for
+		// example because it got created before the recording, is not. A
+		// recorded pod stays recorded while it carries the annotations, even
+		// if its labels changed.
+		if !podRecordedBy(pod, recording.Name) {
+			if slices.Contains(recording.Status.ActiveWorkloads, podName) {
+				logger.Info("Removing pod which is not recorded", "recording", recording.Name)
 
 				if err := r.untrackPod(ctx, recording, podName); err != nil {
 					return reconcile.Result{}, fmt.Errorf("untracking pod: %w", err)

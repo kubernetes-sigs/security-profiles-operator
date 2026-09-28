@@ -18,6 +18,7 @@ package e2e_test
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -83,6 +84,11 @@ func (e *e2e) testSeccompLogsProfileMerging() {
 		"container", "nginx", "syscallName", "listen")
 }
 
+// selinuxMergingTrigger connects to nginx from a process which stays alive for
+// a while. The log enricher looks up the container of an audit line through
+// its process, so the denial of a short lived curl can get lost.
+const selinuxMergingTrigger = "exec 3<>/dev/tcp/localhost/8080 && sleep 5"
+
 func (e *e2e) testSelinuxLogsProfileMerging() {
 	e.logEnricherOnlyTestCase()
 	e.selinuxOnlyTestCase()
@@ -93,7 +99,7 @@ func (e *e2e) testSelinuxLogsProfileMerging() {
 	e.profileMergingTest(
 		"Logs",
 		"SelinuxProfile", "selinuxprofile",
-		"curl localhost:8080",
+		selinuxMergingTrigger,
 		"name_bind", "name_connect",
 		policyEnabledAfterRecording,
 		"perm", "listen",
@@ -110,7 +116,7 @@ func (e *e2e) testSelinuxLogsDisabledProfileMerging() {
 	e.profileMergingTest(
 		"Logs",
 		"SelinuxProfile", "selinuxprofile",
-		"curl localhost:8080",
+		selinuxMergingTrigger,
 		"name_bind", "name_connect",
 		policyDisabledAfterRecording,
 		"perm", "listen",
@@ -161,7 +167,7 @@ spec:
 
 	e.logf("Creating a profile recording with merge strategy 'containers'")
 
-	deleteManifestFn := createTemplatedProfileRecording(e, &profileRecTmplMetadata{
+	createTemplatedProfileRecording(e, &profileRecTmplMetadata{
 		name:           mergeProfileRecordingName,
 		recorderKind:   recorderKind,
 		recorder:       recordedMethod,
@@ -170,10 +176,9 @@ spec:
 		labelValue:     "alpine",
 		policyDisabled: isPolicyDisabled,
 	})
-	defer deleteManifestFn()
 
 	since, deployName := e.createRecordingTestDeploymentFromManifest(testDeploymentMultiContainer)
-	podNames := e.getRecordingPodNames("app=alpine")
+	podNames := e.getRecordingPodNames()
 	suffixes := podSuffixes(podNames)
 
 	switch recordedMethod {
@@ -181,15 +186,9 @@ spec:
 		e.waitForEnricherLogsOfPods(since, podNames, logLine...)
 
 	case "Bpf":
-		profileNames := make([]string, 0, len(suffixes))
-		for _, sfx := range suffixes {
-			profileNames = append(
-				profileNames,
-				mergeProfileRecordingName+"-"+containerNameNginx+"-"+sfx,
-			)
-		}
-
-		e.waitForBpfRecorderLogs(since, profileNames...)
+		e.waitForBpfRecorderPodLogs(
+			since, mergeProfileRecordingName, containerNameNginx, podNames...,
+		)
 
 	default:
 		e.Failf("unknown recorded method %s", recordedMethod)
@@ -240,28 +239,25 @@ spec:
 	// the partial policies should be gone, instead one policy should be created for each container.
 	// Retry a couple of times because removing the partial policies is not atomic. In prod you'd probably list the
 	// profiles and check the absence of the partial label.
-	policiesRecorded := make([]string, 0)
-
-	for range 3 {
-		policiesRecordedString := e.kubectl("get", resource,
-			"-l", "spo.x-k8s.io/recording-id="+mergeProfileRecordingName,
-			"-o", "jsonpath={.items[*].metadata.name}")
-
-		policiesRecorded = strings.Fields(policiesRecordedString)
-		if len(policiesRecorded) > 1 {
-			time.Sleep(5 * time.Second)
-
-			continue
-		}
-	}
-
-	e.Len(policiesRecorded, 2)
-
 	mergedProfileNginx := fmt.Sprintf("%s-%s", mergeProfileRecordingName, containerNameNginx)
 	mergedProfileRedis := fmt.Sprintf("%s-%s", mergeProfileRecordingName, containerNameRedis)
 
-	e.Contains(policiesRecorded, mergedProfileNginx)
-	e.Contains(policiesRecorded, mergedProfileRedis)
+	e.eventually(2*time.Minute, 5*time.Second, func() error {
+		policiesRecorded := strings.Fields(e.kubectl("get", resource,
+			"-l", "spo.x-k8s.io/recording-id="+mergeProfileRecordingName,
+			"-o", "jsonpath={.items[*].metadata.name}"))
+
+		if len(policiesRecorded) != 2 ||
+			!slices.Contains(policiesRecorded, mergedProfileNginx) ||
+			!slices.Contains(policiesRecorded, mergedProfileRedis) {
+			return fmt.Errorf(
+				"want only the merged %s %s and %s, got %v",
+				resource, mergedProfileNginx, mergedProfileRedis, policiesRecorded,
+			)
+		}
+
+		return nil
+	})
 
 	// if the recording is supposed to produce disabled policies, check that the merged policy is disabled
 	// otherwise the policy should be installed
@@ -319,7 +315,7 @@ type profileRecTmplMetadata struct {
 	policyDisabled                                                    policyDisableSwitch
 }
 
-func createTemplatedProfileRecording(e *e2e, metadata *profileRecTmplMetadata) func() {
+func createTemplatedProfileRecording(e *e2e, metadata *profileRecTmplMetadata) {
 	policyDisabledStr := "false"
 	if metadata.policyDisabled == policyDisabledAfterRecording {
 		policyDisabledStr = "true"
@@ -330,7 +326,5 @@ func createTemplatedProfileRecording(e *e2e, metadata *profileRecTmplMetadata) f
 		policyDisabledStr,
 		metadata.recorderKind, metadata.recorder,
 		metadata.mergeStrategy, metadata.labelKey, metadata.labelValue)
-	deleteFn := e.writeAndCreate(manifest, metadata.name+".yml")
-
-	return deleteFn
+	e.writeAndCreate(manifest, metadata.name+".yml")
 }

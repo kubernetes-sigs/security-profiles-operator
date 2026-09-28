@@ -24,6 +24,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -59,6 +60,7 @@ var (
 	envJsonEnricherTestsEnabled  = os.Getenv("E2E_TEST_JSON_ENRICHER")
 	envSeccompTestsEnabled       = os.Getenv("E2E_TEST_SECCOMP")
 	envBpfRecorderTestsEnabled   = os.Getenv("E2E_TEST_BPF_RECORDER")
+	envBpfEnricherTestsEnabled   = os.Getenv("E2E_TEST_BPF_LOG_ENRICHER")
 	envWebhookConfigTestsEnabled = os.Getenv("E2E_TEST_WEBHOOK_CONFIG")
 	envWebhookHTTPTestsEnabled   = os.Getenv("E2E_TEST_WEBHOOK_HTTP")
 	envMetricsHTTPTestsEnabled   = os.Getenv("E2E_TEST_METRICS_HTTP")
@@ -103,6 +105,7 @@ type e2e struct {
 	jsonEnricherEnabled   bool
 	testSeccomp           bool
 	bpfRecorderEnabled    bool
+	bpfEnricherEnabled    bool
 	skipNamespacedTests   bool
 	skipFlakyTests        bool
 	testWebhookConfig     bool
@@ -184,6 +187,11 @@ func TestSuite(t *testing.T) {
 		bpfRecorderEnabled = false
 	}
 
+	bpfEnricherEnabled, err := strconv.ParseBool(envBpfEnricherTestsEnabled)
+	if err != nil {
+		bpfEnricherEnabled = false
+	}
+
 	skipNamespacedTests, err := strconv.ParseBool(envSkipNamespacedTests)
 	if err != nil {
 		skipNamespacedTests = false
@@ -238,6 +246,7 @@ func TestSuite(t *testing.T) {
 				testSeccomp:         testSeccomp,
 				selinuxdImage:       selinuxdImage,
 				bpfRecorderEnabled:  bpfRecorderEnabled,
+				bpfEnricherEnabled:  bpfEnricherEnabled,
 				skipNamespacedTests: skipNamespacedTests,
 				operatorManifest:    operatorManifest,
 				testWebhookConfig:   testWebhookConfig,
@@ -272,6 +281,7 @@ func TestSuite(t *testing.T) {
 				testSeccomp:         testSeccomp,
 				selinuxdImage:       selinuxdImage,
 				bpfRecorderEnabled:  bpfRecorderEnabled,
+				bpfEnricherEnabled:  bpfEnricherEnabled,
 				skipNamespacedTests: skipNamespacedTests,
 				operatorManifest:    operatorManifest,
 				testWebhookConfig:   testWebhookConfig,
@@ -301,6 +311,7 @@ func TestSuite(t *testing.T) {
 				testSeccomp:         testSeccomp,
 				selinuxdImage:       selinuxdImage,
 				bpfRecorderEnabled:  bpfRecorderEnabled,
+				bpfEnricherEnabled:  bpfEnricherEnabled,
 				skipNamespacedTests: skipNamespacedTests,
 				operatorManifest:    operatorManifest,
 				testWebhookConfig:   testWebhookConfig,
@@ -568,8 +579,12 @@ func (e *vanilla) SetupSuite() {
 func (e *vanilla) SetupTest() {
 	e.logf("Setting up test")
 
+	// A locally built image cannot be pulled.
 	if e.selinuxEnabled {
-		e.run(containerRuntime, "pull", e.selinuxdImage)
+		_, err := e.runCommand(containerRuntime, "image", "inspect", e.selinuxdImage)
+		if err != nil {
+			e.run(containerRuntime, "pull", e.selinuxdImage)
+		}
 	}
 }
 
@@ -635,7 +650,20 @@ func (e *e2e) verifySHA512(binaryPath, sha512 string) {
 }
 
 func (e *e2e) kubectl(args ...string) string {
-	return e.run(e.kubectlPath, args...)
+	return e.run(e.kubectlPath, withDeleteTimeout(args)...)
+}
+
+// withDeleteTimeout bounds how long a kubectl delete waits for the object to
+// be gone. It waits forever by default, so a finalizer which never gets
+// removed hangs the test instead of failing it, and skips the diagnostics.
+func withDeleteTimeout(args []string) []string {
+	if !slices.Contains(args, "delete") || slices.ContainsFunc(args, func(arg string) bool {
+		return strings.HasPrefix(arg, "--timeout")
+	}) {
+		return args
+	}
+
+	return append(slices.Clone(args), "--timeout", defaultLongOpTimeout)
 }
 
 func (e *e2e) kubectlCommand(args ...string) (string, error) {
@@ -649,16 +677,19 @@ func (e *e2e) kubectlOperatorNS(args ...string) string {
 }
 
 func (e *e2e) kubectlRun(args ...string) string {
-	return e.kubectl(
-		append([]string{
-			"run",
-			"--pod-running-timeout=5m",
-			"--rm",
-			"-i",
-			"--restart=Never",
-			"--image=registry.fedoraproject.org/fedora-minimal:latest",
-		}, args...)...,
-	)
+	return e.kubectl(kubectlRunArgs(args...)...)
+}
+
+// kubectlRunArgs returns the kubectl arguments to run a command in a new pod.
+func kubectlRunArgs(args ...string) []string {
+	return append([]string{
+		"run",
+		"--pod-running-timeout=5m",
+		"--rm",
+		"-i",
+		"--restart=Never",
+		"--image=registry.fedoraproject.org/fedora-minimal:latest",
+	}, args...)
 }
 
 func (e *e2e) kubectlRunOperatorNS(args ...string) string {
@@ -679,20 +710,31 @@ const (
 )
 
 func (e *e2e) runAndRetryPodCMD(podCMD string) string {
-	letters := []rune("abcdefghijklmnopqrstuvwxyz")
-	b := make([]rune, 10)
-
-	for i := range b {
-		b[i] = letters[rand.IntN(len(letters))] //nolint:gosec // not security-sensitive
-	}
-
 	maxTries := 0
-	// Sometimes the metrics command does not output anything in CI. We fix
-	// that by retrying the metrics retrieval several times.
+	// Sometimes the metrics command does not output anything in CI, or its
+	// TLS connection fails. We fix that by retrying the metrics retrieval
+	// several times, since curl does not retry TLS errors itself.
 	var output string
 
 	if err := spoutil.Retry(func() error {
-		output = e.kubectlRunOperatorNS("pod-"+string(b), "--", "bash", "-c", podCMD)
+		letters := []rune("abcdefghijklmnopqrstuvwxyz")
+		b := make([]rune, 10)
+
+		for i := range b {
+			b[i] = letters[rand.IntN(len(letters))] //nolint:gosec // not security-sensitive
+		}
+
+		var err error
+
+		output, err = e.kubectlCommand(kubectlRunArgs(
+			"-n", config.OperatorName, "pod-"+string(b), "--", "bash", "-c", podCMD,
+		)...)
+		if err != nil {
+			output = ""
+
+			return fmt.Errorf("running pod command: %w", err)
+		}
+
 		if len(strings.Split(output, "\n")) > 1 {
 			return nil
 		}
@@ -738,7 +780,14 @@ func (e *e2e) waitInOperatorNSFor(args ...string) {
 // patchSpod merge patches the SPOD and waits until the change is rolled out.
 func (e *e2e) patchSpod(patch string) {
 	generation := e.spodDaemonSetGeneration()
-	e.kubectlOperatorNS("patch", "spod", "spod", "-p", patch, "--type=merge")
+
+	output := e.kubectlOperatorNS("patch", "spod", "spod", "-p", patch, "--type=merge")
+	// Waiting for a rollout would only run into the timeout for the daemon set
+	// generation.
+	if strings.Contains(output, "(no change)") {
+		return
+	}
+
 	e.waitForSpodRollout(generation)
 }
 
@@ -798,9 +847,12 @@ func (e *e2e) logEnricherOnlyTestCase() {
 	e.enableLogEnricherInSpod()
 }
 
+// logEnricherBpfOnlyTestCase has its own switch: the BPF source only reports
+// AppArmor denials (it hooks aa_audit), while the log enricher test case waits
+// for seccomp audit lines, so it cannot pass wherever the BPF recorder runs.
 func (e *e2e) logEnricherBpfOnlyTestCase() {
-	if !e.bpfRecorderEnabled {
-		e.T().Skip("Skipping log-enricher related test (BPF source unsupported)")
+	if !e.bpfEnricherEnabled {
+		e.T().Skip("Skipping log-enricher related test (BPF source)")
 	}
 
 	e.enableLogEnricherBpfInSpod()
@@ -839,7 +891,10 @@ func (e *e2e) enableLogEnricherBpfInSpod() {
 
 func (e *e2e) enableLogEnricherInSpod() {
 	e.logf("Enable log-enricher in SPOD")
-	e.patchSpod(`{"spec":{"enricher":{"enableJsonEnricher": false,"enableLogEnricher": true}}}`)
+	// Remove the filters a previous test may have set, which would drop the
+	// log lines this test waits for.
+	e.patchSpod(`{"spec":{"enricher":{"enableJsonEnricher": false,"enableLogEnricher": true,` +
+		`"logEnricherFilters": null}}}`)
 
 	e.waitForTerminatingPods(5*time.Second, 5)
 
@@ -1054,8 +1109,7 @@ func (e *e2e) deployRecordingRoleBinding(namespace string) {
 func (e *e2e) applyFromTemplate(template, namespace string) {
 	manifestFile := "templated-manifest.yaml"
 	manifest := fmt.Sprintf(template, namespace)
-	deleteSaFn := e.writeAndApply(manifest, manifestFile)
-	deleteSaFn()
+	e.writeAndApply(manifest, manifestFile)
 }
 
 func (e *e2e) enableBindingHookInNs(ns string) {
@@ -1075,8 +1129,7 @@ func (e *e2e) switchToNs(ns string) func() {
 
 	e.logf("creating ns %s", ns)
 
-	deleteFn := e.writeAndApply(nsManifest, ns+".yml")
-	defer deleteFn()
+	e.writeAndApply(nsManifest, ns+".yml")
 
 	e.logf("switching to ns %s", ns)
 	curNs := e.getCurrentContextNamespace(config.OperatorName)

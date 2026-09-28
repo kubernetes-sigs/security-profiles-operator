@@ -27,6 +27,10 @@ const (
 
 	// FlagProfile is the flag for defining the input file location.
 	FlagProfile string = "profile"
+
+	// InitArg is the argument spoc gets re-executed with to load the seccomp
+	// profile and execute the command.
+	InitArg string = "__spoc_run_init"
 )
 
 // Type is the enum for all available profile types.

@@ -58,14 +58,3 @@ name: security-profiles-operator
 app.kubernetes.io/name: {{ include "security-profiles-operator.name" . }}
 app.kubernetes.io/instance: {{ include "security-profiles-operator.name" . }}
 {{- end }}
-
-{{/*
-Create the name of the service account to use
-*/}}
-{{- define "security-profiles-operator.serviceAccountName" -}}
-{{- if .Values.serviceAccount.create }}
-{{- default (include "security-profiles-operator.fullname" .) .Values.serviceAccount.name }}
-{{- else }}
-{{- default "default" .Values.serviceAccount.name }}
-{{- end }}
-{{- end }}

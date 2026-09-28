@@ -208,11 +208,12 @@ helm upgrade --install --create-namespace --namespace $spo_ns security-profiles-
 
 ### Installation on AKS
 
-In case you installed SPO on an [AKS cluster](https://azure.microsoft.com/en-us/products/kubernetes-service/#overview), it is recommended to [configure webhook](#configuring-webhooks) to respect the [control-plane](https://learn.microsoft.com/en-us/azure/aks/faq#can-i-use-admission-controller-webhooks-on-aks) label as follows:
+In case you installed SPO on an [AKS cluster](https://azure.microsoft.com/en-us/products/kubernetes-service/#overview), it is recommended to [configure webhook](#configuring-webhooks) to respect the [control-plane](https://learn.microsoft.com/en-us/azure/aks/faq#can-i-use-admission-controller-webhooks-on-aks) label as follows.
+The `namespaceSelector` replaces the default one of the webhook, so it has to keep the `spo.x-k8s.io/enable-binding` and `spo.x-k8s.io/enable-recording` requirements, otherwise the webhooks apply to every namespace:
 
 ```sh
 $ kubectl -nsecurity-profiles-operator patch spod spod  --type=merge \
-    -p='{"spec":{"webhook":{"options":[{"name":"binding.spo.io","namespaceSelector":{"matchExpressions":[{"key":"control-plane","operator":"DoesNotExist"}]}},{"name":"recording.spo.io","namespaceSelector":{"matchExpressions":[{"key":"control-plane","operator":"DoesNotExist"}]}}]}}}'
+    -p='{"spec":{"webhook":{"options":[{"name":"binding.spo.io","namespaceSelector":{"matchExpressions":[{"key":"spo.x-k8s.io/enable-binding","operator":"Exists"},{"key":"control-plane","operator":"DoesNotExist"}]}},{"name":"recording.spo.io","namespaceSelector":{"matchExpressions":[{"key":"spo.x-k8s.io/enable-recording","operator":"Exists"},{"key":"control-plane","operator":"DoesNotExist"}]}}]}}}'
 ```
 
 Afterwards, validate spod has been patched successfully by ensuring the `Running` state:
@@ -501,9 +502,15 @@ select only a subset of object matching the `objectSelector` so that even
 if the webhooks had a bug that would prevent them from running at all,
 other namespaces or resources wouldn't be affected.
 
+A `namespaceSelector` or `objectSelector` in `webhook.options` replaces the default selector of
+the webhook instead of adding to it. A `namespaceSelector` for `binding.spo.io` or `recording.spo.io`
+therefore has to repeat the `spo.x-k8s.io/enable-binding` or `spo.x-k8s.io/enable-recording`
+requirement, otherwise the webhook applies to every namespace the selector matches. Whatever the
+selector says, the operator keeps its own namespace excluded from `binding.spo.io`.
+
 For example, to set the `binding.spo.io` webhook's configuration to ignore errors as well as restrict it
-to a subset of namespaces labeled with `spo.x-k8s.io/bind-here=true`, create the following patch file
-`/tmp/spod-wh.patch`:
+to the namespaces labeled with `spo.x-k8s.io/enable-binding` which are also labeled with
+`spo.x-k8s.io/bind-here=true`, create the following patch file `/tmp/spod-wh.patch`:
 
 ```yaml
 spec:
@@ -513,6 +520,8 @@ spec:
         failurePolicy: Ignore
         namespaceSelector:
           matchExpressions:
+            - key: spo.x-k8s.io/enable-binding
+              operator: Exists
             - key: spo.x-k8s.io/bind-here
               operator: In
               values:

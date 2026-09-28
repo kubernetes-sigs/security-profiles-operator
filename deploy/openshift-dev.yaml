@@ -73,7 +73,7 @@ spec:
                           allowedCapabilities is a list of allowed capabilities, written in
                           lower case without the "CAP_" prefix, for example "net_bind_service".
                         items:
-                          pattern: ^\s*(?i:chown|dac_override|dac_read_search|fowner|fsetid|kill|setgid|setuid|setpcap|linux_immutable|net_bind_service|net_broadcast|net_admin|net_raw|ipc_lock|ipc_owner|sys_module|sys_rawio|sys_chroot|sys_ptrace|sys_pacct|sys_admin|sys_boot|sys_nice|sys_resource|sys_time|sys_tty_config|mknod|lease|audit_write|audit_control|setfcap|mac_override|mac_admin|syslog|wake_alarm|block_suspend|audit_read|perfmon|bpf|checkpoint_restore)\s*$
+                          pattern: ^(chown|dac_override|dac_read_search|fowner|fsetid|kill|setgid|setuid|setpcap|linux_immutable|net_bind_service|net_broadcast|net_admin|net_raw|ipc_lock|ipc_owner|sys_module|sys_rawio|sys_chroot|sys_ptrace|sys_pacct|sys_admin|sys_boot|sys_nice|sys_resource|sys_time|sys_tty_config|mknod|lease|audit_write|audit_control|setfcap|mac_override|mac_admin|syslog|wake_alarm|block_suspend|audit_read|perfmon|bpf|checkpoint_restore)$
                           type: string
                         type: array
                         x-kubernetes-list-type: set
@@ -354,6 +354,14 @@ spec:
                     type: object
                 type: object
                 x-kubernetes-map-type: atomic
+                x-kubernetes-validations:
+                - message: matchExpressions operator must be In, NotIn, Exists or
+                    DoesNotExist, In and NotIn require values, Exists and DoesNotExist
+                    must not have values
+                  rule: '!has(self.matchExpressions) || self.matchExpressions.all(e,
+                    e.operator in [''In'', ''NotIn''] ? (has(e.values) && size(e.values)
+                    > 0) : (e.operator in [''Exists'', ''DoesNotExist''] && (!has(e.values)
+                    || size(e.values) == 0)))'
               profileRef:
                 description: |-
                   profileRef references the cluster-scoped SeccompProfile, SelinuxProfile
@@ -493,7 +501,12 @@ spec:
     name: v1
     schema:
       openAPIV3Schema:
-        description: ProfileRecording is the Schema for the profilerecordings API.
+        description: |-
+          ProfileRecording is the Schema for the profilerecordings API.
+
+          The name is used as a label value on the recorded profiles, so it is
+          limited to 63 characters. Existing objects are exempt, so that they can
+          still be updated and deleted.
         properties:
           apiVersion:
             description: |-
@@ -601,6 +614,14 @@ spec:
                     type: object
                 type: object
                 x-kubernetes-map-type: atomic
+                x-kubernetes-validations:
+                - message: matchExpressions operator must be In, NotIn, Exists or
+                    DoesNotExist, In and NotIn require values, Exists and DoesNotExist
+                    must not have values
+                  rule: '!has(self.matchExpressions) || self.matchExpressions.all(e,
+                    e.operator in [''In'', ''NotIn''] ? (has(e.values) && size(e.values)
+                    > 0) : (e.operator in [''Exists'', ''DoesNotExist''] && (!has(e.values)
+                    || size(e.values) == 0)))'
               recorder:
                 description: recorder specifies which recorder to use.
                 enum:
@@ -691,6 +712,10 @@ spec:
         required:
         - spec
         type: object
+        x-kubernetes-validations:
+        - message: name must be no more than 63 characters
+          optionalOldSelf: true
+          rule: oldSelf.hasValue() || size(self.metadata.name) <= 63
     served: true
     storage: true
     subresources:
@@ -726,7 +751,12 @@ spec:
     name: v1
     schema:
       openAPIV3Schema:
-        description: RawSelinuxProfile is the Schema for the rawselinuxprofiles API.
+        description: |-
+          RawSelinuxProfile is the Schema for the rawselinuxprofiles API.
+
+          The name is used as the name of a CIL block, which has to start with a
+          letter and must not contain dots. Existing objects are exempt, so that they
+          can still be updated and deleted.
         properties:
           apiVersion:
             description: |-
@@ -851,6 +881,11 @@ spec:
                 type: string
             type: object
         type: object
+        x-kubernetes-validations:
+        - message: name must start with a letter and may only contain lowercase alphanumeric
+            characters and '-'
+          optionalOldSelf: true
+          rule: oldSelf.hasValue() || self.metadata.name.matches('^[a-z][-a-z0-9]*$')
     served: true
     storage: true
     subresources:
@@ -952,7 +987,8 @@ spec:
                   defaultAction is the default action for seccomp. Valid values are:
                   SCMP_ACT_KILL, SCMP_ACT_KILL_PROCESS, SCMP_ACT_KILL_THREAD,
                   SCMP_ACT_TRAP, SCMP_ACT_ERRNO, SCMP_ACT_TRACE, SCMP_ACT_ALLOW,
-                  SCMP_ACT_LOG, SCMP_ACT_NOTIFY.
+                  SCMP_ACT_LOG. SCMP_ACT_NOTIFY is not supported as the default action
+                  by container runtimes.
                 enum:
                 - SCMP_ACT_KILL
                 - SCMP_ACT_KILL_PROCESS
@@ -964,6 +1000,9 @@ spec:
                 - SCMP_ACT_LOG
                 - SCMP_ACT_NOTIFY
                 type: string
+                x-kubernetes-validations:
+                - message: SCMP_ACT_NOTIFY cannot be used as the default action
+                  rule: self != 'SCMP_ACT_NOTIFY'
               flags:
                 description: flags is a list of flags to use with seccomp(2).
                 items:
@@ -1429,6 +1468,7 @@ spec:
                   support for this SPOD instance.
                 type: boolean
               enricher:
+                default: {}
                 description: enricher contains log and JSON enricher configuration.
                 properties:
                   enableBpfRecorder:
@@ -1452,8 +1492,9 @@ spec:
                   jsonEnricherFilters:
                     description: |-
                       jsonEnricherFilters if defined, an optional JSON-format filter to
-                      determine if log lines should be emitted for the json-enricher.
-                    maxLength: 1048576
+                      determine if log lines should be emitted for the json-enricher. It is
+                      passed as a single command line argument, so it is limited to 64 KiB.
+                    maxLength: 65536
                     type: string
                   jsonEnricherOptions:
                     description: jsonEnricherOptions defines options specific to the
@@ -1506,8 +1547,9 @@ spec:
                   logEnricherFilters:
                     description: |-
                       logEnricherFilters if defined, an optional JSON-format filter to
-                      determine if log lines should be emitted for the log-enricher.
-                    maxLength: 1048576
+                      determine if log lines should be emitted for the log-enricher. It is
+                      passed as a single command line argument, so it is limited to 64 KiB.
+                    maxLength: 65536
                     type: string
                   logEnricherSource:
                     default: Auditd
@@ -1554,6 +1596,7 @@ spec:
                 - name
                 x-kubernetes-list-type: map
               scheduling:
+                default: {}
                 description: scheduling contains scheduling-related configuration.
                 properties:
                   affinity:
@@ -2523,6 +2566,7 @@ spec:
                     x-kubernetes-list-type: atomic
                 type: object
               security:
+                default: {}
                 description: security contains security policy configuration.
                 properties:
                   allowedIdentityRegexp:
@@ -2542,8 +2586,11 @@ spec:
                       As with allowedIdentityRegexp, the default ".*" matches any issuer.
                     type: string
                   allowedSeccompActions:
-                    description: allowedSeccompActions if specified, a list of allowed
-                      seccomp actions.
+                    description: |-
+                      allowedSeccompActions if specified, limits the seccomp actions whose
+                      syscalls are checked against allowedSyscalls. Valid values are
+                      SCMP_ACT_ALLOW, SCMP_ACT_LOG, SCMP_ACT_TRACE and SCMP_ACT_NOTIFY. If
+                      unset, all of them are checked.
                     items:
                       enum:
                       - SCMP_ACT_KILL
@@ -2556,8 +2603,14 @@ spec:
                       - SCMP_ACT_LOG
                       - SCMP_ACT_NOTIFY
                       type: string
+                    maxItems: 4
                     type: array
-                    x-kubernetes-list-type: atomic
+                    x-kubernetes-list-type: set
+                    x-kubernetes-validations:
+                    - message: allowedSeccompActions may only contain SCMP_ACT_ALLOW,
+                        SCMP_ACT_LOG, SCMP_ACT_TRACE and SCMP_ACT_NOTIFY
+                      rule: self.all(a, a in ['SCMP_ACT_ALLOW', 'SCMP_ACT_LOG', 'SCMP_ACT_TRACE',
+                        'SCMP_ACT_NOTIFY'])
                   allowedSyscalls:
                     description: |-
                       allowedSyscalls if specified, a list of system calls which are
@@ -2574,6 +2627,7 @@ spec:
                     type: boolean
                 type: object
               selinux:
+                default: {}
                 description: selinux contains SELinux-specific configuration.
                 properties:
                   customTemplatesConfigMap:
@@ -2681,6 +2735,7 @@ spec:
                 minimum: 0
                 type: integer
               webhook:
+                default: {}
                 description: webhook contains webhook configuration.
                 properties:
                   options:
@@ -2706,7 +2761,11 @@ spec:
                             name specifies which webhook to configure. Valid values are
                             binding.spo.io, recording.spo.io, execmetadata.spo.io and
                             nodedebuggingpod.spo.io.
-                          minLength: 1
+                          enum:
+                          - binding.spo.io
+                          - recording.spo.io
+                          - execmetadata.spo.io
+                          - nodedebuggingpod.spo.io
                           type: string
                         namespaceSelector:
                           description: namespaceSelector sets the webhook's namespace
@@ -2972,7 +3031,12 @@ spec:
     name: v1
     schema:
       openAPIV3Schema:
-        description: SelinuxProfile is the Schema for the selinuxprofiles API.
+        description: |-
+          SelinuxProfile is the Schema for the selinuxprofiles API.
+
+          The name is used as the name of a CIL block, which has to start with a
+          letter and must not contain dots. Existing objects are exempt, so that they
+          can still be updated and deleted.
         properties:
           apiVersion:
             description: |-
@@ -3002,11 +3066,19 @@ spec:
                       pattern: ^[-a-zA-Z0-9._]+$
                       type: string
                     type: array
+                  description: ObjectClassPermissions maps SELinux object classes
+                    to their permissions.
+                  maxProperties: 256
                   type: object
+                  x-kubernetes-validations:
+                  - message: object classes may only contain alphanumeric characters,
+                      '.', '-' and '_'
+                    rule: self.all(k, k.matches('^[-a-zA-Z0-9._]+$'))
                 description: |-
                   allow defines the allow policy for the profile. It maps SELinux types
                   (or "@self" for the profile's own type) to object classes and their
                   permissions.
+                maxProperties: 1024
                 type: object
                 x-kubernetes-validations:
                 - message: types may only contain alphanumeric characters, '.', '-'
@@ -3034,9 +3106,11 @@ spec:
                       - SelinuxProfile
                       type: string
                     name:
-                      description: name is the name of the policy that this inherits
-                        from.
+                      description: |-
+                        name is the name of the policy that this inherits from. It may only
+                        contain alphanumeric characters, '.', '-' and '_'.
                       minLength: 1
+                      pattern: ^[-a-zA-Z0-9._]+$
                       type: string
                   required:
                   - name
@@ -3151,6 +3225,11 @@ spec:
                 type: string
             type: object
         type: object
+        x-kubernetes-validations:
+        - message: name must start with a letter and may only contain lowercase alphanumeric
+            characters and '-'
+          optionalOldSelf: true
+          rule: oldSelf.hasValue() || self.metadata.name.matches('^[a-z][-a-z0-9]*$')
     served: true
     storage: true
     subresources:
@@ -3527,14 +3606,6 @@ rules:
   verbs:
   - create
 - apiGroups:
-  - ""
-  resources:
-  - pods
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
   - authentication.k8s.io
   resources:
   - tokenreviews
@@ -3574,7 +3645,6 @@ rules:
   - apparmorprofiles
   - profilebindings
   - profilerecordings
-  - rawselinuxprofiles
   - seccompprofiles
   - selinuxprofiles
   verbs:
@@ -3860,6 +3930,9 @@ data:
             "capget",
             "capset",
             "chdir",
+            "clock_getres",
+            "clock_gettime",
+            "clock_gettime64",
             "clone",
             "clone3",
             "close",
@@ -3888,6 +3961,7 @@ data:
             "getsockname",
             "getsockopt",
             "gettid",
+            "gettimeofday",
             "ioctl",
             "listen",
             "lseek",
@@ -3926,6 +4000,7 @@ data:
             "statfs",
             "statx",
             "tgkill",
+            "time",
             "uname",
             "write"
           ],
@@ -4023,6 +4098,9 @@ data:
             "capget",
             "capset",
             "chdir",
+            "clock_getres",
+            "clock_gettime",
+            "clock_gettime64",
             "clone",
             "clone3",
             "close",
@@ -4049,6 +4127,7 @@ data:
             "getsockname",
             "getsockopt",
             "gettid",
+            "gettimeofday",
             "inotify_add_watch",
             "inotify_init1",
             "listen",
@@ -4087,6 +4166,7 @@ data:
             "statfs",
             "statx",
             "tgkill",
+            "time",
             "uname",
             "unshare",
             "unlinkat",
@@ -4344,6 +4424,75 @@ spec:
       - effect: NoExecute
         key: node.kubernetes.io/not-ready
         operator: Exists
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  labels:
+    app: security-profiles-operator
+  name: spo-spod-jobs
+spec:
+  failurePolicy: Fail
+  matchConditions:
+  - expression: request.userInfo.username == 'system:serviceaccount:' + request.namespace
+      + ':spod'
+    name: spod-service-account
+  matchConstraints:
+    resourceRules:
+    - apiGroups:
+      - batch
+      apiVersions:
+      - '*'
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - jobs
+  validations:
+  - expression: has(variables.podSpec.serviceAccountName) && variables.podSpec.serviceAccountName
+      == 'spod'
+    message: Jobs of the spod service account have to run as the spod service account
+    reason: Forbidden
+  - expression: has(variables.podSpec.nodeName) && variables.podSpec.nodeName != ''
+      && (size(variables.requestNodes) == 0 || variables.podSpec.nodeName in variables.requestNodes)
+    message: Jobs of the spod service account have to run on the node of the requesting
+      pod
+    reason: Forbidden
+  - expression: '!(has(variables.podSpec.hostNetwork) && variables.podSpec.hostNetwork)
+      && !(has(variables.podSpec.hostPID) && variables.podSpec.hostPID) && !(has(variables.podSpec.hostIPC)
+      && variables.podSpec.hostIPC)'
+    message: Jobs of the spod service account must not use host namespaces
+    reason: Forbidden
+  - expression: size(variables.podSpec.containers) == 1 && (!has(variables.podSpec.initContainers)
+      || size(variables.podSpec.initContainers) == 0) && variables.podSpec.containers.all(c,
+      !has(c.envFrom) && (!has(c.env) || c.env.all(e, !has(e.valueFrom))))
+    message: Jobs of the spod service account have to run a single container without
+      environment from secrets or config maps
+    reason: Forbidden
+  - expression: '!has(variables.podSpec.volumes) || variables.podSpec.volumes.all(v,
+      has(v.hostPath) && v.hostPath.path in [''/sys/fs/selinux'', ''/etc/selinux'',
+      ''/var/lib/selinux''] && has(v.hostPath.type) && v.hostPath.type == ''Directory'')'
+    message: Jobs of the spod service account may only mount the SELinux host paths
+      as directories
+    reason: Forbidden
+  variables:
+  - expression: object.spec.template.spec
+    name: podSpec
+  - expression: 'has(request.userInfo.extra) && ''authentication.kubernetes.io/node-name''
+      in request.userInfo.extra ? request.userInfo.extra[''authentication.kubernetes.io/node-name'']
+      : []'
+    name: requestNodes
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  labels:
+    app: security-profiles-operator
+  name: spo-spod-jobs
+spec:
+  policyName: spo-spod-jobs
+  validationActions:
+  - Deny
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
