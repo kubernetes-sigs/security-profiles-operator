@@ -19,8 +19,8 @@
 # versions. kubernix copies this file on its own, so it cannot import others.
 final: prev:
 let
-  crunVersion = "1.30";
-  runcVersion = "v1.5.1";
+  crunVersion = "1.30.1";
+  runcVersion = "v1.5.2";
 
   arch =
     {
@@ -48,16 +48,16 @@ in
     release "crun" crunVersion
       "https://github.com/containers/crun/releases/download/${crunVersion}/crun-${crunVersion}-linux-${arch}"
       {
-        amd64 = "sha256-gJO20QRAjWyN/dNDbgbb80UHRYfghIweJioXuWhH1vs=";
-        arm64 = "sha256-sYi29ms/O+Qm5jaHOhCzMJ+vPCEg1XmEg11PcmgE8pw=";
+        amd64 = "sha256-htHmoOdpRZddOuv6s5y8aibuoV8cP8ZrZ3bRnl3DRqA=";
+        arm64 = "sha256-DvMLD7tJTcnFMD1GsJGoTifLismcmFEj+x6zOYVLaeo=";
       };
 
   runc =
     release "runc" runcVersion
       "https://github.com/opencontainers/runc/releases/download/${runcVersion}/runc.${arch}"
       {
-        amd64 = "sha256-F334edUMkT6yBeiY1cHAWhj1dAU8DOVSTEcSCOrwb28=";
-        arm64 = "sha256-ynDn29ZhbKeCpZtdOshpCRI/2qn6P4nc8pBRxw7ufOk=";
+        amd64 = "sha256-WZ9vlP+MUFckHv8NVMPHT5XDSTW2RXsz/lRd78YelIg=";
+        arm64 = "sha256-0Q7K6Jg2GDKgWb4gibq5LRWK7FRmGxjtc0bteWKLRrA=";
       };
 
   # podman does not run the cluster workloads, so it keeps the runtimes it was

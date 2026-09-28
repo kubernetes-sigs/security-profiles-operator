@@ -1127,7 +1127,7 @@ metadata:
   name: profile1
 spec:
   defaultAction: SCMP_ACT_ERRNO
-  baseProfileName: runc-v1.5.1
+  baseProfileName: runc-v1.5.2
   syscalls:
     - action: SCMP_ACT_ALLOW
       names:
@@ -1193,7 +1193,7 @@ metadata:
   name: profile1
 spec:
   defaultAction: SCMP_ACT_ERRNO
-  baseProfileName: oci://registry.k8s.io/security-profiles-operator/base/runc:v1.5.1
+  baseProfileName: oci://registry.k8s.io/security-profiles-operator/base/runc:v1.5.2
 ```
 
 The resulting profile `profile1` will then contain all base syscalls from the
