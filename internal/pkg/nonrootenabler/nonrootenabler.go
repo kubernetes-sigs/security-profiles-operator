@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"syscall"
 
 	"github.com/go-logr/logr"
 	"github.com/moby/sys/mountinfo"
@@ -120,14 +121,8 @@ func (n *NonRootEnabler) Run(logger logr.Logger, runtime, kubeletDir string, app
 		config.SeccompProfilesFolder,
 		config.OperatorProfilesFolder,
 	)
-	if _, err := n.Lstat(kubeletOperatorDir); os.IsNotExist(err) {
-		logger.Info("Linking profiles root path")
-
-		if err := n.Symlink(
-			config.OperatorRoot, kubeletOperatorDir,
-		); err != nil {
-			return fmt.Errorf("link profiles root path: %w", err)
-		}
+	if err := n.linkProfilesRoot(logger, kubeletOperatorDir); err != nil {
+		return err
 	}
 
 	logger.Info("Saving kubelet configuration")
@@ -180,12 +175,60 @@ func (n *NonRootEnabler) Run(logger logr.Logger, runtime, kubeletDir string, app
 	return nil
 }
 
+// linkProfilesRoot ensures that the operator directory of the kubelet seccomp
+// directory is a symlink to the operator root, where the daemon writes the
+// profiles. A link with another target, like one of a previous installation,
+// and an empty directory are replaced. Anything else is an error, because the
+// kubelet would not find the profiles of the daemon there.
+func (n *NonRootEnabler) linkProfilesRoot(logger logr.Logger, kubeletOperatorDir string) error {
+	target, err := n.Readlink(kubeletOperatorDir)
+
+	switch {
+	case err == nil && target == config.OperatorRoot:
+		return nil
+
+	case err == nil:
+		logger.Info(
+			"Replacing profiles root path link", "path", kubeletOperatorDir, "target", target,
+		)
+
+		if err := n.Remove(kubeletOperatorDir); err != nil {
+			return fmt.Errorf("remove profiles root path link: %w", err)
+		}
+
+	case errors.Is(err, os.ErrNotExist):
+		logger.Info("Linking profiles root path")
+
+	// Not a link.
+	case errors.Is(err, syscall.EINVAL):
+		logger.Info("Replacing profiles root path directory", "path", kubeletOperatorDir)
+
+		if err := n.Rmdir(kubeletOperatorDir); err != nil {
+			return fmt.Errorf(
+				"%s has to be a link to %s, remove it: %w",
+				kubeletOperatorDir, config.OperatorRoot, err,
+			)
+		}
+
+	default:
+		return fmt.Errorf("read profiles root path link %s: %w", kubeletOperatorDir, err)
+	}
+
+	if err := n.Symlink(config.OperatorRoot, kubeletOperatorDir); err != nil {
+		return fmt.Errorf("link profiles root path: %w", err)
+	}
+
+	return nil
+}
+
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../hack/boilerplate/boilerplate.generatego.txt
 //counterfeiter:generate . impl
 type impl interface {
 	MkdirAll(dirpath string, perm os.FileMode) error
 	Chmod(name string, mode os.FileMode) error
-	Lstat(name string) (os.FileInfo, error)
+	Readlink(name string) (string, error)
+	Remove(name string) error
+	Rmdir(name string) error
 	Mounted(name string) (bool, error)
 	Symlink(oldname, newname string) error
 	Lchown(name string, uid, gid int) error
@@ -204,8 +247,21 @@ func (*defaultImpl) Chmod(name string, perm os.FileMode) error {
 	return os.Chmod(name, perm)
 }
 
-func (*defaultImpl) Lstat(name string) (os.FileInfo, error) {
-	return os.Lstat(name)
+func (*defaultImpl) Readlink(name string) (string, error) {
+	return os.Readlink(name)
+}
+
+func (*defaultImpl) Remove(name string) error {
+	return os.Remove(name)
+}
+
+// Rmdir removes the empty directory name, and fails for anything else.
+func (*defaultImpl) Rmdir(name string) error {
+	if err := syscall.Rmdir(name); err != nil {
+		return &os.PathError{Op: "rmdir", Path: name, Err: err}
+	}
+
+	return nil
 }
 
 func (*defaultImpl) Mounted(name string) (bool, error) {

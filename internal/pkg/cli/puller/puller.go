@@ -19,10 +19,10 @@ package puller
 import (
 	"fmt"
 	"log"
-	"os"
 	"strings"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
 )
 
 // Puller is the main structure of this package.
@@ -43,7 +43,11 @@ func New(options *Options) *Puller {
 func (p *Puller) Run() error {
 	log.Printf("Pulling profile from: %s", p.options.pullFrom)
 
+	ctx, stop := cli.SignalContext()
+	defer stop()
+
 	result, err := p.Pull(
+		ctx,
 		p.options.pullFrom,
 		p.options.username,
 		p.options.password,
@@ -78,9 +82,8 @@ func (p *Puller) Run() error {
 
 	log.Printf("Saving profile in: %s", outputFile)
 
-	const defaultFileMode = os.FileMode(0o644)
 	if err := p.WriteFile(
-		outputFile, result.Content(), defaultFileMode,
+		outputFile, result.Content(), cli.FilePermissions,
 	); err != nil {
 		return fmt.Errorf("save profile: %w", err)
 	}

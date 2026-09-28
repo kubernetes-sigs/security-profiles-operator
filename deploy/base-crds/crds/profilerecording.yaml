@@ -30,7 +30,12 @@ spec:
     name: v1
     schema:
       openAPIV3Schema:
-        description: ProfileRecording is the Schema for the profilerecordings API.
+        description: |-
+          ProfileRecording is the Schema for the profilerecordings API.
+
+          The name is used as a label value on the recorded profiles, so it is
+          limited to 63 characters. Existing objects are exempt, so that they can
+          still be updated and deleted.
         properties:
           apiVersion:
             description: |-
@@ -138,6 +143,14 @@ spec:
                     type: object
                 type: object
                 x-kubernetes-map-type: atomic
+                x-kubernetes-validations:
+                - message: matchExpressions operator must be In, NotIn, Exists or
+                    DoesNotExist, In and NotIn require values, Exists and DoesNotExist
+                    must not have values
+                  rule: '!has(self.matchExpressions) || self.matchExpressions.all(e,
+                    e.operator in [''In'', ''NotIn''] ? (has(e.values) && size(e.values)
+                    > 0) : (e.operator in [''Exists'', ''DoesNotExist''] && (!has(e.values)
+                    || size(e.values) == 0)))'
               recorder:
                 description: recorder specifies which recorder to use.
                 enum:
@@ -228,6 +241,10 @@ spec:
         required:
         - spec
         type: object
+        x-kubernetes-validations:
+        - message: name must be no more than 63 characters
+          optionalOldSelf: true
+          rule: oldSelf.hasValue() || size(self.metadata.name) <= 63
     served: true
     storage: true
     subresources:

@@ -41,7 +41,17 @@ const (
 	// stuckFinalizerWarningAge is the deletion age after which a profile that
 	// is still in use by pods gets a warning in the logs.
 	stuckFinalizerWarningAge = 10 * time.Minute
+
+	// InUseRetry is the time after which a disabled profile which pods still
+	// use is checked again, so that it gets removed once they are gone.
+	InUseRetry = time.Minute
 )
+
+// InUse returns true if running pods still use the profile. Removing it from
+// the node would break them, for example on a container restart.
+func InUse(profile client.Object) bool {
+	return controllerutil.ContainsFinalizer(profile, util.HasActivePodsFinalizerString)
+}
 
 // ErrGetProfile is returned if a profile cannot be retrieved.
 var ErrGetProfile = errors.New("cannot get profile")
@@ -138,7 +148,7 @@ func ReconcileDeletion(
 		}
 	}
 
-	if controllerutil.ContainsFinalizer(profile, util.HasActivePodsFinalizerString) {
+	if InUse(profile) {
 		if ts := profile.GetDeletionTimestamp(); ts != nil {
 			age := time.Since(ts.Time)
 			if age > stuckFinalizerWarningAge {

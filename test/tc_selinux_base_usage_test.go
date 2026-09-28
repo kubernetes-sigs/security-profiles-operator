@@ -167,8 +167,9 @@ func (e *e2e) selinuxBaseUsage(kind, policy, polName string, nodes []string) {
 
 	e.logf("creating policy")
 
-	rmFn := e.writeAndCreate(policy, "errorlogger-policy.yml")
-	defer rmFn()
+	e.writeAndCreate(policy, "errorlogger-policy.yml")
+	// The cleanup below does not run if the test fails.
+	defer e.kubectl("delete", kind, polName, "--ignore-not-found")
 
 	// Let's wait for the policy to be processed
 	e.kubectl("wait", "--timeout", defaultLongOpTimeout,
@@ -187,9 +188,11 @@ func (e *e2e) selinuxBaseUsage(kind, policy, polName string, nodes []string) {
 	e.logf("creating workload")
 
 	podWithPolicy := fmt.Sprintf(podWithPolicyFmt, e.getSELinuxPolicyUsage(kind, polName))
-	e.writeAndCreate(podWithPolicy, "pod-w-policy.yml")
 
-	e.waitFor("condition=ready", "pod", polName)
+	e.writeAndCreate(podWithPolicy, "pod-w-policy.yml")
+	defer e.kubectl("delete", "pod", "errorlogger", "--ignore-not-found")
+
+	e.waitFor("condition=ready", "pod", "errorlogger")
 
 	e.logf("the workload should be running")
 	podWithPolicyPhase := e.kubectl(
@@ -219,10 +222,9 @@ func (e *e2e) testCaseSelinuxIncompletePolicy() {
 
 	e.logf("creating incomplete policy")
 
-	removeFn := e.writeAndCreate(
+	e.writeAndCreate(
 		fmt.Sprintf(errorloggerIncompletePolFmt, "enforcing", "mode", "Enforcing"),
 		"errorlogger-policy-incomplete-enforcing.yml")
-	defer removeFn()
 
 	// Let's wait for the policy to be processed
 	e.kubectl("wait", "--timeout", defaultLongOpTimeout,
@@ -270,8 +272,8 @@ func (e *e2e) testCaseSelinuxNonDefaultTemplate(nodes []string) {
 	e.logf("Should be able to install a policy using a different template than container")
 	e.logf("creating policy")
 
-	rmFn := e.writeAndCreate(netContainerPolicy, "net-container-policy.yml")
-	defer rmFn()
+	e.writeAndCreate(netContainerPolicy, "net-container-policy.yml")
+	defer e.kubectl("delete", "selinuxprofile", netContainerPolicyName)
 
 	e.kubectl("wait", "--timeout", defaultLongOpTimeout,
 		"--for", "condition=ready", "selinuxprofile", netContainerPolicyName)
@@ -296,10 +298,9 @@ func (e *e2e) testCaseSelinuxIncompletePermissivePolicy() {
 
 	e.logf("creating incomplete policy")
 
-	removeFn := e.writeAndCreate(
+	e.writeAndCreate(
 		fmt.Sprintf(errorloggerIncompletePolFmt, "permissive", "mode", "Permissive"),
 		"errorlogger-policy-incomplete-permissive.yml")
-	defer removeFn()
 
 	// Let's wait for the policy to be processed
 	e.kubectl("wait", "--timeout", defaultLongOpTimeout,
@@ -330,10 +331,9 @@ func (e *e2e) testCaseSelinuxIncompleteDisabledPolicy() {
 
 	e.logf("creating disabled policy")
 
-	removeFn := e.writeAndCreate(
+	e.writeAndCreate(
 		fmt.Sprintf(errorloggerIncompletePolFmt, "disabled", "state", "Disabled"),
 		"errorlogger-policy-incomplete-disabled.yml")
-	defer removeFn()
 
 	// Let's wait for the policy to be processed, it will be ready=false
 	e.kubectl("wait", "--timeout", defaultLongOpTimeout,

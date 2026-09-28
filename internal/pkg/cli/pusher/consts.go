@@ -17,23 +17,11 @@ limitations under the License.
 package pusher
 
 import (
-	"runtime"
-
-	v1 "github.com/opencontainers/image-spec/specs-go/v1"
-
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
 )
 
-var (
-	// DefaultInputFile defines the default input location for the pusher.
-	DefaultInputFile = cli.DefaultFile
-
-	// DefaultPlatform defines the default platform for the current system.
-	DefaultPlatform = &v1.Platform{
-		OS:           runtime.GOOS,
-		Architecture: runtime.GOARCH,
-	}
-)
+// DefaultInputFile defines the default input location for the pusher.
+var DefaultInputFile = cli.DefaultFile
 
 const (
 	// FlagDisableSigning is the flag for skipping the artifact signature.
@@ -52,6 +40,10 @@ const (
 	// FlagUsername is the flag for defining the username for registry
 	// authentication.
 	FlagUsername string = cli.FlagUsername
+
+	// FlagPasswordStdin is the flag for reading the password for registry
+	// authentication from stdin.
+	FlagPasswordStdin string = cli.FlagPasswordStdin
 
 	// FlagAnnotations is the flag for setting custom annotations to the pushed
 	// artifact.

@@ -169,7 +169,9 @@ A high-level summary of the permissions besides the operator's own API:
 
 ### spo-webhook
 
-- Cluster wide: events, pods (read), tokenreviews and subjectaccessreviews (metrics).
+- Cluster wide: events, tokenreviews and subjectaccessreviews (metrics). The webhooks take the
+  pods they mutate and the raw SELinux profiles they validate from the admission requests, so
+  they have no access to pods or raw SELinux profiles.
 - Operator namespace only: leases, and the `restricted-v2` SCC.
 
 ## Admission webhooks

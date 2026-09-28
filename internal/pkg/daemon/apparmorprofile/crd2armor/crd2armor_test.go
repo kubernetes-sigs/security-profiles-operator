@@ -75,6 +75,26 @@ func TestGenerateProfile(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name:        "Capabilities stored in other spellings are normalized",
+			profileName: "NormalizedCapabilities",
+			mode:        apparmorprofileapi.AppArmorModeEnforce,
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Capability: &apparmorprofileapi.AppArmorCapabilityRules{
+					AllowedCapabilities: []string{" NET_ADMIN", "Sys_Rawio "},
+				},
+			},
+			mustContain: []string{
+				"capability net_admin,",
+				"capability sys_rawio,",
+				"remount,",
+			},
+			mustNotContain: []string{
+				"NET_ADMIN",
+				"Sys_Rawio",
+			},
+			wantErr: false,
+		},
+		{
 			name:        "Name sanitization - good - alphanumeric and dashes",
 			profileName: "my-app_profile.v1",
 			abstract:    &apparmorprofileapi.AppArmorAbstract{},

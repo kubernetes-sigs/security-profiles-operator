@@ -23,7 +23,6 @@ import (
 	"slices"
 	"time"
 
-	"sigs.k8s.io/security-profiles-operator/api/common"
 	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
@@ -89,8 +88,19 @@ func (e *e2e) testCaseAllowedSyscallsValidation(nodes []string) {
 		}
 
 		for _, name := range deniedProfileNames {
-			e.Falsef(e.existsSeccompProfileNodeStatus(name, node),
-				"node status should not be updated for a denied seccomp profile")
+			e.eventually(time.Minute, 2*time.Second, func() error {
+				state, found := e.seccompProfileNodeState(name, node)
+				if !found {
+					return fmt.Errorf("no node status for denied seccomp profile %s", name)
+				}
+
+				if state != secprofnodestatusapi.ProfileStateError {
+					return fmt.Errorf("denied seccomp profile %s is in state %s, want %s",
+						name, state, secprofnodestatusapi.ProfileStateError)
+				}
+
+				return nil
+			})
 		}
 	}
 }
@@ -185,8 +195,7 @@ spec:
 `
 	)
 
-	profileCleanup := e.writeAndCreate(allowProfile, "allow-profile*.yaml")
-	defer profileCleanup()
+	e.writeAndCreate(allowProfile, "allow-profile*.yaml")
 
 	// Check that the seccomp profile was allowed and installed
 	e.waitFor(
@@ -198,8 +207,7 @@ spec:
 	e.Equal(secprofnodestatusapi.ProfileStateInstalled, sp.Status.Status)
 
 	// Create the pod which reference the allowed profile
-	podCleanup := e.writeAndCreate(allowPod, "allow-pod*.yaml")
-	defer podCleanup()
+	e.writeAndCreate(allowPod, "allow-pod*.yaml")
 
 	e.waitFor("condition=ready", "pod", allowPodName)
 
@@ -237,19 +245,17 @@ spec:
 	// terminated.
 	e.logf("Ensuring profile cannot be deleted while pod is active")
 
-	for range 10 {
-		sp := e.getSeccompProfile(allowProfileName)
-
-		conReady := sp.Status.GetReadyCondition()
-		if conReady.Reason == string(common.ReasonDeleting) {
-			break
+	e.eventually(time.Minute, time.Second, func() error {
+		sp = e.getSeccompProfile(allowProfileName)
+		if sp.Status.Status != secprofnodestatusapi.ProfileStateTerminating {
+			return fmt.Errorf(
+				"profile %s is %q, not %q", allowProfileName,
+				sp.Status.Status, secprofnodestatusapi.ProfileStateTerminating,
+			)
 		}
 
-		time.Sleep(time.Second)
-	}
-
-	sp = e.getSeccompProfile(allowProfileName)
-	e.Equal(secprofnodestatusapi.ProfileStateTerminating, sp.Status.Status)
+		return nil
+	})
 
 	// Remove the pod, after this point the profile should be complete cleaned-up
 	e.kubectl("delete", "pod", allowPodName)
@@ -275,7 +281,11 @@ spec:
 	}
 }
 
-func (e *e2e) existsSeccompProfileNodeStatus(id, node string) bool {
+// seccompProfileNodeState returns the state of the node status of a seccomp
+// profile and whether the node status exists.
+func (e *e2e) seccompProfileNodeState(
+	id, node string,
+) (state secprofnodestatusapi.ProfileState, found bool) {
 	selector := fmt.Sprintf(
 		"spo.x-k8s.io/node-name=%s,spo.x-k8s.io/profile-id=SeccompProfile-%s",
 		node,
@@ -287,5 +297,9 @@ func (e *e2e) existsSeccompProfileNodeStatus(id, node string) bool {
 	secpolNodeStatusList := &secprofnodestatusapi.SecurityProfileNodeStatusList{}
 	e.Require().NoError(json.Unmarshal([]byte(seccompProfileNodeStatusJSON), secpolNodeStatusList))
 
-	return len(secpolNodeStatusList.Items) > 0
+	if len(secpolNodeStatusList.Items) == 0 {
+		return "", false
+	}
+
+	return secpolNodeStatusList.Items[0].Status.Status, true
 }

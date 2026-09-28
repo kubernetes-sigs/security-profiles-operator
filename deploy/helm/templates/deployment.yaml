@@ -89,7 +89,9 @@ spec:
       securityContext:
       {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: {{ include "security-profiles-operator.serviceAccountName" . }}
+      # The static resources create this service account and bind the RBAC
+      # rules of the operator to it.
+      serviceAccountName: security-profiles-operator
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

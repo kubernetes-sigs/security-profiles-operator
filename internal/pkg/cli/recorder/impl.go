@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/printers"
 
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/command"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
 )
@@ -114,7 +115,7 @@ func (*defaultImpl) GetName(s libseccomp.ScmpSyscall) (string, error) {
 }
 
 func (*defaultImpl) Create(name string) (io.WriteCloser, error) {
-	return os.Create(name)
+	return os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, cli.FilePermissions)
 }
 
 func (*defaultImpl) PrintObj(p printers.YAMLPrinter, obj runtime.Object, w io.Writer) error {

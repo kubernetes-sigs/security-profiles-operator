@@ -191,7 +191,7 @@ func newApparmorData(name string, abstract *apparmorprofileapi.AppArmorAbstract)
 
 	if abstract.Capability != nil {
 		data.Capability = &Capability{
-			AllowedCapabilities: abstract.Capability.AllowedCapabilities,
+			AllowedCapabilities: normalizeCapabilities(abstract.Capability.AllowedCapabilities),
 		}
 	}
 
@@ -275,6 +275,22 @@ func validPath(path string) error {
 	return nil
 }
 
+// normalizeCapabilities returns the capabilities in the lower case form
+// without surrounding whitespace which AppArmor expects. Profiles stored
+// before the API rejected other spellings may still contain them.
+func normalizeCapabilities(capabilities []string) []string {
+	if capabilities == nil {
+		return nil
+	}
+
+	normalized := make([]string, 0, len(capabilities))
+	for _, capability := range capabilities {
+		normalized = append(normalized, strings.ToLower(strings.TrimSpace(capability)))
+	}
+
+	return normalized
+}
+
 func validateCapability(capability string) error {
 	// Contains all standard Linux capabilities supported by AppArmor.
 	// They are matched in lowercase, without the "CAP_" prefix.
@@ -340,7 +356,7 @@ func GenerateProfile(
 	allowMount := (abstract != nil &&
 		abstract.Capability != nil &&
 		abstract.Capability.AllowedCapabilities != nil &&
-		slices.Contains(abstract.Capability.AllowedCapabilities, "sys_rawio"))
+		slices.Contains(normalizeCapabilities(abstract.Capability.AllowedCapabilities), "sys_rawio"))
 
 	if abstract == nil {
 		return "", errors.New("abstract cannot be nil")

@@ -19,6 +19,7 @@ package enricher
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/jellydator/ttlcache/v3"
@@ -41,45 +42,66 @@ const (
 	requestIdEnv = "SPO_EXEC_REQUEST_UID"
 )
 
+// GetProcessInfo returns the details of the process with the PID. The
+// executable, uid and gid come from the audit line, the rest from the process.
+// The returned info is the caller's own, it is never shared with the cache.
+//
+// The cache is keyed by PID and process start time, so that a process reusing
+// the PID of a cached one does not get its command line and exec request. The
+// last process seen with a PID is cached under the PID alone as well: audit
+// lines are read with a delay, and the lines of a process which exited in
+// between belong to it.
 func GetProcessInfo(
 	pid int, executable string, uid, gid *uint32,
-	processCache *ttlcache.Cache[int, *types.ProcessInfo],
+	processCache *ttlcache.Cache[string, *types.ProcessInfo],
 	impl impl,
 ) (*types.ProcessInfo, error) {
-	// Check the cache first
-	item := processCache.Get(pid)
-	if item != nil {
-		return item.Value(), nil
+	withLine := func(cached *types.ProcessInfo) *types.ProcessInfo {
+		info := *cached
+		info.Executable = executable
+		info.Uid = uid
+		info.Gid = gid
+
+		return &info
 	}
 
-	var errDetailsFetch error
+	lastKey := strconv.Itoa(pid)
 
-	if procErrors := populateProcessCache(pid, executable, uid, gid, processCache, impl); len(
-		procErrors,
-	) > 0 {
-		errDetailsFetch = fmt.Errorf("get process info for pid: %w", errors.Join(procErrors...))
+	startTime, err := impl.ProcessStartTime(pid)
+	if err != nil {
+		if item := processCache.Get(lastKey); item != nil {
+			return withLine(item.Value()), nil
+		}
+
+		info, _ := processInfo(pid, impl)
+
+		return withLine(info), fmt.Errorf("get process start time for pid %d: %w", pid, err)
 	}
 
-	item = processCache.Get(pid)
-	if item != nil {
-		return item.Value(), errDetailsFetch
+	cacheKey := lastKey + "_" + strconv.FormatInt(int64(startTime), 10)
+
+	if item := processCache.Get(cacheKey); item != nil {
+		return withLine(item.Value()), nil
 	}
 
-	return nil, errors.New("no process info for Pid")
+	info, errs := processInfo(pid, impl)
+	processCache.Set(cacheKey, info, ttlcache.DefaultTTL)
+	processCache.Set(lastKey, info, ttlcache.DefaultTTL)
+
+	if len(errs) > 0 {
+		return withLine(info), fmt.Errorf("get process info for pid: %w", errors.Join(errs...))
+	}
+
+	return withLine(info), nil
 }
 
-func populateProcessCache(
-	pid int, executable string, uid, gid *uint32,
-	processCache *ttlcache.Cache[int, *types.ProcessInfo],
-	impl impl,
-) []error {
+// processInfo reads the details of the process with the PID which do not come
+// from the audit line.
+func processInfo(pid int, impl impl) (*types.ProcessInfo, []error) {
 	var errs []error
 
 	procInfo := types.ProcessInfo{
-		Pid:        pid,
-		Executable: executable,
-		Uid:        uid,
-		Gid:        gid,
+		Pid: pid,
 	}
 
 	cmdLineFound := false
@@ -118,9 +140,7 @@ func populateProcessCache(
 		}
 	}
 
-	processCache.Set(pid, &procInfo, ttlcache.DefaultTTL)
-
-	return errs
+	return &procInfo, errs
 }
 
 func extractSPORequestUID(input string) (string, bool) {

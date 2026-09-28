@@ -22,7 +22,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"time"
 )
+
+// tempFilePrefix is the name prefix of the temporary files of WriteFileAtomic.
+const tempFilePrefix = ".tmp-"
+
+// tempFileRegexp matches the names createTemp generates: the prefix followed
+// by the output of rand.Text, which is 26 characters of base32.
+var tempFileRegexp = regexp.MustCompile(`^\.tmp-[A-Z2-7]{26}$`)
 
 // WriteFileAtomic writes data to a temporary file next to name, syncs it and
 // renames it over name. Readers therefore see either the previous or the new
@@ -76,7 +85,7 @@ func createTemp(dir string, perm os.FileMode) (*os.File, error) {
 	const attempts = 100
 
 	for range attempts {
-		name := filepath.Join(dir, ".tmp-"+rand.Text())
+		name := filepath.Join(dir, tempFilePrefix+rand.Text())
 
 		f, err := os.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_EXCL, perm)
 		if errors.Is(err, os.ErrExist) {
@@ -102,4 +111,53 @@ func syncDir(dir string) error {
 	}
 
 	return nil
+}
+
+// RemoveStaleTempFiles removes the temporary files WriteFileAtomic leaves
+// behind in dir if the process dies between creating and renaming them. Only
+// regular files whose name matches the generated pattern and which were not
+// modified for minAge are removed, so that a concurrent writer, for example a
+// second daemon during a rolling update, keeps its file. It returns the paths
+// of the removed files. A missing dir is not an error.
+func RemoveStaleTempFiles(dir string, minAge time.Duration) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("reading directory: %w", err)
+	}
+
+	var (
+		removed []string
+		errs    []error
+	)
+
+	for _, entry := range entries {
+		if !entry.Type().IsRegular() || !tempFileRegexp.MatchString(entry.Name()) {
+			continue
+		}
+
+		info, err := entry.Info()
+		if err != nil {
+			// The file may be gone already, renamed by its writer.
+			continue
+		}
+
+		if time.Since(info.ModTime()) < minAge {
+			continue
+		}
+
+		name := filepath.Join(dir, entry.Name())
+		if err := os.Remove(name); err != nil && !errors.Is(err, os.ErrNotExist) {
+			errs = append(errs, fmt.Errorf("removing %s: %w", name, err))
+
+			continue
+		}
+
+		removed = append(removed, name)
+	}
+
+	return removed, errors.Join(errs...)
 }

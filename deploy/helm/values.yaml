@@ -55,15 +55,10 @@ webhook:
 nameOverride: ""
 fullnameOverride: ""
 
-serviceAccount:
-  # If name is not set, use the generated fullname when create is true and
-  # "default" otherwise
-  create: true
-  # The name of the service account to use.
-  name: ""
-
-podSecurityContext: {}
-  # fsGroup: 2000
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
 
 resources:
   limits:

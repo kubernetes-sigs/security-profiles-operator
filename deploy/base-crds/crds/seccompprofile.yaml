@@ -92,7 +92,8 @@ spec:
                   defaultAction is the default action for seccomp. Valid values are:
                   SCMP_ACT_KILL, SCMP_ACT_KILL_PROCESS, SCMP_ACT_KILL_THREAD,
                   SCMP_ACT_TRAP, SCMP_ACT_ERRNO, SCMP_ACT_TRACE, SCMP_ACT_ALLOW,
-                  SCMP_ACT_LOG, SCMP_ACT_NOTIFY.
+                  SCMP_ACT_LOG. SCMP_ACT_NOTIFY is not supported as the default action
+                  by container runtimes.
                 enum:
                 - SCMP_ACT_KILL
                 - SCMP_ACT_KILL_PROCESS
@@ -104,6 +105,9 @@ spec:
                 - SCMP_ACT_LOG
                 - SCMP_ACT_NOTIFY
                 type: string
+                x-kubernetes-validations:
+                - message: SCMP_ACT_NOTIFY cannot be used as the default action
+                  rule: self != 'SCMP_ACT_NOTIFY'
               flags:
                 description: flags is a list of flags to use with seccomp(2).
                 items:

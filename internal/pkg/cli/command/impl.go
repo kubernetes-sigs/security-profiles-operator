@@ -28,6 +28,7 @@ type defaultImpl struct{}
 //counterfeiter:generate . impl
 type impl interface {
 	Notify(chan<- os.Signal, ...os.Signal)
+	Stop(chan<- os.Signal)
 	Signal(*exec.Cmd, os.Signal) error
 	Command(string, ...string) *exec.Cmd
 	CmdStart(*exec.Cmd) error
@@ -38,6 +39,10 @@ type impl interface {
 
 func (*defaultImpl) Notify(c chan<- os.Signal, sig ...os.Signal) {
 	signal.Notify(c, sig...)
+}
+
+func (*defaultImpl) Stop(c chan<- os.Signal) {
+	signal.Stop(c)
 }
 
 func (*defaultImpl) Signal(c *exec.Cmd, sig os.Signal) error {

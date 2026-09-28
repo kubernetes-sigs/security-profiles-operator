@@ -18,6 +18,7 @@ package command
 
 import (
 	"errors"
+	"os/exec"
 
 	"github.com/urfave/cli/v2"
 )
@@ -27,6 +28,11 @@ type Options struct {
 	command            string
 	args               []string
 	DropSudoPrivileges bool
+
+	// PreStart is called with the prepared command right before it gets
+	// started and may change it, for example to start it through a helper.
+	// The returned function, if not nil, is called after the start attempt.
+	PreStart func(*exec.Cmd) (postStart func(), err error)
 }
 
 // Command returns the command name.

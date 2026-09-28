@@ -92,7 +92,7 @@ type AppArmorCapabilityRules struct {
 	// +optional
 	// +listType=set
 	//nolint:lll // the capability pattern cannot be wrapped
-	// +kubebuilder:validation:items:Pattern=`^\s*(?i:chown|dac_override|dac_read_search|fowner|fsetid|kill|setgid|setuid|setpcap|linux_immutable|net_bind_service|net_broadcast|net_admin|net_raw|ipc_lock|ipc_owner|sys_module|sys_rawio|sys_chroot|sys_ptrace|sys_pacct|sys_admin|sys_boot|sys_nice|sys_resource|sys_time|sys_tty_config|mknod|lease|audit_write|audit_control|setfcap|mac_override|mac_admin|syslog|wake_alarm|block_suspend|audit_read|perfmon|bpf|checkpoint_restore)\s*$`
+	// +kubebuilder:validation:items:Pattern=`^(chown|dac_override|dac_read_search|fowner|fsetid|kill|setgid|setuid|setpcap|linux_immutable|net_bind_service|net_broadcast|net_admin|net_raw|ipc_lock|ipc_owner|sys_module|sys_rawio|sys_chroot|sys_ptrace|sys_pacct|sys_admin|sys_boot|sys_nice|sys_resource|sys_time|sys_tty_config|mknod|lease|audit_write|audit_control|setfcap|mac_override|mac_admin|syslog|wake_alarm|block_suspend|audit_read|perfmon|bpf|checkpoint_restore)$`
 	AllowedCapabilities []string `json:"allowedCapabilities,omitempty"`
 }
 

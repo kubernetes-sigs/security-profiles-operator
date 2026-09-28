@@ -25,13 +25,14 @@ import (
 	"io"
 	"maps"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/google/go-containerregistry/pkg/authn"
+	ggcrname "github.com/google/go-containerregistry/pkg/name"
 	"github.com/opencontainers/go-digest"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
@@ -40,6 +41,7 @@ import (
 	"github.com/sigstore/cosign/v3/cmd/cosign/cli/verify"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"oras.land/oras-go/v2"
+	orascontent "oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/content/file"
 	"oras.land/oras-go/v2/registry/remote"
 	"oras.land/oras-go/v2/registry/remote/auth"
@@ -102,19 +104,80 @@ type Artifact struct {
 	logger logr.Logger
 }
 
+// setRepoCredentials configures the registry authentication of the
+// repository: the username and password if given, otherwise the docker config
+// credentials cosign uses for the signatures as well.
 func (a *Artifact) setRepoCredentials(repo *remote.Repository, username, password string) {
-	if username != "" && password != "" {
+	var warnOnce sync.Once
+
+	// A broken docker config, like a credential helper missing from the
+	// PATH, must not break registries which work anonymously.
+	credential := func(ctx context.Context, hostport string) (auth.Credential, error) {
+		cred, err := keychainCredential(ctx, hostport)
+		if err != nil {
+			warnOnce.Do(func() {
+				a.logger.Info(
+					"Unable to use the docker config credentials, accessing the registry anonymously",
+					"registry",
+					hostport,
+					"error",
+					err.Error(),
+				)
+			})
+
+			return auth.EmptyCredential, nil //nolint:nilerr // anonymous access is the fallback
+		}
+
+		return cred, nil
+	}
+
+	if username != "" || password != "" {
 		a.logger.Info("Using username and password")
 
-		repo.Client = &auth.Client{
-			Client: retry.DefaultClient,
-			Cache:  auth.DefaultCache,
-			Credential: auth.StaticCredential(
-				repo.Reference.Registry,
-				auth.Credential{Username: username, Password: password},
-			),
-		}
+		credential = auth.StaticCredential(
+			repo.Reference.Registry,
+			auth.Credential{Username: username, Password: password},
+		)
 	}
+
+	repo.Client = &auth.Client{
+		Client:     retry.DefaultClient,
+		Cache:      auth.DefaultCache,
+		Credential: credential,
+	}
+}
+
+// keychainCredential resolves the registry credentials from the docker config
+// and its credential helpers, the default keychain of cosign. Registries
+// without an entry are accessed anonymously.
+func keychainCredential(_ context.Context, hostport string) (auth.Credential, error) {
+	// ORAS talks to Docker Hub through its registry host, which the docker
+	// config knows by the name of the index.
+	if hostport == dockerHubRegistryHost {
+		hostport = ggcrname.DefaultRegistry
+	}
+
+	registry, err := ggcrname.NewRegistry(hostport)
+	if err != nil {
+		return auth.EmptyCredential, fmt.Errorf("parse registry %s: %w", hostport, err)
+	}
+
+	authenticator, err := authn.DefaultKeychain.Resolve(registry)
+	if err != nil {
+		return auth.EmptyCredential, fmt.Errorf("resolve credentials for %s: %w", hostport, err)
+	}
+
+	config, err := authenticator.Authorization()
+	if err != nil {
+		return auth.EmptyCredential, fmt.Errorf("get credentials for %s: %w", hostport, err)
+	}
+
+	return auth.Credential{
+		Username:     config.Username,
+		Password:     config.Password,
+		RefreshToken: config.IdentityToken,
+		AccessToken:  config.RegistryToken,
+	}, nil
 }
 
 // PullOptions are the options for pulling an OCI artifact: how to reach the
@@ -254,8 +317,10 @@ func New(logger logr.Logger) *Artifact {
 	}
 }
 
-// Push a profile to a remote location.
+// Push a profile to a remote location. Profiles without a platform are
+// platform independent.
 func (a *Artifact) Push(
+	c context.Context,
 	files map[*v1.Platform]string,
 	to, username, password string,
 	annotations map[string]string,
@@ -289,7 +354,7 @@ func (a *Artifact) Push(
 		}
 	}()
 
-	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
+	ctx, cancel := context.WithTimeout(c, defaultTimeout)
 	defer cancel()
 
 	manifestDescriptor, err := a.packProfiles(
@@ -579,8 +644,12 @@ func (a *Artifact) Pull(
 	a.logger.Info("Copying profile from repository")
 	a.logger.Info("Source image", "image", from)
 
+	// Only the manifest for the platform and its profile layer get copied,
+	// so that the size limit per blob bounds the whole pull.
 	copyOptions := oras.DefaultCopyOptions
 	copyOptions.PreCopy = blobSizeLimit(signOpts.maxBlobSize())
+	copyOptions.MapRoot = selectManifest(platform, signOpts.maxBlobSize())
+	copyOptions.FindSuccessors = profileLayer(platform)
 
 	manifestDescriptor, err := a.Copy(
 		ctx, repo, sha.String(), store, sha.String(), copyOptions,
@@ -592,7 +661,7 @@ func (a *Artifact) Pull(
 	a.logger.Info("Checking profile contents")
 
 	content, runtimeFormat, err := a.profileContent(
-		ctx, store, dir, &manifestDescriptor, platform,
+		ctx, store, &manifestDescriptor, platform,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("read profile: %w", err)
@@ -864,13 +933,10 @@ func (a *Artifact) pushConfig(
 }
 
 // profileContent returns the profile content of a pulled artifact, together
-// with whether the artifact uses the KEP-6061 runtime format. It prefers the
-// layer names used by push, but falls back to the single layer of the
-// artifact because KEP-6061 mandates no particular layer name.
+// with whether the artifact uses the KEP-6061 runtime format.
 func (a *Artifact) profileContent(
 	ctx context.Context,
 	store *file.Store,
-	dir string,
 	manifestDescriptor *v1.Descriptor,
 	platform *v1.Platform,
 ) (content []byte, runtimeFormat bool, err error) {
@@ -879,66 +945,84 @@ func (a *Artifact) profileContent(
 		return nil, false, err
 	}
 
+	layer, runtimeFormat, err := selectLayer(manifest, platform)
+	if err != nil {
+		return nil, false, err
+	}
+
+	a.logger.Info("Reading profile layer",
+		"title", layer.Annotations[v1.AnnotationTitle],
+		"runtimeFormat", runtimeFormat,
+	)
+
+	content, err = a.blobContent(ctx, store, layer)
+
+	return content, runtimeFormat, err
+}
+
+// selectLayer returns the layer of the manifest holding the profile for the
+// platform, together with whether the artifact uses the KEP-6061 runtime
+// format. It prefers the layers push produces: the one bound to the platform,
+// then the platform independent one. As fallback, it takes the single layer
+// of the artifact because KEP-6061 mandates no particular layer name, unless
+// that layer is bound to another platform.
+func selectLayer(manifest *v1.Manifest, platform *v1.Platform) (*v1.Descriptor, bool, error) {
+	if len(manifest.Layers) > maxArtifactLayers {
+		return nil, false, fmt.Errorf(
+			"%w: got %d, limit is %d", ErrTooManyLayers, len(manifest.Layers), maxArtifactLayers,
+		)
+	}
+
 	// KEP-6061 identifies the artifact by the config media type, with the
 	// artifact type as fallback for the empty OCI config descriptor.
 	if manifest.Config.MediaType == MediaTypeSeccompProfile ||
 		manifest.ArtifactType == MediaTypeSeccompProfile {
-		a.logger.Info("Artifact is in the runtime format", "mediaType", MediaTypeSeccompProfile)
-
 		if len(manifest.Layers) != 1 {
 			return nil, false, fmt.Errorf("%w: got %d", ErrNoSingleLayer, len(manifest.Layers))
 		}
 
-		content, err := a.blobContent(ctx, store, &manifest.Layers[0])
-
-		return content, true, err
+		return &manifest.Layers[0], true, nil
 	}
 
-	// profileName falls back to defaultProfileYAML if no platform is
-	// available, so only look for it separately if there is one.
-	names := []string{profileName(platform)}
 	if platform != nil {
-		names = append(names, defaultProfileYAML)
-	}
+		name := profileName(platform)
 
-	names = append(names, defaultProfileJSON)
+		for i := range manifest.Layers {
+			layer := &manifest.Layers[i]
 
-	for _, name := range names {
-		a.logger.Info("Trying to read profile", "name", name)
+			if layer.Platform != nil && platformMatches(layer.Platform, platform) {
+				return layer, false, nil
+			}
 
-		if content, err := a.ReadFile(filepath.Join(dir, name)); err == nil {
-			return content, false, nil
+			if layer.Platform == nil && layer.Annotations[v1.AnnotationTitle] == name {
+				return layer, false, nil
+			}
 		}
 	}
 
-	content, err = a.singleLayerContent(ctx, store, manifest, platform)
+	for _, name := range []string{defaultProfileYAML, defaultProfileJSON} {
+		for i := range manifest.Layers {
+			layer := &manifest.Layers[i]
 
-	return content, false, err
-}
+			if layer.Platform == nil && layer.Annotations[v1.AnnotationTitle] == name {
+				return layer, false, nil
+			}
+		}
+	}
 
-// singleLayerContent returns the content of the only layer of an artifact,
-// which is the fallback for artifacts not using a layer name push produces.
-// It reads the layer through its descriptor, because KEP-6061 requires
-// neither a layer name nor the annotation the ORAS file store needs to
-// materialize a layer on disk. A layer bound to another platform is not
-// eligible, it would have been found by name for a matching one.
-func (a *Artifact) singleLayerContent(
-	ctx context.Context, store *file.Store, manifest *v1.Manifest, platform *v1.Platform,
-) ([]byte, error) {
 	if len(manifest.Layers) != 1 {
-		return nil, fmt.Errorf("%w: got %d", ErrNoSingleLayer, len(manifest.Layers))
+		return nil, false, fmt.Errorf("%w: got %d", ErrNoSingleLayer, len(manifest.Layers))
 	}
 
 	layer := &manifest.Layers[0]
-	title := layer.Annotations[v1.AnnotationTitle]
-
 	if !layerMatchesPlatform(layer, platform) {
-		return nil, fmt.Errorf("%w: %s", ErrPlatformMismatch, title)
+		return nil, false, fmt.Errorf(
+			"%w: %s (%s)", ErrPlatformMismatch,
+			layer.Annotations[v1.AnnotationTitle], platformToString(layer.Platform),
+		)
 	}
 
-	a.logger.Info("Falling back to single artifact layer", "title", title)
-
-	return a.blobContent(ctx, store, layer)
+	return layer, false, nil
 }
 
 // layerMatchesPlatform reports whether the layer can be used for the
@@ -949,11 +1033,148 @@ func layerMatchesPlatform(layer *v1.Descriptor, platform *v1.Platform) bool {
 		return !platformQualifiedName.MatchString(layer.Annotations[v1.AnnotationTitle])
 	}
 
-	return platform != nil &&
-		layer.Platform.OS == platform.OS &&
-		layer.Platform.Architecture == platform.Architecture &&
-		layer.Platform.Variant == platform.Variant &&
-		layer.Platform.OSVersion == platform.OSVersion
+	return platform != nil && platformMatches(layer.Platform, platform)
+}
+
+// platformMatches reports whether both platforms are the same, with the
+// variants normalized the way container runtimes do it, so that for example
+// linux/arm64/v8 matches linux/arm64.
+func platformMatches(have, want *v1.Platform) bool {
+	return have.OS == want.OS &&
+		have.Architecture == want.Architecture &&
+		normalizeVariant(have.Architecture, have.Variant) ==
+			normalizeVariant(want.Architecture, want.Variant) &&
+		have.OSVersion == want.OSVersion
+}
+
+// normalizeVariant returns the variant of the architecture, with the default
+// variant made explicit or omitted the way containerd normalizes it.
+func normalizeVariant(architecture, variant string) string {
+	switch architecture {
+	case "arm64":
+		if variant == "v8" {
+			return ""
+		}
+	case "arm":
+		if variant == "" {
+			return "v7"
+		}
+	case "amd64":
+		if variant == "v1" {
+			return ""
+		}
+	}
+
+	return variant
+}
+
+// selectManifest returns the ORAS MapRoot hook which resolves an image index
+// to the manifest for the platform, which is the only one to get copied.
+// Manifests are left as they are.
+func selectManifest(
+	platform *v1.Platform, limit int64,
+) func(context.Context, orascontent.ReadOnlyStorage, v1.Descriptor) (v1.Descriptor, error) {
+	return func(ctx context.Context, src orascontent.ReadOnlyStorage, root v1.Descriptor) (v1.Descriptor, error) {
+		if !isIndex(root.MediaType) {
+			return root, nil
+		}
+
+		if err := blobSizeLimit(limit)(ctx, root); err != nil {
+			return v1.Descriptor{}, err
+		}
+
+		raw, err := orascontent.FetchAll(ctx, src, root)
+		if err != nil {
+			return v1.Descriptor{}, fmt.Errorf("fetch index: %w", err)
+		}
+
+		index := &v1.Index{}
+		if err := json.Unmarshal(raw, index); err != nil {
+			return v1.Descriptor{}, fmt.Errorf("unmarshal index: %w", err)
+		}
+
+		manifest, err := selectIndexManifest(index, platform)
+		if err != nil {
+			return v1.Descriptor{}, err
+		}
+
+		if isIndex(manifest.MediaType) {
+			return v1.Descriptor{}, fmt.Errorf(
+				"%w: nested index %s",
+				ErrNoMatchingManifest,
+				manifest.Digest,
+			)
+		}
+
+		return *manifest, nil
+	}
+}
+
+// selectIndexManifest returns the manifest of the index for the platform. An
+// index with a single manifest without platform serves every platform.
+func selectIndexManifest(index *v1.Index, platform *v1.Platform) (*v1.Descriptor, error) {
+	if len(index.Manifests) > maxArtifactLayers {
+		return nil, fmt.Errorf(
+			"%w: index has %d manifests, limit is %d",
+			ErrTooManyLayers, len(index.Manifests), maxArtifactLayers,
+		)
+	}
+
+	if platform != nil {
+		for i := range index.Manifests {
+			manifest := &index.Manifests[i]
+			if manifest.Platform != nil && platformMatches(manifest.Platform, platform) {
+				return manifest, nil
+			}
+		}
+	}
+
+	if len(index.Manifests) == 1 && index.Manifests[0].Platform == nil {
+		return &index.Manifests[0], nil
+	}
+
+	return nil, fmt.Errorf("%w: %s", ErrNoMatchingManifest, platformToString(platform))
+}
+
+// profileLayer returns the ORAS FindSuccessors hook which limits the copy of
+// a manifest to the layer selectLayer picks for the platform. Everything else
+// of the artifact, like the layers of other platforms, the config or a
+// subject, is not needed to read the profile.
+func profileLayer(
+	platform *v1.Platform,
+) func(context.Context, orascontent.Fetcher, v1.Descriptor) ([]v1.Descriptor, error) {
+	return func(ctx context.Context, fetcher orascontent.Fetcher, desc v1.Descriptor) ([]v1.Descriptor, error) {
+		switch {
+		case isIndex(desc.MediaType):
+			// selectManifest maps an index root to a manifest already.
+			return nil, fmt.Errorf("%w: nested index %s", ErrNoMatchingManifest, desc.Digest)
+		case desc.MediaType != v1.MediaTypeImageManifest && desc.MediaType != mediaTypeDockerManifest:
+			// Layers have no successors.
+			return nil, nil
+		}
+
+		raw, err := orascontent.FetchAll(ctx, fetcher, desc)
+		if err != nil {
+			return nil, fmt.Errorf("fetch manifest: %w", err)
+		}
+
+		manifest := &v1.Manifest{}
+		if err := json.Unmarshal(raw, manifest); err != nil {
+			return nil, fmt.Errorf("unmarshal manifest: %w", err)
+		}
+
+		layer, _, err := selectLayer(manifest, platform)
+		if err != nil {
+			return nil, err
+		}
+
+		return []v1.Descriptor{*layer}, nil
+	}
+}
+
+// isIndex reports whether the media type is the one of an image index.
+func isIndex(mediaType string) bool {
+	return mediaType == v1.MediaTypeImageIndex || mediaType == mediaTypeDockerManifestList
 }
 
 // manifest returns the parsed manifest of a pulled artifact.

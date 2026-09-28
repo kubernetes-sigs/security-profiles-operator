@@ -179,5 +179,6 @@ func TestReconcileStatusRetriesConflictWithFreshGet(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, 2, updateCalls)
-	require.Equal(t, 2, getCalls)
+	// Only the conflict reads the profile from the API server.
+	require.Equal(t, 1, getCalls)
 }

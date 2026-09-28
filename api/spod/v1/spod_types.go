@@ -121,7 +121,7 @@ type WebhookOptions struct {
 	// binding.spo.io, recording.spo.io, execmetadata.spo.io and
 	// nodedebuggingpod.spo.io.
 	// +required
-	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:Enum=binding.spo.io;recording.spo.io;execmetadata.spo.io;nodedebuggingpod.spo.io
 	Name string `json:"name,omitempty"`
 	// failurePolicy sets the webhook failure policy.
 	// +optional
@@ -194,18 +194,23 @@ type SPODSpec struct {
 	DaemonResourceRequirements *corev1.ResourceRequirements `json:"daemonResourceRequirements,omitempty"`
 	// selinux contains SELinux-specific configuration.
 	// +optional
+	// +default={}
 	Selinux SPODSelinuxConfig `json:"selinux,omitzero,omitempty"`
 	// enricher contains log and JSON enricher configuration.
 	// +optional
+	// +default={}
 	Enricher SPODEnricherConfig `json:"enricher,omitzero,omitempty"`
 	// webhook contains webhook configuration.
 	// +optional
+	// +default={}
 	Webhook SPODWebhookConfig `json:"webhook,omitzero,omitempty"`
 	// scheduling contains scheduling-related configuration.
 	// +optional
+	// +default={}
 	Scheduling SPODSchedulingConfig `json:"scheduling,omitzero,omitempty"`
 	// security contains security policy configuration.
 	// +optional
+	// +default={}
 	Security SPODSecurityConfig `json:"security,omitzero,omitempty"`
 }
 
@@ -251,9 +256,10 @@ type SPODEnricherConfig struct {
 	// +default=false
 	EnableLogEnricher *bool `json:"enableLogEnricher,omitempty"`
 	// logEnricherFilters if defined, an optional JSON-format filter to
-	// determine if log lines should be emitted for the log-enricher.
+	// determine if log lines should be emitted for the log-enricher. It is
+	// passed as a single command line argument, so it is limited to 64 KiB.
 	// +optional
-	// +kubebuilder:validation:MaxLength=1048576
+	// +kubebuilder:validation:MaxLength=65536
 	LogEnricherFilters string `json:"logEnricherFilters,omitempty"`
 	// logEnricherSource determines which source should be used for audit
 	// logs. This defaults to "Auditd", but can be switched to "Bpf" on
@@ -267,9 +273,10 @@ type SPODEnricherConfig struct {
 	// +default=false
 	EnableJsonEnricher *bool `json:"enableJsonEnricher,omitempty"`
 	// jsonEnricherFilters if defined, an optional JSON-format filter to
-	// determine if log lines should be emitted for the json-enricher.
+	// determine if log lines should be emitted for the json-enricher. It is
+	// passed as a single command line argument, so it is limited to 64 KiB.
 	// +optional
-	// +kubebuilder:validation:MaxLength=1048576
+	// +kubebuilder:validation:MaxLength=65536
 	JsonEnricherFilters string `json:"jsonEnricherFilters,omitempty"`
 	// jsonEnricherOptions defines options specific to the JSON enricher.
 	// +optional
@@ -324,9 +331,15 @@ type SPODSecurityConfig struct {
 	// +optional
 	// +listType=set
 	AllowedSyscalls []string `json:"allowedSyscalls,omitempty"`
-	// allowedSeccompActions if specified, a list of allowed seccomp actions.
+	// allowedSeccompActions if specified, limits the seccomp actions whose
+	// syscalls are checked against allowedSyscalls. Valid values are
+	// SCMP_ACT_ALLOW, SCMP_ACT_LOG, SCMP_ACT_TRACE and SCMP_ACT_NOTIFY. If
+	// unset, all of them are checked.
 	// +optional
-	// +listType=atomic
+	// +listType=set
+	// +kubebuilder:validation:MaxItems=4
+	//nolint:lll // CEL rules cannot be wrapped
+	// +kubebuilder:validation:XValidation:rule="self.all(a, a in ['SCMP_ACT_ALLOW', 'SCMP_ACT_LOG', 'SCMP_ACT_TRACE', 'SCMP_ACT_NOTIFY'])",message="allowedSeccompActions may only contain SCMP_ACT_ALLOW, SCMP_ACT_LOG, SCMP_ACT_TRACE and SCMP_ACT_NOTIFY"
 	AllowedSeccompActions []seccompapi.Action `json:"allowedSeccompActions,omitempty"`
 	// disableOciArtifactSignatureVerification can be used to disable OCI
 	// artifact signature verification.

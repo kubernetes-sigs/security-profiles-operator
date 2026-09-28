@@ -6,6 +6,7 @@
 Vagrantfile
 build.tar.gz
 image.tar
+selinuxd-fedora.tar
 result
 result-*
 ssh-config

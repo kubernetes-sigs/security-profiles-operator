@@ -55,3 +55,5 @@ func checkProfileExist(logr.Logger, string) bool {
 func profileManagedByUs(logr.Logger, string) bool {
 	return false
 }
+
+func removeStaleTempFiles(logr.Logger) {}

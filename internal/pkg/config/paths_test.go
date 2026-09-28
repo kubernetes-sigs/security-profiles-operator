@@ -53,6 +53,25 @@ func TestKubeletDir(t *testing.T) {
 	}
 }
 
+// DefaultKubeletDir never reads the persisted kubelet config, so it does not
+// depend on the host.
+func TestDefaultKubeletDir(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		env  string
+		want string
+	}{
+		{name: "default without env", env: "", want: DefaultKubeletPath},
+		{name: "env overrides default", env: "/data/kubelet", want: "/data/kubelet"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(KubeletDirEnvKey, tc.env)
+
+			require.Equal(t, tc.want, DefaultKubeletDir())
+		})
+	}
+}
+
 func TestProfilePaths(t *testing.T) {
 	skipIfKubeletConfigExists(t)
 	t.Setenv(KubeletDirEnvKey, "/data/kubelet")

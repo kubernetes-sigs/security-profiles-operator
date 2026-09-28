@@ -66,9 +66,16 @@ func FromContext(ctx *ucli.Context) (*Options, error) {
 	if len(platforms) == 0 {
 		if len(profiles) > 1 {
 			return nil, errors.New("multiple profiles provided but no platforms set")
-		} else if len(profiles) == 1 {
-			options.inputFiles[DefaultPlatform] = profiles[0]
 		}
+
+		profile := DefaultInputFile
+		if len(profiles) == 1 {
+			profile = profiles[0]
+		}
+
+		// Without a platform, the profile is platform independent, so that
+		// it can be pulled on every platform.
+		options.inputFiles[nil] = profile
 	} else {
 		// Avoid duplicate platforms because they have to be unique in the map.
 		if sets.New(platforms...).Len() != len(platforms) {
@@ -88,9 +95,15 @@ func FromContext(ctx *ucli.Context) (*Options, error) {
 			parsedPlatforms = append(parsedPlatforms, parsedPlatform)
 		}
 
-		if len(profiles) == 0 {
+		switch {
+		case len(profiles) == 0 && len(platforms) > 1:
+			return nil, fmt.Errorf(
+				"%d platforms provided but no profiles, use one --%s per --%s",
+				len(platforms), FlagProfiles, FlagPlatforms,
+			)
+		case len(profiles) == 0:
 			options.inputFiles[parsedPlatforms[0]] = DefaultInputFile
-		} else if len(profiles) != len(platforms) {
+		case len(profiles) != len(platforms):
 			return nil, errors.New("number of profiles and platforms do not match")
 		}
 
@@ -99,11 +112,13 @@ func FromContext(ctx *ucli.Context) (*Options, error) {
 		}
 	}
 
-	if ctx.IsSet(FlagUsername) {
-		options.username = ctx.String(FlagUsername)
+	username, password, err := cli.RegistryCredentials(ctx, os.Stdin, os.Getenv)
+	if err != nil {
+		return nil, fmt.Errorf("get registry credentials: %w", err)
 	}
 
-	options.password = os.Getenv(cli.EnvKeyPassword)
+	options.username = username
+	options.password = password
 	options.disableSigning = ctx.Bool(FlagDisableSigning)
 	options.disableArtifactValidation = ctx.Bool(FlagDisableArtifactValidation)
 	options.plainHTTP = ctx.Bool(FlagPlainHTTP)

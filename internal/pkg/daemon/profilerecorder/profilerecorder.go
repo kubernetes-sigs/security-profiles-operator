@@ -78,6 +78,7 @@ const (
 	reasonProfileMergeFailed    string = "CannotMergeProfile"
 	reasonAnnotationParsing     string = "AnnotationParsing"
 	reasonRecordingIncomplete   string = "RecordingIncomplete"
+	reasonRecordingAbandoned    string = "RecordingAbandoned"
 
 	seContextRequiredParts = 3
 )
@@ -93,12 +94,18 @@ var (
 	errRecordedProfileNotFound = errors.New("recorded profile not found")
 	errRecordingGone           = errors.New("profile recording no longer exists")
 	errMergeFailed             = errors.New("merge profile")
+	// errRecorderDisabled is returned if the recorder of a pod got disabled
+	// in the SPOD. The daemon restarts without it, which loses the recorded
+	// data anyway.
+	errRecorderDisabled = errors.New("not enabled")
 )
 
 // unrecordable reports whether a collect error means the pod can never be
 // collected, so that the reconciler releases it instead of requeuing forever.
 func unrecordable(err error) bool {
-	return errors.Is(err, errNameNotValid) || errors.Is(err, errRecordingGone)
+	return errors.Is(err, errNameNotValid) ||
+		errors.Is(err, errRecordingGone) ||
+		errors.Is(err, errRecorderDisabled)
 }
 
 // NewController returns a new empty controller instance.
@@ -411,10 +418,7 @@ func (r *RecorderReconciler) Reconcile(
 		if kerrors.IsNotFound(err) {
 			collErr := r.collectProfile(ctx, req.NamespacedName)
 			if unrecordable(collErr) {
-				logger.Error(collErr, "cannot collect profile")
-				// Not reconcilable, so nothing will ever collect this pod:
-				// release it rather than leaking the watch and the recorder.
-				r.releaseUnrecordablePod(ctx, req.NamespacedName)
+				r.abandonPod(ctx, req.NamespacedName, collErr)
 
 				return reconcile.Result{}, nil
 			} else if collErr != nil {
@@ -565,17 +569,21 @@ func (r *RecorderReconciler) Reconcile(
 		}
 	}
 
-	if pod.Status.Phase == corev1.PodSucceeded {
+	// A failed pod does not run anymore either, and it may stay around for a
+	// long time, for example as a failed Job pod. What it did until it
+	// failed gets recorded, like for a pod which gets deleted.
+	if pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed {
 		collErr := r.collectProfile(ctx, req.NamespacedName)
 		if unrecordable(collErr) {
-			logger.Error(collErr, "cannot collect profile")
-			// Not reconcilable, so nothing will ever collect this pod:
-			// release it rather than leaking the watch and the recorder.
-			r.releaseUnrecordablePod(ctx, req.NamespacedName)
+			r.abandonPod(ctx, req.NamespacedName, collErr)
 
 			return reconcile.Result{}, nil
 		} else if collErr != nil {
-			return reconcile.Result{}, fmt.Errorf("collect profile for succeeded pod: %w", collErr)
+			return reconcile.Result{}, fmt.Errorf(
+				"collect profile for %s pod: %w",
+				strings.ToLower(string(pod.Status.Phase)),
+				collErr,
+			)
 		}
 	}
 
@@ -598,7 +606,7 @@ func (r *RecorderReconciler) getBpfRecorderClient(
 	}
 
 	if !ptr.Deref(spod.Spec.Enricher.EnableBpfRecorder, false) && !enableBpfRecorderEnv {
-		return nil, nil, errors.New("bpf recorder is not enabled")
+		return nil, nil, fmt.Errorf("bpf recorder %w", errRecorderDisabled)
 	}
 
 	r.log.Info("Connecting to local GRPC bpf recorder server")
@@ -649,6 +657,32 @@ func (r *RecorderReconciler) stopBpfRecorder(ctx context.Context) error {
 	r.log.Info("Stopping BPF recorder on node")
 
 	return r.StopBpfRecorder(ctx, recorderClient)
+}
+
+// abandonPod releases a pod whose profiles can never be collected and tells
+// the user about it.
+func (r *RecorderReconciler) abandonPod(
+	ctx context.Context, podName types.NamespacedName, collErr error,
+) {
+	r.log.Error(collErr, "cannot collect profile", "pod", podName.String())
+
+	// The pod may be gone already, which the event does not need.
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+		Name: podName.Name, Namespace: podName.Namespace,
+	}}
+	r.record.Eventf(
+		pod,
+		nil,
+		util.EventTypeWarning,
+		reasonRecordingAbandoned,
+		util.EventActionRecord,
+		"Giving up on collecting the recorded profiles: %s",
+		collErr.Error(),
+	)
+
+	// Not reconcilable, so nothing will ever collect this pod: release it
+	// rather than leaking the watch and the recorder.
+	r.releaseUnrecordablePod(ctx, podName)
 }
 
 // releaseUnrecordablePod drops a pod whose profiles can never be collected. It
@@ -817,7 +851,7 @@ func (r *RecorderReconciler) collectLogProfiles(
 	}
 
 	if !ptr.Deref(spod.Spec.Enricher.EnableLogEnricher, false) && !enableLogEnricherEnv {
-		return errors.New("log enricher not enabled")
+		return fmt.Errorf("log enricher %w", errRecorderDisabled)
 	}
 
 	r.log.Info("Connecting to local GRPC enricher server")

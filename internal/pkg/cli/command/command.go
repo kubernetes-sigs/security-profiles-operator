@@ -31,10 +31,16 @@ import (
 
 var errNoSudoEnvironment = errors.New("not in a sudo environment")
 
+// forwardedSignals are the signals which are forwarded to the command instead
+// of terminating spoc, so that the command can shut down and spoc still
+// processes its result.
+var forwardedSignals = []os.Signal{os.Interrupt, syscall.SIGTERM, syscall.SIGHUP}
+
 type Command struct {
 	impl
 	options *Options
 	cmd     *exec.Cmd
+	signals chan os.Signal
 }
 
 // New returns a new Command instance.
@@ -55,22 +61,29 @@ func (c *Command) Run() (pid uint32, err error) {
 		}
 	}
 
+	if c.options.PreStart != nil {
+		postStart, err := c.options.PreStart(c.cmd)
+		if err != nil {
+			return pid, fmt.Errorf("prepare command: %w", err)
+		}
+
+		if postStart != nil {
+			defer postStart()
+		}
+	}
+
+	// Subscribe before the start, a signal in between would otherwise
+	// terminate spoc and leave the command running.
+	c.signals = make(chan os.Signal, len(forwardedSignals))
+	c.Notify(c.signals, forwardedSignals...)
+
 	if err := c.CmdStart(c.cmd); err != nil {
+		c.stopSignals()
+
 		return pid, fmt.Errorf("start command: %w", err)
 	}
 
-	// Allow to interrupt
-	ch := make(chan os.Signal, 1)
-	c.Notify(ch, os.Interrupt)
-
-	go func() {
-		<-ch
-		log.Printf("Got interrupted, terminating process")
-
-		if err := c.Signal(c.cmd, os.Interrupt); err != nil {
-			log.Printf("Unable to terminate process: %v", err)
-		}
-	}()
+	go c.forwardSignals(c.signals)
 
 	pid = c.CmdPid(c.cmd)
 	log.Printf("Running command with PID: %d", pid)
@@ -144,6 +157,51 @@ func (c *Command) DropSudoPrivileges() error {
 	return nil
 }
 
+// forwardSignals forwards every received signal to the command until the
+// channel gets closed.
+func (c *Command) forwardSignals(signals <-chan os.Signal) {
+	for sig := range signals {
+		log.Printf("Got %v, forwarding it to the process", sig)
+
+		if err := c.Signal(c.cmd, sig); err != nil {
+			log.Printf("Unable to forward %v to the process: %v", sig, err)
+		}
+	}
+}
+
+// stopSignals restores the default signal handling and ends the forwarding.
+func (c *Command) stopSignals() {
+	if c.signals == nil {
+		return
+	}
+
+	c.Stop(c.signals)
+	close(c.signals)
+	c.signals = nil
+}
+
+// Wait waits for the command to exit. Signals are forwarded to the command
+// until then.
 func (c *Command) Wait() error {
+	defer c.stopSignals()
+
 	return c.CmdWait(c.cmd)
+}
+
+// ExitCode returns the exit code of a command which ran but did not succeed,
+// the way a shell reports it: the exit status, or 128 plus the signal number
+// if the command got killed by a signal. It returns false if err does not
+// come from the exit of the command.
+func ExitCode(err error) (int, bool) {
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		return 0, false
+	}
+
+	const signalOffset = 128
+	if status, ok := exitErr.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+		return signalOffset + int(status.Signal()), true
+	}
+
+	return exitErr.ExitCode(), true
 }

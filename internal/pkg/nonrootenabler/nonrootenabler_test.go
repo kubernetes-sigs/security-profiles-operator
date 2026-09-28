@@ -20,6 +20,7 @@ import (
 	"errors"
 	"os"
 	"path"
+	"syscall"
 	"testing"
 
 	"github.com/go-logr/logr"
@@ -45,9 +46,35 @@ func TestRun(t *testing.T) {
 		},
 		"success symlink exists": {
 			prepare: func(mock *nonrootenablerfakes.FakeImpl) {
-				mock.LstatReturnsOnCall(0, nil, errTest)
+				mock.ReadlinkReturns(config.OperatorRoot, nil)
 			},
 			shouldError: false,
+		},
+		"failure on Readlink": {
+			prepare: func(mock *nonrootenablerfakes.FakeImpl) {
+				mock.ReadlinkReturns("", errTest)
+			},
+			shouldError: true,
+		},
+		"success empty directory instead of symlink": {
+			prepare: func(mock *nonrootenablerfakes.FakeImpl) {
+				mock.ReadlinkReturns("", &os.PathError{Op: "readlink", Err: syscall.EINVAL})
+			},
+			shouldError: false,
+		},
+		"failure on Rmdir of non-empty directory": {
+			prepare: func(mock *nonrootenablerfakes.FakeImpl) {
+				mock.ReadlinkReturns("", &os.PathError{Op: "readlink", Err: syscall.EINVAL})
+				mock.RmdirReturns(&os.PathError{Op: "rmdir", Err: syscall.ENOTEMPTY})
+			},
+			shouldError: true,
+		},
+		"failure on Remove of wrong symlink": {
+			prepare: func(mock *nonrootenablerfakes.FakeImpl) {
+				mock.ReadlinkReturns("/wrong", nil)
+				mock.RemoveReturns(errTest)
+			},
+			shouldError: true,
 		},
 		"failure on CopyDirContentsLocal": {
 			prepare: func(mock *nonrootenablerfakes.FakeImpl) {
@@ -63,7 +90,7 @@ func TestRun(t *testing.T) {
 		},
 		"failure on Symlink": {
 			prepare: func(mock *nonrootenablerfakes.FakeImpl) {
-				mock.LstatReturnsOnCall(0, nil, os.ErrNotExist)
+				mock.ReadlinkReturns("", os.ErrNotExist)
 				mock.SymlinkReturns(errTest)
 			},
 			shouldError: true,
@@ -163,7 +190,7 @@ func TestRunWritesExpectedPaths(t *testing.T) {
 	sut := nonrootenabler.New()
 	mock := &nonrootenablerfakes.FakeImpl{}
 	mock.MountedReturns(true, nil)
-	mock.LstatReturnsOnCall(0, nil, os.ErrNotExist)
+	mock.ReadlinkReturns("", os.ErrNotExist)
 	sut.SetImpl(mock)
 
 	require.NoError(t, sut.Run(logr.Discard(), "", config.KubeletDir(), false))
@@ -174,7 +201,8 @@ func TestRunWritesExpectedPaths(t *testing.T) {
 
 	require.Equal(t, 1, mock.MountedCallCount())
 	require.Equal(t, wantKubeletDir, mock.MountedArgsForCall(0))
-	require.Equal(t, 1, mock.LstatCallCount())
+	require.Equal(t, 1, mock.ReadlinkCallCount())
+	require.Zero(t, mock.RemoveCallCount())
 
 	wantSeccompDir := path.Join(wantKubeletDir, config.SeccompProfilesFolder)
 
@@ -209,4 +237,52 @@ func TestRunWritesExpectedPaths(t *testing.T) {
 	chmodPath, chmodPerm := mock.ChmodArgsForCall(0)
 	require.Equal(t, config.OperatorRoot, chmodPath)
 	require.Equal(t, os.FileMode(0o744), chmodPerm)
+}
+
+// TestRunLinkProfilesRoot asserts that the profiles root link of the kubelet
+// is only created or replaced when needed.
+func TestRunLinkProfilesRoot(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		target      string
+		err         error
+		wantRemove  bool
+		wantSymlink bool
+	}{
+		"missing":      {err: os.ErrNotExist, wantSymlink: true},
+		"up to date":   {target: config.OperatorRoot},
+		"wrong target": {target: "/var/lib/other", wantRemove: true, wantSymlink: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			sut := nonrootenabler.New()
+			mock := &nonrootenablerfakes.FakeImpl{}
+			mock.MountedReturns(true, nil)
+			mock.ReadlinkReturns(tc.target, tc.err)
+			sut.SetImpl(mock)
+
+			require.NoError(t, sut.Run(logr.Discard(), "", "/var/lib/kubelet", false))
+
+			link := "/host/var/lib/kubelet/seccomp/operator"
+			require.Equal(t, link, mock.ReadlinkArgsForCall(0))
+
+			if tc.wantRemove {
+				require.Equal(t, 1, mock.RemoveCallCount())
+				require.Equal(t, link, mock.RemoveArgsForCall(0))
+			} else {
+				require.Zero(t, mock.RemoveCallCount())
+			}
+
+			if tc.wantSymlink {
+				require.Equal(t, 1, mock.SymlinkCallCount())
+				oldname, newname := mock.SymlinkArgsForCall(0)
+				require.Equal(t, config.OperatorRoot, oldname)
+				require.Equal(t, link, newname)
+			} else {
+				require.Zero(t, mock.SymlinkCallCount())
+			}
+		})
+	}
 }

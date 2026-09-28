@@ -68,19 +68,6 @@ type FakeImpl struct {
 		result1 string
 		result2 error
 	}
-	InitSeccompStub        func(*configs.Seccomp) (int, error)
-	initSeccompMutex       sync.RWMutex
-	initSeccompArgsForCall []struct {
-		arg1 *configs.Seccomp
-	}
-	initSeccompReturns struct {
-		result1 int
-		result2 error
-	}
-	initSeccompReturnsOnCall map[int]struct {
-		result1 int
-		result2 error
-	}
 	LinesStub        func(*tail.Tail) chan *tail.Line
 	linesMutex       sync.RWMutex
 	linesArgsForCall []struct {
@@ -327,70 +314,6 @@ func (fake *FakeImpl) GetNameReturnsOnCall(i int, result1 string, result2 error)
 	}
 	fake.getNameReturnsOnCall[i] = struct {
 		result1 string
-		result2 error
-	}{result1, result2}
-}
-
-func (fake *FakeImpl) InitSeccomp(arg1 *configs.Seccomp) (int, error) {
-	fake.initSeccompMutex.Lock()
-	ret, specificReturn := fake.initSeccompReturnsOnCall[len(fake.initSeccompArgsForCall)]
-	fake.initSeccompArgsForCall = append(fake.initSeccompArgsForCall, struct {
-		arg1 *configs.Seccomp
-	}{arg1})
-	stub := fake.InitSeccompStub
-	fakeReturns := fake.initSeccompReturns
-	fake.recordInvocation("InitSeccomp", []interface{}{arg1})
-	fake.initSeccompMutex.Unlock()
-	if stub != nil {
-		return stub(arg1)
-	}
-	if specificReturn {
-		return ret.result1, ret.result2
-	}
-	return fakeReturns.result1, fakeReturns.result2
-}
-
-func (fake *FakeImpl) InitSeccompCallCount() int {
-	fake.initSeccompMutex.RLock()
-	defer fake.initSeccompMutex.RUnlock()
-	return len(fake.initSeccompArgsForCall)
-}
-
-func (fake *FakeImpl) InitSeccompCalls(stub func(*configs.Seccomp) (int, error)) {
-	fake.initSeccompMutex.Lock()
-	defer fake.initSeccompMutex.Unlock()
-	fake.InitSeccompStub = stub
-}
-
-func (fake *FakeImpl) InitSeccompArgsForCall(i int) *configs.Seccomp {
-	fake.initSeccompMutex.RLock()
-	defer fake.initSeccompMutex.RUnlock()
-	argsForCall := fake.initSeccompArgsForCall[i]
-	return argsForCall.arg1
-}
-
-func (fake *FakeImpl) InitSeccompReturns(result1 int, result2 error) {
-	fake.initSeccompMutex.Lock()
-	defer fake.initSeccompMutex.Unlock()
-	fake.InitSeccompStub = nil
-	fake.initSeccompReturns = struct {
-		result1 int
-		result2 error
-	}{result1, result2}
-}
-
-func (fake *FakeImpl) InitSeccompReturnsOnCall(i int, result1 int, result2 error) {
-	fake.initSeccompMutex.Lock()
-	defer fake.initSeccompMutex.Unlock()
-	fake.InitSeccompStub = nil
-	if fake.initSeccompReturnsOnCall == nil {
-		fake.initSeccompReturnsOnCall = make(map[int]struct {
-			result1 int
-			result2 error
-		})
-	}
-	fake.initSeccompReturnsOnCall[i] = struct {
-		result1 int
 		result2 error
 	}{result1, result2}
 }

@@ -21,12 +21,16 @@ package auditsource
 import (
 	"debug/elf"
 	"testing"
+	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 )
 
-// TestBpfNamesExist asserts that the ring buffer the enricher looks up by name
-// exists in the compiled objects of every architecture.
+// TestBpfNamesExist asserts that the maps the enricher looks up by name exist
+// in the compiled objects of every architecture.
 func TestBpfNamesExist(t *testing.T) {
 	t.Parallel()
 
@@ -37,16 +41,57 @@ func TestBpfNamesExist(t *testing.T) {
 		symbols, err := file.Symbols()
 		require.NoError(t, err)
 
-		found := false
+		found := map[string]bool{}
 
 		for _, symbol := range symbols {
-			if symbol.Name == auditLogRingBuf && int(symbol.Section) < len(file.Sections) &&
+			if int(symbol.Section) < len(file.Sections) &&
 				file.Sections[symbol.Section].Name == ".maps" {
-				found = true
+				found[symbol.Name] = true
 			}
 		}
 
 		require.NoError(t, file.Close())
-		require.True(t, found, "%s: map %s not found", path, auditLogRingBuf)
+
+		for _, name := range []string{auditLogRingBuf, lostEventsMap} {
+			require.True(t, found[name], "%s: map %s not found", path, name)
+		}
 	}
+}
+
+// TestBpfSourceStopReleasesForward asserts that the goroutine forwarding the
+// events does not wait forever for a consumer which is gone.
+func TestBpfSourceStopReleasesForward(t *testing.T) {
+	t.Parallel()
+
+	sut, err := NewBpfSource(logr.Discard())
+	if err != nil {
+		t.Skip(err.Error())
+	}
+
+	events := make(chan []byte, 1)
+	log := make(chan *types.AuditLine)
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		sut.forward(events, log)
+	}()
+
+	events <- []byte{
+		1, 0, 0, 0, 42, 0, 0, 0, 0, 0, 0, 0, 0,
+		'o', 0, 'c', 0, 'n', 0,
+	}
+
+	// Nobody reads the line.
+	sut.Stop()
+
+	select {
+	case <-done:
+	case <-time.After(time.Minute):
+		t.Fatal("forwarding the events did not stop")
+	}
+
+	_, open := <-log
+	require.False(t, open)
 }

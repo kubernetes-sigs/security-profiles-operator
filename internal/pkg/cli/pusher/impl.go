@@ -17,6 +17,8 @@ limitations under the License.
 package pusher
 
 import (
+	"context"
+
 	"github.com/go-logr/logr"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 
@@ -30,6 +32,7 @@ type defaultImpl struct{}
 //counterfeiter:generate . impl
 type impl interface {
 	Push(
+		context.Context,
 		map[*v1.Platform]string,
 		string,
 		string,
@@ -40,11 +43,12 @@ type impl interface {
 }
 
 func (*defaultImpl) Push(
+	ctx context.Context,
 	files map[*v1.Platform]string,
 	to, username, password string,
 	annotations map[string]string,
 	signOpts *artifact.PushOptions,
 ) error {
 	return artifact.New(logr.New(&cli.LogSink{})).
-		Push(files, to, username, password, annotations, signOpts)
+		Push(ctx, files, to, username, password, annotations, signOpts)
 }

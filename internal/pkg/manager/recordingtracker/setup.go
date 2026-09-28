@@ -80,8 +80,11 @@ func (r *RecordingTrackerReconciler) Setup(
 		For(&corev1.Pod{}, builder.WithPredicates(predicate.Funcs{
 			CreateFunc: func(_ event.CreateEvent) bool { return true },
 			DeleteFunc: func(_ event.DeleteEvent) bool { return true },
+			// The recording webhook annotates the pods it records, also
+			// on updates.
 			UpdateFunc: func(e event.UpdateEvent) bool {
-				return !reflect.DeepEqual(e.ObjectOld.GetLabels(), e.ObjectNew.GetLabels())
+				return !reflect.DeepEqual(e.ObjectOld.GetLabels(), e.ObjectNew.GetLabels()) ||
+					!reflect.DeepEqual(e.ObjectOld.GetAnnotations(), e.ObjectNew.GetAnnotations())
 			},
 			GenericFunc: func(_ event.GenericEvent) bool { return true },
 		})).

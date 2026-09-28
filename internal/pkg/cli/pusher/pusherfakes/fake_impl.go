@@ -18,6 +18,7 @@ limitations under the License.
 package pusherfakes
 
 import (
+	"context"
 	"sync"
 
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
@@ -25,15 +26,16 @@ import (
 )
 
 type FakeImpl struct {
-	PushStub        func(map[*v1.Platform]string, string, string, string, map[string]string, *artifact.PushOptions) error
+	PushStub        func(context.Context, map[*v1.Platform]string, string, string, string, map[string]string, *artifact.PushOptions) error
 	pushMutex       sync.RWMutex
 	pushArgsForCall []struct {
-		arg1 map[*v1.Platform]string
-		arg2 string
+		arg1 context.Context
+		arg2 map[*v1.Platform]string
 		arg3 string
 		arg4 string
-		arg5 map[string]string
-		arg6 *artifact.PushOptions
+		arg5 string
+		arg6 map[string]string
+		arg7 *artifact.PushOptions
 	}
 	pushReturns struct {
 		result1 error
@@ -45,23 +47,24 @@ type FakeImpl struct {
 	invocationsMutex sync.RWMutex
 }
 
-func (fake *FakeImpl) Push(arg1 map[*v1.Platform]string, arg2 string, arg3 string, arg4 string, arg5 map[string]string, arg6 *artifact.PushOptions) error {
+func (fake *FakeImpl) Push(arg1 context.Context, arg2 map[*v1.Platform]string, arg3 string, arg4 string, arg5 string, arg6 map[string]string, arg7 *artifact.PushOptions) error {
 	fake.pushMutex.Lock()
 	ret, specificReturn := fake.pushReturnsOnCall[len(fake.pushArgsForCall)]
 	fake.pushArgsForCall = append(fake.pushArgsForCall, struct {
-		arg1 map[*v1.Platform]string
-		arg2 string
+		arg1 context.Context
+		arg2 map[*v1.Platform]string
 		arg3 string
 		arg4 string
-		arg5 map[string]string
-		arg6 *artifact.PushOptions
-	}{arg1, arg2, arg3, arg4, arg5, arg6})
+		arg5 string
+		arg6 map[string]string
+		arg7 *artifact.PushOptions
+	}{arg1, arg2, arg3, arg4, arg5, arg6, arg7})
 	stub := fake.PushStub
 	fakeReturns := fake.pushReturns
-	fake.recordInvocation("Push", []interface{}{arg1, arg2, arg3, arg4, arg5, arg6})
+	fake.recordInvocation("Push", []interface{}{arg1, arg2, arg3, arg4, arg5, arg6, arg7})
 	fake.pushMutex.Unlock()
 	if stub != nil {
-		return stub(arg1, arg2, arg3, arg4, arg5, arg6)
+		return stub(arg1, arg2, arg3, arg4, arg5, arg6, arg7)
 	}
 	if specificReturn {
 		return ret.result1
@@ -75,17 +78,17 @@ func (fake *FakeImpl) PushCallCount() int {
 	return len(fake.pushArgsForCall)
 }
 
-func (fake *FakeImpl) PushCalls(stub func(map[*v1.Platform]string, string, string, string, map[string]string, *artifact.PushOptions) error) {
+func (fake *FakeImpl) PushCalls(stub func(context.Context, map[*v1.Platform]string, string, string, string, map[string]string, *artifact.PushOptions) error) {
 	fake.pushMutex.Lock()
 	defer fake.pushMutex.Unlock()
 	fake.PushStub = stub
 }
 
-func (fake *FakeImpl) PushArgsForCall(i int) (map[*v1.Platform]string, string, string, string, map[string]string, *artifact.PushOptions) {
+func (fake *FakeImpl) PushArgsForCall(i int) (context.Context, map[*v1.Platform]string, string, string, string, map[string]string, *artifact.PushOptions) {
 	fake.pushMutex.RLock()
 	defer fake.pushMutex.RUnlock()
 	argsForCall := fake.pushArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3, argsForCall.arg4, argsForCall.arg5, argsForCall.arg6
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3, argsForCall.arg4, argsForCall.arg5, argsForCall.arg6, argsForCall.arg7
 }
 
 func (fake *FakeImpl) PushReturns(result1 error) {

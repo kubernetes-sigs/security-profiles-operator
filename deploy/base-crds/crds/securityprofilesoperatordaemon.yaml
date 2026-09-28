@@ -137,6 +137,7 @@ spec:
                   support for this SPOD instance.
                 type: boolean
               enricher:
+                default: {}
                 description: enricher contains log and JSON enricher configuration.
                 properties:
                   enableBpfRecorder:
@@ -160,8 +161,9 @@ spec:
                   jsonEnricherFilters:
                     description: |-
                       jsonEnricherFilters if defined, an optional JSON-format filter to
-                      determine if log lines should be emitted for the json-enricher.
-                    maxLength: 1048576
+                      determine if log lines should be emitted for the json-enricher. It is
+                      passed as a single command line argument, so it is limited to 64 KiB.
+                    maxLength: 65536
                     type: string
                   jsonEnricherOptions:
                     description: jsonEnricherOptions defines options specific to the
@@ -214,8 +216,9 @@ spec:
                   logEnricherFilters:
                     description: |-
                       logEnricherFilters if defined, an optional JSON-format filter to
-                      determine if log lines should be emitted for the log-enricher.
-                    maxLength: 1048576
+                      determine if log lines should be emitted for the log-enricher. It is
+                      passed as a single command line argument, so it is limited to 64 KiB.
+                    maxLength: 65536
                     type: string
                   logEnricherSource:
                     default: Auditd
@@ -262,6 +265,7 @@ spec:
                 - name
                 x-kubernetes-list-type: map
               scheduling:
+                default: {}
                 description: scheduling contains scheduling-related configuration.
                 properties:
                   affinity:
@@ -1231,6 +1235,7 @@ spec:
                     x-kubernetes-list-type: atomic
                 type: object
               security:
+                default: {}
                 description: security contains security policy configuration.
                 properties:
                   allowedIdentityRegexp:
@@ -1250,8 +1255,11 @@ spec:
                       As with allowedIdentityRegexp, the default ".*" matches any issuer.
                     type: string
                   allowedSeccompActions:
-                    description: allowedSeccompActions if specified, a list of allowed
-                      seccomp actions.
+                    description: |-
+                      allowedSeccompActions if specified, limits the seccomp actions whose
+                      syscalls are checked against allowedSyscalls. Valid values are
+                      SCMP_ACT_ALLOW, SCMP_ACT_LOG, SCMP_ACT_TRACE and SCMP_ACT_NOTIFY. If
+                      unset, all of them are checked.
                     items:
                       enum:
                       - SCMP_ACT_KILL
@@ -1264,8 +1272,14 @@ spec:
                       - SCMP_ACT_LOG
                       - SCMP_ACT_NOTIFY
                       type: string
+                    maxItems: 4
                     type: array
-                    x-kubernetes-list-type: atomic
+                    x-kubernetes-list-type: set
+                    x-kubernetes-validations:
+                    - message: allowedSeccompActions may only contain SCMP_ACT_ALLOW,
+                        SCMP_ACT_LOG, SCMP_ACT_TRACE and SCMP_ACT_NOTIFY
+                      rule: self.all(a, a in ['SCMP_ACT_ALLOW', 'SCMP_ACT_LOG', 'SCMP_ACT_TRACE',
+                        'SCMP_ACT_NOTIFY'])
                   allowedSyscalls:
                     description: |-
                       allowedSyscalls if specified, a list of system calls which are
@@ -1282,6 +1296,7 @@ spec:
                     type: boolean
                 type: object
               selinux:
+                default: {}
                 description: selinux contains SELinux-specific configuration.
                 properties:
                   customTemplatesConfigMap:
@@ -1389,6 +1404,7 @@ spec:
                 minimum: 0
                 type: integer
               webhook:
+                default: {}
                 description: webhook contains webhook configuration.
                 properties:
                   options:
@@ -1409,7 +1425,11 @@ spec:
                             name specifies which webhook to configure. Valid values are
                             binding.spo.io, recording.spo.io, execmetadata.spo.io and
                             nodedebuggingpod.spo.io.
-                          minLength: 1
+                          enum:
+                          - binding.spo.io
+                          - recording.spo.io
+                          - execmetadata.spo.io
+                          - nodedebuggingpod.spo.io
                           type: string
                         namespaceSelector:
                           description: namespaceSelector sets the webhook's namespace

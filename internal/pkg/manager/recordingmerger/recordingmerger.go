@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -188,6 +189,10 @@ func (r *PolicyMergeReconciler) mergeTypedProfiles(
 		return nil
 	}
 
+	// The partial profiles of a skipped container are kept, so that their
+	// recorded data is not lost.
+	skipped := map[string]bool{}
+
 	for cntName, cntPartialProfiles := range partialProfiles {
 		r.log.Info("Merging profiles for container", "container", cntName)
 
@@ -247,6 +252,8 @@ func (r *PolicyMergeReconciler) mergeTypedProfiles(
 			if errors.Is(err, util.ErrProfileOwnedByOtherRecording) {
 				r.log.Error(err, "Skipping merged profile", "container", cntName)
 
+				skipped[cntName] = true
+
 				continue
 			}
 
@@ -256,7 +263,11 @@ func (r *PolicyMergeReconciler) mergeTypedProfiles(
 		r.log.Info("Created/updated profile", "action", res, "name", mergedRecordingName)
 	}
 
-	return deletePartialProfiles(ctx, r.client, listedProfiles)
+	toDelete := slices.DeleteFunc(listedProfiles, func(obj client.Object) bool {
+		return skipped[getContainerID(obj)]
+	})
+
+	return deletePartialProfiles(ctx, r.client, toDelete)
 }
 
 type createUpdateFn func(

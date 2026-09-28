@@ -17,11 +17,13 @@ limitations under the License.
 package seccompprofile
 
 import (
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"os"
 	"path"
 	"testing"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
@@ -592,6 +594,29 @@ func TestAllowedSyscallsChangedPredicate(t *testing.T) {
 			},
 			want: false,
 		},
+		{
+			name: "DiffAllowedSeccompActions",
+			event: event.UpdateEvent{
+				ObjectOld: &spodapi.SecurityProfilesOperatorDaemon{
+					Spec: spodapi.SPODSpec{
+						Security: spodapi.SPODSecurityConfig{
+							AllowedSyscalls: []string{"a"},
+						},
+					},
+				},
+				ObjectNew: &spodapi.SecurityProfilesOperatorDaemon{
+					Spec: spodapi.SPODSpec{
+						Security: spodapi.SPODSecurityConfig{
+							AllowedSyscalls: []string{"a"},
+							AllowedSeccompActions: []seccompprofileapi.Action{
+								seccompprofileapi.ActLog,
+							},
+						},
+					},
+				},
+			},
+			want: true,
+		},
 	}
 
 	for _, tc := range cases {
@@ -713,7 +738,7 @@ func TestResolveSyscallsForProfile(t *testing.T) {
 				}
 			},
 			assert: func(syscalls []seccompprofileapi.Syscall, err error) {
-				require.Error(t, err)
+				require.ErrorIs(t, err, errInvalidBaseProfile)
 			},
 		},
 		{
@@ -730,6 +755,7 @@ func TestResolveSyscallsForProfile(t *testing.T) {
 			assert: func(syscalls []seccompprofileapi.Syscall, err error) {
 				require.Error(t, err)
 				require.ErrorIs(t, err, errTest)
+				require.NotErrorIs(t, err, errInvalidBaseProfile, "a failed pull is retried")
 			},
 		},
 		{
@@ -752,7 +778,7 @@ func TestResolveSyscallsForProfile(t *testing.T) {
 				}
 			},
 			assert: func(syscalls []seccompprofileapi.Syscall, err error) {
-				require.Error(t, err)
+				require.ErrorIs(t, err, errInvalidBaseProfile)
 			},
 		},
 		{
@@ -768,6 +794,22 @@ func TestResolveSyscallsForProfile(t *testing.T) {
 			},
 			assert: func(syscalls []seccompprofileapi.Syscall, err error) {
 				require.ErrorIs(t, err, errTest)
+				require.NotErrorIs(t, err, errInvalidBaseProfile, "an API error is retried")
+			},
+		},
+		{
+			name: "failure on missing local base profile",
+			prepare: func(mock *seccompprofilefakes.FakeImpl) *seccompprofileapi.SeccompProfile {
+				mock.ClientGetProfileReturns(nil, kerrors.NewNotFound(schema.GroupResource{}, "test"))
+
+				return &seccompprofileapi.SeccompProfile{
+					Spec: seccompprofileapi.SeccompProfileSpec{
+						BaseProfileName: "test",
+					},
+				}
+			},
+			assert: func(syscalls []seccompprofileapi.Syscall, err error) {
+				require.ErrorIs(t, err, errInvalidBaseProfile)
 			},
 		},
 	} {
@@ -789,8 +831,8 @@ func TestResolveSyscallsForProfile(t *testing.T) {
 			sut.metrics = metrics.New()
 			sut.record = events.NewFakeRecorder(10)
 
-			syscalls, err := sut.resolveSyscallsForProfile(
-				t.Context(), sp, sp.Spec.Syscalls, logr.Discard(), 0,
+			syscalls, _, err := sut.resolveSyscallsForProfile(
+				t.Context(), sp, sp.Spec.Syscalls, logr.Discard(), 0, true,
 			)
 			assert(syscalls, err)
 		})
@@ -831,16 +873,33 @@ func TestResolveSyscallsForProfileBaseProfileCache(t *testing.T) {
 	}
 
 	for range 3 {
-		syscalls, err := sut.resolveSyscallsForProfile(
-			t.Context(), sp, sp.Spec.Syscalls, logr.Discard(), 0,
+		syscalls, archSpecific, err := sut.resolveSyscallsForProfile(
+			t.Context(), sp, sp.Spec.Syscalls, logr.Discard(), 0, true,
 		)
 		require.NoError(t, err)
+		require.True(t, archSpecific, "an OCI base profile is pulled for the node")
 		require.Len(t, syscalls, 1)
 		require.Equal(t, []string{"first", "second"}, syscalls[0].Names)
 	}
 
 	require.Equal(t, 1, mock.PullCallCount(), "later resolutions must use the cache")
 	require.Equal(t, 1, mock.GetSPODCallCount())
+
+	// Without pulling only the cached base profile can be used.
+	syscalls, archSpecific, err := sut.resolveSyscallsForProfile(
+		t.Context(), sp, sp.Spec.Syscalls, logr.Discard(), 0, false,
+	)
+	require.NoError(t, err)
+	require.True(t, archSpecific)
+	require.Equal(t, []string{"first", "second"}, syscalls[0].Names)
+
+	uncached := sp.DeepCopy()
+	uncached.Spec.BaseProfileName = config.OCIProfilePrefix + "registry/other:v1"
+	_, _, err = sut.resolveSyscallsForProfile(
+		t.Context(), uncached, uncached.Spec.Syscalls, logr.Discard(), 0, false,
+	)
+	require.ErrorIs(t, err, errBaseProfileNotCached)
+	require.Equal(t, 1, mock.PullCallCount(), "resolving without pull must not pull")
 
 	_, _, from, username, password, platform, opts := mock.PullArgsForCall(0)
 	require.Equal(t, "registry/base:v1", from)
@@ -903,4 +962,28 @@ func TestHandleAllowedSyscallsChangedUsesBaseProfile(t *testing.T) {
 	key := types.NamespacedName{Name: "child", Namespace: "default"}
 	err := sut.client.Get(t.Context(), key, profile)
 	require.True(t, kerrors.IsNotFound(err))
+}
+
+// TestRemoveStaleTempFiles asserts that the leftovers of interrupted profile
+// writes get removed from the directories of the namespaces as well.
+func TestRemoveStaleTempFiles(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	nsDir := path.Join(root, "default")
+	require.NoError(t, os.Mkdir(nsDir, 0o700))
+
+	old := time.Now().Add(-time.Hour)
+	stale := path.Join(nsDir, ".tmp-"+rand.Text())
+	require.NoError(t, os.WriteFile(stale, []byte("{}"), 0o600))
+	require.NoError(t, os.Chtimes(stale, old, old))
+
+	profile := path.Join(nsDir, "profile.json")
+	require.NoError(t, os.WriteFile(profile, []byte("{}"), 0o600))
+	require.NoError(t, os.Chtimes(profile, old, old))
+
+	removeStaleTempFiles(logr.Discard(), root)
+
+	require.NoFileExists(t, stale)
+	require.FileExists(t, profile)
 }

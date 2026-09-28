@@ -100,6 +100,11 @@ type FakeImpl struct {
 	signalReturnsOnCall map[int]struct {
 		result1 error
 	}
+	StopStub        func(chan<- os.Signal)
+	stopMutex       sync.RWMutex
+	stopArgsForCall []struct {
+		arg1 chan<- os.Signal
+	}
 	invocations      map[string][][]interface{}
 	invocationsMutex sync.RWMutex
 }
@@ -516,6 +521,38 @@ func (fake *FakeImpl) SignalReturnsOnCall(i int, result1 error) {
 	fake.signalReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
+}
+
+func (fake *FakeImpl) Stop(arg1 chan<- os.Signal) {
+	fake.stopMutex.Lock()
+	fake.stopArgsForCall = append(fake.stopArgsForCall, struct {
+		arg1 chan<- os.Signal
+	}{arg1})
+	stub := fake.StopStub
+	fake.recordInvocation("Stop", []interface{}{arg1})
+	fake.stopMutex.Unlock()
+	if stub != nil {
+		fake.StopStub(arg1)
+	}
+}
+
+func (fake *FakeImpl) StopCallCount() int {
+	fake.stopMutex.RLock()
+	defer fake.stopMutex.RUnlock()
+	return len(fake.stopArgsForCall)
+}
+
+func (fake *FakeImpl) StopCalls(stub func(chan<- os.Signal)) {
+	fake.stopMutex.Lock()
+	defer fake.stopMutex.Unlock()
+	fake.StopStub = stub
+}
+
+func (fake *FakeImpl) StopArgsForCall(i int) chan<- os.Signal {
+	fake.stopMutex.RLock()
+	defer fake.stopMutex.RUnlock()
+	argsForCall := fake.stopArgsForCall[i]
+	return argsForCall.arg1
 }
 
 func (fake *FakeImpl) Invocations() map[string][][]interface{} {

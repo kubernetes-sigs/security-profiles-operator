@@ -29,6 +29,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
@@ -241,11 +242,15 @@ func TestHandle(t *testing.T) {
 			},
 		},
 		{
-			name: "failure invalid pod selector",
+			// An invalid selector of one recording used to reject every pod in
+			// the namespace. The recording is skipped instead, and the others
+			// still apply.
+			name: "success invalid pod selector skips the recording",
 			prepare: func(mock *recordingfakes.FakeImpl) {
 				mock.ListProfileRecordingsReturns(&profilerecordingapi.ProfileRecordingList{
 					Items: []profilerecordingapi.ProfileRecording{
 						{
+							ObjectMeta: metav1.ObjectMeta{Name: "invalid"},
 							Spec: profilerecordingapi.ProfileRecordingSpec{
 								Kind:     profilerecordingapi.ProfileRecordingKindSeccompProfile,
 								Recorder: profilerecordingapi.ProfileRecorderBpf,
@@ -257,6 +262,14 @@ func TestHandle(t *testing.T) {
 								},
 							},
 						},
+						{
+							ObjectMeta: metav1.ObjectMeta{Name: "valid"},
+							Spec: profilerecordingapi.ProfileRecordingSpec{
+								Kind:        profilerecordingapi.ProfileRecordingKindSeccompProfile,
+								Recorder:    profilerecordingapi.ProfileRecorderBpf,
+								PodSelector: selectAll,
+							},
+						},
 					},
 				}, nil)
 			},
@@ -266,7 +279,15 @@ func TestHandle(t *testing.T) {
 				},
 			},
 			assert: func(resp admission.Response) {
-				require.Equal(t, http.StatusBadRequest, int(resp.Result.Code))
+				require.True(t, resp.Allowed)
+				require.Len(t, resp.Patches, 1)
+
+				annotations, ok := resp.Patches[0].Value.(map[string]any)
+				require.True(t, ok)
+
+				value, ok := annotations["io.containers.trace-bpf/container"].(string)
+				require.True(t, ok)
+				require.True(t, strings.HasPrefix(value, "valid_container_"))
 			},
 		},
 		{
@@ -415,4 +436,48 @@ func TestUpdateSeccompSecurityContext(t *testing.T) {
 		t, "operator/log-enricher-trace.json",
 		*ctr.SecurityContext.SeccompProfile.LocalhostProfile,
 	)
+}
+
+// Dry-run requests must not have side effects like events.
+func TestHandleDryRunRecordsNoEvents(t *testing.T) {
+	t.Parallel()
+
+	mock := &recordingfakes.FakeImpl{}
+	mock.ListProfileRecordingsReturns(&profilerecordingapi.ProfileRecordingList{
+		Items: []profilerecordingapi.ProfileRecording{{
+			ObjectMeta: metav1.ObjectMeta{Name: "invalid"},
+			Spec: profilerecordingapi.ProfileRecordingSpec{
+				Kind:     profilerecordingapi.ProfileRecordingKindSeccompProfile,
+				Recorder: profilerecordingapi.ProfileRecorderBpf,
+				PodSelector: &metav1.LabelSelector{
+					MatchExpressions: []metav1.LabelSelectorRequirement{{
+						Key:      "app",
+						Operator: metav1.LabelSelectorOpIn,
+					}},
+				},
+			},
+		}},
+	}, nil)
+
+	for _, dryRun := range []bool{true, false} {
+		recorder := events.NewFakeRecorder(10)
+		podRecorder := newTestRecorder(t, mock)
+		podRecorder.record = utils.NewSafeRecorder(recorder)
+
+		resp := podRecorder.Handle(t.Context(), admission.Request{
+			AdmissionRequest: admissionv1.AdmissionRequest{
+				Operation: admissionv1.Create,
+				Object:    rawPod(t, testPod),
+				DryRun:    new(dryRun),
+			},
+		})
+		require.True(t, resp.Allowed)
+
+		if dryRun {
+			require.Empty(t, recorder.Events)
+		} else {
+			require.Len(t, recorder.Events, 1)
+			require.Contains(t, <-recorder.Events, "InvalidPodSelector")
+		}
+	}
 }

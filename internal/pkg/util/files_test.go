@@ -17,10 +17,12 @@ limitations under the License.
 package util
 
 import (
+	"crypto/rand"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -60,4 +62,59 @@ func TestWriteFileAtomicLongName(t *testing.T) {
 
 	name := filepath.Join(t.TempDir(), strings.Repeat("a", 250)+".json")
 	require.NoError(t, WriteFileAtomic(name, []byte("data"), 0o600))
+}
+
+func TestRemoveStaleTempFiles(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	old := time.Now().Add(-time.Hour)
+
+	write := func(name string, modTime time.Time) string {
+		t.Helper()
+
+		p := filepath.Join(dir, name)
+		require.NoError(t, os.WriteFile(p, []byte("data"), 0o600))
+		require.NoError(t, os.Chtimes(p, modTime, modTime))
+
+		return p
+	}
+
+	// A leftover of an interrupted WriteFileAtomic.
+	stale := write(tempFilePrefix+rand.Text(), old)
+	// A file which may still be written concurrently.
+	fresh := write(tempFilePrefix+rand.Text(), time.Now())
+	// Files which only look similar are not ours.
+	keep := []string{
+		write("profile.json", old),
+		write(".tmp-profile.json", old),
+		write(tempFilePrefix+strings.ToLower(rand.Text()), old),
+		write(tempFilePrefix+rand.Text()+".json", old),
+	}
+
+	// A directory with a matching name is not ours either.
+	dirName := filepath.Join(dir, tempFilePrefix+rand.Text())
+	require.NoError(t, os.Mkdir(dirName, 0o700))
+	require.NoError(t, os.Chtimes(dirName, old, old))
+
+	removed, err := RemoveStaleTempFiles(dir, time.Minute)
+	require.NoError(t, err)
+	require.Equal(t, []string{stale}, removed)
+
+	require.NoFileExists(t, stale)
+	require.FileExists(t, fresh)
+
+	for _, p := range keep {
+		require.FileExists(t, p)
+	}
+
+	require.DirExists(t, dirName)
+}
+
+func TestRemoveStaleTempFilesMissingDir(t *testing.T) {
+	t.Parallel()
+
+	removed, err := RemoveStaleTempFiles(filepath.Join(t.TempDir(), "missing"), time.Minute)
+	require.NoError(t, err)
+	require.Empty(t, removed)
 }

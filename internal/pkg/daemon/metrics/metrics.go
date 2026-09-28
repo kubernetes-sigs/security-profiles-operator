@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"sync"
 
 	"github.com/go-logr/logr"
 	"github.com/prometheus/client_golang/prometheus"
@@ -96,13 +97,19 @@ type Metrics struct {
 	metricAppArmorProfileAudit  *prometheus.CounterVec
 	metricAppArmorProfileError  *prometheus.CounterVec
 	metricAppArmorProfileDenial *prometheus.CounterVec
+	// series drops the idle series of the per workload metrics.
+	series     *seriesTracker
+	stopSeries chan struct{}
+	stopOnce   sync.Once
 }
 
 // New returns a new Metrics instance.
 func New() *Metrics {
 	return &Metrics{
-		impl: &defaultImpl{},
-		log:  ctrl.Log.WithName("metrics"),
+		impl:       &defaultImpl{},
+		log:        ctrl.Log.WithName("metrics"),
+		series:     newSeriesTracker(),
+		stopSeries: make(chan struct{}),
 		metricSeccompProfile: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name:      metricNameSeccompProfile,
@@ -275,9 +282,9 @@ func (m *Metrics) IncSeccompProfileDelete() {
 func (m *Metrics) IncSeccompProfileAudit(
 	node, namespace, pod, container, syscall string,
 ) {
-	m.metricSeccompProfileAudit.WithLabelValues(
+	m.series.inc(m.metricSeccompProfileAudit,
 		node, namespace, pod, container, syscall,
-	).Inc()
+	)
 }
 
 // IncSeccompProfileBpf increments the seccomp profile bpf counter for the
@@ -285,9 +292,9 @@ func (m *Metrics) IncSeccompProfileAudit(
 func (m *Metrics) IncSeccompProfileBpf(
 	node, profile string, mountNamespace uint32,
 ) {
-	m.metricSeccompProfileBpf.WithLabelValues(
+	m.series.inc(m.metricSeccompProfileBpf,
 		node, strconv.FormatUint(uint64(mountNamespace), 10), profile,
-	).Inc()
+	)
 }
 
 // IncSeccompProfileError increments the seccomp profile error counter for the
@@ -313,9 +320,9 @@ func (m *Metrics) IncSelinuxProfileDelete() {
 func (m *Metrics) IncSelinuxProfileAudit(
 	node, namespace, pod, container, scontext, tcontext string,
 ) {
-	m.metricSelinuxProfileAudit.WithLabelValues(
+	m.series.inc(m.metricSelinuxProfileAudit,
 		node, namespace, pod, container, scontext, tcontext,
-	).Inc()
+	)
 }
 
 // IncSelinuxProfileError increments the selinux profile error counter for the
@@ -341,9 +348,9 @@ func (m *Metrics) IncAppArmorProfileDelete() {
 func (m *Metrics) IncAppArmorProfileAudit(
 	node, namespace, pod, container, profile, operation, apparmor string,
 ) {
-	m.metricAppArmorProfileAudit.WithLabelValues(
+	m.series.inc(m.metricAppArmorProfileAudit,
 		node, namespace, pod, container, profile, operation, apparmor,
-	).Inc()
+	)
 
 	if apparmor == apparmorDeniedAction {
 		m.IncAppArmorProfileDenial(profile, operation)

@@ -38,8 +38,8 @@ const (
 )
 
 func (e *e2e) waitForJsonEnricherLogs(since time.Time, conditions ...*regexp.Regexp) {
-	// 60 seconds, which covers the flush interval of the JSON enricher.
-	for range 20 {
+	// This covers the flush interval of the JSON enricher.
+	e.eventually(time.Minute, 3*time.Second, func() error {
 		e.logf("Waiting for JSON enricher to record syscalls")
 		logs := e.kubectlOperatorNS(
 			"logs",
@@ -48,21 +48,8 @@ func (e *e2e) waitForJsonEnricherLogs(since time.Time, conditions ...*regexp.Reg
 			"json-enricher",
 		)
 
-		matchAll := true
-
-		for _, condition := range conditions {
-			if !condition.MatchString(logs) {
-				matchAll = false
-			}
-		}
-
-		if matchAll {
-			break
-		}
-
-		e.logf("Waiting for 3 seconds to get lines")
-		time.Sleep(3 * time.Second)
-	}
+		return unmatchedLogs(logs, conditions)
+	})
 }
 
 func (e *e2e) waitForJsonEnricherFileLogs(logFilePath string, conditions ...*regexp.Regexp) string {
@@ -142,7 +129,7 @@ func (e *e2e) waitForJsonEnricherFileLogs(logFilePath string, conditions ...*reg
 }
 
 func (e *e2e) waitForEnricherLogs(since time.Time, conditions ...*regexp.Regexp) {
-	for range 10 {
+	e.eventually(time.Minute, 3*time.Second, func() error {
 		e.logf("Waiting for enricher to record syscalls")
 		logs := e.kubectlOperatorNS(
 			"logs",
@@ -151,22 +138,8 @@ func (e *e2e) waitForEnricherLogs(since time.Time, conditions ...*regexp.Regexp)
 			"log-enricher",
 		)
 
-		matchAll := true
-
-		for _, condition := range conditions {
-			if !condition.MatchString(logs) {
-				matchAll = false
-			}
-		}
-
-		if matchAll {
-			return
-		}
-
-		time.Sleep(3 * time.Second)
-	}
-
-	e.logf("The enricher did not log all expected lines: %v", conditions)
+		return unmatchedLogs(logs, conditions)
+	})
 }
 
 // enricherLogLine matches a line of the log enricher which has the key and
@@ -558,7 +531,7 @@ func (e *e2e) profileRecordingDeployment(recording string, logLine ...string) {
 
 	since, deployName := e.createRecordingTestDeployment()
 
-	podNames := e.getRecordingPodNames("app=alpine")
+	podNames := e.getRecordingPodNames()
 	e.waitForEnricherLogsOfPods(since, podNames, logLine...)
 
 	suffixes := podSuffixes(podNames)
@@ -581,7 +554,7 @@ func (e *e2e) profileRecordingSelinuxDeployment(recording string, logLine ...str
 
 	since, deployName := e.createRecordingTestDeployment()
 
-	podNames := e.getRecordingPodNames("app=alpine")
+	podNames := e.getRecordingPodNames()
 	e.waitForEnricherLogsOfPods(since, podNames, logLine...)
 
 	suffixes := podSuffixes(podNames)
@@ -791,14 +764,14 @@ func (e *e2e) profileRecordingScaleDeployment(recording string, logLine ...strin
 
 	since, deployName := e.createRecordingTestDeployment()
 
-	e.waitForEnricherLogsOfPods(since, e.getRecordingPodNames("app=alpine"), logLine...)
+	e.waitForEnricherLogsOfPods(since, e.getRecordingPodNames(), logLine...)
 
 	e.kubectl("scale", "deploy", "--replicas=5", deployName)
 	e.waitFor("condition=available", "deploy", deployName)
 	// wait for the pods to be ready as per the readinessProbe
 	e.kubectl("rollout", "status", "deploy", deployName)
 
-	podNames := e.getRecordingPodNames("app=alpine")
+	podNames := e.getRecordingPodNames()
 	e.waitForEnricherLogsOfPods(since, podNames, logLine...)
 
 	suffixes := podSuffixes(podNames)
@@ -816,18 +789,14 @@ func (e *e2e) profileRecordingScaleDeployment(recording string, logLine ...strin
 	e.kubectl("delete", "-f", recording)
 }
 
-func (e *e2e) getPodSuffixesByLabel(label string) []string {
-	return podSuffixes(e.getRecordingPodNames(label))
-}
-
-// getRecordingPodNames returns the names of the pods with the label in the
-// current namespace.
-func (e *e2e) getRecordingPodNames(label string) []string {
+// getRecordingPodNames returns the names of the recorded test pods, which
+// are labeled app=alpine, in the current namespace.
+func (e *e2e) getRecordingPodNames() []string {
 	return strings.Fields(e.kubectl(
 		"get",
 		"pods",
 		"-l",
-		label,
+		"app=alpine",
 		"-o",
 		"jsonpath={.items[*].metadata.name}",
 	))

@@ -70,10 +70,6 @@ func FromContext(ctx *ucli.Context) (*Options, error) {
 		return nil, errors.New("no filename provided")
 	}
 
-	if ctx.IsSet(FlagUsername) {
-		options.username = ctx.String(FlagUsername)
-	}
-
 	if ctx.IsSet(FlagDisableSignatureVerification) {
 		options.disableSignatureVerification = ctx.Bool(FlagDisableSignatureVerification)
 	}
@@ -88,7 +84,13 @@ func FromContext(ctx *ucli.Context) (*Options, error) {
 
 	options.plainHTTP = ctx.Bool(FlagPlainHTTP)
 
-	options.password = os.Getenv(cli.EnvKeyPassword)
+	username, password, err := cli.RegistryCredentials(ctx, os.Stdin, os.Getenv)
+	if err != nil {
+		return nil, fmt.Errorf("get registry credentials: %w", err)
+	}
+
+	options.username = username
+	options.password = password
 
 	platform, err := cli.ParsePlatform(ctx.String(FlagPlatform))
 	if err != nil {

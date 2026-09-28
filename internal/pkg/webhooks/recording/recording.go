@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -71,13 +72,19 @@ func RegisterWebhook(
 
 // Security Profiles Operator Webhook RBAC permissions
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilerecordings,verbs=get;list;watch
-// +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 
 //nolint:gocritic // hugeParam: admission.Handler defines the signature
 func (p *podSeccompRecorder) Handle(
 	ctx context.Context,
 	req admission.Request,
 ) admission.Response {
+	// A dry-run request must not have side effects, which includes events.
+	if ptr.Deref(req.DryRun, false) {
+		dryRun := *p
+		dryRun.record = nil
+		p = &dryRun
+	}
+
 	profileRecordings, err := p.ListProfileRecordings(
 		ctx, client.InNamespace(req.Namespace),
 	)
@@ -119,13 +126,24 @@ func (p *podSeccompRecorder) Handle(
 			continue
 		}
 
+		// An invalid selector of one recording must not block all pods in
+		// the namespace, so the recording gets skipped instead.
 		selector, err := metav1.LabelSelectorAsSelector(item.Spec.PodSelector)
 		if err != nil {
-			p.log.Error(
-				err, "Could not get label selector from profile recording",
+			p.log.Error(err, "Invalid podSelector, skipping profile recording",
+				"recording", item.Name,
+			)
+			p.record.Eventf(
+				&item,
+				nil,
+				corev1.EventTypeWarning,
+				"InvalidPodSelector",
+				util.EventActionMutate,
+				"The recording was skipped for a pod, because its podSelector is invalid: %v",
+				err,
 			)
 
-			return admission.Errored(http.StatusBadRequest, err)
+			continue
 		}
 
 		if selector.Matches(podLabels) {

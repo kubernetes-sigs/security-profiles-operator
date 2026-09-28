@@ -63,6 +63,21 @@ const (
 	// The default is far above any real profile.
 	DefaultMaxBlobSize int64 = 16 << 20
 
+	// maxArtifactLayers is the most layers of an artifact, or manifests of an
+	// index, a pull considers. Artifacts carry one profile per platform.
+	maxArtifactLayers = 128
+
+	// mediaTypeDockerManifest is the media type of a Docker image manifest,
+	// which has the layout of an OCI image manifest.
+	mediaTypeDockerManifest = "application/vnd.docker.distribution.manifest.v2+json"
+
+	// mediaTypeDockerManifestList is the media type of a Docker manifest
+	// list, which has the layout of an OCI image index.
+	mediaTypeDockerManifestList = "application/vnd.docker.distribution.manifest.list.v2+json"
+
+	// dockerHubRegistryHost is the host ORAS reaches Docker Hub through.
+	dockerHubRegistryHost = "registry-1.docker.io"
+
 	// defaultTimeout is the default timeout for push and pull operations.
 	defaultTimeout = 5 * time.Minute
 
@@ -169,6 +184,14 @@ var (
 	// ErrPlatformMismatch is returned when the only layer of an artifact is
 	// bound to another platform than the requested one.
 	ErrPlatformMismatch = errors.New("artifact layer is bound to another platform")
+
+	// ErrNoMatchingManifest is returned when an image index has no manifest
+	// for the requested platform.
+	ErrNoMatchingManifest = errors.New("image index has no manifest for the platform")
+
+	// ErrTooManyLayers is returned when a pulled artifact has more layers, or
+	// an index more manifests, than a pull considers.
+	ErrTooManyLayers = errors.New("artifact has too many layers")
 )
 
 // PullResultType are the different types returned for a PullResult.

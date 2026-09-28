@@ -31,7 +31,7 @@ please refer to [Installation Guide](https://github.com/kubernetes-sigs/security
 | fullnameOverride | string | `""` | override the generated full name |
 | nameOverride | string | `""` | used for generating labels |
 | nodeSelector | object | `{}` | specify on which node to deploy the workload |
-| podSecurityContext | object | `{}` | pod security contexts |
+| podSecurityContext | object | `{"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}}` | pod security contexts |
 | replicaCount | int | `3` | the number of replicas of the pods |
 | restrictToNamespace | string | `""` | restrict the operator to a single namespace |
 | resources.limits.cpu | string | `"500m"` | cpu limits for the pod |
@@ -46,8 +46,6 @@ please refer to [Installation Guide](https://github.com/kubernetes-sigs/security
 | selinuxdImage.{default,el8,el9,fedora}.registry | string | `"quay.io"` | the registry for the selinuxd images |
 | selinuxdImage.{default,el8,el9,fedora}.repository | string | `"security-profiles-operator/selinuxd"`, `"security-profiles-operator/selinuxd-el8"`, ... | the repository for the selinuxd images |
 | selinuxdImage.{default,el8,el9,fedora}.tag | string | `"latest"` | tag for the selinuxd images |
-| serviceAccount.create | bool | `true` | if `serviceAccount.name` is empty, use the generated full name when true and `default` otherwise |
-| serviceAccount.name | string | `""` | the name of the service account used by the operator deployment |
 | spoImage.pullPolicy | string | `"Always"` | pull policy for spoImage |
 | spoImage.registry | string | `"us-central1-docker.pkg.dev"` | the registry for the spoImage |
 | spoImage.repository | string | `"k8s-staging-images/sp-operator/security-profiles-operator"` | the repository for the spoImage |

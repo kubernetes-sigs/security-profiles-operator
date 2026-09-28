@@ -44,3 +44,25 @@ func TestDefaultImplMounted(t *testing.T) {
 	_, err = sut.Mounted(filepath.Join(dir, "missing"))
 	require.Error(t, err)
 }
+
+func TestDefaultImplRmdir(t *testing.T) {
+	t.Parallel()
+
+	sut := &defaultImpl{}
+	dir := t.TempDir()
+
+	empty := filepath.Join(dir, "empty")
+	require.NoError(t, os.Mkdir(empty, 0o700))
+	require.NoError(t, sut.Rmdir(empty))
+	require.NoDirExists(t, empty)
+
+	full := filepath.Join(dir, "full")
+	require.NoError(t, os.Mkdir(full, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(full, "profile.json"), nil, 0o600))
+	require.Error(t, sut.Rmdir(full))
+
+	file := filepath.Join(dir, "file")
+	require.NoError(t, os.WriteFile(file, nil, 0o600))
+	require.Error(t, sut.Rmdir(file))
+	require.FileExists(t, file)
+}

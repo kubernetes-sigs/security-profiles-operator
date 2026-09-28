@@ -22,6 +22,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -272,10 +273,21 @@ func TestMergeProfilesSkipsProfileOfOtherRecording(t *testing.T) {
 	other.Labels[profilerecordingapi.ProfileToRecordingNamespaceLabel] = "other-ns"
 	delete(other.Labels, profilebase.ProfilePartialLabel)
 
-	r := newMergeReconciler(t, recording, other, partialSeccomp("partial-a", "nginx", "read"))
+	r := newMergeReconciler(t, recording, other,
+		partialSeccomp("partial-a", "nginx", "read"),
+		partialSeccomp("partial-b", "redis", "write"),
+	)
 
 	require.NoError(t, r.mergeProfiles(t.Context(), recording))
 	require.ElementsMatch(t, []string{"exec"}, mergedSyscalls(t, r, "nginx"))
+	require.ElementsMatch(t, []string{"write"}, mergedSyscalls(t, r, "redis"))
+
+	// The recorded data of the skipped container is kept, while the partial
+	// profiles of the merged container are cleaned up.
+	require.NoError(t, r.client.Get(t.Context(),
+		client.ObjectKey{Name: "partial-a"}, &seccompprofile.SeccompProfile{}))
+	require.True(t, kerrors.IsNotFound(r.client.Get(t.Context(),
+		client.ObjectKey{Name: "partial-b"}, &seccompprofile.SeccompProfile{})))
 }
 
 // A profile which was not recorded, for example one written by a cluster

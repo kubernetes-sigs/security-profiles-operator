@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/nxadm/tail"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -32,7 +33,26 @@ import (
 
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
+
+// staleTempFileAge is the age after which a temporary file of an atomic write
+// is considered left behind by a daemon which died while writing it.
+const staleTempFileAge = time.Minute
+
+// RemoveStaleTempFiles removes the temporary files which interrupted atomic
+// writes left behind in dir. Failures are only logged, the files are hidden
+// and do not keep anything from working.
+func RemoveStaleTempFiles(log logr.Logger, dir string) {
+	removed, err := util.RemoveStaleTempFiles(dir, staleTempFileAge)
+	for _, name := range removed {
+		log.Info("Removed stale temporary file", "path", name)
+	}
+
+	if err != nil {
+		log.Error(err, "Cannot remove stale temporary files", "dir", dir)
+	}
+}
 
 // GetSPODName returns the name of the SPOD instance we're currently running
 // on.
@@ -105,7 +125,19 @@ func AuditTimeToIso(timestampAuditID string) (string, error) {
 		return "", fmt.Errorf("invalid timestamp audit ID: %s", timestampStr)
 	}
 
-	t := time.Unix(seconds, 0).In(time.UTC)
+	// The kernel writes the milliseconds as three digits, keep them.
+	var millis int64
+
+	if len(fractionalParts) > 1 {
+		fraction := (fractionalParts[1] + "000")[:3]
+
+		millis, err = strconv.ParseInt(fraction, 10, 64)
+		if err != nil || millis < 0 {
+			return "", fmt.Errorf("invalid timestamp audit ID: %s", timestampStr)
+		}
+	}
+
+	t := time.Unix(seconds, millis*int64(time.Millisecond)).In(time.UTC)
 
 	return t.Format("2006-01-02T15:04:05.000Z"), nil
 }

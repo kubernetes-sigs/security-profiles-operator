@@ -22,11 +22,14 @@ import (
 	"fmt"
 	"regexp"
 
+	"k8s.io/apimachinery/pkg/api/equality"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -64,12 +67,68 @@ func NewController() controller.Controller {
 	}
 }
 
-func selinuxProfileControllerBuild(b *ctrl.Builder, r reconcile.Reconciler) error {
+func selinuxProfileControllerBuild(b *ctrl.Builder, r *ReconcileSelinux) error {
 	return b.Named("selinuxprofile").
 		For(&selinuxprofileapi.SelinuxProfile{}, builder.WithPredicates(
 			predicate.GenerationChangedPredicate{},
 		)).
+		// A RawSelinuxProfile of the same name has the same policy name, so
+		// its creation or removal changes which of them owns the policy.
+		Watches(
+			&selinuxprofileapi.RawSelinuxProfile{},
+			&handler.EnqueueRequestForObject{},
+			builder.WithPredicates(existenceChangedPredicate),
+		).
+		// Validation and the generated policy depend on the SELinux options
+		// of the SPOD. A profile rejected by them is not retried on its own.
+		Watches(
+			&spodapi.SecurityProfilesOperatorDaemon{},
+			handler.EnqueueRequestsFromMapFunc(r.selinuxProfileRequests),
+			builder.WithPredicates(selinuxOptionsChangedPredicate),
+		).
 		Complete(r)
+}
+
+// selinuxOptionsChangedPredicate passes updates of the SPOD which change its
+// SELinux options.
+var selinuxOptionsChangedPredicate = predicate.Funcs{
+	CreateFunc:  func(event.CreateEvent) bool { return false },
+	DeleteFunc:  func(event.DeleteEvent) bool { return false },
+	GenericFunc: func(event.GenericEvent) bool { return false },
+	UpdateFunc: func(e event.UpdateEvent) bool {
+		oldSpod, ok := e.ObjectOld.(*spodapi.SecurityProfilesOperatorDaemon)
+		if !ok {
+			return false
+		}
+
+		newSpod, ok := e.ObjectNew.(*spodapi.SecurityProfilesOperatorDaemon)
+		if !ok {
+			return false
+		}
+
+		return !equality.Semantic.DeepEqual(oldSpod.Spec.Selinux, newSpod.Spec.Selinux)
+	},
+}
+
+// selinuxProfileRequests enqueues all SelinuxProfiles.
+func (r *ReconcileSelinux) selinuxProfileRequests(
+	ctx context.Context, _ client.Object,
+) []reconcile.Request {
+	list := &selinuxprofileapi.SelinuxProfileList{}
+	if err := r.client.List(ctx, list); err != nil {
+		r.log.Error(err, "cannot list selinux profiles after a change of the SPOD")
+
+		return nil
+	}
+
+	requests := make([]reconcile.Request, 0, len(list.Items))
+	for i := range list.Items {
+		requests = append(requests, reconcile.Request{
+			NamespacedName: client.ObjectKeyFromObject(&list.Items[i]),
+		})
+	}
+
+	return requests
 }
 
 var _ SelinuxObjectHandler = &selinuxProfileHandler{}

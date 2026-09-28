@@ -56,6 +56,10 @@
 
 #define SOCK_RAW 3
 
+// A 32 bit task on a 64 bit kernel, see is_compat_task.
+#define TS_COMPAT 0x0002
+#define TIF_32BIT 22
+
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
 #ifndef READ_ONCE
@@ -167,9 +171,10 @@ struct {
 #define LOST_RINGBUF 0
 #define LOST_SYSCALLS_MAP_FULL 1
 #define LOST_FILE_EVENT_BUSY 2
+#define LOST_COMPAT_SYSCALL 3
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
-    __uint(max_entries, 3);
+    __uint(max_entries, 4);
     __type(key, u32);
     __type(value, u64);
 } lost_events SEC(".maps");
@@ -429,6 +434,22 @@ static __always_inline u32 clear_apparmor(u32 mntns, u64 key)
         return -1;
     }
     return 0;
+}
+
+// is_compat_task reports whether the current task uses the 32 bit syscall ABI.
+// Its syscall numbers are the ones of that ABI, which the userspace would
+// record as the native syscalls with the same numbers.
+static __always_inline bool is_compat_task()
+{
+#if defined(__TARGET_ARCH_x86)
+    struct task_struct * task = (struct task_struct *)bpf_get_current_task();
+    return (BPF_CORE_READ(task, thread_info.status) & TS_COMPAT) != 0;
+#elif defined(__TARGET_ARCH_arm64)
+    struct task_struct * task = (struct task_struct *)bpf_get_current_task();
+    return (BPF_CORE_READ(task, thread_info.flags) & (1UL << TIF_32BIT)) != 0;
+#else
+    return false;
+#endif
 }
 
 static __always_inline bool is_runc_init()
@@ -730,14 +751,21 @@ int sys_enter_socket(struct trace_event_raw_sys_enter * ctx)
         return 0;
     trace_hook("sys_enter_socket");
 
-    u64 type;
+    u64 domain, type;
+    if (bpf_core_read(&domain, sizeof(domain), &ctx->args[0]) != 0) {
+        bpf_printk("failed to get socket domain");
+        return 0;
+    }
     if (bpf_core_read(&type, sizeof(type), &ctx->args[1]) != 0) {
         bpf_printk("failed to get socket type");
         return 0;
     }
 
-    trace_hook("requesting socket type %llu", type);
-    submit_event(EVENT_TYPE_APPARMOR_SOCKET, mntns, get_key(mntns), type);
+    trace_hook("requesting socket domain %llu type %llu", domain, type);
+    // The domain goes into the upper half of the flags, the type together
+    // with its SOCK_NONBLOCK and SOCK_CLOEXEC flags into the lower one.
+    submit_event(EVENT_TYPE_APPARMOR_SOCKET, mntns, get_key(mntns),
+                 (domain << 32) | (type & 0xffffffff));
 
     return 0;
 }
@@ -817,7 +845,10 @@ struct exec_info {
     const __u8 * const * envp;  // Offset=32, size=8 (pointer)
 };
 
-static __always_inline void submit_exec_event(struct exec_info * ctx, u32 mntns)
+static __always_inline void submit_exec_event(const __u8 * filename,
+                                              const __u8 * const * argv,
+                                              const __u8 * const * envp,
+                                              u32 mntns)
 {
     exec_event_data_t * exec_event =
         bpf_ringbuf_reserve(&events, sizeof(exec_event_data_t), 0);
@@ -838,13 +869,13 @@ static __always_inline void submit_exec_event(struct exec_info * ctx, u32 mntns)
 
     // Get filename (first argument)
     bpf_probe_read_user_str(&exec_event->filename, sizeof(exec_event->filename),
-                            (void *)ctx->filename);
+                            (void *)filename);
 
     // Read argv
 #pragma unroll
     for (int i = 0; i < MAX_ARGS; i++) {
         // Read pointer to the argument string
-        ret = bpf_probe_read_user(&ptr, sizeof(ptr), &ctx->argv[i]);
+        ret = bpf_probe_read_user(&ptr, sizeof(ptr), &argv[i]);
         if (ret < 0 || !ptr) {
             break;  // End of arguments
         }
@@ -865,7 +896,7 @@ static __always_inline void submit_exec_event(struct exec_info * ctx, u32 mntns)
 #pragma unroll
     for (int i = 0; i < MAX_ENV; i++) {
         // Read pointer to the environment string
-        ret = bpf_probe_read_user(&ptr, sizeof(ptr), &ctx->envp[i]);
+        ret = bpf_probe_read_user(&ptr, sizeof(ptr), &envp[i]);
         if (ret < 0 || !ptr) {
             break;
         }
@@ -895,13 +926,38 @@ int sys_enter_execve(struct exec_info * ctx)
     trace_hook("sys_enter_execve");
 
     if (capture_exec_args) {
-        submit_exec_event(ctx, mntns);
+        submit_exec_event(ctx->filename, ctx->argv, ctx->envp, mntns);
     }
 
     // Handle runc init.
     //
     // Hooking here:
     // https://github.com/opencontainers/runc/blob/81b13172bea2e6e4cf50f6bdd29a5fdeb5a6acf5/libcontainer/standard_init_linux.go#L288
+    if (is_runc_init()) {
+        clear_apparmor(mntns, get_key(mntns));
+    }
+
+    return 0;
+}
+
+// execveat is sys_enter_execve for programs started from a file descriptor or
+// relative to a directory, like fexecve does.
+SEC("tracepoint/syscalls/sys_enter_execveat")
+int sys_enter_execveat(struct trace_event_raw_sys_enter * ctx)
+{
+    if (!_is_recording_cached)
+        return 0;
+    u32 mntns = get_mntns();
+    if (!mntns)
+        return 0;
+    trace_hook("sys_enter_execveat");
+
+    if (capture_exec_args) {
+        submit_exec_event((const __u8 *)ctx->args[1],
+                          (const __u8 * const *)ctx->args[2],
+                          (const __u8 * const *)ctx->args[3], mntns);
+    }
+
     if (is_runc_init()) {
         clear_apparmor(mntns, get_key(mntns));
     }
@@ -1027,6 +1083,13 @@ int sys_enter(struct trace_event_raw_sys_enter * args)
         } else {
             reported = true;
         }
+    }
+
+    // Syscalls of the 32 bit ABI would be recorded as the native ones with
+    // the same numbers.
+    if (is_compat_task()) {
+        count_lost(LOST_COMPAT_SYSCALL);
+        return 0;
     }
 
     // Record the syscall for this key

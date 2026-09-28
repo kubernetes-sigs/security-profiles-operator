@@ -1,4 +1,7 @@
 ---
+# Keep in sync with getWebhookConfig in
+# internal/pkg/manager/spod/bindata/webhook.go. The exec metadata webhooks are
+# only created by the operator, if enabled in the SPOD.
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
 metadata:
@@ -9,8 +12,9 @@ metadata:
 webhooks:
   - name: binding.spo.io
     failurePolicy: Fail
-    timeoutSeconds: 5
-    sideEffects: None
+    timeoutSeconds: 10
+    sideEffects: NoneOnDryRun
+    reinvocationPolicy: IfNeeded
     rules:
       - operations: ["CREATE"]
         apiGroups: [""]
@@ -37,8 +41,9 @@ webhooks:
     - v1
   - name: recording.spo.io
     failurePolicy: Fail
-    timeoutSeconds: 5
-    sideEffects: None
+    timeoutSeconds: 10
+    sideEffects: NoneOnDryRun
+    reinvocationPolicy: IfNeeded
     rules:
       - operations: ["CREATE", "UPDATE"]
         apiGroups: [""]

@@ -22,12 +22,11 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 )
 
-type controllerBuilder func(*ctrl.Builder, reconcile.Reconciler) error
+type controllerBuilder func(*ctrl.Builder, *ReconcileSelinux) error
 
 type SelinuxObjectHandler interface {
 	Init(context.Context, client.Client, types.NamespacedName) error

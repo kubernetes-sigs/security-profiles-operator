@@ -77,11 +77,18 @@ type ProcessInfo struct {
 	ExecRequestId *string
 }
 type LogBucket struct {
+	// Mu guards the fields of the bucket, which is emitted from another
+	// goroutine than the one filling it.
+	Mu sync.Mutex
 	// SyscallIds holds the recorded syscalls as SyscallKey.
 	SyscallIds    sync.Map
 	ContainerInfo *ContainerInfo
-	ProcessInfo   *ProcessInfo
-	TimestampID   string
+	// ContainerID is the container whose info was not known yet.
+	ContainerID string
+	ProcessInfo *ProcessInfo
+	TimestampID string
+	// Emitted is set once the bucket got emitted, it takes no more lines.
+	Emitted bool
 }
 
 // SyscallKey identifies a syscall. The numbers differ per architecture, and a

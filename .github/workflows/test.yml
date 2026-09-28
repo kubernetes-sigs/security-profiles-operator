@@ -119,8 +119,58 @@ jobs:
           name: ${{ matrix.name }}
           path: image.tar
 
+  # Built outside of the Fedora VM, where it takes about 10 minutes, see
+  # hack/ci/build-selinuxd-fedora.sh.
+  selinuxd-fedora:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: hack/ci/build-selinuxd-fedora.sh
+      - run: podman save -o selinuxd-fedora.tar localhost/selinuxd-fedora:latest
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: selinuxd-fedora
+          path: selinuxd-fedora.tar
+
+  # Compiling the e2e tests takes more than 10 minutes in the Fedora VM, see
+  # E2E_TEST_BINARY in the Makefile.
+  e2e-test-binary:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ./go.mod
+      - run: go test -c -o e2e.test ./test
+        env:
+          CGO_ENABLED: '0'
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-test-binary
+          path: e2e.test
+
+  # The SELinux tests run in a VM of their own, see hack/ci/e2e-fedora.sh.
   e2e-fedora:
-    needs: image
+    needs: [image, selinuxd-fedora, e2e-test-binary]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: e2e-fedora
+            suite: enricher
+          - name: e2e-fedora-selinux
+            suite: selinux
+    name: ${{ matrix.name }}
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
@@ -134,15 +184,27 @@ jobs:
         with:
           name: image
           path: .
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        if: matrix.suite == 'selinux'
+        with:
+          name: selinuxd-fedora
+          path: .
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: e2e-test-binary
+          path: build
       - name: Boot Virtual Machine
         run: make vagrant-up-fedora
       - name: Show environment information
         run: |
           $RUN kubectl wait --for=condition=ready --timeout=60s nodes --all
           $RUN kubectl get nodes -o wide
-      - name: Set up git config
+      - name: Set up the test environment
+        env:
+          SUITE: ${{ matrix.suite }}
         run: |
           $RUN git config --global --add safe.directory /vagrant
+          $RUN "echo \"export E2E_FEDORA_SUITE=$SUITE\" >> /vagrant/hack/ci/env.sh"
       - name: Run E2E tests
         run: $RUN hack/ci/e2e-fedora.sh
       # Failed flaky tests get one retry, see make test-flaky-e2e.
@@ -150,6 +212,23 @@ jobs:
         run: |
           $RUN "echo \"export E2E_TEST_FLAKY_TESTS_ONLY=true\" >> /vagrant/hack/ci/env.sh"
           $RUN hack/ci/e2e-fedora.sh
+      # The VM only gets the repository synced in, so the report of the flaky
+      # test retries has to be copied out.
+      - name: Copy the flaky test report out of the VM
+        if: always()
+        run: |
+          mkdir -p build
+          if vagrant ssh-config >"$RUNNER_TEMP/ssh-config"; then
+            scp -F "$RUNNER_TEMP/ssh-config" \
+              default:/vagrant/build/junit-flaky-e2e.xml build/ || true
+          fi
+      - name: Upload the flaky test report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-flaky-${{ matrix.name }}
+          path: build/junit-flaky-e2e.xml
+          if-no-files-found: ignore
 
   # Runs the e2e suite on a kubernix cluster on the runner, which is the node.
   e2e-ubuntu:
@@ -232,6 +311,23 @@ jobs:
         run: |
           $RUN "echo \"export E2E_TEST_FLAKY_TESTS_ONLY=true\" >> /vagrant/hack/ci/env-flatcar.sh"
           $RUN hack/ci/e2e-flatcar-dev-container.sh
+      # The VM only gets the repository synced in, so the report of the flaky
+      # test retries has to be copied out.
+      - name: Copy the flaky test report out of the VM
+        if: always()
+        run: |
+          mkdir -p build
+          if vagrant ssh-config >"$RUNNER_TEMP/ssh-config"; then
+            scp -F "$RUNNER_TEMP/ssh-config" \
+              default:/vagrant/build/junit-flaky-e2e.xml build/ || true
+          fi
+      - name: Upload the flaky test report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-flaky-e2e-flatcar
+          path: build/junit-flaky-e2e.xml
+          if-no-files-found: ignore
 
   # The spoc tests and the AppArmor recording share one Debian VM, booting it
   # takes about 7 minutes.

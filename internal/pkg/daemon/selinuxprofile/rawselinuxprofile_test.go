@@ -48,7 +48,7 @@ func TestRawSelinuxProfileHandler(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(
 		t,
-		"(block raw_\n    (allow process self (file (read)))\n    (allow process self (dir (search)))\n)",
+		"(block raw\n    (allow process self (file (read)))\n    (allow process self (dir (search)))\n)",
 		cil,
 	)
 

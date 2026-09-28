@@ -20,9 +20,12 @@ import (
 	"flag"
 	"testing"
 
+	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/urfave/cli/v2"
+	ucli "github.com/urfave/cli/v2"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
 )
 
 func TestFromContext(t *testing.T) {
@@ -36,19 +39,29 @@ func TestFromContext(t *testing.T) {
 		{
 			name: "success",
 			prepare: func(set *flag.FlagSet) {
+				require.NoError(t, set.Parse([]string{"echo"}))
+			},
+			assert: func(res *Options, err error) {
+				require.NoError(t, err)
+				assert.Equal(t, map[*v1.Platform]string{nil: DefaultInputFile}, res.inputFiles)
+			},
+		},
+		{
+			name: "failure username without password",
+			prepare: func(set *flag.FlagSet) {
 				set.String(FlagUsername, "", "")
 				require.NoError(t, set.Set(FlagUsername, "username"))
 				require.NoError(t, set.Parse([]string{"echo"}))
 			},
 			assert: func(_ *Options, err error) {
-				assert.NoError(t, err)
+				require.ErrorIs(t, err, cli.ErrIncompleteCredentials)
 			},
 		},
 		{
 			name: "success with annotations",
 			prepare: func(set *flag.FlagSet) {
 				require.NoError(t, set.Parse([]string{"echo"}))
-				set.Var(cli.NewStringSlice(""), FlagAnnotations, "")
+				set.Var(ucli.NewStringSlice(""), FlagAnnotations, "")
 				require.NoError(t, set.Set(FlagAnnotations,
 					"foo:bar,hello:world,org.opencontainers.image.created:2026-09-11T07:00:00Z",
 				))
@@ -65,20 +78,20 @@ func TestFromContext(t *testing.T) {
 			name: "success one profile but no platform",
 			prepare: func(set *flag.FlagSet) {
 				require.NoError(t, set.Parse([]string{"echo"}))
-				set.Var(cli.NewStringSlice(""), FlagProfiles, "")
+				set.Var(ucli.NewStringSlice(""), FlagProfiles, "")
 				require.NoError(t, set.Set(FlagProfiles, "foo"))
 			},
 			assert: func(res *Options, err error) {
 				require.NoError(t, err)
 				assert.Len(t, res.inputFiles, 1)
-				assert.Equal(t, "foo", res.inputFiles[DefaultPlatform])
+				assert.Equal(t, map[*v1.Platform]string{nil: "foo"}, res.inputFiles)
 			},
 		},
 		{
 			name: "success one platform but no profile",
 			prepare: func(set *flag.FlagSet) {
 				require.NoError(t, set.Parse([]string{"echo"}))
-				set.Var(cli.NewStringSlice(""), FlagPlatforms, "")
+				set.Var(ucli.NewStringSlice(""), FlagPlatforms, "")
 				require.NoError(t, set.Set(FlagPlatforms, "foo"))
 			},
 			assert: func(res *Options, err error) {
@@ -95,9 +108,9 @@ func TestFromContext(t *testing.T) {
 			name: "success multiple profiles and platforms",
 			prepare: func(set *flag.FlagSet) {
 				require.NoError(t, set.Parse([]string{"echo"}))
-				set.Var(cli.NewStringSlice(""), FlagPlatforms, "")
+				set.Var(ucli.NewStringSlice(""), FlagPlatforms, "")
 				require.NoError(t, set.Set(FlagPlatforms, "foo,bar"))
-				set.Var(cli.NewStringSlice(""), FlagProfiles, "")
+				set.Var(ucli.NewStringSlice(""), FlagProfiles, "")
 				require.NoError(t, set.Set(FlagProfiles, "foo,bar"))
 			},
 			assert: func(res *Options, err error) {
@@ -120,7 +133,7 @@ func TestFromContext(t *testing.T) {
 			name: "failure wrong annotation format",
 			prepare: func(set *flag.FlagSet) {
 				require.NoError(t, set.Parse([]string{"echo"}))
-				set.Var(cli.NewStringSlice(""), FlagAnnotations, "")
+				set.Var(ucli.NewStringSlice(""), FlagAnnotations, "")
 				require.NoError(t, set.Set(FlagAnnotations, "foo"))
 			},
 			assert: func(_ *Options, err error) {
@@ -131,9 +144,9 @@ func TestFromContext(t *testing.T) {
 			name: "failure amount of profiles and platforms does not match",
 			prepare: func(set *flag.FlagSet) {
 				require.NoError(t, set.Parse([]string{"echo"}))
-				set.Var(cli.NewStringSlice(""), FlagProfiles, "")
+				set.Var(ucli.NewStringSlice(""), FlagProfiles, "")
 				require.NoError(t, set.Set(FlagProfiles, "foo,bar"))
-				set.Var(cli.NewStringSlice(""), FlagPlatforms, "")
+				set.Var(ucli.NewStringSlice(""), FlagPlatforms, "")
 				require.NoError(t, set.Set(FlagPlatforms, "foo,bar,baz"))
 			},
 			assert: func(_ *Options, err error) {
@@ -144,7 +157,7 @@ func TestFromContext(t *testing.T) {
 			name: "failure multiple profiles but no platforms",
 			prepare: func(set *flag.FlagSet) {
 				require.NoError(t, set.Parse([]string{"echo"}))
-				set.Var(cli.NewStringSlice(""), FlagProfiles, "")
+				set.Var(ucli.NewStringSlice(""), FlagProfiles, "")
 				require.NoError(t, set.Set(FlagProfiles, "foo,bar"))
 			},
 			assert: func(_ *Options, err error) {
@@ -152,10 +165,21 @@ func TestFromContext(t *testing.T) {
 			},
 		},
 		{
+			name: "failure multiple platforms but no profiles",
+			prepare: func(set *flag.FlagSet) {
+				require.NoError(t, set.Parse([]string{"echo"}))
+				set.Var(ucli.NewStringSlice(""), FlagPlatforms, "")
+				require.NoError(t, set.Set(FlagPlatforms, "linux/amd64,linux/arm64"))
+			},
+			assert: func(_ *Options, err error) {
+				require.ErrorContains(t, err, "2 platforms provided but no profiles")
+			},
+		},
+		{
 			name: "failure duplicate platforms",
 			prepare: func(set *flag.FlagSet) {
 				require.NoError(t, set.Parse([]string{"echo"}))
-				set.Var(cli.NewStringSlice(""), FlagPlatforms, "")
+				set.Var(ucli.NewStringSlice(""), FlagPlatforms, "")
 				require.NoError(t, set.Set(FlagPlatforms, "foo,foo"))
 			},
 			assert: func(_ *Options, err error) {
@@ -166,7 +190,7 @@ func TestFromContext(t *testing.T) {
 			name: "failure parse platforms",
 			prepare: func(set *flag.FlagSet) {
 				require.NoError(t, set.Parse([]string{"echo"}))
-				set.Var(cli.NewStringSlice(""), FlagPlatforms, "")
+				set.Var(ucli.NewStringSlice(""), FlagPlatforms, "")
 				require.NoError(t, set.Set(FlagPlatforms, "this/is/a/wrong/platform"))
 			},
 			assert: func(_ *Options, err error) {
@@ -183,8 +207,8 @@ func TestFromContext(t *testing.T) {
 			set := flag.NewFlagSet("", flag.ExitOnError)
 			testPrepare(set)
 
-			app := cli.NewApp()
-			ctx := cli.NewContext(app, set, nil)
+			app := ucli.NewApp()
+			ctx := ucli.NewContext(app, set, nil)
 
 			options, err := FromContext(ctx)
 			testAssert(options, err)

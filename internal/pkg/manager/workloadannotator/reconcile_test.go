@@ -524,3 +524,113 @@ func TestReconcilePodDeletionReleasesDespiteOtherKindFailing(t *testing.T) {
 	require.ErrorIs(t, reconcilePod(t, r), errList)
 	requireInUse(t, c, profile, false)
 }
+
+// A pod which got replaced by one with the same name, before the deletion of
+// the old one got reconciled, must not keep the profiles of the old one in
+// use.
+func TestReconcileSameNamePodReleasesUnusedProfiles(t *testing.T) {
+	t.Parallel()
+
+	podID := "default/" + testPodName
+	oldSeccomp := &seccompprofileapi.SeccompProfile{
+		ObjectMeta: objectMeta("old", util.HasActivePodsFinalizerString),
+		Status:     seccompprofileapi.SeccompProfileStatus{ActiveWorkloads: []string{podID}},
+	}
+	newSeccomp := &seccompprofileapi.SeccompProfile{ObjectMeta: objectMeta("new")}
+	oldSelinux := &selinuxprofileapi.SelinuxProfile{
+		ObjectMeta: objectMeta("old-se", util.HasActivePodsFinalizerString),
+		Status:     selinuxprofileapi.SelinuxProfileStatus{ActiveWorkloads: []string{podID}},
+	}
+
+	r, c, _ := newAnnotator(t, nil, oldSeccomp, newSeccomp, oldSelinux,
+		podWith(withSeccomp("operator/new.json")))
+
+	require.NoError(t, reconcilePod(t, r))
+	requireInUse(t, c, oldSeccomp, false)
+	require.Empty(t, oldSeccomp.Status.ActiveWorkloads)
+	requireInUse(t, c, oldSelinux, false)
+	require.Empty(t, oldSelinux.Status.ActiveWorkloads)
+	requireInUse(t, c, newSeccomp, true)
+	require.Equal(t, []string{podID}, newSeccomp.Status.ActiveWorkloads)
+}
+
+// The AppArmor and raw SELinux profiles have no list of active workloads, so
+// they have to be checked again once a pod got replaced by one with the same
+// name.
+func TestReconcileSameNamePodReleasesUnusedProfilesWithoutActiveWorkloads(t *testing.T) {
+	t.Parallel()
+
+	raw := &selinuxprofileapi.RawSelinuxProfile{ObjectMeta: objectMeta("raw")}
+	aa := &apparmorprofileapi.AppArmorProfile{ObjectMeta: objectMeta("aa")}
+	oldPod := podWith(func(pod *corev1.Pod) {
+		pod.UID = "old"
+		withSelinuxType("raw.process")(pod)
+		withAppArmor("aa")(pod)
+	})
+	r, c, _ := newAnnotator(t, nil, raw, aa, oldPod)
+
+	require.NoError(t, reconcilePod(t, r))
+	requireInUse(t, c, raw, true)
+	requireInUse(t, c, aa, true)
+
+	require.NoError(t, c.Delete(t.Context(), oldPod))
+	require.NoError(t, c.Create(t.Context(), podWith(func(pod *corev1.Pod) {
+		pod.UID = "new"
+	})))
+
+	require.NoError(t, reconcilePod(t, r))
+	requireInUse(t, c, raw, false)
+	requireInUse(t, c, aa, false)
+}
+
+// The AppArmor and raw SELinux profiles have no list of active workloads, so
+// releasing them needs no read from the API server and no write if the
+// finalizer does not change.
+func TestReleaseProfilesWithoutActiveWorkloadsUsesCache(t *testing.T) {
+	t.Parallel()
+
+	aa := &apparmorprofileapi.AppArmorProfile{
+		ObjectMeta: objectMeta("aa", util.HasActivePodsFinalizerString),
+	}
+	raw := &selinuxprofileapi.RawSelinuxProfile{
+		ObjectMeta: objectMeta("raw", util.HasActivePodsFinalizerString),
+	}
+	user := podWith(func(pod *corev1.Pod) {
+		withAppArmor("aa")(pod)
+		withSelinuxType("raw.process")(pod)
+	})
+	user.Name = "user"
+
+	updates := 0
+	r, c, _ := newAnnotator(t, &interceptor.Funcs{
+		Update: func(
+			ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.UpdateOption,
+		) error {
+			updates++
+
+			return cl.Update(ctx, obj, opts...)
+		},
+	}, aa, raw, user)
+	r.reader = failingReader{}
+
+	require.NoError(t, reconcilePod(t, r))
+	requireInUse(t, c, aa, true)
+	requireInUse(t, c, raw, true)
+	require.Zero(t, updates)
+}
+
+// failingReader is a client.Reader which fails every read.
+type failingReader struct{}
+
+func (failingReader) Get(
+	context.Context,
+	client.ObjectKey,
+	client.Object,
+	...client.GetOption,
+) error {
+	return errors.New("unexpected read from the API server")
+}
+
+func (failingReader) List(context.Context, client.ObjectList, ...client.ListOption) error {
+	return errors.New("unexpected read from the API server")
+}

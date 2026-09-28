@@ -33,11 +33,13 @@ var errTest = errors.New("test")
 
 type buffer struct {
 	bytes.Buffer
+
+	closeErr error
 }
 
 // Add a Close method to our buffer so that we satisfy io.WriteCloser.
 func (b *buffer) Close() error {
-	return nil
+	return b.closeErr
 }
 
 func TestRun(t *testing.T) {
@@ -130,6 +132,32 @@ func TestRun(t *testing.T) {
 			},
 			assert: func(mock *recorderfakes.FakeImpl, err error) {
 				require.ErrorIs(t, err, errTest)
+			},
+		},
+		{
+			name: "failure on Close",
+			prepare: func(mock *recorderfakes.FakeImpl) *Options {
+				defaultMock(mock)
+				mock.CreateReturns(&buffer{closeErr: errTest}, nil)
+
+				return Default()
+			},
+			assert: func(mock *recorderfakes.FakeImpl, err error) {
+				require.ErrorIs(t, err, errTest)
+				require.ErrorContains(t, err, "close file")
+			},
+		},
+		{
+			name: "failure creates no output file",
+			prepare: func(mock *recorderfakes.FakeImpl) *Options {
+				defaultMock(mock)
+				mock.GetNameReturns("", errTest)
+
+				return Default()
+			},
+			assert: func(mock *recorderfakes.FakeImpl, err error) {
+				require.ErrorIs(t, err, errTest)
+				require.Zero(t, mock.CreateCallCount())
 			},
 		},
 		{

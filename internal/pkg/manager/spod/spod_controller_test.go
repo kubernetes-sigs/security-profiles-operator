@@ -694,3 +694,70 @@ func Test_webhookTolerationsFallback(t *testing.T) {
 		})
 	}
 }
+
+// A SPOD without a selinux section gets no type tag from the API server, which
+// must not drop the SELinux type of the containers.
+func Test_getConfiguredSPOdDefaultSelinuxTypeTag(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		typeTag string
+		want    string
+	}{
+		"default":    {want: bindata.DefaultSelinuxTypeTag},
+		"configured": {typeTag: "unconfined_t", want: "unconfined_t"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := &spodapi.SecurityProfilesOperatorDaemon{}
+			cfg.Spec.Selinux.TypeTag = tc.typeTag
+
+			ds, err := newTestReconciler().getConfiguredSPOd(
+				t.Context(), cfg, "image", v1.PullAlways, bindata.CAInjectTypeCertManager,
+			)
+			require.NoError(t, err)
+
+			for _, ctrs := range [][]v1.Container{
+				ds.Spec.Template.Spec.InitContainers, ds.Spec.Template.Spec.Containers,
+			} {
+				for i := range ctrs {
+					seLinux := ctrs[i].SecurityContext.SELinuxOptions
+					require.NotNil(t, seLinux, ctrs[i].Name)
+					require.Equal(t, tc.want, seLinux.Type, ctrs[i].Name)
+				}
+			}
+		})
+	}
+}
+
+func Test_daemonSetRolledOut(t *testing.T) {
+	t.Parallel()
+
+	rolledOut := appsv1.DaemonSetStatus{
+		ObservedGeneration:     2,
+		DesiredNumberScheduled: 3,
+		UpdatedNumberScheduled: 3,
+		NumberAvailable:        3,
+		NumberReady:            3,
+	}
+
+	for name, tc := range map[string]struct {
+		mutate func(*appsv1.DaemonSetStatus)
+		want   bool
+	}{
+		"rolled out":           {mutate: func(*appsv1.DaemonSetStatus) {}, want: true},
+		"generation not seen":  {mutate: func(s *appsv1.DaemonSetStatus) { s.ObservedGeneration = 1 }},
+		"pods not updated yet": {mutate: func(s *appsv1.DaemonSetStatus) { s.UpdatedNumberScheduled = 2 }},
+		"pod unavailable":      {mutate: func(s *appsv1.DaemonSetStatus) { s.NumberAvailable = 2 }},
+		"pod not ready":        {mutate: func(s *appsv1.DaemonSetStatus) { s.NumberReady = 2 }},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			ds := &appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Generation: 2}, Status: rolledOut}
+			tc.mutate(&ds.Status)
+			require.Equal(t, tc.want, daemonSetRolledOut(ds))
+		})
+	}
+}

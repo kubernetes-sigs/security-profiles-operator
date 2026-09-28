@@ -59,8 +59,9 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 					Image: "registry.example.com/spo:test",
 				},
 				{
-					Name:  bindata.SelinuxContainerName,
-					Image: testImage,
+					Name:            bindata.SelinuxContainerName,
+					Image:           testImage,
+					ImagePullPolicy: corev1.PullIfNotPresent,
 				},
 			},
 		},
@@ -124,7 +125,9 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 			wantJobCreated: true,
 		},
 		{
-			name:       "skips when job was recently created",
+			// The callers create one job per generation of the profile, so a
+			// recent job reloaded an older generation.
+			name:       "creates job when a recent job completed",
 			nodeName:   testNodeName,
 			namespace:  testNamespace,
 			policyName: "test-policy",
@@ -136,7 +139,43 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 				),
 			},
 			wantErr:        false,
+			wantJobCreated: true,
+		},
+		{
+			name:       "skips when a job is still retrying",
+			nodeName:   testNodeName,
+			namespace:  testNamespace,
+			policyName: "test-policy",
+			existingObjs: []runtime.Object{
+				createTestJob(
+					testNamespace, "retrying-job",
+					testNodeName, "test-policy", testAction, 0, 1,
+				),
+			},
+			wantErr:        false,
 			wantJobCreated: false,
+		},
+		{
+			name:       "creates job when a previous job failed",
+			nodeName:   testNodeName,
+			namespace:  testNamespace,
+			policyName: "test-policy",
+			existingObjs: []runtime.Object{
+				func() runtime.Object {
+					job := createTestJob(
+						testNamespace, "failed-job",
+						testNodeName, "test-policy", testAction, 0, 4,
+					)
+					job.Status.Conditions = []batchv1.JobCondition{{
+						Type:   batchv1.JobFailed,
+						Status: corev1.ConditionTrue,
+					}}
+
+					return job
+				}(),
+			},
+			wantErr:        false,
+			wantJobCreated: true,
 		},
 		{
 			name:           "fails without node name",
@@ -221,6 +260,11 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 					require.Len(t, job.Spec.Template.Spec.Containers, 1)
 					require.Equal(t, "semodule-reload", job.Spec.Template.Spec.Containers[0].Name)
 					require.Equal(t, testImage, job.Spec.Template.Spec.Containers[0].Image)
+					require.Equal(
+						t,
+						corev1.PullIfNotPresent,
+						job.Spec.Template.Spec.Containers[0].ImagePullPolicy,
+					)
 					require.True(
 						t,
 						*job.Spec.Template.Spec.Containers[0].SecurityContext.Privileged,
@@ -285,6 +329,65 @@ func createTestJobWithCreationTime(
 			Succeeded: succeeded,
 			Failed:    failed,
 		},
+	}
+}
+
+// Reload jobs of different nodes created in the same second must not collide,
+// and their names must be valid whatever the node is called.
+//
+//nolint:paralleltest // modifies environment variables
+func TestCreatePolicyReloadJobNames(t *testing.T) {
+	const (
+		namespace = "security-profiles-operator"
+		podName   = "spod-test-pod"
+	)
+
+	setenvCleanup(t, config.OperatorNamespaceEnvKey, namespace)
+	setenvCleanup(t, "POD_NAME", podName)
+
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, batchv1.AddToScheme(scheme))
+
+	cli := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(&corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: podName, Namespace: namespace},
+			Spec: corev1.PodSpec{Containers: []corev1.Container{{
+				Name:  bindata.SelinuxContainerName,
+				Image: "registry.example.com/selinuxd:test",
+			}}},
+		}).
+		Build()
+
+	nodes := []string{
+		// The first ten characters used to be the same.
+		"worker-01.example.com",
+		"worker-01.example.org",
+		// A name cut after a dot used to end the job name in ".-".
+		"worker-01.a",
+		strings.Repeat("n", 253),
+	}
+
+	for _, node := range nodes {
+		r := &ReconcileSelinux{client: cli, clientReader: cli, nodeName: node}
+
+		created, err := r.createPolicyReloadJob(
+			context.Background(), "test-policy", "install", logf.Log,
+		)
+		require.NoError(t, err, node)
+		require.True(t, created, node)
+	}
+
+	jobs := &batchv1.JobList{}
+	require.NoError(t, cli.List(context.Background(), jobs))
+	require.Len(t, jobs.Items, len(nodes))
+
+	for i := range jobs.Items {
+		job := &jobs.Items[i]
+		require.Empty(t, validation.IsDNS1123Subdomain(job.Name), job.Name)
+		require.True(t, strings.HasPrefix(job.Name, reloadJobNamePrefix), job.Name)
+		require.NotNil(t, job.Spec.ActiveDeadlineSeconds)
 	}
 }
 

@@ -76,6 +76,16 @@ func (c *containerKeys) removeKeyFrom(containerID string, key uint64) {
 	}
 }
 
+// Get returns the container of key.
+func (c *containerKeys) Get(key uint64) (string, bool) {
+	c.l.RLock()
+	defer c.l.RUnlock()
+
+	containerID, ok := c.byKey[key]
+
+	return containerID, ok
+}
+
 // Keys returns the sorted keys of containerID.
 func (c *containerKeys) Keys(containerID string) []uint64 {
 	c.l.RLock()
@@ -150,6 +160,14 @@ func (c *containerKeys) Clear() {
 
 	clear(c.byKey)
 	clear(c.byContainer)
+}
+
+// Containers returns the containers which own a key.
+func (c *containerKeys) Containers() []string {
+	c.l.RLock()
+	defer c.l.RUnlock()
+
+	return slices.Collect(maps.Keys(c.byContainer))
 }
 
 // Size returns the number of known keys.

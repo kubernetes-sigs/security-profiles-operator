@@ -19,6 +19,7 @@ resources:
 - webhook_cert.yaml
 - webhook_deployment.yaml
 - webhook_service.yaml
+- webhook_validating_config.yaml
 - metrics_cert.yaml
 - ../cluster
 

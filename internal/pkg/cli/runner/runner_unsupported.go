@@ -32,6 +32,9 @@ func New(*Options) *Runner {
 	return &Runner{}
 }
 
+// Init does nothing without runner support.
+func Init() {}
+
 // Run the Runner.
 func (r *Runner) Run() error {
 	return errUnsupported

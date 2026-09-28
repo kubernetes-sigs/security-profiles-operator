@@ -54,7 +54,7 @@ patches:
       path:  "/metadata/annotations/meta.helm.sh~1release-namespace"
       value: "{{ .Release.Namespace }}"
   target:
-    kind: (ClusterRole|ClusterRoleBinding|ConfigMap|MutatingWebhookConfiguration|Namespace|Role|RoleBinding|Secret|ServiceAccount)
+    kind: (ClusterRole|ClusterRoleBinding|ConfigMap|MutatingWebhookConfiguration|Namespace|Role|RoleBinding|Secret|ServiceAccount|ValidatingAdmissionPolicy|ValidatingAdmissionPolicyBinding)
 
 # Remove the namespace resource.
 - path: delete-ns.yaml

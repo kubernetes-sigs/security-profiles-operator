@@ -19,15 +19,17 @@ limitations under the License.
 package auditsource
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
+	"sync"
 	"time"
+	"unsafe"
 
 	"github.com/aquasecurity/libbpfgo"
 	"github.com/blang/semver/v4"
 	"github.com/go-logr/logr"
 
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
@@ -49,13 +51,24 @@ func BpfSupported(logger logr.Logger) error {
 	return nil
 }
 
-// auditLogRingBuf is the ring buffer of enricher.bpf.c.
-const auditLogRingBuf = "audit_log"
+const (
+	// auditLogRingBuf is the ring buffer of enricher.bpf.c.
+	auditLogRingBuf = "audit_log"
+	// lostEventsMap counts the events which did not fit into the ring buffer.
+	lostEventsMap = "lost_events"
+
+	// lostEventsInterval is how often the lost events are checked.
+	lostEventsInterval = 30 * time.Second
+)
 
 type BpfSource struct {
 	logger logr.Logger
 	module *libbpfgo.Module
 	buf    *libbpfgo.RingBuffer
+	// done is closed by Stop, so that the goroutines of the source do not
+	// wait for a consumer which is gone.
+	done     chan struct{}
+	stopOnce sync.Once
 }
 
 func NewBpfSource(logger logr.Logger) (*BpfSource, error) {
@@ -65,6 +78,7 @@ func NewBpfSource(logger logr.Logger) (*BpfSource, error) {
 
 	return &BpfSource{
 		logger: logger,
+		done:   make(chan struct{}),
 	}, nil
 }
 
@@ -109,64 +123,102 @@ func (b *BpfSource) StartTail() (chan *types.AuditLine, error) {
 
 	log := make(chan *types.AuditLine)
 
-	go func() {
-		for val := range events {
-			if len(val) < 14 {
-				b.logger.Info("received invalid audit log message", "val", val)
+	go b.forward(events, log)
 
-				continue
-			}
-
-			mntns := binary.LittleEndian.Uint32(val[0:4])
-			pid := int(binary.LittleEndian.Uint32(val[4:8]))
-			request := binary.LittleEndian.Uint32(val[8:12])
-			complain := val[12]
-			strs := bytes.Split(val[13:], []byte("\x00"))
-
-			if len(strs) < 3 {
-				b.logger.Info("received invalid audit log message", "val", val)
-
-				continue
-			}
-
-			op := string(strs[0])
-			comm := string(strs[1])
-			name := string(strs[2])
-
-			var apparmor string
-			if complain > 0 {
-				apparmor = "ALLOW"
-			} else {
-				apparmor = "DENIED"
-			}
-
-			ts := time.Now().UnixMilli()
-			timestamp := fmt.Sprintf("%d.%03d", ts/1000, ts%1000)
-
-			line := types.AuditLine{
-				AuditType:   types.AuditTypeApparmor,
-				ProcessID:   pid,
-				TimestampID: timestamp,
-				Apparmor:    apparmor,
-				Operation:   op,
-				Name:        name,
-				Executable:  comm,
-				ExtraInfo:   fmt.Sprintf("request:%d", request),
-			}
-			b.logger.Info("audit log event received", "mntns", mntns, "line", line)
-
-			log <- &line
-		}
-
-		close(log)
-	}()
+	if lost, err := module.GetMap(lostEventsMap); err != nil {
+		b.logger.Error(err, "Unable to watch for lost audit events")
+	} else {
+		go b.reportLostEvents(lost)
+	}
 
 	b.logger.Info("BPF module successfully loaded.")
 
 	return log, nil
 }
 
+// forward sends the events as audit lines to log until the events end or the
+// source is stopped.
+func (b *BpfSource) forward(events <-chan []byte, log chan<- *types.AuditLine) {
+	defer close(log)
+
+	for {
+		var (
+			val []byte
+			ok  bool
+		)
+
+		select {
+		case val, ok = <-events:
+			if !ok {
+				return
+			}
+		case <-b.done:
+			return
+		}
+
+		line, mntns, err := parseBpfAuditEvent(val, time.Now())
+		if err != nil {
+			b.logger.Info("received invalid audit log message", "val", val, "error", err.Error())
+
+			continue
+		}
+
+		b.logger.V(config.VerboseLevel).
+			Info("audit log event received", "mntns", mntns, "line", line)
+
+		select {
+		case log <- line:
+		case <-b.done:
+			return
+		}
+	}
+}
+
+// reportLostEvents periodically logs the events which did not fit into the
+// ring buffer. They are missing from the recorded profiles.
+func (b *BpfSource) reportLostEvents(lostEvents *libbpfgo.BPFMap) {
+	ticker := time.NewTicker(lostEventsInterval)
+	defer ticker.Stop()
+
+	var reported uint64
+
+	for {
+		select {
+		case <-b.done:
+			return
+		case <-ticker.C:
+		}
+
+		key := uint32(0)
+
+		value, err := lostEvents.GetValue(unsafe.Pointer(&key))
+		if err != nil {
+			b.logger.Error(err, "Unable to read lost audit events")
+
+			continue
+		}
+
+		var total uint64
+		for i := 0; i+8 <= len(value); i += 8 {
+			total += binary.LittleEndian.Uint64(value[i : i+8])
+		}
+
+		if total > reported {
+			b.logger.Info(
+				"WARNING: the BPF ring buffer was full, audit events were lost",
+				"lostEvents", total-reported, "lostEventsTotal", total,
+			)
+		}
+
+		reported = total
+	}
+}
+
 func (b *BpfSource) Stop() {
+	b.stopOnce.Do(func() {
+		close(b.done)
+	})
+
 	if b.buf != nil {
 		b.buf.Stop()
 		b.buf = nil

@@ -27,6 +27,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/jellydator/ttlcache/v3"
@@ -80,6 +81,7 @@ type impl interface {
 	CmdlineForPID(pid int) (string, error)
 	PrintJsonOutput(w io.Writer, output []byte)
 	EnvForPid(pid int) (map[string]string, error)
+	ProcessStartTime(pid int) (time.Duration, error)
 }
 
 func (d *defaultImpl) Dial() (*grpc.ClientConn, error) {
@@ -110,6 +112,10 @@ func (d *defaultImpl) Lines(tailFile *tail.Tail) chan *tail.Line {
 
 func (d *defaultImpl) Reason(tailFile *tail.Tail) error {
 	return tailFile.Err()
+}
+
+func (d *defaultImpl) ProcessStartTime(pid int) (time.Duration, error) {
+	return util.ProcessStartTime(pid)
 }
 
 func (d *defaultImpl) ContainerIDForPID(

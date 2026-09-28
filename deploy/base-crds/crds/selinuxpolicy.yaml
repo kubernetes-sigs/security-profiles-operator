@@ -26,7 +26,12 @@ spec:
     name: v1
     schema:
       openAPIV3Schema:
-        description: RawSelinuxProfile is the Schema for the rawselinuxprofiles API.
+        description: |-
+          RawSelinuxProfile is the Schema for the rawselinuxprofiles API.
+
+          The name is used as the name of a CIL block, which has to start with a
+          letter and must not contain dots. Existing objects are exempt, so that they
+          can still be updated and deleted.
         properties:
           apiVersion:
             description: |-
@@ -151,6 +156,11 @@ spec:
                 type: string
             type: object
         type: object
+        x-kubernetes-validations:
+        - message: name must start with a letter and may only contain lowercase alphanumeric
+            characters and '-'
+          optionalOldSelf: true
+          rule: oldSelf.hasValue() || self.metadata.name.matches('^[a-z][-a-z0-9]*$')
     served: true
     storage: true
     subresources:
@@ -184,7 +194,12 @@ spec:
     name: v1
     schema:
       openAPIV3Schema:
-        description: SelinuxProfile is the Schema for the selinuxprofiles API.
+        description: |-
+          SelinuxProfile is the Schema for the selinuxprofiles API.
+
+          The name is used as the name of a CIL block, which has to start with a
+          letter and must not contain dots. Existing objects are exempt, so that they
+          can still be updated and deleted.
         properties:
           apiVersion:
             description: |-
@@ -214,11 +229,19 @@ spec:
                       pattern: ^[-a-zA-Z0-9._]+$
                       type: string
                     type: array
+                  description: ObjectClassPermissions maps SELinux object classes
+                    to their permissions.
+                  maxProperties: 256
                   type: object
+                  x-kubernetes-validations:
+                  - message: object classes may only contain alphanumeric characters,
+                      '.', '-' and '_'
+                    rule: self.all(k, k.matches('^[-a-zA-Z0-9._]+$'))
                 description: |-
                   allow defines the allow policy for the profile. It maps SELinux types
                   (or "@self" for the profile's own type) to object classes and their
                   permissions.
+                maxProperties: 1024
                 type: object
                 x-kubernetes-validations:
                 - message: types may only contain alphanumeric characters, '.', '-'
@@ -246,9 +269,11 @@ spec:
                       - SelinuxProfile
                       type: string
                     name:
-                      description: name is the name of the policy that this inherits
-                        from.
+                      description: |-
+                        name is the name of the policy that this inherits from. It may only
+                        contain alphanumeric characters, '.', '-' and '_'.
                       minLength: 1
+                      pattern: ^[-a-zA-Z0-9._]+$
                       type: string
                   required:
                   - name
@@ -363,6 +388,11 @@ spec:
                 type: string
             type: object
         type: object
+        x-kubernetes-validations:
+        - message: name must start with a letter and may only contain lowercase alphanumeric
+            characters and '-'
+          optionalOldSelf: true
+          rule: oldSelf.hasValue() || self.metadata.name.matches('^[a-z][-a-z0-9]*$')
     served: true
     storage: true
     subresources:

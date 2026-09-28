@@ -68,7 +68,6 @@ func newReconcileTest(
 	t *testing.T,
 	spod *spodapi.SecurityProfilesOperatorDaemon,
 	funcs *interceptor.Funcs,
-	objs ...client.Object,
 ) (*ReconcileSPOd, client.Client, *events.FakeRecorder) {
 	t.Helper()
 
@@ -82,7 +81,7 @@ func newReconcileTest(
 
 	cl := fake.NewClientBuilder().
 		WithScheme(scheme).
-		WithObjects(append(objs, spod, operator)...).
+		WithObjects(spod, operator).
 		WithStatusSubresource(spod).
 		WithInterceptorFuncs(*funcs).
 		Build()
@@ -290,4 +289,110 @@ func TestServesAdmissionPolicies(t *testing.T) {
 		meta.RESTScopeRoot,
 	)
 	require.True(t, servesAdmissionPolicies(mapper))
+}
+
+// setDaemonSetStatus sets the status of the SPOd DaemonSet.
+func setDaemonSetStatus(t *testing.T, cl client.Client, status appsv1.DaemonSetStatus) {
+	t.Helper()
+
+	ds := &appsv1.DaemonSet{}
+	require.NoError(t, cl.Get(t.Context(), types.NamespacedName{
+		Name: config.SPOdName, Namespace: testNamespace,
+	}, ds))
+
+	status.ObservedGeneration = ds.Generation
+	ds.Status = status
+	require.NoError(t, cl.Status().Update(t.Context(), ds))
+}
+
+// The SPOD is only running once every pod is updated and available, and
+// leaves that state once pods become unavailable.
+func TestReconcileRunningFollowsRollout(t *testing.T) {
+	t.Setenv(config.OperatorNamespaceEnvKey, testNamespace)
+
+	spod := testSPOD()
+	spod.Status.StatePending()
+
+	r, cl, _ := newReconcileTest(t, spod, &interceptor.Funcs{})
+	reconcileSPOD(t, r)
+	require.Equal(t, spodapi.SPODStateCreating, spodState(t, cl))
+
+	rolledOut := appsv1.DaemonSetStatus{
+		DesiredNumberScheduled: 2,
+		UpdatedNumberScheduled: 2,
+		NumberAvailable:        2,
+		NumberReady:            2,
+	}
+
+	rollingOut := rolledOut
+	rollingOut.UpdatedNumberScheduled = 1
+
+	setDaemonSetStatus(t, cl, rollingOut)
+	reconcileSPOD(t, r)
+	require.Equal(t, spodapi.SPODStateCreating, spodState(t, cl))
+
+	setDaemonSetStatus(t, cl, rolledOut)
+	reconcileSPOD(t, r)
+	require.Equal(t, spodapi.SPODStateRunning, spodState(t, cl))
+
+	degraded := rolledOut
+	degraded.NumberAvailable = 1
+	degraded.NumberReady = 1
+
+	setDaemonSetStatus(t, cl, degraded)
+	reconcileSPOD(t, r)
+	require.Equal(t, spodapi.SPODStateUpdating, spodState(t, cl))
+
+	setDaemonSetStatus(t, cl, rolledOut)
+	reconcileSPOD(t, r)
+	require.Equal(t, spodapi.SPODStateRunning, spodState(t, cl))
+}
+
+// A deleted metrics service gets restored, even if nothing else changed.
+func TestReconcileRestoresMetricsService(t *testing.T) {
+	t.Setenv(config.OperatorNamespaceEnvKey, testNamespace)
+
+	spod := testSPOD()
+	spod.Status.StatePending()
+
+	r, cl, _ := newReconcileTest(t, spod, &interceptor.Funcs{})
+	reconcileSPOD(t, r)
+
+	key := types.NamespacedName{Name: "metrics", Namespace: testNamespace}
+	service := &corev1.Service{}
+	require.NoError(t, cl.Get(t.Context(), key, service))
+
+	stored := &spodapi.SecurityProfilesOperatorDaemon{}
+	require.NoError(t, cl.Get(t.Context(), client.ObjectKeyFromObject(spod), stored))
+	require.True(t, metav1.IsControlledBy(service, stored))
+
+	require.NoError(t, cl.Delete(t.Context(), service))
+	reconcileSPOD(t, r)
+	require.NoError(t, cl.Get(t.Context(), key, service))
+
+	// A service of a previous version without owner gets adopted.
+	service.OwnerReferences = nil
+	require.NoError(t, cl.Update(t.Context(), service))
+	reconcileSPOD(t, r)
+	require.NoError(t, cl.Get(t.Context(), key, service))
+	require.True(t, metav1.IsControlledBy(service, stored))
+}
+
+// A missing service monitor gets created on update, while a cluster without
+// the ServiceMonitor API is ignored.
+func TestPatchOrCreate(t *testing.T) {
+	t.Parallel()
+
+	cl := fake.NewClientBuilder().WithScheme(reconcileTestScheme(t)).Build()
+	service := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "svc", Namespace: testNamespace}}
+
+	require.NoError(t, patchOrCreate(t.Context(), cl, service.DeepCopy()))
+	require.NoError(t, cl.Get(t.Context(), client.ObjectKeyFromObject(service), &corev1.Service{}))
+
+	service.Labels = map[string]string{"updated": "true"}
+	require.NoError(t, patchOrCreate(t.Context(), cl, service.DeepCopy()))
+
+	found := &corev1.Service{}
+	require.NoError(t, cl.Get(t.Context(), client.ObjectKeyFromObject(service), found))
+	require.Equal(t, "true", found.Labels["updated"])
 }

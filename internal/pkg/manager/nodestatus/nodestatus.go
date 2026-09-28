@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"reflect"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -36,6 +37,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	apparmorapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
@@ -52,6 +54,10 @@ import (
 const (
 	reconcileTimeout = 1 * time.Minute
 	dsWait           = 30 * time.Second
+
+	// nodeFinalizerSuffix is the suffix of the finalizers which the daemon of
+	// a node adds to the profiles, see util.GetFinalizerNodeString.
+	nodeFinalizerSuffix = "-deleted"
 )
 
 var (
@@ -112,6 +118,10 @@ func (r *StatusReconciler) Healthz(*http.Request) error {
 //nolint:lll // required for kubebuilder
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilenodestatuses,verbs=get;list;watch;delete
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
+//
+// The SPOd DaemonSet and its pods tell which nodes run the daemon:
+// +kubebuilder:rbac:groups=apps,namespace="security-profiles-operator",resources=daemonsets,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 
 // Reconcile reconciles a NodeStatus.
 func (r *StatusReconciler) Reconcile(
@@ -121,6 +131,57 @@ func (r *StatusReconciler) Reconcile(
 	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
 
+	if kind, name, ok := parseProfileRequest(req); ok {
+		return r.reconcileProfile(ctx, kind, util.NamespacedName(name, req.Namespace))
+	}
+
+	return r.reconcileNodeStatus(ctx, req)
+}
+
+// reconcileProfile aggregates the node statuses of a profile into the status
+// of the profile by reconciling its first node status, and removes the
+// finalizers of deleted nodes if the profile is being deleted. The events of
+// all node statuses of a profile map to this single request, so a rollout
+// over many nodes lists the statuses once per reconcile, not once per event.
+func (r *StatusReconciler) reconcileProfile(
+	ctx context.Context, kind string, key types.NamespacedName,
+) (reconcile.Result, error) {
+	list, err := listStatusesForProfile(
+		ctx, r.client, key.Namespace, util.KindNameDNSLengthName(kind, key.Name),
+	)
+	if err != nil {
+		return reconcile.Result{}, fmt.Errorf("cannot list node statuses of profile: %w", err)
+	}
+
+	var statusResult reconcile.Result
+
+	if first := firstOwnedStatus(list, kind, key.Name); first != nil {
+		statusResult, err = r.reconcileNodeStatus(
+			ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(first)},
+		)
+		if err != nil {
+			return statusResult, err
+		}
+	}
+
+	deletionResult, err := r.reconcileDeletingProfile(ctx, kind, key)
+	if err != nil {
+		return deletionResult, err
+	}
+
+	if !statusResult.IsZero() {
+		return statusResult, nil
+	}
+
+	return deletionResult, nil
+}
+
+// reconcileNodeStatus aggregates the node statuses of the profile which owns
+// the node status of the request into the status of the profile.
+func (r *StatusReconciler) reconcileNodeStatus(
+	ctx context.Context,
+	req reconcile.Request,
+) (reconcile.Result, error) {
 	logger := r.log.WithValues("nodeStatus", req.Name, "namespace", req.Namespace)
 	logger.V(config.VerboseLevel).Info("Reconciling node status")
 
@@ -247,31 +308,19 @@ func (r *StatusReconciler) Reconcile(
 		requeue = reconcile.Result{RequeueAfter: dsWait}
 	}
 
+	// Remove the finalizers of nodes which do not exist anymore. They are
+	// taken from the profile rather than from the statuses, because a status
+	// can be gone already, for example after a failed attempt to remove the
+	// finalizer or when the garbage collector deleted it.
 	nodes := &v1.NodeList{}
 	if err := r.client.List(ctx, nodes); err != nil {
 		return reconcile.Result{}, fmt.Errorf("cannot get node list: %w", err)
 	}
 
-	currentNodeNames := make([]string, 0, len(nodes.Items))
-	for i := range nodes.Items {
-		currentNodeNames = append(currentNodeNames, nodes.Items[i].Name)
-	}
-
-	// Remove the finalizers of statuses whose node does not exist anymore.
-	for i := range nodeStatusList.Items {
-		nodeName := nodeStatusList.Items[i].Spec.NodeName
-		if slices.Contains(currentNodeNames, nodeName) {
-			continue
-		}
-
-		if err := util.RemoveFinalizer(
-			ctx,
-			r.client,
-			prof,
-			util.GetFinalizerNodeString(nodeName),
-		); err != nil {
-			return reconcile.Result{}, fmt.Errorf("cannot remove finalizer: %w", err)
-		}
+	if err := r.removeNodeFinalizers(
+		ctx, prof, deletedNodeFinalizers(prof, nodes.Items), lprof,
+	); err != nil {
+		return reconcile.Result{}, err
 	}
 
 	lowestCommonState := secprofnodestatusapi.LowestState
@@ -289,7 +338,8 @@ func (r *StatusReconciler) Reconcile(
 
 // removeStaleStatuses removes the statuses and finalizers of nodes which have
 // been deleted or no longer run a SPOd pod. It returns true if any status was
-// removed.
+// removed. The finalizer gets removed before the status, because the status is
+// what makes this path find the node again if removing the finalizer fails.
 func (r *StatusReconciler) removeStaleStatuses(
 	ctx context.Context,
 	prof client.Object,
@@ -297,54 +347,101 @@ func (r *StatusReconciler) removeStaleStatuses(
 	nodeStatusList *secprofnodestatusapi.SecurityProfileNodeStatusList,
 	logger logr.Logger,
 ) (bool, error) {
-	nodeName, err := r.removeStatusForDeletedNode(ctx, nodeStatusList, logger)
+	stale, err := r.statusesOfDeletedNodes(ctx, nodeStatusList)
 	if err != nil {
 		return false, err
 	}
 
-	var staleNodes []string
-
-	if nodeName != "" {
-		staleNodes = []string{nodeName}
-	} else {
-		staleNodes, err = r.removeStatusForUnscheduledNodes(ctx, spodDS, nodeStatusList, logger)
+	if len(stale) == 0 {
+		stale, err = r.statusesOfUnscheduledNodes(ctx, spodDS, nodeStatusList, logger)
 		if err != nil {
 			return false, err
 		}
 	}
 
-	for _, node := range staleNodes {
-		logger.Info("Removing finalizer from profile", "node", node)
+	for _, status := range stale {
+		node := status.Spec.NodeName
+		logger.Info("Removing node status and finalizer from profile", "node", node)
 
-		if err := util.RemoveFinalizer(
-			ctx, r.client, prof, util.GetFinalizerNodeString(node),
+		if err := r.removeNodeFinalizers(
+			ctx, prof, []string{util.GetFinalizerNodeString(node)}, logger,
 		); err != nil {
-			return false, fmt.Errorf("cannot remove finalizer from profile: %w", err)
+			return false, err
+		}
+
+		if err := client.IgnoreNotFound(r.client.Delete(ctx, status)); err != nil {
+			return false, fmt.Errorf("cannot delete node status: %w", err)
 		}
 	}
 
-	return len(staleNodes) > 0, nil
+	return len(stale) > 0, nil
 }
 
-// removeStatusForUnscheduledNodes removes the statuses of live nodes which do
-// not run a SPOd pod anymore. The daemon on such a node can never remove its
-// finalizer, so deleting the profile would hang forever. A node counts as not
-// running the SPOd only if the DaemonSet status proves that every node it
-// schedules to runs exactly one up to date pod, and no pod runs anywhere else.
-// Then a node without a pod, including a terminating one, is not scheduled.
-func (r *StatusReconciler) removeStatusForUnscheduledNodes(
+// removeNodeFinalizers removes the provided node finalizers from the profile.
+func (r *StatusReconciler) removeNodeFinalizers(
 	ctx context.Context,
-	spodDS *appsv1.DaemonSet,
-	nodeStatusList *secprofnodestatusapi.SecurityProfileNodeStatusList,
+	prof client.Object,
+	finalizers []string,
 	logger logr.Logger,
-) ([]string, error) {
+) error {
+	for _, finalizer := range finalizers {
+		if !controllerutil.ContainsFinalizer(prof, finalizer) {
+			continue
+		}
+
+		logger.Info("Removing node finalizer from profile", "finalizer", finalizer)
+
+		if err := util.Retry(func() error {
+			return client.IgnoreNotFound(util.RemoveFinalizer(ctx, r.client, prof, finalizer))
+		}, util.IsNotFoundOrConflict); err != nil {
+			return fmt.Errorf("cannot remove finalizer %s from profile: %w", finalizer, err)
+		}
+	}
+
+	return nil
+}
+
+// isNodeFinalizer returns true if the finalizer is one the daemon of a node
+// adds to a profile, see util.GetFinalizerNodeString. Node names cannot
+// contain a slash, while qualified finalizers like the one of partial
+// profiles do.
+func isNodeFinalizer(finalizer string) bool {
+	return strings.HasSuffix(finalizer, nodeFinalizerSuffix) && !strings.Contains(finalizer, "/")
+}
+
+// deletedNodeFinalizers returns the node finalizers of the profile which do
+// not belong to any of the provided nodes.
+func deletedNodeFinalizers(prof client.Object, nodes []v1.Node) []string {
+	existing := make(map[string]bool, len(nodes))
+	for i := range nodes {
+		existing[util.GetFinalizerNodeString(nodes[i].Name)] = true
+	}
+
+	var stale []string
+
+	for _, finalizer := range prof.GetFinalizers() {
+		if isNodeFinalizer(finalizer) && !existing[finalizer] {
+			stale = append(stale, finalizer)
+		}
+	}
+
+	return stale
+}
+
+// spodNodes returns the nodes which run a SPOd pod, including terminating
+// ones, because their daemon may still run. It returns false if the
+// DaemonSet has not settled, so that a node without a pod cannot be told
+// apart from a node whose pod is about to be created.
+func (r *StatusReconciler) spodNodes(
+	ctx context.Context, spodDS *appsv1.DaemonSet,
+) (nodes map[string]bool, settled bool, err error) {
 	if spodDS.Spec.Selector == nil {
-		return nil, nil
+		return nil, false, nil
 	}
 
 	selector, err := metav1.LabelSelectorAsSelector(spodDS.Spec.Selector)
 	if err != nil {
-		return nil, fmt.Errorf("cannot parse SPOd selector: %w", err)
+		return nil, false, fmt.Errorf("cannot parse SPOd selector: %w", err)
 	}
 
 	pods := &v1.PodList{}
@@ -352,43 +449,52 @@ func (r *StatusReconciler) removeStatusForUnscheduledNodes(
 		client.InNamespace(spodDS.Namespace),
 		client.MatchingLabelsSelector{Selector: selector},
 	); err != nil {
-		return nil, fmt.Errorf("cannot list SPOd pods: %w", err)
+		return nil, false, fmt.Errorf("cannot list SPOd pods: %w", err)
 	}
 
-	// Terminating pods count as present: their daemon may still run.
-	spodNodes := make(map[string]bool, len(pods.Items))
+	nodes = make(map[string]bool, len(pods.Items))
 
 	for i := range pods.Items {
 		if pods.Items[i].Spec.NodeName != "" {
-			spodNodes[pods.Items[i].Spec.NodeName] = true
+			nodes[pods.Items[i].Spec.NodeName] = true
 		}
 	}
 
-	if !daemonSetSettled(spodDS, len(spodNodes)) {
+	return nodes, daemonSetSettled(spodDS, len(nodes)), nil
+}
+
+// statusesOfUnscheduledNodes returns the statuses of live nodes which do not
+// run a SPOd pod anymore. The daemon on such a node can never remove its
+// finalizer, so deleting the profile would hang forever. A node counts as not
+// running the SPOd only if the DaemonSet status proves that every node it
+// schedules to runs exactly one up to date pod, and no pod runs anywhere else.
+// Then a node without a pod, including a terminating one, is not scheduled.
+func (r *StatusReconciler) statusesOfUnscheduledNodes(
+	ctx context.Context,
+	spodDS *appsv1.DaemonSet,
+	nodeStatusList *secprofnodestatusapi.SecurityProfileNodeStatusList,
+	logger logr.Logger,
+) ([]*secprofnodestatusapi.SecurityProfileNodeStatus, error) {
+	spodNodes, settled, err := r.spodNodes(ctx, spodDS)
+	if err != nil {
+		return nil, err
+	}
+
+	if !settled {
 		logger.Info("Not removing statuses of live nodes while the SPOd is not settled")
 
 		return nil, nil
 	}
 
-	var removed []string
+	var stale []*secprofnodestatusapi.SecurityProfileNodeStatus
 
 	for i := range nodeStatusList.Items {
-		nodeName := nodeStatusList.Items[i].Spec.NodeName
-		if spodNodes[nodeName] {
-			continue
+		if !spodNodes[nodeStatusList.Items[i].Spec.NodeName] {
+			stale = append(stale, &nodeStatusList.Items[i])
 		}
-
-		logger.Info("Removing node status for node without SPOd pod", "node", nodeName)
-
-		err := r.client.Delete(ctx, &nodeStatusList.Items[i])
-		if client.IgnoreNotFound(err) != nil {
-			return nil, fmt.Errorf("cannot delete node status: %w", err)
-		}
-
-		removed = append(removed, nodeName)
 	}
 
-	return removed, nil
+	return stale, nil
 }
 
 // daemonSetSettled returns true if the status of the DaemonSet is current and
@@ -405,10 +511,14 @@ func daemonSetSettled(ds *appsv1.DaemonSet, podNodes int) bool {
 		int32(podNodes) == status.DesiredNumberScheduled
 }
 
-// removeStatusForDeletedNode removes the status for a node that has been deleted.
-func (r *StatusReconciler) removeStatusForDeletedNode(ctx context.Context,
-	nodeStatusList *secprofnodestatusapi.SecurityProfileNodeStatusList, logger logr.Logger,
-) (string, error) {
+// statusesOfDeletedNodes returns the statuses of nodes which have been
+// deleted.
+func (r *StatusReconciler) statusesOfDeletedNodes(
+	ctx context.Context,
+	nodeStatusList *secprofnodestatusapi.SecurityProfileNodeStatusList,
+) ([]*secprofnodestatusapi.SecurityProfileNodeStatus, error) {
+	var stale []*secprofnodestatusapi.SecurityProfileNodeStatus
+
 	for i := range nodeStatusList.Items {
 		nodeName := nodeStatusList.Items[i].Spec.NodeName
 		node := &v1.Node{}
@@ -416,21 +526,96 @@ func (r *StatusReconciler) removeStatusForDeletedNode(ctx context.Context,
 		if err := r.client.Get(ctx, types.NamespacedName{Name: nodeName}, node); err != nil {
 			// Only a NotFound proves the node is gone. Treating a Conflict as
 			// deletion would strip the finalizer of a live node's status.
-			if kerrors.IsNotFound(err) {
-				logger.Info("Removing node status for removed node", "node", nodeName)
-
-				if err := r.client.Delete(ctx, &nodeStatusList.Items[i]); err != nil {
-					return "", fmt.Errorf("cannot delete node status: %w", err)
-				}
-
-				return nodeName, nil
+			if !kerrors.IsNotFound(err) {
+				return nil, fmt.Errorf("cannot get node: %w", err)
 			}
 
-			return "", fmt.Errorf("cannot get node: %w", err)
+			stale = append(stale, &nodeStatusList.Items[i])
 		}
 	}
 
-	return "", nil
+	return stale, nil
+}
+
+// reconcileDeletingProfile removes the node finalizers of a profile which is
+// being deleted and whose daemon cannot remove them anymore, because the node
+// is gone or does not run a SPOd pod. Such a profile may have no status left
+// to reconcile, for example after a foreground deletion, so it is reconciled
+// on its own.
+func (r *StatusReconciler) reconcileDeletingProfile(
+	ctx context.Context, kind string, key types.NamespacedName,
+) (reconcile.Result, error) {
+	logger := r.log.WithValues("profile", key.Name, "namespace", key.Namespace, "kind", kind)
+
+	prof, err := newProfile(kind)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+
+	if err := r.client.Get(ctx, key, prof); err != nil {
+		return reconcile.Result{}, client.IgnoreNotFound(err)
+	}
+
+	if prof.GetDeletionTimestamp().IsZero() {
+		return reconcile.Result{}, nil
+	}
+
+	nodes := &v1.NodeList{}
+	if err := r.client.List(ctx, nodes); err != nil {
+		return reconcile.Result{}, fmt.Errorf("cannot get node list: %w", err)
+	}
+
+	stale := deletedNodeFinalizers(prof, nodes.Items)
+
+	spodDS, err := r.getDS(ctx, config.GetOperatorNamespace(), logger)
+	if err != nil {
+		return reconcile.Result{}, fmt.Errorf("cannot get the DS: %w", err)
+	}
+
+	spodNodes, settled, err := r.spodNodes(ctx, spodDS)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+
+	if settled {
+		for i := range nodes.Items {
+			if !spodNodes[nodes.Items[i].Name] {
+				stale = append(stale, util.GetFinalizerNodeString(nodes.Items[i].Name))
+			}
+		}
+	}
+
+	if err := r.removeNodeFinalizers(ctx, prof, stale, logger); err != nil {
+		return reconcile.Result{}, err
+	}
+
+	// Check again once the DaemonSet settled. The daemons of the remaining
+	// nodes remove their finalizers on their own.
+	if !settled && slices.ContainsFunc(prof.GetFinalizers(), isNodeFinalizer) {
+		return reconcile.Result{RequeueAfter: dsWait}, nil
+	}
+
+	return reconcile.Result{}, nil
+}
+
+// profileRequestSeparator separates the kind and the name of a profile in a
+// profile request. Object names cannot contain it, so a profile request never
+// collides with the request of a node status.
+const profileRequestSeparator = "/"
+
+// profileRequest returns the request which reconciles the profile of the
+// provided kind and name itself, rather than one of its node statuses.
+func profileRequest(kind, namespace, name string) reconcile.Request {
+	return reconcile.Request{NamespacedName: types.NamespacedName{
+		Namespace: namespace,
+		Name:      kind + profileRequestSeparator + name,
+	}}
+}
+
+// parseProfileRequest returns the kind and name of the profile if the request
+// is a profile request.
+func parseProfileRequest(req reconcile.Request) (kind, name string, ok bool) {
+	return strings.Cut(req.Name, profileRequestSeparator)
 }
 
 func (r *StatusReconciler) getDS(
@@ -464,19 +649,9 @@ func (r *StatusReconciler) getProfileFromStatus(
 		Namespace: s.GetNamespace(),
 	}
 
-	var prof profilebaseapi.StatusBaseUser
-
-	switch ctrl.Kind {
-	case "SeccompProfile":
-		prof = &seccompprofileapi.SeccompProfile{}
-	case "SelinuxProfile":
-		prof = &selinuxprofileapi.SelinuxProfile{}
-	case "RawSelinuxProfile":
-		prof = &selinuxprofileapi.RawSelinuxProfile{}
-	case "AppArmorProfile":
-		prof = &apparmorapi.AppArmorProfile{}
-	default:
-		return nil, fmt.Errorf("getting owner profile: %w", ErrUnknownOwnerKind)
+	prof, err := newProfile(ctrl.Kind)
+	if err != nil {
+		return nil, err
 	}
 
 	if err := r.client.Get(ctx, key, prof); err != nil {
@@ -486,6 +661,26 @@ func (r *StatusReconciler) getProfileFromStatus(
 	return prof, nil
 }
 
+// newProfile returns an empty profile of the provided kind.
+func newProfile(kind string) (profilebaseapi.StatusBaseUser, error) {
+	switch kind {
+	case "SeccompProfile":
+		return &seccompprofileapi.SeccompProfile{}, nil
+	case "SelinuxProfile":
+		return &selinuxprofileapi.SelinuxProfile{}, nil
+	case "RawSelinuxProfile":
+		return &selinuxprofileapi.RawSelinuxProfile{}, nil
+	case "AppArmorProfile":
+		return &apparmorapi.AppArmorProfile{}, nil
+	default:
+		return nil, fmt.Errorf("getting owner profile: %w", ErrUnknownOwnerKind)
+	}
+}
+
+// reconcileStatus sets the aggregated state on the profile. The profile is
+// expected to come from the cache, so an unchanged status costs no request to
+// the API server. The profile is only read from the API server after a
+// conflict, which means that the cache is outdated.
 func (r *StatusReconciler) reconcileStatus(
 	ctx context.Context,
 	prof profilebaseapi.StatusBaseUser,
@@ -493,15 +688,22 @@ func (r *StatusReconciler) reconcileStatus(
 	l logr.Logger,
 ) error {
 	key := client.ObjectKeyFromObject(prof)
+	current := prof
 
-	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		current := prof.DeepCopyToStatusBaseIf()
-		if err := r.reader.Get(ctx, key, current); err != nil {
-			return client.IgnoreNotFound(err)
+	// A profile which is gone in the meantime has no status to update.
+	return client.IgnoreNotFound(retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		if current == nil {
+			current = prof.DeepCopyToStatusBaseIf()
+			if err := r.reader.Get(ctx, key, current); err != nil {
+				return client.IgnoreNotFound(err)
+			}
 		}
 
-		return r.updateProfileStatus(ctx, current, state, l)
-	})
+		err := r.updateProfileStatus(ctx, current, state, l)
+		current = nil
+
+		return err
+	}))
 }
 
 func (r *StatusReconciler) updateProfileStatus(

@@ -143,17 +143,33 @@ func TestHandleFileEvent(t *testing.T) {
 	})
 }
 
+// socketFlags returns the flags of a socket event.
+func socketFlags(domain, socketType uint64) uint64 {
+	return domain<<sockDomainShift | socketType
+}
+
 func TestHandleSocketEvent(t *testing.T) {
 	t.Parallel()
 
+	const afNetlink uint64 = 16
+
 	for name, tc := range map[string]struct {
 		flags uint64
-		want  BpfAppArmorSocketTypes
+		want  *BpfAppArmorSocketTypes
 	}{
-		"raw":                                 {flags: sockRaw, want: BpfAppArmorSocketTypes{UseRaw: true}},
-		"stream":                              {flags: sockStream, want: BpfAppArmorSocketTypes{UseTCP: true}},
-		"dgram":                               {flags: sockDgram, want: BpfAppArmorSocketTypes{UseUDP: true}},
-		"unknown socket type records nothing": {flags: 0, want: BpfAppArmorSocketTypes{}},
+		"raw":   {flags: socketFlags(afInet, sockRaw), want: &BpfAppArmorSocketTypes{UseRaw: true}},
+		"tcp":   {flags: socketFlags(afInet, sockStream), want: &BpfAppArmorSocketTypes{UseTCP: true}},
+		"udp":   {flags: socketFlags(afInet, sockDgram), want: &BpfAppArmorSocketTypes{UseUDP: true}},
+		"tcp6":  {flags: socketFlags(afInet6, sockStream), want: &BpfAppArmorSocketTypes{UseTCP: true}},
+		"udp6":  {flags: socketFlags(afInet6, sockDgram), want: &BpfAppArmorSocketTypes{UseUDP: true}},
+		"raw6":  {flags: socketFlags(afInet6, sockRaw), want: &BpfAppArmorSocketTypes{UseRaw: true}},
+		"unix":  {flags: socketFlags(afUnix, sockStream)},
+		"unixd": {flags: socketFlags(afUnix, sockDgram)},
+		// The raw rule is the only one which allows netlink sockets.
+		"netlink raw":   {flags: socketFlags(afNetlink, sockRaw), want: &BpfAppArmorSocketTypes{UseRaw: true}},
+		"netlink dgram": {flags: socketFlags(afNetlink, sockDgram)},
+		// An unknown socket type records nothing.
+		"no type": {flags: socketFlags(afInet, 0)},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -161,7 +177,7 @@ func TestHandleSocketEvent(t *testing.T) {
 			sut := newTestAppArmorRecorder()
 			sut.handleSocketEvent(&bpfEvent{Key: testKey, Flags: tc.flags})
 
-			require.Equal(t, &tc.want, sut.recordedSocketsUse[recordingKey(testKey)])
+			require.Equal(t, tc.want, sut.recordedSocketsUse[recordingKey(testKey)])
 		})
 	}
 
@@ -169,8 +185,8 @@ func TestHandleSocketEvent(t *testing.T) {
 		t.Parallel()
 
 		sut := newTestAppArmorRecorder()
-		sut.handleSocketEvent(&bpfEvent{Key: testKey, Flags: sockStream})
-		sut.handleSocketEvent(&bpfEvent{Key: testKey, Flags: sockDgram})
+		sut.handleSocketEvent(&bpfEvent{Key: testKey, Flags: socketFlags(afInet, sockStream)})
+		sut.handleSocketEvent(&bpfEvent{Key: testKey, Flags: socketFlags(afInet6, sockDgram)})
 
 		require.Equal(t,
 			&BpfAppArmorSocketTypes{UseTCP: true, UseUDP: true},
@@ -181,8 +197,10 @@ func TestHandleSocketEvent(t *testing.T) {
 		t.Parallel()
 
 		sut := newTestAppArmorRecorder()
-		// High bits carry unrelated information and must not change the type.
-		sut.handleSocketEvent(&bpfEvent{Key: testKey, Flags: 0xFFF0 | sockDgram})
+		// SOCK_NONBLOCK and SOCK_CLOEXEC must not change the type.
+		sut.handleSocketEvent(
+			&bpfEvent{Key: testKey, Flags: socketFlags(afInet, 0x80800|sockDgram)},
+		)
 
 		require.Equal(t,
 			&BpfAppArmorSocketTypes{UseUDP: true},
@@ -221,7 +239,7 @@ func TestClearKey(t *testing.T) {
 
 	sut := newTestAppArmorRecorder()
 	sut.handleFileEvent(fileEvent(testKey, flagRead, "/setup"))
-	sut.handleSocketEvent(&bpfEvent{Key: testKey, Flags: sockStream})
+	sut.handleSocketEvent(&bpfEvent{Key: testKey, Flags: socketFlags(afInet, sockStream)})
 	sut.handleCapabilityEvent(&bpfEvent{Key: testKey, Flags: 1})
 
 	// An unrelated key must survive.
@@ -284,7 +302,7 @@ func TestGetAppArmorProcessed(t *testing.T) {
 		t.Parallel()
 
 		sut := newTestAppArmorRecorder()
-		sut.handleSocketEvent(&bpfEvent{Key: testKey, Flags: sockRaw})
+		sut.handleSocketEvent(&bpfEvent{Key: testKey, Flags: socketFlags(afInet, sockRaw)})
 		sut.handleCapabilityEvent(&bpfEvent{Key: testKey, Flags: 1})
 
 		got, ok := sut.GetAppArmorProcessed(keys)
@@ -298,7 +316,7 @@ func TestGetAppArmorProcessed(t *testing.T) {
 		t.Parallel()
 
 		sut := newTestAppArmorRecorder()
-		sut.handleSocketEvent(&bpfEvent{Key: testKey, Flags: sockStream})
+		sut.handleSocketEvent(&bpfEvent{Key: testKey, Flags: socketFlags(afInet, sockStream)})
 		sut.handleCapabilityEvent(&bpfEvent{Key: testKey, Flags: 1})
 
 		first, ok := sut.GetAppArmorProcessed(keys)
@@ -323,8 +341,8 @@ func TestGetAppArmorProcessed(t *testing.T) {
 		sut := newTestAppArmorRecorder()
 		sut.handleFileEvent(fileEvent(1, flagRead, "/data/file"))
 		sut.handleFileEvent(fileEvent(2, flagWrite, "/data/file"))
-		sut.handleSocketEvent(&bpfEvent{Key: 1, Flags: sockStream})
-		sut.handleSocketEvent(&bpfEvent{Key: 2, Flags: sockDgram})
+		sut.handleSocketEvent(&bpfEvent{Key: 1, Flags: socketFlags(afInet, sockStream)})
+		sut.handleSocketEvent(&bpfEvent{Key: 2, Flags: socketFlags(afInet, sockDgram)})
 		sut.handleCapabilityEvent(&bpfEvent{Key: 1, Flags: 1})
 		sut.handleCapabilityEvent(&bpfEvent{Key: 2, Flags: 1})
 		sut.handleCapabilityEvent(&bpfEvent{Key: 2, Flags: 7})

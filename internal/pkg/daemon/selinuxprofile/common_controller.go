@@ -35,7 +35,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
@@ -84,6 +86,7 @@ const (
 	reasonCannotUpdatePolicyStatus string = "CannotUpdatePolicyStatus"
 	reasonInstalledPolicy          string = "SavedSelinuxPolicy"
 	reasonCannotReloadPolicy       string = "CannotReloadSelinuxPolicy"
+	reasonPolicyNameConflict       string = "SelinuxPolicyNameConflict"
 )
 
 const (
@@ -131,13 +134,93 @@ type ReconcileSelinux struct {
 	nodeName string
 }
 
-func (r *ReconcileSelinux) policyPath(sp selinuxprofileapi.SelinuxProfileObject) string {
-	dir := bindata.SelinuxDropDirectory
+// policyDirectory returns the directory selinuxd picks up policies from.
+func (r *ReconcileSelinux) policyDirectory() string {
 	if r.policyDir != "" {
-		dir = r.policyDir
+		return r.policyDir
 	}
 
-	return filepath.Join(dir, filepath.Clean(sp.GetPolicyName()+".cil"))
+	return bindata.SelinuxDropDirectory
+}
+
+func (r *ReconcileSelinux) policyPath(sp selinuxprofileapi.SelinuxProfileObject) string {
+	return filepath.Join(r.policyDirectory(), filepath.Clean(sp.GetPolicyName()+".cil"))
+}
+
+// existenceChangedPredicate passes the creation and removal of objects.
+var existenceChangedPredicate = predicate.Funcs{
+	UpdateFunc:  func(event.UpdateEvent) bool { return false },
+	GenericFunc: func(event.GenericEvent) bool { return false },
+}
+
+// kindOf returns the kind of a profile. Objects read without the cache do
+// not carry their TypeMeta.
+func kindOf(sp selinuxprofileapi.SelinuxProfileObject) string {
+	switch sp.(type) {
+	case *selinuxprofileapi.SelinuxProfile:
+		return "SelinuxProfile"
+	case *selinuxprofileapi.RawSelinuxProfile:
+		return "RawSelinuxProfile"
+	}
+
+	return sp.GetObjectKind().GroupVersionKind().Kind
+}
+
+// otherKind returns an empty profile of the kind which shares policy names
+// with sp: a SelinuxProfile and a RawSelinuxProfile of the same name get the
+// same policy name, and so the same policy file and module.
+func otherKind(sp selinuxprofileapi.SelinuxProfileObject) selinuxprofileapi.SelinuxProfileObject {
+	switch sp.(type) {
+	case *selinuxprofileapi.SelinuxProfile:
+		return &selinuxprofileapi.RawSelinuxProfile{}
+	case *selinuxprofileapi.RawSelinuxProfile:
+		return &selinuxprofileapi.SelinuxProfile{}
+	}
+
+	return nil
+}
+
+// ownsPolicyBefore returns true if profile a takes precedence over profile b
+// for the policy name they share. The profile created first owns it, on a tie
+// the SelinuxProfile.
+func ownsPolicyBefore(a, b selinuxprofileapi.SelinuxProfileObject) bool {
+	ta, tb := a.GetCreationTimestamp(), b.GetCreationTimestamp()
+	if !ta.Equal(&tb) {
+		return ta.Before(&tb)
+	}
+
+	_, isSelinuxProfile := a.(*selinuxprofileapi.SelinuxProfile)
+
+	return isSelinuxProfile
+}
+
+// policyOwner returns the profile of the other kind which owns the policy of
+// sp, and false if sp owns it. Unlike a seccomp profile, a disabled profile or
+// one which is being deleted keeps the policy: the other profile only takes it
+// over once the owner removed the policy from the nodes and is gone, so that
+// the removal cannot delete the policy of the other profile. The cache is
+// enough: the creation and removal of the other profile enqueue sp again.
+func (r *ReconcileSelinux) policyOwner(
+	ctx context.Context, sp selinuxprofileapi.SelinuxProfileObject,
+) (owner selinuxprofileapi.SelinuxProfileObject, found bool, err error) {
+	other := otherKind(sp)
+	if other == nil {
+		return nil, false, nil
+	}
+
+	if err := r.client.Get(ctx, client.ObjectKeyFromObject(sp), other); err != nil {
+		if kerrors.IsNotFound(err) {
+			return nil, false, nil
+		}
+
+		return nil, false, fmt.Errorf("looking up %s %s: %w", kindOf(other), sp.GetName(), err)
+	}
+
+	if ownsPolicyBefore(sp, other) {
+		return nil, false, nil
+	}
+
+	return other, true, nil
 }
 
 func (r *ReconcileSelinux) selinuxModuleStorePath() string {
@@ -169,6 +252,8 @@ func (r *ReconcileSelinux) Setup(
 			},
 		},
 	}
+
+	common.RemoveStaleTempFiles(r.log, r.policyDirectory())
 
 	return r.ctrlBuilder(ctrl.NewControllerManagedBy(mgr), r)
 }
@@ -206,6 +291,7 @@ func (r *ReconcileSelinux) Healthz(req *http.Request) error {
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=rawselinuxprofiles,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=rawselinuxprofiles/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=rawselinuxprofiles/finalizers,verbs=delete;get;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons,verbs=get;list;watch
 
 // The policy reload Job is only ever created in the operator namespace, see
 // createPolicyReloadJob. Keeping this namespaced prevents a compromised node
@@ -255,6 +341,18 @@ func (r *ReconcileSelinux) Reconcile(
 			},
 			r.metrics.IncSelinuxProfileError,
 			func() (reconcile.Result, error) {
+				owner, found, err := r.policyOwner(ctx, instance)
+				if err != nil {
+					return reconcile.Result{}, err
+				}
+
+				if found {
+					reqLogger.Info("Keeping the policy of another profile",
+						"kind", kindOf(owner), "name", owner.GetName())
+
+					return reconcile.Result{}, nil
+				}
+
 				return r.reconcileDeletePolicy(ctx, instance, nodeStatus, reqLogger)
 			},
 		)
@@ -306,12 +404,38 @@ func (r *ReconcileSelinux) reconcilePolicy(
 		return reconcile.Result{RequeueAfter: selinuxdPollInterval}, nil
 	}
 
+	if sp.IsDisabled() && !sp.IsPartial() {
+		return r.reconcileDisabledPolicy(ctx, sp, nodeStatus, l)
+	}
+
 	if valErr := oh.Validate(ctx); valErr != nil {
 		return r.handleValidationError(ctx, sp, nodeStatus, valErr)
 	}
 
 	if !sp.IsReconcilable() {
-		l.Info("Profile is partial or disabled, skipping")
+		l.Info("Profile is partial, skipping")
+
+		return reconcile.Result{}, nil
+	}
+
+	owner, found, err := r.policyOwner(ctx, sp)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+
+	if found {
+		if err := r.setNodeStatus(
+			ctx, sp, nodeStatus, secprofnodestatusapi.ProfileStateError,
+		); err != nil {
+			return reconcile.Result{}, err
+		}
+
+		// The watch on the other kind enqueues this profile once the owner
+		// is gone.
+		r.reportError(sp, reasonPolicyNameConflict, util.EventActionInstall, fmt.Sprintf(
+			"Policy %q of %s %s is already used by %s %s, rename one of them",
+			sp.GetPolicyName(), kindOf(sp), sp.GetName(), kindOf(owner), owner.GetName(),
+		))
 
 		return reconcile.Result{}, nil
 	}
@@ -417,25 +541,39 @@ func (r *ReconcileSelinux) reconcilePolicy(
 		return reconcile.Result{}, fmt.Errorf("looking up policy status: %w", err)
 	}
 
-	var polState secprofnodestatusapi.ProfileState
+	var (
+		polState  secprofnodestatusapi.ProfileState
+		reloadRes reconcile.Result
+		reloadErr error
+	)
 
 	switch polStatus.Status {
 	case installedStatus:
 		polState = secprofnodestatusapi.ProfileStateInstalled
-		evstr := "Successfully saved profile to disk on " + r.nodeName
 
-		r.metrics.IncSelinuxProfileUpdate()
-		r.record.Eventf(
-			sp,
-			nil,
-			util.EventTypeNormal,
-			reasonInstalledPolicy,
-			util.EventActionInstall,
-			"%s",
-			evstr,
-		)
+		// A retried reload passes here again, which must not report the
+		// installation again.
+		alreadyInstalled, err := nodeStatus.Matches(ctx, polState)
+		if err != nil {
+			l.Error(err, "Cannot get the current node status")
+		}
 
-		r.reloadInstalledPolicy(ctx, sp, nodeStatus, l)
+		if !alreadyInstalled {
+			evstr := "Successfully saved profile to disk on " + r.nodeName
+
+			r.metrics.IncSelinuxProfileUpdate()
+			r.record.Eventf(
+				sp,
+				nil,
+				util.EventTypeNormal,
+				reasonInstalledPolicy,
+				util.EventActionInstall,
+				"%s",
+				evstr,
+			)
+		}
+
+		reloadRes, reloadErr = r.reloadInstalledPolicy(ctx, sp, nodeStatus, l)
 	case failedStatus:
 		polState = secprofnodestatusapi.ProfileStateError
 		evstr := fmt.Sprintf(
@@ -452,6 +590,73 @@ func (r *ReconcileSelinux) reconcilePolicy(
 	if err := r.setNodeStatus(ctx, sp, nodeStatus, polState); err != nil {
 		return reconcile.Result{}, err
 	}
+
+	return reloadRes, reloadErr
+}
+
+// reconcileDisabledPolicy removes the policy of a disabled profile, which the
+// node may have installed before the profile got disabled.
+func (r *ReconcileSelinux) reconcileDisabledPolicy(
+	ctx context.Context,
+	sp selinuxprofileapi.SelinuxProfileObject,
+	nodeStatus *nodestatus.StatusClient,
+	l logr.Logger,
+) (reconcile.Result, error) {
+	state, err := nodeStatus.State(ctx)
+	if err != nil {
+		return reconcile.Result{}, fmt.Errorf("getting node status: %w", err)
+	}
+
+	_, statErr := os.Stat(r.policyPath(sp))
+	if statErr != nil && !os.IsNotExist(statErr) {
+		return reconcile.Result{}, fmt.Errorf("checking policy file: %w", statErr)
+	}
+
+	// The node status moves past pending only after the policy file got
+	// written, see conflictsWithSystemModule.
+	installed := statErr == nil ||
+		state == secprofnodestatusapi.ProfileStateInProgress ||
+		state == secprofnodestatusapi.ProfileStateInstalled
+
+	if installed {
+		_, found, err := r.policyOwner(ctx, sp)
+		if err != nil {
+			return reconcile.Result{}, err
+		}
+
+		// The policy belongs to the other profile.
+		installed = !found
+	}
+
+	if installed {
+		// Removing the module breaks the pods which run with its types.
+		if common.InUse(sp) {
+			l.Info("Not removing disabled policy which is in use by pods, requeuing")
+
+			return reconcile.Result{RequeueAfter: common.InUseRetry}, nil
+		}
+
+		res, err := r.reconcileDeletePolicy(ctx, sp, nodeStatus, l)
+		if err != nil {
+			r.reportError(sp, reasonCannotRemovePolicy, util.EventActionRemove, err.Error())
+
+			return res, fmt.Errorf("removing disabled policy: %w", err)
+		}
+
+		if res.RequeueAfter > 0 {
+			return res, nil
+		}
+	}
+
+	if state != secprofnodestatusapi.ProfileStateDisabled {
+		if err := r.setNodeStatus(
+			ctx, sp, nodeStatus, secprofnodestatusapi.ProfileStateDisabled,
+		); err != nil {
+			return reconcile.Result{}, err
+		}
+	}
+
+	l.Info("Profile is disabled")
 
 	return reconcile.Result{}, nil
 }
@@ -602,14 +807,16 @@ func (r *ReconcileSelinux) inheritedProfilesInstalled(
 
 // reloadInstalledPolicy creates a job which reloads the kernel policy after
 // the installation of a new policy generation. On RHEL 9 and OpenShift 4.20+,
-// semodule -i no longer reloads the in-memory policy. A failure does not fail
-// the reconcile: the policy is installed, just not reloaded yet.
+// semodule -i no longer reloads the in-memory policy. The policy is installed
+// even if this fails, just not reloaded yet, so the reload gets retried: with
+// backoff if the job cannot be created, and after reloadJobRetryInterval if
+// another reload job of the policy is still running.
 func (r *ReconcileSelinux) reloadInstalledPolicy(
 	ctx context.Context,
 	sp selinuxprofileapi.SelinuxProfileObject,
 	nodeStatus *nodestatus.StatusClient,
 	l logr.Logger,
-) {
+) (reconcile.Result, error) {
 	reloadGeneration := strconv.FormatInt(sp.GetGeneration(), 10)
 
 	lastReloadGeneration, err := nodeStatus.GetAnnotation(ctx, reloadInstallGenerationAnnotation)
@@ -621,7 +828,7 @@ func (r *ReconcileSelinux) reloadInstalledPolicy(
 		l.Info("Reload already performed for policy generation, skipping",
 			"generation", reloadGeneration, "policyName", sp.GetPolicyName())
 
-		return
+		return reconcile.Result{}, nil
 	}
 
 	jobCreated, err := r.createPolicyReloadJob(ctx, sp.GetPolicyName(), "install", l)
@@ -641,13 +848,13 @@ func (r *ReconcileSelinux) reloadInstalledPolicy(
 			err.Error(),
 		)
 
-		return
+		return reconcile.Result{}, fmt.Errorf("creating policy reload job: %w", err)
 	}
 
-	// If no job was created because a recent one exists, the annotation is
-	// left alone so that the next reconcile retries.
+	// The running job may have started before the policy got installed, so
+	// the reload has to happen after it. Nothing else triggers a reconcile.
 	if !jobCreated {
-		return
+		return reconcile.Result{RequeueAfter: reloadJobRetryInterval}, nil
 	}
 
 	if err := nodeStatus.SetAnnotation(
@@ -657,6 +864,8 @@ func (r *ReconcileSelinux) reloadInstalledPolicy(
 	); err != nil {
 		l.Error(err, "Failed to set reload generation annotation")
 	}
+
+	return reconcile.Result{}, nil
 }
 
 // reconcilePolicyFile writes the policy file to the drop directory if the content differs.
@@ -720,29 +929,41 @@ func (r *ReconcileSelinux) reconcileDeletePolicy(
 		if lastReloadGeneration == reloadGeneration {
 			l.Info("Reload already performed for policy removal, skipping",
 				"generation", reloadGeneration, "policyName", sp.GetPolicyName())
-		} else {
-			jobCreated, err := r.createPolicyReloadJob(ctx, sp.GetPolicyName(), "remove", l)
-			if err != nil {
-				l.Error(err, "Failed to create policy reload job after removal")
-				r.record.Eventf(
-					sp,
-					nil,
-					util.EventTypeWarning,
-					reasonCannotReloadPolicy,
-					util.EventActionRemove,
-					"%s",
-					fmt.Sprintf("Failed to create policy reload job after removal on %s: %s",
-						r.nodeName, err.Error()),
-				)
-			} else if jobCreated {
-				if err := nodeStatus.SetAnnotation(
-					ctx,
-					reloadRemoveGenerationAnnotation,
-					reloadGeneration,
-				); err != nil {
-					l.Error(err, "Failed to set reload generation annotation after removal")
-				}
-			}
+
+			return reconcile.Result{}, nil
+		}
+
+		jobCreated, err := r.createPolicyReloadJob(ctx, sp.GetPolicyName(), "remove", l)
+		if err != nil {
+			// Unlike a running job, a failure to create one may not go
+			// away, and it must not keep the profile from being removed.
+			l.Error(err, "Failed to create policy reload job after removal")
+			r.record.Eventf(
+				sp,
+				nil,
+				util.EventTypeWarning,
+				reasonCannotReloadPolicy,
+				util.EventActionRemove,
+				"%s",
+				fmt.Sprintf("Failed to create policy reload job after removal on %s: %s",
+					r.nodeName, err.Error()),
+			)
+
+			return reconcile.Result{}, nil
+		}
+
+		// The running job may have started before the module got removed,
+		// so the reload has to happen after it.
+		if !jobCreated {
+			return reconcile.Result{RequeueAfter: reloadJobRetryInterval}, nil
+		}
+
+		if err := nodeStatus.SetAnnotation(
+			ctx,
+			reloadRemoveGenerationAnnotation,
+			reloadGeneration,
+		); err != nil {
+			l.Error(err, "Failed to set reload generation annotation after removal")
 		}
 
 		return reconcile.Result{}, nil

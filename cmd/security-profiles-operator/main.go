@@ -33,6 +33,7 @@ import (
 	"time"
 
 	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
+	"github.com/go-logr/logr"
 	configv1 "github.com/openshift/api/config/v1"
 	tlspkg "github.com/openshift/controller-runtime-common/pkg/tls"
 	libgocrypto "github.com/openshift/library-go/pkg/crypto"
@@ -50,6 +51,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsfilters "sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -123,8 +125,11 @@ const (
 )
 
 var (
-	sync     = time.Second * 30
-	setupLog = ctrl.Log.WithName("setup")
+	// daemonSyncPeriod is the resync period of the daemon cache. The manager
+	// and the webhook use the default of controller-runtime, because every
+	// resync reconciles all objects of the cluster there.
+	daemonSyncPeriod = time.Second * 30
+	setupLog         = ctrl.Log.WithName("setup")
 
 	// ErrTLSConfigChanged is returned when TLS configuration has changed and requires a restart.
 	ErrTLSConfigChanged = errors.New("TLS configuration changed, restart required")
@@ -550,7 +555,9 @@ func runManager(ctx *cli.Context, info *version.Info) error {
 
 	gracefulShutdownTimeout := 30 * time.Second
 	ctrlOpts := manager.Options{
-		Cache:                         cache.Options{SyncPeriod: &sync},
+		Cache: cache.Options{
+			DefaultTransform: cache.TransformStripManagedFields(),
+		},
 		LeaderElection:                true,
 		LeaderElectionID:              "security-profiles-operator-lock",
 		LeaderElectionReleaseOnCancel: true,
@@ -774,7 +781,7 @@ func newDaemonCache(ctx *cli.Context) cache.NewCacheFunc {
 	}
 
 	return func(restConfig *rest.Config, opts cache.Options) (cache.Cache, error) {
-		opts.SyncPeriod = &sync
+		opts.SyncPeriod = &daemonSyncPeriod
 		opts.ByObject = map[client.Object]cache.ByObject{&corev1.Pod{}: byPod}
 		opts.DefaultLabelSelector = labels.Everything()
 
@@ -1083,7 +1090,7 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 	}
 
 	ctrlOpts := ctrl.Options{
-		Cache:                  cache.Options{SyncPeriod: &sync},
+		Cache:                  cache.Options{SyncPeriod: &daemonSyncPeriod},
 		HealthProbeBindAddress: fmt.Sprintf(":%d", config.HealthProbePort),
 		NewCache:               newDaemonCache(ctx),
 		Metrics: metricsserver.Options{
@@ -1243,23 +1250,47 @@ func runNonRootEnabler(ctx *cli.Context, info *version.Info) error {
 		return fmt.Errorf("getting config: %w", err)
 	}
 
-	mgr, err := ctrl.NewManager(cfg, ctrl.Options{})
+	// A single read of the node needs no cache.
+	c, err := client.New(cfg, client.Options{})
 	if err != nil {
-		return fmt.Errorf("creating manager: %w", err)
+		return fmt.Errorf("creating client: %w", err)
 	}
 
 	logger := ctrl.Log.WithName(component)
 
-	// The operator ignores the same invalid labels, so the default kubelet
-	// directory is the one mounted for such nodes.
-	kubeletDir, err := util.GetKubeletDirFromNodeLabel(ctx.Context, mgr.GetAPIReader())
+	kubeletDir, err := nonRootEnablerKubeletDir(ctx.Context, logger, c)
 	if err != nil {
-		kubeletDir = config.KubeletDir()
-		logger.Info("Using the default kubelet directory", "dir", kubeletDir, "reason", err.Error())
+		return err
 	}
 
 	return nonrootenabler.New().
 		Run(logger, containerRuntime, kubeletDir, apparmor)
+}
+
+// nonRootEnablerKubeletDir returns the kubelet directory of the node from its
+// label. The operator ignores the same missing or invalid labels, so the
+// default kubelet directory is the one mounted for such nodes. That default
+// deliberately does not come from the kubelet configuration persisted on the
+// node, which still holds the directory of a label that got removed. Failing
+// to read the node is returned, so that the init container gets restarted
+// rather than using the wrong directory.
+func nonRootEnablerKubeletDir(
+	ctx context.Context, logger logr.Logger, c client.Reader,
+) (string, error) {
+	kubeletDir, err := util.GetKubeletDirFromNodeLabel(ctx, c)
+	if err == nil {
+		return kubeletDir, nil
+	}
+
+	if !errors.Is(err, util.ErrKubeletDirLabelNotFound) &&
+		!errors.Is(err, util.ErrInvalidKubeletDirLabel) {
+		return "", fmt.Errorf("getting the kubelet directory of the node: %w", err)
+	}
+
+	kubeletDir = config.DefaultKubeletDir()
+	logger.Info("Using the default kubelet directory", "dir", kubeletDir, "reason", err.Error())
+
+	return kubeletDir, nil
 }
 
 func runWebhook(ctx *cli.Context, info *version.Info) error {
@@ -1296,17 +1327,24 @@ func runWebhook(ctx *cli.Context, info *version.Info) error {
 
 	webhookServer := webhook.NewServer(webhookServerOptions)
 
+	// The webhook is stateless and every replica serves requests, so no
+	// leader election is required.
 	ctrlOpts := manager.Options{
-		Cache:            cache.Options{SyncPeriod: &sync},
-		LeaderElection:   true,
-		LeaderElectionID: "security-profiles-operator-webhook-lock",
-		WebhookServer:    webhookServer,
-		Metrics:          secureMetricsOptions(&tlsCfg),
+		Cache: cache.Options{
+			DefaultTransform: cache.TransformStripManagedFields(),
+		},
+		HealthProbeBindAddress: fmt.Sprintf(":%d", config.HealthProbePort),
+		WebhookServer:          webhookServer,
+		Metrics:                secureMetricsOptions(&tlsCfg),
 	}
 
 	mgr, err := ctrl.NewManager(cfg, ctrlOpts)
 	if err != nil {
 		return fmt.Errorf("create cluster manager: %w", err)
+	}
+
+	if err := addWebhookHealthChecks(mgr, webhookServer); err != nil {
+		return err
 	}
 
 	// Register OpenShift config API for TLS watcher (watches APIServer resource for TLS profile changes)
@@ -1390,6 +1428,21 @@ func addCacheSyncReadyzCheck(mgr ctrl.Manager) error {
 	}
 
 	return nil
+}
+
+// addWebhookHealthChecks makes a webhook replica ready once its server
+// accepts connections and its caches are synced, so that the service only
+// sends admission requests to replicas which can answer them.
+func addWebhookHealthChecks(mgr ctrl.Manager, server webhook.Server) error {
+	if err := mgr.AddHealthzCheck("ping", healthz.Ping); err != nil {
+		return fmt.Errorf("add webhook health check: %w", err)
+	}
+
+	if err := mgr.AddReadyzCheck("webhook", server.StartedChecker()); err != nil {
+		return fmt.Errorf("add webhook readiness check: %w", err)
+	}
+
+	return addCacheSyncReadyzCheck(mgr)
 }
 
 func setupEnabledControllers(

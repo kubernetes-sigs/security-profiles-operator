@@ -208,7 +208,11 @@ func (r *Reconciler) reconcileAppArmorProfile(
 	// enforced, so neither may be loaded into the kernel. The seccomp and SELinux
 	// reconcilers make the same check.
 	if !sp.IsReconcilable() {
-		l.Info("Profile is partial or disabled, skipping")
+		if sp.IsDisabled() && !sp.IsPartial() {
+			return r.reconcileDisabled(ctx, sp, nodeStatus, l)
+		}
+
+		l.Info("Profile is partial, skipping")
 
 		return reconcile.Result{}, nil
 	}
@@ -283,6 +287,56 @@ func (r *Reconciler) reconcileAppArmorProfile(
 			"%s",
 			evstr,
 		)
+	}
+
+	return reconcile.Result{}, nil
+}
+
+// reconcileDisabled unloads a disabled profile, which the node may have
+// loaded before it got disabled.
+func (r *Reconciler) reconcileDisabled(
+	ctx context.Context,
+	sp *apparmorprofileapi.AppArmorProfile,
+	nodeStatus *nodestatus.StatusClient,
+	l logr.Logger,
+) (reconcile.Result, error) {
+	state, err := nodeStatus.State(ctx)
+	if err != nil {
+		return reconcile.Result{}, fmt.Errorf("getting node status: %w", err)
+	}
+
+	if state == secprofnodestatusapi.ProfileStateDisabled {
+		l.Info("Profile is disabled, skipping")
+
+		return reconcile.Result{}, nil
+	}
+
+	// Unloading a profile unconfines the processes which run with it.
+	if common.InUse(sp) {
+		l.Info("Not unloading disabled profile which is in use by pods, requeuing")
+
+		return reconcile.Result{RequeueAfter: common.InUseRetry}, nil
+	}
+
+	// This only removes a profile which this operator installed.
+	if err := r.handleDeletion(ctx, sp, nodeStatus); err != nil {
+		l.Error(err, "cannot unload disabled profile")
+		r.reportError(sp, reasonCannotUnloadProfile, util.EventActionRemove, err)
+
+		return reconcile.Result{}, fmt.Errorf("unloading disabled profile: %w", err)
+	}
+
+	// The profile is not ours anymore until it gets installed again.
+	if err := nodeStatus.SetAnnotation(ctx, installedAnnotation, ""); err != nil {
+		r.reportError(sp, common.ReasonCannotUpdateStatus, util.EventActionUpdate, err)
+
+		return reconcile.Result{}, fmt.Errorf("recording profile removal: %w", err)
+	}
+
+	if err := nodeStatus.SetNodeStatus(ctx, secprofnodestatusapi.ProfileStateDisabled); err != nil {
+		r.reportError(sp, common.ReasonCannotUpdateStatus, util.EventActionUpdate, err)
+
+		return reconcile.Result{}, fmt.Errorf("setting node status to disabled: %w", err)
 	}
 
 	return reconcile.Result{}, nil

@@ -55,6 +55,8 @@ func (m *Metrics) ServeGRPC() error {
 	)
 	api.RegisterMetricsServer(m.grpcServer, m)
 
+	go m.series.run(m.stopSeries)
+
 	go func() {
 		m.log.Info("Starting GRPC server API")
 
@@ -71,6 +73,10 @@ func (m *Metrics) GracefulStop() {
 	if m.grpcServer != nil {
 		m.grpcServer.GracefulStop()
 	}
+
+	m.stopOnce.Do(func() {
+		close(m.stopSeries)
+	})
 }
 
 // Dial can be used to connect to the default GRPC server by creating a new

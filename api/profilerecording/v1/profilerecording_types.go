@@ -93,6 +93,8 @@ type ProfileRecordingSpec struct {
 	// label selector semantics. An empty podSelector matches all pods in this
 	// namespace.
 	// +required
+	//nolint:lll // CEL rules cannot be wrapped
+	// +kubebuilder:validation:XValidation:rule="!has(self.matchExpressions) || self.matchExpressions.all(e, e.operator in ['In', 'NotIn'] ? (has(e.values) && size(e.values) > 0) : (e.operator in ['Exists', 'DoesNotExist'] && (!has(e.values) || size(e.values) == 0)))",message="matchExpressions operator must be In, NotIn, Exists or DoesNotExist, In and NotIn require values, Exists and DoesNotExist must not have values"
 	PodSelector *metav1.LabelSelector `json:"podSelector,omitempty"`
 
 	// containers is a set of containers to record. This allows to select
@@ -127,12 +129,20 @@ type ProfileRecordingStatus struct {
 // +kubebuilder:object:root=true
 
 // ProfileRecording is the Schema for the profilerecordings API.
+//
+// The name is used as a label value on the recorded profiles, so it is
+// limited to 63 characters. Existing objects are exempt, so that they can
+// still be updated and deleted.
+//
+// +kubebuilder:validation:XValidation:rule="oldSelf.hasValue() || size(self.metadata.name) <= 63",optionalOldSelf=true,message="name must be no more than 63 characters"
 // +kubebuilder:storageversion
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Kind",type=string,JSONPath=`.spec.kind`
 // +kubebuilder:printcolumn:name="Recorder",type=string,JSONPath=`.spec.recorder`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 // +kubebuilder:printcolumn:name="PodSelector",type=string,priority=10,JSONPath=`.spec.podSelector`
+//
+//nolint:lll // CEL rules cannot be wrapped
 type ProfileRecording struct {
 	metav1.TypeMeta `json:",inline"`
 	// metadata contains the object metadata.

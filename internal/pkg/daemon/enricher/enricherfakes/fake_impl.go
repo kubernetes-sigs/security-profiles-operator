@@ -23,6 +23,7 @@ import (
 	"net"
 	"os"
 	"sync"
+	"time"
 
 	ttlcache "github.com/jellydator/ttlcache/v3"
 	"github.com/nxadm/tail"
@@ -195,6 +196,19 @@ type FakeImpl struct {
 	printJsonOutputArgsForCall []struct {
 		arg1 io.Writer
 		arg2 []byte
+	}
+	ProcessStartTimeStub        func(int) (time.Duration, error)
+	processStartTimeMutex       sync.RWMutex
+	processStartTimeArgsForCall []struct {
+		arg1 int
+	}
+	processStartTimeReturns struct {
+		result1 time.Duration
+		result2 error
+	}
+	processStartTimeReturnsOnCall map[int]struct {
+		result1 time.Duration
+		result2 error
 	}
 	ReasonStub        func(*tail.Tail) error
 	reasonMutex       sync.RWMutex
@@ -1082,6 +1096,70 @@ func (fake *FakeImpl) PrintJsonOutputArgsForCall(i int) (io.Writer, []byte) {
 	defer fake.printJsonOutputMutex.RUnlock()
 	argsForCall := fake.printJsonOutputArgsForCall[i]
 	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *FakeImpl) ProcessStartTime(arg1 int) (time.Duration, error) {
+	fake.processStartTimeMutex.Lock()
+	ret, specificReturn := fake.processStartTimeReturnsOnCall[len(fake.processStartTimeArgsForCall)]
+	fake.processStartTimeArgsForCall = append(fake.processStartTimeArgsForCall, struct {
+		arg1 int
+	}{arg1})
+	stub := fake.ProcessStartTimeStub
+	fakeReturns := fake.processStartTimeReturns
+	fake.recordInvocation("ProcessStartTime", []interface{}{arg1})
+	fake.processStartTimeMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) ProcessStartTimeCallCount() int {
+	fake.processStartTimeMutex.RLock()
+	defer fake.processStartTimeMutex.RUnlock()
+	return len(fake.processStartTimeArgsForCall)
+}
+
+func (fake *FakeImpl) ProcessStartTimeCalls(stub func(int) (time.Duration, error)) {
+	fake.processStartTimeMutex.Lock()
+	defer fake.processStartTimeMutex.Unlock()
+	fake.ProcessStartTimeStub = stub
+}
+
+func (fake *FakeImpl) ProcessStartTimeArgsForCall(i int) int {
+	fake.processStartTimeMutex.RLock()
+	defer fake.processStartTimeMutex.RUnlock()
+	argsForCall := fake.processStartTimeArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeImpl) ProcessStartTimeReturns(result1 time.Duration, result2 error) {
+	fake.processStartTimeMutex.Lock()
+	defer fake.processStartTimeMutex.Unlock()
+	fake.ProcessStartTimeStub = nil
+	fake.processStartTimeReturns = struct {
+		result1 time.Duration
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) ProcessStartTimeReturnsOnCall(i int, result1 time.Duration, result2 error) {
+	fake.processStartTimeMutex.Lock()
+	defer fake.processStartTimeMutex.Unlock()
+	fake.ProcessStartTimeStub = nil
+	if fake.processStartTimeReturnsOnCall == nil {
+		fake.processStartTimeReturnsOnCall = make(map[int]struct {
+			result1 time.Duration
+			result2 error
+		})
+	}
+	fake.processStartTimeReturnsOnCall[i] = struct {
+		result1 time.Duration
+		result2 error
+	}{result1, result2}
 }
 
 func (fake *FakeImpl) Reason(arg1 *tail.Tail) error {

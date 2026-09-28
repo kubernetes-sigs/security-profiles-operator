@@ -121,7 +121,7 @@ additional metrics are provided by the daemon, which are always prefixed with
 | `seccomp_profile_total`       | `operation={delete,update}`                                                                                                                                                                                | Counter | Amount of seccomp profile operations.                                                |
 | `seccomp_profile_audit_total` | `node`, `namespace`, `pod`, `container`, `syscall`                                                                                                                                                         | Counter | Amount of seccomp profile audit operations. Requires the log-enricher to be enabled. |
 | `seccomp_profile_bpf_total`   | `node`, `mount_namespace`, `profile`                                                                                                                                                                       | Counter | Amount of seccomp profile bpf operations. Requires the bpf-recorder to be enabled.   |
-| `seccomp_profile_error_total` | `reason={`<br>`SeccompNotSupportedOnNode,`<br>`InvalidSeccompProfile,`<br>`ProfileNotAllowed,`<br>`CannotPullSeccompProfile,`<br>`CannotSaveSeccompProfile,`<br>`CannotRemoveSeccompProfile,`<br>`CannotUpdateSeccompProfile,`<br>`CannotUpdateNodeStatus`<br>`}` | Counter | Amount of seccomp profile errors.                                                    |
+| `seccomp_profile_error_total` | `reason={`<br>`SeccompNotSupportedOnNode,`<br>`InvalidSeccompProfile,`<br>`ProfileNotAllowed,`<br>`CannotPullSeccompProfile,`<br>`CannotSaveSeccompProfile,`<br>`CannotRemoveSeccompProfile,`<br>`CannotUpdateSeccompProfile,`<br>`SeccompProfileFileConflict,`<br>`CannotUpdateNodeStatus`<br>`}` | Counter | Amount of seccomp profile errors.                                                    |
 | `selinux_profile_total`       | `operation={delete,update}`                                                                                                                                                                                | Counter | Amount of selinux profile operations.                                                |
 | `selinux_profile_audit_total` | `node`, `namespace`, `pod`, `container`, `scontext`, `tcontext`                                                                                                                                            | Counter | Amount of selinux profile audit operations. Requires the log-enricher to be enabled. |
 | `selinux_profile_error_total` | `reason={`<br>`CannotSaveSelinuxPolicy,`<br>`CannotUpdatePolicyStatus,`<br>`CannotRemoveSelinuxPolicy,`<br>`CannotContactSelinuxd,`<br>`CannotWritePolicyFile,`<br>`CannotGetPolicyStatus,`<br>`SystemModuleConflict`<br>`}` | Counter | Amount of selinux profile errors.                                                    |
@@ -140,10 +140,10 @@ cluster:
 - `syscall` has a few hundred possible values
 - `mount_namespace` is a raw kernel identifier, unique per container
 
-Every observed label combination becomes a distinct Prometheus time series which
-is kept for as long as the process lives, both in the spod DaemonSet and in
-Prometheus. On clusters with a lot of pod churn, or when the log enricher is
-enabled cluster wide, this adds up quickly.
+Every observed label combination becomes a distinct Prometheus time series. The
+spod DaemonSet drops a series after one hour without increments, but Prometheus
+keeps the scraped series for its whole retention. On clusters with a lot of pod
+churn, or when the log enricher is enabled cluster wide, this adds up quickly.
 
 These metrics are most useful while recording or debugging a workload. If you
 scrape them permanently, consider dropping the high cardinality labels in the

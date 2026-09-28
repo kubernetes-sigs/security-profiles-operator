@@ -29,7 +29,6 @@ import (
 	"github.com/go-logr/logr"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -40,9 +39,33 @@ import (
 )
 
 const (
+	// reloadJobNamePrefix is the GenerateName of the reload jobs. The API
+	// server appends a random suffix, which keeps the names of jobs created
+	// at the same time on different nodes apart.
 	reloadJobNamePrefix = "selinux-policy-reload-"
 	reloadJobTTL        = int32(120) // 2 minutes TTL after completion
+
+	// reloadJobDeadline fails a reload job which does not finish, for example
+	// because its pod cannot start, so that it does not block the reloads of
+	// the policy forever.
+	reloadJobDeadline = int64(600)
+
+	// reloadJobRetryInterval is the time after which a reload which had to
+	// wait for a running reload job is tried again.
+	reloadJobRetryInterval = 15 * time.Second
 )
+
+// jobFinished returns true if the job completed or failed for good.
+func jobFinished(job *batchv1.Job) bool {
+	for _, c := range job.Status.Conditions {
+		if (c.Type == batchv1.JobComplete || c.Type == batchv1.JobFailed) &&
+			c.Status == corev1.ConditionTrue {
+			return true
+		}
+	}
+
+	return job.Status.Succeeded > 0
+}
 
 // maxLabelValueLength is the Kubernetes limit for a label value.
 const maxLabelValueLength = 63
@@ -66,7 +89,9 @@ func asLabelValue(name string) string {
 // createPolicyReloadJob creates a short-lived privileged Job to run semodule -R
 // on the current node. This is needed because on RHEL 9/OpenShift 4.20+,
 // semodule -i no longer automatically reloads the kernel's in-memory policy.
-// Returns (jobCreated, error) where jobCreated is true if a new job was actually created.
+// Returns (jobCreated, error) where jobCreated is true if a new job was actually
+// created. No job is created while another reload job of the policy is still
+// running on the node, which the caller has to retry.
 func (r *ReconcileSelinux) createPolicyReloadJob(
 	ctx context.Context,
 	policyName string,
@@ -80,14 +105,18 @@ func (r *ReconcileSelinux) createPolicyReloadJob(
 
 	namespace := config.GetOperatorNamespace()
 
-	// Get the selinuxd image from the current pod's selinuxd container.
-	// The operator sets the correct per-node image when creating the spod DaemonSet.
-	selinuxdImage, err := r.getSelinuxdImageFromPod(ctx, namespace)
+	// Get the selinuxd image and pull policy from the current pod's selinuxd
+	// container. The operator sets the correct per-node image when creating the
+	// spod DaemonSet. The pull policy has to match as well: the image can be
+	// only available locally, and a latest tag would default to always pulling.
+	selinuxd, err := r.getSelinuxdContainerFromPod(ctx, namespace)
 	if err != nil {
-		return false, fmt.Errorf("getting selinuxd image: %w", err)
+		return false, fmt.Errorf("getting selinuxd container: %w", err)
 	}
 
-	// Check if a reload job for this node is already running or was recently created
+	// Check if a reload job of the policy is already running on this node.
+	// A finished job is no reason to skip: the callers create a job once per
+	// generation of the profile, so a recent job reloaded an older one.
 	// Read through the uncached API reader: r.client is backed by a
 	// cluster-scoped cache, so listing through it would start a cluster-wide
 	// Job informer, which the namespaced Jobs Role deliberately cannot
@@ -103,47 +132,30 @@ func (r *ReconcileSelinux) createPolicyReloadJob(
 		}); err != nil {
 		l.Error(err, "Failed to list existing reload jobs")
 	} else {
-		now := time.Now()
-
 		for i := range existingJobs.Items {
 			job := &existingJobs.Items[i]
-			// Skip if a job is currently running
-			if job.Status.Succeeded == 0 && job.Status.Failed == 0 {
+			if !jobFinished(job) {
 				l.Info(
-					"Reload job already running for this node, skipping",
+					"Reload job already running for this node, retrying later",
 					"existingJob",
 					job.Name,
 				)
 
 				return false, nil
 			}
-			// Skip if a job was created recently (within TTL window) to avoid duplicate reloads
-			if job.CreationTimestamp.Add(time.Duration(reloadJobTTL) * time.Second).After(now) {
-				l.Info("Reload job was recently created for this node, skipping",
-					"existingJob", job.Name, "age", now.Sub(job.CreationTimestamp.Time))
-
-				return false, nil
-			}
 		}
 	}
-
-	// Use a unique job name based on timestamp to avoid conflicts
-	jobName := fmt.Sprintf(
-		"%s%s-%d",
-		reloadJobNamePrefix,
-		nodeName[:min(10, len(nodeName))],
-		time.Now().Unix(),
-	)
 
 	privileged := true
 	hostPathDirectory := corev1.HostPathDirectory
 	backoffLimit := int32(3)
 	ttlSeconds := reloadJobTTL
+	deadline := reloadJobDeadline
 
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      jobName,
-			Namespace: namespace,
+			GenerateName: reloadJobNamePrefix,
+			Namespace:    namespace,
 			Labels: map[string]string{
 				"app":     "selinux-policy-reload",
 				"node":    asLabelValue(nodeName),
@@ -155,6 +167,7 @@ func (r *ReconcileSelinux) createPolicyReloadJob(
 		Spec: batchv1.JobSpec{
 			TTLSecondsAfterFinished: &ttlSeconds,
 			BackoffLimit:            &backoffLimit,
+			ActiveDeadlineSeconds:   &deadline,
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: map[string]string{
@@ -169,9 +182,10 @@ func (r *ReconcileSelinux) createPolicyReloadJob(
 					ServiceAccountName: "spod",
 					Containers: []corev1.Container{
 						{
-							Name:    "semodule-reload",
-							Image:   selinuxdImage,
-							Command: []string{"/bin/bash", "-c"},
+							Name:            "semodule-reload",
+							Image:           selinuxd.Image,
+							ImagePullPolicy: selinuxd.ImagePullPolicy,
+							Command:         []string{"/bin/bash", "-c"},
 							Args: []string{
 								`echo "Reloading SELinux policy..."
 semodule -R
@@ -241,8 +255,6 @@ exit $exit_code`,
 
 	l.Info(
 		"Creating SELinux policy reload job",
-		"jobName",
-		jobName,
 		"nodeName",
 		nodeName,
 		"policyName",
@@ -250,30 +262,24 @@ exit $exit_code`,
 	)
 
 	if err := r.client.Create(ctx, job); err != nil {
-		if kerrors.IsAlreadyExists(err) {
-			l.Info("Reload job already exists, skipping", "jobName", jobName)
-
-			return false, nil
-		}
-
 		return false, fmt.Errorf("creating reload job: %w", err)
 	}
 
-	l.Info("Successfully created SELinux policy reload job", "jobName", jobName)
+	l.Info("Successfully created SELinux policy reload job", "jobName", job.GetName())
 
 	return true, nil
 }
 
-// getSelinuxdImageFromPod retrieves the selinuxd container image from the current pod.
+// getSelinuxdContainerFromPod retrieves the selinuxd container from the current pod.
 // This is needed because the selinuxd image is set per-node by the operator based on
 // the node's OS, so it's not available as an environment variable.
-func (r *ReconcileSelinux) getSelinuxdImageFromPod(
+func (r *ReconcileSelinux) getSelinuxdContainerFromPod(
 	ctx context.Context,
 	namespace string,
-) (string, error) {
+) (*corev1.Container, error) {
 	podName := os.Getenv("POD_NAME")
 	if podName == "" {
-		return "", errors.New("POD_NAME environment variable not set")
+		return nil, errors.New("POD_NAME environment variable not set")
 	}
 
 	pod := &corev1.Pod{}
@@ -285,15 +291,14 @@ func (r *ReconcileSelinux) getSelinuxdImageFromPod(
 		types.NamespacedName{Name: podName, Namespace: namespace},
 		pod,
 	); err != nil {
-		return "", fmt.Errorf("getting pod %s: %w", podName, err)
+		return nil, fmt.Errorf("getting pod %s: %w", podName, err)
 	}
 
-	// Find the selinuxd container and get its image
 	for i := range pod.Spec.Containers {
 		if pod.Spec.Containers[i].Name == bindata.SelinuxContainerName {
-			return pod.Spec.Containers[i].Image, nil
+			return &pod.Spec.Containers[i], nil
 		}
 	}
 
-	return "", fmt.Errorf("selinuxd container not found in pod %s", podName)
+	return nil, fmt.Errorf("selinuxd container not found in pod %s", podName)
 }

@@ -25,6 +25,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"golang.org/x/mod/semver"
@@ -102,21 +103,45 @@ func GetKubeletDirFromNodeLabel(ctx context.Context, c client.Reader) (string, e
 
 	dir, ok, err := KubeletDirFromNodeLabels(node.Labels)
 	if err != nil {
-		return "", fmt.Errorf("invalid label on node %s: %w", nodeName, err)
+		return "", fmt.Errorf("%w on node %s: %w", ErrInvalidKubeletDirLabel, nodeName, err)
 	}
 
 	if !ok {
 		return "", fmt.Errorf(
-			"no %s label found on node %s", config.KubeletDirNodeLabelKey, nodeName,
+			"%w: %s on node %s",
+			ErrKubeletDirLabelNotFound,
+			config.KubeletDirNodeLabelKey,
+			nodeName,
 		)
 	}
 
 	return dir, nil
 }
 
+var (
+	// ErrKubeletDirLabelNotFound is returned if the node has no kubelet
+	// directory label.
+	ErrKubeletDirLabelNotFound = errors.New("no kubelet directory label")
+
+	// ErrInvalidKubeletDirLabel is returned if the kubelet directory label of
+	// the node is not a valid kubelet root directory.
+	ErrInvalidKubeletDirLabel = errors.New("invalid kubelet directory label")
+)
+
 // kubeletDirBase is the last path component every kubelet root directory
 // from a node label has to have.
 const kubeletDirBase = "kubelet"
+
+// systemTopLevelDirs are the top level host directories which hold the
+// operating system rather than state, so a kubelet root directory is never
+// below them. Paths like /usr/bin/kubelet name the kubelet binary instead.
+var systemTopLevelDirs = []string{
+	"bin", "boot", "dev", "etc", "lib", "lib32", "lib64", "libx32", "proc", "sbin", "sys", "usr",
+}
+
+// binaryDirs are directory names which hold executables anywhere in the host
+// filesystem, like /opt/bin on Flatcar.
+var binaryDirs = []string{"bin", "sbin", "libexec"}
 
 // ValidateKubeletDir returns an error if the given kubelet root directory from
 // a node label is not a clean absolute path ending with "kubelet".
@@ -136,6 +161,19 @@ func ValidateKubeletDir(dir string) error {
 	// cannot get arbitrary host directories like /etc/cron.d mounted.
 	if filepath.Base(dir) != kubeletDirBase {
 		return fmt.Errorf("%q does not end with %q", dir, kubeletDirBase)
+	}
+
+	// The directory is mounted on every node, and a mount fails on the nodes
+	// where the path is a file, which stops the SPOd there. Reject the
+	// locations of system files and binaries, like /usr/bin/kubelet, so that
+	// a single node cannot break the SPOd on all others.
+	parts := strings.Split(strings.TrimPrefix(dir, "/"), "/")
+	if len(parts) > 1 && slices.Contains(systemTopLevelDirs, parts[0]) {
+		return fmt.Errorf("%q is below the system directory /%s", dir, parts[0])
+	}
+
+	if len(parts) > 1 && slices.Contains(binaryDirs, parts[len(parts)-2]) {
+		return fmt.Errorf("%q is in a directory for executables", dir)
 	}
 
 	return nil

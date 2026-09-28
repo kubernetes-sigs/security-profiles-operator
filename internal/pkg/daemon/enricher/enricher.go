@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -49,6 +50,13 @@ const (
 	defaultCacheTimeout time.Duration = time.Hour
 	// auditBacklogMax is the number of lines kept per container.
 	auditBacklogMax = 1024
+	// auditBacklogDistinctMax is the number of lines kept per container
+	// once auditBacklogMax is reached, as long as they differ from the lines
+	// already kept by more than their timestamp and process. A container can
+	// issue thousands of syscalls while it is looked up, mostly repeating
+	// ones, and a recording misses every syscall which is only issued after
+	// the backlog got full.
+	auditBacklogDistinctMax = 4 * 1024
 
 	// backlogTimeout is how long audit lines wait for the pod status to list
 	// their container. The status is updated within seconds, so this only
@@ -123,7 +131,7 @@ type Enricher struct {
 	// lifetime of the daemon, so they are bounded like every other cache here.
 	syscalls        *ttlcache.Cache[string, *syncSet]
 	avcs            *ttlcache.Cache[string, *syncSet]
-	auditLineCache  *ttlcache.Cache[string, []*types.AuditLine]
+	auditLineCache  *ttlcache.Cache[string, *auditBacklog]
 	clientset       kubernetes.Interface
 	enricherFilters []types.EnricherFilterOptions
 	grpcServer      *grpc.Server
@@ -203,12 +211,12 @@ func New(logger logr.Logger, opts *LogEnricherOptions) (*Enricher, error) {
 			ttlcache.WithCapacity[string, *syncSet](maxCacheItems),
 		),
 		auditLineCache: ttlcache.New(
-			ttlcache.WithTTL[string, []*types.AuditLine](backlogTimeout),
-			ttlcache.WithCapacity[string, []*types.AuditLine](maxCacheItems),
+			ttlcache.WithTTL[string, *auditBacklog](backlogTimeout),
+			ttlcache.WithCapacity[string, *auditBacklog](maxCacheItems),
 			// For the audit line cache we don't want to increase the TTL on
 			// Get calls because we want the TTLs just to quietly expire
 			// if/when the cache is full.
-			ttlcache.WithDisableTouchOnHit[string, []*types.AuditLine](),
+			ttlcache.WithDisableTouchOnHit[string, *auditBacklog](),
 		),
 		enricherFilters:  enricherFilters,
 		metricsBackoff:   util.DefaultBackoff(),
@@ -325,7 +333,7 @@ func (e *Enricher) Run() error {
 	}
 	defer e.source.Stop()
 
-	containers := &containerLookup{
+	containers := newAsyncContainerLookup(&containerLookup{
 		nodeName:  nodeName,
 		clientSet: e.clientset,
 		impl:      e.impl,
@@ -333,70 +341,83 @@ func (e *Enricher) Run() error {
 		missing:   e.missingContainers,
 		logger:    e.logger,
 		backoff:   e.containerBackoff,
-	}
+	})
 
-	for auditLine := range log {
-		e.logger.V(config.VerboseLevel).
-			Info("Get container ID for PID", "pid", auditLine.ProcessID)
+	lookupCtx, stopLookups := context.WithCancel(context.Background())
+	defer stopLookups()
 
-		cID, err := e.containerIDForProcess(auditLine.ProcessID)
-		if err != nil {
-			// Nothing is going to tell the container of this line later on:
-			// the process is either gone without having been seen running or
-			// runs outside of a container, and a later line with the same PID
-			// may come from whatever process reused it.
-			if errors.Is(err, os.ErrNotExist) || errors.Is(err, util.ErrContainerIDNotFound) {
-				e.logger.V(config.VerboseLevel).Info(
-					"Dropping audit line without container",
-					"processID", auditLine.ProcessID, "reason", err.Error(),
-				)
-			} else {
-				e.logger.Error(
-					err, "unable to get container ID",
-					"processID", auditLine.ProcessID,
-				)
+	go containers.run(lookupCtx)
+
+	for {
+		select {
+		case auditLine, ok := <-log:
+			if !ok {
+				return fmt.Errorf("enricher failed: %w", e.source.TailErr())
 			}
 
-			continue
-		}
-
-		e.logger.V(config.VerboseLevel).Info("Get container info", "containerID", cID)
-
-		listings := containers.listings
-
-		info, err := containers.getContainerInfo(context.Background(), cID)
-		if containers.listings != listings {
+			e.processAuditLine(nodeName, containers, auditLine)
+		case <-containers.resolved:
+			// The lookup may have found the containers of any of the
+			// backlogs, not only the one it was started for.
 			e.dispatchListedBacklogs(nodeName)
 		}
+	}
+}
 
-		if err != nil {
-			e.logger.Error(
-				err, "container ID not found in cluster",
-				"processID", auditLine.ProcessID,
-				"containerID", cID,
+// processAuditLine dispatches an audit line, or keeps it in the backlog of its
+// container until the container got looked up.
+func (e *Enricher) processAuditLine(
+	nodeName string, containers *asyncContainerLookup, auditLine *types.AuditLine,
+) {
+	e.logger.V(config.VerboseLevel).
+		Info("Get container ID for PID", "pid", auditLine.ProcessID)
+
+	cID, err := e.containerIDForProcess(auditLine.ProcessID)
+	if err != nil {
+		// Nothing is going to tell the container of this line later on:
+		// the process is either gone without having been seen running or
+		// runs outside of a container, and a later line with the same PID
+		// may come from whatever process reused it.
+		if errors.Is(err, os.ErrNotExist) || errors.Is(err, util.ErrContainerIDNotFound) {
+			e.logger.V(config.VerboseLevel).Info(
+				"Dropping audit line without container",
+				"processID", auditLine.ProcessID, "reason", err.Error(),
 			)
-
-			// The pod status may just not list the container yet.
-			if backlogErr := e.addToBacklog(cID, auditLine); backlogErr != nil {
-				e.logger.Error(backlogErr, "adding line to backlog")
-			}
-
-			continue
-		}
-
-		// check if there's anything in the cache for this container
-		e.dispatchBacklog(nodeName, info)
-
-		err = e.dispatchAuditLine(nodeName, auditLine, info)
-		if err != nil {
+		} else {
 			e.logger.Error(
-				err, "dispatch audit line")
-
-			continue
+				err, "unable to get container ID",
+				"processID", auditLine.ProcessID,
+			)
 		}
+
+		return
 	}
 
-	return fmt.Errorf("enricher failed: %w", e.source.TailErr())
+	e.logger.V(config.VerboseLevel).Info("Get container info", "containerID", cID)
+
+	info, err := containers.get(cID)
+	if err != nil {
+		e.logger.V(config.VerboseLevel).Info(
+			"Container not known yet",
+			"processID", auditLine.ProcessID,
+			"containerID", cID,
+			"reason", err.Error(),
+		)
+
+		// The pod status may just not list the container yet.
+		if backlogErr := e.addToBacklog(cID, auditLine); backlogErr != nil {
+			e.logger.Error(backlogErr, "adding line to backlog")
+		}
+
+		return
+	}
+
+	// check if there's anything in the cache for this container
+	e.dispatchBacklog(nodeName, info)
+
+	if err := e.dispatchAuditLine(nodeName, auditLine, info); err != nil {
+		e.logger.Error(err, "dispatch audit line")
+	}
 }
 
 // containerIDForProcess returns the container ID of a process. The container
@@ -518,33 +539,81 @@ func Dial() (*grpc.ClientConn, error) {
 	return conn, nil
 }
 
+// auditBacklog holds the lines of a container until it got looked up.
+type auditBacklog struct {
+	mu    sync.Mutex
+	lines []*types.AuditLine
+	// seen holds the lines without their timestamp and process.
+	seen map[types.AuditLine]struct{}
+	// dropped counts the lines which did not fit.
+	dropped uint64
+}
+
+// add keeps the line, unless the backlog is full. Once auditBacklogMax is
+// reached, only lines which differ from the kept ones by more than their
+// timestamp and process are kept, so that forking workloads do not fill it
+// up with the same syscalls.
+func (b *auditBacklog) add(line *types.AuditLine) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key := *line
+	key.TimestampID = ""
+	key.ProcessID = 0
+
+	if len(b.lines) >= auditBacklogMax {
+		if _, ok := b.seen[key]; ok || len(b.lines) >= auditBacklogDistinctMax {
+			b.dropped++
+
+			return false
+		}
+	}
+
+	b.lines = append(b.lines, line)
+	b.seen[key] = struct{}{}
+
+	return true
+}
+
+// snapshot returns the kept lines and the number of dropped ones.
+func (b *auditBacklog) snapshot() (lines []*types.AuditLine, dropped uint64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return slices.Clone(b.lines), b.dropped
+}
+
 // addToBacklog keeps a line until the pod status lists its container. The
 // backlog is kept per container, so that a process reusing the PID in another
 // container never gets the lines of the previous one.
 func (e *Enricher) addToBacklog(containerID string, line *types.AuditLine) error {
-	item := e.auditLineCache.Get(containerID)
-	if item == nil {
-		e.auditLineCache.Set(containerID, []*types.AuditLine{line}, ttlcache.DefaultTTL)
+	var backlog *auditBacklog
+
+	if item := e.auditLineCache.Get(containerID); item != nil {
+		backlog = item.Value()
+		if backlog == nil {
+			// this should not happen, but let's be paranoid
+			return errors.New("nil backlog in cache")
+		}
+	} else {
+		backlog = &auditBacklog{seen: map[types.AuditLine]struct{}{}}
+	}
+
+	// If the backlog is full, we just stop adding new lines. Eventually the
+	// TTL will expire and the backlog will flush. In case the workload
+	// appears later, we create a partial policy.
+	if !backlog.add(line) {
+		if _, dropped := backlog.snapshot(); dropped%auditBacklogMax == 1 {
+			e.logger.Info(
+				"Audit backlog of container is full, dropping lines",
+				"containerID", containerID, "droppedLines", dropped,
+			)
+		}
 
 		return nil
 	}
 
-	auditBacklog := item.Value()
-
-	if auditBacklog == nil {
-		// this should not happen, but let's be paranoid
-		return errors.New("nil slice in cache")
-	}
-
-	// If the number of backlog messages per container is over the limit, we
-	// just stop adding new ones. Eventually the TTL will expire and the
-	// backlog will flush. In case the workload appears later, we create a
-	// partial policy but that was true before this change anyway
-	if len(auditBacklog) > auditBacklogMax {
-		return nil
-	}
-
-	e.auditLineCache.Set(containerID, append(auditBacklog, line), ttlcache.DefaultTTL)
+	e.auditLineCache.Set(containerID, backlog, ttlcache.DefaultTTL)
 
 	return nil
 }
@@ -558,7 +627,9 @@ func (e *Enricher) dispatchBacklog(nodeName string, info *types.ContainerInfo) {
 		return
 	}
 
-	for _, auditLine := range item.Value() {
+	lines, _ := item.Value().snapshot()
+
+	for _, auditLine := range lines {
 		if err := e.dispatchAuditLine(nodeName, auditLine, info); err != nil {
 			e.logger.Error(err, "dispatch audit line")
 		}

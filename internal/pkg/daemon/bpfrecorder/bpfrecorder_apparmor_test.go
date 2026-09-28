@@ -19,6 +19,7 @@ limitations under the License.
 package bpfrecorder
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -174,4 +175,28 @@ func TestShouldExcludeFile(t *testing.T) {
 			require.Equal(t, test.want, got)
 		})
 	}
+}
+
+// TestNormalizePath asserts that the cached normalization gives the result of
+// the uncached one and stays bounded.
+func TestNormalizePath(t *testing.T) {
+	t.Parallel()
+
+	sut := newTestAppArmorRecorder()
+
+	for _, path := range []string{"/proc/1234/status", "/proc/self/status", "/etc/passwd", "/dev/pts/0"} {
+		want := ReplaceVarianceInFilePath(sanitizeFilePath(path))
+
+		for range 2 {
+			got := sut.normalizePath(path)
+			require.Equal(t, want, got.path)
+			require.Equal(t, shouldExcludeFile(want), got.excluded)
+		}
+	}
+
+	for i := range maxNormalizedPaths * 2 {
+		sut.normalizePath("/tmp/" + strconv.Itoa(i))
+	}
+
+	require.LessOrEqual(t, len(sut.normalizedPaths), maxNormalizedPaths)
 }

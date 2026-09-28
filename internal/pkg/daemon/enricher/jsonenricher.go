@@ -49,10 +49,10 @@ type JsonEnricher struct {
 	containerIDCache    *ttlcache.Cache[string, string]
 	infoCache           *ttlcache.Cache[string, *types.ContainerInfo]
 	missingContainers   *ttlcache.Cache[string, struct{}]
-	containers          *containerLookup
+	containers          *asyncContainerLookup
 	logLinesCache       *ttlcache.Cache[int, *types.LogBucket]
 	clientset           kubernetes.Interface
-	processCache        *ttlcache.Cache[int, *types.ProcessInfo]
+	processCache        *ttlcache.Cache[string, *types.ProcessInfo]
 	logWriter           io.Writer
 	enricherFilters     []types.EnricherFilterOptions
 	bpfProcessCache     *bpfrecorder.BpfProcessCache
@@ -153,8 +153,8 @@ func NewJsonEnricherArgs(logger logr.Logger, opts *JsonEnricherOptions) (*JsonEn
 			ttlcache.WithDisableTouchOnHit[int, *types.LogBucket](),
 		),
 		processCache: ttlcache.New(
-			ttlcache.WithTTL[int, *types.ProcessInfo](defaultCacheTimeout),
-			ttlcache.WithCapacity[int, *types.ProcessInfo](maxCacheItems),
+			ttlcache.WithTTL[string, *types.ProcessInfo](defaultCacheTimeout),
+			ttlcache.WithCapacity[string, *types.ProcessInfo](maxCacheItems),
 		),
 		enricherFilters:  enricherFilters,
 		bpfProcessCache:  nil,
@@ -210,6 +210,23 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 	e.logLinesCache.OnEviction(
 		func(ctx context.Context, reason ttlcache.EvictionReason, logItem *ttlcache.Item[int, *types.LogBucket]) {
 			auditLogBucket := logItem.Value()
+			if auditLogBucket == nil {
+				return
+			}
+
+			// The eviction runs in its own goroutine, while the bucket may
+			// still get lines.
+			auditLogBucket.Mu.Lock()
+			defer auditLogBucket.Mu.Unlock()
+
+			auditLogBucket.Emitted = true
+
+			// The container may have been looked up in the meantime.
+			if auditLogBucket.ContainerInfo == nil && auditLogBucket.ContainerID != "" {
+				if item := e.infoCache.Get(auditLogBucket.ContainerID); item != nil {
+					auditLogBucket.ContainerInfo = item.Value()
+				}
+			}
 
 			e.logger.V(config.VerboseLevel).Info("Emit audit log for process",
 				"pid", logItem.Key())
@@ -242,7 +259,7 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 	go e.missingContainers.Start()
 	defer e.missingContainers.Stop()
 
-	e.containers = &containerLookup{
+	e.containers = newAsyncContainerLookup(&containerLookup{
 		nodeName:  nodeName,
 		clientSet: e.clientset,
 		impl:      e.impl,
@@ -250,7 +267,9 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 		missing:   e.missingContainers,
 		logger:    e.logger,
 		backoff:   e.containerBackoff,
-	}
+	})
+
+	go e.containers.run(ctx)
 
 	go e.logLinesCache.Start()
 	defer e.logLinesCache.Stop()
@@ -320,26 +339,7 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 			continue
 		}
 
-		// A single Get: Has() followed by Get() can race with expiry or the
-		// cache janitor, and Get() returns nil for an item that vanished in
-		// between, which would panic in Value().
-		var logBucket *types.LogBucket
-
-		cached := false
-
-		if item := e.logLinesCache.Get(auditLine.ProcessID); item != nil {
-			logBucket = item.Value()
-			cached = logBucket != nil
-		}
-
-		if logBucket == nil {
-			logBucket = &types.LogBucket{
-				SyscallIds:    sync.Map{},
-				ContainerInfo: nil,
-				ProcessInfo:   nil,
-				TimestampID:   auditLine.TimestampID,
-			}
-		}
+		logBucket, cached := e.lockedLogBucket(auditLine)
 
 		// Capture proc/pid/(cmdLine/environ) early; these files are ephemeral on some OS (e.g., Ubuntu).
 		if logBucket.ProcessInfo == nil {
@@ -361,12 +361,16 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 		e.processEbpf(logBucket, auditLine)
 
 		if logBucket.ContainerInfo == nil {
-			logBucket.ContainerInfo = e.fetchContainerInfo(ctx, auditLine.ProcessID)
+			logBucket.ContainerInfo, logBucket.ContainerID = e.fetchContainerInfo(
+				auditLine.ProcessID,
+			)
 		}
 
 		logBucket.SyscallIds.LoadOrStore(
 			types.SyscallKey{ID: auditLine.SystemCallID, Arch: auditLine.Arch}, struct{}{},
 		)
+
+		logBucket.Mu.Unlock()
 
 		if !cached {
 			e.logLinesCache.Set(auditLine.ProcessID, logBucket, ttlcache.DefaultTTL)
@@ -374,6 +378,40 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 	}
 
 	runErr <- fmt.Errorf("enricher failed: %w", e.Reason(tailFile))
+}
+
+// lockedLogBucket returns the locked bucket of the process of the audit line,
+// and whether it is cached already.
+func (e *JsonEnricher) lockedLogBucket(
+	auditLine *types.AuditLine,
+) (logBucket *types.LogBucket, cached bool) {
+	// A single Get: Has() followed by Get() can race with expiry or the
+	// cache janitor, and Get() returns nil for an item that vanished in
+	// between, which would panic in Value().
+	if item := e.logLinesCache.Get(auditLine.ProcessID); item != nil {
+		logBucket = item.Value()
+	}
+
+	if logBucket != nil {
+		logBucket.Mu.Lock()
+
+		if !logBucket.Emitted {
+			return logBucket, true
+		}
+
+		// Emitted in the meantime, the line goes into a new one.
+		logBucket.Mu.Unlock()
+	}
+
+	logBucket = &types.LogBucket{
+		SyscallIds:    sync.Map{},
+		ContainerInfo: nil,
+		ProcessInfo:   nil,
+		TimestampID:   auditLine.TimestampID,
+	}
+	logBucket.Mu.Lock()
+
+	return logBucket, false
 }
 
 func (e *JsonEnricher) processEbpf(logBucket *types.LogBucket, auditLine *types.AuditLine) {
@@ -417,30 +455,35 @@ func (e *JsonEnricher) processEbpf(logBucket *types.LogBucket, auditLine *types.
 	}
 }
 
-// Returns nil if the containerInfo couldn't be loaded.
+// fetchContainerInfo returns the info of the container of a process, or nil if
+// it is not known. The ID of a container which is still looked up is returned
+// as well, the next line of the process or the emission of its bucket picks up
+// the result. Looking it up here would stall the processing of the lines.
 func (e *JsonEnricher) fetchContainerInfo(
-	ctx context.Context,
 	processId int,
-) *types.ContainerInfo {
+) (info *types.ContainerInfo, containerID string) {
 	cID, errContainer := e.ContainerIDForPID(e.containerIDCache, processId)
 	e.logger.V(config.VerboseLevel).Info("Container ID for PID",
 		"containerID", cID, "len", len(cID))
 
-	var containerInfo *types.ContainerInfo
-
-	if errContainer == nil && cID != "" && e.containers != nil {
-		info, errGetContainerInfo := e.containers.getContainerInfo(ctx, cID)
-		if errGetContainerInfo == nil {
-			containerInfo = info
-		}
-	} else {
+	if errContainer != nil || cID == "" || e.containers == nil {
 		e.logger.V(config.VerboseLevel).Info("unable to get container Id", "error", errContainer)
+
+		return nil, ""
+	}
+
+	containerInfo, err := e.containers.get(cID)
+	if err != nil {
+		e.logger.V(config.VerboseLevel).Info("Container info not known yet",
+			"containerID", cID, "reason", err.Error())
+
+		return nil, cID
 	}
 
 	e.logger.V(config.VerboseLevel).Info("Container info",
 		"containerInfo", containerInfo)
 
-	return containerInfo
+	return containerInfo, cID
 }
 
 // Returns nil if the processInfo couldn't be loaded.

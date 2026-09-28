@@ -102,6 +102,52 @@ func pushPullTest(t *testing.T) {
 		var got seccompprofileapi.SeccompProfile
 		require.NoError(t, yaml.Unmarshal(pulled, &got))
 		require.Equal(t, crd.Spec, got.Spec)
+
+		// Without --platforms, the profile is platform independent.
+		for _, platform := range []string{"linux/amd64", "linux/arm64/v8", "linux/s390x"} {
+			_, err = runSpoc(t,
+				"pull", "--plain-http", "--disable-signature-verification",
+				"--platform", platform, "-o", out, ref,
+			)
+			require.NoError(t, err, "pull profile CRD for %s", platform)
+		}
+	})
+
+	t.Run("profile CRD for multiple platforms", func(t *testing.T) {
+		amd64 := writeTempFile(t, "amd64.yaml", profileCRD(t, "amd64"))
+		arm64 := writeTempFile(t, "arm64.yaml", profileCRD(t, "arm64"))
+		ref := host + "/spoc/e2e/multi:v1"
+
+		_, err := runSpoc(t, "push", "--plain-http", "--disable-signing",
+			"-f", amd64, "-p", "linux/amd64", "-f", arm64, "-p", "linux/arm64", ref,
+		)
+		require.NoError(t, err, "push profile CRDs")
+
+		for platform, name := range map[string]string{
+			"linux/amd64":    "amd64",
+			"linux/arm64":    "arm64",
+			"linux/arm64/v8": "arm64",
+		} {
+			out := filepath.Join(t.TempDir(), "pulled.yaml")
+			_, err = runSpoc(t,
+				"pull", "--plain-http", "--disable-signature-verification",
+				"--platform", platform, "-o", out, ref,
+			)
+			require.NoError(t, err, "pull profile CRD for %s", platform)
+
+			pulled, err := os.ReadFile(out)
+			require.NoError(t, err)
+
+			var got seccompprofileapi.SeccompProfile
+			require.NoError(t, yaml.Unmarshal(pulled, &got))
+			require.Equal(t, name, got.Name, "profile for %s", platform)
+		}
+
+		_, err = runSpoc(t,
+			"pull", "--plain-http", "--disable-signature-verification",
+			"--platform", "linux/s390x", "-o", filepath.Join(t.TempDir(), "pulled.yaml"), ref,
+		)
+		require.Error(t, err, "no profile for linux/s390x")
 	})
 
 	t.Run("push rejects what runtimes reject", func(t *testing.T) {
@@ -167,6 +213,23 @@ func runSpocOutput(t *testing.T, args ...string) string {
 	require.NoError(t, err, "failed to run spoc: %s", string(out))
 
 	return string(out)
+}
+
+// profileCRD returns a seccomp profile CRD with the name as YAML.
+func profileCRD(t *testing.T, name string) string {
+	t.Helper()
+
+	crd := seccompprofileapi.SeccompProfile{
+		Spec: seccompprofileapi.SeccompProfileSpec{DefaultAction: seccompprofileapi.ActErrno},
+	}
+	crd.APIVersion = seccompprofileapi.GroupVersion.String()
+	crd.Kind = "SeccompProfile"
+	crd.Name = name
+
+	content, err := yaml.Marshal(crd)
+	require.NoError(t, err)
+
+	return string(content)
 }
 
 func writeTempFile(t *testing.T, name, content string) string {

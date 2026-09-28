@@ -17,8 +17,10 @@ limitations under the License.
 package translator
 
 import (
+	"errors"
 	"fmt"
 	"maps"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -30,6 +32,21 @@ import (
 const (
 	typePermissive         = "(typepermissive process)"
 	systemContainerInherit = "container"
+)
+
+var (
+	// blockNameRegexp matches the names CIL accepts for a block declaration:
+	// the first character has to be a letter and dots are namespace
+	// separators, so they are not allowed.
+	blockNameRegexp = regexp.MustCompile(`^[a-zA-Z][-a-zA-Z0-9_]*$`)
+
+	// identifierRegexp matches the SELinux types, object classes, permissions
+	// and inherited block names which may be written into a policy. It
+	// excludes whitespace and parentheses, which would otherwise allow to
+	// inject additional CIL statements, and matches the CRD validation.
+	identifierRegexp = regexp.MustCompile(`^[-a-zA-Z0-9._]+$`)
+
+	errInvalidIdentifier = errors.New("invalid identifier")
 )
 
 // Safe Defaults: Hardcoded denylists to prevent critical privilege escalation.
@@ -145,6 +162,27 @@ func Object2CIL(
 	sp *selinuxprofileapi.SelinuxProfile,
 	options *Options,
 ) (string, error) {
+	if !blockNameRegexp.MatchString(sp.GetName()) {
+		return "", fmt.Errorf(
+			"%w: profile name %q has to start with a letter and may only "+
+				"contain alphanumeric characters, '-' and '_'",
+			errInvalidIdentifier, sp.GetName(),
+		)
+	}
+
+	inherits := make([]string, 0, len(systemInherits)+len(objInherits))
+	inherits = append(inherits, systemInherits...)
+
+	for _, inherit := range objInherits {
+		inherits = append(inherits, inherit.GetPolicyName())
+	}
+
+	for _, inherit := range inherits {
+		if err := validateIdentifier("inherited policy", inherit); err != nil {
+			return "", err
+		}
+	}
+
 	cilbuilder := strings.Builder{}
 	cilbuilder.WriteString(getCILStart(sp))
 
@@ -186,7 +224,7 @@ func Object2CIL(
 				tclass,
 				sp.Spec.Allow[ttype][tclass],
 			); err != nil {
-				return "", fmt.Errorf("invalid semantic rule for type %s, class %s: %w",
+				return "", fmt.Errorf("invalid semantic rule for type %q, class %q: %w",
 					ttype, tclass, err)
 			}
 
@@ -199,10 +237,42 @@ func Object2CIL(
 	return cilbuilder.String(), nil
 }
 
+// validateIdentifier returns an error if the value cannot be written into a
+// CIL policy as a single identifier.
+func validateIdentifier(kind, value string) error {
+	if !identifierRegexp.MatchString(value) {
+		return fmt.Errorf(
+			"%w: %s %q may only contain alphanumeric characters, '.', '-' and '_'",
+			errInvalidIdentifier, kind, value,
+		)
+	}
+
+	return nil
+}
+
 func validateSemanticRule(opts *deniedOptions, ttype selinuxprofileapi.LabelKey,
 	class selinuxprofileapi.ObjectClassKey,
 	perms selinuxprofileapi.PermissionSet,
 ) error {
+	// The denylists are compared by exact string, so the identifiers have to
+	// be validated first. Otherwise, for example, " security" would bypass
+	// the denied "security" class and still be parsed as that class.
+	if ttype != selinuxprofileapi.AllowSelf {
+		if err := validateIdentifier("type", ttype.String()); err != nil {
+			return err
+		}
+	}
+
+	if err := validateIdentifier("class", class.String()); err != nil {
+		return err
+	}
+
+	for _, perm := range perms {
+		if err := validateIdentifier("permission", perm); err != nil {
+			return err
+		}
+	}
+
 	if _, ok := opts.deniedTypes[ttype.String()]; ok {
 		return fmt.Errorf("type %s is denied", ttype)
 	}

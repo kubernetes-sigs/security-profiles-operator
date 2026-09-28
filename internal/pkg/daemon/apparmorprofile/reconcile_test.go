@@ -438,6 +438,82 @@ func TestReconcileSkipsNotReconcilableProfiles(t *testing.T) {
 	}
 }
 
+// A profile which got loaded and is disabled afterwards has to be unloaded,
+// but only once the pods using it are gone.
+func TestReconcileEnabledToDisabled(t *testing.T) {
+	t.Parallel()
+
+	manager := &countingProfileManager{enabled: true, updated: true}
+	r, cli, _ := newTestReconciler(t, manager, nil, testAppArmorProfile())
+
+	reconcileUntilInstalled(t, r)
+	require.Equal(
+		t,
+		secprofnodestatusapi.ProfileStateInstalled,
+		getNodeStatus(t, cli).Status.Status,
+	)
+
+	profile := &apparmorprofileapi.AppArmorProfile{}
+	require.NoError(t, cli.Get(t.Context(), testRequest().NamespacedName, profile))
+	profile.Spec.State = profilebaseapi.SpecStateDisabled
+	profile.SetFinalizers(append(profile.GetFinalizers(), util.HasActivePodsFinalizerString))
+	require.NoError(t, cli.Update(t.Context(), profile))
+
+	res, err := r.Reconcile(t.Context(), testRequest())
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{RequeueAfter: common.InUseRetry}, res)
+	require.Zero(t, manager.removes, "unloading would unconfine the running pods")
+	require.Equal(
+		t,
+		secprofnodestatusapi.ProfileStateInstalled,
+		getNodeStatus(t, cli).Status.Status,
+	)
+
+	require.NoError(t, cli.Get(t.Context(), testRequest().NamespacedName, profile))
+	profile.SetFinalizers([]string{util.GetFinalizerNodeString(testNode)})
+	require.NoError(t, cli.Update(t.Context(), profile))
+
+	res, err = r.Reconcile(t.Context(), testRequest())
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{}, res)
+	require.Equal(t, 1, manager.removes)
+
+	status := getNodeStatus(t, cli)
+	require.Equal(t, secprofnodestatusapi.ProfileStateDisabled, status.Status.Status)
+	require.Empty(t, status.Annotations[installedAnnotation])
+
+	// Nothing is left to unload afterwards.
+	_, err = r.Reconcile(t.Context(), testRequest())
+	require.NoError(t, err)
+	require.Equal(t, 1, manager.removes)
+}
+
+func TestReconcileDisabledUnloadError(t *testing.T) {
+	t.Parallel()
+
+	manager := &countingProfileManager{enabled: true, updated: true}
+	r, cli, rec := newTestReconciler(t, manager, nil, testAppArmorProfile())
+
+	reconcileUntilInstalled(t, r)
+	<-rec.Events
+
+	profile := &apparmorprofileapi.AppArmorProfile{}
+	require.NoError(t, cli.Get(t.Context(), testRequest().NamespacedName, profile))
+	profile.Spec.State = profilebaseapi.SpecStateDisabled
+	require.NoError(t, cli.Update(t.Context(), profile))
+
+	manager.removeErr = errors.New("busy")
+
+	_, err := r.Reconcile(t.Context(), testRequest())
+	require.ErrorContains(t, err, "busy")
+	require.Equal(
+		t,
+		secprofnodestatusapi.ProfileStateInstalled,
+		getNodeStatus(t, cli).Status.Status,
+	)
+	requireEvent(t, rec, "Warning "+reasonCannotUnloadProfile+" unloading profile from host: busy")
+}
+
 func deletingProfile(t *testing.T, cli client.Client) {
 	t.Helper()
 

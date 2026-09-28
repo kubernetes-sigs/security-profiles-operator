@@ -110,6 +110,8 @@ func (r *ReconcileSPOd) Setup(
 		Named(r.Name()).
 		For(&spodapi.SecurityProfilesOperatorDaemon{}, inOperatorNamespace).
 		Owns(&appsv1.DaemonSet{}, inOperatorNamespace).
+		// The metrics service gets restored if it is deleted.
+		Owns(&corev1.Service{}, inOperatorNamespace).
 		// Nodes can configure a custom kubelet directory through a label,
 		// which the SPOd has to mount for the non-root enabler.
 		Watches(

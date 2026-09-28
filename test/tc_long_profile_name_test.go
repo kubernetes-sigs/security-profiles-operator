@@ -42,8 +42,8 @@ func (e *e2e) testCaseLongSeccompProfileName(nodes []string) {
 
 	e.logf("Creating policy")
 
-	deleteFn := e.writeAndCreate(longNamePolicy, "longname-policy.yml")
-	defer deleteFn()
+	e.writeAndCreate(longNamePolicy, "longname-policy.yml")
+	defer e.kubectl("delete", "sp", policyName)
 
 	e.logf("Waiting for profile to be reconciled")
 	e.waitForProfile(policyName)

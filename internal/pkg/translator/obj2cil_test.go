@@ -20,6 +20,7 @@ import (
 	"regexp"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
@@ -694,4 +695,106 @@ func TestObject2CIL(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestObject2CILRejectsInvalidIdentifiers(t *testing.T) {
+	t.Parallel()
+
+	profile := func(name string, allow selinuxprofileapi.Allow) *selinuxprofileapi.SelinuxProfile {
+		return &selinuxprofileapi.SelinuxProfile{
+			ObjectMeta: metav1.ObjectMeta{Name: name},
+			Spec:       selinuxprofileapi.SelinuxProfileSpec{Allow: allow},
+		}
+	}
+
+	valid := selinuxprofileapi.Allow{"var_log_t": {"file": {"read"}}}
+
+	for _, tc := range []struct {
+		name           string
+		profile        *selinuxprofileapi.SelinuxProfile
+		systemInherits []string
+		objInherits    []selinuxprofileapi.SelinuxProfileObject
+	}{
+		{
+			name: "class key injecting an allow rule",
+			profile: profile("foo", selinuxprofileapi.Allow{
+				"var_log_t": {
+					"file ( read ))) (allow process shadow_t (file": {"read"},
+				},
+			}),
+		},
+		{
+			name: "class key with whitespace bypassing the denylist",
+			profile: profile("foo", selinuxprofileapi.Allow{
+				"var_log_t": {" security": {"setenforce"}},
+			}),
+		},
+		{
+			name: "class key with a trailing newline",
+			profile: profile("foo", selinuxprofileapi.Allow{
+				"var_log_t": {"security\n": {"load_policy"}},
+			}),
+		},
+		{
+			name: "type key with parentheses",
+			profile: profile("foo", selinuxprofileapi.Allow{
+				"var_log_t (file (read))) (allow process shadow_t": {"file": {"read"}},
+			}),
+		},
+		{
+			name: "permission with parentheses",
+			profile: profile("foo", selinuxprofileapi.Allow{
+				"var_log_t": {"file": {"read ))) (allow process shadow_t (file (read"}},
+			}),
+		},
+		{
+			name:    "profile name with a dot",
+			profile: profile("foo.bar", valid),
+		},
+		{
+			name:    "profile name starting with a digit",
+			profile: profile("1foo", valid),
+		},
+		{
+			name:           "system inherit with parentheses",
+			profile:        profile("foo", valid),
+			systemInherits: []string{"container) (allow process shadow_t (file (read)))"},
+		},
+		{
+			name:    "object inherit with whitespace",
+			profile: profile("foo", valid),
+			objInherits: []selinuxprofileapi.SelinuxProfileObject{
+				profile("bar baz", valid),
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := Object2CIL(tc.systemInherits, tc.objInherits, tc.profile, nil)
+			require.ErrorIs(t, err, errInvalidIdentifier)
+			require.Empty(t, got)
+		})
+	}
+}
+
+func TestObject2CILAllowsValidIdentifiers(t *testing.T) {
+	t.Parallel()
+
+	sp := &selinuxprofileapi.SelinuxProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: "foo-bar_1"},
+		Spec: selinuxprofileapi.SelinuxProfileSpec{
+			Allow: selinuxprofileapi.Allow{
+				selinuxprofileapi.AllowSelf: {"tcp_socket": {"listen"}},
+				"other.process":             {"unix_stream_socket": {"connectto"}},
+			},
+		},
+	}
+
+	got, err := Object2CIL([]string{"container", "net_container"}, nil, sp, nil)
+	require.NoError(t, err)
+	require.Contains(t, got, "(block foo-bar_1\n")
+	require.Contains(t, got, "(blockinherit net_container)\n")
+	require.Contains(t, got, "(allow process foo-bar_1.process ( tcp_socket ( listen )))\n")
+	require.Contains(t, got, "(allow process other.process ( unix_stream_socket ( connectto )))\n")
 }

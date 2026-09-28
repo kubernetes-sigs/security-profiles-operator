@@ -329,15 +329,17 @@ source file:
    is found in `PATH`, otherwise defaults to `docker`. Set to a different
    value in case you want to use a totally different container runtime.
 - `E2E_TEST_SELINUX` - Whether to run SELinux related tests. Defaults to
-   false. The Fedora based CI currently disables them until the SELinux tests
-   are fixed (see `hack/ci/e2e-fedora.sh`).
+   false. The Fedora based CI enables them (see `hack/ci/e2e-fedora.sh`).
 - `E2E_TEST_LOG_ENRICHER` - Whether to run log enricher e2e tests, which
    record seccomp or SELinux profiles by tailing the `audit.log`.
 - `E2E_TEST_SECCOMP` - Whether to run seccomp related e2e tests. Our CI
    tests the seccomp tests in the kind-based prow target only.
 - `E2E_TEST_BPF_RECORDER` - Whether to test recording of seccomp profiles
-   using our eBPF recorder. Defaults to false, and none of the Fedora, Ubuntu
-   or Flatcar based CI jobs currently enable it.
+   using our eBPF recorder. Defaults to false. The Fedora based CI enables it,
+   the Ubuntu and Flatcar based ones do not (see their scripts in `hack/ci`).
+- `E2E_TEST_BPF_LOG_ENRICHER` - Whether to run the log enricher test with the
+   BPF source. Defaults to false: the BPF source only reports AppArmor
+   denials, while the test waits for seccomp audit lines.
 
 ### Running the Ubuntu e2e tests on kubernix
 

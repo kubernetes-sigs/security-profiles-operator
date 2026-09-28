@@ -91,7 +91,16 @@ func (*defaultImpl) RemoveAll(path string) error {
 }
 
 func (*defaultImpl) FileNew(workingDir string) (*file.Store, error) {
-	return file.New(workingDir)
+	store, err := file.New(workingDir)
+	if err != nil {
+		return nil, err
+	}
+
+	// ORAS would otherwise extract layers annotated as directories without
+	// any size limit.
+	store.SkipUnpack = true
+
+	return store, nil
 }
 
 func (*defaultImpl) FileClose(store *file.Store) error {

@@ -88,6 +88,10 @@ const (
 	labelName                                        = "name"
 	selinuxTypeSpcT                                  = "spc_t"
 	KubeletDirVolumeName                             = "host-kubelet-dir-volume"
+
+	// DefaultSelinuxTypeTag is the SELinux type of the SPOd containers if
+	// the SPOD does not configure one.
+	DefaultSelinuxTypeTag = selinuxTypeSpcT
 )
 
 var DefaultSPOD = &spodapi.SecurityProfilesOperatorDaemon{

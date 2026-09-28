@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -178,7 +179,7 @@ func (e *e2e) TestSecurityProfilesOperator() {
 
 	e.Run("cluster-wide: Selinux: Verify profile binding", func() {
 		e.testCaseSelinuxProfileBinding("busybox:latest")
-		e.testCaseSelinuxProfileBinding("*")
+		e.testCaseSelinuxProfileBinding("'*'")
 		e.testCaseSelinuxProfileBindingNsNotEnabled()
 	})
 
@@ -232,6 +233,7 @@ func (e *e2e) testNamespacedOperator(
 	// Deploy the namespace operator
 	e.kubectl("create", "namespace", namespace)
 	e.updateManifest(manifest, "NS_REPLACE", namespace)
+	e.updateManifest(manifest, "value: .*quay.io/.*/selinuxd.*", "value: "+e.selinuxdImage)
 
 	// All following operations such as create pod will be in the test namespace
 	// at the same time, let's re-set the context to allow subsequent test runs
@@ -476,26 +478,77 @@ func (e *e2e) getCurrentContextNamespace(alt string) string {
 	return ctxns
 }
 
-func (e *e2e) writeAndCreate(manifest, filePattern string) func() {
-	return e.writeAndDo("create", manifest, filePattern)
+// writeAndCreate creates the objects of the manifest. Deleting them again is
+// up to the caller.
+func (e *e2e) writeAndCreate(manifest, filePattern string) {
+	e.writeAndDo("create", manifest, filePattern)
 }
 
-func (e *e2e) writeAndApply(manifest, filePattern string) func() {
-	return e.writeAndDo("apply", manifest, filePattern)
+// writeAndApply applies the objects of the manifest. Deleting them again is up
+// to the caller.
+func (e *e2e) writeAndApply(manifest, filePattern string) {
+	e.writeAndDo("apply", manifest, filePattern)
 }
 
-func (e *e2e) writeAndDo(verb, manifest, filePattern string) func() {
+func (e *e2e) writeAndDo(verb, manifest, filePattern string) {
 	file, err := os.CreateTemp("", filePattern)
-	fileName := file.Name()
-
 	e.Require().NoError(err)
+
+	defer os.Remove(file.Name())
+
 	_, err = file.WriteString(manifest)
 	e.Require().NoError(err)
 	err = file.Close()
 	e.Require().NoError(err)
-	e.kubectl(verb, "-f", fileName)
+	e.kubectl(verb, "-f", file.Name())
+}
 
-	return func() { os.Remove(fileName) }
+// eventually polls cond every interval until it returns nil. Once the timeout
+// passes, it fails the test with the last error of cond, so that the failure
+// says what never happened.
+func (e *e2e) eventually(timeout, interval time.Duration, cond func() error) {
+	deadline := time.Now().Add(timeout)
+
+	for {
+		err := cond()
+		if err == nil {
+			return
+		}
+
+		if time.Now().After(deadline) {
+			e.Failf("condition not met", "gave up after %s: %v", timeout, err)
+
+			return
+		}
+
+		time.Sleep(interval)
+	}
+}
+
+// unmatchedLogs returns an error which lists the conditions no line of the
+// logs matches, or nil if all match.
+func unmatchedLogs(logs string, conditions []*regexp.Regexp) error {
+	var missing []string
+
+	for _, condition := range conditions {
+		if !condition.MatchString(logs) {
+			missing = append(missing, condition.String())
+		}
+	}
+
+	if len(missing) > 0 {
+		return fmt.Errorf("no log line matches %q", missing)
+	}
+
+	return nil
+}
+
+// nodeFileExists reports whether the file exists on the node, without failing
+// the test if it does not. Its directory has to exist.
+func (e *e2e) nodeFileExists(node, filePath string) bool {
+	return e.execNode(
+		node, "find", filepath.Dir(filePath), "-maxdepth", "1", "-name", filepath.Base(filePath),
+	) != ""
 }
 
 func (e *e2e) getSELinuxPolicyName(kind, policy string) string {

@@ -11,6 +11,7 @@ resources:
 - role_binding.yaml
 - mutatingwebhookconfig.yaml
 - metrics_client.yaml
+- spod_job_policy.yaml
 
 configMapGenerator:
 - files:

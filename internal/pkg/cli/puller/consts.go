@@ -29,6 +29,10 @@ const (
 	// authentication.
 	FlagUsername string = cli.FlagUsername
 
+	// FlagPasswordStdin is the flag for reading the password for registry
+	// authentication from stdin.
+	FlagPasswordStdin string = cli.FlagPasswordStdin
+
 	// FlagPlatform is the flag for defining the platform.
 	FlagPlatform string = "platform"
 

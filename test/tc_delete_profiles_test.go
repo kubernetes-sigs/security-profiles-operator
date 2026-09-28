@@ -17,10 +17,11 @@ limitations under the License.
 package e2e_test
 
 import (
+	"fmt"
 	"path"
 	"time"
 
-	"sigs.k8s.io/security-profiles-operator/api/common"
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 )
 
@@ -115,8 +116,7 @@ spec:
 		deletePodName = "test-pod"
 	)
 
-	profileCleanup := e.writeAndCreate(deleteProfile, "delete-profile*.yaml")
-	defer profileCleanup()
+	e.writeAndCreate(deleteProfile, "delete-profile*.yaml")
 
 	sp := e.getSeccompProfile(deleteProfileName)
 	profileOperatorPath := path.Join(e.nodeRootfsPrefix, sp.GetProfileOperatorPath())
@@ -125,21 +125,32 @@ spec:
 	e.waitForProfile(deleteProfileName)
 
 	e.logf("Verifying profile exists")
-	time.Sleep(time.Second)
 
 	for _, node := range nodes {
-		e.execNode(node, "test", "-f", profileOperatorPath)
+		e.eventually(time.Minute, time.Second, func() error {
+			if !e.nodeFileExists(node, profileOperatorPath) {
+				return fmt.Errorf("%s not on node %s", profileOperatorPath, node)
+			}
+
+			return nil
+		})
 	}
 
 	e.logf("Create fake node status for profile")
 	e.writeAndCreate(fakeNodeStatus, "fake-node-status*.yaml")
-	time.Sleep(time.Second)
 	e.logf("Verifying profile deleted")
+	// This waits until the profile is gone, so the stale finalizer of the
+	// fake node got removed.
 	e.kubectl("delete", "seccompprofile", deleteProfileName)
-	time.Sleep(time.Second)
 
 	for _, node := range nodes {
-		e.execNode(node, "test", "!", "-f", profileOperatorPath)
+		e.eventually(time.Minute, time.Second, func() error {
+			if e.nodeFileExists(node, profileOperatorPath) {
+				return fmt.Errorf("%s still on node %s", profileOperatorPath, node)
+			}
+
+			return nil
+		})
 	}
 
 	// Check linking pods prevent deletion
@@ -166,18 +177,14 @@ spec:
 	} {
 		e.logf("> > Running test case for deleted profiles and pods: %s", testCase.description)
 
-		// Run each case in its own function so that the deferred cleanups
-		// happen at the end of every iteration.
 		func() {
-			profileCleanup := e.writeAndCreate(deleteProfile, "delete-profile*.yaml")
-			defer profileCleanup()
+			e.writeAndCreate(deleteProfile, "delete-profile*.yaml")
 
 			e.waitForProfile(deleteProfileName)
 			e.logf("Create fake node status for profile")
 			e.writeAndCreate(fakeNodeStatus, "fake-node-status*.yaml")
 
-			podCleanup := e.writeAndCreate(testCase.podManifest, "delete-pod*.yaml")
-			defer podCleanup()
+			e.writeAndCreate(testCase.podManifest, "delete-pod*.yaml")
 
 			e.waitFor("condition=ready", "pod", deletePodName)
 			e.waitForProfileActivePodsFinalizer(deleteProfileName)
@@ -185,21 +192,20 @@ spec:
 			e.kubectl("delete", "seccompprofile", deleteProfileName, "--wait=0")
 
 			e.logf("Waiting for profile to be marked as terminating but not deleted")
-			// TODO(jhrozek): deleting manifests as Ready=False, reason=Deleting, can we wait in a nicer way?
-			for range 10 {
-				sp := e.getSeccompProfile(deleteProfileName)
 
-				conReady := sp.Status.GetReadyCondition()
-				if conReady.Reason == string(common.ReasonDeleting) {
-					break
+			var sp *seccompprofileapi.SeccompProfile
+
+			e.eventually(time.Minute, time.Second, func() error {
+				sp = e.getSeccompProfile(deleteProfileName)
+				if sp.Status.Status != secprofnodestatusapi.ProfileStateTerminating {
+					return fmt.Errorf(
+						"profile %s is %q, not %q", deleteProfileName,
+						sp.Status.Status, secprofnodestatusapi.ProfileStateTerminating,
+					)
 				}
 
-				time.Sleep(time.Second)
-			}
-
-			// At this point it must be terminating or else we haven't matched the condition above
-			sp := e.getSeccompProfile(deleteProfileName)
-			e.Equal(secprofnodestatusapi.ProfileStateTerminating, sp.Status.Status)
+				return nil
+			})
 
 			// The node statuses should still be there, just terminating
 			nodeStatuses := e.getAllSeccompProfileNodeStatuses(deleteProfileName)
