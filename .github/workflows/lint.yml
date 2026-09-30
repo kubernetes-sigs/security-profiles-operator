@@ -1,0 +1,123 @@
+name: lint
+# Static checks of the workflows, the shell scripts, the Dockerfiles, the
+# committed manifests and the documentation. They run on documentation only
+# pull requests too, because they are cheap and the documentation checks are
+# about exactly those. The weekly run also checks the external links.
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  schedule:
+    - cron: '43 5 * * 1'
+  workflow_dispatch:
+# Only pull request runs are cancelled by newer pushes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions: {}
+
+jobs:
+  # actionlint checks the workflow syntax, expressions and run scripts, the
+  # latter with the pinned shellcheck of the Makefile.
+  actionlint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ./go.mod
+      - run: make verify-actions
+
+  # zizmor finds security issues in the workflows, like template injection,
+  # credential persistence and excessive permissions.
+  zizmor:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read  # required for the online audits of the used actions
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4
+        with:
+          version: 1.30.1
+          # The findings are printed, not uploaded to code scanning.
+          advanced-security: false
+          min-severity: medium
+
+  # shellcheck on the shell scripts, and the tests of the CI scripts.
+  shellcheck:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ./go.mod
+      - run: make verify-shellcheck
+      - name: Test the flake report of the e2e-flakes workflow
+        run: python3 test/ci/junit-flakes.py --self-test
+
+  # hadolint on the Dockerfiles and the parity of Dockerfile and
+  # Dockerfile.ubi.
+  dockerfiles:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ./go.mod
+      - run: make verify-dockerfiles
+
+  # kubeconform on the committed manifests and the examples, kube-linter on
+  # the operator deployments.
+  manifests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ./go.mod
+      - run: make verify-manifests
+
+  # markdownlint with .markdownlint-cli2.yaml and lychee with lychee.toml.
+  # Pull requests and pushes only check the links within the repository, the
+  # weekly run the external ones too.
+  docs:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: DavidAnson/markdownlint-cli2-action@21c1be1b93ad9ed58fa840aacc3f279cde2a72ff # v24.2.0
+      - name: Select the links to check
+        id: links
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          args="--config lychee.toml --root-dir $GITHUB_WORKSPACE"
+          if [[ "$EVENT_NAME" != schedule && "$EVENT_NAME" != workflow_dispatch ]]; then
+            args="$args --offline"
+          fi
+          echo "args=$args './**/*.md'" >>"$GITHUB_OUTPUT"
+      - uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          lycheeVersion: v0.24.2
+          args: ${{ steps.links.outputs.args }}
+          jobSummary: false
+          token: ${{ github.token }}

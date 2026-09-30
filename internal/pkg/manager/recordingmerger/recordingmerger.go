@@ -85,11 +85,10 @@ func (r *PolicyMergeReconciler) Healthz(*http.Request) error {
 
 // Security Profiles Operator RBAC permissions to manage SelinuxProfile
 //nolint:lll // required for kubebuilder
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilerecordings,verbs=get;list;watch
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilerecordings/finalizers,verbs=get;list;watch
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles,verbs=get;list;watch;create;update;patch;delete;deletecollection
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles,verbs=get;list;watch;create;update;patch;delete;deletecollection
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=apparmorprofiles,verbs=get;list;watch;create;update;patch;delete;deletecollection
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilerecordings,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=apparmorprofiles,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile reconciles a NodeStatus.
 func (r *PolicyMergeReconciler) Reconcile(
@@ -125,56 +124,68 @@ func (r *PolicyMergeReconciler) Reconcile(
 	return reconcile.Result{}, nil
 }
 
+// mergeKind is a kind of profiles which a recording can record.
+type mergeKind struct {
+	kind         profilerecordingapi.ProfileRecordingKind
+	createUpdate createUpdateFn
+	newList      func() client.ObjectList
+}
+
+// mergeKinds are all kinds of partial profiles which a recording can have.
+// The kind of a recording can change while partial profiles of the former
+// kind exist, so the partial profiles of every kind get merged, not only the
+// ones of the current kind.
+var mergeKinds = []mergeKind{
+	{
+		kind:         profilerecordingapi.ProfileRecordingKindSeccompProfile,
+		createUpdate: createUpdateSeccompProfile,
+		newList:      func() client.ObjectList { return &seccompprofile.SeccompProfileList{} },
+	},
+	{
+		kind:         profilerecordingapi.ProfileRecordingKindSelinuxProfile,
+		createUpdate: createUpdateSelinuxProfile,
+		newList:      func() client.ObjectList { return &selinuxprofileapi.SelinuxProfileList{} },
+	},
+	{
+		kind:         profilerecordingapi.ProfileRecordingKindAppArmorProfile,
+		createUpdate: createUpdateApparmorProfile,
+		newList:      func() client.ObjectList { return &apparmorprofileapi.AppArmorProfileList{} },
+	},
+}
+
 func (r *PolicyMergeReconciler) mergeProfiles(
 	ctx context.Context,
 	profileRecording *profilerecordingapi.ProfileRecording,
 ) error {
-	var err error
-
-	switch profileRecording.Spec.Kind {
-	case profilerecordingapi.ProfileRecordingKindSeccompProfile:
-		err = r.mergeSeccompProfiles(ctx, profileRecording)
-	case profilerecordingapi.ProfileRecordingKindSelinuxProfile:
-		err = r.mergeSelinuxProfiles(ctx, profileRecording)
-	case profilerecordingapi.ProfileRecordingKindAppArmorProfile:
-		err = r.mergeAppArmorProfiles(ctx, profileRecording)
-	default:
-		err = fmt.Errorf("%s: %s", errCannotMergeKind, profileRecording.Spec.Kind)
+	if !slices.ContainsFunc(mergeKinds, func(k mergeKind) bool {
+		return k.kind == profileRecording.Spec.Kind
+	}) {
+		// The partial profiles of the supported kinds still get merged, so
+		// that the recording can go.
 		r.record.Eventf(
 			profileRecording,
 			nil,
 			util.EventTypeWarning,
 			reasonCannotMergeKind,
 			util.EventActionMerge,
-			"%s",
-			err.Error(),
+			"%s: %s",
+			errCannotMergeKind,
+			profileRecording.Spec.Kind,
 		)
 	}
 
-	if err != nil {
-		return fmt.Errorf("cannot merge profiles: %w", err)
+	found := false
+
+	for _, k := range mergeKinds {
+		merged, err := r.mergeTypedProfiles(ctx, profileRecording, k.createUpdate, k.newList())
+		if err != nil {
+			return fmt.Errorf("cannot merge profiles of kind %s: %w", k.kind, err)
+		}
+
+		found = found || merged
 	}
 
-	return err
-}
-
-func (r *PolicyMergeReconciler) mergeTypedProfiles(
-	ctx context.Context,
-	profileRecording *profilerecordingapi.ProfileRecording,
-	createUpdateMergedProfile createUpdateFn,
-	listItem client.ObjectList,
-) error {
-	partialProfiles, listedProfiles, err := listPartialProfiles(
-		ctx,
-		r.client,
-		listItem,
-		profileRecording,
-	)
-	if err != nil {
-		return fmt.Errorf("cannot list partial profiles: %w", err)
-	}
-
-	if len(partialProfiles) == 0 {
+	if !found {
 		r.record.Eventf(
 			profileRecording,
 			nil,
@@ -185,8 +196,77 @@ func (r *PolicyMergeReconciler) mergeTypedProfiles(
 			errNoPartialProfiles,
 		)
 		r.log.Info(errNoPartialProfiles)
+	}
 
+	return r.releaseRecording(ctx, profileRecording)
+}
+
+// releaseRecording removes the finalizer which keeps the recording until its
+// partial profiles are merged, once no partial profile of any kind is left.
+// The daemon removes it as well when the last partial profile of a kind is
+// deleted, but not for a recording without any partial profile, or with
+// partial profiles of several kinds.
+func (r *PolicyMergeReconciler) releaseRecording(
+	ctx context.Context,
+	profileRecording *profilerecordingapi.ProfileRecording,
+) error {
+	if !controllerutil.ContainsFinalizer(
+		profileRecording,
+		profilerecordingapi.RecordingHasUnmergedProfiles,
+	) {
 		return nil
+	}
+
+	for _, k := range mergeKinds {
+		left, err := hasPartialProfiles(ctx, r.client, k.newList(), profileRecording)
+		if err != nil {
+			return fmt.Errorf("cannot list partial profiles of kind %s: %w", k.kind, err)
+		}
+
+		if left {
+			return nil
+		}
+	}
+
+	recording := &profilerecordingapi.ProfileRecording{}
+	recording.SetName(profileRecording.GetName())
+	recording.SetNamespace(profileRecording.GetNamespace())
+
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		return util.RemoveFinalizer(
+			ctx,
+			r.client,
+			recording,
+			profilerecordingapi.RecordingHasUnmergedProfiles,
+		)
+	})
+	if client.IgnoreNotFound(err) != nil {
+		return fmt.Errorf("cannot release recording: %w", err)
+	}
+
+	return nil
+}
+
+// mergeTypedProfiles merges the partial profiles of the list type and deletes
+// them. It returns whether there were partial profiles.
+func (r *PolicyMergeReconciler) mergeTypedProfiles(
+	ctx context.Context,
+	profileRecording *profilerecordingapi.ProfileRecording,
+	createUpdateMergedProfile createUpdateFn,
+	listItem client.ObjectList,
+) (bool, error) {
+	partialProfiles, listedProfiles, err := listPartialProfiles(
+		ctx,
+		r.client,
+		listItem,
+		profileRecording,
+	)
+	if err != nil {
+		return false, fmt.Errorf("cannot list partial profiles: %w", err)
+	}
+
+	if len(listedProfiles) == 0 {
+		return false, nil
 	}
 
 	// The partial profiles of a skipped container are kept, so that their
@@ -208,7 +288,7 @@ func (r *PolicyMergeReconciler) mergeTypedProfiles(
 
 		mergedProfile, err := mergeMergeableProfiles(cntPartialProfiles)
 		if err != nil {
-			return fmt.Errorf("cannot merge partial profiles: %w", err)
+			return true, fmt.Errorf("cannot merge partial profiles: %w", err)
 		}
 
 		if mergedProfile == nil {
@@ -257,7 +337,7 @@ func (r *PolicyMergeReconciler) mergeTypedProfiles(
 				continue
 			}
 
-			return fmt.Errorf("cannot create or update merged profile: action:  %w", err)
+			return true, fmt.Errorf("cannot create or update merged profile: action:  %w", err)
 		}
 
 		r.log.Info("Created/updated profile", "action", res, "name", mergedRecordingName)
@@ -267,7 +347,7 @@ func (r *PolicyMergeReconciler) mergeTypedProfiles(
 		return skipped[getContainerID(obj)]
 	})
 
-	return deletePartialProfiles(ctx, r.client, toDelete)
+	return true, deletePartialProfiles(ctx, r.client, toDelete)
 }
 
 type createUpdateFn func(
@@ -278,40 +358,6 @@ type createUpdateFn func(
 	mergedProfiles mergeableProfile,
 	coverageAnnotation string,
 ) (controllerutil.OperationResult, error)
-
-func (r *PolicyMergeReconciler) mergeSeccompProfiles(
-	ctx context.Context,
-	profileRecording *profilerecordingapi.ProfileRecording,
-) error {
-	return r.mergeTypedProfiles(
-		ctx,
-		profileRecording,
-		createUpdateSeccompProfile,
-		&seccompprofile.SeccompProfileList{})
-}
-
-func (r *PolicyMergeReconciler) mergeSelinuxProfiles(
-	ctx context.Context,
-	profileRecording *profilerecordingapi.ProfileRecording,
-) error {
-	return r.mergeTypedProfiles(
-		ctx,
-		profileRecording,
-		createUpdateSelinuxProfile,
-		&selinuxprofileapi.SelinuxProfileList{})
-}
-
-func (r *PolicyMergeReconciler) mergeAppArmorProfiles(
-	ctx context.Context,
-	profileRecording *profilerecordingapi.ProfileRecording,
-) error {
-	return r.mergeTypedProfiles(
-		ctx,
-		profileRecording,
-		createUpdateApparmorProfile,
-		&apparmorprofileapi.AppArmorProfileList{},
-	)
-}
 
 func createUpdateSeccompProfile(
 	ctx context.Context,

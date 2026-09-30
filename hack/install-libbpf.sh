@@ -16,12 +16,17 @@
 set -euo pipefail
 
 VERSION=1.7.0
-curl -sSfL --retry 5 --retry-delay 3 \
-    "https://github.com/libbpf/libbpf/archive/refs/tags/v$VERSION.tar.gz" -o- |
-    tar xfz -
+# The checksum of the source archive of the tag, bump together with VERSION.
+SHA256=7ab5feffbf78557f626f2e3e3204788528394494715a30fc2070fcddc2051b7b
 
 DIR="libbpf-$VERSION"
-trap 'rm -rf -- "$DIR"' EXIT
+ARCHIVE="$DIR.tar.gz"
+trap 'rm -rf -- "$DIR" "$ARCHIVE"' EXIT
+
+curl -sSfL --retry 5 --retry-delay 3 -o "$ARCHIVE" \
+    "https://github.com/libbpf/libbpf/archive/refs/tags/v$VERSION.tar.gz"
+echo "$SHA256  $ARCHIVE" | sha256sum -c -
+tar xfz "$ARCHIVE"
 
 # libbpf installs into lib64 on every 64 bit architecture, which the linker
 # does not search on arm64 Ubuntu. Use the library directory of the compiler.

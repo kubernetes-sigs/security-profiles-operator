@@ -11,7 +11,9 @@ spec:
       allowedCapabilities:
       - bpf
       - chown
+      - dac_read_search
       - perfmon
+      - sys_ptrace
       - sys_resource
     executable:
       allowedExecutables:
@@ -31,11 +33,13 @@ spec:
       - /var/run/secrets/kubernetes.io/serviceaccount/**
       - /var/run/secrets/kubernetes.io/serviceaccount/**
       readWritePaths:
-      - "ptrace (read),\n# ugly template injection hack"
       - /var/run/grpc/bpf-recorder.sock
       - /var/run/grpc/metrics.sock
     network:
       allowedProtocols:
         allowTcp: true
         allowUdp: true
+    ptrace:
+      allowedAccess:
+      - read
   state: Enabled

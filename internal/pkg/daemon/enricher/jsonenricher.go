@@ -19,6 +19,7 @@ package enricher
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -29,36 +30,45 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/google/uuid"
 	"github.com/jellydator/ttlcache/v3"
-	"github.com/urfave/cli/v2"
 	"gopkg.in/natefinch/lumberjack.v2"
-	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/kubernetes"
 
 	apienricher "sigs.k8s.io/security-profiles-operator/api/grpc/enricher"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/auditsource"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/tailer"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 )
+
+const (
+	// defaultAuditLogMaxBackups is the number of rotated audit log files kept
+	// when neither a number nor an age is configured. Keeping them all would
+	// fill the disk of the node.
+	defaultAuditLogMaxBackups = 10
+
+	// flushInterval is how often the expired log buckets are emitted while
+	// lines arrive, in addition to the cache janitor.
+	flushInterval = 30 * time.Second
+)
+
+// errTailEnded is reported when the audit log tail ends without an error.
+var errTailEnded = errors.New("audit log tail ended")
 
 type JsonEnricher struct {
 	apienricher.UnimplementedEnricherServer
 	impl
 	logger              logr.Logger
 	containerIDCache    *ttlcache.Cache[string, string]
-	infoCache           *ttlcache.Cache[string, *types.ContainerInfo]
-	missingContainers   *ttlcache.Cache[string, struct{}]
-	containers          *asyncContainerLookup
+	containers          *containerInfos
 	logLinesCache       *ttlcache.Cache[int, *types.LogBucket]
-	clientset           kubernetes.Interface
 	processCache        *ttlcache.Cache[string, *types.ProcessInfo]
 	logWriter           io.Writer
 	enricherFilters     []types.EnricherFilterOptions
 	bpfProcessCache     *bpfrecorder.BpfProcessCache
 	auditLogOutputMutex sync.Mutex
-	containerBackoff    wait.Backoff
-	// nodeName defaults to the value of the node name environment variable.
+	// nodeName is the node the enricher runs on, from the node name
+	// environment variable.
 	nodeName string
 }
 
@@ -126,6 +136,17 @@ func NewJsonEnricherArgs(logger logr.Logger, opts *JsonEnricherOptions) (*JsonEn
 		}
 	}
 
+	if actualOpts.AuditLogPath != "" && actualOpts.AuditLogMaxBackups == 0 &&
+		actualOpts.AuditLogMaxAge == 0 {
+		// lumberjack keeps every rotated file otherwise.
+		actualOpts.AuditLogMaxBackups = defaultAuditLogMaxBackups
+		logger.Info(
+			"Neither a maximum number nor a maximum age of audit log backups is set, using a default",
+			"maxBackups",
+			defaultAuditLogMaxBackups,
+		)
+	}
+
 	enricherFilters, err := GetEnricherFilters(actualOpts.EnricherFiltersJson, logger)
 	if err != nil {
 		return nil, fmt.Errorf("get enricher filters: %w", err)
@@ -140,11 +161,7 @@ func NewJsonEnricherArgs(logger logr.Logger, opts *JsonEnricherOptions) (*JsonEn
 			ttlcache.WithTTL[string, string](defaultCacheTimeout),
 			ttlcache.WithCapacity[string, string](maxCacheItems),
 		),
-		infoCache: ttlcache.New(
-			ttlcache.WithTTL[string, *types.ContainerInfo](defaultCacheTimeout),
-			ttlcache.WithCapacity[string, *types.ContainerInfo](maxCacheItems),
-		),
-		missingContainers: newMissingContainerCache(),
+		containers: newContainerInfos(),
 		logLinesCache: ttlcache.New(
 			ttlcache.WithTTL[int, *types.LogBucket](actualOpts.AuditFreq),
 			ttlcache.WithCapacity[int, *types.LogBucket](maxCacheItems),
@@ -156,9 +173,10 @@ func NewJsonEnricherArgs(logger logr.Logger, opts *JsonEnricherOptions) (*JsonEn
 			ttlcache.WithTTL[string, *types.ProcessInfo](defaultCacheTimeout),
 			ttlcache.WithCapacity[string, *types.ProcessInfo](maxCacheItems),
 		),
-		enricherFilters:  enricherFilters,
-		bpfProcessCache:  nil,
-		containerBackoff: defaultContainerBackoff(),
+		enricherFilters: enricherFilters,
+		bpfProcessCache: nil,
+		// Read once, like the rest of the configuration.
+		nodeName: os.Getenv(config.NodeNameEnvKey),
 	}
 
 	w, err := getWriter(actualOpts)
@@ -190,24 +208,25 @@ func getWriter(opts JsonEnricherOptions) (io.Writer, error) {
 	}, nil
 }
 
+// Run reads the audit log until ctx is done and sends the outcome to runErr:
+// nil once it shut down, or the error which ended it. The records which are
+// still buffered are emitted before it returns.
 func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
-	if e.nodeName == "" {
-		e.nodeName = os.Getenv(config.NodeNameEnvKey)
-	}
+	runErr <- e.run(ctx)
+}
 
+func (e *JsonEnricher) run(ctx context.Context) error {
 	nodeName := e.nodeName
 	if nodeName == "" {
 		err := fmt.Errorf("%s environment variable not set", config.NodeNameEnvKey)
 		e.logger.Error(err, "unable to run enricher")
 
-		runErr <- err
-
-		return
+		return err
 	}
 
 	e.logger.Info("Starting audit JSON logging on node", "node", nodeName)
 
-	e.logLinesCache.OnEviction(
+	unsubscribe := e.logLinesCache.OnEviction(
 		func(ctx context.Context, reason ttlcache.EvictionReason, logItem *ttlcache.Item[int, *types.LogBucket]) {
 			auditLogBucket := logItem.Value()
 			if auditLogBucket == nil {
@@ -221,10 +240,10 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 
 			auditLogBucket.Emitted = true
 
-			// The container may have been looked up in the meantime.
+			// The pod may tell the container by now.
 			if auditLogBucket.ContainerInfo == nil && auditLogBucket.ContainerID != "" {
-				if item := e.infoCache.Get(auditLogBucket.ContainerID); item != nil {
-					auditLogBucket.ContainerInfo = item.Value()
+				if info, err := e.containers.get(auditLogBucket.ContainerID); err == nil {
+					auditLogBucket.ContainerInfo = info
 				}
 			}
 
@@ -234,42 +253,17 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 		},
 	)
 
+	if err := e.containers.watch(ctx, e.impl, nodeName); err != nil {
+		return err
+	}
+
 	e.logger.Info("Setting up caches", "expiry", defaultCacheTimeout)
-
-	clusterConfig, err := e.InClusterConfig()
-	if err != nil {
-		runErr <- fmt.Errorf("get in-cluster config: %w", err)
-
-		return
-	}
-
-	e.clientset, err = e.NewForConfig(clusterConfig)
-	if err != nil {
-		runErr <- fmt.Errorf("load in-cluster config: %w", err)
-
-		return
-	}
 
 	go e.containerIDCache.Start()
 	defer e.containerIDCache.Stop()
 
-	go e.infoCache.Start()
-	defer e.infoCache.Stop()
-
-	go e.missingContainers.Start()
-	defer e.missingContainers.Stop()
-
-	e.containers = newAsyncContainerLookup(&containerLookup{
-		nodeName:  nodeName,
-		clientSet: e.clientset,
-		impl:      e.impl,
-		infoCache: e.infoCache,
-		missing:   e.missingContainers,
-		logger:    e.logger,
-		backoff:   e.containerBackoff,
-	})
-
-	go e.containers.run(ctx)
+	go e.containers.infoCache.Start()
+	defer e.containers.infoCache.Stop()
 
 	go e.logLinesCache.Start()
 	defer e.logLinesCache.Stop()
@@ -280,20 +274,13 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 	// Use auditd logs as main source or syslog as fallback.
 	filePath := common.LogFilePath()
 
-	// If the file does not exist, then tail will wait for it to appear
-	tailFile, err := e.TailFile(
-		filePath,
-		common.LogTailConfig(),
-	)
+	// If the file does not exist, then the tailer waits for it to appear.
+	tailFile, err := e.TailFile(filePath, tailer.Config{})
 	if err != nil {
-		runErr <- fmt.Errorf("tailing file: %w", err)
-
-		return
+		return fmt.Errorf("tailing file: %w", err)
 	}
 
 	e.logger.Info("Reading from file", "path", filePath)
-
-	timePrev := time.Now()
 
 	bpfProcCache := bpfrecorder.NewBpfProcessCache(e.logger)
 
@@ -302,82 +289,113 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 		e.logger.Info("Unable to load BPF module. Using auditd", "error", err.Error())
 	} else {
 		e.bpfProcessCache = bpfProcCache
+
+		defer bpfProcCache.Close()
 	}
 
-	for l := range e.Lines(tailFile) {
-		if l.Err != nil {
-			e.logger.Error(l.Err, "failed to tail")
+	defer func() {
+		// Emit what the processes did since their buckets were last
+		// flushed: deleting the buckets runs the eviction callbacks, and
+		// unsubscribing waits for them before the writer gets closed.
+		e.StopTail(tailFile)
+		e.logLinesCache.DeleteAll()
+		unsubscribe()
+		e.closeLogWriter()
+	}()
 
-			continue
-		}
+	timePrev := time.Now()
+	lines := e.Lines(tailFile)
 
-		timeNow := time.Now()
-		if timePrev.Add(30 * time.Second).Before(timeNow) {
-			e.logger.V(config.VerboseLevel).Info("Time to flush log lines")
-			e.logLinesCache.DeleteExpired()
+	for {
+		select {
+		case <-ctx.Done():
+			e.logger.Info("Stopping audit JSON logging", "reason", ctx.Err().Error())
 
-			timePrev = timeNow
-		}
+			return nil
+		case line, ok := <-lines:
+			if !ok {
+				err := e.Reason(tailFile)
+				if err == nil {
+					err = errTailEnded
+				}
 
-		line := l.Text
-		e.logger.V(config.VerboseLevel).Info("Got line", "line", line)
-
-		// ExtractAuditLine rejects non-audit lines itself, so an IsAuditLine
-		// call here would only repeat the same regex matching.
-		auditLine, err := auditsource.ExtractAuditLine(line)
-		if err != nil {
-			e.logger.V(config.VerboseLevel).Info("Not an audit line")
-
-			continue
-		}
-
-		e.logger.V(config.VerboseLevel).Info("AuditLine parsed", "line", line)
-
-		if auditLine.AuditType != types.AuditTypeSeccomp {
-			e.logger.V(config.VerboseLevel).Info("Only seccomp supported")
-
-			continue
-		}
-
-		logBucket, cached := e.lockedLogBucket(auditLine)
-
-		// Capture proc/pid/(cmdLine/environ) early; these files are ephemeral on some OS (e.g., Ubuntu).
-		if logBucket.ProcessInfo == nil {
-			// Keep uid/gid nil when the line carries none: defaulting to the
-			// zero value would attribute the record to root.
-			var uidPtr, gidPtr *uint32
-
-			if uid, gid, err := auditsource.GetUidGid(line); err != nil {
-				e.logger.V(config.VerboseLevel).Info(
-					"unable to get uid and gid", "line", line)
-			} else {
-				uidPtr, gidPtr = &uid, &gid
+				return fmt.Errorf("enricher failed: %w", err)
 			}
 
-			logBucket.ProcessInfo = e.fetchProcessInfo(auditLine.ProcessID,
-				auditLine.Executable, uidPtr, gidPtr)
-		}
+			timeNow := time.Now()
+			if timePrev.Add(flushInterval).Before(timeNow) {
+				e.logger.V(config.VerboseLevel).Info("Time to flush log lines")
+				e.logLinesCache.DeleteExpired()
 
-		e.processEbpf(logBucket, auditLine)
+				timePrev = timeNow
+			}
 
-		if logBucket.ContainerInfo == nil {
-			logBucket.ContainerInfo, logBucket.ContainerID = e.fetchContainerInfo(
-				auditLine.ProcessID,
-			)
-		}
-
-		logBucket.SyscallIds.LoadOrStore(
-			types.SyscallKey{ID: auditLine.SystemCallID, Arch: auditLine.Arch}, struct{}{},
-		)
-
-		logBucket.Mu.Unlock()
-
-		if !cached {
-			e.logLinesCache.Set(auditLine.ProcessID, logBucket, ttlcache.DefaultTTL)
+			e.processLine(line)
 		}
 	}
+}
 
-	runErr <- fmt.Errorf("enricher failed: %w", e.Reason(tailFile))
+// processLine adds a seccomp audit line to the log bucket of its process.
+func (e *JsonEnricher) processLine(line string) {
+	e.logger.V(config.VerboseLevel).Info("Got line", "line", line)
+
+	// ExtractAuditLine rejects non-audit lines itself, so an IsAuditLine
+	// call here would only repeat the same regex matching.
+	auditLine, err := auditsource.ExtractAuditLine(line)
+	if err != nil {
+		e.logger.V(config.VerboseLevel).Info("Not an audit line")
+
+		return
+	}
+
+	e.logger.V(config.VerboseLevel).Info("AuditLine parsed", "line", line)
+
+	if auditLine.AuditType != types.AuditTypeSeccomp {
+		e.logger.V(config.VerboseLevel).Info("Only seccomp supported")
+
+		return
+	}
+
+	logBucket, cached := e.lockedLogBucket(auditLine)
+
+	// Capture proc/pid/(cmdLine/environ) early; these files are ephemeral on some OS (e.g., Ubuntu).
+	if logBucket.ProcessInfo == nil {
+		// The uid and gid stay nil when the line carries none: defaulting to
+		// the zero value would attribute the record to root.
+		logBucket.ProcessInfo = e.fetchProcessInfo(auditLine.ProcessID,
+			auditLine.Executable, auditLine.Uid, auditLine.Gid)
+	}
+
+	e.processEbpf(logBucket, auditLine)
+
+	if logBucket.ContainerInfo == nil {
+		logBucket.ContainerInfo, logBucket.ContainerID = e.fetchContainerInfo(
+			auditLine.ProcessID,
+		)
+	}
+
+	logBucket.SyscallIds.LoadOrStore(
+		types.SyscallKey{ID: auditLine.SystemCallID, Arch: auditLine.Arch}, struct{}{},
+	)
+
+	logBucket.Mu.Unlock()
+
+	if !cached {
+		e.logLinesCache.Set(auditLine.ProcessID, logBucket, ttlcache.DefaultTTL)
+	}
+}
+
+// closeLogWriter closes the audit log file. Stdout stays open for the logger.
+func (e *JsonEnricher) closeLogWriter() {
+	if e.logWriter == io.Writer(os.Stdout) {
+		return
+	}
+
+	if closer, ok := e.logWriter.(io.Closer); ok {
+		if err := closer.Close(); err != nil {
+			e.logger.Error(err, "unable to close log writer")
+		}
+	}
 }
 
 // lockedLogBucket returns the locked bucket of the process of the audit line,
@@ -390,17 +408,30 @@ func (e *JsonEnricher) lockedLogBucket(
 	// between, which would panic in Value().
 	if item := e.logLinesCache.Get(auditLine.ProcessID); item != nil {
 		logBucket = item.Value()
+	} else {
+		// Get hides a bucket which expired but was not cleaned up yet, and
+		// Set would overwrite it without an eviction, losing its records.
+		// Deleting it emits it first.
+		e.logLinesCache.Delete(auditLine.ProcessID)
 	}
 
 	if logBucket != nil {
 		logBucket.Mu.Lock()
 
-		if !logBucket.Emitted {
+		switch {
+		case logBucket.Emitted:
+			// Emitted in the meantime, the line goes into a new one.
+			logBucket.Mu.Unlock()
+		case logBucket.ProcessInfo != nil && logBucket.ProcessInfo.Executable != auditLine.Executable:
+			// Another executable runs with the PID now: the process
+			// exec'd or the PID got reused. The bucket of the previous one
+			// is emitted by the eviction of the deletion, the line starts a
+			// new one.
+			logBucket.Mu.Unlock()
+			e.logLinesCache.Delete(auditLine.ProcessID)
+		default:
 			return logBucket, true
 		}
-
-		// Emitted in the meantime, the line goes into a new one.
-		logBucket.Mu.Unlock()
 	}
 
 	logBucket = &types.LogBucket{
@@ -456,9 +487,10 @@ func (e *JsonEnricher) processEbpf(logBucket *types.LogBucket, auditLine *types.
 }
 
 // fetchContainerInfo returns the info of the container of a process, or nil if
-// it is not known. The ID of a container which is still looked up is returned
-// as well, the next line of the process or the emission of its bucket picks up
-// the result. Looking it up here would stall the processing of the lines.
+// it is not known. The ID of a container which its pod does not tell yet is
+// returned as well, the next line of the process or the emission of its bucket
+// look it up again. Waiting for it here would stall the processing of the
+// lines.
 func (e *JsonEnricher) fetchContainerInfo(
 	processId int,
 ) (info *types.ContainerInfo, containerID string) {
@@ -466,7 +498,7 @@ func (e *JsonEnricher) fetchContainerInfo(
 	e.logger.V(config.VerboseLevel).Info("Container ID for PID",
 		"containerID", cID, "len", len(cID))
 
-	if errContainer != nil || cID == "" || e.containers == nil {
+	if errContainer != nil || cID == "" {
 		e.logger.V(config.VerboseLevel).Info("unable to get container Id", "error", errContainer)
 
 		return nil, ""
@@ -605,14 +637,6 @@ func (e *JsonEnricher) dispatchSeccompLine(
 	defer e.auditLogOutputMutex.Unlock()
 
 	e.PrintJsonOutput(e.logWriter, auditJson)
-}
-
-func (e *JsonEnricher) ExitJsonEnricher(_ *cli.Context) {
-	if closer, ok := e.logWriter.(io.Closer); ok {
-		if err := closer.Close(); err != nil {
-			e.logger.Error(err, "unable to close log writer")
-		}
-	}
 }
 
 func ensureLogFile(opts JsonEnricherOptions) error {

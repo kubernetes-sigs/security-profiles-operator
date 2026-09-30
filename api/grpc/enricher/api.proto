@@ -17,7 +17,7 @@ limitations under the License.
 syntax = "proto3";
 
 package api_enricher;
-option go_package = "/api_enricher";
+option go_package = "sigs.k8s.io/security-profiles-operator/api/grpc/enricher;api_enricher";
 
 service Enricher {
   rpc Syscalls(SyscallsRequest) returns (SyscallsResponse) {}

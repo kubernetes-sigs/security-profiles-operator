@@ -19,6 +19,7 @@ package metrics
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -38,9 +39,9 @@ type Stream[T any] interface {
 	Send(T) error
 }
 
-// OpenFunc opens a new stream to the metrics server. The returned function
-// releases the stream and its connection.
-type OpenFunc[T any] func() (Stream[T], func(), error)
+// OpenContextFunc opens a new stream to the metrics server, bound to ctx. The
+// returned function releases the stream and its connection.
+type OpenContextFunc[T any] func(ctx context.Context) (Stream[T], func(), error)
 
 // Sender delivers requests to the local metrics server from a background
 // goroutine.
@@ -52,21 +53,28 @@ type OpenFunc[T any] func() (Stream[T], func(), error)
 // broken once the server side went away.
 type Sender[T any] struct {
 	logger logr.Logger
-	open   OpenFunc[T]
+	open   OpenContextFunc[T]
 	queue  chan T
 
 	mu      sync.Mutex
 	stream  Stream[T]
 	release func()
-	dropped uint64
+	// dropped counts the requests which did not fit into the queue. It is
+	// not guarded by mu, which is held while a stream is opened.
+	dropped atomic.Uint64
 
 	// sleep is replaced in tests.
 	sleep func(context.Context, time.Duration)
 }
 
-// NewSender returns a new Sender which opens streams with open. It does not
-// open a stream until Start or Run is called.
-func NewSender[T any](logger logr.Logger, queueSize int, open OpenFunc[T]) *Sender[T] {
+// NewContextSender returns a new Sender which opens streams with open, bound
+// to the context of ConnectContext or Run. It does not open a stream until one
+// of them is called.
+func NewContextSender[T any](
+	logger logr.Logger,
+	queueSize int,
+	open OpenContextFunc[T],
+) *Sender[T] {
 	return &Sender[T]{
 		logger: logger,
 		open:   open,
@@ -75,10 +83,10 @@ func NewSender[T any](logger logr.Logger, queueSize int, open OpenFunc[T]) *Send
 	}
 }
 
-// Connect opens the initial stream. It lets callers fail fast if the metrics
-// server is not reachable at all on startup.
-func (s *Sender[T]) Connect() error {
-	stream, release, err := s.open()
+// ConnectContext opens the initial stream, bound to ctx. It lets callers fail
+// fast if the metrics server is not reachable at all on startup.
+func (s *Sender[T]) ConnectContext(ctx context.Context) error {
+	stream, release, err := s.open(ctx)
 	if err != nil {
 		return err
 	}
@@ -99,10 +107,7 @@ func (s *Sender[T]) Send(req T) bool {
 	case s.queue <- req:
 		return true
 	default:
-		s.mu.Lock()
-		s.dropped++
-		dropped := s.dropped
-		s.mu.Unlock()
+		dropped := s.dropped.Add(1)
 
 		// Only log every so often, a full queue drops a lot.
 		if dropped == 1 || dropped%DefaultSenderQueueSize == 0 {
@@ -149,7 +154,7 @@ func (s *Sender[T]) deliver(ctx context.Context, req T) {
 	delay := minReconnectDelay
 
 	for ctx.Err() == nil {
-		stream, err := s.currentStream()
+		stream, err := s.currentStream(ctx)
 		if err == nil {
 			if err = stream.Send(req); err == nil {
 				return
@@ -165,7 +170,7 @@ func (s *Sender[T]) deliver(ctx context.Context, req T) {
 	}
 }
 
-func (s *Sender[T]) currentStream() (Stream[T], error) {
+func (s *Sender[T]) currentStream(ctx context.Context) (Stream[T], error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -173,7 +178,7 @@ func (s *Sender[T]) currentStream() (Stream[T], error) {
 		return s.stream, nil
 	}
 
-	stream, release, err := s.open()
+	stream, release, err := s.open(ctx)
 	if err != nil {
 		return nil, err
 	}

@@ -25,7 +25,6 @@ import (
 	"github.com/stretchr/testify/require"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -36,6 +35,7 @@ import (
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/utiltest"
 )
 
 func TestProfileStatusChanged(t *testing.T) {
@@ -112,8 +112,7 @@ func TestReconcileStatusRetriesConflictWithFreshGet(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	testScheme := runtime.NewScheme()
-	require.NoError(t, seccompprofileapi.AddToScheme(testScheme))
+	testScheme := utiltest.NewScheme(t)
 
 	profile := &seccompprofileapi.SeccompProfile{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-profile"},

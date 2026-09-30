@@ -1,0 +1,18 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+# Keeps at least minAvailable operator replicas running during voluntary
+# disruptions like node drains, so that the operands keep getting reconciled.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  labels:
+    {{- include "security-profiles-operator.labels" . | nindent 4 }}
+  name: security-profiles-operator
+  namespace: {{ .Release.Namespace }}
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  # Crash looping replicas must not block node drains.
+  unhealthyPodEvictionPolicy: AlwaysAllow
+  selector:
+    matchLabels:
+      {{- include "security-profiles-operator.selectorLabels" . | nindent 6 }}
+{{- end }}

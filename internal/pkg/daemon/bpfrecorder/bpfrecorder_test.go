@@ -19,7 +19,6 @@ limitations under the License.
 package bpfrecorder
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -45,6 +44,8 @@ import (
 	apimetrics "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder/bpfrecorderfakes"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/podindex"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/podindex/podindextest"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -222,6 +223,7 @@ func TestRun(t *testing.T) {
 	} {
 		mock := &bpfrecorderfakes.FakeImpl{}
 		mock.ReadlinkReturns("mnt:[4026531841]", nil)
+		mock.PodListerWatcherReturns(podindextest.New())
 		tc.prepare(mock)
 
 		sut := New("test", logr.Discard(), true, false)
@@ -649,6 +651,23 @@ func TestApparmorForProfile(t *testing.T) {
 				require.Error(t, err)
 			},
 		},
+		{
+			name: "no BPF LSM",
+			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
+				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
+				mock.BPFLSMEnabledReturns(false)
+
+				require.NoError(t, sut.Load())
+				_, err := sut.Start(t.Context(), &api.EmptyRequest{})
+				require.NoError(t, err)
+				sut.containerIDToProfileMap.Insert(containerID, profile)
+				sut.containerKeys.Insert(uint64(mntns), containerID)
+			},
+			assert: func(sut *BpfRecorder, resp *api.ApparmorResponse, err error) {
+				require.ErrorIs(t, err, ErrAppArmorUnavailable)
+				require.ErrorIs(t, err, errBPFLSMDisabled)
+			},
+		},
 		{ // no PID for container
 			name: "no pid for container available",
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
@@ -670,6 +689,7 @@ func TestApparmorForProfile(t *testing.T) {
 			sut := New("", logr.Discard(), true, true)
 
 			mock := &bpfrecorderfakes.FakeImpl{}
+			mock.BPFLSMEnabledReturns(true)
 			sut.impl = mock
 
 			tc.prepare(sut, mock)
@@ -743,17 +763,13 @@ func TestProcessEvents(t *testing.T) {
 	mock := &bpfrecorderfakes.FakeImpl{}
 	sut.impl = mock
 
-	var buf bytes.Buffer
-
-	err := binary.Write(&buf, binary.LittleEndian, bpfEvent{
-		Pid:   42,
-		Mntns: 0x1010,
-		Type:  uint8(eventTypeExit),
-	})
-	require.NoError(t, err)
+	event := make([]byte, bpfEventHeaderSize)
+	binary.LittleEndian.PutUint32(event[0:], 42)
+	binary.LittleEndian.PutUint32(event[4:], 0x1010)
+	event[16] = uint8(eventTypeExit)
 
 	ch := make(chan []byte, 1)
-	ch <- buf.Bytes()
+	ch <- event
 
 	close(ch)
 
@@ -762,7 +778,7 @@ func TestProcessEvents(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 
-	err = sut.WaitForPidExit(ctx, 42)
+	err := sut.WaitForPidExit(ctx, 42)
 	require.NoError(t, err)
 }
 
@@ -1004,21 +1020,9 @@ func TestNewPidEvent(t *testing.T) {
 		{ // Success
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) bpfEvent {
 				mock.ContainerIDForPIDReturns(containerID, nil)
-				mock.ListPodsReturns(&v1.PodList{Items: []v1.Pod{{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      pod,
-						Namespace: namespace,
-						Annotations: map[string]string{
-							config.SeccompProfileRecordBpfAnnotationKey + "ctr": "profile.json",
-						},
-					},
-					Status: v1.PodStatus{
-						ContainerStatuses: []v1.ContainerStatus{{
-							ContainerID: crioPrefix + containerID,
-							Name:        "ctr",
-						}},
-					},
-				}}}, nil)
+				watchPods(t, sut, podWithContainer(map[string]string{
+					config.SeccompProfileRecordBpfAnnotationKey + "ctr": "profile.json",
+				}))
 
 				return bpfEvent{
 					Pid:   42,
@@ -1059,10 +1063,10 @@ func TestNewPidEvent(t *testing.T) {
 				requireLogged(t, logger, "No container ID found for PID")
 			},
 		},
-		{ // unable to find profile in cluster for container ID
+		{ // no pod has the container
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) bpfEvent {
 				mock.ContainerIDForPIDReturns(containerID, nil)
-				mock.ListPodsReturns(nil, errTest)
+				watchPods(t, sut)
 
 				return bpfEvent{
 					Pid:   42,
@@ -1072,7 +1076,7 @@ func TestNewPidEvent(t *testing.T) {
 				}
 			},
 			assert: func(sut *BpfRecorder, logger *Logger) {
-				requireLogged(t, logger, "Unable to find profile in cluster for container ID")
+				requireLogged(t, logger, "Container not found in cluster")
 			},
 		},
 	} {
@@ -1123,7 +1127,7 @@ func TestTrackProfileMetricSerializesSends(t *testing.T) {
 		return nil
 	})
 
-	require.NoError(t, sut.connectMetrics())
+	require.NoError(t, sut.connectMetrics(t.Context()))
 
 	go sut.metrics.Run(t.Context())
 
@@ -1154,7 +1158,7 @@ func TestTrackProfileMetricReconnects(t *testing.T) {
 	mock.SendMetricReturnsOnCall(0, errTest)
 	sut.impl = mock
 
-	require.NoError(t, sut.connectMetrics())
+	require.NoError(t, sut.connectMetrics(t.Context()))
 	require.Equal(t, 1, mock.DialMetricsCallCount())
 
 	go sut.metrics.Run(t.Context())
@@ -1278,12 +1282,21 @@ func TestSyscallsForProfileWithoutData(t *testing.T) {
 func TestApparmorForProfileWithoutData(t *testing.T) {
 	t.Parallel()
 
-	sut, _ := newRecordingRecorder(t, false, true)
+	sut := New("", logr.Discard(), false, true)
+	mock := &bpfrecorderfakes.FakeImpl{}
+	mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
+	mock.BPFLSMEnabledReturns(true)
+	sut.impl = mock
+
+	require.NoError(t, sut.Load())
+
+	_, err := sut.Start(t.Context(), &api.EmptyRequest{})
+	require.NoError(t, err)
 
 	sut.containerIDToProfileMap.Insert(containerID, profile)
 	sut.containerKeys.Insert(1, containerID)
 
-	_, err := sut.ApparmorForProfile(t.Context(), &api.ProfileRequest{Name: profile})
+	_, err = sut.ApparmorForProfile(t.Context(), &api.ProfileRequest{Name: profile})
 	require.ErrorIs(t, err, ErrNotFound)
 }
 
@@ -1323,8 +1336,8 @@ func TestCheckLostEvents(t *testing.T) {
 			"recorded seccomp profiles may be incomplete")
 }
 
-func podWithContainer(annotations map[string]string) *v1.PodList {
-	return &v1.PodList{Items: []v1.Pod{{
+func podWithContainer(annotations map[string]string) *v1.Pod {
+	return &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        pod,
 			Namespace:   namespace,
@@ -1336,7 +1349,51 @@ func podWithContainer(annotations map[string]string) *v1.PodList {
 				Name:        "ctr",
 			}},
 		},
-	}}}
+	}
+}
+
+// watchPods has the recorder watch the pods until the test ends, and waits
+// for their initial list. Containers which no pod has are waited for only
+// briefly.
+func watchPods(t *testing.T, sut *BpfRecorder, pods ...*v1.Pod) *podindextest.ListerWatcher {
+	t.Helper()
+
+	items := make([]v1.Pod, 0, len(pods))
+	for _, p := range pods {
+		items = append(items, *p)
+	}
+
+	lw := podindextest.New(items...)
+
+	idx, err := podindex.New(lw)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
+
+	go idx.Run(ctx)
+
+	require.Eventually(t, idx.HasSynced, time.Minute, time.Millisecond)
+
+	sut.pods = idx
+	sut.containerLookupTimeout = 10 * time.Millisecond
+
+	return lw
+}
+
+// modifyPod updates the pod and waits for the recorder to see the update.
+func modifyPod(t *testing.T, sut *BpfRecorder, lw *podindextest.ListerWatcher, p *v1.Pod) {
+	t.Helper()
+
+	changed := sut.pods.Changed()
+
+	lw.Modify(p)
+
+	select {
+	case <-changed:
+	case <-time.After(time.Minute):
+		require.Fail(t, "pod update not seen")
+	}
 }
 
 // TestNewPidEventForEveryKey asserts that a process reported again under a
@@ -1350,9 +1407,9 @@ func TestNewPidEventForEveryKey(t *testing.T) {
 	sut.clientset = &kubernetes.Clientset{}
 
 	mock.ContainerIDForPIDReturns(containerID, nil)
-	mock.ListPodsReturns(podWithContainer(map[string]string{
+	watchPods(t, sut, podWithContainer(map[string]string{
 		config.SeccompProfileRecordBpfAnnotationKey + "ctr": profile,
-	}), nil)
+	}))
 
 	sut.handleNewPidEvent(
 		newPidEvent{pid: 42, mntns: 1, key: 1, generation: sut.recordingGeneration.Load()},
@@ -1382,7 +1439,7 @@ func TestNewPidEventExcludesUnrecordedContainers(t *testing.T) {
 		sut.excludeKeysBpfMap = &libbpfgo.BPFMap{}
 
 		mock.ContainerIDForPIDReturns(containerID, nil)
-		mock.ListPodsReturns(podWithContainer(nil), nil)
+		watchPods(t, sut, podWithContainer(nil))
 
 		sut.AppArmor.handleFileEvent(fileEvent(7, flagRead, "/etc/passwd"))
 
@@ -1433,7 +1490,7 @@ func TestNewPidEventExcludesHostProcesses(t *testing.T) {
 	)
 
 	require.Equal(t, 1, mock.UpdateValue64CallCount())
-	require.Zero(t, mock.ListPodsCallCount())
+	require.Zero(t, sut.containerKeys.Size())
 }
 
 // TestResetProfileOfRestartedContainer asserts that the data of every run of a

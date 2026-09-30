@@ -1,3 +1,5 @@
+//go:build e2e
+
 /*
 Copyright The Kubernetes Authors.
 
@@ -145,18 +147,7 @@ func (e *e2e) testCaseAllowedSyscallsChange(nodes []string) {
 
 	// Wait for profile to be deleted by the operator because it is not allowed anymore by the
 	// allowedSyscalls list.
-	exists := true
-	for range 10 {
-		exists = e.existsSeccompProfile(name)
-		if !exists {
-			break
-		}
-
-		time.Sleep(5 * time.Second)
-	}
-
-	e.Falsef(exists,
-		"seccomp profile should be removed because is not allowed anymore")
+	e.waitForSeccompProfileRemoved(name)
 
 	// Check that the seccomp profile file was removed also form the nodes
 	for _, node := range nodes {
@@ -214,21 +205,14 @@ spec:
 	// The active pod only protects the profile from the deletion below once
 	// its finalizer is set, which happens asynchronously.
 	e.logf("Waiting for the profile to be marked as in use")
-
-	inUse := false
-
-	for range 30 {
+	e.requireEventually(30*time.Second, time.Second, func() error {
 		finalizers := e.getSeccompProfile(allowProfileName).Finalizers
-		if slices.Contains(finalizers, util.HasActivePodsFinalizerString) {
-			inUse = true
-
-			break
+		if !slices.Contains(finalizers, util.HasActivePodsFinalizerString) {
+			return fmt.Errorf("profile %s not marked as in use: %v", allowProfileName, finalizers)
 		}
 
-		time.Sleep(time.Second)
-	}
-
-	e.Require().True(inUse, "profile %s not marked as in use", allowProfileName)
+		return nil
+	})
 
 	// Define an allowed syscalls list in the spod configuration, this should disallow the
 	// seccomp profile and trigger a deletion.
@@ -261,18 +245,7 @@ spec:
 	e.kubectl("delete", "pod", allowPodName)
 
 	// Wait for profile to be deleted by the operator
-	exists := true
-	for range 10 {
-		exists = e.existsSeccompProfile(allowProfileName)
-		if !exists {
-			break
-		}
-
-		time.Sleep(5 * time.Second)
-	}
-
-	e.Falsef(exists,
-		"seccomp profile should be removed because is not allowed anymore")
+	e.waitForSeccompProfileRemoved(allowProfileName)
 
 	// Check that the seccomp profile file was removed also form the nodes
 	for _, node := range nodes {
@@ -283,6 +256,20 @@ spec:
 
 // seccompProfileNodeState returns the state of the node status of a seccomp
 // profile and whether the node status exists.
+// waitForSeccompProfileRemoved waits until the operator removed the seccomp
+// profile, which the allowed syscalls do not allow anymore.
+func (e *e2e) waitForSeccompProfileRemoved(name string) {
+	e.eventually(50*time.Second, 5*time.Second, func() error {
+		if e.existsSeccompProfile(name) {
+			return fmt.Errorf(
+				"seccomp profile %s should be removed because it is not allowed anymore", name,
+			)
+		}
+
+		return nil
+	})
+}
+
 func (e *e2e) seccompProfileNodeState(
 	id, node string,
 ) (state secprofnodestatusapi.ProfileState, found bool) {

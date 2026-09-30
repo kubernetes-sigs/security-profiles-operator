@@ -18,6 +18,7 @@ package nodestatus
 
 import (
 	"context"
+	"fmt"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -32,13 +33,15 @@ import (
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 // Setup adds a controller that reconciles the SPOd DaemonSet.
 func (r *StatusReconciler) Setup(
-	_ context.Context,
+	ctx context.Context,
 	mgr ctrl.Manager,
 	_ *metrics.Metrics,
 ) error {
@@ -46,6 +49,13 @@ func (r *StatusReconciler) Setup(
 	r.reader = mgr.GetAPIReader()
 	r.log = ctrl.Log.WithName(r.Name())
 	r.record = util.NewEventRecorder(mgr, r.Name())
+
+	namespace, err := config.TryToGetOperatorNamespace()
+	if err != nil {
+		return fmt.Errorf("get operator namespace: %w", err)
+	}
+
+	r.namespace = namespace
 
 	// A spec change of a profile does not necessarily change a node status,
 	// but the conditions of the profile have to report the new generation.
@@ -61,6 +71,7 @@ func (r *StatusReconciler) Setup(
 	// work queue deduplicates.
 	return ctrl.NewControllerManagedBy(mgr).
 		Named(r.Name()).
+		WithOptions(controller.Options(ctx)).
 		Watches(&secprofnodestatusapi.SecurityProfileNodeStatus{},
 			handler.EnqueueRequestsFromMapFunc(r.siblingStatusRequests)).
 		Watches(&seccompprofileapi.SeccompProfile{},

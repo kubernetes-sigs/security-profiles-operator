@@ -18,73 +18,112 @@ package auditsource
 
 import (
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/go-logr/logr"
-	"github.com/nxadm/tail"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/tailer"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 )
 
 type AuditdSource struct {
 	logger logr.Logger
-	file   *tail.Tail
+	// path is the file to follow, the audit log or syslog if it is empty.
+	path string
+	file *tailer.Tailer
+	// done is closed by Stop, so that the forwarding goroutine does not wait
+	// for a consumer which is gone.
+	done     chan struct{}
+	stopOnce sync.Once
 }
 
 func NewAuditdSource(logger logr.Logger) *AuditdSource {
 	return &AuditdSource{
 		logger: logger,
+		done:   make(chan struct{}),
 	}
 }
 
 func (a *AuditdSource) StartTail() (log chan *types.AuditLine, err error) {
-	// Use auditd logs as main source or syslog as fallback.
-	filePath := common.LogFilePath()
+	filePath := a.path
+	if filePath == "" {
+		// Use auditd logs as main source or syslog as fallback.
+		filePath = common.LogFilePath()
+	}
 
-	// If the file does not exist, then tail will wait for it to appear
-	a.file, err = tail.TailFile(filePath, common.LogTailConfig())
+	// If the file does not exist, then the tailer waits for it to appear.
+	a.file, err = tailer.Follow(filePath, tailer.Config{})
 	if err != nil {
 		return nil, err
 	}
 
 	log = make(chan *types.AuditLine, 32)
 
-	go func() {
-		for l := range a.file.Lines {
-			line := l.Text
-			a.logger.V(config.VerboseLevel).Info("Got line", "line", line)
-
-			// ExtractAuditLine already reports non-matching lines, so
-			// calling IsAuditLine first would just run the same regexes twice.
-			auditLine, err := ExtractAuditLine(line)
-			if err != nil {
-				a.logger.V(config.VerboseLevel).Info("Not an audit line")
-
-				continue
-			}
-
-			log <- auditLine
-		}
-
-		close(log)
-	}()
+	go a.forward(a.file.Lines(), log)
 
 	return log, nil
 }
 
+// forward sends the audit lines of the log lines to log until the lines end
+// or the source is stopped.
+func (a *AuditdSource) forward(lines <-chan string, log chan<- *types.AuditLine) {
+	defer close(log)
+
+	for {
+		var (
+			line string
+			ok   bool
+		)
+
+		select {
+		case line, ok = <-lines:
+			if !ok {
+				return
+			}
+		case <-a.done:
+			return
+		}
+
+		a.logger.V(config.VerboseLevel).Info("Got line", "line", line)
+
+		// ExtractAuditLine already reports non-matching lines, so calling
+		// IsAuditLine first would just run the same regexes twice.
+		auditLine, err := ExtractAuditLine(line)
+		if err != nil {
+			a.logger.V(config.VerboseLevel).Info("Not an audit line")
+
+			continue
+		}
+
+		select {
+		case log <- auditLine:
+		case <-a.done:
+			return
+		}
+	}
+}
+
 func (a *AuditdSource) TailErr() error {
+	if a.file == nil {
+		return nil
+	}
+
 	return a.file.Err()
 }
 
 func (a *AuditdSource) Stop() {
+	a.stopOnce.Do(func() {
+		close(a.done)
+	})
+
 	if a.file != nil {
-		a.file.Cleanup()
+		a.file.Stop()
 	}
 }
 
@@ -96,8 +135,6 @@ var (
 	auditHeaderRegex = regexp.MustCompile(`type=(\w+)\s+(?:msg=)?audit\(([^)]+)\):?`)
 
 	selinuxPermsRegex = regexp.MustCompile(`\{\s*(.*?)\s*\}`)
-
-	uidGidRegex = regexp.MustCompile(`.*?\suid=(\d+).*?\sgid=(\d+).*`)
 )
 
 // auditPrefilter is a cheap substring every supported audit line contains. It
@@ -288,6 +325,8 @@ func extractSeccompLine(fields auditFields) *types.AuditLine {
 		Executable:   exe,
 		SystemCallID: int32(syscallID),
 		Arch:         arch,
+		Uid:          extractID(fields, "uid"),
+		Gid:          extractID(fields, "gid"),
 	}
 
 	if !extractProcessID(&line, pid) {
@@ -297,15 +336,35 @@ func extractSeccompLine(fields auditFields) *types.AuditLine {
 	return &line
 }
 
+// extractID returns the numeric ID field, or nil if the record does not carry
+// a valid one.
+func extractID(fields auditFields, key string) *uint32 {
+	value, ok := fields.get(key)
+	if !ok {
+		return nil
+	}
+
+	id, err := strconv.ParseUint(value, 10, 32)
+	if err != nil {
+		return nil
+	}
+
+	result := uint32(id)
+
+	return &result
+}
+
 // extractProcessID sets the process ID of line and reports whether it is a
 // valid one.
 func extractProcessID(line *types.AuditLine, capturedProcessID string) bool {
-	pid, err := strconv.Atoi(capturedProcessID)
-	if err != nil {
+	// A PID is positive and fits into a pid_t, which rejects values like
+	// pid=-1 or pid=+1.
+	pid, err := strconv.ParseUint(capturedProcessID, 10, 31)
+	if err != nil || pid == 0 {
 		return false
 	}
 
-	line.ProcessID = pid
+	line.ProcessID = int(pid)
 
 	return true
 }
@@ -398,23 +457,4 @@ func extractApparmorLine(fields auditFields) *types.AuditLine {
 	line.ExtraInfo = strings.Join(extra, " ")
 
 	return &line
-}
-
-func GetUidGid(auditLine string) (uid, gid uint32, err error) {
-	captures := uidGidRegex.FindStringSubmatch(auditLine)
-	if len(captures) < 2 {
-		return 0, 0, errors.New("uid and gid are missing")
-	}
-
-	uid64, errUid := strconv.ParseUint(captures[1], 10, 32)
-	if errUid != nil {
-		return 0, 0, errUid
-	}
-
-	gid64, errGid := strconv.ParseUint(captures[2], 10, 32)
-	if errGid != nil {
-		return 0, 0, errGid
-	}
-
-	return uint32(uid64), uint32(gid64), nil
 }

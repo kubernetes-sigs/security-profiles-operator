@@ -59,6 +59,75 @@ effect on `make image`. `Dockerfile.ubi` builds without both features, unless
 the `BPF_ENABLED=1` and `APPARMOR_ENABLED=1` build arguments are passed to the
 container build directly.
 
+### Other build targets
+
+`make help` lists the targets with a description. Besides the ones above:
+
+- `make nix` builds the binaries for all architectures with
+  [Nix](https://nixos.org/download) into `build.tar.gz`, `make nix-amd64`,
+  `make nix-arm64` and so on build a single architecture. `make nix-spoc` and
+  `make nix-spoc-<arch>` build `spoc` the same way. Nix needs no
+  native libraries on the host, and `make update-nixpkgs` updates its pinned
+  package set.
+- `make update-bpf` rebuilds the committed BPF objects of the recorder and the
+  enricher for amd64 and arm64 with Nix, after changing the BPF programs.
+  `make update-vmlinux` regenerates the `vmlinux.h` they build against.
+  `make verify-bpf` checks that the committed objects are up to date.
+- `make bundle` regenerates the OLM bundle below `bundle/` from the deployment
+  manifests, `make verify-bundle` checks that it is up to date.
+- `make manifests`, `make generate` and `make deployments` regenerate the CRDs,
+  the generated code and the deployment manifests after API changes.
+- [`hack/update-selinuxd.sh`](../hack/update-selinuxd.sh) pins the selinuxd
+  images to the current digest of their `latest` tag in the kustomize
+  deployment, the Helm values and `dependencies.yaml`. Run
+  `make deployments bundle` afterwards to regenerate the manifests.
+  `hack/update-selinuxd.sh --check` only reports moved tags, which the weekly
+  dependencies workflow does.
+
+`nix develop` opens a shell with the Go toolchain, the C libraries of the
+build and the tools of the Makefile targets (clang and llvm for the BPF
+programs, protobuf, shellcheck, helm, kind, kubectl, jq and yq), so the build
+with all features works without installing anything on the host. The
+repository also has a [development
+container](../.devcontainer/devcontainer.json) with Go and Nix, for editors
+which support it. Without the native libraries listed above, use the Nix
+targets or disable the optional features.
+
+## Verifying changes
+
+`make verify` runs all checks which need no cluster, each of which is a target
+of its own. The linters get downloaded into `build/` with pinned versions and
+checksums, so no local installation is needed. Besides the checks of the
+code, the generated files and the dependencies, these are:
+
+- `make verify-shellcheck` checks the shell scripts with shellcheck.
+- `make verify-dockerfiles` lints the Dockerfiles with hadolint and checks that
+  `Dockerfile` and `Dockerfile.ubi` did not drift apart.
+- `make verify-manifests` validates the committed manifests and the examples
+  against the schemas of the oldest supported Kubernetes release and of the
+  CRDs in this tree, and lints the deployments with kube-linter, see
+  `.kube-linter.yaml`.
+- `make verify-security-model` checks that
+  [`security-model.md`](security-model.md) names the security profiles the
+  operator applies to its own containers and the API groups of each role in
+  `deploy/base/role.yaml`. Update the document together with the RBAC
+  markers and the profiles.
+
+`make verify-actions` lints the GitHub workflows with actionlint and
+shellcheck. It is not part of `make verify`, run it when changing a workflow.
+The CI runs all of them.
+
+### Pre-commit hooks
+
+[`.pre-commit-config.yaml`](../.pre-commit-config.yaml) has hooks for
+[pre-commit](https://pre-commit.com), install them with `pre-commit install`.
+They check YAML, JSON, whitespace, typos and Markdown, and run the Makefile
+targets of the changed files, like `make verify-shellcheck`,
+`make verify-dockerfiles`, `make verify-manifests` and `make verify-actions`,
+so that the hooks and the CI use the same pinned linters. `make verify-go-lint`
+takes a while and only runs on `git push`. `pre-commit run --all-files` runs
+all hooks once.
+
 ## Submitting a Pull Request (PR)
 
 Here's the process for contributing your changes:
@@ -157,6 +226,51 @@ go tool cover -html=build/coverage.out
 ```
 See the documentation of `go tool cover` for more options like generating
 an HTML file or displaying the coverage to stdout.
+
+### Integration tests with envtest
+
+The integration tests in [`internal/pkg/integration`](../internal/pkg/integration)
+run the controllers of the manager against a real kube-apiserver and etcd from
+[envtest](https://book.kubebuilder.io/reference/envtest), without nodes or a
+container runtime. They carry the `integration` build tag, so `make test-unit`
+leaves them out. Run them with:
+
+```shell
+make test-integration
+```
+
+The target installs `setup-envtest` into `build/` and downloads the binaries
+of the Kubernetes release of the vendored `k8s.io/api` into `build/envtest`.
+`ENVTEST_K8S_VERSION` selects another release, for example
+`make test-integration ENVTEST_K8S_VERSION=1.36.x`, and
+`INTEGRATION_TEST_TIMEOUT` sets the timeout (default `15m`). The CI runs them
+in the `integration` job of the build workflow.
+
+A plain `go test -tags integration ./internal/pkg/integration/...` skips the
+tests unless `KUBEBUILDER_ASSETS` points to the envtest binaries. The target
+fails instead when `setup-envtest` finds none, and sets
+`SPO_INTEGRATION_REQUIRED=true`, which makes the tests fail rather than skip
+without `KUBEBUILDER_ASSETS`.
+
+### Fuzz tests
+
+The parsers of untrusted input, like the audit log lines, the BPF events, the
+pulled profile artifacts and the profiles which get translated into AppArmor
+and SELinux policies, have fuzz tests. `make test-unit` runs their seed
+corpus. `make test-fuzz` fuzzes each target of `FUZZ_TARGETS` for `FUZZ_TIME`
+(default `30s`), one after another, because `go test` fuzzes a single target
+per run:
+
+```shell
+make test-fuzz FUZZ_TIME=2m
+make test-fuzz FUZZ_TARGETS=./internal/pkg/artifact:FuzzReadProfile
+```
+
+A failing input gets written below `testdata/fuzz/<FuzzName>` of the package.
+Commit it together with the fix, so that it keeps running as regression test.
+The weekly [fuzz workflow](../.github/workflows/fuzz.yml) fuzzes every target
+for five minutes and uploads the failing inputs as artifact. New fuzz tests
+have to be added to `FUZZ_TARGETS` in the Makefile.
 
 ### Mocking interfaces with counterfeiter
 In order to test error paths or just code paths that rely on something that's
@@ -299,47 +413,87 @@ to either run only a subset of tests (e.g. only all tests for SELinux,
 or conversely do not run any SELinux related tests) or to skip building
 and pushing images.
 
-The following environment variables are currently
-available. For a full and up-to-date overview, see the
-[suite_test.go](https://github.com/kubernetes-sigs/security-profiles-operator/blob/main/test/suite_test.go)
-source file:
+The tests only build with the `e2e` build tag, so that `go test ./...` does
+not start them. The `Makefile` targets pass it. The environment variables of
+the suite are documented next to their definition in
+[suite_test.go](../test/suite_test.go), keep this table in sync with them:
 
-- `E2E_CLUSTER_TYPE` - The type of the cluster you are testing against. The
-   currently supported types are:
-  - `kind` - Run tests against a [kind](https://kind.sigs.k8s.io/)
-     cluster. This is the default as well as used for the
-    `pull-security-profiles-operator-test-e2e` prow target in GitHub.
-  - `vanilla` - Run tests against a vanilla kubernetes cluster. This is
-     used in GitHub Actions CI for the Fedora based e2e tests on a VM and
-     the Ubuntu based e2e tests on a kubernix cluster on the runner.
-  - `openshift` - Red Hat OpenShift.
-- `E2E_SKIP_BUILD_IMAGES` - Currently used by OpenShift tests only. By
-   default, images are rebuilt before being pushed to the repository.
-   Setting this variable to `true` disables building the images, which
-   results in faster test iteration.
-- `E2E_SPO_IMAGE` - Set to test a custom image. Depending on the value of
-   `E2E_CLUSTER_TYPE`, this variable triggers different behavior:
-  - `kind`: since `kind` always uses local images that are always built and
-    pushed, just affects the tag of the images
-  - `vanilla`: really just sets the images to test
-  - `openshift`: if set, skip pushing images to cluster. Typically, you'd set the value to
-    `image-registry.openshift-image-registry.svc:5000/openshift/security-profiles-operator:latest` to make sure all
-    tests keep reusing the same image when iterating on test code.
-- `CONTAINER_RUNTIME` - `Makefile` tries to detect if `podman` if `podman`
-   is found in `PATH`, otherwise defaults to `docker`. Set to a different
-   value in case you want to use a totally different container runtime.
-- `E2E_TEST_SELINUX` - Whether to run SELinux related tests. Defaults to
-   false. The Fedora based CI enables them (see `hack/ci/e2e-fedora.sh`).
-- `E2E_TEST_LOG_ENRICHER` - Whether to run log enricher e2e tests, which
-   record seccomp or SELinux profiles by tailing the `audit.log`.
-- `E2E_TEST_SECCOMP` - Whether to run seccomp related e2e tests. Our CI
-   tests the seccomp tests in the kind-based prow target only.
-- `E2E_TEST_BPF_RECORDER` - Whether to test recording of seccomp profiles
-   using our eBPF recorder. Defaults to false. The Fedora based CI enables it,
-   the Ubuntu and Flatcar based ones do not (see their scripts in `hack/ci`).
-- `E2E_TEST_BPF_LOG_ENRICHER` - Whether to run the log enricher test with the
-   BPF source. Defaults to false: the BPF source only reports AppArmor
-   denials, while the test waits for seccomp audit lines.
+| Variable                    | Default                                       | Description                                                                                                                                                                                          |
+| --------------------------- | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `E2E_CLUSTER_TYPE`          | `kind`                                        | The cluster driver: `kind` creates a kind cluster per test, `vanilla` uses the cluster of the current context, like the Fedora, Flatcar and Ubuntu CI jobs, `openshift` a Red Hat OpenShift cluster. |
+| `E2E_SPO_IMAGE`             | per driver                                    | The operator image to test. `kind` builds and loads it under this name, `vanilla` deploys it as is, `openshift` skips pushing an image when set.                                                     |
+| `E2E_SKIP_BUILD_IMAGES`     | `false`                                       | OpenShift only: push the image without building it first.                                                                                                                                            |
+| `E2E_SELINUXD_IMAGE`        | `quay.io/security-profiles-operator/selinuxd` | The selinuxd image to deploy.                                                                                                                                                                        |
+| `E2E_SPOD_CONFIG`           | none                                          | A SPOD manifest which gets applied after deploying the operator, like `test/flatcar-spod-config.yaml`.                                                                                               |
+| `E2E_SKIP_FLAKY_TESTS`      | `false`, `true` in `make test-e2e`            | Skip the [quarantined test cases](#quarantined-test-cases). `make test-e2e E2E_SKIP_FLAKY_TESTS=false` runs them as well, without retries.                                                           |
+| `E2E_SKIP_NAMESPACED_TESTS` | `false`                                       | Skip the second run of the test cases against the namespaced operator.                                                                                                                               |
+| `E2E_TEST_SECCOMP`          | `true`                                        | Run the seccomp test cases, which need the kubelet directory at `/var/lib/kubelet`.                                                                                                                  |
+| `E2E_TEST_SELINUX`          | `false`                                       | Run the SELinux test cases, which need a node with SELinux enabled.                                                                                                                                  |
+| `E2E_TEST_LOG_ENRICHER`     | `false`                                       | Run the log enricher test cases, which record profiles from the `audit.log`.                                                                                                                         |
+| `E2E_TEST_JSON_ENRICHER`    | `false`                                       | Run the JSON enricher test cases.                                                                                                                                                                    |
+| `E2E_TEST_BPF_RECORDER`     | `false`                                       | Run the test cases which record through the eBPF recorder.                                                                                                                                           |
+| `E2E_TEST_BPF_LOG_ENRICHER` | `false`                                       | Run the log enricher test case with the BPF source, which only reports AppArmor denials.                                                                                                             |
+| `E2E_TEST_WEBHOOK_CONFIG`   | `true`                                        | Run the webhook configuration test cases.                                                                                                                                                            |
+| `E2E_TEST_WEBHOOK_HTTP`     | `true`                                        | Run the webhook HTTP version test case.                                                                                                                                                              |
+| `E2E_TEST_METRICS_HTTP`     | `true`                                        | Run the metrics HTTP version test case.                                                                                                                                                              |
+| `E2E_ARTIFACTS_DIR`         | none                                          | Write the [diagnostics of failed tests](#failure-diagnostics) to a directory per test below it instead of logging them.                                                                              |
+| `CONTAINER_RUNTIME`         | `podman` if found, else `docker`              | The container runtime of the host, detected by the `Makefile`.                                                                                                                                       |
+| `NODE_ROOTFS_PREFIX`        | none                                          | The prefix of the node root filesystem, when commands reach the node through a chroot.                                                                                                               |
+| `OPERATOR_MANIFEST`         | `deploy/operator.yaml`                        | The cluster wide operator manifest to deploy.                                                                                                                                                        |
+| `E2E_TEST_BINARY`           | none                                          | `Makefile`: a prebuilt test binary (`go test -c -tags e2e ./test`) to run instead of compiling the tests, see the `Makefile`.                                                                        |
+| `E2E_TEST_SKIP`             | none                                          | `Makefile`: a regular expression of the tests to skip, see `-skip` in `go help testflag`.                                                                                                            |
+| `E2E_RETRY_RUN`             | the quarantined test cases                    | `Makefile`: the tests `make test-flaky-e2e` runs with one retry.                                                                                                                                     |
+| `E2E_RETRY_TIMEOUT`         | `30m`                                         | `Makefile`: the timeout of `make test-flaky-e2e`.                                                                                                                                                    |
+| `E2E_TEST_FLAKY_TESTS_ONLY` | `false`                                       | CI scripts in `hack/ci`: run `make test-flaky-e2e` instead of `make test-e2e`.                                                                                                                       |
+
+The suite deploys copies of the manifests below `build/e2e-manifests`, the
+tracked manifests stay untouched.
+
+### Quarantined test cases
+
+The test cases are listed in `testCases` in [e2e_test.go](../test/e2e_test.go).
+A test case with `flaky: true` is quarantined: `TestSecurityProfilesOperator`
+leaves it out and `TestSecurityProfilesOperator_Flaky` runs it instead, where
+`make test-flaky-e2e` retries it once when it fails. Its `issue` says why it is
+quarantined, ideally with a link to the issue which tracks it.
+
+- `make test-e2e` skips the quarantined test cases, so they never fail the
+  CI jobs which run it, including the Prow job and `e2e-kind`. To run them
+  as well, without retries, use `make test-e2e E2E_SKIP_FLAKY_TESTS=false`.
+  The suite itself only skips them when `E2E_SKIP_FLAKY_TESTS` is set, a
+  plain `go test -tags e2e ./test` runs them.
+- The Fedora, Flatcar and Ubuntu CI jobs run them in a separate step through
+  `make test-flaky-e2e`. That step keeps a JUnit report of all attempts,
+  `build/junit-flaky-e2e.xml`, so a test case which only passes on retry
+  stays visible.
+- [`test/ci/junit-flakes.py`](../test/ci/junit-flakes.py) takes the reports
+  of several runs, oldest first. It fails for test cases which are not
+  quarantined but passed only on retry in the last three runs, and lists the
+  quarantined ones which passed on the first try in the last five runs. To
+  cover all test cases, run the whole suite with retries:
+  `make test-flaky-e2e E2E_RETRY_RUN=^TestSuite E2E_RETRY_TIMEOUT=120m`.
+  A test case skipped in some environments counts with its outcome in the
+  others. `python3 test/ci/junit-flakes.py --self-test` runs the tests of the
+  script.
+- The nightly [e2e-flakes workflow](../.github/workflows/e2e-flakes.yml) does
+  that on kubernix and runs the script over the reports of its last runs, and
+  over the reports of the last runs of the test workflow on `main`, which
+  cover the quarantined test cases on all e2e environments. It fails when a
+  test case needs to be quarantined and lists the ones to promote in the job
+  summary.
+
+To quarantine a flaky test case, set `flaky: true` and its `issue`. To promote
+it, remove both again. New test cases start quarantined until they pass
+reliably in CI.
+
+### Failure diagnostics
+
+When a test or sub test fails, or the test binary is about to time out, the
+suite collects the pods, events and the `spod` resource, the webhook
+configurations, the profiles, the logs of the operator pods and the journals
+of the container runtime and the kubelet of each node. They get logged, or
+written to a directory per test below `E2E_ARTIFACTS_DIR` if it is set, which
+the CI jobs upload when they fail.
 
 ### Running the Ubuntu e2e tests on kubernix
 
@@ -440,6 +594,8 @@ on a high level, this needs to be done:
    but instead lets the user of the test suite to provision the cluster. In
    comparison, the `kind` test driver uses `docker` to execute commands on
    "nodes" and waits for all pods in all namespaces before running the tests.
+   Set `nodeCommand` next to `execNode`, the failure diagnostics use it to
+   collect the node journals without failing the test.
  - Instantiate the structure in the switch-case statement in `TestSuite`.
 
 ## Building the operator image with support for AppArmor

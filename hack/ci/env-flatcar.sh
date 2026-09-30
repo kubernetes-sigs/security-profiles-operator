@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# shellcheck shell=bash
+
 # Setup the Go environment variables
 export PATH="/opt/go/bin:$PATH"
 export GOPATH="/opt/go"

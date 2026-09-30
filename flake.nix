@@ -25,11 +25,12 @@
         };
       };
 
+      # The BPF objects exist for these architectures only, the ones with
+      # vmlinux headers in internal/pkg/daemon/bpfrecorder/vmlinux. The
+      # binaries of the other architectures get built without them.
       bpfArchMap = {
         amd64 = "x86";
         arm64 = "arm64";
-        ppc64le = "ppc64le";
-        s390x = "s390x";
       };
 
       mkPkgs =
@@ -90,11 +91,11 @@
           )
         ) crossTargets
         // nixpkgs.lib.mapAttrs' (
-          arch: crossSystem:
+          arch: bpfArch:
           nixpkgs.lib.nameValuePair "bpf-${arch}" (
-            mkBPF system crossSystem bpfArchMap.${arch}
+            mkBPF system crossTargets.${arch} bpfArch
           )
-        ) crossTargets
+        ) bpfArchMap
         // nixpkgs.lib.mapAttrs' (
           arch: crossSystem:
           let
@@ -110,6 +111,34 @@
               mkSPOC system spocCrossSystem
           )
         ) crossTargets
+      );
+
+      # The development environment, `nix develop`: the Go toolchain and the
+      # C libraries of the build, plus the tools of the Makefile targets
+      # (BPF, protobuf, formatting and the e2e tests).
+      devShells = forAllSystems (
+        system:
+        let
+          pkgs = mkPkgs system null;
+        in
+        {
+          default = pkgs.mkShell {
+            inputsFrom = [ (mkSPO system null) ];
+            packages = with pkgs; [
+              clang
+              clang-tools
+              gnumake
+              jq
+              kind
+              kubectl
+              kubernetes-helm
+              llvm
+              protobuf
+              shellcheck
+              yq-go
+            ];
+          };
+        }
       );
     };
 }

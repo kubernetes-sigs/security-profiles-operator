@@ -111,13 +111,13 @@ endpoint, where every container is using a different port:
 
 ```
 > kubectl -n security-profiles-operator logs --selector name=spod -c security-profiles-operator | grep "Starting profiling"
-I1202 15:14:40.276363 2185724 main.go:226]  "msg"="Starting profiling server"  "endpoint"=":6060"
+I1202 15:14:40.276363 2185724 main.go:226]  "msg"="Starting profiling server"  "endpoint"="0.0.0.0:6060"
 
 > kubectl -n security-profiles-operator logs --selector name=spod -c log-enricher | grep "Starting profiling"
-I1202 15:14:40.364046 2185814 main.go:226]  "msg"="Starting profiling server"  "endpoint"=":6061"
+I1202 15:14:40.364046 2185814 main.go:226]  "msg"="Starting profiling server"  "endpoint"="0.0.0.0:6061"
 
 > kubectl -n security-profiles-operator logs --selector name=spod -c bpf-recorder | grep "Starting profiling"
-I1202 15:14:40.457506 2185914 main.go:226]  "msg"="Starting profiling server"  "endpoint"=":6062"
+I1202 15:14:40.457506 2185914 main.go:226]  "msg"="Starting profiling server"  "endpoint"="0.0.0.0:6062"
 ```
 
 Then use the pprof tool to look at the heap profile:
@@ -131,6 +131,15 @@ Or to look at a 30-second CPU profile:
 ```
 go tool pprof http://$PODIP:6060/debug/pprof/profile?seconds=30
 ```
+
+The profiling endpoint enabled by `--profiling` or `SPO_PROFILING` listens on
+`127.0.0.1` by default, so the unauthenticated pprof handlers are not
+reachable from the pod network. Use `--profiling-address` or the
+`SPO_PROFILING_ADDRESS` environment variable to bind it elsewhere. The
+containers of the SPOD daemon get `SPO_PROFILING_ADDRESS=0.0.0.0` when
+`spec.enableProfiling` is set, so their endpoints stay reachable from the pod
+network as shown above. The port still comes from `--profiling-port` or
+`SPO_PROFILING_PORT` (default `6060`).
 
 Note that selinuxd, if enabled, doesn't set up a HTTP listener, but only
 listens on a UNIX socket shared between selinuxd and the `spod` DS pod.

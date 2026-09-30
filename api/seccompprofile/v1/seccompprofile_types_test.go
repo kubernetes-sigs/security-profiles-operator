@@ -122,6 +122,11 @@ func TestSetImplementationStatus(t *testing.T) {
 		strings.TrimPrefix(sp.GetProfilePath(), config.KubeletSeccompRootPath()+"/"),
 		sp.Status.LocalhostProfile)
 	require.NotContains(t, sp.Status.LocalhostProfile, config.KubeletSeccompRootPath())
+
+	// The path is the absolute location of the profile on the node.
+	require.Equal(t, sp.GetProfilePath(), sp.Status.Path)
+	require.True(t, strings.HasPrefix(sp.Status.Path, "/"), sp.Status.Path)
+	require.True(t, strings.HasSuffix(sp.Status.Path, "/my-ns/my-profile.json"), sp.Status.Path)
 }
 
 func TestIsDisabledAndReconcilable(t *testing.T) {

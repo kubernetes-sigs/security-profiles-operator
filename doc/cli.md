@@ -32,6 +32,9 @@ For now, the CLI is able to:
 - Install and remove AppArmor profiles on the local machine.
 - Push security profiles to and pull them from OCI registries.
 
+Every command, flag and environment variable of `spoc` is listed in the
+generated [command line reference](reference/spoc.md).
+
 `spoc` can be retrieved either by downloading the statically linked binary
 directly from the [available releases][releases], or by running it within the
 official container images:
@@ -81,11 +84,10 @@ followed by any command and arguments:
 
 ```console
 > sudo spoc record echo test
-2023/03/10.10.09:09 Loading bpf module
+10:09:09.182417 Loading bpf module...
 …
-2023/03/10.10.09:13 Adding base syscalls: capget, capset, chdir, …
-2023/03/10.10.09:13 Wrote seccomp profile to: profile.yaml
-2023/03/10.10.09:13 Unloading bpf module
+10:09:13.551802 Adding base syscalls: capget, capset, chdir, …
+10:09:13.552218 Wrote profile to: profile.yaml
 ```
 
 Now the seccomp profile should be written in the CRD format:
@@ -127,8 +129,7 @@ raw-seccomp`. The other supported types are `apparmor`, `raw-apparmor` and
 ```console
 > sudo spoc record -t raw-seccomp echo test
 …
-2023/03/10 10:15:17 Wrote seccomp profile to: profile.json
-2023/03/10 10:15:17 Unloading bpf module
+10:15:17.309114 Wrote profile to: profile.json
 ```
 
 ```console
@@ -196,11 +197,11 @@ is not allowed any more:
 
 ```console
 > sudo spoc run -p profile-chmod.json chmod +x profile-chmod.json
-2023/03/10 10:25:38 Reading file profile-chmod.json
-2023/03/10 10:25:38 Setting up seccomp
-2023/03/10 10:25:38 Running command with PID: 594242
+10:25:38.020716 Reading file profile-chmod.json
+10:25:38.021093 Setting up seccomp
+10:25:38.023481 Running command with PID: 594242
 chmod: changing permissions of 'profile-chmod.json': Operation not permitted
-2023/03/10 10:25:38 Command failed: wait for command: exit status 1
+10:25:38.025217 Command failed: wait for command: exit status 1
 ```
 
 ### Merge security profiles
@@ -214,9 +215,11 @@ first profile may additionally contain glob paths:
 ```
 
 The output defaults to `profile.yaml`. With `--check` / `-c`, no output
-file is written. Instead, `spoc merge` exits with an error if the first profile
+file is written. Instead, `spoc merge` exits with code `1` if the first profile
 is not a superset of all others, which is useful to check whether a base
-profile is up to date.
+profile is up to date. Other failures, like an unreadable input file, exit with
+code `1` as well. The log tells both apart: an outdated base profile logs
+`Base profile needs an update.`, a failure logs `Unable to run: …`.
 
 ### Convert profiles to their raw format
 
@@ -253,23 +256,16 @@ registries. To do that, just run `spoc pull`:
 ```console
 > spoc pull registry.k8s.io/security-profiles-operator/base/runc:v1.5.1
 16:32:29.795597 Pulling profile from: registry.k8s.io/security-profiles-operator/base/runc:v1.5.1
-16:32:29.795610 Verifying signature
-
-Verification for registry.k8s.io/security-profiles-operator/base/runc:v1.5.1 --
-The following checks were performed on each of these signatures:
-  - Existence of the claims in the transparency log was verified offline
-  - The code-signing certificate was verified using trusted certificate authority certificates
-
-[{"critical":{"identity":{"docker-reference":"registry.k8s.io/security-profiles-operator/base/runc"},…}}]
-16:32:33.208695 Creating file store in: /tmp/pull-3199397214
-16:32:33.208713 Verifying reference: registry.k8s.io/security-profiles-operator/base/runc:v1.5.1
-16:32:33.208718 Creating repository for registry.k8s.io/security-profiles-operator/base/runc
-16:32:33.208742 Using tag: v1.5.1
+16:32:29.795610 Resolving digest of image (image=registry.k8s.io/security-profiles-operator/base/runc:v1.5.1)
+16:32:30.106241 Verifying signature (identityRegexp=…, oidcIssuerRegexp=^https://accounts\.google\.com$, …)
+16:32:31.570335 Verified signature (digest=sha256:…, signature=sha256:…, legacy=true)
+16:32:33.208695 Creating file store (dir=/tmp/pull-3199397214)
 16:32:33.208743 Copying profile from repository
-16:32:34.119652 Reading profile
-16:32:34.119677 Trying to unmarshal seccomp profile
-16:32:34.120114 Got SeccompProfile: runc-v1.5.1
-16:32:34.120119 Saving profile in: profile.yaml
+16:32:33.208751 Source image (image=registry.k8s.io/security-profiles-operator/base/runc@sha256:…)
+16:32:34.119652 Checking profile contents
+16:32:34.119677 Reading profile layer (title=profile.json, runtimeFormat=true)
+16:32:34.120114 Got SeccompProfile: runc
+16:32:34.120119 Saving profile in: profile.json
 ```
 
 The profile can be now found in `profile.yaml` in the current directory or the
@@ -291,6 +287,37 @@ official profiles. The verification can be disabled with
 `--disable-signature-verification` / `-s` (or
 `DISABLE_SIGNATURE_VERIFICATION`).
 
+The following flags pin the signer more strictly or verify without the public
+Sigstore infrastructure:
+
+- `--certificate-identity` (or `SPOC_CERTIFICATE_IDENTITY`) and
+  `--certificate-oidc-issuer` (or `SPOC_CERTIFICATE_OIDC_ISSUER`) require the
+  exact identity and OIDC issuer of the keyless signature certificate. They
+  take precedence over the corresponding regexp flags.
+- `--key` / `-k` (or `SPOC_KEY`) verifies a signature made with a key pair
+  instead of a keyless certificate. It accepts the path of a PEM encoded public
+  key, like the `cosign.pub` of `cosign generate-key-pair`. The identity and
+  issuer flags do not apply to key signatures.
+- `--trusted-root` (or `SPOC_TRUSTED_ROOT`) verifies against a Sigstore trusted
+  root JSON file instead of the one distributed through TUF, for private
+  Sigstore deployments and air-gapped environments.
+- `--offline` (or `SPOC_OFFLINE`) verifies with the trusted root cached from
+  TUF as long as it has not expired instead of refreshing it. The transparency
+  log entry bundled with the signature is verified in any case, it is never
+  looked up online. With an empty cache, pass `--trusted-root` or run
+  `spoc pull` once without `--offline` to populate it.
+
+The official repositories are verified against the official signers as long
+as the identity and issuer regexps are left at their default `.*` and `--key`
+is not set. `--certificate-identity` alone replaces only the official
+identity and `--certificate-oidc-issuer` alone only the official issuer, the
+other one stays pinned to the official signers. The explicit flags apply to
+official repositories as well, and a notice is logged then, because official
+artifacts are signed keyless by the official signers through the public
+Sigstore instance. A warning is logged whenever the verification accepts any
+identity or any issuer, because a signature then only proves that somebody
+signed the artifact, not somebody trusted.
+
 ### Push security profiles to OCI registries
 
 The `spoc` client is also able to push security profiles from OCI artifact
@@ -300,53 +327,59 @@ compatible registries. To do that, just run `spoc push`:
 > export SPOC_USERNAME=my-user
 > export SPOC_PASSWORD=my-pass
 > spoc push -f ./examples/baseprofile-crun.yaml registry.example.com/profiles/crun:v1.8.1
-16:35:43.899886 Pushing profile ./examples/baseprofile-crun.yaml to: registry.example.com/profiles/crun:v1.8.1
-16:35:43.899939 Creating file store in: /tmp/push-3618165827
-16:35:43.899947 Adding profile to store: ./examples/baseprofile-crun.yaml
-16:35:43.900061 Packing files
-16:35:43.900282 Verifying reference: registry.example.com/profiles/crun:v1.8.1
-16:35:43.900310 Using tag: v1.8.1
-16:35:43.900313 Creating repository for registry.example.com/profiles/crun
+16:35:43.899886 Pushing profiles to: registry.example.com/profiles/crun:v1.8.1
+16:35:43.899939 Creating file store (dir=/tmp/push-3618165827)
+16:35:43.899943 Reading profiles (count=1)
+16:35:43.899947 Adding profile to store (file=/home/user/examples/baseprofile-crun.yaml, platform=)
+16:35:43.900061 Packing files (mediaType=application/vnd.unknown.config.v1+json)
+16:35:43.900282 Verifying reference (ref=registry.example.com/profiles/crun:v1.8.1)
+16:35:43.900310 Using tag (tag=v1.8.1)
+16:35:43.900313 Creating repository (ref=registry.example.com/profiles/crun)
 16:35:43.900319 Using username and password
 16:35:43.900321 Copying profile to repository
-16:35:46.976108 Signing container image
-Generating ephemeral keys...
-Retrieving signed certificate...
+16:35:46.975916 Pushed artifact (reference=registry.example.com/profiles/crun@sha256:…)
+16:35:46.976108 Signing OCI artifact (digest=sha256:…)
 
-        Note that there may be personally identifiable information associated with this signed artifact.
-        This may include the email address associated with the account with which you authenticate.
-        This information will be used for signing this artifact and will be stored in public transparency logs and cannot be removed later.
-
-By typing 'y', you attest that you grant (or have permission to grant) and agree to have this information stored permanently in transparency logs.
+        The sigstore service, hosted by sigstore a Series of LF Projects, LLC, is provided pursuant to …
+        Note that if your submission includes personal data associated with this signed artifact, it will be part of an immutable record.
+        …
 Your browser will now be opened to:
 https://oauth2.sigstore.dev/auth/auth?access_type=…
-Successfully verified SCT...
-tlog entry created with index: 16520520
-Pushing signature to: registry.example.com/profiles/crun
+…
 ```
 
 We can specify a username and password in the same way as for `spoc pull`.
 Artifacts are signed on push and verified on pull by default. The signature
 is a Sigstore bundle that is attached to the pushed digest through the OCI
-referrers API, so the registry has to support it. On pull, bundles are
-verified if the artifact has any, otherwise the legacy cosign signature tags
-of artifacts pushed by older `spoc` versions are verified. Keyless signing
-needs an OIDC identity, which build systems and test environments do not
-necessarily have, so `--disable-signing` skips it. Consumers of an unsigned
-artifact have to skip verification as well, by using `spoc pull
+referrers API, or the referrers tag schema on registries without it, in the
+format `cosign sign` writes, so `cosign verify` can verify it. On pull, bundles
+are verified if the artifact has any, otherwise the legacy cosign signature
+tags of artifacts pushed by older `spoc` versions or by the image promoter of
+registry.k8s.io are verified. Keyless signing needs an OIDC identity token.
+`spoc push` takes it from the environment if there is one: GitHub Actions
+(`ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN`), the
+`SIGSTORE_ID_TOKEN` environment variable, a token file at
+`/var/run/sigstore/cosign/oidc-token` or the service account of the Google
+Compute Engine metadata server, as used by Cloud Build. Otherwise it signs in
+to the Sigstore OIDC provider in the browser, or with the device flow if there
+is no terminal. Build systems and test environments do not necessarily have
+an identity, so `--disable-signing` / `-s` skips signing. Consumers of an
+unsigned artifact have to skip verification as well, by using `spoc pull
 --disable-signature-verification` / `-s` or by exporting
 `DISABLE_SIGNATURE_VERIFICATION=true`. The identities and OIDC issuers accepted
 during verification can be restricted with `--allowed-identity-regexp` / `-i`
 and `--allowed-oidc-issuer-regexp`. It is possible to add custom
-annotations to the security profile by using the `--annotations` / `-a` flag
+annotations to the artifact manifest by using the `--annotations` / `-a` flag
 multiple times in `KEY:VALUE` format; only the first colon separates the key
-from the value, so timestamps keep theirs.
+from the value, so timestamps keep theirs. The layers only carry their
+`org.opencontainers.image.title` annotation.
 
 The manifest's `org.opencontainers.image.created` annotation is fixed to
 `1970-01-01T00:00:00Z` unless it is set explicitly with `--annotations` or
 `SOURCE_DATE_EPOCH` is exported (seconds since the epoch, the reproducible
-builds convention). Pushing identical content again therefore yields the
-same digest instead of a new, untagged manifest.
+builds convention). The layers of a multi-platform artifact are ordered by
+their name. Pushing identical content again therefore yields the same digest
+instead of a new, untagged manifest.
 
 `spoc pull` refuses to fetch any artifact blob larger than 16 MiB, so a
 registry cannot make the client read arbitrary amounts of data. The
@@ -469,18 +502,19 @@ and the default output file switches to a `.json` extension.
 
 `spoc push` supports specifying the target platforms for the profiles to be
 pushed. This can be done by using the `--platforms` / `-p` together with the
-`--profiles` / `-f` flag. For example, to push two profiles into one artifact:
+`--profiles` / `-f` flag. `spoc push` and `spoc pull` both accept `--platform`
+and `--platforms` as spelling of the flag. For example, to push two profiles
+into one artifact:
 
 ```
 > spoc push -f ./profile-amd64.yaml -p linux/amd64 -f ./profile-arm64.yaml -p linux/arm64 registry.example.com/profiles/test:latest
 10:59:17.887884 Pushing profiles to: registry.example.com/profiles/test:latest
-10:59:17.887970 Creating file store in: /tmp/push-2265359353
-10:59:17.887989 Adding 2 profiles
-10:59:17.887995 Adding profile ./profile-arm64.yaml for platform linux/arm64 to store
-10:59:17.888193 Adding profile ./profile-amd64.yaml for platform linux/amd64 to store
-10:59:17.888240 Packing files
+10:59:17.887970 Creating file store (dir=/tmp/push-2265359353)
+10:59:17.887989 Reading profiles (count=2)
+10:59:17.887995 Adding profile to store (file=/home/user/profile-amd64.yaml, platform=linux/amd64)
+10:59:17.888193 Adding profile to store (file=/home/user/profile-arm64.yaml, platform=linux/arm64)
+10:59:17.888240 Packing files (mediaType=application/vnd.unknown.config.v1+json)
 …
-Pushing signature to: registry.example.com/profiles/test
 ```
 
 The pushed artifact now contains both profiles, separated by their platform:
@@ -502,10 +536,10 @@ The pushed artifact now contains both profiles, separated by their platform:
       "digest": "sha256:6ddecdf312758a19ec788c3984418541274b3c9daf2b10f687d847bc283b391b",
       "size": 1167,
       "annotations": {
-        "org.opencontainers.image.title": "profile-linux-arm64.yaml"
+        "org.opencontainers.image.title": "profile-linux-amd64.yaml"
       },
       "platform": {
-        "architecture": "arm64",
+        "architecture": "amd64",
         "os": "linux"
       }
     },
@@ -514,16 +548,16 @@ The pushed artifact now contains both profiles, separated by their platform:
       "digest": "sha256:6ddecdf312758a19ec788c3984418541274b3c9daf2b10f687d847bc283b391b",
       "size": 1167,
       "annotations": {
-        "org.opencontainers.image.title": "profile-linux-amd64.yaml"
+        "org.opencontainers.image.title": "profile-linux-arm64.yaml"
       },
       "platform": {
-        "architecture": "amd64",
+        "architecture": "arm64",
         "os": "linux"
       }
     }
   ],
   "annotations": {
-    "org.opencontainers.image.created": "2023-04-28T08:59:17Z"
+    "org.opencontainers.image.created": "1970-01-01T00:00:00Z"
   }
 }
 ```
@@ -551,30 +585,29 @@ behaves in the same way, for example if a profile does not support any
 platform:
 
 ```
-> spoc pull registry.k8s.io/security-profiles-operator/base/runc:v1.5.1
-11:07:14.788840 Pulling profile from: registry.k8s.io/security-profiles-operator/base/runc:v1.5.1
-11:07:14.788852 Verifying signature
+> spoc pull registry.example.com/profiles/test:latest
+11:07:14.788840 Pulling profile from: registry.example.com/profiles/test:latest
+11:07:14.788852 Resolving digest of image (image=registry.example.com/profiles/test:latest)
+11:07:14.911204 Verifying signature (…)
 …
 11:07:17.559037 Copying profile from repository
-11:07:18.359152 Trying to read profile: profile-linux-amd64.yaml
-11:07:18.359209 Trying to read profile: profile.yaml
-11:07:18.359224 Trying to unmarshal seccomp profile
-11:07:18.359728 Got SeccompProfile: runc-v1.5.1
+11:07:17.559042 Source image (image=registry.example.com/profiles/test@sha256:…)
+11:07:18.359152 Checking profile contents
+11:07:18.359209 Reading profile layer (title=profile-linux-amd64.yaml, runtimeFormat=false)
+11:07:18.359728 Got SeccompProfile: test-amd64
 11:07:18.359732 Saving profile in: profile.yaml
 ```
 
-We can see from the logs that `spoc` tries to read `profile-linux-amd64.yaml`,
-and if that does not work it falls back to `profile.yaml`. We can also directly
-specify which platform to pull:
+We can see from the logs that `spoc` reads the layer of the local platform,
+`profile-linux-amd64.yaml`, and it would fall back to a platform independent
+`profile.yaml` layer if that did not exist. We can also directly specify which
+platform to pull:
 
 ```
 > spoc pull -p linux/arm64 registry.example.com/profiles/test:latest
 11:08:53.355689 Pulling profile from: registry.example.com/profiles/test:latest
-11:08:53.355724 Verifying signature
 …
-11:08:56.229418 Copying profile from repository
-11:08:57.311964 Trying to read profile: profile-linux-arm64.yaml
-11:08:57.311981 Trying to unmarshal seccomp profile
-11:08:57.312473 Got SeccompProfile: crun-v1.8.4
+11:08:57.311964 Reading profile layer (title=profile-linux-arm64.yaml, runtimeFormat=false)
+11:08:57.312473 Got SeccompProfile: test-arm64
 11:08:57.312476 Saving profile in: profile.yaml
 ```

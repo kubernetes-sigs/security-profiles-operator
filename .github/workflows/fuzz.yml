@@ -1,0 +1,39 @@
+name: fuzz
+# Runs every fuzz target of make test-fuzz for a few minutes once a week. The
+# pull request checks only run the seed corpus as part of the unit tests. A
+# failing input gets written below testdata/fuzz of the package, which the
+# job uploads, commit it there to turn it into a regression test.
+on:
+  schedule:
+    - cron: '47 3 * * 0'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read  # required for the checkout
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ./go.mod
+      - name: Install dependencies
+        run: sudo hack/install-packages
+      - run: make test-fuzz FUZZ_TIME=5m
+      - name: Upload the failing inputs
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fuzz-failures
+          path: internal/**/testdata/fuzz/
+          if-no-files-found: ignore

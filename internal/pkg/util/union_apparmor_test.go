@@ -198,3 +198,92 @@ func TestUnionAppArmor(t *testing.T) {
 		require.Equal(t, []string{"/bin/sh"}, got.Executable.AllowedExecutables)
 	})
 }
+
+func TestUnionAppArmorPtrace(t *testing.T) {
+	t.Parallel()
+
+	rules := func(peer string, access ...apparmorprofileapi.AppArmorPtraceAccess) *apparmorprofileapi.AppArmorPtraceRules {
+		return &apparmorprofileapi.AppArmorPtraceRules{AllowedAccess: access, Peer: peer}
+	}
+
+	for _, tc := range []struct {
+		name        string
+		left, right *apparmorprofileapi.AppArmorPtraceRules
+		want        *apparmorprofileapi.AppArmorPtraceRules
+	}{
+		{name: "none"},
+		{
+			name: "only left",
+			left: rules("peer", apparmorprofileapi.AppArmorPtraceAccessRead),
+			want: rules("peer", apparmorprofileapi.AppArmorPtraceAccessRead),
+		},
+		{
+			name: "only right",
+			right: rules("peer", apparmorprofileapi.AppArmorPtraceAccessTrace,
+				apparmorprofileapi.AppArmorPtraceAccessRead, apparmorprofileapi.AppArmorPtraceAccessRead),
+			want: rules("peer", apparmorprofileapi.AppArmorPtraceAccessRead, apparmorprofileapi.AppArmorPtraceAccessTrace),
+		},
+		{
+			name: "same peer",
+			left: rules("peer", apparmorprofileapi.AppArmorPtraceAccessTrace, apparmorprofileapi.AppArmorPtraceAccessRead),
+			right: rules("peer", apparmorprofileapi.AppArmorPtraceAccessRead,
+				apparmorprofileapi.AppArmorPtraceAccessReadBy),
+			want: rules("peer", apparmorprofileapi.AppArmorPtraceAccessRead,
+				apparmorprofileapi.AppArmorPtraceAccessReadBy, apparmorprofileapi.AppArmorPtraceAccessTrace),
+		},
+		{
+			// A rule for every peer allows what both rules allow.
+			name:  "different peers",
+			left:  rules("a", apparmorprofileapi.AppArmorPtraceAccessRead),
+			right: rules("b", apparmorprofileapi.AppArmorPtraceAccessTrace),
+			want:  rules("", apparmorprofileapi.AppArmorPtraceAccessRead, apparmorprofileapi.AppArmorPtraceAccessTrace),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := UnionAppArmor(
+				&apparmorprofileapi.AppArmorAbstract{Ptrace: tc.left},
+				&apparmorprofileapi.AppArmorAbstract{Ptrace: tc.right},
+			)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got.Ptrace)
+		})
+	}
+}
+
+// The API only accepts lower case capabilities, while the merger returns them
+// upper-cased.
+func TestUnionAppArmorCapabilitiesLowerCase(t *testing.T) {
+	t.Parallel()
+
+	got, err := UnionAppArmor(
+		&apparmorprofileapi.AppArmorAbstract{
+			Capability: &apparmorprofileapi.AppArmorCapabilityRules{
+				AllowedCapabilities: []string{"net_raw", "sys_admin"},
+			},
+		},
+		&apparmorprofileapi.AppArmorAbstract{
+			Capability: &apparmorprofileapi.AppArmorCapabilityRules{
+				AllowedCapabilities: []string{"NET_ADMIN", "net_raw"},
+			},
+		},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, got.Capability)
+	require.Equal(
+		t,
+		[]string{"net_admin", "net_raw", "sys_admin"},
+		got.Capability.AllowedCapabilities,
+	)
+}
+
+func TestLowerCapabilities(t *testing.T) {
+	t.Parallel()
+
+	require.Nil(t, LowerCapabilities(nil))
+	require.Equal(t,
+		[]string{"net_admin", "netx", "sys_admin"},
+		LowerCapabilities([]string{"SYS_ADMIN", "NETX", "NET_ADMIN", "net_admin"}),
+	)
+}

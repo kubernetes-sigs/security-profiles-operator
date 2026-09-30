@@ -1,3 +1,5 @@
+//go:build e2e
+
 /*
 Copyright The Kubernetes Authors.
 
@@ -40,7 +42,7 @@ func (e *e2e) testCaseDefaultAndExampleProfiles(nodes []string) {
 
 	e.kubectl("create", "-f", exampleProfilePath)
 
-	defer e.kubectl("delete", "-f", exampleProfilePath)
+	e.kubectlCleanup("-f", exampleProfilePath)
 
 	// Content verification
 	for _, node := range nodes {

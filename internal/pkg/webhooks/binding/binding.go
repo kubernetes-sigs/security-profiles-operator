@@ -357,6 +357,15 @@ func (p *podBinder) updatePod(
 		podName = pod.GenerateName
 	}
 
+	// The API server rejects seccomp, SELinux and AppArmor settings on
+	// Windows pods, and the webhook fails closed, so binding them would
+	// reject every Windows pod in the namespace.
+	if utils.IsWindowsPod(pod) {
+		p.log.Info("skipping Windows pod, security profiles do not apply", "pod", podName)
+
+		return nil, nil, new(admission.Allowed("windows pod, skipping mutation"))
+	}
+
 	var (
 		ctrs          []*corev1.Container
 		applyWildcard wildcardFunc
@@ -390,7 +399,7 @@ func (p *podBinder) updatePod(
 			continue
 		}
 
-		bindProfile, skip, err := p.getProfile(ctx, lookup, pb, req.Namespace)
+		bindProfile, skip, err := p.getProfile(ctx, lookup, pb)
 		if err != nil {
 			return pod, state.warnings, new(admission.Errored(http.StatusInternalServerError, err))
 		}
@@ -528,10 +537,10 @@ func (p *podBinder) getProfile(
 	ctx context.Context,
 	lookup *profileLookup,
 	pb *profilebindingapi.ProfileBinding,
-	namespace string,
 ) (bindProfile any, skip bool, err error) {
 	profileKind := pb.Spec.ProfileRef.Kind
-	key := types.NamespacedName{Namespace: namespace, Name: pb.Spec.ProfileRef.Name}
+	// Profiles are cluster scoped, so the key carries no namespace.
+	key := types.NamespacedName{Name: pb.Spec.ProfileRef.Name}
 
 	enabled, err := p.cachedProfileKindEnabled(ctx, lookup, profileKind)
 	if err != nil {

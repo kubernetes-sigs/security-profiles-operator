@@ -37,31 +37,45 @@ type AppArmorExecutablesRules struct {
 	// allowedExecutables is a list of allowed executables.
 	// +optional
 	// +listType=set
-	// +kubebuilder:validation:items:Pattern=`^(?:/[a-zA-Z0-9_./*?+@{} -]*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$`
+	//nolint:lll // the pattern cannot be wrapped; braces outside of variables never loaded in apparmor_parser
+	// +kubebuilder:validation:items:Pattern=`^(?:/(?:[a-zA-Z0-9_./*?+@ -]|@\{[a-zA-Z0-9_]+\})*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$`
 	AllowedExecutables []string `json:"allowedExecutables,omitempty"`
 	// allowedLibraries is a list of allowed libraries.
 	// +optional
 	// +listType=set
-	// +kubebuilder:validation:items:Pattern=`^(?:/[a-zA-Z0-9_./*?+@{} -]*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$`
+	//nolint:lll // the pattern cannot be wrapped; braces outside of variables never loaded in apparmor_parser
+	// +kubebuilder:validation:items:Pattern=`^(?:/(?:[a-zA-Z0-9_./*?+@ -]|@\{[a-zA-Z0-9_]+\})*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$`
 	AllowedLibraries []string `json:"allowedLibraries,omitempty"`
 }
 
 // AppArmorFsRules stores the rules for file system access.
 type AppArmorFsRules struct {
 	// readOnlyPaths is a list of allowed read only file paths.
+	// Entries of the form "ptrace (read)," are deprecated: use
+	// abstract.ptrace instead. They are still accepted and rendered as ptrace
+	// rules, but support for them will be removed in a future API version.
 	// +optional
 	// +listType=set
-	// +kubebuilder:validation:items:Pattern=`^(?:/[a-zA-Z0-9_./*?+@{} -]*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$`
+	//nolint:lll // the pattern cannot be wrapped; braces outside of variables never loaded in apparmor_parser
+	// +kubebuilder:validation:items:Pattern=`^(?:/(?:[a-zA-Z0-9_./*?+@ -]|@\{[a-zA-Z0-9_]+\})*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$`
 	ReadOnlyPaths []string `json:"readOnlyPaths,omitempty"`
 	// writeOnlyPaths is a list of allowed write only file paths.
+	// Entries of the form "ptrace (read)," are deprecated: use
+	// abstract.ptrace instead. They are still accepted and rendered as ptrace
+	// rules, but support for them will be removed in a future API version.
 	// +optional
 	// +listType=set
-	// +kubebuilder:validation:items:Pattern=`^(?:/[a-zA-Z0-9_./*?+@{} -]*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$`
+	//nolint:lll // the pattern cannot be wrapped; braces outside of variables never loaded in apparmor_parser
+	// +kubebuilder:validation:items:Pattern=`^(?:/(?:[a-zA-Z0-9_./*?+@ -]|@\{[a-zA-Z0-9_]+\})*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$`
 	WriteOnlyPaths []string `json:"writeOnlyPaths,omitempty"`
 	// readWritePaths is a list of allowed read write file paths.
+	// Entries of the form "ptrace (read)," are deprecated: use
+	// abstract.ptrace instead. They are still accepted and rendered as ptrace
+	// rules, but support for them will be removed in a future API version.
 	// +optional
 	// +listType=set
-	// +kubebuilder:validation:items:Pattern=`^(?:/[a-zA-Z0-9_./*?+@{} -]*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$`
+	//nolint:lll // the pattern cannot be wrapped; braces outside of variables never loaded in apparmor_parser
+	// +kubebuilder:validation:items:Pattern=`^(?:/(?:[a-zA-Z0-9_./*?+@ -]|@\{[a-zA-Z0-9_]+\})*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$`
 	ReadWritePaths []string `json:"readWritePaths,omitempty"`
 }
 
@@ -96,6 +110,46 @@ type AppArmorCapabilityRules struct {
 	AllowedCapabilities []string `json:"allowedCapabilities,omitempty"`
 }
 
+// AppArmorPtraceAccess is an access which an AppArmor ptrace rule grants.
+// +kubebuilder:validation:Enum=read;readby;trace;tracedby
+type AppArmorPtraceAccess string
+
+const (
+	// AppArmorPtraceAccessRead allows reading the state of the peer, for
+	// example through /proc/<pid>/maps.
+	AppArmorPtraceAccessRead AppArmorPtraceAccess = "read"
+	// AppArmorPtraceAccessReadBy allows the peer to read the state of the
+	// confined process.
+	AppArmorPtraceAccessReadBy AppArmorPtraceAccess = "readby"
+	// AppArmorPtraceAccessTrace allows tracing the peer.
+	AppArmorPtraceAccessTrace AppArmorPtraceAccess = "trace"
+	// AppArmorPtraceAccessTracedBy allows the peer to trace the confined
+	// process.
+	AppArmorPtraceAccessTracedBy AppArmorPtraceAccess = "tracedby"
+)
+
+// AppArmorPtraceRules stores the rules for ptrace access. They are rendered as
+// a single "ptrace (<allowedAccess>) peer=<peer>," rule.
+type AppArmorPtraceRules struct {
+	// allowedAccess is the list of allowed ptrace accesses.
+	// Valid values are "read", "readby", "trace" and "tracedby".
+	// +required
+	// +listType=set
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=4
+	AllowedAccess []AppArmorPtraceAccess `json:"allowedAccess,omitempty"`
+	// peer limits the rule to processes confined by the AppArmor profiles
+	// matching this name, for example "@{profile_name}" for the profile
+	// itself. Without a peer, the rule applies to every process.
+	// It may contain letters, digits, "_", ".", "/", "-", the globs "*" and
+	// "?", and the variable "@{profile_name}".
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=256
+	// +kubebuilder:validation:Pattern=`^(?:[a-zA-Z0-9_./*?-]|@\{profile_name\})+$`
+	Peer string `json:"peer,omitempty"`
+}
+
 // AppArmorAbstract AppArmor profile which stores various allowed list for
 // executable, file, network, capabilities access.
 type AppArmorAbstract struct {
@@ -111,6 +165,10 @@ type AppArmorAbstract struct {
 	// capability defines rules for Linux capabilities.
 	// +optional
 	Capability *AppArmorCapabilityRules `json:"capability,omitempty"`
+	// ptrace defines rules for ptrace access.
+	// +optional
+	//nolint:kubeapilinter // a pointer like the other rules, unset renders no rule
+	Ptrace *AppArmorPtraceRules `json:"ptrace,omitempty"`
 }
 
 // AppArmorMode describes the enforcement mode for an AppArmor profile.
@@ -129,6 +187,7 @@ type AppArmorProfileSpec struct {
 
 	// abstract stores the apparmor profile allow lists for executable, file, network and capabilities access.
 	// +optional
+	//nolint:kubeapilinter // an empty abstract is a valid deny-all profile
 	Abstract AppArmorAbstract `json:"abstract,omitempty"`
 
 	// mode controls the enforcement mode for the AppArmor profile.
@@ -160,10 +219,11 @@ type AppArmorProfile struct {
 
 	// spec defines the desired state of the AppArmor profile.
 	// +optional
+	//nolint:kubeapilinter // spec has no required fields and is a value by convention
 	Spec AppArmorProfileSpec `json:"spec,omitempty"`
 	// status contains the observed state of the AppArmor profile.
 	// +optional
-	Status AppArmorProfileStatus `json:"status,omitzero"`
+	Status AppArmorProfileStatus `json:"status,omitzero"` //nolint:kubeapilinter // status is a value by convention
 }
 
 func (sp *AppArmorProfile) GetStatusBase() *profilebasev1.StatusBase {

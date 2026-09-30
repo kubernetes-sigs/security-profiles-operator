@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/command"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/auditsource"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/tailer"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 )
 
@@ -152,10 +153,7 @@ func (r *Runner) startEnricher() {
 
 	filePath := common.LogFilePath()
 
-	tailFile, err := r.TailFile(
-		filePath,
-		common.LogTailConfig(),
-	)
+	tailFile, err := r.TailFile(filePath, tailer.Config{})
 	if err != nil {
 		log.Printf("Unable to tail file: %v", err)
 
@@ -164,14 +162,8 @@ func (r *Runner) startEnricher() {
 
 	log.Printf("Enricher reading from file %s", filePath)
 
-	for l := range r.Lines(tailFile) {
-		if l.Err != nil {
-			log.Printf("Enricher failed to tail: %v", l.Err)
-
-			break
-		}
-
-		auditLine, err := auditsource.ExtractAuditLine(l.Text)
+	for line := range r.Lines(tailFile) {
+		auditLine, err := auditsource.ExtractAuditLine(line)
 		if err != nil {
 			// Not an audit line spoc understands.
 			continue
@@ -181,6 +173,10 @@ func (r *Runner) startEnricher() {
 		if currentPid != 0 && auditLine.ProcessID == int(currentPid) {
 			r.printAuditLine(auditLine)
 		}
+	}
+
+	if err := r.TailErr(tailFile); err != nil {
+		log.Printf("Enricher failed to tail: %v", err)
 	}
 }
 

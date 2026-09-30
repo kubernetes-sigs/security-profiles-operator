@@ -31,6 +31,7 @@ import (
 type bpfSymbol struct {
 	section string
 	typ     elf.SymType
+	size    uint64
 }
 
 // bpfSymbols returns the symbols of a compiled BPF object by name.
@@ -53,6 +54,7 @@ func bpfSymbols(t *testing.T, object []byte) map[string]bpfSymbol {
 		result[symbol.Name] = bpfSymbol{
 			section: file.Sections[symbol.Section].Name,
 			typ:     elf.ST_TYPE(symbol.Info),
+			size:    symbol.Size,
 		}
 	}
 
@@ -81,6 +83,14 @@ func TestBpfNamesExist(t *testing.T) {
 			require.Equal(t, elf.STT_OBJECT, symbol.typ, "%s: %s is no variable", arch, name)
 			require.Contains(t, []string{".rodata", ".data", ".bss"}, symbol.section,
 				"%s: %s is no global variable", arch, name)
+		}
+
+		// The userspace lays these out itself.
+		for name, size := range map[string]uint64{
+			globalInitComms:     maxInitComms * taskCommLen,
+			globalInitExePrefix: initExePrefixLen,
+		} {
+			require.Equal(t, size, symbols[name].size, "%s: size of %s", arch, name)
 		}
 
 		for _, name := range slices.Concat(baseHooks, appArmorHooks, procCacheHooks) {

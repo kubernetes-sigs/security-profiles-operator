@@ -31,6 +31,7 @@ import (
 	profilebindingapi "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/utiltest"
 )
 
 func TestBindingStatusReportsProfile(t *testing.T) {
@@ -66,7 +67,7 @@ func TestBindingStatusReportsProfile(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			scheme := newTestScheme(t)
+			scheme := utiltest.NewScheme(t)
 			require.NoError(t, seccompprofileapi.AddToScheme(scheme))
 			require.NoError(t, selinuxprofileapi.AddToScheme(scheme))
 			require.NoError(t, apparmorprofileapi.AddToScheme(scheme))
@@ -106,7 +107,7 @@ func TestBindingStatusReportsProfile(t *testing.T) {
 func TestBindingStatusIgnoresMissingBinding(t *testing.T) {
 	t.Parallel()
 
-	c := fake.NewClientBuilder().WithScheme(newTestScheme(t)).Build()
+	c := fake.NewClientBuilder().WithScheme(utiltest.NewScheme(t)).Build()
 	r := &bindingStatusReconciler{client: c, reader: c, log: logr.Discard()}
 
 	_, err := r.Reconcile(t.Context(), reconcile.Request{
@@ -129,7 +130,7 @@ func TestBindingRequestsForProfile(t *testing.T) {
 	}
 
 	c := fake.NewClientBuilder().
-		WithScheme(newTestScheme(t)).
+		WithScheme(utiltest.NewScheme(t)).
 		WithObjects(
 			binding("seccomp", profilebindingapi.ProfileBindingKindSeccompProfile),
 			binding("selinux", profilebindingapi.ProfileBindingKindSelinuxProfile),

@@ -25,7 +25,7 @@ import (
 func TestContainerKeysCollectsAllKeysOfAContainer(t *testing.T) {
 	t.Parallel()
 
-	sut := newContainerKeys()
+	sut := newContainerKeys(maxKeysPerContainer)
 
 	// A process of the container unshared into a new mount namespace, or moved
 	// to a nested cgroup: the profile has to cover both keys.
@@ -40,7 +40,7 @@ func TestContainerKeysCollectsAllKeysOfAContainer(t *testing.T) {
 func TestContainerKeysReusedKeyMovesToNewContainer(t *testing.T) {
 	t.Parallel()
 
-	sut := newContainerKeys()
+	sut := newContainerKeys(maxKeysPerContainer)
 
 	sut.Insert(1, "old")
 	sut.Insert(2, "old")
@@ -59,7 +59,7 @@ func TestContainerKeysReusedKeyMovesToNewContainer(t *testing.T) {
 func TestContainerKeysDelete(t *testing.T) {
 	t.Parallel()
 
-	sut := newContainerKeys()
+	sut := newContainerKeys(maxKeysPerContainer)
 
 	sut.Insert(1, "a")
 	sut.Insert(2, "a")
@@ -82,7 +82,7 @@ func TestContainerKeysDelete(t *testing.T) {
 func TestContainerKeysWithKeysOf(t *testing.T) {
 	t.Parallel()
 
-	sut := newContainerKeys()
+	sut := newContainerKeys(maxKeysPerContainer)
 
 	sut.Insert(1, "a")
 	sut.Insert(2, "a")
@@ -95,4 +95,28 @@ func TestContainerKeysWithKeysOf(t *testing.T) {
 
 	sut.WithKeysOf([]string{"a"}, func(keys []uint64) { got = keys })
 	require.Equal(t, []uint64{1}, got)
+}
+
+// TestContainerKeysLimitsKeysPerContainer asserts that a container cannot grow
+// the table without bounds, while its known keys and other containers are not
+// affected by the limit.
+func TestContainerKeysLimitsKeysPerContainer(t *testing.T) {
+	t.Parallel()
+
+	sut := newContainerKeys(2)
+
+	require.True(t, sut.Insert(1, "a"))
+	require.True(t, sut.Insert(2, "a"))
+	require.False(t, sut.Insert(3, "a"))
+	require.True(t, sut.Insert(2, "a"), "a known key is still accepted")
+	require.True(t, sut.Insert(3, "b"))
+
+	_, ok := sut.Get(3)
+	require.True(t, ok)
+	require.Equal(t, []uint64{1, 2}, sut.Keys("a"))
+
+	// A freed slot can be used again.
+	sut.Delete(1)
+	require.True(t, sut.Insert(4, "a"))
+	require.Equal(t, []uint64{2, 4}, sut.Keys("a"))
 }

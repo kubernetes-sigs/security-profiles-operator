@@ -74,14 +74,14 @@ spec:
                       allowedExecutables:
                         description: allowedExecutables is a list of allowed executables.
                         items:
-                          pattern: ^(?:/[a-zA-Z0-9_./*?+@{} -]*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$
+                          pattern: ^(?:/(?:[a-zA-Z0-9_./*?+@ -]|@\{[a-zA-Z0-9_]+\})*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$
                           type: string
                         type: array
                         x-kubernetes-list-type: set
                       allowedLibraries:
                         description: allowedLibraries is a list of allowed libraries.
                         items:
-                          pattern: ^(?:/[a-zA-Z0-9_./*?+@{} -]*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$
+                          pattern: ^(?:/(?:[a-zA-Z0-9_./*?+@ -]|@\{[a-zA-Z0-9_]+\})*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$
                           type: string
                         type: array
                         x-kubernetes-list-type: set
@@ -90,26 +90,35 @@ spec:
                     description: filesystem defines rules for filesystem access.
                     properties:
                       readOnlyPaths:
-                        description: readOnlyPaths is a list of allowed read only
-                          file paths.
+                        description: |-
+                          readOnlyPaths is a list of allowed read only file paths.
+                          Entries of the form "ptrace (read)," are deprecated: use
+                          abstract.ptrace instead. They are still accepted and rendered as ptrace
+                          rules, but support for them will be removed in a future API version.
                         items:
-                          pattern: ^(?:/[a-zA-Z0-9_./*?+@{} -]*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$
+                          pattern: ^(?:/(?:[a-zA-Z0-9_./*?+@ -]|@\{[a-zA-Z0-9_]+\})*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$
                           type: string
                         type: array
                         x-kubernetes-list-type: set
                       readWritePaths:
-                        description: readWritePaths is a list of allowed read write
-                          file paths.
+                        description: |-
+                          readWritePaths is a list of allowed read write file paths.
+                          Entries of the form "ptrace (read)," are deprecated: use
+                          abstract.ptrace instead. They are still accepted and rendered as ptrace
+                          rules, but support for them will be removed in a future API version.
                         items:
-                          pattern: ^(?:/[a-zA-Z0-9_./*?+@{} -]*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$
+                          pattern: ^(?:/(?:[a-zA-Z0-9_./*?+@ -]|@\{[a-zA-Z0-9_]+\})*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$
                           type: string
                         type: array
                         x-kubernetes-list-type: set
                       writeOnlyPaths:
-                        description: writeOnlyPaths is a list of allowed write only
-                          file paths.
+                        description: |-
+                          writeOnlyPaths is a list of allowed write only file paths.
+                          Entries of the form "ptrace (read)," are deprecated: use
+                          abstract.ptrace instead. They are still accepted and rendered as ptrace
+                          rules, but support for them will be removed in a future API version.
                         items:
-                          pattern: ^(?:/[a-zA-Z0-9_./*?+@{} -]*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$
+                          pattern: ^(?:/(?:[a-zA-Z0-9_./*?+@ -]|@\{[a-zA-Z0-9_]+\})*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$
                           type: string
                         type: array
                         x-kubernetes-list-type: set
@@ -131,6 +140,40 @@ spec:
                             description: allowUdp allows UDP sockets connections.
                             type: boolean
                         type: object
+                    type: object
+                  ptrace:
+                    description: ptrace defines rules for ptrace access.
+                    properties:
+                      allowedAccess:
+                        description: |-
+                          allowedAccess is the list of allowed ptrace accesses.
+                          Valid values are "read", "readby", "trace" and "tracedby".
+                        items:
+                          description: AppArmorPtraceAccess is an access which an
+                            AppArmor ptrace rule grants.
+                          enum:
+                          - read
+                          - readby
+                          - trace
+                          - tracedby
+                          type: string
+                        maxItems: 4
+                        minItems: 1
+                        type: array
+                        x-kubernetes-list-type: set
+                      peer:
+                        description: |-
+                          peer limits the rule to processes confined by the AppArmor profiles
+                          matching this name, for example "@{profile_name}" for the profile
+                          itself. Without a peer, the rule applies to every process.
+                          It may contain letters, digits, "_", ".", "/", "-", the globs "*" and
+                          "?", and the variable "@{profile_name}".
+                        maxLength: 256
+                        minLength: 1
+                        pattern: ^(?:[a-zA-Z0-9_./*?-]|@\{profile_name\})+$
+                        type: string
+                    required:
+                    - allowedAccess
                     type: object
                 type: object
               mode:

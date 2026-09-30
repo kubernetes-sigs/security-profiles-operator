@@ -1,3 +1,5 @@
+//go:build e2e
+
 /*
 Copyright The Kubernetes Authors.
 
@@ -19,8 +21,6 @@ package e2e_test
 import (
 	"fmt"
 	"os"
-	"strings"
-	"time"
 
 	"sigs.k8s.io/yaml"
 
@@ -87,7 +87,7 @@ spec:
 
 	e.kubectl("create", "-f", baseProfilePath)
 
-	defer e.kubectl("delete", "-f", baseProfilePath)
+	e.kubectlCleanup("-f", baseProfilePath)
 
 	e.logf("Creating hello profile")
 
@@ -102,7 +102,7 @@ spec:
 	e.Require().NoError(err)
 	e.kubectl("create", "-f", helloProfileFile.Name())
 
-	defer e.kubectl("delete", "-f", helloProfileFile.Name())
+	e.kubectlCleanup("sp", "hello")
 
 	e.logf("Waiting for profile to be reconciled")
 	e.waitForProfile("hello")
@@ -120,21 +120,13 @@ spec:
 	e.Require().NoError(err)
 	e.kubectl("create", "-f", helloPodFile.Name())
 
-	defer e.kubectl("delete", "pod", "hello")
+	e.kubectlCleanup("pod", "hello")
 
 	e.logf("Waiting for test pod to be initialized")
 	e.waitFor("condition=initialized", "pod", "hello")
 
 	e.logf("Waiting for pod to be completed")
-
-	for range 20 {
-		output := e.kubectl("get", "pod", "hello")
-		if strings.Contains(output, "Completed") {
-			break
-		}
-
-		time.Sleep(time.Second)
-	}
+	e.waitFor("jsonpath={.status.phase}=Succeeded", "pod", "hello")
 
 	e.logf("Testing that container ran successfully")
 	output := e.kubectl("logs", "hello")

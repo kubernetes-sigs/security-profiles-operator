@@ -25,8 +25,10 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -633,4 +635,91 @@ func (failingReader) Get(
 
 func (failingReader) List(context.Context, client.ObjectList, ...client.ListOption) error {
 	return errors.New("unexpected read from the API server")
+}
+
+// conflictOnce returns an error for the first write, after creating the pod
+// like a concurrent reconcile of a new pod using the same profile would.
+func conflictOnce(t *testing.T, pod *corev1.Pod) func(context.Context, client.Client) error {
+	t.Helper()
+
+	conflicted := false
+
+	return func(ctx context.Context, cl client.Client) error {
+		if conflicted {
+			return nil
+		}
+
+		conflicted = true
+
+		require.NoError(t, cl.Create(ctx, pod))
+
+		return kerrors.NewConflict(
+			schema.GroupResource{},
+			"profile",
+			errors.New("concurrent update"),
+		)
+	}
+}
+
+// A pod which starts using the profile while the deletion of another pod
+// gets reconciled stays tracked, and the profile stays in use.
+func TestReconcilePodDeletionRecomputesActiveWorkloadsOnConflict(t *testing.T) {
+	t.Parallel()
+
+	sp := &seccompprofileapi.SeccompProfile{
+		ObjectMeta: objectMeta("foo", util.HasActivePodsFinalizerString),
+		Status: seccompprofileapi.SeccompProfileStatus{
+			ActiveWorkloads: []string{"default/" + testPodName},
+		},
+	}
+
+	other := podWith(withSeccomp("operator/foo.json"))
+	other.Name = "other"
+	conflict := conflictOnce(t, other)
+
+	r, c, _ := newAnnotator(t, &interceptor.Funcs{
+		SubResourceUpdate: func(
+			ctx context.Context, cl client.Client, sub string, obj client.Object,
+			opts ...client.SubResourceUpdateOption,
+		) error {
+			if err := conflict(ctx, cl); err != nil {
+				return err
+			}
+
+			return cl.SubResource(sub).Update(ctx, obj, opts...)
+		},
+	}, sp)
+
+	require.NoError(t, reconcilePod(t, r))
+	requireInUse(t, c, sp, true)
+	require.Equal(t, []string{"default/other"}, sp.Status.ActiveWorkloads)
+}
+
+// The finalizer of a profile without a list of active workloads is only
+// removed if no pod uses the profile once the removal gets written.
+func TestReconcilePodDeletionKeepsFinalizerOnConflict(t *testing.T) {
+	t.Parallel()
+
+	aa := &apparmorprofileapi.AppArmorProfile{
+		ObjectMeta: objectMeta("aa", util.HasActivePodsFinalizerString),
+	}
+
+	other := podWith(withAppArmor("aa"))
+	other.Name = "other"
+	conflict := conflictOnce(t, other)
+
+	r, c, _ := newAnnotator(t, &interceptor.Funcs{
+		Update: func(
+			ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.UpdateOption,
+		) error {
+			if err := conflict(ctx, cl); err != nil {
+				return err
+			}
+
+			return cl.Update(ctx, obj, opts...)
+		},
+	}, aa)
+
+	require.NoError(t, reconcilePod(t, r))
+	requireInUse(t, c, aa, true)
 }

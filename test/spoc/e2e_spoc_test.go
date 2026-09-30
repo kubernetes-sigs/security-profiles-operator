@@ -21,6 +21,7 @@ package main_test
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -78,6 +79,8 @@ func TestSpoc(t *testing.T) {
 	t.Run("record", recordTest)
 	t.Run("push-pull", pushPullTest)
 	t.Run("run", runTest)
+	t.Run("merge", mergeTest)
+	t.Run("convert", convertTest)
 }
 
 func recordTest(t *testing.T) {
@@ -398,7 +401,6 @@ func recordAppArmorTest(t *testing.T) {
 // Process.Signal here as sudo will not forward SIGINT when running outside of a
 // pty (i.e. in CI).
 func interruptRecorder(pid int) error {
-	//nolint:gosec // not a security risk
 	if err := exec.Command(
 		"sudo",
 		"setsid",
@@ -416,7 +418,6 @@ func interruptRecorder(pid int) error {
 // targets the child of sudo rather than sudo itself, which runs as root and
 // would just orphan the recorder.
 func killRecorder(pid int) error {
-	//nolint:gosec // not a security risk
 	err := exec.Command(
 		"sudo",
 		"pkill",
@@ -652,4 +653,134 @@ func recordSeccomp(t *testing.T, args ...string) seccompprofileapi.SeccompProfil
 	record(t, "seccomp", &profile, args...)
 
 	return profile.Spec
+}
+
+// seccompProfileYAML is a seccomp profile CRD which allows the syscalls.
+const seccompProfileYAML = `apiVersion: security-profiles-operator.x-k8s.io/v1
+kind: SeccompProfile
+metadata:
+  name: %s
+spec:
+  defaultAction: SCMP_ACT_ERRNO
+  baseProfileName: %s
+  syscalls:
+  - action: SCMP_ACT_ALLOW
+    names:
+    - %s
+`
+
+// appArmorProfileYAML is an AppArmor profile CRD which allows to read a file.
+const appArmorProfileYAML = `apiVersion: security-profiles-operator.x-k8s.io/v1
+kind: AppArmorProfile
+metadata:
+  name: convert
+spec:
+  abstract:
+    filesystem:
+      readOnlyPaths:
+      - /etc/hostname
+`
+
+// writeSeccompProfile writes a seccomp profile CRD which allows the syscall.
+func writeSeccompProfile(t *testing.T, path, name, baseProfileName, syscallName string) {
+	t.Helper()
+
+	content := fmt.Appendf(nil, seccompProfileYAML, name, baseProfileName, syscallName)
+	require.NoError(t, os.WriteFile(path, content, 0o600))
+}
+
+// runSpocUnprivileged runs spoc as the current user, which is enough for the
+// commands which only read and write files, and returns its combined output.
+func runSpocUnprivileged(t *testing.T, args ...string) (string, error) {
+	t.Helper()
+
+	out, err := exec.Command(spocPath, args...).CombinedOutput()
+
+	return string(out), err
+}
+
+// readSeccompProfile reads the seccomp profile CRD at the path.
+func readSeccompProfile(t *testing.T, path string) *seccompprofileapi.SeccompProfile {
+	t.Helper()
+
+	content, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	profile := &seccompprofileapi.SeccompProfile{}
+	require.NoError(t, yaml.Unmarshal(content, profile))
+
+	return profile
+}
+
+func mergeTest(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.yaml")
+	second := filepath.Join(dir, "second.yaml")
+	merged := filepath.Join(dir, "merged.yaml")
+
+	writeSeccompProfile(t, first, "first", "runc-v1.5.2", "read")
+	writeSeccompProfile(t, second, "second", "", "write")
+
+	t.Run("combines the permissions", func(t *testing.T) {
+		out, err := runSpocUnprivileged(t, "merge", "-o", merged, first, second)
+		require.NoError(t, err, out)
+
+		profile := readSeccompProfile(t, merged)
+		require.Equal(t, "first", profile.Name, "the merged profile keeps the first name")
+		require.Len(t, profile.Spec.Syscalls, 1)
+		require.ElementsMatch(t, []string{"read", "write"}, profile.Spec.Syscalls[0].Names)
+	})
+
+	t.Run("check accepts an up-to-date profile", func(t *testing.T) {
+		out, err := runSpocUnprivileged(t, "merge", "--check", merged, first, second)
+		require.NoError(t, err, out)
+	})
+
+	t.Run("check rejects an outdated profile", func(t *testing.T) {
+		out, err := runSpocUnprivileged(t, "merge", "--check", first, second)
+
+		var exitErr *exec.ExitError
+		require.ErrorAs(t, err, &exitErr, out)
+		require.Equal(t, 1, exitErr.ExitCode(), "scripts rely on the exit code 1")
+		require.Contains(t, out, "Base profile needs an update.")
+		require.Contains(t, out, "write", "the check prints the merged profile")
+	})
+}
+
+func convertTest(t *testing.T) {
+	dir := t.TempDir()
+
+	t.Run("seccomp", func(t *testing.T) {
+		input := filepath.Join(dir, "seccomp.yaml")
+		output := filepath.Join(dir, "seccomp.json")
+
+		writeSeccompProfile(t, input, "convert", "runc-v1.5.2", "read")
+
+		out, err := runSpocUnprivileged(t, "convert", "-o", output, input)
+		require.NoError(t, err, out)
+
+		content, err := os.ReadFile(output)
+		require.NoError(t, err)
+
+		raw := map[string]any{}
+		require.NoError(t, json.Unmarshal(content, &raw))
+		require.Equal(t, "SCMP_ACT_ERRNO", raw["defaultAction"])
+		require.NotContains(t, raw, "baseProfileName", "the CRD only fields get dropped")
+		require.Contains(t, string(content), `"read"`)
+	})
+
+	t.Run("AppArmor", func(t *testing.T) {
+		input := filepath.Join(dir, "apparmor.yaml")
+		output := filepath.Join(dir, "apparmor.profile")
+
+		require.NoError(t, os.WriteFile(input, []byte(appArmorProfileYAML), 0o600))
+
+		out, err := runSpocUnprivileged(t, "convert", "-p", "/usr/bin/demo", "-o", output, input)
+		require.NoError(t, err, out)
+
+		content, err := os.ReadFile(output)
+		require.NoError(t, err)
+		require.Contains(t, string(content), "profile /usr/bin/demo ")
+		require.Contains(t, string(content), "/etc/hostname r,")
+	})
 }

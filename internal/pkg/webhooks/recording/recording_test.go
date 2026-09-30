@@ -20,11 +20,13 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
+	"gomodules.xyz/jsonpatch/v2"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -55,6 +57,23 @@ var (
 	// selectAll matches every pod, unlike a nil selector.
 	selectAll = &metav1.LabelSelector{}
 )
+
+// annotatedPod returns the test pod with the logs recording annotation of
+// its container set to value.
+func annotatedPod(value string) *corev1.Pod {
+	pod := testPod.DeepCopy()
+	pod.Annotations = map[string]string{"io.containers.trace-logs/container": value}
+
+	return pod
+}
+
+// windowsPod returns the test pod declared as Windows pod.
+func windowsPod() *corev1.Pod {
+	pod := testPod.DeepCopy()
+	pod.Spec.OS = &corev1.PodOS{Name: corev1.Windows}
+
+	return pod
+}
 
 func rawPod(t *testing.T, pod *corev1.Pod) runtime.RawExtension {
 	t.Helper()
@@ -166,7 +185,10 @@ func TestHandle(t *testing.T) {
 			},
 		},
 		{
-			name: "success pod update only tracks, security context is immutable",
+			// A recording created after the pod must not start on it: the
+			// security context is immutable and the recorder daemons
+			// would miss the container start.
+			name: "success pod update without the recording annotation stays unchanged",
 			prepare: func(mock *recordingfakes.FakeImpl) {
 				mock.ListProfileRecordingsReturns(&profilerecordingapi.ProfileRecordingList{
 					Items: []profilerecordingapi.ProfileRecording{
@@ -184,6 +206,36 @@ func TestHandle(t *testing.T) {
 				AdmissionRequest: admissionv1.AdmissionRequest{
 					Operation: admissionv1.Update,
 					Object:    rawPod(t, testPod),
+					OldObject: rawPod(t, testPod),
+				},
+			},
+			assert: func(resp admission.Response) {
+				require.True(t, resp.Allowed)
+				require.Empty(t, resp.Patches)
+				require.Equal(t, "pod unchanged", resp.Result.Message)
+			},
+		},
+		{
+			name: "success pod update re-applies the removed recording annotation",
+			prepare: func(mock *recordingfakes.FakeImpl) {
+				mock.ListProfileRecordingsReturns(&profilerecordingapi.ProfileRecordingList{
+					Items: []profilerecordingapi.ProfileRecording{
+						{
+							ObjectMeta: metav1.ObjectMeta{Name: "rec"},
+							Spec: profilerecordingapi.ProfileRecordingSpec{
+								Kind:        profilerecordingapi.ProfileRecordingKindSeccompProfile,
+								Recorder:    profilerecordingapi.ProfileRecorderLogs,
+								PodSelector: selectAll,
+							},
+						},
+					},
+				}, nil)
+			},
+			request: admission.Request{
+				AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Update,
+					Object:    rawPod(t, testPod),
+					OldObject: rawPod(t, annotatedPod("rec_container_abcde_1661693966")),
 				},
 			},
 			assert: func(resp admission.Response) {
@@ -191,6 +243,53 @@ func TestHandle(t *testing.T) {
 				require.Len(t, resp.Patches, 1)
 				require.Equal(t, "add", resp.Patches[0].Operation)
 				require.Equal(t, "/metadata/annotations", resp.Patches[0].Path)
+				require.Equal(t,
+					map[string]any{"io.containers.trace-logs/container": "rec_container_abcde_1661693966"},
+					resp.Patches[0].Value,
+				)
+			},
+		},
+		{
+			name: "error failed to decode old pod",
+			prepare: func(mock *recordingfakes.FakeImpl) {
+				mock.ListProfileRecordingsReturns(&profilerecordingapi.ProfileRecordingList{}, nil)
+			},
+			request: admission.Request{
+				AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Update,
+					Object:    rawPod(t, testPod),
+					OldObject: runtime.RawExtension{Raw: []byte("{")},
+				},
+			},
+			assert: func(resp admission.Response) {
+				require.Equal(t, http.StatusBadRequest, int(resp.Result.Code))
+			},
+		},
+		{
+			name: "success windows pod is skipped",
+			prepare: func(mock *recordingfakes.FakeImpl) {
+				mock.ListProfileRecordingsReturns(&profilerecordingapi.ProfileRecordingList{
+					Items: []profilerecordingapi.ProfileRecording{
+						{
+							Spec: profilerecordingapi.ProfileRecordingSpec{
+								Kind:        profilerecordingapi.ProfileRecordingKindSeccompProfile,
+								Recorder:    profilerecordingapi.ProfileRecorderLogs,
+								PodSelector: selectAll,
+							},
+						},
+					},
+				}, nil)
+			},
+			request: admission.Request{
+				AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Create,
+					Object:    rawPod(t, windowsPod()),
+				},
+			},
+			assert: func(resp admission.Response) {
+				require.True(t, resp.Allowed)
+				require.Empty(t, resp.Patches)
+				require.Equal(t, "windows pod, skipping mutation", resp.Result.Message)
 			},
 		},
 		{
@@ -210,7 +309,8 @@ func TestHandle(t *testing.T) {
 			},
 			request: admission.Request{
 				AdmissionRequest: admissionv1.AdmissionRequest{
-					Object: rawPod(t, testPod),
+					Operation: admissionv1.Create,
+					Object:    rawPod(t, testPod),
 				},
 			},
 			assert: func(resp admission.Response) {
@@ -233,7 +333,8 @@ func TestHandle(t *testing.T) {
 			},
 			request: admission.Request{
 				AdmissionRequest: admissionv1.AdmissionRequest{
-					Object: rawPod(t, testPod),
+					Operation: admissionv1.Create,
+					Object:    rawPod(t, testPod),
 				},
 			},
 			assert: func(resp admission.Response) {
@@ -275,7 +376,8 @@ func TestHandle(t *testing.T) {
 			},
 			request: admission.Request{
 				AdmissionRequest: admissionv1.AdmissionRequest{
-					Object: rawPod(t, testPod),
+					Operation: admissionv1.Create,
+					Object:    rawPod(t, testPod),
 				},
 			},
 			assert: func(resp admission.Response) {
@@ -339,7 +441,8 @@ func TestHandle(t *testing.T) {
 			},
 			request: admission.Request{
 				AdmissionRequest: admissionv1.AdmissionRequest{
-					Object: rawPod(t, testPod),
+					Operation: admissionv1.Create,
+					Object:    rawPod(t, testPod),
 				},
 			},
 			assert: func(resp admission.Response) {
@@ -362,23 +465,51 @@ func TestHandle(t *testing.T) {
 // The annotation value carries a random nonce and a timestamp, so it differs
 // on every admission. It used to be rewritten on every pod update, which
 // renamed the recorded profile between the recording start and its
-// collection. Values of the recording itself have to be kept.
+// collection. Values of the recording itself have to be kept, on update the
+// value the old pod carried.
 func TestHandleKeepsRecordingAnnotation(t *testing.T) {
 	t.Parallel()
 
-	const key = "io.containers.trace-logs/container"
+	const valid = "rec_container_abcde_1661693966"
 
 	for _, tc := range []struct {
-		name     string
-		existing string
-		keep     bool
+		name      string
+		operation admissionv1.Operation
+		old       string
+		existing  string
+		// keep expects the existing value to stay, want the exact new
+		// value, otherwise a fresh value is expected.
+		keep bool
+		want string
 	}{
-		{name: "own recording", existing: "rec_container_abcde_1661693966", keep: true},
-		{name: "other recording", existing: "other_container_abcde_1661693966"},
-		{name: "other container", existing: "rec_other_abcde_1661693966"},
-		{name: "recording prefix", existing: "rec_container_injected"},
-		{name: "additional parts", existing: "rec_container_abcde_1661693966_x"},
-		{name: "empty", existing: ""},
+		{name: "own recording on create", operation: admissionv1.Create, existing: valid, keep: true},
+		{name: "other recording on create", operation: admissionv1.Create, existing: "other_container_abcde_1661693966"},
+		{name: "other container on create", operation: admissionv1.Create, existing: "rec_other_abcde_1661693966"},
+		{name: "recording prefix on create", operation: admissionv1.Create, existing: "rec_container_injected"},
+		{name: "additional parts on create", operation: admissionv1.Create, existing: "rec_container_abcde_1661693966_x"},
+		{name: "empty on create", operation: admissionv1.Create, existing: ""},
+		{name: "own recording on update", operation: admissionv1.Update, old: valid, existing: valid, keep: true},
+		{
+			name:      "other recording on update",
+			operation: admissionv1.Update,
+			old:       "other_container_abcde_1661693966",
+			existing:  "other_container_abcde_1661693966",
+		},
+		{
+			name:      "changed nonce on update",
+			operation: admissionv1.Update,
+			old:       valid,
+			existing:  "rec_container_fghij_1661693999",
+			want:      valid,
+		},
+		{
+			name:      "spoofed on update",
+			operation: admissionv1.Update,
+			old:       valid,
+			existing:  "other_container_abcde_1661693966",
+			want:      valid,
+		},
+		{name: "empty on update", operation: admissionv1.Update, old: "", existing: ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -395,16 +526,17 @@ func TestHandleKeepsRecordingAnnotation(t *testing.T) {
 				}},
 			}, nil)
 
-			pod := testPod.DeepCopy()
-			pod.Annotations = map[string]string{key: tc.existing}
-
-			resp := newTestRecorder(t, mock).Handle(t.Context(), admission.Request{
+			request := admission.Request{
 				AdmissionRequest: admissionv1.AdmissionRequest{
-					Operation: admissionv1.Update,
-					Object:    rawPod(t, pod),
+					Operation: tc.operation,
+					Object:    rawPod(t, annotatedPod(tc.existing)),
 				},
-			})
+			}
+			if tc.operation == admissionv1.Update {
+				request.OldObject = rawPod(t, annotatedPod(tc.old))
+			}
 
+			resp := newTestRecorder(t, mock).Handle(t.Context(), request)
 			require.True(t, resp.Allowed)
 
 			if tc.keep {
@@ -413,9 +545,26 @@ func TestHandleKeepsRecordingAnnotation(t *testing.T) {
 				return
 			}
 
-			require.Len(t, resp.Patches, 1)
-			value, ok := resp.Patches[0].Value.(string)
+			// The security context patch comes with the creation, in no
+			// particular order.
+			patches := resp.Patches
+			if tc.operation == admissionv1.Create {
+				require.Len(t, patches, 2)
+				patches = slices.DeleteFunc(patches, func(patch jsonpatch.Operation) bool {
+					return !strings.HasPrefix(patch.Path, "/metadata/annotations")
+				})
+			}
+
+			require.Len(t, patches, 1)
+			value, ok := patches[0].Value.(string)
 			require.True(t, ok)
+
+			if tc.want != "" {
+				require.Equal(t, tc.want, value)
+
+				return
+			}
+
 			require.True(t, strings.HasPrefix(value, "rec_container_"), value)
 		})
 	}

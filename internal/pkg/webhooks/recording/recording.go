@@ -106,6 +106,30 @@ func (p *podSeccompRecorder) Handle(
 		podName = pod.GenerateName
 	}
 
+	// The API server rejects seccomp, SELinux and AppArmor settings on
+	// Windows pods, and recording relies on Linux facilities anyway.
+	if utils.IsWindowsPod(pod) {
+		p.log.Info("skipping Windows pod, profile recording does not apply", "pod", podName)
+
+		return admission.Allowed("windows pod, skipping mutation")
+	}
+
+	isCreate := req.Operation == admissionv1.Create
+
+	// A recording only starts with the pod. On any other operation the
+	// annotations of the old pod are the ones to keep, so that a recording
+	// created later does not start on a pod which is already running, and
+	// removing or changing the annotation cannot rename the recorded profile.
+	oldPod := &corev1.Pod{}
+
+	if !isCreate && len(req.OldObject.Raw) > 0 {
+		if err := p.decoder.DecodeRaw(req.OldObject, oldPod); err != nil {
+			p.log.Error(err, "Failed to decode old pod")
+
+			return admission.Errored(http.StatusBadRequest, err)
+		}
+	}
+
 	podChanged := false
 	podLabels := labels.Set(pod.GetLabels())
 	items := profileRecordings.Items
@@ -147,7 +171,7 @@ func (p *podSeccompRecorder) Handle(
 		}
 
 		if selector.Matches(podLabels) {
-			changed, err := p.updatePod(pod, podName, &item, req.Operation == admissionv1.Create)
+			changed, err := p.updatePod(pod, oldPod, podName, &item, isCreate)
 			if err != nil {
 				return admission.Errored(http.StatusInternalServerError, err)
 			}
@@ -187,8 +211,13 @@ func (p *podSeccompRecorder) shouldRecordContainer(containerName string,
 	return slices.Contains(profileRecording.Spec.Containers, containerName)
 }
 
+// updatePod applies the recording to the containers of the pod. On creation
+// the containers get their security context and a fresh recording annotation.
+// Otherwise oldPod is the pod before the update: only annotations which
+// already exist on it are kept up, with their value, and no new recording is
+// started.
 func (p *podSeccompRecorder) updatePod(
-	pod *corev1.Pod,
+	pod, oldPod *corev1.Pod,
 	podName string,
 	profileRecording *profilerecordingapi.ProfileRecording,
 	isCreate bool,
@@ -223,6 +252,21 @@ func (p *podSeccompRecorder) updatePod(
 			p.warnEventIfContainerPrivileged(profileRecording, ctr, pod)
 
 			p.updateSecurityContext(ctr, profileRecording)
+		} else {
+			oldValue, existed := oldPod.GetAnnotations()[key]
+			if !existed {
+				// The pod predates the recording, or did not match it on
+				// creation, so it is not being recorded.
+				continue
+			}
+
+			// The value carries a random nonce and a timestamp, so a fresh
+			// one would rename the recorded profile. Keep the value the
+			// recording started with, unless it is not one of this
+			// recording and container.
+			if isRecordingAnnotationValue(oldValue, profileRecording.Name, ctr.Name) {
+				value = oldValue
+			}
 		}
 
 		existingValue, ok := pod.GetAnnotations()[key]
@@ -240,19 +284,23 @@ func (p *podSeccompRecorder) updatePod(
 			continue
 		}
 
-		// The value carries a random nonce and a timestamp, so it differs on
-		// every admission. Keep a value of this recording and container,
-		// otherwise every pod update would rename the recorded profile.
-		if !isRecordingAnnotationValue(existingValue, profileRecording.Name, ctr.Name) {
-			// Overwrite the existing value with the expected value to avoid that
-			// an attacker will spoof a profile recording into its own controlled
-			// profile instead of the one expected.
-			pod.Annotations[key] = value
-			podChanged = true
-
-			p.log.Info("workload already has annotation, overwriting",
-				"workload", podName, "existingValue", existingValue, "newValue", value)
+		// Overwrite a value which is not one of this recording and
+		// container, to avoid that an attacker spoofs a profile recording
+		// into its own controlled profile instead of the one expected. On
+		// creation the value carries a fresh nonce and timestamp, so a value
+		// of the recording is kept as it is, otherwise every admission would
+		// rename the recorded profile. On update the value is the one of the
+		// old pod, so a changed nonce gets reverted as well.
+		if existingValue == value ||
+			(isCreate && isRecordingAnnotationValue(existingValue, profileRecording.Name, ctr.Name)) {
+			continue
 		}
+
+		pod.Annotations[key] = value
+		podChanged = true
+
+		p.log.Info("workload already has annotation, overwriting",
+			"workload", podName, "existingValue", existingValue, "newValue", value)
 	}
 
 	return podChanged, nil
@@ -394,12 +442,15 @@ func (p *podSeccompRecorder) warnEventIfContainerPrivileged(
 	)
 }
 
-// warnEventIfNameTooLong warns the user if the name of the profile recording is too long or otherwise does
-// not conform to the Kubernetes naming conventions for labels.
+// warnEventIfNameTooLong warns the user if the name of the profile recording
+// cannot be used as the value of the recording label on the recorded
+// profiles, which is the case for names longer than 63 characters. The CRD
+// rejects such names for new recordings, so this only concerns recordings
+// which predate the rule.
 func (p *podSeccompRecorder) warnEventIfNameTooLong(
 	profileRecording *profilerecordingapi.ProfileRecording,
 ) {
-	errs := validation.IsDNS1123Label(profileRecording.Name)
+	errs := validation.IsValidLabelValue(profileRecording.Name)
 	if len(errs) == 0 {
 		return
 	}
@@ -407,9 +458,9 @@ func (p *podSeccompRecorder) warnEventIfNameTooLong(
 	p.record.Eventf(profileRecording,
 		nil,
 		corev1.EventTypeWarning,
-		"NameNotDNSLabel",
+		"NameNotLabelValue",
 		util.EventActionMutate,
-		"The recording name %s is not a DNS1123 label and can't be used as a label: %s",
+		"The recording name %s can't be used as a label value on the recorded profiles: %s",
 		profileRecording.Name,
 		strings.Join(errs, ","))
 }

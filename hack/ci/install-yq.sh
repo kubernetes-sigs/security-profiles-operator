@@ -17,9 +17,24 @@ set -euo pipefail
 
 install_yq() {
   echo "Installing yq"
+  local arch sha256 download
   YQ_VERSION=4.53.6
-  curl_retry -o /usr/bin/yq \
-    https://github.com/mikefarah/yq/releases/download/v$YQ_VERSION/yq_linux_amd64
-  sudo chmod +x /usr/bin/yq
+  # Bump together with YQ_VERSION, see dependencies.yaml.
+  YQ_SHA256_amd64=c5f056448f973ae7d39b5401949648a78f2dc1947d6a8eb65be60d5c504b9385
+  YQ_SHA256_arm64=88a1016bc1d657375a35864e4f44b6f333df8ff97b559f51bba0adcb2169df09
+  case "$(uname -m)" in
+  x86_64) arch=amd64 sha256=$YQ_SHA256_amd64 ;;
+  aarch64) arch=arm64 sha256=$YQ_SHA256_arm64 ;;
+  *)
+    echo "Unsupported architecture $(uname -m)" >&2
+    return 1
+    ;;
+  esac
+  download=$(mktemp)
+  curl -sSfL --retry 5 --retry-delay 3 -o "$download" \
+    "https://github.com/mikefarah/yq/releases/download/v$YQ_VERSION/yq_linux_$arch"
+  echo "$sha256  $download" | sha256sum -c -
+  sudo install -m 0755 "$download" /usr/bin/yq
+  rm -f "$download"
   yq --version
 }

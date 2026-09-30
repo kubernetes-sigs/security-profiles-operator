@@ -1,0 +1,10 @@
+# Configuration of kube-linter for make verify-manifests.
+checks:
+  addAllBuiltIn: false
+  exclude:
+    # The development manifests deploy the staging image by its latest tag,
+    # releases pin a version, see hack/release.sh.
+    - latest-tag
+    # The operator spreads its replicas with topologySpreadConstraints, which
+    # this check does not know.
+    - no-anti-affinity

@@ -2,6 +2,9 @@ name: dependencies
 # The pull request checks only verify that the pinned versions in
 # dependencies.yaml agree with each other. This checks the dependencies which
 # have an upstream for newer releases once a week and fails when there are any.
+# It also scans main and the published images for vulnerabilities, which new
+# advisories can affect without any change here, and opens an issue when a
+# scheduled run fails.
 on:
   schedule:
     - cron: '17 6 * * 1'
@@ -26,3 +29,107 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: make verify-dependencies-upstream
+
+  # The pinned selinuxd images, see hack/update-selinuxd.sh.
+  selinuxd:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read  # required for the checkout
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ./go.mod
+      - name: Check the selinuxd digests
+        run: hack/update-selinuxd.sh --check
+
+  # Reachable vulnerabilities in the code of main, like make verify.
+  vulnerabilities:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read  # required for the checkout
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ./go.mod
+      # govulncheck type checks the cgo packages, which needs their headers.
+      - name: Install dependencies
+        run: sudo hack/install-packages
+      - run: make verify-vulnerabilities
+
+  # The last released and the current staging image, with the assessments of
+  # .openvex.json.
+  image-scan:
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - release
+          - staging
+    name: image-scan / ${{ matrix.image }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read  # required for the checkout and the latest release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Select the image
+        id: image
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE: ${{ matrix.image }}
+        run: |
+          if [[ "$IMAGE" == release ]]; then
+            tag=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+            ref="registry.k8s.io/security-profiles-operator/security-profiles-operator:$tag"
+          else
+            ref="us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator:latest"
+          fi
+          echo "Scanning $ref"
+          echo "ref=$ref" >>"$GITHUB_OUTPUT"
+      - name: Scan for fixable vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_VEX: .openvex.json
+          TRIVY_SHOW_SUPPRESSED: "true"
+        with:
+          image-ref: ${{ steps.image.outputs.ref }}
+          scanners: vuln
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+          version: v0.74.0
+
+  # Opens an issue, or comments on the open one, when a scheduled run fails.
+  # It runs no repository code.
+  report:
+    needs: [upstream, selinuxd, vulnerabilities, image-scan]
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      issues: write  # required for reporting the failure
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Report the failure
+        run: |
+          title="Scheduled dependency and vulnerability checks failed"
+          body="The scheduled run $RUN_URL failed, see its jobs for the outdated dependencies or the vulnerabilities found."
+          number=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
+          if [[ -n "$number" ]]; then
+            gh issue comment "$number" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi

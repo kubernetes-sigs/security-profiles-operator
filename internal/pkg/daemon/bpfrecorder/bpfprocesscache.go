@@ -147,6 +147,13 @@ func (b *BpfProcessCache) Load() (err error) {
 		return fmt.Errorf("init global variable: %w", err)
 	}
 
+	// Only the exec hooks are needed, everything else would just cost
+	// verification time, and the LSM hooks fail loading the whole object on
+	// kernels without the BPF LSM.
+	if err := b.recorder.disableProgramsExcept(module, procCacheHooks); err != nil {
+		return err
+	}
+
 	b.logger.Info("Loading bpf object from module")
 
 	if err := b.recorder.BPFLoadObject(module); err != nil {
@@ -164,7 +171,7 @@ func (b *BpfProcessCache) Load() (err error) {
 
 	const timeout = 300
 
-	events := make(chan []byte)
+	events := make(chan []byte, eventsQueueSize)
 
 	ringbuf, err := b.recorder.InitRingBuf(
 		b.recorder.module,
@@ -190,6 +197,12 @@ func (b *BpfProcessCache) Load() (err error) {
 	go b.cache.Start()
 
 	return nil
+}
+
+// Close unloads the BPF module and stops the cache.
+func (b *BpfProcessCache) Close() {
+	b.recorder.Close()
+	b.cache.Stop()
 }
 
 func (b *BpfProcessCache) GetCmdLine(pid int) (cmdLine string, err error) {
@@ -239,8 +252,13 @@ func (b *BpfProcessCache) handleEvent(eventBytes []byte) {
 
 	b.logger.V(2).Info("eventTypeExecevEnter received", "execEvent", &execEvent)
 
+	// The lengths come from the kernel, but must not make the slices below
+	// panic whatever they say.
+	argsLen := min(int(execEvent.ArgsLen), maxArgs)
+	envLen := min(int(execEvent.EnvLen), maxEnv)
+
 	var cmdLineBuilder strings.Builder
-	for i := range int(execEvent.ArgsLen) {
+	for i := range argsLen {
 		cmdLineBuilder.WriteString(strings.ReplaceAll(string(execEvent.Args[i][:]), "\u0000", ""))
 		cmdLineBuilder.WriteByte(' ')
 	}
@@ -249,7 +267,7 @@ func (b *BpfProcessCache) handleEvent(eventBytes []byte) {
 
 	envMap := make(map[string]string)
 
-	for i := range int(execEvent.EnvLen) {
+	for i := range envLen {
 		envVar := string(execEvent.Env[i][:])
 
 		parts := strings.SplitN(envVar, "=", 2)

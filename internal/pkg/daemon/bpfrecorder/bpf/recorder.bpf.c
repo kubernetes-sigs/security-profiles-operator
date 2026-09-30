@@ -52,9 +52,41 @@
 
 #define OVERLAYFS_SUPER_MAGIC 0x794c7630
 
-#define PR_GET_PDEATHSIG 2
+#define AF_UNIX 1
+#define AF_INET 2
+#define AF_INET6 10
 
-#define SOCK_RAW 3
+// The syscalls the container start is detected with, see is_container_init.
+// Their numbers are not part of vmlinux.h.
+#if defined(__TARGET_ARCH_x86)
+#define NR_EXECVE 59
+#define NR_EXECVEAT 322
+#define NR_PRCTL 157
+#define NR_SECCOMP 317
+#elif defined(__TARGET_ARCH_arm64)
+#define NR_EXECVE 221
+#define NR_EXECVEAT 281
+#define NR_PRCTL 167
+#define NR_SECCOMP 277
+#else
+#define NR_EXECVE -1
+#define NR_EXECVEAT -1
+#define NR_PRCTL -1
+#define NR_SECCOMP -1
+#endif
+
+#define PR_GET_PDEATHSIG 2
+#define PR_SET_SECCOMP 22
+#define SECCOMP_SET_MODE_STRICT 0
+#define SECCOMP_SET_MODE_FILTER 1
+#define SECCOMP_MODE_STRICT 1
+#define SECCOMP_MODE_FILTER 2
+
+// The number of container init process names the userspace can pass.
+#define MAX_INIT_COMMS 4
+// The length of the executable name prefix of container init processes the
+// userspace can pass, including the terminating NUL byte.
+#define INIT_EXE_PREFIX_LEN 32
 
 // A 32 bit task on a 64 bit kernel, see is_compat_task.
 #define TS_COMPAT 0x0002
@@ -150,6 +182,25 @@ struct {
     __type(key, u64);
     __type(value, u8);
 } apparmor_initialized SEC(".maps");
+
+// The capabilities reported per recording key, as a bitmask of the capability
+// numbers. A workload checks the same capability over and over again, which
+// only has to be reported once. The entries are dropped when the recorded
+// data of the key is cleared, so that the following uses get reported again.
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(max_entries, MAX_ENTRIES);
+    __type(key, u64);
+    __type(value, u64);
+} recorded_caps SEC(".maps");
+
+// The sockets reported per recording key, as a bitmask, see socket_bit.
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(max_entries, MAX_ENTRIES);
+    __type(key, u64);
+    __type(value, u64);
+} recorded_sockets SEC(".maps");
 
 // Keep track of all child PIDs when observing
 // a particular program name.
@@ -267,8 +318,18 @@ const volatile bool use_mntns_seq = false;
 // space on them.
 const volatile bool capture_exec_args = false;
 
+// The names of the processes the container runtimes start a container with,
+// like runc:[2:INIT] or crun, set by the userspace. Their first exec under a
+// key is the start of the container, see is_container_init. They are matched
+// exactly. Unused entries are empty.
+const volatile char init_comms[MAX_INIT_COMMS][TASK_COMM_LEN] = {};
+
+// The prefix of the name of the executable file of a container init process
+// whose name is a number, set by the userspace, see is_container_init. Empty
+// if unused.
+const volatile char init_exe_prefix[INIT_EXE_PREFIX_LEN] = {};
+
 static const char FORWARD_SLASH[] = "/";
-static const char RUNC_INIT[] = "runc:[2:INIT]";
 static const bool TRUE = true;
 static inline bool has_filter();
 static inline bool matches_filter(char * comm);
@@ -433,7 +494,80 @@ static __always_inline u32 clear_apparmor(u32 mntns, u64 key)
         }
         return -1;
     }
+    // The userspace drops what it recorded, so the capabilities and sockets
+    // have to be reported again.
+    bpf_map_delete_elem(&recorded_caps, &key);
+    bpf_map_delete_elem(&recorded_sockets, &key);
     return 0;
+}
+
+// is_exec_syscall reports whether the syscall replaces the program of the
+// calling process.
+static __always_inline bool is_exec_syscall(u32 syscall_id)
+{
+    return syscall_id == NR_EXECVE || syscall_id == NR_EXECVEAT;
+}
+
+// is_seccomp_install reports whether the syscall installs a seccomp filter.
+// Only what a container does once its filter is installed has to be in its
+// profile, everything the runtime did before is setup.
+//
+// A profile is usually recorded without any filter, so the prctl runc issues
+// right before it would install one is taken as well, see
+// https://github.com/opencontainers/runc/blob/v1.3.0/libcontainer/standard_init_linux.go#L146
+// crun and youki have no such marker, their setup stays in the profile when
+// no filter is installed while recording.
+//
+// libseccomp, which runc uses, probes the kernel with calls the kernel
+// rejects during the setup, which are no install: a strict mode with flags,
+// see sys_chk_seccomp_syscall, and a filter without a filter program, see
+// sys_chk_seccomp_flag in libseccomp.
+static __always_inline bool is_seccomp_install(
+    u32 syscall_id, struct trace_event_raw_sys_enter * args)
+{
+    if (syscall_id == NR_SECCOMP) {
+        u64 operation = args->args[0];
+        if (operation == SECCOMP_SET_MODE_STRICT) {
+            return args->args[1] == 0 && args->args[2] == 0;
+        }
+        return operation == SECCOMP_SET_MODE_FILTER && args->args[2] != 0;
+    }
+    if (syscall_id == NR_PRCTL) {
+        u64 option = args->args[0];
+        if (option == PR_SET_SECCOMP) {
+            return args->args[1] == SECCOMP_MODE_STRICT ||
+                   (args->args[1] == SECCOMP_MODE_FILTER && args->args[2] != 0);
+        }
+        return option == PR_GET_PDEATHSIG;
+    }
+    return false;
+}
+
+// already_recorded marks bit in the bitmask of key and reports whether it
+// was set before. An event is reported if the mask cannot be tracked, which
+// only costs the userspace a repeated event.
+static __always_inline bool already_recorded(void * mask_map, u64 key, u64 bit)
+{
+    u64 * mask = bpf_map_lookup_elem(mask_map, &key);
+    if (!mask) {
+        static const u64 zero = 0;
+        bpf_map_update_elem(mask_map, &key, &zero, BPF_NOEXIST);
+        mask = bpf_map_lookup_elem(mask_map, &key);
+        if (!mask) {
+            return false;
+        }
+    }
+    return (__sync_fetch_and_or(mask, bit) & bit) != 0;
+}
+
+// report_again clears bit in the bitmask of key, so that the next use is
+// reported again after the event got lost.
+static __always_inline void report_again(void * mask_map, u64 key, u64 bit)
+{
+    u64 * mask = bpf_map_lookup_elem(mask_map, &key);
+    if (mask) {
+        __sync_fetch_and_and(mask, ~bit);
+    }
 }
 
 // is_compat_task reports whether the current task uses the 32 bit syscall ABI.
@@ -452,15 +586,94 @@ static __always_inline bool is_compat_task()
 #endif
 }
 
-static __always_inline bool is_runc_init()
+// is_number reports whether comm is a non-negative decimal number.
+static __always_inline bool is_number(const char * comm)
+{
+    if (comm[0] == 0) {
+        return false;
+    }
+    for (int i = 0; i < TASK_COMM_LEN; i++) {
+        if (comm[i] == 0) {
+            return true;
+        }
+        if (comm[i] < '0' || comm[i] > '9') {
+            return false;
+        }
+    }
+    return true;
+}
+
+// exe_has_init_prefix reports whether the name of the executable file of the
+// current process starts with init_exe_prefix.
+static __always_inline bool exe_has_init_prefix()
+{
+    if (init_exe_prefix[0] == 0) {
+        return false;
+    }
+
+    struct task_struct * task = (struct task_struct *)bpf_get_current_task();
+    const unsigned char * name =
+        BPF_CORE_READ(task, mm, exe_file, f_path.dentry, d_name.name);
+    if (!name) {
+        return false;
+    }
+
+    char exe[INIT_EXE_PREFIX_LEN] = {};
+    if (bpf_probe_read_kernel_str(exe, sizeof(exe), name) < 0) {
+        return false;
+    }
+
+    for (int i = 0; i < INIT_EXE_PREFIX_LEN; i++) {
+        if (init_exe_prefix[i] == 0) {
+            return true;
+        }
+        if (exe[i] != init_exe_prefix[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// is_container_init reports whether the current process is the one a
+// container runtime starts a container with. Its exec of the entrypoint is
+// the container start, and the syscalls, files and capabilities of the
+// runtime setup before it are not part of the workload.
+//
+// runc and youki name the process, crun keeps the name of its executable.
+// Unless its binary is on a read-only file system, crun executes a copy of
+// itself from a memfd, see ensure_cloned_binary in crun. Since Linux 6.14 the
+// process is named after the memfd then, memfd:crun_cloned:/proc/self/exe cut
+// to memfd:crun_clon. Older kernels name it after the number of the file
+// descriptor it got executed from, which is recognized by the name of the
+// memfd, init_exe_prefix.
+static __always_inline bool is_container_init()
 {
     char comm[TASK_COMM_LEN] = {};
     bpf_get_current_comm(comm, sizeof(comm));
-    for (int i = 0; i < sizeof(RUNC_INIT); i++) {
-        if (comm[i] != RUNC_INIT[i])
-            return false;
+
+    for (int n = 0; n < MAX_INIT_COMMS; n++) {
+        if (init_comms[n][0] == 0) {
+            // The entries are filled from the start.
+            break;
+        }
+        bool matches = true;
+        for (int i = 0; i < TASK_COMM_LEN; i++) {
+            if (comm[i] != init_comms[n][i]) {
+                matches = false;
+                break;
+            }
+            if (comm[i] == 0) {
+                break;
+            }
+        }
+        if (matches) {
+            return true;
+        }
     }
-    return true;
+
+    // Only a process named after a number is looked at further, as reading
+    // the name of its executable costs more than comparing its name.
+    return is_number(comm) && exe_has_init_prefix();
 }
 
 // Create a struct path for a given dentry by combining it with the mount point
@@ -741,8 +954,14 @@ int BPF_PROG(path_unlink, struct path * dir, struct dentry * dentry)
     return register_fs_event(&path, 0, FLAG_READ | FLAG_WRITE, true);
 }
 
+// The per syscall tracepoints, like syscalls/sys_enter_socket, pass a struct
+// syscall_trace_enter instead of the struct trace_event_raw_sys_enter of
+// raw_syscalls/sys_enter. Its syscall number is an int instead of a long, so
+// the arguments follow at another offset if the common fields do not end on
+// an 8 byte boundary, like on PREEMPT_RT kernels. CO-RE relocates the
+// arguments against the kernel layout of the struct.
 SEC("tracepoint/syscalls/sys_enter_socket")
-int sys_enter_socket(struct trace_event_raw_sys_enter * ctx)
+int sys_enter_socket(struct syscall_trace_enter * ctx)
 {
     if (!_is_recording_cached)
         return 0;
@@ -762,10 +981,33 @@ int sys_enter_socket(struct trace_event_raw_sys_enter * ctx)
     }
 
     trace_hook("requesting socket domain %llu type %llu", domain, type);
+
+    // Report every kind of socket once per key. The userspace only tells the
+    // unix and internet domains apart, and the socket type without its
+    // SOCK_NONBLOCK and SOCK_CLOEXEC flags, so the bitmask groups the sockets
+    // the same way.
+    u64 group;
+    if (domain == AF_UNIX) {
+        group = 0;
+    } else if (domain == AF_INET) {
+        group = 1;
+    } else if (domain == AF_INET6) {
+        group = 2;
+    } else {
+        group = 3;
+    }
+    u64 bit = 1ULL << (group * 16 + (type & 0xf));
+    u64 key = get_key(mntns);
+    if (already_recorded(&recorded_sockets, key, bit)) {
+        return 0;
+    }
+
     // The domain goes into the upper half of the flags, the type together
     // with its SOCK_NONBLOCK and SOCK_CLOEXEC flags into the lower one.
-    submit_event(EVENT_TYPE_APPARMOR_SOCKET, mntns, get_key(mntns),
-                 (domain << 32) | (type & 0xffffffff));
+    if (submit_event(EVENT_TYPE_APPARMOR_SOCKET, mntns, key,
+                     (domain << 32) | (type & 0xffffffff)) != 0) {
+        report_again(&recorded_sockets, key, bit);
+    }
 
     return 0;
 }
@@ -785,65 +1027,25 @@ int BPF_KPROBE(cap_capable)
 
     if (cap_opt & CAP_OPT_NOAUDIT)
         return 0;
-    if (is_runc_init())  // there are some SYS_ADMIN privileges exercised after
-                         // sys_enter_execve
+    if (is_container_init())  // there are some SYS_ADMIN privileges exercised
+                              // by the runtime after the exec of the container
+        return 0;
+    if (cap >= 64)  // the bitmask holds the capabilities the kernel has
         return 0;
 
-    // TODO: This should be implemented like the seccomp syscalls map.
-    submit_event(EVENT_TYPE_APPARMOR_CAP, mntns, get_key(mntns), cap);
-
-    return 0;
-}
-
-SEC("tracepoint/syscalls/sys_enter_prctl")
-int sys_enter_prctl(struct trace_event_raw_sys_enter * ctx)
-{
-    if (!_is_recording_cached)
+    // Report every capability once per key.
+    u64 bit = 1ULL << cap;
+    u64 key = get_key(mntns);
+    if (already_recorded(&recorded_caps, key, bit)) {
         return 0;
-    u32 mntns = get_mntns();
-    if (!mntns)
-        return 0;
-    trace_hook("sys_enter_prctl");
+    }
 
-    // Handle runc init.
-    //
-    // Hooking here:
-    // https://github.com/opencontainers/runc/blob/81b13172bea2e6e4cf50f6bdd29a5fdeb5a6acf5/libcontainer/standard_init_linux.go#L148
-    if (ctx->args[0] == PR_GET_PDEATHSIG && is_runc_init()) {
-        clear_seccomp(get_key(mntns));
+    if (submit_event(EVENT_TYPE_APPARMOR_CAP, mntns, key, cap) != 0) {
+        report_again(&recorded_caps, key, bit);
     }
 
     return 0;
 }
-
-/**
-From the file:
-/sys/kernel/debug/tracing/events/syscalls/sys_enter_execve/sys_enter_execve
-format:
-    field:unsigned short common_type;	offset:0;	size:2;	signed:0;
-    field:unsigned char common_flags;	offset:2;	size:1;	signed:0;
-    field:unsigned char common_preempt_count;	offset:3;	size:1;	signed:0;
-    field:int common_pid;	offset:4;	size:4;	signed:1;
-    field:unsigned char common_preempt_lazy_count;	offset:8;	size:1;
-signed:0;
-
-    field:int __syscall_nr;	offset:12;	size:4;	signed:1;
-    field:const char * filename;	offset:16;	size:8;	signed:0;
-    field:const char *const * argv;	offset:24;	size:8;	signed:0;
-    field:const char *const * envp;	offset:32;	size:8;	signed:0;
-*/
-struct exec_info {
-    __u16 common_type;               // Offset=0, size=2
-    __u8 common_flags;               // Offset=2, size=1
-    __u8 common_preempt_count;       // Offset=3, size=1
-    __s32 common_pid;                // Offset=4, size=4
-    __u8 common_preempt_lazy_count;  // Offset=8, size=4
-
-    __s32 syscall_nr;           // Offset=12, size=4
-    const __u8 * filename;      // Offset=16, size=8 (pointer)
-    const __u8 * const * argv;  // Offset=24, size=8 (pointer)
-    const __u8 * const * envp;  // Offset=32, size=8 (pointer)
-};
 
 static __always_inline void submit_exec_event(const __u8 * filename,
                                               const __u8 * const * argv,
@@ -915,27 +1117,26 @@ static __always_inline void submit_exec_event(const __u8 * filename,
     bpf_ringbuf_submit(exec_event, 0);
 }
 
+// The exec tracepoints only serve the process cache, see capture_exec_args.
+// The container start is detected in sys_enter, which sees the exec syscalls
+// as well. The arguments are read through the CO-RE relocated tracepoint
+// context, as the layout of its common fields differs between kernels, see
+// sys_enter_socket.
 SEC("tracepoint/syscalls/sys_enter_execve")
-int sys_enter_execve(struct exec_info * ctx)
+int sys_enter_execve(struct syscall_trace_enter * ctx)
 {
     if (!_is_recording_cached)
+        return 0;
+    if (!capture_exec_args)
         return 0;
     u32 mntns = get_mntns();
     if (!mntns)
         return 0;
     trace_hook("sys_enter_execve");
 
-    if (capture_exec_args) {
-        submit_exec_event(ctx->filename, ctx->argv, ctx->envp, mntns);
-    }
-
-    // Handle runc init.
-    //
-    // Hooking here:
-    // https://github.com/opencontainers/runc/blob/81b13172bea2e6e4cf50f6bdd29a5fdeb5a6acf5/libcontainer/standard_init_linux.go#L288
-    if (is_runc_init()) {
-        clear_apparmor(mntns, get_key(mntns));
-    }
+    submit_exec_event((const __u8 *)ctx->args[0],
+                      (const __u8 * const *)ctx->args[1],
+                      (const __u8 * const *)ctx->args[2], mntns);
 
     return 0;
 }
@@ -943,24 +1144,20 @@ int sys_enter_execve(struct exec_info * ctx)
 // execveat is sys_enter_execve for programs started from a file descriptor or
 // relative to a directory, like fexecve does.
 SEC("tracepoint/syscalls/sys_enter_execveat")
-int sys_enter_execveat(struct trace_event_raw_sys_enter * ctx)
+int sys_enter_execveat(struct syscall_trace_enter * ctx)
 {
     if (!_is_recording_cached)
+        return 0;
+    if (!capture_exec_args)
         return 0;
     u32 mntns = get_mntns();
     if (!mntns)
         return 0;
     trace_hook("sys_enter_execveat");
 
-    if (capture_exec_args) {
-        submit_exec_event((const __u8 *)ctx->args[1],
-                          (const __u8 * const *)ctx->args[2],
-                          (const __u8 * const *)ctx->args[3], mntns);
-    }
-
-    if (is_runc_init()) {
-        clear_apparmor(mntns, get_key(mntns));
-    }
+    submit_exec_event((const __u8 *)ctx->args[1],
+                      (const __u8 * const *)ctx->args[2],
+                      (const __u8 * const *)ctx->args[3], mntns);
 
     return 0;
 }
@@ -1092,6 +1289,21 @@ int sys_enter(struct trace_event_raw_sys_enter * args)
         return 0;
     }
 
+    // The container runtimes start a container with an init process which
+    // sets up the container and then execs its entrypoint. The seccomp
+    // profile only has to allow what runs once the filter is installed, and
+    // the AppArmor profile only applies from the exec on, so what got
+    // recorded before is dropped. Only the first time per key, later inits
+    // are execs into the running container, see clear_seccomp.
+    if ((is_exec_syscall(syscall_id) || is_seccomp_install(syscall_id, args)) &&
+        is_container_init()) {
+        if (is_exec_syscall(syscall_id)) {
+            clear_apparmor(mntns, key);
+        } else {
+            clear_seccomp(key);
+        }
+    }
+
     // Record the syscall for this key
     u8 * value = bpf_map_lookup_elem(&recorded_syscalls, &key);
     if (!value) {
@@ -1124,7 +1336,7 @@ int sys_enter(struct trace_event_raw_sys_enter * args)
 // This is (hopefully) more efficient than calling `bpf_map_lookup_elem` on
 // every hook.
 SEC("tracepoint/syscalls/sys_enter_getgid")
-int sys_enter_getgid(struct trace_event_raw_sys_enter * ctx)
+int sys_enter_getgid(struct syscall_trace_enter * ctx)
 {
     const int key = 0;
     bool * value = bpf_map_lookup_elem(&is_recording, &key);

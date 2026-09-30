@@ -93,7 +93,9 @@ EOT
   print_spo_logs
 }
 
+# shellcheck source=hack/ci/install-spo.sh
 . "$(dirname "$0")/install-spo.sh"
+# shellcheck source=hack/ci/install-kubernix.sh
 . "$(dirname "$0")/install-kubernix.sh"
 
 install_kubernix

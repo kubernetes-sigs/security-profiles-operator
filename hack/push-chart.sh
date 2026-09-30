@@ -44,6 +44,8 @@ if [[ -z "$HELM" ]]; then
   HELM="$HELM_DIR/helm"
 fi
 
+# Without a password helm uses the Docker configuration, see registry_login in
+# hack/lib/common.sh.
 if [[ -n "${PASSWORD:-}" ]]; then
   printf '%s' "$PASSWORD" |
     "$HELM" registry login "${REGISTRY%%/*}" -u "${USERNAME:-oauth2accesstoken}" --password-stdin

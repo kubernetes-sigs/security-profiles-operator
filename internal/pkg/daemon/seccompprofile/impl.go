@@ -41,7 +41,7 @@ type impl interface {
 	ClientGetProfile(
 		context.Context, client.Client, client.ObjectKey, ...client.GetOption,
 	) (*seccompprofileapi.SeccompProfile, error)
-	GetSPOD(context.Context, client.Client) (*spodapi.SecurityProfilesOperatorDaemon, error)
+	GetSPOD(context.Context, client.Client, string) (*spodapi.SecurityProfilesOperatorDaemon, error)
 }
 
 func (*defaultImpl) Pull(
@@ -74,7 +74,7 @@ func (*defaultImpl) ClientGetProfile(
 }
 
 func (*defaultImpl) GetSPOD(
-	ctx context.Context, cli client.Client,
+	ctx context.Context, cli client.Client, namespace string,
 ) (*spodapi.SecurityProfilesOperatorDaemon, error) {
-	return common.GetSPOD(ctx, cli)
+	return common.GetSPOD(ctx, cli, namespace)
 }

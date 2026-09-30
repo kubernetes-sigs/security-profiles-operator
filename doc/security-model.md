@@ -16,23 +16,24 @@ Details the security requirements to run SPO from a host isolation perspective.
 
 ### Initialisation
 
-Seccomp leverages an init container to setup an initial symlink as `root`, so it can then operate
- as a non-root user.
+Seccomp leverages the `non-root-enabler` init container to setup an initial symlink as `root`, so
+the daemon can then operate as a non-root user.
 
-During initialisation it also uses the capabilities:
+The init container drops all capabilities except:
 
 - `CHOWN`
 - `FOWNER`
-- `FSETID`
 - `DAC_OVERRIDE`
 
 The init container does not mount the host root filesystem. It only mounts:
 
 - `/var/lib/security-profiles-operator` (created if missing), the operator root which holds the
   profiles and is handed over to the non-root user.
-- The kubelet root directory, by default `/var/lib/kubelet` or the value of the `KUBELET_DIR`
-  environment variable of the operator, below `/host` (created if missing). It creates the
-  `seccomp` directory there, including the `operator` symlink pointing to the operator root.
+- The `seccomp` directory of the kubelet root directory, by default `/var/lib/kubelet` or the
+  value of the `KUBELET_DIR` environment variable of the operator, below `/host` (created if
+  missing). It creates the `operator` symlink pointing to the operator root there, and copies
+  the profiles of the operator itself, like `security-profiles-operator.json`, into it. The rest
+  of the kubelet root directory, which holds the secret volumes of all pods, is not mounted.
 
 Nodes can configure a custom kubelet root directory through the
 `kubelet.kubernetes.io/directory-location` label. The DaemonSet uses the same pod template on
@@ -45,7 +46,11 @@ directories mounted on all nodes.
 
 When AppArmor is enabled, the profiles are installed through the host mount namespace, which
 requires a privileged init container and `HostPID` instead of a host path mount of
-`/etc/apparmor.d`.
+`/etc/apparmor.d`. The daemon then runs privileged as well.
+
+The pod does not mount the service account token automatically. Only the containers which talk
+to the API server (the `non-root-enabler`, the daemon, the enrichers and the bpf recorder) get
+a projected token.
 
 
 ### Running Mode
@@ -56,12 +61,12 @@ The running permissions for the three core technologies supported:
 |----------------------------------|:-----------:|:-----------:|:-----------:|
 |               Requires root user | No          | Yes         | Yes         |
 |                 Requires HostPID | No          | No          | Yes         |
-|  Requires "privileged container" | No          | Yes (1)     | Yes         |
+|  Requires "privileged container" | No          | Yes (1)     | Yes (4)     |
 |     Requires SSH Access to nodes | No          | No          | No          |
 | Access to host's mount namespace | No          | Yes         | On Demand   |
-|                 AppArmor Profile | `default`   | `default`   | `security-profiles-operator` |
+|                 AppArmor Profile | `default`   | `default`   | `spo-apparmor` |
 |                     SELinux type | `spc_t`     | `spc_t` (2) | `spc_t`     |
-|                  Seccomp Profile | `operator/security-profiles-operator.json` (3) | same (3) | none (4) |
+|                  Seccomp Profile | `security-profiles-operator.json` (3) | same (3) | none (4) |
 
 1. The `selinux-shared-policies-copier` init container runs privileged to reload the kernel
    policy with `semodule -R`. The long running `selinuxd` container is not privileged, adds the
@@ -69,10 +74,13 @@ The running permissions for the three core technologies supported:
    with the `selinuxd.process` type.
 2. The type can be changed through `spec.selinux.typeTag` of the `spod` resource, for
    example to `unconfined_t` on Flatcar Linux.
-3. The daemon container runs with the Localhost seccomp profile shipped in the
-   `security-profiles-operator-profile` ConfigMap. The pod level default is `RuntimeDefault`.
-4. With AppArmor enabled the daemon runs privileged, so the container runtime does not apply a
-   seccomp profile.
+3. The daemon container runs with the Localhost seccomp profile `security-profiles-operator.json`,
+   which the operator ships in the `security-profiles-operator-profile` ConfigMap and the
+   `non-root-enabler` copies into the `seccomp` directory of the kubelet. The pod level default
+   is `RuntimeDefault`.
+4. With AppArmor enabled the daemon and the `non-root-enabler` run privileged, see
+   [Initialisation](#initialisation), so the container runtime does not apply a seccomp profile,
+   and CRI-O no AppArmor profile either.
 
 The operator and webhook deployments run as non-root with a read-only root filesystem, all
 capabilities dropped, privilege escalation disabled and the `RuntimeDefault` seccomp profile.
@@ -90,8 +98,9 @@ Throughout their operation they require read and write permissions into host pat
 - `/etc/apparmor.d` (only when AppArmor is enabled, through the host mount namespace)
 
 Host paths of optional features are only mounted when the feature is enabled, and read-only
-unless noted otherwise: the audit and syslog directories for the log and JSON enrichers, and
-`/sys/kernel/debug`, `/sys/kernel/security`, `/sys/kernel/tracing` and `/etc/os-release` for the
+unless noted otherwise: the audit and syslog directories for the JSON enricher and the log
+enricher with the default `auditd` source, `/sys/kernel/debug` and `/sys/kernel/tracing` for the
+JSON enricher, and `/sys/kernel/debug`, `/sys/kernel/security` and `/sys/kernel/tracing` for the
 bpf recorder.
 
 #### Metrics
@@ -112,20 +121,30 @@ During the execution in profile generation mode, the observed applications may r
 would otherwise, to allow for their operations to be observed and recorded. Keep this in mind when using it
 against workloads you may not trust.
 
-|                                  | Seccomp     | SELinux     | AppArmor    |
-|----------------------------------|:-----------:|:-----------:|:-----------:|
-|               Requires root user | Yes         | Yes         | Yes         |
-|                 Requires HostPID | Yes         | Yes         | Yes         |
-|  Requires "privileged container" | Yes         | Yes         | Yes         |
-|     Requires SSH Access to nodes | No          | No          | No          |
-|                 AppArmor Profile | `default`   | `default`   | `bpfrecorder-apparmor` |
-|                     SELinux type | `spc_t`     | `spc_t`     | `spc_t`     |
-|                  Seccomp Profile | none        | none        | none        |
+Each recorder and enricher runs in a container of its own:
 
-The log enricher reads the audit logs and the process information of other containers, and the
-bpf recorder loads eBPF programs, so both run privileged, which also means the container
-runtime does not apply a seccomp profile to them. `HostPID` is set for the whole `spod` pod
-while a recorder or enricher is enabled.
+|                                  | Log enricher | JSON enricher | BPF recorder |
+|----------------------------------|:------------:|:-------------:|:------------:|
+|               Requires root user | Yes          | Yes           | Yes          |
+|                 Requires HostPID | Yes          | Yes           | Yes          |
+|  Requires "privileged container" | No (1)       | No (2)        | No (3)       |
+|     Requires SSH Access to nodes | No           | No            | No           |
+|                 AppArmor Profile | `default`    | `default`     | `bpfrecorder-apparmor` (4) |
+|                     SELinux type | `spc_t`      | `spc_t`       | `spc_t`      |
+|                  Seccomp Profile | `RuntimeDefault` | `RuntimeDefault` | `bpf-recorder.json` |
+
+1. The log enricher drops all capabilities except `SYS_PTRACE` and `DAC_READ_SEARCH`, which
+   it needs to resolve the processes of other containers through `/proc`. With the `Bpf` log
+   source it adds `BPF`, `PERFMON` and `SYS_RESOURCE`, and does not mount the host log
+   directories.
+2. The JSON enricher drops all capabilities except `SYS_PTRACE`, `SYS_RESOURCE`, `BPF`,
+   `PERFMON` and `DAC_READ_SEARCH`.
+3. The bpf recorder drops all capabilities except `BPF`, `PERFMON`, `SYS_RESOURCE`,
+   `SYS_PTRACE` and `DAC_READ_SEARCH`. With AppArmor enabled it runs privileged.
+4. Only with AppArmor enabled, the runtime default otherwise.
+
+`HostPID` is set for the whole `spod` pod while a recorder or enricher is enabled, to map the
+processes to their containers.
 
 The log based recording applies the `operator/log-enricher-trace.json` seccomp profile, which
 logs instead of blocking syscalls, and the permissive `selinuxrecording.process` SELinux type to
@@ -147,32 +166,53 @@ The project's RBAC requirements are managed in an automated manner based on `+ku
 To map what code requires which permissions, [search this repo](https://github.com/kubernetes-sigs/security-profiles-operator/search?q=%22%2Bkubebuilder%3Arbac%3A%22&type=code) for it.
 
 At control plane level the [least privilege principle] should also be observed.
-A high-level summary of the permissions besides the operator's own API:
+A high-level summary of the permissions besides the operator's own API, with the API groups
+other than the core group. `hack/verify-security-model.sh` checks that each section names all
+API groups of its role.
 
 ### security-profiles-operator
 
-- Cluster wide: events, nodes and pods (read), the `security-profiles-operator-profile`
-  ConfigMap (read), tokenreviews and subjectaccessreviews (metrics), OpenShift clusteroperators
-  and apiservers (read).
-- Mutating and validating webhook configurations: create and read, update only for
-  `spo-mutating-webhook-configuration` and `spo-validating-webhook-configuration`.
-- ValidatingAdmissionPolicies and their bindings: create, update only for
-  `spo-recording-profiles`.
-- Operator namespace only: daemonsets, deployments, services, servicemonitors, cert-manager
-  issuers and certificates, leases, and the `restricted-v2` SCC.
+- Cluster wide: events (core and `events.k8s.io`), nodes and pods (read), the
+  `security-profiles-operator-profile` ConfigMap (read), tokenreviews (`authentication.k8s.io`)
+  and subjectaccessreviews (`authorization.k8s.io`) for the metrics, OpenShift clusteroperators
+  and apiservers (`config.openshift.io`, read).
+- Mutating and validating webhook configurations (`admissionregistration.k8s.io`): create, and
+  read and update only for `spo-mutating-webhook-configuration` and
+  `spo-validating-webhook-configuration`.
+- ValidatingAdmissionPolicies and their bindings (`admissionregistration.k8s.io`): create, and
+  read and update only for `spo-recording-profiles`.
+- Operator namespace only: daemonsets and deployments (`apps`), the PodDisruptionBudget of the
+  webhook (`policy`), services, servicemonitors (`monitoring.coreos.com`), cert-manager issuers
+  and certificates (`cert-manager.io`), leases (`coordination.k8s.io`), and the `restricted-v2`
+  SCC (`security.openshift.io`).
+- Own API: delete on seccomp profiles, to remove the ones which the allow lists of the `spod`
+  resource reject once for the cluster, see
+  [Restrict the allowed syscalls](installation.md#restrict-the-allowed-syscalls-in-seccomp-profiles).
+  The `*/finalizers` subresources are limited to get, update and patch, without delete.
 
 ### spod
 
-- Cluster wide: events, nodes and pods (read), tokenreviews and subjectaccessreviews
-  (metrics).
-- Operator namespace only: jobs, and the `privileged` SCC.
+- Cluster wide: events (core and `events.k8s.io`), nodes and pods (read), tokenreviews
+  (`authentication.k8s.io`) and subjectaccessreviews (`authorization.k8s.io`) for the metrics,
+  OpenShift apiservers and clusteroperators (`config.openshift.io`, read), for the TLS profile
+  of the metrics endpoint.
+- Operator namespace only: jobs (`batch`) to reload SELinux policies, get on secrets and
+  configmaps for the public keys and the Sigstore trusted roots of the
+  [signature verification](#oci-artifact-signature-verification) of OCI base profiles, and the
+  `privileged` SCC (`security.openshift.io`).
+- Own API: no delete on seccomp profiles, the daemons reject profiles which the allow lists do
+  not allow instead of deleting them. The `*/finalizers` subresources are limited to get,
+  update and patch, without delete.
 
 ### spo-webhook
 
-- Cluster wide: events, tokenreviews and subjectaccessreviews (metrics). The webhooks take the
-  pods they mutate and the raw SELinux profiles they validate from the admission requests, so
-  they have no access to pods or raw SELinux profiles.
-- Operator namespace only: leases, and the `restricted-v2` SCC.
+- Cluster wide: events (core and `events.k8s.io`), tokenreviews (`authentication.k8s.io`) and
+  subjectaccessreviews (`authorization.k8s.io`) for the metrics, OpenShift apiservers and
+  clusteroperators (`config.openshift.io`, read). The webhooks take the pods they mutate and
+  the raw SELinux profiles they validate from the admission requests, so they have no access to
+  pods or raw SELinux profiles.
+- Operator namespace only: leases (`coordination.k8s.io`), and the `restricted-v2` SCC
+  (`security.openshift.io`).
 
 ## Admission webhooks
 

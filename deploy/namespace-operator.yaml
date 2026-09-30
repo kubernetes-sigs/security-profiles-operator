@@ -565,7 +565,14 @@ spec:
                   baseProfileName is the name of the base profile (a cluster-scoped
                   SeccompProfile) that will be unioned into this profile. Base profiles can
                   be referenced as remote OCI artifacts as well when prefixed with `oci://`.
+                  Any other value is the name of a SeccompProfile. Values which are no
+                  valid object name are rejected, because no base profile of that name can
+                  exist, so a profile referencing it could never be installed.
                 type: string
+                x-kubernetes-validations:
+                - message: baseProfileName must be an oci:// reference or the name
+                    of a SeccompProfile
+                  rule: self == '' || self.startsWith('oci://') || self.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?([.][a-z0-9]([-a-z0-9]*[a-z0-9])?)*$')
               defaultAction:
                 description: |-
                   defaultAction is the default action for seccomp. Valid values are:
@@ -934,6 +941,9 @@ spec:
     - jsonPath: .status.state
       name: State
       type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -1060,6 +1070,17 @@ spec:
                     description: |-
                       enableBpfRecorder tells the operator whether or not to enable bpf
                       recorder support for this SPOD instance.
+                    type: boolean
+                  enableExecMetadata:
+                    default: true
+                    description: |-
+                      enableExecMetadata tells the operator whether the exec metadata
+                      webhook gets deployed together with the JSON enricher. The webhook
+                      rewrites every "kubectl exec" into the recorded namespaces to run
+                      through the env binary of the container image, so that the enricher
+                      can attribute the syscalls to the exec request. Disable it for
+                      clusters with images which do not ship an env binary. It has no
+                      effect while the JSON enricher is disabled.
                     type: boolean
                   enableJsonEnricher:
                     default: false
@@ -2209,6 +2230,105 @@ spec:
                       disableOciArtifactSignatureVerification can be used to disable OCI
                       artifact signature verification.
                     type: boolean
+                  signatureVerification:
+                    description: |-
+                      signatureVerification configures how the signatures of OCI base
+                      profiles get verified, beyond the identity and issuer regexps. It
+                      applies to base profiles outside of the official repositories of this
+                      project only (registry.k8s.io/security-profiles-operator/ and its
+                      staging repository). Official base profiles are always verified against
+                      the official keyless signers and the public Sigstore trusted root, so
+                      that a key or identity for private base profiles does not break them.
+                      It has no effect while disableOciArtifactSignatureVerification is true.
+                    minProperties: 1
+                    properties:
+                      allowedIdentity:
+                        description: |-
+                          allowedIdentity is the exact identity which the keyless signing
+                          certificate has to be issued for, for example the workflow URL of a
+                          CI job. It takes precedence over allowedIdentityRegexp.
+                        maxLength: 1024
+                        minLength: 1
+                        type: string
+                      allowedOidcIssuer:
+                        description: |-
+                          allowedOidcIssuer is the exact OIDC issuer of the keyless signing
+                          certificate. It takes precedence over allowedOidcIssuerRegexp.
+                        maxLength: 1024
+                        minLength: 1
+                        type: string
+                      offline:
+                        description: |-
+                          offline skips every network access during the verification: the
+                          transparency log entry bundled with the signature is verified against
+                          the trusted root of trustedRootConfigMapRef, which is required then.
+                          Without offline, the daemon fetches the public Sigstore trusted root
+                          through TUF unless trustedRootConfigMapRef is set. Defaults to false.
+                        type: boolean
+                      publicKeySecretRef:
+                        description: |-
+                          publicKeySecretRef selects the key of a Secret in the operator
+                          namespace which holds a PEM encoded public key. If set, the signatures
+                          are verified with that key instead of a keyless certificate, and the
+                          identity and issuer settings are ignored. The Secret and the key have
+                          to exist, optional is not supported.
+                        properties:
+                          key:
+                            description: The key of the secret to select from.  Must
+                              be a valid secret key.
+                            type: string
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                          optional:
+                            description: Specify whether the Secret or its key must
+                              be defined
+                            type: boolean
+                        required:
+                        - key
+                        type: object
+                        x-kubernetes-map-type: atomic
+                      trustedRootConfigMapRef:
+                        description: |-
+                          trustedRootConfigMapRef selects the key of a ConfigMap in the operator
+                          namespace which holds a Sigstore trusted root in JSON format. It
+                          replaces the public Sigstore trusted root, for example for a private
+                          Sigstore deployment or an air-gapped cluster. It is required if
+                          offline is true. The ConfigMap and the key have to exist, optional is
+                          not supported.
+                        properties:
+                          key:
+                            description: |-
+                              The key to select from the ConfigMap's Data field.
+                              Keys in the BinaryData field are not currently propagated to container env vars.
+                            type: string
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                          optional:
+                            description: Specify whether the ConfigMap or its key
+                              must be defined
+                            type: boolean
+                        required:
+                        - key
+                        type: object
+                        x-kubernetes-map-type: atomic
+                    type: object
+                    x-kubernetes-validations:
+                    - message: offline requires trustedRootConfigMapRef
+                      rule: '!has(self.offline) || !self.offline || has(self.trustedRootConfigMapRef)'
                 type: object
               selinux:
                 default: {}
@@ -2562,6 +2682,13 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              observedGeneration:
+                description: |-
+                  observedGeneration is the generation of the SPOD which the state and
+                  the conditions were computed for.
+                format: int64
+                minimum: 0
+                type: integer
               state:
                 description: |-
                   state represents the state that the policy is in. Can be:
@@ -3059,14 +3186,14 @@ spec:
                       allowedExecutables:
                         description: allowedExecutables is a list of allowed executables.
                         items:
-                          pattern: ^(?:/[a-zA-Z0-9_./*?+@{} -]*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$
+                          pattern: ^(?:/(?:[a-zA-Z0-9_./*?+@ -]|@\{[a-zA-Z0-9_]+\})*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$
                           type: string
                         type: array
                         x-kubernetes-list-type: set
                       allowedLibraries:
                         description: allowedLibraries is a list of allowed libraries.
                         items:
-                          pattern: ^(?:/[a-zA-Z0-9_./*?+@{} -]*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$
+                          pattern: ^(?:/(?:[a-zA-Z0-9_./*?+@ -]|@\{[a-zA-Z0-9_]+\})*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$
                           type: string
                         type: array
                         x-kubernetes-list-type: set
@@ -3075,26 +3202,35 @@ spec:
                     description: filesystem defines rules for filesystem access.
                     properties:
                       readOnlyPaths:
-                        description: readOnlyPaths is a list of allowed read only
-                          file paths.
+                        description: |-
+                          readOnlyPaths is a list of allowed read only file paths.
+                          Entries of the form "ptrace (read)," are deprecated: use
+                          abstract.ptrace instead. They are still accepted and rendered as ptrace
+                          rules, but support for them will be removed in a future API version.
                         items:
-                          pattern: ^(?:/[a-zA-Z0-9_./*?+@{} -]*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$
+                          pattern: ^(?:/(?:[a-zA-Z0-9_./*?+@ -]|@\{[a-zA-Z0-9_]+\})*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$
                           type: string
                         type: array
                         x-kubernetes-list-type: set
                       readWritePaths:
-                        description: readWritePaths is a list of allowed read write
-                          file paths.
+                        description: |-
+                          readWritePaths is a list of allowed read write file paths.
+                          Entries of the form "ptrace (read)," are deprecated: use
+                          abstract.ptrace instead. They are still accepted and rendered as ptrace
+                          rules, but support for them will be removed in a future API version.
                         items:
-                          pattern: ^(?:/[a-zA-Z0-9_./*?+@{} -]*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$
+                          pattern: ^(?:/(?:[a-zA-Z0-9_./*?+@ -]|@\{[a-zA-Z0-9_]+\})*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$
                           type: string
                         type: array
                         x-kubernetes-list-type: set
                       writeOnlyPaths:
-                        description: writeOnlyPaths is a list of allowed write only
-                          file paths.
+                        description: |-
+                          writeOnlyPaths is a list of allowed write only file paths.
+                          Entries of the form "ptrace (read)," are deprecated: use
+                          abstract.ptrace instead. They are still accepted and rendered as ptrace
+                          rules, but support for them will be removed in a future API version.
                         items:
-                          pattern: ^(?:/[a-zA-Z0-9_./*?+@{} -]*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$
+                          pattern: ^(?:/(?:[a-zA-Z0-9_./*?+@ -]|@\{[a-zA-Z0-9_]+\})*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$
                           type: string
                         type: array
                         x-kubernetes-list-type: set
@@ -3116,6 +3252,40 @@ spec:
                             description: allowUdp allows UDP sockets connections.
                             type: boolean
                         type: object
+                    type: object
+                  ptrace:
+                    description: ptrace defines rules for ptrace access.
+                    properties:
+                      allowedAccess:
+                        description: |-
+                          allowedAccess is the list of allowed ptrace accesses.
+                          Valid values are "read", "readby", "trace" and "tracedby".
+                        items:
+                          description: AppArmorPtraceAccess is an access which an
+                            AppArmor ptrace rule grants.
+                          enum:
+                          - read
+                          - readby
+                          - trace
+                          - tracedby
+                          type: string
+                        maxItems: 4
+                        minItems: 1
+                        type: array
+                        x-kubernetes-list-type: set
+                      peer:
+                        description: |-
+                          peer limits the rule to processes confined by the AppArmor profiles
+                          matching this name, for example "@{profile_name}" for the profile
+                          itself. Without a peer, the rule applies to every process.
+                          It may contain letters, digits, "_", ".", "/", "-", the globs "*" and
+                          "?", and the variable "@{profile_name}".
+                        maxLength: 256
+                        minLength: 1
+                        pattern: ^(?:[a-zA-Z0-9_./*?-]|@\{profile_name\})+$
+                        type: string
+                    required:
+                    - allowedAccess
                     type: object
                 type: object
               mode:
@@ -3291,8 +3461,11 @@ rules:
   resources:
   - mutatingwebhookconfigurations
   verbs:
+  - get
+  - list
   - patch
   - update
+  - watch
 - apiGroups:
   - admissionregistration.k8s.io
   resources:
@@ -3302,9 +3475,6 @@ rules:
   - validatingwebhookconfigurations
   verbs:
   - create
-  - get
-  - list
-  - watch
 - apiGroups:
   - admissionregistration.k8s.io
   resourceNames:
@@ -3313,7 +3483,10 @@ rules:
   - validatingadmissionpolicies
   - validatingadmissionpolicybindings
   verbs:
+  - get
+  - list
   - update
+  - watch
 - apiGroups:
   - admissionregistration.k8s.io
   resourceNames:
@@ -3321,8 +3494,11 @@ rules:
   resources:
   - validatingwebhookconfigurations
   verbs:
+  - get
+  - list
   - patch
   - update
+  - watch
 - apiGroups:
   - authentication.k8s.io
   resources:
@@ -3339,11 +3515,16 @@ rules:
   - config.openshift.io
   resources:
   - apiservers
-  - clusteroperators
   verbs:
   - get
   - list
   - watch
+- apiGroups:
+  - config.openshift.io
+  resources:
+  - clusteroperators
+  verbs:
+  - get
 - apiGroups:
   - events.k8s.io
   resources:
@@ -3361,7 +3542,6 @@ rules:
   verbs:
   - create
   - delete
-  - deletecollection
   - get
   - list
   - patch
@@ -3371,25 +3551,18 @@ rules:
   - security-profiles-operator.x-k8s.io
   resources:
   - apparmorprofiles/finalizers
-  - rawselinuxprofiles/finalizers
-  - seccompprofiles/finalizers
-  - securityprofilesoperatordaemons/finalizers
-  - selinuxprofiles/finalizers
-  verbs:
-  - delete
-  - get
-  - patch
-  - update
-- apiGroups:
-  - security-profiles-operator.x-k8s.io
-  resources:
   - apparmorprofiles/status
   - profilebindings/finalizers
   - profilebindings/status
+  - profilerecordings/finalizers
   - profilerecordings/status
+  - rawselinuxprofiles/finalizers
   - rawselinuxprofiles/status
+  - seccompprofiles/finalizers
   - seccompprofiles/status
+  - securityprofilesoperatordaemons/finalizers
   - securityprofilesoperatordaemons/status
+  - selinuxprofiles/finalizers
   - selinuxprofiles/status
   verbs:
   - get
@@ -3400,7 +3573,6 @@ rules:
   resources:
   - profilebindings
   - profilerecordings
-  - profilerecordings/finalizers
   verbs:
   - get
   - list
@@ -3500,6 +3672,17 @@ rules:
   - update
   - watch
 - apiGroups:
+  - policy
+  resources:
+  - poddisruptionbudgets
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - security.openshift.io
   resourceNames:
   - restricted-v2
@@ -3572,6 +3755,7 @@ rules:
   resources:
   - apparmorprofiles
   - rawselinuxprofiles
+  - seccompprofiles
   - selinuxprofiles
   verbs:
   - create
@@ -3584,21 +3768,13 @@ rules:
   - security-profiles-operator.x-k8s.io
   resources:
   - apparmorprofiles/finalizers
-  - rawselinuxprofiles/finalizers
-  - seccompprofiles/finalizers
-  - selinuxprofiles/finalizers
-  verbs:
-  - delete
-  - get
-  - patch
-  - update
-- apiGroups:
-  - security-profiles-operator.x-k8s.io
-  resources:
   - apparmorprofiles/status
+  - rawselinuxprofiles/finalizers
   - rawselinuxprofiles/status
+  - seccompprofiles/finalizers
   - seccompprofiles/status
   - securityprofilenodestatuses/status
+  - selinuxprofiles/finalizers
   - selinuxprofiles/status
   verbs:
   - get
@@ -3617,7 +3793,6 @@ rules:
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
-  - seccompprofiles
   - securityprofilenodestatuses
   verbs:
   - create
@@ -3644,6 +3819,13 @@ metadata:
   name: spod
   namespace: security-profiles-operator
 rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - secrets
+  verbs:
+  - get
 - apiGroups:
   - batch
   resources:
@@ -3676,6 +3858,12 @@ rules:
   - events
   verbs:
   - create
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
 - apiGroups:
   - authentication.k8s.io
   resources:
@@ -3968,6 +4156,21 @@ spec:
   validationActions:
   - Deny
 ---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  labels:
+    app: security-profiles-operator
+  name: security-profiles-operator
+  namespace: security-profiles-operator
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: security-profiles-operator
+      name: security-profiles-operator
+  unhealthyPodEvictionPolicy: AlwaysAllow
+---
 apiVersion: v1
 data:
   bpf-recorder.json: |-
@@ -4026,6 +4229,8 @@ data:
             "epoll_wait",
             "eventfd2",
             "execve",
+            "exit",
+            "exit_group",
             "faccessat2",
             "fchownat",
             "fcntl",
@@ -4055,6 +4260,7 @@ data:
             "munmap",
             "nanosleep",
             "newfstatat",
+            "open_by_handle_at",
             "openat",
             "perf_event_open",
             "prctl",
@@ -4084,6 +4290,7 @@ data:
             "tgkill",
             "time",
             "uname",
+            "unlinkat",
             "write"
           ],
           "action": "SCMP_ACT_ALLOW"
@@ -4104,7 +4311,9 @@ data:
           allowedCapabilities:
           - bpf
           - chown
+          - dac_read_search
           - perfmon
+          - sys_ptrace
           - sys_resource
         executable:
           allowedExecutables:
@@ -4124,13 +4333,15 @@ data:
           - /var/run/secrets/kubernetes.io/serviceaccount/**
           - /var/run/secrets/kubernetes.io/serviceaccount/**
           readWritePaths:
-          - "ptrace (read),\n# ugly template injection hack"
           - /var/run/grpc/bpf-recorder.sock
           - /var/run/grpc/metrics.sock
         network:
           allowedProtocols:
             allowTcp: true
             allowUdp: true
+        ptrace:
+          allowedAccess:
+          - read
       state: Enabled
   json-enricher-log-volume-mount-path: /data/logs/jsonenricher
   json-enricher-log-volume-source.json: |-
@@ -4194,6 +4405,7 @@ data:
             "execve",
             "exit_group",
             "faccessat2",
+            "fchmodat",
             "fcntl",
             "fstat",
             "fstatfs",
@@ -4240,6 +4452,7 @@ data:
             "set_tid_address",
             "setgid",
             "setgroups",
+            "setns",
             "setsockopt",
             "setuid",
             "sigaltstack",
@@ -4355,6 +4568,7 @@ data:
           - mac_admin
           - sys_admin
           - sys_chroot
+          - sys_ptrace
         executable:
           allowedExecutables:
           - /security-profiles-operator
@@ -4374,7 +4588,6 @@ data:
           - /sys/module/apparmor/parameters/enabled
           - /sys/devices/system/cpu/possible
           readWritePaths:
-          - "ptrace (read),  # ugly template injection hack"
           - /var/run/grpc/metrics.sock
           - /tmp/aa_profile_bin_*
           - /etc/apparmor.d/**
@@ -4385,6 +4598,9 @@ data:
           allowedProtocols:
             allowTcp: true
             allowUdp: true
+        ptrace:
+          allowedAccess:
+          - read
       state: Enabled
 kind: ConfigMap
 metadata:
@@ -4421,13 +4637,13 @@ spec:
         - name: RESTRICT_TO_NAMESPACE
           value: NS_REPLACE
         - name: RELATED_IMAGE_SELINUXD
-          value: quay.io/security-profiles-operator/selinuxd
+          value: quay.io/security-profiles-operator/selinuxd@sha256:f47bd24fb928bd0d168b86147e3536cf555c94fc5b85de3247fd16dad33f9460
         - name: RELATED_IMAGE_SELINUXD_EL8
-          value: quay.io/security-profiles-operator/selinuxd-el8:latest
+          value: quay.io/security-profiles-operator/selinuxd-el8@sha256:e6e7febc76f5f032d42d35b98cc651354dd14ac5ae7b2a7d7403222788e41e4d
         - name: RELATED_IMAGE_SELINUXD_EL9
-          value: quay.io/security-profiles-operator/selinuxd-el9:latest
+          value: quay.io/security-profiles-operator/selinuxd-el9@sha256:cddbd306c48ee8d19b8fb07b2acda1ee99cb3f1d9c3988f828d24b4f2de5ad3c
         - name: RELATED_IMAGE_SELINUXD_FEDORA
-          value: quay.io/security-profiles-operator/selinuxd-fedora:latest
+          value: quay.io/security-profiles-operator/selinuxd-fedora@sha256:a5c36469e66bc44c32fc36d8d23571ed8903430233d32136b6272013a535627d
         - name: OPERATOR_NAMESPACE
           valueFrom:
             fieldRef:
@@ -4497,3 +4713,18 @@ spec:
       - effect: NoExecute
         key: node.kubernetes.io/not-ready
         operator: Exists
+      topologySpreadConstraints:
+      - labelSelector:
+          matchLabels:
+            app: security-profiles-operator
+            name: security-profiles-operator
+        maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+      - labelSelector:
+          matchLabels:
+            app: security-profiles-operator
+            name: security-profiles-operator
+        maxSkew: 1
+        topologyKey: topology.kubernetes.io/zone
+        whenUnsatisfiable: ScheduleAnyway

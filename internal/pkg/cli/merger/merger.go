@@ -27,8 +27,10 @@ import (
 	"k8s.io/cli-runtime/pkg/printers"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/apparmorprofile/crd2armor"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/recordingmerger"
 )
 
@@ -68,6 +70,11 @@ func (p *Merger) Run() error {
 		contents[i], err = artifact.ReadProfile(content)
 		if err != nil {
 			return fmt.Errorf("failed to read %s: %w", filepath, err)
+		}
+
+		if prf, ok := contents[i].(*apparmorprofileapi.AppArmorProfile); ok &&
+			crd2armor.UsesDeprecatedPtraceRules(&prf.Spec.Abstract) {
+			log.Printf("Warning: %s: %s", filepath, crd2armor.DeprecatedPtraceRulesMessage)
 		}
 	}
 

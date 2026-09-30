@@ -10,6 +10,32 @@ dependencies:
     - path: .custom-gcl.yml
       match: "^version:"
 
+  # Must be bumped together with golangci-lint above, see
+  # golangci-lint-<version>-checksums.txt of the release.
+  - name: golangci-lint-sha256-linux-amd64
+    version: ab90aeb7b066f92a33415b638a50fe5344bbb75a0d32ad30cc248d88f81032ab
+    refPaths:
+    - path: Makefile
+      match: "^GOLANGCI_LINT_SHA256_linux_amd64"
+
+  - name: golangci-lint-sha256-linux-arm64
+    version: ee7ec5f3453d15ddf106fae5a4d6c71737712348a979d1fe9cd52ec7ea299bae
+    refPaths:
+    - path: Makefile
+      match: "^GOLANGCI_LINT_SHA256_linux_arm64"
+
+  - name: golangci-lint-sha256-darwin-amd64
+    version: a5667c1c3536be1740133213e1e822bfb8f0d98ea12903174d6d5f635e4ed68d
+    refPaths:
+    - path: Makefile
+      match: "^GOLANGCI_LINT_SHA256_darwin_amd64"
+
+  - name: golangci-lint-sha256-darwin-arm64
+    version: 5ef5f36a7147e91dc58ef9ef4d11bb7bad5ead0c76eb6c01327a73c641d1dcc3
+    refPaths:
+    - path: Makefile
+      match: "^GOLANGCI_LINT_SHA256_darwin_arm64"
+
   - name: kube-api-linter
     version: v0.0.0-20260716143926-092fe0c72997
     refPaths:
@@ -24,8 +50,20 @@ dependencies:
     - path: Makefile
       match: "^REPO_INFRA_VERSION"
 
+  # Must be bumped together with repo-infra above, the checksum of
+  # hack/verify_boilerplate.py at that tag.
+  - name: repo-infra-verify-boilerplate-sha256
+    version: 3ee0139a0a2865ad2e9674012a2459d56f4009844aa1b430119d0da4c603da95
+    refPaths:
+    - path: Makefile
+      match: "^VERIFY_BOILERPLATE_SHA256"
+
   - name: kustomize
     version: 5.8.1
+    upstream:
+      flavour: github
+      url: kubernetes-sigs/kustomize
+      constraints: "< 6.0.0"
     refPaths:
     - path: Makefile
       match: "^KUSTOMIZE_VERSION"
@@ -131,6 +169,30 @@ dependencies:
     - path: hack/ci/install-helm-chart.sh
       match: ^CERT_MANAGER_VERSION
 
+  # Must be bumped together with cert-manager above, the checksum of
+  # cert-manager.yaml of the release.
+  - name: cert-manager-sha256
+    version: e03b668ec8675214af6b0a671699d088f2601fa3878e0dbe1b41d3feafd1879f
+    refPaths:
+    - path: hack/ci/install-helm-chart.sh
+      match: ^CERT_MANAGER_SHA256=
+    - path: hack/ci/install-spo.sh
+      match: cert_manager_sha256=
+
+  # The local registry of the kind clusters of the Helm and OLM tests.
+  - name: kind-registry
+    version: 2.8.3
+    refPaths:
+    - path: hack/kind-with-registry.sh
+      match: "registry:2"
+
+  # Must be bumped together with kind-registry above.
+  - name: kind-registry-digest
+    version: sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
+    refPaths:
+    - path: hack/kind-with-registry.sh
+      match: "registry:2"
+
   - name: kind
     version: 0.33.0
     upstream:
@@ -148,7 +210,33 @@ dependencies:
     - path: .github/workflows/olm_tests.yaml
       match: KIND_IMG_TAG
     - path: .github/workflows/test.yml
+      match: "kind: v1\\.37"
+
+  # Must be bumped together with kind-image above.
+  - name: kind-image-digest
+    version: sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
+    refPaths:
+    - path: test/suite_test.go
+      match: 'kindImage\s+='
+    - path: .github/workflows/olm_tests.yaml
       match: KIND_IMG_TAG
+    - path: .github/workflows/test.yml
+      match: "kind: v1\\.37"
+
+  # The oldest Kubernetes the operator supports, see minimum-kubernetes below.
+  # The Helm smoke test runs against it.
+  - name: kind-image-min
+    version: 1.30.13
+    refPaths:
+    - path: .github/workflows/test.yml
+      match: "kind: v1\\.30"
+
+  # Must be bumped together with kind-image-min above.
+  - name: kind-image-min-digest
+    version: sha256:397209b3d947d154f6641f2d0ce8d473732bd91c87d9575ade99049aa33cd648
+    refPaths:
+    - path: .github/workflows/test.yml
+      match: "kind: v1\\.30"
 
   - name: minimum-kubernetes
     version: 1.30
@@ -171,6 +259,69 @@ dependencies:
       match: "KUBERNETES_VERSION="
     - path: hack/ci/Vagrantfile-debian
       match: "KUBERNETES_VERSION="
+    - path: hack/ci/Vagrantfile-flatcar
+      match: "KUBERNETES_VERSION="
+
+  - name: e2e-flatcar-calico
+    version: v3.32.2
+    upstream:
+      flavour: github
+      url: projectcalico/calico
+    refPaths:
+    - path: hack/ci/Vagrantfile-flatcar
+      match: "^ *CALICO_VERSION="
+
+  # Must be bumped together with e2e-flatcar-calico above, the checksum of
+  # manifests/tigera-operator.yaml at that tag.
+  - name: e2e-flatcar-calico-sha256
+    version: 4e372754e4e1c3a61cf7c0ceb9bc9fff2f78aa6575dcadcb5ea4e716bb00dffa
+    refPaths:
+    - path: hack/ci/Vagrantfile-flatcar
+      match: "^ *CALICO_SHA256="
+
+  # Must be bumped together with e2e-flatcar-calico above, the checksum of
+  # manifests/operator-crds.yaml at that tag.
+  - name: e2e-flatcar-calico-crds-sha256
+    version: cb46786692404fb7955c6d31329c667d0dd8f1ff4821dc7869d0156c93d3a859
+    refPaths:
+    - path: hack/ci/Vagrantfile-flatcar
+      match: "^ *CALICO_CRDS_SHA256="
+
+  - name: e2e-flatcar-cni-plugins
+    version: v1.9.1
+    upstream:
+      flavour: github
+      url: containernetworking/plugins
+    refPaths:
+    - path: hack/ci/Vagrantfile-flatcar
+      match: "^ *CNI_VERSION="
+
+  # Must be bumped together with e2e-flatcar-cni-plugins above.
+  - name: e2e-flatcar-cni-plugins-sha256
+    version: b98f74a0f8522f0a83867178729c1aa70f2158f90c45a2ca8fa791db1c76b303
+    refPaths:
+    - path: hack/ci/Vagrantfile-flatcar
+      match: "^ *CNI_SHA256="
+
+  # The kubelet systemd units of kubernetes/release.
+  - name: e2e-flatcar-kubernetes-release
+    version: v0.21.1
+    refPaths:
+    - path: hack/ci/Vagrantfile-flatcar
+      match: "^ *RELEASE_VERSION="
+
+  # Must be bumped together with e2e-flatcar-kubernetes-release above.
+  - name: e2e-flatcar-kubelet-service-sha256
+    version: ccc966cee3d366b3e9ca0fe3f603b09218a0d5ed01e54f9cae953208f411141f
+    refPaths:
+    - path: hack/ci/Vagrantfile-flatcar
+      match: "^ *KUBELET_SERVICE_SHA256="
+
+  - name: e2e-flatcar-kubeadm-conf-sha256
+    version: 46458e5b4adf851099e591acb3248931fc5f4073976fedb11c49d6bfad5c41a8
+    refPaths:
+    - path: hack/ci/Vagrantfile-flatcar
+      match: "^ *KUBEADM_CONF_SHA256="
 
   - name: e2e-debian-box
     version: 4.3.12
@@ -248,11 +399,47 @@ dependencies:
     - path: hack/install-libbpf.sh
       match: "^VERSION="
 
+  # Must be bumped together with libbpf above, the checksum of the source
+  # archive of the tag.
+  - name: libbpf-sha256
+    version: 7ab5feffbf78557f626f2e3e3204788528394494715a30fc2070fcddc2051b7b
+    refPaths:
+    - path: hack/install-libbpf.sh
+      match: "^SHA256="
+
+  # The libbpf release libbpfgo is built against. Must be bumped together with
+  # libbpf above, which hack/install-libbpf.sh installs for the build.
+  - name: libbpfgo-libbpf
+    version: 1.8-dev
+    refPaths:
+    - path: go.mod
+      match: "github.com/aquasecurity/libbpfgo v"
+
+  # The Debian package hack/update-vmlinux generates the vmlinux headers of
+  # the BPF recorder from. Rerun it after a bump.
+  - name: linux-bpf-dev
+    version: 6.12.41-1
+    refPaths:
+    - path: hack/update-vmlinux
+      match: "^PACKAGE_VERSION="
+    - path: internal/pkg/daemon/bpfrecorder/vmlinux/x86/vmlinux.h
+      match: "@generated from hack/update-vmlinux"
+    - path: internal/pkg/daemon/bpfrecorder/vmlinux/arm64/vmlinux.h
+      match: "@generated from hack/update-vmlinux"
+
   - name: libelf
     version: 0.196
     refPaths:
     - path: hack/install-libelf.sh
       match: "^VERSION="
+
+  # Must be bumped together with libelf above, the checksum of
+  # elfutils-<version>.tar.bz2.
+  - name: libelf-sha256
+    version: fd5cc6b77ad6773cac93cb3f415f9318ac3b3455eecf801f6b4a742c4f6c7209
+    refPaths:
+    - path: hack/install-libelf.sh
+      match: "^SHA256="
 
   - name: debian-vmlinux
     version: trixie
@@ -272,6 +459,19 @@ dependencies:
       match: "^CRUN_VERSION="
     - path: hack/ci/kubernix-overlay.nix
       match: "crunVersion ="
+
+  # Must be bumped together with crun above.
+  - name: crun-sha256-linux-amd64
+    version: 86d1e6a0e76945975d3aebfab39cbc6a26eea15f1c3fc66b6776d19e5dc346a0
+    refPaths:
+    - path: hack/install-crun
+      match: "^CRUN_SHA256_amd64="
+
+  - name: crun-sha256-linux-arm64
+    version: 0ef30b0fbb494dc9c5303d46b091a84e27cb8ac99c985123fb1eb339854b69ea
+    refPaths:
+    - path: hack/install-crun
+      match: "^CRUN_SHA256_arm64="
 
   - name: runc
     version: v1.5.2
@@ -306,6 +506,14 @@ dependencies:
     - path: hack/ci/Vagrantfile-debian
       match: "COSIGN_VERSION="
 
+  # Must be bumped together with cosign above, the same binary as
+  # cosign-sha256-linux-amd64 below.
+  - name: cosign-sha256-linux-amd64-e2e
+    version: 4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71
+    refPaths:
+    - path: hack/ci/Vagrantfile-debian
+      match: "COSIGN_SHA256="
+
   - name: helm
     version: v3.22.0
     upstream:
@@ -318,9 +526,22 @@ dependencies:
     - path: .github/workflows/helm-chart-package.yaml
       match: "version: v3"
     - path: .github/workflows/helm-chart-lint.yaml
-      match: "version: v3"
+      match: "helm: v3"
     - path: .github/workflows/test.yml
-      match: "version: v3"
+      match: "helm: v3"
+
+  # The chart is installed with both major versions, see the helm-install job.
+  - name: helm-v4
+    version: v4.3.0
+    upstream:
+      flavour: github
+      url: helm/helm
+      constraints: ">= 4.0.0"
+    refPaths:
+    - path: .github/workflows/helm-chart-lint.yaml
+      match: "helm: v4"
+    - path: .github/workflows/test.yml
+      match: "helm: v4"
 
   # Must be bumped together with helm above.
   - name: helm-sha256-linux-amd64
@@ -363,9 +584,14 @@ dependencies:
 
   - name: jq
     version: 1.8.2
+    upstream:
+      flavour: github
+      url: jqlang/jq
     refPaths:
     - path: hack/lib/common.sh
       match: "^JQ_VERSION="
+    - path: hack/ci/Vagrantfile-flatcar
+      match: "^ *JQ_VERSION="
 
   # Must be bumped together with jq above.
   - name: jq-sha256-linux-amd64
@@ -373,6 +599,8 @@ dependencies:
     refPaths:
     - path: hack/lib/common.sh
       match: "^JQ_SHA256="
+    - path: hack/ci/Vagrantfile-flatcar
+      match: "^ *JQ_SHA256="
 
   - name: crane for staging attestations
     version: v0.22.1
@@ -391,6 +619,18 @@ dependencies:
       match: "^toolchain go"
     - path: cloudbuild.yaml
       match: "name: golang:"
+    - path: .devcontainer/devcontainer.json
+      match: '"version": "1\.'
+
+  # The release the upgrade e2e test starts from when git has no tags.
+  - name: spo-previous-release
+    version: 1.1.0
+    upstream:
+      flavour: github
+      url: kubernetes-sigs/security-profiles-operator
+    refPaths:
+    - path: test/tc_upgrade_test.go
+      match: "fallbackPreviousRelease = \"v"
 
   - name: spo-current
     version: 1.1.1-dev
@@ -428,7 +668,15 @@ dependencies:
     - path: hack/ci/Vagrantfile-flatcar
       match: flatcar_production_vagrant
     - path: hack/ci/Vagrantfile-flatcar
-      match: flatcar_developer_container.bin.bz2"$
+      match: "^ *FLATCAR_VERSION="
+
+  # Must be bumped together with flatcar above, the SHA512 of
+  # flatcar_developer_container.bin.bz2 from its DIGESTS file.
+  - name: flatcar-developer-container-sha512
+    version: 7ed413a8b95a261c942c385fbb16254c8f1555f0d3c696583d7aa1aa31f0741132808aba0cdcf77577cb112b265654fa313e7602b7ad4ec3d5980ebd0afef080
+    refPaths:
+    - path: hack/ci/Vagrantfile-flatcar
+      match: "^ *DEVELOPER_CONTAINER_SHA512="
 
   - name: zeitgeist
     version: 0.8.0
@@ -465,6 +713,16 @@ dependencies:
       - path: Makefile
         match: "^GOTESTSUM_VERSION"
 
+  # setup-envtest of make test-integration is released together with
+  # controller-runtime, keep both at the same version.
+  - name: setup-envtest
+    version: v0.25.1
+    refPaths:
+      - path: Makefile
+        match: "^SETUP_ENVTEST_VERSION"
+      - path: go.mod
+        match: "sigs.k8s.io/controller-runtime v"
+
   - name: python for chart-testing
     version: 3.13
     refPaths:
@@ -479,6 +737,10 @@ dependencies:
     refPaths:
       - path: .github/workflows/build.yml
         match: "version: v0\\."
+      - path: .github/workflows/test.yml
+        match: "version: v0\\.7"
+      - path: .github/workflows/dependencies.yml
+        match: "version: v0\\.7"
 
   - name: yq
     version: 4.53.6
@@ -488,3 +750,232 @@ dependencies:
     refPaths:
       - path: hack/ci/install-yq.sh
         match: "YQ_VERSION="
+      - path: Makefile
+        match: "^YQ_VERSION"
+
+  # Must be bumped together with yq above.
+  - name: yq-sha256-linux-amd64
+    version: c5f056448f973ae7d39b5401949648a78f2dc1947d6a8eb65be60d5c504b9385
+    refPaths:
+      - path: hack/ci/install-yq.sh
+        match: "YQ_SHA256_amd64="
+
+  - name: yq-sha256-linux-arm64
+    version: 88a1016bc1d657375a35864e4f44b6f333df8ff97b559f51bba0adcb2169df09
+    refPaths:
+      - path: hack/ci/install-yq.sh
+        match: "YQ_SHA256_arm64="
+
+  - name: shellcheck
+    version: v0.11.0
+    upstream:
+      flavour: github
+      url: koalaman/shellcheck
+    refPaths:
+      - path: Makefile
+        match: "^SHELLCHECK_VERSION"
+
+  # Must be bumped together with shellcheck above, the checksums of the
+  # release archives.
+  - name: shellcheck-sha256-linux-amd64
+    version: 8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
+    refPaths:
+      - path: Makefile
+        match: "^SHELLCHECK_SHA256_linux_amd64"
+
+  - name: shellcheck-sha256-linux-arm64
+    version: 12b331c1d2db6b9eb13cfca64306b1b157a86eb69db83023e261eaa7e7c14588
+    refPaths:
+      - path: Makefile
+        match: "^SHELLCHECK_SHA256_linux_arm64"
+
+  - name: shellcheck-sha256-darwin-amd64
+    version: 3c89db4edcab7cf1c27bff178882e0f6f27f7afdf54e859fa041fca10febe4c6
+    refPaths:
+      - path: Makefile
+        match: "^SHELLCHECK_SHA256_darwin_amd64"
+
+  - name: shellcheck-sha256-darwin-arm64
+    version: 56affdd8de5527894dca6dc3d7e0a99a873b0f004d7aabc30ae407d3f48b0a79
+    refPaths:
+      - path: Makefile
+        match: "^SHELLCHECK_SHA256_darwin_arm64"
+
+  - name: protoc
+    version: v36.2
+    upstream:
+      flavour: github
+      url: protocolbuffers/protobuf
+    refPaths:
+      - path: Makefile
+        match: "^PROTOC_VERSION"
+
+  # Must be bumped together with protoc above, the checksums of the release
+  # archives.
+  - name: protoc-sha256-linux-amd64
+    version: 121f6c7afe1d4d0e3ea6aab9432038599250134cbf4474cb1167d2c7decd4278
+    refPaths:
+      - path: Makefile
+        match: "^PROTOC_SHA256_linux_amd64"
+
+  - name: protoc-sha256-linux-arm64
+    version: 8b8f18bd2b30346efbc698dd5a73dd7c805f3ef8380f6dfc95c768f3f1852f6a
+    refPaths:
+      - path: Makefile
+        match: "^PROTOC_SHA256_linux_arm64"
+
+  - name: protoc-sha256-darwin-amd64
+    version: 228cc7add4616cc14ca5e80dee83209d44449a7aee95a914ae748fa374efb078
+    refPaths:
+      - path: Makefile
+        match: "^PROTOC_SHA256_darwin_amd64"
+
+  - name: protoc-sha256-darwin-arm64
+    version: 9cd98a532c5c5e0c4161314de0225de27e4c8a323917b6ea7b1b714d3ae23466
+    refPaths:
+      - path: Makefile
+        match: "^PROTOC_SHA256_darwin_arm64"
+
+  - name: hadolint
+    version: v2.15.1
+    upstream:
+      flavour: github
+      url: hadolint/hadolint
+    refPaths:
+      - path: Makefile
+        match: "^HADOLINT_VERSION"
+
+  # Must be bumped together with hadolint above, see checksums.sha256 of the
+  # release.
+  - name: hadolint-sha256-linux-amd64
+    version: c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507
+    refPaths:
+      - path: Makefile
+        match: "^HADOLINT_SHA256_linux_amd64"
+
+  - name: hadolint-sha256-linux-arm64
+    version: f6198ef8090f404dbb771abfee086eb8c48ac177f30da7fd3510aca35b344b5d
+    refPaths:
+      - path: Makefile
+        match: "^HADOLINT_SHA256_linux_arm64"
+
+  - name: hadolint-sha256-darwin-amd64
+    version: ffe9bb18b23d5ed1eae50237aecdbb523d016e96da0bd4e7aa432040acfc3fde
+    refPaths:
+      - path: Makefile
+        match: "^HADOLINT_SHA256_darwin_amd64"
+
+  - name: hadolint-sha256-darwin-arm64
+    version: 5c09f3213f8e40406abe048233d985eebef336d4a6a20021be47fadb6cf480a2
+    refPaths:
+      - path: Makefile
+        match: "^HADOLINT_SHA256_darwin_arm64"
+
+  - name: actionlint
+    version: v1.7.12
+    upstream:
+      flavour: github
+      url: rhysd/actionlint
+    refPaths:
+      - path: Makefile
+        match: "^ACTIONLINT_VERSION"
+
+  - name: zizmor
+    version: 1.30.1
+    upstream:
+      flavour: github
+      url: zizmorcore/zizmor
+    refPaths:
+      - path: .github/workflows/lint.yml
+        match: "version: 1\\."
+
+  - name: lychee
+    version: v0.24.2
+    upstream:
+      flavour: github
+      url: lycheeverse/lychee
+    refPaths:
+      - path: .github/workflows/lint.yml
+        match: "lycheeVersion:"
+
+  - name: markdownlint-cli2
+    version: 0.23.3
+    upstream:
+      flavour: github
+      url: DavidAnson/markdownlint-cli2
+    refPaths:
+      - path: .pre-commit-config.yaml
+        match: "frozen: v0\\.23"
+
+  - name: kubeconform
+    version: v0.8.0
+    upstream:
+      flavour: github
+      url: yannh/kubeconform
+    refPaths:
+      - path: Makefile
+        match: "^KUBECONFORM_VERSION"
+
+  - name: typos
+    version: v1.50.2
+    upstream:
+      flavour: github
+      url: crate-ci/typos
+    refPaths:
+      - path: .github/workflows/test.yml
+        match: crate-ci/typos
+      - path: .pre-commit-config.yaml
+        match: "frozen: v1\\.50"
+
+  - name: kube-linter
+    version: v0.8.3
+    upstream:
+      flavour: github
+      url: stackrox/kube-linter
+    refPaths:
+      - path: Makefile
+        match: "^KUBE_LINTER_VERSION"
+
+  # The privileged SELinux policy loader of the daemon, pinned by digest so
+  # that a moved tag cannot change what runs on every node without a change
+  # here. hack/update-selinuxd.sh resolves the current digests, the
+  # dependencies workflow fails when they moved.
+  - name: selinuxd-digest
+    version: sha256:f47bd24fb928bd0d168b86147e3536cf555c94fc5b85de3247fd16dad33f9460
+    refPaths:
+      - path: deploy/kustomize-deployment/manager_deployment.yaml
+        match: "value: quay.io/security-profiles-operator/selinuxd@"
+      - path: deploy/helm/values.yaml
+        match: "# quay.io/security-profiles-operator/selinuxd:latest$"
+
+  - name: selinuxd-el8-digest
+    version: sha256:e6e7febc76f5f032d42d35b98cc651354dd14ac5ae7b2a7d7403222788e41e4d
+    refPaths:
+      - path: deploy/kustomize-deployment/manager_deployment.yaml
+        match: "value: quay.io/security-profiles-operator/selinuxd-el8@"
+      - path: deploy/helm/values.yaml
+        match: "# quay.io/security-profiles-operator/selinuxd-el8:latest$"
+
+  - name: selinuxd-el9-digest
+    version: sha256:cddbd306c48ee8d19b8fb07b2acda1ee99cb3f1d9c3988f828d24b4f2de5ad3c
+    refPaths:
+      - path: deploy/kustomize-deployment/manager_deployment.yaml
+        match: "value: quay.io/security-profiles-operator/selinuxd-el9@"
+      - path: deploy/helm/values.yaml
+        match: "# quay.io/security-profiles-operator/selinuxd-el9:latest$"
+
+  - name: selinuxd-fedora-digest
+    version: sha256:a5c36469e66bc44c32fc36d8d23571ed8903430233d32136b6272013a535627d
+    refPaths:
+      - path: deploy/kustomize-deployment/manager_deployment.yaml
+        match: "value: quay.io/security-profiles-operator/selinuxd-fedora@"
+      - path: deploy/helm/values.yaml
+        match: "# quay.io/security-profiles-operator/selinuxd-fedora:latest$"
+
+  # The UBI base of Dockerfile.ubi, the go-toolset image only provides the C
+  # toolchain there.
+  - name: ubi9-go-toolset-digest
+    version: sha256:0a4666f7a4eb0644c97a73cba198eb268691b270d97831822689e7a2088f87be
+    refPaths:
+      - path: Dockerfile.ubi
+        match: "^FROM registry.access.redhat.com/ubi9/go-toolset@"

@@ -18,6 +18,7 @@ package selinuxprofile
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -27,16 +28,17 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 )
 
-//nolint:paralleltest // subtests modify environment variables and cannot run in parallel
 func TestCreatePolicyReloadJob(t *testing.T) {
+	t.Parallel()
+
 	testNodeName := "test-node-12345"
 	testNamespace := "security-profiles-operator"
 	testPodName := "spod-test-pod"
@@ -53,6 +55,8 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 			Namespace: testNamespace,
 		},
 		Spec: corev1.PodSpec{
+			PriorityClassName: "system-node-critical",
+			ImagePullSecrets:  []corev1.LocalObjectReference{{Name: "pull-secret"}},
 			Containers: []corev1.Container{
 				{
 					Name:  "security-profiles-operator",
@@ -76,6 +80,7 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 		podOnlyInReader bool
 		wantErr         bool
 		wantJobCreated  bool
+		wantState       reloadJobState
 	}{
 		{
 			name:           "creates job successfully",
@@ -97,6 +102,60 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 			wantJobCreated:  true,
 		},
 		{
+			name:       "treats a finished job for the generation as done",
+			nodeName:   testNodeName,
+			namespace:  testNamespace,
+			policyName: "test-policy",
+			existingObjs: []runtime.Object{
+				withGeneration(createTestJob(
+					testNamespace, "finished-job",
+					testNodeName, "test-policy", testAction, 1, 0,
+				), testGeneration),
+			},
+			wantState: reloadJobExists,
+		},
+		{
+			name:       "treats a running job for the generation as done",
+			nodeName:   testNodeName,
+			namespace:  testNamespace,
+			policyName: "test-policy",
+			existingObjs: []runtime.Object{
+				withGeneration(createTestJob(
+					testNamespace, "running-job",
+					testNodeName, "test-policy", testAction, 0, 0,
+				), testGeneration),
+			},
+			wantState: reloadJobExists,
+		},
+		{
+			// A profile which got deleted and recreated within the TTL of
+			// the jobs starts at the same generation again.
+			name:       "creates job when a finished job reloaded a deleted profile",
+			nodeName:   testNodeName,
+			namespace:  testNamespace,
+			policyName: "test-policy",
+			existingObjs: []runtime.Object{
+				withProfile(createTestJob(
+					testNamespace, "deleted-profile-job",
+					testNodeName, "test-policy", testAction, 1, 0,
+				), "7a6e0f4c-1b2d-4e3f-8a9b-0c1d2e3f4a5b", testGeneration),
+			},
+			wantJobCreated: true,
+		},
+		{
+			name:       "creates job when a finished job reloaded another generation",
+			nodeName:   testNodeName,
+			namespace:  testNamespace,
+			policyName: "test-policy",
+			existingObjs: []runtime.Object{
+				withGeneration(createTestJob(
+					testNamespace, "old-job",
+					testNodeName, "test-policy", testAction, 1, 0,
+				), testGeneration-1),
+			},
+			wantJobCreated: true,
+		},
+		{
 			name:       "skips when job already running",
 			nodeName:   testNodeName,
 			namespace:  testNamespace,
@@ -109,6 +168,7 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 			},
 			wantErr:        false,
 			wantJobCreated: false,
+			wantState:      reloadJobBusy,
 		},
 		{
 			name:       "creates job when previous job completed long ago",
@@ -154,6 +214,7 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 			},
 			wantErr:        false,
 			wantJobCreated: false,
+			wantState:      reloadJobBusy,
 		},
 		{
 			name:       "creates job when a previous job failed",
@@ -190,22 +251,28 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			setenvCleanup(t, config.OperatorNamespaceEnvKey, tt.namespace)
+			t.Parallel()
 
-			if tt.nodeName != "" {
-				setenvCleanup(t, "POD_NAME", testPodName)
-			} else {
-				setenvCleanup(t, "POD_NAME", "")
+			// The fake clients set the resource version of the objects they
+			// get, which the parallel subtests must not share.
+			copies := func(objs ...runtime.Object) []runtime.Object {
+				res := make([]runtime.Object, 0, len(objs))
+
+				for _, obj := range objs {
+					res = append(res, obj.DeepCopyObject())
+				}
+
+				return res
 			}
 
-			objs := append([]runtime.Object{}, tt.existingObjs...)
+			objs := copies(tt.existingObjs...)
 			if !tt.podOnlyInReader {
-				objs = append([]runtime.Object{testPod}, objs...)
+				objs = append(copies(testPod), objs...)
 			}
 
 			// The dedup List goes through the uncached API reader, which in a
 			// real cluster serves the same objects as the cached client.
-			readerObjs := append([]runtime.Object{testPod}, tt.existingObjs...)
+			readerObjs := copies(append([]runtime.Object{testPod}, tt.existingObjs...)...)
 			if tt.nodeName == "" {
 				readerObjs = nil
 			}
@@ -223,11 +290,13 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 				client:       fakeClient,
 				clientReader: fakeClientReader,
 				nodeName:     tt.nodeName,
+				namespace:    tt.namespace,
+				podName:      testPodName,
 			}
 
 			logger := logf.Log.WithName("test")
-			jobCreated, err := r.createPolicyReloadJob(
-				context.Background(), tt.policyName, testAction, logger,
+			state, err := r.createPolicyReloadJob(
+				context.Background(), tt.policyName, testAction, testUID, testGeneration, logger,
 			)
 
 			if tt.wantErr {
@@ -237,7 +306,12 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			require.Equal(t, tt.wantJobCreated, jobCreated)
+
+			if tt.wantJobCreated {
+				require.Equal(t, reloadJobCreated, state)
+			} else {
+				require.Equal(t, tt.wantState, state)
+			}
 
 			jobs := &batchv1.JobList{}
 			err = fakeClient.List(context.Background(), jobs)
@@ -271,6 +345,23 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 					)
 					require.Equal(t, "spc_t",
 						job.Spec.Template.Spec.Containers[0].SecurityContext.SELinuxOptions.Type)
+					require.Equal(t, "7", job.Labels[reloadJobLabelGeneration])
+					require.Equal(t, string(testUID), job.Labels[reloadJobLabelProfileUID])
+					require.Equal(
+						t,
+						"system-node-critical",
+						job.Spec.Template.Spec.PriorityClassName,
+					)
+					require.Equal(
+						t,
+						testPod.Spec.ImagePullSecrets,
+						job.Spec.Template.Spec.ImagePullSecrets,
+					)
+					require.False(t, *job.Spec.Template.Spec.AutomountServiceAccountToken)
+					require.Equal(t,
+						[]corev1.Toleration{{Operator: corev1.TolerationOpExists}},
+						job.Spec.Template.Spec.Tolerations,
+					)
 
 					break
 				}
@@ -303,9 +394,81 @@ func createTestJob(
 	}
 }
 
-func setenvCleanup(t *testing.T, key, value string) {
-	t.Helper()
-	t.Setenv(key, value)
+// testGeneration is the generation of the profile the tests reload.
+const testGeneration = 7
+
+// testUID is the UID of the profile the tests reload.
+const testUID = types.UID("0b3c1e2a-5d4f-4a8e-9c61-2f7d8b9a0e11")
+
+// withGeneration labels a reload job with the generation of the test profile
+// it reloads.
+func withGeneration(job *batchv1.Job, generation int64) *batchv1.Job {
+	return withProfile(job, testUID, generation)
+}
+
+// withProfile labels a reload job with the UID and the generation of the
+// profile it reloads.
+func withProfile(job *batchv1.Job, uid types.UID, generation int64) *batchv1.Job {
+	job.Labels[reloadJobLabelGeneration] = strconv.FormatInt(generation, 10)
+	job.Labels[reloadJobLabelProfileUID] = string(uid)
+
+	return job
+}
+
+// newReloadJob is pure, so the job can be checked without a cluster.
+func TestNewReloadJob(t *testing.T) {
+	t.Parallel()
+
+	pod := &corev1.Pod{Spec: corev1.PodSpec{
+		PriorityClassName: "system-node-critical",
+		ImagePullSecrets:  []corev1.LocalObjectReference{{Name: "pull-secret"}},
+		Tolerations: []corev1.Toleration{{
+			Key: "node-role.kubernetes.io/control-plane", Effect: corev1.TaintEffectNoSchedule,
+		}},
+	}}
+	selinuxd := &corev1.Container{Image: "selinuxd:test", ImagePullPolicy: corev1.PullNever}
+
+	job := newReloadJob("ns", "node-1", "policy", "remove", testUID, 3, pod, selinuxd)
+
+	require.Equal(t, "ns", job.Namespace)
+	require.Equal(t, reloadJobNamePrefix, job.GenerateName)
+	require.Equal(t, reloadJobApp, job.Labels[reloadJobLabelApp])
+	require.Equal(t, "node-1", job.Labels[reloadJobLabelNode])
+	require.Equal(t, "policy", job.Labels[reloadJobLabelPolicy])
+	require.Equal(t, "remove", job.Labels[reloadJobLabelAction])
+	require.Equal(t, "3", job.Labels[reloadJobLabelGeneration])
+	require.Equal(t, string(testUID), job.Labels[reloadJobLabelProfileUID])
+	require.Empty(t, validation.IsValidLabelValue(job.Labels[reloadJobLabelProfileUID]))
+	require.NotEmpty(t, job.Labels[reloadJobLabelCreated])
+	require.Equal(t, reloadJobTTL, *job.Spec.TTLSecondsAfterFinished)
+	require.Equal(t, reloadJobDeadline, *job.Spec.ActiveDeadlineSeconds)
+
+	spec := job.Spec.Template.Spec
+	require.Equal(t, "node-1", spec.NodeName)
+	require.Equal(t, "spod", spec.ServiceAccountName)
+
+	// Kubelet admission rejects a pod pinned to a tainted node unless it
+	// tolerates the taints, which used to burn the retries of the job.
+	require.Equal(t, []corev1.Toleration{{Operator: corev1.TolerationOpExists}}, spec.Tolerations)
+	require.Equal(t, "system-node-critical", spec.PriorityClassName)
+	require.Equal(t, pod.Spec.ImagePullSecrets, spec.ImagePullSecrets)
+	require.False(t, *spec.AutomountServiceAccountToken, "semodule needs no API access")
+
+	require.Len(t, spec.Containers, 1)
+	require.Equal(t, "selinuxd:test", spec.Containers[0].Image)
+	require.Equal(t, corev1.PullNever, spec.Containers[0].ImagePullPolicy)
+	require.True(t, *spec.Containers[0].SecurityContext.Privileged)
+	require.Len(t, spec.Volumes, 3)
+	require.Len(t, spec.Containers[0].VolumeMounts, 3)
+
+	for i, volume := range spec.Volumes {
+		require.Equal(t, volume.Name, spec.Containers[0].VolumeMounts[i].Name)
+		require.Equal(t, volume.HostPath.Path, spec.Containers[0].VolumeMounts[i].MountPath)
+	}
+
+	// The pull secrets of the pod are not shared with the job.
+	job.Spec.Template.Spec.ImagePullSecrets[0].Name = "changed"
+	require.Equal(t, "pull-secret", pod.Spec.ImagePullSecrets[0].Name)
 }
 
 func createTestJobWithCreationTime(
@@ -334,16 +497,13 @@ func createTestJobWithCreationTime(
 
 // Reload jobs of different nodes created in the same second must not collide,
 // and their names must be valid whatever the node is called.
-//
-//nolint:paralleltest // modifies environment variables
 func TestCreatePolicyReloadJobNames(t *testing.T) {
+	t.Parallel()
+
 	const (
 		namespace = "security-profiles-operator"
 		podName   = "spod-test-pod"
 	)
-
-	setenvCleanup(t, config.OperatorNamespaceEnvKey, namespace)
-	setenvCleanup(t, "POD_NAME", podName)
 
 	scheme := runtime.NewScheme()
 	require.NoError(t, corev1.AddToScheme(scheme))
@@ -370,13 +530,15 @@ func TestCreatePolicyReloadJobNames(t *testing.T) {
 	}
 
 	for _, node := range nodes {
-		r := &ReconcileSelinux{client: cli, clientReader: cli, nodeName: node}
+		r := &ReconcileSelinux{
+			client: cli, clientReader: cli, nodeName: node, namespace: namespace, podName: podName,
+		}
 
-		created, err := r.createPolicyReloadJob(
-			context.Background(), "test-policy", "install", logf.Log,
+		state, err := r.createPolicyReloadJob(
+			context.Background(), "test-policy", "install", testUID, 1, logf.Log,
 		)
 		require.NoError(t, err, node)
-		require.True(t, created, node)
+		require.Equal(t, reloadJobCreated, state, node)
 	}
 
 	jobs := &batchv1.JobList{}

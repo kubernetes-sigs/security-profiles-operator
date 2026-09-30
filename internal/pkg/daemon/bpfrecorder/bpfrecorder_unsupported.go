@@ -43,6 +43,9 @@ func (b *BpfRecorder) Run() error {
 	return errUnsupported
 }
 
+// Close releases the BPF resources of the recorder.
+func (b *BpfRecorder) Close() {}
+
 // Dial can be used to connect to the default GRPC server by creating a new
 // client.
 func Dial() (*grpc.ClientConn, error) {

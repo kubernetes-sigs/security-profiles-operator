@@ -19,11 +19,11 @@ limitations under the License.
 package bpfrecorder
 
 import (
-	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"os"
-	"sync"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -39,6 +39,8 @@ import (
 	api "sigs.k8s.io/security-profiles-operator/api/grpc/bpfrecorder"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder/bpfrecorderfakes"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/podindex"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/podindex/podindextest"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -63,55 +65,123 @@ func pidKey(pid uint32, key uint64) []byte {
 }
 
 // TestFindProfileRemembersMissingContainers asserts that a container which is
-// not in the cluster, like one of podman on the node, is looked up once and
+// not in the cluster, like one of podman on the node, is waited for once and
 // not with every process it starts.
 func TestFindProfileRemembersMissingContainers(t *testing.T) {
 	t.Parallel()
 
-	sut, mock := newClusterRecorder(true, false)
-	mock.ListPodsReturns(podWithContainer(nil), nil)
+	sut, _ := newClusterRecorder(true, false)
+	lw := watchPods(t, sut, podWithContainer(nil))
 
 	const other = "0000000000000000000000000000000000000000000000000000000000000001"
 
 	_, err := sut.findProfileForContainerID(other)
 	require.ErrorIs(t, err, errContainerNotInCluster)
-	// No pod is waiting for its containers, so nothing is retried.
-	require.Equal(t, 1, mock.ListPodsCallCount())
+	require.True(t, sut.containersNotFound.Has(other))
+
+	// Not waited for again, even if a pod has it by now.
+	otherPod := podWithContainer(nil)
+	otherPod.Name = "other"
+	otherPod.Status.ContainerStatuses[0].ContainerID = crioPrefix + other
+	lw.Add(otherPod)
+
+	require.Eventually(t, func() bool {
+		_, ok := sut.pods.Get(other)
+
+		return ok
+	}, time.Minute, time.Millisecond)
 
 	_, err = sut.findProfileForContainerID(other)
 	require.ErrorIs(t, err, errContainerNotInCluster)
-	require.Equal(t, 1, mock.ListPodsCallCount())
 
 	// A new recording looks again.
 	require.NoError(t, sut.StopRecording())
 
 	_, err = sut.findProfileForContainerID(other)
-	require.ErrorIs(t, err, errContainerNotInCluster)
-	require.Equal(t, 2, mock.ListPodsCallCount())
+	require.ErrorIs(t, err, errNoProfileForContainer)
 }
 
-// TestFindProfileWaitsForCreatedContainers asserts that the lookup is retried
-// while the pod status does not list every container yet.
-func TestFindProfileWaitsForCreatedContainers(t *testing.T) {
+// TestFindProfileWaitsForContainers asserts that the lookup waits for the pod
+// status to tell the container, which it does only once the container got
+// created, or started again after a restart.
+func TestFindProfileWaitsForContainers(t *testing.T) {
 	t.Parallel()
 
-	sut, mock := newClusterRecorder(true, false)
-
-	creating := podWithContainer(nil)
-	creating.Items[0].Status.ContainerStatuses[0].ContainerID = ""
-	creating.Items[0].Status.ContainerStatuses[0].State.Waiting = &v1.ContainerStateWaiting{
-		Reason: "ContainerCreating",
+	annotations := map[string]string{
+		config.SeccompProfileRecordBpfAnnotationKey + "ctr": profile,
 	}
 
-	mock.ListPodsReturnsOnCall(0, creating, nil)
-	mock.ListPodsReturnsOnCall(1, podWithContainer(map[string]string{
-		config.SeccompProfileRecordBpfAnnotationKey + "ctr": profile,
-	}), nil)
+	creating := podWithContainer(annotations)
+	creating.Status.ContainerStatuses[0].ContainerID = ""
 
-	got, err := sut.findProfileForContainerID(containerID)
-	require.NoError(t, err)
-	require.Equal(t, profile, got)
-	require.Equal(t, 2, mock.ListPodsCallCount())
+	// The status keeps the ID of the previous container until the new one
+	// started.
+	previousRun := podWithContainer(annotations)
+	previousRun.Status.ContainerStatuses[0].ContainerID = crioPrefix +
+		"0000000000000000000000000000000000000000000000000000000000000002"
+	previousRun.Status.ContainerStatuses[0].State.Terminated = &v1.ContainerStateTerminated{
+		ExitCode: 1,
+	}
+
+	for name, before := range map[string]*v1.Pod{
+		"created":   creating,
+		"restarted": previousRun,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			sut, _ := newClusterRecorder(true, false)
+			lw := watchPods(t, sut, before)
+			sut.containerLookupTimeout = time.Minute
+
+			const lookups = 8
+
+			// The handlers of the processes of the container share the
+			// lookup.
+			results := make(chan error, lookups)
+
+			for range lookups {
+				go func() {
+					got, err := sut.findProfileForContainerID(containerID)
+					if err == nil && got != profile {
+						err = fmt.Errorf("got profile %q", got)
+					}
+
+					results <- err
+				}()
+			}
+
+			lw.Modify(podWithContainer(annotations))
+
+			for range lookups {
+				require.NoError(t, <-results)
+			}
+
+			require.False(t, sut.containersNotFound.Has(containerID))
+		})
+	}
+}
+
+// TestFindProfileDoesNotWaitForUnknownContainers asserts that a container
+// which no pod of the node is about to start, like one which is not managed
+// by Kubernetes, is not waited for.
+func TestFindProfileDoesNotWaitForUnknownContainers(t *testing.T) {
+	t.Parallel()
+
+	sut, _ := newClusterRecorder(true, false)
+	watchPods(t, sut, podWithContainer(map[string]string{
+		config.SeccompProfileRecordBpfAnnotationKey + "ctr": profile,
+	}))
+
+	sut.containerLookupTimeout = time.Minute
+
+	const unknown = "0000000000000000000000000000000000000000000000000000000000000003"
+
+	start := time.Now()
+	_, err := sut.findProfileForContainerID(unknown)
+	require.ErrorIs(t, err, errContainerNotInCluster)
+	require.Less(t, time.Since(start), 30*time.Second)
+	require.True(t, sut.containersNotFound.Has(unknown))
 }
 
 // TestCacheProfilesOfUnresolvedContainers asserts that a container whose lookup
@@ -119,157 +189,70 @@ func TestFindProfileWaitsForCreatedContainers(t *testing.T) {
 func TestCacheProfilesOfUnresolvedContainers(t *testing.T) {
 	t.Parallel()
 
-	sut, mock := newClusterRecorder(true, false)
+	sut, _ := newClusterRecorder(true, false)
 
-	// Nothing to look up.
-	sut.cacheProfilesOfUnresolvedContainers(t.Context())
-	require.Zero(t, mock.ListPodsCallCount())
+	// Without pods, like spoc.
+	sut.cacheProfilesOfUnresolvedContainers()
+
+	annotations := map[string]string{
+		config.SeccompProfileRecordBpfAnnotationKey + "ctr": profile,
+	}
+
+	creating := podWithContainer(annotations)
+	creating.Status.ContainerStatuses[0].ContainerID = ""
+
+	lw := watchPods(t, sut, creating)
 
 	const key = 7
 
 	sut.containerKeys.Insert(key, containerID)
 	sut.containersNotFound.Set(containerID, struct{}{}, ttlcache.DefaultTTL)
 
-	mock.ListPodsReturns(podWithContainer(map[string]string{
-		config.SeccompProfileRecordBpfAnnotationKey + "ctr": profile,
-	}), nil)
+	sut.cacheProfilesOfUnresolvedContainers()
 
-	sut.cacheProfilesOfUnresolvedContainers(t.Context())
-	require.Equal(t, 1, mock.ListPodsCallCount())
+	_, ok := sut.profileOfKey(key)
+	require.False(t, ok)
+
+	modifyPod(t, sut, lw, podWithContainer(annotations))
+
+	sut.cacheProfilesOfUnresolvedContainers()
 
 	got, ok := sut.profileOfKey(key)
 	require.True(t, ok)
 	require.Equal(t, profile, got)
-
-	// Resolved containers need no lookup.
-	sut.cacheProfilesOfUnresolvedContainers(t.Context())
-	require.Equal(t, 1, mock.ListPodsCallCount())
 }
 
-// TestFindProfileWaitsForRestartedContainers asserts that the lookup is retried
-// while a recorded pod still lists the previous run of a restarted container.
-func TestFindProfileWaitsForRestartedContainers(t *testing.T) {
+// TestCacheProfilesOfPod asserts that the profiles of all recorded containers
+// of a pod are cached, for seccomp and AppArmor.
+func TestCacheProfilesOfPod(t *testing.T) {
 	t.Parallel()
 
-	sut, mock := newClusterRecorder(true, false)
+	const initContainerID = "0000000000000000000000000000000000000000000000000000000000000003"
 
-	annotations := map[string]string{
-		config.SeccompProfileRecordBpfAnnotationKey + "ctr": profile,
+	sut, _ := newClusterRecorder(true, true)
+
+	p := podWithContainer(map[string]string{
+		config.SeccompProfileRecordBpfAnnotationKey + "ctr":   profile,
+		config.ApparmorProfileRecordBpfAnnotationKey + "init": "apparmor-profile",
+		config.SeccompProfileRecordBpfAnnotationKey + "none":  "",
+	})
+	p.Status.InitContainerStatuses = []v1.ContainerStatus{
+		{Name: "init", ContainerID: "containerd://" + initContainerID},
+		{Name: "none", ContainerID: "containerd://" + strings.Repeat("4", 64)},
 	}
 
-	previousRun := podWithContainer(annotations)
-	previousRun.Items[0].Status.ContainerStatuses[0].ContainerID = crioPrefix +
-		"0000000000000000000000000000000000000000000000000000000000000002"
+	sut.cacheProfilesOfPod(p)
 
-	mock.ListPodsReturnsOnCall(0, previousRun, nil)
-	mock.ListPodsReturnsOnCall(1, podWithContainer(annotations), nil)
-
-	got, err := sut.findProfileForContainerID(containerID)
-	require.NoError(t, err)
+	got, ok := sut.containerIDToProfileMap.Get(containerID)
+	require.True(t, ok)
 	require.Equal(t, profile, got)
-	require.Equal(t, 2, mock.ListPodsCallCount())
-}
 
-// TestFindProfileSharesLookups asserts that the handlers of the processes of
-// one container share a single lookup.
-func TestFindProfileSharesLookups(t *testing.T) {
-	t.Parallel()
+	got, ok = sut.containerIDToProfileMap.Get(initContainerID)
+	require.True(t, ok)
+	require.Equal(t, "apparmor-profile", got)
 
-	sut, mock := newClusterRecorder(true, false)
-
-	release := make(chan struct{})
-
-	mock.ListPodsStub = func(context.Context, *kubernetes.Clientset, string) (*v1.PodList, error) {
-		<-release
-
-		return podWithContainer(map[string]string{
-			config.SeccompProfileRecordBpfAnnotationKey + "ctr": profile,
-		}), nil
-	}
-
-	const lookups = 8
-
-	var wg sync.WaitGroup
-
-	for range lookups {
-		wg.Go(func() {
-			got, err := sut.findProfileForContainerID(containerID)
-			assertNoErrorEqual(t, err, profile, got)
-		})
-	}
-
-	require.Eventually(t, func() bool {
-		return mock.ListPodsCallCount() == 1
-	}, time.Minute, time.Millisecond)
-
-	close(release)
-	wg.Wait()
-
-	require.Equal(t, 1, mock.ListPodsCallCount())
-}
-
-func assertNoErrorEqual(t *testing.T, err error, want, got string) {
-	t.Helper()
-
-	if err != nil || want != got {
-		t.Errorf("got %q, %v, want %q", got, err, want)
-	}
-}
-
-func TestContainersPending(t *testing.T) {
-	t.Parallel()
-
-	withStatus := func(status v1.ContainerStatus) *v1.Pod {
-		return &v1.Pod{
-			Spec:   v1.PodSpec{Containers: []v1.Container{{Name: "ctr"}}},
-			Status: v1.PodStatus{ContainerStatuses: []v1.ContainerStatus{status}},
-		}
-	}
-
-	for name, tc := range map[string]struct {
-		pod  *v1.Pod
-		want bool
-	}{
-		"running": {
-			pod:  withStatus(v1.ContainerStatus{ContainerID: crioPrefix + containerID}),
-			want: false,
-		},
-		"no status yet": {
-			pod:  &v1.Pod{Spec: v1.PodSpec{Containers: []v1.Container{{Name: "ctr"}}}},
-			want: true,
-		},
-		"creating": {
-			pod: withStatus(v1.ContainerStatus{State: v1.ContainerState{
-				Waiting: &v1.ContainerStateWaiting{Reason: "ContainerCreating"},
-			}}),
-			want: true,
-		},
-		"image cannot be pulled": {
-			pod: withStatus(v1.ContainerStatus{State: v1.ContainerState{
-				Waiting: &v1.ContainerStateWaiting{Reason: "ImagePullBackOff"},
-			}}),
-			want: false,
-		},
-		"terminated without ID": {
-			pod: withStatus(v1.ContainerStatus{State: v1.ContainerState{
-				Terminated: &v1.ContainerStateTerminated{Reason: "ContainerStatusUnknown"},
-			}}),
-			want: false,
-		},
-		"failed without statuses": {
-			pod: &v1.Pod{
-				Spec:   v1.PodSpec{Containers: []v1.Container{{Name: "ctr"}}},
-				Status: v1.PodStatus{Phase: v1.PodFailed},
-			},
-			want: false,
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
-			require.Equal(t, tc.want, containersPending(tc.pod))
-		})
-	}
+	_, ok = sut.containerIDToProfileMap.Get(strings.Repeat("4", 64))
+	require.False(t, ok)
 }
 
 // TestVerifyProcess asserts that a PID which belongs to another process than
@@ -314,9 +297,9 @@ func TestNewPidEventOfReusedPid(t *testing.T) {
 
 		mock.ContainerIDForPIDReturns(containerID, lookupErr)
 		mock.VerifyProcessReturns(errProcessChanged)
-		mock.ListPodsReturns(podWithContainer(map[string]string{
+		watchPods(t, sut, podWithContainer(map[string]string{
 			config.SeccompProfileRecordBpfAnnotationKey + "ctr": profile,
-		}), nil)
+		}))
 
 		sut.AppArmor.handleFileEvent(fileEvent(7, flagRead, "/etc/passwd"))
 
@@ -343,9 +326,9 @@ func TestNewPidEventResolvesCgroup(t *testing.T) {
 		"/kubepods.slice/kubepods-pod1.slice/crio-"+containerID+".scope", nil,
 	)
 	mock.ContainerIDForPIDReturns("", util.ErrProcessNotFound)
-	mock.ListPodsReturns(podWithContainer(map[string]string{
+	watchPods(t, sut, podWithContainer(map[string]string{
 		config.SeccompProfileRecordBpfAnnotationKey + "ctr": profile,
-	}), nil)
+	}))
 
 	sut.handleNewPidEvent(
 		newPidEvent{pid: 42, mntns: 1, key: 7, generation: sut.recordingGeneration.Load()},
@@ -360,7 +343,6 @@ func TestNewPidEventResolvesCgroup(t *testing.T) {
 	)
 
 	require.Equal(t, 1, mock.CgroupPathForIDCallCount())
-	require.Equal(t, 1, mock.ListPodsCallCount())
 }
 
 // TestNewPidEventFallsBackToPid asserts that a cgroup path without container
@@ -503,31 +485,46 @@ func TestReleaseAbandonedRecording(t *testing.T) {
 
 	now := time.Now()
 
-	sut, mock := newRecordingRecorder(t, false, false)
+	sut, _ := newRecordingRecorder(t, false, false)
 	sut.clientset = &kubernetes.Clientset{}
 	sut.now = func() time.Time { return now }
 
+	// Nothing is released before the pods are known.
+	lw := podindextest.New()
+
+	idx, err := podindex.New(lw)
+	require.NoError(t, err)
+
+	sut.pods = idx
+
+	sut.releaseAbandonedRecording()
+
+	now = now.Add(uncollectedRecordingTimeout)
+
+	sut.releaseAbandonedRecording()
+	require.EqualValues(t, 1, atomic.LoadInt64(&sut.startRequests))
+
 	// A Stop got lost.
-	_, err := sut.Start(t.Context(), &api.EmptyRequest{})
+	_, err = sut.Start(t.Context(), &api.EmptyRequest{})
 	require.NoError(t, err)
 
 	recorded := podWithContainer(map[string]string{
 		config.SeccompProfileRecordBpfAnnotationKey + "ctr": profile,
 	})
-	mock.ListPodsReturns(recorded, nil)
+	lw = watchPods(t, sut, recorded)
 
 	now = now.Add(time.Hour)
 
-	sut.releaseAbandonedRecording(t.Context())
+	sut.releaseAbandonedRecording()
 	require.EqualValues(t, 2, atomic.LoadInt64(&sut.startRequests))
 
-	mock.ListPodsReturns(podWithContainer(nil), nil)
+	modifyPod(t, sut, lw, podWithContainer(nil))
 
-	sut.releaseAbandonedRecording(t.Context())
+	sut.releaseAbandonedRecording()
 
 	now = now.Add(abandonedRecordingTimeout / 2)
 
-	sut.releaseAbandonedRecording(t.Context())
+	sut.releaseAbandonedRecording()
 	require.EqualValues(t, 2, atomic.LoadInt64(&sut.startRequests))
 
 	// A new recording starts the wait over.
@@ -536,12 +533,12 @@ func TestReleaseAbandonedRecording(t *testing.T) {
 
 	now = now.Add(abandonedRecordingTimeout)
 
-	sut.releaseAbandonedRecording(t.Context())
+	sut.releaseAbandonedRecording()
 	require.EqualValues(t, 3, atomic.LoadInt64(&sut.startRequests))
 
 	now = now.Add(abandonedRecordingTimeout)
 
-	sut.releaseAbandonedRecording(t.Context())
+	sut.releaseAbandonedRecording()
 	require.Zero(t, atomic.LoadInt64(&sut.startRequests))
 
 	// The client stops its recordings afterwards.
@@ -558,23 +555,23 @@ func TestReleaseAbandonedRecordingKeepsUncollectedProfiles(t *testing.T) {
 
 	now := time.Now()
 
-	sut, mock := newRecordingRecorder(t, false, false)
+	sut, _ := newRecordingRecorder(t, false, false)
 	sut.clientset = &kubernetes.Clientset{}
 	sut.now = func() time.Time { return now }
 
-	mock.ListPodsReturns(podWithContainer(nil), nil)
+	watchPods(t, sut, podWithContainer(nil))
 	sut.containerIDToProfileMap.Insert(containerID, profile)
 
-	sut.releaseAbandonedRecording(t.Context())
+	sut.releaseAbandonedRecording()
 
 	now = now.Add(abandonedRecordingTimeout)
 
-	sut.releaseAbandonedRecording(t.Context())
+	sut.releaseAbandonedRecording()
 	require.EqualValues(t, 1, atomic.LoadInt64(&sut.startRequests))
 
 	now = now.Add(uncollectedRecordingTimeout)
 
-	sut.releaseAbandonedRecording(t.Context())
+	sut.releaseAbandonedRecording()
 	require.Zero(t, atomic.LoadInt64(&sut.startRequests))
 }
 

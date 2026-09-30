@@ -3,12 +3,13 @@
     "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
     "features": {
         "ghcr.io/devcontainers/features/go:1": {
-            "version": "latest"
+            "version": "1.27.1"
         },
         "ghcr.io/devcontainers/features/nix:1": {
             "multiUser": true
         }
     },
+    "postCreateCommand": "sudo apt-get update && sudo apt-get install -y build-essential pkg-config libapparmor-dev libelf-dev libseccomp-dev libzstd-dev zlib1g-dev && sudo hack/install-libbpf.sh",
     "customizations": {
         "vscode": {
             "extensions": [

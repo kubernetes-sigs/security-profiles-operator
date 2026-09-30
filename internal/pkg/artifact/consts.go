@@ -81,9 +81,58 @@ const (
 	// defaultTimeout is the default timeout for push and pull operations.
 	defaultTimeout = 5 * time.Minute
 
-	// verifyMaxWorkers is the number of parallel signature verifications,
-	// the default of cosign verify.
-	verifyMaxWorkers = 10
+	// bundleMediaType is the media type of a Sigstore bundle, which is the
+	// artifact type of the referrer manifest a signature is attached with
+	// and the media type of its only layer.
+	bundleMediaType = "application/vnd.dev.sigstore.bundle.v0.3+json"
+
+	// bundleMediaTypePrefix matches the media types of all Sigstore bundle
+	// versions.
+	bundleMediaTypePrefix = "application/vnd.dev.sigstore.bundle"
+
+	// cosignSignPredicateType is the predicate type of the in-toto statement
+	// cosign signs for an image, as opposed to attestations like SLSA
+	// provenance.
+	cosignSignPredicateType = "https://sigstore.dev/cosign/sign/v1"
+
+	// annotationBundlePredicateType is the referrer manifest annotation
+	// which carries the predicate type of the bundle.
+	annotationBundlePredicateType = "dev.sigstore.bundle.predicateType"
+
+	// annotationBundleContent is the referrer manifest annotation which
+	// carries the kind of content of the bundle.
+	annotationBundleContent = "dev.sigstore.bundle.content"
+
+	// bundleContentDSSE is the annotationBundleContent of a bundle with a
+	// DSSE envelope.
+	bundleContentDSSE = "dsse-envelope"
+
+	// inTotoPayloadType is the DSSE payload type of an in-toto statement.
+	inTotoPayloadType = "application/vnd.in-toto+json"
+
+	// annotationLegacySignature, annotationLegacyCertificate and
+	// annotationLegacyBundle are the layer annotations of a legacy cosign
+	// signature: the base64 encoded signature of the layer, the PEM encoded
+	// signing certificate and the transparency log entry.
+	annotationLegacySignature   = "dev.cosignproject.cosign/signature"
+	annotationLegacyCertificate = "dev.sigstore.cosign/certificate"
+	annotationLegacyBundle      = "dev.sigstore.cosign/bundle"
+
+	// legacySignatureTagSuffix is the suffix of the tag cosign v2 attaches
+	// legacy signatures of a digest with.
+	legacySignatureTagSuffix = ".sig"
+
+	// maxSignatures is the most signatures of an artifact a pull considers,
+	// the layer limit cosign applies to signature tags.
+	maxSignatures = 1000
+
+	// maxSignatureSize is the largest signature bundle or legacy signature
+	// payload a pull fetches.
+	maxSignatureSize int64 = 1 << 20
+
+	// maxSignatureManifestSize is the largest signature manifest a pull
+	// fetches, the manifest limit of ORAS.
+	maxSignatureManifestSize int64 = 4 << 20
 
 	// annotationCreatedDefault is the org.opencontainers.image.created value
 	// a pushed manifest carries unless the caller sets the annotation or
@@ -192,6 +241,40 @@ var (
 	// ErrTooManyLayers is returned when a pulled artifact has more layers, or
 	// an index more manifests, than a pull considers.
 	ErrTooManyLayers = errors.New("artifact has too many layers")
+
+	// ErrNoSignature is returned when a pulled artifact has neither a
+	// signature bundle nor a legacy signature.
+	ErrNoSignature = errors.New("no signature found")
+
+	// ErrUnsupportedKeyRef is returned when the key to verify with is not a
+	// PEM encoded public key file.
+	ErrUnsupportedKeyRef = errors.New(
+		"unsupported key reference, only PEM encoded public key files are supported",
+	)
+
+	// ErrInvalidSignatureBundle is returned when a signature is malformed.
+	ErrInvalidSignatureBundle = errors.New("invalid signature")
+
+	// ErrSignatureDigestMismatch is returned when a legacy signature is
+	// about another digest than the pulled one.
+	ErrSignatureDigestMismatch = errors.New("signature does not match the artifact digest")
+
+	// ErrNoTrustedRoot is returned when no Sigstore trusted root is
+	// available to verify with.
+	ErrNoTrustedRoot = errors.New("no Sigstore trusted root")
+
+	// ErrNoSigningConfig is returned when no Sigstore signing config is
+	// available to sign with.
+	ErrNoSigningConfig = errors.New("no Sigstore signing config")
+
+	// ErrRekorV2WithoutTimestampAuthority is returned when the signing config
+	// selects a Rekor v2 log without a timestamp authority.
+	ErrRekorV2WithoutTimestampAuthority = errors.New(
+		"a timestamp authority is required to sign with a certificate into a Rekor v2 log",
+	)
+
+	// ErrIDToken is returned when an identity token cannot be obtained.
+	ErrIDToken = errors.New("unable to get an identity token")
 )
 
 // PullResultType are the different types returned for a PullResult.

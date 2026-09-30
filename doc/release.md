@@ -32,9 +32,6 @@ The script basically:
 - updates [./dependencies.yaml](../dependencies.yaml) `spo-current` version as
   well as its linked files. Run `make verify-dependencies` to verify the
   results.
-- updates the release that [`verification.md`](verification.md) verifies.
-  `hack/back-to-dev.sh` leaves it alone, so the documentation keeps pointing at
-  the release instead of the development version.
 - updates the versioned install manifests in
   [`installation.md`](installation.md) and the `spoc` image and version in
   [`cli.md`](cli.md)
@@ -76,11 +73,6 @@ This will automatically create a PR in the k/k8s.io repository. The second
 `us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/charts/security-profiles-operator` with the
 version without the `v` prefix.
 
-Before the first release with the Cachix free build image workflow, pin
-`BUILD_IMAGE` in [`Dockerfile`](../Dockerfile) to a build image which the
-`build-image` job of `main` built and `build-image-sign` signed, so that the
-toolchain is not one that was built with the caches.
-
 The promotion copies the images by digest, but not their attestations, see
 [staging attestations](#staging-attestations). Once the promotion PR is
 merged, check that the attestations still apply to what users install: the
@@ -88,10 +80,28 @@ per-architecture images on `registry.k8s.io` have to have the digests the
 staging build attested, which the commands in
 [verification.md](verification.md#container-image) verify for a release.
 
-If this PR got
-merged, then we're finally ready to [create the
+If this PR got merged, tag the release. Tags created in the GitHub UI are
+lightweight and unsigned, so check out the merged commit of the first PR and
+run [`hack/tag-release.sh`](../hack/tag-release.sh). It creates the signed,
+annotated tag `vx.y.z` for the version in the [`VERSION`](../VERSION) file,
+which needs a git signing key (`user.signingkey`, GPG or SSH with
+`gpg.format=ssh`), and verifies it with `git verify-tag`. It refuses to tag a
+development version, a dirty tree or an existing tag, and pushes nothing.
+Check the signature once more and push the tag:
+
+```console
+> git verify-tag vx.y.z
+> git push origin vx.y.z
+```
+
+Set `REMOTE` for the script to print the push command with another remote.
+The `v*` tags should be protected in the repository settings (a tag ruleset
+which restricts their creation, update and deletion to the release managers),
+since the release workflows trust a tag to be a reviewed release commit.
+
+Then we're finally ready to [create the
 release](https://github.com/kubernetes-sigs/security-profiles-operator/releases/new)
-directly on GitHub and add the release notes. The changelog is auto-generated
+on GitHub from the pushed tag and add the release notes. The changelog is auto-generated
 based on PR labels and the configuration in
 [`.github/release.yml`](../.github/release.yml). The introduction above it is
 written by hand, start from
@@ -114,26 +124,35 @@ Verify that the files are present. The reusable
 provenance of both workflows, see
 [SLSA build levels](verification.md#slsa-build-levels).
 
-After that, run the `./hack/back-to-dev.sh` script, which will:
+After that, run the `./hack/back-to-dev.sh` script, which:
 
 - bumps the [`VERSION`](../VERSION) file to the next patch version, but now
   including the suffix `-dev`, for example `1.1.1-dev` after `1.1.0`.
-- changes the `images` `newName`/`newTag` fields in
+- points the images of the generated deployment manifests in
+  [`deploy`](../deploy) and of the bundle
+  [ClusterServiceVersion](../bundle/manifests/security-profiles-operator.clusterserviceversion.yaml)
+  back to `us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator:latest`,
+  and sets the development version in them. It edits the generated files
+  directly instead of running `make bundle`.
+- comments the `registry.k8s.io` `newName`/`newTag` fields of
   [./deploy/kustomize-deployment/kustomization.yaml](../deploy/kustomize-deployment/kustomization.yaml)
-  back to `us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator`
-  (`newName`) and `latest` (`newTag`) and runc `make bundle`
-- changes the tag in the same way in the OLM example manifest at
-  [./examples/olm/install-resources.yaml](/examples/olm/install-resources.yaml)
-- reverts the changes to [`hack/ci/e2e-olm.sh`](/hack/ci/e2e-olm.sh)
-- reverts the changes to [`deploy/helm/Chart.yaml`](/deploy/helm/Chart.yaml)
-- reverts the changes to [`hack/deploy-localhost.patch`](/hack/deploy-localhost.patch)
-- reverts the changes to [`test/e2e_test.go`](/test/e2e_test.go)
-- reverts the webhook overlay and the Helm chart values to the staging image
-- sets the development version in the catalog preamble
-  [`deploy/catalog-preamble.json`](../deploy/catalog-preamble.json)
-- updates [./dependencies.yaml](../dependencies.yaml) `spo-current` version as
-  well as its linked files. Run `make verify-dependencies` to verify the
-  results.
+  out again and the staging ones in, with the next version as commented
+  `newTag`.
+- points the catalog image of the OLM example manifest at
+  [./examples/olm/install-resources.yaml](../examples/olm/install-resources.yaml),
+  [`hack/ci/e2e-olm.sh`](../hack/ci/e2e-olm.sh),
+  [`hack/deploy-localhost.patch`](../hack/deploy-localhost.patch), the e2e tests
+  and the webhook overlay back to the staging registry, and the image of
+  [`deploy/openshift-dev.yaml`](../deploy/openshift-dev.yaml) to the OpenShift
+  internal registry.
+- reverts the Helm chart [values](../deploy/helm/values.yaml) to the staging
+  image with the `Always` pull policy.
+- sets the development version in
+  [./dependencies.yaml](../dependencies.yaml), the catalog preamble
+  [`deploy/catalog-preamble.json`](../deploy/catalog-preamble.json), the
+  [Helm chart](../deploy/helm/Chart.yaml) and its
+  [README](../deploy/helm/README.md). Run `make verify-dependencies` to verify
+  the results.
 
 Create a new pull request in the OperatorHub.io [community
 operators](https://github.com/k8s-operatorhub/community-operators) repository to

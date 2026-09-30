@@ -1,3 +1,5 @@
+//go:build e2e
+
 /*
 Copyright The Kubernetes Authors.
 
@@ -41,32 +43,77 @@ import (
 )
 
 const (
-	kindVersion      = "v0.33.0"
-	kindImage        = "kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5"
-	kindDarwinSHA512 = "5dccea9fd7fef0d5f5e8212bc4683389b13c4724b55057911da9d34bb6b605641e024affaa34b17b672ed22df4534cdcbc56a505a3078d6f17a10ac81fbd5f10" //nolint:lll // full length SHA
-	kindLinuxSHA512  = "f58a029ef8dee72f7fcf0345a5731795de0745ee6c955efd24801ced8409395cd2a4dc0ca41663c43231a48e94a5375cd01e63bc37b4557bf708e9ce6703fffa" //nolint:lll // full length SHA
+	kindVersion = "v0.33.0"
+	kindImage   = "kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5"
 )
 
+// kindSHA512 are the checksums of the kind binaries, keyed by
+// runtime.GOOS + "-" + runtime.GOARCH.
+//
+//nolint:lll // full length SHA
+var kindSHA512 = map[string]string{
+	"darwin-amd64": "5dccea9fd7fef0d5f5e8212bc4683389b13c4724b55057911da9d34bb6b605641e024affaa34b17b672ed22df4534cdcbc56a505a3078d6f17a10ac81fbd5f10",
+	"darwin-arm64": "443edbc6dac7bf44025e90dafe0c66fd6489ee37ed58c80647578b8fcdd39567f986389b4bf38a0de0529ba7415da9c5c2ef9860b0227f3708d30c586671869b",
+	"linux-amd64":  "f58a029ef8dee72f7fcf0345a5731795de0745ee6c955efd24801ced8409395cd2a4dc0ca41663c43231a48e94a5375cd01e63bc37b4557bf708e9ce6703fffa",
+	"linux-arm64":  "034585fbb3766f34c3cdbc127b145c76904073918e2af76e31a81349aa2c67979e35ab780cc4a1cb1dadc5df04ae3b9c2984c1b382f1cff6b4ee48b560b7f048",
+}
+
+// The environment variables of the suite. The table in doc/hacking.md
+// documents them, keep both in sync.
 var (
-	clusterType                  = os.Getenv("E2E_CLUSTER_TYPE")
-	envSkipBuildImages           = os.Getenv("E2E_SKIP_BUILD_IMAGES")
-	envTestImage                 = os.Getenv("E2E_SPO_IMAGE")
-	envSelinuxdTestImage         = os.Getenv("E2E_SELINUXD_IMAGE")
-	spodConfig                   = os.Getenv("E2E_SPOD_CONFIG")
-	envSkipFlakyTests            = os.Getenv("E2E_SKIP_FLAKY_TESTS")
-	envSkipNamespacedTests       = os.Getenv("E2E_SKIP_NAMESPACED_TESTS")
-	envSelinuxTestsEnabled       = os.Getenv("E2E_TEST_SELINUX")
-	envLogEnricherTestsEnabled   = os.Getenv("E2E_TEST_LOG_ENRICHER")
-	envJsonEnricherTestsEnabled  = os.Getenv("E2E_TEST_JSON_ENRICHER")
-	envSeccompTestsEnabled       = os.Getenv("E2E_TEST_SECCOMP")
-	envBpfRecorderTestsEnabled   = os.Getenv("E2E_TEST_BPF_RECORDER")
-	envBpfEnricherTestsEnabled   = os.Getenv("E2E_TEST_BPF_LOG_ENRICHER")
+	// E2E_CLUSTER_TYPE selects the cluster driver: kind (the default),
+	// vanilla or openshift.
+	clusterType = os.Getenv("E2E_CLUSTER_TYPE")
+	// E2E_SKIP_BUILD_IMAGES skips building the operator image before pushing
+	// it, OpenShift only.
+	envSkipBuildImages = os.Getenv("E2E_SKIP_BUILD_IMAGES")
+	// E2E_SPO_IMAGE is the operator image to test.
+	envTestImage = os.Getenv("E2E_SPO_IMAGE")
+	// E2E_SELINUXD_IMAGE is the selinuxd image to deploy.
+	envSelinuxdTestImage = os.Getenv("E2E_SELINUXD_IMAGE")
+	// E2E_SPOD_CONFIG is a SPOD manifest which is applied after the
+	// deployment, to change the default configuration.
+	spodConfig = os.Getenv("E2E_SPOD_CONFIG")
+	// E2E_SKIP_FLAKY_TESTS skips the quarantined test cases, see the flaky
+	// field of testCase. Defaults to false.
+	envSkipFlakyTests = os.Getenv("E2E_SKIP_FLAKY_TESTS")
+	// E2E_SKIP_NAMESPACED_TESTS skips the second run of the test cases
+	// against the namespaced operator.
+	envSkipNamespacedTests = os.Getenv("E2E_SKIP_NAMESPACED_TESTS")
+	// E2E_TEST_SELINUX enables the SELinux test cases.
+	envSelinuxTestsEnabled = os.Getenv("E2E_TEST_SELINUX")
+	// E2E_TEST_LOG_ENRICHER enables the log enricher test cases.
+	envLogEnricherTestsEnabled = os.Getenv("E2E_TEST_LOG_ENRICHER")
+	// E2E_TEST_JSON_ENRICHER enables the JSON enricher test cases.
+	envJsonEnricherTestsEnabled = os.Getenv("E2E_TEST_JSON_ENRICHER")
+	// E2E_TEST_SECCOMP enables the seccomp test cases, defaults to true.
+	envSeccompTestsEnabled = os.Getenv("E2E_TEST_SECCOMP")
+	// E2E_TEST_BPF_RECORDER enables the bpf recorder test cases.
+	envBpfRecorderTestsEnabled = os.Getenv("E2E_TEST_BPF_RECORDER")
+	// E2E_TEST_BPF_LOG_ENRICHER enables the log enricher test case with the
+	// BPF source.
+	envBpfEnricherTestsEnabled = os.Getenv("E2E_TEST_BPF_LOG_ENRICHER")
+	// E2E_TEST_WEBHOOK_CONFIG enables the webhook configuration test cases,
+	// defaults to true.
 	envWebhookConfigTestsEnabled = os.Getenv("E2E_TEST_WEBHOOK_CONFIG")
-	envWebhookHTTPTestsEnabled   = os.Getenv("E2E_TEST_WEBHOOK_HTTP")
-	envMetricsHTTPTestsEnabled   = os.Getenv("E2E_TEST_METRICS_HTTP")
-	containerRuntime             = os.Getenv("CONTAINER_RUNTIME")
-	nodeRootfsPrefix             = os.Getenv("NODE_ROOTFS_PREFIX")
-	operatorManifest             = os.Getenv("OPERATOR_MANIFEST")
+	// E2E_TEST_WEBHOOK_HTTP enables the webhook HTTP version test case,
+	// defaults to true.
+	envWebhookHTTPTestsEnabled = os.Getenv("E2E_TEST_WEBHOOK_HTTP")
+	// E2E_TEST_METRICS_HTTP enables the metrics HTTP version test case,
+	// defaults to true.
+	envMetricsHTTPTestsEnabled = os.Getenv("E2E_TEST_METRICS_HTTP")
+	// E2E_ARTIFACTS_DIR is the directory the diagnostics of failed tests are
+	// written to, one directory per test. They are logged when unset.
+	envArtifactsDir = os.Getenv("E2E_ARTIFACTS_DIR")
+	// CONTAINER_RUNTIME is the container runtime on the test host, docker
+	// or podman.
+	containerRuntime = os.Getenv("CONTAINER_RUNTIME")
+	// NODE_ROOTFS_PREFIX is the prefix of the node root filesystem, when
+	// the node is reached through a chroot.
+	nodeRootfsPrefix = os.Getenv("NODE_ROOTFS_PREFIX")
+	// OPERATOR_MANIFEST is the cluster wide operator manifest to deploy,
+	// defaults to deploy/operator.yaml.
+	operatorManifest = os.Getenv("OPERATOR_MANIFEST")
 )
 
 const (
@@ -92,31 +139,37 @@ const (
 
 type e2e struct {
 	suite.Suite
-	containerRuntime      string
-	kubectlPath           string
-	testImage             string
-	selinuxdImage         string
-	pullPolicy            string
-	spodConfig            string
-	nodeRootfsPrefix      string
-	operatorManifest      string
-	selinuxEnabled        bool
-	logEnricherEnabled    bool
-	jsonEnricherEnabled   bool
-	testSeccomp           bool
-	bpfRecorderEnabled    bool
-	bpfEnricherEnabled    bool
-	skipNamespacedTests   bool
-	skipFlakyTests        bool
-	testWebhookConfig     bool
-	testWebhookHTTP       bool
-	testMetricsHTTP       bool
-	singleNodeEnvironment bool
-	logger                logr.Logger
-	execNode              func(node string, args ...string) string
-	waitForReadyPods      func()
-	deployCertManager     func()
-	setupRecordingSa      func(namespace string)
+	containerRuntime    string
+	kubectlPath         string
+	testImage           string
+	selinuxdImage       string
+	pullPolicy          string
+	spodConfig          string
+	nodeRootfsPrefix    string
+	operatorManifest    string
+	selinuxEnabled      bool
+	logEnricherEnabled  bool
+	jsonEnricherEnabled bool
+	testSeccomp         bool
+	bpfRecorderEnabled  bool
+	bpfEnricherEnabled  bool
+	skipNamespacedTests bool
+	skipFlakyTests      bool
+	testWebhookConfig   bool
+	testWebhookHTTP     bool
+	testMetricsHTTP     bool
+	artifactsDir        string
+	logger              logr.Logger
+	execNode            func(node string, args ...string) string
+	// nodeCommand runs a command on the node like execNode, but returns
+	// the error instead of failing the test, for the diagnostics.
+	nodeCommand       func(node string, args ...string) (string, error)
+	waitForReadyPods  func()
+	deployCertManager func()
+	setupRecordingSa  func(namespace string)
+	// renderedManifests maps the tracked manifests to their rendered
+	// copies, see renderManifest.
+	renderedManifests map[string]string
 	// testStart and subTestStart are when the current test and sub test
 	// started, to dump the logs since then.
 	testStart        time.Time
@@ -199,7 +252,7 @@ func TestSuite(t *testing.T) {
 
 	skipFlakyTests, err := strconv.ParseBool(envSkipFlakyTests)
 	if err != nil {
-		skipFlakyTests = true
+		skipFlakyTests = false
 	}
 
 	testWebhookConfig, err := strconv.ParseBool(envWebhookConfigTestsEnabled)
@@ -253,6 +306,7 @@ func TestSuite(t *testing.T) {
 				testWebhookHTTP:     testWebhookHTTP,
 				testMetricsHTTP:     testMetricsHTTP,
 				skipFlakyTests:      skipFlakyTests,
+				artifactsDir:        envArtifactsDir,
 			},
 			"", "",
 		})
@@ -288,6 +342,7 @@ func TestSuite(t *testing.T) {
 				testWebhookHTTP:     testWebhookHTTP,
 				testMetricsHTTP:     testMetricsHTTP,
 				skipFlakyTests:      skipFlakyTests,
+				artifactsDir:        envArtifactsDir,
 			},
 			skipBuildImages,
 			skipPushImages,
@@ -318,9 +373,7 @@ func TestSuite(t *testing.T) {
 				testWebhookHTTP:     testWebhookHTTP,
 				testMetricsHTTP:     testMetricsHTTP,
 				skipFlakyTests:      skipFlakyTests,
-				// NOTE(jaosorior): Our current vanilla jobs are
-				// single-node only.
-				singleNodeEnvironment: true,
+				artifactsDir:        envArtifactsDir,
 			},
 		})
 	default:
@@ -334,6 +387,7 @@ func (e *kinde2e) SetupSuite() {
 	command.SetGlobalVerbose(true)
 	// Override execNode and waitForReadyPods functions
 	e.execNode = e.execNodeKind
+	e.nodeCommand = e.nodeCommandKind
 	e.waitForReadyPods = e.waitForReadyPodsKind
 	e.deployCertManager = e.deployCertManagerKind
 	e.setupRecordingSa = e.deployRecordingSa
@@ -342,23 +396,16 @@ func (e *kinde2e) SetupSuite() {
 	e.Require().NoError(os.MkdirAll(buildDir, 0o755))
 
 	e.kindPath = filepath.Join(buildDir, "kind")
-	SHA512 := ""
-	kindOS := ""
+	platform := runtime.GOOS + "-" + e.hostArch()
 
-	switch runtime.GOOS {
-	case "darwin":
-		SHA512 = kindDarwinSHA512
-		kindOS = "kind-darwin-amd64"
-	case "linux":
-		SHA512 = kindLinuxSHA512
-		kindOS = "kind-linux-amd64"
-	}
+	sha512, ok := kindSHA512[platform]
+	e.Require().True(ok, "no kind binary for %s", platform)
 
 	e.downloadAndVerify(
-		fmt.Sprintf("https://github.com/kubernetes-sigs/kind/releases/download/%s/%s",
-			kindVersion, kindOS),
+		fmt.Sprintf("https://github.com/kubernetes-sigs/kind/releases/download/%s/kind-%s",
+			kindVersion, platform),
 		e.kindPath,
-		SHA512,
+		sha512,
 	)
 
 	var err error
@@ -378,7 +425,7 @@ func (e *kinde2e) SetupTest() {
 	e.logf("Deploying the cluster")
 	e.clusterName = fmt.Sprintf("spo-e2e-%d", time.Now().Unix())
 
-	cmd := exec.Command( //nolint:gosec // fine in tests
+	cmd := exec.Command(
 		e.kindPath, "create", "cluster",
 		"--name="+e.clusterName,
 		"--image="+kindImage,
@@ -425,8 +472,28 @@ func (e *kinde2e) TearDownTest() {
 	)
 }
 
+// hostArch returns the architecture of the host in the notation of Go, from
+// uname -m, like the kind release binaries are named.
+func (e *e2e) hostArch() string {
+	machine, err := e.runCommand("uname", "-m")
+	e.Require().NoError(err)
+
+	switch machine {
+	case "x86_64", "amd64":
+		return "amd64"
+	case "aarch64", "arm64":
+		return "arm64"
+	default:
+		return runtime.GOARCH
+	}
+}
+
 func (e *kinde2e) execNodeKind(node string, args ...string) string {
 	return e.run(containerRuntime, append([]string{"exec", node}, args...)...)
+}
+
+func (e *kinde2e) nodeCommandKind(node string, args ...string) (string, error) {
+	return e.runCommand(containerRuntime, append([]string{"exec", node}, args...)...)
 }
 
 func (e *e2e) waitForReadyPodsKind() {
@@ -444,6 +511,7 @@ func (e *openShifte2e) SetupSuite() {
 	command.SetGlobalVerbose(true)
 	// Override execNode and waitForReadyPods functions
 	e.execNode = e.execNodeOCP
+	e.nodeCommand = e.nodeCommandOCP
 	e.waitForReadyPods = e.waitForReadyPodsOCP
 	e.deployCertManager = e.deployCertManagerOCP
 	e.setupRecordingSa = e.deployRecordingSaOcp
@@ -537,6 +605,14 @@ func (e *openShifte2e) execNodeOCP(node string, args ...string) string {
 	)
 }
 
+func (e *openShifte2e) nodeCommandOCP(node string, args ...string) (string, error) {
+	return e.kubectlCommand(
+		"debug", "-q", "node/"+node, "--",
+		"chroot", "/host", "/bin/bash", "-c",
+		strings.Join(args, " "),
+	)
+}
+
 func (e *e2e) waitForReadyPodsOCP() {
 	// intentionally not waiting for pods, it is presumed a test driver or the developer
 	// ensure the cluster is up before the test runs. At least for now.
@@ -564,6 +640,7 @@ func (e *vanilla) SetupSuite() {
 
 	// Override execNode and waitForReadyPods functions
 	e.execNode = e.execNodeVanilla
+	e.nodeCommand = e.nodeCommandVanilla
 	e.kubectlPath, err = exec.LookPath("kubectl")
 	e.waitForReadyPods = e.waitForReadyPodsVanilla
 	e.deployCertManager = e.deployCertManagerVanilla
@@ -593,6 +670,10 @@ func (e *vanilla) TearDownTest() {
 
 func (e *vanilla) execNodeVanilla(_ string, args ...string) string {
 	return e.run(args[0], args[1:]...)
+}
+
+func (e *vanilla) nodeCommandVanilla(_ string, args ...string) (string, error) {
+	return e.runCommand(args[0], args[1:]...)
 }
 
 func (e *e2e) waitForReadyPodsVanilla() {
@@ -699,7 +780,7 @@ func (e *e2e) kubectlRunOperatorNS(args ...string) string {
 }
 
 const (
-	curlBaseCMD    = "curl -ksL --retry 5 --retry-delay 3 --show-error "
+	curlBaseCMD    = "curl -ksL --connect-timeout 10 --retry 5 --retry-delay 3 --show-error "
 	headerAuth     = "-H \"Authorization: Bearer `cat /var/run/secrets/kubernetes.io/serviceaccount/token`\" "
 	curlCMD        = curlBaseCMD + headerAuth + "-f "
 	curlHTTPVerCMD = curlBaseCMD + headerAuth + "-I -w '%{http_version}\n' -o/dev/null "
@@ -1028,12 +1109,6 @@ func (e *e2e) bpfRecorderOnlyTestCase() {
 	e.enableBpfRecorderInSpod()
 }
 
-func (e *e2e) singleNodeTestCase() {
-	if !e.singleNodeEnvironment {
-		e.T().Skip("Skipping test because we're in a multi-node environment.")
-	}
-}
-
 func (e *e2e) enableBpfRecorderInSpod() {
 	e.logf("Enable bpf recorder in SPOD")
 	e.patchSpod(`{"spec":{"enricher":{"enableBpfRecorder": true}}}`)
@@ -1150,7 +1225,7 @@ func (e *e2e) switchToRecordingNs(ns string) func() {
 }
 
 func (e *e2e) checkExecWebhook(interval time.Duration, maxTimes int) bool {
-	for range maxTimes {
+	err := poll(interval*time.Duration(maxTimes), interval, func() error {
 		output := e.kubectlOperatorNS(
 			"get",
 			"mutatingwebhookconfigurations",
@@ -1158,15 +1233,18 @@ func (e *e2e) checkExecWebhook(interval time.Duration, maxTimes int) bool {
 			`-o=jsonpath='{.webhooks[*].name}'`,
 		)
 		if !strings.Contains(output, "execmetadata.spo.io") {
-			time.Sleep(interval)
-		} else {
-			return true
+			return fmt.Errorf("no execmetadata.spo.io webhook in %s", output)
 		}
+
+		return nil
+	})
+	if err != nil {
+		e.logf("Unable to find execmetadata.spo.io in SPOD webhooks: %v", err)
+
+		return false
 	}
 
-	e.logf("Unable to find execmetadata.spo.io in SPOD webhooks")
-
-	return false
+	return true
 }
 
 func (e *e2e) getPodNamesByLabel(labelMatcher string) []string {
@@ -1206,59 +1284,53 @@ func (e *e2e) podRunning(
 	interval time.Duration,
 	maxTimes int,
 ) bool {
-	for range maxTimes {
-		var output string
-
-		var err error
-
-		if namespace != nil {
-			output, err = e.kubectlCommand(
-				"get",
-				"pod",
-				name,
-				"-n",
-				*namespace,
-				`-o=jsonpath='{.status.phase}'`,
-			)
-		} else {
-			output, err = e.kubectlCommand("get", "pod", name, `-o=jsonpath='{.status.phase}'`)
-		}
-
-		//nolint:gocritic // If else is better.
-		if err != nil {
-			e.logf("Unable to get pod status for pod %s: %v", name, err)
-			time.Sleep(interval)
-		} else if strings.Trim(output, "'") != "Running" {
-			e.logf("Pod is still not running %s: %s", name, output)
-			time.Sleep(interval)
-		} else {
-			return true
-		}
+	args := []string{"get", "pod", name, `-o=jsonpath='{.status.phase}'`}
+	if namespace != nil {
+		args = append(args, "-n", *namespace)
 	}
 
-	e.logf("Pod %s is not running after checking %d times", name, maxTimes)
-	e.kubectl("describe", "pod", name)
+	err := poll(interval*time.Duration(maxTimes), interval, func() error {
+		output, err := e.kubectlCommand(args...)
+		if err != nil {
+			return fmt.Errorf("getting the status of pod %s: %w", name, err)
+		}
 
-	return false
+		if phase := strings.Trim(output, "'"); phase != "Running" {
+			return fmt.Errorf("pod %s is %s", name, phase)
+		}
+
+		return nil
+	})
+	if err != nil {
+		e.logf("Pod %s is not running: %v", name, err)
+		e.kubectl("describe", "pod", name)
+
+		return false
+	}
+
+	return true
 }
 
 // Wait for terminating pods to be deleted.
 func (e *e2e) waitForTerminatingPods(interval time.Duration, maxTimes int) {
-	for range maxTimes {
+	err := poll(interval*time.Duration(maxTimes), interval, func() error {
 		output := e.kubectlOperatorNS(
 			"get",
 			"pods",
 			`-o=jsonpath='{range .items[?(@.metadata.deletionTimestamp)]}{.metadata.name}{"\n"}{end}'`,
 		)
-		if strings.Trim(output, "'") != "" {
-			e.logf("Terminating pods found: %s", output)
-			time.Sleep(interval)
-		} else {
-			e.logf("All terminating pods deleted")
-
-			return
+		if terminating := strings.Trim(output, "'"); terminating != "" {
+			return fmt.Errorf("terminating pods: %s", terminating)
 		}
+
+		return nil
+	})
+	if err != nil {
+		// Not all waits for the rollout depend on it, so only log it.
+		e.logf("Not all terminating pods got deleted: %v", err)
+
+		return
 	}
 
-	e.logf("All terminating Pods are not deleted")
+	e.logf("All terminating pods deleted")
 }

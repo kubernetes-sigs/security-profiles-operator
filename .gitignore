@@ -10,3 +10,6 @@ selinuxd-fedora.tar
 result
 result-*
 ssh-config
+.direnv
+# The report of the link check, see the lint workflow.
+/lychee

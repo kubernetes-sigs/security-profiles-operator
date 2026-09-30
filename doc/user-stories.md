@@ -1,3 +1,10 @@
+**Note:** This document is historical, it collected the user stories when the
+Security Profiles Operator was proposed. Some of them predate current
+Kubernetes, for example PodSecurityPolicy was removed in Kubernetes 1.25 in
+favor of Pod Security Admission. For current usage and configuration, refer
+to the [installation](installation.md) and [profiles](profiles.md)
+documentation.
+
 # User Stories
 
 These user stories are the scenarios that the security-profiles-operator enables

@@ -62,31 +62,32 @@ func (n *NonRootEnabler) Run(logger logr.Logger, runtime, kubeletDir string, app
 
 	logger.Info("Container runtime", "runtime", runtime)
 
-	// Only the kubelet directories are mounted from the host below
-	// config.HostRoot, not the host root filesystem. Fail if the one of this
-	// node is missing rather than writing into the container filesystem. The
-	// operator adds the mount once it has seen the node label and the pod
-	// gets recreated.
+	// Only the seccomp directories of the kubelet directories are mounted
+	// from the host below config.HostRoot, not the host root filesystem and
+	// not the rest of the kubelet directory, which holds the secret volumes
+	// of every pod on the node. Fail if the one of this node is missing
+	// rather than writing into the container filesystem. The operator adds
+	// the mount once it has seen the node label and the pod gets recreated.
 	// The path has to be a mount point itself: it exists as well for a parent
-	// of another mount, like /host/var/lib for /host/var/lib/kubelet.
+	// of another mount, like /host/var/lib for /host/var/lib/kubelet/seccomp.
 	hostKubeletDir := path.Join(config.HostRoot, kubeletDir)
+	kubeleteSeccompDir := path.Join(hostKubeletDir, config.SeccompProfilesFolder)
 
-	mounted, err := n.Mounted(hostKubeletDir)
+	mounted, err := n.Mounted(kubeleteSeccompDir)
 	if err != nil {
 		return fmt.Errorf(
-			"checking if kubelet directory %s is mounted at %s: %w",
-			kubeletDir, hostKubeletDir, err,
+			"checking if kubelet seccomp directory %s is mounted at %s: %w",
+			kubeletDir, kubeleteSeccompDir, err,
 		)
 	}
 
 	if !mounted {
 		return fmt.Errorf(
-			"%w: kubelet directory %s at %s",
-			ErrKubeletDirNotMounted, kubeletDir, hostKubeletDir,
+			"%w: kubelet seccomp directory %s at %s",
+			ErrKubeletDirNotMounted, kubeletDir, kubeleteSeccompDir,
 		)
 	}
 
-	kubeleteSeccompDir := path.Join(hostKubeletDir, config.SeccompProfilesFolder)
 	logger.Info("Ensuring seccomp root path", "path", kubeleteSeccompDir)
 
 	if err := n.MkdirAll(

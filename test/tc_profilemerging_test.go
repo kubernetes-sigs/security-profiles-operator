@@ -1,3 +1,5 @@
+//go:build e2e
+
 /*
 Copyright The Kubernetes Authors.
 
@@ -70,6 +72,12 @@ func (e *e2e) testSeccompBpfProfileMerging() {
 	)
 }
 
+// seccompLogsMergingTrigger creates a FIFO from a process which stays alive
+// for a while, since the log enricher drops the audit line of a short lived
+// mknod whose process is gone before the line gets enriched. The nginx image
+// ships perl-base, which includes POSIX.
+const seccompLogsMergingTrigger = `perl -MPOSIX -e 'POSIX::mkfifo("/tmp/foo", 0600) or die $!; sleep 5'`
+
 func (e *e2e) testSeccompLogsProfileMerging() {
 	e.logEnricherOnlyTestCase()
 
@@ -84,7 +92,7 @@ func (e *e2e) testSeccompLogsProfileMerging() {
 	e.profileMergingTest(
 		"Logs",
 		"SeccompProfile", "sp",
-		"/bin/mknod /tmp/foo p",
+		seccompLogsMergingTrigger,
 		"epoll_wait", "mknod",
 		policyEnabledAfterRecording,
 		"container", "nginx", "syscallName", "epoll_wait")
@@ -299,39 +307,33 @@ func retryAssertPrfStatus(
 	kind, name, enabledState string,
 	isPolicyEnabled policyDisableSwitch,
 ) {
-	var profileStatus string
-
-	for range 10 {
-		profileStatus = e.kubectl(
-			"get", kind, name, "-o", "jsonpath={.status.status}")
-		if profileStatus != "" {
-			e.logf("The profile %s/%s has a status %s", kind, name, profileStatus)
-
-			break
-		}
-		// it might take a bit for the nodestatus controller to pick
-		// up the profile, so retry a couple of times
-		time.Sleep(5 * time.Second)
-		e.logf("Waiting for the profile %s/%s to have a status", kind, name)
-
-		continue
-	}
-
-	if profileStatus == "" {
-		e.Failf("Failed to get a non-empty status of the profile %s/%s", kind, name)
-	}
+	var expected []string
 
 	switch {
 	case isPolicyEnabled == policyDisabledAfterRecording:
-		e.Equal("Disabled", profileStatus)
+		expected = []string{"Disabled"}
 	case enabledState == "Installed":
 		// let's not bother waiting for the profile to be installed, just the fact that it's
 		// being processed is enough
-		expected := []string{"Installed", "Pending", "InProgress"}
-		e.Contains(expected, profileStatus, "Expected the profile to be installed or pending")
+		expected = []string{"Installed", "Pending", "InProgress"}
 	default:
-		e.Equal("Partial", profileStatus)
+		expected = []string{"Partial"}
 	}
+
+	// The nodestatus controller may not have picked up the profile yet, and
+	// a recorded SELinux profile is Pending until its partial status is set.
+	e.eventually(50*time.Second, 5*time.Second, func() error {
+		profileStatus := e.kubectl(
+			"get", kind, name, "-o", "jsonpath={.status.status}")
+		e.logf("The profile %s/%s has a status %q", kind, name, profileStatus)
+
+		if !slices.Contains(expected, profileStatus) {
+			return fmt.Errorf("the profile %s/%s has status %q, want one of %v",
+				kind, name, profileStatus, expected)
+		}
+
+		return nil
+	})
 }
 
 type profileRecTmplMetadata struct {

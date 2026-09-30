@@ -143,11 +143,14 @@ prefixed() {
   done
 }
 
-# Logs cosign and crane in to a registry with an access token of the Cloud
-# Build service account from the metadata server, for build steps without the
-# gcloud credential helper. The credentials go to a temporary DOCKER_CONFIG.
+# Logs the tools that read the Docker configuration (cosign, crane, spoc and
+# helm) in to a registry with an access token of the Cloud Build service
+# account from the metadata server. The token is fetched here rather than
+# passed through the environment of the build step, where any traced command
+# would print it. The credentials go to a temporary DOCKER_CONFIG, which the
+# calling shell and its children use afterwards.
 registry_login() {
-  local registry="$1" token
+  local registry="$1" token auth
 
   token="$(curl -sSf -H 'Metadata-Flavor: Google' \
     http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token |
@@ -158,10 +161,16 @@ registry_login() {
   fi
 
   # A fresh configuration, an inherited one may name credential helpers that
-  # are not installed in this step.
+  # are not installed in this step. Written directly, so that the login needs
+  # neither docker nor crane.
   DOCKER_CONFIG="$(mktemp -d)"
   export DOCKER_CONFIG
-  "$(crane_bin)" auth login "$registry" -u oauth2accesstoken --password-stdin <<<"$token"
+  auth="$(printf 'oauth2accesstoken:%s' "$token" | base64 | tr -d '\n')"
+  (
+    umask 077
+    printf '{"auths":{"%s":{"auth":"%s"}}}\n' "$registry" "$auth" >"$DOCKER_CONFIG/config.json"
+  )
+  echo "Logged in to $registry"
 }
 
 # Runs a command for each argument in parallel and fails if any run fails.

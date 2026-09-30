@@ -77,8 +77,13 @@ type SeccompProfileSpec struct {
 	// baseProfileName is the name of the base profile (a cluster-scoped
 	// SeccompProfile) that will be unioned into this profile. Base profiles can
 	// be referenced as remote OCI artifacts as well when prefixed with `oci://`.
+	// Any other value is the name of a SeccompProfile. Values which are no
+	// valid object name are rejected, because no base profile of that name can
+	// exist, so a profile referencing it could never be installed.
 	// +optional
-	BaseProfileName string `json:"baseProfileName,omitempty"`
+	//nolint:lll // CEL rules cannot be wrapped
+	// +kubebuilder:validation:XValidation:rule="self == '' || self.startsWith('oci://') || self.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?([.][a-z0-9]([-a-z0-9]*[a-z0-9])?)*$')",message="baseProfileName must be an oci:// reference or the name of a SeccompProfile"
+	BaseProfileName string `json:"baseProfileName,omitempty"` //nolint:kubeapilinter // released v1 API
 
 	// defaultAction is the default action for seccomp. Valid values are:
 	// SCMP_ACT_KILL, SCMP_ACT_KILL_PROCESS, SCMP_ACT_KILL_THREAD,
@@ -99,9 +104,11 @@ type SeccompProfileSpec struct {
 	// +optional
 	// +kubebuilder:validation:MaxLength=107
 	// +kubebuilder:validation:Pattern=`^/var/run/security-profiles-operator/[a-zA-Z0-9_\-\.]+$`
+	//nolint:kubeapilinter // released v1 API: empty means unset, a MinLength would reject existing manifests
 	ListenerPath string `json:"listenerPath,omitempty"`
 	// listenerMetadata contains opaque data to pass to the seccomp agent.
 	// +optional
+	//nolint:kubeapilinter // released v1 API: empty means unset, a MinLength would reject existing manifests
 	ListenerMetadata string `json:"listenerMetadata,omitempty"`
 	// syscalls match a syscall in seccomp. While this property is optional,
 	// some values of defaultAction are not useful without syscalls entries.
@@ -151,6 +158,7 @@ type Syscall struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=4095
+	//nolint:kubeapilinter // zero is documented to behave like unset
 	ErrnoRet int32 `json:"errnoRet,omitempty"`
 	// args defines the specific syscall arguments in seccomp.
 	// +optional
@@ -169,11 +177,13 @@ type Arg struct {
 	// value is the value for syscall arguments in seccomp.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
+	//nolint:kubeapilinter // zero and unset are equivalent in the OCI runtime-spec
 	Value int64 `json:"value,omitempty"`
 	// valueTwo is the second value for syscall arguments in seccomp. It is
 	// only used by the SCMP_CMP_MASKED_EQ operator.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
+	//nolint:kubeapilinter // zero and unset are equivalent in the OCI runtime-spec
 	ValueTwo int64 `json:"valueTwo,omitempty"`
 	// op is the operator for syscall arguments in seccomp. Valid values are:
 	// SCMP_CMP_NE, SCMP_CMP_LT, SCMP_CMP_LE, SCMP_CMP_EQ, SCMP_CMP_GE,
@@ -189,6 +199,7 @@ type SeccompProfileStatus struct {
 	profilebasev1.StatusBase `json:",inline"`
 	// path is the file path of the installed seccomp profile on the node.
 	// +optional
+	//nolint:kubeapilinter // released v1 API: empty means unset, a MinLength would reject existing manifests
 	Path string `json:"path,omitempty"`
 	// activeWorkloads lists the workloads currently using this profile.
 	// +optional
@@ -198,6 +209,7 @@ type SeccompProfileStatus struct {
 	// `securityContext.seccompProfile.localhostProfile` field of a Pod
 	// or container spec.
 	// +optional
+	//nolint:kubeapilinter // released v1 API: empty means unset, a MinLength would reject existing manifests
 	LocalhostProfile string `json:"localhostProfile,omitempty"`
 }
 
@@ -222,7 +234,7 @@ type SeccompProfile struct {
 	Spec SeccompProfileSpec `json:"spec,omitzero"`
 	// status contains the observed state of the SeccompProfile.
 	// +optional
-	Status SeccompProfileStatus `json:"status,omitzero"`
+	Status SeccompProfileStatus `json:"status,omitzero"` //nolint:kubeapilinter // status is a value by convention
 }
 
 func (sp *SeccompProfile) GetStatusBase() *profilebasev1.StatusBase {
@@ -235,6 +247,7 @@ func (sp *SeccompProfile) DeepCopyToStatusBaseIf() profilebasev1.StatusBaseUser 
 
 func (sp *SeccompProfile) SetImplementationStatus() {
 	profilePath := sp.GetProfilePath()
+	sp.Status.Path = profilePath
 	sp.Status.LocalhostProfile = strings.TrimPrefix(
 		profilePath,
 		config.KubeletSeccompRootPath()+"/",

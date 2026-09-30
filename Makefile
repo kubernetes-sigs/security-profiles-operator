@@ -15,8 +15,17 @@
 GO ?= go
 
 GOLANGCI_LINT_VERSION = v2.14.0
+# Checksums of the golangci-lint release archives per GOOS_GOARCH, see
+# golangci-lint-<version>-checksums.txt of the release. Bump them together
+# with the version above.
+GOLANGCI_LINT_SHA256_linux_amd64 = ab90aeb7b066f92a33415b638a50fe5344bbb75a0d32ad30cc248d88f81032ab
+GOLANGCI_LINT_SHA256_linux_arm64 = ee7ec5f3453d15ddf106fae5a4d6c71737712348a979d1fe9cd52ec7ea299bae
+GOLANGCI_LINT_SHA256_darwin_amd64 = a5667c1c3536be1740133213e1e822bfb8f0d98ea12903174d6d5f635e4ed68d
+GOLANGCI_LINT_SHA256_darwin_arm64 = 5ef5f36a7147e91dc58ef9ef4d11bb7bad5ead0c76eb6c01327a73c641d1dcc3
 KAL_VERSION = v0.0.0-20260716143926-092fe0c72997
 REPO_INFRA_VERSION = v0.2.6
+# Checksum of hack/verify_boilerplate.py of REPO_INFRA_VERSION.
+VERIFY_BOILERPLATE_SHA256 = 3ee0139a0a2865ad2e9674012a2459d56f4009844aa1b430119d0da4c603da95
 KUSTOMIZE_VERSION = 5.8.1
 OPERATOR_SDK_VERSION ?= v1.42.3
 OPM_VERSION ?= v1.74.0
@@ -34,6 +43,42 @@ ZEITGEIST_VERSION = v0.8.0
 MDTOC_VERSION = v1.4.0
 GOVULNCHECK_VERSION = v1.8.0
 GOTESTSUM_VERSION = v1.13.0
+# setup-envtest downloads the kube-apiserver and etcd binaries of the
+# integration tests. It is released together with controller-runtime, bump
+# them together.
+SETUP_ENVTEST_VERSION = v0.25.1
+SHELLCHECK_VERSION = v0.11.0
+# Checksums of the shellcheck release archives per GOOS_GOARCH, bump them
+# together with the version above.
+SHELLCHECK_SHA256_linux_amd64 = 8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
+SHELLCHECK_SHA256_linux_arm64 = 12b331c1d2db6b9eb13cfca64306b1b157a86eb69db83023e261eaa7e7c14588
+SHELLCHECK_SHA256_darwin_amd64 = 3c89db4edcab7cf1c27bff178882e0f6f27f7afdf54e859fa041fca10febe4c6
+SHELLCHECK_SHA256_darwin_arm64 = 56affdd8de5527894dca6dc3d7e0a99a873b0f004d7aabc30ae407d3f48b0a79
+PROTOC_VERSION = v36.2
+# Checksums of the protoc release archives per GOOS_GOARCH, bump them together
+# with the version above. The version ends up in the headers of the generated
+# GRPC code.
+PROTOC_SHA256_linux_amd64 = 121f6c7afe1d4d0e3ea6aab9432038599250134cbf4474cb1167d2c7decd4278
+PROTOC_SHA256_linux_arm64 = 8b8f18bd2b30346efbc698dd5a73dd7c805f3ef8380f6dfc95c768f3f1852f6a
+PROTOC_SHA256_darwin_amd64 = 228cc7add4616cc14ca5e80dee83209d44449a7aee95a914ae748fa374efb078
+PROTOC_SHA256_darwin_arm64 = 9cd98a532c5c5e0c4161314de0225de27e4c8a323917b6ea7b1b714d3ae23466
+HADOLINT_VERSION = v2.15.1
+# Checksums of the hadolint release binaries per GOOS_GOARCH, see
+# checksums.sha256 of the release. Bump them together with the version above.
+HADOLINT_SHA256_linux_amd64 = c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507
+HADOLINT_SHA256_linux_arm64 = f6198ef8090f404dbb771abfee086eb8c48ac177f30da7fd3510aca35b344b5d
+HADOLINT_SHA256_darwin_amd64 = ffe9bb18b23d5ed1eae50237aecdbb523d016e96da0bd4e7aa432040acfc3fde
+HADOLINT_SHA256_darwin_arm64 = 5c09f3213f8e40406abe048233d985eebef336d4a6a20021be47fadb6cf480a2
+ACTIONLINT_VERSION = v1.7.12
+KUBECONFORM_VERSION = v0.8.0
+KUBE_LINTER_VERSION = v0.8.3
+YQ_VERSION = 4.53.6
+# The oldest Kubernetes release the manifests are validated against, see
+# minimum-kubernetes in dependencies.yaml.
+MIN_KUBERNETES_VERSION = 1.30.0
+# Go tools which run outside of the module, so they need no vendoring. The
+# module checksum database verifies them.
+GO_RUN_TOOL := GOFLAGS= CGO_ENABLED=0 $(GO) run
 # Runs outside of the module, so it needs no vendoring.
 GOTESTSUM := GOFLAGS= $(GO) run gotest.tools/gotestsum@$(GOTESTSUM_VERSION)
 CI_IMAGE ?= golang:$(shell hack/go-version.sh)
@@ -41,6 +86,10 @@ CI_IMAGE ?= golang:$(shell hack/go-version.sh)
 CONTROLLER_GEN_CMD := CGO_LDFLAGS= $(GO) run $(BUILD_FLAGS) -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen
 
 NIX := nix --extra-experimental-features 'nix-command flakes'
+
+# The GOOS_GOARCH of the downloaded tools, which selects their checksum.
+TOOLS_PLATFORM = $(shell $(GO) env GOOS)_$(shell $(GO) env GOARCH)
+SHA256SUM ?= $(shell command -v sha256sum 2>/dev/null || echo shasum -a 256)
 
 PROJECT := security-profiles-operator
 CLI_BINARY := spoc
@@ -86,9 +135,9 @@ BPF_ENABLED = 0
 endif
 
 ifneq ($(shell uname -s), Darwin)
-LINT_BUILDTAGS := e2e,netgo,osusergo,seccomp
+LINT_BUILDTAGS := e2e,integration,netgo,osusergo,seccomp
 else
-LINT_BUILDTAGS := e2e,netgo,osusergo
+LINT_BUILDTAGS := e2e,integration,netgo,osusergo
 endif
 
 ifneq ($(shell uname -s), Darwin)
@@ -114,7 +163,9 @@ endif
 export CGO_LDFLAGS
 export CGO_ENABLED=1
 
-BUILD_FILES := $(shell find . -type f \( -name '*.go' -or -name '*.mod' -or -name '*.sum' -or -name 'recorder.bpf.o.*' \) -not -name '*_test.go')
+# vendor/modules.txt changes with every dependency change, walking all of
+# vendor on every make invocation is not worth it.
+BUILD_FILES := $(shell find . \( -path ./vendor -o -path ./.git -o -path ./$(BUILD_DIR) \) -prune -o -type f \( -name '*.go' -or -name '*.mod' -or -name '*.sum' -or -name 'recorder.bpf.o.*' \) -not -name '*_test.go' -print) vendor/modules.txt
 BPF_RECORDER_PATH := internal/pkg/daemon/bpfrecorder/bpf
 BPF_RECORDER_FILES := $(shell find internal/pkg/daemon/bpfrecorder/bpf -type f \( -name '*.c' -or -name '*.h' \))
 BPF_RECORDER_OUTPUT_FILES := $(shell find internal/pkg/daemon/bpfrecorder/bpf -type f -name 'recorder.bpf.o.*')
@@ -204,13 +255,19 @@ $(BUILD_DIR)/$(CLI_BINARY): $(BUILD_DIR) $(BUILD_FILES)
 clean: ## Clean the build directory
 	rm -rf $(BUILD_DIR) $(BPF_OUTPUT_FILES)
 
-.PHONY: $(BUILD_DIR)/kustomize
-$(BUILD_DIR)/kustomize: $(BUILD_DIR)
-	if [ ! -f $@ ]; then \
-		export URL=https://raw.githubusercontent.com/kubernetes-sigs/kustomize && \
-		curl -sfL $$URL/kustomize/v$(KUSTOMIZE_VERSION)/hack/install_kustomize.sh \
-			| bash -s $(KUSTOMIZE_VERSION) $(PWD)/$(BUILD_DIR); \
-	fi
+# kustomize shapes the committed manifests and the OLM bundle. It is built
+# from source, the module checksum database verifies it. The binary is
+# versioned, so that a bump of KUSTOMIZE_VERSION installs the new one.
+KUSTOMIZE := $(BUILD_DIR)/kustomize-v$(KUSTOMIZE_VERSION)
+
+$(KUSTOMIZE): | $(BUILD_DIR)
+	GOBIN=$(abspath $(BUILD_DIR))/kustomize-install GOFLAGS= CGO_ENABLED=0 \
+		$(GO) install sigs.k8s.io/kustomize/kustomize/v5@v$(KUSTOMIZE_VERSION)
+	mv $(BUILD_DIR)/kustomize-install/kustomize $@
+	rm -rf $(BUILD_DIR)/kustomize-install
+
+$(BUILD_DIR)/kustomize: $(KUSTOMIZE)
+	ln -sf $(notdir $(KUSTOMIZE)) $@
 
 $(BUILD_DIR)/kubernetes-split-yaml: $(BUILD_DIR)
 	$(call go-build,./vendor/github.com/mogensen/kubernetes-split-yaml)
@@ -225,15 +282,25 @@ deployments: $(BUILD_DIR)/kustomize manifests generate ## Generate the deploymen
 	$(BUILD_DIR)/kustomize build deploy/base-crds -o deploy/helm/crds/crds.yaml
 	$(BUILD_DIR)/kustomize build deploy/overlays/webhook -o deploy/webhook-operator.yaml
 
+# The OCI image annotations and the build date of Dockerfile.ubi come from the
+# commit, so that a commit gives the same image metadata.
+IMAGE_REVISION = $(shell git rev-parse HEAD 2>/dev/null)
+IMAGE_SOURCE_DATE_EPOCH = $(shell git log -1 --format=%ct 2>/dev/null)
+IMAGE_BUILD_ARGS = \
+	--build-arg version=$(VERSION) \
+	--build-arg revision=$(IMAGE_REVISION) \
+	--build-arg created=$(BUILD_DATE) \
+	--build-arg SOURCE_DATE_EPOCH=$(IMAGE_SOURCE_DATE_EPOCH)
+
 .PHONY: image
 image: ## Build the container image
-	$(CONTAINER_RUNTIME) build -f $(DOCKERFILE) --build-arg version=$(VERSION) -t $(IMAGE) .
+	$(CONTAINER_RUNTIME) build -f $(DOCKERFILE) $(IMAGE_BUILD_ARGS) -t $(IMAGE) .
 
 .PHONY: image-arm64
 image-arm64: ## Build the container image for arm64
 	$(CONTAINER_RUNTIME) build -f $(DOCKERFILE) \
 		--platform linux/arm64 \
-		--build-arg version=$(VERSION) \
+		$(IMAGE_BUILD_ARGS) \
 		--build-arg target=spo-arm64 \
 		-t $(IMAGE) .
 
@@ -354,15 +421,30 @@ $(BUILD_DIR)/protoc-gen-go-grpc: $(BUILD_DIR)
 $(BUILD_DIR)/protoc-gen-go: $(BUILD_DIR)
 	$(call go-build,./vendor/google.golang.org/protobuf/cmd/protoc-gen-go)
 
+PROTOC := $(BUILD_DIR)/protoc-$(PROTOC_VERSION)
+# protoc names the release archives by osx and aarch_64.
+PROTOC_ARCHIVE = protoc-$(PROTOC_VERSION:v%=%)-$(subst darwin,osx,$(shell $(GO) env GOOS))-$(subst arm64,aarch_64,$(subst amd64,x86_64,$(shell $(GO) env GOARCH))).zip
+
+$(PROTOC): | $(BUILD_DIR)
+	rm -rf $@.install
+	mkdir -p $@.install
+	curl -sSfL --retry 5 --retry-delay 3 -o $@.install/archive.zip \
+		https://github.com/protocolbuffers/protobuf/releases/download/$(PROTOC_VERSION)/$(PROTOC_ARCHIVE)
+	echo "$(PROTOC_SHA256_$(TOOLS_PLATFORM))  $@.install/archive.zip" | $(SHA256SUM) -c -
+	unzip -q $@.install/archive.zip bin/protoc -d $@.install
+	mv $@.install/bin/protoc $@
+	rm -rf $@.install
+	$@ --version
+
 .PHONY: update-proto
-update-proto: $(BUILD_DIR)/protoc-gen-go $(BUILD_DIR)/protoc-gen-go-grpc ## Update GRPC server protocol definitions
+update-proto: $(PROTOC) $(BUILD_DIR)/protoc-gen-go $(BUILD_DIR)/protoc-gen-go-grpc ## Update GRPC server protocol definitions
 	for PROTO in \
 		api/grpc/metrics \
 		api/grpc/enricher \
 		api/grpc/bpfrecorder \
 	; do \
 	PATH=$(BUILD_DIR):$$PATH \
-		 protoc \
+		 $(PROTOC) \
 			--go_out=. \
 			--go_opt=paths=source_relative \
 			--go-grpc_out=. \
@@ -399,14 +481,18 @@ vagrant-up-debian: ## Boot the Vagrant Debian based test VM
 vagrant-up-flatcar: ## Boot the Vagrant Flatcar based test VM
 	$(call vagrant-up,flatcar,build)
 
-$(BUILD_DIR)/mdtoc: $(BUILD_DIR)
-	curl -sSfL -o $(BUILD_DIR)/mdtoc \
-		https://storage.googleapis.com/k8s-artifacts-sig-release/kubernetes-sigs/mdtoc/$(MDTOC_VERSION)/mdtoc-$(ARCH)-$(OS)
-	chmod +x $(BUILD_DIR)/mdtoc
+# Built from source, the module checksum database verifies it.
+$(BUILD_DIR)/mdtoc: | $(BUILD_DIR)
+	GOBIN=$(abspath $(BUILD_DIR)) GOFLAGS= CGO_ENABLED=0 $(GO) install sigs.k8s.io/mdtoc@$(MDTOC_VERSION)
 
 .PHONY: update-toc
 update-toc: $(BUILD_DIR)/mdtoc ## Update the table of contents for the documentation
 	git grep --name-only '<!-- toc -->' | grep -v Makefile | xargs $(BUILD_DIR)/mdtoc -i
+
+.PHONY: update-docs
+update-docs: ## Update the generated command line reference in doc/reference
+	$(GO) run ./cmd/spoc docs > doc/reference/spoc.md
+	$(GO) run ./cmd/security-profiles-operator docs > doc/reference/security-profiles-operator.md
 
 # Called by nix/derivation-bpf.nix with ARCH set to the kernel architecture
 # name of the vmlinux directory, use make update-bpf to build them.
@@ -434,12 +520,14 @@ $(BUILD_DIR)/enricher.bpf.o: $(BUILD_DIR)
 update-vmlinux: ## Generate the vmlinux.h required for building the BPF modules.
 	./hack/update-vmlinux
 
-.PHONY: update-bpf
-update-bpf: clean \
+BPF_UPDATE_OBJECTS := \
     internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.amd64 \
     internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.arm64 \
     internal/pkg/daemon/enricher/auditsource/bpf/enricher.bpf.o.amd64 \
     internal/pkg/daemon/enricher/auditsource/bpf/enricher.bpf.o.arm64
+
+.PHONY: update-bpf
+update-bpf: clean $(BPF_UPDATE_OBJECTS) ## Build and update all generated BPF code with nix
 
 internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.%: $(BPF_RECORDER_FILES) ## Build and update all generated BPF code with nix
 	$(NIX) build .#bpf-$*
@@ -454,7 +542,7 @@ internal/pkg/daemon/enricher/auditsource/bpf/enricher.bpf.o.%: $(BPF_ENRICHER_FI
 # Verification targets
 
 .PHONY: verify
-verify: verify-boilerplate verify-go-mod verify-go-lint verify-deployments verify-dependencies verify-toc verify-mocks verify-proto verify-format verify-vulnerabilities ## Run all verification targets
+verify: verify-boilerplate verify-go-mod verify-go-lint verify-deployments verify-dependencies verify-toc verify-mocks verify-proto verify-format verify-vulnerabilities verify-shellcheck verify-dockerfiles verify-manifests verify-security-model verify-docs ## Run all verification targets
 
 .PHONY: verify-in-a-container
 verify-in-a-container: ## Run all verification targets in a container
@@ -485,14 +573,15 @@ verify-boilerplate: $(BUILD_DIR)/verify_boilerplate.py ## Verify the boilerplate
 		--skip internal/pkg/daemon/metrics/metricsfakes/fake_impl.go \
 		--skip internal/pkg/nonrootenabler/nonrootenablerfakes/fake_impl.go \
 		--skip internal/pkg/webhooks/binding/bindingfakes/fake_impl.go \
-		--skip internal/pkg/webhooks/recording/recordingfakes/fake_impl.go \
-		--skip internal/pkg/daemon/profilerecorder/profilerecorderfakes/fake_impl.go
+		--skip internal/pkg/webhooks/recording/recordingfakes/fake_impl.go
 
 
-$(BUILD_DIR)/verify_boilerplate.py: $(BUILD_DIR)
-	curl -sfL https://raw.githubusercontent.com/kubernetes/repo-infra/$(REPO_INFRA_VERSION)/hack/verify_boilerplate.py \
-		-o $(BUILD_DIR)/verify_boilerplate.py
-	chmod +x $(BUILD_DIR)/verify_boilerplate.py
+$(BUILD_DIR)/verify_boilerplate.py: | $(BUILD_DIR)
+	curl -sSfL --retry 5 --retry-delay 3 -o $@.download \
+		https://raw.githubusercontent.com/kubernetes/repo-infra/$(REPO_INFRA_VERSION)/hack/verify_boilerplate.py
+	echo "$(VERIFY_BOILERPLATE_SHA256)  $@.download" | $(SHA256SUM) -c -
+	chmod +x $@.download
+	mv $@.download $@
 
 .PHONY: verify-go-mod
 verify-go-mod: update-go-mod ## Verify the go modules
@@ -510,12 +599,16 @@ verify-go-lint: $(BUILD_DIR)/golangci-lint-kube-api-linter ## Verify the golang 
 # .custom-gcl.yml rebuilds them instead of linting with a stale binary.
 GOLANGCI_LINT := $(BUILD_DIR)/golangci-lint-$(GOLANGCI_LINT_VERSION)
 
-$(GOLANGCI_LINT): $(BUILD_DIR)
-	export \
-		VERSION=$(GOLANGCI_LINT_VERSION) \
-		URL=https://raw.githubusercontent.com/golangci/golangci-lint \
-		BINDIR=$(BUILD_DIR)/golangci-lint-install && \
-	curl -sfL $$URL/$$VERSION/install.sh | sh -s $$VERSION
+GOLANGCI_LINT_ARCHIVE = golangci-lint-$(GOLANGCI_LINT_VERSION:v%=%)-$(subst _,-,$(TOOLS_PLATFORM))
+
+$(GOLANGCI_LINT): | $(BUILD_DIR)
+	rm -rf $(BUILD_DIR)/golangci-lint-install
+	mkdir -p $(BUILD_DIR)/golangci-lint-install
+	curl -sSfL --retry 5 --retry-delay 3 -o $(BUILD_DIR)/golangci-lint-install/archive.tar.gz \
+		https://github.com/golangci/golangci-lint/releases/download/$(GOLANGCI_LINT_VERSION)/$(GOLANGCI_LINT_ARCHIVE).tar.gz
+	echo "$(GOLANGCI_LINT_SHA256_$(TOOLS_PLATFORM))  $(BUILD_DIR)/golangci-lint-install/archive.tar.gz" | $(SHA256SUM) -c -
+	tar -xzf $(BUILD_DIR)/golangci-lint-install/archive.tar.gz -C $(BUILD_DIR)/golangci-lint-install \
+		--strip-components=1 $(GOLANGCI_LINT_ARCHIVE)/golangci-lint
 	mv $(BUILD_DIR)/golangci-lint-install/golangci-lint $@
 	rm -rf $(BUILD_DIR)/golangci-lint-install
 	$@ version
@@ -543,13 +636,16 @@ verify-dependencies-upstream: $(BUILD_DIR) ## Verify that the external dependenc
 	cat $(BUILD_DIR)/zeitgeist-upstream.log
 	! grep -q "^Update available for dependency" $(BUILD_DIR)/zeitgeist-upstream.log
 
-$(BUILD_DIR)/zeitgeist: $(BUILD_DIR)
-	curl -sSfL -o $(BUILD_DIR)/zeitgeist -L \
-		https://github.com/kubernetes-sigs/zeitgeist/releases/download/$(ZEITGEIST_VERSION)/zeitgeist-$(ARCH)-$(OS)
-	chmod +x $(BUILD_DIR)/zeitgeist
+# Built from source, the module checksum database verifies it.
+$(BUILD_DIR)/zeitgeist: | $(BUILD_DIR)
+	GOBIN=$(abspath $(BUILD_DIR)) GOFLAGS= CGO_ENABLED=0 $(GO) install sigs.k8s.io/zeitgeist@$(ZEITGEIST_VERSION)
 
 .PHONY: verify-toc
 verify-toc: update-toc ## Verify the table of contents for the documentation
+	hack/tree-status
+
+.PHONY: verify-docs
+verify-docs: update-docs ## Verify the generated command line reference
 	hack/tree-status
 
 .PHONY: verify-mocks
@@ -581,14 +677,120 @@ verify-format: ## Verify the code format
 	clang-format -i $(shell find . -type f -name '*.c' -or -name '*.proto' | grep -v ./vendor)
 	hack/tree-status
 
+# Architecture names of the shellcheck and hadolint release assets. shellcheck
+# names arm64 aarch64, hadolint keeps arm64.
+TOOLS_ASSET_ARCH = $(subst arm64,aarch64,$(subst amd64,x86_64,$(shell $(GO) env GOARCH)))
+HADOLINT_ARCH = $(subst amd64,x86_64,$(shell $(GO) env GOARCH))
+HADOLINT_OS = $(subst darwin,macos,$(shell $(GO) env GOOS))
+
+SHELLCHECK := $(BUILD_DIR)/shellcheck-$(SHELLCHECK_VERSION)
+SHELLCHECK_ARCHIVE = shellcheck-$(SHELLCHECK_VERSION).$(shell $(GO) env GOOS).$(TOOLS_ASSET_ARCH).tar.xz
+
+$(SHELLCHECK): | $(BUILD_DIR)
+	rm -rf $@.install
+	mkdir -p $@.install
+	curl -sSfL --retry 5 --retry-delay 3 -o $@.install/archive.tar.xz \
+		https://github.com/koalaman/shellcheck/releases/download/$(SHELLCHECK_VERSION)/$(SHELLCHECK_ARCHIVE)
+	echo "$(SHELLCHECK_SHA256_$(TOOLS_PLATFORM))  $@.install/archive.tar.xz" | $(SHA256SUM) -c -
+	tar -xJf $@.install/archive.tar.xz -C $@.install --strip-components=1 shellcheck-$(SHELLCHECK_VERSION)/shellcheck
+	mv $@.install/shellcheck $@
+	rm -rf $@.install
+
+.PHONY: verify-shellcheck
+verify-shellcheck: $(SHELLCHECK) ## Verify the shell scripts with shellcheck
+	SHELLCHECK=$(SHELLCHECK) hack/verify-shellcheck.sh
+
+HADOLINT := $(BUILD_DIR)/hadolint-$(HADOLINT_VERSION)
+
+$(HADOLINT): | $(BUILD_DIR)
+	curl -sSfL --retry 5 --retry-delay 3 -o $@.download \
+		https://github.com/hadolint/hadolint/releases/download/$(HADOLINT_VERSION)/hadolint-$(HADOLINT_OS)-$(HADOLINT_ARCH)
+	echo "$(HADOLINT_SHA256_$(TOOLS_PLATFORM))  $@.download" | $(SHA256SUM) -c -
+	chmod +x $@.download
+	mv $@.download $@
+
+.PHONY: verify-dockerfiles
+verify-dockerfiles: $(HADOLINT) ## Lint the Dockerfiles and verify that the image variants match
+	$(HADOLINT) --config .hadolint.yaml Dockerfile Dockerfile.ubi Dockerfile.build-image bundle.Dockerfile
+	hack/ci/dockerfile-drift.sh Dockerfile Dockerfile.ubi
+
+.PHONY: verify-actions
+verify-actions: $(SHELLCHECK) ## Lint the GitHub workflows with actionlint
+	$(GO_RUN_TOOL) github.com/rhysd/actionlint/cmd/actionlint@$(ACTIONLINT_VERSION) -shellcheck=$(abspath $(SHELLCHECK))
+
+# The committed manifests and the examples are validated against the schemas
+# of the oldest supported Kubernetes and of the CRDs in this tree, and the
+# deployments are linted with kube-linter, see .kube-linter.yaml.
+.PHONY: verify-manifests
+verify-manifests: ## Validate the committed manifests and examples
+	GO="$(GO)" \
+	KUBECONFORM_VERSION=$(KUBECONFORM_VERSION) \
+	KUBE_LINTER_VERSION=$(KUBE_LINTER_VERSION) \
+	YQ_VERSION=$(YQ_VERSION) \
+	KUBERNETES_VERSION=$(MIN_KUBERNETES_VERSION) \
+	BUILD_DIR=$(BUILD_DIR) \
+		hack/verify-manifests.sh
+
+.PHONY: verify-security-model
+verify-security-model: ## Verify that doc/security-model.md matches the manifests and the code
+	hack/verify-security-model.sh
+
 # Test targets
 
 .PHONY: test-unit
-test-unit: $(BUILD_DIR) ## Run the unit tests
-	$(GO) test -ldflags '$(LDVARS)' -tags '$(BUILDTAGS)' -race -v -test.coverprofile=$(BUILD_DIR)/coverage.out ./internal/... ./api/... ./cmd/...
+# -coverpkg attributes the coverage of a package to every test which runs its
+# code, not only to the tests of the package itself.
+UNIT_TEST_TIMEOUT ?= 30m
+
+test-unit: | $(BUILD_DIR) ## Run the unit tests
+	$(GO) test -ldflags '$(LDVARS)' -tags '$(BUILDTAGS)' -race -v -shuffle=on -timeout $(UNIT_TEST_TIMEOUT) \
+		-coverpkg=./internal/...,./api/...,./cmd/... -coverprofile=$(BUILD_DIR)/coverage.out \
+		./internal/... ./api/... ./cmd/...
 	$(GO) tool cover -html $(BUILD_DIR)/coverage.out -o $(BUILD_DIR)/coverage.html
 
-# E2E_TEST_BINARY is a prebuilt e2e test binary (go test -c ./test) to run
+# The envtest binaries follow the Kubernetes version of the vendored
+# k8s.io/api, v0.37.x runs against 1.37.x.
+ENVTEST_K8S_VERSION ?= $(shell $(GO) list -m -f '{{.Version}}' k8s.io/api | awk -F'[v.]' '{printf "1.%d.x", $$3}')
+INTEGRATION_TEST_TIMEOUT ?= 15m
+
+$(BUILD_DIR)/setup-envtest: | $(BUILD_DIR)
+	GOBIN=$(abspath $(BUILD_DIR)) GOFLAGS= CGO_ENABLED=0 $(GO) install sigs.k8s.io/controller-runtime/tools/setup-envtest@$(SETUP_ENVTEST_VERSION)
+
+# SPO_INTEGRATION_REQUIRED fails the tests instead of skipping them without
+# the envtest binaries.
+.PHONY: test-integration
+test-integration: $(BUILD_DIR)/setup-envtest ## Run the controller integration tests against envtest
+	assets="$$($(BUILD_DIR)/setup-envtest use -p path --bin-dir $(abspath $(BUILD_DIR))/envtest $(ENVTEST_K8S_VERSION))" && \
+	if [ -z "$$assets" ]; then \
+		echo "setup-envtest found no envtest binaries for Kubernetes $(ENVTEST_K8S_VERSION)" >&2; \
+		exit 1; \
+	fi && \
+	KUBEBUILDER_ASSETS="$$assets" SPO_INTEGRATION_REQUIRED=true \
+		$(GO) test -tags 'integration $(BUILDTAGS)' -race -v -count=1 -timeout $(INTEGRATION_TEST_TIMEOUT) \
+		./internal/pkg/integration/...
+
+# FUZZ_TARGETS lists the fuzz tests as package:FuzzName. go test fuzzes only
+# one target per run, so test-fuzz runs them one after another.
+FUZZ_TIME ?= 30s
+FUZZ_TARGETS ?= \
+	./internal/pkg/daemon/enricher/auditsource:FuzzExtractAuditLine \
+	./internal/pkg/daemon/enricher/auditsource:FuzzParseAuditFields \
+	./internal/pkg/daemon/enricher/auditsource:FuzzParseBpfAuditEvent \
+	./internal/pkg/daemon/apparmorprofile/crd2armor:FuzzGenerateProfile \
+	./internal/pkg/translator:FuzzObject2CIL \
+	./internal/pkg/artifact:FuzzReadProfile \
+	./internal/pkg/artifact:FuzzDecodeRuntimeSpecSeccompProfile \
+	./internal/pkg/artifact:FuzzNameFromReference
+
+.PHONY: test-fuzz
+test-fuzz: ## Run every fuzz target for FUZZ_TIME, one target per go test run
+	@set -e; for target in $(FUZZ_TARGETS); do \
+		pkg=$${target%%:*}; fuzz=$${target##*:}; \
+		echo "Fuzzing $$fuzz in $$pkg for $(FUZZ_TIME)"; \
+		$(GO) test -tags '$(BUILDTAGS)' -run '^$$' -fuzz "^$$fuzz$$" -fuzztime $(FUZZ_TIME) $$pkg; \
+	done
+
+# E2E_TEST_BINARY is a prebuilt e2e test binary (go test -c -tags e2e ./test) to run
 # instead of building the tests. CI builds it outside of the test VMs, where
 # compiling the tests takes more than 10 minutes. The binary runs in ./test,
 # like go test runs it, and ARGS are test binary flags then (-test.run=...).
@@ -598,16 +800,20 @@ E2E_TEST_PACKAGE := $(GO_PROJECT)/test
 # go help testflag.
 E2E_TEST_SKIP ?=
 E2E_TEST_SKIP_FLAG := $(if $(E2E_TEST_SKIP),-test.skip='$(E2E_TEST_SKIP)')
+# E2E_SKIP_FLAKY_TESTS skips the quarantined test cases in test-e2e, see
+# doc/hacking.md. They only run through test-flaky-e2e, which retries them.
+# E2E_SKIP_FLAKY_TESTS=false runs them in test-e2e as well, without retries.
+E2E_SKIP_FLAKY_TESTS ?= true
 
 .PHONY: test-e2e
 test-e2e: ## Run the end-to-end tests
 ifeq ($(E2E_TEST_BINARY),)
 	CGO_LDFLAGS= \
-	E2E_SKIP_FLAKY_TESTS=true \
-	$(GO) test -parallel 1 -timeout 60m -count=1 ./test -v $(E2E_TEST_SKIP_FLAG) $(ARGS)
+	E2E_SKIP_FLAKY_TESTS=$(E2E_SKIP_FLAKY_TESTS) \
+	$(GO) test -tags e2e -parallel 1 -timeout 60m -count=1 ./test -v $(E2E_TEST_SKIP_FLAG) $(ARGS)
 else
 	cd test && \
-	E2E_SKIP_FLAKY_TESTS=true \
+	E2E_SKIP_FLAKY_TESTS=$(E2E_SKIP_FLAKY_TESTS) \
 	$(abspath $(E2E_TEST_BINARY)) -test.parallel=1 -test.timeout=60m -test.count=1 -test.v \
 		$(E2E_TEST_SKIP_FLAG) $(ARGS)
 endif
@@ -619,8 +825,16 @@ endif
 # prebuilt binary runs as raw command, to which gotestsum appends the
 # -test.run flag and the package of the retried tests, which the binary
 # ignores.
+#
+# E2E_RETRY_RUN selects the tests, the quarantined test cases by default. The
+# nightly flake analysis runs the whole suite with retries through
+# E2E_RETRY_RUN=^TestSuite and a longer E2E_RETRY_TIMEOUT, see
+# test/ci/junit-flakes.py.
+E2E_RETRY_RUN ?= ^TestSuite$$/^TestSecurityProfilesOperator_Flaky$$
+E2E_RETRY_TIMEOUT ?= 30m
+
 .PHONY: test-flaky-e2e
-test-flaky-e2e: $(BUILD_DIR) ## Only run the flaky end-to-end tests
+test-flaky-e2e: $(BUILD_DIR) ## Only run the quarantined end-to-end tests
 ifeq ($(E2E_TEST_BINARY),)
 	CGO_LDFLAGS= \
 	E2E_SKIP_FLAKY_TESTS=false \
@@ -629,7 +843,7 @@ ifeq ($(E2E_TEST_BINARY),)
 		--junitfile $(BUILD_DIR)/junit-flaky-e2e.xml \
 		--packages ./test \
 		--rerun-fails=1 \
-		-- -parallel 1 -timeout 20m -count=1 -run '^TestSuite$$/^TestSecurityProfilesOperator_Flaky$$' \
+		-- -tags e2e -parallel 1 -timeout $(E2E_RETRY_TIMEOUT) -count=1 -run '$(E2E_RETRY_RUN)' \
 		$(E2E_TEST_SKIP_FLAG)
 else
 	cd test && \
@@ -641,16 +855,15 @@ else
 		--rerun-fails=1 \
 		--raw-command \
 		-- $(GO) tool test2json -t -p $(E2E_TEST_PACKAGE) \
-		$(abspath $(E2E_TEST_BINARY)) -test.v=test2json -test.parallel=1 -test.timeout=20m -test.count=1 \
-		-test.run='^TestSuite$$/^TestSecurityProfilesOperator_Flaky$$' $(E2E_TEST_SKIP_FLAG)
+		$(abspath $(E2E_TEST_BINARY)) -test.v=test2json -test.parallel=1 -test.timeout=$(E2E_RETRY_TIMEOUT) \
+		-test.count=1 -test.run='$(E2E_RETRY_RUN)' $(E2E_TEST_SKIP_FLAG)
 endif
 
 .PHONY: test-spoc-e2e
-test-spoc-e2e: build/spoc ## Run the spoc end-to-end tests
-	$(GO) test -v ./test/spoc $(ARGS)
+test-spoc-e2e: $(BUILD_DIR)/$(CLI_BINARY) ## Run the spoc end-to-end tests
+	$(GO) test -v -timeout 20m ./test/spoc $(ARGS)
 
-# Generate CRD manifests
-manifests: $(BUILD_DIR)/kubernetes-split-yaml $(BUILD_DIR)/kustomize
+manifests: $(BUILD_DIR)/kubernetes-split-yaml $(BUILD_DIR)/kustomize ## Generate the CRD manifests
 	./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/spod/...' output:crd:stdout" "deploy/base-crds/crds/securityprofilesoperatordaemon.yaml"
 	./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/secprofnodestatus/...' output:crd:stdout" "deploy/base-crds/crds/securityprofilenodestatus.yaml"
 	./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/seccompprofile/...' output:crd:stdout" "deploy/base-crds/crds/seccompprofile.yaml"
@@ -659,8 +872,7 @@ manifests: $(BUILD_DIR)/kubernetes-split-yaml $(BUILD_DIR)/kustomize
 	./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/profilerecording/...' output:crd:stdout" "deploy/base-crds/crds/profilerecording.yaml"
 	./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/apparmorprofile/...' output:crd:stdout" "deploy/base-crds/crds/apparmorprofile.yaml"
 
-# Generate deepcopy code
-generate:
+generate: ## Generate the deepcopy code and the RBAC roles
 	$(CONTROLLER_GEN_CMD) object:headerFile="hack/boilerplate/boilerplate.go.txt" paths="./api/..."
 	$(CONTROLLER_GEN_CMD) rbac:roleName=security-profiles-operator paths="./internal/pkg/manager/..." output:rbac:stdout > deploy/base/role.yaml
 	$(CONTROLLER_GEN_CMD) rbac:roleName=spod paths="./internal/pkg/daemon/..." output:rbac:stdout >> deploy/base/role.yaml
@@ -668,10 +880,6 @@ generate:
 
 ## Bundle packaging begins here
 ## read more at https://sdk.operatorframework.io/docs/olm-integration/tutorial-bundle/
-
-# The GOOS_GOARCH of the downloaded tools, which selects their checksum.
-TOOLS_PLATFORM = $(shell go env GOOS)_$(shell go env GOARCH)
-SHA256SUM ?= $(shell command -v sha256sum 2>/dev/null || echo shasum -a 256)
 
 .PHONY: operator-sdk
 OPERATOR_SDK = $(BUILD_DIR)/operator-sdk
@@ -737,13 +945,16 @@ BUNDLE_SA_OPTS ?= --extra-service-accounts security-profiles-operator,spod,spo-w
 
 .PHONY: bundle
 bundle: operator-sdk deployments ## Generate bundle manifests and metadata, then validate generated files.
+	# The skipRange gets bumped only for the bundle. Keep a copy instead of
+	# using git restore, which would also drop uncommitted changes to the file.
+	cp deploy/base/clusterserviceversion.yaml $(BUILD_DIR)/clusterserviceversion.yaml.orig
 	$(SED) "s/\(olm.skipRange: '>=.*\)<.*'/\1<$(VERSION)'/" deploy/base/clusterserviceversion.yaml
 	$(SED) "s/\(\"name\": \"security-profiles-operator.v\).*\"/\1$(VERSION)\"/" deploy/catalog-preamble.json
 	$(SED) "s/\(\"skipRange\": \">=.*\)<.*\"/\1<$(VERSION)\"/" deploy/catalog-preamble.json
 	# operator-sdk never removes files, so start clean to not ship stale manifests
 	rm -rf ./bundle/manifests ./bundle/metadata
 	cat $(OLM_EXAMPLES) $(BUNDLE_OPERATOR_MANIFEST) deploy/base/clusterserviceversion.yaml | $(OPERATOR_SDK) generate bundle -q --overwrite $(BUNDLE_SA_OPTS) --version $(VERSION) $(BUNDLE_METADATA_OPTS)
-	git restore deploy/base/clusterserviceversion.yaml
+	mv $(BUILD_DIR)/clusterserviceversion.yaml.orig deploy/base/clusterserviceversion.yaml
 	mkdir -p ./bundle/tests/scorecard
 	cp deploy/bundle-test-config.yaml ./bundle/tests/scorecard/config.yaml
 	$(OPERATOR_SDK) bundle validate ./bundle
@@ -758,7 +969,7 @@ bundle-push: ## Push the bundle image.
 
 .PHONY: verify-bundle
 verify-bundle: bundle ## Verify the bundle doesn't alter the state of the tree
-	git diff --exit-code -I'^    createdAt: ' -I'^    containerImage: ' -- bundle
+	git diff --exit-code -I'^    createdAt: ' -- bundle
 	test -z "$$(git ls-files --others --exclude-standard -- bundle)"
 
 .PHONY: opm
@@ -823,7 +1034,7 @@ catalog-push: ## Push a catalog image.
 ## These targets are meant to make development in OpenShift easier.
 
 .PHONY: openshift-user
-openshift-user:
+openshift-user: ## Determine the OpenShift user for the image registry login
 ifeq ($(shell oc whoami 2> /dev/null),kube:admin)
 	$(eval OPENSHIFT_USER = kubeadmin)
 else
@@ -831,11 +1042,11 @@ else
 endif
 
 .PHONY: set-openshift-image-params
-set-openshift-image-params:
+set-openshift-image-params: ## Use Dockerfile.ubi for the OpenShift images
 	$(eval DOCKERFILE = Dockerfile.ubi)
 
 .PHONY: _push-image-openshift-dev
-_push-image-openshift-dev:
+_push-image-openshift-dev: ## Push IMAGE to the OpenShift image registry
 	@echo "Exposing the default route to the image registry"
 	@oc patch configs.imageregistry.operator.openshift.io/cluster --patch '{"spec":{"defaultRoute":true}}' --type=merge
 	@echo "Pushing image $(IMAGE) to the image registry"
@@ -852,30 +1063,27 @@ else
 endif
 
 .PHONY: push-prebuilt-image-openshift-dev
-push-prebuilt-image-openshift-dev: set-openshift-image-params openshift-user _push-image-openshift-dev
+push-prebuilt-image-openshift-dev: set-openshift-image-params openshift-user _push-image-openshift-dev ## Push a pre-built image to the OpenShift image registry
 	@echo "Pushed a pre-built image to image registry"
 
 .PHONY: push-openshift-dev
-push-openshift-dev: set-openshift-image-params openshift-user image _push-image-openshift-dev
+push-openshift-dev: set-openshift-image-params openshift-user image _push-image-openshift-dev ## Build the image and push it to the OpenShift image registry
 	@echo "Built image and pushed to image registry"
 .PHONY: do-deploy-openshift-dev
-do-deploy-openshift-dev: $(BUILD_DIR)/kustomize
+do-deploy-openshift-dev: ## Deploy deploy/openshift-dev.yaml into the current OpenShift cluster
 	@echo "Deploying"
 	oc apply -f deploy/openshift-dev.yaml
 	@echo "Setting triggers to track image"
 	oc set triggers -n security-profiles-operator deployment/security-profiles-operator --from-image openshift/security-profiles-operator:latest -c security-profiles-operator
 
-# Deploy for development into OpenShift
 .PHONY: deploy-openshift-dev
-deploy-openshift-dev: push-openshift-dev do-deploy-openshift-dev
+deploy-openshift-dev: push-openshift-dev do-deploy-openshift-dev ## Build, push and deploy the operator for development into OpenShift
 
-# Deploy pre-built image for development into OpenShift
 .PHONY: deploy-prebuilt-openshift-dev
-deploy-prebuilt-openshift-dev: push-prebuilt-image-openshift-dev do-deploy-openshift-dev
+deploy-prebuilt-openshift-dev: push-prebuilt-image-openshift-dev do-deploy-openshift-dev ## Push a pre-built image and deploy the operator for development into OpenShift
 
-# Deploy the operator into the current kubectl context.
 .PHONY: deploy
-deploy:
+deploy: ## Deploy the operator with IMAGE into the current kubectl context
 	mkdir -p build/deploy && cp deploy/operator.yaml build/deploy/
 	$(SED) "s#us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator:latest#$(IMAGE)#g" build/deploy/operator.yaml
 	$(SED) "s#replicas: 3#replicas: 1#g" build/deploy/operator.yaml

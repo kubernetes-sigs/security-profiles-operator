@@ -49,7 +49,11 @@ type StatusClient struct {
 	pol             profilebase.SecurityProfileBase
 	nodeName        string
 	finalizerString string
-	client          client.Client
+	// legacyFinalizerString is the finalizer earlier releases added for a
+	// node whose name does not fit into a finalizer, see
+	// util.GetLegacyFinalizerNodeString. It is empty for every other node.
+	legacyFinalizerString string
+	client                client.Client
 
 	// kind is the profile kind, resolved once on construction so that names
 	// and labels do not depend on the TypeMeta of pol, which is empty for
@@ -85,11 +89,12 @@ func NewForProfileOnNode(
 	}
 
 	return &StatusClient{
-		pol:             pol,
-		kind:            kind,
-		nodeName:        nodeName,
-		finalizerString: getFinalizerString(pol, nodeName),
-		client:          c,
+		pol:                   pol,
+		kind:                  kind,
+		nodeName:              nodeName,
+		finalizerString:       getFinalizerString(pol, nodeName),
+		legacyFinalizerString: getLegacyFinalizerString(pol, nodeName),
+		client:                c,
 	}, nil
 }
 
@@ -190,6 +195,8 @@ func (nsf *StatusClient) removeLegacyNodeStatus(
 	return true, old.Status.Status
 }
 
+// createFinalizer adds the finalizer of this node. A legacy finalizer of an
+// earlier release is left in place, see MigrateLegacyFinalizer.
 func (nsf *StatusClient) createFinalizer(ctx context.Context) error {
 	return util.Retry(func() error {
 		return util.AddFinalizer(ctx, nsf.client, nsf.pol, nsf.finalizerString)
@@ -320,9 +327,46 @@ func (nsf *StatusClient) Remove(ctx context.Context, c client.Client) error {
 	return nil
 }
 
+// MigrateLegacyFinalizer adds the current finalizer of this node to a profile
+// which carries the finalizer earlier releases added for a node whose name
+// does not fit into a finalizer. It does nothing unless the profile carries the
+// legacy finalizer.
+//
+// The legacy finalizer is kept: it is shared by all nodes whose names start
+// with the same truncated prefix, and some of them may not have added their
+// own finalizer yet. It is removed along with the current one when the profile
+// is removed from the node, see Remove.
+//
+// Known limitation, as in earlier releases: the first of the nodes sharing
+// the legacy finalizer which removes the profile also removes the legacy
+// finalizer. A node which has not migrated yet then has no finalizer on the
+// profile anymore, so the profile can go away before that node removed it.
+// Nodes which migrated keep the profile through their own finalizer.
+func (nsf *StatusClient) MigrateLegacyFinalizer(ctx context.Context) error {
+	if nsf.legacyFinalizerString == "" ||
+		!controllerutil.ContainsFinalizer(nsf.pol, nsf.legacyFinalizerString) ||
+		controllerutil.ContainsFinalizer(nsf.pol, nsf.finalizerString) {
+		return nil
+	}
+
+	if err := nsf.createFinalizer(ctx); err != nil {
+		return fmt.Errorf(
+			"adding the finalizer next to the legacy one of %s: %w",
+			nsf.pol.GetName(),
+			err,
+		)
+	}
+
+	return nil
+}
+
+// removeFinalizer removes the finalizer of this node and the legacy one of
+// earlier releases, which other nodes may share, see MigrateLegacyFinalizer.
 func (nsf *StatusClient) removeFinalizer(ctx context.Context) error {
 	return util.Retry(func() error {
-		return util.RemoveFinalizer(ctx, nsf.client, nsf.pol, nsf.finalizerString)
+		return util.RemoveFinalizers(
+			ctx, nsf.client, nsf.pol, nsf.finalizerString, nsf.legacyFinalizerString,
+		)
 	}, util.IsNotFoundOrConflict)
 }
 
@@ -343,9 +387,13 @@ func (nsf *StatusClient) Exists(ctx context.Context) (bool, error) {
 	return s && f, err
 }
 
-// FinalizerExists returns true if the profile carries the finalizer of this node.
+// FinalizerExists returns true if the profile carries the finalizer of this
+// node, in its current or its legacy form: a profile which was being deleted
+// before the upgrade still has to be removed from the node.
 func (nsf *StatusClient) FinalizerExists() bool {
-	return controllerutil.ContainsFinalizer(nsf.pol, nsf.finalizerString)
+	return controllerutil.ContainsFinalizer(nsf.pol, nsf.finalizerString) ||
+		(nsf.legacyFinalizerString != "" &&
+			controllerutil.ContainsFinalizer(nsf.pol, nsf.legacyFinalizerString))
 }
 
 func (nsf *StatusClient) nodeStatusExists(ctx context.Context) (bool, error) {
@@ -417,27 +465,32 @@ func (nsf *StatusClient) GetAnnotation(ctx context.Context, key string) (string,
 	return status.Annotations[key], nil
 }
 
+// SetAnnotation sets the annotation on the node status of the profile. A
+// conflict with another writer of the status, like SetNodeStatus running for
+// the same profile, is retried.
 func (nsf *StatusClient) SetAnnotation(ctx context.Context, key, value string) error {
-	status := secprofnodestatusapi.SecurityProfileNodeStatus{}
-	if err := nsf.client.Get(ctx, nsf.perNodeStatusNamespacedName(), &status); err != nil {
-		return fmt.Errorf("getting node status for annotation update: %w", err)
-	}
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		status := secprofnodestatusapi.SecurityProfileNodeStatus{}
+		if err := nsf.client.Get(ctx, nsf.perNodeStatusNamespacedName(), &status); err != nil {
+			return fmt.Errorf("getting node status for annotation update: %w", err)
+		}
 
-	if status.Annotations == nil {
-		status.Annotations = make(map[string]string)
-	}
+		if status.Annotations == nil {
+			status.Annotations = make(map[string]string)
+		}
 
-	if status.Annotations[key] == value {
+		if status.Annotations[key] == value {
+			return nil
+		}
+
+		status.Annotations[key] = value
+
+		if err := nsf.client.Update(ctx, &status); err != nil {
+			return fmt.Errorf("updating node status annotation: %w", err)
+		}
+
 		return nil
-	}
-
-	status.Annotations[key] = value
-
-	if err := nsf.client.Update(ctx, &status); err != nil {
-		return fmt.Errorf("updating node status annotation: %w", err)
-	}
-
-	return nil
+	})
 }
 
 // State returns the state of the profile on the node.
@@ -474,6 +527,16 @@ func getFinalizerString(pol profilebase.SecurityProfileBase, nodeName string) st
 	finalizerString := util.GetFinalizerNodeString(nodeName)
 
 	return finalizerString
+}
+
+// getLegacyFinalizerString returns the finalizer which earlier releases added
+// for the node, if it differs from the current one.
+func getLegacyFinalizerString(pol profilebase.SecurityProfileBase, nodeName string) string {
+	if pol.IsPartial() {
+		return ""
+	}
+
+	return util.GetLegacyFinalizerNodeString(nodeName)
 }
 
 func handleRecordingFinalizer(
@@ -534,27 +597,16 @@ func handleRecordingFinalizer(
 		return nil
 	}
 
-	profilerecording := &profilerecordingapi.ProfileRecording{}
-
-	err = c.Get(ctx, util.NamespacedName(recordingName, recordingNamespace), profilerecording)
-	if kerrors.IsNotFound(err) {
-		return nil // should not happen, but if it does, we don't need to do anything
-	} else if err != nil {
-		return fmt.Errorf("getting profile recording: %w", err)
-	}
-
-	// no other recordings, remove the finalizer
-	if !controllerutil.ContainsFinalizer(
-		profilerecording,
-		profilerecordingapi.RecordingHasUnmergedProfiles,
-	) {
-		return nil
-	}
-
-	controllerutil.RemoveFinalizer(
-		profilerecording,
-		profilerecordingapi.RecordingHasUnmergedProfiles,
-	)
-
-	return c.Update(ctx, profilerecording)
+	// No other partial profiles are left, so the recording may go. A
+	// recording which is already gone is fine, and a conflict with the
+	// recorder or the merger updating it is retried.
+	return util.Retry(func() error {
+		return client.IgnoreNotFound(util.RemoveFinalizer(
+			ctx, c,
+			&profilerecordingapi.ProfileRecording{
+				ObjectMeta: metav1.ObjectMeta{Name: recordingName, Namespace: recordingNamespace},
+			},
+			profilerecordingapi.RecordingHasUnmergedProfiles,
+		))
+	}, util.IsNotFoundOrConflict)
 }

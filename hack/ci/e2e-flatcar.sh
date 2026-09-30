@@ -21,6 +21,8 @@ export E2E_TEST_SECCOMP=false
 export E2E_TEST_SELINUX=false
 export E2E_TEST_LOG_ENRICHER=false
 export E2E_TEST_BPF_RECORDER=false
+# The curl pods of the metrics HTTP version test get no output on Flatcar.
+export E2E_TEST_METRICS_HTTP=false
 export E2E_TEST_FLAKY_TESTS_ONLY=${E2E_TEST_FLAKY_TESTS_ONLY:-false}
 
 export HOSTFS_DEV_MOUNT_PATH="/hostfs"

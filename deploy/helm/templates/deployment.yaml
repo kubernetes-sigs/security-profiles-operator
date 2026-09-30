@@ -24,18 +24,33 @@ spec:
       - args:
         - manager
         env:
+        # The selinuxd images are pinned by digest when one is set, the tag
+        # only applies without a digest. Keep the list in sync with
+        # deploy/kustomize-deployment/manager_deployment.yaml.
         - name: RELATED_IMAGE_SELINUXD
-          value: {{ .Values.selinuxdImage.default.registry }}/{{ .Values.selinuxdImage.default.repository }}:{{ .Values.selinuxdImage.default.tag }}
+          value: {{ include "security-profiles-operator.selinuxdImage" .Values.selinuxdImage.default }}
         - name: RELATED_IMAGE_SELINUXD_EL8
-          value: {{ .Values.selinuxdImage.el8.registry }}/{{ .Values.selinuxdImage.el8.repository }}:{{ .Values.selinuxdImage.el8.tag }}
+          value: {{ include "security-profiles-operator.selinuxdImage" .Values.selinuxdImage.el8 }}
         - name: RELATED_IMAGE_SELINUXD_EL9
-          value: {{ .Values.selinuxdImage.el9.registry }}/{{ .Values.selinuxdImage.el9.repository }}:{{ .Values.selinuxdImage.el9.tag }}
+          value: {{ include "security-profiles-operator.selinuxdImage" .Values.selinuxdImage.el9 }}
         - name: RELATED_IMAGE_SELINUXD_FEDORA
-          value: {{ .Values.selinuxdImage.fedora.registry }}/{{ .Values.selinuxdImage.fedora.repository }}:{{ .Values.selinuxdImage.fedora.tag }}
+          value: {{ include "security-profiles-operator.selinuxdImage" .Values.selinuxdImage.fedora }}
         - name: OPERATOR_NAMESPACE
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
+        # Empty without OLM, which means all namespaces.
+        - name: WATCH_NAMESPACE
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.annotations['olm.targetNamespaces']
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: KUBELET_DIR
+          value: {{ .Values.kubeletDir | default "/var/lib/kubelet" | quote }}
         {{- if .Values.restrictToNamespace }}
         - name: RESTRICT_TO_NAMESPACE
           value: {{ .Values.restrictToNamespace | quote }}
@@ -99,6 +114,17 @@ spec:
       {{- with .Values.affinity }}
       affinity:
         {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+      {{- range . }}
+      {{- $constraint := . }}
+      {{- if not .labelSelector }}
+      {{- $selector := dict "matchLabels" (include "security-profiles-operator.selectorLabels" $ | fromYaml) }}
+      {{- $constraint = merge (dict "labelSelector" $selector) . }}
+      {{- end }}
+      - {{ toYaml $constraint | indent 8 | trim }}
+      {{- end }}
       {{- end }}
       tolerations:
       - effect: NoSchedule

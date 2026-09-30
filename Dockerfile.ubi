@@ -16,10 +16,13 @@
 # uses the upstream Go release of go.mod installed below, which comes first in
 # PATH, not the Red Hat Go of the image with its OpenSSL based FIPS crypto.
 
-# hash below referred to latest
-FROM registry.access.redhat.com/ubi8/go-toolset@sha256:93b85580bf0737559318b12baa82cf034db7fce7a6c095c593ff156c09b50339 AS build
+# The digest is tracked as ubi9-go-toolset-digest in dependencies.yaml.
+FROM registry.access.redhat.com/ubi9/go-toolset@sha256:0a4666f7a4eb0644c97a73cba198eb268691b270d97831822689e7a2088f87be AS build
+# Only the build stage runs as root, the final image does not.
+# hadolint ignore=DL3002
 USER root
 WORKDIR /work
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 RUN dnf install -y \
   libseccomp-devel \
@@ -52,11 +55,19 @@ ARG BPF_ENABLED=0
 # OCP in FIPS mode doesn't like statically linked SPO
 ARG STATIC_LINK=no
 
+# The build date embedded in the binaries, hack/image-cross.sh passes the
+# commit time so that the same commit gives the same binaries.
+ARG SOURCE_DATE_EPOCH
+
 RUN make
 
 # hash below referred to latest
 FROM registry.access.redhat.com/ubi9/ubi-minimal@sha256:8ebe2ad8fdf3cab3e5a53c1edc69194c98209cfadab24b884f4ad9ebcf7bbbfc
 ARG version
+# The OCI image annotations, see Dockerfile.
+ARG source=https://github.com/kubernetes-sigs/security-profiles-operator
+ARG revision
+ARG created
 USER root
 
 # Update all packages of the base image, since the vulnerability scan fails on
@@ -68,7 +79,14 @@ RUN microdnf update -y \
 
 LABEL name="Security Profiles Operator" \
   version=$version \
-  description="The Security Profiles Operator makes it easier for cluster admins to manage their seccomp, SELinux or AppArmor profiles and apply them to Kubernetes' workloads."
+  description="The Security Profiles Operator makes it easier for cluster admins to manage their SELinux, seccomp and AppArmor profiles and apply them to Kubernetes' workloads." \
+  org.opencontainers.image.title="Security Profiles Operator" \
+  org.opencontainers.image.description="The Security Profiles Operator makes it easier for cluster admins to manage their SELinux, seccomp and AppArmor profiles and apply them to Kubernetes' workloads." \
+  org.opencontainers.image.source=$source \
+  org.opencontainers.image.revision=$revision \
+  org.opencontainers.image.version=$version \
+  org.opencontainers.image.created=$created \
+  org.opencontainers.image.licenses="Apache-2.0"
 
 COPY --from=build /work/build/security-profiles-operator /usr/bin/
 COPY --from=build /work/build/spoc /usr/bin/

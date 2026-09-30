@@ -18,20 +18,17 @@ package artifact
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
 
 	ggcrname "github.com/google/go-containerregistry/pkg/name"
-	ggcrv1 "github.com/google/go-containerregistry/pkg/v1"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/sigstore/cosign/v3/cmd/cosign/cli/options"
-	"github.com/sigstore/cosign/v3/cmd/cosign/cli/sign"
-	"github.com/sigstore/cosign/v3/cmd/cosign/cli/signcommon"
-	"github.com/sigstore/cosign/v3/cmd/cosign/cli/verify"
-	ociremote "github.com/sigstore/cosign/v3/pkg/oci/remote"
-	cosigntypes "github.com/sigstore/cosign/v3/pkg/types"
+	protobundle "github.com/sigstore/protobuf-specs/gen/pb-go/bundle/v1"
+	"github.com/sigstore/sigstore-go/pkg/root"
+	"github.com/sigstore/sigstore-go/pkg/sign"
+	"github.com/sigstore/sigstore-go/pkg/verify"
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/content/file"
@@ -68,14 +65,28 @@ type impl interface {
 	PackManifest(
 		context.Context, content.Pusher, oras.PackManifestVersion, string, oras.PackManifestOptions,
 	) (ocispec.Descriptor, error)
-	ClientSecret(*options.OIDCOptions) (string, error)
-	LoadSigningMaterial(context.Context, *options.KeyOpts, *options.SignOptions) error
-	SignCmd(
-		context.Context, *options.RootOptions, *options.KeyOpts, *options.SignOptions, []string,
-	) error
-	VerifyCmd(context.Context, *verify.VerifyCommand, string) error
-	SignatureBundleExists(context.Context, string, *options.RegistryOptions) (bool, error)
 	ResolveRepository(context.Context, *remote.Repository, string) (ocispec.Descriptor, error)
+	RepositoryPush(context.Context, *remote.Repository, *ocispec.Descriptor, io.Reader) error
+	FetchAll(context.Context, *remote.Repository, *ocispec.Descriptor) ([]byte, error)
+	FetchReference(
+		context.Context, *remote.Repository, string, int64,
+	) (ocispec.Descriptor, []byte, error)
+	Referrers(
+		context.Context,
+		*remote.Repository,
+		*ocispec.Descriptor,
+	) ([]ocispec.Descriptor, error)
+	SigningConfig(context.Context) (*root.SigningConfig, error)
+	TrustedMaterial(context.Context, string, bool) (root.TrustedMaterial, error)
+	IDToken(context.Context, string) (string, error)
+	SignBundle(context.Context, sign.Content, *sign.BundleOptions) (*protobundle.Bundle, error)
+	VerifyEntity(
+		verify.SignedEntity,
+		root.TrustedMaterial,
+		[]verify.VerifierOption,
+		verify.ArtifactPolicyOption,
+		*verify.CertificateIdentity,
+	) error
 }
 
 func (*defaultImpl) ParseReference(s string, opts ...ggcrname.Option) (ggcrname.Reference, error) {
@@ -162,79 +173,142 @@ func (*defaultImpl) PackManifest(
 	return oras.PackManifest(ctx, pusher, packManifestVersion, artifactType, opts)
 }
 
-func (*defaultImpl) ClientSecret(o *options.OIDCOptions) (string, error) {
-	return o.ClientSecret()
-}
-
-// LoadSigningMaterial loads the trusted root and the signing config from the
-// Sigstore TUF repository, like cosign sign does.
-func (*defaultImpl) LoadSigningMaterial(
-	ctx context.Context, ko *options.KeyOpts, o *options.SignOptions,
-) error {
-	return signcommon.LoadTrustedMaterialAndSigningConfig(
-		ctx, ko, o.UseSigningConfig, o.SigningConfigPath,
-		o.Rekor.URL, o.Fulcio.URL, o.OIDC.Issuer, o.TSAServerURL, o.TrustedRootPath, o.TlogUpload,
-		o.NewBundleFormat, "", o.Key, o.IssueCertificate, o.Output, "",
-		o.OutputCertificate, o.OutputPayload, o.OutputSignature, "",
-	)
-}
-
-func (*defaultImpl) SignCmd(
-	ctx context.Context, ro *options.RootOptions, ko *options.KeyOpts,
-	signOpts *options.SignOptions, imgs []string,
-) error {
-	return sign.SignCmd(ctx, ro, *ko, *signOpts, imgs)
-}
-
-func (*defaultImpl) VerifyCmd(
-	ctx context.Context, cmd *verify.VerifyCommand, image string,
-) error {
-	return cmd.Exec(ctx, []string{image})
-}
-
 func (*defaultImpl) ResolveRepository(ctx context.Context,
 	repo *remote.Repository, reference string,
 ) (ocispec.Descriptor, error) {
 	return repo.Resolve(ctx, reference)
 }
 
-// SignatureBundleExists reports whether the image digest has a Sigstore
-// bundle with the cosign signature predicate attached as OCI referrer.
-func (*defaultImpl) SignatureBundleExists(
-	ctx context.Context, image string, o *options.RegistryOptions,
-) (bool, error) {
-	digest, err := ggcrname.NewDigest(image, o.NameOptions()...)
-	if err != nil {
-		return false, fmt.Errorf("parse image digest: %w", err)
-	}
-
-	clientOpts, err := o.ClientOpts(ctx)
-	if err != nil {
-		return false, fmt.Errorf("get registry client options: %w", err)
-	}
-
-	index, err := ociremote.Referrers(digest, "", clientOpts...)
-	if err != nil {
-		return false, fmt.Errorf("list referrers: %w", err)
-	}
-
-	return hasSignatureBundle(index), nil
+func (*defaultImpl) RepositoryPush(
+	ctx context.Context, repo *remote.Repository, desc *ocispec.Descriptor, r io.Reader,
+) error {
+	return repo.Push(ctx, *desc, r)
 }
 
-// hasSignatureBundle reports whether the referrers contain a Sigstore bundle
-// with the cosign signature predicate. Bundles carry their predicate type as
-// annotation, attestations like SLSA provenance or promotion records use
-// other predicate types.
-func hasSignatureBundle(index *ggcrv1.IndexManifest) bool {
-	if index == nil {
-		return false
+func (*defaultImpl) FetchAll(
+	ctx context.Context, repo *remote.Repository, desc *ocispec.Descriptor,
+) ([]byte, error) {
+	return content.FetchAll(ctx, repo, *desc)
+}
+
+// FetchReference fetches the manifest of the reference in one request, up to
+// limit bytes. Unlike resolving a tag and fetching the digest, this reaches
+// the same backend for both, which matters for registries like
+// registry.k8s.io, which serve signature tags from another backend than
+// manifest digests.
+func (*defaultImpl) FetchReference(
+	ctx context.Context, repo *remote.Repository, reference string, limit int64,
+) (ocispec.Descriptor, []byte, error) {
+	desc, rc, err := repo.FetchReference(ctx, reference)
+	if err != nil {
+		return ocispec.Descriptor{}, nil, err
 	}
 
-	for i := range index.Manifests {
-		if index.Manifests[i].Annotations[ociremote.BundlePredicateType] == cosigntypes.CosignSignPredicateType {
-			return true
+	defer rc.Close()
+
+	if err := blobSizeLimit(limit)(ctx, desc); err != nil {
+		return ocispec.Descriptor{}, nil, err
+	}
+
+	raw, err := content.ReadAll(rc, desc)
+	if err != nil {
+		return ocispec.Descriptor{}, nil, err
+	}
+
+	return desc, raw, nil
+}
+
+// errEnoughReferrers stops the listing of referrers once maxSignatures have
+// been collected.
+var errEnoughReferrers = errors.New("enough referrers")
+
+// Referrers lists the referrers of the subject, through the OCI referrers API
+// or the referrers tag schema of registries without it. The listing stops
+// after maxSignatures referrers, so that a registry cannot keep the pull busy.
+func (*defaultImpl) Referrers(
+	ctx context.Context, repo *remote.Repository, subject *ocispec.Descriptor,
+) ([]ocispec.Descriptor, error) {
+	var referrers []ocispec.Descriptor
+
+	err := repo.Referrers(ctx, *subject, "", func(page []ocispec.Descriptor) error {
+		referrers = append(referrers, page...)
+		if len(referrers) >= maxSignatures {
+			return errEnoughReferrers
 		}
+
+		return nil
+	})
+	if err != nil && !errors.Is(err, errEnoughReferrers) {
+		return nil, err
 	}
 
-	return false
+	return referrers, nil
+}
+
+func (*defaultImpl) SigningConfig(context.Context) (*root.SigningConfig, error) {
+	opts, err := tufOptions()
+	if err != nil {
+		return nil, err
+	}
+
+	return root.FetchSigningConfigWithOptions(opts)
+}
+
+func (*defaultImpl) TrustedMaterial(
+	_ context.Context, trustedRootPath string, offline bool,
+) (root.TrustedMaterial, error) {
+	if trustedRootPath != "" {
+		trustedRoot, err := root.NewTrustedRootFromPath(trustedRootPath)
+		if err != nil {
+			return nil, err
+		}
+
+		return trustedRoot, nil
+	}
+
+	return tufTrustedRoot(offline)
+}
+
+func (*defaultImpl) IDToken(ctx context.Context, issuer string) (string, error) {
+	return idToken(ctx, issuer)
+}
+
+// SignBundle signs the content with an ephemeral key into a Sigstore bundle.
+func (*defaultImpl) SignBundle(
+	ctx context.Context, data sign.Content, opts *sign.BundleOptions,
+) (*protobundle.Bundle, error) {
+	keypair, err := sign.NewEphemeralKeypair(nil)
+	if err != nil {
+		return nil, err
+	}
+
+	bundleOpts := *opts
+	bundleOpts.Context = ctx
+
+	return sign.Bundle(data, keypair, bundleOpts)
+}
+
+// VerifyEntity verifies the signed entity against the trusted material. A
+// nil identity verifies with the public key of the trusted material instead
+// of a certificate.
+func (*defaultImpl) VerifyEntity(
+	entity verify.SignedEntity,
+	material root.TrustedMaterial,
+	opts []verify.VerifierOption,
+	artifact verify.ArtifactPolicyOption,
+	identity *verify.CertificateIdentity,
+) error {
+	verifier, err := verify.NewVerifier(material, opts...)
+	if err != nil {
+		return err
+	}
+
+	policy := verify.WithKey()
+	if identity != nil {
+		policy = verify.WithCertificateIdentity(*identity)
+	}
+
+	_, err = verifier.Verify(entity, verify.NewPolicy(artifact, policy))
+
+	return err
 }

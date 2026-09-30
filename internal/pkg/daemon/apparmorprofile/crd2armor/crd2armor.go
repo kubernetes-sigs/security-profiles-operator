@@ -59,7 +59,10 @@ profile {{.Name}} flags=({{.ProfileMode}},attach_disconnected,mediate_deleted) {
 {{end}}{{end}}{{end}}
 {{ if ne .Data.Filesystem.ReadWritePaths nil }}
 {{range $readwrite := .Data.Filesystem.ReadWritePaths}}  {{path $readwrite}} rwlk,
-{{end}}{{end}}{{end}}
+{{end}}{{end}}{{end}}{{ if .Data.Ptrace }}
+
+  # Ptrace rules{{range $rule := .Data.Ptrace}}
+  ptrace ({{join $rule.Access ", "}}){{if $rule.Peer}} peer={{$rule.Peer}}{{end}},{{end}}{{end}}
 
   # Network rules
 {{ if ne .Data.Network nil }}{{ if ne .Data.Network.AllowRaw nil }}
@@ -99,7 +102,9 @@ profile {{.Name}} flags=({{.ProfileMode}},attach_disconnected,mediate_deleted) {
 `
 
 var parsedAppArmorTemplate = template.Must(
-	template.New("apparmor").Funcs(template.FuncMap{"path": quotePath}).Parse(appArmorTemplate),
+	template.New("apparmor").
+		Funcs(template.FuncMap{"path": quotePath, "join": strings.Join}).
+		Parse(appArmorTemplate),
 )
 
 // quotePath quotes paths which contain spaces, as AppArmor would otherwise
@@ -121,6 +126,15 @@ type ApparmorData struct {
 	Filesystem *FileSystem
 	Capability *Capability
 	Network    *Network
+	Ptrace     []PtraceRule
+}
+
+// PtraceRule validated ptrace rule.
+type PtraceRule struct {
+	// Access is what the rule grants, like "read".
+	Access []string
+	// Peer limits the rule to the processes confined by matching profiles.
+	Peer string
 }
 
 // Executable validated allowed executables and libraries.
@@ -157,14 +171,141 @@ var (
 	// 1. Starts with a forward slash (must be an absolute path).
 	// 2. Contains only safe characters: alphanumeric, slashes, dashes, dots, underscores, plus, and spaces.
 	// 3. Allows AppArmor globbing (*, **, ?) if you intend to support wildcards.
-	// 4. Allows Apparmor reference as: /proc/@{pid}/cgroup
+	// 4. Allows Apparmor variables as: /proc/@{pid}/cgroup, and a literal @,
+	//    for example in systemd template unit paths.
 	// 5. A valid absolute path (including just "/")
-	// 6. An explicitly formatted ptrace rule injection hack
-	// Critically, it EXCLUDES commas, quotes, and newlines.
-	strictPathRegex = regexp.MustCompile(
-		`^(?:/[a-zA-Z0-9_./*?+@{} -]*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$`,
-	)
+	// Critically, it EXCLUDES commas, quotes, and newlines. Braces are only
+	// allowed as part of a variable. Earlier releases accepted any brace,
+	// but apparmor_parser rejects a brace group without a comma ("Invalid
+	// number of items between {}") as well as an unbalanced brace, and
+	// commas are rejected, so no profile with such a path ever loaded.
+	// It has to match the validation of the API.
+	strictPathRegex = regexp.MustCompile(`^/(?:[a-zA-Z0-9_./*?+@ -]|@\{[a-zA-Z0-9_]+\})*$`)
+
+	// ptraceRuleRegex matches a ptrace rule in a list of filesystem paths or
+	// of allowed executables and libraries. Before the API had a field for
+	// ptrace rules, profiles, including the ones bundled with the operator,
+	// put them there, optionally followed by a comment. They used to be
+	// rendered like a path, which turned them into a "deny ptrace" rule in
+	// enforce mode and into a parser error without the comment. The API
+	// accepts them in the lists of executables and libraries as well. They
+	// are taken out of the lists and rendered as ptrace rules. The ptrace
+	// field replaces this form.
+	ptraceRuleRegex = regexp.MustCompile(`^ptrace\s*\(([a-zA-Z]+)\),(?:\s*#.*)?$`)
+
+	// ptracePeerRegex matches the peer of a ptrace rule. It has to match the
+	// validation of the API.
+	ptracePeerRegex = regexp.MustCompile(`^(?:[a-zA-Z0-9_./*?-]|@\{profile_name\})+$`)
 )
+
+// ptraceAccess are the accesses a ptrace rule can grant.
+var ptraceAccess = map[string]bool{
+	"r": true, "w": true, "rw": true,
+	"read": true, "readby": true, "trace": true, "tracedby": true,
+}
+
+// ptraceRule returns the access of a ptrace rule put into a list of paths,
+// and false if entry is no ptrace rule.
+func ptraceRule(entry string) (string, bool) {
+	match := ptraceRuleRegex.FindStringSubmatch(entry)
+	if match == nil {
+		return "", false
+	}
+
+	return strings.ToLower(match[1]), true
+}
+
+// DeprecatedPtraceRulesMessage is the warning for a profile for which
+// UsesDeprecatedPtraceRules reports true.
+const DeprecatedPtraceRulesMessage = "DEPRECATED: ptrace rules in spec.abstract.filesystem " +
+	"and spec.abstract.executable paths will be removed in a future API version, " +
+	"use spec.abstract.ptrace instead"
+
+// UsesDeprecatedPtraceRules reports whether abstract puts ptrace rules into
+// the lists of filesystem paths, executables or libraries instead of using
+// the ptrace field.
+func UsesDeprecatedPtraceRules(abstract *apparmorprofileapi.AppArmorAbstract) bool {
+	if abstract == nil {
+		return false
+	}
+
+	var entries []string
+
+	if abstract.Filesystem != nil {
+		entries = slices.Concat(
+			abstract.Filesystem.ReadOnlyPaths,
+			abstract.Filesystem.WriteOnlyPaths,
+			abstract.Filesystem.ReadWritePaths,
+		)
+	}
+
+	if abstract.Executable != nil {
+		entries = slices.Concat(
+			entries,
+			abstract.Executable.AllowedExecutables,
+			abstract.Executable.AllowedLibraries,
+		)
+	}
+
+	for _, entry := range entries {
+		if _, ok := ptraceRule(entry); ok {
+			return true
+		}
+	}
+
+	return false
+}
+
+// newPtraceRules returns the ptrace rules of the ptrace field followed by the
+// ones put into the paths, which grant their access to every peer.
+func newPtraceRules(
+	rules *apparmorprofileapi.AppArmorPtraceRules,
+	legacyAccess []string,
+) []PtraceRule {
+	var result []PtraceRule
+
+	// A peer without any access is kept, so that the validation rejects it
+	// instead of silently dropping the rule.
+	if rules != nil && (len(rules.AllowedAccess) != 0 || rules.Peer != "") {
+		access := make([]string, 0, len(rules.AllowedAccess))
+		for _, a := range rules.AllowedAccess {
+			access = append(access, string(a))
+		}
+
+		slices.Sort(access)
+		result = append(result, PtraceRule{Access: slices.Compact(access), Peer: rules.Peer})
+	}
+
+	slices.Sort(legacyAccess)
+
+	for _, access := range slices.Compact(legacyAccess) {
+		result = append(result, PtraceRule{Access: []string{access}})
+	}
+
+	return result
+}
+
+// splitPtraceRules returns the paths without the ptrace rules and the access
+// of those rules.
+func splitPtraceRules(entries []string) (paths, access []string) {
+	if entries == nil {
+		return nil, nil
+	}
+
+	paths = make([]string, 0, len(entries))
+
+	for _, entry := range entries {
+		if a, ok := ptraceRule(entry); ok {
+			access = append(access, a)
+
+			continue
+		}
+
+		paths = append(paths, entry)
+	}
+
+	return paths, access
+}
 
 func newApparmorData(name string, abstract *apparmorprofileapi.AppArmorAbstract) *ApparmorData {
 	data := &ApparmorData{
@@ -174,20 +315,35 @@ func newApparmorData(name string, abstract *apparmorprofileapi.AppArmorAbstract)
 		return data
 	}
 
+	var legacyPtrace []string
+
 	if abstract.Executable != nil {
+		executables, executablesPtrace := splitPtraceRules(abstract.Executable.AllowedExecutables)
+		libraries, librariesPtrace := splitPtraceRules(abstract.Executable.AllowedLibraries)
+
 		data.Executable = &Executable{
-			AllowedExecutables: abstract.Executable.AllowedExecutables,
-			AllowedLibraries:   abstract.Executable.AllowedLibraries,
+			AllowedExecutables: executables,
+			AllowedLibraries:   libraries,
 		}
+
+		legacyPtrace = slices.Concat(executablesPtrace, librariesPtrace)
 	}
 
 	if abstract.Filesystem != nil {
+		readOnly, readOnlyPtrace := splitPtraceRules(abstract.Filesystem.ReadOnlyPaths)
+		writeOnly, writeOnlyPtrace := splitPtraceRules(abstract.Filesystem.WriteOnlyPaths)
+		readWrite, readWritePtrace := splitPtraceRules(abstract.Filesystem.ReadWritePaths)
+
 		data.Filesystem = &FileSystem{
-			ReadOnlyPaths:  abstract.Filesystem.ReadOnlyPaths,
-			WriteOnlyPaths: abstract.Filesystem.WriteOnlyPaths,
-			ReadWritePaths: abstract.Filesystem.ReadWritePaths,
+			ReadOnlyPaths:  readOnly,
+			WriteOnlyPaths: writeOnly,
+			ReadWritePaths: readWrite,
 		}
+
+		legacyPtrace = slices.Concat(legacyPtrace, readOnlyPtrace, writeOnlyPtrace, readWritePtrace)
 	}
+
+	data.Ptrace = newPtraceRules(abstract.Ptrace, legacyPtrace)
 
 	if abstract.Capability != nil {
 		data.Capability = &Capability{
@@ -246,7 +402,14 @@ func (d *ApparmorData) Validate() error {
 		}
 	}
 
-	// 4. Validates all allowed executables and libraries.
+	// 4. Validates the ptrace rules.
+	for _, rule := range d.Ptrace {
+		if err := validatePtraceRule(rule); err != nil {
+			return fmt.Errorf("validating ptrace rule: %w", err)
+		}
+	}
+
+	// 5. Validates all allowed executables and libraries.
 	if d.Executable != nil {
 		execsAndLibs := make([]string, 0,
 			len(d.Executable.AllowedExecutables)+len(d.Executable.AllowedLibraries))
@@ -263,11 +426,26 @@ func (d *ApparmorData) Validate() error {
 	return nil
 }
 
-func validPath(path string) error {
-	if path == "" {
-		return nil // skip validation for empty path.
+func validatePtraceRule(rule PtraceRule) error {
+	if len(rule.Access) == 0 {
+		return errors.New("ptrace rule without access")
 	}
 
+	for _, access := range rule.Access {
+		if !ptraceAccess[access] {
+			return fmt.Errorf("invalid ptrace access: %q", access)
+		}
+	}
+
+	if rule.Peer != "" && !ptracePeerRegex.MatchString(rule.Peer) {
+		return fmt.Errorf("invalid ptrace peer: %q", rule.Peer)
+	}
+
+	return nil
+}
+
+func validPath(path string) error {
+	// An empty path would be rendered as a rule without a path.
 	if !strictPathRegex.MatchString(path) {
 		return fmt.Errorf("path must contain only safe characters: %q", path)
 	}
@@ -319,10 +497,7 @@ func validateCapability(capability string) error {
 }
 
 func validateExecutableOrLibrary(path string) error {
-	if path == "" {
-		return nil // skip validation for empty paths
-	}
-
+	// An empty path would be rendered as a rule without a path.
 	if !strictPathRegex.MatchString(path) {
 		return fmt.Errorf("path must be absolute and contain only safe characters: %q", path)
 	}

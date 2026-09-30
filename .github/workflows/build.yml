@@ -52,7 +52,8 @@ jobs:
       - run: make verify-go-lint
 
   # Builds for development only, so they may write to the Cachix cache on main.
-  # Nothing that is released uses that cache.
+  # Nothing that is released uses that cache. amd64 and arm64 get built by the
+  # image jobs of the test workflow already, which run the same nix build.
   nix:
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -60,8 +61,6 @@ jobs:
       fail-fast: false
       matrix:
         arch:
-          - amd64
-          - arm64
           - ppc64le
     runs-on: ubuntu-24.04
     name: nix / ${{ matrix.arch }}
@@ -76,10 +75,6 @@ jobs:
           cachix: ${{ github.event_name == 'push' && 'push' || 'pull' }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - run: make nix-${{ matrix.arch }}
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: build-${{ matrix.arch }}
-          path: build/${{ matrix.arch }}
 
   # Pull requests only, nix-spoc-push builds the same on main and releases.
   nix-spoc:
@@ -314,6 +309,29 @@ jobs:
       - run: make verify-bpf
       - run: make verify-go-version
 
+  # The controller integration tests against the kube-apiserver and etcd of
+  # envtest, see make test-integration.
+  integration:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read  # required for the checkout
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ./go.mod
+          # This workflow publishes, the Go cache is shared with every job
+          # which runs repository code.
+          cache: false
+      - name: Install dependencies
+        run: sudo hack/install-packages
+      - run: make test-integration
+
   # The toolchain image that compiles every released binary. On main it is
   # built without any cache, pull requests only check that it builds and may
   # use the caches. The job pushes on main but holds no OIDC token, the
@@ -404,8 +422,9 @@ jobs:
           subject-digest: ${{ env.DIGEST }}
           push-to-registry: true
 
-  # Builds the images for the vulnerability scan, the published images are
-  # built on Cloud Build.
+  # Builds the UBI image for the vulnerability scan, the published images are
+  # built on Cloud Build. The image of Dockerfile gets scanned by the image
+  # job of the test workflow, which scans the image the e2e tests run.
   image:
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -413,14 +432,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Deliberately not `needs: build-image`: Dockerfile pins BUILD_IMAGE
-          # by digest and this job passes no build-arg, so it builds against
-          # the pinned digest either way.
-          - name: operator-image
-            file: Dockerfile
-            image: quay.io/security-profiles-operator/spo
-            suffix: ''
-            cache: operator
           - name: ubi-image
             file: Dockerfile.ubi
             image: quay.io/security-profiles-operator/build

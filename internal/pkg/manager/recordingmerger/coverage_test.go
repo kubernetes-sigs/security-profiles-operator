@@ -474,7 +474,7 @@ func TestMergeTypedProfiles_ComputesCoverageBeforeMerge(t *testing.T) {
 	}
 
 	createCalled := false
-	err := reconciler.mergeTypedProfiles(
+	_, err := reconciler.mergeTypedProfiles(
 		context.Background(), recording,
 		func(
 			_ context.Context,

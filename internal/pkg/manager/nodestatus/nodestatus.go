@@ -76,6 +76,8 @@ type StatusReconciler struct {
 	reader client.Reader
 	log    logr.Logger
 	record util.EventRecorder
+	// namespace is the operator namespace, which holds the SPOd DaemonSet.
+	namespace string
 }
 
 // Name returns the name of the controller.
@@ -97,22 +99,22 @@ func (r *StatusReconciler) Healthz(*http.Request) error {
 //nolint:lll // required for kubebuilder
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles/finalizers,verbs=delete;get;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles/finalizers,verbs=get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=rawselinuxprofiles,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=rawselinuxprofiles/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=rawselinuxprofiles/finalizers,verbs=delete;get;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=rawselinuxprofiles/finalizers,verbs=get;update;patch
 
 // Security Profiles Operator RBAC permissions to manage SeccompProfile
 //nolint:lll // required for kubebuilder
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles/finalizers,verbs=delete;get;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles/finalizers,verbs=get;update;patch
 
 // Security Profiles Operator RBAC permissions to manage AppArmorProfile
 //nolint:lll // required for kubebuilder
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=apparmorprofiles,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=apparmorprofiles/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=apparmorprofiles/finalizers,verbs=delete;get;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=apparmorprofiles/finalizers,verbs=get;update;patch
 
 // Security Profiles Operator RBAC permissions to manage Node Statuses
 //nolint:lll // required for kubebuilder
@@ -263,14 +265,16 @@ func (r *StatusReconciler) reconcileNodeStatus(
 	}
 
 	// get the DS
-	spodDS, err := r.getDS(ctx, config.GetOperatorNamespace(), lprof)
+	spodDS, err := r.getDS(ctx, lprof)
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("cannot get the DS: %w", err)
 	}
 
 	if !daemonSetIsReady(spodDS) || daemonSetIsUpdating(spodDS) {
-		// If the DS is not ready or updating, don't bother updating the status
-		logger.Info("Not updating policy because the SPOd is not ready")
+		// If the DS is not ready or updating, don't bother updating the
+		// status. This repeats every dsWait for every profile, so it is
+		// not worth an info log.
+		logger.V(config.VerboseLevel).Info("Not updating policy because the SPOd is not ready")
 
 		return reconcile.Result{RequeueAfter: dsWait}, nil
 	}
@@ -312,13 +316,13 @@ func (r *StatusReconciler) reconcileNodeStatus(
 	// taken from the profile rather than from the statuses, because a status
 	// can be gone already, for example after a failed attempt to remove the
 	// finalizer or when the garbage collector deleted it.
-	nodes := &v1.NodeList{}
-	if err := r.client.List(ctx, nodes); err != nil {
-		return reconcile.Result{}, fmt.Errorf("cannot get node list: %w", err)
+	nodeNames, err := r.nodeNames(ctx)
+	if err != nil {
+		return reconcile.Result{}, err
 	}
 
 	if err := r.removeNodeFinalizers(
-		ctx, prof, deletedNodeFinalizers(prof, nodes.Items), lprof,
+		ctx, prof, deletedNodeFinalizers(prof, nodeNames), lprof,
 	); err != nil {
 		return reconcile.Result{}, err
 	}
@@ -359,12 +363,28 @@ func (r *StatusReconciler) removeStaleStatuses(
 		}
 	}
 
+	if len(stale) == 0 {
+		return false, nil
+	}
+
+	// The legacy finalizer of a stale node stays as long as another node
+	// shares it, see staleNodeFinalizers.
+	nodeNames, err := r.nodeNames(ctx)
+	if err != nil {
+		return false, err
+	}
+
+	staleNodes := make([]string, 0, len(stale))
+	for _, status := range stale {
+		staleNodes = append(staleNodes, status.Spec.NodeName)
+	}
+
 	for _, status := range stale {
 		node := status.Spec.NodeName
 		logger.Info("Removing node status and finalizer from profile", "node", node)
 
 		if err := r.removeNodeFinalizers(
-			ctx, prof, []string{util.GetFinalizerNodeString(node)}, logger,
+			ctx, prof, staleNodeFinalizers([]string{node}, staleNodes, nodeNames), logger,
 		); err != nil {
 			return false, err
 		}
@@ -374,7 +394,7 @@ func (r *StatusReconciler) removeStaleStatuses(
 		}
 	}
 
-	return len(stale) > 0, nil
+	return true, nil
 }
 
 // removeNodeFinalizers removes the provided node finalizers from the profile.
@@ -409,12 +429,78 @@ func isNodeFinalizer(finalizer string) bool {
 	return strings.HasSuffix(finalizer, nodeFinalizerSuffix) && !strings.Contains(finalizer, "/")
 }
 
+// nodeNames returns the names of all nodes of the cluster. The nodes are
+// listed as metadata only, which shares the informer of the other controllers
+// instead of caching the full node objects a second time.
+func (r *StatusReconciler) nodeNames(ctx context.Context) ([]string, error) {
+	nodes := &metav1.PartialObjectMetadataList{}
+	nodes.SetGroupVersionKind(v1.SchemeGroupVersion.WithKind("NodeList"))
+
+	if err := r.client.List(ctx, nodes); err != nil {
+		return nil, fmt.Errorf("cannot get node list: %w", err)
+	}
+
+	names := make([]string, 0, len(nodes.Items))
+	for i := range nodes.Items {
+		names = append(names, nodes.Items[i].Name)
+	}
+
+	return names, nil
+}
+
+// nodeFinalizers returns the finalizers which the daemon of the node may
+// have added to a profile: the current one and, for a long node name, the
+// truncated one of earlier releases.
+func nodeFinalizers(nodeName string) []string {
+	finalizers := []string{util.GetFinalizerNodeString(nodeName)}
+	if legacy := util.GetLegacyFinalizerNodeString(nodeName); legacy != "" {
+		finalizers = append(finalizers, legacy)
+	}
+
+	return finalizers
+}
+
+// staleNodeFinalizers returns the finalizers to remove for the nodes, which
+// are among the stale ones: their current finalizers, and their legacy ones
+// unless a node which is not stale shares them. The legacy finalizer of
+// earlier releases is shared by all nodes whose long names start with the same
+// prefix, and the daemon of a remaining node removes it along with its own.
+func staleNodeFinalizers(nodes, staleNodes, nodeNames []string) []string {
+	shared := map[string]bool{}
+
+	for _, name := range nodeNames {
+		if slices.Contains(staleNodes, name) {
+			continue
+		}
+
+		if legacy := util.GetLegacyFinalizerNodeString(name); legacy != "" {
+			shared[legacy] = true
+		}
+	}
+
+	var finalizers []string
+
+	for _, name := range nodes {
+		finalizers = append(finalizers, util.GetFinalizerNodeString(name))
+
+		if legacy := util.GetLegacyFinalizerNodeString(name); legacy != "" && !shared[legacy] {
+			finalizers = append(finalizers, legacy)
+		}
+	}
+
+	return finalizers
+}
+
 // deletedNodeFinalizers returns the node finalizers of the profile which do
-// not belong to any of the provided nodes.
-func deletedNodeFinalizers(prof client.Object, nodes []v1.Node) []string {
-	existing := make(map[string]bool, len(nodes))
-	for i := range nodes {
-		existing[util.GetFinalizerNodeString(nodes[i].Name)] = true
+// not belong to any of the provided node names. The legacy finalizer of an
+// existing node is never returned, as other nodes may still rely on it, see
+// staleNodeFinalizers.
+func deletedNodeFinalizers(prof client.Object, nodeNames []string) []string {
+	existing := make(map[string]bool, len(nodeNames))
+	for _, name := range nodeNames {
+		for _, finalizer := range nodeFinalizers(name) {
+			existing[finalizer] = true
+		}
 	}
 
 	var stale []string
@@ -521,7 +607,8 @@ func (r *StatusReconciler) statusesOfDeletedNodes(
 
 	for i := range nodeStatusList.Items {
 		nodeName := nodeStatusList.Items[i].Spec.NodeName
-		node := &v1.Node{}
+		node := &metav1.PartialObjectMetadata{}
+		node.SetGroupVersionKind(v1.SchemeGroupVersion.WithKind("Node"))
 
 		if err := r.client.Get(ctx, types.NamespacedName{Name: nodeName}, node); err != nil {
 			// Only a NotFound proves the node is gone. Treating a Conflict as
@@ -560,14 +647,14 @@ func (r *StatusReconciler) reconcileDeletingProfile(
 		return reconcile.Result{}, nil
 	}
 
-	nodes := &v1.NodeList{}
-	if err := r.client.List(ctx, nodes); err != nil {
-		return reconcile.Result{}, fmt.Errorf("cannot get node list: %w", err)
+	nodeNames, err := r.nodeNames(ctx)
+	if err != nil {
+		return reconcile.Result{}, err
 	}
 
-	stale := deletedNodeFinalizers(prof, nodes.Items)
+	stale := deletedNodeFinalizers(prof, nodeNames)
 
-	spodDS, err := r.getDS(ctx, config.GetOperatorNamespace(), logger)
+	spodDS, err := r.getDS(ctx, logger)
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("cannot get the DS: %w", err)
 	}
@@ -578,11 +665,15 @@ func (r *StatusReconciler) reconcileDeletingProfile(
 	}
 
 	if settled {
-		for i := range nodes.Items {
-			if !spodNodes[nodes.Items[i].Name] {
-				stale = append(stale, util.GetFinalizerNodeString(nodes.Items[i].Name))
+		var unscheduled []string
+
+		for _, name := range nodeNames {
+			if !spodNodes[name] {
+				unscheduled = append(unscheduled, name)
 			}
 		}
+
+		stale = append(stale, staleNodeFinalizers(unscheduled, unscheduled, nodeNames)...)
 	}
 
 	if err := r.removeNodeFinalizers(ctx, prof, stale, logger); err != nil {
@@ -620,11 +711,10 @@ func parseProfileRequest(req reconcile.Request) (kind, name string, ok bool) {
 
 func (r *StatusReconciler) getDS(
 	ctx context.Context,
-	namespace string,
 	l logr.Logger,
 ) (*appsv1.DaemonSet, error) {
 	spodDS := appsv1.DaemonSet{}
-	spodName := util.NamespacedName("spod", namespace)
+	spodName := util.NamespacedName("spod", r.namespace)
 
 	if err := r.client.Get(ctx, spodName, &spodDS); err != nil {
 		l.Error(err, "Unable to retrieve spod daemonset")

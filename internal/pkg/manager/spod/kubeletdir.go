@@ -113,14 +113,16 @@ func mountedKubeletDirs(ds *appsv1.DaemonSet) []string {
 
 	for i := range ds.Spec.Template.Spec.Volumes {
 		volume := &ds.Spec.Template.Spec.Volumes[i]
-		if volume.HostPath == nil ||
-			!strings.HasPrefix(volume.Name, bindata.KubeletDirVolumeName+"-") ||
-			slices.Contains(dirs, volume.HostPath.Path) ||
-			util.ValidateKubeletDir(volume.HostPath.Path) != nil {
+		if !strings.HasPrefix(volume.Name, bindata.KubeletDirVolumeName+"-") {
 			continue
 		}
 
-		dirs = append(dirs, volume.HostPath.Path)
+		dir, ok := bindata.KubeletDirFromVolume(volume)
+		if !ok || slices.Contains(dirs, dir) || util.ValidateKubeletDir(dir) != nil {
+			continue
+		}
+
+		dirs = append(dirs, dir)
 	}
 
 	slices.Sort(dirs)
@@ -130,7 +132,7 @@ func mountedKubeletDirs(ds *appsv1.DaemonSet) []string {
 
 // kubeletDirsToMount returns the custom kubelet root directories to render
 // into the configured SPOd, given the directories which nodes currently
-// reference.
+// reference, and whether the SPOd needs an update with them.
 //
 // Every change of the directories rolls all SPOd pods at once, so removing a
 // directory as soon as its last node is gone would restart the SPOd whenever
@@ -139,8 +141,14 @@ func mountedKubeletDirs(ds *appsv1.DaemonSet) []string {
 // need an update for another reason, like a new directory or a changed SPOD
 // configuration. Such a rollout drops the unreferenced directories again, so
 // the set is bounded by the directories referenced at the last rollout.
-func kubeletDirsToMount(configured, found *appsv1.DaemonSet, nodeDirs []string) []string {
-	dirs := slices.Concat(mountedKubeletDirs(found), nodeDirs)
+//
+// If the SPOd with the retained directories needs an update, so does the one
+// with only the node directories: the found DaemonSet mounts exactly the node
+// directories otherwise, and the retained ones would then be the same set.
+func kubeletDirsToMount(
+	configured, found *appsv1.DaemonSet, nodeDirs []string,
+) (dirs []string, needsUpdate bool) {
+	dirs = slices.Concat(mountedKubeletDirs(found), nodeDirs)
 	slices.Sort(dirs)
 	dirs = slices.Compact(dirs)
 
@@ -148,10 +156,10 @@ func kubeletDirsToMount(configured, found *appsv1.DaemonSet, nodeDirs []string) 
 	addKubeletDirVolumes(&retained.Spec.Template.Spec, dirs)
 
 	if !spodNeedsUpdate(retained, found) {
-		return dirs
+		return dirs, false
 	}
 
-	return nodeDirs
+	return nodeDirs, true
 }
 
 // addKubeletDirVolumes adds a hostPath volume for each of the given kubelet

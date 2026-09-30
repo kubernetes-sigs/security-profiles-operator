@@ -18,7 +18,11 @@ package spod
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"slices"
+	"strings"
+	"sync/atomic"
 	"testing"
 
 	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
@@ -27,9 +31,11 @@ import (
 	admissionregv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/events"
@@ -43,6 +49,7 @@ import (
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 const testNamespace = "security-profiles-operator"
@@ -68,6 +75,7 @@ func newReconcileTest(
 	t *testing.T,
 	spod *spodapi.SecurityProfilesOperatorDaemon,
 	funcs *interceptor.Funcs,
+	objs ...client.Object,
 ) (*ReconcileSPOd, client.Client, *events.FakeRecorder) {
 	t.Helper()
 
@@ -81,7 +89,7 @@ func newReconcileTest(
 
 	cl := fake.NewClientBuilder().
 		WithScheme(scheme).
-		WithObjects(spod, operator).
+		WithObjects(append(objs, spod, operator)...).
 		WithStatusSubresource(spod).
 		WithInterceptorFuncs(*funcs).
 		Build()
@@ -127,7 +135,7 @@ func spodState(t *testing.T, cl client.Client) spodapi.SPODState {
 }
 
 func TestReconcileLifecycle(t *testing.T) {
-	t.Setenv(config.OperatorNamespaceEnvKey, testNamespace)
+	t.Parallel()
 
 	spod := testSPOD()
 	spod.Spec.Enricher.EnableLogEnricher = new(true)
@@ -192,7 +200,7 @@ func TestReconcileLifecycle(t *testing.T) {
 }
 
 func TestReconcileRemovesLegacyAppArmorAnnotation(t *testing.T) {
-	t.Setenv(config.OperatorNamespaceEnvKey, testNamespace)
+	t.Parallel()
 
 	spod := testSPOD()
 	spod.Status.StatePending()
@@ -216,7 +224,7 @@ func TestReconcileRemovesLegacyAppArmorAnnotation(t *testing.T) {
 // must not block the operands. They are applied again on the next
 // reconciliation.
 func TestReconcileAdmissionPolicyFailure(t *testing.T) {
-	t.Setenv(config.OperatorNamespaceEnvKey, testNamespace)
+	t.Parallel()
 
 	spod := testSPOD()
 	spod.Status.StatePending()
@@ -252,6 +260,45 @@ func TestReconcileAdmissionPolicyFailure(t *testing.T) {
 	require.NoError(t, cl.Get(t.Context(), key, policy))
 }
 
+func TestReconcileSkipsUnservedAdmissionPolicies(t *testing.T) {
+	t.Parallel()
+
+	spod := testSPOD()
+	spod.Status.StatePending()
+
+	var policyCalls atomic.Int32
+
+	countPolicy := func(obj client.Object) {
+		switch obj.(type) {
+		case *admissionregv1.ValidatingAdmissionPolicy,
+			*admissionregv1.ValidatingAdmissionPolicyBinding:
+			policyCalls.Add(1)
+		}
+	}
+
+	r, cl, _ := newReconcileTest(t, spod, &interceptor.Funcs{
+		Get: func(
+			ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption,
+		) error {
+			countPolicy(obj)
+
+			return c.Get(ctx, key, obj, opts...)
+		},
+		Create: func(
+			ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption,
+		) error {
+			countPolicy(obj)
+
+			return c.Create(ctx, obj, opts...)
+		},
+	})
+	r.skipAdmissionPolicies = true
+
+	reconcileSPOD(t, r)
+	require.Equal(t, spodapi.SPODStateCreating, spodState(t, cl))
+	require.Zero(t, policyCalls.Load())
+}
+
 func TestReconcileWithoutOperatorDeployment(t *testing.T) {
 	t.Parallel()
 
@@ -264,9 +311,10 @@ func TestReconcileWithoutOperatorDeployment(t *testing.T) {
 
 	reconcileSPOD(t, r)
 
-	require.Error(t, cl.Get(t.Context(), types.NamespacedName{
+	require.True(t, apierrors.IsNotFound(cl.Get(t.Context(), types.NamespacedName{
 		Name: config.SPOdName, Namespace: testNamespace,
-	}, &appsv1.DaemonSet{}))
+	}, &appsv1.DaemonSet{})))
+	require.Equal(t, spodapi.SPODStatePending, spodState(t, cl))
 }
 
 func TestReconcileMissingSPOD(t *testing.T) {
@@ -276,19 +324,55 @@ func TestReconcileMissingSPOD(t *testing.T) {
 	r := &ReconcileSPOd{client: cl, log: logf.Log, namespace: testNamespace}
 
 	reconcileSPOD(t, r)
+
+	// Nothing gets created for a SPOD which does not exist.
+	require.True(t, apierrors.IsNotFound(cl.Get(t.Context(), types.NamespacedName{
+		Name: config.SPOdName, Namespace: testNamespace,
+	}, &appsv1.DaemonSet{})))
+
+	svcs := &corev1.ServiceList{}
+	require.NoError(t, cl.List(t.Context(), svcs))
+	require.Empty(t, svcs.Items)
 }
 
 func TestServesAdmissionPolicies(t *testing.T) {
 	t.Parallel()
 
 	mapper := meta.NewDefaultRESTMapper(nil)
-	require.False(t, servesAdmissionPolicies(mapper))
+	serves, err := ServesAdmissionPolicies(mapper)
+	require.NoError(t, err)
+	require.False(t, serves)
 
 	mapper.Add(
 		admissionregv1.SchemeGroupVersion.WithKind("ValidatingAdmissionPolicy"),
 		meta.RESTScopeRoot,
 	)
-	require.True(t, servesAdmissionPolicies(mapper))
+
+	serves, err = ServesAdmissionPolicies(mapper)
+	require.NoError(t, err)
+	require.False(t, serves, "the binding kind is missing")
+
+	mapper.Add(
+		admissionregv1.SchemeGroupVersion.WithKind("ValidatingAdmissionPolicyBinding"),
+		meta.RESTScopeRoot,
+	)
+
+	serves, err = ServesAdmissionPolicies(mapper)
+	require.NoError(t, err)
+	require.True(t, serves)
+
+	// A failed discovery is not mistaken for a missing API.
+	_, err = ServesAdmissionPolicies(failingRESTMapper{mapper})
+	require.ErrorIs(t, err, errTest)
+}
+
+// failingRESTMapper is a REST mapper whose discovery fails.
+type failingRESTMapper struct {
+	meta.RESTMapper
+}
+
+func (failingRESTMapper) RESTMapping(schema.GroupKind, ...string) (*meta.RESTMapping, error) {
+	return nil, errTest
 }
 
 // setDaemonSetStatus sets the status of the SPOd DaemonSet.
@@ -308,7 +392,7 @@ func setDaemonSetStatus(t *testing.T, cl client.Client, status appsv1.DaemonSetS
 // The SPOD is only running once every pod is updated and available, and
 // leaves that state once pods become unavailable.
 func TestReconcileRunningFollowsRollout(t *testing.T) {
-	t.Setenv(config.OperatorNamespaceEnvKey, testNamespace)
+	t.Parallel()
 
 	spod := testSPOD()
 	spod.Status.StatePending()
@@ -350,7 +434,7 @@ func TestReconcileRunningFollowsRollout(t *testing.T) {
 
 // A deleted metrics service gets restored, even if nothing else changed.
 func TestReconcileRestoresMetricsService(t *testing.T) {
-	t.Setenv(config.OperatorNamespaceEnvKey, testNamespace)
+	t.Parallel()
 
 	spod := testSPOD()
 	spod.Status.StatePending()
@@ -395,4 +479,229 @@ func TestPatchOrCreate(t *testing.T) {
 	found := &corev1.Service{}
 	require.NoError(t, cl.Get(t.Context(), client.ObjectKeyFromObject(service), found))
 	require.Equal(t, "true", found.Labels["updated"])
+}
+
+func getSPOD(t *testing.T, cl client.Client) *spodapi.SecurityProfilesOperatorDaemon {
+	t.Helper()
+
+	spod := &spodapi.SecurityProfilesOperatorDaemon{}
+	require.NoError(t, cl.Get(t.Context(), types.NamespacedName{
+		Name: config.SPOdName, Namespace: testNamespace,
+	}, spod))
+
+	return spod
+}
+
+func getDaemonSet(t *testing.T, cl client.Client) *appsv1.DaemonSet {
+	t.Helper()
+
+	ds := &appsv1.DaemonSet{}
+	require.NoError(t, cl.Get(t.Context(), types.NamespacedName{
+		Name: config.SPOdName, Namespace: testNamespace,
+	}, ds))
+
+	return ds
+}
+
+func reconcileRequest() reconcile.Request {
+	return reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: config.SPOdName, Namespace: testNamespace},
+	}
+}
+
+// A transient failure to read the operator ConfigMap must not render the
+// JSON enricher without its log volume, which would roll every SPOd pod and
+// roll them back with the next successful read.
+func TestReconcileJsonEnricherConfigMapFailure(t *testing.T) {
+	t.Parallel()
+
+	logVolume, err := json.Marshal(&corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}})
+	require.NoError(t, err)
+
+	configMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: util.OperatorConfigMap, Namespace: testNamespace},
+		Data: map[string]string{
+			util.JsonEnricherLogVolumeSourceJson: string(logVolume),
+			util.JsonEnricherLogVolumeMountPath:  "/logs",
+		},
+	}
+
+	spod := testSPOD()
+	spod.Spec.Enricher.EnableJsonEnricher = new(true)
+	spod.Status.StatePending()
+
+	fail := false
+	r, cl, _ := newReconcileTest(t, spod, &interceptor.Funcs{
+		Get: func(
+			ctx context.Context, c client.WithWatch, key client.ObjectKey,
+			obj client.Object, opts ...client.GetOption,
+		) error {
+			if _, ok := obj.(*corev1.ConfigMap); ok && fail {
+				return apierrors.NewServiceUnavailable("test")
+			}
+
+			return c.Get(ctx, key, obj, opts...)
+		},
+	}, configMap)
+
+	reconcileSPOD(t, r)
+
+	before := getDaemonSet(t, cl)
+	require.True(
+		t,
+		slices.ContainsFunc(before.Spec.Template.Spec.Volumes, func(v corev1.Volume) bool {
+			return v.Name == "json-enricher-log-output-volume"
+		}),
+	)
+
+	fail = true
+
+	_, err = r.Reconcile(t.Context(), reconcileRequest())
+	require.Error(t, err)
+
+	after := getDaemonSet(t, cl)
+	require.Equal(t, before.ResourceVersion, after.ResourceVersion)
+	require.Equal(t, before.Spec.Template, after.Spec.Template)
+
+	// The failure is reported in the status of the SPOD.
+	stored := getSPOD(t, cl)
+	require.Equal(t, spodapi.SPODStateError, stored.Status.State)
+	require.Equal(t, stored.Generation, stored.Status.ObservedGeneration)
+
+	ready := stored.Status.GetReadyCondition()
+	require.Equal(t, metav1.ConditionFalse, ready.Status)
+	require.Contains(t, ready.Message, "JSON enricher log volume")
+	require.Equal(t, stored.Generation, ready.ObservedGeneration)
+
+	// The next successful read leaves the DaemonSet alone and the SPOD
+	// leaves the error state.
+	fail = false
+
+	reconcileSPOD(t, r)
+	require.Equal(t, before.Spec.Template, getDaemonSet(t, cl).Spec.Template)
+	require.NotEqual(t, spodapi.SPODStateError, spodState(t, cl))
+}
+
+// An update which fails after the webhook got updated reports a warning
+// event and the error state, except for a conflict, which the next
+// reconciliation resolves.
+func TestReconcileUpdateFailure(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		patchErr  error
+		wantError bool
+	}{
+		"error":    {patchErr: errTest, wantError: true},
+		"conflict": {patchErr: apierrors.NewConflict(appsv1.Resource("daemonsets"), "spod", errTest)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			spod := testSPOD()
+			spod.Status.StatePending()
+
+			fail := false
+			r, cl, recorder := newReconcileTest(t, spod, &interceptor.Funcs{
+				Patch: func(
+					ctx context.Context, c client.WithWatch, obj client.Object,
+					patch client.Patch, opts ...client.PatchOption,
+				) error {
+					if _, ok := obj.(*appsv1.DaemonSet); ok && fail {
+						return tc.patchErr
+					}
+
+					return c.Patch(ctx, obj, patch, opts...)
+				},
+			})
+
+			reconcileSPOD(t, r)
+			before := getDaemonSet(t, cl)
+
+			stored := getSPOD(t, cl)
+			stored.Spec.Verbosity = 2
+			require.NoError(t, cl.Update(t.Context(), stored))
+
+			fail = true
+
+			_, err := r.Reconcile(t.Context(), reconcileRequest())
+			require.ErrorIs(t, err, tc.patchErr)
+			require.Equal(t, before.Spec.Template, getDaemonSet(t, cl).Spec.Template)
+			require.Equal(t, tc.wantError, spodState(t, cl) == spodapi.SPODStateError)
+
+			var recorded []string
+
+			for len(recorder.Events) > 0 {
+				recorded = append(recorded, <-recorder.Events)
+			}
+
+			require.Equal(t, tc.wantError, slices.ContainsFunc(recorded, func(e string) bool {
+				return strings.Contains(e, reasonCannotUpdateSPOD)
+			}), recorded)
+
+			// The update goes through once the DaemonSet can be written.
+			fail = false
+
+			reconcileSPOD(t, r)
+			require.Equal(t, spodapi.SPODStateUpdating, spodState(t, cl))
+			require.NotEqual(t, before.Spec.Template, getDaemonSet(t, cl).Spec.Template)
+		})
+	}
+}
+
+// The status records the generation it was computed for.
+func TestReconcileObservedGeneration(t *testing.T) {
+	t.Parallel()
+
+	spod := testSPOD()
+	spod.Generation = 3
+
+	r, cl, _ := newReconcileTest(t, spod, &interceptor.Funcs{})
+
+	reconcileSPOD(t, r)
+
+	stored := getSPOD(t, cl)
+	require.Equal(t, spodapi.SPODStatePending, stored.Status.State)
+	require.Equal(t, stored.Generation, stored.Status.ObservedGeneration)
+	require.Equal(t, stored.Generation, stored.Status.GetReadyCondition().ObservedGeneration)
+}
+
+// A spec change which touches neither the DaemonSet nor the webhook still
+// gets observed.
+func TestReconcileObservedGenerationWithoutOperandChange(t *testing.T) {
+	t.Parallel()
+
+	spod := testSPOD()
+	spod.Status.StatePending()
+
+	r, cl, _ := newReconcileTest(t, spod, &interceptor.Funcs{})
+	reconcileSPOD(t, r)
+
+	setDaemonSetStatus(t, cl, appsv1.DaemonSetStatus{
+		DesiredNumberScheduled: 1,
+		UpdatedNumberScheduled: 1,
+		NumberAvailable:        1,
+		NumberReady:            1,
+	})
+	reconcileSPOD(t, r)
+	require.Equal(t, spodapi.SPODStateRunning, spodState(t, cl))
+
+	before := getDaemonSet(t, cl)
+
+	stored := getSPOD(t, cl)
+	stored.Spec.Security.AllowedSyscalls = []string{"read", "write"}
+	stored.Generation++
+	require.NoError(t, cl.Update(t.Context(), stored))
+
+	generation := getSPOD(t, cl).Generation
+	require.NotEqual(t, getSPOD(t, cl).Status.ObservedGeneration, generation)
+
+	reconcileSPOD(t, r)
+
+	require.Equal(t, before.Spec.Template, getDaemonSet(t, cl).Spec.Template)
+
+	stored = getSPOD(t, cl)
+	require.Equal(t, spodapi.SPODStateRunning, stored.Status.State)
+	require.Equal(t, generation, stored.Status.ObservedGeneration)
+	require.Equal(t, generation, stored.Status.GetReadyCondition().ObservedGeneration)
 }

@@ -1,3 +1,5 @@
+//go:build e2e
+
 /*
 Copyright The Kubernetes Authors.
 
@@ -18,7 +20,6 @@ package e2e_test
 
 import (
 	"fmt"
-	"strings"
 
 	spoutil "sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
@@ -210,10 +211,7 @@ spec:
 	e.logf("Creating test pod")
 	e.writeAndCreate(testPod, "selinuxBindingPod-test.yml")
 
-	output := e.kubectl("get", "pod", testPodName)
-	for strings.Contains(output, "ContainerCreating") {
-		output = e.kubectl("get", "pod", testPodName)
-	}
+	e.waitForPodCreated(testPodName)
 
 	e.waitFor("condition=ready", "pod", testPodName)
 

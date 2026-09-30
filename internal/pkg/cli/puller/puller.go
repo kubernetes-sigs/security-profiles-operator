@@ -17,6 +17,7 @@ limitations under the License.
 package puller
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -56,9 +57,21 @@ func (p *Puller) Run() error {
 			DisableSignatureVerification: p.options.disableSignatureVerification,
 			AllowedIdentityRegexp:        p.options.allowedIdentityRegexp,
 			AllowedOidcIssuerRegexp:      p.options.allowedOidcIssuerRegexp,
+			KeyRef:                       p.options.keyRef,
+			CertIdentity:                 p.options.certIdentity,
+			CertOidcIssuer:               p.options.certOidcIssuer,
+			TrustedRootPath:              p.options.trustedRootPath,
+			Offline:                      p.options.offline,
 			PlainHTTP:                    p.options.plainHTTP,
 		},
 	)
+	if errors.Is(err, artifact.ErrNoCachedTrustedRoot) {
+		return fmt.Errorf(
+			"pull profile: pass --%s or run once without --%s to populate the TUF cache: %w",
+			FlagTrustedRoot, FlagOffline, err,
+		)
+	}
+
 	if err != nil {
 		return fmt.Errorf("pull profile: %w", err)
 	}

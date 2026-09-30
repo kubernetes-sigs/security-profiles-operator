@@ -34,9 +34,12 @@ Vagrant.configure("2") do |config|
       echo "nameserver 8.8.8.8" > /etc/resolv.conf
 
       # Install Go
+      # The checksum comes from the Go download server, like in Dockerfile.ubi.
       GO_VERSION=go$(bash /vagrant/hack/go-version.sh /vagrant/go.mod)
-      curl -sSfL -o- https://go.dev/dl/$GO_VERSION.linux-amd64.tar.gz |
-        tar xfz - -C /usr/local
+      curl -sSfL --retry 5 --retry-delay 3 -o /tmp/go.tar.gz https://go.dev/dl/$GO_VERSION.linux-amd64.tar.gz
+      echo "$(curl -sSfL --retry 5 --retry-delay 3 https://dl.google.com/go/$GO_VERSION.linux-amd64.tar.gz.sha256)  /tmp/go.tar.gz" | sha256sum -c -
+      tar xfz /tmp/go.tar.gz -C /usr/local
+      rm -f /tmp/go.tar.gz
 
       echo 'export PATH=$PATH:/usr/local/go/bin' >> /etc/profile
       echo 'export GOPATH="$HOME/go"' >> /etc/profile

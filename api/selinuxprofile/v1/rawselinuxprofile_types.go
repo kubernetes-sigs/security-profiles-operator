@@ -145,10 +145,11 @@ type RawSelinuxProfile struct {
 
 	// spec defines the desired state of the RawSelinuxProfile.
 	// +optional
+	//nolint:kubeapilinter // spec has no required fields and is a value by convention
 	Spec RawSelinuxProfileSpec `json:"spec,omitzero"`
 	// status contains the observed state of the RawSelinuxProfile.
 	// +optional
-	Status SelinuxProfileStatus `json:"status,omitzero"`
+	Status SelinuxProfileStatus `json:"status,omitzero"` //nolint:kubeapilinter // status is a value by convention
 }
 
 func (sp *RawSelinuxProfile) GetStatusBase() *profilebasev1.StatusBase {

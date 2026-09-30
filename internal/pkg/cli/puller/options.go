@@ -38,6 +38,11 @@ type Options struct {
 	disableSignatureVerification bool
 	allowedIdentityRegexp        string
 	allowedOidcIssuerRegexp      string
+	keyRef                       string
+	certIdentity                 string
+	certOidcIssuer               string
+	trustedRootPath              string
+	offline                      bool
 	plainHTTP                    bool
 }
 
@@ -82,6 +87,11 @@ func FromContext(ctx *ucli.Context) (*Options, error) {
 		options.allowedOidcIssuerRegexp = ctx.String(FlagAllowedOidcIssuerRegexp)
 	}
 
+	options.keyRef = ctx.String(FlagKey)
+	options.certIdentity = ctx.String(FlagCertificateIdentity)
+	options.certOidcIssuer = ctx.String(FlagCertificateOidcIssuer)
+	options.trustedRootPath = ctx.String(FlagTrustedRoot)
+	options.offline = ctx.Bool(FlagOffline)
 	options.plainHTTP = ctx.Bool(FlagPlainHTTP)
 
 	username, password, err := cli.RegistryCredentials(ctx, os.Stdin, os.Getenv)

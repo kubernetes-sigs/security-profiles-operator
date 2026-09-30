@@ -89,7 +89,7 @@ type SelinuxProfileSpec struct {
 	// (or "@self" for the profile's own type) to object classes and their
 	// permissions.
 	// +optional
-	Allow Allow `json:"allow,omitempty"`
+	Allow Allow `json:"allow,omitempty"` //nolint:kubeapilinter // nomaps: the map is the released v1 API shape
 }
 
 type LabelKey string
@@ -113,7 +113,7 @@ type PermissionSet []string
 // +kubebuilder:validation:MaxProperties=1024
 // +kubebuilder:validation:XValidation:rule="self.all(k, k.matches('^([-a-zA-Z0-9._]+|@self)$'))",message="types may only contain alphanumeric characters, '.', '-' and '_', or be '@self'"
 //
-//nolint:lll // CEL rules cannot be wrapped
+//nolint:lll,kubeapilinter // CEL rules cannot be wrapped, the map is the released v1 API shape
 type Allow map[LabelKey]ObjectClassPermissions
 
 // ObjectClassPermissions maps SELinux object classes to their permissions.
@@ -121,7 +121,7 @@ type Allow map[LabelKey]ObjectClassPermissions
 // +kubebuilder:validation:MaxProperties=256
 // +kubebuilder:validation:XValidation:rule="self.all(k, k.matches('^[-a-zA-Z0-9._]+$'))",message="object classes may only contain alphanumeric characters, '.', '-' and '_'"
 //
-//nolint:lll // CEL rules cannot be wrapped
+//nolint:lll,kubeapilinter // CEL rules cannot be wrapped, the map is the released v1 API shape
 type ObjectClassPermissions map[ObjectClassKey]PermissionSet
 
 func SortLabelKeys(allow Allow) []LabelKey {
@@ -150,6 +150,7 @@ type SelinuxProfileStatus struct {
 	// usage represents the string that the SelinuxProfile object can be
 	// referenced as in a pod seLinuxOptions section.
 	// +optional
+	//nolint:kubeapilinter // released v1 API: empty means unset, a MinLength would reject existing manifests
 	Usage string `json:"usage,omitempty"`
 	// activeWorkloads lists the workloads currently using this profile.
 	// +optional
@@ -182,10 +183,11 @@ type SelinuxProfile struct {
 
 	// spec defines the desired state of the SelinuxProfile.
 	// +optional
+	//nolint:kubeapilinter // spec has no required fields and is a value by convention
 	Spec SelinuxProfileSpec `json:"spec,omitempty"`
 	// status contains the observed state of the SelinuxProfile.
 	// +optional
-	Status SelinuxProfileStatus `json:"status,omitzero"`
+	Status SelinuxProfileStatus `json:"status,omitzero"` //nolint:kubeapilinter // status is a value by convention
 }
 
 func (sp *SelinuxProfile) GetStatusBase() *profilebasev1.StatusBase {

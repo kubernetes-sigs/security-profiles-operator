@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
@@ -395,6 +396,8 @@ func TestMatchSelinuxdImageVersion(t *testing.T) {
 }
 
 func TestGetOperatorConfigMap(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		c client.Reader
 	}
@@ -408,11 +411,9 @@ func TestGetOperatorConfigMap(t *testing.T) {
 		{
 			name: "Should return not found when getting configmap fails",
 			args: args{
-				c: &utiltest.MockClient{
-					MockGet: utiltest.NewMockGetFn(
-						kerrors.NewNotFound(schema.GroupResource{}, "test"),
-					),
-				},
+				c: utiltest.NewFakeClient(t, &interceptor.Funcs{
+					Get: utiltest.GetReturns(kerrors.NewNotFound(schema.GroupResource{}, "test")),
+				}),
 			},
 			want:    nil,
 			wantErr: true,
@@ -420,10 +421,10 @@ func TestGetOperatorConfigMap(t *testing.T) {
 		{
 			name: "Should return error when getting configmap fails",
 			args: args{
-				c: &utiltest.MockClient{
-					MockGet: utiltest.NewMockGetFn(kerrors.NewForbidden(
+				c: utiltest.NewFakeClient(t, &interceptor.Funcs{
+					Get: utiltest.GetReturns(kerrors.NewForbidden(
 						schema.GroupResource{}, "test", errors.New("test"))),
-				},
+				}),
 			},
 			want:    nil,
 			wantErr: true,
@@ -451,9 +452,9 @@ func TestGetOperatorConfigMap(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv(config.OperatorNamespaceEnvKey, "test")
+			t.Parallel()
 
-			got, err := GetOperatorConfigMap(t.Context(), tt.args.c)
+			got, err := GetOperatorConfigMap(t.Context(), tt.args.c, "test")
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GetOperatorConfigMap() error = %v, wantErr %v", err, tt.wantErr)
 
@@ -476,6 +477,8 @@ func TestGetOperatorConfigMap(t *testing.T) {
 }
 
 func TestGetKubeletDirFromNodeLabel(t *testing.T) {
+	t.Parallel()
+
 	const nodeName = "test-node"
 
 	for _, tc := range []struct {
@@ -553,7 +556,7 @@ func TestGetKubeletDirFromNodeLabel(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv(config.NodeNameEnvKey, nodeName)
+			t.Parallel()
 
 			c := fake.NewClientBuilder().WithObjects(&corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{
@@ -562,7 +565,7 @@ func TestGetKubeletDirFromNodeLabel(t *testing.T) {
 				},
 			}).Build()
 
-			got, err := GetKubeletDirFromNodeLabel(t.Context(), c)
+			got, err := GetKubeletDirFromNodeLabel(t.Context(), c, nodeName)
 			if tc.wantErr {
 				require.ErrorIs(t, err, ErrInvalidKubeletDirLabel)
 
@@ -576,34 +579,77 @@ func TestGetKubeletDirFromNodeLabel(t *testing.T) {
 }
 
 func TestGetKubeletDirFromNodeLabelErrors(t *testing.T) {
+	t.Parallel()
+
 	const nodeName = "test-node"
 
-	t.Run("no node name in environment", func(t *testing.T) {
-		t.Setenv(config.NodeNameEnvKey, "")
+	t.Run("no node name", func(t *testing.T) {
+		t.Parallel()
 
-		_, err := GetKubeletDirFromNodeLabel(t.Context(), fake.NewClientBuilder().Build())
-		require.Error(t, err)
+		_, err := GetKubeletDirFromNodeLabel(t.Context(), fake.NewClientBuilder().Build(), "")
+		require.ErrorIs(t, err, ErrNoNodeName)
 	})
 
 	t.Run("no label on the node", func(t *testing.T) {
-		t.Setenv(config.NodeNameEnvKey, nodeName)
+		t.Parallel()
 
 		c := fake.NewClientBuilder().WithObjects(&corev1.Node{
 			ObjectMeta: metav1.ObjectMeta{Name: nodeName},
 		}).Build()
 
-		_, err := GetKubeletDirFromNodeLabel(t.Context(), c)
+		_, err := GetKubeletDirFromNodeLabel(t.Context(), c, nodeName)
 		require.ErrorIs(t, err, ErrKubeletDirLabelNotFound)
 	})
 
 	t.Run("node not found", func(t *testing.T) {
-		t.Setenv(config.NodeNameEnvKey, nodeName)
+		t.Parallel()
 
-		_, err := GetKubeletDirFromNodeLabel(t.Context(), fake.NewClientBuilder().Build())
+		_, err := GetKubeletDirFromNodeLabel(t.Context(), fake.NewClientBuilder().Build(), nodeName)
 		require.Error(t, err)
 		require.NotErrorIs(t, err, ErrKubeletDirLabelNotFound)
 		require.NotErrorIs(t, err, ErrInvalidKubeletDirLabel)
 	})
+}
+
+func TestValidateKubeletDir(t *testing.T) {
+	t.Parallel()
+
+	for _, dir := range []string{
+		"/var/lib/kubelet",
+		"/var/lib/k0s/kubelet",
+		"/var/snap/microk8s/common/var/lib/kubelet",
+		"/mnt/resource/kubelet",
+		"/opt/kubelet",
+		"/kubelet",
+	} {
+		require.NoError(t, ValidateKubeletDir(dir), dir)
+	}
+
+	for dir, want := range map[string]string{
+		"":                         "is not a clean absolute path",
+		"var/lib/kubelet":          "is not a clean absolute path",
+		"/var/lib/../etc/kubelet":  "is not a clean absolute path",
+		"/var/lib/kubelet/":        "is not a clean absolute path",
+		"/var//lib/kubelet":        "is not a clean absolute path",
+		"/var/lib/kubelet/pods":    `does not end with "kubelet"`,
+		"/var/lib/kubelet.d":       `does not end with "kubelet"`,
+		"/etc/cron.d/kubelet":      "is below the system directory /etc",
+		"/usr/lib/kubelet":         "is below the system directory /usr",
+		"/proc/kubelet":            "is below the system directory /proc",
+		"/opt/bin/kubelet":         "is in a directory for executables",
+		"/opt/sbin/kubelet":        "is in a directory for executables",
+		"/opt/libexec/kubelet":     "is in a directory for executables",
+		"/var/lib/kubelet/kubelet": "",
+	} {
+		err := ValidateKubeletDir(dir)
+		if want == "" {
+			require.NoError(t, err, dir)
+
+			continue
+		}
+
+		require.ErrorContains(t, err, want, dir)
+	}
 }
 
 func TestKubeletDirFromNodeLabels(t *testing.T) {

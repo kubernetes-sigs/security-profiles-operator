@@ -17,10 +17,13 @@ limitations under the License.
 package util
 
 import (
+	"crypto/sha256"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/validation"
 
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 	seccompprofile "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
@@ -107,6 +110,105 @@ func TestCheckRecordingOwner(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLengthName(t *testing.T) {
+	t.Parallel()
+
+	const maxLen = 20
+
+	t.Run("a fitting name is returned as is", func(t *testing.T) {
+		t.Parallel()
+
+		got, err := lengthName(maxLen, "prefix", "%s-%s", "short", "name")
+		require.NoError(t, err)
+		require.Equal(t, "short-name", got)
+	})
+
+	t.Run("a name of exactly the limit is hashed", func(t *testing.T) {
+		t.Parallel()
+
+		// Documented off-by-one: the threshold is part of the persisted
+		// naming scheme of the node statuses.
+		name := strings.Repeat("n", maxLen)
+
+		got, err := lengthName(maxLen, "p", "%s", name)
+		require.NoError(t, err)
+		require.NotEqual(t, name, got)
+		require.Len(t, got, maxLen)
+	})
+
+	t.Run("a long name is replaced by the prefix and a hash", func(t *testing.T) {
+		t.Parallel()
+
+		name := strings.Repeat("n", 100)
+
+		got, err := lengthName(maxLen, "prefix", "%s", name)
+		require.NoError(t, err)
+		require.Len(t, got, maxLen)
+		require.True(t, strings.HasPrefix(got, "prefix-"))
+
+		again, err := lengthName(maxLen, "prefix", "%s", name)
+		require.NoError(t, err)
+		require.Equal(t, got, again, "hashing is deterministic")
+
+		other, err := lengthName(maxLen, "prefix", "%s", name+"x")
+		require.NoError(t, err)
+		require.NotEqual(t, got, other, "different names get different hashes")
+	})
+
+	t.Run("a limit beyond the hash length keeps the whole hash", func(t *testing.T) {
+		t.Parallel()
+
+		name := strings.Repeat("n", 300)
+
+		got, err := lengthName(200, "prefix", "%s", name)
+		require.NoError(t, err)
+		require.Len(t, got, len("prefix-")+sha256.Size*2)
+	})
+
+	t.Run("a prefix without room for the hash fails", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := lengthName(maxLen, strings.Repeat("p", maxLen), "%s", strings.Repeat("n", 100))
+		require.ErrorContains(t, err, "shortening string")
+	})
+}
+
+func TestDNSLengthName(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, "kind-name", DNSLengthName("kind", "%s-%s", "kind", "name"))
+
+	long := DNSLengthName("kind", "%s-%s", "kind", strings.Repeat("n", 100))
+	require.Len(t, long, validation.DNS1123LabelMaxLength)
+	require.True(t, strings.HasPrefix(long, "kind-"))
+	require.Empty(t, validation.IsDNS1123Label(long))
+
+	// The error of lengthName is swallowed.
+	require.Empty(t, DNSLengthName(
+		strings.Repeat("p", validation.DNS1123LabelMaxLength), "%s", strings.Repeat("n", 100),
+	))
+}
+
+func TestKindNameDNSLengthName(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, "SeccompProfile-name", KindNameDNSLengthName("SeccompProfile", "name"))
+	require.Equal(t,
+		"SeccompProfile-9d42ecd8a72de861cc202ee69381e536088eec6dc43f8f8e",
+		KindNameDNSLengthName(
+			"SeccompProfile",
+			"this-is-a-very-long-name-surely-over-64-characters-omg-its-overflowing",
+		),
+	)
+
+	// The kind based variant reads the kind from the type meta.
+	sp := &seccompprofile.SeccompProfile{
+		TypeMeta:   metav1.TypeMeta{Kind: "SeccompProfile"},
+		ObjectMeta: metav1.ObjectMeta{Name: "name"},
+	}
+	require.Equal(t, KindNameDNSLengthName("SeccompProfile", "name"), KindBasedDNSLengthName(sp))
 }
 
 func TestNameHashing(t *testing.T) {

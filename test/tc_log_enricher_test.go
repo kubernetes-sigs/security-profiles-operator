@@ -1,3 +1,5 @@
+//go:build e2e
+
 /*
 Copyright The Kubernetes Authors.
 
@@ -18,6 +20,7 @@ package e2e_test
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -52,7 +55,7 @@ spec:
 `, profileName)
 
 	e.writeAndCreate(profile, "test-profile-*.yaml")
-	defer e.kubectl("delete", "sp", profileName)
+	e.kubectlCleanup("sp", profileName)
 
 	e.logf("Waiting for profile to be reconciled")
 	e.waitForProfile(profileName)
@@ -79,25 +82,13 @@ spec:
 	since := time.Now()
 
 	e.writeAndCreate(pod, "test-pod-*.yaml")
-	defer e.kubectl("delete", "pod", podName)
+	e.kubectlCleanup("pod", podName)
 
 	e.waitForProfile(profileName)
 
 	e.waitFor("condition=initialized", "pod", podName)
 
-	const maximum = 20
-	for i := 0; i <= maximum; i++ {
-		output := e.kubectl("get", "pod", podName)
-		if strings.Contains(output, "Running") {
-			break
-		}
-
-		if i == maximum {
-			e.Fail("Unable to get pod in running state")
-		}
-
-		time.Sleep(5 * time.Second)
-	}
+	e.waitFor("jsonpath={.status.phase}=Running", "pod", podName)
 
 	// Make sure that Exec webhook is not enabled unless JSON Log Enricher is used
 	envOutput := e.kubectl("exec", "-it", podName, "--", "env")
@@ -130,19 +121,20 @@ spec:
 	e.Contains(output, `syscallName="listen"`)
 	e.Contains(output, `syscallID=50`)
 
-	if e.singleNodeEnvironment {
-		// we only run the metrics checks in a single node environment because otherwise it's a lottery
-		// which spod instance do we hit and the test is not stable
-		metrics := e.runAndRetryPodCMD(curlSpodCMD)
-		e.Regexp(fmt.Sprintf(`(?m)security_profiles_operator_seccomp_profile_audit_total{`+
+	// The daemon of the node of the pod counts the audit lines.
+	auditMetric := regexp.MustCompile(fmt.Sprintf(
+		`(?m)security_profiles_operator_seccomp_profile_audit_total{`+
 			`container="%s",`+
 			`namespace="%s",`+
 			`node=".*",`+
 			`pod="%s",`+
 			`syscall="listen"} \d+`,
-			containerName, namespace, podName,
-		), metrics)
-	}
+		containerName, namespace, podName,
+	))
+
+	e.eventually(metricsTimeout, defaultPollInterval, func() error {
+		return unmatchedLogs(e.scrapeSpodMetrics(), []*regexp.Regexp{auditMetric})
+	})
 }
 
 func (e *e2e) testCaseLogEnricherWithFilters([]string) {
@@ -178,7 +170,7 @@ spec:
 `, profileName)
 
 	e.writeAndCreate(profile, "test-profile-*.yaml")
-	defer e.kubectl("delete", "sp", profileName)
+	e.kubectlCleanup("sp", profileName)
 
 	e.logf("Waiting for profile to be reconciled")
 	e.waitForProfile(profileName)
@@ -205,25 +197,13 @@ spec:
 	since := time.Now()
 
 	e.writeAndCreate(pod, "test-pod-*.yaml")
-	defer e.kubectl("delete", "pod", podName)
+	e.kubectlCleanup("pod", podName)
 
 	e.waitForProfile(profileName)
 
 	e.waitFor("condition=initialized", "pod", podName)
 
-	const maximum = 20
-	for i := 0; i <= maximum; i++ {
-		output := e.kubectl("get", "pod", podName)
-		if strings.Contains(output, "Running") {
-			break
-		}
-
-		if i == maximum {
-			e.Fail("Unable to get pod in running state")
-		}
-
-		time.Sleep(5 * time.Second)
-	}
+	e.waitFor("jsonpath={.status.phase}=Running", "pod", podName)
 
 	// wait for at least one component of the expected logs to appear
 	e.waitForEnricherLogs(since, enricherLogLine("syscallName", "execve"))

@@ -38,6 +38,7 @@ import (
 	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/nodestatus"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/utiltest"
 )
 
 func inheritingProfile(name string, inherits ...string) *selinuxprofileapi.SelinuxProfile {
@@ -126,7 +127,7 @@ func TestCheckInheritCycle(t *testing.T) {
 			t.Parallel()
 
 			cli := fake.NewClientBuilder().
-				WithScheme(testScheme(t)).
+				WithScheme(utiltest.NewScheme(t)).
 				WithObjects(tc.profiles...).
 				Build()
 
@@ -188,7 +189,7 @@ func TestInheritedProfilesInstalledReportsUnusableAncestors(t *testing.T) {
 			}
 
 			cli := fake.NewClientBuilder().
-				WithScheme(testScheme(t)).
+				WithScheme(utiltest.NewScheme(t)).
 				WithStatusSubresource(&secprofnodestatusapi.SecurityProfileNodeStatus{}).
 				WithObjects(ancestor).
 				Build()
@@ -218,8 +219,9 @@ func TestInheritedProfilesInstalledReportsUnusableAncestors(t *testing.T) {
 	}
 }
 
-//nolint:paralleltest // uses t.Setenv
 func TestReconcileUnusableAncestorSetsError(t *testing.T) {
+	t.Parallel()
+
 	ancestor := testProfile()
 	ancestor.Name = "ancestor"
 	ancestor.Spec.State = profilebasev1.SpecStateDisabled
@@ -228,7 +230,7 @@ func TestReconcileUnusableAncestorSetsError(t *testing.T) {
 	require.NoError(t, f.client.Create(context.Background(), ancestor))
 
 	f.r.objectHandlerInit = func(
-		ctx context.Context, c client.Client, key types.NamespacedName,
+		ctx context.Context, c client.Client, key types.NamespacedName, _ string,
 	) (SelinuxObjectHandler, error) {
 		oh := &inheritingFakeHandler{
 			fakeHandler: fakeHandler{sp: &selinuxprofileapi.SelinuxProfile{}},
@@ -252,9 +254,9 @@ func TestReconcileUnusableAncestorSetsError(t *testing.T) {
 // The check for a conflicting system module must not be skipped because the
 // first pass returned before reaching it, and a module installed by this
 // operator must not count as conflicting after the SPOd pod got replaced.
-//
-//nolint:paralleltest // uses t.Setenv
 func TestReconcileSystemModuleConflictCheck(t *testing.T) {
+	t.Parallel()
+
 	var ready atomic.Bool
 
 	f := newReconcileFixture(t, testProfile(), nil, func(w http.ResponseWriter, r *http.Request) {

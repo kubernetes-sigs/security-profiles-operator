@@ -25,20 +25,12 @@ import (
 	tlspkg "github.com/openshift/controller-runtime-common/pkg/tls"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/utiltest"
 )
-
-func newScheme(t *testing.T) *runtime.Scheme {
-	t.Helper()
-
-	s := runtime.NewScheme()
-	require.NoError(t, configv1.Install(s))
-
-	return s
-}
 
 func TestTLSWatcherProfileChangeCallback(t *testing.T) {
 	t.Parallel()
@@ -57,7 +49,7 @@ func TestTLSWatcherProfileChangeCallback(t *testing.T) {
 		},
 	}
 
-	scheme := newScheme(t)
+	scheme := utiltest.NewScheme(t)
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(apiServer).Build()
 
 	var profileChanged atomic.Bool
@@ -89,7 +81,7 @@ func TestTLSWatcherNoChangeNoCallback(t *testing.T) {
 		Spec:       configv1.APIServerSpec{},
 	}
 
-	scheme := newScheme(t)
+	scheme := utiltest.NewScheme(t)
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(apiServer).Build()
 
 	var profileChanged atomic.Bool
@@ -123,7 +115,7 @@ func TestTLSWatcherAdherencePolicyChangeCallback(t *testing.T) {
 		},
 	}
 
-	scheme := newScheme(t)
+	scheme := utiltest.NewScheme(t)
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(apiServer).Build()
 
 	var policyChanged atomic.Bool
@@ -162,7 +154,7 @@ func TestTLSWatcherNilCallbacksDoNotPanic(t *testing.T) {
 		},
 	}
 
-	scheme := newScheme(t)
+	scheme := utiltest.NewScheme(t)
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(apiServer).Build()
 
 	watcher := &tlspkg.SecurityProfileWatcher{
@@ -185,7 +177,7 @@ func TestTLSWatcherAPIServerNotFound(t *testing.T) {
 	initialProfile, err := tlspkg.GetTLSProfileSpec(nil)
 	require.NoError(t, err)
 
-	scheme := newScheme(t)
+	scheme := utiltest.NewScheme(t)
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 
 	var profileChanged atomic.Bool

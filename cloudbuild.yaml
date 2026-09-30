@@ -25,7 +25,6 @@ steps:
     entrypoint: bash
     env:
       - REGISTRY=us-central1-docker.pkg.dev/$PROJECT_ID/sp-operator
-      - USERNAME=oauth2accesstoken
       - TAG=$_GIT_TAG
       - BUILD_ID=$BUILD_ID
       - PROJECT_ID=$PROJECT_ID
@@ -35,6 +34,9 @@ steps:
       # profiles, others get signed again.
       - SIGNER_IDENTITY_REGEXP=^sp-operator-sa@$PROJECT_ID\.iam\.gserviceaccount\.com$$
       - SIGNER_OIDC_ISSUER_REGEXP=^https://accounts\.google\.com$$
+    # registry_login fetches the access token itself and writes it to a
+    # temporary DOCKER_CONFIG, which spoc, helm and cosign read, so that the
+    # token never gets into the environment of the step.
     args:
     - -c
     - |
@@ -43,8 +45,8 @@ steps:
       mkdir -p build && \
       docker cp $$CONTAINER:/spoc build/spoc && \
       docker rm $$CONTAINER && \
-      export USERNAME=oauth2accesstoken PASSWORD=$$(gcloud auth print-access-token) && \
-      export SPOC_USERNAME=$$USERNAME SPOC_PASSWORD=$$PASSWORD && \
+      source hack/lib/common.sh && \
+      registry_login us-central1-docker.pkg.dev && \
       ./hack/push-test-artifacts.sh && \
       ./hack/push-base-profiles.sh && \
       ./hack/push-chart.sh

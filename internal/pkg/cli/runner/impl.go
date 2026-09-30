@@ -22,13 +22,13 @@ import (
 	"log"
 	"os"
 
-	"github.com/nxadm/tail"
 	"github.com/opencontainers/runc/libcontainer/configs"
 	"github.com/opencontainers/runc/libcontainer/specconv"
 	"github.com/opencontainers/runtime-spec/specs-go"
 	libseccomp "github.com/seccomp/libseccomp-golang"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/command"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/tailer"
 )
 
 type defaultImpl struct{}
@@ -40,8 +40,9 @@ type impl interface {
 	SetupSeccomp(*specs.LinuxSeccomp) (*configs.Seccomp, error)
 	CommandRun(*command.Command) (uint32, error)
 	CommandWait(*command.Command) error
-	TailFile(string, tail.Config) (*tail.Tail, error)
-	Lines(*tail.Tail) chan *tail.Line
+	TailFile(string, tailer.Config) (*tailer.Tailer, error)
+	Lines(*tailer.Tailer) <-chan string
+	TailErr(*tailer.Tailer) error
 	GetName(libseccomp.ScmpSyscall) (string, error)
 	Printf(format string, v ...any)
 }
@@ -62,12 +63,16 @@ func (*defaultImpl) CommandWait(cmd *command.Command) error {
 	return cmd.Wait()
 }
 
-func (*defaultImpl) TailFile(filename string, config tail.Config) (*tail.Tail, error) {
-	return tail.TailFile(filename, config)
+func (*defaultImpl) TailFile(filename string, config tailer.Config) (*tailer.Tailer, error) {
+	return tailer.Follow(filename, config)
 }
 
-func (*defaultImpl) Lines(tailFile *tail.Tail) chan *tail.Line {
-	return tailFile.Lines
+func (*defaultImpl) Lines(tailFile *tailer.Tailer) <-chan string {
+	return tailFile.Lines()
+}
+
+func (*defaultImpl) TailErr(tailFile *tailer.Tailer) error {
+	return tailFile.Err()
 }
 
 func (*defaultImpl) GetName(s libseccomp.ScmpSyscall) (string, error) {

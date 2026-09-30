@@ -1,3 +1,5 @@
+//go:build e2e
+
 /*
 Copyright The Kubernetes Authors.
 
@@ -20,7 +22,6 @@ import (
 	"fmt"
 	"os"
 	"regexp"
-	"slices"
 	"time"
 )
 
@@ -68,7 +69,9 @@ func (e *e2e) waitForBpfRecorderLogPatterns(since time.Time, patterns []string) 
 		regexes = append(regexes, regexp.MustCompile(pattern))
 	}
 
-	for range 15 {
+	// Failing instead of giving up quietly keeps the test from carrying on
+	// and failing later with a confusing mismatch.
+	e.eventually(45*time.Second, defaultPollInterval, func() error {
 		e.logf("Waiting for bpf recorder to start recording %v", patterns)
 		logs := e.kubectlOperatorNS(
 			"logs",
@@ -77,22 +80,8 @@ func (e *e2e) waitForBpfRecorderLogPatterns(since time.Time, patterns []string) 
 			"bpf-recorder",
 		)
 
-		if !slices.ContainsFunc(regexes, func(r *regexp.Regexp) bool {
-			return !r.MatchString(logs)
-		}) {
-			return
-		}
-
-		time.Sleep(3 * time.Second)
-	}
-
-	// Do not return here: giving up quietly lets the test carry on and fail
-	// later with a confusing mismatch instead of reporting what actually
-	// timed out.
-	e.Failf(
-		"timed out waiting for the bpf recorder",
-		"never logged: %v", patterns,
-	)
+		return unmatchedLogs(logs, regexes)
+	})
 }
 
 func (e *e2e) testCaseBpfRecorderKubectlRun() {

@@ -1,0 +1,15 @@
+---
+# Keeps at least one operator replica running during voluntary disruptions
+# like node drains, so that the operands keep getting reconciled.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: security-profiles-operator
+  namespace: security-profiles-operator
+spec:
+  minAvailable: 1
+  # Crash looping replicas must not block node drains.
+  unhealthyPodEvictionPolicy: AlwaysAllow
+  selector:
+    matchLabels:
+      name: security-profiles-operator

@@ -122,6 +122,7 @@ func newRawSelinuxProfileHandler(
 	ctx context.Context,
 	cli client.Client,
 	key types.NamespacedName,
+	_ string,
 ) (SelinuxObjectHandler, error) {
 	// Create template to wrap policies.
 	// We ignore the error as the wrapper is static.

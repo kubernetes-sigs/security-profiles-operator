@@ -55,10 +55,23 @@ RUN nix shell --inputs-from path:. nixpkgs#bash nixpkgs#coreutils nixpkgs#jq $NI
 
 FROM scratch
 ARG version
+# The OCI image annotations, hack/image-cross.sh passes the values of the
+# build. Keep them in sync with Dockerfile.ubi, hack/ci/dockerfile-drift.sh
+# checks that.
+ARG source=https://github.com/kubernetes-sigs/security-profiles-operator
+ARG revision
+ARG created
 
 LABEL name="Security Profiles Operator" \
       version=$version \
-      description="The Security Profiles Operator makes it easier for cluster admins to manage their SELinux, seccomp and AppArmor profiles and apply them to Kubernetes' workloads."
+      description="The Security Profiles Operator makes it easier for cluster admins to manage their SELinux, seccomp and AppArmor profiles and apply them to Kubernetes' workloads." \
+      org.opencontainers.image.title="Security Profiles Operator" \
+      org.opencontainers.image.description="The Security Profiles Operator makes it easier for cluster admins to manage their SELinux, seccomp and AppArmor profiles and apply them to Kubernetes' workloads." \
+      org.opencontainers.image.source=$source \
+      org.opencontainers.image.revision=$revision \
+      org.opencontainers.image.version=$version \
+      org.opencontainers.image.created=$created \
+      org.opencontainers.image.licenses="Apache-2.0"
 
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=make /work/result/security-profiles-operator /

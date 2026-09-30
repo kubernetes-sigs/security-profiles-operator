@@ -68,13 +68,27 @@ func (a *aaProfileManager) Enabled() bool {
 			hostop.WithAssumeHostPidNamespace())
 		appArmor := aa.NewAppArmor(aa.WithLogger(a.logger))
 
-		//nolint:errcheck //(pjbgf): default to false if we are not privileged enough.
-		_ = mount.Do(func() (err error) {
-			//nolint:errcheck //(pjbgf): default to false if we are not privileged enough.
-			hostSupportsAppArmor, _ = appArmor.Enabled()
+		// Both failures leave AppArmor disabled, but they are told apart in
+		// the logs: a daemon which lacks the capabilities to enter the host
+		// mount namespace, or to read the securityfs, would otherwise report
+		// every host as one without AppArmor.
+		if err := mount.Do(func() error {
+			enabled, err := appArmor.Enabled()
+			if err != nil {
+				a.logger.Info("AppArmor is not available on the host", "error", err.Error())
+
+				return nil
+			}
+
+			hostSupportsAppArmor = enabled
 
 			return nil
-		})
+		}); err != nil {
+			a.logger.Error(
+				err,
+				"Cannot enter the host mount namespace to detect AppArmor support: assuming the host has none",
+			)
+		}
 	})
 
 	return hostSupportsAppArmor
@@ -150,7 +164,7 @@ func (a *aaProfileManager) InstallProfile(
 		return false, fmt.Errorf("generating raw apparmor profile: %w", err)
 	}
 
-	return a.loadProfile(a.logger, profile.GetProfileName(), policy)
+	return a.loadProfile(a.logger, profile.GetProfileName(), policy, ownedByUs)
 }
 
 // runtimeProfiles are the default profiles container runtimes load into the
@@ -282,7 +296,10 @@ func fileManagedByUs(path string) bool {
 	return string(marker) == managedByMarker
 }
 
-func loadProfile(logger logr.Logger, name, content string) (bool, error) {
+// loadProfile writes the policy into the host and loads it. ownedByUs is the
+// caller's evidence that this operator installed the profile, see
+// ProfileManager.InstallProfile.
+func loadProfile(logger logr.Logger, name, content string, ownedByUs bool) (bool, error) {
 	mount := hostop.NewMountHostOp(
 		hostop.WithLogger(logger),
 		hostop.WithAssumeContainer(),
@@ -298,7 +315,7 @@ func loadProfile(logger logr.Logger, name, content string) (bool, error) {
 			profileFilename(name),
 		)
 
-		updated, err = loadPolicyFile(logger, a, path, name, content)
+		updated, err = loadPolicyFile(logger, a, path, name, content, ownedByUs)
 
 		return err
 	})
@@ -312,19 +329,38 @@ type policyLoader interface {
 	PolicyLoaded(policyName string) (bool, error)
 }
 
+// errHostPolicyFile is returned if the policy file at the managed location
+// belongs to the host.
+var errHostPolicyFile = errors.New("policy file belongs to the host")
+
 // loadPolicyFile writes the policy with the given content to path and loads
 // it. It returns false without touching anything if the file holds the
 // policy already and it is loaded, so that a restart of the daemon or a
 // resync neither rewrites every policy file nor runs apparmor_parser for
 // each of them. It must be called inside the host mount namespace.
+//
+// A file at path which is not ours is left alone, even if its policy is not
+// loaded: the ownership check of InstallProfile only sees loaded policies, so a
+// distribution or admin profile whose service is stopped, which is disabled
+// via /etc/apparmor.d/disable or whose binary is absent would otherwise be
+// replaced, and the marker written into it would let a later removal delete
+// the host's file.
 func loadPolicyFile(
-	logger logr.Logger, a policyLoader, path, name, content string,
+	logger logr.Logger, a policyLoader, path, name, content string, ownedByUs bool,
 ) (bool, error) {
 	policy := []byte(managedByMarker + content)
 
 	previous, readErr := os.ReadFile(path)
 	if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
 		return false, fmt.Errorf("reading existing policy file: %w", readErr)
+	}
+
+	// A file without the marker which holds exactly the policy we generate
+	// was written before the marker existed, so it is ours as well.
+	if readErr == nil && !ownedByUs &&
+		!bytes.HasPrefix(previous, []byte(managedByMarker)) &&
+		string(previous) != content {
+		return false, fmt.Errorf("%w: %s", errHostPolicyFile, path)
 	}
 
 	if readErr == nil && bytes.Equal(previous, policy) {

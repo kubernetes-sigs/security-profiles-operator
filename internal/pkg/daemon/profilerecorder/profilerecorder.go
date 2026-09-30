@@ -121,7 +121,9 @@ type RecorderReconciler struct {
 	log           logr.Logger
 	record        util.EventRecorder
 	nodeAddresses []string
-	podsToWatch   sync.Map
+	// namespace is the namespace of the operator, which holds the SPOD.
+	namespace   string
+	podsToWatch sync.Map
 	// forbiddenAttempts counts per profile how often storing it was
 	// forbidden.
 	forbiddenAttempts sync.Map
@@ -134,6 +136,8 @@ type profileToCollect struct {
 
 type podToWatch struct {
 	baseName types.NamespacedName
+	// uid tells the pod apart from a pod created under the same name later.
+	uid      types.UID
 	recorder profilerecordingapi.ProfileRecorder
 	profiles []profileToCollect
 	// recordings holds the state of the recordings the profiles belong to,
@@ -205,8 +209,14 @@ func (r *RecorderReconciler) Setup(
 		return errors.New("unable to get node's internal Address")
 	}
 
+	namespace, err := r.OperatorNamespace()
+	if err != nil {
+		return fmt.Errorf("getting the operator namespace: %w", err)
+	}
+
 	r.client = r.ManagerGetClient(mgr)
 	r.nodeAddresses = nodeAddresses
+	r.namespace = namespace
 	r.record = r.ManagerGetEventRecorder(mgr, name)
 
 	return r.NewControllerManagedBy(
@@ -220,7 +230,7 @@ func (r *RecorderReconciler) getSPOD(
 	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
 
-	return r.GetSPOD(ctx, r.client)
+	return r.GetSPOD(ctx, r.client, r.namespace)
 }
 
 // Healthz is the liveness probe endpoint of the controller.
@@ -413,22 +423,15 @@ func (r *RecorderReconciler) Reconcile(
 	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
 
+	// Every talk to the BPF recorder within this reconcile shares one
+	// connection.
+	bpf := r.newBpfRecorderSession()
+	defer bpf.Close()
+
 	pod, err := r.GetPod(ctx, r.client, req.NamespacedName)
 	if err != nil {
 		if kerrors.IsNotFound(err) {
-			collErr := r.collectProfile(ctx, req.NamespacedName)
-			if unrecordable(collErr) {
-				r.abandonPod(ctx, req.NamespacedName, collErr)
-
-				return reconcile.Result{}, nil
-			} else if collErr != nil {
-				return reconcile.Result{}, fmt.Errorf(
-					"collect profile for removed pod: %w",
-					collErr,
-				)
-			}
-
-			return reconcile.Result{}, nil
+			return reconcile.Result{}, r.collectPod(ctx, req.NamespacedName, bpf, "removed")
 		}
 
 		// Returning an error means we will be requeued implicitly.
@@ -441,9 +444,21 @@ func (r *RecorderReconciler) Reconcile(
 	// tracked yet was missed, for example because the daemon restarted, and
 	// is still recorded rather than never.
 	if pod.Status.Phase == corev1.PodPending || pod.Status.Phase == corev1.PodRunning {
-		if _, ok := r.podsToWatch.Load(req.String()); ok {
-			// We're tracking this pod already
-			return reconcile.Result{}, nil
+		if value, ok := r.podsToWatch.Load(req.String()); ok {
+			if watched, ok := value.(podToWatch); !ok || watched.uid == pod.UID {
+				// We're tracking this pod already
+				return reconcile.Result{}, nil
+			}
+
+			// The pod got deleted and created again under the same name, like
+			// the pods of a StatefulSet, with both events handled at once. The
+			// profiles of the previous pod are collected like for a removed
+			// pod before the new one is recorded.
+			logger.Info("Pod got replaced, collecting the profiles of the previous one")
+
+			if err := r.collectPod(ctx, req.NamespacedName, bpf, "replaced"); err != nil {
+				return reconcile.Result{}, err
+			}
 		}
 
 		logProfiles, err := parseLogAnnotations(pod.Annotations)
@@ -514,7 +529,7 @@ func (r *RecorderReconciler) Reconcile(
 		}
 
 		if recorder == profilerecordingapi.ProfileRecorderBpf {
-			if err := r.startBpfRecorder(ctx); err != nil {
+			if err := r.startBpfRecorder(ctx, bpf); err != nil {
 				logger.Error(err, "unable to start bpf recorder")
 
 				return reconcile.Result{}, err
@@ -542,7 +557,13 @@ func (r *RecorderReconciler) Reconcile(
 
 		r.podsToWatch.Store(
 			req.String(),
-			podToWatch{baseName, recorder, profiles, recordings},
+			podToWatch{
+				baseName:   baseName,
+				uid:        pod.UID,
+				recorder:   recorder,
+				profiles:   profiles,
+				recordings: recordings,
+			},
 		)
 		r.record.Eventf(
 			pod,
@@ -573,21 +594,32 @@ func (r *RecorderReconciler) Reconcile(
 	// long time, for example as a failed Job pod. What it did until it
 	// failed gets recorded, like for a pod which gets deleted.
 	if pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed {
-		collErr := r.collectProfile(ctx, req.NamespacedName)
-		if unrecordable(collErr) {
-			r.abandonPod(ctx, req.NamespacedName, collErr)
-
-			return reconcile.Result{}, nil
-		} else if collErr != nil {
-			return reconcile.Result{}, fmt.Errorf(
-				"collect profile for %s pod: %w",
-				strings.ToLower(string(pod.Status.Phase)),
-				collErr,
-			)
-		}
+		return reconcile.Result{}, r.collectPod(
+			ctx, req.NamespacedName, bpf, strings.ToLower(string(pod.Status.Phase)),
+		)
 	}
 
 	return reconcile.Result{}, nil
+}
+
+// collectPod collects the profiles of a pod which is gone, got replaced or
+// does not run anymore. A pod whose profiles can never be collected is
+// released, state describes the pod for the returned error.
+func (r *RecorderReconciler) collectPod(
+	ctx context.Context, podName types.NamespacedName, bpf *bpfRecorderSession, state string,
+) error {
+	collErr := r.collectProfile(ctx, podName, bpf)
+	if unrecordable(collErr) {
+		r.abandonPod(ctx, podName, collErr, bpf)
+
+		return nil
+	}
+
+	if collErr != nil {
+		return fmt.Errorf("collect profile for %s pod: %w", state, collErr)
+	}
+
+	return nil
 }
 
 func (r *RecorderReconciler) getBpfRecorderClient(
@@ -621,16 +653,54 @@ func (r *RecorderReconciler) getBpfRecorderClient(
 	return bpfRecorderClient, conn, nil
 }
 
-func (r *RecorderReconciler) startBpfRecorder(ctx context.Context) error {
-	recorderClient, conn, err := r.getBpfRecorderClient(ctx)
-	if err != nil {
-		return fmt.Errorf("get bpf recorder client: %w", err)
+// bpfRecorderSession connects to the BPF recorder at most once, so that a
+// reconcile which talks to it several times reads the SPOD and dials only
+// once. It is not safe for concurrent use.
+type bpfRecorderSession struct {
+	r      *RecorderReconciler
+	client bpfrecorderapi.BpfRecorderClient
+	conn   *grpc.ClientConn
+	err    error
+	done   bool
+}
+
+func (r *RecorderReconciler) newBpfRecorderSession() *bpfRecorderSession {
+	return &bpfRecorderSession{r: r}
+}
+
+// Client returns the client of the BPF recorder, connecting on first use. A
+// failed connection is not retried within the session.
+func (s *bpfRecorderSession) Client(ctx context.Context) (bpfrecorderapi.BpfRecorderClient, error) {
+	if !s.done {
+		s.done = true
+		s.client, s.conn, s.err = s.r.getBpfRecorderClient(ctx)
 	}
-	defer func() {
-		if conn != nil {
-			conn.Close()
-		}
-	}()
+
+	if s.err != nil {
+		return nil, fmt.Errorf("get bpf recorder client: %w", s.err)
+	}
+
+	return s.client, nil
+}
+
+// Close closes the connection, if there is one.
+func (s *bpfRecorderSession) Close() {
+	if s.conn == nil {
+		return
+	}
+
+	if err := s.conn.Close(); err != nil {
+		s.r.log.Error(err, "Unable to close the bpf recorder connection")
+	}
+
+	s.conn = nil
+}
+
+func (r *RecorderReconciler) startBpfRecorder(ctx context.Context, bpf *bpfRecorderSession) error {
+	recorderClient, err := bpf.Client(ctx)
+	if err != nil {
+		return err
+	}
 
 	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
@@ -640,29 +710,10 @@ func (r *RecorderReconciler) startBpfRecorder(ctx context.Context) error {
 	return r.StartBpfRecorder(ctx, recorderClient)
 }
 
-func (r *RecorderReconciler) stopBpfRecorder(ctx context.Context) error {
-	recorderClient, conn, err := r.getBpfRecorderClient(ctx)
-	if err != nil {
-		return fmt.Errorf("get bpf recorder client: %w", err)
-	}
-	defer func() {
-		if conn != nil {
-			conn.Close()
-		}
-	}()
-
-	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
-	defer cancel()
-
-	r.log.Info("Stopping BPF recorder on node")
-
-	return r.StopBpfRecorder(ctx, recorderClient)
-}
-
 // abandonPod releases a pod whose profiles can never be collected and tells
 // the user about it.
 func (r *RecorderReconciler) abandonPod(
-	ctx context.Context, podName types.NamespacedName, collErr error,
+	ctx context.Context, podName types.NamespacedName, collErr error, bpf *bpfRecorderSession,
 ) {
 	r.log.Error(collErr, "cannot collect profile", "pod", podName.String())
 
@@ -682,7 +733,7 @@ func (r *RecorderReconciler) abandonPod(
 
 	// Not reconcilable, so nothing will ever collect this pod: release it
 	// rather than leaking the watch and the recorder.
-	r.releaseUnrecordablePod(ctx, podName)
+	r.releaseUnrecordablePod(ctx, podName, bpf)
 }
 
 // releaseUnrecordablePod drops a pod whose profiles can never be collected. It
@@ -690,7 +741,7 @@ func (r *RecorderReconciler) abandonPod(
 // recorded data stays in the recorders until they are full and, for the BPF
 // recorder, the node stays armed for the lifetime of the daemon.
 func (r *RecorderReconciler) releaseUnrecordablePod(
-	ctx context.Context, podName types.NamespacedName,
+	ctx context.Context, podName types.NamespacedName, bpf *bpfRecorderSession,
 ) {
 	n := podName.String()
 
@@ -702,7 +753,7 @@ func (r *RecorderReconciler) releaseUnrecordablePod(
 	if podToWatch, ok := value.(podToWatch); ok {
 		switch podToWatch.recorder {
 		case profilerecordingapi.ProfileRecorderBpf:
-			r.releaseBpfProfiles(ctx, podToWatch.profiles)
+			r.releaseBpfProfiles(ctx, bpf, podToWatch.profiles)
 		case profilerecordingapi.ProfileRecorderLogs:
 			r.releaseLogProfiles(ctx, podToWatch.profiles)
 		}
@@ -713,18 +764,15 @@ func (r *RecorderReconciler) releaseUnrecordablePod(
 
 // releaseBpfProfiles drops the data the BPF recorder holds for profiles and
 // stops the recorder.
-func (r *RecorderReconciler) releaseBpfProfiles(ctx context.Context, profiles []profileToCollect) {
-	recorderClient, conn, err := r.getBpfRecorderClient(ctx)
+func (r *RecorderReconciler) releaseBpfProfiles(
+	ctx context.Context, bpf *bpfRecorderSession, profiles []profileToCollect,
+) {
+	recorderClient, err := bpf.Client(ctx)
 	if err != nil {
 		r.log.Error(err, "Unable to release bpf recorder for unrecordable pod")
 
 		return
 	}
-	defer func() {
-		if conn != nil {
-			conn.Close()
-		}
-	}()
 
 	for _, prf := range profiles {
 		if err := r.resetBpfProfile(ctx, recorderClient, prf); err != nil {
@@ -789,7 +837,7 @@ func (r *RecorderReconciler) releaseLogProfiles(ctx context.Context, profiles []
 }
 
 func (r *RecorderReconciler) collectProfile(
-	ctx context.Context, podName types.NamespacedName,
+	ctx context.Context, podName types.NamespacedName, bpf *bpfRecorderSession,
 ) error {
 	n := podName.String()
 
@@ -820,7 +868,7 @@ func (r *RecorderReconciler) collectProfile(
 
 	if podToWatch.recorder == profilerecordingapi.ProfileRecorderBpf {
 		if err := r.collectBpfProfiles(
-			ctx, replicaSuffix, podName, podToWatch.profiles, podToWatch.recordings,
+			ctx, bpf, replicaSuffix, podName, podToWatch.profiles, podToWatch.recordings,
 		); err != nil {
 			return fmt.Errorf("collect bpf profile: %w", err)
 		}
@@ -1153,20 +1201,16 @@ func (r *RecorderReconciler) formatSelinuxProfile(
 
 func (r *RecorderReconciler) collectBpfProfiles(
 	ctx context.Context,
+	bpf *bpfRecorderSession,
 	replicaSuffix string,
 	podName types.NamespacedName,
 	profiles []profileToCollect,
 	recordings map[string]recordingState,
 ) error {
-	recorderClient, conn, err := r.getBpfRecorderClient(ctx)
+	recorderClient, err := bpf.Client(ctx)
 	if err != nil {
-		return fmt.Errorf("get bpf recorder client: %w", err)
+		return err
 	}
-	defer func() {
-		if conn != nil {
-			conn.Close()
-		}
-	}()
 
 	for _, profileToCollect := range profiles {
 		if err := r.collectBpfProfile(
@@ -1176,7 +1220,12 @@ func (r *RecorderReconciler) collectBpfProfiles(
 		}
 	}
 
-	if err := r.stopBpfRecorder(ctx); err != nil {
+	stopCtx, cancel := context.WithTimeout(ctx, reconcileTimeout)
+	defer cancel()
+
+	r.log.Info("Stopping BPF recorder on node")
+
+	if err := r.StopBpfRecorder(stopCtx, recorderClient); err != nil {
 		r.log.Error(err, "Unable to stop bpf recorder")
 
 		return fmt.Errorf("stop bpf recorder: %w", err)
@@ -1831,10 +1880,15 @@ type annotationKind struct {
 
 // parseAnnotations parses the provided annotations and extracts the mandatory
 // output profiles for the recorder described by kinds.
+//
+// The profiles are ordered by their annotation key, so that the order of the
+// recording and collection does not change from one reconcile to the next.
 func parseAnnotations(
 	annotations map[string]string, kinds []annotationKind,
 ) (res []profileToCollect, err error) {
-	for key, profile := range annotations {
+	for _, key := range slices.Sorted(maps.Keys(annotations)) {
+		profile := annotations[key]
+
 		var collectProfile profileToCollect
 
 		matched := false
@@ -1938,13 +1992,14 @@ func (sb *seProfileBuilder) addAvc(avc *enricherapi.AvcResponse_SelinuxAvc) erro
 	}
 
 	key := avc.GetTclass() + " " + ctxType
-	sb.keys = append(sb.keys, key)
 
 	perms, ok := sb.permMap[key]
 	if ok {
 		perms.Insert(avc.GetPerm())
 	} else {
 		sb.permMap[key] = sets.New(avc.GetPerm())
+		// Once per key, a recording has many AVCs of the same kind.
+		sb.keys = append(sb.keys, key)
 	}
 
 	return nil

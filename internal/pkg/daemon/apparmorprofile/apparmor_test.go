@@ -63,7 +63,7 @@ func TestInstallProfile(t *testing.T) {
 			// generation let an attacker patch the spec once to get past it.
 			name: "refuses to overwrite a host profile",
 			sut: aaProfileManager{
-				loadProfile:        func(_ logr.Logger, _, _ string) (bool, error) { return false, nil },
+				loadProfile:        func(_ logr.Logger, _, _ string, _ bool) (bool, error) { return false, nil },
 				checkProfileExist:  func(_ logr.Logger, _ string) bool { return true },
 				profileManagedByUs: func(_ logr.Logger, _ string) bool { return false },
 			},
@@ -75,7 +75,7 @@ func TestInstallProfile(t *testing.T) {
 		{
 			name: "refuses to overwrite a host profile on later generations",
 			sut: aaProfileManager{
-				loadProfile:        func(_ logr.Logger, _, _ string) (bool, error) { return false, nil },
+				loadProfile:        func(_ logr.Logger, _, _ string, _ bool) (bool, error) { return false, nil },
 				checkProfileExist:  func(_ logr.Logger, _ string) bool { return true },
 				profileManagedByUs: func(_ logr.Logger, _ string) bool { return false },
 			},
@@ -89,7 +89,7 @@ func TestInstallProfile(t *testing.T) {
 			// file carries our marker and reloading it is allowed.
 			name: "updates a profile we installed",
 			sut: aaProfileManager{
-				loadProfile:        func(_ logr.Logger, _, _ string) (bool, error) { return true, nil },
+				loadProfile:        func(_ logr.Logger, _, _ string, _ bool) (bool, error) { return true, nil },
 				checkProfileExist:  func(_ logr.Logger, _ string) bool { return true },
 				profileManagedByUs: func(_ logr.Logger, _ string) bool { return true },
 			},
@@ -104,7 +104,7 @@ func TestInstallProfile(t *testing.T) {
 			// ours. Reinstalling stamps the marker.
 			name: "adopts a profile this node already installed",
 			sut: aaProfileManager{
-				loadProfile:       func(_ logr.Logger, _, _ string) (bool, error) { return true, nil },
+				loadProfile:       func(_ logr.Logger, _, _ string, _ bool) (bool, error) { return true, nil },
 				checkProfileExist: func(_ logr.Logger, _ string) bool { return true },
 				profileManagedByUs: func(_ logr.Logger, _ string) bool {
 					t.Error("ownership must not be consulted once the node status vouches for it")
@@ -122,7 +122,7 @@ func TestInstallProfile(t *testing.T) {
 			// loaded yet and even when the node status vouches for it.
 			name: "refuses a container runtime default profile",
 			sut: aaProfileManager{
-				loadProfile: func(_ logr.Logger, _, _ string) (bool, error) {
+				loadProfile: func(_ logr.Logger, _, _ string, _ bool) (bool, error) {
 					t.Error("a runtime default profile must never be loaded")
 
 					return true, nil
@@ -139,11 +139,30 @@ func TestInstallProfile(t *testing.T) {
 		{
 			name: "valid profile CRD",
 			sut: aaProfileManager{
-				loadProfile:        func(_ logr.Logger, _, _ string) (bool, error) { return false, nil },
+				loadProfile:        func(_ logr.Logger, _, _ string, _ bool) (bool, error) { return false, nil },
 				checkProfileExist:  func(_ logr.Logger, _ string) bool { return false },
 				profileManagedByUs: func(_ logr.Logger, _ string) bool { return false },
 			},
 			profile: &apparmorprofileapi.AppArmorProfile{},
+		},
+		{
+			// The loader decides on the policy file it sees, so it needs the
+			// evidence of the caller as well.
+			name: "passes the ownership evidence to the loader",
+			sut: aaProfileManager{
+				loadProfile: func(_ logr.Logger, _, _ string, ownedByUs bool) (bool, error) {
+					if !ownedByUs {
+						return false, errors.New("ownership must be passed through")
+					}
+
+					return true, nil
+				},
+				checkProfileExist:  func(_ logr.Logger, _ string) bool { return false },
+				profileManagedByUs: func(_ logr.Logger, _ string) bool { return false },
+			},
+			profile:             &apparmorprofileapi.AppArmorProfile{},
+			previouslyInstalled: true,
+			wantResult:          true,
 		},
 	}
 
@@ -154,6 +173,8 @@ func TestInstallProfile(t *testing.T) {
 			gotResult, gotErr := tc.sut.InstallProfile(tc.profile, tc.previouslyInstalled)
 			if tc.wantErr != nil {
 				require.EqualError(t, gotErr, tc.wantErr.Error())
+			} else {
+				require.NoError(t, gotErr)
 			}
 
 			require.Equal(t, tc.wantResult, gotResult)
@@ -465,7 +486,7 @@ func TestLoadPolicyFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test")
 	loader := &fakePolicyLoader{loaded: map[string]bool{}}
 
-	updated, err := loadPolicyFile(logr.Discard(), loader, path, "test", "policy")
+	updated, err := loadPolicyFile(logr.Discard(), loader, path, "test", "policy", false)
 	require.NoError(t, err)
 	require.True(t, updated)
 	require.Equal(t, 1, loader.loads)
@@ -478,7 +499,7 @@ func TestLoadPolicyFile(t *testing.T) {
 	info, err := os.Stat(path)
 	require.NoError(t, err)
 
-	updated, err = loadPolicyFile(logr.Discard(), loader, path, "test", "policy")
+	updated, err = loadPolicyFile(logr.Discard(), loader, path, "test", "policy", false)
 	require.NoError(t, err)
 	require.False(t, updated)
 	require.Equal(t, 1, loader.loads)
@@ -491,13 +512,13 @@ func TestLoadPolicyFile(t *testing.T) {
 	// loaded again.
 	loader.loaded["test"] = false
 
-	updated, err = loadPolicyFile(logr.Discard(), loader, path, "test", "policy")
+	updated, err = loadPolicyFile(logr.Discard(), loader, path, "test", "policy", false)
 	require.NoError(t, err)
 	require.True(t, updated)
 	require.Equal(t, 2, loader.loads)
 
 	// A changed policy is written and loaded.
-	updated, err = loadPolicyFile(logr.Discard(), loader, path, "test", "changed")
+	updated, err = loadPolicyFile(logr.Discard(), loader, path, "test", "changed", false)
 	require.NoError(t, err)
 	require.True(t, updated)
 	require.Equal(t, 3, loader.loads)
@@ -505,10 +526,86 @@ func TestLoadPolicyFile(t *testing.T) {
 	// A failed load restores the previous file.
 	loader.loadErr = errors.New("parser failed")
 
-	_, err = loadPolicyFile(logr.Discard(), loader, path, "test", "broken")
+	_, err = loadPolicyFile(logr.Discard(), loader, path, "test", "broken", false)
 	require.ErrorContains(t, err, "parser failed")
 
 	content, err = os.ReadFile(path)
 	require.NoError(t, err)
 	require.Equal(t, managedByMarker+"changed", string(content))
+}
+
+// TestLoadPolicyFileHostFile covers a policy file at our managed location
+// which is not loaded into the kernel. The ownership check of InstallProfile
+// only sees loaded policies, so a distribution or admin profile whose service
+// is stopped, which is disabled or whose binary is absent used to be replaced,
+// and the marker written into it let a later removal delete the host's file.
+func TestLoadPolicyFileHostFile(t *testing.T) {
+	t.Parallel()
+
+	const (
+		hostPolicy = "abi <abi/4.0>,\nprofile test {\n}\n"
+		policy     = "profile test {\n}\n"
+	)
+
+	for _, tc := range []struct {
+		name      string
+		previous  string
+		ownedByUs bool
+		wantErr   error
+		wantFile  string
+	}{
+		{
+			name:     "an unmarked file of the host is left alone",
+			previous: hostPolicy,
+			wantErr:  errHostPolicyFile,
+			wantFile: hostPolicy,
+		},
+		{
+			name:      "the node status vouching for the profile allows the update",
+			previous:  hostPolicy,
+			ownedByUs: true,
+			wantFile:  managedByMarker + policy,
+		},
+		{
+			name:     "a file written before the marker existed gets the marker",
+			previous: policy,
+			wantFile: managedByMarker + policy,
+		},
+		{
+			name:     "a file carrying our marker is updated",
+			previous: managedByMarker + "profile test {\n  /etc/passwd r,\n}\n",
+			wantFile: managedByMarker + policy,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			path := filepath.Join(t.TempDir(), "test")
+			require.NoError(t, os.WriteFile(path, []byte(tc.previous), 0o600))
+
+			loader := &fakePolicyLoader{loaded: map[string]bool{}}
+
+			updated, err := loadPolicyFile(
+				logr.Discard(),
+				loader,
+				path,
+				"test",
+				policy,
+				tc.ownedByUs,
+			)
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				require.False(t, updated)
+				require.Zero(t, loader.loads, "the policy of the host must not be loaded")
+			} else {
+				require.NoError(t, err)
+				require.True(t, updated)
+				require.Equal(t, 1, loader.loads)
+			}
+
+			content, err := os.ReadFile(path)
+			require.NoError(t, err)
+			require.Equal(t, tc.wantFile, string(content))
+		})
+	}
 }

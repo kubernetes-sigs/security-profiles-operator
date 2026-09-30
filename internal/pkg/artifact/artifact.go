@@ -18,6 +18,7 @@ package artifact
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -25,6 +26,7 @@ import (
 	"io"
 	"maps"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -36,9 +38,6 @@ import (
 	"github.com/opencontainers/go-digest"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
-	"github.com/sigstore/cosign/v3/cmd/cosign/cli/generate"
-	"github.com/sigstore/cosign/v3/cmd/cosign/cli/options"
-	"github.com/sigstore/cosign/v3/cmd/cosign/cli/verify"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"oras.land/oras-go/v2"
 	orascontent "oras.land/oras-go/v2/content"
@@ -106,7 +105,8 @@ type Artifact struct {
 
 // setRepoCredentials configures the registry authentication of the
 // repository: the username and password if given, otherwise the docker config
-// credentials cosign uses for the signatures as well.
+// credentials. The signatures are read and written through the same
+// repository.
 func (a *Artifact) setRepoCredentials(repo *remote.Repository, username, password string) {
 	var warnOnce sync.Once
 
@@ -148,8 +148,8 @@ func (a *Artifact) setRepoCredentials(repo *remote.Repository, username, passwor
 }
 
 // keychainCredential resolves the registry credentials from the docker config
-// and its credential helpers, the default keychain of cosign. Registries
-// without an entry are accessed anonymously.
+// and its credential helpers, the default keychain of cosign and most other
+// registry clients. Registries without an entry are accessed anonymously.
 func keychainCredential(_ context.Context, hostport string) (auth.Credential, error) {
 	// ORAS talks to Docker Hub through its registry host, which the docker
 	// config knows by the name of the index.
@@ -204,6 +204,35 @@ type PullOptions struct {
 	// As with AllowedIdentityRegexp, the default ".*" matches every issuer.
 	AllowedOidcIssuerRegexp string
 
+	// KeyRef verifies the signature with a public key instead of a keyless
+	// certificate: the path of a PEM encoded public key, like the cosign.pub
+	// of `cosign generate-key-pair`. The identity and issuer constraints do
+	// not apply to key signatures.
+	KeyRef string
+
+	// CertIdentity is the exact identity the keyless signature certificate
+	// has to carry. It takes precedence over AllowedIdentityRegexp. For the
+	// official repositories, the issuer stays pinned to the official one
+	// unless CertOidcIssuer or AllowedOidcIssuerRegexp is set as well.
+	CertIdentity string
+
+	// CertOidcIssuer is the exact OIDC issuer of the keyless signature
+	// certificate. It takes precedence over AllowedOidcIssuerRegexp. For the
+	// official repositories, the identity stays pinned to the official one
+	// unless CertIdentity or AllowedIdentityRegexp is set as well.
+	CertOidcIssuer string
+
+	// TrustedRootPath is the path of a Sigstore trusted root JSON file to
+	// verify against instead of the one distributed through TUF, for
+	// private Sigstore deployments and air-gapped environments.
+	TrustedRootPath string
+
+	// Offline verifies with the trusted root cached on disk as long as its
+	// TUF metadata has not expired, instead of refreshing it. The
+	// transparency log entry bundled with the signature is verified in any
+	// case, it is never looked up online.
+	Offline bool
+
 	// MaxBlobSize is the largest blob of the artifact, in bytes, the pull
 	// copies from the registry. Bigger blobs fail the pull before they are
 	// fetched. Zero means DefaultMaxBlobSize.
@@ -239,18 +268,26 @@ type PushOptions struct {
 // withDefaultSigner returns a copy of the options with the signer constraints
 // for the image. Artifacts of the official repositories are verified against
 // the official signers when the caller left both regexps at the default, which
-// accepts any signer. Every other combination is kept as given.
+// accepts any signer. An exact identity or issuer replaces only its own part
+// of the official signer, the other part stays pinned to the official one.
+// Every other combination, and a public key, is kept as given.
 func (p *PullOptions) withDefaultSigner(image string) *PullOptions {
 	opts := *p
 
-	if !isDefaultRegexp(opts.AllowedIdentityRegexp) ||
+	if opts.KeyRef != "" ||
+		!isDefaultRegexp(opts.AllowedIdentityRegexp) ||
 		!isDefaultRegexp(opts.AllowedOidcIssuerRegexp) {
 		return &opts
 	}
 
 	if isOfficialArtifact(image) {
-		opts.AllowedIdentityRegexp = OfficialSignerIdentityRegexp
-		opts.AllowedOidcIssuerRegexp = OfficialSignerOidcIssuerRegexp
+		if opts.CertIdentity == "" {
+			opts.AllowedIdentityRegexp = OfficialSignerIdentityRegexp
+		}
+
+		if opts.CertOidcIssuer == "" {
+			opts.AllowedOidcIssuerRegexp = OfficialSignerOidcIssuerRegexp
+		}
 
 		return &opts
 	}
@@ -276,6 +313,13 @@ func isDefaultRegexp(pattern string) bool {
 	return pattern == "" || pattern == allowAllRegexp
 }
 
+// IsOfficialArtifact reports whether the image belongs to one of the
+// repositories this project publishes to, whose artifacts are signed keyless by
+// the official signers through the public Sigstore instance.
+func IsOfficialArtifact(image string) bool {
+	return isOfficialArtifact(image)
+}
+
 // isOfficialArtifact reports whether the image belongs to one of the
 // repositories this project publishes to.
 func isOfficialArtifact(image string) bool {
@@ -288,12 +332,31 @@ func isOfficialArtifact(image string) bool {
 	return false
 }
 
+// hasExplicitSigner reports whether the caller pinned the signer to a key or
+// an exact identity or issuer, which replaces the official signer of the
+// official repositories, at least in part.
+func (p *PullOptions) hasExplicitSigner() bool {
+	return p.KeyRef != "" || p.CertIdentity != "" || p.CertOidcIssuer != ""
+}
+
+// hasCustomSigner reports whether the caller replaced the official signer or
+// the public Sigstore trusted root, which the official repositories are
+// verified against by default.
+func (p *PullOptions) hasCustomSigner() bool {
+	return p.hasExplicitSigner() || p.TrustedRootPath != ""
+}
+
 // hasUnconstrainedSigner reports whether the signer identity or the OIDC
 // issuer is left unconstrained, in which case verification does not establish
-// who signed the artifact.
+// who signed the artifact. A public key pins the signer by itself, and an
+// exact identity or issuer constrains its part.
 func (p *PullOptions) hasUnconstrainedSigner() bool {
-	return matchesAnything(p.AllowedIdentityRegexp) ||
-		matchesAnything(p.AllowedOidcIssuerRegexp)
+	if p.KeyRef != "" {
+		return false
+	}
+
+	return (p.CertIdentity == "" && matchesAnything(p.AllowedIdentityRegexp)) ||
+		(p.CertOidcIssuer == "" && matchesAnything(p.AllowedOidcIssuerRegexp))
 }
 
 // matchesAnything reports whether pattern accepts every value. Deciding that in
@@ -364,7 +427,7 @@ func (a *Artifact) Push(
 		return err
 	}
 
-	pushed, err := a.copyToRepository(
+	repo, pushed, err := a.copyToRepository(
 		ctx, store, &manifestDescriptor, to, username, password, opts.PlainHTTP,
 	)
 	if err != nil {
@@ -377,7 +440,7 @@ func (a *Artifact) Push(
 		return nil
 	}
 
-	return a.sign(ctx, pushed, username, password, opts.PlainHTTP)
+	return a.sign(ctx, repo, &pushed)
 }
 
 // packProfiles adds the profile files to the store and packs them into a
@@ -419,23 +482,19 @@ func (a *Artifact) packProfiles(
 			return v1.Descriptor{}, fmt.Errorf("add profile to store: %w", err)
 		}
 
-		maps.Copy(fileDescriptor.Annotations, annotations)
-
 		fileDescriptor.Platform = entry.platform
 		fileDescriptors = append(fileDescriptors, fileDescriptor)
 	}
 
-	created, err := createdAnnotation(annotations)
+	manifestAnnotations, err := manifestAnnotations(annotations)
 	if err != nil {
 		return v1.Descriptor{}, err
 	}
 
 	mediaType := oras.MediaTypeUnknownConfig
 	packOptions := oras.PackManifestOptions{
-		Layers: fileDescriptors,
-		// ORAS stamps the current time otherwise, which gives identical
-		// content a different digest on every push.
-		ManifestAnnotations: map[string]string{v1.AnnotationCreated: created},
+		Layers:              fileDescriptors,
+		ManifestAnnotations: manifestAnnotations,
 	}
 
 	if runtimeSpecProfiles > 0 {
@@ -466,19 +525,19 @@ func (a *Artifact) packProfiles(
 }
 
 // copyToRepository tags the packed manifest and copies it to the repository
-// of the reference. It returns the pushed artifact as digest reference.
+// of the reference. It returns the repository and the pushed manifest.
 func (a *Artifact) copyToRepository(
 	ctx context.Context,
 	store *file.Store,
 	manifestDescriptor *v1.Descriptor,
 	to, username, password string,
 	plainHTTP bool,
-) (string, error) {
+) (*remote.Repository, v1.Descriptor, error) {
 	a.logger.Info("Verifying reference", "ref", to)
 
 	parsedRef, err := a.ParseReference(to)
 	if err != nil {
-		return "", fmt.Errorf("parse reference: %w", err)
+		return nil, v1.Descriptor{}, fmt.Errorf("parse reference: %w", err)
 	}
 
 	tag := parsedRef.Identifier()
@@ -486,7 +545,7 @@ func (a *Artifact) copyToRepository(
 	a.logger.Info("Using tag", "tag", tag)
 
 	if err := a.StoreTag(ctx, store, manifestDescriptor, tag); err != nil {
-		return "", fmt.Errorf("creating tag: %w", err)
+		return nil, v1.Descriptor{}, fmt.Errorf("creating tag: %w", err)
 	}
 
 	ref := parsedRef.Context().Name()
@@ -494,7 +553,7 @@ func (a *Artifact) copyToRepository(
 
 	repo, err := a.NewRepository(ref)
 	if err != nil {
-		return "", fmt.Errorf("create repository: %w", err)
+		return nil, v1.Descriptor{}, fmt.Errorf("create repository: %w", err)
 	}
 
 	repo.PlainHTTP = plainHTTP
@@ -505,73 +564,12 @@ func (a *Artifact) copyToRepository(
 
 	descriptor, err := a.Copy(ctx, store, tag, repo, tag, oras.DefaultCopyOptions)
 	if err != nil {
-		return "", fmt.Errorf("copy to repository: %w", err)
+		return nil, v1.Descriptor{}, fmt.Errorf("copy to repository: %w", err)
 	}
 
-	pushed := fmt.Sprintf("%s@%s", ref, descriptor.Digest)
-	a.logger.Info("Pushed artifact", "reference", pushed)
+	a.logger.Info("Pushed artifact", "reference", fmt.Sprintf("%s@%s", ref, descriptor.Digest))
 
-	return pushed, nil
-}
-
-// sign signs the pushed artifact keylessly into a Sigstore bundle attached as
-// OCI referrer, using the service URLs from the Sigstore signing config.
-func (a *Artifact) sign(
-	ctx context.Context, pushed, username, password string, plainHTTP bool,
-) error {
-	a.logger.Info("Signing OCI artifact")
-
-	o := &options.SignOptions{
-		Upload:           true,
-		TlogUpload:       true,
-		SkipConfirmation: true,
-		NewBundleFormat:  true,
-		UseSigningConfig: true,
-		Registry:         registryOptions(username, password, plainHTTP),
-		Rekor:            options.RekorOptions{URL: options.DefaultRekorURL},
-		Fulcio:           options.FulcioOptions{URL: options.DefaultFulcioURL},
-		OIDC: options.OIDCOptions{
-			Issuer:   options.DefaultOIDCIssuerURL,
-			ClientID: "sigstore",
-		},
-	}
-
-	oidcClientSecret, err := a.ClientSecret(&o.OIDC)
-	if err != nil {
-		return fmt.Errorf("get OIDC client secret: %w", err)
-	}
-
-	ko := &options.KeyOpts{
-		KeyRef:                         o.Key,
-		PassFunc:                       generate.GetPass,
-		Sk:                             o.SecurityKey.Use,
-		Slot:                           o.SecurityKey.Slot,
-		FulcioURL:                      o.Fulcio.URL,
-		IDToken:                        o.Fulcio.IdentityToken,
-		RekorURL:                       o.Rekor.URL,
-		OIDCIssuer:                     o.OIDC.Issuer,
-		OIDCClientID:                   o.OIDC.ClientID,
-		OIDCClientSecret:               oidcClientSecret,
-		OIDCRedirectURL:                o.OIDC.RedirectURL,
-		OIDCDisableProviders:           o.OIDC.DisableAmbientProviders,
-		OIDCProvider:                   o.OIDC.Provider,
-		SkipConfirmation:               o.SkipConfirmation,
-		TSAServerURL:                   o.TSAServerURL,
-		IssueCertificateForExistingKey: o.IssueCertificate,
-		NewBundleFormat:                o.NewBundleFormat,
-	}
-
-	if err := a.LoadSigningMaterial(ctx, ko, o); err != nil {
-		return fmt.Errorf("load signing material: %w", err)
-	}
-
-	if err := a.SignCmd(
-		ctx, &options.RootOptions{Timeout: defaultTimeout}, ko, o, []string{pushed},
-	); err != nil {
-		return fmt.Errorf("sign image: %w", err)
-	}
-
-	return nil
+	return repo, descriptor, nil
 }
 
 // Pull a profile from a remote location.
@@ -591,28 +589,35 @@ func (a *Artifact) Pull(
 	originalImage := from
 	signOpts = signOpts.withDefaultSigner(originalImage)
 
+	if !signOpts.DisableSignatureVerification &&
+		isOfficialArtifact(originalImage) && signOpts.hasCustomSigner() {
+		// Verified as requested, the caller may have mirrored and re-signed
+		// the artifact, but the official signature will not match.
+		a.logger.Info(
+			"Verifying an artifact of an official repository with a custom signer or trusted root, "+
+				"official artifacts are signed keyless by the official signers through the public Sigstore instance",
+			"image",
+			originalImage,
+		)
+	}
+
 	a.logger.Info("Resolving digest of image", "image", originalImage)
 
 	// Retrieve the immutable image digest before doing any verification to
 	// prevent a TOCTOU attack on the mutable tag of the base image, which
 	// might lead to a malicious base profile being injected between
 	// verification and copying the content.
-	from, repo, sha, err := a.imageWithDigest(
+	from, repo, subject, err := a.imageWithDigest(
 		ctx, originalImage, username, password, signOpts.PlainHTTP,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("resolving digest for image %q: %w", originalImage, err)
 	}
 
+	sha := subject.Digest
+
 	if !signOpts.DisableSignatureVerification {
-		if err := a.verifySignature(
-			ctx,
-			originalImage,
-			from,
-			username,
-			password,
-			signOpts,
-		); err != nil {
+		if err := a.verifySignature(ctx, originalImage, repo, &subject, signOpts); err != nil {
 			return nil, err
 		}
 	}
@@ -670,62 +675,6 @@ func (a *Artifact) Pull(
 	return a.pullResult(originalImage, content, runtimeFormat)
 }
 
-// verifySignature verifies the signature of the image digest against the
-// signer constraints of the options.
-func (a *Artifact) verifySignature(
-	ctx context.Context, originalImage, image, username, password string, signOpts *PullOptions,
-) error {
-	a.logger.Info("Verifying signature",
-		"identityRegexp", signOpts.AllowedIdentityRegexp,
-		"oidcIssuerRegexp", signOpts.AllowedOidcIssuerRegexp,
-	)
-
-	if signOpts.hasUnconstrainedSigner() {
-		a.logger.Info(
-			"WARNING: signature verification is not constrained to a signer. "+
-				"A signature then only proves that the artifact was signed by "+
-				"somebody, not by somebody trusted. Set allowedIdentityRegexp "+
-				"and allowedOidcIssuerRegexp to the signers you trust.",
-			"allowedIdentityRegexp", signOpts.AllowedIdentityRegexp,
-			"allowedOidcIssuerRegexp", signOpts.AllowedOidcIssuerRegexp,
-			"image", originalImage,
-		)
-	}
-
-	registryOpts := registryOptions(username, password, signOpts.PlainHTTP)
-
-	// Sigstore signature bundles attached as OCI referrers are verified if
-	// present, otherwise the legacy signature tags, which keeps already
-	// published artifacts working. cosign would treat any bundle as
-	// signature, including attestations like promotion records, so only a
-	// bundle with the cosign signature predicate selects the bundle format.
-	signatureBundles, lookupErr := a.SignatureBundleExists(ctx, image, &registryOpts)
-	if lookupErr != nil {
-		a.logger.Info(
-			"Unable to look up signature bundles, verifying legacy signatures",
-			"error", lookupErr,
-		)
-	}
-
-	// Checking the claims binds the signed payload to the pulled digest,
-	// like cosign verify does by default.
-	v := &verify.VerifyCommand{
-		RegistryOptions: registryOpts,
-		CertVerifyOptions: options.CertVerifyOptions{
-			CertIdentityRegexp:   signOpts.AllowedIdentityRegexp,
-			CertOidcIssuerRegexp: signOpts.AllowedOidcIssuerRegexp,
-		},
-		CheckClaims:     true,
-		NewBundleFormat: signatureBundles,
-		MaxWorkers:      verifyMaxWorkers,
-	}
-	if err := a.VerifyCmd(ctx, v, image); err != nil {
-		return fmt.Errorf("verify signature: %w", err)
-	}
-
-	return nil
-}
-
 // pullResult decodes the pulled profile content.
 func (a *Artifact) pullResult(
 	originalImage string,
@@ -781,18 +730,18 @@ func (a *Artifact) pullResult(
 
 // imageWithDigest transforms the given image into an image with digest instead of a tag.
 // It retrieves the digest from the remote repository. Returns the updated image with
-// digest and the repository and the digest as separate return arguments.
+// digest, the repository and the descriptor of the manifest the image resolves to.
 func (a *Artifact) imageWithDigest(
 	ctx context.Context, image, username, password string, plainHTTP bool,
-) (string, *remote.Repository, digest.Digest, error) {
+) (string, *remote.Repository, v1.Descriptor, error) {
 	ref, err := a.ParseReference(image)
 	if err != nil {
-		return "", nil, "", fmt.Errorf("parsing ref for image %q: %w", image, err)
+		return "", nil, v1.Descriptor{}, fmt.Errorf("parsing ref for image %q: %w", image, err)
 	}
 
 	repo, err := a.NewRepository(ref.Context().Name())
 	if err != nil {
-		return "", nil, "", fmt.Errorf("creating repository for %q: %w",
+		return "", nil, v1.Descriptor{}, fmt.Errorf("creating repository for %q: %w",
 			ref.Name(), err)
 	}
 
@@ -802,23 +751,12 @@ func (a *Artifact) imageWithDigest(
 
 	desc, err := a.ResolveRepository(ctx, repo, ref.Identifier())
 	if err != nil {
-		return "", nil, "",
+		return "", nil, v1.Descriptor{},
 			fmt.Errorf("resolving image identifier %q: %w", ref.Identifier(), err)
 	}
 
 	return fmt.Sprintf("%s@%s", ref.Context().Name(),
-		desc.Digest.String()), repo, desc.Digest, nil
-}
-
-// registryOptions returns the cosign registry options matching the registry
-// access ORAS uses, so that signing and verification reach the signature of
-// a private artifact with the caller's credentials instead of only the
-// ambient keychain.
-func registryOptions(username, password string, plainHTTP bool) options.RegistryOptions {
-	return options.RegistryOptions{
-		AllowHTTPRegistry: plainHTTP,
-		AuthConfig:        authn.AuthConfig{Username: username, Password: password},
-	}
+		desc.Digest.String()), repo, desc, nil
 }
 
 // blobSizeLimit returns the ORAS PreCopy hook which rejects every blob of the
@@ -908,6 +846,12 @@ func (a *Artifact) profileEntries(
 
 		entries = append(entries, entry)
 	}
+
+	// The files are a map, so the layer order would otherwise change from
+	// push to push and with it the manifest digest of identical content.
+	slices.SortFunc(entries, func(a, b profileEntry) int {
+		return cmp.Compare(a.name, b.name)
+	})
 
 	return entries, runtimeSpecProfiles, nil
 }
@@ -1422,6 +1366,26 @@ func platformToString(platform *v1.Platform) string {
 	}
 
 	return name.String()
+}
+
+// manifestAnnotations returns the annotations of a pushed manifest: the ones
+// of the caller plus org.opencontainers.image.created, which ORAS would
+// otherwise stamp with the current time, giving identical content a
+// different digest on every push.
+func manifestAnnotations(annotations map[string]string) (map[string]string, error) {
+	created, err := createdAnnotation(annotations)
+	if err != nil {
+		return nil, err
+	}
+
+	res := maps.Clone(annotations)
+	if res == nil {
+		res = map[string]string{}
+	}
+
+	res[v1.AnnotationCreated] = created
+
+	return res, nil
 }
 
 // createdAnnotation returns the org.opencontainers.image.created value for

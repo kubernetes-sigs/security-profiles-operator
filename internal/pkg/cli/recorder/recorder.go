@@ -98,6 +98,17 @@ func (r *Recorder) Run() error {
 		return fmt.Errorf("load: %w", err)
 	}
 
+	// Runs after the recording got stopped below.
+	defer r.bpfRecorder.Close()
+
+	// The recorder goes on without the AppArmor hooks if they cannot be
+	// attached, but they were asked for here.
+	if recordAppArmor {
+		if err := r.bpfRecorder.AppArmor.Unavailable(); err != nil {
+			return fmt.Errorf("load: %w", err)
+		}
+	}
+
 	if err := r.StartBpfRecording(r.bpfRecorder); err != nil {
 		return fmt.Errorf("record: %w", err)
 	}

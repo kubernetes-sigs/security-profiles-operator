@@ -58,11 +58,38 @@ func Test_KubeletDirVolume(t *testing.T) {
 
 	require.Equal(t, "test-volume", vol.Name)
 	require.NotNil(t, vol.HostPath)
-	require.Equal(t, "/mnt/resource/kubelet", vol.HostPath.Path)
+	// Only the seccomp directory is mounted, not the pod volumes next to it.
+	require.Equal(t, "/mnt/resource/kubelet/seccomp", vol.HostPath.Path)
 	require.Equal(t, corev1.HostPathDirectoryOrCreate, *vol.HostPath.Type)
 	require.Equal(t, "test-volume", mount.Name)
-	require.Equal(t, "/host/mnt/resource/kubelet", mount.MountPath)
+	require.Equal(t, "/host/mnt/resource/kubelet/seccomp", mount.MountPath)
 	require.False(t, mount.ReadOnly)
+}
+
+func Test_KubeletDirFromVolume(t *testing.T) {
+	t.Parallel()
+
+	vol, _ := KubeletDirVolume(KubeletDirVolumeName+"-1", "/mnt/resource/kubelet")
+	dir, ok := KubeletDirFromVolume(&vol)
+	require.True(t, ok)
+	require.Equal(t, "/mnt/resource/kubelet", dir)
+
+	for name, vol := range map[string]corev1.Volume{
+		"other name": {Name: "other", VolumeSource: corev1.VolumeSource{
+			HostPath: &corev1.HostPathVolumeSource{Path: "/var/lib/kubelet/seccomp"},
+		}},
+		"no host path": {Name: KubeletDirVolumeName},
+		// A volume of a previous release mounted the whole kubelet directory.
+		"whole kubelet directory": {Name: KubeletDirVolumeName, VolumeSource: corev1.VolumeSource{
+			HostPath: &corev1.HostPathVolumeSource{Path: "/var/lib/kubelet"},
+		}},
+		"root seccomp directory": {Name: KubeletDirVolumeName, VolumeSource: corev1.VolumeSource{
+			HostPath: &corev1.HostPathVolumeSource{Path: "/seccomp"},
+		}},
+	} {
+		_, ok := KubeletDirFromVolume(&vol)
+		require.False(t, ok, name)
+	}
 }
 
 // Test_ManifestDoesNotMountHostRoot asserts that the SPOd does not mount the
@@ -92,7 +119,7 @@ func Test_ManifestDoesNotMountHostRoot(t *testing.T) {
 	nonRootEnabler := podSpec.InitContainers[InitContainerIDNonRootenabler]
 	require.Contains(t, nonRootEnabler.VolumeMounts, corev1.VolumeMount{
 		Name:      KubeletDirVolumeName,
-		MountPath: path.Join(config.HostRoot, config.KubeletDir()),
+		MountPath: path.Join(config.HostRoot, config.KubeletDir(), config.SeccompProfilesFolder),
 	})
 	require.Contains(t, nonRootEnabler.VolumeMounts, corev1.VolumeMount{
 		Name:      "host-operator-volume",

@@ -21,8 +21,16 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+// IsWindowsPod reports whether the pod declares the Windows operating system.
+// The API server rejects seccomp, SELinux and AppArmor settings on such pods,
+// so the mutating webhooks have to leave them alone.
+func IsWindowsPod(pod *corev1.Pod) bool {
+	return pod != nil && pod.Spec.OS != nil && pod.Spec.OS.Name == corev1.Windows
+}
 
 // UpdateResource tries to update the provided object by using the
 // client.Writer. If the update fails, it automatically logs to the

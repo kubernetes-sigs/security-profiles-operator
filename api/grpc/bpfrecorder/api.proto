@@ -17,7 +17,7 @@ limitations under the License.
 syntax = "proto3";
 
 package api_bpfrecorder;
-option go_package = "/api_bpfrecorder";
+option go_package = "sigs.k8s.io/security-profiles-operator/api/grpc/bpfrecorder;api_bpfrecorder";
 
 service BpfRecorder {
   rpc Start(EmptyRequest) returns (EmptyResponse) {}

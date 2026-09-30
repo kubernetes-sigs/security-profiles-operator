@@ -83,14 +83,18 @@ func GetVersion(node *corev1.Node) string {
 	return node.Status.NodeInfo.KubeletVersion
 }
 
-// GetKubeletDirFromNodeLabel parses the kubelet directory path from the current node labels.
-func GetKubeletDirFromNodeLabel(ctx context.Context, c client.Reader) (string, error) {
-	nodeName := os.Getenv(config.NodeNameEnvKey)
+// ErrNoNodeName is returned if the name of the node is empty.
+var ErrNoNodeName = errors.New("no node name provided")
+
+// GetKubeletDirFromNodeLabel parses the kubelet directory path from the labels
+// of the node with the provided name.
+func GetKubeletDirFromNodeLabel(
+	ctx context.Context,
+	c client.Reader,
+	nodeName string,
+) (string, error) {
 	if nodeName == "" {
-		return "", fmt.Errorf(
-			"no node name found in environment variable %q",
-			config.NodeNameEnvKey,
-		)
+		return "", ErrNoNodeName
 	}
 
 	node := &corev1.Node{}
@@ -234,11 +238,15 @@ func matchSelinuxdImage(node *corev1.Node, mapping []selinuxdImageMap) string {
 	return ""
 }
 
-func GetOperatorConfigMap(ctx context.Context, c client.Reader) (*corev1.ConfigMap, error) {
+// GetOperatorConfigMap returns the ConfigMap of the operator in the provided
+// namespace.
+func GetOperatorConfigMap(
+	ctx context.Context, c client.Reader, namespace string,
+) (*corev1.ConfigMap, error) {
 	var operatorCm corev1.ConfigMap
 
 	operatorCmName := types.NamespacedName{
-		Namespace: config.GetOperatorNamespace(),
+		Namespace: namespace,
 		Name:      OperatorConfigMap,
 	}
 
@@ -258,9 +266,12 @@ func GetOperatorConfigMap(ctx context.Context, c client.Reader) (*corev1.ConfigM
 const selinuxdImageKey = "RELATED_IMAGE_SELINUXD"
 
 // GetSelinuxdImage returns the appropriate selinuxd image for the given node
-// by matching the node's OS against the image mapping in the operator ConfigMap.
-func GetSelinuxdImage(ctx context.Context, c client.Reader, node *corev1.Node) (string, error) {
-	operatorCm, err := GetOperatorConfigMap(ctx, c)
+// by matching the node's OS against the image mapping in the operator
+// ConfigMap, which lives in the provided namespace.
+func GetSelinuxdImage(
+	ctx context.Context, c client.Reader, namespace string, node *corev1.Node,
+) (string, error) {
+	operatorCm, err := GetOperatorConfigMap(ctx, c, namespace)
 	if err != nil {
 		return "", err
 	}

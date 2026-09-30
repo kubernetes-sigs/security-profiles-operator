@@ -17,6 +17,7 @@ limitations under the License.
 package bindata
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/go-logr/logr"
@@ -38,117 +39,80 @@ import (
 
 const testLabel = "test"
 
-func TestNamespaceSelectorUnequalForLabel(t *testing.T) {
+func TestSelectorsEqual(t *testing.T) {
 	t.Parallel()
+
+	expr := func(key string, op metav1.LabelSelectorOperator, values ...string) metav1.LabelSelectorRequirement {
+		return metav1.LabelSelectorRequirement{Key: key, Operator: op, Values: values}
+	}
 
 	for _, tc := range []struct {
 		name                 string
 		existing, configured *metav1.LabelSelector
 		expected             bool
 	}{
+		{name: "both nil", expected: true},
+		{name: "nil and empty", configured: &metav1.LabelSelector{}, expected: true},
 		{
-			name:       "label not available in both selectors",
-			existing:   &metav1.LabelSelector{},
-			configured: &metav1.LabelSelector{},
-			expected:   false,
-		},
-		{
-			name: "label requirements are equal",
-			existing: &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{
-				{
-					Key:      testLabel,
-					Operator: metav1.LabelSelectorOpExists,
-					Values:   []string{"foo"},
-				},
-			}},
-			configured: &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{
-				{
-					Key:      testLabel,
-					Operator: metav1.LabelSelectorOpExists,
-					Values:   []string{"foo"},
-				},
-			}},
-			expected: false,
-		},
-		{
-			name: "label requirements are not equal in value",
-			existing: &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{
-				{
-					Key:      testLabel,
-					Operator: metav1.LabelSelectorOpExists,
-					Values:   []string{"foo"},
-				},
-			}},
-			configured: &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{
-				{
-					Key:      testLabel,
-					Operator: metav1.LabelSelectorOpExists,
-					Values:   []string{"bar"},
-				},
-			}},
-			expected: true,
-		},
-		{
-			name:     "label requirements are not equal (existing does not have the expression)",
-			existing: &metav1.LabelSelector{},
-			configured: &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{
-				{
-					Key:      testLabel,
-					Operator: metav1.LabelSelectorOpExists,
-					Values:   []string{"bar"},
-				},
-			}},
-			expected: true,
-		},
-		{
-			name: "label requirements are not equal (configured does not have the expression)",
-			existing: &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{
-				{
-					Key:      testLabel,
-					Operator: metav1.LabelSelectorOpExists,
-					Values:   []string{"bar"},
-				},
-			}},
-			configured: &metav1.LabelSelector{},
+			name:       "empty maps and slices",
+			existing:   &metav1.LabelSelector{MatchLabels: map[string]string{}},
+			configured: &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{}},
 			expected:   true,
+		},
+		{
+			name: "expression order does not matter",
+			existing: &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{
+				expr("a", metav1.LabelSelectorOpExists), expr("b", metav1.LabelSelectorOpIn, "y", "x"),
+			}},
+			configured: &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{
+				expr("b", metav1.LabelSelectorOpIn, "x", "y"), expr("a", metav1.LabelSelectorOpExists),
+			}},
+			expected: true,
+		},
+		{
+			name:     "match labels changed",
+			existing: &metav1.LabelSelector{MatchLabels: map[string]string{testLabel: "a"}},
+			configured: &metav1.LabelSelector{
+				MatchLabels: map[string]string{testLabel: "b"},
+			},
+		},
+		{
+			name: "expression value changed",
+			existing: &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{
+				expr(testLabel, metav1.LabelSelectorOpIn, "foo"),
+			}},
+			configured: &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{
+				expr(testLabel, metav1.LabelSelectorOpIn, "bar"),
+			}},
 		},
 		{
 			// A user expression for the same key as the operator namespace
 			// exclusion must not hide that the exclusion is missing.
-			name: "label requirements are not equal (configured has an additional expression)",
+			name: "additional expression for the same key",
 			existing: &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{
-				{
-					Key:      testLabel,
-					Operator: metav1.LabelSelectorOpIn,
-					Values:   []string{"foo"},
-				},
+				expr(testLabel, metav1.LabelSelectorOpIn, "foo"),
 			}},
 			configured: &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{
-				{
-					Key:      testLabel,
-					Operator: metav1.LabelSelectorOpIn,
-					Values:   []string{"foo"},
-				},
-				{
-					Key:      testLabel,
-					Operator: metav1.LabelSelectorOpNotIn,
-					Values:   []string{"bar"},
-				},
+				expr(testLabel, metav1.LabelSelectorOpIn, "foo"),
+				expr(testLabel, metav1.LabelSelectorOpNotIn, "bar"),
 			}},
-			expected: true,
 		},
 	} {
-		existing := tc.existing
-		configured := tc.configured
-		expected := tc.expected
-
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			res := namespaceSelectorUnequalForLabel(testLabel, existing, configured)
-			assert.Equal(t, expected, res)
+			require.Equal(t, tc.expected, selectorsEqual(tc.existing, tc.configured))
+			require.Equal(t, tc.expected, selectorsEqual(tc.configured, tc.existing))
 		})
 	}
+
+	// The normalization must not change the compared selectors.
+	selector := &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{
+		expr("b", metav1.LabelSelectorOpIn, "y", "x"), expr("a", metav1.LabelSelectorOpExists),
+	}}
+	before := selector.DeepCopy()
+	selectorsEqual(selector, nil)
+	require.Equal(t, before, selector)
 }
 
 func TestWebhook_NeedsUpdate(t *testing.T) {
@@ -198,7 +162,9 @@ func TestWebhook_NeedsUpdate(t *testing.T) {
 			expected: false,
 		},
 		{
-			name: "Nil existing and empty",
+			// A nil selector selects everything like an empty one, and the
+			// API server stores an empty one for nil.
+			name: "Nil existing and empty object selector",
 			existing: &admissionregv1.MutatingWebhook{
 				Name:           "foo",
 				ObjectSelector: nil,
@@ -207,10 +173,10 @@ func TestWebhook_NeedsUpdate(t *testing.T) {
 				Name:           "foo",
 				ObjectSelector: &metav1.LabelSelector{},
 			},
-			expected: true,
+			expected: false,
 		},
 		{
-			name: "Nil existing and empty",
+			name: "Nil existing and empty namespace selector",
 			existing: &admissionregv1.MutatingWebhook{
 				Name:              "foo",
 				NamespaceSelector: nil,
@@ -219,7 +185,7 @@ func TestWebhook_NeedsUpdate(t *testing.T) {
 				Name:              "foo",
 				NamespaceSelector: &metav1.LabelSelector{},
 			},
-			expected: true,
+			expected: false,
 		},
 		{
 			// Otherwise a cluster set up before the exclusion existed would
@@ -246,6 +212,64 @@ func TestWebhook_NeedsUpdate(t *testing.T) {
 				NamespaceSelector: nil,
 			},
 			expected: false,
+		},
+		{
+			// Only the managed label keys used to be compared, so a changed
+			// selector of the webhook options never got rolled out.
+			name: "namespace selector match labels changed",
+			existing: &admissionregv1.MutatingWebhook{
+				Name: "foo",
+				NamespaceSelector: &metav1.LabelSelector{
+					MatchLabels: map[string]string{"team": "a"},
+				},
+			},
+			configured: &admissionregv1.MutatingWebhook{
+				Name: "foo",
+				NamespaceSelector: &metav1.LabelSelector{
+					MatchLabels: map[string]string{"team": "b"},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "namespace selector expression of another key changed",
+			existing: &admissionregv1.MutatingWebhook{
+				Name: "foo",
+				NamespaceSelector: &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{
+					{Key: "team", Operator: metav1.LabelSelectorOpIn, Values: []string{"a"}},
+				}},
+			},
+			configured: &admissionregv1.MutatingWebhook{
+				Name: "foo",
+				NamespaceSelector: &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{
+					{Key: "team", Operator: metav1.LabelSelectorOpIn, Values: []string{"b"}},
+				}},
+			},
+			expected: true,
+		},
+		{
+			name: "object selector match labels changed",
+			existing: &admissionregv1.MutatingWebhook{
+				Name:           "foo",
+				ObjectSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"a": "b"}},
+			},
+			configured: &admissionregv1.MutatingWebhook{
+				Name:           "foo",
+				ObjectSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"a": "c"}},
+			},
+			expected: true,
+		},
+		{
+			name: "reinvocation policy changed",
+			existing: &admissionregv1.MutatingWebhook{
+				Name:               "foo",
+				ReinvocationPolicy: new(admissionregv1.NeverReinvocationPolicy),
+			},
+			configured: &admissionregv1.MutatingWebhook{
+				Name:               "foo",
+				ReinvocationPolicy: new(admissionregv1.IfNeededReinvocationPolicy),
+			},
+			expected: true,
 		},
 	} {
 		existing := tc.existing
@@ -618,7 +642,7 @@ func TestWebhook_UpdateKeepsInjectedCABundle(t *testing.T) {
 	require.NoError(t, newTestWebhook(t, nil).Create(ctx, c))
 
 	mutating := &admissionregv1.MutatingWebhookConfiguration{}
-	require.NoError(t, c.Get(ctx, client.ObjectKey{Name: webhookConfigName}, mutating))
+	require.NoError(t, c.Get(ctx, client.ObjectKey{Name: MutatingWebhookConfigName}, mutating))
 
 	for i := range mutating.Webhooks {
 		mutating.Webhooks[i].ClientConfig.CABundle = injected
@@ -627,7 +651,7 @@ func TestWebhook_UpdateKeepsInjectedCABundle(t *testing.T) {
 	require.NoError(t, c.Update(ctx, mutating))
 
 	validating := &admissionregv1.ValidatingWebhookConfiguration{}
-	require.NoError(t, c.Get(ctx, client.ObjectKey{Name: validatingWebhookConfigName}, validating))
+	require.NoError(t, c.Get(ctx, client.ObjectKey{Name: ValidatingWebhookConfigName}, validating))
 	validating.Webhooks[0].ClientConfig.CABundle = injected
 	require.NoError(t, c.Update(ctx, validating))
 
@@ -635,13 +659,13 @@ func TestWebhook_UpdateKeepsInjectedCABundle(t *testing.T) {
 	require.NoError(t, newTestWebhook(t, nil).Update(ctx, c))
 	require.NoError(t, newTestWebhook(t, nil).Create(ctx, c))
 
-	require.NoError(t, c.Get(ctx, client.ObjectKey{Name: webhookConfigName}, mutating))
+	require.NoError(t, c.Get(ctx, client.ObjectKey{Name: MutatingWebhookConfigName}, mutating))
 
 	for i := range mutating.Webhooks {
 		assert.Equal(t, injected, mutating.Webhooks[i].ClientConfig.CABundle)
 	}
 
-	require.NoError(t, c.Get(ctx, client.ObjectKey{Name: validatingWebhookConfigName}, validating))
+	require.NoError(t, c.Get(ctx, client.ObjectKey{Name: ValidatingWebhookConfigName}, validating))
 	assert.Equal(t, injected, validating.Webhooks[0].ClientConfig.CABundle)
 }
 
@@ -681,4 +705,236 @@ func TestWebhook_DeploymentUpdate(t *testing.T) {
 	needsUpdate, err = image.NeedsUpdate(ctx, c)
 	require.NoError(t, err)
 	require.True(t, needsUpdate)
+}
+
+// aksInjectedExpressions are the match expressions which the AKS admissions
+// enforcer adds to the namespace selectors of the webhook configurations.
+var aksInjectedExpressions = []metav1.LabelSelectorRequirement{
+	{Key: "control-plane", Operator: metav1.LabelSelectorOpNotIn, Values: []string{"true"}},
+	{
+		Key:      "kubernetes.azure.com/managedby",
+		Operator: metav1.LabelSelectorOpNotIn,
+		Values:   []string{"aks"},
+	},
+}
+
+func TestSelectorsEqualIgnoresPlatformInjectedExpressions(t *testing.T) {
+	t.Parallel()
+
+	base := func() *metav1.LabelSelector {
+		return &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{
+			{Key: EnableBindingLabel, Operator: metav1.LabelSelectorOpExists},
+		}}
+	}
+	injected := func(s *metav1.LabelSelector) *metav1.LabelSelector {
+		if s == nil {
+			s = &metav1.LabelSelector{}
+		}
+
+		s.MatchExpressions = append(s.MatchExpressions, aksInjectedExpressions...)
+
+		return s
+	}
+
+	for _, tc := range []struct {
+		name                 string
+		existing, configured *metav1.LabelSelector
+		expected             bool
+	}{
+		{name: "injected only", existing: injected(base()), configured: base(), expected: true},
+		{name: "injected into nil selector", existing: injected(nil), expected: true},
+		{
+			name:     "injected and match labels added",
+			existing: injected(base()),
+			configured: func() *metav1.LabelSelector {
+				s := base()
+				s.MatchLabels = map[string]string{"team": "a"}
+
+				return s
+			}(),
+		},
+		{
+			name: "injected and expression removed",
+			existing: injected(func() *metav1.LabelSelector {
+				s := base()
+				s.MatchExpressions = append(s.MatchExpressions, metav1.LabelSelectorRequirement{
+					Key: "team", Operator: metav1.LabelSelectorOpExists,
+				})
+
+				return s
+			}()),
+			configured: base(),
+		},
+		{
+			// A configured expression for an injected key is compared.
+			name: "configured expression for an injected key",
+			existing: injected(func() *metav1.LabelSelector {
+				s := base()
+				s.MatchExpressions = append(s.MatchExpressions, metav1.LabelSelectorRequirement{
+					Key: "control-plane", Operator: metav1.LabelSelectorOpDoesNotExist,
+				})
+
+				return s
+			}()),
+			configured: func() *metav1.LabelSelector {
+				s := base()
+				s.MatchExpressions = append(s.MatchExpressions, metav1.LabelSelectorRequirement{
+					Key: "control-plane", Operator: metav1.LabelSelectorOpDoesNotExist,
+				})
+
+				return s
+			}(),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			before := tc.existing.DeepCopy()
+			require.Equal(t, tc.expected, selectorsEqual(tc.existing, tc.configured))
+			require.Equal(t, before, tc.existing, "the existing selector must not change")
+		})
+	}
+}
+
+// injectAKSExpressions adds the AKS expressions to the namespace selectors of
+// the stored mutating webhook configuration, like the AKS admissions enforcer
+// does on every write.
+func injectAKSExpressions(t *testing.T, c client.Client) {
+	t.Helper()
+
+	cfg := &admissionregv1.MutatingWebhookConfiguration{}
+	require.NoError(t, c.Get(t.Context(), client.ObjectKey{Name: MutatingWebhookConfigName}, cfg))
+
+	for i := range cfg.Webhooks {
+		hook := &cfg.Webhooks[i]
+		if hook.NamespaceSelector == nil {
+			hook.NamespaceSelector = &metav1.LabelSelector{}
+		}
+
+		for _, expr := range aksInjectedExpressions {
+			if !slices.ContainsFunc(hook.NamespaceSelector.MatchExpressions,
+				func(e metav1.LabelSelectorRequirement) bool { return e.Key == expr.Key },
+			) {
+				hook.NamespaceSelector.MatchExpressions = append(
+					hook.NamespaceSelector.MatchExpressions,
+					expr,
+				)
+			}
+		}
+	}
+
+	require.NoError(t, c.Update(t.Context(), cfg))
+}
+
+// reconcileAKSWebhook updates the webhook if needed, lets AKS inject its
+// expressions and returns true if the webhook got updated.
+func reconcileAKSWebhook(t *testing.T, c client.Client, w *Webhook) bool {
+	t.Helper()
+
+	needsUpdate, err := w.NeedsUpdate(t.Context(), c)
+	require.NoError(t, err)
+
+	if needsUpdate {
+		require.NoError(t, w.Update(t.Context(), c))
+		injectAKSExpressions(t, c)
+	}
+
+	return needsUpdate
+}
+
+func TestWebhook_NeedsUpdateOnAKS(t *testing.T) {
+	t.Parallel()
+
+	withLabels := []spodapi.WebhookOptions{{
+		Name: binding.name,
+		NamespaceSelector: &metav1.LabelSelector{
+			MatchLabels: map[string]string{"team": "a"},
+			MatchExpressions: []metav1.LabelSelectorRequirement{
+				{Key: EnableBindingLabel, Operator: metav1.LabelSelectorOpExists},
+			},
+		},
+	}}
+	withExpression := []spodapi.WebhookOptions{
+		{
+			Name: binding.name,
+			NamespaceSelector: &metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{
+					{Key: EnableBindingLabel, Operator: metav1.LabelSelectorOpExists},
+					{Key: "team", Operator: metav1.LabelSelectorOpExists},
+				},
+			},
+		},
+	}
+	withoutExpression := []spodapi.WebhookOptions{
+		{
+			Name: binding.name,
+			NamespaceSelector: &metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{
+					{Key: EnableBindingLabel, Operator: metav1.LabelSelectorOpExists},
+				},
+			},
+		},
+	}
+
+	for _, tc := range []struct {
+		name            string
+		created, update []spodapi.WebhookOptions
+		expectedUpdate  bool
+	}{
+		{name: "injected expressions only"},
+		{name: "match labels added", update: withLabels, expectedUpdate: true},
+		{
+			name:           "expression removed",
+			created:        withExpression,
+			update:         withoutExpression,
+			expectedUpdate: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			c := webhookTestClient(t)
+			webhook := func(opts []spodapi.WebhookOptions) *Webhook {
+				return GetWebhook(
+					logr.Discard(), "spo-ns", opts, "image", corev1.PullAlways,
+					CAInjectTypeCertManager, nil, nil, false,
+				)
+			}
+
+			require.NoError(t, webhook(tc.created).Create(t.Context(), c))
+			injectAKSExpressions(t, c)
+
+			// Nothing changed besides the injected expressions.
+			require.False(t, reconcileAKSWebhook(t, c, webhook(tc.created)))
+
+			// A user change gets rolled out exactly once, and the injected
+			// expressions do not make the webhook look outdated afterwards.
+			updates := 0
+
+			for range 3 {
+				if reconcileAKSWebhook(t, c, webhook(tc.update)) {
+					updates++
+				}
+			}
+
+			expected := 0
+
+			if tc.expectedUpdate {
+				expected = 1
+			}
+
+			require.Equal(t, expected, updates)
+
+			cfg := &admissionregv1.MutatingWebhookConfiguration{}
+			require.NoError(
+				t,
+				c.Get(t.Context(), client.ObjectKey{Name: MutatingWebhookConfigName}, cfg),
+			)
+
+			require.True(t, selectorsEqual(
+				cfg.Webhooks[binding.index].NamespaceSelector,
+				webhook(tc.update).config.Webhooks[binding.index].NamespaceSelector,
+			))
+		})
+	}
 }

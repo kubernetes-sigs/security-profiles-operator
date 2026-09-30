@@ -19,6 +19,7 @@ set -euo pipefail
 # the Go e2e suite, which runs on the node itself. The cluster keeps running for
 # the following steps, which get the kubelet directory as SPO_KUBELET_DIR.
 
+# shellcheck source=hack/ci/install-kubernix.sh
 . "$(dirname "$0")/install-kubernix.sh"
 
 # The log enricher reads the audit messages of the kernel from syslog, and must

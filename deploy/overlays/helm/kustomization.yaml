@@ -25,15 +25,6 @@ patches:
   target:
     kind: (ClusterRoleBinding|RoleBinding)
 
-# TODO: get webhook deployment replicas from values file
-- patch: |
-    - op: replace
-      path: /spec/replicas
-      value: "{{ .Values.replicaCount }}"
-  target:
-    kind: Deployment
-    name: security-profiles-operator-webhook
-
 # Labels and Annotations
 # Kustomize doesn't support adding items as first child to a list, like:
 # - op: add
@@ -58,3 +49,4 @@ patches:
 
 # Remove the namespace resource.
 - path: delete-ns.yaml
+- path: delete-pdb.yaml

@@ -23,11 +23,11 @@ package runnerfakes
 import (
 	"sync"
 
-	"github.com/nxadm/tail"
 	"github.com/opencontainers/runc/libcontainer/configs"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	seccomp "github.com/seccomp/libseccomp-golang"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/command"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/tailer"
 )
 
 type FakeImpl struct {
@@ -68,16 +68,16 @@ type FakeImpl struct {
 		result1 string
 		result2 error
 	}
-	LinesStub        func(*tail.Tail) chan *tail.Line
+	LinesStub        func(*tailer.Tailer) <-chan string
 	linesMutex       sync.RWMutex
 	linesArgsForCall []struct {
-		arg1 *tail.Tail
+		arg1 *tailer.Tailer
 	}
 	linesReturns struct {
-		result1 chan *tail.Line
+		result1 <-chan string
 	}
 	linesReturnsOnCall map[int]struct {
-		result1 chan *tail.Line
+		result1 <-chan string
 	}
 	PrintfStub        func(string, ...any)
 	printfMutex       sync.RWMutex
@@ -111,18 +111,29 @@ type FakeImpl struct {
 		result1 *configs.Seccomp
 		result2 error
 	}
-	TailFileStub        func(string, tail.Config) (*tail.Tail, error)
+	TailErrStub        func(*tailer.Tailer) error
+	tailErrMutex       sync.RWMutex
+	tailErrArgsForCall []struct {
+		arg1 *tailer.Tailer
+	}
+	tailErrReturns struct {
+		result1 error
+	}
+	tailErrReturnsOnCall map[int]struct {
+		result1 error
+	}
+	TailFileStub        func(string, tailer.Config) (*tailer.Tailer, error)
 	tailFileMutex       sync.RWMutex
 	tailFileArgsForCall []struct {
 		arg1 string
-		arg2 tail.Config
+		arg2 tailer.Config
 	}
 	tailFileReturns struct {
-		result1 *tail.Tail
+		result1 *tailer.Tailer
 		result2 error
 	}
 	tailFileReturnsOnCall map[int]struct {
-		result1 *tail.Tail
+		result1 *tailer.Tailer
 		result2 error
 	}
 	invocations      map[string][][]interface{}
@@ -318,11 +329,11 @@ func (fake *FakeImpl) GetNameReturnsOnCall(i int, result1 string, result2 error)
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) Lines(arg1 *tail.Tail) chan *tail.Line {
+func (fake *FakeImpl) Lines(arg1 *tailer.Tailer) <-chan string {
 	fake.linesMutex.Lock()
 	ret, specificReturn := fake.linesReturnsOnCall[len(fake.linesArgsForCall)]
 	fake.linesArgsForCall = append(fake.linesArgsForCall, struct {
-		arg1 *tail.Tail
+		arg1 *tailer.Tailer
 	}{arg1})
 	stub := fake.LinesStub
 	fakeReturns := fake.linesReturns
@@ -343,39 +354,39 @@ func (fake *FakeImpl) LinesCallCount() int {
 	return len(fake.linesArgsForCall)
 }
 
-func (fake *FakeImpl) LinesCalls(stub func(*tail.Tail) chan *tail.Line) {
+func (fake *FakeImpl) LinesCalls(stub func(*tailer.Tailer) <-chan string) {
 	fake.linesMutex.Lock()
 	defer fake.linesMutex.Unlock()
 	fake.LinesStub = stub
 }
 
-func (fake *FakeImpl) LinesArgsForCall(i int) *tail.Tail {
+func (fake *FakeImpl) LinesArgsForCall(i int) *tailer.Tailer {
 	fake.linesMutex.RLock()
 	defer fake.linesMutex.RUnlock()
 	argsForCall := fake.linesArgsForCall[i]
 	return argsForCall.arg1
 }
 
-func (fake *FakeImpl) LinesReturns(result1 chan *tail.Line) {
+func (fake *FakeImpl) LinesReturns(result1 <-chan string) {
 	fake.linesMutex.Lock()
 	defer fake.linesMutex.Unlock()
 	fake.LinesStub = nil
 	fake.linesReturns = struct {
-		result1 chan *tail.Line
+		result1 <-chan string
 	}{result1}
 }
 
-func (fake *FakeImpl) LinesReturnsOnCall(i int, result1 chan *tail.Line) {
+func (fake *FakeImpl) LinesReturnsOnCall(i int, result1 <-chan string) {
 	fake.linesMutex.Lock()
 	defer fake.linesMutex.Unlock()
 	fake.LinesStub = nil
 	if fake.linesReturnsOnCall == nil {
 		fake.linesReturnsOnCall = make(map[int]struct {
-			result1 chan *tail.Line
+			result1 <-chan string
 		})
 	}
 	fake.linesReturnsOnCall[i] = struct {
-		result1 chan *tail.Line
+		result1 <-chan string
 	}{result1}
 }
 
@@ -545,12 +556,73 @@ func (fake *FakeImpl) SetupSeccompReturnsOnCall(i int, result1 *configs.Seccomp,
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) TailFile(arg1 string, arg2 tail.Config) (*tail.Tail, error) {
+func (fake *FakeImpl) TailErr(arg1 *tailer.Tailer) error {
+	fake.tailErrMutex.Lock()
+	ret, specificReturn := fake.tailErrReturnsOnCall[len(fake.tailErrArgsForCall)]
+	fake.tailErrArgsForCall = append(fake.tailErrArgsForCall, struct {
+		arg1 *tailer.Tailer
+	}{arg1})
+	stub := fake.TailErrStub
+	fakeReturns := fake.tailErrReturns
+	fake.recordInvocation("TailErr", []interface{}{arg1})
+	fake.tailErrMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) TailErrCallCount() int {
+	fake.tailErrMutex.RLock()
+	defer fake.tailErrMutex.RUnlock()
+	return len(fake.tailErrArgsForCall)
+}
+
+func (fake *FakeImpl) TailErrCalls(stub func(*tailer.Tailer) error) {
+	fake.tailErrMutex.Lock()
+	defer fake.tailErrMutex.Unlock()
+	fake.TailErrStub = stub
+}
+
+func (fake *FakeImpl) TailErrArgsForCall(i int) *tailer.Tailer {
+	fake.tailErrMutex.RLock()
+	defer fake.tailErrMutex.RUnlock()
+	argsForCall := fake.tailErrArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeImpl) TailErrReturns(result1 error) {
+	fake.tailErrMutex.Lock()
+	defer fake.tailErrMutex.Unlock()
+	fake.TailErrStub = nil
+	fake.tailErrReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) TailErrReturnsOnCall(i int, result1 error) {
+	fake.tailErrMutex.Lock()
+	defer fake.tailErrMutex.Unlock()
+	fake.TailErrStub = nil
+	if fake.tailErrReturnsOnCall == nil {
+		fake.tailErrReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.tailErrReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) TailFile(arg1 string, arg2 tailer.Config) (*tailer.Tailer, error) {
 	fake.tailFileMutex.Lock()
 	ret, specificReturn := fake.tailFileReturnsOnCall[len(fake.tailFileArgsForCall)]
 	fake.tailFileArgsForCall = append(fake.tailFileArgsForCall, struct {
 		arg1 string
-		arg2 tail.Config
+		arg2 tailer.Config
 	}{arg1, arg2})
 	stub := fake.TailFileStub
 	fakeReturns := fake.tailFileReturns
@@ -571,41 +643,41 @@ func (fake *FakeImpl) TailFileCallCount() int {
 	return len(fake.tailFileArgsForCall)
 }
 
-func (fake *FakeImpl) TailFileCalls(stub func(string, tail.Config) (*tail.Tail, error)) {
+func (fake *FakeImpl) TailFileCalls(stub func(string, tailer.Config) (*tailer.Tailer, error)) {
 	fake.tailFileMutex.Lock()
 	defer fake.tailFileMutex.Unlock()
 	fake.TailFileStub = stub
 }
 
-func (fake *FakeImpl) TailFileArgsForCall(i int) (string, tail.Config) {
+func (fake *FakeImpl) TailFileArgsForCall(i int) (string, tailer.Config) {
 	fake.tailFileMutex.RLock()
 	defer fake.tailFileMutex.RUnlock()
 	argsForCall := fake.tailFileArgsForCall[i]
 	return argsForCall.arg1, argsForCall.arg2
 }
 
-func (fake *FakeImpl) TailFileReturns(result1 *tail.Tail, result2 error) {
+func (fake *FakeImpl) TailFileReturns(result1 *tailer.Tailer, result2 error) {
 	fake.tailFileMutex.Lock()
 	defer fake.tailFileMutex.Unlock()
 	fake.TailFileStub = nil
 	fake.tailFileReturns = struct {
-		result1 *tail.Tail
+		result1 *tailer.Tailer
 		result2 error
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) TailFileReturnsOnCall(i int, result1 *tail.Tail, result2 error) {
+func (fake *FakeImpl) TailFileReturnsOnCall(i int, result1 *tailer.Tailer, result2 error) {
 	fake.tailFileMutex.Lock()
 	defer fake.tailFileMutex.Unlock()
 	fake.TailFileStub = nil
 	if fake.tailFileReturnsOnCall == nil {
 		fake.tailFileReturnsOnCall = make(map[int]struct {
-			result1 *tail.Tail
+			result1 *tailer.Tailer
 			result2 error
 		})
 	}
 	fake.tailFileReturnsOnCall[i] = struct {
-		result1 *tail.Tail
+		result1 *tailer.Tailer
 		result2 error
 	}{result1, result2}
 }

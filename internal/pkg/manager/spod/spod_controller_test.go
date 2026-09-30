@@ -18,6 +18,7 @@ package spod
 
 import (
 	"encoding/json"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -30,7 +31,6 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
@@ -171,10 +171,13 @@ func Test_getConfiguredSPOdAppArmorIsRevertible(t *testing.T) {
 	off := render(false)
 	require.False(t, ptr.Deref(off.Privileged, false))
 	require.True(t, ptr.Deref(off.ReadOnlyRootFilesystem, false))
+	require.Empty(t, off.Capabilities.Add)
 
+	// AppArmor runs the daemon privileged, see configureAppArmor.
 	on := render(true)
 	require.True(t, ptr.Deref(on.Privileged, false))
 	require.False(t, ptr.Deref(on.ReadOnlyRootFilesystem, true))
+	require.Equal(t, int64(0), ptr.Deref(on.RunAsUser, -1))
 
 	// Turning AppArmor back off must restore the unprivileged security context.
 	again := render(false)
@@ -183,6 +186,45 @@ func Test_getConfiguredSPOdAppArmorIsRevertible(t *testing.T) {
 	require.False(t, ptr.Deref(again.AllowPrivilegeEscalation, false))
 	require.True(t, ptr.Deref(again.ReadOnlyRootFilesystem, false))
 	require.Equal(t, off.RunAsUser, again.RunAsUser)
+	require.Empty(t, again.Capabilities.Add)
+}
+
+// Test_getConfiguredSPOdPrivilegedAllowsEscalation asserts that every
+// privileged container allows privilege escalation, because the API server
+// rejects the DaemonSet otherwise.
+func Test_getConfiguredSPOdPrivilegedAllowsEscalation(t *testing.T) {
+	t.Parallel()
+
+	r := newTestReconciler()
+
+	for _, apparmor := range []bool{false, true} {
+		cfg := &spodapi.SecurityProfilesOperatorDaemon{
+			Spec: spodapi.SPODSpec{
+				EnableAppArmor: &apparmor,
+				Enricher: spodapi.SPODEnricherConfig{
+					EnableBpfRecorder: new(true),
+					EnableLogEnricher: new(true),
+				},
+			},
+		}
+
+		ds, err := r.getConfiguredSPOd(
+			t.Context(), cfg, "image", v1.PullAlways, bindata.CAInjectTypeCertManager,
+		)
+		require.NoError(t, err)
+
+		spec := ds.Spec.Template.Spec
+		for _, ctr := range slices.Concat(spec.InitContainers, spec.Containers) {
+			sc := ctr.SecurityContext
+			if sc == nil || !ptr.Deref(sc.Privileged, false) {
+				continue
+			}
+
+			require.True(t, ptr.Deref(sc.AllowPrivilegeEscalation, true),
+				"apparmor %v: privileged container %s disallows privilege escalation",
+				apparmor, ctr.Name)
+		}
+	}
 }
 
 // Test_getConfiguredSPOdEnricherArgsAreRevertible asserts that removing an
@@ -299,8 +341,7 @@ var (
 	}
 	enricherHostVolumes = []string{"host-auditlog-volume", "host-syslog-volume"}
 	bpfHostVolumes      = []string{
-		"sys-kernel-debug-volume", "sys-kernel-security-volume",
-		"sys-kernel-tracing-volume", "host-etc-osrelease-volume",
+		"sys-kernel-debug-volume", "sys-kernel-security-volume", "sys-kernel-tracing-volume",
 	}
 )
 
@@ -371,9 +412,7 @@ func Test_getConfiguredSPOdVolumesFollowFeatures(t *testing.T) {
 // the operator ConfigMap: it is rendered with the enricher enabled and dropped
 // with the enricher disabled, where it used to stay in the DaemonSet.
 func Test_getConfiguredSPOdJsonEnricherVolumes(t *testing.T) {
-	// The JSON enricher volume lookup requires the operator namespace, so
-	// this test cannot run in parallel.
-	t.Setenv(config.OperatorNamespaceEnvKey, "security-profiles-operator")
+	t.Parallel()
 
 	const (
 		logVolumeName = "json-enricher-log-output-volume"
@@ -390,7 +429,7 @@ func Test_getConfiguredSPOdJsonEnricherVolumes(t *testing.T) {
 	operatorConfigMap := &v1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      util.OperatorConfigMap,
-			Namespace: config.GetOperatorNamespace(),
+			Namespace: "security-profiles-operator",
 		},
 		Data: map[string]string{
 			util.JsonEnricherLogVolumeSourceJson: string(logVolumeSourceJson),

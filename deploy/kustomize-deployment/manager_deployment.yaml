@@ -76,14 +76,17 @@ spec:
               memory: 128Mi
               cpu: 500m
           env:
+            # The selinuxd images run privileged on every node, so they are
+            # pinned by digest like the operator image. hack/update-selinuxd.sh
+            # bumps them, dependencies.yaml tracks the digests.
             - name: RELATED_IMAGE_SELINUXD
-              value: quay.io/security-profiles-operator/selinuxd
+              value: quay.io/security-profiles-operator/selinuxd@sha256:f47bd24fb928bd0d168b86147e3536cf555c94fc5b85de3247fd16dad33f9460
             - name: RELATED_IMAGE_SELINUXD_EL8
-              value: quay.io/security-profiles-operator/selinuxd-el8:latest
+              value: quay.io/security-profiles-operator/selinuxd-el8@sha256:e6e7febc76f5f032d42d35b98cc651354dd14ac5ae7b2a7d7403222788e41e4d
             - name: RELATED_IMAGE_SELINUXD_EL9
-              value: quay.io/security-profiles-operator/selinuxd-el9:latest
+              value: quay.io/security-profiles-operator/selinuxd-el9@sha256:cddbd306c48ee8d19b8fb07b2acda1ee99cb3f1d9c3988f828d24b4f2de5ad3c
             - name: RELATED_IMAGE_SELINUXD_FEDORA
-              value: quay.io/security-profiles-operator/selinuxd-fedora:latest
+              value: quay.io/security-profiles-operator/selinuxd-fedora@sha256:a5c36469e66bc44c32fc36d8d23571ed8903430233d32136b6272013a535627d
             - name: OPERATOR_NAMESPACE
               valueFrom:
                 fieldRef:
@@ -99,6 +102,21 @@ spec:
                   fieldPath: spec.nodeName
             - name: KUBELET_DIR
               value: "/var/lib/kubelet"
+      # Spread the replicas across nodes and zones where possible, so that
+      # a single failure does not take down every replica.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              name: security-profiles-operator
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              name: security-profiles-operator
       tolerations:
         - key: "node-role.kubernetes.io/master"
           operator: "Exists"

@@ -37,7 +37,15 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/recorder"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/remover"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/runner"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/clidocs"
 )
+
+// exitCodeBaseProfileOutdated is the exit code of `spoc merge --check` when
+// the first profile is not a superset of the others. It is the generic
+// failure exit code, which scripts rely on. The log tells an outdated base
+// profile ("Base profile needs an update.") apart from a failure ("Unable to
+// run: ...").
+const exitCodeBaseProfileOutdated = 1
 
 func main() {
 	// spoc run re-executes itself to confine the command, which has to
@@ -51,11 +59,39 @@ func main() {
 	}
 }
 
+// runtimeEnvVars are the environment variables spoc reads which are not
+// bound to a flag.
+var runtimeEnvVars = []clidocs.EnvVar{
+	{
+		Name:        spocli.EnvKeyUsername,
+		Description: "username for the registry authentication of push and pull if the flag is not set",
+	},
+	{
+		Name:        spocli.EnvKeyPassword,
+		Description: "password for the registry authentication of push and pull",
+	},
+	{
+		Name:        spocli.EnvKeyUsernameDeprecated,
+		Description: "deprecated, use `" + spocli.EnvKeyUsername + "`",
+	},
+	{
+		Name:        spocli.EnvKeyPasswordDeprecated,
+		Description: "deprecated, use `" + spocli.EnvKeyPassword + "`",
+	},
+	{
+		Name: "SUDO_UID, SUDO_GID, SUDO_USER",
+		Description: "set by sudo, used by record and run to drop the privileges " +
+			"of the target command to the invoking user",
+	},
+}
+
 func newApp() *cli.App {
 	app, _ := cmd.DefaultApp()
+	app.Name = "spoc"
 	app.Usage = "Security Profiles Operator CLI"
 
 	app.Commands = append(app.Commands,
+		clidocs.Command(newApp, runtimeEnvVars),
 		&cli.Command{
 			Name:      "record",
 			Aliases:   []string{"r"},
@@ -215,7 +251,8 @@ func newApp() *cli.App {
 				usernameFlag(),
 				passwordStdinFlag(),
 				&cli.BoolFlag{
-					Name: pusher.FlagDisableSigning,
+					Name:    pusher.FlagDisableSigning,
+					Aliases: []string{"s"},
 					Usage: "do not sign the artifact after pushing it, " +
 						"for environments without an OIDC identity",
 				},
@@ -231,7 +268,7 @@ func newApp() *cli.App {
 				},
 				&cli.StringSliceFlag{
 					Name:    pusher.FlagPlatforms,
-					Aliases: []string{"p"},
+					Aliases: []string{"p", puller.FlagPlatform},
 					Usage: "the platforms to be used in format: os[/arch][/variant][:os_version], " +
 						"one per profile. Without platforms, the single profile is platform independent " +
 						"and gets pulled on every platform",
@@ -260,7 +297,7 @@ func newApp() *cli.App {
 				passwordStdinFlag(),
 				&cli.StringFlag{
 					Name:    puller.FlagPlatform,
-					Aliases: []string{"p"},
+					Aliases: []string{"p", pusher.FlagPlatforms},
 					Usage:   "the platform to be used in format: os[/arch][/variant][:os_version]",
 				},
 				&cli.BoolFlag{
@@ -283,6 +320,39 @@ func newApp() *cli.App {
 					Name:    puller.FlagAllowedOidcIssuerRegexp,
 					EnvVars: []string{"ALLOWED_OIDC_ISSUER_REGEXP"},
 					Usage:   "regexp for allowed Oidc issuer in signature verification",
+				},
+				&cli.StringFlag{
+					Name:    puller.FlagCertificateIdentity,
+					EnvVars: []string{"SPOC_CERTIFICATE_IDENTITY"},
+					Usage: "exact identity the signature certificate has to carry, " +
+						"takes precedence over the identity regexp",
+				},
+				&cli.StringFlag{
+					Name:    puller.FlagCertificateOidcIssuer,
+					EnvVars: []string{"SPOC_CERTIFICATE_OIDC_ISSUER"},
+					Usage: "exact OIDC issuer of the signature certificate, " +
+						"takes precedence over the issuer regexp",
+				},
+				&cli.StringFlag{
+					Name:    puller.FlagKey,
+					Aliases: []string{"k"},
+					EnvVars: []string{"SPOC_KEY"},
+					Usage: "verify the signature with the public key instead of a " +
+						"keyless certificate: the path of a PEM encoded public key",
+					TakesFile: true,
+				},
+				&cli.StringFlag{
+					Name:    puller.FlagTrustedRoot,
+					EnvVars: []string{"SPOC_TRUSTED_ROOT"},
+					Usage: "path of a Sigstore trusted root JSON file to verify against " +
+						"instead of the one distributed through TUF",
+					TakesFile: true,
+				},
+				&cli.BoolFlag{
+					Name:    puller.FlagOffline,
+					EnvVars: []string{"SPOC_OFFLINE"},
+					Usage: "verify with the trusted root cached from TUF instead of refreshing it, " +
+						"an empty cache needs --trusted-root or one run without --offline",
 				},
 			},
 		},
@@ -339,16 +409,21 @@ func merge(ctx *cli.Context) error {
 	}
 
 	if err := merger.New(options).Run(); err != nil {
-		// In check mode an outdated base profile is a result, not a failure,
-		// so report it through the exit code only.
-		if errors.Is(err, merger.ErrBaseProfileOutdated) {
-			return cli.Exit("", 1)
-		}
-
-		return fmt.Errorf("launch merger: %w", err)
+		return mergeError(err)
 	}
 
 	return nil
+}
+
+// mergeError maps the error of the merger onto the exit code of `spoc
+// merge`. In check mode an outdated base profile is a result, not a failure,
+// so it is reported through its own exit code only.
+func mergeError(err error) error {
+	if errors.Is(err, merger.ErrBaseProfileOutdated) {
+		return cli.Exit("", exitCodeBaseProfileOutdated)
+	}
+
+	return fmt.Errorf("launch merger: %w", err)
 }
 
 // convert runs the `spoc convert` subcommand.

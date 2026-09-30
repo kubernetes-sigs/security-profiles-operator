@@ -25,6 +25,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/go-logr/logr"
@@ -33,10 +34,17 @@ import (
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
+	protobundle "github.com/sigstore/protobuf-specs/gen/pb-go/bundle/v1"
+	"github.com/sigstore/sigstore-go/pkg/root"
+	"github.com/sigstore/sigstore-go/pkg/sign"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protojson"
 	"oras.land/oras-go/v2"
+	orascontent "oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/content/file"
+	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/registry/remote"
+	"oras.land/oras-go/v2/registry/remote/auth"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/security-profiles-merger/seccomp"
 
@@ -63,7 +71,7 @@ func TestPushDisableSigning(t *testing.T) {
 	mock.ParseReferenceReturns(testRef, nil)
 	mock.NewRepositoryReturns(&remote.Repository{}, nil)
 	// Signing would fail if it ran at all.
-	mock.ClientSecretReturns("", errTest)
+	mock.SigningConfigReturns(nil, errTest)
 
 	sut := New(logr.Discard())
 	sut.impl = mock
@@ -79,8 +87,9 @@ func TestPushDisableSigning(t *testing.T) {
 		nil,
 		&PushOptions{DisableSigning: true},
 	))
-	require.Zero(t, mock.LoadSigningMaterialCallCount())
-	require.Zero(t, mock.SignCmdCallCount())
+	require.Zero(t, mock.SigningConfigCallCount())
+	require.Zero(t, mock.IDTokenCallCount())
+	require.Zero(t, mock.SignBundleCallCount())
 }
 
 func TestPush(t *testing.T) {
@@ -119,36 +128,72 @@ func TestPush(t *testing.T) {
 			},
 		},
 		{
-			name: "failure on SignCmd",
+			name: "success without trusted root",
 			prepare: func(mock *artifactfakes.FakeImpl) {
 				mock.StoreAddReturns(defaultDescriptor(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
-				mock.SignCmdReturns(errTest)
+				mock.TrustedMaterialReturns(nil, errTest)
+			},
+			assert: func(err error) {
+				require.NoError(t, err)
+			},
+		},
+		{
+			name: "failure on SignBundle",
+			prepare: func(mock *artifactfakes.FakeImpl) {
+				mock.StoreAddReturns(defaultDescriptor(), nil)
+				mock.ParseReferenceReturns(testRef, nil)
+				mock.NewRepositoryReturns(&remote.Repository{}, nil)
+				mock.SignBundleReturns(nil, errTest)
 			},
 			assert: func(err error) {
 				require.ErrorIs(t, err, errTest)
 			},
 		},
 		{
-			name: "failure on LoadSigningMaterial",
+			name: "failure on SigningConfig",
 			prepare: func(mock *artifactfakes.FakeImpl) {
 				mock.StoreAddReturns(defaultDescriptor(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
-				mock.LoadSigningMaterialReturns(errTest)
+				mock.SigningConfigReturns(nil, errTest)
 			},
 			assert: func(err error) {
 				require.ErrorIs(t, err, errTest)
 			},
 		},
 		{
-			name: "failure on ClientSecret",
+			name: "failure without SigningConfig",
 			prepare: func(mock *artifactfakes.FakeImpl) {
 				mock.StoreAddReturns(defaultDescriptor(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
-				mock.ClientSecretReturns("", errTest)
+				mock.SigningConfigReturns(nil, nil)
+			},
+			assert: func(err error) {
+				require.ErrorIs(t, err, ErrNoSigningConfig)
+			},
+		},
+		{
+			name: "failure on IDToken",
+			prepare: func(mock *artifactfakes.FakeImpl) {
+				mock.StoreAddReturns(defaultDescriptor(), nil)
+				mock.ParseReferenceReturns(testRef, nil)
+				mock.NewRepositoryReturns(&remote.Repository{}, nil)
+				mock.IDTokenReturns("", errTest)
+			},
+			assert: func(err error) {
+				require.ErrorIs(t, err, errTest)
+			},
+		},
+		{
+			name: "failure on RepositoryPush",
+			prepare: func(mock *artifactfakes.FakeImpl) {
+				mock.StoreAddReturns(defaultDescriptor(), nil)
+				mock.ParseReferenceReturns(testRef, nil)
+				mock.NewRepositoryReturns(&remote.Repository{}, nil)
+				mock.RepositoryPushReturns(errTest)
 			},
 			assert: func(err error) {
 				require.ErrorIs(t, err, errTest)
@@ -253,6 +298,7 @@ func TestPush(t *testing.T) {
 			t.Parallel()
 
 			mock := &artifactfakes.FakeImpl{}
+			stubSigning(t, mock)
 			prepare(mock)
 
 			sut := New(logr.Discard())
@@ -293,7 +339,7 @@ func TestPull(t *testing.T) {
 			name: "success with failed cleanup",
 			prepare: func(mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
-				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
+				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.ReadProfileReturns(&seccompprofileapi.SeccompProfile{}, nil)
 				mock.RemoveAllReturns(errTest)
@@ -311,7 +357,7 @@ func TestPull(t *testing.T) {
 			name: "success seccomp",
 			prepare: func(mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
-				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
+				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.ReadProfileReturns(&seccompprofileapi.SeccompProfile{}, nil)
 			},
@@ -327,7 +373,7 @@ func TestPull(t *testing.T) {
 			name: "success selinux",
 			prepare: func(mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
-				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
+				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.ReadProfileReturns(&selinuxprofileapi.SelinuxProfile{}, nil)
 			},
@@ -343,7 +389,7 @@ func TestPull(t *testing.T) {
 			name: "success apparmor",
 			prepare: func(mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
-				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
+				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.ReadProfileReturns(&apparmorprofileapi.AppArmorProfile{}, nil)
 			},
@@ -359,7 +405,7 @@ func TestPull(t *testing.T) {
 			name: "success runtime-spec seccomp profile",
 			prepare: func(mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
-				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
+				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				stubProfile(mock, rawSeccompJSON)
 				mock.ReadProfileReturns(nil, errTest)
@@ -379,7 +425,7 @@ func TestPull(t *testing.T) {
 			name: "failure on all YAML decodes",
 			prepare: func(mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
-				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
+				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.ReadProfileReturns(nil, errTest)
 			},
@@ -393,7 +439,7 @@ func TestPull(t *testing.T) {
 			name: "success on runtime format artifact",
 			prepare: func(mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
-				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
+				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				// No layer name, no title annotation and no file on disk.
 				stubManifest(mock, &ocispec.Manifest{
@@ -413,7 +459,7 @@ func TestPull(t *testing.T) {
 			name: "success on runtime format artifact identified by artifactType",
 			prepare: func(mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
-				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
+				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				stubManifest(mock, &ocispec.Manifest{
 					Config:       ocispec.Descriptor{MediaType: ocispec.MediaTypeEmptyJSON},
@@ -432,7 +478,7 @@ func TestPull(t *testing.T) {
 			name: "failure on runtime format artifact with multiple layers",
 			prepare: func(mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
-				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
+				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				stubManifest(mock, &ocispec.Manifest{
 					Config: ocispec.Descriptor{MediaType: MediaTypeSeccompProfile},
@@ -448,7 +494,7 @@ func TestPull(t *testing.T) {
 			name: "failure on undecodable runtime format artifact",
 			prepare: func(mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
-				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
+				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				stubManifest(mock, &ocispec.Manifest{
 					Config: ocispec.Descriptor{MediaType: MediaTypeSeccompProfile},
@@ -465,7 +511,7 @@ func TestPull(t *testing.T) {
 			name: "success on single layer with unknown name",
 			prepare: func(mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
-				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
+				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				stubManifest(mock, &ocispec.Manifest{
 					Layers: []ocispec.Descriptor{testLayer("seccomp.json")},
@@ -483,7 +529,7 @@ func TestPull(t *testing.T) {
 			name: "failure on platform qualified single layer",
 			prepare: func(mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
-				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
+				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				stubManifest(mock, &ocispec.Manifest{
 					Layers: []ocispec.Descriptor{testLayer("profile-linux-arm64.yaml")},
@@ -498,7 +544,7 @@ func TestPull(t *testing.T) {
 			name: "failure on single layer bound to another platform",
 			prepare: func(mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
-				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
+				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 
 				layer := testLayer("seccomp.json")
@@ -517,7 +563,7 @@ func TestPull(t *testing.T) {
 			name: "failure on ReadFile without single layer",
 			prepare: func(mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
-				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
+				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				stubManifest(mock, &ocispec.Manifest{
 					Layers: []ocispec.Descriptor{
@@ -535,7 +581,7 @@ func TestPull(t *testing.T) {
 			name: "failure on StoreFetch of the manifest",
 			prepare: func(mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
-				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
+				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.StoreFetchReturns(nil, errTest)
 			},
@@ -548,7 +594,7 @@ func TestPull(t *testing.T) {
 			name: "failure on unparsable manifest",
 			prepare: func(mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
-				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
+				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.StoreFetchStub = func(
 					_ context.Context, _ *file.Store, _ *ocispec.Descriptor,
@@ -565,7 +611,7 @@ func TestPull(t *testing.T) {
 			name: "failure on StoreFetch of the single layer",
 			prepare: func(mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
-				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
+				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 
 				manifest, err := json.Marshal(ocispec.Manifest{
@@ -595,7 +641,7 @@ func TestPull(t *testing.T) {
 			name: "failure on Copy",
 			prepare: func(mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
-				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
+				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.CopyReturns(defaultDescriptor(), errTest)
 			},
@@ -641,7 +687,7 @@ func TestPull(t *testing.T) {
 			name: "failure on FileNew",
 			prepare: func(mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
-				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
+				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.FileNewReturns(nil, errTest)
 			},
@@ -654,7 +700,7 @@ func TestPull(t *testing.T) {
 			name: "failure on MkdirTemp",
 			prepare: func(mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
-				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
+				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.MkdirTempReturns("", errTest)
 			},
@@ -664,15 +710,56 @@ func TestPull(t *testing.T) {
 			},
 		},
 		{
-			name: "failure on VerifyCmd",
+			name: "failure on VerifyEntity",
 			prepare: func(mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
-				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
+				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
-				mock.VerifyCmdReturns(errTest)
+				mock.VerifyEntityReturns(errTest)
 			},
 			assert: func(res *PullResult, err error) {
 				require.ErrorIs(t, err, errTest)
+				require.ErrorContains(t, err, "verify signature")
+				require.Nil(t, res)
+			},
+		},
+		{
+			name: "failure on TrustedMaterial",
+			prepare: func(mock *artifactfakes.FakeImpl) {
+				mock.NewRepositoryReturns(&remote.Repository{}, nil)
+				mock.ResolveRepositoryReturns(testSubject(), nil)
+				mock.ParseReferenceReturns(testRef, nil)
+				mock.TrustedMaterialReturns(nil, errTest)
+			},
+			assert: func(res *PullResult, err error) {
+				require.ErrorIs(t, err, errTest)
+				require.Nil(t, res)
+			},
+		},
+		{
+			name: "failure on FetchAll",
+			prepare: func(mock *artifactfakes.FakeImpl) {
+				mock.NewRepositoryReturns(&remote.Repository{}, nil)
+				mock.ResolveRepositoryReturns(testSubject(), nil)
+				mock.ParseReferenceReturns(testRef, nil)
+				mock.FetchAllReturns(nil, errTest)
+			},
+			assert: func(res *PullResult, err error) {
+				require.ErrorIs(t, err, errTest)
+				require.Nil(t, res)
+			},
+		},
+		{
+			name: "failure without signature",
+			prepare: func(mock *artifactfakes.FakeImpl) {
+				mock.NewRepositoryReturns(&remote.Repository{}, nil)
+				mock.ParseReferenceReturns(testRef, nil)
+				mock.ResolveRepositoryReturns(testSubject(), nil)
+				mock.ReferrersReturns(nil, errTest)
+				mock.FetchReferenceReturns(ocispec.Descriptor{}, nil, errdef.ErrNotFound)
+			},
+			assert: func(res *PullResult, err error) {
+				require.ErrorIs(t, err, ErrNoSignature)
 				require.Nil(t, res)
 			},
 		},
@@ -766,7 +853,7 @@ func TestPushMediaTypes(t *testing.T) {
 				"",
 				"",
 				nil,
-				nil,
+				&PushOptions{DisableSigning: true},
 			)
 			require.NoError(t, err)
 
@@ -802,33 +889,48 @@ func TestPushMediaTypes(t *testing.T) {
 
 // TestPushManifest verifies the manifest ORAS produces for the options built
 // by Push, because the config media type and the artifact type are set from
-// different inputs.
+// different inputs, and the annotations of the caller belong to the manifest.
 func TestPushManifest(t *testing.T) {
 	t.Parallel()
 
-	layer := ocispec.Descriptor{
-		MediaType: layerMediaTypeJSON,
-		Digest:    digest.FromString(rawSeccompJSON),
-		Size:      int64(len(rawSeccompJSON)),
-		Annotations: map[string]string{
-			ocispec.AnnotationTitle: defaultProfileJSON,
-		},
+	testRef, err := name.ParseReference("docker.io/foo/bar:v1")
+	require.NoError(t, err)
+
+	mock := &artifactfakes.FakeImpl{}
+	mock.ReadFileReturns([]byte(rawSeccompJSON), nil)
+	mock.ReadProfileReturns(nil, errTest)
+	mock.ParseReferenceReturns(testRef, nil)
+	mock.NewRepositoryReturns(&remote.Repository{}, nil)
+	mock.StoreAddStub = func(
+		_ context.Context, _ *file.Store, layerName, mediaType, _ string,
+	) (ocispec.Descriptor, error) {
+		return ocispec.Descriptor{
+			MediaType:   mediaType,
+			Digest:      digest.FromString(rawSeccompJSON),
+			Size:        int64(len(rawSeccompJSON)),
+			Annotations: map[string]string{ocispec.AnnotationTitle: layerName},
+		}, nil
 	}
-	config := ocispec.Descriptor{
-		MediaType: MediaTypeSeccompProfile,
-		Digest:    digest.FromBytes(emptyConfig),
-		Size:      int64(len(emptyConfig)),
+
+	sut := New(logr.Discard())
+	sut.impl = mock
+
+	annotations := map[string]string{
+		"org.example.profile":     "runc",
+		ocispec.AnnotationCreated: "2026-09-11T07:00:00Z",
 	}
+	require.NoError(t, sut.Push(
+		t.Context(),
+		map[*ocispec.Platform]string{nil: "profile.json"},
+		"", "", "", annotations, &PushOptions{DisableSigning: true},
+	))
+
+	require.Equal(t, 1, mock.PackManifestCallCount())
+	_, _, version, artifactType, packOptions := mock.PackManifestArgsForCall(0)
 
 	pusher := &testPusher{blobs: map[digest.Digest][]byte{}}
 
-	descriptor, err := oras.PackManifest(
-		t.Context(), pusher, oras.PackManifestVersion1_1, MediaTypeSeccompProfile,
-		oras.PackManifestOptions{
-			Layers:           []ocispec.Descriptor{layer},
-			ConfigDescriptor: &config,
-		},
-	)
+	descriptor, err := oras.PackManifest(t.Context(), pusher, version, artifactType, packOptions)
 	require.NoError(t, err)
 
 	manifest := ocispec.Manifest{}
@@ -845,6 +947,82 @@ func TestPushManifest(t *testing.T) {
 	//nolint:testifylint // this compares a media type, not encoded JSON
 	require.Equal(t, layerMediaTypeJSON, manifest.Layers[0].MediaType)
 	require.Nil(t, manifest.Layers[0].Platform)
+
+	// The annotations of the caller land on the manifest, the layers only
+	// carry their title.
+	require.Equal(t, annotations, manifest.Annotations)
+	require.Equal(t,
+		map[string]string{ocispec.AnnotationTitle: defaultProfileJSON},
+		manifest.Layers[0].Annotations,
+	)
+}
+
+// TestPushLayerOrder verifies that the layers of a multi-platform artifact
+// are packed in a deterministic order, because the manifest digest would
+// otherwise change between pushes of identical content.
+func TestPushLayerOrder(t *testing.T) {
+	t.Parallel()
+
+	testRef, err := name.ParseReference("docker.io/foo/bar:v1")
+	require.NoError(t, err)
+
+	platforms := []*ocispec.Platform{
+		{OS: "linux", Architecture: "s390x"},
+		{OS: "linux", Architecture: "arm64"},
+		{OS: "linux", Architecture: "amd64"},
+		{OS: "linux", Architecture: "arm", Variant: "v7"},
+		nil,
+	}
+	expected := []string{
+		"profile-linux-amd64.yaml",
+		"profile-linux-arm-v7.yaml",
+		"profile-linux-arm64.yaml",
+		"profile-linux-s390x.yaml",
+		"profile.yaml",
+	}
+
+	// The layers come from a map, so a wrong order would only show up
+	// eventually.
+	for range 20 {
+		mock := &artifactfakes.FakeImpl{}
+		mock.ReadFileReturns([]byte(profileCRDYAML), nil)
+		mock.ReadProfileReturns(&seccompprofileapi.SeccompProfile{}, nil)
+		mock.ParseReferenceReturns(testRef, nil)
+		mock.NewRepositoryReturns(&remote.Repository{}, nil)
+		mock.StoreAddStub = func(
+			_ context.Context, _ *file.Store, layerName, _, _ string,
+		) (ocispec.Descriptor, error) {
+			return ocispec.Descriptor{
+				Annotations: map[string]string{ocispec.AnnotationTitle: layerName},
+			}, nil
+		}
+
+		files := map[*ocispec.Platform]string{}
+		for _, platform := range platforms {
+			files[platform] = "profile.yaml"
+		}
+
+		sut := New(logr.Discard())
+		sut.impl = mock
+
+		require.NoError(t, sut.Push(
+			t.Context(), files, "", "", "", nil, &PushOptions{DisableSigning: true},
+		))
+
+		require.Equal(t, 1, mock.PackManifestCallCount())
+		_, _, _, _, packOptions := mock.PackManifestArgsForCall(0)
+
+		names := make([]string, 0, len(packOptions.Layers))
+		for _, layer := range packOptions.Layers {
+			names = append(names, layer.Annotations[ocispec.AnnotationTitle])
+		}
+
+		require.Equal(t, expected, names)
+
+		for i, layer := range packOptions.Layers {
+			require.Equal(t, profileName(layer.Platform), expected[i])
+		}
+	}
 }
 
 // testPusher is a content.Pusher which keeps all pushed blobs in memory.
@@ -1107,6 +1285,8 @@ func testLayer(title string) ocispec.Descriptor {
 // stubProfile makes StoreFetch return an artifact with a platform
 // independent profile layer of the content.
 func stubProfile(mock *artifactfakes.FakeImpl, content string) {
+	stubSignature(mock)
+
 	layer := testLayer(defaultProfileYAML)
 	stubManifest(mock, &ocispec.Manifest{
 		Layers: []ocispec.Descriptor{layer},
@@ -1132,6 +1312,85 @@ func stubManifest(
 
 		return io.NopCloser(bytes.NewReader(raw)), nil
 	}
+}
+
+// testSubject is the descriptor of the artifact manifest.
+func testSubject() ocispec.Descriptor {
+	return ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromString("artifact"),
+		Size:      8,
+	}
+}
+
+// testBundle is a valid signature bundle, which the fakes of the
+// verification accept.
+var testBundle = sync.OnceValue(func() []byte {
+	statement, err := signatureStatement(testSubject().Digest)
+	if err != nil {
+		panic(err)
+	}
+
+	keypair, err := sign.NewEphemeralKeypair(nil)
+	if err != nil {
+		panic(err)
+	}
+
+	bundle, err := sign.Bundle(
+		&sign.DSSEData{
+			Data:        statement,
+			PayloadType: inTotoPayloadType,
+		},
+		keypair,
+		sign.BundleOptions{},
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	raw, err := protojson.Marshal(bundle)
+	if err != nil {
+		panic(err)
+	}
+
+	return raw
+})
+
+// stubSignature makes the artifact have a signature bundle referrer.
+func stubSignature(mock *artifactfakes.FakeImpl) {
+	manifest, err := json.Marshal(ocispec.Manifest{
+		Layers: []ocispec.Descriptor{
+			orascontent.NewDescriptorFromBytes(bundleMediaType, testBundle()),
+		},
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	referrer := orascontent.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifest)
+	referrer.Annotations = map[string]string{annotationBundlePredicateType: cosignSignPredicateType}
+
+	mock.TrustedMaterialReturns(&root.BaseTrustedMaterial{}, nil)
+	mock.ReferrersReturns([]ocispec.Descriptor{referrer}, nil)
+	mock.FetchAllStub = func(
+		_ context.Context, _ *remote.Repository, desc *ocispec.Descriptor,
+	) ([]byte, error) {
+		if desc.Digest == referrer.Digest {
+			return manifest, nil
+		}
+
+		return testBundle(), nil
+	}
+}
+
+// stubSigning makes signing succeed.
+func stubSigning(t *testing.T, mock *artifactfakes.FakeImpl) {
+	t.Helper()
+
+	mock.CopyReturns(testSubject(), nil)
+	mock.SigningConfigReturns(testSigningConfig(t), nil)
+	mock.IDTokenReturns("token", nil)
+	mock.SignBundleReturns(&protobundle.Bundle{}, nil)
 }
 
 // TestPushConfigBlob verifies that the config blob of a runtime format
@@ -1447,9 +1706,8 @@ func TestPullBlobSizeLimit(t *testing.T) {
 
 			mock := &artifactfakes.FakeImpl{}
 			mock.NewRepositoryReturns(&remote.Repository{}, nil)
-			mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
+			mock.ResolveRepositoryReturns(testSubject(), nil)
 			mock.ParseReferenceReturns(testRef, nil)
-			mock.VerifyCmdReturns(nil)
 			mock.ReadProfileReturns(&seccompprofileapi.SeccompProfile{}, nil)
 			stubProfile(mock, "")
 
@@ -1489,8 +1747,8 @@ func TestPullBlobSizeLimit(t *testing.T) {
 	}
 }
 
-// TestRegistryOptions verifies that signing and verification get the registry
-// credentials of the push or pull, so that signatures of private artifacts
+// TestRegistryOptions verifies that signing and verification use the
+// repository of the push or pull, so that signatures of private artifacts
 // are reachable with the same login as the artifact itself.
 func TestRegistryOptions(t *testing.T) {
 	t.Parallel()
@@ -1498,14 +1756,31 @@ func TestRegistryOptions(t *testing.T) {
 	testRef, err := name.ParseReference("docker.io/foo/bar:v1")
 	require.NoError(t, err)
 
+	requireCredentials := func(t *testing.T, repo *remote.Repository) {
+		t.Helper()
+
+		require.True(t, repo.PlainHTTP)
+
+		client, ok := repo.Client.(*auth.Client)
+		require.True(t, ok)
+
+		credential, err := client.Credential(t.Context(), repo.Reference.Registry)
+		require.NoError(t, err)
+		require.Equal(t, "user", credential.Username)
+		require.Equal(t, "secret", credential.Password)
+	}
+
 	t.Run("push", func(t *testing.T) {
 		t.Parallel()
 
+		repo := &remote.Repository{}
+
 		mock := &artifactfakes.FakeImpl{}
+		stubSigning(t, mock)
 		mock.ReadFileReturns([]byte(`{"defaultAction":"SCMP_ACT_ERRNO"}`), nil)
 		mock.StoreAddReturns(defaultDescriptor(), nil)
 		mock.ParseReferenceReturns(testRef, nil)
-		mock.NewRepositoryReturns(&remote.Repository{}, nil)
+		mock.NewRepositoryReturns(repo, nil)
 
 		sut := New(logr.Discard())
 		sut.impl = mock
@@ -1516,37 +1791,39 @@ func TestRegistryOptions(t *testing.T) {
 			"", "user", "secret", nil, &PushOptions{PlainHTTP: true},
 		)
 		require.NoError(t, err)
-		require.Equal(t, 1, mock.SignCmdCallCount())
+		require.Equal(t, 1, mock.SignBundleCallCount())
 
-		_, _, keyOpts, signOpts, imgs := mock.SignCmdArgsForCall(0)
-		require.True(t, signOpts.Registry.AllowHTTPRegistry)
-		require.Equal(t, "user", signOpts.Registry.AuthConfig.Username)
-		require.Equal(t, "secret", signOpts.Registry.AuthConfig.Password)
+		// The bundle and its referrer manifest go to the pushed repository.
+		require.Equal(t, 1, mock.RepositoryPushCallCount())
+		_, pushedTo, layer, _ := mock.RepositoryPushArgsForCall(0)
+		require.Same(t, repo, pushedTo)
+		require.Equal(t, bundleMediaType, layer.MediaType)
+		requireCredentials(t, pushedTo)
 
-		// Signatures are Sigstore bundles attached as OCI referrers to the
-		// pushed digest, signed with the services of the signing config.
-		require.True(t, signOpts.NewBundleFormat)
-		require.True(t, signOpts.UseSigningConfig)
-		require.True(t, signOpts.TlogUpload)
-		require.True(t, keyOpts.NewBundleFormat)
-		require.Len(t, imgs, 1)
-		require.Contains(t, imgs[0], "@")
-
-		require.Equal(t, 1, mock.LoadSigningMaterialCallCount())
-		_, loadedKeyOpts, loadedSignOpts := mock.LoadSigningMaterialArgsForCall(0)
-		require.True(t, loadedKeyOpts.NewBundleFormat)
-		require.True(t, loadedSignOpts.UseSigningConfig)
+		require.Equal(t, 2, mock.PackManifestCallCount())
+		_, pusher, version, artifactType, packOpts := mock.PackManifestArgsForCall(1)
+		require.Same(t, repo, pusher)
+		require.Equal(t, oras.PackManifestVersion1_1, version)
+		require.Equal(t, bundleMediaType, artifactType)
+		require.Equal(t, testSubject().Digest, packOpts.Subject.Digest)
+		require.Equal(t, []ocispec.Descriptor{*layer}, packOpts.Layers)
+		require.Equal(
+			t,
+			cosignSignPredicateType,
+			packOpts.ManifestAnnotations[annotationBundlePredicateType],
+		)
 	})
 
 	t.Run("pull", func(t *testing.T) {
 		t.Parallel()
 
+		repo := &remote.Repository{}
+
 		mock := &artifactfakes.FakeImpl{}
-		mock.NewRepositoryReturns(&remote.Repository{}, nil)
-		mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
+		mock.NewRepositoryReturns(repo, nil)
+		mock.ResolveRepositoryReturns(testSubject(), nil)
 		mock.ParseReferenceReturns(testRef, nil)
 		mock.ReadProfileReturns(&seccompprofileapi.SeccompProfile{}, nil)
-		mock.SignatureBundleExistsReturns(true, nil)
 		stubProfile(mock, "")
 
 		sut := New(logr.Discard())
@@ -1556,62 +1833,19 @@ func TestRegistryOptions(t *testing.T) {
 			t.Context(), "", "user", "secret", nil, &PullOptions{PlainHTTP: true},
 		)
 		require.NoError(t, err)
-		require.Equal(t, 1, mock.VerifyCmdCallCount())
 
-		_, verifyCmd, _ := mock.VerifyCmdArgsForCall(0)
-		require.True(t, verifyCmd.AllowHTTPRegistry)
-		require.Equal(t, "user", verifyCmd.AuthConfig.Username)
-		require.Equal(t, "secret", verifyCmd.AuthConfig.Password)
-		require.True(t, verifyCmd.CheckClaims)
-		require.True(t, verifyCmd.NewBundleFormat)
-		require.Positive(t, verifyCmd.MaxWorkers)
+		require.Equal(t, 1, mock.ReferrersCallCount())
+		_, referrersOf, subject := mock.ReferrersArgsForCall(0)
+		require.Same(t, repo, referrersOf)
+		require.Equal(t, testSubject().Digest, subject.Digest)
+		requireCredentials(t, referrersOf)
 
-		require.Equal(t, 1, mock.SignatureBundleExistsCallCount())
-		_, image, registryOpts := mock.SignatureBundleExistsArgsForCall(0)
-		require.Contains(t, image, "@")
-		require.True(t, registryOpts.AllowHTTPRegistry)
-		require.Equal(t, "user", registryOpts.AuthConfig.Username)
-	})
+		for i := range mock.FetchAllCallCount() {
+			_, fetchedFrom, _ := mock.FetchAllArgsForCall(i)
+			require.Same(t, repo, fetchedFrom)
+		}
 
-	for _, tc := range []struct {
-		name      string
-		exists    bool
-		lookupErr error
-	}{
-		{name: "pull without signature bundles", exists: false},
-		{name: "pull with failed signature bundle lookup", lookupErr: errTest},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			mock := &artifactfakes.FakeImpl{}
-			mock.NewRepositoryReturns(&remote.Repository{}, nil)
-			mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
-			mock.ParseReferenceReturns(testRef, nil)
-			mock.ReadProfileReturns(&seccompprofileapi.SeccompProfile{}, nil)
-			mock.SignatureBundleExistsReturns(tc.exists, tc.lookupErr)
-			stubProfile(mock, "")
-
-			sut := New(logr.Discard())
-			sut.impl = mock
-
-			_, err := sut.Pull(t.Context(), "", "", "", nil, nil)
-			require.NoError(t, err)
-
-			// Legacy signature tags are verified instead of bundles.
-			_, verifyCmd, _ := mock.VerifyCmdArgsForCall(0)
-			require.False(t, verifyCmd.NewBundleFormat)
-			require.True(t, verifyCmd.CheckClaims)
-		})
-	}
-
-	t.Run("anonymous", func(t *testing.T) {
-		t.Parallel()
-
-		opts := registryOptions("", "", false)
-		require.False(t, opts.AllowHTTPRegistry)
-		require.Empty(t, opts.AuthConfig.Username)
-		require.Empty(t, opts.AuthConfig.Password)
+		require.Equal(t, 1, mock.VerifyEntityCallCount())
 	})
 }
 
@@ -1624,6 +1858,9 @@ func TestPullDefaultSigner(t *testing.T) {
 		name, image      string
 		opts             *PullOptions
 		identity, issuer string
+		// exactIdentity and exactIssuer are the exact values the
+		// certificate has to carry, which replace the regexps.
+		exactIdentity, exactIssuer string
 	}{
 		{
 			name:     "official repository",
@@ -1653,11 +1890,55 @@ func TestPullDefaultSigner(t *testing.T) {
 			issuer:   ".*",
 		},
 		{
+			// An empty identity regexp is the default, which accepts every
+			// identity.
 			name:     "official repository with own issuer",
 			image:    officialImage,
 			opts:     &PullOptions{AllowedOidcIssuerRegexp: "^https://issuer$"},
-			identity: "",
+			identity: ".*",
 			issuer:   "^https://issuer$",
+		},
+		{
+			// An exact issuer alone keeps the official identity.
+			name:        "official repository with exact issuer",
+			image:       officialImage,
+			opts:        &PullOptions{CertOidcIssuer: "https://issuer", AllowedIdentityRegexp: ".*"},
+			identity:    OfficialSignerIdentityRegexp,
+			exactIssuer: "https://issuer",
+		},
+		{
+			// An exact identity alone keeps the official issuer.
+			name:          "official repository with exact identity",
+			image:         officialImage,
+			opts:          &PullOptions{CertIdentity: "me@example.com"},
+			issuer:        OfficialSignerOidcIssuerRegexp,
+			exactIdentity: "me@example.com",
+		},
+		{
+			name:  "official repository with exact identity and issuer",
+			image: officialImage,
+			opts: &PullOptions{
+				CertIdentity: "me@example.com", CertOidcIssuer: "https://issuer",
+			},
+			exactIdentity: "me@example.com",
+			exactIssuer:   "https://issuer",
+		},
+		{
+			// An own regexp for the other part is kept as given.
+			name:  "official repository with exact issuer and own identity regexp",
+			image: officialImage,
+			opts: &PullOptions{
+				CertOidcIssuer: "https://issuer", AllowedIdentityRegexp: "^me$",
+			},
+			identity:    "^me$",
+			exactIssuer: "https://issuer",
+		},
+		{
+			name:          "other repository with exact identity",
+			image:         "registry.example.com/security-profiles-operator/base/runc:v1.5.1",
+			opts:          &PullOptions{CertIdentity: "me@example.com"},
+			issuer:        ".*",
+			exactIdentity: "me@example.com",
 		},
 		{
 			name:     "official repository with any signer",
@@ -1688,7 +1969,7 @@ func TestPullDefaultSigner(t *testing.T) {
 
 			mock := &artifactfakes.FakeImpl{}
 			mock.NewRepositoryReturns(&remote.Repository{}, nil)
-			mock.ResolveRepositoryReturns(ocispec.Descriptor{}, nil)
+			mock.ResolveRepositoryReturns(testSubject(), nil)
 			mock.ParseReferenceReturns(ref, nil)
 			mock.ReadProfileReturns(&seccompprofileapi.SeccompProfile{}, nil)
 			stubProfile(mock, "")
@@ -1699,9 +1980,16 @@ func TestPullDefaultSigner(t *testing.T) {
 			_, err = sut.Pull(t.Context(), tc.image, "", "", nil, tc.opts)
 			require.NoError(t, err)
 
-			_, verifyCmd, _ := mock.VerifyCmdArgsForCall(0)
-			require.Equal(t, tc.identity, verifyCmd.CertIdentityRegexp)
-			require.Equal(t, tc.issuer, verifyCmd.CertOidcIssuerRegexp)
+			_, _, _, _, identity := mock.VerifyEntityArgsForCall(0)
+			require.NotNil(t, identity)
+			require.Equal(t, tc.identity, identity.SubjectAlternativeName.Regexp.String())
+			require.Equal(t, tc.issuer, identity.Issuer.Regexp.String())
+			require.Equal(
+				t,
+				tc.exactIdentity,
+				identity.SubjectAlternativeName.SubjectAlternativeName,
+			)
+			require.Equal(t, tc.exactIssuer, identity.Issuer.Issuer)
 		})
 	}
 

@@ -15,6 +15,15 @@
 
 set -euo pipefail
 
+# GNU and BSD sed differ in how -i takes the backup suffix.
+sed_i() {
+    if sed --version >/dev/null 2>&1; then
+        sed -i "$@"
+    else
+        sed -i '' "$@"
+    fi
+}
+
 GIT_ROOT=$(git rev-parse --show-toplevel)
 pushd "$GIT_ROOT" >/dev/null
 
@@ -30,7 +39,7 @@ echo "Bumping current version '$VERSION' back to development version '$DEV_VERSI
 echo "$DEV_VERSION" >VERSION
 
 VERSION_RE="${VERSION//./\\.}"
-sed -i \
+sed_i \
     -e "s;image: registry.k8s.io/security-profiles-operator/security-profiles-operator.*;image: us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator:latest;g" \
     -e "s/$VERSION_RE/$DEV_VERSION/g" \
     deploy/namespace-operator.yaml \
@@ -38,7 +47,7 @@ sed -i \
     deploy/operator.yaml \
     deploy/webhook-operator.yaml
 
-sed -i \
+sed_i \
     -e 's;\(olm.skipRange.*\)'"$VERSION_RE"';\1'"$DEV_VERSION"';g' \
     -e 's;\(name: security-profiles-operator.v\)'"$VERSION_RE"';\1'"$DEV_VERSION"';g' \
     -e 's;\(version: \)'"$VERSION_RE"';\1'"$DEV_VERSION"';g' \
@@ -46,13 +55,17 @@ sed -i \
     -e 's;containerImage: registry.k8s.io/security-profiles-operator/security-profiles-operator.*;containerImage: us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator:latest;g' \
     bundle/manifests/security-profiles-operator.clusterserviceversion.yaml
 
-sed -i "s;registry.k8s.io/security-profiles-operator/security-profiles-operator-catalog.*;us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator-catalog:latest;g" \
+# The bundle CSV is generated from this one, see make bundle.
+sed_i 's;containerImage: registry.k8s.io/security-profiles-operator/security-profiles-operator.*;containerImage: us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator:latest;g' \
+    deploy/base/clusterserviceversion.yaml
+
+sed_i "s;registry.k8s.io/security-profiles-operator/security-profiles-operator-catalog.*;us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator-catalog:latest;g" \
     examples/olm/install-resources.yaml
 
-sed -i "s;image: registry.k8s.io/security-profiles-operator/security-profiles-operator.*;image: image-registry.openshift-image-registry.svc:5000/openshift/security-profiles-operator:latest;g" \
+sed_i "s;image: registry.k8s.io/security-profiles-operator/security-profiles-operator.*;image: image-registry.openshift-image-registry.svc:5000/openshift/security-profiles-operator:latest;g" \
     deploy/openshift-dev.yaml
 
-sed -i "s/$VERSION_RE/$DEV_VERSION/g" \
+sed_i "s/$VERSION_RE/$DEV_VERSION/g" \
     dependencies.yaml \
     deploy/catalog-preamble.json \
     deploy/helm/Chart.yaml \
@@ -62,35 +75,35 @@ sed -i "s/$VERSION_RE/$DEV_VERSION/g" \
 DEV_BADGE="${DEV_VERSION//-/--}"
 if [ "$DEV_BADGE" != "$DEV_VERSION" ]; then
     DEV_VERSION_RE="${DEV_VERSION//./\\.}"
-    sed -i "s;${DEV_VERSION_RE}-informational;${DEV_BADGE}-informational;g" deploy/helm/README.md
+    sed_i "s;${DEV_VERSION_RE}-informational;${DEV_BADGE}-informational;g" deploy/helm/README.md
 fi
 
-sed -i \
+sed_i \
     -e 's;# \(newName: .*\);\1;g' \
     -e 's;# \(newTag: .*\);\1;g' \
     -e 's;\(newName: registry.k8s.io/.*\);# \1;g' \
     -e 's;\(newTag: \)v'"$VERSION"';# \1'"v$NEXT_VERSION"';g' \
     deploy/kustomize-deployment/kustomization.yaml
 
-sed -i \
+sed_i \
     -e 's;registry.k8s.io/security-profiles-operator/security-profiles-operator-catalog:v'"$VERSION"';us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator-catalog:latest;g' \
     -e 's;registry.k8s.io;us-central1-docker.pkg.dev/k8s-staging-images/sp-operator;g' \
     hack/ci/e2e-olm.sh
 
-sed -i 's;registry.k8s.io;us-central1-docker.pkg.dev/k8s-staging-images/sp-operator;g' test/e2e_test.go
-sed -i 's;registry.k8s.io/security-profiles-operator/base/;us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/base/;g' test/tc_base_profiles_oci_runtime_test.go
+sed_i 's;registry.k8s.io;us-central1-docker.pkg.dev/k8s-staging-images/sp-operator;g' test/e2e_test.go
+sed_i 's;registry.k8s.io/security-profiles-operator/base/;us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/base/;g' test/tc_base_profiles_oci_runtime_test.go
 
-sed -i 's;registry.k8s.io/security-profiles-operator.*;us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator:latest;g' \
+sed_i 's;registry.k8s.io/security-profiles-operator.*;us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator:latest;g' \
     hack/deploy-localhost.patch
 
 # Revert webhook overlay to staging
-sed -i \
+sed_i \
     -e 's;newName: registry.k8s.io/security-profiles-operator/security-profiles-operator;newName: us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator;g' \
     -e 's;newTag: v'"$VERSION"';newTag: latest;g' \
     deploy/overlays/webhook/kustomization.yaml
 
 # Revert Helm chart values to staging
-sed -i \
+sed_i \
     -e 's;registry: registry.k8s.io;registry: us-central1-docker.pkg.dev;g' \
     -e 's;repository: security-profiles-operator/security-profiles-operator;repository: k8s-staging-images/sp-operator/security-profiles-operator;g' \
     -e 's;tag: v'"$VERSION"';tag: latest;g' \

@@ -33,7 +33,6 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/kubernetes"
 
 	apienricher "sigs.k8s.io/security-profiles-operator/api/grpc/enricher"
 	apimetrics "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
@@ -121,10 +120,7 @@ type Enricher struct {
 	// processContainers maps the PIDs of processes seen running to their
 	// container ID, for their lines read after they exited.
 	processContainers *ttlcache.Cache[int, string]
-	infoCache         *ttlcache.Cache[string, *types.ContainerInfo]
-	// missingContainers remembers the containers recently not found in the
-	// pod list.
-	missingContainers *ttlcache.Cache[string, struct{}]
+	containers        *containerInfos
 	// syscalls and avcs accumulate per recorded profile. They are normally
 	// drained by the Reset* RPCs, but a recording that never completes (pod
 	// force-deleted, recording removed) would otherwise keep its entry for the
@@ -132,19 +128,16 @@ type Enricher struct {
 	syscalls        *ttlcache.Cache[string, *syncSet]
 	avcs            *ttlcache.Cache[string, *syncSet]
 	auditLineCache  *ttlcache.Cache[string, *auditBacklog]
-	clientset       kubernetes.Interface
 	enricherFilters []types.EnricherFilterOptions
 	grpcServer      *grpc.Server
 	metrics         *metrics.Sender[*apimetrics.AuditRequest]
-	// nodeName defaults to the value of the node name environment variable.
+	// nodeName is the node the enricher runs on, from the node name
+	// environment variable.
 	nodeName string
 	// metricsBackoff is the retry backoff used when dialling the local metrics
 	// server. It is a field so that tests do not have to spend the production
 	// backoff as wall-clock time.
 	metricsBackoff wait.Backoff
-	// containerBackoff is the retry backoff for container lookups, a field for
-	// the same reason as metricsBackoff.
-	containerBackoff wait.Backoff
 }
 
 // New returns a new Enricher instance.
@@ -191,11 +184,7 @@ func New(logger logr.Logger, opts *LogEnricherOptions) (*Enricher, error) {
 			ttlcache.WithCapacity[int, string](maxProcessItems),
 			ttlcache.WithDisableTouchOnHit[int, string](),
 		),
-		infoCache: ttlcache.New(
-			ttlcache.WithTTL[string, *types.ContainerInfo](defaultCacheTimeout),
-			ttlcache.WithCapacity[string, *types.ContainerInfo](maxCacheItems),
-		),
-		missingContainers: newMissingContainerCache(),
+		containers: newContainerInfos(),
 		// The syscall and AVC sets are the recording itself, not a cache of
 		// something re-derivable: the recorder deletes each entry explicitly
 		// once it has collected the profile (grpc.go Syscalls/Avcs reset).
@@ -218,9 +207,10 @@ func New(logger logr.Logger, opts *LogEnricherOptions) (*Enricher, error) {
 			// if/when the cache is full.
 			ttlcache.WithDisableTouchOnHit[string, *auditBacklog](),
 		),
-		enricherFilters:  enricherFilters,
-		metricsBackoff:   util.DefaultBackoff(),
-		containerBackoff: defaultContainerBackoff(),
+		enricherFilters: enricherFilters,
+		// Read once, like the rest of the configuration.
+		nodeName:       os.Getenv(config.NodeNameEnvKey),
+		metricsBackoff: util.DefaultBackoff(),
 	}
 
 	// Say plainly when a recording is dropped for capacity. Otherwise the
@@ -252,43 +242,6 @@ func New(logger logr.Logger, opts *LogEnricherOptions) (*Enricher, error) {
 // Run the log-enricher to scrap audit logs and enrich them with
 // Kubernetes data (namespace, pod and container).
 func (e *Enricher) Run() error {
-	clusterConfig, err := e.InClusterConfig()
-	if err != nil {
-		return fmt.Errorf("get in-cluster config: %w", err)
-	}
-
-	e.clientset, err = e.NewForConfig(clusterConfig)
-	if err != nil {
-		return fmt.Errorf("load in-cluster config: %w", err)
-	}
-
-	e.logger.Info("Setting up caches", "expiry", defaultCacheTimeout)
-
-	go e.containerIDCache.Start()
-	defer e.containerIDCache.Stop()
-
-	go e.processContainers.Start()
-	defer e.processContainers.Stop()
-
-	go e.infoCache.Start()
-	defer e.infoCache.Stop()
-
-	go e.missingContainers.Start()
-	defer e.missingContainers.Stop()
-
-	go e.auditLineCache.Start()
-	defer e.auditLineCache.Stop()
-
-	go e.syscalls.Start()
-	defer e.syscalls.Stop()
-
-	go e.avcs.Start()
-	defer e.avcs.Stop()
-
-	if e.nodeName == "" {
-		e.nodeName = os.Getenv(config.NodeNameEnvKey)
-	}
-
 	nodeName := e.nodeName
 	if nodeName == "" {
 		err := fmt.Errorf("%s environment variable not set", config.NodeNameEnvKey)
@@ -299,22 +252,53 @@ func (e *Enricher) Run() error {
 
 	e.logger.Info("Starting log-enricher on node", "node", nodeName)
 
+	podsCtx, stopPods := context.WithCancel(context.Background())
+	defer stopPods()
+
+	if err := e.containers.watch(podsCtx, e.impl, nodeName); err != nil {
+		return err
+	}
+
+	e.logger.Info("Setting up caches", "expiry", defaultCacheTimeout)
+
+	go e.containerIDCache.Start()
+	defer e.containerIDCache.Stop()
+
+	go e.processContainers.Start()
+	defer e.processContainers.Stop()
+
+	go e.containers.infoCache.Start()
+	defer e.containers.infoCache.Stop()
+
+	go e.auditLineCache.Start()
+	defer e.auditLineCache.Stop()
+
+	go e.syscalls.Start()
+	defer e.syscalls.Stop()
+
+	go e.avcs.Start()
+	defer e.avcs.Stop()
+
 	e.logger.Info("Connecting to local GRPC server")
+
+	// The streams are bound to the context, so that stopping the sender
+	// releases them as well.
+	metricsCtx, stopMetrics := context.WithCancel(context.Background())
+	defer stopMetrics()
 
 	// Connecting once up front lets a daemon which cannot reach the metrics
 	// server at all fail early. The sender re-opens the stream on its own if it
 	// breaks later on, and never blocks the audit loop below.
-	e.metrics = metrics.NewSender(e.logger, metrics.DefaultSenderQueueSize, e.openMetricsStream)
+	e.metrics = metrics.NewContextSender(
+		e.logger, metrics.DefaultSenderQueueSize, e.openMetricsStream,
+	)
 	if err := util.RetryEx(
 		&e.metricsBackoff,
-		e.metrics.Connect,
+		func() error { return e.metrics.ConnectContext(metricsCtx) },
 		func(error) bool { return true },
 	); err != nil {
 		return fmt.Errorf("connect to local GRPC server: %w", err)
 	}
-
-	metricsCtx, stopMetrics := context.WithCancel(context.Background())
-	defer stopMetrics()
 
 	go e.metrics.Run(metricsCtx)
 
@@ -333,20 +317,8 @@ func (e *Enricher) Run() error {
 	}
 	defer e.source.Stop()
 
-	containers := newAsyncContainerLookup(&containerLookup{
-		nodeName:  nodeName,
-		clientSet: e.clientset,
-		impl:      e.impl,
-		infoCache: e.infoCache,
-		missing:   e.missingContainers,
-		logger:    e.logger,
-		backoff:   e.containerBackoff,
-	})
-
-	lookupCtx, stopLookups := context.WithCancel(context.Background())
-	defer stopLookups()
-
-	go containers.run(lookupCtx)
+	// Taken before any container is looked up, see containerInfos.changed.
+	changed := e.containers.changed()
 
 	for {
 		select {
@@ -355,10 +327,11 @@ func (e *Enricher) Run() error {
 				return fmt.Errorf("enricher failed: %w", e.source.TailErr())
 			}
 
-			e.processAuditLine(nodeName, containers, auditLine)
-		case <-containers.resolved:
-			// The lookup may have found the containers of any of the
-			// backlogs, not only the one it was started for.
+			e.processAuditLine(nodeName, auditLine)
+		case <-changed:
+			changed = e.containers.changed()
+
+			// The pods may tell the containers of any of the backlogs now.
 			e.dispatchListedBacklogs(nodeName)
 		}
 	}
@@ -366,9 +339,7 @@ func (e *Enricher) Run() error {
 
 // processAuditLine dispatches an audit line, or keeps it in the backlog of its
 // container until the container got looked up.
-func (e *Enricher) processAuditLine(
-	nodeName string, containers *asyncContainerLookup, auditLine *types.AuditLine,
-) {
+func (e *Enricher) processAuditLine(nodeName string, auditLine *types.AuditLine) {
 	e.logger.V(config.VerboseLevel).
 		Info("Get container ID for PID", "pid", auditLine.ProcessID)
 
@@ -395,7 +366,7 @@ func (e *Enricher) processAuditLine(
 
 	e.logger.V(config.VerboseLevel).Info("Get container info", "containerID", cID)
 
-	info, err := containers.get(cID)
+	info, err := e.containers.get(cID)
 	if err != nil {
 		e.logger.V(config.VerboseLevel).Info(
 			"Container not known yet",
@@ -458,7 +429,9 @@ func (s auditMetricsStream) Send(req *apimetrics.AuditRequest) error {
 	return s.e.SendMetric(s.client, req)
 }
 
-func (e *Enricher) openMetricsStream() (metrics.Stream[*apimetrics.AuditRequest], func(), error) {
+func (e *Enricher) openMetricsStream(
+	ctx context.Context,
+) (metrics.Stream[*apimetrics.AuditRequest], func(), error) {
 	conn, err := e.Dial()
 	if err != nil {
 		return nil, nil, fmt.Errorf("connecting to local GRPC server: %w", err)
@@ -470,7 +443,7 @@ func (e *Enricher) openMetricsStream() (metrics.Stream[*apimetrics.AuditRequest]
 		}
 	}
 
-	client, err := e.AuditInc(apimetrics.NewMetricsClient(conn))
+	client, err := e.AuditInc(ctx, apimetrics.NewMetricsClient(conn))
 	if err != nil {
 		release()
 
@@ -560,6 +533,9 @@ func (b *auditBacklog) add(line *types.AuditLine) bool {
 	key := *line
 	key.TimestampID = ""
 	key.ProcessID = 0
+	// Pointers compare by address, and the recording does not use them.
+	key.Uid = nil
+	key.Gid = nil
 
 	if len(b.lines) >= auditBacklogMax {
 		if _, ok := b.seen[key]; ok || len(b.lines) >= auditBacklogDistinctMax {
@@ -636,13 +612,13 @@ func (e *Enricher) dispatchBacklog(nodeName string, info *types.ContainerInfo) {
 	}
 }
 
-// dispatchListedBacklogs sends the backlogged lines of the containers the pod
-// list has now. Otherwise they would wait for another line of their container,
-// which may never come for a container whose processes exited.
+// dispatchListedBacklogs sends the backlogged lines of the containers the pods
+// of the node tell now. Otherwise they would wait for another line of their
+// container, which may never come for a container whose processes exited.
 func (e *Enricher) dispatchListedBacklogs(nodeName string) {
 	for _, containerID := range e.auditLineCache.Keys() {
-		if item := e.infoCache.Get(containerID); item != nil {
-			e.dispatchBacklog(nodeName, item.Value())
+		if info, err := e.containers.get(containerID); err == nil {
+			e.dispatchBacklog(nodeName, info)
 		}
 	}
 }

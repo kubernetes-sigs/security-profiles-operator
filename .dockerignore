@@ -1,6 +1,29 @@
+# The image builds copy the whole tree, only what the builds read may get into
+# the context. Dockerfile runs the nix build, which reads the Go sources,
+# vendor, the Makefile and VERSION, plus hack/native-sbom.sh. Dockerfile.ubi
+# runs make and hack/go-version.sh.
 /build
-Dockerfile*
-.git
-.github
-dist/**
-README.md
+/dist
+/result
+/result-*
+/.direnv
+/.git
+/.github
+/.devcontainer
+/.idea
+/.vagrant
+/bundle
+/deploy
+/doc
+/examples
+/test
+/hack/*
+!/hack/go-version.sh
+!/hack/native-sbom.sh
+/Dockerfile*
+/Vagrantfile
+/*.tar
+/*.tar.gz
+/*.md
+/*.orig
+/*.swp

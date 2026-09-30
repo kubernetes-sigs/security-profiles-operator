@@ -26,7 +26,8 @@
 # statement replaces the assessment of a found vulnerability whose name or one
 # of its aliases it names, when one of its products is the image purl without
 # version. A not_affected statement needs a justification or an impact
-# statement. Statements claiming that the vulnerable code or component is not
+# statement, every statement a last_updated timestamp, which says when a
+# maintainer last checked the assessment. Statements claiming that the vulnerable code or component is not
 # present are ignored with a warning when govulncheck observes the vulnerable
 # symbols, because the claim is outdated then. Affected statements without an
 # action statement name the module, the fixed version if there is one, and the
@@ -64,6 +65,7 @@ if ! "$(jq_bin)" -e '
       and ((.products // []) | length > 0)
       and (.status | IN("not_affected", "affected", "fixed", "under_investigation"))
       and (.status != "not_affected" or .justification != null or .impact_statement != null)
+      and (.last_updated | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]+(\\.[0-9]+)?(Z|[+-][0-9:]+)$"))
     )' "$VEX_FILE" >/dev/null; then
   echo "Invalid statements in $VEX_FILE" >&2
   exit 1

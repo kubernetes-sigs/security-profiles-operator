@@ -38,6 +38,9 @@ func (b *BpfProcessCache) Load() error {
 	return fmt.Errorf("architecture %s is currently unsupported", runtime.GOARCH)
 }
 
+// Close unloads the BPF module and stops the cache.
+func (b *BpfProcessCache) Close() {}
+
 func (b *BpfProcessCache) GetCmdLine(pid int) (cmdLine string, err error) {
 	return "", errors.New("no process info for Pid")
 }

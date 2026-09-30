@@ -30,6 +30,7 @@
     - [Disable profile recording](#disable-profile-recording)
     - [OCI Artifact support for base profiles](#oci-artifact-support-for-base-profiles)
     - [Bind workloads to profiles with ProfileBindings](#bind-workloads-to-profiles-with-profilebindings)
+      - [Binding precedence and status](#binding-precedence-and-status)
     - [Merging per-container profile instances](#merging-per-container-profile-instances)
 <!-- /toc -->
 
@@ -596,6 +597,19 @@ Now, when the administrator enables audit logging on the API server, the webhook
 in the JSON lines produced by the JSON Log Enricher, specifically within the `requestUID` field.
 
 By default, these webhooks are enabled for all the namespaces where JSON Log Enricher is enabled.
+
+`spec.enricher.enableExecMetadata` controls the exec metadata webhook, which gets deployed together with the JSON
+enricher (default `true`). The webhook rewrites every `kubectl exec` into the recorded namespaces to run through the
+`env` binary of the container image, so that the JSON enricher can attribute the syscalls of an exec session to the
+request that started it. Images without an `env` binary then fail to exec. Disable the webhook for such clusters:
+
+```shell
+kubectl -n security-profiles-operator patch spod spod --type merge \
+  -p '{"spec":{"enricher":{"enableExecMetadata":false}}}'
+```
+
+The setting has no effect while the JSON enricher is disabled.
+
 To reduce the scope of this webhook you can disable it for certain namespaces.
 
 Edit the spod configuration:
@@ -1116,7 +1130,7 @@ kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{
 #### Base syscalls for a container runtime
 
 An example of the minimum required syscalls for a runtime such as
-[runc](https://github.com/opencontainers/runc) (recorded with version 1.5.1) to
+[runc](https://github.com/opencontainers/runc) (recorded with version 1.5.2) to
 launch a container can be found in [the
 examples](../examples/baseprofile-runc.yaml). You can use this example as a
 starting point for creating custom profiles for your application. You can also
@@ -1241,6 +1255,46 @@ A few limits apply to base profiles pulled by the operator:
   `disableOciArtifactSignatureVerification` makes the operator use whatever the
   registry serves.
 
+By default, the signatures of OCI base profiles are verified keyless against
+`spec.security.allowedIdentityRegexp` and `allowedOidcIssuerRegexp` of the
+SPOD. `spec.security.signatureVerification` pins the signer of base profiles
+outside of the official repositories (`registry.k8s.io/security-profiles-operator/`
+and its staging repository) further. Official base profiles are always
+verified against the official keyless signers and the public Sigstore trusted
+root, so that a key or identity for private base profiles does not break them.
+
+- `allowedIdentity` and `allowedOidcIssuer` require an exact certificate
+  identity and OIDC issuer and take precedence over the regexps.
+- `publicKeySecretRef` selects a key of a Secret in the operator namespace
+  which holds a PEM encoded public key. The signatures are then verified with
+  that key and the identity settings are ignored.
+- `trustedRootConfigMapRef` selects a key of a ConfigMap in the operator
+  namespace which holds a Sigstore trusted root JSON, for private Sigstore
+  deployments and air-gapped clusters.
+- `offline: true` verifies without any network access: the transparency log
+  entry bundled with the signature is verified against the trusted root of
+  `trustedRootConfigMapRef`, which is required then. The daemon keeps no TUF
+  cache across restarts, so it cannot verify offline against the public
+  trusted root.
+
+The referenced Secret and ConfigMap have to exist. None of this applies while
+`disableOciArtifactSignatureVerification` is `true`. For example, to verify the
+private base profiles with a cosign public key:
+
+```shell
+kubectl -n security-profiles-operator create secret generic profile-signing-key \
+  --from-file=cosign.pub
+```
+
+```yaml
+spec:
+  security:
+    signatureVerification:
+      publicKeySecretRef:
+        name: profile-signing-key
+        key: cosign.pub
+```
+
 Because the resulting syscalls may be hidden from the user, we additionally annotate
 the seccomp profile with the final results:
 
@@ -1276,7 +1330,7 @@ You need to enable the profile binding for a namespace by applying the label
 $ kubectl label ns spo-test spo.x-k8s.io/enable-binding=
 ```
 
-To bind a Pod that uses an 'nginx:1.19.1' image to the 'profile-complain'
+To bind a Pod that uses an 'nginx:1.23.2' image to the 'profile-complain'
 example seccomp profile, create a ProfileBinding in the same namespace as the
 Pod (seccomp profiles are cluster-scoped):
 
@@ -1289,7 +1343,7 @@ spec:
   profileRef:
     kind: SeccompProfile
     name: profile-complain
-  image: nginx:1.19.1
+  image: nginx:1.23.2
 ```
 
 You can enable a default profile binding by using the string "\*" as the image name.
@@ -1323,7 +1377,7 @@ spec:
   profileRef:
     kind: SeccompProfile
     name: profile-complain
-  image: nginx:1.19.1
+  image: nginx:1.23.2
   podSelector:
     matchLabels:
       app: nginx
@@ -1339,8 +1393,50 @@ $ kubectl get pod test-pod -o jsonpath='{.spec.containers[*].securityContext.sec
 {"localhostProfile":"operator/profile-complain-unsafe.json","type":"Localhost"}
 ```
 
-Binding a SELinux profile works in the same way, except you'd use the `SelinuxProfile` kind.
-`RawSelinuxProfiles` are currently not supported.
+Binding a SELinux or AppArmor profile works in the same way, except you'd use
+the `SelinuxProfile` or `AppArmorProfile` kind. `RawSelinuxProfiles` are
+currently not supported.
+
+##### Binding precedence and status
+
+The binding webhook applies the bindings of the pod's namespace when a pod is
+created and when ephemeral containers, for example of `kubectl debug`, are
+added to a running pod. Other pod updates are not mutated, because the
+security context of a pod cannot be changed after its creation.
+
+- Several bindings of the same profile kind can match a container. Bindings
+  are evaluated from the oldest to the newest by creation time, with the name
+  breaking ties, and the oldest one wins. A newer binding which would bind a
+  different profile is not applied: the pod is admitted with an admission
+  warning and the binding gets a `ProfileBindingConflict` event.
+- Bindings of different kinds do not conflict, so a pod can get a seccomp, a
+  SELinux and an AppArmor profile from three bindings.
+- A binding for an image takes precedence over a `"*"` wildcard binding of the
+  same kind. A wildcard binding sets the profile in the pod security context,
+  and overwrites a value of the same kind a container sets itself, unless an
+  image binding already bound that container. For ephemeral containers, which
+  cannot change the pod security context, the wildcard profile is set on the
+  new containers.
+- A binding always replaces a security context value of the pod author, so
+  that the bound profile cannot be weakened, for example with
+  `type: Unconfined`.
+- Bindings to a profile which does not exist are skipped, so that a binding
+  cannot block all pods of a namespace. A pod is rejected while the referenced
+  profile exists but has no status yet, which means that no node installed it,
+  unless the profile kind is disabled in the SPOD configuration. Then the
+  binding is skipped and gets a `ProfileWithoutStatus` event.
+- Windows pods are never mutated, because the API server rejects seccomp,
+  SELinux and AppArmor settings on them.
+
+The names of the bindings applied to a pod are listed in its
+`spo.x-k8s.io/profile-bindings` annotation, and the workloads using a binding
+in its `status.activeWorkloads`. The `Ready` condition of a binding reports
+whether the referenced profile exists:
+
+```sh
+$ kubectl get profilebinding nginx-binding -o jsonpath='{.status.conditions[?(@.type=="Ready")]}'
+{"lastTransitionTime":"…","message":"SeccompProfile profile-complain not found","reason":"Unavailable","status":"False","type":"Ready"}
+```
 
 #### Merging per-container profile instances
 

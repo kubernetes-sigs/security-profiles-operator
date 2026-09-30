@@ -23,6 +23,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -121,5 +122,29 @@ func TestUpdateResource(t *testing.T) {
 		} else {
 			require.NoError(t, err)
 		}
+	}
+}
+
+func TestIsWindowsPod(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		pod      *corev1.Pod
+		expected bool
+	}{
+		{name: "nil pod"},
+		{name: "no os", pod: &corev1.Pod{}},
+		{name: "linux", pod: &corev1.Pod{Spec: corev1.PodSpec{OS: &corev1.PodOS{Name: corev1.Linux}}}},
+		{
+			name:     "windows",
+			pod:      &corev1.Pod{Spec: corev1.PodSpec{OS: &corev1.PodOS{Name: corev1.Windows}}},
+			expected: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.expected, utils.IsWindowsPod(tc.pod))
+		})
 	}
 }

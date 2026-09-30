@@ -1,3 +1,5 @@
+//go:build e2e
+
 /*
 Copyright The Kubernetes Authors.
 
@@ -19,15 +21,73 @@ package e2e_test
 import (
 	"bufio"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
+	"time"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 )
 
-const profileName = "metrics-profile"
+const (
+	profileName = "metrics-profile"
+	// metricsTimeout is how long the daemons get to count an operation.
+	metricsTimeout = 2 * time.Minute
+)
+
+// scrapeSpodMetrics returns the metrics of the daemons on all nodes. The
+// metrics service picks one daemon per request, so each daemon gets scraped
+// through the IP of its pod instead.
+func (e *e2e) scrapeSpodMetrics() string {
+	podIPs := strings.Fields(e.kubectlOperatorNS(
+		"get", "pods", "-l", "name=spod", "-o", "jsonpath={.items[*].status.podIP}",
+	))
+	e.Require().NotEmpty(podIPs, "no IPs of the spod pods")
+
+	// The service has only one daemon to pick then. Pods cannot connect to
+	// the IP of another pod on every CI cluster, like on kubernix on the
+	// GitHub runners, while the service works there.
+	if len(podIPs) == 1 {
+		return e.runAndRetryPodCMD(curlSpodCMD)
+	}
+
+	urls := make([]string, 0, len(podIPs))
+	for _, ip := range podIPs {
+		urls = append(urls, "https://"+
+			net.JoinHostPort(ip, strconv.Itoa(int(bindata.ContainerPort)))+metrics.HandlerPath)
+	}
+
+	return e.runAndRetryPodCMD(curlCMD + strings.Join(urls, " "))
+}
+
+// waitForMetricsIncrease waits until the daemons of all nodes counted more
+// updates and deletions than before.
+func (e *e2e) waitForMetricsIncrease(
+	operationUpdate, operationDelete string, updates, deletions int,
+) {
+	e.eventually(metricsTimeout, defaultPollInterval, func() error {
+		output := e.scrapeSpodMetrics()
+		if !strings.Contains(output, "promhttp_metric_handler_requests_total") {
+			return fmt.Errorf("no metrics of the daemons: %s", output)
+		}
+
+		newUpdates := e.parseMetric(output, operationUpdate)
+		newDeletions := e.parseMetric(output, operationDelete)
+
+		if newUpdates <= updates || newDeletions <= deletions {
+			return fmt.Errorf(
+				"updates went from %d to %d, deletions from %d to %d",
+				updates, newUpdates, deletions, newDeletions,
+			)
+		}
+
+		return nil
+	})
+}
 
 func (e *e2e) testCaseSeccompMetrics([]string) {
 	e.seccompOnlyTestCase()
-	e.singleNodeTestCase()
 
 	const (
 		operationDelete = `security_profiles_operator_seccomp_profile_total{operation="delete"}`
@@ -35,7 +95,7 @@ func (e *e2e) testCaseSeccompMetrics([]string) {
 	)
 
 	e.logf("Retrieving spo metrics for getting assertions")
-	output := e.runAndRetryPodCMD(curlSpodCMD)
+	output := e.scrapeSpodMetrics()
 	metricDeletions := e.parseMetric(output, operationDelete)
 	metricUpdates := e.parseMetric(output, operationUpdate)
 
@@ -61,20 +121,12 @@ spec:
 	e.logf("Retrieving controller runtime metrics")
 	e.kubectlRunOperatorNS("pod-2", "--", "bash", "-c", curlCtrlCMD)
 
-	e.logf("Retrieving spo metrics for validation")
-	outputSpod := e.runAndRetryPodCMD(curlSpodCMD)
-	e.Contains(outputSpod, "promhttp_metric_handler_requests_total")
-
-	e.logf("Asserting metrics values")
-	newMetricDeletions := e.parseMetric(outputSpod, operationDelete)
-	newMetricUpdates := e.parseMetric(outputSpod, operationUpdate)
-	e.GreaterOrEqual(newMetricDeletions, metricDeletions)
-	e.GreaterOrEqual(newMetricUpdates, metricUpdates)
+	e.logf("Asserting that the daemons counted the update and the deletion")
+	e.waitForMetricsIncrease(operationUpdate, operationDelete, metricUpdates, metricDeletions)
 }
 
 func (e *e2e) testCaseSelinuxMetrics(nodes []string) {
 	e.selinuxOnlyTestCase()
-	e.singleNodeTestCase()
 
 	const (
 		operationDelete = `security_profiles_operator_selinux_profile_total{operation="delete"}`
@@ -82,7 +134,7 @@ func (e *e2e) testCaseSelinuxMetrics(nodes []string) {
 	)
 
 	e.logf("Retrieving spo metrics for getting assertions")
-	output := e.kubectlRunOperatorNS("pod", "--", "bash", "-c", curlSpodCMD)
+	output := e.scrapeSpodMetrics()
 	metricDeletions := e.parseMetric(output, operationDelete)
 	metricUpdates := e.parseMetric(output, operationUpdate)
 
@@ -96,30 +148,22 @@ func (e *e2e) testCaseSelinuxMetrics(nodes []string) {
 
 	rawPolicyName := e.getSELinuxPolicyName("selinuxprofile", "errorlogger")
 	e.logf("assert errorlogger policy is installed")
-	e.assertSelinuxPolicyIsInstalled(
-		nodes,
-		rawPolicyName,
-		maxNodeIterations,
-		sleepBetweenIterations,
-	)
+	e.assertSelinuxPolicyIsInstalled(nodes, rawPolicyName)
 
 	e.logf("Deleting errorlogger profile")
 	e.kubectl("delete", "selinuxprofile", "errorlogger")
 	e.logf("assert errorlogger policy was removed")
-	e.assertSelinuxPolicyIsRemoved(nodes, rawPolicyName, maxNodeIterations, sleepBetweenIterations)
+	e.assertSelinuxPolicyIsRemoved(nodes, rawPolicyName)
 
-	e.logf("Retrieving spo metrics for validation")
-	outputSpod := e.runAndRetryPodCMD(curlSpodCMD)
-	e.Contains(outputSpod, "promhttp_metric_handler_requests_total")
-
-	e.logf("Asserting metrics values")
-	newMetricDeletions := e.parseMetric(outputSpod, operationDelete)
-	newMetricUpdates := e.parseMetric(outputSpod, operationUpdate)
-	e.GreaterOrEqual(newMetricDeletions, metricDeletions)
-	e.GreaterOrEqual(newMetricUpdates, metricUpdates)
+	e.logf("Asserting that the daemons counted the update and the deletion")
+	e.waitForMetricsIncrease(operationUpdate, operationDelete, metricUpdates, metricDeletions)
 }
 
+// parseMetric returns the sum of the values of the metric in the content,
+// which has the metrics of all daemons.
 func (e *e2e) parseMetric(content, metric string) int {
+	sum := 0
+
 	scanner := bufio.NewScanner(strings.NewReader(content))
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -129,11 +173,11 @@ func (e *e2e) parseMetric(content, metric string) int {
 			i, err := strconv.Atoi(fields[1])
 			e.NoError(err)
 
-			return i
+			sum += i
 		}
 	}
 
-	return 0
+	return sum
 }
 
 func (e *e2e) testCaseMetricsHTTP([]string) {

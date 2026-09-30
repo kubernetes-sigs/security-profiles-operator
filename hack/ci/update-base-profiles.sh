@@ -78,7 +78,9 @@ update_base_profiles() {
     examples
 }
 
+# shellcheck source=hack/ci/install-spo.sh
 . "$(dirname "$0")/install-spo.sh"
+# shellcheck source=hack/ci/install-yq.sh
 . "$(dirname "$0")/install-yq.sh"
 
 install_yq

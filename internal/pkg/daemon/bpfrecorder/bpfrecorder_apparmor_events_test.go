@@ -41,15 +41,13 @@ func newTestAppArmorRecorder() *AppArmorRecorder {
 }
 
 func fileEvent(key, flags uint64, path string) *bpfEvent {
-	e := &bpfEvent{
+	return &bpfEvent{
 		Pid:   1,
 		Key:   key,
 		Type:  uint8(eventTypeAppArmorFile),
 		Flags: flags,
+		Data:  []byte(path + "\x00"),
 	}
-	copy(e.Data[:], path)
-
-	return e
 }
 
 func TestHandleFileEvent(t *testing.T) {
@@ -404,7 +402,7 @@ func TestHandleFileEventProducesValidPaths(t *testing.T) {
 // profilePathPattern is the pattern the AppArmorProfile API and crd2armor
 // accept for paths.
 var profilePathPattern = regexp.MustCompile(
-	`^(?:/[a-zA-Z0-9_./*?+@{} -]*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$`,
+	`^(?:/(?:[a-zA-Z0-9_./*?+@ -]|@\{[a-zA-Z0-9_]+\})*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$`,
 )
 
 // TestRecordedPathsAreAccepted asserts that no recorded path gets the whole

@@ -19,6 +19,7 @@ limitations under the License.
 package bpfrecorder
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"maps"
@@ -27,7 +28,9 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 
+	bpf "github.com/aquasecurity/libbpfgo"
 	"github.com/go-logr/logr"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
@@ -57,6 +60,13 @@ const (
 	// prevent unbounded map growth when many containers start concurrently.
 	maxTrackedKeys = 1000
 
+	// maxProfilePathBytes bounds the path bytes of a single profile. A profile
+	// merges the paths of all keys of a recording, and maxTrackedPaths paths
+	// of pathMax bytes for each of them would not fit into a gRPC message. A
+	// path can end up in two of the rule lists, which the bound leaves room
+	// for below the maximum message size.
+	maxProfilePathBytes = 6 * 1024 * 1024
+
 	// maxNormalizedPaths bounds the cache of normalized file paths.
 	maxNormalizedPaths = 4096
 )
@@ -82,10 +92,27 @@ var (
 // Therefore, in order to have unique apparmor profiles, each profile is recorded per key.
 type recordingKey uint64
 
+// errBPFLSMDisabled tells that the kernel lacks the BPF LSM the AppArmor hooks
+// attach to.
+var errBPFLSMDisabled = errors.New("BPF LSM is not enabled for this kernel")
+
 type AppArmorRecorder struct {
 	logger      logr.Logger
 	programName string
 	loaded      bool
+
+	// unavailable tells why the AppArmor hooks are not loaded, set by
+	// BpfRecorder.Load before the recorder serves any request.
+	unavailable error
+
+	// bpf accesses the maps below, set by Load.
+	bpf impl
+	// recordedCaps and recordedSockets hold what the BPF program reported
+	// already per key, so that it reports every capability and socket once.
+	// The entries of a key are dropped with its data, so that they get
+	// reported again.
+	recordedCaps    *bpf.BPFMap
+	recordedSockets *bpf.BPFMap
 
 	recordedSocketsUse     map[recordingKey]*BpfAppArmorSocketTypes
 	lockRecordedSocketsUse sync.Mutex
@@ -95,6 +122,11 @@ type AppArmorRecorder struct {
 
 	recordedFiles     map[recordingKey]map[string]*fileAccess
 	lockRecordedFiles sync.Mutex
+
+	// trackedKeys holds the keys data is recorded for, bounded by
+	// maxTrackedKeys across files, sockets and capabilities.
+	trackedKeys     map[recordingKey]struct{}
+	lockTrackedKeys sync.Mutex
 
 	maxPathsWarned map[recordingKey]bool
 	maxKeysWarned  bool
@@ -154,6 +186,7 @@ func newAppArmorRecorder(logger logr.Logger, programName string) *AppArmorRecord
 		lockRecordedCapabilities: sync.Mutex{},
 		recordedFiles:            map[recordingKey]map[string]*fileAccess{},
 		lockRecordedFiles:        sync.Mutex{},
+		trackedKeys:              map[recordingKey]struct{}{},
 		maxPathsWarned:           map[recordingKey]bool{},
 		excluded:                 map[recordingKey]struct{}{},
 		normalizedPaths:          map[string]normalizedPath{},
@@ -178,18 +211,62 @@ func (b *AppArmorRecorder) isExcluded(key uint64) bool {
 	return excluded
 }
 
+// Load attaches the AppArmor hooks. On error, the hooks which got attached
+// already are detached again, so that the recorder can go on without them.
 func (b *AppArmorRecorder) Load(r *BpfRecorder) error {
-	if !BPFLSMEnabled() {
-		return errors.New("BPF LSM is not enabled for this kernel")
+	if !r.wantAppArmor() {
+		return errBPFLSMDisabled
 	}
 
-	if err := r.loadPrograms(appArmorHooks); err != nil {
+	links, err := r.attachPrograms(appArmorHooks)
+	if err != nil {
+		r.detachLinks(links)
+
 		return fmt.Errorf("load apparmor hooks: %w", err)
 	}
 
+	bpfMaps := map[string]*bpf.BPFMap{}
+
+	for _, name := range []string{mapRecordedCaps, mapRecordedSockets} {
+		bpfMap, err := r.GetMap(r.module, name)
+		if err != nil {
+			r.detachLinks(links)
+
+			return fmt.Errorf("getting `%s` map: %w", name, err)
+		}
+
+		bpfMaps[name] = bpfMap
+	}
+
+	b.recordedCaps = bpfMaps[mapRecordedCaps]
+	b.recordedSockets = bpfMaps[mapRecordedSockets]
+	b.bpf = r.impl
 	b.loaded = true
 
 	return nil
+}
+
+// disable marks AppArmor recording as unavailable for the provided reason.
+func (b *AppArmorRecorder) disable(reason error) {
+	b.unavailable = reason
+	b.loaded = false
+}
+
+// Unavailable returns why AppArmor profiles cannot be recorded, or nil if
+// nothing is known to prevent it. The error wraps ErrAppArmorUnavailable.
+func (b *AppArmorRecorder) Unavailable() error {
+	if b.unavailable == nil {
+		return nil
+	}
+
+	return fmt.Errorf("%w: %w", ErrAppArmorUnavailable, b.unavailable)
+}
+
+// unload forgets the maps of the closed module.
+func (b *AppArmorRecorder) unload() {
+	b.recordedCaps = nil
+	b.recordedSockets = nil
+	b.loaded = false
 }
 
 func (b *AppArmorRecorder) StartRecording(r *BpfRecorder) error {
@@ -216,6 +293,10 @@ func (b *AppArmorRecorder) StopRecording(r *BpfRecorder) error {
 	clear(b.maxPathsWarned)
 	b.maxKeysWarned = false
 
+	b.lockTrackedKeys.Lock()
+	clear(b.trackedKeys)
+	b.lockTrackedKeys.Unlock()
+
 	b.lockExcluded.Lock()
 	clear(b.excluded)
 	b.lockExcluded.Unlock()
@@ -224,7 +305,43 @@ func (b *AppArmorRecorder) StopRecording(r *BpfRecorder) error {
 	clear(b.normalizedPaths)
 	b.lockNormalizedPaths.Unlock()
 
+	// The kernel side is not maintained while nothing is recording.
+	for _, bpfMap := range []*bpf.BPFMap{b.recordedCaps, b.recordedSockets} {
+		if err := clearBpfMap(r, bpfMap); err != nil {
+			return fmt.Errorf("clear reported capabilities and sockets: %w", err)
+		}
+	}
+
 	return nil
+}
+
+// trackKey reports whether data can be recorded for key. The number of keys
+// tracked at once is bounded across files, sockets and capabilities, so that
+// many containers starting at once cannot grow the maps without bounds.
+func (b *AppArmorRecorder) trackKey(key recordingKey) bool {
+	b.lockTrackedKeys.Lock()
+	defer b.lockTrackedKeys.Unlock()
+
+	if _, ok := b.trackedKeys[key]; ok {
+		return true
+	}
+
+	if len(b.trackedKeys) >= maxTrackedKeys {
+		if !b.maxKeysWarned {
+			b.logger.Info(
+				"Max tracked workloads reached, new containers will not be recorded",
+				"limit",
+				maxTrackedKeys,
+			)
+			b.maxKeysWarned = true
+		}
+
+		return false
+	}
+
+	b.trackedKeys[key] = struct{}{}
+
+	return true
 }
 
 // normalizePath returns the path the profile gets for a path the kernel
@@ -256,7 +373,7 @@ func (b *AppArmorRecorder) handleFileEvent(fileEvent *bpfEvent) {
 		return
 	}
 
-	fileName := fileDataToString(&fileEvent.Data)
+	fileName := fileDataToString(fileEvent.Data)
 
 	// A profile only takes absolute paths, a single other one would get the
 	// whole recorded profile rejected.
@@ -280,24 +397,15 @@ func (b *AppArmorRecorder) handleFileEvent(fileEvent *bpfEvent) {
 		return
 	}
 
+	key := recordingKey(fileEvent.Key)
+	if !b.trackKey(key) {
+		return
+	}
+
 	b.lockRecordedFiles.Lock()
 	defer b.lockRecordedFiles.Unlock()
 
-	key := recordingKey(fileEvent.Key)
 	if _, ok := b.recordedFiles[key]; !ok {
-		if len(b.recordedFiles) >= maxTrackedKeys {
-			if !b.maxKeysWarned {
-				b.logger.Info(
-					"Max tracked workloads reached, new containers will not be recorded",
-					"limit",
-					maxTrackedKeys,
-				)
-				b.maxKeysWarned = true
-			}
-
-			return
-		}
-
 		b.recordedFiles[key] = map[string]*fileAccess{}
 	}
 
@@ -334,10 +442,18 @@ func (b *AppArmorRecorder) handleSocketEvent(socketEvent *bpfEvent) {
 		return
 	}
 
+	key := recordingKey(socketEvent.Key)
+	if !b.trackKey(key) {
+		// The BPF program reports a socket type only once per key, so it
+		// has to report it again once the key can be tracked.
+		b.forgetReported([]uint64{socketEvent.Key})
+
+		return
+	}
+
 	b.lockRecordedSocketsUse.Lock()
 	defer b.lockRecordedSocketsUse.Unlock()
 
-	key := recordingKey(socketEvent.Key)
 	if _, ok := b.recordedSocketsUse[key]; !ok {
 		b.recordedSocketsUse[key] = &BpfAppArmorSocketTypes{}
 	}
@@ -385,10 +501,17 @@ func (b *AppArmorRecorder) handleCapabilityEvent(capEvent *bpfEvent) {
 		return
 	}
 
+	key := recordingKey(capEvent.Key)
+	if !b.trackKey(key) {
+		// The BPF program reports a capability only once per key, so it
+		// has to report it again once the key can be tracked.
+		b.forgetReported([]uint64{capEvent.Key})
+
+		return
+	}
+
 	b.lockRecordedCapabilities.Lock()
 	defer b.lockRecordedCapabilities.Unlock()
-
-	key := recordingKey(capEvent.Key)
 
 	requestedCap := int(capEvent.Flags)
 	if slices.Contains(b.recordedCapabilities[key], requestedCap) {
@@ -426,12 +549,39 @@ func (b *AppArmorRecorder) Clear(keys []uint64) {
 	b.lockRecordedFiles.Lock()
 	defer b.lockRecordedFiles.Unlock()
 
+	b.lockTrackedKeys.Lock()
+	defer b.lockTrackedKeys.Unlock()
+
 	for _, k := range keys {
 		key := recordingKey(k)
 		delete(b.recordedFiles, key)
 		delete(b.recordedCapabilities, key)
 		delete(b.recordedSocketsUse, key)
 		delete(b.maxPathsWarned, key)
+		delete(b.trackedKeys, key)
+	}
+
+	b.forgetReported(keys)
+}
+
+// forgetReported makes the BPF program report the capabilities and sockets of
+// keys again, their data is gone here.
+func (b *AppArmorRecorder) forgetReported(keys []uint64) {
+	if b.bpf == nil {
+		return
+	}
+
+	for _, bpfMap := range []*bpf.BPFMap{b.recordedCaps, b.recordedSockets} {
+		if bpfMap == nil {
+			continue
+		}
+
+		for _, key := range keys {
+			err := b.bpf.DeleteKey64(bpfMap, key)
+			if err != nil && !errors.Is(err, syscall.ENOENT) {
+				b.logger.Error(err, "Unable to reset reported capabilities and sockets", "key", key)
+			}
+		}
 	}
 }
 
@@ -582,6 +732,8 @@ func (b *AppArmorRecorder) processExecFsEvents(keys []uint64) (BpfAppArmorFilePr
 	// keeps both permissions.
 	rules := map[string]fileRule{}
 	found := false
+	pathBytes := 0
+	truncated := false
 
 	for _, k := range keys {
 		files, ok := b.recordedFiles[recordingKey(k)]
@@ -591,19 +743,35 @@ func (b *AppArmorRecorder) processExecFsEvents(keys []uint64) (BpfAppArmorFilePr
 
 		found = true
 
-		for fileName, access := range files {
+		// Sorted, so that a truncated profile always keeps the same paths.
+		for _, fileName := range slices.Sorted(maps.Keys(files)) {
 			if processDeletedFiles(fileName, &processedEvents, b.logger) {
 				continue
 			}
 
-			rule := b.classifyFileAccess(fileName, access)
-			merged := rules[fileName]
+			merged, known := rules[fileName]
+			if !known {
+				if pathBytes+len(fileName) > maxProfilePathBytes {
+					truncated = true
+
+					continue
+				}
+
+				pathBytes += len(fileName)
+			}
+
+			rule := b.classifyFileAccess(fileName, files[fileName])
 			merged.execute = merged.execute || rule.execute
 			merged.library = merged.library || rule.library
 			merged.read = merged.read || rule.read
 			merged.write = merged.write || rule.write
 			rules[fileName] = merged
 		}
+	}
+
+	if truncated {
+		b.logger.Info("Recorded paths exceed the size of a profile, profile will be truncated",
+			"keys", keys, "limit", maxProfilePathBytes)
 	}
 
 	for fileName, rule := range rules {
@@ -760,18 +928,10 @@ func (b *AppArmorRecorder) processCapabilities(keys []uint64) ([]string, bool) {
 	return slices.Compact(ret), found
 }
 
-func fileDataToString(data *[pathMax]uint8) string {
-	var eos int
-
-	for i, c := range data {
-		if c == 0 {
-			eos = i
-
-			break
-		}
-	}
-
-	return string(data[:eos])
+// fileDataToString returns the path of a file event. The BPF program sends
+// the path with its terminating NUL byte and nothing after it.
+func fileDataToString(data []byte) string {
+	return string(bytes.TrimSuffix(data, []byte{0}))
 }
 
 func isKnownFile(path string, knownPrefixes []string) bool {

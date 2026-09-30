@@ -28,20 +28,21 @@ import (
 )
 
 // ServiceMonitor returns the default ServiceMonitor for automatic metrics
-// retrieval via the prometheus operator.
+// retrieval via the prometheus operator in the operator namespace.
 func ServiceMonitor(
+	namespace string,
 	caInjectType CAInjectType,
 	enableInsecureMetricsAccess bool,
 ) *v1.ServiceMonitor {
 	return &v1.ServiceMonitor{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "security-profiles-operator-monitor",
-			Namespace: config.GetOperatorNamespace(),
+			Namespace: namespace,
 		},
 		Spec: v1.ServiceMonitorSpec{
 			Endpoints: []v1.Endpoint{
-				endpointFor("/metrics", caInjectType, enableInsecureMetricsAccess),
-				endpointFor("/metrics-spod", caInjectType, enableInsecureMetricsAccess),
+				endpointFor("/metrics", namespace, caInjectType, enableInsecureMetricsAccess),
+				endpointFor("/metrics-spod", namespace, caInjectType, enableInsecureMetricsAccess),
 			},
 			Selector: metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -59,10 +60,11 @@ func ServiceMonitor(
 // endpointFor provides a standard endpoint for the given URL path.
 func endpointFor(
 	path string,
+	namespace string,
 	caInjectType CAInjectType,
 	enableInsecureMetricsAccess bool,
 ) v1.Endpoint {
-	serverName := fmt.Sprintf("metrics.%s.svc", config.GetOperatorNamespace())
+	serverName := fmt.Sprintf("metrics.%s.svc", namespace)
 	scheme := v1.Scheme("https")
 	port := "https"
 
@@ -91,7 +93,7 @@ func endpointFor(
 		},
 	}
 
-	if isOpenShiftSystemInstalled(caInjectType) {
+	if isOpenShiftSystemInstalled(caInjectType, namespace) {
 		ep.TLSConfig = &v1.TLSConfig{
 			TLSFilesConfig: v1.TLSFilesConfig{
 				CAFile: "/etc/prometheus/configmaps/serving-certs-ca-bundle/service-ca.crt",
@@ -124,7 +126,6 @@ func endpointFor(
 // the operator is installed via the openshift catalog and not e.g. upstream
 // releases. In this case, we don't want the user to enable the user monitoring
 // configMap, but rather everything work OOTB.
-func isOpenShiftSystemInstalled(caInjectType CAInjectType) bool {
-	return caInjectType == CAInjectTypeOpenShift &&
-		strings.HasPrefix(config.GetOperatorNamespace(), "openshift-")
+func isOpenShiftSystemInstalled(caInjectType CAInjectType, namespace string) bool {
+	return caInjectType == CAInjectTypeOpenShift && strings.HasPrefix(namespace, "openshift-")
 }

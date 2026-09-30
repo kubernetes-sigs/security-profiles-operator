@@ -118,3 +118,36 @@ func TestMergeFilesystem(t *testing.T) {
 		})
 	}
 }
+
+func TestMergePtrace(t *testing.T) {
+	t.Parallel()
+
+	base := &mergeableAppArmorProfile{}
+	base.Spec.Abstract = apparmorprofileapi.AppArmorAbstract{
+		Ptrace: &apparmorprofileapi.AppArmorPtraceRules{
+			AllowedAccess: []apparmorprofileapi.AppArmorPtraceAccess{
+				apparmorprofileapi.AppArmorPtraceAccessTrace,
+			},
+			Peer: "@{profile_name}",
+		},
+	}
+
+	other := &mergeableAppArmorProfile{}
+	other.Spec.Abstract = apparmorprofileapi.AppArmorAbstract{
+		Ptrace: &apparmorprofileapi.AppArmorPtraceRules{
+			AllowedAccess: []apparmorprofileapi.AppArmorPtraceAccess{
+				apparmorprofileapi.AppArmorPtraceAccessRead,
+			},
+			Peer: "@{profile_name}",
+		},
+	}
+
+	require.NoError(t, base.merge(other))
+	require.Equal(t, &apparmorprofileapi.AppArmorPtraceRules{
+		AllowedAccess: []apparmorprofileapi.AppArmorPtraceAccess{
+			apparmorprofileapi.AppArmorPtraceAccessRead,
+			apparmorprofileapi.AppArmorPtraceAccessTrace,
+		},
+		Peer: "@{profile_name}",
+	}, base.Spec.Abstract.Ptrace)
+}

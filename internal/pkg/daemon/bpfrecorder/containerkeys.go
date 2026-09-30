@@ -22,6 +22,12 @@ import (
 	"sync"
 )
 
+// maxKeysPerContainer bounds the keys a single container can record under.
+// Every nested cgroup or unshared mount namespace of a container gets its own
+// key, and a workload creating them in a loop would fill the maps for every
+// other recorded container.
+const maxKeysPerContainer = 256
+
 // containerKeys maps the recording keys reported by the BPF program to the
 // containers they belong to, and back.
 //
@@ -33,23 +39,39 @@ import (
 // A key belongs to one container only. Mount namespace inode numbers are
 // reused once free, so a key reported by a new container is detached from the
 // container it belonged to before.
+//
+// A container owns at most maxPerContainer keys, so that a workload creating
+// nested cgroups or mount namespaces in a loop cannot grow the tables without
+// bounds.
 type containerKeys struct {
-	l           sync.RWMutex
-	byKey       map[uint64]string
-	byContainer map[string]map[uint64]struct{}
+	l               sync.RWMutex
+	byKey           map[uint64]string
+	byContainer     map[string]map[uint64]struct{}
+	maxPerContainer int
 }
 
-func newContainerKeys() *containerKeys {
+func newContainerKeys(maxPerContainer int) *containerKeys {
 	return &containerKeys{
-		byKey:       map[uint64]string{},
-		byContainer: map[string]map[uint64]struct{}{},
+		byKey:           map[uint64]string{},
+		byContainer:     map[string]map[uint64]struct{}{},
+		maxPerContainer: maxPerContainer,
 	}
 }
 
-// Insert records that key belongs to containerID.
-func (c *containerKeys) Insert(key uint64, containerID string) {
+// Insert records that key belongs to containerID. It reports false and records
+// nothing if the container owns the maximum number of keys already.
+func (c *containerKeys) Insert(key uint64, containerID string) bool {
 	c.l.Lock()
 	defer c.l.Unlock()
+
+	keys, ok := c.byContainer[containerID]
+	if _, owned := keys[key]; owned {
+		return true
+	}
+
+	if len(keys) >= c.maxPerContainer {
+		return false
+	}
 
 	if oldID, ok := c.byKey[key]; ok && oldID != containerID {
 		c.removeKeyFrom(oldID, key)
@@ -57,13 +79,14 @@ func (c *containerKeys) Insert(key uint64, containerID string) {
 
 	c.byKey[key] = containerID
 
-	keys, ok := c.byContainer[containerID]
 	if !ok {
 		keys = map[uint64]struct{}{}
 		c.byContainer[containerID] = keys
 	}
 
 	keys[key] = struct{}{}
+
+	return true
 }
 
 // removeKeyFrom drops key from a container's set. Callers hold the lock.

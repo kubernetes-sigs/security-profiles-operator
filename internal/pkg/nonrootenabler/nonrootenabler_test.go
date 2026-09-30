@@ -160,9 +160,10 @@ func TestRun(t *testing.T) {
 }
 
 // TestRunKubeletDirNotMounted asserts that nothing gets written when the
-// kubelet directory of the node is not a mount point from the host, because
-// the writes would otherwise end up in the container filesystem or in another
-// mounted directory, for example when the label points to a parent of it.
+// kubelet seccomp directory of the node is not a mount point from the host,
+// because the writes would otherwise end up in the container filesystem or in
+// another mounted directory, for example when the label points to a parent of
+// it.
 func TestRunKubeletDirNotMounted(t *testing.T) {
 	t.Parallel()
 
@@ -176,7 +177,7 @@ func TestRunKubeletDirNotMounted(t *testing.T) {
 		nonrootenabler.ErrKubeletDirNotMounted,
 	)
 	require.Equal(t, 1, mock.MountedCallCount())
-	require.Equal(t, "/host/mnt/resource/kubelet", mock.MountedArgsForCall(0))
+	require.Equal(t, "/host/mnt/resource/kubelet/seccomp", mock.MountedArgsForCall(0))
 	require.Zero(t, mock.MkdirAllCallCount())
 	require.Zero(t, mock.SymlinkCallCount())
 	require.Zero(t, mock.CopyDirContentsLocalCallCount())
@@ -195,16 +196,16 @@ func TestRunWritesExpectedPaths(t *testing.T) {
 
 	require.NoError(t, sut.Run(logr.Discard(), "", config.KubeletDir(), false))
 
-	// The kubelet directory is the only host path mounted below the host
-	// root, so it has to be checked before anything gets written there.
+	// The seccomp directory of the kubelet directory is the only host path
+	// mounted below the host root, so it has to be checked before anything
+	// gets written there.
 	wantKubeletDir := path.Join(config.HostRoot, config.KubeletDir())
+	wantSeccompDir := path.Join(wantKubeletDir, config.SeccompProfilesFolder)
 
 	require.Equal(t, 1, mock.MountedCallCount())
-	require.Equal(t, wantKubeletDir, mock.MountedArgsForCall(0))
+	require.Equal(t, wantSeccompDir, mock.MountedArgsForCall(0))
 	require.Equal(t, 1, mock.ReadlinkCallCount())
 	require.Zero(t, mock.RemoveCallCount())
-
-	wantSeccompDir := path.Join(wantKubeletDir, config.SeccompProfilesFolder)
 
 	require.Equal(t, 2, mock.MkdirAllCallCount())
 	gotDir, gotPerm := mock.MkdirAllArgsForCall(0)

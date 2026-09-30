@@ -19,6 +19,7 @@ package nodestatus
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -28,7 +29,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
@@ -39,8 +39,8 @@ import (
 	"sigs.k8s.io/security-profiles-operator/api/common"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/utiltest"
 )
 
 const (
@@ -51,18 +51,6 @@ const (
 
 // The status label value, as the daemon derives it from the profile kind.
 var testProfLabel = "SeccompProfile-" + testProfileName
-
-func reconcileScheme(t *testing.T) *runtime.Scheme {
-	t.Helper()
-
-	s := runtime.NewScheme()
-	require.NoError(t, corev1.AddToScheme(s))
-	require.NoError(t, appsv1.AddToScheme(s))
-	require.NoError(t, seccompprofileapi.AddToScheme(s))
-	require.NoError(t, secprofnodestatusapi.AddToScheme(s))
-
-	return s
-}
 
 func testProfile(
 	state secprofnodestatusapi.ProfileState,
@@ -124,7 +112,7 @@ func newTestReconciler(
 ) (*StatusReconciler, client.Client, *events.FakeRecorder) {
 	t.Helper()
 
-	scheme := reconcileScheme(t)
+	scheme := utiltest.NewScheme(t)
 
 	// Like the cache backed client of the manager, return objects with their
 	// type meta set. The reconciler compares the kind based profile name with
@@ -159,10 +147,11 @@ func newTestReconciler(
 	rec := events.NewFakeRecorder(10)
 
 	return &StatusReconciler{
-		client: c,
-		reader: c,
-		log:    logr.Discard(),
-		record: rec,
+		client:    c,
+		reader:    c,
+		log:       logr.Discard(),
+		record:    rec,
+		namespace: operatorNS,
 	}, c, rec
 }
 
@@ -187,27 +176,6 @@ func storedProfile(t *testing.T, c client.Client) *seccompprofileapi.SeccompProf
 	return sp
 }
 
-func requireEvent(t *testing.T, rec *events.FakeRecorder, want string) {
-	t.Helper()
-
-	select {
-	case got := <-rec.Events:
-		require.Equal(t, want, got)
-	default:
-		t.Fatalf("expected event %q, got none", want)
-	}
-}
-
-func requireNoEvent(t *testing.T, rec *events.FakeRecorder) {
-	t.Helper()
-
-	select {
-	case got := <-rec.Events:
-		t.Fatalf("expected no event, got %q", got)
-	default:
-	}
-}
-
 func TestReconcileMissingStatusIsIgnored(t *testing.T) {
 	t.Parallel()
 
@@ -216,7 +184,7 @@ func TestReconcileMissingStatusIsIgnored(t *testing.T) {
 	res, err := reconcileStatus(t, r, testNodeStatus("worker-1", ""))
 	require.NoError(t, err)
 	require.Equal(t, reconcile.Result{}, res)
-	requireNoEvent(t, rec)
+	utiltest.RequireNoEvent(t, rec)
 }
 
 func TestReconcileOwnerErrors(t *testing.T) {
@@ -266,7 +234,7 @@ func TestReconcileOwnerErrors(t *testing.T) {
 				require.ErrorContains(t, err, tc.wantMsg)
 			}
 
-			requireEvent(t, rec, "Warning ReconcileError "+err.Error())
+			utiltest.RequireEvent(t, rec, "Warning ReconcileError "+err.Error())
 		})
 	}
 }
@@ -346,7 +314,7 @@ func TestReconcileSkipsMislabeledStatus(t *testing.T) {
 			res, err := reconcileStatus(t, r, tc.status)
 			require.NoError(t, err)
 			require.Equal(t, reconcile.Result{}, res)
-			requireEvent(t, rec, tc.wantEvent)
+			utiltest.RequireEvent(t, rec, tc.wantEvent)
 
 			// The profile status stays untouched.
 			require.Equal(t,
@@ -356,24 +324,24 @@ func TestReconcileSkipsMislabeledStatus(t *testing.T) {
 	}
 }
 
-// The daemon set lookup needs the operator namespace from the environment, so
-// these cases cannot run in parallel.
 func TestReconcileWaitsForDaemonSet(t *testing.T) {
-	t.Setenv(config.OperatorNamespaceEnvKey, operatorNS)
+	t.Parallel()
 
 	status := testNodeStatus("worker-1", secprofnodestatusapi.ProfileStateInstalled)
 	profile := testProfile(secprofnodestatusapi.ProfileStatePending)
 
-	//nolint:paralleltest // the parent test sets the environment
 	t.Run("Missing", func(t *testing.T) {
+		t.Parallel()
+
 		r, _, _ := newTestReconciler(t, profile.DeepCopy(), status.DeepCopy())
 
 		_, err := reconcileStatus(t, r, status)
 		require.ErrorContains(t, err, "cannot get the DS")
 	})
 
-	//nolint:paralleltest // the parent test sets the environment
 	t.Run("NotReady", func(t *testing.T) {
+		t.Parallel()
+
 		r, c, _ := newTestReconciler(t, profile.DeepCopy(), status.DeepCopy(), spodDS(2, 1))
 
 		res, err := reconcileStatus(t, r, status)
@@ -384,8 +352,9 @@ func TestReconcileWaitsForDaemonSet(t *testing.T) {
 		)
 	})
 
-	//nolint:paralleltest // the parent test sets the environment
 	t.Run("NotAllStatusesReported", func(t *testing.T) {
+		t.Parallel()
+
 		r, c, _ := newTestReconciler(t, profile.DeepCopy(), status.DeepCopy(), spodDS(2, 2))
 
 		res, err := reconcileStatus(t, r, status)
@@ -398,7 +367,7 @@ func TestReconcileWaitsForDaemonSet(t *testing.T) {
 }
 
 func TestReconcileRemovesStatusOfDeletedNode(t *testing.T) {
-	t.Setenv(config.OperatorNamespaceEnvKey, operatorNS)
+	t.Parallel()
 
 	live := testNodeStatus("worker-1", secprofnodestatusapi.ProfileStateInstalled)
 	gone := testNodeStatus("worker-2", secprofnodestatusapi.ProfileStateInstalled)
@@ -447,7 +416,7 @@ func TestStatusesOfDeletedNodesKeepsLiveNodes(t *testing.T) {
 // track of it: the finalizer is removed before the status, and later
 // reconciliations take the finalizers from the profile itself.
 func TestReconcileRemovesFinalizerOfDeletedNodeWithoutStatus(t *testing.T) {
-	t.Setenv(config.OperatorNamespaceEnvKey, operatorNS)
+	t.Parallel()
 
 	live := testNodeStatus("worker-1", secprofnodestatusapi.ProfileStateInstalled)
 	profile := testProfile(
@@ -469,7 +438,7 @@ func TestReconcileRemovesFinalizerOfDeletedNodeWithoutStatus(t *testing.T) {
 }
 
 func TestRemoveStaleStatusesRemovesFinalizerFirst(t *testing.T) {
-	t.Setenv(config.OperatorNamespaceEnvKey, operatorNS)
+	t.Parallel()
 
 	live := testNodeStatus("worker-1", secprofnodestatusapi.ProfileStateInstalled)
 	gone := testNodeStatus("worker-2", secprofnodestatusapi.ProfileStateInstalled)
@@ -479,7 +448,7 @@ func TestRemoveStaleStatusesRemovesFinalizerFirst(t *testing.T) {
 		util.GetFinalizerNodeString("worker-2"),
 	)
 
-	scheme := reconcileScheme(t)
+	scheme := utiltest.NewScheme(t)
 	failUpdate := true
 	c := fake.NewClientBuilder().
 		WithScheme(scheme).
@@ -516,6 +485,7 @@ func TestRemoveStaleStatusesRemovesFinalizerFirst(t *testing.T) {
 		Build()
 	r := &StatusReconciler{
 		client: c, reader: c, log: logr.Discard(), record: events.NewFakeRecorder(10),
+		namespace: operatorNS,
 	}
 
 	// The status stays while the finalizer cannot be removed.
@@ -539,9 +509,8 @@ func TestRemoveStaleStatusesRemovesFinalizerFirst(t *testing.T) {
 	)
 }
 
-//nolint:paralleltest // uses t.Setenv
 func TestReconcileDeletingProfile(t *testing.T) {
-	t.Setenv(config.OperatorNamespaceEnvKey, operatorNS)
+	t.Parallel()
 
 	for name, tc := range map[string]struct {
 		ds             *appsv1.DaemonSet
@@ -597,6 +566,8 @@ func TestReconcileDeletingProfile(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
 			profile := testProfile(
 				secprofnodestatusapi.ProfileStateInstalled,
 				util.GetFinalizerNodeString("worker-1"),
@@ -667,7 +638,7 @@ func selectingSpodDS(desired, available int32) *appsv1.DaemonSet {
 }
 
 func TestReconcileRemovesStatusOfUnscheduledNode(t *testing.T) {
-	t.Setenv(config.OperatorNamespaceEnvKey, operatorNS)
+	t.Parallel()
 
 	live := testNodeStatus("worker-1", secprofnodestatusapi.ProfileStateInstalled)
 	tainted := testNodeStatus("worker-2", secprofnodestatusapi.ProfileStateInstalled)
@@ -695,7 +666,7 @@ func TestReconcileRemovesStatusOfUnscheduledNode(t *testing.T) {
 }
 
 func TestReconcileAggregatesWithoutStaleStatus(t *testing.T) {
-	t.Setenv(config.OperatorNamespaceEnvKey, operatorNS)
+	t.Parallel()
 
 	first := testNodeStatus("worker-1", secprofnodestatusapi.ProfileStateInstalled)
 	second := testNodeStatus("worker-2", secprofnodestatusapi.ProfileStateInstalled)
@@ -948,15 +919,21 @@ func TestReconcileProfileRequestAggregatesStatuses(t *testing.T) {
 func TestReconcileStatusOfDeletedProfile(t *testing.T) {
 	t.Parallel()
 
-	r, _, _ := newTestReconciler(t)
+	r, c, rec := newTestReconciler(t)
 
-	// A profile that is gone in the meantime is not an error.
+	// A profile that is gone in the meantime is not an error, and it does not
+	// get recreated by the status update.
 	require.NoError(t, r.reconcileStatus(
 		context.Background(),
 		testProfile(""),
 		secprofnodestatusapi.ProfileStateInstalled,
 		logr.Discard(),
 	))
+
+	err := c.Get(context.Background(),
+		util.NamespacedName(testProfileName, testNamespace), &seccompprofileapi.SeccompProfile{})
+	require.True(t, kerrors.IsNotFound(err))
+	utiltest.RequireNoEvent(t, rec)
 }
 
 func TestDaemonSetReadiness(t *testing.T) {
@@ -1018,10 +995,8 @@ func TestDaemonSetReadiness(t *testing.T) {
 
 // A live node whose SPOd pod is being replaced must keep its status and
 // finalizer, even if another node which runs a pod is no longer scheduled.
-//
-//nolint:paralleltest // uses t.Setenv
 func TestReconcileKeepsStatusOfNodeWithReplacedPod(t *testing.T) {
-	t.Setenv(config.OperatorNamespaceEnvKey, operatorNS)
+	t.Parallel()
 
 	for name, tc := range map[string]struct {
 		mutateDS func(*appsv1.DaemonSet)
@@ -1047,6 +1022,8 @@ func TestReconcileKeepsStatusOfNodeWithReplacedPod(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
 			first := testNodeStatus("worker-1", secprofnodestatusapi.ProfileStateInstalled)
 			second := testNodeStatus("worker-2", secprofnodestatusapi.ProfileStateInstalled)
 			profile := testProfile(
@@ -1103,4 +1080,160 @@ func TestStatusRequestsForProfile(t *testing.T) {
 		[]reconcile.Request{profileRequest("SeccompProfile", testNamespace, testProfileName)},
 		r.statusRequests("SeccompProfile")(context.Background(), testProfile("")),
 	)
+}
+
+// The nodes are only needed by name, so they are read as metadata, which
+// shares the metadata informer of the SPOD controller instead of caching the
+// full node objects.
+func TestNodesAreReadAsMetadata(t *testing.T) {
+	t.Parallel()
+
+	scheme := utiltest.NewScheme(t)
+	c := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(testNode("worker-1"), testNode("worker-2")).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(
+				ctx context.Context, c client.WithWatch, key client.ObjectKey,
+				obj client.Object, opts ...client.GetOption,
+			) error {
+				if _, ok := obj.(*corev1.Node); ok {
+					return errors.New("full node read")
+				}
+
+				return c.Get(ctx, key, obj, opts...)
+			},
+			List: func(
+				ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption,
+			) error {
+				if _, ok := list.(*corev1.NodeList); ok {
+					return errors.New("full node list")
+				}
+
+				return c.List(ctx, list, opts...)
+			},
+		}).
+		Build()
+
+	r := &StatusReconciler{client: c, reader: c, log: logr.Discard(), namespace: operatorNS}
+
+	names, err := r.nodeNames(context.Background())
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"worker-1", "worker-2"}, names)
+
+	list := &secprofnodestatusapi.SecurityProfileNodeStatusList{
+		Items: []secprofnodestatusapi.SecurityProfileNodeStatus{
+			*testNodeStatus("worker-1", secprofnodestatusapi.ProfileStateInstalled),
+			*testNodeStatus("worker-3", secprofnodestatusapi.ProfileStateInstalled),
+		},
+	}
+
+	stale, err := r.statusesOfDeletedNodes(context.Background(), list)
+	require.NoError(t, err)
+	require.Len(t, stale, 1)
+	require.Equal(t, "worker-3", stale[0].Spec.NodeName)
+}
+
+func TestDeletedNodeFinalizers(t *testing.T) {
+	t.Parallel()
+
+	profile := testProfile(
+		secprofnodestatusapi.ProfileStateInstalled,
+		util.GetFinalizerNodeString("worker-1"),
+		util.GetFinalizerNodeString("worker-2"),
+		util.HasActivePodsFinalizerString,
+	)
+
+	require.Equal(t,
+		[]string{util.GetFinalizerNodeString("worker-2")},
+		deletedNodeFinalizers(profile, []string{"worker-1"}),
+	)
+	require.Empty(t, deletedNodeFinalizers(profile, []string{"worker-1", "worker-2"}))
+	require.Len(t, deletedNodeFinalizers(profile, nil), 2,
+		"only node finalizers are reported, not the one of the active pods")
+}
+
+func TestDeletedNodeFinalizersLongNodeName(t *testing.T) {
+	t.Parallel()
+
+	longNode := strings.Repeat("a", 60) + "-worker-1"
+	current := util.GetFinalizerNodeString(longNode)
+	legacy := util.GetLegacyFinalizerNodeString(longNode)
+	require.NotEmpty(t, legacy)
+	require.NotEqual(t, current, legacy)
+	require.Equal(t, []string{current, legacy}, nodeFinalizers(longNode))
+	require.Equal(t, []string{util.GetFinalizerNodeString("worker-1")}, nodeFinalizers("worker-1"))
+
+	profile := testProfile(secprofnodestatusapi.ProfileStateInstalled, current, legacy)
+
+	require.Empty(t, deletedNodeFinalizers(profile, []string{longNode}),
+		"the legacy finalizer of an existing node is not stale")
+	require.Equal(t, []string{current, legacy}, deletedNodeFinalizers(profile, nil))
+}
+
+// TestStaleNodeFinalizersSharedLegacy asserts that the legacy finalizer, which
+// nodes with a long common name prefix share, is only removed along with a
+// stale node if no remaining node maps to it.
+func TestStaleNodeFinalizersSharedLegacy(t *testing.T) {
+	t.Parallel()
+
+	nodeA := strings.Repeat("a", 60) + "-worker-1"
+	nodeB := strings.Repeat("a", 60) + "-worker-2"
+	legacy := util.GetLegacyFinalizerNodeString(nodeA)
+	require.Equal(t, legacy, util.GetLegacyFinalizerNodeString(nodeB))
+
+	currentA := util.GetFinalizerNodeString(nodeA)
+
+	// Node B still exists, so the shared legacy finalizer stays.
+	require.Equal(t,
+		[]string{currentA},
+		staleNodeFinalizers([]string{nodeA}, []string{nodeA}, []string{nodeA, nodeB}),
+	)
+
+	// Node B is stale as well.
+	require.Equal(t,
+		[]string{currentA, legacy},
+		staleNodeFinalizers([]string{nodeA}, []string{nodeA, nodeB}, []string{nodeA, nodeB}),
+	)
+
+	// Node A is gone and nothing else maps to the legacy finalizer.
+	require.Equal(t,
+		[]string{currentA, legacy},
+		staleNodeFinalizers([]string{nodeA}, []string{nodeA}, []string{"worker-3"}),
+	)
+}
+
+// TestReconcileKeepsSharedLegacyFinalizer asserts that removing the status of
+// a deleted node keeps the legacy finalizer which a live node shares.
+func TestReconcileKeepsSharedLegacyFinalizer(t *testing.T) {
+	t.Parallel()
+
+	nodeA := strings.Repeat("a", 60) + "-worker-1"
+	nodeB := strings.Repeat("a", 60) + "-worker-2"
+	legacy := util.GetLegacyFinalizerNodeString(nodeA)
+	require.Equal(t, legacy, util.GetLegacyFinalizerNodeString(nodeB))
+
+	live := testNodeStatus("live", secprofnodestatusapi.ProfileStateInstalled)
+	live.Spec.NodeName = nodeB
+	gone := testNodeStatus("gone", secprofnodestatusapi.ProfileStateInstalled)
+	gone.Spec.NodeName = nodeA
+
+	profile := testProfile(
+		secprofnodestatusapi.ProfileStateInstalled,
+		util.GetFinalizerNodeString(nodeA),
+		legacy,
+	)
+
+	// Node B has not migrated yet, it relies on the legacy finalizer.
+	r, c, _ := newTestReconciler(t, profile, live, gone, spodDS(1, 1), testNode(nodeB))
+
+	res, err := reconcileStatus(t, r, live)
+	require.NoError(t, err)
+	require.Equal(t, time.Second, res.RequeueAfter)
+
+	status := &secprofnodestatusapi.SecurityProfileNodeStatus{}
+	err = c.Get(context.Background(), client.ObjectKeyFromObject(gone), status)
+	require.True(t, kerrors.IsNotFound(err))
+
+	require.Equal(t, []string{legacy}, storedProfile(t, c).Finalizers)
 }
