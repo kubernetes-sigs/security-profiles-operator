@@ -18,6 +18,7 @@ package e2e_test
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -75,13 +76,18 @@ func (e *e2e) testSeccompLogsProfileMerging() {
 	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
 	defer restoreNs()
 
+	// Logging every syscall of the starting containers floods the audit
+	// subsystem, which then loses whole batches of records before auditd
+	// writes them. A syscall like listen, which each container does only once
+	// on startup, can be among them, so the common action is epoll_wait, which
+	// redis calls ten times a second and nginx on each readiness probe.
 	e.profileMergingTest(
 		"Logs",
 		"SeccompProfile", "sp",
 		"/bin/mknod /tmp/foo p",
-		"listen", "mknod",
+		"epoll_wait", "mknod",
 		policyEnabledAfterRecording,
-		"container", "nginx", "syscallName", "listen")
+		"container", "nginx", "syscallName", "epoll_wait")
 }
 
 // selinuxMergingTrigger connects to nginx from a process which stays alive for
@@ -203,9 +209,27 @@ spec:
 		"jsonpath={.items[*].metadata.name}",
 	)
 	onePodName := strings.Fields(podNamesString)[0]
+	triggered := time.Now()
+
 	e.kubectl(
 		"exec", "-c", containerNameNginx, onePodName, "--", "bash", "-c", trigger,
 	)
+
+	if recordedMethod == "Logs" {
+		// The recorder collects the profiles from the enricher once the pods
+		// are gone, and the enricher runs seconds behind the audit log while
+		// the recorded containers are busy. Like the checks of the profiles
+		// below, the action only has to be part of the logged value.
+		triggeredKey := "syscallName"
+		if recorderKind == "SelinuxProfile" {
+			triggeredKey = "perm"
+		}
+
+		e.waitForEnricherLogs(triggered, regexp.MustCompile(
+			`(?m) pod="`+regexp.QuoteMeta(onePodName)+`".* container="`+containerNameNginx+
+				`".* `+triggeredKey+`="[^"]*`+regexp.QuoteMeta(triggeredAction)+`[^"]*"`,
+		))
+	}
 
 	e.kubectl("delete", "deploy", deployName)
 
