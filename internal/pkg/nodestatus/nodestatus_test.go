@@ -45,12 +45,16 @@ func TestShortenNodeName(t *testing.T) {
 		name              string
 		nodeName          string
 		wantFinalizerName string
+		wantLegacyName    string
 		profileBase       profilebase.SecurityProfileBase
 	}{
 		{
+			// The name used to be truncated, which merged the finalizers of
+			// nodes sharing the first 55 characters.
 			name:              "NodeNameLongerThanLimit",
 			nodeName:          "somenode-1234a-hhbhz-worker-c-xswffw.c.testlongnodename.internal",
-			wantFinalizerName: "somenode-1234a-hhbhz-worker-c-xswffw.c.testlongnodename-deleted",
+			wantFinalizerName: "somenode-1234a-h-ee07411621da032c9ed0c1b6c7603ee7ae36fe-deleted",
+			wantLegacyName:    "somenode-1234a-hhbhz-worker-c-xswffw.c.testlongnodename-deleted",
 			profileBase:       regularSeccompProfile(),
 		},
 		{
@@ -65,6 +69,12 @@ func TestShortenNodeName(t *testing.T) {
 			wantFinalizerName: partialProfileFinalizer,
 			profileBase:       partialSeccompProfile(),
 		},
+		{
+			name:              "PartialProfileOnLongNodeName",
+			nodeName:          "somenode-1234a-hhbhz-worker-c-xswffw.c.testlongnodename.internal",
+			wantFinalizerName: partialProfileFinalizer,
+			profileBase:       partialSeccompProfile(),
+		},
 	}
 
 	for _, tc := range cases {
@@ -74,6 +84,7 @@ func TestShortenNodeName(t *testing.T) {
 			require.NoError(t, err)
 
 			require.Equal(t, tc.wantFinalizerName, sc.finalizerString)
+			require.Equal(t, tc.wantLegacyName, sc.legacyFinalizerString)
 		})
 	}
 }
@@ -133,14 +144,16 @@ func TestRemoveLegacyNodeStatus(t *testing.T) {
 	cases := []struct {
 		name         string
 		profile      profilebase.SecurityProfileBase
-		mockGet      func(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error
-		mockDelete   func(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error
+		mockGet      func(context.Context, client.WithWatch, client.ObjectKey, client.Object, ...client.GetOption) error
+		mockDelete   func(context.Context, client.WithWatch, client.Object, ...client.DeleteOption) error
 		wantMigrated bool
 	}{
 		{
 			name:    "LegacyStatusRemoved",
 			profile: regularSeccompProfile(),
-			mockGet: func(_ context.Context, key client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
+			mockGet: func(
+				_ context.Context, _ client.WithWatch, key client.ObjectKey, obj client.Object, _ ...client.GetOption,
+			) error {
 				if key.Name == "test-profile-"+nodeName {
 					if ns, ok := obj.(*secprofnodestatusapi.SecurityProfileNodeStatus); ok {
 						ns.Labels = map[string]string{
@@ -155,7 +168,7 @@ func TestRemoveLegacyNodeStatus(t *testing.T) {
 
 				return kerrors.NewNotFound(schema.GroupResource{}, key.Name)
 			},
-			mockDelete: func(_ context.Context, _ client.Object, _ ...client.DeleteOption) error {
+			mockDelete: func(_ context.Context, _ client.WithWatch, _ client.Object, _ ...client.DeleteOption) error {
 				return nil
 			},
 			wantMigrated: true,
@@ -163,7 +176,9 @@ func TestRemoveLegacyNodeStatus(t *testing.T) {
 		{
 			name:    "LegacyStatusNotFound",
 			profile: regularSeccompProfile(),
-			mockGet: func(_ context.Context, _ client.ObjectKey, _ client.Object, _ ...client.GetOption) error {
+			mockGet: func(
+				_ context.Context, _ client.WithWatch, _ client.ObjectKey, _ client.Object, _ ...client.GetOption,
+			) error {
 				return kerrors.NewNotFound(schema.GroupResource{}, "")
 			},
 			wantMigrated: false,
@@ -171,7 +186,9 @@ func TestRemoveLegacyNodeStatus(t *testing.T) {
 		{
 			name:    "LegacyStatusWrongLabel",
 			profile: regularSeccompProfile(),
-			mockGet: func(_ context.Context, key client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
+			mockGet: func(
+				_ context.Context, _ client.WithWatch, key client.ObjectKey, obj client.Object, _ ...client.GetOption,
+			) error {
 				if key.Name == "test-profile-"+nodeName {
 					if ns, ok := obj.(*secprofnodestatusapi.SecurityProfileNodeStatus); ok {
 						ns.Labels = map[string]string{
@@ -189,7 +206,9 @@ func TestRemoveLegacyNodeStatus(t *testing.T) {
 		{
 			name:    "GetError",
 			profile: regularSeccompProfile(),
-			mockGet: func(_ context.Context, _ client.ObjectKey, _ client.Object, _ ...client.GetOption) error {
+			mockGet: func(
+				_ context.Context, _ client.WithWatch, _ client.ObjectKey, _ client.Object, _ ...client.GetOption,
+			) error {
 				return errors.New("api server error")
 			},
 			wantMigrated: false,
@@ -197,7 +216,9 @@ func TestRemoveLegacyNodeStatus(t *testing.T) {
 		{
 			name:    "DeleteFailsReturnsNotMigrated",
 			profile: regularSeccompProfile(),
-			mockGet: func(_ context.Context, key client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
+			mockGet: func(
+				_ context.Context, _ client.WithWatch, key client.ObjectKey, obj client.Object, _ ...client.GetOption,
+			) error {
 				if key.Name == "test-profile-"+nodeName {
 					if ns, ok := obj.(*secprofnodestatusapi.SecurityProfileNodeStatus); ok {
 						ns.Labels = map[string]string{
@@ -212,7 +233,7 @@ func TestRemoveLegacyNodeStatus(t *testing.T) {
 
 				return kerrors.NewNotFound(schema.GroupResource{}, key.Name)
 			},
-			mockDelete: func(_ context.Context, _ client.Object, _ ...client.DeleteOption) error {
+			mockDelete: func(_ context.Context, _ client.WithWatch, _ client.Object, _ ...client.DeleteOption) error {
 				return errors.New("delete failed")
 			},
 			wantMigrated: false,
@@ -223,10 +244,10 @@ func TestRemoveLegacyNodeStatus(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			cl := &utiltest.MockClient{
-				MockGet:    tc.mockGet,
-				MockDelete: tc.mockDelete,
-			}
+			cl := utiltest.NewFakeClient(t, &interceptor.Funcs{
+				Get:    tc.mockGet,
+				Delete: tc.mockDelete,
+			})
 
 			sc := &StatusClient{
 				pol:      tc.profile,

@@ -17,31 +17,25 @@ limitations under the License.
 package recordingtracker
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/utiltest"
 )
-
-func newTestScheme(t *testing.T) *runtime.Scheme {
-	t.Helper()
-
-	s := runtime.NewScheme()
-	require.NoError(t, corev1.AddToScheme(s))
-	require.NoError(t, profilerecordingapi.AddToScheme(s))
-
-	return s
-}
 
 func newReconciler(c client.Client) *RecordingTrackerReconciler {
 	return &RecordingTrackerReconciler{
@@ -87,7 +81,7 @@ func TestPodMatchesRecording(t *testing.T) {
 func testPodMatchesRecording(t *testing.T, annotations map[string]string, wantTracked bool) {
 	t.Helper()
 
-	scheme := newTestScheme(t)
+	scheme := utiltest.NewScheme(t)
 
 	recording := &profilerecordingapi.ProfileRecording{
 		ObjectMeta: metav1.ObjectMeta{
@@ -143,7 +137,7 @@ func testPodMatchesRecording(t *testing.T, annotations map[string]string, wantTr
 func TestPodDoesNotMatchRecording(t *testing.T) {
 	t.Parallel()
 
-	scheme := newTestScheme(t)
+	scheme := utiltest.NewScheme(t)
 
 	recording := &profilerecordingapi.ProfileRecording{
 		ObjectMeta: metav1.ObjectMeta{
@@ -239,7 +233,7 @@ func TestPodNoLongerMatchingRecording(t *testing.T) {
 			}
 
 			c := fake.NewClientBuilder().
-				WithScheme(newTestScheme(t)).
+				WithScheme(utiltest.NewScheme(t)).
 				WithStatusSubresource(recording).
 				WithObjects(recording, pod).
 				WithIndex(&profilerecordingapi.ProfileRecording{}, linkedPodsKey, recordingIndexFunc).
@@ -267,7 +261,7 @@ func TestPodNoLongerMatchingRecording(t *testing.T) {
 func TestPodDeletedRemovesFromActiveWorkloads(t *testing.T) {
 	t.Parallel()
 
-	scheme := newTestScheme(t)
+	scheme := utiltest.NewScheme(t)
 
 	recording := &profilerecordingapi.ProfileRecording{
 		ObjectMeta: metav1.ObjectMeta{
@@ -310,7 +304,7 @@ func TestPodDeletedRemovesFromActiveWorkloads(t *testing.T) {
 func TestPodDeletedFinalizerKeptWhenOtherPodsTracked(t *testing.T) {
 	t.Parallel()
 
-	scheme := newTestScheme(t)
+	scheme := utiltest.NewScheme(t)
 
 	recording := &profilerecordingapi.ProfileRecording{
 		ObjectMeta: metav1.ObjectMeta{
@@ -353,7 +347,7 @@ func TestPodDeletedFinalizerKeptWhenOtherPodsTracked(t *testing.T) {
 func TestNoRecordingsInNamespace(t *testing.T) {
 	t.Parallel()
 
-	scheme := newTestScheme(t)
+	scheme := utiltest.NewScheme(t)
 
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -380,7 +374,7 @@ func TestNoRecordingsInNamespace(t *testing.T) {
 func TestPodMatchesRecordingBeingDeleted(t *testing.T) {
 	t.Parallel()
 
-	scheme := newTestScheme(t)
+	scheme := utiltest.NewScheme(t)
 
 	recording := &profilerecordingapi.ProfileRecording{
 		ObjectMeta: metav1.ObjectMeta{
@@ -430,7 +424,7 @@ func TestPodMatchesRecordingBeingDeleted(t *testing.T) {
 func TestActiveWorkloadRequestsReleasesStalePods(t *testing.T) {
 	t.Parallel()
 
-	scheme := newTestScheme(t)
+	scheme := utiltest.NewScheme(t)
 
 	// The pod got deleted while the operator was down, so no delete event
 	// for it will ever be observed.
@@ -468,4 +462,218 @@ func TestActiveWorkloadRequestsReleasesStalePods(t *testing.T) {
 	require.NoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(recording), updated))
 	require.Empty(t, updated.Status.ActiveWorkloads)
 	require.NotContains(t, updated.GetFinalizers(), finalizer)
+}
+
+func recordedPod() *corev1.Pod {
+	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-pod",
+			Namespace: "default",
+			Annotations: map[string]string{
+				config.SeccompProfileRecordBpfAnnotationKey + "ctr": "test-recording_ctr_123_456",
+			},
+		},
+	}
+}
+
+func testRecording() *profilerecordingapi.ProfileRecording {
+	return &profilerecordingapi.ProfileRecording{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-recording", Namespace: "default"},
+		Spec: profilerecordingapi.ProfileRecordingSpec{
+			Kind:     profilerecordingapi.ProfileRecordingKindSeccompProfile,
+			Recorder: profilerecordingapi.ProfileRecorderBpf,
+		},
+	}
+}
+
+// A pod which the cached recording tracks already costs no API request.
+func TestTrackedPodSkipsAPIRequests(t *testing.T) {
+	t.Parallel()
+
+	recording := testRecording()
+	recording.Finalizers = []string{finalizer}
+	recording.Status.ActiveWorkloads = []string{"test-pod"}
+
+	writes := 0
+	c := fake.NewClientBuilder().
+		WithScheme(utiltest.NewScheme(t)).
+		WithStatusSubresource(recording).
+		WithObjects(recording, recordedPod()).
+		WithIndex(&profilerecordingapi.ProfileRecording{}, linkedPodsKey, recordingIndexFunc).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Update: func(
+				ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption,
+			) error {
+				writes++
+
+				return c.Update(ctx, obj, opts...)
+			},
+			SubResourceUpdate: func(
+				ctx context.Context, c client.Client, sub string, obj client.Object,
+				opts ...client.SubResourceUpdateOption,
+			) error {
+				writes++
+
+				return c.SubResource(sub).Update(ctx, obj, opts...)
+			},
+		}).
+		Build()
+
+	reads := 0
+	r := newReconciler(c)
+	r.reader = countingReader{Reader: c, reads: &reads}
+
+	_, err := r.Reconcile(t.Context(), reconcile.Request{
+		NamespacedName: client.ObjectKeyFromObject(recordedPod()),
+	})
+	require.NoError(t, err)
+	require.Zero(t, reads)
+	require.Zero(t, writes)
+}
+
+// countingReader counts the uncached reads.
+type countingReader struct {
+	client.Reader
+
+	reads *int
+}
+
+func (c countingReader) Get(
+	ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption,
+) error {
+	*c.reads++
+
+	return c.Reader.Get(ctx, key, obj, opts...)
+}
+
+// A conflict while tracking a pod gets retried with a fresh read.
+func TestTrackPodRetriesConflict(t *testing.T) {
+	t.Parallel()
+
+	recording := testRecording()
+
+	conflicts := 1
+	c := fake.NewClientBuilder().
+		WithScheme(utiltest.NewScheme(t)).
+		WithStatusSubresource(recording).
+		WithObjects(recording, recordedPod()).
+		WithIndex(&profilerecordingapi.ProfileRecording{}, linkedPodsKey, recordingIndexFunc).
+		WithInterceptorFuncs(interceptor.Funcs{
+			SubResourceUpdate: func(
+				ctx context.Context, c client.Client, sub string, obj client.Object,
+				opts ...client.SubResourceUpdateOption,
+			) error {
+				if conflicts > 0 {
+					conflicts--
+
+					return apierrors.NewConflict(
+						profilerecordingapi.GroupVersion.WithResource("profilerecordings").
+							GroupResource(),
+						obj.GetName(),
+						errors.New("test"),
+					)
+				}
+
+				return c.SubResource(sub).Update(ctx, obj, opts...)
+			},
+		}).
+		Build()
+
+	_, err := newReconciler(c).Reconcile(t.Context(), reconcile.Request{
+		NamespacedName: client.ObjectKeyFromObject(recordedPod()),
+	})
+	require.NoError(t, err)
+	require.Zero(t, conflicts)
+
+	updated := &profilerecordingapi.ProfileRecording{}
+	require.NoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(recording), updated))
+	require.Equal(t, []string{"test-pod"}, updated.Status.ActiveWorkloads)
+	require.Contains(t, updated.GetFinalizers(), finalizer)
+}
+
+// A recording which got deleted after it was listed is skipped without an
+// error and without being recreated.
+func TestTrackPodDeletedRecording(t *testing.T) {
+	t.Parallel()
+
+	recording := testRecording()
+	c := fake.NewClientBuilder().
+		WithScheme(utiltest.NewScheme(t)).
+		WithStatusSubresource(recording).
+		WithObjects(recordedPod()).
+		Build()
+
+	require.NoError(t, newReconciler(c).trackPod(t.Context(), recording, "test-pod"))
+
+	err := c.Get(
+		t.Context(),
+		client.ObjectKeyFromObject(recording),
+		&profilerecordingapi.ProfileRecording{},
+	)
+	require.True(t, apierrors.IsNotFound(err))
+}
+
+// hookReader calls afterGet after every uncached read with the number of the
+// read.
+type hookReader struct {
+	client.Reader
+
+	reads    *int
+	afterGet func(n int)
+}
+
+func (h hookReader) Get(
+	ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption,
+) error {
+	*h.reads++
+
+	err := h.Reader.Get(ctx, key, obj, opts...)
+
+	h.afterGet(*h.reads)
+
+	return err
+}
+
+// A pod which another reconcile tracks while the last tracked pod gets
+// untracked keeps the finalizer in place. The removal of the finalizer is
+// written for the recording as read, so it conflicts with the concurrent
+// status update, and the retry sees the new pod.
+func TestUntrackPodKeepsFinalizerForConcurrentlyTrackedPod(t *testing.T) {
+	t.Parallel()
+
+	recording := testRecording()
+	recording.Finalizers = []string{finalizer}
+	recording.Status.ActiveWorkloads = []string{"deleted-pod"}
+
+	c := fake.NewClientBuilder().
+		WithScheme(utiltest.NewScheme(t)).
+		WithStatusSubresource(recording).
+		WithObjects(recording).
+		WithIndex(&profilerecordingapi.ProfileRecording{}, linkedPodsKey, recordingIndexFunc).
+		Build()
+
+	reads := 0
+	r := newReconciler(c)
+	r.reader = hookReader{Reader: c, reads: &reads, afterGet: func(n int) {
+		// The second read checks whether the finalizer can go.
+		if n != 2 {
+			return
+		}
+
+		concurrent := &profilerecordingapi.ProfileRecording{}
+		require.NoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(recording), concurrent))
+		concurrent.Status.ActiveWorkloads = append(concurrent.Status.ActiveWorkloads, "new-pod")
+		require.NoError(t, c.Status().Update(t.Context(), concurrent))
+	}}
+
+	_, err := r.Reconcile(t.Context(), reconcile.Request{
+		NamespacedName: client.ObjectKey{Namespace: "default", Name: "deleted-pod"},
+	})
+	require.NoError(t, err)
+	require.Greater(t, reads, 2, "the finalizer removal got retried")
+
+	updated := &profilerecordingapi.ProfileRecording{}
+	require.NoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(recording), updated))
+	require.Equal(t, []string{"new-pod"}, updated.Status.ActiveWorkloads)
+	require.Contains(t, updated.GetFinalizers(), finalizer)
 }

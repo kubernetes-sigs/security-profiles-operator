@@ -1,0 +1,8 @@
+# The chart renders its own PodDisruptionBudget from
+# templates/poddisruptionbudget.yaml with the release namespace and values.
+$patch: delete
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: security-profiles-operator
+  namespace: security-profiles-operator

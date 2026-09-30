@@ -18,6 +18,7 @@ package puller
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -62,6 +63,18 @@ func TestRun(t *testing.T) {
 			},
 			assert: func(err error) {
 				require.ErrorIs(t, err, errTest)
+				require.NotContains(t, err.Error(), FlagTrustedRoot)
+			},
+		},
+		{
+			name: "offline without cached trusted root",
+			prepare: func(mock *pullerfakes.FakeImpl) {
+				mock.PullReturns(nil, fmt.Errorf("verify: %w", artifact.ErrNoCachedTrustedRoot))
+			},
+			assert: func(err error) {
+				require.ErrorIs(t, err, artifact.ErrNoCachedTrustedRoot)
+				require.ErrorContains(t, err, "--"+FlagTrustedRoot)
+				require.ErrorContains(t, err, "without --"+FlagOffline)
 			},
 		},
 	} {
@@ -81,6 +94,50 @@ func TestRun(t *testing.T) {
 			assert(err)
 		})
 	}
+}
+
+// TestRunPullOptions verifies that every option reaches the pull.
+func TestRunPullOptions(t *testing.T) {
+	t.Parallel()
+
+	mock := &pullerfakes.FakeImpl{}
+	mock.PullReturns(&artifact.PullResult{}, nil)
+
+	options := Default()
+	options.pullFrom = "registry.example.com/profile:v1"
+	options.username = "user"
+	options.password = "secret"
+	options.disableSignatureVerification = false
+	options.allowedIdentityRegexp = "^me$"
+	options.allowedOidcIssuerRegexp = "^https://issuer$"
+	options.keyRef = "cosign.pub"
+	options.certIdentity = "me@example.com"
+	options.certOidcIssuer = "https://issuer"
+	options.trustedRootPath = "root.json"
+	options.offline = true
+	options.plainHTTP = true
+
+	sut := New(options)
+	sut.impl = mock
+
+	require.NoError(t, sut.Run())
+	require.Equal(t, 1, mock.PullCallCount())
+
+	_, from, username, password, platform, pullOpts := mock.PullArgsForCall(0)
+	require.Equal(t, "registry.example.com/profile:v1", from)
+	require.Equal(t, "user", username)
+	require.Equal(t, "secret", password)
+	require.Nil(t, platform)
+	require.Equal(t, &artifact.PullOptions{
+		AllowedIdentityRegexp:   "^me$",
+		AllowedOidcIssuerRegexp: "^https://issuer$",
+		KeyRef:                  "cosign.pub",
+		CertIdentity:            "me@example.com",
+		CertOidcIssuer:          "https://issuer",
+		TrustedRootPath:         "root.json",
+		Offline:                 true,
+		PlainHTTP:               true,
+	}, pullOpts)
 }
 
 func TestOutputFile(t *testing.T) {

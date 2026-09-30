@@ -53,6 +53,8 @@
         "epoll_wait",
         "eventfd2",
         "execve",
+        "exit",
+        "exit_group",
         "faccessat2",
         "fchownat",
         "fcntl",
@@ -82,6 +84,7 @@
         "munmap",
         "nanosleep",
         "newfstatat",
+        "open_by_handle_at",
         "openat",
         "perf_event_open",
         "prctl",
@@ -111,6 +114,7 @@
         "tgkill",
         "time",
         "uname",
+        "unlinkat",
         "write"
       ],
       "action": "SCMP_ACT_ALLOW"

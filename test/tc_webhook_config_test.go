@@ -1,3 +1,5 @@
+//go:build e2e
+
 /*
 Copyright The Kubernetes Authors.
 
@@ -18,6 +20,7 @@ package e2e_test
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"time"
@@ -113,11 +116,17 @@ func (e *e2e) testCaseWebhookOptionsChange([]string) {
 // last state if they never got there.
 func (e *e2e) waitForWebhookAttributes(done func([]*whConfigOutput) bool) []*whConfigOutput {
 	var config []*whConfigOutput
-	for start := time.Now(); time.Since(start) < 4*defaultWaitTime; time.Sleep(time.Second) {
+
+	err := poll(4*defaultWaitTime, time.Second, func() error {
 		config = e.getAllWebhookAttributes()
-		if done(config) {
-			break
+		if !done(config) {
+			return errors.New("the webhook attributes did not change yet")
 		}
+
+		return nil
+	})
+	if err != nil {
+		e.logf("%v", err)
 	}
 
 	return config

@@ -111,6 +111,7 @@ type ProfileRecordingSpec struct {
 	// for all profiles might not be needed. Defaults to false.
 	// +optional
 	// +default=false
+	//nolint:kubeapilinter // false is the default, so unset and false are equivalent
 	DisableProfileAfterRecording bool `json:"disableProfileAfterRecording,omitempty"`
 }
 
@@ -154,7 +155,7 @@ type ProfileRecording struct {
 	Spec ProfileRecordingSpec `json:"spec,omitzero"`
 	// status contains the observed state of the ProfileRecording.
 	// +optional
-	Status ProfileRecordingStatus `json:"status,omitzero"`
+	Status ProfileRecordingStatus `json:"status,omitzero"` //nolint:kubeapilinter // status is a value by convention
 }
 
 func (pr *ProfileRecording) CtrAnnotation(ctrName string) (key, value string, err error) {

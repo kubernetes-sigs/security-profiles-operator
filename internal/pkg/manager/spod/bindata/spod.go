@@ -18,12 +18,14 @@ package bindata
 
 import (
 	"path/filepath"
+	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/utils/ptr"
 
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
@@ -36,18 +38,22 @@ var (
 	userRootless                       = int64(config.UserRootless)
 	hostPathDirectory                  = corev1.HostPathDirectory
 	hostPathDirectoryOrCreate          = corev1.HostPathDirectoryOrCreate
-	hostPathFile                       = corev1.HostPathFile
 	healthzPath                        = "/healthz"
-	etcOSReleasePath                   = "/etc/os-release"
 	openshiftCertAnnotation            = "service.beta.openshift.io/serving-cert-secret-name"
 	localSeccompProfilePath            = LocalSeccompProfilePath
 	localSeccompBpfRecorderProfilePath = LocalSeccompBpfRecorderProfilePath
 
-	// kubeletDirVolume is the host kubelet root directory known to the
-	// operator, which the non-root enabler mounts below config.HostRoot.
+	// kubeletDirVolume is the seccomp directory of the host kubelet root
+	// directory known to the operator, which the non-root enabler mounts
+	// below config.HostRoot.
 	kubeletDirVolume, kubeletDirVolumeMount = KubeletDirVolume(
 		KubeletDirVolumeName, config.KubeletDir(),
 	)
+
+	// serviceAccountTokenVolume is the projected service account token which
+	// only the containers talking to the API server mount, instead of the
+	// automatically mounted token in every container.
+	serviceAccountTokenVolume, serviceAccountTokenVolumeMount = ServiceAccountTokenVolume()
 )
 
 const (
@@ -88,6 +94,13 @@ const (
 	labelName                                        = "name"
 	selinuxTypeSpcT                                  = "spc_t"
 	KubeletDirVolumeName                             = "host-kubelet-dir-volume"
+	ServiceAccountTokenVolumeName                    = "kube-api-access"
+	//nolint:gosec // a path, no credential
+	serviceAccountTokenMountPath               = "/var/run/secrets/kubernetes.io/serviceaccount"
+	serviceAccountTokenExpirationSeconds int64 = 3607
+
+	// CapabilityAll drops all capabilities of a container.
+	CapabilityAll corev1.Capability = "ALL"
 
 	// DefaultSelinuxTypeTag is the SELinux type of the SPOd containers if
 	// the SPOD does not configure one.
@@ -117,6 +130,7 @@ var DefaultSPOD = &spodapi.SecurityProfilesOperatorDaemon{
 			EnableLogEnricher:  new(bool),
 			EnableJsonEnricher: new(bool),
 			EnableBpfRecorder:  new(bool),
+			EnableExecMetadata: new(true),
 			LogEnricherSource:  DefaultLogEnricherSource,
 		},
 		Webhook: spodapi.SPODWebhookConfig{
@@ -181,6 +195,9 @@ var Manifest = &appsv1.DaemonSet{
 			},
 			Spec: corev1.PodSpec{
 				ServiceAccountName: config.SPOdServiceAccount,
+				// Only the containers which talk to the API server mount
+				// the service account token, see serviceAccountTokenVolume.
+				AutomountServiceAccountToken: &falsely,
 				SecurityContext: &corev1.PodSecurityContext{
 					SeccompProfile: &corev1.SeccompProfile{
 						Type: corev1.SeccompProfileTypeRuntimeDefault,
@@ -203,16 +220,18 @@ var Manifest = &appsv1.DaemonSet{
 								ReadOnly:  true,
 							},
 							kubeletDirVolumeMount,
+							// The enabler reads the kubelet directory label
+							// of its node.
+							serviceAccountTokenVolumeMount,
 						},
 						SecurityContext: &corev1.SecurityContext{
 							AllowPrivilegeEscalation: &falsely,
 							ReadOnlyRootFilesystem:   &truly,
 							Capabilities: &corev1.Capabilities{
-								Drop: []corev1.Capability{"ALL"},
+								Drop: []corev1.Capability{CapabilityAll},
 								Add: []corev1.Capability{
 									"CHOWN",
 									"FOWNER",
-									"FSETID",
 									"DAC_OVERRIDE",
 								},
 							},
@@ -304,7 +323,7 @@ semodule -R
 							ReadOnlyRootFilesystem:   &truly,
 							Privileged:               &truly, // Required for semodule -R to reload the kernel policy
 							Capabilities: &corev1.Capabilities{
-								Drop: []corev1.Capability{"ALL"},
+								Drop: []corev1.Capability{CapabilityAll},
 								Add: []corev1.Capability{
 									"CHOWN",
 									"FOWNER",
@@ -373,12 +392,13 @@ semodule -R
 								MountPath: MetricsCertPath,
 								ReadOnly:  true,
 							},
+							serviceAccountTokenVolumeMount,
 						},
 						SecurityContext: &corev1.SecurityContext{
 							AllowPrivilegeEscalation: &falsely,
 							ReadOnlyRootFilesystem:   &truly,
 							Capabilities: &corev1.Capabilities{
-								Drop: []corev1.Capability{"ALL"},
+								Drop: []corev1.Capability{CapabilityAll},
 							},
 							RunAsUser:  &userRootless,
 							RunAsGroup: &userRootless,
@@ -433,7 +453,7 @@ semodule -R
 								Value: HomeDirectory,
 							},
 							{
-								Name: "POD_NAME",
+								Name: config.PodNameEnvKey,
 								ValueFrom: &corev1.EnvVarSource{
 									FieldRef: &corev1.ObjectFieldSelector{
 										FieldPath: "metadata.name",
@@ -558,12 +578,33 @@ semodule -R
 								Name:      "grpc-server-volume",
 								MountPath: filepath.Dir(config.GRPCServerSocketEnricher),
 							},
+							serviceAccountTokenVolumeMount,
 						},
 						SecurityContext: &corev1.SecurityContext{
 							ReadOnlyRootFilesystem: &truly,
-							Privileged:             &truly,
+							Privileged:             &falsely,
 							RunAsUser:              &userRoot,
 							RunAsGroup:             &userRoot,
+							// The runtime default AppArmor profile denies the
+							// ptrace read access to the host processes.
+							AppArmorProfile: &corev1.AppArmorProfile{
+								Type: corev1.AppArmorProfileTypeUnconfined,
+							},
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{CapabilityAll},
+								// The enricher resolves the processes of the
+								// host PID namespace through /proc, which
+								// requires ptrace access to processes of other
+								// users and read access to their root owned
+								// files. It hands its GRPC socket over to the
+								// rootless daemon. The BPF source adds the
+								// capabilities to load and attach its programs.
+								Add: []corev1.Capability{
+									"SYS_PTRACE",
+									"DAC_READ_SEARCH",
+									"CHOWN",
+								},
+							},
 							SELinuxOptions: &corev1.SELinuxOptions{
 								// TODO(pjbgf): Use a more restricted selinux type
 								Type: selinuxTypeSpcT,
@@ -616,24 +657,39 @@ semodule -R
 								ReadOnly:  true,
 							},
 							{
-								Name:      "host-etc-osrelease-volume",
-								MountPath: etcOSReleasePath,
-								ReadOnly:  true,
-							},
-							{
-								Name:      "tmp-volume",
-								MountPath: TempDirectory,
-							},
-							{
 								Name:      "grpc-server-volume",
 								MountPath: filepath.Dir(config.GRPCServerSocketBpfRecorder),
 							},
+							serviceAccountTokenVolumeMount,
 						},
 						SecurityContext: &corev1.SecurityContext{
 							ReadOnlyRootFilesystem: &truly,
-							Privileged:             &truly,
-							RunAsUser:              &userRoot,
-							RunAsGroup:             &userRoot,
+							Privileged:             &falsely,
+							// Without no_new_privs the OCI runtime applies
+							// the seccomp profile before it switches the
+							// user and group, which the profile does not
+							// allow.
+							AllowPrivilegeEscalation: &falsely,
+							RunAsUser:                &userRoot,
+							RunAsGroup:               &userRoot,
+							// The runtime default AppArmor profile denies the
+							// ptrace read access to the host processes. The SPOd
+							// uses the AppArmor profile of the recorder instead
+							// if AppArmor is enabled.
+							AppArmorProfile: &corev1.AppArmorProfile{
+								Type: corev1.AppArmorProfileTypeUnconfined,
+							},
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{CapabilityAll},
+								Add: []corev1.Capability{
+									"BPF",             // Required to load the BPF programs
+									"PERFMON",         // Required to attach the tracepoints
+									"SYS_RESOURCE",    // Required to raise the locked memory limit
+									"SYS_PTRACE",      // Required to read /proc of host processes
+									"DAC_READ_SEARCH", // Required by open_by_handle_at on host files
+									"CHOWN",           // Required to hand the GRPC socket to the daemon
+								},
+							},
 							SELinuxOptions: &corev1.SELinuxOptions{
 								// TODO(pjbgf): Use a more restricted selinux type
 								Type: selinuxTypeSpcT,
@@ -696,19 +752,26 @@ semodule -R
 								MountPath: sysKernelTracingPath,
 								ReadOnly:  true,
 							},
+							serviceAccountTokenVolumeMount,
 						},
 						SecurityContext: &corev1.SecurityContext{
 							ReadOnlyRootFilesystem: &truly,
-							Privileged:             &truly, // Required for BPF capability
+							Privileged:             &falsely,
 							RunAsUser:              &userRoot,
 							RunAsGroup:             &userRoot,
+							// The runtime default AppArmor profile denies the
+							// ptrace read access to the host processes.
+							AppArmorProfile: &corev1.AppArmorProfile{
+								Type: corev1.AppArmorProfileTypeUnconfined,
+							},
 							Capabilities: &corev1.Capabilities{
-								// If container in privileged these capabilities are redundant. Mentioned for clarity.
+								Drop: []corev1.Capability{CapabilityAll},
 								Add: []corev1.Capability{
-									"SYS_PTRACE",   // Needed for /proc/PID/environ access on some systems (ex: Ubuntu)
-									"SYS_RESOURCE", // Needed for BPF enablement
-									"BPF",          // Required to use BPF
-									"PERFMON",      // Required to attach tracepoint in BPF
+									"SYS_PTRACE",      // Needed for /proc/PID/environ on some systems
+									"SYS_RESOURCE",    // Needed for BPF enablement
+									"BPF",             // Required to use BPF
+									"PERFMON",         // Required to attach tracepoint in BPF
+									"DAC_READ_SEARCH", // Required to read the root owned files of host processes
 								},
 							},
 							SELinuxOptions: &corev1.SELinuxOptions{
@@ -859,15 +922,6 @@ semodule -R
 						},
 					},
 					{
-						Name: "host-etc-osrelease-volume",
-						VolumeSource: corev1.VolumeSource{
-							HostPath: &corev1.HostPathVolumeSource{
-								Path: etcOSReleasePath,
-								Type: &hostPathFile,
-							},
-						},
-					},
-					{
 						Name: "tmp-volume",
 						VolumeSource: corev1.VolumeSource{
 							EmptyDir: &corev1.EmptyDirVolumeSource{},
@@ -886,6 +940,7 @@ semodule -R
 							EmptyDir: &corev1.EmptyDirVolumeSource{},
 						},
 					},
+					serviceAccountTokenVolume,
 				},
 				Tolerations: []corev1.Toleration{
 					{
@@ -969,24 +1024,101 @@ func CustomLogVolume(
 }
 
 // KubeletDirVolume returns a hostPath volume with the given name for the
-// kubelet root directory dir on the host, as well as the corresponding mount
-// for the non-root enabler. The mount keeps the host path below
-// config.HostRoot, which is where the non-root enabler expects the kubelet
-// directory. DirectoryOrCreate is used because the operator cannot know which
-// of the configured kubelet directories exist on a given node.
+// seccomp directory of the kubelet root directory dir on the host, as well as
+// the corresponding mount for the non-root enabler. Only the seccomp directory
+// is mounted, because it is the only part of the kubelet directory the
+// non-root enabler touches, while the rest of it holds the secret volumes of
+// every pod on the node. The mount keeps the host path below config.HostRoot,
+// which is where the non-root enabler expects the kubelet directory.
+// DirectoryOrCreate is used because the operator cannot know which of the
+// configured kubelet directories exist on a given node.
 func KubeletDirVolume(name, dir string) (corev1.Volume, corev1.VolumeMount) {
+	seccompDir := kubeletSeccompDir(dir)
+
 	volume := corev1.Volume{
 		Name: name,
 		VolumeSource: corev1.VolumeSource{
 			HostPath: &corev1.HostPathVolumeSource{
-				Path: dir,
+				Path: seccompDir,
 				Type: &hostPathDirectoryOrCreate,
 			},
 		},
 	}
 	mount := corev1.VolumeMount{
 		Name:      name,
-		MountPath: filepath.Join(config.HostRoot, dir),
+		MountPath: filepath.Join(config.HostRoot, seccompDir),
+	}
+
+	return volume, mount
+}
+
+// kubeletSeccompDir returns the seccomp directory of the kubelet root
+// directory dir.
+func kubeletSeccompDir(dir string) string {
+	return filepath.Join(dir, config.SeccompProfilesFolder)
+}
+
+// KubeletDirFromVolume returns the kubelet root directory of a volume created
+// by KubeletDirVolume, and false if the volume is not one.
+func KubeletDirFromVolume(volume *corev1.Volume) (string, bool) {
+	if volume.HostPath == nil || !strings.HasPrefix(volume.Name, KubeletDirVolumeName) {
+		return "", false
+	}
+
+	dir, ok := strings.CutSuffix(volume.HostPath.Path, "/"+config.SeccompProfilesFolder)
+	if !ok || dir == "" {
+		return "", false
+	}
+
+	return dir, true
+}
+
+// ServiceAccountTokenVolume returns the projected service account token
+// volume and its mount, which replace the automatically mounted token of the
+// SPOd pod. The projection matches the one of the kubelet, so that the client
+// libraries find the token, the CA and the namespace at the usual paths.
+func ServiceAccountTokenVolume() (corev1.Volume, corev1.VolumeMount) {
+	volume := corev1.Volume{
+		Name: ServiceAccountTokenVolumeName,
+		VolumeSource: corev1.VolumeSource{
+			Projected: &corev1.ProjectedVolumeSource{
+				DefaultMode: ptr.To[int32](0o644),
+				Sources: []corev1.VolumeProjection{
+					{
+						ServiceAccountToken: &corev1.ServiceAccountTokenProjection{
+							Path:              "token",
+							ExpirationSeconds: new(serviceAccountTokenExpirationSeconds),
+						},
+					},
+					{
+						ConfigMap: &corev1.ConfigMapProjection{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: "kube-root-ca.crt",
+							},
+							Items: []corev1.KeyToPath{
+								{Key: "ca.crt", Path: "ca.crt"},
+							},
+						},
+					},
+					{
+						DownwardAPI: &corev1.DownwardAPIProjection{
+							Items: []corev1.DownwardAPIVolumeFile{{
+								Path: "namespace",
+								FieldRef: &corev1.ObjectFieldSelector{
+									APIVersion: "v1",
+									FieldPath:  "metadata.namespace",
+								},
+							}},
+						},
+					},
+				},
+			},
+		},
+	}
+	mount := corev1.VolumeMount{
+		Name:      ServiceAccountTokenVolumeName,
+		MountPath: serviceAccountTokenMountPath,
+		ReadOnly:  true,
 	}
 
 	return volume, mount

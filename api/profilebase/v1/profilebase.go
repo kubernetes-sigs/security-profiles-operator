@@ -97,6 +97,7 @@ type StatusBase struct {
 	common.ConditionedStatus `json:",inline"`
 	// status is the current state of the profile across nodes.
 	// +optional
+	//nolint:kubeapilinter // the enum of ProfileState excludes the empty value
 	Status secprofnodestatusv1.ProfileState `json:"status,omitempty"`
 }
 

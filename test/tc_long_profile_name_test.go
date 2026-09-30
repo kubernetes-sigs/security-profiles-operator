@@ -1,3 +1,5 @@
+//go:build e2e
+
 /*
 Copyright The Kubernetes Authors.
 
@@ -43,7 +45,7 @@ func (e *e2e) testCaseLongSeccompProfileName(nodes []string) {
 	e.logf("Creating policy")
 
 	e.writeAndCreate(longNamePolicy, "longname-policy.yml")
-	defer e.kubectl("delete", "sp", policyName)
+	e.kubectlCleanup("sp", policyName)
 
 	e.logf("Waiting for profile to be reconciled")
 	e.waitForProfile(policyName)
@@ -54,10 +56,7 @@ func (e *e2e) testCaseLongSeccompProfileName(nodes []string) {
 		"spo.x-k8s.io/profile-id in (%s),spo.x-k8s.io/node-name in (%s)",
 		id, strings.Join(nodes, ","))
 
-	const maxTries = 10
-	for i := range maxTries {
-		e.logf("Comparing node status items with node length (try %d)", i+1)
-
+	e.eventually(30*time.Second, defaultPollInterval, func() error {
 		seccompProfileNodeStatusJSON := e.kubectl(
 			"get", "securityprofilenodestatus", "-l", selector, "-o", "json",
 		)
@@ -66,14 +65,12 @@ func (e *e2e) testCaseLongSeccompProfileName(nodes []string) {
 		e.Require().
 			NoError(json.Unmarshal([]byte(seccompProfileNodeStatusJSON), secpolNodeStatusList))
 
-		if len(nodes) == len(secpolNodeStatusList.Items) {
-			e.logf("Node status successfully reconciled")
-
-			return
+		if len(nodes) != len(secpolNodeStatusList.Items) {
+			return fmt.Errorf(
+				"%d node statuses for %d nodes", len(secpolNodeStatusList.Items), len(nodes),
+			)
 		}
 
-		time.Sleep(3 * time.Second)
-	}
-
-	e.Fail("Node status has not been reconciled successfully")
+		return nil
+	})
 }

@@ -1,3 +1,5 @@
+//go:build e2e
+
 /*
 Copyright The Kubernetes Authors.
 
@@ -19,7 +21,6 @@ package e2e_test
 import (
 	"fmt"
 	"os"
-	"strings"
 
 	spoutil "sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
@@ -67,7 +68,7 @@ spec:
 	e.enableBindingHookInNs(nsBindingEnabled)
 
 	e.kubectl("create", "-f", exampleProfilePath)
-	defer e.kubectl("delete", "-f", exampleProfilePath)
+	e.kubectlCleanup("-f", exampleProfilePath)
 
 	e.waitFor("condition=ready", "seccompprofile", "profile-allow-unsafe")
 
@@ -84,7 +85,7 @@ spec:
 	e.Require().NoError(err)
 	e.kubectl("create", "-f", testBindingFile.Name())
 
-	defer e.kubectl("delete", "-f", testBindingFile.Name())
+	e.kubectlCleanup("profilebinding", "hello-binding")
 
 	e.logf("Creating test pod")
 
@@ -99,18 +100,15 @@ spec:
 	e.Require().NoError(err)
 	e.kubectl("create", "-f", testPodFile.Name())
 
-	defer e.kubectl("delete", "pod", "hello")
+	e.kubectlCleanup("pod", "hello")
 
 	e.logf("Waiting for test pod to be initialized")
 	e.waitFor("condition=initialized", "pod", "hello")
 
-	output := e.kubectl("get", "pod", "hello")
-	for strings.Contains(output, "ContainerCreating") {
-		output = e.kubectl("get", "pod", "hello")
-	}
+	e.waitForPodCreated("hello")
 
 	e.logf("Testing that container is launched without runtime permission errors")
-	output = e.kubectl("describe", "pod", "hello")
+	output := e.kubectl("describe", "pod", "hello")
 	e.NotContains(output, "Error: failed to start containerd task")
 
 	e.logf("Testing that container ran successfully")

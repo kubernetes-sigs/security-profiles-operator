@@ -35,4 +35,8 @@ type SelinuxObjectHandler interface {
 	GetCILPolicy() (string, error)
 }
 
-type SelinuxObjectHandlerInit func(context.Context, client.Client, types.NamespacedName) (SelinuxObjectHandler, error)
+// SelinuxObjectHandlerInit returns the handler of the object with the given
+// key. The operator namespace is the one the SPOD lives in.
+type SelinuxObjectHandlerInit func(
+	ctx context.Context, cli client.Client, key types.NamespacedName, operatorNamespace string,
+) (SelinuxObjectHandler, error)

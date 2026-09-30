@@ -1,3 +1,5 @@
+//go:build e2e
+
 /*
 Copyright The Kubernetes Authors.
 
@@ -128,7 +130,7 @@ spec:
 	e.Require().NoError(profileFile.Close())
 	e.kubectl("create", "-f", profileFile.Name())
 
-	defer e.kubectl("delete", "-f", profileFile.Name())
+	e.kubectlCleanup("sp", profileName)
 
 	e.logf("Waiting for profile to be reconciled")
 	e.waitForProfile(profileName)
@@ -178,38 +180,35 @@ spec:
 	e.Require().NoError(podFile.Close())
 	e.kubectl("create", "-f", podFile.Name())
 
-	defer e.kubectl("delete", "pod", podName)
+	e.kubectlCleanup("pod", podName)
 
 	e.logf("Waiting for test pod to be initialized")
 	e.waitFor("condition=initialized", "pod", podName)
 
 	e.logf("Waiting for pod to be completed")
 
-	completed := false
+	createError := false
 
-	for range 20 {
+	err = poll(time.Minute, time.Second, func() error {
 		output := e.kubectl("get", "pod", podName)
-		if strings.Contains(output, "Completed") {
-			completed = true
-
-			break
+		// Waiting longer does not help against a container create error.
+		createError = strings.Contains(output, "CreateContainerError")
+		if !createError && !strings.Contains(output, "Completed") {
+			return fmt.Errorf("pod %s did not complete: %s", podName, output)
 		}
 
-		if strings.Contains(output, "CreateContainerError") {
-			e.kubectlOperatorNS("logs", "-l", "name=spod")
-			e.FailNowf(
-				"Unable to create container",
-				"%s", e.kubectl("describe", "pod", podName),
-			)
-		}
+		return nil
+	})
 
-		time.Sleep(time.Second)
+	if createError {
+		e.kubectlOperatorNS("logs", "-l", "name=spod")
+		e.FailNowf("Unable to create container", "%s", e.kubectl("describe", "pod", podName))
 	}
 
-	if !completed {
+	if err != nil {
 		e.FailNowf(
 			"Pod did not complete in time",
-			"%s", e.kubectl("describe", "pod", podName),
+			"%v\n%s", err, e.kubectl("describe", "pod", podName),
 		)
 	}
 

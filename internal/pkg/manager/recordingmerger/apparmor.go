@@ -48,6 +48,7 @@ func (sp *mergeableAppArmorProfile) merge(other mergeableProfile) error {
 	sp.Spec.Abstract.Filesystem = merged.Filesystem
 	sp.Spec.Abstract.Network = merged.Network
 	sp.Spec.Abstract.Capability = merged.Capability
+	sp.Spec.Abstract.Ptrace = merged.Ptrace
 
 	return nil
 }

@@ -50,4 +50,24 @@ const (
 	// FlagAllowedOidcIssuerRegexp is the flag for defining the allowed Oidc issuers
 	// regexp when verifying the image signature.
 	FlagAllowedOidcIssuerRegexp string = "allowed-oidc-issuer-regexp"
+
+	// FlagKey is the flag for verifying the image signature with a public
+	// key instead of a keyless certificate.
+	FlagKey string = "key"
+
+	// FlagCertificateIdentity is the flag for the exact identity the
+	// signature certificate has to carry.
+	FlagCertificateIdentity string = "certificate-identity"
+
+	// FlagCertificateOidcIssuer is the flag for the exact OIDC issuer of the
+	// signature certificate.
+	FlagCertificateOidcIssuer string = "certificate-oidc-issuer"
+
+	// FlagTrustedRoot is the flag for the Sigstore trusted root file to
+	// verify against.
+	FlagTrustedRoot string = "trusted-root"
+
+	// FlagOffline is the flag for verifying without any transparency log
+	// lookup.
+	FlagOffline string = "offline"
 )

@@ -1,3 +1,5 @@
+//go:build e2e
+
 /*
 Copyright The Kubernetes Authors.
 
@@ -18,6 +20,7 @@ package e2e_test
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -44,15 +47,400 @@ const (
 	// defaultWaitDuration mirrors defaultWaitTimeout for waits done in Go
 	// rather than handed to kubectl.
 	defaultWaitDuration = 5 * time.Minute
+	// defaultPollInterval is how often the waits done in Go check again.
+	defaultPollInterval = 3 * time.Second
+	// renderedManifestsDir is where the suite writes the manifests it
+	// deploys, so that the tracked ones stay untouched.
+	renderedManifestsDir = "build/e2e-manifests"
+	// reDeployDescription is the description of the test case which gets
+	// replaced for the namespaced operator.
+	reDeployDescription = "Seccomp: Re-deploy the operator"
 )
 
-// testCase define a type for a e2e test case.
+// testCase is an end-to-end test case. Each test case cleans up on its own
+// and leaves a working operator behind.
+//
+// Flaky test cases are quarantined: TestSecurityProfilesOperator_Flaky runs
+// them, and make test-flaky-e2e retries them once when they fail, while
+// TestSecurityProfilesOperator runs all others. A test case gets quarantined
+// or promoted by flipping flaky, see doc/hacking.md.
 type testCase struct {
 	description string
 	fn          func(nodes []string)
+	// flaky quarantines the test case.
+	flaky bool
+	// issue says why the test case is quarantined, ideally the link of the
+	// issue which tracks it.
+	issue string
+	// clusterWideOnly skips the test case for the namespaced operator.
+	clusterWideOnly bool
 }
 
+// testCases returns all test cases in the order they run.
+func (e *e2e) testCases() []testCase {
+	return []testCase{
+		{
+			description: "Seccomp: Verify default and example profiles",
+			fn:          e.testCaseDefaultAndExampleProfiles,
+		},
+		{
+			description: "Seccomp: Verify base profile merge",
+			fn:          e.testCaseBaseProfile,
+		},
+		{
+			description: "Seccomp: Verify runtime format OCI base profile",
+			fn:          e.testCaseBaseProfileOCIRuntimeFormat,
+		},
+		{
+			description: "Seccomp: Allowed syscalls",
+			fn:          e.testCaseAllowedSyscalls,
+		},
+		{
+			description: "Seccomp: Delete profiles",
+			fn:          e.testCaseDeleteProfiles,
+		},
+		{
+			description: reDeployDescription,
+			fn:          e.testCaseReDeployOperator,
+		},
+		{
+			description: "Log Enricher",
+			fn:          e.testCaseLogEnricher,
+		},
+		{
+			description: "Log Enricher (BPF Source)",
+			fn:          e.testCaseLogEnricherBpf,
+		},
+		{
+			description: "JSON Enricher",
+			fn:          e.testCaseJsonEnricher,
+		},
+		{
+			description: "Log Enricher with filters",
+			fn:          e.testCaseLogEnricherWithFilters,
+		},
+		{
+			description: "JSON Enricher File Options",
+			fn:          e.testCaseJsonEnricherFileOptions,
+		},
+		{
+			description: "SELinux: base case (install policy, run pod and delete)",
+			fn:          e.testCaseSelinuxBaseUsage,
+		},
+		{
+			description: "SELinux: base case (install policy, run pod and delete) for the raw CR",
+			fn:          e.testCaseRawSelinuxBaseUsage,
+		},
+		{
+			description: "SELinux: non-default template",
+			fn:          e.testCaseSelinuxNonDefaultTemplate,
+		},
+		{
+			description: "SELinux: Metrics (update, delete)",
+			fn:          e.testCaseSelinuxMetrics,
+			flaky:       true,
+			issue:       nodeAwareMetricsIssue,
+		},
+		{
+			description: "SPOD: Update SELinux flag",
+			fn:          e.testCaseSPODUpdateSelinux,
+		},
+		{
+			description: "SPOD: Change verbosity",
+			fn:          e.testCaseVerbosityChange,
+		},
+		{
+			description: "SPOD: Change profiling",
+			fn:          e.testCaseProfilingChange,
+		},
+		{
+			description: "SPOD: Profiling server protocol",
+			fn:          e.testCaseProfilingHTTP,
+		},
+		{
+			description: "SPOD: Enable memory optimization",
+			fn:          e.testCaseMemOptmEnable,
+		},
+		{
+			description: "SPOD: Change resource requirements",
+			fn:          e.testCaseResourceRequirementsChange,
+		},
+		{
+			description: "Seccomp: make sure statuses for profiles with long names can be listed",
+			fn:          e.testCaseLongSeccompProfileName,
+		},
+		{
+			description: "SPOD: Change webhook config",
+			fn:          e.testCaseWebhookOptionsChange,
+		},
+		{
+			description: "SPOD: Enable profile recorder",
+			fn:          e.testCaseSPODEnableProfileRecorder,
+		},
+		{
+			description: "TLS: Verify TLS profile on OpenShift",
+			fn:          e.testCaseTLSProfileOpenShift,
+		},
+		{
+			description:     "Selinux: Verify profile binding: image",
+			fn:              func([]string) { e.testCaseSelinuxProfileBinding("busybox:latest") },
+			clusterWideOnly: true,
+		},
+		{
+			description:     "Selinux: Verify profile binding: wildcard",
+			fn:              func([]string) { e.testCaseSelinuxProfileBinding("'*'") },
+			clusterWideOnly: true,
+		},
+		{
+			description:     "Selinux: Verify profile binding: namespace not enabled",
+			fn:              func([]string) { e.testCaseSelinuxProfileBindingNsNotEnabled() },
+			clusterWideOnly: true,
+		},
+		{
+			description:     "Selinux: Verify the policy can be marked as permissive: enforcing",
+			fn:              func([]string) { e.testCaseSelinuxIncompletePolicy() },
+			clusterWideOnly: true,
+		},
+		{
+			description:     "Selinux: Verify the policy can be marked as permissive: permissive",
+			fn:              func([]string) { e.testCaseSelinuxIncompletePermissivePolicy() },
+			clusterWideOnly: true,
+		},
+		{
+			description:     "Selinux: Verify the policy can be marked as permissive: disabled",
+			fn:              func([]string) { e.testCaseSelinuxIncompleteDisabledPolicy() },
+			clusterWideOnly: true,
+		},
+		{
+			description:     "Selinux: Verify SELinux profile recording logs: static pod",
+			fn:              func([]string) { e.testCaseProfileRecordingStaticPodSELinuxLogs() },
+			clusterWideOnly: true,
+		},
+		{
+			description:     "Selinux: Verify SELinux profile recording logs: multiple containers",
+			fn:              func([]string) { e.testCaseProfileRecordingMultiContainerSELinuxLogs() },
+			clusterWideOnly: true,
+		},
+		{
+			description:     "Selinux: Verify SELinux profile recording logs: deployment",
+			fn:              func([]string) { e.testCaseProfileRecordingSelinuxDeploymentLogs() },
+			clusterWideOnly: true,
+		},
+		{
+			description:     "Selinux: Verify SELinux profile recording logs: namespace not enabled",
+			fn:              func([]string) { e.testCaseProfileRecordingStaticPodSELinuxLogsNsNotEnabled() },
+			clusterWideOnly: true,
+		},
+		{
+			description:     "profile merging: seccomp bpf",
+			fn:              func([]string) { e.testSeccompBpfProfileMerging() },
+			clusterWideOnly: true,
+		},
+		{
+			description:     "profile merging: seccomp logs",
+			fn:              func([]string) { e.testSeccompLogsProfileMerging() },
+			clusterWideOnly: true,
+		},
+		{
+			description:     "profile merging: selinux logs",
+			fn:              func([]string) { e.testSelinuxLogsProfileMerging() },
+			clusterWideOnly: true,
+		},
+		{
+			description:     "profile merging: selinux logs disabled",
+			fn:              func([]string) { e.testSelinuxLogsDisabledProfileMerging() },
+			clusterWideOnly: true,
+		},
+		{
+			description: "Seccomp: Metrics",
+			fn:          e.testCaseSeccompMetrics,
+			flaky:       true,
+			issue:       nodeAwareMetricsIssue,
+		},
+		{
+			description: "SPOD: Test webhook HTTP version",
+			fn:          e.testCaseWebhookHTTP,
+			flaky:       true,
+			issue:       untrackedIssue,
+		},
+		{
+			description: "SPOD: Test Metrics HTTP version",
+			fn:          e.testCaseMetricsHTTP,
+			flaky:       true,
+			issue:       untrackedIssue,
+		},
+		{
+			description: "Seccomp: Verify profile binding: image",
+			fn: func(nodes []string) {
+				e.testCaseSeccompProfileBinding(
+					nodes, "quay.io/security-profiles-operator/test-hello-world:latest",
+				)
+			},
+			flaky:           true,
+			issue:           bindingIssue,
+			clusterWideOnly: true,
+		},
+		{
+			description:     "Seccomp: Verify profile binding: wildcard",
+			fn:              func(nodes []string) { e.testCaseSeccompProfileBinding(nodes, "'*'") },
+			flaky:           true,
+			issue:           bindingIssue,
+			clusterWideOnly: true,
+		},
+		{
+			description:     "Seccomp: Verify profile recording logs: static pod",
+			fn:              func([]string) { e.testCaseProfileRecordingStaticPodLogs() },
+			flaky:           true,
+			issue:           untrackedIssue,
+			clusterWideOnly: true,
+		},
+		{
+			description:     "Seccomp: Verify profile recording logs: multiple containers",
+			fn:              func([]string) { e.testCaseProfileRecordingMultiContainerLogs() },
+			flaky:           true,
+			issue:           untrackedIssue,
+			clusterWideOnly: true,
+		},
+		{
+			description:     "Seccomp: Verify profile recording logs: specific container",
+			fn:              func([]string) { e.testCaseProfileRecordingSpecificContainerLogs() },
+			flaky:           true,
+			issue:           untrackedIssue,
+			clusterWideOnly: true,
+		},
+		{
+			description:     "Seccomp: Verify profile recording logs: deployment",
+			fn:              func([]string) { e.testCaseProfileRecordingDeploymentLogs() },
+			flaky:           true,
+			issue:           untrackedIssue,
+			clusterWideOnly: true,
+		},
+		{
+			description:     "Seccomp: Verify profile recording logs: finalizers",
+			fn:              func([]string) { e.testCaseRecordingFinalizers() },
+			flaky:           true,
+			issue:           untrackedIssue,
+			clusterWideOnly: true,
+		},
+		{
+			description:     "Seccomp: Verify profile recording logs: deployment scale up and down",
+			fn:              func([]string) { e.testCaseProfileRecordingDeploymentScaleUpDownLogs() },
+			flaky:           true,
+			issue:           untrackedIssue,
+			clusterWideOnly: true,
+		},
+		{
+			description:     "Seccomp: Verify profile recording logs: memory optimization",
+			fn:              func([]string) { e.testCaseProfileRecordingWithMemoryOptimization() },
+			flaky:           true,
+			issue:           untrackedIssue,
+			clusterWideOnly: true,
+		},
+		{
+			description:     "Seccomp: Verify profile recording bpf: kubectl run",
+			fn:              func([]string) { e.testCaseBpfRecorderKubectlRun() },
+			flaky:           true,
+			issue:           untrackedIssue,
+			clusterWideOnly: true,
+		},
+		{
+			description:     "Seccomp: Verify profile recording bpf: static pod",
+			fn:              func([]string) { e.testCaseBpfRecorderStaticPod() },
+			flaky:           true,
+			issue:           untrackedIssue,
+			clusterWideOnly: true,
+		},
+		{
+			description:     "Seccomp: Verify profile recording bpf: multiple containers",
+			fn:              func([]string) { e.testCaseBpfRecorderMultiContainer() },
+			flaky:           true,
+			issue:           untrackedIssue,
+			clusterWideOnly: true,
+		},
+		{
+			description:     "Seccomp: Verify profile recording bpf: deployment",
+			fn:              func([]string) { e.testCaseBpfRecorderDeployment() },
+			flaky:           true,
+			issue:           untrackedIssue,
+			clusterWideOnly: true,
+		},
+		{
+			description:     "Seccomp: Verify profile recording bpf: parallel",
+			fn:              func([]string) { e.testCaseBpfRecorderParallel() },
+			flaky:           true,
+			issue:           untrackedIssue,
+			clusterWideOnly: true,
+		},
+		{
+			description:     "Seccomp: Verify profile recording bpf: select container",
+			fn:              func([]string) { e.testCaseBpfRecorderSelectContainer() },
+			flaky:           true,
+			issue:           untrackedIssue,
+			clusterWideOnly: true,
+		},
+		{
+			description:     "Seccomp: Verify profile recording bpf: memory optimization",
+			fn:              func([]string) { e.testCaseBpfRecorderWithMemoryOptimization() },
+			flaky:           true,
+			issue:           untrackedIssue,
+			clusterWideOnly: true,
+		},
+		{
+			description:     "SPOD: Upgrade from the previous release",
+			fn:              e.testCaseUpgradeFromPreviousRelease,
+			flaky:           true,
+			issue:           newTestCaseIssue,
+			clusterWideOnly: true,
+		},
+		{
+			description:     "SPOD: Webhook down",
+			fn:              e.testCaseWebhookDown,
+			flaky:           true,
+			issue:           newTestCaseIssue,
+			clusterWideOnly: true,
+		},
+	}
+}
+
+const (
+	// untrackedIssue marks the test cases which were quarantined before the
+	// quarantine got tracked per test case.
+	untrackedIssue = "quarantined as a group before, no issue filed yet"
+	// bindingIssue is why the binding test cases do not run for the
+	// namespaced operator.
+	bindingIssue = "the webhook certificates of the namespaced operator are not ready in time"
+	// nodeAwareMetricsIssue marks the metrics test cases, which only ran on
+	// single node clusters before they scraped the daemons of all nodes.
+	nodeAwareMetricsIssue = "scrapes the daemons of all nodes now, promote it once it passes reliably in CI"
+	// newTestCaseIssue marks new test cases, until they proved to be stable.
+	newTestCaseIssue = "new test case, promote it once it passes reliably in CI"
+)
+
 func (e *e2e) TestSecurityProfilesOperator() {
+	e.runTestCases(false)
+}
+
+func (e *e2e) TestSecurityProfilesOperator_Flaky() {
+	if e.skipFlakyTests {
+		e.T().Skip("Skipping the quarantined test cases, E2E_SKIP_FLAKY_TESTS is set")
+
+		return
+	}
+
+	// If we ran the non-flaky tests before, we would have ran them with the
+	// context set to the test-ns namespace. Reset the context.
+	e.kubectl("config", "set-context", "--current", "--namespace", config.OperatorName)
+
+	e.runTestCases(true)
+}
+
+// runTestCases runs the quarantined or the other test cases against the
+// cluster wide and then the namespaced operator.
+func (e *e2e) runTestCases(quarantined bool) {
+	testCases := slices.DeleteFunc(e.testCases(), func(tc testCase) bool {
+		return tc.flaky != quarantined
+	})
+
 	e.waitForReadyPods()
 
 	// Deploy prerequisites
@@ -64,150 +452,28 @@ func (e *e2e) TestSecurityProfilesOperator() {
 	// Retrieve the inputs for the test cases
 	nodes := e.getWorkerNodes()
 
-	// Execute the test cases. Each test case should cleanup on its own and
-	// leave a working operator behind.
 	e.logf("testing cluster-wide operator")
-
-	testCases := []testCase{
-		{
-			"Seccomp: Verify default and example profiles",
-			e.testCaseDefaultAndExampleProfiles,
-		},
-		{
-			"Seccomp: Verify base profile merge",
-			e.testCaseBaseProfile,
-		},
-		{
-			"Seccomp: Verify runtime format OCI base profile",
-			e.testCaseBaseProfileOCIRuntimeFormat,
-		},
-		{
-			"Seccomp: Allowed syscalls",
-			e.testCaseAllowedSyscalls,
-		},
-		{
-			"Seccomp: Delete profiles",
-			e.testCaseDeleteProfiles,
-		},
-		{
-			"Seccomp: Re-deploy the operator",
-			e.testCaseReDeployOperator,
-		},
-		{
-			"Log Enricher",
-			e.testCaseLogEnricher,
-		},
-		{
-			"Log Enricher (BPF Source)",
-			e.testCaseLogEnricherBpf,
-		},
-		{
-			"JSON Enricher",
-			e.testCaseJsonEnricher,
-		},
-		{
-			"Log Enricher with filters",
-			e.testCaseLogEnricherWithFilters,
-		},
-		{
-			"JSON Enricher File Options",
-			e.testCaseJsonEnricherFileOptions,
-		},
-		{
-			"SELinux: base case (install policy, run pod and delete)",
-			e.testCaseSelinuxBaseUsage,
-		},
-		{
-			"SELinux: base case (install policy, run pod and delete) for the raw CR",
-			e.testCaseRawSelinuxBaseUsage,
-		},
-		{
-			"SELinux: non-default template",
-			e.testCaseSelinuxNonDefaultTemplate,
-		},
-		{
-			"SELinux: Metrics (update, delete)",
-			e.testCaseSelinuxMetrics,
-		},
-		{
-			"SPOD: Update SELinux flag",
-			e.testCaseSPODUpdateSelinux,
-		},
-		{
-			"SPOD: Change verbosity",
-			e.testCaseVerbosityChange,
-		},
-		{
-			"SPOD: Change profiling",
-			e.testCaseProfilingChange,
-		},
-		{
-			"SPOD: Profiling server protocol",
-			e.testCaseProfilingHTTP,
-		},
-		{
-			"SPOD: Enable memory optimization",
-			e.testCaseMemOptmEnable,
-		},
-		{
-			"SPOD: Change resource requirements",
-			e.testCaseResourceRequirementsChange,
-		},
-		{
-			"Seccomp: make sure statuses for profiles with long names can be listed",
-			e.testCaseLongSeccompProfileName,
-		},
-		{
-			"SPOD: Change webhook config",
-			e.testCaseWebhookOptionsChange,
-		},
-		{
-			"SPOD: Enable profile recorder",
-			e.testCaseSPODEnableProfileRecorder,
-		},
-		{
-			"TLS: Verify TLS profile on OpenShift",
-			e.testCaseTLSProfileOpenShift,
-		},
-	}
-	for _, testCase := range testCases {
-		tc := testCase
-		e.Run("cluster-wide: "+tc.description, func() {
-			tc.fn(nodes)
-		})
-	}
-
-	e.Run("cluster-wide: Selinux: Verify profile binding", func() {
-		e.testCaseSelinuxProfileBinding("busybox:latest")
-		e.testCaseSelinuxProfileBinding("'*'")
-		e.testCaseSelinuxProfileBindingNsNotEnabled()
-	})
-
-	e.Run("cluster-wide: Selinux: Verify the policy can be marked as permissive", func() {
-		e.testCaseSelinuxIncompletePolicy()
-		e.testCaseSelinuxIncompletePermissivePolicy()
-		e.testCaseSelinuxIncompleteDisabledPolicy()
-	})
-
-	e.Run("cluster-wide: Selinux: Verify SELinux profile recording logs", func() {
-		e.testCaseProfileRecordingStaticPodSELinuxLogs()
-		e.testCaseProfileRecordingMultiContainerSELinuxLogs()
-		e.testCaseProfileRecordingSelinuxDeploymentLogs()
-		e.testCaseProfileRecordingStaticPodSELinuxLogsNsNotEnabled()
-	})
-
-	e.Run("cluster-wide: profile merging", func() {
-		e.testSeccompBpfProfileMerging()
-		e.testSeccompLogsProfileMerging()
-		e.testSelinuxLogsProfileMerging()
-		e.testSelinuxLogsDisabledProfileMerging()
-	})
+	e.runTestCasesWithPrefix("cluster-wide", testCases, nodes)
 
 	// Clean up cluster-wide deployment to prepare for namespace deployment
 	e.cleanupOperator(e.operatorManifest)
-	e.run("git", "checkout", e.operatorManifest)
+	e.resetManifest(e.operatorManifest)
 
 	e.testNamespacedOperator(namespaceManifest, testNamespace, testCases, nodes)
+}
+
+// runTestCasesWithPrefix runs each test case as sub test, named after its
+// description with the prefix.
+func (e *e2e) runTestCasesWithPrefix(prefix string, testCases []testCase, nodes []string) {
+	for _, tc := range testCases {
+		e.Run(prefix+": "+tc.description, func() {
+			if tc.flaky {
+				e.logf("Running quarantined test case: %s", tc.issue)
+			}
+
+			tc.fn(nodes)
+		})
+	}
 }
 
 func (e *e2e) testNamespacedOperator(
@@ -221,13 +487,23 @@ func (e *e2e) testNamespacedOperator(
 
 	e.logf("testing namespace operator")
 
-	for i := range testCases {
-		// Replace re-deploy the operator with a namespaced alternative.
-		// This has to assign through the slice: ranging by value would only
-		// mutate a copy and leave the cluster-wide case in place.
-		if testCases[i].description == "Seccomp: Re-deploy the operator" {
-			testCases[i].fn = e.testCaseReDeployNamespaceOperator
+	namespacedTestCases := make([]testCase, 0, len(testCases))
+
+	for _, tc := range testCases {
+		if tc.clusterWideOnly {
+			continue
 		}
+
+		// Replace re-deploy the operator with a namespaced alternative.
+		if tc.description == reDeployDescription {
+			tc.fn = e.testCaseReDeployNamespaceOperator
+		}
+
+		namespacedTestCases = append(namespacedTestCases, tc)
+	}
+
+	if len(namespacedTestCases) == 0 {
+		return
 	}
 
 	// Deploy the namespace operator
@@ -246,15 +522,10 @@ func (e *e2e) testNamespacedOperator(
 
 	e.deployOperator(manifest)
 
-	for _, testCase := range testCases {
-		tc := testCase
-		e.Run("namespaced: "+tc.description, func() {
-			tc.fn(nodes)
-		})
-	}
+	e.runTestCasesWithPrefix("namespaced", namespacedTestCases, nodes)
 
 	e.cleanupOperator(e.operatorManifest)
-	e.run("git", "checkout", manifest)
+	e.resetManifest(manifest)
 	e.kubectl("delete", "namespace", namespace)
 }
 
@@ -269,7 +540,6 @@ func doDeployCertManager(e *e2e) {
 		"pod", "-l", "app.kubernetes.io/instance=cert-manager",
 	)
 
-	tries := 20
 	certManifest := `
 apiVersion: v1
 kind: Namespace
@@ -304,16 +574,12 @@ spec:
 
 	defer os.Remove(file.Name())
 
-	for range tries {
-		output, err := command.New(e.kubectlPath, "apply", "-f", file.Name()).Run()
-		e.Require().NoError(err)
+	// The cert-manager webhook takes a while to serve after its pod is ready.
+	e.eventually(defaultWaitDuration, defaultWaitTime, func() error {
+		_, err := e.kubectlCommand("apply", "-f", file.Name())
 
-		if output.Success() {
-			break
-		}
-
-		time.Sleep(defaultWaitTime)
-	}
+		return err
+	})
 
 	e.waitFor(
 		"condition=Ready",
@@ -322,7 +588,41 @@ spec:
 	)
 }
 
-func (e *e2e) updateManifest(path, src, repl string) {
+// renderedManifest returns the path of the copy of the tracked manifest,
+// which the suite modifies and deploys, so that the tracked manifest stays
+// untouched. The copy gets created on first use.
+func (e *e2e) renderedManifest(manifest string) string {
+	if path, ok := e.renderedManifests[manifest]; ok {
+		return path
+	}
+
+	content, err := os.ReadFile(manifest)
+	e.Require().NoError(err)
+	e.Require().NoError(os.MkdirAll(renderedManifestsDir, 0o755))
+
+	path := filepath.Join(renderedManifestsDir, filepath.Base(manifest))
+	e.Require().NoError(os.WriteFile(path, content, 0o600))
+
+	if e.renderedManifests == nil {
+		e.renderedManifests = map[string]string{}
+	}
+
+	e.renderedManifests[manifest] = path
+
+	return path
+}
+
+// resetManifest drops the changes of the copy of the manifest, the next use
+// copies the tracked manifest again.
+func (e *e2e) resetManifest(manifest string) {
+	delete(e.renderedManifests, manifest)
+}
+
+// updateManifest replaces the regular expression src with repl in the copy of
+// the manifest, see renderedManifest.
+func (e *e2e) updateManifest(manifest, src, repl string) {
+	path := e.renderedManifest(manifest)
+
 	content, err := os.ReadFile(path)
 	e.Require().NoError(err)
 
@@ -333,6 +633,28 @@ func (e *e2e) updateManifest(path, src, repl string) {
 }
 
 func (e *e2e) deployOperator(manifest string) {
+	e.createOperator(e.prepareManifest(manifest))
+	e.waitForOperator()
+}
+
+// createOperator creates the objects of the operator manifest at the path and
+// applies the SPOD configuration of the suite.
+func (e *e2e) createOperator(path string) {
+	// Deploy the operator
+	e.logf("Deploying operator")
+	e.kubectl("create", "-f", path)
+
+	// Update the default SPOD configuration
+	if e.spodConfig != "" {
+		e.logf("Updating SPOD config")
+		// Apply this server-side to avoid conflicts with the default configuration
+		e.kubectl("apply", "--server-side", "--force-conflicts", "-f", e.spodConfig)
+	}
+}
+
+// prepareManifest points the copy of the manifest to the images under test,
+// and returns its path.
+func (e *e2e) prepareManifest(manifest string) string {
 	// Ensure that we do not accidentally pull the image and use the pre-loaded
 	// ones from the nodes
 	e.logf("Setting imagePullPolicy to '%s' in manifest: %s", e.pullPolicy, manifest)
@@ -347,17 +669,12 @@ func (e *e2e) deployOperator(manifest string) {
 		e.updateManifest(manifest, "enableSelinux: false", "enableSelinux: true")
 	}
 
-	// Deploy the operator
-	e.logf("Deploying operator")
-	e.kubectl("create", "-f", manifest)
+	return e.renderedManifest(manifest)
+}
 
-	// Update the default SPOD configuration
-	if e.spodConfig != "" {
-		e.logf("Updating SPOD config")
-		// Apply this server-side to avoid conflicts with the default configuration
-		e.kubectl("apply", "--server-side", "--force-conflicts", "-f", e.spodConfig)
-	}
-
+// waitForOperator waits until the operator, its webhook and the spod are
+// ready.
+func (e *e2e) waitForOperator() {
 	// Wait for the operator to be ready
 	e.logf("Waiting for operator to be ready")
 	// Wait for deployment
@@ -378,23 +695,11 @@ func (e *e2e) deployOperator(manifest string) {
 	// Wait for spod to be available. Bounded on purpose: an unbounded loop here
 	// can only end at the go test timeout, which reports a whole-suite timeout
 	// rather than the step that actually got stuck.
-	deadline := time.Now().Add(defaultWaitDuration)
+	e.eventually(defaultWaitDuration, time.Second, func() error {
+		_, err := e.kubectlCommand("-n", config.OperatorName, "get", "spod", "spod")
 
-	for {
-		if res, err := command.New(
-			e.kubectlPath, "-n", config.OperatorName, "get", "spod", "spod",
-		).Run(); err == nil && res.Success() {
-			return
-		}
-
-		if time.Now().After(deadline) {
-			e.Fail("timed out waiting for the spod resource to become available")
-
-			return
-		}
-
-		time.Sleep(time.Second)
-	}
+		return err
+	})
 }
 
 func (e *e2e) getWorkerNodes() []string {
@@ -444,16 +749,14 @@ func (e *e2e) getSeccompProfileNodeStatus(
 func (e *e2e) waitForProfileActivePodsFinalizer(name string) {
 	e.logf("Waiting for active-pods finalizer on profile %s", name)
 
-	for range 30 {
-		sp := e.getSeccompProfile(name)
-		if slices.Contains(sp.GetFinalizers(), "in-use-by-active-pods") {
-			return
+	e.eventually(30*time.Second, time.Second, func() error {
+		finalizers := e.getSeccompProfile(name).GetFinalizers()
+		if !slices.Contains(finalizers, "in-use-by-active-pods") {
+			return fmt.Errorf("no active-pods finalizer in %v", finalizers)
 		}
 
-		time.Sleep(time.Second)
-	}
-
-	e.Fail("timed out waiting for active-pods finalizer")
+		return nil
+	})
 }
 
 func (e *e2e) getAllSeccompProfileNodeStatuses(
@@ -503,26 +806,68 @@ func (e *e2e) writeAndDo(verb, manifest, filePattern string) {
 	e.kubectl(verb, "-f", file.Name())
 }
 
-// eventually polls cond every interval until it returns nil. Once the timeout
-// passes, it fails the test with the last error of cond, so that the failure
-// says what never happened.
-func (e *e2e) eventually(timeout, interval time.Duration, cond func() error) {
+// waitForPodCreated waits until the containers of the pod got created.
+func (e *e2e) waitForPodCreated(name string) {
+	e.eventually(defaultWaitDuration, time.Second, func() error {
+		if output := e.kubectl("get", "pod", name); strings.Contains(output, "ContainerCreating") {
+			return fmt.Errorf("the containers of pod %s are still being created", name)
+		}
+
+		return nil
+	})
+}
+
+// poll calls cond every interval until it returns nil, or returns the last
+// error of cond once the timeout passes.
+func poll(timeout, interval time.Duration, cond func() error) error {
 	deadline := time.Now().Add(timeout)
 
 	for {
 		err := cond()
 		if err == nil {
-			return
+			return nil
 		}
 
 		if time.Now().After(deadline) {
-			e.Failf("condition not met", "gave up after %s: %v", timeout, err)
-
-			return
+			return fmt.Errorf("gave up after %s: %w", timeout, err)
 		}
 
 		time.Sleep(interval)
 	}
+}
+
+// eventually polls cond every interval until it returns nil. Once the timeout
+// passes, it fails the test with the last error of cond, so that the failure
+// says what never happened.
+func (e *e2e) eventually(timeout, interval time.Duration, cond func() error) {
+	if err := poll(timeout, interval, cond); err != nil {
+		e.Failf("condition not met", "%v", err)
+	}
+}
+
+// requireEventually is eventually, but stops the test when cond is never met.
+func (e *e2e) requireEventually(timeout, interval time.Duration, cond func() error) {
+	if err := poll(timeout, interval, cond); err != nil {
+		e.FailNowf("condition not met", "%v", err)
+	}
+}
+
+// kubectlCleanup deletes the objects once the current test ends, also if it
+// failed. A failed delete is only logged, so that it does not skip the other
+// cleanups like a failed deferred kubectl call does. The namespace is the one
+// of the current context now, since the test may switch the context before it
+// ends.
+func (e *e2e) kubectlCleanup(args ...string) {
+	namespace := e.getCurrentContextNamespace(defaultNamespace)
+	cmd := withDeleteTimeout(append(
+		[]string{"delete", "--ignore-not-found", "--namespace", namespace}, args...,
+	))
+
+	e.T().Cleanup(func() {
+		if _, err := e.kubectlCommand(cmd...); err != nil {
+			e.logf("Cleanup failed: kubectl %s: %v", strings.Join(cmd, " "), err)
+		}
+	})
 }
 
 // unmatchedLogs returns an error which lists the conditions no line of the
@@ -567,42 +912,44 @@ func (e *e2e) getSELinuxPolicyUsage(kind, policy string) string {
 }
 
 func (e *e2e) waitForSpod() {
-	for i := range 50 {
+	e.eventually(150*time.Second, defaultPollInterval, func() error {
 		output, err := command.New(
 			e.kubectlPath, "-n", config.OperatorName,
 			"get", "pod", "-l", "name=spod",
 		).RunSilent()
-		e.Require().NoError(err)
-
-		if !strings.Contains(output.Error(), "No resources found") {
-			return
+		if err != nil {
+			return fmt.Errorf("listing the spod pods: %w", err)
 		}
 
-		e.logf("Waiting for resource to be available (%d)", i)
-		time.Sleep(3 * time.Second)
-	}
+		if strings.Contains(output.Error(), "No resources found") {
+			return errors.New("no spod pods")
+		}
 
-	e.Fail("Timed out to wait for resource")
+		return nil
+	})
 }
 
 func (e *e2e) retryGet(args ...string) string {
-	for i := range 20 {
+	var result string
+
+	e.eventually(time.Minute, defaultPollInterval, func() error {
 		output, err := command.New(
 			e.kubectlPath, append([]string{"get"}, args...)...,
 		).RunSilent()
-		e.Require().NoError(err)
-
-		if !strings.Contains(output.Error(), "not found") {
-			return output.OutputTrimNL()
+		if err != nil {
+			return fmt.Errorf("kubectl get %s: %w", strings.Join(args, " "), err)
 		}
 
-		e.logf("Waiting for resource to be available (%d)", i)
-		time.Sleep(3 * time.Second)
-	}
+		if strings.Contains(output.Error(), "not found") {
+			return fmt.Errorf("kubectl get %s: %s", strings.Join(args, " "), output.Error())
+		}
 
-	e.Fail("Timed out to wait for resource")
+		result = output.OutputTrimNL()
 
-	return ""
+		return nil
+	})
+
+	return result
 }
 
 func (e *e2e) exists(args ...string) bool {

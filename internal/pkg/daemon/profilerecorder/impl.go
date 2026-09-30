@@ -35,6 +35,7 @@ import (
 	enricherapi "sigs.k8s.io/security-profiles-operator/api/grpc/enricher"
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher"
@@ -44,8 +45,21 @@ import (
 type defaultImpl struct{}
 
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../../hack/boilerplate/boilerplate.generatego.txt
-//counterfeiter:generate . impl
+
+// impl is everything the recorder does outside of its own logic, split by
+// concern so that the fakes stay small.
 type impl interface {
+	kubernetesImpl
+	bpfRecorderImpl
+	enricherImpl
+	profileImpl
+}
+
+// kubernetesImpl is the access to the Kubernetes API and the controller
+// manager.
+//
+//counterfeiter:generate . kubernetesImpl
+type kubernetesImpl interface {
 	NewClient(ctrl.Manager) (client.Client, error)
 	ClientGet(context.Context, client.Client, client.ObjectKey, client.Object) error
 	NewControllerManagedBy(
@@ -54,7 +68,22 @@ type impl interface {
 	ManagerGetClient(manager.Manager) client.Client
 	ManagerGetEventRecorder(manager.Manager, string) util.EventRecorder
 	GetPod(context.Context, client.Client, client.ObjectKey) (*corev1.Pod, error)
-	GetSPOD(context.Context, client.Client) (*spodapi.SecurityProfilesOperatorDaemon, error)
+	OperatorNamespace() (string, error)
+	GetSPOD(context.Context, client.Client, string) (*spodapi.SecurityProfilesOperatorDaemon, error)
+	CreateOrUpdate(
+		context.Context, client.Client, client.Object, controllerutil.MutateFn,
+	) (controllerutil.OperationResult, error)
+	ListRecordings(
+		context.Context,
+		client.Client,
+		string,
+	) (*profilerecordingapi.ProfileRecordingList, error)
+}
+
+// bpfRecorderImpl is the gRPC client of the BPF recorder.
+//
+//counterfeiter:generate . bpfRecorderImpl
+type bpfRecorderImpl interface {
 	DialBpfRecorder() (*grpc.ClientConn, error)
 	StartBpfRecorder(context.Context, bpfrecorderapi.BpfRecorderClient) error
 	StopBpfRecorder(context.Context, bpfrecorderapi.BpfRecorderClient) error
@@ -63,28 +92,6 @@ type impl interface {
 		bpfrecorderapi.BpfRecorderClient,
 		*bpfrecorderapi.ProfileRequest,
 	) (*bpfrecorderapi.SyscallsResponse, error)
-	CreateOrUpdate(
-		context.Context, client.Client, client.Object, controllerutil.MutateFn,
-	) (controllerutil.OperationResult, error)
-	GoArchToSeccompArch(string) (seccomp.Arch, error)
-	Syscalls(
-		context.Context, enricherapi.EnricherClient, *enricherapi.SyscallsRequest,
-	) (*enricherapi.SyscallsResponse, error)
-	ResetSyscalls(
-		context.Context, enricherapi.EnricherClient, *enricherapi.SyscallsRequest,
-	) error
-	Avcs(
-		context.Context, enricherapi.EnricherClient, *enricherapi.AvcRequest,
-	) (*enricherapi.AvcResponse, error)
-	ResetAvcs(
-		context.Context, enricherapi.EnricherClient, *enricherapi.AvcRequest,
-	) error
-	DialEnricher() (*grpc.ClientConn, error)
-	ListRecordings(
-		context.Context,
-		client.Client,
-		string,
-	) (*profilerecordingapi.ProfileRecordingList, error)
 	ApparmorForProfile(
 		context.Context,
 		bpfrecorderapi.BpfRecorderClient,
@@ -100,6 +107,32 @@ type impl interface {
 		bpfrecorderapi.BpfRecorderClient,
 		*bpfrecorderapi.ProfileRequest,
 	) error
+}
+
+// enricherImpl is the gRPC client of the log enricher.
+//
+//counterfeiter:generate . enricherImpl
+type enricherImpl interface {
+	DialEnricher() (*grpc.ClientConn, error)
+	Syscalls(
+		context.Context, enricherapi.EnricherClient, *enricherapi.SyscallsRequest,
+	) (*enricherapi.SyscallsResponse, error)
+	ResetSyscalls(
+		context.Context, enricherapi.EnricherClient, *enricherapi.SyscallsRequest,
+	) error
+	Avcs(
+		context.Context, enricherapi.EnricherClient, *enricherapi.AvcRequest,
+	) (*enricherapi.AvcResponse, error)
+	ResetAvcs(
+		context.Context, enricherapi.EnricherClient, *enricherapi.AvcRequest,
+	) error
+}
+
+// profileImpl builds the recorded profiles.
+//
+//counterfeiter:generate . profileImpl
+type profileImpl interface {
+	GoArchToSeccompArch(string) (seccomp.Arch, error)
 }
 
 func (*defaultImpl) NewClient(mgr ctrl.Manager) (client.Client, error) {
@@ -150,10 +183,14 @@ func (*defaultImpl) GetPod(
 	return pod, err
 }
 
+func (*defaultImpl) OperatorNamespace() (string, error) {
+	return config.TryToGetOperatorNamespace()
+}
+
 func (*defaultImpl) GetSPOD(
-	ctx context.Context, c client.Client,
+	ctx context.Context, c client.Client, namespace string,
 ) (*spodapi.SecurityProfilesOperatorDaemon, error) {
-	return common.GetSPOD(ctx, c)
+	return common.GetSPOD(ctx, c, namespace)
 }
 
 func (*defaultImpl) DialBpfRecorder() (*grpc.ClientConn, error) {

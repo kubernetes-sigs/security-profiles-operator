@@ -1,0 +1,28 @@
+# Configuration of the lychee link checker, see the docs job of the lint
+# workflow. Pull requests only check the links within the repository,
+# including the heading fragments, the scheduled run checks the external links
+# too. Root-relative links like /hack/ci/e2e-olm.sh point to the repository
+# root, which is passed with --root-dir because it must be absolute.
+
+include_fragments = "full"
+no_progress = true
+
+# Regular expressions of the paths not to check.
+exclude_path = [
+    "(^|/)vendor/",
+    "(^|/)node_modules/",
+    "(^|/)build/",
+    "(^|/)\\.claude/",
+]
+
+# Sites which reject automated requests or need a login.
+exclude = [
+    "^https://github\\.com/kubernetes-sigs/security-profiles-operator/(compare|pull|issues)/",
+    "^https://console\\.cloud\\.google\\.com/",
+    "^https://(www\\.)?linkedin\\.com/",
+]
+
+# Retries against flaky hosts.
+max_retries = 3
+retry_wait_time = 5
+accept = ["200..=299", "429"]

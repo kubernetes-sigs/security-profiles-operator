@@ -2,16 +2,29 @@
 set -euox pipefail
 
 CRUN_VERSION=1.30.1
+# Bump together with CRUN_VERSION, see dependencies.yaml.
+CRUN_SHA256_amd64=86d1e6a0e76945975d3aebfab39cbc6a26eea15f1c3fc66b6776d19e5dc346a0
+CRUN_SHA256_arm64=0ef30b0fbb494dc9c5303d46b091a84e27cb8ac99c985123fb1eb339854b69ea
 CRUN_BIN=/tmp/crun
+
+case "$(uname -m)" in
+x86_64) ARCH=amd64 CRUN_SHA256=$CRUN_SHA256_amd64 ;;
+aarch64) ARCH=arm64 CRUN_SHA256=$CRUN_SHA256_arm64 ;;
+*)
+    echo "Unsupported architecture $(uname -m)" >&2
+    exit 1
+    ;;
+esac
 
 # Current crun version
 crun --version
 
 # Download
-curl -sSfL --retry 5 --retry-delay 3 -o $CRUN_BIN \
-    https://github.com/containers/crun/releases/download/$CRUN_VERSION/crun-$CRUN_VERSION-linux-amd64
-chmod +x $CRUN_BIN
+curl -sSfL --retry 5 --retry-delay 3 -o "$CRUN_BIN" \
+    "https://github.com/containers/crun/releases/download/$CRUN_VERSION/crun-$CRUN_VERSION-linux-$ARCH"
+echo "$CRUN_SHA256  $CRUN_BIN" | sha256sum -c -
+chmod +x "$CRUN_BIN"
 
 # Override current crun
-sudo mv $CRUN_BIN "$(which crun)"
+sudo mv "$CRUN_BIN" "$(command -v crun)"
 crun --version

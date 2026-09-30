@@ -40,7 +40,7 @@ func (a *aaProfileManager) InstallProfile(profilebaseapi.StatusBaseUser, bool) (
 	return false, errAppArmorNotSupported
 }
 
-func loadProfile(logr.Logger, string, string) (bool, error) {
+func loadProfile(logr.Logger, string, string, bool) (bool, error) {
 	return false, errAppArmorNotSupported
 }
 

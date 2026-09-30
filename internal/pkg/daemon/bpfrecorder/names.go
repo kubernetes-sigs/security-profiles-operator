@@ -32,15 +32,18 @@ const (
 	mapSeccompInitialized  = "seccomp_initialized"
 	mapApparmorInitialized = "apparmor_initialized"
 	mapLostEvents          = "lost_events"
+	mapRecordedCaps        = "recorded_caps"
+	mapRecordedSockets     = "recorded_sockets"
 	globalFilterName       = "filter_name"
 	globalUseCgroupID      = "use_cgroup_id"
 	globalUseMntnsSeq      = "use_mntns_seq"
 	globalCaptureExecArgs  = "capture_exec_args"
+	globalInitComms        = "init_comms"
+	globalInitExePrefix    = "init_exe_prefix"
 	progSysEnterExecve     = "sys_enter_execve"
 	progSysEnterExecveat   = "sys_enter_execveat"
 	progSysEnterGetgid     = "sys_enter_getgid"
 	progSysEnter           = "sys_enter"
-	progSysEnterPrctl      = "sys_enter_prctl"
 	progSchedProcessExec   = "sched_process_exec"
 	progSchedProcessExit   = "sched_process_exit"
 	progSchedProcessFork   = "sched_process_fork"
@@ -59,11 +62,12 @@ var (
 	bpfMapNames = []string{
 		mapIsRecording, mapEvents, mapExcludeMntns, mapRecordedSyscalls,
 		mapActivePids, mapChildPids, mapExcludeKeys, mapSeccompInitialized,
-		mapApparmorInitialized, mapLostEvents,
+		mapApparmorInitialized, mapLostEvents, mapRecordedCaps, mapRecordedSockets,
 	}
 
 	bpfGlobalNames = []string{
 		globalFilterName, globalUseCgroupID, globalUseMntnsSeq, globalCaptureExecArgs,
+		globalInitComms, globalInitExePrefix,
 	}
 
 	// baseHooks are attached by the recorder in any case.
@@ -73,7 +77,6 @@ var (
 		progSysEnterExecve,
 		progSysEnterExecveat,
 		progSysEnterGetgid,
-		progSysEnterPrctl,
 		progSchedProcessExec,
 		progSchedProcessExit,
 	}

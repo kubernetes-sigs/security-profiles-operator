@@ -25,6 +25,10 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 )
 
+func uint32Ptr(v uint32) *uint32 {
+	return new(v)
+}
+
 func Test_isAuditLine(t *testing.T) {
 	t.Parallel()
 
@@ -123,6 +127,8 @@ func Test_extractAuditLine(t *testing.T) {
 				ProcessID:    3109464,
 				Executable:   "/bin/busybox",
 				Arch:         "c000003e",
+				Uid:          uint32Ptr(0),
+				Gid:          uint32Ptr(0),
 			},
 			nil,
 		},
@@ -137,6 +143,8 @@ func Test_extractAuditLine(t *testing.T) {
 				ProcessID:    2039886,
 				Executable:   "/bin/ls",
 				Arch:         "c000003e",
+				Uid:          uint32Ptr(0),
+				Gid:          uint32Ptr(0),
 			},
 			nil,
 		},
@@ -218,6 +226,8 @@ func Test_extractAuditLine(t *testing.T) {
 				ProcessID:    2039887,
 				Executable:   "/opt/my app/bin",
 				Arch:         "c000003e",
+				Uid:          uint32Ptr(0),
+				Gid:          uint32Ptr(0),
 			},
 			nil,
 		},
@@ -232,6 +242,8 @@ func Test_extractAuditLine(t *testing.T) {
 				ProcessID:    2039888,
 				Executable:   "/app32",
 				Arch:         "40000003",
+				Uid:          uint32Ptr(0),
+				Gid:          uint32Ptr(0),
 			},
 			nil,
 		},
@@ -247,6 +259,8 @@ func Test_extractAuditLine(t *testing.T) {
 				ProcessID:    2039886,
 				Executable:   "/bin/ls",
 				Arch:         "c000003e",
+				Uid:          uint32Ptr(0),
+				Gid:          uint32Ptr(0),
 			},
 			nil,
 		},
@@ -359,50 +373,58 @@ func Test_extractAuditLine(t *testing.T) {
 	}
 }
 
-func TestGetUidGid(t *testing.T) {
-	t.Parallel()
-
-	uid, gid, err := GetUidGid(
-		"auid=4294967295 uid=0 gid=0 ses=4294967295 " +
-			"subj=system_u:system_r:container_t:s0:c692,c728")
-	require.NoError(t, err)
-	require.Equal(t, uint32(0), uid)
-	require.Equal(t, uint32(0), gid)
-}
-
+// TestExtractAuditLineUidGid asserts that the uid and gid are parsed once with
+// the line, and left unset when the line carries none or invalid ones: a
+// default of 0 would attribute the record to root.
 func TestExtractAuditLineUidGid(t *testing.T) {
 	t.Parallel()
 
-	//nolint:lll // no need to wrap
-	auditLineTest := `audit: type=1326 audit(1612299677.115:549067): auid=4294967295 uid=0 gid=0 ses=4294967295 pid=3109464 comm="sh" exe="/bin/busybox" sig=0 arch=c000003e syscall=0 compat=0 ip=0x7fce771ae923 code=0x7ffc0000`
-	_, err := ExtractAuditLine(auditLineTest)
-	require.NoError(t, err)
+	const (
+		prefix = `audit: type=1326 audit(1612299677.115:549067): auid=4294967295 `
+		suffix = ` ses=4294967295 pid=3109464 comm="sh" exe="/bin/busybox" sig=0 ` +
+			`arch=c000003e syscall=0 compat=0 ip=0x7fce771ae923 code=0x7ffc0000`
+	)
 
-	uid, gid, errUidGid := GetUidGid(auditLineTest)
-	require.NoError(t, errUidGid)
-	require.Equal(t, uint32(0), uid)
-	require.Equal(t, uint32(0), gid)
+	for _, tc := range []struct {
+		name     string
+		fields   string
+		uid, gid *uint32
+	}{
+		{name: "root", fields: "uid=0 gid=0", uid: uint32Ptr(0), gid: uint32Ptr(0)},
+		{name: "user", fields: "uid=1000 gid=2000", uid: uint32Ptr(1000), gid: uint32Ptr(2000)},
+		{name: "missing", fields: ""},
+		{name: "only uid", fields: "uid=1000", uid: uint32Ptr(1000)},
+		{name: "invalid uid", fields: "uid=invalid gid=0", gid: uint32Ptr(0)},
+		{name: "invalid gid", fields: "uid=0 gid=invalid", uid: uint32Ptr(0)},
+		{name: "out of range", fields: "uid=4294967296 gid=-1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			line, err := ExtractAuditLine(prefix + tc.fields + suffix)
+			require.NoError(t, err)
+			require.Equal(t, tc.uid, line.Uid)
+			require.Equal(t, tc.gid, line.Gid)
+		})
+	}
 }
 
-func TestExtractAuditLineUidGidInvalidAuditLine(t *testing.T) {
+func TestExtractProcessID(t *testing.T) {
 	t.Parallel()
 
-	//nolint:lll // no need to wrap
-	auditLineTest := `audit: type=1326 audit(1612299677.115:549067): auid=4294967295 ses=4294967295 pid=3109464 comm="sh" exe="/bin/busybox" sig=0 arch=c000003e syscall=0 compat=0 ip=0x7fce771ae923 code=0x7ffc0000`
-	_, _, err := GetUidGid(auditLineTest)
-	require.Error(t, err)
-}
+	for raw, want := range map[string]int{
+		"42":         42,
+		"2147483647": 2147483647,
+		"-1":         0,
+		"0":          0,
+		"+1":         0,
+		"2147483648": 0,
+		"":           0,
+	} {
+		line := &types.AuditLine{}
+		ok := extractProcessID(line, raw)
 
-func TestExtractAuditLineUidGidInvalid(t *testing.T) {
-	t.Parallel()
-
-	//nolint:lll // no need to wrap
-	auditLineTest := `audit: type=1326 audit(1612299677.115:549067): auid=4294967295 uid=invalid gid=0 ses=4294967295 pid=3109464 comm="sh" exe="/bin/busybox" sig=0 arch=c000003e syscall=0 compat=0 ip=0x7fce771ae923 code=0x7ffc0000`
-	_, _, errUid := GetUidGid(auditLineTest)
-	require.Error(t, errUid)
-
-	//nolint:lll // no need to wrap
-	auditLineTest = `audit: type=1326 audit(1612299677.115:549067): auid=4294967295 uid=0 gid=invalid ses=4294967295 pid=3109464 comm="sh" exe="/bin/busybox" sig=0 arch=c000003e syscall=0 compat=0 ip=0x7fce771ae923 code=0x7ffc0000`
-	_, _, errGid := GetUidGid(auditLineTest)
-	require.Error(t, errGid)
+		require.Equal(t, want != 0, ok, raw)
+		require.Equal(t, want, line.ProcessID, raw)
+	}
 }

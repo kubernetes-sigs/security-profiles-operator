@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -79,6 +78,42 @@ func mergeMergeableProfiles(profiles []mergeableProfile) (mergeableProfile, erro
 
 type perContainerMergeableProfiles map[string][]mergeableProfile
 
+// partialProfileLabels selects the partial profiles of the recording.
+func partialProfileLabels(recording *profilerecordingapi.ProfileRecording) client.MatchingLabels {
+	return client.MatchingLabels{
+		profilerecordingapi.ProfileToRecordingLabel:          recording.Name,
+		profilerecordingapi.ProfileToRecordingNamespaceLabel: recording.Namespace,
+		profilebase.ProfilePartialLabel:                      "true",
+	}
+}
+
+// hasPartialProfiles returns whether the recording has partial profiles of
+// the list type which are not being deleted.
+func hasPartialProfiles(
+	ctx context.Context,
+	cli client.Client,
+	list client.ObjectList,
+	recording *profilerecordingapi.ProfileRecording,
+) (bool, error) {
+	if err := cli.List(ctx, list, partialProfileLabels(recording)); err != nil {
+		return false, fmt.Errorf("listing partial profiles for %s: %w", recording.Name, err)
+	}
+
+	found := false
+
+	if err := meta.EachListItem(list, func(obj runtime.Object) error {
+		if o, ok := obj.(metav1.Object); ok && o.GetDeletionTimestamp().IsZero() {
+			found = true
+		}
+
+		return nil
+	}); err != nil {
+		return false, fmt.Errorf("iterating over partial profiles: %w", err)
+	}
+
+	return found, nil
+}
+
 // listPartialProfiles returns the partial profiles of the recording grouped by
 // container, and a copy of every listed partial profile for the cleanup after
 // the merge.
@@ -88,14 +123,7 @@ func listPartialProfiles(
 	list client.ObjectList,
 	recording *profilerecordingapi.ProfileRecording,
 ) (perContainerMergeableProfiles, []client.Object, error) {
-	if err := cli.List(
-		ctx,
-		list,
-		client.MatchingLabels{
-			profilerecordingapi.ProfileToRecordingLabel:          recording.Name,
-			profilerecordingapi.ProfileToRecordingNamespaceLabel: recording.Namespace,
-			profilebase.ProfilePartialLabel:                      "true",
-		}); err != nil {
+	if err := cli.List(ctx, list, partialProfileLabels(recording)); err != nil {
 		return nil, nil, fmt.Errorf("listing partial profiles for %s: %w", recording.Name, err)
 	}
 
@@ -167,7 +195,9 @@ func MergeProfiles(
 // NormalizeProfile normalizes a profile's internal representation to match
 // the format produced by the merger library. For SeccompProfiles, this
 // converts multi-name syscall entries to single-name-per-entry format.
-// For AppArmorProfiles, string slices are sorted and capabilities are uppercased.
+// For AppArmorProfiles, string slices are sorted, capabilities are
+// lower-cased as the API requires and duplicate capabilities and ptrace
+// accesses are removed.
 func NormalizeProfile(obj client.Object) error {
 	switch p := obj.(type) {
 	case *seccompprofile.SeccompProfile:
@@ -205,11 +235,12 @@ func normalizeAppArmorProfile(ap *apparmorprofileapi.AppArmorProfile) {
 	}
 
 	if a.Capability != nil {
-		for i, c := range a.Capability.AllowedCapabilities {
-			a.Capability.AllowedCapabilities[i] = strings.ToUpper(c)
-		}
+		a.Capability.AllowedCapabilities = util.LowerCapabilities(a.Capability.AllowedCapabilities)
+	}
 
-		slices.Sort(a.Capability.AllowedCapabilities)
+	if a.Ptrace != nil && a.Ptrace.AllowedAccess != nil {
+		slices.Sort(a.Ptrace.AllowedAccess)
+		a.Ptrace.AllowedAccess = slices.Compact(a.Ptrace.AllowedAccess)
 	}
 }
 

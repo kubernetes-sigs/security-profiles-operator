@@ -50,6 +50,17 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 
 {{/*
+The reference of a selinuxd image: by digest when one is set, by tag otherwise.
+*/}}
+{{- define "security-profiles-operator.selinuxdImage" -}}
+{{- if .digest -}}
+{{ .registry }}/{{ .repository }}@{{ .digest }}
+{{- else -}}
+{{ .registry }}/{{ .repository }}:{{ .tag }}
+{{- end -}}
+{{- end }}
+
+{{/*
 Selector labels
 */}}
 {{- define "security-profiles-operator.selectorLabels" -}}

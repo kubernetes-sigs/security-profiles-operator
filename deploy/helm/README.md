@@ -29,8 +29,11 @@ please refer to [Installation Guide](https://github.com/kubernetes-sigs/security
 | enableProfiling | bool | `false` | enable profiling or not |
 | enableSelinux | bool | `false` | deprecated, use `selinux.enable` instead |
 | fullnameOverride | string | `""` | override the generated full name |
+| kubeletDir | string | `"/var/lib/kubelet"` | the kubelet root directory of the nodes, where the seccomp profiles get installed |
 | nameOverride | string | `""` | used for generating labels |
 | nodeSelector | object | `{}` | specify on which node to deploy the workload |
+| podDisruptionBudget.enabled | bool | `true` | create a PodDisruptionBudget for the operator deployment |
+| podDisruptionBudget.minAvailable | int or string | `1` | the operator replicas to keep during voluntary disruptions like node drains; with a single replica, `1` blocks the drain of its node |
 | podSecurityContext | object | `{"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}}` | pod security contexts |
 | replicaCount | int | `3` | the number of replicas of the pods |
 | restrictToNamespace | string | `""` | restrict the operator to a single namespace |
@@ -45,11 +48,13 @@ please refer to [Installation Guide](https://github.com/kubernetes-sigs/security
 | selinux.typeTag | string | `"spc_t"` | the SELinux type of the daemon pod |
 | selinuxdImage.{default,el8,el9,fedora}.registry | string | `"quay.io"` | the registry for the selinuxd images |
 | selinuxdImage.{default,el8,el9,fedora}.repository | string | `"security-profiles-operator/selinuxd"`, `"security-profiles-operator/selinuxd-el8"`, ... | the repository for the selinuxd images |
-| selinuxdImage.{default,el8,el9,fedora}.tag | string | `"latest"` | tag for the selinuxd images |
+| selinuxdImage.{default,el8,el9,fedora}.tag | string | `"latest"` | tag for the selinuxd images, only used when the digest is empty |
+| selinuxdImage.{default,el8,el9,fedora}.digest | string | the digest of the current `latest` tag | digest of the selinuxd images, set to `""` to use the tag |
 | spoImage.pullPolicy | string | `"Always"` | pull policy for spoImage |
 | spoImage.registry | string | `"us-central1-docker.pkg.dev"` | the registry for the spoImage |
 | spoImage.repository | string | `"k8s-staging-images/sp-operator/security-profiles-operator"` | the repository for the spoImage |
 | spoImage.tag | string | `"latest"` | tag for spoImage |
 | tolerations | list | `[]` | a list of pod tolerations rules |
+| topologySpreadConstraints | list | `ScheduleAnyway` spread with `maxSkew: 1` across `kubernetes.io/hostname` and `topology.kubernetes.io/zone` | topology spread constraints of the operator pods; constraints without `labelSelector` get the selector labels of the operator pods |
 | verbosity | int | `0` | the log level for the spo |
 | webhook.tolerations | list | `[]` | webhook tolerations (inherits daemon tolerations when empty) |

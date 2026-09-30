@@ -12,6 +12,7 @@ resources:
 - mutatingwebhookconfig.yaml
 - metrics_client.yaml
 - spod_job_policy.yaml
+- pdb.yaml
 
 configMapGenerator:
 - files:

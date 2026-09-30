@@ -70,7 +70,7 @@ metadata:
             "name": "profile-binding"
           },
           "spec": {
-            "image": "nginx:1.19.1",
+            "image": "nginx:1.23.2",
             "profileRef": {
               "kind": "SeccompProfile",
               "name": "profile-allow-unsafe"
@@ -258,8 +258,8 @@ metadata:
       ]
     capabilities: Basic Install
     categories: Security
-    containerImage: registry.k8s.io/security-profiles-operator/security-profiles-operator:v1.1.0
-    createdAt: "2026-09-25T06:44:34Z"
+    containerImage: us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator:latest
+    createdAt: "2026-09-30T12:45:19Z"
     olm.skipRange: '>=1.0.0 <1.1.1-dev'
     operatorframework.io/cluster-monitoring: "true"
     operatorframework.io/os.linux: supported
@@ -357,8 +357,11 @@ spec:
           resources:
           - mutatingwebhookconfigurations
           verbs:
+          - get
+          - list
           - patch
           - update
+          - watch
         - apiGroups:
           - admissionregistration.k8s.io
           resources:
@@ -368,9 +371,6 @@ spec:
           - validatingwebhookconfigurations
           verbs:
           - create
-          - get
-          - list
-          - watch
         - apiGroups:
           - admissionregistration.k8s.io
           resourceNames:
@@ -379,7 +379,10 @@ spec:
           - validatingadmissionpolicies
           - validatingadmissionpolicybindings
           verbs:
+          - get
+          - list
           - update
+          - watch
         - apiGroups:
           - admissionregistration.k8s.io
           resourceNames:
@@ -387,8 +390,11 @@ spec:
           resources:
           - validatingwebhookconfigurations
           verbs:
+          - get
+          - list
           - patch
           - update
+          - watch
         - apiGroups:
           - authentication.k8s.io
           resources:
@@ -405,11 +411,16 @@ spec:
           - config.openshift.io
           resources:
           - apiservers
-          - clusteroperators
           verbs:
           - get
           - list
           - watch
+        - apiGroups:
+          - config.openshift.io
+          resources:
+          - clusteroperators
+          verbs:
+          - get
         - apiGroups:
           - events.k8s.io
           resources:
@@ -427,7 +438,6 @@ spec:
           verbs:
           - create
           - delete
-          - deletecollection
           - get
           - list
           - patch
@@ -437,25 +447,18 @@ spec:
           - security-profiles-operator.x-k8s.io
           resources:
           - apparmorprofiles/finalizers
-          - rawselinuxprofiles/finalizers
-          - seccompprofiles/finalizers
-          - securityprofilesoperatordaemons/finalizers
-          - selinuxprofiles/finalizers
-          verbs:
-          - delete
-          - get
-          - patch
-          - update
-        - apiGroups:
-          - security-profiles-operator.x-k8s.io
-          resources:
           - apparmorprofiles/status
           - profilebindings/finalizers
           - profilebindings/status
+          - profilerecordings/finalizers
           - profilerecordings/status
+          - rawselinuxprofiles/finalizers
           - rawselinuxprofiles/status
+          - seccompprofiles/finalizers
           - seccompprofiles/status
+          - securityprofilesoperatordaemons/finalizers
           - securityprofilesoperatordaemons/status
+          - selinuxprofiles/finalizers
           - selinuxprofiles/status
           verbs:
           - get
@@ -466,7 +469,6 @@ spec:
           resources:
           - profilebindings
           - profilerecordings
-          - profilerecordings/finalizers
           verbs:
           - get
           - list
@@ -502,6 +504,12 @@ spec:
           - events
           verbs:
           - create
+        - apiGroups:
+          - ""
+          resources:
+          - pods
+          verbs:
+          - get
         - apiGroups:
           - authentication.k8s.io
           resources:
@@ -607,6 +615,7 @@ spec:
           resources:
           - apparmorprofiles
           - rawselinuxprofiles
+          - seccompprofiles
           - selinuxprofiles
           verbs:
           - create
@@ -619,21 +628,13 @@ spec:
           - security-profiles-operator.x-k8s.io
           resources:
           - apparmorprofiles/finalizers
-          - rawselinuxprofiles/finalizers
-          - seccompprofiles/finalizers
-          - selinuxprofiles/finalizers
-          verbs:
-          - delete
-          - get
-          - patch
-          - update
-        - apiGroups:
-          - security-profiles-operator.x-k8s.io
-          resources:
           - apparmorprofiles/status
+          - rawselinuxprofiles/finalizers
           - rawselinuxprofiles/status
+          - seccompprofiles/finalizers
           - seccompprofiles/status
           - securityprofilenodestatuses/status
+          - selinuxprofiles/finalizers
           - selinuxprofiles/status
           verbs:
           - get
@@ -652,7 +653,6 @@ spec:
         - apiGroups:
           - security-profiles-operator.x-k8s.io
           resources:
-          - seccompprofiles
           - securityprofilenodestatuses
           verbs:
           - create
@@ -695,13 +695,13 @@ spec:
                 - manager
                 env:
                 - name: RELATED_IMAGE_SELINUXD
-                  value: quay.io/security-profiles-operator/selinuxd
+                  value: quay.io/security-profiles-operator/selinuxd@sha256:f47bd24fb928bd0d168b86147e3536cf555c94fc5b85de3247fd16dad33f9460
                 - name: RELATED_IMAGE_SELINUXD_EL8
-                  value: quay.io/security-profiles-operator/selinuxd-el8:latest
+                  value: quay.io/security-profiles-operator/selinuxd-el8@sha256:e6e7febc76f5f032d42d35b98cc651354dd14ac5ae7b2a7d7403222788e41e4d
                 - name: RELATED_IMAGE_SELINUXD_EL9
-                  value: quay.io/security-profiles-operator/selinuxd-el9:latest
+                  value: quay.io/security-profiles-operator/selinuxd-el9@sha256:cddbd306c48ee8d19b8fb07b2acda1ee99cb3f1d9c3988f828d24b4f2de5ad3c
                 - name: RELATED_IMAGE_SELINUXD_FEDORA
-                  value: quay.io/security-profiles-operator/selinuxd-fedora:latest
+                  value: quay.io/security-profiles-operator/selinuxd-fedora@sha256:a5c36469e66bc44c32fc36d8d23571ed8903430233d32136b6272013a535627d
                 - name: OPERATOR_NAMESPACE
                   valueFrom:
                     fieldRef:
@@ -770,6 +770,21 @@ spec:
               - effect: NoExecute
                 key: node.kubernetes.io/not-ready
                 operator: Exists
+              topologySpreadConstraints:
+              - labelSelector:
+                  matchLabels:
+                    app: security-profiles-operator
+                    name: security-profiles-operator
+                maxSkew: 1
+                topologyKey: kubernetes.io/hostname
+                whenUnsatisfiable: ScheduleAnyway
+              - labelSelector:
+                  matchLabels:
+                    app: security-profiles-operator
+                    name: security-profiles-operator
+                maxSkew: 1
+                topologyKey: topology.kubernetes.io/zone
+                whenUnsatisfiable: ScheduleAnyway
       permissions:
       - rules:
         - apiGroups:
@@ -835,6 +850,17 @@ spec:
           - update
           - watch
         - apiGroups:
+          - policy
+          resources:
+          - poddisruptionbudgets
+          verbs:
+          - create
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
           - security.openshift.io
           resourceNames:
           - restricted-v2
@@ -876,6 +902,13 @@ spec:
           - use
         serviceAccountName: spo-webhook
       - rules:
+        - apiGroups:
+          - ""
+          resources:
+          - configmaps
+          - secrets
+          verbs:
+          - get
         - apiGroups:
           - batch
           resources:
@@ -923,13 +956,13 @@ spec:
     name: Kubernetes SIGs
     url: https://github.com/kubernetes-sigs
   relatedImages:
-  - image: quay.io/security-profiles-operator/selinuxd
+  - image: quay.io/security-profiles-operator/selinuxd@sha256:f47bd24fb928bd0d168b86147e3536cf555c94fc5b85de3247fd16dad33f9460
     name: selinuxd
-  - image: quay.io/security-profiles-operator/selinuxd-el8:latest
+  - image: quay.io/security-profiles-operator/selinuxd-el8@sha256:e6e7febc76f5f032d42d35b98cc651354dd14ac5ae7b2a7d7403222788e41e4d
     name: selinuxd-el8
-  - image: quay.io/security-profiles-operator/selinuxd-el9:latest
+  - image: quay.io/security-profiles-operator/selinuxd-el9@sha256:cddbd306c48ee8d19b8fb07b2acda1ee99cb3f1d9c3988f828d24b4f2de5ad3c
     name: selinuxd-el9
-  - image: quay.io/security-profiles-operator/selinuxd-fedora:latest
+  - image: quay.io/security-profiles-operator/selinuxd-fedora@sha256:a5c36469e66bc44c32fc36d8d23571ed8903430233d32136b6272013a535627d
     name: selinuxd-fedora
   replaces: security-profiles-operator.v1.0.0
   version: 1.1.1-dev

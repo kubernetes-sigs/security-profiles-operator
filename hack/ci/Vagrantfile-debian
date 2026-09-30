@@ -49,9 +49,12 @@ Vagrant.configure("2") do |config|
       }
 
       # Install Go
+      # The checksum comes from the Go download server, like in Dockerfile.ubi.
       GO_VERSION=go$(bash /vagrant/hack/go-version.sh /vagrant/go.mod)
-      curl -sSfL -o- https://go.dev/dl/$GO_VERSION.linux-amd64.tar.gz |
-        tar xfz - -C /usr/local
+      curl -sSfL --retry 5 --retry-delay 3 -o /tmp/go.tar.gz https://go.dev/dl/$GO_VERSION.linux-amd64.tar.gz
+      echo "$(curl -sSfL --retry 5 --retry-delay 3 https://dl.google.com/go/$GO_VERSION.linux-amd64.tar.gz.sha256)  /tmp/go.tar.gz" | sha256sum -c -
+      tar xfz /tmp/go.tar.gz -C /usr/local
+      rm -f /tmp/go.tar.gz
 
       # Disable kernel print rate limiting for syslog messaging
       sysctl -w kernel.printk_ratelimit=0
@@ -74,9 +77,11 @@ Vagrant.configure("2") do |config|
 
       # Install cosign (required by e2e-baseprofile test)
       COSIGN_VERSION=v3.1.3
-      COSIGN_BINARY=/usr/bin/cosign
-      curl -sSfL --retry 5 --retry-delay 3 "https://github.com/sigstore/cosign/releases/download/$COSIGN_VERSION/cosign-linux-amd64" -o "$COSIGN_BINARY"
-      chmod +x "$COSIGN_BINARY"
+      COSIGN_SHA256=4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71
+      curl -sSfL --retry 5 --retry-delay 3 "https://github.com/sigstore/cosign/releases/download/$COSIGN_VERSION/cosign-linux-amd64" -o /tmp/cosign
+      echo "$COSIGN_SHA256  /tmp/cosign" | sha256sum -c -
+      install -m 0755 /tmp/cosign /usr/bin/cosign
+      rm -f /tmp/cosign
 
       # Install kubernetes related binaries
       KUBERNETES_VERSION=v1.37

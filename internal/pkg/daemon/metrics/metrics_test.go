@@ -226,3 +226,29 @@ func TestSeccompProfileBpf(t *testing.T) {
 		tc.then(sut)
 	}
 }
+
+// The AppArmor error counter is labeled by profile and reason, which existing
+// queries rely on.
+func TestAppArmorProfileError(t *testing.T) {
+	t.Parallel()
+
+	sut := New()
+	sut.IncAppArmorProfileError("profile", "CannotLoadAppArmorProfile")
+	sut.IncAppArmorProfileError("profile", "CannotLoadAppArmorProfile")
+	sut.IncAppArmorProfileError("other", "AppArmorNotSupportedOnNode")
+
+	ctr, err := sut.metricAppArmorProfileError.GetMetricWithLabelValues(
+		"profile", "CannotLoadAppArmorProfile")
+	require.NoError(t, err)
+
+	m := dto.Metric{}
+	require.NoError(t, ctr.Write(&m))
+	require.InDelta(t, 2, m.GetCounter().GetValue(), 0)
+	require.Len(t, m.GetLabel(), 2)
+
+	ctr, err = sut.metricAppArmorProfileError.GetMetricWithLabelValues(
+		"other", "AppArmorNotSupportedOnNode")
+	require.NoError(t, err)
+	require.NoError(t, ctr.Write(&m))
+	require.InDelta(t, 1, m.GetCounter().GetValue(), 0)
+}

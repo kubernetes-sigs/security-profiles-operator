@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
@@ -161,6 +162,12 @@ func (r *RecordingTrackerReconciler) handlePodCreateOrUpdate(
 			continue
 		}
 
+		// The cached recording tells if the pod is tracked already, so a
+		// pod update does not cost an API read per recording.
+		if podTracked(recording, podName) {
+			continue
+		}
+
 		logger.Info("Tracking pod in recording", "recording", recording.Name)
 
 		if err := r.trackPod(ctx, recording, podName); err != nil {
@@ -169,6 +176,13 @@ func (r *RecordingTrackerReconciler) handlePodCreateOrUpdate(
 	}
 
 	return reconcile.Result{}, nil
+}
+
+// podTracked returns true if the recording lists the pod as active workload
+// and carries the finalizer, so that tracking it again would change nothing.
+func podTracked(recording *profilerecordingapi.ProfileRecording, podName string) bool {
+	return slices.Contains(recording.Status.ActiveWorkloads, podName) &&
+		controllerutil.ContainsFinalizer(recording, finalizer)
 }
 
 // recordingAnnotationKeys are the prefixes of the pod annotations which the
@@ -281,13 +295,17 @@ func (r *RecordingTrackerReconciler) untrackPod(
 			return fmt.Errorf("retrieving recording: %w", err)
 		}
 
-		if len(recording.Status.ActiveWorkloads) == 0 {
-			return client.IgnoreNotFound(
-				util.RemoveFinalizer(ctx, r.client, recording, finalizer),
-			)
+		// The recording gets written as read, so the update fails with a
+		// conflict if another reconcile tracked a pod since the read, and the
+		// retry then sees that pod. Reading the recording again from the cache
+		// could return a version which lists that pod already, and removing
+		// the finalizer from it would succeed.
+		if len(recording.Status.ActiveWorkloads) > 0 ||
+			!controllerutil.RemoveFinalizer(recording, finalizer) {
+			return nil
 		}
 
-		return nil
+		return client.IgnoreNotFound(r.client.Update(ctx, recording))
 	}, util.IsNotFoundOrConflict); err != nil {
 		return fmt.Errorf("removing finalizer: %w", err)
 	}

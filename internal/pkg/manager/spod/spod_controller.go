@@ -52,6 +52,9 @@ import (
 const (
 	// default reconcile timeout.
 	reconcileTimeout = 1 * time.Minute
+	// errorStatusTimeout bounds the status update which reports a failed
+	// reconciliation.
+	errorStatusTimeout = 10 * time.Second
 
 	reasonCannotCreateSPOD           string = "CannotCreateSPOD"
 	reasonCannotUpdateSPOD           string = "CannotUpdateSPOD"
@@ -88,11 +91,22 @@ type ReconcileSPOd struct {
 	record       util.EventRecorder
 	log          logr.Logger
 	namespace    string
+	// caInjectType is the certificate provider of the cluster, detected
+	// once in Setup.
+	caInjectType bindata.CAInjectType
+
+	// skipAdmissionPolicies is set in Setup when the cluster does not serve
+	// the ValidatingAdmissionPolicy API, so that the reconciler does not look
+	// the kinds up again on every run.
+	skipAdmissionPolicies bool
 
 	// kubeletDirMu guards invalidKubeletDirLabels, which maps the nodes with
 	// an invalid kubelet directory label to the reported label value.
 	kubeletDirMu            sync.Mutex
 	invalidKubeletDirLabels map[string]string
+
+	// env holds the features which the environment of the operator enables.
+	env envFlags
 }
 
 // Name returns the name of the controller.
@@ -124,19 +138,25 @@ func (r *ReconcileSPOd) Healthz(*http.Request) error {
 // +kubebuilder:rbac:groups=apps,namespace="security-profiles-operator",resources=daemonsets/finalizers,verbs=get;update;patch
 // +kubebuilder:rbac:groups=cert-manager.io,namespace="security-profiles-operator",resources=issuers;certificates,verbs=get;list;watch;create;update;patch
 //
+// The webhook deployment gets a pod disruption budget:
+// +kubebuilder:rbac:groups=policy,namespace="security-profiles-operator",resources=poddisruptionbudgets,verbs=get;list;watch;create;update;patch
+//
 // Webhook configurations are cluster scoped. Create cannot be restricted by
-// name, but modifications are limited to the operator owned configurations.
-// +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=mutatingwebhookconfigurations;validatingwebhookconfigurations,verbs=get;list;watch;create
-// +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=mutatingwebhookconfigurations,resourceNames=spo-mutating-webhook-configuration,verbs=update;patch
-// +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingwebhookconfigurations,resourceNames=spo-validating-webhook-configuration,verbs=update;patch
+// name, but everything else is limited to the operator owned configurations.
+// The manager caches these kinds by name, so list and watch carry the name
+// as field selector, which the API server authorizes like a get.
+// +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=mutatingwebhookconfigurations;validatingwebhookconfigurations,verbs=create
+// +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=mutatingwebhookconfigurations,resourceNames=spo-mutating-webhook-configuration,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingwebhookconfigurations,resourceNames=spo-validating-webhook-configuration,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons/finalizers,verbs=delete;get;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons/finalizers,verbs=get;update;patch
 // Helpers:
 // +kubebuilder:rbac:groups=coordination.k8s.io,namespace="security-profiles-operator",resources=leases,verbs=create;get;update
 //
-// Needed for default profiles:
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles,verbs=get;list;watch;create;update;patch
+// Needed for default profiles, and to delete the profiles which the allowed
+// syscalls of the SPOD reject:
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles,verbs=get;list;watch;create;update;patch;delete
 //
 // Needed for the ServiceMonitor
 // +kubebuilder:rbac:groups=monitoring.coreos.com,namespace="security-profiles-operator",resources=servicemonitors,verbs=get;list;watch;create;update;patch
@@ -144,7 +164,7 @@ func (r *ReconcileSPOd) Healthz(*http.Request) error {
 // OpenShift (This is ignored in other distros):
 //nolint:lll // required for kubebuilder
 // +kubebuilder:rbac:groups=security.openshift.io,namespace="security-profiles-operator",resourceNames=restricted-v2,resources=securitycontextconstraints,verbs=use
-// +kubebuilder:rbac:groups=config.openshift.io,resources=clusteroperators,verbs=get;list;watch
+// +kubebuilder:rbac:groups=config.openshift.io,resources=clusteroperators,verbs=get
 // +kubebuilder:rbac:groups=config.openshift.io,resources=apiservers,verbs=get;list;watch
 //
 // Needed to detect which runtime is active and custom kubelet directories
@@ -157,9 +177,10 @@ func (r *ReconcileSPOd) Healthz(*http.Request) error {
 // +kubebuilder:rbac:groups=authentication.k8s.io,resources=tokenreviews,verbs=create
 // +kubebuilder:rbac:groups=authorization.k8s.io,resources=subjectaccessreviews,verbs=create
 //
-// Needed for the admission policies, see bindata.AdmissionPolicies
-// +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingadmissionpolicies;validatingadmissionpolicybindings,verbs=get;list;watch;create
-// +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingadmissionpolicies;validatingadmissionpolicybindings,resourceNames=spo-recording-profiles,verbs=update
+// Needed for the admission policies, see bindata.AdmissionPolicies. They are
+// cached by name like the webhook configurations.
+// +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingadmissionpolicies;validatingadmissionpolicybindings,verbs=create
+// +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingadmissionpolicies;validatingadmissionpolicybindings,resourceNames=spo-recording-profiles,verbs=get;list;watch;update
 
 // Reconcile reads that state of the cluster for a SPOD object and makes changes based on the state read
 // and what is in the `ConfigMap.Spec`.
@@ -185,6 +206,34 @@ func (r *ReconcileSPOd) Reconcile(
 		return reconcile.Result{}, r.handleInitialStatus(ctx, spod, logger)
 	}
 
+	if err := r.reconcileSPOD(ctx, spod, logger); err != nil {
+		// A conflict only means that the cache is behind, which the next
+		// reconciliation resolves, so it is not reported as an error.
+		if !errors.IsConflict(err) {
+			r.handleErrorStatus(ctx, spod, logger, err)
+		}
+
+		return reconcile.Result{}, err
+	}
+
+	return reconcile.Result{}, nil
+}
+
+// operands are the objects rendered for a SPOD.
+type operands struct {
+	spod                 *appsv1.DaemonSet
+	kubeletDirs          []string
+	webhook              *bindata.Webhook
+	metricsService       *corev1.Service
+	serviceMonitor       *monitoringv1.ServiceMonitor
+	certManagerResources *bindata.CertManagerResources
+}
+
+// renderOperands renders the operands of the SPOD. It returns false if the
+// operator deployment, whose image the operands use, does not exist.
+func (r *ReconcileSPOd) renderOperands(
+	ctx context.Context, spod *spodapi.SecurityProfilesOperatorDaemon,
+) (*operands, bool, error) {
 	deploymentKey := types.NamespacedName{
 		Name:      config.OperatorName,
 		Namespace: r.namespace,
@@ -193,149 +242,147 @@ func (r *ReconcileSPOd) Reconcile(
 
 	if err := r.client.Get(ctx, deploymentKey, foundDeployment); err != nil {
 		if errors.IsNotFound(err) {
-			return reconcile.Result{}, nil
+			return nil, false, nil
 		}
 
-		return reconcile.Result{}, fmt.Errorf("get operator deployment: %w", err)
+		return nil, false, fmt.Errorf("get operator deployment: %w", err)
 	}
 	// We use the same target image for the deamonset as which we have right
 	// now running.
 	image := foundDeployment.Spec.Template.Spec.Containers[0].Image
 	pullPolicy := foundDeployment.Spec.Template.Spec.Containers[0].ImagePullPolicy
 
-	spodKey := types.NamespacedName{
-		Name:      spod.GetName(),
-		Namespace: r.namespace,
-	}
-
-	caInjectType, err := bindata.GetCAInjectType(ctx, r.log, r.client)
+	configuredSPOd, err := r.getConfiguredSPOd(ctx, spod, image, pullPolicy, r.caInjectType)
 	if err != nil {
-		return reconcile.Result{}, fmt.Errorf("get ca inject type: %w", err)
-	}
-
-	configuredSPOd, err := r.getConfiguredSPOd(ctx, spod, image, pullPolicy, caInjectType)
-	if err != nil {
-		return reconcile.Result{}, fmt.Errorf("get configured SPOD: %w", err)
+		return nil, false, fmt.Errorf("get configured SPOD: %w", err)
 	}
 
 	kubeletDirs, err := r.nodeKubeletDirs(ctx, spod)
 	if err != nil {
-		return reconcile.Result{}, fmt.Errorf("get node kubelet directories: %w", err)
+		return nil, false, fmt.Errorf("get node kubelet directories: %w", err)
 	}
-
-	webhook := r.getConfiguredWebook(spod, image, pullPolicy, caInjectType)
-	r.applyAdmissionPolicies(ctx, spod, webhook)
 
 	// The metrics service is owned by the SPOD, so that it gets restored if
 	// it gets deleted.
-	metricsService := bindata.GetMetricsService(r.namespace, caInjectType)
+	metricsService := bindata.GetMetricsService(r.namespace, r.caInjectType)
 	if err := controllerutil.SetControllerReference(spod, metricsService, r.scheme); err != nil {
-		return reconcile.Result{}, fmt.Errorf(
-			"setting metrics service controller reference: %w", err,
-		)
+		return nil, false, fmt.Errorf("setting metrics service controller reference: %w", err)
 	}
 
-	serviceMonitor := bindata.ServiceMonitor(caInjectType,
-		ptr.Deref(spod.Spec.EnableInsecureMetricsAccess, false))
-
-	var certManagerResources *bindata.CertManagerResources
-	if caInjectType == bindata.CAInjectTypeCertManager {
-		certManagerResources = bindata.GetCertManagerResources(r.namespace)
+	ops := &operands{
+		spod:           configuredSPOd,
+		kubeletDirs:    kubeletDirs,
+		webhook:        r.getConfiguredWebook(spod, image, pullPolicy, r.caInjectType),
+		metricsService: metricsService,
+		serviceMonitor: bindata.ServiceMonitor(
+			r.namespace, r.caInjectType, ptr.Deref(spod.Spec.EnableInsecureMetricsAccess, false),
+		),
 	}
 
+	if r.caInjectType == bindata.CAInjectTypeCertManager {
+		ops.certManagerResources = bindata.GetCertManagerResources(r.namespace)
+	}
+
+	return ops, true, nil
+}
+
+// reconcileSPOD creates or updates the operands of the SPOD and reports the
+// rollout in its status.
+func (r *ReconcileSPOd) reconcileSPOD(
+	ctx context.Context, spod *spodapi.SecurityProfilesOperatorDaemon, logger logr.Logger,
+) error {
+	ops, found, err := r.renderOperands(ctx, spod)
+	if err != nil {
+		return err
+	}
+
+	if !found {
+		return nil
+	}
+
+	r.applyAdmissionPolicies(ctx, spod, ops.webhook)
+
+	spodKey := types.NamespacedName{Name: spod.GetName(), Namespace: r.namespace}
 	foundSPOd := &appsv1.DaemonSet{}
+
 	if err := r.client.Get(ctx, spodKey, foundSPOd); err != nil {
-		if errors.IsNotFound(err) {
-			addKubeletDirVolumes(&configuredSPOd.Spec.Template.Spec, kubeletDirs)
-
-			createErr := r.handleCreate(
-				ctx,
-				spod,
-				configuredSPOd,
-				webhook,
-				metricsService,
-				certManagerResources,
-				serviceMonitor,
-			)
-			if createErr != nil {
-				r.record.Eventf(
-					spod,
-					nil,
-					util.EventTypeWarning,
-					reasonCannotCreateSPOD,
-					util.EventActionReconcile,
-					"%s",
-					createErr.Error(),
-				)
-
-				return reconcile.Result{}, createErr
-			}
-
-			return reconcile.Result{}, r.handleCreatingStatus(ctx, spod, logger)
+		if !errors.IsNotFound(err) {
+			return fmt.Errorf("getting spod DaemonSet: %w", err)
 		}
 
-		return reconcile.Result{}, fmt.Errorf("getting spod DaemonSet: %w", err)
+		addKubeletDirVolumes(&ops.spod.Spec.Template.Spec, ops.kubeletDirs)
+
+		if err := r.handleCreate(ctx, spod, ops); err != nil {
+			r.record.Eventf(
+				spod, nil, util.EventTypeWarning, reasonCannotCreateSPOD,
+				util.EventActionReconcile, "%s", err.Error(),
+			)
+
+			return err
+		}
+
+		return r.handleCreatingStatus(ctx, spod, logger)
 	}
 
-	addKubeletDirVolumes(
-		&configuredSPOd.Spec.Template.Spec,
-		kubeletDirsToMount(configuredSPOd, foundSPOd, kubeletDirs),
-	)
+	dirs, spodUpdate := kubeletDirsToMount(ops.spod, foundSPOd, ops.kubeletDirs)
+	addKubeletDirVolumes(&ops.spod.Spec.Template.Spec, dirs)
 
-	if err := r.ensureMetricsService(ctx, spod, metricsService); err != nil {
-		return reconcile.Result{}, err
+	if err := r.ensureMetricsService(ctx, spod, ops.metricsService); err != nil {
+		return err
 	}
-
-	spodUpdate := spodNeedsUpdate(configuredSPOd, foundSPOd)
 
 	var hookUpdate bool
 	if !ptr.Deref(spod.Spec.Webhook.StaticConfig, false) {
-		hookUpdate, err = webhook.NeedsUpdate(ctx, r.client)
+		hookUpdate, err = ops.webhook.NeedsUpdate(ctx, r.client)
 		if err != nil {
-			return reconcile.Result{}, fmt.Errorf("determining if webhook needs update: %w", err)
+			return fmt.Errorf("determining if webhook needs update: %w", err)
 		}
 	}
 
 	if spodUpdate || hookUpdate {
 		r.log.Info("Updating spod", "spodUpdate", spodUpdate, "hookUpdate", hookUpdate)
 
-		updatedSPod := foundSPOd.DeepCopy()
-		updatedSPod.Spec.Template = configuredSPOd.Spec.Template
-		delete(updatedSPod.Annotations, legacyAppArmorAnnotation)
+		if err := r.handleUpdate(ctx, spod, foundSPOd, ops); err != nil {
+			// A conflict is expected when the cache is behind, and the next
+			// reconciliation resolves it without anyone having to act.
+			if !errors.IsConflict(err) {
+				r.record.Eventf(
+					spod, nil, util.EventTypeWarning, reasonCannotUpdateSPOD,
+					util.EventActionUpdate, "%s", err.Error(),
+				)
+			}
 
-		updateErr := r.handleUpdate(
-			ctx, spod, updatedSPod, webhook, metricsService, certManagerResources, serviceMonitor,
-		)
-		if updateErr != nil {
-			r.record.Eventf(
-				spod,
-				nil,
-				util.EventTypeWarning,
-				reasonCannotUpdateSPOD,
-				util.EventActionUpdate,
-				"%s",
-				updateErr.Error(),
-			)
-
-			return reconcile.Result{}, updateErr
+			return err
 		}
 
-		return reconcile.Result{}, r.handleUpdatingStatus(ctx, spod, logger)
+		return r.handleUpdatingStatus(ctx, spod, logger)
 	}
 
 	if daemonSetRolledOut(foundSPOd) {
 		condready := spod.Status.GetReadyCondition()
 		// Don't pollute the logs. Let's only update when needed.
 		if condready.Status != metav1.ConditionTrue {
-			return reconcile.Result{}, r.handleRunningStatus(ctx, spod, logger)
+			return r.handleRunningStatus(ctx, spod, logger)
 		}
-	} else if spod.Status.State == spodapi.SPODStateRunning {
+	} else if spod.Status.State == spodapi.SPODStateRunning ||
+		spod.Status.State == spodapi.SPODStateError {
 		// Pods of the SPOd became unavailable, for example because they
-		// crash or a node got added which cannot run them.
-		return reconcile.Result{}, r.handleUpdatingStatus(ctx, spod, logger)
+		// crash or a node got added which cannot run them, or the last
+		// reconciliation failed and the rollout continues now.
+		return r.handleUpdatingStatus(ctx, spod, logger)
 	}
 
-	return reconcile.Result{}, nil
+	// Spec changes which touch neither the DaemonSet nor the webhook, like
+	// the allowed syscalls, are reconciled as well, so the status reports
+	// that the current generation got observed. The status is only written if
+	// the generation changed.
+	return r.updateStatus(
+		ctx,
+		spod,
+		logger,
+		"Updating the observed generation of the SPOD instance",
+		func(*spodapi.SPODStatus) {},
+	)
 }
 
 // daemonSetRolledOut returns true if the DaemonSet controller observed the
@@ -394,6 +441,10 @@ func (r *ReconcileSPOd) applyAdmissionPolicies(
 	spod *spodapi.SecurityProfilesOperatorDaemon,
 	webhook *bindata.Webhook,
 ) {
+	if r.skipAdmissionPolicies {
+		return
+	}
+
 	policies := bindata.GetAdmissionPolicies(webhook.RecordingNamespaceSelector())
 
 	if err := policies.Apply(ctx, r.client); err != nil {
@@ -418,58 +469,86 @@ func (r *ReconcileSPOd) applyAdmissionPolicies(
 	}
 }
 
+// updateStatus applies set to a copy of the SPOD status, records the
+// observed generation and writes the status if it changed.
+func (r *ReconcileSPOd) updateStatus(
+	ctx context.Context,
+	spod *spodapi.SecurityProfilesOperatorDaemon,
+	l logr.Logger,
+	message string,
+	set func(*spodapi.SPODStatus),
+) error {
+	sCopy := spod.DeepCopy()
+	set(&sCopy.Status)
+	sCopy.Status.SetObservedGeneration(spod.Generation)
+
+	if apiequality.Semantic.DeepEqual(spod.Status, sCopy.Status) {
+		return nil
+	}
+
+	l.Info(message)
+
+	if err := r.client.Status().Update(ctx, sCopy); err != nil {
+		return fmt.Errorf("updating spod status to %s: %w", sCopy.Status.State, err)
+	}
+
+	return nil
+}
+
 func (r *ReconcileSPOd) handleInitialStatus(
 	ctx context.Context,
 	spod *spodapi.SecurityProfilesOperatorDaemon,
 	l logr.Logger,
-) (err error) {
-	l.Info("Adding an initial status to the SPOD instance")
-
-	sCopy := spod.DeepCopy()
-	sCopy.Status.StatePending()
-
-	updateErr := r.client.Status().Update(ctx, sCopy)
-	if updateErr != nil {
-		return fmt.Errorf("updating spod initial status: %w", updateErr)
-	}
-
-	return nil
+) error {
+	return r.updateStatus(ctx, spod, l, "Adding an initial status to the SPOD instance",
+		func(s *spodapi.SPODStatus) { s.StatePending() })
 }
 
 func (r *ReconcileSPOd) handleCreatingStatus(
 	ctx context.Context,
 	spod *spodapi.SecurityProfilesOperatorDaemon,
 	l logr.Logger,
-) (err error) {
-	l.Info("Adding 'Creating' status to the SPOD instance")
-
-	sCopy := spod.DeepCopy()
-	sCopy.Status.StateCreating()
-
-	updateErr := r.client.Status().Update(ctx, sCopy)
-	if updateErr != nil {
-		return fmt.Errorf("updating spod status to creating: %w", updateErr)
-	}
-
-	return nil
+) error {
+	return r.updateStatus(ctx, spod, l, "Adding 'Creating' status to the SPOD instance",
+		func(s *spodapi.SPODStatus) { s.StateCreating() })
 }
 
 func (r *ReconcileSPOd) handleUpdatingStatus(
 	ctx context.Context,
 	spod *spodapi.SecurityProfilesOperatorDaemon,
 	l logr.Logger,
-) (err error) {
-	l.Info("Adding 'Updating' status to the SPOD instance")
+) error {
+	return r.updateStatus(ctx, spod, l, "Adding 'Updating' status to the SPOD instance",
+		func(s *spodapi.SPODStatus) { s.StateUpdating() })
+}
 
-	sCopy := spod.DeepCopy()
-	sCopy.Status.StateUpdating()
+func (r *ReconcileSPOd) handleRunningStatus(
+	ctx context.Context,
+	spod *spodapi.SecurityProfilesOperatorDaemon,
+	l logr.Logger,
+) error {
+	return r.updateStatus(ctx, spod, l, "Adding 'Running' status to the SPOD instance",
+		func(s *spodapi.SPODStatus) { s.StateRunning() })
+}
 
-	updateErr := r.client.Status().Update(ctx, sCopy)
-	if updateErr != nil {
-		return fmt.Errorf("updating spod status to 'updating': %w", updateErr)
+// handleErrorStatus reports a failed reconciliation in the status of the
+// SPOD. It is best effort: the reconciliation error is what gets returned and
+// retried, so a failed status update is only logged. The reconciliation
+// context may have expired, so the update gets its own deadline.
+func (r *ReconcileSPOd) handleErrorStatus(
+	ctx context.Context,
+	spod *spodapi.SecurityProfilesOperatorDaemon,
+	l logr.Logger,
+	reconcileErr error,
+) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), errorStatusTimeout)
+	defer cancel()
+
+	if err := r.updateStatus(ctx, spod, l, "Adding 'Error' status to the SPOD instance",
+		func(s *spodapi.SPODStatus) { s.StateError(reconcileErr.Error()) },
+	); err != nil {
+		l.Error(err, "Cannot report the reconciliation error in the SPOD status")
 	}
-
-	return nil
 }
 
 func (r *ReconcileSPOd) defaultProfiles(
@@ -482,37 +561,15 @@ func (r *ReconcileSPOd) defaultProfiles(
 	return defaultProfiles
 }
 
-func (r *ReconcileSPOd) handleRunningStatus(
-	ctx context.Context,
-	spod *spodapi.SecurityProfilesOperatorDaemon,
-	l logr.Logger,
-) (err error) {
-	l.Info("Adding 'Running' status to the SPOD instance")
-
-	sCopy := spod.DeepCopy()
-	sCopy.Status.StateRunning()
-
-	updateErr := r.client.Status().Update(ctx, sCopy)
-	if updateErr != nil {
-		return fmt.Errorf("updating spod status to running: %w", updateErr)
-	}
-
-	return nil
-}
-
 func (r *ReconcileSPOd) handleCreate(
 	ctx context.Context,
 	cfg *spodapi.SecurityProfilesOperatorDaemon,
-	newSPOd *appsv1.DaemonSet,
-	webhook *bindata.Webhook,
-	metricsService *corev1.Service,
-	certManagerResources *bindata.CertManagerResources,
-	serviceMonitor *monitoringv1.ServiceMonitor,
+	ops *operands,
 ) error {
-	if certManagerResources != nil {
+	if ops.certManagerResources != nil {
 		r.log.Info("Deploying cert manager resources")
 
-		if err := certManagerResources.Create(ctx, r.client); err != nil {
+		if err := ops.certManagerResources.Create(ctx, r.client); err != nil {
 			return fmt.Errorf("creating cert manager resources: %w", err)
 		}
 	}
@@ -520,20 +577,20 @@ func (r *ReconcileSPOd) handleCreate(
 	if !ptr.Deref(cfg.Spec.Webhook.StaticConfig, false) {
 		r.log.Info("Deploying operator webhook")
 
-		if err := webhook.Create(ctx, r.client); err != nil {
+		if err := ops.webhook.Create(ctx, r.client); err != nil {
 			return fmt.Errorf("creating webhook: %w", err)
 		}
 	}
 
 	r.log.Info("Creating operator resources")
 
-	if err := controllerutil.SetControllerReference(cfg, newSPOd, r.scheme); err != nil {
+	if err := controllerutil.SetControllerReference(cfg, ops.spod, r.scheme); err != nil {
 		return fmt.Errorf("setting spod controller reference: %w", err)
 	}
 
 	r.log.Info("Deploying operator daemonset")
 
-	if err := r.client.Create(ctx, newSPOd); err != nil && !errors.IsAlreadyExists(err) {
+	if err := r.client.Create(ctx, ops.spod); err != nil && !errors.IsAlreadyExists(err) {
 		return fmt.Errorf("creating operator DaemonSet: %w", err)
 	}
 
@@ -551,14 +608,14 @@ func (r *ReconcileSPOd) handleCreate(
 
 	r.log.Info("Deploying metrics service")
 
-	if err := r.client.Create(ctx, metricsService); err != nil && !errors.IsAlreadyExists(err) {
+	if err := r.client.Create(ctx, ops.metricsService); err != nil && !errors.IsAlreadyExists(err) {
 		return fmt.Errorf("creating metrics service: %w", err)
 	}
 
 	r.log.Info("Deploying operator service monitor")
 
 	if err := r.client.Create(
-		ctx, serviceMonitor,
+		ctx, ops.serviceMonitor,
 	); err != nil {
 		switch {
 		case bindata.IsNotFound(err):
@@ -573,19 +630,18 @@ func (r *ReconcileSPOd) handleCreate(
 	return nil
 }
 
+// handleUpdate updates the operands, starting with the pod template of the
+// found SPOd DaemonSet, which gets replaced by the configured one.
 func (r *ReconcileSPOd) handleUpdate(
 	ctx context.Context,
 	cfg *spodapi.SecurityProfilesOperatorDaemon,
-	spodInstance *appsv1.DaemonSet,
-	webhook *bindata.Webhook,
-	metricsService *corev1.Service,
-	certManagerResources *bindata.CertManagerResources,
-	serviceMonitor *monitoringv1.ServiceMonitor,
+	foundSPOd *appsv1.DaemonSet,
+	ops *operands,
 ) error {
-	if certManagerResources != nil {
+	if ops.certManagerResources != nil {
 		r.log.Info("Updating cert manager resources")
 
-		if err := certManagerResources.Update(ctx, r.client); err != nil {
+		if err := ops.certManagerResources.Update(ctx, r.client); err != nil {
 			return fmt.Errorf("updating cert manager resources: %w", err)
 		}
 	}
@@ -593,16 +649,24 @@ func (r *ReconcileSPOd) handleUpdate(
 	if !ptr.Deref(cfg.Spec.Webhook.StaticConfig, false) {
 		r.log.Info("Updating operator webhook")
 
-		if err := webhook.Update(ctx, r.client); err != nil {
+		if err := ops.webhook.Update(ctx, r.client); err != nil {
 			return fmt.Errorf("updating webhook: %w", err)
 		}
 	}
 
 	r.log.Info("Updating operator daemonset")
 
-	// A JSON merge patch would keep fields which got cleared in the
-	// configuration, like the affinity, so update the whole object instead.
-	if err := r.client.Update(ctx, spodInstance); err != nil {
+	updatedSPOd := foundSPOd.DeepCopy()
+	updatedSPOd.Spec.Template = ops.spod.Spec.Template
+	delete(updatedSPOd.Annotations, legacyAppArmorAnnotation)
+
+	// The patch is the difference between the found and the updated
+	// DaemonSet, so fields which got cleared in the configuration, like the
+	// affinity, are removed by it. Unlike an update it does not carry the
+	// resource version, so a cache which is behind the API server does not
+	// cause a conflict. The operator owns the whole pod template, so nobody
+	// else's change can get lost.
+	if err := r.client.Patch(ctx, updatedSPOd, client.MergeFrom(foundSPOd)); err != nil {
 		return fmt.Errorf("updating operator DaemonSet: %w", err)
 	}
 
@@ -647,13 +711,13 @@ func (r *ReconcileSPOd) handleUpdate(
 
 	r.log.Info("Updating metrics service")
 
-	if err := patchOrCreate(ctx, r.client, metricsService); err != nil {
+	if err := patchOrCreate(ctx, r.client, ops.metricsService); err != nil {
 		return fmt.Errorf("updating metrics service: %w", err)
 	}
 
 	r.log.Info("Updating operator service monitor")
 
-	if err := patchOrCreate(ctx, r.client, serviceMonitor); err != nil {
+	if err := patchOrCreate(ctx, r.client, ops.serviceMonitor); err != nil {
 		if bindata.IsNotFound(err) {
 			r.log.Info("Service monitor resource does not seem to exist, ignoring")
 		} else {
@@ -737,7 +801,10 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		return nil, err
 	}
 
-	r.configureRecording(ctx, cfg, templateSpec, image)
+	if err := r.configureRecording(ctx, cfg, templateSpec, image); err != nil {
+		return nil, err
+	}
+
 	configureAppArmor(cfg, templateSpec)
 
 	// Enable memory optimization for spod controller
@@ -747,7 +814,7 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 			"--with-mem-optim=true")
 	}
 
-	if isInsecureMetricsEnabled(cfg) {
+	if r.isInsecureMetricsEnabled(cfg) {
 		templateSpec.Containers[bindata.ContainerIDDaemon].Args = append(
 			templateSpec.Containers[bindata.ContainerIDDaemon].Args,
 			"--with-insecure-metrics-access=true")
@@ -832,7 +899,7 @@ func (r *ReconcileSPOd) configureRecording(
 	cfg *spodapi.SecurityProfilesOperatorDaemon,
 	templateSpec *corev1.PodSpec,
 	image string,
-) {
+) error {
 	// Custom host proc volume
 	useCustomHostProc := cfg.Spec.HostProcVolumePath != bindata.DefaultHostProcPath &&
 		cfg.Spec.HostProcVolumePath != ""
@@ -841,7 +908,7 @@ func (r *ReconcileSPOd) configureRecording(
 	// Disable profile recording controller by default
 	enableRecording := false
 
-	if isLogEnricherEnabled(cfg) || isBpfRecorderEnabled(cfg) || isJsonEnricherEnabled(cfg) {
+	if r.isLogEnricherEnabled(cfg) || r.isBpfRecorderEnabled(cfg) || r.isJsonEnricherEnabled(cfg) {
 		if useCustomHostProc {
 			templateSpec.Volumes = append(templateSpec.Volumes, volume)
 		}
@@ -871,19 +938,26 @@ func (r *ReconcileSPOd) configureRecording(
 		configure(&ctr)
 
 		templateSpec.Containers = append(templateSpec.Containers, ctr)
-		addEnvVar(templateSpec, envKey)
+		r.addEnvVar(templateSpec, envKey)
 	}
 
-	if isLogEnricherEnabled(cfg) {
+	if r.isLogEnricherEnabled(cfg) {
 		addContainer(bindata.ContainerIDLogEnricher, config.EnableLogEnricherEnvKey,
 			func(ctr *corev1.Container) { r.configureLogEnricher(cfg, ctr) })
 	}
 
-	if isBpfRecorderEnabled(cfg) {
+	if r.isBpfRecorderEnabled(cfg) {
 		addContainer(bindata.ContainerIDBpfRecorder, config.EnableBpfRecorderEnvKey,
 			func(ctr *corev1.Container) {
 				// Configure the apparmor profile for bpf-recorder when apparmor is enabled.
+				// The recorder runs privileged then like the daemon, as its
+				// profile does not cover loading the BPF programs yet, see
+				// configureAppArmor.
 				if ptr.Deref(cfg.Spec.EnableAppArmor, false) {
+					// The API server rejects privileged containers which
+					// disallow privilege escalation.
+					ctr.SecurityContext.AllowPrivilegeEscalation = new(true)
+					ctr.SecurityContext.Privileged = new(true)
 					ctr.SecurityContext.AppArmorProfile = &corev1.AppArmorProfile{
 						Type:             corev1.AppArmorProfileTypeLocalhost,
 						LocalhostProfile: new(config.BpfRecorderApparmorProfileName),
@@ -892,26 +966,41 @@ func (r *ReconcileSPOd) configureRecording(
 			})
 	}
 
-	if isJsonEnricherEnabled(cfg) {
+	if r.isJsonEnricherEnabled(cfg) {
+		var volumeErr error
+
 		addContainer(bindata.ContainerIDJsonEnricher, config.EnableJsonEnricherEnvKey,
 			func(ctr *corev1.Container) {
-				r.addJsonEnricherLogVolume(ctx, templateSpec, ctr)
+				volumeErr = r.addJsonEnricherLogVolume(ctx, templateSpec, ctr)
 				r.configureJsonEnricher(cfg, ctr)
 			})
+
+		if volumeErr != nil {
+			return volumeErr
+		}
 	}
+
+	return nil
 }
 
 // addJsonEnricherLogVolume adds the optional log volume of the json enricher.
 // Its configuration is read from the ConfigMap during each reconciliation to
-// handle ConfigMap updates without requiring an operator restart.
+// handle ConfigMap updates without requiring an operator restart. A ConfigMap
+// which does not configure the volume is fine, while a failed read is an
+// error: rendering the template without the volume would roll the SPOd, and
+// the next successful read would roll it back.
 func (r *ReconcileSPOd) addJsonEnricherLogVolume(
 	ctx context.Context,
 	templateSpec *corev1.PodSpec,
 	ctr *corev1.Container,
-) {
+) error {
 	logVolumeSource, logVolumeMountPath, err := r.getJsonEnricherVolume(ctx)
-	if err != nil || logVolumeSource == nil {
-		return
+	if err != nil {
+		if isJsonEnricherVolumeNotConfigured(err) {
+			return nil
+		}
+
+		return fmt.Errorf("getting the JSON enricher log volume: %w", err)
 	}
 
 	logVolume, logMount := bindata.CustomLogVolume(logVolumeMountPath, logVolumeSource)
@@ -936,6 +1025,8 @@ func (r *ReconcileSPOd) addJsonEnricherLogVolume(
 	} else {
 		ctr.VolumeMounts = append(ctr.VolumeMounts, logMount)
 	}
+
+	return nil
 }
 
 // configureAppArmor configures the daemon and the non root enabler to manage
@@ -943,8 +1034,10 @@ func (r *ReconcileSPOd) addJsonEnricherLogVolume(
 //
 // Loading AppArmor profiles requires write access to the securityfs of the
 // host and the host PID namespace, which is why both containers run
-// privileged. Replacing that with dedicated capabilities requires runtime
-// validation on AppArmor enabled nodes.
+// privileged. Unprivileged, CRI-O confines them with its default AppArmor
+// profile, which denies both, while it does not confine privileged
+// containers. The non root enabler has to load the profiles of the SPOd
+// before its containers can start with them.
 func configureAppArmor(cfg *spodapi.SecurityProfilesOperatorDaemon, templateSpec *corev1.PodSpec) {
 	if !ptr.Deref(cfg.Spec.EnableAppArmor, false) {
 		return
@@ -981,6 +1074,20 @@ func configureAppArmor(cfg *spodapi.SecurityProfilesOperatorDaemon, templateSpec
 	// HostPID is required for AppArmor in order to get access to the host ns
 	// when installing the Apparmor profiles.
 	templateSpec.HostPID = true
+}
+
+// addCapabilities adds the capabilities which the security context does not
+// have yet.
+func addCapabilities(sc *corev1.SecurityContext, capabilities ...corev1.Capability) {
+	if sc.Capabilities == nil {
+		sc.Capabilities = &corev1.Capabilities{}
+	}
+
+	for _, capability := range capabilities {
+		if !slices.Contains(sc.Capabilities.Add, capability) {
+			sc.Capabilities.Add = append(sc.Capabilities.Add, capability)
+		}
+	}
 }
 
 // configureContainerDefaults sets the options which apply to all init
@@ -1065,12 +1172,20 @@ func pruneUnmountedVolumes(templateSpec *corev1.PodSpec) {
 	templateSpec.Volumes = volumes
 }
 
+// bpfCapabilities are the capabilities required to load and attach BPF
+// programs.
+var bpfCapabilities = []corev1.Capability{"BPF", "PERFMON", "SYS_RESOURCE"}
+
+// hostLogVolumes are the host log directories the log enricher reads with the
+// auditd source, which the BPF source does not need.
+var hostLogVolumes = []string{"host-auditlog-volume", "host-syslog-volume"}
+
 // configureLogEnricher applies the log enricher configuration to ctr.
 func (r *ReconcileSPOd) configureLogEnricher(
 	cfg *spodapi.SecurityProfilesOperatorDaemon, ctr *corev1.Container,
 ) {
 	if cfg.Spec.Enricher.LogEnricherFilters != "" {
-		r.log.Info("Setting LogEnricherFilters",
+		r.log.V(config.VerboseLevel).Info("Setting LogEnricherFilters",
 			"LogEnricherFilters", cfg.Spec.Enricher.LogEnricherFilters)
 
 		ctr.Args = addArgsConfig(
@@ -1080,7 +1195,7 @@ func (r *ReconcileSPOd) configureLogEnricher(
 	}
 
 	if cfg.Spec.Enricher.LogEnricherSource != "" {
-		r.log.Info(
+		r.log.V(config.VerboseLevel).Info(
 			"Setting LogEnricherSource",
 			"LogEnricherSource",
 			cfg.Spec.Enricher.LogEnricherSource,
@@ -1091,6 +1206,15 @@ func (r *ReconcileSPOd) configureLogEnricher(
 			"--enricher-log-source="+string(cfg.Spec.Enricher.LogEnricherSource),
 		)
 	}
+
+	// The BPF source reads the audit events from the kernel instead of the
+	// host log files, so it needs the BPF capabilities but not the logs.
+	if cfg.Spec.Enricher.LogEnricherSource == spodapi.LogEnricherSourceBpf {
+		addCapabilities(ctr.SecurityContext, bpfCapabilities...)
+		ctr.VolumeMounts = slices.DeleteFunc(ctr.VolumeMounts, func(m corev1.VolumeMount) bool {
+			return slices.Contains(hostLogVolumes, m.Name)
+		})
+	}
 }
 
 // configureJsonEnricher applies the JSON enricher configuration to ctr.
@@ -1098,7 +1222,7 @@ func (r *ReconcileSPOd) configureJsonEnricher(
 	cfg *spodapi.SecurityProfilesOperatorDaemon, ctr *corev1.Container,
 ) {
 	if cfg.Spec.Enricher.JsonEnricherFilters != "" {
-		r.log.Info("Setting JsonEnricherFilters",
+		r.log.V(config.VerboseLevel).Info("Setting JsonEnricherFilters",
 			"JsonEnricherFilters", cfg.Spec.Enricher.JsonEnricherFilters)
 
 		ctr.Args = addArgsConfig(
@@ -1112,7 +1236,7 @@ func (r *ReconcileSPOd) configureJsonEnricher(
 		return
 	}
 
-	r.log.Info(
+	r.log.V(config.VerboseLevel).Info(
 		"Setting JsonEnricherOpt",
 		"AuditLogIntervalSeconds", opts.AuditLogIntervalSeconds,
 		"AuditLogPath", opts.AuditLogPath,
@@ -1165,10 +1289,17 @@ func (r *ReconcileSPOd) getConfiguredWebook(cfg *spodapi.SecurityProfilesOperato
 		caInjectType,
 		webhookTolerations,
 		cfg.Spec.ImagePullSecrets,
-		isJsonEnricherEnabled(cfg),
+		r.isExecMetadataEnabled(cfg),
 	)
 
 	return webhook
+}
+
+// isExecMetadataEnabled returns true if the exec metadata webhook gets
+// deployed, which is the case if the JSON enricher is enabled and the
+// webhook is not disabled explicitly.
+func (r *ReconcileSPOd) isExecMetadataEnabled(cfg *spodapi.SecurityProfilesOperatorDaemon) bool {
+	return r.isJsonEnricherEnabled(cfg) && ptr.Deref(cfg.Spec.Enricher.EnableExecMetadata, true)
 }
 
 func addSelinuxCustomTemplatesVolume(
@@ -1199,33 +1330,64 @@ func addSelinuxCustomTemplatesVolume(
 	return nil
 }
 
-func isLogEnricherEnabled(cfg *spodapi.SecurityProfilesOperatorDaemon) bool {
-	enableLogEnricherEnv, err := strconv.ParseBool(os.Getenv(config.EnableLogEnricherEnvKey))
-	if err != nil {
-		enableLogEnricherEnv = false
-	}
-
-	return ptr.Deref(cfg.Spec.Enricher.EnableLogEnricher, false) || enableLogEnricherEnv
+// envFlags are the features which the environment of the operator enables
+// in addition to the SPOD. They are read once in Setup.
+type envFlags struct {
+	enableLogEnricher           bool
+	enableJsonEnricher          bool
+	enableBpfRecorder           bool
+	enableInsecureMetricsAccess bool
 }
 
-func isJsonEnricherEnabled(cfg *spodapi.SecurityProfilesOperatorDaemon) bool {
-	enableJsonEnricherEnv, err := strconv.ParseBool(os.Getenv(config.EnableJsonEnricherEnvKey))
-	if err != nil {
-		enableJsonEnricherEnv = false
+// envFlagsFromEnvironment reads the feature flags from the environment of
+// the operator. Values which are not a boolean disable the feature.
+func envFlagsFromEnvironment() envFlags {
+	return envFlags{
+		enableLogEnricher:           envBool(config.EnableLogEnricherEnvKey),
+		enableJsonEnricher:          envBool(config.EnableJsonEnricherEnvKey),
+		enableBpfRecorder:           envBool(config.EnableBpfRecorderEnvKey),
+		enableInsecureMetricsAccess: envBool(config.EnableInsecureMetricsAccessEnvKey),
 	}
-
-	return ptr.Deref(cfg.Spec.Enricher.EnableJsonEnricher, false) || enableJsonEnricherEnv
 }
 
-func isInsecureMetricsEnabled(cfg *spodapi.SecurityProfilesOperatorDaemon) bool {
-	enableInsecureMetricsEnv, err := strconv.ParseBool(
-		os.Getenv(config.EnableInsecureMetricsAccessEnvKey),
-	)
-	if err != nil {
-		enableInsecureMetricsEnv = false
-	}
+// envBool returns true if the environment variable is a true boolean.
+func envBool(key string) bool {
+	value, err := strconv.ParseBool(os.Getenv(key))
 
-	return ptr.Deref(cfg.Spec.EnableInsecureMetricsAccess, false) || enableInsecureMetricsEnv
+	return err == nil && value
+}
+
+// byEnvKey returns the flag of the environment variable.
+func (e envFlags) byEnvKey(key string) bool {
+	switch key {
+	case config.EnableLogEnricherEnvKey:
+		return e.enableLogEnricher
+	case config.EnableJsonEnricherEnvKey:
+		return e.enableJsonEnricher
+	case config.EnableBpfRecorderEnvKey:
+		return e.enableBpfRecorder
+	case config.EnableInsecureMetricsAccessEnvKey:
+		return e.enableInsecureMetricsAccess
+	default:
+		return false
+	}
+}
+
+func (r *ReconcileSPOd) isLogEnricherEnabled(cfg *spodapi.SecurityProfilesOperatorDaemon) bool {
+	return ptr.Deref(cfg.Spec.Enricher.EnableLogEnricher, false) || r.env.enableLogEnricher
+}
+
+func (r *ReconcileSPOd) isJsonEnricherEnabled(cfg *spodapi.SecurityProfilesOperatorDaemon) bool {
+	return ptr.Deref(cfg.Spec.Enricher.EnableJsonEnricher, false) || r.env.enableJsonEnricher
+}
+
+func (r *ReconcileSPOd) isInsecureMetricsEnabled(cfg *spodapi.SecurityProfilesOperatorDaemon) bool {
+	return ptr.Deref(cfg.Spec.EnableInsecureMetricsAccess, false) ||
+		r.env.enableInsecureMetricsAccess
+}
+
+func (r *ReconcileSPOd) isBpfRecorderEnabled(cfg *spodapi.SecurityProfilesOperatorDaemon) bool {
+	return ptr.Deref(cfg.Spec.Enricher.EnableBpfRecorder, false) || r.env.enableBpfRecorder
 }
 
 func addArgsConfig(args []string, argonfig string) []string {
@@ -1272,24 +1434,11 @@ func sliceContainsString(slice []string, s string) bool {
 	return slices.Contains(slice, s)
 }
 
-func isBpfRecorderEnabled(cfg *spodapi.SecurityProfilesOperatorDaemon) bool {
-	enableBpfRecorderEnv, err := strconv.ParseBool(os.Getenv(config.EnableBpfRecorderEnvKey))
-	if err != nil {
-		enableBpfRecorderEnv = false
-	}
-
-	return ptr.Deref(cfg.Spec.Enricher.EnableBpfRecorder, false) || enableBpfRecorderEnv
-}
-
-func addEnvVar(templateSpec *corev1.PodSpec, envVarKey string) {
-	envValue, err := strconv.ParseBool(os.Getenv(envVarKey))
-	if err != nil {
-		envValue = false
-	}
-
+// addEnvVar passes the flag of the operator environment to the daemon.
+func (r *ReconcileSPOd) addEnvVar(templateSpec *corev1.PodSpec, envVarKey string) {
 	envVar := corev1.EnvVar{
 		Name:  envVarKey,
-		Value: strconv.FormatBool(envValue),
+		Value: strconv.FormatBool(r.env.byEnvKey(envVarKey)),
 	}
 
 	templateSpec.Containers[bindata.ContainerIDDaemon].Env = append(
@@ -1336,6 +1485,10 @@ func profilingArgsSelinuxd() []string {
 	return []string{"--enable-profiling=true"}
 }
 
+// profilingEnvsSpo returns the profiling environment of a SPOd container.
+// The profiling endpoint binds to the pod address, because enabling it in the
+// SPOD is the explicit request to reach it from outside the pod, while the
+// binary defaults to the loopback interface.
 func profilingEnvsSpo(add int) []corev1.EnvVar {
 	return []corev1.EnvVar{
 		{
@@ -1345,6 +1498,10 @@ func profilingEnvsSpo(add int) []corev1.EnvVar {
 		{
 			Name:  config.ProfilingPortEnvKey,
 			Value: strconv.Itoa(config.DefaultProfilingPort + add),
+		},
+		{
+			Name:  config.ProfilingAddressEnvKey,
+			Value: config.AllInterfacesAddress,
 		},
 	}
 }

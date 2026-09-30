@@ -4,16 +4,39 @@ set -euo pipefail
 CONTAINER_CMD=$(command -v podman || command -v docker)
 VERSION=trixie
 
-"$CONTAINER_CMD" run --rm -i -v "$(dirname "$(dirname "$0")"):/spo" debian:$VERSION bash << 'EOM'
+# The linux-bpf-dev package the vmlinux.h headers are taken from. Debian drops
+# superseded kernel packages from its archive, so they are downloaded from
+# snapshot.debian.org and verified, which keeps the headers reproducible.
+# Bump all of them together, the SHA-1 checksums of a version are listed at
+# https://snapshot.debian.org/mr/binary/linux-bpf-dev/<version>/binfiles?fileinfo=1
+PACKAGE_VERSION=6.12.41-1
+SNAPSHOT=20250828T205108Z
+SHA256_AMD64=1ca1b2a021fb3acfaca0472924f1e6dae89e8ce655a1adb4757115a7b2b791b8
+SHA256_ARM64=5162b01248a47b7051dc6b6950c19ad1f77a804c4dbd0d194b2f3af45703ef2a
+
+"$CONTAINER_CMD" run --rm -i \
+    -e PACKAGE_VERSION="$PACKAGE_VERSION" \
+    -e SNAPSHOT="$SNAPSHOT" \
+    -e SHA256_AMD64="$SHA256_AMD64" \
+    -e SHA256_ARM64="$SHA256_ARM64" \
+    -v "$(dirname "$(dirname "$0")"):/spo" docker.io/library/debian:$VERSION bash << 'EOM'
 
 set -euox pipefail
 
-dpkg --add-architecture amd64
-dpkg --add-architecture arm64
-cd tmp
-apt-get update
-apt-get download linux-bpf-dev:amd64
-apt-get download linux-bpf-dev:arm64
+cd /tmp
+
+# Plain HTTP like apt, the image has no CA certificates and the checksum
+# verifies the download.
+download() {
+  local arch=$1 sha256=$2
+  local deb="linux-bpf-dev_${PACKAGE_VERSION}_${arch}.deb"
+  /usr/lib/apt/apt-helper download-file \
+    "http://snapshot.debian.org/archive/debian/$SNAPSHOT/pool/main/l/linux/$deb" \
+    "$deb" "SHA256:$sha256"
+}
+
+download amd64 "$SHA256_AMD64"
+download arm64 "$SHA256_ARM64"
 
 {
   printf "// @generated from hack/update-vmlinux using $(ls linux-bpf-dev_*_amd64.deb)\n"

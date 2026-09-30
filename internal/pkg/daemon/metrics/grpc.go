@@ -34,6 +34,7 @@ import (
 const (
 	defaultTimeout time.Duration = 20 * time.Second
 	maxMsgSize                   = 16 * 1024 * 1024
+	socketMode     os.FileMode   = 0o660
 )
 
 // ServeGRPC runs the GRPC API server in the background.
@@ -47,6 +48,13 @@ func (m *Metrics) ServeGRPC() error {
 	listener, err := net.Listen("unix", config.GRPCServerSocketMetrics)
 	if err != nil {
 		return fmt.Errorf("create listener: %w", err)
+	}
+
+	// The enrichers and the bpf recorder run as root without DAC_OVERRIDE, so
+	// they connect through the group of the pod fsGroup, which the socket
+	// inherits from the rootless daemon.
+	if err := os.Chmod(config.GRPCServerSocketMetrics, socketMode); err != nil {
+		return errors.Join(fmt.Errorf("change GRPC socket mode: %w", err), listener.Close())
 	}
 
 	m.grpcServer = grpc.NewServer(

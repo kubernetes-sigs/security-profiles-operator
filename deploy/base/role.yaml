@@ -34,8 +34,11 @@ rules:
   resources:
   - mutatingwebhookconfigurations
   verbs:
+  - get
+  - list
   - patch
   - update
+  - watch
 - apiGroups:
   - admissionregistration.k8s.io
   resources:
@@ -45,9 +48,6 @@ rules:
   - validatingwebhookconfigurations
   verbs:
   - create
-  - get
-  - list
-  - watch
 - apiGroups:
   - admissionregistration.k8s.io
   resourceNames:
@@ -56,7 +56,10 @@ rules:
   - validatingadmissionpolicies
   - validatingadmissionpolicybindings
   verbs:
+  - get
+  - list
   - update
+  - watch
 - apiGroups:
   - admissionregistration.k8s.io
   resourceNames:
@@ -64,8 +67,11 @@ rules:
   resources:
   - validatingwebhookconfigurations
   verbs:
+  - get
+  - list
   - patch
   - update
+  - watch
 - apiGroups:
   - authentication.k8s.io
   resources:
@@ -82,11 +88,16 @@ rules:
   - config.openshift.io
   resources:
   - apiservers
-  - clusteroperators
   verbs:
   - get
   - list
   - watch
+- apiGroups:
+  - config.openshift.io
+  resources:
+  - clusteroperators
+  verbs:
+  - get
 - apiGroups:
   - events.k8s.io
   resources:
@@ -104,7 +115,6 @@ rules:
   verbs:
   - create
   - delete
-  - deletecollection
   - get
   - list
   - patch
@@ -114,25 +124,18 @@ rules:
   - security-profiles-operator.x-k8s.io
   resources:
   - apparmorprofiles/finalizers
-  - rawselinuxprofiles/finalizers
-  - seccompprofiles/finalizers
-  - securityprofilesoperatordaemons/finalizers
-  - selinuxprofiles/finalizers
-  verbs:
-  - delete
-  - get
-  - patch
-  - update
-- apiGroups:
-  - security-profiles-operator.x-k8s.io
-  resources:
   - apparmorprofiles/status
   - profilebindings/finalizers
   - profilebindings/status
+  - profilerecordings/finalizers
   - profilerecordings/status
+  - rawselinuxprofiles/finalizers
   - rawselinuxprofiles/status
+  - seccompprofiles/finalizers
   - seccompprofiles/status
+  - securityprofilesoperatordaemons/finalizers
   - securityprofilesoperatordaemons/status
+  - selinuxprofiles/finalizers
   - selinuxprofiles/status
   verbs:
   - get
@@ -143,7 +146,6 @@ rules:
   resources:
   - profilebindings
   - profilerecordings
-  - profilerecordings/finalizers
   verbs:
   - get
   - list
@@ -241,6 +243,17 @@ rules:
   - update
   - watch
 - apiGroups:
+  - policy
+  resources:
+  - poddisruptionbudgets
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - security.openshift.io
   resourceNames:
   - restricted-v2
@@ -311,6 +324,7 @@ rules:
   resources:
   - apparmorprofiles
   - rawselinuxprofiles
+  - seccompprofiles
   - selinuxprofiles
   verbs:
   - create
@@ -323,21 +337,13 @@ rules:
   - security-profiles-operator.x-k8s.io
   resources:
   - apparmorprofiles/finalizers
-  - rawselinuxprofiles/finalizers
-  - seccompprofiles/finalizers
-  - selinuxprofiles/finalizers
-  verbs:
-  - delete
-  - get
-  - patch
-  - update
-- apiGroups:
-  - security-profiles-operator.x-k8s.io
-  resources:
   - apparmorprofiles/status
+  - rawselinuxprofiles/finalizers
   - rawselinuxprofiles/status
+  - seccompprofiles/finalizers
   - seccompprofiles/status
   - securityprofilenodestatuses/status
+  - selinuxprofiles/finalizers
   - selinuxprofiles/status
   verbs:
   - get
@@ -356,7 +362,6 @@ rules:
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
-  - seccompprofiles
   - securityprofilenodestatuses
   verbs:
   - create
@@ -381,6 +386,13 @@ metadata:
   name: spod
   namespace: security-profiles-operator
 rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - secrets
+  verbs:
+  - get
 - apiGroups:
   - batch
   resources:
@@ -411,6 +423,12 @@ rules:
   - events
   verbs:
   - create
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
 - apiGroups:
   - authentication.k8s.io
   resources:

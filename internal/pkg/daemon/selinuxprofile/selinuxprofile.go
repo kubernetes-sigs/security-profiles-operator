@@ -139,6 +139,8 @@ type selinuxProfileHandler struct {
 	systemInherits []string
 	objInherits    []selinuxprofileapi.SelinuxProfileObject
 	translatorOpts *translator.Options
+	// operatorNamespace is the namespace of the SPOD.
+	operatorNamespace string
 }
 
 func (sph *selinuxProfileHandler) Init(
@@ -163,7 +165,7 @@ func (sph *selinuxProfileHandler) GetProfileObject() selinuxprofileapi.SelinuxPr
 }
 
 func (sph *selinuxProfileHandler) Validate(ctx context.Context) error {
-	spod, err := common.GetSPOD(ctx, sph.cli)
+	spod, err := common.GetSPOD(ctx, sph.cli, sph.operatorNamespace)
 	if err != nil {
 		return fmt.Errorf("%w: couldn't get spod configuration: %w", errTemporaryValidation, err)
 	}
@@ -394,11 +396,13 @@ func newSelinuxProfileHandler(
 	ctx context.Context,
 	cli client.Client,
 	key types.NamespacedName,
+	operatorNamespace string,
 ) (SelinuxObjectHandler, error) {
 	oh := &selinuxProfileHandler{
-		sp:             &selinuxprofileapi.SelinuxProfile{},
-		systemInherits: make([]string, 0),
-		objInherits:    make([]selinuxprofileapi.SelinuxProfileObject, 0),
+		sp:                &selinuxprofileapi.SelinuxProfile{},
+		systemInherits:    make([]string, 0),
+		objInherits:       make([]selinuxprofileapi.SelinuxProfileObject, 0),
+		operatorNamespace: operatorNamespace,
 	}
 
 	err := oh.Init(ctx, cli, key)

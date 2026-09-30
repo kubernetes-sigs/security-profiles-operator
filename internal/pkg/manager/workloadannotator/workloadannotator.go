@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"iter"
 	"net/http"
 	"slices"
 	"strings"
@@ -456,6 +457,12 @@ func (r *PodReconciler) updateSelinuxProfilesByName(
 // profile kind: the kinds differ only in how pods reference them and in where
 // the active workload list lives. Kinds without a list of active workloads
 // pass nil accessors.
+//
+// Reconciles of different pods using the same profile run concurrently, so
+// every attempt lists the pods again after reading the profile. A write based
+// on a pod list which another reconcile already superseded then fails with a
+// conflict, and the retry recomputes the list instead of dropping the pods the
+// other reconcile added.
 func updatePodReferences[T client.Object](
 	ctx context.Context,
 	r *PodReconciler,
@@ -464,26 +471,29 @@ func updatePodReferences[T client.Object](
 	getActiveWorkloads func(T) []string,
 	setActiveWorkloads func(T, []string),
 ) error {
-	linkedPods := &corev1.PodList{}
+	linkedPods := func() ([]string, error) {
+		pods := &corev1.PodList{}
 
-	err := r.client.List(ctx, linkedPods, client.MatchingFields{ownerKey: profileReference})
-	if util.IgnoreNotFound(err) != nil {
-		return fmt.Errorf("listing pods to update %s: %w", kind, err)
+		err := r.client.List(ctx, pods, client.MatchingFields{ownerKey: profileReference})
+		if util.IgnoreNotFound(err) != nil {
+			return nil, fmt.Errorf("listing pods to update %s: %w", kind, err)
+		}
+
+		podList := make([]string, len(pods.Items))
+
+		for i := range pods.Items {
+			podList[i] = pods.Items[i].Namespace + "/" + pods.Items[i].Name
+		}
+
+		slices.Sort(podList)
+
+		return podList, nil
 	}
-
-	podList := make([]string, len(linkedPods.Items))
-
-	for i := range linkedPods.Items {
-		pod := &linkedPods.Items[i]
-		podList[i] = pod.Namespace + "/" + pod.Name
-	}
-
-	slices.Sort(podList)
 
 	// Kinds without a list of active workloads only need the finalizer, which
 	// the cached profile tells about already.
 	if getActiveWorkloads == nil {
-		return updateInUseFinalizer(ctx, r, prof, len(linkedPods.Items) > 0)
+		return updateInUseFinalizer(ctx, r, prof, linkedPods)
 	}
 
 	profileDeleted := false
@@ -503,11 +513,16 @@ func updatePodReferences[T client.Object](
 			return fmt.Errorf("retrieving profile: %w", err)
 		}
 
+		podList, err := linkedPods()
+		if err != nil {
+			return err
+		}
+
 		if sameActiveWorkloads(getActiveWorkloads(prof), podList) {
 			return nil
 		}
 
-		setActiveWorkloads(prof, slices.Clone(podList))
+		setActiveWorkloads(prof, podList)
 
 		if err := r.client.Status().Update(ctx, prof); err != nil {
 			return fmt.Errorf("updating profile: %w", err)
@@ -522,37 +537,55 @@ func updatePodReferences[T client.Object](
 		return nil
 	}
 
-	return updateInUseFinalizer(ctx, r, prof, len(linkedPods.Items) > 0)
+	return updateInUseFinalizer(ctx, r, prof, linkedPods)
 }
 
-// updateInUseFinalizer adds the in-use finalizer to the profile if it is used
-// and removes it otherwise. The profile only gets written if the finalizer
-// changes.
+// updateInUseFinalizer adds the in-use finalizer to the profile if pods use
+// it and removes it otherwise. Nothing gets read from the API server or
+// written if the provided profile has the finalizer it needs. Otherwise every
+// attempt reads the profile and lists the pods again, so that a pod which
+// started using the profile in the meantime keeps the finalizer in place.
 func updateInUseFinalizer(
-	ctx context.Context, r *PodReconciler, prof client.Object, inUse bool,
+	ctx context.Context,
+	r *PodReconciler,
+	prof client.Object,
+	linkedPods func() ([]string, error),
 ) error {
-	if inUse == isInUse(prof) {
-		return nil
+	pods, err := linkedPods()
+	if err != nil {
+		return err
 	}
 
-	if inUse {
-		if err := util.Retry(func() error {
-			return client.IgnoreNotFound(
-				util.AddFinalizer(ctx, r.client, prof, util.HasActivePodsFinalizerString),
-			)
-		}, util.IsNotFoundOrConflict); err != nil {
-			return fmt.Errorf("adding finalizer: %w", err)
-		}
-
+	if (len(pods) > 0) == isInUse(prof) {
 		return nil
 	}
 
 	if err := util.Retry(func() error {
-		return client.IgnoreNotFound(
-			util.RemoveFinalizer(ctx, r.client, prof, util.HasActivePodsFinalizerString),
-		)
+		if err := r.reader.Get(
+			ctx, util.NamespacedName(prof.GetName(), prof.GetNamespace()), prof,
+		); err != nil {
+			return client.IgnoreNotFound(err)
+		}
+
+		pods, err := linkedPods()
+		if err != nil {
+			return err
+		}
+
+		inUse := len(pods) > 0
+		if inUse == isInUse(prof) {
+			return nil
+		}
+
+		if inUse {
+			controllerutil.AddFinalizer(prof, util.HasActivePodsFinalizerString)
+		} else {
+			controllerutil.RemoveFinalizer(prof, util.HasActivePodsFinalizerString)
+		}
+
+		return client.IgnoreNotFound(r.client.Update(ctx, prof))
 	}, util.IsNotFoundOrConflict); err != nil {
-		return fmt.Errorf("removing finalizer: %w", err)
+		return fmt.Errorf("updating finalizer: %w", err)
 	}
 
 	return nil
@@ -656,17 +689,30 @@ func (p *profileReleaser[T]) Reconcile(
 	return reconcile.Result{}, p.release(ctx, p.pods, profile)
 }
 
-// allContainers returns the regular, init and ephemeral containers of the pod.
-func allContainers(pod *corev1.Pod) []corev1.Container {
-	containers := slices.Clone(pod.Spec.Containers)
-	containers = append(containers, pod.Spec.InitContainers...)
+// allContainers iterates over the regular, init and ephemeral containers of
+// the pod without copying them, because the profile extractors run on every
+// pod event.
+func allContainers(pod *corev1.Pod) iter.Seq[*corev1.Container] {
+	return func(yield func(*corev1.Container) bool) {
+		for i := range pod.Spec.Containers {
+			if !yield(&pod.Spec.Containers[i]) {
+				return
+			}
+		}
 
-	for i := range pod.Spec.EphemeralContainers {
-		containers = append(containers,
-			corev1.Container(pod.Spec.EphemeralContainers[i].EphemeralContainerCommon))
+		for i := range pod.Spec.InitContainers {
+			if !yield(&pod.Spec.InitContainers[i]) {
+				return
+			}
+		}
+
+		for i := range pod.Spec.EphemeralContainers {
+			ctr := corev1.Container(pod.Spec.EphemeralContainers[i].EphemeralContainerCommon)
+			if !yield(&ctr) {
+				return
+			}
+		}
 	}
-
-	return containers
 }
 
 // getSeccompProfilesFromPod returns a slice of strings representing seccomp profiles required by the pod.
@@ -680,9 +726,8 @@ func getSeccompProfilesFromPod(pod *corev1.Pod) []string {
 	}
 
 	// try to get profile(s) from securityContext in pods
-	containers := allContainers(pod)
-	for i := range containers {
-		sc := containers[i].SecurityContext
+	for ctr := range allContainers(pod) {
+		sc := ctr.SecurityContext
 		if sc != nil && isOperatorSeccompProfile(sc.SeccompProfile) {
 			profileString := *sc.SeccompProfile.LocalhostProfile
 			if !slices.Contains(profiles, profileString) {
@@ -720,9 +765,8 @@ func getSelinuxProfilesFromPod(pod *corev1.Pod) []string {
 	}
 
 	// try to get profile(s) from securityContext in containers
-	containers := allContainers(pod)
-	for i := range containers {
-		sc := containers[i].SecurityContext
+	for ctr := range allContainers(pod) {
+		sc := ctr.SecurityContext
 		if sc != nil && isOperatorSelinuxType(sc.SELinuxOptions) {
 			profileString := sc.SELinuxOptions.Type
 			if !slices.Contains(profiles, profileString) {
@@ -759,9 +803,8 @@ func getAppArmorProfilesFromPod(pod *corev1.Pod) []string {
 		add(localhostName(sc.AppArmorProfile))
 	}
 
-	containers := allContainers(pod)
-	for i := range containers {
-		if sc := containers[i].SecurityContext; sc != nil {
+	for ctr := range allContainers(pod) {
+		if sc := ctr.SecurityContext; sc != nil {
 			add(localhostName(sc.AppArmorProfile))
 		}
 	}

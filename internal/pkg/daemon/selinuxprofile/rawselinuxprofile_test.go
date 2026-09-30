@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/utiltest"
 )
 
 func TestRawSelinuxProfileHandler(t *testing.T) {
@@ -37,9 +38,9 @@ func TestRawSelinuxProfileHandler(t *testing.T) {
 			Policy: "(allow process self (file (read)))\n(allow process self (dir (search)))\n",
 		},
 	}
-	cli := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(profile).Build()
+	cli := fake.NewClientBuilder().WithScheme(utiltest.NewScheme(t)).WithObjects(profile).Build()
 
-	oh, err := newRawSelinuxProfileHandler(t.Context(), cli, types.NamespacedName{Name: "raw"})
+	oh, err := newRawSelinuxProfileHandler(t.Context(), cli, types.NamespacedName{Name: "raw"}, "")
 	require.NoError(t, err)
 	require.Equal(t, "raw", oh.GetProfileObject().GetName())
 	require.NoError(t, oh.Validate(t.Context()))
@@ -52,7 +53,12 @@ func TestRawSelinuxProfileHandler(t *testing.T) {
 		cil,
 	)
 
-	_, err = newRawSelinuxProfileHandler(t.Context(), cli, types.NamespacedName{Name: "missing"})
+	_, err = newRawSelinuxProfileHandler(
+		t.Context(),
+		cli,
+		types.NamespacedName{Name: "missing"},
+		"",
+	)
 	require.True(t, kerrors.IsNotFound(err))
 }
 
@@ -65,9 +71,9 @@ func TestRawSelinuxProfileHandlerRejectsBlockEscape(t *testing.T) {
 			Policy: ")(allow process self (file (read)))",
 		},
 	}
-	cli := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(profile).Build()
+	cli := fake.NewClientBuilder().WithScheme(utiltest.NewScheme(t)).WithObjects(profile).Build()
 
-	oh, err := newRawSelinuxProfileHandler(t.Context(), cli, types.NamespacedName{Name: "raw"})
+	oh, err := newRawSelinuxProfileHandler(t.Context(), cli, types.NamespacedName{Name: "raw"}, "")
 	require.NoError(t, err)
 	require.Error(t, oh.Validate(t.Context()))
 }

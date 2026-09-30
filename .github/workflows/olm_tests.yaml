@@ -5,7 +5,8 @@ on:
       - main
   pull_request:
 env:
-  KIND_IMG_TAG: v1.37.0
+  # Pinned by digest, see kind-image and kind-image-digest in dependencies.yaml.
+  KIND_IMG_TAG: v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
 # Only pull request runs are cancelled by newer pushes, runs on main or for a
 # release always complete.
 concurrency:
@@ -36,7 +37,10 @@ jobs:
     if: needs.changes.outputs.code == 'true'
     name: tests
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    # The tests install the operator seven times (all, own, single and multi
+    # namespace, a custom namespace and two feature variables), each waiting up
+    # to three minutes per condition, after building the images.
+    timeout-minutes: 90
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

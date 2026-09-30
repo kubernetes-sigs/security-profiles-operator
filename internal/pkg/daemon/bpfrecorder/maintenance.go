@@ -21,6 +21,7 @@ package bpfrecorder
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"
@@ -44,11 +45,11 @@ func (b *BpfRecorder) runMaintenance(ctx context.Context) {
 			return
 		case <-ticker.C:
 			if atomic.LoadInt64(&b.startRequests) > 0 {
-				b.cacheProfilesOfUnresolvedContainers(ctx)
+				b.cacheProfilesOfUnresolvedContainers()
 			}
 
 			b.sweepStaleKeys()
-			b.releaseAbandonedRecording(ctx)
+			b.releaseAbandonedRecording()
 		}
 	}
 }
@@ -57,6 +58,11 @@ func (b *BpfRecorder) runMaintenance(ctx context.Context) {
 // got found for and whose processes are gone. Nobody can collect that data, but it
 // would take up room in the maps until the recording stops, which may never
 // happen on a node which always records something.
+//
+// Looking up the processes and cgroups of up to every recorded key takes a
+// while, so it runs without the lock, which would hold off StopRecording and
+// the collection of profiles in the meantime. Only reading the maps and
+// dropping the data take it.
 func (b *BpfRecorder) sweepStaleKeys() {
 	if b.clientset == nil || atomic.LoadInt64(&b.startRequests) == 0 {
 		clear(b.staleKeys)
@@ -64,38 +70,56 @@ func (b *BpfRecorder) sweepStaleKeys() {
 		return
 	}
 
-	// StopRecording clears everything anyway, holding the write lock.
 	b.attachUnattachMutex.RLock()
-	defer b.attachUnattachMutex.RUnlock()
+	generation := b.recordingGeneration.Load()
+	recorded := b.recordedKeys()
+	pids, err := b.recordedPids()
+	b.attachUnattachMutex.RUnlock()
 
-	alive := b.keysWithProcesses()
-	if alive == nil {
+	if err != nil {
 		// The processes are unknown, so no key is known to be without any.
+		b.logger.Error(err, "Unable to list recorded processes")
+
 		return
 	}
 
+	alive := b.keysWithProcesses(pids)
 	stale := make(map[uint64]int, len(b.staleKeys))
 
-	for _, key := range b.recordedKeys() {
-		if _, recorded := b.profileOfKey(key); recorded {
-			continue
-		}
+	var drop []uint64
 
-		if _, ok := alive[key]; ok {
+	for _, key := range recorded {
+		if !b.isStaleKey(key, alive) {
 			continue
-		}
-
-		// A cgroup can get new processes as long as it exists.
-		if b.cgroupKeys {
-			if _, err := b.CgroupPathForID(key); err == nil {
-				continue
-			}
 		}
 
 		sweeps := b.staleKeys[key] + 1
 		if sweeps < staleKeySweeps {
 			stale[key] = sweeps
 
+			continue
+		}
+
+		drop = append(drop, key)
+	}
+
+	b.staleKeys = stale
+
+	if len(drop) == 0 {
+		return
+	}
+
+	// StopRecording clears everything anyway, holding the write lock.
+	b.attachUnattachMutex.RLock()
+	defer b.attachUnattachMutex.RUnlock()
+
+	if b.recordingGeneration.Load() != generation {
+		return
+	}
+
+	for _, key := range drop {
+		// The container of the key may have been found in the meantime.
+		if _, recorded := b.profileOfKey(key); recorded {
 			continue
 		}
 
@@ -110,8 +134,26 @@ func (b *BpfRecorder) sweepStaleKeys() {
 			b.AppArmor.Clear([]uint64{key})
 		}
 	}
+}
 
-	b.staleKeys = stale
+// isStaleKey reports whether the key has no recorded container and no
+// processes, nor a cgroup which can get new processes.
+func (b *BpfRecorder) isStaleKey(key uint64, alive map[uint64]struct{}) bool {
+	if _, recorded := b.profileOfKey(key); recorded {
+		return false
+	}
+
+	if _, ok := alive[key]; ok {
+		return false
+	}
+
+	if b.cgroupKeys {
+		if _, err := b.CgroupPathForID(key); err == nil {
+			return false
+		}
+	}
+
+	return true
 }
 
 // recordedKeys returns the keys data is recorded for, each one once, as a
@@ -141,25 +183,28 @@ func (b *BpfRecorder) recordedKeys() []uint64 {
 	return slices.Compact(keys)
 }
 
-// keysWithProcesses returns the keys of the processes of the active_pids map
-// which still exist. A PID which got reused keeps its key here, which only
-// delays dropping its data.
-func (b *BpfRecorder) keysWithProcesses() map[uint64]struct{} {
-	alive := map[uint64]struct{}{}
-
+// recordedPids returns the entries of the active_pids map, the recorded
+// processes together with their keys.
+func (b *BpfRecorder) recordedPids() ([][]byte, error) {
 	if b.activePidsBpfMap == nil {
-		return alive
+		return nil, nil
 	}
 
 	raw, err := b.MapKeys(b.activePidsBpfMap)
 	if err != nil {
-		b.logger.Error(err, "Unable to list recorded processes")
-
-		// Nothing is known to be gone.
-		return nil
+		return nil, fmt.Errorf("list active pids: %w", err)
 	}
 
-	for _, entry := range raw {
+	return raw, nil
+}
+
+// keysWithProcesses returns the keys of the entries of the active_pids map
+// whose process still exists. A PID which got reused keeps its key here, which
+// only delays dropping its data.
+func (b *BpfRecorder) keysWithProcesses(pids [][]byte) map[uint64]struct{} {
+	alive := map[uint64]struct{}{}
+
+	for _, entry := range pids {
 		// struct pid_key of recorder.bpf.c.
 		if len(entry) != 16 {
 			continue
@@ -184,8 +229,9 @@ func (b *BpfRecorder) keysWithProcesses() map[uint64]struct{} {
 // one for a while. Start and Stop are counted, and a Start which the client
 // retried or whose Stop got lost, for example because the client restarted,
 // would keep the hooks attached for the lifetime of the recorder.
-func (b *BpfRecorder) releaseAbandonedRecording(ctx context.Context) {
-	if b.clientset == nil {
+func (b *BpfRecorder) releaseAbandonedRecording() {
+	// Without the initial list every node looks idle.
+	if b.pods == nil || !b.pods.HasSynced() {
 		return
 	}
 
@@ -197,27 +243,7 @@ func (b *BpfRecorder) releaseAbandonedRecording(ctx context.Context) {
 		return
 	}
 
-	listCtx, cancel := context.WithTimeout(ctx, defaultTimeout)
-	defer cancel()
-
-	pods, err := b.ListPods(listCtx, b.clientset, b.nodeName)
-	if err != nil {
-		b.logger.Error(err, "Unable to list pods to check for recorded ones")
-
-		return
-	}
-
-	recorded := false
-
-	if pods != nil {
-		for i := range pods.Items {
-			if recordsBpf(&pods.Items[i]) {
-				recorded = true
-
-				break
-			}
-		}
-	}
+	recorded := slices.ContainsFunc(b.pods.Pods(), recordsBpf)
 
 	b.startMu.Lock()
 	defer b.startMu.Unlock()
@@ -230,8 +256,8 @@ func (b *BpfRecorder) releaseAbandonedRecording(ctx context.Context) {
 		return
 	}
 
-	// A Start after the node became idle belongs to a pod the list above may
-	// have missed.
+	// A Start after the node became idle belongs to a pod the watch may not
+	// have told yet.
 	if b.idleSince.IsZero() || b.lastStart.After(b.idleSince) {
 		b.idleSince = now
 

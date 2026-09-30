@@ -18,12 +18,13 @@ package nodestatus
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -35,20 +36,10 @@ import (
 	seccompprofile "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/utiltest"
 )
 
 const testNode = "worker-1"
-
-func testScheme(t *testing.T) *runtime.Scheme {
-	t.Helper()
-
-	s := runtime.NewScheme()
-	require.NoError(t, seccompprofile.AddToScheme(s))
-	require.NoError(t, secprofnodestatusapi.AddToScheme(s))
-	require.NoError(t, profilerecordingapi.AddToScheme(s))
-
-	return s
-}
 
 // newFakeClient returns a fake client that, like the cache backed client of
 // the manager, returns objects with their type meta set. The status client
@@ -56,7 +47,7 @@ func testScheme(t *testing.T) *runtime.Scheme {
 func newFakeClient(t *testing.T, objs ...client.Object) client.WithWatch {
 	t.Helper()
 
-	scheme := testScheme(t)
+	scheme := utiltest.NewScheme(t)
 
 	return fake.NewClientBuilder().
 		WithScheme(scheme).
@@ -587,4 +578,201 @@ func TestSetNodeStatusSkipsUnchangedStatus(t *testing.T) {
 		sc.SetNodeStatus(context.Background(), secprofnodestatusapi.ProfileStateInstalled),
 	)
 	require.Zero(t, updates)
+}
+
+// conflictOnce returns a client which fails the first update of the objects
+// which match with a conflict, like the API server does when another writer
+// got there first.
+func conflictOnce(
+	base client.WithWatch, match func(client.Object) bool,
+) (c client.WithWatch, conflicts *int) {
+	conflicts = new(int)
+
+	return interceptor.NewClient(base, interceptor.Funcs{
+		Update: func(
+			ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.UpdateOption,
+		) error {
+			if match(obj) && *conflicts == 0 {
+				(*conflicts)++
+
+				return kerrors.NewConflict(
+					schema.GroupResource{Resource: "objects"}, obj.GetName(), nil,
+				)
+			}
+
+			return cl.Update(ctx, obj, opts...)
+		},
+	}), conflicts
+}
+
+func TestSetAnnotationRetriesOnConflict(t *testing.T) {
+	t.Parallel()
+
+	sp := preparedProfile()
+	existing := newStatusClient(t, sp, nil).statusObj(secprofnodestatusapi.ProfileStatePending)
+	base := newFakeClient(t, sp.DeepCopy(), existing)
+
+	c, conflicts := conflictOnce(base, func(obj client.Object) bool {
+		_, ok := obj.(*secprofnodestatusapi.SecurityProfileNodeStatus)
+
+		return ok
+	})
+
+	sc := newStatusClient(t, sp, c)
+	require.NoError(t, sc.SetAnnotation(context.Background(), "key", "value"))
+	require.Equal(t, 1, *conflicts)
+
+	status, err := nodeStatus(t, base, wantStatusName)
+	require.NoError(t, err)
+	require.Equal(t, "value", status.Annotations["key"])
+}
+
+func TestRemovePartialProfileRetriesRecordingConflict(t *testing.T) {
+	t.Parallel()
+
+	sp := recordedPartialProfile("test-profile")
+	base := newFakeClient(t, sp.DeepCopy(), testRecording())
+
+	c, conflicts := conflictOnce(base, func(obj client.Object) bool {
+		_, ok := obj.(*profilerecordingapi.ProfileRecording)
+
+		return ok
+	})
+
+	sc := newStatusClient(t, sp, c)
+	require.NoError(t, sc.Remove(context.Background(), c))
+	require.Equal(t, 1, *conflicts)
+	require.False(t, recordingHasFinalizer(t, base))
+}
+
+// A node whose name does not fit into a finalizer used to get a truncated
+// one, which it could share with another node. The daemon adds the hashed form
+// next to it and keeps handling profiles which only carry the old one.
+func TestLegacyNodeFinalizer(t *testing.T) {
+	t.Parallel()
+
+	longNode := strings.Repeat("n", 100)
+	current := util.GetFinalizerNodeString(longNode)
+	legacy := util.GetLegacyFinalizerNodeString(longNode)
+	require.NotEmpty(t, legacy)
+	require.NotEqual(t, current, legacy)
+
+	newClient := func(t *testing.T, sp *seccompprofile.SeccompProfile, c client.Client) *StatusClient {
+		t.Helper()
+
+		sc, err := NewForProfileOnNode(sp, c, longNode)
+		require.NoError(t, err)
+		require.Equal(t, current, sc.finalizerString)
+		require.Equal(t, legacy, sc.legacyFinalizerString)
+
+		return sc
+	}
+
+	t.Run("the legacy finalizer counts as present", func(t *testing.T) {
+		t.Parallel()
+
+		sp := regularSeccompProfile()
+		sp.Finalizers = []string{legacy}
+
+		require.True(t, newClient(t, sp, newFakeClient(t)).FinalizerExists())
+		require.False(t, newClient(t, regularSeccompProfile(), newFakeClient(t)).FinalizerExists())
+	})
+
+	t.Run("creating the status keeps the legacy finalizer", func(t *testing.T) {
+		t.Parallel()
+
+		sp := regularSeccompProfile()
+		sp.Finalizers = []string{"other", legacy}
+		c := newFakeClient(t, sp.DeepCopy())
+
+		_, err := newClient(t, sp, c).Create(context.Background())
+		require.NoError(t, err)
+		require.ElementsMatch(t,
+			[]string{"other", legacy, current},
+			storedProfile(t, c, sp.Name).Finalizers,
+		)
+	})
+
+	t.Run("removing the status strips both forms", func(t *testing.T) {
+		t.Parallel()
+
+		sp := regularSeccompProfile()
+		sp.Finalizers = []string{"other", legacy, current}
+		c := newFakeClient(t, sp.DeepCopy())
+
+		require.NoError(t, newClient(t, sp, c).Remove(context.Background(), c))
+		require.Equal(t, []string{"other"}, storedProfile(t, c, sp.Name).Finalizers)
+	})
+
+	t.Run("an existing profile gets migrated", func(t *testing.T) {
+		t.Parallel()
+
+		sp := regularSeccompProfile()
+		sp.Finalizers = []string{"other", legacy}
+		c := newFakeClient(t, sp.DeepCopy())
+		sc := newClient(t, sp, c)
+
+		require.NoError(t, sc.MigrateLegacyFinalizer(context.Background()))
+		require.ElementsMatch(t,
+			[]string{"other", legacy, current},
+			storedProfile(t, c, sp.Name).Finalizers,
+		)
+
+		// Nothing is left to migrate.
+		version := storedProfile(t, c, sp.Name).ResourceVersion
+		require.NoError(t, sc.MigrateLegacyFinalizer(context.Background()))
+		require.Equal(t, version, storedProfile(t, c, sp.Name).ResourceVersion)
+	})
+
+	t.Run("the legacy finalizer shared with another node", func(t *testing.T) {
+		t.Parallel()
+
+		// Both names share the truncated prefix of the legacy finalizer.
+		nodeA := strings.Repeat("n", 99) + "a"
+		nodeB := strings.Repeat("n", 99) + "b"
+
+		require.Equal(t, legacy, util.GetLegacyFinalizerNodeString(nodeA))
+		require.Equal(t, legacy, util.GetLegacyFinalizerNodeString(nodeB))
+
+		currentA := util.GetFinalizerNodeString(nodeA)
+		currentB := util.GetFinalizerNodeString(nodeB)
+		require.NotEqual(t, currentA, currentB)
+
+		sp := regularSeccompProfile()
+		sp.Finalizers = []string{"other", legacy}
+		c := newFakeClient(t, sp.DeepCopy())
+
+		scA, err := NewForProfileOnNode(sp, c, nodeA)
+		require.NoError(t, err)
+
+		// Node B has not migrated yet and relies on the legacy finalizer,
+		// so migrating node A keeps it.
+		require.NoError(t, scA.MigrateLegacyFinalizer(context.Background()))
+		require.ElementsMatch(t,
+			[]string{"other", legacy, currentA},
+			storedProfile(t, c, sp.Name).Finalizers,
+		)
+
+		scB, err := NewForProfileOnNode(storedProfile(t, c, sp.Name), c, nodeB)
+		require.NoError(t, err)
+		require.True(t, scB.FinalizerExists())
+
+		// Removing the profile from node A strips its own and the legacy
+		// finalizer, as in earlier releases, see MigrateLegacyFinalizer.
+		require.NoError(t, scA.Remove(context.Background(), c))
+		require.Equal(t, []string{"other"}, storedProfile(t, c, sp.Name).Finalizers)
+	})
+
+	t.Run("a partial profile has no legacy finalizer", func(t *testing.T) {
+		t.Parallel()
+
+		sc, err := NewForProfileOnNode(
+			recordedPartialProfile("partial"),
+			newFakeClient(t),
+			longNode,
+		)
+		require.NoError(t, err)
+		require.Equal(t, partialProfileFinalizer, sc.finalizerString)
+		require.Empty(t, sc.legacyFinalizerString)
+	})
 }

@@ -14,13 +14,15 @@ coverage:
       default:
         enabled: true
         # allowed to drop coverage and still result in a "success" commit status
-        threshold: null
+        threshold: 0.5%
         if_not_found: success
         if_no_uploads: success
         if_ci_failed: error
     patch:
       default:
         enabled: true
+        # The changed lines need tests, whatever the coverage of the project.
+        target: 80%
         threshold: null
         if_not_found: success
         if_no_uploads: success

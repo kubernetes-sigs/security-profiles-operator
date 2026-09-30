@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/yaml"
 )
 
 // FuzzDecodeRuntimeSpecSeccompProfile feeds arbitrary artifact content into
@@ -95,5 +96,52 @@ func FuzzNameFromReference(f *testing.F) {
 		require.NotEmpty(t, profileName)
 		require.Regexp(t, `^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$`, profileName)
 		require.Equal(t, profileName, nameFromReference(profileName))
+	})
+}
+
+// FuzzReadProfile feeds arbitrary YAML into the reading of pulled profiles.
+// An accepted profile has the kind of the content and survives a round trip
+// through YAML unchanged.
+func FuzzReadProfile(f *testing.F) {
+	for _, seed := range []string{
+		SeccompProfileExample,
+		SelinuxProfileExample,
+		AppArmorProfileExample,
+		"kind: SeccompProfile",
+		"kind: SelinuxProfile\nspec: {allow: {var_log_t: {file: [read]}}}",
+		"kind: AppArmorProfile\nspec: {abstract: {filesystem: {readOnlyPaths: [/etc]}}}",
+		"kind: SeccompProfile\nspec: []",
+		"kind: 1",
+		"kind: unknown",
+		"{}",
+		"\x00",
+		"",
+	} {
+		f.Add([]byte(seed))
+	}
+
+	f.Fuzz(func(t *testing.T, content []byte) {
+		profile, err := ReadProfile(content)
+		if err != nil {
+			require.Nil(t, profile)
+
+			return
+		}
+
+		require.NotNil(t, profile)
+
+		kind := profile.GetObjectKind().GroupVersionKind().Kind
+		require.Contains(t, []string{"SeccompProfile", "SelinuxProfile", "AppArmorProfile"}, kind)
+
+		encoded, err := yaml.Marshal(profile)
+		require.NoError(t, err)
+
+		decoded, err := ReadProfile(encoded)
+		require.NoError(t, err)
+		require.Equal(t, kind, decoded.GetObjectKind().GroupVersionKind().Kind)
+
+		again, err := yaml.Marshal(decoded)
+		require.NoError(t, err)
+		require.YAMLEq(t, string(encoded), string(again))
 	})
 }

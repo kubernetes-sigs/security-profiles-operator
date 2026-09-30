@@ -19,9 +19,7 @@ PODNAME=test-pod
 RECORDING_NAME="test-recording"
 APPARMOR_RECORDING_FILE="examples/profilerecording-apparmor-bpf.yaml"
 APPARMOR_PROFILE_NAME="test-recording-$PODNAME"
-APPARMOR_PROFILE_FILE="/tmp/apparmorprofile-sleep.yaml"
 APPARMOR_REFERENCE_PROFILE_FILE="examples/apparmorprofile-sleep"
-APPARMOR_REFERENCE_TMP_PROFILE_FILE="/tmp/apparmorprofile-sleep-reference.yaml"
 APPARMOR_PROFILE_FILE_COMPLAIN_MODE="examples/apparmorprofile-sleep-complain-mode.yaml"
 SLEEP_INTERVAL_RECORDING="30"     # 30s sleep interval during recording.
 SLEEP_INTERVAL_VERIFICATION="300" # 5min to make sure that the enforcement check finds a running  PID.
@@ -69,7 +67,7 @@ wait_for_pod_status() {
   local status="$2"
   echo "Waiting for pod status: $status"
   for ((i = 0; i < 10; i++)); do
-    if k get pods $pod_name | grep -q $status; then
+    if k get pods "$pod_name" | grep -q "$status"; then
       echo "Pod reached status: $status "
       return 0
     fi
@@ -83,8 +81,9 @@ check_profile_mode() {
   local command="$1"
   local apparmor_profile="$2"
   local apparmor_profile_mode="$3"
-  local pid="$(pidof $command)"
-  local mode="$(cat /proc/${pid}/attr/current)"
+  local pid mode
+  pid="$(pidof "$command")"
+  mode="$(cat "/proc/$pid/attr/current")"
   local reference="$apparmor_profile ($apparmor_profile_mode)"
   if [[ "$reference" != "$mode" ]]; then
     echo "Apparmor profile $apparmor_profile not in $apparmor_profile_mode mode: $mode"
@@ -100,8 +99,10 @@ check_apparmor_profile_recording() {
   echo "--------------------------------------------------------------------"
 
   echo "Enable Apparmor profile"
+  local generation
+  generation=$(k get ds spod -o jsonpath='{.metadata.generation}')
   k patch spod spod --type=merge -p '{"spec":{"enableAppArmor":true}}'
-  wait_for_spod
+  wait_for_spod "$generation"
 
   ensure_runtime_classes
 
@@ -111,14 +112,13 @@ check_apparmor_profile_recording() {
     echo "--------------------------"
 
     echo "Creating profile recording $RECORDING_NAME"
-    k apply -f $APPARMOR_RECORDING_FILE
+    k apply -f "$APPARMOR_RECORDING_FILE"
 
     TMP_DIR=$(mktemp -d)
-    trap 'rm -rf $TMP_DIR' EXIT
 
     echo "Creating pod $PODNAME and start recording its apparmor profile"
     pod_file="${TMP_DIR}/${PODNAME}.yml"
-    create_pod $PODNAME $pod_file $SLEEP_INTERVAL_RECORDING $runtime
+    create_pod "$PODNAME" "$pod_file" "$SLEEP_INTERVAL_RECORDING" "$runtime"
     wait_for_pod_status "$PODNAME" "Completed"
     echo "Deleting pod $PODNAME"
     k delete -f "$pod_file"
@@ -126,7 +126,7 @@ check_apparmor_profile_recording() {
     echo "Deleting profile recording $RECORDING_NAME"
     k delete -f "$APPARMOR_RECORDING_FILE"
 
-    wait_for apparmorprofile $APPARMOR_PROFILE_NAME
+    wait_for apparmorprofile "$APPARMOR_PROFILE_NAME"
 
     k get apparmorprofile -o yaml "$APPARMOR_PROFILE_NAME" \
       >"$APPARMOR_REFERENCE_PROFILE_FILE-$runtime.yaml"
@@ -148,17 +148,17 @@ check_apparmor_profile_recording() {
 
     echo "Creating pod $PODNAME with recorded profile in security context"
     sec_pod_file="${TMP_DIR}/${PODNAME}-apparmor.yml"
-    create_pod $PODNAME $sec_pod_file $SLEEP_INTERVAL_VERIFICATION $runtime $APPARMOR_PROFILE_NAME
+    create_pod "$PODNAME" "$sec_pod_file" "$SLEEP_INTERVAL_VERIFICATION" "$runtime" "$APPARMOR_PROFILE_NAME"
     wait_for_pod_status "$PODNAME" "Running" || k describe pod test-pod
 
     echo "Checking apparmor profile enforcement on container"
-    check_profile_mode "sleep" $APPARMOR_PROFILE_NAME "enforce"
+    check_profile_mode "sleep" "$APPARMOR_PROFILE_NAME" "enforce"
 
     echo "Deleting pod $PODNAME"
     k delete -f "$sec_pod_file"
 
     echo "Deleting apparmor profile $APPARMOR_PROFILE_NAME"
-    k delete apparmorprofile $APPARMOR_PROFILE_NAME
+    k delete apparmorprofile "$APPARMOR_PROFILE_NAME"
 
   done
 
@@ -182,33 +182,59 @@ check_apparmor_complain_mode() {
   echo "---------------------------"
 
   echo "Install apparmor profile in complain mode $APPARMOR_PROFILE_FILE_COMPLAIN_MODE"
-  k apply -f $APPARMOR_PROFILE_FILE_COMPLAIN_MODE
-  wait_for apparmorprofile $APPARMOR_PROFILE_NAME
+  k apply -f "$APPARMOR_PROFILE_FILE_COMPLAIN_MODE"
+  wait_for apparmorprofile "$APPARMOR_PROFILE_NAME"
 
   echo "--------------------------"
   echo "Verifying apparmor profile"
   echo "--------------------------"
 
   TMP_DIR=$(mktemp -d)
-  trap 'rm -rf $TMP_DIR' EXIT
 
   echo "Creating pod $PODNAME with apparmor profile in complain mode in security context"
   runtime="crun"
   sec_pod_file="${TMP_DIR}/${PODNAME}-apparmor.yml"
-  create_pod $PODNAME $sec_pod_file $SLEEP_INTERVAL_VERIFICATION $runtime $APPARMOR_PROFILE_NAME
+  create_pod "$PODNAME" "$sec_pod_file" "$SLEEP_INTERVAL_VERIFICATION" "$runtime" "$APPARMOR_PROFILE_NAME"
   wait_for_pod_status "$PODNAME" "Running"
 
   echo "Checking apparmor profile is in complain mode on container"
-  check_profile_mode "sleep" $APPARMOR_PROFILE_NAME "complain"
+  check_profile_mode "sleep" "$APPARMOR_PROFILE_NAME" "complain"
 
   echo "Deleting pod $PODNAME"
   k delete -f "$sec_pod_file"
 
   echo "Deleting apparmor profile $APPARMOR_PROFILE_NAME"
-  k delete apparmorprofile $APPARMOR_PROFILE_NAME
+  k delete apparmorprofile "$APPARMOR_PROFILE_NAME"
 }
 
+# Collects what is needed to debug a failure, because unlike the Go e2e
+# suite this script writes no diagnostics by itself.
+cleanup() {
+  local rc=$?
+  if [[ -n "${TMP_DIR-}" ]]; then
+    rm -rf "$TMP_DIR"
+  fi
+  if [[ $rc -eq 0 ]]; then
+    return
+  fi
+
+  local dir="${E2E_ARTIFACTS_DIR:-build/e2e-artifacts}/e2e-apparmor"
+  mkdir -p "$dir"
+  k get spod spod -o yaml >"$dir/spod.yaml" 2>&1 || true
+  k get ds spod -o yaml >"$dir/spod-daemonset.yaml" 2>&1 || true
+  k get pods -o wide >"$dir/pods.txt" 2>&1 || true
+  k get events --sort-by=.lastTimestamp >"$dir/events.txt" 2>&1 || true
+  k logs deploy/security-profiles-operator --all-containers >"$dir/operator.log" 2>&1 || true
+  k logs ds/spod --all-containers >"$dir/spod.log" 2>&1 || true
+  echo "SPOD status:"
+  k get spod spod -o jsonpath='{.status}' || true
+}
+
+trap cleanup EXIT
+
+# shellcheck source=hack/ci/install-spo.sh
 . "$(dirname "$0")/install-spo.sh"
+# shellcheck source=hack/ci/install-yq.sh
 . "$(dirname "$0")/install-yq.sh"
 
 install_yq

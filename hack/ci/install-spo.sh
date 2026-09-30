@@ -123,7 +123,15 @@ EOF
 
 install_operator() {
   echo "Installing security-profiles-operator"
-  kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.21.2/cert-manager.yaml
+  # Bump the checksum together with the version, see dependencies.yaml.
+  local cert_manager_sha256=e03b668ec8675214af6b0a671699d088f2601fa3878e0dbe1b41d3feafd1879f
+  local cert_manager
+  cert_manager=$(mktemp)
+  curl -sSfL --retry 5 --retry-delay 3 -o "$cert_manager" \
+    https://github.com/cert-manager/cert-manager/releases/download/v1.21.2/cert-manager.yaml
+  echo "$cert_manager_sha256  $cert_manager" | sha256sum -c -
+  kubectl apply -f "$cert_manager"
+  rm -f "$cert_manager"
   # The deployments exist right after the apply, their pods may not yet.
   kubectl -n cert-manager wait --timeout 300s --for condition=available deployment --all
 

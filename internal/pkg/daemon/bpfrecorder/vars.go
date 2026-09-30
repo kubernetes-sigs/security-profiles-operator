@@ -22,3 +22,7 @@ import "errors"
 var ErrNotFound = errors.New("no recorded profile found")
 
 var ErrStartBeforeLoad = errors.New("BPF module must be loaded before a recording can be started")
+
+// ErrAppArmorUnavailable is returned for AppArmor recording requests if the
+// AppArmor hooks could not be loaded.
+var ErrAppArmorUnavailable = errors.New("AppArmor profiles cannot be recorded on this node")

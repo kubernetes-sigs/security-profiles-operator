@@ -29,6 +29,9 @@ The Security Profiles Operator (SPO) provides:
   AppArmor and SELinux profiles
 - [Command Line Interface (CLI)](cli.md): using `spoc` for standalone profile
   management
+- [Command Line Reference](reference/security-profiles-operator.md): flags and
+  environment variables of the operator binary; see also the
+  [spoc reference](reference/spoc.md)
 - [Metrics](metrics.md): available metrics and Prometheus integration
 - [Troubleshooting](troubleshooting.md): debugging, profiling and
   OpenShift-specific notes

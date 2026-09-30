@@ -83,6 +83,30 @@ func TestFromContext(t *testing.T) {
 			},
 		},
 		{
+			name: "success with key, exact signer, trusted root and offline",
+			prepare: func(set *flag.FlagSet) {
+				set.String(FlagKey, "", "")
+				set.String(FlagCertificateIdentity, "", "")
+				set.String(FlagCertificateOidcIssuer, "", "")
+				set.String(FlagTrustedRoot, "", "")
+				set.Bool(FlagOffline, false, "")
+				require.NoError(t, set.Set(FlagKey, "cosign.pub"))
+				require.NoError(t, set.Set(FlagCertificateIdentity, "me@example.com"))
+				require.NoError(t, set.Set(FlagCertificateOidcIssuer, "https://issuer"))
+				require.NoError(t, set.Set(FlagTrustedRoot, "root.json"))
+				require.NoError(t, set.Set(FlagOffline, "true"))
+				require.NoError(t, set.Parse([]string{"echo"}))
+			},
+			assert: func(opts *Options, err error) {
+				require.NoError(t, err)
+				require.Equal(t, "cosign.pub", opts.keyRef)
+				require.Equal(t, "me@example.com", opts.certIdentity)
+				require.Equal(t, "https://issuer", opts.certOidcIssuer)
+				require.Equal(t, "root.json", opts.trustedRootPath)
+				require.True(t, opts.offline)
+			},
+		},
+		{
 			name: "failure no image provided",
 			prepare: func(set *flag.FlagSet) {
 				set.String(FlagOutputFile, "", "")

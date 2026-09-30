@@ -67,7 +67,7 @@ func TestSenderReopensBrokenStream(t *testing.T) {
 		released int
 	)
 
-	sut := NewSender(logr.Discard(), 10, func() (Stream[int], func(), error) {
+	sut := NewContextSender(logr.Discard(), 10, func(context.Context) (Stream[int], func(), error) {
 		mu.Lock()
 		defer mu.Unlock()
 
@@ -88,10 +88,10 @@ func TestSenderReopensBrokenStream(t *testing.T) {
 	})
 	sut.sleep = func(context.Context, time.Duration) {}
 
-	require.NoError(t, sut.Connect())
-
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
+
+	require.NoError(t, sut.ConnectContext(ctx))
 
 	go sut.Run(ctx)
 
@@ -121,7 +121,7 @@ func TestSenderRetriesUntilOpenSucceeds(t *testing.T) {
 		attempts int
 	)
 
-	sut := NewSender(logr.Discard(), 10, func() (Stream[int], func(), error) {
+	sut := NewContextSender(logr.Discard(), 10, func(context.Context) (Stream[int], func(), error) {
 		mu.Lock()
 		defer mu.Unlock()
 
@@ -149,7 +149,7 @@ func TestSenderRetriesUntilOpenSucceeds(t *testing.T) {
 func TestSenderNeverBlocks(t *testing.T) {
 	t.Parallel()
 
-	sut := NewSender(logr.Discard(), 1, func() (Stream[int], func(), error) {
+	sut := NewContextSender(logr.Discard(), 1, func(context.Context) (Stream[int], func(), error) {
 		return &fakeStream{}, func() {}, nil
 	})
 
@@ -157,14 +157,99 @@ func TestSenderNeverBlocks(t *testing.T) {
 	// instead of blocking the caller.
 	require.True(t, sut.Send(1))
 	require.False(t, sut.Send(2))
+	require.EqualValues(t, 1, sut.dropped.Load())
+}
+
+// TestSenderDropsWhileOpening asserts that a stream which takes long to open
+// does not block the callers, whose requests are counted as dropped.
+func TestSenderDropsWhileOpening(t *testing.T) {
+	t.Parallel()
+
+	release := make(chan struct{})
+	opening := make(chan struct{})
+
+	sut := NewContextSender(logr.Discard(), 1, func(context.Context) (Stream[int], func(), error) {
+		close(opening)
+		<-release
+
+		return &fakeStream{}, func() {}, nil
+	})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	go sut.Run(ctx)
+
+	require.True(t, sut.Send(1))
+	<-opening
+
+	// The first request is being delivered while the stream is opened, the
+	// second one fills the queue.
+	require.True(t, sut.Send(2))
+	require.False(t, sut.Send(3))
+	require.EqualValues(t, 1, sut.dropped.Load())
+
+	close(release)
 }
 
 func TestSenderConnectFails(t *testing.T) {
 	t.Parallel()
 
-	sut := NewSender(logr.Discard(), 1, func() (Stream[int], func(), error) {
+	sut := NewContextSender(logr.Discard(), 1, func(context.Context) (Stream[int], func(), error) {
 		return nil, nil, errSend
 	})
 
-	require.ErrorIs(t, sut.Connect(), errSend)
+	require.ErrorIs(t, sut.ConnectContext(t.Context()), errSend)
+}
+
+// TestSenderBindsStreamsToContext asserts that the streams are opened with
+// the context of the sender, so that stopping it releases them.
+func TestSenderBindsStreamsToContext(t *testing.T) {
+	t.Parallel()
+
+	type key struct{}
+
+	var (
+		mu       sync.Mutex
+		contexts []context.Context
+	)
+
+	sut := NewContextSender(
+		logr.Discard(),
+		10,
+		func(ctx context.Context) (Stream[int], func(), error) {
+			mu.Lock()
+			defer mu.Unlock()
+
+			contexts = append(contexts, ctx)
+
+			return &fakeStream{}, func() {}, nil
+		},
+	)
+
+	connectCtx := context.WithValue(t.Context(), key{}, "connect")
+	require.NoError(t, sut.ConnectContext(connectCtx))
+
+	// Closing the stream makes Run open another one, with its own context.
+	sut.Close()
+
+	runCtx, cancel := context.WithCancel(context.WithValue(t.Context(), key{}, "run"))
+	defer cancel()
+
+	go sut.Run(runCtx)
+
+	require.True(t, sut.Send(1))
+
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+
+		return len(contexts) == 2
+	}, time.Minute, time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	require.Equal(t, "connect", contexts[0].Value(key{}))
+	require.Equal(t, "run", contexts[1].Value(key{}))
 }

@@ -1,3 +1,5 @@
+//go:build e2e
+
 /*
 Copyright The Kubernetes Authors.
 
@@ -17,6 +19,12 @@ limitations under the License.
 package e2e_test
 
 import (
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -32,7 +40,13 @@ const (
 	profileDeletionTimeout = 2 * time.Minute
 	// diagnosticsRequestTimeout bounds each request of the diagnostics.
 	diagnosticsRequestTimeout = "30s"
+	// journalLines bounds the lines of each node journal in the diagnostics.
+	journalLines = "5000"
 )
+
+// unsafePathChars are the characters which do not go into the directory name
+// of the diagnostics of a test.
+var unsafePathChars = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 
 // profileKinds are the kinds of profiles the per node daemon keeps a finalizer
 // on.
@@ -79,14 +93,111 @@ func (e *e2e) TearDownSubTest() {
 	}
 }
 
-// dumpDiagnostics logs the state of the operator and the logs of its pods
-// since the given time. It never fails the test, as the cluster may be
-// broken.
+// The diagnostics are world readable, since the VM jobs write them as root
+// and copy them out of the VM as an unprivileged user. They get chmodded, so
+// that a stricter umask does not apply.
+const (
+	diagnosticsDirMode  os.FileMode = 0o755
+	diagnosticsFileMode os.FileMode = 0o644
+)
+
+// diagnostics collects the diagnostics of a test. They are written to a
+// directory per test below E2E_ARTIFACTS_DIR, or logged if it is not set.
+type diagnostics struct {
+	e *e2e
+	// dir is where the diagnostics are written to, empty to log them.
+	dir string
+}
+
+// newDiagnostics returns the diagnostics of the current test. The directory
+// gets a number appended if it exists already, since a test can dump its
+// diagnostics more than once.
+func (e *e2e) newDiagnostics() *diagnostics {
+	d := &diagnostics{e: e}
+	if e.artifactsDir == "" {
+		return d
+	}
+
+	base := filepath.Join(e.artifactsDir, unsafePathChars.ReplaceAllString(e.T().Name(), "_"))
+	dir := base
+
+	for i := 2; ; i++ {
+		if _, err := os.Stat(dir); errors.Is(err, os.ErrNotExist) {
+			break
+		}
+
+		dir = fmt.Sprintf("%s-%d", base, i)
+	}
+
+	if err := os.MkdirAll(dir, diagnosticsDirMode); err != nil {
+		e.logf("Unable to create the diagnostics directory, logging them instead: %v", err)
+
+		return d
+	}
+
+	for _, path := range []string{e.artifactsDir, dir} {
+		if err := os.Chmod(path, diagnosticsDirMode); err != nil {
+			e.logf("Unable to make %s readable: %v", path, err)
+		}
+	}
+
+	e.logf("Writing the diagnostics to %s", dir)
+	d.dir = dir
+
+	return d
+}
+
+// add writes the output of a diagnostic, or why it could not be collected.
+func (d *diagnostics) add(name, description, output string, err error) {
+	if err != nil {
+		output = fmt.Sprintf("%s\nfailed: %v", output, err)
+	}
+
+	if d.dir == "" {
+		d.e.logf("%s:\n%s", description, output)
+
+		return
+	}
+
+	content := fmt.Sprintf("# %s\n%s\n", description, output)
+
+	path := filepath.Join(d.dir, unsafePathChars.ReplaceAllString(name, "_")+".txt")
+	if writeErr := os.WriteFile(path, []byte(content), diagnosticsFileMode); writeErr != nil {
+		d.e.logf("Unable to write %s: %v\n%s", path, writeErr, content)
+
+		return
+	}
+
+	if err := os.Chmod(path, diagnosticsFileMode); err != nil {
+		d.e.logf("Unable to make %s readable: %v", path, err)
+	}
+}
+
+// kubectl adds the output of a kubectl command.
+func (d *diagnostics) kubectl(name string, args ...string) {
+	output, err := d.e.kubectlCommand(
+		append([]string{"--request-timeout", diagnosticsRequestTimeout}, args...)...,
+	)
+	d.add(name, "kubectl "+strings.Join(args, " "), output, err)
+}
+
+// dumpDiagnostics collects the state of the cluster and the operator, and the
+// logs of its pods and the nodes since the given time. It never fails the
+// test, as the cluster may be broken.
 func (e *e2e) dumpDiagnostics(since time.Time) {
 	e.logf("#### Diagnostics ####")
 	defer e.logf("#### End of diagnostics ####")
 
-	e.logDiagnostic("-n", config.OperatorName, "get", "pods", "-o", "wide")
+	d := e.newDiagnostics()
+
+	d.kubectl("pods", "-n", config.OperatorName, "get", "pods", "-o", "wide")
+	d.kubectl("describe-pods", "-n", config.OperatorName, "describe", "pods")
+	d.kubectl("events", "get", "events", "--all-namespaces", "--sort-by=.lastTimestamp")
+	d.kubectl("spod", "-n", config.OperatorName, "get", "spod", "spod", "-o", "yaml")
+	d.kubectl(
+		"webhook-configurations", "get",
+		"mutatingwebhookconfigurations,validatingwebhookconfigurations", "-o", "yaml",
+	)
 
 	pods, err := e.kubectlCommand(
 		"--request-timeout", diagnosticsRequestTimeout,
@@ -97,33 +208,52 @@ func (e *e2e) dumpDiagnostics(since time.Time) {
 	}
 
 	for pod := range strings.FieldsSeq(pods) {
-		e.logDiagnostic(
-			"-n", config.OperatorName, "logs", pod, "--all-containers", "--prefix",
+		name := strings.TrimPrefix(pod, "pod/")
+		d.kubectl(
+			"logs-"+name, "-n", config.OperatorName, "logs", pod, "--all-containers", "--prefix",
 			"--since-time="+since.Format(time.RFC3339),
 		)
 		// Only there if a container restarted.
-		e.logDiagnostic(
+		d.kubectl(
+			"logs-previous-"+name,
 			"-n", config.OperatorName, "logs", pod, "--all-containers", "--prefix", "--previous",
 		)
 	}
 
 	for _, kind := range profileKinds {
-		e.logDiagnostic("get", kind, "--all-namespaces", "-o", "yaml")
+		d.kubectl(kind, "get", kind, "--all-namespaces", "-o", "yaml")
 	}
+
+	e.dumpNodeJournals(d, since)
 }
 
-// logDiagnostic logs the output of a kubectl command, or why it failed.
-func (e *e2e) logDiagnostic(args ...string) {
-	output, err := e.kubectlCommand(
-		append([]string{"--request-timeout", diagnosticsRequestTimeout}, args...)...,
+// dumpNodeJournals adds the journals of the container runtime and the kubelet
+// of all nodes since the given time. The units which do not exist on a node
+// have no entries.
+func (e *e2e) dumpNodeJournals(d *diagnostics, since time.Time) {
+	if e.nodeCommand == nil {
+		return
+	}
+
+	nodes, err := e.kubectlCommand(
+		"--request-timeout", diagnosticsRequestTimeout,
+		"get", "nodes", "-o", `jsonpath={range .items[*]}{.metadata.name}{" "}{end}`,
 	)
 	if err != nil {
-		e.logf("kubectl %s: %v", strings.Join(args, " "), err)
+		e.logf("Unable to list the nodes: %v", err)
 
 		return
 	}
 
-	e.logf("kubectl %s:\n%s", strings.Join(args, " "), output)
+	for node := range strings.FieldsSeq(nodes) {
+		args := []string{
+			"journalctl", "--no-pager", "--lines", journalLines,
+			"--since", "@" + strconv.FormatInt(since.Unix(), 10),
+			"-u", "crio", "-u", "containerd", "-u", "kubelet",
+		}
+		output, err := e.nodeCommand(node, args...)
+		d.add("journal-"+node, "node "+node+": "+strings.Join(args, " "), output, err)
+	}
 }
 
 // cleanupOperator deletes all profiles and the operator. The per node daemon
@@ -141,7 +271,10 @@ func (e *e2e) cleanupOperator(manifest string) {
 		e.removeProfileFinalizers()
 	}
 
-	e.kubectl("delete", "--ignore-not-found", "--timeout", defaultLongOpTimeout, "-f", manifest)
+	e.kubectl(
+		"delete", "--ignore-not-found", "--timeout", defaultLongOpTimeout,
+		"-f", e.renderedManifest(manifest),
+	)
 }
 
 // remainingProfiles returns the profiles which still exist, as their kind,
@@ -172,22 +305,20 @@ func (e *e2e) remainingProfiles() []string {
 // waitForProfilesDeleted reports whether all profiles are gone within the
 // timeout.
 func (e *e2e) waitForProfilesDeleted(timeout time.Duration) bool {
-	deadline := time.Now().Add(timeout)
-
-	for {
-		remaining := e.remainingProfiles()
-		if len(remaining) == 0 {
-			return true
+	err := poll(timeout, defaultWaitTime, func() error {
+		if remaining := e.remainingProfiles(); len(remaining) > 0 {
+			return fmt.Errorf("profiles not deleted: %v", remaining)
 		}
 
-		if time.Now().After(deadline) {
-			e.logf("Profiles not deleted after %s: %v", timeout, remaining)
+		return nil
+	})
+	if err != nil {
+		e.logf("%v", err)
 
-			return false
-		}
-
-		time.Sleep(defaultWaitTime)
+		return false
 	}
+
+	return true
 }
 
 // removeProfileFinalizers removes the finalizers of all remaining profiles.

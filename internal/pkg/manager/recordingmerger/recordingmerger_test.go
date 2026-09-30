@@ -288,6 +288,11 @@ func TestMergeProfilesSkipsProfileOfOtherRecording(t *testing.T) {
 		client.ObjectKey{Name: "partial-a"}, &seccompprofile.SeccompProfile{}))
 	require.True(t, kerrors.IsNotFound(r.client.Get(t.Context(),
 		client.ObjectKey{Name: "partial-b"}, &seccompprofile.SeccompProfile{})))
+
+	// The kept partial profile keeps holding the recording.
+	got := &profilerecordingapi.ProfileRecording{}
+	require.NoError(t, r.client.Get(t.Context(), client.ObjectKeyFromObject(recording), got))
+	require.Contains(t, got.Finalizers, profilerecordingapi.RecordingHasUnmergedProfiles)
 }
 
 // A profile which was not recorded, for example one written by a cluster
@@ -328,16 +333,48 @@ func TestCreateUpdateProfileRefusesForeignProfile(t *testing.T) {
 	require.ElementsMatch(t, []string{"exec"}, mergedSyscalls(t, r, "nginx"))
 }
 
-// mergeProfiles dispatches on the recording kind; an unknown kind has to be
-// reported rather than silently doing nothing.
+// An unknown kind has to be reported rather than silently doing nothing, while
+// the partial profiles of the supported kinds still get merged.
 func TestMergeProfilesUnknownKind(t *testing.T) {
 	t.Parallel()
 
 	recording := testMergeRecording("NotAKind", true)
-	r := newMergeReconciler(t, recording)
+	r := newMergeReconciler(t, recording, partialSeccomp("partial-a", "nginx", "read"))
 
-	err := r.mergeProfiles(t.Context(), recording)
-	require.ErrorContains(t, err, "cannot merge profiles")
+	require.NoError(t, r.mergeProfiles(t.Context(), recording))
+	require.ElementsMatch(t, []string{"read"}, mergedSyscalls(t, r, "nginx"))
+
+	recorder, ok := r.record.(*events.FakeRecorder)
+	require.True(t, ok)
+	require.Contains(t, <-recorder.Events, reasonCannotMergeKind)
+}
+
+// The kind of a recording can change while partial profiles of the former
+// kind exist. They have to be merged into a profile of their kind, and the
+// recording has to be released afterwards instead of being held forever.
+func TestMergeProfilesAfterKindChange(t *testing.T) {
+	t.Parallel()
+
+	recording := testMergeRecording(profilerecordingapi.ProfileRecordingKindAppArmorProfile, true)
+	r := newMergeReconciler(t, recording,
+		partialSeccomp("partial-a", "nginx", "read"),
+		partialSeccomp("partial-b", "nginx", "write"),
+	)
+
+	_, err := r.Reconcile(t.Context(), reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: testRecording, Namespace: testNamespace},
+	})
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"read", "write"}, mergedSyscalls(t, r, "nginx"))
+
+	for _, name := range []string{"partial-a", "partial-b"} {
+		require.True(t, kerrors.IsNotFound(r.client.Get(t.Context(),
+			client.ObjectKey{Name: name}, &seccompprofile.SeccompProfile{})))
+	}
+
+	// Without its finalizer, the deleted recording is gone.
+	require.True(t, kerrors.IsNotFound(r.client.Get(t.Context(),
+		client.ObjectKeyFromObject(recording), &profilerecordingapi.ProfileRecording{})))
 }
 
 // A container whose partial profiles merge to nothing must not abort the whole

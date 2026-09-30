@@ -1,3 +1,5 @@
+//go:build e2e
+
 /*
 Copyright The Kubernetes Authors.
 
@@ -24,9 +26,10 @@ import (
 )
 
 const (
-	maxNodeIterations      = 6
-	sleepBetweenIterations = 5 * time.Second
-	errorloggerPolicy      = `
+	// selinuxWaitTimeout bounds the waits for the policies on the nodes and
+	// for the state of the pods which use them.
+	selinuxWaitTimeout = 30 * time.Second
+	errorloggerPolicy  = `
 apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: SelinuxProfile
 metadata:
@@ -169,7 +172,7 @@ func (e *e2e) selinuxBaseUsage(kind, policy, polName string, nodes []string) {
 
 	e.writeAndCreate(policy, "errorlogger-policy.yml")
 	// The cleanup below does not run if the test fails.
-	defer e.kubectl("delete", kind, polName, "--ignore-not-found")
+	e.kubectlCleanup(kind, polName)
 
 	// Let's wait for the policy to be processed
 	e.kubectl("wait", "--timeout", defaultLongOpTimeout,
@@ -178,19 +181,14 @@ func (e *e2e) selinuxBaseUsage(kind, policy, polName string, nodes []string) {
 	rawPolicyName := e.getSELinuxPolicyName(kind, polName)
 
 	e.logf("assert policy is installed")
-	e.assertSelinuxPolicyIsInstalled(
-		nodes,
-		rawPolicyName,
-		maxNodeIterations,
-		sleepBetweenIterations,
-	)
+	e.assertSelinuxPolicyIsInstalled(nodes, rawPolicyName)
 
 	e.logf("creating workload")
 
 	podWithPolicy := fmt.Sprintf(podWithPolicyFmt, e.getSELinuxPolicyUsage(kind, polName))
 
 	e.writeAndCreate(podWithPolicy, "pod-w-policy.yml")
-	defer e.kubectl("delete", "pod", "errorlogger", "--ignore-not-found")
+	e.kubectlCleanup("pod", "errorlogger")
 
 	e.waitFor("condition=ready", "pod", "errorlogger")
 
@@ -210,7 +208,7 @@ func (e *e2e) selinuxBaseUsage(kind, policy, polName string, nodes []string) {
 	e.kubectl("delete", kind, polName)
 
 	e.logf("assert policy was removed")
-	e.assertSelinuxPolicyIsRemoved(nodes, rawPolicyName, maxNodeIterations, sleepBetweenIterations)
+	e.assertSelinuxPolicyIsRemoved(nodes, rawPolicyName)
 }
 
 func (e *e2e) testCaseSelinuxIncompletePolicy() {
@@ -238,21 +236,16 @@ func (e *e2e) testCaseSelinuxIncompletePolicy() {
 	e.writeAndCreate(podWithPolicy, "pod-w-incomplete-policy.yml")
 
 	// note: this would have been much nicer with kubectl wait --jsonpath, but I found it racy incase the status
-	// doesn't exist yet. So we're using a loop instead.
-	var exitCode string
-	for range 10 {
-		exitCode = e.kubectl("get", "pods", "errorlogger",
+	// doesn't exist yet. So we're polling instead.
+	e.eventually(selinuxWaitTimeout, defaultPollInterval, func() error {
+		exitCode := e.kubectl("get", "pods", "errorlogger",
 			"-o", "jsonpath={.status.containerStatuses[0].state.terminated.exitCode}")
-		if exitCode == "1" {
-			break
+		if exitCode != "1" {
+			return fmt.Errorf("the pod should have failed with exit code 1, got %q", exitCode)
 		}
 
-		time.Sleep(2 * time.Second)
-	}
-
-	if exitCode != "1" {
-		e.Fail("The pod should have failed, but it didn't")
-	}
+		return nil
+	})
 
 	log := e.kubectl("logs", "errorlogger", "-c", "errorlogger")
 	e.Contains(log, "Permission denied")
@@ -273,7 +266,7 @@ func (e *e2e) testCaseSelinuxNonDefaultTemplate(nodes []string) {
 	e.logf("creating policy")
 
 	e.writeAndCreate(netContainerPolicy, "net-container-policy.yml")
-	defer e.kubectl("delete", "selinuxprofile", netContainerPolicyName)
+	e.kubectlCleanup("selinuxprofile", netContainerPolicyName)
 
 	e.kubectl("wait", "--timeout", defaultLongOpTimeout,
 		"--for", "condition=ready", "selinuxprofile", netContainerPolicyName)
@@ -281,12 +274,7 @@ func (e *e2e) testCaseSelinuxNonDefaultTemplate(nodes []string) {
 	rawPolicyName := e.getSELinuxPolicyName("selinuxprofile", netContainerPolicyName)
 
 	e.logf("assert policy is installed")
-	e.assertSelinuxPolicyIsInstalled(
-		nodes,
-		rawPolicyName,
-		maxNodeIterations,
-		sleepBetweenIterations,
-	)
+	e.assertSelinuxPolicyIsInstalled(nodes, rawPolicyName)
 }
 
 func (e *e2e) testCaseSelinuxIncompletePermissivePolicy() {
@@ -346,23 +334,18 @@ func (e *e2e) testCaseSelinuxIncompleteDisabledPolicy() {
 	)
 	e.writeAndCreate(podWithPolicy, "pod-w-incomplete-disabled-policy.yml")
 
-	var exitCode string
-	for range 10 {
-		// loop a few times, because the pod might be in creating state
-		exitCode = e.kubectl("get", "pods", "errorlogger",
+	// The pod might still be in creating state.
+	e.eventually(selinuxWaitTimeout, defaultPollInterval, func() error {
+		reason := e.kubectl("get", "pods", "errorlogger",
 			"-o", "jsonpath={.status.containerStatuses[0].state.waiting.reason}")
-		if exitCode == "CreateContainerError" {
-			break
+		if reason != "CreateContainerError" {
+			return fmt.Errorf(
+				"the pod should have failed with CreateContainerError, got %q", reason,
+			)
 		}
 
-		time.Sleep(2 * time.Second)
-
-		continue
-	}
-
-	if exitCode != "CreateContainerError" {
-		e.Fail("The pod should have failed, but it didn't")
-	}
+		return nil
+	})
 
 	e.logf("removing workload")
 	e.kubectl("delete", "pod", "errorlogger")
@@ -371,66 +354,28 @@ func (e *e2e) testCaseSelinuxIncompleteDisabledPolicy() {
 	e.kubectl("delete", "selinuxprofile", disabledProfileName)
 }
 
-func (e *e2e) assertSelinuxPolicyIsInstalled(
-	nodes []string,
-	policy string,
-	nodeIterations int,
-	sleep time.Duration,
-) {
-	for i := range nodeIterations {
-		var missingPolName string
-
+func (e *e2e) assertSelinuxPolicyIsInstalled(nodes []string, policy string) {
+	e.eventually(selinuxWaitTimeout, defaultPollInterval, func() error {
 		for _, node := range nodes {
 			policiesRaw := e.execNode(node, "semodule", "-l")
 			if !slices.Contains(strings.Split(policiesRaw, "\n"), policy) {
-				missingPolName = node
-
-				break
+				return fmt.Errorf("the SelinuxProfile %s is not installed on node %s", policy, node)
 			}
 		}
 
-		if missingPolName != "" {
-			if i == nodeIterations-1 {
-				e.Fail(fmt.Sprintf(
-					"The SelinuxProfile wasn't found in the %s node with the name %s",
-					missingPolName, policy,
-				))
-			} else {
-				e.logf("the policy was still present, trying again")
-				time.Sleep(sleep)
-			}
-		}
-	}
+		return nil
+	})
 }
 
-func (e *e2e) assertSelinuxPolicyIsRemoved(
-	nodes []string,
-	policy string,
-	nodeIterations int,
-	sleep time.Duration,
-) {
-	for i := range nodeIterations {
-		var missingPolName string
-
+func (e *e2e) assertSelinuxPolicyIsRemoved(nodes []string, policy string) {
+	e.eventually(selinuxWaitTimeout, defaultPollInterval, func() error {
 		for _, node := range nodes {
 			policiesRaw := e.execNode(node, "semodule", "-l")
 			if slices.Contains(strings.Split(policiesRaw, "\n"), policy) {
-				missingPolName = node
-
-				break
+				return fmt.Errorf("the SelinuxProfile %s is still on node %s", policy, node)
 			}
 		}
 
-		if missingPolName != "" {
-			if i == nodeIterations-1 {
-				e.Fail(fmt.Sprintf(
-					"The SelinuxProfile was found in the %s node with the name %s",
-					missingPolName, policy,
-				))
-			} else {
-				e.logf("the policy was still present, trying again")
-				time.Sleep(sleep)
-			}
-		}
-	}
+		return nil
+	})
 }

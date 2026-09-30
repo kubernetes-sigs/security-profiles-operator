@@ -119,6 +119,7 @@ type SecurityProfileNodeStatus struct {
 	Spec SecurityProfileNodeStatusSpec `json:"spec,omitzero"`
 	// status contains the observed state of the SecurityProfileNodeStatus.
 	// +optional
+	//nolint:kubeapilinter // status is a value by convention
 	Status SecurityProfileNodeStatusStatus `json:"status,omitzero"`
 }
 

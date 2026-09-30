@@ -17,7 +17,6 @@ limitations under the License.
 package apparmorprofile
 
 import (
-	"context"
 	"errors"
 	"testing"
 
@@ -29,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -55,11 +55,9 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "ProfileNotFound",
 			rec: &Reconciler{
-				client: &utiltest.MockClient{
-					MockGet: utiltest.NewMockGetFn(
-						kerrors.NewNotFound(schema.GroupResource{}, name),
-					),
-				},
+				client: utiltest.NewFakeClient(t, &interceptor.Funcs{
+					Get: utiltest.GetReturns(kerrors.NewNotFound(schema.GroupResource{}, name)),
+				}),
 				log:     log.Log,
 				metrics: metrics.New(),
 				manager: NewAppArmorProfileManager(log.Log),
@@ -73,11 +71,11 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "GotProfile",
 			rec: &Reconciler{
-				client: &utiltest.MockClient{
-					MockGet:                     utiltest.NewMockGetFn(nil),
-					MockUpdate:                  utiltest.NewMockUpdateFn(nil),
-					MockSubResourceWriterUpdate: utiltest.NewMockSubResourceWriterUpdateFn(nil),
-				},
+				client: utiltest.NewFakeClient(t, &interceptor.Funcs{
+					Get:               utiltest.GetReturns(nil),
+					Update:            utiltest.UpdateReturns(nil),
+					SubResourceUpdate: utiltest.SubResourceUpdateReturns(nil),
+				}),
 				log:     log.Log,
 				record:  events.NewFakeRecorder(10),
 				manager: NewAppArmorProfileManager(log.Log),
@@ -92,11 +90,11 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "NotEnabled",
 			rec: &Reconciler{
-				client: &utiltest.MockClient{
-					MockGet:                     utiltest.NewMockGetFn(nil),
-					MockUpdate:                  utiltest.NewMockUpdateFn(nil),
-					MockSubResourceWriterUpdate: utiltest.NewMockSubResourceWriterUpdateFn(nil),
-				},
+				client: utiltest.NewFakeClient(t, &interceptor.Funcs{
+					Get:               utiltest.GetReturns(nil),
+					Update:            utiltest.UpdateReturns(nil),
+					SubResourceUpdate: utiltest.SubResourceUpdateReturns(nil),
+				}),
 				log:     log.Log,
 				record:  events.NewFakeRecorder(10),
 				manager: &FakeProfileManager{enabled: false},
@@ -198,13 +196,11 @@ func TestHandleDeletionOwnership(t *testing.T) {
 			}
 			manager := &FakeProfileManager{}
 			rec := &Reconciler{
-				client: &utiltest.MockClient{
-					MockGet: func(_ context.Context, _ client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
+				client: utiltest.NewFakeClient(t, &interceptor.Funcs{
+					Get: utiltest.GetReturns(tc.getErr, func(obj client.Object) {
 						obj.SetAnnotations(tc.annotations)
-
-						return tc.getErr
-					},
-				},
+					}),
+				}),
 				log:     log.Log,
 				metrics: metrics.New(),
 				manager: manager,
@@ -213,7 +209,7 @@ func TestHandleDeletionOwnership(t *testing.T) {
 			nodeStatus, err := nodestatus.NewForProfileOnNode(profile, rec.client, "worker-1")
 			require.NoError(t, err)
 
-			err = rec.handleDeletion(t.Context(), profile, nodeStatus)
+			err = rec.handleDeletion(t.Context(), profile, nodeStatus, log.Log)
 			if tc.wantErr {
 				require.Error(t, err)
 

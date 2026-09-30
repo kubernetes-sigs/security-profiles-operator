@@ -492,7 +492,6 @@ func TestGetProfileUnsupportedKind(t *testing.T) {
 				ProfileRef: profilebindingapi.ProfileRef{Kind: "Unknown"},
 			},
 		},
-		"ns",
 	)
 
 	require.NoError(t, err)

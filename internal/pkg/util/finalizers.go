@@ -47,26 +47,88 @@ func RemoveFinalizer(
 	pol client.Object,
 	finalizer string,
 ) error {
+	return RemoveFinalizers(ctx, c, pol, finalizer)
+}
+
+// RemoveFinalizers removes every one of the provided finalizers which the
+// object carries with a single update. Empty finalizers are ignored.
+func RemoveFinalizers(
+	ctx context.Context,
+	c client.Client,
+	pol client.Object,
+	finalizers ...string,
+) error {
 	if err := c.Get(ctx, NamespacedName(pol.GetName(), pol.GetNamespace()), pol); err != nil {
 		return fmt.Errorf("%s: %w", ErrGetProfile, err)
 	}
 
-	if !controllerutil.ContainsFinalizer(pol, finalizer) {
-		return nil
+	removed := false
+
+	for _, finalizer := range finalizers {
+		if finalizer != "" && controllerutil.RemoveFinalizer(pol, finalizer) {
+			removed = true
+		}
 	}
 
-	controllerutil.RemoveFinalizer(pol, finalizer)
+	if !removed {
+		return nil
+	}
 
 	return c.Update(ctx, pol)
 }
 
-// GetFinalizerNodeString gets finalizer string from Node Name.
+const (
+	// nodeFinalizerSuffix ends the finalizer which a node adds to a profile.
+	nodeFinalizerSuffix = "-deleted"
+
+	// nodeFinalizerHashPrefixLen is how many characters of a long node name
+	// are kept in front of its hash, so that the finalizer still hints at the
+	// node.
+	nodeFinalizerHashPrefixLen = 16
+)
+
+// nodeNameFits returns true if the finalizer of the node fits into the length
+// limit of a finalizer without shortening the node name.
+func nodeNameFits(nodeName string) bool {
+	return len(nodeName)+len(nodeFinalizerSuffix) <= validation.DNS1123LabelMaxLength
+}
+
+// GetFinalizerNodeString returns the finalizer which the daemon of the node
+// adds to a profile. A node name which does not fit is shortened by hashing
+// it, so that two nodes whose names only differ past the cut do not share a
+// finalizer: the first of them finishing a deletion would otherwise remove the
+// finalizer of the other one. The suffix is kept, because the manager
+// recognizes node finalizers by it.
 func GetFinalizerNodeString(nodeName string) string {
-	finalizerString := nodeName + "-deleted"
-	// Make sure the length of finalizer is not longer than 63 characters
-	if len(nodeName)+len("-deleted") > validation.DNS1123LabelMaxLength {
-		finalizerString = nodeName[:validation.DNS1123LabelMaxLength-len("-deleted")] + "-deleted"
+	if nodeNameFits(nodeName) {
+		return nodeName + nodeFinalizerSuffix
 	}
 
-	return finalizerString
+	hashed, err := hashedName(
+		validation.DNS1123LabelMaxLength-len(nodeFinalizerSuffix),
+		nodeName[:nodeFinalizerHashPrefixLen],
+		nodeName,
+	)
+	if err != nil {
+		// Cannot happen: the prefix leaves room for the hash.
+		return GetLegacyFinalizerNodeString(nodeName)
+	}
+
+	return hashed + nodeFinalizerSuffix
+}
+
+// GetLegacyFinalizerNodeString returns the finalizer which earlier releases
+// added for a node whose name does not fit into a finalizer: the name got
+// truncated, which merged the finalizers of nodes with a long common prefix.
+// Profiles created before the upgrade still carry it. A node adds its current
+// finalizer next to it, but keeps it, because the other nodes sharing it may
+// not have added theirs yet. It is removed along with the current one when the
+// node removes the profile. It is empty if the node name fits, because then
+// the finalizer never changed.
+func GetLegacyFinalizerNodeString(nodeName string) string {
+	if nodeNameFits(nodeName) {
+		return ""
+	}
+
+	return nodeName[:validation.DNS1123LabelMaxLength-len(nodeFinalizerSuffix)] + nodeFinalizerSuffix
 }

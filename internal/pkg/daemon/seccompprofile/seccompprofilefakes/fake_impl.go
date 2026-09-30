@@ -46,11 +46,12 @@ type FakeImpl struct {
 		result1 *v1.SeccompProfile
 		result2 error
 	}
-	GetSPODStub        func(context.Context, client.Client) (*v1a.SecurityProfilesOperatorDaemon, error)
+	GetSPODStub        func(context.Context, client.Client, string) (*v1a.SecurityProfilesOperatorDaemon, error)
 	getSPODMutex       sync.RWMutex
 	getSPODArgsForCall []struct {
 		arg1 context.Context
 		arg2 client.Client
+		arg3 string
 	}
 	getSPODReturns struct {
 		result1 *v1a.SecurityProfilesOperatorDaemon
@@ -177,19 +178,20 @@ func (fake *FakeImpl) ClientGetProfileReturnsOnCall(i int, result1 *v1.SeccompPr
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) GetSPOD(arg1 context.Context, arg2 client.Client) (*v1a.SecurityProfilesOperatorDaemon, error) {
+func (fake *FakeImpl) GetSPOD(arg1 context.Context, arg2 client.Client, arg3 string) (*v1a.SecurityProfilesOperatorDaemon, error) {
 	fake.getSPODMutex.Lock()
 	ret, specificReturn := fake.getSPODReturnsOnCall[len(fake.getSPODArgsForCall)]
 	fake.getSPODArgsForCall = append(fake.getSPODArgsForCall, struct {
 		arg1 context.Context
 		arg2 client.Client
-	}{arg1, arg2})
+		arg3 string
+	}{arg1, arg2, arg3})
 	stub := fake.GetSPODStub
 	fakeReturns := fake.getSPODReturns
-	fake.recordInvocation("GetSPOD", []interface{}{arg1, arg2})
+	fake.recordInvocation("GetSPOD", []interface{}{arg1, arg2, arg3})
 	fake.getSPODMutex.Unlock()
 	if stub != nil {
-		return stub(arg1, arg2)
+		return stub(arg1, arg2, arg3)
 	}
 	if specificReturn {
 		return ret.result1, ret.result2
@@ -203,17 +205,17 @@ func (fake *FakeImpl) GetSPODCallCount() int {
 	return len(fake.getSPODArgsForCall)
 }
 
-func (fake *FakeImpl) GetSPODCalls(stub func(context.Context, client.Client) (*v1a.SecurityProfilesOperatorDaemon, error)) {
+func (fake *FakeImpl) GetSPODCalls(stub func(context.Context, client.Client, string) (*v1a.SecurityProfilesOperatorDaemon, error)) {
 	fake.getSPODMutex.Lock()
 	defer fake.getSPODMutex.Unlock()
 	fake.GetSPODStub = stub
 }
 
-func (fake *FakeImpl) GetSPODArgsForCall(i int) (context.Context, client.Client) {
+func (fake *FakeImpl) GetSPODArgsForCall(i int) (context.Context, client.Client, string) {
 	fake.getSPODMutex.RLock()
 	defer fake.getSPODMutex.RUnlock()
 	argsForCall := fake.getSPODArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
 }
 
 func (fake *FakeImpl) GetSPODReturns(result1 *v1a.SecurityProfilesOperatorDaemon, result2 error) {

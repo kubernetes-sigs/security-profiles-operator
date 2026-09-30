@@ -19,11 +19,9 @@ limitations under the License.
 package enricher
 
 import (
-	"context"
 	"errors"
 	"os"
 	"strconv"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -33,11 +31,11 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/kubernetes"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/enricherfakes"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/podindex/podindextest"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -48,19 +46,45 @@ const (
 	executable  = "/bin/busybox"
 	crioPrefix  = "cri-o://"
 	containerID = "218ce99dd8b33f6f9b6565863d7cd47dc880963ddd2cd987bcb2d330c65144bf"
+
+	otherContainerID = "e1d4c1dbd3b5d9a4e9e2f6f5a1c8f1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8"
 )
 
 var errTest = errors.New("test")
+
+// startRun runs the enricher in the background and returns the channel which
+// gets its outcome.
+func startRun(sut *Enricher) chan error {
+	runErr := make(chan error, 1)
+
+	go func() { runErr <- sut.Run() }()
+
+	return runErr
+}
+
+// stopRun ends the audit log, which makes Run return, and asserts that it
+// returned because of that rather than an earlier failure.
+func stopRun(t *testing.T, lineChan chan *types.AuditLine, runErr chan error) {
+	t.Helper()
+
+	close(lineChan)
+
+	select {
+	case err := <-runErr:
+		require.ErrorContains(t, err, "enricher failed")
+	case <-time.After(time.Minute):
+		t.Fatal("Run did not return")
+	}
+}
 
 // waitForCallCount spins until want calls have been recorded, failing the test
 // rather than hanging until the package timeout if that never happens.
 func waitForCallCount(t *testing.T, count func() int, want int) {
 	t.Helper()
 
-	// Generous: the backlog cases wait on a container lookup that retries with
-	// the production backoff. The point of the deadline is only to fail instead
-	// of hanging until the package timeout.
-	deadline := time.Now().Add(3 * time.Minute)
+	// The point of the deadline is only to fail instead of hanging until the
+	// package timeout.
+	deadline := time.Now().Add(time.Minute)
 
 	for count() != want {
 		if time.Now().After(deadline) {
@@ -74,29 +98,19 @@ func waitForCallCount(t *testing.T, count func() int, want int) {
 func TestRun(t *testing.T) {
 	t.Parallel()
 
+	backlogPods := podindextest.New(*creatingPod())
+
 	for _, tc := range []struct {
-		runAsync bool
-		prepare  func(*enricherfakes.FakeImpl, chan *types.AuditLine)
-		assert   func(*Enricher, *enricherfakes.FakeImpl, chan *types.AuditLine, error)
+		prepare func(*enricherfakes.FakeImpl, chan *types.AuditLine)
+		assert  func(*Enricher, *enricherfakes.FakeImpl, chan *types.AuditLine, chan error)
 	}{
 		{ // success
-			runAsync: true,
 			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine) {
 				mock.StartTailReturns(lineChan, nil)
 				mock.ContainerIDForPIDReturns(containerID, nil)
-				mock.ListPodsReturns(&v1.PodList{Items: []v1.Pod{{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      pod,
-						Namespace: namespace,
-					},
-					Status: v1.PodStatus{
-						ContainerStatuses: []v1.ContainerStatus{{
-							ContainerID: crioPrefix + containerID,
-						}},
-					},
-				}}}, nil)
+				mock.PodListerWatcherReturns(podindextest.New(*runningPod()))
 			},
-			assert: func(sut *Enricher, mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine, err error) {
+			assert: func(sut *Enricher, mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine, runErr chan error) {
 				waitForCallCount(t, mock.StartTailCallCount, 1)
 
 				lineChan <- &types.AuditLine{
@@ -121,93 +135,76 @@ func TestRun(t *testing.T) {
 
 				require.Zero(t, sut.auditLineCache.Len())
 
-				require.NoError(t, err)
+				stopRun(t, lineChan, runErr)
 			},
 		},
 
 		{ // failure on Dial
-			runAsync: false,
 			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine) {
 				mock.DialReturns(nil, errTest)
 			},
-			assert: func(sut *Enricher, mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine, err error) {
-				require.Error(t, err)
+			assert: func(sut *Enricher, mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine, runErr chan error) {
+				require.Error(t, <-runErr)
 			},
 		},
 
 		{ // failure on MetricsAuditInc
-			runAsync: false,
 			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine) {
 				mock.DialReturns(nil, errTest)
 				mock.AuditIncReturns(nil, errTest)
 			},
-			assert: func(sut *Enricher, mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine, err error) {
-				require.Error(t, err)
+			assert: func(sut *Enricher, mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine, runErr chan error) {
+				require.Error(t, <-runErr)
 			},
 		},
 
 		{ // failure on Tail
-			runAsync: false,
 			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine) {
 				mock.DialReturns(nil, errTest)
 				mock.StartTailReturns(nil, errTest)
 			},
-			assert: func(sut *Enricher, mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine, err error) {
-				require.Error(t, err)
+			assert: func(sut *Enricher, mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine, runErr chan error) {
+				require.Error(t, <-runErr)
 			},
 		},
 		{ // failure on Listen
-			runAsync: false,
 			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine) {
 				mock.DialReturns(nil, errTest)
 				mock.ListenReturns(nil, errTest)
 			},
-			assert: func(sut *Enricher, mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine, err error) {
-				require.Error(t, err)
+			assert: func(sut *Enricher, mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine, runErr chan error) {
+				require.Error(t, <-runErr)
 			},
 		},
 
 		{ // failure on Chown
-			runAsync: false,
 			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine) {
 				mock.DialReturns(nil, errTest)
 				mock.ChownReturns(errTest)
 			},
-			assert: func(sut *Enricher, mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine, err error) {
-				require.Error(t, err)
+			assert: func(sut *Enricher, mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine, runErr chan error) {
+				require.Error(t, <-runErr)
 			},
 		},
 		{ // failure on log iteration
-			runAsync: false,
 			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine) {
 				mock.DialReturns(nil, errTest)
 				close(lineChan)
 				mock.StartTailReturns(lineChan, nil)
 				mock.TailErrReturns(errTest)
 			},
-			assert: func(sut *Enricher, mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine, err error) {
-				require.Error(t, err)
+			assert: func(sut *Enricher, mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine, runErr chan error) {
+				require.Error(t, <-runErr)
 			},
 		},
 		{ // success, but metrics send failed
-			runAsync: true,
 			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine) {
 				mock.StartTailReturns(lineChan, nil)
 				mock.ContainerIDForPIDReturns(containerID, nil)
-				mock.ListPodsReturns(&v1.PodList{Items: []v1.Pod{{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      pod,
-						Namespace: namespace,
-					},
-					Status: v1.PodStatus{
-						ContainerStatuses: []v1.ContainerStatus{{
-							ContainerID: crioPrefix + containerID,
-						}},
-					},
-				}}}, nil)
+				mock.PodListerWatcherReturns(podindextest.New(*runningPod()))
 				mock.SendMetricReturns(errTest)
 			},
-			assert: func(sut *Enricher, mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine, err error) {
+			assert: func(sut *Enricher, mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine, runErr chan error) {
 				waitForCallCount(t, mock.StartTailCallCount, 1)
 
 				lineChan <- &types.AuditLine{
@@ -216,39 +213,16 @@ func TestRun(t *testing.T) {
 
 				waitForCallCount(t, mock.SendMetricCallCount, 1)
 
-				require.NoError(t, err)
+				stopRun(t, lineChan, runErr)
 			},
 		},
 		{ // success, but using the backlog
-			runAsync: true,
 			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine) {
 				mock.StartTailReturns(lineChan, nil)
 				mock.ContainerIDForPIDReturns(containerID, nil)
+				mock.PodListerWatcherReturns(backlogPods)
 			},
-			assert: func(sut *Enricher, mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine, err error) {
-				// The pod status lists the container only once the test says
-				// so, instead of after a number of lookups which depends on
-				// the retry backoff.
-				var containerListed atomic.Bool
-
-				mock.ListPodsCalls(func(
-					context.Context, kubernetes.Interface, string,
-				) (*v1.PodList, error) {
-					status := v1.ContainerStatus{
-						State: v1.ContainerState{
-							Waiting: &v1.ContainerStateWaiting{Reason: "ContainerCreating"},
-						},
-					}
-					if containerListed.Load() {
-						status = v1.ContainerStatus{ContainerID: crioPrefix + containerID}
-					}
-
-					return &v1.PodList{Items: []v1.Pod{{
-						ObjectMeta: metav1.ObjectMeta{Name: pod, Namespace: namespace},
-						Status:     v1.PodStatus{ContainerStatuses: []v1.ContainerStatus{status}},
-					}}}, nil
-				})
-
+			assert: func(sut *Enricher, mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine, runErr chan error) {
 				waitForCallCount(t, mock.StartTailCallCount, 1)
 
 				avcLine := &types.AuditLine{
@@ -265,20 +239,22 @@ func TestRun(t *testing.T) {
 
 				lineChan <- avcLine
 
-				// The line is backlogged once all lookups failed.
+				// The pod does not tell the container yet.
 				waitForCallCount(t, sut.auditLineCache.Len, 1)
 				require.Zero(t, mock.SendMetricCallCount())
 
-				// The next line finds the container and flushes the backlog
-				// before it is dispatched itself.
-				containerListed.Store(true)
+				// The update of the pod sends the backlog, without another
+				// line of the container.
+				backlogPods.Modify(runningPod())
+
+				waitForCallCount(t, sut.auditLineCache.Len, 0)
+				waitForCallCount(t, mock.SendMetricCallCount, 1)
 
 				lineChan <- &types.AuditLine{
 					AuditType: types.AuditTypeSeccomp,
 					ProcessID: avcLine.ProcessID,
 				}
 
-				waitForCallCount(t, sut.auditLineCache.Len, 0)
 				waitForCallCount(t, mock.SendMetricCallCount, 2)
 
 				_, firstSysCall := mock.SendMetricArgsForCall(0)
@@ -287,12 +263,13 @@ func TestRun(t *testing.T) {
 				_, secondSysCall := mock.SendMetricArgsForCall(1)
 				require.NotNil(t, secondSysCall.GetSeccompReq())
 
-				require.NoError(t, err)
+				stopRun(t, lineChan, runErr)
 			},
 		},
 	} {
 		lineChan := make(chan *types.AuditLine)
 		mock := &enricherfakes.FakeImpl{}
+		mock.PodListerWatcherReturns(podindextest.New())
 		tc.prepare(mock, lineChan)
 
 		sut, errCreate := New(logr.Discard(), nil)
@@ -300,34 +277,23 @@ func TestRun(t *testing.T) {
 
 		sut.impl = mock
 		sut.nodeName = node
-		// The backlog case looks the container up again right away, which
-		// the cache of missing containers would otherwise answer.
-		sut.missingContainers = ttlcache.New(ttlcache.WithTTL[string, struct{}](time.Nanosecond))
-		// Do not spend the production backoffs as test wall-clock time.
+		// Do not spend the production backoff as test wall-clock time.
 		sut.metricsBackoff = wait.Backoff{Duration: time.Millisecond, Factor: 1, Steps: 5}
-		sut.containerBackoff = wait.Backoff{Duration: time.Millisecond, Factor: 1, Steps: 3}
 
-		if tc.runAsync {
-			// Run only returns when the enricher shuts down, so the async cases
-			// assert on its side effects rather than its return value. Sharing
-			// an `err` variable with the goroutine would be a data race.
-			//nolint:errcheck // Run only returns on shutdown; see above.
-			go func() { sut.Run() }()
-
-			tc.assert(sut, mock, lineChan, nil)
-		} else {
-			tc.assert(sut, mock, lineChan, sut.Run())
-		}
+		// Run only returns when the audit log ends, so the async cases
+		// assert on the side effects and end the log afterwards.
+		tc.assert(sut, mock, lineChan, startRun(sut))
 	}
 }
 
 func TestRunWithoutNodeName(t *testing.T) {
-	t.Setenv(config.NodeNameEnvKey, "")
+	t.Parallel()
 
 	sut, err := New(logr.Discard(), nil)
 	require.NoError(t, err)
 
 	sut.impl = &enricherfakes.FakeImpl{}
+	sut.nodeName = ""
 
 	require.Error(t, sut.Run())
 }
@@ -344,14 +310,7 @@ func TestRunDropsLinesWithoutContainer(t *testing.T) {
 		mock.StartTailReturns(lineChan, nil)
 		mock.ContainerIDForPIDReturnsOnCall(0, "", lookupErr)
 		mock.ContainerIDForPIDReturnsOnCall(1, containerID, nil)
-		mock.ListPodsReturns(&v1.PodList{Items: []v1.Pod{{
-			ObjectMeta: metav1.ObjectMeta{Name: pod, Namespace: namespace},
-			Status: v1.PodStatus{
-				ContainerStatuses: []v1.ContainerStatus{{
-					ContainerID: crioPrefix + containerID,
-				}},
-			},
-		}}}, nil)
+		mock.PodListerWatcherReturns(podindextest.New(*runningPod()))
 
 		sut, err := New(logr.Discard(), nil)
 		require.NoError(t, err)
@@ -360,8 +319,7 @@ func TestRunDropsLinesWithoutContainer(t *testing.T) {
 		sut.nodeName = node
 		sut.metricsBackoff = wait.Backoff{Duration: time.Millisecond, Factor: 1, Steps: 5}
 
-		//nolint:errcheck // Run only returns on shutdown.
-		go func() { sut.Run() }()
+		runErr := startRun(sut)
 
 		lineChan <- &types.AuditLine{AuditType: types.AuditTypeSeccomp, ProcessID: 42}
 
@@ -373,6 +331,8 @@ func TestRunDropsLinesWithoutContainer(t *testing.T) {
 
 		waitForCallCount(t, mock.SendMetricCallCount, 1)
 		require.Zero(t, sut.auditLineCache.Len())
+
+		stopRun(t, lineChan, runErr)
 	}
 }
 
@@ -389,7 +349,7 @@ func TestRunAttributesLinesOfExitedProcess(t *testing.T) {
 	mock.StartTailReturns(lineChan, nil)
 	mock.ContainerIDForPIDReturnsOnCall(0, containerID, nil)
 	mock.ContainerIDForPIDReturns("", os.ErrNotExist)
-	mock.ListPodsReturns(&v1.PodList{Items: []v1.Pod{{
+	mock.PodListerWatcherReturns(podindextest.New(v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      pod,
 			Namespace: namespace,
@@ -403,7 +363,7 @@ func TestRunAttributesLinesOfExitedProcess(t *testing.T) {
 				ContainerID: crioPrefix + containerID,
 			}},
 		},
-	}}}, nil)
+	}))
 
 	sut, err := New(logr.Discard(), nil)
 	require.NoError(t, err)
@@ -412,8 +372,7 @@ func TestRunAttributesLinesOfExitedProcess(t *testing.T) {
 	sut.nodeName = node
 	sut.metricsBackoff = wait.Backoff{Duration: time.Millisecond, Factor: 1, Steps: 5}
 
-	//nolint:errcheck // Run only returns on shutdown.
-	go func() { sut.Run() }()
+	runErr := startRun(sut)
 
 	syscalls := []int32{0, 1, 2}
 	names := make([]string, 0, len(syscalls))
@@ -438,6 +397,8 @@ func TestRunAttributesLinesOfExitedProcess(t *testing.T) {
 	item := sut.syscalls.Get(recordProfile)
 	require.NotNil(t, item)
 	require.ElementsMatch(t, names, item.Value().UnsortedList())
+
+	stopRun(t, lineChan, runErr)
 }
 
 // TestContainerIDForProcessForgetsReusedPID asserts that the container of an
@@ -563,23 +524,29 @@ func TestBacklogIsDispatchedPerContainer(t *testing.T) {
 	require.NotNil(t, sut.syscalls.Get("profile"))
 }
 
-// TestRunDispatchesBacklogAfterMissingWindow asserts that the lines of a
-// container which was missing from the pod list are sent once a later line
-// finds it, after the missing containers cache let it be looked up again.
-func TestRunDispatchesBacklogAfterMissingWindow(t *testing.T) {
+// TestRunDispatchesBacklogOnPodUpdate asserts that the lines of a container
+// its pod does not tell yet are kept, without holding up the lines of other
+// containers, and sent once the pod tells the container.
+func TestRunDispatchesBacklogOnPodUpdate(t *testing.T) {
 	t.Parallel()
 
 	lineChan := make(chan *types.AuditLine)
 	mock := &enricherfakes.FakeImpl{}
 	mock.StartTailReturns(lineChan, nil)
-	mock.ContainerIDForPIDReturns(containerID, nil)
-	mock.ListPodsReturnsOnCall(0, &v1.PodList{}, nil)
-	mock.ListPodsReturns(&v1.PodList{Items: []v1.Pod{{
-		ObjectMeta: metav1.ObjectMeta{Name: pod, Namespace: namespace},
-		Status: v1.PodStatus{
-			ContainerStatuses: []v1.ContainerStatus{{ContainerID: crioPrefix + containerID}},
-		},
-	}}}, nil)
+	mock.ContainerIDForPIDCalls(func(_ *ttlcache.Cache[string, string], pid int) (string, error) {
+		if pid == 3 {
+			return otherContainerID, nil
+		}
+
+		return containerID, nil
+	})
+
+	other := runningPod()
+	other.Name = "other"
+	other.Status.ContainerStatuses[0].ContainerID = ""
+
+	pods := podindextest.New(*runningPod(), *other)
+	mock.PodListerWatcherReturns(pods)
 
 	sut, err := New(logr.Discard(), nil)
 	require.NoError(t, err)
@@ -587,23 +554,16 @@ func TestRunDispatchesBacklogAfterMissingWindow(t *testing.T) {
 	sut.impl = mock
 	sut.nodeName = node
 	sut.metricsBackoff = wait.Backoff{Duration: time.Millisecond, Factor: 1, Steps: 5}
-	sut.containerBackoff = wait.Backoff{Duration: time.Millisecond, Factor: 1, Steps: 1}
-	sut.missingContainers = ttlcache.New(ttlcache.WithTTL[string, struct{}](time.Hour))
 
-	//nolint:errcheck // Run only returns on shutdown.
-	go func() { sut.Run() }()
+	runErr := startRun(sut)
 
-	// The first process is not found and backlogged.
-	lineChan <- &types.AuditLine{AuditType: types.AuditTypeSeccomp, ProcessID: 1}
+	// The container of the other pod is still being created.
+	lineChan <- &types.AuditLine{AuditType: types.AuditTypeSeccomp, ProcessID: 3}
 
-	waitForCallCount(t, sut.auditLineCache.Len, 1)
-
-	// Within the missing window, the container is not looked up again.
-	lineChan <- &types.AuditLine{AuditType: types.AuditTypeSeccomp, ProcessID: 2}
+	lineChan <- &types.AuditLine{AuditType: types.AuditTypeSeccomp, ProcessID: 3}
 
 	require.Eventually(t, func() bool {
-		item := sut.auditLineCache.Get(containerID)
-
+		item := sut.auditLineCache.Get(otherContainerID)
 		if item == nil {
 			return false
 		}
@@ -613,65 +573,21 @@ func TestRunDispatchesBacklogAfterMissingWindow(t *testing.T) {
 		return len(lines) == 2
 	}, time.Minute, time.Millisecond)
 
-	// The container is looked up in the background.
-	require.Eventually(t, func() bool {
-		return sut.missingContainers.Has(containerID)
-	}, time.Minute, time.Millisecond)
-	require.Equal(t, 1, mock.ListPodsCallCount())
+	// The lines of a known container are sent in the meantime.
+	lineChan <- &types.AuditLine{AuditType: types.AuditTypeSeccomp, ProcessID: 1}
 
-	// The missing window ends.
-	sut.missingContainers.Delete(containerID)
+	waitForCallCount(t, mock.SendMetricCallCount, 1)
 
-	// Another process finds the container, which sends everything.
-	lineChan <- &types.AuditLine{AuditType: types.AuditTypeSeccomp, ProcessID: 3}
+	other.Status.ContainerStatuses[0].ContainerID = crioPrefix + otherContainerID
+	pods.Modify(other)
 
 	waitForCallCount(t, mock.SendMetricCallCount, 3)
 	require.Zero(t, sut.auditLineCache.Len())
-}
 
-// TestRunDispatchesBacklogOfListedContainer asserts that the backlog of a
-// container is sent once listing the pods for another container finds it,
-// without waiting for another line of its own.
-func TestRunDispatchesBacklogOfListedContainer(t *testing.T) {
-	t.Parallel()
+	for i := 1; i < 3; i++ {
+		_, req := mock.SendMetricArgsForCall(i)
+		require.Equal(t, "other", req.GetPod())
+	}
 
-	const otherContainerID = "e1d4c1dbd3b5d9a4e9e2f6f5a1c8f1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8"
-
-	lineChan := make(chan *types.AuditLine)
-	mock := &enricherfakes.FakeImpl{}
-	mock.StartTailReturns(lineChan, nil)
-	mock.ContainerIDForPIDReturnsOnCall(0, containerID, nil)
-	mock.ContainerIDForPIDReturnsOnCall(1, otherContainerID, nil)
-	mock.ListPodsReturnsOnCall(0, &v1.PodList{}, nil)
-	mock.ListPodsReturns(&v1.PodList{Items: []v1.Pod{{
-		ObjectMeta: metav1.ObjectMeta{Name: pod, Namespace: namespace},
-		Status: v1.PodStatus{
-			ContainerStatuses: []v1.ContainerStatus{
-				{ContainerID: crioPrefix + containerID},
-				{ContainerID: crioPrefix + otherContainerID},
-			},
-		},
-	}}}, nil)
-
-	sut, err := New(logr.Discard(), nil)
-	require.NoError(t, err)
-
-	sut.impl = mock
-	sut.nodeName = node
-	sut.metricsBackoff = wait.Backoff{Duration: time.Millisecond, Factor: 1, Steps: 5}
-	sut.containerBackoff = wait.Backoff{Duration: time.Millisecond, Factor: 1, Steps: 1}
-
-	//nolint:errcheck // Run only returns on shutdown.
-	go func() { sut.Run() }()
-
-	// The container is not listed yet.
-	lineChan <- &types.AuditLine{AuditType: types.AuditTypeSeccomp, ProcessID: 1}
-
-	waitForCallCount(t, sut.auditLineCache.Len, 1)
-
-	// Listing the pods for another container finds it as well.
-	lineChan <- &types.AuditLine{AuditType: types.AuditTypeSeccomp, ProcessID: 2}
-
-	waitForCallCount(t, mock.SendMetricCallCount, 2)
-	require.Zero(t, sut.auditLineCache.Len())
+	stopRun(t, lineChan, runErr)
 }

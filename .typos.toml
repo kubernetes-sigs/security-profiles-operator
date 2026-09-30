@@ -33,3 +33,5 @@ extend-ignore-re = [
 bimap = "bimap"
 # in-toto attestation file suffix, as in spoc.intoto.jsonl
 intoto = "intoto"
+# AppArmor ptrace access keyword, as in ptrace (readby)
+readby = "readby"

@@ -87,6 +87,22 @@ spec:
 			outputContains: []string{`/dev/null r,`, `flags=(complain,attach_disconnected,mediate_deleted)`},
 		},
 		{
+			name: "AppArmor CRD with deprecated ptrace rules",
+			input: `
+apiVersion: security-profiles-operator.x-k8s.io/v1
+kind: AppArmorProfile
+metadata:
+  name: legacy
+spec:
+  abstract:
+    filesystem:
+      readOnlyPaths:
+      - ptrace (read),
+`,
+			outputContains: []string{`ptrace (read),`},
+			logContains:    `profile "legacy": DEPRECATED: ptrace rules`,
+		},
+		{
 			name: "seccomp",
 			input: `
 apiVersion: security-profiles-operator.x-k8s.io/v1

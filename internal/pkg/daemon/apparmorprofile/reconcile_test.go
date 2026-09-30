@@ -19,14 +19,16 @@ package apparmorprofile
 import (
 	"context"
 	"errors"
+	"strings"
+	"sync"
 	"testing"
 
+	"github.com/go-logr/logr/funcr"
 	"github.com/stretchr/testify/require"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
@@ -41,6 +43,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/utiltest"
 )
 
 const (
@@ -78,17 +81,6 @@ func (m *countingProfileManager) RemoveProfile(profilebaseapi.StatusBaseUser, bo
 	m.removes++
 
 	return m.removeErr
-}
-
-func testScheme(t *testing.T) *runtime.Scheme {
-	t.Helper()
-
-	scheme := runtime.NewScheme()
-	require.NoError(t, clientgoscheme.AddToScheme(scheme))
-	require.NoError(t, apparmorprofileapi.AddToScheme(scheme))
-	require.NoError(t, secprofnodestatusapi.AddToScheme(scheme))
-
-	return scheme
 }
 
 func testAppArmorProfile() *apparmorprofileapi.AppArmorProfile {
@@ -130,7 +122,7 @@ func newTestReconciler(
 ) (*Reconciler, client.Client, *events.FakeRecorder) {
 	t.Helper()
 
-	scheme := testScheme(t)
+	scheme := utiltest.NewScheme(t)
 
 	if funcs == nil {
 		funcs = &interceptor.Funcs{}
@@ -205,27 +197,6 @@ func getNodeStatus(
 	return status
 }
 
-func requireNoEvent(t *testing.T, rec *events.FakeRecorder) {
-	t.Helper()
-
-	select {
-	case event := <-rec.Events:
-		require.Failf(t, "unexpected event", "%s", event)
-	default:
-	}
-}
-
-func requireEvent(t *testing.T, rec *events.FakeRecorder, want string) {
-	t.Helper()
-
-	select {
-	case event := <-rec.Events:
-		require.Equal(t, want, event)
-	default:
-		require.Failf(t, "missing event", "%s", want)
-	}
-}
-
 // reconcileUntilInstalled drives a fresh profile through the initial node
 // status creation and the installation.
 func reconcileUntilInstalled(t *testing.T, r *Reconciler) {
@@ -250,7 +221,7 @@ func TestReconcileNotSupportedEmitsNodeEvent(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, reconcile.Result{}, res)
 	require.Zero(t, manager.installs)
-	requireEvent(t, rec,
+	utiltest.RequireEvent(t, rec,
 		"Warning AppArmorNotSupportedOnNode node does not support apparmor, profile not added")
 }
 
@@ -316,7 +287,7 @@ func TestReconcileInstallsProfile(t *testing.T) {
 	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, status.Status.Status)
 	require.Equal(t, string(secprofnodestatusapi.ProfileStateInstalled),
 		status.Labels[secprofnodestatusapi.StatusStateLabel])
-	requireEvent(
+	utiltest.RequireEvent(
 		t,
 		rec,
 		"Normal LoadedAppArmorProfile Successfully loaded profile into node "+testNode,
@@ -330,7 +301,7 @@ func TestReconcileInstallsProfile(t *testing.T) {
 	require.Equal(t, reconcile.Result{}, res)
 	require.Equal(t, 2, manager.installs)
 	require.True(t, manager.gotOwnedByUs)
-	requireNoEvent(t, rec)
+	utiltest.RequireNoEvent(t, rec)
 }
 
 func TestReconcileUnchangedProfileEmitsNoEvent(t *testing.T) {
@@ -346,7 +317,7 @@ func TestReconcileUnchangedProfileEmitsNoEvent(t *testing.T) {
 		secprofnodestatusapi.ProfileStateInstalled,
 		getNodeStatus(t, cli).Status.Status,
 	)
-	requireNoEvent(t, rec)
+	utiltest.RequireNoEvent(t, rec)
 }
 
 func TestReconcileInstallError(t *testing.T) {
@@ -361,7 +332,7 @@ func TestReconcileInstallError(t *testing.T) {
 
 	_, err = r.Reconcile(t.Context(), testRequest())
 	require.ErrorIs(t, err, errInstall)
-	requireEvent(t, rec, "Warning CannotLoadAppArmorProfile apparmor_parser failed")
+	utiltest.RequireEvent(t, rec, "Warning CannotLoadAppArmorProfile apparmor_parser failed")
 	require.Equal(t, secprofnodestatusapi.ProfileStatePending, getNodeStatus(t, cli).Status.Status)
 }
 
@@ -371,7 +342,7 @@ func TestReconcileStatusUpdateError(t *testing.T) {
 	errUpdate := errors.New("update failed")
 	manager := &countingProfileManager{enabled: true}
 	failUpdates := false
-	setGVK := gvkSetter(testScheme(t))
+	setGVK := gvkSetter(utiltest.NewScheme(t))
 	r, _, rec := newTestReconciler(t, manager, &interceptor.Funcs{
 		Update: func(
 			ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption,
@@ -391,7 +362,7 @@ func TestReconcileStatusUpdateError(t *testing.T) {
 	_, err = r.Reconcile(t.Context(), testRequest())
 	require.ErrorIs(t, err, errUpdate)
 	require.Equal(t, 1, manager.installs)
-	requireEvent(
+	utiltest.RequireEvent(
 		t,
 		rec,
 		"Warning CannotUpdateNodeStatus updating node status annotation: update failed",
@@ -511,7 +482,11 @@ func TestReconcileDisabledUnloadError(t *testing.T) {
 		secprofnodestatusapi.ProfileStateInstalled,
 		getNodeStatus(t, cli).Status.Status,
 	)
-	requireEvent(t, rec, "Warning "+reasonCannotUnloadProfile+" unloading profile from host: busy")
+	utiltest.RequireEvent(
+		t,
+		rec,
+		"Warning "+reasonCannotUnloadProfile+" unloading profile from host: busy",
+	)
 }
 
 func deletingProfile(t *testing.T, cli client.Client) {
@@ -617,7 +592,7 @@ func TestReconcileDeletionRemoveError(t *testing.T) {
 
 	_, err = r.Reconcile(t.Context(), testRequest())
 	require.ErrorIs(t, err, errRemove)
-	requireEvent(
+	utiltest.RequireEvent(
 		t,
 		rec,
 		"Warning CannotUnloadAppArmorProfile unloading profile from host: cannot unload",
@@ -680,4 +655,101 @@ func TestOk(t *testing.T) {
 
 	require.Equal(t, "OK", ok(true, nil))
 	require.Equal(t, "NOT OK (boom)", ok(false, errors.New("boom")))
+}
+
+// Ptrace rules in the paths are deprecated, which is logged once per profile
+// and not on every reconcile.
+func TestReconcileWarnsAboutDeprecatedPtraceRulesOnce(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		abstract apparmorprofileapi.AppArmorAbstract
+		want     int
+	}{
+		{
+			name: "rules in the paths",
+			abstract: apparmorprofileapi.AppArmorAbstract{
+				Filesystem: &apparmorprofileapi.AppArmorFsRules{
+					ReadWritePaths: []string{"ptrace (read),  # ugly template injection hack", "/tmp"},
+				},
+			},
+			want: 1,
+		},
+		{
+			name: "ptrace field",
+			abstract: apparmorprofileapi.AppArmorAbstract{
+				Ptrace: &apparmorprofileapi.AppArmorPtraceRules{
+					AllowedAccess: []apparmorprofileapi.AppArmorPtraceAccess{
+						apparmorprofileapi.AppArmorPtraceAccessRead,
+					},
+				},
+			},
+			want: 0,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			profile := testAppArmorProfile()
+			profile.Spec.Abstract = tc.abstract
+			r, _, _ := newTestReconciler(t, &countingProfileManager{enabled: true}, nil, profile)
+
+			var (
+				mu       sync.Mutex
+				warnings int
+			)
+
+			r.log = funcr.New(func(_, args string) {
+				if strings.Contains(args, "DEPRECATED: ptrace rules") {
+					mu.Lock()
+					warnings++
+					mu.Unlock()
+				}
+			}, funcr.Options{})
+
+			reconcileUntilInstalled(t, r)
+
+			_, err := r.Reconcile(t.Context(), testRequest())
+			require.NoError(t, err)
+
+			mu.Lock()
+			defer mu.Unlock()
+
+			require.Equal(t, tc.want, warnings)
+		})
+	}
+}
+
+// A node without AppArmor counts every profile once in the error metric,
+// instead of on every reconcile.
+func TestReconcileNotSupportedCountsProfileOnce(t *testing.T) {
+	t.Parallel()
+
+	profile := testAppArmorProfile()
+	profile.UID = "first"
+	r, cli, _ := newTestReconciler(t, &countingProfileManager{}, nil, profile)
+
+	require.True(t, r.countUnsupported(t.Context(), testProfile))
+	require.False(t, r.countUnsupported(t.Context(), testProfile))
+
+	// A profile created again under the same name is counted again.
+	require.NoError(t, cli.Delete(t.Context(), profile))
+	require.False(t, r.countUnsupported(t.Context(), testProfile))
+
+	_, loaded := r.unsupportedCounted.Load(testProfile)
+	require.False(t, loaded, "a deleted profile is forgotten")
+
+	recreated := testAppArmorProfile()
+	recreated.UID = "second"
+	require.NoError(t, cli.Create(t.Context(), recreated))
+	require.True(t, r.countUnsupported(t.Context(), testProfile))
+
+	// Reconciling keeps counting it once.
+	for range 2 {
+		_, err := r.Reconcile(t.Context(), testRequest())
+		require.NoError(t, err)
+	}
+
+	require.False(t, r.countUnsupported(t.Context(), testProfile))
 }

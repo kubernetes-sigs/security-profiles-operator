@@ -61,6 +61,10 @@ func (p *Converter) Run() error {
 
 	switch obj := profile.(type) {
 	case *apparmorprofileapi.AppArmorProfile:
+		if crd2armor.UsesDeprecatedPtraceRules(&obj.Spec.Abstract) {
+			log.Printf("Warning: profile %q: %s", obj.Name, crd2armor.DeprecatedPtraceRulesMessage)
+		}
+
 		programName := p.options.programName
 		if programName == "" {
 			//nolint:lll  // long url is long

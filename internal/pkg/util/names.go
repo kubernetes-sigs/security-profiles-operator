@@ -37,33 +37,43 @@ func NamespacedName(name, namespace string) types.NamespacedName {
 	}
 }
 
-// LengthName creates a string of maximum defined length.
+// lengthName creates a string of less than maxLen characters. A friendly name
+// which fits is returned as is, a longer one is replaced by its hashed form,
+// see hashedName.
+//
+// A friendly name of exactly maxLen characters would fit as well, but gets
+// hashed too. This is an off-by-one, but the result names the node status
+// objects and their labels, so changing the threshold would orphan the
+// statuses of every profile whose friendly name has exactly maxLen characters.
 func lengthName(maxLen int, hashPrefix, format string, a ...any) (string, error) {
 	friendlyName := fmt.Sprintf(format, a...)
 	if len(friendlyName) < maxLen {
 		return friendlyName, nil
 	}
 
-	// If that's too long, just hash the name. It's not very user friendly, but whatever
+	return hashedName(maxLen, hashPrefix, friendlyName)
+}
+
+// hashedName returns hashPrefix, a dash and as much of the hex encoded SHA-256
+// hash of name as fits into maxLen characters. It is not very user friendly,
+// but it keeps names apart which a truncation would merge.
+func hashedName(maxLen int, hashPrefix, name string) (string, error) {
 	hasher := sha256.New()
-	if _, err := io.WriteString(hasher, friendlyName); err != nil {
+	if _, err := io.WriteString(hasher, name); err != nil {
 		return "", fmt.Errorf("writing string: %w", err)
 	}
 
 	hashStr := hex.EncodeToString(hasher.Sum(nil))
+
 	hashUseLen := maxLen - len(hashPrefix) - 1 // -1 for the dash separator
-
-	if hashUseLen < maxLen {
-		hashStr = hashStr[:hashUseLen]
+	if hashUseLen < 1 {
+		return "", fmt.Errorf(
+			"shortening string: prefix %q leaves no room for a hash within %d characters",
+			hashPrefix, maxLen,
+		)
 	}
 
-	hashedName := fmt.Sprintf("%s-%s", hashPrefix, hashStr)
-
-	if len(hashedName) > maxLen {
-		return "", errors.New("shortening string")
-	}
-
-	return hashedName, nil
+	return hashPrefix + "-" + hashStr[:min(hashUseLen, len(hashStr))], nil
 }
 
 func DNSLengthName(hashPrefix, format string, a ...any) string {

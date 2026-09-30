@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "security-profiles-operator values",
+  "type": "object",
+  "$defs": {
+    "image": {
+      "type": "object",
+      "required": ["registry", "repository"],
+      "properties": {
+        "registry": { "type": "string", "minLength": 1 },
+        "repository": { "type": "string", "minLength": 1 },
+        "tag": { "type": "string" },
+        "digest": { "type": "string", "pattern": "^(sha256:[a-f0-9]{64})?$" },
+        "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "properties": {
+        "limits": { "$ref": "#/$defs/resourceList" },
+        "requests": { "$ref": "#/$defs/resourceList" }
+      }
+    },
+    "resourceList": {
+      "type": "object",
+      "additionalProperties": { "type": ["string", "number"] }
+    },
+    "tolerations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": { "type": "string" },
+          "operator": { "type": "string", "enum": ["Exists", "Equal"] },
+          "value": { "type": "string" },
+          "effect": { "type": "string", "enum": ["NoSchedule", "PreferNoSchedule", "NoExecute"] },
+          "tolerationSeconds": { "type": "integer" }
+        }
+      }
+    }
+  },
+  "properties": {
+    "replicaCount": { "type": "integer", "minimum": 1 },
+    "spoImage": { "$ref": "#/$defs/image" },
+    "selinuxdImage": {
+      "type": "object",
+      "required": ["default", "el8", "el9", "fedora"],
+      "properties": {
+        "default": { "$ref": "#/$defs/image" },
+        "el8": { "$ref": "#/$defs/image" },
+        "el9": { "$ref": "#/$defs/image" },
+        "fedora": { "$ref": "#/$defs/image" }
+      }
+    },
+    "kubeletDir": { "type": "string", "pattern": "^/" },
+    "enableSelinux": { "type": "boolean" },
+    "selinux": {
+      "type": "object",
+      "properties": {
+        "enable": { "type": "boolean" },
+        "enableRawSelinuxProfiles": { "type": "boolean" },
+        "typeTag": { "type": "string" },
+        "customTemplatesConfigMap": { "type": "string" },
+        "options": {
+          "type": "object",
+          "properties": {
+            "allowedSystemProfiles": { "type": "array", "items": { "type": "string" } },
+            "deniedTypes": { "type": "array", "items": { "type": "string" } },
+            "deniedClasses": { "type": "array", "items": { "type": "string" } },
+            "deniedPermissions": { "type": "array", "items": { "type": "string" } },
+            "allowedTypes": { "type": "array", "items": { "type": "string" } },
+            "allowedClasses": { "type": "array", "items": { "type": "string" } },
+            "allowedPermissions": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      }
+    },
+    "enableLogEnricher": { "type": "boolean" },
+    "enableJsonEnricher": { "type": "boolean" },
+    "enableAppArmor": { "type": "boolean" },
+    "enableBpfRecorder": { "type": "boolean" },
+    "enableProfiling": { "type": "boolean" },
+    "verbosity": { "type": "integer", "minimum": 0 },
+    "restrictToNamespace": { "type": "string" },
+    "webhook": {
+      "type": "object",
+      "properties": {
+        "tolerations": { "$ref": "#/$defs/tolerations" }
+      }
+    },
+    "nameOverride": { "type": "string" },
+    "fullnameOverride": { "type": "string" },
+    "serviceAccount": {
+      "type": "object",
+      "properties": {
+        "create": { "type": "boolean" },
+        "annotations": { "type": "object" },
+        "name": { "type": "string" }
+      }
+    },
+    "podAnnotations": { "type": "object" },
+    "podSecurityContext": { "type": "object" },
+    "resources": { "$ref": "#/$defs/resources" },
+    "daemon": {
+      "type": "object",
+      "properties": {
+        "affinity": { "type": "object" },
+        "tolerations": { "$ref": "#/$defs/tolerations" },
+        "resources": { "$ref": "#/$defs/resources" }
+      }
+    },
+    "autoscaling": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "minReplicas": { "type": "integer", "minimum": 1 },
+        "maxReplicas": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "podDisruptionBudget": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "minAvailable": {
+          "oneOf": [
+            { "type": "integer", "minimum": 0 },
+            { "type": "string", "pattern": "^[0-9]+%$" }
+          ]
+        }
+      }
+    },
+    "topologySpreadConstraints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["maxSkew", "topologyKey", "whenUnsatisfiable"],
+        "properties": {
+          "maxSkew": { "type": "integer", "minimum": 1 },
+          "topologyKey": { "type": "string", "minLength": 1 },
+          "whenUnsatisfiable": { "type": "string", "enum": ["DoNotSchedule", "ScheduleAnyway"] },
+          "labelSelector": { "type": "object" },
+          "matchLabelKeys": { "type": "array", "items": { "type": "string" } },
+          "minDomains": { "type": "integer", "minimum": 1 },
+          "nodeAffinityPolicy": { "type": "string", "enum": ["Honor", "Ignore"] },
+          "nodeTaintsPolicy": { "type": "string", "enum": ["Honor", "Ignore"] }
+        }
+      }
+    },
+    "nodeSelector": { "type": "object", "additionalProperties": { "type": "string" } },
+    "tolerations": { "$ref": "#/$defs/tolerations" },
+    "affinity": { "type": "object" }
+  }
+}

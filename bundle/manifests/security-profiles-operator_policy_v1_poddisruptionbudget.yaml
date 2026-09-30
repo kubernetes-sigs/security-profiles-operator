@@ -1,0 +1,13 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  labels:
+    app: security-profiles-operator
+  name: security-profiles-operator
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: security-profiles-operator
+      name: security-profiles-operator
+  unhealthyPodEvictionPolicy: AlwaysAllow

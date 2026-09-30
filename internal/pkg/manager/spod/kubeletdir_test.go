@@ -18,6 +18,7 @@ package spod
 
 import (
 	"maps"
+	"path"
 	"slices"
 	"strings"
 	"testing"
@@ -194,17 +195,21 @@ func Test_kubeletDirsToMount(t *testing.T) {
 			t.Parallel()
 
 			configured := render(tc.spec)
-			dirs := kubeletDirsToMount(configured, found, tc.nodeDirs)
+			dirs, needsUpdate := kubeletDirsToMount(configured, found, tc.nodeDirs)
 			require.Equal(t, tc.want, dirs)
 
 			addKubeletDirVolumes(&configured.Spec.Template.Spec, dirs)
 			require.Equal(t, tc.want, mountedKubeletDirs(configured))
 
+			// The returned update decision matches the rendered SPOd, so
+			// the reconciler does not have to compare it a second time.
+			require.Equal(t, spodNeedsUpdate(configured, found), needsUpdate)
+
 			// Keeping the directories must not cause an update loop.
 			if slices.Equal(tc.want, mountedKubeletDirs(found)) && tc.spec == spec {
-				require.False(t, spodNeedsUpdate(configured, found))
+				require.False(t, needsUpdate)
 			} else {
-				require.True(t, spodNeedsUpdate(configured, found))
+				require.True(t, needsUpdate)
 			}
 		})
 	}
@@ -242,22 +247,30 @@ func Test_getConfiguredSPOdKubeletDirVolumes(t *testing.T) {
 	base := render()
 	require.NotContains(t, hostPaths(base), "host-root-volume")
 	require.NotContains(t, slices.Collect(maps.Values(hostPaths(base))), "/")
-	require.Equal(t, config.KubeletDir(), hostPaths(base)[bindata.KubeletDirVolumeName])
+	// Only the seccomp directories of the kubelet directories are mounted.
+	require.Equal(t,
+		path.Join(config.KubeletDir(), config.SeccompProfilesFolder),
+		hostPaths(base)[bindata.KubeletDirVolumeName],
+	)
+	require.NotContains(t, slices.Collect(maps.Values(hostPaths(base))), config.KubeletDir())
 
 	custom := render("/data/kubelet", "/mnt/resource/kubelet")
 	paths := hostPaths(custom)
-	require.Equal(t, config.KubeletDir(), paths[bindata.KubeletDirVolumeName])
-	require.Equal(t, "/data/kubelet", paths[bindata.KubeletDirVolumeName+"-1"])
-	require.Equal(t, "/mnt/resource/kubelet", paths[bindata.KubeletDirVolumeName+"-2"])
+	require.Equal(t,
+		path.Join(config.KubeletDir(), config.SeccompProfilesFolder),
+		paths[bindata.KubeletDirVolumeName],
+	)
+	require.Equal(t, "/data/kubelet/seccomp", paths[bindata.KubeletDirVolumeName+"-1"])
+	require.Equal(t, "/mnt/resource/kubelet/seccomp", paths[bindata.KubeletDirVolumeName+"-2"])
 
 	nonRootEnabler := custom.InitContainers[bindata.InitContainerIDNonRootenabler]
 	require.Contains(t, nonRootEnabler.VolumeMounts, v1.VolumeMount{
 		Name:      bindata.KubeletDirVolumeName + "-1",
-		MountPath: "/host/data/kubelet",
+		MountPath: "/host/data/kubelet/seccomp",
 	})
 	require.Contains(t, nonRootEnabler.VolumeMounts, v1.VolumeMount{
 		Name:      bindata.KubeletDirVolumeName + "-2",
-		MountPath: "/host/mnt/resource/kubelet",
+		MountPath: "/host/mnt/resource/kubelet/seccomp",
 	})
 
 	for _, m := range nonRootEnabler.VolumeMounts {

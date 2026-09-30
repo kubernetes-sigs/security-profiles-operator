@@ -26,21 +26,22 @@ import (
 	"time"
 
 	ttlcache "github.com/jellydator/ttlcache/v3"
-	"github.com/nxadm/tail"
 	"google.golang.org/grpc"
-	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	api_metrics "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/auditsource"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/tailer"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/podindex"
 )
 
 type FakeImpl struct {
-	AuditIncStub        func(api_metrics.MetricsClient) (api_metrics.Metrics_AuditIncClient, error)
+	AuditIncStub        func(context.Context, api_metrics.MetricsClient) (api_metrics.Metrics_AuditIncClient, error)
 	auditIncMutex       sync.RWMutex
 	auditIncArgsForCall []struct {
-		arg1 api_metrics.MetricsClient
+		arg1 context.Context
+		arg2 api_metrics.MetricsClient
 	}
 	auditIncReturns struct {
 		result1 api_metrics.Metrics_AuditIncClient
@@ -138,31 +139,16 @@ type FakeImpl struct {
 		result1 *rest.Config
 		result2 error
 	}
-	LinesStub        func(*tail.Tail) chan *tail.Line
+	LinesStub        func(*tailer.Tailer) <-chan string
 	linesMutex       sync.RWMutex
 	linesArgsForCall []struct {
-		arg1 *tail.Tail
+		arg1 *tailer.Tailer
 	}
 	linesReturns struct {
-		result1 chan *tail.Line
+		result1 <-chan string
 	}
 	linesReturnsOnCall map[int]struct {
-		result1 chan *tail.Line
-	}
-	ListPodsStub        func(context.Context, kubernetes.Interface, string) (*v1.PodList, error)
-	listPodsMutex       sync.RWMutex
-	listPodsArgsForCall []struct {
-		arg1 context.Context
-		arg2 kubernetes.Interface
-		arg3 string
-	}
-	listPodsReturns struct {
-		result1 *v1.PodList
-		result2 error
-	}
-	listPodsReturnsOnCall map[int]struct {
-		result1 *v1.PodList
-		result2 error
+		result1 <-chan string
 	}
 	ListenStub        func(string, string) (net.Listener, error)
 	listenMutex       sync.RWMutex
@@ -191,6 +177,18 @@ type FakeImpl struct {
 		result1 *kubernetes.Clientset
 		result2 error
 	}
+	PodListerWatcherStub        func(kubernetes.Interface, string) podindex.ListerWatcher
+	podListerWatcherMutex       sync.RWMutex
+	podListerWatcherArgsForCall []struct {
+		arg1 kubernetes.Interface
+		arg2 string
+	}
+	podListerWatcherReturns struct {
+		result1 podindex.ListerWatcher
+	}
+	podListerWatcherReturnsOnCall map[int]struct {
+		result1 podindex.ListerWatcher
+	}
 	PrintJsonOutputStub        func(io.Writer, []byte)
 	printJsonOutputMutex       sync.RWMutex
 	printJsonOutputArgsForCall []struct {
@@ -210,10 +208,10 @@ type FakeImpl struct {
 		result1 time.Duration
 		result2 error
 	}
-	ReasonStub        func(*tail.Tail) error
+	ReasonStub        func(*tailer.Tailer) error
 	reasonMutex       sync.RWMutex
 	reasonArgsForCall []struct {
-		arg1 *tail.Tail
+		arg1 *tailer.Tailer
 	}
 	reasonReturns struct {
 		result1 error
@@ -282,6 +280,11 @@ type FakeImpl struct {
 		result1 os.FileInfo
 		result2 error
 	}
+	StopTailStub        func(*tailer.Tailer)
+	stopTailMutex       sync.RWMutex
+	stopTailArgsForCall []struct {
+		arg1 *tailer.Tailer
+	}
 	TailErrStub        func(auditsource.AuditLineSource) error
 	tailErrMutex       sync.RWMutex
 	tailErrArgsForCall []struct {
@@ -293,36 +296,37 @@ type FakeImpl struct {
 	tailErrReturnsOnCall map[int]struct {
 		result1 error
 	}
-	TailFileStub        func(string, tail.Config) (*tail.Tail, error)
+	TailFileStub        func(string, tailer.Config) (*tailer.Tailer, error)
 	tailFileMutex       sync.RWMutex
 	tailFileArgsForCall []struct {
 		arg1 string
-		arg2 tail.Config
+		arg2 tailer.Config
 	}
 	tailFileReturns struct {
-		result1 *tail.Tail
+		result1 *tailer.Tailer
 		result2 error
 	}
 	tailFileReturnsOnCall map[int]struct {
-		result1 *tail.Tail
+		result1 *tailer.Tailer
 		result2 error
 	}
 	invocations      map[string][][]interface{}
 	invocationsMutex sync.RWMutex
 }
 
-func (fake *FakeImpl) AuditInc(arg1 api_metrics.MetricsClient) (api_metrics.Metrics_AuditIncClient, error) {
+func (fake *FakeImpl) AuditInc(arg1 context.Context, arg2 api_metrics.MetricsClient) (api_metrics.Metrics_AuditIncClient, error) {
 	fake.auditIncMutex.Lock()
 	ret, specificReturn := fake.auditIncReturnsOnCall[len(fake.auditIncArgsForCall)]
 	fake.auditIncArgsForCall = append(fake.auditIncArgsForCall, struct {
-		arg1 api_metrics.MetricsClient
-	}{arg1})
+		arg1 context.Context
+		arg2 api_metrics.MetricsClient
+	}{arg1, arg2})
 	stub := fake.AuditIncStub
 	fakeReturns := fake.auditIncReturns
-	fake.recordInvocation("AuditInc", []interface{}{arg1})
+	fake.recordInvocation("AuditInc", []interface{}{arg1, arg2})
 	fake.auditIncMutex.Unlock()
 	if stub != nil {
-		return stub(arg1)
+		return stub(arg1, arg2)
 	}
 	if specificReturn {
 		return ret.result1, ret.result2
@@ -336,17 +340,17 @@ func (fake *FakeImpl) AuditIncCallCount() int {
 	return len(fake.auditIncArgsForCall)
 }
 
-func (fake *FakeImpl) AuditIncCalls(stub func(api_metrics.MetricsClient) (api_metrics.Metrics_AuditIncClient, error)) {
+func (fake *FakeImpl) AuditIncCalls(stub func(context.Context, api_metrics.MetricsClient) (api_metrics.Metrics_AuditIncClient, error)) {
 	fake.auditIncMutex.Lock()
 	defer fake.auditIncMutex.Unlock()
 	fake.AuditIncStub = stub
 }
 
-func (fake *FakeImpl) AuditIncArgsForCall(i int) api_metrics.MetricsClient {
+func (fake *FakeImpl) AuditIncArgsForCall(i int) (context.Context, api_metrics.MetricsClient) {
 	fake.auditIncMutex.RLock()
 	defer fake.auditIncMutex.RUnlock()
 	argsForCall := fake.auditIncArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.arg1, argsForCall.arg2
 }
 
 func (fake *FakeImpl) AuditIncReturns(result1 api_metrics.Metrics_AuditIncClient, result2 error) {
@@ -804,11 +808,11 @@ func (fake *FakeImpl) InClusterConfigReturnsOnCall(i int, result1 *rest.Config, 
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) Lines(arg1 *tail.Tail) chan *tail.Line {
+func (fake *FakeImpl) Lines(arg1 *tailer.Tailer) <-chan string {
 	fake.linesMutex.Lock()
 	ret, specificReturn := fake.linesReturnsOnCall[len(fake.linesArgsForCall)]
 	fake.linesArgsForCall = append(fake.linesArgsForCall, struct {
-		arg1 *tail.Tail
+		arg1 *tailer.Tailer
 	}{arg1})
 	stub := fake.LinesStub
 	fakeReturns := fake.linesReturns
@@ -829,106 +833,40 @@ func (fake *FakeImpl) LinesCallCount() int {
 	return len(fake.linesArgsForCall)
 }
 
-func (fake *FakeImpl) LinesCalls(stub func(*tail.Tail) chan *tail.Line) {
+func (fake *FakeImpl) LinesCalls(stub func(*tailer.Tailer) <-chan string) {
 	fake.linesMutex.Lock()
 	defer fake.linesMutex.Unlock()
 	fake.LinesStub = stub
 }
 
-func (fake *FakeImpl) LinesArgsForCall(i int) *tail.Tail {
+func (fake *FakeImpl) LinesArgsForCall(i int) *tailer.Tailer {
 	fake.linesMutex.RLock()
 	defer fake.linesMutex.RUnlock()
 	argsForCall := fake.linesArgsForCall[i]
 	return argsForCall.arg1
 }
 
-func (fake *FakeImpl) LinesReturns(result1 chan *tail.Line) {
+func (fake *FakeImpl) LinesReturns(result1 <-chan string) {
 	fake.linesMutex.Lock()
 	defer fake.linesMutex.Unlock()
 	fake.LinesStub = nil
 	fake.linesReturns = struct {
-		result1 chan *tail.Line
+		result1 <-chan string
 	}{result1}
 }
 
-func (fake *FakeImpl) LinesReturnsOnCall(i int, result1 chan *tail.Line) {
+func (fake *FakeImpl) LinesReturnsOnCall(i int, result1 <-chan string) {
 	fake.linesMutex.Lock()
 	defer fake.linesMutex.Unlock()
 	fake.LinesStub = nil
 	if fake.linesReturnsOnCall == nil {
 		fake.linesReturnsOnCall = make(map[int]struct {
-			result1 chan *tail.Line
+			result1 <-chan string
 		})
 	}
 	fake.linesReturnsOnCall[i] = struct {
-		result1 chan *tail.Line
+		result1 <-chan string
 	}{result1}
-}
-
-func (fake *FakeImpl) ListPods(arg1 context.Context, arg2 kubernetes.Interface, arg3 string) (*v1.PodList, error) {
-	fake.listPodsMutex.Lock()
-	ret, specificReturn := fake.listPodsReturnsOnCall[len(fake.listPodsArgsForCall)]
-	fake.listPodsArgsForCall = append(fake.listPodsArgsForCall, struct {
-		arg1 context.Context
-		arg2 kubernetes.Interface
-		arg3 string
-	}{arg1, arg2, arg3})
-	stub := fake.ListPodsStub
-	fakeReturns := fake.listPodsReturns
-	fake.recordInvocation("ListPods", []interface{}{arg1, arg2, arg3})
-	fake.listPodsMutex.Unlock()
-	if stub != nil {
-		return stub(arg1, arg2, arg3)
-	}
-	if specificReturn {
-		return ret.result1, ret.result2
-	}
-	return fakeReturns.result1, fakeReturns.result2
-}
-
-func (fake *FakeImpl) ListPodsCallCount() int {
-	fake.listPodsMutex.RLock()
-	defer fake.listPodsMutex.RUnlock()
-	return len(fake.listPodsArgsForCall)
-}
-
-func (fake *FakeImpl) ListPodsCalls(stub func(context.Context, kubernetes.Interface, string) (*v1.PodList, error)) {
-	fake.listPodsMutex.Lock()
-	defer fake.listPodsMutex.Unlock()
-	fake.ListPodsStub = stub
-}
-
-func (fake *FakeImpl) ListPodsArgsForCall(i int) (context.Context, kubernetes.Interface, string) {
-	fake.listPodsMutex.RLock()
-	defer fake.listPodsMutex.RUnlock()
-	argsForCall := fake.listPodsArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
-}
-
-func (fake *FakeImpl) ListPodsReturns(result1 *v1.PodList, result2 error) {
-	fake.listPodsMutex.Lock()
-	defer fake.listPodsMutex.Unlock()
-	fake.ListPodsStub = nil
-	fake.listPodsReturns = struct {
-		result1 *v1.PodList
-		result2 error
-	}{result1, result2}
-}
-
-func (fake *FakeImpl) ListPodsReturnsOnCall(i int, result1 *v1.PodList, result2 error) {
-	fake.listPodsMutex.Lock()
-	defer fake.listPodsMutex.Unlock()
-	fake.ListPodsStub = nil
-	if fake.listPodsReturnsOnCall == nil {
-		fake.listPodsReturnsOnCall = make(map[int]struct {
-			result1 *v1.PodList
-			result2 error
-		})
-	}
-	fake.listPodsReturnsOnCall[i] = struct {
-		result1 *v1.PodList
-		result2 error
-	}{result1, result2}
 }
 
 func (fake *FakeImpl) Listen(arg1 string, arg2 string) (net.Listener, error) {
@@ -1060,6 +998,68 @@ func (fake *FakeImpl) NewForConfigReturnsOnCall(i int, result1 *kubernetes.Clien
 	}{result1, result2}
 }
 
+func (fake *FakeImpl) PodListerWatcher(arg1 kubernetes.Interface, arg2 string) podindex.ListerWatcher {
+	fake.podListerWatcherMutex.Lock()
+	ret, specificReturn := fake.podListerWatcherReturnsOnCall[len(fake.podListerWatcherArgsForCall)]
+	fake.podListerWatcherArgsForCall = append(fake.podListerWatcherArgsForCall, struct {
+		arg1 kubernetes.Interface
+		arg2 string
+	}{arg1, arg2})
+	stub := fake.PodListerWatcherStub
+	fakeReturns := fake.podListerWatcherReturns
+	fake.recordInvocation("PodListerWatcher", []interface{}{arg1, arg2})
+	fake.podListerWatcherMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) PodListerWatcherCallCount() int {
+	fake.podListerWatcherMutex.RLock()
+	defer fake.podListerWatcherMutex.RUnlock()
+	return len(fake.podListerWatcherArgsForCall)
+}
+
+func (fake *FakeImpl) PodListerWatcherCalls(stub func(kubernetes.Interface, string) podindex.ListerWatcher) {
+	fake.podListerWatcherMutex.Lock()
+	defer fake.podListerWatcherMutex.Unlock()
+	fake.PodListerWatcherStub = stub
+}
+
+func (fake *FakeImpl) PodListerWatcherArgsForCall(i int) (kubernetes.Interface, string) {
+	fake.podListerWatcherMutex.RLock()
+	defer fake.podListerWatcherMutex.RUnlock()
+	argsForCall := fake.podListerWatcherArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *FakeImpl) PodListerWatcherReturns(result1 podindex.ListerWatcher) {
+	fake.podListerWatcherMutex.Lock()
+	defer fake.podListerWatcherMutex.Unlock()
+	fake.PodListerWatcherStub = nil
+	fake.podListerWatcherReturns = struct {
+		result1 podindex.ListerWatcher
+	}{result1}
+}
+
+func (fake *FakeImpl) PodListerWatcherReturnsOnCall(i int, result1 podindex.ListerWatcher) {
+	fake.podListerWatcherMutex.Lock()
+	defer fake.podListerWatcherMutex.Unlock()
+	fake.PodListerWatcherStub = nil
+	if fake.podListerWatcherReturnsOnCall == nil {
+		fake.podListerWatcherReturnsOnCall = make(map[int]struct {
+			result1 podindex.ListerWatcher
+		})
+	}
+	fake.podListerWatcherReturnsOnCall[i] = struct {
+		result1 podindex.ListerWatcher
+	}{result1}
+}
+
 func (fake *FakeImpl) PrintJsonOutput(arg1 io.Writer, arg2 []byte) {
 	var arg2Copy []byte
 	if arg2 != nil {
@@ -1162,11 +1162,11 @@ func (fake *FakeImpl) ProcessStartTimeReturnsOnCall(i int, result1 time.Duration
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) Reason(arg1 *tail.Tail) error {
+func (fake *FakeImpl) Reason(arg1 *tailer.Tailer) error {
 	fake.reasonMutex.Lock()
 	ret, specificReturn := fake.reasonReturnsOnCall[len(fake.reasonArgsForCall)]
 	fake.reasonArgsForCall = append(fake.reasonArgsForCall, struct {
-		arg1 *tail.Tail
+		arg1 *tailer.Tailer
 	}{arg1})
 	stub := fake.ReasonStub
 	fakeReturns := fake.reasonReturns
@@ -1187,13 +1187,13 @@ func (fake *FakeImpl) ReasonCallCount() int {
 	return len(fake.reasonArgsForCall)
 }
 
-func (fake *FakeImpl) ReasonCalls(stub func(*tail.Tail) error) {
+func (fake *FakeImpl) ReasonCalls(stub func(*tailer.Tailer) error) {
 	fake.reasonMutex.Lock()
 	defer fake.reasonMutex.Unlock()
 	fake.ReasonStub = stub
 }
 
-func (fake *FakeImpl) ReasonArgsForCall(i int) *tail.Tail {
+func (fake *FakeImpl) ReasonArgsForCall(i int) *tailer.Tailer {
 	fake.reasonMutex.RLock()
 	defer fake.reasonMutex.RUnlock()
 	argsForCall := fake.reasonArgsForCall[i]
@@ -1536,6 +1536,38 @@ func (fake *FakeImpl) StatReturnsOnCall(i int, result1 os.FileInfo, result2 erro
 	}{result1, result2}
 }
 
+func (fake *FakeImpl) StopTail(arg1 *tailer.Tailer) {
+	fake.stopTailMutex.Lock()
+	fake.stopTailArgsForCall = append(fake.stopTailArgsForCall, struct {
+		arg1 *tailer.Tailer
+	}{arg1})
+	stub := fake.StopTailStub
+	fake.recordInvocation("StopTail", []interface{}{arg1})
+	fake.stopTailMutex.Unlock()
+	if stub != nil {
+		fake.StopTailStub(arg1)
+	}
+}
+
+func (fake *FakeImpl) StopTailCallCount() int {
+	fake.stopTailMutex.RLock()
+	defer fake.stopTailMutex.RUnlock()
+	return len(fake.stopTailArgsForCall)
+}
+
+func (fake *FakeImpl) StopTailCalls(stub func(*tailer.Tailer)) {
+	fake.stopTailMutex.Lock()
+	defer fake.stopTailMutex.Unlock()
+	fake.StopTailStub = stub
+}
+
+func (fake *FakeImpl) StopTailArgsForCall(i int) *tailer.Tailer {
+	fake.stopTailMutex.RLock()
+	defer fake.stopTailMutex.RUnlock()
+	argsForCall := fake.stopTailArgsForCall[i]
+	return argsForCall.arg1
+}
+
 func (fake *FakeImpl) TailErr(arg1 auditsource.AuditLineSource) error {
 	fake.tailErrMutex.Lock()
 	ret, specificReturn := fake.tailErrReturnsOnCall[len(fake.tailErrArgsForCall)]
@@ -1597,12 +1629,12 @@ func (fake *FakeImpl) TailErrReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
-func (fake *FakeImpl) TailFile(arg1 string, arg2 tail.Config) (*tail.Tail, error) {
+func (fake *FakeImpl) TailFile(arg1 string, arg2 tailer.Config) (*tailer.Tailer, error) {
 	fake.tailFileMutex.Lock()
 	ret, specificReturn := fake.tailFileReturnsOnCall[len(fake.tailFileArgsForCall)]
 	fake.tailFileArgsForCall = append(fake.tailFileArgsForCall, struct {
 		arg1 string
-		arg2 tail.Config
+		arg2 tailer.Config
 	}{arg1, arg2})
 	stub := fake.TailFileStub
 	fakeReturns := fake.tailFileReturns
@@ -1623,41 +1655,41 @@ func (fake *FakeImpl) TailFileCallCount() int {
 	return len(fake.tailFileArgsForCall)
 }
 
-func (fake *FakeImpl) TailFileCalls(stub func(string, tail.Config) (*tail.Tail, error)) {
+func (fake *FakeImpl) TailFileCalls(stub func(string, tailer.Config) (*tailer.Tailer, error)) {
 	fake.tailFileMutex.Lock()
 	defer fake.tailFileMutex.Unlock()
 	fake.TailFileStub = stub
 }
 
-func (fake *FakeImpl) TailFileArgsForCall(i int) (string, tail.Config) {
+func (fake *FakeImpl) TailFileArgsForCall(i int) (string, tailer.Config) {
 	fake.tailFileMutex.RLock()
 	defer fake.tailFileMutex.RUnlock()
 	argsForCall := fake.tailFileArgsForCall[i]
 	return argsForCall.arg1, argsForCall.arg2
 }
 
-func (fake *FakeImpl) TailFileReturns(result1 *tail.Tail, result2 error) {
+func (fake *FakeImpl) TailFileReturns(result1 *tailer.Tailer, result2 error) {
 	fake.tailFileMutex.Lock()
 	defer fake.tailFileMutex.Unlock()
 	fake.TailFileStub = nil
 	fake.tailFileReturns = struct {
-		result1 *tail.Tail
+		result1 *tailer.Tailer
 		result2 error
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) TailFileReturnsOnCall(i int, result1 *tail.Tail, result2 error) {
+func (fake *FakeImpl) TailFileReturnsOnCall(i int, result1 *tailer.Tailer, result2 error) {
 	fake.tailFileMutex.Lock()
 	defer fake.tailFileMutex.Unlock()
 	fake.TailFileStub = nil
 	if fake.tailFileReturnsOnCall == nil {
 		fake.tailFileReturnsOnCall = make(map[int]struct {
-			result1 *tail.Tail
+			result1 *tailer.Tailer
 			result2 error
 		})
 	}
 	fake.tailFileReturnsOnCall[i] = struct {
-		result1 *tail.Tail
+		result1 *tailer.Tailer
 		result2 error
 	}{result1, result2}
 }

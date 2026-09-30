@@ -33,6 +33,12 @@ ARCHES=(amd64 arm64 ppc64le)
 VERSION=v$(cat VERSION)
 TAGS=("$TAG" "$VERSION" latest)
 
+# The OCI image annotations. The creation time is the commit time, so that
+# the same commit gives the same labels.
+REVISION=$(git rev-parse HEAD)
+SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
+CREATED=$(date -u -d "@$SOURCE_DATE_EPOCH" +%Y-%m-%dT%H:%M:%SZ)
+
 # The provenance records when the build started and the image the binaries
 # are built in, which is pinned to that digest for the build.
 mkdir -p build
@@ -62,6 +68,8 @@ build_arch() {
         -t "$IMAGE-$arch:$VERSION" \
         -t "$IMAGE-$arch:latest" \
         --build-arg version="$VERSION" \
+        --build-arg revision="$REVISION" \
+        --build-arg created="$CREATED" \
         --build-arg BUILD_IMAGE="$BUILD_IMAGE" \
         --build-arg target="spo-$arch" \
         .

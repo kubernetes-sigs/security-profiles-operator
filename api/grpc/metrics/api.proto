@@ -17,7 +17,7 @@ limitations under the License.
 syntax = "proto3";
 
 package api_metrics;
-option go_package = "/api_metrics";
+option go_package = "sigs.k8s.io/security-profiles-operator/api/grpc/metrics;api_metrics";
 
 service Metrics {
   rpc AuditInc(stream AuditRequest) returns (EmptyResponse) {}
@@ -31,6 +31,7 @@ message AuditRequest {
     string tcontext = 2;
   }
   message ApparmorAuditReq {
+    reserved 4;
     string profile = 1;
     string operation = 2;
     string apparmor = 3;
@@ -41,9 +42,9 @@ message AuditRequest {
   string pod = 3;
   string container = 4;
   string executable = 5;
-  SeccompAuditReq seccompReq = 6;
-  SelinuxAuditReq selinuxReq = 7;
-  ApparmorAuditReq apparmorReq = 8;
+  SeccompAuditReq seccomp_req = 6;
+  SelinuxAuditReq selinux_req = 7;
+  ApparmorAuditReq apparmor_req = 8;
 }
 
 message BpfRequest {

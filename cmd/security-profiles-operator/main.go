@@ -22,6 +22,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	_ "net/http/pprof" //nolint:gosec // required for profiling
 	"os"
@@ -39,8 +41,11 @@ import (
 	libgocrypto "github.com/openshift/library-go/pkg/crypto"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"github.com/urfave/cli/v2"
+	admissionregv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -51,6 +56,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsfilters "sigs.k8s.io/controller-runtime/pkg/metrics/filters"
@@ -83,6 +89,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/workloadannotator"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/nonrootenabler"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/clidocs"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/version"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/binding"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/execmetadata"
@@ -106,6 +113,8 @@ const (
 	webhookFlag                  string = "webhook"
 	memOptimFlag                 string = "with-mem-optim"
 	insecureMetricsAccessFlag    string = "with-insecure-metrics-access"
+	maxConcurrentReconcilesFlag  string = "max-concurrent-reconciles"
+	profilingAddressFlag         string = "profiling-address"
 	defaultWebhookPort           int    = 9443
 	metricsPort                  int    = 8443
 	auditLogIntervalSecondsParam string = "audit-log-interval-seconds"
@@ -135,7 +144,60 @@ var (
 	ErrTLSConfigChanged = errors.New("TLS configuration changed, restart required")
 )
 
+// runtimeEnvVars are the environment variables the operator reads which are
+// not bound to a flag. The deployment sets them.
+var runtimeEnvVars = []clidocs.EnvVar{
+	{
+		Name:        config.NodeNameEnvKey,
+		Description: "name of the node, required by daemon, bpf-recorder and non-root-enabler",
+	},
+	{
+		Name:        config.PodNameEnvKey,
+		Description: "name of the pod of the daemon, required for SELinux",
+	},
+	{
+		Name:        config.SPOdNameEnvKey,
+		Description: "name of the `SecurityProfilesOperatorDaemon` of the daemon",
+	},
+	{
+		Name:        config.OperatorNamespaceEnvKey,
+		Description: "namespace of the operator",
+	},
+	{
+		Name: config.RestrictNamespaceEnvKey,
+		Description: "restricts manager and daemon to a single namespace, " +
+			"falls back to `WATCH_NAMESPACE`",
+	},
+	{
+		Name: config.KubeletDirEnvKey,
+		Description: "kubelet root directory, used when the kubelet configuration written by the " +
+			"non-root-enabler has none, defaults to `" + config.DefaultKubeletPath + "`",
+	},
+	{
+		Name: strings.Join([]string{
+			config.EnableLogEnricherEnvKey,
+			config.EnableJsonEnricherEnvKey,
+			config.EnableBpfRecorderEnvKey,
+		}, ", "),
+		Description: "enable the respective daemon container in addition to the " +
+			"`SecurityProfilesOperatorDaemon` configuration, the manager passes them on to the daemon",
+	},
+}
+
 func main() {
+	if err := newApp().RunContext(context.Background(), os.Args); err != nil {
+		// Check if this is a TLS configuration change requiring restart
+		if errors.Is(err, ErrTLSConfigChanged) {
+			os.Exit(0) // intentional exit to trigger pod restart
+		}
+
+		setupLog.Error(err, "running security-profiles-operator")
+		os.Exit(1)
+	}
+}
+
+// newApp returns the command line application of the operator.
+func newApp() *cli.App {
 	app, info := cmd.DefaultApp()
 	app.Name = config.OperatorName
 	app.Usage = "Kubernetes Security Profiles Operator"
@@ -151,19 +213,12 @@ func main() {
 		jsonEnricherCommand(info),
 		bpfRecorderCommand(info),
 		spocCommand(),
+		clidocs.Command(newApp, runtimeEnvVars),
 	)
 
 	app.Flags = globalFlags()
 
-	if err := app.RunContext(context.Background(), os.Args); err != nil {
-		// Check if this is a TLS configuration change requiring restart
-		if errors.Is(err, ErrTLSConfigChanged) {
-			os.Exit(0) // intentional exit to trigger pod restart
-		}
-
-		setupLog.Error(err, "running security-profiles-operator")
-		os.Exit(1)
-	}
+	return app
 }
 
 func managerCommand(info *version.Info) *cli.Command {
@@ -211,6 +266,11 @@ func managerCommand(info *version.Info) *cli.Command {
 				Name:  bindingTrackerFlag,
 				Value: true,
 				Usage: "Enable the binding tracker.",
+			},
+			&cli.IntFlag{
+				Name:  maxConcurrentReconcilesFlag,
+				Value: controller.DefaultMaxConcurrentReconciles,
+				Usage: "The number of concurrent reconciles of the pod driven controllers.",
 			},
 		},
 	}
@@ -286,7 +346,7 @@ func webhookCommand(info *version.Info) *cli.Command {
 				Name:    "port",
 				Aliases: []string{"p"},
 				Value:   defaultWebhookPort,
-				Usage:   "the port on which to expose the webhook service (default 9443)",
+				Usage:   "the port on which to expose the webhook service",
 			},
 			&cli.BoolFlag{
 				Name:    "static",
@@ -445,6 +505,12 @@ func globalFlags() []cli.Flag {
 			Value:   config.DefaultProfilingPort,
 			EnvVars: []string{config.ProfilingPortEnvKey},
 		},
+		&cli.StringFlag{
+			Name:    profilingAddressFlag,
+			Usage:   "the address the profiling endpoint binds to",
+			Value:   config.DefaultProfilingAddress,
+			EnvVars: []string{config.ProfilingAddressEnvKey},
+		},
 	}
 }
 
@@ -470,8 +536,6 @@ func initLogging(ctx *cli.Context) error {
 		return fmt.Errorf("parse verbosity flag: %w", err)
 	}
 
-	ctrl.SetLogger(ctrl.Log.V(level))
-
 	if err := logConfig.Verbosity().Set(strconv.FormatInt(int64(level), 10)); err != nil {
 		return fmt.Errorf("setting the verbosity flag to level %d: %w", level, err)
 	}
@@ -488,8 +552,7 @@ func initProfiling(ctx *cli.Context) {
 	ctrl.Log.Info(fmt.Sprintf("Profiling support enabled: %v", enabled))
 
 	if enabled {
-		port := ctx.Uint("profiling-port")
-		endpoint := fmt.Sprintf(":%d", port)
+		endpoint := profilingEndpoint(ctx.String(profilingAddressFlag), ctx.Uint("profiling-port"))
 
 		ctrl.Log.Info("Starting profiling server", "endpoint", endpoint)
 
@@ -504,6 +567,20 @@ func initProfiling(ctx *cli.Context) {
 			}
 		}()
 	}
+}
+
+// profilingEndpoint returns the listen address of the profiling server. The
+// default address is the loopback interface, so that the unauthenticated
+// endpoint is not reachable from the pod network unless asked for. IPv6
+// addresses get enclosed in brackets, unless they are already.
+func profilingEndpoint(address string, port uint) string {
+	if address == "" {
+		address = config.DefaultProfilingAddress
+	}
+
+	address = strings.TrimSuffix(strings.TrimPrefix(address, "["), "]")
+
+	return net.JoinHostPort(address, strconv.FormatUint(uint64(port), 10))
 }
 
 func shutdownProfiling() {
@@ -566,8 +643,13 @@ func runManager(ctx *cli.Context, info *version.Info) error {
 		Metrics:                       secureMetricsOptions(&tlsCfg),
 	}
 
+	servesAdmissionPolicies, err := setRESTMapper(&ctrlOpts, cfg)
+	if err != nil {
+		return err
+	}
+
 	setControllerOptionsForNamespaces(&ctrlOpts)
-	restrictOperandCache(&ctrlOpts, operatorNamespace)
+	restrictOperandCache(&ctrlOpts, operatorNamespace, servesAdmissionPolicies)
 
 	mgr, err := ctrl.NewManager(cfg, ctrlOpts)
 	if err != nil {
@@ -638,9 +720,12 @@ func runManager(ctx *cli.Context, info *version.Info) error {
 
 	setupLog.Info("enabled controllers", "controllers", enabledControllers)
 
-	if err := setupEnabledControllers(
+	setupCtx := controller.WithMaxConcurrentReconciles(
 		context.WithValue(ctx.Context, spod.ManageWebhookKey, manageWebhook(ctx)),
-		enabledControllers, mgr, nil); err != nil {
+		ctx.Int(maxConcurrentReconcilesFlag),
+	)
+
+	if err := setupEnabledControllers(setupCtx, enabledControllers, mgr, nil); err != nil {
 		return fmt.Errorf("enable controllers: %w", err)
 	}
 
@@ -707,11 +792,47 @@ func watchNamespaces(namespaces, operatorNamespace string) []string {
 	return res
 }
 
+// setRESTMapper sets the REST mapper of the manager and returns whether the
+// cluster serves the admission policies. The cache options depend on that, so
+// it has to be known before the manager gets created. The manager and the SPOD
+// controller share the mapper, so they come to the same conclusion.
+func setRESTMapper(opts *ctrl.Options, cfg *rest.Config) (bool, error) {
+	httpClient, err := rest.HTTPClientFor(cfg)
+	if err != nil {
+		return false, fmt.Errorf("create HTTP client: %w", err)
+	}
+
+	mapper, err := apiutil.NewDynamicRESTMapper(cfg, httpClient)
+	if err != nil {
+		return false, fmt.Errorf("create REST mapper: %w", err)
+	}
+
+	served, err := spod.ServesAdmissionPolicies(mapper)
+	if err != nil {
+		return false, fmt.Errorf("discover the admission policy API: %w", err)
+	}
+
+	opts.MapperProvider = func(*rest.Config, *http.Client) (meta.RESTMapper, error) {
+		return mapper, nil
+	}
+
+	return served, nil
+}
+
 // restrictOperandCache limits the cache of the operand kinds to the operator
 // namespace. The operator creates them only there and its RBAC permissions are
 // scoped to that namespace, so a cluster wide informer would not be allowed to
-// list them.
-func restrictOperandCache(opts *ctrl.Options, operatorNamespace string) {
+// list them. The cluster scoped operands are cached by name for the same
+// reason, and the pods, which every namespace can hold, are stripped down to
+// the fields the controllers read. The admission policies are only added if
+// the cluster serves their API, because creating the cache fails for kinds
+// without a REST mapping. The webhook configurations are served by every
+// supported Kubernetes version.
+func restrictOperandCache(
+	opts *ctrl.Options,
+	operatorNamespace string,
+	servesAdmissionPolicies bool,
+) {
 	if opts.Cache.ByObject == nil {
 		opts.Cache.ByObject = map[client.Object]cache.ByObject{}
 	}
@@ -720,11 +841,82 @@ func restrictOperandCache(opts *ctrl.Options, operatorNamespace string) {
 		&appsv1.DaemonSet{},
 		&appsv1.Deployment{},
 		&corev1.Service{},
+		&policyv1.PodDisruptionBudget{},
 	} {
 		opts.Cache.ByObject[obj] = cache.ByObject{
 			Namespaces: map[string]cache.Config{operatorNamespace: {}},
 		}
 	}
+
+	// A list or watch with a metadata.name field selector is authorized like
+	// a get of that name, so the RBAC of these kinds carries the names.
+	byName := map[client.Object]string{
+		&admissionregv1.MutatingWebhookConfiguration{}:   bindata.MutatingWebhookConfigName,
+		&admissionregv1.ValidatingWebhookConfiguration{}: bindata.ValidatingWebhookConfigName,
+	}
+
+	if servesAdmissionPolicies {
+		byName[&admissionregv1.ValidatingAdmissionPolicy{}] = bindata.RecordingProfilesPolicyName
+		byName[&admissionregv1.ValidatingAdmissionPolicyBinding{}] = bindata.RecordingProfilesPolicyName
+	}
+
+	for obj, name := range byName {
+		opts.Cache.ByObject[obj] = cache.ByObject{
+			Field: fields.OneTermEqualSelector("metadata.name", name),
+		}
+	}
+
+	opts.Cache.ByObject[&corev1.Pod{}] = cache.ByObject{Transform: stripPod}
+}
+
+// stripPod drops the fields of a cached pod which no manager controller
+// reads, so that the cluster wide pod cache holds only the labels,
+// annotations, UID, node name, images and security contexts of the pods.
+// Other objects get the managed fields stripped by the default transform,
+// which a per kind transform replaces.
+func stripPod(obj any) (any, error) {
+	pod, ok := obj.(*corev1.Pod)
+	if !ok {
+		return obj, nil
+	}
+
+	pod.ManagedFields = nil
+	pod.Status = corev1.PodStatus{}
+	pod.Spec.Volumes = nil
+
+	for i := range pod.Spec.Containers {
+		stripContainer(&pod.Spec.Containers[i])
+	}
+
+	for i := range pod.Spec.InitContainers {
+		stripContainer(&pod.Spec.InitContainers[i])
+	}
+
+	for i := range pod.Spec.EphemeralContainers {
+		ephemeral := &pod.Spec.EphemeralContainers[i]
+		ctr := corev1.Container(ephemeral.EphemeralContainerCommon)
+		stripContainer(&ctr)
+		ephemeral.EphemeralContainerCommon = corev1.EphemeralContainerCommon(ctr)
+	}
+
+	return pod, nil
+}
+
+// stripContainer drops the container fields which no manager controller
+// reads.
+func stripContainer(ctr *corev1.Container) {
+	ctr.Env = nil
+	ctr.EnvFrom = nil
+	ctr.Command = nil
+	ctr.Args = nil
+	ctr.VolumeMounts = nil
+	ctr.VolumeDevices = nil
+	ctr.Resources = corev1.ResourceRequirements{}
+	ctr.LivenessProbe = nil
+	ctr.ReadinessProbe = nil
+	ctr.StartupProbe = nil
+	ctr.Lifecycle = nil
+	ctr.Ports = nil
 }
 
 func getEnabledControllers(ctx *cli.Context) []controller.Controller {
@@ -763,30 +955,42 @@ func getEnabledControllers(ctx *cli.Context) []controller.Controller {
 // When memory optimization is additionally enabled, only pods labeled for
 // recording are cached on top of that.
 func newDaemonCache(ctx *cli.Context) cache.NewCacheFunc {
-	byPod := cache.ByObject{}
-
-	if nodeName := os.Getenv(config.NodeNameEnvKey); nodeName != "" {
-		byPod.Field = fields.OneTermEqualSelector("spec.nodeName", nodeName)
-	} else {
+	nodeName := os.Getenv(config.NodeNameEnvKey)
+	if nodeName == "" {
 		setupLog.Info(
 			"Node name not set, caching pods cluster wide",
 			"env", config.NodeNameEnvKey,
 		)
 	}
 
-	if ctx.Bool(memOptimFlag) {
+	memOptim := ctx.Bool(memOptimFlag)
+
+	return func(restConfig *rest.Config, opts cache.Options) (cache.Cache, error) {
+		setDaemonCacheOptions(&opts, nodeName, memOptim)
+
+		return cache.New(restConfig, opts)
+	}
+}
+
+// setDaemonCacheOptions sets the cache options of the daemon, which restrict
+// the pod cache to the pods of the node and, with memory optimization, to the
+// pods labeled for recording.
+func setDaemonCacheOptions(opts *cache.Options, nodeName string, memOptim bool) {
+	byPod := cache.ByObject{}
+
+	if nodeName != "" {
+		byPod.Field = fields.OneTermEqualSelector("spec.nodeName", nodeName)
+	}
+
+	if memOptim {
 		byPod.Label = labels.SelectorFromSet(labels.Set{
 			bindata.EnableRecordingLabel: "true",
 		})
 	}
 
-	return func(restConfig *rest.Config, opts cache.Options) (cache.Cache, error) {
-		opts.SyncPeriod = &daemonSyncPeriod
-		opts.ByObject = map[client.Object]cache.ByObject{&corev1.Pod{}: byPod}
-		opts.DefaultLabelSelector = labels.Everything()
-
-		return cache.New(restConfig, opts)
-	}
+	opts.SyncPeriod = &daemonSyncPeriod
+	opts.ByObject = map[client.Object]cache.ByObject{&corev1.Pod{}: byPod}
+	opts.DefaultLabelSelector = labels.Everything()
 }
 
 // tlsConfig is the TLS configuration used by the controller-runtime servers
@@ -1182,18 +1386,16 @@ func runJsonEnricher(ctx *cli.Context, info *version.Info) error {
 
 	sigCtx := ctrl.SetupSignalHandler()
 
-	runErr := make(chan error)
+	// Run returns once the signal context is done, after it emitted the
+	// records which were still buffered and closed the audit log.
+	runErr := make(chan error, 1)
 	go jsonEnricher.Run(sigCtx, runErr)
 
-	select {
-	case err := <-runErr:
+	if err := <-runErr; err != nil {
 		return fmt.Errorf("error while executing JSON Enricher: %w", err)
-	case <-sigCtx.Done():
-		fmt.Printf("Exit JSON Enricher")
-		jsonEnricher.ExitJsonEnricher(ctx)
-
-		return nil
 	}
+
+	return nil
 }
 
 func getJsonEnricher(ctx *cli.Context, info *version.Info) (*enricher.JsonEnricher, error) {
@@ -1258,7 +1460,9 @@ func runNonRootEnabler(ctx *cli.Context, info *version.Info) error {
 
 	logger := ctrl.Log.WithName(component)
 
-	kubeletDir, err := nonRootEnablerKubeletDir(ctx.Context, logger, c)
+	kubeletDir, err := nonRootEnablerKubeletDir(
+		ctx.Context, logger, c, os.Getenv(config.NodeNameEnvKey), config.DefaultKubeletDir(),
+	)
 	if err != nil {
 		return err
 	}
@@ -1269,15 +1473,15 @@ func runNonRootEnabler(ctx *cli.Context, info *version.Info) error {
 
 // nonRootEnablerKubeletDir returns the kubelet directory of the node from its
 // label. The operator ignores the same missing or invalid labels, so the
-// default kubelet directory is the one mounted for such nodes. That default
-// deliberately does not come from the kubelet configuration persisted on the
+// default kubelet directory defaultDir is the one mounted for such nodes. That
+// default deliberately does not come from the kubelet configuration persisted on the
 // node, which still holds the directory of a label that got removed. Failing
 // to read the node is returned, so that the init container gets restarted
 // rather than using the wrong directory.
 func nonRootEnablerKubeletDir(
-	ctx context.Context, logger logr.Logger, c client.Reader,
+	ctx context.Context, logger logr.Logger, c client.Reader, nodeName, defaultDir string,
 ) (string, error) {
-	kubeletDir, err := util.GetKubeletDirFromNodeLabel(ctx, c)
+	kubeletDir, err := util.GetKubeletDirFromNodeLabel(ctx, c, nodeName)
 	if err == nil {
 		return kubeletDir, nil
 	}
@@ -1287,10 +1491,9 @@ func nonRootEnablerKubeletDir(
 		return "", fmt.Errorf("getting the kubelet directory of the node: %w", err)
 	}
 
-	kubeletDir = config.DefaultKubeletDir()
-	logger.Info("Using the default kubelet directory", "dir", kubeletDir, "reason", err.Error())
+	logger.Info("Using the default kubelet directory", "dir", defaultDir, "reason", err.Error())
 
-	return kubeletDir, nil
+	return defaultDir, nil
 }
 
 func runWebhook(ctx *cli.Context, info *version.Info) error {
@@ -1394,7 +1597,7 @@ func runWebhook(ctx *cli.Context, info *version.Info) error {
 		util.NewEventRecorder(mgr, "recording-webhook"),
 		mgr.GetClient(),
 	)
-	execmetadata.RegisterWebhook(hookserver)
+	execmetadata.RegisterWebhook(hookserver, mgr.GetAPIReader())
 	validation.RegisterWebhook(hookserver, mgr.GetScheme())
 
 	sigHandler := ctrl.SetupSignalHandler()
@@ -1404,6 +1607,13 @@ func runWebhook(ctx *cli.Context, info *version.Info) error {
 	)
 }
 
+// readyzManager is the part of the manager which addCacheSyncReadyzCheck
+// uses.
+type readyzManager interface {
+	AddReadyzCheck(name string, check healthz.Checker) error
+	GetCache() cache.Cache
+}
+
 // addCacheSyncReadyzCheck marks the operator as not ready while the informer
 // caches are not synced. `Manager.Start` serves the health endpoints before it
 // waits for the caches, and that wait has no timeout, so a single informer which
@@ -1411,7 +1621,7 @@ func runWebhook(ctx *cli.Context, info *version.Info) error {
 // controller from ever starting while the process still answers health checks.
 // Without this check such an operator looks perfectly healthy while doing
 // nothing at all.
-func addCacheSyncReadyzCheck(mgr ctrl.Manager) error {
+func addCacheSyncReadyzCheck(mgr readyzManager) error {
 	if err := mgr.AddReadyzCheck("cache-sync", func(req *http.Request) error {
 		// Bound the check, because a cache which never syncs is the state to
 		// report rather than to wait for.
@@ -1479,13 +1689,25 @@ func runCLI(_ *cli.Context) error {
 	if len(os.Args) < minArgs {
 		return errors.New("not enough arguments provided")
 	}
+
+	return runSpoc(os.Args[minArgs:], os.Stdout, os.Stderr)
+}
+
+// runSpoc runs the spoc executable found in $PATH with the provided
+// arguments. The exit code of spoc becomes the one of this process, so that
+// scripts can tell a failed spoc invocation apart from a successful one.
+func runSpoc(args []string, stdout, stderr io.Writer) error {
 	//nolint:gosec // it's intentional to pass all other args here
-	c := exec.Command(spocCmd, os.Args[minArgs:]...)
-	c.Stdout = os.Stdout
-	c.Stderr = os.Stderr
+	c := exec.Command(spocCmd, args...)
+	c.Stdout = stdout
+	c.Stderr = stderr
 
 	if err := c.Run(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
+			return cli.Exit("", exitErr.ExitCode())
+		}
+
+		return fmt.Errorf("running %s: %w", spocCmd, err)
 	}
 
 	return nil

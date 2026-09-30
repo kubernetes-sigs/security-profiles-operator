@@ -28,9 +28,12 @@ import (
 	"github.com/go-logr/logr"
 	"gomodules.xyz/jsonpatch/v2"
 	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
 
 const (
@@ -47,6 +50,9 @@ var execRequestUidRegex = regexp.MustCompile(`^` + ExecRequestUid + `=.*$`)
 
 type Handler struct {
 	log logr.Logger
+
+	// reader looks up the pod of an exec request. Nil skips the lookup.
+	reader client.Reader
 }
 
 // Ensure ExecMetadataHandler implements admission.Handler at compile time.
@@ -224,8 +230,33 @@ func replaceRegexMatches(slice []string, re *regexp.Regexp, repl string) ([]stri
 	return slice, replaced
 }
 
+// isWindowsPodExec returns true if the exec request targets a Windows pod.
+// Windows containers have no env command to prefix the exec command with, so
+// the command would fail. The request carries only the exec options, so the
+// pod gets looked up. If that fails, the request is treated like one for a
+// Linux pod, which the vast majority is.
+func (p Handler) isWindowsPodExec(ctx context.Context, req *admission.Request) bool {
+	if p.reader == nil {
+		return false
+	}
+
+	pod := &corev1.Pod{}
+	if err := p.reader.Get(
+		ctx,
+		client.ObjectKey{Namespace: req.Namespace, Name: req.Name},
+		pod,
+	); err != nil {
+		p.log.Error(err, "Cannot get the pod of the exec request, assuming a Linux pod",
+			"namespace", req.Namespace, "pod", req.Name)
+
+		return false
+	}
+
+	return utils.IsWindowsPod(pod)
+}
+
 //nolint:gocritic // hugeParam: admission.Handler defines the signature
-func (p Handler) Handle(_ context.Context, req admission.Request) admission.Response {
+func (p Handler) Handle(ctx context.Context, req admission.Request) admission.Response {
 	p.log.V(1).Info("Executing execmetadata webhook")
 
 	patchGenerators := map[string]func(req *admission.Request) ([]jsonpatch.JsonPatchOperation, error){
@@ -238,6 +269,13 @@ func (p Handler) Handle(_ context.Context, req admission.Request) admission.Resp
 		p.log.V(1).Info("Unrecognized kind, allowing request", "kind", req.Kind.Kind)
 
 		return admission.Allowed("pod exec request unmodified")
+	}
+
+	if req.Kind.Kind == "PodExecOptions" && p.isWindowsPodExec(ctx, &req) {
+		p.log.V(1).
+			Info("Windows pod, allowing request", "namespace", req.Namespace, "pod", req.Name)
+
+		return admission.Allowed("windows pod exec request unmodified")
 	}
 
 	jsonPathOps, err := patchFunc(&req)
@@ -259,12 +297,19 @@ func (p Handler) Handle(_ context.Context, req admission.Request) admission.Resp
 	return resp
 }
 
-func RegisterWebhook(server webhook.Server) {
+// Needed to skip the exec requests for Windows pods:
+// +kubebuilder:rbac:groups=core,resources=pods,verbs=get
+
+// RegisterWebhook registers the webhook. The reader looks up the pods of exec
+// requests, and should read from the API server rather than from a cache,
+// because the webhook does not cache pods otherwise.
+func RegisterWebhook(server webhook.Server, reader client.Reader) {
 	server.Register(
 		"/mutate-v1-exec-metadata",
 		&webhook.Admission{
 			Handler: &Handler{
-				log: logf.Log.WithName("execmetadata"),
+				log:    logf.Log.WithName("execmetadata"),
+				reader: reader,
 			},
 		},
 	)

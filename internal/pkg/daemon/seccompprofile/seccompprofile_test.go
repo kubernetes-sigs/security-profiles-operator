@@ -30,12 +30,10 @@ import (
 	"go.podman.io/common/pkg/seccomp"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -66,11 +64,9 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "ProfileNotFound",
 			rec: &Reconciler{
-				client: &utiltest.MockClient{
-					MockGet: utiltest.NewMockGetFn(
-						kerrors.NewNotFound(schema.GroupResource{}, name),
-					),
-				},
+				client: utiltest.NewFakeClient(t, &interceptor.Funcs{
+					Get: utiltest.GetReturns(kerrors.NewNotFound(schema.GroupResource{}, name)),
+				}),
 				log:     log.Log,
 				metrics: metrics.New(),
 			},
@@ -83,9 +79,9 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "ErrGetProfileIfSeccompEnabled",
 			rec: &Reconciler{
-				client: &utiltest.MockClient{
-					MockGet: utiltest.NewMockGetFn(errOops),
-				},
+				client: utiltest.NewFakeClient(t, &interceptor.Funcs{
+					Get: utiltest.GetReturns(errOops),
+				}),
 				record:  events.NewFakeRecorder(10),
 				log:     log.Log,
 				metrics: metrics.New(),
@@ -105,11 +101,11 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "GotProfile",
 			rec: &Reconciler{
-				client: &utiltest.MockClient{
-					MockGet:                     utiltest.NewMockGetFn(nil),
-					MockUpdate:                  utiltest.NewMockUpdateFn(nil),
-					MockSubResourceWriterUpdate: utiltest.NewMockSubResourceWriterUpdateFn(nil),
-				},
+				client: utiltest.NewFakeClient(t, &interceptor.Funcs{
+					Get:               utiltest.GetReturns(nil),
+					Update:            utiltest.UpdateReturns(nil),
+					SubResourceUpdate: utiltest.SubResourceUpdateReturns(nil),
+				}),
 				log:     log.Log,
 				record:  events.NewFakeRecorder(10),
 				save:    func(_ string, _ []byte) (bool, error) { return false, nil },
@@ -284,348 +280,6 @@ func TestGetProfilePath(t *testing.T) {
 			t.Parallel()
 
 			got := tc.sp.GetProfilePath()
-			require.Equal(t, tc.want, got)
-		})
-	}
-}
-
-func TestAllowProfile(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		name                  string
-		allowedSyscalls       []string
-		allowedSeccompActions []seccompprofileapi.Action
-		profile               *seccompprofileapi.SeccompProfile
-		want                  error
-	}{
-		{
-			name:            "EmptyProfile",
-			allowedSyscalls: []string{"a", "b", "c"},
-			allowedSeccompActions: []seccompprofileapi.Action{
-				seccompprofileapi.ActAllow, seccompprofileapi.ActLog, seccompprofileapi.ActTrace,
-			},
-			profile: &seccompprofileapi.SeccompProfile{},
-			want:    nil,
-		},
-		{
-			name:                  "EmptyAllowedList",
-			allowedSyscalls:       []string{},
-			allowedSeccompActions: []seccompprofileapi.Action{},
-			profile: &seccompprofileapi.SeccompProfile{
-				Spec: seccompprofileapi.SeccompProfileSpec{
-					Syscalls: []seccompprofileapi.Syscall{
-						{
-							Action: seccompprofileapi.ActAllow,
-							Names:  []string{"a"},
-						},
-					},
-				},
-			},
-			want: fmt.Errorf("%w: %s", errForbiddenSyscall, "a"),
-		},
-		{
-			name:            "ProfileWithEmptySyscalls",
-			allowedSyscalls: []string{"a", "b", "c"},
-			allowedSeccompActions: []seccompprofileapi.Action{
-				seccompprofileapi.ActAllow, seccompprofileapi.ActLog, seccompprofileapi.ActTrace,
-			},
-			profile: &seccompprofileapi.SeccompProfile{
-				Spec: seccompprofileapi.SeccompProfileSpec{
-					Syscalls: []seccompprofileapi.Syscall{
-						{
-							Action: seccompprofileapi.ActAllow,
-							Names:  []string{},
-						},
-					},
-				},
-			},
-			want: nil,
-		},
-		{
-			name:            "AllowProfile",
-			allowedSyscalls: []string{"a", "b", "c"},
-			allowedSeccompActions: []seccompprofileapi.Action{
-				seccompprofileapi.ActAllow, seccompprofileapi.ActLog, seccompprofileapi.ActTrace,
-			},
-			profile: &seccompprofileapi.SeccompProfile{
-				Spec: seccompprofileapi.SeccompProfileSpec{
-					Syscalls: []seccompprofileapi.Syscall{
-						{
-							Action: seccompprofileapi.ActAllow,
-							Names:  []string{"b"},
-						},
-					},
-				},
-			},
-			want: nil,
-		},
-		{
-			name:            "RejectProfile",
-			allowedSyscalls: []string{"a", "b", "c"},
-			allowedSeccompActions: []seccompprofileapi.Action{
-				seccompprofileapi.ActAllow, seccompprofileapi.ActLog, seccompprofileapi.ActTrace,
-			},
-			profile: &seccompprofileapi.SeccompProfile{
-				Spec: seccompprofileapi.SeccompProfileSpec{
-					Syscalls: []seccompprofileapi.Syscall{
-						{
-							Action: seccompprofileapi.ActAllow,
-							Names:  []string{"d"},
-						},
-					},
-				},
-			},
-			want: fmt.Errorf("%w: %s", errForbiddenSyscall, "d"),
-		},
-		{
-			name:            "AllAllowedActions",
-			allowedSyscalls: []string{"a", "b", "c"},
-			allowedSeccompActions: []seccompprofileapi.Action{
-				seccompprofileapi.ActAllow, seccompprofileapi.ActLog, seccompprofileapi.ActTrace,
-			},
-			profile: &seccompprofileapi.SeccompProfile{
-				Spec: seccompprofileapi.SeccompProfileSpec{
-					Syscalls: []seccompprofileapi.Syscall{
-						{
-							Action: seccompprofileapi.ActAllow,
-							Names:  []string{"a"},
-						},
-						{
-							Action: seccompprofileapi.ActLog,
-							Names:  []string{"b"},
-						},
-						{
-							Action: seccompprofileapi.ActTrace,
-							Names:  []string{"c"},
-						},
-					},
-				},
-			},
-			want: nil,
-		},
-		{
-			name:            "AllForbiddenActions",
-			allowedSyscalls: []string{"a", "b", "c"},
-			allowedSeccompActions: []seccompprofileapi.Action{
-				seccompprofileapi.ActAllow, seccompprofileapi.ActLog, seccompprofileapi.ActTrace,
-			},
-			profile: &seccompprofileapi.SeccompProfile{
-				Spec: seccompprofileapi.SeccompProfileSpec{
-					Syscalls: []seccompprofileapi.Syscall{
-						{
-							Action: seccompprofileapi.ActErrno,
-							Names:  []string{"a"},
-						},
-						{
-							Action: seccompprofileapi.ActTrap,
-							Names:  []string{"d"},
-						},
-						{
-							Action: seccompprofileapi.ActKillThread,
-							Names:  []string{"e"},
-						},
-						{
-							Action: seccompprofileapi.ActKillThread,
-							Names:  []string{"f"},
-						},
-						{
-							Action: seccompprofileapi.ActKillProcess,
-							Names:  []string{"g"},
-						},
-						{
-							Action: seccompprofileapi.ActKill,
-							Names:  []string{"b"},
-						},
-					},
-				},
-			},
-			want: nil,
-		},
-		{
-			name:            "AllowedAll",
-			allowedSyscalls: []string{"a"},
-			allowedSeccompActions: []seccompprofileapi.Action{
-				seccompprofileapi.ActAllow, seccompprofileapi.ActLog, seccompprofileapi.ActTrace,
-			},
-			profile: &seccompprofileapi.SeccompProfile{
-				Spec: seccompprofileapi.SeccompProfileSpec{
-					DefaultAction: seccompprofileapi.ActAllow,
-				},
-			},
-			want: errForbiddenProfile,
-		},
-		{
-			name:            "DeniedAll",
-			allowedSyscalls: []string{"a"},
-			allowedSeccompActions: []seccompprofileapi.Action{
-				seccompprofileapi.ActAllow, seccompprofileapi.ActLog, seccompprofileapi.ActTrace,
-			},
-			profile: &seccompprofileapi.SeccompProfile{
-				Spec: seccompprofileapi.SeccompProfileSpec{
-					DefaultAction: seccompprofileapi.ActErrno,
-				},
-			},
-			want: nil,
-		},
-		{
-			name:                  "DeniedAction",
-			allowedSyscalls:       []string{"a", "b", "c"},
-			allowedSeccompActions: []seccompprofileapi.Action{seccompprofileapi.ActErrno},
-			profile: &seccompprofileapi.SeccompProfile{
-				Spec: seccompprofileapi.SeccompProfileSpec{
-					Syscalls: []seccompprofileapi.Syscall{
-						{
-							Action: seccompprofileapi.ActAllow,
-							Names:  []string{"a"},
-						},
-						{
-							Action: seccompprofileapi.ActTrace,
-							Names:  []string{"b"},
-						},
-					},
-				},
-			},
-			want: fmt.Errorf("%w: %s", errForbiddenAction, seccompprofileapi.ActErrno),
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			got := allowProfile(tc.profile, tc.allowedSyscalls, tc.allowedSeccompActions)
-
-			require.Equal(t, tc.want, got)
-		})
-	}
-}
-
-func TestAllowedSyscallsChangedPredicate(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		name  string
-		event event.UpdateEvent
-		want  bool
-	}{
-		{
-			name:  "NilObjects",
-			event: event.UpdateEvent{},
-			want:  false,
-		},
-		{
-			name: "FailedOldObjectAssertion",
-			event: event.UpdateEvent{
-				ObjectOld: &seccompprofileapi.SeccompProfile{},
-				ObjectNew: &spodapi.SecurityProfilesOperatorDaemon{},
-			},
-			want: false,
-		},
-		{
-			name: "FailedNewObjectAssertion",
-			event: event.UpdateEvent{
-				ObjectOld: &spodapi.SecurityProfilesOperatorDaemon{},
-				ObjectNew: &seccompprofileapi.SeccompProfile{},
-			},
-			want: false,
-		},
-		{
-			name: "DiffAllowedSyscallsLen",
-			event: event.UpdateEvent{
-				ObjectOld: &spodapi.SecurityProfilesOperatorDaemon{
-					Spec: spodapi.SPODSpec{
-						Security: spodapi.SPODSecurityConfig{AllowedSyscalls: []string{"a"}},
-					},
-				},
-				ObjectNew: &spodapi.SecurityProfilesOperatorDaemon{
-					Spec: spodapi.SPODSpec{
-						Security: spodapi.SPODSecurityConfig{AllowedSyscalls: []string{"a", "b"}},
-					},
-				},
-			},
-			want: true,
-		},
-		{
-			name: "DiffAllowedSyscalls",
-			event: event.UpdateEvent{
-				ObjectOld: &spodapi.SecurityProfilesOperatorDaemon{
-					Spec: spodapi.SPODSpec{
-						Security: spodapi.SPODSecurityConfig{AllowedSyscalls: []string{"a", "c"}},
-					},
-				},
-				ObjectNew: &spodapi.SecurityProfilesOperatorDaemon{
-					Spec: spodapi.SPODSpec{
-						Security: spodapi.SPODSecurityConfig{AllowedSyscalls: []string{"a", "b"}},
-					},
-				},
-			},
-			want: true,
-		},
-		{
-			name: "SameAllowedSyscalls",
-			event: event.UpdateEvent{
-				ObjectOld: &spodapi.SecurityProfilesOperatorDaemon{
-					Spec: spodapi.SPODSpec{
-						Security: spodapi.SPODSecurityConfig{AllowedSyscalls: []string{"a", "b"}},
-					},
-				},
-				ObjectNew: &spodapi.SecurityProfilesOperatorDaemon{
-					Spec: spodapi.SPODSpec{
-						Security: spodapi.SPODSecurityConfig{AllowedSyscalls: []string{"a", "b"}},
-					},
-				},
-			},
-			want: false,
-		},
-		{
-			name: "SameAllowedSyscallsOtherOrder",
-			event: event.UpdateEvent{
-				ObjectOld: &spodapi.SecurityProfilesOperatorDaemon{
-					Spec: spodapi.SPODSpec{
-						Security: spodapi.SPODSecurityConfig{AllowedSyscalls: []string{"b", "a"}},
-					},
-				},
-				ObjectNew: &spodapi.SecurityProfilesOperatorDaemon{
-					Spec: spodapi.SPODSpec{
-						Security: spodapi.SPODSecurityConfig{AllowedSyscalls: []string{"a", "b"}},
-					},
-				},
-			},
-			want: false,
-		},
-		{
-			name: "DiffAllowedSeccompActions",
-			event: event.UpdateEvent{
-				ObjectOld: &spodapi.SecurityProfilesOperatorDaemon{
-					Spec: spodapi.SPODSpec{
-						Security: spodapi.SPODSecurityConfig{
-							AllowedSyscalls: []string{"a"},
-						},
-					},
-				},
-				ObjectNew: &spodapi.SecurityProfilesOperatorDaemon{
-					Spec: spodapi.SPODSpec{
-						Security: spodapi.SPODSecurityConfig{
-							AllowedSyscalls: []string{"a"},
-							AllowedSeccompActions: []seccompprofileapi.Action{
-								seccompprofileapi.ActLog,
-							},
-						},
-					},
-				},
-			},
-			want: true,
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			predicate := AllowedSyscallsChangedPredicate{}
-			got := predicate.Update(tc.event)
-
 			require.Equal(t, tc.want, got)
 		})
 	}
@@ -832,7 +486,7 @@ func TestResolveSyscallsForProfile(t *testing.T) {
 			sut.record = events.NewFakeRecorder(10)
 
 			syscalls, _, err := sut.resolveSyscallsForProfile(
-				t.Context(), sp, sp.Spec.Syscalls, logr.Discard(), 0, true,
+				t.Context(), sp, sp.Spec.Syscalls, logr.Discard(), 0,
 			)
 			assert(syscalls, err)
 		})
@@ -862,6 +516,7 @@ func TestResolveSyscallsForProfileBaseProfileCache(t *testing.T) {
 	sut.impl = mock
 	sut.metrics = metrics.New()
 	sut.record = events.NewFakeRecorder(10)
+	sut.namespace = "operator-ns"
 
 	sp := &seccompprofileapi.SeccompProfile{
 		Spec: seccompprofileapi.SeccompProfileSpec{
@@ -874,7 +529,7 @@ func TestResolveSyscallsForProfileBaseProfileCache(t *testing.T) {
 
 	for range 3 {
 		syscalls, archSpecific, err := sut.resolveSyscallsForProfile(
-			t.Context(), sp, sp.Spec.Syscalls, logr.Discard(), 0, true,
+			t.Context(), sp, sp.Spec.Syscalls, logr.Discard(), 0,
 		)
 		require.NoError(t, err)
 		require.True(t, archSpecific, "an OCI base profile is pulled for the node")
@@ -885,21 +540,8 @@ func TestResolveSyscallsForProfileBaseProfileCache(t *testing.T) {
 	require.Equal(t, 1, mock.PullCallCount(), "later resolutions must use the cache")
 	require.Equal(t, 1, mock.GetSPODCallCount())
 
-	// Without pulling only the cached base profile can be used.
-	syscalls, archSpecific, err := sut.resolveSyscallsForProfile(
-		t.Context(), sp, sp.Spec.Syscalls, logr.Discard(), 0, false,
-	)
-	require.NoError(t, err)
-	require.True(t, archSpecific)
-	require.Equal(t, []string{"first", "second"}, syscalls[0].Names)
-
-	uncached := sp.DeepCopy()
-	uncached.Spec.BaseProfileName = config.OCIProfilePrefix + "registry/other:v1"
-	_, _, err = sut.resolveSyscallsForProfile(
-		t.Context(), uncached, uncached.Spec.Syscalls, logr.Discard(), 0, false,
-	)
-	require.ErrorIs(t, err, errBaseProfileNotCached)
-	require.Equal(t, 1, mock.PullCallCount(), "resolving without pull must not pull")
+	_, _, namespace := mock.GetSPODArgsForCall(0)
+	require.Equal(t, "operator-ns", namespace, "the SPOD is read from the operator namespace")
 
 	_, _, from, username, password, platform, opts := mock.PullArgsForCall(0)
 	require.Equal(t, "registry/base:v1", from)
@@ -910,58 +552,6 @@ func TestResolveSyscallsForProfileBaseProfileCache(t *testing.T) {
 	require.False(t, opts.DisableSignatureVerification)
 	require.Equal(t, allowedAllRegexp, opts.AllowedIdentityRegexp)
 	require.Equal(t, allowedAllRegexp, opts.AllowedOidcIssuerRegexp)
-}
-
-// TestHandleAllowedSyscallsChangedUsesBaseProfile asserts that syscalls
-// inherited from a base profile are validated when the allowed syscalls of
-// the SPOD change, the same way validateProfile does on reconcile.
-func TestHandleAllowedSyscallsChangedUsesBaseProfile(t *testing.T) {
-	t.Parallel()
-
-	scheme := runtime.NewScheme()
-	require.NoError(t, seccompprofileapi.AddToScheme(scheme))
-
-	profile := &seccompprofileapi.SeccompProfile{
-		ObjectMeta: metav1.ObjectMeta{Name: "child", Namespace: "default"},
-		Spec: seccompprofileapi.SeccompProfileSpec{
-			BaseProfileName: "parent",
-			Syscalls: []seccompprofileapi.Syscall{
-				{Names: []string{"read"}, Action: seccompprofileapi.ActAllow},
-			},
-		},
-	}
-
-	mock := &seccompprofilefakes.FakeImpl{}
-	mock.ClientGetProfileReturns(&seccompprofileapi.SeccompProfile{
-		Spec: seccompprofileapi.SeccompProfileSpec{
-			Syscalls: []seccompprofileapi.Syscall{
-				{Names: []string{"write"}, Action: seccompprofileapi.ActAllow},
-			},
-		},
-	}, nil)
-
-	sut, ok := NewController().(*Reconciler)
-	require.True(t, ok)
-
-	sut.impl = mock
-	sut.metrics = metrics.New()
-	sut.record = events.NewFakeRecorder(10)
-	sut.log = logr.Discard()
-	sut.client = fake.NewClientBuilder().WithScheme(scheme).WithObjects(profile).Build()
-
-	spod := &spodapi.SecurityProfilesOperatorDaemon{
-		Spec: spodapi.SPODSpec{
-			Security: spodapi.SPODSecurityConfig{AllowedSyscalls: []string{"read"}},
-		},
-	}
-
-	requests := sut.handleAllowedSyscallsChanged(t.Context(), spod)
-	require.Len(t, requests, 1)
-	require.Equal(t, "child", requests[0].Name)
-
-	key := types.NamespacedName{Name: "child", Namespace: "default"}
-	err := sut.client.Get(t.Context(), key, profile)
-	require.True(t, kerrors.IsNotFound(err))
 }
 
 // TestRemoveStaleTempFiles asserts that the leftovers of interrupted profile

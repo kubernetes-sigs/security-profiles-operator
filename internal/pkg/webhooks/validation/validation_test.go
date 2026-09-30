@@ -30,16 +30,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/utiltest"
 )
-
-func newScheme(t *testing.T) *runtime.Scheme {
-	t.Helper()
-
-	scheme := runtime.NewScheme()
-	require.NoError(t, selinuxprofileapi.AddToScheme(scheme))
-
-	return scheme
-}
 
 func rawSelinuxProfileRequest(t *testing.T, policy string) admission.Request {
 	t.Helper()
@@ -174,7 +166,7 @@ func TestHandle(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			scheme := newScheme(t)
+			scheme := utiltest.NewScheme(t)
 			v := &rawSelinuxProfileValidator{
 				decoder: admission.NewDecoder(scheme),
 				log:     logf.Log.WithName("test"),
@@ -235,7 +227,7 @@ func TestHandleUpdate(t *testing.T) {
 			}
 
 			v := &rawSelinuxProfileValidator{
-				decoder: admission.NewDecoder(newScheme(t)),
+				decoder: admission.NewDecoder(utiltest.NewScheme(t)),
 				log:     logf.Log.WithName("test"),
 			}
 

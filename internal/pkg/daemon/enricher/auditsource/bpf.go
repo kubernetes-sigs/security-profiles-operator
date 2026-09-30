@@ -59,6 +59,13 @@ const (
 
 	// lostEventsInterval is how often the lost events are checked.
 	lostEventsInterval = 30 * time.Second
+
+	// eventsBufferSize is the number of raw events buffered between the ring
+	// buffer polling thread and the forwarding goroutine.
+	eventsBufferSize = 4096
+	// logBufferSize is the number of parsed audit lines buffered for the
+	// enricher.
+	logBufferSize = 1024
 )
 
 type BpfSource struct {
@@ -107,7 +114,10 @@ func (b *BpfSource) StartTail() (chan *types.AuditLine, error) {
 		return nil, fmt.Errorf("attach bpf programs: %w", err)
 	}
 
-	events := make(chan []byte)
+	// libbpfgo sends every event from the polling thread, which blocks until
+	// the consumer takes it: the buffer absorbs the bursts of container
+	// starts, which would otherwise show up as lost events.
+	events := make(chan []byte, eventsBufferSize)
 
 	buf, err := module.InitRingBuf(auditLogRingBuf, events)
 	if err != nil {
@@ -121,7 +131,7 @@ func (b *BpfSource) StartTail() (chan *types.AuditLine, error) {
 
 	buf.Poll(300)
 
-	log := make(chan *types.AuditLine)
+	log := make(chan *types.AuditLine, logBufferSize)
 
 	go b.forward(events, log)
 

@@ -21,11 +21,13 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strings"
 
 	"github.com/go-logr/logr"
 	admissionregv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -232,13 +234,18 @@ const (
 )
 
 const (
+	// MutatingWebhookConfigName is the name of the mutating webhook
+	// configuration of the operator.
+	MutatingWebhookConfigName = "spo-mutating-webhook-configuration"
+	// ValidatingWebhookConfigName is the name of the validating webhook
+	// configuration of the operator.
+	ValidatingWebhookConfigName = "spo-validating-webhook-configuration"
+
 	// openshiftRequiredSCCAnnotation pins the SCC which OpenShift admits a pod
 	// with, instead of choosing one of the SCCs the pod is allowed to use.
 	openshiftRequiredSCCAnnotation = "openshift.io/required-scc"
 
 	webhookName                  = config.OperatorName + "-webhook"
-	webhookConfigName            = "spo-mutating-webhook-configuration"
-	validatingWebhookConfigName  = "spo-validating-webhook-configuration"
 	serviceAccountName           = "spo-webhook"
 	certsMountPath               = "/tmp/k8s-webhook-server/serving-certs"
 	serviceName                  = "webhook-service"
@@ -267,6 +274,7 @@ type Webhook struct {
 	config           *admissionregv1.MutatingWebhookConfiguration
 	validatingConfig *admissionregv1.ValidatingWebhookConfiguration
 	service          *corev1.Service
+	pdb              *policyv1.PodDisruptionBudget
 }
 
 func GetWebhook(
@@ -306,6 +314,9 @@ func GetWebhook(
 
 	service := webhookService.DeepCopy()
 	service.Namespace = namespace
+
+	pdb := webhookPDB.DeepCopy()
+	pdb.Namespace = namespace
 
 	// cert-manager looks up the certificate in the namespace the operator
 	// created it in, see GetCertManagerResources.
@@ -349,6 +360,7 @@ func GetWebhook(
 		config:           cfg,
 		validatingConfig: valCfg,
 		service:          service,
+		pdb:              pdb,
 	}
 }
 
@@ -516,11 +528,14 @@ func (w *Webhook) workloadNeedsUpdate(ctx context.Context, c client.Client) (boo
 		return true, nil
 	}
 
+	existingPDB := &policyv1.PodDisruptionBudget{}
+
 	for _, o := range []struct {
 		key client.ObjectKey
 		obj client.Object
 	}{
 		{client.ObjectKeyFromObject(w.service), &corev1.Service{}},
+		{client.ObjectKeyFromObject(w.pdb), existingPDB},
 	} {
 		key := o.key
 		if err := c.Get(ctx, key, o.obj); err != nil {
@@ -532,6 +547,16 @@ func (w *Webhook) workloadNeedsUpdate(ctx context.Context, c client.Client) (boo
 
 			return false, fmt.Errorf("getting webhook object %s: %w", key.Name, err)
 		}
+	}
+
+	if !apiequality.Semantic.DeepEqual(existingPDB.Spec.MinAvailable, w.pdb.Spec.MinAvailable) ||
+		!apiequality.Semantic.DeepEqual(existingPDB.Spec.Selector, w.pdb.Spec.Selector) ||
+		!apiequality.Semantic.DeepEqual(
+			existingPDB.Spec.UnhealthyPodEvictionPolicy, w.pdb.Spec.UnhealthyPodEvictionPolicy,
+		) {
+		w.log.V(1).Info("updating webhook pod disruption budget")
+
+		return true, nil
 	}
 
 	return false, nil
@@ -615,20 +640,12 @@ func (w *Webhook) webhookNeedsUpdate(existing *admissionregv1.MutatingWebhook, i
 		return true
 	}
 
-	// Both nil and empty object selector are equal
-	// Some platform set the Namespace selector as empty when nil is configured
-	if existing.NamespaceSelector != nil && configured.NamespaceSelector == nil {
-		if existing.NamespaceSelector.Size() > 0 {
-			w.log.V(1).Info("updating webhook configuration",
-				"existing NamespaceSelector", existing.NamespaceSelector,
-				"configured NamespaceSelector", configured.NamespaceSelector)
-
-			return true
-		}
-	}
-
-	// comparing pointers, not values
-	if existing.NamespaceSelector == nil && configured.NamespaceSelector != nil {
+	// The selectors are compared as a whole, so that any change to the
+	// webhook options of the SPOD gets rolled out. A nil selector matches
+	// everything like an empty one, and some platforms store an empty
+	// selector for a nil one. Expressions which platforms like AKS inject
+	// are ignored, see platformInjectedSelectorKeys.
+	if !selectorsEqual(existing.NamespaceSelector, configured.NamespaceSelector) {
 		w.log.V(1).Info("updating webhook configuration",
 			"existing NamespaceSelector", existing.NamespaceSelector,
 			"configured NamespaceSelector", configured.NamespaceSelector)
@@ -636,38 +653,7 @@ func (w *Webhook) webhookNeedsUpdate(existing *admissionregv1.MutatingWebhook, i
 		return true
 	}
 
-	// Only compare managed labels, all others are out of scope
-	if existing.NamespaceSelector != nil && configured.NamespaceSelector != nil {
-		for _, label := range []string{
-			EnableBindingLabel, EnableRecordingLabel, corev1.LabelMetadataName,
-		} {
-			if namespaceSelectorUnequalForLabel(
-				label,
-				existing.NamespaceSelector,
-				configured.NamespaceSelector,
-			) {
-				w.log.V(1).Info("updating webhook configuration",
-					"existing NamespaceSelector", existing.NamespaceSelector,
-					"configured NamespaceSelector", configured.NamespaceSelector)
-
-				return true
-			}
-		}
-	}
-
-	// Both nil and empty object selector are equal
-	if existing.ObjectSelector != nil && configured.ObjectSelector == nil {
-		if existing.ObjectSelector.Size() > 0 {
-			w.log.V(1).Info("updating webhook configuration",
-				"existing ObjectSelector", existing.ObjectSelector,
-				"configured ObjectSelector", configured.ObjectSelector)
-
-			return true
-		}
-	}
-
-	// comparing pointers, not values
-	if existing.ObjectSelector == nil && configured.ObjectSelector != nil {
+	if !selectorsEqual(existing.ObjectSelector, configured.ObjectSelector) {
 		w.log.V(1).Info("updating webhook configuration",
 			"existing ObjectSelector", existing.ObjectSelector,
 			"configured ObjectSelector", configured.ObjectSelector)
@@ -675,12 +661,10 @@ func (w *Webhook) webhookNeedsUpdate(existing *admissionregv1.MutatingWebhook, i
 		return true
 	}
 
-	if existing.ObjectSelector != nil &&
-		configured.ObjectSelector != nil &&
-		!reflect.DeepEqual(*existing.ObjectSelector, *configured.ObjectSelector) {
+	if !ptr.Equal(existing.ReinvocationPolicy, configured.ReinvocationPolicy) {
 		w.log.V(1).Info("updating webhook configuration",
-			"existing ObjectSelector", existing.ObjectSelector,
-			"configured ObjectSelector", configured.ObjectSelector)
+			"existing ReinvocationPolicy", existing.ReinvocationPolicy,
+			"configured ReinvocationPolicy", configured.ReinvocationPolicy)
 
 		return true
 	}
@@ -690,31 +674,88 @@ func (w *Webhook) webhookNeedsUpdate(existing *admissionregv1.MutatingWebhook, i
 	return false
 }
 
-// namespaceSelectorUnequalForLabel returns true if the expressions for label
-// differ between the provided LabelSelectors. All expressions for the label are
-// compared, because a user selector may already carry one for the same key as
-// an expression the operator appends.
-func namespaceSelectorUnequalForLabel(
-	label string,
-	existing, configured *metav1.LabelSelector,
-) bool {
-	return !reflect.DeepEqual(
-		expressionsForLabel(label, existing),
-		expressionsForLabel(label, configured),
+// platformInjectedSelectorKeys are the label keys of match expressions which
+// platforms inject into the selectors of every webhook configuration. The AKS
+// admissions enforcer adds NotIn expressions for these keys, so that webhooks
+// skip the system namespaces of the cluster. Comparing them would report every
+// reconciliation as a change, keep rewriting the configuration and leave the
+// SPOD stuck in the updating state.
+var platformInjectedSelectorKeys = []string{
+	"control-plane",
+	"kubernetes.azure.com/managedby",
+}
+
+// selectorsEqual returns true if both label selectors select the same
+// objects. A nil selector equals an empty one, and the order of the match
+// expressions and their values does not matter. Match expressions of the
+// existing selector which a platform injected get ignored, as long as the
+// configured selector has no expression for their key.
+func selectorsEqual(existing, configured *metav1.LabelSelector) bool {
+	return apiequality.Semantic.DeepEqual(
+		normalizeSelector(withoutInjectedExpressions(existing, configured)),
+		normalizeSelector(configured),
 	)
 }
 
-// expressionsForLabel returns the match expressions of selector for label.
-func expressionsForLabel(
-	label string, selector *metav1.LabelSelector,
-) []metav1.LabelSelectorRequirement {
-	var res []metav1.LabelSelectorRequirement
+// withoutInjectedExpressions returns the existing selector without the match
+// expressions for the platformInjectedSelectorKeys which do not occur in the
+// configured selector. It returns the existing selector unchanged if there are
+// none.
+func withoutInjectedExpressions(existing, configured *metav1.LabelSelector) *metav1.LabelSelector {
+	if existing == nil {
+		return nil
+	}
 
-	for _, expr := range selector.MatchExpressions {
-		if expr.Key == label {
-			res = append(res, expr)
+	injected := func(req metav1.LabelSelectorRequirement) bool {
+		if !slices.Contains(platformInjectedSelectorKeys, req.Key) {
+			return false
+		}
+
+		return configured == nil || !slices.ContainsFunc(configured.MatchExpressions,
+			func(c metav1.LabelSelectorRequirement) bool { return c.Key == req.Key },
+		)
+	}
+
+	if !slices.ContainsFunc(existing.MatchExpressions, injected) {
+		return existing
+	}
+
+	res := existing.DeepCopy()
+	res.MatchExpressions = slices.DeleteFunc(res.MatchExpressions, injected)
+
+	return res
+}
+
+// normalizeSelector returns a copy of the selector with nil mapped to an
+// empty selector and the match expressions and their values sorted.
+func normalizeSelector(selector *metav1.LabelSelector) *metav1.LabelSelector {
+	if selector == nil {
+		return &metav1.LabelSelector{}
+	}
+
+	res := selector.DeepCopy()
+	if len(res.MatchLabels) == 0 {
+		res.MatchLabels = nil
+	}
+
+	if len(res.MatchExpressions) == 0 {
+		res.MatchExpressions = nil
+	}
+
+	for i := range res.MatchExpressions {
+		slices.Sort(res.MatchExpressions[i].Values)
+
+		if len(res.MatchExpressions[i].Values) == 0 {
+			res.MatchExpressions[i].Values = nil
 		}
 	}
+
+	slices.SortFunc(res.MatchExpressions, func(a, b metav1.LabelSelectorRequirement) int {
+		return strings.Compare(
+			fmt.Sprint(a.Key, a.Operator, a.Values),
+			fmt.Sprint(b.Key, b.Operator, b.Values),
+		)
+	})
 
 	return res
 }
@@ -828,6 +869,7 @@ func (w *Webhook) objectMap() map[string]client.Object {
 		"config":           w.config,
 		"validatingConfig": w.validatingConfig,
 		"service":          w.service,
+		"pdb":              w.pdb,
 	}
 }
 
@@ -914,7 +956,7 @@ func getWebhookConfig(
 
 	return &admissionregv1.MutatingWebhookConfiguration{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: webhookConfigName,
+			Name: MutatingWebhookConfigName,
 		},
 		Webhooks: webhooks,
 	}
@@ -925,7 +967,7 @@ func getValidatingWebhookConfig() *admissionregv1.ValidatingWebhookConfiguration
 
 	return &admissionregv1.ValidatingWebhookConfiguration{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: validatingWebhookConfigName,
+			Name: ValidatingWebhookConfigName,
 		},
 		Webhooks: []admissionregv1.ValidatingWebhook{
 			{
@@ -1007,7 +1049,7 @@ var webhookDeployment = &appsv1.Deployment{
 							ReadOnlyRootFilesystem:   &truly,
 							RunAsNonRoot:             &truly,
 							Capabilities: &corev1.Capabilities{
-								Drop: []corev1.Capability{"ALL"},
+								Drop: []corev1.Capability{CapabilityAll},
 							},
 						},
 						Resources: corev1.ResourceRequirements{
@@ -1101,6 +1143,28 @@ var webhookDeployment = &appsv1.Deployment{
 						Operator: corev1.TolerationOpExists,
 					},
 				},
+			},
+		},
+	},
+}
+
+// webhookPDB keeps at least one replica of the fail closed webhooks available
+// during voluntary disruptions like node drains. Without it a drain can evict
+// all replicas at once, and every pod creation in the namespaces which enable
+// binding or recording gets rejected until they come back.
+var webhookPDB = &policyv1.PodDisruptionBudget{
+	ObjectMeta: metav1.ObjectMeta{
+		Name:   webhookName,
+		Labels: map[string]string{labelApp: config.OperatorName},
+	},
+	Spec: policyv1.PodDisruptionBudgetSpec{
+		MinAvailable: new(intstr.FromInt32(1)),
+		// Crash looping replicas must not block node drains.
+		UnhealthyPodEvictionPolicy: ptr.To(policyv1.AlwaysAllow),
+		Selector: &metav1.LabelSelector{
+			MatchLabels: map[string]string{
+				labelApp:  config.OperatorName,
+				labelName: webhookName,
 			},
 		},
 	},

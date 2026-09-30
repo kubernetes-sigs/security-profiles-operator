@@ -124,10 +124,14 @@ linters:
         type: module
         description: Kube API Linter lints Kube like APIs based on API conventions and best practices.
         settings:
-          linters:
-            disable:
-              - nomaps
-              - optionalfields
+          # nomaps and optionalfields are enabled by default. Optional fields
+          # are value types with omitempty or omitzero where the zero value
+          # is not a valid choice, so pointers are only required where
+          # validation or serialization needs them.
+          lintersConfig:
+            optionalfields:
+              pointers:
+                preference: WhenRequired
     errcheck:
       check-type-assertions: true
       check-blank: true
@@ -153,9 +157,8 @@ linters:
       excludes:
         - G115
         - G602
-        - G702
-        - G703
-        - G704
+        # Unhandled errors, errcheck reports them already.
+        - G104
     nestif:
       min-complexity: 15
     nolintlint:
@@ -171,12 +174,38 @@ linters:
       branch-max-lines: 2
   exclusions:
     generated: lax
+    # No common-false-positives or legacy presets: they silence the gosec
+    # file permission and file inclusion rules (G301, G302, G304, G307) and
+    # the subprocess and unsafe rules (G103, G204) for the whole code base,
+    # while the daemon writes host files from variable paths. The known true
+    # positives are excluded one by one below.
     presets:
       - comments
-      - common-false-positives
-      - legacy
       - std-error-handling
     rules:
+      # The BPF map lookups hand pointers to libbpf.
+      - linters:
+          - gosec
+        path: internal/pkg/(daemon/bpfrecorder/(bpfrecorder|impl)|daemon/enricher/auditsource/bpf|cli/recorder/impl)\.go
+        text: G103
+      # spoc record runs the command its user passes.
+      - linters:
+          - gosec
+        path: internal/pkg/cli/command/impl\.go
+        text: G204
+      # Reads of paths which the daemon builds from the kubelet directory and
+      # the profile names (seccomp, SELinux, AppArmor below /etc/apparmor.d
+      # and the non-root enabler), the files the spoc commands get passed and
+      # the directories the atomic file helpers write to.
+      - linters:
+          - gosec
+        path: internal/pkg/(daemon/(apparmorprofile/apparmor_supported|seccompprofile/seccompprofile|selinuxprofile/common_controller)|nonrootenabler/nonrootenabler|artifact/impl|cli/[a-z]+/impl|util/files)\.go
+        text: G304
+      # Tests and the e2e suite run commands and write files of their own.
+      - linters:
+          - gosec
+        path: (_test\.go|^test/)
+        text: G(204|301|302|304|306|703)
       - linters:
           - modernize
         text: embedlit
@@ -196,49 +225,11 @@ linters:
         path: (_test\.go|^test/)
       - linters:
           - funlen
-          - maintidx
-        path: cmd/security-profiles-operator/main\.go
-        text: "Function (name: main,|'main')"
-      - linters:
-          - funlen
         path: cmd/spoc/main\.go
         text: Function 'newApp'
       - linters:
           - funlen
-        path: internal/pkg/daemon/enricher/jsonenricher\.go
-        text: Function 'Run'
-      - linters:
-          - funlen
-        path: internal/pkg/daemon/seccompprofile/seccompprofile\.go
-        text: Function 'reconcileSeccompProfile'
-      - linters:
-          - funlen
-          - maintidx
-        path: internal/pkg/daemon/selinuxprofile/common_controller\.go
-        text: "Function (name: reconcilePolicy,|'reconcilePolicy')"
-      - linters:
-          - funlen
         path: internal/pkg/daemon/profilerecorder/profilerecorder\.go
-        text: Function 'Reconcile'
-      - linters:
-          - funlen
-        path: internal/pkg/daemon/selinuxprofile/reload_job\.go
-        text: Function 'createPolicyReloadJob'
-      - linters:
-          - funlen
-        path: internal/pkg/manager/nodestatus/nodestatus\.go
-        text: Function 'Reconcile'
-      - linters:
-          - funlen
-        path: internal/pkg/manager/spod/spod_controller\.go
-        text: Function '(Reconcile|getConfiguredSPOd)'
-      - linters:
-          - maintidx
-        path: internal/pkg/manager/spod/spod_controller\.go
-        text: "Function name: getConfiguredSPOd,"
-      - linters:
-          - funlen
-        path: internal/pkg/manager/workloadannotator/workloadannotator\.go
         text: Function 'Reconcile'
     paths:
       - third_party$

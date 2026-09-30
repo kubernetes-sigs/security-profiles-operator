@@ -1,6 +1,6 @@
 ---
 name: Feature Request
-about: Suggest a feature for the Kubernetes release engineering tooling
+about: Suggest a feature for the Security Profiles Operator or spoc
 labels: kind/feature
 
 ---
@@ -14,7 +14,7 @@ labels: kind/feature
 
 <!-- Please add a reference to the user story that this feature would cover
 
-The existing user stories exist in docs/user-stores.md
+The existing user stories exist in doc/user-stories.md
 
 If the user story doesn't exist yet, please add it to the main document
 to help people understand what the feature is trying to solve and how it's

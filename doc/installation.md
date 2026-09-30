@@ -8,6 +8,7 @@
     - [Other Kubernetes distributions](#other-kubernetes-distributions)
   - [Installation using OLM using upstream catalog and bundle](#installation-using-olm-using-upstream-catalog-and-bundle)
   - [Installation using helm](#installation-using-helm)
+    - [Chart values](#chart-values)
     - [Troubleshooting and maintenance](#troubleshooting-and-maintenance)
   - [Installation on AKS](#installation-on-aks)
 - [Upgrading](#upgrading)
@@ -22,6 +23,7 @@
   - [Restrict the allowed syscalls in seccomp profiles](#restrict-the-allowed-syscalls-in-seccomp-profiles)
   - [Constrain spod scheduling](#constrain-spod-scheduling)
   - [Enable memory optimization in spod](#enable-memory-optimization-in-spod)
+  - [Configure the concurrent reconciles of the manager](#configure-the-concurrent-reconciles-of-the-manager)
   - [Restricting to a Single Namespace](#restricting-to-a-single-namespace)
     - [Restricting to a Single Namespace with upstream deployment manifests](#restricting-to-a-single-namespace-with-upstream-deployment-manifests)
     - [Restricting to a Single Namespace when installing using OLM](#restricting-to-a-single-namespace-when-installing-using-olm)
@@ -179,6 +181,39 @@ helm install security-profiles-operator --namespace security-profiles-operator \
   --version ${VERSION}
 ```
 
+#### Chart values
+
+The [values](../deploy/helm/values.yaml) of the chart are documented in its
+[README](../deploy/helm/README.md) and validated against its
+[schema](../deploy/helm/values.schema.json), so a misspelled or unknown value
+fails the installation. Among others:
+
+- `kubeletDir` sets the kubelet root directory of the nodes, where the seccomp
+  profiles get installed, `/var/lib/kubelet` by default. See
+  [Configure a custom kubelet root directory](#configure-a-custom-kubelet-root-directory).
+- `podDisruptionBudget` creates a PodDisruptionBudget for the operator
+  deployment, which keeps `minAvailable` replicas (default `1`) running during
+  voluntary disruptions like node drains. With a single replica
+  (`replicaCount: 1`), the default blocks the drain of its node, so lower
+  `minAvailable` to `0` or disable the budget with
+  `podDisruptionBudget.enabled=false` then.
+- `topologySpreadConstraints` spreads the operator replicas across nodes
+  (`kubernetes.io/hostname`) and zones (`topology.kubernetes.io/zone`) where
+  possible (`whenUnsatisfiable: ScheduleAnyway`). Constraints without a
+  `labelSelector` get the selector labels of the operator pods, set the list
+  to `[]` to drop them.
+
+The operator deployment of the release manifests, like
+[`deploy/operator.yaml`](../deploy/operator.yaml), has the same
+PodDisruptionBudget and topology spread constraints.
+
+```shell
+helm install security-profiles-operator --namespace security-profiles-operator \
+  --set kubeletDir=/var/lib/k0s/kubelet \
+  --set podDisruptionBudget.minAvailable=2 \
+  https://github.com/kubernetes-sigs/security-profiles-operator/releases/download/v${VERSION}/security-profiles-operator-${VERSION}.tgz
+```
+
 #### Troubleshooting and maintenance
 
 These CRDs are not templated, but will be installed by default when running a helm install for the chart.
@@ -260,6 +295,7 @@ of their `Subscription`, including the CRDs.
 You can configure a custom kubelet root directory in case your cluster is not using the default `/var/lib/kubelet` path.
 You can achieve this by setting the environment variable `KUBELET_DIR` in the operator deployment. This environment variable will
 be then set in the manager container as well as it will be propagated into the containers part of spod daemonset.
+The Helm chart sets it through the `kubeletDir` value.
 
 Furthermore, you can configure a custom kubelet root directory for each node or a pool of worker nodes inside the cluster. This
 can be achieved by applying the following label on each node object which has a custom path:
@@ -392,8 +428,12 @@ kubectl -n security-profiles-operator patch spod spod --type merge -p \
 From now on, the operator will only install the seccomp profiles which have only a subset of syscalls defined
 into the allowed list. All profiles not complying with this rule, it will be rejected.
 
-Also every time when the list of allowed syscalls is modified in the spod configuration, the operator will
-automatically identify the already installed profiles which are not compliant and remove them.
+Every time the allow lists (`allowedSyscalls` or `allowedSeccompActions`) change in the spod configuration, the
+manager checks the existing profiles once for the cluster, merged with their base profiles, and deletes the ones
+which are not compliant. Profiles built on OCI base profiles, which only the daemons pull, are not deleted: the
+daemons reject them on every node and report a `ProfileNotAllowed` event instead, until the profile or the allow
+lists change. An invalid `allowedSeccompActions` value deletes nothing, it makes the daemons reject all profiles
+and gets reported as `InvalidSeccompSPODConfig` event on the spod object.
 
 By default, the syscalls of all rules using the actions `SCMP_ACT_ALLOW`, `SCMP_ACT_LOG`, `SCMP_ACT_TRACE` and
 `SCMP_ACT_NOTIFY` are checked against the allowed list, and profiles using one of these actions as
@@ -447,6 +487,22 @@ metadata:
   labels:
     spo.x-k8s.io/enable-recording: "true"
 ```
+
+### Configure the concurrent reconciles of the manager
+
+The manager runs its pod driven controllers (node status, binding tracker,
+recording tracker and workload annotator) with 4 concurrent reconciles each.
+Large clusters with many profiles or pods can raise this with the
+`--max-concurrent-reconciles` flag of the `manager` command, for example by
+adding `--max-concurrent-reconciles=8` to the args of the
+`security-profiles-operator` deployment:
+
+```shell
+kubectl -n security-profiles-operator patch deployment security-profiles-operator --type json \
+  -p '[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--max-concurrent-reconciles=8"}]'
+```
+
+Values below 1 fall back to the default.
 
 ### Restricting to a Single Namespace
 
@@ -549,7 +605,8 @@ sets `webhook.staticConfig` to `true` in the SPOD it creates, and does not creat
 and its related resources, so `webhook.options` do not apply either.
 
 The Exec Metadata and Node Debugging Pod Metadata Webhook works in conjunction with the JSON Log Enricher. It's enabled only when JSON Log Enricher is
-enabled. For details on its configuration, please refer to the [JSON Log Enricher](profiles.md#audit-json-log-enricher) section.
+enabled, and `spec.enricher.enableExecMetadata: false` disables the exec metadata webhook for images without an `env`
+binary. For details on its configuration, please refer to the [JSON Log Enricher](profiles.md#audit-json-log-enricher) section.
 
 Next to the mutating webhooks, SPO manages the `spo-validating-webhook-configuration`
 `ValidatingWebhookConfiguration`. Its `rawselinuxprofile-validation.spo.io` webhook

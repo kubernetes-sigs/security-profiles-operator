@@ -14,6 +14,7 @@ spec:
       - mac_admin
       - sys_admin
       - sys_chroot
+      - sys_ptrace
     executable:
       allowedExecutables:
       - /security-profiles-operator
@@ -33,7 +34,6 @@ spec:
       - /sys/module/apparmor/parameters/enabled
       - /sys/devices/system/cpu/possible
       readWritePaths:
-      - "ptrace (read),  # ugly template injection hack"
       - /var/run/grpc/metrics.sock
       - /tmp/aa_profile_bin_*
       - /etc/apparmor.d/**
@@ -44,4 +44,7 @@ spec:
       allowedProtocols:
         allowTcp: true
         allowUdp: true
+    ptrace:
+      allowedAccess:
+      - read
   state: Enabled

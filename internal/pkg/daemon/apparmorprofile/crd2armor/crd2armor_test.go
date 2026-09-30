@@ -17,24 +17,25 @@ limitations under the License.
 package crd2armor
 
 import (
+	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/utiltest"
 )
 
 func TestGenerateProfile(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name           string
-		profileName    string
-		mode           apparmorprofileapi.AppArmorMode
-		abstract       *apparmorprofileapi.AppArmorAbstract
-		mustContain    []string
-		mustNotContain []string
-		wantErr        bool
+		name        string
+		profileName string
+		mode        apparmorprofileapi.AppArmorMode
+		abstract    *apparmorprofileapi.AppArmorAbstract
+		wantErr     bool
 	}{
 		{
 			name:        "Generate profile with enforce mode with deny",
@@ -44,12 +45,6 @@ func TestGenerateProfile(t *testing.T) {
 				Filesystem: &apparmorprofileapi.AppArmorFsRules{
 					ReadOnlyPaths: []string{"/etc/passwd"},
 				},
-			},
-			mustContain: []string{
-				"profile EnforceModeWithDeny flags=(enforce",
-				"/etc/passwd r,",
-				"deny /etc/passwd wlk,",
-				"deny @{PROC}/* w,",
 			},
 			wantErr: false,
 		},
@@ -62,16 +57,6 @@ func TestGenerateProfile(t *testing.T) {
 					ReadOnlyPaths: []string{"/etc/passwd"},
 				},
 			},
-			mustContain: []string{
-				"profile ComplainModeWithoutDeny flags=(complain",
-				"/etc/passwd r,",
-			},
-			mustNotContain: []string{
-				"deny /etc/passwd wlk,",
-				"deny @{PROC}/* w,",
-				"audit /etc/passwd wlk,",
-				"audit @{PROC}/* w,",
-			},
 			wantErr: false,
 		},
 		{
@@ -82,15 +67,6 @@ func TestGenerateProfile(t *testing.T) {
 				Capability: &apparmorprofileapi.AppArmorCapabilityRules{
 					AllowedCapabilities: []string{" NET_ADMIN", "Sys_Rawio "},
 				},
-			},
-			mustContain: []string{
-				"capability net_admin,",
-				"capability sys_rawio,",
-				"remount,",
-			},
-			mustNotContain: []string{
-				"NET_ADMIN",
-				"Sys_Rawio",
 			},
 			wantErr: false,
 		},
@@ -174,20 +150,6 @@ func TestGenerateProfile(t *testing.T) {
 					ReadWritePaths: []string{"/tmp/@{pid}/a b/*"},
 				},
 			},
-			mustContain: []string{
-				`"/opt/my app/bin" ixr,`,
-				`"/opt/my app/lib.so" mr,`,
-				`"/My Documents/test file" r,`,
-				`deny "/My Documents/test file" wlk,`,
-				`"/var/log/my app.log" wlk,`,
-				`deny "/var/log/my app.log" r,`,
-				`"/tmp/@{pid}/a b/*" rwlk,`,
-				"  /etc/passwd r,",
-			},
-			mustNotContain: []string{
-				"  /My Documents/test file r,",
-				`"/etc/passwd"`,
-			},
 			wantErr: false,
 		},
 		{
@@ -200,25 +162,173 @@ func TestGenerateProfile(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "Path sanitization - good - only root",
+			name:        "Ptrace field - enforce mode with peer",
+			profileName: "PtraceFieldEnforce",
+			mode:        apparmorprofileapi.AppArmorModeEnforce,
 			abstract: &apparmorprofileapi.AppArmorAbstract{
-				Filesystem: &apparmorprofileapi.AppArmorFsRules{
-					ReadOnlyPaths: []string{"/"},
+				Ptrace: &apparmorprofileapi.AppArmorPtraceRules{
+					AllowedAccess: []apparmorprofileapi.AppArmorPtraceAccess{
+						apparmorprofileapi.AppArmorPtraceAccessTrace,
+						apparmorprofileapi.AppArmorPtraceAccessRead,
+					},
+					Peer: "@{profile_name}",
 				},
 			},
 			wantErr: false,
 		},
 		{
-			name: "Path sanitization - good - ptrace injection hack",
+			name:        "Ptrace field - complain mode without peer",
+			profileName: "PtraceFieldComplain",
+			mode:        apparmorprofileapi.AppArmorModeComplain,
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Ptrace: &apparmorprofileapi.AppArmorPtraceRules{
+					AllowedAccess: []apparmorprofileapi.AppArmorPtraceAccess{
+						apparmorprofileapi.AppArmorPtraceAccessReadBy,
+						apparmorprofileapi.AppArmorPtraceAccessTracedBy,
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			// The deprecated rules in the paths still apply next to the field.
+			name:        "Ptrace field - combined with deprecated rules in the paths",
+			profileName: "PtraceFieldAndPaths",
+			mode:        apparmorprofileapi.AppArmorModeEnforce,
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Filesystem: &apparmorprofileapi.AppArmorFsRules{
+					ReadWritePaths: []string{"ptrace (readby),", "/var/run/app.sock"},
+				},
+				Ptrace: &apparmorprofileapi.AppArmorPtraceRules{
+					AllowedAccess: []apparmorprofileapi.AppArmorPtraceAccess{
+						apparmorprofileapi.AppArmorPtraceAccessRead,
+						apparmorprofileapi.AppArmorPtraceAccessRead,
+					},
+					Peer: "cri-containerd.apparmor.d//*",
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "Ptrace field - bad - unknown access",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Ptrace: &apparmorprofileapi.AppArmorPtraceRules{
+					AllowedAccess: []apparmorprofileapi.AppArmorPtraceAccess{"everything"},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Ptrace field - bad - access injection",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Ptrace: &apparmorprofileapi.AppArmorPtraceRules{
+					AllowedAccess: []apparmorprofileapi.AppArmorPtraceAccess{
+						"read), /etc/shadow r, ptrace (read",
+					},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Ptrace field - bad - peer injection",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Ptrace: &apparmorprofileapi.AppArmorPtraceRules{
+					AllowedAccess: []apparmorprofileapi.AppArmorPtraceAccess{
+						apparmorprofileapi.AppArmorPtraceAccessRead,
+					},
+					Peer: "unconfined,\n  /etc/shadow r",
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Ptrace field - bad - peer with unbalanced brace",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Ptrace: &apparmorprofileapi.AppArmorPtraceRules{
+					AllowedAccess: []apparmorprofileapi.AppArmorPtraceAccess{
+						apparmorprofileapi.AppArmorPtraceAccessRead,
+					},
+					Peer: "@{profile_name",
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Ptrace field - bad - peer without access",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Ptrace: &apparmorprofileapi.AppArmorPtraceRules{Peer: "unconfined"},
+			},
+			wantErr: true,
+		},
+		{
+			// Profiles used to put ptrace rules into the paths before the
+			// API had a field for them. They must become ptrace rules and
+			// never a "deny ptrace" rule, which the enforce mode renders for
+			// paths.
+			name:        "Ptrace rules in the paths - enforce mode",
+			profileName: "PtraceEnforce",
+			mode:        apparmorprofileapi.AppArmorModeEnforce,
 			abstract: &apparmorprofileapi.AppArmorAbstract{
 				Filesystem: &apparmorprofileapi.AppArmorFsRules{
 					ReadOnlyPaths: []string{
 						"ptrace (read),",
 						"ptrace (trace), # ugly template injection hack",
+						"/etc/passwd",
+					},
+					WriteOnlyPaths: []string{"ptrace (Read),"},
+					ReadWritePaths: []string{
+						"ptrace (read),\n# ugly template injection hack",
+						"/var/run/app.sock",
 					},
 				},
 			},
 			wantErr: false,
+		},
+		{
+			name:        "Ptrace rules in the paths - complain mode",
+			profileName: "PtraceComplain",
+			mode:        apparmorprofileapi.AppArmorModeComplain,
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Filesystem: &apparmorprofileapi.AppArmorFsRules{
+					ReadWritePaths: []string{"ptrace (readby),  # comment"},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "Ptrace rules - bad - unknown access",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Filesystem: &apparmorprofileapi.AppArmorFsRules{
+					ReadOnlyPaths: []string{"ptrace (everything),"},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			// The API accepts ptrace rules in the executables and libraries
+			// as well, which used to fail the validation forever.
+			name:        "Ptrace rules in the executables and libraries",
+			profileName: "PtraceExecutables",
+			mode:        apparmorprofileapi.AppArmorModeEnforce,
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Executable: &apparmorprofileapi.AppArmorExecutablesRules{
+					AllowedExecutables: []string{"ptrace (read),", "/usr/bin/app"},
+					AllowedLibraries:   []string{"/usr/lib/libapp.so", "ptrace (Trace), # comment"},
+				},
+				Filesystem: &apparmorprofileapi.AppArmorFsRules{
+					ReadOnlyPaths: []string{"ptrace (read),", "/etc/passwd"},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "Ptrace rules - bad - unknown access in the executables",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Executable: &apparmorprofileapi.AppArmorExecutablesRules{
+					AllowedExecutables: []string{"ptrace (everything),"},
+				},
+			},
+			wantErr: true,
 		},
 		{
 			name: "Path sanitization - bad - malicious ptrace attempt",
@@ -229,6 +339,93 @@ func TestGenerateProfile(t *testing.T) {
 				},
 			},
 			wantErr: true,
+		},
+		{
+			name: "Path sanitization - bad - empty path",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Filesystem: &apparmorprofileapi.AppArmorFsRules{
+					ReadOnlyPaths: []string{"/etc/passwd", ""},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Path sanitization - bad - empty executable",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Executable: &apparmorprofileapi.AppArmorExecutablesRules{
+					AllowedExecutables: []string{""},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Path sanitization - bad - unbalanced opening brace",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Filesystem: &apparmorprofileapi.AppArmorFsRules{
+					ReadOnlyPaths: []string{"/{"},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Path sanitization - bad - unbalanced closing brace",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Filesystem: &apparmorprofileapi.AppArmorFsRules{
+					WriteOnlyPaths: []string{"/a}"},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Path sanitization - bad - unbalanced variable",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Executable: &apparmorprofileapi.AppArmorExecutablesRules{
+					AllowedLibraries: []string{"/@{"},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Path sanitization - bad - empty variable",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Executable: &apparmorprofileapi.AppArmorExecutablesRules{
+					AllowedLibraries: []string{"/@{}"},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			// apparmor_parser rejects a brace group without a comma.
+			name: "Path sanitization - bad - alternation",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Filesystem: &apparmorprofileapi.AppArmorFsRules{
+					ReadWritePaths: []string{"/a/{b}/c"},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Path sanitization - bad - nested braces",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Filesystem: &apparmorprofileapi.AppArmorFsRules{
+					ReadWritePaths: []string{"/{a{b}}"},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			// Earlier releases accepted a literal @, for example in the
+			// paths of systemd template units.
+			name: "Path sanitization - good - literal at",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Filesystem: &apparmorprofileapi.AppArmorFsRules{
+					ReadOnlyPaths: []string{
+						"/sys/fs/cgroup/system.slice/foo@1.service",
+						"/a@b",
+						"/home/@{HOME}/.config@",
+					},
+				},
+			},
 		},
 		{
 			name: "Path sanitization - bad - missing leading slash (relative path)",
@@ -280,7 +477,7 @@ func TestGenerateProfile(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "Path sanitization - good - standard absolute path",
+			name: "Executable sanitization - good - standard absolute path",
 			abstract: &apparmorprofileapi.AppArmorAbstract{
 				Executable: &apparmorprofileapi.AppArmorExecutablesRules{
 					AllowedExecutables: []string{"/usr/bin/nginx"},
@@ -390,17 +587,116 @@ func TestGenerateProfile(t *testing.T) {
 			got, err := GenerateProfile(tc.profileName, tc.mode, tc.abstract)
 			if tc.wantErr {
 				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
+
+				return
 			}
 
-			for _, s := range tc.mustContain {
-				require.Contains(t, got, s)
-			}
+			require.NoError(t, err)
+			utiltest.Golden(t, goldenName(tc.name), []byte(got))
+		})
+	}
+}
 
-			for _, s := range tc.mustNotContain {
-				require.NotContains(t, got, s)
-			}
+// goldenName turns a test case name into the name of its golden file.
+func goldenName(name string) string {
+	return strings.Trim(nonAlphanumeric.ReplaceAllString(strings.ToLower(name), "-"), "-")
+}
+
+var nonAlphanumeric = regexp.MustCompile(`[^a-z0-9]+`)
+
+// A ptrace rule put into the paths used to be rendered like a path, which the
+// enforce mode turned into a "deny ptrace" rule overriding the allow.
+func TestGenerateProfilePtraceIsNeverDenied(t *testing.T) {
+	t.Parallel()
+
+	got, err := GenerateProfile("ptrace", apparmorprofileapi.AppArmorModeEnforce,
+		&apparmorprofileapi.AppArmorAbstract{
+			Filesystem: &apparmorprofileapi.AppArmorFsRules{
+				ReadOnlyPaths:  []string{"ptrace (trace), # comment"},
+				ReadWritePaths: []string{"ptrace (read),"},
+			},
+		})
+	require.NoError(t, err)
+	require.Contains(t, got, "\n  ptrace (read),\n  ptrace (trace),\n")
+	require.NotContains(t, got, "deny ptrace")
+	require.NotContains(t, got, "# comment")
+	require.NotContains(t, got, "), r,")
+	require.NotContains(t, got, "), rwlk,")
+}
+
+func TestUsesDeprecatedPtraceRules(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		abstract *apparmorprofileapi.AppArmorAbstract
+		want     bool
+	}{
+		{name: "nil", abstract: nil},
+		{name: "no filesystem", abstract: &apparmorprofileapi.AppArmorAbstract{}},
+		{
+			name: "only paths",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Filesystem: &apparmorprofileapi.AppArmorFsRules{ReadOnlyPaths: []string{"/etc/passwd"}},
+			},
+		},
+		{
+			name: "ptrace field",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Ptrace: &apparmorprofileapi.AppArmorPtraceRules{
+					AllowedAccess: []apparmorprofileapi.AppArmorPtraceAccess{
+						apparmorprofileapi.AppArmorPtraceAccessRead,
+					},
+				},
+			},
+		},
+		{
+			name: "rule in write only paths",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Filesystem: &apparmorprofileapi.AppArmorFsRules{WriteOnlyPaths: []string{"ptrace (read),"}},
+			},
+			want: true,
+		},
+		{
+			name: "rule in allowed executables",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Executable: &apparmorprofileapi.AppArmorExecutablesRules{
+					AllowedExecutables: []string{"/usr/bin/app", "ptrace (read),"},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "rule in allowed libraries",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Executable: &apparmorprofileapi.AppArmorExecutablesRules{
+					AllowedLibraries: []string{"ptrace (trace), # comment"},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "only executables",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Executable: &apparmorprofileapi.AppArmorExecutablesRules{
+					AllowedExecutables: []string{"/usr/bin/app"},
+				},
+			},
+		},
+		{
+			name: "rule with comment in read write paths",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Filesystem: &apparmorprofileapi.AppArmorFsRules{
+					ReadWritePaths: []string{"/tmp", "ptrace (read),\n# ugly template injection hack"},
+				},
+			},
+			want: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tc.want, UsesDeprecatedPtraceRules(tc.abstract))
 		})
 	}
 }

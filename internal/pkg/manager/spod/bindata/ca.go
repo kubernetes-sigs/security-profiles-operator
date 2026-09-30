@@ -49,21 +49,24 @@ const (
 	CAInjectTypeOpenShift CAInjectType = 1
 )
 
+// GetCAInjectType detects the certificate provider of the cluster. It reads
+// a single cluster operator, so an uncached reader is sufficient and avoids
+// an informer for the kind.
 func GetCAInjectType(
-	ctx context.Context, log logr.Logger, c client.Client,
+	ctx context.Context, log logr.Logger, c client.Reader,
 ) (res CAInjectType, err error) {
 	err = c.Get(ctx,
 		types.NamespacedName{Name: "openshift-apiserver"},
 		&configv1.ClusterOperator{},
 	)
 	if err == nil {
-		log.Info("Using OpenShift as certificate provider")
+		log.V(config.VerboseLevel).Info("Using OpenShift as certificate provider")
 
 		return CAInjectTypeOpenShift, nil
 	}
 
 	if IsNotFound(err) {
-		log.Info("Using cert-manager as certificate provider")
+		log.V(config.VerboseLevel).Info("Using cert-manager as certificate provider")
 
 		return CAInjectTypeCertManager, nil
 	}

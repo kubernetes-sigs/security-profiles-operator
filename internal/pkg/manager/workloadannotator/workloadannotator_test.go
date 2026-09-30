@@ -23,6 +23,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -198,13 +199,39 @@ func TestUpdatePodReferencesForSeccompIgnoresDeletedProfile(t *testing.T) {
 		},
 	}
 	apiReader := fake.NewClientBuilder().WithScheme(testScheme).Build()
+
+	writes := 0
 	fakeClient := fake.NewClientBuilder().
 		WithScheme(testScheme).
 		WithIndex(&corev1.Pod{}, spOwnerKey, func(client.Object) []string { return nil }).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Update: func(
+				ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption,
+			) error {
+				writes++
+
+				return c.Update(ctx, obj, opts...)
+			},
+			SubResourceUpdate: func(
+				ctx context.Context, c client.Client, sub string, obj client.Object,
+				opts ...client.SubResourceUpdateOption,
+			) error {
+				writes++
+
+				return c.SubResource(sub).Update(ctx, obj, opts...)
+			},
+		}).
 		Build()
 
 	r := &PodReconciler{client: fakeClient, reader: apiReader}
 	require.NoError(t, r.updatePodReferencesForSeccomp(ctx, profile))
+
+	// The deleted profile is neither updated nor recreated.
+	require.Zero(t, writes)
+
+	key := client.ObjectKeyFromObject(profile)
+	err := fakeClient.Get(ctx, key, &seccompprofileapi.SeccompProfile{})
+	require.True(t, kerrors.IsNotFound(err))
 }
 
 func TestUpdatePodReferencesIgnoresDeletionBeforeFinalizerUpdate(t *testing.T) {

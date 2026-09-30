@@ -1,3 +1,5 @@
+//go:build linux
+
 /*
 Copyright The Kubernetes Authors.
 
@@ -17,315 +19,184 @@ limitations under the License.
 package enricher
 
 import (
+	"context"
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
 	"github.com/jellydator/ttlcache/v3"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/sync/errgroup"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/wait"
 
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/enricherfakes"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/podindex/podindextest"
 )
 
-func Test_populateCacheEntryForContainer(t *testing.T) {
+// runningPod returns the pod of containerID once the kubelet reported the
+// container.
+func runningPod() *v1.Pod {
+	return &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: pod, Namespace: namespace},
+		Status: v1.PodStatus{
+			ContainerStatuses: []v1.ContainerStatus{{
+				Name:        "container",
+				ContainerID: crioPrefix + containerID,
+			}},
+		},
+	}
+}
+
+// creatingPod returns the pod of containerID while the container is created.
+func creatingPod() *v1.Pod {
+	creating := runningPod()
+	creating.Status.ContainerStatuses[0].ContainerID = ""
+
+	return creating
+}
+
+// watchPods has the container infos watch the pods of lw until the test ends,
+// and waits for the initial list.
+func watchPods(t *testing.T, containers *containerInfos, lw *podindextest.ListerWatcher) {
+	t.Helper()
+
+	mock := &enricherfakes.FakeImpl{}
+	mock.PodListerWatcherReturns(lw)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
+
+	require.NoError(t, containers.watch(ctx, mock, node))
+	require.Eventually(t, containers.pods.HasSynced, time.Minute, time.Millisecond)
+}
+
+func TestContainerInfoOf(t *testing.T) {
 	t.Parallel()
 
-	falsely, truly := false, true
+	withAnnotations := func(annotations map[string]string) *v1.Pod {
+		p := runningPod()
+		p.Annotations = annotations
+		p.Status.InitContainerStatuses = []v1.ContainerStatus{{
+			Name: "init", ContainerID: "containerd://" + otherContainerID,
+		}}
 
-	type args struct {
-		pod *v1.Pod
+		return p
 	}
 
-	tests := []struct {
-		name        string
-		args        args
-		want        int
-		expectError bool
+	for name, tc := range map[string]struct {
+		pod         *v1.Pod
+		containerID string
+		want        types.ContainerInfo
 	}{
-		{
-			name:        "Empty containerID test",
-			want:        1,
-			expectError: true,
-			args: args{
-				pod: &v1.Pod{
-					Status: v1.PodStatus{
-						ContainerStatuses: []v1.ContainerStatus{
-							{
-								Name:         "no-container-id",
-								Ready:        false,
-								Image:        "nginx",
-								ContainerID:  "",
-								Started:      &falsely,
-								RestartCount: 0,
-								State: v1.ContainerState{
-									Waiting: &v1.ContainerStateWaiting{
-										Reason: "ContainerCreating",
-									},
-								},
-							},
-						},
-						EphemeralContainerStatuses: []v1.ContainerStatus{
-							{
-								Name:         "debug-container",
-								Ready:        true,
-								Image:        "busybox",
-								ContainerID:  "cri-o://4066a8e6f5e212076950d00c0cdeb9672e6b58c87bd31085720a8564e01ee021",
-								Started:      &truly,
-								RestartCount: 0,
-								State: v1.ContainerState{
-									Running: &v1.ContainerStateRunning{
-										StartedAt: metav1.Time{
-											Time: time.Now(),
-										},
-									},
-								},
-							},
-						},
-					},
-				},
+		"not recorded": {
+			pod:         withAnnotations(nil),
+			containerID: containerID,
+			want: types.ContainerInfo{
+				PodName: pod, Namespace: namespace, ContainerName: "container", ContainerID: containerID,
 			},
 		},
-		{
-			name:        "container which will not start does not hide the others",
-			want:        1,
-			expectError: false,
-			args: args{
-				pod: &v1.Pod{
-					Status: v1.PodStatus{
-						ContainerStatuses: []v1.ContainerStatus{
-							{
-								Name:        "no-image",
-								ContainerID: "",
-								State: v1.ContainerState{
-									Waiting: &v1.ContainerStateWaiting{
-										Reason: "ImagePullBackOff",
-									},
-								},
-							},
-							{
-								Name:        "running",
-								ContainerID: "cri-o://a7afc479dcef795780f76309b93f6087602f92e60cc352e01e89d596530d3bf3",
-								State: v1.ContainerState{
-									Running: &v1.ContainerStateRunning{},
-								},
-							},
-						},
-					},
-				},
+		"seccomp recording": {
+			pod: withAnnotations(map[string]string{
+				config.SeccompProfileRecordLogsAnnotationKey + "container": "seccomp-profile",
+				config.SelinuxProfileRecordLogsAnnotationKey + "container": "selinux-profile",
+			}),
+			containerID: containerID,
+			want: types.ContainerInfo{
+				PodName: pod, Namespace: namespace, ContainerName: "container", ContainerID: containerID,
+				RecordProfile: "seccomp-profile",
 			},
 		},
-		{
-			name: "pod info fetch",
-			want: 2,
-			args: args{
-				pod: &v1.Pod{
-					Status: v1.PodStatus{
-						ContainerStatuses: []v1.ContainerStatus{
-							{
-								Name:         "my-container",
-								Ready:        true,
-								Image:        "nginx",
-								ContainerID:  "cri-o://a7afc479dcef795780f76309b93f6087602f92e60cc352e01e89d596530d3bf3",
-								Started:      &truly,
-								RestartCount: 0,
-								State: v1.ContainerState{
-									Running: &v1.ContainerStateRunning{
-										StartedAt: metav1.Time{
-											Time: time.Now(),
-										},
-									},
-								},
-							},
-						},
-						EphemeralContainerStatuses: []v1.ContainerStatus{
-							{
-								Name:         "debug-container",
-								Ready:        true,
-								Image:        "busybox",
-								ContainerID:  "cri-o://4066a8e6f5e212076950d00c0cdeb9672e6b58c87bd31085720a8564e01ee021",
-								Started:      &truly,
-								RestartCount: 0,
-								State: v1.ContainerState{
-									Running: &v1.ContainerStateRunning{
-										StartedAt: metav1.Time{
-											Time: time.Now(),
-										},
-									},
-								},
-							},
-						},
-					},
-				},
+		"SELinux recording of an init container": {
+			pod: withAnnotations(map[string]string{
+				config.SeccompProfileRecordLogsAnnotationKey + "container": "seccomp-profile",
+				config.SelinuxProfileRecordLogsAnnotationKey + "init":      "selinux-profile",
+			}),
+			containerID: otherContainerID,
+			want: types.ContainerInfo{
+				PodName: pod, Namespace: namespace, ContainerName: "init", ContainerID: otherContainerID,
+				RecordProfile: "selinux-profile",
 			},
 		},
-		{
-			name:        "Without EphemeralContainerStatuses",
-			want:        1,
-			expectError: false,
-			args: args{
-				pod: &v1.Pod{
-					Status: v1.PodStatus{
-						ContainerStatuses: []v1.ContainerStatus{
-							{
-								Name:         "no-container-id",
-								Ready:        false,
-								Image:        "nginx",
-								ContainerID:  "cri-o://4066a8e6f5e212076950d00c0cdeb9672e6b58c87bd31085720a8564e01ee021",
-								Started:      &falsely,
-								RestartCount: 0,
-								State: v1.ContainerState{
-									Waiting: &v1.ContainerStateWaiting{
-										Reason: "ContainerCreating",
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	} {
+		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			eg, _ := errgroup.WithContext(t.Context())
-
-			infoCache := ttlcache.New(
-				ttlcache.WithTTL[string, *types.ContainerInfo](defaultCacheTimeout),
-				ttlcache.WithCapacity[string, *types.ContainerInfo](maxCacheItems),
-			)
-
-			populateCacheEntryForContainer(t.Context(), tt.args.pod, eg, infoCache, logr.Discard())
-
-			err := eg.Wait()
-
-			if !tt.expectError {
-				require.NoError(t, err)
-			} else {
-				require.Error(t, err)
-			}
-
-			if infoCache.Len() != tt.want {
-				t.Errorf("populateCacheEntryForContainer() = %d, want %d", infoCache.Len(), tt.want)
-			}
+			require.Equal(t, tc.want, *containerInfoOf(tc.pod, tc.containerID))
 		})
 	}
 }
 
-const (
-	lookupTestPod         = "lookup-pod"
-	lookupTestContainerID = "218ce99dd8b33f6f9b6565863d7cd47dc880963ddd2cd987bcb2d330c65144bf"
-)
-
-func newTestContainerLookup(mock *enricherfakes.FakeImpl) *containerLookup {
-	return &containerLookup{
-		nodeName: "lookup-node",
-		impl:     mock,
-		infoCache: ttlcache.New(
-			ttlcache.WithTTL[string, *types.ContainerInfo](defaultCacheTimeout),
-		),
-		missing: newMissingContainerCache(),
-		logger:  logr.Discard(),
-		backoff: wait.Backoff{Duration: time.Millisecond, Factor: 1, Steps: 3},
-	}
-}
-
-func podList(statuses ...v1.ContainerStatus) *v1.PodList {
-	return &v1.PodList{Items: []v1.Pod{{
-		ObjectMeta: metav1.ObjectMeta{Name: lookupTestPod, Namespace: "lookup-namespace"},
-		Status:     v1.PodStatus{ContainerStatuses: statuses},
-	}}}
-}
-
-func TestGetContainerInfo(t *testing.T) {
+func TestContainerInfosGet(t *testing.T) {
 	t.Parallel()
 
-	creating := v1.ContainerStatus{
-		Name: "creating",
-		State: v1.ContainerState{
-			Waiting: &v1.ContainerStateWaiting{Reason: "ContainerCreating"},
-		},
-	}
-	running := v1.ContainerStatus{
-		Name:        "running",
-		ContainerID: "cri-o://" + lookupTestContainerID,
-	}
-
-	t.Run("stops retrying once the container is found", func(t *testing.T) {
+	t.Run("without pods", func(t *testing.T) {
 		t.Parallel()
 
-		mock := &enricherfakes.FakeImpl{}
-		mock.ListPodsReturns(podList(creating, running), nil)
+		sut := newContainerInfos()
 
-		sut := newTestContainerLookup(mock)
-
-		info, err := sut.getContainerInfo(t.Context(), lookupTestContainerID)
-		require.NoError(t, err)
-		require.Equal(t, lookupTestPod, info.PodName)
-		require.Equal(t, 1, mock.ListPodsCallCount())
+		_, err := sut.get(containerID)
+		require.ErrorIs(t, err, errNoContainerInfo)
+		require.Nil(t, sut.changed())
 	})
 
-	t.Run("finds an init container listed while the others wait for it", func(t *testing.T) {
+	t.Run("finds the containers the pods tell", func(t *testing.T) {
 		t.Parallel()
 
-		initializing := v1.ContainerStatus{
-			Name: "main",
-			State: v1.ContainerState{
-				Waiting: &v1.ContainerStateWaiting{Reason: "PodInitializing"},
-			},
-		}
-		initCreating := creating
-		initCreating.Name = running.Name
+		lw := podindextest.New(*creatingPod())
+		sut := newContainerInfos()
+		watchPods(t, sut, lw)
 
-		mock := &enricherfakes.FakeImpl{}
-		mock.ListPodsReturnsOnCall(0, podList(initCreating, initializing), nil)
-		mock.ListPodsReturns(podList(running, initializing), nil)
-
-		sut := newTestContainerLookup(mock)
-
-		info, err := sut.getContainerInfo(t.Context(), lookupTestContainerID)
-		require.NoError(t, err)
-		require.Equal(t, running.Name, info.ContainerName)
-		require.Equal(t, 2, mock.ListPodsCallCount())
-	})
-
-	t.Run("remembers missing containers", func(t *testing.T) {
-		t.Parallel()
-
-		mock := &enricherfakes.FakeImpl{}
-		mock.ListPodsReturns(podList(running), nil)
-
-		sut := newTestContainerLookup(mock)
-
-		_, err := sut.getContainerInfo(t.Context(), "unknown")
+		_, err := sut.get(containerID)
 		require.ErrorIs(t, err, errNoContainerInfo)
 
-		// Answered without listing all pods again.
-		_, err = sut.getContainerInfo(t.Context(), "unknown")
-		require.ErrorIs(t, err, errContainerRecentlyMissing)
-		require.Equal(t, 1, mock.ListPodsCallCount())
+		changed := sut.changed()
 
-		// Other containers are still looked up.
-		_, err = sut.getContainerInfo(t.Context(), lookupTestContainerID)
+		lw.Modify(runningPod())
+
+		select {
+		case <-changed:
+		case <-time.After(time.Minute):
+			require.Fail(t, "pod update not signalled")
+		}
+
+		info, err := sut.get(containerID)
 		require.NoError(t, err)
+		require.Equal(t, pod, info.PodName)
+		require.Equal(t, "container", info.ContainerName)
 	})
 
-	t.Run("reports the retry error", func(t *testing.T) {
+	t.Run("keeps the info of deleted pods", func(t *testing.T) {
 		t.Parallel()
 
-		mock := &enricherfakes.FakeImpl{}
-		mock.ListPodsReturns(podList(creating), nil)
+		lw := podindextest.New(*runningPod())
+		sut := newContainerInfos()
+		watchPods(t, sut, lw)
 
-		sut := newTestContainerLookup(mock)
+		_, err := sut.get(containerID)
+		require.NoError(t, err)
 
-		_, err := sut.getContainerInfo(t.Context(), lookupTestContainerID)
-		require.ErrorIs(t, err, errContainerIDEmpty)
-		require.Equal(t, 3, mock.ListPodsCallCount())
+		lw.Delete(runningPod())
+
+		require.Eventually(t, func() bool {
+			_, ok := sut.pods.Get(containerID)
+
+			return !ok
+		}, time.Minute, time.Millisecond)
+
+		info, err := sut.get(containerID)
+		require.NoError(t, err)
+		require.Equal(t, pod, info.PodName)
+	})
+
+	t.Run("prefers the cache", func(t *testing.T) {
+		t.Parallel()
+
+		sut := newContainerInfos()
+		sut.infoCache.Set(containerID, &types.ContainerInfo{PodName: "cached"}, ttlcache.DefaultTTL)
+
+		info, err := sut.get(containerID)
+		require.NoError(t, err)
+		require.Equal(t, "cached", info.PodName)
 	})
 }

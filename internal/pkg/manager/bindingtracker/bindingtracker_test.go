@@ -17,6 +17,7 @@ limitations under the License.
 package bindingtracker
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -24,23 +25,13 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	profilebindingapi "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/utiltest"
 )
-
-func newTestScheme(t *testing.T) *runtime.Scheme {
-	t.Helper()
-
-	s := runtime.NewScheme()
-	require.NoError(t, corev1.AddToScheme(s))
-	require.NoError(t, profilebindingapi.AddToScheme(s))
-
-	return s
-}
 
 func newReconciler(c client.Client) *BindingTrackerReconciler {
 	return &BindingTrackerReconciler{
@@ -62,7 +53,7 @@ func bindingIndexFunc(obj client.Object) []string {
 func TestPodMatchesBindingNilSelector(t *testing.T) {
 	t.Parallel()
 
-	scheme := newTestScheme(t)
+	scheme := utiltest.NewScheme(t)
 
 	binding := &profilebindingapi.ProfileBinding{
 		ObjectMeta: metav1.ObjectMeta{
@@ -154,7 +145,7 @@ func reconcileTestPod(
 	t.Helper()
 
 	c := fake.NewClientBuilder().
-		WithScheme(newTestScheme(t)).
+		WithScheme(utiltest.NewScheme(t)).
 		WithStatusSubresource(binding).
 		WithObjects(binding, pod).
 		WithIndex(&profilebindingapi.ProfileBinding{}, linkedPodsKey, bindingIndexFunc).
@@ -330,7 +321,7 @@ func TestDeletingBindingDoesNotTrackNewPods(t *testing.T) {
 func TestPodDoesNotMatchBindingSelector(t *testing.T) {
 	t.Parallel()
 
-	scheme := newTestScheme(t)
+	scheme := utiltest.NewScheme(t)
 
 	binding := &profilebindingapi.ProfileBinding{
 		ObjectMeta: metav1.ObjectMeta{
@@ -380,7 +371,7 @@ func TestPodDoesNotMatchBindingSelector(t *testing.T) {
 func TestPodDeletedRemovesFromActiveWorkloads(t *testing.T) {
 	t.Parallel()
 
-	scheme := newTestScheme(t)
+	scheme := utiltest.NewScheme(t)
 
 	podID := "default/deleted-pod"
 	binding := &profilebindingapi.ProfileBinding{
@@ -424,7 +415,7 @@ func TestPodDeletedRemovesFromActiveWorkloads(t *testing.T) {
 func TestPodDeletedFinalizerKeptWhenOtherPodsTracked(t *testing.T) {
 	t.Parallel()
 
-	scheme := newTestScheme(t)
+	scheme := utiltest.NewScheme(t)
 
 	binding := &profilebindingapi.ProfileBinding{
 		ObjectMeta: metav1.ObjectMeta{
@@ -478,4 +469,133 @@ func TestActiveWorkloadRequests(t *testing.T) {
 		{NamespacedName: client.ObjectKey{Namespace: "other", Name: "pod-b"}},
 	}, activeWorkloadRequests(t.Context(), binding))
 	require.Empty(t, activeWorkloadRequests(t.Context(), &corev1.Pod{}))
+}
+
+// countingReader counts the uncached reads.
+type countingReader struct {
+	client.Reader
+
+	reads *int
+}
+
+func (c countingReader) Get(
+	ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption,
+) error {
+	*c.reads++
+
+	return c.Reader.Get(ctx, key, obj, opts...)
+}
+
+// A pod which the cached binding tracks already costs no API request, while a
+// binding which lacks the finalizer still gets it.
+func TestTrackedPodSkipsAPIRequests(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		finalizers []string
+		wantReads  bool
+	}{
+		"tracked with finalizer":    {finalizers: []string{finalizer}},
+		"tracked without finalizer": {wantReads: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			binding := testBinding("nginx", "default/test-pod")
+			binding.Finalizers = tc.finalizers
+
+			pod := testPod(map[string]string{"app": "bound"}, "nginx")
+			pod.Annotations = map[string]string{
+				profilebindingapi.AppliedBindingsAnnotation: "test-binding",
+			}
+
+			c := fake.NewClientBuilder().
+				WithScheme(utiltest.NewScheme(t)).
+				WithStatusSubresource(binding).
+				WithObjects(binding, pod).
+				WithIndex(&profilebindingapi.ProfileBinding{}, linkedPodsKey, bindingIndexFunc).
+				Build()
+
+			reads := 0
+			r := newReconciler(c)
+			r.reader = countingReader{Reader: c, reads: &reads}
+
+			_, err := r.Reconcile(t.Context(), reconcile.Request{
+				NamespacedName: client.ObjectKeyFromObject(pod),
+			})
+			require.NoError(t, err)
+			require.Equal(t, tc.wantReads, reads > 0)
+
+			updated := &profilebindingapi.ProfileBinding{}
+			require.NoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(binding), updated))
+			require.Equal(t, []string{"default/test-pod"}, updated.Status.ActiveWorkloads)
+			require.Contains(t, updated.GetFinalizers(), finalizer)
+		})
+	}
+}
+
+// hookReader calls afterGet after every uncached read with the number of the
+// read.
+type hookReader struct {
+	client.Reader
+
+	reads    *int
+	afterGet func(n int)
+}
+
+func (h hookReader) Get(
+	ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption,
+) error {
+	*h.reads++
+
+	err := h.Reader.Get(ctx, key, obj, opts...)
+
+	h.afterGet(*h.reads)
+
+	return err
+}
+
+// A pod which another reconcile tracks while the last tracked pod gets
+// untracked keeps the finalizer in place. The removal of the finalizer is
+// written for the binding as read, so it conflicts with the concurrent status
+// update, and the retry sees the new pod.
+func TestUntrackPodKeepsFinalizerForConcurrentlyTrackedPod(t *testing.T) {
+	t.Parallel()
+
+	binding := testBinding("nginx", "default/deleted-pod")
+
+	c := fake.NewClientBuilder().
+		WithScheme(utiltest.NewScheme(t)).
+		WithStatusSubresource(binding).
+		WithObjects(binding).
+		WithIndex(&profilebindingapi.ProfileBinding{}, linkedPodsKey, bindingIndexFunc).
+		Build()
+
+	reads := 0
+	r := newReconciler(c)
+	r.reader = hookReader{Reader: c, reads: &reads, afterGet: func(n int) {
+		// The second read checks whether the finalizer can go.
+		if n != 2 {
+			return
+		}
+
+		concurrent := &profilebindingapi.ProfileBinding{}
+		require.NoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(binding), concurrent))
+		concurrent.Status.ActiveWorkloads = append(
+			concurrent.Status.ActiveWorkloads,
+			"default/new-pod",
+		)
+		require.NoError(t, c.Status().Update(t.Context(), concurrent))
+	}}
+
+	_, err := r.Reconcile(t.Context(), reconcile.Request{
+		NamespacedName: client.ObjectKey{Namespace: "default", Name: "deleted-pod"},
+	})
+	require.NoError(t, err)
+	require.Greater(t, reads, 2, "the finalizer removal got retried")
+
+	updated := &profilebindingapi.ProfileBinding{}
+	require.NoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(binding), updated))
+	require.Equal(t, []string{"default/new-pod"}, updated.Status.ActiveWorkloads)
+	require.Contains(t, updated.GetFinalizers(), finalizer)
 }

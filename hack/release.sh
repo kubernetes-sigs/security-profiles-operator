@@ -20,6 +20,15 @@ if [ $# -eq 0 ]; then
     exit 1
 fi
 
+# GNU and BSD sed differ in how -i takes the backup suffix.
+sed_i() {
+    if sed --version >/dev/null 2>&1; then
+        sed -i "$@"
+    else
+        sed -i '' "$@"
+    fi
+}
+
 GIT_ROOT=$(git rev-parse --show-toplevel)
 pushd "$GIT_ROOT" >/dev/null
 
@@ -33,36 +42,36 @@ echo "$VERSION" >VERSION
 
 # Update base kustomization
 FILE=deploy/kustomize-deployment/kustomization.yaml
-sed -i 's;newName: us-central1-docker.pkg.dev;# newName: us-central1-docker.pkg.dev;g' $FILE
-sed -i 's;newTag: latest;# newTag: latest;g' $FILE
-sed -i 's;# newName: registry.k8s.io;newName: registry.k8s.io;g' $FILE
-sed -i 's;# newTag: v.*;newTag: v'"$VERSION"';g' $FILE
+sed_i 's;newName: us-central1-docker.pkg.dev;# newName: us-central1-docker.pkg.dev;g' $FILE
+sed_i 's;newTag: latest;# newTag: latest;g' $FILE
+sed_i 's;# newName: registry.k8s.io;newName: registry.k8s.io;g' $FILE
+sed_i 's;# newTag: v.*;newTag: v'"$VERSION"';g' $FILE
 
 # Update exaxmples
-sed -i 's;image: .*;image: registry.k8s.io/security-profiles-operator/security-profiles-operator-catalog:v'"$VERSION"';g' examples/olm/install-resources.yaml
+sed_i 's;image: .*;image: registry.k8s.io/security-profiles-operator/security-profiles-operator-catalog:v'"$VERSION"';g' examples/olm/install-resources.yaml
 
 # Update e2e tests
 # shellcheck disable=SC2016
-sed -i 's;us-central1-docker.pkg.dev.*catalog.*;registry.k8s.io/security-profiles-operator/security-profiles-operator-catalog:v'"$VERSION"'#${CATALOG_IMG}#g" examples/olm/install-resources.yaml;g' hack/ci/e2e-olm.sh
-sed -i 's;us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/;registry.k8s.io/;g' hack/ci/e2e-olm.sh
-sed -i 's;us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/;registry.k8s.io/;g' test/e2e_test.go
+sed_i 's;us-central1-docker.pkg.dev.*catalog.*;registry.k8s.io/security-profiles-operator/security-profiles-operator-catalog:v'"$VERSION"'#${CATALOG_IMG}#g" examples/olm/install-resources.yaml;g' hack/ci/e2e-olm.sh
+sed_i 's;us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/;registry.k8s.io/;g' hack/ci/e2e-olm.sh
+sed_i 's;us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/;registry.k8s.io/;g' test/e2e_test.go
 # The base profile artifacts are promoted under the project name.
-sed -i 's;us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/base/;registry.k8s.io/security-profiles-operator/base/;g' test/tc_base_profiles_oci_runtime_test.go
+sed_i 's;us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/base/;registry.k8s.io/security-profiles-operator/base/;g' test/tc_base_profiles_oci_runtime_test.go
 
 # Update patches
-sed -i 's;us-central1-docker.pkg.dev.*;registry.k8s.io/security-profiles-operator/security-profiles-operator:v'"$VERSION"';g' hack/deploy-localhost.patch
+sed_i 's;us-central1-docker.pkg.dev.*;registry.k8s.io/security-profiles-operator/security-profiles-operator:v'"$VERSION"';g' hack/deploy-localhost.patch
 
 # Update webhook overlay
 FILE=deploy/overlays/webhook/kustomization.yaml
-sed -i 's;newName: us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator;newName: registry.k8s.io/security-profiles-operator/security-profiles-operator;g' $FILE
-sed -i 's;newTag: latest;newTag: v'"$VERSION"';g' $FILE
+sed_i 's;newName: us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator;newName: registry.k8s.io/security-profiles-operator/security-profiles-operator;g' $FILE
+sed_i 's;newTag: latest;newTag: v'"$VERSION"';g' $FILE
 
 # Update Helm chart values to use release image
 FILE=deploy/helm/values.yaml
-sed -i 's;registry: us-central1-docker.pkg.dev;registry: registry.k8s.io;g' $FILE
-sed -i 's;repository: k8s-staging-images/sp-operator/security-profiles-operator;repository: security-profiles-operator/security-profiles-operator;g' $FILE
-sed -i '0,/tag: latest/{s;tag: latest;tag: v'"$VERSION"';}' $FILE
-sed -i 's;pullPolicy: Always;pullPolicy: IfNotPresent;g' $FILE
+sed_i 's;registry: us-central1-docker.pkg.dev;registry: registry.k8s.io;g' $FILE
+sed_i 's;repository: k8s-staging-images/sp-operator/security-profiles-operator;repository: security-profiles-operator/security-profiles-operator;g' $FILE
+sed_i '0,/tag: latest/{s;tag: latest;tag: v'"$VERSION"';}' $FILE
+sed_i 's;pullPolicy: Always;pullPolicy: IfNotPresent;g' $FILE
 
 # Update dependencies.yaml
 PREVIOUS_VERSION_RE="${PREVIOUS_VERSION//./\\.}"
@@ -73,16 +82,12 @@ FILES=(
     doc/installation.md
 )
 for FILE in "${FILES[@]}"; do
-    sed -i "s;$PREVIOUS_VERSION_RE;$VERSION;g" "$FILE"
+    sed_i "s;$PREVIOUS_VERSION_RE;$VERSION;g" "$FILE"
 done
 
-# Update the release the documentation verifies. The loop above only replaces
-# the previous development version, which the documentation never mentions.
-sed -i -E "s;(export VERSION=v)[0-9]+\.[0-9]+\.[0-9]+;\1$VERSION;" doc/verification.md
-
 # Update the versioned install manifests and the spoc image and version.
-sed -i -E "s;(raw\.githubusercontent\.com/kubernetes-sigs/security-profiles-operator/v)[0-9]+\.[0-9]+\.[0-9]+/;\1$VERSION/;g" doc/installation.md
-sed -i -E \
+sed_i -E "s;(raw\.githubusercontent\.com/kubernetes-sigs/security-profiles-operator/v)[0-9]+\.[0-9]+\.[0-9]+/;\1$VERSION/;g" doc/installation.md
+sed_i -E \
     -e "s;(security-profiles-operator/security-profiles-operator:v)[0-9]+\.[0-9]+\.[0-9]+;\1$VERSION;g" \
     -e "s;^(   v)[0-9]+\.[0-9]+\.[0-9]+\$;\1$VERSION;" \
     doc/cli.md
@@ -92,15 +97,15 @@ PREVIOUS_BADGE="${PREVIOUS_VERSION//-/--}"
 if [ "$PREVIOUS_BADGE" != "$PREVIOUS_VERSION" ]; then
     PREVIOUS_BADGE_RE="${PREVIOUS_BADGE//./\\.}"
     VERSION_BADGE="${VERSION//-/--}"
-    sed -i "s;$PREVIOUS_BADGE_RE;$VERSION_BADGE;g" deploy/helm/README.md
+    sed_i "s;$PREVIOUS_BADGE_RE;$VERSION_BADGE;g" deploy/helm/README.md
 fi
 
 # Update operatorhub replacement
 FILE=deploy/base/clusterserviceversion.yaml
 OPERATOR_VERSION=$(curl -sSfL --retry 5 --retry-delay 3 "https://operatorhub.io/api/operator?packageName=security-profiles-operator" |
     jq -r .operator.name)
-sed -i 's;replaces:.*;replaces: '"$OPERATOR_VERSION"';g' $FILE
-sed -i 's;containerImage:.*;containerImage: registry.k8s.io/security-profiles-operator/security-profiles-operator:v'"$VERSION"';g' $FILE
+sed_i 's;replaces:.*;replaces: '"$OPERATOR_VERSION"';g' $FILE
+sed_i 's;containerImage:.*;containerImage: registry.k8s.io/security-profiles-operator/security-profiles-operator:v'"$VERSION"';g' $FILE
 
 # Stage the sources, because `make bundle` will use `git restore`
 git add .

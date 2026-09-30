@@ -1,0 +1,4 @@
+# bundle.Dockerfile only reads the bundle directory. The main .dockerignore
+# excludes it for the operator image builds.
+*
+!bundle/

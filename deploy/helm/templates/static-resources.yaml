@@ -79,8 +79,11 @@ rules:
   resources:
   - mutatingwebhookconfigurations
   verbs:
+  - get
+  - list
   - patch
   - update
+  - watch
 - apiGroups:
   - admissionregistration.k8s.io
   resources:
@@ -90,9 +93,6 @@ rules:
   - validatingwebhookconfigurations
   verbs:
   - create
-  - get
-  - list
-  - watch
 - apiGroups:
   - admissionregistration.k8s.io
   resourceNames:
@@ -101,7 +101,10 @@ rules:
   - validatingadmissionpolicies
   - validatingadmissionpolicybindings
   verbs:
+  - get
+  - list
   - update
+  - watch
 - apiGroups:
   - admissionregistration.k8s.io
   resourceNames:
@@ -109,8 +112,11 @@ rules:
   resources:
   - validatingwebhookconfigurations
   verbs:
+  - get
+  - list
   - patch
   - update
+  - watch
 - apiGroups:
   - authentication.k8s.io
   resources:
@@ -127,11 +133,16 @@ rules:
   - config.openshift.io
   resources:
   - apiservers
-  - clusteroperators
   verbs:
   - get
   - list
   - watch
+- apiGroups:
+  - config.openshift.io
+  resources:
+  - clusteroperators
+  verbs:
+  - get
 - apiGroups:
   - events.k8s.io
   resources:
@@ -149,7 +160,6 @@ rules:
   verbs:
   - create
   - delete
-  - deletecollection
   - get
   - list
   - patch
@@ -159,25 +169,18 @@ rules:
   - security-profiles-operator.x-k8s.io
   resources:
   - apparmorprofiles/finalizers
-  - rawselinuxprofiles/finalizers
-  - seccompprofiles/finalizers
-  - securityprofilesoperatordaemons/finalizers
-  - selinuxprofiles/finalizers
-  verbs:
-  - delete
-  - get
-  - patch
-  - update
-- apiGroups:
-  - security-profiles-operator.x-k8s.io
-  resources:
   - apparmorprofiles/status
   - profilebindings/finalizers
   - profilebindings/status
+  - profilerecordings/finalizers
   - profilerecordings/status
+  - rawselinuxprofiles/finalizers
   - rawselinuxprofiles/status
+  - seccompprofiles/finalizers
   - seccompprofiles/status
+  - securityprofilesoperatordaemons/finalizers
   - securityprofilesoperatordaemons/status
+  - selinuxprofiles/finalizers
   - selinuxprofiles/status
   verbs:
   - get
@@ -188,7 +191,6 @@ rules:
   resources:
   - profilebindings
   - profilerecordings
-  - profilerecordings/finalizers
   verbs:
   - get
   - list
@@ -293,6 +295,17 @@ rules:
   - update
   - watch
 - apiGroups:
+  - policy
+  resources:
+  - poddisruptionbudgets
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - security.openshift.io
   resourceNames:
   - restricted-v2
@@ -370,6 +383,7 @@ rules:
   resources:
   - apparmorprofiles
   - rawselinuxprofiles
+  - seccompprofiles
   - selinuxprofiles
   verbs:
   - create
@@ -382,21 +396,13 @@ rules:
   - security-profiles-operator.x-k8s.io
   resources:
   - apparmorprofiles/finalizers
-  - rawselinuxprofiles/finalizers
-  - seccompprofiles/finalizers
-  - selinuxprofiles/finalizers
-  verbs:
-  - delete
-  - get
-  - patch
-  - update
-- apiGroups:
-  - security-profiles-operator.x-k8s.io
-  resources:
   - apparmorprofiles/status
+  - rawselinuxprofiles/finalizers
   - rawselinuxprofiles/status
+  - seccompprofiles/finalizers
   - seccompprofiles/status
   - securityprofilenodestatuses/status
+  - selinuxprofiles/finalizers
   - selinuxprofiles/status
   verbs:
   - get
@@ -415,7 +421,6 @@ rules:
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
-  - seccompprofiles
   - securityprofilenodestatuses
   verbs:
   - create
@@ -447,6 +452,13 @@ metadata:
   name: spod
   namespace: '{{ .Release.Namespace }}'
 rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - secrets
+  verbs:
+  - get
 - apiGroups:
   - batch
   resources:
@@ -484,6 +496,12 @@ rules:
   - events
   verbs:
   - create
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
 - apiGroups:
   - authentication.k8s.io
   resources:
@@ -900,6 +918,8 @@ data:
             "epoll_wait",
             "eventfd2",
             "execve",
+            "exit",
+            "exit_group",
             "faccessat2",
             "fchownat",
             "fcntl",
@@ -929,6 +949,7 @@ data:
             "munmap",
             "nanosleep",
             "newfstatat",
+            "open_by_handle_at",
             "openat",
             "perf_event_open",
             "prctl",
@@ -958,6 +979,7 @@ data:
             "tgkill",
             "time",
             "uname",
+            "unlinkat",
             "write"
           ],
           "action": "SCMP_ACT_ALLOW"
@@ -978,7 +1000,9 @@ data:
           allowedCapabilities:
           - bpf
           - chown
+          - dac_read_search
           - perfmon
+          - sys_ptrace
           - sys_resource
         executable:
           allowedExecutables:
@@ -998,13 +1022,15 @@ data:
           - /var/run/secrets/kubernetes.io/serviceaccount/**
           - /var/run/secrets/kubernetes.io/serviceaccount/**
           readWritePaths:
-          - "ptrace (read),\n# ugly template injection hack"
           - /var/run/grpc/bpf-recorder.sock
           - /var/run/grpc/metrics.sock
         network:
           allowedProtocols:
             allowTcp: true
             allowUdp: true
+        ptrace:
+          allowedAccess:
+          - read
       state: Enabled
   json-enricher-log-volume-mount-path: /data/logs/jsonenricher
   json-enricher-log-volume-source.json: |-
@@ -1068,6 +1094,7 @@ data:
             "execve",
             "exit_group",
             "faccessat2",
+            "fchmodat",
             "fcntl",
             "fstat",
             "fstatfs",
@@ -1114,6 +1141,7 @@ data:
             "set_tid_address",
             "setgid",
             "setgroups",
+            "setns",
             "setsockopt",
             "setuid",
             "sigaltstack",
@@ -1229,6 +1257,7 @@ data:
           - mac_admin
           - sys_admin
           - sys_chroot
+          - sys_ptrace
         executable:
           allowedExecutables:
           - /security-profiles-operator
@@ -1248,7 +1277,6 @@ data:
           - /sys/module/apparmor/parameters/enabled
           - /sys/devices/system/cpu/possible
           readWritePaths:
-          - "ptrace (read),  # ugly template injection hack"
           - /var/run/grpc/metrics.sock
           - /tmp/aa_profile_bin_*
           - /etc/apparmor.d/**
@@ -1259,6 +1287,9 @@ data:
           allowedProtocols:
             allowTcp: true
             allowUdp: true
+        ptrace:
+          allowedAccess:
+          - read
       state: Enabled
 kind: ConfigMap
 metadata:

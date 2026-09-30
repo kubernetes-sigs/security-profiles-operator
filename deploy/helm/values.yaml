@@ -7,23 +7,34 @@ spoImage:
   tag: latest
   pullPolicy: Always
 
+# The selinuxd images run privileged on every node, so they are pinned by
+# digest. The tag is only used when the digest is set to an empty string.
+# hack/update-selinuxd.sh bumps the digests.
 selinuxdImage:
   default:
     registry: quay.io
     repository: security-profiles-operator/selinuxd
     tag: latest
+    digest: sha256:f47bd24fb928bd0d168b86147e3536cf555c94fc5b85de3247fd16dad33f9460  # quay.io/security-profiles-operator/selinuxd:latest
   el8:
     registry: quay.io
     repository: security-profiles-operator/selinuxd-el8
     tag: latest
+    digest: sha256:e6e7febc76f5f032d42d35b98cc651354dd14ac5ae7b2a7d7403222788e41e4d  # quay.io/security-profiles-operator/selinuxd-el8:latest
   el9:
     registry: quay.io
     repository: security-profiles-operator/selinuxd-el9
     tag: latest
+    digest: sha256:cddbd306c48ee8d19b8fb07b2acda1ee99cb3f1d9c3988f828d24b4f2de5ad3c  # quay.io/security-profiles-operator/selinuxd-el9:latest
   fedora:
     registry: quay.io
     repository: security-profiles-operator/selinuxd-fedora
     tag: latest
+    digest: sha256:a5c36469e66bc44c32fc36d8d23571ed8903430233d32136b6272013a535627d  # quay.io/security-profiles-operator/selinuxd-fedora:latest
+
+# The kubelet root directory of the nodes, where the seccomp profiles get
+# installed.
+kubeletDir: /var/lib/kubelet
 
 # Deprecated, use selinux.enable instead
 enableSelinux: false
@@ -93,6 +104,24 @@ daemon:
 # it is scaled externally
 autoscaling:
   enabled: false
+
+# Keeps at least minAvailable operator replicas running during voluntary
+# disruptions like node drains, so that the operands keep getting reconciled.
+# With a single replica, minAvailable 1 blocks the drain of its node.
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Spreads the operator replicas across nodes and zones where possible, so that
+# a single failure does not take down every replica. Constraints without a
+# labelSelector get the selector labels of the operator pods.
+topologySpreadConstraints:
+- maxSkew: 1
+  topologyKey: kubernetes.io/hostname
+  whenUnsatisfiable: ScheduleAnyway
+- maxSkew: 1
+  topologyKey: topology.kubernetes.io/zone
+  whenUnsatisfiable: ScheduleAnyway
 
 nodeSelector: {}
 

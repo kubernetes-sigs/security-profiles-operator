@@ -31,17 +31,16 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/jellydator/ttlcache/v3"
-	"github.com/nxadm/tail"
 	"google.golang.org/grpc"
-	v1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
 	api "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/auditsource"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/tailer"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/podindex"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -64,14 +63,15 @@ type impl interface {
 	Close(*grpc.ClientConn) error
 	StartTail(src auditsource.AuditLineSource) (chan *types.AuditLine, error)
 	TailErr(src auditsource.AuditLineSource) error
-	TailFile(filename string, config tail.Config) (*tail.Tail, error)
-	Lines(tailFile *tail.Tail) chan *tail.Line
-	Reason(tailFile *tail.Tail) error
+	TailFile(filename string, config tailer.Config) (*tailer.Tailer, error)
+	Lines(tailFile *tailer.Tailer) <-chan string
+	Reason(tailFile *tailer.Tailer) error
+	StopTail(tailFile *tailer.Tailer)
 	ContainerIDForPID(cache *ttlcache.Cache[string, string], pid int) (string, error)
 	InClusterConfig() (*rest.Config, error)
 	NewForConfig(c *rest.Config) (*kubernetes.Clientset, error)
-	ListPods(ctx context.Context, c kubernetes.Interface, nodeName string) (*v1.PodList, error)
-	AuditInc(client api.MetricsClient) (api.Metrics_AuditIncClient, error)
+	PodListerWatcher(c kubernetes.Interface, nodeName string) podindex.ListerWatcher
+	AuditInc(ctx context.Context, client api.MetricsClient) (api.Metrics_AuditIncClient, error)
 	SendMetric(client api.Metrics_AuditIncClient, in *api.AuditRequest) error
 	Listen(string, string) (net.Listener, error)
 	Serve(*grpc.Server, net.Listener) error
@@ -101,17 +101,21 @@ func (d *defaultImpl) TailErr(src auditsource.AuditLineSource) error {
 }
 
 func (d *defaultImpl) TailFile(
-	filename string, config tail.Config,
-) (*tail.Tail, error) {
-	return tail.TailFile(filename, config)
+	filename string, config tailer.Config,
+) (*tailer.Tailer, error) {
+	return tailer.Follow(filename, config)
 }
 
-func (d *defaultImpl) Lines(tailFile *tail.Tail) chan *tail.Line {
-	return tailFile.Lines
+func (d *defaultImpl) Lines(tailFile *tailer.Tailer) <-chan string {
+	return tailFile.Lines()
 }
 
-func (d *defaultImpl) Reason(tailFile *tail.Tail) error {
+func (d *defaultImpl) Reason(tailFile *tailer.Tailer) error {
 	return tailFile.Err()
+}
+
+func (d *defaultImpl) StopTail(tailFile *tailer.Tailer) {
+	tailFile.Stop()
 }
 
 func (d *defaultImpl) ProcessStartTime(pid int) (time.Duration, error) {
@@ -135,18 +139,16 @@ func (d *defaultImpl) NewForConfig(
 	return kubernetes.NewForConfig(c)
 }
 
-func (d *defaultImpl) ListPods(
-	ctx context.Context, c kubernetes.Interface, nodeName string,
-) (*v1.PodList, error) {
-	return c.CoreV1().Pods("").List(ctx, metav1.ListOptions{
-		FieldSelector: "spec.nodeName=" + nodeName,
-	})
+func (d *defaultImpl) PodListerWatcher(
+	c kubernetes.Interface, nodeName string,
+) podindex.ListerWatcher {
+	return podindex.NewListerWatcher(c, nodeName)
 }
 
 func (d *defaultImpl) AuditInc(
-	client api.MetricsClient,
+	ctx context.Context, client api.MetricsClient,
 ) (api.Metrics_AuditIncClient, error) {
-	return client.AuditInc(context.Background())
+	return client.AuditInc(ctx)
 }
 
 func (d *defaultImpl) SendMetric(

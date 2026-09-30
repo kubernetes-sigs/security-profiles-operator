@@ -31,10 +31,10 @@ import (
 	ttlcache "github.com/jellydator/ttlcache/v3"
 	seccomp "github.com/seccomp/libseccomp-golang"
 	"google.golang.org/grpc"
-	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	api_metrics "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/podindex"
 )
 
 type FakeImpl struct {
@@ -50,6 +50,16 @@ type FakeImpl struct {
 	attachGenericReturnsOnCall map[int]struct {
 		result1 *libbpfgo.BPFLink
 		result2 error
+	}
+	BPFLSMEnabledStub        func() bool
+	bPFLSMEnabledMutex       sync.RWMutex
+	bPFLSMEnabledArgsForCall []struct {
+	}
+	bPFLSMEnabledReturns struct {
+		result1 bool
+	}
+	bPFLSMEnabledReturnsOnCall map[int]struct {
+		result1 bool
 	}
 	BPFLoadObjectStub        func(*libbpfgo.Module) error
 	bPFLoadObjectMutex       sync.RWMutex
@@ -84,10 +94,11 @@ type FakeImpl struct {
 	bPFMapIteratorNextReturnsOnCall map[int]struct {
 		result1 bool
 	}
-	BpfIncClientStub        func(api_metrics.MetricsClient) (api_metrics.Metrics_BpfIncClient, error)
+	BpfIncClientStub        func(context.Context, api_metrics.MetricsClient) (api_metrics.Metrics_BpfIncClient, error)
 	bpfIncClientMutex       sync.RWMutex
 	bpfIncClientArgsForCall []struct {
-		arg1 api_metrics.MetricsClient
+		arg1 context.Context
+		arg2 api_metrics.MetricsClient
 	}
 	bpfIncClientReturns struct {
 		result1 api_metrics.Metrics_BpfIncClient
@@ -133,6 +144,11 @@ type FakeImpl struct {
 	}
 	closeGRPCReturnsOnCall map[int]struct {
 		result1 error
+	}
+	CloseModuleStub        func(*libbpfgo.Module)
+	closeModuleMutex       sync.RWMutex
+	closeModuleArgsForCall []struct {
+		arg1 *libbpfgo.Module
 	}
 	ContainerIDForPIDStub        func(*ttlcache.Cache[string, string], int) (string, error)
 	containerIDForPIDMutex       sync.RWMutex
@@ -183,6 +199,17 @@ type FakeImpl struct {
 		result1 error
 	}
 	deleteKey64ReturnsOnCall map[int]struct {
+		result1 error
+	}
+	DestroyLinkStub        func(*libbpfgo.BPFLink) error
+	destroyLinkMutex       sync.RWMutex
+	destroyLinkArgsForCall []struct {
+		arg1 *libbpfgo.BPFLink
+	}
+	destroyLinkReturns struct {
+		result1 error
+	}
+	destroyLinkReturnsOnCall map[int]struct {
 		result1 error
 	}
 	DialMetricsStub        func() (*grpc.ClientConn, error)
@@ -316,21 +343,6 @@ type FakeImpl struct {
 	isCgroupV2ReturnsOnCall map[int]struct {
 		result1 bool
 	}
-	ListPodsStub        func(context.Context, *kubernetes.Clientset, string) (*v1.PodList, error)
-	listPodsMutex       sync.RWMutex
-	listPodsArgsForCall []struct {
-		arg1 context.Context
-		arg2 *kubernetes.Clientset
-		arg3 string
-	}
-	listPodsReturns struct {
-		result1 *v1.PodList
-		result2 error
-	}
-	listPodsReturnsOnCall map[int]struct {
-		result1 *v1.PodList
-		result2 error
-	}
 	ListenStub        func(string, string) (net.Listener, error)
 	listenMutex       sync.RWMutex
 	listenArgsForCall []struct {
@@ -384,11 +396,34 @@ type FakeImpl struct {
 		result1 *libbpfgo.Module
 		result2 error
 	}
+	PodListerWatcherStub        func(kubernetes.Interface, string) podindex.ListerWatcher
+	podListerWatcherMutex       sync.RWMutex
+	podListerWatcherArgsForCall []struct {
+		arg1 kubernetes.Interface
+		arg2 string
+	}
+	podListerWatcherReturns struct {
+		result1 podindex.ListerWatcher
+	}
+	podListerWatcherReturnsOnCall map[int]struct {
+		result1 podindex.ListerWatcher
+	}
 	PollRingBufferStub        func(*libbpfgo.RingBuffer, int)
 	pollRingBufferMutex       sync.RWMutex
 	pollRingBufferArgsForCall []struct {
 		arg1 *libbpfgo.RingBuffer
 		arg2 int
+	}
+	ProgramNamesStub        func(*libbpfgo.Module) []string
+	programNamesMutex       sync.RWMutex
+	programNamesArgsForCall []struct {
+		arg1 *libbpfgo.Module
+	}
+	programNamesReturns struct {
+		result1 []string
+	}
+	programNamesReturnsOnCall map[int]struct {
+		result1 []string
 	}
 	ReadlinkStub        func(string) (string, error)
 	readlinkMutex       sync.RWMutex
@@ -436,6 +471,18 @@ type FakeImpl struct {
 		result1 error
 	}
 	serveReturnsOnCall map[int]struct {
+		result1 error
+	}
+	SetAutoloadStub        func(*libbpfgo.BPFProg, bool) error
+	setAutoloadMutex       sync.RWMutex
+	setAutoloadArgsForCall []struct {
+		arg1 *libbpfgo.BPFProg
+		arg2 bool
+	}
+	setAutoloadReturns struct {
+		result1 error
+	}
+	setAutoloadReturnsOnCall map[int]struct {
 		result1 error
 	}
 	StatStub        func(string) (os.FileInfo, error)
@@ -568,6 +615,59 @@ func (fake *FakeImpl) AttachGenericReturnsOnCall(i int, result1 *libbpfgo.BPFLin
 		result1 *libbpfgo.BPFLink
 		result2 error
 	}{result1, result2}
+}
+
+func (fake *FakeImpl) BPFLSMEnabled() bool {
+	fake.bPFLSMEnabledMutex.Lock()
+	ret, specificReturn := fake.bPFLSMEnabledReturnsOnCall[len(fake.bPFLSMEnabledArgsForCall)]
+	fake.bPFLSMEnabledArgsForCall = append(fake.bPFLSMEnabledArgsForCall, struct {
+	}{})
+	stub := fake.BPFLSMEnabledStub
+	fakeReturns := fake.bPFLSMEnabledReturns
+	fake.recordInvocation("BPFLSMEnabled", []interface{}{})
+	fake.bPFLSMEnabledMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) BPFLSMEnabledCallCount() int {
+	fake.bPFLSMEnabledMutex.RLock()
+	defer fake.bPFLSMEnabledMutex.RUnlock()
+	return len(fake.bPFLSMEnabledArgsForCall)
+}
+
+func (fake *FakeImpl) BPFLSMEnabledCalls(stub func() bool) {
+	fake.bPFLSMEnabledMutex.Lock()
+	defer fake.bPFLSMEnabledMutex.Unlock()
+	fake.BPFLSMEnabledStub = stub
+}
+
+func (fake *FakeImpl) BPFLSMEnabledReturns(result1 bool) {
+	fake.bPFLSMEnabledMutex.Lock()
+	defer fake.bPFLSMEnabledMutex.Unlock()
+	fake.BPFLSMEnabledStub = nil
+	fake.bPFLSMEnabledReturns = struct {
+		result1 bool
+	}{result1}
+}
+
+func (fake *FakeImpl) BPFLSMEnabledReturnsOnCall(i int, result1 bool) {
+	fake.bPFLSMEnabledMutex.Lock()
+	defer fake.bPFLSMEnabledMutex.Unlock()
+	fake.BPFLSMEnabledStub = nil
+	if fake.bPFLSMEnabledReturnsOnCall == nil {
+		fake.bPFLSMEnabledReturnsOnCall = make(map[int]struct {
+			result1 bool
+		})
+	}
+	fake.bPFLSMEnabledReturnsOnCall[i] = struct {
+		result1 bool
+	}{result1}
 }
 
 func (fake *FakeImpl) BPFLoadObject(arg1 *libbpfgo.Module) error {
@@ -753,18 +853,19 @@ func (fake *FakeImpl) BPFMapIteratorNextReturnsOnCall(i int, result1 bool) {
 	}{result1}
 }
 
-func (fake *FakeImpl) BpfIncClient(arg1 api_metrics.MetricsClient) (api_metrics.Metrics_BpfIncClient, error) {
+func (fake *FakeImpl) BpfIncClient(arg1 context.Context, arg2 api_metrics.MetricsClient) (api_metrics.Metrics_BpfIncClient, error) {
 	fake.bpfIncClientMutex.Lock()
 	ret, specificReturn := fake.bpfIncClientReturnsOnCall[len(fake.bpfIncClientArgsForCall)]
 	fake.bpfIncClientArgsForCall = append(fake.bpfIncClientArgsForCall, struct {
-		arg1 api_metrics.MetricsClient
-	}{arg1})
+		arg1 context.Context
+		arg2 api_metrics.MetricsClient
+	}{arg1, arg2})
 	stub := fake.BpfIncClientStub
 	fakeReturns := fake.bpfIncClientReturns
-	fake.recordInvocation("BpfIncClient", []interface{}{arg1})
+	fake.recordInvocation("BpfIncClient", []interface{}{arg1, arg2})
 	fake.bpfIncClientMutex.Unlock()
 	if stub != nil {
-		return stub(arg1)
+		return stub(arg1, arg2)
 	}
 	if specificReturn {
 		return ret.result1, ret.result2
@@ -778,17 +879,17 @@ func (fake *FakeImpl) BpfIncClientCallCount() int {
 	return len(fake.bpfIncClientArgsForCall)
 }
 
-func (fake *FakeImpl) BpfIncClientCalls(stub func(api_metrics.MetricsClient) (api_metrics.Metrics_BpfIncClient, error)) {
+func (fake *FakeImpl) BpfIncClientCalls(stub func(context.Context, api_metrics.MetricsClient) (api_metrics.Metrics_BpfIncClient, error)) {
 	fake.bpfIncClientMutex.Lock()
 	defer fake.bpfIncClientMutex.Unlock()
 	fake.BpfIncClientStub = stub
 }
 
-func (fake *FakeImpl) BpfIncClientArgsForCall(i int) api_metrics.MetricsClient {
+func (fake *FakeImpl) BpfIncClientArgsForCall(i int) (context.Context, api_metrics.MetricsClient) {
 	fake.bpfIncClientMutex.RLock()
 	defer fake.bpfIncClientMutex.RUnlock()
 	argsForCall := fake.bpfIncClientArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.arg1, argsForCall.arg2
 }
 
 func (fake *FakeImpl) BpfIncClientReturns(result1 api_metrics.Metrics_BpfIncClient, result2 error) {
@@ -1003,6 +1104,38 @@ func (fake *FakeImpl) CloseGRPCReturnsOnCall(i int, result1 error) {
 	fake.closeGRPCReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
+}
+
+func (fake *FakeImpl) CloseModule(arg1 *libbpfgo.Module) {
+	fake.closeModuleMutex.Lock()
+	fake.closeModuleArgsForCall = append(fake.closeModuleArgsForCall, struct {
+		arg1 *libbpfgo.Module
+	}{arg1})
+	stub := fake.CloseModuleStub
+	fake.recordInvocation("CloseModule", []interface{}{arg1})
+	fake.closeModuleMutex.Unlock()
+	if stub != nil {
+		fake.CloseModuleStub(arg1)
+	}
+}
+
+func (fake *FakeImpl) CloseModuleCallCount() int {
+	fake.closeModuleMutex.RLock()
+	defer fake.closeModuleMutex.RUnlock()
+	return len(fake.closeModuleArgsForCall)
+}
+
+func (fake *FakeImpl) CloseModuleCalls(stub func(*libbpfgo.Module)) {
+	fake.closeModuleMutex.Lock()
+	defer fake.closeModuleMutex.Unlock()
+	fake.CloseModuleStub = stub
+}
+
+func (fake *FakeImpl) CloseModuleArgsForCall(i int) *libbpfgo.Module {
+	fake.closeModuleMutex.RLock()
+	defer fake.closeModuleMutex.RUnlock()
+	argsForCall := fake.closeModuleArgsForCall[i]
+	return argsForCall.arg1
 }
 
 func (fake *FakeImpl) ContainerIDForPID(arg1 *ttlcache.Cache[string, string], arg2 int) (string, error) {
@@ -1253,6 +1386,67 @@ func (fake *FakeImpl) DeleteKey64ReturnsOnCall(i int, result1 error) {
 		})
 	}
 	fake.deleteKey64ReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) DestroyLink(arg1 *libbpfgo.BPFLink) error {
+	fake.destroyLinkMutex.Lock()
+	ret, specificReturn := fake.destroyLinkReturnsOnCall[len(fake.destroyLinkArgsForCall)]
+	fake.destroyLinkArgsForCall = append(fake.destroyLinkArgsForCall, struct {
+		arg1 *libbpfgo.BPFLink
+	}{arg1})
+	stub := fake.DestroyLinkStub
+	fakeReturns := fake.destroyLinkReturns
+	fake.recordInvocation("DestroyLink", []interface{}{arg1})
+	fake.destroyLinkMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) DestroyLinkCallCount() int {
+	fake.destroyLinkMutex.RLock()
+	defer fake.destroyLinkMutex.RUnlock()
+	return len(fake.destroyLinkArgsForCall)
+}
+
+func (fake *FakeImpl) DestroyLinkCalls(stub func(*libbpfgo.BPFLink) error) {
+	fake.destroyLinkMutex.Lock()
+	defer fake.destroyLinkMutex.Unlock()
+	fake.DestroyLinkStub = stub
+}
+
+func (fake *FakeImpl) DestroyLinkArgsForCall(i int) *libbpfgo.BPFLink {
+	fake.destroyLinkMutex.RLock()
+	defer fake.destroyLinkMutex.RUnlock()
+	argsForCall := fake.destroyLinkArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeImpl) DestroyLinkReturns(result1 error) {
+	fake.destroyLinkMutex.Lock()
+	defer fake.destroyLinkMutex.Unlock()
+	fake.DestroyLinkStub = nil
+	fake.destroyLinkReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) DestroyLinkReturnsOnCall(i int, result1 error) {
+	fake.destroyLinkMutex.Lock()
+	defer fake.destroyLinkMutex.Unlock()
+	fake.DestroyLinkStub = nil
+	if fake.destroyLinkReturnsOnCall == nil {
+		fake.destroyLinkReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.destroyLinkReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
 }
@@ -1875,72 +2069,6 @@ func (fake *FakeImpl) IsCgroupV2ReturnsOnCall(i int, result1 bool) {
 	}{result1}
 }
 
-func (fake *FakeImpl) ListPods(arg1 context.Context, arg2 *kubernetes.Clientset, arg3 string) (*v1.PodList, error) {
-	fake.listPodsMutex.Lock()
-	ret, specificReturn := fake.listPodsReturnsOnCall[len(fake.listPodsArgsForCall)]
-	fake.listPodsArgsForCall = append(fake.listPodsArgsForCall, struct {
-		arg1 context.Context
-		arg2 *kubernetes.Clientset
-		arg3 string
-	}{arg1, arg2, arg3})
-	stub := fake.ListPodsStub
-	fakeReturns := fake.listPodsReturns
-	fake.recordInvocation("ListPods", []interface{}{arg1, arg2, arg3})
-	fake.listPodsMutex.Unlock()
-	if stub != nil {
-		return stub(arg1, arg2, arg3)
-	}
-	if specificReturn {
-		return ret.result1, ret.result2
-	}
-	return fakeReturns.result1, fakeReturns.result2
-}
-
-func (fake *FakeImpl) ListPodsCallCount() int {
-	fake.listPodsMutex.RLock()
-	defer fake.listPodsMutex.RUnlock()
-	return len(fake.listPodsArgsForCall)
-}
-
-func (fake *FakeImpl) ListPodsCalls(stub func(context.Context, *kubernetes.Clientset, string) (*v1.PodList, error)) {
-	fake.listPodsMutex.Lock()
-	defer fake.listPodsMutex.Unlock()
-	fake.ListPodsStub = stub
-}
-
-func (fake *FakeImpl) ListPodsArgsForCall(i int) (context.Context, *kubernetes.Clientset, string) {
-	fake.listPodsMutex.RLock()
-	defer fake.listPodsMutex.RUnlock()
-	argsForCall := fake.listPodsArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
-}
-
-func (fake *FakeImpl) ListPodsReturns(result1 *v1.PodList, result2 error) {
-	fake.listPodsMutex.Lock()
-	defer fake.listPodsMutex.Unlock()
-	fake.ListPodsStub = nil
-	fake.listPodsReturns = struct {
-		result1 *v1.PodList
-		result2 error
-	}{result1, result2}
-}
-
-func (fake *FakeImpl) ListPodsReturnsOnCall(i int, result1 *v1.PodList, result2 error) {
-	fake.listPodsMutex.Lock()
-	defer fake.listPodsMutex.Unlock()
-	fake.ListPodsStub = nil
-	if fake.listPodsReturnsOnCall == nil {
-		fake.listPodsReturnsOnCall = make(map[int]struct {
-			result1 *v1.PodList
-			result2 error
-		})
-	}
-	fake.listPodsReturnsOnCall[i] = struct {
-		result1 *v1.PodList
-		result2 error
-	}{result1, result2}
-}
-
 func (fake *FakeImpl) Listen(arg1 string, arg2 string) (net.Listener, error) {
 	fake.listenMutex.Lock()
 	ret, specificReturn := fake.listenReturnsOnCall[len(fake.listenArgsForCall)]
@@ -2198,6 +2326,68 @@ func (fake *FakeImpl) NewModuleFromBufferArgsReturnsOnCall(i int, result1 *libbp
 	}{result1, result2}
 }
 
+func (fake *FakeImpl) PodListerWatcher(arg1 kubernetes.Interface, arg2 string) podindex.ListerWatcher {
+	fake.podListerWatcherMutex.Lock()
+	ret, specificReturn := fake.podListerWatcherReturnsOnCall[len(fake.podListerWatcherArgsForCall)]
+	fake.podListerWatcherArgsForCall = append(fake.podListerWatcherArgsForCall, struct {
+		arg1 kubernetes.Interface
+		arg2 string
+	}{arg1, arg2})
+	stub := fake.PodListerWatcherStub
+	fakeReturns := fake.podListerWatcherReturns
+	fake.recordInvocation("PodListerWatcher", []interface{}{arg1, arg2})
+	fake.podListerWatcherMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) PodListerWatcherCallCount() int {
+	fake.podListerWatcherMutex.RLock()
+	defer fake.podListerWatcherMutex.RUnlock()
+	return len(fake.podListerWatcherArgsForCall)
+}
+
+func (fake *FakeImpl) PodListerWatcherCalls(stub func(kubernetes.Interface, string) podindex.ListerWatcher) {
+	fake.podListerWatcherMutex.Lock()
+	defer fake.podListerWatcherMutex.Unlock()
+	fake.PodListerWatcherStub = stub
+}
+
+func (fake *FakeImpl) PodListerWatcherArgsForCall(i int) (kubernetes.Interface, string) {
+	fake.podListerWatcherMutex.RLock()
+	defer fake.podListerWatcherMutex.RUnlock()
+	argsForCall := fake.podListerWatcherArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *FakeImpl) PodListerWatcherReturns(result1 podindex.ListerWatcher) {
+	fake.podListerWatcherMutex.Lock()
+	defer fake.podListerWatcherMutex.Unlock()
+	fake.PodListerWatcherStub = nil
+	fake.podListerWatcherReturns = struct {
+		result1 podindex.ListerWatcher
+	}{result1}
+}
+
+func (fake *FakeImpl) PodListerWatcherReturnsOnCall(i int, result1 podindex.ListerWatcher) {
+	fake.podListerWatcherMutex.Lock()
+	defer fake.podListerWatcherMutex.Unlock()
+	fake.PodListerWatcherStub = nil
+	if fake.podListerWatcherReturnsOnCall == nil {
+		fake.podListerWatcherReturnsOnCall = make(map[int]struct {
+			result1 podindex.ListerWatcher
+		})
+	}
+	fake.podListerWatcherReturnsOnCall[i] = struct {
+		result1 podindex.ListerWatcher
+	}{result1}
+}
+
 func (fake *FakeImpl) PollRingBuffer(arg1 *libbpfgo.RingBuffer, arg2 int) {
 	fake.pollRingBufferMutex.Lock()
 	fake.pollRingBufferArgsForCall = append(fake.pollRingBufferArgsForCall, struct {
@@ -2229,6 +2419,67 @@ func (fake *FakeImpl) PollRingBufferArgsForCall(i int) (*libbpfgo.RingBuffer, in
 	defer fake.pollRingBufferMutex.RUnlock()
 	argsForCall := fake.pollRingBufferArgsForCall[i]
 	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *FakeImpl) ProgramNames(arg1 *libbpfgo.Module) []string {
+	fake.programNamesMutex.Lock()
+	ret, specificReturn := fake.programNamesReturnsOnCall[len(fake.programNamesArgsForCall)]
+	fake.programNamesArgsForCall = append(fake.programNamesArgsForCall, struct {
+		arg1 *libbpfgo.Module
+	}{arg1})
+	stub := fake.ProgramNamesStub
+	fakeReturns := fake.programNamesReturns
+	fake.recordInvocation("ProgramNames", []interface{}{arg1})
+	fake.programNamesMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) ProgramNamesCallCount() int {
+	fake.programNamesMutex.RLock()
+	defer fake.programNamesMutex.RUnlock()
+	return len(fake.programNamesArgsForCall)
+}
+
+func (fake *FakeImpl) ProgramNamesCalls(stub func(*libbpfgo.Module) []string) {
+	fake.programNamesMutex.Lock()
+	defer fake.programNamesMutex.Unlock()
+	fake.ProgramNamesStub = stub
+}
+
+func (fake *FakeImpl) ProgramNamesArgsForCall(i int) *libbpfgo.Module {
+	fake.programNamesMutex.RLock()
+	defer fake.programNamesMutex.RUnlock()
+	argsForCall := fake.programNamesArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeImpl) ProgramNamesReturns(result1 []string) {
+	fake.programNamesMutex.Lock()
+	defer fake.programNamesMutex.Unlock()
+	fake.ProgramNamesStub = nil
+	fake.programNamesReturns = struct {
+		result1 []string
+	}{result1}
+}
+
+func (fake *FakeImpl) ProgramNamesReturnsOnCall(i int, result1 []string) {
+	fake.programNamesMutex.Lock()
+	defer fake.programNamesMutex.Unlock()
+	fake.ProgramNamesStub = nil
+	if fake.programNamesReturnsOnCall == nil {
+		fake.programNamesReturnsOnCall = make(map[int]struct {
+			result1 []string
+		})
+	}
+	fake.programNamesReturnsOnCall[i] = struct {
+		result1 []string
+	}{result1}
 }
 
 func (fake *FakeImpl) Readlink(arg1 string) (string, error) {
@@ -2476,6 +2727,68 @@ func (fake *FakeImpl) ServeReturnsOnCall(i int, result1 error) {
 		})
 	}
 	fake.serveReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) SetAutoload(arg1 *libbpfgo.BPFProg, arg2 bool) error {
+	fake.setAutoloadMutex.Lock()
+	ret, specificReturn := fake.setAutoloadReturnsOnCall[len(fake.setAutoloadArgsForCall)]
+	fake.setAutoloadArgsForCall = append(fake.setAutoloadArgsForCall, struct {
+		arg1 *libbpfgo.BPFProg
+		arg2 bool
+	}{arg1, arg2})
+	stub := fake.SetAutoloadStub
+	fakeReturns := fake.setAutoloadReturns
+	fake.recordInvocation("SetAutoload", []interface{}{arg1, arg2})
+	fake.setAutoloadMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) SetAutoloadCallCount() int {
+	fake.setAutoloadMutex.RLock()
+	defer fake.setAutoloadMutex.RUnlock()
+	return len(fake.setAutoloadArgsForCall)
+}
+
+func (fake *FakeImpl) SetAutoloadCalls(stub func(*libbpfgo.BPFProg, bool) error) {
+	fake.setAutoloadMutex.Lock()
+	defer fake.setAutoloadMutex.Unlock()
+	fake.SetAutoloadStub = stub
+}
+
+func (fake *FakeImpl) SetAutoloadArgsForCall(i int) (*libbpfgo.BPFProg, bool) {
+	fake.setAutoloadMutex.RLock()
+	defer fake.setAutoloadMutex.RUnlock()
+	argsForCall := fake.setAutoloadArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *FakeImpl) SetAutoloadReturns(result1 error) {
+	fake.setAutoloadMutex.Lock()
+	defer fake.setAutoloadMutex.Unlock()
+	fake.SetAutoloadStub = nil
+	fake.setAutoloadReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) SetAutoloadReturnsOnCall(i int, result1 error) {
+	fake.setAutoloadMutex.Lock()
+	defer fake.setAutoloadMutex.Unlock()
+	fake.SetAutoloadStub = nil
+	if fake.setAutoloadReturnsOnCall == nil {
+		fake.setAutoloadReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.setAutoloadReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
 }

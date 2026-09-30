@@ -24,12 +24,12 @@ import (
 	goruntime "runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jellydator/ttlcache/v3"
 	"github.com/stretchr/testify/require"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -49,6 +50,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/seccompprofile/seccompprofilefakes"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/nodestatus"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/utiltest"
 )
 
 const (
@@ -58,17 +60,6 @@ const (
 )
 
 var testProfileKey = types.NamespacedName{Namespace: testNamespace, Name: testProfile}
-
-func testScheme(t *testing.T) *runtime.Scheme {
-	t.Helper()
-
-	scheme := runtime.NewScheme()
-	require.NoError(t, seccompprofileapi.AddToScheme(scheme))
-	require.NoError(t, secprofnodestatusapi.AddToScheme(scheme))
-	require.NoError(t, spodapi.AddToScheme(scheme))
-
-	return scheme
-}
 
 func newTestProfile() *seccompprofileapi.SeccompProfile {
 	return &seccompprofileapi.SeccompProfile{
@@ -107,7 +98,7 @@ type reconcileEnv struct {
 func newReconcileEnv(t *testing.T, objs ...client.Object) *reconcileEnv {
 	t.Helper()
 
-	scheme := testScheme(t)
+	scheme := utiltest.NewScheme(t)
 
 	// The node status name and labels are derived from the kind of the
 	// profile object. The fake client clears the TypeMeta of typed objects
@@ -358,6 +349,57 @@ func TestReconcileSeccompProfileNotAllowed(t *testing.T) {
 	// Rejected profiles show the error and do not get a file on disk.
 	require.Equal(t, secprofnodestatusapi.ProfileStateError, env.nodeStatus(t).Status.Status)
 	require.Empty(t, env.saved)
+}
+
+// A profile which gets rejected after it was installed, for example because
+// the allow list got tightened, must not stay usable on the node.
+func TestReconcileSeccompProfileNotAllowedRemovesInstalledFile(t *testing.T) {
+	t.Parallel()
+
+	env := newReconcileEnv(t, newTestProfile())
+	env.rec.profileRoot = t.TempDir()
+	env.rec.save = saveProfileOnDisk
+
+	for range 2 {
+		_, err := env.reconcile(t)
+		require.NoError(t, err)
+	}
+
+	sp := &seccompprofileapi.SeccompProfile{}
+	require.NoError(t, env.cli.Get(t.Context(), testProfileKey, sp))
+
+	profilePath := env.rec.profilePath(sp)
+	require.FileExists(t, profilePath)
+	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, env.nodeStatus(t).Status.Status)
+	env.events()
+
+	env.impl.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
+		Spec: spodapi.SPODSpec{
+			Security: spodapi.SPODSecurityConfig{AllowedSyscalls: []string{"read"}},
+		},
+	}, nil)
+
+	res, err := env.reconcile(t)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{}, res)
+	require.NoFileExists(t, profilePath)
+	require.Equal(t, secprofnodestatusapi.ProfileStateError, env.nodeStatus(t).Status.Status)
+
+	evs := env.events()
+	require.Len(t, evs, 1)
+	require.True(t, strings.HasPrefix(evs[0], "Warning "+reasonProfileNotAllowed+" "), evs[0])
+
+	// A rejected profile keeps the file of another profile which owns it.
+	owner := newTestProfile()
+	owner.Name = testProfile + seccompprofileapi.ExtJSON
+	owner.CreationTimestamp = metav1.NewTime(sp.GetCreationTimestamp().Add(-time.Hour))
+	require.NoError(t, env.cli.Create(t.Context(), owner))
+	require.NoError(t, os.WriteFile(profilePath, []byte("owner"), 0o600))
+
+	_, err = env.reconcile(t)
+	require.NoError(t, err)
+	require.FileExists(t, profilePath)
+	require.Equal(t, secprofnodestatusapi.ProfileStateError, env.nodeStatus(t).Status.Status)
 }
 
 func TestReconcileSeccompProfileGetSPODError(t *testing.T) {
@@ -661,7 +703,7 @@ func TestReconcileSeccompProfileFileConflict(t *testing.T) {
 	ownerFile := env.rec.profilePath(owner)
 	require.NoError(t, os.WriteFile(ownerFile, []byte("owner"), 0o600))
 
-	require.NoError(t, env.rec.handleDeletion(t.Context(), conflicting))
+	require.NoError(t, env.rec.handleDeletion(t.Context(), conflicting, log.Log))
 
 	content, err := os.ReadFile(ownerFile)
 	require.NoError(t, err)
@@ -674,7 +716,7 @@ func TestReconcileSeccompProfileFileConflict(t *testing.T) {
 
 	now := metav1.Now()
 	storedOwner.DeletionTimestamp = &now
-	require.NoError(t, env.rec.handleDeletion(t.Context(), storedOwner))
+	require.NoError(t, env.rec.handleDeletion(t.Context(), storedOwner, log.Log))
 	require.FileExists(t, ownerFile)
 }
 
@@ -819,6 +861,9 @@ func TestReconcileSeccompProfileDeletionInUse(t *testing.T) {
 	require.Equal(t, secprofnodestatusapi.ProfileStateTerminating, env.nodeStatus(t).Status.Status)
 }
 
+// The daemon only enqueues the profiles when the allow lists change. The
+// manager deletes the ones which are not allowed anymore, once for the
+// cluster.
 func TestHandleAllowedSyscallsChanged(t *testing.T) {
 	t.Parallel()
 
@@ -844,14 +889,11 @@ func TestHandleAllowedSyscallsChanged(t *testing.T) {
 		name         string
 		obj          client.Object
 		wantRequests []string
-		wantDeleted  []string
-		wantEvent    string
 	}{
 		{
-			name:         "deletes profiles using forbidden syscalls",
+			name:         "enqueues profiles using forbidden syscalls without deleting them",
 			obj:          spod,
 			wantRequests: []string{"allowed", "forbidden"},
-			wantDeleted:  []string{"forbidden"},
 		},
 		{
 			name:         "checks all profiles again for an empty allow list",
@@ -859,10 +901,9 @@ func TestHandleAllowedSyscallsChanged(t *testing.T) {
 			wantRequests: []string{"allowed", "forbidden"},
 		},
 		{
-			name:         "never deletes profiles because of an invalid action",
+			name:         "enqueues all profiles for an invalid action",
 			obj:          invalidSPOD,
 			wantRequests: []string{"allowed", "forbidden"},
-			wantEvent:    "Warning " + reasonInvalidSPODConfig,
 		},
 		{
 			name:         "ignores other objects",
@@ -873,9 +914,19 @@ func TestHandleAllowedSyscallsChanged(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
+			deletes := 0
 			cli := fake.NewClientBuilder().
-				WithScheme(testScheme(t)).
+				WithScheme(utiltest.NewScheme(t)).
 				WithObjects(allowed.DeepCopy(), forbidden.DeepCopy()).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Delete: func(
+						ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption,
+					) error {
+						deletes++
+
+						return c.Delete(ctx, obj, opts...)
+					},
+				}).
 				Build()
 			recorder := events.NewFakeRecorder(10)
 			r := &Reconciler{client: cli, log: log.Log, record: recorder}
@@ -888,56 +939,14 @@ func TestHandleAllowedSyscallsChanged(t *testing.T) {
 			}
 
 			require.Equal(t, tc.wantRequests, got)
+			require.Zero(t, deletes)
+			require.Empty(t, recorder.Events)
 
 			list := &seccompprofileapi.SeccompProfileList{}
 			require.NoError(t, cli.List(t.Context(), list))
-			require.Len(t, list.Items, 2-len(tc.wantDeleted))
-
-			for _, sp := range list.Items {
-				require.NotContains(t, tc.wantDeleted, sp.Name)
-			}
-
-			if tc.wantEvent == "" {
-				require.Empty(t, recorder.Events)
-			} else {
-				require.Len(t, recorder.Events, 1)
-				require.Contains(t, <-recorder.Events, tc.wantEvent)
-			}
+			require.Len(t, list.Items, 2)
 		})
 	}
-}
-
-// Every node handles the SPOD change and deletes the same profiles, so a
-// profile which another node deleted already is not an error.
-func TestHandleAllowedSyscallsChangedToleratesDeletedProfile(t *testing.T) {
-	t.Parallel()
-
-	forbidden := newTestProfile()
-	forbidden.Name = "forbidden"
-
-	deletes := 0
-	cli := fake.NewClientBuilder().
-		WithScheme(testScheme(t)).
-		WithObjects(forbidden).
-		WithInterceptorFuncs(interceptor.Funcs{
-			Delete: func(
-				context.Context, client.WithWatch, client.Object, ...client.DeleteOption,
-			) error {
-				deletes++
-
-				return kerrors.NewNotFound(schema.GroupResource{}, "forbidden")
-			},
-		}).
-		Build()
-	r := &Reconciler{client: cli, log: log.Log}
-
-	reqs := r.handleAllowedSyscallsChanged(t.Context(), &spodapi.SecurityProfilesOperatorDaemon{
-		Spec: spodapi.SPODSpec{
-			Security: spodapi.SPODSecurityConfig{AllowedSyscalls: []string{"read"}},
-		},
-	})
-	require.Len(t, reqs, 1)
-	require.Equal(t, 1, deletes)
 }
 
 // Resolving a profile must not pull its OCI base profile while handling the
@@ -984,7 +993,7 @@ func TestHandleFileConflictAvoidsUncachedReads(t *testing.T) {
 
 	apiReads := 0
 	env.rec.reader = interceptor.NewClient(
-		fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(owner, later).Build(),
+		fake.NewClientBuilder().WithScheme(utiltest.NewScheme(t)).WithObjects(owner, later).Build(),
 		interceptor.Funcs{Get: func(
 			ctx context.Context, c client.WithWatch, key client.ObjectKey,
 			obj client.Object, opts ...client.GetOption,
@@ -1003,7 +1012,7 @@ func TestHandleFileConflictAvoidsUncachedReads(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, content, 0o600))
 
 	// The file stays the same and the cache knows no other profile.
-	conflict, err := env.rec.handleFileConflict(
+	conflict, upToDate, err := env.rec.handleFileConflict(
 		t.Context(),
 		later,
 		nodeStatus,
@@ -1013,16 +1022,139 @@ func TestHandleFileConflictAvoidsUncachedReads(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.False(t, conflict)
+	require.True(t, upToDate, "the file must not be read again by the save")
 	require.Zero(t, apiReads)
 
 	// A changed file is only written if the API server confirms the owner.
 	_, err = nodeStatus.Create(t.Context())
 	require.NoError(t, err)
 
-	conflict, err = env.rec.handleFileConflict(
+	conflict, upToDate, err = env.rec.handleFileConflict(
 		t.Context(), later, nodeStatus, path, []byte("changed"), log.Log,
 	)
 	require.NoError(t, err)
 	require.True(t, conflict)
+	require.False(t, upToDate)
 	require.Equal(t, 1, apiReads)
+}
+
+// Only changes which the node has to act on reconcile a profile, not the
+// status, annotation and finalizer writes of the manager and the other nodes.
+func TestProfileChangedPredicate(t *testing.T) {
+	t.Parallel()
+
+	base := newTestProfile()
+	base.Generation = 1
+
+	for _, tc := range []struct {
+		name   string
+		modify func(*seccompprofileapi.SeccompProfile)
+		want   bool
+	}{
+		{
+			name: "status",
+			modify: func(sp *seccompprofileapi.SeccompProfile) {
+				sp.Status.Status = secprofnodestatusapi.ProfileStateInstalled
+			},
+		},
+		{
+			name: "annotation",
+			modify: func(sp *seccompprofileapi.SeccompProfile) {
+				sp.SetAnnotations(map[string]string{syscallsAnnotation: "[]"})
+			},
+		},
+		{
+			name: "finalizer of another node",
+			modify: func(sp *seccompprofileapi.SeccompProfile) {
+				sp.SetFinalizers([]string{util.GetFinalizerNodeString("other-node")})
+			},
+		},
+		{
+			name: "spec",
+			modify: func(sp *seccompprofileapi.SeccompProfile) {
+				sp.Spec.DefaultAction = seccompprofileapi.ActLog
+				sp.Generation++
+			},
+			want: true,
+		},
+		{
+			// The API server bumps the generation when it starts a deletion.
+			name: "deletion",
+			modify: func(sp *seccompprofileapi.SeccompProfile) {
+				now := metav1.Now()
+				sp.SetDeletionTimestamp(&now)
+				sp.Generation++
+			},
+			want: true,
+		},
+		{
+			name: "partial label removed",
+			modify: func(sp *seccompprofileapi.SeccompProfile) {
+				sp.SetLabels(map[string]string{"other": "label"})
+			},
+			want: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			updated := base.DeepCopy()
+			tc.modify(updated)
+
+			require.Equal(t, tc.want, profileChangedPredicate.Update(event.UpdateEvent{
+				ObjectOld: base.DeepCopy(),
+				ObjectNew: updated,
+			}))
+		})
+	}
+
+	require.True(t, profileChangedPredicate.Create(event.CreateEvent{Object: base.DeepCopy()}))
+	require.True(t, profileChangedPredicate.Delete(event.DeleteEvent{Object: base.DeepCopy()}))
+}
+
+// The periodic resyncs of the daemon cache pass, so that a profile file which
+// got removed from the host is installed again, while writes of the object do
+// not.
+func TestProfileResyncPredicate(t *testing.T) {
+	t.Parallel()
+
+	old := newTestProfile()
+	old.ResourceVersion = "1"
+
+	require.True(t, profileResyncPredicate.Update(event.UpdateEvent{
+		ObjectOld: old,
+		ObjectNew: old.DeepCopy(),
+	}))
+
+	written := old.DeepCopy()
+	written.ResourceVersion = "2"
+	written.Status.Status = secprofnodestatusapi.ProfileStateInstalled
+
+	require.False(t, profileResyncPredicate.Update(event.UpdateEvent{
+		ObjectOld: old,
+		ObjectNew: written,
+	}))
+}
+
+// A file which the conflict check found up to date is neither read nor
+// written again.
+func TestReconcileSeccompProfileSkipsSaveOfUpToDateFile(t *testing.T) {
+	t.Parallel()
+
+	env := newReconcileEnv(t, newTestProfile())
+	env.rec.profileRoot = t.TempDir()
+
+	_, err := env.reconcile(t)
+	require.NoError(t, err)
+
+	_, err = env.reconcile(t)
+	require.NoError(t, err)
+	require.Len(t, env.saved, 1)
+	require.NoError(t, os.WriteFile(env.saved[0].path, env.saved[0].content, 0o600))
+
+	res, err := env.reconcile(t)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{}, res)
+	require.Len(t, env.saved, 1, "an up to date file must not be saved again")
+	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, env.nodeStatus(t).Status.Status)
 }

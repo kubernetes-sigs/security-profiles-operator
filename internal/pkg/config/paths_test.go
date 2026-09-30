@@ -100,10 +100,12 @@ func TestGetKubeletConfigFromFileMissing(t *testing.T) {
 	require.Nil(t, cfg)
 }
 
-func TestGetOperatorNamespaceSet(t *testing.T) {
+func TestTryToGetOperatorNamespaceSet(t *testing.T) {
 	t.Setenv(OperatorNamespaceEnvKey, "security-profiles-operator")
 
-	require.Equal(t, "security-profiles-operator", GetOperatorNamespace())
+	ns, err := TryToGetOperatorNamespace()
+	require.NoError(t, err)
+	require.Equal(t, "security-profiles-operator", ns)
 }
 
 func TestTryToGetOperatorNamespaceUnset(t *testing.T) {

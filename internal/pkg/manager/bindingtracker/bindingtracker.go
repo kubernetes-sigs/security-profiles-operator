@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	profilebindingapi "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
@@ -144,6 +145,12 @@ func (r *BindingTrackerReconciler) handlePodCreateOrUpdate(
 		// A binding which is being deleted must not track new pods: the API
 		// server rejects adding finalizers to it.
 		if uses && binding.GetDeletionTimestamp().IsZero() {
+			// The cached binding tells if the pod is tracked already, so a
+			// pod update does not cost an API read per binding.
+			if tracked && controllerutil.ContainsFinalizer(binding, finalizer) {
+				continue
+			}
+
 			if !tracked {
 				logger.Info("Tracking pod in binding", "binding", binding.Name)
 			}
@@ -257,13 +264,17 @@ func (r *BindingTrackerReconciler) untrackPod(
 			return fmt.Errorf("retrieving binding: %w", err)
 		}
 
-		if len(binding.Status.ActiveWorkloads) == 0 {
-			return client.IgnoreNotFound(
-				util.RemoveFinalizer(ctx, r.client, binding, finalizer),
-			)
+		// The binding gets written as read, so the update fails with a
+		// conflict if another reconcile tracked a pod since the read, and the
+		// retry then sees that pod. Reading the binding again from the cache
+		// could return a version which lists that pod already, and removing
+		// the finalizer from it would succeed.
+		if len(binding.Status.ActiveWorkloads) > 0 ||
+			!controllerutil.RemoveFinalizer(binding, finalizer) {
+			return nil
 		}
 
-		return nil
+		return client.IgnoreNotFound(r.client.Update(ctx, binding))
 	}, util.IsNotFoundOrConflict); err != nil {
 		return fmt.Errorf("removing finalizer: %w", err)
 	}

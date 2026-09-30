@@ -3,10 +3,12 @@ set -euo pipefail
 
 ./hack/install-packages
 
+# unzip and xz unpack the protoc and shellcheck release archives.
+apt-get install -y lsb-release gnupg unzip xz-utils
+
 # clang-format comes from the apt repository of LLVM, whose packages apt
 # verifies with the repository key, instead of running its install script.
 CLANG_VERSION=23
-apt-get install -y lsb-release protobuf-compiler gnupg
 CODENAME=$(lsb_release -cs)
 curl -sSfL --retry 5 --retry-delay 3 https://apt.llvm.org/llvm-snapshot.gpg.key |
     gpg --dearmor -o /usr/share/keyrings/llvm-archive-keyring.gpg

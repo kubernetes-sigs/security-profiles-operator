@@ -1,0 +1,2 @@
+go test fuzz v1
+string("type=SECCOMP msg=audit(1:2): pid=-1 syscall=1")

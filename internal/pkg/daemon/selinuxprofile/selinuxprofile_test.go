@@ -32,10 +32,10 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 )
 
-//nolint:paralleltest,tparallel // modifies environment variables and cannot run in parallel
 func Test_selinuxProfileHandler(t *testing.T) {
+	t.Parallel()
+
 	ns := "security-profiles-operator"
-	setenvCleanup(t, "OPERATOR_NAMESPACE", ns)
 
 	schemeInstance := runtime.NewScheme()
 	if err := spodapi.AddToScheme(schemeInstance); err != nil {
@@ -386,7 +386,7 @@ func Test_selinuxProfileHandler(t *testing.T) {
 				Name:      tt.profile.GetName(),
 				Namespace: tt.profile.GetNamespace(),
 			}
-			sph, initerr := newSelinuxProfileHandler(t.Context(), cli, key)
+			sph, initerr := newSelinuxProfileHandler(t.Context(), cli, key, ns)
 
 			if (initerr != nil) != tt.wantInitErr {
 				t.Errorf(

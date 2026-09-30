@@ -101,7 +101,7 @@ type ProfileBinding struct {
 	Spec ProfileBindingSpec `json:"spec,omitzero"`
 	// status contains the observed state of the ProfileBinding.
 	// +optional
-	Status ProfileBindingStatus `json:"status,omitzero"`
+	Status ProfileBindingStatus `json:"status,omitzero"` //nolint:kubeapilinter // status is a value by convention
 }
 
 // +kubebuilder:object:root=true

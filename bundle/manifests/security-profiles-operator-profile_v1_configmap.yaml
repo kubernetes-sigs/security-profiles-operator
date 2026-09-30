@@ -56,6 +56,8 @@ data:
             "epoll_wait",
             "eventfd2",
             "execve",
+            "exit",
+            "exit_group",
             "faccessat2",
             "fchownat",
             "fcntl",
@@ -85,6 +87,7 @@ data:
             "munmap",
             "nanosleep",
             "newfstatat",
+            "open_by_handle_at",
             "openat",
             "perf_event_open",
             "prctl",
@@ -114,6 +117,7 @@ data:
             "tgkill",
             "time",
             "uname",
+            "unlinkat",
             "write"
           ],
           "action": "SCMP_ACT_ALLOW"
@@ -134,7 +138,9 @@ data:
           allowedCapabilities:
           - bpf
           - chown
+          - dac_read_search
           - perfmon
+          - sys_ptrace
           - sys_resource
         executable:
           allowedExecutables:
@@ -154,13 +160,15 @@ data:
           - /var/run/secrets/kubernetes.io/serviceaccount/**
           - /var/run/secrets/kubernetes.io/serviceaccount/**
           readWritePaths:
-          - "ptrace (read),\n# ugly template injection hack"
           - /var/run/grpc/bpf-recorder.sock
           - /var/run/grpc/metrics.sock
         network:
           allowedProtocols:
             allowTcp: true
             allowUdp: true
+        ptrace:
+          allowedAccess:
+          - read
       state: Enabled
   json-enricher-log-volume-mount-path: /data/logs/jsonenricher
   json-enricher-log-volume-source.json: |-
@@ -224,6 +232,7 @@ data:
             "execve",
             "exit_group",
             "faccessat2",
+            "fchmodat",
             "fcntl",
             "fstat",
             "fstatfs",
@@ -270,6 +279,7 @@ data:
             "set_tid_address",
             "setgid",
             "setgroups",
+            "setns",
             "setsockopt",
             "setuid",
             "sigaltstack",
@@ -385,6 +395,7 @@ data:
           - mac_admin
           - sys_admin
           - sys_chroot
+          - sys_ptrace
         executable:
           allowedExecutables:
           - /security-profiles-operator
@@ -404,7 +415,6 @@ data:
           - /sys/module/apparmor/parameters/enabled
           - /sys/devices/system/cpu/possible
           readWritePaths:
-          - "ptrace (read),  # ugly template injection hack"
           - /var/run/grpc/metrics.sock
           - /tmp/aa_profile_bin_*
           - /etc/apparmor.d/**
@@ -415,6 +425,9 @@ data:
           allowedProtocols:
             allowTcp: true
             allowUdp: true
+        ptrace:
+          allowedAccess:
+          - read
       state: Enabled
 kind: ConfigMap
 metadata:

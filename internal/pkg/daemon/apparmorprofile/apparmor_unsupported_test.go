@@ -41,7 +41,7 @@ func TestUnsupportedProfileManager(t *testing.T) {
 	require.ErrorIs(t, err, errAppArmorNotSupported)
 	require.ErrorIs(t, manager.RemoveProfile(profile, true), errAppArmorNotSupported)
 
-	_, err = loadProfile(logr.Discard(), "name", "content")
+	_, err = loadProfile(logr.Discard(), "name", "content", false)
 	require.ErrorIs(t, err, errAppArmorNotSupported)
 	require.ErrorIs(t, removeProfile(logr.Discard(), "name", "path", true), errAppArmorNotSupported)
 	require.False(t, checkProfileExist(logr.Discard(), "name"))

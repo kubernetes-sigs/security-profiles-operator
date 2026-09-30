@@ -34,13 +34,12 @@ import (
 	seccomp "github.com/seccomp/libseccomp-golang"
 	"golang.org/x/sys/unix"
 	"google.golang.org/grpc"
-	v1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
 	apimetrics "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/podindex"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -58,7 +57,12 @@ type impl interface {
 	BPFMapIteratorNext(*bpf.BPFMapIterator) bool
 	BPFLoadObject(*bpf.Module) error
 	GetProgram(*bpf.Module, string) (*bpf.BPFProg, error)
+	ProgramNames(*bpf.Module) []string
+	SetAutoload(*bpf.BPFProg, bool) error
 	AttachGeneric(*bpf.BPFProg) (*bpf.BPFLink, error)
+	DestroyLink(*bpf.BPFLink) error
+	CloseModule(*bpf.Module)
+	BPFLSMEnabled() bool
 	GetMap(*bpf.Module, string) (*bpf.BPFMap, error)
 	InitRingBuf(*bpf.Module, string, chan []byte) (*bpf.RingBuffer, error)
 	Stat(string) (os.FileInfo, error)
@@ -70,14 +74,17 @@ type impl interface {
 	UpdateValue64(*bpf.BPFMap, uint64, []byte) error
 	DeleteKey64(*bpf.BPFMap, uint64) error
 	IsCgroupV2() bool
-	ListPods(context.Context, *kubernetes.Clientset, string) (*v1.PodList, error)
+	PodListerWatcher(kubernetes.Interface, string) podindex.ListerWatcher
 	GetName(seccomp.ScmpSyscall) (string, error)
 	RemoveAll(string) error
 	Chown(string, int, int) error
 	PollRingBuffer(*bpf.RingBuffer, int)
 	Readlink(string) (string, error)
 	DialMetrics() (*grpc.ClientConn, error)
-	BpfIncClient(client apimetrics.MetricsClient) (apimetrics.Metrics_BpfIncClient, error)
+	BpfIncClient(
+		ctx context.Context,
+		client apimetrics.MetricsClient,
+	) (apimetrics.Metrics_BpfIncClient, error)
 	CloseGRPC(*grpc.ClientConn) error
 	SendMetric(apimetrics.Metrics_BpfIncClient, *apimetrics.BpfRequest) error
 	InitGlobalVariable(*bpf.Module, string, any) error
@@ -126,8 +133,40 @@ func (d *defaultImpl) GetProgram(module *bpf.Module, progName string) (*bpf.BPFP
 	return module.GetProgram(progName)
 }
 
+// ProgramNames returns the names of all programs of the module.
+func (d *defaultImpl) ProgramNames(module *bpf.Module) []string {
+	var names []string
+
+	it := module.Iterator()
+	for prog := it.NextProgram(); prog != nil; prog = it.NextProgram() {
+		names = append(names, prog.Name())
+	}
+
+	return names
+}
+
+func (d *defaultImpl) SetAutoload(prog *bpf.BPFProg, autoload bool) error {
+	return prog.SetAutoload(autoload)
+}
+
 func (d *defaultImpl) AttachGeneric(prog *bpf.BPFProg) (*bpf.BPFLink, error) {
 	return prog.AttachGeneric()
+}
+
+// DestroyLink detaches the program of the link. Closing the module skips a
+// destroyed link.
+func (d *defaultImpl) DestroyLink(link *bpf.BPFLink) error {
+	return link.Destroy()
+}
+
+// CloseModule detaches the programs, frees the ring buffers and unloads the
+// object of the module.
+func (d *defaultImpl) CloseModule(module *bpf.Module) {
+	module.Close()
+}
+
+func (d *defaultImpl) BPFLSMEnabled() bool {
+	return BPFLSMEnabled()
 }
 
 func (d *defaultImpl) GetMap(module *bpf.Module, mapName string) (*bpf.BPFMap, error) {
@@ -213,12 +252,11 @@ func (d *defaultImpl) IsCgroupV2() bool {
 	return st.Type == unix.CGROUP2_SUPER_MAGIC
 }
 
-func (d *defaultImpl) ListPods(
-	ctx context.Context, c *kubernetes.Clientset, nodeName string,
-) (*v1.PodList, error) {
-	return c.CoreV1().Pods("").List(ctx, metav1.ListOptions{
-		FieldSelector: "spec.nodeName=" + nodeName,
-	})
+func (d *defaultImpl) PodListerWatcher(
+	c kubernetes.Interface,
+	nodeName string,
+) podindex.ListerWatcher {
+	return podindex.NewListerWatcher(c, nodeName)
 }
 
 func (d *defaultImpl) GetName(s seccomp.ScmpSyscall) (string, error) {
@@ -246,9 +284,9 @@ func (d *defaultImpl) DialMetrics() (*grpc.ClientConn, error) {
 }
 
 func (d *defaultImpl) BpfIncClient(
-	client apimetrics.MetricsClient,
+	ctx context.Context, client apimetrics.MetricsClient,
 ) (apimetrics.Metrics_BpfIncClient, error) {
-	return client.BpfInc(context.Background())
+	return client.BpfInc(ctx)
 }
 
 func (d *defaultImpl) CloseGRPC(conn *grpc.ClientConn) error {

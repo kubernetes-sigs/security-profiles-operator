@@ -1,0 +1,68 @@
+# Hooks for https://pre-commit.com, install them with `pre-commit install`.
+# The linters with a pinned and checksum verified release in the Makefile run
+# through its targets, so that the hooks and CI use the same versions. The
+# repositories are pinned by commit, `pre-commit autoupdate --freeze` bumps
+# them. golangci-lint takes a while, it runs on push only.
+default_install_hook_types: [pre-commit, pre-push]
+exclude: ^(vendor/|internal/pkg/daemon/bpfrecorder/vmlinux/)
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c  # frozen: v6.0.0
+    hooks:
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=2048]
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+        # Helm templates are no valid YAML before rendering.
+        exclude: ^deploy/helm/templates/
+      - id: check-json
+      - id: end-of-file-fixer
+        exclude: \.(golden|json)$
+      - id: trailing-whitespace
+        exclude: \.(md|golden)$
+
+  - repo: https://github.com/crate-ci/typos
+    rev: 512fc24f32f44ab01972217aaaf3dc86ec234d53  # frozen: v1.50.2
+    hooks:
+      - id: typos
+        args: [--config, .typos.toml]
+
+  - repo: https://github.com/DavidAnson/markdownlint-cli2
+    rev: 916ad0aaa108c64d294101002066f530ea170b10  # frozen: v0.23.3 markdownlint-cli2
+    hooks:
+      - id: markdownlint-cli2
+
+  - repo: local
+    hooks:
+      - id: shellcheck
+        name: shellcheck
+        entry: make verify-shellcheck
+        language: system
+        types: [shell]
+        pass_filenames: false
+      - id: hadolint
+        name: hadolint and Dockerfile drift
+        entry: make verify-dockerfiles
+        language: system
+        files: (^|/)(Dockerfile[^/]*|bundle\.Dockerfile|\.hadolint\.yaml)$
+        pass_filenames: false
+      - id: actionlint
+        name: actionlint
+        entry: make verify-actions
+        language: system
+        files: ^\.github/(workflows|actions)/
+        pass_filenames: false
+      - id: manifests
+        name: kubeconform and kube-linter
+        entry: make verify-manifests
+        language: system
+        files: ^(deploy|examples)/.*\.ya?ml$|^\.kube-linter\.yaml$
+        pass_filenames: false
+      - id: golangci-lint
+        name: golangci-lint
+        entry: make verify-go-lint
+        language: system
+        types: [go]
+        pass_filenames: false
+        stages: [pre-push]

@@ -63,11 +63,18 @@ Vagrant.configure("2") do |config|
       ctr -n=k8s.io image import /vagrant/image.tar
       crictl --runtime-endpoint="unix:///run/containerd/containerd.sock" images
 
-      # Install Go
+      # Downloads a file and verifies its SHA256 checksum.
+      fetch() {
+        curl -sSfL --retry 5 --retry-delay 3 -o "$1" "$2"
+        echo "$3  $1" | sha256sum -c -
+      }
+
+      # Install Go, the checksum comes from the Go download server.
       mkdir /opt/go
       GO_VERSION=go$(bash /vagrant/hack/go-version.sh /vagrant/go.mod)
-      curl -sSfL -o- https://go.dev/dl/$GO_VERSION.linux-amd64.tar.gz |
-        tar xfz - -C /opt
+      fetch /tmp/go.tar.gz https://go.dev/dl/$GO_VERSION.linux-amd64.tar.gz "$(curl -sSfL --retry 5 --retry-delay 3 https://dl.google.com/go/$GO_VERSION.linux-amd64.tar.gz.sha256)"
+      tar xfz /tmp/go.tar.gz -C /opt
+      rm -f /tmp/go.tar.gz
 
       # Configure the kernel modules
       cat <<EOF | tee /etc/modules-load.d/k8s.conf
@@ -84,29 +91,45 @@ Vagrant.configure("2") do |config|
 
       sysctl --system
 
-      # Install k8s components
-      CNI_VERSION="v1.9.1"
-      RELEASE_VERSION="v0.21.1"
+      # Install k8s components. Every download is pinned and verified, the
+      # versions are tracked in dependencies.yaml. Kubernetes is the latest
+      # patch release of the minor version the other e2e VMs install.
+      KUBERNETES_VERSION=v1.37
+      CNI_VERSION=v1.9.1
+      CNI_SHA256=b98f74a0f8522f0a83867178729c1aa70f2158f90c45a2ca8fa791db1c76b303
+      RELEASE_VERSION=v0.21.1
+      KUBELET_SERVICE_SHA256=ccc966cee3d366b3e9ca0fe3f603b09218a0d5ed01e54f9cae953208f411141f
+      KUBEADM_CONF_SHA256=46458e5b4adf851099e591acb3248931fc5f4073976fedb11c49d6bfad5c41a8
+      JQ_VERSION=1.8.2
+      JQ_SHA256=b1c22172dd303f3be49e935aa56aa48a8b7a46e0bc838b4997d3bb451495870f
+      FLATCAR_VERSION=3510.2.3
+      DEVELOPER_CONTAINER_SHA512=7ed413a8b95a261c942c385fbb16254c8f1555f0d3c696583d7aa1aa31f0741132808aba0cdcf77577cb112b265654fa313e7602b7ad4ec3d5980ebd0afef080
       DOWNLOAD_DIR=/opt/bin
-      RELEASE="$(curl -sSL https://dl.k8s.io/release/stable.txt)"
+      RELEASE="$(curl -sSfL --retry 5 --retry-delay 3 https://dl.k8s.io/release/stable-${KUBERNETES_VERSION#v}.txt)"
 
       mkdir -p $DOWNLOAD_DIR
       mkdir -p /opt/cni/bin
       mkdir -p /etc/systemd/system/kubelet.service.d
 
       # Install tools
-      curl -sSL -o $DOWNLOAD_DIR/jq "https://github.com/stedolan/jq/releases/download/jq-1.6/jq-linux64"
+      fetch $DOWNLOAD_DIR/jq "https://github.com/jqlang/jq/releases/download/jq-$JQ_VERSION/jq-linux-amd64" "$JQ_SHA256"
       chmod +x $DOWNLOAD_DIR/jq
-      curl -sSL -o $DOWNLOAD_DIR/flatcar_developer_container.bin.bz2 "https://stable.release.flatcar-linux.net/amd64-usr/3510.2.3/flatcar_developer_container.bin.bz2"
+      curl -sSfL --retry 5 --retry-delay 3 -o $DOWNLOAD_DIR/flatcar_developer_container.bin.bz2 "https://stable.release.flatcar-linux.net/amd64-usr/$FLATCAR_VERSION/flatcar_developer_container.bin.bz2"
+      echo "$DEVELOPER_CONTAINER_SHA512  $DOWNLOAD_DIR/flatcar_developer_container.bin.bz2" | sha512sum -c -
       bzcat $DOWNLOAD_DIR/flatcar_developer_container.bin.bz2 > $DOWNLOAD_DIR/flatcar_developer_container.bin
 
-      curl -sSL "https://github.com/containernetworking/plugins/releases/download/${CNI_VERSION}/cni-plugins-linux-amd64-${CNI_VERSION}.tgz" | tar -C /opt/cni/bin -xz
-      curl -sSL "https://raw.githubusercontent.com/kubernetes/release/${RELEASE_VERSION}/cmd/krel/templates/latest/kubelet/kubelet.service" | sed "s:/usr/bin:${DOWNLOAD_DIR}:g" | tee /etc/systemd/system/kubelet.service
-      curl -sSL "https://raw.githubusercontent.com/kubernetes/release/${RELEASE_VERSION}/cmd/krel/templates/latest/kubeadm/10-kubeadm.conf" | sed "s:/usr/bin:${DOWNLOAD_DIR}:g" | tee /etc/systemd/system/kubelet.service.d/10-kubeadm.conf
-      curl -sSL --remote-name-all https://dl.k8s.io/${RELEASE}/bin/linux/amd64/{kubeadm,kubelet,kubectl}
+      fetch /tmp/cni-plugins.tgz "https://github.com/containernetworking/plugins/releases/download/${CNI_VERSION}/cni-plugins-linux-amd64-${CNI_VERSION}.tgz" "$CNI_SHA256"
+      tar -C /opt/cni/bin -xzf /tmp/cni-plugins.tgz
+      fetch /tmp/kubelet.service "https://raw.githubusercontent.com/kubernetes/release/${RELEASE_VERSION}/cmd/krel/templates/latest/kubelet/kubelet.service" "$KUBELET_SERVICE_SHA256"
+      sed "s:/usr/bin:${DOWNLOAD_DIR}:g" /tmp/kubelet.service | tee /etc/systemd/system/kubelet.service
+      fetch /tmp/10-kubeadm.conf "https://raw.githubusercontent.com/kubernetes/release/${RELEASE_VERSION}/cmd/krel/templates/latest/kubeadm/10-kubeadm.conf" "$KUBEADM_CONF_SHA256"
+      sed "s:/usr/bin:${DOWNLOAD_DIR}:g" /tmp/10-kubeadm.conf | tee /etc/systemd/system/kubelet.service.d/10-kubeadm.conf
 
-      chmod +x {kubeadm,kubelet,kubectl}
-      mv {kubeadm,kubelet,kubectl} $DOWNLOAD_DIR/
+      # The checksums come from the Kubernetes download server.
+      for BIN in kubeadm kubelet kubectl; do
+        fetch $DOWNLOAD_DIR/$BIN "https://dl.k8s.io/${RELEASE}/bin/linux/amd64/$BIN" "$(curl -sSfL --retry 5 --retry-delay 3 https://dl.k8s.io/${RELEASE}/bin/linux/amd64/$BIN.sha256)"
+        chmod +x $DOWNLOAD_DIR/$BIN
+      done
 
       # Disable kernel print rate limiting for syslog messaging
       sysctl -w kernel.printk_ratelimit=0
@@ -131,8 +154,14 @@ Vagrant.configure("2") do |config|
       # Configure cluster
       kubectl taint nodes --all node-role.kubernetes.io/control-plane-
 
-      # Install CNI
-      kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.24.5/manifests/tigera-operator.yaml
+      # Install CNI. The operator CRDs are too large for a client side apply.
+      CALICO_VERSION=v3.32.2
+      CALICO_CRDS_SHA256=cb46786692404fb7955c6d31329c667d0dd8f1ff4821dc7869d0156c93d3a859
+      CALICO_SHA256=4e372754e4e1c3a61cf7c0ceb9bc9fff2f78aa6575dcadcb5ea4e716bb00dffa
+      fetch /tmp/operator-crds.yaml "https://raw.githubusercontent.com/projectcalico/calico/$CALICO_VERSION/manifests/operator-crds.yaml" "$CALICO_CRDS_SHA256"
+      fetch /tmp/tigera-operator.yaml "https://raw.githubusercontent.com/projectcalico/calico/$CALICO_VERSION/manifests/tigera-operator.yaml" "$CALICO_SHA256"
+      kubectl create -f /tmp/operator-crds.yaml
+      kubectl create -f /tmp/tigera-operator.yaml
       kubectl apply -f /vagrant/hack/ci/flatcar-cni-plugin.yaml
     SHELL
   end

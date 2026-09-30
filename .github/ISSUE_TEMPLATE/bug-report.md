@@ -1,6 +1,6 @@
 ---
 name: Bug Report
-about: Report a bug encountered while using Kubernetes release engineering tooling
+about: Report a bug encountered while using the Security Profiles Operator or spoc
 labels: kind/bug
 
 ---

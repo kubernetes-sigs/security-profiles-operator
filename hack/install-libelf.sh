@@ -23,12 +23,17 @@ apt-get install -y \
     zlib1g-dev
 
 VERSION=0.196
-curl -sSfL --retry 5 --retry-delay 3 \
-    "https://sourceware.org/elfutils/ftp/$VERSION/elfutils-$VERSION.tar.bz2" -o- |
-    tar xfj -
+# The checksum of elfutils-$VERSION.tar.bz2, bump together with VERSION.
+SHA256=fd5cc6b77ad6773cac93cb3f415f9318ac3b3455eecf801f6b4a742c4f6c7209
 
 DIR="elfutils-$VERSION"
-trap 'rm -rf -- "$DIR"' EXIT
+ARCHIVE="$DIR.tar.bz2"
+trap 'rm -rf -- "$DIR" "$ARCHIVE"' EXIT
+
+curl -sSfL --retry 5 --retry-delay 3 -o "$ARCHIVE" \
+    "https://sourceware.org/elfutils/ftp/$VERSION/$ARCHIVE"
+echo "$SHA256  $ARCHIVE" | sha256sum -c -
+tar xfj "$ARCHIVE"
 
 # Only libelf is needed, the other elfutils components are not built. Their
 # architecture backends do not build everywhere, for example aarch64_initreg.c

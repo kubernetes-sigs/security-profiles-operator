@@ -20,7 +20,11 @@ updates:
         - "k8s.io/*"
         - "sigs.k8s.io/*"
 - package-ecosystem: "github-actions"
-  directory: "/"
+  # The composite actions pin actions of their own.
+  directories:
+    - "/"
+    - "/.github/actions/setup-nix"
+    - "/.github/actions/setup-vagrant"
   schedule:
     interval: daily
   cooldown:

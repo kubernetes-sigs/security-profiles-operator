@@ -10,7 +10,9 @@
 # pkg:oci/security-profiles-operator in .openvex.json don't fail either,
 # like in the trivy check and the staging attestations. An assessment claiming
 # that the vulnerable code or component is not present is ignored with a
-# warning, because a reachable finding shows that it is outdated.
+# warning, because a reachable finding shows that it is outdated. Assessments of
+# vulnerabilities that govulncheck no longer reports at all, not even at module
+# level, get a warning too, so that they can be removed.
 set -euo pipefail
 
 VERSION=${GOVULNCHECK_VERSION:?GOVULNCHECK_VERSION must be set}
@@ -24,7 +26,7 @@ trap 'rm -f "$REPORT"' EXIT
 # caller, but it also documents exit code 3 for "vulnerabilities found". Accept
 # both and treat anything else as a broken run rather than a clean one.
 STATUS=0
-CGO_LDFLAGS= GOFLAGS=-mod=mod go run \
+CGO_LDFLAGS='' GOFLAGS=-mod=mod go run \
     "golang.org/x/vuln/cmd/govulncheck@$VERSION" \
     -format json -mode source -tags "${TAGS// /,}" ./... >"$REPORT" || STATUS=$?
 
@@ -89,6 +91,15 @@ with open(sys.argv[2]) as document:
 def assessment(osv_id):
     names = [osv_id] + osvs.get(osv_id, {}).get("aliases", [])
     return next((assessments[n] for n in names if n in assessments), None)
+
+
+# Every name of every reported vulnerability, reachable or not.
+reported = set()
+for finding in findings:
+    reported.add(finding["osv"])
+    reported.update(osvs.get(finding["osv"], {}).get("aliases", []))
+for name in sorted(set(assessments) - reported):
+    print(f"WARNING: {name} is no longer reported, its assessment in {sys.argv[2]} can be removed")
 
 
 assessed = {}

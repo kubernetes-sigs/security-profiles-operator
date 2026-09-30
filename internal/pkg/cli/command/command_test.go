@@ -221,7 +221,6 @@ func TestExitCode(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			//nolint:gosec // fixed test commands
 			err := exec.Command(tc.cmd[0], tc.cmd[1:]...).Run()
 			if !tc.exited {
 				require.NoError(t, err)

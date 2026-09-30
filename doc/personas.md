@@ -1,3 +1,8 @@
+**Note:** This document is historical, it described the target users when the
+Security Profiles Operator was proposed. For current usage and configuration,
+refer to the [installation](installation.md) and [profiles](profiles.md)
+documentation.
+
 # Personas
 
 These personas are the potential users of the security-profiles-operator.

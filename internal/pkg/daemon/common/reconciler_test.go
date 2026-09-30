@@ -24,10 +24,11 @@ import (
 	"github.com/stretchr/testify/require"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -39,14 +40,6 @@ import (
 )
 
 const testNodeName = "test-node"
-
-func testScheme() *runtime.Scheme {
-	s := runtime.NewScheme()
-	seccompprofileapi.SchemeBuilder.AddToScheme(s)    //nolint:errcheck // test helper
-	secprofnodestatusapi.SchemeBuilder.AddToScheme(s) //nolint:errcheck // test helper
-
-	return s
-}
 
 func testProfile(finalizers ...string) *seccompprofileapi.SeccompProfile {
 	return &seccompprofileapi.SeccompProfile{
@@ -77,21 +70,19 @@ func testNodeStatus(
 	return nsc
 }
 
-// statusGetFn returns a get function that reports a node status in the
+// statusGetFn returns a Get interceptor that reports a node status in the
 // provided state and leaves all other objects untouched.
 func statusGetFn(state secprofnodestatusapi.ProfileState) func(
-	context.Context, client.ObjectKey, client.Object, ...client.GetOption,
+	context.Context, client.WithWatch, client.ObjectKey, client.Object, ...client.GetOption,
 ) error {
-	return func(_ context.Context, _ client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
+	return utiltest.GetReturns(nil, func(obj client.Object) {
 		if ns, ok := obj.(*secprofnodestatusapi.SecurityProfileNodeStatus); ok {
 			ns.Status.Status = state
 			ns.Labels = map[string]string{
 				secprofnodestatusapi.StatusStateLabel: string(state),
 			}
 		}
-
-		return nil
-	}
+	})
 }
 
 func TestReconcileDeletion(t *testing.T) {
@@ -103,7 +94,7 @@ func TestReconcileDeletion(t *testing.T) {
 	cases := []struct {
 		name           string
 		profile        *seccompprofileapi.SeccompProfile
-		mockClient     *utiltest.MockClient
+		funcs          interceptor.Funcs
 		handleDeletion func() (reconcile.Result, error)
 		wantResult     reconcile.Result
 		wantErr        bool
@@ -113,38 +104,34 @@ func TestReconcileDeletion(t *testing.T) {
 		{
 			name:    "NoFinalizer_NothingToDo",
 			profile: testProfile(),
-			mockClient: &utiltest.MockClient{
-				MockGet:    utiltest.NewMockGetFn(errors.New("must not be called")),
-				MockScheme: utiltest.NewMockSchemeFn(testScheme()),
+			funcs: interceptor.Funcs{
+				Get: utiltest.GetReturns(errors.New("must not be called")),
 			},
 			wantResult: reconcile.Result{},
 		},
 		{
 			name:    "StatusExistsNotTerminating_SetsTerminatingAndRequeues",
 			profile: testProfile(finalizer),
-			mockClient: &utiltest.MockClient{
-				MockGet:                     statusGetFn(secprofnodestatusapi.ProfileStatePending),
-				MockUpdate:                  utiltest.NewMockUpdateFn(nil),
-				MockSubResourceWriterUpdate: utiltest.NewMockSubResourceWriterUpdateFn(nil),
-				MockScheme:                  utiltest.NewMockSchemeFn(testScheme()),
+			funcs: interceptor.Funcs{
+				Get:               statusGetFn(secprofnodestatusapi.ProfileStatePending),
+				Update:            utiltest.UpdateReturns(nil),
+				SubResourceUpdate: utiltest.SubResourceUpdateReturns(nil),
 			},
 			wantResult: reconcile.Result{RequeueAfter: Wait},
 		},
 		{
 			name:    "StatusExistsTerminating_ActivePodsFinalizer_Requeues",
 			profile: testProfile(finalizer, util.HasActivePodsFinalizerString),
-			mockClient: &utiltest.MockClient{
-				MockGet:    statusGetFn(secprofnodestatusapi.ProfileStateTerminating),
-				MockScheme: utiltest.NewMockSchemeFn(testScheme()),
+			funcs: interceptor.Funcs{
+				Get: statusGetFn(secprofnodestatusapi.ProfileStateTerminating),
 			},
 			wantResult: reconcile.Result{RequeueAfter: Wait},
 		},
 		{
 			name:    "HandleDeletionFails",
 			profile: testProfile(finalizer),
-			mockClient: &utiltest.MockClient{
-				MockGet:    statusGetFn(secprofnodestatusapi.ProfileStateTerminating),
-				MockScheme: utiltest.NewMockSchemeFn(testScheme()),
+			funcs: interceptor.Funcs{
+				Get: statusGetFn(secprofnodestatusapi.ProfileStateTerminating),
 			},
 			handleDeletion: func() (reconcile.Result, error) { return reconcile.Result{}, errTest },
 			wantResult:     reconcile.Result{},
@@ -153,13 +140,28 @@ func TestReconcileDeletion(t *testing.T) {
 			wantHandled:    true,
 		},
 		{
+			// controller-runtime ignores a requeue returned with an error,
+			// so it must not be passed on.
+			name:    "HandleDeletionFailsWithRequeue_DropsResult",
+			profile: testProfile(finalizer),
+			funcs: interceptor.Funcs{
+				Get: statusGetFn(secprofnodestatusapi.ProfileStateTerminating),
+			},
+			handleDeletion: func() (reconcile.Result, error) {
+				return reconcile.Result{RequeueAfter: Wait}, errTest
+			},
+			wantResult:   reconcile.Result{},
+			wantErr:      true,
+			wantIncError: true,
+			wantHandled:  true,
+		},
+		{
 			name:    "HandleDeletionRequeues_KeepsStatus",
 			profile: testProfile(finalizer),
-			mockClient: &utiltest.MockClient{
-				MockGet:    statusGetFn(secprofnodestatusapi.ProfileStateTerminating),
-				MockUpdate: utiltest.NewMockUpdateFn(errors.New("must not be called")),
-				MockDelete: utiltest.NewMockDeleteFn(errors.New("must not be called")),
-				MockScheme: utiltest.NewMockSchemeFn(testScheme()),
+			funcs: interceptor.Funcs{
+				Get:    statusGetFn(secprofnodestatusapi.ProfileStateTerminating),
+				Update: utiltest.UpdateReturns(errors.New("must not be called")),
+				Delete: utiltest.DeleteReturns(errors.New("must not be called")),
 			},
 			handleDeletion: func() (reconcile.Result, error) {
 				return reconcile.Result{RequeueAfter: Wait}, nil
@@ -172,17 +174,18 @@ func TestReconcileDeletion(t *testing.T) {
 			// finalizer of the node must still be removed.
 			name:    "StatusGoneFinalizerPresent_DeletesProfile",
 			profile: testProfile(finalizer),
-			mockClient: &utiltest.MockClient{
-				MockGet: func(_ context.Context, key client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
+			funcs: interceptor.Funcs{
+				Get: func(
+					_ context.Context, _ client.WithWatch, key client.ObjectKey, obj client.Object, _ ...client.GetOption,
+				) error {
 					if _, ok := obj.(*secprofnodestatusapi.SecurityProfileNodeStatus); ok {
 						return kerrors.NewNotFound(schema.GroupResource{}, key.Name)
 					}
 
 					return nil
 				},
-				MockUpdate: utiltest.NewMockUpdateFn(nil),
-				MockDelete: utiltest.NewMockDeleteFn(nil),
-				MockScheme: utiltest.NewMockSchemeFn(testScheme()),
+				Update: utiltest.UpdateReturns(nil),
+				Delete: utiltest.DeleteReturns(nil),
 			},
 			wantResult:  reconcile.Result{},
 			wantHandled: true,
@@ -190,11 +193,10 @@ func TestReconcileDeletion(t *testing.T) {
 		{
 			name:    "HappyPath_DeletionSucceeds",
 			profile: testProfile(finalizer),
-			mockClient: &utiltest.MockClient{
-				MockGet:    statusGetFn(secprofnodestatusapi.ProfileStateTerminating),
-				MockUpdate: utiltest.NewMockUpdateFn(nil),
-				MockDelete: utiltest.NewMockDeleteFn(nil),
-				MockScheme: utiltest.NewMockSchemeFn(testScheme()),
+			funcs: interceptor.Funcs{
+				Get:    statusGetFn(secprofnodestatusapi.ProfileStateTerminating),
+				Update: utiltest.UpdateReturns(nil),
+				Delete: utiltest.DeleteReturns(nil),
 			},
 			wantResult:  reconcile.Result{},
 			wantHandled: true,
@@ -205,7 +207,8 @@ func TestReconcileDeletion(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			nsc := testNodeStatus(t, tc.profile, tc.mockClient)
+			cl := utiltest.NewFakeClient(t, &tc.funcs)
+			nsc := testNodeStatus(t, tc.profile, cl)
 
 			incErrorCalled := false
 			incError := func(_ string) { incErrorCalled = true }
@@ -224,7 +227,7 @@ func TestReconcileDeletion(t *testing.T) {
 			recorder := events.NewFakeRecorder(10)
 
 			gotResult, gotErr := ReconcileDeletion(
-				t.Context(), tc.profile, nsc, tc.mockClient,
+				t.Context(), tc.profile, nsc, cl,
 				log.Log, recorder, testReasons(), incError, handleDeletion,
 			)
 
@@ -247,37 +250,34 @@ func TestEnsureNodeStatus(t *testing.T) {
 	cases := []struct {
 		name        string
 		profile     *seccompprofileapi.SeccompProfile
-		mockClient  *utiltest.MockClient
+		funcs       interceptor.Funcs
 		wantCreated bool
 		wantErr     bool
 	}{
 		{
 			name:    "AlreadyExists",
 			profile: testProfile(util.GetFinalizerNodeString(testNodeName)),
-			mockClient: &utiltest.MockClient{
-				MockGet:    utiltest.NewMockGetFn(nil),
-				MockScheme: utiltest.NewMockSchemeFn(testScheme()),
+			funcs: interceptor.Funcs{
+				Get: utiltest.GetReturns(nil),
 			},
 		},
 		{
 			name:    "ExistsCheckFails",
 			profile: testProfile(util.GetFinalizerNodeString(testNodeName)),
-			mockClient: &utiltest.MockClient{
-				MockGet:    utiltest.NewMockGetFn(errors.New("api error")),
-				MockScheme: utiltest.NewMockSchemeFn(testScheme()),
+			funcs: interceptor.Funcs{
+				Get: utiltest.GetReturns(errors.New("api error")),
 			},
 			wantErr: true,
 		},
 		{
 			name:    "CreatedSuccessfully",
 			profile: testProfile(),
-			mockClient: &utiltest.MockClient{
-				MockGet:                     utiltest.NewMockGetFn(nil),
-				MockCreate:                  utiltest.NewMockCreateFn(nil),
-				MockUpdate:                  utiltest.NewMockUpdateFn(nil),
-				MockDelete:                  utiltest.NewMockDeleteFn(nil),
-				MockSubResourceWriterUpdate: utiltest.NewMockSubResourceWriterUpdateFn(nil),
-				MockScheme:                  utiltest.NewMockSchemeFn(testScheme()),
+			funcs: interceptor.Funcs{
+				Get:               utiltest.GetReturns(nil),
+				Create:            utiltest.CreateReturns(nil),
+				Update:            utiltest.UpdateReturns(nil),
+				Delete:            utiltest.DeleteReturns(nil),
+				SubResourceUpdate: utiltest.SubResourceUpdateReturns(nil),
 			},
 			wantCreated: true,
 		},
@@ -287,7 +287,7 @@ func TestEnsureNodeStatus(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			nsc := testNodeStatus(t, tc.profile, tc.mockClient)
+			nsc := testNodeStatus(t, tc.profile, utiltest.NewFakeClient(t, &tc.funcs))
 
 			gotCreated, _, gotErr := EnsureNodeStatus(t.Context(), nsc, log.Log)
 
@@ -319,4 +319,262 @@ func TestErrorReporter(t *testing.T) {
 
 	// A reporter without recorder or metric must not panic.
 	ErrorReporter{}.Report(testProfile(), "Reason", util.EventActionUpdate, "message")
+}
+
+// fakeEnv is a profile with a fake API server behind it, which serves the
+// node status like the API server does.
+type fakeEnv struct {
+	profile  *seccompprofileapi.SeccompProfile
+	client   client.Client
+	nsc      *nodestatus.StatusClient
+	recorder *events.FakeRecorder
+	reasons  []string
+}
+
+func newFakeEnv(t *testing.T, funcs *interceptor.Funcs, finalizers ...string) *fakeEnv {
+	t.Helper()
+
+	profile := testProfile(finalizers...)
+	cl := fake.NewClientBuilder().
+		WithScheme(utiltest.NewScheme(t)).
+		WithObjects(profile.DeepCopy()).
+		WithStatusSubresource(&secprofnodestatusapi.SecurityProfileNodeStatus{}).
+		WithInterceptorFuncs(*funcs).
+		Build()
+
+	env := &fakeEnv{
+		profile:  profile,
+		client:   cl,
+		nsc:      testNodeStatus(t, profile, cl),
+		recorder: events.NewFakeRecorder(10),
+	}
+
+	return env
+}
+
+func (e *fakeEnv) reporter() ErrorReporter {
+	return ErrorReporter{
+		Record:   e.recorder,
+		IncError: func(reason string) { e.reasons = append(e.reasons, reason) },
+	}
+}
+
+func (e *fakeEnv) state(t *testing.T) secprofnodestatusapi.ProfileState {
+	t.Helper()
+
+	state, err := e.nsc.State(t.Context())
+	require.NoError(t, err)
+
+	return state
+}
+
+func TestEnsureNodeStatusOrRequeue(t *testing.T) {
+	t.Parallel()
+
+	env := newFakeEnv(t, &interceptor.Funcs{})
+
+	// The status gets created, which is picked up after a delay.
+	res, stop, err := EnsureNodeStatusOrRequeue(t.Context(), env.nsc, log.Log)
+	require.NoError(t, err)
+	require.True(t, stop)
+	require.Equal(t, reconcile.Result{RequeueAfter: Wait}, res)
+	require.Equal(t, secprofnodestatusapi.ProfileStatePending, env.state(t))
+
+	// An existing status lets the reconcile go on.
+	res, stop, err = EnsureNodeStatusOrRequeue(t.Context(), env.nsc, log.Log)
+	require.NoError(t, err)
+	require.False(t, stop)
+	require.Equal(t, reconcile.Result{}, res)
+}
+
+func TestEnsureNodeStatusOrRequeueError(t *testing.T) {
+	t.Parallel()
+
+	errGet := errors.New("get failed")
+	env := newFakeEnv(t, &interceptor.Funcs{
+		Get: func(
+			_ context.Context, _ client.WithWatch, _ client.ObjectKey, _ client.Object, _ ...client.GetOption,
+		) error {
+			return errGet
+		},
+	}, util.GetFinalizerNodeString(testNodeName))
+
+	res, stop, err := EnsureNodeStatusOrRequeue(t.Context(), env.nsc, log.Log)
+	require.ErrorIs(t, err, errGet)
+	require.True(t, stop)
+	require.Equal(t, reconcile.Result{}, res)
+}
+
+func TestMarkInstalled(t *testing.T) {
+	t.Parallel()
+
+	env := newFakeEnv(t, &interceptor.Funcs{})
+	_, err := env.nsc.Create(t.Context())
+	require.NoError(t, err)
+
+	changed, err := MarkInstalled(t.Context(), env.profile, env.nsc, log.Log, env.reporter())
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, env.state(t))
+
+	changed, err = MarkInstalled(t.Context(), env.profile, env.nsc, log.Log, env.reporter())
+	require.NoError(t, err)
+	require.False(t, changed)
+	require.Empty(t, env.reasons)
+	require.Empty(t, env.recorder.Events)
+}
+
+func TestMarkInstalledErrors(t *testing.T) {
+	t.Parallel()
+
+	errUpdate := errors.New("update failed")
+
+	t.Run("the status cannot be updated", func(t *testing.T) {
+		t.Parallel()
+
+		env := newFakeEnv(t, &interceptor.Funcs{
+			SubResourceUpdate: func(
+				_ context.Context, _ client.Client, _ string, _ client.Object, _ ...client.SubResourceUpdateOption,
+			) error {
+				return errUpdate
+			},
+		})
+
+		// The status cannot be created either without status updates, so
+		// it is created directly.
+		status := &secprofnodestatusapi.SecurityProfileNodeStatus{}
+		status.SetName("seccompprofile-test-profile-" + testNodeName)
+		status.SetNamespace("default")
+		status.Status.Status = secprofnodestatusapi.ProfileStatePending
+		require.NoError(t, env.client.Create(t.Context(), status))
+
+		changed, err := MarkInstalled(t.Context(), env.profile, env.nsc, log.Log, env.reporter())
+		require.ErrorIs(t, err, errUpdate)
+		require.False(t, changed)
+		require.Equal(t, []string{ReasonCannotUpdateStatus}, env.reasons)
+		require.Contains(t, <-env.recorder.Events, "Warning "+ReasonCannotUpdateStatus)
+	})
+
+	t.Run("the status is missing", func(t *testing.T) {
+		t.Parallel()
+
+		env := newFakeEnv(t, &interceptor.Funcs{})
+
+		changed, err := MarkInstalled(t.Context(), env.profile, env.nsc, log.Log, env.reporter())
+		require.ErrorContains(t, err, "getting status for installed profile")
+		require.False(t, changed)
+	})
+}
+
+func TestReconcileDisabled(t *testing.T) {
+	t.Parallel()
+
+	errRemove := errors.New("remove failed")
+
+	for _, tc := range []struct {
+		name            string
+		finalizers      []string
+		state           secprofnodestatusapi.ProfileState
+		removeErr       error
+		afterRemoveErr  error
+		wantResult      reconcile.Result
+		wantErr         error
+		wantRemoved     bool
+		wantAfterRemove bool
+		wantState       secprofnodestatusapi.ProfileState
+		wantReason      string
+	}{
+		{
+			name:            "removes an installed profile",
+			state:           secprofnodestatusapi.ProfileStateInstalled,
+			wantRemoved:     true,
+			wantAfterRemove: true,
+			wantState:       secprofnodestatusapi.ProfileStateDisabled,
+		},
+		{
+			name:      "skips an already disabled profile",
+			state:     secprofnodestatusapi.ProfileStateDisabled,
+			wantState: secprofnodestatusapi.ProfileStateDisabled,
+		},
+		{
+			name:       "keeps a profile which pods use",
+			finalizers: []string{util.HasActivePodsFinalizerString},
+			state:      secprofnodestatusapi.ProfileStateInstalled,
+			wantResult: reconcile.Result{RequeueAfter: InUseRetry},
+			wantState:  secprofnodestatusapi.ProfileStateInstalled,
+		},
+		{
+			name:        "reports a failed removal",
+			state:       secprofnodestatusapi.ProfileStateInstalled,
+			removeErr:   errRemove,
+			wantErr:     errRemove,
+			wantRemoved: true,
+			wantState:   secprofnodestatusapi.ProfileStateInstalled,
+			wantReason:  "CannotRemove",
+		},
+		{
+			name:            "reports a failure after the removal",
+			state:           secprofnodestatusapi.ProfileStateInstalled,
+			afterRemoveErr:  errRemove,
+			wantErr:         errRemove,
+			wantRemoved:     true,
+			wantAfterRemove: true,
+			wantState:       secprofnodestatusapi.ProfileStateInstalled,
+			wantReason:      "CannotUpdateStatus",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			env := newFakeEnv(t, &interceptor.Funcs{}, tc.finalizers...)
+			_, err := env.nsc.Create(t.Context())
+			require.NoError(t, err)
+			require.NoError(t, env.nsc.SetNodeStatus(t.Context(), tc.state))
+
+			removed, afterRemove := false, false
+
+			res, err := ReconcileDisabled(
+				t.Context(), env.profile, env.nsc, log.Log, env.reporter(), testReasons(),
+				func() error {
+					removed = true
+
+					return tc.removeErr
+				},
+				func() error {
+					afterRemove = true
+
+					return tc.afterRemoveErr
+				},
+			)
+
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				require.Equal(t, []string{tc.wantReason}, env.reasons)
+			} else {
+				require.NoError(t, err)
+				require.Empty(t, env.reasons)
+			}
+
+			require.Equal(t, tc.wantResult, res)
+			require.Equal(t, tc.wantRemoved, removed)
+			require.Equal(t, tc.wantAfterRemove, afterRemove)
+			require.Equal(t, tc.wantState, env.state(t))
+		})
+	}
+
+	t.Run("works without an after removal step", func(t *testing.T) {
+		t.Parallel()
+
+		env := newFakeEnv(t, &interceptor.Funcs{})
+		_, err := env.nsc.Create(t.Context())
+		require.NoError(t, err)
+
+		res, err := ReconcileDisabled(
+			t.Context(), env.profile, env.nsc, log.Log, env.reporter(), testReasons(),
+			func() error { return nil }, nil,
+		)
+		require.NoError(t, err)
+		require.Equal(t, reconcile.Result{}, res)
+		require.Equal(t, secprofnodestatusapi.ProfileStateDisabled, env.state(t))
+	})
 }

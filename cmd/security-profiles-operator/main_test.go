@@ -17,18 +17,28 @@ limitations under the License.
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/go-logr/logr"
 	configv1 "github.com/openshift/api/config/v1"
 	"github.com/stretchr/testify/require"
+	admissionregv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -36,6 +46,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/clidocs"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/version"
 )
 
@@ -98,21 +110,165 @@ func TestRestrictOperandCache(t *testing.T) {
 	t.Parallel()
 
 	opts := ctrl.Options{}
-	restrictOperandCache(&opts, "spo")
+	restrictOperandCache(&opts, "spo", true)
 
-	want := cache.ByObject{Namespaces: map[string]cache.Config{"spo": {}}}
+	inNamespace := cache.ByObject{Namespaces: map[string]cache.Config{"spo": {}}}
+	byName := func(name string) cache.ByObject {
+		return cache.ByObject{Field: fields.OneTermEqualSelector("metadata.name", name)}
+	}
 
-	require.Len(t, opts.Cache.ByObject, 3)
+	require.Len(t, opts.Cache.ByObject, 9)
 
 	for obj, byObject := range opts.Cache.ByObject {
 		switch obj.(type) {
-		case *appsv1.DaemonSet, *appsv1.Deployment, *corev1.Service:
+		case *appsv1.DaemonSet, *appsv1.Deployment, *corev1.Service, *policyv1.PodDisruptionBudget:
+			require.Equal(t, inNamespace, byObject, "%T", obj)
+		case *admissionregv1.MutatingWebhookConfiguration:
+			require.Equal(t, byName("spo-mutating-webhook-configuration"), byObject)
+		case *admissionregv1.ValidatingWebhookConfiguration:
+			require.Equal(t, byName("spo-validating-webhook-configuration"), byObject)
+		case *admissionregv1.ValidatingAdmissionPolicy,
+			*admissionregv1.ValidatingAdmissionPolicyBinding:
+			require.Equal(t, byName("spo-recording-profiles"), byObject, "%T", obj)
+		case *corev1.Pod:
+			require.NotNil(t, byObject.Transform)
+			require.Nil(t, byObject.Namespaces, "pods are cached in every namespace")
 		default:
 			require.Failf(t, "unexpected object", "%T", obj)
 		}
-
-		require.Equal(t, want, byObject)
 	}
+}
+
+// Kubernetes 1.29 and older do not serve the admission policies, and the
+// cache must not be configured for kinds without a REST mapping, otherwise the
+// manager cannot be created.
+func TestRestrictOperandCacheWithoutAdmissionPolicies(t *testing.T) {
+	t.Parallel()
+
+	mapper := meta.NewDefaultRESTMapper(nil)
+
+	for _, gvk := range []schema.GroupVersionKind{
+		appsv1.SchemeGroupVersion.WithKind("DaemonSet"),
+		appsv1.SchemeGroupVersion.WithKind("Deployment"),
+		corev1.SchemeGroupVersion.WithKind("Service"),
+		corev1.SchemeGroupVersion.WithKind("Pod"),
+		policyv1.SchemeGroupVersion.WithKind("PodDisruptionBudget"),
+	} {
+		mapper.Add(gvk, meta.RESTScopeNamespace)
+	}
+
+	for _, gvk := range []schema.GroupVersionKind{
+		admissionregv1.SchemeGroupVersion.WithKind("MutatingWebhookConfiguration"),
+		admissionregv1.SchemeGroupVersion.WithKind("ValidatingWebhookConfiguration"),
+	} {
+		mapper.Add(gvk, meta.RESTScopeRoot)
+	}
+
+	served, err := spod.ServesAdmissionPolicies(mapper)
+	require.NoError(t, err)
+	require.False(t, served)
+
+	newCache := func(servesAdmissionPolicies bool) error {
+		opts := ctrl.Options{}
+		restrictOperandCache(&opts, "spo", servesAdmissionPolicies)
+
+		opts.Cache.Mapper = mapper
+		opts.Cache.Scheme = clientgoscheme.Scheme
+
+		_, err := cache.New(&rest.Config{Host: "https://127.0.0.1:1"}, opts.Cache)
+
+		return err
+	}
+
+	require.NoError(t, newCache(served))
+	require.Error(t, newCache(true), "the policies have no REST mapping")
+
+	opts := ctrl.Options{}
+	restrictOperandCache(&opts, "spo", false)
+	require.Len(t, opts.Cache.ByObject, 7)
+
+	for obj := range opts.Cache.ByObject {
+		_, isPolicy := obj.(*admissionregv1.ValidatingAdmissionPolicy)
+		_, isBinding := obj.(*admissionregv1.ValidatingAdmissionPolicyBinding)
+		require.False(t, isPolicy || isBinding, "%T", obj)
+	}
+}
+
+func TestStripPod(t *testing.T) {
+	t.Parallel()
+
+	sc := &corev1.SecurityContext{RunAsUser: new(int64(1000))}
+	ctr := corev1.Container{
+		Name:            "ctr",
+		Image:           "image",
+		SecurityContext: sc,
+		Env:             []corev1.EnvVar{{Name: "SECRET", Value: "value"}},
+		EnvFrom:         []corev1.EnvFromSource{{Prefix: "p"}},
+		Command:         []string{"cmd"},
+		Args:            []string{"arg"},
+		VolumeMounts:    []corev1.VolumeMount{{Name: "v"}},
+		VolumeDevices:   []corev1.VolumeDevice{{Name: "d"}},
+		Resources: corev1.ResourceRequirements{
+			Limits: corev1.ResourceList{corev1.ResourceCPU: {}},
+		},
+		LivenessProbe:  &corev1.Probe{},
+		ReadinessProbe: &corev1.Probe{},
+		StartupProbe:   &corev1.Probe{},
+		Lifecycle:      &corev1.Lifecycle{},
+		Ports:          []corev1.ContainerPort{{ContainerPort: 1}},
+	}
+
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:          "pod",
+			UID:           "uid",
+			Labels:        map[string]string{"l": "v"},
+			Annotations:   map[string]string{"a": "v"},
+			ManagedFields: []metav1.ManagedFieldsEntry{{Manager: "m"}},
+		},
+		Spec: corev1.PodSpec{
+			NodeName:        "node",
+			SecurityContext: &corev1.PodSecurityContext{RunAsNonRoot: new(true)},
+			Volumes:         []corev1.Volume{{Name: "v"}},
+			Containers:      []corev1.Container{*ctr.DeepCopy()},
+			InitContainers:  []corev1.Container{*ctr.DeepCopy()},
+			EphemeralContainers: []corev1.EphemeralContainer{{
+				EphemeralContainerCommon: corev1.EphemeralContainerCommon(*ctr.DeepCopy()),
+			}},
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+	}
+
+	got, err := stripPod(pod)
+	require.NoError(t, err)
+
+	stripped, ok := got.(*corev1.Pod)
+	require.True(t, ok)
+
+	// Everything the controllers read stays.
+	require.Equal(t, "pod", stripped.Name)
+	require.Equal(t, types.UID("uid"), stripped.UID)
+	require.Equal(t, map[string]string{"l": "v"}, stripped.Labels)
+	require.Equal(t, map[string]string{"a": "v"}, stripped.Annotations)
+	require.Equal(t, "node", stripped.Spec.NodeName)
+	require.True(t, *stripped.Spec.SecurityContext.RunAsNonRoot)
+
+	want := corev1.Container{Name: "ctr", Image: "image", SecurityContext: sc}
+	require.Equal(t, []corev1.Container{want}, stripped.Spec.Containers)
+	require.Equal(t, []corev1.Container{want}, stripped.Spec.InitContainers)
+	require.Equal(t, corev1.EphemeralContainerCommon(want),
+		stripped.Spec.EphemeralContainers[0].EphemeralContainerCommon)
+
+	// Everything else is gone.
+	require.Nil(t, stripped.ManagedFields)
+	require.Nil(t, stripped.Spec.Volumes)
+	require.Equal(t, corev1.PodStatus{}, stripped.Status)
+
+	// Other objects are passed through.
+	node := &corev1.Node{}
+	got, err = stripPod(node)
+	require.NoError(t, err)
+	require.Same(t, node, got)
 }
 
 func TestSecureMetricsOptions(t *testing.T) {
@@ -255,6 +411,7 @@ func TestCommands(t *testing.T) {
 		jsonEnricherCommand(info),
 		bpfRecorderCommand(info),
 		spocCommand(),
+		clidocs.Command(newApp, runtimeEnvVars),
 	} {
 		for _, name := range c.Names() {
 			require.False(t, names[name], "duplicate command name or alias %s", name)
@@ -265,12 +422,31 @@ func TestCommands(t *testing.T) {
 	require.NotEmpty(t, globalFlags())
 }
 
-//nolint:paralleltest // uses t.Setenv
-func TestNonRootEnablerKubeletDir(t *testing.T) {
-	const nodeName = "node"
+func TestDocsCommand(t *testing.T) {
+	t.Parallel()
 
-	t.Setenv(config.NodeNameEnvKey, nodeName)
-	t.Setenv(config.KubeletDirEnvKey, "/data/kubelet")
+	var out bytes.Buffer
+
+	app := newApp()
+	app.Writer = &out
+
+	require.NoError(t, app.Run([]string{config.OperatorName, clidocs.CommandName}))
+	require.True(t, strings.HasPrefix(out.String(), "<!-- Code generated by"))
+	require.Contains(t, out.String(), "\n# security-profiles-operator command line reference\n")
+	require.Contains(t, out.String(), "\n### daemon, d\n")
+	require.Contains(
+		t,
+		out.String(),
+		"| `"+config.EnableSeccompEnvKey+"` | `--with-seccomp` | daemon |\n",
+	)
+	require.Contains(t, out.String(), "| `"+config.NodeNameEnvKey+"` |")
+	require.NotContains(t, out.String(), "### docs")
+}
+
+func TestNonRootEnablerKubeletDir(t *testing.T) {
+	t.Parallel()
+
+	const nodeName = "node"
 
 	nodeWithLabel := func(value string) *corev1.Node {
 		node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: nodeName}}
@@ -294,6 +470,8 @@ func TestNonRootEnablerKubeletDir(t *testing.T) {
 		"API error": {node: nodeWithLabel("mnt-resource-kubelet"), getErr: errTest, wantErr: true},
 	} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
 			c := fake.NewClientBuilder().
 				WithObjects(tc.node).
 				WithInterceptorFuncs(interceptor.Funcs{
@@ -310,7 +488,13 @@ func TestNonRootEnablerKubeletDir(t *testing.T) {
 				}).
 				Build()
 
-			got, err := nonRootEnablerKubeletDir(t.Context(), logr.Discard(), c)
+			got, err := nonRootEnablerKubeletDir(
+				t.Context(),
+				logr.Discard(),
+				c,
+				nodeName,
+				"/data/kubelet",
+			)
 			if tc.wantErr {
 				require.ErrorIs(t, err, tc.getErr)
 

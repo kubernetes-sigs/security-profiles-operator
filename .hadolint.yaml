@@ -1,0 +1,7 @@
+# Configuration of hadolint for make verify-dockerfiles.
+failure-threshold: warning
+ignored:
+  # The package managers install whatever version the pinned base image
+  # repositories provide, the base images are pinned by digest instead.
+  - DL3008
+  - DL3041

@@ -17,7 +17,10 @@ limitations under the License.
 package merger
 
 import (
+	"bytes"
 	"errors"
+	"log"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -71,6 +74,63 @@ spec:
         - open
 `
 
+const AppArmorBase = `
+apiVersion: security-profiles-operator.x-k8s.io/v1
+kind: AppArmorProfile
+spec:
+  abstract:
+    capability:
+      allowedCapabilities:
+        - sys_admin
+        - chown
+    ptrace:
+      allowedAccess:
+        - trace
+        - read
+      peer: "@{profile_name}"
+`
+
+const AppArmorSubset = `
+apiVersion: security-profiles-operator.x-k8s.io/v1
+kind: AppArmorProfile
+spec:
+  abstract:
+    capability:
+      allowedCapabilities:
+        - chown
+    ptrace:
+      allowedAccess:
+        - read
+      peer: "@{profile_name}"
+`
+
+const AppArmorMerged = `apiVersion: security-profiles-operator.x-k8s.io/v1
+kind: AppArmorProfile
+metadata: {}
+spec:
+  abstract:
+    capability:
+      allowedCapabilities:
+      - chown
+      - net_raw
+      - sys_admin
+    ptrace:
+      allowedAccess:
+      - read
+      - trace
+      peer: '@{profile_name}'
+`
+
+const AppArmorDeprecatedPtrace = `
+apiVersion: security-profiles-operator.x-k8s.io/v1
+kind: AppArmorProfile
+spec:
+  abstract:
+    filesystem:
+      readOnlyPaths:
+        - ptrace (read),
+`
+
 func TestRun(t *testing.T) {
 	t.Parallel()
 
@@ -99,6 +159,45 @@ func TestRun(t *testing.T) {
 
 				_, merged, _ := mock.WriteFileArgsForCall(0)
 				require.Equal(t, SeccompMerged, string(merged))
+			},
+		},
+		{
+			name: "successful apparmor merge",
+			prepare: func(mock *mergerfakes.FakeImpl) *Options {
+				mock.ReadFileReturnsOnCall(0, []byte(AppArmorBase), nil)
+				mock.ReadFileReturnsOnCall(1, []byte(`
+apiVersion: security-profiles-operator.x-k8s.io/v1
+kind: AppArmorProfile
+spec:
+  abstract:
+    capability:
+      allowedCapabilities:
+        - NET_RAW
+`), nil)
+
+				return defaultOptions()
+			},
+			assert: func(mock *mergerfakes.FakeImpl, err error) {
+				require.NoError(t, err)
+
+				_, merged, _ := mock.WriteFileArgsForCall(0)
+				require.Equal(t, AppArmorMerged, string(merged))
+			},
+		},
+		{
+			name: "apparmor base profile is up-to-date",
+			prepare: func(mock *mergerfakes.FakeImpl) *Options {
+				mock.ReadFileReturnsOnCall(0, []byte(AppArmorBase), nil)
+				mock.ReadFileReturnsOnCall(1, []byte(AppArmorSubset), nil)
+
+				options := defaultOptions()
+				options.check = true
+
+				return options
+			},
+			assert: func(mock *mergerfakes.FakeImpl, err error) {
+				require.NoError(t, err)
+				require.Equal(t, 0, mock.WriteFileCallCount())
 			},
 		},
 		{
@@ -153,4 +252,32 @@ func TestRun(t *testing.T) {
 			assert(mock, err)
 		})
 	}
+}
+
+// The test replaces the output of the global logger.
+//
+//nolint:paralleltest // see above
+func TestRunWarnsAboutDeprecatedPtraceRules(t *testing.T) {
+	logs := &bytes.Buffer{}
+	log.SetOutput(logs)
+
+	defer log.SetOutput(os.Stderr)
+
+	mock := &mergerfakes.FakeImpl{}
+	mock.ReadFileReturnsOnCall(0, []byte(AppArmorBase), nil)
+	mock.ReadFileReturnsOnCall(1, []byte(AppArmorDeprecatedPtrace), nil)
+
+	options := Default()
+	options.inputFiles = []string{"base.yaml", "deprecated.yaml"}
+
+	sut := New(options)
+	sut.impl = mock
+
+	require.NoError(t, sut.Run())
+	require.Contains(t, logs.String(), "deprecated.yaml: DEPRECATED: ptrace rules")
+	require.NotContains(t, logs.String(), "base.yaml: DEPRECATED")
+
+	// The deprecated rule is kept as it is.
+	_, merged, _ := mock.WriteFileArgsForCall(0)
+	require.Contains(t, string(merged), "- ptrace (read),")
 }

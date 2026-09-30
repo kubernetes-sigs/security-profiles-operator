@@ -284,7 +284,7 @@ func TestMergeProfiles(t *testing.T) {
 						},
 					},
 					Capability: &apparmorprofileapi.AppArmorCapabilityRules{
-						AllowedCapabilities: []string{"NET_ADMIN", "NET_RAW", "SYS_ADMIN"},
+						AllowedCapabilities: []string{"net_admin", "net_raw", "sys_admin"},
 					},
 				}, prof.Spec.Abstract)
 
@@ -340,7 +340,14 @@ func TestNormalizeAppArmorProfile(t *testing.T) {
 					ReadWritePaths: []string{"/z", "/a"},
 				},
 				Capability: &apparmorprofileapi.AppArmorCapabilityRules{
-					AllowedCapabilities: []string{"sys_admin", "chown"},
+					AllowedCapabilities: []string{"sys_admin", "CHOWN", "chown"},
+				},
+				Ptrace: &apparmorprofileapi.AppArmorPtraceRules{
+					AllowedAccess: []apparmorprofileapi.AppArmorPtraceAccess{
+						apparmorprofileapi.AppArmorPtraceAccessTrace,
+						apparmorprofileapi.AppArmorPtraceAccessRead,
+						apparmorprofileapi.AppArmorPtraceAccessTrace,
+					},
 				},
 			},
 		},
@@ -354,7 +361,55 @@ func TestNormalizeAppArmorProfile(t *testing.T) {
 	require.Equal(t, []string{"/a", "/z"}, a.Filesystem.ReadOnlyPaths)
 	require.Equal(t, []string{"/a", "/z"}, a.Filesystem.WriteOnlyPaths)
 	require.Equal(t, []string{"/a", "/z"}, a.Filesystem.ReadWritePaths)
-	require.Equal(t, []string{"CHOWN", "SYS_ADMIN"}, a.Capability.AllowedCapabilities)
+	require.Equal(t, []string{"chown", "sys_admin"}, a.Capability.AllowedCapabilities)
+	require.Equal(t, []apparmorprofileapi.AppArmorPtraceAccess{
+		apparmorprofileapi.AppArmorPtraceAccessRead,
+		apparmorprofileapi.AppArmorPtraceAccessTrace,
+	}, a.Ptrace.AllowedAccess)
+}
+
+// A merged AppArmor profile equals its normalized base when the base already
+// allows everything, so that spoc merge --check reports no difference.
+func TestNormalizeAppArmorProfileMatchesMerge(t *testing.T) {
+	t.Parallel()
+
+	newProfile := func(abstract apparmorprofileapi.AppArmorAbstract) *apparmorprofileapi.AppArmorProfile {
+		return &apparmorprofileapi.AppArmorProfile{
+			Spec: apparmorprofileapi.AppArmorProfileSpec{Abstract: abstract},
+		}
+	}
+
+	base := newProfile(apparmorprofileapi.AppArmorAbstract{
+		Capability: &apparmorprofileapi.AppArmorCapabilityRules{
+			AllowedCapabilities: []string{"sys_admin", "chown"},
+		},
+		Ptrace: &apparmorprofileapi.AppArmorPtraceRules{
+			AllowedAccess: []apparmorprofileapi.AppArmorPtraceAccess{
+				apparmorprofileapi.AppArmorPtraceAccessTrace,
+				apparmorprofileapi.AppArmorPtraceAccessRead,
+			},
+			Peer: "@{profile_name}",
+		},
+	})
+	other := newProfile(apparmorprofileapi.AppArmorAbstract{
+		Capability: &apparmorprofileapi.AppArmorCapabilityRules{
+			AllowedCapabilities: []string{"chown"},
+		},
+		Ptrace: &apparmorprofileapi.AppArmorPtraceRules{
+			AllowedAccess: []apparmorprofileapi.AppArmorPtraceAccess{
+				apparmorprofileapi.AppArmorPtraceAccessRead,
+			},
+			Peer: "@{profile_name}",
+		},
+	})
+
+	normalizedBase := base.DeepCopy()
+	require.NoError(t, NormalizeProfile(normalizedBase))
+
+	merged, err := MergeProfiles([]client.Object{base, other})
+	require.NoError(t, err)
+	require.NoError(t, NormalizeProfile(merged))
+	require.Equal(t, normalizedBase, merged)
 }
 
 func TestNormalizeCheckIdempotent(t *testing.T) {

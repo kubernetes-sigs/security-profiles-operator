@@ -358,7 +358,7 @@ func (m *Metrics) IncAppArmorProfileAudit(
 }
 
 // IncAppArmorProfileError increments the apparmor profile error counter for the
-// provided reason.
+// provided profile and reason.
 func (m *Metrics) IncAppArmorProfileError(profile, reason string) {
 	m.metricAppArmorProfileError.WithLabelValues(profile, reason).Inc()
 }

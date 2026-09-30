@@ -39,6 +39,10 @@ type AuditLine struct {
 	// Arch is the audit architecture of the syscall, for example c000003e for
 	// x86_64. Empty if the record does not carry one.
 	Arch string
+	// Uid and Gid are nil when the record carries no uid=/gid= field. They
+	// must not default to 0, which would attribute the record to root.
+	Uid *uint32
+	Gid *uint32
 
 	// selinux
 	Scontext string

@@ -31,6 +31,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
@@ -422,4 +423,63 @@ func TestHandlerIgnoresOtherSubResources(t *testing.T) {
 	require.True(t, resp.Allowed)
 	require.Empty(t, resp.Patches)
 	require.Equal(t, "pod exec request unmodified", resp.Result.Message)
+}
+
+// Windows containers have no env command, so exec requests for Windows pods
+// stay unmodified. A pod which cannot be looked up is treated like a Linux
+// pod.
+func TestHandlerSkipsWindowsPodExec(t *testing.T) {
+	t.Parallel()
+
+	pod := func(name string, os corev1.OSName) *corev1.Pod {
+		p := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "ns"}}
+		if os != "" {
+			p.Spec.OS = &corev1.PodOS{Name: os}
+		}
+
+		return p
+	}
+
+	reader := fake.NewClientBuilder().WithObjects(
+		pod("windows", corev1.Windows),
+		pod("linux", corev1.Linux),
+		pod("unset", ""),
+	).Build()
+
+	for _, tc := range []struct {
+		pod       string
+		unchanged bool
+	}{
+		{pod: "windows", unchanged: true},
+		{pod: "linux"},
+		{pod: "unset"},
+		{pod: "missing"},
+	} {
+		t.Run(tc.pod, func(t *testing.T) {
+			t.Parallel()
+
+			req := getPodExecAdmRequest(t, &corev1.PodExecOptions{Command: []string{"cmd"}})
+			req.Namespace = "ns"
+			req.Name = tc.pod
+
+			resp := Handler{log: logr.Discard(), reader: reader}.Handle(
+				t.Context(), admission.Request{AdmissionRequest: req},
+			)
+			require.True(t, resp.Allowed)
+
+			if tc.unchanged {
+				require.Empty(t, resp.Patches)
+				require.Equal(t, "windows pod exec request unmodified", resp.Result.Message)
+
+				return
+			}
+
+			require.Len(t, resp.Patches, 1)
+			require.Equal(
+				t,
+				[]string{"env", ExecRequestUid + "=test-uid", "cmd"},
+				resp.Patches[0].Value,
+			)
+		})
+	}
 }

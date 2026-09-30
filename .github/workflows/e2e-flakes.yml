@@ -1,0 +1,141 @@
+name: e2e-flakes
+# Finds e2e test cases to quarantine or to promote, see "Quarantined test
+# cases" in doc/hacking.md. The test workflow retries only the quarantined
+# test cases, so a nightly run of the whole suite with retries on kubernix
+# shows the test cases which are not quarantined but flaky.
+# test/ci/junit-flakes.py analyzes the flaky test reports of the last nightly
+# runs, and of the last runs of the test workflow on the default branch, which
+# cover the quarantined test cases on all e2e environments. The analysis fails
+# for test cases to quarantine and lists the ones to promote in the job
+# summary.
+on:
+  schedule:
+    - cron: '23 2 * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  image:
+    if: github.repository == 'kubernetes-sigs/security-profiles-operator' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read  # required for the checkout
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: hack/install-crun
+      - run: make image
+        env:
+          XDG_RUNTIME_DIR: ''
+      - run: podman save -o image.tar security-profiles-operator
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: image
+          path: image.tar
+          retention-days: 1
+
+  # The whole suite takes about 10 minutes on kubernix. Every test case gets
+  # one retry with a timeout of E2E_RETRY_TIMEOUT per attempt.
+  e2e-ubuntu:
+    needs: image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    permissions:
+      contents: read  # required for the checkout
+    env:
+      E2E_ARTIFACTS_DIR: ${{ github.workspace }}/build/e2e-artifacts
+      E2E_TEST_FLAKY_TESTS_ONLY: 'true'
+      E2E_RETRY_RUN: ^TestSuite
+      E2E_RETRY_TIMEOUT: 60m
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ./go.mod
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: image
+          path: .
+      - name: Start kubernix
+        run: hack/ci/start-kubernix.sh image.tar
+      - name: Run all E2E tests with retries
+        run: hack/ci/e2e-ubuntu.sh
+      - name: Upload the flaky test report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-flaky-e2e-ubuntu-nightly
+          path: build/junit-flaky-e2e.xml
+          if-no-files-found: ignore
+      - name: Upload the diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-artifacts-e2e-ubuntu-nightly
+          path: build/e2e-artifacts
+          if-no-files-found: ignore
+
+  # The nightly runs get analyzed on their own: the runs of the test workflow
+  # have no reports of the test cases which are not quarantined, which would
+  # break their streaks. The runs of the test workflow only count for the
+  # promotion of quarantined test cases.
+  analyze:
+    needs: e2e-ubuntu
+    if: ${{ !cancelled() && needs.e2e-ubuntu.result != 'skipped' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      actions: read  # required for downloading the reports of other runs
+      contents: read  # required for the checkout
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      BRANCH: ${{ github.event.repository.default_branch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The current run is not completed yet, so its report gets added last.
+      # A failed e2e job may have uploaded none.
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        continue-on-error: true
+        with:
+          pattern: junit-flaky-*
+          path: ${{ runner.temp }}/reports/current
+      - name: Analyze the nightly runs
+        run: |
+          hack/ci/download-flaky-reports.sh "$RUNNER_TEMP/reports/nightly" e2e-flakes.yml "$BRANCH" schedule 4 \
+            >"$RUNNER_TEMP/nightly-runs"
+          mapfile -t runs <"$RUNNER_TEMP/nightly-runs"
+          if [[ -n "$(find "$RUNNER_TEMP/reports/current" -name '*.xml' -print -quit 2>/dev/null)" ]]; then
+            runs+=("$RUNNER_TEMP/reports/current")
+          fi
+          if [[ ${#runs[@]} -eq 0 ]]; then
+            echo "No flaky test reports of nightly runs found" >>"$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          python3 test/ci/junit-flakes.py "${runs[@]}" >>"$GITHUB_STEP_SUMMARY"
+      - name: Analyze the runs of the test workflow
+        if: ${{ !cancelled() }}
+        run: |
+          hack/ci/download-flaky-reports.sh "$RUNNER_TEMP/reports/test" test.yml "$BRANCH" push 10 \
+            >"$RUNNER_TEMP/test-runs"
+          mapfile -t runs <"$RUNNER_TEMP/test-runs"
+          if [[ ${#runs[@]} -eq 0 ]]; then
+            echo "No flaky test reports of test workflow runs found" >>"$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          python3 test/ci/junit-flakes.py "${runs[@]}" >>"$GITHUB_STEP_SUMMARY"

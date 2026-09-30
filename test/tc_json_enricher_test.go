@@ -1,3 +1,5 @@
+//go:build e2e
+
 /*
 Copyright The Kubernetes Authors.
 
@@ -56,7 +58,7 @@ spec:
 `, profileName)
 
 	e.writeAndCreate(profile, "test-profile-*.yaml")
-	defer e.kubectl("delete", "sp", profileName)
+	e.kubectlCleanup("sp", profileName)
 
 	e.logf("Waiting for profile to be reconciled")
 	e.waitForProfile(profileName)
@@ -83,7 +85,7 @@ spec:
 `, podName, containerName, profileName)
 
 	e.writeAndCreate(pod, "test-pod-*.yaml")
-	defer e.kubectl("delete", "pod", podName)
+	e.kubectlCleanup("pod", podName)
 
 	e.waitForProfile(profileName)
 
@@ -152,7 +154,7 @@ spec:
 `, profileName)
 
 	e.writeAndCreate(profile, "test-profile-*.yaml")
-	defer e.kubectl("delete", "sp", profileName)
+	e.kubectlCleanup("sp", profileName)
 
 	e.logf("Waiting for profile to be reconciled")
 	e.waitForProfile(profileName)
@@ -181,7 +183,7 @@ spec:
 	since := time.Now()
 
 	e.writeAndCreate(pod, "test-pod-*.yaml")
-	defer e.kubectl("delete", "pod", podName)
+	e.kubectlCleanup("pod", podName)
 
 	e.waitForProfile(profileName)
 
@@ -243,16 +245,19 @@ func (e *e2e) checkExecEnvironment(
 func (e *e2e) canExec(podName string, interval time.Duration, maxTimes int) bool {
 	const expectedEnvVar = "SPO_EXEC_REQUEST_UID"
 
-	for range maxTimes {
+	err := poll(interval*time.Duration(maxTimes), interval, func() error {
 		output := e.kubectl("exec", "-i", podName, "--", "env")
 		if !strings.Contains(output, expectedEnvVar) {
-			time.Sleep(interval)
-		} else {
-			return true
+			return fmt.Errorf("no %s in the environment of pod %s", expectedEnvVar, podName)
 		}
+
+		return nil
+	})
+	if err != nil {
+		e.logf("Cannot exec pod %s: %v", podName, err)
+
+		return false
 	}
 
-	e.logf("Cannot exec pod %s in %d times", podName, maxTimes)
-
-	return false
+	return true
 }

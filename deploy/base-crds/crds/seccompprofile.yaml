@@ -86,7 +86,14 @@ spec:
                   baseProfileName is the name of the base profile (a cluster-scoped
                   SeccompProfile) that will be unioned into this profile. Base profiles can
                   be referenced as remote OCI artifacts as well when prefixed with `oci://`.
+                  Any other value is the name of a SeccompProfile. Values which are no
+                  valid object name are rejected, because no base profile of that name can
+                  exist, so a profile referencing it could never be installed.
                 type: string
+                x-kubernetes-validations:
+                - message: baseProfileName must be an oci:// reference or the name
+                    of a SeccompProfile
+                  rule: self == '' || self.startsWith('oci://') || self.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?([.][a-z0-9]([-a-z0-9]*[a-z0-9])?)*$')
               defaultAction:
                 description: |-
                   defaultAction is the default action for seccomp. Valid values are:

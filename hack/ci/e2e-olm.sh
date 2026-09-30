@@ -23,7 +23,9 @@ BUNDLE_IMG=${REPO}/security-profiles-operator-bundle:v${GITHUB_SHA}
 CATALOG_IMG=${REPO}/security-profiles-operator-catalog:v${GITHUB_SHA}
 
 function create_sp() {
-  kubectl create -f - <<EOF
+  ns=$1
+
+  kubectl create -n "$ns" -f - <<EOF
 apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: SeccompProfile
 metadata:
@@ -34,31 +36,31 @@ EOF
 }
 
 function build_and_push_spo() {
-  make image IMAGE=${IMG}
-  podman push --tls-verify=false ${IMG}
+  make image IMAGE="${IMG}"
+  podman push --tls-verify=false "${IMG}"
 }
 
 function build_and_push_packages() {
   OPERATOR_MANIFEST=deploy/operator-ci.yaml
 
   # Create a manifest with local image
-  cp deploy/operator.yaml ${OPERATOR_MANIFEST}
-  sed -i "s#us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator.*\$#${IMG}#" ${OPERATOR_MANIFEST}
-  grep ${IMG} ${OPERATOR_MANIFEST} || exit 1
+  cp deploy/operator.yaml "${OPERATOR_MANIFEST}"
+  sed -i "s#us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator.*\$#${IMG}#" "${OPERATOR_MANIFEST}"
+  grep "${IMG}" "${OPERATOR_MANIFEST}" || exit 1
 
   # this is a kludge, we need to make sure kustomize can be overwritten
   rm -f build/kustomize
 
   # create bundle, bundle image, push bundle using our manifest created earlier
-  make bundle BUNDLE_OPERATOR_MANIFEST=${OPERATOR_MANIFEST}
+  make bundle BUNDLE_OPERATOR_MANIFEST="${OPERATOR_MANIFEST}"
   # GH CI workers have pretty limited CPU and won't be able to run SPO, OLM and cert-manager at the same time
   sed -i '/cpu\:/d' bundle/manifests/security-profiles-operator.clusterserviceversion.yaml
-  make bundle-build BUNDLE_IMG=${BUNDLE_IMG}
-  podman push --tls-verify=false ${BUNDLE_IMG}
+  make bundle-build BUNDLE_IMG="${BUNDLE_IMG}"
+  podman push --tls-verify=false "${BUNDLE_IMG}"
 
   # create catalog image, push catalog
-  make catalog-build OPM_EXTRA_ARGS=" --use-http" BUNDLE_IMGS=${BUNDLE_IMG} CATALOG_IMG=${CATALOG_IMG}
-  podman push --tls-verify=false ${CATALOG_IMG}
+  make catalog-build OPM_EXTRA_ARGS=" --use-http" BUNDLE_IMGS="${BUNDLE_IMG}" CATALOG_IMG="${CATALOG_IMG}"
+  podman push --tls-verify=false "${CATALOG_IMG}"
 }
 
 function deploy_deps() {
@@ -79,7 +81,7 @@ function deploy_spo_in_custom_ns() {
   ns=$1
   manifests=examples/olm/custom-install-resources.yaml
 
-  cat <<EOF >$manifests
+  cat <<EOF >"$manifests"
 ---
 apiVersion: v1
 kind: Namespace
@@ -117,16 +119,16 @@ metadata:
 EOF
 
   echo "Installing manifest for custom ns installation.."
-  cat $manifests
+  cat "$manifests"
 
-  kubectl create -f $manifests
+  kubectl create -f "$manifests"
 }
 
 function deploy_spo_with_variable() {
   variable=$1
   manifests=examples/olm/$variable-install-resources.yaml
 
-  cat <<EOF >$manifests
+  cat <<EOF >"$manifests"
 ---
 apiVersion: v1
 kind: Namespace
@@ -167,39 +169,73 @@ metadata:
 EOF
 
   echo "Installing manifest with $variable enabled"
-  cat $manifests
+  cat "$manifests"
 
-  kubectl create -f $manifests
+  kubectl create -f "$manifests"
 }
 
 function deploy_spo() {
   installation_method=$1
   manifests=examples/olm/$installation_method-install-resources.yaml
 
-  cp examples/olm/install-resources.yaml $manifests
+  cp examples/olm/install-resources.yaml "$manifests"
 
   case $installation_method in
   all) ;;
   own)
     echo "spec:
   targetNamespaces:
-  - security-profiles-operator" >>$manifests
+  - security-profiles-operator" >>"$manifests"
     ;;
   single)
     echo "spec:
   targetNamespaces:
-  - spo-sp-ns" >>$manifests
+  - spo-sp-ns" >>"$manifests"
     ;;
   multi)
     echo "spec:
   targetNamespaces:
   - sp-test-1
-  - sp-test-2" >>$manifests
+  - sp-test-2" >>"$manifests"
     ;;
   esac
 
   # let's roll..
-  kubectl create -f $manifests
+  kubectl create -f "$manifests"
+}
+
+# target_namespaces prints the namespaces the operator watches with the
+# installation method, besides its own one.
+function target_namespaces() {
+  case $1 in
+  all) echo default ;;
+  own) echo security-profiles-operator ;;
+  single) echo spo-sp-ns ;;
+  multi) echo sp-test-1 sp-test-2 ;;
+  esac
+}
+
+# create_target_namespaces creates the target namespaces of the installation
+# methods which do not create them themselves.
+function create_target_namespaces() {
+  case $1 in
+  single | multi)
+    for ns in $(target_namespaces "$1"); do
+      kubectl create namespace "$ns" || return 1
+    done
+    ;;
+  esac
+}
+
+# delete_target_namespaces deletes what create_target_namespaces created.
+function delete_target_namespaces() {
+  case $1 in
+  single | multi)
+    for ns in $(target_namespaces "$1"); do
+      kubectl delete namespace "$ns" --ignore-not-found
+    done
+    ;;
+  esac
 }
 
 function try_until_ok() {
@@ -211,11 +247,12 @@ function try_until_ok() {
   # retry until it succeeds or until time is up
   local end_time=$(($(date +%s) + 180))
   while (($(date +%s) < end_time)); do
-    local cmd_start_time=$(date +%s)
+    local cmd_start_time
+    cmd_start_time=$(date +%s)
     if "$cmd" "$@" 1>/dev/null 2>/dev/null; then
       break
     fi
-    if (($(date +%s) == $cmd_start_time)); then
+    if (($(date +%s) == cmd_start_time)); then
       sleep 1
     fi
   done
@@ -237,12 +274,13 @@ function check_spo_is_running() {
   # Useful in case the CatalogSource is fubar. We retry several times
   # because on transient errors (which are for some reason common even
   # if the catalog is local) the pod gets restarted
-  for i in $(seq 1 5); do
+  for _ in $(seq 1 5); do
     kubectl_wait -nolm --for=condition=ready pods -lolm.catalogSource=security-profiles-operator
     install_rv=$?
     if [ $install_rv -ne 0 ]; then
-      catalog_logs=$(kubectl -nolm logs $(kubectl -nolm get pods --no-headers -lolm.catalogSource=security-profiles-operator | awk '{print $1}') 2>/dev/null)
-      echo $catalog_logs
+      catalog_pod=$(kubectl -nolm get pods --no-headers -lolm.catalogSource=security-profiles-operator | awk '{print $1}')
+      catalog_logs=$(kubectl -nolm logs "$catalog_pod" 2>/dev/null)
+      echo "$catalog_logs"
       kubectl -nolm describe pods -lolm.catalogSource=security-profiles-operator
     else
       break
@@ -250,54 +288,86 @@ function check_spo_is_running() {
   done
 
   # wait a bit for CSV to appear
-  CSV=$(try_until_ok kubectl -n$ns get sub security-profiles-operator-sub -ojsonpath='{.status.installedCSV}')
+  CSV=$(try_until_ok kubectl -n"$ns" get sub security-profiles-operator-sub -ojsonpath='{.status.installedCSV}')
 
   # wait for the CSV to be actually installed
-  kubectl_wait -n$ns --for=jsonpath='{.status.phase}'=Succeeded csv $CSV
+  kubectl_wait -n"$ns" --for=jsonpath='{.status.phase}'=Succeeded csv "$CSV"
 
   # wait for the operator to be ready
-  kubectl_wait -n$ns --for=condition=ready pod -lname=security-profiles-operator || return 1
+  kubectl_wait -n"$ns" --for=condition=ready pod -lname=security-profiles-operator || return 1
 
   # wait for webhook deploy to be created
-  kubectl_wait -n$ns --for=condition=ready pod -lname=security-profiles-operator-webhook || return 1
+  kubectl_wait -n"$ns" --for=condition=ready pod -lname=security-profiles-operator-webhook || return 1
 
   # wait for spod pod to be created
-  kubectl_wait -n$ns --for=condition=ready pod -lname=spod || return 1
+  kubectl_wait -n"$ns" --for=condition=ready pod -lname=spod || return 1
 
   return 0
 }
 
-function assert_spo_csv_installed_in_ns() {
-  ns=$1
-
-  [[ $(kubectl get csv -loperators.coreos.com/security-profiles-operator.$ns= -n$ns -oname) ]] || return 1
-}
-
+# shellcheck disable=SC2329 # called through try_until_ok
 function assert_spo_csv_copied_to() {
   ns=$1
   from=$2
 
-  [[ $(kubectl get csv -lolm.copiedFrom=$from -n$ns -oname) ]] || return 1
+  [[ $(kubectl get csv -lolm.copiedFrom="$from" -n"$ns" -oname) ]] || return 1
 }
 
-function smoke_test_all() {
-  create_sp
-  kubectl_wait --for=condition=ready sp log-all || return 1
-
-  kubectl delete sp --all
+# smoke_test_in_namespaces checks that the operator installs a profile in each
+# of the namespaces.
+function smoke_test_in_namespaces() {
+  for ns in "$@"; do
+    create_sp "$ns"
+    kubectl_wait -n"$ns" --for=condition=ready sp log-all || return 1
+    kubectl -n"$ns" delete sp --all
+  done
 
   return 0
 }
 
-function smoke_test() {
+function smoke_test_all() {
+  smoke_test_in_namespaces default
+}
+
+# shellcheck disable=SC2329 # called through smoke_test
+function smoke_test_own() {
+  smoke_test_in_namespaces security-profiles-operator
+}
+
+# smoke_test_targeted checks that OLM copied the CSV to the target namespaces
+# of the installation method and that the operator serves them.
+# shellcheck disable=SC2329 # called through the smoke tests of the methods
+function smoke_test_targeted() {
   installation_method=$1
 
-  rv=1 # be pessimistic
-  smoke_test_$installation_method
-  rv=$?
-  echo "Smoke test for $installation_method returned $rv"
+  # shellcheck disable=SC2046 # the namespaces get split on purpose
+  set -- $(target_namespaces "$installation_method")
+  for ns in "$@"; do
+    try_until_ok assert_spo_csv_copied_to "$ns" security-profiles-operator || return 1
+  done
 
-  return $rv
+  smoke_test_in_namespaces "$@"
+}
+
+# shellcheck disable=SC2329 # called through smoke_test
+function smoke_test_single() {
+  smoke_test_targeted single
+}
+
+# shellcheck disable=SC2329 # called through smoke_test
+function smoke_test_multi() {
+  smoke_test_targeted multi
+}
+
+function smoke_test() {
+  local installation_method=$1
+  local test_rv=1 # be pessimistic
+
+  "smoke_test_$installation_method"
+  test_rv=$?
+  echo "Smoke test for $installation_method returned $test_rv"
+
+  return $test_rv
 }
 
 function teardown_spo() {
@@ -305,14 +375,14 @@ function teardown_spo() {
   manifests=examples/olm/$installation_method-install-resources.yaml
 
   # profiles might have finalizers
-  kubectl delete sp --all
+  kubectl delete sp --all --all-namespaces
 
-  kubectl delete -f $manifests
+  kubectl delete -f "$manifests"
 }
 
 function check_spod_property() {
   what=$1
-  try_until_ok kubectl -nsecurity-profiles-operator get ds spod -oyaml | grep $what
+  try_until_ok kubectl -nsecurity-profiles-operator get ds spod -oyaml | grep "$what"
 }
 
 # The actual script begins here
@@ -322,14 +392,16 @@ build_and_push_packages
 deploy_deps
 
 rv=0
-for method in all; do
+for method in all own single multi; do
   echo "Testing SPO deployment in $method namespace(s)"
 
-  deploy_spo $method || rv=1
+  create_target_namespaces "$method" || rv=1
+  deploy_spo "$method" || rv=1
   check_spo_is_running security-profiles-operator || rv=1
-  smoke_test $method || rv=1
+  smoke_test "$method" || rv=1
 
-  teardown_spo $method
+  teardown_spo "$method"
+  delete_target_namespaces "$method"
 
   if [ $rv -gt 0 ]; then
     echo "SPO deployment in $method namespace(s) failed"

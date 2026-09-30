@@ -20,7 +20,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"path"
 
@@ -75,6 +74,10 @@ const (
 	// the operator's namespace.
 	OperatorNamespaceEnvKey = "OPERATOR_NAMESPACE"
 
+	// PodNameEnvKey is the environment variable key for retrieving the name
+	// of the pod of the daemon.
+	PodNameEnvKey = "POD_NAME"
+
 	// RestrictNamespaceEnvKey is the environment variable key for restricting
 	// the operator to work on only a single Kubernetes namespace.
 	RestrictNamespaceEnvKey = "RESTRICT_TO_NAMESPACE"
@@ -123,6 +126,17 @@ const (
 	// ProfilingPortEnvKey is the environment variable key for choosing the
 	// profiling port.
 	ProfilingPortEnvKey = "SPO_PROFILING_PORT"
+
+	// ProfilingAddressEnvKey is the environment variable key for choosing
+	// the address the profiling endpoint binds to.
+	ProfilingAddressEnvKey = "SPO_PROFILING_ADDRESS"
+
+	// DefaultProfilingAddress is the address the profiling endpoint binds to
+	// per default, which keeps it off the pod network.
+	DefaultProfilingAddress = "127.0.0.1"
+
+	// AllInterfacesAddress is the address which binds to all interfaces.
+	AllInterfacesAddress = "0.0.0.0"
 
 	// KubeletDirEnvKey is the environment variable key for custom kubelet directory.
 	KubeletDirEnvKey = "KUBELET_DIR"
@@ -219,18 +233,8 @@ type KubeletConfig struct {
 	KubeletDir string `json:"kubeletDir,omitempty"`
 }
 
-// GetOperatorNamespace gets the namespace that the operator is currently running on.
-// Failure to get the namespace terminates the process.
-// Consider using TryToGetOperatorNamespace for proper error handling.
-func GetOperatorNamespace() string {
-	ns, err := TryToGetOperatorNamespace()
-	if err != nil {
-		log.Fatalf("unable to get operator namespace: %v", err)
-	}
-
-	return ns
-}
-
+// TryToGetOperatorNamespace returns the namespace the operator runs in, which
+// the downward API provides in the environment.
 func TryToGetOperatorNamespace() (string, error) {
 	// This is OPERATOR_NAMESPACE should have been set by the downward API to identify
 	// the namespace which this controller is running from

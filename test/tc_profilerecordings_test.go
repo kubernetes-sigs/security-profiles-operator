@@ -1,3 +1,5 @@
+//go:build e2e
+
 /*
 Copyright The Kubernetes Authors.
 
@@ -26,6 +28,7 @@ import (
 
 	"sigs.k8s.io/yaml"
 
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	spoutil "sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -52,80 +55,68 @@ func (e *e2e) waitForJsonEnricherLogs(since time.Time, conditions ...*regexp.Reg
 	})
 }
 
+// waitForJsonEnricherFileLogs waits until the log files of the JSON enricher
+// on all nodes match the conditions, and returns their content. The log file
+// is only mounted into the JSON enricher, so each spod pod gets a debug
+// container with the same mount, which the polls exec into.
 func (e *e2e) waitForJsonEnricherFileLogs(logFilePath string, conditions ...*regexp.Regexp) string {
-	var logsBuilder strings.Builder
+	type volumeMount struct {
+		MountPath string `json:"mountPath"`
+		Name      string `json:"name"`
+	}
 
-	// This loop will scan for logs for 60 seconds. The logs will be collected 6 times with an interval of 10 seconds
-	for range 6 {
+	type debugContainer struct {
+		VolumeMounts []volumeMount `json:"volumeMounts"`
+	}
+
+	customProfile, err := yaml.Marshal(&debugContainer{
+		VolumeMounts: []volumeMount{
+			{MountPath: filepath.Dir(logFilePath), Name: "json-enricher-log-output-volume"},
+		},
+	})
+	e.Require().NoError(err)
+
+	customProfilePath := filepath.Join(e.T().TempDir(), "custom-profile.yaml")
+	e.Require().NoError(os.WriteFile(customProfilePath, customProfile, 0o600))
+
+	podNames := strings.Fields(e.kubectlOperatorNS(
+		"get", "pods", "-l", "name=spod", "-o", "jsonpath={.items[*].metadata.name}",
+	))
+	e.logf("Reading the JSON enricher logs of pods %v", podNames)
+
+	// Ephemeral containers cannot be removed, so every call needs a new name.
+	debugContainerName := fmt.Sprintf("json-log-reader-%d", time.Now().Unix())
+	for _, podName := range podNames {
+		e.kubectlOperatorNS("debug", podName,
+			"--image=quay.io/security-profiles-operator/test-nginx:1.19.1",
+			"--target=json-enricher", "--custom="+customProfilePath,
+			"--container="+debugContainerName, "--", "sleep", "3600")
+	}
+
+	var logs string
+
+	// This covers the flush interval of the JSON enricher.
+	e.eventually(time.Minute, 10*time.Second, func() error {
 		e.logf("Waiting for JSON enricher to record syscalls")
 
-		podNamesStr := e.kubectlOperatorNS("get", "pods",
-			"-l",
-			"name=spod",
-			"-o",
-			"jsonpath={.items[*].metadata.name}",
-		)
-		e.logf("podnames: %s", podNamesStr)
+		var logsBuilder strings.Builder
 
-		podNamesSlice := strings.Fields(podNamesStr)
-		matchAll := true
-
-		for _, podName := range podNamesSlice {
-			type Item struct {
-				MountPath string `json:"mountPath"`
-				Name      string `json:"name"`
-			}
-
-			type Config struct {
-				VolumeMounts []Item `json:"volumeMounts"`
-			}
-
-			config := Config{
-				VolumeMounts: []Item{
-					{MountPath: filepath.Dir(logFilePath), Name: "json-enricher-log-output-volume"},
-				},
-			}
-
-			yamlBytes, err := yaml.Marshal(&config)
+		for _, podName := range podNames {
+			podLogs, err := e.kubectlCommand("-n", config.OperatorName, "exec", podName,
+				"-c", debugContainerName, "--", "cat", logFilePath)
 			if err != nil {
-				e.logf("Error marshalling json-enricher volume mount: %v", err)
+				return fmt.Errorf("reading the JSON enricher logs of pod %s: %w", podName, err)
 			}
-
-			customProfileYaml := os.TempDir() + "/" + "custom-profile.yaml"
-
-			_ = os.Remove(customProfileYaml)
-
-			wErr := os.WriteFile(customProfileYaml, yamlBytes, 0o600)
-			if wErr != nil {
-				e.logf("Error writing YAML to file '%s': %v", customProfileYaml, err)
-			}
-
-			e.run("cat", customProfileYaml)
-			podLogs := e.kubectlOperatorNS("debug", "-it", podName,
-				"--image=quay.io/security-profiles-operator/test-nginx:1.19.1",
-				"--target=json-enricher", "--custom="+customProfileYaml, "--", "cat", logFilePath)
-			e.logf("audit logs output: %s is %s", podName, podLogs)
 
 			logsBuilder.WriteString(podLogs)
 		}
 
-		logs := logsBuilder.String()
+		logs = logsBuilder.String()
 
-		for _, condition := range conditions {
-			if !condition.MatchString(logs) {
-				matchAll = false
-			}
-		}
+		return unmatchedLogs(logs, conditions)
+	})
 
-		if matchAll {
-			break
-		}
-
-		e.logf("Waiting for 10 seconds to get lines")
-		time.Sleep(10 * time.Second)
-	}
-
-	return logsBuilder.String()
+	return logs
 }
 
 func (e *e2e) waitForEnricherLogs(since time.Time, conditions ...*regexp.Regexp) {
@@ -207,10 +198,10 @@ func (e *e2e) testCaseProfileRecordingStaticPodSELinuxLogsNsNotEnabled() {
 	e.logf("Creating SELinux recording for static pod test")
 
 	e.kubectl("create", "-f", exampleRecordingSelinuxLogsPath)
-	defer e.kubectl("delete", "-f", exampleRecordingSelinuxLogsPath)
+	e.kubectlCleanup("-f", exampleRecordingSelinuxLogsPath)
 
 	_, podName := e.createRecordingTestPod()
-	defer e.kubectl("delete", "pod", podName)
+	e.kubectlCleanup("pod", podName)
 
 	output := e.kubectl("get", "pod", "-oyaml", podName)
 	e.NotContains(output, "selinuxrecording.process")

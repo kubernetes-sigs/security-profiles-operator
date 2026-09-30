@@ -28,6 +28,7 @@ import (
 
 	"sigs.k8s.io/security-profiles-operator/api/common"
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/utiltest"
 )
 
 func TestRecordingStatusReportsKindAndRecorder(t *testing.T) {
@@ -70,7 +71,7 @@ func TestRecordingStatusReportsKindAndRecorder(t *testing.T) {
 			}
 
 			c := fake.NewClientBuilder().
-				WithScheme(newTestScheme(t)).
+				WithScheme(utiltest.NewScheme(t)).
 				WithStatusSubresource(recording).
 				WithObjects(recording).
 				Build()

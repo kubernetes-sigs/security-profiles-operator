@@ -28,6 +28,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	ctrlcontroller "sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
@@ -36,6 +37,7 @@ import (
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
@@ -122,9 +124,13 @@ func (r *PodReconciler) Setup(
 	}
 
 	profileWatch := handler.EnqueueRequestsFromMapFunc(r.profileWorkloadRequests)
+	releaserOptions := ctrlcontroller.Options{
+		MaxConcurrentReconciles: controller.MaxConcurrentReconciles(ctx),
+	}
 
 	if err := ctrl.NewControllerManagedBy(mgr).
 		Named(name+"-apparmor").
+		WithOptions(releaserOptions).
 		For(&apparmorprofileapi.AppArmorProfile{}, builder.WithPredicates(profileCreatedPredicate)).
 		Complete(&profileReleaser[*apparmorprofileapi.AppArmorProfile]{
 			pods:   r,
@@ -138,6 +144,7 @@ func (r *PodReconciler) Setup(
 
 	if err := ctrl.NewControllerManagedBy(mgr).
 		Named(name+"-rawselinux").
+		WithOptions(releaserOptions).
 		For(&selinuxprofileapi.RawSelinuxProfile{}, builder.WithPredicates(profileCreatedPredicate)).
 		Complete(&profileReleaser[*selinuxprofileapi.RawSelinuxProfile]{
 			pods:   r,
@@ -152,12 +159,8 @@ func (r *PodReconciler) Setup(
 	// Register a special reconciler for pod events
 	return ctrl.NewControllerManagedBy(mgr).
 		Named(name).
-		For(&corev1.Pod{}, builder.WithPredicates(predicate.Funcs{
-			CreateFunc:  func(e event.CreateEvent) bool { return hasProfile(e.Object) },
-			DeleteFunc:  func(e event.DeleteEvent) bool { return hasProfile(e.Object) },
-			UpdateFunc:  func(e event.UpdateEvent) bool { return hasProfile(e.ObjectNew) },
-			GenericFunc: func(e event.GenericEvent) bool { return hasProfile(e.Object) },
-		})).
+		WithOptions(controller.Options(ctx)).
+		For(&corev1.Pod{}, builder.WithPredicates(podPredicate())).
 		// Reconcile the pods using a profile once the profile enters the
 		// cache, for example after an operator restart or if the profile got
 		// created after the pod. Pods deleted while no delete event could be
@@ -183,6 +186,40 @@ func (r *PodReconciler) Setup(
 			builder.WithPredicates(profileCreatedPredicate),
 		).
 		Complete(r)
+}
+
+// podPredicate selects the pod events which can change the profiles in use:
+// a pod referencing a profile appears or disappears, or the profiles a pod
+// references change. Status updates of a pod, like readiness flaps or
+// restarts, keep the profiles as they are and would only cause reconciles
+// which look up every profile and change nothing.
+func podPredicate() predicate.Funcs {
+	return predicate.Funcs{
+		CreateFunc:  func(e event.CreateEvent) bool { return hasProfile(e.Object) },
+		DeleteFunc:  func(e event.DeleteEvent) bool { return hasProfile(e.Object) },
+		UpdateFunc:  podProfilesChanged,
+		GenericFunc: func(e event.GenericEvent) bool { return hasProfile(e.Object) },
+	}
+}
+
+// podProfilesChanged returns true if the new pod references a profile and
+// the referenced profiles differ from the old pod, or the pod got replaced
+// by one with the same name, which the reconciler tells apart by UID.
+func podProfilesChanged(e event.UpdateEvent) bool {
+	o, ok := e.ObjectOld.(*corev1.Pod)
+	if !ok {
+		return false
+	}
+
+	n, ok := e.ObjectNew.(*corev1.Pod)
+	if !ok {
+		return false
+	}
+
+	return hasProfile(n) && (o.UID != n.UID ||
+		!slices.Equal(getSeccompProfilesFromPod(o), getSeccompProfilesFromPod(n)) ||
+		!slices.Equal(getSelinuxProfilesFromPod(o), getSelinuxProfilesFromPod(n)) ||
+		!slices.Equal(getAppArmorProfilesFromPod(o), getAppArmorProfilesFromPod(n)))
 }
 
 // profileCreatedPredicate selects only the create events of profiles.
