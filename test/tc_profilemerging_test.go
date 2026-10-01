@@ -75,8 +75,9 @@ func (e *e2e) testSeccompBpfProfileMerging() {
 // seccompLogsMergingTrigger creates a FIFO from a process which stays alive
 // for a while, since the log enricher drops the audit line of a short lived
 // mknod whose process is gone before the line gets enriched. The nginx image
-// ships perl-base, which includes POSIX.
-const seccompLogsMergingTrigger = `perl -MPOSIX -e 'POSIX::mkfifo("/tmp/foo", 0600) or die $!; sleep 5'`
+// ships perl-base, which includes POSIX. The FIFO is named after the PID, so
+// that the trigger can run again.
+const seccompLogsMergingTrigger = `perl -MPOSIX -e 'POSIX::mkfifo("/tmp/foo$$", 0600) or die $!; sleep 5'`
 
 func (e *e2e) testSeccompLogsProfileMerging() {
 	e.logEnricherOnlyTestCase()
@@ -135,6 +136,49 @@ func (e *e2e) testSelinuxLogsDisabledProfileMerging() {
 		policyDisabledAfterRecording,
 		"perm", "listen",
 	)
+}
+
+// triggerUntilEnriched runs the trigger in the nginx container of the pod
+// until the log enricher logged the triggered action. The recorder collects the
+// profiles from the enricher once the pods are gone, and the enricher runs
+// seconds behind the audit log while the recorded containers are busy. Like the
+// checks of the profiles, the action only has to be part of the logged value.
+//
+// The audit records of the trigger can get lost: while the recorded containers
+// log every syscall, journald may not read the kernel log buffer fast enough
+// ("/dev/kmsg buffer overrun"), so the trigger runs again then.
+func (e *e2e) triggerUntilEnriched(recorderKind, podName, trigger, triggeredAction string) {
+	const attempts = 3
+
+	triggeredKey := "syscallName"
+	if recorderKind == "SelinuxProfile" {
+		triggeredKey = "perm"
+	}
+
+	condition := regexp.MustCompile(
+		`(?m) pod="` + regexp.QuoteMeta(podName) + `".* container="` + containerNameNginx +
+			`".* ` + triggeredKey + `="[^"]*` + regexp.QuoteMeta(triggeredAction) + `[^"]*"`,
+	)
+	triggered := time.Now()
+
+	for attempt := 1; ; attempt++ {
+		e.kubectl(
+			"exec", "-c", containerNameNginx, podName, "--", "bash", "-c", trigger,
+		)
+
+		err := e.pollEnricherLogs(time.Minute, triggered, condition)
+		if err == nil {
+			return
+		}
+
+		if attempt == attempts {
+			e.Failf("condition not met", "%v", err)
+
+			return
+		}
+
+		e.logf("Running the trigger again: %v", err)
+	}
 }
 
 func (e *e2e) profileMergingTest(
@@ -217,26 +261,13 @@ spec:
 		"jsonpath={.items[*].metadata.name}",
 	)
 	onePodName := strings.Fields(podNamesString)[0]
-	triggered := time.Now()
-
-	e.kubectl(
-		"exec", "-c", containerNameNginx, onePodName, "--", "bash", "-c", trigger,
-	)
 
 	if recordedMethod == "Logs" {
-		// The recorder collects the profiles from the enricher once the pods
-		// are gone, and the enricher runs seconds behind the audit log while
-		// the recorded containers are busy. Like the checks of the profiles
-		// below, the action only has to be part of the logged value.
-		triggeredKey := "syscallName"
-		if recorderKind == "SelinuxProfile" {
-			triggeredKey = "perm"
-		}
-
-		e.waitForEnricherLogs(triggered, regexp.MustCompile(
-			`(?m) pod="`+regexp.QuoteMeta(onePodName)+`".* container="`+containerNameNginx+
-				`".* `+triggeredKey+`="[^"]*`+regexp.QuoteMeta(triggeredAction)+`[^"]*"`,
-		))
+		e.triggerUntilEnriched(recorderKind, onePodName, trigger, triggeredAction)
+	} else {
+		e.kubectl(
+			"exec", "-c", containerNameNginx, onePodName, "--", "bash", "-c", trigger,
+		)
 	}
 
 	e.kubectl("delete", "deploy", deployName)

@@ -121,6 +121,30 @@ func TestFollowSendsCompleteLines(t *testing.T) {
 	require.Equal(t, "third", nextLine(t, sut))
 }
 
+func TestFollowReadsOnNotifications(t *testing.T) {
+	t.Parallel()
+
+	// The polling never kicks in, so the lines are only read when the file
+	// system notifies about them.
+	sut, file := startFollow(t, Config{PollInterval: time.Hour})
+
+	write(t, file, "first\n")
+	require.Equal(t, "first", nextLine(t, sut))
+
+	// The writes to the other files of the directory are no lines.
+	other := filepath.Join(filepath.Dir(file.Name()), "other.log")
+	require.NoError(t, os.WriteFile(other, []byte("other\n"), 0o600))
+	noLine(t, sut)
+
+	write(t, file, "second\n")
+	require.Equal(t, "second", nextLine(t, sut))
+
+	// A replaced file is followed as well.
+	require.NoError(t, os.Rename(file.Name(), file.Name()+".1"))
+	require.NoError(t, os.WriteFile(file.Name(), []byte("third\n"), 0o600))
+	require.Equal(t, "third", nextLine(t, sut))
+}
+
 func TestFollowStartsAtEnd(t *testing.T) {
 	t.Parallel()
 
