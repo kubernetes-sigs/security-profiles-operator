@@ -14,10 +14,13 @@
 # limitations under the License.
 
 # Attests SLSA provenance, the SBOM, the vulnerability scan with its VEX
-# document, the build environment and the Scorecard result for the image
-# digests listed in build/image-digests, and SLSA provenance for the bundle and
-# catalog digests in build/metadata-image-digests. hack/image-cross.sh writes
-# both lists. The images are attested in parallel.
+# document, the build environment and the Scorecard result for the per-arch
+# image digests listed in build/image-digests, and SLSA provenance for the
+# bundle and catalog digests in build/metadata-image-digests. hack/image-cross.sh
+# writes both lists. Container runtimes pull the per-arch images by digest from
+# the repository of their manifest list, where verifiers and the image promoter
+# look up attestations, so the per-arch attestations are attached there too.
+# The images are attested in parallel.
 
 set -euo pipefail
 
@@ -32,6 +35,18 @@ fi
 
 mapfile -t IMAGES <"$BUILD_DIR/image-digests"
 mapfile -t METADATA_IMAGES <"$BUILD_DIR/metadata-image-digests"
+
+# The same digests in the repository of the manifest list, for attest.
+ATTEST_ALIASES=""
+for ref in "${IMAGES[@]}"; do
+  repo="${ref%@*}"
+  if [[ ! "$repo" =~ -(amd64|arm64|ppc64le|s390x)$ ]]; then
+    echo "$ref is no per-arch image" >&2
+    exit 1
+  fi
+  ATTEST_ALIASES+="$ref ${repo%-*}@${ref#*@}"$'\n'
+done
+export ATTEST_ALIASES
 BUILD_STARTED="$(cat "$BUILD_DIR/build-started")"
 export BUILD_STARTED
 

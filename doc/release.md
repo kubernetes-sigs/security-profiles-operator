@@ -173,6 +173,7 @@ referrers, `SIGN=false` skips all of them.
 | -------------------------------------------------- | --------- | ---------- | ------------------------------------------------ |
 | `security-profiles-operator-{amd64,arm64,ppc64le}` | yes       | yes        | yes, plus the Scorecard result                   |
 | `security-profiles-operator` (manifest list)       | yes       |            |                                                  |
+| `security-profiles-operator` (platform images)     | yes       | yes        | yes, plus the Scorecard result                   |
 | `security-profiles-operator-{bundle,catalog}`      | yes       | yes        |                                                  |
 | `charts/security-profiles-operator`                | yes       | yes        |                                                  |
 | `base/*` and `seccomp-test-profiles`               | yes       | yes        |                                                  |
@@ -185,7 +186,13 @@ the catalog and the chart contain no software packages, which is why they have
 no SBOM, vulnerability scan or VEX document. The manifest list only carries
 the signature: verifiers like nri-supply-chain use the attestations of an index
 digest instead of the platform ones as soon as there are any, so partial
-attestations on the manifest list would hide the per-arch ones.
+attestations on the manifest list would hide the per-arch ones. The platform
+images it holds are signed and get the attestations of their per-arch images
+in the `security-profiles-operator` repository too, because container runtimes
+pull them by digest from there and verifiers and the image promoter look up
+signatures and attestations in the repository of the image. The VEX documents
+name the image in both repositories, the SBOMs keep the name of the per-arch
+image.
 
 The attestations are:
 

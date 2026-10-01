@@ -102,7 +102,8 @@ push() {
 parallel_each build "${ARCHES[@]}"
 parallel_each push "${ARCHES[@]}"
 
-# The attestation step attests the per-arch images by digest
+# The attestation step attests the per-arch images by digest, in their own
+# repositories and in the one of the manifest list (see hack/attest-images.sh)
 : > build/image-digests
 for ARCH in "${ARCHES[@]}"; do
     ARCH_DIGEST_IMG=$(docker inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$IMAGE-$ARCH:$TAG" |
@@ -185,4 +186,9 @@ SIGN_REFS=("$IMAGE:$TAG" "$BUNDLE_IMG_BASE:$TAG" "$CATALOG_IMG_BASE:$TAG")
 for ARCH in "${ARCHES[@]}"; do
     SIGN_REFS+=("$IMAGE-$ARCH:$TAG")
 done
+# Container runtimes pull the per-arch images by digest from the repository of
+# the manifest list, so they are signed there too.
+while read -r ARCH_DIGEST_IMG; do
+    SIGN_REFS+=("$IMAGE@${ARCH_DIGEST_IMG#*@}")
+done < build/image-digests
 "$(dirname "${BASH_SOURCE[0]}")/sign-images.sh" "${SIGN_REFS[@]}"

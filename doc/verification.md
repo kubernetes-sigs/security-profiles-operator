@@ -101,6 +101,11 @@ your architecture and verify its attestations in the staging registry:
     us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator-amd64@$DIGEST
 ```
 
+Images built after v1.1.0 also have the signature and attestations of their
+platform images in the repository of the manifest list, where container
+runtimes pull them from, so the same digest verifies as
+`us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator@$DIGEST`.
+
 That provenance is SLSA Build L1, see [SLSA build levels](#slsa-build-levels).
 
 ## Command line binaries
