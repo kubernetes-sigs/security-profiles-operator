@@ -206,11 +206,12 @@ spec:
 
 	// The polls below cover the flush interval of 20 seconds. Wait for the
 	// exec record itself, since other records may be flushed before it.
-	e.waitForJsonEnricherLogs(since,
+	// Check the matched output, a later fetch by label selector would only
+	// return the last 10 lines and may miss the exec record.
+	output := e.waitForJsonEnricherLogs(since,
 		regexp.MustCompile(`(?m)"requestUID"`),
 		regexp.MustCompile(`sleep 5`))
 	e.logf("Checking JSON enricher output")
-	output := e.kubectlOperatorNS("logs", "-l", "name=spod", "-c", "json-enricher")
 
 	// then match the rest
 	e.Contains(output, "\"auditID\"")

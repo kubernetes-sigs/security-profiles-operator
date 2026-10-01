@@ -450,7 +450,8 @@ func (t *Tailer) send(line string) error {
 
 // checkFile switches to the file which replaced the followed one, and starts
 // over on a file which got truncated. A file which is gone is kept, its
-// writer may not have reopened it yet.
+// writer may not have reopened it yet. The new lines are read right away,
+// since no further notification may come for them.
 func (t *Tailer) checkFile() error {
 	info, err := os.Stat(t.path)
 	if err != nil {
@@ -470,11 +471,15 @@ func (t *Tailer) checkFile() error {
 
 		t.closeFile()
 
-		if err := t.open(false); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		if err := t.open(false); err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
+
 			return err
 		}
 
-		return nil
+		return t.read()
 	}
 
 	if info.Size() < t.offset {
@@ -485,6 +490,8 @@ func (t *Tailer) checkFile() error {
 		t.offset = 0
 		t.pending = t.pending[:0]
 		t.discarding = false
+
+		return t.read()
 	}
 
 	return nil
