@@ -77,10 +77,16 @@ func VerifyCertChain(certs []*x509.Certificate, signer crypto.Signer, enforceInt
 		}
 	}
 
+	// Verify the leaf is an end-entity certificate, per RFC 3161 2.3. The chain
+	// verification above does not reject a CA certificate used as the leaf.
+	if leaf.IsCA {
+		return errors.New("leaf certificate must be an end-entity certificate, not a CA")
+	}
+
 	// Verify leaf has only a single EKU for timestamping, per RFC 3161 2.3
-	// This should be enforced by Verify already
-	leafEKU := leaf.ExtKeyUsage
-	if len(leafEKU) != 1 {
+	// This should be enforced by Verify already. Key purposes that crypto/x509
+	// does not recognise land in UnknownExtKeyUsage, so count those too.
+	if len(leaf.ExtKeyUsage)+len(leaf.UnknownExtKeyUsage) != 1 {
 		return errors.New("certificate should only contain one EKU")
 	}
 

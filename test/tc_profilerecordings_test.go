@@ -40,11 +40,15 @@ const (
 	selinuxRecordingName                             = "test-selinux-recording"
 )
 
-func (e *e2e) waitForJsonEnricherLogs(since time.Time, conditions ...*regexp.Regexp) {
+// waitForJsonEnricherLogs waits until the JSON enricher logs since the
+// provided time match the conditions, and returns them.
+func (e *e2e) waitForJsonEnricherLogs(since time.Time, conditions ...*regexp.Regexp) string {
+	var logs string
+
 	// This covers the flush interval of the JSON enricher.
 	e.eventually(time.Minute, 3*time.Second, func() error {
 		e.logf("Waiting for JSON enricher to record syscalls")
-		logs := e.kubectlOperatorNS(
+		logs = e.kubectlOperatorNS(
 			"logs",
 			"--since-time="+since.Format(time.RFC3339),
 			"ds/spod",
@@ -53,6 +57,8 @@ func (e *e2e) waitForJsonEnricherLogs(since time.Time, conditions ...*regexp.Reg
 
 		return unmatchedLogs(logs, conditions)
 	})
+
+	return logs
 }
 
 // waitForJsonEnricherFileLogs waits until the log files of the JSON enricher
