@@ -3,8 +3,8 @@
 # cel.dev/expr v0.25.2
 ## explicit; go 1.23.0
 cel.dev/expr
-# cloud.google.com/go/compute/metadata v0.9.0
-## explicit; go 1.24.0
+# cloud.google.com/go/compute/metadata v0.9.1
+## explicit; go 1.25.0
 cloud.google.com/go/compute/metadata
 # cyphar.com/go-pathrs v0.2.6
 ## explicit; go 1.18
