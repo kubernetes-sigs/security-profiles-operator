@@ -24,6 +24,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -349,7 +350,7 @@ func (e *Enricher) processAuditLine(nodeName string, auditLine *types.AuditLine)
 		// the process is either gone without having been seen running or
 		// runs outside of a container, and a later line with the same PID
 		// may come from whatever process reused it.
-		if errors.Is(err, os.ErrNotExist) || errors.Is(err, util.ErrContainerIDNotFound) {
+		if processGone(err) || errors.Is(err, util.ErrContainerIDNotFound) {
 			e.logger.V(config.VerboseLevel).Info(
 				"Dropping audit line without container",
 				"processID", auditLine.ProcessID, "reason", err.Error(),
@@ -391,6 +392,13 @@ func (e *Enricher) processAuditLine(nodeName string, auditLine *types.AuditLine)
 	}
 }
 
+// processGone reports whether the lookup of a process failed because it exited:
+// its proc directory is gone, or reading a file of it fails with ESRCH if it
+// exited after the file got opened.
+func processGone(err error) bool {
+	return errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ESRCH)
+}
+
 // containerIDForProcess returns the container ID of a process. The container
 // of a process which exited is the one it had when it was last seen running.
 func (e *Enricher) containerIDForProcess(pid int) (string, error) {
@@ -401,7 +409,7 @@ func (e *Enricher) containerIDForProcess(pid int) (string, error) {
 		e.processContainers.Set(pid, cID, ttlcache.DefaultTTL)
 
 		return cID, nil
-	case errors.Is(err, os.ErrNotExist):
+	case processGone(err):
 		if item := e.processContainers.Get(pid); item != nil {
 			e.logger.V(config.VerboseLevel).Info(
 				"Using the container of the exited process",

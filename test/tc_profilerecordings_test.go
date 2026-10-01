@@ -120,7 +120,17 @@ func (e *e2e) waitForJsonEnricherFileLogs(logFilePath string, conditions ...*reg
 }
 
 func (e *e2e) waitForEnricherLogs(since time.Time, conditions ...*regexp.Regexp) {
-	e.eventually(time.Minute, 3*time.Second, func() error {
+	if err := e.pollEnricherLogs(time.Minute, since, conditions...); err != nil {
+		e.Failf("condition not met", "%v", err)
+	}
+}
+
+// pollEnricherLogs is waitForEnricherLogs, but returns the error instead of
+// failing the test.
+func (e *e2e) pollEnricherLogs(
+	timeout time.Duration, since time.Time, conditions ...*regexp.Regexp,
+) error {
+	return poll(timeout, 3*time.Second, func() error {
 		e.logf("Waiting for enricher to record syscalls")
 		logs := e.kubectlOperatorNS(
 			"logs",

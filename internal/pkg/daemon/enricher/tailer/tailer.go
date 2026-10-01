@@ -27,12 +27,25 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/fsnotify/fsnotify"
 )
 
 const (
 	// DefaultPollInterval is how often a file is checked for new lines, a
-	// rotation or a truncation when no interval is configured.
+	// rotation or a truncation when no interval is configured and the file
+	// system does not notify about them.
 	DefaultPollInterval = 100 * time.Millisecond
+
+	// watchedPollInterval is the shortest poll interval while the file system
+	// notifies about the changes, when polling only catches up on what the
+	// notifications missed.
+	watchedPollInterval = time.Second
+
+	// watchRetryInterval is how often watching the directory of the file is
+	// tried again while it fails, like while the directory does not exist yet
+	// or no more notification instances are available.
+	watchRetryInterval = 10 * time.Second
 
 	// maxLineSize bounds the bytes kept of a line which is still being
 	// written. A longer line is dropped, it is not a log line.
@@ -48,8 +61,10 @@ var errStopped = errors.New("tailer stopped")
 // Config configures a Tailer.
 type Config struct {
 	// PollInterval is how often the file is checked for new lines, a
-	// rotation or a truncation once its end is reached. Zero means
-	// DefaultPollInterval.
+	// rotation or a truncation once its end is reached, if the file system
+	// does not notify about them. While it does, the file is checked on each
+	// notification, and polled at least a second apart only to catch up on
+	// missed ones. Zero means DefaultPollInterval.
 	PollInterval time.Duration
 	// FromStart reads the file from its beginning instead of from its
 	// current end.
@@ -61,6 +76,11 @@ type Config struct {
 // it appears. A file which got replaced (renamed and created again) is read
 // from the start of the new file, and a file which got truncated from its new
 // beginning.
+//
+// The lines are read as soon as the file system notifies about them, since
+// the readers of the audit log look up the processes of the lines, which may
+// exit right after they got logged. The file is polled if the notifications
+// are not available.
 type Tailer struct {
 	path   string
 	config Config
@@ -74,9 +94,13 @@ type Tailer struct {
 	err error
 
 	// The fields below belong to the reading goroutine.
-	file   *os.File
-	info   os.FileInfo
-	offset int64
+	// watcher is nil while the file system notifications are not available,
+	// watching is tried again from nextWatch on then.
+	watcher   *fsnotify.Watcher
+	nextWatch time.Time
+	file      *os.File
+	info      os.FileInfo
+	offset    int64
 	// pending is the line which is still being written.
 	pending []byte
 	// discarding is set while the rest of a line which is too long, or
@@ -104,6 +128,8 @@ func Follow(path string, config Config) (*Tailer, error) {
 	if err := t.open(!config.FromStart); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
+
+	t.watch()
 
 	go t.run()
 
@@ -134,12 +160,50 @@ func (t *Tailer) Stop() {
 	<-t.stopped
 }
 
+// watch starts watching the directory of the file, which tells about the
+// writes to the file as well as about its replacement. If that fails, polling
+// takes over until it is tried again at nextWatch.
+func (t *Tailer) watch() {
+	t.nextWatch = time.Now().Add(watchRetryInterval)
+
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return
+	}
+
+	if err := watcher.Add(filepath.Dir(t.path)); err != nil {
+		watcher.Close()
+
+		return
+	}
+
+	t.watcher = watcher
+}
+
+func (t *Tailer) closeWatcher() {
+	if t.watcher != nil {
+		t.watcher.Close()
+		t.watcher = nil
+	}
+}
+
+// pollInterval returns the interval of the polling, which only catches up on
+// missed notifications while there are notifications.
+func (t *Tailer) pollInterval() time.Duration {
+	if t.watcher != nil {
+		return max(t.config.PollInterval, watchedPollInterval)
+	}
+
+	return t.config.PollInterval
+}
+
 func (t *Tailer) run() {
 	defer close(t.stopped)
 	defer close(t.lines)
 	defer t.closeFile()
+	defer t.closeWatcher()
 
-	ticker := time.NewTicker(t.config.PollInterval)
+	ticker := time.NewTicker(t.pollInterval())
 	defer ticker.Stop()
 
 	for {
@@ -153,12 +217,87 @@ func (t *Tailer) run() {
 			return
 		}
 
-		select {
-		case <-t.done:
+		if !t.wait(ticker) {
 			return
-		case <-ticker.C:
 		}
 	}
+}
+
+// wait returns once the file may have changed, or false once the tailer got
+// stopped.
+func (t *Tailer) wait(ticker *time.Ticker) bool {
+	// A nil channel never receives, which leaves the polling.
+	var (
+		events <-chan fsnotify.Event
+		errs   <-chan error
+	)
+
+	if t.watcher != nil {
+		events, errs = t.watcher.Events, t.watcher.Errors
+	}
+
+	for {
+		select {
+		case <-t.done:
+			return false
+
+		case <-ticker.C:
+			if t.watcher == nil && time.Now().After(t.nextWatch) {
+				t.watch()
+
+				if t.watcher != nil {
+					ticker.Reset(t.pollInterval())
+				}
+			}
+
+			return true
+
+		case event, ok := <-events:
+			if !ok {
+				t.dropWatcher(ticker)
+
+				return true
+			}
+
+			// Writes to the other files of the directory do not matter.
+			if filepath.Clean(event.Name) == filepath.Clean(t.path) {
+				t.drainEvents()
+
+				return true
+			}
+
+		case _, ok := <-errs:
+			if !ok {
+				t.dropWatcher(ticker)
+			}
+
+			// An overflow of the notifications is caught up by polling.
+			return true
+		}
+	}
+}
+
+// drainEvents drops the notifications which are queued already, since the
+// poll which follows reads everything they tell about. A busy file would
+// otherwise get polled once per write.
+func (t *Tailer) drainEvents() {
+	for {
+		select {
+		case _, ok := <-t.watcher.Events:
+			if !ok {
+				return
+			}
+		default:
+			return
+		}
+	}
+}
+
+// dropWatcher falls back to polling once the watcher stopped.
+func (t *Tailer) dropWatcher(ticker *time.Ticker) {
+	t.closeWatcher()
+	t.nextWatch = time.Now().Add(watchRetryInterval)
+	ticker.Reset(t.pollInterval())
 }
 
 // poll sends the lines appended since the last poll and picks up a file which
