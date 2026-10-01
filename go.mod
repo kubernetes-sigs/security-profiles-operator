@@ -5,7 +5,7 @@ go 1.27.0
 toolchain go1.27.1
 
 require (
-	cloud.google.com/go/compute/metadata v0.9.1
+	cloud.google.com/go/compute/metadata v0.10.0
 	github.com/aquasecurity/libbpfgo v0.11.0-libbpf-1.8-dev-2bbc483
 	github.com/blang/semver/v4 v4.0.0
 	github.com/cert-manager/cert-manager v1.21.2
