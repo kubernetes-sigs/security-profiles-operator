@@ -211,13 +211,33 @@ image_purl() {
   echo "pkg:oci/${repo##*/}@${digest/:/%3A}?repository_url=$repo"
 }
 
-# Signs a predicate as in-toto attestation for an image digest and attaches it
-# as Sigstore bundle.
-attest() {
-  local ref="$1" type="$2" predicate="$3"
+# Prints the references the image digest is also attested as, from the
+# "<ref> <alias>" lines of ATTEST_ALIASES, which hack/attest-images.sh sets for
+# the per-arch images in the repository of their manifest list.
+attest_aliases() {
+  local ref="$1" from to
 
-  echo "Attesting $type for $ref"
-  "$(cosign_bin)" attest --yes --use-signing-config --type "$type" --predicate "$predicate" "$ref"
+  while read -r from to; do
+    if [[ -n "$from" && "$from" == "$ref" ]]; then
+      echo "$to"
+    fi
+  done <<<"${ATTEST_ALIASES:-}"
+}
+
+# Signs a predicate as in-toto attestation for an image digest and its
+# aliases, see attest_aliases, and attaches it as Sigstore bundle.
+attest() {
+  local ref="$1" type="$2" predicate="$3" target
+  local -a targets=("$ref")
+
+  while read -r target; do
+    targets+=("$target")
+  done < <(attest_aliases "$ref")
+
+  for target in "${targets[@]}"; do
+    echo "Attesting $type for $target"
+    "$(cosign_bin)" attest --yes --use-signing-config --type "$type" --predicate "$predicate" "$target"
+  done
 }
 
 # Extracts the binaries of an image digest into a directory once and prints

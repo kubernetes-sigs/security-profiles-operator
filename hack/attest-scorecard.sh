@@ -18,6 +18,7 @@
 # verifiers like nri-supply-chain recognize) for each given image digest. The
 # result comes from the public Scorecard API, it describes the repository at
 # the commit Scorecard scanned last, which may be older than the built commit.
+# The digests are also attested as their aliases, see attest_aliases.
 # An unavailable API skips the attestation with a warning.
 
 set -euo pipefail

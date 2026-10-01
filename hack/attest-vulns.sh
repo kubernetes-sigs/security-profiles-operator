@@ -20,7 +20,8 @@
 # binaries use the vulnerable symbols. A clean scan has an empty result and no
 # VEX document, because an OpenVEX document needs at least one statement. The Go
 # vulnerability database has no severity scores, so the scan results carry
-# none.
+# none. The VEX statements name the image in every repository it is attested
+# in, see attest_aliases.
 #
 # Maintainers assess findings in the OpenVEX document .openvex.json. Its
 # statement replaces the assessment of a found vulnerability whose name or one
@@ -150,7 +151,8 @@ for ref in "$@"; do
     --arg id "https://console.cloud.google.com/cloud-build/builds/${BUILD_ID:-local}#$name-vex" \
     --arg author "$REPOSITORY_URL/blob/main/hack/attest-vulns.sh" \
     --arg timestamp "$finished" \
-    --arg product "$(image_purl "$ref")" \
+    --argjson products "$(for target in "$ref" $(attest_aliases "$ref"); do image_purl "$target"; done |
+      "$(jq_bin)" -Rn '[inputs]')" \
     '{
       "@context": "https://openvex.dev/ns/v0.2.0",
       "@id": $id,
@@ -163,9 +165,10 @@ for ref in "$@"; do
         | map(
             ((map(select(.status == "affected")) + .)[0].status) as $status
             | map(select(.status == $status))
-            | .[0] + {products: [{
-                "@id": $product,
-                subcomponents: ([.[].products[].subcomponents[]?] | unique)
+            | ([.[].products[].subcomponents[]?] | unique) as $subcomponents
+            | .[0] + {products: [$products[] | {
+                "@id": .,
+                subcomponents: $subcomponents
               }]}
             | .vulnerability.name as $name
             | ([$name] + ($aliases[$name] // [])) as $names
