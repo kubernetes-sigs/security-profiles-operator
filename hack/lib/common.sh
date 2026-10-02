@@ -552,3 +552,22 @@ valid_provenance() {
   "$(jq_bin)" -sr "${args[@]}" "$problems .[] | problems[] | \"provenance with \\(.)\"" <<<"$statements"
   return 1
 }
+
+# Reads the tags of a staging repository and prints the ones of the images
+# Cloud Build built for COMMIT. The image builder tags them
+# vYYYYMMDD-<git describe --tags --always --dirty>: while the commit has no
+# tag, that ends with -g<abbreviated commit>, and once RELEASE_TAG points to
+# the commit, for example when the job ran after the tag was pushed, it is
+# vYYYYMMDD-RELEASE_TAG. RELEASE_TAG is optional.
+staging_commit_tags() {
+  local commit="$1" release="${2:-}" tag describe
+
+  while read -r tag; do
+    [[ "$tag" =~ ^v[0-9]{8}-(.+)$ ]] || continue
+    describe="${BASH_REMATCH[1]}"
+    if [[ -n "$release" && "$describe" == "$release" ]] ||
+      [[ "$describe" =~ -g([0-9a-f]{7,40})$ && "$commit" == "${BASH_REMATCH[1]}"* ]]; then
+      echo "$tag"
+    fi
+  done
+}

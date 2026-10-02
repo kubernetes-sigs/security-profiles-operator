@@ -5,18 +5,25 @@ name: image-reproducible
 # it compares their digests with the staging images Cloud Build pushes for the
 # commit, which shows that the staging images are reproducible from the
 # source. Releases are built from a commit on main, which was compared then.
+# For a release, the images of the tagged commit are built once more and their
+# digests get SLSA Build L3 provenance, which the release artifacts job
+# attaches to the staging images with the same digests, see
+# doc/release.md#per-arch-images.
 on:
   push:
     branches:
       - main
   pull_request:
+  release:
+    types: [published]
 # The comparison waits up to 45 minutes for Cloud Build, which is why it is not
 # part of the build workflow: there it would keep runs of main going, and a
 # newer push would cancel the pending run of main with its publishing jobs.
-# Every commit of main gets its own group here, so that none is cancelled or
-# skipped, only pull request runs are cancelled by newer pushes.
+# Every commit of main and every release gets its own group here, so that none
+# is cancelled or skipped, only pull request runs are cancelled by newer
+# pushes.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions: {}
@@ -44,6 +51,10 @@ jobs:
     name: image / reproducible
     runs-on: ubuntu-24.04
     timeout-minutes: 120
+    # Builds only, also for a release: the provenance runs in a separate job,
+    # so the build steps never hold an OIDC token or write access.
+    outputs:
+      hashes: ${{ steps.hashes.outputs.hashes }}
     steps:
       - name: Remove unnecessary files
         run: |
@@ -63,6 +74,58 @@ jobs:
           name: image-digests
           path: build/image-digests
           if-no-files-found: error
+      # The provenance subjects of a release: the manifest digest of each
+      # per-arch image, named after its repository, for example
+      # security-profiles-operator-amd64.
+      - id: hashes
+        if: github.event_name == 'release'
+        run: |
+          while IFS=@ read -r repo digest; do
+            if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "Unexpected digest $digest of $repo"
+              exit 1
+            fi
+            echo "${digest#sha256:}  ${repo##*/}"
+          done < build/image-digests > build/image-subjects.sha256
+          cat build/image-subjects.sha256
+          echo "hashes=$(base64 -w0 build/image-subjects.sha256)" >> "$GITHUB_OUTPUT"
       - name: Compare with the staging images
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: hack/ci/compare-staging-images.sh
+
+  # SLSA Build L3 provenance for the per-arch images of a release, generated
+  # from their digests by the isolated provenance workflow.
+  image-provenance:
+    needs: image-reproducible
+    if: github.event_name == 'release'
+    name: image / provenance
+    permissions:
+      attestations: write  # required for storing the provenance
+      id-token: write  # required for signing the provenance
+    uses: ./.github/workflows/provenance.yml
+    with:
+      base64-subjects: ${{ needs.image-reproducible.outputs.hashes }}
+      provenance-name: images.intoto.jsonl
+
+  # Attaches the provenance to the release. It runs no repository code. The
+  # asset of a first run is never replaced: the release artifacts job may have
+  # attached it to the staging images already, and a re-run attests the same
+  # digests again.
+  image-release:
+    needs: image-provenance
+    if: github.event_name == 'release'
+    name: image / release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write  # required for updating the release
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: images.intoto.jsonl
+          path: build
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          overwrite_files: false
+          files: |
+            build/images.intoto.jsonl

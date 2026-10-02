@@ -14,7 +14,9 @@
 # limitations under the License.
 
 # Publishes the spoc binaries and the Helm chart of the GitHub release $TAG to
-# the staging registry, so that they can be promoted to registry.k8s.io, see
+# the staging registry and attaches the provenance of the release to the
+# per-arch images there (see images), so that they can be promoted to
+# registry.k8s.io, see
 # doc/release.md#oci-artifacts. Nothing is built here: the GitHub workflows of
 # the release build the OCI image layouts (hack/oci-layout.sh) and attest their
 # manifest digests with SLSA Build L3 provenance. This script waits until the
@@ -47,6 +49,10 @@ RELEASE_URL="${RELEASE_URL:-$REPOSITORY_URL/releases/download/$TAG}"
 # take a few minutes.
 WAIT_TIMEOUT="${WAIT_TIMEOUT:-7200}"
 WAIT_INTERVAL="${WAIT_INTERVAL:-60}"
+# How long to wait for the provenance of the per-arch images once spoc and the
+# chart are published. Its workflow starts with theirs and is usually done by
+# then, both waits together stay below the timeout of cloudbuild-release.yaml.
+IMAGE_WAIT_TIMEOUT="${IMAGE_WAIT_TIMEOUT:-2700}"
 # The registry to log in to once the assets are there, access tokens of the
 # metadata server only last an hour.
 LOGIN_REGISTRY="${LOGIN_REGISTRY:-}"
@@ -79,16 +85,27 @@ COSIGN="$(cosign_bin)"
 CRANE="$(crane_bin)"
 JQ="$(jq_bin)"
 
-# Downloads the release assets, waiting for the ones that are not uploaded
-# yet. Assets are only visible once their upload is complete.
+# The per-arch images of the release are built and pushed by Cloud Build for
+# the tagged commit on main, the image-reproducible workflow of the release
+# builds them again from the tag and attests their manifest digests in
+# images.intoto.jsonl, see doc/release.md#per-arch-images. It is not in
+# ASSETS, the job only waits for it after publishing spoc and the chart.
+IMAGE=security-profiles-operator
+IMAGE_BUNDLE=images.intoto.jsonl
+IMAGE_WORKFLOW=.github/workflows/image-reproducible.yml
+
+# Downloads release assets, waiting up to TIMEOUT seconds for the ones that are
+# not uploaded yet. Assets are only visible once their upload is complete.
 download_assets() {
-  local asset deadline=$((SECONDS + WAIT_TIMEOUT))
+  local timeout="$1" asset deadline
   local -a missing
+  shift
+  deadline=$((SECONDS + timeout))
 
   mkdir -p "$DIR"
   while :; do
     missing=()
-    for asset in "${ASSETS[@]}"; do
+    for asset in "$@"; do
       [[ -f "$DIR/$asset" ]] && continue
       if curl -sSfL --retry 3 --retry-delay 5 -o "$DIR/$asset.download" "$RELEASE_URL/$asset" 2>/dev/null; then
         mv "$DIR/$asset.download" "$DIR/$asset"
@@ -305,6 +322,166 @@ attach_bundle() {
   rm -rf "$layout"
 }
 
+# The per-arch images are already in staging and signed there, so they are
+# neither pushed nor signed here. They only get the provenance of the release
+# attached, once every staging digest of the tagged commit is the attested one.
+# The manifest list gets none: the image promoter verifies it through its
+# platform manifests, and provenance about the manifest list would have to
+# pass the policy on its own.
+
+# Prints the "ARCH DIGEST" lines of the subjects of the image provenance,
+# sorted. The subjects are named after the per-arch repositories.
+image_subjects() {
+  "$JQ" -r .dsseEnvelope.payload "$DIR/$IMAGE_BUNDLE" | base64 -d | "$JQ" -r --arg image "$IMAGE" '
+    .subject[]
+    | if (.name | test("^\($image)-[a-z0-9]+$")) and (.digest.sha256 // "" | test("^[a-f0-9]{64}$"))
+      then "\(.name | ltrimstr("\($image)-")) sha256:\(.digest.sha256)"
+      else error("unexpected subject \(.)") end' | sort
+}
+
+# Prints the tags Cloud Build gave the images of the tagged commit in a
+# staging repository, see staging_commit_tags.
+commit_tags() {
+  local tags
+
+  tags="$("$CRANE" ls "$1")" || return 1
+  staging_commit_tags "$COMMIT" "$TAG" <<<"$tags"
+}
+
+# Checks that the staging images of the tagged commit and of the release
+# version are the attested ones: the per-arch images, and the platform
+# manifests of the manifest lists, which the image promoter verifies. Every
+# build of the commit has to have pushed the same digests. Then
+# fetches the per-arch manifests into the blobs of the layout $DIR/images and
+# writes "ARCH DESCRIPTOR" lines to $DIR/images.descriptors.
+check_images() {
+  local subjects tags tag arch digest repo current file media_type desc failed=0
+  local -a tag_list
+
+  subjects="$(image_subjects)" || return 1
+  echo "The provenance attests the per-arch images:"
+  echo "$subjects"
+
+  tags="$(commit_tags "$REGISTRY/$IMAGE")" || return 1
+  if [[ -z "$tags" ]]; then
+    echo "No staging image of $COMMIT in $REGISTRY/$IMAGE" >&2
+    return 1
+  fi
+  mapfile -t tag_list <<<"$tags"
+  for tag in "${tag_list[@]}" "$TAG"; do
+    current="$("$CRANE" manifest "$REGISTRY/$IMAGE:$tag" | "$JQ" -r '
+      if .mediaType == "application/vnd.docker.distribution.manifest.list.v2+json" or
+        .mediaType == "application/vnd.oci.image.index.v1+json"
+      then .manifests[] else error("not a manifest list") end
+      | if .platform.os == "linux" then "\(.platform.architecture) \(.digest)"
+        else error("unexpected platform \(.platform)") end' | sort)" || return 1
+    if [[ "$current" != "$subjects" ]]; then
+      echo "The platforms of $REGISTRY/$IMAGE:$tag are not the attested images:" >&2
+      echo "$current" >&2
+      failed=1
+    fi
+  done
+
+  while read -r arch digest; do
+    repo="$REGISTRY/$IMAGE-$arch"
+    tags="$(commit_tags "$repo")" || return 1
+    if [[ -z "$tags" ]]; then
+      echo "No staging image of $COMMIT in $repo" >&2
+      failed=1
+      continue
+    fi
+    mapfile -t tag_list <<<"$tags"
+    for tag in "${tag_list[@]}" "$TAG"; do
+      current="$("$CRANE" digest "$repo:$tag")" || return 1
+      if [[ "$current" != "$digest" ]]; then
+        echo "$repo:$tag is $current, but the provenance attests $digest" >&2
+        failed=1
+      fi
+    done
+  done <<<"$subjects"
+  if [[ $failed -ne 0 ]]; then
+    echo "The staging images of $COMMIT are not the ones the release attests" >&2
+    return 1
+  fi
+
+  rm -rf "$DIR/images"
+  mkdir -p "$DIR/images/blobs/sha256"
+  : >"$DIR/images.descriptors"
+  while read -r arch digest; do
+    file="$DIR/images/blobs/sha256/${digest#sha256:}"
+    "$CRANE" manifest "$REGISTRY/$IMAGE-$arch@$digest" >"$file" || return 1
+    media_type="$("$JQ" -r .mediaType "$file")" || return 1
+    if [[ "sha256:$(sha256sum "$file" | cut -d' ' -f1)" != "$digest" ]] ||
+      [[ "$media_type" != application/vnd.docker.distribution.manifest.v2+json &&
+        "$media_type" != application/vnd.oci.image.manifest.v1+json ]]; then
+      echo "$REGISTRY/$IMAGE-$arch@$digest is no image manifest with that digest" >&2
+      return 1
+    fi
+    desc="$("$JQ" -cn --arg mt "$media_type" --arg d "$digest" --argjson s "$(stat -c %s "$file")" \
+      '{mediaType: $mt, digest: $d, size: $s}')" || return 1
+    echo "$arch $desc" >>"$DIR/images.descriptors"
+  done <<<"$subjects"
+}
+
+# Verifies the image provenance and attaches it to every per-arch image, in its
+# own repository and as platform manifest in the repository of the manifest
+# list, where container runtimes pull it and the image promoter verifies it.
+# Writes the references to $DIR/images.refs.
+publish_images() {
+  local arch desc digest i
+  local -a archs=() descs=() blobs=()
+
+  check_images
+  while read -r arch desc; do
+    archs+=("$arch")
+    descs+=("$desc")
+    digest="$("$JQ" -r .digest <<<"$desc")"
+    blobs+=("$DIR/images/blobs/sha256/${digest#sha256:}")
+  done <"$DIR/images.descriptors"
+
+  verify_provenance "$DIR/$IMAGE_BUNDLE" "$IMAGE_WORKFLOW" "${blobs[@]}"
+  : >"$DIR/images.refs"
+  for i in "${!descs[@]}"; do
+    digest="$("$JQ" -r .digest <<<"${descs[$i]}")"
+    attach_bundle "$REGISTRY/$IMAGE-${archs[$i]}" "${descs[$i]}" "$DIR/$IMAGE_BUNDLE"
+    attach_bundle "$REGISTRY/$IMAGE" "${descs[$i]}" "$DIR/$IMAGE_BUNDLE"
+    printf '%s\n' "$REGISTRY/$IMAGE-${archs[$i]}@$digest" "$REGISTRY/$IMAGE@$digest" >>"$DIR/images.refs"
+  done
+}
+
+# Verifies that every per-arch image carries the provenance of the release as
+# the image promoter finds it, like verify_published does for spoc and the
+# chart. It only needs the GitHub identity, so it runs without signing too.
+verify_images() {
+  local ref failed=0
+
+  echo "Verifying the provenance of the per-arch images by $SIGNER_WORKFLOW@refs/tags/$TAG"
+  while read -r ref; do
+    echo "Verifying $ref"
+    check "SLSA provenance" github_provenance "$ref" "$IMAGE_WORKFLOW" || failed=1
+  done <"$DIR/images.refs"
+
+  if [[ $failed -ne 0 ]]; then
+    echo "The per-arch images are missing their provenance, see the FAILED checks above" >&2
+    return 1
+  fi
+  echo "All per-arch images carry their provenance"
+}
+
+# Waits for the image provenance, then checks the staging images, attaches the
+# provenance and verifies it, see publish_images and verify_images. It runs
+# after spoc and the chart are published, so that a late or failed image
+# workflow only fails the job at the end.
+images() {
+  download_assets "$IMAGE_WAIT_TIMEOUT" "$IMAGE_BUNDLE"
+  # The access token of the first login may have expired by now.
+  if [[ -n "$LOGIN_REGISTRY" ]]; then
+    registry_login "$LOGIN_REGISTRY"
+  fi
+  publish_images
+  verify_images
+}
+
 # Signs manifests as the staging build, except the ones it signed already.
 # Only cosign signatures count, bundles of the cosign sign predicate type, not
 # any other bundle of the identity. A failed lookup fails rather than signing
@@ -467,7 +644,7 @@ verify_published() {
   return "$failed"
 }
 
-download_assets
+download_assets "$WAIT_TIMEOUT" "${ASSETS[@]}"
 if [[ -n "$LOGIN_REGISTRY" ]]; then
   registry_login "$LOGIN_REGISTRY"
 fi
@@ -495,18 +672,36 @@ if signing_enabled; then
   attest_sbom "$CHART_SBOM" true "$CHART_REF"
 fi
 
+failed=0
 if ! signing_enabled; then
   echo "Signing disabled, not verifying the signatures and attestations"
 elif [[ -z "$SIGNER_IDENTITY" ]]; then
   echo "WARNING: SIGNER_IDENTITY is not set, not verifying the signatures and attestations" >&2
 else
   echo "Verifying the signatures and attestations by $SIGNER_IDENTITY and $SIGNER_WORKFLOW@refs/tags/$TAG"
-  failed=0
   verify_published spoc "$SPOC_WORKFLOW" "${SPOC_SBOMS[@]/#/$DIR/}" || failed=1
   verify_published chart "$CHART_WORKFLOW" || failed=1
   if [[ $failed -ne 0 ]]; then
     echo "Signatures or attestations are missing, see the FAILED checks above" >&2
-    exit 1
+  else
+    echo "All manifests carry their signature, provenance and SBOMs"
   fi
-  echo "All manifests carry their signature, provenance and SBOMs"
+fi
+
+# spoc and the chart are out, so a failure with the per-arch images only fails
+# the job here, and a rerun of the job retries them. The subshell keeps
+# errexit, which bash ignores in a function that runs as a condition.
+set +e
+(
+  set -e
+  images
+)
+images_status=$?
+set -e
+if [[ $images_status -ne 0 ]]; then
+  echo "The per-arch images did not get their provenance, see doc/release.md#per-arch-images" >&2
+  exit 1
+fi
+if [[ $failed -ne 0 ]]; then
+  exit 1
 fi
