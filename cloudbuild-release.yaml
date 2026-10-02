@@ -12,6 +12,9 @@ options:
 steps:
   - name: golang:1.27.1-bookworm@sha256:648f440f42a0958804efb24df176f806f9d353b41f1c0627f666428e40310f6b
     entrypoint: bash
+    # SPO_REPOSITORY_URL stays unset: the provenance has to come from the
+    # release workflows of kubernetes-sigs/security-profiles-operator, see
+    # hack/lib/common.sh.
     env:
       - TAG=$_PULL_BASE_REF
       - REGISTRY=us-central1-docker.pkg.dev/$PROJECT_ID/sp-operator

@@ -16,61 +16,21 @@ None
 
 #### Release checklist
 
+See [`doc/release.md`](https://github.com/kubernetes-sigs/security-profiles-operator/blob/main/doc/release.md) for the details of every step.
+
 - [ ] Run `./hack/release.sh {VERSION}` and merge version bump PR
+- [ ] Add the `tide/merge-blocker` label to this issue right after the version bump PR is merged (required: a PR merged before the promotion moves the `v{VERSION}` staging tags, and images without the GitHub provenance of the release, with level 1 provenance only, would get promoted; remove it only after the promotion)
 - [ ] Verify [`post-security-profiles-operator-push-image` prow job](https://prow.k8s.io/?job=post-security-profiles-operator-push-image) succeeds
-- [ ] Tag the release with `./hack/tag-release.sh` and push the tag
-- [ ] Create the GitHub release as pre-release with auto-generated release notes (use the template below)
+- [ ] Verify that the [`image-reproducible` workflow](https://github.com/kubernetes-sigs/security-profiles-operator/actions/workflows/image-reproducible.yml) succeeded for the push of the version bump commit to `main`
+- [ ] Tag the release with `./hack/tag-release.sh` and push the tag to `kubernetes-sigs/security-profiles-operator` with the command it prints (if a PR got merged after the version bump anyway, tag the newest commit of `main` while its `VERSION` is still `{VERSION}` and the `v{VERSION}` staging tags point to its images)
+- [ ] Create the GitHub release from the pushed tag as pre-release, never letting the GitHub UI create the tag, with auto-generated release notes below the text of [`.github/release-notes-template.md`](https://github.com/kubernetes-sigs/security-profiles-operator/blob/main/.github/release-notes-template.md)
 - [ ] Verify that the [`image-reproducible` workflow](https://github.com/kubernetes-sigs/security-profiles-operator/actions/workflows/image-reproducible.yml) of the release succeeds and attaches `images.intoto.jsonl`
 - [ ] Verify [`post-security-profiles-operator-push-release-artifacts` prow job](https://prow.k8s.io/?job=post-security-profiles-operator-push-release-artifacts) succeeds
-- [ ] Before merging the image promotion PR, check that its per-arch image digests are the subjects of `images.intoto.jsonl`, and keep the `tide/merge-blocker` label until it is merged, see [`doc/release.md`](https://github.com/kubernetes-sigs/security-profiles-operator/blob/main/doc/release.md)
-- [ ] Create and merge image promotion PR in [k8s.io](https://github.com/kubernetes/k8s.io) via `kpromo pr --staging-repo us-central1-docker.pkg.dev/k8s-staging-images/sp-operator`, within 90 days of the version bump, see [`doc/release.md`](https://github.com/kubernetes-sigs/security-profiles-operator/blob/main/doc/release.md)
-- [ ] Once the provenance policy is in place, check that the promoter carried the attestations and wrote the verification summaries on `registry.k8s.io`, see [`doc/release.md`](https://github.com/kubernetes-sigs/security-profiles-operator/blob/main/doc/release.md)
-- [ ] Set the GitHub release as latest release, and verify that the `spoc-reproducible` workflow succeeds
+- [ ] Create the image promotion PR in [k8s.io](https://github.com/kubernetes/k8s.io) via `kpromo pr --staging-repo us-central1-docker.pkg.dev/k8s-staging-images/sp-operator`, within 90 days of the version bump
+- [ ] Before merging the image promotion PR, check that its per-arch image digests are the subjects of `images.intoto.jsonl`, then merge it
+- [ ] Check that the promoter carried the attestations to `registry.k8s.io`, and once summaries are on, that it wrote the verification summaries
+- [ ] Set the GitHub release as latest release, and verify that the `spoc-reproducible` workflow succeeds (re-run it if the release was published as full release before the promotion)
+- [ ] Remove the `tide/merge-blocker` label from this issue
 - [ ] Run `./hack/back-to-dev.sh` and create back-to-dev PR
 - [ ] Create OperatorHub community-operators PR
 - [ ] Send release announcement to #security-profiles-operator Slack channel
-
-#### Release notes template
-
-<!-- Replace {VERSION} with the actual version, e.g. 1.0.2 -->
-
-<details>
-<summary>Click to expand</summary>
-
-````markdown
-Welcome to the v{VERSION} release of the **security-profiles-operator**!
-
-<!-- Add a short summary of the release here -->
-
-The general usage and setup can be found [in our documentation][0].
-
-To install the operator, run:
-
-```
-$ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/v{VERSION}/deploy/operator.yaml
-```
-
-Besides the operator image, we also ship `spoc`, the official Security Profiles Operator Command Line Interface. Binaries for `amd64`, `arm64`, `ppc64le` and `s390x` are attached to this release, together with their signatures, `.sha512` sums, the `spoc.spdx.json` and `spoc-native.spdx.json` SBOMs and the `spoc.intoto.jsonl` SLSA build provenance. They are published as OCI artifact `registry.k8s.io/security-profiles-operator/spoc:v{VERSION}` as well.
-
-The helm chart is available as OCI artifact as well:
-
-```
-$ helm install security-profiles-operator \
-    --namespace security-profiles-operator \
-    oci://registry.k8s.io/security-profiles-operator/charts/security-profiles-operator \
-    --version {VERSION}
-```
-
-See the [installation guide][0] for the namespace preparation. The OCI chart holds the chart archive attached to this release, which is signed and has SLSA build provenance as well.
-
-All release artifacts are signed with [Sigstore][1]. The [verification guide][2] has the commands to verify the signatures and the provenance.
-
-Feel free to provide us any kind of feedback in the official [Kubernetes Slack #security-profiles-operator channel][3].
-
-[0]: https://github.com/kubernetes-sigs/security-profiles-operator/blob/v{VERSION}/doc/installation.md
-[1]: https://www.sigstore.dev
-[2]: https://github.com/kubernetes-sigs/security-profiles-operator/blob/v{VERSION}/doc/verification.md
-[3]: https://app.slack.com/client/T09NY5SBT/C013FQNB0A2
-````
-
-</details>

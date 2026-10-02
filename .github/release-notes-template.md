@@ -1,7 +1,8 @@
 <!--
 Template for the hand-written part of a GitHub release body. Copy everything
 below the line into the release, replace VERSION, write the summary paragraph,
-and let GitHub generate the changelog underneath. See doc/release.md.
+and let GitHub generate the changelog underneath. See doc/release.md, the
+release issue template links here as well.
 -->
 
 ---
