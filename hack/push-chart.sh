@@ -17,21 +17,33 @@
 # $REGISTRY/charts/security-profiles-operator:<chart version>, signed as
 # Sigstore bundle unless SIGN=false.
 #
-# Released chart versions are pushed once and left alone afterwards, while
-# -dev versions move with every build, like the vX.Y.Z-dev image tags.
+# Only -dev versions are pushed, they move with every build like the
+# vX.Y.Z-dev image tags. Released versions are packaged and attested on GitHub
+# and published from the release by hack/push-release-artifacts.sh, see
+# doc/release.md#oci-artifacts.
 
 set -euo pipefail
 
 BUILD_DIR="${BUILD_DIR:-build}"
 CHART_DIR="${CHART_DIR:-deploy/helm}"
 REGISTRY="${REGISTRY:-us-central1-docker.pkg.dev/k8s-staging-images/sp-operator}"
-SKIP_EXISTING="${SKIP_EXISTING:-true}"
 HELM_VERSION=v3.22.0
 HELM_SHA256=1e4ab49e429626cf6c6958d914248b78c9730803c2751b87627e171dc800e7bb
 HELM="${HELM:-}"
 
 REPO="$REGISTRY/charts"
 CHART=security-profiles-operator
+
+VERSION=$(sed -n 's/^version: *"\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$CHART_DIR/Chart.yaml")
+if [[ -z "$VERSION" ]]; then
+  echo "Unable to read the chart version from $CHART_DIR/Chart.yaml" >&2
+  exit 1
+fi
+
+if [[ "$VERSION" != *-dev ]]; then
+  echo "Chart $VERSION is a release, it gets published from the GitHub release"
+  exit 0
+fi
 
 if [[ -z "$HELM" ]]; then
   HELM_DIR="$(mktemp -d)"
@@ -49,27 +61,6 @@ fi
 if [[ -n "${PASSWORD:-}" ]]; then
   printf '%s' "$PASSWORD" |
     "$HELM" registry login "${REGISTRY%%/*}" -u "${USERNAME:-oauth2accesstoken}" --password-stdin
-fi
-
-VERSION=$(sed -n 's/^version: *"\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$CHART_DIR/Chart.yaml")
-if [[ -z "$VERSION" ]]; then
-  echo "Unable to read the chart version from $CHART_DIR/Chart.yaml" >&2
-  exit 1
-fi
-
-# Only a missing chart is pushed, any other lookup error fails, so a released
-# chart is never replaced because of a temporary registry error.
-if [[ "$SKIP_EXISTING" == "true" && "$VERSION" != *-dev ]]; then
-  if SHOW_OUTPUT=$("$HELM" show chart "oci://$REPO/$CHART" --version "$VERSION" 2>&1); then
-    echo "Already published, skipping chart $VERSION"
-    exit 0
-  fi
-
-  if ! grep -qiE 'not found|manifest unknown' <<<"$SHOW_OUTPUT"; then
-    echo "Unable to check whether chart $VERSION exists:" >&2
-    echo "$SHOW_OUTPUT" >&2
-    exit 1
-  fi
 fi
 
 mkdir -p "$BUILD_DIR"

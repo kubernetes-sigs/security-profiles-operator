@@ -1,0 +1,348 @@
+#!/usr/bin/env bash
+# Copyright The Kubernetes Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Publishes the spoc binaries and the Helm chart of the GitHub release $TAG to
+# the staging registry, so that they can be promoted to registry.k8s.io, see
+# doc/release.md#oci-artifacts. Nothing is built here: the GitHub workflows of
+# the release build the OCI image layouts (hack/oci-layout.sh) and attest their
+# manifest digests with SLSA Build L3 provenance. This script waits until the
+# release has the assets, verifies the provenance of every manifest, pushes the
+# manifests byte for byte, so that they keep the attested digests, and attaches
+# the provenance bundles as OCI referrers. The manifests get signed with the
+# identity of the staging build as well, unless it signed them already, see
+# SIGNER_IDENTITY. SIGN=false skips that.
+
+# jq programs are single quoted on purpose
+# shellcheck disable=SC2016
+set -euo pipefail
+
+# shellcheck source=hack/lib/common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
+
+TAG="${TAG:-}"
+if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "TAG has to be a release tag like v1.2.3, got '$TAG'" >&2
+  exit 1
+fi
+VERSION="${TAG#v}"
+
+REGISTRY="${REGISTRY:-us-central1-docker.pkg.dev/k8s-staging-images/sp-operator}"
+RELEASE_URL="${RELEASE_URL:-$REPOSITORY_URL/releases/download/$TAG}"
+# The release is created by hand after the tag got pushed, and its workflows
+# take a few minutes.
+WAIT_TIMEOUT="${WAIT_TIMEOUT:-7200}"
+WAIT_INTERVAL="${WAIT_INTERVAL:-60}"
+# The registry to log in to once the assets are there, access tokens of the
+# metadata server only last an hour.
+LOGIN_REGISTRY="${LOGIN_REGISTRY:-}"
+# The commit the tag points to, checked against the provenance. The workspace
+# comes from another user, so git needs to be told to trust it.
+COMMIT="${COMMIT:-$(git -c safe.directory='*' rev-parse HEAD)}"
+
+SIGNER_WORKFLOW="$REPOSITORY_URL/.github/workflows/provenance.yml"
+OIDC_ISSUER=https://token.actions.githubusercontent.com
+SLSA_PROVENANCE=https://slsa.dev/provenance/v1
+# The identity of the staging build, whose signatures are not added again on
+# a rerun. Without it every run signs, an attacker's signature must never
+# count as signed.
+SIGNER_IDENTITY="${SIGNER_IDENTITY:-}"
+SIGNER_OIDC_ISSUER=https://accounts.google.com
+COSIGN_SIGN=https://sigstore.dev/cosign/sign/v1
+EMPTY_CONFIG='{"mediaType":"application/vnd.oci.empty.v1+json","digest":"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a","size":2}'
+
+CHART=security-profiles-operator
+SPOC_ARCHES=(amd64 arm64 ppc64le s390x)
+SPOC_FILES=("${SPOC_ARCHES[@]/#/spoc.}")
+CHART_FILES=("$CHART-$VERSION.tgz")
+ASSETS=(
+  "${SPOC_FILES[@]}" spoc.intoto.jsonl spoc-oci-layout.tar
+  "${CHART_FILES[@]}" "$CHART-$VERSION.intoto.jsonl" "$CHART-$VERSION-oci-layout.tar"
+)
+
+DIR="$BUILD_DIR/release-artifacts/$TAG"
+COSIGN="$(cosign_bin)"
+CRANE="$(crane_bin)"
+JQ="$(jq_bin)"
+
+# Downloads the release assets, waiting for the ones that are not uploaded
+# yet. Assets are only visible once their upload is complete.
+download_assets() {
+  local asset deadline=$((SECONDS + WAIT_TIMEOUT))
+  local -a missing
+
+  mkdir -p "$DIR"
+  while :; do
+    missing=()
+    for asset in "${ASSETS[@]}"; do
+      [[ -f "$DIR/$asset" ]] && continue
+      if curl -sSfL --retry 3 --retry-delay 5 -o "$DIR/$asset.download" "$RELEASE_URL/$asset" 2>/dev/null; then
+        mv "$DIR/$asset.download" "$DIR/$asset"
+      else
+        rm -f "$DIR/$asset.download"
+        missing+=("$asset")
+      fi
+    done
+
+    [[ ${#missing[@]} -eq 0 ]] && return 0
+    if [[ $SECONDS -ge $deadline ]]; then
+      echo "Timed out waiting for the release assets of $TAG: ${missing[*]}" >&2
+      return 1
+    fi
+    echo "Waiting for the release assets of $TAG: ${missing[*]}"
+    sleep "$WAIT_INTERVAL"
+  done
+}
+
+# Checks that a blob of a layout exists with the size and digest of its
+# descriptor.
+check_blob() {
+  local layout="$1" desc="$2" digest size file
+
+  digest="$("$JQ" -r .digest <<<"$desc")"
+  size="$("$JQ" -r .size <<<"$desc")"
+  if [[ ! "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+    echo "Unexpected digest $digest in $layout" >&2
+    return 1
+  fi
+  file="$layout/blobs/sha256/${digest#sha256:}"
+  if [[ ! -f "$file" || "$(stat -c %s "$file")" != "$size" ]] ||
+    [[ "$(sha256sum "$file" | cut -d' ' -f1)" != "${digest#sha256:}" ]]; then
+    echo "Blob $digest of $layout is missing or does not match its descriptor" >&2
+    return 1
+  fi
+}
+
+# Checks a manifest or index and everything it references, and prints the
+# descriptors of the manifests, the given one first.
+check_manifest() {
+  local layout="$1" desc="$2" file child children
+
+  check_blob "$layout" "$desc"
+  file="$layout/blobs/sha256/$("$JQ" -r '.digest | ltrimstr("sha256:")' <<<"$desc")"
+  "$JQ" -c '{mediaType, digest, size}' <<<"$desc"
+
+  case "$("$JQ" -r .mediaType <<<"$desc")" in
+  application/vnd.oci.image.index.v1+json)
+    children="$("$JQ" -c '.manifests[]' "$file")"
+    while read -r child; do
+      check_manifest "$layout" "$child"
+    done <<<"$children"
+    ;;
+  application/vnd.oci.image.manifest.v1+json)
+    children="$("$JQ" -c '.config, .layers[]' "$file")"
+    while read -r child; do
+      check_blob "$layout" "$child"
+    done <<<"$children"
+    ;;
+  *)
+    echo "Unexpected media type in $desc" >&2
+    return 1
+    ;;
+  esac
+}
+
+# Restores the layout of a packed layout tar and the release assets that are
+# its layers, checks it and prints the descriptors of its manifests.
+unpack_layout() {
+  local name="$1" tar="$2" layout="$DIR/$1" file
+  shift 2
+
+  rm -rf "$layout"
+  mkdir -p "$layout"
+  tar -xf "$DIR/$tar" -C "$layout" --no-same-owner --no-same-permissions
+  # The tar is no provenance subject, a link in it could redirect the copies
+  # below or the blob checks.
+  if [[ -n "$(find "$layout" ! -type f ! -type d)" ]]; then
+    echo "The layout $tar may only hold files and directories" >&2
+    return 1
+  fi
+  for file in "$@"; do
+    cp "$DIR/$file" "$layout/blobs/sha256/$(sha256sum "$DIR/$file" | cut -d' ' -f1)"
+  done
+
+  if [[ "$("$JQ" '.manifests | length' "$layout/index.json")" != 1 ]]; then
+    echo "The layout $tar has to hold exactly one manifest" >&2
+    return 1
+  fi
+  check_manifest "$layout" "$("$JQ" -c '.manifests[0]' "$layout/index.json")"
+}
+
+# Verifies that the provenance bundle is GitHub artifact attestation of the
+# provenance workflow for the tag and commit, created for the GitHub release,
+# about the manifest of each descriptor.
+verify_provenance() {
+  local layout="$1" bundle="$2" workflow="$3" desc
+  shift 3
+
+  "$JQ" -r .dsseEnvelope.payload "$bundle" | base64 -d | "$JQ" -e \
+    --arg type "$SLSA_PROVENANCE" --arg repo "$REPOSITORY_URL" --arg ref "refs/tags/$TAG" \
+    --arg commit "$COMMIT" --arg workflow "$workflow" '
+      .predicateType == $type and
+      .predicate.buildDefinition.externalParameters.workflow == {ref: $ref, repository: $repo, path: $workflow} and
+      .predicate.buildDefinition.internalParameters.github.runner_environment == "github-hosted" and
+      any(.predicate.buildDefinition.resolvedDependencies[];
+        .uri == "git+\($repo)@\($ref)" and .digest.gitCommit == $commit)
+    ' >/dev/null || {
+    echo "The provenance $bundle is not about $workflow at $TAG ($COMMIT) on GitHub hosted runners" >&2
+    return 1
+  }
+
+  for desc in "$@"; do
+    echo "Verifying the provenance of $("$JQ" -r .digest <<<"$desc")"
+    "$COSIGN" verify-blob-attestation \
+      --bundle "$bundle" \
+      --type "$SLSA_PROVENANCE" \
+      --certificate-identity "$SIGNER_WORKFLOW@refs/tags/$TAG" \
+      --certificate-oidc-issuer "$OIDC_ISSUER" \
+      --certificate-github-workflow-repository "${REPOSITORY_URL#https://github.com/}" \
+      --certificate-github-workflow-ref "refs/tags/$TAG" \
+      --certificate-github-workflow-sha "$COMMIT" \
+      --certificate-github-workflow-trigger release \
+      "$layout/blobs/sha256/$("$JQ" -r '.digest | ltrimstr("sha256:")' <<<"$desc")"
+  done
+}
+
+# Pushes a layout unless the tag exists already with the same digest. A tag
+# that points to anything else is never overwritten.
+push_layout() {
+  local layout="$1" ref="$2" desc="$3" digest current err="$DIR/crane-digest.err"
+
+  # Only stdout is the digest, crane logs warnings like a fallback from HEAD
+  # to GET requests to stderr.
+  digest="$("$JQ" -r .digest <<<"$desc")"
+  if current="$("$CRANE" digest "$ref" 2>"$err")"; then
+    if [[ "$current" == "$digest" ]]; then
+      echo "Already published: $ref@$digest"
+      return 0
+    fi
+    echo "$ref exists already with digest $current instead of $digest" >&2
+    return 1
+  fi
+  if ! grep -qiE 'not found|unknown' "$err"; then
+    echo "Unable to check whether $ref exists: $(cat "$err")" >&2
+    return 1
+  fi
+
+  # The index.json of the layout holds the manifest or index to push, crane
+  # pushes that one without --index.
+  echo "Pushing $ref@$digest"
+  "$CRANE" push "$layout" "$ref"
+  current="$("$CRANE" digest "$ref")"
+  if [[ "$current" != "$digest" ]]; then
+    echo "Pushed $ref as $current instead of $digest" >&2
+    return 1
+  fi
+}
+
+# Attaches a provenance bundle to a manifest as OCI referrer, the way cosign
+# attaches Sigstore bundles. The referrer has no creation time, so the same
+# bundle always gets the same referrer digest and is attached only once.
+attach_bundle() {
+  local repo="$1" desc="$2" bundle="$3" layout layer manifest
+
+  layout="$(mktemp -d "$DIR/referrer.XXXXXX")"
+  mkdir -p "$layout/blobs/sha256"
+  printf '{"imageLayoutVersion":"1.0.0"}' >"$layout/oci-layout"
+  printf '{}' >"$layout/blobs/sha256/$("$JQ" -r '.digest | ltrimstr("sha256:")' <<<"$EMPTY_CONFIG")"
+  cp "$bundle" "$layout/blobs/sha256/$(sha256sum "$bundle" | cut -d' ' -f1)"
+  layer="$("$JQ" -cn --arg mt "$("$JQ" -r .mediaType "$bundle")" \
+    --arg d "sha256:$(sha256sum "$bundle" | cut -d' ' -f1)" --argjson s "$(stat -c %s "$bundle")" \
+    '{mediaType: $mt, digest: $d, size: $s}')"
+
+  "$JQ" -cjn --argjson config "$EMPTY_CONFIG" --argjson layer "$layer" --argjson subject "$desc" \
+    --arg type "$SLSA_PROVENANCE" '{
+      schemaVersion: 2,
+      mediaType: "application/vnd.oci.image.manifest.v1+json",
+      artifactType: $layer.mediaType,
+      config: $config,
+      layers: [$layer],
+      subject: $subject,
+      annotations: {
+        "dev.sigstore.bundle.content": "dsse-envelope",
+        "dev.sigstore.bundle.predicateType": $type
+      }
+    }' >"$layout/manifest.json"
+  manifest="sha256:$(sha256sum "$layout/manifest.json" | cut -d' ' -f1)"
+  mv "$layout/manifest.json" "$layout/blobs/sha256/${manifest#sha256:}"
+  "$JQ" -cn --arg d "$manifest" --argjson s "$(stat -c %s "$layout/blobs/sha256/${manifest#sha256:}")" \
+    '{schemaVersion: 2, manifests: [{mediaType: "application/vnd.oci.image.manifest.v1+json", digest: $d, size: $s}]}' \
+    >"$layout/index.json"
+
+  if "$CRANE" manifest "$repo@$manifest" >/dev/null 2>&1; then
+    echo "Provenance already attached to $repo@$("$JQ" -r .digest <<<"$desc")"
+  else
+    echo "Attaching the provenance to $repo@$("$JQ" -r .digest <<<"$desc") as $manifest"
+    "$CRANE" push "$layout" "$repo@$manifest"
+  fi
+  rm -rf "$layout"
+}
+
+# Signs manifests as the staging build, except the ones it signed already.
+# Only cosign signatures count, bundles of the cosign sign predicate type, not
+# any other bundle of the identity.
+sign_unsigned() {
+  local ref
+  local -a unsigned=()
+
+  for ref in "$@"; do
+    if signing_enabled && [[ -n "$SIGNER_IDENTITY" ]] &&
+      "$COSIGN" verify-attestation --type "$COSIGN_SIGN" \
+        --certificate-identity "$SIGNER_IDENTITY" \
+        --certificate-oidc-issuer "$SIGNER_OIDC_ISSUER" \
+        "$ref" >/dev/null 2>&1; then
+      echo "Already signed: $ref"
+    else
+      unsigned+=("$ref")
+    fi
+  done
+
+  if [[ ${#unsigned[@]} -gt 0 ]]; then
+    "$(dirname "${BASH_SOURCE[0]}")/sign-images.sh" "${unsigned[@]}"
+  fi
+}
+
+# Verifies, pushes, attests and signs one artifact.
+publish() {
+  local name="$1" repo="$2" tag="$3" bundle="$4" workflow="$5" tar="$6" desc
+  local -a descs=() refs=()
+  shift 6
+
+  # Not in a process substitution, whose failures would go unnoticed.
+  unpack_layout "$name" "$tar" "$@" >"$DIR/$name.manifests"
+  mapfile -t descs <"$DIR/$name.manifests"
+  if ! "$JQ" -e --arg tag "$tag" '.annotations["org.opencontainers.image.version"] == $tag' \
+    "$DIR/$name/blobs/sha256/$("$JQ" -r '.digest | ltrimstr("sha256:")' <<<"${descs[0]}")" >/dev/null; then
+    echo "The $name manifest is not for version $tag" >&2
+    return 1
+  fi
+
+  verify_provenance "$DIR/$name" "$DIR/$bundle" "$workflow" "${descs[@]}"
+  push_layout "$DIR/$name" "$repo:$tag" "${descs[0]}"
+  for desc in "${descs[@]}"; do
+    attach_bundle "$repo" "$desc" "$DIR/$bundle"
+    refs+=("$repo@$("$JQ" -r .digest <<<"$desc")")
+  done
+  sign_unsigned "${refs[@]}"
+}
+
+download_assets
+if [[ -n "$LOGIN_REGISTRY" ]]; then
+  registry_login "$LOGIN_REGISTRY"
+fi
+
+publish spoc "$REGISTRY/spoc" "$TAG" spoc.intoto.jsonl \
+  .github/workflows/build.yml spoc-oci-layout.tar "${SPOC_FILES[@]}"
+publish chart "$REGISTRY/charts/$CHART" "$VERSION" "$CHART-$VERSION.intoto.jsonl" \
+  .github/workflows/helm-chart-package.yaml "$CHART-$VERSION-oci-layout.tar" "${CHART_FILES[@]}"

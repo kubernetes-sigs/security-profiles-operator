@@ -36,8 +36,10 @@ Every command, flag and environment variable of `spoc` is listed in the
 generated [command line reference](reference/spoc.md).
 
 `spoc` can be retrieved either by downloading the statically linked binary
-directly from the [available releases][releases], or by running it within the
-official container images:
+directly from the [available releases][releases], which releases after v1.1.0
+also publish as OCI artifact `registry.k8s.io/security-profiles-operator/spoc`
+(see [verification](verification.md#oci-artifacts-on-registryk8sio)), or by
+running it within the official container images:
 
 ```console
 > podman run -it registry.k8s.io/security-profiles-operator/security-profiles-operator:v1.1.0 spoc

@@ -619,6 +619,8 @@ dependencies:
       match: "^toolchain go"
     - path: cloudbuild.yaml
       match: "name: golang:"
+    - path: cloudbuild-release.yaml
+      match: "name: golang:"
     - path: .devcontainer/devcontainer.json
       match: '"version": "1\.'
 

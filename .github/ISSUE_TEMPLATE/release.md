@@ -18,8 +18,11 @@ None
 
 - [ ] Run `./hack/release.sh {VERSION}` and merge version bump PR
 - [ ] Verify [`post-security-profiles-operator-push-image` prow job](https://prow.k8s.io/?job=post-security-profiles-operator-push-image) succeeds
+- [ ] Tag the release with `./hack/tag-release.sh` and push the tag
+- [ ] Create the GitHub release as pre-release with auto-generated release notes (use the template below)
+- [ ] Verify [`post-security-profiles-operator-push-release-artifacts` prow job](https://prow.k8s.io/?job=post-security-profiles-operator-push-release-artifacts) succeeds
 - [ ] Create and merge image promotion PR in [k8s.io](https://github.com/kubernetes/k8s.io) via `kpromo`
-- [ ] Create GitHub release with auto-generated release notes (use the template below)
+- [ ] Set the GitHub release as latest release, and verify that the `spoc-reproducible` workflow succeeds
 - [ ] Run `./hack/back-to-dev.sh` and create back-to-dev PR
 - [ ] Create OperatorHub community-operators PR
 - [ ] Send release announcement to #security-profiles-operator Slack channel
@@ -44,7 +47,7 @@ To install the operator, run:
 $ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/v{VERSION}/deploy/operator.yaml
 ```
 
-Besides the operator image, we also ship `spoc`, the official Security Profiles Operator Command Line Interface. Binaries for `amd64`, `arm64`, `ppc64le` and `s390x` are attached to this release, together with their signatures, `.sha512` sums, the `spoc.spdx.json` and `spoc-native.spdx.json` SBOMs and the `spoc.intoto.jsonl` SLSA build provenance.
+Besides the operator image, we also ship `spoc`, the official Security Profiles Operator Command Line Interface. Binaries for `amd64`, `arm64`, `ppc64le` and `s390x` are attached to this release, together with their signatures, `.sha512` sums, the `spoc.spdx.json` and `spoc-native.spdx.json` SBOMs and the `spoc.intoto.jsonl` SLSA build provenance. They are published as OCI artifact `registry.k8s.io/security-profiles-operator/spoc:v{VERSION}` as well.
 
 The helm chart is available as OCI artifact as well:
 
@@ -55,7 +58,7 @@ $ helm install security-profiles-operator \
     --version {VERSION}
 ```
 
-See the [installation guide][0] for the namespace preparation. The chart archive attached to this release is signed and has SLSA build provenance as well.
+See the [installation guide][0] for the namespace preparation. The OCI chart holds the chart archive attached to this release, which is signed and has SLSA build provenance as well.
 
 All release artifacts are signed with [Sigstore][1]. The [verification guide][2] has the commands to verify the signatures and the provenance.
 

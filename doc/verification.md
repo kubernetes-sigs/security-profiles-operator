@@ -27,7 +27,8 @@ for the chart archive with the `helm-chart-package.yaml` one and without
 | `spoc` binaries | yes | yes | `spoc.spdx.json`, `spoc-native.spdx.json` |
 | `spoc.spdx.json`, `spoc-native.spdx.json` | yes | yes | |
 | Helm chart archive on the release page | yes | yes | |
-| Helm chart on `registry.k8s.io` | staging only | staging only | |
+| Helm chart on `registry.k8s.io` | staging only | yes, by digest | |
+| `spoc` on `registry.k8s.io` | staging only | yes, by digest | release page |
 | Security profiles on `registry.k8s.io` | yes | staging only | |
 
 "Staging only" means the artifact carries it in
@@ -43,7 +44,10 @@ its digest in the staging registry, see [container image](#container-image).
 ## SLSA build levels
 
 The `spoc` binaries, their SBOMs and the Helm chart archive on the release
-page are built on GitHub Actions and meet [SLSA Build L3][slsa-l3]. The build
+page are built on GitHub Actions and meet [SLSA Build L3][slsa-l3], and so do
+`spoc` and the Helm chart on `registry.k8s.io`, which are the same files in
+OCI manifests built and attested by the same workflows, see
+[OCI artifacts on `registry.k8s.io`](#oci-artifacts-on-registryk8sio). The build
 jobs hold no signing identity and no write access. They only pass the digests
 of their outputs to the isolated reusable
 [`provenance`](../.github/workflows/provenance.yml) workflow, which generates and
@@ -55,8 +59,8 @@ CI jobs running repository code can write to. Development builds of `main` may
 use that cache, so only the provenance of releases makes the L3 claim.
 
 The container images, the operator bundle and catalog, the Helm chart on
-`registry.k8s.io` and the security profiles are built on Cloud Build and meet
-SLSA Build L1 only. Their provenance is generated and signed by the build
+`registry.k8s.io` up to v1.1.0 and the security profiles are built on Cloud
+Build and meet SLSA Build L1 only. Their provenance is generated and signed by the build
 itself, with the same service account as the build steps, so the build steps
 could forge it. Its `runDetails.builder.id` therefore names the Cloud Build
 configuration and service account of the staging project, not Google's build
@@ -173,10 +177,59 @@ The chart archive attached to the release is signed by the
     --deny-self-hosted-runners
 ```
 
-The chart is also published as an OCI artifact to `registry.k8s.io`. It is
-packaged separately from the release archive, so its digest differs, and its
-signature currently stays in the staging registry, see
-[installation using helm](installation.md#installation-using-helm).
+The chart is also published as an OCI artifact to `registry.k8s.io`, see
+[OCI artifacts on `registry.k8s.io`](#oci-artifacts-on-registryk8sio). Up to
+v1.1.0 it was packaged separately from the release archive, so its digest
+differs and it has the staging provenance of the
+[container images](#container-image) instead.
+
+## OCI artifacts on `registry.k8s.io`
+
+Releases after v1.1.0 publish `spoc` and the Helm chart to `registry.k8s.io`
+too. They are the files of the release page in OCI manifests, see
+[OCI artifacts](release.md#oci-artifacts): every platform manifest of
+`registry.k8s.io/security-profiles-operator/spoc:$VERSION` has the binary as
+its only layer, and the layer of
+`registry.k8s.io/security-profiles-operator/charts/security-profiles-operator:${VERSION#v}`
+is the chart archive. The digests of the index, the platform manifests and the
+chart manifest are subjects of the provenance of the release assets, so the
+same command verifies them, with the GitHub attestation store or with
+`--bundle` and the provenance of the release page:
+
+```console
+> gh attestation verify oci://registry.k8s.io/security-profiles-operator/spoc:$VERSION \
+    --repo kubernetes-sigs/security-profiles-operator \
+    --signer-workflow kubernetes-sigs/security-profiles-operator/.github/workflows/provenance.yml \
+    --source-ref refs/tags/$VERSION \
+    --deny-self-hosted-runners
+> gh attestation verify oci://registry.k8s.io/security-profiles-operator/charts/security-profiles-operator:${VERSION#v} \
+    --repo kubernetes-sigs/security-profiles-operator \
+    --signer-workflow kubernetes-sigs/security-profiles-operator/.github/workflows/provenance.yml \
+    --source-ref refs/tags/$VERSION \
+    --deny-self-hosted-runners
+```
+
+The layer digests are the sha256 sums of the files, so a binary can also be
+downloaded by digest and checked like a file of the release page, for
+example with [oras](https://oras.land):
+
+```console
+> oras pull --platform linux/amd64 registry.k8s.io/security-profiles-operator/spoc:$VERSION
+```
+
+In the staging registry the provenance is attached as OCI referrer to each
+manifest, and the manifests are signed by the staging build:
+
+```console
+> cosign verify-attestation \
+    --type https://slsa.dev/provenance/v1 \
+    --certificate-identity https://github.com/kubernetes-sigs/security-profiles-operator/.github/workflows/provenance.yml@refs/tags/$VERSION \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+    us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/spoc:$VERSION
+```
+
+The image promotion does not copy the referrers to `registry.k8s.io` yet, see
+[staging attestations](release.md#staging-attestations).
 
 ## Security profiles
 
