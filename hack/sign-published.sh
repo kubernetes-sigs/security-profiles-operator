@@ -24,23 +24,26 @@
 
 set -euo pipefail
 
-BUILD_DIR="${BUILD_DIR:-build}"
-SPOC="${SPOC:-$BUILD_DIR/spoc}"
-SIGN="${SIGN:-true}"
+# shellcheck source=hack/lib/common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
+
 SIGNER_IDENTITY_REGEXP="${SIGNER_IDENTITY_REGEXP:-}"
 SIGNER_OIDC_ISSUER_REGEXP="${SIGNER_OIDC_ISSUER_REGEXP:-}"
 
-if [[ "$SIGN" != "true" ]]; then
+if ! signing_enabled; then
   exit 0
 fi
 
 for ref in "$@"; do
   if [[ -n "$SIGNER_IDENTITY_REGEXP" && -n "$SIGNER_OIDC_ISSUER_REGEXP" ]]; then
-    if "$SPOC" pull -o /dev/null \
-        --allowed-identity-regexp "$SIGNER_IDENTITY_REGEXP" \
-        --allowed-oidc-issuer-regexp "$SIGNER_OIDC_ISSUER_REGEXP" \
-        "$ref" >/dev/null 2>&1; then
+    # Profiles and charts alike, see signed.
+    ref="$(resolve_digest "$ref")"
+    status=0
+    signed "$ref" || status=$?
+    if [[ $status -eq 0 ]]; then
       continue
+    elif [[ $status -ne 1 ]]; then
+      exit 1
     fi
   else
     echo "No signer identity configured, signing $ref without checking for an existing signature"

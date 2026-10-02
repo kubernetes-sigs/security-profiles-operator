@@ -14,8 +14,9 @@
 # limitations under the License.
 
 # Attests SPDX SBOMs (https://spdx.dev/Document) for each given image digest.
-# bom extracts the Go binary dependencies directly from the image, so the SBOM
-# includes actual build-time module versions. The C libraries the binaries link
+# bom lists the image layers, the operating system packages and the Go binary
+# dependencies directly from the image, so the SBOM includes actual build-time
+# module versions. The C libraries the binaries of the operator images link
 # statically are in a second SBOM, which the image build writes to
 # /sbom/native-libraries.spdx.json from the nix build inputs.
 
@@ -46,12 +47,15 @@ for ref in "$@"; do
     -i "$ref" \
     -o "$sbom"
 
-  attest "$ref" https://spdx.dev/Document "$sbom"
+  attest "$ref" "$SPDX_DOCUMENT" "$sbom"
 
+  if ! operator_image "$ref"; then
+    continue
+  fi
   native="$(extract_binaries "$ref")/sbom/native-libraries.spdx.json"
   if [[ ! -f "$native" ]]; then
     echo "The image $ref has no SBOM of its native libraries" >&2
     exit 1
   fi
-  attest "$ref" https://spdx.dev/Document "$native"
+  attest "$ref" "$SPDX_DOCUMENT" "$native"
 done

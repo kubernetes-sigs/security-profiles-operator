@@ -143,11 +143,14 @@ identity or the one of the image promoter unless they are configured with
 other signer regexps, see
 [verifying security profiles](verification.md#security-profiles).
 
-Newly published versions also get SLSA build provenance, see
+Published versions also get SLSA build provenance and an SBOM, including
+versions that were published before the build attested them, see
 [staging attestations](release.md#staging-attestations).
 
 Versions that are already published but have no signature of the build
 account, for example because they were pushed with `SIGN=false`, are signed
 in place on the next build (`hack/sign-published.sh`). Until then,
 verification has to be skipped for them with `spoc pull -s`. Manual runs of the scripts sign with
-the local identity, unless `SIGN=false` is set.
+the local identity, unless `SIGN=false` is set. The build only signs and
+attests a published version that holds the recorded profile, a version
+recorded again without a runtime version change is left alone with a warning.

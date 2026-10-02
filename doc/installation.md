@@ -174,7 +174,8 @@ has the same SLSA build provenance, see
 [verifying the released artifacts](verification.md#oci-artifacts-on-registryk8sio).
 The v1.1.0 chart is packaged separately, so its digest differs from the
 release archive, and its signature and attestations stay in the staging
-registry (see [staging attestations](release.md#staging-attestations)):
+registry until the image promoter copies them along (see
+[attestations on registry.k8s.io](release.md#attestations-on-registryk8sio)):
 
 ```shell
 helm install security-profiles-operator --namespace security-profiles-operator \

@@ -18,11 +18,16 @@
 # Sigstore bundle unless SIGN=false.
 #
 # Only -dev versions are pushed, they move with every build like the
-# vX.Y.Z-dev image tags. Released versions are packaged and attested on GitHub
-# and published from the release by hack/push-release-artifacts.sh, see
+# vX.Y.Z-dev image tags, and get a signature, SLSA provenance and an SBOM, see
+# hack/attest-artifact.sh. Released versions are packaged and attested on
+# GitHub and published from the release by hack/push-release-artifacts.sh, see
 # doc/release.md#oci-artifacts.
 
 set -euo pipefail
+
+HACK_DIR="$(dirname "${BASH_SOURCE[0]}")"
+# shellcheck source=hack/lib/common.sh
+source "$HACK_DIR/lib/common.sh"
 
 BUILD_DIR="${BUILD_DIR:-build}"
 CHART_DIR="${CHART_DIR:-deploy/helm}"
@@ -45,16 +50,22 @@ if [[ "$VERSION" != *-dev ]]; then
   exit 0
 fi
 
+HELM_DIR="$(mktemp -d)"
+trap 'rm -rf "$HELM_DIR"' EXIT
+
+# helm packages the chart, the provenance names the release archive it comes
+# from, which is only known when it is downloaded here.
+PROVENANCE_DEPENDENCIES="[]"
 if [[ -z "$HELM" ]]; then
-  HELM_DIR="$(mktemp -d)"
-  trap 'rm -rf "$HELM_DIR"' EXIT
+  HELM_URL="https://get.helm.sh/helm-$HELM_VERSION-linux-amd64.tar.gz"
   TARBALL="$HELM_DIR/helm.tar.gz"
-  curl -sSfL --retry 5 --retry-delay 3 -o "$TARBALL" \
-    "https://get.helm.sh/helm-$HELM_VERSION-linux-amd64.tar.gz"
+  curl -sSfL --retry 5 --retry-delay 3 -o "$TARBALL" "$HELM_URL"
   echo "$HELM_SHA256  $TARBALL" | sha256sum -c -
   tar xzf "$TARBALL" -C "$HELM_DIR" --strip-components=1 linux-amd64/helm
   HELM="$HELM_DIR/helm"
+  PROVENANCE_DEPENDENCIES="$(file_dependency helm "$TARBALL" "$HELM_URL" | "$(jq_bin)" -cs .)"
 fi
+export PROVENANCE_DEPENDENCIES
 
 # Without a password helm uses the Docker configuration, see registry_login in
 # hack/lib/common.sh.
@@ -65,9 +76,10 @@ fi
 
 mkdir -p "$BUILD_DIR"
 "$HELM" package -d "$BUILD_DIR" "$CHART_DIR"
+PACKAGE="$BUILD_DIR/$CHART-$VERSION.tgz"
 
 echo "Pushing chart $VERSION to oci://$REPO"
-OUTPUT=$("$HELM" push "$BUILD_DIR/$CHART-$VERSION.tgz" "oci://$REPO" 2>&1)
+OUTPUT=$("$HELM" push "$PACKAGE" "oci://$REPO" 2>&1)
 echo "$OUTPUT"
 
 DIGEST=$(sed -n 's/^Digest: *\(sha256:[a-f0-9]\{64\}\)$/\1/p' <<<"$OUTPUT")
@@ -76,5 +88,5 @@ if [[ -z "$DIGEST" ]]; then
   exit 1
 fi
 
-"$(dirname "${BASH_SOURCE[0]}")/sign-images.sh" "$REPO/$CHART@$DIGEST"
-"$(dirname "${BASH_SOURCE[0]}")/attest-provenance.sh" "$REPO/$CHART@$DIGEST"
+"$HACK_DIR/sign-images.sh" "$REPO/$CHART@$DIGEST"
+"$HACK_DIR/attest-artifact.sh" "$REPO/$CHART@$DIGEST" "$PACKAGE"

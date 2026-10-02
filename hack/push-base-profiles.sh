@@ -20,8 +20,18 @@
 #
 # The version comes from the profile itself, so a re-recorded profile is
 # published under the runtime version it was recorded against.
+#
+# The versioned tag gets its signature, SLSA provenance and an SBOM unless it
+# has them already when it serves what this build converted, whether it was
+# pushed now or before, see attest_profile in hack/lib/common.sh. A profile
+# recorded again against the same runtime version is not published under the
+# taken versioned tag, only latest moves to it.
 
 set -euo pipefail
+
+HACK_DIR="$(dirname "${BASH_SOURCE[0]}")"
+# shellcheck source=hack/lib/common.sh
+source "$HACK_DIR/lib/common.sh"
 
 BUILD_DIR="${BUILD_DIR:-build}"
 SPOC="${SPOC:-$BUILD_DIR/spoc}"
@@ -52,6 +62,10 @@ push_args=()
 if [[ "$SIGN" != "true" ]]; then
   push_args+=(--disable-signing)
 fi
+
+# spoc converts and pushes the profiles, see the provenance of the build.
+PROVENANCE_DEPENDENCIES="$(spoc_dependency "$SPOC" | "$(jq_bin)" -cs .)"
+export PROVENANCE_DEPENDENCIES
 
 published() {
   [[ "$SKIP_EXISTING" == "true" ]] || return 1
@@ -104,12 +118,17 @@ for runtime in "${RUNTIMES[@]}"; do
 
   if ! published "$version_ref"; then
     push "$converted" "$version_ref"
-    "$(dirname "${BASH_SOURCE[0]}")/attest-provenance.sh" "$version_ref"
     push "$converted" "$latest_ref"
-  elif ! serves "$latest_ref" "$converted"; then
+    attest_profile "$version_ref" "$converted"
+    continue
+  fi
+
+  if ! serves "$latest_ref" "$converted"; then
     push "$converted" "$latest_ref"
   else
     echo "Already published, skipping $runtime $version"
-    "$(dirname "${BASH_SOURCE[0]}")/sign-published.sh" "$version_ref"
   fi
+  # latest is not promoted, and serves the same digest whenever the version
+  # does.
+  attest_profile "$version_ref" "$converted" true
 done

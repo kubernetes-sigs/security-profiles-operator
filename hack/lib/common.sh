@@ -30,6 +30,20 @@ CRANE_VERSION=v0.22.1
 
 REPOSITORY_URL=https://github.com/kubernetes-sigs/security-profiles-operator
 
+# Where the staging build pushes to, and where the image promoter copies the
+# staging artifacts to, under the same path.
+STAGING_REGISTRY=us-central1-docker.pkg.dev/k8s-staging-images/sp-operator
+PRODUCTION_REGISTRY=registry.k8s.io/security-profiles-operator
+
+SLSA_PROVENANCE=https://slsa.dev/provenance/v1
+SPDX_DOCUMENT=https://spdx.dev/Document
+VULNS=https://in-toto.io/attestation/vulns/v0.2
+OPENVEX=https://openvex.dev/ns
+BUILD_ENV=https://in-toto.io/attestation/build-env/v1
+# The predicate type of the signatures cosign v3 writes, which is what the
+# image promoter counts as signature.
+COSIGN_SIGNATURE=https://sigstore.dev/cosign/sign/v1
+
 # Keyless signing needs an OIDC identity, the staging Cloud Build job gets one
 # for its service account from the metadata server. SIGN=false skips signing
 # and attesting.
@@ -205,10 +219,20 @@ image_name() {
   echo "${repo##*/}"
 }
 
-# The OCI package URL of an image digest.
-image_purl() {
-  local repo="${1%@*}" digest="${1#*@}"
-  echo "pkg:oci/${repo##*/}@${digest/:/%3A}?repository_url=$repo"
+# The OCI package URLs of an image digest: without a repository, which
+# matches the digest wherever it is pulled from, in the repository it was
+# pushed to and, for staging images, in registry.k8s.io where they are
+# promoted to. VEX consumers like the OpenVEX libraries only match a product
+# when all of its qualifiers are in the purl they look up.
+image_purls() {
+  local repo="${1%@*}" digest="${1#*@}" purl
+  purl="pkg:oci/${repo##*/}@${digest/:/%3A}"
+
+  echo "$purl"
+  echo "$purl?repository_url=$repo"
+  if [[ "$repo" == "$STAGING_REGISTRY"/* ]]; then
+    echo "$purl?repository_url=$PRODUCTION_REGISTRY/${repo#"$STAGING_REGISTRY"/}"
+  fi
 }
 
 # Prints the references the image digest is also attested as, from the
@@ -240,18 +264,267 @@ attest() {
   done
 }
 
-# Extracts the binaries of an image digest into a directory once and prints
-# the directory.
+# Whether the reference names a per-arch operator image, which has binaries
+# built by this repository and the SBOM of their native libraries.
+operator_image() {
+  [[ "$(image_name "$1")" =~ ^security-profiles-operator-(amd64|arm64|ppc64le|s390x)$ ]]
+}
+
+# The paths of the binaries in an image that get scanned for vulnerabilities.
+# The catalog holds the ones of the opm image it is built from.
+image_binaries() {
+  if [[ "$(image_name "$1")" == *-catalog ]]; then
+    echo usr/bin/opm usr/bin/grpc_health_probe
+  else
+    echo security-profiles-operator spoc
+  fi
+}
+
+# Extracts the binaries of an image digest, see image_binaries, and for the
+# operator images their SBOM directory, into a directory once and prints the
+# directory.
 extract_binaries() {
   local ref="$1" dir
+  local -a paths
+
+  read -ra paths <<<"$(image_binaries "$ref")"
+  if operator_image "$ref"; then
+    paths+=(sbom)
+  fi
 
   dir="$BUILD_DIR/binaries/$(image_name "$ref")"
   if [[ ! -d "$dir" ]]; then
     mkdir -p "$dir.extract"
     "$(crane_bin)" export "$ref" - |
-      tar -xf - -C "$dir.extract" security-profiles-operator spoc sbom
+      tar -xf - -C "$dir.extract" "${paths[@]}"
     mv "$dir.extract" "$dir"
   fi
 
   echo "$dir"
+}
+
+# Appends an artifact digest that the build pushed or found published to
+# $BUILD_DIR/artifact-digests, which hack/verify-attestations.sh checks at the
+# end of the build. The kinds are listed there.
+record_digest() {
+  local kind="$1" ref="$2"
+
+  require_digest "$ref" || return 1
+  mkdir -p "$BUILD_DIR"
+  echo "$kind $ref" >>"$BUILD_DIR/artifact-digests"
+}
+
+# Signs and attests a security profile that the build pushed or, with a third
+# argument true, found published, see hack/sign-published.sh and
+# hack/attest-artifact.sh, when the digest its tag points to holds FILE: the
+# build only signs and attests what it would have pushed itself. spoc signs
+# what it pushes, so only published profiles get signed here. The tag is
+# resolved once, so that the compared digest is the signed and attested one. A
+# profile with another content is left alone with a warning, and
+# hack/verify-attestations.sh does not check it: the build cannot replace it,
+# because its tag is taken, so failing would only fail every build until the
+# tag changes. The image promoter still checks it if it is promoted. SPOC is
+# the spoc binary.
+attest_profile() {
+  local ref="$1" file="$2" published="${3:-false}" digest output
+  local pulled="$BUILD_DIR/published-profile.json"
+
+  # Outside of Cloud Build only published profiles get signed, see
+  # hack/attest-artifact.sh.
+  if ! signing_enabled || [[ -z "${BUILD_ID:-}" && "$published" != true ]]; then
+    return 0
+  fi
+
+  digest="$(resolve_digest "$ref")" || return 1
+  if ! output="$("${SPOC:-$BUILD_DIR/spoc}" pull -s -o "$pulled" "$digest" 2>&1)"; then
+    echo "Unable to pull $digest: $output" >&2
+    return 1
+  fi
+  if ! cmp -s "$pulled" "$file"; then
+    echo "WARNING: $ref (${digest#*@}) differs from $file, neither signing nor attesting it" >&2
+    return 0
+  fi
+
+  if [[ "$published" == true ]]; then
+    "$(dirname "${BASH_SOURCE[0]}")/../sign-published.sh" "$digest" || return 1
+  fi
+  "$(dirname "${BASH_SOURCE[0]}")/../attest-artifact.sh" "$digest" "$file" profile.json
+}
+
+# The builder ID of the provenance the build writes: the Cloud Build
+# configuration of the repository as the service account of the staging
+# project. Fails without the service account, which a builder ID has to name
+# to be trusted.
+builder_id() {
+  if [[ -z "${PROJECT_ID:-}" || -z "${SERVICE_ACCOUNT_EMAIL:-}" ]]; then
+    echo "PROJECT_ID and SERVICE_ACCOUNT_EMAIL must be set for the builder ID" >&2
+    return 1
+  fi
+  echo "https://cloudbuild.googleapis.com/projects/$PROJECT_ID/serviceAccounts/$SERVICE_ACCOUNT_EMAIL/cloudbuild.yaml"
+}
+
+# A resolved dependency of the provenance for an image digest, with an
+# optional name.
+# shellcheck disable=SC2016
+oci_dependency() {
+  local ref="$1" name="${2:-}"
+
+  require_digest "$ref" || return 1
+  "$(jq_bin)" -cn --arg uri "oci://${ref%@*}" --arg digest "${ref#*@sha256:}" --arg name "$name" \
+    '{uri: $uri, digest: {sha256: $digest}} + if $name == "" then {} else {name: $name} end'
+}
+
+# A resolved dependency of the provenance for a file, by its SHA-256 digest,
+# with an optional URI it was downloaded from.
+# shellcheck disable=SC2016
+file_dependency() {
+  local name="$1" path="$2" uri="${3:-}" digest
+
+  digest="$(sha256sum "$path" | cut -d' ' -f1)" || return 1
+  "$(jq_bin)" -cn --arg name "$name" --arg digest "$digest" --arg uri "$uri" \
+    '{name: $name, digest: {sha256: $digest}} + if $uri == "" then {} else {uri: $uri} end'
+}
+
+# The resolved dependency of the provenance for the spoc binary that converts
+# and pushes the profiles: its SHA-256 digest and, when SPOC_IMAGE is set, the
+# image digest it was copied from.
+# shellcheck disable=SC2016
+spoc_dependency() {
+  file_dependency spoc "$1" |
+    "$(jq_bin)" -c --arg image "${SPOC_IMAGE:-}" \
+      '. + if $image == "" then {} else {annotations: {image: $image}} end'
+}
+
+# The resolved dependencies of the binaries the build compiles, as JSON array:
+# the build image, from build/build-image, which hack/image-cross.sh writes,
+# and the nixpkgs revision its toolchain is pinned to.
+# shellcheck disable=SC2016
+toolchain_dependencies() {
+  local build_image flake_lock nixpkgs_rev nixpkgs_url
+
+  build_image="$(cat "$BUILD_DIR/build-image")" || return 1
+  require_digest "$build_image" || return 1
+  # `jq -r` prints the string "null" for a missing node, which would end up in
+  # a provenance that still verifies while claiming a gitCommit of "null", so
+  # fail loudly instead. The lock file is addressed relative to this file, not
+  # to the working directory.
+  flake_lock="$(dirname "${BASH_SOURCE[0]}")/../../flake.lock"
+  nixpkgs_rev=$("$(jq_bin)" -er \
+    '.nodes.nixpkgs.locked.rev // error("no nixpkgs rev in flake.lock")' "$flake_lock") || return 1
+  nixpkgs_url=$("$(jq_bin)" -er '
+    .nodes.nixpkgs.locked
+    | if .type != "github" then error("unexpected nixpkgs lock type \(.type)") else . end
+    | "git+https://github.com/\(.owner // error("no nixpkgs owner in flake.lock"))/\(.repo // error("no nixpkgs repo in flake.lock"))"
+    ' "$flake_lock") || return 1
+
+  "$(jq_bin)" -cn \
+    --arg buildImage "${build_image%@*}" \
+    --arg buildImageDigest "${build_image#*@sha256:}" \
+    --arg nixpkgsURL "$nixpkgs_url" \
+    --arg nixpkgsRev "$nixpkgs_rev" \
+    '[
+      {uri: "oci://\($buildImage)", digest: {sha256: $buildImageDigest}},
+      {uri: $nixpkgsURL, digest: {gitCommit: $nixpkgsRev}}
+    ]'
+}
+
+# The cosign flags that select the signatures and attestations of the build:
+# SIGNER_IDENTITY and SIGNER_OIDC_ISSUER for an exact match, else
+# SIGNER_IDENTITY_REGEXP and SIGNER_OIDC_ISSUER_REGEXP. One flag or value per
+# line. Fails when neither is set, they never default to any identity.
+signer_args() {
+  if [[ -n "${SIGNER_IDENTITY:-}" && -n "${SIGNER_OIDC_ISSUER:-}" ]]; then
+    printf '%s\n' --certificate-identity "$SIGNER_IDENTITY" \
+      --certificate-oidc-issuer "$SIGNER_OIDC_ISSUER"
+  elif [[ -n "${SIGNER_IDENTITY_REGEXP:-}" && -n "${SIGNER_OIDC_ISSUER_REGEXP:-}" ]]; then
+    printf '%s\n' --certificate-identity-regexp "$SIGNER_IDENTITY_REGEXP" \
+      --certificate-oidc-issuer-regexp "$SIGNER_OIDC_ISSUER_REGEXP"
+  else
+    echo "No signer identity configured" >&2
+    return 1
+  fi
+}
+
+# Whether the build identity signed the image digest, see signer_args: with a
+# cosign signature, which other bundles like attestations are not, even though
+# cosign verify accepts them. Returns 1 when it did not and 2 when the lookup
+# failed, see attestations.
+signed() {
+  local statements
+
+  statements="$(attestations "$1" "$COSIGN_SIGNATURE")" || return 2
+  [[ -n "$statements" ]]
+}
+
+# Prints the in-toto statements of the predicate type attached to an image
+# digest that the build identity signed, see signer_args, and that are about
+# the digest, one per line. Prints nothing when there are none. Other errors of
+# cosign, for example of the registry, are retried, and fail when they persist.
+# shellcheck disable=SC2016
+attestations() {
+  local ref="$1" type="$2" identity out errors attempt
+  local -a args
+
+  require_digest "$ref" || return 1
+  identity="$(signer_args)" || return 1
+  mapfile -t args <<<"$identity"
+  errors="$(mktemp)" || return 1
+
+  for attempt in 1 2 3; do
+    if out="$("$(cosign_bin)" verify-attestation --type "$type" "${args[@]}" "$ref" 2>"$errors")"; then
+      break
+    fi
+    out=""
+    # How cosign says that it found no attestation of the type by the
+    # identity, which is no error here.
+    if grep -q -E 'no matching attestations|none of the attestations matched' "$errors"; then
+      break
+    fi
+    if [[ $attempt -eq 3 ]]; then
+      echo "Unable to look up the $type attestations of $ref: $(grep -m1 . "$errors")" >&2
+      rm -f "$errors"
+      return 1
+    fi
+    sleep $((attempt * 5))
+  done
+  rm -f "$errors"
+
+  [[ -n "$out" ]] || return 0
+  "$(jq_bin)" -c --arg digest "${ref#*@}" \
+    '.payload | @base64d | fromjson
+    | select(any(.subject[]?; "sha256:\(.digest.sha256)" == $digest))' <<<"$out"
+}
+
+# Reads in-toto statements and succeeds when one of them is SLSA provenance of
+# this build as the image promoter checks it: with the builder ID of builder_id
+# and this repository as source. The statements are about the digest already,
+# see attestations. Prints why none counts otherwise.
+# shellcheck disable=SC2016
+valid_provenance() {
+  local builder statements problems
+  local -a args
+
+  builder="$(builder_id)" || return 1
+  args=(--arg builder "$builder" --arg source "${REPOSITORY_URL#https://}")
+  statements="$(cat)"
+  if [[ -z "$statements" ]]; then
+    echo "no SLSA provenance"
+    return 1
+  fi
+
+  # The source is a URI or a resource descriptor, compared without the ref.
+  problems='
+    def repo: (if type == "object" then .uri else . end // "")
+      | sub("^git\\+"; "") | sub("^https?://"; "") | sub("@.*$"; "") | sub("\\.git$"; "");
+    def problems: [
+      (.predicate.runDetails.builder.id // "" | select(. != $builder)
+        | "builder ID \"\(.)\" is not \($builder)"),
+      (.predicate.buildDefinition.externalParameters.source | repo | select(. != $source)
+        | "source \"\(.)\" is not \($source)")
+    ];'
+  if "$(jq_bin)" -se "${args[@]}" "$problems any(.[]; problems == [])" <<<"$statements" >/dev/null; then
+    return 0
+  fi
+  "$(jq_bin)" -sr "${args[@]}" "$problems .[] | problems[] | \"provenance with \\(.)\"" <<<"$statements"
+  return 1
 }
