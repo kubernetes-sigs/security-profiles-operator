@@ -28,7 +28,7 @@ See [`doc/release.md`](https://github.com/kubernetes-sigs/security-profiles-oper
 - [ ] Verify [`post-security-profiles-operator-push-release-artifacts` prow job](https://prow.k8s.io/?job=post-security-profiles-operator-push-release-artifacts) succeeds
 - [ ] Create the image promotion PR in [k8s.io](https://github.com/kubernetes/k8s.io) via `kpromo pr --staging-repo us-central1-docker.pkg.dev/k8s-staging-images/sp-operator`, within 90 days of the version bump
 - [ ] Before merging the image promotion PR, check that its per-arch image digests are the subjects of `images.intoto.jsonl`, then merge it
-- [ ] Check that the promoter carried the attestations to `registry.k8s.io`, and once summaries are on, that it wrote the verification summaries
+- [ ] Check that the promoter carried the attestations to `registry.k8s.io` and wrote the verification summaries
 - [ ] Set the GitHub release as latest release, and verify that the `spoc-reproducible` workflow succeeds (re-run it if the release was published as full release before the promotion)
 - [ ] Remove the `tide/merge-blocker` label from this issue
 - [ ] Run `./hack/back-to-dev.sh` and create back-to-dev PR

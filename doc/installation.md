@@ -167,24 +167,20 @@ helm install security-profiles-operator --namespace security-profiles-operator h
 To verify a downloaded chart archive before installing it, see
 [verifying the released artifacts](verification.md#helm-chart).
 
-Since v1.1.0, the chart is also published as OCI artifact to
-`registry.k8s.io`, and can be installed with the same preparation from there.
-For releases after v1.1.0 the OCI chart holds the release archive above and
-has the same SLSA build provenance, see
-[verifying the released artifacts](verification.md#oci-artifacts-on-registryk8sio).
-The v1.1.0 chart is packaged separately, so its digest differs from the
-release archive, and it only has the signature of the image promoter on
-`registry.k8s.io`. Its staging provenance names the builder ID of the former
-prow job, which the provenance policy doesn't trust, so the image promoter
-won't copy its attestations along, and the staging registry deletes them 90
-days after its push (see
-[attestations on registry.k8s.io](release.md#attestations-on-registryk8sio)):
+The chart is also published as OCI artifact to `registry.k8s.io`. Install it
+with the same preparation from there:
 
 ```shell
 helm install security-profiles-operator --namespace security-profiles-operator \
   oci://registry.k8s.io/security-profiles-operator/charts/security-profiles-operator \
   --version ${VERSION}
 ```
+
+The OCI chart holds the release archive above and has the same SLSA build
+provenance, see
+[verifying the released artifacts](verification.md#oci-artifacts-on-registryk8sio).
+That doesn't apply to the chart of v1.1.0, and the releases before it have no
+OCI chart, see [older releases](verification.md#older-releases).
 
 #### Chart values
 
