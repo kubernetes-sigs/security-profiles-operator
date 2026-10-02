@@ -84,21 +84,6 @@ if ! attested "$SLSA_PROVENANCE" valid_provenance; then
 fi
 
 if ! attested "$SPDX_DOCUMENT" cat; then
-  dir="$BUILD_DIR/attestations/$(image_name "$REF")-${REF##*:}"
-  mkdir -p "$dir/content"
-  cp "$FILE" "$dir/content/$NAME"
-
-  # bom names the files by the path it is given.
-  args=(-f "$NAME")
-  if [[ "$NAME" == *.tgz ]]; then
-    args=(--archive "$NAME")
-  fi
-  bom="$(bom_bin)"
-  if [[ "$bom" == */* ]]; then
-    bom="$(realpath "$bom")"
-  fi
-  sbom="$(realpath "$dir")/sbom.spdx.json"
-  (cd "$dir/content" && "$bom" generate --format spdx3-json --name "${1##*/}" "${args[@]}" -o "$sbom")
-
+  sbom="$(artifact_sbom "$BUILD_DIR/attestations/$(image_name "$REF")-${REF##*:}" "${1##*/}" "$FILE" "$NAME")"
   attest "$REF" "$SPDX_DOCUMENT" "$sbom"
 fi

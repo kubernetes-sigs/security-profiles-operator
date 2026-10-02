@@ -18,8 +18,10 @@
 # pushed for the same commit. Cloud Build tags them vYYYYMMDD-<git describe>,
 # so the staging tags of the commit end with -g<abbreviated commit>. The
 # staging build runs at the same time as this job, the script waits up to
-# STAGING_WAIT seconds for its manifest list. Without a staging image of the
-# commit it only warns, a different digest fails.
+# STAGING_WAIT seconds for its manifest list. A missing staging image of the
+# commit fails like a different digest: the image-reproducible workflow only
+# compares on pushes to main, where Cloud Build pushes an image for every
+# commit, so a missing one means that its build failed or took too long.
 
 set -euo pipefail
 
@@ -58,8 +60,8 @@ while true; do
         break
     fi
     if [[ $SECONDS -ge $deadline ]]; then
-        echo "::warning::No staging image of $COMMIT after ${STAGING_WAIT}s, nothing to compare"
-        exit 0
+        echo "::error::No staging image of $COMMIT after ${STAGING_WAIT}s, check its post-security-profiles-operator-push-image job"
+        exit 1
     fi
     echo "Waiting for the staging image of $COMMIT"
     sleep 60

@@ -2,7 +2,8 @@
 # Publishes the spoc binaries and the Helm chart of a release tag to the
 # staging registry, run by the post-security-profiles-operator-push-release-artifacts
 # job for v* tags. GitHub Actions builds and attests them, this build only
-# verifies and copies them, see doc/release.md#oci-artifacts.
+# verifies and copies them, signs them and attests their SBOMs, see
+# doc/release.md#oci-artifacts.
 # See https://cloud.google.com/cloud-build/docs/build-config
 timeout: 10800s
 serviceAccount: projects/k8s-staging-images/serviceAccounts/sp-operator-sa@k8s-staging-images.iam.gserviceaccount.com

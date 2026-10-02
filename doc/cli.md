@@ -405,7 +405,13 @@ OCI config descriptor. The operator accepts either as an `oci://` base
 profile.
 
 The profiles the Kubernetes end-to-end tests for KEP-6061 consume are pushed
-from this repository by `make push-test-artifacts`.
+from this repository by `make push-test-artifacts`. The staging build pushes
+them to `us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/seccomp-test-profiles`
+and attests them, and they are promoted to
+`registry.k8s.io/security-profiles-operator/seccomp-test-profiles`. The
+digests promoted so far have no attestations: the staging tags now point to
+digests that were pushed again with another manifest, and only those get
+attested, see [staging attestations](release.md#staging-attestations).
 
 The recorded base profiles are published by `make push-base-profiles` in the
 runtime format, one artifact per runtime with the recorded runtime version as

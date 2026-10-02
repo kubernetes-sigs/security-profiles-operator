@@ -21,8 +21,11 @@
 # release has the assets, verifies the provenance of every manifest, pushes the
 # manifests byte for byte, so that they keep the attested digests, and attaches
 # the provenance bundles as OCI referrers. The manifests get signed with the
-# identity of the staging build as well, unless it signed them already, see
-# SIGNER_IDENTITY. SIGN=false skips that.
+# identity of the staging build as well and get SBOM attestations of it, the
+# spoc SBOMs of the release and one bom writes for the chart archive, unless it
+# signed and attested them already, see SIGNER_IDENTITY. SIGN=false skips that.
+# Last, every manifest is verified to carry the signature, the provenance and
+# the SBOMs.
 
 # jq programs are single quoted on purpose
 # shellcheck disable=SC2016
@@ -53,21 +56,21 @@ COMMIT="${COMMIT:-$(git -c safe.directory='*' rev-parse HEAD)}"
 
 SIGNER_WORKFLOW="$REPOSITORY_URL/.github/workflows/provenance.yml"
 OIDC_ISSUER=https://token.actions.githubusercontent.com
-SLSA_PROVENANCE=https://slsa.dev/provenance/v1
-# The identity of the staging build, whose signatures are not added again on
-# a rerun. Without it every run signs, an attacker's signature must never
-# count as signed.
+# The identity of the staging build, whose signatures and SBOM attestations
+# are not added again on a rerun, see signer_args. Without it every run signs
+# and attests, an attacker's signature must never count as signed, and the
+# final verification is skipped.
 SIGNER_IDENTITY="${SIGNER_IDENTITY:-}"
 SIGNER_OIDC_ISSUER=https://accounts.google.com
-COSIGN_SIGN=https://sigstore.dev/cosign/sign/v1
 EMPTY_CONFIG='{"mediaType":"application/vnd.oci.empty.v1+json","digest":"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a","size":2}'
 
 CHART=security-profiles-operator
 SPOC_ARCHES=(amd64 arm64 ppc64le s390x)
 SPOC_FILES=("${SPOC_ARCHES[@]/#/spoc.}")
+SPOC_SBOMS=(spoc.spdx.json spoc-native.spdx.json)
 CHART_FILES=("$CHART-$VERSION.tgz")
 ASSETS=(
-  "${SPOC_FILES[@]}" spoc.intoto.jsonl spoc-oci-layout.tar
+  "${SPOC_FILES[@]}" "${SPOC_SBOMS[@]}" spoc.intoto.jsonl spoc-oci-layout.tar
   "${CHART_FILES[@]}" "$CHART-$VERSION.intoto.jsonl" "$CHART-$VERSION-oci-layout.tar"
 )
 
@@ -179,28 +182,41 @@ unpack_layout() {
   check_manifest "$layout" "$("$JQ" -c '.manifests[0]' "$layout/index.json")"
 }
 
-# Verifies that the provenance bundle is GitHub artifact attestation of the
-# provenance workflow for the tag and commit, created for the GitHub release,
-# about the manifest of each descriptor.
-verify_provenance() {
-  local layout="$1" bundle="$2" workflow="$3" desc
-  shift 3
+# Succeeds when one of the in-toto statements on stdin is provenance of the
+# release workflow for the tag and commit, created on a GitHub hosted runner.
+release_provenance() {
+  local workflow="$1"
 
-  "$JQ" -r .dsseEnvelope.payload "$bundle" | base64 -d | "$JQ" -e \
+  "$JQ" -se \
     --arg type "$SLSA_PROVENANCE" --arg repo "$REPOSITORY_URL" --arg ref "refs/tags/$TAG" \
     --arg commit "$COMMIT" --arg workflow "$workflow" '
-      .predicateType == $type and
-      .predicate.buildDefinition.externalParameters.workflow == {ref: $ref, repository: $repo, path: $workflow} and
-      .predicate.buildDefinition.internalParameters.github.runner_environment == "github-hosted" and
-      any(.predicate.buildDefinition.resolvedDependencies[];
-        .uri == "git+\($repo)@\($ref)" and .digest.gitCommit == $commit)
-    ' >/dev/null || {
+      any(.[];
+        .predicateType == $type and
+        .predicate.buildDefinition.externalParameters.workflow == {ref: $ref, repository: $repo, path: $workflow} and
+        .predicate.buildDefinition.internalParameters.github.runner_environment == "github-hosted" and
+        any(.predicate.buildDefinition.resolvedDependencies[]?;
+          .uri == "git+\($repo)@\($ref)" and .digest.gitCommit == $commit))
+    ' >/dev/null
+}
+
+# Verifies that the provenance bundle is GitHub artifact attestation of the
+# provenance workflow for the tag and commit, created for the GitHub release,
+# about each file. Files in the blobs of a layout are named by their digest.
+verify_provenance() {
+  local bundle="$1" workflow="$2" file
+  shift 2
+
+  "$JQ" -r .dsseEnvelope.payload "$bundle" | base64 -d | release_provenance "$workflow" || {
     echo "The provenance $bundle is not about $workflow at $TAG ($COMMIT) on GitHub hosted runners" >&2
     return 1
   }
 
-  for desc in "$@"; do
-    echo "Verifying the provenance of $("$JQ" -r .digest <<<"$desc")"
+  for file in "$@"; do
+    if [[ "$file" == */blobs/sha256/* ]]; then
+      echo "Verifying the provenance of sha256:${file##*/}"
+    else
+      echo "Verifying the provenance of ${file##*/}"
+    fi
     "$COSIGN" verify-blob-attestation \
       --bundle "$bundle" \
       --type "$SLSA_PROVENANCE" \
@@ -210,7 +226,7 @@ verify_provenance() {
       --certificate-github-workflow-ref "refs/tags/$TAG" \
       --certificate-github-workflow-sha "$COMMIT" \
       --certificate-github-workflow-trigger release \
-      "$layout/blobs/sha256/$("$JQ" -r '.digest | ltrimstr("sha256:")' <<<"$desc")"
+      "$file"
   done
 }
 
@@ -291,21 +307,23 @@ attach_bundle() {
 
 # Signs manifests as the staging build, except the ones it signed already.
 # Only cosign signatures count, bundles of the cosign sign predicate type, not
-# any other bundle of the identity.
+# any other bundle of the identity. A failed lookup fails rather than signing
+# again.
 sign_unsigned() {
-  local ref
+  local ref status
   local -a unsigned=()
 
   for ref in "$@"; do
-    if signing_enabled && [[ -n "$SIGNER_IDENTITY" ]] &&
-      "$COSIGN" verify-attestation --type "$COSIGN_SIGN" \
-        --certificate-identity "$SIGNER_IDENTITY" \
-        --certificate-oidc-issuer "$SIGNER_OIDC_ISSUER" \
-        "$ref" >/dev/null 2>&1; then
-      echo "Already signed: $ref"
-    else
-      unsigned+=("$ref")
+    status=1
+    if signing_enabled && [[ -n "$SIGNER_IDENTITY" ]]; then
+      status=0
+      signed "$ref" || status=$?
     fi
+    case "$status" in
+    0) echo "Already signed: $ref" ;;
+    1) unsigned+=("$ref") ;;
+    *) return 1 ;;
+    esac
   done
 
   if [[ ${#unsigned[@]} -gt 0 ]]; then
@@ -313,10 +331,37 @@ sign_unsigned() {
   fi
 }
 
-# Verifies, pushes, attests and signs one artifact.
+# Attests an SBOM as the staging build for each manifest, unless the manifest
+# has an SBOM attestation of the build already that the jq condition accepts,
+# with the SBOM as $sbom[0]. A failed lookup fails rather than attesting again.
+attest_sbom() {
+  local sbom="$1" condition="$2" ref statements
+  shift 2
+
+  if ! signing_enabled; then
+    echo "Signing disabled, not attesting ${sbom##*/}"
+    return 0
+  fi
+  for ref in "$@"; do
+    if [[ -n "$SIGNER_IDENTITY" ]]; then
+      statements="$(attestations "$ref" "$SPDX_DOCUMENT")" || return 1
+      if [[ -n "$statements" ]] &&
+        "$JQ" -se --slurpfile sbom "$sbom" "any(.[]; $condition)" <<<"$statements" >/dev/null; then
+        echo "Already attested: ${sbom##*/} for $ref"
+        continue
+      fi
+    fi
+    attest "$ref" "$SPDX_DOCUMENT" "$sbom"
+  done
+}
+
+# Verifies, pushes, attests and signs one artifact, and writes the references
+# of its manifests to $DIR/NAME.refs. The files are verified as provenance
+# subjects as well: the layout tar is none and could hold layers of its own
+# instead, and the chart archive gets an SBOM.
 publish() {
-  local name="$1" repo="$2" tag="$3" bundle="$4" workflow="$5" tar="$6" desc
-  local -a descs=() refs=()
+  local name="$1" repo="$2" tag="$3" bundle="$4" workflow="$5" tar="$6" desc digest
+  local -a descs=() refs=() blobs=()
   shift 6
 
   # Not in a process substitution, whose failures would go unnoticed.
@@ -328,13 +373,98 @@ publish() {
     return 1
   fi
 
-  verify_provenance "$DIR/$name" "$DIR/$bundle" "$workflow" "${descs[@]}"
+  for desc in "${descs[@]}"; do
+    digest="$("$JQ" -r .digest <<<"$desc")"
+    refs+=("$repo@$digest")
+    blobs+=("$DIR/$name/blobs/sha256/${digest#sha256:}")
+  done
+  verify_provenance "$DIR/$bundle" "$workflow" "${blobs[@]}" "${@/#/$DIR/}"
   push_layout "$DIR/$name" "$repo:$tag" "${descs[0]}"
   for desc in "${descs[@]}"; do
     attach_bundle "$repo" "$desc" "$DIR/$bundle"
-    refs+=("$repo@$("$JQ" -r .digest <<<"$desc")")
   done
   sign_unsigned "${refs[@]}"
+  printf '%s\n' "${refs[@]}" >"$DIR/$name.refs"
+}
+
+# Runs a check and prints its result, with what is missing when it fails.
+check() {
+  local what="$1" out
+  shift
+
+  if out="$("$@" 2>&1)"; then
+    echo "ok: $what"
+  else
+    echo "FAILED: $what${out:+ ($(tr '\n' ';' <<<"$out" | sed 's/;$//; s/;/; /g'))}"
+    return 1
+  fi
+}
+
+# The cosign signature of the staging build.
+signature() {
+  local status=0
+
+  signed "$1" || status=$?
+  if [[ $status -eq 1 ]]; then
+    echo "no signature of $SIGNER_IDENTITY" >&2
+  fi
+  return "$status"
+}
+
+# The GitHub provenance of the release workflow about the digest, as the image
+# promoter finds it: attached as referrer and signed by the provenance
+# workflow of the tag.
+github_provenance() {
+  local ref="$1" workflow="$2" statements
+
+  statements="$(SIGNER_IDENTITY="$SIGNER_WORKFLOW@refs/tags/$TAG" SIGNER_OIDC_ISSUER="$OIDC_ISSUER" \
+    attestations "$ref" "$SLSA_PROVENANCE")" || return 1
+  if [[ -z "$statements" ]]; then
+    echo "no SLSA provenance of $SIGNER_WORKFLOW@refs/tags/$TAG" >&2
+    return 1
+  fi
+  release_provenance "$workflow" <<<"$statements" || {
+    echo "no SLSA provenance of $workflow at $TAG ($COMMIT) on GitHub hosted runners" >&2
+    return 1
+  }
+}
+
+# The SBOM attestations of the staging build about the digest: each of the
+# given SBOMs, or any SBOM without one.
+sboms() {
+  local ref="$1" statements sbom
+  shift
+
+  statements="$(attestations "$ref" "$SPDX_DOCUMENT")" || return 1
+  if [[ -z "$statements" ]]; then
+    echo "no SPDX SBOM" >&2
+    return 1
+  fi
+  for sbom in "$@"; do
+    "$JQ" -se --slurpfile sbom "$sbom" 'any(.[]; .predicate == $sbom[0])' <<<"$statements" >/dev/null || {
+      echo "no SBOM attestation of ${sbom##*/}" >&2
+      return 1
+    }
+  done
+}
+
+# Verifies, like hack/verify-attestations.sh does for the staging build, that
+# every manifest of an artifact carries the signature and the SBOMs of the
+# staging build and the GitHub provenance of the release, so that a missing one
+# fails this job rather than the promotion.
+verify_published() {
+  local name="$1" workflow="$2" ref failed=0 refs
+  shift 2
+
+  refs="$(cat "$DIR/$name.refs")"
+  while read -r ref; do
+    echo "Verifying $ref"
+    check "signature" signature "$ref" || failed=1
+    check "SLSA provenance" github_provenance "$ref" "$workflow" || failed=1
+    check "SBOM" sboms "$ref" "$@" || failed=1
+  done <<<"$refs"
+
+  return "$failed"
 }
 
 download_assets
@@ -342,7 +472,41 @@ if [[ -n "$LOGIN_REGISTRY" ]]; then
   registry_login "$LOGIN_REGISTRY"
 fi
 
+SPOC_WORKFLOW=.github/workflows/build.yml
+CHART_WORKFLOW=.github/workflows/helm-chart-package.yaml
+
+# The SBOMs of spoc are attested as they are, so they have to be the ones of
+# the release.
+verify_provenance "$DIR/spoc.intoto.jsonl" "$SPOC_WORKFLOW" "${SPOC_SBOMS[@]/#/$DIR/}"
 publish spoc "$REGISTRY/spoc" "$TAG" spoc.intoto.jsonl \
-  .github/workflows/build.yml spoc-oci-layout.tar "${SPOC_FILES[@]}"
+  "$SPOC_WORKFLOW" spoc-oci-layout.tar "${SPOC_FILES[@]}"
+mapfile -t SPOC_REFS <"$DIR/spoc.refs"
+for sbom in "${SPOC_SBOMS[@]}"; do
+  attest_sbom "$DIR/$sbom" '.predicate == $sbom[0]' "${SPOC_REFS[@]}"
+done
+
 publish chart "$REGISTRY/charts/$CHART" "$VERSION" "$CHART-$VERSION.intoto.jsonl" \
-  .github/workflows/helm-chart-package.yaml "$CHART-$VERSION-oci-layout.tar" "${CHART_FILES[@]}"
+  "$CHART_WORKFLOW" "$CHART-$VERSION-oci-layout.tar" "${CHART_FILES[@]}"
+CHART_REF="$(cat "$DIR/chart.refs")"
+# Written like the SBOMs of the -dev charts, see hack/attest-artifact.sh. bom
+# writes another SBOM every time, so any SBOM of the build counts.
+if signing_enabled; then
+  CHART_SBOM="$(artifact_sbom "$DIR/chart-sbom" "${CHART_REF##*/}" "$DIR/$CHART-$VERSION.tgz")"
+  attest_sbom "$CHART_SBOM" true "$CHART_REF"
+fi
+
+if ! signing_enabled; then
+  echo "Signing disabled, not verifying the signatures and attestations"
+elif [[ -z "$SIGNER_IDENTITY" ]]; then
+  echo "WARNING: SIGNER_IDENTITY is not set, not verifying the signatures and attestations" >&2
+else
+  echo "Verifying the signatures and attestations by $SIGNER_IDENTITY and $SIGNER_WORKFLOW@refs/tags/$TAG"
+  failed=0
+  verify_published spoc "$SPOC_WORKFLOW" "${SPOC_SBOMS[@]/#/$DIR/}" || failed=1
+  verify_published chart "$CHART_WORKFLOW" || failed=1
+  if [[ $failed -ne 0 ]]; then
+    echo "Signatures or attestations are missing, see the FAILED checks above" >&2
+    exit 1
+  fi
+  echo "All manifests carry their signature, provenance and SBOMs"
+fi
