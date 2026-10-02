@@ -72,7 +72,10 @@ architectures. Nothing else in the repository has to change:
 Merging publishes it: the staging build pushes the new version (and repoints
 `latest`), so the next test run exercises the new recording. Promote the new
 version before cutting a release, because `hack/release.sh` points the test at
-`registry.k8s.io`.
+`registry.k8s.io`, and within 90 days of its push, after which the staging
+registry deletes it. While it is the recorded version, the next staging build
+pushes a deleted version again, with the same digest but new signatures and
+attestations.
 
 ## Publishing by hand
 
@@ -101,8 +104,14 @@ from, and content moves between them through a promotion pull request against
 [kubernetes/k8s.io](https://github.com/kubernetes/k8s.io):
 
 ```console
-> kpromo pr --project sp-operator --image base/<runtime> --tag <version>
+> kpromo pr --project sp-operator \
+    --staging-repo us-central1-docker.pkg.dev/k8s-staging-images/sp-operator \
+    --image base/<runtime> --tag <version>
 ```
+
+`--staging-repo` is required, without it `kpromo` looks for the images in
+`gcr.io/k8s-staging-sp-operator`, which is not where the staging build pushes
+them.
 
 Promote the versioned tag only. Tags in `registry.k8s.io` cannot be repointed,
 so a promoted `latest` would be frozen at whatever it pointed to first, and
@@ -114,7 +123,9 @@ Run it with the setting turned off:
 
 ```console
 > GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=index.skipHash GIT_CONFIG_VALUE_0=false \
-    kpromo pr --project sp-operator --image base/<runtime> --tag <version>
+    kpromo pr --project sp-operator \
+    --staging-repo us-central1-docker.pkg.dev/k8s-staging-images/sp-operator \
+    --image base/<runtime> --tag <version>
 ```
 
 ## Verifying
@@ -143,9 +154,14 @@ identity or the one of the image promoter unless they are configured with
 other signer regexps, see
 [verifying security profiles](verification.md#security-profiles).
 
-Published versions also get SLSA build provenance and an SBOM, including
-versions that were published before the build attested them, see
-[staging attestations](release.md#staging-attestations).
+The recorded version of each runtime also gets SLSA build provenance and an
+SBOM, even when it was published before the build attested anything, see
+[staging attestations](release.md#staging-attestations). Older versions keep
+what they have. The promoted digests of `base/runc:v1.5.1` and
+`base/crun:v1.29.1` have no attestations: the staging build pushed these
+versions again with another manifest, so their staging tags point to other
+digests, and those only have a signature, because they are no longer the
+recorded versions.
 
 Versions that are already published but have no signature of the build
 account, for example because they were pushed with `SIGN=false`, are signed

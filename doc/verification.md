@@ -27,15 +27,17 @@ for the chart archive with the `helm-chart-package.yaml` one and without
 | `spoc` binaries | yes | yes | `spoc.spdx.json`, `spoc-native.spdx.json` |
 | `spoc.spdx.json`, `spoc-native.spdx.json` | yes | yes | |
 | Helm chart archive on the release page | yes | yes | |
-| Helm chart on `registry.k8s.io` | in staging | yes, by digest | |
-| `spoc` on `registry.k8s.io` | in staging | yes, by digest | release page |
+| Helm chart on `registry.k8s.io` | yes, as `krel-trust` | yes, by digest, after v1.1.0 | in staging, by digest, after v1.1.0 |
+| `spoc` on `registry.k8s.io` (after v1.1.0) | yes, as `krel-trust` | yes, by digest | release page, in staging by digest |
 | Security profiles on `registry.k8s.io` | yes | in staging | in staging |
 
 "In staging" means the artifact carries it in
 `us-central1-docker.pkg.dev/k8s-staging-images/sp-operator`, where the build
 attaches SLSA provenance and SPDX SBOMs to the images, profiles and charts it
 publishes, and to the images a vulnerability scan, an OpenVEX document, the
-build environment and the OpenSSF Scorecard result, as OCI referrers. The
+build environment and the OpenSSF Scorecard result, as OCI referrers. To
+`spoc` and the released chart, the release artifacts job attaches the GitHub
+provenance and SBOMs, see [OCI artifacts](release.md#oci-artifacts). The
 manifest list only gets a signature, and published profiles or charts whose
 content differs from the repository get neither, see
 [staging attestations](release.md#staging-attestations). The promotion keeps
@@ -48,9 +50,11 @@ From kpromo v4.7.0 on, which is not released yet, the image promoter copies
 the staging attestations it accepts next to the promoted digest in
 `registry.k8s.io` and can publish a SLSA verification summary for it, when the
 promoter manifest of the project has a provenance policy. The policy for this
-project is not in place yet, see
-[attestations on registry.k8s.io](release.md#attestations-on-registryk8sio).
-Until then, verifying in staging is the only option.
+project is not in place yet, and the summaries are turned off until the
+identity that signs them exists, see
+[attestations on registry.k8s.io](release.md#attestations-on-registryk8sio)
+and [verification summaries](#verification-summaries). Until then, verifying
+in staging is the only option.
 
 ## SLSA build levels
 
@@ -118,7 +122,8 @@ which signs them as `krel-trust`:
     registry.k8s.io/security-profiles-operator/security-profiles-operator:$VERSION
 ```
 
-The same command works for the operator bundle, the catalog and the promoted
+The same command works for the operator bundle, the catalog, the Helm chart
+(`charts/security-profiles-operator:${VERSION#v}`), `spoc` and the promoted
 `base/*` profiles by replacing the image name.
 
 The provenance, SBOMs, vulnerability scan, VEX document and build environment
@@ -140,12 +145,75 @@ deleted:
     us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator-amd64@$DIGEST
 ```
 
-Images built after v1.1.0 also have the signature and attestations of their
-platform images in the repository of the manifest list, where container
-runtimes pull them from, so the same digest verifies as
+In staging, images built after v1.1.0 also have the signature and
+attestations of their platform images in the repository of the manifest list,
+where container runtimes pull them from, so the same digest verifies as
 `us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator@$DIGEST`.
 
+That doesn't carry over to `registry.k8s.io`. Once the image promoter carries
+attestations, it copies those of the per-arch images into the per-arch
+repositories, so they verify as
+`registry.k8s.io/security-profiles-operator/security-profiles-operator-amd64@$DIGEST`,
+by the build identity like in staging. It doesn't copy the attestations of the
+platform manifests into the repository of the manifest list, because the
+promoter manifest doesn't list their digests there. The
+`registry.k8s.io/security-profiles-operator/security-profiles-operator`
+repository gets what the promoter writes itself: its signature of the
+manifest list and the platform manifests, its promotion record of the
+manifest list and, once they are turned on, a
+[verification summary](#verification-summaries) for the manifest list and for
+each platform manifest.
+
 That provenance is SLSA Build L1, see [SLSA build levels](#slsa-build-levels).
+
+## Verification summaries
+
+The image promoter can publish a SLSA verification summary (VSA) for every
+digest it promotes, index and platform manifests alike: an in-toto statement
+with the predicate type `https://slsa.dev/verification_summary/v1`, attached
+as OCI referrer next to the promoted digest, which says that the staging
+attestations of the digest passed the provenance policy of the project, and
+at which SLSA build level. Consumers that trust the promoter can verify the
+summary instead of the provenance of every build, for example the
+nri-supply-chain plugin, which verifies the summary of the manifest list.
+
+None of this is live yet. The summaries are off until the identity that signs
+them exists ([kubernetes-sigs/promo-tools#1955](https://github.com/kubernetes-sigs/promo-tools/issues/1955)),
+and until the promotion jobs run kpromo v4.7.0 or later with the provenance
+policy of this project
+([kubernetes/k8s.io#10012](https://github.com/kubernetes/k8s.io/pull/10012)).
+The promotion jobs then also add summaries for the digests promoted in the
+14 days before, older images only get one from a promoter run that repairs
+them explicitly. Once they are on, verify a
+summary by its predicate type and the identity of the promoter's summaries,
+which is proposed as
+`promoter-summaries@k8s-releng-prod.iam.gserviceaccount.com` in
+[kubernetes/k8s.io#10004](https://github.com/kubernetes/k8s.io/pull/10004) and
+may still change, and check that the promoter is its verifier and that it
+passed:
+
+```console
+> SUMMARY_SIGNER=<the identity of promo-tools#1955>
+> cosign verify-attestation \
+    --type https://slsa.dev/verification_summary/v1 \
+    --certificate-identity $SUMMARY_SIGNER \
+    --certificate-oidc-issuer https://accounts.google.com \
+    registry.k8s.io/security-profiles-operator/security-profiles-operator:$VERSION |
+    jq -e '.payload | @base64d | fromjson | .predicate
+      | select(.verifier.id == "https://k8s.io/promo-tools/verifier/v1")
+      | .verificationResult == "PASSED" and (.verifiedLevels | index("SLSA_BUILD_LEVEL_1"))'
+```
+
+The verifier ID `https://k8s.io/promo-tools/verifier/v1` is what identifies
+the promoter, other summaries of the digest, for example one attached in
+staging, don't count. `verifiedLevels` holds the SLSA build level the policy
+verified, `SLSA_BUILD_LEVEL_1` for the images built on Cloud Build and
+`SLSA_BUILD_LEVEL_3` for `spoc` and the Helm chart of a release once the
+policy trusts their GitHub provenance, see
+[OCI artifacts](release.md#oci-artifacts), and
+`K8S_PROMOTION_MANIFEST_REVIEWED`. `resourceUri` is the `registry.k8s.io`
+reference of the digest, and `inputAttestations` the staging attestations the
+policy accepted.
 
 ## Command line binaries
 
@@ -216,7 +284,9 @@ The chart is also published as an OCI artifact to `registry.k8s.io`, see
 [OCI artifacts on `registry.k8s.io`](#oci-artifacts-on-registryk8sio). Up to
 v1.1.0 it was packaged separately from the release archive, so its digest
 differs and it has the staging provenance of the
-[container images](#container-image) instead.
+[container images](#container-image) instead, with the builder ID of the
+former prow job, see
+[attestations on registry.k8s.io](release.md#attestations-on-registryk8sio).
 
 ## OCI artifacts on `registry.k8s.io`
 
@@ -253,7 +323,12 @@ example with [oras](https://oras.land):
 ```
 
 In the staging registry the provenance is attached as OCI referrer to each
-manifest, and the manifests are signed by the staging build:
+manifest, and the manifests are signed by the staging build, which also
+attests the SBOMs (`https://spdx.dev/Document`) for them: for `spoc` the
+`spoc.spdx.json` and `spoc-native.spdx.json` of the release page, for the
+chart an SBOM of the chart archive and the files in it. The `spoc` SBOM is
+more than a megabyte, so the second command only prints the names of the
+SBOMs:
 
 ```console
 > cosign verify-attestation \
@@ -261,6 +336,13 @@ manifest, and the manifests are signed by the staging build:
     --certificate-identity https://github.com/kubernetes-sigs/security-profiles-operator/.github/workflows/provenance.yml@refs/tags/$VERSION \
     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
     us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/spoc:$VERSION
+> cosign verify-attestation \
+    --type https://spdx.dev/Document \
+    --certificate-identity sp-operator-sa@k8s-staging-images.iam.gserviceaccount.com \
+    --certificate-oidc-issuer https://accounts.google.com \
+    us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/spoc:$VERSION |
+    jq -r '.payload | @base64d | fromjson | .predicate
+      | .name // (."@graph"[]? | select(.type == "SpdxDocument") | .name)'
 ```
 
 The referrers stay in the staging registry until the image promoter copies

@@ -173,8 +173,11 @@ For releases after v1.1.0 the OCI chart holds the release archive above and
 has the same SLSA build provenance, see
 [verifying the released artifacts](verification.md#oci-artifacts-on-registryk8sio).
 The v1.1.0 chart is packaged separately, so its digest differs from the
-release archive, and its signature and attestations stay in the staging
-registry until the image promoter copies them along (see
+release archive, and it only has the signature of the image promoter on
+`registry.k8s.io`. Its staging provenance names the builder ID of the former
+prow job, which the provenance policy doesn't trust, so the image promoter
+won't copy its attestations along, and the staging registry deletes them 90
+days after its push (see
 [attestations on registry.k8s.io](release.md#attestations-on-registryk8sio)):
 
 ```shell

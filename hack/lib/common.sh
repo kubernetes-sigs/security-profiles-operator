@@ -314,6 +314,30 @@ record_digest() {
   echo "$kind $ref" >>"$BUILD_DIR/artifact-digests"
 }
 
+# Writes an SPDX 3 SBOM of an artifact file with bom to DIR/sbom.spdx.json and
+# prints its path. The SBOM is named DOCUMENT and lists the file by NAME, which
+# defaults to the name of FILE, or, for a chart archive (*.tgz), the archive and
+# the files in it, with their checksums.
+artifact_sbom() {
+  local dir="$1" document="$2" file="$3" name="${4:-$(basename "$3")}" bom sbom
+  local -a args=(-f "$name")
+
+  mkdir -p "$dir/content" || return 1
+  cp "$file" "$dir/content/$name" || return 1
+  # bom names the files by the path it is given.
+  if [[ "$name" == *.tgz ]]; then
+    args=(--archive "$name")
+  fi
+  bom="$(bom_bin)" || return 1
+  if [[ "$bom" == */* ]]; then
+    bom="$(realpath "$bom")" || return 1
+  fi
+  sbom="$(realpath "$dir")/sbom.spdx.json" || return 1
+  (cd "$dir/content" && "$bom" generate --format spdx3-json --name "$document" "${args[@]}" -o "$sbom") >&2 || return 1
+
+  echo "$sbom"
+}
+
 # Signs and attests a security profile that the build pushed or, with a third
 # argument true, found published, see hack/sign-published.sh and
 # hack/attest-artifact.sh, when the digest its tag points to holds FILE: the
