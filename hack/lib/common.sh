@@ -28,7 +28,12 @@ JQ_SHA256=b1c22172dd303f3be49e935aa56aa48a8b7a46e0bc838b4997d3bb451495870f
 GOVULNCHECK_VERSION=v1.8.0
 CRANE_VERSION=v0.22.1
 
-REPOSITORY_URL=https://github.com/kubernetes-sigs/security-profiles-operator
+UPSTREAM_REPOSITORY_URL=https://github.com/kubernetes-sigs/security-profiles-operator
+# The repository whose GitHub release provenance hack/push-release-artifacts.sh
+# verifies, and which the staging attestations name as source. Only a rehearsal
+# in a fork sets SPO_REPOSITORY_URL to another one, which needs SIGN=false, see
+# doc/release.md#rehearsing-the-release-artifacts-job.
+REPOSITORY_URL="${SPO_REPOSITORY_URL:-$UPSTREAM_REPOSITORY_URL}"
 
 # Where the staging build pushes to, and where the image promoter copies the
 # staging artifacts to, under the same path.
@@ -54,6 +59,12 @@ TOOLS_DIR="${TOOLS_DIR:-$BUILD_DIR/tools}"
 signing_enabled() {
   [[ "$SIGN" == "true" ]]
 }
+
+# Nothing signed or attested as the staging build may name another repository.
+if [[ "$REPOSITORY_URL" != "$UPSTREAM_REPOSITORY_URL" ]] && signing_enabled; then
+  echo "SPO_REPOSITORY_URL is $REPOSITORY_URL instead of $UPSTREAM_REPOSITORY_URL, which needs SIGN=false" >&2
+  exit 1
+fi
 
 # Downloads a static binary once, verifies its checksum and prints its path.
 # Callers run it in a command substitution, where bash ignores errexit, so every

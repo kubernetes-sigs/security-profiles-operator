@@ -1,13 +1,26 @@
 # Releasing a new version of the security-profiles-operator
 
-A new security-profiles-operator release can be done by overall three Pull Requests (PRs).
-Please ensure that no other PRs got merged in between. This can be achieved by
-opening a new `Release vx.y.z` issue and applying the `tide/merge-blocker` label
-if appropriate.
+A new security-profiles-operator release is done by overall three Pull
+Requests (PRs): the version bump, the image promotion in
+[kubernetes/k8s.io](https://github.com/kubernetes/k8s.io) and the back-to-dev
+PR. Track it in a new `Release vx.y.z` issue from the
+[release template](../.github/ISSUE_TEMPLATE/release.md).
 
-The overall process should not take longer than a couple of minutes, but it is
-required to have one of the repository [owners](../OWNERS) at hand to be able to
-merge the PRs.
+No other PR may get merged between the version bump and the merge of the
+promotion PR. Add the `tide/merge-blocker` label to the release issue as soon
+as the version bump PR is merged, and remove it only after the promotion PR is
+merged, before the back-to-dev PR. Every build of `main` tags its staging
+images with the version of the [`VERSION`](../VERSION) file, so a commit merged
+in between moves the `vx.y.z` tags, which `kpromo pr` promotes, to images of
+another commit. Those either fail the release artifacts job or, if they are
+pushed after it ran, get promoted without the GitHub provenance of the
+release, with only the SLSA Build L1 provenance of Cloud Build, see
+[per-arch images](#per-arch-images).
+
+The release takes several hours, most of it waiting for the staging build, the
+release workflows, the release artifacts job and the review of the promotion
+PR, and needs one of the repository [owners](../OWNERS) at hand to merge the
+PRs.
 
 Run the `./hack/release.sh x.y.z` script by replacing the appropriate version.
 The script basically:
@@ -49,22 +62,52 @@ container image via the automatically triggered
 type can be found either on the commit status on the `main` branch or [in prow
 directly](https://prow.k8s.io/?job=post-security-profiles-operator-push-image).
 
+Before tagging, also check that the
+[`image-reproducible`](../.github/workflows/image-reproducible.yml) workflow
+succeeded for the push of the version bump commit to `main`. It rebuilds the
+per-arch images on GitHub Actions and compares them with the ones Cloud Build
+pushed to staging for the commit. The release attests the digests of its own
+rebuild, so staging images that are not reproducible fail the release
+artifacts job later, see [per-arch images](#per-arch-images).
+
 If the image got built successfully, tag the release. Tags created in the
 GitHub UI are lightweight and unsigned, so check out the merged commit of the
-first PR and run [`hack/tag-release.sh`](../hack/tag-release.sh). It creates
-the signed, annotated tag `vx.y.z` for the version in the
+first PR and run [`hack/tag-release.sh`](../hack/tag-release.sh). If another PR
+got merged after the version bump anyway, tag the newest commit of `main`
+instead, as long as its `VERSION` file still says x.y.z, once its staging
+build and `image-reproducible` run succeeded: the `vx.y.z` staging tags point
+to its images. Staging builds of two commits can run at the same time, and
+the `vx.y.z` tags point to the images of the one that finished last, so check
+before tagging that `crane digest` gives the same digest for the `vx.y.z` tag
+and for the tag of the commit, which ends with `-g<abbreviated commit>`, of
+the manifest list and of every per-arch image:
+
+```console
+> for image in security-profiles-operator{,-amd64,-arm64,-ppc64le}; do
+    repo=us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/$image
+    tag=$(crane ls $repo | grep -- "-g$(git rev-parse --short=7 HEAD)" | tail -1)
+    echo "$image $(crane digest $repo:vx.y.z) $(crane digest $repo:$tag)"
+  done
+```
+
+The script creates the signed, annotated tag `vx.y.z` for the version in the
 [`VERSION`](../VERSION) file, which needs a git signing key
 (`user.signingkey`, GPG or SSH with `gpg.format=ssh`), and verifies it with
 `git verify-tag`. It refuses to tag a development version, a dirty tree or an
 existing tag, and pushes nothing. Check the signature once more and push the
-tag:
+tag to `kubernetes-sigs/security-profiles-operator`:
 
 ```console
 > git verify-tag vx.y.z
-> git push origin vx.y.z
+> git push <upstream remote> vx.y.z
 ```
 
-Set `REMOTE` for the script to print the push command with another remote.
+The script prints the push command with the remote whose push URL is
+`kubernetes-sigs/security-profiles-operator`, which is often not `origin` but
+a fork, or with that URL if no remote pushes there (for example with a
+`no_push` push URL), set `REMOTE` to use another one. A tag pushed only to a
+fork is missing upstream, and creating the release for it in the GitHub UI
+silently creates a lightweight, unsigned tag instead.
 The `v*` tags have to be protected in the repository settings (a tag ruleset
 which restricts their creation, update and deletion to the release managers),
 since the release workflows trust a tag to be a reviewed release commit, and
@@ -75,14 +118,15 @@ account.
 Right after pushing the tag, [create the
 release](https://github.com/kubernetes-sigs/security-profiles-operator/releases/new)
 on GitHub from the pushed tag as a **pre-release** and add the release notes.
-It stays a pre-release until its images are promoted. The changelog is
-auto-generated based on PR labels and the configuration in
+Pick the existing tag, if the GitHub UI offers to create it on publish, the
+tag is not upstream. It stays a pre-release until its images are promoted.
+The changelog is auto-generated based on PR labels and the configuration in
 [`.github/release.yml`](../.github/release.yml). The introduction above it is
 written by hand, start from
-[`.github/release-notes-template.md`](../.github/release-notes-template.md) and
-replace the version. The verification commands live in
-[`verification.md`](verification.md), so the release only links them and they
-stay correct for all releases.
+[`.github/release-notes-template.md`](../.github/release-notes-template.md),
+the only template for it, and replace the version. The verification commands
+live in [`verification.md`](verification.md), so the release only links them
+and they stay correct for all releases.
 
 Publishing the pre-release triggers the [`build`](../.github/workflows/build.yml)
 workflow, which attaches the `spoc` binaries for all architectures and the
@@ -128,8 +172,9 @@ from [prow](https://prow.k8s.io/?job=post-security-profiles-operator-push-releas
 
 If the job succeeded, we can create a second PR to [the k8s.io GitHub
 repository](https://github.com/kubernetes/k8s.io). This PR promotes the built
-container images (the manifest as well as the builds for `amd64`, `arm64` and
-`ppc64le`), `spoc` and the Helm chart.
+container images (the manifest list as well as the builds for `amd64`, `arm64`
+and `ppc64le`), the operator bundle and catalog images, `spoc` and the Helm
+chart.
 
 We can use the tool
 [`kpromo`](https://github.com/kubernetes-sigs/promo-tools#kpromo) to allow
@@ -168,9 +213,9 @@ manifest list digest in it, have to be the subjects of `images.intoto.jsonl`:
 The release artifacts job checked the `vx.y.z` staging tags when it ran, but
 `kpromo pr` reads them later. A commit merged in between, before the
 back-to-dev PR, moves them to images that only have the provenance of Cloud
-Build, which still passes the policy, at level 1. So keep the
-`tide/merge-blocker` label of the release issue until the promotion PR is
-merged.
+Build, which still passes the policy, at level 1. That's why the
+`tide/merge-blocker` label of the release issue stays until the promotion PR
+is merged.
 
 Promote within 90 days. The staging registry deletes images 90 days after
 their push: the container images were pushed by the build of the release
@@ -180,25 +225,26 @@ Running that job again from prow after the cleanup publishes `spoc` and the
 chart again with the same digests, but with new signatures and SBOM
 attestations; before it, a rerun adds nothing.
 
-The promotion copies the images by digest. Their attestations are only copied
-along by the image promoter once a provenance policy for this project is in
-place, see [staging attestations](#staging-attestations). Once the promotion
-PR is merged, check that the attestations still apply to what users install:
-the per-architecture images on `registry.k8s.io` have to have the digests the
-staging build attested, which the commands in
+The promotion copies the images by digest, and the image promoter carries the
+attestations that pass the provenance policy of this project along, see
+[attestations on registry.k8s.io](#attestations-on-registryk8sio). Once the
+promotion PR is merged, check that the attestations still apply to what users
+install: the per-architecture images on `registry.k8s.io` have to have the
+digests the staging build attested, which the commands in
 [verification.md](verification.md#container-image) verify for a release, and
 `spoc` and the chart the digests of the GitHub provenance, see
 [verification.md](verification.md#oci-artifacts-on-registryk8sio).
 
-Once the provenance policy is in place, also check that the promoter carried
-the attestations to `registry.k8s.io`: the provenance and SBOMs of the
-per-arch images in their `security-profiles-operator-<arch>` repositories, and
-the GitHub provenance and SBOMs of the `spoc` index and the chart, with the
-commands of [verification.md](verification.md#container-image) and
+Also check that the promoter carried the attestations to `registry.k8s.io`:
+the provenance and SBOMs of the per-arch images in their
+`security-profiles-operator-<arch>` repositories, and the GitHub provenance and
+SBOMs of the `spoc` index and the chart, with the commands of
+[verification.md](verification.md#container-image) and
 [OCI artifacts](verification.md#oci-artifacts-on-registryk8sio) against the
 `registry.k8s.io` references instead of the staging ones. The platform
 manifests of `spoc` keep theirs in staging, because the promoter manifest
-doesn't list them. Once the promoter
+doesn't list them. The policy is in `warn` mode, so a violation doesn't block
+the promotion, the attestations are just missing then. Once the promoter
 writes verification summaries, check that the manifest list, its platform
 manifests, `spoc` and the chart have a passed one, see
 [verification summaries](verification.md#verification-summaries). A missing
@@ -209,7 +255,12 @@ Then edit the release on GitHub, unset the pre-release and set it as the
 latest release. That triggers the
 [`spoc-reproducible`](../.github/workflows/spoc-reproducible.yml) workflow,
 which checks that the released `spoc.amd64` is bit for bit the `spoc` of the
-promoted image of the release.
+promoted image of the release. If the release was published as a full release
+right away, the workflow ran before the promotion and failed, re-run it once
+the promotion PR is merged.
+
+Remove the `tide/merge-blocker` label of the release issue, so that the
+back-to-dev PR can get merged.
 
 After that, run the `./hack/back-to-dev.sh` script, which:
 
@@ -361,15 +412,18 @@ The image promoter copies the manifests by digest like the images. The
 by [`hack/push-chart.sh`](../hack/push-chart.sh).
 
 For the promoter to accept and carry the GitHub provenance, the provenance
-policy of the promoter manifest needs the signer and the builder that GitHub
-puts into it. Both are the reusable workflow, not the calling `build.yml` or
-`helm-chart-package.yaml`, whose path is in
+policy of the promoter manifest, the `provenance` section of
+[its promoter manifest](https://github.com/kubernetes/k8s.io/blob/main/registry.k8s.io/manifests/k8s-staging-sp-operator/promoter-manifest.yaml),
+needs the signer and the builder that GitHub puts into it. Both are the
+reusable workflow, not the calling `build.yml` or `helm-chart-package.yaml`,
+whose path is in
 `buildDefinition.externalParameters.workflow` instead. Next to the signer and
 the Cloud Build builder of the staging build, the GitHub builder names its
 signer, so that only that signer may claim it (kpromo v4.7.0 or later, see
 [provenance policies](https://github.com/kubernetes-sigs/promo-tools/blob/main/docs/image-promotion.md#provenance-policies)):
 
 ```yaml
+mode: warn
 signers:
   - sigstore::https://accounts.google.com::sp-operator-sa@k8s-staging-images.iam.gserviceaccount.com
   - sigstore(identityMatch=regex)::https://token.actions.githubusercontent.com::https://github\.com/kubernetes-sigs/security-profiles-operator/\.github/workflows/provenance\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+
@@ -380,6 +434,8 @@ builders:
     level: 3
     signers:
       - sigstore(identityMatch=regex)::https://token.actions.githubusercontent.com::https://github\.com/kubernetes-sigs/security-profiles-operator/\.github/workflows/provenance\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+
+sources:
+  - github.com/kubernetes-sigs/security-profiles-operator
 ```
 
 The regexp has to match the whole identity, so it needs no anchors, and the
@@ -388,10 +444,82 @@ identity may then only claim the Cloud Build builder, which names no signers,
 and the GitHub identity only the GitHub builder. So what the staging build
 attests verifies at level 1, and `spoc` and the released chart at level 3.
 When a digest carries provenance of both builders, the promoter reports the
-highest level that passes. With `predicateTypes: [https://spdx.dev/Document]`
-the policy also requires an SBOM of one of the signers, which the staging
-build and the release artifacts job attest as
+highest level that passes. The policy doesn't require an SBOM yet. With
+`predicateTypes: [https://spdx.dev/Document]` it could, since the staging
+build and the release artifacts job attest one as
 `sp-operator-sa@k8s-staging-images` for every artifact they publish.
+
+### Rehearsing the release artifacts job
+
+[`hack/push-release-artifacts.sh`](../hack/push-release-artifacts.sh) can run
+against a release in a fork and a local registry, without signing anything:
+
+1. In a fork with GitHub Actions enabled, commit the changes of
+   `./hack/release.sh x.y.z`, push a `vx.y.z` tag of that commit to the fork
+   and publish a pre-release for it there. Its `build`, `helm-chart-package`
+   and `image-reproducible` workflows attach the release assets with
+   provenance signed by the `provenance.yml` workflow of the fork.
+1. Start a local registry, for example with
+   `docker run -d -p 5000:5000 registry:3`.
+1. Check out the tag and run the script for the fork:
+
+   ```console
+   > SPO_REPOSITORY_URL=https://github.com/<user>/security-profiles-operator \
+       TAG=vx.y.z \
+       REGISTRY=localhost:5000/sp-operator \
+       SIGN=false \
+       IMAGE_WAIT_TIMEOUT=0 \
+       hack/push-release-artifacts.sh
+   ```
+
+The script downloads the release assets of the fork and verifies their
+provenance against the `provenance.yml` identity, repository, ref and trigger
+of the fork, then pushes `spoc` and the chart to the local registry and
+attaches the provenance. `SIGN=false` skips the signatures and SBOM
+attestations of the staging build and their verification. The per-arch
+images need the images Cloud Build pushes for the tagged commit, so without
+them in the registry the run fails at the per-arch images, after `spoc` and
+the chart are published. Another `SPO_REPOSITORY_URL` than
+`https://github.com/kubernetes-sigs/security-profiles-operator` needs
+`SIGN=false`, the scripts refuse to sign with it, and
+[`cloudbuild-release.yaml`](../cloudbuild-release.yaml) doesn't set it, so the
+real job always verifies the provenance of this repository.
+
+## The provenance signer
+
+The policy trusts provenance signed by `provenance.yml` at a `v*` tag at
+level 3, and the release artifacts job and the commands of
+[verification.md](verification.md) verify the same identity. That identity,
+the subject alternative name of the signing certificate, is the reusable
+workflow at the ref its caller referenced it with, the `job_workflow_ref`
+claim of the OIDC token of the job. Any workflow can call a reusable workflow
+of a public repository, also one on a branch, in a pull request or in another
+repository, as
+`kubernetes-sigs/security-profiles-operator/.github/workflows/provenance.yml@vx.y.z`,
+which would get it the identity of that tag for subjects of its choice. So the
+first step of [`provenance.yml`](../.github/workflows/provenance.yml) reads
+the claims of an OIDC token, which are what Fulcio puts into the certificate,
+and fails the job before anything is signed, unless:
+
+- the identity is `provenance.yml` of the calling repository at the ref of the
+  run, which is what the `./.github/workflows/provenance.yml` of the callers
+  gives,
+- for a tag, the run is for a `release` event of a `v*` tag, and the caller is
+  the `build.yml`, `helm-chart-package.yaml` or `image-reproducible.yml`
+  workflow of the tag,
+- otherwise, the ref is `main` and the run is for a push, by `build.yml`,
+  which gives the `spoc` builds of `main` provenance with the identity
+  `provenance.yml@refs/heads/main`.
+
+So the identity of a `v*` tag only stems from a release of that tag in this
+repository, which only the release managers can create, see the tag ruleset
+above. Releases up to v1.1.0 have no `provenance.yml`, so no tag has it without
+these checks. A fork gets identities of its own repository, which is what
+allows to [rehearse](#rehearsing-the-release-artifacts-job) the release
+artifacts job there. The release artifacts job and the `cosign` commands of
+[verification.md](verification.md) check the repository, ref and trigger of
+the certificate as well, the image promoter only checks the identity, which
+these checks bind to a release.
 
 ## Staging attestations
 
@@ -554,40 +682,43 @@ identity, for example:
 
 ### Attestations on registry.k8s.io
 
-The promotion keeps the digests, but `registry.k8s.io` only gets the
-attestations of an image when the promoter manifest of the project has a
-provenance policy. From kpromo v4.7.0 on, which is not released yet, the image
-promoter verifies the staging attestations against such a policy, copies the
-ones it accepts next to the promoted digest in `registry.k8s.io`, and can
-publish a SLSA verification summary
-(`https://slsa.dev/verification_summary/v1`) of its own for it. A policy for
+The promotion keeps the digests, and `registry.k8s.io` gets the attestations
+of an image because the promoter manifest of the project has a provenance
+policy. From kpromo v4.7.0 on, which the promotion jobs run since 2026-10-02,
+the image promoter verifies the staging attestations against such a policy,
+copies the ones it accepts next to the promoted digest in `registry.k8s.io`,
+and can publish a SLSA verification summary
+(`https://slsa.dev/verification_summary/v1`) of its own for it. The policy of
 this project, which trusts the attestations of the build identity and checks
-the builder ID and source of the provenance like the verification above, is
-proposed in [kubernetes/k8s.io#10012](https://github.com/kubernetes/k8s.io/pull/10012)
-and not in place yet. It starts in `warn` mode, which reports violations
-without blocking the promotion, and `require` mode blocks it.
+the builder ID and source of the provenance like the verification above, is in
+place since [kubernetes/k8s.io#10012](https://github.com/kubernetes/k8s.io/pull/10012).
+It is in `warn` mode, which reports violations without blocking the
+promotion, `require` mode would block it. The carried attestations show up
+with the promotion runs after it.
 
-Once it is, the attestations land where the promoter manifest lists the
-digests: those of the per-arch images in the per-arch repositories, and those
-of the `spoc` index, the chart, the bundle, the catalog and the profiles in
-their repositories. The repository of the manifest list only gets what the promoter
+The attestations land where the promoter manifest lists the digests: those of
+the per-arch images in the per-arch repositories, and those of the `spoc`
+index, the chart, the bundle, the catalog and the profiles in their
+repositories. The repository of the manifest list only gets what the promoter
 writes itself, see [container image](verification.md#container-image).
-The verification summaries are off until the identity that signs them exists
-([kubernetes-sigs/promo-tools#1955](https://github.com/kubernetes-sigs/promo-tools/issues/1955))
-and the promotion jobs run kpromo v4.7.0 or later with the policy, see
-[verification summaries](verification.md#verification-summaries).
+The verification summaries are still off. Their signer,
+`promoter-summaries@k8s-releng-prod.iam.gserviceaccount.com`, exists, and the
+production promotion jobs moved to their new account
+([kubernetes/test-infra#37950](https://github.com/kubernetes/test-infra/pull/37950)).
+Only the change that turns the summaries on is pending
+([kubernetes/test-infra#37967](https://github.com/kubernetes/test-infra/pull/37967)),
+see [verification summaries](verification.md#verification-summaries).
 
-Until it is, the promoted images only have the `krel-trust` signature of the
+Images promoted before the policy only have the `krel-trust` signature of the
 promoter on `registry.k8s.io`, and the staging registry is the only place to
 verify their attestations, by digest, see
 [verifying the released artifacts](verification.md#container-image). Staging
-images are deleted after 90 days, and with them their attestations, so do not
-advertise SLSA provenance for the promoted images before the policy is in
-place. Images promoted before the policy only get their attestations carried
-by the repair phase of a promoter run that parses their digests while they are
-still in staging, and the production jobs only parse the digests added in the
-last 14 days. The images and the chart of v1.1.0 have provenance with the
-builder ID of the former prow job,
+images are deleted after 90 days, and with them their attestations. Such
+images only get their attestations carried by the repair phase of a promoter
+run that parses their digests while they are still in staging, and the
+production jobs only parse the digests added in the last 14 days. The images
+and the chart of v1.1.0 have provenance with the builder ID of the former prow
+job,
 `https://prow.k8s.io/job-history/gs/kubernetes-ci-logs/logs/post-security-profiles-operator-push-image`,
 which the policy doesn't trust, so they don't satisfy it and the promoter
 carries none of their attestations, not even in such a run.

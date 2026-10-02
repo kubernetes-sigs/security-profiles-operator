@@ -3,6 +3,12 @@ name: provenance
 # this isolated reusable workflow. The callers build without OIDC token or
 # attestation access and only pass the digests, so the build steps cannot forge
 # the provenance. Verifiers pin this file as the signer workflow.
+#
+# The signing identity is this file at the ref the caller referenced it with,
+# for example provenance.yml@refs/tags/v1.2.3, and any workflow can call it
+# with any subjects. So the first step refuses to sign unless the identity can
+# only stem from a release of the repository that runs it, see
+# doc/release.md#the-provenance-signer.
 on:
   workflow_call:
     inputs:
@@ -25,6 +31,57 @@ jobs:
       attestations: write  # required for storing the provenance
       id-token: write  # required for signing the provenance
     steps:
+      # The checks use the claims of an OIDC token, which are what Fulcio puts
+      # into the signing certificate: job_workflow_ref is its identity, the
+      # other claims are those of the calling run. The token has another
+      # audience than Sigstore, so Fulcio would not accept it.
+      - name: Check the caller
+        run: |
+          set -euo pipefail
+          token="$(curl -sSf --retry 3 --retry-all-errors --max-time 30 \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=provenance-caller-check" | jq -er .value)"
+          echo "::add-mask::$token"
+          payload="$(cut -d. -f2 <<<"$token" | tr '_-' '/+')"
+          while ((${#payload} % 4)); do payload+="="; done
+          claims="$(base64 -d <<<"$payload")"
+          claim() {
+            jq -er --arg name "$1" '.[$name] | strings' <<<"$claims" ||
+              { echo "::error::The OIDC token has no $1 claim" >&2; return 1; }
+          }
+          fail() {
+            echo "::error::Refusing to sign as $identity for $caller ($event of $ref in $repository): $*"
+            exit 1
+          }
+          identity="$(claim job_workflow_ref)"
+          repository="$(claim repository)"
+          event="$(claim event_name)"
+          ref="$(claim ref)"
+          caller="$(claim workflow_ref)"
+          workflows="$repository/.github/workflows"
+
+          # Called from the same repository and at the ref of the run, which
+          # is what calling ./.github/workflows/provenance.yml gives. A call
+          # with another ref, for example from a branch with @v1.2.3, would
+          # get an identity of that ref.
+          [[ "$identity" == "$workflows/provenance.yml@$ref" ]] ||
+            fail "only callers in the same repository at the same ref may sign"
+          case "$ref" in
+          refs/tags/*)
+            [[ "$event" == release ]] || fail "tags are signed for release events only"
+            [[ "$ref" == refs/tags/v* ]] || fail "only v* tags are releases"
+            case "$caller" in
+            "$workflows/build.yml@$ref" | "$workflows/helm-chart-package.yaml@$ref" | "$workflows/image-reproducible.yml@$ref") ;;
+            *) fail "not a release workflow" ;;
+            esac
+            ;;
+          refs/heads/main)
+            [[ "$event" == push && "$caller" == "$workflows/build.yml@$ref" ]] ||
+              fail "main is signed for pushes of the build workflow only"
+            ;;
+          *) fail "only release tags and main are signed" ;;
+          esac
+          echo "Signing as $identity for $caller ($event of $ref)"
       - name: Decode subjects
         env:
           SUBJECTS: ${{ inputs.base64-subjects }}

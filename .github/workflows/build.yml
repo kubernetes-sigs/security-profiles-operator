@@ -249,7 +249,9 @@ jobs:
 
   # The only job that can write to the release. It runs no repository code, it
   # uploads the binaries, checksums, signatures, the SBOMs and the provenance
-  # of the jobs above.
+  # of the jobs above. The assets of a first run are never replaced: the
+  # release artifacts job may have published them to staging already, and
+  # re-running all jobs would sign them and write the SBOM anew.
   spoc-release:
     needs: [spoc-sign, spoc-provenance]
     if: startsWith(github.ref, 'refs/tags/')
@@ -266,6 +268,7 @@ jobs:
           merge-multiple: true
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
+          overwrite_files: false
           files: |
             build/*
 
