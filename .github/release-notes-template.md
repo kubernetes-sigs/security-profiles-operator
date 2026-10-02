@@ -20,7 +20,8 @@ $ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-pr
 
 The operator can also be installed [with helm][helm], and `spoc`, the official
 Security Profiles Operator Command Line Interface, is attached to this release
-for `amd64`, `arm64`, `ppc64le` and `s390x`.
+for `amd64`, `arm64`, `ppc64le` and `s390x`. Both are published as OCI
+artifacts to `registry.k8s.io/security-profiles-operator` as well.
 
 All released artifacts are signed and the release assets carry SLSA build
 provenance. [Verifying the released artifacts][verification] has the commands

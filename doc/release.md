@@ -49,10 +49,73 @@ container image via the automatically triggered
 type can be found either on the commit status on the `main` branch or [in prow
 directly](https://prow.k8s.io/?job=post-security-profiles-operator-push-image).
 
-If the image got built successfully, then we can create a second PR to [the
-k8s.io GitHub repository](https://github.com/kubernetes/k8s.io). This PR
-promotes the built container images (the manifest as well as the builds for
-`amd64`, `arm64` and `ppc64le`).
+If the image got built successfully, tag the release. Tags created in the
+GitHub UI are lightweight and unsigned, so check out the merged commit of the
+first PR and run [`hack/tag-release.sh`](../hack/tag-release.sh). It creates
+the signed, annotated tag `vx.y.z` for the version in the
+[`VERSION`](../VERSION) file, which needs a git signing key
+(`user.signingkey`, GPG or SSH with `gpg.format=ssh`), and verifies it with
+`git verify-tag`. It refuses to tag a development version, a dirty tree or an
+existing tag, and pushes nothing. Check the signature once more and push the
+tag:
+
+```console
+> git verify-tag vx.y.z
+> git push origin vx.y.z
+```
+
+Set `REMOTE` for the script to print the push command with another remote.
+The `v*` tags have to be protected in the repository settings (a tag ruleset
+which restricts their creation, update and deletion to the release managers),
+since the release workflows trust a tag to be a reviewed release commit, and
+the `post-security-profiles-operator-push-release-artifacts` job runs the
+Cloud Build configuration of any pushed `v*` tag with the staging service
+account.
+
+Right after pushing the tag, [create the
+release](https://github.com/kubernetes-sigs/security-profiles-operator/releases/new)
+on GitHub from the pushed tag as a **pre-release** and add the release notes.
+It stays a pre-release until its images are promoted. The changelog is
+auto-generated based on PR labels and the configuration in
+[`.github/release.yml`](../.github/release.yml). The introduction above it is
+written by hand, start from
+[`.github/release-notes-template.md`](../.github/release-notes-template.md) and
+replace the version. The verification commands live in
+[`verification.md`](verification.md), so the release only links them and they
+stay correct for all releases.
+
+Publishing the pre-release triggers the [`build`](../.github/workflows/build.yml)
+workflow, which attaches the `spoc` binaries for all architectures and the
+`spoc.spdx.json` and `spoc-native.spdx.json` SBOMs with their signatures
+(`*.sigstore.json`), checksums and SLSA build provenance (`spoc.intoto.jsonl`)
+to the release. The
+[`helm-chart-package`](../.github/workflows/helm-chart-package.yaml) workflow
+attaches the chart archive with its signature and provenance. Both also attach
+the signed OCI layout of their artifacts (`spoc-oci-layout.tar` and
+`security-profiles-operator-x.y.z-oci-layout.tar`), see
+[OCI artifacts](#oci-artifacts). Nothing has to be built or uploaded by hand,
+`make nix-spoc` is only meant for local builds. Verify that the files are
+present. The reusable [`provenance`](../.github/workflows/provenance.yml)
+workflow creates the provenance of both workflows, see
+[SLSA build levels](verification.md#slsa-build-levels). If a job of them
+fails, re-run only the failed jobs. `helm package` stamps the chart archive
+with the current time, so re-running all jobs packages another archive, which
+the `helm-chart-package` workflow does not upload because the release keeps
+the assets of the first run.
+
+The pushed tag triggers the `post-security-profiles-operator-push-release-artifacts`
+post submit job in prow ([`cloudbuild-release.yaml`](../cloudbuild-release.yaml)),
+which waits up to two hours for these release assets and publishes the `spoc`
+binaries and the Helm chart from them to the staging registry, as
+`us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/spoc:vx.y.z` and
+`us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/charts/security-profiles-operator:x.y.z`.
+If the job timed out because the release was created too late, run it again
+from [prow](https://prow.k8s.io/?job=post-security-profiles-operator-push-release-artifacts).
+
+If the job succeeded, we can create a second PR to [the k8s.io GitHub
+repository](https://github.com/kubernetes/k8s.io). This PR promotes the built
+container images (the manifest as well as the builds for `amd64`, `arm64` and
+`ppc64le`), `spoc` and the Helm chart.
 
 We can use the tool
 [`kpromo`](https://github.com/kubernetes-sigs/promo-tools#kpromo) to allow
@@ -68,61 +131,24 @@ To run the tool from `$GOPATH/src/sigs.k8s.io/promo-tools`, just execute:
     --tag 0.x.y
 ```
 
-This will automatically create a PR in the k/k8s.io repository. The second
-`--tag` picks up the helm chart, which the staging build pushes as
-`us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/charts/security-profiles-operator` with the
-version without the `v` prefix.
+This will automatically create a PR in the k/k8s.io repository. The first
+`--tag` picks up the images and `spoc`, the second one the Helm chart, which
+is tagged with the version without the `v` prefix.
 
 The promotion copies the images by digest, but not their attestations, see
 [staging attestations](#staging-attestations). Once the promotion PR is
 merged, check that the attestations still apply to what users install: the
 per-architecture images on `registry.k8s.io` have to have the digests the
 staging build attested, which the commands in
-[verification.md](verification.md#container-image) verify for a release.
+[verification.md](verification.md#container-image) verify for a release, and
+`spoc` and the chart the digests of the GitHub provenance, see
+[verification.md](verification.md#oci-artifacts-on-registryk8sio).
 
-If this PR got merged, tag the release. Tags created in the GitHub UI are
-lightweight and unsigned, so check out the merged commit of the first PR and
-run [`hack/tag-release.sh`](../hack/tag-release.sh). It creates the signed,
-annotated tag `vx.y.z` for the version in the [`VERSION`](../VERSION) file,
-which needs a git signing key (`user.signingkey`, GPG or SSH with
-`gpg.format=ssh`), and verifies it with `git verify-tag`. It refuses to tag a
-development version, a dirty tree or an existing tag, and pushes nothing.
-Check the signature once more and push the tag:
-
-```console
-> git verify-tag vx.y.z
-> git push origin vx.y.z
-```
-
-Set `REMOTE` for the script to print the push command with another remote.
-The `v*` tags should be protected in the repository settings (a tag ruleset
-which restricts their creation, update and deletion to the release managers),
-since the release workflows trust a tag to be a reviewed release commit.
-
-Then we're finally ready to [create the
-release](https://github.com/kubernetes-sigs/security-profiles-operator/releases/new)
-on GitHub from the pushed tag and add the release notes. The changelog is auto-generated
-based on PR labels and the configuration in
-[`.github/release.yml`](../.github/release.yml). The introduction above it is
-written by hand, start from
-[`.github/release-notes-template.md`](../.github/release-notes-template.md) and
-replace the version. The verification commands live in
-[`verification.md`](verification.md), so the release only links them and they
-stay correct for all releases.
-
-Publishing the release triggers the [`build`](../.github/workflows/build.yml)
-workflow, which attaches the `spoc` binaries for all architectures and the
-`spoc.spdx.json` and `spoc-native.spdx.json` SBOMs with their signatures
-(`*.sigstore.json`), checksums and SLSA build provenance (`spoc.intoto.jsonl`)
-to the release. Its `spoc / reproducible` job checks that the released
-`spoc.amd64` is bit for bit the `spoc` of the promoted image of the release. The
-[`helm-chart-package`](../.github/workflows/helm-chart-package.yaml) workflow
-attaches the chart archive with its signature and provenance. Nothing has to
-be built or uploaded by hand, `make nix-spoc` is only meant for local builds.
-Verify that the files are present. The reusable
-[`provenance`](../.github/workflows/provenance.yml) workflow creates the
-provenance of both workflows, see
-[SLSA build levels](verification.md#slsa-build-levels).
+Then edit the release on GitHub, unset the pre-release and set it as the
+latest release. That triggers the
+[`spoc-reproducible`](../.github/workflows/spoc-reproducible.yml) workflow,
+which checks that the released `spoc.amd64` is bit for bit the `spoc` of the
+promoted image of the release.
 
 After that, run the `./hack/back-to-dev.sh` script, which:
 
@@ -162,12 +188,70 @@ PR](https://github.com/k8s-operatorhub/community-operators/pull/1672).
 The last step about the release creation is to send a release announcement to
 the [#security-profiles-operator Slack channel](https://kubernetes.slack.com/messages/security-profiles-operator).
 
+## OCI artifacts
+
+Releases publish the `spoc` binaries and the Helm chart to `registry.k8s.io`
+as OCI artifacts, with the SLSA Build L3 provenance of the GitHub release
+assets. GitHub Actions has no access to the staging registry and Cloud Build
+can't produce L3 provenance, so the GitHub workflows build the OCI manifests
+and attest their digests, and the staging job only verifies and copies them:
+
+- The release workflows wrap the release assets with
+  [`hack/oci-layout.sh`](../hack/oci-layout.sh) into OCI image layouts. `spoc`
+  is an index with one manifest per architecture, each holding the binary as
+  its only, uncompressed layer with the artifact type
+  `application/vnd.k8s.security-profiles-operator.spoc.v1`, so the layer
+  digest is the sha256 of the binary. The chart is the manifest which
+  `helm push` writes for the chart archive. The manifests only depend on the
+  wrapped files, the version, the commit and the commit time, which is their
+  creation time, and for the chart on the helm version, which the workflow
+  pins to the one of [`hack/push-chart.sh`](../hack/push-chart.sh). The
+  digests of the manifests are provenance subjects next to the files, and the
+  layouts without the layers are release assets.
+- The `post-security-profiles-operator-push-release-artifacts` job runs
+  [`hack/push-release-artifacts.sh`](../hack/push-release-artifacts.sh) for
+  every `v*` tag. It waits for the release assets, restores the layouts,
+  checks every blob against its digest and verifies with cosign that the
+  provenance was signed by the `provenance.yml` workflow of the tag for the
+  tagged commit and the GitHub release event, on a GitHub hosted runner, and
+  that every manifest is one of its subjects. It pushes the manifests byte
+  for byte, so they keep the attested digests, attaches the provenance bundle
+  to the index and to every manifest as OCI referrer, the way cosign attaches
+  Sigstore bundles, and signs them as `sp-operator-sa@k8s-staging-images`. An
+  existing tag with another digest fails the job, the job can be run again.
+
+The image promoter copies the manifests by digest like the images. The
+`-dev` charts of `main` are still packaged and attested in the staging build
+by [`hack/push-chart.sh`](../hack/push-chart.sh).
+
+For the promoter to accept and carry the GitHub provenance, the provenance
+policy of the promoter manifest needs the signer and the builder that GitHub
+puts into it. Both are the reusable workflow, not the calling `build.yml` or
+`helm-chart-package.yaml`, whose path is in
+`buildDefinition.externalParameters.workflow` instead:
+
+```yaml
+signers:
+  - sigstore(identityMatch=regex)::https://token.actions.githubusercontent.com::^https://github\.com/kubernetes-sigs/security-profiles-operator/\.github/workflows/provenance\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$
+builders:
+  - id: https://github.com/kubernetes-sigs/security-profiles-operator/.github/workflows/provenance.yml
+    level: 3
+```
+
+Next to the Cloud Build builder of the images, which reaches level 1 only,
+the policy verifies at level 1, since any of its signers could claim any of
+its builders.
+
 ## Staging attestations
 
 The `post-security-profiles-operator-push-image` job builds and signs everything
 in the staging registry as the `sp-operator-sa@k8s-staging-images` service
 account. Signatures and attestations are Sigstore bundles attached as OCI
-referrers, `SIGN=false` skips all of them.
+referrers, `SIGN=false` skips all of them. The released chart and `spoc` come
+from the `post-security-profiles-operator-push-release-artifacts` job, which
+signs them as the same account and attaches the provenance of the GitHub
+release ("GitHub" below), see [OCI artifacts](#oci-artifacts). The SBOMs of
+`spoc` are release assets only.
 
 | Artifact                                           | Signature | Provenance | SBOM, vulnerability scan, VEX, build environment |
 | -------------------------------------------------- | --------- | ---------- | ------------------------------------------------ |
@@ -175,7 +259,9 @@ referrers, `SIGN=false` skips all of them.
 | `security-profiles-operator` (manifest list)       | yes       |            |                                                  |
 | `security-profiles-operator` (platform images)     | yes       | yes        | yes, plus the Scorecard result                   |
 | `security-profiles-operator-{bundle,catalog}`      | yes       | yes        |                                                  |
-| `charts/security-profiles-operator`                | yes       | yes        |                                                  |
+| `charts/security-profiles-operator` (`-dev`)       | yes       | yes        |                                                  |
+| `charts/security-profiles-operator` (releases)     | yes       | GitHub     |                                                  |
+| `spoc` (index and platform manifests)              | yes       | GitHub     |                                                  |
 | `base/*` and `seccomp-test-profiles`               | yes       | yes        |                                                  |
 
 Provenance is only attested when an artifact gets pushed, so profiles that were

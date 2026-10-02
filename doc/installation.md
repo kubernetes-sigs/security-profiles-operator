@@ -169,11 +169,12 @@ To verify a downloaded chart archive before installing it, see
 
 Since v1.1.0, the chart is also published as OCI artifact to
 `registry.k8s.io`, and can be installed with the same preparation from there.
-Note that only the release-attached `.tgz` above can be verified today: the OCI
-chart is packaged separately, so its digest differs from the release archive,
-and its signature and attestations currently stay in the staging registry rather
-than being promoted alongside the artifact (see
-[staging attestations](release.md#staging-attestations)):
+For releases after v1.1.0 the OCI chart holds the release archive above and
+has the same SLSA build provenance, see
+[verifying the released artifacts](verification.md#oci-artifacts-on-registryk8sio).
+The v1.1.0 chart is packaged separately, so its digest differs from the
+release archive, and its signature and attestations stay in the staging
+registry (see [staging attestations](release.md#staging-attestations)):
 
 ```shell
 helm install security-profiles-operator --namespace security-profiles-operator \

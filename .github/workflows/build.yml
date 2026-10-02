@@ -173,7 +173,10 @@ jobs:
           path: build
           merge-multiple: true
       - run: make spoc-sbom
-      # The provenance subjects: all spoc binaries and the SBOMs.
+      # The provenance subjects: all spoc binaries, the SBOMs and the manifests
+      # of the OCI layout which wraps the binaries for registry.k8s.io, see
+      # doc/release.md#oci-artifacts. The release only carries the layout
+      # without the binaries.
       - id: hashes
         working-directory: build
         env:
@@ -186,8 +189,14 @@ jobs:
             spoc-native.spdx.json
         run: |
           set -o pipefail
+          binaries=()
+          for subject in $SUBJECTS; do
+            [[ "$subject" == *.json ]] || binaries+=("$subject:${subject#spoc.}")
+          done
+          VERSION="v$(cat ../VERSION)" ../hack/oci-layout.sh spoc spoc-oci "${binaries[@]}" > spoc-oci.sha256
+          ../hack/oci-layout.sh pack spoc-oci spoc-oci-layout.tar
           # shellcheck disable=SC2086
-          hashes=$(sha256sum $SUBJECTS | base64 -w0)
+          hashes=$({ sha256sum $SUBJECTS; cat spoc-oci.sha256; } | base64 -w0)
           echo "hashes=$hashes" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -195,8 +204,10 @@ jobs:
           path: |
             build/spoc.spdx.json
             build/spoc-native.spdx.json
+            build/spoc-oci-layout.tar
 
-  # Signs the binaries and the SBOMs keylessly. It runs no repository code.
+  # Signs the binaries, the SBOMs and the OCI layout keylessly. It runs no
+  # repository code.
   spoc-sign:
     needs: spoc-sbom
     name: spoc / sign
@@ -214,7 +225,7 @@ jobs:
       - name: Sign
         working-directory: build
         run: |
-          for file in spoc.* spoc-native.spdx.json; do
+          for file in spoc.* spoc-native.spdx.json spoc-oci-layout.tar; do
             [[ "$file" == *.sha512 ]] && continue
             cosign sign-blob -y "$file" --bundle "$file.sigstore.json"
           done
@@ -257,34 +268,6 @@ jobs:
         with:
           files: |
             build/*
-
-  # The image of a release is built on Cloud Build from the same sources and
-  # the same nix toolchain, so its spoc must be bit for bit the released
-  # binary. The promoted image is compared, whose tag cannot move, the release
-  # gets published after the promotion. It runs no repository code and holds
-  # no credentials.
-  spoc-reproducible:
-    needs: nix-spoc-push
-    if: startsWith(github.ref, 'refs/tags/')
-    name: spoc / reproducible
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: spoc-amd64
-          path: build
-      - name: Compare with the spoc of the promoted image
-        env:
-          TAG: ${{ github.ref_name }}
-        run: |
-          IMAGE=registry.k8s.io/security-profiles-operator/security-profiles-operator-amd64:$TAG
-          docker pull "$IMAGE"
-          CONTAINER=$(docker create "$IMAGE")
-          docker cp "$CONTAINER:/spoc" build/spoc.image
-          docker rm "$CONTAINER"
-          sha256sum build/spoc.amd64 build/spoc.image
-          cmp build/spoc.amd64 build/spoc.image
 
   bpf:
     needs: changes

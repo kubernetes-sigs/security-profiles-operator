@@ -29,7 +29,18 @@ jobs:
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
           version: v3.22.0
+      # For crane, which hack/oci-layout.sh runs as a local registry.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ./go.mod
+          # This workflow publishes, the Go cache is shared with every job
+          # which runs repository code.
+          cache: false
       - run: mkdir -p build
+      # The provenance subjects are the chart archive and the manifest of the
+      # OCI layout which wraps it for registry.k8s.io, see
+      # doc/release.md#oci-artifacts. The release only carries the layout
+      # without the archive.
       - id: package
         run: |
           set -o pipefail
@@ -38,17 +49,23 @@ jobs:
           echo "helm chart tgz path: '${tgz_path}'"
           [ ! -f "${tgz_path}" ] && echo "failed to find helm chart from 'helm package' stdout" && exit 1
           tgz_name="${tgz_path##*/}"
-          hashes=$(cd build && sha256sum "${tgz_name}" | base64 -w0)
+          source hack/lib/common.sh
+          CRANE="$(crane_bin)" hack/oci-layout.sh chart build/chart-oci "${tgz_path}" > build/chart-oci.sha256
+          hack/oci-layout.sh pack build/chart-oci "build/${tgz_name%.tgz}-oci-layout.tar"
+          hashes=$(cd build && { sha256sum "${tgz_name}"; cat chart-oci.sha256; } | base64 -w0)
           {
             echo "helm_tgz_path=${tgz_path}"
             echo "helm_tgz_name=${tgz_name}"
+            echo "helm_layout_path=build/${tgz_name%.tgz}-oci-layout.tar"
             echo "provenance_name=${tgz_name%.tgz}.intoto.jsonl"
             echo "hashes=${hashes}"
           } >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ steps.package.outputs.helm_tgz_name}}
-          path: ${{ steps.package.outputs.helm_tgz_path}}
+          path: |
+            ${{ steps.package.outputs.helm_tgz_path}}
+            ${{ steps.package.outputs.helm_layout_path}}
           if-no-files-found: error
 
   # SLSA Build L3 provenance for the released chart, generated from its digest
@@ -64,8 +81,11 @@ jobs:
       base64-subjects: ${{ needs.helm-package.outputs.hashes }}
       provenance-name: ${{ needs.helm-package.outputs.provenance-name }}
 
-  # Signs the released chart and attaches it with its provenance to the
-  # release. It runs no repository code, pull requests only package the chart.
+  # Signs the released chart and its OCI layout and attaches them with their
+  # provenance to the release. It runs no repository code, pull requests only
+  # package the chart. helm package stamps the archive with the current time,
+  # so the assets of a first run are never replaced: re-running all jobs would
+  # replace the chart that the release artifacts job published to staging.
   helm-release:
     needs: [helm-package, helm-provenance]
     if: github.event_name == 'release'
@@ -87,8 +107,12 @@ jobs:
           name: ${{ needs.helm-package.outputs.provenance-name }}
           path: build
       - name: Sign
-        run: cosign sign-blob -y "$TGZ_PATH" --bundle "$TGZ_PATH.sigstore.json"
+        run: |
+          for file in "$TGZ_PATH" "${TGZ_PATH%.tgz}-oci-layout.tar"; do
+            cosign sign-blob -y "$file" --bundle "$file.sigstore.json"
+          done
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
+          overwrite_files: false
           files: |
             build/*

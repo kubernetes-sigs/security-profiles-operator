@@ -1,0 +1,37 @@
+name: spoc-reproducible
+# A release is published as pre-release, which runs the build workflow, and
+# marked as release once its images are promoted, see doc/release.md. Only
+# then the promoted image exists.
+on:
+  release:
+    types: [released]
+
+permissions: {}
+
+jobs:
+  # The image of a release is built on Cloud Build from the same sources and
+  # the same nix toolchain, so its spoc must be bit for bit the released
+  # binary. The promoted image is compared, whose tag cannot move. It runs no
+  # repository code and holds no credentials.
+  spoc-reproducible:
+    name: spoc / reproducible
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Download the released spoc
+        env:
+          URL: ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ github.event.release.tag_name }}/spoc.amd64
+        run: |
+          mkdir -p build
+          curl -sSfL --retry 5 --retry-delay 3 -o build/spoc.amd64 "$URL"
+      - name: Compare with the spoc of the promoted image
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          IMAGE=registry.k8s.io/security-profiles-operator/security-profiles-operator-amd64:$TAG
+          docker pull "$IMAGE"
+          CONTAINER=$(docker create "$IMAGE")
+          docker cp "$CONTAINER:/spoc" build/spoc.image
+          docker rm "$CONTAINER"
+          sha256sum build/spoc.amd64 build/spoc.image
+          cmp build/spoc.amd64 build/spoc.image

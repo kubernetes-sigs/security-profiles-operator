@@ -1,0 +1,27 @@
+---
+# Publishes the spoc binaries and the Helm chart of a release tag to the
+# staging registry, run by the post-security-profiles-operator-push-release-artifacts
+# job for v* tags. GitHub Actions builds and attests them, this build only
+# verifies and copies them, see doc/release.md#oci-artifacts.
+# See https://cloud.google.com/cloud-build/docs/build-config
+timeout: 10800s
+serviceAccount: projects/k8s-staging-images/serviceAccounts/sp-operator-sa@k8s-staging-images.iam.gserviceaccount.com
+options:
+  substitution_option: ALLOW_LOOSE
+steps:
+  - name: golang:1.27.1-bookworm@sha256:648f440f42a0958804efb24df176f806f9d353b41f1c0627f666428e40310f6b
+    entrypoint: bash
+    env:
+      - TAG=$_PULL_BASE_REF
+      - REGISTRY=us-central1-docker.pkg.dev/$PROJECT_ID/sp-operator
+      - LOGIN_REGISTRY=us-central1-docker.pkg.dev
+      - SIGNER_IDENTITY=$SERVICE_ACCOUNT_EMAIL
+    args:
+    - -c
+    - ./hack/push-release-artifacts.sh
+substitutions:
+  # The tag the job runs for, passed by the image builder with
+  # --env-passthrough=PULL_BASE_REF.
+  _PULL_BASE_REF: ''
+  # Set by the image builder, not used.
+  _GIT_TAG: '12345'
