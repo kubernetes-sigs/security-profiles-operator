@@ -20,8 +20,21 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
 # just in case we're not using docker 20.10
 export DOCKER_CLI_EXPERIMENTAL=enabled
-# the Dockerfile relies on BUILDPLATFORM, which only BuildKit provides
+# the bundle and catalog builds rely on BuildKit
 export DOCKER_BUILDKIT=1
+
+# The per-arch images are reproducible: a commit gives the same image digests
+# on Cloud Build as in the image-reproducible workflow, which runs this script
+# with PUSH=false. That needs the same BuildKit everywhere, so the images are
+# built in a container of this pinned BuildKit image instead of by the docker
+# daemon. Bump the version and the digest together.
+BUILDKIT_VERSION=v0.33.1
+BUILDKIT_DIGEST=sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
+
+# PUSH=false only builds the per-arch images into the OCI layouts
+# build/images/<arch> and writes their digests to build/image-digests. It
+# pushes and signs nothing, and builds no manifest list, bundle or catalog.
+PUSH=${PUSH:-true}
 
 REGISTRY=us-central1-docker.pkg.dev/k8s-staging-images/sp-operator
 IMAGE=$REGISTRY/security-profiles-operator
@@ -34,7 +47,10 @@ VERSION=v$(cat VERSION)
 TAGS=("$TAG" "$VERSION" latest)
 
 # The OCI image annotations. The creation time is the commit time, so that
-# the same commit gives the same labels.
+# the same commit gives the same labels. BuildKit uses SOURCE_DATE_EPOCH for
+# the creation time of the image configuration and its history and clamps the
+# file times in the layers to it, the native SBOM records it as its creation
+# time.
 REVISION=$(git rev-parse HEAD)
 SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
 CREATED=$(date -u -d "@$SOURCE_DATE_EPOCH" +%Y-%m-%dT%H:%M:%SZ)
@@ -45,6 +61,8 @@ mkdir -p build
 date -u +%Y-%m-%dT%H:%M:%SZ > build/build-started
 BUILD_IMAGE=$(resolve_digest "$(sed -n 's/^ARG BUILD_IMAGE=//p' Dockerfile)")
 echo "$BUILD_IMAGE" > build/build-image
+# The BuildKit image is part of the provenance of the per-arch images too.
+echo "docker.io/moby/buildkit@$BUILDKIT_DIGEST" > build/buildkit-image
 
 # The build image is the toolchain that compiles the released binaries, so
 # verify it is the one this project published before building against it: the
@@ -59,61 +77,96 @@ if [[ "${VERIFY_BUILD_IMAGE:-true}" == "true" ]]; then
         "$BUILD_IMAGE" >/dev/null
 fi
 
-build_arch() {
-    local arch="$1" image_arch
+# Downloaded once, the parallel builds use it.
+JQ=$(jq_bin)
 
-    docker build \
+# A new builder for every run, so that nothing of an earlier build is reused,
+# with a name of its own, so that runs on the same docker daemon don't remove
+# each other's builder. It is removed on exit, also when creating it fails
+# halfway. The buildx client differs between Cloud Build and GitHub Actions,
+# its version is logged to tell them apart when the digests differ.
+BUILDER=spo-image-cross-$(od -An -N4 -tx4 /dev/urandom | tr -d ' ')
+docker buildx version
+trap 'docker buildx rm "$BUILDER" || true' EXIT
+docker buildx create \
+    --name "$BUILDER" \
+    --driver docker-container \
+    --driver-opt "image=moby/buildkit:$BUILDKIT_VERSION@$BUILDKIT_DIGEST" \
+    --bootstrap
+
+# The exporter options of the per-arch images, the same for the OCI layout and
+# the registry: Docker media types like before, gzip compressed by the pinned
+# BuildKit and the file times clamped to SOURCE_DATE_EPOCH.
+EXPORT_OPTS=oci-mediatypes=false,compression=gzip,force-compression=true,rewrite-timestamp=true
+
+build_arch() {
+    local arch="$1" layout="build/images/$1" digest manifest config image_arch pushed
+    local outputs=(--output "type=oci,dest=$layout,tar=false,$EXPORT_OPTS")
+
+    if [[ $PUSH == "true" ]]; then
+        outputs+=(--output "type=image,\"name=$IMAGE-$arch:$TAG,$IMAGE-$arch:$VERSION,$IMAGE-$arch:latest\",push=true,$EXPORT_OPTS")
+    fi
+
+    rm -rf "$layout"
+    # No provenance or SBOM attestations of BuildKit: they would turn the
+    # per-arch image into an index, the attestations come from
+    # hack/attest-images.sh.
+    docker buildx build \
+        --builder "$BUILDER" \
         --platform "linux/$arch" \
-        -t "$IMAGE-$arch:$TAG" \
-        -t "$IMAGE-$arch:$VERSION" \
-        -t "$IMAGE-$arch:latest" \
+        --provenance=false \
+        --sbom=false \
         --build-arg version="$VERSION" \
         --build-arg revision="$REVISION" \
         --build-arg created="$CREATED" \
         --build-arg BUILD_IMAGE="$BUILD_IMAGE" \
         --build-arg target="spo-$arch" \
+        --build-arg SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
+        "${outputs[@]}" \
         .
 
-    image_arch=$(docker image inspect --format '{{.Architecture}}' "$IMAGE-$arch:$TAG")
+    # The layout holds exactly the one image.
+    digest=$("$JQ" -er '[.manifests[].digest] | unique | if length == 1 then .[0] else error("expected one image") end' "$layout/index.json")
+    manifest="$layout/blobs/sha256/${digest#sha256:}"
+    config="$layout/blobs/sha256/$("$JQ" -er '.config.digest | ltrimstr("sha256:")' "$manifest")"
+    image_arch=$("$JQ" -er .architecture "$config")
     if [[ $image_arch != "$arch" ]]; then
-        echo "Image $IMAGE-$arch:$TAG has architecture $image_arch, expected $arch"
+        echo "Image $IMAGE-$arch has architecture $image_arch, expected $arch"
         return 1
     fi
-}
 
-push_arch() {
-    local arch="$1" t
+    # The pushed image has to be the one in the OCI layout, whose digest the
+    # image-reproducible workflow compares.
+    if [[ $PUSH == "true" ]]; then
+        pushed=$(resolve_digest "$IMAGE-$arch:$TAG")
+        if [[ ${pushed#*@} != "$digest" ]]; then
+            echo "Pushed $pushed, but the OCI layout has $digest"
+            return 1
+        fi
+    fi
 
-    for t in "${TAGS[@]}"; do
-        docker push "$IMAGE-$arch:$t"
-    done
+    echo "$digest" > "$layout.digest"
 }
 
 build() {
     prefixed "$1" build_arch "$1"
 }
 
-push() {
-    prefixed "$1" push_arch "$1"
-}
-
 # The nix builds of the architectures are independent, BuildKit shares the
 # common build stage between them.
 parallel_each build "${ARCHES[@]}"
-parallel_each push "${ARCHES[@]}"
 
 # The attestation step attests the per-arch images by digest, in their own
 # repositories and in the one of the manifest list (see hack/attest-images.sh)
 : > build/image-digests
 for ARCH in "${ARCHES[@]}"; do
-    ARCH_DIGEST_IMG=$(docker inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$IMAGE-$ARCH:$TAG" |
-        grep -F "$IMAGE-$ARCH@sha256:" | head -1)
-    if [[ -z "$ARCH_DIGEST_IMG" ]]; then
-        echo "Unable to resolve the digest of $IMAGE-$ARCH:$TAG"
-        exit 1
-    fi
-    echo "$ARCH_DIGEST_IMG" >> build/image-digests
+    echo "$IMAGE-$ARCH@$(cat "build/images/$ARCH.digest")" >> build/image-digests
 done
+cat build/image-digests
+
+if [[ $PUSH != "true" ]]; then
+    exit 0
+fi
 
 push_manifest() {
     local tag="$1" arch

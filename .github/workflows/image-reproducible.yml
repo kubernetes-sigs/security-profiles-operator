@@ -1,0 +1,68 @@
+name: image-reproducible
+# The per-arch images are built and pushed to staging on Cloud Build. This
+# workflow builds them from the same commit with the same script and the same
+# pinned BuildKit, without pushing anything and without credentials. On main
+# it compares their digests with the staging images Cloud Build pushes for the
+# commit, which shows that the staging images are reproducible from the
+# source. Releases are built from a commit on main, which was compared then.
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+# The comparison waits up to 45 minutes for Cloud Build, which is why it is not
+# part of the build workflow: there it would keep runs of main going, and a
+# newer push would cancel the pending run of main with its publishing jobs.
+# Every commit of main gets its own group here, so that none is cancelled or
+# skipped, only pull request runs are cancelled by newer pushes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions: {}
+
+jobs:
+  # Documentation only pull requests skip the build, see hack/ci/code-changed.sh.
+  changes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.changes.outputs.code }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - id: changes
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: hack/ci/code-changed.sh
+
+  image-reproducible:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    name: image / reproducible
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Remove unnecessary files
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build the per-arch images
+        env:
+          PUSH: "false"
+        run: hack/image-cross.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: image-digests
+          path: build/image-digests
+          if-no-files-found: error
+      - name: Compare with the staging images
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: hack/ci/compare-staging-images.sh

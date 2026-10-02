@@ -390,6 +390,24 @@ dependencies:
     - path: cloudbuild.yaml
       match: gcr.io/k8s-staging-test-infra/gcb-docker-gcloud
 
+  # The BuildKit of the reproducible image builds, on Cloud Build and in the
+  # image-reproducible workflow alike.
+  - name: buildkit
+    version: v0.33.1
+    upstream:
+      flavour: github
+      url: moby/buildkit
+    refPaths:
+    - path: hack/image-cross.sh
+      match: "^BUILDKIT_VERSION="
+
+  # Must be bumped together with buildkit above.
+  - name: buildkit-digest
+    version: sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
+    refPaths:
+    - path: hack/image-cross.sh
+      match: "^BUILDKIT_DIGEST="
+
   - name: libbpf
     version: 1.7.0
     upstream:

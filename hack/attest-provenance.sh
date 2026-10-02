@@ -29,6 +29,9 @@
 #   content of build/build-started
 # - build/build-image: the digest reference of the image the binaries are
 #   built in, written by hack/image-cross.sh
+# - build/buildkit-image: the digest reference of the BuildKit image that
+#   builds the per-arch images, written by hack/image-cross.sh, only read for
+#   those
 
 # jq programs are single quoted on purpose
 # shellcheck disable=SC2016
@@ -90,6 +93,13 @@ mkdir -p "$BUILD_DIR/attestations"
 for ref in "${REFS[@]}"; do
   predicate="$BUILD_DIR/attestations/$(image_name "$ref").provenance.json"
 
+  # The pinned BuildKit image builds the per-arch images and decides their
+  # digests, the docker daemon builds the bundle and the catalog.
+  buildkit=""
+  if [[ "$(image_name "$ref")" =~ -(amd64|arm64|ppc64le|s390x)$ ]]; then
+    buildkit="$(cat "$BUILD_DIR/buildkit-image")"
+  fi
+
   "$(jq_bin)" -n \
     --arg buildType "$BUILD_TYPE" \
     --arg builderID "$BUILDER_ID" \
@@ -99,6 +109,8 @@ for ref in "${REFS[@]}"; do
     --arg buildImageDigest "${BUILD_IMAGE#*@sha256:}" \
     --arg nixpkgsURL "$NIXPKGS_URL" \
     --arg nixpkgsRev "$NIXPKGS_REV" \
+    --arg buildkit "${buildkit%@*}" \
+    --arg buildkitDigest "${buildkit#*@sha256:}" \
     --arg tag "$TAG" \
     --arg project "$PROJECT_ID" \
     --arg serviceAccount "${SERVICE_ACCOUNT_EMAIL:-}" \
@@ -121,7 +133,9 @@ for ref in "${REFS[@]}"; do
           {uri: $source, digest: {gitCommit: $commit}},
           {uri: "oci://\($buildImage)", digest: {sha256: $buildImageDigest}},
           {uri: $nixpkgsURL, digest: {gitCommit: $nixpkgsRev}}
-        ]
+        ] + if $buildkit == "" then [] else [
+          {uri: "oci://\($buildkit)", digest: {sha256: $buildkitDigest}}
+        ] end
       },
       runDetails: {
         builder: {id: $builderID},

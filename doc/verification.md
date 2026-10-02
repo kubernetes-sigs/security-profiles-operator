@@ -69,6 +69,28 @@ image configures. Build images pinned in `Dockerfile` before that change were
 still built with the old workflow, which used the GitHub Actions cache and
 the Cachix cache, until `BUILD_IMAGE` is pinned to an image built by it.
 
+The per-architecture images are reproducible, the same commit gives the same
+image digests. [`hack/image-cross.sh`](../hack/image-cross.sh) builds them
+with a pinned BuildKit image, sets `SOURCE_DATE_EPOCH` to the commit time and
+clamps the file times in the layers to it. The
+[`image-reproducible`](../.github/workflows/image-reproducible.yml) workflow
+builds them again on GitHub Actions for every push to `main`, without pushing
+anything, and fails if their digests differ from the staging images Cloud
+Build pushed for the commit. This doesn't change their build level: the
+provenance of the images is still the one from Cloud Build, it lists the
+BuildKit image as a dependency. Images built before the BuildKit image was
+pinned are not reproducible. To rebuild the images of a commit yourself and
+compare them with its staging images, with docker and buildx on a
+`linux/amd64` machine, like Cloud Build and GitHub Actions (the build image
+is only published for it):
+
+```console
+> git checkout $COMMIT
+> PUSH=false hack/image-cross.sh
+> cat build/image-digests
+> STAGING_WAIT=0 hack/ci/compare-staging-images.sh
+```
+
 ## Container image
 
 The images on `registry.k8s.io` are promoted by the Kubernetes image promoter,
