@@ -16,9 +16,15 @@
 # Pushes the seccomp profiles used by the Kubernetes e2e_node tests for
 # KEP-6061 as OCI artifacts. The artifacts are signed keylessly (see
 # push-base-profiles.sh) and promoted to registry.k8s.io from the staging
-# registry afterwards.
+# registry afterwards. Pushed profiles, and published ones with the same
+# content, get SLSA provenance and an SBOM unless they have them already, see
+# attest_profile in hack/lib/common.sh.
 
 set -euo pipefail
+
+HACK_DIR="$(dirname "${BASH_SOURCE[0]}")"
+# shellcheck source=hack/lib/common.sh
+source "$HACK_DIR/lib/common.sh"
 
 BUILD_DIR="${BUILD_DIR:-build}"
 SPOC="${SPOC:-$BUILD_DIR/spoc}"
@@ -37,7 +43,7 @@ mkdir -p "$BUILD_DIR"
     printf '"syscall_that_does_not_exist_%d"' "$i"
   done
   printf ']}]}'
-} > "$oversized"
+} >"$oversized"
 
 SKIP_EXISTING="${SKIP_EXISTING:-true}"
 SIGN="${SIGN:-true}"
@@ -47,21 +53,24 @@ if [[ "$SIGN" != "true" ]]; then
   push_args+=(--disable-signing)
 fi
 
+# spoc pushes the profiles, see the provenance of the build.
+PROVENANCE_DEPENDENCIES="$(spoc_dependency "$SPOC" | "$(jq_bin)" -cs .)"
+export PROVENANCE_DEPENDENCIES
+
 push() {
-  local file="$1" ref="$REGISTRY/$REPOSITORY:$2"
+  local file="$1" ref="$REGISTRY/$REPOSITORY:$2" published=false
   shift 2
 
   if [[ "$SKIP_EXISTING" == "true" ]] &&
-      "$SPOC" pull -s -o /dev/null "$ref" >/dev/null 2>&1; then
+    "$SPOC" pull -s -o /dev/null "$ref" >/dev/null 2>&1; then
     echo "Already published, skipping $ref"
-    "$(dirname "${BASH_SOURCE[0]}")/sign-published.sh" "$ref"
-
-    return
+    published=true
+  else
+    echo "Pushing $file as $ref"
+    "$SPOC" push ${push_args[@]+"${push_args[@]}"} "$@" -f "$file" "$ref"
   fi
 
-  echo "Pushing $file as $ref"
-  "$SPOC" push ${push_args[@]+"${push_args[@]}"} "$@" -f "$file" "$ref"
-  "$(dirname "${BASH_SOURCE[0]}")/attest-provenance.sh" "$ref"
+  attest_profile "$ref" "$file" "$published"
 }
 
 push "$EXAMPLES/deny-chmod.json" deny-chmod

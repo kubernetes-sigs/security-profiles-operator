@@ -15,10 +15,12 @@
 
 # Attests SLSA provenance, the SBOM, the vulnerability scan with its VEX
 # document, the build environment and the Scorecard result for the per-arch
-# image digests listed in build/image-digests, and SLSA provenance for the
-# bundle and catalog digests in build/metadata-image-digests. hack/image-cross.sh
-# writes both lists. Container runtimes pull the per-arch images by digest from
-# the repository of their manifest list, where verifiers and the image promoter
+# image digests listed in build/image-digests, and SLSA provenance and the
+# SBOM for the bundle and catalog digests in build/metadata-image-digests,
+# plus the vulnerability scan with its VEX document for the catalog, which
+# holds the opm binaries of its base image. hack/image-cross.sh writes both
+# lists. Container runtimes pull the per-arch images by digest from the
+# repository of their manifest list, where verifiers and the image promoter
 # look up attestations, so the per-arch attestations are attached there too.
 # The images are attested in parallel.
 
@@ -50,6 +52,35 @@ export ATTEST_ALIASES
 BUILD_STARTED="$(cat "$BUILD_DIR/build-started")"
 export BUILD_STARTED
 
+# The resolved dependencies of the provenance: the binaries of the per-arch
+# images are compiled with the build toolchain and the images built by the
+# pinned BuildKit image, which decides their digests, from
+# build/buildkit-image. The docker daemon builds the bundle, which holds the
+# files of this repository only, and the catalog, which is rendered from the
+# bundle by the opm release binary on top of the opm image, see catalog-build
+# in the Makefile.
+TOOLCHAIN_DEPENDENCIES="$(toolchain_dependencies)"
+BUILDKIT_DEPENDENCY="$(oci_dependency "$(cat "$BUILD_DIR/buildkit-image")" buildkit)"
+# jq programs are single quoted on purpose
+# shellcheck disable=SC2016
+IMAGE_DEPENDENCIES="$("$(jq_bin)" -cn \
+  --argjson toolchain "$TOOLCHAIN_DEPENDENCIES" --argjson buildkit "$BUILDKIT_DEPENDENCY" \
+  '$toolchain + [$buildkit]')"
+BUNDLE="$(grep -E -- '-bundle@sha256:' "$BUILD_DIR/metadata-image-digests")"
+OPM_IMAGE="$(sed -n 's/^OPM_IMAGE ?= //p' Makefile)"
+OPM_IMAGE="${OPM_IMAGE%%:*}@${OPM_IMAGE#*@}"
+OPM_VERSION="$(sed -n 's/^OPM_VERSION ?= //p' Makefile)"
+if [[ -z "$OPM_VERSION" ]]; then
+  echo "Unable to read OPM_VERSION from the Makefile" >&2
+  exit 1
+fi
+CATALOG_DEPENDENCIES="$({
+  oci_dependency "$OPM_IMAGE" opm-image &&
+    file_dependency opm "$BUILD_DIR/opm" \
+      "https://github.com/operator-framework/operator-registry/releases/download/$OPM_VERSION/linux-amd64-opm" &&
+    oci_dependency "$BUNDLE" bundle
+} | "$(jq_bin)" -cs .)"
+
 # Install the tools once, before the parallel runs.
 cosign_bin >/dev/null
 bom_bin >/dev/null
@@ -63,19 +94,39 @@ if [[ -n "${BUILD_ID:-}" ]]; then
 fi
 
 attest_image() {
-  local ref="$1"
+  local ref="$1" name
 
-  prefixed "$(image_name "$ref")" "$HACK_DIR/attest-provenance.sh" "$ref"
-  prefixed "$(image_name "$ref")" "$HACK_DIR/attest-sbom.sh" "$ref"
-  prefixed "$(image_name "$ref")" "$HACK_DIR/attest-vulns.sh" "$ref"
-  prefixed "$(image_name "$ref")" "$HACK_DIR/attest-build-env.sh" "$ref"
+  name="$(image_name "$ref")"
+  PROVENANCE_DEPENDENCIES="$IMAGE_DEPENDENCIES" \
+    prefixed "$name" "$HACK_DIR/attest-provenance.sh" "$ref"
+  prefixed "$name" "$HACK_DIR/attest-sbom.sh" "$ref"
+  prefixed "$name" "$HACK_DIR/attest-vulns.sh" "$ref"
+  prefixed "$name" "$HACK_DIR/attest-build-env.sh" "$ref"
 }
 
-attest_provenance() {
-  prefixed "$(image_name "$1")" "$HACK_DIR/attest-provenance.sh" "$1"
+attest_metadata_image() {
+  local ref="$1" name
+
+  name="$(image_name "$ref")"
+  case "$name" in
+  *-bundle)
+    prefixed "$name" "$HACK_DIR/attest-provenance.sh" "$ref"
+    prefixed "$name" "$HACK_DIR/attest-sbom.sh" "$ref"
+    ;;
+  *-catalog)
+    PROVENANCE_DEPENDENCIES="$CATALOG_DEPENDENCIES" \
+      prefixed "$name" "$HACK_DIR/attest-provenance.sh" "$ref"
+    prefixed "$name" "$HACK_DIR/attest-sbom.sh" "$ref"
+    prefixed "$name" "$HACK_DIR/attest-vulns.sh" "$ref"
+    ;;
+  *)
+    echo "$ref is neither the bundle nor the catalog" >&2
+    return 1
+    ;;
+  esac
 }
 
 parallel_each attest_image "${IMAGES[@]}"
 # The Scorecard result is the same for all images, so it is fetched once.
 "$HACK_DIR/attest-scorecard.sh" "${IMAGES[@]}"
-parallel_each attest_provenance "${METADATA_IMAGES[@]}"
+parallel_each attest_metadata_image "${METADATA_IMAGES[@]}"

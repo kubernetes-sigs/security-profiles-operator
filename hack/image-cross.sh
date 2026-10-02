@@ -189,6 +189,12 @@ push_manifest() {
 
 parallel_each push_manifest "${TAGS[@]}"
 
+# The manifest list only carries the signature, hack/verify-attestations.sh
+# checks it together with the digests the later build steps record.
+INDEX_DIGEST_IMG=$(resolve_digest "$IMAGE:$TAG")
+: > build/artifact-digests
+record_digest index "$INDEX_DIGEST_IMG"
+
 # Build and push the bundle and catalog image
 BUNDLE_IMG_BASE=$IMAGE-bundle
 CATALOG_IMG_BASE=$IMAGE-catalog
@@ -225,7 +231,9 @@ for I in "${IMAGES[@]}"; do
     done
 done
 
-# The bundle and catalog only get provenance, they contain no software
+# The bundle and catalog get provenance and an SBOM, the catalog also the
+# vulnerability scan of the opm binaries of its base image, see
+# hack/attest-images.sh
 CATALOG_DIGEST_IMG=$(docker inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$CATALOG_IMG" |
     grep -F "$CATALOG_IMG_BASE@sha256:" | head -1)
 if [[ -z "$CATALOG_DIGEST_IMG" ]]; then

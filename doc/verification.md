@@ -23,23 +23,34 @@ for the chart archive with the `helm-chart-package.yaml` one and without
 
 | Artifact | Signature | Provenance | SBOM |
 | -------- | --------- | ---------- | ---- |
-| Container images on `registry.k8s.io` | yes, as `krel-trust` | staging only, by digest | staging only, by digest |
+| Container images on `registry.k8s.io` | yes, as `krel-trust` | in staging, by digest | in staging, by digest |
 | `spoc` binaries | yes | yes | `spoc.spdx.json`, `spoc-native.spdx.json` |
 | `spoc.spdx.json`, `spoc-native.spdx.json` | yes | yes | |
 | Helm chart archive on the release page | yes | yes | |
-| Helm chart on `registry.k8s.io` | staging only | yes, by digest | |
-| `spoc` on `registry.k8s.io` | staging only | yes, by digest | release page |
-| Security profiles on `registry.k8s.io` | yes | staging only | |
+| Helm chart on `registry.k8s.io` | in staging | yes, by digest | |
+| `spoc` on `registry.k8s.io` | in staging | yes, by digest | release page |
+| Security profiles on `registry.k8s.io` | yes | in staging | in staging |
 
-"Staging only" means the artifact carries it in
+"In staging" means the artifact carries it in
 `us-central1-docker.pkg.dev/k8s-staging-images/sp-operator`, where the build
-attaches SLSA provenance, SPDX SBOMs of the Go modules and of the statically
-linked C libraries, a vulnerability scan, an OpenVEX document, the build
-environment and the OpenSSF Scorecard result as OCI referrers. The image
-promotion does not copy those to `registry.k8s.io` yet, see
+attaches SLSA provenance and SPDX SBOMs to the images, profiles and charts it
+publishes, and to the images a vulnerability scan, an OpenVEX document, the
+build environment and the OpenSSF Scorecard result, as OCI referrers. The
+manifest list only gets a signature, and published profiles or charts whose
+content differs from the repository get neither, see
 [staging attestations](release.md#staging-attestations). The promotion keeps
-the digests though, so the attestations of a promoted image can be verified by
-its digest in the staging registry, see [container image](#container-image).
+the digests, so the attestations of a promoted artifact can be verified by its
+digest in the staging registry, see [container image](#container-image).
+Staging images are deleted after 90 days, after that the attestations of older
+releases can't be verified anymore.
+
+From kpromo v4.7.0 on, which is not released yet, the image promoter copies
+the staging attestations it accepts next to the promoted digest in
+`registry.k8s.io` and can publish a SLSA verification summary for it, when the
+promoter manifest of the project has a provenance policy. The policy for this
+project is not in place yet, see
+[attestations on registry.k8s.io](release.md#attestations-on-registryk8sio).
+Until then, verifying in staging is the only option.
 
 ## SLSA build levels
 
@@ -111,11 +122,13 @@ The same command works for the operator bundle, the catalog and the promoted
 `base/*` profiles by replacing the image name.
 
 The provenance, SBOMs, vulnerability scan, VEX document and build environment
-of a build are attached to the staging images and are not copied to
-`registry.k8s.io` yet, see
-[staging attestations](release.md#staging-attestations). The promotion keeps
-the digest of every image, so look up the digest of the promoted image for
-your architecture and verify its attestations in the staging registry:
+of a build are attached to the staging images. They are not on
+`registry.k8s.io` until the image promoter copies them along, see
+[attestations on registry.k8s.io](release.md#attestations-on-registryk8sio).
+The promotion keeps the digest of every image, so look up the digest of the
+promoted image for your architecture and verify its attestations in the
+staging registry, within 90 days of the build, after which staging images are
+deleted:
 
 ```console
 > DIGEST=$(crane digest --platform linux/amd64 \
@@ -250,8 +263,9 @@ manifest, and the manifests are signed by the staging build:
     us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/spoc:$VERSION
 ```
 
-The image promotion does not copy the referrers to `registry.k8s.io` yet, see
-[staging attestations](release.md#staging-attestations).
+The referrers stay in the staging registry until the image promoter copies
+them along, see
+[attestations on registry.k8s.io](release.md#attestations-on-registryk8sio).
 
 ## Security profiles
 

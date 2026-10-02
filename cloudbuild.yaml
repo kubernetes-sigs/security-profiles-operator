@@ -36,20 +36,27 @@ steps:
       - SIGNER_OIDC_ISSUER_REGEXP=^https://accounts\.google\.com$$
     # registry_login fetches the access token itself and writes it to a
     # temporary DOCKER_CONFIG, which spoc, helm and cosign read, so that the
-    # token never gets into the environment of the step.
+    # token never gets into the environment of the step. spoc comes from the
+    # amd64 image of this build, by the digest the provenance of the profiles
+    # names. The scripts run independently, so that a failure to sign or
+    # attest something already published doesn't keep the others from
+    # publishing, and the step fails at the end.
     args:
     - -c
     - |
-      IMAGE=us-central1-docker.pkg.dev/$PROJECT_ID/sp-operator/security-profiles-operator-amd64:$_GIT_TAG && \
-      CONTAINER=$$(docker create $$IMAGE) && \
+      SPOC_IMAGE=$$(grep -F -- '-amd64@sha256:' build/image-digests) && \
+      export SPOC_IMAGE && \
+      CONTAINER=$$(docker create $$SPOC_IMAGE) && \
       mkdir -p build && \
       docker cp $$CONTAINER:/spoc build/spoc && \
       docker rm $$CONTAINER && \
       source hack/lib/common.sh && \
-      registry_login us-central1-docker.pkg.dev && \
-      ./hack/push-test-artifacts.sh && \
-      ./hack/push-base-profiles.sh && \
-      ./hack/push-chart.sh
+      registry_login us-central1-docker.pkg.dev || exit 1
+      status=0
+      ./hack/push-test-artifacts.sh || status=1
+      ./hack/push-base-profiles.sh || status=1
+      ./hack/push-chart.sh || status=1
+      exit $$status
   # Attesting runs last, so that a failure there doesn't keep the profiles and
   # the chart from being published.
   - name: golang:1.27.1-bookworm@sha256:648f440f42a0958804efb24df176f806f9d353b41f1c0627f666428e40310f6b
@@ -63,6 +70,19 @@ steps:
     args:
     - -c
     - ./hack/attest-images.sh
+  # Fails the build when a digest it pushed or found published misses its
+  # signature or one of its attestations, see hack/verify-attestations.sh.
+  - name: golang:1.27.1-bookworm@sha256:648f440f42a0958804efb24df176f806f9d353b41f1c0627f666428e40310f6b
+    entrypoint: bash
+    env:
+      - BUILD_ID=$BUILD_ID
+      - PROJECT_ID=$PROJECT_ID
+      - SERVICE_ACCOUNT_EMAIL=$SERVICE_ACCOUNT_EMAIL
+      - SIGNER_IDENTITY=$SERVICE_ACCOUNT_EMAIL
+      - SIGNER_OIDC_ISSUER=https://accounts.google.com
+    args:
+    - -c
+    - ./hack/verify-attestations.sh
 substitutions:
   # _GIT_TAG will be filled with a git-based tag for the image, of the form
   # vYYYYMMDD-hash, and can be used as a substitution

@@ -135,10 +135,11 @@ This will automatically create a PR in the k/k8s.io repository. The first
 `--tag` picks up the images and `spoc`, the second one the Helm chart, which
 is tagged with the version without the `v` prefix.
 
-The promotion copies the images by digest, but not their attestations, see
-[staging attestations](#staging-attestations). Once the promotion PR is
-merged, check that the attestations still apply to what users install: the
-per-architecture images on `registry.k8s.io` have to have the digests the
+The promotion copies the images by digest. Their attestations are only copied
+along by the image promoter once a provenance policy for this project is in
+place, see [staging attestations](#staging-attestations). Once the promotion
+PR is merged, check that the attestations still apply to what users install:
+the per-architecture images on `registry.k8s.io` have to have the digests the
 staging build attested, which the commands in
 [verification.md](verification.md#container-image) verify for a release, and
 `spoc` and the chart the digests of the GitHub provenance, see
@@ -253,32 +254,42 @@ signs them as the same account and attaches the provenance of the GitHub
 release ("GitHub" below), see [OCI artifacts](#oci-artifacts). The SBOMs of
 `spoc` are release assets only.
 
-| Artifact                                           | Signature | Provenance | SBOM, vulnerability scan, VEX, build environment |
-| -------------------------------------------------- | --------- | ---------- | ------------------------------------------------ |
-| `security-profiles-operator-{amd64,arm64,ppc64le}` | yes       | yes        | yes, plus the Scorecard result                   |
-| `security-profiles-operator` (manifest list)       | yes       |            |                                                  |
-| `security-profiles-operator` (platform images)     | yes       | yes        | yes, plus the Scorecard result                   |
-| `security-profiles-operator-{bundle,catalog}`      | yes       | yes        |                                                  |
-| `charts/security-profiles-operator` (`-dev`)       | yes       | yes        |                                                  |
-| `charts/security-profiles-operator` (releases)     | yes       | GitHub     |                                                  |
-| `spoc` (index and platform manifests)              | yes       | GitHub     |                                                  |
-| `base/*` and `seccomp-test-profiles`               | yes       | yes        |                                                  |
+| Artifact                                           | Signature | Provenance | SBOM | Vulnerability scan, VEX | Build environment, Scorecard |
+| -------------------------------------------------- | --------- | ---------- | ---- | ----------------------- | ---------------------------- |
+| `security-profiles-operator-{amd64,arm64,ppc64le}` | yes       | yes        | yes  | yes                     | yes                          |
+| `security-profiles-operator` (manifest list)       | yes       |            |      |                         |                              |
+| `security-profiles-operator` (platform images)     | yes       | yes        | yes  | yes                     | yes                          |
+| `security-profiles-operator-bundle`                | yes       | yes        | yes  |                         |                              |
+| `security-profiles-operator-catalog`               | yes       | yes        | yes  | yes, of opm             |                              |
+| `charts/security-profiles-operator` (`-dev`)       | yes       | yes        | yes  |                         |                              |
+| `charts/security-profiles-operator` (releases)     | yes       | GitHub     |      |                         |                              |
+| `spoc` (index and platform manifests)              | yes       | GitHub     |      |                         |                              |
+| `base/*` and `seccomp-test-profiles`               | yes       | yes        | yes  |                         |                              |
 
-Provenance is only attested when an artifact gets pushed, so profiles that were
-already published don't get provenance from later builds. If the check for an
-existing version fails, the build pushes the identical content again, which
-keeps its digest and gets a second provenance attestation from that build. Profiles, the bundle,
-the catalog and the chart contain no software packages, which is why they have
-no SBOM, vulnerability scan or VEX document. The manifest list only carries
-the signature: verifiers like nri-supply-chain use the attestations of an index
-digest instead of the platform ones as soon as there are any, so partial
-attestations on the manifest list would hide the per-arch ones. The platform
-images it holds are signed and get the attestations of their per-arch images
-in the `security-profiles-operator` repository too, because container runtimes
-pull them by digest from there and verifiers and the image promoter look up
-signatures and attestations in the repository of the image. The VEX documents
-name the image in both repositories, the SBOMs keep the name of the per-arch
-image.
+Profiles that are already published are not pushed again, but get
+their signature, provenance and SBOM from the next build when the build
+identity has not signed or attested them yet, for example because they were
+published before the build attested anything
+([`hack/attest-artifact.sh`](../hack/attest-artifact.sh)). The build checks for
+an existing signature and attestation of each predicate type first, so later
+builds add no duplicates, and only signs and attests a published artifact when
+it has the content the build would push. A published artifact with other
+content, for example a base profile recorded again against the same runtime
+version, is left alone with a warning and not verified at the end of the
+build, because its tag is taken and the build can't replace it. Publishing the
+new content needs a new tag, or, for a base profile that is
+not promoted yet, a run with `SKIP_EXISTING=false`, see
+[base profiles](release-baseprofiles.md).
+
+The manifest list only carries the signature: verifiers like
+nri-supply-chain use the attestations of an index digest instead of the
+platform ones as soon as there are any, so partial attestations on the
+manifest list would hide the per-arch ones. The platform images it holds are
+signed and get the attestations of their per-arch images in the
+`security-profiles-operator` repository too, because container runtimes pull
+them by digest from there and verifiers and the image promoter look up
+signatures and attestations in the repository of the image. The SBOMs keep the
+name of the per-arch image.
 
 The attestations are:
 
@@ -288,31 +299,53 @@ The attestations are:
   section of the built commit: `externalParameters.source` is the git
   repository and ref with the built commit, `config` the Cloud Build
   configuration and `tag` the image tag. `resolvedDependencies` lists the
-  source, the image the binaries are built in and the nixpkgs revision, for
-  the per-architecture images also the BuildKit image that builds them.
+  source and what else went into the artifact: the image the binaries are
+  built in, the nixpkgs revision and the BuildKit image that builds them for
+  the per-arch images, the opm release binary that renders the catalog, the
+  opm image it is built on and the bundle for the catalog, the helm release
+  archive for the chart, and the `spoc` binary, with the image it was copied
+  from, for the profiles.
   `internalParameters` names the Cloud Build project and service account,
   `runDetails.metadata.invocationId` links to the build. The build writes and
   signs the provenance itself, which makes it SLSA Build L1, so
   `runDetails.builder.id` names the Cloud Build configuration of the repository
   and the service account it runs as,
   `https://cloudbuild.googleapis.com/projects/k8s-staging-images/serviceAccounts/sp-operator-sa@k8s-staging-images.iam.gserviceaccount.com/cloudbuild.yaml`.
-- SPDX SBOMs (`https://spdx.dev/Document`), written by
-  [`hack/attest-sbom.sh`](../hack/attest-sbom.sh). bom extracts the Go binary
-  dependencies directly from the image, so the SPDX 3 SBOM includes the actual
-  build-time module versions. The binaries link C libraries like libseccomp
-  and libbpf statically, which the image build lists from the nix build inputs
-  in an SPDX 2.3 SBOM at `/sbom/native-libraries.spdx.json` of the image
+  The build fails rather than attesting provenance without the service
+  account.
+- SPDX SBOMs (`https://spdx.dev/Document`). For the images,
+  [`hack/attest-sbom.sh`](../hack/attest-sbom.sh) lets bom list the image
+  layers, the operating system packages and the Go binary dependencies
+  directly from the image, so the SPDX 3 SBOM includes the actual build-time
+  module versions. The bundle holds manifests only, so its SBOM lists the image
+  and its layers. The catalog is built on the opm image, so its SBOM lists the
+  Debian packages of that image and the Go modules of the opm binaries. The
+  operator binaries link C libraries like libseccomp and libbpf statically,
+  which the image build lists from the nix build inputs in an SPDX 2.3 SBOM at
+  `/sbom/native-libraries.spdx.json` of the image
   ([`hack/native-sbom.sh`](../hack/native-sbom.sh)), which is attested as well.
+  The SBOMs of the profiles and the chart, written by
+  [`hack/attest-artifact.sh`](../hack/attest-artifact.sh) with bom, list what
+  the artifact holds: the profile file, or the chart archive and the files in
+  it, with their checksums.
 - Vulnerability scan (`https://in-toto.io/attestation/vulns/v0.2`) and OpenVEX
   document (`https://openvex.dev/ns`) from govulncheck in binary mode, written
-  by [`hack/attest-vulns.sh`](../hack/attest-vulns.sh). The VEX document marks a
-  vulnerability as affected if one of the binaries uses the vulnerable symbols.
+  by [`hack/attest-vulns.sh`](../hack/attest-vulns.sh), for the binaries of the
+  per-arch images and for the `opm` and `grpc_health_probe` binaries of the
+  catalog. The VEX document marks a vulnerability as affected if one of the
+  binaries uses the vulnerable symbols. The opm binaries have no symbol table,
+  so for them govulncheck can only tell which vulnerable modules they contain,
+  not whether they use the vulnerable code.
   A clean scan has an empty result and no VEX document, because OpenVEX needs at
   least one statement. Affected statements point to the vulnerability entry and
   the fixed version, if there is one. Maintainers assess findings in the
   OpenVEX document, see
   [vulnerability checks and assessments](hacking.md#vulnerability-checks-and-assessments).
-  The scan result still lists every finding.
+  The scan result still lists every finding. The products of a statement are
+  the image digest as `pkg:oci` package URL without a repository, which
+  matches it wherever it is pulled from, and with the `repository_url` of
+  every staging repository it is attested in and of the `registry.k8s.io`
+  repository it is promoted to, for VEX consumers that compare qualifiers.
 - Build environment (`https://in-toto.io/attestation/build-env/v1`) from the Go
   build information of the binaries, written by
   [`hack/attest-build-env.sh`](../hack/attest-build-env.sh).
@@ -322,7 +355,20 @@ The attestations are:
   commit Scorecard scanned last, and is skipped with a warning when the API is
   unavailable.
 
-To verify them, use the predicate type and the signing identity, for example:
+The last step of the build,
+[`hack/verify-attestations.sh`](../hack/verify-attestations.sh), verifies every
+digest the build pushed, or found published with the content it would push,
+against the build identity: the cosign signature
+(`https://sigstore.dev/cosign/sign/v1`), and, like the provenance policy of the
+image promoter, SLSA provenance about the digest with the builder ID above and
+this repository as source, for the per-arch images in both repositories. It
+also checks the SBOMs, the vulnerability scan, the VEX document when the scan
+found vulnerabilities and the build environment that the table above lists for
+the artifact. A missing signature or attestation fails the build. It only
+reads from the registry, so it can verify other digests too, see the script.
+
+To verify an attestation by hand, use the predicate type and the signing
+identity, for example:
 
 ```console
 > # Needs cosign v3 or later.
@@ -333,14 +379,28 @@ To verify them, use the predicate type and the signing identity, for example:
     us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator-amd64:latest
 ```
 
-The attestations stay in the staging registry, the image promotion does not copy
-them to `registry.k8s.io` yet.
+### Attestations on registry.k8s.io
 
-This is the single largest gap in the supply chain story: everything above is
-produced for the staging images, while users install from `registry.k8s.io`,
-where only the krel signature is present. Until the referrers are promoted,
-do not advertise SLSA provenance for the promoted images. Closing it needs
-either the image promoter to copy the OCI referrers alongside the manifest, or
-a post promotion workflow that re-attests the promoted digest from a job that
-can prove it observed the promotion. Both require a change outside this
-repository, in kubernetes/k8s.io.
+The promotion keeps the digests, but `registry.k8s.io` only gets the
+attestations of an image when the promoter manifest of the project has a
+provenance policy. From kpromo v4.7.0 on, which is not released yet, the image
+promoter verifies the staging attestations against such a policy, copies the
+ones it accepts next to the promoted digest in `registry.k8s.io`, and can
+publish a SLSA verification summary
+(`https://slsa.dev/verification_summary/v1`) of its own for it. A policy for
+this project, which trusts the attestations of the build identity and checks
+the builder ID and source of the provenance like the verification above, is
+proposed in [kubernetes/k8s.io#10012](https://github.com/kubernetes/k8s.io/pull/10012)
+and not in place yet. It starts in `warn` mode, which reports violations
+without blocking the promotion, and `require` mode blocks it.
+
+Until it is, the promoted images only have the `krel-trust` signature of the
+promoter on `registry.k8s.io`, and the staging registry is the only place to
+verify their attestations, by digest, see
+[verifying the released artifacts](verification.md#container-image). Staging
+images are deleted after 90 days, and with them their attestations, so do not
+advertise SLSA provenance for the promoted images before the policy is in
+place. Images promoted before the policy only get their attestations carried
+by the repair phase of a promoter run that parses their digests while they are
+still in staging, and the production jobs only parse the digests added in the
+last 14 days.

@@ -23,15 +23,15 @@
 # from the repository root with the git directory and reads the build details
 # from the environment, it does nothing outside of Cloud Build:
 #
-# - BUILD_ID, PROJECT_ID and PROJECT_NUMBER: the Cloud Build substitutions
+# - BUILD_ID, PROJECT_ID, PROJECT_NUMBER and SERVICE_ACCOUNT_EMAIL: the Cloud
+#   Build substitutions, the builder ID names the service account, so a build
+#   without it fails rather than writing provenance no verifier trusts
 # - TAG: the image tag of the build
 # - BUILD_STARTED: when the build started, in RFC 3339 format, defaults to the
 #   content of build/build-started
-# - build/build-image: the digest reference of the image the binaries are
-#   built in, written by hack/image-cross.sh
-# - build/buildkit-image: the digest reference of the BuildKit image that
-#   builds the per-arch images, written by hack/image-cross.sh, only read for
-#   those
+# - PROVENANCE_DEPENDENCIES: a JSON array of the resolved dependencies of the
+#   artifacts besides the source, for example the toolchain_dependencies of
+#   hack/lib/common.sh for the binaries this repository compiles
 
 # jq programs are single quoted on purpose
 # shellcheck disable=SC2016
@@ -57,25 +57,10 @@ done
 
 : "${PROJECT_ID:?PROJECT_ID must be set}"
 : "${PROJECT_NUMBER:?PROJECT_NUMBER must be set}"
+: "${SERVICE_ACCOUNT_EMAIL:?SERVICE_ACCOUNT_EMAIL must be set}"
 : "${TAG:?TAG must be set}"
 BUILD_STARTED="${BUILD_STARTED:-$(cat "$BUILD_DIR/build-started")}"
-BUILD_IMAGE="$(cat "$BUILD_DIR/build-image")"
-
-# The nixpkgs revision the build toolchain is pinned to. It materially affects
-# the output, so it belongs in resolvedDependencies alongside the source and the
-# build image.
-# `jq -r` prints the string "null" for a missing node, which would end up in a
-# provenance that still verifies while claiming a gitCommit of "null", so fail
-# loudly instead. The lock file is addressed relative to this script, not to the
-# working directory.
-FLAKE_LOCK="$(dirname "${BASH_SOURCE[0]}")/../flake.lock"
-NIXPKGS_REV=$("$(jq_bin)" -er \
-  '.nodes.nixpkgs.locked.rev // error("no nixpkgs rev in flake.lock")' "$FLAKE_LOCK")
-NIXPKGS_URL=$("$(jq_bin)" -er '
-  .nodes.nixpkgs.locked
-  | if .type != "github" then error("unexpected nixpkgs lock type \(.type)") else . end
-  | "git+https://github.com/\(.owner // error("no nixpkgs owner in flake.lock"))/\(.repo // error("no nixpkgs repo in flake.lock"))"
-  ' "$FLAKE_LOCK")
+DEPENDENCIES="${PROVENANCE_DEPENDENCIES:-[]}"
 
 # The workspace comes from another user, so git needs to be told to trust it.
 COMMIT=$(git -c safe.directory='*' rev-parse HEAD)
@@ -84,36 +69,22 @@ REF=$(git -c safe.directory='*' symbolic-ref -q HEAD || echo "$COMMIT")
 # The build type is documented in doc/release.md, pinned to the built commit so
 # that the documentation cannot change after the fact.
 BUILD_TYPE="$REPOSITORY_URL/blob/$COMMIT/doc/release.md#staging-attestations"
-# The builder is what runs the build: the Cloud Build configuration of the
-# repository as the service account of the staging project.
-BUILDER_ID="https://cloudbuild.googleapis.com/projects/$PROJECT_ID/serviceAccounts/${SERVICE_ACCOUNT_EMAIL:-unknown}/cloudbuild.yaml"
+BUILDER_ID="$(builder_id)"
 
 mkdir -p "$BUILD_DIR/attestations"
 
 for ref in "${REFS[@]}"; do
   predicate="$BUILD_DIR/attestations/$(image_name "$ref").provenance.json"
 
-  # The pinned BuildKit image builds the per-arch images and decides their
-  # digests, the docker daemon builds the bundle and the catalog.
-  buildkit=""
-  if [[ "$(image_name "$ref")" =~ -(amd64|arm64|ppc64le|s390x)$ ]]; then
-    buildkit="$(cat "$BUILD_DIR/buildkit-image")"
-  fi
-
   "$(jq_bin)" -n \
     --arg buildType "$BUILD_TYPE" \
     --arg builderID "$BUILDER_ID" \
     --arg source "git+$REPOSITORY_URL@$REF" \
     --arg commit "$COMMIT" \
-    --arg buildImage "${BUILD_IMAGE%@*}" \
-    --arg buildImageDigest "${BUILD_IMAGE#*@sha256:}" \
-    --arg nixpkgsURL "$NIXPKGS_URL" \
-    --arg nixpkgsRev "$NIXPKGS_REV" \
-    --arg buildkit "${buildkit%@*}" \
-    --arg buildkitDigest "${buildkit#*@sha256:}" \
+    --argjson dependencies "$DEPENDENCIES" \
     --arg tag "$TAG" \
     --arg project "$PROJECT_ID" \
-    --arg serviceAccount "${SERVICE_ACCOUNT_EMAIL:-}" \
+    --arg serviceAccount "$SERVICE_ACCOUNT_EMAIL" \
     --arg invocationID "https://console.cloud.google.com/cloud-build/builds/$BUILD_ID?project=$PROJECT_NUMBER" \
     --arg startedOn "$BUILD_STARTED" \
     --arg finishedOn "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
@@ -129,13 +100,7 @@ for ref in "${REFS[@]}"; do
           project: $project,
           serviceAccount: $serviceAccount
         },
-        resolvedDependencies: [
-          {uri: $source, digest: {gitCommit: $commit}},
-          {uri: "oci://\($buildImage)", digest: {sha256: $buildImageDigest}},
-          {uri: $nixpkgsURL, digest: {gitCommit: $nixpkgsRev}}
-        ] + if $buildkit == "" then [] else [
-          {uri: "oci://\($buildkit)", digest: {sha256: $buildkitDigest}}
-        ] end
+        resolvedDependencies: ([{uri: $source, digest: {gitCommit: $commit}}] + $dependencies)
       },
       runDetails: {
         builder: {id: $builderID},
@@ -147,5 +112,5 @@ for ref in "${REFS[@]}"; do
       }
     }' >"$predicate"
 
-  attest "$ref" https://slsa.dev/provenance/v1 "$predicate"
+  attest "$ref" "$SLSA_PROVENANCE" "$predicate"
 done

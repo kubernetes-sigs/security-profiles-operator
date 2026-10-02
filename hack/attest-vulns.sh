@@ -21,7 +21,10 @@
 # VEX document, because an OpenVEX document needs at least one statement. The Go
 # vulnerability database has no severity scores, so the scan results carry
 # none. The VEX statements name the image in every repository it is attested
-# in, see attest_aliases.
+# in, see attest_aliases, and the repositories in registry.k8s.io it is
+# promoted to, and the digest without repository, see image_purls. The
+# binaries are the ones of image_binaries, for the catalog those of the opm
+# image it is built from.
 #
 # Maintainers assess findings in the OpenVEX document .openvex.json. Its
 # statement replaces the assessment of a found vulnerability whose name or one
@@ -48,7 +51,6 @@ set -euo pipefail
 # shellcheck source=hack/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
-BINARIES=(security-profiles-operator spoc)
 VEX_FILE="${VEX_FILE:-$(dirname "${BASH_SOURCE[0]}")/../.openvex.json}"
 
 if ! signing_enabled; then
@@ -92,11 +94,13 @@ for ref in "$@"; do
   scans="$BUILD_DIR/attestations/$name.scans"
   mkdir -p "$scans"
 
+  read -ra paths <<<"$(image_binaries "$ref")"
   started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  for binary in "${BINARIES[@]}"; do
+  for path in "${paths[@]}"; do
+    binary="${path##*/}"
     echo "Scanning $binary of $ref"
-    scan -format openvex "$binaries/$binary" >"$scans/$binary.openvex.json"
-    scan -format json "$binaries/$binary" >"$scans/$binary.govulncheck.json"
+    scan -format openvex "$binaries/$path" >"$scans/$binary.openvex.json"
+    scan -format json "$binaries/$path" >"$scans/$binary.govulncheck.json"
   done
   finished="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
@@ -151,8 +155,8 @@ for ref in "$@"; do
     --arg id "https://console.cloud.google.com/cloud-build/builds/${BUILD_ID:-local}#$name-vex" \
     --arg author "$REPOSITORY_URL/blob/main/hack/attest-vulns.sh" \
     --arg timestamp "$finished" \
-    --argjson products "$(for target in "$ref" $(attest_aliases "$ref"); do image_purl "$target"; done |
-      "$(jq_bin)" -Rn '[inputs]')" \
+    --argjson products "$(for target in "$ref" $(attest_aliases "$ref"); do image_purls "$target"; done |
+      "$(jq_bin)" -Rn '[inputs] | unique')" \
     '{
       "@context": "https://openvex.dev/ns/v0.2.0",
       "@id": $id,
@@ -201,7 +205,7 @@ for ref in "$@"; do
       )
     }' "$scans"/*.openvex.json >"$vex"
   if [[ "$("$(jq_bin)" '.statements | length' "$vex")" -gt 0 ]]; then
-    attest "$ref" https://openvex.dev/ns "$vex"
+    attest "$ref" "$OPENVEX" "$vex"
   else
     echo "No vulnerabilities found, no VEX document for $ref"
   fi
@@ -229,5 +233,5 @@ for ref in "$@"; do
         },
         metadata: {scanStartedOn: $started, scanFinishedOn: $finished}
       }' "$scans"/*.govulncheck.json >"$vulns"
-  attest "$ref" https://in-toto.io/attestation/vulns/v0.2 "$vulns"
+  attest "$ref" "$VULNS" "$vulns"
 done
