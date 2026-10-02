@@ -202,7 +202,8 @@ The attestations are:
   section of the built commit: `externalParameters.source` is the git
   repository and ref with the built commit, `config` the Cloud Build
   configuration and `tag` the image tag. `resolvedDependencies` lists the
-  source, the image the binaries are built in and the nixpkgs revision.
+  source, the image the binaries are built in and the nixpkgs revision, for
+  the per-architecture images also the BuildKit image that builds them.
   `internalParameters` names the Cloud Build project and service account,
   `runDetails.metadata.invocationId` links to the build. The build writes and
   signs the provenance itself, which makes it SLSA Build L1, so

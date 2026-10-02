@@ -49,7 +49,9 @@ RUN nix build path:.#$target.inputDerivation --no-link $NIX_FLAGS && \
 
 # The Go SBOMs only know the Go modules, this one lists the C libraries the
 # binaries link statically. The build image has neither bash nor jq, the
-# script gets them from nixpkgs.
+# script gets them from nixpkgs. Its creation time is SOURCE_DATE_EPOCH, the
+# commit time, so that the image stays reproducible (see hack/image-cross.sh).
+ARG SOURCE_DATE_EPOCH
 RUN nix shell --inputs-from path:. nixpkgs#bash nixpkgs#coreutils nixpkgs#jq $NIX_FLAGS \
   -c bash hack/native-sbom.sh security-profiles-operator-native /work/native-libraries.spdx.json $target
 
