@@ -1,70 +1,100 @@
 # Verifying the released artifacts
 
 Every artifact of a release is signed with [Sigstore][sigstore] keyless
-signing, and the release assets also carry [SLSA][slsa] build provenance. This
-page collects the verification commands for all of them, so a release only has
-to link here.
+signing and carries [SLSA][slsa] build provenance. This page collects the
+verification commands for all of them, so a release only has to link here.
 
 The commands need [cosign][cosign] v3 or later, because the signatures use the
 Sigstore bundle format that cosign v2 cannot read. The provenance checks of the
-release assets use the [GitHub CLI][gh]. The examples verify the latest
-release, set `VERSION` to the tag of the [release][releases] at hand:
+release assets use the [GitHub CLI][gh], and the digest lookups
+[crane][crane].
+
+Every release links to this page at its own tag, so the page describes the
+release it is read at. Set `VERSION` to that tag, the [release][releases] to
+verify:
+
+```console
+> export VERSION=vx.y.z
+```
+
+On `main` the page follows the development of the next release and may
+describe what no release has yet. To verify the latest release, read the page
+at its tag, which this command sets:
 
 ```console
 > export VERSION=$(gh release view -R kubernetes-sigs/security-profiles-operator --json tagName -q .tagName)
 ```
 
-Releases up to v1.1.0 carry provenance that the build jobs signed themselves.
-Verify it with the commands below, but with the `build.yml` signer workflow, or
-for the chart archive with the `helm-chart-package.yaml` one and without
-`--bundle`.
+v1.1.0 and the releases before it were built in another way and provide less,
+so not every command of this page works for them, see
+[older releases](#older-releases).
 
 ## What a release provides
 
 | Artifact | Signature | Provenance | SBOM |
 | -------- | --------- | ---------- | ---- |
-| Container images on `registry.k8s.io` | yes, as `krel-trust` | carried; [GitHub](#github-provenance-of-the-container-images), by digest, after v1.1.0 | carried |
-| `spoc` binaries | yes | yes | `spoc.spdx.json`, `spoc-native.spdx.json` |
-| `spoc.spdx.json`, `spoc-native.spdx.json` | yes | yes | |
-| Helm chart archive on the release page | yes | yes | |
-| Helm chart on `registry.k8s.io` | yes, as `krel-trust` | yes, by digest, after v1.1.0 | carried, after v1.1.0 |
-| `spoc` on `registry.k8s.io` (after v1.1.0) | yes, as `krel-trust` | yes, by digest | release page, carried |
-| Security profiles on `registry.k8s.io` | yes | carried | carried |
+| Container images on `registry.k8s.io` | `krel-trust`, staging build | Build L3 from GitHub and Build L1 from Cloud Build, of the per-arch images | attested, of the per-arch images |
+| Operator bundle and catalog on `registry.k8s.io` | `krel-trust`, staging build | Build L1 from Cloud Build | attested |
+| `spoc` binaries | release workflow | Build L3 from GitHub | `spoc.spdx.json`, `spoc-native.spdx.json` |
+| `spoc.spdx.json`, `spoc-native.spdx.json` | release workflow | Build L3 from GitHub | |
+| Helm chart archive on the release page | release workflow | Build L3 from GitHub | |
+| Helm chart on `registry.k8s.io` | `krel-trust`, staging build | Build L3 from GitHub | attested |
+| `spoc` on `registry.k8s.io` | `krel-trust`, staging build | Build L3 from GitHub | attested, the ones of the release page |
+| Security profiles on `registry.k8s.io` | `krel-trust`, staging build | Build L1 from Cloud Build | attested |
 
-"Carried" means that the build attaches it in staging and the image promoter
-copies it next to the promoted digest on `registry.k8s.io`, in the repository
-the promoter manifest lists the digest in (the per-arch repositories for the
-container images), when the digest satisfies the provenance policy of this
-project. That holds for digests promoted since the policy is in place
-(2026-10-02), and for those promoted in the 14 days before, which the repair
-phase of the promotion jobs fills in while they are still in staging. Older
-digests only have it in staging, by digest, until the staging registry
-deletes them. The staging registry is
-`us-central1-docker.pkg.dev/k8s-staging-images/sp-operator`, where the build
-attaches SLSA provenance and SPDX SBOMs to the images, profiles and charts it
-publishes, and to the images a vulnerability scan, an OpenVEX document, the
-build environment and the OpenSSF Scorecard result, as OCI referrers. To
-`spoc` and the released chart, the release artifacts job attaches the GitHub
-provenance and SBOMs, see [OCI artifacts](release.md#oci-artifacts). The
-manifest list only gets a signature, and published profiles or charts whose
-content differs from the repository get neither, see
-[staging attestations](release.md#staging-attestations). The promotion keeps
-the digests, so the attestations of a promoted artifact can be verified by its
-digest in the staging registry, see [container image](#container-image).
-Staging images are deleted after 90 days, after that the attestations of older
-releases can't be verified anymore.
+On `registry.k8s.io` the image promoter signs as `krel-trust` and carries the
+signature of the staging build along with the attestations.
+[SLSA build levels](#slsa-build-levels) explains the levels. Every digest
+the image promoter promotes also gets a
+[verification summary](#verification-summaries) when it is promoted, which
+says whether the attestations of the digest passed the policy of this project.
 
-From kpromo v4.7.0 on, which the promotion jobs run since 2026-10-02, the
-image promoter copies the staging attestations it accepts next to the promoted
-digest in `registry.k8s.io` and can publish a SLSA verification summary for
-it, when the promoter manifest of the project has a provenance policy. The
-policy of this project is in place, in `warn` mode, so the attestations of the
-artifacts promoted after it are on `registry.k8s.io` as well. The summaries
-are still turned off, see
-[attestations on registry.k8s.io](release.md#attestations-on-registryk8sio)
-and [verification summaries](#verification-summaries). For artifacts promoted
-before the policy, which includes all of v1.1.0, verifying in staging is the
-only option.
+The security profiles are not part of a release. The base profiles are
+published on their own, tagged with the version of the runtime they were
+recorded against, see [security profiles](#security-profiles).
+
+## Where the signatures and attestations are
+
+The release assets on GitHub have their signatures (`*.sigstore.json`) and
+their provenance (`*.intoto.jsonl`) next to them on the release page. The
+provenance is in the GitHub attestation store as well.
+
+Everything on `registry.k8s.io` gets there from the staging registry
+`us-central1-docker.pkg.dev/k8s-staging-images/sp-operator` through the
+[Kubernetes image promoter][promoter]:
+
+1. The build signs what it pushes to staging and attaches the attestations as
+   OCI referrers: SLSA provenance and SPDX SBOMs for the images, profiles and
+   charts, and for the images also a vulnerability scan, an OpenVEX document,
+   the build environment and the OpenSSF Scorecard result. `spoc` and the
+   released chart get the GitHub provenance of the release and their SBOMs
+   from the release artifacts job.
+   [Staging attestations](release.md#staging-attestations) has the full list.
+1. The promoter copies the artifacts by digest, so a promoted artifact is the
+   one the build attested, and signs it as `krel-trust`.
+1. The promoter verifies the staging attestations of every digest against the
+   [provenance policy][promoter-policies] of this project and
+   [carries][promoter-carry] the ones it accepts to `registry.k8s.io`: they
+   are copied unchanged next to the promoted digest, in the repository the
+   promoter manifest lists the digest in. For the container images these are
+   the per-arch repositories, see [container image](#container-image).
+1. The promoter writes a [verification summary](#verification-summaries) for
+   the digest, next to its promotion record.
+
+`cosign tree` lists the signatures and attestations of a digest, which shows
+what a promoted artifact carries:
+
+```console
+> cosign tree registry.k8s.io/security-profiles-operator/security-profiles-operator-amd64:$VERSION
+```
+
+The staging registry deletes images 90 days after their push. Until then, the
+attestations of a promoted digest can be verified in staging too, with the
+same commands and the staging reference of the digest. That is the only place
+for a digest that was promoted without its attestations, because it doesn't
+satisfy the policy or was promoted before the promoter carried attestations,
+see [older releases](#older-releases) and
+[attestations on registry.k8s.io](release.md#attestations-on-registryk8sio).
 
 ## SLSA build levels
 
@@ -83,14 +113,14 @@ release. The release builds take their nix dependencies only from
 CI jobs running repository code can write to. Development builds of `main` may
 use that cache, so only the provenance of releases makes the L3 claim.
 
-The container images, the operator bundle and catalog, the Helm chart on
-`registry.k8s.io` up to v1.1.0 and the security profiles are built on Cloud
-Build and meet SLSA Build L1 only, apart from the per-arch images of releases,
-see below. Their provenance is generated and signed by the build itself,
-with the same service account as the build steps, so the build steps could
-forge it. Its `runDetails.builder.id` therefore names the Cloud Build
-configuration and service account of the staging project, not Google's build
-platform, and its `buildType` points to the documentation of the built commit.
+The container images, the operator bundle and catalog, the security profiles
+and the development charts of `main` are built on Cloud Build and meet SLSA
+Build L1 only, apart from the per-arch images of releases, see below. Their
+provenance is generated and signed by the build itself, with the same service
+account as the build steps, so the build steps could forge it. Its
+`runDetails.builder.id` therefore names the Cloud Build configuration and
+service account of the staging project, not Google's build platform, and its
+`buildType` points to the documentation of the built commit.
 The build toolchain they compile with, `quay.io/security-profiles-operator/build`,
 is built without caches on `main` and signed and attested by a job of the
 [`build`](../.github/workflows/build.yml) workflow that runs no repository code.
@@ -110,12 +140,13 @@ Build pushed for the commit. This doesn't change the build level of the
 provenance from Cloud Build, which lists the BuildKit image as a dependency
 and stays at L1. For a release, the same workflow builds the per-arch images
 of the tagged commit and has their digests attested like `spoc`, which gives
-the per-arch images of releases after v1.1.0 SLSA Build L3 provenance as well,
-see [GitHub provenance of the container images](#github-provenance-of-the-container-images).
-Images built before the BuildKit image was pinned are not reproducible. To
-rebuild the images of a commit yourself and compare them with its staging
-images, with docker and buildx on a `linux/amd64` machine, like Cloud Build
-and GitHub Actions (the build image is only published for it):
+the per-arch images of a release SLSA Build L3 provenance as well, see
+[GitHub provenance of the container images](#github-provenance-of-the-container-images).
+Images of commits from before the BuildKit image was pinned are not
+reproducible. To rebuild the images of a commit yourself and compare them
+with its staging images, with docker and buildx on a `linux/amd64` machine,
+like Cloud Build and GitHub Actions (the build image is only published for
+it):
 
 ```console
 > git checkout $COMMIT
@@ -124,10 +155,67 @@ and GitHub Actions (the build image is only published for it):
 > STAGING_WAIT=0 hack/ci/compare-staging-images.sh
 ```
 
+## Container image
+
+The images on `registry.k8s.io` are promoted by the Kubernetes image promoter,
+which signs them as `krel-trust`:
+
+```console
+> cosign verify \
+    --certificate-identity krel-trust@k8s-releng-prod.iam.gserviceaccount.com \
+    --certificate-oidc-issuer https://accounts.google.com \
+    registry.k8s.io/security-profiles-operator/security-profiles-operator:$VERSION
+```
+
+The same command works for the operator bundle, the catalog, the Helm chart
+(`charts/security-profiles-operator:${VERSION#v}`), `spoc` and the promoted
+`base/*` profiles by replacing the image name.
+
+The build attests the per-architecture images, so their provenance, SBOMs,
+vulnerability scan, VEX document, build environment and OpenSSF Scorecard
+result are in the per-arch repositories, signed by the staging build, except
+for v1.1.0 and [older releases](#older-releases). Verify them by predicate
+type, here the provenance of the `amd64` image:
+
+```console
+> cosign verify-attestation \
+    --type https://slsa.dev/provenance/v1 \
+    --certificate-identity sp-operator-sa@k8s-staging-images.iam.gserviceaccount.com \
+    --certificate-oidc-issuer https://accounts.google.com \
+    registry.k8s.io/security-profiles-operator/security-profiles-operator-amd64:$VERSION
+```
+
+[Staging attestations](release.md#staging-attestations) lists the other
+predicate types, and the operator bundle, the catalog and the profiles verify
+in the same way in their own repositories. That provenance is SLSA Build L1,
+the one of the next section is L3, see [SLSA build levels](#slsa-build-levels).
+
+The platform images of the manifest list are the per-arch images, with the
+same digests, so the attested image is the one a node pulls. The last two
+commands print the same digest:
+
+```console
+> DIGEST=$(crane digest registry.k8s.io/security-profiles-operator/security-profiles-operator-amd64:$VERSION)
+> echo $DIGEST
+> crane digest --platform linux/amd64 \
+    registry.k8s.io/security-profiles-operator/security-profiles-operator:$VERSION
+```
+
+The repository of the manifest list,
+`registry.k8s.io/security-profiles-operator/security-profiles-operator`, holds
+the signatures of the manifest list and what the promoter writes itself: its
+signature of the platform manifests, its promotion record of the manifest
+list and a [verification summary](#verification-summaries) for the manifest
+list and for each platform manifest. The promoter doesn't copy the
+attestations of the platform manifests there, because the promoter manifest
+doesn't list their digests in that repository. The staging registry has them
+in both places, so there `$DIGEST` also verifies as
+`us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator@$DIGEST`.
+
 ## GitHub provenance of the container images
 
-Releases after v1.1.0 attest their per-architecture images on GitHub too, no
-such release exists yet. The
+A release attests its per-architecture images on GitHub too, v1.1.0 and
+[older releases](#older-releases) don't. The
 [`image-reproducible`](../.github/workflows/image-reproducible.yml) workflow
 of the release builds them from the tagged commit, and the isolated
 [`provenance`](../.github/workflows/provenance.yml) workflow attests their
@@ -149,16 +237,13 @@ per-arch image of your architecture with the GitHub attestation store, or with
 The manifest list is no subject, but its platform images are the per-arch
 images, with the same digests, so
 `oci://registry.k8s.io/security-profiles-operator/security-profiles-operator@$DIGEST`
-verifies as well, with the digest of the per-arch image:
+verifies as well, with the digest of the per-arch image, the `$DIGEST` of
+[container image](#container-image).
 
-```console
-> DIGEST=$(crane digest registry.k8s.io/security-profiles-operator/security-profiles-operator-amd64:$VERSION)
-```
-
-The provenance is also attached as OCI referrer to each per-arch image in the
-staging registry, in its own repository and in the one of the manifest list.
-cosign verifies it with the GitHub identity, and the provenance names the
-workflow that built the images:
+The provenance is also attached as OCI referrer to each per-arch image, and
+the image promoter carries it to the per-arch repositories on
+`registry.k8s.io`. cosign verifies it with the GitHub identity, and the
+provenance names the workflow that built the images:
 
 ```console
 > cosign verify-attestation \
@@ -168,101 +253,35 @@ workflow that built the images:
     --certificate-github-workflow-repository kubernetes-sigs/security-profiles-operator \
     --certificate-github-workflow-ref refs/tags/$VERSION \
     --certificate-github-workflow-trigger release \
-    us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator-amd64@$DIGEST |
+    registry.k8s.io/security-profiles-operator/security-profiles-operator-amd64@$DIGEST |
     jq -r '.payload | @base64d | fromjson | .predicate.buildDefinition.externalParameters.workflow.path'
 ```
 
 It prints `.github/workflows/image-reproducible.yml`. The identity alone is not
 enough: the repository, ref and trigger of the certificate show that a release
 of this repository signed it, see
-[the provenance signer](release.md#the-provenance-signer). The image promoter
-carries the provenance to the per-arch images on `registry.k8s.io` when it
-promotes the release, so the same command works for them there as well, see
-[attestations on registry.k8s.io](release.md#attestations-on-registryk8sio).
+[the provenance signer](release.md#the-provenance-signer). In staging the
+provenance is attached to the digest in its per-arch repository and in the one
+of the manifest list, so the same command works with both staging references.
 The Cloud Build provenance of the images stays next to it, at L1.
-
-## Container image
-
-The images on `registry.k8s.io` are promoted by the Kubernetes image promoter,
-which signs them as `krel-trust`:
-
-```console
-> cosign verify \
-    --certificate-identity krel-trust@k8s-releng-prod.iam.gserviceaccount.com \
-    --certificate-oidc-issuer https://accounts.google.com \
-    registry.k8s.io/security-profiles-operator/security-profiles-operator:$VERSION
-```
-
-The same command works for the operator bundle, the catalog, the Helm chart
-(`charts/security-profiles-operator:${VERSION#v}`), `spoc` and the promoted
-`base/*` profiles by replacing the image name.
-
-The provenance, SBOMs, vulnerability scan, VEX document and build environment
-of a build are attached to the staging images. The image promoter copies them
-along to `registry.k8s.io` for the images promoted after the provenance policy
-of this project, not for v1.1.0 and older releases, see
-[attestations on registry.k8s.io](release.md#attestations-on-registryk8sio).
-The promotion keeps the digest of every image, so look up the digest of the
-promoted image for your architecture and verify its attestations in the
-staging registry, within 90 days of the build, after which staging images are
-deleted:
-
-```console
-> DIGEST=$(crane digest --platform linux/amd64 \
-    registry.k8s.io/security-profiles-operator/security-profiles-operator:$VERSION)
-> cosign verify-attestation \
-    --type https://slsa.dev/provenance/v1 \
-    --certificate-identity sp-operator-sa@k8s-staging-images.iam.gserviceaccount.com \
-    --certificate-oidc-issuer https://accounts.google.com \
-    us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator-amd64@$DIGEST
-```
-
-In staging, images built after v1.1.0 also have the signature and
-attestations of their platform images in the repository of the manifest list,
-where container runtimes pull them from, so the same digest verifies as
-`us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator@$DIGEST`.
-
-That doesn't carry over to `registry.k8s.io`. The image promoter copies the
-attestations of the per-arch images into the per-arch repositories, so they
-verify as
-`registry.k8s.io/security-profiles-operator/security-profiles-operator-amd64@$DIGEST`,
-by the build identity like in staging. It doesn't copy the attestations of the
-platform manifests into the repository of the manifest list, because the
-promoter manifest doesn't list their digests there. The
-`registry.k8s.io/security-profiles-operator/security-profiles-operator`
-repository gets what the promoter writes itself: its signature of the
-manifest list and the platform manifests, its promotion record of the
-manifest list and, once they are turned on, a
-[verification summary](#verification-summaries) for the manifest list and for
-each platform manifest.
-
-That provenance is SLSA Build L1, see [SLSA build levels](#slsa-build-levels).
 
 ## Verification summaries
 
-The image promoter can publish a SLSA verification summary (VSA) for every
-digest it promotes, index and platform manifests alike: an in-toto statement
-with the predicate type `https://slsa.dev/verification_summary/v1`, attached
-as OCI referrer next to the promoted digest, which says that the staging
+The image promoter publishes a
+[SLSA verification summary][promoter-summaries] (VSA) for every digest it
+promotes, index and platform manifests alike: an in-toto statement with the
+predicate type `https://slsa.dev/verification_summary/v1`, attached as OCI
+referrer next to the promoted digest, which says that the staging
 attestations of the digest passed the provenance policy of the project, and
 at which SLSA build level. Consumers that trust the promoter can verify the
-summary instead of the provenance of every build, for example the
-nri-supply-chain plugin, which verifies the summary of the manifest list.
+summary instead of the provenance of every build, see
+[enforcing the verification in a cluster](#enforcing-the-verification-in-a-cluster).
 
-The promotion jobs run kpromo v4.7.0 with the provenance policy of this
-project ([kubernetes/k8s.io#10012](https://github.com/kubernetes/k8s.io/pull/10012)),
-and the identity that signs the summaries,
-`promoter-summaries@k8s-releng-prod.iam.gserviceaccount.com`, exists, and
-the production promotion jobs moved to their new account
-([kubernetes/test-infra#37950](https://github.com/kubernetes/test-infra/pull/37950)).
-The promoter doesn't write summaries yet though, the change that turns them
-on is pending
-([kubernetes/test-infra#37967](https://github.com/kubernetes/test-infra/pull/37967)).
-The promotion jobs then also add summaries for the digests promoted in the 14
-days before, older images only get one from a promoter run that repairs them
-explicitly. Once they are on, verify a summary by its predicate type and the
-identity of the promoter's summaries, and check that the promoter is its
-verifier, that it passed and at which level:
+The promoter signs its summaries with an identity of their own,
+`promoter-summaries@k8s-releng-prod.iam.gserviceaccount.com`, which only the
+production promotion jobs can use. Verify a summary by its predicate type and
+that identity, and check that the promoter is its verifier, that it passed
+and at which level:
 
 ```console
 > cosign verify-attestation \
@@ -281,19 +300,83 @@ the promoter, other summaries of the digest, for example one attached in
 staging, don't count. `verifiedLevels` holds the one SLSA build level the
 policy verified for the digest, and `K8S_PROMOTION_MANIFEST_REVIEWED`. So the
 command accepts any level, require `SLSA_BUILD_LEVEL_3` instead where only
-level 3 will do. The level is
-`SLSA_BUILD_LEVEL_3` for `spoc`, the Helm chart and the per-arch images of
-the releases after v1.1.0, and so for the platform manifests and the manifest
-list of their container image, through their GitHub provenance, see
+level 3 will do. The level is `SLSA_BUILD_LEVEL_3` for `spoc`, the Helm chart
+and the per-arch images, and so for the platform manifests and the manifest
+list of the container image, through their GitHub provenance, see
 [OCI artifacts](release.md#oci-artifacts) and
 [per-arch images](release.md#per-arch-images). It is `SLSA_BUILD_LEVEL_1` for
 the operator bundle and catalog and the profiles, which only have the
-provenance of Cloud Build. The artifacts of v1.1.0 and older releases don't
-satisfy the policy, see
-[attestations on registry.k8s.io](release.md#attestations-on-registryk8sio),
-so a summary of them, if a repair writes one, has failed.
-`resourceUri` is the `registry.k8s.io` reference of the digest, and
-`inputAttestations` the staging attestations the policy accepted.
+provenance of Cloud Build, and for the container images of a release that
+had to be promoted without the GitHub provenance, see
+[per-arch images](release.md#per-arch-images). `resourceUri` is the
+`registry.k8s.io` reference of the digest, `inputAttestations` the staging
+attestations the policy accepted, and `policy` the promoter manifest with the
+policy and the commit it was read at.
+
+A digest keeps the summary of its first promotion. One that was promoted
+without a summary only has one if a later promoter run repaired it, and a
+digest that doesn't satisfy the policy gets a failed summary, see
+[older releases](#older-releases).
+
+## Enforcing the verification in a cluster
+
+The commands of this page verify by hand. The
+[nri-supply-chain][nri-supply-chain] plugin enforces the same on the nodes: it
+is an [NRI][nri] plugin for CRI-O and containerd that verifies the signatures
+and attestations of an image before the runtime creates a container from it.
+For images on `registry.k8s.io` it can rely on the verification summary of the
+image promoter instead of evaluating the attestations of every build. A policy
+rule for the images of this project trusts the promoter as verifier, bound to
+the identity that signs its summaries, and requires a summary:
+
+```json
+{
+  "rules": [
+    {
+      "images": ["registry.k8s.io/security-profiles-operator/**"],
+      "trust": {
+        "issuers": ["https://accounts.google.com"],
+        "sanPatterns": [
+          "krel-trust@k8s-releng-prod.iam.gserviceaccount.com",
+          "promoter-summaries@k8s-releng-prod.iam.gserviceaccount.com"
+        ],
+        "verifiers": [
+          {
+            "id": "https://k8s.io/promo-tools/verifier/v1",
+            "identities": [
+              {
+                "issuer": "https://accounts.google.com",
+                "sanPattern": "promoter-summaries@k8s-releng-prod.iam.gserviceaccount.com"
+              }
+            ]
+          }
+        ]
+      },
+      "vsa": { "missingPolicy": "deny" }
+    }
+  ]
+}
+```
+
+The plugin reads the summary from the repository the image is pulled from,
+which is where the promoter writes the summaries of the manifest list and its
+platform manifests. `vsa.missingPolicy: deny` rejects every digest without a
+passed summary of the promoter, which includes the
+[older releases](#older-releases), so roll the rule out in the `warn` mode of
+the plugin first, which only logs. `vsa.minimumLevel` can require a SLSA
+build level on top. The rule matches the operator bundle and catalog too,
+which OLM runs on the nodes and which only reach level 1, so require level 3
+in a rule for the operator image only, or level 1 for all of them. An
+`exclude` pattern that matches the images, like `registry.k8s.io/**`, skips
+the rule. The policy documentation of the plugin explains the rule and its
+options in
+[images promoted to registry.k8s.io][nri-supply-chain-promoted], and its
+[deployment documentation][nri-supply-chain-deployment] how to install the
+plugin and which system images to exclude.
+
+Other verifiers work as well, as long as they pin both the verifier ID and the
+signer of the summary, for example `slsa-verifier vsa`, see the
+[promoter documentation][promoter-summaries].
 
 ## Command line binaries
 
@@ -317,8 +400,6 @@ both, here for `amd64`:
 ```
 
 The release also carries a `.sha512` sum per binary.
-
-Older releases name the signature `spoc.amd64.bundle` and have no provenance.
 
 ## Software bill of materials
 
@@ -360,18 +441,15 @@ The chart archive attached to the release is signed by the
     --deny-self-hosted-runners
 ```
 
-The chart is also published as an OCI artifact to `registry.k8s.io`, see
-[OCI artifacts on `registry.k8s.io`](#oci-artifacts-on-registryk8sio). Up to
-v1.1.0 it was packaged separately from the release archive, so its digest
-differs and it has the staging provenance of the
-[container images](#container-image) instead, with the builder ID of the
-former prow job, see
-[attestations on registry.k8s.io](release.md#attestations-on-registryk8sio).
+The chart is also published as an OCI artifact to `registry.k8s.io`, which
+holds the same archive, see
+[OCI artifacts on `registry.k8s.io`](#oci-artifacts-on-registryk8sio).
 
 ## OCI artifacts on `registry.k8s.io`
 
-Releases after v1.1.0 publish `spoc` and the Helm chart to `registry.k8s.io`
-too. They are the files of the release page in OCI manifests, see
+A release publishes `spoc` and the Helm chart to `registry.k8s.io` too, with
+exceptions for v1.1.0 and [older releases](#older-releases). They
+are the files of the release page in OCI manifests, see
 [OCI artifacts](release.md#oci-artifacts): every platform manifest of
 `registry.k8s.io/security-profiles-operator/spoc:$VERSION` has the binary as
 its only layer, and the layer of
@@ -402,13 +480,12 @@ example with [oras](https://oras.land):
 > oras pull --platform linux/amd64 registry.k8s.io/security-profiles-operator/spoc:$VERSION
 ```
 
-In the staging registry the provenance is attached as OCI referrer to each
-manifest, and the manifests are signed by the staging build, which also
-attests the SBOMs (`https://spdx.dev/Document`) for them: for `spoc` the
-`spoc.spdx.json` and `spoc-native.spdx.json` of the release page, for the
-chart an SBOM of the chart archive and the files in it. The `spoc` SBOM is a
-few hundred kilobytes, so the second command only prints the names of the
-SBOMs:
+The provenance is also attached as OCI referrer to the `spoc` index and the
+chart manifest, next to the SBOMs (`https://spdx.dev/Document`) the staging
+build attests for them: for `spoc` the `spoc.spdx.json` and
+`spoc-native.spdx.json` of the release page, for the chart an SBOM of the
+chart archive and the files in it. The `spoc` SBOM is a few hundred kilobytes,
+so the second command only prints the names of the SBOMs:
 
 ```console
 > cosign verify-attestation \
@@ -418,21 +495,33 @@ SBOMs:
     --certificate-github-workflow-repository kubernetes-sigs/security-profiles-operator \
     --certificate-github-workflow-ref refs/tags/$VERSION \
     --certificate-github-workflow-trigger release \
-    us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/spoc:$VERSION
+    registry.k8s.io/security-profiles-operator/spoc:$VERSION
 > cosign verify-attestation \
     --type https://spdx.dev/Document \
     --certificate-identity sp-operator-sa@k8s-staging-images.iam.gserviceaccount.com \
     --certificate-oidc-issuer https://accounts.google.com \
-    us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/spoc:$VERSION |
+    registry.k8s.io/security-profiles-operator/spoc:$VERSION |
     jq -r '.payload | @base64d | fromjson | .predicate
       | .name // (."@graph"[]? | select(.type == "SpdxDocument") | .name)'
 ```
 
-The image promoter copies the referrers along to `registry.k8s.io` when it
-promotes the release, see
+The platform manifests of `spoc` only have their referrers in the staging
+registry, `us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/spoc`,
+because the promoter manifest doesn't list them, see
 [attestations on registry.k8s.io](release.md#attestations-on-registryk8sio).
+The GitHub attestation store covers them wherever they are pulled from.
 
 ## Security profiles
+
+The base profiles are published as
+`registry.k8s.io/security-profiles-operator/base/<runtime>:<version>`, for
+`runc` and `crun` and with the runtime version the profile was recorded
+against as the tag, see [base profiles](release-baseprofiles.md). List the
+published versions of a runtime with:
+
+```console
+> crane ls registry.k8s.io/security-profiles-operator/base/runc
+```
 
 `spoc pull` and base profiles referenced with the `oci://` prefix verify the
 signature of a profile by default and fail when it is missing or does not
@@ -461,8 +550,16 @@ official profiles explicitly:
 > spoc pull \
     --allowed-identity-regexp '^(krel-trust@k8s-releng-prod|sp-operator-sa@k8s-staging-images)\.iam\.gserviceaccount\.com$' \
     --allowed-oidc-issuer-regexp '^https://accounts\.google\.com$' \
-    registry.k8s.io/security-profiles-operator/base/runc:v1.5.1
+    registry.k8s.io/security-profiles-operator/base/runc:<version>
 ```
+
+The provenance and the SBOM of a promoted profile verify like the ones of the
+[container image](#container-image), with the build identity and the
+reference of the profile. Only versions that were promoted under the
+provenance policy of this project carry them on `registry.k8s.io`. Earlier
+ones only have the `krel-trust` signature there, and their attestations, if
+the build attested them, in the staging registry while it keeps them.
+`cosign tree` shows what a version carries.
 
 See [the CLI documentation](cli.md#pull-security-profiles-from-oci-registries)
 for pulling from other registries.
@@ -473,9 +570,58 @@ The images in the staging registry carry the full set of attestations, which
 [release.md](release.md#staging-attestations) documents together with the
 commands to verify them.
 
+## Older releases
+
+v1.1.0 and the releases before it predate most of this page:
+
+- Their container images have no GitHub provenance, there is no
+  `images.intoto.jsonl` and `spoc` is not on `registry.k8s.io`.
+- On `registry.k8s.io` they only have the `krel-trust` signature of the image
+  promoter, see [container image](#container-image). The promoter carried no
+  attestations for them, and they have no passed
+  [verification summary](#verification-summaries): their staging provenance
+  names the builder of a former build job, which the provenance policy of
+  this project doesn't trust, see
+  [attestations on registry.k8s.io](release.md#attestations-on-registryk8sio).
+  A cluster policy that requires the summary rejects them.
+- Their staging attestations can be verified by digest in the staging
+  registry, with the commands of [container image](#container-image) and the
+  staging reference
+  `us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator-amd64@$DIGEST`,
+  where `$DIGEST` is what `crane digest` prints for the promoted per-arch
+  image, until the staging registry deletes the images, 90 days after their
+  build.
+- The provenance of the release assets of v1.1.0 was signed by the build jobs
+  themselves. Verify it with the commands of
+  [command line binaries](#command-line-binaries) and
+  [Helm chart](#helm-chart), but with the `build.yml` signer workflow, or for
+  the chart archive with the `helm-chart-package.yaml` one and without
+  `--bundle`.
+- The Helm chart of v1.1.0 on `registry.k8s.io` was packaged separately from
+  the release archive, so its digest differs from the archive and it has the
+  staging provenance of the container images instead.
+- v1.1.0 has no `spoc-native.spdx.json`. The releases before it name the
+  SBOM `spoc.spdx`, with a signature in another format (`spoc.spdx.bundle`,
+  or `spoc.spdx.sig` and `spoc.spdx.cert`) or without any SBOM, so the
+  commands of [software bill of materials](#software-bill-of-materials) don't
+  work for them as they are.
+- Releases before v1.1.0 have no provenance and no Helm chart on
+  `registry.k8s.io`. v1.0.0 and v1.0.1 name the signature of a binary
+  `spoc.amd64.bundle`, v0.10.0 and older ship `spoc.amd64.sig` and
+  `spoc.amd64.cert` instead.
+
 [attestations]: https://docs.github.com/en/actions/concepts/security/artifact-attestations
 [cosign]: https://github.com/sigstore/cosign
+[crane]: https://github.com/google/go-containerregistry/blob/main/cmd/crane/README.md
 [gh]: https://cli.github.com
+[nri]: https://github.com/containerd/nri
+[nri-supply-chain]: https://github.com/saschagrunert/nri-supply-chain
+[nri-supply-chain-deployment]: https://github.com/saschagrunert/nri-supply-chain/blob/main/docs/deployment.md
+[nri-supply-chain-promoted]: https://github.com/saschagrunert/nri-supply-chain/blob/main/docs/policy.md#images-promoted-to-registryk8sio
+[promoter]: https://github.com/kubernetes-sigs/promo-tools/blob/main/docs/image-promotion.md
+[promoter-carry]: https://github.com/kubernetes-sigs/promo-tools/blob/main/docs/image-promotion.md#carrying-staging-attestations
+[promoter-policies]: https://github.com/kubernetes-sigs/promo-tools/blob/main/docs/image-promotion.md#provenance-policies
+[promoter-summaries]: https://github.com/kubernetes-sigs/promo-tools/blob/main/docs/image-promotion.md#verification-summaries
 [releases]: https://github.com/kubernetes-sigs/security-profiles-operator/releases/latest
 [sigstore]: https://www.sigstore.dev
 [slsa]: https://slsa.dev

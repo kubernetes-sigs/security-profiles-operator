@@ -1314,8 +1314,12 @@ and `syscalls-arm64`.
 
 We provide the base profiles of [the examples](../examples) as signed OCI
 artifacts at `registry.k8s.io/security-profiles-operator/base/<runtime>`, tagged
-with the runtime version, for example
-`registry.k8s.io/security-profiles-operator/base/crun:v1.30`.
+with the runtime version they were recorded against.
+`crane ls registry.k8s.io/security-profiles-operator/base/crun` lists the
+published versions, see [base profiles](release-baseprofiles.md) for how they
+are recorded and published and
+[verifying the released artifacts](verification.md#security-profiles) for
+their signatures.
 
 #### Bind workloads to profiles with ProfileBindings
 

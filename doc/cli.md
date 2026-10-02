@@ -36,9 +36,9 @@ Every command, flag and environment variable of `spoc` is listed in the
 generated [command line reference](reference/spoc.md).
 
 `spoc` can be retrieved either by downloading the statically linked binary
-directly from the [available releases][releases], which releases after v1.1.0
-also publish as OCI artifact `registry.k8s.io/security-profiles-operator/spoc`
-(see [verification](verification.md#oci-artifacts-on-registryk8sio)), or by
+directly from the [available releases][releases], which also publish it as
+OCI artifact `registry.k8s.io/security-profiles-operator/spoc` (see
+[verification](verification.md#oci-artifacts-on-registryk8sio)), or by
 running it within the official container images:
 
 ```console
@@ -68,6 +68,9 @@ GLOBAL OPTIONS:
    --help, -h     show help
    --version, -v  print the version
 ```
+
+v1.1.0 and older releases don't publish the OCI artifact, see
+[older releases](verification.md#older-releases).
 
 Every command documents its flags via `spoc <command> --help`. `spoc version`
 prints detailed version information, and `spoc version --json` / `-j` prints it
@@ -253,12 +256,15 @@ should be confined, which is used as the profile name:
 ### Pull security profiles from OCI registries
 
 The `spoc` client is able to pull security profiles from OCI artifact compatible
-registries. To do that, just run `spoc pull`:
+registries. To do that, just run `spoc pull`, here for a
+[base profile](release-baseprofiles.md). Replace `<version>` with one of the
+tags that `crane ls registry.k8s.io/security-profiles-operator/base/runc`
+lists:
 
 ```console
-> spoc pull registry.k8s.io/security-profiles-operator/base/runc:v1.5.1
-16:32:29.795597 Pulling profile from: registry.k8s.io/security-profiles-operator/base/runc:v1.5.1
-16:32:29.795610 Resolving digest of image (image=registry.k8s.io/security-profiles-operator/base/runc:v1.5.1)
+> spoc pull registry.k8s.io/security-profiles-operator/base/runc:<version>
+16:32:29.795597 Pulling profile from: registry.k8s.io/security-profiles-operator/base/runc:<version>
+16:32:29.795610 Resolving digest of image (image=registry.k8s.io/security-profiles-operator/base/runc:<version>)
 16:32:30.106241 Verifying signature (identityRegexp=…, oidcIssuerRegexp=^https://accounts\.google\.com$, …)
 16:32:31.570335 Verified signature (digest=sha256:…, signature=sha256:…, legacy=true)
 16:32:33.208695 Creating file store (dir=/tmp/pull-3199397214)
@@ -409,9 +415,10 @@ from this repository by `make push-test-artifacts`. The staging build pushes
 them to `us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/seccomp-test-profiles`
 and attests them, and they are promoted to
 `registry.k8s.io/security-profiles-operator/seccomp-test-profiles`. The
-digests promoted so far have no attestations: the staging tags now point to
-digests that were pushed again with another manifest, and only those get
-attested, see [staging attestations](release.md#staging-attestations).
+digests that were promoted before the build attested them have no
+attestations: their staging tags point to digests that were pushed again with
+another manifest, and only those get attested, see
+[staging attestations](release.md#staging-attestations).
 
 The recorded base profiles are published by `make push-base-profiles` in the
 runtime format, one artifact per runtime with the recorded runtime version as
@@ -444,14 +451,14 @@ raw runtime-spec seccomp profile in JSON, for example the output of
 specific to the operator (`state`, `baseProfileName` and the listener fields):
 
 ```
-> spoc push -f ./profile.json registry.k8s.io/security-profiles-operator/base/runc:v1.5.1
+> spoc push -f ./profile.json registry.example.com/profiles/runc:<version>
 ```
 
 The media type is set on the manifest config as well as on `artifactType`, and
 the single layer is not platform qualified:
 
 ```
-> skopeo inspect --raw docker://registry.k8s.io/security-profiles-operator/base/runc:v1.5.1 | jq .
+> skopeo inspect --raw docker://registry.example.com/profiles/runc:<version> | jq .
 {
   "schemaVersion": 2,
   "mediaType": "application/vnd.oci.image.manifest.v1+json",

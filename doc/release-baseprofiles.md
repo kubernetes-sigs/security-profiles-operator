@@ -101,7 +101,12 @@ changing needs `SKIP_EXISTING=false` to reach the registry.
 
 Staging is where the tests read from, `registry.k8s.io` is where clusters read
 from, and content moves between them through a promotion pull request against
-[kubernetes/k8s.io](https://github.com/kubernetes/k8s.io):
+[kubernetes/k8s.io](https://github.com/kubernetes/k8s.io). Use the latest
+release of
+[`kpromo`](https://github.com/kubernetes-sigs/promo-tools#installation) to
+create it, see
+[creating promotion pull requests](https://github.com/kubernetes-sigs/promo-tools/blob/main/docs/promotion-pull-requests.md)
+for its setup:
 
 ```console
 > kpromo pr --project sp-operator \
@@ -117,22 +122,24 @@ Promote the versioned tag only. Tags in `registry.k8s.io` cannot be repointed,
 so a promoted `latest` would be frozen at whatever it pointed to first, and
 content re-recorded under a version that was already promoted needs a new tag.
 
-`kpromo` up to v4.6.0 fails with `invalid checksum` when git writes the index
-without checksum, which `index.skipHash` (enabled by `feature.manyFiles`) does.
-Run it with the setting turned off:
+The image promoter copies the profile by digest, signs it as `krel-trust` and
+carries the signature, provenance and SBOM of the staging build along, when
+they satisfy the provenance policy of this project, see
+[attestations on registry.k8s.io](release.md#attestations-on-registryk8sio).
+Once the promotion pull request is merged, check what the promoted version
+carries:
 
 ```console
-> GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=index.skipHash GIT_CONFIG_VALUE_0=false \
-    kpromo pr --project sp-operator \
-    --staging-repo us-central1-docker.pkg.dev/k8s-staging-images/sp-operator \
-    --image base/<runtime> --tag <version>
+> cosign tree registry.k8s.io/security-profiles-operator/base/<runtime>:<version>
 ```
 
 ## Verifying
 
-Both registries are anonymously readable:
+Both registries are anonymously readable. List the published versions of a
+runtime, then pull one:
 
 ```console
+> crane ls registry.k8s.io/security-profiles-operator/base/<runtime>
 > spoc pull -o /tmp/profile.json registry.k8s.io/security-profiles-operator/base/<runtime>:<version>
 > curl -fsSL -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
     https://us-central1-docker.pkg.dev/v2/k8s-staging-images/sp-operator/base/<runtime>/manifests/latest
@@ -157,11 +164,15 @@ other signer regexps, see
 The recorded version of each runtime also gets SLSA build provenance and an
 SBOM, even when it was published before the build attested anything, see
 [staging attestations](release.md#staging-attestations). Older versions keep
-what they have. The promoted digests of `base/runc:v1.5.1` and
-`base/crun:v1.29.1` have no attestations: the staging build pushed these
-versions again with another manifest, so their staging tags point to other
-digests, and those only have a signature, because they are no longer the
-recorded versions.
+what they have. The first versions on `registry.k8s.io` were promoted before
+the build attested anything and have no attestations: the staging build
+pushed these versions again with another manifest, so their staging tags
+point to other digests, and those only have a signature, because they are no
+longer the recorded versions. A version carries its provenance and SBOM on
+`registry.k8s.io` too when it was promoted under the provenance policy of
+this project. Versions promoted before the policy only have the `krel-trust`
+signature there, even if staging has their attestations, see
+[verifying security profiles](verification.md#security-profiles).
 
 Versions that are already published but have no signature of the build
 account, for example because they were pushed with `SIGN=false`, are signed
