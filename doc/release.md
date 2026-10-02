@@ -103,12 +103,26 @@ with the current time, so re-running all jobs packages another archive, which
 the `helm-chart-package` workflow does not upload because the release keeps
 the assets of the first run.
 
+The [`image-reproducible`](../.github/workflows/image-reproducible.yml)
+workflow builds the per-arch images of the tagged commit once more and
+attaches their SLSA build provenance (`images.intoto.jsonl`) to the release,
+see [per-arch images](#per-arch-images). Verify that it is present too. If a
+job of it fails, re-run the failed jobs, the release keeps the provenance of
+the first run.
+
 The pushed tag triggers the `post-security-profiles-operator-push-release-artifacts`
 post submit job in prow ([`cloudbuild-release.yaml`](../cloudbuild-release.yaml)),
 which waits up to two hours for these release assets and publishes the `spoc`
 binaries and the Helm chart from them to the staging registry, as
 `us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/spoc:vx.y.z` and
 `us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/charts/security-profiles-operator:x.y.z`.
+After that, it waits up to 45 more minutes for the provenance of the
+per-arch images, attaches it to the staging images of the tagged commit, and
+fails if their digests are not the attested ones, see
+[per-arch images](#per-arch-images). A late or failed `image-reproducible`
+workflow only fails the job at the end, after `spoc` and the chart are
+published, and running the job again once the provenance is on the release
+attaches it.
 If the job timed out because the release was created too late, run it again
 from [prow](https://prow.k8s.io/?job=post-security-profiles-operator-push-release-artifacts).
 
@@ -138,6 +152,25 @@ is tagged with the version without the `v` prefix. `--staging-repo` is
 required, without it `kpromo` looks for the images in
 `gcr.io/k8s-staging-sp-operator`, which is not where the staging build and
 the release artifacts job push them.
+
+Before merging the promotion PR, check that it promotes the attested per-arch
+images: the digests of `security-profiles-operator-amd64`, `-arm64` and
+`-ppc64le` in it, and the platforms of the `security-profiles-operator`
+manifest list digest in it, have to be the subjects of `images.intoto.jsonl`:
+
+```console
+> gh release download vx.y.z -R kubernetes-sigs/security-profiles-operator -p images.intoto.jsonl
+> jq -r '.dsseEnvelope.payload | @base64d | fromjson | .subject[] | "\(.name) sha256:\(.digest.sha256)"' images.intoto.jsonl
+> crane manifest us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator@<digest of the manifest list in the PR> |
+    jq -r '.manifests[] | "\(.platform.architecture) \(.digest)"'
+```
+
+The release artifacts job checked the `vx.y.z` staging tags when it ran, but
+`kpromo pr` reads them later. A commit merged in between, before the
+back-to-dev PR, moves them to images that only have the provenance of Cloud
+Build, which still passes the policy, at level 1. So keep the
+`tide/merge-blocker` label of the release issue until the promotion PR is
+merged.
 
 Promote within 90 days. The staging registry deletes images 90 days after
 their push: the container images were pushed by the build of the release
@@ -216,6 +249,69 @@ PR](https://github.com/k8s-operatorhub/community-operators/pull/1672).
 The last step about the release creation is to send a release announcement to
 the [#security-profiles-operator Slack channel](https://kubernetes.slack.com/messages/security-profiles-operator).
 
+## Per-arch images
+
+The per-arch images are built on Cloud Build, which only reaches SLSA Build
+L1, see [staging attestations](#staging-attestations). They are reproducible
+though, so the GitHub workflows of a release build them once more and attest
+their digests with the SLSA Build L3 provenance of `spoc` and the chart:
+
+- Publishing the release runs the
+  [`image-reproducible`](../.github/workflows/image-reproducible.yml) workflow
+  for the tag. Its build job holds no OIDC token and no write access. It runs
+  `PUSH=false hack/image-cross.sh` for the tagged commit, which pushes
+  nothing, and passes the manifest digests of the per-arch images to the
+  isolated [`provenance`](../.github/workflows/provenance.yml) workflow as
+  subjects named after their repositories, for example
+  `security-profiles-operator-amd64`. A job that runs no repository code
+  attaches the provenance to the release as `images.intoto.jsonl`, and never
+  replaces the one of a first run.
+- The `post-security-profiles-operator-push-release-artifacts` job verifies
+  `images.intoto.jsonl` like the provenance of `spoc` and the chart, for the
+  `image-reproducible.yml` workflow of the tag and the tagged commit, on a
+  GitHub hosted runner. It looks up the staging images Cloud Build pushed for
+  the tagged commit, by the tags `vYYYYMMDD-<git describe>`, which end with
+  `-g<abbreviated commit>`, or are `vYYYYMMDD-vx.y.z` when the build ran after
+  the tag was pushed, and by the `vx.y.z` tag that `kpromo pr` promotes. The
+  job fails unless every per-arch image with these tags and every platform
+  manifest of the manifest lists with these tags has the attested digest of
+  its architecture, and the provenance attests no other images. So a commit
+  merged after the version bump, which moves the `vx.y.z` tags, fails the
+  job, like Cloud Build images that are not reproducible would.
+- Then it attaches the provenance bundle as OCI referrer to each per-arch
+  digest, in the per-arch repository, which the image promoter carries the
+  attestations of to `registry.k8s.io`, and in the repository of the manifest
+  list, where the promoter verifies the platform manifests. A rerun adds
+  nothing. The images are neither pushed nor signed again, and the manifest
+  list gets no provenance of its own: the promoter verifies a manifest list
+  without build provenance through its platform manifests, at the lowest of
+  their levels, while provenance about the manifest list would have to pass
+  the policy on its own.
+- Last, the job verifies that every per-arch digest carries the provenance in
+  both repositories, signed by the `provenance.yml` workflow of the tag. This
+  needs no signing, so it runs with `SIGN=false` too.
+
+The job publishes `spoc` and the chart before it waits for
+`images.intoto.jsonl`, for up to 45 minutes (`IMAGE_WAIT_TIMEOUT`), so the
+image workflow can't hold them back. If it is late or failed, re-run its
+failed jobs and then the release artifacts job from prow. If the job fails
+because the staging digests are not the attested ones, either cut a new patch
+release, or promote anyway and accept that the container images of this
+release only have the L1 provenance of Cloud Build. `spoc` and the chart are
+not affected either way.
+
+Every per-arch digest of a release then has two SLSA provenances: the one of
+Cloud Build, signed as `sp-operator-sa@k8s-staging-images`, whose builder ID
+stays at level 1, and the GitHub one at level 3. With the GitHub builder bound
+to its signer in the policy, see [OCI artifacts](#oci-artifacts), each passes
+at its own level, and the image promoter reports the highest level of the
+provenances of a digest that pass the policy
+([kubernetes-sigs/promo-tools#2009](https://github.com/kubernetes-sigs/promo-tools/pull/2009)),
+so the per-arch images, their platform manifests and so the manifest list of
+a release verify at level 3. No release has carried this
+provenance yet, see [verification.md](verification.md#github-provenance-of-the-container-images)
+for the commands.
+
 ## OCI artifacts
 
 Releases publish the `spoc` binaries and the Helm chart to `registry.k8s.io`
@@ -291,9 +387,8 @@ builder names the signer exactly as written in `signers`. The staging build
 identity may then only claim the Cloud Build builder, which names no signers,
 and the GitHub identity only the GitHub builder. So what the staging build
 attests verifies at level 1, and `spoc` and the released chart at level 3.
-The promoter reports the level of the first provenance of a digest that
-passes the policy, not the highest one, which matters once a digest carries
-provenance of both builders. With `predicateTypes: [https://spdx.dev/Document]`
+When a digest carries provenance of both builders, the promoter reports the
+highest level that passes. With `predicateTypes: [https://spdx.dev/Document]`
 the policy also requires an SBOM of one of the signers, which the staging
 build and the release artifacts job attest as
 `sp-operator-sa@k8s-staging-images` for every artifact they publish.
@@ -320,6 +415,10 @@ provenance of the GitHub release ("GitHub" below), see
 | `charts/security-profiles-operator` (releases)     | yes       | GitHub     | yes  |                         |                              |
 | `spoc` (index and platform manifests)              | yes       | GitHub     | yes  |                         |                              |
 | `base/*` and `seccomp-test-profiles`               | yes       | yes        | yes  |                         |                              |
+
+The per-arch images of a release, and the platform images of its manifest
+list, also get the GitHub provenance of the release, see
+[per-arch images](#per-arch-images).
 
 Profiles that are already published are not pushed again, but get
 their signature, provenance and SBOM from the next build when the build

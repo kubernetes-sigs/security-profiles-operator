@@ -23,7 +23,7 @@ for the chart archive with the `helm-chart-package.yaml` one and without
 
 | Artifact | Signature | Provenance | SBOM |
 | -------- | --------- | ---------- | ---- |
-| Container images on `registry.k8s.io` | yes, as `krel-trust` | in staging, by digest | in staging, by digest |
+| Container images on `registry.k8s.io` | yes, as `krel-trust` | in staging, by digest; [GitHub](#github-provenance-of-the-container-images), by digest, after v1.1.0 | in staging, by digest |
 | `spoc` binaries | yes | yes | `spoc.spdx.json`, `spoc-native.spdx.json` |
 | `spoc.spdx.json`, `spoc-native.spdx.json` | yes | yes | |
 | Helm chart archive on the release page | yes | yes | |
@@ -75,9 +75,10 @@ use that cache, so only the provenance of releases makes the L3 claim.
 
 The container images, the operator bundle and catalog, the Helm chart on
 `registry.k8s.io` up to v1.1.0 and the security profiles are built on Cloud
-Build and meet SLSA Build L1 only. Their provenance is generated and signed by the build
-itself, with the same service account as the build steps, so the build steps
-could forge it. Its `runDetails.builder.id` therefore names the Cloud Build
+Build and meet SLSA Build L1 only, apart from the per-arch images of releases,
+see below. Their provenance is generated and signed by the build itself,
+with the same service account as the build steps, so the build steps could
+forge it. Its `runDetails.builder.id` therefore names the Cloud Build
 configuration and service account of the staging project, not Google's build
 platform, and its `buildType` points to the documentation of the built commit.
 The build toolchain they compile with, `quay.io/security-profiles-operator/build`,
@@ -95,13 +96,16 @@ clamps the file times in the layers to it. The
 [`image-reproducible`](../.github/workflows/image-reproducible.yml) workflow
 builds them again on GitHub Actions for every push to `main`, without pushing
 anything, and fails if their digests differ from the staging images Cloud
-Build pushed for the commit. This doesn't change their build level: the
-provenance of the images is still the one from Cloud Build, it lists the
-BuildKit image as a dependency. Images built before the BuildKit image was
-pinned are not reproducible. To rebuild the images of a commit yourself and
-compare them with its staging images, with docker and buildx on a
-`linux/amd64` machine, like Cloud Build and GitHub Actions (the build image
-is only published for it):
+Build pushed for the commit. This doesn't change the build level of the
+provenance from Cloud Build, which lists the BuildKit image as a dependency
+and stays at L1. For a release, the same workflow builds the per-arch images
+of the tagged commit and has their digests attested like `spoc`, which gives
+the per-arch images of releases after v1.1.0 SLSA Build L3 provenance as well,
+see [GitHub provenance of the container images](#github-provenance-of-the-container-images).
+Images built before the BuildKit image was pinned are not reproducible. To
+rebuild the images of a commit yourself and compare them with its staging
+images, with docker and buildx on a `linux/amd64` machine, like Cloud Build
+and GitHub Actions (the build image is only published for it):
 
 ```console
 > git checkout $COMMIT
@@ -109,6 +113,57 @@ is only published for it):
 > cat build/image-digests
 > STAGING_WAIT=0 hack/ci/compare-staging-images.sh
 ```
+
+## GitHub provenance of the container images
+
+Releases after v1.1.0 attest their per-architecture images on GitHub too, no
+such release exists yet. The
+[`image-reproducible`](../.github/workflows/image-reproducible.yml) workflow
+of the release builds them from the tagged commit, and the isolated
+[`provenance`](../.github/workflows/provenance.yml) workflow attests their
+digests with SLSA Build L3 provenance, the `images.intoto.jsonl` asset of the
+release. The images are reproducible, so these are the digests Cloud Build
+pushed to staging, which get promoted: the release artifacts job fails
+otherwise, see [per-arch images](release.md#per-arch-images). Verify the
+per-arch image of your architecture with the GitHub attestation store, or with
+`--bundle images.intoto.jsonl` from the release page:
+
+```console
+> gh attestation verify oci://registry.k8s.io/security-profiles-operator/security-profiles-operator-amd64:$VERSION \
+    --repo kubernetes-sigs/security-profiles-operator \
+    --signer-workflow kubernetes-sigs/security-profiles-operator/.github/workflows/provenance.yml \
+    --source-ref refs/tags/$VERSION \
+    --deny-self-hosted-runners
+```
+
+The manifest list is no subject, but its platform images are the per-arch
+images, with the same digests, so
+`oci://registry.k8s.io/security-profiles-operator/security-profiles-operator@$DIGEST`
+verifies as well, with the digest of the per-arch image:
+
+```console
+> DIGEST=$(crane digest registry.k8s.io/security-profiles-operator/security-profiles-operator-amd64:$VERSION)
+```
+
+The provenance is also attached as OCI referrer to each per-arch image in the
+staging registry, in its own repository and in the one of the manifest list.
+cosign verifies it with the GitHub identity, and the provenance names the
+workflow that built the images:
+
+```console
+> cosign verify-attestation \
+    --type https://slsa.dev/provenance/v1 \
+    --certificate-identity https://github.com/kubernetes-sigs/security-profiles-operator/.github/workflows/provenance.yml@refs/tags/$VERSION \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+    us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator-amd64@$DIGEST |
+    jq -r '.payload | @base64d | fromjson | .predicate.buildDefinition.externalParameters.workflow.path'
+```
+
+It prints `.github/workflows/image-reproducible.yml`. Once the image promoter
+carries attestations, the same command works for the per-arch images on
+`registry.k8s.io`, see
+[attestations on registry.k8s.io](release.md#attestations-on-registryk8sio).
+The Cloud Build provenance of the images stays next to it, at L1.
 
 ## Container image
 

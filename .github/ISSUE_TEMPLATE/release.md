@@ -20,7 +20,9 @@ None
 - [ ] Verify [`post-security-profiles-operator-push-image` prow job](https://prow.k8s.io/?job=post-security-profiles-operator-push-image) succeeds
 - [ ] Tag the release with `./hack/tag-release.sh` and push the tag
 - [ ] Create the GitHub release as pre-release with auto-generated release notes (use the template below)
+- [ ] Verify that the [`image-reproducible` workflow](https://github.com/kubernetes-sigs/security-profiles-operator/actions/workflows/image-reproducible.yml) of the release succeeds and attaches `images.intoto.jsonl`
 - [ ] Verify [`post-security-profiles-operator-push-release-artifacts` prow job](https://prow.k8s.io/?job=post-security-profiles-operator-push-release-artifacts) succeeds
+- [ ] Before merging the image promotion PR, check that its per-arch image digests are the subjects of `images.intoto.jsonl`, and keep the `tide/merge-blocker` label until it is merged, see [`doc/release.md`](https://github.com/kubernetes-sigs/security-profiles-operator/blob/main/doc/release.md)
 - [ ] Create and merge image promotion PR in [k8s.io](https://github.com/kubernetes/k8s.io) via `kpromo pr --staging-repo us-central1-docker.pkg.dev/k8s-staging-images/sp-operator`, within 90 days of the version bump, see [`doc/release.md`](https://github.com/kubernetes-sigs/security-profiles-operator/blob/main/doc/release.md)
 - [ ] Once the provenance policy is in place, check that the promoter carried the attestations and wrote the verification summaries on `registry.k8s.io`, see [`doc/release.md`](https://github.com/kubernetes-sigs/security-profiles-operator/blob/main/doc/release.md)
 - [ ] Set the GitHub release as latest release, and verify that the `spoc-reproducible` workflow succeeds
