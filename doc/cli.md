@@ -42,7 +42,7 @@ OCI artifact `registry.k8s.io/security-profiles-operator/spoc` (see
 running it within the official container images:
 
 ```console
-> podman run -it registry.k8s.io/security-profiles-operator/security-profiles-operator:v1.1.0 spoc
+> podman run -it registry.k8s.io/security-profiles-operator/security-profiles-operator:v1.1.1 spoc
 NAME:
    spoc - Security Profiles Operator CLI
 
@@ -50,7 +50,7 @@ USAGE:
    spoc [global options] command [command options]
 
 VERSION:
-   v1.1.0
+   v1.1.1
 
 COMMANDS:
    version, v  display detailed version information

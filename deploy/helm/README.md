@@ -1,6 +1,6 @@
 # security-profiles-operator
 
-![Version: 1.1.1-dev](https://img.shields.io/badge/Version-1.1.1--dev-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 1.1.1-dev](https://img.shields.io/badge/AppVersion-1.1.1--dev-informational?style=flat-square)
+![Version: 1.1.1](https://img.shields.io/badge/Version-1.1.1-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 1.1.1](https://img.shields.io/badge/AppVersion-1.1.1-informational?style=flat-square)
 
 The Kubernetes Security Profiles Operator.
 
@@ -50,10 +50,10 @@ please refer to [Installation Guide](https://github.com/kubernetes-sigs/security
 | selinuxdImage.{default,el8,el9,fedora}.repository | string | `"security-profiles-operator/selinuxd"`, `"security-profiles-operator/selinuxd-el8"`, ... | the repository for the selinuxd images |
 | selinuxdImage.{default,el8,el9,fedora}.tag | string | `"latest"` | tag for the selinuxd images, only used when the digest is empty |
 | selinuxdImage.{default,el8,el9,fedora}.digest | string | the digest of the current `latest` tag | digest of the selinuxd images, set to `""` to use the tag |
-| spoImage.pullPolicy | string | `"Always"` | pull policy for spoImage |
-| spoImage.registry | string | `"us-central1-docker.pkg.dev"` | the registry for the spoImage |
-| spoImage.repository | string | `"k8s-staging-images/sp-operator/security-profiles-operator"` | the repository for the spoImage |
-| spoImage.tag | string | `"latest"` | tag for spoImage |
+| spoImage.pullPolicy | string | `"IfNotPresent"` | pull policy for spoImage |
+| spoImage.registry | string | `"registry.k8s.io"` | the registry for the spoImage |
+| spoImage.repository | string | `"security-profiles-operator/security-profiles-operator"` | the repository for the spoImage |
+| spoImage.tag | string | `"v1.1.1"` | tag for spoImage |
 | tolerations | list | `[]` | a list of pod tolerations rules |
 | topologySpreadConstraints | list | `ScheduleAnyway` spread with `maxSkew: 1` across `kubernetes.io/hostname` and `topology.kubernetes.io/zone` | topology spread constraints of the operator pods; constraints without `labelSelector` get the selector labels of the operator pods |
 | verbosity | int | `0` | the log level for the spo |

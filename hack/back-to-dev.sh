@@ -62,9 +62,6 @@ sed_i 's;containerImage: registry.k8s.io/security-profiles-operator/security-pro
 sed_i "s;registry.k8s.io/security-profiles-operator/security-profiles-operator-catalog.*;us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator-catalog:latest;g" \
     examples/olm/install-resources.yaml
 
-sed_i "s;image: registry.k8s.io/security-profiles-operator/security-profiles-operator.*;image: image-registry.openshift-image-registry.svc:5000/openshift/security-profiles-operator:latest;g" \
-    deploy/openshift-dev.yaml
-
 sed_i "s/$VERSION_RE/$DEV_VERSION/g" \
     dependencies.yaml \
     deploy/catalog-preamble.json \
@@ -109,5 +106,13 @@ sed_i \
     -e 's;tag: v'"$VERSION"';tag: latest;g' \
     -e 's;pullPolicy: IfNotPresent;pullPolicy: Always;g' \
     deploy/helm/values.yaml
+
+# The Helm chart README documents the same defaults
+sed_i \
+    -e 's;^\(| spoImage.pullPolicy | string | `\)"IfNotPresent";\1"Always";' \
+    -e 's;^\(| spoImage.registry | string | `\)"registry.k8s.io";\1"us-central1-docker.pkg.dev";' \
+    -e 's;^\(| spoImage.repository | string | `\)"security-profiles-operator/security-profiles-operator";\1"k8s-staging-images/sp-operator/security-profiles-operator";' \
+    -e 's;^\(| spoImage.tag | string | `\)"v[^"]*";\1"latest";' \
+    deploy/helm/README.md
 
 echo "Done. Commit the changes to a new branch and create a PR from it"

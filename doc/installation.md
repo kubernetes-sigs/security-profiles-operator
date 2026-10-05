@@ -52,7 +52,7 @@ cert-manager. After this step, apply the operator manifest of the desired
 release:
 
 ```sh
-$ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/v1.1.0/deploy/operator.yaml
+$ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/v1.1.1/deploy/operator.yaml
 ```
 
 The manifests on the `main` branch reference the development images from the
@@ -109,7 +109,7 @@ and after every commit to the `main` branch. Provided that your cluster uses OLM
 (see above) you can install a released version using:
 
 ```sh
-$ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/v1.1.0/examples/olm/install-resources.yaml
+$ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/v1.1.1/examples/olm/install-resources.yaml
 ```
 
 The same file on the `main` branch installs the latest development catalog from
@@ -119,7 +119,7 @@ Note that on OpenShift, the OLM catalogs are deployed into the `openshift-market
 need to replace the namespaces before deploying:
 
 ```shell
-manifest=https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/v1.1.0/examples/olm/install-resources.yaml
+manifest=https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/v1.1.1/examples/olm/install-resources.yaml
 $ curl $manifest | sed "s#olm#openshift-marketplace#g" | oc apply -f -
 ```
 
@@ -271,7 +271,7 @@ For installations from the release manifests, apply the manifest of the new
 release, for example:
 
 ```sh
-kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/v1.1.0/deploy/operator.yaml
+kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/v1.1.1/deploy/operator.yaml
 ```
 
 For Helm installations, apply the CRDs of the new release before upgrading the
@@ -519,7 +519,7 @@ operator deployment to run in a single namespace, use the
 ```sh
 NAMESPACE=<your-namespace>
 
-curl https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/v1.1.0/deploy/namespace-operator.yaml | sed "s/NS_REPLACE/$NAMESPACE/g" | kubectl apply -f -
+curl https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/v1.1.1/deploy/namespace-operator.yaml | sed "s/NS_REPLACE/$NAMESPACE/g" | kubectl apply -f -
 ```
 
 #### Restricting to a Single Namespace when installing using OLM
