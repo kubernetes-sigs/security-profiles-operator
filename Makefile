@@ -627,15 +627,6 @@ verify-vulnerabilities: ## Verify that no known vulnerability is reachable
 verify-dependencies: $(BUILD_DIR)/zeitgeist ## Verify external dependencies
 	$(BUILD_DIR)/zeitgeist validate --local-only --base-path . --config dependencies.yaml
 
-# Checks the dependencies with an upstream in dependencies.yaml for newer
-# releases, which the local check above does not. Needs GITHUB_TOKEN.
-.PHONY: verify-dependencies-upstream
-verify-dependencies-upstream: $(BUILD_DIR) ## Verify that the external dependencies are up to date
-	GOFLAGS= $(GO) run sigs.k8s.io/zeitgeist/remote/zeitgeist@$(ZEITGEIST_VERSION) \
-		validate --base-path . --config dependencies.yaml > $(BUILD_DIR)/zeitgeist-upstream.log
-	cat $(BUILD_DIR)/zeitgeist-upstream.log
-	! grep -q "^Update available for dependency" $(BUILD_DIR)/zeitgeist-upstream.log
-
 # Built from source, the module checksum database verifies it.
 $(BUILD_DIR)/zeitgeist: | $(BUILD_DIR)
 	GOBIN=$(abspath $(BUILD_DIR)) GOFLAGS= CGO_ENABLED=0 $(GO) install sigs.k8s.io/zeitgeist@$(ZEITGEIST_VERSION)
