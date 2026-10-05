@@ -45,7 +45,7 @@ function build_and_push_packages() {
 
   # Create a manifest with local image
   cp deploy/operator.yaml "${OPERATOR_MANIFEST}"
-  sed -i "s#us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator.*\$#${IMG}#" "${OPERATOR_MANIFEST}"
+  sed -i "s#image: us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator.*\$#image: ${IMG}#" "${OPERATOR_MANIFEST}"
   grep "${IMG}" "${OPERATOR_MANIFEST}" || exit 1
 
   # this is a kludge, we need to make sure kustomize can be overwritten
