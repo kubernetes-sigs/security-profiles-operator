@@ -936,17 +936,6 @@ dependencies:
       - path: Makefile
         match: "^KUBECONFORM_VERSION"
 
-  - name: typos
-    version: v1.50.2
-    upstream:
-      flavour: github
-      url: crate-ci/typos
-    refPaths:
-      - path: .github/workflows/test.yml
-        match: crate-ci/typos
-      - path: .pre-commit-config.yaml
-        match: "frozen: v1\\.50"
-
   - name: kube-linter
     version: v0.8.3
     upstream:
