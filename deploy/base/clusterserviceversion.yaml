@@ -6,7 +6,7 @@ metadata:
     alm-examples: '[]'
     capabilities: Basic Install
     categories: Security
-    containerImage: us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator:latest
+    containerImage: registry.k8s.io/security-profiles-operator/security-profiles-operator:v1.1.1
     olm.skipRange: '>=1.0.0 <1.1.1-dev'
     operatorframework.io/suggested-namespace: security-profiles-operator
     operators.openshift.io/valid-subscription: '["OpenShift Kubernetes Engine", "OpenShift Container Platform", "OpenShift Platform Plus"]'
@@ -96,5 +96,5 @@ spec:
   provider:
     name: Kubernetes SIGs
     url: https://github.com/kubernetes-sigs
-  replaces: security-profiles-operator.v1.0.0
+  replaces: security-profiles-operator.v1.1.0
   version: 0.0.0

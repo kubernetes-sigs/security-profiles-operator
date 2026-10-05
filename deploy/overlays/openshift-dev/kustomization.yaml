@@ -7,7 +7,11 @@ sortOptions:
   order: legacy
 
 images:
+# The staging image on main and the released one on release commits.
 - name: us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator
+  newName: image-registry.openshift-image-registry.svc:5000/openshift/security-profiles-operator
+  newTag: latest
+- name: registry.k8s.io/security-profiles-operator/security-profiles-operator
   newName: image-registry.openshift-image-registry.svc:5000/openshift/security-profiles-operator
   newTag: latest
 resources:

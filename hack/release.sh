@@ -73,6 +73,15 @@ sed_i 's;repository: k8s-staging-images/sp-operator/security-profiles-operator;r
 sed_i '0,/tag: latest/{s;tag: latest;tag: v'"$VERSION"';}' $FILE
 sed_i 's;pullPolicy: Always;pullPolicy: IfNotPresent;g' $FILE
 
+# The Helm chart README documents the same defaults
+FILE=deploy/helm/README.md
+sed_i \
+    -e 's;^\(| spoImage.pullPolicy | string | `\)"Always";\1"IfNotPresent";' \
+    -e 's;^\(| spoImage.registry | string | `\)"us-central1-docker.pkg.dev";\1"registry.k8s.io";' \
+    -e 's;^\(| spoImage.repository | string | `\)"k8s-staging-images/sp-operator/security-profiles-operator";\1"security-profiles-operator/security-profiles-operator";' \
+    -e 's;^\(| spoImage.tag | string | `\)"latest";\1"v'"$VERSION"'";' \
+    $FILE
+
 # Update dependencies.yaml
 PREVIOUS_VERSION_RE="${PREVIOUS_VERSION//./\\.}"
 FILES=(

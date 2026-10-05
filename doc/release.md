@@ -92,7 +92,8 @@ The script basically:
 - changes the image of the webhook overlay
   [./deploy/overlays/webhook/kustomization.yaml](../deploy/overlays/webhook/kustomization.yaml)
   and the image, tag and pull policy in the Helm chart
-  [values](../deploy/helm/values.yaml) in the same way
+  [values](../deploy/helm/values.yaml) and its [README](../deploy/helm/README.md)
+  in the same way
 - changes [`hack/ci/e2e-olm.sh`](/hack/ci/e2e-olm.sh) and the e2e tests to
   use the released images from `registry.k8s.io` instead of the staging ones,
   for example `registry.k8s.io/security-profiles-operator/security-profiles-operator-catalog:vx.y.z`
