@@ -39,7 +39,6 @@ import (
 	"sigs.k8s.io/release-utils/helpers"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
-	spoutil "sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 const (
@@ -791,13 +790,13 @@ const (
 )
 
 func (e *e2e) runAndRetryPodCMD(podCMD string) string {
-	maxTries := 0
 	// Sometimes the metrics command does not output anything in CI, or its
 	// TLS connection fails. We fix that by retrying the metrics retrieval
-	// several times, since curl does not retry TLS errors itself.
+	// until podCommandTimeout passes, since curl does not retry TLS errors
+	// itself.
 	var output string
 
-	if err := spoutil.Retry(func() error {
+	e.eventually(podCommandTimeout, defaultPollInterval, func() error {
 		letters := []rune("abcdefghijklmnopqrstuvwxyz")
 		b := make([]rune, 10)
 
@@ -813,6 +812,8 @@ func (e *e2e) runAndRetryPodCMD(podCMD string) string {
 		if err != nil {
 			output = ""
 
+			e.logf("Retrying the pod command: %v", err)
+
 			return fmt.Errorf("running pod command: %w", err)
 		}
 
@@ -822,20 +823,10 @@ func (e *e2e) runAndRetryPodCMD(podCMD string) string {
 
 		output = ""
 
+		e.logf("Retrying the pod command: no output")
+
 		return errors.New("no output from pod command")
-	}, func(err error) bool {
-		e.logf("retry on error: %s", err)
-
-		if maxTries < 3 {
-			maxTries++
-
-			return true
-		}
-
-		return false
-	}); err != nil {
-		e.Failf("unable to run pod command", "error: %s", err)
-	}
+	})
 
 	return output
 }
@@ -882,15 +873,18 @@ func (e *e2e) spodDaemonSetGeneration() string {
 // the spod daemon set and the daemon set is rolled out. The ready condition of
 // the SPOD can still be the one from before the change, so the new daemon set
 // generation tells when the operator got to it. Changes which the daemon set
-// does not reflect leave the generation alone, the wait for it gives up after
-// defaultWaitTime then.
+// does not reflect leave the generation alone, so the wait for it only logs
+// that it gave up after spodGenerationTimeout, and the waits for the SPOD and
+// the rollout below still fail the test if those never finish.
 func (e *e2e) waitForSpodRollout(previousGeneration string) {
-	for start := time.Now(); time.Since(start) < defaultWaitTime; {
-		if e.spodDaemonSetGeneration() != previousGeneration {
-			break
+	if err := poll(spodGenerationTimeout, time.Second, func() error {
+		if generation := e.spodDaemonSetGeneration(); generation == previousGeneration {
+			return fmt.Errorf("spod daemon set still at generation %s", generation)
 		}
 
-		time.Sleep(time.Second)
+		return nil
+	}); err != nil {
+		e.logf("Assuming the SPOD change does not affect the daemon set: %v", err)
 	}
 
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
@@ -1028,8 +1022,7 @@ func (e *e2e) enableJsonEnricherInSpodFileOptions(logPath, enricherFilterJsonStr
 		filepath.Dir(logPath),
 	)
 
-	patchOperatorJson := "patch_operator.json"
-	_ = os.Remove(patchOperatorJson)
+	patchOperatorJson := filepath.Join(e.T().TempDir(), "patch_operator.json")
 
 	patchFile, fileErr := os.OpenFile(patchOperatorJson, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if fileErr != nil {
@@ -1083,8 +1076,6 @@ func (e *e2e) enableJsonEnricherInSpodFileOptions(logPath, enricherFilterJsonStr
 	}
 
 	e.logf("Done waiting for the rollout restart")
-
-	_ = os.Remove(patchOperatorJson)
 
 	e.patchSpod(
 		fmt.Sprintf(`{"spec":{"enricher":{"enableLogEnricher": false,"enableJsonEnricher": true,

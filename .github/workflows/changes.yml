@@ -1,0 +1,29 @@
+name: changes
+# Tells whether a change touches more than the documentation, see
+# hack/ci/code-changed.sh. The build, test, olm and image-reproducible
+# workflows call it as their changes job and skip their other jobs unless the
+# code output is true.
+on:
+  workflow_call:
+    outputs:
+      code:
+        description: Whether the change touches more than the documentation
+        value: ${{ jobs.changes.outputs.code }}
+
+permissions: {}
+
+jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.changes.outputs.code }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - id: changes
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: hack/ci/code-changed.sh

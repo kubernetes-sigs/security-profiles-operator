@@ -173,7 +173,9 @@ prefixed() {
 # account from the metadata server. The token is fetched here rather than
 # passed through the environment of the build step, where any traced command
 # would print it. The credentials go to a temporary DOCKER_CONFIG, which the
-# calling shell and its children use afterwards.
+# calling shell and its children use afterwards. A later login of the same
+# shell replaces the credentials in the same directory, which gets removed
+# when the shell exits, see registry_logout.
 registry_login() {
   local registry="$1" token auth
 
@@ -187,8 +189,15 @@ registry_login() {
 
   # A fresh configuration, an inherited one may name credential helpers that
   # are not installed in this step. Written directly, so that the login needs
-  # neither docker nor crane.
-  DOCKER_CONFIG="$(mktemp -d)"
+  # neither docker nor crane. A shell with an EXIT trap of its own has to call
+  # registry_logout itself.
+  if [[ -z "${REGISTRY_LOGIN_CONFIG:-}" || ! -d "$REGISTRY_LOGIN_CONFIG" ]]; then
+    REGISTRY_LOGIN_CONFIG="$(mktemp -d)" || return 1
+    if [[ -z "$(trap -p EXIT)" ]]; then
+      trap registry_logout EXIT
+    fi
+  fi
+  DOCKER_CONFIG="$REGISTRY_LOGIN_CONFIG"
   export DOCKER_CONFIG
   auth="$(printf 'oauth2accesstoken:%s' "$token" | base64 | tr -d '\n')"
   (
@@ -196,6 +205,27 @@ registry_login() {
     printf '{"auths":{"%s":{"auth":"%s"}}}\n' "$registry" "$auth" >"$DOCKER_CONFIG/config.json"
   )
   echo "Logged in to $registry"
+}
+
+# Removes the credentials of registry_login.
+registry_logout() {
+  if [[ -n "${REGISTRY_LOGIN_CONFIG:-}" ]]; then
+    rm -rf "$REGISTRY_LOGIN_CONFIG"
+    REGISTRY_LOGIN_CONFIG=
+  fi
+}
+
+# Runs a check and prints its result, with what is missing when it fails.
+check() {
+  local what="$1" out
+  shift
+
+  if out="$("$@" 2>&1)"; then
+    echo "ok: $what"
+  else
+    echo "FAILED: $what${out:+ ($(tr '\n' ';' <<<"$out" | sed 's/;$//; s/;/; /g'))}"
+    return 1
+  fi
 }
 
 # Runs a command for each argument in parallel and fails if any run fails.

@@ -20,8 +20,7 @@ package e2e_test
 
 import (
 	"fmt"
-
-	spoutil "sigs.k8s.io/security-profiles-operator/internal/pkg/util"
+	"time"
 )
 
 const (
@@ -60,7 +59,7 @@ func (e *e2e) testCaseSelinuxProfileBinding(image string) {
 
 	expectedPodRef := fmt.Sprintf("%s/%s", namespace, testPodName)
 
-	if err := spoutil.Retry(func() error {
+	e.eventually(statusUpdateTimeout, time.Second, func() error {
 		output = e.kubectl(
 			"get", "profilebinding", selinuxBindingName,
 			"--output", "jsonpath={.status.activeWorkloads[0]}",
@@ -70,13 +69,9 @@ func (e *e2e) testCaseSelinuxProfileBinding(image string) {
 		}
 
 		return nil
-	}, func(err error) bool {
-		return true
-	}); err != nil {
-		e.Fail("failed to find pod reference in binding status")
-	}
+	})
 
-	if err := spoutil.Retry(func() error {
+	e.eventually(statusUpdateTimeout, time.Second, func() error {
 		output = e.kubectl(
 			"get", "profilebinding", selinuxBindingName,
 			"--output", "jsonpath={.metadata.finalizers[0]}",
@@ -86,11 +81,7 @@ func (e *e2e) testCaseSelinuxProfileBinding(image string) {
 		}
 
 		return nil
-	}, func(err error) bool {
-		return true
-	}); err != nil {
-		e.Fail("failed to find finalizer on binding")
-	}
+	})
 
 	e.logf("Testing that profile has pod reference")
 	output = e.kubectl("get", "selinuxprofile", selinuxTestProfileName,

@@ -43,7 +43,7 @@ if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 fi
 VERSION="${TAG#v}"
 
-REGISTRY="${REGISTRY:-us-central1-docker.pkg.dev/k8s-staging-images/sp-operator}"
+REGISTRY="${REGISTRY:-$STAGING_REGISTRY}"
 RELEASE_URL="${RELEASE_URL:-$REPOSITORY_URL/releases/download/$TAG}"
 # The release is created by hand after the tag got pushed, and its workflows
 # take a few minutes.
@@ -562,19 +562,6 @@ publish() {
   done
   sign_unsigned "${refs[@]}"
   printf '%s\n' "${refs[@]}" >"$DIR/$name.refs"
-}
-
-# Runs a check and prints its result, with what is missing when it fails.
-check() {
-  local what="$1" out
-  shift
-
-  if out="$("$@" 2>&1)"; then
-    echo "ok: $what"
-  else
-    echo "FAILED: $what${out:+ ($(tr '\n' ';' <<<"$out" | sed 's/;$//; s/;/; /g'))}"
-    return 1
-  fi
 }
 
 # The cosign signature of the staging build.

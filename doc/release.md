@@ -1,5 +1,16 @@
 # Releasing a new version of the security-profiles-operator
 
+<!-- toc -->
+- [Who does what](#who-does-what)
+- [Release steps](#release-steps)
+- [Per-arch images](#per-arch-images)
+- [OCI artifacts](#oci-artifacts)
+  - [Rehearsing the release artifacts job](#rehearsing-the-release-artifacts-job)
+- [The provenance signer](#the-provenance-signer)
+- [Staging attestations](#staging-attestations)
+  - [Attestations on registry.k8s.io](#attestations-on-registryk8sio)
+<!-- /toc -->
+
 A new security-profiles-operator release is done by overall three Pull
 Requests (PRs): the version bump, the image promotion in
 [kubernetes/k8s.io](https://github.com/kubernetes/k8s.io) and the back-to-dev
@@ -418,6 +429,16 @@ provenances of a digest that pass the policy, so the per-arch images, their
 platform manifests and so the manifest list of a release verify at level 3,
 see [verification.md](verification.md#github-provenance-of-the-container-images)
 for the commands.
+
+The binaries built with nix, the ones of the images and the released `spoc`
+binaries, report `1980-01-01T00:00:00Z` as build date (`spoc version`,
+`security-profiles-operator version`). That is the fixed `SOURCE_DATE_EPOCH`
+of the nixpkgs build environment. The nix derivation
+([`nix/derivation.nix`](../nix/derivation.nix)) only takes the sources the
+build reads, so that a commit which does not change them reuses the cached
+binaries, and the commit time would break that. The version of the binaries
+and the provenance, which names the commit, identify the build instead. The
+image labels carry the commit time, see [`hack/image-cross.sh`](../hack/image-cross.sh).
 
 ## OCI artifacts
 

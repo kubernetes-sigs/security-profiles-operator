@@ -19,9 +19,13 @@ limitations under the License.
 package e2e_test
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -37,7 +41,10 @@ import (
 )
 
 const (
-	certmanager          = "https://github.com/cert-manager/cert-manager/releases/download/v1.21.2/cert-manager.yaml"
+	certmanager = "https://github.com/cert-manager/cert-manager/releases/download/v1.21.2/cert-manager.yaml"
+	// certmanagerSHA256 is the checksum of certmanager, bump it together with
+	// the version, see dependencies.yaml.
+	certmanagerSHA256    = "e03b668ec8675214af6b0a671699d088f2601fa3878e0dbe1b41d3feafd1879f"
 	namespaceManifest    = "deploy/namespace-operator.yaml"
 	testNamespace        = "test-ns"
 	defaultNamespace     = "default"
@@ -49,6 +56,15 @@ const (
 	defaultWaitDuration = 5 * time.Minute
 	// defaultPollInterval is how often the waits done in Go check again.
 	defaultPollInterval = 3 * time.Second
+	// statusUpdateTimeout is how long the controllers get to update the
+	// status or the finalizers of an object after a workload changed.
+	statusUpdateTimeout = time.Minute
+	// podCommandTimeout is how long a command run in a throwaway pod gets
+	// retried until it succeeds.
+	podCommandTimeout = 2 * time.Minute
+	// spodGenerationTimeout is how long a SPOD change gets to show up as a
+	// new generation of the spod daemon set.
+	spodGenerationTimeout = 15 * time.Second
 	// renderedManifestsDir is where the suite writes the manifests it
 	// deploys, so that the tracked ones stay untouched.
 	renderedManifestsDir = "build/e2e-manifests"
@@ -531,7 +547,7 @@ func (e *e2e) testNamespacedOperator(
 
 func doDeployCertManager(e *e2e) {
 	e.logf("Deploying cert-manager")
-	e.kubectl("apply", "-f", certmanager)
+	e.kubectl("apply", "-f", e.downloadVerified(certmanager, certmanagerSHA256))
 
 	// https://cert-manager.io/docs/installation/kubernetes/#verifying-the-installation
 	e.waitFor(
@@ -567,12 +583,11 @@ spec:
     name: test-selfsigned
 `
 
-	file, err := os.CreateTemp("", "test-resource*.yaml")
+	file, err := os.CreateTemp(e.T().TempDir(), "test-resource*.yaml")
 	e.Require().NoError(err)
 	_, err = file.WriteString(certManifest)
 	e.Require().NoError(err)
-
-	defer os.Remove(file.Name())
+	e.Require().NoError(file.Close())
 
 	// The cert-manager webhook takes a while to serve after its pod is ready.
 	e.eventually(defaultWaitDuration, defaultWaitTime, func() error {
@@ -586,6 +601,45 @@ spec:
 		"certificate", "selfsigned-cert",
 		"--namespace", "cert-manager-test",
 	)
+}
+
+// downloadVerified downloads url into the temporary directory of the test and
+// returns the path of the file. It stops the test if the download keeps
+// failing or the content does not have the SHA-256 checksum.
+func (e *e2e) downloadVerified(url, checksum string) string {
+	var content []byte
+
+	// A stalled download is retried instead of blocking the suite.
+	client := &http.Client{Timeout: 30 * time.Second}
+
+	e.requireEventually(time.Minute, defaultPollInterval, func() error {
+		req, err := http.NewRequestWithContext(e.T().Context(), http.MethodGet, url, http.NoBody)
+		if err != nil {
+			return err
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("downloading %s: %s", url, resp.Status)
+		}
+
+		content, err = io.ReadAll(resp.Body)
+
+		return err
+	})
+
+	sum := sha256.Sum256(content)
+	e.Require().Equal(checksum, hex.EncodeToString(sum[:]), "checksum of %s", url)
+
+	path := filepath.Join(e.T().TempDir(), filepath.Base(url))
+	e.Require().NoError(os.WriteFile(path, content, 0o600))
+
+	return path
 }
 
 // renderedManifest returns the path of the copy of the tracked manifest,
@@ -794,10 +848,8 @@ func (e *e2e) writeAndApply(manifest, filePattern string) {
 }
 
 func (e *e2e) writeAndDo(verb, manifest, filePattern string) {
-	file, err := os.CreateTemp("", filePattern)
+	file, err := os.CreateTemp(e.T().TempDir(), filePattern)
 	e.Require().NoError(err)
-
-	defer os.Remove(file.Name())
 
 	_, err = file.WriteString(manifest)
 	e.Require().NoError(err)

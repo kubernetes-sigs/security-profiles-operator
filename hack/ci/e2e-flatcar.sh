@@ -36,9 +36,7 @@ export GOBIN="$GOPATH/bin"
 # Add the binaries to the path
 export PATH="$HOSTFS_DEV_MOUNT_PATH/opt/bin:$PATH"
 
-# Added for faster debugging with lower verbosity
 export KUBECONFIG=$HOSTFS_DEV_MOUNT_PATH/etc/kubernetes/admin.conf
-alias k=kubectl
 
 # Configure git to consider the mounted host filesystem as safe
 git config --global --add safe.directory "/hostfs/vagrant"

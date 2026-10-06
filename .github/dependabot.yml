@@ -23,6 +23,8 @@ updates:
   # The composite actions pin actions of their own.
   directories:
     - "/"
+    - "/.github/actions/e2e-vm"
+    - "/.github/actions/e2e-vm-artifacts"
     - "/.github/actions/setup-nix"
     - "/.github/actions/setup-vagrant"
   schedule:

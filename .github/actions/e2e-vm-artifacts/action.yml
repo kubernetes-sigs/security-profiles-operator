@@ -1,0 +1,42 @@
+name: Collect the e2e VM results
+description: >-
+  Copy the report of the flaky test retries and, when the job failed, the
+  diagnostics out of the Vagrant VM of an e2e job and upload them. Run it with
+  if: always() after the tests, see the e2e-vm action.
+inputs:
+  name:
+    description: The name of the job, the suffix of the artifact names
+    required: true
+  flaky-report:
+    description: Whether the job retries flaky tests, which writes a report
+    default: 'true'
+  job-status:
+    description: The status of the job, pass job.status
+    required: true
+runs:
+  using: composite
+  steps:
+    # The VM only gets the repository synced in, so the reports have to be
+    # copied out. A failed copy must not hide the result of the tests.
+    - name: Copy the flaky test report out of the VM
+      if: always() && inputs.flaky-report == 'true'
+      shell: bash
+      run: hack/ci/copy-from-vm.sh /vagrant/build/junit-flaky-e2e.xml build || echo "Unable to copy the flaky test report"
+    - name: Upload the flaky test report
+      if: always() && inputs.flaky-report == 'true'
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: junit-flaky-${{ inputs.name }}
+        path: build/junit-flaky-e2e.xml
+        if-no-files-found: ignore
+    - name: Copy the diagnostics out of the VM
+      if: always() && inputs.job-status == 'failure'
+      shell: bash
+      run: hack/ci/copy-from-vm.sh /vagrant/build/e2e-artifacts build || echo "Unable to copy the diagnostics"
+    - name: Upload the diagnostics
+      if: always() && inputs.job-status == 'failure'
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: e2e-artifacts-${{ inputs.name }}
+        path: build/e2e-artifacts
+        if-no-files-found: ignore

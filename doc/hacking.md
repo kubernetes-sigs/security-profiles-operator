@@ -3,6 +3,30 @@ This document describes how to build, install and test SPO for development
 purposes. It is not exhaustive - knowledge of how an operator works is
 presumed and PRs are always welcome.
 
+<!-- toc -->
+- [Building SPO locally](#building-spo-locally)
+  - [Other build targets](#other-build-targets)
+- [Verifying changes](#verifying-changes)
+  - [Pre-commit hooks](#pre-commit-hooks)
+- [Submitting a Pull Request (PR)](#submitting-a-pull-request-pr)
+- [Vulnerability checks and assessments](#vulnerability-checks-and-assessments)
+- [Running unit tests and viewing coverage](#running-unit-tests-and-viewing-coverage)
+  - [Integration tests with envtest](#integration-tests-with-envtest)
+  - [Fuzz tests](#fuzz-tests)
+  - [Mocking interfaces with counterfeiter](#mocking-interfaces-with-counterfeiter)
+- [Installing SPO to your cluster from source](#installing-spo-to-your-cluster-from-source)
+  - [Distribution specific instructions: OpenShift](#distribution-specific-instructions-openshift)
+  - [Tearing down your test environment](#tearing-down-your-test-environment)
+- [Running e2e tests](#running-e2e-tests)
+  - [Quarantined test cases](#quarantined-test-cases)
+  - [Failure diagnostics](#failure-diagnostics)
+  - [Running the Ubuntu e2e tests on kubernix](#running-the-ubuntu-e2e-tests-on-kubernix)
+  - [Running the Fedora e2e tests on a local VM](#running-the-fedora-e2e-tests-on-a-local-vm)
+  - [Running the spoc e2e tests](#running-the-spoc-e2e-tests)
+- [Adding support for a new distribution](#adding-support-for-a-new-distribution)
+- [Building the operator image with support for AppArmor](#building-the-operator-image-with-support-for-apparmor)
+<!-- /toc -->
+
 ## Building SPO locally
 Even though SPO is a Kubernetes operator and as such is normally not meant to
 be used locally, but rather deployed in a cluster from pre-built images,
@@ -83,6 +107,12 @@ container build directly.
   `make deployments bundle` afterwards to regenerate the manifests.
   `hack/update-selinuxd.sh --check` only reports moved tags, which the weekly
   dependencies workflow does.
+- `make update-docs` regenerates the command line reference of `spoc` and the
+  operator binary below [`reference/`](reference/) after changing their flags,
+  `make verify-docs` checks that it is up to date.
+- `make update-toc` updates the table of contents of every document with a
+  `<!-- toc -->` marker after changing its headings, `make verify-toc` checks
+  that they are up to date.
 
 `nix develop` opens a shell with the Go toolchain, the C libraries of the
 build and the tools of the Makefile targets (clang and llvm for the BPF
@@ -255,11 +285,13 @@ without `KUBEBUILDER_ASSETS`.
 ### Fuzz tests
 
 The parsers of untrusted input, like the audit log lines, the BPF events, the
-pulled profile artifacts and the profiles which get translated into AppArmor
-and SELinux policies, have fuzz tests. `make test-unit` runs their seed
-corpus. `make test-fuzz` fuzzes each target of `FUZZ_TARGETS` for `FUZZ_TIME`
+pulled profile artifacts, the profiles which get translated into AppArmor
+and SELinux policies, the recording annotations and the exec metadata of the
+webhook, have fuzz tests. `make test-unit` runs their seed corpus.
+`make test-fuzz` fuzzes each target of `FUZZ_TARGETS` for `FUZZ_TIME`
 (default `30s`), one after another, because `go test` fuzzes a single target
-per run:
+per run. `FUZZ_TARGETS` defaults to every `func Fuzz` of the test files below
+`internal`, `cmd` and `api`:
 
 ```shell
 make test-fuzz FUZZ_TIME=2m
@@ -269,8 +301,9 @@ make test-fuzz FUZZ_TARGETS=./internal/pkg/artifact:FuzzReadProfile
 A failing input gets written below `testdata/fuzz/<FuzzName>` of the package.
 Commit it together with the fix, so that it keeps running as regression test.
 The weekly [fuzz workflow](../.github/workflows/fuzz.yml) fuzzes every target
-for five minutes and uploads the failing inputs as artifact. New fuzz tests
-have to be added to `FUZZ_TARGETS` in the Makefile.
+for three minutes and uploads the failing inputs as artifact. New fuzz tests
+get picked up without a Makefile change, lower `FUZZ_TIME` of the workflow if
+the targets no longer fit into its timeout.
 
 ### Mocking interfaces with counterfeiter
 In order to test error paths or just code paths that rely on something that's
@@ -372,36 +405,35 @@ builds the image from `Dockerfile.ubi`, which does not include the eBPF and AppA
 If you modify the code and need to push the images to the cluster again, use the
 `push-openshift-dev` Makefile target. Because the targets use the `ImageStream` feature
 of OpenShift, simply pushing the new images will trigger a new rollout of the deployments
-and DaemonSets.
+and DaemonSets. The push targets verify the TLS certificate of the image registry route. If
+the cluster serves the route with a self-signed certificate, set `REGISTRY_TLS_VERIFY=false`
+to skip the verification with podman, docker reads insecure registries from its daemon
+configuration instead.
 
 To build the SPO image with eBPF enabled, use `make image`, which builds the image with nix and
 makes it available locally at `localhost/security-profiles-operator:latest`. Once built, you can deploy this pre-built 
 image to OpenShift by running `make deploy-prebuilt-openshift-dev`. Subsequently, if you need to push this locally 
 built image to image registry used by OpenShift, execute `make push-prebuilt-image-openshift-dev`.
 
-### Tearing down your test environment
-At the moment, there's no teardown target provided. At the same time, some
-custom resources, notably the policies themselves use finalizers which prevent
-them from being removed if the operator itself is not running anymore. The
-best way to remove the operator is to remove the policies first, followed
-by removing the deployment, see [Uninstalling](troubleshooting.md#uninstalling):
+The fastest build-test loop on an OpenShift cluster is to push the SPO images
+using `make push-openshift-dev` after each change to the SPO code and then
+run the selected [e2e tests](#running-e2e-tests), e.g. to only run SELinux tests:
 ```shell
-kubectl delete sp --all
-kubectl delete selinuxprofiles --all
-kubectl delete rawselinuxprofiles --all
-kubectl delete apparmorprofiles --all
-kubectl delete -f deploy/operator.yaml
+E2E_SPO_IMAGE=image-registry.openshift-image-registry.svc:5000/openshift/security-profiles-operator:latest \
+E2E_CLUSTER_TYPE=openshift \
+E2E_SKIP_BUILD_IMAGES=true \
+E2E_TEST_SECCOMP=false \
+E2E_TEST_BPF_RECORDER=false \
+E2E_TEST_LOG_ENRICHER=false \
+E2E_TEST_SELINUX=true \
+make test-e2e
 ```
 
-On OpenShift, delete the OpenShift specific manifest instead after deleting
-the policies:
-```shell
-oc delete sp --all
-oc delete selinuxprofiles --all
-oc delete rawselinuxprofiles --all
-oc delete apparmorprofiles --all
-oc delete -f deploy/openshift-dev.yaml
-```
+### Tearing down your test environment
+There is no teardown target. The profiles use finalizers, which block their
+removal once the operator is gone, so remove them before the operator. Follow
+[Uninstalling](troubleshooting.md#uninstalling), with the manifest you deployed
+from, like `deploy/operator.yaml`, or `deploy/openshift-dev.yaml` on OpenShift.
 
 ## Running e2e tests
 During development, it is often useful to debug the e2e tests or run them
@@ -565,20 +597,17 @@ the SPO logs:
 $RUN kubectl logs deploy/security-profiles-operator -nsecurity-profiles-operator
 ```
 
-### Distribution specific instructions: OpenShift
-The fastest build-test loop on an OpenShift cluster is to push the SPO images
-using `make push-openshift-dev` after each change to the SPO code and then
-run the selected tests, e.g. to only run SELinux tests:
-```shell
-E2E_SPO_IMAGE=image-registry.openshift-image-registry.svc:5000/openshift/security-profiles-operator:latest \
-E2E_CLUSTER_TYPE=openshift \
-E2E_SKIP_BUILD_IMAGES=true \
-E2E_TEST_SECCOMP=false \
-E2E_TEST_BPF_RECORDER=false \
-E2E_TEST_LOG_ENRICHER=false \
-E2E_TEST_SELINUX=true \
-make test-e2e
-```
+The Debian and Flatcar CI jobs use VMs in the same way: `make vagrant-up-debian`
+and `make vagrant-up-flatcar` boot them, and `hack/ci/run-debian.sh` and
+`hack/ci/run-flatcar.sh` are their `RUN` prefixes. The Debian VM runs the
+`spoc` and AppArmor tests, `hack/ci/e2e-spoc.sh` and `hack/ci/e2e-apparmor.sh`,
+the Flatcar VM runs `hack/ci/e2e-flatcar-dev-container.sh`.
+
+### Running the spoc e2e tests
+`make test-spoc-e2e` builds `spoc` and runs its end-to-end tests in
+[`test/spoc`](../test/spoc), which record and run profiles on the local host
+without a cluster. The CI runs them on the Debian VM and on an arm64 runner
+through `hack/ci/e2e-spoc.sh`.
 
 ## Adding support for a new distribution
 As noted above, three different distributions are supported in our e2e tests

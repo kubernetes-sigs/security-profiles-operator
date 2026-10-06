@@ -31,19 +31,7 @@ permissions: {}
 jobs:
   # Documentation only pull requests skip the build, see hack/ci/code-changed.sh.
   changes:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    outputs:
-      code: ${{ steps.changes.outputs.code }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 2
-          persist-credentials: false
-      - id: changes
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-        run: hack/ci/code-changed.sh
+    uses: ./.github/workflows/changes.yml
 
   image-reproducible:
     needs: changes

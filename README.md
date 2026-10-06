@@ -9,19 +9,59 @@
 The _Security Profiles Operator_ (SPO) is an out-of-tree Kubernetes enhancement which aims to make
 it easier to create and use SELinux, seccomp and AppArmor security profiles in Kubernetes clusters.
 
-- [Documentation](doc/README.md)
-  - [Installation and Configuration](doc/installation.md)
-  - [Upgrading](doc/installation.md#upgrading)
-  - [Security Profiles](doc/profiles.md)
-  - [Command Line Interface (CLI)](doc/cli.md)
-  - [Metrics](doc/metrics.md)
-  - [Troubleshooting](doc/troubleshooting.md)
-  - [Security Model](doc/security-model.md)
-  - [Verifying Releases](doc/verification.md)
-- [Container Images](https://console.cloud.google.com/artifacts/docker/k8s-staging-images/us-central1/sp-operator)
-- [Release Process](doc/release.md)
-- [Base Profiles](doc/release-baseprofiles.md)
-- [Testgrid Dashboard](https://testgrid.k8s.io/sig-node-security-profiles-operator)
+The [documentation](doc/README.md) covers the installation, the profiles, the
+`spoc` command line interface, troubleshooting and the development of SPO. The
+released container images are available below
+`registry.k8s.io/security-profiles-operator`, see
+[verifying the released artifacts](doc/verification.md#container-image).
+
+## Quick start
+
+Install [cert-manager](https://cert-manager.io), which is not needed on
+OpenShift:
+
+```sh
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
+kubectl --namespace cert-manager wait --for condition=available deployment --all
+```
+
+Install the operator from the manifest of the
+[latest release](https://github.com/kubernetes-sigs/security-profiles-operator/releases/latest),
+where `VERSION` is its version without the `v` prefix:
+
+```sh
+VERSION=x.y.z
+kubectl apply -f "https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/v${VERSION}/deploy/operator.yaml"
+```
+
+Once `kubectl -n security-profiles-operator get spod spod` reports the state
+`Running`, create the example seccomp profiles and check that they got
+installed on the nodes:
+
+```sh
+$ kubectl apply -f "https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/v${VERSION}/examples/seccompprofile.yaml"
+$ kubectl get sp
+NAME                               STATUS      AGE
+profile-allow-unsafe               Installed   20s
+profile-block-all                  Installed   20s
+profile-complain-block-high-risk   Installed   20s
+profile-complain-unsafe            Installed   20s
+```
+
+[Use Seccomp profile](doc/profiles.md#use-seccomp-profile) shows how a pod
+uses them.
+
+## Installation methods
+
+- [Release manifest](doc/installation.md#install-operator), as in the quick
+  start above.
+- [Helm chart](doc/installation.md#installation-using-helm), attached to each
+  release and published on `registry.k8s.io`.
+- [OLM](doc/installation.md#installation-using-olm-from-operatorhubio), from
+  operatorhub.io or from the
+  [upstream catalog](doc/installation.md#installation-using-olm-using-upstream-catalog-and-bundle).
+- [OpenShift](doc/installation.md#openshift), through OperatorHub. OpenShift
+  needs no cert-manager.
 
 ## Features
 
@@ -47,13 +87,9 @@ The motivation behind the project can be found in the corresponding [RFC][0].
 
 The operator runs as a deployment in the cluster and manages daemon pods on
 each node. These daemon pods handle profile installation, recording, and
-enforcement for seccomp, SELinux, and AppArmor.
-
-- [Architecture](doc/architecture.svg)
-- [User Stories](doc/user-stories.md)
-- [Personas](doc/personas.md)
-- [Audit Logging Guide](doc/audit-logging-guide.md)
-- [Migration Guide: API v1 Graduation](doc/migration-guide-v1.md)
+enforcement for seccomp, SELinux, and AppArmor. The
+[documentation](doc/README.md#architecture) describes the architecture and
+links the user stories, personas and guides.
 
 [0]: doc/RFC.md
 
@@ -98,6 +134,3 @@ You can reach the maintainers of this project at:
 ### Code of conduct
 
 Participation in the Kubernetes community is governed by the [Kubernetes Code of Conduct](code-of-conduct.md).
-
-[owners]: https://git.k8s.io/community/contributors/guide/owners.md
-[creative commons 4.0]: https://git.k8s.io/website/LICENSE

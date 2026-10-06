@@ -199,10 +199,15 @@ endif
 
 export CONTAINER_RUNTIME ?= $(if $(shell which podman 2>/dev/null),podman,docker)
 
-ifeq ($(CONTAINER_RUNTIME), podman)
-    LOGIN_PUSH_OPTS="--tls-verify=false"
-else ifeq ($(CONTAINER_RUNTIME), docker)
-    LOGIN_PUSH_OPTS=
+# The route of the OpenShift image registry of a development cluster may have
+# a self-signed certificate. REGISTRY_TLS_VERIFY=false makes podman skip the
+# verification for the login and the push, docker takes insecure registries
+# from its daemon configuration instead.
+REGISTRY_TLS_VERIFY ?= true
+ifeq ($(CONTAINER_RUNTIME)-$(REGISTRY_TLS_VERIFY), podman-false)
+    LOGIN_PUSH_OPTS = --tls-verify=false
+else
+    LOGIN_PUSH_OPTS =
 endif
 
 IMAGE ?= $(PROJECT):latest
@@ -245,10 +250,12 @@ define go-build-spo
 	$(GO) build -trimpath -ldflags '$(LDFLAGS)' -tags '$(BUILDTAGS)' -o $@ ./cmd/$(1)
 endef
 
-$(BUILD_DIR)/$(PROJECT): $(BUILD_DIR) $(BUILD_FILES)
+# The build directory is an order-only prerequisite, its timestamp changes
+# with every file written to it and must not trigger a rebuild.
+$(BUILD_DIR)/$(PROJECT): $(BUILD_FILES) | $(BUILD_DIR)
 	$(call go-build-spo,$(PROJECT))
 
-$(BUILD_DIR)/$(CLI_BINARY): $(BUILD_DIR) $(BUILD_FILES)
+$(BUILD_DIR)/$(CLI_BINARY): $(BUILD_FILES) | $(BUILD_DIR)
 	$(call go-build-spo,$(CLI_BINARY))
 
 .PHONY: clean
@@ -286,10 +293,12 @@ deployments: $(BUILD_DIR)/kustomize manifests generate ## Generate the deploymen
 # commit, so that a commit gives the same image metadata.
 IMAGE_REVISION = $(shell git rev-parse HEAD 2>/dev/null)
 IMAGE_SOURCE_DATE_EPOCH = $(shell git log -1 --format=%ct 2>/dev/null)
+# The commit time like hack/image-cross.sh, BUILD_DATE outside of a git tree.
+IMAGE_CREATED = $(or $(if $(IMAGE_SOURCE_DATE_EPOCH),$(shell date -u -d "@$(IMAGE_SOURCE_DATE_EPOCH)" "$(DATE_FMT)" 2>/dev/null || date -u -r "$(IMAGE_SOURCE_DATE_EPOCH)" "$(DATE_FMT)" 2>/dev/null)),$(BUILD_DATE))
 IMAGE_BUILD_ARGS = \
 	--build-arg version=$(VERSION) \
 	--build-arg revision=$(IMAGE_REVISION) \
-	--build-arg created=$(BUILD_DATE) \
+	--build-arg created=$(IMAGE_CREATED) \
 	--build-arg SOURCE_DATE_EPOCH=$(IMAGE_SOURCE_DATE_EPOCH)
 
 .PHONY: image
@@ -308,10 +317,12 @@ image-arm64: ## Build the container image for arm64
 image-cross: ## Build and push the container image manifest
 	hack/image-cross.sh
 
+# Every nix build gets its own result link, so that the targets can run in
+# parallel with make -j.
 define nix-build-to
-	$(NIX) build .#spo-$(1)
+	$(NIX) build --out-link result-spo-$(1) .#spo-$(1)
 	mkdir -p $(BUILD_DIR)/$(1)
-	cp -f result/* $(BUILD_DIR)/$(1)
+	cp -f result-spo-$(1)/* $(BUILD_DIR)/$(1)
 endef
 
 # TODO: add nix-s390x when the nix musl toolchain is fixed. spoc is not affected
@@ -343,8 +354,8 @@ SPOC_ARCHES := amd64 arm64 ppc64le s390x
 # poisoned cache entry cannot stand in for them.
 define nix-build-spoc-to
 	$(NIX) build --no-link .#spoc-$(1).inputDerivation
-	$(NIX) build --option substitute false .#spoc-$(1)
-	cp -f result/spoc $(BUILD_DIR)/spoc.$(1)
+	$(NIX) build --option substitute false --out-link result-spoc-$(1) .#spoc-$(1)
+	cp -f result-spoc-$(1)/spoc $(BUILD_DIR)/spoc.$(1)
 	cd $(BUILD_DIR) && sha512sum spoc.$(1) > spoc.$(1).sha512
 endef
 
@@ -530,13 +541,13 @@ BPF_UPDATE_OBJECTS := \
 update-bpf: clean $(BPF_UPDATE_OBJECTS) ## Build and update all generated BPF code with nix
 
 internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.%: $(BPF_RECORDER_FILES) ## Build and update all generated BPF code with nix
-	$(NIX) build .#bpf-$*
-	cp -f result/recorder.bpf.o ./internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.$*
+	$(NIX) build --out-link result-bpf-recorder-$* .#bpf-$*
+	cp -f result-bpf-recorder-$*/recorder.bpf.o ./internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.$*
 	chmod 0644 ./internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.$*
 
 internal/pkg/daemon/enricher/auditsource/bpf/enricher.bpf.o.%: $(BPF_ENRICHER_FILES) ## Build and update all generated BPF code with nix
-	$(NIX) build .#bpf-$*
-	cp -f result/enricher.bpf.o ./internal/pkg/daemon/enricher/auditsource/bpf/enricher.bpf.o.$*
+	$(NIX) build --out-link result-bpf-enricher-$* .#bpf-$*
+	cp -f result-bpf-enricher-$*/enricher.bpf.o ./internal/pkg/daemon/enricher/auditsource/bpf/enricher.bpf.o.$*
 	chmod 0644 ./internal/pkg/daemon/enricher/auditsource/bpf/enricher.bpf.o.$*
 
 # Verification targets
@@ -760,18 +771,12 @@ test-integration: $(BUILD_DIR)/setup-envtest ## Run the controller integration t
 		$(GO) test -tags 'integration $(BUILDTAGS)' -race -v -count=1 -timeout $(INTEGRATION_TEST_TIMEOUT) \
 		./internal/pkg/integration/...
 
-# FUZZ_TARGETS lists the fuzz tests as package:FuzzName. go test fuzzes only
+# FUZZ_TARGETS lists the fuzz tests as package:FuzzName, by default every
+# func Fuzz of the test files below internal, cmd and api. go test fuzzes only
 # one target per run, so test-fuzz runs them one after another.
 FUZZ_TIME ?= 30s
-FUZZ_TARGETS ?= \
-	./internal/pkg/daemon/enricher/auditsource:FuzzExtractAuditLine \
-	./internal/pkg/daemon/enricher/auditsource:FuzzParseAuditFields \
-	./internal/pkg/daemon/enricher/auditsource:FuzzParseBpfAuditEvent \
-	./internal/pkg/daemon/apparmorprofile/crd2armor:FuzzGenerateProfile \
-	./internal/pkg/translator:FuzzObject2CIL \
-	./internal/pkg/artifact:FuzzReadProfile \
-	./internal/pkg/artifact:FuzzDecodeRuntimeSpecSeccompProfile \
-	./internal/pkg/artifact:FuzzNameFromReference
+FUZZ_TARGETS ?= $(shell grep -rHo --include='*_test.go' '^func Fuzz[A-Za-z0-9_]*' internal cmd api | \
+	sed -E 's;^(.*)/[^/]+_test\.go:func (Fuzz[A-Za-z0-9_]*)$$;./\1:\2;' | sort)
 
 .PHONY: test-fuzz
 test-fuzz: ## Run every fuzz target for FUZZ_TIME, one target per go test run
@@ -872,24 +877,21 @@ generate: ## Generate the deepcopy code and the RBAC roles
 ## Bundle packaging begins here
 ## read more at https://sdk.operatorframework.io/docs/olm-integration/tutorial-bundle/
 
-.PHONY: operator-sdk
-OPERATOR_SDK = $(BUILD_DIR)/operator-sdk
-operator-sdk: $(BUILD_DIR) ## Download sdk locally if necessary.
-ifeq (,$(wildcard $(OPERATOR_SDK)))
-ifeq (,$(shell which operator-sdk 2>/dev/null))
-	@{ \
-	set -e ;\
-	mkdir -p $(dir $(OPERATOR_SDK)) ;\
-	curl -sSfLo $(OPERATOR_SDK).download https://github.com/operator-framework/operator-sdk/releases/download/$(OPERATOR_SDK_VERSION)/operator-sdk_$(TOOLS_PLATFORM) ;\
-	echo "$(OPERATOR_SDK_SHA256_$(TOOLS_PLATFORM))  $(OPERATOR_SDK).download" | $(SHA256SUM) -c - ;\
-	chmod +x $(OPERATOR_SDK).download ;\
-	mv $(OPERATOR_SDK).download $(OPERATOR_SDK) ;\
-	}
-else
-OPERATOR_SDK = $(shell which operator-sdk)
-endif
-endif
+# The tool binaries carry their version in the file name, so a version bump
+# downloads the new release. The unversioned symlinks serve the PATH of the OLM
+# workflow and hack/attest-images.sh.
+OPERATOR_SDK = $(BUILD_DIR)/operator-sdk-$(OPERATOR_SDK_VERSION)
 
+.PHONY: operator-sdk
+operator-sdk: $(OPERATOR_SDK) ## Download operator-sdk locally if necessary.
+	ln -sf $(notdir $(OPERATOR_SDK)) $(BUILD_DIR)/operator-sdk
+
+$(OPERATOR_SDK): | $(BUILD_DIR)
+	curl -sSfL --retry 5 --retry-delay 3 -o $@.download \
+		https://github.com/operator-framework/operator-sdk/releases/download/$(OPERATOR_SDK_VERSION)/operator-sdk_$(TOOLS_PLATFORM)
+	echo "$(OPERATOR_SDK_SHA256_$(TOOLS_PLATFORM))  $@.download" | $(SHA256SUM) -c -
+	chmod +x $@.download
+	mv $@.download $@
 
 # CHANNELS define the bundle channels used in the bundle.
 # Add a new line here if you would like to change its default config. (E.g CHANNELS = "candidate,fast,stable")
@@ -960,26 +962,21 @@ bundle-push: ## Push the bundle image.
 
 .PHONY: verify-bundle
 verify-bundle: bundle ## Verify the bundle doesn't alter the state of the tree
-	git diff --exit-code -I'^    createdAt: ' -- bundle
-	test -z "$$(git ls-files --others --exclude-standard -- bundle)"
+	git diff --exit-code -I'^    createdAt: ' -- bundle bundle.Dockerfile
+	test -z "$$(git ls-files --others --exclude-standard -- bundle bundle.Dockerfile)"
+
+OPM = $(BUILD_DIR)/opm-$(OPM_VERSION)
 
 .PHONY: opm
-OPM = $(BUILD_DIR)/opm
-opm: $(BUILD_DIR) ## Download opm locally if necessary.
-ifeq (,$(wildcard $(OPM)))
-ifeq (,$(shell which opm 2>/dev/null))
-	@{ \
-	set -e ;\
-	mkdir -p $(dir $(OPM)) ;\
-	curl -sSfLo $(OPM).download https://github.com/operator-framework/operator-registry/releases/download/$(OPM_VERSION)/$(subst _,-,$(TOOLS_PLATFORM))-opm ;\
-	echo "$(OPM_SHA256_$(TOOLS_PLATFORM))  $(OPM).download" | $(SHA256SUM) -c - ;\
-	chmod +x $(OPM).download ;\
-	mv $(OPM).download $(OPM) ;\
-	}
-else
-OPM = $(shell which opm)
-endif
-endif
+opm: $(OPM) ## Download opm locally if necessary.
+	ln -sf $(notdir $(OPM)) $(BUILD_DIR)/opm
+
+$(OPM): | $(BUILD_DIR)
+	curl -sSfL --retry 5 --retry-delay 3 -o $@.download \
+		https://github.com/operator-framework/operator-registry/releases/download/$(OPM_VERSION)/$(subst _,-,$(TOOLS_PLATFORM))-opm
+	echo "$(OPM_SHA256_$(TOOLS_PLATFORM))  $@.download" | $(SHA256SUM) -c -
+	chmod +x $@.download
+	mv $@.download $@
 
 # A comma-separated list of bundle images (e.g. make catalog-build BUNDLE_IMGS=example.com/operator-bundle:v0.1.0,example.com/operator-bundle:v0.2.0).
 # These images MUST exist in a registry and be pull-able.

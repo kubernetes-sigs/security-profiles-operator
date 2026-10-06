@@ -25,20 +25,16 @@
 
 set -Eeuo pipefail
 
-NAMESPACE=security-profiles-operator
+# shellcheck source=hack/ci/lib.sh
+. "$(dirname "$0")/lib.sh"
+
+NAMESPACE="$SPO_NAMESPACE"
 RELEASE=security-profiles-operator
-CERT_MANAGER_VERSION=v1.21.2
-# Bump together with CERT_MANAGER_VERSION, see dependencies.yaml.
-CERT_MANAGER_SHA256=e03b668ec8675214af6b0a671699d088f2601fa3878e0dbe1b41d3feafd1879f
 IMAGE_ARCHIVE="${IMAGE_ARCHIVE:-image.tar}"
 WAIT_TIMEOUT=300s
 UPGRADE_FROM_RELEASE="${UPGRADE_FROM_RELEASE:-true}"
 PREVIOUS_CHART="${PREVIOUS_CHART:-oci://registry.k8s.io/security-profiles-operator/charts/security-profiles-operator}"
 PREVIOUS_CHART_VERSION="${PREVIOUS_CHART_VERSION:-}"
-
-k() {
-  kubectl -n "$NAMESPACE" "$@"
-}
 
 diagnose() {
   echo "--------------------------------- diagnostics"
@@ -56,15 +52,7 @@ trap diagnose ERR
 echo "Loading $IMAGE_ARCHIVE into the cluster"
 kind load image-archive "$IMAGE_ARCHIVE"
 
-echo "Installing cert-manager $CERT_MANAGER_VERSION"
-CERT_MANAGER_MANIFEST=$(mktemp)
-curl -sSfL --retry 5 --retry-delay 3 -o "$CERT_MANAGER_MANIFEST" \
-  "https://github.com/cert-manager/cert-manager/releases/download/$CERT_MANAGER_VERSION/cert-manager.yaml"
-echo "$CERT_MANAGER_SHA256  $CERT_MANAGER_MANIFEST" | sha256sum -c -
-kubectl apply -f "$CERT_MANAGER_MANIFEST"
-rm -f "$CERT_MANAGER_MANIFEST"
-kubectl wait --timeout "$WAIT_TIMEOUT" --for condition=Available \
-  -n cert-manager deployment --all
+install_cert_manager "$WAIT_TIMEOUT"
 
 helm version
 

@@ -15,6 +15,9 @@
 
 set -euox pipefail
 
+# shellcheck source=hack/ci/lib.sh
+. "$(dirname "$0")/lib.sh"
+
 OLM_VERSION=v0.46.0
 
 REPO=localhost:5000
@@ -67,10 +70,8 @@ function deploy_deps() {
   # we need OLM
   operator-sdk olm install --version ${OLM_VERSION} --timeout 6m
 
-  # cert-manager first. This should be done using dependencies in the
-  # future
-  kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.21.2/cert-manager.yaml
-  kubectl_wait -ncert-manager --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
+  # The operator needs cert-manager, the bundle does not depend on it.
+  install_cert_manager
 
   # All installation methods run off the same catalog
   sed -i "s#us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator-catalog:latest#${CATALOG_IMG}#g" examples/olm/install-resources.yaml

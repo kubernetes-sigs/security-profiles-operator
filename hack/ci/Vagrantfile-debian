@@ -49,7 +49,8 @@ Vagrant.configure("2") do |config|
       }
 
       # Install Go
-      # The checksum comes from the Go download server, like in Dockerfile.ubi.
+      # The checksum comes from the Go download server, this test VM does not
+      # pin it like Dockerfile.ubi does.
       GO_VERSION=go$(bash /vagrant/hack/go-version.sh /vagrant/go.mod)
       curl -sSfL --retry 5 --retry-delay 3 -o /tmp/go.tar.gz https://go.dev/dl/$GO_VERSION.linux-amd64.tar.gz
       echo "$(curl -sSfL --retry 5 --retry-delay 3 https://dl.google.com/go/$GO_VERSION.linux-amd64.tar.gz.sha256)  /tmp/go.tar.gz" | sha256sum -c -
@@ -75,9 +76,10 @@ Vagrant.configure("2") do |config|
 
       /vagrant/hack/install-libbpf.sh
 
-      # Install cosign (required by e2e-baseprofile test)
-      COSIGN_VERSION=v3.1.3
-      COSIGN_SHA256=4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71
+      # Install cosign (required by e2e-baseprofile test), the release of
+      # hack/lib/common.sh.
+      COSIGN_VERSION=$(bash -c '. /vagrant/hack/lib/common.sh && echo "$COSIGN_VERSION"')
+      COSIGN_SHA256=$(bash -c '. /vagrant/hack/lib/common.sh && echo "$COSIGN_SHA256"')
       curl -sSfL --retry 5 --retry-delay 3 "https://github.com/sigstore/cosign/releases/download/$COSIGN_VERSION/cosign-linux-amd64" -o /tmp/cosign
       echo "$COSIGN_SHA256  /tmp/cosign" | sha256sum -c -
       install -m 0755 /tmp/cosign /usr/bin/cosign

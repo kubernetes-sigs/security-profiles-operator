@@ -21,8 +21,7 @@ package e2e_test
 import (
 	"fmt"
 	"os"
-
-	spoutil "sigs.k8s.io/security-profiles-operator/internal/pkg/util"
+	"time"
 )
 
 func (e *e2e) testCaseSeccompProfileBinding(_ []string, image string) {
@@ -74,10 +73,8 @@ spec:
 
 	e.logf("Creating test profile binding")
 
-	testBindingFile, err := os.CreateTemp("", "hello-binding*.yaml")
+	testBindingFile, err := os.CreateTemp(e.T().TempDir(), "hello-binding*.yaml")
 	e.Require().NoError(err)
-
-	defer os.Remove(testBindingFile.Name())
 
 	_, err = testBindingFile.WriteString(testBinding)
 	e.Require().NoError(err)
@@ -89,10 +86,8 @@ spec:
 
 	e.logf("Creating test pod")
 
-	testPodFile, err := os.CreateTemp("", "hello-pod*.yaml")
+	testPodFile, err := os.CreateTemp(e.T().TempDir(), "hello-pod*.yaml")
 	e.Require().NoError(err)
-
-	defer os.Remove(testPodFile.Name())
 
 	_, err = testPodFile.WriteString(testPod)
 	e.Require().NoError(err)
@@ -140,7 +135,7 @@ spec:
 
 	e.logf("Testing that profile binding has pod reference")
 
-	if err := spoutil.Retry(func() error {
+	e.eventually(statusUpdateTimeout, time.Second, func() error {
 		output = e.kubectl(
 			"get", "profilebinding", "hello-binding",
 			"--output", "jsonpath={.status.activeWorkloads[0]}",
@@ -150,13 +145,9 @@ spec:
 		}
 
 		return nil
-	}, func(err error) bool {
-		return true
-	}); err != nil {
-		e.Fail("failed to find pod reference in binding status")
-	}
+	})
 
-	if err := spoutil.Retry(func() error {
+	e.eventually(statusUpdateTimeout, time.Second, func() error {
 		output = e.kubectl(
 			"get", "profilebinding", "hello-binding",
 			"--output", "jsonpath={.metadata.finalizers[0]}",
@@ -166,11 +157,7 @@ spec:
 		}
 
 		return nil
-	}, func(err error) bool {
-		return true
-	}); err != nil {
-		e.Fail("failed to find finalizer on binding")
-	}
+	})
 
 	e.logf("Testing that profile has pod reference")
 	output = e.kubectl("get", "seccompprofile", "profile-allow-unsafe",

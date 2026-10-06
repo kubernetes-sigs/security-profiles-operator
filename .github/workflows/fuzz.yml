@@ -17,7 +17,9 @@ concurrency:
 jobs:
   fuzz:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    # make test-fuzz runs the targets one after another, FUZZ_TIME each plus
+    # the build of the package. Lower FUZZ_TIME when the targets outgrow it.
+    timeout-minutes: 90
     permissions:
       contents: read  # required for the checkout
     steps:
@@ -29,7 +31,7 @@ jobs:
           go-version-file: ./go.mod
       - name: Install dependencies
         run: sudo hack/install-packages
-      - run: make test-fuzz FUZZ_TIME=5m
+      - run: make test-fuzz FUZZ_TIME=3m
       - name: Upload the failing inputs
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

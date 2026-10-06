@@ -82,7 +82,8 @@ check_profile_mode() {
   local apparmor_profile="$2"
   local apparmor_profile_mode="$3"
   local pid mode
-  pid="$(pidof "$command")"
+  # A single PID, the profile applies to every process of the container.
+  pid="$(pidof -s "$command")"
   mode="$(cat "/proc/$pid/attr/current")"
   local reference="$apparmor_profile ($apparmor_profile_mode)"
   if [[ "$reference" != "$mode" ]]; then
@@ -113,8 +114,6 @@ check_apparmor_profile_recording() {
 
     echo "Creating profile recording $RECORDING_NAME"
     k apply -f "$APPARMOR_RECORDING_FILE"
-
-    TMP_DIR=$(mktemp -d)
 
     echo "Creating pod $PODNAME and start recording its apparmor profile"
     pod_file="${TMP_DIR}/${PODNAME}.yml"
@@ -189,8 +188,6 @@ check_apparmor_complain_mode() {
   echo "Verifying apparmor profile"
   echo "--------------------------"
 
-  TMP_DIR=$(mktemp -d)
-
   echo "Creating pod $PODNAME with apparmor profile in complain mode in security context"
   runtime="crun"
   sec_pod_file="${TMP_DIR}/${PODNAME}-apparmor.yml"
@@ -211,9 +208,7 @@ check_apparmor_complain_mode() {
 # suite this script writes no diagnostics by itself.
 cleanup() {
   local rc=$?
-  if [[ -n "${TMP_DIR-}" ]]; then
-    rm -rf "$TMP_DIR"
-  fi
+  rm -rf "$TMP_DIR"
   if [[ $rc -eq 0 ]]; then
     return
   fi
@@ -230,6 +225,8 @@ cleanup() {
   k get spod spod -o jsonpath='{.status}' || true
 }
 
+# The pod manifests of all test runs.
+TMP_DIR=$(mktemp -d)
 trap cleanup EXIT
 
 # shellcheck source=hack/ci/install-spo.sh

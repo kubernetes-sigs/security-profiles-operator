@@ -32,6 +32,11 @@
     - [Bind workloads to profiles with ProfileBindings](#bind-workloads-to-profiles-with-profilebindings)
       - [Binding precedence and status](#binding-precedence-and-status)
     - [Merging per-container profile instances](#merging-per-container-profile-instances)
+- [Profile reference](#profile-reference)
+  - [SeccompProfile](#seccompprofile)
+  - [AppArmorProfile](#apparmorprofile)
+  - [ProfileRecording](#profilerecording)
+  - [SecurityProfilesOperatorDaemon](#securityprofilesoperatordaemon)
 <!-- /toc -->
 
 ## Create and Install Security Profiles
@@ -414,7 +419,9 @@ Here's how to set up and fine-tune your audit logs.
 
 ##### Audit Log Interval
 
-Set how often audit logs are created using the auditLogIntervalSeconds option. For example to configure audit log interval to 30 seconds use the command:
+Set how often audit logs are created using the `auditLogIntervalSeconds` option. The syscalls of each process within
+the interval are grouped into one log entry. The default is 60 seconds and the minimum 1. For example to configure
+audit log interval to 30 seconds use the command:
 
 ```sh
 kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enricher":{"enableJsonEnricher":true,"jsonEnricherOptions":{"auditLogIntervalSeconds":30}}}}'
@@ -426,7 +433,7 @@ By default, audit logs go to your standard output in JSON lines format. You can 
 
 1. Configure the Volume Mount
    First, tell the security profiles operator where to store the log file on the node. You'll update the `security-profiles-operator-profile` ConfigMap with two keys:
-   - `json-enricher-log-volume-source.json`: Defines the type of volume (e.g., host path, empty directory) where logs will be stored. This must be a JSON string representing a `corev1.VolumeSource` object. Refer to this [link](https://github.com/kubernetes/kubernetes/blob/master/pkg/apis/core/types.go#L58) for more details.
+   - `json-enricher-log-volume-source.json`: Defines the type of volume (e.g., host path, empty directory) where logs will be stored. This must be a JSON string representing a `corev1.VolumeSource` object, which holds the volume type fields of a [Volume](https://kubernetes.io/docs/reference/kubernetes-api/config-and-storage-resources/volume/) without its `name`.
    - `json-enricher-log-volume-mount-path`: Specifies the directory path where the log file will be generated.
 
    Here's an example to set up a host path volume at `/tmp/logs`:
@@ -467,9 +474,14 @@ By default, audit logs go to your standard output in JSON lines format. You can 
 For audit logging to a file, you can manage their size and how long they're kept. These options are similar to [Kubernetes API server log settings](https://kubernetes.io/docs/tasks/debug/debug-cluster/audit/).
 
 - `auditLogMaxSize`: The maximum size (in megabytes) a log file can reach before it's rotated (a new file is started).
-- `auditLogMaxBackups`: The maximum number of older, rotated log files to keep. Set to 0 for no limit.
-- `auditLogMaxAge`: The maximum number of days to keep old log files.
-  You configure these by patching the JSON log enricher options:
+  The default is 100 MB.
+- `auditLogMaxBackups`: The maximum number of older, rotated log files to keep. If neither `auditLogMaxBackups` nor
+  `auditLogMaxAge` is set, or both are 0, the enricher keeps 10 rotated files. With `auditLogMaxAge` set, 0 or
+  no value keeps any number of files within that age.
+- `auditLogMaxAge`: The maximum number of days to keep old log files. By default, old files are not removed based on
+  their age.
+
+You configure these by patching the JSON log enricher options:
 
 ```sh
 kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enricher":{"enableJsonEnricher":true,"jsonEnricherOptions":{"auditLogPath":"/tmp/logs/audit1.log","auditLogMaxSize":500,"auditLogMaxBackups":2,"auditLogMaxAge":10}}}}'
@@ -479,8 +491,11 @@ kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{
 
 Increase the logging level for the JSON log enricher container to help with debugging.
 
-- 0: Minimal logs.
-- 1: More detailed logs.
+- 0: Minimal logs (default).
+- 1: More detailed logs, for example every audit line the enricher processes.
+- 2: Additionally every exec event the enricher receives from BPF.
+
+See [Set logging verbosity](installation.md#set-logging-verbosity) for all levels.
 
 ```sh
 kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enricher":{"enableJsonEnricher":true}, "verbosity": 1}}'
@@ -781,8 +796,8 @@ kubectl get apparmorprofile
 
 # Output should show the AppArmor profile.
 
-NAME                              AGE
-nginx-recording-nginx-container   42h
+NAME                              STATUS      AGE
+nginx-recording-nginx-container   Installed   42h
 
 # The content of the profile can be inspected.
 
@@ -838,7 +853,8 @@ Note that in case of AppArmor, unlike seccomp, only the name of the profile is r
 
 ### SELinux profile
 
-Ensure that the running daemon has SELinux enabled:
+Ensure that the running daemon has SELinux enabled. If `spec.selinux.enable` is not set, SELinux support is enabled
+on OpenShift and disabled everywhere else:
 
 ```
 > kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"selinux":{"enable":true}}}'
@@ -856,8 +872,8 @@ In particular, the `SelinuxProfile` kind:
 
 - restricts the profiles to inherit from to other `SelinuxProfile` objects or a system-wide profile. Because there
   are typically many profiles installed on the system, but only a subset should be used by cluster workloads,
-  the inheritable system profiles are listed in the `spod` instance in `spec.selinux.options.allowedSystemProfiles`.
-  Depending on what distribution your nodes run, the base profile might vary, on RHEL-based systems, you might
+  the inheritable system profiles are listed in the `spod` instance in `spec.selinux.options.allowedSystemProfiles`,
+  which defaults to `["container"]`. Depending on what distribution your nodes run, the base profile might vary, on RHEL-based systems, you might
   want to look at what profiles are shipped in the `container-selinux` RPM package.
 - performs basic validation of the permissions, classes and labels
 - allows to restrict the SELinux types, classes and permissions which can be used in the profiles by
@@ -1598,4 +1614,135 @@ enforced profile is exactly what the merge produces regardless of these counts. 
 aid only. **Do not remove syscalls from a generated profile based solely on a low coverage count**,
 since a syscall observed in only one replica may still be required on a code path the other replicas
 did not exercise.
+
+## Profile reference
+
+This section lists the spec fields of the profile and recording kinds which the sections above do not
+cover in detail. `kubectl explain <kind>.spec` prints the complete schema of the installed CRDs, for
+example `kubectl explain seccompprofile.spec.syscalls`.
+
+All profile kinds (`SeccompProfile`, `AppArmorProfile`, `SelinuxProfile` and `RawSelinuxProfile`) share
+the field `spec.state`, which is `Enabled` (default) or `Disabled`. The operator skips disabled profiles,
+see [Recording profiles without applying them](#recording-profiles-without-applying-them).
+
+### SeccompProfile
+
+The fields follow the seccomp section of the
+[OCI runtime specification](https://github.com/opencontainers/runtime-spec/blob/main/config-linux.md#seccomp),
+the daemon writes them to the profile file on each node.
+
+| Field              | Description                                                                                                                                                                                                                                  |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `defaultAction`    | Required. The action for syscalls which no rule matches: `SCMP_ACT_KILL`, `SCMP_ACT_KILL_PROCESS`, `SCMP_ACT_KILL_THREAD`, `SCMP_ACT_TRAP`, `SCMP_ACT_ERRNO`, `SCMP_ACT_TRACE`, `SCMP_ACT_ALLOW` or `SCMP_ACT_LOG`. `SCMP_ACT_NOTIFY` is rejected. |
+| `baseProfileName`  | A `SeccompProfile` or an `oci://` reference whose syscalls get merged into this profile, see [Base syscalls for a container runtime](#base-syscalls-for-a-container-runtime) and [OCI Artifact support for base profiles](#oci-artifact-support-for-base-profiles). |
+| `architectures`    | The architectures of the syscalls, like `SCMP_ARCH_X86_64` or `SCMP_ARCH_AARCH64`.                                                                                                                                                         |
+| `syscalls`         | The rules, see below.                                                                                                                                                                                                                        |
+| `flags`            | Flags for seccomp(2): `SECCOMP_FILTER_FLAG_TSYNC`, `SECCOMP_FILTER_FLAG_LOG`, `SECCOMP_FILTER_FLAG_SPEC_ALLOW` and `SECCOMP_FILTER_FLAG_WAIT_KILLABLE_RECV`.                                                                               |
+| `listenerPath`     | The UNIX domain socket of a seccomp agent, which receives the syscalls of rules with the `SCMP_ACT_NOTIFY` action. It has to be below `/var/run/security-profiles-operator/` and at most 107 characters long.                            |
+| `listenerMetadata` | Opaque data which the container runtime passes to the seccomp agent of `listenerPath`.                                                                                                                                                      |
+
+Each entry of `syscalls` has these fields:
+
+| Field      | Description                                                                                                                                                                                                         |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `names`    | Required. The names of the syscalls, at least one.                                                                                                                                                                  |
+| `action`   | Required. The action for these syscalls, one of the `defaultAction` values or `SCMP_ACT_NOTIFY`.                                                                                                                    |
+| `errnoRet` | The errno which `SCMP_ACT_ERRNO` and `SCMP_ACT_TRACE` return, from 0 to 4095. 0 behaves like an unset value, the container runtime then returns `EPERM`.                                                          |
+| `args`     | Up to 6 conditions on the syscall arguments, which all have to match. `index` (required, 0 to 5) selects the argument, `op` (required) is one of `SCMP_CMP_NE`, `SCMP_CMP_LT`, `SCMP_CMP_LE`, `SCMP_CMP_EQ`, `SCMP_CMP_GE`, `SCMP_CMP_GT` and `SCMP_CMP_MASKED_EQ`, `value` is the value to compare with, and `valueTwo` the second value of `SCMP_CMP_MASKED_EQ`, which compares `argument & value` with `valueTwo`. |
+
+For example, this profile makes `clone3` fail with `ENOSYS` (38 on most architectures), so that the C
+library falls back to `clone`, and only allows `personality` with the argument `0`:
+
+```yaml
+apiVersion: security-profiles-operator.x-k8s.io/v1
+kind: SeccompProfile
+metadata:
+  name: profile-args
+spec:
+  defaultAction: SCMP_ACT_ALLOW
+  syscalls:
+    - action: SCMP_ACT_ERRNO
+      errnoRet: 38
+      names:
+        - clone3
+    - action: SCMP_ACT_ERRNO
+      names:
+        - personality
+      args:
+        - index: 0
+          value: 0
+          op: SCMP_CMP_NE
+```
+
+### AppArmorProfile
+
+`spec.mode` is `Enforce` (default) or `Complain`, which logs violations instead of denying them.
+`spec.abstract` describes the profile, which the daemon translates into an AppArmor policy. Its fields
+are:
+
+| Field                                           | Description                                                                                                                                                                                                       |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `executable.allowedExecutables`                 | Absolute paths of the programs which may be executed (`ixr`).                                                                                                                                                     |
+| `executable.allowedLibraries`                   | Absolute paths of the libraries which may be mapped and read (`mr`).                                                                                                                                              |
+| `filesystem.readOnlyPaths`                      | Paths which may be read (`r`). In `Enforce` mode, writing, linking and locking them is denied.                                                                                                                    |
+| `filesystem.writeOnlyPaths`                     | Paths which may be written, linked and locked (`wlk`). In `Enforce` mode, reading them is denied.                                                                                                                 |
+| `filesystem.readWritePaths`                     | Paths which may be read, written, linked and locked (`rwlk`).                                                                                                                                                     |
+| `network.allowRaw`                              | Allows raw sockets. If `network` is set without it, raw sockets are denied in `Enforce` mode.                                                                                                                     |
+| `network.allowedProtocols.allowTcp`, `allowUdp` | Allow TCP and UDP sockets.                                                                                                                                                                                        |
+| `capability.allowedCapabilities`                | Linux capabilities in lower case without the `CAP_` prefix, like `net_bind_service`. `sys_rawio` additionally allows `mount`, `remount`, `umount` and running `fsck`.                                              |
+| `ptrace.allowedAccess`                          | Required if `ptrace` is set. One to four of `read`, `readby`, `trace` and `tracedby`, rendered as a single `ptrace (...)` rule.                                                                                   |
+| `ptrace.peer`                                   | Limits the ptrace rule to processes confined by matching profiles, for example `@{profile_name}` for the profile itself. Without it, the rule applies to every process.                                           |
+
+The paths are absolute and may use the AppArmor globs `*`, `**` and `?` as well as variables like
+`@{pid}`. Commas, quotes and braces outside of variables are rejected. AppArmor denies everything
+which the policy does not allow, apart from the `abstractions/base` rules that every generated policy
+includes.
+
+Entries of the form `ptrace (read),` in the path lists of `filesystem` or `executable` are deprecated
+and will be removed in a future API version. They are still accepted and rendered as ptrace rules
+for every peer, and the daemon logs a warning for them. Use `ptrace` instead:
+
+```yaml
+spec:
+  abstract:
+    ptrace:
+      allowedAccess:
+        - read
+      peer: "@{profile_name}"
+```
+
+### ProfileRecording
+
+| Field                          | Description                                                                                                                                                                                                                               |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `kind`                         | Required. The profile kind to record: `SeccompProfile`, `SelinuxProfile` or `AppArmorProfile`.                                                                                                                                            |
+| `recorder`                     | Required. `Logs` or `Bpf`. `SelinuxProfile` recordings require `Logs` and `AppArmorProfile` recordings require `Bpf`.                                                                                                                     |
+| `podSelector`                  | Required. The label selector of the pods to record in the namespace of the recording. An empty selector matches all pods.                                                                                                                 |
+| `containers`                   | The names of the containers to record. Without it, all containers of the selected pods get recorded. See [`profilerecording-seccomp-bpf-specific-container.yaml`](../examples/profilerecording-seccomp-bpf-specific-container.yaml). |
+| `mergeStrategy`                | `None` (default) or `Containers`, see [Merging per-container profile instances](#merging-per-container-profile-instances).                                                                                                               |
+| `disableProfileAfterRecording` | Creates the recorded profiles in the `Disabled` state, see [Recording profiles without applying them](#recording-profiles-without-applying-them).                                                                                        |
+
+For example, to record only the `nginx` container of the selected pods:
+
+```yaml
+apiVersion: security-profiles-operator.x-k8s.io/v1
+kind: ProfileRecording
+metadata:
+  name: test-recording
+spec:
+  kind: SeccompProfile
+  recorder: Bpf
+  podSelector:
+    matchLabels:
+      app: alpine
+  containers:
+    - nginx
+```
+
+### SecurityProfilesOperatorDaemon
+
+The SPOD configures the operator and its daemon. Its fields are described in
+[Configure Operator](installation.md#configure-operator), for example
+[`enricher.logEnricherSource`](installation.md#select-the-log-enricher-source) and
+[`webhook.tolerations`](installation.md#constrain-spod-scheduling).
 

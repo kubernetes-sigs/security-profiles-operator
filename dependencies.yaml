@@ -76,6 +76,13 @@ dependencies:
     refPaths:
     - path: Makefile
       match: "^OPERATOR_SDK_VERSION"
+    # make bundle writes the builder version into the bundle.
+    - path: bundle.Dockerfile
+      match: operators.operatorframework.io.metrics.builder=operator-sdk-v
+    - path: bundle/metadata/annotations.yaml
+      match: "operators.operatorframework.io.metrics.builder: operator-sdk-v"
+    - path: bundle/manifests/security-profiles-operator.clusterserviceversion.yaml
+      match: "operators.operatorframework.io/builder: operator-sdk-v"
 
   # Must be bumped together with operator-sdk above.
   - name: operator-sdk-sha256-linux-amd64
@@ -162,22 +169,18 @@ dependencies:
       match: cert-manager/cert-manager
     - path: doc/installation.md
       match: cert-manager/cert-manager
-    - path: hack/ci/e2e-olm.sh
-      match: cert-manager/cert-manager
-    - path: hack/ci/install-spo.sh
-      match: cert-manager/cert-manager
-    - path: hack/ci/install-helm-chart.sh
-      match: ^CERT_MANAGER_VERSION
+    - path: hack/ci/lib.sh
+      match: ^CERT_MANAGER_VERSION=
 
   # Must be bumped together with cert-manager above, the checksum of
   # cert-manager.yaml of the release.
   - name: cert-manager-sha256
     version: e03b668ec8675214af6b0a671699d088f2601fa3878e0dbe1b41d3feafd1879f
     refPaths:
-    - path: hack/ci/install-helm-chart.sh
+    - path: hack/ci/lib.sh
       match: ^CERT_MANAGER_SHA256=
-    - path: hack/ci/install-spo.sh
-      match: cert_manager_sha256=
+    - path: test/e2e_test.go
+      match: "certmanagerSHA256 *="
 
   # The local registry of the kind clusters of the Helm and OLM tests.
   - name: kind-registry
@@ -515,23 +518,6 @@ dependencies:
     - path: hack/ci/install-kubernix.sh
       match: "^KUBERNIX_VERSION="
 
-  - name: cosign
-    version: v3.1.3
-    upstream:
-      flavour: github
-      url: sigstore/cosign
-    refPaths:
-    - path: hack/ci/Vagrantfile-debian
-      match: "COSIGN_VERSION="
-
-  # Must be bumped together with cosign above, the same binary as
-  # cosign-sha256-linux-amd64 below.
-  - name: cosign-sha256-linux-amd64-e2e
-    version: 4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71
-    refPaths:
-    - path: hack/ci/Vagrantfile-debian
-      match: "COSIGN_SHA256="
-
   - name: helm
     version: v3.22.0
     upstream:
@@ -608,8 +594,6 @@ dependencies:
     refPaths:
     - path: hack/lib/common.sh
       match: "^JQ_VERSION="
-    - path: hack/ci/Vagrantfile-flatcar
-      match: "^ *JQ_VERSION="
 
   # Must be bumped together with jq above.
   - name: jq-sha256-linux-amd64
@@ -617,8 +601,6 @@ dependencies:
     refPaths:
     - path: hack/lib/common.sh
       match: "^JQ_SHA256="
-    - path: hack/ci/Vagrantfile-flatcar
-      match: "^ *JQ_SHA256="
 
   - name: crane for staging attestations
     version: v0.22.1
@@ -641,6 +623,20 @@ dependencies:
       match: "name: golang:"
     - path: .devcontainer/devcontainer.json
       match: '"version": "1\.'
+
+  # Must be bumped together with golang above, the checksums of
+  # go<version>.linux-<arch>.tar.gz from https://go.dev/dl/.
+  - name: golang-sha256-linux-amd64
+    version: 63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445
+    refPaths:
+    - path: Dockerfile.ubi
+      match: "^ARG GO_SHA256_amd64="
+
+  - name: golang-sha256-linux-arm64
+    version: 3450b45a3f9ee8568792736a5c5e70a1f2e9b36c35a8f74958c03e51d7d92bec
+    refPaths:
+    - path: Dockerfile.ubi
+      match: "^ARG GO_SHA256_arm64="
 
   # The release the upgrade e2e test starts from when git has no tags.
   - name: spo-previous-release
@@ -988,3 +984,10 @@ dependencies:
     refPaths:
       - path: Dockerfile.ubi
         match: "^FROM registry.access.redhat.com/ubi9/go-toolset@"
+
+  # The UBI base of the final stage of Dockerfile.ubi.
+  - name: ubi9-ubi-minimal-digest
+    version: sha256:1d7c5517a4a1a8e2688620b39ee980e82505ca1ab7ae5541b5463120ae9b3897
+    refPaths:
+      - path: Dockerfile.ubi
+        match: "^FROM registry.access.redhat.com/ubi9/ubi-minimal@"

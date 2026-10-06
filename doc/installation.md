@@ -22,6 +22,7 @@
   - [Customise the daemon resource requirements](#customise-the-daemon-resource-requirements)
   - [Restrict the allowed syscalls in seccomp profiles](#restrict-the-allowed-syscalls-in-seccomp-profiles)
   - [Constrain spod scheduling](#constrain-spod-scheduling)
+  - [Select the log enricher source](#select-the-log-enricher-source)
   - [Enable memory optimization in spod](#enable-memory-optimization-in-spod)
   - [Configure the concurrent reconciles of the manager](#configure-the-concurrent-reconciles-of-the-manager)
   - [Restricting to a Single Namespace](#restricting-to-a-single-namespace)
@@ -129,11 +130,9 @@ A helm chart is also available for installation. The chart is attached to each
 [GitHub release](https://github.com/kubernetes-sigs/security-profiles-operator/releases)
 as an artifact, and can be installed by executing the following shell commands:
 
-You may also specify a different target namespace with `--namespace mynamespace` or `--namespace mynamespace --create-namespace` if it still doesn't exist.
-
 ```shell
-# Install cert-manager if it is not already installed (TODO: The helm
-# chart might do this one day - see issue 1062 for details):
+# Install cert-manager if it is not already installed, the chart does not
+# install it:
 kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.21.2/cert-manager.yaml
 kubectl --namespace cert-manager wait --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
 
@@ -163,6 +162,8 @@ helm install security-profiles-operator --namespace security-profiles-operator h
 # Or update it with
 # helm upgrade --install security-profiles-operator --namespace security-profiles-operator https://github.com/kubernetes-sigs/security-profiles-operator/releases/download/v${VERSION}/security-profiles-operator-${VERSION}.tgz
 ```
+
+You may also specify a different target namespace with `--namespace mynamespace` or `--namespace mynamespace --create-namespace` if it still doesn't exist.
 
 To verify a downloaded chart archive before installing it, see
 [verifying the released artifacts](verification.md#helm-chart).
@@ -221,26 +222,12 @@ These CRDs are not templated, but will be installed by default when running a he
 Helm does not upgrade or delete CRDs [[docs](https://helm.sh/docs/chart_best_practices/custom_resource_definitions/)],
 see [Upgrading](#upgrading) for how to update them.
 
-To remove everything or to do a new installation from scratch be sure to remove them first.
-
-```shell
-# Check in which ns is your release
-helm list --all --all-namespaces
-
-# Set here the target namespace to clean
-export spo_ns=spo
-
-# WARNING: following command will DELETE every CRD related to this project
-kubectl get crds --no-headers |grep security-profiles-operator |cut -d' ' -f1 |xargs kubectl delete crd
-
-# Uninstall the chart release from the namespace
-helm uninstall --namespace $spo_ns security-profiles-operator
-# WARNING: Delete the namespace
-kubectl delete ns $spo_ns
-
-# Install it again
-helm upgrade --install --create-namespace --namespace $spo_ns security-profiles-operator deploy/helm/
-```
+To uninstall the chart, follow [Uninstalling](troubleshooting.md#uninstalling):
+remove the profiles first, then the release with
+`helm uninstall --namespace security-profiles-operator security-profiles-operator`.
+`helm list --all --all-namespaces` shows the namespace of the release. Helm
+leaves the CRDs and the resources which the operator creates at runtime in
+place, the same procedure removes them afterwards.
 
 ### Installation on AKS
 
@@ -256,8 +243,8 @@ Afterwards, validate spod has been patched successfully by ensuring the `Running
 
 ```sh
 $ kubectl -nsecurity-profiles-operator get spod spod
-NAME   STATE
-spod   Running
+NAME   STATE     READY   AGE
+spod   Running   True    5m
 ```
 
 ## Upgrading
@@ -335,9 +322,16 @@ node to be scheduled.
 
 ### Set logging verbosity
 
-The operator supports the default logging verbosity of `0` and an enhanced `1`.
-To switch to the enhanced logging verbosity, patch the spod config by adjusting
-the value:
+The `verbosity` of the spod config sets the log level of the daemon containers:
+
+- `0` (default): the regular logs.
+- `1`: verbose logs, for example every audit line the JSON enricher processes.
+- `2`: additionally traces every exec event which the JSON enricher receives
+  from BPF.
+
+The API accepts values up to `10`. Levels above `2` only add the debug logs of
+the libraries the operator uses, like the Kubernetes client. To switch to the
+verbose logs, patch the spod config by adjusting the value:
 
 ```
 > kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"verbosity":1}}'
@@ -348,13 +342,19 @@ The daemon should now indicate that it's using the new logging verbosity:
 
 ```
 > kubectl -n security-profiles-operator logs --selector name=spod -c security-profiles-operator | head -n1
-I1111 15:13:16.942837       1 main.go:182]  "msg"="Set logging verbosity to 1"
+I1111 15:13:16.942837       1 main.go:543] "Set logging verbosity to 1"
 ```
 
 ### Pull images from private registry
 
 The container images from spod pod can be pulled from a private registry. This can be achieved by defining the `imagePullSecrets`
-inside of the SPOD configuration.
+inside of the SPOD configuration. They reference secrets in the operator namespace, for example a secret named
+`my-registry-secret` created with `kubectl create secret docker-registry`:
+
+```
+> kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"imagePullSecrets":[{"name":"my-registry-secret"}]}}'
+securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
+```
 
 ### Configure the SELinux type
 
@@ -433,8 +433,7 @@ Every time the allow lists (`allowedSyscalls` or `allowedSeccompActions`) change
 manager checks the existing profiles once for the cluster, merged with their base profiles, and deletes the ones
 which are not compliant. Profiles built on OCI base profiles, which only the daemons pull, are not deleted: the
 daemons reject them on every node and report a `ProfileNotAllowed` event instead, until the profile or the allow
-lists change. An invalid `allowedSeccompActions` value deletes nothing, it makes the daemons reject all profiles
-and gets reported as `InvalidSeccompSPODConfig` event on the spod object.
+lists change.
 
 By default, the syscalls of all rules using the actions `SCMP_ACT_ALLOW`, `SCMP_ACT_LOG`, `SCMP_ACT_TRACE` and
 `SCMP_ACT_NOTIFY` are checked against the allowed list, and profiles using one of these actions as
@@ -445,6 +444,10 @@ By default, the syscalls of all rules using the actions `SCMP_ACT_ALLOW`, `SCMP_
 kubectl -n security-profiles-operator patch spod spod --type merge -p \
   '{"spec":{"security":{"allowedSeccompActions": ["SCMP_ACT_ALLOW"]}}}'
 ```
+
+The API rejects other values than these four actions. A spod object stored before the API validated the field
+may still hold one: the manager then deletes no profiles, the daemons reject all profiles, and the spod object gets
+an `InvalidSeccompSPODConfig` warning event until the value gets fixed.
 
 ### Constrain spod scheduling
 
@@ -461,6 +464,28 @@ kubectl -n security-profiles-operator patch spod spod --type merge -p \
 ```
 
 These settings are also available in the Helm chart.
+
+The webhook deployment uses the `scheduling.tolerations` of the spod as well, unless `webhook.tolerations` sets its own
+list:
+
+```
+kubectl -n security-profiles-operator patch spod spod --type merge -p \
+  '{"spec":{"webhook":{"tolerations": [{"key": "node-role.kubernetes.io/control-plane", "operator": "Exists", "effect": "NoSchedule"}]}}}'
+```
+
+### Select the log enricher source
+
+The log enricher reads the audit events from the `auditd` or `syslog` files of the node by default. On nodes without
+them, `enricher.logEnricherSource` switches the source to `Bpf`, which reads the AppArmor audit events directly from
+the kernel. It needs Linux 5.19 or later and only reports AppArmor events, so it does not work for recording seccomp
+or SELinux profiles. The valid values are `Auditd` (default) and `Bpf`:
+
+```
+kubectl -n security-profiles-operator patch spod spod --type merge -p \
+  '{"spec":{"enricher":{"enableLogEnricher":true,"logEnricherSource":"Bpf"}}}'
+```
+
+See [Recording based on audit log](profiles.md#recording-based-on-audit-log) for the log enricher itself.
 
 ### Enable memory optimization in spod
 

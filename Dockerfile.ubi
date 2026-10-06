@@ -36,14 +36,23 @@ RUN dnf install -y \
 # sits above the source COPY, so the "latest" it returns is frozen by the build
 # cache at whatever it happened to be, leaving the shipped toolchain pinned to a
 # version nobody chose and unrecorded in the provenance.
+# The checksums are pinned per architecture and tracked next to the golang
+# entry of dependencies.yaml, a Go bump in go.mod has to update them as well.
+ARG GO_SHA256_amd64=63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445
+ARG GO_SHA256_arm64=3450b45a3f9ee8568792736a5c5e70a1f2e9b36c35a8f74958c03e51d7d92bec
 COPY go.mod hack/go-version.sh /tmp/
 RUN ARCH=$(arch | sed 's|x86_64|amd64|g' | sed 's|aarch64|arm64|g') && \
     GO_VERSION=go$(/tmp/go-version.sh /tmp/go.mod) && \
+    case "$ARCH" in \
+      amd64) GO_SHA256="$GO_SHA256_amd64" ;; \
+      arm64) GO_SHA256="$GO_SHA256_arm64" ;; \
+      *) echo "no pinned Go checksum for $ARCH" >&2; exit 1 ;; \
+    esac && \
     curl --proto '=https' --tlsv1.2 -sSfL "https://go.dev/dl/${GO_VERSION}.linux-${ARCH}.tar.gz" -o /tmp/go.tar.gz && \
-    curl --proto '=https' --tlsv1.2 -sSfL "https://dl.google.com/go/${GO_VERSION}.linux-${ARCH}.tar.gz.sha256" -o /tmp/go.tar.gz.sha256 && \
-    echo "$(cat /tmp/go.tar.gz.sha256)  /tmp/go.tar.gz" | sha256sum --check && \
+    { echo "${GO_SHA256}  /tmp/go.tar.gz" | sha256sum --check || \
+      { echo "${GO_VERSION}.linux-${ARCH}.tar.gz does not match the pinned checksum, update the golang-sha256 entries of dependencies.yaml" >&2; exit 1; }; } && \
     tar -xzf /tmp/go.tar.gz -C /usr/local && \
-    rm -f /tmp/go.tar.gz /tmp/go.tar.gz.sha256 /tmp/go.mod /tmp/go-version.sh
+    rm -f /tmp/go.tar.gz /tmp/go.mod /tmp/go-version.sh
 ENV PATH="/usr/local/go/bin:$PATH"
 
 COPY . /work
@@ -61,7 +70,7 @@ ARG SOURCE_DATE_EPOCH
 
 RUN make
 
-# hash below referred to latest
+# The digest is tracked as ubi9-ubi-minimal-digest in dependencies.yaml.
 FROM registry.access.redhat.com/ubi9/ubi-minimal@sha256:1d7c5517a4a1a8e2688620b39ee980e82505ca1ab7ae5541b5463120ae9b3897
 ARG version
 # The OCI image annotations, see Dockerfile.

@@ -19,13 +19,10 @@ limitations under the License.
 package e2e_test
 
 import (
-	"errors"
 	"fmt"
 	"math/rand/v2"
 	"strconv"
 	"strings"
-
-	spoutil "sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 func (e *e2e) testCaseProfilingChange([]string) {
@@ -84,11 +81,11 @@ func (e *e2e) getProfilingHTTPVersion() string {
 
 	index := 0
 
-	// Sometimes the endpoint does not output anything in CI. We fix
-	// that by retrying the endpoint several times.
+	// Sometimes the endpoint does not output anything in CI. We fix that by
+	// retrying the endpoint, moving on to the next spod pod each time.
 	var output string
 
-	if err := spoutil.Retry(func() error {
+	e.eventually(podCommandTimeout, defaultPollInterval, func() error {
 		profilingEndpoint := e.getProfilingEndpoint(index)
 		profilingCurlCMD := curlHTTPVerCMD + profilingEndpoint
 
@@ -99,20 +96,14 @@ func (e *e2e) getProfilingHTTPVersion() string {
 
 		output = ""
 
-		return errors.New("no output from profiling curl command")
-	}, func(err error) bool {
-		e.logf("retry on error: %s", err)
-
-		if index < nPods {
-			index++
-
-			return true
+		if nPods > 0 {
+			index = (index + 1) % nPods
 		}
 
-		return false
-	}); err != nil {
-		e.Failf("unable to get profiling endpoint http version", "error: %s", err)
-	}
+		e.logf("Retrying the profiling endpoint: no output")
+
+		return fmt.Errorf("no output from profiling curl command for %s", profilingEndpoint)
+	})
 
 	return output
 }
