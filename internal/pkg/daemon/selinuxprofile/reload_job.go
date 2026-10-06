@@ -30,10 +30,12 @@ import (
 	"github.com/go-logr/logr"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/nodestatus"
@@ -52,8 +54,14 @@ const (
 	reloadJobDeadline = int64(600)
 
 	// reloadJobRetryInterval is the time after which a reload which had to
-	// wait for a running reload job is tried again.
+	// wait for a running reload job is tried again. It is the first delay
+	// after a failed reload job as well, which doubles with each further
+	// failure up to reloadJobMaxRetryInterval.
 	reloadJobRetryInterval = 15 * time.Second
+
+	// reloadJobMaxRetryInterval caps the delay between the reload jobs of a
+	// generation which keep failing.
+	reloadJobMaxRetryInterval = 15 * time.Minute
 )
 
 // errNoPodName is returned if the name of the SPOd pod is unknown.
@@ -61,14 +69,29 @@ var errNoPodName = errors.New(config.PodNameEnvKey + " environment variable not 
 
 // jobFinished returns true if the job completed or failed for good.
 func jobFinished(job *batchv1.Job) bool {
+	return jobCompleted(job) || jobFailed(job)
+}
+
+// jobCompleted returns true if the job reloaded the policy.
+func jobCompleted(job *batchv1.Job) bool {
+	return hasJobCondition(job, batchv1.JobComplete) || job.Status.Succeeded > 0
+}
+
+// jobFailed returns true if the job gave up, because its pods exhausted the
+// backoff limit or it ran into its deadline.
+func jobFailed(job *batchv1.Job) bool {
+	return hasJobCondition(job, batchv1.JobFailed)
+}
+
+// hasJobCondition returns true if the condition of the job is true.
+func hasJobCondition(job *batchv1.Job, condition batchv1.JobConditionType) bool {
 	for _, c := range job.Status.Conditions {
-		if (c.Type == batchv1.JobComplete || c.Type == batchv1.JobFailed) &&
-			c.Status == corev1.ConditionTrue {
+		if c.Type == condition && c.Status == corev1.ConditionTrue {
 			return true
 		}
 	}
 
-	return job.Status.Succeeded > 0
+	return false
 }
 
 // maxLabelValueLength is the Kubernetes limit for a label value.
@@ -96,9 +119,16 @@ type reloadJobState int
 const (
 	// reloadJobCreated means that a reload job got created.
 	reloadJobCreated reloadJobState = iota
-	// reloadJobExists means that a job for the generation exists already,
-	// running or finished, so the reload is done or on its way.
-	reloadJobExists
+	// reloadJobRunning means that the job for the generation exists already
+	// and has not finished yet.
+	reloadJobRunning
+	// reloadJobDone means that the job for the generation completed, so the
+	// policy got reloaded.
+	reloadJobDone
+	// reloadJobFailed means that the job for the generation of an
+	// installation failed. It got deleted, so that the next attempt creates a
+	// new one.
+	reloadJobFailed
 	// reloadJobBusy means that a job for another generation is still
 	// running, so the reload has to be retried once it finished.
 	reloadJobBusy
@@ -127,7 +157,8 @@ const (
 // still running on the node, which the caller has to retry.
 func (r *ReconcileSelinux) createPolicyReloadJob(
 	ctx context.Context,
-	policyName, action string,
+	policyName string,
+	kind reloadKind,
 	uid types.UID,
 	generation int64,
 	l logr.Logger,
@@ -151,7 +182,7 @@ func (r *ReconcileSelinux) createPolicyReloadJob(
 		namespace,
 		nodeName,
 		policyName,
-		action,
+		kind,
 		uid,
 		generation,
 		l,
@@ -160,7 +191,16 @@ func (r *ReconcileSelinux) createPolicyReloadJob(
 		return state, err
 	}
 
-	job := newReloadJob(namespace, nodeName, policyName, action, uid, generation, pod, selinuxd)
+	job := newReloadJob(
+		namespace,
+		nodeName,
+		policyName,
+		kind.action,
+		uid,
+		generation,
+		pod,
+		selinuxd,
+	)
 
 	l.Info(
 		"Creating SELinux policy reload job",
@@ -179,12 +219,12 @@ func (r *ReconcileSelinux) createPolicyReloadJob(
 	return reloadJobCreated, nil
 }
 
-// existingReloadJob looks for the reload jobs of the policy on the node. It
-// returns reloadJobExists if one of them is for the generation of the profile
-// with the UID, reloadJobBusy
-// if another one is still running and reloadJobCreated if a job has to be
-// created. A finished job for another generation is no reason to skip: it
-// reloaded an older generation.
+// existingReloadJob looks for the reload jobs of the policy on the node. If
+// one of them is for the generation of the profile with the UID, it returns
+// the state of that job, see reloadJobOfGeneration. Otherwise it returns
+// reloadJobBusy if another job is still running and reloadJobCreated if a job
+// has to be created. A finished job for another generation is no reason to
+// skip: it reloaded an older generation.
 //
 // The jobs are read through the uncached API reader: r.client is backed by a
 // cluster-scoped cache, so listing through it would start a cluster-wide Job
@@ -192,7 +232,8 @@ func (r *ReconcileSelinux) createPolicyReloadJob(
 // client.InNamespace only filters the cache in memory.
 func (r *ReconcileSelinux) existingReloadJob(
 	ctx context.Context,
-	namespace, nodeName, policyName, action string,
+	namespace, nodeName, policyName string,
+	kind reloadKind,
 	uid types.UID,
 	generation int64,
 	l logr.Logger,
@@ -204,7 +245,7 @@ func (r *ReconcileSelinux) existingReloadJob(
 			reloadJobLabelApp:    reloadJobApp,
 			reloadJobLabelNode:   asLabelValue(nodeName),
 			reloadJobLabelPolicy: asLabelValue(policyName),
-			reloadJobLabelAction: action,
+			reloadJobLabelAction: kind.action,
 		}); err != nil {
 		return reloadJobBusy, fmt.Errorf("listing existing reload jobs: %w", err)
 	}
@@ -216,9 +257,7 @@ func (r *ReconcileSelinux) existingReloadJob(
 		job := &existingJobs.Items[i]
 		if job.Labels[reloadJobLabelGeneration] == wantGeneration &&
 			job.Labels[reloadJobLabelProfileUID] == string(uid) {
-			l.Info("Reload job for this generation exists already", "existingJob", job.Name)
-
-			return reloadJobExists, nil
+			return r.reloadJobOfGeneration(ctx, job, kind, l)
 		}
 
 		if !jobFinished(job) {
@@ -233,6 +272,117 @@ func (r *ReconcileSelinux) existingReloadJob(
 	}
 
 	return state, nil
+}
+
+// reloadJobOfGeneration returns the state of the reload job of the generation
+// of the profile. A failed job of an installation gets deleted, together with
+// its pods, so that the reload can be tried again. A failed job of a removal
+// counts as done, see removeReload.
+func (r *ReconcileSelinux) reloadJobOfGeneration(
+	ctx context.Context,
+	job *batchv1.Job,
+	kind reloadKind,
+	l logr.Logger,
+) (reloadJobState, error) {
+	switch {
+	case jobCompleted(job):
+		l.Info("Reload job for this generation completed", "existingJob", job.Name)
+
+		return reloadJobDone, nil
+	case jobFailed(job) && !kind.waitForCompletion:
+		l.Info("Reload job for this generation failed, not retrying it", "existingJob", job.Name)
+
+		return reloadJobDone, nil
+	case jobFailed(job):
+		l.Info("Reload job for this generation failed, deleting it", "existingJob", job.Name)
+
+		if err := r.client.Delete(
+			ctx, job, client.PropagationPolicy(metav1.DeletePropagationBackground),
+		); err != nil && !kerrors.IsNotFound(err) {
+			return reloadJobBusy, fmt.Errorf("deleting failed reload job %s: %w", job.Name, err)
+		}
+
+		return reloadJobFailed, nil
+	default:
+		l.Info("Reload job for this generation is still running", "existingJob", job.Name)
+
+		return reloadJobRunning, nil
+	}
+}
+
+// reloadFailures counts the failed reload jobs of a generation of a profile.
+type reloadFailures struct {
+	uid        types.UID
+	generation int64
+	count      int
+	// retryAt is when the next job may be created.
+	retryAt time.Time
+}
+
+// reloadRetryInterval returns the delay after the failures of reload jobs of a
+// generation: reloadJobRetryInterval, doubled with each further failure up to
+// reloadJobMaxRetryInterval.
+func reloadRetryInterval(failures int) time.Duration {
+	delay := reloadJobRetryInterval
+	for i := 1; i < failures && delay < reloadJobMaxRetryInterval; i++ {
+		delay *= 2
+	}
+
+	return min(delay, reloadJobMaxRetryInterval)
+}
+
+// reloadRetryDelay returns how long the reload of the generation of the
+// profile has to wait after its last job failed, or zero if it does not have
+// to wait.
+func (r *ReconcileSelinux) reloadRetryDelay(
+	sp selinuxprofileapi.SelinuxProfileObject, now time.Time,
+) time.Duration {
+	r.reloadFailuresMu.Lock()
+	defer r.reloadFailuresMu.Unlock()
+
+	failures, ok := r.reloadFailures[client.ObjectKeyFromObject(sp)]
+	if !ok || failures.uid != sp.GetUID() || failures.generation != sp.GetGeneration() {
+		return 0
+	}
+
+	return max(failures.retryAt.Sub(now), 0)
+}
+
+// recordReloadFailure counts a failed reload job of the generation of the
+// profile. It returns the number of failed jobs of the generation and the
+// delay until the next one may be created.
+func (r *ReconcileSelinux) recordReloadFailure(
+	sp selinuxprofileapi.SelinuxProfileObject, now time.Time,
+) (int, time.Duration) {
+	r.reloadFailuresMu.Lock()
+	defer r.reloadFailuresMu.Unlock()
+
+	key := client.ObjectKeyFromObject(sp)
+
+	failures := r.reloadFailures[key]
+	if failures.uid != sp.GetUID() || failures.generation != sp.GetGeneration() {
+		failures = reloadFailures{uid: sp.GetUID(), generation: sp.GetGeneration()}
+	}
+
+	failures.count++
+	delay := reloadRetryInterval(failures.count)
+	failures.retryAt = now.Add(delay)
+
+	if r.reloadFailures == nil {
+		r.reloadFailures = map[types.NamespacedName]reloadFailures{}
+	}
+
+	r.reloadFailures[key] = failures
+
+	return failures.count, delay
+}
+
+// forgetReloadFailures forgets the failed reload jobs of the profile.
+func (r *ReconcileSelinux) forgetReloadFailures(key types.NamespacedName) {
+	r.reloadFailuresMu.Lock()
+	defer r.reloadFailuresMu.Unlock()
+
+	delete(r.reloadFailures, key)
 }
 
 // reloadScript reloads the SELinux policy and reports the result.

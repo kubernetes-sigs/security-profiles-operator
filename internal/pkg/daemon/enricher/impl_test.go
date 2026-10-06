@@ -27,53 +27,62 @@ func TestDefaultImpl_EnvForPid(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
+		name    string
 		prepare func() *fstest.MapFS
-		assert  func(env map[string]string, retErr error)
+		assert  func(t *testing.T, env map[string]string, retErr error)
 	}{
 		{
-			// Test the best case
+			name: "the best case",
 			prepare: func() *fstest.MapFS {
 				return &fstest.MapFS{
 					"proc/1234/environ": {Data: []byte("hello=world")},
 				}
 			},
-			assert: func(env map[string]string, retErr error) {
+			assert: func(t *testing.T, env map[string]string, retErr error) {
+				t.Helper()
+
 				require.NoError(t, retErr)
 				require.Equal(t, "world", env["hello"])
 			},
 		},
 		{
-			// Test key with empty value
+			name: "key with empty value",
 			prepare: func() *fstest.MapFS {
 				return &fstest.MapFS{
 					"proc/1234/environ": {Data: []byte("hello=")},
 				}
 			},
-			assert: func(env map[string]string, retErr error) {
+			assert: func(t *testing.T, env map[string]string, retErr error) {
+				t.Helper()
+
 				require.NoError(t, retErr)
 				require.Len(t, env, 1)
 			},
 		},
 		{
-			// Test keys with no equals sign
+			name: "keys with no equals sign",
 			prepare: func() *fstest.MapFS {
 				return &fstest.MapFS{
 					"proc/1234/environ": {Data: []byte("hello")},
 				}
 			},
-			assert: func(env map[string]string, retErr error) {
+			assert: func(t *testing.T, env map[string]string, retErr error) {
+				t.Helper()
+
 				require.NoError(t, retErr)
 				require.Empty(t, env)
 			},
 		},
 		{
-			// Test empty lines
+			name: "empty lines",
 			prepare: func() *fstest.MapFS {
 				return &fstest.MapFS{
 					"proc/1234/environ": {Data: []byte("hello=world\x00\x00\x00test1=test2")},
 				}
 			},
-			assert: func(env map[string]string, retErr error) {
+			assert: func(t *testing.T, env map[string]string, retErr error) {
+				t.Helper()
+
 				require.NoError(t, retErr)
 				require.Equal(t, "world", env["hello"])
 				require.Equal(t, "test2", env["test1"])
@@ -81,22 +90,28 @@ func TestDefaultImpl_EnvForPid(t *testing.T) {
 			},
 		},
 		{
-			// Test incorrect file
+			name: "incorrect file",
 			prepare: func() *fstest.MapFS {
 				return &fstest.MapFS{
 					"proc/unknown/environ": {Data: []byte("hello=world")},
 				}
 			},
-			assert: func(env map[string]string, retErr error) {
+			assert: func(t *testing.T, env map[string]string, retErr error) {
+				t.Helper()
+
 				require.Error(t, retErr)
 			},
 		},
 	} {
-		testImpl := defaultImpl{
-			fsys: tc.prepare(),
-		}
-		env, err := testImpl.EnvForPid(1234)
-		tc.assert(env, err)
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			testImpl := defaultImpl{
+				fsys: tc.prepare(),
+			}
+			env, err := testImpl.EnvForPid(1234)
+			tc.assert(t, env, err)
+		})
 	}
 }
 
@@ -104,37 +119,46 @@ func TestDefaultImpl_CmdlineForPID(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
+		name    string
 		prepare func() *fstest.MapFS
-		assert  func(cmd string, retErr error)
+		assert  func(t *testing.T, cmd string, retErr error)
 	}{
 		{
-			// Test the best case
+			name: "the best case",
 			prepare: func() *fstest.MapFS {
 				return &fstest.MapFS{
 					"proc/1234/cmdline": {Data: []byte("/sh")},
 				}
 			},
-			assert: func(cmd string, retErr error) {
+			assert: func(t *testing.T, cmd string, retErr error) {
+				t.Helper()
+
 				require.NoError(t, retErr)
 				require.Equal(t, "/sh", cmd)
 			},
 		},
 		{
-			// Test incorrect file
+			name: "incorrect file",
 			prepare: func() *fstest.MapFS {
 				return &fstest.MapFS{
 					"proc/unknown/environ": {Data: []byte("/sh")},
 				}
 			},
-			assert: func(cmd string, retErr error) {
+			assert: func(t *testing.T, cmd string, retErr error) {
+				t.Helper()
+
 				require.Error(t, retErr)
 			},
 		},
 	} {
-		testImpl := defaultImpl{
-			fsys: tc.prepare(),
-		}
-		cmd, err := testImpl.CmdlineForPID(1234)
-		tc.assert(cmd, err)
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			testImpl := defaultImpl{
+				fsys: tc.prepare(),
+			}
+			cmd, err := testImpl.CmdlineForPID(1234)
+			tc.assert(t, cmd, err)
+		})
 	}
 }

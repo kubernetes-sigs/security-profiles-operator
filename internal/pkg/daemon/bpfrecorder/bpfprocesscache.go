@@ -19,6 +19,7 @@ limitations under the License.
 package bpfrecorder
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -114,6 +115,9 @@ func NewBpfProcessCache(logger logr.Logger) *BpfProcessCache {
 		cache: ttlcache.New(
 			ttlcache.WithTTL[int, *BpfProcessInfo](processCacheTimeout),
 			ttlcache.WithCapacity[int, *BpfProcessInfo](maxProcessCacheItems),
+			// The arguments of an exec do not change, so a lookup must not
+			// keep them beyond the timeout.
+			ttlcache.WithDisableTouchOnHit[int, *BpfProcessInfo](),
 		),
 	}
 
@@ -140,6 +144,14 @@ func (b *BpfProcessCache) Load() (err error) {
 	}
 
 	b.recorder.module = module
+
+	// Unload the module again if anything below fails, it would keep its
+	// programs and maps otherwise.
+	defer func() {
+		if err != nil {
+			b.recorder.Close()
+		}
+	}()
 
 	// The recorder shares the BPF program, but only the process cache needs
 	// the arguments and environment of each exec.
@@ -259,7 +271,7 @@ func (b *BpfProcessCache) handleEvent(eventBytes []byte) {
 
 	var cmdLineBuilder strings.Builder
 	for i := range argsLen {
-		cmdLineBuilder.WriteString(strings.ReplaceAll(string(execEvent.Args[i][:]), "\u0000", ""))
+		cmdLineBuilder.WriteString(cString(execEvent.Args[i][:]))
 		cmdLineBuilder.WriteByte(' ')
 	}
 
@@ -268,17 +280,9 @@ func (b *BpfProcessCache) handleEvent(eventBytes []byte) {
 	envMap := make(map[string]string)
 
 	for i := range envLen {
-		envVar := string(execEvent.Env[i][:])
-
-		parts := strings.SplitN(envVar, "=", 2)
-		if len(parts) == 2 {
-			key := strings.ReplaceAll(parts[0], "\u0000", "")
-			key = strings.Trim(key, "\"")
-
-			value := strings.ReplaceAll(parts[1], "\u0000", "")
-			value = strings.Trim(value, "\"")
-
-			envMap[key] = value
+		key, value, ok := strings.Cut(cString(execEvent.Env[i][:]), "=")
+		if ok {
+			envMap[strings.Trim(key, "\"")] = strings.Trim(value, "\"")
 		}
 	}
 
@@ -290,4 +294,15 @@ func (b *BpfProcessCache) handleEvent(eventBytes []byte) {
 
 	b.cache.Set(int(execEvent.Pid), pInfo, ttlcache.DefaultTTL)
 	b.logger.V(2).Info("eventTypeExecevEnter processed", "pInfo", &pInfo)
+}
+
+// cString returns the NUL terminated string at the start of buf. The ring
+// buffer is not zeroed, so the bytes after the terminator can be left over
+// from an earlier event.
+func cString(buf []byte) string {
+	if i := bytes.IndexByte(buf, 0); i >= 0 {
+		buf = buf[:i]
+	}
+
+	return string(buf)
 }

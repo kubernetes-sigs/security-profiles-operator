@@ -60,7 +60,6 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/apparmorprofile/crd2armor"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/recordingmerger"
@@ -98,6 +97,10 @@ var (
 	// in the SPOD. The daemon restarts without it, which loses the recorded
 	// data anyway.
 	errRecorderDisabled = errors.New("not enabled")
+	// errBpfRecorderUnavailable is returned if the BPF recorder cannot hand
+	// out the recorded data at all, for example because it stopped a
+	// recording which looked abandoned, or got restarted.
+	errBpfRecorderUnavailable = errors.New("bpf recorder cannot provide the recorded data")
 )
 
 // unrecordable reports whether a collect error means the pod can never be
@@ -105,7 +108,8 @@ var (
 func unrecordable(err error) bool {
 	return errors.Is(err, errNameNotValid) ||
 		errors.Is(err, errRecordingGone) ||
-		errors.Is(err, errRecorderDisabled)
+		errors.Is(err, errRecorderDisabled) ||
+		errors.Is(err, errBpfRecorderUnavailable)
 }
 
 // NewController returns a new empty controller instance.
@@ -124,9 +128,16 @@ type RecorderReconciler struct {
 	// namespace is the namespace of the operator, which holds the SPOD.
 	namespace   string
 	podsToWatch sync.Map
-	// forbiddenAttempts counts per profile how often storing it was
-	// forbidden.
+	// forbiddenAttempts counts per forbiddenKey how often storing a profile
+	// was forbidden.
 	forbiddenAttempts sync.Map
+}
+
+// forbiddenKey identifies the attempts of a pod to store a profile. Profiles
+// of different namespaces can have the same name.
+type forbiddenKey struct {
+	pod     types.NamespacedName
+	profile types.NamespacedName
 }
 
 type profileToCollect struct {
@@ -461,57 +472,8 @@ func (r *RecorderReconciler) Reconcile(
 			}
 		}
 
-		logProfiles, err := parseLogAnnotations(pod.Annotations)
-		if err != nil {
-			// Malformed annotations could be set by users directly, which is
-			// why we are ignoring them.
-			logger.Info("Ignoring because unable to parse log annotation", "error", err)
-			r.record.Eventf(
-				pod,
-				nil,
-				util.EventTypeWarning,
-				reasonAnnotationParsing,
-				util.EventActionRecord,
-				"%s",
-				err.Error(),
-			)
-
-			return reconcile.Result{}, nil
-		}
-
-		bpfProfiles, err := parseBpfAnnotations(pod.Annotations)
-		if err != nil {
-			// Malformed annotations could be set by users directly, which is
-			// why we are ignoring them.
-			logger.Info("Ignoring because unable to parse bpf annotation", "error", err)
-			r.record.Eventf(
-				pod,
-				nil,
-				util.EventTypeWarning,
-				reasonAnnotationParsing,
-				util.EventActionRecord,
-				"%s",
-				err.Error(),
-			)
-
-			return reconcile.Result{}, nil
-		}
-
-		var (
-			profiles []profileToCollect
-			recorder profilerecordingapi.ProfileRecorder
-		)
-
-		switch {
-		case len(logProfiles) > 0:
-			profiles = logProfiles
-			recorder = profilerecordingapi.ProfileRecorderLogs
-		case len(bpfProfiles) > 0:
-			profiles = bpfProfiles
-			recorder = profilerecordingapi.ProfileRecorderBpf
-		default:
-			logger.Info("No log or bpf annotations found on pod")
-
+		profiles, recorder := r.podProfiles(logger, pod)
+		if len(profiles) == 0 {
 			return reconcile.Result{}, nil
 		}
 
@@ -536,58 +498,7 @@ func (r *RecorderReconciler) Reconcile(
 			}
 		}
 
-		for _, prf := range profiles {
-			logger.Info(
-				"Recording profile",
-				"kind",
-				prf.kind,
-				"name",
-				prf.name,
-				"pod",
-				req.String(),
-			)
-		}
-
-		// for pods managed by a replicated controller, let's store the replicated
-		// name so that we can later strip the suffix from the fully-generated pod name
-		baseName := req.NamespacedName
-		if pod.GenerateName != "" {
-			baseName.Name = pod.GenerateName
-		}
-
-		r.podsToWatch.Store(
-			req.String(),
-			podToWatch{
-				baseName:   baseName,
-				uid:        pod.UID,
-				recorder:   recorder,
-				profiles:   profiles,
-				recordings: recordings,
-			},
-		)
-		r.record.Eventf(
-			pod,
-			nil,
-			util.EventTypeNormal,
-			reasonProfileRecording,
-			util.EventActionRecord,
-			"Recording profiles",
-		)
-
-		// The BPF recorder only sees what happens after it got armed, while
-		// the log enricher records from the audit log regardless.
-		if pod.Status.Phase == corev1.PodRunning &&
-			recorder == profilerecordingapi.ProfileRecorderBpf {
-			logger.Info("Started recording an already running pod, the profile may be incomplete")
-			r.record.Eventf(
-				pod,
-				nil,
-				util.EventTypeWarning,
-				reasonRecordingIncomplete,
-				util.EventActionRecord,
-				"Recording started after the pod was already running, the profiles may be incomplete",
-			)
-		}
+		r.trackPod(logger, req, pod, recorder, profiles, recordings)
 	}
 
 	// A failed pod does not run anymore either, and it may stay around for a
@@ -600,6 +511,120 @@ func (r *RecorderReconciler) Reconcile(
 	}
 
 	return reconcile.Result{}, nil
+}
+
+// podProfiles returns the profiles which the annotations of a pod ask to record
+// and the recorder for them. It returns no profiles if there are none or if the
+// annotations cannot be parsed.
+func (r *RecorderReconciler) podProfiles(
+	logger logr.Logger, pod *corev1.Pod,
+) ([]profileToCollect, profilerecordingapi.ProfileRecorder) {
+	logProfiles, err := parseLogAnnotations(pod.Annotations)
+	if err != nil {
+		r.ignoreAnnotations(logger, pod, "log", err)
+
+		return nil, ""
+	}
+
+	bpfProfiles, err := parseBpfAnnotations(pod.Annotations)
+	if err != nil {
+		r.ignoreAnnotations(logger, pod, "bpf", err)
+
+		return nil, ""
+	}
+
+	switch {
+	case len(logProfiles) > 0:
+		return logProfiles, profilerecordingapi.ProfileRecorderLogs
+	case len(bpfProfiles) > 0:
+		return bpfProfiles, profilerecordingapi.ProfileRecorderBpf
+	default:
+		logger.Info("No log or bpf annotations found on pod")
+
+		return nil, ""
+	}
+}
+
+// ignoreAnnotations reports annotations of a pod which cannot be parsed.
+// Malformed annotations could be set by users directly, which is why they are
+// ignored.
+func (r *RecorderReconciler) ignoreAnnotations(
+	logger logr.Logger, pod *corev1.Pod, recorder string, err error,
+) {
+	logger.Info("Ignoring because unable to parse "+recorder+" annotation", "error", err)
+	r.record.Eventf(
+		pod,
+		nil,
+		util.EventTypeWarning,
+		reasonAnnotationParsing,
+		util.EventActionRecord,
+		"%s",
+		err.Error(),
+	)
+}
+
+// trackPod remembers a pod whose profiles get recorded, so that they are
+// collected once it is gone.
+func (r *RecorderReconciler) trackPod(
+	logger logr.Logger,
+	req reconcile.Request,
+	pod *corev1.Pod,
+	recorder profilerecordingapi.ProfileRecorder,
+	profiles []profileToCollect,
+	recordings map[string]recordingState,
+) {
+	for _, prf := range profiles {
+		logger.Info(
+			"Recording profile",
+			"kind",
+			prf.kind,
+			"name",
+			prf.name,
+			"pod",
+			req.String(),
+		)
+	}
+
+	// for pods managed by a replicated controller, let's store the replicated
+	// name so that we can later strip the suffix from the fully-generated pod name
+	baseName := req.NamespacedName
+	if pod.GenerateName != "" {
+		baseName.Name = pod.GenerateName
+	}
+
+	r.podsToWatch.Store(
+		req.String(),
+		podToWatch{
+			baseName:   baseName,
+			uid:        pod.UID,
+			recorder:   recorder,
+			profiles:   profiles,
+			recordings: recordings,
+		},
+	)
+	r.record.Eventf(
+		pod,
+		nil,
+		util.EventTypeNormal,
+		reasonProfileRecording,
+		util.EventActionRecord,
+		"Recording profiles",
+	)
+
+	// The BPF recorder only sees what happens after it got armed, while
+	// the log enricher records from the audit log regardless.
+	if pod.Status.Phase == corev1.PodRunning &&
+		recorder == profilerecordingapi.ProfileRecorderBpf {
+		logger.Info("Started recording an already running pod, the profile may be incomplete")
+		r.record.Eventf(
+			pod,
+			nil,
+			util.EventTypeWarning,
+			reasonRecordingIncomplete,
+			util.EventActionRecord,
+			"Recording started after the pod was already running, the profiles may be incomplete",
+		)
+	}
 }
 
 // collectPod collects the profiles of a pod which is gone, got replaced or
@@ -743,6 +768,15 @@ func (r *RecorderReconciler) abandonPod(
 func (r *RecorderReconciler) releaseUnrecordablePod(
 	ctx context.Context, podName types.NamespacedName, bpf *bpfRecorderSession,
 ) {
+	// Nothing retries storing the profiles of the pod any more.
+	r.forbiddenAttempts.Range(func(key, _ any) bool {
+		if k, ok := key.(forbiddenKey); ok && k.pod == podName {
+			r.forbiddenAttempts.Delete(key)
+		}
+
+		return true
+	})
+
 	n := podName.String()
 
 	value, ok := r.podsToWatch.Load(n)
@@ -1234,6 +1268,57 @@ func (r *RecorderReconciler) collectBpfProfiles(
 	return nil
 }
 
+// bpfProfileCollector holds the kind specific parts of collecting a profile
+// recorded by the BPF recorder, collectBpfProfile runs the shared steps.
+type bpfProfileCollector struct {
+	// kind is used in log and error messages, like "seccomp".
+	kind string
+	// fetch reads the recorded data and builds the profile from it. It
+	// returns errRecordedProfileNotFound if nothing got recorded.
+	fetch func(
+		ctx context.Context, request *bpfrecorderapi.ProfileRequest, target *profileTarget,
+	) (client.Object, *profilebase.SpecBase, error)
+	// reset drops the recorded data in the recorder.
+	reset func(ctx context.Context, request *bpfrecorderapi.ProfileRequest) error
+}
+
+// bpfProfileCollectorFor returns the collector for a profile kind, or false if
+// the BPF recorder does not record that kind.
+func (r *RecorderReconciler) bpfProfileCollectorFor(
+	recorderClient bpfrecorderapi.BpfRecorderClient,
+	kind profilerecordingapi.ProfileRecordingKind,
+) (*bpfProfileCollector, bool) {
+	switch kind {
+	case profilerecordingapi.ProfileRecordingKindSeccompProfile:
+		return &bpfProfileCollector{
+			kind: "seccomp",
+			fetch: func(
+				ctx context.Context, request *bpfrecorderapi.ProfileRequest, target *profileTarget,
+			) (client.Object, *profilebase.SpecBase, error) {
+				return r.fetchSeccompBpfProfile(ctx, recorderClient, request, target)
+			},
+			reset: func(ctx context.Context, request *bpfrecorderapi.ProfileRequest) error {
+				return r.ResetSyscallsForProfile(ctx, recorderClient, request)
+			},
+		}, true
+	case profilerecordingapi.ProfileRecordingKindAppArmorProfile:
+		return &bpfProfileCollector{
+			kind: "apparmor",
+			fetch: func(
+				ctx context.Context, request *bpfrecorderapi.ProfileRequest, target *profileTarget,
+			) (client.Object, *profilebase.SpecBase, error) {
+				return r.fetchApparmorBpfProfile(ctx, recorderClient, request, target)
+			},
+			reset: func(ctx context.Context, request *bpfrecorderapi.ProfileRequest) error {
+				return r.ResetApparmorForProfile(ctx, recorderClient, request)
+			},
+		}, true
+	case profilerecordingapi.ProfileRecordingKindSelinuxProfile:
+	}
+
+	return nil, false
+}
+
 // collectBpfProfile stores a single profile recorded by the BPF recorder. The
 // recorder only drops its data once the profile got stored, so that a failure
 // on the way is retried with the complete data.
@@ -1245,16 +1330,21 @@ func (r *RecorderReconciler) collectBpfProfile(
 	ptc profileToCollect,
 	recordings map[string]recordingState,
 ) error {
-	if ptc.kind == profilerecordingapi.ProfileRecordingKindSelinuxProfile {
-		r.log.Info(
-			"Profile kind not supported by BPF recoder",
-			"name",
-			ptc.name,
-			"kind",
-			ptc.kind,
-		)
+	collector, ok := r.bpfProfileCollectorFor(recorderClient, ptc.kind)
+	if !ok {
+		if ptc.kind == profilerecordingapi.ProfileRecordingKindSelinuxProfile {
+			r.log.Info(
+				"Profile kind not supported by BPF recorder",
+				"name",
+				ptc.name,
+				"kind",
+				ptc.kind,
+			)
 
-		return nil
+			return nil
+		}
+
+		return fmt.Errorf("unrecognized kind %s", ptc.kind)
 	}
 
 	parsedProfileName, err := parseProfileAnnotation(ptc.name)
@@ -1282,59 +1372,21 @@ func (r *RecorderReconciler) collectBpfProfile(
 
 	r.log.Info("Collecting BPF profile", "name", ptc.name, "kind", ptc.kind)
 
-	var (
-		profile  client.Object
-		specBase *profilebase.SpecBase
-		kind     string
-	)
+	request := &bpfrecorderapi.ProfileRequest{Name: ptc.name}
 
-	switch ptc.kind {
-	case profilerecordingapi.ProfileRecordingKindSeccompProfile:
-		seccompProfile, err := r.collectSeccompBpfProfile(
-			ctx,
-			recorderClient,
-			&ptc,
-			target.name,
-			target.labels,
-		)
-		if err != nil {
-			// skip empty profiles
-			if errors.Is(err, errRecordedProfileNotFound) {
-				return nil
-			}
-
-			return fmt.Errorf("collecting seccomp profile %s: %w", ptc.name, err)
+	profile, specBase, err := collector.fetch(ctx, request, target)
+	if err != nil {
+		// skip empty profiles
+		if errors.Is(err, errRecordedProfileNotFound) {
+			return nil
 		}
 
-		profile, specBase, kind = seccompProfile, &seccompProfile.Spec.SpecBase, "seccomp"
-	case profilerecordingapi.ProfileRecordingKindAppArmorProfile:
-		apparmorProfile, err := r.collectApparmorBpfProfile(
-			ctx,
-			recorderClient,
-			&ptc,
-			target.name,
-			target.labels,
-		)
-		if err != nil {
-			// skip empty profiles
-			if errors.Is(err, errRecordedProfileNotFound) {
-				return nil
-			}
-
-			return fmt.Errorf("collecting apparmor profile %s: %w", ptc.name, err)
-		}
-
-		profile, specBase, kind = apparmorProfile, &apparmorProfile.Spec.SpecBase, "apparmor"
-	case profilerecordingapi.ProfileRecordingKindSelinuxProfile:
-		// Skipped above.
-		return nil
-	default:
-		return fmt.Errorf("unrecognized kind %s", ptc.kind)
+		return fmt.Errorf("collecting %s profile %s: %w", collector.kind, ptc.name, err)
 	}
 
-	if err := r.storeProfile(ctx, target, profile, specBase, kind); err != nil {
+	if err := r.storeProfile(ctx, target, profile, specBase, collector.kind); err != nil {
 		if !errors.Is(err, errProfileRejected) {
-			return fmt.Errorf("creating/updating %s profile %s: %w", kind, ptc.name, err)
+			return fmt.Errorf("creating/updating %s profile %s: %w", collector.kind, ptc.name, err)
 		}
 
 		// Drop the data like for a stored profile, so that the recorder
@@ -1342,7 +1394,7 @@ func (r *RecorderReconciler) collectBpfProfile(
 		r.log.Error(err, "Dropping rejected profile", "profile", target.name.Name)
 	}
 
-	if err := r.resetBpfProfile(ctx, recorderClient, ptc); err != nil {
+	if err := collector.reset(ctx, request); err != nil {
 		return fmt.Errorf("reset recorded data of %s: %w", ptc.name, err)
 	}
 
@@ -1355,105 +1407,94 @@ func (r *RecorderReconciler) resetBpfProfile(
 	recorderClient bpfrecorderapi.BpfRecorderClient,
 	ptc profileToCollect,
 ) error {
-	request := &bpfrecorderapi.ProfileRequest{Name: ptc.name}
-
-	switch ptc.kind {
-	case profilerecordingapi.ProfileRecordingKindSeccompProfile:
-		return r.ResetSyscallsForProfile(ctx, recorderClient, request)
-	case profilerecordingapi.ProfileRecordingKindAppArmorProfile:
-		return r.ResetApparmorForProfile(ctx, recorderClient, request)
-	case profilerecordingapi.ProfileRecordingKindSelinuxProfile:
+	collector, ok := r.bpfProfileCollectorFor(recorderClient, ptc.kind)
+	if !ok {
+		return nil
 	}
 
-	return nil
+	return collector.reset(ctx, &bpfrecorderapi.ProfileRequest{Name: ptc.name})
 }
 
-func (r *RecorderReconciler) collectSeccompBpfProfile(
+// bpfRecorderError maps the error of a request for recorded data by its gRPC
+// status code. The BPF recorder returns NotFound if nothing got recorded for
+// the profile, this might be an init container which is no longer active, so
+// that the profile is skipped. FailedPrecondition means that the recorder
+// cannot provide the data at all, which releases the pod.
+func (r *RecorderReconciler) bpfRecorderError(err error, what, profile string) error {
+	code := grpcstatus.Code(err)
+
+	if code == grpccodes.NotFound {
+		r.log.Error(err, "Recorded profile not found", "name", profile)
+
+		return errRecordedProfileNotFound
+	}
+
+	if code == grpccodes.FailedPrecondition {
+		return fmt.Errorf("getting %s for profile: %w: %s",
+			what, errBpfRecorderUnavailable, grpcstatus.Convert(err).Message())
+	}
+
+	return fmt.Errorf("getting %s for profile: %w", what, err)
+}
+
+func (r *RecorderReconciler) fetchSeccompBpfProfile(
 	ctx context.Context,
 	recorderClient bpfrecorderapi.BpfRecorderClient,
-	profileToCollect *profileToCollect,
-	profileNamespacedName types.NamespacedName,
-	profileLabels map[string]string,
-) (*seccompprofileapi.SeccompProfile, error) {
-	response, err := r.SyscallsForProfile(
-		ctx, recorderClient, &bpfrecorderapi.ProfileRequest{Name: profileToCollect.name},
-	)
+	request *bpfrecorderapi.ProfileRequest,
+	target *profileTarget,
+) (client.Object, *profilebase.SpecBase, error) {
+	response, err := r.SyscallsForProfile(ctx, recorderClient, request)
 	if err != nil {
-		// Recording was not found for this profile, this might be an init container
-		// which is not longer active. Let's skip here and keep processing the
-		// next profile.
-		if grpcstatus.Convert(err).Message() == bpfrecorder.ErrNotFound.Error() {
-			r.log.Error(err, "Recorded profile not found", "name", profileToCollect.name)
-
-			return nil, errRecordedProfileNotFound
-		}
-
-		return nil, fmt.Errorf("getting syscalls for profile: %w", err)
+		return nil, nil, r.bpfRecorderError(err, "syscalls", request.GetName())
 	}
 
 	arch, err := r.goArchToSeccompArch(response.GetGoArch())
 	if err != nil {
-		return nil, fmt.Errorf("getting seccomp arch: %w", err)
-	}
-
-	profileSpec := &seccompprofileapi.SeccompProfileSpec{
-		DefaultAction: seccompprofileapi.ActErrno,
-		Architectures: []seccompprofileapi.Arch{arch},
-		Syscalls: []seccompprofileapi.Syscall{{
-			Action: seccompprofileapi.ActAllow,
-			Names:  response.GetSyscalls(),
-		}},
+		return nil, nil, fmt.Errorf("getting seccomp arch: %w", err)
 	}
 
 	profile := &seccompprofileapi.SeccompProfile{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      profileNamespacedName.Name,
-			Namespace: profileNamespacedName.Namespace,
-			Labels:    profileLabels,
+			Name:      target.name.Name,
+			Namespace: target.name.Namespace,
+			Labels:    target.labels,
 		},
-		Spec: *profileSpec,
+		Spec: seccompprofileapi.SeccompProfileSpec{
+			DefaultAction: seccompprofileapi.ActErrno,
+			Architectures: []seccompprofileapi.Arch{arch},
+			Syscalls: []seccompprofileapi.Syscall{{
+				Action: seccompprofileapi.ActAllow,
+				Names:  response.GetSyscalls(),
+			}},
+		},
 	}
 
-	return profile, nil
+	return profile, &profile.Spec.SpecBase, nil
 }
 
-func (r *RecorderReconciler) collectApparmorBpfProfile(
+func (r *RecorderReconciler) fetchApparmorBpfProfile(
 	ctx context.Context,
 	recorderClient bpfrecorderapi.BpfRecorderClient,
-	profileToCollect *profileToCollect,
-	profileNamespacedName types.NamespacedName,
-	profileLabels map[string]string,
-) (*apparmorprofileapi.AppArmorProfile, error) {
-	response, err := r.ApparmorForProfile(
-		ctx, recorderClient, &bpfrecorderapi.ProfileRequest{Name: profileToCollect.name},
-	)
+	request *bpfrecorderapi.ProfileRequest,
+	target *profileTarget,
+) (client.Object, *profilebase.SpecBase, error) {
+	response, err := r.ApparmorForProfile(ctx, recorderClient, request)
 	if err != nil {
-		// Recording was not found for this profile, this might be an init container
-		// which is not longer active. Let's skip here and keep processing the
-		// next profile.
-		if grpcstatus.Convert(err).Message() == bpfrecorder.ErrNotFound.Error() {
-			r.log.Error(err, "Recorded profile not found", "name", profileToCollect.name)
-
-			return nil, errRecordedProfileNotFound
-		}
-
-		return nil, fmt.Errorf("getting syscalls for profile: %w", err)
-	}
-
-	spec := apparmorprofileapi.AppArmorProfileSpec{
-		Abstract: r.generateAppArmorProfileAbstract(response),
+		return nil, nil, r.bpfRecorderError(err, "apparmor rules", request.GetName())
 	}
 
 	profile := &apparmorprofileapi.AppArmorProfile{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      profileNamespacedName.Name,
-			Namespace: profileNamespacedName.Namespace,
-			Labels:    profileLabels,
+			Name:      target.name.Name,
+			Namespace: target.name.Namespace,
+			Labels:    target.labels,
 		},
-		Spec: spec,
+		Spec: apparmorprofileapi.AppArmorProfileSpec{
+			Abstract: r.generateAppArmorProfileAbstract(response),
+		},
 	}
 
-	return profile, nil
+	return profile, &profile.Spec.SpecBase, nil
 }
 
 func (r *RecorderReconciler) generateAppArmorProfileAbstract(
@@ -1528,6 +1569,12 @@ type profileTarget struct {
 	merge bool
 	// partialName is the name of the partial profile stored if merging fails.
 	partialName types.NamespacedName
+	// pod is the recorded pod.
+	pod types.NamespacedName
+}
+
+func (t *profileTarget) forbiddenKey() forbiddenKey {
+	return forbiddenKey{pod: t.pod, profile: t.name}
 }
 
 // resolveProfileTarget determines how the profile for the parsed annotation is
@@ -1544,7 +1591,7 @@ func (r *RecorderReconciler) resolveProfileTarget(
 		return nil, errNameNotValid
 	}
 
-	target := &profileTarget{recordingName: parsed.profileName}
+	target := &profileTarget{recordingName: parsed.profileName, pod: podName}
 	recording := &profilerecordingapi.ProfileRecording{}
 
 	err := r.ClientGet(
@@ -1720,14 +1767,14 @@ func (r *RecorderReconciler) storeProfile(
 			return nil
 		}
 
-		if r.rejectedForGood(target.name.Name, err) {
+		if r.rejectedForGood(target.forbiddenKey(), err) {
 			return fmt.Errorf("%w: %w", errProfileRejected, err)
 		}
 
 		return fmt.Errorf("create %s profile resource: %w", kind, err)
 	}
 
-	r.forbiddenAttempts.Delete(target.name.Name)
+	r.forbiddenAttempts.Delete(target.forbiddenKey())
 
 	r.log.Info("Created/updated profile", "action", res, "name", target.name.Name)
 	r.record.Eventf(
@@ -1787,7 +1834,7 @@ const maxForbiddenAttempts = 5
 
 // rejectedForGood reports whether the API server will reject the profile
 // again, in which case retrying would only keep the recording going for good.
-func (r *RecorderReconciler) rejectedForGood(name string, err error) bool {
+func (r *RecorderReconciler) rejectedForGood(key forbiddenKey, err error) bool {
 	if kerrors.IsInvalid(err) || kerrors.IsRequestEntityTooLargeError(err) ||
 		kerrors.IsBadRequest(err) {
 		return true
@@ -1797,11 +1844,11 @@ func (r *RecorderReconciler) rejectedForGood(name string, err error) bool {
 		return false
 	}
 
-	value, _ := r.forbiddenAttempts.LoadOrStore(name, new(atomic.Int32))
+	value, _ := r.forbiddenAttempts.LoadOrStore(key, new(atomic.Int32))
 
 	attempts, ok := value.(*atomic.Int32)
 	if !ok || attempts.Add(1) >= maxForbiddenAttempts {
-		r.forbiddenAttempts.Delete(name)
+		r.forbiddenAttempts.Delete(key)
 
 		return true
 	}

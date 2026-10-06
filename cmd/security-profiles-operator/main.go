@@ -1375,7 +1375,7 @@ func runLogEnricher(ctx *cli.Context, info *version.Info) error {
 		return fmt.Errorf("create log enricher: %w", err)
 	}
 
-	return logEnricher.Run()
+	return logEnricher.Run(ctrl.SetupSignalHandler())
 }
 
 func runJsonEnricher(ctx *cli.Context, info *version.Info) error {

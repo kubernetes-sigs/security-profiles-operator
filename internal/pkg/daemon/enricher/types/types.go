@@ -93,6 +93,9 @@ type LogBucket struct {
 	TimestampID string
 	// Emitted is set once the bucket got emitted, it takes no more lines.
 	Emitted bool
+	// BpfLookedUp is set once the process got looked up in the BPF process
+	// cache.
+	BpfLookedUp bool
 }
 
 // SyscallKey identifies a syscall. The numbers differ per architecture, and a

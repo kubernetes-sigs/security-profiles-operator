@@ -21,7 +21,6 @@ package auditsource
 import (
 	"debug/elf"
 	"testing"
-	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
@@ -72,24 +71,24 @@ func TestBpfSourceStopReleasesForward(t *testing.T) {
 	log := make(chan *types.AuditLine)
 	done := make(chan struct{})
 
-	go func() {
+	sut.wg.Go(func() {
 		defer close(done)
 
 		sut.forward(events, log)
-	}()
+	})
 
 	events <- []byte{
 		1, 0, 0, 0, 42, 0, 0, 0, 0, 0, 0, 0, 0,
 		'o', 0, 'c', 0, 'n', 0,
 	}
 
-	// Nobody reads the line.
+	// Nobody reads the line. Stop waits for the forwarding to end.
 	sut.Stop()
 
 	select {
 	case <-done:
-	case <-time.After(time.Minute):
-		t.Fatal("forwarding the events did not stop")
+	default:
+		t.Fatal("stop returned before the forwarding ended")
 	}
 
 	_, open := <-log

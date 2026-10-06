@@ -27,7 +27,6 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
-	"go.podman.io/common/pkg/seccomp"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -54,6 +53,10 @@ func TestReconcile(t *testing.T) {
 	namespace := "cool-namespace"
 	errOops := errors.New("oops")
 
+	supported := &seccompprofilefakes.FakeImpl{}
+	supported.IsSupportedReturns(true)
+	supported.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{}, nil)
+
 	cases := []struct {
 		name       string
 		rec        *Reconciler
@@ -64,6 +67,7 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "ProfileNotFound",
 			rec: &Reconciler{
+				impl: supported,
 				client: utiltest.NewFakeClient(t, &interceptor.Funcs{
 					Get: utiltest.GetReturns(kerrors.NewNotFound(schema.GroupResource{}, name)),
 				}),
@@ -77,8 +81,9 @@ func TestReconcile(t *testing.T) {
 			wantErr:    nil,
 		},
 		{
-			name: "ErrGetProfileIfSeccompEnabled",
+			name: "ErrGetProfile",
 			rec: &Reconciler{
+				impl: supported,
 				client: utiltest.NewFakeClient(t, &interceptor.Funcs{
 					Get: utiltest.GetReturns(errOops),
 				}),
@@ -90,17 +95,12 @@ func TestReconcile(t *testing.T) {
 				NamespacedName: types.NamespacedName{Namespace: namespace, Name: name},
 			},
 			wantResult: reconcile.Result{},
-			wantErr: func() error {
-				if seccomp.IsEnabled() {
-					return fmt.Errorf("%w: %w", common.ErrGetProfile, errOops)
-				}
-
-				return nil
-			}(),
+			wantErr:    fmt.Errorf("%w: %w", common.ErrGetProfile, errOops),
 		},
 		{
 			name: "GotProfile",
 			rec: &Reconciler{
+				impl: supported,
 				client: utiltest.NewFakeClient(t, &interceptor.Funcs{
 					Get:               utiltest.GetReturns(nil),
 					Update:            utiltest.UpdateReturns(nil),
@@ -131,6 +131,69 @@ func TestReconcile(t *testing.T) {
 			require.Equal(t, tc.wantResult, gotResult)
 		})
 	}
+}
+
+// A node without seccomp reports every profile once instead of on every
+// reconcile and liveness probe, and again if the profile got created again.
+func TestReconcileNotSupportedReportsProfileOnce(t *testing.T) {
+	t.Parallel()
+
+	profile := &seccompprofileapi.SeccompProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: "profile", Namespace: "ns", UID: "first"},
+	}
+	cli := utiltest.NewFakeClient(t, &interceptor.Funcs{}, profile)
+	mock := &seccompprofilefakes.FakeImpl{}
+	recorder := events.NewFakeRecorder(10)
+	rec := &Reconciler{
+		impl:     mock,
+		client:   cli,
+		log:      log.Log,
+		record:   recorder,
+		metrics:  metrics.New(),
+		nodeName: "node",
+	}
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "profile"}}
+	wantEvent := "Warning SeccompNotSupportedOnNode node \"node\": seccomp not supported"
+
+	for range 3 {
+		res, err := rec.Reconcile(t.Context(), req)
+		require.NoError(t, err)
+		require.Equal(t, reconcile.Result{}, res)
+		require.ErrorIs(t, rec.Healthz(nil), errSeccompNotSupported)
+	}
+
+	utiltest.RequireEvent(t, recorder, wantEvent)
+	utiltest.RequireNoEvent(t, recorder)
+	require.Zero(t, mock.GetSPODCallCount(), "the profile must not be installed")
+
+	// A profile created again under the same name is reported again.
+	require.NoError(t, cli.Delete(t.Context(), profile))
+	_, err := rec.Reconcile(t.Context(), req)
+	require.NoError(t, err)
+
+	recreated := profile.DeepCopy()
+	recreated.ResourceVersion = ""
+	recreated.UID = "second"
+	require.NoError(t, cli.Create(t.Context(), recreated))
+
+	_, err = rec.Reconcile(t.Context(), req)
+	require.NoError(t, err)
+	utiltest.RequireEvent(t, recorder, wantEvent)
+	utiltest.RequireNoEvent(t, recorder)
+}
+
+func TestHealthz(t *testing.T) {
+	t.Parallel()
+
+	mock := &seccompprofilefakes.FakeImpl{}
+	recorder := events.NewFakeRecorder(1)
+	rec := &Reconciler{impl: mock, record: recorder, metrics: metrics.New(), nodeName: "node"}
+
+	require.ErrorIs(t, rec.Healthz(nil), errSeccompNotSupported)
+	utiltest.RequireNoEvent(t, recorder)
+
+	mock.IsSupportedReturns(true)
+	require.NoError(t, rec.Healthz(nil))
 }
 
 // Expected perms on file.

@@ -61,6 +61,16 @@ type FakeImpl struct {
 		result1 *v1a.SecurityProfilesOperatorDaemon
 		result2 error
 	}
+	IsSupportedStub        func() bool
+	isSupportedMutex       sync.RWMutex
+	isSupportedArgsForCall []struct {
+	}
+	isSupportedReturns struct {
+		result1 bool
+	}
+	isSupportedReturnsOnCall map[int]struct {
+		result1 bool
+	}
 	PullStub        func(context.Context, logr.Logger, string, string, string, *v1b.Platform, *artifact.PullOptions) (*artifact.PullResult, error)
 	pullMutex       sync.RWMutex
 	pullArgsForCall []struct {
@@ -242,6 +252,59 @@ func (fake *FakeImpl) GetSPODReturnsOnCall(i int, result1 *v1a.SecurityProfilesO
 		result1 *v1a.SecurityProfilesOperatorDaemon
 		result2 error
 	}{result1, result2}
+}
+
+func (fake *FakeImpl) IsSupported() bool {
+	fake.isSupportedMutex.Lock()
+	ret, specificReturn := fake.isSupportedReturnsOnCall[len(fake.isSupportedArgsForCall)]
+	fake.isSupportedArgsForCall = append(fake.isSupportedArgsForCall, struct {
+	}{})
+	stub := fake.IsSupportedStub
+	fakeReturns := fake.isSupportedReturns
+	fake.recordInvocation("IsSupported", []interface{}{})
+	fake.isSupportedMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) IsSupportedCallCount() int {
+	fake.isSupportedMutex.RLock()
+	defer fake.isSupportedMutex.RUnlock()
+	return len(fake.isSupportedArgsForCall)
+}
+
+func (fake *FakeImpl) IsSupportedCalls(stub func() bool) {
+	fake.isSupportedMutex.Lock()
+	defer fake.isSupportedMutex.Unlock()
+	fake.IsSupportedStub = stub
+}
+
+func (fake *FakeImpl) IsSupportedReturns(result1 bool) {
+	fake.isSupportedMutex.Lock()
+	defer fake.isSupportedMutex.Unlock()
+	fake.IsSupportedStub = nil
+	fake.isSupportedReturns = struct {
+		result1 bool
+	}{result1}
+}
+
+func (fake *FakeImpl) IsSupportedReturnsOnCall(i int, result1 bool) {
+	fake.isSupportedMutex.Lock()
+	defer fake.isSupportedMutex.Unlock()
+	fake.IsSupportedStub = nil
+	if fake.isSupportedReturnsOnCall == nil {
+		fake.isSupportedReturnsOnCall = make(map[int]struct {
+			result1 bool
+		})
+	}
+	fake.isSupportedReturnsOnCall[i] = struct {
+		result1 bool
+	}{result1}
 }
 
 func (fake *FakeImpl) Pull(arg1 context.Context, arg2 logr.Logger, arg3 string, arg4 string, arg5 string, arg6 *v1b.Platform, arg7 *artifact.PullOptions) (*artifact.PullResult, error) {

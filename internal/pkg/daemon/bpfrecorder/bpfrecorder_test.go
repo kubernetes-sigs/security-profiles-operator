@@ -23,6 +23,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"net"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -34,8 +35,11 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/jellydator/ttlcache/v3"
 	seccomp "github.com/seccomp/libseccomp-golang"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -69,170 +73,292 @@ func TestRun(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
-		prepare func(*bpfrecorderfakes.FakeImpl)
-		assert  func(error)
+		name    string
+		prepare func(*testing.T, *bpfrecorderfakes.FakeImpl)
+		assert  func(*testing.T, error)
 	}{
-		{ // Success
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
+		{
+			name: "success",
+			prepare: func(t *testing.T, mock *bpfrecorderfakes.FakeImpl) {
+				t.Helper()
+
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 				mock.DialMetricsReturns(&grpc.ClientConn{}, nil)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 			},
 		},
-		{ // InClusterConfig fails
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
+		{
+			name: "InClusterConfig fails",
+			prepare: func(t *testing.T, mock *bpfrecorderfakes.FakeImpl) {
+				t.Helper()
+
 				mock.InClusterConfigReturns(nil, errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.Error(t, err)
 			},
 		},
-		{ // NewForConfig fails
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
+		{
+			name: "NewForConfig fails",
+			prepare: func(t *testing.T, mock *bpfrecorderfakes.FakeImpl) {
+				t.Helper()
+
 				mock.NewForConfigReturns(nil, errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.Error(t, err)
 			},
 		},
-		{ // RemoveAll fails
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
+		{
+			name: "RemoveAll fails",
+			prepare: func(t *testing.T, mock *bpfrecorderfakes.FakeImpl) {
+				t.Helper()
+
 				mock.RemoveAllReturns(errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.Error(t, err)
 			},
 		},
-		{ // Listen fails
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
+		{
+			name: "Listen fails",
+			prepare: func(t *testing.T, mock *bpfrecorderfakes.FakeImpl) {
+				t.Helper()
+
 				mock.ListenReturns(nil, errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.Error(t, err)
 			},
 		},
-		{ // Chown fails
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
+		{
+			name: "Chown fails",
+			prepare: func(t *testing.T, mock *bpfrecorderfakes.FakeImpl) {
+				t.Helper()
+
 				mock.ChownReturns(errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.Error(t, err)
 			},
 		},
-		{ // connectMetrics:DialMetrics fails
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
+		{
+			name: "connectMetrics DialMetrics fails",
+			prepare: func(t *testing.T, mock *bpfrecorderfakes.FakeImpl) {
+				t.Helper()
+
 				mock.DialMetricsReturns(nil, errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.Error(t, err)
 			},
 		},
-		{ // connectMetrics:BpfIncClient fails
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
+		{
+			name: "connectMetrics BpfIncClient fails",
+			prepare: func(t *testing.T, mock *bpfrecorderfakes.FakeImpl) {
+				t.Helper()
+
 				mock.DialMetricsReturns(&grpc.ClientConn{}, nil)
 				mock.CloseGRPCReturns(errTest)
 				mock.BpfIncClientReturns(nil, errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.Error(t, err)
 			},
 		},
-		{ // Readlink fails
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
+		{
+			name: "Readlink fails",
+			prepare: func(t *testing.T, mock *bpfrecorderfakes.FakeImpl) {
+				t.Helper()
+
 				mock.ReadlinkReturns("", errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.Error(t, err)
 			},
 		},
-		{ // ParseUint fails
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
+		{
+			name: "ParseUint fails",
+			prepare: func(t *testing.T, mock *bpfrecorderfakes.FakeImpl) {
+				t.Helper()
+
 				mock.ReadlinkReturns("mnt:[invalid]", nil)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.Error(t, err)
 			},
 		},
-		{ // ServeFails
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
+		{
+			name: "Serve fails",
+			prepare: func(t *testing.T, mock *bpfrecorderfakes.FakeImpl) {
+				t.Helper()
+
 				mock.ServeReturns(errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.Error(t, err)
 			},
 		},
-		{ // load:NewModuleFromBufferArgs fails
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
+		{
+			name: "load NewModuleFromBufferArgs fails",
+			prepare: func(t *testing.T, mock *bpfrecorderfakes.FakeImpl) {
+				t.Helper()
+
 				mock.NewModuleFromBufferArgsReturns(nil, errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.Error(t, err)
 			},
 		},
-		{ // load:InitGlobalVariable fails
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
+		{
+			name: "load InitGlobalVariable fails",
+			prepare: func(t *testing.T, mock *bpfrecorderfakes.FakeImpl) {
+				t.Helper()
+
 				mock.InitGlobalVariableReturns(errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.Error(t, err)
 			},
 		},
-		{ // load:BPFLoadObject fails
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
+		{
+			name: "load BPFLoadObject fails",
+			prepare: func(t *testing.T, mock *bpfrecorderfakes.FakeImpl) {
+				t.Helper()
+
 				mock.BPFLoadObjectReturns(errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.Error(t, err)
 			},
 		},
-		{ // load:GetProgram fails
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
+		{
+			name: "load GetProgram fails",
+			prepare: func(t *testing.T, mock *bpfrecorderfakes.FakeImpl) {
+				t.Helper()
+
 				mock.GetProgramReturns(nil, errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.Error(t, err)
 			},
 		},
-		{ // load:AttachGeneric fails
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
+		{
+			name: "load AttachGeneric fails",
+			prepare: func(t *testing.T, mock *bpfrecorderfakes.FakeImpl) {
+				t.Helper()
+
 				mock.AttachGenericReturns(nil, errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.Error(t, err)
 			},
 		},
-		{ // load:GetMap fails
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
+		{
+			name: "load GetMap fails",
+			prepare: func(t *testing.T, mock *bpfrecorderfakes.FakeImpl) {
+				t.Helper()
+
 				mock.GetMapReturns(nil, errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.Error(t, err)
 			},
 		},
 
-		{ // load:InitRingBuf fails
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
+		{
+			name: "load InitRingBuf fails",
+			prepare: func(t *testing.T, mock *bpfrecorderfakes.FakeImpl) {
+				t.Helper()
+
 				mock.InitRingBufReturns(nil, errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.Error(t, err)
 			},
 		},
 	} {
-		mock := &bpfrecorderfakes.FakeImpl{}
-		mock.ReadlinkReturns("mnt:[4026531841]", nil)
-		mock.PodListerWatcherReturns(podindextest.New())
-		tc.prepare(mock)
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-		sut := New("test", logr.Discard(), true, false)
-		sut.impl = mock
-		sut.nodeName = node
+			mock := &bpfrecorderfakes.FakeImpl{}
+			mock.ReadlinkReturns("mnt:[4026531841]", nil)
+			mock.PodListerWatcherReturns(podindextest.New())
 
-		err := sut.Run()
-		tc.assert(err)
+			listener := &fakeListener{}
+			listened := false
+			mock.ListenStub = func(string, string) (net.Listener, error) {
+				listened = true
+
+				return listener, nil
+			}
+
+			tc.prepare(t, mock)
+
+			sut := New("test", logr.Discard(), true, false)
+			sut.impl = mock
+			sut.nodeName = node
+
+			err := sut.Run()
+			tc.assert(t, err)
+
+			// Serve takes over the listener, otherwise Run has to close it.
+			if listened {
+				require.Equal(t, mock.ServeCallCount() == 0, listener.closed.Load())
+			}
+		})
 	}
+}
+
+// fakeListener records whether it got closed.
+type fakeListener struct {
+	net.Listener
+
+	closed atomic.Bool
+}
+
+func (l *fakeListener) Close() error {
+	l.closed.Store(true)
+
+	return nil
 }
 
 func TestRunWithoutNodeName(t *testing.T) {
@@ -261,33 +387,47 @@ func TestLoad(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
-		prepare func(*bpfrecorderfakes.FakeImpl)
-		assert  func(*BpfRecorder, error)
+		name    string
+		prepare func(*testing.T, *bpfrecorderfakes.FakeImpl)
+		assert  func(*testing.T, *BpfRecorder, error)
 	}{
-		{ // Success
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
+		{
+			name: "success",
+			prepare: func(t *testing.T, mock *bpfrecorderfakes.FakeImpl) {
+				t.Helper()
 			},
-			assert: func(sut *BpfRecorder, err error) {
+			assert: func(t *testing.T, sut *BpfRecorder, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 			},
 		},
-		{ // Error attaching
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
+		{
+			name: "error attaching",
+			prepare: func(t *testing.T, mock *bpfrecorderfakes.FakeImpl) {
+				t.Helper()
+
 				mock.AttachGenericReturns(nil, errTest)
 			},
-			assert: func(sut *BpfRecorder, err error) {
+			assert: func(t *testing.T, sut *BpfRecorder, err error) {
+				t.Helper()
+
 				require.Error(t, err)
 			},
 		},
 	} {
-		mock := &bpfrecorderfakes.FakeImpl{}
-		tc.prepare(mock)
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-		sut := New("", logr.Discard(), true, true)
-		sut.impl = mock
+			mock := &bpfrecorderfakes.FakeImpl{}
+			tc.prepare(t, mock)
 
-		err := sut.Load()
-		tc.assert(sut, err)
+			sut := New("", logr.Discard(), true, true)
+			sut.impl = mock
+
+			err := sut.Load()
+			tc.assert(t, sut, err)
+		})
 	}
 }
 
@@ -295,21 +435,30 @@ func TestStart(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
-		prepare func(*bpfrecorderfakes.FakeImpl)
-		assert  func(*BpfRecorder, error)
+		name    string
+		prepare func(*testing.T, *bpfrecorderfakes.FakeImpl)
+		assert  func(*testing.T, *BpfRecorder, error)
 	}{
-		{ // Success
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
+		{
+			name: "success",
+			prepare: func(t *testing.T, mock *bpfrecorderfakes.FakeImpl) {
+				t.Helper()
 			},
-			assert: func(sut *BpfRecorder, err error) {
+			assert: func(t *testing.T, sut *BpfRecorder, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				require.EqualValues(t, 1, sut.startRequests)
 			},
 		},
-		{ // Success already running
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
+		{
+			name: "success already running",
+			prepare: func(t *testing.T, mock *bpfrecorderfakes.FakeImpl) {
+				t.Helper()
 			},
-			assert: func(sut *BpfRecorder, err error) {
+			assert: func(t *testing.T, sut *BpfRecorder, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				require.EqualValues(t, 1, sut.startRequests)
 				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
@@ -317,28 +466,37 @@ func TestStart(t *testing.T) {
 				require.EqualValues(t, 2, sut.startRequests)
 			},
 		},
-		{ // Error attaching
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
+		{
+			name: "error attaching",
+			prepare: func(t *testing.T, mock *bpfrecorderfakes.FakeImpl) {
+				t.Helper()
+
 				mock.UpdateValueReturns(errTest)
 			},
-			assert: func(sut *BpfRecorder, err error) {
+			assert: func(t *testing.T, sut *BpfRecorder, err error) {
+				t.Helper()
+
 				require.Error(t, err)
 			},
 		},
 	} {
-		mock := &bpfrecorderfakes.FakeImpl{}
-		tc.prepare(mock)
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-		sut := New("", logr.Discard(), true, true)
-		sut.impl = mock
+			mock := &bpfrecorderfakes.FakeImpl{}
+			tc.prepare(t, mock)
 
-		mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
+			sut := New("", logr.Discard(), true, true)
+			sut.impl = mock
 
-		err := sut.Load()
-		require.NoError(t, err)
+			mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 
-		_, err = sut.Start(t.Context(), &api.EmptyRequest{})
-		tc.assert(sut, err)
+			err := sut.Load()
+			require.NoError(t, err)
+
+			_, err = sut.Start(t.Context(), &api.EmptyRequest{})
+			tc.assert(t, sut, err)
+		})
 	}
 }
 
@@ -356,18 +514,27 @@ func TestStop(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
-		prepare func(*BpfRecorder, *bpfrecorderfakes.FakeImpl)
-		assert  func(*BpfRecorder, error)
+		name    string
+		prepare func(*testing.T, *BpfRecorder, *bpfrecorderfakes.FakeImpl)
+		assert  func(*testing.T, *BpfRecorder, error)
 	}{
-		{ // Success
-			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {},
-			assert: func(sut *BpfRecorder, err error) {
+		{
+			name: "success",
+			prepare: func(t *testing.T, sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
+				t.Helper()
+			},
+			assert: func(t *testing.T, sut *BpfRecorder, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				require.EqualValues(t, 0, sut.startRequests)
 			},
 		},
-		{ // Success with start
-			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
+		{
+			name: "success with start",
+			prepare: func(t *testing.T, sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
+				t.Helper()
+
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 
 				err := sut.Load()
@@ -375,13 +542,18 @@ func TestStop(t *testing.T) {
 				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
 				require.NoError(t, err)
 			},
-			assert: func(sut *BpfRecorder, err error) {
+			assert: func(t *testing.T, sut *BpfRecorder, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				require.EqualValues(t, 0, sut.startRequests)
 			},
 		},
-		{ // Success with double start
-			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
+		{
+			name: "success with double start",
+			prepare: func(t *testing.T, sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
+				t.Helper()
+
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 
 				err := sut.Load()
@@ -391,21 +563,27 @@ func TestStop(t *testing.T) {
 				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
 				require.NoError(t, err)
 			},
-			assert: func(sut *BpfRecorder, err error) {
+			assert: func(t *testing.T, sut *BpfRecorder, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				require.EqualValues(t, 1, sut.startRequests)
 			},
 		},
 	} {
-		sut := New("", logr.Discard(), true, false)
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-		mock := &bpfrecorderfakes.FakeImpl{}
-		sut.impl = mock
+			sut := New("", logr.Discard(), true, false)
 
-		tc.prepare(sut, mock)
+			mock := &bpfrecorderfakes.FakeImpl{}
+			sut.impl = mock
 
-		_, err := sut.Stop(t.Context(), &api.EmptyRequest{})
-		tc.assert(sut, err)
+			tc.prepare(t, sut, mock)
+
+			_, err := sut.Stop(t.Context(), &api.EmptyRequest{})
+			tc.assert(t, sut, err)
+		})
 	}
 }
 
@@ -413,11 +591,15 @@ func TestSyscallsForProfile(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
-		prepare func(*BpfRecorder, *bpfrecorderfakes.FakeImpl)
-		assert  func(*BpfRecorder, *api.SyscallsResponse, error)
+		name    string
+		prepare func(*testing.T, *BpfRecorder, *bpfrecorderfakes.FakeImpl)
+		assert  func(*testing.T, *BpfRecorder, *api.SyscallsResponse, error)
 	}{
-		{ // Success
-			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
+		{
+			name: "success",
+			prepare: func(t *testing.T, sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
+				t.Helper()
+
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 
 				err := sut.Load()
@@ -434,7 +616,9 @@ func TestSyscallsForProfile(t *testing.T) {
 				mock.GetNameReturnsOnCall(4, "syscall_b", nil)
 				mock.GetNameReturnsOnCall(5, "syscall_c", nil)
 			},
-			assert: func(sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
+			assert: func(t *testing.T, sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				require.Len(t, resp.GetSyscalls(), 3)
 				require.Equal(t, "syscall_a", resp.GetSyscalls()[0])
@@ -442,8 +626,11 @@ func TestSyscallsForProfile(t *testing.T) {
 				require.Equal(t, "syscall_c", resp.GetSyscalls()[2])
 			},
 		},
-		{ // Success with unable to resolve syscall name
-			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
+		{
+			name: "success with unable to resolve syscall name",
+			prepare: func(t *testing.T, sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
+				t.Helper()
+
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 
 				err := sut.Load()
@@ -458,29 +645,45 @@ func TestSyscallsForProfile(t *testing.T) {
 				mock.GetNameReturnsOnCall(2, "syscall_b", nil)
 				mock.GetNameReturnsOnCall(3, "syscall_a", nil)
 			},
-			assert: func(sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
+			assert: func(t *testing.T, sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				require.Len(t, resp.GetSyscalls(), 2)
 				require.Equal(t, "syscall_a", resp.GetSyscalls()[0])
 				require.Equal(t, "syscall_b", resp.GetSyscalls()[1])
 			},
 		},
-		{ // recorder not running
-			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {},
-			assert: func(sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
-				require.Error(t, err)
+		{
+			name: "recorder not running",
+			prepare: func(t *testing.T, sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
+				t.Helper()
+			},
+			assert: func(t *testing.T, sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
+				t.Helper()
+
+				require.ErrorIs(t, err, errNotRunning)
+				require.Equal(t, codes.FailedPrecondition, status.Code(err))
 			},
 		},
-		{ // not recording seccomp
-			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
+		{
+			name: "not recording seccomp",
+			prepare: func(t *testing.T, sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
+				t.Helper()
+
 				sut.Seccomp = nil
 			},
-			assert: func(sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
+			assert: func(t *testing.T, sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
+				t.Helper()
+
 				require.Error(t, err)
 			},
 		},
-		{ // no PID for container
-			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
+		{
+			name: "no PID for container",
+			prepare: func(t *testing.T, sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
+				t.Helper()
+
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 
 				err := sut.Load()
@@ -488,12 +691,19 @@ func TestSyscallsForProfile(t *testing.T) {
 				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
 				require.NoError(t, err)
 			},
-			assert: func(sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
-				require.Error(t, err)
+			assert: func(t *testing.T, sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
+				t.Helper()
+
+				require.ErrorIs(t, err, ErrNotFound)
+				require.Equal(t, codes.NotFound, status.Code(err))
+				require.Equal(t, ErrNotFound.Error(), status.Convert(err).Message())
 			},
 		},
-		{ // no syscall found for profile
-			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
+		{
+			name: "no syscall found for profile",
+			prepare: func(t *testing.T, sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
+				t.Helper()
+
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 
 				err := sut.Load()
@@ -504,12 +714,17 @@ func TestSyscallsForProfile(t *testing.T) {
 				sut.containerKeys.Insert(uint64(mntns), containerID)
 				mock.GetValue64Returns(nil, errTest)
 			},
-			assert: func(sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
+			assert: func(t *testing.T, sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
+				t.Helper()
+
 				require.Error(t, err)
 			},
 		},
-		{ // Reading does not remove the syscalls
-			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
+		{
+			name: "reading does not remove the syscalls",
+			prepare: func(t *testing.T, sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
+				t.Helper()
+
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 
 				err := sut.Load()
@@ -523,7 +738,9 @@ func TestSyscallsForProfile(t *testing.T) {
 				mock.GetNameReturnsOnCall(1, "syscall_b", nil)
 				mock.GetNameReturnsOnCall(2, "syscall_c", nil)
 			},
-			assert: func(sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
+			assert: func(t *testing.T, sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 
 				mock, ok := sut.impl.(*bpfrecorderfakes.FakeImpl)
@@ -536,17 +753,21 @@ func TestSyscallsForProfile(t *testing.T) {
 			},
 		},
 	} {
-		sut := New("", logr.Discard(), true, false)
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-		mock := &bpfrecorderfakes.FakeImpl{}
-		sut.impl = mock
+			sut := New("", logr.Discard(), true, false)
 
-		tc.prepare(sut, mock)
+			mock := &bpfrecorderfakes.FakeImpl{}
+			sut.impl = mock
 
-		resp, err := sut.SyscallsForProfile(
-			t.Context(), &api.ProfileRequest{Name: profile},
-		)
-		tc.assert(sut, resp, err)
+			tc.prepare(t, sut, mock)
+
+			resp, err := sut.SyscallsForProfile(
+				t.Context(), &api.ProfileRequest{Name: profile},
+			)
+			tc.assert(t, sut, resp, err)
+		})
 	}
 }
 
@@ -557,12 +778,14 @@ func TestApparmorForProfile(t *testing.T) {
 
 	for _, tc := range []struct {
 		name    string
-		prepare func(*BpfRecorder, *bpfrecorderfakes.FakeImpl)
-		assert  func(*BpfRecorder, *api.ApparmorResponse, error)
+		prepare func(*testing.T, *BpfRecorder, *bpfrecorderfakes.FakeImpl)
+		assert  func(*testing.T, *BpfRecorder, *api.ApparmorResponse, error)
 	}{
 		{ // Success
 			name: "success",
-			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
+			prepare: func(t *testing.T, sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
+				t.Helper()
+
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 
 				err := sut.Load()
@@ -587,7 +810,9 @@ func TestApparmorForProfile(t *testing.T) {
 					},
 				}
 			},
-			assert: func(sut *BpfRecorder, resp *api.ApparmorResponse, err error) {
+			assert: func(t *testing.T, sut *BpfRecorder, resp *api.ApparmorResponse, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				require.Len(t, resp.GetCapabilities(), 3)
 				require.Len(t, resp.GetFiles().GetAllowedExecutables(), 1)
@@ -598,7 +823,9 @@ func TestApparmorForProfile(t *testing.T) {
 		},
 		{ // Success only for right mntns
 			name: "success only for right mntns",
-			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
+			prepare: func(t *testing.T, sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
+				t.Helper()
+
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 
 				err := sut.Load()
@@ -626,7 +853,9 @@ func TestApparmorForProfile(t *testing.T) {
 					},
 				}
 			},
-			assert: func(sut *BpfRecorder, resp *api.ApparmorResponse, err error) {
+			assert: func(t *testing.T, sut *BpfRecorder, resp *api.ApparmorResponse, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				require.Len(t, resp.GetCapabilities(), 3)
 				require.Len(t, resp.GetFiles().GetAllowedExecutables(), 1)
@@ -636,24 +865,34 @@ func TestApparmorForProfile(t *testing.T) {
 			},
 		},
 		{ // recorder not running
-			name:    "recorder not running",
-			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {},
-			assert: func(sut *BpfRecorder, resp *api.ApparmorResponse, err error) {
+			name: "recorder not running",
+			prepare: func(t *testing.T, sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
+				t.Helper()
+			},
+			assert: func(t *testing.T, sut *BpfRecorder, resp *api.ApparmorResponse, err error) {
+				t.Helper()
+
 				require.Error(t, err)
 			},
 		},
 		{ // not recording apparmor
 			name: "apparmor recorder disabled",
-			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
+			prepare: func(t *testing.T, sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
+				t.Helper()
+
 				sut.AppArmor = nil
 			},
-			assert: func(sut *BpfRecorder, resp *api.ApparmorResponse, err error) {
+			assert: func(t *testing.T, sut *BpfRecorder, resp *api.ApparmorResponse, err error) {
+				t.Helper()
+
 				require.Error(t, err)
 			},
 		},
 		{
 			name: "no BPF LSM",
-			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
+			prepare: func(t *testing.T, sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
+				t.Helper()
+
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 				mock.BPFLSMEnabledReturns(false)
 
@@ -663,14 +902,19 @@ func TestApparmorForProfile(t *testing.T) {
 				sut.containerIDToProfileMap.Insert(containerID, profile)
 				sut.containerKeys.Insert(uint64(mntns), containerID)
 			},
-			assert: func(sut *BpfRecorder, resp *api.ApparmorResponse, err error) {
+			assert: func(t *testing.T, sut *BpfRecorder, resp *api.ApparmorResponse, err error) {
+				t.Helper()
+
+				require.Equal(t, codes.FailedPrecondition, status.Code(err))
 				require.ErrorIs(t, err, ErrAppArmorUnavailable)
 				require.ErrorIs(t, err, errBPFLSMDisabled)
 			},
 		},
 		{ // no PID for container
 			name: "no pid for container available",
-			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
+			prepare: func(t *testing.T, sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
+				t.Helper()
+
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 
 				err := sut.Load()
@@ -678,8 +922,10 @@ func TestApparmorForProfile(t *testing.T) {
 				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
 				require.NoError(t, err)
 			},
-			assert: func(sut *BpfRecorder, resp *api.ApparmorResponse, err error) {
-				require.Error(t, err)
+			assert: func(t *testing.T, sut *BpfRecorder, resp *api.ApparmorResponse, err error) {
+				t.Helper()
+
+				require.Equal(t, codes.NotFound, status.Code(err))
 			},
 		},
 	} {
@@ -692,12 +938,62 @@ func TestApparmorForProfile(t *testing.T) {
 			mock.BPFLSMEnabledReturns(true)
 			sut.impl = mock
 
-			tc.prepare(sut, mock)
+			tc.prepare(t, sut, mock)
 
 			resp, err := sut.ApparmorForProfile(
 				t.Context(), &api.ProfileRequest{Name: profile},
 			)
-			tc.assert(sut, resp, err)
+			tc.assert(t, sut, resp, err)
+		})
+	}
+}
+
+// TestRPCError asserts the status codes the profile recorder acts on, and that
+// the messages stay the same.
+func TestRPCError(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		err  error
+		code codes.Code
+	}{
+		{name: "nil", err: nil, code: codes.OK},
+		{name: "not found", err: ErrNotFound, code: codes.NotFound},
+		{
+			name: "wrapped not found",
+			err:  fmt.Errorf("read syscalls: %w", ErrNotFound),
+			code: codes.NotFound,
+		},
+		{name: "not running", err: errNotRunning, code: codes.FailedPrecondition},
+		{name: "no seccomp recording", err: errNoSeccompRecording, code: codes.FailedPrecondition},
+		{name: "no apparmor recording", err: errNoAppArmorRecording, code: codes.FailedPrecondition},
+		{
+			name: "apparmor unavailable",
+			err:  fmt.Errorf("%w: %w", ErrAppArmorUnavailable, errTest),
+			code: codes.FailedPrecondition,
+		},
+		{
+			name: "status error is kept",
+			err:  status.Error(codes.InvalidArgument, "invalid"),
+			code: codes.InvalidArgument,
+		},
+		{name: "other error", err: errTest, code: codes.Unknown},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := rpcError(tc.err)
+			require.Equal(t, tc.code, status.Code(err))
+
+			if tc.err == nil {
+				require.NoError(t, err)
+
+				return
+			}
+
+			require.ErrorIs(t, err, tc.err)
+			require.Equal(t, status.Convert(tc.err).Message(), status.Convert(err).Message())
 		})
 	}
 }
@@ -738,22 +1034,11 @@ func (l *Logger) snapshot() []string {
 func requireLogged(t *testing.T, logger *Logger, msg string) {
 	t.Helper()
 
-	var seen []string
-
 	// The lookup this waits on retries with backoff, so the deadline has to
 	// cover the whole retry sequence rather than a fixed number of polls.
-	deadline := time.Now().Add(30 * time.Second)
-	for time.Now().Before(deadline) {
-		seen = logger.snapshot()
-		if slices.Contains(seen, msg) {
-			return
-		}
-
-		time.Sleep(20 * time.Millisecond)
-	}
-
-	require.Failf(t, "message never logged",
-		"waited for %q, logged messages were: %v", msg, seen)
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		assert.Contains(c, logger.snapshot(), msg)
+	}, 30*time.Second, 20*time.Millisecond)
 }
 
 func TestProcessEvents(t *testing.T) {
@@ -1014,11 +1299,15 @@ func TestNewPidEvent(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
-		prepare func(*BpfRecorder, *bpfrecorderfakes.FakeImpl) bpfEvent
-		assert  func(*BpfRecorder, *Logger)
+		name    string
+		prepare func(*testing.T, *BpfRecorder, *bpfrecorderfakes.FakeImpl) bpfEvent
+		assert  func(*testing.T, *BpfRecorder, *Logger)
 	}{
-		{ // Success
-			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) bpfEvent {
+		{
+			name: "success",
+			prepare: func(t *testing.T, sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) bpfEvent {
+				t.Helper()
+
 				mock.ContainerIDForPIDReturns(containerID, nil)
 				watchPods(t, sut, podWithContainer(map[string]string{
 					config.SeccompProfileRecordBpfAnnotationKey + "ctr": "profile.json",
@@ -1031,25 +1320,26 @@ func TestNewPidEvent(t *testing.T) {
 					Type:  uint8(eventTypeNewPid),
 				}
 			},
-			assert: func(sut *BpfRecorder, logger *Logger) {
+			assert: func(t *testing.T, sut *BpfRecorder, logger *Logger) {
+				t.Helper()
+
 				var foundKeys []uint64
 
-				for range 100 {
+				require.Eventually(t, func() bool {
 					containerIDs := sut.containerIDToProfileMap.Containers("profile.json")
-					if keys := sut.containerKeys.KeysOf(containerIDs); len(keys) > 0 {
-						foundKeys = keys
+					foundKeys = sut.containerKeys.KeysOf(containerIDs)
 
-						break
-					}
-
-					time.Sleep(100 * time.Millisecond)
-				}
+					return len(foundKeys) > 0
+				}, 10*time.Second, 10*time.Millisecond)
 
 				require.Equal(t, []uint64{0x1010}, foundKeys)
 			},
 		},
-		{ // unable to find container ID for PID
-			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) bpfEvent {
+		{
+			name: "unable to find container ID for PID",
+			prepare: func(t *testing.T, sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) bpfEvent {
+				t.Helper()
+
 				mock.ContainerIDForPIDReturns(containerID, errTest)
 
 				return bpfEvent{
@@ -1059,12 +1349,17 @@ func TestNewPidEvent(t *testing.T) {
 					Type:  uint8(eventTypeNewPid),
 				}
 			},
-			assert: func(sut *BpfRecorder, logger *Logger) {
+			assert: func(t *testing.T, sut *BpfRecorder, logger *Logger) {
+				t.Helper()
+
 				requireLogged(t, logger, "No container ID found for PID")
 			},
 		},
-		{ // no pod has the container
-			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) bpfEvent {
+		{
+			name: "no pod has the container",
+			prepare: func(t *testing.T, sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) bpfEvent {
+				t.Helper()
+
 				mock.ContainerIDForPIDReturns(containerID, nil)
 				watchPods(t, sut)
 
@@ -1075,31 +1370,37 @@ func TestNewPidEvent(t *testing.T) {
 					Type:  uint8(eventTypeNewPid),
 				}
 			},
-			assert: func(sut *BpfRecorder, logger *Logger) {
+			assert: func(t *testing.T, sut *BpfRecorder, logger *Logger) {
+				t.Helper()
+
 				requireLogged(t, logger, "Container not found in cluster")
 			},
 		},
 	} {
-		logSink := &Logger{}
-		logger := logr.New(logSink)
-		sut := New("", logger, false, false)
-		mock := &bpfrecorderfakes.FakeImpl{}
-		sut.impl = mock
-		// pretend that we're running in a kubernetes context
-		sut.clientset = &kubernetes.Clientset{}
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-		e := tc.prepare(sut, mock)
+			logSink := &Logger{}
+			logger := logr.New(logSink)
+			sut := New("", logger, false, false)
+			mock := &bpfrecorderfakes.FakeImpl{}
+			sut.impl = mock
+			// pretend that we're running in a kubernetes context
+			sut.clientset = &kubernetes.Clientset{}
 
-		go sut.handleNewPidEvent(
-			newPidEvent{
-				pid:        e.Pid,
-				mntns:      e.Mntns,
-				key:        e.Key,
-				generation: sut.recordingGeneration.Load(),
-			},
-		)
+			e := tc.prepare(t, sut, mock)
 
-		tc.assert(sut, logSink)
+			go sut.handleNewPidEvent(
+				newPidEvent{
+					pid:        e.Pid,
+					mntns:      e.Mntns,
+					key:        e.Key,
+					generation: sut.recordingGeneration.Load(),
+				},
+			)
+
+			tc.assert(t, sut, logSink)
+		})
 	}
 }
 

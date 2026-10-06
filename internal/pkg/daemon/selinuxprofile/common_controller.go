@@ -28,11 +28,13 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -137,6 +139,26 @@ type ReconcileSelinux struct {
 	namespace string
 	// podName is the name of the SPOd pod the daemon runs in.
 	podName string
+
+	// reportedMu guards reported.
+	reportedMu sync.Mutex
+	// reported is the last error which keeps a profile from being
+	// installed, per profile, see reportInstallError.
+	reported map[types.NamespacedName]installError
+
+	// reloadFailuresMu guards reloadFailures.
+	reloadFailuresMu sync.Mutex
+	// reloadFailures counts the failed install reload jobs of the current
+	// generation, per profile, see reloadRetryDelay.
+	reloadFailures map[types.NamespacedName]reloadFailures
+}
+
+// installError is an error which keeps a generation of a profile from being
+// installed.
+type installError struct {
+	generation int64
+	reason     string
+	msg        string
 }
 
 // policyDirectory returns the directory selinuxd picks up policies from.
@@ -260,8 +282,8 @@ func (r *ReconcileSelinux) Setup(
 	r.httpc = &http.Client{
 		Timeout: 30 * time.Second,
 		Transport: &http.Transport{
-			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-				return net.Dial("unix", bindata.SelinuxdSocketPath)
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				return (&net.Dialer{}).DialContext(ctx, "unix", bindata.SelinuxdSocketPath)
 			},
 		},
 	}
@@ -331,6 +353,8 @@ func (r *ReconcileSelinux) Reconcile(
 			// The object is gone. Continuing here would operate on the
 			// zero-valued object the handler allocated and drive a reconcile
 			// against an empty key, which can only fail and requeue forever.
+			r.forgetProfile(request.NamespacedName)
+
 			return reconcile.Result{}, nil
 		}
 
@@ -345,6 +369,8 @@ func (r *ReconcileSelinux) Reconcile(
 	}
 
 	if !instance.GetDeletionTimestamp().IsZero() {
+		r.forgetProfile(request.NamespacedName)
+
 		return common.ReconcileDeletion(
 			ctx, instance, nodeStatus, r.client, reqLogger, r.record,
 			common.DeletionReasons{
@@ -387,6 +413,53 @@ func (r *ReconcileSelinux) reportError(obj runtime.Object, reason, action, msg s
 		Record:   r.record,
 		IncError: r.metrics.IncSelinuxProfileError,
 	}.Report(obj, reason, action, msg)
+}
+
+// reportInstallError reports an error which keeps the profile from being
+// installed, unless it is the error reported last for the generation of the
+// profile. Nothing but a change of the profile or of the node fixes it, while
+// the periodic resyncs of the daemon cache reconcile the profile again and
+// again.
+func (r *ReconcileSelinux) reportInstallError(
+	sp selinuxprofileapi.SelinuxProfileObject, reason, msg string,
+) {
+	key := client.ObjectKeyFromObject(sp)
+	report := installError{generation: sp.GetGeneration(), reason: reason, msg: msg}
+
+	r.reportedMu.Lock()
+
+	duplicate := r.reported[key] == report
+	if !duplicate {
+		if r.reported == nil {
+			r.reported = map[types.NamespacedName]installError{}
+		}
+
+		r.reported[key] = report
+	}
+
+	r.reportedMu.Unlock()
+
+	if duplicate {
+		return
+	}
+
+	r.reportError(sp, reason, util.EventActionInstall, msg)
+}
+
+// forgetInstallError forgets the error reported last for the profile, which
+// got installed or is gone.
+func (r *ReconcileSelinux) forgetInstallError(key types.NamespacedName) {
+	r.reportedMu.Lock()
+	defer r.reportedMu.Unlock()
+
+	delete(r.reported, key)
+}
+
+// forgetProfile forgets what got remembered about a profile which is gone or
+// being deleted.
+func (r *ReconcileSelinux) forgetProfile(key types.NamespacedName) {
+	r.forgetInstallError(key)
+	r.forgetReloadFailures(key)
 }
 
 func (r *ReconcileSelinux) reconcilePolicy(
@@ -517,7 +590,7 @@ func (r *ReconcileSelinux) checkConflicts(
 
 		// The watch on the other kind enqueues this profile once the owner
 		// is gone.
-		r.reportError(sp, reasonPolicyNameConflict, util.EventActionInstall, fmt.Sprintf(
+		r.reportInstallError(sp, reasonPolicyNameConflict, fmt.Sprintf(
 			"Policy %q of %s %s is already used by %s %s, rename one of them",
 			sp.GetPolicyName(), kindOf(sp), sp.GetName(), kindOf(owner), owner.GetName(),
 		))
@@ -540,7 +613,7 @@ func (r *ReconcileSelinux) checkConflicts(
 		return true, err
 	}
 
-	r.reportError(sp, reasonSystemModuleConflict, util.EventActionInstall, fmt.Sprintf(
+	r.reportInstallError(sp, reasonSystemModuleConflict, fmt.Sprintf(
 		"Profile name %q conflicts with a system SELinux module on %s; "+
 			"use a different name (e.g. %q)",
 		sp.GetPolicyName(), r.nodeName, "custom-"+sp.GetPolicyName(),
@@ -567,7 +640,7 @@ func (r *ReconcileSelinux) waitForAncestors(
 			return reconcile.Result{}, true, err
 		}
 
-		r.reportError(sp, reasonCannotInstallPolicy, util.EventActionInstall, fmt.Sprintf(
+		r.reportInstallError(sp, reasonCannotInstallPolicy, fmt.Sprintf(
 			"Profile cannot be installed on %s: %s", r.nodeName, err.Error(),
 		))
 
@@ -629,8 +702,10 @@ func (r *ReconcileSelinux) handlePolicyStatus(
 		// installation again.
 		alreadyInstalled, err := nodeStatus.Matches(ctx, polState)
 		if err != nil {
-			l.Error(err, "Cannot get the current node status")
+			return reconcile.Result{}, fmt.Errorf("getting the current node status: %w", err)
 		}
+
+		r.forgetInstallError(client.ObjectKeyFromObject(sp))
 
 		if !alreadyInstalled {
 			evstr := "Successfully saved profile to disk on " + r.nodeName
@@ -656,7 +731,7 @@ func (r *ReconcileSelinux) handlePolicyStatus(
 			polStatus.Msg,
 		)
 
-		r.reportError(sp, reasonCannotInstallPolicy, util.EventActionInstall, evstr)
+		r.reportInstallError(sp, reasonCannotInstallPolicy, evstr)
 	}
 
 	l.Info("Policy deployed", "status", polState)
@@ -817,7 +892,7 @@ func (r *ReconcileSelinux) handleValidationError(
 	}
 
 	evstr := fmt.Sprintf("Profile failed validation on %s: %s", r.nodeName, valErr.Error())
-	r.reportError(sp, reasonCannotInstallPolicy, util.EventActionInstall, evstr)
+	r.reportInstallError(sp, reasonCannotInstallPolicy, evstr)
 
 	if errors.Is(valErr, ErrInheritNotFound) {
 		return reconcile.Result{RequeueAfter: inheritRetryInterval}, nil
@@ -884,20 +959,58 @@ func (r *ReconcileSelinux) inheritedProfilesInstalled(
 // errCreateReloadJob is returned if the reload job cannot be created.
 var errCreateReloadJob = errors.New("creating policy reload job")
 
+// reloadKind describes the reload of the kernel policy after an installation
+// or a removal of the policy.
+type reloadKind struct {
+	// action is the action label of the reload jobs.
+	action string
+	// annotation of the node status records the reloaded generation.
+	annotation string
+	// eventAction is the action of the events about the reload.
+	eventAction string
+	// waitForCompletion records the reload only once the job completed, and
+	// replaces a failed job. Otherwise the reload is recorded once the job
+	// exists, even if it failed.
+	waitForCompletion bool
+}
+
+var (
+	// installReload waits for the reload job: until it completed the new
+	// policy is not active, and a failed job has to be retried.
+	installReload = reloadKind{
+		action:            "install",
+		annotation:        reloadInstallGenerationAnnotation,
+		eventAction:       util.EventActionInstall,
+		waitForCompletion: true,
+	}
+
+	// removeReload does not hold up the deletion of the profile until the job
+	// completed: until then the kernel only keeps the removed module loaded,
+	// which nothing uses anymore.
+	removeReload = reloadKind{
+		action:      "remove",
+		annotation:  reloadRemoveGenerationAnnotation,
+		eventAction: util.EventActionRemove,
+	}
+)
+
 // reloadPolicy makes sure that a job reloads the kernel policy once per
 // generation of the profile and action, which it records in the annotation of
 // the node status. It requeues while a reload job of another generation is
-// still running, because it may have started before the change of the policy.
-// Nothing else triggers a reconcile then. A failure to record the reload is
-// returned, so that the reconcile retries: the job carries the generation, so
-// the retry does not create another one.
+// still running, because it may have started before the change of the policy,
+// and while the job of an installation runs. Nothing else triggers a reconcile
+// then. A failed job of an installation is deleted, and a new one gets
+// created after a backoff, see retryFailedReload. A failure to record the
+// reload is returned, so that the reconcile retries: the job carries the
+// generation, so the retry does not create another one.
 func (r *ReconcileSelinux) reloadPolicy(
 	ctx context.Context,
 	sp selinuxprofileapi.SelinuxProfileObject,
 	nodeStatus *nodestatus.StatusClient,
-	action, annotation string,
+	kind reloadKind,
 	l logr.Logger,
 ) (reconcile.Result, error) {
+	action, annotation := kind.action, kind.annotation
 	generation := sp.GetGeneration()
 	reloadGeneration := strconv.FormatInt(generation, 10)
 
@@ -913,15 +1026,33 @@ func (r *ReconcileSelinux) reloadPolicy(
 		return reconcile.Result{}, nil
 	}
 
+	// The resyncs of the daemon cache reconcile the profile while a failed
+	// reload waits for its retry, which must not create a job each time.
+	if wait := r.reloadRetryDelay(sp, time.Now()); wait > 0 {
+		l.Info("Waiting to retry the failed policy reload",
+			"generation", reloadGeneration, "policyName", sp.GetPolicyName(), "retryAfter", wait)
+
+		return reconcile.Result{RequeueAfter: wait}, nil
+	}
+
 	state, err := r.createPolicyReloadJob(
-		ctx, sp.GetPolicyName(), action, sp.GetUID(), generation, l,
+		ctx, sp.GetPolicyName(), kind, sp.GetUID(), generation, l,
 	)
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("%w: %w", errCreateReloadJob, err)
 	}
 
-	if state == reloadJobBusy {
+	switch state {
+	case reloadJobBusy:
 		return reconcile.Result{RequeueAfter: reloadJobRetryInterval}, nil
+	case reloadJobFailed:
+		return r.retryFailedReload(sp, kind, l), nil
+	case reloadJobCreated, reloadJobRunning:
+		if kind.waitForCompletion {
+			return reconcile.Result{RequeueAfter: reloadJobRetryInterval}, nil
+		}
+	case reloadJobDone:
+		r.forgetReloadFailures(client.ObjectKeyFromObject(sp))
 	}
 
 	// A foreground deletion removes the node status before the profile, so
@@ -937,19 +1068,46 @@ func (r *ReconcileSelinux) reloadPolicy(
 	return reconcile.Result{}, nil
 }
 
+// retryFailedReload counts the failed reload job of the generation of the
+// profile and returns when to create a new one. The first failure of a
+// generation gets reported, the further ones only get logged, so that a
+// reload which keeps failing does not flood the profile with events.
+func (r *ReconcileSelinux) retryFailedReload(
+	sp selinuxprofileapi.SelinuxProfileObject, kind reloadKind, l logr.Logger,
+) reconcile.Result {
+	failures, delay := r.recordReloadFailure(sp, time.Now())
+
+	l.Info("Policy reload job failed, retrying",
+		"policyName", sp.GetPolicyName(), "failures", failures, "retryAfter", delay)
+
+	if failures == 1 {
+		r.record.Eventf(
+			sp,
+			nil,
+			util.EventTypeWarning,
+			reasonCannotReloadPolicy,
+			kind.eventAction,
+			"Policy reload job failed on %s, retrying",
+			r.nodeName,
+		)
+	}
+
+	return reconcile.Result{RequeueAfter: delay}
+}
+
 // reloadInstalledPolicy reloads the kernel policy after the installation of a
 // new policy generation. On RHEL 9 and OpenShift 4.20+, semodule -i no longer
 // reloads the in-memory policy. The policy is installed even if this fails,
 // just not reloaded yet, so the reload gets retried: with backoff if the job
-// cannot be created, and after reloadJobRetryInterval if another reload job
-// of the policy is still running.
+// cannot be created or the job of the generation failed, and after
+// reloadJobRetryInterval while a reload job of the policy is still running.
 func (r *ReconcileSelinux) reloadInstalledPolicy(
 	ctx context.Context,
 	sp selinuxprofileapi.SelinuxProfileObject,
 	nodeStatus *nodestatus.StatusClient,
 	l logr.Logger,
 ) (reconcile.Result, error) {
-	res, err := r.reloadPolicy(ctx, sp, nodeStatus, "install", reloadInstallGenerationAnnotation, l)
+	res, err := r.reloadPolicy(ctx, sp, nodeStatus, installReload, l)
 	if errors.Is(err, errCreateReloadJob) {
 		l.Error(
 			err,
@@ -1068,7 +1226,7 @@ func (r *ReconcileSelinux) reloadRemovedPolicy(
 	nodeStatus *nodestatus.StatusClient,
 	l logr.Logger,
 ) (reconcile.Result, error) {
-	res, err := r.reloadPolicy(ctx, sp, nodeStatus, "remove", reloadRemoveGenerationAnnotation, l)
+	res, err := r.reloadPolicy(ctx, sp, nodeStatus, removeReload, l)
 	if errors.Is(err, errCreateReloadJob) {
 		// Unlike a running job, a failure to create one may not go away, and
 		// it must not keep the profile from being removed.

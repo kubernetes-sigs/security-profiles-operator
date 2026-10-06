@@ -76,6 +76,9 @@ type BpfSource struct {
 	// wait for a consumer which is gone.
 	done     chan struct{}
 	stopOnce sync.Once
+	// wg tracks the goroutines of the source, which have to end before the
+	// module they use gets closed.
+	wg sync.WaitGroup
 }
 
 func NewBpfSource(logger logr.Logger) (*BpfSource, error) {
@@ -133,12 +136,12 @@ func (b *BpfSource) StartTail() (chan *types.AuditLine, error) {
 
 	log := make(chan *types.AuditLine, logBufferSize)
 
-	go b.forward(events, log)
+	b.wg.Go(func() { b.forward(events, log) })
 
 	if lost, err := module.GetMap(lostEventsMap); err != nil {
 		b.logger.Error(err, "Unable to watch for lost audit events")
 	} else {
-		go b.reportLostEvents(lost)
+		b.wg.Go(func() { b.reportLostEvents(lost) })
 	}
 
 	b.logger.Info("BPF module successfully loaded.")
@@ -233,6 +236,9 @@ func (b *BpfSource) Stop() {
 		b.buf.Stop()
 		b.buf = nil
 	}
+
+	// The lost events map belongs to the module.
+	b.wg.Wait()
 
 	if b.module != nil {
 		b.module.Close()

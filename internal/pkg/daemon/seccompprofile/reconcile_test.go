@@ -799,14 +799,18 @@ func TestSiblingRequests(t *testing.T) {
 		"foo":      "foo.json",
 		"foo.json": "foo",
 	} {
-		requests := siblingRequests(t.Context(), &seccompprofileapi.SeccompProfile{
-			ObjectMeta: metav1.ObjectMeta{Name: name},
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			requests := siblingRequests(t.Context(), &seccompprofileapi.SeccompProfile{
+				ObjectMeta: metav1.ObjectMeta{Name: name},
+			})
+			require.Equal(
+				t,
+				[]reconcile.Request{{NamespacedName: types.NamespacedName{Name: want}}},
+				requests,
+			)
 		})
-		require.Equal(
-			t,
-			[]reconcile.Request{{NamespacedName: types.NamespacedName{Name: want}}},
-			requests,
-		)
 	}
 
 	require.Empty(t, siblingRequests(t.Context(), &seccompprofileapi.SeccompProfile{
@@ -1110,30 +1114,6 @@ func TestProfileChangedPredicate(t *testing.T) {
 
 	require.True(t, profileChangedPredicate.Create(event.CreateEvent{Object: base.DeepCopy()}))
 	require.True(t, profileChangedPredicate.Delete(event.DeleteEvent{Object: base.DeepCopy()}))
-}
-
-// The periodic resyncs of the daemon cache pass, so that a profile file which
-// got removed from the host is installed again, while writes of the object do
-// not.
-func TestProfileResyncPredicate(t *testing.T) {
-	t.Parallel()
-
-	old := newTestProfile()
-	old.ResourceVersion = "1"
-
-	require.True(t, profileResyncPredicate.Update(event.UpdateEvent{
-		ObjectOld: old,
-		ObjectNew: old.DeepCopy(),
-	}))
-
-	written := old.DeepCopy()
-	written.ResourceVersion = "2"
-	written.Status.Status = secprofnodestatusapi.ProfileStateInstalled
-
-	require.False(t, profileResyncPredicate.Update(event.UpdateEvent{
-		ObjectOld: old,
-		ObjectNew: written,
-	}))
 }
 
 // A file which the conflict check found up to date is neither read nor

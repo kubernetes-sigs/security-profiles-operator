@@ -93,6 +93,14 @@ type Tailer struct {
 	mu  sync.Mutex
 	err error
 
+	// newWatcher creates the watcher of the file system notifications and
+	// watchRetry is how long a failed watch waits for its retry. Tests
+	// replace them, together with the sending hook which runs before a line
+	// gets sent.
+	newWatcher func() (*fsnotify.Watcher, error)
+	watchRetry time.Duration
+	sending    func()
+
 	// The fields below belong to the reading goroutine.
 	// watcher is nil while the file system notifications are not available,
 	// watching is tried again from nextWatch on then.
@@ -112,28 +120,43 @@ type Tailer struct {
 // Follow starts following the file at path. A file which does not exist is
 // waited for, every other error opening it is returned.
 func Follow(path string, config Config) (*Tailer, error) {
+	t := newTailer(path, config)
+
+	if err := t.start(); err != nil {
+		return nil, err
+	}
+
+	return t, nil
+}
+
+func newTailer(path string, config Config) *Tailer {
 	if config.PollInterval <= 0 {
 		config.PollInterval = DefaultPollInterval
 	}
 
-	t := &Tailer{
-		path:    path,
-		config:  config,
-		lines:   make(chan string),
-		done:    make(chan struct{}),
-		stopped: make(chan struct{}),
-		buf:     make([]byte, readSize),
+	return &Tailer{
+		path:       path,
+		config:     config,
+		lines:      make(chan string),
+		done:       make(chan struct{}),
+		stopped:    make(chan struct{}),
+		buf:        make([]byte, readSize),
+		newWatcher: fsnotify.NewWatcher,
+		watchRetry: watchRetryInterval,
 	}
+}
 
-	if err := t.open(!config.FromStart); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return nil, err
+// start opens the file and starts the reading goroutine.
+func (t *Tailer) start() error {
+	if err := t.open(!t.config.FromStart); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
 	}
 
 	t.watch()
 
 	go t.run()
 
-	return t, nil
+	return nil
 }
 
 // Lines returns the channel of the complete lines. It is closed once the
@@ -164,9 +187,9 @@ func (t *Tailer) Stop() {
 // writes to the file as well as about its replacement. If that fails, polling
 // takes over until it is tried again at nextWatch.
 func (t *Tailer) watch() {
-	t.nextWatch = time.Now().Add(watchRetryInterval)
+	t.nextWatch = time.Now().Add(t.watchRetry)
 
-	watcher, err := fsnotify.NewWatcher()
+	watcher, err := t.newWatcher()
 	if err != nil {
 		return
 	}
@@ -296,7 +319,7 @@ func (t *Tailer) drainEvents() {
 // dropWatcher falls back to polling once the watcher stopped.
 func (t *Tailer) dropWatcher(ticker *time.Ticker) {
 	t.closeWatcher()
-	t.nextWatch = time.Now().Add(watchRetryInterval)
+	t.nextWatch = time.Now().Add(t.watchRetry)
 	ticker.Reset(t.pollInterval())
 }
 
@@ -440,6 +463,10 @@ func (t *Tailer) keep(data []byte) {
 }
 
 func (t *Tailer) send(line string) error {
+	if t.sending != nil {
+		t.sending()
+	}
+
 	select {
 	case t.lines <- line:
 		return nil

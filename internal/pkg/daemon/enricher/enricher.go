@@ -24,7 +24,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -62,16 +61,6 @@ const (
 	// their container. The status is updated within seconds, so this only
 	// needs to cover a slow API server.
 	backlogTimeout time.Duration = time.Minute
-
-	// exitedProcessTimeout is how long the container of a process is kept
-	// for the audit lines read after the process exited. The audit log is
-	// read with a delay, so a short lived process is often gone before its
-	// lines are processed. The container is only used while no process with
-	// the PID exists, so another process could get lines of a gone one only
-	// if it reused the PID and exited again within this time.
-	exitedProcessTimeout time.Duration = time.Minute
-	// maxProcessItems bounds the containers kept per process.
-	maxProcessItems uint64 = 16 * 1024
 
 	defaultTimeout time.Duration = time.Minute
 	maxMsgSize     int           = 16 * 1024 * 1024
@@ -115,13 +104,9 @@ var LogEnricherDefaultOptions = LogEnricherOptions{
 type Enricher struct {
 	apienricher.UnimplementedEnricherServer
 	impl
-	source           auditsource.AuditLineSource
-	logger           logr.Logger
-	containerIDCache *ttlcache.Cache[string, string]
-	// processContainers maps the PIDs of processes seen running to their
-	// container ID, for their lines read after they exited.
-	processContainers *ttlcache.Cache[int, string]
-	containers        *containerInfos
+	source auditsource.AuditLineSource
+	logger logr.Logger
+	lookup *containerLookup
 	// syscalls and avcs accumulate per recorded profile. They are normally
 	// drained by the Reset* RPCs, but a recording that never completes (pod
 	// force-deleted, recording removed) would otherwise keep its entry for the
@@ -176,16 +161,7 @@ func New(logger logr.Logger, opts *LogEnricherOptions) (*Enricher, error) {
 		impl:   newDefaultImpl(logger),
 		source: source,
 		logger: logger,
-		containerIDCache: ttlcache.New(
-			ttlcache.WithTTL[string, string](defaultCacheTimeout),
-			ttlcache.WithCapacity[string, string](maxCacheItems),
-		),
-		processContainers: ttlcache.New(
-			ttlcache.WithTTL[int, string](exitedProcessTimeout),
-			ttlcache.WithCapacity[int, string](maxProcessItems),
-			ttlcache.WithDisableTouchOnHit[int, string](),
-		),
-		containers: newContainerInfos(),
+		lookup: newContainerLookup(logger),
 		// The syscall and AVC sets are the recording itself, not a cache of
 		// something re-derivable: the recorder deletes each entry explicitly
 		// once it has collected the profile (grpc.go Syscalls/Avcs reset).
@@ -241,35 +217,25 @@ func New(logger logr.Logger, opts *LogEnricherOptions) (*Enricher, error) {
 }
 
 // Run the log-enricher to scrap audit logs and enrich them with
-// Kubernetes data (namespace, pod and container).
-func (e *Enricher) Run() error {
+// Kubernetes data (namespace, pod and container). It returns nil once ctx is
+// done, after it stopped the audit source, the GRPC server, the metrics sender
+// and the caches.
+func (e *Enricher) Run(ctx context.Context) error {
 	nodeName := e.nodeName
-	if nodeName == "" {
-		err := fmt.Errorf("%s environment variable not set", config.NodeNameEnvKey)
-		e.logger.Error(err, "unable to run enricher")
-
+	if err := checkNodeName(e.logger, nodeName); err != nil {
 		return err
 	}
 
 	e.logger.Info("Starting log-enricher on node", "node", nodeName)
 
-	podsCtx, stopPods := context.WithCancel(context.Background())
+	podsCtx, stopPods := context.WithCancel(ctx)
 	defer stopPods()
 
-	if err := e.containers.watch(podsCtx, e.impl, nodeName); err != nil {
+	stopLookup, err := e.lookup.start(podsCtx, e.impl, nodeName)
+	if err != nil {
 		return err
 	}
-
-	e.logger.Info("Setting up caches", "expiry", defaultCacheTimeout)
-
-	go e.containerIDCache.Start()
-	defer e.containerIDCache.Stop()
-
-	go e.processContainers.Start()
-	defer e.processContainers.Stop()
-
-	go e.containers.infoCache.Start()
-	defer e.containers.infoCache.Stop()
+	defer stopLookup()
 
 	go e.auditLineCache.Start()
 	defer e.auditLineCache.Stop()
@@ -284,7 +250,7 @@ func (e *Enricher) Run() error {
 
 	// The streams are bound to the context, so that stopping the sender
 	// releases them as well.
-	metricsCtx, stopMetrics := context.WithCancel(context.Background())
+	metricsCtx, stopMetrics := context.WithCancel(ctx)
 	defer stopMetrics()
 
 	// Connecting once up front lets a daemon which cannot reach the metrics
@@ -319,10 +285,14 @@ func (e *Enricher) Run() error {
 	defer e.source.Stop()
 
 	// Taken before any container is looked up, see containerInfos.changed.
-	changed := e.containers.changed()
+	changed := e.lookup.containers.changed()
 
 	for {
 		select {
+		case <-ctx.Done():
+			e.logger.Info("Stopping log-enricher", "reason", ctx.Err().Error())
+
+			return nil
 		case auditLine, ok := <-log:
 			if !ok {
 				return fmt.Errorf("enricher failed: %w", e.source.TailErr())
@@ -330,7 +300,7 @@ func (e *Enricher) Run() error {
 
 			e.processAuditLine(nodeName, auditLine)
 		case <-changed:
-			changed = e.containers.changed()
+			changed = e.lookup.containers.changed()
 
 			// The pods may tell the containers of any of the backlogs now.
 			e.dispatchListedBacklogs(nodeName)
@@ -344,7 +314,7 @@ func (e *Enricher) processAuditLine(nodeName string, auditLine *types.AuditLine)
 	e.logger.V(config.VerboseLevel).
 		Info("Get container ID for PID", "pid", auditLine.ProcessID)
 
-	cID, err := e.containerIDForProcess(auditLine.ProcessID)
+	cID, err := e.lookup.containerIDForProcess(e.impl, auditLine.ProcessID)
 	if err != nil {
 		// Nothing is going to tell the container of this line later on:
 		// the process is either gone without having been seen running or
@@ -367,7 +337,7 @@ func (e *Enricher) processAuditLine(nodeName string, auditLine *types.AuditLine)
 
 	e.logger.V(config.VerboseLevel).Info("Get container info", "containerID", cID)
 
-	info, err := e.containers.get(cID)
+	info, err := e.lookup.containers.get(cID)
 	if err != nil {
 		e.logger.V(config.VerboseLevel).Info(
 			"Container not known yet",
@@ -390,40 +360,6 @@ func (e *Enricher) processAuditLine(nodeName string, auditLine *types.AuditLine)
 	if err := e.dispatchAuditLine(nodeName, auditLine, info); err != nil {
 		e.logger.Error(err, "dispatch audit line")
 	}
-}
-
-// processGone reports whether the lookup of a process failed because it exited:
-// its proc directory is gone, or reading a file of it fails with ESRCH if it
-// exited after the file got opened.
-func processGone(err error) bool {
-	return errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ESRCH)
-}
-
-// containerIDForProcess returns the container ID of a process. The container
-// of a process which exited is the one it had when it was last seen running.
-func (e *Enricher) containerIDForProcess(pid int) (string, error) {
-	cID, err := e.ContainerIDForPID(e.containerIDCache, pid)
-
-	switch {
-	case err == nil:
-		e.processContainers.Set(pid, cID, ttlcache.DefaultTTL)
-
-		return cID, nil
-	case processGone(err):
-		if item := e.processContainers.Get(pid); item != nil {
-			e.logger.V(config.VerboseLevel).Info(
-				"Using the container of the exited process",
-				"processID", pid, "containerID", item.Value(),
-			)
-
-			return item.Value(), nil
-		}
-	case errors.Is(err, util.ErrContainerIDNotFound):
-		// A process outside of a container runs with the PID now.
-		e.processContainers.Delete(pid)
-	}
-
-	return "", err
 }
 
 // auditMetricsStream sends through the impl, so that tests can fake the
@@ -488,7 +424,10 @@ func (e *Enricher) startGrpcServer() error {
 		config.UserRootless,
 		config.UserRootless,
 	); err != nil {
-		return fmt.Errorf("change GRPC socket owner to rootless: %w", err)
+		return errors.Join(
+			fmt.Errorf("change GRPC socket owner to rootless: %w", err),
+			listener.Close(),
+		)
 	}
 
 	e.grpcServer = grpc.NewServer(
@@ -533,8 +472,8 @@ type auditBacklog struct {
 // add keeps the line, unless the backlog is full. Once auditBacklogMax is
 // reached, only lines which differ from the kept ones by more than their
 // timestamp and process are kept, so that forking workloads do not fill it
-// up with the same syscalls.
-func (b *auditBacklog) add(line *types.AuditLine) bool {
+// up with the same syscalls. It returns the number of dropped lines.
+func (b *auditBacklog) add(line *types.AuditLine) (kept bool, dropped uint64) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -549,14 +488,14 @@ func (b *auditBacklog) add(line *types.AuditLine) bool {
 		if _, ok := b.seen[key]; ok || len(b.lines) >= auditBacklogDistinctMax {
 			b.dropped++
 
-			return false
+			return false, b.dropped
 		}
 	}
 
 	b.lines = append(b.lines, line)
 	b.seen[key] = struct{}{}
 
-	return true
+	return true, b.dropped
 }
 
 // snapshot returns the kept lines and the number of dropped ones.
@@ -573,7 +512,8 @@ func (b *auditBacklog) snapshot() (lines []*types.AuditLine, dropped uint64) {
 func (e *Enricher) addToBacklog(containerID string, line *types.AuditLine) error {
 	var backlog *auditBacklog
 
-	if item := e.auditLineCache.Get(containerID); item != nil {
+	item := e.auditLineCache.Get(containerID)
+	if item != nil {
 		backlog = item.Value()
 		if backlog == nil {
 			// this should not happen, but let's be paranoid
@@ -586,8 +526,9 @@ func (e *Enricher) addToBacklog(containerID string, line *types.AuditLine) error
 	// If the backlog is full, we just stop adding new lines. Eventually the
 	// TTL will expire and the backlog will flush. In case the workload
 	// appears later, we create a partial policy.
-	if !backlog.add(line) {
-		if _, dropped := backlog.snapshot(); dropped%auditBacklogMax == 1 {
+	kept, dropped := backlog.add(line)
+	if !kept {
+		if dropped%auditBacklogMax == 1 {
 			e.logger.Info(
 				"Audit backlog of container is full, dropping lines",
 				"containerID", containerID, "droppedLines", dropped,
@@ -597,7 +538,11 @@ func (e *Enricher) addToBacklog(containerID string, line *types.AuditLine) error
 		return nil
 	}
 
-	e.auditLineCache.Set(containerID, backlog, ttlcache.DefaultTTL)
+	// A cached backlog got the line in place. Setting it again would restart
+	// its TTL, which counts from its first line.
+	if item == nil {
+		e.auditLineCache.Set(containerID, backlog, ttlcache.DefaultTTL)
+	}
 
 	return nil
 }
@@ -625,7 +570,7 @@ func (e *Enricher) dispatchBacklog(nodeName string, info *types.ContainerInfo) {
 // container, which may never come for a container whose processes exited.
 func (e *Enricher) dispatchListedBacklogs(nodeName string) {
 	for _, containerID := range e.auditLineCache.Keys() {
-		if info, err := e.containers.get(containerID); err == nil {
+		if info, err := e.lookup.containers.get(containerID); err == nil {
 			e.dispatchBacklog(nodeName, info)
 		}
 	}
@@ -721,7 +666,10 @@ func (e *Enricher) dispatchSelinuxLine(
 
 			jsonBytes, err := protojson.Marshal(avc)
 			if err != nil {
+				// An empty entry would fail the Avcs RPC of the recording.
 				e.logger.Error(err, "marshall protobuf")
+
+				continue
 			}
 
 			item, _ := e.avcs.GetOrSetFunc(info.RecordProfile, newSyncSet)

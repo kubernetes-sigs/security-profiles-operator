@@ -441,7 +441,11 @@ func TestIsRuntimeProfile(t *testing.T) {
 		"my-profile":                false,
 		"containers-default":        false,
 	} {
-		require.Equal(t, want, isRuntimeProfile(name), name)
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, want, isRuntimeProfile(name))
+		})
 	}
 }
 
@@ -454,7 +458,11 @@ func TestProfileFilename(t *testing.T) {
 		"a/b/":         "a.b",
 		"..":           "",
 	} {
-		require.Equal(t, want, profileFilename(name), name)
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, want, profileFilename(name))
+		})
 	}
 }
 

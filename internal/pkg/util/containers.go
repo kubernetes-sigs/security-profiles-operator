@@ -53,6 +53,13 @@ var (
 // them in USER_HZ, which is 100 on every architecture Linux runs on.
 const clockTicks = 100
 
+// noContainerTimeout is how long ContainerIDForPID remembers that a process
+// runs outside of any container. Host processes can log many audit lines,
+// which would otherwise read their cgroup file for each of them. It is short
+// and not extended by lookups, since a process joins the cgroup of its
+// container while it gets started.
+const noContainerTimeout = 5 * time.Second
+
 // procFileReader reads a /proc/<pid>/<file> for a given PID, allowing
 // dependency injection in tests.
 type procFileReader func(pid int) ([]byte, error)
@@ -86,7 +93,9 @@ func processStartTime(pid int, reader procFileReader) (time.Duration, error) {
 }
 
 // ContainerIDForPID tries to find the 64 digit container ID for the provided
-// PID by using its cgroup. It supports caching via the cache argument.
+// PID by using its cgroup. It supports caching via the cache argument, which
+// also remembers a process without a container for a short time, as an empty
+// value.
 func ContainerIDForPID(cache *ttlcache.Cache[string, string], pid int) (string, error) {
 	readFile := func(pid int) ([]byte, error) {
 		return os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
@@ -112,8 +121,16 @@ func containerIDForPID(
 	// attack which reuses a PID for a different container within the cache TTL.
 	cacheKey := strconv.Itoa(pid) + "_" + startTime
 
-	item := cache.Get(cacheKey)
-	if item != nil {
+	// A process without a container is not touched by its lookups, so that
+	// it gets looked up again noContainerTimeout after it got remembered,
+	// even if it keeps logging.
+	if item := cache.Get(cacheKey, ttlcache.WithDisableTouchOnHit[string, string]()); item != nil {
+		if item.Value() == "" {
+			return "", ErrContainerIDNotFound
+		}
+
+		cache.Touch(cacheKey)
+
 		return item.Value(), nil
 	}
 
@@ -138,6 +155,8 @@ func containerIDForPID(
 	if err := scanner.Err(); err != nil {
 		return "", fmt.Errorf("%w: %w", errContainerIDSearchFailed, err)
 	}
+
+	cache.Set(cacheKey, "", noContainerTimeout)
 
 	return "", ErrContainerIDNotFound
 }

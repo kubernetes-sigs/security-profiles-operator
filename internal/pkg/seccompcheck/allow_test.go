@@ -65,7 +65,26 @@ func TestAllowProfile(t *testing.T) {
 					},
 				},
 			},
-			want: fmt.Errorf("%w: %s", ErrForbiddenSyscall, "a"),
+			// An empty list does not restrict the syscalls, like it does
+			// not restrict the default action.
+			want: nil,
+		},
+		{
+			name:            "EmptyAllowedListWithAllowDefaultAction",
+			allowedSyscalls: nil,
+			profile: &seccompprofileapi.SeccompProfile{
+				Spec: seccompprofileapi.SeccompProfileSpec{
+					DefaultAction: seccompprofileapi.ActAllow,
+				},
+			},
+			want: nil,
+		},
+		{
+			name:                  "EmptyAllowedListWithUncheckableAction",
+			allowedSyscalls:       nil,
+			allowedSeccompActions: []seccompprofileapi.Action{seccompprofileapi.ActErrno},
+			profile:               &seccompprofileapi.SeccompProfile{},
+			want:                  nil,
 		},
 		{
 			name:            "ProfileWithEmptySyscalls",

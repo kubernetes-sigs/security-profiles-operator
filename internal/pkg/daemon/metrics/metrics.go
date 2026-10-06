@@ -114,7 +114,7 @@ func New() *Metrics {
 			prometheus.CounterOpts{
 				Name:      metricNameSeccompProfile,
 				Namespace: metricNamespace,
-				Help:      "Counter about seccomp profile operations.",
+				Help:      "Amount of seccomp profile operations.",
 			},
 			[]string{metricsLabelOperation},
 		),
@@ -122,7 +122,7 @@ func New() *Metrics {
 			prometheus.CounterOpts{
 				Name:      metricNameSeccompProfileAudit,
 				Namespace: metricNamespace,
-				Help:      "Counter about seccomp profile audits, requires the log enricher to be enabled.",
+				Help:      "Amount of seccomp profile audit operations. Requires the log-enricher to be enabled.",
 			},
 			[]string{
 				metricsLabelNode,
@@ -136,7 +136,7 @@ func New() *Metrics {
 			prometheus.CounterOpts{
 				Name:      metricNameSeccompProfileBpf,
 				Namespace: metricNamespace,
-				Help:      "Counter about seccomp profile bpf events, requires the bpf recorder to be enabled.",
+				Help:      "Amount of seccomp profile bpf operations. Requires the bpf-recorder to be enabled.",
 			},
 			[]string{
 				metricsLabelNode,
@@ -148,7 +148,7 @@ func New() *Metrics {
 			prometheus.CounterOpts{
 				Name:      metricNameSeccompProfileError,
 				Namespace: metricNamespace,
-				Help:      "Counter about seccomp profile errors.",
+				Help:      "Amount of seccomp profile errors.",
 			},
 			[]string{metricsLabelReason},
 		),
@@ -156,7 +156,7 @@ func New() *Metrics {
 			prometheus.CounterOpts{
 				Name:      metricNameSelinuxProfile,
 				Namespace: metricNamespace,
-				Help:      "Counter about selinux profile operations.",
+				Help:      "Amount of selinux profile operations.",
 			},
 			[]string{metricsLabelOperation},
 		),
@@ -164,7 +164,7 @@ func New() *Metrics {
 			prometheus.CounterOpts{
 				Name:      metricNameSelinuxProfileAudit,
 				Namespace: metricNamespace,
-				Help:      "Counter about selinux profile audits, requires the log enricher to be enabled.",
+				Help:      "Amount of selinux profile audit operations. Requires the log-enricher to be enabled.",
 			},
 			[]string{
 				metricsLabelNode,
@@ -179,7 +179,7 @@ func New() *Metrics {
 			prometheus.CounterOpts{
 				Name:      metricNameSelinuxProfileError,
 				Namespace: metricNamespace,
-				Help:      "Counter about selinux profile errors.",
+				Help:      "Amount of selinux profile errors.",
 			},
 			[]string{metricsLabelReason},
 		),
@@ -187,7 +187,7 @@ func New() *Metrics {
 			prometheus.CounterOpts{
 				Name:      metricNameAppArmorProfile,
 				Namespace: metricNamespace,
-				Help:      "Counter about apparmor profile operations.",
+				Help:      "Amount of AppArmor profile operations.",
 			},
 			[]string{metricsLabelOperation},
 		),
@@ -195,7 +195,7 @@ func New() *Metrics {
 			prometheus.CounterOpts{
 				Name:      metricNameAppArmorProfileAudit,
 				Namespace: metricNamespace,
-				Help:      "Counter about apparmor profile audits, requires the log enricher to be enabled.",
+				Help:      "Amount of AppArmor profile audit operations. Requires the log-enricher to be enabled.",
 			},
 			[]string{
 				metricsLabelNode,
@@ -211,7 +211,7 @@ func New() *Metrics {
 			prometheus.CounterOpts{
 				Name:      metricNameAppArmorProfileError,
 				Namespace: metricNamespace,
-				Help:      "Counter about apparmor profile errors.",
+				Help:      "Amount of AppArmor profile errors.",
 			},
 			[]string{
 				metricsLabelProfile,
@@ -222,7 +222,7 @@ func New() *Metrics {
 			prometheus.CounterOpts{
 				Name:      metricNameAppArmorProfileDenial,
 				Namespace: metricNamespace,
-				Help:      "Counter about apparmor profile denial.",
+				Help:      "Amount of AppArmor profile denials.",
 			},
 			[]string{
 				metricsLabelProfile,

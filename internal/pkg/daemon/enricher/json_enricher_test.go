@@ -438,7 +438,7 @@ func TestJsonRunResolvesContainerOnEmission(t *testing.T) {
 	pods.Modify(running)
 
 	require.Eventually(t, func() bool {
-		_, err := sut.containers.get(containerIDJsonTest)
+		_, err := sut.lookup.containers.get(containerIDJsonTest)
 
 		return err == nil
 	}, time.Minute, time.Millisecond)
@@ -674,4 +674,126 @@ func TestJsonEnricherLogLinesCacheNoTouch(t *testing.T) {
 	hit := sut.logLinesCache.Get(1)
 	require.NotNil(t, hit)
 	require.Equal(t, expiresAt, hit.ExpiresAt())
+}
+
+// fakeBpfProcesses is a BPF process cache which counts its lookups.
+type fakeBpfProcesses struct {
+	cmdLine     string
+	env         map[string]string
+	err         error
+	cmdLineHits int
+	envHits     int
+}
+
+func (f *fakeBpfProcesses) GetCmdLine(int) (string, error) {
+	f.cmdLineHits++
+
+	return f.cmdLine, f.err
+}
+
+func (f *fakeBpfProcesses) GetEnv(int) (map[string]string, error) {
+	f.envHits++
+
+	return f.env, f.err
+}
+
+// TestProcessEbpf asserts that the BPF process cache fills in what the
+// process file system did not tell, and that a bucket looks it up only once.
+func TestProcessEbpf(t *testing.T) {
+	t.Parallel()
+
+	const requestUID = "da83c434-91f0-4696-a04e-75d08b6d80b2"
+
+	for name, tc := range map[string]struct {
+		cache          *fakeBpfProcesses
+		info           types.ProcessInfo
+		wantCmdLine    string
+		wantRequestUID *string
+		wantLookups    int
+	}{
+		"fills in the command line and the request": {
+			cache: &fakeBpfProcesses{
+				cmdLine: cmdLineJsonTest,
+				env:     map[string]string{requestIdEnv: requestUID},
+			},
+			wantCmdLine:    cmdLineJsonTest,
+			wantRequestUID: new(requestUID),
+			wantLookups:    1,
+		},
+		"keeps what the process file system told": {
+			cache: &fakeBpfProcesses{cmdLine: "other", env: map[string]string{requestIdEnv: "other"}},
+			info: types.ProcessInfo{
+				CmdLine: cmdLineJsonTest, ExecRequestId: new(requestUID),
+			},
+			wantCmdLine:    cmdLineJsonTest,
+			wantRequestUID: new(requestUID),
+		},
+		"process without request": {
+			cache:       &fakeBpfProcesses{env: map[string]string{}},
+			wantLookups: 1,
+		},
+		"process not in the cache": {
+			cache:       &fakeBpfProcesses{err: errTest},
+			wantLookups: 1,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			sut, err := NewJsonEnricherArgs(logr.Discard(), nil)
+			require.NoError(t, err)
+
+			sut.bpfProcessCache = tc.cache
+
+			info := tc.info
+			bucket := &types.LogBucket{ProcessInfo: &info}
+			line := &types.AuditLine{ProcessID: 42}
+
+			for range 3 {
+				sut.processEbpf(bucket, line)
+			}
+
+			require.Equal(t, tc.wantCmdLine, bucket.ProcessInfo.CmdLine)
+			require.Equal(t, tc.wantRequestUID, bucket.ProcessInfo.ExecRequestId)
+			require.Equal(t, tc.wantLookups, tc.cache.envHits)
+			require.LessOrEqual(t, tc.cache.cmdLineHits, 1)
+		})
+	}
+}
+
+// TestJsonRunAttributesLinesOfExitedProcess asserts that the lines of a
+// process read after it exited get the container it was last seen running in,
+// instead of no resource at all.
+func TestJsonRunAttributesLinesOfExitedProcess(t *testing.T) {
+	t.Parallel()
+
+	lineChan := make(chan string)
+	mock := &enricherfakes.FakeImpl{}
+	mock.LinesReturns(lineChan)
+	mock.ContainerIDForPIDReturnsOnCall(0, containerIDJsonTest, nil)
+	mock.ContainerIDForPIDReturns("", os.ErrNotExist)
+
+	stop := startJsonRun(t, newJsonRunSut(t, mock, &JsonEnricherOptions{AuditFreq: time.Hour}))
+
+	// The process runs while its first line is read.
+	lineChan <- seccompLineJsonTest1
+
+	// It execs, and exits before the line of the new executable is read.
+	lineChan <- strings.Replace(seccompLineJsonTest1, executableBusybox, executableNginx, 1)
+
+	require.Eventually(t, func() bool {
+		return mock.PrintJsonOutputCallCount() == 1
+	}, time.Minute, time.Millisecond)
+
+	require.NoError(t, stop())
+	require.Equal(t, 2, mock.ContainerIDForPIDCallCount())
+
+	outputs := jsonOutputs(t, mock)
+	require.Len(t, outputs, 2)
+
+	for _, output := range outputs {
+		require.Equal(t, map[string]any{
+			"pod": podJsonTest, "namespace": namespaceJsonTest, "container": "",
+		}, output["resource"])
+	}
 }

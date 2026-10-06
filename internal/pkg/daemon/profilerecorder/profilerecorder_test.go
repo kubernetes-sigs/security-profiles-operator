@@ -29,6 +29,8 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	grpccodes "google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -52,7 +54,17 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
 )
 
-var errTest = errors.New("error")
+var (
+	errTest = errors.New("error")
+	// errNotRecorded is what the BPF recorder returns for a profile without
+	// recorded data.
+	errNotRecorded = grpcstatus.Error(grpccodes.NotFound, bpfrecorder.ErrNotFound.Error())
+	// errRecorderNotRunning is what the BPF recorder returns after it stopped
+	// a recording which looked abandoned.
+	errRecorderNotRunning = grpcstatus.Error(
+		grpccodes.FailedPrecondition, "bpf recorder not running",
+	)
+)
 
 func ptrTrue() *bool {
 	b := true
@@ -187,11 +199,15 @@ func TestSetup(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
-		prepare func(*fakeImpl)
-		assert  func(error)
+		name    string
+		prepare func(*testing.T, *fakeImpl)
+		assert  func(*testing.T, error)
 	}{
-		{ // Success
-			prepare: func(mock *fakeImpl) {
+		{
+			name: "Success",
+			prepare: func(t *testing.T, mock *fakeImpl) {
+				t.Helper()
+
 				mock.ClientGetCalls(func(
 					ctx context.Context,
 					c client.Client,
@@ -210,34 +226,54 @@ func TestSetup(t *testing.T) {
 					return nil
 				})
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				assert.NoError(t, err)
 			},
 		},
-		{ // NewClient fails
-			prepare: func(mock *fakeImpl) {
+		{
+			name: "NewClient fails",
+			prepare: func(t *testing.T, mock *fakeImpl) {
+				t.Helper()
+
 				mock.NewClientReturns(nil, errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				assert.Error(t, err)
 			},
 		},
-		{ // ClientGet fails
-			prepare: func(mock *fakeImpl) {
+		{
+			name: "ClientGet fails",
+			prepare: func(t *testing.T, mock *fakeImpl) {
+				t.Helper()
+
 				mock.ClientGetReturns(errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				assert.Error(t, err)
 			},
 		},
-		{ // no node addresses
-			prepare: func(mock *fakeImpl) {},
-			assert: func(err error) {
+		{
+			name: "no node addresses",
+			prepare: func(t *testing.T, mock *fakeImpl) {
+				t.Helper()
+			},
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				assert.Error(t, err)
 			},
 		},
-		{ // OperatorNamespace fails
-			prepare: func(mock *fakeImpl) {
+		{
+			name: "OperatorNamespace fails",
+			prepare: func(t *testing.T, mock *fakeImpl) {
+				t.Helper()
+
 				mock.ClientGetCalls(func(
 					_ context.Context, _ client.Client, _ types.NamespacedName, obj client.Object,
 				) error {
@@ -252,26 +288,37 @@ func TestSetup(t *testing.T) {
 				})
 				mock.OperatorNamespaceReturns("", errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				assert.ErrorIs(t, err, errTest)
 			},
 		},
-		{ // NewControllerManagedBy fails
-			prepare: func(mock *fakeImpl) {
+		{
+			name: "NewControllerManagedBy fails",
+			prepare: func(t *testing.T, mock *fakeImpl) {
+				t.Helper()
+
 				mock.NewControllerManagedByReturns(errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				assert.Error(t, err)
 			},
 		},
 	} {
-		mock := newFakeImpl()
-		tc.prepare(mock)
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-		sut := &RecorderReconciler{impl: mock}
+			mock := newFakeImpl()
+			tc.prepare(t, mock)
 
-		err := sut.Setup(t.Context(), nil, nil)
-		tc.assert(err)
+			sut := &RecorderReconciler{impl: mock}
+
+			err := sut.Setup(t.Context(), nil, nil)
+			tc.assert(t, err)
+		})
 	}
 }
 
@@ -335,30 +382,43 @@ func TestReconcile(t *testing.T) {
 	}
 
 	for _, tc := range []struct {
-		prepare func(*RecorderReconciler, *fakeImpl)
-		assert  func(*RecorderReconciler, error)
+		name    string
+		prepare func(*testing.T, *RecorderReconciler, *fakeImpl)
+		assert  func(*testing.T, *RecorderReconciler, error)
 	}{
-		{ // Success phase pending no annotations
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+		{
+			name: "Success phase pending no annotations",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodPending},
 				}, nil)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
-				assert.NoError(t, err)
-			},
-		},
-		{ // success pod not found
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
-				mock.GetPodReturns(nil, kerrors.NewNotFound(schema.GroupResource{}, ""))
-			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.NoError(t, err)
 			},
 		},
 		{
-			// seccomp BPF success record
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+			name: "success pod not found",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
+				mock.GetPodReturns(nil, kerrors.NewNotFound(schema.GroupResource{}, ""))
+			},
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
+				assert.NoError(t, err)
+			},
+		},
+		{
+			name: "seccomp BPF success record",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodPending},
 					ObjectMeta: metav1.ObjectMeta{
@@ -376,7 +436,9 @@ func TestReconcile(t *testing.T) {
 				}, nil)
 				mock.DialBpfRecorderReturns(nil, nil)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 
 				v, ok := sut.podsToWatch.Load(testRequest.String())
@@ -393,10 +455,13 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		{
+			name: "trace annotation without recording does not record",
 			// A trace annotation that no ProfileRecording asks for must not
 			// start a recording: the annotation is attacker controlled in any
 			// namespace where the recording webhook does not run.
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				value := fmt.Sprintf("spoofed_ctr_4bbwm_%d", time.Now().Unix())
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodPending},
@@ -416,15 +481,20 @@ func TestReconcile(t *testing.T) {
 				}, nil)
 				mock.DialBpfRecorderReturns(nil, nil)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 
 				_, ok := sut.podsToWatch.Load(testRequest.String())
 				assert.False(t, ok, "an unauthorized annotation must not be recorded")
 			},
 		},
-		{ // seccomp BPF success collect
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+		{
+			name: "seccomp BPF success collect",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				profileName := fmt.Sprintf("profile_replica-123_4bbwm_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderBpf,
@@ -467,14 +537,19 @@ func TestReconcile(t *testing.T) {
 					return "", nil
 				})
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.NoError(t, err)
 			},
 		},
 		{
+			name: "failed pod is collected",
 			// A failed pod is collected like a succeeded one, it does not run
 			// anymore either.
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				profileName := fmt.Sprintf("profile_replica-123_4bbwm_%d", time.Now().Unix())
 				sut.podsToWatch.Store(testRequest.String(), podToWatch{
 					recorder: recordingapi.ProfileRecorderBpf,
@@ -503,7 +578,9 @@ func TestReconcile(t *testing.T) {
 					}, nil,
 				)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 
 				_, ok := sut.podsToWatch.Load(testRequest.String())
@@ -511,8 +588,10 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		{ //nolint:dupl // test duplicates are fine
-			// seccomp BPF GoArchToSeccompArch fails
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+			name: "seccomp BPF GoArchToSeccompArch fails",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderBpf,
@@ -545,13 +624,17 @@ func TestReconcile(t *testing.T) {
 				)
 				mock.GoArchToSeccompArchReturns("", errTest)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.Error(t, err)
 			},
 		},
 		{ //nolint:dupl // test duplicates are fine
-			// seccomp BPF CreateOrUpdate fails
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+			name: "seccomp BPF CreateOrUpdate fails",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderBpf,
@@ -584,13 +667,17 @@ func TestReconcile(t *testing.T) {
 				)
 				mock.CreateOrUpdateReturns("", errTest)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.Error(t, err)
 			},
 		},
 		{ //nolint:dupl // test duplicates are fine
-			// seccomp BPF DialBpfRecorder fails
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+			name: "seccomp BPF DialBpfRecorder fails on collect",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderBpf,
@@ -616,12 +703,17 @@ func TestReconcile(t *testing.T) {
 				}, nil)
 				mock.DialBpfRecorderReturns(nil, errTest)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.Error(t, err)
 			},
 		},
-		{ // seccomp BPF DialBpfRecorder fails on StopBpfRecorder
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+		{
+			name: "seccomp BPF DialBpfRecorder fails on StopBpfRecorder",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderBpf,
@@ -655,12 +747,17 @@ func TestReconcile(t *testing.T) {
 				mock.DialBpfRecorderReturns(nil, nil)
 				mock.StopBpfRecorderReturns(errTest)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.Error(t, err)
 			},
 		},
-		{ // seccomp BPF invalid profile name
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+		{
+			name: "seccomp BPF invalid profile name",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				const profileName = "invalid"
 
 				value := podToWatch{
@@ -693,13 +790,17 @@ func TestReconcile(t *testing.T) {
 					}, nil,
 				)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.Error(t, err)
 			},
 		},
 		{
-			// seccomp BPF SyscallsForProfile returns not found
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+			name: "seccomp BPF SyscallsForProfile returns not found",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				profileName := fmt.Sprintf("profile_replica-123_4bbwm_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderBpf,
@@ -724,16 +825,20 @@ func TestReconcile(t *testing.T) {
 					Spec: spodapi.SPODSpec{Enricher: spodapi.SPODEnricherConfig{EnableBpfRecorder: ptrTrue()}},
 				}, nil)
 				mock.DialBpfRecorderReturns(nil, nil)
-				mock.SyscallsForProfileReturns(nil, bpfrecorder.ErrNotFound)
+				mock.SyscallsForProfileReturns(nil, errNotRecorded)
 				mock.StopBpfRecorderReturns(nil)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.NoError(t, err)
 			},
 		},
 		{ //nolint:dupl // test duplicates are fine
-			// seccomp BPF SyscallsForProfile fails
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+			name: "seccomp BPF SyscallsForProfile fails",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderBpf,
@@ -760,12 +865,17 @@ func TestReconcile(t *testing.T) {
 				mock.DialBpfRecorderReturns(nil, nil)
 				mock.SyscallsForProfileReturns(nil, errTest)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.Error(t, err)
 			},
 		},
-		{ // seccomp BPF DialBpfRecorder fails
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+		{
+			name: "seccomp BPF DialBpfRecorder fails on record",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodPending},
 					ObjectMeta: metav1.ObjectMeta{
@@ -783,13 +893,17 @@ func TestReconcile(t *testing.T) {
 				}, nil)
 				mock.DialBpfRecorderReturns(nil, errTest)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.Error(t, err)
 			},
 		},
-		{ //nolint:dupl // test duplicates are fine
-			// seccomp BPF StartBpfRecorder fails
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+		{
+			name: "seccomp BPF StartBpfRecorder fails",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodPending},
 					ObjectMeta: metav1.ObjectMeta{
@@ -808,12 +922,17 @@ func TestReconcile(t *testing.T) {
 				mock.DialBpfRecorderReturns(nil, nil)
 				mock.StartBpfRecorderReturns(errTest)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.Error(t, err)
 			},
 		},
-		{ // seccomp BPF GetSPOD fails
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+		{
+			name: "seccomp BPF GetSPOD fails",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodPending},
 					ObjectMeta: metav1.ObjectMeta{
@@ -828,12 +947,17 @@ func TestReconcile(t *testing.T) {
 				mock.ListRecordingsReturns(bpfSeccompRecordingList(), nil)
 				mock.GetSPODReturns(nil, errTest)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.Error(t, err)
 			},
 		},
-		{ // seccomp BPF not enabled
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+		{ //nolint:dupl // test duplicates are fine
+			name: "seccomp BPF not enabled",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodPending},
 					ObjectMeta: metav1.ObjectMeta{
@@ -850,12 +974,17 @@ func TestReconcile(t *testing.T) {
 					Spec: spodapi.SPODSpec{Enricher: spodapi.SPODEnricherConfig{EnableBpfRecorder: new(bool)}},
 				}, nil)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.Error(t, err)
 			},
 		},
-		{ // seccomp BPF nil (defaults to disabled)
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+		{
+			name: "seccomp BPF nil (defaults to disabled)",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodPending},
 					ObjectMeta: metav1.ObjectMeta{
@@ -872,13 +1001,17 @@ func TestReconcile(t *testing.T) {
 					Spec: spodapi.SPODSpec{Enricher: spodapi.SPODEnricherConfig{}},
 				}, nil)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.Error(t, err)
 			},
 		},
 		{
-			// apparmor BPF success record
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+			name: "apparmor BPF success record",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodPending},
 					ObjectMeta: metav1.ObjectMeta{
@@ -896,7 +1029,9 @@ func TestReconcile(t *testing.T) {
 				}, nil)
 				mock.DialBpfRecorderReturns(nil, nil)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 
 				v, ok := sut.podsToWatch.Load(testRequest.String())
@@ -912,8 +1047,11 @@ func TestReconcile(t *testing.T) {
 				assert.NoError(t, retryErr)
 			},
 		},
-		{ // apparmor BPF success collect
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+		{
+			name: "apparmor BPF success collect",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				profileName := fmt.Sprintf("profile_replica-123_apparmor_%d", time.Now().Unix())
 				pod := podToWatch{
 					recorder: recordingapi.ProfileRecorderBpf,
@@ -961,12 +1099,17 @@ func TestReconcile(t *testing.T) {
 					return "", nil
 				})
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.NoError(t, err)
 			},
 		},
-		{ // apparmor BPF CreateOrUpdate fails
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+		{
+			name: "apparmor BPF CreateOrUpdate fails",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderBpf,
@@ -1004,13 +1147,17 @@ func TestReconcile(t *testing.T) {
 				)
 				mock.CreateOrUpdateReturns("", errTest)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.Error(t, err)
 			},
 		},
 		{ //nolint:dupl // test duplicates are fine
-			// apparmor BPF DialBpfRecorder fails
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+			name: "apparmor BPF DialBpfRecorder fails on collect",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderBpf,
@@ -1036,12 +1183,17 @@ func TestReconcile(t *testing.T) {
 				}, nil)
 				mock.DialBpfRecorderReturns(nil, errTest)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.Error(t, err)
 			},
 		},
-		{ // apparmor BPF DialBpfRecorder fails on StopBpfRecorder
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+		{
+			name: "apparmor BPF DialBpfRecorder fails on StopBpfRecorder",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderBpf,
@@ -1080,12 +1232,17 @@ func TestReconcile(t *testing.T) {
 				mock.DialBpfRecorderReturns(nil, nil)
 				mock.StopBpfRecorderReturns(errTest)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.Error(t, err)
 			},
 		},
-		{ // apparmor BPF invalid profile name
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+		{
+			name: "apparmor BPF invalid profile name",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				const profileName = "invalid"
 
 				value := podToWatch{
@@ -1123,13 +1280,17 @@ func TestReconcile(t *testing.T) {
 					}, nil,
 				)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.Error(t, err)
 			},
 		},
 		{
-			// apparmor BPF ApparmorForProfile returns not found
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+			name: "apparmor BPF ApparmorForProfile returns not found",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				profileName := fmt.Sprintf("profile_replica-123_4bbwm_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderBpf,
@@ -1154,16 +1315,20 @@ func TestReconcile(t *testing.T) {
 					Spec: spodapi.SPODSpec{Enricher: spodapi.SPODEnricherConfig{EnableBpfRecorder: ptrTrue()}},
 				}, nil)
 				mock.DialBpfRecorderReturns(nil, nil)
-				mock.ApparmorForProfileReturns(nil, bpfrecorder.ErrNotFound)
+				mock.ApparmorForProfileReturns(nil, errNotRecorded)
 				mock.StopBpfRecorderReturns(nil)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.NoError(t, err)
 			},
 		},
 		{ //nolint:dupl // test duplicates are fine
-			// apparmor BPF ApparmorForProfiles fails
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+			name: "apparmor BPF ApparmorForProfiles fails",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderBpf,
@@ -1190,12 +1355,17 @@ func TestReconcile(t *testing.T) {
 				mock.DialBpfRecorderReturns(nil, nil)
 				mock.ApparmorForProfileReturns(nil, errTest)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.Error(t, err)
 			},
 		},
-		{ // apparmor BPF DialBpfRecorder fails
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+		{
+			name: "apparmor BPF DialBpfRecorder fails on record",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodPending},
 					ObjectMeta: metav1.ObjectMeta{
@@ -1213,13 +1383,17 @@ func TestReconcile(t *testing.T) {
 				}, nil)
 				mock.DialBpfRecorderReturns(nil, errTest)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.Error(t, err)
 			},
 		},
-		{ //nolint:dupl // test duplicates are fine
-			// apparmor BPF StartBpfRecorder fails
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+		{
+			name: "apparmor BPF StartBpfRecorder fails",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodPending},
 					ObjectMeta: metav1.ObjectMeta{
@@ -1238,12 +1412,17 @@ func TestReconcile(t *testing.T) {
 				mock.DialBpfRecorderReturns(nil, nil)
 				mock.StartBpfRecorderReturns(errTest)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.Error(t, err)
 			},
 		},
-		{ // apparmor BPF GetSPOD fails
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+		{
+			name: "apparmor BPF GetSPOD fails",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodPending},
 					ObjectMeta: metav1.ObjectMeta{
@@ -1258,12 +1437,17 @@ func TestReconcile(t *testing.T) {
 				mock.ListRecordingsReturns(bpfApparmorRecordingList(), nil)
 				mock.GetSPODReturns(nil, errTest)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.Error(t, err)
 			},
 		},
-		{ // seccomp BPF not enabled
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+		{ //nolint:dupl // test duplicates are fine
+			name: "apparmor BPF not enabled",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodPending},
 					ObjectMeta: metav1.ObjectMeta{
@@ -1280,12 +1464,17 @@ func TestReconcile(t *testing.T) {
 					Spec: spodapi.SPODSpec{Enricher: spodapi.SPODEnricherConfig{EnableBpfRecorder: new(bool)}},
 				}, nil)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.Error(t, err)
 			},
 		},
-		{ // apparmor BPF nil (defaults to disabled)
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+		{
+			name: "apparmor BPF nil (defaults to disabled)",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodPending},
 					ObjectMeta: metav1.ObjectMeta{
@@ -1302,12 +1491,17 @@ func TestReconcile(t *testing.T) {
 					Spec: spodapi.SPODSpec{Enricher: spodapi.SPODEnricherConfig{}},
 				}, nil)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.Error(t, err)
 			},
 		},
-		{ // parseBpfAnnotations failed
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+		{
+			name: "parseBpfAnnotations failed",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodPending},
 					ObjectMeta: metav1.ObjectMeta{
@@ -1317,12 +1511,17 @@ func TestReconcile(t *testing.T) {
 					},
 				}, nil)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.NoError(t, err)
 			},
 		},
-		{ // parseLogAnnotations failed
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+		{
+			name: "parseLogAnnotations failed",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodPending},
 					ObjectMeta: metav1.ObjectMeta{
@@ -1332,21 +1531,30 @@ func TestReconcile(t *testing.T) {
 					},
 				}, nil)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.NoError(t, err)
 			},
 		},
-		{ // failure GetPod (error reading pod)
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+		{
+			name: "failure GetPod (error reading pod)",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				mock.GetPodReturns(nil, errTest)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.Error(t, err)
 			},
 		},
 		{ //nolint:dupl // test duplicates are fine
-			// log seccomp success record
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+			name: "log seccomp success record",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodPending},
 					ObjectMeta: metav1.ObjectMeta{
@@ -1360,7 +1568,9 @@ func TestReconcile(t *testing.T) {
 				}, nil)
 				mock.ListRecordingsReturns(logsRecordingList(recordingapi.ProfileRecordingKindSeccompProfile), nil)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 
 				v, ok := sut.podsToWatch.Load(testRequest.String())
@@ -1377,8 +1587,10 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		{ //nolint:dupl // test duplicates are fine
-			// log seccomp success record
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+			name: "log selinux success record",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodPending},
 					ObjectMeta: metav1.ObjectMeta{
@@ -1392,7 +1604,9 @@ func TestReconcile(t *testing.T) {
 				}, nil)
 				mock.ListRecordingsReturns(logsRecordingList(recordingapi.ProfileRecordingKindSelinuxProfile), nil)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 
 				v, ok := sut.podsToWatch.Load(testRequest.String())
@@ -1408,8 +1622,11 @@ func TestReconcile(t *testing.T) {
 				assert.NoError(t, retryErr)
 			},
 		},
-		{ // logs seccomp success collect
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+		{
+			name: "logs seccomp success collect",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				profileName := fmt.Sprintf("profile_replica-123_4bbwm_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderLogs,
@@ -1449,12 +1666,17 @@ func TestReconcile(t *testing.T) {
 					return "", nil
 				})
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.NoError(t, err)
 			},
 		},
-		{ // logs seccomp failed ResetSyscalls
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+		{
+			name: "logs seccomp failed ResetSyscalls",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderLogs,
@@ -1484,13 +1706,17 @@ func TestReconcile(t *testing.T) {
 				)
 				mock.ResetSyscallsReturns(errTest)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.Error(t, err)
 			},
 		},
 		{ //nolint:dupl // test duplicates are fine
-			// logs seccomp failed CreateOrUpdate
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+			name: "logs seccomp failed CreateOrUpdate",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderLogs,
@@ -1520,13 +1746,17 @@ func TestReconcile(t *testing.T) {
 				)
 				mock.CreateOrUpdateReturns("", errTest)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.Error(t, err)
 			},
 		},
 		{ //nolint:dupl // test duplicates are fine
-			// logs seccomp failed GoArchToSeccompArch
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+			name: "logs seccomp failed GoArchToSeccompArch",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderLogs,
@@ -1556,13 +1786,17 @@ func TestReconcile(t *testing.T) {
 				)
 				mock.GoArchToSeccompArchReturns("", errTest)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.Error(t, err)
 			},
 		},
 		{ //nolint:dupl // test duplicates are fine
-			// logs seccomp failed Syscalls
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+			name: "logs seccomp failed Syscalls",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderLogs,
@@ -1589,12 +1823,17 @@ func TestReconcile(t *testing.T) {
 				mock.DialEnricherReturns(nil, nil)
 				mock.SyscallsReturns(nil, errTest)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.Error(t, err)
 			},
 		},
-		{ // logs seccomp failed unknown kind
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+		{
+			name: "logs seccomp failed unknown kind",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderLogs,
@@ -1621,12 +1860,17 @@ func TestReconcile(t *testing.T) {
 				}, nil)
 				mock.DialEnricherReturns(nil, nil)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.Error(t, err)
 			},
 		},
-		{ // logs seccomp wrong profile name
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+		{
+			name: "logs seccomp wrong profile name",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				const profileName = "profile"
 
 				value := podToWatch{
@@ -1653,13 +1897,17 @@ func TestReconcile(t *testing.T) {
 				}, nil)
 				mock.DialEnricherReturns(nil, nil)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.Error(t, err)
 			},
 		},
 		{ //nolint:dupl // test duplicates are fine
-			// logs seccomp DialEnricher fails
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+			name: "logs seccomp DialEnricher fails",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderLogs,
@@ -1685,12 +1933,17 @@ func TestReconcile(t *testing.T) {
 				}, nil)
 				mock.DialEnricherReturns(nil, errTest)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.Error(t, err)
 			},
 		},
-		{ // logs seccomp EnableLogEnricher false
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+		{
+			name: "logs seccomp EnableLogEnricher false",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderLogs,
@@ -1715,7 +1968,9 @@ func TestReconcile(t *testing.T) {
 					Spec: spodapi.SPODSpec{Enricher: spodapi.SPODEnricherConfig{EnableLogEnricher: new(bool)}},
 				}, nil)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				// The enricher got disabled while recording, so the pod is
 				// given up instead of retried forever.
 				require.NoError(t, err)
@@ -1729,8 +1984,11 @@ func TestReconcile(t *testing.T) {
 				assert.Contains(t, <-recorder.Events, "Warning "+reasonRecordingAbandoned)
 			},
 		},
-		{ // logs seccomp EnableLogEnricher nil (defaults to disabled)
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+		{
+			name: "logs seccomp EnableLogEnricher nil (defaults to disabled)",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderLogs,
@@ -1755,7 +2013,9 @@ func TestReconcile(t *testing.T) {
 					Spec: spodapi.SPODSpec{Enricher: spodapi.SPODEnricherConfig{}},
 				}, nil)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				// The enricher got disabled while recording, so the pod is
 				// given up instead of retried forever.
 				require.NoError(t, err)
@@ -1769,8 +2029,11 @@ func TestReconcile(t *testing.T) {
 				assert.Contains(t, <-recorder.Events, "Warning "+reasonRecordingAbandoned)
 			},
 		},
-		{ // logs seccomp failed GetSPOD
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+		{
+			name: "logs seccomp failed GetSPOD",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderLogs,
@@ -1793,12 +2056,17 @@ func TestReconcile(t *testing.T) {
 				}, nil)
 				mock.GetSPODReturns(nil, errTest)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.Error(t, err)
 			},
 		},
-		{ // logs selinux success collect
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+		{
+			name: "logs selinux success collect",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				profileName := fmt.Sprintf("profile_replica-123_4bbwm_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderLogs,
@@ -1843,12 +2111,17 @@ func TestReconcile(t *testing.T) {
 					return "", nil
 				})
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.NoError(t, err)
 			},
 		},
-		{ // logs selinux failed ResetAvcs
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+		{
+			name: "logs selinux failed ResetAvcs",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderLogs,
@@ -1875,12 +2148,17 @@ func TestReconcile(t *testing.T) {
 				mock.DialEnricherReturns(nil, nil)
 				mock.ResetAvcsReturns(errTest)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.Error(t, err)
 			},
 		},
-		{ // logs selinux failed CreateOrUpdate
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+		{
+			name: "logs selinux failed CreateOrUpdate",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderLogs,
@@ -1907,12 +2185,17 @@ func TestReconcile(t *testing.T) {
 				mock.DialEnricherReturns(nil, nil)
 				mock.CreateOrUpdateReturns("", errTest)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.Error(t, err)
 			},
 		},
-		{ // logs selinux failed formatSelinuxProfile
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+		{
+			name: "logs selinux failed formatSelinuxProfile",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderLogs,
@@ -1943,13 +2226,17 @@ func TestReconcile(t *testing.T) {
 					},
 				}, nil)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.Error(t, err)
 			},
 		},
 		{ //nolint:dupl // test duplicates are fine
-			// logs selinux failed Avcs
-			prepare: func(sut *RecorderReconciler, mock *fakeImpl) {
+			name: "logs selinux failed Avcs",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
 				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderLogs,
@@ -1976,21 +2263,27 @@ func TestReconcile(t *testing.T) {
 				mock.DialEnricherReturns(nil, nil)
 				mock.AvcsReturns(nil, errTest)
 			},
-			assert: func(sut *RecorderReconciler, err error) {
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
 				assert.Error(t, err)
 			},
 		},
 	} {
-		mock := newFakeImpl()
-		sut := &RecorderReconciler{
-			impl:   mock,
-			log:    logr.Discard(),
-			record: events.NewFakeRecorder(10),
-		}
-		tc.prepare(sut, mock)
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-		_, err := sut.Reconcile(t.Context(), testRequest)
-		tc.assert(sut, err)
+			mock := newFakeImpl()
+			sut := &RecorderReconciler{
+				impl:   mock,
+				log:    logr.Discard(),
+				record: events.NewFakeRecorder(10),
+			}
+			tc.prepare(t, sut, mock)
+
+			_, err := sut.Reconcile(t.Context(), testRequest)
+			tc.assert(t, sut, err)
+		})
 	}
 }
 
@@ -2000,41 +2293,61 @@ func TestIsPodOnLocalNode(t *testing.T) {
 	const ip = "127.0.0.1"
 
 	for _, tc := range []struct {
-		prepare func(*RecorderReconciler) apiruntime.Object
-		assert  func(bool)
+		name    string
+		prepare func(*testing.T, *RecorderReconciler) apiruntime.Object
+		assert  func(*testing.T, bool)
 	}{
-		{ // success
-			prepare: func(sut *RecorderReconciler) apiruntime.Object {
+		{
+			name: "success",
+			prepare: func(t *testing.T, sut *RecorderReconciler) apiruntime.Object {
+				t.Helper()
+
 				sut.nodeAddresses = []string{ip}
 
 				return &corev1.Pod{Status: corev1.PodStatus{HostIP: ip}}
 			},
-			assert: func(res bool) {
+			assert: func(t *testing.T, res bool) {
+				t.Helper()
+
 				assert.True(t, res)
 			},
 		},
-		{ // no pod
-			prepare: func(sut *RecorderReconciler) apiruntime.Object {
+		{
+			name: "no pod",
+			prepare: func(t *testing.T, sut *RecorderReconciler) apiruntime.Object {
+				t.Helper()
+
 				return &corev1.PodList{}
 			},
-			assert: func(res bool) {
+			assert: func(t *testing.T, res bool) {
+				t.Helper()
+
 				assert.False(t, res)
 			},
 		},
-		{ // not found
-			prepare: func(sut *RecorderReconciler) apiruntime.Object {
+		{
+			name: "not found",
+			prepare: func(t *testing.T, sut *RecorderReconciler) apiruntime.Object {
+				t.Helper()
+
 				return &corev1.Pod{Status: corev1.PodStatus{HostIP: ip}}
 			},
-			assert: func(res bool) {
+			assert: func(t *testing.T, res bool) {
+				t.Helper()
+
 				assert.False(t, res)
 			},
 		},
 	} {
-		sut := &RecorderReconciler{}
-		obj := tc.prepare(sut)
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-		res := sut.isPodOnLocalNode(obj)
-		tc.assert(res)
+			sut := &RecorderReconciler{}
+			obj := tc.prepare(t, sut)
+
+			res := sut.isPodOnLocalNode(obj)
+			tc.assert(t, res)
+		})
 	}
 }
 
@@ -2042,81 +2355,116 @@ func TestIsPodWithTraceAnnotation(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
-		prepare func(*RecorderReconciler) apiruntime.Object
-		assert  func(bool)
+		name    string
+		prepare func(*testing.T, *RecorderReconciler) apiruntime.Object
+		assert  func(*testing.T, bool)
 	}{
-		{ // success selinux logs
-			prepare: func(sut *RecorderReconciler) apiruntime.Object {
+		{
+			name: "success selinux logs",
+			prepare: func(t *testing.T, sut *RecorderReconciler) apiruntime.Object {
+				t.Helper()
+
 				return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{
 						config.SelinuxProfileRecordLogsAnnotationKey: "",
 					},
 				}}
 			},
-			assert: func(res bool) {
+			assert: func(t *testing.T, res bool) {
+				t.Helper()
+
 				assert.True(t, res)
 			},
 		},
-		{ // success seccomp logs
-			prepare: func(sut *RecorderReconciler) apiruntime.Object {
+		{
+			name: "success seccomp logs",
+			prepare: func(t *testing.T, sut *RecorderReconciler) apiruntime.Object {
+				t.Helper()
+
 				return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{
 						config.SeccompProfileRecordLogsAnnotationKey: "",
 					},
 				}}
 			},
-			assert: func(res bool) {
+			assert: func(t *testing.T, res bool) {
+				t.Helper()
+
 				assert.True(t, res)
 			},
 		},
-		{ // success seccomp bpf
-			prepare: func(sut *RecorderReconciler) apiruntime.Object {
+		{
+			name: "success seccomp bpf",
+			prepare: func(t *testing.T, sut *RecorderReconciler) apiruntime.Object {
+				t.Helper()
+
 				return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{
 						config.SeccompProfileRecordBpfAnnotationKey: "",
 					},
 				}}
 			},
-			assert: func(res bool) {
+			assert: func(t *testing.T, res bool) {
+				t.Helper()
+
 				assert.True(t, res)
 			},
 		},
-		{ // success seccomp bpf
-			prepare: func(sut *RecorderReconciler) apiruntime.Object {
+		{
+			name: "success apparmor bpf",
+			prepare: func(t *testing.T, sut *RecorderReconciler) apiruntime.Object {
+				t.Helper()
+
 				return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{
 						config.ApparmorProfileRecordBpfAnnotationKey: "",
 					},
 				}}
 			},
-			assert: func(res bool) {
+			assert: func(t *testing.T, res bool) {
+				t.Helper()
+
 				assert.True(t, res)
 			},
 		},
-		{ // no pod
-			prepare: func(sut *RecorderReconciler) apiruntime.Object {
+		{
+			name: "no pod",
+			prepare: func(t *testing.T, sut *RecorderReconciler) apiruntime.Object {
+				t.Helper()
+
 				return &corev1.PodList{}
 			},
-			assert: func(res bool) {
+			assert: func(t *testing.T, res bool) {
+				t.Helper()
+
 				assert.False(t, res)
 			},
 		},
-		{ // not found
-			prepare: func(sut *RecorderReconciler) apiruntime.Object {
+		{
+			name: "not found",
+			prepare: func(t *testing.T, sut *RecorderReconciler) apiruntime.Object {
+				t.Helper()
+
 				return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{},
 				}}
 			},
-			assert: func(res bool) {
+			assert: func(t *testing.T, res bool) {
+				t.Helper()
+
 				assert.False(t, res)
 			},
 		},
 	} {
-		sut := &RecorderReconciler{}
-		obj := tc.prepare(sut)
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-		res := sut.isPodWithTraceAnnotation(obj)
-		tc.assert(res)
+			sut := &RecorderReconciler{}
+			obj := tc.prepare(t, sut)
+
+			res := sut.isPodWithTraceAnnotation(obj)
+			tc.assert(t, res)
+		})
 	}
 }
 
@@ -2816,66 +3164,83 @@ func TestCollectBpfProfileRejected(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
+		name      string
 		rejection error
 		attempts  int
 	}{
-		{rejection: kerrors.NewInvalid(schema.GroupKind{Kind: "SeccompProfile"}, "p", nil), attempts: 1},
-		{rejection: kerrors.NewRequestEntityTooLargeError("too large"), attempts: 1},
-		// A permission may not have been granted yet.
-		{rejection: kerrors.NewForbidden(schema.GroupResource{}, "p", errTest), attempts: maxForbiddenAttempts},
+		{
+			name:      "invalid",
+			rejection: kerrors.NewInvalid(schema.GroupKind{Kind: "SeccompProfile"}, "p", nil),
+			attempts:  1,
+		},
+		{
+			name:      "too large",
+			rejection: kerrors.NewRequestEntityTooLargeError("too large"),
+			attempts:  1,
+		},
+		{
+			// A permission may not have been granted yet.
+			name:      "forbidden",
+			rejection: kerrors.NewForbidden(schema.GroupResource{}, "p", errTest),
+			attempts:  maxForbiddenAttempts,
+		},
 	} {
-		recording := &recordingapi.ProfileRecording{
-			ObjectMeta: metav1.ObjectMeta{Name: "recording", Namespace: "ns"},
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-		mock := newFakeImpl()
-		mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
-			Spec: spodapi.SPODSpec{
-				Enricher: spodapi.SPODEnricherConfig{EnableBpfRecorder: ptrTrue()},
-			},
-		}, nil)
-		mock.SyscallsForProfileReturns(&bpfrecorderapi.SyscallsResponse{
-			Syscalls: []string{"read"},
-			GoArch:   runtime.GOARCH,
-		}, nil)
-		mock.ClientGetCalls(func(
-			_ context.Context, _ client.Client, _ types.NamespacedName, obj client.Object,
-		) error {
-			recordingResult, ok := obj.(*recordingapi.ProfileRecording)
-			require.True(t, ok)
-			recording.DeepCopyInto(recordingResult)
-
-			return nil
-		})
-		mock.CreateOrUpdateReturns("", tc.rejection)
-
-		recorder := events.NewFakeRecorder(10)
-		sut := &RecorderReconciler{impl: mock, log: logr.Discard(), record: recorder}
-
-		for attempt := 1; attempt <= tc.attempts; attempt++ {
-			err := sut.collectBpfProfiles(t.Context(), sut.newBpfRecorderSession(),
-				"",
-				types.NamespacedName{Name: "pod", Namespace: recording.Namespace},
-				[]profileToCollect{{
-					kind: recordingapi.ProfileRecordingKindSeccompProfile,
-					name: "recording_ctr_nonce_timestamp",
-				}},
-				nil,
-			)
-			require.Contains(t, <-recorder.Events, reasonProfileCreationFailed)
-
-			if attempt < tc.attempts {
-				require.Error(t, err)
-				require.Zero(t, mock.ResetSyscallsForProfileCallCount())
-
-				continue
+			recording := &recordingapi.ProfileRecording{
+				ObjectMeta: metav1.ObjectMeta{Name: "recording", Namespace: "ns"},
 			}
 
-			require.NoError(t, err)
-		}
+			mock := newFakeImpl()
+			mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
+				Spec: spodapi.SPODSpec{
+					Enricher: spodapi.SPODEnricherConfig{EnableBpfRecorder: ptrTrue()},
+				},
+			}, nil)
+			mock.SyscallsForProfileReturns(&bpfrecorderapi.SyscallsResponse{
+				Syscalls: []string{"read"},
+				GoArch:   runtime.GOARCH,
+			}, nil)
+			mock.ClientGetCalls(func(
+				_ context.Context, _ client.Client, _ types.NamespacedName, obj client.Object,
+			) error {
+				recordingResult, ok := obj.(*recordingapi.ProfileRecording)
+				require.True(t, ok)
+				recording.DeepCopyInto(recordingResult)
 
-		require.Equal(t, 1, mock.ResetSyscallsForProfileCallCount())
-		require.Equal(t, 1, mock.StopBpfRecorderCallCount())
+				return nil
+			})
+			mock.CreateOrUpdateReturns("", tc.rejection)
+
+			recorder := events.NewFakeRecorder(10)
+			sut := &RecorderReconciler{impl: mock, log: logr.Discard(), record: recorder}
+
+			for attempt := 1; attempt <= tc.attempts; attempt++ {
+				err := sut.collectBpfProfiles(t.Context(), sut.newBpfRecorderSession(),
+					"",
+					types.NamespacedName{Name: "pod", Namespace: recording.Namespace},
+					[]profileToCollect{{
+						kind: recordingapi.ProfileRecordingKindSeccompProfile,
+						name: "recording_ctr_nonce_timestamp",
+					}},
+					nil,
+				)
+				require.Contains(t, <-recorder.Events, reasonProfileCreationFailed)
+
+				if attempt < tc.attempts {
+					require.Error(t, err)
+					require.Zero(t, mock.ResetSyscallsForProfileCallCount())
+
+					continue
+				}
+
+				require.NoError(t, err)
+			}
+
+			require.Equal(t, 1, mock.ResetSyscallsForProfileCallCount())
+			require.Equal(t, 1, mock.StopBpfRecorderCallCount())
+		})
 	}
 }
 
@@ -3228,4 +3593,211 @@ func TestStoreProfileKeepsProfileWhoseMergeFails(t *testing.T) {
 	require.Equal(t, *recorded, partial.Spec.Abstract)
 	require.Equal(t, "true", partial.Labels[profilebase.ProfilePartialLabel])
 	require.Equal(t, "recording", partial.Labels[recordingapi.ProfileToRecordingLabel])
+}
+
+// bpfCollectPod prepares mock for the collection of a pod recorded by the BPF
+// recorder which succeeded, and tracks it in sut.
+func bpfCollectPod(
+	sut *RecorderReconciler, mock *fakeImpl, podName types.NamespacedName,
+	kind recordingapi.ProfileRecordingKind,
+) {
+	sut.podsToWatch.Store(podName.String(), podToWatch{
+		baseName: podName,
+		recorder: recordingapi.ProfileRecorderBpf,
+		profiles: []profileToCollect{{kind: kind, name: testAnnotationValue}},
+	})
+
+	mock.GetPodReturns(&corev1.Pod{
+		Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
+	}, nil)
+	mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
+		Spec: spodapi.SPODSpec{Enricher: spodapi.SPODEnricherConfig{EnableBpfRecorder: ptrTrue()}},
+	}, nil)
+}
+
+// TestCollectBpfProfileRecorderNotRunning asserts that a pod whose recording
+// the BPF recorder stopped, for example as abandoned, is released instead of
+// being requeued for good.
+func TestCollectBpfProfileRecorderNotRunning(t *testing.T) {
+	t.Parallel()
+
+	podName := types.NamespacedName{Namespace: "ns", Name: "pod"}
+
+	for _, kind := range []recordingapi.ProfileRecordingKind{
+		recordingapi.ProfileRecordingKindSeccompProfile,
+		recordingapi.ProfileRecordingKindAppArmorProfile,
+	} {
+		t.Run(string(kind), func(t *testing.T) {
+			t.Parallel()
+
+			mock := newFakeImpl()
+			recorder := events.NewFakeRecorder(10)
+			sut := &RecorderReconciler{impl: mock, log: logr.Discard(), record: recorder}
+			bpfCollectPod(sut, mock, podName, kind)
+			mock.SyscallsForProfileReturns(nil, errRecorderNotRunning)
+			mock.ApparmorForProfileReturns(nil, errRecorderNotRunning)
+
+			_, err := sut.Reconcile(t.Context(), reconcile.Request{NamespacedName: podName})
+			require.NoError(t, err)
+
+			_, tracked := sut.podsToWatch.Load(podName.String())
+			require.False(t, tracked)
+			require.Contains(t, <-recorder.Events, reasonRecordingAbandoned)
+			require.Zero(t, mock.CreateOrUpdateCallCount())
+		})
+	}
+}
+
+func TestBpfRecorderError(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name         string
+		err          error
+		wantIs       error
+		unrecordable bool
+	}{
+		{name: "not found", err: errNotRecorded, wantIs: errRecordedProfileNotFound},
+		{
+			name:         "failed precondition",
+			err:          errRecorderNotRunning,
+			wantIs:       errBpfRecorderUnavailable,
+			unrecordable: true,
+		},
+		{
+			// Only the status code tells the errors apart.
+			name:   "message of not found without its code",
+			err:    grpcstatus.Error(grpccodes.Unknown, bpfrecorder.ErrNotFound.Error()),
+			wantIs: nil,
+		},
+		{name: "other error", err: errTest, wantIs: errTest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			sut := &RecorderReconciler{log: logr.Discard()}
+
+			err := sut.bpfRecorderError(tc.err, "apparmor rules", "profile")
+			require.Error(t, err)
+
+			if tc.wantIs != nil {
+				require.ErrorIs(t, err, tc.wantIs)
+			}
+
+			if !errors.Is(tc.wantIs, errRecordedProfileNotFound) {
+				require.NotErrorIs(t, err, errRecordedProfileNotFound)
+				require.Contains(t, err.Error(), "getting apparmor rules for profile")
+			}
+
+			require.Equal(t, tc.unrecordable, unrecordable(err))
+		})
+	}
+}
+
+// TestRejectedForGoodPerPodAndProfile asserts that the forbidden attempts are
+// counted per pod and namespaced profile, and dropped with the pod.
+func TestRejectedForGoodPerPodAndProfile(t *testing.T) {
+	t.Parallel()
+
+	forbidden := kerrors.NewForbidden(schema.GroupResource{}, "profile", errTest)
+	keyOf := func(namespace string) forbiddenKey {
+		return forbiddenKey{
+			pod:     types.NamespacedName{Namespace: namespace, Name: "pod"},
+			profile: types.NamespacedName{Namespace: namespace, Name: "profile"},
+		}
+	}
+
+	sut := &RecorderReconciler{impl: newFakeImpl(), log: logr.Discard()}
+
+	for range maxForbiddenAttempts - 1 {
+		require.False(t, sut.rejectedForGood(keyOf("a"), forbidden))
+	}
+
+	// The profile of the same name in another namespace has its own count.
+	require.False(t, sut.rejectedForGood(keyOf("b"), forbidden))
+	require.True(t, sut.rejectedForGood(keyOf("a"), forbidden))
+
+	_, counted := sut.forbiddenAttempts.Load(keyOf("a"))
+	require.False(t, counted)
+
+	sut.releaseUnrecordablePod(t.Context(), keyOf("b").pod, sut.newBpfRecorderSession())
+
+	_, counted = sut.forbiddenAttempts.Load(keyOf("b"))
+	require.False(t, counted)
+}
+
+// TestReconcileReplacedPod asserts that a pod which got deleted and created
+// again under the same name gets the profiles of the previous one collected
+// before it is recorded itself.
+func TestReconcileReplacedPod(t *testing.T) {
+	t.Parallel()
+
+	podName := types.NamespacedName{Namespace: "ns", Name: "pod"}
+
+	for _, tc := range []struct {
+		name       string
+		collectErr error
+	}{
+		{name: "previous pod collected"},
+		{name: "collecting the previous pod fails", collectErr: errTest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			mock := newFakeImpl()
+			sut := &RecorderReconciler{
+				impl: mock, log: logr.Discard(), record: events.NewFakeRecorder(10),
+			}
+			bpfCollectPod(sut, mock, podName, recordingapi.ProfileRecordingKindSeccompProfile)
+
+			previous, ok := sut.podsToWatch.Load(podName.String())
+			require.True(t, ok)
+
+			tracked, ok := previous.(podToWatch)
+			require.True(t, ok)
+
+			tracked.uid = "previous"
+			sut.podsToWatch.Store(podName.String(), tracked)
+
+			mock.GetPodReturns(&corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      podName.Name,
+					Namespace: podName.Namespace,
+					UID:       "current",
+					Annotations: map[string]string{
+						config.SeccompProfileRecordBpfAnnotationKey + "ctr": testAnnotationValue,
+					},
+				},
+				Spec:   corev1.PodSpec{Containers: []corev1.Container{{Name: "ctr"}}},
+				Status: corev1.PodStatus{Phase: corev1.PodPending},
+			}, nil)
+			mock.ListRecordingsReturns(bpfSeccompRecordingList(), nil)
+			mock.SyscallsForProfileReturns(&bpfrecorderapi.SyscallsResponse{
+				Syscalls: []string{"read"},
+				GoArch:   runtime.GOARCH,
+			}, tc.collectErr)
+
+			_, err := sut.Reconcile(t.Context(), reconcile.Request{NamespacedName: podName})
+
+			value, ok := sut.podsToWatch.Load(podName.String())
+			require.True(t, ok)
+
+			watched, ok := value.(podToWatch)
+			require.True(t, ok)
+
+			if tc.collectErr != nil {
+				require.ErrorIs(t, err, tc.collectErr)
+				require.Equal(t, types.UID("previous"), watched.uid)
+				require.Zero(t, mock.StartBpfRecorderCallCount())
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, 1, mock.ResetSyscallsForProfileCallCount())
+			require.Equal(t, 1, mock.StopBpfRecorderCallCount())
+			require.Equal(t, 1, mock.StartBpfRecorderCallCount())
+			require.Equal(t, types.UID("current"), watched.uid)
+		})
+	}
 }

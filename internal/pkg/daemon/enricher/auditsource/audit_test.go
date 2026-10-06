@@ -17,7 +17,6 @@ limitations under the License.
 package auditsource
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -346,19 +345,19 @@ func Test_extractAuditLine(t *testing.T) {
 			"Should not extract seccomp lines without a syscall",
 			`type=SECCOMP msg=audit(1613596317.899:6461): pid=2039886 comm="ls" exe="/bin/ls"`,
 			nil,
-			fmt.Errorf(
-				"unsupported log line: %s",
-				`type=SECCOMP msg=audit(1613596317.899:6461): pid=2039886 comm="ls" exe="/bin/ls"`,
-			),
+			ErrUnsupportedLine,
+		},
+		{
+			"Should not extract other record types",
+			`type=SYSCALL msg=audit(1613596317.899:6461): arch=c000003e syscall=59 pid=7 exe="/bin/ls"`,
+			nil,
+			ErrUnsupportedLine,
 		},
 		{
 			"Should not extract suppressed lines",
 			`[ 3683.829070] kauditd_printk_skb: 1 callbacks suppressed`,
 			nil,
-			fmt.Errorf(
-				"unsupported log line: %s",
-				`[ 3683.829070] kauditd_printk_skb: 1 callbacks suppressed`,
-			),
+			ErrUnsupportedLine,
 		},
 	}
 	for _, tt := range tests {
@@ -368,7 +367,12 @@ func Test_extractAuditLine(t *testing.T) {
 			got, gotErr := ExtractAuditLine(tt.logLine)
 
 			require.Equal(t, tt.want, got)
-			require.Equal(t, tt.wantErr, gotErr)
+
+			if tt.wantErr == nil {
+				require.NoError(t, gotErr)
+			} else {
+				require.ErrorIs(t, gotErr, tt.wantErr)
+			}
 		})
 	}
 }

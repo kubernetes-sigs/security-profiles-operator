@@ -507,6 +507,20 @@ func (b *BpfRecorder) Run() error {
 		return fmt.Errorf("create listener: %w", err)
 	}
 
+	// Serve closes the listener when it returns, every return before it has
+	// to close the listener on its own.
+	serving := false
+
+	defer func() {
+		if serving {
+			return
+		}
+
+		if err := listener.Close(); err != nil {
+			b.logger.Error(err, "Unable to close GRPC listener")
+		}
+	}()
+
 	if err := b.Chown(
 		config.GRPCServerSocketBpfRecorder,
 		config.UserRootless,
@@ -575,6 +589,8 @@ func (b *BpfRecorder) Run() error {
 		grpc.MaxRecvMsgSize(maxMsgSize),
 	)
 	api.RegisterBpfRecorderServer(grpcServer, b)
+
+	serving = true
 
 	return b.Serve(grpcServer, listener)
 }
@@ -702,17 +718,19 @@ func (b *BpfRecorder) Stop(
 // that the caller can retry if persisting the profile fails.
 func (b *BpfRecorder) SyscallsForProfile(
 	ctx context.Context, r *api.ProfileRequest,
-) (*api.SyscallsResponse, error) {
+) (_ *api.SyscallsResponse, err error) {
+	defer func() { err = rpcError(err) }()
+
 	if err := validateProfileRequest(r); err != nil {
 		return nil, err
 	}
 
 	if atomic.LoadInt64(&b.startRequests) == 0 {
-		return nil, errors.New("bpf recorder not running")
+		return nil, errNotRunning
 	}
 
 	if b.Seccomp == nil {
-		return nil, errors.New("not seccomp profiles recording running")
+		return nil, errNoSeccompRecording
 	}
 
 	b.logger.Info("Getting syscalls for profile", "profile", r.GetName())
@@ -748,13 +766,15 @@ func (b *BpfRecorder) SyscallsForProfile(
 // profile. It is called once the profile has been persisted.
 func (b *BpfRecorder) ResetSyscallsForProfile(
 	_ context.Context, r *api.ProfileRequest,
-) (*api.EmptyResponse, error) {
+) (_ *api.EmptyResponse, err error) {
+	defer func() { err = rpcError(err) }()
+
 	if err := validateProfileRequest(r); err != nil {
 		return nil, err
 	}
 
 	if b.Seccomp == nil {
-		return nil, errors.New("not seccomp profiles recording running")
+		return nil, errNoSeccompRecording
 	}
 
 	b.resetProfile(r.GetName(), func(keys []uint64) {
@@ -769,17 +789,19 @@ func (b *BpfRecorder) ResetSyscallsForProfile(
 // that the caller can retry if persisting the profile fails.
 func (b *BpfRecorder) ApparmorForProfile(
 	ctx context.Context, r *api.ProfileRequest,
-) (*api.ApparmorResponse, error) {
+) (_ *api.ApparmorResponse, err error) {
+	defer func() { err = rpcError(err) }()
+
 	if err := validateProfileRequest(r); err != nil {
 		return nil, err
 	}
 
 	if atomic.LoadInt64(&b.startRequests) == 0 {
-		return nil, errors.New("bpf recorder not running")
+		return nil, errNotRunning
 	}
 
 	if b.AppArmor == nil {
-		return nil, errors.New("no apparmor profiles recording running")
+		return nil, errNoAppArmorRecording
 	}
 
 	if err := b.AppArmor.Unavailable(); err != nil {
@@ -826,18 +848,68 @@ func (b *BpfRecorder) ApparmorForProfile(
 // profile. It is called once the profile has been persisted.
 func (b *BpfRecorder) ResetApparmorForProfile(
 	_ context.Context, r *api.ProfileRequest,
-) (*api.EmptyResponse, error) {
+) (_ *api.EmptyResponse, err error) {
+	defer func() { err = rpcError(err) }()
+
 	if err := validateProfileRequest(r); err != nil {
 		return nil, err
 	}
 
 	if b.AppArmor == nil {
-		return nil, errors.New("no apparmor profiles recording running")
+		return nil, errNoAppArmorRecording
 	}
 
 	b.resetProfile(r.GetName(), b.AppArmor.Clear)
 
 	return &api.EmptyResponse{}, nil
+}
+
+var (
+	errNotRunning          = errors.New("bpf recorder not running")
+	errNoSeccompRecording  = errors.New("not seccomp profiles recording running")
+	errNoAppArmorRecording = errors.New("no apparmor profiles recording running")
+)
+
+// statusError is an error with a gRPC status code. It keeps the message and
+// the wrapped error, so that errors.Is still works within the recorder.
+type statusError struct {
+	code codes.Code
+	err  error
+}
+
+func (e *statusError) Error() string { return e.err.Error() }
+
+func (e *statusError) Unwrap() error { return e.err }
+
+func (e *statusError) GRPCStatus() *status.Status {
+	return status.New(e.code, e.err.Error())
+}
+
+// rpcError sets the gRPC status code of the errors the client acts on:
+// NotFound if nothing got recorded for the profile, which skips it, and
+// FailedPrecondition if the recorder cannot hand out the data at all, for
+// example because the recording got stopped as abandoned, which releases the
+// pod. The client must not tell them apart by their message.
+func rpcError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	if _, ok := status.FromError(err); ok {
+		return err
+	}
+
+	switch {
+	case errors.Is(err, ErrNotFound):
+		return &statusError{code: codes.NotFound, err: err}
+	case errors.Is(err, errNotRunning),
+		errors.Is(err, errNoSeccompRecording),
+		errors.Is(err, errNoAppArmorRecording),
+		errors.Is(err, ErrAppArmorUnavailable):
+		return &statusError{code: codes.FailedPrecondition, err: err}
+	default:
+		return err
+	}
 }
 
 // validateProfileRequest rejects a request without a profile name. Nothing is
@@ -1641,6 +1713,10 @@ func (b *BpfRecorder) reportDroppedPidsAgain() {
 	dropped := b.droppedPids
 	b.droppedPids = nil
 	b.droppedPidsMu.Unlock()
+
+	// Close drops the map under the write lock.
+	b.attachUnattachMutex.RLock()
+	defer b.attachUnattachMutex.RUnlock()
 
 	if b.activePidsBpfMap == nil {
 		return

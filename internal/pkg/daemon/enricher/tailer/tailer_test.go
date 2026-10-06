@@ -17,12 +17,14 @@ limitations under the License.
 package tailer
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/stretchr/testify/require"
 )
 
@@ -88,6 +90,13 @@ func write(t *testing.T, file *os.File, content string) {
 func startFollow(t *testing.T, config Config) (*Tailer, *os.File) {
 	t.Helper()
 
+	return startTailer(t, config, func(*Tailer) {})
+}
+
+// startTailer follows a new file, after prepare changed the tailer.
+func startTailer(t *testing.T, config Config, prepare func(*Tailer)) (*Tailer, *os.File) {
+	t.Helper()
+
 	path := filepath.Join(t.TempDir(), "audit.log")
 
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
@@ -95,12 +104,30 @@ func startFollow(t *testing.T, config Config) (*Tailer, *os.File) {
 
 	t.Cleanup(func() { file.Close() })
 
-	sut, err := Follow(path, config)
-	require.NoError(t, err)
+	sut := newTailer(path, config)
+	prepare(sut)
+	require.NoError(t, sut.start())
 
 	t.Cleanup(sut.Stop)
 
 	return sut, file
+}
+
+// receive returns the next value of ch, or fails the test if none arrives in
+// time.
+func receive[T any](t *testing.T, ch <-chan T) T {
+	t.Helper()
+
+	select {
+	case value := <-ch:
+		return value
+	case <-time.After(testTimeout):
+		t.Fatal("nothing received")
+
+		var zero T
+
+		return zero
+	}
 }
 
 func TestFollowSendsCompleteLines(t *testing.T) {
@@ -279,11 +306,15 @@ func TestFollowDropsOverlongLine(t *testing.T) {
 func TestStopClosesLines(t *testing.T) {
 	t.Parallel()
 
-	sut, file := startFollow(t, testConfig())
+	sending := make(chan struct{}, 1)
+
+	sut, file := startTailer(t, testConfig(), func(sut *Tailer) {
+		sut.sending = func() { sending <- struct{}{} }
+	})
 
 	// Nobody reads the line, the tailer is blocked sending it.
 	write(t, file, "unread\n")
-	time.Sleep(10 * testPollInterval)
+	receive(t, sending)
 
 	stopped := make(chan struct{})
 
@@ -329,4 +360,61 @@ func TestFollowOpenError(t *testing.T) {
 
 	_, err := Follow(path, testConfig())
 	require.Error(t, err)
+}
+
+var errTest = errors.New("test")
+
+// TestFollowPollsWithoutNotifications asserts that the file is polled when the
+// file system notifications are not available.
+func TestFollowPollsWithoutNotifications(t *testing.T) {
+	t.Parallel()
+
+	sut, file := startTailer(t, testConfig(), func(sut *Tailer) {
+		sut.newWatcher = func() (*fsnotify.Watcher, error) { return nil, errTest }
+	})
+
+	write(t, file, "first\n")
+	require.Equal(t, "first", nextLine(t, sut))
+
+	// A replaced file is followed as well.
+	require.NoError(t, os.Rename(file.Name(), file.Name()+".1"))
+	require.NoError(t, os.WriteFile(file.Name(), []byte("second\n"), 0o600))
+	require.Equal(t, "second", nextLine(t, sut))
+}
+
+// TestFollowWatchesAgain asserts that the tailer polls once its watcher
+// stopped, and watches the file again after the retry interval.
+func TestFollowWatchesAgain(t *testing.T) {
+	t.Parallel()
+
+	watchers := make(chan *fsnotify.Watcher, 2)
+
+	sut, file := startTailer(t, testConfig(), func(sut *Tailer) {
+		sut.watchRetry = testPollInterval
+		sut.newWatcher = func() (*fsnotify.Watcher, error) {
+			watcher, err := fsnotify.NewWatcher()
+			if err == nil {
+				select {
+				case watchers <- watcher:
+				default:
+				}
+			}
+
+			return watcher, err
+		}
+	})
+
+	first := receive(t, watchers)
+
+	// The watcher stops, like when the notifications overflow its queue.
+	require.NoError(t, first.Close())
+
+	write(t, file, "polled\n")
+	require.Equal(t, "polled", nextLine(t, sut))
+
+	second := receive(t, watchers)
+	require.NotSame(t, first, second)
+
+	write(t, file, "watched\n")
+	require.Equal(t, "watched", nextLine(t, sut))
 }

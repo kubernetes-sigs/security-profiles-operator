@@ -55,17 +55,24 @@ const (
 // errTailEnded is reported when the audit log tail ends without an error.
 var errTailEnded = errors.New("audit log tail ended")
 
+// bpfProcesses tells the command line and the environment of the processes
+// which the BPF process cache saw executing.
+type bpfProcesses interface {
+	GetCmdLine(pid int) (string, error)
+	GetEnv(pid int) (map[string]string, error)
+}
+
 type JsonEnricher struct {
 	apienricher.UnimplementedEnricherServer
 	impl
-	logger              logr.Logger
-	containerIDCache    *ttlcache.Cache[string, string]
-	containers          *containerInfos
-	logLinesCache       *ttlcache.Cache[int, *types.LogBucket]
-	processCache        *ttlcache.Cache[string, *types.ProcessInfo]
-	logWriter           io.Writer
-	enricherFilters     []types.EnricherFilterOptions
-	bpfProcessCache     *bpfrecorder.BpfProcessCache
+	logger          logr.Logger
+	lookup          *containerLookup
+	logLinesCache   *ttlcache.Cache[int, *types.LogBucket]
+	processCache    *ttlcache.Cache[string, *types.ProcessInfo]
+	logWriter       io.Writer
+	enricherFilters []types.EnricherFilterOptions
+	// bpfProcessCache is nil if the BPF process cache cannot be loaded.
+	bpfProcessCache     bpfProcesses
 	auditLogOutputMutex sync.Mutex
 	// nodeName is the node the enricher runs on, from the node name
 	// environment variable.
@@ -157,11 +164,7 @@ func NewJsonEnricherArgs(logger logr.Logger, opts *JsonEnricherOptions) (*JsonEn
 	jsonEnricher := &JsonEnricher{
 		impl:   newDefaultImpl(logger),
 		logger: logger,
-		containerIDCache: ttlcache.New(
-			ttlcache.WithTTL[string, string](defaultCacheTimeout),
-			ttlcache.WithCapacity[string, string](maxCacheItems),
-		),
-		containers: newContainerInfos(),
+		lookup: newContainerLookup(logger),
 		logLinesCache: ttlcache.New(
 			ttlcache.WithTTL[int, *types.LogBucket](actualOpts.AuditFreq),
 			ttlcache.WithCapacity[int, *types.LogBucket](maxCacheItems),
@@ -174,7 +177,6 @@ func NewJsonEnricherArgs(logger logr.Logger, opts *JsonEnricherOptions) (*JsonEn
 			ttlcache.WithCapacity[string, *types.ProcessInfo](maxCacheItems),
 		),
 		enricherFilters: enricherFilters,
-		bpfProcessCache: nil,
 		// Read once, like the rest of the configuration.
 		nodeName: os.Getenv(config.NodeNameEnvKey),
 	}
@@ -217,10 +219,7 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 
 func (e *JsonEnricher) run(ctx context.Context) error {
 	nodeName := e.nodeName
-	if nodeName == "" {
-		err := fmt.Errorf("%s environment variable not set", config.NodeNameEnvKey)
-		e.logger.Error(err, "unable to run enricher")
-
+	if err := checkNodeName(e.logger, nodeName); err != nil {
 		return err
 	}
 
@@ -242,7 +241,7 @@ func (e *JsonEnricher) run(ctx context.Context) error {
 
 			// The pod may tell the container by now.
 			if auditLogBucket.ContainerInfo == nil && auditLogBucket.ContainerID != "" {
-				if info, err := e.containers.get(auditLogBucket.ContainerID); err == nil {
+				if info, err := e.lookup.containers.get(auditLogBucket.ContainerID); err == nil {
 					auditLogBucket.ContainerInfo = info
 				}
 			}
@@ -253,17 +252,11 @@ func (e *JsonEnricher) run(ctx context.Context) error {
 		},
 	)
 
-	if err := e.containers.watch(ctx, e.impl, nodeName); err != nil {
+	stopLookup, err := e.lookup.start(ctx, e.impl, nodeName)
+	if err != nil {
 		return err
 	}
-
-	e.logger.Info("Setting up caches", "expiry", defaultCacheTimeout)
-
-	go e.containerIDCache.Start()
-	defer e.containerIDCache.Stop()
-
-	go e.containers.infoCache.Start()
-	defer e.containers.infoCache.Stop()
+	defer stopLookup()
 
 	go e.logLinesCache.Start()
 	defer e.logLinesCache.Stop()
@@ -445,9 +438,17 @@ func (e *JsonEnricher) lockedLogBucket(
 	return logBucket, false
 }
 
+// processEbpf fills in what the process file system did not tell about the
+// process from the BPF process cache. It is looked up once per bucket: a
+// process which did not get it from its exec does not get it later on.
 func (e *JsonEnricher) processEbpf(logBucket *types.LogBucket, auditLine *types.AuditLine) {
-	if e.bpfProcessCache != nil && logBucket.ProcessInfo != nil &&
-		logBucket.ProcessInfo.CmdLine == "" {
+	if e.bpfProcessCache == nil || logBucket.ProcessInfo == nil || logBucket.BpfLookedUp {
+		return
+	}
+
+	logBucket.BpfLookedUp = true
+
+	if logBucket.ProcessInfo.CmdLine == "" {
 		//nolint:staticcheck,nolintlint // platform-dependent
 		cmdLine, errCmdLine := e.bpfProcessCache.GetCmdLine(auditLine.ProcessID)
 		//nolint:staticcheck,nolintlint // platform-dependent
@@ -462,8 +463,7 @@ func (e *JsonEnricher) processEbpf(logBucket *types.LogBucket, auditLine *types.
 		}
 	}
 
-	if e.bpfProcessCache != nil && logBucket.ProcessInfo != nil &&
-		logBucket.ProcessInfo.ExecRequestId == nil {
+	if logBucket.ProcessInfo.ExecRequestId == nil {
 		//nolint:staticcheck,nolintlint // platform-dependent
 		procEnv, errEnv := e.bpfProcessCache.GetEnv(auditLine.ProcessID)
 		//nolint:staticcheck,nolintlint // platform-dependent
@@ -490,11 +490,12 @@ func (e *JsonEnricher) processEbpf(logBucket *types.LogBucket, auditLine *types.
 // it is not known. The ID of a container which its pod does not tell yet is
 // returned as well, the next line of the process or the emission of its bucket
 // look it up again. Waiting for it here would stall the processing of the
-// lines.
+// lines. A process which exited gets the container it was last seen running
+// in.
 func (e *JsonEnricher) fetchContainerInfo(
 	processId int,
 ) (info *types.ContainerInfo, containerID string) {
-	cID, errContainer := e.ContainerIDForPID(e.containerIDCache, processId)
+	cID, errContainer := e.lookup.containerIDForProcess(e.impl, processId)
 	e.logger.V(config.VerboseLevel).Info("Container ID for PID",
 		"containerID", cID, "len", len(cID))
 
@@ -504,7 +505,7 @@ func (e *JsonEnricher) fetchContainerInfo(
 		return nil, ""
 	}
 
-	containerInfo, err := e.containers.get(cID)
+	containerInfo, err := e.lookup.containers.get(cID)
 	if err != nil {
 		e.logger.V(config.VerboseLevel).Info("Container info not known yet",
 			"containerID", cID, "reason", err.Error())

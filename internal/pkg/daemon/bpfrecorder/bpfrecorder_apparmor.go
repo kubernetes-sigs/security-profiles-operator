@@ -387,9 +387,13 @@ func (b *AppArmorRecorder) handleFileEvent(fileEvent *bpfEvent) {
 	normalized := b.normalizePath(fileName)
 	fileName = normalized.path
 
-	b.logger.V(config.VerboseLevel).Info("File access",
-		"filename", fileName, "flags", fileEvent.Flags, "pid", fileEvent.Pid,
-		"mntns", fileEvent.Mntns, "key", fileEvent.Key)
+	// This runs for every file event, so the arguments are only built if the
+	// line gets logged.
+	if verbose := b.logger.V(config.VerboseLevel); verbose.Enabled() {
+		verbose.Info("File access",
+			"filename", fileName, "flags", fileEvent.Flags, "pid", fileEvent.Pid,
+			"mntns", fileEvent.Mntns, "key", fileEvent.Key)
+	}
 
 	if normalized.excluded {
 		b.logger.V(config.VerboseLevel).Info("Exclude file", "filename", fileName)

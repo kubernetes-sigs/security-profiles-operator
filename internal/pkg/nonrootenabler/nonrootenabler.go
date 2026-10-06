@@ -54,14 +54,51 @@ func (n *NonRootEnabler) SetImpl(i impl) {
 	n.impl = i
 }
 
+const (
+	dirPermissions  os.FileMode = 0o744
+	filePermissions os.FileMode = 0o644
+)
+
 // Run executes the NonRootEnabler and returns an error if anything fails.
 func (n *NonRootEnabler) Run(logger logr.Logger, runtime, kubeletDir string, apparmor bool) error {
-	const dirPermissions os.FileMode = 0o744
-
-	const filePermissions os.FileMode = 0o644
-
 	logger.Info("Container runtime", "runtime", runtime)
 
+	kubeletSeccompDir, err := n.ensureDirs(logger, kubeletDir)
+	if err != nil {
+		return err
+	}
+
+	if err := n.saveKubeletConfig(logger, kubeletDir); err != nil {
+		return err
+	}
+
+	logger.Info("Setting operator root user and group")
+
+	if err := n.Lchown(
+		config.OperatorRoot, config.UserRootless, config.UserRootless,
+	); err != nil {
+		return fmt.Errorf("change operator root permissions: %w", err)
+	}
+
+	logger.Info("Copying profiles into root path", "path", kubeletSeccompDir)
+
+	if err := n.CopyDirContentsLocal(
+		config.DefaultSpoProfilePath, kubeletSeccompDir,
+	); err != nil {
+		return fmt.Errorf("copy local security profiles: %w", err)
+	}
+
+	if !apparmor {
+		return nil
+	}
+
+	return n.installApparmorProfiles(logger, apparmorprofile.NewAppArmorProfileManager(logger))
+}
+
+// ensureDirs creates the seccomp directory of the kubelet and the operator
+// root, and links the operator directory of the kubelet to the operator root.
+// It returns the seccomp directory of the kubelet.
+func (n *NonRootEnabler) ensureDirs(logger logr.Logger, kubeletDir string) (string, error) {
 	// Only the seccomp directories of the kubelet directories are mounted
 	// from the host below config.HostRoot, not the host root filesystem and
 	// not the rest of the kubelet directory, which holds the secret volumes
@@ -71,31 +108,31 @@ func (n *NonRootEnabler) Run(logger logr.Logger, runtime, kubeletDir string, app
 	// The path has to be a mount point itself: it exists as well for a parent
 	// of another mount, like /host/var/lib for /host/var/lib/kubelet/seccomp.
 	hostKubeletDir := path.Join(config.HostRoot, kubeletDir)
-	kubeleteSeccompDir := path.Join(hostKubeletDir, config.SeccompProfilesFolder)
+	kubeletSeccompDir := path.Join(hostKubeletDir, config.SeccompProfilesFolder)
 
-	mounted, err := n.Mounted(kubeleteSeccompDir)
+	mounted, err := n.Mounted(kubeletSeccompDir)
 	if err != nil {
-		return fmt.Errorf(
+		return "", fmt.Errorf(
 			"checking if kubelet seccomp directory %s is mounted at %s: %w",
-			kubeletDir, kubeleteSeccompDir, err,
+			kubeletDir, kubeletSeccompDir, err,
 		)
 	}
 
 	if !mounted {
-		return fmt.Errorf(
+		return "", fmt.Errorf(
 			"%w: kubelet seccomp directory %s at %s",
-			ErrKubeletDirNotMounted, kubeletDir, kubeleteSeccompDir,
+			ErrKubeletDirNotMounted, kubeletDir, kubeletSeccompDir,
 		)
 	}
 
-	logger.Info("Ensuring seccomp root path", "path", kubeleteSeccompDir)
+	logger.Info("Ensuring seccomp root path", "path", kubeletSeccompDir)
 
 	if err := n.MkdirAll(
-		kubeleteSeccompDir, dirPermissions,
+		kubeletSeccompDir, dirPermissions,
 	); err != nil {
-		return fmt.Errorf(
+		return "", fmt.Errorf(
 			"create seccomp root path %s: %w",
-			kubeleteSeccompDir, err,
+			kubeletSeccompDir, err,
 		)
 	}
 
@@ -104,7 +141,7 @@ func (n *NonRootEnabler) Run(logger logr.Logger, runtime, kubeletDir string, app
 	if err := n.MkdirAll(
 		config.OperatorRoot, dirPermissions,
 	); err != nil {
-		return fmt.Errorf(
+		return "", fmt.Errorf(
 			"create operator root path %s: %w",
 			config.OperatorRoot, err,
 		)
@@ -113,26 +150,23 @@ func (n *NonRootEnabler) Run(logger logr.Logger, runtime, kubeletDir string, app
 	logger.Info("Setting operator root permissions")
 
 	if err := n.Chmod(config.OperatorRoot, dirPermissions); err != nil {
-		return fmt.Errorf("change operator root path permissions: %w", err)
+		return "", fmt.Errorf("change operator root path permissions: %w", err)
 	}
 
-	kubeletOperatorDir := path.Join(
-		config.HostRoot,
-		kubeletDir,
-		config.SeccompProfilesFolder,
-		config.OperatorProfilesFolder,
-	)
+	kubeletOperatorDir := path.Join(kubeletSeccompDir, config.OperatorProfilesFolder)
 	if err := n.linkProfilesRoot(logger, kubeletOperatorDir); err != nil {
-		return err
+		return "", err
 	}
 
+	return kubeletSeccompDir, nil
+}
+
+// saveKubeletConfig saves the kubelet directory for the other components of
+// the daemon.
+func (n *NonRootEnabler) saveKubeletConfig(logger logr.Logger, kubeletDir string) error {
 	logger.Info("Saving kubelet configuration")
 
-	kubeletCfg := config.KubeletConfig{
-		KubeletDir: kubeletDir,
-	}
-
-	cfg, err := json.Marshal(kubeletCfg)
+	cfg, err := json.Marshal(config.KubeletConfig{KubeletDir: kubeletDir})
 	if err != nil {
 		return fmt.Errorf("marshaling kubelet config: %w", err)
 	}
@@ -145,31 +179,28 @@ func (n *NonRootEnabler) Run(logger logr.Logger, runtime, kubeletDir string, app
 		return fmt.Errorf("saving kubelet config: %w", err)
 	}
 
-	logger.Info("Setting operator root user and group")
+	return nil
+}
 
-	if err := n.Lchown(
-		config.OperatorRoot, config.UserRootless, config.UserRootless,
-	); err != nil {
-		return fmt.Errorf("change operator root permissions: %w", err)
+// apparmorProfiles are the AppArmor profiles of the operator itself, which
+// get installed on nodes with AppArmor.
+var apparmorProfiles = []string{config.SpoApparmorProfile, config.BpfRecorderApparmorProfile}
+
+// installApparmorProfiles installs the AppArmor profiles of the operator if
+// the node supports AppArmor.
+func (n *NonRootEnabler) installApparmorProfiles(
+	logger logr.Logger, manager apparmorprofile.ProfileManager,
+) error {
+	if !manager.Enabled() {
+		return nil
 	}
 
-	logger.Info("Copying profiles into root path", "path", kubeleteSeccompDir)
+	for _, p := range apparmorProfiles {
+		profile := path.Join(config.DefaultSpoProfilePath, p)
+		logger.Info("Installing apparmor profile", "profile", profile)
 
-	if err := n.CopyDirContentsLocal(
-		config.DefaultSpoProfilePath, kubeleteSeccompDir,
-	); err != nil {
-		return fmt.Errorf("copy local security profiles: %w", err)
-	}
-
-	aaManager := apparmorprofile.NewAppArmorProfileManager(logger)
-	if apparmor && aaManager.Enabled() {
-		for _, p := range []string{config.SpoApparmorProfile, config.BpfRecorderApparmorProfile} {
-			profile := path.Join(config.DefaultSpoProfilePath, p)
-			logger.Info("Installing apparmor profile", "profile", profile)
-
-			if err := n.InstallApparmor(aaManager, profile); err != nil {
-				return fmt.Errorf("installing apparmor profile: %w", err)
-			}
+		if err := n.InstallApparmor(manager, profile); err != nil {
+			return fmt.Errorf("installing apparmor profile: %w", err)
 		}
 	}
 

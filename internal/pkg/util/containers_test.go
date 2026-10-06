@@ -17,6 +17,7 @@ limitations under the License.
 package util
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -253,4 +254,57 @@ func TestContainerIDForPID_CacheHit(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, id1, id2)
 	require.Equal(t, 1, cgroupCalls)
+}
+
+// A process outside of any container is remembered for a short time only, so
+// that its cgroup is not read for each of its audit lines.
+func TestContainerIDForPID_CachesProcessWithoutContainer(t *testing.T) {
+	t.Parallel()
+
+	cache := ttlcache.New[string, string]()
+
+	cgroupCalls := 0
+	statReader := func(pid int) ([]byte, error) {
+		return fmt.Appendf(nil, "%d (bash) %s 100 1234", pid, testStatFiller), nil
+	}
+	cgroupReader := func(int) ([]byte, error) {
+		cgroupCalls++
+
+		return []byte("0::/system.slice/sshd.service\n"), nil
+	}
+
+	for range 2 {
+		_, err := containerIDForPID(cache, 1234, statReader, cgroupReader)
+		require.ErrorIs(t, err, ErrContainerIDNotFound)
+	}
+
+	require.Equal(t, 1, cgroupCalls)
+
+	item := cache.Get("1234_100", ttlcache.WithDisableTouchOnHit[string, string]())
+	require.NotNil(t, item)
+	require.Empty(t, item.Value())
+	require.Equal(t, noContainerTimeout, item.TTL())
+
+	// Lookups do not extend the time it is remembered.
+	expiresAt := item.ExpiresAt()
+
+	_, lookupErr := containerIDForPID(cache, 1234, statReader, cgroupReader)
+	require.ErrorIs(t, lookupErr, ErrContainerIDNotFound)
+	require.Equal(t, expiresAt, item.ExpiresAt())
+	require.Equal(t, 1, cgroupCalls)
+
+	// A failed read is not remembered.
+	errRead := errors.New("read")
+	failingReader := func(int) ([]byte, error) {
+		cgroupCalls++
+
+		return nil, errRead
+	}
+
+	for range 2 {
+		_, err := containerIDForPID(cache, 1, statReader, failingReader)
+		require.ErrorIs(t, err, errRead)
+	}
+
+	require.Equal(t, 3, cgroupCalls)
 }
