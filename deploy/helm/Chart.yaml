@@ -3,5 +3,5 @@ name: security-profiles-operator
 description: "The Kubernetes Security Profiles Operator."
 type: application
 kubeVersion: ">=1.30.0-0"
-version: "1.1.1"
-appVersion: "1.1.1"
+version: "1.1.2-dev"
+appVersion: "1.1.2-dev"
