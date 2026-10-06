@@ -980,7 +980,7 @@ dependencies:
   # The UBI base of Dockerfile.ubi, the go-toolset image only provides the C
   # toolchain there.
   - name: ubi9-go-toolset-digest
-    version: sha256:0a4666f7a4eb0644c97a73cba198eb268691b270d97831822689e7a2088f87be
+    version: sha256:890b54e8d329f33f094ab17881bd37e20b80a54cc39141637310911d8dd9c575
     refPaths:
       - path: Dockerfile.ubi
         match: "^FROM registry.access.redhat.com/ubi9/go-toolset@"
