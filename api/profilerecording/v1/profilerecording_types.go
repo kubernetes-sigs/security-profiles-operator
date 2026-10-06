@@ -94,7 +94,7 @@ type ProfileRecordingSpec struct {
 	// namespace.
 	// +required
 	//nolint:lll // CEL rules cannot be wrapped
-	// +kubebuilder:validation:XValidation:rule="!has(self.matchExpressions) || self.matchExpressions.all(e, e.operator in ['In', 'NotIn'] ? (has(e.values) && size(e.values) > 0) : (e.operator in ['Exists', 'DoesNotExist'] && (!has(e.values) || size(e.values) == 0)))",message="matchExpressions operator must be In, NotIn, Exists or DoesNotExist, In and NotIn require values, Exists and DoesNotExist must not have values"
+	// +kubebuilder:validation:XValidation:rule="!has(self.matchExpressions) || self.matchExpressions.all(e, has(e.values) && size(e.values) > 0 ? (e.operator == 'In' || e.operator == 'NotIn') : (e.operator == 'Exists' || e.operator == 'DoesNotExist'))",message="matchExpressions operator must be In, NotIn, Exists or DoesNotExist, In and NotIn require values, Exists and DoesNotExist must not have values"
 	PodSelector *metav1.LabelSelector `json:"podSelector,omitempty"`
 
 	// containers is a set of containers to record. This allows to select
@@ -140,6 +140,7 @@ type ProfileRecordingStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Kind",type=string,JSONPath=`.spec.kind`
 // +kubebuilder:printcolumn:name="Recorder",type=string,JSONPath=`.spec.recorder`
+// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 // +kubebuilder:printcolumn:name="PodSelector",type=string,priority=10,JSONPath=`.spec.podSelector`
 //

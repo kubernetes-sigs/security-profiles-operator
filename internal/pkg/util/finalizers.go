@@ -26,6 +26,8 @@ import (
 )
 
 // AddFinalizer attempts to add a finalizer to an object if not present and update the object.
+// It fetches the object into pol first, so pol holds the stored object
+// afterwards and any unsaved change of the caller is lost.
 func AddFinalizer(ctx context.Context, c client.Client, pol client.Object, finalizer string) error {
 	if err := c.Get(ctx, NamespacedName(pol.GetName(), pol.GetNamespace()), pol); err != nil {
 		return fmt.Errorf("%s: %w", ErrGetProfile, err)
@@ -41,6 +43,7 @@ func AddFinalizer(ctx context.Context, c client.Client, pol client.Object, final
 }
 
 // RemoveFinalizer attempts to remove a finalizer from an object if present and update the object.
+// Like AddFinalizer, it overwrites pol with the stored object.
 func RemoveFinalizer(
 	ctx context.Context,
 	c client.Client,
@@ -51,7 +54,8 @@ func RemoveFinalizer(
 }
 
 // RemoveFinalizers removes every one of the provided finalizers which the
-// object carries with a single update. Empty finalizers are ignored.
+// object carries with a single update. Empty finalizers are ignored. Like
+// AddFinalizer, it overwrites pol with the stored object.
 func RemoveFinalizers(
 	ctx context.Context,
 	c client.Client,

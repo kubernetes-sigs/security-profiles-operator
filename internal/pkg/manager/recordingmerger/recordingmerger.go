@@ -64,8 +64,34 @@ func NewController() controller.Controller {
 // A PolicyMergeReconciler monitors profilerecordings and merges policies recorded by those.
 type PolicyMergeReconciler struct {
 	client client.Client
+	reader client.Reader
 	log    logr.Logger
 	record util.EventRecorder
+}
+
+// readerClient is a client which reads from the API server instead of the
+// cache, so that a retry after a conflict sees the object which won.
+type readerClient struct {
+	client.Client
+
+	reader client.Reader
+}
+
+func (c *readerClient) Get(
+	ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption,
+) error {
+	return c.reader.Get(ctx, key, obj, opts...)
+}
+
+// writeClient returns the client for the writes which retry conflicts. Its
+// reads bypass the cache, which may still return the object a conflict was
+// about.
+func (r *PolicyMergeReconciler) writeClient() client.Client {
+	if r.reader == nil {
+		return r.client
+	}
+
+	return &readerClient{Client: r.client, reader: r.reader}
 }
 
 // Name returns the name of the controller.
@@ -103,7 +129,7 @@ func (r *PolicyMergeReconciler) Reconcile(
 
 	profileRecording := &profilerecordingapi.ProfileRecording{}
 	if err := r.client.Get(ctx, req.NamespacedName, profileRecording); err != nil {
-		if util.IgnoreNotFound(err) == nil {
+		if client.IgnoreNotFound(err) == nil {
 			return reconcile.Result{}, nil
 		}
 
@@ -203,9 +229,11 @@ func (r *PolicyMergeReconciler) mergeProfiles(
 
 // releaseRecording removes the finalizer which keeps the recording until its
 // partial profiles are merged, once no partial profile of any kind is left.
-// The daemon removes it as well when the last partial profile of a kind is
-// deleted, but not for a recording without any partial profile, or with
-// partial profiles of several kinds.
+// Only the merger removes it, because only the merger checks the partial
+// profiles of every kind. The partial profiles are listed from the API server,
+// because the cache may not show the deletion of the just merged ones yet. A
+// recording which keeps the finalizer is reconciled again once one of its
+// partial profiles is gone, see Setup.
 func (r *PolicyMergeReconciler) releaseRecording(
 	ctx context.Context,
 	profileRecording *profilerecordingapi.ProfileRecording,
@@ -217,8 +245,13 @@ func (r *PolicyMergeReconciler) releaseRecording(
 		return nil
 	}
 
+	reader := client.Reader(r.client)
+	if r.reader != nil {
+		reader = r.reader
+	}
+
 	for _, k := range mergeKinds {
-		left, err := hasPartialProfiles(ctx, r.client, k.newList(), profileRecording)
+		left, err := hasPartialProfiles(ctx, reader, k.newList(), profileRecording)
 		if err != nil {
 			return fmt.Errorf("cannot list partial profiles of kind %s: %w", k.kind, err)
 		}
@@ -235,7 +268,7 @@ func (r *PolicyMergeReconciler) releaseRecording(
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		return util.RemoveFinalizer(
 			ctx,
-			r.client,
+			r.writeClient(),
 			recording,
 			profilerecordingapi.RecordingHasUnmergedProfiles,
 		)
@@ -316,7 +349,9 @@ func (r *PolicyMergeReconciler) mergeTypedProfiles(
 			Info("Computed syscall coverage", "container", cntName, "coverage", coverageAnnotation)
 
 		res, err := createUpdateMergedProfile(
-			ctx, r.client, profileRecording, mergedRecordingName, mergedProfile, coverageAnnotation)
+			ctx, r.writeClient(), profileRecording, mergedRecordingName, mergedProfile,
+			coverageAnnotation,
+		)
 		if err != nil {
 			r.record.Eventf(
 				profileRecording,

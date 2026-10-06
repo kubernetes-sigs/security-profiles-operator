@@ -28,9 +28,10 @@ import (
 type ProfileState string
 
 const (
-	// The profile is pending installation.
+	// The profile is a partial profile of a profile recording, which is not
+	// merged yet. It is not installed.
 	ProfileStatePartial ProfileState = "Partial"
-	// The profile is not enabled and won't be reconciled.
+	// The profile is disabled by its spec.state and won't be reconciled.
 	ProfileStateDisabled ProfileState = "Disabled"
 	// The profile is pending installation.
 	ProfileStatePending ProfileState = "Pending"

@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	jsonpatchapply "github.com/evanphx/json-patch/v5"
 	"github.com/stretchr/testify/require"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -309,8 +310,16 @@ func TestUpdatePodEnabledProfileWithoutStatusRejects(t *testing.T) {
 		}},
 	)
 
+	// The pod gets denied with a hint instead of failing with an internal
+	// error.
 	require.False(t, resp.Allowed)
-	require.Equal(t, int32(http.StatusInternalServerError), resp.Result.Code)
+	require.Equal(t, int32(http.StatusForbidden), resp.Result.Code)
+	require.Contains(
+		t,
+		resp.Result.Message,
+		"binds AppArmorProfile profile, which is not installed yet",
+	)
+	require.Contains(t, resp.Result.Message, "SecurityProfileNodeStatus")
 	require.Greater(t, mock.GetAppArmorProfileCallCount(), 1, "the lookup must be retried")
 	require.Equal(t, 1, mock.GetSPODCallCount(), "the SPOD is read once per request")
 
@@ -497,4 +506,104 @@ func TestGetProfileUnsupportedKind(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, skip)
 	require.Nil(t, profile)
+}
+
+// The patch only touches the bound fields, so the fields of a pod which the
+// vendored pod type does not know, like the ones of a newer API server, are
+// kept, also when ephemeral containers get added.
+func TestHandleKeepsUnknownPodFields(t *testing.T) {
+	t.Parallel()
+
+	mock := &bindingfakes.FakeImpl{}
+	mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
+		Items: []profilebindingapi.ProfileBinding{{
+			ObjectMeta: metav1.ObjectMeta{Name: "binding"},
+			Spec: profilebindingapi.ProfileBindingSpec{
+				ProfileRef: profilebindingapi.ProfileRef{
+					Kind: profilebindingapi.ProfileBindingKindSeccompProfile,
+				},
+				Image: profilebindingapi.SelectAllContainersImage,
+			},
+		}},
+	}, nil)
+	mock.GetSeccompProfileReturns(installedSeccompProfile("operator/wildcard.json"), nil)
+
+	const (
+		oldPod = `{"metadata": {"name": "pod"}, "spec": {"futureField": "keep",
+			"containers": [{"name": "app", "image": "app", "futureContainerField": "keep"}]}}`
+		newPod = `{"metadata": {"name": "pod"}, "spec": {"futureField": "keep",
+			"containers": [{"name": "app", "image": "app", "futureContainerField": "keep"}],
+			"ephemeralContainers": [{"name": "debug", "image": "debug", "futureContainerField": "keep"}]}}`
+	)
+
+	for name, tc := range map[string]struct {
+		req admissionv1.AdmissionRequest
+		// podContext tells whether the pod security context gets set, which
+		// cannot be changed when ephemeral containers get added.
+		podContext bool
+	}{
+		"create": {
+			req: admissionv1.AdmissionRequest{
+				Operation: admissionv1.Create,
+				Object:    runtime.RawExtension{Raw: []byte(oldPod)},
+			},
+			podContext: true,
+		},
+		"ephemeral containers": {
+			req: admissionv1.AdmissionRequest{
+				Operation:   admissionv1.Update,
+				SubResource: ephemeralContainersSubResource,
+				Object:      runtime.RawExtension{Raw: []byte(newPod)},
+				OldObject:   runtime.RawExtension{Raw: []byte(oldPod)},
+			},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			resp := newTestBinder(
+				t,
+				mock,
+			).Handle(t.Context(), admission.Request{AdmissionRequest: tc.req})
+			require.True(t, resp.Allowed)
+
+			patchJSON, err := json.Marshal(resp.Patches)
+			require.NoError(t, err)
+
+			patch, err := jsonpatchapply.DecodePatch(patchJSON)
+			require.NoError(t, err)
+
+			patched, err := patch.Apply(tc.req.Object.Raw)
+			require.NoError(t, err)
+
+			res := struct {
+				Spec struct {
+					FutureField     string           `json:"futureField"`
+					SecurityContext *json.RawMessage `json:"securityContext"`
+					Containers      []struct {
+						FutureContainerField string `json:"futureContainerField"`
+					} `json:"containers"`
+					EphemeralContainers []struct {
+						FutureContainerField string                  `json:"futureContainerField"`
+						SecurityContext      *corev1.SecurityContext `json:"securityContext"`
+					} `json:"ephemeralContainers"`
+				} `json:"spec"`
+			}{}
+			require.NoError(t, json.Unmarshal(patched, &res))
+			require.Equal(t, "keep", res.Spec.FutureField)
+			require.Equal(t, "keep", res.Spec.Containers[0].FutureContainerField)
+
+			for _, ec := range res.Spec.EphemeralContainers {
+				require.Equal(t, "keep", ec.FutureContainerField)
+				require.NotNil(t, ec.SecurityContext)
+				require.Equal(
+					t,
+					"operator/wildcard.json",
+					*ec.SecurityContext.SeccompProfile.LocalhostProfile,
+				)
+			}
+
+			require.Equal(t, tc.podContext, res.Spec.SecurityContext != nil)
+		})
+	}
 }

@@ -25,6 +25,9 @@ spec:
     - jsonPath: .spec.image
       name: Image
       type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -113,9 +116,9 @@ spec:
                     DoesNotExist, In and NotIn require values, Exists and DoesNotExist
                     must not have values
                   rule: '!has(self.matchExpressions) || self.matchExpressions.all(e,
-                    e.operator in [''In'', ''NotIn''] ? (has(e.values) && size(e.values)
-                    > 0) : (e.operator in [''Exists'', ''DoesNotExist''] && (!has(e.values)
-                    || size(e.values) == 0)))'
+                    has(e.values) && size(e.values) > 0 ? (e.operator == ''In'' ||
+                    e.operator == ''NotIn'') : (e.operator == ''Exists'' || e.operator
+                    == ''DoesNotExist''))'
               profileRef:
                 description: |-
                   profileRef references the cluster-scoped SeccompProfile, SelinuxProfile
@@ -245,6 +248,9 @@ spec:
     - jsonPath: .spec.recorder
       name: Recorder
       type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -373,9 +379,9 @@ spec:
                     DoesNotExist, In and NotIn require values, Exists and DoesNotExist
                     must not have values
                   rule: '!has(self.matchExpressions) || self.matchExpressions.all(e,
-                    e.operator in [''In'', ''NotIn''] ? (has(e.values) && size(e.values)
-                    > 0) : (e.operator in [''Exists'', ''DoesNotExist''] && (!has(e.values)
-                    || size(e.values) == 0)))'
+                    has(e.values) && size(e.values) > 0 ? (e.operator == ''In'' ||
+                    e.operator == ''NotIn'') : (e.operator == ''Exists'' || e.operator
+                    == ''DoesNotExist''))'
               recorder:
                 description: recorder specifies which recorder to use.
                 enum:
@@ -1127,8 +1133,9 @@ spec:
                       auditLogMaxBackups:
                         description: |-
                           auditLogMaxBackups specifies the maximum number of old audit log
-                          files to retain. The default is to retain all old log files (though
-                          MaxAge may still cause them to get deleted).
+                          files to retain. If it is unset or 0, 10 old log files are retained,
+                          unless auditLogMaxAge is set, which then alone decides about removing
+                          them.
                         format: int32
                         minimum: 0
                         type: integer
@@ -2125,8 +2132,11 @@ spec:
                     type: object
                   priorityClassName:
                     default: system-node-critical
-                    description: priorityClassName if defined, indicates the SPOD
-                      pod priority class.
+                    description: |-
+                      priorityClassName if defined, indicates the SPOD pod priority class.
+                      The pods of the managed webhook use system-cluster-critical, unless a
+                      priority class other than the default is set here, which then applies
+                      to them as well.
                     type: string
                   tolerations:
                     description: tolerations if specified, the SPOD's tolerations.
@@ -2376,7 +2386,10 @@ spec:
                           allowedClasses if specified, a list of SELinux object classes which are
                           removed from the built-in denylist. Use this with care, as it relaxes a
                           safe default for every translated policy.
+                          Each entry gets compared to the object classes of SELinux profiles, so
+                          it may only contain alphanumeric characters, '.', '-' and '_'.
                         items:
+                          pattern: ^[-a-zA-Z0-9._]+$
                           type: string
                         type: array
                         x-kubernetes-list-type: set
@@ -2385,7 +2398,10 @@ spec:
                           allowedPermissions if specified, a list of SELinux permissions which are
                           removed from the built-in denylist. Use this with care, as it relaxes a
                           safe default for every translated policy.
+                          Each entry gets compared to the permissions of SELinux profiles, so it
+                          may only contain alphanumeric characters, '.', '-' and '_'.
                         items:
+                          pattern: ^[-a-zA-Z0-9._]+$
                           type: string
                         type: array
                         x-kubernetes-list-type: set
@@ -2396,7 +2412,10 @@ spec:
                           allowedSystemProfiles lists the profiles coming from the system itself
                           that are allowed to be inherited by workloads. Use this with care,
                           as this might provide a lot of permissions depending on the policy.
+                          Each entry may only contain alphanumeric characters, '.', '-' and '_',
+                          like the names of the inherited system profiles it gets compared to.
                         items:
+                          pattern: ^[-a-zA-Z0-9._]+$
                           type: string
                         type: array
                         x-kubernetes-list-type: set
@@ -2405,7 +2424,10 @@ spec:
                           allowedTypes if specified, a list of SELinux types which are removed
                           from the built-in denylist. Use this with care, as it relaxes a safe
                           default for every translated policy.
+                          Each entry gets compared to the types of SELinux profiles, so it may
+                          only contain alphanumeric characters, '.', '-' and '_', or be '@self'.
                         items:
+                          pattern: ^([-a-zA-Z0-9._]+|@self)$
                           type: string
                         type: array
                         x-kubernetes-list-type: set
@@ -2413,7 +2435,10 @@ spec:
                         description: |-
                           deniedClasses if specified, a list of SELinux object classes which are
                           denied in SELinux profiles.
+                          Each entry gets compared to the object classes of SELinux profiles, so
+                          it may only contain alphanumeric characters, '.', '-' and '_'.
                         items:
+                          pattern: ^[-a-zA-Z0-9._]+$
                           type: string
                         type: array
                         x-kubernetes-list-type: set
@@ -2421,7 +2446,10 @@ spec:
                         description: |-
                           deniedPermissions if specified, a list of SELinux permissions which are
                           denied in SELinux profiles.
+                          Each entry gets compared to the permissions of SELinux profiles, so it
+                          may only contain alphanumeric characters, '.', '-' and '_'.
                         items:
+                          pattern: ^[-a-zA-Z0-9._]+$
                           type: string
                         type: array
                         x-kubernetes-list-type: set
@@ -2429,7 +2457,10 @@ spec:
                         description: |-
                           deniedTypes if specified, a list of SELinux types which are
                           denied in SELinux profiles.
+                          Each entry gets compared to the types of SELinux profiles, so it may
+                          only contain alphanumeric characters, '.', '-' and '_', or be '@self'.
                         items:
+                          pattern: ^([-a-zA-Z0-9._]+|@self)$
                           type: string
                         type: array
                         x-kubernetes-list-type: set
@@ -2451,8 +2482,9 @@ spec:
                 description: webhook contains webhook configuration.
                 properties:
                   options:
-                    description: options set custom namespace selectors and failure
-                      mode for SPO's webhooks.
+                    description: |-
+                      options set custom namespace selectors and failure mode for SPO's webhooks.
+                      There can be at most one entry for each of the four webhooks.
                     items:
                       description: WebhookOptions defines per-webhook configuration
                         options.
@@ -2475,8 +2507,9 @@ spec:
                           - nodedebuggingpod.spo.io
                           type: string
                         namespaceSelector:
-                          description: namespaceSelector sets the webhook's namespace
-                            selector.
+                          description: |-
+                            namespaceSelector sets the webhook's namespace selector. It has to be a
+                            valid label selector, which the webhook configuration requires.
                           properties:
                             matchExpressions:
                               description: matchExpressions is a list of label selector
@@ -2521,8 +2554,18 @@ spec:
                               type: object
                           type: object
                           x-kubernetes-map-type: atomic
+                          x-kubernetes-validations:
+                          - message: matchExpressions operator must be In, NotIn,
+                              Exists or DoesNotExist, In and NotIn require values,
+                              Exists and DoesNotExist must not have values
+                            rule: '!has(self.matchExpressions) || self.matchExpressions.all(e,
+                              has(e.values) && size(e.values) > 0 ? (e.operator ==
+                              ''In'' || e.operator == ''NotIn'') : (e.operator ==
+                              ''Exists'' || e.operator == ''DoesNotExist''))'
                         objectSelector:
-                          description: objectSelector sets the webhook's object selector.
+                          description: |-
+                            objectSelector sets the webhook's object selector. It has to be a
+                            valid label selector, which the webhook configuration requires.
                           properties:
                             matchExpressions:
                               description: matchExpressions is a list of label selector
@@ -2567,9 +2610,18 @@ spec:
                               type: object
                           type: object
                           x-kubernetes-map-type: atomic
+                          x-kubernetes-validations:
+                          - message: matchExpressions operator must be In, NotIn,
+                              Exists or DoesNotExist, In and NotIn require values,
+                              Exists and DoesNotExist must not have values
+                            rule: '!has(self.matchExpressions) || self.matchExpressions.all(e,
+                              has(e.values) && size(e.values) > 0 ? (e.operator ==
+                              ''In'' || e.operator == ''NotIn'') : (e.operator ==
+                              ''Exists'' || e.operator == ''DoesNotExist''))'
                       required:
                       - name
                       type: object
+                    maxItems: 4
                     type: array
                     x-kubernetes-list-map-keys:
                     - name
@@ -3447,6 +3499,8 @@ rules:
   - configmaps
   verbs:
   - get
+  - list
+  - watch
 - apiGroups:
   - ""
   resources:
@@ -3540,7 +3594,6 @@ rules:
   verbs:
   - create
   - patch
-  - update
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
@@ -3581,19 +3634,8 @@ rules:
   resources:
   - profilebindings
   - profilerecordings
-  verbs:
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - security-profiles-operator.x-k8s.io
-  resources:
   - rawselinuxprofiles
-  - securityprofilesoperatordaemons
   verbs:
-  - create
   - get
   - list
   - patch
@@ -3607,6 +3649,17 @@ rules:
   - delete
   - get
   - list
+  - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - securityprofilesoperatordaemons
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
   - watch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -3709,15 +3762,6 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - events
-  verbs:
-  - create
-  - get
-  - patch
-  - update
-- apiGroups:
-  - ""
-  resources:
   - nodes
   - pods
   verbs:
@@ -3757,33 +3801,25 @@ rules:
   verbs:
   - create
   - patch
-  - update
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
   - apparmorprofiles
-  - rawselinuxprofiles
-  - seccompprofiles
   - selinuxprofiles
   verbs:
   - create
   - get
   - list
-  - patch
   - update
   - watch
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
   - apparmorprofiles/finalizers
-  - apparmorprofiles/status
   - rawselinuxprofiles/finalizers
-  - rawselinuxprofiles/status
   - seccompprofiles/finalizers
-  - seccompprofiles/status
   - securityprofilenodestatuses/status
   - selinuxprofiles/finalizers
-  - selinuxprofiles/status
   verbs:
   - get
   - patch
@@ -3793,6 +3829,26 @@ rules:
   resources:
   - profilerecordings
   verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - rawselinuxprofiles
+  verbs:
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - seccompprofiles
+  verbs:
+  - create
   - get
   - list
   - patch
@@ -3863,12 +3919,6 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - events
-  verbs:
-  - create
-- apiGroups:
-  - ""
-  resources:
   - pods
   verbs:
   - get
@@ -3905,7 +3955,6 @@ rules:
   verbs:
   - create
   - patch
-  - update
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
@@ -4069,6 +4118,15 @@ rules:
   verbs:
   - get
 ---
+apiVersion: v1
+automountServiceAccountToken: false
+kind: ServiceAccount
+metadata:
+  labels:
+    app: security-profiles-operator
+  name: spo-metrics-client
+  namespace: security-profiles-operator
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
@@ -4081,17 +4139,17 @@ roleRef:
   name: spo-metrics-client
 subjects:
 - kind: ServiceAccount
-  name: default
+  name: spo-metrics-client
   namespace: security-profiles-operator
 ---
 apiVersion: v1
 kind: Secret
 metadata:
   annotations:
-    kubernetes.io/service-account.name: default
+    kubernetes.io/service-account.name: spo-metrics-client
   labels:
     app: security-profiles-operator
-  name: metrics-token
+  name: spo-metrics-client-token
   namespace: security-profiles-operator
 type: kubernetes.io/service-account-token
 ---
@@ -4705,6 +4763,7 @@ spec:
             path: /healthz
             port: health
           periodSeconds: 3
+      priorityClassName: system-cluster-critical
       securityContext:
         seccompProfile:
           type: RuntimeDefault

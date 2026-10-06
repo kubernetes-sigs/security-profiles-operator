@@ -171,7 +171,7 @@ func TestAddSeccompContext(t *testing.T) {
 			t.Parallel()
 
 			binder := newTestBinder(t, &bindingfakes.FakeImpl{})
-			require.Equal(t, tc.changed, binder.addSeccompContext(tc.ctr, profile))
+			require.Equal(t, tc.changed, binder.addSecurityContext(tc.ctr, profile))
 			require.Equal(t, want, tc.ctr.SecurityContext.SeccompProfile)
 		})
 	}
@@ -224,9 +224,9 @@ func TestAddSelinuxContext(t *testing.T) {
 	ctr := &corev1.Container{}
 	binder := newTestBinder(t, &bindingfakes.FakeImpl{})
 
-	require.True(t, binder.addSelinuxContext(ctr, profile))
+	require.True(t, binder.addSecurityContext(ctr, profile))
 	require.Equal(t, "bound_t.process", ctr.SecurityContext.SELinuxOptions.Type)
-	require.False(t, binder.addSelinuxContext(ctr, profile))
+	require.False(t, binder.addSecurityContext(ctr, profile))
 }
 
 func TestAddAppArmorContext(t *testing.T) {
@@ -266,7 +266,7 @@ func TestAddAppArmorContext(t *testing.T) {
 			t.Parallel()
 
 			binder := newTestBinder(t, &bindingfakes.FakeImpl{})
-			require.Equal(t, tc.changed, binder.addAppArmorContext(tc.ctr, profile))
+			require.Equal(t, tc.changed, binder.addSecurityContext(tc.ctr, profile))
 			require.Equal(t, want, tc.ctr.SecurityContext.AppArmorProfile)
 		})
 	}

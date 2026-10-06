@@ -19,8 +19,8 @@ PODNAME=test-pod
 RECORDING_NAME="test-recording"
 APPARMOR_RECORDING_FILE="examples/profilerecording-apparmor-bpf.yaml"
 APPARMOR_PROFILE_NAME="test-recording-$PODNAME"
-APPARMOR_REFERENCE_PROFILE_FILE="examples/apparmorprofile-sleep"
-APPARMOR_PROFILE_FILE_COMPLAIN_MODE="examples/apparmorprofile-sleep-complain-mode.yaml"
+APPARMOR_REFERENCE_PROFILE_FILE="hack/ci/apparmorprofile-sleep"
+APPARMOR_PROFILE_FILE_COMPLAIN_MODE="hack/ci/apparmorprofile-sleep-complain-mode.yaml"
 SLEEP_INTERVAL_RECORDING="30"     # 30s sleep interval during recording.
 SLEEP_INTERVAL_VERIFICATION="300" # 5min to make sure that the enforcement check finds a running  PID.
 RUNTIMES=(runc crun)
@@ -162,7 +162,7 @@ check_apparmor_profile_recording() {
   done
 
   print_spo_logs
-  git diff --exit-code examples
+  git diff --exit-code -- "$APPARMOR_REFERENCE_PROFILE_FILE"-*.yaml
 }
 
 # Install a profile in complain mode, and checks if the pod properly starts

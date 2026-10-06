@@ -2,9 +2,11 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "security-profiles-operator values",
   "type": "object",
+  "additionalProperties": false,
   "$defs": {
     "image": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["registry", "repository"],
       "properties": {
         "registry": { "type": "string", "minLength": 1 },
@@ -16,9 +18,11 @@
     },
     "resources": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "limits": { "$ref": "#/$defs/resourceList" },
-        "requests": { "$ref": "#/$defs/resourceList" }
+        "requests": { "$ref": "#/$defs/resourceList" },
+        "claims": { "type": "array", "items": { "type": "object" } }
       }
     },
     "resourceList": {
@@ -29,6 +33,7 @@
       "type": "array",
       "items": {
         "type": "object",
+        "additionalProperties": false,
         "properties": {
           "key": { "type": "string" },
           "operator": { "type": "string", "enum": ["Exists", "Equal"] },
@@ -40,10 +45,27 @@
     }
   },
   "properties": {
+    "global": {
+      "description": "Values which Helm passes to the chart and its subcharts.",
+      "type": "object"
+    },
     "replicaCount": { "type": "integer", "minimum": 1 },
     "spoImage": { "$ref": "#/$defs/image" },
+    "imagePullSecrets": {
+      "description": "Secrets for pulling the images from a private registry, applied to the operator deployment and the imagePullSecrets of the SPOD.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
     "selinuxdImage": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["default", "el8", "el9", "fedora"],
       "properties": {
         "default": { "$ref": "#/$defs/image" },
@@ -56,6 +78,7 @@
     "enableSelinux": { "type": "boolean" },
     "selinux": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "enable": { "type": "boolean" },
         "enableRawSelinuxProfiles": { "type": "boolean" },
@@ -63,6 +86,7 @@
         "customTemplatesConfigMap": { "type": "string" },
         "options": {
           "type": "object",
+          "additionalProperties": false,
           "properties": {
             "allowedSystemProfiles": { "type": "array", "items": { "type": "string" } },
             "deniedTypes": { "type": "array", "items": { "type": "string" } },
@@ -80,29 +104,51 @@
     "enableAppArmor": { "type": "boolean" },
     "enableBpfRecorder": { "type": "boolean" },
     "enableProfiling": { "type": "boolean" },
-    "verbosity": { "type": "integer", "minimum": 0 },
+    "verbosity": { "type": "integer", "minimum": 0, "maximum": 10 },
     "restrictToNamespace": { "type": "string" },
     "webhook": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "tolerations": { "$ref": "#/$defs/tolerations" }
+      }
+    },
+    "spod": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "spec": {
+          "description": "Fields of the SecurityProfilesOperatorDaemon spec, merged over the fields which the dedicated values render.",
+          "type": "object"
+        }
       }
     },
     "nameOverride": { "type": "string" },
     "fullnameOverride": { "type": "string" },
     "serviceAccount": {
+      "description": "Has no effect, the operator always runs with the security-profiles-operator service account of the chart. Only accepted for compatibility with older values files.",
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "create": { "type": "boolean" },
         "annotations": { "type": "object" },
         "name": { "type": "string" }
       }
     },
-    "podAnnotations": { "type": "object" },
+    "podAnnotations": {
+      "description": "Annotations for the operator pods.",
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "priorityClassName": {
+      "description": "The priority class of the operator pods, none when empty.",
+      "type": "string"
+    },
     "podSecurityContext": { "type": "object" },
     "resources": { "$ref": "#/$defs/resources" },
     "daemon": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "affinity": { "type": "object" },
         "tolerations": { "$ref": "#/$defs/tolerations" },
@@ -111,14 +157,27 @@
     },
     "autoscaling": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean" },
-        "minReplicas": { "type": "integer", "minimum": 1 },
-        "maxReplicas": { "type": "integer", "minimum": 1 }
+        "enabled": {
+          "description": "Do not set the replica count of the operator deployment, for example when it is scaled externally.",
+          "type": "boolean"
+        },
+        "minReplicas": {
+          "description": "Has no effect, the chart does not create a HorizontalPodAutoscaler. Only accepted for compatibility with older values files.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "maxReplicas": {
+          "description": "Has no effect, the chart does not create a HorizontalPodAutoscaler. Only accepted for compatibility with older values files.",
+          "type": "integer",
+          "minimum": 1
+        }
       }
     },
     "podDisruptionBudget": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "enabled": { "type": "boolean" },
         "minAvailable": {
@@ -133,6 +192,7 @@
       "type": "array",
       "items": {
         "type": "object",
+        "additionalProperties": false,
         "required": ["maxSkew", "topologyKey", "whenUnsatisfiable"],
         "properties": {
           "maxSkew": { "type": "integer", "minimum": 1 },

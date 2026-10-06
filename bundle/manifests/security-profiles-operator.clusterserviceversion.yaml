@@ -259,7 +259,7 @@ metadata:
     capabilities: Basic Install
     categories: Security
     containerImage: us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator:latest
-    createdAt: "2026-10-05T06:45:27Z"
+    createdAt: "2026-10-06T15:01:44Z"
     olm.skipRange: '>=1.0.0 <1.1.2-dev'
     operatorframework.io/cluster-monitoring: "true"
     operatorframework.io/os.linux: supported
@@ -300,6 +300,66 @@ spec:
       displayName: Security Profiles Operator Daemon
       kind: SecurityProfilesOperatorDaemon
       name: securityprofilesoperatordaemons.security-profiles-operator.x-k8s.io
+      resources:
+      - kind: DaemonSet
+        name: spod
+        version: v1
+      - kind: Deployment
+        name: security-profiles-operator-webhook
+        version: v1
+      - kind: PodDisruptionBudget
+        name: security-profiles-operator-webhook
+        version: v1
+      - kind: Service
+        name: metrics
+        version: v1
+      - kind: Service
+        name: webhook-service
+        version: v1
+      specDescriptors:
+      - description: Enables the AppArmor support of the daemon.
+        displayName: Enable AppArmor
+        path: enableAppArmor
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:booleanSwitch
+      - description: Enables the SELinux support of the daemon.
+        displayName: Enable SELinux
+        path: selinux.enable
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:booleanSwitch
+      - description: Enables the log enricher, which enriches the audit logs with
+          the container metadata.
+        displayName: Enable Log Enricher
+        path: enricher.enableLogEnricher
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:booleanSwitch
+      - description: Enables the JSON enricher, which writes the audit logs as JSON
+          lines.
+        displayName: Enable JSON Enricher
+        path: enricher.enableJsonEnricher
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:booleanSwitch
+      - description: Enables the BPF recorder for recording seccomp and AppArmor profiles.
+        displayName: Enable BPF Recorder
+        path: enricher.enableBpfRecorder
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:booleanSwitch
+      - description: The logging verbosity of the daemon.
+        displayName: Verbosity
+        path: verbosity
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:number
+      statusDescriptors:
+      - description: The state of the daemon.
+        displayName: State
+        path: state
+        x-descriptors:
+        - urn:alm:descriptor:io.kubernetes.phase
+      - description: The conditions of the daemon.
+        displayName: Conditions
+        path: conditions
+        x-descriptors:
+        - urn:alm:descriptor:io.kubernetes.conditions
       version: v1
     - description: RawSelinuxProfile is the Schema for the raw selinuxprofiles API.
       displayName: Raw Selinux Profile
@@ -335,6 +395,8 @@ spec:
           - configmaps
           verbs:
           - get
+          - list
+          - watch
         - apiGroups:
           - ""
           resources:
@@ -428,7 +490,6 @@ spec:
           verbs:
           - create
           - patch
-          - update
         - apiGroups:
           - security-profiles-operator.x-k8s.io
           resources:
@@ -469,19 +530,8 @@ spec:
           resources:
           - profilebindings
           - profilerecordings
-          verbs:
-          - get
-          - list
-          - patch
-          - update
-          - watch
-        - apiGroups:
-          - security-profiles-operator.x-k8s.io
-          resources:
           - rawselinuxprofiles
-          - securityprofilesoperatordaemons
           verbs:
-          - create
           - get
           - list
           - patch
@@ -496,14 +546,19 @@ spec:
           - get
           - list
           - watch
-        serviceAccountName: security-profiles-operator
-      - rules:
         - apiGroups:
-          - ""
+          - security-profiles-operator.x-k8s.io
           resources:
-          - events
+          - securityprofilesoperatordaemons
           verbs:
           - create
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        serviceAccountName: security-profiles-operator
+      - rules:
         - apiGroups:
           - ""
           resources:
@@ -543,7 +598,6 @@ spec:
           verbs:
           - create
           - patch
-          - update
         - apiGroups:
           - security-profiles-operator.x-k8s.io
           resources:
@@ -558,15 +612,6 @@ spec:
           - watch
         serviceAccountName: spo-webhook
       - rules:
-        - apiGroups:
-          - ""
-          resources:
-          - events
-          verbs:
-          - create
-          - get
-          - patch
-          - update
         - apiGroups:
           - ""
           resources:
@@ -609,33 +654,25 @@ spec:
           verbs:
           - create
           - patch
-          - update
         - apiGroups:
           - security-profiles-operator.x-k8s.io
           resources:
           - apparmorprofiles
-          - rawselinuxprofiles
-          - seccompprofiles
           - selinuxprofiles
           verbs:
           - create
           - get
           - list
-          - patch
           - update
           - watch
         - apiGroups:
           - security-profiles-operator.x-k8s.io
           resources:
           - apparmorprofiles/finalizers
-          - apparmorprofiles/status
           - rawselinuxprofiles/finalizers
-          - rawselinuxprofiles/status
           - seccompprofiles/finalizers
-          - seccompprofiles/status
           - securityprofilenodestatuses/status
           - selinuxprofiles/finalizers
-          - selinuxprofiles/status
           verbs:
           - get
           - patch
@@ -645,6 +682,26 @@ spec:
           resources:
           - profilerecordings
           verbs:
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - security-profiles-operator.x-k8s.io
+          resources:
+          - rawselinuxprofiles
+          verbs:
+          - get
+          - list
+          - update
+          - watch
+        - apiGroups:
+          - security-profiles-operator.x-k8s.io
+          resources:
+          - seccompprofiles
+          verbs:
+          - create
           - get
           - list
           - patch
@@ -756,6 +813,7 @@ spec:
                     path: /healthz
                     port: health
                   periodSeconds: 3
+              priorityClassName: system-cluster-critical
               securityContext:
                 seccompProfile:
                   type: RuntimeDefault
@@ -950,7 +1008,7 @@ spec:
   maintainers:
   - email: dev@kubernetes.io
     name: Kubernetes upstream
-  maturity: beta
+  maturity: stable
   minKubeVersion: 1.30.0
   provider:
     name: Kubernetes SIGs

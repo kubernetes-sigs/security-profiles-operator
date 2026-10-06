@@ -23,11 +23,14 @@ import (
 	"fmt"
 	"os"
 
+	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	admissionregv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -135,6 +138,47 @@ func (r *ReconcileSPOd) Setup(
 		Owns(&appsv1.DaemonSet{}, inOperatorNamespace).
 		// The metrics service gets restored if it is deleted.
 		Owns(&corev1.Service{}, inOperatorNamespace).
+		// The objects of the managed webhook get restored if they are changed
+		// or deleted. The SPOD does not own them, so that deleting the SPOD
+		// does not remove the webhook, which the webhook configurations left
+		// behind still call.
+		Watches(
+			&appsv1.Deployment{},
+			handler.EnqueueRequestsFromMapFunc(r.spodsForNode),
+			builder.WithPredicates(r.isNamedInNamespace(bindata.WebhookName)),
+		).
+		Watches(
+			&policyv1.PodDisruptionBudget{},
+			handler.EnqueueRequestsFromMapFunc(r.spodsForNode),
+			builder.WithPredicates(r.isNamedInNamespace(bindata.WebhookName)),
+		).
+		Watches(
+			&corev1.Service{},
+			handler.EnqueueRequestsFromMapFunc(r.spodsForNode),
+			builder.WithPredicates(r.isNamedInNamespace(bindata.WebhookServiceName)),
+		).
+		// The operator ConfigMap configures the log volume of the JSON
+		// enricher. The manager caches it by name.
+		Watches(
+			&corev1.ConfigMap{},
+			handler.EnqueueRequestsFromMapFunc(r.spodsForNode),
+			builder.WithPredicates(predicate.NewPredicateFuncs(func(obj client.Object) bool {
+				return inNamespace(obj) && obj.GetName() == util.OperatorConfigMap
+			})),
+		).
+		// The webhook configurations are cluster scoped, so the SPOD cannot
+		// own them. They get restored if they are changed or deleted. The
+		// manager caches them by name.
+		Watches(
+			&admissionregv1.MutatingWebhookConfiguration{},
+			handler.EnqueueRequestsFromMapFunc(r.spodsForNode),
+			builder.WithPredicates(isNamed(bindata.MutatingWebhookConfigName)),
+		).
+		Watches(
+			&admissionregv1.ValidatingWebhookConfiguration{},
+			handler.EnqueueRequestsFromMapFunc(r.spodsForNode),
+			builder.WithPredicates(isNamed(bindata.ValidatingWebhookConfigName)),
+		).
 		// Nodes can configure a custom kubelet directory through a label,
 		// which the SPOd has to mount for the non-root enabler.
 		Watches(
@@ -170,7 +214,57 @@ func (r *ReconcileSPOd) Setup(
 		}
 	}
 
+	// Restore the cert-manager resources if they get deleted. Clusters which
+	// do not serve the cert-manager API cannot get them created either.
+	if r.caInjectType == bindata.CAInjectTypeCertManager {
+		servesCertManager, err := ServesCertManager(mgr.GetRESTMapper())
+		if err != nil {
+			return err
+		}
+
+		r.watchesCertManager = servesCertManager
+
+		if servesCertManager {
+			isCertManagerResource := builder.WithPredicates(predicate.NewPredicateFuncs(
+				func(obj client.Object) bool {
+					return inNamespace(obj) && bindata.IsCertManagerResourceName(obj.GetName())
+				},
+			))
+
+			for _, obj := range []client.Object{&certmanagerv1.Issuer{}, &certmanagerv1.Certificate{}} {
+				b = b.Watches(
+					obj,
+					handler.EnqueueRequestsFromMapFunc(r.spodsForNode),
+					isCertManagerResource,
+				)
+			}
+		}
+	}
+
 	return b.Complete(r)
+}
+
+// isNamed returns a predicate which passes the objects of the name.
+func isNamed(name string) predicate.Predicate {
+	return predicate.NewPredicateFuncs(func(obj client.Object) bool {
+		return obj.GetName() == name
+	})
+}
+
+// isNamedInNamespace returns a predicate which passes the objects of the name
+// in the operator namespace.
+func (r *ReconcileSPOd) isNamedInNamespace(name string) predicate.Predicate {
+	return predicate.NewPredicateFuncs(func(obj client.Object) bool {
+		return obj.GetName() == name && isInNamespace(obj, r.namespace)
+	})
+}
+
+// ServesCertManager returns true if the cluster serves the Issuer and
+// Certificate API of cert-manager. It returns an error if the mapper cannot
+// tell, like ServesAdmissionPolicies.
+func ServesCertManager(mapper meta.RESTMapper) (bool, error) {
+	return servesKinds(mapper, certmanagerv1.SchemeGroupVersion.WithKind("Issuer"),
+		certmanagerv1.SchemeGroupVersion.WithKind("Certificate"))
 }
 
 // ServesAdmissionPolicies returns true if the cluster serves the
@@ -179,15 +273,20 @@ func (r *ReconcileSPOd) Setup(
 // for example because the discovery failed, so that the caller does not treat
 // a temporary failure as a missing API.
 func ServesAdmissionPolicies(mapper meta.RESTMapper) (bool, error) {
-	for _, kind := range []string{"ValidatingAdmissionPolicy", "ValidatingAdmissionPolicyBinding"} {
-		gvk := admissionregv1.SchemeGroupVersion.WithKind(kind)
+	return servesKinds(mapper,
+		admissionregv1.SchemeGroupVersion.WithKind("ValidatingAdmissionPolicy"),
+		admissionregv1.SchemeGroupVersion.WithKind("ValidatingAdmissionPolicyBinding"))
+}
 
+// servesKinds returns true if the mapper knows all the kinds.
+func servesKinds(mapper meta.RESTMapper, gvks ...schema.GroupVersionKind) (bool, error) {
+	for _, gvk := range gvks {
 		if _, err := mapper.RESTMapping(gvk.GroupKind(), gvk.Version); err != nil {
 			if meta.IsNoMatchError(err) {
 				return false, nil
 			}
 
-			return false, fmt.Errorf("get REST mapping of %s: %w", kind, err)
+			return false, fmt.Errorf("get REST mapping of %s: %w", gvk.Kind, err)
 		}
 	}
 
@@ -266,8 +365,10 @@ func (r *ReconcileSPOd) getTunables(ctx context.Context) (*daemonTunables, error
 		return dt, fmt.Errorf("could not determine selinuxd image: %w", err)
 	}
 
+	// The cache does not run yet during the setup.
 	dt.jsonEnricherLogVolumeSource, dt.jsonEnricherLogVolumeMountPath, err = r.getJsonEnricherVolume(
 		ctx,
+		r.clientReader,
 	)
 	if err != nil && !isJsonEnricherVolumeNotConfigured(err) {
 		return dt, fmt.Errorf("could not determine json enricher volume: %w", err)
@@ -288,12 +389,12 @@ func isJsonEnricherVolumeNotConfigured(err error) bool {
 // operator ConfigMap. The sentinel errors tell that the ConfigMap does not
 // configure one, every other error that it could not be read.
 func (r *ReconcileSPOd) getJsonEnricherVolume(
-	ctx context.Context,
+	ctx context.Context, reader client.Reader,
 ) (*corev1.VolumeSource, string, error) {
 	operatorCm := &corev1.ConfigMap{}
 	key := client.ObjectKey{Namespace: r.namespace, Name: util.OperatorConfigMap}
 
-	if err := r.clientReader.Get(ctx, key, operatorCm); err != nil {
+	if err := reader.Get(ctx, key, operatorCm); err != nil {
 		return nil, "", fmt.Errorf("getting ConfigMap %s: %w", key, err)
 	}
 

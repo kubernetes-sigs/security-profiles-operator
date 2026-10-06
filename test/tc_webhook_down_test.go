@@ -54,20 +54,18 @@ func (e *e2e) testCaseWebhookDown([]string) {
 
 	e.enableBindingHookInNs(webhookDownBindingNamespace)
 
-	replicas := e.kubectlOperatorNS(
-		"get", "deployment", webhookDeployment, "-o", "jsonpath={.spec.replicas}",
-	)
+	replicas := e.deploymentReplicas(webhookDeployment)
+	managerReplicas := e.deploymentReplicas(config.OperatorName)
 
-	e.logf("Scaling the webhook down")
+	// The manager restores the replicas of the webhook, so it has to be
+	// stopped first.
+	e.logf("Scaling the manager and the webhook down")
+	e.kubectlOperatorNS("scale", "deployment", config.OperatorName, "--replicas=0")
 	e.kubectlOperatorNS("scale", "deployment", webhookDeployment, "--replicas=0")
-	// Leave a working webhook behind, also if the test fails.
+	// Leave a working manager and webhook behind, also if the test fails.
 	e.T().Cleanup(func() {
-		if _, err := e.kubectlCommand(
-			"--namespace", config.OperatorName,
-			"scale", "deployment", webhookDeployment, "--replicas="+replicas,
-		); err != nil {
-			e.logf("Unable to scale the webhook up again: %v", err)
-		}
+		e.scaleDeployment(config.OperatorName, managerReplicas)
+		e.scaleDeployment(webhookDeployment, replicas)
 	})
 
 	e.requireEventually(defaultWaitDuration, defaultPollInterval, func() error {
@@ -94,11 +92,15 @@ func (e *e2e) testCaseWebhookDown([]string) {
 	_, err = e.kubectlCommand(webhookDownPodArgs("webhook-down", webhookDownOtherNamespace)...)
 	e.Require().NoError(err)
 
-	e.logf("Scaling the webhook up again")
+	e.logf("Scaling the manager and the webhook up again")
+	e.kubectlOperatorNS("scale", "deployment", config.OperatorName, "--replicas="+managerReplicas)
 	e.kubectlOperatorNS("scale", "deployment", webhookDeployment, "--replicas="+replicas)
-	e.kubectlOperatorNS(
-		"rollout", "status", "deployment", webhookDeployment, "--timeout", defaultLongOpTimeout,
-	)
+
+	for _, deployment := range []string{config.OperatorName, webhookDeployment} {
+		e.kubectlOperatorNS(
+			"rollout", "status", "deployment", deployment, "--timeout", defaultLongOpTimeout,
+		)
+	}
 
 	e.logf("Checking that the binding webhook admits pods again")
 	e.eventually(time.Minute, defaultPollInterval, func() error {
@@ -109,4 +111,21 @@ func (e *e2e) testCaseWebhookDown([]string) {
 
 		return err
 	})
+}
+
+// deploymentReplicas returns the replicas of the deployment in the operator
+// namespace.
+func (e *e2e) deploymentReplicas(name string) string {
+	return e.kubectlOperatorNS("get", "deployment", name, "-o", "jsonpath={.spec.replicas}")
+}
+
+// scaleDeployment scales the deployment in the operator namespace and only
+// logs a failure, for use in cleanups.
+func (e *e2e) scaleDeployment(name, replicas string) {
+	if _, err := e.kubectlCommand(
+		"--namespace", config.OperatorName,
+		"scale", "deployment", name, "--replicas="+replicas,
+	); err != nil {
+		e.logf("Unable to scale deployment %s up again: %v", name, err)
+	}
 }

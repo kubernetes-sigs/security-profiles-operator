@@ -119,7 +119,7 @@ spec:
 	e.kubectl("delete", "sp", profileName)
 
 	e.logf("Retrieving controller runtime metrics")
-	e.kubectlRunOperatorNS("pod-2", "--", "bash", "-c", curlCtrlCMD)
+	e.kubectlRunOperatorNS(metricsClientOverrides, "pod-2", "--", "bash", "-c", curlCtrlCMD)
 
 	e.logf("Asserting that the daemons counted the update and the deletion")
 	e.waitForMetricsIncrease(operationUpdate, operationDelete, metricUpdates, metricDeletions)

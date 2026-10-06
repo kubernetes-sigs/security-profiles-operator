@@ -1,3 +1,10 @@
+{{- /*
+spod.spec overrides the fields rendered from the dedicated values. Objects get
+merged field by field, every other value, lists included, replaces the
+rendered one.
+*/}}
+{{- $spec := include "security-profiles-operator.spodSpec" . | fromYaml }}
+{{- $spec = mergeOverwrite $spec (deepCopy ((.Values.spod | default dict).spec | default dict)) }}
 apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: SecurityProfilesOperatorDaemon
 metadata:
@@ -6,37 +13,4 @@ metadata:
   name: spod
   namespace: {{ .Release.Namespace }}
 spec:
-  scheduling:
-    {{- with .Values.daemon.affinity }}
-    affinity:
-      {{- toYaml . | nindent 6 }}
-    {{- end }}
-    {{- with .Values.daemon.tolerations }}
-    tolerations:
-      {{- toYaml . | nindent 6 }}
-    {{- end }}
-  daemonResourceRequirements:
-    {{- toYaml .Values.daemon.resources | nindent 4 }}
-  selinux:
-    enable: {{ hasKey .Values.selinux "enable" | ternary .Values.selinux.enable .Values.enableSelinux }}
-    enableRawSelinuxProfiles: {{ .Values.selinux.enableRawSelinuxProfiles }}
-    typeTag: {{ .Values.selinux.typeTag | quote }}
-    {{- with .Values.selinux.options }}
-    options:
-      {{- toYaml . | nindent 6 }}
-    {{- end }}
-    {{- with .Values.selinux.customTemplatesConfigMap }}
-    customTemplatesConfigMap: {{ . | quote }}
-    {{- end }}
-  {{- if .Values.webhook.tolerations }}
-  webhook:
-    tolerations:
-      {{- toYaml .Values.webhook.tolerations | nindent 6 }}
-  {{- end }}
-  enricher:
-    enableLogEnricher: {{ .Values.enableLogEnricher }}
-    enableJsonEnricher: {{ .Values.enableJsonEnricher }}
-    enableBpfRecorder: {{ .Values.enableBpfRecorder }}
-  enableAppArmor: {{ .Values.enableAppArmor }}
-  enableProfiling: {{ .Values.enableProfiling }}
-  verbosity: {{ .Values.verbosity }}
+  {{- toYaml $spec | nindent 2 }}

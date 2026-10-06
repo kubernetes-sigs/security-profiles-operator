@@ -12,6 +12,8 @@ rules:
   - configmaps
   verbs:
   - get
+  - list
+  - watch
 - apiGroups:
   - ""
   resources:
@@ -105,7 +107,6 @@ rules:
   verbs:
   - create
   - patch
-  - update
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
@@ -146,19 +147,8 @@ rules:
   resources:
   - profilebindings
   - profilerecordings
-  verbs:
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - security-profiles-operator.x-k8s.io
-  resources:
   - rawselinuxprofiles
-  - securityprofilesoperatordaemons
   verbs:
-  - create
   - get
   - list
   - patch
@@ -172,6 +162,17 @@ rules:
   - delete
   - get
   - list
+  - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - securityprofilesoperatordaemons
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
   - watch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -270,15 +271,6 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - events
-  verbs:
-  - create
-  - get
-  - patch
-  - update
-- apiGroups:
-  - ""
-  resources:
   - nodes
   - pods
   verbs:
@@ -318,33 +310,25 @@ rules:
   verbs:
   - create
   - patch
-  - update
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
   - apparmorprofiles
-  - rawselinuxprofiles
-  - seccompprofiles
   - selinuxprofiles
   verbs:
   - create
   - get
   - list
-  - patch
   - update
   - watch
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
   - apparmorprofiles/finalizers
-  - apparmorprofiles/status
   - rawselinuxprofiles/finalizers
-  - rawselinuxprofiles/status
   - seccompprofiles/finalizers
-  - seccompprofiles/status
   - securityprofilenodestatuses/status
   - selinuxprofiles/finalizers
-  - selinuxprofiles/status
   verbs:
   - get
   - patch
@@ -354,6 +338,26 @@ rules:
   resources:
   - profilerecordings
   verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - rawselinuxprofiles
+  verbs:
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - seccompprofiles
+  verbs:
+  - create
   - get
   - list
   - patch
@@ -420,12 +424,6 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - events
-  verbs:
-  - create
-- apiGroups:
-  - ""
-  resources:
   - pods
   verbs:
   - get
@@ -462,7 +460,6 @@ rules:
   verbs:
   - create
   - patch
-  - update
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:

@@ -153,9 +153,12 @@ func (r *Reconciler) checkAppArmor() error {
 }
 
 // Security Profiles Operator RBAC permissions to manage AppArmorProfile
+// The daemon updates the finalizers and labels of the profiles, and the
+// profile recorder creates recorded AppArmorProfiles. The profile status is
+// written by the manager. The finalizers subresource allows the node statuses
+// to block the deletion of their owner profile.
 //nolint:lll // required for kubebuilder
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=apparmorprofiles,verbs=get;list;watch;create;update;patch
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=apparmorprofiles/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=apparmorprofiles,verbs=get;list;watch;create;update
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=apparmorprofiles/finalizers,verbs=get;update;patch
 
 // Reconcile reconciles a AppArmorProfile.

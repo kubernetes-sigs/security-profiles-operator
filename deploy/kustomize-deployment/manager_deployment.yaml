@@ -22,6 +22,9 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       serviceAccountName: security-profiles-operator
+      # The operator manages the daemon and the webhooks, which every node and
+      # pod admission in the opted in namespaces depend on.
+      priorityClassName: system-cluster-critical
       containers:
         - name: security-profiles-operator
           image: security-profiles-operator

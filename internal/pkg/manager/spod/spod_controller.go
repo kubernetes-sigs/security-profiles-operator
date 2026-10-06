@@ -55,6 +55,9 @@ const (
 	// errorStatusTimeout bounds the status update which reports a failed
 	// reconciliation.
 	errorStatusTimeout = 10 * time.Second
+	// conflictRequeueDelay is the delay before a reconciliation which lost a
+	// conflict runs again, which gives the cache time to catch up.
+	conflictRequeueDelay = time.Second
 
 	reasonCannotCreateSPOD           string = "CannotCreateSPOD"
 	reasonCannotUpdateSPOD           string = "CannotUpdateSPOD"
@@ -62,6 +65,7 @@ const (
 	reasonInvalidKubeletDirLabel     string = "InvalidKubeletDirLabel"
 
 	reasonCannotApplyAdmissionPolicies string = "CannotApplyAdmissionPolicies"
+	reasonWeakenedBindingWebhook       string = "WeakenedBindingWebhook"
 
 	// legacyAppArmorAnnotation got set on the DaemonSet by previous versions.
 	// It never had an effect, because it is the removed seccomp annotation and
@@ -100,6 +104,11 @@ type ReconcileSPOd struct {
 	// the kinds up again on every run.
 	skipAdmissionPolicies bool
 
+	// watchesCertManager is set in Setup when the controller watches the
+	// cert-manager resources of the operator, which requires the cluster to
+	// serve the cert-manager API.
+	watchesCertManager bool
+
 	// kubeletDirMu guards invalidKubeletDirLabels, which maps the nodes with
 	// an invalid kubelet directory label to the reported label value.
 	kubeletDirMu            sync.Mutex
@@ -127,9 +136,10 @@ func (r *ReconcileSPOd) Healthz(*http.Request) error {
 // Security Profiles Operator RBAC permissions to manage its own configuration
 //nolint:lll // required for kubebuilder
 //
-// Used for event generation:
+// Used for event generation. The leader election of controller-runtime still
+// records its events through the core API:
 // +kubebuilder:rbac:groups=core,resources=events,verbs=create
-// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch;update
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 //
 // Operand, which lives in the operator namespace. The manager cache for these
 // kinds is restricted to that namespace by the manager command.
@@ -170,8 +180,10 @@ func (r *ReconcileSPOd) Healthz(*http.Request) error {
 // Needed to detect which runtime is active and custom kubelet directories
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 //
-// Needed to detect the proper selinux image
-// +kubebuilder:rbac:groups="",resources=configmaps,resourceNames=security-profiles-operator-profile,verbs=get
+// Needed to detect the proper selinux image and the log volume of the JSON
+// enricher. The manager caches the ConfigMap by name like the webhook
+// configurations:
+// +kubebuilder:rbac:groups="",resources=configmaps,resourceNames=security-profiles-operator-profile,verbs=get;list;watch
 //
 // Needed to authenticate and authorize metrics requests
 // +kubebuilder:rbac:groups=authentication.k8s.io,resources=tokenreviews,verbs=create
@@ -208,10 +220,15 @@ func (r *ReconcileSPOd) Reconcile(
 
 	if err := r.reconcileSPOD(ctx, spod, logger); err != nil {
 		// A conflict only means that the cache is behind, which the next
-		// reconciliation resolves, so it is not reported as an error.
-		if !errors.IsConflict(err) {
-			r.handleErrorStatus(ctx, spod, logger, err)
+		// reconciliation resolves, so it is neither reported nor logged as
+		// an error.
+		if errors.IsConflict(err) {
+			logger.V(config.VerboseLevel).Info("Retrying after a conflict", "reason", err)
+
+			return reconcile.Result{RequeueAfter: conflictRequeueDelay}, nil
 		}
+
+		r.handleErrorStatus(ctx, spod, logger, err)
 
 		return reconcile.Result{}, err
 	}
@@ -331,6 +348,10 @@ func (r *ReconcileSPOd) reconcileSPOD(
 		return err
 	}
 
+	if err := r.ensureCertManagerResources(ctx, ops.certManagerResources); err != nil {
+		return err
+	}
+
 	var hookUpdate bool
 	if !ptr.Deref(spod.Spec.Webhook.StaticConfig, false) {
 		hookUpdate, err = ops.webhook.NeedsUpdate(ctx, r.client)
@@ -426,6 +447,37 @@ func (r *ReconcileSPOd) ensureMetricsService(
 		if err := r.client.Patch(ctx, metricsService.DeepCopy(), client.Merge); err != nil {
 			return fmt.Errorf("updating metrics service owner: %w", err)
 		}
+	}
+
+	return nil
+}
+
+// ensureCertManagerResources creates the cert-manager resources which are
+// missing, for example because they got deleted. They are not owned by the
+// SPOD, so that deleting the SPOD does not remove the certificates of the
+// webhook, which keeps running for the webhook configurations left behind.
+// The resources are only checked if the controller watches them, because the
+// cache can only read them then.
+func (r *ReconcileSPOd) ensureCertManagerResources(
+	ctx context.Context, resources *bindata.CertManagerResources,
+) error {
+	if resources == nil || !r.watchesCertManager {
+		return nil
+	}
+
+	missing, err := resources.Missing(ctx, r.client)
+	if err != nil {
+		return fmt.Errorf("checking cert manager resources: %w", err)
+	}
+
+	if !missing {
+		return nil
+	}
+
+	r.log.Info("Creating missing cert manager resources")
+
+	if err := resources.Update(ctx, r.client); err != nil {
+		return fmt.Errorf("updating cert manager resources: %w", err)
 	}
 
 	return nil
@@ -576,6 +628,7 @@ func (r *ReconcileSPOd) handleCreate(
 
 	if !ptr.Deref(cfg.Spec.Webhook.StaticConfig, false) {
 		r.log.Info("Deploying operator webhook")
+		r.warnWeakenedBinding(cfg, ops.webhook)
 
 		if err := ops.webhook.Create(ctx, r.client); err != nil {
 			return fmt.Errorf("creating webhook: %w", err)
@@ -648,6 +701,7 @@ func (r *ReconcileSPOd) handleUpdate(
 
 	if !ptr.Deref(cfg.Spec.Webhook.StaticConfig, false) {
 		r.log.Info("Updating operator webhook")
+		r.warnWeakenedBinding(cfg, ops.webhook)
 
 		if err := ops.webhook.Update(ctx, r.client); err != nil {
 			return fmt.Errorf("updating webhook: %w", err)
@@ -726,6 +780,21 @@ func (r *ReconcileSPOd) handleUpdate(
 	}
 
 	return nil
+}
+
+// warnWeakenedBinding reports the webhook options of the SPOD which weaken the
+// enforcement of the profile bindings. They are valid and get applied, so the
+// report is a warning when the webhook configuration gets written.
+func (r *ReconcileSPOd) warnWeakenedBinding(
+	spod *spodapi.SecurityProfilesOperatorDaemon, webhook *bindata.Webhook,
+) {
+	for _, warning := range webhook.BindingWarnings() {
+		r.log.Info("Webhook options weaken the profile bindings", "warning", warning)
+		r.record.Eventf(
+			spod, nil, util.EventTypeWarning, reasonWeakenedBindingWebhook,
+			util.EventActionReconcile, "%s", warning,
+		)
+	}
 }
 
 // patchOrCreate merge patches the object and creates it if it does not exist.
@@ -984,8 +1053,9 @@ func (r *ReconcileSPOd) configureRecording(
 }
 
 // addJsonEnricherLogVolume adds the optional log volume of the json enricher.
-// Its configuration is read from the ConfigMap during each reconciliation to
-// handle ConfigMap updates without requiring an operator restart. A ConfigMap
+// Its configuration is read from the cached ConfigMap during each
+// reconciliation, and a change of the ConfigMap triggers one, so ConfigMap
+// updates apply without an operator restart. A ConfigMap
 // which does not configure the volume is fine, while a failed read is an
 // error: rendering the template without the volume would roll the SPOd, and
 // the next successful read would roll it back.
@@ -994,7 +1064,7 @@ func (r *ReconcileSPOd) addJsonEnricherLogVolume(
 	templateSpec *corev1.PodSpec,
 	ctr *corev1.Container,
 ) error {
-	logVolumeSource, logVolumeMountPath, err := r.getJsonEnricherVolume(ctx)
+	logVolumeSource, logVolumeMountPath, err := r.getJsonEnricherVolume(ctx, r.client)
 	if err != nil {
 		if isJsonEnricherVolumeNotConfigured(err) {
 			return nil
@@ -1291,6 +1361,7 @@ func (r *ReconcileSPOd) getConfiguredWebook(cfg *spodapi.SecurityProfilesOperato
 		cfg.Spec.ImagePullSecrets,
 		r.isExecMetadataEnabled(cfg),
 	)
+	webhook.UseDaemonPriorityClass(cfg.Spec.Scheduling.PriorityClassName)
 
 	return webhook
 }
@@ -1532,16 +1603,34 @@ func spodNeedsUpdate(configured, found *appsv1.DaemonSet) bool {
 }
 
 // containerListsDiffer reports if the containers at the same index have a
-// different number of arguments, environment variables or volume mounts. Both
-// lists are expected to have the same length.
+// different number of arguments, environment variables or volume mounts, a
+// readiness probe on one side only, or different resources or security
+// contexts. DeepDerivative ignores fields which are unset in the configured
+// container, so these get compared explicitly to detect cleared ones, like a
+// removed limit. Both lists are expected to have the same length.
 func containerListsDiffer(configured, found []corev1.Container) bool {
 	for i := range configured {
 		if len(configured[i].Args) != len(found[i].Args) ||
 			len(configured[i].Env) != len(found[i].Env) ||
-			len(configured[i].VolumeMounts) != len(found[i].VolumeMounts) {
+			len(configured[i].VolumeMounts) != len(found[i].VolumeMounts) ||
+			(configured[i].ReadinessProbe == nil) != (found[i].ReadinessProbe == nil) ||
+			!apiequality.Semantic.DeepEqual(configured[i].Resources, found[i].Resources) ||
+			securityContextsDiffer(configured[i].SecurityContext, found[i].SecurityContext) {
 			return true
 		}
 	}
 
 	return false
+}
+
+// securityContextsDiffer reports if the security contexts differ. The proc
+// mount type is ignored if it is not configured, because the API server may
+// default it.
+func securityContextsDiffer(configured, found *corev1.SecurityContext) bool {
+	if configured != nil && found != nil && configured.ProcMount == nil {
+		configured = configured.DeepCopy()
+		configured.ProcMount = found.ProcMount
+	}
+
+	return !apiequality.Semantic.DeepEqual(configured, found)
 }

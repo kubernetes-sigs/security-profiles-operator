@@ -71,7 +71,8 @@ run "github.com/yannh/kubeconform/cmd/kubeconform@$KUBECONFORM_VERSION" \
   deploy/openshift-downstream.yaml \
   deploy/helm/crds/crds.yaml \
   examples/*.yaml \
-  examples/olm/*.yaml
+  examples/olm/*.yaml \
+  hack/ci/apparmorprofile-sleep-*.yaml
 
 echo "Linting the operator deployments"
 run "golang.stackrox.io/kube-linter/cmd/kube-linter@$KUBE_LINTER_VERSION" lint \

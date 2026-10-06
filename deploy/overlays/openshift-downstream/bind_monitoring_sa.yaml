@@ -8,5 +8,5 @@
   path: /subjects/1
   value:
     kind: ServiceAccount
-    name: default
+    name: spo-metrics-client
     namespace: openshift-security-profiles

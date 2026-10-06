@@ -50,6 +50,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
 	"k8s.io/klog/v2/textlogger"
@@ -507,11 +508,13 @@ func bpfRecorderCommand(info *version.Info) *cli.Command {
 
 func spocCommand() *cli.Command {
 	return &cli.Command{
-		Name:     spocCmd,
-		Aliases:  []string{"s"},
-		Usage:    "run the CLI",
-		Action:   runCLI,
-		HideHelp: true,
+		Name:    spocCmd,
+		Aliases: []string{"s"},
+		Usage:   "run the CLI",
+		Action:  runCLI,
+		// All arguments, including the flags, belong to spoc.
+		SkipFlagParsing: true,
+		HideHelp:        true,
 	}
 }
 
@@ -674,13 +677,27 @@ func runManager(ctx *cli.Context, info *version.Info) error {
 		Metrics:                       secureMetricsOptions(&tlsCfg),
 	}
 
-	servesAdmissionPolicies, err := setRESTMapper(&ctrlOpts, cfg)
+	served, err := setRESTMapper(&ctrlOpts, cfg)
 	if err != nil {
 		return err
 	}
 
-	setControllerOptionsForNamespaces(&ctrlOpts)
-	restrictOperandCache(&ctrlOpts, operatorNamespace, servesAdmissionPolicies)
+	setControllerOptionsForNamespaces(&ctrlOpts, operatorNamespace)
+	restrictOperandCache(&ctrlOpts, operatorNamespace, served)
+
+	// The manager uses the default scheme, which has to know the kinds of the
+	// cache options before the manager creates the cache.
+	if err := addToScheme(clientgoscheme.Scheme,
+		schemeAPI{"certmanager", certmanagerv1.AddToScheme},
+		schemeAPI{"profilebinding v1", profilebindingv1.AddToScheme},
+		schemeAPI{"profilerecording v1", profilerecordingv1.AddToScheme},
+		schemeAPI{"seccompprofile v1", seccompprofilev1.AddToScheme},
+		schemeAPI{"apparmorprofile v1", apparmorprofilev1.AddToScheme},
+		schemeAPI{"selinuxprofile v1", selinuxprofilev1.AddToScheme},
+		schemeAPI{"ServiceMonitor", monitoringv1.AddToScheme},
+	); err != nil {
+		return err
+	}
 
 	mgr, err := ctrl.NewManager(cfg, ctrlOpts)
 	if err != nil {
@@ -689,38 +706,6 @@ func runManager(ctx *cli.Context, info *version.Info) error {
 
 	if err := addCacheSyncReadyzCheck(mgr); err != nil {
 		return err
-	}
-
-	if err := configv1.AddToScheme(mgr.GetScheme()); err != nil {
-		return fmt.Errorf("add OpenShift config API to scheme: %w", err)
-	}
-
-	if err := certmanagerv1.AddToScheme(mgr.GetScheme()); err != nil {
-		return fmt.Errorf("add certmanager API to scheme: %w", err)
-	}
-
-	if err := profilebindingv1.AddToScheme(mgr.GetScheme()); err != nil {
-		return fmt.Errorf("add profilebinding v1 API to scheme: %w", err)
-	}
-
-	if err := profilerecordingv1.AddToScheme(mgr.GetScheme()); err != nil {
-		return fmt.Errorf("add profilerecording v1 API to scheme: %w", err)
-	}
-
-	if err := seccompprofilev1.AddToScheme(mgr.GetScheme()); err != nil {
-		return fmt.Errorf("add seccompprofile v1 API to scheme: %w", err)
-	}
-
-	if err := apparmorprofilev1.AddToScheme(mgr.GetScheme()); err != nil {
-		return fmt.Errorf("add apparmorprofile v1 API to scheme: %w", err)
-	}
-
-	if err := selinuxprofilev1.AddToScheme(mgr.GetScheme()); err != nil {
-		return fmt.Errorf("add selinuxprofile v1 API to scheme: %w", err)
-	}
-
-	if err := monitoringv1.AddToScheme(mgr.GetScheme()); err != nil {
-		return fmt.Errorf("add ServiceMonitor API to scheme: %w", err)
 	}
 
 	enabledControllers := []controller.Controller{}
@@ -767,15 +752,13 @@ func runManager(ctx *cli.Context, info *version.Info) error {
 	)
 }
 
-func setControllerOptionsForNamespaces(opts *ctrl.Options) {
+// setControllerOptionsForNamespaces restricts the cache to the watched
+// namespaces and the operator namespace, if the watched namespaces are
+// restricted.
+func setControllerOptionsForNamespaces(opts *ctrl.Options, operatorNS string) {
 	namespace, ok := os.LookupEnv(config.RestrictNamespaceEnvKey)
 	if !ok {
 		namespace = os.Getenv("WATCH_NAMESPACE")
-	}
-
-	operatorNS, err := config.TryToGetOperatorNamespace()
-	if err != nil {
-		setupLog.Info("unable to get operator namespace, skipping operator namespace addition")
 	}
 
 	// Supports multiple namespaces set in WATCH_NAMESPACE (e.g ns1,ns2).
@@ -823,24 +806,37 @@ func watchNamespaces(namespaces, operatorNamespace string) []string {
 	return res
 }
 
-// setRESTMapper sets the REST mapper of the manager and returns whether the
-// cluster serves the admission policies. The cache options depend on that, so
-// it has to be known before the manager gets created. The manager and the SPOD
+// servedAPIs are the optional APIs which the cluster serves.
+type servedAPIs struct {
+	admissionPolicies bool
+	certManager       bool
+}
+
+// setRESTMapper sets the REST mapper of the manager and returns which of the
+// optional APIs the cluster serves. The cache options depend on that, so it
+// has to be known before the manager gets created. The manager and the SPOD
 // controller share the mapper, so they come to the same conclusion.
-func setRESTMapper(opts *ctrl.Options, cfg *rest.Config) (bool, error) {
+func setRESTMapper(opts *ctrl.Options, cfg *rest.Config) (servedAPIs, error) {
+	var served servedAPIs
+
 	httpClient, err := rest.HTTPClientFor(cfg)
 	if err != nil {
-		return false, fmt.Errorf("create HTTP client: %w", err)
+		return served, fmt.Errorf("create HTTP client: %w", err)
 	}
 
 	mapper, err := apiutil.NewDynamicRESTMapper(cfg, httpClient)
 	if err != nil {
-		return false, fmt.Errorf("create REST mapper: %w", err)
+		return served, fmt.Errorf("create REST mapper: %w", err)
 	}
 
-	served, err := spod.ServesAdmissionPolicies(mapper)
+	served.admissionPolicies, err = spod.ServesAdmissionPolicies(mapper)
 	if err != nil {
-		return false, fmt.Errorf("discover the admission policy API: %w", err)
+		return served, fmt.Errorf("discover the admission policy API: %w", err)
+	}
+
+	served.certManager, err = spod.ServesCertManager(mapper)
+	if err != nil {
+		return served, fmt.Errorf("discover the cert-manager API: %w", err)
 	}
 
 	opts.MapperProvider = func(*rest.Config, *http.Client) (meta.RESTMapper, error) {
@@ -855,25 +851,31 @@ func setRESTMapper(opts *ctrl.Options, cfg *rest.Config) (bool, error) {
 // scoped to that namespace, so a cluster wide informer would not be allowed to
 // list them. The cluster scoped operands are cached by name for the same
 // reason, and the pods, which every namespace can hold, are stripped down to
-// the fields the controllers read. The admission policies are only added if
-// the cluster serves their API, because creating the cache fails for kinds
-// without a REST mapping. The webhook configurations are served by every
-// supported Kubernetes version.
+// the fields the controllers read. The admission policies and the cert-manager
+// resources are only added if the cluster serves their API, because creating
+// the cache fails for kinds without a REST mapping. The webhook configurations
+// are served by every supported Kubernetes version.
 func restrictOperandCache(
 	opts *ctrl.Options,
 	operatorNamespace string,
-	servesAdmissionPolicies bool,
+	served servedAPIs,
 ) {
 	if opts.Cache.ByObject == nil {
 		opts.Cache.ByObject = map[client.Object]cache.ByObject{}
 	}
 
-	for _, obj := range []client.Object{
+	namespaced := []client.Object{
 		&appsv1.DaemonSet{},
 		&appsv1.Deployment{},
 		&corev1.Service{},
 		&policyv1.PodDisruptionBudget{},
-	} {
+	}
+
+	if served.certManager {
+		namespaced = append(namespaced, &certmanagerv1.Issuer{}, &certmanagerv1.Certificate{})
+	}
+
+	for _, obj := range namespaced {
 		opts.Cache.ByObject[obj] = cache.ByObject{
 			Namespaces: map[string]cache.Config{operatorNamespace: {}},
 		}
@@ -886,7 +888,7 @@ func restrictOperandCache(
 		&admissionregv1.ValidatingWebhookConfiguration{}: bindata.ValidatingWebhookConfigName,
 	}
 
-	if servesAdmissionPolicies {
+	if served.admissionPolicies {
 		byName[&admissionregv1.ValidatingAdmissionPolicy{}] = bindata.RecordingProfilesPolicyName
 		byName[&admissionregv1.ValidatingAdmissionPolicyBinding{}] = bindata.RecordingProfilesPolicyName
 	}
@@ -895,6 +897,13 @@ func restrictOperandCache(
 		opts.Cache.ByObject[obj] = cache.ByObject{
 			Field: fields.OneTermEqualSelector("metadata.name", name),
 		}
+	}
+
+	// The SPOD controller reads the operator ConfigMap on every
+	// reconciliation and watches it.
+	opts.Cache.ByObject[&corev1.ConfigMap{}] = cache.ByObject{
+		Namespaces: map[string]cache.Config{operatorNamespace: {}},
+		Field:      fields.OneTermEqualSelector("metadata.name", util.OperatorConfigMap),
 	}
 
 	opts.Cache.ByObject[&corev1.Pod{}] = cache.ByObject{Transform: stripPod}
@@ -1021,7 +1030,6 @@ func setDaemonCacheOptions(opts *cache.Options, nodeName string, memOptim bool) 
 
 	opts.SyncPeriod = &daemonSyncPeriod
 	opts.ByObject = map[client.Object]cache.ByObject{&corev1.Pod{}: byPod}
-	opts.DefaultLabelSelector = labels.Everything()
 }
 
 // tlsConfig is the TLS configuration used by the controller-runtime servers
@@ -1324,8 +1332,13 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 		return fmt.Errorf("fetch TLS options: %w", err)
 	}
 
+	operatorNamespace, err := config.TryToGetOperatorNamespace()
+	if err != nil {
+		return fmt.Errorf("get operator namespace: %w", err)
+	}
+
+	// The sync period of the cache is set by newDaemonCache.
 	ctrlOpts := ctrl.Options{
-		Cache:                  cache.Options{SyncPeriod: &daemonSyncPeriod},
 		HealthProbeBindAddress: fmt.Sprintf(":%d", config.HealthProbePort),
 		NewCache:               newDaemonCache(ctx),
 		Metrics: metricsserver.Options{
@@ -1349,24 +1362,23 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 		ctrlOpts.Metrics.TLSOpts = nil
 	}
 
-	setControllerOptionsForNamespaces(&ctrlOpts)
+	setControllerOptionsForNamespaces(&ctrlOpts, operatorNamespace)
 
 	mgr, err := ctrl.NewManager(cfg, ctrlOpts)
 	if err != nil {
 		return fmt.Errorf("create manager: %w", err)
 	}
 
-	if err := configv1.AddToScheme(mgr.GetScheme()); err != nil {
-		return fmt.Errorf("add OpenShift config API to scheme: %w", err)
+	if err := addCacheSyncReadyzCheck(mgr); err != nil {
+		return err
 	}
 
-	// This API provides status which is used by both seccomp and selinux
-	if err := secprofnodestatusv1.AddToScheme(mgr.GetScheme()); err != nil {
-		return fmt.Errorf("add per-node Status v1 API to scheme: %w", err)
-	}
-
-	if err := spodv1.AddToScheme(mgr.GetScheme()); err != nil {
-		return fmt.Errorf("add SPOD config v1 API to scheme: %w", err)
+	// The node status API provides the status which every profile kind uses.
+	if err := addToScheme(mgr.GetScheme(),
+		schemeAPI{"per-node Status v1", secprofnodestatusv1.AddToScheme},
+		schemeAPI{"SPOD config v1", spodv1.AddToScheme},
+	); err != nil {
+		return err
 	}
 
 	if err := setupEnabledControllers(ctx.Context, enabledControllers, mgr, met); err != nil {
@@ -1582,32 +1594,15 @@ func runWebhook(ctx *cli.Context, info *version.Info) error {
 	}
 
 	// Register OpenShift config API for TLS watcher (watches APIServer resource for TLS profile changes)
-	if err := configv1.AddToScheme(mgr.GetScheme()); err != nil {
-		return fmt.Errorf("add OpenShift config API to scheme: %w", err)
-	}
-
-	if err := profilebindingv1.AddToScheme(mgr.GetScheme()); err != nil {
-		return fmt.Errorf("add profilebinding v1 API to scheme: %w", err)
-	}
-
-	if err := seccompprofilev1.AddToScheme(mgr.GetScheme()); err != nil {
-		return fmt.Errorf("add seccompprofile v1 API to scheme: %w", err)
-	}
-
-	if err := apparmorprofilev1.AddToScheme(mgr.GetScheme()); err != nil {
-		return fmt.Errorf("add apparmorprofile v1 API to scheme: %w", err)
-	}
-
-	if err := selinuxprofilev1.AddToScheme(mgr.GetScheme()); err != nil {
-		return fmt.Errorf("add selinuxprofile v1 API to scheme: %w", err)
-	}
-
-	if err := profilerecordingv1.AddToScheme(mgr.GetScheme()); err != nil {
-		return fmt.Errorf("add profilerecording v1 API to scheme: %w", err)
-	}
-
-	if err := spodv1.AddToScheme(mgr.GetScheme()); err != nil {
-		return fmt.Errorf("add SPOD config v1 API to scheme: %w", err)
+	if err := addToScheme(mgr.GetScheme(),
+		schemeAPI{"profilebinding v1", profilebindingv1.AddToScheme},
+		schemeAPI{"seccompprofile v1", seccompprofilev1.AddToScheme},
+		schemeAPI{"apparmorprofile v1", apparmorprofilev1.AddToScheme},
+		schemeAPI{"selinuxprofile v1", selinuxprofilev1.AddToScheme},
+		schemeAPI{"profilerecording v1", profilerecordingv1.AddToScheme},
+		schemeAPI{"SPOD config v1", spodv1.AddToScheme},
+	); err != nil {
+		return err
 	}
 
 	setupLog.Info("registering webhooks")
@@ -1636,6 +1631,25 @@ func runWebhook(ctx *cli.Context, info *version.Info) error {
 	return setupManagerWithTLSWatcher(
 		sigHandler, mgr, &tlsCfg, "webhook",
 	)
+}
+
+// schemeAPI is an API which a component registers with the scheme of its
+// manager.
+type schemeAPI struct {
+	name string
+	add  func(*runtime.Scheme) error
+}
+
+// addToScheme registers the OpenShift config API, which every component reads
+// for the TLS profile, and the provided APIs with the scheme.
+func addToScheme(scheme *runtime.Scheme, apis ...schemeAPI) error {
+	for _, api := range append([]schemeAPI{{"OpenShift config", configv1.AddToScheme}}, apis...) {
+		if err := api.add(scheme); err != nil {
+			return fmt.Errorf("add %s API to scheme: %w", api.name, err)
+		}
+	}
+
+	return nil
 }
 
 // readyzManager is the part of the manager which addCacheSyncReadyzCheck
@@ -1715,13 +1729,10 @@ func setupEnabledControllers(
 }
 
 // runCLI wraps the SPO CLI by using $PATH for searching the spoc executable.
-func runCLI(_ *cli.Context) error {
-	const minArgs = 2
-	if len(os.Args) < minArgs {
-		return errors.New("not enough arguments provided")
-	}
-
-	return runSpoc(os.Args[minArgs:], os.Stdout, os.Stderr)
+// It passes the arguments after the command name, which do not depend on the
+// global flags given before it.
+func runCLI(ctx *cli.Context) error {
+	return runSpoc(ctx.Args().Slice(), os.Stdout, os.Stderr)
 }
 
 // runSpoc runs the spoc executable found in $PATH with the provided

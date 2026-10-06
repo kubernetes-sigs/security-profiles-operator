@@ -22,6 +22,7 @@ import (
 	"errors"
 	"net/http"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -97,11 +98,13 @@ func TestHandle(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
+		name    string
 		prepare func(*bindingfakes.FakeImpl)
 		request admission.Request
 		assert  func(admission.Response)
 	}{
-		{ // success pod unchanged
+		{
+			name: "success pod unchanged",
 			prepare: func(mock *bindingfakes.FakeImpl) {
 				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{}, nil)
 			},
@@ -117,7 +120,8 @@ func TestHandle(t *testing.T) {
 				require.Equal(t, "pod unchanged", resp.Result.Message)
 			},
 		},
-		{ // success pod update skips mutation
+		{
+			name: "success pod update skips mutation",
 			prepare: func(mock *bindingfakes.FakeImpl) {
 				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
 					Items: []profilebindingapi.ProfileBinding{
@@ -143,7 +147,8 @@ func TestHandle(t *testing.T) {
 				require.Equal(t, "pod update, skipping mutation", resp.Result.Message)
 			},
 		},
-		{ // error could not list profile bindings
+		{
+			name: "error could not list profile bindings",
 			prepare: func(mock *bindingfakes.FakeImpl) {
 				mock.ListProfileBindingsReturns(nil, errTest)
 			},
@@ -156,7 +161,8 @@ func TestHandle(t *testing.T) {
 				require.Equal(t, http.StatusInternalServerError, int(resp.Result.Code))
 			},
 		},
-		{ // error failed to decode pod
+		{
+			name: "error failed to decode pod",
 			prepare: func(mock *bindingfakes.FakeImpl) {
 				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{}, nil)
 			},
@@ -171,7 +177,8 @@ func TestHandle(t *testing.T) {
 			},
 		},
 		//nolint:dupl // test duplicates are fine
-		{ // success pod changed
+		{
+			name: "success pod changed",
 			prepare: func(mock *bindingfakes.FakeImpl) {
 				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
 					Items: []profilebindingapi.ProfileBinding{
@@ -211,7 +218,8 @@ func TestHandle(t *testing.T) {
 				require.Len(t, resp.Patches, 1)
 			},
 		},
-		{ // success pod changed when podSelector matches
+		{
+			name: "success pod changed when podSelector matches",
 			prepare: func(mock *bindingfakes.FakeImpl) {
 				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
 					Items: []profilebindingapi.ProfileBinding{
@@ -254,7 +262,8 @@ func TestHandle(t *testing.T) {
 				require.Len(t, resp.Patches, 1)
 			},
 		},
-		{ // success pod unchanged when podSelector does not match
+		{
+			name: "success pod unchanged when podSelector does not match",
 			prepare: func(mock *bindingfakes.FakeImpl) {
 				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
 					Items: []profilebindingapi.ProfileBinding{
@@ -299,7 +308,8 @@ func TestHandle(t *testing.T) {
 			},
 		},
 		//nolint:dupl // test duplicates are fine
-		{ // success pod changed with * image
+		{
+			name: "success pod changed with * image",
 			prepare: func(mock *bindingfakes.FakeImpl) {
 				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
 					Items: []profilebindingapi.ProfileBinding{
@@ -339,7 +349,8 @@ func TestHandle(t *testing.T) {
 				require.Len(t, resp.Patches, 1)
 			},
 		},
-		{ // success seccomp pod security context overwrite with * image
+		{
+			name: "success seccomp pod security context overwrite with * image",
 			prepare: func(mock *bindingfakes.FakeImpl) {
 				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
 					Items: []profilebindingapi.ProfileBinding{
@@ -383,12 +394,13 @@ func TestHandle(t *testing.T) {
 			},
 			assert: func(resp admission.Response) {
 				require.True(t, resp.Allowed)
-				// add the pod level profile, and on the container level replace
-				// the type with Localhost and add the localhostProfile
-				require.Len(t, resp.Patches, 3)
+				// add the pod level profile, and replace the container level
+				// profile
+				require.Len(t, resp.Patches, 2)
 			},
 		},
-		{ // selinux success pod changed
+		{
+			name: "selinux success pod changed",
 			prepare: func(mock *bindingfakes.FakeImpl) {
 				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
 					Items: []profilebindingapi.ProfileBinding{
@@ -428,7 +440,8 @@ func TestHandle(t *testing.T) {
 				require.Len(t, resp.Patches, 1)
 			},
 		},
-		{ // success selinux pod security context overwrite with * image
+		{
+			name: "success selinux pod security context overwrite with * image",
 			prepare: func(mock *bindingfakes.FakeImpl) {
 				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
 					Items: []profilebindingapi.ProfileBinding{
@@ -475,7 +488,8 @@ func TestHandle(t *testing.T) {
 				require.Len(t, resp.Patches, 2)
 			},
 		},
-		{ // selinux success pod changed with * image
+		{
+			name: "selinux success pod changed with * image",
 			prepare: func(mock *bindingfakes.FakeImpl) {
 				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
 					Items: []profilebindingapi.ProfileBinding{
@@ -516,7 +530,8 @@ func TestHandle(t *testing.T) {
 			},
 		},
 		//nolint:dupl // test duplicates are fine
-		{ // apparmor success pod changed
+		{
+			name: "apparmor success pod changed",
 			prepare: func(mock *bindingfakes.FakeImpl) {
 				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
 					Items: []profilebindingapi.ProfileBinding{
@@ -556,7 +571,8 @@ func TestHandle(t *testing.T) {
 				require.Len(t, resp.Patches, 1)
 			},
 		},
-		{ // success apparmor security context overwritten with * image
+		{
+			name: "success apparmor security context overwritten with * image",
 			prepare: func(mock *bindingfakes.FakeImpl) {
 				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
 					Items: []profilebindingapi.ProfileBinding{
@@ -602,12 +618,13 @@ func TestHandle(t *testing.T) {
 			},
 			assert: func(resp admission.Response) {
 				require.True(t, resp.Allowed)
-				// the pod level profile and both container level fields
-				require.Len(t, resp.Patches, 3)
+				// the pod level profile and the container level profile
+				require.Len(t, resp.Patches, 2)
 			},
 		},
 		//nolint:dupl // test duplicates are fine
-		{ // apparmor success pod changed with * image
+		{
+			name: "apparmor success pod changed with * image",
 			prepare: func(mock *bindingfakes.FakeImpl) {
 				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
 					Items: []profilebindingapi.ProfileBinding{
@@ -647,7 +664,8 @@ func TestHandle(t *testing.T) {
 				require.Len(t, resp.Patches, 1)
 			},
 		},
-		{ // failure get apparmor profile errored
+		{
+			name: "failure get apparmor profile errored",
 			prepare: func(mock *bindingfakes.FakeImpl) {
 				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
 					Items: []profilebindingapi.ProfileBinding{
@@ -679,7 +697,8 @@ func TestHandle(t *testing.T) {
 				require.Equal(t, http.StatusInternalServerError, int(resp.Result.Code))
 			},
 		},
-		{ // success skip apparmor profile without status of a disabled kind
+		{
+			name: "success skip apparmor profile without status of a disabled kind",
 			// No daemon reports a status if the SPOD does not enable the
 			// profile kind, so rejecting the pod would block it forever.
 			prepare: func(mock *bindingfakes.FakeImpl) {
@@ -718,7 +737,8 @@ func TestHandle(t *testing.T) {
 				require.Empty(t, resp.Patches)
 			},
 		},
-		{ // success unsupported kind
+		{
+			name: "success unsupported kind",
 			prepare: func(mock *bindingfakes.FakeImpl) {
 				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
 					Items: []profilebindingapi.ProfileBinding{
@@ -757,7 +777,8 @@ func TestHandle(t *testing.T) {
 				require.Empty(t, resp.Patches)
 			},
 		},
-		{ // failure seccomp profile without status
+		{
+			name: "failure seccomp profile without status",
 			// Seccomp is always enabled, so the status is only missing until
 			// a daemon installed the profile, and the pod must not run
 			// without it in the meantime.
@@ -792,10 +813,11 @@ func TestHandle(t *testing.T) {
 				},
 			},
 			assert: func(resp admission.Response) {
-				require.Equal(t, http.StatusInternalServerError, int(resp.Result.Code))
+				require.Equal(t, http.StatusForbidden, int(resp.Result.Code))
 			},
 		},
-		{ // failure get seccomp profile errored
+		{
+			name: "failure get seccomp profile errored",
 			prepare: func(mock *bindingfakes.FakeImpl) {
 				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
 					Items: []profilebindingapi.ProfileBinding{
@@ -827,7 +849,8 @@ func TestHandle(t *testing.T) {
 				require.Equal(t, http.StatusInternalServerError, int(resp.Result.Code))
 			},
 		},
-		{ // success when the profile referenced in the profile binding doesn't exist.
+		{
+			name: "success when the profile referenced in the profile binding does not exist",
 			prepare: func(mock *bindingfakes.FakeImpl) {
 				mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
 					Items: []profilebindingapi.ProfileBinding{
@@ -862,17 +885,24 @@ func TestHandle(t *testing.T) {
 			},
 		},
 	} {
-		mock := &bindingfakes.FakeImpl{}
-		tc.prepare(mock)
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-		binder := newTestBinder(t, mock)
-		resp := binder.Handle(t.Context(), tc.request)
-		// The cases count the security context patches, the annotation of
-		// the applied bindings is covered by TestHandleAppliedBindings.
-		resp.Patches = slices.DeleteFunc(resp.Patches, func(op jsonpatch.JsonPatchOperation) bool {
-			return op.Path == "/metadata/annotations"
+			mock := &bindingfakes.FakeImpl{}
+			tc.prepare(mock)
+
+			binder := newTestBinder(t, mock)
+			resp := binder.Handle(t.Context(), tc.request)
+			// The cases count the security context patches, the annotation of
+			// the applied bindings is covered by TestHandleAppliedBindings.
+			resp.Patches = slices.DeleteFunc(
+				resp.Patches,
+				func(op jsonpatch.JsonPatchOperation) bool {
+					return strings.HasPrefix(op.Path, "/metadata/annotations")
+				},
+			)
+			tc.assert(resp)
 		})
-		tc.assert(resp)
 	}
 }
 
@@ -1313,7 +1343,7 @@ func TestHandleAppliedBindings(t *testing.T) {
 	})
 	require.True(t, resp.Allowed)
 	require.Contains(t, resp.Patches, jsonpatch.JsonPatchOperation{
-		Operation: "replace",
+		Operation: "add",
 		Path:      "/metadata/annotations/spo.x-k8s.io~1profile-bindings",
 		Value:     "image,wildcard",
 	})
@@ -1330,7 +1360,7 @@ func TestHandleAppliedBindings(t *testing.T) {
 	require.True(t, resp.Allowed)
 	require.Equal(t, []jsonpatch.JsonPatchOperation{{
 		Operation: "remove",
-		Path:      "/metadata/annotations",
+		Path:      "/metadata/annotations/spo.x-k8s.io~1profile-bindings",
 	}}, resp.Patches)
 }
 
@@ -1368,4 +1398,27 @@ func TestHandleDryRunRecordsNoEvents(t *testing.T) {
 			require.Len(t, recorder.Events, 1)
 		}
 	}
+}
+
+// A binding with an invalid podSelector is skipped and reported, like a
+// recording with one.
+func TestPodMatchesSelectorReportsInvalidSelector(t *testing.T) {
+	t.Parallel()
+
+	recorder := events.NewFakeRecorder(1)
+	binder := newTestBinder(t, &bindingfakes.FakeImpl{})
+	binder.record = utils.NewSafeRecorder(recorder)
+
+	pb := &profilebindingapi.ProfileBinding{
+		ObjectMeta: metav1.ObjectMeta{Name: "binding"},
+		Spec: profilebindingapi.ProfileBindingSpec{
+			PodSelector: &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{
+				Key: "app", Operator: metav1.LabelSelectorOpIn,
+			}}},
+		},
+	}
+
+	require.False(t, binder.podMatchesSelector(testPod, pb))
+	require.Len(t, recorder.Events, 1)
+	require.Contains(t, <-recorder.Events, reasonInvalidPodSelector)
 }

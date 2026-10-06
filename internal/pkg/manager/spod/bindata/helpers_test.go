@@ -124,7 +124,7 @@ func TestServiceMonitor(t *testing.T) {
 
 				require.Equal(t, "https", ep.Port)
 				require.NotNil(t, ep.Authorization)
-				require.Equal(t, "metrics-token", ep.Authorization.Credentials.Name)
+				require.Equal(t, "spo-metrics-client-token", ep.Authorization.Credentials.Name)
 				require.NotNil(t, ep.TLSConfig)
 				require.Equal(t, "metrics."+tc.namespace+".svc", *ep.TLSConfig.ServerName)
 
@@ -252,21 +252,21 @@ func TestKeepCABundles(t *testing.T) {
 
 	c := webhookTestClient(t, existingMutating, existingValidating)
 
-	require.NoError(t, keepMutatingCABundles(t.Context(), c, mutating))
+	require.NoError(t, keepCABundles(t.Context(), c, mutating))
 	require.Equal(t, injected, mutating.Webhooks[binding.index].ClientConfig.CABundle)
 	require.Equal(t, caBundle, mutating.Webhooks[recording.index].ClientConfig.CABundle)
 
-	require.NoError(t, keepValidatingCABundles(t.Context(), c, validating))
+	require.NoError(t, keepCABundles(t.Context(), c, validating))
 	require.Equal(t, injected, validating.Webhooks[0].ClientConfig.CABundle)
 
 	// Missing configurations keep the placeholder.
 	empty := webhookTestClient(t)
 	mutating = getWebhookConfig(false, "ns")
-	require.NoError(t, keepMutatingCABundles(t.Context(), empty, mutating))
+	require.NoError(t, keepCABundles(t.Context(), empty, mutating))
 	require.Equal(t, caBundle, mutating.Webhooks[binding.index].ClientConfig.CABundle)
 
 	validating = getValidatingWebhookConfig()
-	require.NoError(t, keepValidatingCABundles(t.Context(), empty, validating))
+	require.NoError(t, keepCABundles(t.Context(), empty, validating))
 	require.Equal(t, caBundle, validating.Webhooks[0].ClientConfig.CABundle)
 }
 

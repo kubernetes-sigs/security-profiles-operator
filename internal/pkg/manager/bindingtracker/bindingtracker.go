@@ -36,7 +36,7 @@ import (
 
 	profilebindingapi "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/workloadtracker"
 )
 
 const (
@@ -89,7 +89,7 @@ func (r *BindingTrackerReconciler) Reconcile(
 	pod := &corev1.Pod{}
 
 	err := r.client.Get(ctx, req.NamespacedName, pod)
-	if util.IgnoreNotFound(err) != nil {
+	if client.IgnoreNotFound(err) != nil {
 		return reconcile.Result{}, fmt.Errorf("getting pod: %w", err)
 	}
 
@@ -178,47 +178,23 @@ func (r *BindingTrackerReconciler) handlePodCreateOrUpdate(
 	return reconcile.Result{}, nil
 }
 
+// tracker tracks the pods in the active workloads of the bindings.
+func (r *BindingTrackerReconciler) tracker() *workloadtracker.Tracker[*profilebindingapi.ProfileBinding] {
+	return &workloadtracker.Tracker[*profilebindingapi.ProfileBinding]{
+		Client:    r.client,
+		Reader:    r.reader,
+		Finalizer: finalizer,
+		Kind:      "binding",
+		Workloads: func(obj *profilebindingapi.ProfileBinding) *[]string { return &obj.Status.ActiveWorkloads },
+	}
+}
+
 // trackPod adds the pod to the active workloads of the binding and ensures
 // the finalizer.
 func (r *BindingTrackerReconciler) trackPod(
 	ctx context.Context, binding *profilebindingapi.ProfileBinding, podID string,
 ) error {
-	if err := util.Retry(func() error {
-		if err := r.reader.Get(
-			ctx, util.NamespacedName(binding.GetName(), binding.GetNamespace()), binding,
-		); err != nil {
-			if errors.IsNotFound(err) {
-				return nil
-			}
-
-			return fmt.Errorf("retrieving binding: %w", err)
-		}
-
-		updated := appendIfNotExists(binding.Status.ActiveWorkloads, podID)
-		if len(updated) == len(binding.Status.ActiveWorkloads) {
-			return nil
-		}
-
-		binding.Status.ActiveWorkloads = updated
-
-		if err := r.client.Status().Update(ctx, binding); err != nil {
-			return fmt.Errorf("updating binding status: %w", err)
-		}
-
-		return nil
-	}, util.IsNotFoundOrConflict); err != nil {
-		return fmt.Errorf("updating binding status: %w", err)
-	}
-
-	if err := util.Retry(func() error {
-		return client.IgnoreNotFound(
-			util.AddFinalizer(ctx, r.client, binding, finalizer),
-		)
-	}, util.IsNotFoundOrConflict); err != nil {
-		return fmt.Errorf("adding finalizer: %w", err)
-	}
-
-	return nil
+	return r.tracker().Track(ctx, binding, podID)
 }
 
 // untrackPod removes the pod from the active workloads of the binding and
@@ -226,60 +202,7 @@ func (r *BindingTrackerReconciler) trackPod(
 func (r *BindingTrackerReconciler) untrackPod(
 	ctx context.Context, binding *profilebindingapi.ProfileBinding, podID string,
 ) error {
-	if err := util.Retry(func() error {
-		if err := r.reader.Get(
-			ctx, util.NamespacedName(binding.GetName(), binding.GetNamespace()), binding,
-		); err != nil {
-			if errors.IsNotFound(err) {
-				return nil
-			}
-
-			return fmt.Errorf("retrieving binding: %w", err)
-		}
-
-		updated := removeIfExists(binding.Status.ActiveWorkloads, podID)
-		if len(updated) == len(binding.Status.ActiveWorkloads) {
-			return nil
-		}
-
-		binding.Status.ActiveWorkloads = updated
-
-		if err := r.client.Status().Update(ctx, binding); err != nil {
-			return fmt.Errorf("updating binding status: %w", err)
-		}
-
-		return nil
-	}, util.IsNotFoundOrConflict); err != nil {
-		return fmt.Errorf("updating binding status: %w", err)
-	}
-
-	if err := util.Retry(func() error {
-		if err := r.reader.Get(
-			ctx, util.NamespacedName(binding.GetName(), binding.GetNamespace()), binding,
-		); err != nil {
-			if errors.IsNotFound(err) {
-				return nil
-			}
-
-			return fmt.Errorf("retrieving binding: %w", err)
-		}
-
-		// The binding gets written as read, so the update fails with a
-		// conflict if another reconcile tracked a pod since the read, and the
-		// retry then sees that pod. Reading the binding again from the cache
-		// could return a version which lists that pod already, and removing
-		// the finalizer from it would succeed.
-		if len(binding.Status.ActiveWorkloads) > 0 ||
-			!controllerutil.RemoveFinalizer(binding, finalizer) {
-			return nil
-		}
-
-		return client.IgnoreNotFound(r.client.Update(ctx, binding))
-	}, util.IsNotFoundOrConflict); err != nil {
-		return fmt.Errorf("removing finalizer: %w", err)
-	}
-
-	return nil
+	return r.tracker().Untrack(ctx, binding, podID)
 }
 
 // podUsesBinding returns true if the binding webhook applied the binding to
@@ -354,22 +277,4 @@ func ephemeralContainersUseImage(pb *profilebindingapi.ProfileBinding, pod *core
 	}
 
 	return false
-}
-
-func appendIfNotExists(list []string, item string) []string {
-	if slices.Contains(list, item) {
-		return list
-	}
-
-	return append(list, item)
-}
-
-func removeIfExists(list []string, item string) []string {
-	for i := range list {
-		if list[i] == item {
-			return append(list[:i], list[i+1:]...)
-		}
-	}
-
-	return list
 }

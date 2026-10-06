@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"sigs.k8s.io/security-profiles-operator/api/common"
@@ -165,6 +166,19 @@ func reconcileStatus(
 	})
 }
 
+// setProfileStatus sets the state on the profile without naming failed nodes.
+func setProfileStatus(
+	r *StatusReconciler,
+	ctx context.Context,
+	prof *seccompprofileapi.SeccompProfile,
+	state secprofnodestatusapi.ProfileState,
+	l logr.Logger,
+) error {
+	_, err := r.reconcileStatus(ctx, prof, state, nil, l)
+
+	return err
+}
+
 func storedProfile(t *testing.T, c client.Client) *seccompprofileapi.SeccompProfile {
 	t.Helper()
 
@@ -197,20 +211,21 @@ func TestReconcileOwnerErrors(t *testing.T) {
 	unknownKind.OwnerReferences[0].Kind = "Pod"
 
 	cases := []struct {
-		name    string
-		status  *secprofnodestatusapi.SecurityProfileNodeStatus
-		wantErr error
-		wantMsg string
+		name      string
+		status    *secprofnodestatusapi.SecurityProfileNodeStatus
+		wantEvent error
+		wantMsg   string
 	}{
 		{
-			name:    "NoOwner",
-			status:  noOwner,
-			wantErr: ErrNoOwnerProfile,
+			// A retry cannot find an owner, so the status is only reported.
+			name:      "NoOwner",
+			status:    noOwner,
+			wantEvent: ErrNoOwnerProfile,
 		},
 		{
-			name:    "UnknownOwnerKind",
-			status:  unknownKind,
-			wantErr: ErrUnknownOwnerKind,
+			name:      "UnknownOwnerKind",
+			status:    unknownKind,
+			wantEvent: ErrUnknownOwnerKind,
 		},
 		{
 			name:    "OwnerNotFound",
@@ -226,14 +241,16 @@ func TestReconcileOwnerErrors(t *testing.T) {
 			r, _, rec := newTestReconciler(t, tc.status)
 
 			_, err := reconcileStatus(t, r, tc.status)
-			require.Error(t, err)
 
-			if tc.wantErr != nil {
-				require.ErrorIs(t, err, tc.wantErr)
-			} else {
-				require.ErrorContains(t, err, tc.wantMsg)
+			if tc.wantEvent != nil {
+				require.NoError(t, err)
+				utiltest.RequireEvent(t, rec,
+					"Warning ReconcileError getting owner profile: "+tc.wantEvent.Error())
+
+				return
 			}
 
+			require.ErrorContains(t, err, tc.wantMsg)
 			utiltest.RequireEvent(t, rec, "Warning ReconcileError "+err.Error())
 		})
 	}
@@ -264,17 +281,74 @@ func TestReconcileInitializesProfileStatus(t *testing.T) {
 			t.Parallel()
 
 			status := testNodeStatus("worker-1", tc.nodeState)
+
+			// Without a SPOd DaemonSet the aggregation cannot run, but the
+			// profile gets its initial status anyway.
 			r, c, _ := newTestReconciler(t, testProfile(""), status)
 
-			res, err := reconcileStatus(t, r, status)
-			require.NoError(t, err)
-			require.Equal(t, reconcile.Result{}, res)
+			_, err := reconcileStatus(t, r, status)
+			require.ErrorContains(t, err, "cannot get the DS")
 
 			sp := storedProfile(t, c)
 			require.Equal(t, tc.wantStatus, sp.Status.Status)
 			require.NotEmpty(t, sp.Status.Conditions)
 		})
 	}
+}
+
+// The initialization of the profile status takes the state of a single node.
+// The aggregation of all node statuses follows in the same reconcile, nothing
+// else would requeue the profile.
+func TestReconcileInitializationAggregatesAllNodes(t *testing.T) {
+	t.Parallel()
+
+	installed := testNodeStatus("worker-1", secprofnodestatusapi.ProfileStateInstalled)
+	pending := testNodeStatus("worker-2", secprofnodestatusapi.ProfileStatePending)
+
+	r, c, _ := newTestReconciler(t,
+		testProfile(""), installed, pending, spodDS(2, 2),
+		testNode("worker-1"), testNode("worker-2"),
+	)
+
+	res, err := reconcileStatus(t, r, installed)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{}, res)
+	require.Equal(t,
+		secprofnodestatusapi.ProfileStatePending, storedProfile(t, c).Status.Status,
+	)
+}
+
+func TestReconcileErrorConditionNamesFailedNodes(t *testing.T) {
+	t.Parallel()
+
+	ok := testNodeStatus("worker-1", secprofnodestatusapi.ProfileStateInstalled)
+	failed := testNodeStatus("worker-2", secprofnodestatusapi.ProfileStateError)
+
+	r, c, _ := newTestReconciler(t,
+		testProfile(secprofnodestatusapi.ProfileStatePending), ok, failed, spodDS(2, 2),
+		testNode("worker-1"), testNode("worker-2"),
+	)
+
+	_, err := reconcileStatus(t, r, ok)
+	require.NoError(t, err)
+
+	sp := storedProfile(t, c)
+	require.Equal(t, secprofnodestatusapi.ProfileStateError, sp.Status.Status)
+	require.Equal(t,
+		"profile failed to install on nodes worker-2, "+
+			"see the SecurityProfileNodeStatus objects of the profile for details",
+		sp.Status.GetReadyCondition().Message,
+	)
+}
+
+func TestErrorConditionMessage(t *testing.T) {
+	t.Parallel()
+
+	require.Contains(t, errorConditionMessage(nil), "one or more nodes")
+	require.Contains(t,
+		errorConditionMessage([]string{"a", "b", "c", "d", "e", "f", "g"}),
+		"nodes a, b, c, d, e and 2 more,",
+	)
 }
 
 func TestReconcileSkipsMislabeledStatus(t *testing.T) {
@@ -762,7 +836,7 @@ func TestUpdateProfileStatus(t *testing.T) {
 
 			r, c, _ := newTestReconciler(t, testProfile(""))
 
-			require.NoError(t, r.reconcileStatus(
+			require.NoError(t, setProfileStatus(r,
 				context.Background(), testProfile(""), tc.state, logr.Discard(),
 			))
 
@@ -782,7 +856,7 @@ func TestUpdateProfileStatusSetsObservedGeneration(t *testing.T) {
 	profile.Generation = 3
 	r, c, _ := newTestReconciler(t, profile)
 
-	require.NoError(t, r.reconcileStatus(
+	require.NoError(t, setProfileStatus(r,
 		context.Background(), profile, secprofnodestatusapi.ProfileStateInstalled, logr.Discard(),
 	))
 
@@ -794,7 +868,7 @@ func TestUpdateProfileStatusSetsObservedGeneration(t *testing.T) {
 	sp.Generation = 4
 	require.NoError(t, c.Update(context.Background(), sp))
 
-	require.NoError(t, r.reconcileStatus(
+	require.NoError(t, setProfileStatus(r,
 		context.Background(), sp, secprofnodestatusapi.ProfileStateInstalled, logr.Discard(),
 	))
 
@@ -809,7 +883,7 @@ func TestUpdateProfileStatusSkipsUnchangedStatus(t *testing.T) {
 	r, c, _ := newTestReconciler(t, testProfile(""))
 	ctx := context.Background()
 
-	require.NoError(t, r.reconcileStatus(
+	require.NoError(t, setProfileStatus(r,
 		ctx, testProfile(""), secprofnodestatusapi.ProfileStateInstalled, logr.Discard(),
 	))
 
@@ -818,7 +892,7 @@ func TestUpdateProfileStatusSkipsUnchangedStatus(t *testing.T) {
 	// The cached profile is up to date, so the API server is not asked.
 	r.reader = failingReader{}
 
-	require.NoError(t, r.reconcileStatus(
+	require.NoError(t, setProfileStatus(r,
 		ctx, stored, secprofnodestatusapi.ProfileStateInstalled, logr.Discard(),
 	))
 	require.Equal(t, stored.ResourceVersion, storedProfile(t, c).ResourceVersion)
@@ -854,7 +928,7 @@ func TestUpdateProfileStatusOutdatedCache(t *testing.T) {
 	current.Labels = map[string]string{"changed": "true"}
 	require.NoError(t, c.Update(ctx, current))
 
-	require.NoError(t, r.reconcileStatus(
+	require.NoError(t, setProfileStatus(r,
 		ctx, outdated, secprofnodestatusapi.ProfileStateInstalled, logr.Discard(),
 	))
 	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, storedProfile(t, c).Status.Status)
@@ -908,7 +982,7 @@ func TestReconcileProfileRequestAggregatesStatuses(t *testing.T) {
 	t.Parallel()
 
 	status := testNodeStatus("worker-1", secprofnodestatusapi.ProfileStateInstalled)
-	r, c, _ := newTestReconciler(t, testProfile(""), status)
+	r, c, _ := newTestReconciler(t, testProfile(""), status, spodDS(1, 1), testNode("worker-1"))
 
 	_, err := r.Reconcile(context.Background(),
 		profileRequest("SeccompProfile", testNamespace, testProfileName))
@@ -923,7 +997,7 @@ func TestReconcileStatusOfDeletedProfile(t *testing.T) {
 
 	// A profile that is gone in the meantime is not an error, and it does not
 	// get recreated by the status update.
-	require.NoError(t, r.reconcileStatus(
+	require.NoError(t, setProfileStatus(r,
 		context.Background(),
 		testProfile(""),
 		secprofnodestatusapi.ProfileStateInstalled,
@@ -1062,7 +1136,9 @@ func TestReconcileProfileRequestSkipsUnownedStatus(t *testing.T) {
 	unowned.OwnerReferences = nil
 	owned := testNodeStatus("worker-1", secprofnodestatusapi.ProfileStateInstalled)
 
-	r, c, _ := newTestReconciler(t, testProfile(""), unowned, owned)
+	r, c, _ := newTestReconciler(
+		t, testProfile(""), unowned, owned, spodDS(1, 1), testNode("worker-1"),
+	)
 
 	_, err := r.Reconcile(context.Background(),
 		profileRequest("SeccompProfile", testNamespace, testProfileName))
@@ -1236,4 +1312,37 @@ func TestReconcileKeepsSharedLegacyFinalizer(t *testing.T) {
 	require.True(t, kerrors.IsNotFound(err))
 
 	require.Equal(t, []string{legacy}, storedProfile(t, c).Finalizers)
+}
+
+func TestNodeStatusChangedPredicate(t *testing.T) {
+	t.Parallel()
+
+	p := nodeStatusChanged()
+	base := testNodeStatus("worker-1", secprofnodestatusapi.ProfileStatePending)
+
+	update := func(mutate func(*secprofnodestatusapi.SecurityProfileNodeStatus)) bool {
+		changed := base.DeepCopy()
+		mutate(changed)
+
+		return p.Update(event.UpdateEvent{ObjectOld: base, ObjectNew: changed})
+	}
+
+	// The daemon updates the state label before the state itself.
+	require.False(t, update(func(s *secprofnodestatusapi.SecurityProfileNodeStatus) {
+		s.Labels[secprofnodestatusapi.StatusStateLabel] = "Installed"
+	}))
+	require.False(t, update(func(s *secprofnodestatusapi.SecurityProfileNodeStatus) {
+		s.Annotations = map[string]string{"key": "value"}
+	}))
+	require.True(t, update(func(s *secprofnodestatusapi.SecurityProfileNodeStatus) {
+		s.Status.Status = secprofnodestatusapi.ProfileStateInstalled
+	}))
+	require.True(t, update(func(s *secprofnodestatusapi.SecurityProfileNodeStatus) {
+		s.Labels[secprofnodestatusapi.StatusToProfLabel] = "other"
+	}))
+	require.True(t, update(func(s *secprofnodestatusapi.SecurityProfileNodeStatus) {
+		s.OwnerReferences = nil
+	}))
+	require.True(t, p.Create(event.CreateEvent{Object: base}))
+	require.True(t, p.Delete(event.DeleteEvent{Object: base}))
 }

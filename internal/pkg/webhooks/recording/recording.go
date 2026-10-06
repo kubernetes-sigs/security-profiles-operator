@@ -18,7 +18,6 @@ package recording
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"path"
 	"slices"
@@ -31,7 +30,6 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -78,10 +76,9 @@ func (p *podSeccompRecorder) Handle(
 	ctx context.Context,
 	req admission.Request,
 ) admission.Response {
-	// A dry-run request must not have side effects, which includes events.
-	if ptr.Deref(req.DryRun, false) {
+	if rec := utils.RecorderForRequest(&req, p.record); rec != p.record {
 		dryRun := *p
-		dryRun.record = nil
+		dryRun.record = rec
 		p = &dryRun
 	}
 
@@ -94,24 +91,10 @@ func (p *podSeccompRecorder) Handle(
 		return admission.Errored(http.StatusInternalServerError, err)
 	}
 
-	pod := &corev1.Pod{}
-	if err := p.decoder.Decode(req, pod); err != nil {
-		p.log.Error(err, "Failed to decode pod")
-
-		return admission.Errored(http.StatusBadRequest, err)
-	}
-
-	podName := req.Name
-	if podName == "" {
-		podName = pod.GenerateName
-	}
-
-	// The API server rejects seccomp, SELinux and AppArmor settings on
-	// Windows pods, and recording relies on Linux facilities anyway.
-	if utils.IsWindowsPod(pod) {
-		p.log.Info("skipping Windows pod, profile recording does not apply", "pod", podName)
-
-		return admission.Allowed("windows pod, skipping mutation")
+	// Recording relies on Linux facilities, so Windows pods are skipped.
+	pod, podName, resp := utils.DecodePod(p.decoder, &req, p.log)
+	if resp != nil {
+		return *resp
 	}
 
 	isCreate := req.Operation == admissionv1.Create
@@ -190,14 +173,9 @@ func (p *podSeccompRecorder) Handle(
 		return admission.Allowed("pod unchanged")
 	}
 
-	marshaledPod, err := json.Marshal(pod)
-	if err != nil {
-		p.log.Error(err, "Failed to encode pod")
-
-		return admission.Errored(http.StatusInternalServerError, err)
-	}
-
-	return admission.PatchResponseFromRaw(req.Object.Raw, marshaledPod)
+	// The patch only touches the mutated fields, so that the fields of the
+	// pod which the vendored pod type does not know are kept.
+	return utils.PodPatchResponse(p.decoder, &req, pod)
 }
 
 func (p *podSeccompRecorder) shouldRecordContainer(containerName string,
@@ -249,7 +227,7 @@ func (p *podSeccompRecorder) updatePod(
 		// can only be set on CREATE. Mutating them on UPDATE would produce a
 		// patch the API server rejects, which blocks any further pod update.
 		if isCreate {
-			p.warnEventIfContainerPrivileged(profileRecording, ctr, pod)
+			p.warnEventIfContainerPrivileged(profileRecording, ctr, podName)
 
 			p.updateSecurityContext(ctr, profileRecording)
 		} else {
@@ -419,7 +397,7 @@ func (p *podSeccompRecorder) updateApparmorSecurityContext(
 func (p *podSeccompRecorder) warnEventIfContainerPrivileged(
 	profileRecording *profilerecordingapi.ProfileRecording,
 	ctr *corev1.Container,
-	pod *corev1.Pod,
+	podName string,
 ) {
 	if profileRecording.Spec.Recorder != profilerecordingapi.ProfileRecorderLogs {
 		return
@@ -436,9 +414,11 @@ func (p *podSeccompRecorder) warnEventIfContainerPrivileged(
 		corev1.EventTypeWarning,
 		"PrivilegedContainer",
 		util.EventActionMutate,
-		"Container %s in pod %s is privileged, cannot use log-based profile recording",
+		"Container %s of pod %s is privileged, so it runs without the profile which the "+
+			"log based recording relies on and does not get recorded. "+
+			"Use the bpf recorder to record privileged containers",
 		ctr.Name,
-		pod.Name,
+		podName,
 	)
 }
 

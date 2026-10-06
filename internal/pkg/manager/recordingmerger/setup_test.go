@@ -22,9 +22,13 @@ import (
 
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	profilebase "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
+	seccompprofile "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 )
 
 func recording(deleted bool) *profilerecordingapi.ProfileRecording {
@@ -80,10 +84,24 @@ func TestMergePredicate(t *testing.T) {
 		require.False(t, p.Update(event.UpdateEvent{ObjectOld: recording(false)}))
 	})
 
-	t.Run("create is ignored", func(t *testing.T) {
+	t.Run("create of a live recording is ignored", func(t *testing.T) {
 		t.Parallel()
 
 		require.False(t, p.Create(event.CreateEvent{Object: recording(false)}))
+	})
+
+	// A recording which is Terminating when the manager starts only arrives
+	// as a create event from the initial list.
+	t.Run("create of a terminating recording is accepted", func(t *testing.T) {
+		t.Parallel()
+
+		require.True(t, p.Create(event.CreateEvent{Object: recording(true)}))
+	})
+
+	t.Run("create without an object is ignored", func(t *testing.T) {
+		t.Parallel()
+
+		require.False(t, p.Create(event.CreateEvent{}))
 	})
 
 	t.Run("generic is ignored", func(t *testing.T) {
@@ -97,4 +115,26 @@ func TestMergePredicate(t *testing.T) {
 
 		require.True(t, p.Delete(event.DeleteEvent{Object: recording(true)}))
 	})
+}
+
+// A recording which keeps its finalizer because of partial profiles which
+// were left gets reconciled again once they are gone.
+func TestPartialProfileDeletionEnqueuesRecording(t *testing.T) {
+	t.Parallel()
+
+	p := partialProfileDeletedPredicate()
+
+	partial := partialSeccomp("partial-a", "nginx", "read")
+	merged := partial.DeepCopy()
+	delete(merged.Labels, profilebase.ProfilePartialLabel)
+
+	require.True(t, p.Delete(event.DeleteEvent{Object: partial}))
+	require.False(t, p.Delete(event.DeleteEvent{Object: merged}))
+	require.False(t, p.Create(event.CreateEvent{Object: partial}))
+	require.False(t, p.Update(event.UpdateEvent{ObjectOld: partial, ObjectNew: partial}))
+
+	require.Equal(t, []reconcile.Request{{NamespacedName: types.NamespacedName{
+		Name: testRecording, Namespace: testNamespace,
+	}}}, recordingOfPartialProfile(t.Context(), partial))
+	require.Empty(t, recordingOfPartialProfile(t.Context(), &seccompprofile.SeccompProfile{}))
 }

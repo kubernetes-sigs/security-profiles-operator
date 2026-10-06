@@ -50,14 +50,61 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 
 {{/*
-The reference of a selinuxd image: by digest when one is set, by tag otherwise.
+The reference of an image: by digest when one is set, by tag otherwise.
 */}}
-{{- define "security-profiles-operator.selinuxdImage" -}}
+{{- define "security-profiles-operator.image" -}}
 {{- if .digest -}}
 {{ .registry }}/{{ .repository }}@{{ .digest }}
 {{- else -}}
 {{ .registry }}/{{ .repository }}:{{ .tag }}
 {{- end -}}
+{{- end }}
+
+{{/*
+The spec of the SecurityProfilesOperatorDaemon as rendered from the dedicated
+values, before spod.spec gets merged into it.
+*/}}
+{{- define "security-profiles-operator.spodSpec" -}}
+{{- if or .Values.daemon.affinity .Values.daemon.tolerations }}
+scheduling:
+  {{- with .Values.daemon.affinity }}
+  affinity:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.daemon.tolerations }}
+  tolerations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}
+daemonResourceRequirements:
+  {{- toYaml .Values.daemon.resources | nindent 2 }}
+{{- with .Values.imagePullSecrets }}
+imagePullSecrets:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+selinux:
+  enable: {{ hasKey .Values.selinux "enable" | ternary .Values.selinux.enable .Values.enableSelinux }}
+  enableRawSelinuxProfiles: {{ .Values.selinux.enableRawSelinuxProfiles }}
+  typeTag: {{ .Values.selinux.typeTag | quote }}
+  {{- with .Values.selinux.options }}
+  options:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.selinux.customTemplatesConfigMap }}
+  customTemplatesConfigMap: {{ . | quote }}
+  {{- end }}
+{{- if .Values.webhook.tolerations }}
+webhook:
+  tolerations:
+    {{- toYaml .Values.webhook.tolerations | nindent 4 }}
+{{- end }}
+enricher:
+  enableLogEnricher: {{ .Values.enableLogEnricher }}
+  enableJsonEnricher: {{ .Values.enableJsonEnricher }}
+  enableBpfRecorder: {{ .Values.enableBpfRecorder }}
+enableAppArmor: {{ .Values.enableAppArmor }}
+enableProfiling: {{ .Values.enableProfiling }}
+verbosity: {{ .Values.verbosity }}
 {{- end }}
 
 {{/*

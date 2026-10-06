@@ -17,6 +17,7 @@ limitations under the License.
 package recordingmerger
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -29,6 +30,7 @@ import (
 	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
@@ -438,4 +440,91 @@ func TestDeletePartialProfilesOnlyDeletesListed(t *testing.T) {
 
 	// A profile which is already gone is not an error.
 	require.NoError(t, deletePartialProfiles(t.Context(), r.client, listed))
+}
+
+// A conflict while releasing the recording is retried against the API server:
+// the cache may keep returning the version which lost the conflict.
+func TestReleaseRecordingRetriesAgainstAPIReader(t *testing.T) {
+	t.Parallel()
+
+	base := fake.NewClientBuilder().
+		WithScheme(mergerTestScheme(t)).
+		WithObjects(testMergeRecording(profilerecordingapi.ProfileRecordingKindSeccompProfile, false)).
+		Build()
+
+	key := types.NamespacedName{Name: testRecording, Namespace: testNamespace}
+	stale := &profilerecordingapi.ProfileRecording{}
+	require.NoError(t, base.Get(t.Context(), key, stale))
+
+	// Another writer updates the recording after the cache saw it.
+	current := stale.DeepCopy()
+	current.Labels = map[string]string{"other": "writer"}
+	require.NoError(t, base.Update(t.Context(), current))
+
+	staleCache := interceptor.NewClient(base, interceptor.Funcs{
+		Get: func(
+			_ context.Context, _ client.WithWatch, _ client.ObjectKey, obj client.Object,
+			_ ...client.GetOption,
+		) error {
+			rec, ok := obj.(*profilerecordingapi.ProfileRecording)
+			require.True(t, ok)
+			stale.DeepCopyInto(rec)
+
+			return nil
+		},
+	})
+
+	r := &PolicyMergeReconciler{
+		client: staleCache,
+		log:    logr.Discard(),
+		record: events.NewFakeRecorder(20),
+	}
+
+	// Every retry against the cache reads the stale version again.
+	err := r.releaseRecording(t.Context(), stale.DeepCopy())
+	require.True(t, kerrors.IsConflict(err), err)
+
+	r.reader = base
+	require.NoError(t, r.releaseRecording(t.Context(), stale.DeepCopy()))
+
+	released := &profilerecordingapi.ProfileRecording{}
+	require.NoError(t, base.Get(t.Context(), key, released))
+	require.Empty(t, released.Finalizers)
+	require.Equal(t, "writer", released.Labels["other"])
+}
+
+// The cache may still show the partial profiles which the merge just deleted,
+// so the release lists them from the API server. Otherwise the recording would
+// keep its finalizer without anything reconciling it again.
+func TestReleaseRecordingListsPartialProfilesFromAPIReader(t *testing.T) {
+	t.Parallel()
+
+	recording := testMergeRecording(profilerecordingapi.ProfileRecordingKindSeccompProfile, true)
+	scheme := mergerTestScheme(t)
+
+	staleCache := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(recording.DeepCopy(), partialSeccomp("partial-a", "nginx", "read")).
+		Build()
+	apiServer := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(recording.DeepCopy()).
+		Build()
+
+	r := &PolicyMergeReconciler{
+		client: staleCache,
+		log:    logr.Discard(),
+		record: events.NewFakeRecorder(20),
+	}
+
+	// The partial profile in the cache keeps the recording.
+	require.NoError(t, r.releaseRecording(t.Context(), recording.DeepCopy()))
+	require.NoError(t, staleCache.Get(t.Context(), client.ObjectKeyFromObject(recording),
+		&profilerecordingapi.ProfileRecording{}))
+
+	// The API server knows that it is gone.
+	r.reader = apiServer
+	require.NoError(t, r.releaseRecording(t.Context(), recording.DeepCopy()))
+	require.True(t, kerrors.IsNotFound(staleCache.Get(t.Context(),
+		client.ObjectKeyFromObject(recording), &profilerecordingapi.ProfileRecording{})))
 }

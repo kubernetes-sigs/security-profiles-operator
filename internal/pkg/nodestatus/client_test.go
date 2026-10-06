@@ -25,12 +25,14 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	profilebase "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 	seccompprofile "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
@@ -200,6 +202,43 @@ func TestCreateInitialStatus(t *testing.T) {
 			require.True(t, exists)
 		})
 	}
+}
+
+func TestStatusObjLabelsValidForLongNodeName(t *testing.T) {
+	t.Parallel()
+
+	for _, node := range []string{
+		testNode,
+		strings.Repeat("n", validation.LabelValueMaxLength),
+		strings.Repeat("n", validation.LabelValueMaxLength+1),
+		strings.Repeat("a", 40) + "." + strings.Repeat("b", 200),
+	} {
+		sc, err := NewForProfileOnNode(preparedProfile(), nil, node)
+		require.NoError(t, err)
+
+		status := sc.statusObj(secprofnodestatusapi.ProfileStateInstalled)
+		for key, value := range status.Labels {
+			require.Empty(t, validation.IsValidLabelValue(value), "label %s=%s", key, value)
+		}
+
+		// The spec keeps the full node name.
+		require.Equal(t, node, status.Spec.NodeName)
+
+		if len(node) <= validation.LabelValueMaxLength {
+			require.Equal(t, node, status.Labels[secprofnodestatusapi.StatusToNodeLabel])
+		}
+	}
+
+	// Long node names that only differ after the kept prefix get different
+	// label values.
+	first, err := NewForProfileOnNode(preparedProfile(), nil, strings.Repeat("n", 80)+"1")
+	require.NoError(t, err)
+	second, err := NewForProfileOnNode(preparedProfile(), nil, strings.Repeat("n", 80)+"2")
+	require.NoError(t, err)
+	require.NotEqual(t,
+		first.statusObj("").Labels[secprofnodestatusapi.StatusToNodeLabel],
+		second.statusObj("").Labels[secprofnodestatusapi.StatusToNodeLabel],
+	)
 }
 
 func TestCreateResetsExistingStatus(t *testing.T) {
@@ -455,48 +494,27 @@ func recordingHasFinalizer(t *testing.T, c client.Client) bool {
 	return controllerutil.ContainsFinalizer(pr, profilerecordingapi.RecordingHasUnmergedProfiles)
 }
 
-func TestRemovePartialProfileReleasesRecording(t *testing.T) {
+func TestRemovePartialProfileKeepsRecordingFinalizer(t *testing.T) {
 	t.Parallel()
 
+	// The recording has partial profiles of two kinds. Removing the last
+	// partial seccomp profile from the node must not release the recording,
+	// because the partial AppArmor profile still waits to be merged. Only the
+	// recording merger of the manager, which checks every kind, releases it.
 	sp := recordedPartialProfile("test-profile")
-	c := newFakeClient(t, sp.DeepCopy(), testRecording())
+	aa := &apparmorprofileapi.AppArmorProfile{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "other-profile",
+			Finalizers: []string{partialProfileFinalizer},
+			Labels:     sp.Labels,
+		},
+	}
+	c := newFakeClient(t, sp.DeepCopy(), aa, testRecording())
 	sc := newStatusClient(t, sp, c)
 
 	require.NoError(t, sc.Remove(context.Background(), c))
-
-	// The last partial profile of a recording lets the recording go.
-	require.False(t, recordingHasFinalizer(t, c))
-	require.NotContains(t, storedProfile(t, c, sp.Name).Finalizers, partialProfileFinalizer)
-}
-
-func TestRemovePartialProfileKeepsRecordingWithOtherPartials(t *testing.T) {
-	t.Parallel()
-
-	sp := recordedPartialProfile("test-profile")
-	other := recordedPartialProfile("other-profile")
-	c := newFakeClient(t, sp.DeepCopy(), other, testRecording())
-	sc := newStatusClient(t, sp, c)
-
-	require.NoError(t, sc.Remove(context.Background(), c))
-
-	// Another partial profile still waits to be merged.
 	require.True(t, recordingHasFinalizer(t, c))
-}
-
-func TestRemovePartialProfileIgnoresOtherNonPartialProfiles(t *testing.T) {
-	t.Parallel()
-
-	sp := recordedPartialProfile("test-profile")
-
-	merged := recordedPartialProfile("merged-profile")
-	merged.Finalizers = nil
-	delete(merged.Labels, profilebase.ProfilePartialLabel)
-
-	c := newFakeClient(t, sp.DeepCopy(), merged, testRecording())
-	sc := newStatusClient(t, sp, c)
-
-	require.NoError(t, sc.Remove(context.Background(), c))
-	require.False(t, recordingHasFinalizer(t, c))
+	require.NotContains(t, storedProfile(t, c, sp.Name).Finalizers, partialProfileFinalizer)
 }
 
 func TestRemovePartialProfileWithoutRecording(t *testing.T) {
@@ -625,24 +643,6 @@ func TestSetAnnotationRetriesOnConflict(t *testing.T) {
 	status, err := nodeStatus(t, base, wantStatusName)
 	require.NoError(t, err)
 	require.Equal(t, "value", status.Annotations["key"])
-}
-
-func TestRemovePartialProfileRetriesRecordingConflict(t *testing.T) {
-	t.Parallel()
-
-	sp := recordedPartialProfile("test-profile")
-	base := newFakeClient(t, sp.DeepCopy(), testRecording())
-
-	c, conflicts := conflictOnce(base, func(obj client.Object) bool {
-		_, ok := obj.(*profilerecordingapi.ProfileRecording)
-
-		return ok
-	})
-
-	sc := newStatusClient(t, sp, c)
-	require.NoError(t, sc.Remove(context.Background(), c))
-	require.Equal(t, 1, *conflicts)
-	require.False(t, recordingHasFinalizer(t, base))
 }
 
 // A node whose name does not fit into a finalizer used to get a truncated

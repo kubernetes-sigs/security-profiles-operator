@@ -161,7 +161,7 @@ func TestDaemonCacheOptions(t *testing.T) {
 	opts := cache.Options{}
 	setDaemonCacheOptions(&opts, "node", false)
 	require.Equal(t, &daemonSyncPeriod, opts.SyncPeriod)
-	require.Equal(t, labels.Everything(), opts.DefaultLabelSelector)
+	require.Nil(t, opts.DefaultLabelSelector)
 	require.Equal(t, fields.OneTermEqualSelector("spec.nodeName", "node"), podOptions(opts).Field)
 	require.Nil(t, podOptions(opts).Label)
 
@@ -320,4 +320,31 @@ func TestManagerMaxConcurrentReconcilesFlag(t *testing.T) {
 		8,
 		newCLIContext(t, flags, "--max-concurrent-reconciles=8").Int(maxConcurrentReconcilesFlag),
 	)
+}
+
+// The spoc command passes every argument after its name to spoc, flags
+// included, wherever global flags precede it.
+func TestSpocCommandPassesArguments(t *testing.T) {
+	dir := t.TempDir()
+	argsFile := filepath.Join(dir, "args")
+	script := "#!/bin/sh\necho \"$@\" > \"$SPOC_ARGS_FILE\"\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, spocCmd), []byte(script), 0o755))
+	t.Setenv("PATH", dir)
+	t.Setenv("SPOC_ARGS_FILE", argsFile)
+
+	for _, args := range [][]string{
+		{config.OperatorName, spocCmd, "merge", "--check", "-o", "out.yaml"},
+		{config.OperatorName, "--verbosity", "1", spocCmd, "merge", "--check", "-o", "out.yaml"},
+		{config.OperatorName, "s", "merge", "--check", "-o", "out.yaml"},
+	} {
+		require.NoError(t, os.WriteFile(argsFile, nil, 0o600))
+
+		app := newApp()
+		app.ExitErrHandler = func(*cli.Context, error) {}
+		require.NoError(t, app.Run(args), args)
+
+		got, err := os.ReadFile(argsFile)
+		require.NoError(t, err)
+		require.Equal(t, "merge --check -o out.yaml\n", string(got), args)
+	}
 }

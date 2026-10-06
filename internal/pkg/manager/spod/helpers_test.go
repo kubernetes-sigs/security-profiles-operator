@@ -235,7 +235,7 @@ func Test_getConfiguredSPOdLogEnricherSource(t *testing.T) {
 	}
 
 	// The JSON enricher still needs the audit logs next to a BPF log enricher.
-	r.clientReader = fake.NewClientBuilder().WithObjects(operatorConfigMap(nil)).Build()
+	r.client = fake.NewClientBuilder().WithObjects(operatorConfigMap(nil)).Build()
 	podSpec := renderedPodSpec(t, r, &spodapi.SPODSpec{
 		Enricher: spodapi.SPODEnricherConfig{
 			EnableLogEnricher:  new(true),

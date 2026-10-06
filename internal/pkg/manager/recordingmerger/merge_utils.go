@@ -91,7 +91,7 @@ func partialProfileLabels(recording *profilerecordingapi.ProfileRecording) clien
 // the list type which are not being deleted.
 func hasPartialProfiles(
 	ctx context.Context,
-	cli client.Client,
+	cli client.Reader,
 	list client.ObjectList,
 	recording *profilerecordingapi.ProfileRecording,
 ) (bool, error) {

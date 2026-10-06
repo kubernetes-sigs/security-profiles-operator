@@ -43,11 +43,20 @@ func TestRemoveExistingEnv(t *testing.T) {
 			want: []corev1.EnvVar{},
 		},
 		{
-			// The order does not matter, the last element takes the place
-			// of the removed one.
 			name: "first of several",
 			env:  []corev1.EnvVar{{Name: ExecRequestUid}, {Name: "A"}, {Name: "B"}},
-			want: []corev1.EnvVar{{Name: "B"}, {Name: "A"}},
+			want: []corev1.EnvVar{{Name: "A"}, {Name: "B"}},
+		},
+		{
+			// A duplicate must not survive to shadow the appended variable.
+			name: "duplicates",
+			env: []corev1.EnvVar{
+				{Name: ExecRequestUid, Value: "a"},
+				{Name: "A"},
+				{Name: ExecRequestUid, Value: "b"},
+				{Name: ExecRequestUid, Value: "c"},
+			},
+			want: []corev1.EnvVar{{Name: "A"}},
 		},
 		{
 			name: "last of several",
@@ -80,6 +89,7 @@ func TestReplaceRegexMatches(t *testing.T) {
 		in       []string
 		want     []string
 		replaced bool
+		repl     string
 	}{
 		{name: "nil"},
 		{name: "no match", in: []string{"env", "ls"}, want: []string{"env", "ls"}},
@@ -96,6 +106,14 @@ func TestReplaceRegexMatches(t *testing.T) {
 			replaced: true,
 		},
 		{
+			// A "$" in the replacement is no group reference.
+			name:     "dollar in replacement",
+			in:       []string{ExecRequestUid + "=old"},
+			want:     []string{ExecRequestUid + "=$1${0}$$"},
+			replaced: true,
+			repl:     ExecRequestUid + "=$1${0}$$",
+		},
+		{
 			// Only whole arguments starting with the variable match.
 			name: "prefix and suffix",
 			in:   []string{"X" + ExecRequestUid + "=a", ExecRequestUid},
@@ -105,7 +123,12 @@ func TestReplaceRegexMatches(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, replaced := replaceRegexMatches(tc.in, execRequestUidRegex, repl)
+			replacement := repl
+			if tc.repl != "" {
+				replacement = tc.repl
+			}
+
+			got, replaced := replaceRegexMatches(tc.in, execRequestUidRegex, replacement)
 			require.Equal(t, tc.replaced, replaced)
 			require.Equal(t, tc.want, got)
 		})

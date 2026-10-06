@@ -24,6 +24,7 @@ import (
 	"strings"
 	"testing"
 
+	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	"github.com/go-logr/logr"
 	configv1 "github.com/openshift/api/config/v1"
 	"github.com/stretchr/testify/require"
@@ -89,11 +90,10 @@ func TestWatchNamespaces(t *testing.T) {
 }
 
 func TestSetControllerOptionsForNamespaces(t *testing.T) {
-	t.Setenv(config.OperatorNamespaceEnvKey, "spo")
 	t.Setenv(config.RestrictNamespaceEnvKey, "team-spo")
 
 	opts := ctrl.Options{}
-	setControllerOptionsForNamespaces(&opts)
+	setControllerOptionsForNamespaces(&opts, "spo")
 	require.Equal(t,
 		map[string]cache.Config{"team-spo": {}, "spo": {}},
 		opts.Cache.DefaultNamespaces,
@@ -102,7 +102,7 @@ func TestSetControllerOptionsForNamespaces(t *testing.T) {
 	t.Setenv(config.RestrictNamespaceEnvKey, "")
 
 	opts = ctrl.Options{}
-	setControllerOptionsForNamespaces(&opts)
+	setControllerOptionsForNamespaces(&opts, "spo")
 	require.Nil(t, opts.Cache.DefaultNamespaces)
 }
 
@@ -110,18 +110,19 @@ func TestRestrictOperandCache(t *testing.T) {
 	t.Parallel()
 
 	opts := ctrl.Options{}
-	restrictOperandCache(&opts, "spo", true)
+	restrictOperandCache(&opts, "spo", servedAPIs{admissionPolicies: true, certManager: true})
 
 	inNamespace := cache.ByObject{Namespaces: map[string]cache.Config{"spo": {}}}
 	byName := func(name string) cache.ByObject {
 		return cache.ByObject{Field: fields.OneTermEqualSelector("metadata.name", name)}
 	}
 
-	require.Len(t, opts.Cache.ByObject, 9)
+	require.Len(t, opts.Cache.ByObject, 12)
 
 	for obj, byObject := range opts.Cache.ByObject {
 		switch obj.(type) {
-		case *appsv1.DaemonSet, *appsv1.Deployment, *corev1.Service, *policyv1.PodDisruptionBudget:
+		case *appsv1.DaemonSet, *appsv1.Deployment, *corev1.Service, *policyv1.PodDisruptionBudget,
+			*certmanagerv1.Issuer, *certmanagerv1.Certificate:
 			require.Equal(t, inNamespace, byObject, "%T", obj)
 		case *admissionregv1.MutatingWebhookConfiguration:
 			require.Equal(t, byName("spo-mutating-webhook-configuration"), byObject)
@@ -130,6 +131,14 @@ func TestRestrictOperandCache(t *testing.T) {
 		case *admissionregv1.ValidatingAdmissionPolicy,
 			*admissionregv1.ValidatingAdmissionPolicyBinding:
 			require.Equal(t, byName("spo-recording-profiles"), byObject, "%T", obj)
+		case *corev1.ConfigMap:
+			require.Equal(t, cache.ByObject{
+				Namespaces: map[string]cache.Config{"spo": {}},
+				Field: fields.OneTermEqualSelector(
+					"metadata.name",
+					"security-profiles-operator-profile",
+				),
+			}, byObject)
 		case *corev1.Pod:
 			require.NotNil(t, byObject.Transform)
 			require.Nil(t, byObject.Namespaces, "pods are cached in every namespace")
@@ -152,6 +161,7 @@ func TestRestrictOperandCacheWithoutAdmissionPolicies(t *testing.T) {
 		appsv1.SchemeGroupVersion.WithKind("Deployment"),
 		corev1.SchemeGroupVersion.WithKind("Service"),
 		corev1.SchemeGroupVersion.WithKind("Pod"),
+		corev1.SchemeGroupVersion.WithKind("ConfigMap"),
 		policyv1.SchemeGroupVersion.WithKind("PodDisruptionBudget"),
 	} {
 		mapper.Add(gvk, meta.RESTScopeNamespace)
@@ -168,29 +178,54 @@ func TestRestrictOperandCacheWithoutAdmissionPolicies(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, served)
 
-	newCache := func(servesAdmissionPolicies bool) error {
+	scheme := runtime.NewScheme()
+	require.NoError(t, clientgoscheme.AddToScheme(scheme))
+	require.NoError(t, certmanagerv1.AddToScheme(scheme))
+
+	newCache := func(served servedAPIs) error {
 		opts := ctrl.Options{}
-		restrictOperandCache(&opts, "spo", servesAdmissionPolicies)
+		restrictOperandCache(&opts, "spo", served)
 
 		opts.Cache.Mapper = mapper
-		opts.Cache.Scheme = clientgoscheme.Scheme
+		opts.Cache.Scheme = scheme
 
 		_, err := cache.New(&rest.Config{Host: "https://127.0.0.1:1"}, opts.Cache)
 
 		return err
 	}
 
-	require.NoError(t, newCache(served))
-	require.Error(t, newCache(true), "the policies have no REST mapping")
+	require.NoError(t, newCache(servedAPIs{admissionPolicies: served}))
+	require.Error(
+		t,
+		newCache(servedAPIs{admissionPolicies: true}),
+		"the policies have no REST mapping",
+	)
+	require.Error(t, newCache(servedAPIs{certManager: true}), "cert-manager has no REST mapping")
+
+	certManagerServed, err := spod.ServesCertManager(mapper)
+	require.NoError(t, err)
+	require.False(t, certManagerServed)
+
+	for _, kind := range []string{"Issuer", "Certificate"} {
+		mapper.Add(certmanagerv1.SchemeGroupVersion.WithKind(kind), meta.RESTScopeNamespace)
+	}
+
+	certManagerServed, err = spod.ServesCertManager(mapper)
+	require.NoError(t, err)
+	require.True(t, certManagerServed)
+	require.NoError(t, newCache(servedAPIs{certManager: true}))
 
 	opts := ctrl.Options{}
-	restrictOperandCache(&opts, "spo", false)
-	require.Len(t, opts.Cache.ByObject, 7)
+	restrictOperandCache(&opts, "spo", servedAPIs{})
+	require.Len(t, opts.Cache.ByObject, 8)
 
 	for obj := range opts.Cache.ByObject {
-		_, isPolicy := obj.(*admissionregv1.ValidatingAdmissionPolicy)
-		_, isBinding := obj.(*admissionregv1.ValidatingAdmissionPolicyBinding)
-		require.False(t, isPolicy || isBinding, "%T", obj)
+		switch obj.(type) {
+		case *admissionregv1.ValidatingAdmissionPolicy,
+			*admissionregv1.ValidatingAdmissionPolicyBinding,
+			*certmanagerv1.Issuer, *certmanagerv1.Certificate:
+			require.Failf(t, "unserved kind in the cache options", "%T", obj)
+		}
 	}
 }
 

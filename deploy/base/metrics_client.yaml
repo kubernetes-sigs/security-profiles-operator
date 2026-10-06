@@ -10,6 +10,15 @@ rules:
   verbs:
   - get
 ---
+# A dedicated identity for scraping the metrics, so that the pods running with
+# the default service account of the namespace do not get access to them.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: spo-metrics-client
+  namespace: security-profiles-operator
+automountServiceAccountToken: false
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
@@ -20,14 +29,17 @@ roleRef:
   name: spo-metrics-client
 subjects:
 - kind: ServiceAccount
-  name: default
+  name: spo-metrics-client
   namespace: security-profiles-operator
 ---
+# Used by the ServiceMonitor which the operator deploys. The Secret of earlier
+# releases, metrics-token, holds a token of the default service account, and
+# the token controller would delete it if it got pointed to another one.
 apiVersion: v1
 kind: Secret
 metadata:
-  name: metrics-token
+  name: spo-metrics-client-token
   namespace: security-profiles-operator
   annotations:
-    kubernetes.io/service-account.name: default
+    kubernetes.io/service-account.name: spo-metrics-client
 type: kubernetes.io/service-account-token

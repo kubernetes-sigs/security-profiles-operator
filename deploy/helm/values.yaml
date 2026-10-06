@@ -5,7 +5,15 @@ spoImage:
   registry: us-central1-docker.pkg.dev
   repository: k8s-staging-images/sp-operator/security-profiles-operator
   tag: latest
+  # Pins the operator image by digest (sha256:...), the tag is only used
+  # without a digest.
+  digest: ""
   pullPolicy: Always
+
+# Secrets for pulling the images from a private registry, for example
+# [{name: my-pull-secret}]. They apply to the operator deployment and, through
+# spec.imagePullSecrets of the SPOD, to the daemon and the webhook.
+imagePullSecrets: []
 
 # The selinuxd images run privileged on every node, so they are pinned by
 # digest. The tag is only used when the digest is set to an empty string.
@@ -63,8 +71,21 @@ restrictToNamespace: ""
 webhook:
   tolerations: []
 
+# Any field of the SecurityProfilesOperatorDaemon spec, merged over the fields
+# which the dedicated values render. Objects get merged field by field, every
+# other value, lists included, replaces the rendered one.
+spod:
+  spec: {}
+
 nameOverride: ""
 fullnameOverride: ""
+
+# Annotations for the operator pods.
+podAnnotations: {}
+
+# The priority class of the operator pods. The operator manages the daemon and
+# the webhooks, so it is critical for the cluster. Set to "" for none.
+priorityClassName: system-cluster-critical
 
 podSecurityContext:
   runAsNonRoot: true

@@ -14,6 +14,8 @@ please refer to [Installation Guide](https://github.com/kubernetes-sigs/security
 |-----|------|---------|-------------|
 | affinity | object | `{}` | pod affinity rules |
 | autoscaling.enabled | bool | `false` | do not set the replica count of the operator deployment, for example when it is scaled externally |
+| autoscaling.maxReplicas | int | unset | has no effect, the chart does not create a HorizontalPodAutoscaler |
+| autoscaling.minReplicas | int | unset | has no effect, the chart does not create a HorizontalPodAutoscaler |
 | daemon.affinity | object | `{}` | daemonset affinity rules |
 | daemon.resources.limits.cpu | string | unlimited | cpu limits for the daemonset |
 | daemon.resources.limits.ephemeral-storage | string | `"200Mi"` | storage limits for the daemonset |
@@ -29,12 +31,15 @@ please refer to [Installation Guide](https://github.com/kubernetes-sigs/security
 | enableProfiling | bool | `false` | enable profiling or not |
 | enableSelinux | bool | `false` | deprecated, use `selinux.enable` instead |
 | fullnameOverride | string | `""` | override the generated full name |
+| imagePullSecrets | list | `[]` | secrets for pulling the images from a private registry, for example `[{name: my-pull-secret}]`; they apply to the operator deployment and, through `spec.imagePullSecrets` of the SPOD, to the daemon and the webhook |
 | kubeletDir | string | `"/var/lib/kubelet"` | the kubelet root directory of the nodes, where the seccomp profiles get installed |
 | nameOverride | string | `""` | used for generating labels |
 | nodeSelector | object | `{}` | specify on which node to deploy the workload |
+| podAnnotations | object | `{}` | annotations for the operator pods |
 | podDisruptionBudget.enabled | bool | `true` | create a PodDisruptionBudget for the operator deployment |
 | podDisruptionBudget.minAvailable | int or string | `1` | the operator replicas to keep during voluntary disruptions like node drains; with a single replica, `1` blocks the drain of its node |
 | podSecurityContext | object | `{"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}}` | pod security contexts |
+| priorityClassName | string | `"system-cluster-critical"` | the priority class of the operator pods, none when empty |
 | replicaCount | int | `3` | the number of replicas of the pods |
 | restrictToNamespace | string | `""` | restrict the operator to a single namespace |
 | resources.limits.cpu | string | `"500m"` | cpu limits for the pod |
@@ -50,6 +55,9 @@ please refer to [Installation Guide](https://github.com/kubernetes-sigs/security
 | selinuxdImage.{default,el8,el9,fedora}.repository | string | `"security-profiles-operator/selinuxd"`, `"security-profiles-operator/selinuxd-el8"`, ... | the repository for the selinuxd images |
 | selinuxdImage.{default,el8,el9,fedora}.tag | string | `"latest"` | tag for the selinuxd images, only used when the digest is empty |
 | selinuxdImage.{default,el8,el9,fedora}.digest | string | the digest of the current `latest` tag | digest of the selinuxd images, set to `""` to use the tag |
+| serviceAccount | object | unset | has no effect, the operator always runs with the `security-profiles-operator` service account of the chart |
+| spod.spec | object | `{}` | any field of the SecurityProfilesOperatorDaemon spec, merged over the fields which the dedicated values render; objects get merged field by field, every other value, lists included, replaces the rendered one |
+| spoImage.digest | string | `""` | digest of the spoImage, the tag is only used when it is empty |
 | spoImage.pullPolicy | string | `"Always"` | pull policy for spoImage |
 | spoImage.registry | string | `"us-central1-docker.pkg.dev"` | the registry for the spoImage |
 | spoImage.repository | string | `"k8s-staging-images/sp-operator/security-profiles-operator"` | the repository for the spoImage |
