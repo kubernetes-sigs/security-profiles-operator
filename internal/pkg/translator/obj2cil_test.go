@@ -17,7 +17,6 @@ limitations under the License.
 package translator
 
 import (
-	"regexp"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -33,8 +32,7 @@ func TestObject2CIL(t *testing.T) {
 		name        string
 		profile     *selinuxprofileapi.SelinuxProfile
 		options     *Options
-		wantMatches []string
-		doNotMatch  []string
+		want        string
 		inheritsys  []string
 		inheritobjs []selinuxprofileapi.SelinuxProfileObject
 		wantErr     bool
@@ -86,21 +84,12 @@ func TestObject2CIL(t *testing.T) {
 					},
 				},
 			},
-			wantMatches: []string{
-				"\\(block foo-bar",
-				"\\(blockinherit container\\)",
-				// We match on several lines since we don't care about the order
-				"\\(allow process var_log_t \\( dir \\(.*open.*\\)\\)\\)\n",
-				"\\(allow process var_log_t \\( dir \\(.*read.*\\)\\)\\)\n",
-				"\\(allow process var_log_t \\( dir \\(.*remove_name.*\\)\\)\\)\n",
-				"\\(allow process var_log_t \\( dir \\(.*write.*\\)\\)\\)\n",
-				"\\(allow process var_log_t \\( file \\(.*getattr.*\\)\\)\\)\n",
-				"\\(allow process var_log_t \\( file \\(.*map.*\\)\\)\\)\n",
-				"\\(allow process var_log_t \\( file \\(.*create.*\\)\\)\\)\n",
-				"\\(allow process var_log_t \\( sock_file \\(.*getattr.*\\)\\)\\)\n",
-				"\\(allow process var_log_t \\( sock_file \\(.*append.*\\)\\)\\)\n",
-				"\\(allow process var_log_t \\( sock_file \\(.*open.*\\)\\)\\)\n",
-			},
+			want: "(block foo-bar\n" +
+				"(blockinherit container)\n" +
+				"(allow process var_log_t ( dir ( add_name getattr ioctl lock open read remove_name search write )))\n" +
+				"(allow process var_log_t ( file ( append create getattr ioctl lock map open read write )))\n" +
+				"(allow process var_log_t ( sock_file ( append getattr open read write )))\n" +
+				")\n",
 			inheritsys: []string{
 				"container",
 			},
@@ -142,16 +131,13 @@ func TestObject2CIL(t *testing.T) {
 					},
 				},
 			},
-			wantMatches: []string{
-				"\\(block test-selinux-recording-nginx",
-				"\\(blockinherit container\\)",
-				// We match on several lines since we don't care about the order
-				"\\(allow process http_port_t \\( tcp_socket \\(.*name_bind.*\\)\\)\\)\n",
-				"\\(allow process node_t \\( tcp_socket \\(.*name_bind.*\\)\\)\\)\n",
-				"\\(allow process proc_t \\( filesystem \\(.*associate.*\\)\\)\\)\n",
-				"\\(allow process test-selinux-recording-nginx.process \\( tcp_socket " +
-					"\\(.*listen.*\\)\\)\\)\n",
-			},
+			want: "(block test-selinux-recording-nginx\n" +
+				"(blockinherit container)\n" +
+				"(allow process test-selinux-recording-nginx.process ( tcp_socket ( listen )))\n" +
+				"(allow process http_port_t ( tcp_socket ( name_bind )))\n" +
+				"(allow process node_t ( tcp_socket ( name_bind )))\n" +
+				"(allow process proc_t ( filesystem ( associate )))\n" +
+				")\n",
 			inheritsys: []string{
 				"container",
 			},
@@ -178,14 +164,10 @@ func TestObject2CIL(t *testing.T) {
 					},
 				},
 			},
-			wantMatches: []string{
-				"\\(block test-selinux-recording-nginx",
-				"\\(blockinherit foo\\)",
-				"\\(allow process http_port_t \\( tcp_socket \\(.*name_bind.*\\)\\)\\)\\n",
-			},
-			doNotMatch: []string{
-				"\\(blockinherit container\\)",
-			},
+			want: "(block test-selinux-recording-nginx\n" +
+				"(blockinherit foo)\n" +
+				"(allow process http_port_t ( tcp_socket ( name_bind )))\n" +
+				")\n",
 			inheritobjs: []selinuxprofileapi.SelinuxProfileObject{
 				&selinuxprofileapi.SelinuxProfile{
 					ObjectMeta: metav1.ObjectMeta{
@@ -242,22 +224,13 @@ func TestObject2CIL(t *testing.T) {
 					},
 				},
 			},
-			wantMatches: []string{
-				"\\(block foo-permissive-bar",
-				"\\(blockinherit container\\)",
-				"\\(typepermissive process\\)",
-				// We match on several lines since we don't care about the order
-				"\\(allow process var_log_t \\( dir \\(.*open.*\\)\\)\\)\n",
-				"\\(allow process var_log_t \\( dir \\(.*read.*\\)\\)\\)\n",
-				"\\(allow process var_log_t \\( dir \\(.*remove_name.*\\)\\)\\)\n",
-				"\\(allow process var_log_t \\( dir \\(.*write.*\\)\\)\\)\n",
-				"\\(allow process var_log_t \\( file \\(.*getattr.*\\)\\)\\)\n",
-				"\\(allow process var_log_t \\( file \\(.*map.*\\)\\)\\)\n",
-				"\\(allow process var_log_t \\( file \\(.*create.*\\)\\)\\)\n",
-				"\\(allow process var_log_t \\( sock_file \\(.*getattr.*\\)\\)\\)\n",
-				"\\(allow process var_log_t \\( sock_file \\(.*append.*\\)\\)\\)\n",
-				"\\(allow process var_log_t \\( sock_file \\(.*open.*\\)\\)\\)\n",
-			},
+			want: "(block foo-permissive-bar\n" +
+				"(blockinherit container)\n" +
+				"(typepermissive process)\n" +
+				"(allow process var_log_t ( dir ( add_name getattr ioctl lock open read remove_name search write )))\n" +
+				"(allow process var_log_t ( file ( append create getattr ioctl lock map open read write )))\n" +
+				"(allow process var_log_t ( sock_file ( append getattr open read write )))\n" +
+				")\n",
 			inheritsys: []string{
 				"container",
 			},
@@ -284,14 +257,10 @@ func TestObject2CIL(t *testing.T) {
 					},
 				},
 			},
-			wantMatches: []string{
-				"\\(block foo-enforcing-bar",
-				"\\(blockinherit container\\)",
-				"\\(allow process var_log_t \\( dir \\(.*open.*\\)\\)\\)\n",
-			},
-			doNotMatch: []string{
-				"\\(typepermissive process\\)",
-			},
+			want: "(block foo-enforcing-bar\n" +
+				"(blockinherit container)\n" +
+				"(allow process var_log_t ( dir ( open )))\n" +
+				")\n",
 			inheritsys: []string{
 				"container",
 			},
@@ -323,15 +292,13 @@ func TestObject2CIL(t *testing.T) {
 					},
 				},
 			},
-			wantMatches: []string{
-				"\\(block foo-bar",
-				"\\(blockinherit container\\)",
-				"\\(blockinherit net_container\\)",
-				// We match on several lines since we don't care about the order
-				"\\(allow process var_log_t \\( dir \\(.*open.*\\)\\)\\)\n",
-				"\\(allow process var_log_t \\( file \\(.*getattr.*\\)\\)\\)\n",
-				"\\(allow process var_log_t \\( sock_file \\(.*getattr.*\\)\\)\\)\n",
-			},
+			want: "(block foo-bar\n" +
+				"(blockinherit container)\n" +
+				"(blockinherit net_container)\n" +
+				"(allow process var_log_t ( dir ( open )))\n" +
+				"(allow process var_log_t ( file ( getattr )))\n" +
+				"(allow process var_log_t ( sock_file ( getattr )))\n" +
+				")\n",
 			inheritsys: []string{
 				"container",
 				"net_container",
@@ -436,7 +403,10 @@ func TestObject2CIL(t *testing.T) {
 					},
 				},
 			},
-			wantErr: false,
+			want: "(block foo-bar\n" +
+				"(blockinherit container)\n" +
+				"(allow process var_log_t ( dir ( open )))\n" +
+				")\n",
 			inheritsys: []string{
 				"container",
 			},
@@ -552,10 +522,10 @@ func TestObject2CIL(t *testing.T) {
 			options: &Options{
 				AllowedTypes: []string{"kernel_t"},
 			},
-			wantErr: false,
-			wantMatches: []string{
-				"\\(allow process kernel_t \\( file \\( open \\)\\)\\)\n",
-			},
+			want: "(block foo-bar\n" +
+				"(blockinherit container)\n" +
+				"(allow process kernel_t ( file ( open )))\n" +
+				")\n",
 			inheritsys: []string{
 				"container",
 			},
@@ -584,10 +554,10 @@ func TestObject2CIL(t *testing.T) {
 			options: &Options{
 				AllowedClasses: []string{"capability"},
 			},
-			wantErr: false,
-			wantMatches: []string{
-				"\\(allow process var_log_t \\( capability \\( net_admin \\)\\)\\)\n",
-			},
+			want: "(block foo-bar\n" +
+				"(blockinherit container)\n" +
+				"(allow process var_log_t ( capability ( net_admin )))\n" +
+				")\n",
 			inheritsys: []string{
 				"container",
 			},
@@ -616,10 +586,10 @@ func TestObject2CIL(t *testing.T) {
 			options: &Options{
 				AllowedPermissions: []string{"mounton"},
 			},
-			wantErr: false,
-			wantMatches: []string{
-				"\\(allow process var_log_t \\( file \\( mounton \\)\\)\\)\n",
-			},
+			want: "(block foo-bar\n" +
+				"(blockinherit container)\n" +
+				"(allow process var_log_t ( file ( mounton )))\n" +
+				")\n",
 			inheritsys: []string{
 				"container",
 			},
@@ -656,43 +626,85 @@ func TestObject2CIL(t *testing.T) {
 				"container",
 			},
 		},
+		{
+			name: "Test translation sorts the labels, object classes and permissions",
+			profile: &selinuxprofileapi.SelinuxProfile{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "foo-bar",
+				},
+				Spec: selinuxprofileapi.SelinuxProfileSpec{
+					Mode: selinuxprofileapi.SelinuxModePermissive,
+					Inherit: []selinuxprofileapi.PolicyRef{
+						{
+							Name: "container",
+						},
+						{
+							Name: "net_container",
+						},
+						{
+							Kind: selinuxprofileapi.SelinuxProfilePolicyKind,
+							Name: "foo",
+						},
+					},
+					// The labels, object classes and permissions are unsorted.
+					Allow: selinuxprofileapi.Allow{
+						"var_log_t": {
+							"sock_file": {"write", "open"},
+							"dir":       {"search", "open"},
+							"file":      {"read", "open", "read"},
+						},
+						"proc_t": {
+							"filesystem": {"associate"},
+						},
+						selinuxprofileapi.AllowSelf: {
+							"tcp_socket": {"listen"},
+						},
+						"http_port_t": {
+							"udp_socket": {"name_bind"},
+							"tcp_socket": {"name_bind"},
+						},
+					},
+				},
+			},
+			// The inherited profile already inherits the container template.
+			want: "(block foo-bar\n" +
+				"(blockinherit net_container)\n" +
+				"(blockinherit foo)\n" +
+				"(typepermissive process)\n" +
+				"(allow process foo-bar.process ( tcp_socket ( listen )))\n" +
+				"(allow process http_port_t ( tcp_socket ( name_bind )))\n" +
+				"(allow process http_port_t ( udp_socket ( name_bind )))\n" +
+				"(allow process proc_t ( filesystem ( associate )))\n" +
+				"(allow process var_log_t ( dir ( open search )))\n" +
+				"(allow process var_log_t ( file ( open read )))\n" +
+				"(allow process var_log_t ( sock_file ( open write )))\n" +
+				")\n",
+			inheritsys: []string{
+				"container",
+				"net_container",
+			},
+			inheritobjs: []selinuxprofileapi.SelinuxProfileObject{
+				&selinuxprofileapi.SelinuxProfile{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "foo",
+					},
+				},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			got, err := Object2CIL(tt.inheritsys, tt.inheritobjs, tt.profile, tt.options)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Object2CIL() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				require.Error(t, err)
 
 				return
 			}
 
-			for _, wantMatch := range tt.wantMatches {
-				matched, err := regexp.MatchString(wantMatch, got)
-				if err != nil {
-					t.Errorf("Error matching parsed CIL to expected result: %s", err)
-				} else if !matched {
-					t.Errorf(
-						"The generated CIL didn't match expectation.\nExpected match for: %s\nGenerated CIL: %s",
-						wantMatch,
-						got,
-					)
-				}
-			}
-
-			for _, doNotMatch := range tt.doNotMatch {
-				matched, err := regexp.MatchString(doNotMatch, got)
-				if err != nil {
-					t.Errorf("Error matching parsed CIL to expected result: %s", err)
-				} else if matched {
-					t.Errorf(
-						"The generated CIL matched expectation.\nExpected no match for: %s\nGenerated CIL: %s",
-						doNotMatch,
-						got,
-					)
-				}
-			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
