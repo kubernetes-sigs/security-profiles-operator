@@ -17,7 +17,6 @@ limitations under the License.
 package remover
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/go-logr/logr"
@@ -62,7 +61,7 @@ func (p *Remover) Run() error {
 	case *apparmorprofileapi.AppArmorProfile:
 		manager := apparmorprofile.NewAppArmorProfileManager(p.logger)
 		if !p.AppArmorEnabled(manager) {
-			return errors.New("insufficient permissions or AppArmor is unavailable")
+			return installer.ErrAppArmorUnavailable
 		}
 
 		if err := installer.PatchProfileName(obj, p.options); err != nil {
@@ -75,7 +74,10 @@ func (p *Remover) Run() error {
 			return fmt.Errorf("remove apparmor profile: %w", err)
 		}
 	default:
-		return fmt.Errorf("cannot remove %T profile", obj)
+		return fmt.Errorf(
+			"cannot remove %s profiles, only AppArmorProfile is supported",
+			obj.GetObjectKind().GroupVersionKind().Kind,
+		)
 	}
 
 	return nil

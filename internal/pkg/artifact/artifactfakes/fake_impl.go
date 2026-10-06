@@ -124,11 +124,12 @@ type FakeImpl struct {
 		result1 string
 		result2 error
 	}
-	IDTokenStub        func(context.Context, string) (string, error)
+	IDTokenStub        func(context.Context, string, bool) (string, error)
 	iDTokenMutex       sync.RWMutex
 	iDTokenArgsForCall []struct {
 		arg1 context.Context
 		arg2 string
+		arg3 bool
 	}
 	iDTokenReturns struct {
 		result1 string
@@ -222,21 +223,6 @@ type FakeImpl struct {
 		result1 client.Object
 		result2 error
 	}
-	ReferrersStub        func(context.Context, *remote.Repository, *v1.Descriptor) ([]v1.Descriptor, error)
-	referrersMutex       sync.RWMutex
-	referrersArgsForCall []struct {
-		arg1 context.Context
-		arg2 *remote.Repository
-		arg3 *v1.Descriptor
-	}
-	referrersReturns struct {
-		result1 []v1.Descriptor
-		result2 error
-	}
-	referrersReturnsOnCall map[int]struct {
-		result1 []v1.Descriptor
-		result2 error
-	}
 	RemoveAllStub        func(string) error
 	removeAllMutex       sync.RWMutex
 	removeAllArgsForCall []struct {
@@ -290,6 +276,21 @@ type FakeImpl struct {
 	}
 	signBundleReturnsOnCall map[int]struct {
 		result1 *v1a.Bundle
+		result2 error
+	}
+	SignatureReferrersStub        func(context.Context, *remote.Repository, *v1.Descriptor) ([]v1.Descriptor, error)
+	signatureReferrersMutex       sync.RWMutex
+	signatureReferrersArgsForCall []struct {
+		arg1 context.Context
+		arg2 *remote.Repository
+		arg3 *v1.Descriptor
+	}
+	signatureReferrersReturns struct {
+		result1 []v1.Descriptor
+		result2 error
+	}
+	signatureReferrersReturnsOnCall map[int]struct {
+		result1 []v1.Descriptor
 		result2 error
 	}
 	SigningConfigStub        func(context.Context) (*root.SigningConfig, error)
@@ -793,19 +794,20 @@ func (fake *FakeImpl) FilepathAbsReturnsOnCall(i int, result1 string, result2 er
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) IDToken(arg1 context.Context, arg2 string) (string, error) {
+func (fake *FakeImpl) IDToken(arg1 context.Context, arg2 string, arg3 bool) (string, error) {
 	fake.iDTokenMutex.Lock()
 	ret, specificReturn := fake.iDTokenReturnsOnCall[len(fake.iDTokenArgsForCall)]
 	fake.iDTokenArgsForCall = append(fake.iDTokenArgsForCall, struct {
 		arg1 context.Context
 		arg2 string
-	}{arg1, arg2})
+		arg3 bool
+	}{arg1, arg2, arg3})
 	stub := fake.IDTokenStub
 	fakeReturns := fake.iDTokenReturns
-	fake.recordInvocation("IDToken", []interface{}{arg1, arg2})
+	fake.recordInvocation("IDToken", []interface{}{arg1, arg2, arg3})
 	fake.iDTokenMutex.Unlock()
 	if stub != nil {
-		return stub(arg1, arg2)
+		return stub(arg1, arg2, arg3)
 	}
 	if specificReturn {
 		return ret.result1, ret.result2
@@ -819,17 +821,17 @@ func (fake *FakeImpl) IDTokenCallCount() int {
 	return len(fake.iDTokenArgsForCall)
 }
 
-func (fake *FakeImpl) IDTokenCalls(stub func(context.Context, string) (string, error)) {
+func (fake *FakeImpl) IDTokenCalls(stub func(context.Context, string, bool) (string, error)) {
 	fake.iDTokenMutex.Lock()
 	defer fake.iDTokenMutex.Unlock()
 	fake.IDTokenStub = stub
 }
 
-func (fake *FakeImpl) IDTokenArgsForCall(i int) (context.Context, string) {
+func (fake *FakeImpl) IDTokenArgsForCall(i int) (context.Context, string, bool) {
 	fake.iDTokenMutex.RLock()
 	defer fake.iDTokenMutex.RUnlock()
 	argsForCall := fake.iDTokenArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
 }
 
 func (fake *FakeImpl) IDTokenReturns(result1 string, result2 error) {
@@ -1258,72 +1260,6 @@ func (fake *FakeImpl) ReadProfileReturnsOnCall(i int, result1 client.Object, res
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) Referrers(arg1 context.Context, arg2 *remote.Repository, arg3 *v1.Descriptor) ([]v1.Descriptor, error) {
-	fake.referrersMutex.Lock()
-	ret, specificReturn := fake.referrersReturnsOnCall[len(fake.referrersArgsForCall)]
-	fake.referrersArgsForCall = append(fake.referrersArgsForCall, struct {
-		arg1 context.Context
-		arg2 *remote.Repository
-		arg3 *v1.Descriptor
-	}{arg1, arg2, arg3})
-	stub := fake.ReferrersStub
-	fakeReturns := fake.referrersReturns
-	fake.recordInvocation("Referrers", []interface{}{arg1, arg2, arg3})
-	fake.referrersMutex.Unlock()
-	if stub != nil {
-		return stub(arg1, arg2, arg3)
-	}
-	if specificReturn {
-		return ret.result1, ret.result2
-	}
-	return fakeReturns.result1, fakeReturns.result2
-}
-
-func (fake *FakeImpl) ReferrersCallCount() int {
-	fake.referrersMutex.RLock()
-	defer fake.referrersMutex.RUnlock()
-	return len(fake.referrersArgsForCall)
-}
-
-func (fake *FakeImpl) ReferrersCalls(stub func(context.Context, *remote.Repository, *v1.Descriptor) ([]v1.Descriptor, error)) {
-	fake.referrersMutex.Lock()
-	defer fake.referrersMutex.Unlock()
-	fake.ReferrersStub = stub
-}
-
-func (fake *FakeImpl) ReferrersArgsForCall(i int) (context.Context, *remote.Repository, *v1.Descriptor) {
-	fake.referrersMutex.RLock()
-	defer fake.referrersMutex.RUnlock()
-	argsForCall := fake.referrersArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
-}
-
-func (fake *FakeImpl) ReferrersReturns(result1 []v1.Descriptor, result2 error) {
-	fake.referrersMutex.Lock()
-	defer fake.referrersMutex.Unlock()
-	fake.ReferrersStub = nil
-	fake.referrersReturns = struct {
-		result1 []v1.Descriptor
-		result2 error
-	}{result1, result2}
-}
-
-func (fake *FakeImpl) ReferrersReturnsOnCall(i int, result1 []v1.Descriptor, result2 error) {
-	fake.referrersMutex.Lock()
-	defer fake.referrersMutex.Unlock()
-	fake.ReferrersStub = nil
-	if fake.referrersReturnsOnCall == nil {
-		fake.referrersReturnsOnCall = make(map[int]struct {
-			result1 []v1.Descriptor
-			result2 error
-		})
-	}
-	fake.referrersReturnsOnCall[i] = struct {
-		result1 []v1.Descriptor
-		result2 error
-	}{result1, result2}
-}
-
 func (fake *FakeImpl) RemoveAll(arg1 string) error {
 	fake.removeAllMutex.Lock()
 	ret, specificReturn := fake.removeAllReturnsOnCall[len(fake.removeAllArgsForCall)]
@@ -1577,6 +1513,72 @@ func (fake *FakeImpl) SignBundleReturnsOnCall(i int, result1 *v1a.Bundle, result
 	}
 	fake.signBundleReturnsOnCall[i] = struct {
 		result1 *v1a.Bundle
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) SignatureReferrers(arg1 context.Context, arg2 *remote.Repository, arg3 *v1.Descriptor) ([]v1.Descriptor, error) {
+	fake.signatureReferrersMutex.Lock()
+	ret, specificReturn := fake.signatureReferrersReturnsOnCall[len(fake.signatureReferrersArgsForCall)]
+	fake.signatureReferrersArgsForCall = append(fake.signatureReferrersArgsForCall, struct {
+		arg1 context.Context
+		arg2 *remote.Repository
+		arg3 *v1.Descriptor
+	}{arg1, arg2, arg3})
+	stub := fake.SignatureReferrersStub
+	fakeReturns := fake.signatureReferrersReturns
+	fake.recordInvocation("SignatureReferrers", []interface{}{arg1, arg2, arg3})
+	fake.signatureReferrersMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) SignatureReferrersCallCount() int {
+	fake.signatureReferrersMutex.RLock()
+	defer fake.signatureReferrersMutex.RUnlock()
+	return len(fake.signatureReferrersArgsForCall)
+}
+
+func (fake *FakeImpl) SignatureReferrersCalls(stub func(context.Context, *remote.Repository, *v1.Descriptor) ([]v1.Descriptor, error)) {
+	fake.signatureReferrersMutex.Lock()
+	defer fake.signatureReferrersMutex.Unlock()
+	fake.SignatureReferrersStub = stub
+}
+
+func (fake *FakeImpl) SignatureReferrersArgsForCall(i int) (context.Context, *remote.Repository, *v1.Descriptor) {
+	fake.signatureReferrersMutex.RLock()
+	defer fake.signatureReferrersMutex.RUnlock()
+	argsForCall := fake.signatureReferrersArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *FakeImpl) SignatureReferrersReturns(result1 []v1.Descriptor, result2 error) {
+	fake.signatureReferrersMutex.Lock()
+	defer fake.signatureReferrersMutex.Unlock()
+	fake.SignatureReferrersStub = nil
+	fake.signatureReferrersReturns = struct {
+		result1 []v1.Descriptor
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) SignatureReferrersReturnsOnCall(i int, result1 []v1.Descriptor, result2 error) {
+	fake.signatureReferrersMutex.Lock()
+	defer fake.signatureReferrersMutex.Unlock()
+	fake.SignatureReferrersStub = nil
+	if fake.signatureReferrersReturnsOnCall == nil {
+		fake.signatureReferrersReturnsOnCall = make(map[int]struct {
+			result1 []v1.Descriptor
+			result2 error
+		})
+	}
+	fake.signatureReferrersReturnsOnCall[i] = struct {
+		result1 []v1.Descriptor
 		result2 error
 	}{result1, result2}
 }

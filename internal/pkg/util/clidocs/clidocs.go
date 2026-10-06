@@ -66,7 +66,11 @@ func Command(newApp func() *cli.App, env []EnvVar) *cli.Command {
 // urfave/cli one heading level below a title, followed by the environment
 // variables of the flags and env.
 func Markdown(app *cli.App, env []EnvVar) (string, error) {
+	restore := documentBoolDefaults(app)
 	doc, err := app.ToMarkdown()
+
+	restore()
+
 	if err != nil {
 		return "", fmt.Errorf("generate markdown: %w", err)
 	}
@@ -79,6 +83,56 @@ func Markdown(app *cli.App, env []EnvVar) (string, error) {
 	b.WriteString(envVarsSection(app, env))
 
 	return b.String(), nil
+}
+
+// boolDefaultFlag documents the default of a boolean flag in its usage.
+// urfave/cli prints the defaults of the flags which take a value only, so the
+// Markdown would not tell that a boolean flag is enabled by default.
+type boolDefaultFlag struct {
+	*cli.BoolFlag
+}
+
+// GetUsage returns the usage of the flag followed by its default.
+func (f boolDefaultFlag) GetUsage() string {
+	return fmt.Sprintf("%s (default: %s)", f.BoolFlag.GetUsage(), f.GetDefaultText())
+}
+
+// documentBoolDefaults replaces the boolean flags of app and its commands
+// which default to true or have a default text with a boolDefaultFlag. The
+// returned function puts the original flags back.
+func documentBoolDefaults(app *cli.App) (restore func()) {
+	var restores []func()
+
+	replace := func(flags []cli.Flag) {
+		for i, flag := range flags {
+			boolFlag, ok := flag.(*cli.BoolFlag)
+			if !ok || boolFlag.DisableDefaultText ||
+				(!boolFlag.Value && boolFlag.DefaultText == "") {
+				continue
+			}
+
+			restores = append(restores, func() { flags[i] = boolFlag })
+			flags[i] = boolDefaultFlag{BoolFlag: boolFlag}
+		}
+	}
+
+	var replaceCommands func([]*cli.Command)
+
+	replaceCommands = func(commands []*cli.Command) {
+		for _, command := range commands {
+			replace(command.Flags)
+			replaceCommands(command.Subcommands)
+		}
+	}
+
+	replace(app.Flags)
+	replaceCommands(app.Commands)
+
+	return func() {
+		for _, restore := range restores {
+			restore()
+		}
+	}
 }
 
 // demoteHeadings moves the headings of doc one level down, so that the

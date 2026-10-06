@@ -16,7 +16,11 @@ limitations under the License.
 
 package puller
 
-import "sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
+import (
+	"errors"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
+)
 
 // DefaultOutputFile defines the default output location for the puller.
 var DefaultOutputFile = cli.DefaultFile
@@ -70,4 +74,13 @@ const (
 	// FlagOffline is the flag for verifying without any transparency log
 	// lookup.
 	FlagOffline string = "offline"
+
+	// flagPlatformsAlias is the alias of FlagPlatform, the flag name of push.
+	flagPlatformsAlias string = "platforms"
+)
+
+// ErrKeyWithIdentity is returned if a public key is combined with identity or
+// issuer constraints, which a key signature has no certificate for.
+var ErrKeyWithIdentity = errors.New(
+	"a public key signature carries no identity or OIDC issuer to verify",
 )

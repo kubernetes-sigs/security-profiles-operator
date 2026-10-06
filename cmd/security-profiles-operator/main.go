@@ -128,6 +128,10 @@ const (
 	// Deprecated: TLS version is now managed via OpenShift TLS profiles.
 	tlsMinVersionParam string = "tls-min-version"
 
+	// defaultTrue is the default text of the boolean flags which default to
+	// true.
+	defaultTrue string = "true"
+
 	// cacheSyncCheckTimeout bounds a single readiness check, so that it polls
 	// the informer caches rather than waiting for them.
 	cacheSyncCheckTimeout time.Duration = 5 * time.Second
@@ -165,8 +169,12 @@ var runtimeEnvVars = []clidocs.EnvVar{
 	},
 	{
 		Name: config.RestrictNamespaceEnvKey,
-		Description: "restricts manager and daemon to a single namespace, " +
-			"falls back to `WATCH_NAMESPACE`",
+		Description: "restricts manager and daemon to the comma separated namespaces, " +
+			"the namespace of the operator is always included",
+	},
+	{
+		Name:        "WATCH_NAMESPACE",
+		Description: "used like `" + config.RestrictNamespaceEnvKey + "` if that is not set",
 	},
 	{
 		Name: config.KubeletDirEnvKey,
@@ -181,6 +189,22 @@ var runtimeEnvVars = []clidocs.EnvVar{
 		}, ", "),
 		Description: "enable the respective daemon container in addition to the " +
 			"`SecurityProfilesOperatorDaemon` configuration, the manager passes them on to the daemon",
+	},
+	{
+		Name: config.EnableInsecureMetricsAccessEnvKey,
+		Description: "read by the manager as well: allows unauthenticated access to the metrics " +
+			"endpoint of the daemon in addition to the `SecurityProfilesOperatorDaemon` configuration",
+	},
+	{
+		Name: "RELATED_IMAGE_SELINUXD",
+		Description: "image of the selinuxd container of the daemon if the image mapping of the " +
+			"operator ConfigMap selects none for the operating system of the node",
+	},
+	{
+		Name: "RELATED_IMAGE_SELINUXD_EL8, RELATED_IMAGE_SELINUXD_EL9, " +
+			"RELATED_IMAGE_SELINUXD_EL10, RELATED_IMAGE_SELINUXD_FEDORA",
+		Description: "images of the selinuxd container per operating system of the node, " +
+			"which the `" + util.SelinuxdImageMappingKey + "` mapping of the operator ConfigMap refers to",
 	},
 }
 
@@ -232,45 +256,52 @@ func managerCommand(info *version.Info) *cli.Command {
 		},
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
-				Name:    webhookFlag,
-				Aliases: []string{"w"},
-				Value:   true,
-				Usage:   "the webhook k8s resources are managed by the operator(default true)",
+				Name:        webhookFlag,
+				Aliases:     []string{"w"},
+				Value:       true,
+				DefaultText: defaultTrue,
+				Usage:       "manage the Kubernetes resources of the webhook",
 			},
 			&cli.BoolFlag{
-				Name:  nodeStatusControllerFlag,
-				Value: true,
-				Usage: "Enable the node status controller.",
+				Name:        nodeStatusControllerFlag,
+				Value:       true,
+				DefaultText: defaultTrue,
+				Usage:       "enable the node status controller",
 			},
 			&cli.BoolFlag{
-				Name:  spodControllerFlag,
-				Value: true,
-				Usage: "Enable the SPOD controller.",
+				Name:        spodControllerFlag,
+				Value:       true,
+				DefaultText: defaultTrue,
+				Usage:       "enable the SPOD controller",
 			},
 			&cli.BoolFlag{
-				Name:  workloadAnnotatorFlag,
-				Value: true,
-				Usage: "Enable the workload annotator.",
+				Name:        workloadAnnotatorFlag,
+				Value:       true,
+				DefaultText: defaultTrue,
+				Usage:       "enable the workload annotator",
 			},
 			&cli.BoolFlag{
-				Name:  recordingMergerFlag,
-				Value: true,
-				Usage: "Enable the recording merger.",
+				Name:        recordingMergerFlag,
+				Value:       true,
+				DefaultText: defaultTrue,
+				Usage:       "enable the recording merger",
 			},
 			&cli.BoolFlag{
-				Name:  recordingTrackerFlag,
-				Value: true,
-				Usage: "Enable the recording tracker.",
+				Name:        recordingTrackerFlag,
+				Value:       true,
+				DefaultText: defaultTrue,
+				Usage:       "enable the recording tracker",
 			},
 			&cli.BoolFlag{
-				Name:  bindingTrackerFlag,
-				Value: true,
-				Usage: "Enable the binding tracker.",
+				Name:        bindingTrackerFlag,
+				Value:       true,
+				DefaultText: defaultTrue,
+				Usage:       "enable the binding tracker",
 			},
 			&cli.IntFlag{
 				Name:  maxConcurrentReconcilesFlag,
 				Value: controller.DefaultMaxConcurrentReconciles,
-				Usage: "The number of concurrent reconciles of the pod driven controllers.",
+				Usage: "the number of concurrent reconciles of the pod driven controllers",
 			},
 		},
 	}
@@ -287,44 +318,45 @@ func daemonCommand(info *version.Info) *cli.Command {
 		},
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
-				Name:    seccompFlag,
-				Usage:   "Listen for seccomp API resources",
-				Value:   true,
-				EnvVars: []string{config.EnableSeccompEnvKey},
+				Name:        seccompFlag,
+				Usage:       "listen for seccomp API resources",
+				Value:       true,
+				DefaultText: defaultTrue,
+				EnvVars:     []string{config.EnableSeccompEnvKey},
 			},
 			&cli.BoolFlag{
 				Name:    selinuxFlag,
-				Usage:   "Listen for SELinux API resources",
+				Usage:   "listen for SELinux API resources",
 				Value:   false,
 				EnvVars: []string{config.EnableSelinuxEnvKey},
 			},
 			&cli.BoolFlag{
 				Name:    apparmorFlag,
-				Usage:   "Listen for AppArmor API resources",
+				Usage:   "listen for AppArmor API resources",
 				Value:   false,
 				EnvVars: []string{config.EnableApparmorEnvKey},
 			},
 			&cli.BoolFlag{
 				Name:    rawSelinuxFlag,
-				Usage:   "Listen for RawSelinuxProfile API resources",
+				Usage:   "listen for RawSelinuxProfile API resources",
 				Value:   false,
 				EnvVars: []string{config.EnableRawSelinuxEnvKey},
 			},
 			&cli.BoolFlag{
 				Name:    recordingFlag,
-				Usage:   "Listen for ProfileRecording API resources",
+				Usage:   "listen for ProfileRecording API resources",
 				Value:   false,
 				EnvVars: []string{config.EnableRecordingEnvKey},
 			},
 			&cli.BoolFlag{
 				Name:    memOptimFlag,
-				Usage:   "Enable memory optimization by watching only labeled pods",
+				Usage:   "enable memory optimization by watching only labeled pods",
 				Value:   false,
 				EnvVars: []string{config.EnableMemOptimEnvKey},
 			},
 			&cli.BoolFlag{
 				Name:    insecureMetricsAccessFlag,
-				Usage:   "Allow unauthenticated access to metrics endpoint",
+				Usage:   "allow unauthenticated access to the metrics endpoint",
 				Value:   false,
 				EnvVars: []string{config.EnableInsecureMetricsAccessEnvKey},
 			},
@@ -352,12 +384,12 @@ func webhookCommand(info *version.Info) *cli.Command {
 				Name:    "static",
 				Aliases: []string{"s"},
 				Value:   false,
-				Usage:   "the webhook k8s resources are statically managed (default false)",
+				Usage:   "the Kubernetes resources of the webhook are managed statically",
 			},
 			&cli.StringFlag{
 				Name:   tlsMinVersionParam,
 				Hidden: true,
-				Usage:  "DEPRECATED: TLS configuration is now managed via OpenShift TLS profiles. This flag is ignored.",
+				Usage:  "deprecated and ignored, the TLS configuration is managed through OpenShift TLS profiles",
 			},
 		},
 	}
@@ -376,12 +408,12 @@ func nonRootEnablerCommand(info *version.Info) *cli.Command {
 				Name:    "runtime",
 				Aliases: []string{"r"},
 				Value:   "",
-				Usage:   "the container runtime in the cluster (values: cri-o, containerd, docker)",
+				Usage:   "the container runtime in the cluster (cri-o, containerd or docker), only logged",
 			},
 			&cli.BoolFlag{
 				Name:    "apparmor",
 				Aliases: []string{"a"},
-				Usage:   "enable installation of apparmor profiles for spo",
+				Usage:   "install the AppArmor profiles of the operator",
 				EnvVars: []string{config.AppArmorEnvKey},
 			},
 		},
@@ -393,17 +425,17 @@ func logEnricherCommand(info *version.Info) *cli.Command {
 		Before:  initialize,
 		Name:    "log-enricher",
 		Aliases: []string{"l"},
-		Usage:   "run the audit's log enricher",
+		Usage:   "run the audit log enricher",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:  enricherFiltersJsonParam,
 				Value: "",
-				Usage: "Log Enricher filters JSON.",
+				Usage: "the filters of the log enricher as inline JSON",
 			},
 			&cli.StringFlag{
 				Name:  enricherLogSourceParam,
 				Value: "",
-				Usage: "Log source to ingest (`Bpf` or `Auditd`)",
+				Usage: "the log source to ingest (`Bpf` or `Auditd`)",
 			},
 		},
 		Action: func(ctx *cli.Context) error {
@@ -417,7 +449,7 @@ func jsonEnricherCommand(info *version.Info) *cli.Command {
 		Before:  initialize,
 		Name:    "json-enricher",
 		Aliases: []string{"j"},
-		Usage:   "run the audit's json enricher",
+		Usage:   "run the JSON audit log enricher",
 		Action: func(ctx *cli.Context) error {
 			return runJsonEnricher(ctx, info)
 		},
@@ -426,37 +458,36 @@ func jsonEnricherCommand(info *version.Info) *cli.Command {
 				Name:    auditLogIntervalSecondsParam,
 				Aliases: []string{"a"},
 				Value:   60,
-				Usage:   "Audit log interval in seconds for the JSON Log Enricher.",
+				Usage:   "the audit log interval of the JSON enricher in seconds",
 			},
 			&cli.StringFlag{
-				Name:  auditLogPathParam,
-				Value: "",
-				Usage: "Audit log file path for the JSON Log Enricher. Default is stdout.",
+				Name:        auditLogPathParam,
+				Value:       "",
+				DefaultText: "stdout",
+				Usage:       "the audit log file path of the JSON enricher",
 			},
 			&cli.IntFlag{
 				Name:  auditLogMaxBackupParam,
 				Value: 0,
-				Usage: "Audit log max file backup for the JSON Log Enricher. " +
-					"The maximum number of old audit log files to retain. " +
-					"Setting a value of 0 will mean there's no restriction on the number of files.",
+				Usage: "the maximum number of old audit log files of the JSON enricher to retain, " +
+					"0 retains all",
 			},
 			&cli.IntFlag{
 				Name:  auditLogMaxSizeParam,
 				Value: 100,
-				Usage: "Audit log max file size for the JSON Log Enricher. " +
-					"The maximum size in megabytes of the audit log file before it gets rotated.",
+				Usage: "the maximum size in megabytes of the audit log file of the JSON enricher " +
+					"before it gets rotated",
 			},
 			&cli.IntFlag{
 				Name:  auditLogMaxAgeParam,
 				Value: 0,
-				Usage: "Audit log max age for the JSON Log Enricher. " +
-					"The maximum number of days to retain old audit log files based " +
-					"on the timestamp encoded in their filename.",
+				Usage: "the maximum number of days to retain old audit log files of the JSON enricher, " +
+					"based on the timestamp in their file name, 0 retains them regardless of age",
 			},
 			&cli.StringFlag{
 				Name:  enricherFiltersJsonParam,
 				Value: "",
-				Usage: "JSON Enricher filters JSON file path.",
+				Usage: "the filters of the JSON enricher as inline JSON",
 			},
 		},
 	}

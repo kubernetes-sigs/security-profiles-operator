@@ -71,6 +71,13 @@ func New(options *Options) *Recorder {
 	}
 }
 
+// ErrBPFLSMDisabled is returned when recording an AppArmor profile on a
+// kernel without the BPF LSM, which the AppArmor recording hooks need.
+var ErrBPFLSMDisabled = errors.New(
+	"BPF LSM is not enabled for this kernel, add bpf to the lsm= kernel parameter " +
+		"to record AppArmor profiles",
+)
+
 // Run the Recorder.
 func (r *Recorder) Run() error {
 	recordAppArmor := ((r.options.typ == TypeApparmor) ||
@@ -84,7 +91,7 @@ func (r *Recorder) Run() error {
 	// Explicitly check for BPF LSM support as the recorder fails silently
 	// to support seccomp-only use cases.
 	if recordAppArmor && !r.BPFLSMEnabled() {
-		return errors.New("BPF LSM is not enabled for this kernel")
+		return ErrBPFLSMDisabled
 	}
 
 	r.bpfRecorder = bpfrecorder.New(
@@ -119,44 +126,9 @@ func (r *Recorder) Run() error {
 		}
 	}(r, r.bpfRecorder)
 
-	var mntns uint32
-
-	if r.options.noProcStart {
-		// command execution is managed externally,
-		// so we play dumb and just wait for SIGINT.
-		ch := make(chan os.Signal, 1)
-		r.Notify(ch, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
-		log.Print(WaitForSigIntMessage)
-		<-ch
-	} else {
-		cmd := command.New(r.options.commandOptions)
-
-		pid, err := r.CommandRun(cmd)
-		if err != nil {
-			return fmt.Errorf("run command: %w", err)
-		}
-
-		// The command shares the mount namespace of spoc, which is still
-		// there if the command exits right away.
-		spocPid := os.Getpid()
-
-		mntns, err = r.FindProcMountNamespace(r.bpfRecorder, uint32(spocPid))
-		if err != nil {
-			return fmt.Errorf("finding mntns of spoc PID %d: %w", spocPid, err)
-		}
-
-		if err := r.CommandWait(cmd); err != nil {
-			log.Printf("Command did not exit successfully: %v", err)
-		}
-
-		log.Println("Waiting for events processor to catch up...")
-
-		ctx, cancel := context.WithTimeout(context.Background(), waitForPidExitTimeout)
-		defer cancel()
-
-		if err := r.WaitForPidExit(r.bpfRecorder, ctx, pid); err != nil {
-			log.Printf("Did not register exit signal for pid %d: %v", pid, err)
-		}
+	mntns, err := r.recordCommand()
+	if err != nil {
+		return err
 	}
 
 	// Build the profile before creating the file, so that a failure leaves
@@ -176,6 +148,54 @@ func (r *Recorder) Run() error {
 	}
 
 	return r.writeProfile(profile.Bytes())
+}
+
+// recordCommand runs the command until it exits and returns its mount
+// namespace, which the recorded data is filtered by. Without starting the
+// command, it waits for a signal and returns zero, which records every mount
+// namespace.
+func (r *Recorder) recordCommand() (mntns uint32, err error) {
+	if r.options.noProcStart {
+		// command execution is managed externally,
+		// so we play dumb and just wait for SIGINT.
+		ch := make(chan os.Signal, 1)
+		r.Notify(ch, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+		log.Print(WaitForSigIntMessage)
+		<-ch
+
+		return 0, nil
+	}
+
+	cmd := command.New(r.options.commandOptions)
+
+	pid, err := r.CommandRun(cmd)
+	if err != nil {
+		return 0, fmt.Errorf("run command: %w", err)
+	}
+
+	// The command shares the mount namespace of spoc, which is still
+	// there if the command exits right away.
+	spocPid := os.Getpid()
+
+	mntns, err = r.FindProcMountNamespace(r.bpfRecorder, uint32(spocPid))
+	if err != nil {
+		return 0, fmt.Errorf("finding mntns of spoc PID %d: %w", spocPid, err)
+	}
+
+	if err := r.CommandWait(cmd); err != nil {
+		log.Printf("Command did not exit successfully: %v", err)
+	}
+
+	log.Println("Waiting for events processor to catch up...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), waitForPidExitTimeout)
+	defer cancel()
+
+	if err := r.WaitForPidExit(r.bpfRecorder, ctx, pid); err != nil {
+		log.Printf("Did not register exit signal for pid %d: %v", pid, err)
+	}
+
+	return mntns, nil
 }
 
 // writeProfile writes the profile to the output file.

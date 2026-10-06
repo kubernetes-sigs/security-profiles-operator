@@ -36,6 +36,24 @@ func Default() *Options {
 	}
 }
 
+// Flags returns the flags of the convert command.
+func Flags() []ucli.Flag {
+	return []ucli.Flag{
+		&ucli.StringFlag{
+			Name:        FlagOutputFile,
+			Aliases:     []string{"o"},
+			Usage:       "the output file path for the raw profile",
+			DefaultText: DefaultOutputFile,
+			TakesFile:   true,
+		},
+		&ucli.StringFlag{
+			Name:    FlagProgramName,
+			Aliases: []string{"p"},
+			Usage:   "the path of the confined program, AppArmor only",
+		},
+	}
+}
+
 // FromContext can be used to create Options from an CLI context.
 func FromContext(ctx *ucli.Context) (*Options, error) {
 	options := Default()

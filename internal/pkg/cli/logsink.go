@@ -19,12 +19,21 @@ package cli
 import (
 	"fmt"
 	"log"
+	"slices"
 	"strings"
 
 	"github.com/go-logr/logr"
 )
 
-type LogSink struct{}
+// missingValue is printed for the value of a key without one.
+const missingValue = "<no value>"
+
+// LogSink is the logr.LogSink of spoc, which prints through the standard
+// logger: the name, the message, the error and the key/value pairs.
+type LogSink struct {
+	name   string
+	values []any
+}
 
 // Init receives optional information about the logr library for LogSink
 // implementations that need it.
@@ -51,41 +60,71 @@ func (l *LogSink) Error(err error, msg string, keysAndValues ...any) {
 	l.Print(msg, err, keysAndValues...)
 }
 
-func (*LogSink) Print(msg string, err error, keysAndValues ...any) {
+// Print logs the message with the error, if any, and the key/value pairs of
+// the sink followed by the given ones.
+func (l *LogSink) Print(msg string, err error, keysAndValues ...any) {
+	log.Print(l.format(msg, err, keysAndValues...))
+}
+
+// format returns the log line: `name: msg, err: err (key=value, ...)`. A key
+// without a value gets missingValue.
+func (l *LogSink) format(msg string, err error, keysAndValues ...any) string {
 	builder := strings.Builder{}
+
+	if l.name != "" {
+		builder.WriteString(l.name)
+		builder.WriteString(": ")
+	}
+
 	builder.WriteString(msg)
 
 	if err != nil {
 		fmt.Fprintf(&builder, ", err: %v", err)
 	}
 
-	for i, kv := range keysAndValues {
-		if i == 0 {
-			builder.WriteString(" (")
-		}
-
-		fmt.Fprintf(&builder, "%v", kv)
-		//nolint:gocritic // this is intentionally an else-if-chain
-		if i%2 == 0 {
-			builder.WriteRune('=')
-		} else if i == len(keysAndValues)-1 {
-			builder.WriteRune(')')
-		} else {
-			builder.WriteString(", ")
-		}
+	values := slices.Concat(l.values, keysAndValues)
+	if len(values) == 0 {
+		return builder.String()
 	}
 
-	log.Print(builder.String())
+	builder.WriteString(" (")
+
+	for i := 0; i < len(values); i += 2 {
+		if i > 0 {
+			builder.WriteString(", ")
+		}
+
+		var value any = missingValue
+		if i+1 < len(values) {
+			value = values[i+1]
+		}
+
+		fmt.Fprintf(&builder, "%v=%v", values[i], value)
+	}
+
+	builder.WriteRune(')')
+
+	return builder.String()
 }
 
 // WithValues returns a new LogSink with additional key/value pairs.  See
 // Logger.WithValues for more details.
-func (*LogSink) WithValues(...any) logr.LogSink {
-	return &LogSink{}
+func (l *LogSink) WithValues(keysAndValues ...any) logr.LogSink {
+	return &LogSink{
+		name:   l.name,
+		values: slices.Concat(l.values, keysAndValues),
+	}
 }
 
 // WithName returns a new LogSink with the specified name appended.  See
 // Logger.WithName for more details.
-func (l *LogSink) WithName(string) logr.LogSink {
-	return &LogSink{}
+func (l *LogSink) WithName(name string) logr.LogSink {
+	if l.name != "" {
+		name = l.name + "/" + name
+	}
+
+	return &LogSink{
+		name:   name,
+		values: slices.Clone(l.values),
+	}
 }

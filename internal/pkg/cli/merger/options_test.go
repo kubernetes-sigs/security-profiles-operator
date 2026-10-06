@@ -28,10 +28,12 @@ func TestFromContext(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
+		name    string
 		prepare func(*flag.FlagSet)
 		assert  func(error)
 	}{
-		{ // Success
+		{
+			name: "success",
 			prepare: func(set *flag.FlagSet) {
 				require.NoError(t, set.Parse([]string{"foo.yaml", "bar.yaml"}))
 			},
@@ -39,13 +41,15 @@ func TestFromContext(t *testing.T) {
 				require.NoError(t, err)
 			},
 		},
-		{ // failure: no profiles provided
+		{
+			name:    "failure: no profiles provided",
 			prepare: func(set *flag.FlagSet) {},
 			assert: func(err error) {
 				require.Error(t, err)
 			},
 		},
-		{ // failure: no filename provided
+		{
+			name: "failure: no filename provided",
 			prepare: func(set *flag.FlagSet) {
 				set.String(FlagOutputFile, "", "")
 				require.NoError(t, set.Set(FlagOutputFile, ""))
@@ -56,13 +60,43 @@ func TestFromContext(t *testing.T) {
 			},
 		},
 	} {
-		set := flag.NewFlagSet("", flag.ExitOnError)
-		tc.prepare(set)
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-		app := cli.NewApp()
-		ctx := cli.NewContext(app, set, nil)
+			set := flag.NewFlagSet("", flag.ExitOnError)
+			tc.prepare(set)
 
-		_, err := FromContext(ctx)
-		tc.assert(err)
+			app := cli.NewApp()
+			ctx := cli.NewContext(app, set, nil)
+
+			_, err := FromContext(ctx)
+			tc.assert(err)
+		})
+	}
+}
+
+func TestFromContextCheck(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name      string
+		args      []string
+		wantCheck bool
+	}{
+		{name: "default", args: []string{"foo.yaml"}},
+		{name: "check", args: []string{"--" + FlagCheck, "foo.yaml"}, wantCheck: true},
+		{name: "check set to false", args: []string{"--" + FlagCheck + "=false", "foo.yaml"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			set := flag.NewFlagSet("", flag.ContinueOnError)
+			set.Bool(FlagCheck, false, "")
+			require.NoError(t, set.Parse(tc.args))
+
+			options, err := FromContext(cli.NewContext(cli.NewApp(), set, nil))
+			require.NoError(t, err)
+			require.Equal(t, tc.wantCheck, options.check)
+		})
 	}
 }

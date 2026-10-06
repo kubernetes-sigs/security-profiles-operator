@@ -86,13 +86,52 @@ var ambientTokenProviders = []tokenProvider{
 	{name: "google-workload-identity", provide: googleWorkloadIdentityToken},
 }
 
+// stdinIsTerminal reports whether stdin is a terminal, which an interactive
+// sign in needs.
+func stdinIsTerminal() bool {
+	return term.IsTerminal(int(os.Stdin.Fd()))
+}
+
 // idToken returns an identity token for Fulcio: from the first provider of
 // the environment which furnishes one, otherwise by signing in to the OIDC
-// issuer in the browser, or with the device flow without a terminal.
-func idToken(ctx context.Context, issuer string) (string, error) {
+// issuer in the browser. Without a terminal, the sign in uses the device flow
+// if deviceFlow is set and fails with ErrNoInteractiveSignIn otherwise.
+func idToken(ctx context.Context, issuer string, deviceFlow bool) (string, error) {
+	getter, err := tokenGetter(ctx, ambientTokenProviders, issuer, deviceFlow, stdinIsTerminal())
+	if err != nil {
+		return "", err
+	}
+
+	if getter.token != "" {
+		return getter.token, nil
+	}
+
+	token, err := oauthflow.OIDConnect(issuer, oidcClientID, "", "", getter.interactive)
+	if err != nil {
+		return "", fmt.Errorf("authenticate at %s: %w", issuer, err)
+	}
+
+	return token.RawString, nil
+}
+
+// tokenSource is either an identity token of the environment or the
+// interactive sign in to get one.
+type tokenSource struct {
+	token       string
+	interactive oauthflow.TokenGetter
+}
+
+// tokenGetter returns the token of the first provider of the environment
+// which furnishes one, otherwise the interactive sign in to use.
+func tokenGetter(
+	ctx context.Context,
+	providers []tokenProvider,
+	issuer string,
+	deviceFlow, terminal bool,
+) (*tokenSource, error) {
 	var errs []error
 
-	for _, provider := range ambientTokenProviders {
+	for _, provider := range providers {
 		token, ok, err := provider.provide(ctx)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", provider.name, err))
@@ -101,39 +140,38 @@ func idToken(ctx context.Context, issuer string) (string, error) {
 		}
 
 		if ok {
-			return token, nil
+			return &tokenSource{token: token}, nil
 		}
 	}
 
 	// An environment which has an identity but fails to furnish it must not
 	// fall back to an interactive sign in.
 	if len(errs) > 0 {
-		return "", fmt.Errorf("fetch ambient OIDC credentials: %w", errors.Join(errs...))
+		return nil, fmt.Errorf("fetch ambient OIDC credentials: %w", errors.Join(errs...))
 	}
 
-	var getter oauthflow.TokenGetter = oauthflow.DefaultIDTokenGetter
-
-	if term.IsTerminal(int(os.Stdin.Fd())) {
+	switch {
+	case terminal:
 		fmt.Fprint(os.Stderr, privacyStatement)
-	} else {
+
+		return &tokenSource{interactive: oauthflow.DefaultIDTokenGetter}, nil
+	case deviceFlow:
 		fmt.Fprintln(os.Stderr, "Non-interactive mode detected, using device flow.")
 
-		getter = oauthflow.NewDeviceFlowTokenGetterForIssuer(issuer)
+		return &tokenSource{
+			interactive: oauthflow.NewDeviceFlowTokenGetterForIssuer(issuer),
+		}, nil
+	default:
+		return nil, ErrNoInteractiveSignIn
 	}
-
-	token, err := oauthflow.OIDConnect(issuer, oidcClientID, "", "", getter)
-	if err != nil {
-		return "", fmt.Errorf("authenticate at %s: %w", issuer, err)
-	}
-
-	return token.RawString, nil
 }
 
-// envToken returns the token of SIGSTORE_ID_TOKEN.
+// envToken returns the token of SIGSTORE_ID_TOKEN. An empty variable does not
+// count as identity, like an unset one.
 func envToken(context.Context) (token string, ok bool, err error) {
-	token, ok = os.LookupEnv(envSigstoreIDToken)
+	token = strings.TrimSpace(os.Getenv(envSigstoreIDToken))
 
-	return token, ok, nil
+	return token, token != "", nil
 }
 
 // filesystemToken returns the token mounted at the path cosign reads.

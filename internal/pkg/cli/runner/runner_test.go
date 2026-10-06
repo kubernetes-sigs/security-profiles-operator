@@ -187,19 +187,7 @@ func TestRun(t *testing.T) {
 func waitForFunctionCall(t *testing.T, fn func() int) {
 	t.Helper()
 
-	countGreaterZero := false
-
-	for range 5 {
-		if fn() > 0 {
-			countGreaterZero = true
-
-			break
-		}
-
-		time.Sleep(time.Second)
-	}
-
-	require.True(t, countGreaterZero)
+	require.Eventually(t, func() bool { return fn() > 0 }, 5*time.Second, 10*time.Millisecond)
 }
 
 func TestStartEnricher(t *testing.T) {

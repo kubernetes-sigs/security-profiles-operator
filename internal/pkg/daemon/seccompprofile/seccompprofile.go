@@ -665,21 +665,26 @@ func (r *Reconciler) pullBaseProfile(
 		MaxBlobSize: artifact.MaxRuntimeProfileSize,
 	}
 
-	// The signature verification settings are meant for private base
-	// profiles. The official ones are always verified against the official
-	// signers, so that a key or an identity for the private base profiles
-	// does not break them.
-	if !pullOpts.DisableSignatureVerification && !artifact.IsOfficialArtifact(from) {
-		cleanup, err := r.applySignatureVerification(
-			ctx, spod.Spec.Security.SignatureVerification, pullOpts, l,
+	// The signer settings are meant for private base profiles. The official
+	// ones are always verified against the official signers, so that a key
+	// or an identity for the private base profiles does not break them. The
+	// trusted root and offline apply to both, so that air-gapped clusters
+	// can verify the official base profiles as well.
+	official := artifact.IsOfficialArtifact(from)
+
+	if !pullOpts.DisableSignatureVerification {
+		err := r.applySignatureVerification(
+			ctx,
+			spod.Spec.Security.SignatureVerification,
+			pullOpts,
+			official,
+			l,
 		)
 		if err != nil {
 			r.reportError(sp, reasonCannotPullProfile, util.EventActionInstall, err)
 
 			return nil, fmt.Errorf("configuring the signature verification: %w", err)
 		}
-
-		defer cleanup()
 	}
 
 	// The official repositories get verified against the official
@@ -695,19 +700,13 @@ func (r *Reconciler) pullBaseProfile(
 		"verifiedOidcIssuerRegexp", issuer,
 		"allowedIdentity", pullOpts.CertIdentity,
 		"allowedOidcIssuer", pullOpts.CertOidcIssuer,
-		"publicKey", pullOpts.KeyRef != "",
-		"trustedRoot", pullOpts.TrustedRootPath != "",
+		"publicKey", len(pullOpts.KeyPEM) > 0,
+		"trustedRoot", len(pullOpts.TrustedRootJSON) > 0,
 		"offline", pullOpts.Offline,
 		"maxBlobSize", pullOpts.MaxBlobSize,
 	)
 
-	// No credentials are passed: the pull only uses a docker config in the
-	// daemon container, which is usually missing, so base profiles have to
-	// be publicly readable.
-	res, err := r.Pull(ctx, l, from, "", "", &v1.Platform{
-		Architecture: runtime.GOARCH,
-		OS:           runtime.GOOS,
-	}, pullOpts)
+	res, err := r.pullArtifact(ctx, from, pullOpts, official, l)
 	if err != nil {
 		l.Error(err, "cannot pull base profile", "profile", sp.Spec.BaseProfileName)
 		r.reportError(sp, reasonCannotPullProfile, util.EventActionInstall, err)
@@ -733,76 +732,137 @@ func (r *Reconciler) pullBaseProfile(
 	return baseProfile, nil
 }
 
+// pullArtifact pulls the base profile artifact for the platform of the node.
+// An official base profile which does not verify against the trusted root of
+// the SPOD is pulled again with the public Sigstore trusted root of TUF, the
+// way it got verified before the trusted root applied to it, so that a private
+// trusted root does not break the official base profiles. The second pull
+// still verifies the signature against the official signers, and it goes
+// online even if the SPOD sets offline, like the official base profiles did
+// before. Other errors, like an unreachable registry, are returned as they
+// are.
+func (r *Reconciler) pullArtifact(
+	ctx context.Context,
+	from string,
+	pullOpts *artifact.PullOptions,
+	official bool,
+	l logr.Logger,
+) (*artifact.PullResult, error) {
+	platform := &v1.Platform{
+		Architecture: runtime.GOARCH,
+		OS:           runtime.GOOS,
+	}
+
+	// No credentials are passed: the pull only uses a docker config in the
+	// daemon container, which is usually missing, so base profiles have to
+	// be publicly readable.
+	res, err := r.Pull(ctx, l, from, "", "", platform, pullOpts)
+	if err == nil || !official || len(pullOpts.TrustedRootJSON) == 0 ||
+		!errors.Is(err, artifact.ErrSignatureVerification) {
+		return res, err
+	}
+
+	l.Info(
+		"Cannot pull the official base profile with the trusted root of the SPOD, "+
+			"retrying with the public Sigstore trusted root",
+		"baseProfile", from,
+		"error", err.Error(),
+	)
+
+	publicOpts := *pullOpts
+	publicOpts.TrustedRootJSON = nil
+	publicOpts.Offline = false
+
+	res, publicErr := r.Pull(ctx, l, from, "", "", platform, &publicOpts)
+	if publicErr != nil {
+		return nil, errors.Join(err, publicErr)
+	}
+
+	return res, nil
+}
+
 // applySignatureVerification copies the signature verification settings of
 // the SPOD into the pull options. The public key and the trusted root are read
-// from the operator namespace and written to temporary files for cosign,
-// which the returned function removes.
+// from the operator namespace. For the official base profiles, only the
+// trusted root and offline apply: they stay pinned to the official signers.
 func (r *Reconciler) applySignatureVerification(
 	ctx context.Context,
 	sv *spodapi.SPODSignatureVerification,
 	opts *artifact.PullOptions,
+	official bool,
 	l logr.Logger,
-) (cleanup func(), err error) {
-	var files []string
-
-	cleanup = func() {
-		for _, file := range files {
-			if err := os.Remove(file); err != nil && !errors.Is(err, os.ErrNotExist) {
-				l.Error(err, "Cannot remove temporary signature verification file", "file", file)
-			}
-		}
+) error {
+	if sv == nil {
+		return nil
 	}
 
-	if sv == nil {
-		return cleanup, nil
+	if official {
+		r.applyOfficialTrustedRoot(ctx, sv, opts, l)
+
+		return nil
 	}
 
 	// Rejected by the API server as well, but not by the ones which do not
 	// evaluate the CEL rules of the CRD. The TUF cache of the daemon lives in
 	// an emptyDir, so offline verification needs an explicit trusted root.
 	if ptr.Deref(sv.Offline, false) && sv.TrustedRootConfigMapRef == nil {
-		return nil, errOfflineWithoutTrustedRoot
+		return errOfflineWithoutTrustedRoot
+	}
+
+	opts.Offline = ptr.Deref(sv.Offline, false)
+
+	if ref := sv.TrustedRootConfigMapRef; ref != nil {
+		trustedRoot, err := r.configMapKey(ctx, ref)
+		if err != nil {
+			return err
+		}
+
+		opts.TrustedRootJSON = trustedRoot
 	}
 
 	opts.CertIdentity = sv.AllowedIdentity
 	opts.CertOidcIssuer = sv.AllowedOidcIssuer
-	opts.Offline = ptr.Deref(sv.Offline, false)
 
 	if ref := sv.PublicKeySecretRef; ref != nil {
 		key, err := r.secretKey(ctx, ref)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
-		file, err := writeTempFile("spo-cosign-*.pub", key)
-		if err != nil {
-			return nil, fmt.Errorf("writing the public key: %w", err)
-		}
-
-		files = append(files, file)
-		opts.KeyRef = file
+		opts.KeyPEM = key
 	}
 
-	if ref := sv.TrustedRootConfigMapRef; ref != nil {
-		root, err := r.configMapKey(ctx, ref)
-		if err != nil {
-			cleanup()
+	return nil
+}
 
-			return nil, err
-		}
-
-		file, err := writeTempFile("spo-trusted-root-*.json", root)
-		if err != nil {
-			cleanup()
-
-			return nil, fmt.Errorf("writing the trusted root: %w", err)
-		}
-
-		files = append(files, file)
-		opts.TrustedRootPath = file
+// applyOfficialTrustedRoot applies the trusted root and offline of the SPOD to
+// an official base profile. A trusted root which cannot be read is ignored,
+// like before it applied to the official base profiles, which then get
+// verified online against the public Sigstore trusted root.
+func (r *Reconciler) applyOfficialTrustedRoot(
+	ctx context.Context,
+	sv *spodapi.SPODSignatureVerification,
+	opts *artifact.PullOptions,
+	l logr.Logger,
+) {
+	ref := sv.TrustedRootConfigMapRef
+	if ref == nil {
+		return
 	}
 
-	return cleanup, nil
+	trustedRoot, err := r.configMapKey(ctx, ref)
+	if err != nil {
+		l.Info(
+			"Cannot read the trusted root of the SPOD, verifying the official base profile "+
+				"with the public Sigstore trusted root",
+			"error", err.Error(),
+		)
+
+		return
+	}
+
+	opts.TrustedRootJSON = trustedRoot
+	opts.Offline = ptr.Deref(sv.Offline, false)
 }
 
 // secretKey returns the value of the selected key of a Secret in the operator
@@ -872,29 +932,6 @@ func (r *Reconciler) configMapKey(
 		r.namespace,
 		ref.Name,
 	)
-}
-
-// writeTempFile writes content to a new temporary file and returns its path.
-func writeTempFile(pattern string, content []byte) (string, error) {
-	f, err := os.CreateTemp("", pattern)
-	if err != nil {
-		return "", fmt.Errorf("creating temporary file: %w", err)
-	}
-
-	if _, err := f.Write(content); err != nil {
-		f.Close()
-		os.Remove(f.Name())
-
-		return "", fmt.Errorf("writing temporary file: %w", err)
-	}
-
-	if err := f.Close(); err != nil {
-		os.Remove(f.Name())
-
-		return "", fmt.Errorf("closing temporary file: %w", err)
-	}
-
-	return f.Name(), nil
 }
 
 func (r *Reconciler) reconcileSeccompProfile(

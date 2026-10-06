@@ -19,6 +19,7 @@ package recorder
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/urfave/cli/v2"
 
@@ -43,6 +44,45 @@ func Default() *Options {
 		baseSyscalls:   DefaultBaseSyscalls,
 		noProcStart:    false,
 	}
+}
+
+// Flags returns the flags of the record command.
+func Flags() []cli.Flag {
+	return append([]cli.Flag{
+		&cli.StringFlag{
+			Name:        FlagOutputFile,
+			Aliases:     []string{"o"},
+			Usage:       "the output file path for the recorded profile",
+			DefaultText: DefaultOutputFile,
+			TakesFile:   true,
+		},
+		&cli.StringFlag{
+			Name:    FlagType,
+			Aliases: []string{"t"},
+			Usage: fmt.Sprintf(
+				"the record type: %s, %s, %s, %s or %s",
+				TypeSeccomp, TypeRawSeccomp, TypeApparmor, TypeRawAppArmor, TypeAll,
+			),
+			DefaultText: string(TypeSeccomp),
+		},
+		&cli.StringSliceFlag{
+			Name:    FlagBaseSyscalls,
+			Aliases: []string{"b"},
+			Usage: "base syscalls to be included in every profile " +
+				"to ensure compatibility with OCI runtimes like runc and crun",
+			DefaultText: strings.Join(DefaultBaseSyscalls, ", "),
+		},
+		&cli.BoolFlag{
+			Name:    FlagNoBaseSyscalls,
+			Aliases: []string{"n"},
+			Usage:   "do not add any base syscalls at all",
+		},
+		&cli.BoolFlag{
+			Name: FlagNoProcStart,
+			Usage: "do not start the target command, record all processes matching the command name " +
+				"until ctrl+c/SIGINT, SIGTERM or SIGHUP",
+		},
+	}, command.Flags()...)
 }
 
 // FromContext can be used to create Options from an CLI context.
@@ -70,13 +110,11 @@ func FromContext(ctx *cli.Context) (*Options, error) {
 		options.baseSyscalls = ctx.StringSlice(FlagBaseSyscalls)
 	}
 
-	if ctx.IsSet(FlagNoBaseSyscalls) {
+	if ctx.Bool(FlagNoBaseSyscalls) {
 		options.baseSyscalls = nil
 	}
 
-	if ctx.IsSet(FlagNoProcStart) {
-		options.noProcStart = true
-	}
+	options.noProcStart = ctx.Bool(FlagNoProcStart)
 
 	commandOptions, err := command.FromContext(ctx)
 	if err != nil {

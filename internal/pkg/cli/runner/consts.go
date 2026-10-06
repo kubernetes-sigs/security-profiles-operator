@@ -16,7 +16,10 @@ limitations under the License.
 
 package runner
 
-import "sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
+import (
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/command"
+)
 
 // DefaultInputFile defines the default input location for the runner.
 var DefaultInputFile = cli.DefaultFile
@@ -27,6 +30,10 @@ const (
 
 	// FlagProfile is the flag for defining the input file location.
 	FlagProfile string = "profile"
+
+	// FlagPrivileged is the flag for running commands without dropping sudo
+	// privileges.
+	FlagPrivileged string = command.FlagPrivileged
 
 	// InitArg is the argument spoc gets re-executed with to load the seccomp
 	// profile and execute the command.

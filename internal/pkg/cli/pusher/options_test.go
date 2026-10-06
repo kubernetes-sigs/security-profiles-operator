@@ -141,6 +141,28 @@ func TestFromContext(t *testing.T) {
 			},
 		},
 		{
+			name: "failure empty annotation key",
+			prepare: func(set *flag.FlagSet) {
+				require.NoError(t, set.Parse([]string{"echo"}))
+				set.Var(ucli.NewStringSlice(""), FlagAnnotations, "")
+				require.NoError(t, set.Set(FlagAnnotations, " :value"))
+			},
+			assert: func(_ *Options, err error) {
+				require.ErrorContains(t, err, "empty annotation key")
+			},
+		},
+		{
+			name: "success with device flow",
+			prepare: func(set *flag.FlagSet) {
+				set.Bool(FlagOIDCDeviceFlow, false, "")
+				require.NoError(t, set.Parse([]string{"--" + FlagOIDCDeviceFlow, "echo"}))
+			},
+			assert: func(res *Options, err error) {
+				require.NoError(t, err)
+				require.True(t, res.oidcDeviceFlow)
+			},
+		},
+		{
 			name: "failure amount of profiles and platforms does not match",
 			prepare: func(set *flag.FlagSet) {
 				require.NoError(t, set.Parse([]string{"echo"}))

@@ -230,6 +230,20 @@ spec:
 				require.ErrorContains(t, err, "cannot parse yaml")
 			},
 		},
+		{
+			name: "unsupported kind",
+			prepare: func(mock *converterfakes.FakeImpl) *Options {
+				mock.ReadFileReturnsOnCall(0, []byte(
+					"apiVersion: security-profiles-operator.x-k8s.io/v1\nkind: SelinuxProfile\n",
+				), nil)
+
+				return defaultOptions()
+			},
+			assert: func(mock *converterfakes.FakeImpl, err error) {
+				require.ErrorContains(t, err, "cannot convert SelinuxProfile profiles")
+				require.NotContains(t, err.Error(), "*v1.")
+			},
+		},
 	} {
 		prepare := tc.prepare
 		assert := tc.assert

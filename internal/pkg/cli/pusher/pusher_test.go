@@ -22,6 +22,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/pusher/pusherfakes"
 )
 
@@ -49,6 +50,30 @@ func TestRun(t *testing.T) {
 			},
 			assert: func(err error) {
 				require.ErrorIs(t, err, errTest)
+			},
+		},
+		{
+			name: "failure on signing after the push",
+			prepare: func(mock *pusherfakes.FakeImpl) {
+				mock.PushReturns(&artifact.UnsignedError{
+					Reference: "registry.example.com/profiles/crun@sha256:1234",
+					Err:       errTest,
+				})
+			},
+			assert: func(err error) {
+				require.ErrorIs(t, err, errTest)
+				require.ErrorContains(t, err, "spoc sign registry.example.com/profiles/crun@sha256:1234")
+			},
+		},
+		{
+			name: "failure without identity",
+			prepare: func(mock *pusherfakes.FakeImpl) {
+				mock.PushReturns(artifact.ErrNoInteractiveSignIn)
+			},
+			assert: func(err error) {
+				require.ErrorIs(t, err, artifact.ErrNoInteractiveSignIn)
+				require.ErrorContains(t, err, "--"+FlagOIDCDeviceFlow)
+				require.ErrorContains(t, err, "--"+FlagDisableSigning)
 			},
 		},
 	} {

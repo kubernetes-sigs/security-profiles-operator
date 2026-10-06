@@ -159,7 +159,11 @@ write the resulting seccomp profile after process terminating.
 
 `spoc record` drops the privileges of `sudo` when starting the command, so
 that the command runs as the user who invoked `sudo`. Use `--privileged` to
-run the command with the privileges of `spoc` instead. With `--no-proc-start`,
+run the command with the privileges of `spoc` instead. If the privileges
+cannot be dropped, for example because the home directory of the user cannot
+be looked up, the command does not run at all instead of running as root.
+`spoc run` drops the privileges the same way and accepts `--privileged` as
+well. With `--no-proc-start`,
 `spoc record` does not start a command at all, but records all processes
 matching the command name until it gets interrupted by Ctrl^C or `SIGINT`. This
 is useful for processes which are started by another tool, like a service
@@ -276,8 +280,9 @@ lists:
 16:32:34.120119 Saving profile in: profile.json
 ```
 
-The profile can be now found in `profile.yaml` in the current directory or the
-specified output file `--output-file` / `-o`. Profiles are written with the
+The profile can now be found in `profile.yaml` in the current directory, or in
+`profile.json` for runtime format artifacts like the base profile above, unless
+the output file is specified with `--output-file` / `-o`. Profiles are written with the
 permissions `0644`. If username and password authentication is required, either
 use the `--username`, `-u` flag or export the `SPOC_USERNAME` environment
 variable. To set the password, export the `SPOC_PASSWORD` environment variable
@@ -288,12 +293,15 @@ variables still work, but print a deprecation warning.
 
 `spoc pull` verifies the signature of the artifact. The signer can be
 restricted with `--allowed-identity-regexp` / `-i` (or the
-`ALLOWED_IDENTITIES_REGEXP` environment variable) and
-`--allowed-oidc-issuer-regexp` (or `ALLOWED_OIDC_ISSUER_REGEXP`), see
+`SPOC_ALLOWED_IDENTITY_REGEXP` environment variable) and
+`--allowed-oidc-issuer-regexp` (or `SPOC_ALLOWED_OIDC_ISSUER_REGEXP`), see
 [verifying the released artifacts](verification.md) for the values of the
 official profiles. The verification can be disabled with
 `--disable-signature-verification` / `-s` (or
-`DISABLE_SIGNATURE_VERIFICATION`).
+`SPOC_DISABLE_SIGNATURE_VERIFICATION`). The former names of these variables
+without the `SPOC_` prefix, `ALLOWED_IDENTITIES_REGEXP`,
+`ALLOWED_OIDC_ISSUER_REGEXP` and `DISABLE_SIGNATURE_VERIFICATION`, still work,
+the prefixed ones take precedence.
 
 The following flags pin the signer more strictly or verify without the public
 Sigstore infrastructure:
@@ -304,8 +312,9 @@ Sigstore infrastructure:
   take precedence over the corresponding regexp flags.
 - `--key` / `-k` (or `SPOC_KEY`) verifies a signature made with a key pair
   instead of a keyless certificate. It accepts the path of a PEM encoded public
-  key, like the `cosign.pub` of `cosign generate-key-pair`. The identity and
-  issuer flags do not apply to key signatures.
+  key, like the `cosign.pub` of `cosign generate-key-pair`. A key signature
+  carries no identity or issuer, so `--key` cannot be combined with the
+  identity and issuer flags or regexps other than the default `.*`.
 - `--trusted-root` (or `SPOC_TRUSTED_ROOT`) verifies against a Sigstore trusted
   root JSON file instead of the one distributed through TUF, for private
   Sigstore deployments and air-gapped environments.
@@ -328,7 +337,7 @@ signed the artifact, not somebody trusted.
 
 ### Push security profiles to OCI registries
 
-The `spoc` client is also able to push security profiles from OCI artifact
+The `spoc` client is also able to push security profiles to OCI artifact
 compatible registries. To do that, just run `spoc push`:
 
 ```
@@ -340,13 +349,7 @@ compatible registries. To do that, just run `spoc push`:
 16:35:43.899943 Reading profiles (count=1)
 16:35:43.899947 Adding profile to store (file=/home/user/examples/baseprofile-crun.yaml, platform=)
 16:35:43.900061 Packing files (mediaType=application/vnd.unknown.config.v1+json)
-16:35:43.900282 Verifying reference (ref=registry.example.com/profiles/crun:v1.8.1)
-16:35:43.900310 Using tag (tag=v1.8.1)
-16:35:43.900313 Creating repository (ref=registry.example.com/profiles/crun)
-16:35:43.900319 Using username and password
-16:35:43.900321 Copying profile to repository
-16:35:46.975916 Pushed artifact (reference=registry.example.com/profiles/crun@sha256:…)
-16:35:46.976108 Signing OCI artifact (digest=sha256:…)
+16:35:43.900282 Getting the OIDC identity token for signing (issuer=https://oauth2.sigstore.dev/auth)
 
         The sigstore service, hosted by sigstore a Series of LF Projects, LLC, is provided pursuant to …
         Note that if your submission includes personal data associated with this signed artifact, it will be part of an immutable record.
@@ -354,6 +357,14 @@ compatible registries. To do that, just run `spoc push`:
 Your browser will now be opened to:
 https://oauth2.sigstore.dev/auth/auth?access_type=…
 …
+16:35:52.900282 Verifying reference (ref=registry.example.com/profiles/crun:v1.8.1)
+16:35:52.900310 Using tag (tag=v1.8.1)
+16:35:52.900313 Creating repository (ref=registry.example.com/profiles/crun)
+16:35:52.900319 Using username and password
+16:35:52.900321 Copying profile to repository
+16:35:55.975916 Pushed artifact (reference=registry.example.com/profiles/crun@sha256:…)
+16:35:55.976108 Signing OCI artifact (digest=sha256:…)
+16:35:57.130457 Signed OCI artifact (digest=sha256:…)
 ```
 
 We can specify a username and password in the same way as for `spoc pull`.
@@ -368,18 +379,23 @@ registry.k8s.io are verified. Keyless signing needs an OIDC identity token.
 (`ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN`), the
 `SIGSTORE_ID_TOKEN` environment variable, a token file at
 `/var/run/sigstore/cosign/oidc-token` or the service account of the Google
-Compute Engine metadata server, as used by Cloud Build. Otherwise it signs in
-to the Sigstore OIDC provider in the browser, or with the device flow if there
-is no terminal. Build systems and test environments do not necessarily have
-an identity, so `--disable-signing` / `-s` skips signing. Consumers of an
-unsigned artifact have to skip verification as well, by using `spoc pull
---disable-signature-verification` / `-s` or by exporting
-`DISABLE_SIGNATURE_VERIFICATION=true`. The identities and OIDC issuers accepted
-during verification can be restricted with `--allowed-identity-regexp` / `-i`
-and `--allowed-oidc-issuer-regexp`. It is possible to add custom
-annotations to the artifact manifest by using the `--annotations` / `-a` flag
-multiple times in `KEY:VALUE` format; only the first colon separates the key
-from the value, so timestamps keep theirs. The layers only carry their
+Compute Engine metadata server, as used by Cloud Build. An empty
+`SIGSTORE_ID_TOKEN` counts as unset. Otherwise it signs in to the Sigstore OIDC
+provider in the browser. Without a terminal, `spoc push` fails right away
+instead, unless `--oidc-device-flow` enables the sign in with the device flow,
+which prints a URL to complete the sign in on another device. The identity
+token is obtained before anything gets pushed, and the timeout of the push
+starts after the sign in. Build systems and test environments do not
+necessarily have an identity, so `--disable-signing` / `-s` skips signing.
+Consumers of an unsigned artifact have to skip verification as well, by using
+`spoc pull --disable-signature-verification` / `-s` or by exporting
+`SPOC_DISABLE_SIGNATURE_VERIFICATION=true`. The identities and OIDC issuers
+accepted during verification can be restricted with
+`--allowed-identity-regexp` / `-i` and `--allowed-oidc-issuer-regexp`. It is
+possible to add custom annotations to the artifact manifest by using the
+`--annotations` / `-a` flag multiple times in `KEY:VALUE` format; only the
+first colon separates the key from the value, so timestamps keep theirs. The
+key must not be empty. The layers only carry their
 `org.opencontainers.image.title` annotation.
 
 The manifest's `org.opencontainers.image.created` annotation is fixed to
@@ -395,9 +411,19 @@ credentials given via `--username` and `$SPOC_PASSWORD` are used for the registr
 access of the signature as well, both when signing on push and when verifying
 on pull.
 
-`--plain-http` on `spoc push` and `spoc pull` reaches the registry over HTTP
-instead of HTTPS, for local registries in tests and other registries without
-TLS.
+`--plain-http` on `spoc push`, `spoc pull` and `spoc sign` reaches the
+registry over HTTP instead of HTTPS, for local registries in tests and other
+registries without TLS.
+
+If signing fails after the artifact got pushed, for example because the
+transparency log is not reachable, `spoc push` fails with the pushed reference
+by digest. The artifact stays in the registry unsigned, and `spoc sign` signs
+it once the cause is fixed, with the same registry and signing flags as
+`spoc push`. A tag is resolved to its digest, which the signature is about:
+
+```console
+> spoc sign registry.example.com/profiles/crun@sha256:…
+```
 
 ### Pushing profiles for container runtimes
 

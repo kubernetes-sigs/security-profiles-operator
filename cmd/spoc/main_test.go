@@ -100,6 +100,26 @@ func TestPlatformFlagsAreConsistent(t *testing.T) {
 	}
 }
 
+// TestPrivilegedFlag guards that both commands which run a command can keep
+// the sudo privileges.
+func TestPrivilegedFlag(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range newApp().Commands {
+		if command.Name != "record" && command.Name != "run" {
+			continue
+		}
+
+		found := false
+
+		for _, flag := range command.Flags {
+			found = found || flag.Names()[0] == "privileged"
+		}
+
+		require.True(t, found, command.Name)
+	}
+}
+
 func TestDocsCommand(t *testing.T) {
 	t.Parallel()
 
@@ -113,6 +133,30 @@ func TestDocsCommand(t *testing.T) {
 	require.Contains(t, out.String(), "\n# spoc command line reference\n")
 	require.Contains(t, out.String(), "\n### pull, l\n")
 	require.Contains(t, out.String(), "| `SPOC_KEY` | `--key` | pull |\n")
+	require.Contains(t, out.String(), "\n### sign\n")
+	require.Contains(t, out.String(), "| `SIGSTORE_ID_TOKEN` |")
+
+	// The SPOC_ prefixed variables come first, the former names still work.
+	for flag, envVars := range map[string][]string{
+		"disable-signature-verification": {
+			"SPOC_DISABLE_SIGNATURE_VERIFICATION", "DISABLE_SIGNATURE_VERIFICATION",
+		},
+		"allowed-identity-regexp": {"SPOC_ALLOWED_IDENTITY_REGEXP", "ALLOWED_IDENTITIES_REGEXP"},
+		"allowed-oidc-issuer-regexp": {
+			"SPOC_ALLOWED_OIDC_ISSUER_REGEXP", "ALLOWED_OIDC_ISSUER_REGEXP",
+		},
+	} {
+		for _, envVar := range envVars {
+			require.Contains(t, out.String(), "| `"+envVar+"` | `--"+flag+"` | pull |\n")
+		}
+
+		require.Less(
+			t,
+			strings.Index(out.String(), "`"+envVars[0]+"`"),
+			strings.Index(out.String(), "`"+envVars[1]+"`"),
+		)
+	}
+
 	require.Contains(t, out.String(), "| `"+spocli.EnvKeyUsername+"` |")
 	require.NotContains(t, out.String(), "### docs")
 }

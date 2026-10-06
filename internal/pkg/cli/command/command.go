@@ -55,9 +55,14 @@ func New(options *Options) *Command {
 func (c *Command) Run() (pid uint32, err error) {
 	c.cmd = c.Command(c.options.command, c.options.args...)
 	if c.options.DropSudoPrivileges {
+		// Running the command as root instead would give it privileges the
+		// invoking user did not ask for.
 		err := c.DropSudoPrivileges()
 		if err != nil && !errors.Is(err, errNoSudoEnvironment) {
-			log.Printf("Failed to drop sudo privileges: %v", err)
+			return pid, fmt.Errorf(
+				"drop sudo privileges, use --%s to run the command as root: %w",
+				FlagPrivileged, err,
+			)
 		}
 	}
 

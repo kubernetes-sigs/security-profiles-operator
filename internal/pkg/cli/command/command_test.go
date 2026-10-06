@@ -235,3 +235,68 @@ func TestExitCode(t *testing.T) {
 	_, exited := ExitCode(errTest)
 	require.False(t, exited)
 }
+
+// TestRunDropsSudoPrivileges verifies that the command runs as the user who
+// invoked sudo, and that it does not run as root if that fails.
+func TestRunDropsSudoPrivileges(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		sudoUID    string
+		privileged bool
+		homeErr    error
+		wantCred   bool
+		wantErr    error
+	}{
+		{name: "dropped", sudoUID: "1000", wantCred: true},
+		{name: "not in a sudo environment", sudoUID: ""},
+		{name: "privileged", sudoUID: "1000", privileged: true},
+		{name: "home directory lookup fails", sudoUID: "1000", homeErr: errTest, wantErr: errTest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("SUDO_UID", tc.sudoUID)
+			t.Setenv("SUDO_GID", "1001")
+			t.Setenv("SUDO_USER", "user")
+			t.Setenv("SUDO_COMMAND", "spoc")
+
+			mock := &commandfakes.FakeImpl{}
+			mock.CommandReturns(exec.Command("true"))
+			mock.GetHomeDirectoryReturns("/home/user", tc.homeErr)
+
+			options := Default()
+			options.DropSudoPrivileges = !tc.privileged
+
+			sut := New(options)
+			sut.impl = mock
+
+			_, err := sut.Run()
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				require.ErrorContains(t, err, "--"+FlagPrivileged)
+				require.Zero(t, mock.CmdStartCallCount(), "the command must not run as root")
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.NoError(t, sut.Wait())
+			require.Equal(t, 1, mock.CmdStartCallCount())
+
+			cmd := mock.CmdStartArgsForCall(0)
+			if !tc.wantCred {
+				require.True(t, cmd.SysProcAttr == nil || cmd.SysProcAttr.Credential == nil)
+
+				return
+			}
+
+			require.Equal(t, 1, mock.GetHomeDirectoryCallCount())
+			require.Equal(t, uint32(1000), mock.GetHomeDirectoryArgsForCall(0))
+			require.Equal(t, &syscall.Credential{Uid: 1000, Gid: 1001}, cmd.SysProcAttr.Credential)
+			require.Contains(t, cmd.Env, "HOME=/home/user")
+			require.Contains(t, cmd.Env, "USER=user")
+
+			for _, env := range cmd.Env {
+				require.NotContains(t, env, "SUDO_")
+			}
+		})
+	}
+}

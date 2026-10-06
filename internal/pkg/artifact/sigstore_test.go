@@ -338,7 +338,7 @@ func (i *testSigstoreImpl) SigningConfig(context.Context) (*root.SigningConfig, 
 	return testSigningConfig(i.t), nil
 }
 
-func (*testSigstoreImpl) IDToken(context.Context, string) (string, error) {
+func (*testSigstoreImpl) IDToken(context.Context, string, bool) (string, error) {
 	return "token", nil
 }
 

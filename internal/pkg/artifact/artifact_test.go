@@ -755,11 +755,12 @@ func TestPull(t *testing.T) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.ResolveRepositoryReturns(testSubject(), nil)
-				mock.ReferrersReturns(nil, errTest)
+				mock.SignatureReferrersReturns(nil, errTest)
 				mock.FetchReferenceReturns(ocispec.Descriptor{}, nil, errdef.ErrNotFound)
 			},
 			assert: func(res *PullResult, err error) {
 				require.ErrorIs(t, err, ErrNoSignature)
+				require.ErrorIs(t, err, errTest)
 				require.Nil(t, res)
 			},
 		},
@@ -1371,7 +1372,7 @@ func stubSignature(mock *artifactfakes.FakeImpl) {
 	referrer.Annotations = map[string]string{annotationBundlePredicateType: cosignSignPredicateType}
 
 	mock.TrustedMaterialReturns(&root.BaseTrustedMaterial{}, nil)
-	mock.ReferrersReturns([]ocispec.Descriptor{referrer}, nil)
+	mock.SignatureReferrersReturns([]ocispec.Descriptor{referrer}, nil)
 	mock.FetchAllStub = func(
 		_ context.Context, _ *remote.Repository, desc *ocispec.Descriptor,
 	) ([]byte, error) {
@@ -1834,8 +1835,8 @@ func TestRegistryOptions(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		require.Equal(t, 1, mock.ReferrersCallCount())
-		_, referrersOf, subject := mock.ReferrersArgsForCall(0)
+		require.Equal(t, 1, mock.SignatureReferrersCallCount())
+		_, referrersOf, subject := mock.SignatureReferrersArgsForCall(0)
 		require.Same(t, repo, referrersOf)
 		require.Equal(t, testSubject().Digest, subject.Digest)
 		requireCredentials(t, referrersOf)

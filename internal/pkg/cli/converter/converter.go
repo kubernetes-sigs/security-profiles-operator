@@ -62,7 +62,7 @@ func (p *Converter) Run() error {
 	switch obj := profile.(type) {
 	case *apparmorprofileapi.AppArmorProfile:
 		if crd2armor.UsesDeprecatedPtraceRules(&obj.Spec.Abstract) {
-			log.Printf("Warning: profile %q: %s", obj.Name, crd2armor.DeprecatedPtraceRulesMessage)
+			log.Printf("WARNING: profile %q: %s", obj.Name, crd2armor.DeprecatedPtraceRulesMessage)
 		}
 
 		programName := p.options.programName
@@ -121,7 +121,10 @@ func (p *Converter) Run() error {
 			return fmt.Errorf("marshal JSON profile: %w", err)
 		}
 	default:
-		return fmt.Errorf("cannot convert %T to raw profile", obj)
+		return fmt.Errorf(
+			"cannot convert %s profiles, only SeccompProfile and AppArmorProfile are supported",
+			obj.GetObjectKind().GroupVersionKind().Kind,
+		)
 	}
 
 	if err := p.WriteFile(p.options.outputFile, out, cli.FilePermissions); err != nil {

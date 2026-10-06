@@ -36,6 +36,25 @@ func Default() *Options {
 	}
 }
 
+// Flags returns the flags of the merge command.
+func Flags() []ucli.Flag {
+	return []ucli.Flag{
+		&ucli.StringFlag{
+			Name:        FlagOutputFile,
+			Aliases:     []string{"o"},
+			Usage:       "the output file path for the combined profile",
+			DefaultText: DefaultOutputFile,
+			TakesFile:   true,
+		},
+		&ucli.BoolFlag{
+			Name:    FlagCheck,
+			Aliases: []string{"c"},
+			Usage: "do not write an output file, " +
+				"but exit with an error if the first profile is not a superset of all others",
+		},
+	}
+}
+
 // FromContext can be used to create Options from an CLI context.
 func FromContext(ctx *ucli.Context) (*Options, error) {
 	options := Default()
@@ -47,7 +66,7 @@ func FromContext(ctx *ucli.Context) (*Options, error) {
 
 	options.inputFiles = args
 
-	options.check = ctx.IsSet(FlagCheck)
+	options.check = ctx.Bool(FlagCheck)
 
 	if ctx.IsSet(FlagOutputFile) {
 		options.outputFile = ctx.String(FlagOutputFile)

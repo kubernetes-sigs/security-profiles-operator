@@ -71,14 +71,14 @@ type impl interface {
 	FetchReference(
 		context.Context, *remote.Repository, string, int64,
 	) (ocispec.Descriptor, []byte, error)
-	Referrers(
+	SignatureReferrers(
 		context.Context,
 		*remote.Repository,
 		*ocispec.Descriptor,
 	) ([]ocispec.Descriptor, error)
 	SigningConfig(context.Context) (*root.SigningConfig, error)
 	TrustedMaterial(context.Context, string, bool) (root.TrustedMaterial, error)
-	IDToken(context.Context, string) (string, error)
+	IDToken(context.Context, string, bool) (string, error)
 	SignBundle(context.Context, sign.Content, *sign.BundleOptions) (*protobundle.Bundle, error)
 	VerifyEntity(
 		verify.SignedEntity,
@@ -218,22 +218,44 @@ func (*defaultImpl) FetchReference(
 	return desc, raw, nil
 }
 
-// errEnoughReferrers stops the listing of referrers once maxSignatures have
-// been collected.
+// errEnoughReferrers stops the listing of referrers once enough have been
+// collected or listed.
 var errEnoughReferrers = errors.New("enough referrers")
 
-// Referrers lists the referrers of the subject, through the OCI referrers API
-// or the referrers tag schema of registries without it. The listing stops
-// after maxSignatures referrers, so that a registry cannot keep the pull busy.
-func (*defaultImpl) Referrers(
+// SignatureReferrers lists the signature bundles referring to the subject,
+// through the OCI referrers API or the referrers tag schema of registries
+// without it. Other referrers, like attestations, are skipped. The listing
+// stops after maxSignatures signature bundles or maxReferrers referrers in
+// total, so that a registry cannot keep the pull busy.
+func (*defaultImpl) SignatureReferrers(
 	ctx context.Context, repo *remote.Repository, subject *ocispec.Descriptor,
 ) ([]ocispec.Descriptor, error) {
-	var referrers []ocispec.Descriptor
+	return signatureReferrers(ctx, repo, subject, maxSignatures, maxReferrers)
+}
+
+// signatureReferrers lists up to maxSignatureCount signature bundles of the
+// subject among the first maxReferrerCount referrers.
+func signatureReferrers(
+	ctx context.Context,
+	repo *remote.Repository,
+	subject *ocispec.Descriptor,
+	maxSignatureCount, maxReferrerCount int,
+) ([]ocispec.Descriptor, error) {
+	var signatures []ocispec.Descriptor
+
+	listed := 0
 
 	err := repo.Referrers(ctx, *subject, "", func(page []ocispec.Descriptor) error {
-		referrers = append(referrers, page...)
-		if len(referrers) >= maxSignatures {
-			return errEnoughReferrers
+		for i := range page {
+			listed++
+
+			if isSignatureReferrer(&page[i]) {
+				signatures = append(signatures, page[i])
+			}
+
+			if len(signatures) >= maxSignatureCount || listed >= maxReferrerCount {
+				return errEnoughReferrers
+			}
 		}
 
 		return nil
@@ -242,7 +264,7 @@ func (*defaultImpl) Referrers(
 		return nil, err
 	}
 
-	return referrers, nil
+	return signatures, nil
 }
 
 func (*defaultImpl) SigningConfig(context.Context) (*root.SigningConfig, error) {
@@ -269,8 +291,8 @@ func (*defaultImpl) TrustedMaterial(
 	return tufTrustedRoot(offline)
 }
 
-func (*defaultImpl) IDToken(ctx context.Context, issuer string) (string, error) {
-	return idToken(ctx, issuer)
+func (*defaultImpl) IDToken(ctx context.Context, issuer string, deviceFlow bool) (string, error) {
+	return idToken(ctx, issuer, deviceFlow)
 }
 
 // SignBundle signs the content with an ephemeral key into a Sigstore bundle.

@@ -17,6 +17,7 @@ limitations under the License.
 package pusher
 
 import (
+	"errors"
 	"fmt"
 	"log"
 
@@ -56,10 +57,32 @@ func (p *Pusher) Run() error {
 			DisableSigning:            p.options.disableSigning,
 			DisableArtifactValidation: p.options.disableArtifactValidation,
 			PlainHTTP:                 p.options.plainHTTP,
+			OIDCDeviceFlow:            p.options.oidcDeviceFlow,
 		},
 	); err != nil {
-		return fmt.Errorf("push profile: %w", err)
+		return fmt.Errorf("push profile: %w", withSigningHint(err))
 	}
 
 	return nil
+}
+
+// withSigningHint adds how to go on to a signing error: sign the pushed
+// artifact afterwards, or push without signature if there is no identity.
+func withSigningHint(err error) error {
+	if unsigned, ok := errors.AsType[*artifact.UnsignedError](err); ok {
+		return fmt.Errorf(
+			"%w; once the cause is fixed, sign it with `spoc sign %s`",
+			err, unsigned.Reference,
+		)
+	}
+
+	if errors.Is(err, artifact.ErrNoInteractiveSignIn) {
+		return fmt.Errorf(
+			"%w; set SIGSTORE_ID_TOKEN, pass --%s to sign in with the device flow "+
+				"or --%s to push without signature",
+			err, FlagOIDCDeviceFlow, FlagDisableSigning,
+		)
+	}
+
+	return err
 }

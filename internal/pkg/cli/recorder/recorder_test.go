@@ -285,7 +285,8 @@ func TestRun(t *testing.T) {
 				return options
 			},
 			assert: func(mock *recorderfakes.FakeImpl, err error) {
-				require.Error(t, err)
+				require.ErrorIs(t, err, ErrBPFLSMDisabled)
+				require.ErrorContains(t, err, "lsm=")
 			},
 		},
 	} {

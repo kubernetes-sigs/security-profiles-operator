@@ -30,21 +30,44 @@ func TestFromContext(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		prepare func(*flag.FlagSet)
-		assert  func(error)
+		assert  func(*Options, error)
 	}{
 		{
 			name: "success",
 			prepare: func(set *flag.FlagSet) {
 				require.NoError(t, set.Parse([]string{"echo"}))
 			},
-			assert: func(err error) {
+			assert: func(options *Options, err error) {
 				require.NoError(t, err)
+				require.True(t, options.DropSudoPrivileges)
+			},
+		},
+		{
+			name: "privileged",
+			prepare: func(set *flag.FlagSet) {
+				set.Bool(FlagPrivileged, false, "")
+				require.NoError(t, set.Parse([]string{"--" + FlagPrivileged, "echo"}))
+			},
+			assert: func(options *Options, err error) {
+				require.NoError(t, err)
+				require.False(t, options.DropSudoPrivileges)
+			},
+		},
+		{
+			name: "privileged set to false",
+			prepare: func(set *flag.FlagSet) {
+				set.Bool(FlagPrivileged, false, "")
+				require.NoError(t, set.Parse([]string{"--" + FlagPrivileged + "=false", "echo"}))
+			},
+			assert: func(options *Options, err error) {
+				require.NoError(t, err)
+				require.True(t, options.DropSudoPrivileges)
 			},
 		},
 		{
 			name:    "failure no command provided",
 			prepare: func(set *flag.FlagSet) {},
-			assert: func(err error) {
+			assert: func(_ *Options, err error) {
 				require.Error(t, err)
 			},
 		},
@@ -61,8 +84,8 @@ func TestFromContext(t *testing.T) {
 			app := cli.NewApp()
 			ctx := cli.NewContext(app, set, nil)
 
-			_, err := FromContext(ctx)
-			assert(err)
+			options, err := FromContext(ctx)
+			assert(options, err)
 		})
 	}
 }

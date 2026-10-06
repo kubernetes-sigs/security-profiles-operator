@@ -290,22 +290,37 @@ func TestProfileLayer(t *testing.T) {
 		Subject: &subject,
 	})
 
-	successors, err := profileLayer(arm64)(t.Context(), storage, manifest)
+	selection := &layerSelection{platform: arm64}
+
+	_, _, ok := selection.result()
+	require.False(t, ok)
+
+	successors, err := selection.findSuccessors(t.Context(), storage, manifest)
 	require.NoError(t, err)
 	require.Equal(t, []ocispec.Descriptor{platformLayer(arm64)}, successors)
 
-	successors, err = profileLayer(arm64)(t.Context(), storage, platformLayer(arm64))
+	// The selected layer is remembered for reading the profile.
+	layer, runtimeFormat, ok := selection.result()
+	require.True(t, ok)
+	require.False(t, runtimeFormat)
+	require.Equal(t, platformLayer(arm64), *layer)
+
+	successors, err = (&layerSelection{platform: arm64}).findSuccessors(
+		t.Context(),
+		storage,
+		platformLayer(arm64),
+	)
 	require.NoError(t, err)
 	require.Empty(t, successors)
 
 	index := storage.add(t, ocispec.MediaTypeImageIndex, &ocispec.Index{})
-	_, err = profileLayer(arm64)(t.Context(), storage, index)
+	_, err = (&layerSelection{platform: arm64}).findSuccessors(t.Context(), storage, index)
 	require.ErrorIs(t, err, ErrNoMatchingManifest)
 
 	tooMany := storage.add(t, ocispec.MediaTypeImageManifest, &ocispec.Manifest{
 		Layers: make([]ocispec.Descriptor, maxArtifactLayers+1),
 	})
-	_, err = profileLayer(arm64)(t.Context(), storage, tooMany)
+	_, err = (&layerSelection{platform: arm64}).findSuccessors(t.Context(), storage, tooMany)
 	require.ErrorIs(t, err, ErrTooManyLayers)
 }
 
