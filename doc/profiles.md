@@ -1260,8 +1260,10 @@ By default, the signatures of OCI base profiles are verified keyless against
 SPOD. `spec.security.signatureVerification` pins the signer of base profiles
 outside of the official repositories (`registry.k8s.io/security-profiles-operator/`
 and its staging repository) further. Official base profiles are always
-verified against the official keyless signers and the public Sigstore trusted
-root, so that a key or identity for private base profiles does not break them.
+verified against the official keyless signers, so that a key or identity for
+private base profiles does not break them. Only `trustedRootConfigMapRef` and
+`offline` apply to official base profiles as well, so that air-gapped clusters
+can verify them against a copy of the public Sigstore trusted root.
 
 - `allowedIdentity` and `allowedOidcIssuer` require an exact certificate
   identity and OIDC issuer and take precedence over the regexps.
@@ -1270,7 +1272,10 @@ root, so that a key or identity for private base profiles does not break them.
   that key and the identity settings are ignored.
 - `trustedRootConfigMapRef` selects a key of a ConfigMap in the operator
   namespace which holds a Sigstore trusted root JSON, for private Sigstore
-  deployments and air-gapped clusters.
+  deployments and air-gapped clusters. If it cannot be read or an official
+  base profile does not verify against it, the official base profile is
+  verified online against the public Sigstore trusted root instead, even with
+  `offline: true`.
 - `offline: true` verifies without any network access: the transparency log
   entry bundled with the signature is verified against the trusted root of
   `trustedRootConfigMapRef`, which is required then. The daemon keeps no TUF

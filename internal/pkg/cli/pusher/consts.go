@@ -51,4 +51,11 @@ const (
 
 	// FlagPlatforms is the flag for defining the platforms to push.
 	FlagPlatforms string = "platforms"
+
+	// FlagOIDCDeviceFlow is the flag for signing in with the device flow
+	// without a terminal.
+	FlagOIDCDeviceFlow string = cli.FlagOIDCDeviceFlow
+
+	// flagPlatformAlias is the alias of FlagPlatforms, the flag name of pull.
+	flagPlatformAlias string = "platform"
 )

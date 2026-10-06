@@ -19,12 +19,14 @@ limitations under the License.
 package runner
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"testing"
 
 	"github.com/opencontainers/runc/libcontainer/seccomp"
@@ -133,4 +135,37 @@ func TestConfineUnknownCommand(t *testing.T) {
 
 	_, err = command.New(options).Run()
 	require.ErrorIs(t, err, exec.ErrNotFound)
+}
+
+// TestConfinePassesCredential verifies that the credential of a command run
+// under sudo is passed to the run helper, which drops the privileges after
+// loading the profile, instead of starting the helper unprivileged.
+func TestConfinePassesCredential(t *testing.T) {
+	t.Parallel()
+
+	cmd := exec.Command("true")
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Credential: &syscall.Credential{Uid: 1000, Gid: 1001},
+	}
+	path := cmd.Path
+
+	postStart, err := confine(&specs.LinuxSeccomp{DefaultAction: specs.ActAllow})(cmd)
+	require.NoError(t, err)
+
+	defer postStart()
+
+	require.Nil(
+		t,
+		cmd.SysProcAttr.Credential,
+		"the run helper needs the privileges to load the profile",
+	)
+	require.Equal(t, selfExe, cmd.Path)
+	require.Equal(t, []string{os.Args[0], InitArg}, cmd.Args)
+	require.Len(t, cmd.ExtraFiles, 1)
+
+	config := &initConfig{}
+	require.NoError(t, json.NewDecoder(cmd.ExtraFiles[0]).Decode(config))
+	require.Equal(t, &initCredential{UID: 1000, GID: 1001}, config.Credential)
+	require.Equal(t, path, config.Path)
+	require.Equal(t, []string{"true"}, config.Args)
 }

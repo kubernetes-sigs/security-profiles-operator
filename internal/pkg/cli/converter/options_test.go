@@ -28,10 +28,12 @@ func TestFromContext(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
+		name    string
 		prepare func(*flag.FlagSet)
 		assert  func(error)
 	}{
-		{ // Success
+		{
+			name: "success",
 			prepare: func(set *flag.FlagSet) {
 				require.NoError(t, set.Parse([]string{"foo.yaml"}))
 			},
@@ -39,13 +41,15 @@ func TestFromContext(t *testing.T) {
 				require.NoError(t, err)
 			},
 		},
-		{ // failure: no profiles provided
+		{
+			name:    "failure: no profiles provided",
 			prepare: func(set *flag.FlagSet) {},
 			assert: func(err error) {
 				require.Error(t, err)
 			},
 		},
-		{ // failure: no filename provided
+		{
+			name: "failure: no filename provided",
 			prepare: func(set *flag.FlagSet) {
 				set.String(FlagOutputFile, "", "")
 				require.NoError(t, set.Set(FlagOutputFile, ""))
@@ -56,13 +60,17 @@ func TestFromContext(t *testing.T) {
 			},
 		},
 	} {
-		set := flag.NewFlagSet("", flag.ExitOnError)
-		tc.prepare(set)
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-		app := cli.NewApp()
-		ctx := cli.NewContext(app, set, nil)
+			set := flag.NewFlagSet("", flag.ExitOnError)
+			tc.prepare(set)
 
-		_, err := FromContext(ctx)
-		tc.assert(err)
+			app := cli.NewApp()
+			ctx := cli.NewContext(app, set, nil)
+
+			_, err := FromContext(ctx)
+			tc.assert(err)
+		})
 	}
 }

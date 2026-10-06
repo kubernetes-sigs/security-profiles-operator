@@ -28,10 +28,12 @@ func TestFromContext(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
+		name    string
 		prepare func(*flag.FlagSet)
 		assert  func(*Options, error)
 	}{
-		{ // Success: profile and executable specified
+		{
+			name: "success: profile and executable specified",
 			prepare: func(set *flag.FlagSet) {
 				require.NoError(t, set.Parse([]string{"profile.yml", "tail"}))
 			},
@@ -41,7 +43,8 @@ func TestFromContext(t *testing.T) {
 				require.Equal(t, "profile.yml", options.ProfilePath)
 			},
 		},
-		{ // Success: profile specified
+		{
+			name: "success: profile specified",
 			prepare: func(set *flag.FlagSet) {
 				require.NoError(t, set.Parse([]string{"profile.yml"}))
 			},
@@ -51,7 +54,8 @@ func TestFromContext(t *testing.T) {
 				require.Equal(t, "profile.yml", options.ProfilePath)
 			},
 		},
-		{ // Success: all defaults
+		{
+			name: "success: all defaults",
 			prepare: func(set *flag.FlagSet) {
 				require.NoError(t, set.Parse([]string{}))
 			},
@@ -61,7 +65,8 @@ func TestFromContext(t *testing.T) {
 				require.Equal(t, DefaultProfileFile, options.ProfilePath)
 			},
 		},
-		{ // failure: too many args
+		{
+			name: "failure: too many args",
 			prepare: func(set *flag.FlagSet) {
 				require.NoError(t, set.Parse([]string{"profile.yml", "tail", "-f", "/dev/null"}))
 			},
@@ -70,13 +75,17 @@ func TestFromContext(t *testing.T) {
 			},
 		},
 	} {
-		set := flag.NewFlagSet("", flag.ExitOnError)
-		tc.prepare(set)
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-		app := cli.NewApp()
-		ctx := cli.NewContext(app, set, nil)
+			set := flag.NewFlagSet("", flag.ExitOnError)
+			tc.prepare(set)
 
-		options, err := FromContext(ctx)
-		tc.assert(options, err)
+			app := cli.NewApp()
+			ctx := cli.NewContext(app, set, nil)
+
+			options, err := FromContext(ctx)
+			tc.assert(options, err)
+		})
 	}
 }

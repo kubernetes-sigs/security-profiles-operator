@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strings"
 
 	"github.com/go-logr/logr"
 	"github.com/urfave/cli/v2"
@@ -37,6 +36,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/recorder"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/remover"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/runner"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/signer"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/clidocs"
 )
 
@@ -63,12 +63,13 @@ func main() {
 // bound to a flag.
 var runtimeEnvVars = []clidocs.EnvVar{
 	{
-		Name:        spocli.EnvKeyUsername,
-		Description: "username for the registry authentication of push and pull if the flag is not set",
+		Name: spocli.EnvKeyUsername,
+		Description: "username for the registry authentication of push, pull and sign " +
+			"if the flag is not set",
 	},
 	{
 		Name:        spocli.EnvKeyPassword,
-		Description: "password for the registry authentication of push and pull",
+		Description: "password for the registry authentication of push, pull and sign",
 	},
 	{
 		Name:        spocli.EnvKeyUsernameDeprecated,
@@ -82,6 +83,26 @@ var runtimeEnvVars = []clidocs.EnvVar{
 		Name: "SUDO_UID, SUDO_GID, SUDO_USER",
 		Description: "set by sudo, used by record and run to drop the privileges " +
 			"of the target command to the invoking user",
+	},
+	{
+		Name: "TUF_ROOT, TUF_MIRROR, TUF_ROOT_JSON",
+		Description: "the TUF cache directory, mirror and trust anchor of the Sigstore " +
+			"trusted root and signing config used by push, pull and sign, as for cosign",
+	},
+	{
+		Name: "SIGSTORE_ID_TOKEN",
+		Description: "OIDC identity token for keyless signing on push and sign, " +
+			"an empty value counts as unset",
+	},
+	{
+		Name: "ACTIONS_ID_TOKEN_REQUEST_URL, ACTIONS_ID_TOKEN_REQUEST_TOKEN",
+		Description: "set by GitHub Actions for jobs with the `id-token: write` permission, " +
+			"used to get the OIDC identity token for keyless signing on push and sign",
+	},
+	{
+		Name: "SOURCE_DATE_EPOCH",
+		Description: "seconds since the Unix epoch for the `org.opencontainers.image.created` " +
+			"annotation of push, which defaults to `1970-01-01T00:00:00Z`",
 	},
 }
 
@@ -98,48 +119,7 @@ func newApp() *cli.App {
 			Usage:     "run a command and record the security profile",
 			Action:    record,
 			ArgsUsage: "COMMAND",
-			Flags: []cli.Flag{
-				&cli.StringFlag{
-					Name:        recorder.FlagOutputFile,
-					Aliases:     []string{"o"},
-					Usage:       "the output file path for the recorded profile",
-					DefaultText: recorder.DefaultOutputFile,
-					TakesFile:   true,
-				},
-				&cli.StringFlag{
-					Name:    recorder.FlagType,
-					Aliases: []string{"t"},
-					Usage:   "the record type",
-					DefaultText: fmt.Sprintf(
-						"%s [alternative: %s %s %s %s]",
-						recorder.TypeSeccomp,
-						recorder.TypeRawSeccomp,
-						recorder.TypeApparmor,
-						recorder.TypeRawAppArmor,
-						recorder.TypeAll,
-					),
-				},
-				&cli.StringSliceFlag{
-					Name:    recorder.FlagBaseSyscalls,
-					Aliases: []string{"b"},
-					Usage: "base syscalls to be included in every profile " +
-						"to ensure compatibility with OCI runtimes like runc and crun",
-					DefaultText: strings.Join(recorder.DefaultBaseSyscalls, ", "),
-				},
-				&cli.BoolFlag{
-					Name:    recorder.FlagNoBaseSyscalls,
-					Aliases: []string{"n"},
-					Usage:   "do not add any base syscalls at all",
-				},
-				&cli.BoolFlag{
-					Name:  recorder.FlagNoProcStart,
-					Usage: "do not start the target command and record until ctrl+c/SIGINT, SIGTERM or SIGHUP.",
-				},
-				&cli.BoolFlag{
-					Name:  recorder.FlagPrivileged,
-					Usage: "do not drop sudo privileges when running the target command.",
-				},
-			},
+			Flags:     recorder.Flags(),
 		},
 		&cli.Command{
 			Name:    "merge",
@@ -149,21 +129,7 @@ func newApp() *cli.App {
 				"Permissions are additive. For AppArmor, the first profile may additionally contain glob paths.",
 			Action:    merge,
 			ArgsUsage: "INFILE...",
-			Flags: []cli.Flag{
-				&cli.StringFlag{
-					Name:        merger.FlagOutputFile,
-					Aliases:     []string{"o"},
-					Usage:       "the output file path for the combined profile",
-					DefaultText: merger.DefaultOutputFile,
-					TakesFile:   true,
-				},
-				&cli.BoolFlag{
-					Name:    merger.FlagCheck,
-					Aliases: []string{"c"},
-					Usage: "do not write an output file, " +
-						"but exit with an error if the first profile is not a superset of all others.",
-				},
-			},
+			Flags:     merger.Flags(),
 		},
 		&cli.Command{
 			Name:      "convert",
@@ -171,20 +137,7 @@ func newApp() *cli.App {
 			Usage:     "convert a security profile to its raw format",
 			Action:    convert,
 			ArgsUsage: "PROFILE",
-			Flags: []cli.Flag{
-				&cli.StringFlag{
-					Name:        converter.FlagOutputFile,
-					Aliases:     []string{"o"},
-					Usage:       "the output file path for the raw profile",
-					DefaultText: converter.DefaultOutputFile,
-					TakesFile:   true,
-				},
-				&cli.StringFlag{
-					Name:    converter.FlagProgramName,
-					Aliases: []string{"p"},
-					Usage:   "AppArmor only: the path to the program that is confined.",
-				},
-			},
+			Flags:     converter.Flags(),
 		},
 		&cli.Command{
 			Name:      "install",
@@ -208,21 +161,7 @@ func newApp() *cli.App {
 				"found in the audit log are printed. spoc exits with the exit code of the command.",
 			Action:    run,
 			ArgsUsage: "COMMAND",
-			Flags: []cli.Flag{
-				&cli.StringFlag{
-					Name:        runner.FlagType,
-					Aliases:     []string{"t"},
-					Usage:       "the run type",
-					DefaultText: string(runner.TypeSeccomp),
-				},
-				&cli.StringFlag{
-					Name:        runner.FlagProfile,
-					Aliases:     []string{"p"},
-					Usage:       "the profile to be used",
-					DefaultText: runner.DefaultInputFile,
-					TakesFile:   true,
-				},
-			},
+			Flags:     runner.Flags(),
 		},
 		&cli.Command{
 			Name:    "push",
@@ -235,45 +174,7 @@ func newApp() *cli.App {
 				"is allowed in that format.",
 			Action:    push,
 			ArgsUsage: "FILE",
-			Flags: []cli.Flag{
-				&cli.StringSliceFlag{
-					Name:        pusher.FlagProfiles,
-					Aliases:     []string{"f"},
-					Usage:       "the profiles to be used (profile CRD YAML or raw runtime-spec seccomp JSON)",
-					DefaultText: pusher.DefaultInputFile,
-					TakesFile:   true,
-				},
-				&cli.StringSliceFlag{
-					Name:    pusher.FlagAnnotations,
-					Aliases: []string{"a"},
-					Usage:   "the annotations to be set in `KEY:VALUE` format",
-				},
-				usernameFlag(),
-				passwordStdinFlag(),
-				&cli.BoolFlag{
-					Name:    pusher.FlagDisableSigning,
-					Aliases: []string{"s"},
-					Usage: "do not sign the artifact after pushing it, " +
-						"for environments without an OIDC identity",
-				},
-				&cli.BoolFlag{
-					Name: pusher.FlagDisableArtifactValidation,
-					Usage: "push a runtime-spec seccomp profile even if " +
-						"container runtimes would reject it as a KEP-6061 " +
-						"artifact, for publishing test fixtures",
-				},
-				&cli.BoolFlag{
-					Name:  pusher.FlagPlainHTTP,
-					Usage: "use HTTP instead of HTTPS to reach the registry, for local registries in tests",
-				},
-				&cli.StringSliceFlag{
-					Name:    pusher.FlagPlatforms,
-					Aliases: []string{"p", puller.FlagPlatform},
-					Usage: "the platforms to be used in format: os[/arch][/variant][:os_version], " +
-						"one per profile. Without platforms, the single profile is platform independent " +
-						"and gets pulled on every platform",
-				},
-			},
+			Flags:     pusher.Flags(),
 		},
 		&cli.Command{
 			Name:    "pull",
@@ -285,106 +186,21 @@ func newApp() *cli.App {
 				"switches to a .json extension.",
 			Action:    pull,
 			ArgsUsage: "IMAGE",
-			Flags: []cli.Flag{
-				&cli.StringFlag{
-					Name:        puller.FlagOutputFile,
-					Aliases:     []string{"o"},
-					Usage:       "the output file to store the profile",
-					DefaultText: puller.DefaultOutputFile,
-					TakesFile:   true,
-				},
-				usernameFlag(),
-				passwordStdinFlag(),
-				&cli.StringFlag{
-					Name:    puller.FlagPlatform,
-					Aliases: []string{"p", pusher.FlagPlatforms},
-					Usage:   "the platform to be used in format: os[/arch][/variant][:os_version]",
-				},
-				&cli.BoolFlag{
-					Name:    puller.FlagDisableSignatureVerification,
-					Aliases: []string{"s"},
-					EnvVars: []string{"DISABLE_SIGNATURE_VERIFICATION"},
-					Usage:   "disable signature verification",
-				},
-				&cli.BoolFlag{
-					Name:  puller.FlagPlainHTTP,
-					Usage: "use HTTP instead of HTTPS to reach the registry, for local registries in tests",
-				},
-				&cli.StringFlag{
-					Name:    puller.FlagAllowedIdentityRegexp,
-					Aliases: []string{"i"},
-					EnvVars: []string{"ALLOWED_IDENTITIES_REGEXP"},
-					Usage:   "regexp for allowed identities in signature verification",
-				},
-				&cli.StringFlag{
-					Name:    puller.FlagAllowedOidcIssuerRegexp,
-					EnvVars: []string{"ALLOWED_OIDC_ISSUER_REGEXP"},
-					Usage:   "regexp for allowed Oidc issuer in signature verification",
-				},
-				&cli.StringFlag{
-					Name:    puller.FlagCertificateIdentity,
-					EnvVars: []string{"SPOC_CERTIFICATE_IDENTITY"},
-					Usage: "exact identity the signature certificate has to carry, " +
-						"takes precedence over the identity regexp",
-				},
-				&cli.StringFlag{
-					Name:    puller.FlagCertificateOidcIssuer,
-					EnvVars: []string{"SPOC_CERTIFICATE_OIDC_ISSUER"},
-					Usage: "exact OIDC issuer of the signature certificate, " +
-						"takes precedence over the issuer regexp",
-				},
-				&cli.StringFlag{
-					Name:    puller.FlagKey,
-					Aliases: []string{"k"},
-					EnvVars: []string{"SPOC_KEY"},
-					Usage: "verify the signature with the public key instead of a " +
-						"keyless certificate: the path of a PEM encoded public key",
-					TakesFile: true,
-				},
-				&cli.StringFlag{
-					Name:    puller.FlagTrustedRoot,
-					EnvVars: []string{"SPOC_TRUSTED_ROOT"},
-					Usage: "path of a Sigstore trusted root JSON file to verify against " +
-						"instead of the one distributed through TUF",
-					TakesFile: true,
-				},
-				&cli.BoolFlag{
-					Name:    puller.FlagOffline,
-					EnvVars: []string{"SPOC_OFFLINE"},
-					Usage: "verify with the trusted root cached from TUF instead of refreshing it, " +
-						"an empty cache needs --trusted-root or one run without --offline",
-				},
-			},
+			Flags:     puller.Flags(),
+		},
+		&cli.Command{
+			Name:  "sign",
+			Usage: "sign an artifact in a container registry",
+			Description: "Signs an artifact keyless like spoc push does, for example one " +
+				"whose signing failed after the push. A tag is resolved to its digest, " +
+				"which the signature is about.",
+			Action:    sign,
+			ArgsUsage: "IMAGE",
+			Flags:     signer.Flags(),
 		},
 	)
 
 	return app
-}
-
-// usernameFlag returns the flag for the username of the registry
-// authentication.
-func usernameFlag() cli.Flag {
-	return &cli.StringFlag{
-		Name:    spocli.FlagUsername,
-		Aliases: []string{"u"},
-		Usage: fmt.Sprintf(
-			"the username for registry authentication (default: $%s), "+
-				"the password is read from $%s or with --%s from stdin. "+
-				"Without both, the docker config credentials are used. "+
-				"$%s and $%s are deprecated and still used with a warning",
-			spocli.EnvKeyUsername, spocli.EnvKeyPassword, spocli.FlagPasswordStdin,
-			spocli.EnvKeyUsernameDeprecated, spocli.EnvKeyPasswordDeprecated,
-		),
-	}
-}
-
-// passwordStdinFlag returns the flag for reading the password of the
-// registry authentication from stdin.
-func passwordStdinFlag() cli.Flag {
-	return &cli.BoolFlag{
-		Name:  spocli.FlagPasswordStdin,
-		Usage: "read the password for registry authentication from stdin",
-	}
 }
 
 // record runs the `spoc record` subcommand.
@@ -498,6 +314,20 @@ func push(ctx *cli.Context) error {
 
 	if err := pusher.New(options).Run(); err != nil {
 		return fmt.Errorf("run pusher: %w", err)
+	}
+
+	return nil
+}
+
+// sign runs the `spoc sign` subcommand.
+func sign(ctx *cli.Context) error {
+	options, err := signer.FromContext(ctx)
+	if err != nil {
+		return fmt.Errorf("build options: %w", err)
+	}
+
+	if err := signer.New(options).Run(); err != nil {
+		return fmt.Errorf("run signer: %w", err)
 	}
 
 	return nil

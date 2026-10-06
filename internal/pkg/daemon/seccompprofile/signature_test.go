@@ -18,7 +18,7 @@ package seccompprofile
 
 import (
 	"context"
-	"os"
+	"fmt"
 	"testing"
 
 	"github.com/go-logr/logr"
@@ -44,12 +44,9 @@ const (
 	testTrustedRoot       = `{"mediaType": "application/vnd.dev.sigstore.trustedroot+json;version=0.1"}`
 )
 
-// pulledOptions records the pull options and the content of the files they
-// reference while the pull runs.
+// pulledOptions records the pull options while the pull runs.
 type pulledOptions struct {
-	opts        artifact.PullOptions
-	key         string
-	trustedRoot string
+	opts artifact.PullOptions
 }
 
 func newSignatureTestReconciler(
@@ -71,20 +68,6 @@ func newSignatureTestReconciler(
 		_ context.Context, _ logr.Logger, _, _, _ string, _ *v1.Platform, opts *artifact.PullOptions,
 	) (*artifact.PullResult, error) {
 		pulled.opts = *opts
-
-		if opts.KeyRef != "" {
-			content, err := os.ReadFile(opts.KeyRef)
-			require.NoError(t, err)
-
-			pulled.key = string(content)
-		}
-
-		if opts.TrustedRootPath != "" {
-			content, err := os.ReadFile(opts.TrustedRootPath)
-			require.NoError(t, err)
-
-			pulled.trustedRoot = string(content)
-		}
 
 		return &artifact.PullResult{}, nil
 	}
@@ -195,19 +178,57 @@ func TestPullBaseProfileSignatureVerification(t *testing.T) {
 			wantErr: errOfflineWithoutTrustedRoot.Error(),
 		},
 		{
-			name:         "official base profile keeps the official signer",
-			image:        officialImage,
-			sv:           customSigner,
-			wantOfficial: true,
+			// The trusted root applies, the signer stays the official one.
+			name:            "official base profile keeps the official signer",
+			image:           officialImage,
+			sv:              customSigner,
+			wantOfficial:    true,
+			wantTrustedRoot: testTrustedRoot,
 		},
 		{
-			name:  "official base profile ignores invalid settings",
+			name:  "official base profile ignores the key and the identity",
 			image: officialImage,
 			sv: &spodapi.SPODSignatureVerification{
-				Offline: new(true),
+				AllowedIdentity: "someone@example.com",
 				PublicKeySecretRef: &corev1.SecretKeySelector{
 					LocalObjectReference: corev1.LocalObjectReference{Name: "missing"},
 					Key:                  "cosign.pub",
+				},
+			},
+			wantOfficial: true,
+		},
+		{
+			// Air-gapped clusters verify the official base profiles against
+			// the trusted root of the ConfigMap.
+			name:  "official base profile offline with trusted root",
+			image: officialImage,
+			sv: &spodapi.SPODSignatureVerification{
+				Offline: new(true),
+				TrustedRootConfigMapRef: &corev1.ConfigMapKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{Name: "sigstore"},
+					Key:                  "trusted_root.json",
+				},
+			},
+			wantOfficial:    true,
+			wantOffline:     true,
+			wantTrustedRoot: testTrustedRoot,
+		},
+		{
+			// Settings which cannot be used are ignored for the official
+			// base profiles, like before the trusted root applied to them.
+			name:         "official base profile ignores offline without trusted root",
+			image:        officialImage,
+			sv:           &spodapi.SPODSignatureVerification{Offline: new(true)},
+			wantOfficial: true,
+		},
+		{
+			name:  "official base profile ignores a missing trusted root",
+			image: officialImage,
+			sv: &spodapi.SPODSignatureVerification{
+				Offline: new(true),
+				TrustedRootConfigMapRef: &corev1.ConfigMapKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{Name: "sigstore"},
+					Key:                  "missing",
 				},
 			},
 			wantOfficial: true,
@@ -315,52 +336,120 @@ func TestPullBaseProfileSignatureVerification(t *testing.T) {
 			require.Equal(t, tc.wantIdentity, pulled.opts.CertIdentity)
 			require.Equal(t, tc.wantIssuer, pulled.opts.CertOidcIssuer)
 			require.Equal(t, tc.wantOffline, pulled.opts.Offline)
-			require.Equal(t, tc.wantKey, pulled.key)
-			require.Equal(t, tc.wantTrustedRoot, pulled.trustedRoot)
+			require.Equal(t, tc.wantKey, string(pulled.opts.KeyPEM))
+			require.Equal(t, tc.wantTrustedRoot, string(pulled.opts.TrustedRootJSON))
+
+			// The key and the trusted root are passed in memory, no file
+			// is written for them.
+			require.Empty(t, pulled.opts.KeyRef)
+			require.Empty(t, pulled.opts.TrustedRootPath)
 
 			if tc.wantOfficial {
-				require.Empty(t, pulled.opts.KeyRef)
-				require.Empty(t, pulled.opts.TrustedRootPath)
-
 				identity, issuer := pulled.opts.Signer(image)
 				require.Equal(t, artifact.OfficialSignerIdentityRegexp, identity)
 				require.Equal(t, artifact.OfficialSignerOidcIssuerRegexp, issuer)
-			}
-
-			// The temporary files are removed after the pull.
-			for _, file := range []string{pulled.opts.KeyRef, pulled.opts.TrustedRootPath} {
-				if file == "" {
-					continue
-				}
-
-				_, err := os.Stat(file)
-				require.ErrorIs(t, err, os.ErrNotExist)
 			}
 		})
 	}
 }
 
-// A failing trusted root lookup must not leave the key file behind.
-func TestApplySignatureVerificationCleansUpOnError(t *testing.T) {
+// An official base profile which does not verify against the trusted root of
+// the SPOD is verified against the public Sigstore trusted root, like before
+// the trusted root applied to official base profiles.
+func TestPullOfficialBaseProfileFallsBackToPublicTrustedRoot(t *testing.T) {
 	t.Parallel()
 
-	sut, _, _ := newSignatureTestReconciler(t, nil, false)
-	opts := &artifact.PullOptions{}
+	const officialImage = "registry.k8s.io/security-profiles-operator/base/runc:v1"
 
-	cleanup, err := sut.applySignatureVerification(t.Context(), &spodapi.SPODSignatureVerification{
-		PublicKeySecretRef: &corev1.SecretKeySelector{
-			LocalObjectReference: corev1.LocalObjectReference{Name: "cosign"},
-			Key:                  "cosign.pub",
-		},
+	errVerify := fmt.Errorf("%w: verification failed", artifact.ErrSignatureVerification)
+	sv := &spodapi.SPODSignatureVerification{
+		Offline: new(true),
 		TrustedRootConfigMapRef: &corev1.ConfigMapKeySelector{
-			LocalObjectReference: corev1.LocalObjectReference{Name: "missing"},
-			Key:                  "root",
+			LocalObjectReference: corev1.LocalObjectReference{Name: "sigstore"},
+			Key:                  "trusted_root.json",
 		},
-	}, opts, logr.Discard())
-	require.Error(t, err)
-	require.Nil(t, cleanup)
-	require.NotEmpty(t, opts.KeyRef)
+	}
 
-	_, err = os.Stat(opts.KeyRef)
-	require.ErrorIs(t, err, os.ErrNotExist)
+	for _, tc := range []struct {
+		name      string
+		image     string
+		pullErrs  []error
+		wantPulls int
+		wantErrs  []error
+	}{
+		{
+			name:      "official verifies with the trusted root",
+			image:     officialImage,
+			pullErrs:  []error{nil},
+			wantPulls: 1,
+		},
+		{
+			name:      "official falls back to the public trusted root",
+			image:     officialImage,
+			pullErrs:  []error{errVerify, nil},
+			wantPulls: 2,
+		},
+		{
+			name:      "official fails with both trusted roots",
+			image:     officialImage,
+			pullErrs:  []error{errVerify, errTest},
+			wantPulls: 2,
+			wantErrs:  []error{errVerify, errTest},
+		},
+		{
+			// Only a failed verification is retried with the public
+			// trusted root, not an unreachable registry.
+			name:      "official does not fall back on other errors",
+			image:     officialImage,
+			pullErrs:  []error{errTest},
+			wantPulls: 1,
+			wantErrs:  []error{errTest},
+		},
+		{
+			name:      "private does not fall back",
+			image:     "registry/base:v1",
+			pullErrs:  []error{errVerify},
+			wantPulls: 1,
+			wantErrs:  []error{errVerify},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			sut, mock, _ := newSignatureTestReconciler(t, sv, false)
+
+			var pulled []artifact.PullOptions
+
+			mock.PullStub = func(
+				_ context.Context, _ logr.Logger, _, _, _ string, _ *v1.Platform, opts *artifact.PullOptions,
+			) (*artifact.PullResult, error) {
+				pulled = append(pulled, *opts)
+
+				return &artifact.PullResult{}, tc.pullErrs[len(pulled)-1]
+			}
+
+			_, err := sut.pullBaseProfile(t.Context(), baseProfileUser(), tc.image, logr.Discard())
+			require.Len(t, pulled, tc.wantPulls)
+
+			if len(tc.wantErrs) > 0 {
+				for _, want := range tc.wantErrs {
+					require.ErrorIs(t, err, want)
+				}
+			} else {
+				require.NoError(t, err)
+			}
+
+			require.JSONEq(t, testTrustedRoot, string(pulled[0].TrustedRootJSON))
+			require.True(t, pulled[0].Offline)
+
+			if tc.wantPulls > 1 {
+				require.Empty(t, pulled[1].TrustedRootJSON)
+				require.False(t, pulled[1].Offline)
+
+				identity, issuer := pulled[1].Signer(tc.image)
+				require.Equal(t, artifact.OfficialSignerIdentityRegexp, identity)
+				require.Equal(t, artifact.OfficialSignerOidcIssuerRegexp, issuer)
+			}
+		})
+	}
 }

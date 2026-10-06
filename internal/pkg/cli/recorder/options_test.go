@@ -28,49 +28,98 @@ func TestFromContext(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
+		name    string
 		prepare func(*flag.FlagSet)
-		assert  func(error)
+		assert  func(*Options, error)
 	}{
-		{ // Success
+		{
+			name: "success",
 			prepare: func(set *flag.FlagSet) {
 				require.NoError(t, set.Parse([]string{"echo"}))
 			},
-			assert: func(err error) {
+			assert: func(options *Options, err error) {
 				require.NoError(t, err)
+				require.Equal(t, DefaultBaseSyscalls, options.baseSyscalls)
+				require.False(t, options.noProcStart)
+				require.True(t, options.commandOptions.DropSudoPrivileges)
 			},
 		},
-		{ // failure: no command provided
+		{
+			name: "boolean flags set",
+			prepare: func(set *flag.FlagSet) {
+				set.Bool(FlagNoBaseSyscalls, false, "")
+				set.Bool(FlagNoProcStart, false, "")
+				set.Bool(FlagPrivileged, false, "")
+				require.NoError(t, set.Parse([]string{
+					"--" + FlagNoBaseSyscalls, "--" + FlagNoProcStart, "--" + FlagPrivileged, "echo",
+				}))
+			},
+			assert: func(options *Options, err error) {
+				require.NoError(t, err)
+				require.Nil(t, options.baseSyscalls)
+				require.True(t, options.noProcStart)
+				require.False(t, options.commandOptions.DropSudoPrivileges)
+			},
+		},
+		{
+			name: "boolean flags set to false",
+			prepare: func(set *flag.FlagSet) {
+				set.Bool(FlagNoBaseSyscalls, false, "")
+				set.Bool(FlagNoProcStart, false, "")
+				set.Bool(FlagPrivileged, false, "")
+				require.NoError(t, set.Parse([]string{
+					"--" + FlagNoBaseSyscalls + "=false",
+					"--" + FlagNoProcStart + "=false",
+					"--" + FlagPrivileged + "=false",
+					"echo",
+				}))
+			},
+			assert: func(options *Options, err error) {
+				require.NoError(t, err)
+				require.Equal(t, DefaultBaseSyscalls, options.baseSyscalls)
+				require.False(t, options.noProcStart)
+				require.True(t, options.commandOptions.DropSudoPrivileges)
+			},
+		},
+		{
+			name:    "failure: no command provided",
 			prepare: func(set *flag.FlagSet) {},
-			assert: func(err error) {
+			assert: func(_ *Options, err error) {
 				require.Error(t, err)
 			},
 		},
-		{ // failure: unsupported type
+		{
+			name: "failure: unsupported type",
 			prepare: func(set *flag.FlagSet) {
 				set.String(FlagType, "", "")
 				require.NoError(t, set.Set(FlagType, "wrong"))
 			},
-			assert: func(err error) {
+			assert: func(_ *Options, err error) {
 				require.Error(t, err)
 			},
 		},
-		{ // failure: no filename provided
+		{
+			name: "failure: no filename provided",
 			prepare: func(set *flag.FlagSet) {
 				set.String(FlagOutputFile, "", "")
 				require.NoError(t, set.Set(FlagOutputFile, ""))
 			},
-			assert: func(err error) {
+			assert: func(_ *Options, err error) {
 				require.Error(t, err)
 			},
 		},
 	} {
-		set := flag.NewFlagSet("", flag.ExitOnError)
-		tc.prepare(set)
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-		app := cli.NewApp()
-		ctx := cli.NewContext(app, set, nil)
+			set := flag.NewFlagSet("", flag.ExitOnError)
+			tc.prepare(set)
 
-		_, err := FromContext(ctx)
-		tc.assert(err)
+			app := cli.NewApp()
+			ctx := cli.NewContext(app, set, nil)
+
+			options, err := FromContext(ctx)
+			tc.assert(options, err)
+		})
 	}
 }

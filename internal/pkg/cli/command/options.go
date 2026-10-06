@@ -47,6 +47,16 @@ func Default() *Options {
 	}
 }
 
+// Flags returns the flags of the commands which run a command.
+func Flags() []cli.Flag {
+	return []cli.Flag{
+		&cli.BoolFlag{
+			Name:  FlagPrivileged,
+			Usage: "do not drop sudo privileges when running the target command",
+		},
+	}
+}
+
 // FromContext can be used to create Options from an CLI context.
 func FromContext(ctx *cli.Context) (*Options, error) {
 	options := Default()
@@ -59,7 +69,7 @@ func FromContext(ctx *cli.Context) (*Options, error) {
 	options.command = args[0]
 	options.args = args[1:]
 
-	if ctx.IsSet(FlagPrivileged) {
+	if ctx.Bool(FlagPrivileged) {
 		options.DropSudoPrivileges = false
 	}
 

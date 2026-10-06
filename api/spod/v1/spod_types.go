@@ -392,12 +392,17 @@ type SPODSecurityConfig struct {
 	AllowedOidcIssuerRegexp string `json:"allowedOidcIssuerRegexp,omitempty"`
 
 	// signatureVerification configures how the signatures of OCI base
-	// profiles get verified, beyond the identity and issuer regexps. It
-	// applies to base profiles outside of the official repositories of this
-	// project only (registry.k8s.io/security-profiles-operator/ and its
-	// staging repository). Official base profiles are always verified against
-	// the official keyless signers and the public Sigstore trusted root, so
-	// that a key or identity for private base profiles does not break them.
+	// profiles get verified, beyond the identity and issuer regexps. Official
+	// base profiles of this project (registry.k8s.io/security-profiles-operator/
+	// and its staging repository) are always verified against the official
+	// keyless signers, so that a key or identity for private base profiles
+	// does not break them: publicKeySecretRef, allowedIdentity and
+	// allowedOidcIssuer apply to the other base profiles only.
+	// trustedRootConfigMapRef and offline apply to the official base profiles
+	// as well, so that air-gapped clusters can verify them. An official base
+	// profile which does not verify against that trusted root, or whose
+	// trusted root cannot be read, is verified online against the public
+	// Sigstore trusted root instead.
 	// It has no effect while disableOciArtifactSignatureVerification is true.
 	// +optional
 	//nolint:kubeapilinter // a nil pointer marks the whole verification config as unset
@@ -405,7 +410,8 @@ type SPODSecurityConfig struct {
 }
 
 // SPODSignatureVerification configures the verification of the signatures of
-// OCI base profiles outside of the official repositories.
+// OCI base profiles. Only trustedRootConfigMapRef and offline apply to the
+// official base profiles, which stay pinned to the official signers.
 // +kubebuilder:validation:MinProperties=1
 // +kubebuilder:validation:XValidation:rule="!has(self.offline) || !self.offline || has(self.trustedRootConfigMapRef)",message="offline requires trustedRootConfigMapRef"
 //
@@ -439,7 +445,8 @@ type SPODSignatureVerification struct {
 	// replaces the public Sigstore trusted root, for example for a private
 	// Sigstore deployment or an air-gapped cluster. It is required if
 	// offline is true. The ConfigMap and the key have to exist, optional is
-	// not supported.
+	// not supported. Official base profiles fall back to the public Sigstore
+	// trusted root if they do not verify against it.
 	// +optional
 	TrustedRootConfigMapRef *corev1.ConfigMapKeySelector `json:"trustedRootConfigMapRef,omitempty"`
 
@@ -447,7 +454,9 @@ type SPODSignatureVerification struct {
 	// transparency log entry bundled with the signature is verified against
 	// the trusted root of trustedRootConfigMapRef, which is required then.
 	// Without offline, the daemon fetches the public Sigstore trusted root
-	// through TUF unless trustedRootConfigMapRef is set. Defaults to false.
+	// through TUF unless trustedRootConfigMapRef is set. An official base
+	// profile which does not verify offline is verified online against the
+	// public Sigstore trusted root. Defaults to false.
 	// +optional
 	Offline *bool `json:"offline,omitempty"`
 }

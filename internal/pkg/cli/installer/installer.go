@@ -28,6 +28,13 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/apparmorprofile"
 )
 
+// ErrAppArmorUnavailable is returned if AppArmor profiles cannot be loaded
+// on the local machine.
+var ErrAppArmorUnavailable = errors.New(
+	"insufficient permissions or AppArmor is unavailable, " +
+		"run spoc as root on a host with AppArmor enabled",
+)
+
 // Installer is the main structure of this package.
 type Installer struct {
 	impl
@@ -62,7 +69,7 @@ func (p *Installer) Run() error {
 	case *apparmorprofileapi.AppArmorProfile:
 		manager := apparmorprofile.NewAppArmorProfileManager(p.logger)
 		if !p.AppArmorEnabled(manager) {
-			return errors.New("insufficient permissions or AppArmor is unavailable")
+			return ErrAppArmorUnavailable
 		}
 
 		if err := PatchProfileName(obj, p.options); err != nil {
@@ -75,7 +82,10 @@ func (p *Installer) Run() error {
 			return fmt.Errorf("install apparmor profile: %w", err)
 		}
 	default:
-		return fmt.Errorf("cannot install %T profile", obj)
+		return fmt.Errorf(
+			"cannot install %s profiles, only AppArmorProfile is supported",
+			obj.GetObjectKind().GroupVersionKind().Kind,
+		)
 	}
 
 	return nil

@@ -76,7 +76,7 @@ func TestRun(t *testing.T) {
 				return defaultOptions()
 			},
 			assert: func(mock *removerfakes.FakeImpl, err error) {
-				require.ErrorContains(t, err, "insufficient permissions")
+				require.ErrorIs(t, err, installer.ErrAppArmorUnavailable)
 			},
 		},
 		{
@@ -100,7 +100,7 @@ func TestRun(t *testing.T) {
 				return defaultOptions()
 			},
 			assert: func(mock *removerfakes.FakeImpl, err error) {
-				require.ErrorContains(t, err, "cannot remove")
+				require.ErrorContains(t, err, "cannot remove SeccompProfile profiles")
 			},
 		},
 		{

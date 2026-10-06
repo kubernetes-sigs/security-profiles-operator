@@ -75,7 +75,7 @@ func TestRun(t *testing.T) {
 				return defaultOptions()
 			},
 			assert: func(mock *installerfakes.FakeImpl, err error) {
-				require.ErrorContains(t, err, "insufficient permissions")
+				require.ErrorIs(t, err, ErrAppArmorUnavailable)
 			},
 		},
 		{
@@ -99,7 +99,7 @@ func TestRun(t *testing.T) {
 				return defaultOptions()
 			},
 			assert: func(mock *installerfakes.FakeImpl, err error) {
-				require.ErrorContains(t, err, "cannot install")
+				require.ErrorContains(t, err, "cannot install SeccompProfile profiles")
 			},
 		},
 		{

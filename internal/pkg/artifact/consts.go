@@ -122,9 +122,20 @@ const (
 	// legacy signatures of a digest with.
 	legacySignatureTagSuffix = ".sig"
 
-	// maxSignatures is the most signatures of an artifact a pull considers,
-	// the layer limit cosign applies to signature tags.
-	maxSignatures = 1000
+	// maxSignatures is the most signatures of an artifact a pull fetches and
+	// verifies, signature bundles or legacy signatures. Artifacts carry one
+	// signature per signing, so a registry serving more cannot make the pull
+	// fetch them all.
+	maxSignatures = 16
+
+	// maxReferrers is the most referrers of an artifact a pull lists while
+	// looking for signature bundles, so that a registry cannot keep the pull
+	// busy with endless pages of attestations.
+	maxReferrers = 1000
+
+	// maxReportedSignatureErrors is how many failed signatures the error of
+	// a failed verification details, the others are only counted.
+	maxReportedSignatureErrors = 3
 
 	// maxSignatureSize is the largest signature bundle or legacy signature
 	// payload a pull fetches.
@@ -246,6 +257,11 @@ var (
 	// signature bundle nor a legacy signature.
 	ErrNoSignature = errors.New("no signature found")
 
+	// ErrSignatureVerification wraps every error of the signature
+	// verification of a pull, so that callers can tell it apart from a
+	// failure to reach the registry or to read the profile.
+	ErrSignatureVerification = errors.New("verify signature")
+
 	// ErrUnsupportedKeyRef is returned when the key to verify with is not a
 	// PEM encoded public key file.
 	ErrUnsupportedKeyRef = errors.New(
@@ -275,6 +291,13 @@ var (
 
 	// ErrIDToken is returned when an identity token cannot be obtained.
 	ErrIDToken = errors.New("unable to get an identity token")
+
+	// ErrNoInteractiveSignIn is returned when signing needs an identity
+	// token, the environment furnishes none and stdin is not a terminal for
+	// an interactive sign in, while the device flow is not enabled.
+	ErrNoInteractiveSignIn = errors.New(
+		"no OIDC identity token in the environment and no terminal to sign in interactively",
+	)
 )
 
 // PullResultType are the different types returned for a PullResult.

@@ -74,7 +74,7 @@ func (p *Merger) Run() error {
 
 		if prf, ok := contents[i].(*apparmorprofileapi.AppArmorProfile); ok &&
 			crd2armor.UsesDeprecatedPtraceRules(&prf.Spec.Abstract) {
-			log.Printf("Warning: %s: %s", filepath, crd2armor.DeprecatedPtraceRulesMessage)
+			log.Printf("WARNING: %s: %s", filepath, crd2armor.DeprecatedPtraceRulesMessage)
 		}
 	}
 

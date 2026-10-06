@@ -32,19 +32,19 @@ run a command and record the security profile
 
 **--no-base-syscalls, -n**: do not add any base syscalls at all
 
-**--no-proc-start**: do not start the target command and record until ctrl+c/SIGINT, SIGTERM or SIGHUP.
+**--no-proc-start**: do not start the target command, record all processes matching the command name until ctrl+c/SIGINT, SIGTERM or SIGHUP
 
 **--output-file, -o**="": the output file path for the recorded profile (default: profile.yaml)
 
-**--privileged**: do not drop sudo privileges when running the target command.
+**--privileged**: do not drop sudo privileges when running the target command
 
-**--type, -t**="": the record type (default: seccomp [alternative: raw-seccomp apparmor raw-apparmor all])
+**--type, -t**="": the record type: seccomp, raw-seccomp, apparmor, raw-apparmor or all (default: seccomp)
 
 ### merge, m
 
 merge multiple security profiles
 
-**--check, -c**: do not write an output file, but exit with an error if the first profile is not a superset of all others.
+**--check, -c**: do not write an output file, but exit with an error if the first profile is not a superset of all others
 
 **--output-file, -o**="": the output file path for the combined profile (default: profile.yaml)
 
@@ -54,7 +54,7 @@ convert a security profile to its raw format
 
 **--output-file, -o**="": the output file path for the raw profile (default: /dev/stdout)
 
-**--program-name, -p**="": AppArmor only: the path to the program that is confined.
+**--program-name, -p**="": the path of the confined program, AppArmor only
 
 ### install, i
 
@@ -68,9 +68,11 @@ remove a security profile from the local machine
 
 run a command using a security profile
 
+**--privileged**: do not drop sudo privileges when running the target command
+
 **--profile, -p**="": the profile to be used (default: profile.yaml)
 
-**--type, -t**="": the run type (default: seccomp)
+**--type, -t**="": the run type: seccomp (default: seccomp)
 
 ### push, p
 
@@ -82,23 +84,25 @@ push a profile to a container registry
 
 **--disable-signing, -s**: do not sign the artifact after pushing it, for environments without an OIDC identity
 
+**--oidc-device-flow**: sign in to the OIDC provider with the device flow if the environment has no identity token and stdin is not a terminal, instead of failing
+
 **--password-stdin**: read the password for registry authentication from stdin
 
 **--plain-http**: use HTTP instead of HTTPS to reach the registry, for local registries in tests
 
-**--platforms, -p, --platform**="": the platforms to be used in format: os[/arch][/variant][:os_version], one per profile. Without platforms, the single profile is platform independent and gets pulled on every platform
+**--platforms, -p, --platform**="": the platforms to be used in format: os[/arch][/variant][:os_version], one per profile; without platforms, the single profile is platform independent and gets pulled on every platform
 
 **--profiles, -f**="": the profiles to be used (profile CRD YAML or raw runtime-spec seccomp JSON) (default: profile.yaml)
 
-**--username, -u**="": the username for registry authentication (default: $SPOC_USERNAME), the password is read from $SPOC_PASSWORD or with --password-stdin from stdin. Without both, the docker config credentials are used. $USERNAME and $PASSWORD are deprecated and still used with a warning
+**--username, -u**="": the username for registry authentication (default: $SPOC_USERNAME), the password is read from $SPOC_PASSWORD or with --password-stdin from stdin; without both, the docker config credentials are used; $USERNAME and $PASSWORD are deprecated and still used with a warning
 
 ### pull, l
 
 pull a profile from a container registry
 
-**--allowed-identity-regexp, -i**="": regexp for allowed identities in signature verification
+**--allowed-identity-regexp, -i**="": regexp for allowed identities in signature verification (default: .*)
 
-**--allowed-oidc-issuer-regexp**="": regexp for allowed Oidc issuer in signature verification
+**--allowed-oidc-issuer-regexp**="": regexp for allowed OIDC issuers in signature verification (default: .*)
 
 **--certificate-identity**="": exact identity the signature certificate has to carry, takes precedence over the identity regexp
 
@@ -106,7 +110,7 @@ pull a profile from a container registry
 
 **--disable-signature-verification, -s**: disable signature verification
 
-**--key, -k**="": verify the signature with the public key instead of a keyless certificate: the path of a PEM encoded public key
+**--key, -k**="": verify the signature with the public key instead of a keyless certificate: the path of a PEM encoded public key, cannot be combined with the identity and issuer flags
 
 **--offline**: verify with the trusted root cached from TUF instead of refreshing it, an empty cache needs --trusted-root or one run without --offline
 
@@ -120,7 +124,19 @@ pull a profile from a container registry
 
 **--trusted-root**="": path of a Sigstore trusted root JSON file to verify against instead of the one distributed through TUF
 
-**--username, -u**="": the username for registry authentication (default: $SPOC_USERNAME), the password is read from $SPOC_PASSWORD or with --password-stdin from stdin. Without both, the docker config credentials are used. $USERNAME and $PASSWORD are deprecated and still used with a warning
+**--username, -u**="": the username for registry authentication (default: $SPOC_USERNAME), the password is read from $SPOC_PASSWORD or with --password-stdin from stdin; without both, the docker config credentials are used; $USERNAME and $PASSWORD are deprecated and still used with a warning
+
+### sign
+
+sign an artifact in a container registry
+
+**--oidc-device-flow**: sign in to the OIDC provider with the device flow if the environment has no identity token and stdin is not a terminal, instead of failing
+
+**--password-stdin**: read the password for registry authentication from stdin
+
+**--plain-http**: use HTTP instead of HTTPS to reach the registry, for local registries in tests
+
+**--username, -u**="": the username for registry authentication (default: $SPOC_USERNAME), the password is read from $SPOC_PASSWORD or with --password-stdin from stdin; without both, the docker config credentials are used; $USERNAME and $PASSWORD are deprecated and still used with a warning
 
 ## ENVIRONMENT VARIABLES
 
@@ -128,8 +144,11 @@ The following variables set the default of a flag.
 
 | Variable | Flag | Command |
 | --- | --- | --- |
+| `SPOC_DISABLE_SIGNATURE_VERIFICATION` | `--disable-signature-verification` | pull |
 | `DISABLE_SIGNATURE_VERIFICATION` | `--disable-signature-verification` | pull |
+| `SPOC_ALLOWED_IDENTITY_REGEXP` | `--allowed-identity-regexp` | pull |
 | `ALLOWED_IDENTITIES_REGEXP` | `--allowed-identity-regexp` | pull |
+| `SPOC_ALLOWED_OIDC_ISSUER_REGEXP` | `--allowed-oidc-issuer-regexp` | pull |
 | `ALLOWED_OIDC_ISSUER_REGEXP` | `--allowed-oidc-issuer-regexp` | pull |
 | `SPOC_CERTIFICATE_IDENTITY` | `--certificate-identity` | pull |
 | `SPOC_CERTIFICATE_OIDC_ISSUER` | `--certificate-oidc-issuer` | pull |
@@ -141,8 +160,12 @@ The following variables are read at runtime.
 
 | Variable | Description |
 | --- | --- |
-| `SPOC_USERNAME` | username for the registry authentication of push and pull if the flag is not set |
-| `SPOC_PASSWORD` | password for the registry authentication of push and pull |
+| `SPOC_USERNAME` | username for the registry authentication of push, pull and sign if the flag is not set |
+| `SPOC_PASSWORD` | password for the registry authentication of push, pull and sign |
 | `USERNAME` | deprecated, use `SPOC_USERNAME` |
 | `PASSWORD` | deprecated, use `SPOC_PASSWORD` |
 | `SUDO_UID, SUDO_GID, SUDO_USER` | set by sudo, used by record and run to drop the privileges of the target command to the invoking user |
+| `TUF_ROOT, TUF_MIRROR, TUF_ROOT_JSON` | the TUF cache directory, mirror and trust anchor of the Sigstore trusted root and signing config used by push, pull and sign, as for cosign |
+| `SIGSTORE_ID_TOKEN` | OIDC identity token for keyless signing on push and sign, an empty value counts as unset |
+| `ACTIONS_ID_TOKEN_REQUEST_URL, ACTIONS_ID_TOKEN_REQUEST_TOKEN` | set by GitHub Actions for jobs with the `id-token: write` permission, used to get the OIDC identity token for keyless signing on push and sign |
+| `SOURCE_DATE_EPOCH` | seconds since the Unix epoch for the `org.opencontainers.image.created` annotation of push, which defaults to `1970-01-01T00:00:00Z` |

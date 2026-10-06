@@ -49,39 +49,39 @@ display detailed version information
 
 run the manager
 
-**--max-concurrent-reconciles**="": The number of concurrent reconciles of the pod driven controllers. (default: 4)
+**--max-concurrent-reconciles**="": the number of concurrent reconciles of the pod driven controllers (default: 4)
 
-**--webhook, -w**: the webhook k8s resources are managed by the operator(default true)
+**--webhook, -w**: manage the Kubernetes resources of the webhook (default: true)
 
-**--with-binding-tracker**: Enable the binding tracker.
+**--with-binding-tracker**: enable the binding tracker (default: true)
 
-**--with-nodestatus-controller**: Enable the node status controller.
+**--with-nodestatus-controller**: enable the node status controller (default: true)
 
-**--with-recording-merger**: Enable the recording merger.
+**--with-recording-merger**: enable the recording merger (default: true)
 
-**--with-recording-tracker**: Enable the recording tracker.
+**--with-recording-tracker**: enable the recording tracker (default: true)
 
-**--with-spod-controller**: Enable the SPOD controller.
+**--with-spod-controller**: enable the SPOD controller (default: true)
 
-**--with-workload-annotator**: Enable the workload annotator.
+**--with-workload-annotator**: enable the workload annotator (default: true)
 
 ### daemon, d
 
 run the daemon
 
-**--with-apparmor**: Listen for AppArmor API resources
+**--with-apparmor**: listen for AppArmor API resources
 
-**--with-insecure-metrics-access**: Allow unauthenticated access to metrics endpoint
+**--with-insecure-metrics-access**: allow unauthenticated access to the metrics endpoint
 
-**--with-mem-optim**: Enable memory optimization by watching only labeled pods
+**--with-mem-optim**: enable memory optimization by watching only labeled pods
 
-**--with-raw-selinux**: Listen for RawSelinuxProfile API resources
+**--with-raw-selinux**: listen for RawSelinuxProfile API resources
 
-**--with-recording**: Listen for ProfileRecording API resources
+**--with-recording**: listen for ProfileRecording API resources
 
-**--with-seccomp**: Listen for seccomp API resources
+**--with-seccomp**: listen for seccomp API resources (default: true)
 
-**--with-selinux**: Listen for SELinux API resources
+**--with-selinux**: listen for SELinux API resources
 
 ### webhook, w
 
@@ -89,39 +89,39 @@ run the webhook
 
 **--port, -p**="": the port on which to expose the webhook service (default: 9443)
 
-**--static, -s**: the webhook k8s resources are statically managed (default false)
+**--static, -s**: the Kubernetes resources of the webhook are managed statically
 
 ### non-root-enabler
 
 run the non root enabler
 
-**--apparmor, -a**: enable installation of apparmor profiles for spo
+**--apparmor, -a**: install the AppArmor profiles of the operator
 
-**--runtime, -r**="": the container runtime in the cluster (values: cri-o, containerd, docker)
+**--runtime, -r**="": the container runtime in the cluster (cri-o, containerd or docker), only logged
 
 ### log-enricher, l
 
-run the audit's log enricher
+run the audit log enricher
 
-**--enricher-filters-json**="": Log Enricher filters JSON.
+**--enricher-filters-json**="": the filters of the log enricher as inline JSON
 
-**--enricher-log-source**="": Log source to ingest (`Bpf` or `Auditd`)
+**--enricher-log-source**="": the log source to ingest (`Bpf` or `Auditd`)
 
 ### json-enricher, j
 
-run the audit's json enricher
+run the JSON audit log enricher
 
-**--audit-log-interval-seconds, -a**="": Audit log interval in seconds for the JSON Log Enricher. (default: 60)
+**--audit-log-interval-seconds, -a**="": the audit log interval of the JSON enricher in seconds (default: 60)
 
-**--audit-log-maxage**="": Audit log max age for the JSON Log Enricher. The maximum number of days to retain old audit log files based on the timestamp encoded in their filename. (default: 0)
+**--audit-log-maxage**="": the maximum number of days to retain old audit log files of the JSON enricher, based on the timestamp in their file name, 0 retains them regardless of age (default: 0)
 
-**--audit-log-maxbackup**="": Audit log max file backup for the JSON Log Enricher. The maximum number of old audit log files to retain. Setting a value of 0 will mean there's no restriction on the number of files. (default: 0)
+**--audit-log-maxbackup**="": the maximum number of old audit log files of the JSON enricher to retain, 0 retains all (default: 0)
 
-**--audit-log-maxsize**="": Audit log max file size for the JSON Log Enricher. The maximum size in megabytes of the audit log file before it gets rotated. (default: 100)
+**--audit-log-maxsize**="": the maximum size in megabytes of the audit log file of the JSON enricher before it gets rotated (default: 100)
 
-**--audit-log-path**="": Audit log file path for the JSON Log Enricher. Default is stdout.
+**--audit-log-path**="": the audit log file path of the JSON enricher (default: stdout)
 
-**--enricher-filters-json**="": JSON Enricher filters JSON file path.
+**--enricher-filters-json**="": the filters of the JSON enricher as inline JSON
 
 ### bpf-recorder, b
 
@@ -158,6 +158,10 @@ The following variables are read at runtime.
 | `POD_NAME` | name of the pod of the daemon, required for SELinux |
 | `SPOD_NAME` | name of the `SecurityProfilesOperatorDaemon` of the daemon |
 | `OPERATOR_NAMESPACE` | namespace of the operator |
-| `RESTRICT_TO_NAMESPACE` | restricts manager and daemon to a single namespace, falls back to `WATCH_NAMESPACE` |
+| `RESTRICT_TO_NAMESPACE` | restricts manager and daemon to the comma separated namespaces, the namespace of the operator is always included |
+| `WATCH_NAMESPACE` | used like `RESTRICT_TO_NAMESPACE` if that is not set |
 | `KUBELET_DIR` | kubelet root directory, used when the kubelet configuration written by the non-root-enabler has none, defaults to `/var/lib/kubelet` |
 | `ENABLE_LOG_ENRICHER, ENABLE_JSON_ENRICHER, ENABLE_BPF_RECORDER` | enable the respective daemon container in addition to the `SecurityProfilesOperatorDaemon` configuration, the manager passes them on to the daemon |
+| `ENABLE_INSECURE_METRICS_ACCESS` | read by the manager as well: allows unauthenticated access to the metrics endpoint of the daemon in addition to the `SecurityProfilesOperatorDaemon` configuration |
+| `RELATED_IMAGE_SELINUXD` | image of the selinuxd container of the daemon if the image mapping of the operator ConfigMap selects none for the operating system of the node |
+| `RELATED_IMAGE_SELINUXD_EL8, RELATED_IMAGE_SELINUXD_EL9, RELATED_IMAGE_SELINUXD_EL10, RELATED_IMAGE_SELINUXD_FEDORA` | images of the selinuxd container per operating system of the node, which the `selinuxd-image-mapping.json` mapping of the operator ConfigMap refers to |

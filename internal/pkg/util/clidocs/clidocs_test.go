@@ -18,6 +18,7 @@ package clidocs
 
 import (
 	"bytes"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -45,6 +46,19 @@ func newTestApp() *cli.App {
 					EnvVars: []string{"TOOL_FAST", "FAST"},
 				},
 				&cli.StringFlag{Name: "secret", Hidden: true, EnvVars: []string{"TOOL_SECRET"}},
+				&cli.BoolFlag{Name: "enabled", Usage: "enable it", Value: true},
+				&cli.BoolFlag{
+					Name:        "documented",
+					Usage:       "document it",
+					Value:       true,
+					DefaultText: "on",
+				},
+				&cli.BoolFlag{
+					Name:               "quiet",
+					Usage:              "do not tell",
+					Value:              true,
+					DisableDefaultText: true,
+				},
 			},
 			Subcommands: []*cli.Command{
 				{
@@ -95,6 +109,23 @@ func TestMarkdown(t *testing.T) {
 	require.Contains(t, doc, "| `RUNTIME_VAR` | read at runtime |\n")
 	require.NotContains(t, doc, "TOOL_SECRET")
 	require.NotContains(t, doc, "TOOL_HIDDEN")
+
+	// Boolean flags show their default if it is true or has a default text.
+	require.Contains(t, doc, "\n**--enabled**: enable it (default: true)\n")
+	require.Contains(t, doc, "\n**--documented**: document it (default: on)\n")
+	require.Contains(t, doc, "\n**--fast**: go fast\n")
+	require.Contains(t, doc, "\n**--quiet**: do not tell\n")
+}
+
+func TestMarkdownRestoresBoolFlags(t *testing.T) {
+	t.Parallel()
+
+	app := newTestApp()
+	flags := slices.Clone(app.Commands[0].Flags)
+
+	_, err := Markdown(app, nil)
+	require.NoError(t, err)
+	require.Equal(t, flags, app.Commands[0].Flags)
 }
 
 func TestMarkdownWithoutEnvVars(t *testing.T) {

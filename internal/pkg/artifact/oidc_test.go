@@ -17,6 +17,8 @@ limitations under the License.
 package artifact
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -75,7 +77,7 @@ func TestIDTokenAmbient(t *testing.T) {
 	t.Setenv(envGitHubRequestURL, "")
 	t.Setenv(envSigstoreIDToken, "env-token")
 
-	token, err := idToken(t.Context(), "https://oauth2.example.com")
+	token, err := idToken(t.Context(), "https://oauth2.example.com", false)
 	require.NoError(t, err)
 	require.Equal(t, "env-token", token)
 
@@ -83,14 +85,120 @@ func TestIDTokenAmbient(t *testing.T) {
 	t.Setenv(envGitHubRequestToken, "request-token")
 	t.Setenv(envGitHubRequestURL, githubTokenServer(t, http.StatusInternalServerError))
 
-	token, err = idToken(t.Context(), "https://oauth2.example.com")
+	token, err = idToken(t.Context(), "https://oauth2.example.com", false)
 	require.NoError(t, err)
 	require.Equal(t, "env-token", token)
 
 	// GitHub Actions comes first.
 	t.Setenv(envGitHubRequestURL, githubTokenServer(t, http.StatusOK))
 
-	token, err = idToken(t.Context(), "https://oauth2.example.com")
+	token, err = idToken(t.Context(), "https://oauth2.example.com", false)
 	require.NoError(t, err)
 	require.Equal(t, "github-token", token)
+}
+
+func TestEnvToken(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value string
+		ok    bool
+	}{
+		{name: "set", value: "env-token", ok: true},
+		{name: "empty", value: ""},
+		{name: "blank", value: " \n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(envSigstoreIDToken, tc.value)
+
+			token, ok, err := envToken(t.Context())
+			require.NoError(t, err)
+			require.Equal(t, tc.ok, ok)
+
+			if tc.ok {
+				require.Equal(t, tc.value, token)
+			}
+		})
+	}
+}
+
+func TestTokenGetter(t *testing.T) {
+	t.Parallel()
+
+	const issuer = "https://oauth2.example.com"
+
+	errProvider := errors.New("provider failed")
+
+	none := tokenProvider{
+		name:    "none",
+		provide: func(context.Context) (string, bool, error) { return "", false, nil },
+	}
+	ambient := tokenProvider{
+		name:    "ambient",
+		provide: func(context.Context) (string, bool, error) { return "ambient-token", true, nil },
+	}
+	failing := tokenProvider{
+		name:    "failing",
+		provide: func(context.Context) (string, bool, error) { return "", false, errProvider },
+	}
+
+	for _, tc := range []struct {
+		name            string
+		providers       []tokenProvider
+		deviceFlow      bool
+		terminal        bool
+		wantToken       string
+		wantInteractive bool
+		wantErr         error
+	}{
+		{
+			name:      "ambient token",
+			providers: []tokenProvider{none, ambient},
+			wantToken: "ambient-token",
+		},
+		{
+			name:      "failing provider without token",
+			providers: []tokenProvider{failing, none},
+			terminal:  true,
+			wantErr:   errProvider,
+		},
+		{
+			name:            "terminal",
+			providers:       []tokenProvider{none},
+			terminal:        true,
+			wantInteractive: true,
+		},
+		{
+			name:            "device flow without terminal",
+			providers:       []tokenProvider{none},
+			deviceFlow:      true,
+			wantInteractive: true,
+		},
+		{
+			name:      "no terminal and no device flow",
+			providers: []tokenProvider{none},
+			wantErr:   ErrNoInteractiveSignIn,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			source, err := tokenGetter(
+				t.Context(),
+				tc.providers,
+				issuer,
+				tc.deviceFlow,
+				tc.terminal,
+			)
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				require.Nil(t, source)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, tc.wantToken, source.token)
+			require.Equal(t, tc.wantInteractive, source.interactive != nil)
+		})
+	}
 }

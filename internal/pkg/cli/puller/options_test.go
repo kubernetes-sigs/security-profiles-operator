@@ -83,16 +83,15 @@ func TestFromContext(t *testing.T) {
 			},
 		},
 		{
-			name: "success with key, exact signer, trusted root and offline",
+			name: "success with key, trusted root and offline",
 			prepare: func(set *flag.FlagSet) {
 				set.String(FlagKey, "", "")
-				set.String(FlagCertificateIdentity, "", "")
-				set.String(FlagCertificateOidcIssuer, "", "")
+				set.String(FlagAllowedIdentityRegexp, "", "")
 				set.String(FlagTrustedRoot, "", "")
 				set.Bool(FlagOffline, false, "")
 				require.NoError(t, set.Set(FlagKey, "cosign.pub"))
-				require.NoError(t, set.Set(FlagCertificateIdentity, "me@example.com"))
-				require.NoError(t, set.Set(FlagCertificateOidcIssuer, "https://issuer"))
+				// The default regexp does not constrain anything.
+				require.NoError(t, set.Set(FlagAllowedIdentityRegexp, ".*"))
 				require.NoError(t, set.Set(FlagTrustedRoot, "root.json"))
 				require.NoError(t, set.Set(FlagOffline, "true"))
 				require.NoError(t, set.Parse([]string{"echo"}))
@@ -100,10 +99,54 @@ func TestFromContext(t *testing.T) {
 			assert: func(opts *Options, err error) {
 				require.NoError(t, err)
 				require.Equal(t, "cosign.pub", opts.keyRef)
-				require.Equal(t, "me@example.com", opts.certIdentity)
-				require.Equal(t, "https://issuer", opts.certOidcIssuer)
 				require.Equal(t, "root.json", opts.trustedRootPath)
 				require.True(t, opts.offline)
+			},
+		},
+		{
+			name: "success with exact signer",
+			prepare: func(set *flag.FlagSet) {
+				set.String(FlagCertificateIdentity, "", "")
+				set.String(FlagCertificateOidcIssuer, "", "")
+				require.NoError(t, set.Set(FlagCertificateIdentity, "me@example.com"))
+				require.NoError(t, set.Set(FlagCertificateOidcIssuer, "https://issuer"))
+				require.NoError(t, set.Parse([]string{"echo"}))
+			},
+			assert: func(opts *Options, err error) {
+				require.NoError(t, err)
+				require.Equal(t, "me@example.com", opts.certIdentity)
+				require.Equal(t, "https://issuer", opts.certOidcIssuer)
+			},
+		},
+		{
+			name: "failure key with exact signer",
+			prepare: func(set *flag.FlagSet) {
+				set.String(FlagKey, "", "")
+				set.String(FlagCertificateIdentity, "", "")
+				set.String(FlagCertificateOidcIssuer, "", "")
+				require.NoError(t, set.Set(FlagKey, "cosign.pub"))
+				require.NoError(t, set.Set(FlagCertificateIdentity, "me@example.com"))
+				require.NoError(t, set.Set(FlagCertificateOidcIssuer, "https://issuer"))
+				require.NoError(t, set.Parse([]string{"echo"}))
+			},
+			assert: func(_ *Options, err error) {
+				require.ErrorIs(t, err, ErrKeyWithIdentity)
+				require.ErrorContains(t, err, "--"+FlagCertificateIdentity)
+				require.ErrorContains(t, err, "--"+FlagCertificateOidcIssuer)
+			},
+		},
+		{
+			name: "failure key with signer regexp",
+			prepare: func(set *flag.FlagSet) {
+				set.String(FlagKey, "", "")
+				set.String(FlagAllowedOidcIssuerRegexp, "", "")
+				require.NoError(t, set.Set(FlagKey, "cosign.pub"))
+				require.NoError(t, set.Set(FlagAllowedOidcIssuerRegexp, "^https://issuer$"))
+				require.NoError(t, set.Parse([]string{"echo"}))
+			},
+			assert: func(_ *Options, err error) {
+				require.ErrorIs(t, err, ErrKeyWithIdentity)
+				require.ErrorContains(t, err, "--"+FlagAllowedOidcIssuerRegexp)
 			},
 		},
 		{

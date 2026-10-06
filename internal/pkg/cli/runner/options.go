@@ -41,6 +41,25 @@ func Default() *Options {
 	}
 }
 
+// Flags returns the flags of the run command.
+func Flags() []cli.Flag {
+	return append([]cli.Flag{
+		&cli.StringFlag{
+			Name:        FlagType,
+			Aliases:     []string{"t"},
+			Usage:       "the run type: " + string(TypeSeccomp),
+			DefaultText: string(TypeSeccomp),
+		},
+		&cli.StringFlag{
+			Name:        FlagProfile,
+			Aliases:     []string{"p"},
+			Usage:       "the profile to be used",
+			DefaultText: DefaultInputFile,
+			TakesFile:   true,
+		},
+	}, command.Flags()...)
+}
+
 // FromContext can be used to create Options from an CLI context.
 func FromContext(ctx *cli.Context) (*Options, error) {
 	options := Default()

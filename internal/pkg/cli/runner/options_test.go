@@ -41,6 +41,7 @@ func TestFromContext(t *testing.T) {
 				require.NoError(t, err)
 			},
 		},
+
 		{
 			name:    "failure no command provided",
 			prepare: func(set *flag.FlagSet) {},
@@ -83,6 +84,34 @@ func TestFromContext(t *testing.T) {
 
 			_, err := FromContext(ctx)
 			assert(err)
+		})
+	}
+}
+
+// TestFromContextPrivileged verifies that spoc run drops the sudo privileges
+// unless --privileged is set, like spoc record.
+func TestFromContextPrivileged(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		args     []string
+		wantDrop bool
+	}{
+		{name: "default", args: []string{"echo"}, wantDrop: true},
+		{name: "privileged", args: []string{"--" + FlagPrivileged, "echo"}},
+		{name: "privileged false", args: []string{"--" + FlagPrivileged + "=false", "echo"}, wantDrop: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			set := flag.NewFlagSet("", flag.ContinueOnError)
+			set.Bool(FlagPrivileged, false, "")
+			require.NoError(t, set.Parse(tc.args))
+
+			options, err := FromContext(cli.NewContext(cli.NewApp(), set, nil))
+			require.NoError(t, err)
+			require.Equal(t, tc.wantDrop, options.commandOptions.DropSudoPrivileges)
 		})
 	}
 }
