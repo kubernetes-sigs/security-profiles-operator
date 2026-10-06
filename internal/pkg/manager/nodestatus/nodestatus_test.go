@@ -169,10 +169,11 @@ func TestReconcileStatusRetriesConflictWithFreshGet(t *testing.T) {
 		Build()
 
 	r := &StatusReconciler{client: fakeClient, reader: apiReader}
-	err := r.reconcileStatus(
+	_, err := r.reconcileStatus(
 		ctx,
 		profile,
 		secprofnodestatusapi.ProfileStateInstalled,
+		nil,
 		logr.Discard(),
 	)
 

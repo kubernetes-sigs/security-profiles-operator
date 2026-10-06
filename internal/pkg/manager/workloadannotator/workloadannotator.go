@@ -119,8 +119,7 @@ func (r *PodReconciler) Reconcile(
 	}
 
 	if err != nil {
-		logger.Error(err, "could not get pod")
-
+		// The controller logs the returned error.
 		return reconcile.Result{}, fmt.Errorf("looking up pod in pod reconciler: %w", err)
 	}
 
@@ -475,7 +474,7 @@ func updatePodReferences[T client.Object](
 		pods := &corev1.PodList{}
 
 		err := r.client.List(ctx, pods, client.MatchingFields{ownerKey: profileReference})
-		if util.IgnoreNotFound(err) != nil {
+		if client.IgnoreNotFound(err) != nil {
 			return nil, fmt.Errorf("listing pods to update %s: %w", kind, err)
 		}
 
@@ -498,7 +497,7 @@ func updatePodReferences[T client.Object](
 
 	profileDeleted := false
 
-	if err := util.Retry(func() error {
+	if err := util.RetryWithContext(ctx, func() error {
 		if err := r.reader.Get(
 			ctx,
 			util.NamespacedName(prof.GetName(), prof.GetNamespace()),
@@ -560,7 +559,7 @@ func updateInUseFinalizer(
 		return nil
 	}
 
-	if err := util.Retry(func() error {
+	if err := util.RetryWithContext(ctx, func() error {
 		if err := r.reader.Get(
 			ctx, util.NamespacedName(prof.GetName(), prof.GetNamespace()), prof,
 		); err != nil {

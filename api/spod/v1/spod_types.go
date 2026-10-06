@@ -32,48 +32,69 @@ type SelinuxOptions struct {
 	// allowedSystemProfiles lists the profiles coming from the system itself
 	// that are allowed to be inherited by workloads. Use this with care,
 	// as this might provide a lot of permissions depending on the policy.
+	// Each entry may only contain alphanumeric characters, '.', '-' and '_',
+	// like the names of the inherited system profiles it gets compared to.
 	// +optional
 	// +default=["container"]
 	// +listType=set
+	// +kubebuilder:validation:items:Pattern=`^[-a-zA-Z0-9._]+$`
 	AllowedSystemProfiles []string `json:"allowedSystemProfiles,omitempty"`
 
 	// deniedTypes if specified, a list of SELinux types which are
 	// denied in SELinux profiles.
+	// Each entry gets compared to the types of SELinux profiles, so it may
+	// only contain alphanumeric characters, '.', '-' and '_', or be '@self'.
 	// +optional
 	// +listType=set
+	// +kubebuilder:validation:items:Pattern=`^([-a-zA-Z0-9._]+|@self)$`
 	DeniedTypes []string `json:"deniedTypes,omitempty"`
 
 	// deniedClasses if specified, a list of SELinux object classes which are
 	// denied in SELinux profiles.
+	// Each entry gets compared to the object classes of SELinux profiles, so
+	// it may only contain alphanumeric characters, '.', '-' and '_'.
 	// +optional
 	// +listType=set
+	// +kubebuilder:validation:items:Pattern=`^[-a-zA-Z0-9._]+$`
 	DeniedClasses []string `json:"deniedClasses,omitempty"`
 
 	// deniedPermissions if specified, a list of SELinux permissions which are
 	// denied in SELinux profiles.
+	// Each entry gets compared to the permissions of SELinux profiles, so it
+	// may only contain alphanumeric characters, '.', '-' and '_'.
 	// +optional
 	// +listType=set
+	// +kubebuilder:validation:items:Pattern=`^[-a-zA-Z0-9._]+$`
 	DeniedPermissions []string `json:"deniedPermissions,omitempty"`
 
 	// allowedTypes if specified, a list of SELinux types which are removed
 	// from the built-in denylist. Use this with care, as it relaxes a safe
 	// default for every translated policy.
+	// Each entry gets compared to the types of SELinux profiles, so it may
+	// only contain alphanumeric characters, '.', '-' and '_', or be '@self'.
 	// +optional
 	// +listType=set
+	// +kubebuilder:validation:items:Pattern=`^([-a-zA-Z0-9._]+|@self)$`
 	AllowedTypes []string `json:"allowedTypes,omitempty"`
 
 	// allowedClasses if specified, a list of SELinux object classes which are
 	// removed from the built-in denylist. Use this with care, as it relaxes a
 	// safe default for every translated policy.
+	// Each entry gets compared to the object classes of SELinux profiles, so
+	// it may only contain alphanumeric characters, '.', '-' and '_'.
 	// +optional
 	// +listType=set
+	// +kubebuilder:validation:items:Pattern=`^[-a-zA-Z0-9._]+$`
 	AllowedClasses []string `json:"allowedClasses,omitempty"`
 
 	// allowedPermissions if specified, a list of SELinux permissions which are
 	// removed from the built-in denylist. Use this with care, as it relaxes a
 	// safe default for every translated policy.
+	// Each entry gets compared to the permissions of SELinux profiles, so it
+	// may only contain alphanumeric characters, '.', '-' and '_'.
 	// +optional
 	// +listType=set
+	// +kubebuilder:validation:items:Pattern=`^[-a-zA-Z0-9._]+$`
 	AllowedPermissions []string `json:"allowedPermissions,omitempty"`
 }
 
@@ -104,8 +125,9 @@ type JsonEnricherOptions struct {
 	//nolint:kubeapilinter // changing the pointer to a value would break the Go API
 	AuditLogMaxSize *int32 `json:"auditLogMaxSize,omitempty"`
 	// auditLogMaxBackups specifies the maximum number of old audit log
-	// files to retain. The default is to retain all old log files (though
-	// MaxAge may still cause them to get deleted).
+	// files to retain. If it is unset or 0, 10 old log files are retained,
+	// unless auditLogMaxAge is set, which then alone decides about removing
+	// them.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	AuditLogMaxBackups *int32 `json:"auditLogMaxBackups,omitempty"`
@@ -130,11 +152,17 @@ type WebhookOptions struct {
 	// +kubebuilder:validation:Enum=Ignore;Fail
 	//nolint:kubeapilinter // changing the pointer to a value would break the Go API
 	FailurePolicy *admissionregv1.FailurePolicyType `json:"failurePolicy,omitempty"`
-	// namespaceSelector sets the webhook's namespace selector.
+	// namespaceSelector sets the webhook's namespace selector. It has to be a
+	// valid label selector, which the webhook configuration requires.
 	// +optional
+	//nolint:lll // CEL rules cannot be wrapped
+	// +kubebuilder:validation:XValidation:rule="!has(self.matchExpressions) || self.matchExpressions.all(e, has(e.values) && size(e.values) > 0 ? (e.operator == 'In' || e.operator == 'NotIn') : (e.operator == 'Exists' || e.operator == 'DoesNotExist'))",message="matchExpressions operator must be In, NotIn, Exists or DoesNotExist, In and NotIn require values, Exists and DoesNotExist must not have values"
 	NamespaceSelector *metav1.LabelSelector `json:"namespaceSelector,omitempty"`
-	// objectSelector sets the webhook's object selector.
+	// objectSelector sets the webhook's object selector. It has to be a
+	// valid label selector, which the webhook configuration requires.
 	// +optional
+	//nolint:lll // CEL rules cannot be wrapped
+	// +kubebuilder:validation:XValidation:rule="!has(self.matchExpressions) || self.matchExpressions.all(e, has(e.values) && size(e.values) > 0 ? (e.operator == 'In' || e.operator == 'NotIn') : (e.operator == 'Exists' || e.operator == 'DoesNotExist'))",message="matchExpressions operator must be In, NotIn, Exists or DoesNotExist, In and NotIn require values, Exists and DoesNotExist must not have values"
 	ObjectSelector *metav1.LabelSelector `json:"objectSelector,omitempty"`
 }
 
@@ -323,9 +351,11 @@ type SPODWebhookConfig struct {
 	// +default=false
 	StaticConfig *bool `json:"staticConfig,omitempty"`
 	// options set custom namespace selectors and failure mode for SPO's webhooks.
+	// There can be at most one entry for each of the four webhooks.
 	// +optional
 	// +listType=map
 	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=4
 	Options []WebhookOptions `json:"options,omitempty"`
 	// tolerations if specified, the webhook's tolerations. When not set,
 	// the webhook inherits the daemon's tolerations from the scheduling config.
@@ -344,6 +374,9 @@ type SPODSchedulingConfig struct {
 	// +optional
 	Affinity *corev1.Affinity `json:"affinity,omitempty"`
 	// priorityClassName if defined, indicates the SPOD pod priority class.
+	// The pods of the managed webhook use system-cluster-critical, unless a
+	// priority class other than the default is set here, which then applies
+	// to them as well.
 	// +optional
 	// +default="system-node-critical"
 	//nolint:kubeapilinter // released v1 API: empty means unset, a MinLength would reject existing manifests

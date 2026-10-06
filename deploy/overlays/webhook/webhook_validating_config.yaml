@@ -11,7 +11,7 @@ webhooks:
   - name: rawselinuxprofile-validation.spo.io
     failurePolicy: Fail
     timeoutSeconds: 10
-    sideEffects: NoneOnDryRun
+    sideEffects: None
     rules:
       - operations: ["CREATE", "UPDATE"]
         apiGroups: ["security-profiles-operator.x-k8s.io"]

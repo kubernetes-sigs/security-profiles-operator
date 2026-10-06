@@ -97,22 +97,22 @@ func (r *StatusReconciler) Healthz(*http.Request) error {
 
 // Security Profiles Operator RBAC permissions to manage SelinuxProfile
 //nolint:lll // required for kubebuilder
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles/finalizers,verbs=get;update;patch
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=rawselinuxprofiles,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=rawselinuxprofiles,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=rawselinuxprofiles/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=rawselinuxprofiles/finalizers,verbs=get;update;patch
 
 // Security Profiles Operator RBAC permissions to manage SeccompProfile
 //nolint:lll // required for kubebuilder
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles/finalizers,verbs=get;update;patch
 
 // Security Profiles Operator RBAC permissions to manage AppArmorProfile
 //nolint:lll // required for kubebuilder
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=apparmorprofiles,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=apparmorprofiles,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=apparmorprofiles/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=apparmorprofiles/finalizers,verbs=get;update;patch
 
@@ -137,7 +137,73 @@ func (r *StatusReconciler) Reconcile(
 		return r.reconcileProfile(ctx, kind, util.NamespacedName(name, req.Namespace))
 	}
 
-	return r.reconcileNodeStatus(ctx, req)
+	return r.reconcileNodeStatus(ctx, req, nil, r.newClusterView())
+}
+
+// clusterView looks up the SPOd DaemonSet, the node names and the nodes which
+// run a SPOd pod once per reconcile, so that the aggregation and the cleanup
+// of a deleted profile share them.
+type clusterView struct {
+	r *StatusReconciler
+
+	ds *appsv1.DaemonSet
+
+	nodeNames    []string
+	hasNodeNames bool
+
+	spodNodes    map[string]bool
+	spodSettled  bool
+	hasSpodNodes bool
+}
+
+func (r *StatusReconciler) newClusterView() *clusterView {
+	return &clusterView{r: r}
+}
+
+// daemonSet returns the SPOd DaemonSet.
+func (v *clusterView) daemonSet(ctx context.Context) (*appsv1.DaemonSet, error) {
+	if v.ds == nil {
+		ds, err := v.r.getDS(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		v.ds = ds
+	}
+
+	return v.ds, nil
+}
+
+// nodes returns the names of all nodes of the cluster.
+func (v *clusterView) nodes(ctx context.Context) ([]string, error) {
+	if !v.hasNodeNames {
+		names, err := v.r.nodeNames(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		v.nodeNames = names
+		v.hasNodeNames = true
+	}
+
+	return v.nodeNames, nil
+}
+
+// spodNodesOf returns the nodes which run a SPOd pod of the DaemonSet, see
+// StatusReconciler.spodNodes.
+func (v *clusterView) spodNodesOf(
+	ctx context.Context, spodDS *appsv1.DaemonSet,
+) (nodes map[string]bool, settled bool, err error) {
+	if !v.hasSpodNodes {
+		nodes, settled, err := v.r.spodNodes(ctx, spodDS)
+		if err != nil {
+			return nil, false, err
+		}
+
+		v.spodNodes, v.spodSettled, v.hasSpodNodes = nodes, settled, true
+	}
+
+	return v.spodNodes, v.spodSettled, nil
 }
 
 // reconcileProfile aggregates the node statuses of a profile into the status
@@ -155,18 +221,20 @@ func (r *StatusReconciler) reconcileProfile(
 		return reconcile.Result{}, fmt.Errorf("cannot list node statuses of profile: %w", err)
 	}
 
+	view := r.newClusterView()
+
 	var statusResult reconcile.Result
 
 	if first := firstOwnedStatus(list, kind, key.Name); first != nil {
 		statusResult, err = r.reconcileNodeStatus(
-			ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(first)},
+			ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(first)}, list, view,
 		)
 		if err != nil {
 			return statusResult, err
 		}
 	}
 
-	deletionResult, err := r.reconcileDeletingProfile(ctx, kind, key)
+	deletionResult, err := r.reconcileDeletingProfile(ctx, kind, key, view)
 	if err != nil {
 		return deletionResult, err
 	}
@@ -179,10 +247,13 @@ func (r *StatusReconciler) reconcileProfile(
 }
 
 // reconcileNodeStatus aggregates the node statuses of the profile which owns
-// the node status of the request into the status of the profile.
+// the node status of the request into the status of the profile. The node
+// statuses of the profile are listed unless the caller provides them.
 func (r *StatusReconciler) reconcileNodeStatus(
 	ctx context.Context,
 	req reconcile.Request,
+	nodeStatusList *secprofnodestatusapi.SecurityProfileNodeStatusList,
+	view *clusterView,
 ) (reconcile.Result, error) {
 	logger := r.log.WithValues("nodeStatus", req.Name, "namespace", req.Namespace)
 	logger.V(config.VerboseLevel).Info("Reconciling node status")
@@ -191,22 +262,12 @@ func (r *StatusReconciler) reconcileNodeStatus(
 	instance := &secprofnodestatusapi.SecurityProfileNodeStatus{}
 	if err := r.client.Get(ctx, req.NamespacedName, instance); err != nil {
 		// Expected to find a node profile, return an error and requeue
-		return reconcile.Result{}, util.IgnoreNotFound(err)
+		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 
-	prof, getProfErr := r.getProfileFromStatus(ctx, instance)
-	if getProfErr != nil {
-		r.record.Eventf(
-			instance,
-			nil,
-			v1.EventTypeWarning,
-			"ReconcileError",
-			util.EventActionReconcile,
-			"%s",
-			getProfErr.Error(),
-		)
-
-		return reconcile.Result{}, getProfErr
+	prof, err := r.getProfileFromStatus(ctx, instance)
+	if err != nil {
+		return r.ownerError(instance, err, logger)
 	}
 
 	lprof := logger.WithValues(
@@ -215,7 +276,8 @@ func (r *StatusReconciler) reconcileNodeStatus(
 		"Profile.Kind", prof.GetObjectKind().GroupVersionKind(),
 	)
 
-	// Initialize status if it hasn't happened already
+	// Initialize the status if it hasn't happened already, so that the profile
+	// shows a state while the aggregation below waits for the other nodes.
 	if prof.GetStatusBase().Status == "" {
 		lprof.Info("Initializing Profile status")
 
@@ -224,48 +286,108 @@ func (r *StatusReconciler) reconcileNodeStatus(
 			targetStatus = instance.Status.Status
 		}
 
-		return reconcile.Result{}, r.reconcileStatus(ctx, prof, targetStatus, lprof)
+		prof, err = r.reconcileStatus(ctx, prof, targetStatus, nil, lprof)
+		if err != nil || prof == nil {
+			return reconcile.Result{}, err
+		}
 	}
 
-	// get all the other statuses
+	if !r.statusMatchesOwner(instance, prof, logger) {
+		return reconcile.Result{}, nil
+	}
+
+	if nodeStatusList == nil {
+		nodeStatusList, err = listStatusesForProfile(
+			ctx,
+			r.client,
+			instance.Namespace,
+			instance.Labels[secprofnodestatusapi.StatusToProfLabel],
+		)
+		if err != nil {
+			return reconcile.Result{}, fmt.Errorf("cannot list the node statuses: %w", err)
+		}
+	}
+
+	return r.aggregateStatuses(ctx, prof, nodeStatusList, view, lprof)
+}
+
+// ownerError reports a node status whose owner profile cannot be determined.
+// A status without an owner, or with an owner of an unknown kind, cannot be
+// reconciled by a retry, so it is only reported. Other errors, like a failed
+// lookup of the owner, are retried.
+func (r *StatusReconciler) ownerError(
+	instance *secprofnodestatusapi.SecurityProfileNodeStatus, err error, logger logr.Logger,
+) (reconcile.Result, error) {
+	r.record.Eventf(
+		instance,
+		nil,
+		v1.EventTypeWarning,
+		"ReconcileError",
+		util.EventActionReconcile,
+		"%s",
+		err.Error(),
+	)
+
+	if errors.Is(err, ErrNoOwnerProfile) || errors.Is(err, ErrUnknownOwnerKind) {
+		logger.Info("Skipping node status without a known owner, will not requeue", "reason", err)
+
+		return reconcile.Result{}, nil
+	}
+
+	return reconcile.Result{}, err
+}
+
+// statusMatchesOwner returns true if the profile label of the node status
+// matches the owner profile. A mismatch is reported, a retry cannot fix it.
+func (r *StatusReconciler) statusMatchesOwner(
+	instance *secprofnodestatusapi.SecurityProfileNodeStatus,
+	prof profilebaseapi.StatusBaseUser,
+	logger logr.Logger,
+) bool {
 	profLabel := instance.Labels[secprofnodestatusapi.StatusToProfLabel]
-	if profLabel == "" {
+
+	var msg string
+
+	switch {
+	case profLabel == "":
 		logger.Info("Skipping unlabeled node status, will not requeue")
-		r.record.Eventf(
-			instance,
-			nil,
-			v1.EventTypeWarning,
-			"ReconcileError",
-			util.EventActionReconcile,
-			"unlabeled node status",
-		)
 
-		return reconcile.Result{}, nil
-	}
-
-	if util.KindBasedDNSLengthName(
-		prof,
-	) != instance.Labels[secprofnodestatusapi.StatusToProfLabel] {
+		msg = "unlabeled node status"
+	// The owner reference names the kind of the profile, whose TypeMeta may
+	// be empty after a write.
+	case util.KindNameDNSLengthName(metav1.GetControllerOf(instance).Kind, prof.GetName()) != profLabel:
 		logger.Info("Status doesn't match owner, will not requeue")
-		r.record.Eventf(
-			instance,
-			nil,
-			v1.EventTypeWarning,
-			"ReconcileError",
-			util.EventActionReconcile,
-			"status doesn't match owner",
-		)
 
-		return reconcile.Result{}, nil
+		msg = "status doesn't match owner"
+	default:
+		return true
 	}
 
-	nodeStatusList, err := listStatusesForProfile(ctx, r.client, instance.Namespace, profLabel)
-	if err != nil {
-		return reconcile.Result{}, fmt.Errorf("cannot list the node statuses: %w", err)
-	}
+	r.record.Eventf(
+		instance,
+		nil,
+		v1.EventTypeWarning,
+		"ReconcileError",
+		util.EventActionReconcile,
+		"%s",
+		msg,
+	)
 
-	// get the DS
-	spodDS, err := r.getDS(ctx, lprof)
+	return false
+}
+
+// aggregateStatuses sets the lowest state of the node statuses as the status
+// of the profile, once every node running the SPOd reported one. It removes
+// the statuses and finalizers of nodes which are gone or do not run the SPOd
+// anymore.
+func (r *StatusReconciler) aggregateStatuses(
+	ctx context.Context,
+	prof profilebaseapi.StatusBaseUser,
+	nodeStatusList *secprofnodestatusapi.SecurityProfileNodeStatusList,
+	view *clusterView,
+	logger logr.Logger,
+) (reconcile.Result, error) {
+	spodDS, err := view.daemonSet(ctx)
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("cannot get the DS: %w", err)
 	}
@@ -295,7 +417,7 @@ func (r *StatusReconciler) reconcileNodeStatus(
 		// run the SPOd, for example because of a new taint
 		logger.Info("Removing extra statuses", "has", hasStatuses, "wants", wantsStatuses)
 
-		removed, err := r.removeStaleStatuses(ctx, prof, spodDS, nodeStatusList, lprof)
+		removed, err := r.removeStaleStatuses(ctx, prof, spodDS, nodeStatusList, view, logger)
 		if err != nil {
 			return reconcile.Result{}, fmt.Errorf("cannot remove extra statuses: %w", err)
 		}
@@ -316,28 +438,45 @@ func (r *StatusReconciler) reconcileNodeStatus(
 	// taken from the profile rather than from the statuses, because a status
 	// can be gone already, for example after a failed attempt to remove the
 	// finalizer or when the garbage collector deleted it.
-	nodeNames, err := r.nodeNames(ctx)
+	nodeNames, err := view.nodes(ctx)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
 
 	if err := r.removeNodeFinalizers(
-		ctx, prof, deletedNodeFinalizers(prof, nodeNames), lprof,
+		ctx, prof, deletedNodeFinalizers(prof, nodeNames), logger,
 	); err != nil {
 		return reconcile.Result{}, err
 	}
 
-	lowestCommonState := secprofnodestatusapi.LowestState
-	for i := range nodeStatusList.Items {
-		lowestCommonState = secprofnodestatusapi.LowerOfTwoStates(
-			lowestCommonState,
-			nodeStatusList.Items[i].Status.Status,
-		)
-	}
+	lowestCommonState, failedNodes := lowestState(nodeStatusList)
 
 	logger.V(config.VerboseLevel).Info("Setting the status to", "Status", lowestCommonState)
 
-	return requeue, r.reconcileStatus(ctx, prof, lowestCommonState, lprof)
+	_, err = r.reconcileStatus(ctx, prof, lowestCommonState, failedNodes, logger)
+
+	return requeue, err
+}
+
+// lowestState returns the lowest state of the node statuses, and the nodes
+// whose profile is in the Error state.
+func lowestState(
+	nodeStatusList *secprofnodestatusapi.SecurityProfileNodeStatusList,
+) (lowest secprofnodestatusapi.ProfileState, failedNodes []string) {
+	lowest = secprofnodestatusapi.LowestState
+
+	for i := range nodeStatusList.Items {
+		status := &nodeStatusList.Items[i]
+		lowest = secprofnodestatusapi.LowerOfTwoStates(lowest, status.Status.Status)
+
+		if status.Status.Status == secprofnodestatusapi.ProfileStateError {
+			failedNodes = append(failedNodes, status.Spec.NodeName)
+		}
+	}
+
+	slices.Sort(failedNodes)
+
+	return lowest, failedNodes
 }
 
 // removeStaleStatuses removes the statuses and finalizers of nodes which have
@@ -349,6 +488,7 @@ func (r *StatusReconciler) removeStaleStatuses(
 	prof client.Object,
 	spodDS *appsv1.DaemonSet,
 	nodeStatusList *secprofnodestatusapi.SecurityProfileNodeStatusList,
+	view *clusterView,
 	logger logr.Logger,
 ) (bool, error) {
 	stale, err := r.statusesOfDeletedNodes(ctx, nodeStatusList)
@@ -357,7 +497,7 @@ func (r *StatusReconciler) removeStaleStatuses(
 	}
 
 	if len(stale) == 0 {
-		stale, err = r.statusesOfUnscheduledNodes(ctx, spodDS, nodeStatusList, logger)
+		stale, err = statusesOfUnscheduledNodes(ctx, spodDS, nodeStatusList, view, logger)
 		if err != nil {
 			return false, err
 		}
@@ -369,7 +509,7 @@ func (r *StatusReconciler) removeStaleStatuses(
 
 	// The legacy finalizer of a stale node stays as long as another node
 	// shares it, see staleNodeFinalizers.
-	nodeNames, err := r.nodeNames(ctx)
+	nodeNames, err := view.nodes(ctx)
 	if err != nil {
 		return false, err
 	}
@@ -411,7 +551,7 @@ func (r *StatusReconciler) removeNodeFinalizers(
 
 		logger.Info("Removing node finalizer from profile", "finalizer", finalizer)
 
-		if err := util.Retry(func() error {
+		if err := util.RetryWithContext(ctx, func() error {
 			return client.IgnoreNotFound(util.RemoveFinalizer(ctx, r.client, prof, finalizer))
 		}, util.IsNotFoundOrConflict); err != nil {
 			return fmt.Errorf("cannot remove finalizer %s from profile: %w", finalizer, err)
@@ -555,13 +695,14 @@ func (r *StatusReconciler) spodNodes(
 // running the SPOd only if the DaemonSet status proves that every node it
 // schedules to runs exactly one up to date pod, and no pod runs anywhere else.
 // Then a node without a pod, including a terminating one, is not scheduled.
-func (r *StatusReconciler) statusesOfUnscheduledNodes(
+func statusesOfUnscheduledNodes(
 	ctx context.Context,
 	spodDS *appsv1.DaemonSet,
 	nodeStatusList *secprofnodestatusapi.SecurityProfileNodeStatusList,
+	view *clusterView,
 	logger logr.Logger,
 ) ([]*secprofnodestatusapi.SecurityProfileNodeStatus, error) {
-	spodNodes, settled, err := r.spodNodes(ctx, spodDS)
+	spodNodes, settled, err := view.spodNodesOf(ctx, spodDS)
 	if err != nil {
 		return nil, err
 	}
@@ -630,7 +771,7 @@ func (r *StatusReconciler) statusesOfDeletedNodes(
 // to reconcile, for example after a foreground deletion, so it is reconciled
 // on its own.
 func (r *StatusReconciler) reconcileDeletingProfile(
-	ctx context.Context, kind string, key types.NamespacedName,
+	ctx context.Context, kind string, key types.NamespacedName, view *clusterView,
 ) (reconcile.Result, error) {
 	logger := r.log.WithValues("profile", key.Name, "namespace", key.Namespace, "kind", kind)
 
@@ -647,19 +788,19 @@ func (r *StatusReconciler) reconcileDeletingProfile(
 		return reconcile.Result{}, nil
 	}
 
-	nodeNames, err := r.nodeNames(ctx)
+	nodeNames, err := view.nodes(ctx)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
 
 	stale := deletedNodeFinalizers(prof, nodeNames)
 
-	spodDS, err := r.getDS(ctx, logger)
+	spodDS, err := view.daemonSet(ctx)
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("cannot get the DS: %w", err)
 	}
 
-	spodNodes, settled, err := r.spodNodes(ctx, spodDS)
+	spodNodes, settled, err := view.spodNodesOf(ctx, spodDS)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
@@ -709,16 +850,11 @@ func parseProfileRequest(req reconcile.Request) (kind, name string, ok bool) {
 	return strings.Cut(req.Name, profileRequestSeparator)
 }
 
-func (r *StatusReconciler) getDS(
-	ctx context.Context,
-	l logr.Logger,
-) (*appsv1.DaemonSet, error) {
+func (r *StatusReconciler) getDS(ctx context.Context) (*appsv1.DaemonSet, error) {
 	spodDS := appsv1.DaemonSet{}
 	spodName := util.NamespacedName("spod", r.namespace)
 
 	if err := r.client.Get(ctx, spodName, &spodDS); err != nil {
-		l.Error(err, "Unable to retrieve spod daemonset")
-
 		return nil, fmt.Errorf("cannot Get DS: %w", err)
 	}
 
@@ -767,41 +903,74 @@ func newProfile(kind string) (profilebaseapi.StatusBaseUser, error) {
 	}
 }
 
-// reconcileStatus sets the aggregated state on the profile. The profile is
+// reconcileStatus sets the aggregated state on the profile and returns the
+// profile as stored afterwards, or nil if the profile is gone. The profile is
 // expected to come from the cache, so an unchanged status costs no request to
 // the API server. The profile is only read from the API server after a
-// conflict, which means that the cache is outdated.
+// conflict, which means that the cache is outdated. failedNodes names the
+// nodes on which the profile failed, if the caller knows them.
 func (r *StatusReconciler) reconcileStatus(
 	ctx context.Context,
 	prof profilebaseapi.StatusBaseUser,
 	state secprofnodestatusapi.ProfileState,
+	failedNodes []string,
 	l logr.Logger,
-) error {
+) (profilebaseapi.StatusBaseUser, error) {
 	key := client.ObjectKeyFromObject(prof)
 	current := prof
 
-	// A profile which is gone in the meantime has no status to update.
-	return client.IgnoreNotFound(retry.RetryOnConflict(retry.DefaultRetry, func() error {
+	var stored profilebaseapi.StatusBaseUser
+
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		if current == nil {
 			current = prof.DeepCopyToStatusBaseIf()
 			if err := r.reader.Get(ctx, key, current); err != nil {
-				return client.IgnoreNotFound(err)
+				return err
 			}
 		}
 
-		err := r.updateProfileStatus(ctx, current, state, l)
+		var err error
+
+		stored, err = r.updateProfileStatus(ctx, current, state, failedNodes, l)
 		current = nil
 
 		return err
-	}))
+	})
+
+	// A profile which is gone in the meantime has no status to update.
+	return stored, client.IgnoreNotFound(err)
 }
 
+// maxFailedNodesInMessage limits the nodes the Ready condition of a failed
+// profile names, the SecurityProfileNodeStatus objects list all of them.
+const maxFailedNodesInMessage = 5
+
+// errorConditionMessage returns the message of the Ready condition of a
+// profile which failed to install on the provided nodes.
+func errorConditionMessage(failedNodes []string) string {
+	const hint = "see the SecurityProfileNodeStatus objects of the profile for details"
+
+	if len(failedNodes) == 0 {
+		return "profile failed to install on one or more nodes, " + hint
+	}
+
+	nodes := strings.Join(failedNodes[:min(len(failedNodes), maxFailedNodesInMessage)], ", ")
+	if more := len(failedNodes) - maxFailedNodesInMessage; more > 0 {
+		nodes += fmt.Sprintf(" and %d more", more)
+	}
+
+	return fmt.Sprintf("profile failed to install on nodes %s, %s", nodes, hint)
+}
+
+// updateProfileStatus writes the status of the profile if it changed, and
+// returns the profile as stored afterwards.
 func (r *StatusReconciler) updateProfileStatus(
 	ctx context.Context,
 	prof profilebaseapi.StatusBaseUser,
 	state secprofnodestatusapi.ProfileState,
+	failedNodes []string,
 	l logr.Logger,
-) error {
+) (profilebaseapi.StatusBaseUser, error) {
 	pCopy := prof.DeepCopyToStatusBaseIf()
 
 	// We always set this status
@@ -811,6 +980,8 @@ func (r *StatusReconciler) updateProfileStatus(
 
 	var condition metav1.Condition
 
+	// The reasons of the conditions are part of the API, only the messages
+	// may change.
 	switch state {
 	case secprofnodestatusapi.ProfileStatePending, "":
 		outStatus.Status = secprofnodestatusapi.ProfileStatePending
@@ -826,13 +997,19 @@ func (r *StatusReconciler) updateProfileStatus(
 		condition = common.Deleting()
 	case secprofnodestatusapi.ProfileStateError:
 		outStatus.Status = secprofnodestatusapi.ProfileStateError
-		condition = common.Unavailable("profile failed to install on one or more nodes")
+		condition = common.Unavailable(errorConditionMessage(failedNodes))
 	case secprofnodestatusapi.ProfileStatePartial:
 		outStatus.Status = secprofnodestatusapi.ProfileStatePartial
-		condition = common.Unavailable("profile is only partially installed across nodes")
+		condition = common.Unavailable(
+			"profile is a partial profile of a profile recording, marked by the " +
+				profilebaseapi.ProfilePartialLabel + " label, which is not merged yet",
+		)
 	case secprofnodestatusapi.ProfileStateDisabled:
 		outStatus.Status = secprofnodestatusapi.ProfileStateDisabled
-		condition = common.Unavailable("profile type is disabled in the SPOD configuration")
+		condition = common.Unavailable(
+			"profile is disabled by spec.state Disabled, which a profile recording " +
+				"with disableProfileAfterRecording sets on the recorded profile",
+		)
 	}
 
 	if condition.Type != "" {
@@ -840,16 +1017,16 @@ func (r *StatusReconciler) updateProfileStatus(
 	}
 
 	if !profileStatusChanged(prof, pCopy) {
-		return nil
+		return prof, nil
 	}
 
 	l.V(config.VerboseLevel).Info("Updating status")
 
 	if updateErr := r.client.Status().Update(ctx, pCopy); updateErr != nil {
-		return fmt.Errorf("updating policy status: %w", updateErr)
+		return nil, fmt.Errorf("updating policy status: %w", updateErr)
 	}
 
-	return nil
+	return pCopy, nil
 }
 
 func profileStatusChanged(current, desired profilebaseapi.StatusBaseUser) bool {

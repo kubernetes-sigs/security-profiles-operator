@@ -178,7 +178,8 @@ func TestWarnEventIfContainerPrivileged(t *testing.T) {
 	t.Parallel()
 
 	privileged := true
-	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pod"}}
+	// A pod of a workload has only a generate name on admission.
+	const podName = "workload-"
 
 	for _, tc := range []struct {
 		name      string
@@ -224,10 +225,15 @@ func TestWarnEventIfContainerPrivileged(t *testing.T) {
 			rec := logsRecording(profilerecordingapi.ProfileRecordingKindSeccompProfile)
 			rec.Spec.Recorder = tc.recorder
 
-			sut.warnEventIfContainerPrivileged(rec, tc.ctr, pod)
+			sut.warnEventIfContainerPrivileged(rec, tc.ctr, podName)
 
 			if tc.wantEvent {
-				requireEvent(t, fake, "PrivilegedContainer")
+				require.Len(t, fake.Events, 1)
+
+				event := <-fake.Events
+				require.Contains(t, event, "PrivilegedContainer")
+				require.Contains(t, event, "pod "+podName)
+				require.Contains(t, event, "bpf recorder")
 
 				return
 			}

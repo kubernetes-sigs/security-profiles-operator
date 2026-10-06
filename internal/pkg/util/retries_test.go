@@ -17,6 +17,7 @@ limitations under the License.
 package util
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -79,7 +80,8 @@ func TestRetryEx(t *testing.T) {
 			return errFatal
 		}, isRetryable)
 		require.ErrorIs(t, err, errFatal)
-		require.ErrorContains(t, err, "retry function")
+		// The error is wrapped once.
+		require.Equal(t, "retry function: fatal", err.Error())
 		require.Equal(t, 1, calls)
 	})
 
@@ -97,6 +99,53 @@ func TestRetryEx(t *testing.T) {
 		require.ErrorContains(t, err, "wait on retry")
 		require.True(t, wait.Interrupted(err))
 		require.Equal(t, 3, calls)
+	})
+}
+
+func TestRetryWithContext(t *testing.T) {
+	t.Parallel()
+
+	t.Run("retries a conflict", func(t *testing.T) {
+		t.Parallel()
+
+		calls := 0
+
+		require.NoError(t, RetryWithContext(t.Context(), func() error {
+			calls++
+			if calls == 1 {
+				return kerrors.NewConflict(schema.GroupResource{}, "name", nil)
+			}
+
+			return nil
+		}, IsNotFoundOrConflict))
+		require.Equal(t, 2, calls)
+	})
+
+	t.Run("returns another error once wrapped", func(t *testing.T) {
+		t.Parallel()
+
+		err := RetryWithContext(t.Context(), func() error {
+			return errors.New("fatal")
+		}, IsNotFoundOrConflict)
+		require.Equal(t, "retry function: fatal", err.Error())
+	})
+
+	t.Run("stops once the context is done", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(t.Context())
+		calls := 0
+
+		err := RetryWithContext(ctx, func() error {
+			calls++
+
+			cancel()
+
+			return kerrors.NewConflict(schema.GroupResource{}, "name", nil)
+		}, IsNotFoundOrConflict)
+		require.ErrorIs(t, err, context.Canceled)
+		require.True(t, kerrors.IsConflict(err))
+		require.Equal(t, 1, calls)
 	})
 }
 
@@ -133,4 +182,5 @@ func TestDefaultBackoff(t *testing.T) {
 	require.Equal(t, backoffDuration, backoff.Duration)
 	require.InDelta(t, backoffFactor, backoff.Factor, 0)
 	require.Equal(t, backoffSteps, backoff.Steps)
+	require.InDelta(t, backoffJitter, backoff.Jitter, 0)
 }

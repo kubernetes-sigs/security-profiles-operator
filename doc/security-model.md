@@ -111,9 +111,15 @@ require a client which is authenticated and authorized through a `TokenReview` a
 the webhook serve them on port 8443. Only the daemon endpoint can be opened up through
 `spec.enableInsecureMetricsAccess` of the `spod` resource.
 
+The `spo-metrics-client` ClusterRole only allows reading the metrics paths. It is bound to the
+dedicated `spo-metrics-client` ServiceAccount of the operator namespace, which does not mount
+its token into pods. The `spo-metrics-client-token` Secret holds a long lived token of that
+ServiceAccount for the `ServiceMonitor` of the operator. Pods running with the `default` ServiceAccount of the
+operator namespace have no access to the metrics.
+
 ### Profile Generation Mode (auto-generating security profiles)
 
-Profile generation features are optional and are not indented to be executed at production environments. 
+Profile generation features are optional and are not intended to be executed at production environments. 
 Ideally such features would be used as part of your software development lifecycle, so you can detect and 
 respond to change in profiles, which can _later_ be enforced once deployed in production.
 
@@ -172,10 +178,10 @@ API groups of its role.
 
 ### security-profiles-operator
 
-- Cluster wide: events (core and `events.k8s.io`), nodes and pods (read), the
-  `security-profiles-operator-profile` ConfigMap (read), tokenreviews (`authentication.k8s.io`)
-  and subjectaccessreviews (`authorization.k8s.io`) for the metrics, OpenShift clusteroperators
-  and apiservers (`config.openshift.io`, read).
+- Cluster wide: events (`events.k8s.io`, and core events for the leader election), nodes and
+  pods (read), the `security-profiles-operator-profile` ConfigMap (read), tokenreviews
+  (`authentication.k8s.io`) and subjectaccessreviews (`authorization.k8s.io`) for the metrics,
+  OpenShift clusteroperators and apiservers (`config.openshift.io`, read).
 - Mutating and validating webhook configurations (`admissionregistration.k8s.io`): create, and
   read and update only for `spo-mutating-webhook-configuration` and
   `spo-validating-webhook-configuration`.
@@ -188,11 +194,13 @@ API groups of its role.
 - Own API: delete on seccomp profiles, to remove the ones which the allow lists of the `spod`
   resource reject once for the cluster, see
   [Restrict the allowed syscalls](installation.md#restrict-the-allowed-syscalls-in-seccomp-profiles).
-  The `*/finalizers` subresources are limited to get, update and patch, without delete.
+  Create on the seccomp, SELinux and AppArmor profiles which the operator ships or merges from
+  recordings, but not on raw SELinux profiles. The `*/finalizers` subresources are limited to
+  get, update and patch, without delete.
 
 ### spod
 
-- Cluster wide: events (core and `events.k8s.io`), nodes and pods (read), tokenreviews
+- Cluster wide: events (`events.k8s.io`), nodes and pods (read), tokenreviews
   (`authentication.k8s.io`) and subjectaccessreviews (`authorization.k8s.io`) for the metrics,
   OpenShift apiservers and clusteroperators (`config.openshift.io`, read), for the TLS profile
   of the metrics endpoint.
@@ -201,16 +209,22 @@ API groups of its role.
   [signature verification](#oci-artifact-signature-verification) of OCI base profiles, and the
   `privileged` SCC (`security.openshift.io`).
 - Own API: no delete on seccomp profiles, the daemons reject profiles which the allow lists do
-  not allow instead of deleting them. The `*/finalizers` subresources are limited to get,
-  update and patch, without delete.
+  not allow instead of deleting them. The daemons update the finalizers and labels of the
+  profiles and patch the annotations of seccomp profiles, but do not write the profile status,
+  which the operator aggregates from the node statuses. Create is limited to the seccomp,
+  SELinux and AppArmor profiles which the profile recorder records, raw SELinux profiles cannot
+  be created. The `*/finalizers` subresources are limited to get, update and patch, without
+  delete.
 
 ### spo-webhook
 
-- Cluster wide: events (core and `events.k8s.io`), tokenreviews (`authentication.k8s.io`) and
+- Cluster wide: events (`events.k8s.io`), tokenreviews (`authentication.k8s.io`) and
   subjectaccessreviews (`authorization.k8s.io`) for the metrics, OpenShift apiservers and
-  clusteroperators (`config.openshift.io`, read). The webhooks take the pods they mutate and
-  the raw SELinux profiles they validate from the admission requests, so they have no access to
-  pods or raw SELinux profiles.
+  clusteroperators (`config.openshift.io`, read), and get on pods. The binding and recording
+  webhooks take the pods they mutate and the validating webhook the raw SELinux profiles from
+  the admission requests, so the webhook has no list or watch on pods and no access to raw
+  SELinux profiles. Only the exec metadata webhook gets single pods: an exec request carries
+  the `PodExecOptions`, not the pod, so it reads the target pod to skip Windows pods.
 - Operator namespace only: leases (`coordination.k8s.io`), and the `restricted-v2` SCC
   (`security.openshift.io`).
 

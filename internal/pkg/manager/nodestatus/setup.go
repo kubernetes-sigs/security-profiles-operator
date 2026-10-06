@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -73,7 +74,8 @@ func (r *StatusReconciler) Setup(
 		Named(r.Name()).
 		WithOptions(controller.Options(ctx)).
 		Watches(&secprofnodestatusapi.SecurityProfileNodeStatus{},
-			handler.EnqueueRequestsFromMapFunc(r.siblingStatusRequests)).
+			handler.EnqueueRequestsFromMapFunc(r.siblingStatusRequests),
+			builder.WithPredicates(nodeStatusChanged())).
 		Watches(&seccompprofileapi.SeccompProfile{},
 			handler.EnqueueRequestsFromMapFunc(r.statusRequests("SeccompProfile")),
 			generationChanged).
@@ -87,6 +89,33 @@ func (r *StatusReconciler) Setup(
 			handler.EnqueueRequestsFromMapFunc(r.statusRequests("AppArmorProfile")),
 			generationChanged).
 		Complete(r)
+}
+
+// nodeStatusChanged passes the updates of a node status which matter for the
+// aggregation: the state, the node, the owner and the profile label. The daemon
+// also keeps a state label and annotations on the status, whose updates would
+// otherwise trigger an aggregation of their own.
+func nodeStatusChanged() predicate.Funcs {
+	return predicate.Funcs{
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldStatus, okOld := e.ObjectOld.(*secprofnodestatusapi.SecurityProfileNodeStatus)
+			newStatus, okNew := e.ObjectNew.(*secprofnodestatusapi.SecurityProfileNodeStatus)
+
+			if !okOld || !okNew {
+				return true
+			}
+
+			return oldStatus.Status != newStatus.Status ||
+				oldStatus.Spec != newStatus.Spec ||
+				!newStatus.DeletionTimestamp.Equal(oldStatus.DeletionTimestamp) ||
+				!equality.Semantic.DeepEqual(
+					oldStatus.OwnerReferences,
+					newStatus.OwnerReferences,
+				) ||
+				oldStatus.Labels[secprofnodestatusapi.StatusToProfLabel] !=
+					newStatus.Labels[secprofnodestatusapi.StatusToProfLabel]
+		},
+	}
 }
 
 // statusRequests returns a map function which enqueues the request of a

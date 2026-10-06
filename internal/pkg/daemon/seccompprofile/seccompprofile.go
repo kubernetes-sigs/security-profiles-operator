@@ -428,9 +428,12 @@ func (r *Reconciler) checkSeccomp() error {
 }
 
 // Security Profiles Operator RBAC permissions to manage SeccompProfile
+// The daemon updates the finalizers and labels and patches the annotations of
+// the profiles, and the profile recorder creates recorded SeccompProfiles. The
+// profile status is written by the manager. The finalizers subresource allows
+// the node statuses to block the deletion of their owner profile.
 //nolint:lll // required for kubebuilder
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles,verbs=get;list;watch;create;update;patch
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles/finalizers,verbs=get;update;patch
 
 //nolint:lll // required for kubebuilder
@@ -438,8 +441,7 @@ func (r *Reconciler) checkSeccomp() error {
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilenodestatuses/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch
-// +kubebuilder:rbac:groups=core,resources=events,verbs=create;get;patch;update
-// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch;update
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 //
 // The public key and the trusted root for the signature verification of base
 // profiles, which are read uncached from the operator namespace:

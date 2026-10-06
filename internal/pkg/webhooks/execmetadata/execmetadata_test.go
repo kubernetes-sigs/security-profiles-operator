@@ -423,6 +423,8 @@ func TestHandlerIgnoresOtherSubResources(t *testing.T) {
 	require.True(t, resp.Allowed)
 	require.Empty(t, resp.Patches)
 	require.Equal(t, "pod exec request unmodified", resp.Result.Message)
+	require.Len(t, resp.Warnings, 1)
+	require.Contains(t, resp.Warnings[0], "did not add the exec metadata")
 }
 
 // Windows containers have no env command, so exec requests for Windows pods

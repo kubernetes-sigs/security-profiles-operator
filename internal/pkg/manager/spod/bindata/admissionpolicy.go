@@ -285,8 +285,9 @@ func recordingProfilesPolicy(recordingEnabled string) *admissionregv1.Validating
 			Expression: "variables.recordingEnabled || !variables.usesRecordingProfile",
 			Message: fmt.Sprintf(
 				"the profile recording seccomp profile %q and SELinux type %s "+
-					"can only be used in namespaces with profile recording enabled",
-				seccompProfile, selinuxType,
+					"can only be used in namespaces with profile recording enabled, "+
+					"which by default are the namespaces labeled %s",
+				seccompProfile, selinuxType, EnableRecordingLabel,
 			),
 			Reason: new(metav1.StatusReasonForbidden),
 		}},

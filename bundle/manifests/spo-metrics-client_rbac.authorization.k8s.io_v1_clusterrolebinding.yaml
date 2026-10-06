@@ -11,5 +11,5 @@ roleRef:
   name: spo-metrics-client
 subjects:
 - kind: ServiceAccount
-  name: default
+  name: spo-metrics-client
   namespace: security-profiles-operator

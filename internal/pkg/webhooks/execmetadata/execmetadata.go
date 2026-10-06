@@ -167,24 +167,12 @@ func (p Handler) getEphemeralContainerPatch(
 	return patches, nil
 }
 
+// removeExistingEnv removes every environment variable with the key, so that
+// a duplicated one cannot shadow the variable which gets appended.
 func removeExistingEnv(env []corev1.EnvVar, key string) []corev1.EnvVar {
-	indexOfKey := -1
-
-	for i, envVar := range env {
-		if envVar.Name == key {
-			indexOfKey = i
-
-			break
-		}
-	}
-
-	// Order of elements in env does not matter
-	if indexOfKey != -1 {
-		env[indexOfKey] = env[len(env)-1]
-		env = env[:len(env)-1]
-	}
-
-	return env
+	return slices.DeleteFunc(env, func(envVar corev1.EnvVar) bool {
+		return envVar.Name == key
+	})
 }
 
 func (p Handler) getPodExecPatch(req *admission.Request) ([]jsonpatch.JsonPatchOperation, error) {
@@ -217,12 +205,14 @@ func (p Handler) getPodExecPatch(req *admission.Request) ([]jsonpatch.JsonPatchO
 	}), nil
 }
 
+// replaceRegexMatches replaces the matches of re in the elements of slice by
+// repl. The replacement is literal, so a "$" in it does not refer to a group.
 func replaceRegexMatches(slice []string, re *regexp.Regexp, repl string) ([]string, bool) {
 	replaced := false
 
 	for i, s := range slice {
 		if re.MatchString(s) {
-			slice[i] = re.ReplaceAllString(s, repl)
+			slice[i] = re.ReplaceAllLiteralString(s, repl)
 			replaced = true
 		}
 	}
@@ -234,7 +224,8 @@ func replaceRegexMatches(slice []string, re *regexp.Regexp, repl string) ([]stri
 // Windows containers have no env command to prefix the exec command with, so
 // the command would fail. The request carries only the exec options, so the
 // pod gets looked up. If that fails, the request is treated like one for a
-// Linux pod, which the vast majority is.
+// Linux pod, which the vast majority is. The lookup goes to the API server:
+// the webhook may only get pods, so it cannot cache them.
 func (p Handler) isWindowsPodExec(ctx context.Context, req *admission.Request) bool {
 	if p.reader == nil {
 		return false
@@ -282,7 +273,11 @@ func (p Handler) Handle(ctx context.Context, req admission.Request) admission.Re
 	if err != nil {
 		p.log.Error(err, "Failed to generate json patch", "kind", req.Kind.Kind)
 
-		return admission.Allowed("pod exec request unmodified")
+		// The webhook fails open, but the client learns that the request
+		// carries no exec metadata.
+		return admission.Allowed("pod exec request unmodified").WithWarnings(
+			"the security profiles operator did not add the exec metadata: " + err.Error(),
+		)
 	}
 
 	resp := admission.Patched("UID added to execmetadata", jsonPathOps...)

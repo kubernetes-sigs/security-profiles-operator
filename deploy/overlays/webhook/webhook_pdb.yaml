@@ -1,0 +1,21 @@
+---
+# Keeps at least one replica of the fail closed webhooks available during
+# voluntary disruptions like node drains. Without it a drain can evict all
+# replicas at once, and every pod creation in the namespaces which enable
+# binding or recording gets rejected until they come back. Keep in sync with
+# webhookPDB in internal/pkg/manager/spod/bindata/webhook.go.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: security-profiles-operator-webhook
+  namespace: security-profiles-operator
+  labels:
+    app: security-profiles-operator
+spec:
+  minAvailable: 1
+  # Crash looping replicas must not block node drains.
+  unhealthyPodEvictionPolicy: AlwaysAllow
+  selector:
+    matchLabels:
+      app: security-profiles-operator
+      name: security-profiles-operator-webhook

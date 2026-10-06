@@ -203,15 +203,31 @@ fails the installation. Among others:
   possible (`whenUnsatisfiable: ScheduleAnyway`). Constraints without a
   `labelSelector` get the selector labels of the operator pods, set the list
   to `[]` to drop them.
+- `priorityClassName` sets the priority class of the operator pods,
+  `system-cluster-critical` by default. Set it to `""` for none.
+- `imagePullSecrets` lists the secrets for pulling the images from a private
+  registry, like `[{name: my-pull-secret}]`. They apply to the operator
+  deployment and, through `spec.imagePullSecrets` of the SPOD, to the daemon
+  and the webhook. The secrets have to exist in the release namespace.
+- `spoImage.digest` pins the operator image by digest, the tag only applies
+  without one.
+- `spod.spec` takes any field of the `SecurityProfilesOperatorDaemon` spec
+  and merges it over the fields which the dedicated values like
+  `enableAppArmor` render. Objects get merged field by field, every other
+  value, lists included, replaces the rendered one. For example
+  `--set spod.spec.enableMemoryOptimization=true` or
+  `--set spod.spec.scheduling.priorityClassName=my-priority-class`.
 
 The operator deployment of the release manifests, like
 [`deploy/operator.yaml`](../deploy/operator.yaml), has the same
-PodDisruptionBudget and topology spread constraints.
+PodDisruptionBudget, topology spread constraints and priority class.
 
 ```shell
 helm install security-profiles-operator --namespace security-profiles-operator \
   --set kubeletDir=/var/lib/k0s/kubelet \
   --set podDisruptionBudget.minAvailable=2 \
+  --set 'imagePullSecrets[0].name=my-pull-secret' \
+  --set spod.spec.enableMemoryOptimization=true \
   https://github.com/kubernetes-sigs/security-profiles-operator/releases/download/v${VERSION}/security-profiles-operator-${VERSION}.tgz
 ```
 

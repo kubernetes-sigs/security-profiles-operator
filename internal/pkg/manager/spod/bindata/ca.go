@@ -142,6 +142,33 @@ func GetCertManagerResources(namespace string) *CertManagerResources {
 	}
 }
 
+// IsCertManagerResourceName returns true if the name is the one of a
+// cert-manager resource of the operator.
+func IsCertManagerResourceName(name string) bool {
+	return name == issuer.Name || name == metricsCert.Name || name == webhookCert.Name
+}
+
+// Missing returns true if any of the cert-manager resources does not exist,
+// for example because it got deleted.
+func (c *CertManagerResources) Missing(ctx context.Context, cl client.Reader) (bool, error) {
+	for k, o := range c.objectMap() {
+		existing, ok := o.DeepCopyObject().(client.Object)
+		if !ok {
+			return false, fmt.Errorf("copying %s", k)
+		}
+
+		if err := cl.Get(ctx, client.ObjectKeyFromObject(o), existing); err != nil {
+			if apierrors.IsNotFound(err) {
+				return true, nil
+			}
+
+			return false, fmt.Errorf("getting %s: %w", k, err)
+		}
+	}
+
+	return false, nil
+}
+
 func (c *CertManagerResources) Create(ctx context.Context, cl client.Client) error {
 	for k, o := range c.objectMap() {
 		if err := cl.Create(ctx, o); err != nil {
@@ -156,9 +183,16 @@ func (c *CertManagerResources) Create(ctx context.Context, cl client.Client) err
 	return nil
 }
 
+// Update patches the cert-manager resources and creates the ones which are
+// missing, for example because they got deleted.
 func (c *CertManagerResources) Update(ctx context.Context, cl client.Client) error {
 	for k, o := range c.objectMap() {
-		if err := cl.Patch(ctx, o, client.Merge); err != nil {
+		err := cl.Patch(ctx, o, client.Merge)
+		if apierrors.IsNotFound(err) {
+			err = cl.Create(ctx, o)
+		}
+
+		if err != nil {
 			return fmt.Errorf("updating %s: %w", k, err)
 		}
 	}

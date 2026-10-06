@@ -31,6 +31,7 @@ import (
 	admissionregv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -104,6 +105,8 @@ func newReconcileTest(
 		record:       recorder,
 		log:          logf.Log,
 		namespace:    testNamespace,
+		// The fake client serves the cert-manager API.
+		watchesCertManager: true,
 	}, cl, recorder
 }
 
@@ -624,8 +627,15 @@ func TestReconcileUpdateFailure(t *testing.T) {
 
 			fail = true
 
-			_, err := r.Reconcile(t.Context(), reconcileRequest())
-			require.ErrorIs(t, err, tc.patchErr)
+			res, err := r.Reconcile(t.Context(), reconcileRequest())
+			if tc.wantError {
+				require.ErrorIs(t, err, tc.patchErr)
+			} else {
+				// A conflict is retried shortly without an error.
+				require.NoError(t, err)
+				require.Equal(t, conflictRequeueDelay, res.RequeueAfter)
+			}
+
 			require.Equal(t, before.Spec.Template, getDaemonSet(t, cl).Spec.Template)
 			require.Equal(t, tc.wantError, spodState(t, cl) == spodapi.SPODStateError)
 
@@ -704,4 +714,203 @@ func TestReconcileObservedGenerationWithoutOperandChange(t *testing.T) {
 	require.Equal(t, spodapi.SPODStateRunning, stored.Status.State)
 	require.Equal(t, generation, stored.Status.ObservedGeneration)
 	require.Equal(t, generation, stored.Status.GetReadyCondition().ObservedGeneration)
+}
+
+// reconcileUntilRunning reconciles the SPOD until it reports the running state.
+func reconcileUntilRunning(t *testing.T, r *ReconcileSPOd, cl client.Client) {
+	t.Helper()
+
+	for range 5 {
+		reconcileSPOD(t, r)
+
+		if spodState(t, cl) == spodapi.SPODStateRunning {
+			return
+		}
+	}
+
+	require.Equal(t, spodapi.SPODStateRunning, spodState(t, cl))
+}
+
+// countingWrites returns interceptor funcs which count every write. The
+// created and updated workloads get the defaults of the API server, see
+// applyServerDefaults.
+func countingWrites(t *testing.T, writes *atomic.Int32) *interceptor.Funcs {
+	t.Helper()
+
+	return &interceptor.Funcs{
+		Create: func(
+			ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption,
+		) error {
+			writes.Add(1)
+			applyServerDefaults(t, obj)
+
+			return c.Create(ctx, obj, opts...)
+		},
+		Update: func(
+			ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption,
+		) error {
+			writes.Add(1)
+			applyServerDefaults(t, obj)
+
+			return c.Update(ctx, obj, opts...)
+		},
+		Patch: func(
+			ctx context.Context, c client.WithWatch, obj client.Object,
+			patch client.Patch, opts ...client.PatchOption,
+		) error {
+			writes.Add(1)
+
+			return c.Patch(ctx, obj, patch, opts...)
+		},
+		Delete: func(
+			ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption,
+		) error {
+			writes.Add(1)
+
+			return c.Delete(ctx, obj, opts...)
+		},
+		SubResourceUpdate: func(
+			ctx context.Context, c client.Client, sub string, obj client.Object,
+			opts ...client.SubResourceUpdateOption,
+		) error {
+			writes.Add(1)
+
+			return c.SubResource(sub).Update(ctx, obj, opts...)
+		},
+		SubResourcePatch: func(
+			ctx context.Context, c client.Client, sub string, obj client.Object,
+			patch client.Patch, opts ...client.SubResourcePatchOption,
+		) error {
+			writes.Add(1)
+
+			return c.SubResource(sub).Patch(ctx, obj, patch, opts...)
+		},
+	}
+}
+
+// A running SPOD whose operands match the configuration causes no writes, also
+// with the fields which the API server defaults on the workloads.
+func TestReconcileSteadyStateIsIdempotent(t *testing.T) {
+	t.Parallel()
+
+	for name, static := range map[string]bool{"managed webhook": false, "static webhook": true} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			spod := testSPOD()
+			spod.Spec.Webhook.StaticConfig = new(static)
+			spod.Spec.Enricher.EnableJsonEnricher = new(true)
+
+			var writes atomic.Int32
+
+			r, cl, _ := newReconcileTest(
+				t,
+				spod,
+				countingWrites(t, &writes),
+				operatorConfigMap(nil),
+			)
+			reconcileUntilRunning(t, r, cl)
+
+			ctr := getDaemonSet(t, cl).Spec.Template.Spec.Containers[0]
+			require.Equal(t, corev1.TerminationMessagePathDefault, ctr.TerminationMessagePath,
+				"the DaemonSet carries the defaults of the API server")
+			require.NotNil(t, ctr.SecurityContext.ProcMount)
+
+			writes.Store(0)
+			reconcileSPOD(t, r)
+			reconcileSPOD(t, r)
+			require.Zero(t, writes.Load())
+
+			// A static webhook is deployed by the administrator.
+			err := cl.Get(t.Context(), types.NamespacedName{
+				Name: config.OperatorName + "-webhook", Namespace: testNamespace,
+			}, &appsv1.Deployment{})
+			require.Equal(t, static, apierrors.IsNotFound(err), err)
+		})
+	}
+}
+
+// The namespaced webhook objects and the cert-manager resources are not owned
+// by the SPOD, so that deleting the SPOD keeps the webhook running for the
+// webhook configurations which stay behind. Deleted ones get restored.
+func TestReconcileRestoresUnownedWebhookObjects(t *testing.T) {
+	t.Parallel()
+
+	r, cl, _ := newReconcileTest(t, testSPOD(), &interceptor.Funcs{})
+	reconcileUntilRunning(t, r, cl)
+
+	webhookName := config.OperatorName + "-webhook"
+	unowned := []client.Object{
+		&appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: webhookName}},
+		&corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "webhook-service"}},
+		&policyv1.PodDisruptionBudget{ObjectMeta: metav1.ObjectMeta{Name: webhookName}},
+		&certmanagerv1.Issuer{ObjectMeta: metav1.ObjectMeta{Name: "selfsigned-issuer"}},
+		&certmanagerv1.Certificate{ObjectMeta: metav1.ObjectMeta{Name: "webhook-cert"}},
+		&certmanagerv1.Certificate{ObjectMeta: metav1.ObjectMeta{Name: "metrics-cert"}},
+	}
+
+	for _, obj := range unowned {
+		obj.SetNamespace(testNamespace)
+		require.NoError(t, cl.Get(t.Context(), client.ObjectKeyFromObject(obj), obj), "%T", obj)
+		require.Empty(t, obj.GetOwnerReferences(), "%T", obj)
+		require.NoError(t, cl.Delete(t.Context(), obj), "%T", obj)
+	}
+
+	reconcileSPOD(t, r)
+
+	for _, obj := range unowned {
+		require.NoError(t, cl.Get(t.Context(), client.ObjectKeyFromObject(obj), obj), "%T", obj)
+	}
+}
+
+// A deleted cert-manager resource gets created again by the next update
+// instead of failing every update of the SPOD.
+func TestReconcileRecreatesDeletedCertificate(t *testing.T) {
+	t.Parallel()
+
+	r, cl, _ := newReconcileTest(t, testSPOD(), &interceptor.Funcs{})
+	reconcileUntilRunning(t, r, cl)
+
+	cert := &certmanagerv1.Certificate{ObjectMeta: metav1.ObjectMeta{
+		Name: "webhook-cert", Namespace: testNamespace,
+	}}
+	require.NoError(t, cl.Delete(t.Context(), cert))
+
+	stored := getSPOD(t, cl)
+	stored.Spec.Verbosity = 1
+	require.NoError(t, cl.Update(t.Context(), stored))
+
+	reconcileSPOD(t, r)
+	require.Equal(t, spodapi.SPODStateUpdating, spodState(t, cl))
+	require.NoError(t, cl.Get(t.Context(), client.ObjectKeyFromObject(cert), cert))
+}
+
+// Webhook options which weaken the binding webhook are applied with a warning.
+func TestReconcileWarnsAboutWeakenedBinding(t *testing.T) {
+	t.Parallel()
+
+	spod := testSPOD()
+	spod.Spec.Webhook.Options = []spodapi.WebhookOptions{{
+		Name:          "binding.spo.io",
+		FailurePolicy: new(admissionregv1.Ignore),
+	}}
+
+	r, cl, recorder := newReconcileTest(t, spod, &interceptor.Funcs{})
+	reconcileUntilRunning(t, r, cl)
+
+	var recorded []string
+
+	for len(recorder.Events) > 0 {
+		recorded = append(recorded, <-recorder.Events)
+	}
+
+	require.True(t, slices.ContainsFunc(recorded, func(e string) bool {
+		return strings.Contains(e, reasonWeakenedBindingWebhook)
+	}), recorded)
+
+	hooks := &admissionregv1.MutatingWebhookConfiguration{}
+	require.NoError(t, cl.Get(t.Context(), types.NamespacedName{
+		Name: bindata.MutatingWebhookConfigName,
+	}, hooks))
+	require.Equal(t, admissionregv1.Ignore, *hooks.Webhooks[0].FailurePolicy)
 }

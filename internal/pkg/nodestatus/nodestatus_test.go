@@ -147,6 +147,7 @@ func TestRemoveLegacyNodeStatus(t *testing.T) {
 		mockGet      func(context.Context, client.WithWatch, client.ObjectKey, client.Object, ...client.GetOption) error
 		mockDelete   func(context.Context, client.WithWatch, client.Object, ...client.DeleteOption) error
 		wantMigrated bool
+		wantErr      bool
 	}{
 		{
 			name:    "LegacyStatusRemoved",
@@ -212,6 +213,7 @@ func TestRemoveLegacyNodeStatus(t *testing.T) {
 				return errors.New("api server error")
 			},
 			wantMigrated: false,
+			wantErr:      true,
 		},
 		{
 			name:    "DeleteFailsReturnsNotMigrated",
@@ -237,6 +239,7 @@ func TestRemoveLegacyNodeStatus(t *testing.T) {
 				return errors.New("delete failed")
 			},
 			wantMigrated: false,
+			wantErr:      true,
 		},
 	}
 
@@ -256,8 +259,16 @@ func TestRemoveLegacyNodeStatus(t *testing.T) {
 				kind:     tc.profile.GetObjectKind().GroupVersionKind().Kind,
 			}
 
-			got, _ := sc.removeLegacyNodeStatus(context.Background())
+			got, _, err := sc.removeLegacyNodeStatus(context.Background())
 			require.Equal(t, tc.wantMigrated, got)
+
+			// A failure is returned, so that the daemon retries instead of
+			// leaving the legacy status behind.
+			if tc.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
 		})
 	}
 }

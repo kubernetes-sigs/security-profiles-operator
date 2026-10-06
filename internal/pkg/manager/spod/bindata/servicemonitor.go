@@ -27,6 +27,12 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
+// MetricsTokenSecretName is the name of the Secret which holds the token of
+// the spo-metrics-client service account, which the ServiceMonitor uses. The
+// metrics-token Secret of earlier releases holds a token of the default
+// service account, which has no access to the metrics anymore.
+const MetricsTokenSecretName = "spo-metrics-client-token" //nolint:gosec // the name of a Secret, no credential
+
 // ServiceMonitor returns the default ServiceMonitor for automatic metrics
 // retrieval via the prometheus operator in the operator namespace.
 func ServiceMonitor(
@@ -87,7 +93,7 @@ func endpointFor(
 	ep.Authorization = &v1.SafeAuthorization{
 		Credentials: &corev1.SecretKeySelector{
 			LocalObjectReference: corev1.LocalObjectReference{
-				Name: "metrics-token",
+				Name: MetricsTokenSecretName,
 			},
 			Key: "token",
 		},

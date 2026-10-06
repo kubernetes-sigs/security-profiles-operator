@@ -30,16 +30,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	profilebase "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
-	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
-
-var log = logf.Log.WithName("nodestatus")
 
 const (
 	partialProfileFinalizer = "spo.x-k8s.io/partial-profile-finalizer"
@@ -146,7 +142,12 @@ func (nsf *StatusClient) Create(ctx context.Context) (bool, error) {
 		)
 	}
 
-	wasMigrated, legacyState := nsf.removeLegacyNodeStatus(ctx)
+	wasMigrated, legacyState, err := nsf.removeLegacyNodeStatus(ctx)
+	if err != nil {
+		return false, fmt.Errorf(
+			"cannot remove legacy node status for %s: %w", nsf.pol.GetName(), err,
+		)
+	}
 
 	// if object does not exist, add it
 	if err := nsf.createNodeStatus(ctx, legacyState); err != nil {
@@ -159,52 +160,51 @@ func (nsf *StatusClient) Create(ctx context.Context) (bool, error) {
 // removeLegacyNodeStatus removes old-format status objects that used
 // <profileName>-<nodeName> instead of <kind>-<profileName>-<nodeName>.
 // Returns true and the state of the legacy status if one was found and
-// removed (upgrade migration).
+// removed (upgrade migration). Failing to look up or remove the legacy status
+// is an error, so that the caller retries instead of leaving it behind.
 func (nsf *StatusClient) removeLegacyNodeStatus(
 	ctx context.Context,
-) (bool, secprofnodestatusapi.ProfileState) {
+) (bool, secprofnodestatusapi.ProfileState, error) {
 	legacyName := nsf.pol.GetName() + "-" + nsf.nodeName
 	if legacyName == nsf.perNodeStatusName() {
-		return false, ""
+		return false, "", nil
 	}
 
 	old := &secprofnodestatusapi.SecurityProfileNodeStatus{}
 	key := util.NamespacedName(legacyName, nsf.pol.GetNamespace())
 
 	if err := nsf.client.Get(ctx, key, old); err != nil {
-		if !kerrors.IsNotFound(err) {
-			log.Error(err, "failed to look up legacy node status", "name", legacyName)
+		if kerrors.IsNotFound(err) {
+			return false, "", nil
 		}
 
-		return false, ""
+		return false, "", fmt.Errorf("looking up legacy node status %s: %w", legacyName, err)
 	}
 
 	// Verify the object belongs to this profile. A profile named
 	// "<kind>-<other>" has a legacy name that collides with the
 	// new-format name of profile "<other>".
 	if old.Labels[secprofnodestatusapi.StatusToProfLabel] != nsf.profileID() {
-		return false, ""
+		return false, "", nil
 	}
 
 	if err := nsf.client.Delete(ctx, old); err != nil && !kerrors.IsNotFound(err) {
-		log.Error(err, "failed to remove legacy node status", "name", legacyName)
-
-		return false, ""
+		return false, "", fmt.Errorf("removing legacy node status %s: %w", legacyName, err)
 	}
 
-	return true, old.Status.Status
+	return true, old.Status.Status, nil
 }
 
 // createFinalizer adds the finalizer of this node. A legacy finalizer of an
 // earlier release is left in place, see MigrateLegacyFinalizer.
 func (nsf *StatusClient) createFinalizer(ctx context.Context) error {
-	return util.Retry(func() error {
+	return util.RetryWithContext(ctx, func() error {
 		return util.AddFinalizer(ctx, nsf.client, nsf.pol, nsf.finalizerString)
 	}, util.IsNotFoundOrConflict)
 }
 
 func (nsf *StatusClient) createPolLabel(ctx context.Context) error {
-	return util.Retry(func() error {
+	return util.RetryWithContext(ctx, func() error {
 		// Re-fetch on every attempt: a failed update leaves the label in the
 		// local object, and the retry must not mistake it for a stored one.
 		if err := nsf.client.Get(ctx, client.ObjectKeyFromObject(nsf.pol), nsf.pol); err != nil {
@@ -237,7 +237,7 @@ func (nsf *StatusClient) statusObj(
 			Namespace: nsf.pol.GetNamespace(),
 			Labels: map[string]string{
 				secprofnodestatusapi.StatusToProfLabel: nsf.profileID(),
-				secprofnodestatusapi.StatusToNodeLabel: nsf.nodeName,
+				secprofnodestatusapi.StatusToNodeLabel: util.NodeNameLabelValue(nsf.nodeName),
 				secprofnodestatusapi.StatusStateLabel:  string(polState),
 				secprofnodestatusapi.StatusKindLabel:   nsf.kind,
 			},
@@ -305,16 +305,11 @@ func (nsf *StatusClient) initialStatus() secprofnodestatusapi.ProfileState {
 	return secprofnodestatusapi.ProfileStatePending
 }
 
+// Remove removes the finalizer of the node from the profile and deletes the
+// node status. The has-unmerged-profiles finalizer on the recording of a
+// partial profile is left to the recording merger of the manager, which checks
+// the partial profiles of every kind before it releases the recording.
 func (nsf *StatusClient) Remove(ctx context.Context, c client.Client) error {
-	// if finalizer exists, remove it
-	if nsf.pol.IsPartial() {
-		// list other profiles that are recorded by the same profileRecording
-		// if there are no other profiles, remove the finalizer from the profileRecording
-		if err := handleRecordingFinalizer(ctx, nsf.client, nsf.pol); err != nil {
-			return fmt.Errorf("cannot remove node status/finalizer from seccomp profile: %w", err)
-		}
-	}
-
 	if err := nsf.removeFinalizer(ctx); err != nil {
 		return fmt.Errorf("cannot remove finalizer for %s: %w", nsf.pol.GetName(), err)
 	}
@@ -363,7 +358,7 @@ func (nsf *StatusClient) MigrateLegacyFinalizer(ctx context.Context) error {
 // removeFinalizer removes the finalizer of this node and the legacy one of
 // earlier releases, which other nodes may share, see MigrateLegacyFinalizer.
 func (nsf *StatusClient) removeFinalizer(ctx context.Context) error {
-	return util.Retry(func() error {
+	return util.RetryWithContext(ctx, func() error {
 		return util.RemoveFinalizers(
 			ctx, nsf.client, nsf.pol, nsf.finalizerString, nsf.legacyFinalizerString,
 		)
@@ -537,76 +532,4 @@ func getLegacyFinalizerString(pol profilebase.SecurityProfileBase, nodeName stri
 	}
 
 	return util.GetLegacyFinalizerNodeString(nodeName)
-}
-
-func handleRecordingFinalizer(
-	ctx context.Context,
-	c client.Client,
-	pol profilebase.SecurityProfileBase,
-) error {
-	// if this policy was not recorded, we don't need to do anything. This also covers the upgrade
-	// case because the finalizer is only added when the policy is recorded with the new version
-	polLabels := pol.GetLabels()
-	if polLabels == nil {
-		return nil
-	}
-
-	recordingName := polLabels[profilerecordingapi.ProfileToRecordingLabel]
-	recordingNamespace := polLabels[profilerecordingapi.ProfileToRecordingNamespaceLabel]
-
-	if recordingName == "" || recordingNamespace == "" {
-		return nil
-	}
-
-	// if there are other policies recorded by the same recording, we don't need to do anything either
-	otherPolicies, err := pol.ListProfilesByRecording(ctx, c, recordingName, recordingNamespace)
-	if err != nil {
-		return fmt.Errorf("listing profiles by recording: %w", err)
-	}
-
-	hasOthers := false
-
-	for i := range otherPolicies {
-		otherPol := otherPolicies[i]
-
-		labels := otherPol.GetLabels()
-		if labels == nil {
-			continue
-		}
-
-		if !otherPol.GetDeletionTimestamp().IsZero() { // object is being deleted, don't count it
-			continue
-		}
-
-		if _, ok := labels[profilebase.ProfilePartialLabel]; !ok { // not partial, don't count it
-			continue
-		}
-
-		if n := otherPol.GetName(); n != "" {
-			// we have a partial profile that is not being deleted and is not the current one
-			if n != pol.GetName() {
-				hasOthers = true
-
-				break
-			}
-		}
-	}
-
-	// if there are other recordings, keep the finalizer
-	if hasOthers {
-		return nil
-	}
-
-	// No other partial profiles are left, so the recording may go. A
-	// recording which is already gone is fine, and a conflict with the
-	// recorder or the merger updating it is retried.
-	return util.Retry(func() error {
-		return client.IgnoreNotFound(util.RemoveFinalizer(
-			ctx, c,
-			&profilerecordingapi.ProfileRecording{
-				ObjectMeta: metav1.ObjectMeta{Name: recordingName, Namespace: recordingNamespace},
-			},
-			profilerecordingapi.RecordingHasUnmergedProfiles,
-		))
-	}, util.IsNotFoundOrConflict)
 }

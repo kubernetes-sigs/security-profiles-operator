@@ -32,7 +32,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -241,11 +240,18 @@ const (
 	// configuration of the operator.
 	ValidatingWebhookConfigName = "spo-validating-webhook-configuration"
 
+	// WebhookName is the name of the deployment and the pod disruption
+	// budget of the managed webhook.
+	WebhookName = webhookName
+	// WebhookServiceName is the name of the service of the managed webhook.
+	WebhookServiceName = serviceName
+
 	// openshiftRequiredSCCAnnotation pins the SCC which OpenShift admits a pod
 	// with, instead of choosing one of the SCCs the pod is allowed to use.
 	openshiftRequiredSCCAnnotation = "openshift.io/required-scc"
 
 	webhookName                  = config.OperatorName + "-webhook"
+	webhookPriorityClassName     = "system-cluster-critical"
 	serviceAccountName           = "spo-webhook"
 	certsMountPath               = "/tmp/k8s-webhook-server/serving-certs"
 	serviceName                  = "webhook-service"
@@ -364,6 +370,17 @@ func GetWebhook(
 	}
 }
 
+// UseDaemonPriorityClass sets the priority class of the webhook pods for the
+// priority class of the daemon pods. The webhook keeps system-cluster-critical
+// while the daemon uses its default priority class. Any other daemon priority
+// class, like the one a cluster which restricts the critical priority classes
+// needs, applies to the webhook as well.
+func (w *Webhook) UseDaemonPriorityClass(daemonPriorityClassName string) {
+	if daemonPriorityClassName != DefaultPriorityClassName {
+		w.deployment.Spec.Template.Spec.PriorityClassName = daemonPriorityClassName
+	}
+}
+
 // RecordingNamespaceSelector returns the namespace selector of the recording
 // webhook, which selects all namespaces if nil.
 func (w *Webhook) RecordingNamespaceSelector() *metav1.LabelSelector {
@@ -396,19 +413,16 @@ func applyWebhookOptions(
 	operatorNamespace string,
 ) {
 	for i := range cfg.Webhooks {
-		var userOpt *spodapi.WebhookOptions
-
 		hook := &cfg.Webhooks[i]
 
 		for j := range opts {
-			userOpt = &opts[j]
-
-			if userOpt == nil || userOpt.Name != hook.Name {
+			userOpt := &opts[j]
+			if userOpt.Name != hook.Name {
 				continue
 			}
 
 			if userOpt.FailurePolicy != nil {
-				hook.FailurePolicy = userOpt.FailurePolicy
+				hook.FailurePolicy = new(*userOpt.FailurePolicy)
 			}
 
 			if userOpt.NamespaceSelector != nil {
@@ -423,91 +437,140 @@ func applyWebhookOptions(
 			}
 
 			if userOpt.ObjectSelector != nil {
-				hook.ObjectSelector = userOpt.ObjectSelector
+				hook.ObjectSelector = userOpt.ObjectSelector.DeepCopy()
 			}
 		}
 	}
 }
 
-func (w *Webhook) NeedsUpdate(ctx context.Context, c client.Client) (bool, error) {
-	existingWebHook := admissionregv1.MutatingWebhookConfiguration{}
+// BindingWarnings returns why the webhook options of the SPOD weaken the
+// enforcement of the profile bindings, if they do. The options are valid and
+// get applied, but an administrator should know what they mean.
+func (w *Webhook) BindingWarnings() []string {
+	var warnings []string
 
-	if err := c.Get(ctx,
-		types.NamespacedName{Name: w.config.Name},
-		&existingWebHook); err != nil {
+	for i := range w.config.Webhooks {
+		hook := &w.config.Webhooks[i]
+		if hook.Name != binding.name {
+			continue
+		}
+
+		if ptr.Deref(hook.FailurePolicy, admissionregv1.Fail) == admissionregv1.Ignore {
+			warnings = append(warnings, fmt.Sprintf(
+				"the failurePolicy Ignore of the %s webhook admits pods without their bound "+
+					"profiles while the webhook is unavailable", binding.name,
+			))
+		}
+
+		if hook.ObjectSelector != nil &&
+			(len(hook.ObjectSelector.MatchLabels) > 0 || len(hook.ObjectSelector.MatchExpressions) > 0) {
+			warnings = append(warnings, fmt.Sprintf(
+				"the objectSelector of the %s webhook exempts the pods it does not select "+
+					"from the profile bindings", binding.name,
+			))
+		}
+	}
+
+	return warnings
+}
+
+// NeedsUpdate returns true if any of the webhook objects is missing or
+// differs from the configured one.
+func (w *Webhook) NeedsUpdate(ctx context.Context, c client.Client) (bool, error) {
+	for _, needsUpdate := range []func(context.Context, client.Client) (bool, error){
+		w.mutatingConfigNeedsUpdate,
+		w.validatingConfigNeedsUpdate,
+		w.workloadNeedsUpdate,
+	} {
+		if update, err := needsUpdate(ctx, c); err != nil || update {
+			return update, err
+		}
+	}
+
+	return false, nil
+}
+
+// mutatingConfigNeedsUpdate returns true if the mutating webhook configuration
+// is missing or differs from the configured one.
+func (w *Webhook) mutatingConfigNeedsUpdate(ctx context.Context, c client.Client) (bool, error) {
+	existing := &admissionregv1.MutatingWebhookConfiguration{}
+	if err := c.Get(ctx, client.ObjectKeyFromObject(w.config), existing); err != nil {
 		if errors.IsNotFound(err) {
 			w.log.V(1).Info("creating missing webhook configuration")
 
 			return true, nil
 		}
 
-		return false, err
+		return false, fmt.Errorf("getting mutating webhook configuration: %w", err)
 	}
 
-	if annotationsDiffer(w.config.Annotations, existingWebHook.Annotations) {
-		w.log.V(1).Info("updating webhook configuration annotations")
+	if annotationsDiffer(w.config.Annotations, existing.Annotations) ||
+		len(existing.Webhooks) != len(w.config.Webhooks) {
+		w.log.V(1).Info("updating webhook configuration")
 
 		return true, nil
 	}
 
-	if len(existingWebHook.Webhooks) != len(w.config.Webhooks) {
-		w.log.V(1).Info("updating webhook configuration",
-			"len(existingWebHook)", len(existingWebHook.Webhooks),
-			"len(config)", len(w.config.Webhooks))
+	for i := range w.config.Webhooks {
+		configured := &w.config.Webhooks[i]
 
-		return true, nil
-	}
+		idx := slices.IndexFunc(existing.Webhooks, func(h admissionregv1.MutatingWebhook) bool {
+			return h.Name == configured.Name
+		})
+		if idx < 0 || mutatingWebhookNeedsUpdate(w.log, &existing.Webhooks[idx], configured) {
+			w.log.V(1).Info("updating webhook configuration", "name", configured.Name)
 
-	for i := range existingWebHook.Webhooks {
-		ew := existingWebHook.Webhooks[i]
-
-		for j := range w.config.Webhooks {
-			cw := w.config.Webhooks[j]
-
-			if ew.Name != cw.Name {
-				continue
-			}
-
-			if w.webhookNeedsUpdate(&ew, j) {
-				w.log.V(1).Info("updating webhook configuration",
-					"configName", cw.Name,
-					"existingName", ew.Name)
-
-				return true, nil
-			}
+			return true, nil
 		}
 	}
 
-	existingValidating := admissionregv1.ValidatingWebhookConfiguration{}
-	if err := c.Get(ctx,
-		types.NamespacedName{Name: w.validatingConfig.Name},
-		&existingValidating); err != nil {
+	return false, nil
+}
+
+// validatingConfigNeedsUpdate returns true if the validating webhook
+// configuration is missing or differs from the configured one.
+func (w *Webhook) validatingConfigNeedsUpdate(ctx context.Context, c client.Client) (bool, error) {
+	existing := &admissionregv1.ValidatingWebhookConfiguration{}
+	if err := c.Get(ctx, client.ObjectKeyFromObject(w.validatingConfig), existing); err != nil {
 		if errors.IsNotFound(err) {
+			w.log.V(1).Info("creating missing validating webhook configuration")
+
 			return true, nil
 		}
 
-		return false, err
+		return false, fmt.Errorf("getting validating webhook configuration: %w", err)
 	}
 
-	if len(existingValidating.Webhooks) != len(w.validatingConfig.Webhooks) ||
-		annotationsDiffer(w.validatingConfig.Annotations, existingValidating.Annotations) {
+	if annotationsDiffer(w.validatingConfig.Annotations, existing.Annotations) ||
+		len(existing.Webhooks) != len(w.validatingConfig.Webhooks) {
+		w.log.V(1).Info("updating validating webhook configuration")
+
 		return true, nil
 	}
 
-	for i := range existingValidating.Webhooks {
-		existing := &existingValidating.Webhooks[i]
+	for i := range w.validatingConfig.Webhooks {
 		configured := &w.validatingConfig.Webhooks[i]
 
-		if !ptr.Equal(existing.TimeoutSeconds, configured.TimeoutSeconds) ||
-			!ptr.Equal(existing.SideEffects, configured.SideEffects) ||
-			!reflect.DeepEqual(existing.Rules, configured.Rules) {
+		idx := slices.IndexFunc(existing.Webhooks, func(h admissionregv1.ValidatingWebhook) bool {
+			return h.Name == configured.Name
+		})
+		if idx < 0 {
 			w.log.V(1).Info("updating validating webhook configuration", "name", configured.Name)
 
 			return true, nil
 		}
+
+		if field := differingHookField(
+			validatingHookFields(&existing.Webhooks[idx]), validatingHookFields(configured),
+		); field != "" {
+			w.log.V(1).Info("updating validating webhook configuration",
+				"name", configured.Name, "field", field)
+
+			return true, nil
+		}
 	}
 
-	return w.workloadNeedsUpdate(ctx, c)
+	return false, nil
 }
 
 // workloadNeedsUpdate returns true if the webhook deployment differs from the
@@ -569,7 +632,9 @@ func (w *Webhook) workloadNeedsUpdate(ctx context.Context, c client.Client) (boo
 func deploymentNeedsUpdate(configured, found *appsv1.Deployment) bool {
 	cSpec, fSpec := &configured.Spec.Template.Spec, &found.Spec.Template.Spec
 
-	if len(cSpec.Containers) != len(fSpec.Containers) ||
+	if !ptr.Equal(configured.Spec.Replicas, found.Spec.Replicas) ||
+		cSpec.PriorityClassName != fSpec.PriorityClassName ||
+		len(cSpec.Containers) != len(fSpec.Containers) ||
 		len(cSpec.Volumes) != len(fSpec.Volumes) {
 		return true
 	}
@@ -601,77 +666,124 @@ func annotationsDiffer(configured, existing map[string]string) bool {
 	return false
 }
 
-// only compare the settings that are tunable in spod now.
-func (w *Webhook) webhookNeedsUpdate(existing *admissionregv1.MutatingWebhook, index int) bool {
-	configured := w.config.Webhooks[index]
+// hookFields are the fields which mutating and validating webhooks share.
+type hookFields struct {
+	clientConfig            *admissionregv1.WebhookClientConfig
+	rules                   []admissionregv1.RuleWithOperations
+	failurePolicy           *admissionregv1.FailurePolicyType
+	matchPolicy             *admissionregv1.MatchPolicyType
+	namespaceSelector       *metav1.LabelSelector
+	objectSelector          *metav1.LabelSelector
+	sideEffects             *admissionregv1.SideEffectClass
+	timeoutSeconds          *int32
+	admissionReviewVersions []string
+}
 
-	// The rules, timeouts and side effects are not tunable, but change
-	// between releases.
-	if !ptr.Equal(existing.TimeoutSeconds, configured.TimeoutSeconds) ||
-		!ptr.Equal(existing.SideEffects, configured.SideEffects) ||
-		!reflect.DeepEqual(existing.Rules, configured.Rules) {
-		w.log.V(1).Info("updating webhook configuration",
-			"existing TimeoutSeconds", existing.TimeoutSeconds,
-			"configured TimeoutSeconds", configured.TimeoutSeconds,
-			"existing Rules", existing.Rules,
-			"configured Rules", configured.Rules)
-
-		return true
+func mutatingHookFields(h *admissionregv1.MutatingWebhook) *hookFields {
+	return &hookFields{
+		clientConfig:            &h.ClientConfig,
+		rules:                   h.Rules,
+		failurePolicy:           h.FailurePolicy,
+		matchPolicy:             h.MatchPolicy,
+		namespaceSelector:       h.NamespaceSelector,
+		objectSelector:          h.ObjectSelector,
+		sideEffects:             h.SideEffects,
+		timeoutSeconds:          h.TimeoutSeconds,
+		admissionReviewVersions: h.AdmissionReviewVersions,
 	}
+}
 
-	// comparing pointers, not values
-	if existing.FailurePolicy == nil && configured.FailurePolicy != nil ||
-		existing.FailurePolicy != nil && configured.FailurePolicy == nil {
-		w.log.V(1).Info("updating webhook configuration",
-			"existing FailurePolicy", existing.FailurePolicy,
-			"configured FailurePolicy", configured.FailurePolicy)
-
-		return true
+func validatingHookFields(h *admissionregv1.ValidatingWebhook) *hookFields {
+	return &hookFields{
+		clientConfig:            &h.ClientConfig,
+		rules:                   h.Rules,
+		failurePolicy:           h.FailurePolicy,
+		matchPolicy:             h.MatchPolicy,
+		namespaceSelector:       h.NamespaceSelector,
+		objectSelector:          h.ObjectSelector,
+		sideEffects:             h.SideEffects,
+		timeoutSeconds:          h.TimeoutSeconds,
+		admissionReviewVersions: h.AdmissionReviewVersions,
 	}
+}
 
-	// comparing values this time
-	if existing.FailurePolicy != nil &&
-		configured.FailurePolicy != nil &&
-		*existing.FailurePolicy != *configured.FailurePolicy {
-		w.log.V(1).Info("updating webhook configuration",
-			"existing FailurePolicy", existing.FailurePolicy,
-			"configured FailurePolicy", configured.FailurePolicy)
+// The API server defaults these fields if they are unset.
+const (
+	defaultMatchPolicy = admissionregv1.Equivalent
+	defaultServicePort = int32(443)
+)
 
-		return true
-	}
-
+// differingHookField returns the name of the first field which differs
+// between the existing and the configured webhook, or an empty string. The CA
+// bundle is not compared, because it gets injected.
+func differingHookField(existing, configured *hookFields) string {
+	switch {
+	case !ptr.Equal(existing.timeoutSeconds, configured.timeoutSeconds):
+		return "timeoutSeconds"
+	case !ptr.Equal(existing.sideEffects, configured.sideEffects):
+		return "sideEffects"
+	case !reflect.DeepEqual(existing.rules, configured.rules):
+		return "rules"
+	case !ptr.Equal(existing.failurePolicy, configured.failurePolicy):
+		return "failurePolicy"
+	case ptr.Deref(existing.matchPolicy, defaultMatchPolicy) !=
+		ptr.Deref(configured.matchPolicy, defaultMatchPolicy):
+		return "matchPolicy"
+	case !ptr.Equal(existing.clientConfig.URL, configured.clientConfig.URL) ||
+		!serviceReferencesEqual(existing.clientConfig.Service, configured.clientConfig.Service):
+		return "clientConfig"
+	case !slices.Equal(existing.admissionReviewVersions, configured.admissionReviewVersions):
+		return "admissionReviewVersions"
 	// The selectors are compared as a whole, so that any change to the
 	// webhook options of the SPOD gets rolled out. A nil selector matches
 	// everything like an empty one, and some platforms store an empty
 	// selector for a nil one. Expressions which platforms like AKS inject
 	// are ignored, see platformInjectedSelectorKeys.
-	if !selectorsEqual(existing.NamespaceSelector, configured.NamespaceSelector) {
-		w.log.V(1).Info("updating webhook configuration",
-			"existing NamespaceSelector", existing.NamespaceSelector,
-			"configured NamespaceSelector", configured.NamespaceSelector)
+	case !selectorsEqual(existing.namespaceSelector, configured.namespaceSelector):
+		return "namespaceSelector"
+	case !selectorsEqual(existing.objectSelector, configured.objectSelector):
+		return "objectSelector"
+	default:
+		return ""
+	}
+}
 
-		return true
+// serviceReferencesEqual returns true if both references point to the same
+// path of the same service port.
+func serviceReferencesEqual(existing, configured *admissionregv1.ServiceReference) bool {
+	if existing == nil || configured == nil {
+		return existing == configured
 	}
 
-	if !selectorsEqual(existing.ObjectSelector, configured.ObjectSelector) {
-		w.log.V(1).Info("updating webhook configuration",
-			"existing ObjectSelector", existing.ObjectSelector,
-			"configured ObjectSelector", configured.ObjectSelector)
+	return existing.Namespace == configured.Namespace &&
+		existing.Name == configured.Name &&
+		ptr.Equal(existing.Path, configured.Path) &&
+		ptr.Deref(
+			existing.Port,
+			defaultServicePort,
+		) == ptr.Deref(
+			configured.Port,
+			defaultServicePort,
+		)
+}
 
-		return true
+// mutatingWebhookNeedsUpdate returns true if the existing mutating webhook
+// differs from the configured one.
+func mutatingWebhookNeedsUpdate(
+	log logr.Logger, existing, configured *admissionregv1.MutatingWebhook,
+) bool {
+	field := differingHookField(mutatingHookFields(existing), mutatingHookFields(configured))
+	if field == "" && !ptr.Equal(existing.ReinvocationPolicy, configured.ReinvocationPolicy) {
+		field = "reinvocationPolicy"
 	}
 
-	if !ptr.Equal(existing.ReinvocationPolicy, configured.ReinvocationPolicy) {
-		w.log.V(1).Info("updating webhook configuration",
-			"existing ReinvocationPolicy", existing.ReinvocationPolicy,
-			"configured ReinvocationPolicy", configured.ReinvocationPolicy)
-
-		return true
+	if field == "" {
+		return false
 	}
 
-	w.log.V(1).Info("webhook does not need update")
+	log.V(1).Info("updating webhook", "name", configured.Name, "field", field)
 
-	return false
+	return true
 }
 
 // platformInjectedSelectorKeys are the label keys of match expressions which
@@ -773,17 +885,12 @@ func (w *Webhook) Update(ctx context.Context, c client.Client) error {
 
 // update writes the configured object and creates it if it does not exist.
 func (w *Webhook) update(ctx context.Context, c client.Client, obj client.Object) error {
-	switch o := obj.(type) {
-	case *appsv1.Deployment:
-		return updateDeployment(ctx, c, o)
-	case *admissionregv1.MutatingWebhookConfiguration:
-		if err := keepMutatingCABundles(ctx, c, o); err != nil {
-			return err
-		}
-	case *admissionregv1.ValidatingWebhookConfiguration:
-		if err := keepValidatingCABundles(ctx, c, o); err != nil {
-			return err
-		}
+	if deployment, ok := obj.(*appsv1.Deployment); ok {
+		return updateDeployment(ctx, c, deployment)
+	}
+
+	if err := keepCABundles(ctx, c, obj); err != nil {
+		return err
 	}
 
 	err := c.Patch(ctx, obj, client.Merge)
@@ -813,54 +920,57 @@ func updateDeployment(ctx context.Context, c client.Client, configured *appsv1.D
 	return c.Update(ctx, updated)
 }
 
-// keepMutatingCABundles copies the CA bundles which got injected into the
-// existing configuration into the configured one. A merge patch replaces the
+// keepCABundles copies the CA bundles which got injected into the existing
+// webhook configuration into the configured one. A merge patch replaces the
 // whole list of webhooks, so the placeholder bundle would otherwise break the
 // webhooks until the CA gets injected again.
-func keepMutatingCABundles(
-	ctx context.Context, c client.Client, configured *admissionregv1.MutatingWebhookConfiguration,
-) error {
-	existing := &admissionregv1.MutatingWebhookConfiguration{}
+func keepCABundles(ctx context.Context, c client.Client, configured client.Object) error {
+	var existing client.Object
+
+	switch configured.(type) {
+	case *admissionregv1.MutatingWebhookConfiguration:
+		existing = &admissionregv1.MutatingWebhookConfiguration{}
+	case *admissionregv1.ValidatingWebhookConfiguration:
+		existing = &admissionregv1.ValidatingWebhookConfiguration{}
+	default:
+		return nil
+	}
+
 	if err := c.Get(ctx, client.ObjectKeyFromObject(configured), existing); err != nil {
 		return client.IgnoreNotFound(err)
 	}
 
-	bundles := make(map[string][]byte, len(existing.Webhooks))
-	for i := range existing.Webhooks {
-		bundles[existing.Webhooks[i].Name] = existing.Webhooks[i].ClientConfig.CABundle
+	bundles := map[string][]byte{}
+	for name, clientConfig := range clientConfigs(existing) {
+		bundles[name] = clientConfig.CABundle
 	}
 
-	for i := range configured.Webhooks {
-		if bundle := bundles[configured.Webhooks[i].Name]; len(bundle) > 0 {
-			configured.Webhooks[i].ClientConfig.CABundle = bundle
+	for name, clientConfig := range clientConfigs(configured) {
+		if bundle := bundles[name]; len(bundle) > 0 {
+			clientConfig.CABundle = bundle
 		}
 	}
 
 	return nil
 }
 
-// keepValidatingCABundles is like keepMutatingCABundles for the validating
-// webhook configuration.
-func keepValidatingCABundles(
-	ctx context.Context, c client.Client, configured *admissionregv1.ValidatingWebhookConfiguration,
-) error {
-	existing := &admissionregv1.ValidatingWebhookConfiguration{}
-	if err := c.Get(ctx, client.ObjectKeyFromObject(configured), existing); err != nil {
-		return client.IgnoreNotFound(err)
-	}
+// clientConfigs returns the client configurations of the webhooks of a
+// webhook configuration by webhook name.
+func clientConfigs(obj client.Object) map[string]*admissionregv1.WebhookClientConfig {
+	res := map[string]*admissionregv1.WebhookClientConfig{}
 
-	bundles := make(map[string][]byte, len(existing.Webhooks))
-	for i := range existing.Webhooks {
-		bundles[existing.Webhooks[i].Name] = existing.Webhooks[i].ClientConfig.CABundle
-	}
-
-	for i := range configured.Webhooks {
-		if bundle := bundles[configured.Webhooks[i].Name]; len(bundle) > 0 {
-			configured.Webhooks[i].ClientConfig.CABundle = bundle
+	switch o := obj.(type) {
+	case *admissionregv1.MutatingWebhookConfiguration:
+		for i := range o.Webhooks {
+			res[o.Webhooks[i].Name] = &o.Webhooks[i].ClientConfig
+		}
+	case *admissionregv1.ValidatingWebhookConfiguration:
+		for i := range o.Webhooks {
+			res[o.Webhooks[i].Name] = &o.Webhooks[i].ClientConfig
 		}
 	}
 
-	return nil
+	return res
 }
 
 func (w *Webhook) objectMap() map[string]client.Object {
@@ -1032,6 +1142,9 @@ var webhookDeployment = &appsv1.Deployment{
 					},
 				},
 				ServiceAccountName: serviceAccountName,
+				// The webhooks are fail closed for the namespaces which opt in,
+				// so they must not get preempted by other workloads.
+				PriorityClassName: webhookPriorityClassName,
 				Containers: []corev1.Container{
 					{
 						Name:            config.OperatorName,
@@ -1075,6 +1188,11 @@ var webhookDeployment = &appsv1.Deployment{
 							{
 								Name:          "webhook",
 								ContainerPort: ContainerPort,
+								Protocol:      corev1.ProtocolTCP,
+							},
+							{
+								Name:          "health",
+								ContainerPort: config.HealthProbePort,
 								Protocol:      corev1.ProtocolTCP,
 							},
 						},

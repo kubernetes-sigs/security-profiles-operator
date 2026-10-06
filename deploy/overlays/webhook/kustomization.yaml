@@ -18,6 +18,7 @@ resources:
 - webhook_issuer.yaml
 - webhook_cert.yaml
 - webhook_deployment.yaml
+- webhook_pdb.yaml
 - webhook_service.yaml
 - webhook_validating_config.yaml
 - metrics_cert.yaml

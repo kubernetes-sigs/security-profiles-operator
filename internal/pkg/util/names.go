@@ -128,6 +128,31 @@ func CheckRecordingOwner(profile client.Object, recordingName, recordingNamespac
 	return nil
 }
 
+// nodeLabelHashPrefixLen is how many characters of a long node name are kept
+// in front of its hash in a label value, so that the value still hints at the
+// node.
+const nodeLabelHashPrefixLen = 16
+
+// NodeNameLabelValue returns a label value which identifies the node. Node
+// names may be longer than a label value, those get shortened by hashing
+// them. Shorter node names are returned as is, so that existing label values
+// do not change.
+func NodeNameLabelValue(nodeName string) string {
+	if len(nodeName) <= validation.LabelValueMaxLength {
+		return nodeName
+	}
+
+	hashed, err := hashedName(
+		validation.LabelValueMaxLength, nodeName[:nodeLabelHashPrefixLen], nodeName,
+	)
+	if err != nil {
+		// Cannot happen: the prefix leaves room for the hash.
+		return nodeName[:validation.LabelValueMaxLength]
+	}
+
+	return hashed
+}
+
 func KindBasedDNSLengthName(obj client.Object) string {
 	return KindNameDNSLengthName(obj.GetObjectKind().GroupVersionKind().Kind, obj.GetName())
 }

@@ -20,6 +20,8 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
+// IgnoreNotFound returns nil for a NotFound error and err otherwise. New code
+// should use client.IgnoreNotFound of controller-runtime, which does the same.
 func IgnoreNotFound(err error) error {
 	if kerrors.IsNotFound(err) {
 		return nil

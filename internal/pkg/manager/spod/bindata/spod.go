@@ -39,6 +39,7 @@ var (
 	hostPathDirectory                  = corev1.HostPathDirectory
 	hostPathDirectoryOrCreate          = corev1.HostPathDirectoryOrCreate
 	healthzPath                        = "/healthz"
+	readyzPath                         = "/readyz"
 	openshiftCertAnnotation            = "service.beta.openshift.io/serving-cert-secret-name"
 	localSeccompProfilePath            = LocalSeccompProfilePath
 	localSeccompBpfRecorderProfilePath = LocalSeccompBpfRecorderProfilePath
@@ -486,6 +487,23 @@ semodule -R
 								Scheme: corev1.URISchemeHTTP,
 							}},
 							FailureThreshold: 1,
+							PeriodSeconds:    10,
+							TimeoutSeconds:   1,
+							SuccessThreshold: 1,
+						},
+						// The daemon counts as ready once its caches are
+						// synced, so that the rollout status of the SPOd tells
+						// whether the daemons act on the profiles. The values
+						// are the defaults of the API server, which have to be
+						// set explicitly, because the comparison with the
+						// existing DaemonSet does not ignore unset numbers.
+						ReadinessProbe: &corev1.Probe{
+							ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{
+								Path:   readyzPath,
+								Port:   intstr.FromString("liveness-port"),
+								Scheme: corev1.URISchemeHTTP,
+							}},
+							FailureThreshold: 3,
 							PeriodSeconds:    10,
 							TimeoutSeconds:   1,
 							SuccessThreshold: 1,

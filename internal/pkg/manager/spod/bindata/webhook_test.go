@@ -286,7 +286,11 @@ func TestWebhook_NeedsUpdate(t *testing.T) {
 					},
 				},
 			}
-			requireUpdate := w.webhookNeedsUpdate(existing, 0)
+			requireUpdate := mutatingWebhookNeedsUpdate(
+				logr.Discard(),
+				existing,
+				&w.config.Webhooks[0],
+			)
 			assert.Equal(t, expected, requireUpdate)
 		})
 	}
@@ -471,14 +475,23 @@ func TestWebhook_NeedsUpdateRulesAndTimeouts(t *testing.T) {
 	w := Webhook{log: logr.Discard(), config: configured}
 
 	existing := configured.Webhooks[binding.index].DeepCopy()
-	assert.False(t, w.webhookNeedsUpdate(existing, binding.index))
+	assert.False(
+		t,
+		mutatingWebhookNeedsUpdate(logr.Discard(), existing, &w.config.Webhooks[binding.index]),
+	)
 
 	existing.TimeoutSeconds = new(int32(30))
-	assert.True(t, w.webhookNeedsUpdate(existing, binding.index))
+	assert.True(
+		t,
+		mutatingWebhookNeedsUpdate(logr.Discard(), existing, &w.config.Webhooks[binding.index]),
+	)
 
 	existing = configured.Webhooks[binding.index].DeepCopy()
 	existing.Rules = existing.Rules[:1]
-	assert.True(t, w.webhookNeedsUpdate(existing, binding.index))
+	assert.True(
+		t,
+		mutatingWebhookNeedsUpdate(logr.Discard(), existing, &w.config.Webhooks[binding.index]),
+	)
 }
 
 func TestWebhook_DeploymentRequiredSCC(t *testing.T) {
@@ -526,7 +539,10 @@ func TestWebhook_SideEffects(t *testing.T) {
 	w := Webhook{log: logr.Discard(), config: cfg}
 	existing := cfg.Webhooks[binding.index].DeepCopy()
 	existing.SideEffects = &sideEffects
-	assert.True(t, w.webhookNeedsUpdate(existing, binding.index))
+	assert.True(
+		t,
+		mutatingWebhookNeedsUpdate(logr.Discard(), existing, &w.config.Webhooks[binding.index]),
+	)
 }
 
 func TestWebhook_DeploymentAvailability(t *testing.T) {
@@ -936,5 +952,166 @@ func TestWebhook_NeedsUpdateOnAKS(t *testing.T) {
 				webhook(tc.update).config.Webhooks[binding.index].NamespaceSelector,
 			))
 		})
+	}
+}
+
+func TestWebhook_DeploymentNeedsUpdateReplicasAndPriority(t *testing.T) {
+	t.Parallel()
+
+	configured := newTestWebhook(t, nil).deployment
+	require.Equal(t, "system-cluster-critical", configured.Spec.Template.Spec.PriorityClassName)
+
+	found := configured.DeepCopy()
+	require.False(t, deploymentNeedsUpdate(configured, found))
+
+	found.Spec.Replicas = new(int32(1))
+	require.True(t, deploymentNeedsUpdate(configured, found), "scaled down")
+
+	found = configured.DeepCopy()
+	found.Spec.Template.Spec.PriorityClassName = ""
+	require.True(t, deploymentNeedsUpdate(configured, found), "priority class of an older release")
+}
+
+// The fields which the API server defaults are compared with their defaults,
+// and the client configuration, the admission review versions and the match
+// policy are compared, too.
+func TestDifferingHookField(t *testing.T) {
+	t.Parallel()
+
+	configured := getWebhookConfig(false, "ns").Webhooks[binding.index]
+
+	for name, tc := range map[string]struct {
+		mutate func(*admissionregv1.MutatingWebhook)
+		want   string
+	}{
+		"equal": {mutate: func(*admissionregv1.MutatingWebhook) {}},
+		"defaulted match policy": {
+			mutate: func(h *admissionregv1.MutatingWebhook) { h.MatchPolicy = new(admissionregv1.Equivalent) },
+		},
+		"defaulted service port": {
+			mutate: func(h *admissionregv1.MutatingWebhook) { h.ClientConfig.Service.Port = new(int32(443)) },
+		},
+		"injected CA bundle": {
+			mutate: func(h *admissionregv1.MutatingWebhook) { h.ClientConfig.CABundle = []byte("ca") },
+		},
+		"match policy": {
+			mutate: func(h *admissionregv1.MutatingWebhook) { h.MatchPolicy = new(admissionregv1.Exact) },
+			want:   "matchPolicy",
+		},
+		"service port": {
+			mutate: func(h *admissionregv1.MutatingWebhook) { h.ClientConfig.Service.Port = new(int32(8443)) },
+			want:   "clientConfig",
+		},
+		"service namespace": {
+			mutate: func(h *admissionregv1.MutatingWebhook) { h.ClientConfig.Service.Namespace = "other" },
+			want:   "clientConfig",
+		},
+		"service path": {
+			mutate: func(h *admissionregv1.MutatingWebhook) { h.ClientConfig.Service.Path = new("/other") },
+			want:   "clientConfig",
+		},
+		"admission review versions": {
+			mutate: func(h *admissionregv1.MutatingWebhook) {
+				h.AdmissionReviewVersions = []string{"v1", "v1beta1"}
+			},
+			want: "admissionReviewVersions",
+		},
+		"failure policy": {
+			mutate: func(h *admissionregv1.MutatingWebhook) { h.FailurePolicy = new(admissionregv1.Ignore) },
+			want:   "failurePolicy",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			existing := configured.DeepCopy()
+			tc.mutate(existing)
+			assert.Equal(t, tc.want,
+				differingHookField(mutatingHookFields(existing), mutatingHookFields(&configured)))
+		})
+	}
+}
+
+// The validating webhooks are matched by name, not by position.
+func TestWebhook_ValidatingConfigNeedsUpdate(t *testing.T) {
+	t.Parallel()
+
+	w := newTestWebhook(t, nil)
+	existing := w.validatingConfig.DeepCopy()
+
+	c := webhookTestClient(t, existing)
+	update, err := w.validatingConfigNeedsUpdate(t.Context(), c)
+	require.NoError(t, err)
+	require.False(t, update)
+
+	existing.Webhooks[0].Name = "other.spo.io"
+	c = webhookTestClient(t, existing)
+	update, err = w.validatingConfigNeedsUpdate(t.Context(), c)
+	require.NoError(t, err)
+	require.True(t, update)
+}
+
+func TestApplyWebhookOptionsCopiesSelectors(t *testing.T) {
+	t.Parallel()
+
+	selector := &metav1.LabelSelector{MatchLabels: map[string]string{"a": "b"}}
+	opts := []spodapi.WebhookOptions{{
+		Name:           binding.name,
+		ObjectSelector: selector,
+		FailurePolicy:  new(admissionregv1.Ignore),
+	}}
+
+	cfg := getWebhookConfig(false, "ns")
+	applyWebhookOptions(cfg, opts, "ns")
+
+	// Changing the applied configuration must not change the SPOD.
+	cfg.Webhooks[binding.index].ObjectSelector.MatchLabels["a"] = "changed"
+	*cfg.Webhooks[binding.index].FailurePolicy = admissionregv1.Fail
+
+	require.Equal(t, "b", selector.MatchLabels["a"])
+	require.Equal(t, admissionregv1.Ignore, *opts[0].FailurePolicy)
+}
+
+func TestWebhook_BindingWarnings(t *testing.T) {
+	t.Parallel()
+
+	newWebhook := func(opts ...spodapi.WebhookOptions) *Webhook {
+		return GetWebhook(
+			logr.Discard(), "spo-ns", opts, "image", corev1.PullAlways,
+			CAInjectTypeCertManager, nil, nil, false,
+		)
+	}
+
+	require.Empty(t, newWebhook().BindingWarnings())
+
+	// Options of other webhooks and a stricter policy are fine.
+	require.Empty(t, newWebhook(
+		spodapi.WebhookOptions{Name: recording.name, FailurePolicy: new(admissionregv1.Ignore)},
+		spodapi.WebhookOptions{Name: binding.name, FailurePolicy: new(admissionregv1.Fail)},
+	).BindingWarnings())
+
+	warnings := newWebhook(spodapi.WebhookOptions{
+		Name:           binding.name,
+		FailurePolicy:  new(admissionregv1.Ignore),
+		ObjectSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"a": "b"}},
+	}).BindingWarnings()
+	require.Len(t, warnings, 2)
+	require.Contains(t, warnings[0], "failurePolicy Ignore")
+	require.Contains(t, warnings[1], "objectSelector")
+}
+
+// The webhook is critical for the cluster, unless the daemon pods use another
+// priority class than their default, which then applies to the webhook too.
+func TestWebhook_UseDaemonPriorityClass(t *testing.T) {
+	t.Parallel()
+
+	for daemonClass, want := range map[string]string{
+		DefaultPriorityClassName: "system-cluster-critical",
+		"custom":                 "custom",
+		"":                       "",
+	} {
+		w := newTestWebhook(t, nil)
+		w.UseDaemonPriorityClass(daemonClass)
+		require.Equal(t, want, w.deployment.Spec.Template.Spec.PriorityClassName, daemonClass)
 	}
 }

@@ -17,6 +17,8 @@ limitations under the License.
 package util
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -28,50 +30,98 @@ const (
 	backoffDuration = 500 * time.Millisecond
 	backoffFactor   = 1.5
 	backoffSteps    = 5
+	backoffJitter   = 0.1
 )
 
 func IsNotFoundOrConflict(err error) bool {
 	return kerrors.IsNotFound(err) || kerrors.IsConflict(err)
 }
 
-// DefaultBackoff returns the retry backoff used by Retry.
+// DefaultBackoff returns the retry backoff used by Retry and RetryWithContext.
+// The jitter keeps many clients, like the daemons of all nodes, from retrying
+// a conflict in lockstep.
 func DefaultBackoff() wait.Backoff {
 	return wait.Backoff{
 		Duration: backoffDuration,
 		Factor:   backoffFactor,
 		Steps:    backoffSteps,
+		Jitter:   backoffJitter,
 	}
 }
 
 // Retry attempts to execute fn up to 5 times if its failure meets retryCondition.
+// Callers which have a context should use RetryWithContext instead.
 func Retry(fn func() error, retryCondition func(error) bool) error {
 	backoff := DefaultBackoff()
 
 	return RetryEx(&backoff, fn, retryCondition)
 }
 
+// RetryWithContext is like Retry, but stops waiting between the attempts once
+// the context is done.
+func RetryWithContext(
+	ctx context.Context, fn func() error, retryCondition func(error) bool,
+) error {
+	r := &retrier{fn: fn, retryCondition: retryCondition}
+
+	return r.result(wait.ExponentialBackoffWithContext(
+		ctx, DefaultBackoff(), func(context.Context) (bool, error) { return r.attempt() },
+	))
+}
+
 func RetryEx(backoff *wait.Backoff, fn func() error, retryCondition func(error) bool) error {
-	var lastRetryErr error
+	r := &retrier{fn: fn, retryCondition: retryCondition}
 
-	waitErr := wait.ExponentialBackoff(*backoff, func() (bool, error) {
-		err := fn()
-		if err == nil {
-			return true, nil
-		} else if retryCondition(err) {
-			lastRetryErr = err
+	return r.result(wait.ExponentialBackoff(*backoff, r.attempt))
+}
 
-			return false, nil
-		}
+// retryFatalError marks an error which retryCondition did not accept.
+type retryFatalError struct{ err error }
 
-		return false, fmt.Errorf("retry function: %w", err)
-	})
-	if waitErr != nil {
-		if lastRetryErr != nil && wait.Interrupted(waitErr) {
-			return fmt.Errorf("wait on retry: %w, last retry error: %w", waitErr, lastRetryErr)
-		}
+func (e *retryFatalError) Error() string { return e.err.Error() }
 
-		return fmt.Errorf("wait on retry: %w", waitErr)
+func (e *retryFatalError) Unwrap() error { return e.err }
+
+// retrier runs fn until it succeeds or fails with an error which does not
+// meet retryCondition.
+type retrier struct {
+	fn             func() error
+	retryCondition func(error) bool
+
+	// lastRetryErr is the last error which got retried.
+	lastRetryErr error
+}
+
+// attempt runs fn once. A failure which meets retryCondition is kept and
+// retried, any other one ends the retries.
+func (r *retrier) attempt() (bool, error) {
+	err := r.fn()
+	if err == nil {
+		return true, nil
+	} else if r.retryCondition(err) {
+		r.lastRetryErr = err
+
+		return false, nil
 	}
 
-	return nil
+	return false, &retryFatalError{err: err}
+}
+
+// result wraps the result of the backoff once: a failure which was not
+// retried is returned as the error of fn, an interrupted wait along with the
+// last error of fn.
+func (r *retrier) result(waitErr error) error {
+	if waitErr == nil {
+		return nil
+	}
+
+	if fatal, ok := errors.AsType[*retryFatalError](waitErr); ok {
+		return fmt.Errorf("retry function: %w", fatal.err)
+	}
+
+	if r.lastRetryErr != nil && wait.Interrupted(waitErr) {
+		return fmt.Errorf("wait on retry: %w, last retry error: %w", waitErr, r.lastRetryErr)
+	}
+
+	return fmt.Errorf("wait on retry: %w", waitErr)
 }

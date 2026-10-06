@@ -53,7 +53,7 @@ type ProfileBindingSpec struct {
 	// all pods in the namespace.
 	// +optional
 	//nolint:lll // CEL rules cannot be wrapped
-	// +kubebuilder:validation:XValidation:rule="!has(self.matchExpressions) || self.matchExpressions.all(e, e.operator in ['In', 'NotIn'] ? (has(e.values) && size(e.values) > 0) : (e.operator in ['Exists', 'DoesNotExist'] && (!has(e.values) || size(e.values) == 0)))",message="matchExpressions operator must be In, NotIn, Exists or DoesNotExist, In and NotIn require values, Exists and DoesNotExist must not have values"
+	// +kubebuilder:validation:XValidation:rule="!has(self.matchExpressions) || self.matchExpressions.all(e, has(e.values) && size(e.values) > 0 ? (e.operator == 'In' || e.operator == 'NotIn') : (e.operator == 'Exists' || e.operator == 'DoesNotExist'))",message="matchExpressions operator must be In, NotIn, Exists or DoesNotExist, In and NotIn require values, Exists and DoesNotExist must not have values"
 	PodSelector *metav1.LabelSelector `json:"podSelector,omitempty"`
 }
 
@@ -89,6 +89,7 @@ type ProfileBindingStatus struct {
 // +kubebuilder:printcolumn:name="Kind",type=string,JSONPath=`.spec.profileRef.kind`
 // +kubebuilder:printcolumn:name="Profile",type=string,JSONPath=`.spec.profileRef.name`
 // +kubebuilder:printcolumn:name="Image",type=string,JSONPath=`.spec.image`
+// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 type ProfileBinding struct {
 	metav1.TypeMeta `json:",inline"`

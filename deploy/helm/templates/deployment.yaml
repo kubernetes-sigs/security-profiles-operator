@@ -17,6 +17,9 @@ spec:
       annotations:
         {{- include "security-profiles-operator.annotations" . | nindent 8 }}
         openshift.io/required-scc: restricted-v2
+        {{- with omit (.Values.podAnnotations | default dict) "meta.helm.sh/release-name" "openshift.io/required-scc" }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       labels:
         {{- include "security-profiles-operator.selectorLabels" . | nindent 8 }}
     spec:
@@ -28,13 +31,13 @@ spec:
         # only applies without a digest. Keep the list in sync with
         # deploy/kustomize-deployment/manager_deployment.yaml.
         - name: RELATED_IMAGE_SELINUXD
-          value: {{ include "security-profiles-operator.selinuxdImage" .Values.selinuxdImage.default }}
+          value: {{ include "security-profiles-operator.image" .Values.selinuxdImage.default }}
         - name: RELATED_IMAGE_SELINUXD_EL8
-          value: {{ include "security-profiles-operator.selinuxdImage" .Values.selinuxdImage.el8 }}
+          value: {{ include "security-profiles-operator.image" .Values.selinuxdImage.el8 }}
         - name: RELATED_IMAGE_SELINUXD_EL9
-          value: {{ include "security-profiles-operator.selinuxdImage" .Values.selinuxdImage.el9 }}
+          value: {{ include "security-profiles-operator.image" .Values.selinuxdImage.el9 }}
         - name: RELATED_IMAGE_SELINUXD_FEDORA
-          value: {{ include "security-profiles-operator.selinuxdImage" .Values.selinuxdImage.fedora }}
+          value: {{ include "security-profiles-operator.image" .Values.selinuxdImage.fedora }}
         - name: OPERATOR_NAMESPACE
           valueFrom:
             fieldRef:
@@ -55,7 +58,8 @@ spec:
         - name: RESTRICT_TO_NAMESPACE
           value: {{ .Values.restrictToNamespace | quote }}
         {{- end }}
-        image: {{ .Values.spoImage.registry }}/{{ .Values.spoImage.repository }}:{{ .Values.spoImage.tag }}
+        # Pinned by digest when one is set, the tag only applies without one.
+        image: {{ include "security-profiles-operator.image" .Values.spoImage }}
         imagePullPolicy: {{ .Values.spoImage.pullPolicy | default "Always" }}
         name: {{ .Chart.Name }}
         ports:
@@ -107,6 +111,13 @@ spec:
       # The static resources create this service account and bind the RBAC
       # rules of the operator to it.
       serviceAccountName: security-profiles-operator
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

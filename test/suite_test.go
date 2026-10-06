@@ -788,6 +788,12 @@ const (
 	webhooksURL    = "https://webhook-service.security-profiles-operator.svc.cluster.local/"
 	curlSpodCMD    = curlCMD + metricsURL + "metrics-spod"
 	curlCtrlCMD    = curlCMD + metricsURL + "metrics"
+
+	// metricsClientOverrides runs the pod as the ServiceAccount which the
+	// spo-metrics-client ClusterRole is bound to. It does not mount its token
+	// by default.
+	metricsClientOverrides = `--overrides={"spec":{"serviceAccountName":"spo-metrics-client",` +
+		`"automountServiceAccountToken":true}}`
 )
 
 func (e *e2e) runAndRetryPodCMD(podCMD string) string {
@@ -808,7 +814,8 @@ func (e *e2e) runAndRetryPodCMD(podCMD string) string {
 		var err error
 
 		output, err = e.kubectlCommand(kubectlRunArgs(
-			"-n", config.OperatorName, "pod-"+string(b), "--", "bash", "-c", podCMD,
+			"-n", config.OperatorName, metricsClientOverrides,
+			"pod-"+string(b), "--", "bash", "-c", podCMD,
 		)...)
 		if err != nil {
 			output = ""

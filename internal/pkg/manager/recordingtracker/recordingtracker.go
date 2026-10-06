@@ -35,7 +35,7 @@ import (
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/workloadtracker"
 )
 
 const (
@@ -88,7 +88,7 @@ func (r *RecordingTrackerReconciler) Reconcile(
 	pod := &corev1.Pod{}
 
 	err := r.client.Get(ctx, req.NamespacedName, pod)
-	if util.IgnoreNotFound(err) != nil {
+	if client.IgnoreNotFound(err) != nil {
 		return reconcile.Result{}, fmt.Errorf("getting pod: %w", err)
 	}
 
@@ -209,47 +209,23 @@ func podRecordedBy(pod *corev1.Pod, recordingName string) bool {
 	return false
 }
 
+// tracker tracks the pods in the active workloads of the recordings.
+func (r *RecordingTrackerReconciler) tracker() *workloadtracker.Tracker[*profilerecordingapi.ProfileRecording] {
+	return &workloadtracker.Tracker[*profilerecordingapi.ProfileRecording]{
+		Client:    r.client,
+		Reader:    r.reader,
+		Finalizer: finalizer,
+		Kind:      "recording",
+		Workloads: func(obj *profilerecordingapi.ProfileRecording) *[]string { return &obj.Status.ActiveWorkloads },
+	}
+}
+
 // trackPod adds the pod to the active workloads of the recording and ensures
 // the finalizer.
 func (r *RecordingTrackerReconciler) trackPod(
 	ctx context.Context, recording *profilerecordingapi.ProfileRecording, podName string,
 ) error {
-	if err := util.Retry(func() error {
-		if err := r.reader.Get(
-			ctx, util.NamespacedName(recording.GetName(), recording.GetNamespace()), recording,
-		); err != nil {
-			if errors.IsNotFound(err) {
-				return nil
-			}
-
-			return fmt.Errorf("retrieving recording: %w", err)
-		}
-
-		updated := appendIfNotExists(recording.Status.ActiveWorkloads, podName)
-		if len(updated) == len(recording.Status.ActiveWorkloads) {
-			return nil
-		}
-
-		recording.Status.ActiveWorkloads = updated
-
-		if err := r.client.Status().Update(ctx, recording); err != nil {
-			return fmt.Errorf("updating recording status: %w", err)
-		}
-
-		return nil
-	}, util.IsNotFoundOrConflict); err != nil {
-		return fmt.Errorf("updating recording status: %w", err)
-	}
-
-	if err := util.Retry(func() error {
-		return client.IgnoreNotFound(
-			util.AddFinalizer(ctx, r.client, recording, finalizer),
-		)
-	}, util.IsNotFoundOrConflict); err != nil {
-		return fmt.Errorf("adding finalizer: %w", err)
-	}
-
-	return nil
+	return r.tracker().Track(ctx, recording, podName)
 }
 
 // untrackPod removes the pod from the active workloads of the recording and
@@ -257,76 +233,5 @@ func (r *RecordingTrackerReconciler) trackPod(
 func (r *RecordingTrackerReconciler) untrackPod(
 	ctx context.Context, recording *profilerecordingapi.ProfileRecording, podName string,
 ) error {
-	if err := util.Retry(func() error {
-		if err := r.reader.Get(
-			ctx, util.NamespacedName(recording.GetName(), recording.GetNamespace()), recording,
-		); err != nil {
-			if errors.IsNotFound(err) {
-				return nil
-			}
-
-			return fmt.Errorf("retrieving recording: %w", err)
-		}
-
-		updated := removeIfExists(recording.Status.ActiveWorkloads, podName)
-		if len(updated) == len(recording.Status.ActiveWorkloads) {
-			return nil
-		}
-
-		recording.Status.ActiveWorkloads = updated
-
-		if err := r.client.Status().Update(ctx, recording); err != nil {
-			return fmt.Errorf("updating recording status: %w", err)
-		}
-
-		return nil
-	}, util.IsNotFoundOrConflict); err != nil {
-		return fmt.Errorf("updating recording status: %w", err)
-	}
-
-	if err := util.Retry(func() error {
-		if err := r.reader.Get(
-			ctx, util.NamespacedName(recording.GetName(), recording.GetNamespace()), recording,
-		); err != nil {
-			if errors.IsNotFound(err) {
-				return nil
-			}
-
-			return fmt.Errorf("retrieving recording: %w", err)
-		}
-
-		// The recording gets written as read, so the update fails with a
-		// conflict if another reconcile tracked a pod since the read, and the
-		// retry then sees that pod. Reading the recording again from the cache
-		// could return a version which lists that pod already, and removing
-		// the finalizer from it would succeed.
-		if len(recording.Status.ActiveWorkloads) > 0 ||
-			!controllerutil.RemoveFinalizer(recording, finalizer) {
-			return nil
-		}
-
-		return client.IgnoreNotFound(r.client.Update(ctx, recording))
-	}, util.IsNotFoundOrConflict); err != nil {
-		return fmt.Errorf("removing finalizer: %w", err)
-	}
-
-	return nil
-}
-
-func appendIfNotExists(list []string, item string) []string {
-	if slices.Contains(list, item) {
-		return list
-	}
-
-	return append(list, item)
-}
-
-func removeIfExists(list []string, item string) []string {
-	for i := range list {
-		if list[i] == item {
-			return append(list[:i], list[i+1:]...)
-		}
-	}
-
-	return list
+	return r.tracker().Untrack(ctx, recording, podName)
 }

@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
@@ -438,7 +439,7 @@ func Test_getConfiguredSPOdJsonEnricherVolumes(t *testing.T) {
 	}
 
 	r := newTestReconciler()
-	r.clientReader = fake.NewClientBuilder().WithObjects(operatorConfigMap).Build()
+	r.client = fake.NewClientBuilder().WithObjects(operatorConfigMap).Build()
 	// Like Setup, start from the effective SPOd, which already carries the log
 	// volume and its mount when the ConfigMap configures them.
 	r.baseSPOd = getEffectiveSPOd(&daemonTunables{
@@ -799,4 +800,67 @@ func Test_daemonSetRolledOut(t *testing.T) {
 			require.Equal(t, tc.want, daemonSetRolledOut(ds))
 		})
 	}
+}
+
+// DeepDerivative ignores fields which are unset in the configured container,
+// so cleared sub fields of the resources and security contexts, and a removed
+// readiness probe, have to be detected explicitly.
+func Test_spodNeedsUpdateClearedContainerSubFields(t *testing.T) {
+	t.Parallel()
+
+	newDS := func(set func(*v1.Container)) *appsv1.DaemonSet {
+		ds := &appsv1.DaemonSet{}
+		ctr := v1.Container{
+			Name: "daemon",
+			Resources: v1.ResourceRequirements{
+				Requests: v1.ResourceList{v1.ResourceMemory: resource.MustParse("64Mi")},
+			},
+			SecurityContext: &v1.SecurityContext{RunAsNonRoot: new(true)},
+		}
+
+		if set != nil {
+			set(&ctr)
+		}
+
+		ds.Spec.Template.Spec.Containers = []v1.Container{ctr}
+
+		return ds
+	}
+
+	for name, set := range map[string]func(*v1.Container){
+		"limits": func(c *v1.Container) {
+			c.Resources.Limits = v1.ResourceList{v1.ResourceMemory: resource.MustParse("128Mi")}
+		},
+		"security context field": func(c *v1.Container) {
+			c.SecurityContext.ReadOnlyRootFilesystem = new(true)
+		},
+		"readiness probe": func(c *v1.Container) {
+			c.ReadinessProbe = &v1.Probe{}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			require.True(t, spodNeedsUpdate(newDS(nil), newDS(set)), "clearing needs an update")
+			require.True(t, spodNeedsUpdate(newDS(set), newDS(nil)), "setting needs an update")
+			require.False(t, spodNeedsUpdate(newDS(set), newDS(set)))
+		})
+	}
+
+	// Equal quantities in another notation and a defaulted proc mount type
+	// need no update.
+	found := newDS(func(c *v1.Container) {
+		c.Resources.Requests[v1.ResourceMemory] = resource.MustParse("65536Ki")
+		c.SecurityContext.ProcMount = new(v1.DefaultProcMount)
+	})
+	require.False(t, spodNeedsUpdate(newDS(nil), found))
+}
+
+// The daemon reports ready once its caches are synced.
+func Test_baseSPOdReadinessProbe(t *testing.T) {
+	t.Parallel()
+
+	probe := bindata.Manifest.Spec.Template.Spec.Containers[bindata.ContainerIDDaemon].ReadinessProbe
+	require.NotNil(t, probe)
+	require.Equal(t, "/readyz", probe.HTTPGet.Path)
 }

@@ -23,6 +23,9 @@ spec:
     - jsonPath: .spec.image
       name: Image
       type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -111,9 +114,9 @@ spec:
                     DoesNotExist, In and NotIn require values, Exists and DoesNotExist
                     must not have values
                   rule: '!has(self.matchExpressions) || self.matchExpressions.all(e,
-                    e.operator in [''In'', ''NotIn''] ? (has(e.values) && size(e.values)
-                    > 0) : (e.operator in [''Exists'', ''DoesNotExist''] && (!has(e.values)
-                    || size(e.values) == 0)))'
+                    has(e.values) && size(e.values) > 0 ? (e.operator == ''In'' ||
+                    e.operator == ''NotIn'') : (e.operator == ''Exists'' || e.operator
+                    == ''DoesNotExist''))'
               profileRef:
                 description: |-
                   profileRef references the cluster-scoped SeccompProfile, SelinuxProfile

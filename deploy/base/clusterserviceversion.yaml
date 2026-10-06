@@ -51,6 +51,67 @@ spec:
       kind: SecurityProfilesOperatorDaemon
       name: securityprofilesoperatordaemons.security-profiles-operator.x-k8s.io
       version: v1
+      resources:
+      - kind: DaemonSet
+        name: spod
+        version: v1
+      - kind: Deployment
+        name: security-profiles-operator-webhook
+        version: v1
+      - kind: PodDisruptionBudget
+        name: security-profiles-operator-webhook
+        version: v1
+      - kind: Service
+        name: metrics
+        version: v1
+      - kind: Service
+        name: webhook-service
+        version: v1
+      specDescriptors:
+      - description: Enables the AppArmor support of the daemon.
+        displayName: Enable AppArmor
+        path: enableAppArmor
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:booleanSwitch
+      - description: Enables the SELinux support of the daemon.
+        displayName: Enable SELinux
+        path: selinux.enable
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:booleanSwitch
+      - description: Enables the log enricher, which enriches the audit logs with
+          the container metadata.
+        displayName: Enable Log Enricher
+        path: enricher.enableLogEnricher
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:booleanSwitch
+      - description: Enables the JSON enricher, which writes the audit logs as
+          JSON lines.
+        displayName: Enable JSON Enricher
+        path: enricher.enableJsonEnricher
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:booleanSwitch
+      - description: Enables the BPF recorder for recording seccomp and AppArmor
+          profiles.
+        displayName: Enable BPF Recorder
+        path: enricher.enableBpfRecorder
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:booleanSwitch
+      - description: The logging verbosity of the daemon.
+        displayName: Verbosity
+        path: verbosity
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:number
+      statusDescriptors:
+      - description: The state of the daemon.
+        displayName: State
+        path: state
+        x-descriptors:
+        - urn:alm:descriptor:io.kubernetes.phase
+      - description: The conditions of the daemon.
+        displayName: Conditions
+        path: conditions
+        x-descriptors:
+        - urn:alm:descriptor:io.kubernetes.conditions
     - description: RawSelinuxProfile is the Schema for the raw selinuxprofiles API.
       displayName: Raw Selinux Profile
       kind: RawSelinuxProfile
@@ -91,7 +152,7 @@ spec:
   maintainers:
   - email: dev@kubernetes.io
     name: Kubernetes upstream
-  maturity: beta
+  maturity: stable
   minKubeVersion: 1.30.0
   provider:
     name: Kubernetes SIGs
