@@ -21,7 +21,6 @@ import (
 	"maps"
 	"path/filepath"
 	"slices"
-	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -124,22 +123,14 @@ type Allow map[LabelKey]ObjectClassPermissions
 //nolint:lll,kubeapilinter // CEL rules cannot be wrapped, the map is the released v1 API shape
 type ObjectClassPermissions map[ObjectClassKey]PermissionSet
 
+// SortLabelKeys returns the labels of the allow rules in sorted order.
 func SortLabelKeys(allow Allow) []LabelKey {
-	keys := slices.Collect(maps.Keys(allow))
-	slices.SortStableFunc(keys, func(a, b LabelKey) int {
-		return strings.Compare(a.String(), b.String())
-	})
-
-	return keys
+	return slices.Sorted(maps.Keys(allow))
 }
 
-func SortObjectClassKeys(ock map[ObjectClassKey]PermissionSet) []ObjectClassKey {
-	keys := slices.Collect(maps.Keys(ock))
-	slices.SortStableFunc(keys, func(a, b ObjectClassKey) int {
-		return strings.Compare(a.String(), b.String())
-	})
-
-	return keys
+// SortObjectClassKeys returns the object classes in sorted order.
+func SortObjectClassKeys(ock ObjectClassPermissions) []ObjectClassKey {
+	return slices.Sorted(maps.Keys(ock))
 }
 
 // SelinuxProfileStatus defines the observed state of SelinuxProfile.
