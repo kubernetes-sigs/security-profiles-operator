@@ -72,8 +72,8 @@ $ kubectl -n security-profiles-operator get ds
 No resources found in security-profiles-operator namespace.
 
 $ kubectl get securityprofilesoperatordaemons -A
-NAMESPACE                    NAME   STATE
-security-profiles-operator   spod
+NAMESPACE                    NAME   STATE   READY   AGE
+security-profiles-operator   spod                   5m
 ```
 
 The manager log names the resource, repeating every few seconds:
@@ -111,13 +111,13 @@ endpoint, where every container is using a different port:
 
 ```
 > kubectl -n security-profiles-operator logs --selector name=spod -c security-profiles-operator | grep "Starting profiling"
-I1202 15:14:40.276363 2185724 main.go:226]  "msg"="Starting profiling server"  "endpoint"="0.0.0.0:6060"
+I1202 15:14:40.276363       1 main.go:557] "Starting profiling server" endpoint="0.0.0.0:6060"
 
 > kubectl -n security-profiles-operator logs --selector name=spod -c log-enricher | grep "Starting profiling"
-I1202 15:14:40.364046 2185814 main.go:226]  "msg"="Starting profiling server"  "endpoint"="0.0.0.0:6061"
+I1202 15:14:40.364046       1 main.go:557] "Starting profiling server" endpoint="0.0.0.0:6061"
 
 > kubectl -n security-profiles-operator logs --selector name=spod -c bpf-recorder | grep "Starting profiling"
-I1202 15:14:40.457506 2185914 main.go:226]  "msg"="Starting profiling server"  "endpoint"="0.0.0.0:6062"
+I1202 15:14:40.457506       1 main.go:557] "Starting profiling server" endpoint="0.0.0.0:6062"
 ```
 
 Then use the pprof tool to look at the heap profile:
@@ -321,23 +321,38 @@ kubectl delete apparmorprofiles --all
 
 Profiles that are still used by running pods are only removed once those pods
 are gone. Then remove the operator with the manifest it was installed from,
-where `VERSION` is the installed release version, for example `1.1.0`:
+where `VERSION` is the installed release version without the `v` prefix:
 
 ```sh
 kubectl delete -f "https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/v${VERSION}/deploy/operator.yaml"
 ```
 
-For Helm and OLM installations, use `helm uninstall` or remove the
-`Subscription` and `ClusterServiceVersion` instead. Neither removes the CRDs,
-which can be deleted afterwards if no profiles should be kept:
+For Helm installations, run `helm uninstall` instead and delete the namespace
+which was created before the installation:
+
+```sh
+helm uninstall --namespace security-profiles-operator security-profiles-operator
+kubectl delete namespace security-profiles-operator
+```
+
+For OLM installations, remove the `Subscription` and `ClusterServiceVersion`
+instead. Neither Helm nor OLM removes the CRDs, which can be deleted afterwards
+if no profiles should be kept:
 
 ```sh
 kubectl get crds -o name | grep security-profiles-operator.x-k8s.io | xargs kubectl delete
 ```
 
-The admission policies which the operator creates at runtime are not part of
-any manifest, so remove them as well:
+The operator creates some cluster scoped admission resources at runtime, which
+are not part of every manifest. Remove them once the operator is gone, because
+a running operator recreates them:
 
 ```sh
 kubectl delete validatingadmissionpolicies,validatingadmissionpolicybindings -l app=security-profiles-operator
+kubectl delete mutatingwebhookconfiguration spo-mutating-webhook-configuration --ignore-not-found
+kubectl delete validatingwebhookconfiguration spo-validating-webhook-configuration --ignore-not-found
 ```
+
+Without the operator, a remaining webhook configuration makes the API server
+reject or delay the requests which it matches, for example the pods in
+namespaces labeled for binding or recording.

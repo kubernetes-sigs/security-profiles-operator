@@ -120,10 +120,8 @@ spec:
 
 	e.logf("Creating profile with a runtime format base profile")
 
-	profileFile, err := os.CreateTemp("", "profile-*.yaml")
+	profileFile, err := os.CreateTemp(e.T().TempDir(), "profile-*.yaml")
 	e.Require().NoError(err)
-
-	defer os.Remove(profileFile.Name())
 
 	_, err = profileFile.WriteString(profileYAML)
 	e.Require().NoError(err)
@@ -170,10 +168,8 @@ spec:
 
 	e.logf("Creating pod")
 
-	podFile, err := os.CreateTemp("", "pod-*.yaml")
+	podFile, err := os.CreateTemp(e.T().TempDir(), "pod-*.yaml")
 	e.Require().NoError(err)
-
-	defer os.Remove(podFile.Name())
 
 	_, err = podFile.WriteString(podYAML)
 	e.Require().NoError(err)

@@ -23,8 +23,8 @@ The Security Profiles Operator (SPO) provides:
 
 ## Guides
 
-- [Installation and Configuration](installation.md): installing, upgrading and
-  configuring the operator
+- [Installation and Configuration](installation.md): installing,
+  [upgrading](installation.md#upgrading) and configuring the operator
 - [Security Profiles](profiles.md): creating, recording and using seccomp,
   AppArmor and SELinux profiles
 - [Command Line Interface (CLI)](cli.md): using `spoc` for standalone profile
@@ -51,10 +51,31 @@ The Security Profiles Operator (SPO) provides:
 - [Development](hacking.md)
 - [Release Process](release.md)
 - [Base Profiles Release Process](release-baseprofiles.md)
+- [Container Images](verification.md#container-image): the released images
+  below `registry.k8s.io/security-profiles-operator`, see also the
+  [staging images](verification.md#staging-images)
+- [Testgrid Dashboard](https://testgrid.k8s.io/sig-node-security-profiles-operator)
 
 ## Architecture
 
 ![Architecture](architecture.svg)
+
+The operator consists of three components, which run in the operator namespace:
+
+- The **manager** (Deployment `security-profiles-operator`) watches the SPOD
+  configuration and creates the daemon and the webhook from it. It also merges
+  recorded profiles, aggregates the per node state of each profile into its
+  status, and deletes the seccomp profiles which the SPOD allow lists reject.
+- The **daemon** (DaemonSet `spod`) runs on every node. It installs the
+  seccomp, AppArmor and SELinux profiles on the node, the latter through
+  `selinuxd`, and reports their state as `SecurityProfileNodeStatus`. Its
+  optional containers record profiles (`bpf-recorder`, `log-enricher`) and
+  audit in-pod activity (`json-enricher`).
+- The **webhook** (Deployment `security-profiles-operator-webhook`) admits
+  pods: it applies the profiles of `ProfileBinding` objects, marks the pods of
+  a `ProfileRecording` for recording, and adds the metadata which the JSON
+  enricher needs for `kubectl exec` and node debugging sessions. It also
+  validates `RawSelinuxProfile` objects.
 
 ## Tutorials and Demos
 

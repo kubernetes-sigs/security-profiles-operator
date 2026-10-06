@@ -79,11 +79,11 @@ sed_i \
     -e 's;# \(newName: .*\);\1;g' \
     -e 's;# \(newTag: .*\);\1;g' \
     -e 's;\(newName: registry.k8s.io/.*\);# \1;g' \
-    -e 's;\(newTag: \)v'"$VERSION"';# \1'"v$NEXT_VERSION"';g' \
+    -e 's;\(newTag: \)v'"$VERSION_RE"';# \1'"v$NEXT_VERSION"';g' \
     deploy/kustomize-deployment/kustomization.yaml
 
 sed_i \
-    -e 's;registry.k8s.io/security-profiles-operator/security-profiles-operator-catalog:v'"$VERSION"';us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator-catalog:latest;g' \
+    -e 's;registry.k8s.io/security-profiles-operator/security-profiles-operator-catalog:v'"$VERSION_RE"';us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator-catalog:latest;g' \
     -e 's;registry.k8s.io;us-central1-docker.pkg.dev/k8s-staging-images/sp-operator;g' \
     hack/ci/e2e-olm.sh
 
@@ -96,14 +96,14 @@ sed_i 's;registry.k8s.io/security-profiles-operator.*;us-central1-docker.pkg.dev
 # Revert webhook overlay to staging
 sed_i \
     -e 's;newName: registry.k8s.io/security-profiles-operator/security-profiles-operator;newName: us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator;g' \
-    -e 's;newTag: v'"$VERSION"';newTag: latest;g' \
+    -e 's;newTag: v'"$VERSION_RE"';newTag: latest;g' \
     deploy/overlays/webhook/kustomization.yaml
 
 # Revert Helm chart values to staging
 sed_i \
     -e 's;registry: registry.k8s.io;registry: us-central1-docker.pkg.dev;g' \
     -e 's;repository: security-profiles-operator/security-profiles-operator;repository: k8s-staging-images/sp-operator/security-profiles-operator;g' \
-    -e 's;tag: v'"$VERSION"';tag: latest;g' \
+    -e 's;tag: v'"$VERSION_RE"';tag: latest;g' \
     -e 's;pullPolicy: IfNotPresent;pullPolicy: Always;g' \
     deploy/helm/values.yaml
 

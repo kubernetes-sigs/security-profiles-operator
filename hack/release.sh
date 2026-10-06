@@ -109,10 +109,15 @@ if [ "$PREVIOUS_BADGE" != "$PREVIOUS_VERSION" ]; then
     sed_i "s;$PREVIOUS_BADGE_RE;$VERSION_BADGE;g" deploy/helm/README.md
 fi
 
-# Update operatorhub replacement
+# Update operatorhub replacement. jq -e fails on a missing name instead of
+# printing null, and the check keeps an unexpected value out of the CSV.
 FILE=deploy/base/clusterserviceversion.yaml
 OPERATOR_VERSION=$(curl -sSfL --retry 5 --retry-delay 3 "https://operatorhub.io/api/operator?packageName=security-profiles-operator" |
-    jq -r .operator.name)
+    jq -er .operator.name)
+if [[ ! "$OPERATOR_VERSION" =~ ^security-profiles-operator\.v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "Unexpected operator name '$OPERATOR_VERSION' from operatorhub.io" >&2
+    exit 1
+fi
 sed_i 's;replaces:.*;replaces: '"$OPERATOR_VERSION"';g' $FILE
 sed_i 's;containerImage:.*;containerImage: registry.k8s.io/security-profiles-operator/security-profiles-operator:v'"$VERSION"';g' $FILE
 

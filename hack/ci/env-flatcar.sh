@@ -21,6 +21,3 @@ export GOBIN="$GOPATH/bin"
 
 # Add the binaries to the path
 export PATH="/opt/bin:$PATH"
-
-# Added for faster debugging with lower verbosity
-alias k=kubectl

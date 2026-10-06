@@ -35,7 +35,7 @@ source "$HACK_DIR/lib/common.sh"
 
 BUILD_DIR="${BUILD_DIR:-build}"
 SPOC="${SPOC:-$BUILD_DIR/spoc}"
-REGISTRY="${REGISTRY:-us-central1-docker.pkg.dev/k8s-staging-images/sp-operator}"
+REGISTRY="${REGISTRY:-$STAGING_REGISTRY}"
 # Keyless signing needs an OIDC identity, the staging Cloud Build job gets one
 # for its service account from the metadata server. Set this to false to
 # publish unsigned.

@@ -211,7 +211,7 @@ spec:
           periodSeconds: 5
 `
 
-	testFile, err := os.CreateTemp("", "recording-deployment*.yaml")
+	testFile, err := os.CreateTemp(e.T().TempDir(), "recording-deployment*.yaml")
 	e.Require().NoError(err)
 	_, err = testFile.WriteString(testDeployment)
 	e.Require().NoError(err)
@@ -245,7 +245,6 @@ spec:
 	e.Contains(profile1, "listen")
 
 	e.kubectl("delete", "-f", exampleRecordingBpfPath)
-	e.Require().NoError(os.Remove(testFile.Name()))
 	e.kubectl("delete", "sp", profileName0, profileName1)
 }
 
@@ -306,7 +305,7 @@ spec:
   restartPolicy: Never
 `, podName, i, image)
 
-		testPodFile, err := os.CreateTemp("", "recording-pod*.yaml")
+		testPodFile, err := os.CreateTemp(e.T().TempDir(), "recording-pod*.yaml")
 		e.Require().NoError(err)
 		_, err = testPodFile.WriteString(testPod)
 		e.Require().NoError(err)
@@ -318,7 +317,6 @@ spec:
 		e.logf("Waiting for test pod to be initialized")
 		e.retryGet("pod", podName)
 		e.waitFor("condition=ready", "pod", podName)
-		e.NoError(os.Remove(testPodFile.Name()))
 	}
 
 	return since, podNames

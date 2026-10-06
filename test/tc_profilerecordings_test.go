@@ -29,7 +29,6 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
-	spoutil "sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 const (
@@ -469,7 +468,7 @@ func (e *e2e) testCaseRecordingFinalizers() {
 	// test races.
 	e.logf("Testing that profile binding has pod reference")
 
-	if err := spoutil.Retry(func() error {
+	e.eventually(statusUpdateTimeout, time.Second, func() error {
 		output := e.kubectl(
 			"get",
 			"profilerecording",
@@ -477,20 +476,16 @@ func (e *e2e) testCaseRecordingFinalizers() {
 			"--output",
 			"jsonpath={.status.activeWorkloads[0]}",
 		)
-		fmt.Println(output)
+		e.logf("Active workloads of the recording: %s", output)
 
 		if output != podName {
 			return fmt.Errorf("pod name %s not found in status", podName)
 		}
 
 		return nil
-	}, func(err error) bool {
-		return true
-	}); err != nil {
-		e.Fail("failed to find pod name in status")
-	}
+	})
 
-	if err := spoutil.Retry(func() error {
+	e.eventually(statusUpdateTimeout, time.Second, func() error {
 		output := e.kubectl(
 			"get",
 			"profilerecording",
@@ -503,11 +498,7 @@ func (e *e2e) testCaseRecordingFinalizers() {
 		}
 
 		return nil
-	}, func(err error) bool {
-		return true
-	}); err != nil {
-		e.Fail("failed to find finalizer on recording")
-	}
+	})
 
 	// Delete the pod and check that the resource is removed
 	e.kubectl("delete", "pod", podName)
@@ -568,7 +559,7 @@ func (e *e2e) profileRecordingSelinuxDeployment(recording string, logLine ...str
 
 	e.kubectl("delete", "deploy", deployName)
 
-	fmt.Println(e.kubectl("get", "sp"))
+	e.logf("Seccomp profiles:\n%s", e.kubectl("get", "sp"))
 
 	for _, sfx := range suffixes {
 		recordedProfileName := selinuxRecordingName + "-nginx-" + sfx
@@ -624,7 +615,7 @@ func (e *e2e) createRecordingTestDeploymentFromManifest(
 
 	e.setupRecordingSa(e.getCurrentContextNamespace(defaultNamespace))
 
-	testFile, err := os.CreateTemp("", "recording-deployment*.yaml")
+	testFile, err := os.CreateTemp(e.T().TempDir(), "recording-deployment*.yaml")
 	e.Require().NoError(err)
 	_, err = testFile.WriteString(manifest)
 	e.Require().NoError(err)
@@ -637,7 +628,6 @@ func (e *e2e) createRecordingTestDeploymentFromManifest(
 
 	e.retryGet("deploy", deployName)
 	e.waitFor("condition=available", "deploy", deployName)
-	e.NoError(os.Remove(testFile.Name()))
 
 	return since, deployName
 }
@@ -691,7 +681,7 @@ spec:
   restartPolicy: Never
 `
 
-	testPodFile, err := os.CreateTemp("", "recording-pod*.yaml")
+	testPodFile, err := os.CreateTemp(e.T().TempDir(), "recording-pod*.yaml")
 	e.Require().NoError(err)
 	_, err = testPodFile.WriteString(testPod)
 	e.Require().NoError(err)
@@ -705,7 +695,6 @@ spec:
 	e.logf("Waiting for test pod to be initialized")
 	e.retryGet("pod", podName)
 	e.waitFor("condition=ready", "pod", podName)
-	e.NoError(os.Remove(testPodFile.Name()))
 
 	return since, podName
 }
@@ -744,7 +733,7 @@ spec:
   restartPolicy: Never
 `
 
-	testPodFile, err := os.CreateTemp("", "recording-pod*.yaml")
+	testPodFile, err := os.CreateTemp(e.T().TempDir(), "recording-pod*.yaml")
 	e.Require().NoError(err)
 	_, err = testPodFile.WriteString(testPod)
 	e.Require().NoError(err)
@@ -758,7 +747,6 @@ spec:
 	e.logf("Waiting for test pod to be initialized")
 	e.retryGet("pod", podName)
 	e.waitFor("condition=ready", "pod", podName)
-	e.NoError(os.Remove(testPodFile.Name()))
 
 	return since, podName
 }

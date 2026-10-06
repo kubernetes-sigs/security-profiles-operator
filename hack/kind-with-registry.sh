@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set -o errexit
+set -euo pipefail
 
 # desired cluster name; default is "kind"
 KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME:-kind}"
@@ -31,15 +31,13 @@ fi
 
 kind version
 
-KIND_CMD=
-if [[ -z "${KIND_IMG_TAG}" ]]; then
-  KIND_CMD="kind create cluster ${IMG} --name ${KIND_CLUSTER_NAME} --wait=5m --config=-"
-else
-  KIND_CMD="kind create cluster --image kindest/node:${KIND_IMG_TAG} --name ${KIND_CLUSTER_NAME} --wait=5m --config=-"
+KIND_ARGS=(create cluster --name "${KIND_CLUSTER_NAME}" --wait=5m --config=-)
+if [[ -n "${KIND_IMG_TAG}" ]]; then
+  KIND_ARGS+=(--image "kindest/node:${KIND_IMG_TAG}")
 fi
 
 # create a cluster with the local registry enabled in containerd
-cat <<EOF | ${KIND_CMD}
+cat <<EOF | kind "${KIND_ARGS[@]}"
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 containerdConfigPatches:

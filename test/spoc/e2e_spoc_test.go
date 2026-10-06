@@ -606,7 +606,7 @@ func runWithProfile(
 	_, err = f.Write(contents)
 	require.NoError(t, err)
 
-	fmt.Println(string(contents))
+	t.Log(string(contents))
 
 	// Install profile
 	_, err = runSpoc(t, "install", f.Name(), demobinary)

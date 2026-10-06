@@ -30,7 +30,6 @@ Vagrant.configure("2") do |config|
   end
   config.ssh.connect_timeout = 30
   config.ssh.username = 'core'
-  config.ssh.forward_agent = true
   config.ssh.insert_key = true
   config.ssh.keep_alive = true
 
@@ -100,8 +99,9 @@ Vagrant.configure("2") do |config|
       RELEASE_VERSION=v0.21.1
       KUBELET_SERVICE_SHA256=ccc966cee3d366b3e9ca0fe3f603b09218a0d5ed01e54f9cae953208f411141f
       KUBEADM_CONF_SHA256=46458e5b4adf851099e591acb3248931fc5f4073976fedb11c49d6bfad5c41a8
-      JQ_VERSION=1.8.2
-      JQ_SHA256=b1c22172dd303f3be49e935aa56aa48a8b7a46e0bc838b4997d3bb451495870f
+      # The jq release of hack/lib/common.sh.
+      JQ_VERSION=$(bash -c '. /vagrant/hack/lib/common.sh && echo "$JQ_VERSION"')
+      JQ_SHA256=$(bash -c '. /vagrant/hack/lib/common.sh && echo "$JQ_SHA256"')
       FLATCAR_VERSION=3510.2.3
       DEVELOPER_CONTAINER_SHA512=7ed413a8b95a261c942c385fbb16254c8f1555f0d3c696583d7aa1aa31f0741132808aba0cdcf77577cb112b265654fa313e7602b7ad4ec3d5980ebd0afef080
       DOWNLOAD_DIR=/opt/bin

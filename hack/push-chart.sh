@@ -31,7 +31,7 @@ source "$HACK_DIR/lib/common.sh"
 
 BUILD_DIR="${BUILD_DIR:-build}"
 CHART_DIR="${CHART_DIR:-deploy/helm}"
-REGISTRY="${REGISTRY:-us-central1-docker.pkg.dev/k8s-staging-images/sp-operator}"
+REGISTRY="${REGISTRY:-$STAGING_REGISTRY}"
 HELM_VERSION=v3.22.0
 HELM_SHA256=1e4ab49e429626cf6c6958d914248b78c9730803c2751b87627e171dc800e7bb
 HELM="${HELM:-}"

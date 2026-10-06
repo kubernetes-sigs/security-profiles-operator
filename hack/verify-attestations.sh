@@ -116,19 +116,6 @@ if [[ -n "${BUILD_ID:-}" ]]; then
   registry_login "${STAGING_REGISTRY%%/*}"
 fi
 
-# Runs a check and prints its result, with what is missing when it fails.
-check() {
-  local what="$1" out
-  shift
-
-  if out="$("$@" 2>&1)"; then
-    echo "ok: $what"
-  else
-    echo "FAILED: $what${out:+ ($(tr '\n' ';' <<<"$out" | sed 's/;$//; s/;/; /g'))}"
-    return 1
-  fi
-}
-
 # Prints the statements of the predicate type about the digest by the build
 # identity, see attestations, and fails with the message on stderr when there
 # are none.

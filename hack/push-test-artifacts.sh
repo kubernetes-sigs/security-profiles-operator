@@ -28,7 +28,7 @@ source "$HACK_DIR/lib/common.sh"
 
 BUILD_DIR="${BUILD_DIR:-build}"
 SPOC="${SPOC:-$BUILD_DIR/spoc}"
-REGISTRY="${REGISTRY:-us-central1-docker.pkg.dev/k8s-staging-images/sp-operator}"
+REGISTRY="${REGISTRY:-$STAGING_REGISTRY}"
 REPOSITORY="${REPOSITORY:-seccomp-test-profiles}"
 EXAMPLES="${EXAMPLES:-examples/test-profiles}"
 

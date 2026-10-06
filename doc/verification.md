@@ -1,5 +1,26 @@
 # Verifying the released artifacts
 
+<!-- toc -->
+- [What a release provides](#what-a-release-provides)
+- [Where the signatures and attestations are](#where-the-signatures-and-attestations-are)
+- [SLSA build levels](#slsa-build-levels)
+- [Container image](#container-image)
+- [GitHub provenance of the container images](#github-provenance-of-the-container-images)
+- [Verification summaries](#verification-summaries)
+  - [What a summary says](#what-a-summary-says)
+  - [Verify a summary](#verify-a-summary)
+  - [Levels](#levels)
+  - [Missing and failed summaries](#missing-and-failed-summaries)
+- [Enforcing the verification in a cluster](#enforcing-the-verification-in-a-cluster)
+- [Command line binaries](#command-line-binaries)
+- [Software bill of materials](#software-bill-of-materials)
+- [Helm chart](#helm-chart)
+- [OCI artifacts on <code>registry.k8s.io</code>](#oci-artifacts-on-registryk8sio)
+- [Security profiles](#security-profiles)
+- [Staging images](#staging-images)
+- [Older releases](#older-releases)
+<!-- /toc -->
+
 Every artifact of a release is signed with [Sigstore][sigstore] keyless
 signing and carries [SLSA][slsa] build provenance. This page collects the
 verification commands for all of them, so a release only has to link here.

@@ -1,5 +1,18 @@
 # Migration Guide: API Graduation to v1
 
+<!-- toc -->
+- [API version changes](#api-version-changes)
+- [Enum value changes](#enum-value-changes)
+- [Removal of the old API versions](#removal-of-the-old-api-versions)
+- [Upgrade path](#upgrade-path)
+- [Recommended actions](#recommended-actions)
+- [Go API consumers](#go-api-consumers)
+  - [Import paths](#import-paths)
+  - [Struct compatibility](#struct-compatibility)
+  - [Enum constants](#enum-constants)
+  - [Registering the v1 scheme](#registering-the-v1-scheme)
+<!-- /toc -->
+
 Security Profiles Operator (SPO) 1.0.0 graduates all CRD APIs from alpha/beta to v1. SPO 1.1.0 removed the old API versions. This document covers what changed, how to upgrade, and what you should update. For general installation and usage instructions, see the [documentation](README.md).
 
 ## API version changes

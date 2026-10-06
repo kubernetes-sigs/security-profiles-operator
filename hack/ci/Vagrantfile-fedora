@@ -34,7 +34,8 @@ Vagrant.configure("2") do |config|
       echo "nameserver 8.8.8.8" > /etc/resolv.conf
 
       # Install Go
-      # The checksum comes from the Go download server, like in Dockerfile.ubi.
+      # The checksum comes from the Go download server, this test VM does not
+      # pin it like Dockerfile.ubi does.
       GO_VERSION=go$(bash /vagrant/hack/go-version.sh /vagrant/go.mod)
       curl -sSfL --retry 5 --retry-delay 3 -o /tmp/go.tar.gz https://go.dev/dl/$GO_VERSION.linux-amd64.tar.gz
       echo "$(curl -sSfL --retry 5 --retry-delay 3 https://dl.google.com/go/$GO_VERSION.linux-amd64.tar.gz.sha256)  /tmp/go.tar.gz" | sha256sum -c -
@@ -81,7 +82,17 @@ EOF
 
       # conmon installs to /usr/libexec/crio/conmon
       # https://github.com/containers/conmon/issues/517
+      # dnf download does not verify the signature, so the package gets checked
+      # against the key of the repository before rpm installs it. rpm -K passes
+      # unsigned packages too, hence the check of its output.
       dnf download --repo cri-o --arch x86_64 cri-o
+      curl -sSfL --retry 5 --retry-delay 3 -o /tmp/cri-o.key \
+        https://download.opensuse.org/repositories/isv:/cri-o:/prerelease:/main/rpm/repodata/repomd.xml.key
+      rpm --import /tmp/cri-o.key
+      rm -f /tmp/cri-o.key
+      CRIO_SIGNATURE=$(rpm -K cri-o-*.rpm)
+      echo "$CRIO_SIGNATURE"
+      [[ "$CRIO_SIGNATURE" == *"signatures OK" ]]
       rpm -i --nodeps --force cri-o-*.rpm
 
       # Load the prebuilt container image

@@ -91,10 +91,8 @@ spec:
 
 	e.logf("Creating hello profile")
 
-	helloProfileFile, err := os.CreateTemp("", "hello-profile*.yaml")
+	helloProfileFile, err := os.CreateTemp(e.T().TempDir(), "hello-profile*.yaml")
 	e.Require().NoError(err)
-
-	defer os.Remove(helloProfileFile.Name())
 
 	_, err = helloProfileFile.WriteString(helloProfile)
 	e.Require().NoError(err)
@@ -109,10 +107,8 @@ spec:
 
 	e.logf("Creating hello-world pod")
 
-	helloPodFile, err := os.CreateTemp("", "hello-pod*.yaml")
+	helloPodFile, err := os.CreateTemp(e.T().TempDir(), "hello-pod*.yaml")
 	e.Require().NoError(err)
-
-	defer os.Remove(helloPodFile.Name())
 
 	_, err = helloPodFile.WriteString(helloPod)
 	e.Require().NoError(err)

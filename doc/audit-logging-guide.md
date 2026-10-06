@@ -14,8 +14,8 @@ The use case involves two personas:
 
 To follow this guide, you'll need a Kubernetes cluster and a few command-line tools. We're using a single-node cluster ([hack/local-up-cluster.sh](https://github.com/kubernetes/kubernetes/blob/801ee44/hack/local-up-cluster.sh)) for demonstration. The process works on any Kubernetes cluster.
 
-- **Kubernetes Cluster**: The commands in this guide have been tested on Kubernetes v1.34.
-- **kubectl**: The command-line tool for interacting with your cluster. We use the feature [kubectl debug: add label for debugger pod](https://github.com/kubernetes/kubernetes/pull/131791) for easy cleanup of debug pods, so Kubernetes v1.34 version and above of the client is recommended.
+- **Kubernetes Cluster**: A cluster which meets the [requirements](installation.md#requirements) of the operator.
+- **kubectl**: The command-line tool for interacting with your cluster. We use the label which `kubectl debug` adds to the debugger pods ([kubectl debug: add label for debugger pod](https://github.com/kubernetes/kubernetes/pull/131791)) for easy cleanup of debug pods, so use a client release which includes that change.
 
 ## Step 1: Install the Security-Profiles-Operator
 
@@ -23,29 +23,15 @@ Install the SPO by following the detailed installation instructions at [Install 
 
 ## Step 2: Configure SPO to Store Logs Locally
 
-To configure SPO to store logs on the host, create a JSON patch file.
-
-Create a file named `patch-volume-source.json` with the following content:
-
-```json
-{
-  "data": {
-    "json-enricher-log-volume-mount-path": "/tmp/logs",
-    "json-enricher-log-volume-source.json": "{\"hostPath\": {\"path\": \"/tmp/logs\",\"type\": \"DirectoryOrCreate\"}}"
-  }
-}
-```
-
-Apply the patch and restart the operator to activate the changes:
-
-```bash
-kubectl patch configmap security-profiles-operator-profile -n security-profiles-operator --patch-file patch-volume-source.json
-kubectl rollout restart deployment security-profiles-operator -n security-profiles-operator
-```
+Mount the host directory `/tmp/logs` into the JSON enricher by following steps 1 and 2 of
+[Audit Log File Destination](profiles.md#audit-log-file-destination), which configure the volume and restart the operator.
 
 ## Step 3: Enable JSON Logging and Filters
 
-Patch the SPOD daemon set to enable the JSON Enricher and filter logs for user activity.
+Patch the SPOD to enable the JSON enricher, write the audit log to `/tmp/logs/audit1.log` and filter the logs for
+user activity. The rotation options are described in
+[Audit Log File Fine-Tuning (Rotation)](profiles.md#audit-log-file-fine-tuning-rotation) and the filters in
+[Filtering Logs](profiles.md#filtering-logs).
 
 ```bash
 kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"verbosity":0,"enricher":{"enableJsonEnricher":true,"jsonEnricherOptions":{"auditLogIntervalSeconds":20,"auditLogPath":"/tmp/logs/audit1.log","auditLogMaxSize":500,"auditLogMaxBackups":2,"auditLogMaxAge":10}, "jsonEnricherFilters":"[{\"priority\":100,\"level\":\"Metadata\",\"matchKeys\":[\"requestUID\"]},{\"priority\":999, \"level\":\"None\",\"matchKeys\":[\"version\"],\"matchValues\":[\"spo/v1_alpha\"]}]"}}}'
@@ -125,12 +111,12 @@ Check the logs on the host node at the `/tmp/logs/audit1.log` path. You should s
 
 ## Step 7: Auditing Node Debugging Sessions
 
-To audit kubectl debug sessions, run the following command. The activity will be logged to the same file.
+To audit kubectl debug sessions, run the following command, where `my-node` is the name of your node. The activity will be logged to the same file.
 
 ```bash
-kubectl debug node/127.0.0.1 -it --image=ubuntu -- bash
-root@ngopalak-ubuntu:/# touch demonodedebug
-root@ngopalak-ubuntu:/# exit
+kubectl debug node/my-node -it --image=ubuntu -- bash
+root@my-node:/# touch demonodedebug
+root@my-node:/# exit
 ```
 
 ## Step 8: Correlate with Kubernetes Audit Logs
