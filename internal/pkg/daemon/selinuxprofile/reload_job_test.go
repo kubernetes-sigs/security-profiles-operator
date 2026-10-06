@@ -77,10 +77,13 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 		namespace       string
 		policyName      string
 		existingObjs    []runtime.Object
+		kind            *reloadKind
 		podOnlyInReader bool
 		wantErr         bool
 		wantJobCreated  bool
 		wantState       reloadJobState
+		wantJobDeleted  string
+		wantJobKept     string
 	}{
 		{
 			name:           "creates job successfully",
@@ -112,10 +115,55 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 					testNodeName, "test-policy", testAction, 1, 0,
 				), testGeneration),
 			},
-			wantState: reloadJobExists,
+			wantState: reloadJobDone,
 		},
 		{
-			name:       "treats a running job for the generation as done",
+			name:       "treats a job for the generation with the complete condition as done",
+			nodeName:   testNodeName,
+			namespace:  testNamespace,
+			policyName: "test-policy",
+			existingObjs: []runtime.Object{
+				withCondition(withGeneration(createTestJob(
+					testNamespace, "complete-job",
+					testNodeName, "test-policy", testAction, 0, 0,
+				), testGeneration), batchv1.JobComplete),
+			},
+			wantState: reloadJobDone,
+		},
+		{
+			// A failed job would otherwise keep the reload of the generation
+			// from ever being retried.
+			name:       "deletes a failed job for the generation",
+			nodeName:   testNodeName,
+			namespace:  testNamespace,
+			policyName: "test-policy",
+			existingObjs: []runtime.Object{
+				withCondition(withGeneration(createTestJob(
+					testNamespace, "failed-generation-job",
+					testNodeName, "test-policy", testAction, 0, 4,
+				), testGeneration), batchv1.JobFailed),
+			},
+			wantState:      reloadJobFailed,
+			wantJobDeleted: "failed-generation-job",
+		},
+		{
+			// A removal does not wait for its job, see removeReload.
+			name:       "keeps a failed job for the generation of a removal",
+			nodeName:   testNodeName,
+			namespace:  testNamespace,
+			policyName: "test-policy",
+			kind:       &removeReload,
+			existingObjs: []runtime.Object{
+				withCondition(withGeneration(createTestJob(
+					testNamespace, "failed-removal-job",
+					testNodeName, "test-policy", removeReload.action, 0, 4,
+				), testGeneration), batchv1.JobFailed),
+			},
+			wantState:   reloadJobDone,
+			wantJobKept: "failed-removal-job",
+		},
+		{
+			name:       "reports a running job for the generation",
 			nodeName:   testNodeName,
 			namespace:  testNamespace,
 			policyName: "test-policy",
@@ -125,7 +173,7 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 					testNodeName, "test-policy", testAction, 0, 0,
 				), testGeneration),
 			},
-			wantState: reloadJobExists,
+			wantState: reloadJobRunning,
 		},
 		{
 			// A profile which got deleted and recreated within the TTL of
@@ -222,18 +270,10 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 			namespace:  testNamespace,
 			policyName: "test-policy",
 			existingObjs: []runtime.Object{
-				func() runtime.Object {
-					job := createTestJob(
-						testNamespace, "failed-job",
-						testNodeName, "test-policy", testAction, 0, 4,
-					)
-					job.Status.Conditions = []batchv1.JobCondition{{
-						Type:   batchv1.JobFailed,
-						Status: corev1.ConditionTrue,
-					}}
-
-					return job
-				}(),
+				withCondition(createTestJob(
+					testNamespace, "failed-job",
+					testNodeName, "test-policy", testAction, 0, 4,
+				), batchv1.JobFailed),
 			},
 			wantErr:        false,
 			wantJobCreated: true,
@@ -294,9 +334,14 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 				podName:      testPodName,
 			}
 
+			kind := installReload
+			if tt.kind != nil {
+				kind = *tt.kind
+			}
+
 			logger := logf.Log.WithName("test")
 			state, err := r.createPolicyReloadJob(
-				context.Background(), tt.policyName, testAction, testUID, testGeneration, logger,
+				context.Background(), tt.policyName, kind, testUID, testGeneration, logger,
 			)
 
 			if tt.wantErr {
@@ -316,6 +361,17 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 			jobs := &batchv1.JobList{}
 			err = fakeClient.List(context.Background(), jobs)
 			require.NoError(t, err)
+
+			names := make([]string, 0, len(jobs.Items))
+			for _, job := range jobs.Items {
+				names = append(names, job.Name)
+			}
+
+			require.NotContains(t, names, tt.wantJobDeleted)
+
+			if tt.wantJobKept != "" {
+				require.Contains(t, names, tt.wantJobKept)
+			}
 
 			if tt.wantJobCreated {
 				foundNewJob := false
@@ -372,6 +428,9 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 	}
 }
 
+// createTestJob returns a reload job like newReloadJob creates them. It
+// reloaded the generation before the one of the test profile, withGeneration
+// and withProfile change that.
 func createTestJob(
 	namespace, name, nodeName, policyName, action string,
 	succeeded, failed int32,
@@ -381,10 +440,12 @@ func createTestJob(
 			Name:      name,
 			Namespace: namespace,
 			Labels: map[string]string{
-				"app":    "selinux-policy-reload",
-				"node":   nodeName,
-				"policy": policyName,
-				"action": action,
+				reloadJobLabelApp:        reloadJobApp,
+				reloadJobLabelNode:       nodeName,
+				reloadJobLabelPolicy:     policyName,
+				reloadJobLabelAction:     action,
+				reloadJobLabelGeneration: strconv.FormatInt(testGeneration-1, 10),
+				reloadJobLabelProfileUID: string(testUID),
 			},
 		},
 		Status: batchv1.JobStatus{
@@ -411,6 +472,16 @@ func withGeneration(job *batchv1.Job, generation int64) *batchv1.Job {
 func withProfile(job *batchv1.Job, uid types.UID, generation int64) *batchv1.Job {
 	job.Labels[reloadJobLabelGeneration] = strconv.FormatInt(generation, 10)
 	job.Labels[reloadJobLabelProfileUID] = string(uid)
+
+	return job
+}
+
+// withCondition sets a true condition on a reload job.
+func withCondition(job *batchv1.Job, condition batchv1.JobConditionType) *batchv1.Job {
+	job.Status.Conditions = append(job.Status.Conditions, batchv1.JobCondition{
+		Type:   condition,
+		Status: corev1.ConditionTrue,
+	})
 
 	return job
 }
@@ -476,23 +547,10 @@ func createTestJobWithCreationTime(
 	succeeded, failed int32,
 	creationTime time.Time,
 ) *batchv1.Job {
-	return &batchv1.Job{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:              name,
-			Namespace:         namespace,
-			CreationTimestamp: metav1.NewTime(creationTime),
-			Labels: map[string]string{
-				"app":    "selinux-policy-reload",
-				"node":   nodeName,
-				"policy": policyName,
-				"action": action,
-			},
-		},
-		Status: batchv1.JobStatus{
-			Succeeded: succeeded,
-			Failed:    failed,
-		},
-	}
+	job := createTestJob(namespace, name, nodeName, policyName, action, succeeded, failed)
+	job.CreationTimestamp = metav1.NewTime(creationTime)
+
+	return job
 }
 
 // Reload jobs of different nodes created in the same second must not collide,
@@ -535,7 +593,7 @@ func TestCreatePolicyReloadJobNames(t *testing.T) {
 		}
 
 		state, err := r.createPolicyReloadJob(
-			context.Background(), "test-policy", "install", testUID, 1, logf.Log,
+			context.Background(), "test-policy", installReload, testUID, 1, logf.Log,
 		)
 		require.NoError(t, err, node)
 		require.Equal(t, reloadJobCreated, state, node)

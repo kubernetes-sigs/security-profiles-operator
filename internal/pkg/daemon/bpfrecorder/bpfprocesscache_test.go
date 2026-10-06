@@ -221,3 +221,153 @@ func TestBpfProcessCacheIgnoresOtherEvents(t *testing.T) {
 	_, err := b.GetCmdLine(1)
 	require.Error(t, err)
 }
+
+// putExecSlot writes value into a slot of the args or env array of an exec
+// event, followed by a terminator and stale bytes, the way a reused ring
+// buffer slot looks.
+func putExecSlot(slot []byte, value, stale string) {
+	for j := range slot {
+		slot[j] = 'X'
+	}
+
+	n := copy(slot, value)
+	slot[n] = 0
+	copy(slot[n+1:], stale)
+}
+
+func argSlot(event []byte, i int) []byte {
+	offset := bpfEventHeaderSize + maxFileNameLen + i*maxArgLen
+
+	return event[offset : offset+maxArgLen]
+}
+
+func envSlot(event []byte, i int) []byte {
+	offset := bpfEventHeaderSize + maxFileNameLen + maxArgs*maxArgLen + i*maxEnvLen
+
+	return event[offset : offset+maxEnvLen]
+}
+
+func setExecLens(event []byte, argsLen, envLen uint32) {
+	lenOffset := bpfEventHeaderSize + maxFileNameLen + maxArgs*maxArgLen + maxEnv*maxEnvLen
+	binary.LittleEndian.PutUint32(event[lenOffset:], argsLen)
+	binary.LittleEndian.PutUint32(event[lenOffset+4:], envLen)
+}
+
+func TestBpfProcessCacheHandleEvent(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		event       func() []byte
+		wantCached  bool
+		wantCmdLine string
+		wantEnv     map[string]string
+	}{
+		{
+			name: "stale bytes after the terminator are ignored",
+			event: func() []byte {
+				event := newExecEvent()
+				copy(event[bpfEventHeaderSize:], "/bin/sh\x00/usr/bin/stale")
+				putExecSlot(argSlot(event, 0), "sh", "stale-arg")
+				putExecSlot(argSlot(event, 1), "-c", "")
+				putExecSlot(envSlot(event, 0), "A=b", "C=stale")
+				putExecSlot(envSlot(event, 1), `"Q"="v"`, "=x")
+				setExecLens(event, 2, 2)
+
+				return event
+			},
+			wantCached:  true,
+			wantCmdLine: "sh -c ",
+			wantEnv:     map[string]string{"A": "b", "Q": "v"},
+		},
+		{
+			name: "slot without terminator keeps all bytes",
+			event: func() []byte {
+				event := newExecEvent()
+				copy(argSlot(event, 0), strings.Repeat("a", maxArgLen))
+				setExecLens(event, 1, 0)
+
+				return event
+			},
+			wantCached:  true,
+			wantCmdLine: strings.Repeat("a", maxArgLen) + " ",
+			wantEnv:     map[string]string{},
+		},
+		{
+			name: "env entry without separator is skipped",
+			event: func() []byte {
+				event := newExecEvent()
+				putExecSlot(envSlot(event, 0), "NOVALUE", "=stale")
+				setExecLens(event, 0, 1)
+
+				return event
+			},
+			wantCached: true,
+			wantEnv:    map[string]string{},
+		},
+		{
+			name: "lengths beyond the arrays are clamped",
+			event: func() []byte {
+				event := newExecEvent()
+				for i := range maxArgs {
+					putExecSlot(argSlot(event, i), "a", "stale")
+				}
+
+				for i := range maxEnv {
+					putExecSlot(envSlot(event, i), "K=v", "stale")
+				}
+
+				setExecLens(event, 1000, 1000)
+
+				return event
+			},
+			wantCached:  true,
+			wantCmdLine: strings.Repeat("a ", maxArgs),
+			wantEnv:     map[string]string{"K": "v"},
+		},
+		{
+			name: "short event is dropped",
+			event: func() []byte {
+				return newExecEvent()[:bpfExecEventSize-1]
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := NewBpfProcessCache(logr.Discard())
+			b.handleEvent(tc.event())
+
+			cmdLine, err := b.GetCmdLine(1)
+			if !tc.wantCached {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, tc.wantCmdLine, cmdLine)
+
+			env, err := b.GetEnv(1)
+			require.NoError(t, err)
+			require.Equal(t, tc.wantEnv, env)
+		})
+	}
+}
+
+// TestBpfProcessCacheLoadClosesModuleOnError asserts that a module which got
+// created is unloaded again if loading fails later on.
+func TestBpfProcessCacheLoadClosesModuleOnError(t *testing.T) {
+	t.Parallel()
+
+	b := NewBpfProcessCache(logr.Discard())
+	mock := &bpfrecorderfakes.FakeImpl{}
+	mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
+	mock.BPFLoadObjectReturns(errTest)
+	b.recorder.impl = mock
+
+	require.ErrorIs(t, b.Load(), errTest)
+	require.Equal(t, 1, mock.CloseModuleCallCount())
+}

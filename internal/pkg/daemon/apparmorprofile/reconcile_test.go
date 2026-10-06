@@ -302,6 +302,24 @@ func TestReconcileInstallsProfile(t *testing.T) {
 	require.Equal(t, 2, manager.installs)
 	require.True(t, manager.gotOwnedByUs)
 	utiltest.RequireNoEvent(t, rec)
+
+	// A changed policy of an installed profile gets loaded again, which is
+	// reported although the node status stays installed.
+	manager.updated = true
+	res, err = r.Reconcile(t.Context(), testRequest())
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{}, res)
+	require.Equal(t, 3, manager.installs)
+	require.Equal(
+		t,
+		secprofnodestatusapi.ProfileStateInstalled,
+		getNodeStatus(t, cli).Status.Status,
+	)
+	utiltest.RequireEvent(
+		t,
+		rec,
+		"Normal LoadedAppArmorProfile Successfully loaded profile into node "+testNode,
+	)
 }
 
 func TestReconcileUnchangedProfileEmitsNoEvent(t *testing.T) {
@@ -721,35 +739,40 @@ func TestReconcileWarnsAboutDeprecatedPtraceRulesOnce(t *testing.T) {
 	}
 }
 
-// A node without AppArmor counts every profile once in the error metric,
-// instead of on every reconcile.
-func TestReconcileNotSupportedCountsProfileOnce(t *testing.T) {
+// A node without AppArmor reports every profile once instead of on every
+// reconcile, and again if it got created again under the same name.
+func TestReconcileNotSupportedReportsProfileOnce(t *testing.T) {
 	t.Parallel()
+
+	const wantEvent = "Warning AppArmorNotSupportedOnNode " +
+		"node does not support apparmor, profile not added"
 
 	profile := testAppArmorProfile()
 	profile.UID = "first"
-	r, cli, _ := newTestReconciler(t, &countingProfileManager{}, nil, profile)
+	r, cli, rec := newTestReconciler(t, &countingProfileManager{}, nil, profile)
 
-	require.True(t, r.countUnsupported(t.Context(), testProfile))
-	require.False(t, r.countUnsupported(t.Context(), testProfile))
+	for range 3 {
+		_, err := r.Reconcile(t.Context(), testRequest())
+		require.NoError(t, err)
+	}
 
-	// A profile created again under the same name is counted again.
+	utiltest.RequireEvent(t, rec, wantEvent)
+	utiltest.RequireNoEvent(t, rec)
+
 	require.NoError(t, cli.Delete(t.Context(), profile))
-	require.False(t, r.countUnsupported(t.Context(), testProfile))
-
-	_, loaded := r.unsupportedCounted.Load(testProfile)
-	require.False(t, loaded, "a deleted profile is forgotten")
+	_, err := r.Reconcile(t.Context(), testRequest())
+	require.NoError(t, err)
+	utiltest.RequireNoEvent(t, rec)
 
 	recreated := testAppArmorProfile()
 	recreated.UID = "second"
 	require.NoError(t, cli.Create(t.Context(), recreated))
-	require.True(t, r.countUnsupported(t.Context(), testProfile))
 
-	// Reconciling keeps counting it once.
 	for range 2 {
 		_, err := r.Reconcile(t.Context(), testRequest())
 		require.NoError(t, err)
 	}
 
-	require.False(t, r.countUnsupported(t.Context(), testProfile))
+	utiltest.RequireEvent(t, rec, wantEvent)
+	utiltest.RequireNoEvent(t, rec)
 }

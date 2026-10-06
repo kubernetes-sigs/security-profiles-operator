@@ -70,7 +70,9 @@ func NewController() controller.Controller {
 func selinuxProfileControllerBuild(b *ctrl.Builder, r *ReconcileSelinux) error {
 	return b.Named("selinuxprofile").
 		For(&selinuxprofileapi.SelinuxProfile{}, builder.WithPredicates(
-			predicate.GenerationChangedPredicate{},
+			// The resyncs reinstall a policy which got removed from the
+			// node.
+			predicate.Or(predicate.GenerationChangedPredicate{}, common.ResyncPredicate),
 		)).
 		// A RawSelinuxProfile of the same name has the same policy name, so
 		// its creation or removal changes which of them owns the policy.

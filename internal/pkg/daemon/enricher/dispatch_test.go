@@ -231,3 +231,21 @@ func TestDispatchAuditLineUnknownType(t *testing.T) {
 		sut.dispatchAuditLine(node, &types.AuditLine{AuditType: "unknown"}, &types.ContainerInfo{}),
 	)
 }
+
+// TestDispatchSelinuxLineSkipsInvalidAvc asserts that an AVC which cannot be
+// marshalled is not recorded: an empty entry would fail the Avcs RPC.
+func TestDispatchSelinuxLineSkipsInvalidAvc(t *testing.T) {
+	t.Parallel()
+
+	sut, mock := newDispatchSut(t, nil)
+
+	line := selinuxTestLine()
+	line.Tcontext = "\xff"
+
+	sut.dispatchSelinuxLine(node, line, &types.ContainerInfo{
+		Namespace: namespace, RecordProfile: "profile",
+	})
+
+	sentMetric(t, mock)
+	require.Zero(t, sut.avcs.Len())
+}

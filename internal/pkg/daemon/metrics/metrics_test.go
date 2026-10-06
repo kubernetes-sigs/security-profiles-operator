@@ -30,78 +30,95 @@ import (
 
 var errTest = errors.New("")
 
+// getMetricValue returns the value of the single counter which col collects.
+func getMetricValue(t *testing.T, col prometheus.Collector) int {
+	t.Helper()
+
+	c := make(chan prometheus.Metric, 1)
+	col.Collect(c)
+
+	m := dto.Metric{}
+	require.NoError(t, (<-c).Write(&m))
+
+	return int(m.GetCounter().GetValue())
+}
+
 func TestRegister(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
+		name      string
 		prepare   func(*metricsfakes.FakeImpl)
 		shouldErr bool
 	}{
-		{ // success
+		{
+			name:    "success",
 			prepare: func(*metricsfakes.FakeImpl) {},
 		},
-		{ // error Register fails
+		{
+			name: "error Register fails",
 			prepare: func(mock *metricsfakes.FakeImpl) {
 				mock.RegisterReturns(errTest)
 			},
 			shouldErr: true,
 		},
 	} {
-		mock := &metricsfakes.FakeImpl{}
-		tc.prepare(mock)
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-		sut := New()
-		sut.impl = mock
+			mock := &metricsfakes.FakeImpl{}
+			tc.prepare(mock)
 
-		err := sut.Register()
+			sut := New()
+			sut.impl = mock
 
-		if tc.shouldErr {
-			require.Error(t, err)
-		} else {
-			require.NoError(t, err)
-		}
+			err := sut.Register()
+
+			if tc.shouldErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
 	}
 }
 
 func TestSeccompProfile(t *testing.T) {
 	t.Parallel()
 
-	getMetricValue := func(col prometheus.Collector) int {
-		c := make(chan prometheus.Metric, 1)
-		col.Collect(c)
-
-		m := dto.Metric{}
-		err := (<-c).Write(&m)
-		require.NoError(t, err)
-
-		return int(m.GetCounter().GetValue())
-	}
-
 	for _, tc := range []struct {
+		name string
 		when func(m *Metrics)
-		then func(m *Metrics)
+		then func(t *testing.T, m *Metrics)
 	}{
-		{ // single update
+		{
+			name: "single update",
 			when: func(m *Metrics) {
 				m.IncSeccompProfileUpdate()
 			},
-			then: func(m *Metrics) {
+			then: func(t *testing.T, m *Metrics) {
+				t.Helper()
+
 				ctr, err := m.metricSeccompProfile.GetMetricWithLabelValues(metricLabelValueProfileUpdate)
 				require.NoError(t, err)
-				require.Equal(t, 1, getMetricValue(ctr))
+				require.Equal(t, 1, getMetricValue(t, ctr))
 			},
 		},
-		{ // single delete
+		{
+			name: "single delete",
 			when: func(m *Metrics) {
 				m.IncSeccompProfileDelete()
 			},
-			then: func(m *Metrics) {
+			then: func(t *testing.T, m *Metrics) {
+				t.Helper()
+
 				ctr, err := m.metricSeccompProfile.GetMetricWithLabelValues(metricLabelValueProfileDelete)
 				require.NoError(t, err)
-				require.Equal(t, 1, getMetricValue(ctr))
+				require.Equal(t, 1, getMetricValue(t, ctr))
 			},
 		},
-		{ // multiple update and delete
+		{
+			name: "multiple update and delete",
 			when: func(m *Metrics) {
 				m.IncSeccompProfileUpdate()
 				m.IncSeccompProfileUpdate()
@@ -109,37 +126,46 @@ func TestSeccompProfile(t *testing.T) {
 				m.IncSeccompProfileUpdate()
 				m.IncSeccompProfileDelete()
 			},
-			then: func(m *Metrics) {
+			then: func(t *testing.T, m *Metrics) {
+				t.Helper()
+
 				ctrUpdate, err := m.metricSeccompProfile.GetMetricWithLabelValues(metricLabelValueProfileUpdate)
 				require.NoError(t, err)
-				require.Equal(t, 3, getMetricValue(ctrUpdate))
+				require.Equal(t, 3, getMetricValue(t, ctrUpdate))
 
 				ctrDelete, err := m.metricSeccompProfile.GetMetricWithLabelValues(metricLabelValueProfileDelete)
 				require.NoError(t, err)
-				require.Equal(t, 2, getMetricValue(ctrDelete))
+				require.Equal(t, 2, getMetricValue(t, ctrDelete))
 			},
 		},
-		{ // Selinux single update
+		{
+			name: "Selinux single update",
 			when: func(m *Metrics) {
 				m.IncSelinuxProfileUpdate()
 			},
-			then: func(m *Metrics) {
+			then: func(t *testing.T, m *Metrics) {
+				t.Helper()
+
 				ctr, err := m.metricSelinuxProfile.GetMetricWithLabelValues(metricLabelValueProfileUpdate)
 				require.NoError(t, err)
-				require.Equal(t, 1, getMetricValue(ctr))
+				require.Equal(t, 1, getMetricValue(t, ctr))
 			},
 		},
-		{ // Selinux single delete
+		{
+			name: "Selinux single delete",
 			when: func(m *Metrics) {
 				m.IncSelinuxProfileDelete()
 			},
-			then: func(m *Metrics) {
+			then: func(t *testing.T, m *Metrics) {
+				t.Helper()
+
 				ctr, err := m.metricSelinuxProfile.GetMetricWithLabelValues(metricLabelValueProfileDelete)
 				require.NoError(t, err)
-				require.Equal(t, 1, getMetricValue(ctr))
+				require.Equal(t, 1, getMetricValue(t, ctr))
 			},
 		},
-		{ // Selinux multiple update and delete
+		{
+			name: "Selinux multiple update and delete",
 			when: func(m *Metrics) {
 				m.IncSelinuxProfileUpdate()
 				m.IncSelinuxProfileUpdate()
@@ -147,23 +173,28 @@ func TestSeccompProfile(t *testing.T) {
 				m.IncSelinuxProfileUpdate()
 				m.IncSelinuxProfileDelete()
 			},
-			then: func(m *Metrics) {
+			then: func(t *testing.T, m *Metrics) {
+				t.Helper()
+
 				ctrUpdate, err := m.metricSelinuxProfile.GetMetricWithLabelValues(metricLabelValueProfileUpdate)
 				require.NoError(t, err)
-				require.Equal(t, 3, getMetricValue(ctrUpdate))
+				require.Equal(t, 3, getMetricValue(t, ctrUpdate))
 
 				ctrDelete, err := m.metricSelinuxProfile.GetMetricWithLabelValues(metricLabelValueProfileDelete)
 				require.NoError(t, err)
-				require.Equal(t, 2, getMetricValue(ctrDelete))
+				require.Equal(t, 2, getMetricValue(t, ctrDelete))
 			},
 		},
 	} {
-		mock := &metricsfakes.FakeImpl{}
-		sut := New()
-		sut.impl = mock
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-		tc.when(sut)
-		tc.then(sut)
+			sut := New()
+			sut.impl = &metricsfakes.FakeImpl{}
+
+			tc.when(sut)
+			tc.then(t, sut)
+		})
 	}
 }
 
@@ -176,54 +207,53 @@ func TestSeccompProfileBpf(t *testing.T) {
 		mountNamespace = 1
 	)
 
-	getMetricValue := func(col prometheus.Collector) int {
-		c := make(chan prometheus.Metric, 1)
-		col.Collect(c)
-
-		m := dto.Metric{}
-		err := (<-c).Write(&m)
-		require.NoError(t, err)
-
-		return int(m.GetCounter().GetValue())
-	}
-
 	for _, tc := range []struct {
+		name string
 		when func(m *Metrics)
-		then func(m *Metrics)
+		then func(t *testing.T, m *Metrics)
 	}{
-		{ // single update
+		{
+			name: "single update",
 			when: func(m *Metrics) {
 				m.IncSeccompProfileBpf(node, profile, mountNamespace)
 			},
-			then: func(m *Metrics) {
+			then: func(t *testing.T, m *Metrics) {
+				t.Helper()
+
 				ctr, err := m.metricSeccompProfileBpf.GetMetricWithLabelValues(
 					node, strconv.Itoa(mountNamespace), profile,
 				)
 				require.NoError(t, err)
-				require.Equal(t, 1, getMetricValue(ctr))
+				require.Equal(t, 1, getMetricValue(t, ctr))
 			},
 		},
-		{ // multiple update
+		{
+			name: "multiple update",
 			when: func(m *Metrics) {
 				m.IncSeccompProfileBpf(node, profile, mountNamespace)
 				m.IncSeccompProfileBpf(node, profile, mountNamespace)
 				m.IncSeccompProfileBpf(node, profile, mountNamespace)
 			},
-			then: func(m *Metrics) {
+			then: func(t *testing.T, m *Metrics) {
+				t.Helper()
+
 				ctrUpdate, err := m.metricSeccompProfileBpf.GetMetricWithLabelValues(
 					node, strconv.Itoa(mountNamespace), profile,
 				)
 				require.NoError(t, err)
-				require.Equal(t, 3, getMetricValue(ctrUpdate))
+				require.Equal(t, 3, getMetricValue(t, ctrUpdate))
 			},
 		},
 	} {
-		mock := &metricsfakes.FakeImpl{}
-		sut := New()
-		sut.impl = mock
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-		tc.when(sut)
-		tc.then(sut)
+			sut := New()
+			sut.impl = &metricsfakes.FakeImpl{}
+
+			tc.when(sut)
+			tc.then(t, sut)
+		})
 	}
 }
 

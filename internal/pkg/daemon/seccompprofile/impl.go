@@ -21,6 +21,7 @@ import (
 
 	"github.com/go-logr/logr"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
+	"go.podman.io/common/pkg/seccomp"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
@@ -42,6 +43,7 @@ type impl interface {
 		context.Context, client.Client, client.ObjectKey, ...client.GetOption,
 	) (*seccompprofileapi.SeccompProfile, error)
 	GetSPOD(context.Context, client.Client, string) (*spodapi.SecurityProfilesOperatorDaemon, error)
+	IsSupported() bool
 }
 
 func (*defaultImpl) Pull(
@@ -77,4 +79,9 @@ func (*defaultImpl) GetSPOD(
 	ctx context.Context, cli client.Client, namespace string,
 ) (*spodapi.SecurityProfilesOperatorDaemon, error) {
 	return common.GetSPOD(ctx, cli, namespace)
+}
+
+// IsSupported returns true if the node supports seccomp.
+func (*defaultImpl) IsSupported() bool {
+	return seccomp.IsSupported()
 }

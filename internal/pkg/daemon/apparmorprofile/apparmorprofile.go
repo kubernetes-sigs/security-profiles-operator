@@ -80,28 +80,9 @@ type Reconciler struct {
 	// the deprecated ptrace rules in their paths.
 	ptraceWarned sync.Map
 
-	// unsupportedCounted holds the UID of every profile, keyed by its name,
-	// which was counted in the error metric for a node without AppArmor, so
-	// that it is counted once instead of on every reconcile.
-	unsupportedCounted sync.Map
-}
-
-// countUnsupported reports whether the profile of the name has to be counted
-// in the error metric for a node without AppArmor. A profile gets counted once,
-// and again if it is deleted and created again.
-func (r *Reconciler) countUnsupported(ctx context.Context, name string) bool {
-	sp := &apparmorprofileapi.AppArmorProfile{}
-	if err := r.client.Get(ctx, client.ObjectKey{Name: name}, sp); err != nil {
-		if kerrors.IsNotFound(err) {
-			r.unsupportedCounted.Delete(name)
-		}
-
-		return false
-	}
-
-	previous, counted := r.unsupportedCounted.Swap(name, sp.GetUID())
-
-	return !counted || previous != sp.GetUID()
+	// unsupported remembers the profiles which got reported for a node
+	// without AppArmor.
+	unsupported common.UnsupportedReports
 }
 
 // warnDeprecatedPtraceRules logs once per profile that it puts ptrace rules
@@ -131,7 +112,7 @@ func (r *Reconciler) reportError(
 	reason, action string,
 	err error,
 ) {
-	r.errorReporter(sp).Report(sp, reason, action, err.Error())
+	r.errorReporter(sp).ReportError(sp, reason, action, err)
 }
 
 func (r *Reconciler) errorReporter(sp *apparmorprofileapi.AppArmorProfile) common.ErrorReporter {
@@ -145,11 +126,7 @@ func (r *Reconciler) errorReporter(sp *apparmorprofileapi.AppArmorProfile) commo
 
 // deletionReasons returns the event reasons for removing a profile.
 func deletionReasons() common.DeletionReasons {
-	return common.DeletionReasons{
-		CannotUpdateProfile: reasonCannotUpdateProfile,
-		CannotRemoveProfile: reasonCannotUnloadProfile,
-		CannotUpdateStatus:  common.ReasonCannotUpdateStatus,
-	}
+	return common.NewDeletionReasons(reasonCannotUpdateProfile, reasonCannotUnloadProfile)
 }
 
 // Name returns the name of the controller.
@@ -192,32 +169,8 @@ func (r *Reconciler) Reconcile(
 	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
 
-	// Pre-check if the node supports AppArmor
 	if !r.manager.Enabled() {
-		err := errors.New("profile not added")
-		logger.Error(
-			err,
-			fmt.Sprintf("node %q does not support apparmor", r.nodeName),
-		)
-
-		if r.record != nil {
-			if r.countUnsupported(ctx, req.Name) {
-				r.metrics.IncAppArmorProfileError(req.Name, reasonAppArmorNotSupported)
-			}
-
-			r.record.Eventf(
-				util.EventNode(r.nodeName),
-				&apparmorprofileapi.AppArmorProfile{
-					ObjectMeta: metav1.ObjectMeta{Name: req.Name},
-				},
-				util.EventTypeWarning,
-				reasonAppArmorNotSupported,
-				util.EventActionInstall,
-				"node does not support apparmor, %s",
-				err.Error(),
-			)
-		}
-
+		r.reportUnsupported(ctx, req.NamespacedName, logger)
 		// Do not requeue (will be requeued if a change to the object is
 		// observed, or after the usually very long reconcile timeout
 		// configured for the controller manager)
@@ -225,16 +178,43 @@ func (r *Reconciler) Reconcile(
 	}
 
 	appArmorProfile := &apparmorprofileapi.AppArmorProfile{}
-	if err := r.client.Get(ctx, req.NamespacedName, appArmorProfile); err != nil {
-		// Expected to find an AppArmorProfile, return an error and requeue
-		if util.IgnoreNotFound(err) == nil {
-			return reconcile.Result{}, nil
-		}
-
-		return reconcile.Result{}, fmt.Errorf("%w: %w", common.ErrGetProfile, err)
+	if found, err := common.GetProfile(ctx, r.client, req.NamespacedName, appArmorProfile); !found {
+		return reconcile.Result{}, err
 	}
 
 	return r.reconcileAppArmorProfile(ctx, appArmorProfile, logger)
+}
+
+// reportUnsupported reports a profile which a node without AppArmor cannot
+// load. Every profile is counted in the error metric and gets a warning event
+// once, and again if it is created again, instead of on every reconcile.
+func (r *Reconciler) reportUnsupported(
+	ctx context.Context, key client.ObjectKey, l logr.Logger,
+) {
+	err := errors.New("profile not added")
+	l.Error(err, fmt.Sprintf("node %q does not support apparmor", r.nodeName))
+
+	if !r.unsupported.ShouldReport(ctx, r.client, key, &apparmorprofileapi.AppArmorProfile{}) {
+		return
+	}
+
+	r.metrics.IncAppArmorProfileError(key.Name, reasonAppArmorNotSupported)
+
+	if r.record == nil {
+		return
+	}
+
+	r.record.Eventf(
+		util.EventNode(r.nodeName),
+		&apparmorprofileapi.AppArmorProfile{
+			ObjectMeta: metav1.ObjectMeta{Name: key.Name},
+		},
+		util.EventTypeWarning,
+		reasonAppArmorNotSupported,
+		util.EventActionInstall,
+		"node does not support apparmor, %s",
+		err.Error(),
+	)
 }
 
 func (r *Reconciler) reconcileAppArmorProfile(
@@ -273,73 +253,98 @@ func (r *Reconciler) reconcileAppArmorProfile(
 		return reconcile.Result{}, nil
 	}
 
+	if err := r.installProfile(ctx, sp, nodeStatus, l); err != nil {
+		return reconcile.Result{}, err
+	}
+
+	return reconcile.Result{}, r.markInstalled(ctx, sp, nodeStatus, l)
+}
+
+// installProfile loads the profile into the kernel and records on the node
+// status that this node installed it. A failed installation returns an
+// error, so the controller retries it with the exponential backoff of its
+// rate limiter.
+func (r *Reconciler) installProfile(
+	ctx context.Context,
+	sp *apparmorprofileapi.AppArmorProfile,
+	nodeStatus *nodestatus.StatusClient,
+	l logr.Logger,
+) error {
 	// Read before installing: a profile this node has already installed is ours
 	// even if its policy file predates the ownership marker.
-	isAlreadyInstalled, getErr := nodeStatus.Matches(
+	isAlreadyInstalled, err := nodeStatus.Matches(
 		ctx,
 		secprofnodestatusapi.ProfileStateInstalled,
 	)
-	if getErr != nil {
-		l.Error(getErr, "couldn't get current status")
+	if err != nil {
+		l.Error(err, "couldn't get current status")
 
-		return reconcile.Result{}, fmt.Errorf(
-			"getting status for installed AppArmorProfile: %w",
-			getErr,
-		)
+		return fmt.Errorf("getting status for installed AppArmorProfile: %w", err)
 	}
 
 	r.warnDeprecatedPtraceRules(sp, l)
 
-	// A failed installation returns an error, so the controller retries it
-	// with the exponential backoff of its rate limiter.
 	updated, err := r.manager.InstallProfile(sp, isAlreadyInstalled)
 	if err != nil {
 		l.Error(err, "cannot load profile into node")
 		r.reportError(sp, reasonCannotLoadProfile, util.EventActionInstall, err)
 
-		return reconcile.Result{}, fmt.Errorf("cannot load profile into node: %w", err)
+		return fmt.Errorf("cannot load profile into node: %w", err)
+	}
+
+	// A profile which is installed already gets loaded again when its policy
+	// changed, which does not change its node status, so this is reported
+	// independent of it.
+	if updated {
+		r.reportLoaded(sp)
 	}
 
 	if err := nodeStatus.SetAnnotation(ctx, installedAnnotation, "true"); err != nil {
 		l.Error(err, "cannot record profile installation in node status")
 		r.reportError(sp, common.ReasonCannotUpdateStatus, util.EventActionUpdate, err)
 
-		return reconcile.Result{}, fmt.Errorf("recording profile installation: %w", err)
+		return fmt.Errorf("recording profile installation: %w", err)
 	}
 
+	return nil
+}
+
+// reportLoaded counts a loaded policy in the update metric and records an
+// event on the profile.
+func (r *Reconciler) reportLoaded(sp *apparmorprofileapi.AppArmorProfile) {
+	r.metrics.IncAppArmorProfileUpdate()
+	r.record.Eventf(
+		sp,
+		nil,
+		util.EventTypeNormal,
+		reasonLoadedAppArmorProfile,
+		util.EventActionInstall,
+		"%s",
+		"Successfully loaded profile into node "+r.nodeName,
+	)
+}
+
+// markInstalled sets the node status of the loaded profile to installed.
+func (r *Reconciler) markInstalled(
+	ctx context.Context,
+	sp *apparmorprofileapi.AppArmorProfile,
+	nodeStatus *nodestatus.StatusClient,
+	l logr.Logger,
+) error {
 	changed, err := common.MarkInstalled(ctx, sp, nodeStatus, l, r.errorReporter(sp))
 	if err != nil {
-		return reconcile.Result{}, fmt.Errorf(
-			"updating status in AppArmorProfile reconciler: %w", err,
+		return fmt.Errorf("updating status in AppArmorProfile reconciler: %w", err)
+	}
+
+	if changed {
+		l.Info(
+			"Reconciled profile from AppArmorProfile",
+			"resource version", sp.GetResourceVersion(),
+			"name", sp.GetName(),
 		)
 	}
 
-	if !changed {
-		return reconcile.Result{}, nil
-	}
-
-	l.Info(
-		"Reconciled profile from AppArmorProfile",
-		"resource version", sp.GetResourceVersion(),
-		"name", sp.GetName(),
-	)
-
-	if updated {
-		evstr := "Successfully loaded profile into node " + r.nodeName
-
-		r.metrics.IncAppArmorProfileUpdate()
-		r.record.Eventf(
-			sp,
-			nil,
-			util.EventTypeNormal,
-			reasonLoadedAppArmorProfile,
-			util.EventActionInstall,
-			"%s",
-			evstr,
-		)
-	}
-
-	return reconcile.Result{}, nil
+	return nil
 }
 
 // reconcileDisabled unloads a disabled profile, which the node may have

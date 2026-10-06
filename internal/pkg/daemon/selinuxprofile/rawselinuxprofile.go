@@ -32,6 +32,7 @@ import (
 
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
 )
 
 // The block is named after the policy, so that its process type is the usage
@@ -52,7 +53,9 @@ func NewRawController() controller.Controller {
 func rawSelinuxProfileControllerBuild(b *ctrl.Builder, r *ReconcileSelinux) error {
 	return b.Named("rawselinuxprofile").
 		For(&selinuxprofileapi.RawSelinuxProfile{}, builder.WithPredicates(
-			predicate.GenerationChangedPredicate{},
+			// The resyncs reinstall a policy which got removed from the
+			// node.
+			predicate.Or(predicate.GenerationChangedPredicate{}, common.ResyncPredicate),
 		)).
 		// A SelinuxProfile of the same name has the same policy name, so its
 		// creation or removal changes which of them owns the policy.

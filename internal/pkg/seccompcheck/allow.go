@@ -94,12 +94,17 @@ func CheckedActions(
 }
 
 // AllowProfile checks the syscalls of the profile against the allowed
-// syscalls and actions of the SPOD.
+// syscalls and actions of the SPOD. An empty list of allowed syscalls means
+// that the SPOD does not restrict them, so every profile passes.
 func AllowProfile(
 	profile *seccompprofileapi.SeccompProfile,
 	allowedSyscalls []string,
 	allowedActions []seccompprofileapi.Action,
 ) error {
+	if len(allowedSyscalls) == 0 {
+		return nil
+	}
+
 	syscalls := map[seccompprofileapi.Action]map[string]bool{}
 	for _, call := range profile.Spec.Syscalls {
 		if _, ok := syscalls[call.Action]; !ok {
@@ -130,7 +135,7 @@ func AllowProfile(
 			}
 		}
 
-		if profile.Spec.DefaultAction == action && len(allowedSyscalls) > 0 {
+		if profile.Spec.DefaultAction == action {
 			return ErrForbiddenProfile
 		}
 	}

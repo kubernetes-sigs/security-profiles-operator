@@ -33,14 +33,12 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/jellydator/ttlcache/v3"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
-	"go.podman.io/common/pkg/seccomp"
 	corev1 "k8s.io/api/core/v1"
 	apiruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -160,6 +158,9 @@ type Reconciler struct {
 	reader client.Reader
 	// profileRoot overrides the directory of the profile files for testing.
 	profileRoot string
+	// unsupported remembers the profiles which got reported for a node
+	// without seccomp.
+	unsupported common.UnsupportedReports
 }
 
 // profilePath returns the path of the file of the profile on the node.
@@ -183,7 +184,7 @@ func (r *Reconciler) apiReader() client.Reader {
 // reportError increments the error metric for reason and records a warning
 // event on obj.
 func (r *Reconciler) reportError(obj apiruntime.Object, reason, action string, err error) {
-	r.errorReporter().Report(obj, reason, action, err.Error())
+	r.errorReporter().ReportError(obj, reason, action, err)
 }
 
 // Name returns the name of the controller.
@@ -230,7 +231,7 @@ func (r *Reconciler) Setup(
 		Named("profile").
 		For(
 			&seccompprofileapi.SeccompProfile{},
-			builder.WithPredicates(predicate.Or(profileChangedPredicate, profileResyncPredicate)),
+			builder.WithPredicates(predicate.Or(profileChangedPredicate, common.ResyncPredicate)),
 		).
 		// Profiles named "foo" and "foo.json" share a file, so a change of
 		// one of them can change which one owns the file. Ownership depends
@@ -278,16 +279,6 @@ var profileChangedPredicate = predicate.Or(
 	predicate.GenerationChangedPredicate{},
 	predicate.LabelChangedPredicate{},
 )
-
-// profileResyncPredicate passes the periodic resyncs of the daemon cache,
-// which carry an unchanged resource version. They reinstall a profile file
-// which got removed or changed on the host.
-var profileResyncPredicate = predicate.Funcs{
-	UpdateFunc: func(e event.UpdateEvent) bool {
-		return e.ObjectOld != nil && e.ObjectNew != nil &&
-			e.ObjectOld.GetResourceVersion() == e.ObjectNew.GetResourceVersion()
-	},
-}
 
 // handleAllowedSyscallsChanged enqueues every profile when the allow lists of
 // the SPOD change, so that each one gets validated again: the ones which got
@@ -405,26 +396,37 @@ func (r *Reconciler) derivedProfileRequests(
 	return requests
 }
 
-// Healthz is the liveness probe endpoint of the controller.
+// Healthz is the liveness probe endpoint of the controller. It only reports
+// a node without seccomp: the reconciler records the event and the metric.
 func (r *Reconciler) Healthz(*http.Request) error {
 	return r.checkSeccomp()
 }
 
-// checkSeccomp verifies if the seccomp is supported by the node.
+// checkSeccomp returns an error if the node does not support seccomp.
 func (r *Reconciler) checkSeccomp() error {
-	if !seccomp.IsSupported() {
-		err := fmt.Errorf("node %q: %w", r.nodeName, errSeccompNotSupported)
-
-		if r.record != nil {
-			r.reportError(
-				util.EventNode(r.nodeName), reasonSeccompNotSupported, util.EventActionInstall, err,
-			)
-		}
-
-		return err
+	if !r.IsSupported() {
+		return fmt.Errorf("node %q: %w", r.nodeName, errSeccompNotSupported)
 	}
 
 	return nil
+}
+
+// reportUnsupported reports a profile which a node without seccomp cannot
+// install. Every profile is counted in the error metric and gets a warning
+// event once, and again if it is created again, instead of on every
+// reconcile.
+func (r *Reconciler) reportUnsupported(
+	ctx context.Context, key client.ObjectKey, l logr.Logger, err error,
+) {
+	l.Error(err, "profile not added")
+
+	if !r.unsupported.ShouldReport(ctx, r.client, key, &seccompprofileapi.SeccompProfile{}) {
+		return
+	}
+
+	r.reportError(
+		util.EventNode(r.nodeName), reasonSeccompNotSupported, util.EventActionInstall, err,
+	)
 }
 
 // Security Profiles Operator RBAC permissions to manage SeccompProfile
@@ -460,7 +462,7 @@ func (r *Reconciler) Reconcile(
 	defer cancel()
 
 	if err := r.checkSeccomp(); err != nil {
-		logger.Error(err, "profile not added")
+		r.reportUnsupported(ctx, req.NamespacedName, logger, err)
 		// Do not requeue (will be requeued if a change to the object is
 		// observed, or after the usually very long reconcile timeout
 		// configured for the controller manager)
@@ -468,13 +470,8 @@ func (r *Reconciler) Reconcile(
 	}
 
 	seccompProfile := &seccompprofileapi.SeccompProfile{}
-	if err := r.client.Get(ctx, req.NamespacedName, seccompProfile); err != nil {
-		// Expected to find a SeccompProfile, return an error and requeue
-		if util.IgnoreNotFound(err) == nil {
-			return reconcile.Result{}, nil
-		}
-
-		return reconcile.Result{}, fmt.Errorf("%w: %w", common.ErrGetProfile, err)
+	if found, err := common.GetProfile(ctx, r.client, req.NamespacedName, seccompProfile); !found {
+		return reconcile.Result{}, err
 	}
 
 	return r.reconcileSeccompProfile(ctx, seccompProfile, logger)
@@ -1159,11 +1156,7 @@ func (r *Reconciler) errorReporter() common.ErrorReporter {
 
 // deletionReasons returns the event reasons for removing a profile.
 func deletionReasons() common.DeletionReasons {
-	return common.DeletionReasons{
-		CannotUpdateProfile: reasonCannotUpdateProfile,
-		CannotRemoveProfile: reasonCannotRemoveProfile,
-		CannotUpdateStatus:  common.ReasonCannotUpdateStatus,
-	}
+	return common.NewDeletionReasons(reasonCannotUpdateProfile, reasonCannotRemoveProfile)
 }
 
 // reconcileDisabled removes a disabled profile from the node, which may have
@@ -1389,15 +1382,11 @@ func (r *Reconciler) validateProfile(
 		return fmt.Errorf("retrieving the SPOD configuration: %w", err)
 	}
 
-	if len(spod.Spec.Security.AllowedSyscalls) > 0 {
-		return seccompcheck.AllowProfile(
-			profile,
-			spod.Spec.Security.AllowedSyscalls,
-			spod.Spec.Security.AllowedSeccompActions,
-		)
-	}
-
-	return nil
+	return seccompcheck.AllowProfile(
+		profile,
+		spod.Spec.Security.AllowedSyscalls,
+		spod.Spec.Security.AllowedSeccompActions,
+	)
 }
 
 func saveProfileOnDisk(fileName string, content []byte) (updated bool, err error) {

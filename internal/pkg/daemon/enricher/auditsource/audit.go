@@ -18,7 +18,7 @@ package auditsource
 
 import (
 	"encoding/hex"
-	"fmt"
+	"errors"
 	"regexp"
 	"strconv"
 	"strings"
@@ -252,6 +252,11 @@ func decodeUntrusted(raw string) string {
 	return string(decoded)
 }
 
+// ErrUnsupportedLine is returned by ExtractAuditLine for a line which is no
+// supported audit record. It carries no details, since most lines of the log
+// are no audit records and the callers skip them.
+var ErrUnsupportedLine = errors.New("unsupported log line")
+
 // IsAuditLine checks whether logLine is a supported audit line.
 func IsAuditLine(logLine string) bool {
 	_, err := ExtractAuditLine(logLine)
@@ -259,10 +264,12 @@ func IsAuditLine(logLine string) bool {
 	return err == nil
 }
 
-// ExtractAuditLine extracts an auditline from logLine.
+// ExtractAuditLine extracts an auditline from logLine. It returns
+// ErrUnsupportedLine for a line which is no supported audit record. The fields
+// of a record are only parsed for the supported record types.
 func ExtractAuditLine(logLine string) (*types.AuditLine, error) {
 	if !strings.Contains(logLine, auditPrefilter) {
-		return nil, fmt.Errorf("unsupported log line: %s", logLine)
+		return nil, ErrUnsupportedLine
 	}
 
 	record := logLine
@@ -272,36 +279,43 @@ func ExtractAuditLine(logLine string) (*types.AuditLine, error) {
 
 	header := auditHeaderRegex.FindStringSubmatchIndex(record)
 	if header == nil {
-		return nil, fmt.Errorf("unsupported log line: %s", logLine)
+		return nil, ErrUnsupportedLine
 	}
 
-	recordType := record[header[2]:header[3]]
-	timestamp := record[header[4]:header[5]]
-	body := record[header[1]:]
-	fields := parseAuditFields(body)
+	var extract func(body string, fields auditFields) *types.AuditLine
 
-	var line *types.AuditLine
-
-	switch recordType {
+	switch record[header[2]:header[3]] {
 	case "SECCOMP", "1326":
-		line = extractSeccompLine(fields)
+		extract = func(_ string, fields auditFields) *types.AuditLine {
+			return extractSeccompLine(fields)
+		}
 	case "AVC", "1400", "APPARMOR", "APPARMOR_DENIED", "APPARMOR_ALLOWED",
 		"APPARMOR_AUDIT", "1503", "1502", "1501":
-		// AppArmor records share the AVC type with SELinux.
-		if _, ok := fields.get("apparmor"); ok {
-			line = extractApparmorLine(fields)
-		} else {
-			line = extractSelinuxLine(body, fields)
-		}
+		extract = extractAvcLine
+	default:
+		return nil, ErrUnsupportedLine
 	}
 
+	body := record[header[1]:]
+
+	line := extract(body, parseAuditFields(body))
 	if line == nil {
-		return nil, fmt.Errorf("unsupported log line: %s", logLine)
+		return nil, ErrUnsupportedLine
 	}
 
-	line.TimestampID = timestamp
+	line.TimestampID = record[header[4]:header[5]]
 
 	return line, nil
+}
+
+// extractAvcLine extracts an AppArmor or SELinux record. AppArmor records
+// share the AVC type with SELinux.
+func extractAvcLine(body string, fields auditFields) *types.AuditLine {
+	if _, ok := fields.get("apparmor"); ok {
+		return extractApparmorLine(fields)
+	}
+
+	return extractSelinuxLine(body, fields)
 }
 
 func extractSeccompLine(fields auditFields) *types.AuditLine {

@@ -21,10 +21,12 @@ import (
 	"os"
 
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
@@ -51,7 +53,14 @@ func (r *Reconciler) Setup(
 	// Register the regular reconciler to manage AppArmorProfiles
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("apparmorprofile").
-		For(&apparmorprofileapi.AppArmorProfile{}).
-		WithEventFilter(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})).
+		// The periodic resyncs pass to load a profile again which got
+		// unloaded or whose policy file got changed on the host. Loading an
+		// unchanged profile which is still loaded neither writes its file
+		// nor runs apparmor_parser.
+		For(&apparmorprofileapi.AppArmorProfile{}, builder.WithPredicates(predicate.Or(
+			predicate.GenerationChangedPredicate{},
+			predicate.LabelChangedPredicate{},
+			common.ResyncPredicate,
+		))).
 		Complete(r)
 }
