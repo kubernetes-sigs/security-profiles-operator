@@ -269,13 +269,67 @@ The Cloud Build provenance of the images stays next to it, at L1.
 
 The image promoter publishes a
 [SLSA verification summary][promoter-summaries] (VSA) for every digest it
-promotes, index and platform manifests alike: an in-toto statement with the
-predicate type `https://slsa.dev/verification_summary/v1`, attached as OCI
-referrer next to the promoted digest, which says that the staging
-attestations of the digest passed the provenance policy of the project, and
-at which SLSA build level. Consumers that trust the promoter can verify the
-summary instead of the provenance of every build, see
+promotes, index and platform manifests alike. It is an in-toto statement with
+the predicate type `https://slsa.dev/verification_summary/v1`, attached as OCI
+referrer next to the promoted digest, and says that the staging attestations
+of the digest passed the provenance policy of this project, and at which SLSA
+build level. Consumers that trust the promoter can verify this one summary
+instead of the provenance of every build, see
 [enforcing the verification in a cluster](#enforcing-the-verification-in-a-cluster).
+The [promoter's guide][promoter-guide] explains how projects get summaries for
+their images.
+
+### What a summary says
+
+To print the summary of the manifest list of a release, verify it with its
+signer and decode the statement:
+
+```console
+> cosign verify-attestation \
+    --type https://slsa.dev/verification_summary/v1 \
+    --certificate-identity promoter-summaries@k8s-releng-prod.iam.gserviceaccount.com \
+    --certificate-oidc-issuer https://accounts.google.com \
+    registry.k8s.io/security-profiles-operator/security-profiles-operator:$VERSION |
+    jq '.payload | @base64d | fromjson | .predicate'
+```
+
+It looks like this, without its input attestations:
+
+```json
+{
+  "verifier": {
+    "id": "https://k8s.io/promo-tools/verifier/v1",
+    "version": { "kpromo": "…" }
+  },
+  "timeVerified": "…",
+  "resourceUri": "registry.k8s.io/security-profiles-operator/security-profiles-operator@sha256:…",
+  "policy": {
+    "uri": "git+https://github.com/kubernetes/k8s.io#registry.k8s.io/manifests/k8s-staging-sp-operator/promoter-manifest.yaml",
+    "digest": { "gitCommit": "…" }
+  },
+  "verificationResult": "PASSED",
+  "verifiedLevels": ["SLSA_BUILD_LEVEL_3", "K8S_PROMOTION_MANIFEST_REVIEWED"],
+  "slsaVersion": "1.0"
+}
+```
+
+- `verifier.id` identifies the promoter. Other summaries of the digest, for
+  example one attached in staging, don't count.
+- `resourceUri` is the `registry.k8s.io` reference of the digest, which is
+  also the subject of the statement.
+- `policy` is the promoter manifest with the provenance policy and the commit
+  it was read at.
+- `verificationResult` is `PASSED`, or `FAILED` when the attestations of the
+  digest don't satisfy the policy.
+- `verifiedLevels` holds the SLSA build level the policy verified, from
+  `SLSA_BUILD_LEVEL_1` to `SLSA_BUILD_LEVEL_3`, see [levels](#levels), and
+  `K8S_PROMOTION_MANIFEST_REVIEWED`. A passed summary without a verified level
+  has `SLSA_BUILD_LEVEL_UNEVALUATED` instead, which is why the commands below
+  match the numbered levels only, and a failed summary has only `FAILED`.
+- `inputAttestations` lists the staging attestations the policy accepted, by
+  digest, which the promoter carried to `registry.k8s.io` as well.
+
+### Verify a summary
 
 The promoter signs its summaries with an identity of their own,
 `promoter-summaries@k8s-releng-prod.iam.gserviceaccount.com`, which only the
@@ -293,30 +347,57 @@ and at which level:
       | select(.verifier.id == "https://k8s.io/promo-tools/verifier/v1")
       | .verificationResult == "PASSED" and
         any(.verifiedLevels[]; test("^SLSA_BUILD_LEVEL_[123]$"))'
+true
 ```
 
-The verifier ID `https://k8s.io/promo-tools/verifier/v1` is what identifies
-the promoter, other summaries of the digest, for example one attached in
-staging, don't count. `verifiedLevels` holds the one SLSA build level the
-policy verified for the digest, and `K8S_PROMOTION_MANIFEST_REVIEWED`. So the
-command accepts any level, require `SLSA_BUILD_LEVEL_3` instead where only
-level 3 will do. The level is `SLSA_BUILD_LEVEL_3` for `spoc`, the Helm chart
-and the per-arch images, and so for the platform manifests and the manifest
-list of the container image, through their GitHub provenance, see
-[OCI artifacts](release.md#oci-artifacts) and
-[per-arch images](release.md#per-arch-images). It is `SLSA_BUILD_LEVEL_1` for
-the operator bundle and catalog and the profiles, which only have the
-provenance of Cloud Build, and for the container images of a release that
-had to be promoted without the GitHub provenance, see
-[per-arch images](release.md#per-arch-images). `resourceUri` is the
-`registry.k8s.io` reference of the digest, `inputAttestations` the staging
-attestations the policy accepted, and `policy` the promoter manifest with the
-policy and the commit it was read at.
+Both the signer and the verifier ID matter: `verifier.id` is just a field of
+the statement, only the signature of `promoter-summaries` makes it the
+promoter's. `PASSED` alone only says that the digest was promoted from a
+reviewed promoter manifest, so check the level as well. The command accepts
+any level, require `SLSA_BUILD_LEVEL_3` instead where only level 3 will do.
 
-A digest keeps the summary of its first promotion. One that was promoted
-without a summary only has one if a later promoter run repaired it, and a
-digest that doesn't satisfy the policy gets a failed summary, see
-[older releases](#older-releases).
+The [SLSA verifier][slsa-verifier] checks the same on a downloaded summary,
+here at level 3, bound to the digest:
+
+```console
+> cosign download attestation \
+    --predicate-type https://slsa.dev/verification_summary/v1 \
+    registry.k8s.io/security-profiles-operator/security-profiles-operator:$VERSION >vsa.sigstore.json
+> slsa-verifier vsa \
+    --verifier 'https://k8s.io/promo-tools/verifier/v1=sigstore::https://accounts.google.com::promoter-summaries@k8s-releng-prod.iam.gserviceaccount.com' \
+    --level SLSA_BUILD_LEVEL_3 \
+    --subject "$(crane digest registry.k8s.io/security-profiles-operator/security-profiles-operator:$VERSION)" \
+    vsa.sigstore.json
+```
+
+### Levels
+
+A digest gets the highest level of its provenances that pass the policy. The
+manifest list has no provenance of its own and gets the level of its platform
+manifests:
+
+| Artifact on `registry.k8s.io` | Level | Provenance |
+| ----------------------------- | ----- | ---------- |
+| Container image: manifest list, platform manifests and per-arch images | `SLSA_BUILD_LEVEL_3` | GitHub (plus Cloud Build at level 1), see [per-arch images](release.md#per-arch-images) |
+| `spoc` | `SLSA_BUILD_LEVEL_3` | GitHub, see [OCI artifacts](release.md#oci-artifacts) |
+| Helm chart | `SLSA_BUILD_LEVEL_3` | GitHub, see [OCI artifacts](release.md#oci-artifacts) |
+| Operator bundle and catalog | `SLSA_BUILD_LEVEL_1` | Cloud Build |
+| Security profiles | `SLSA_BUILD_LEVEL_1` | Cloud Build |
+
+The container images of a release that had to be promoted without the GitHub
+provenance only reach level 1, see [per-arch images](release.md#per-arch-images).
+
+### Missing and failed summaries
+
+The promoter writes the summary of a digest once, when it promotes it or, if
+that failed, in the repair of a later run, and never replaces it:
+
+- A digest that doesn't satisfy the policy keeps a `FAILED` summary, like the
+  images of the [older releases](#older-releases).
+- A digest promoted before the promoter wrote summaries has none, unless a
+  later repair reached it while its staging images still existed.
+
+A cluster policy that requires a passed summary rejects both.
 
 ## Enforcing the verification in a cluster
 
@@ -352,7 +433,7 @@ the identity that signs its summaries, and requires a summary:
           }
         ]
       },
-      "vsa": { "missingPolicy": "deny" }
+      "vsa": { "missingPolicy": "deny", "minimumLevel": 1 }
     }
   ]
 }
@@ -363,10 +444,10 @@ which is where the promoter writes the summaries of the manifest list and its
 platform manifests. `vsa.missingPolicy: deny` rejects every digest without a
 passed summary of the promoter, which includes the
 [older releases](#older-releases), so roll the rule out in the `warn` mode of
-the plugin first, which only logs. `vsa.minimumLevel` can require a SLSA
-build level on top. The rule matches the operator bundle and catalog too,
-which OLM runs on the nodes and which only reach level 1, so require level 3
-in a rule for the operator image only, or level 1 for all of them. An
+the plugin first, which only logs. `vsa.minimumLevel: 1` rejects summaries
+that claim no level, see [levels](#levels). The rule matches the operator
+bundle and catalog too, which OLM runs on the nodes and which only reach
+level 1, so require level 3 in a rule for the operator image only. An
 `exclude` pattern that matches the images, like `registry.k8s.io/**`, skips
 the rule. The policy documentation of the plugin explains the rule and its
 options in
@@ -375,8 +456,8 @@ options in
 plugin and which system images to exclude.
 
 Other verifiers work as well, as long as they pin both the verifier ID and the
-signer of the summary, for example `slsa-verifier vsa`, see the
-[promoter documentation][promoter-summaries].
+signer of the summary, for example `slsa-verifier vsa`, see
+[verify a summary](#verify-a-summary).
 
 ## Command line binaries
 
@@ -621,8 +702,10 @@ v1.1.0 and the releases before it predate most of this page:
 [promoter]: https://github.com/kubernetes-sigs/promo-tools/blob/main/docs/image-promotion.md
 [promoter-carry]: https://github.com/kubernetes-sigs/promo-tools/blob/main/docs/image-promotion.md#carrying-staging-attestations
 [promoter-policies]: https://github.com/kubernetes-sigs/promo-tools/blob/main/docs/image-promotion.md#provenance-policies
+[promoter-guide]: https://github.com/kubernetes-sigs/promo-tools/blob/main/docs/verification-summaries.md
 [promoter-summaries]: https://github.com/kubernetes-sigs/promo-tools/blob/main/docs/image-promotion.md#verification-summaries
 [releases]: https://github.com/kubernetes-sigs/security-profiles-operator/releases/latest
 [sigstore]: https://www.sigstore.dev
 [slsa]: https://slsa.dev
 [slsa-l3]: https://slsa.dev/spec/v1.0/levels#build-l3
+[slsa-verifier]: https://github.com/slsa-framework/verifier
