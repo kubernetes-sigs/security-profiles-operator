@@ -646,14 +646,15 @@ real job always verifies the provenance of this repository.
 
 ## The provenance signer
 
-The policy trusts provenance signed by `provenance.yml` at a `v*` tag at
-level 3, and the release artifacts job and the commands of
-[verification.md](verification.md) verify the same identity. That identity,
-the subject alternative name of the signing certificate, is the reusable
-workflow at the ref its caller referenced it with, the `job_workflow_ref`
-claim of the OIDC token of the job. Any workflow can call a reusable workflow
-of a public repository, also one on a branch, in a pull request or in another
-repository, as
+The policy trusts provenance signed by `provenance.yml` at a `v*` tag or at
+`main` at level 3, see [OCI artifacts](#oci-artifacts). The release artifacts
+job and the commands of [verification.md](verification.md) verify the identity
+of the tag, the staging build the one of `main` for the [security
+profiles](#security-profiles). The identity, the subject alternative name of
+the signing certificate, is the reusable workflow at the ref its caller
+referenced it with, the `job_workflow_ref` claim of the OIDC token of the job.
+Any workflow can call a reusable workflow of a public repository, also one on
+a branch, in a pull request or in another repository, as
 `kubernetes-sigs/security-profiles-operator/.github/workflows/provenance.yml@vx.y.z`,
 which would get it the identity of that tag for subjects of its choice. So the
 first step of [`provenance.yml`](../.github/workflows/provenance.yml) reads
@@ -667,18 +668,22 @@ and fails the job before anything is signed, unless:
   the `build.yml`, `helm-chart-package.yaml` or `image-reproducible.yml`
   workflow of the tag,
 - otherwise, the ref is `main` and the run is for a push, by `build.yml`,
-  which gives the `spoc` builds of `main` provenance with the identity
-  `provenance.yml@refs/heads/main`.
+  which gives the security profiles of `main` provenance with the identity
+  `provenance.yml@refs/heads/main`. The `spoc` builds of `main` get none,
+  since they may substitute from the Cachix cache, see
+  [verification.md](verification.md).
 
 So the identity of a `v*` tag only stems from a release of that tag in this
 repository, which only the release managers can create, see the tag ruleset
-above. Releases up to v1.1.0 have no `provenance.yml`, so no tag has it without
-these checks. A fork gets identities of its own repository, which is what
-allows to [rehearse](#rehearsing-the-release-artifacts-job) the release
-artifacts job there. The release artifacts job and the `cosign` commands of
+above, and the identity of `main` only from a push to it, which only happens
+through reviewed pull requests. Releases up to v1.1.0 have no
+`provenance.yml`, so no tag has it without these checks. A fork gets
+identities of its own repository, which is what allows to
+[rehearse](#rehearsing-the-release-artifacts-job) the release artifacts job
+there. The release artifacts job and the `cosign` commands of
 [verification.md](verification.md) check the repository, ref and trigger of
 the certificate as well, the image promoter only checks the identity, which
-these checks bind to a release.
+these checks bind to a release or to a push to `main`.
 
 ## Staging attestations
 

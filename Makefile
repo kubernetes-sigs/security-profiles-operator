@@ -1015,7 +1015,11 @@ CATALOG_DIR = $(BUILD_DIR)/catalog
 
 # Render the file-based catalog of the bundle images into $(CATALOG_DIR). The
 # catalog only depends on the bundles, the preamble and opm, with fixed file
-# modes, so that hack/image-cross.sh builds it reproducibly.
+# modes, so that hack/image-cross.sh builds it reproducibly. The catalog gets
+# rendered a second time from its own directory, so that opm writes the
+# preamble as well and sorts the related images after the CATALOG_BUNDLE_REPO
+# rewrite, the same as a render from CATALOG_BUNDLE_REPO. That render pulls no
+# images, so it needs no OPM_EXTRA_ARGS.
 .PHONY: catalog-context
 catalog-context: opm ## Render the file-based catalog into the build context of catalog.Dockerfile.
 	rm -rf $(CATALOG_DIR) $(CATALOG_DIR).opm
@@ -1027,6 +1031,8 @@ ifneq ($(CATALOG_BUNDLE_REPO),)
 	$(SED) 's#"$(BUNDLE_REPO)@sha256:#"$(CATALOG_BUNDLE_REPO)@sha256:#g' $(CATALOG_DIR)/configs/security-profiles-operator-catalog.json
 	! grep -F '"$(BUNDLE_REPO)@' $(CATALOG_DIR)/configs/security-profiles-operator-catalog.json
 endif
+	XDG_RUNTIME_DIR=$(abspath $(CATALOG_DIR).opm) $(OPM) render $(CATALOG_DIR)/configs > $(CATALOG_DIR).opm/catalog.json
+	mv $(CATALOG_DIR).opm/catalog.json $(CATALOG_DIR)/configs/security-profiles-operator-catalog.json
 	chmod 0755 $(CATALOG_DIR)/configs
 	chmod 0644 $(CATALOG_DIR)/configs/security-profiles-operator-catalog.json
 	rm -rf $(CATALOG_DIR).opm
