@@ -222,10 +222,14 @@ jobs:
           name: spoc-signatures
           path: build/*.sigstore.json
 
-  # SLSA Build L3 provenance for the binaries and the SBOMs, generated from
-  # their digests by the isolated provenance workflow.
+  # SLSA Build L3 provenance for the binaries and the SBOMs of a release,
+  # generated from their digests by the isolated provenance workflow. Builds of
+  # main may substitute from the Cachix cache, which CI jobs running repository
+  # code can write to, so they get no provenance with the identity of main,
+  # which the image promoter trusts at level 3 for the security profiles.
   spoc-provenance:
     needs: spoc-sbom
+    if: github.event_name == 'release'
     name: spoc / provenance
     permissions:
       attestations: write  # required for storing the provenance
