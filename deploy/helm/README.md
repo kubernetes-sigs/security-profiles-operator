@@ -29,7 +29,7 @@ please refer to [Installation Guide](https://github.com/kubernetes-sigs/security
 | enableLogEnricher | bool | `false` | enable log enricher or not |
 | enableJsonEnricher | bool | `false` | enable audit JSON enricher or not |
 | enableProfiling | bool | `false` | enable profiling or not |
-| enableSelinux | bool | `false` | deprecated, use `selinux.enable` instead |
+| enableSelinux | bool | unset | deprecated, use `selinux.enable` instead |
 | fullnameOverride | string | `""` | override the generated full name |
 | imagePullSecrets | list | `[]` | secrets for pulling the images from a private registry, for example `[{name: my-pull-secret}]`; they apply to the operator deployment and, through `spec.imagePullSecrets` of the SPOD, to the daemon and the webhook |
 | kubeletDir | string | `"/var/lib/kubelet"` | the kubelet root directory of the nodes, where the seccomp profiles get installed |
@@ -47,7 +47,7 @@ please refer to [Installation Guide](https://github.com/kubernetes-sigs/security
 | resources.requests.cpu | string | `"250m"` | cpu requests for the pod |
 | resources.requests.memory | string | `"50Mi"` | memory requests for pod |
 | selinux.customTemplatesConfigMap | string | `""` | ConfigMap with .cil files replacing the bundled selinuxd templates |
-| selinux.enable | bool | unset | enable selinux or not, overrides `enableSelinux` |
+| selinux.enable | bool | unset | enable selinux or not, overrides `enableSelinux`; unset enables it on OpenShift only |
 | selinux.enableRawSelinuxProfiles | bool | `true` | enable RawSelinuxProfile support or not |
 | selinux.options | object | `{}` | SELinux policy restrictions, see `spec.selinux.options` of the SPOD |
 | selinux.typeTag | string | `"spc_t"` | the SELinux type of the daemon pod |

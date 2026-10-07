@@ -129,9 +129,9 @@ func (i *Info) String() string {
 
 	v := reflect.ValueOf(*i)
 
-	t := v.Type()
-	for i := range t.NumField() {
-		field := t.Field(i)
+	var lines []string
+
+	for field := range v.Type().Fields() {
 		value := v.FieldByName(field.Name)
 
 		valueString := ""
@@ -142,7 +142,7 @@ func (i *Info) String() string {
 
 		case reflect.Slice:
 			// Only expecting []string here; ignore other slices.
-			if s, ok := reflect.TypeAssert[[]string](value); ok {
+			if s, ok := reflect.TypeAssert[[]string](value); ok && len(s) > 0 {
 				const sep = "\n  "
 
 				valueString = sep + strings.Join(s, sep)
@@ -153,14 +153,11 @@ func (i *Info) String() string {
 		}
 
 		if valueString != "" {
-			fmt.Fprintf(w, "%s:\t%s", field.Name, valueString)
-
-			if i+1 < t.NumField() {
-				fmt.Fprintf(w, "\n")
-			}
+			lines = append(lines, field.Name+":\t"+valueString)
 		}
 	}
 
+	fmt.Fprint(w, strings.Join(lines, "\n"))
 	w.Flush()
 
 	return b.String()
@@ -191,7 +188,7 @@ func (i *Info) AsKeyValues() []any {
 		"libbpf", i.Libbpf,
 		"buildTags", i.BuildTags,
 		"ldFlags", i.LDFlags,
-		"cgoldFlags", i.CGOLDFlags,
+		"cgoLdflags", i.CGOLDFlags,
 		"dependencies", strings.Join(i.Dependencies, ","),
 	}
 }

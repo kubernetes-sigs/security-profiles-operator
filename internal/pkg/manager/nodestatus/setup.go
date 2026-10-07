@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -40,7 +41,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
-// Setup adds a controller that reconciles the SPOd DaemonSet.
+// Setup adds a controller that aggregates the node statuses of the profiles.
 func (r *StatusReconciler) Setup(
 	ctx context.Context,
 	mgr ctrl.Manager,
@@ -88,7 +89,45 @@ func (r *StatusReconciler) Setup(
 		Watches(&apparmorapi.AppArmorProfile{},
 			handler.EnqueueRequestsFromMapFunc(r.statusRequests("AppArmorProfile")),
 			generationChanged).
+		// The status of a deleted node is dropped from the aggregation, which
+		// nothing else triggers.
+		Watches(&corev1.Node{},
+			handler.EnqueueRequestsFromMapFunc(r.deletedNodeRequests),
+			builder.OnlyMetadata,
+			builder.WithPredicates(predicate.Funcs{
+				CreateFunc:  func(event.CreateEvent) bool { return false },
+				DeleteFunc:  func(event.DeleteEvent) bool { return true },
+				UpdateFunc:  func(event.UpdateEvent) bool { return false },
+				GenericFunc: func(event.GenericEvent) bool { return false },
+			})).
 		Complete(r)
+}
+
+// deletedNodeRequests maps a deleted node to the requests of the profiles
+// which it has a status of.
+func (r *StatusReconciler) deletedNodeRequests(
+	ctx context.Context, obj client.Object,
+) []reconcile.Request {
+	statuses := &secprofnodestatusapi.SecurityProfileNodeStatusList{}
+	// The statuses live next to their profiles.
+	if err := r.client.List(ctx, statuses,
+		client.MatchingLabels{
+			secprofnodestatusapi.StatusToNodeLabel: util.NodeNameLabelValue(obj.GetName()),
+		},
+	); err != nil {
+		r.log.Error(err, "Cannot list the statuses of a deleted node", "node", obj.GetName())
+
+		return nil
+	}
+
+	// The work queue drops the duplicate requests of the statuses of a
+	// profile.
+	requests := make([]reconcile.Request, 0, len(statuses.Items))
+	for i := range statuses.Items {
+		requests = append(requests, r.siblingStatusRequests(ctx, &statuses.Items[i])...)
+	}
+
+	return requests
 }
 
 // nodeStatusChanged passes the updates of a node status which matter for the

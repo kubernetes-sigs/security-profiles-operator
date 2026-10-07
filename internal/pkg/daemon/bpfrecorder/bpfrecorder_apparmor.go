@@ -129,7 +129,8 @@ type AppArmorRecorder struct {
 	lockTrackedKeys sync.Mutex
 
 	maxPathsWarned map[recordingKey]bool
-	maxKeysWarned  bool
+	// maxKeysWarned is guarded by lockTrackedKeys.
+	maxKeysWarned bool
 
 	// excluded holds the keys of workloads which are not recorded. Events
 	// for them which are still in flight are dropped.
@@ -200,6 +201,13 @@ func (b *AppArmorRecorder) Exclude(key uint64) {
 	b.lockExcluded.Unlock()
 
 	b.Clear([]uint64{key})
+}
+
+// Unexclude forgets an excluded key, whose workload is gone.
+func (b *AppArmorRecorder) Unexclude(key uint64) {
+	b.lockExcluded.Lock()
+	delete(b.excluded, recordingKey(key))
+	b.lockExcluded.Unlock()
 }
 
 func (b *AppArmorRecorder) isExcluded(key uint64) bool {
@@ -291,10 +299,10 @@ func (b *AppArmorRecorder) StopRecording(r *BpfRecorder) error {
 	clear(b.recordedCapabilities)
 	clear(b.recordedFiles)
 	clear(b.maxPathsWarned)
-	b.maxKeysWarned = false
 
 	b.lockTrackedKeys.Lock()
 	clear(b.trackedKeys)
+	b.maxKeysWarned = false
 	b.lockTrackedKeys.Unlock()
 
 	b.lockExcluded.Lock()
@@ -346,13 +354,17 @@ func (b *AppArmorRecorder) trackKey(key recordingKey) bool {
 
 // normalizePath returns the path the profile gets for a path the kernel
 // reported, and whether it is left out of the profile.
-func (b *AppArmorRecorder) normalizePath(fileName string) normalizedPath {
+func (b *AppArmorRecorder) normalizePath(raw []byte) normalizedPath {
 	b.lockNormalizedPaths.Lock()
 	defer b.lockNormalizedPaths.Unlock()
 
-	if normalized, ok := b.normalizedPaths[fileName]; ok {
+	// The lookup with the converted bytes does not allocate, which matters
+	// as this runs for every file event.
+	if normalized, ok := b.normalizedPaths[string(raw)]; ok {
 		return normalized
 	}
+
+	fileName := string(raw)
 
 	path := ReplaceVarianceInFilePath(sanitizeFilePath(fileName))
 	normalized := normalizedPath{path: path, excluded: shouldExcludeFile(path)}
@@ -373,19 +385,19 @@ func (b *AppArmorRecorder) handleFileEvent(fileEvent *bpfEvent) {
 		return
 	}
 
-	fileName := fileDataToString(fileEvent.Data)
+	raw := fileData(fileEvent.Data)
 
 	// A profile only takes absolute paths, a single other one would get the
 	// whole recorded profile rejected.
-	if !strings.HasPrefix(fileName, "/") {
+	if !bytes.HasPrefix(raw, []byte{'/'}) {
 		b.logger.V(config.VerboseLevel).Info("Skipping file without an absolute path",
-			"filename", fileName, "pid", fileEvent.Pid, "key", fileEvent.Key)
+			"filename", string(raw), "pid", fileEvent.Pid, "key", fileEvent.Key)
 
 		return
 	}
 
-	normalized := b.normalizePath(fileName)
-	fileName = normalized.path
+	normalized := b.normalizePath(raw)
+	fileName := normalized.path
 
 	// This runs for every file event, so the arguments are only built if the
 	// line gets logged.
@@ -413,19 +425,20 @@ func (b *AppArmorRecorder) handleFileEvent(fileEvent *bpfEvent) {
 		b.recordedFiles[key] = map[string]*fileAccess{}
 	}
 
-	// Enforce a limit on max tracked files to avoid OOM.
-	if len(b.recordedFiles[key]) >= maxTrackedPaths {
-		if !b.maxPathsWarned[key] {
-			b.logger.Info("Max tracked files reached, profile will be truncated",
-				"key", key, "limit", maxTrackedPaths)
-			b.maxPathsWarned[key] = true
-		}
-
-		return
-	}
-
 	path, ok := b.recordedFiles[key][fileName]
 	if !ok {
+		// Enforce a limit on max tracked files to avoid OOM. The paths which
+		// are tracked already still gather their access flags.
+		if len(b.recordedFiles[key]) >= maxTrackedPaths {
+			if !b.maxPathsWarned[key] {
+				b.logger.Info("Max tracked files reached, profile will be truncated",
+					"key", key, "limit", maxTrackedPaths)
+				b.maxPathsWarned[key] = true
+			}
+
+			return
+		}
+
 		path = &fileAccess{}
 		b.recordedFiles[key][fileName] = path
 	}
@@ -932,10 +945,10 @@ func (b *AppArmorRecorder) processCapabilities(keys []uint64) ([]string, bool) {
 	return slices.Compact(ret), found
 }
 
-// fileDataToString returns the path of a file event. The BPF program sends
-// the path with its terminating NUL byte and nothing after it.
-func fileDataToString(data []byte) string {
-	return string(bytes.TrimSuffix(data, []byte{0}))
+// fileData returns the path of the data of a file event. The BPF program
+// sends the path with its terminating NUL byte and nothing after it.
+func fileData(data []byte) []byte {
+	return bytes.TrimSuffix(data, []byte{0})
 }
 
 func isKnownFile(path string, knownPrefixes []string) bool {

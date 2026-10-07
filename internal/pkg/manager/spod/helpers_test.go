@@ -164,6 +164,22 @@ func Test_isExecMetadataEnabled(t *testing.T) {
 		"the environment enables the JSON enricher")
 }
 
+func Test_defaultProfiles(t *testing.T) {
+	t.Parallel()
+
+	r := &ReconcileSPOd{}
+	cfg := &spodapi.SecurityProfilesOperatorDaemon{}
+	require.Empty(t, r.defaultProfiles(cfg))
+
+	cfg.Spec.Enricher.EnableLogEnricher = new(true)
+	require.Len(t, r.defaultProfiles(cfg), 1)
+
+	// The recording webhook refers to the profile of the log enricher as well
+	// when only the environment enables it.
+	r.env.enableLogEnricher = true
+	require.Len(t, r.defaultProfiles(&spodapi.SecurityProfilesOperatorDaemon{}), 1)
+}
+
 func Test_envFlagsFromEnvironment(t *testing.T) {
 	t.Setenv(config.EnableLogEnricherEnvKey, "true")
 	t.Setenv(config.EnableJsonEnricherEnvKey, "1")

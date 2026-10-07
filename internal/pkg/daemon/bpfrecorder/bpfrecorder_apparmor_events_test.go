@@ -44,7 +44,7 @@ func fileEvent(key, flags uint64, path string) *bpfEvent {
 	return &bpfEvent{
 		Pid:   1,
 		Key:   key,
-		Type:  uint8(eventTypeAppArmorFile),
+		Type:  eventTypeAppArmorFile,
 		Flags: flags,
 		Data:  []byte(path + "\x00"),
 	}
@@ -126,6 +126,10 @@ func TestHandleFileEvent(t *testing.T) {
 
 		require.Len(t, sut.recordedFiles[recordingKey(testKey)], maxTrackedPaths)
 		require.True(t, sut.maxPathsWarned[recordingKey(testKey)])
+
+		// A tracked path still gathers its access flags.
+		sut.handleFileEvent(fileEvent(testKey, flagWrite, "/f/0"))
+		require.True(t, sut.recordedFiles[recordingKey(testKey)]["/f/0"].write)
 	})
 
 	t.Run("stops tracking keys past the limit", func(t *testing.T) {

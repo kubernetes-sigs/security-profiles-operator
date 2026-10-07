@@ -328,7 +328,8 @@ func (sp *SeccompProfile) IsReconcilable() bool {
 type SeccompProfileList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []SeccompProfile `json:"items"`
+	// Items is the list of SeccompProfile objects.
+	Items []SeccompProfile `json:"items"`
 }
 
 func init() { //nolint:gochecknoinits // required to init scheme

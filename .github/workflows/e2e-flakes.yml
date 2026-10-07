@@ -13,6 +13,10 @@ on:
     - cron: '23 2 * * *'
   workflow_dispatch:
 
+env:
+  # The version of nix the kubernix jobs install, see nix in dependencies.yaml.
+  NIX_VERSION: '2.35.2'
+
 permissions: {}
 
 concurrency:
@@ -61,10 +65,10 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: ./go.mod
-      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+      - uses: ./.github/actions/setup-nix
         with:
-          extra_nix_config: |
-            experimental-features = nix-command flakes
+          nix-version: ${{ env.NIX_VERSION }}
+          cachix: none
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: image

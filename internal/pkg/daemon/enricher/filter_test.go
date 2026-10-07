@@ -436,3 +436,34 @@ func TestApplyEnricherFiltersMatchesAnyNumericValue(t *testing.T) {
 		})
 	}
 }
+
+func TestConvertToInt(t *testing.T) {
+	t.Parallel()
+
+	uid := uint32(1000)
+
+	for _, tc := range []struct {
+		name   string
+		val    any
+		want   int
+		wantOk bool
+	}{
+		{name: "int", val: 1, want: 1, wantOk: true},
+		{name: "int8", val: int8(-2), want: -2, wantOk: true},
+		{name: "int16", val: int16(3), want: 3, wantOk: true},
+		{name: "int32", val: int32(4), want: 4, wantOk: true},
+		{name: "int64", val: int64(5), want: 5, wantOk: true},
+		{name: "uint32", val: uint32(6), want: 6, wantOk: true},
+		{name: "uint32 pointer", val: &uid, want: 1000, wantOk: true},
+		{name: "nil uint32 pointer", val: (*uint32)(nil)},
+		{name: "string", val: "7"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, ok := convertToInt(tc.val)
+			require.Equal(t, tc.wantOk, ok)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}

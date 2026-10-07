@@ -48,8 +48,6 @@ const (
 	targetProfileDir string = "/etc/apparmor.d/"
 
 	errInvalidCustomResourceType string = "invalid CRD kind"
-	errProfileExists             string = "profile exists"
-	errRuntimeProfile            string = "profile name is reserved for a container runtime"
 
 	// managedByMarker is written as the first line of every policy file this
 	// operator installs, and is what makes a profile ours. Mere existence of a
@@ -134,7 +132,7 @@ func (a *aaProfileManager) InstallProfile(
 	// below would let an AppArmorProfile claim its name and later replace or
 	// unload it. Nothing legitimate needs to install one of those names.
 	if isRuntimeProfile(profile.GetProfileName()) {
-		return false, errors.New(errRuntimeProfile)
+		return false, ErrRuntimeProfile
 	}
 
 	// Avoid overwriting a profile that the host already owns. A policy that is
@@ -152,7 +150,7 @@ func (a *aaProfileManager) InstallProfile(
 	if a.checkProfileExist(a.logger, profile.GetProfileName()) &&
 		!ownedByUs &&
 		!a.profileManagedByUs(a.logger, profile.GetProfileName()) {
-		return false, errors.New(errProfileExists)
+		return false, ErrProfileExists
 	}
 
 	policy, err := crd2armor.GenerateProfile(

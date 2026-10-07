@@ -2207,6 +2207,8 @@ spec:
                       SCMP_ACT_ALLOW, SCMP_ACT_LOG, SCMP_ACT_TRACE and SCMP_ACT_NOTIFY. If
                       unset, all of them are checked.
                     items:
+                      description: Action is the action of a seccomp profile for a
+                        syscall.
                       enum:
                       - SCMP_ACT_KILL
                       - SCMP_ACT_KILL_PROCESS
@@ -2789,7 +2791,7 @@ spec:
       name: Usage
       type: string
     - jsonPath: .status.status
-      name: State
+      name: Status
       type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
@@ -2959,7 +2961,7 @@ spec:
       name: Usage
       type: string
     - jsonPath: .status.status
-      name: State
+      name: Status
       type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
@@ -3244,14 +3246,22 @@ spec:
                     description: executable defines rules for allowed executables.
                     properties:
                       allowedExecutables:
-                        description: allowedExecutables is a list of allowed executables.
+                        description: |-
+                          allowedExecutables is a list of allowed executables.
+                          Entries of the form "ptrace (read)," are deprecated: use
+                          abstract.ptrace instead. They are still accepted and rendered as ptrace
+                          rules, but support for them will be removed in a future API version.
                         items:
                           pattern: ^(?:/(?:[a-zA-Z0-9_./*?+@ -]|@\{[a-zA-Z0-9_]+\})*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$
                           type: string
                         type: array
                         x-kubernetes-list-type: set
                       allowedLibraries:
-                        description: allowedLibraries is a list of allowed libraries.
+                        description: |-
+                          allowedLibraries is a list of allowed libraries.
+                          Entries of the form "ptrace (read)," are deprecated: use
+                          abstract.ptrace instead. They are still accepted and rendered as ptrace
+                          rules, but support for them will be removed in a future API version.
                         items:
                           pattern: ^(?:/(?:[a-zA-Z0-9_./*?+@ -]|@\{[a-zA-Z0-9_]+\})*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$
                           type: string
@@ -3694,14 +3704,6 @@ rules:
   - update
   - watch
 - apiGroups:
-  - apps
-  resources:
-  - daemonsets/finalizers
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
   - cert-manager.io
   resources:
   - certificates
@@ -4036,6 +4038,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: security-profiles-operator
+  namespace: security-profiles-operator
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -4097,6 +4100,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: spo-webhook
+  namespace: security-profiles-operator
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
@@ -4772,6 +4776,7 @@ spec:
           periodSeconds: 3
       priorityClassName: system-cluster-critical
       securityContext:
+        runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
       serviceAccountName: security-profiles-operator

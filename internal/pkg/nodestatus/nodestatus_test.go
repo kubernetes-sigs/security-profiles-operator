@@ -158,8 +158,8 @@ func TestRemoveLegacyNodeStatus(t *testing.T) {
 				if key.Name == "test-profile-"+nodeName {
 					if ns, ok := obj.(*secprofnodestatusapi.SecurityProfileNodeStatus); ok {
 						ns.Labels = map[string]string{
-							secprofnodestatusapi.StatusToProfLabel: util.KindBasedDNSLengthName(
-								regularSeccompProfile(),
+							secprofnodestatusapi.StatusToProfLabel: util.KindNameDNSLengthName(
+								"SeccompProfile", regularSeccompProfile().GetName(),
 							),
 						}
 					}
@@ -224,8 +224,8 @@ func TestRemoveLegacyNodeStatus(t *testing.T) {
 				if key.Name == "test-profile-"+nodeName {
 					if ns, ok := obj.(*secprofnodestatusapi.SecurityProfileNodeStatus); ok {
 						ns.Labels = map[string]string{
-							secprofnodestatusapi.StatusToProfLabel: util.KindBasedDNSLengthName(
-								regularSeccompProfile(),
+							secprofnodestatusapi.StatusToProfLabel: util.KindNameDNSLengthName(
+								"SeccompProfile", regularSeccompProfile().GetName(),
 							),
 						}
 					}

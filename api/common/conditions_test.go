@@ -111,6 +111,32 @@ func TestSetConditions(t *testing.T) {
 		require.Len(t, status.Conditions, 1)
 		require.Equal(t, metav1.Unix(1, 0), status.Conditions[0].LastTransitionTime)
 	})
+
+	t.Run("keeps the transition time if only the reason changes", func(t *testing.T) {
+		t.Parallel()
+
+		old := Creating()
+		old.LastTransitionTime = metav1.Unix(1, 0)
+
+		status := &ConditionedStatus{Conditions: []metav1.Condition{old}}
+		status.SetConditions(Unavailable("failed"))
+
+		require.Len(t, status.Conditions, 1)
+		require.Equal(t, string(ReasonUnavailable), status.Conditions[0].Reason)
+		require.Equal(t, metav1.Unix(1, 0), status.Conditions[0].LastTransitionTime)
+	})
+
+	t.Run("sets the transition time if the status changes", func(t *testing.T) {
+		t.Parallel()
+
+		old := Creating()
+		old.LastTransitionTime = metav1.Unix(1, 0)
+
+		status := &ConditionedStatus{Conditions: []metav1.Condition{old}}
+		status.SetConditions(Available())
+
+		require.NotEqual(t, metav1.Unix(1, 0), status.Conditions[0].LastTransitionTime)
+	})
 }
 
 func TestEqual(t *testing.T) {

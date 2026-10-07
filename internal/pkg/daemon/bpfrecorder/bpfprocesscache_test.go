@@ -214,7 +214,7 @@ func TestBpfProcessCacheIgnoresOtherEvents(t *testing.T) {
 
 	event := make([]byte, bpfEventHeaderSize)
 	binary.LittleEndian.PutUint32(event[0:], 1)
-	event[16] = byte(eventTypeClearMntns)
+	event[16] = eventTypeClearMntns
 
 	b.handleEvent(event)
 

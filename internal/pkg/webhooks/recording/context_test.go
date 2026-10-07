@@ -104,39 +104,6 @@ func TestUpdateSelinuxSecurityContext(t *testing.T) {
 	})
 }
 
-func TestUpdateApparmorSecurityContext(t *testing.T) {
-	t.Parallel()
-
-	t.Run("logs recorder is not supported", func(t *testing.T) {
-		t.Parallel()
-
-		sut, fake := eventRecorder()
-		ctr := &corev1.Container{Name: "container"}
-
-		sut.updateApparmorSecurityContext(
-			ctr,
-			logsRecording(profilerecordingapi.ProfileRecordingKindAppArmorProfile),
-		)
-
-		require.Nil(t, ctr.SecurityContext)
-		requireEvent(t, fake, "AppArmorNotSupported")
-	})
-
-	t.Run("bpf recorder needs no security context", func(t *testing.T) {
-		t.Parallel()
-
-		sut, fake := eventRecorder()
-		ctr := &corev1.Container{Name: "container"}
-		rec := logsRecording(profilerecordingapi.ProfileRecordingKindAppArmorProfile)
-		rec.Spec.Recorder = profilerecordingapi.ProfileRecorderBpf
-
-		sut.updateApparmorSecurityContext(ctr, rec)
-
-		require.Nil(t, ctr.SecurityContext)
-		require.Empty(t, fake.Events)
-	})
-}
-
 func TestUpdateSecurityContext(t *testing.T) {
 	t.Parallel()
 

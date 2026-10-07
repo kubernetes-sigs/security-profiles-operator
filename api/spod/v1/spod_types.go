@@ -543,7 +543,7 @@ type SecurityProfilesOperatorDaemon struct {
 
 	// spec defines the desired state of the SecurityProfilesOperatorDaemon.
 	// +optional
-	Spec SPODSpec `json:"spec,omitempty"` //nolint:kubeapilinter // spec is a value by convention
+	Spec SPODSpec `json:"spec,omitzero"` //nolint:kubeapilinter // spec is a value by convention
 	// status contains the observed state of the SecurityProfilesOperatorDaemon.
 	// +optional
 	Status SPODStatus `json:"status,omitzero"` //nolint:kubeapilinter // status is a value by convention
@@ -555,7 +555,8 @@ type SecurityProfilesOperatorDaemon struct {
 type SecurityProfilesOperatorDaemonList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []SecurityProfilesOperatorDaemon `json:"items"`
+	// Items is the list of SecurityProfilesOperatorDaemon objects.
+	Items []SecurityProfilesOperatorDaemon `json:"items"`
 }
 
 func (s *SPODStatus) StatePending() {

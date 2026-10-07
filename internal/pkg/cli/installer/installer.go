@@ -19,6 +19,7 @@ package installer
 import (
 	"errors"
 	"fmt"
+	"log"
 
 	"github.com/go-logr/logr"
 	"github.com/hairyhenderson/go-which"
@@ -60,42 +61,59 @@ func (p *Installer) Run() error {
 		return fmt.Errorf("open profile: %w", err)
 	}
 
-	profile, err := artifact.ReadProfile(content)
+	profile, err := AppArmorProfile(content, p.options, "install")
 	if err != nil {
-		return fmt.Errorf("failed to read %s: %w", p.options.ProfilePath, err)
+		return err
 	}
 
-	switch obj := profile.(type) {
-	case *apparmorprofileapi.AppArmorProfile:
-		manager := apparmorprofile.NewAppArmorProfileManager(p.logger)
-		if !p.AppArmorEnabled(manager) {
-			return ErrAppArmorUnavailable
-		}
+	manager := apparmorprofile.NewAppArmorProfileManager(p.logger)
+	if !p.AppArmorEnabled(manager) {
+		return ErrAppArmorUnavailable
+	}
 
-		if err := PatchProfileName(obj, p.options); err != nil {
-			return fmt.Errorf("cannot create apparmor profile: %w", err)
-		}
+	p.logger.Info("Installing AppArmor profile", "profile", profile.Name)
 
-		p.logger.Info("Installing AppArmor profile", "profile", obj.Name)
-
-		if _, err := p.AppArmorInstallProfile(manager, obj); err != nil {
-			return fmt.Errorf("install apparmor profile: %w", err)
-		}
-	default:
-		return fmt.Errorf(
-			"cannot install %s profiles, only AppArmorProfile is supported",
-			obj.GetObjectKind().GroupVersionKind().Kind,
-		)
+	if _, err := p.AppArmorInstallProfile(manager, profile); err != nil {
+		return fmt.Errorf("install apparmor profile: %w", err)
 	}
 
 	return nil
+}
+
+// AppArmorProfile parses the AppArmor profile of the file of the options and
+// names it after the executable it confines. action is what the caller does
+// with it, for the errors.
+func AppArmorProfile(
+	content []byte, options *Options, action string,
+) (*apparmorprofileapi.AppArmorProfile, error) {
+	profile, err := artifact.ReadProfile(content)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read %s: %w", options.ProfilePath, err)
+	}
+
+	obj, ok := profile.(*apparmorprofileapi.AppArmorProfile)
+	if !ok {
+		return nil, fmt.Errorf(
+			"cannot %s %s profiles, only AppArmorProfile is supported",
+			action, profile.GetObjectKind().GroupVersionKind().Kind,
+		)
+	}
+
+	if err := PatchProfileName(obj, options); err != nil {
+		return nil, fmt.Errorf("cannot %s apparmor profile: %w", action, err)
+	}
+
+	return obj, nil
 }
 
 func PatchProfileName(profile *apparmorprofileapi.AppArmorProfile, options *Options) error {
 	if options.ExecutablePath != "" {
 		profile.Name = options.ExecutablePath
 	} else {
+		// The profile name may as well be a command on the PATH, whose
+		// executable the profile then confines.
 		if resolved := which.Which(profile.Name); resolved != "" {
+			log.Printf("Resolved profile name %s to executable %s", profile.Name, resolved)
 			profile.Name = resolved
 		}
 	}

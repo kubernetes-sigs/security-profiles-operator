@@ -13,8 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Shared helpers for signing and attesting the staging artifacts. Source this
-# file, it does not change shell options.
+# Shared helpers of the release scripts, like the signing and attesting of the
+# staging artifacts. Source this file, it does not change shell options.
 
 # The scripts sourcing this file use some of the variables.
 # shellcheck disable=SC2034
@@ -79,8 +79,7 @@ download_tool() {
   if [[ ! -x "$path" ]]; then
     mkdir -p "$TOOLS_DIR" || return 1
     download="$(mktemp "$path.XXXXXX")" || return 1
-    if ! curl -sSfL --retry 5 --retry-delay 3 -o "$download" "$url" ||
-      ! echo "$sha256  $download" | sha256sum -c - >&2; then
+    if ! download_verified "$url" "$sha256" "$download"; then
       rm -f "$download"
       echo "Failed to download and verify $name from $url" >&2
       return 1
@@ -743,4 +742,25 @@ staging_commit_tags() {
       echo "$tag"
     fi
   done
+}
+
+# GNU and BSD sed differ in how -i takes the backup suffix.
+sed_i() {
+    if sed --version >/dev/null 2>&1; then
+        sed -i "$@"
+    else
+        sed -i '' "$@"
+    fi
+}
+
+# Downloads url to file and verifies its SHA-256 checksum. A file which does not
+# match is removed.
+download_verified() {
+  local url="$1" sha256="$2" file="$3"
+
+  if ! curl -sSfL --retry 5 --retry-delay 3 -o "$file" "$url" ||
+    ! echo "$sha256  $file" | sha256sum -c - >&2; then
+    rm -f "$file"
+    return 1
+  fi
 }

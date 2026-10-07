@@ -19,6 +19,7 @@ package bindata
 import (
 	"context"
 	"fmt"
+	"iter"
 	"reflect"
 	"slices"
 	"strings"
@@ -388,7 +389,7 @@ func (w *Webhook) RecordingNamespaceSelector() *metav1.LabelSelector {
 }
 
 func (w *Webhook) Create(ctx context.Context, c client.Client) error {
-	for k, o := range w.objectMap() {
+	for k, o := range w.objects() {
 		if err := c.Create(ctx, o); err != nil {
 			if errors.IsAlreadyExists(err) {
 				if k == "config" || k == "validatingConfig" {
@@ -874,7 +875,7 @@ func normalizeSelector(selector *metav1.LabelSelector) *metav1.LabelSelector {
 
 // Update updates the webhook objects, and creates the ones which are missing.
 func (w *Webhook) Update(ctx context.Context, c client.Client) error {
-	for k, o := range w.objectMap() {
+	for k, o := range w.objects() {
 		if err := w.update(ctx, c, o); err != nil {
 			return fmt.Errorf("updating %s: %w", k, err)
 		}
@@ -973,13 +974,32 @@ func clientConfigs(obj client.Object) map[string]*admissionregv1.WebhookClientCo
 	return res
 }
 
-func (w *Webhook) objectMap() map[string]client.Object {
-	return map[string]client.Object{
-		"deployment":       w.deployment,
-		"config":           w.config,
-		"validatingConfig": w.validatingConfig,
-		"service":          w.service,
-		"pdb":              w.pdb,
+// objects returns the webhook objects by name. The webhook configurations
+// come last, so that the webhook they point to is set up when they apply.
+func (w *Webhook) objects() iter.Seq2[string, client.Object] {
+	return namedObjects([]namedObject{
+		{"service", w.service},
+		{"pdb", w.pdb},
+		{"deployment", w.deployment},
+		{"config", w.config},
+		{"validatingConfig", w.validatingConfig},
+	})
+}
+
+// namedObject is an object with the name used in error messages.
+type namedObject struct {
+	name string
+	obj  client.Object
+}
+
+// namedObjects returns the objects in their order.
+func namedObjects(objects []namedObject) iter.Seq2[string, client.Object] {
+	return func(yield func(string, client.Object) bool) {
+		for _, o := range objects {
+			if !yield(o.name, o.obj) {
+				return
+			}
+		}
 	}
 }
 

@@ -20,9 +20,11 @@ import (
 	"errors"
 
 	ucli "github.com/urfave/cli/v2"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
 )
 
-// Options define all possible options for the puller.
+// Options define all possible options for the converter.
 type Options struct {
 	inputFile   string
 	outputFile  string
@@ -64,6 +66,7 @@ func FromContext(ctx *ucli.Context) (*Options, error) {
 	}
 
 	options.inputFile = args[0]
+	cli.WarnExtraArgs(args, 1)
 
 	if ctx.IsSet(FlagOutputFile) {
 		options.outputFile = ctx.String(FlagOutputFile)

@@ -101,6 +101,7 @@ func FromContext(ctx *ucli.Context) (*Options, error) {
 	}
 
 	options.pushTo = args[0]
+	cli.WarnExtraArgs(args, 1)
 
 	inputFiles, err := inputFiles(ctx.StringSlice(FlagProfiles), ctx.StringSlice(FlagPlatforms))
 	if err != nil {

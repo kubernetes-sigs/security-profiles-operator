@@ -312,7 +312,12 @@ func TestReconcileWithoutOperatorDeployment(t *testing.T) {
 	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(spod).Build()
 	r := &ReconcileSPOd{client: cl, log: logf.Log, namespace: testNamespace}
 
-	reconcileSPOD(t, r)
+	// Nothing else reconciles the SPOD once the deployment shows up.
+	res, err := r.Reconcile(t.Context(), reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: config.SPOdName, Namespace: testNamespace},
+	})
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{RequeueAfter: operatorDeploymentRetry}, res)
 
 	require.True(t, apierrors.IsNotFound(cl.Get(t.Context(), types.NamespacedName{
 		Name: config.SPOdName, Namespace: testNamespace,

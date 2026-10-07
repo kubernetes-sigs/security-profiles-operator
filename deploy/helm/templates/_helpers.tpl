@@ -83,7 +83,11 @@ imagePullSecrets:
   {{- toYaml . | nindent 2 }}
 {{- end }}
 selinux:
-  enable: {{ hasKey .Values.selinux "enable" | ternary .Values.selinux.enable .Values.enableSelinux }}
+  {{- if hasKey .Values.selinux "enable" }}
+  enable: {{ .Values.selinux.enable }}
+  {{- else if hasKey .Values "enableSelinux" }}
+  enable: {{ .Values.enableSelinux }}
+  {{- end }}
   enableRawSelinuxProfiles: {{ .Values.selinux.enableRawSelinuxProfiles }}
   typeTag: {{ .Values.selinux.typeTag | quote }}
   {{- with .Values.selinux.options }}

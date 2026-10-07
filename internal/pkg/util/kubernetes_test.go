@@ -395,6 +395,22 @@ func TestMatchSelinuxdImageVersion(t *testing.T) {
 	}
 }
 
+func TestMatchSelinuxdImageInvalidRegex(t *testing.T) {
+	t.Parallel()
+
+	node := &corev1.Node{Status: corev1.NodeStatus{
+		NodeInfo: corev1.NodeSystemInfo{OSImage: "Fedora CoreOS 42"},
+	}}
+
+	// An unsupported regex never matches, the entries after it still do.
+	got, err := MatchSelinuxdImageJSONMapping(node, []byte(`[
+		{"regex": "(?!el8).*", "imageFromVar": "RELATED_IMAGE_SELINUXD_EL8"},
+		{"regex": "Fedora", "imageFromVar": "RELATED_IMAGE_SELINUXD_FEDORA"}
+	]`))
+	require.NoError(t, err)
+	require.Equal(t, "RELATED_IMAGE_SELINUXD_FEDORA", got)
+}
+
 func TestGetOperatorConfigMap(t *testing.T) {
 	t.Parallel()
 

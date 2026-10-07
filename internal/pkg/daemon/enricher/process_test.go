@@ -151,4 +151,11 @@ func TestGetProcessInfoReusedPid(t *testing.T) {
 	again, err = GetProcessInfo(pid, "/bin/second", nil, nil, cache, mock)
 	require.NoError(t, err)
 	require.Equal(t, "second", again.CmdLine)
+
+	// The details of an unknown process which is gone are not read.
+	calls := mock.CmdlineForPIDCallCount()
+	unknown, err := GetProcessInfo(pid+1, "/bin/unknown", nil, nil, cache, mock)
+	require.Error(t, err)
+	require.Equal(t, pid+1, unknown.Pid)
+	require.Equal(t, calls, mock.CmdlineForPIDCallCount())
 }

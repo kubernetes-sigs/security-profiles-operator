@@ -197,6 +197,7 @@ func summarizeErrors(errs []error) error {
 func (a *Artifact) signatureCandidates(
 	ctx context.Context, repo *remote.Repository, subject *v1.Descriptor,
 ) (candidates []v1.Descriptor, legacy bool, err error) {
+	// SignatureReferrers returns at most maxSignatures signature bundles.
 	referrers, referrersErr := a.SignatureReferrers(ctx, repo, subject)
 	if referrersErr != nil {
 		a.logger.Info(
@@ -206,14 +207,8 @@ func (a *Artifact) signatureCandidates(
 		)
 	}
 
-	for i := range referrers {
-		if isSignatureReferrer(&referrers[i]) {
-			candidates = append(candidates, referrers[i])
-		}
-	}
-
-	if len(candidates) > 0 {
-		return candidates[:min(len(candidates), maxSignatures)], false, nil
+	if len(referrers) > 0 {
+		return referrers, false, nil
 	}
 
 	candidates, err = a.legacySignatureLayers(ctx, repo, subject.Digest)

@@ -573,7 +573,7 @@ func (r *Reconciler) resolveSyscallsForProfile(
 		return inputSyscalls, false, nil
 	}
 
-	l.Info("Resolving syscalls for profile", "recursion", level)
+	l.V(config.VerboseLevel).Info("Resolving syscalls for profile", "recursion", level)
 
 	var baseProfile *seccompprofileapi.SeccompProfile
 
@@ -596,7 +596,7 @@ func (r *Reconciler) resolveSyscallsForProfile(
 			ctx, r.client, util.NamespacedName(baseProfileName, sp.GetNamespace()),
 		)
 		if err != nil {
-			if util.IgnoreNotFound(err) == nil {
+			if client.IgnoreNotFound(err) == nil {
 				// derivedProfileRequests enqueues the profile again once
 				// the base profile gets created.
 				return nil, false, fmt.Errorf(
@@ -980,7 +980,7 @@ func (r *Reconciler) reconcileSeccompProfile(
 		return res, err
 	}
 
-	l.Info("Checking node status")
+	l.V(config.VerboseLevel).Info("Checking node status")
 
 	changed, err := common.MarkInstalled(ctx, sp, nodeStatus, l, r.errorReporter())
 	if err != nil {
@@ -1011,7 +1011,7 @@ func (r *Reconciler) buildProfileContent(
 	nodeStatus *nodestatus.StatusClient,
 	l logr.Logger,
 ) ([]byte, error) {
-	l.Info("Merge possible base profile")
+	l.V(config.VerboseLevel).Info("Merge possible base profile")
 
 	outputProfile, err := r.mergeBaseProfile(ctx, sp, l)
 	if err != nil {
@@ -1028,7 +1028,7 @@ func (r *Reconciler) buildProfileContent(
 		return nil, fmt.Errorf("merging base profile: %w", err)
 	}
 
-	l.Info("Validate profile")
+	l.V(config.VerboseLevel).Info("Validate profile")
 
 	if err := r.validateProfile(ctx, outputProfile); err != nil {
 		if seccompcheck.NotAllowed(err) {
@@ -1042,7 +1042,7 @@ func (r *Reconciler) buildProfileContent(
 		return nil, fmt.Errorf("validating profile: %w", err)
 	}
 
-	l.Info("Got profile content")
+	l.V(config.VerboseLevel).Info("Got profile content")
 
 	profileContent, err := json.Marshal(outputProfile.Spec)
 	if err != nil {
@@ -1239,7 +1239,7 @@ func sibling(
 
 	other := &seccompprofileapi.SeccompProfile{}
 	if err := reader.Get(ctx, util.NamespacedName(name, sp.GetNamespace()), other); err != nil {
-		if util.IgnoreNotFound(err) == nil {
+		if client.IgnoreNotFound(err) == nil {
 			return nil, false, nil
 		}
 

@@ -1,11 +1,30 @@
-# Exclude test files
-*_test.go
-test/
-.git/
-/build/
+# Like .dockerignore, only what the build reads may get into the context.
+# Dockerfile.ubi runs make, which builds the binaries from the Go sources,
+# vendor, the Makefile and VERSION, and reads hack/go-version.sh. The tests
+# are not built.
+/build
+/dist
+/result
+/result-*
+/.direnv
+/.git
+/.github
+/.devcontainer
+/.idea
+/.vagrant
+/bundle
+/deploy
+/doc
+/examples
+/test
+/hack/*
+!/hack/go-version.sh
+/Dockerfile*
+/Vagrantfile
+/*.tar
+/*.tar.gz
+/*.md
+/*.orig
+/*.swp
 _output
-examples/
-hack/
-!hack/go-version.sh
-*.md
-Dockerfile.*
+*_test.go

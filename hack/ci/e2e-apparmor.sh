@@ -63,19 +63,21 @@ EOT
   k apply -f "$pod_file"
 }
 
+# pod_has_status succeeds if the pod shows the status.
+pod_has_status() {
+  k get pods "$1" | grep -q "$2"
+}
+
 wait_for_pod_status() {
   local pod_name="$1"
   local status="$2"
   echo "Waiting for pod status: $status"
-  for ((i = 0; i < 10; i++)); do
-    if k get pods "$pod_name" | grep -q "$status"; then
-      echo "Pod reached status: $status "
-      return 0
-    fi
-    echo "Still waiting ($i)"
-    sleep 5
-  done
-  return 1
+
+  if ! wait_until 10 5 pod_has_status "$pod_name" "$status"; then
+    return 1
+  fi
+
+  echo "Pod reached status: $status "
 }
 
 check_profile_mode() {

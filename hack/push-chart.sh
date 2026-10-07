@@ -59,8 +59,7 @@ PROVENANCE_DEPENDENCIES="[]"
 if [[ -z "$HELM" ]]; then
   HELM_URL="https://get.helm.sh/helm-$HELM_VERSION-linux-amd64.tar.gz"
   TARBALL="$HELM_DIR/helm.tar.gz"
-  curl -sSfL --retry 5 --retry-delay 3 -o "$TARBALL" "$HELM_URL"
-  echo "$HELM_SHA256  $TARBALL" | sha256sum -c -
+  download_verified "$HELM_URL" "$HELM_SHA256" "$TARBALL"
   tar xzf "$TARBALL" -C "$HELM_DIR" --strip-components=1 linux-amd64/helm
   HELM="$HELM_DIR/helm"
   PROVENANCE_DEPENDENCIES="$(file_dependency helm "$TARBALL" "$HELM_URL" | "$(jq_bin)" -cs .)"

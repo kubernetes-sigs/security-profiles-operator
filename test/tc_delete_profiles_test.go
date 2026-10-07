@@ -222,22 +222,23 @@ spec:
 				e.execNode(nodeWithPodName, "test", "-f", profileOperatorPath)
 			}
 
-			isDeleted := make(chan bool)
+			// The wait runs while the pod gets deleted. It must not fail the
+			// test from its goroutine, which would leave the receive below
+			// waiting until the timeout of the whole suite.
+			waitErr := make(chan error, 1)
 
 			go func() {
-				e.waitFor( //nolint:testifylint // intentional goroutine usage
-					"delete",
-					"seccompprofile",
-					deleteProfileName,
+				_, err := e.kubectlCommand(
+					"wait", "--timeout", defaultWaitTimeout, "--for", "delete",
+					"seccompprofile", deleteProfileName,
 				)
-
-				isDeleted <- true
+				waitErr <- err
 			}()
 
 			e.kubectl("delete", "pod", deletePodName)
 
-			// Wait a bit for the seccompprofile to be actually deleted
-			<-isDeleted
+			// Wait for the seccompprofile to be actually deleted
+			e.Require().NoError(<-waitErr)
 		}()
 	}
 }

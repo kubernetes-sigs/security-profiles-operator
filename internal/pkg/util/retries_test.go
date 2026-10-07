@@ -29,11 +29,11 @@ import (
 )
 
 // testBackoff returns a backoff which does not slow the tests down.
-func testBackoff() *wait.Backoff {
-	return &wait.Backoff{Duration: time.Millisecond, Factor: 1, Steps: 3}
+func testBackoff() wait.Backoff {
+	return wait.Backoff{Duration: time.Millisecond, Factor: 1, Steps: 3}
 }
 
-func TestRetryEx(t *testing.T) {
+func TestRetryWithBackoff(t *testing.T) {
 	t.Parallel()
 
 	errRetryable := errors.New("retryable")
@@ -45,7 +45,7 @@ func TestRetryEx(t *testing.T) {
 
 		calls := 0
 
-		require.NoError(t, RetryEx(testBackoff(), func() error {
+		require.NoError(t, RetryWithBackoff(t.Context(), testBackoff(), func() error {
 			calls++
 
 			return nil
@@ -58,7 +58,7 @@ func TestRetryEx(t *testing.T) {
 
 		calls := 0
 
-		require.NoError(t, RetryEx(testBackoff(), func() error {
+		require.NoError(t, RetryWithBackoff(t.Context(), testBackoff(), func() error {
 			calls++
 			if calls < 3 {
 				return errRetryable
@@ -74,7 +74,7 @@ func TestRetryEx(t *testing.T) {
 
 		calls := 0
 
-		err := RetryEx(testBackoff(), func() error {
+		err := RetryWithBackoff(t.Context(), testBackoff(), func() error {
 			calls++
 
 			return errFatal
@@ -90,7 +90,7 @@ func TestRetryEx(t *testing.T) {
 
 		calls := 0
 
-		err := RetryEx(testBackoff(), func() error {
+		err := RetryWithBackoff(t.Context(), testBackoff(), func() error {
 			calls++
 
 			return errRetryable
@@ -149,12 +149,12 @@ func TestRetryWithContext(t *testing.T) {
 	})
 }
 
-func TestRetry(t *testing.T) {
+func TestRetryWithDefaultBackoff(t *testing.T) {
 	t.Parallel()
 
 	calls := 0
 
-	require.NoError(t, Retry(func() error {
+	require.NoError(t, RetryWithContext(t.Context(), func() error {
 		calls++
 		if calls == 1 {
 			return kerrors.NewConflict(schema.GroupResource{}, "name", nil)

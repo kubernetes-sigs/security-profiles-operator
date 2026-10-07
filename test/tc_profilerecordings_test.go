@@ -185,7 +185,7 @@ func (e *e2e) testCaseProfileRecordingStaticPodLogs() {
 	defer restoreNs()
 
 	e.profileRecordingStaticPod(
-		exampleRecordingSeccompLogsPath,
+		exampleRecordingSeccompLogsPath, seccompNginx,
 		enricherLogLine("syscallName", "listen"),
 	)
 }
@@ -197,8 +197,8 @@ func (e *e2e) testCaseProfileRecordingStaticPodSELinuxLogs() {
 	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
 	defer restoreNs()
 
-	e.profileRecordingStaticSelinuxPod(
-		exampleRecordingSelinuxLogsPath,
+	e.profileRecordingStaticPod(
+		exampleRecordingSelinuxLogsPath, selinuxNginx,
 		enricherLogLine("perm", "listen"),
 	)
 }
@@ -222,33 +222,41 @@ func (e *e2e) testCaseProfileRecordingStaticPodSELinuxLogsNsNotEnabled() {
 	e.NotContains(output, "selinuxrecording.process")
 }
 
-func (e *e2e) profileRecordingStaticSelinuxPod(recording string, waitConditions ...*regexp.Regexp) {
-	e.logf("Creating SELinux recording for static pod test")
-	e.kubectl("create", "-f", recording)
-
-	since, podName := e.createRecordingTestPod()
-
-	if waitConditions != nil {
-		e.waitForEnricherLogs(since, waitConditions...)
-	}
-
-	e.kubectl("delete", "pod", podName)
-
-	resourceName := selinuxRecordingName + "-nginx"
-
-	pathresult := e.retryGetSelinuxJsonpath(
-		"{.spec.allow.http_cache_port_t.tcp_socket}",
-		resourceName,
-	)
-	e.Contains(pathresult, "name_bind")
-
-	e.kubectl("delete", "-f", recording)
-
-	e.kubectl("delete", "selinuxprofile", resourceName)
+// recordedNginx is what a recording of the nginx container records, which the
+// seccomp and the SELinux recording tests share.
+type recordedNginx struct {
+	// recording is the name of the recording.
+	recording string
+	// resource is the resource of the recorded profiles for kubectl.
+	resource string
+	// check asserts the content of the recorded profile.
+	check func(e *e2e, profile string)
 }
 
-func (e *e2e) profileRecordingStaticPod(recording string, waitConditions ...*regexp.Regexp) {
-	e.logf("Creating recording for static pod test")
+var (
+	seccompNginx = recordedNginx{
+		recording: recordingName,
+		resource:  "sp",
+		check: func(e *e2e, profile string) {
+			e.Contains(e.retryGetSeccompProfile(profile), "listen")
+		},
+	}
+
+	selinuxNginx = recordedNginx{
+		recording: selinuxRecordingName,
+		resource:  "selinuxprofile",
+		check: func(e *e2e, profile string) {
+			e.Contains(e.retryGetSelinuxJsonpath(
+				"{.spec.allow.http_cache_port_t.tcp_socket}", profile,
+			), "name_bind")
+		},
+	}
+)
+
+func (e *e2e) profileRecordingStaticPod(
+	recording string, recorded recordedNginx, waitConditions ...*regexp.Regexp,
+) {
+	e.logf("Creating %s recording for static pod test", recorded.resource)
 	e.kubectl("create", "-f", recording)
 
 	since, podName := e.createRecordingTestPod()
@@ -259,12 +267,11 @@ func (e *e2e) profileRecordingStaticPod(recording string, waitConditions ...*reg
 
 	e.kubectl("delete", "pod", podName)
 
-	resourceName := recordingName + "-nginx"
-	profile := e.retryGetSeccompProfile(resourceName)
-	e.Contains(profile, "listen")
+	resourceName := recorded.recording + "-nginx"
+	recorded.check(e, resourceName)
 
 	e.kubectl("delete", "-f", recording)
-	e.kubectl("delete", "sp", resourceName)
+	e.kubectl("delete", recorded.resource, resourceName)
 }
 
 func (e *e2e) testCaseProfileRecordingMultiContainerLogs() {
@@ -420,7 +427,7 @@ func (e *e2e) testCaseProfileRecordingDeploymentLogs() {
 	defer restoreNs()
 
 	e.profileRecordingDeployment(
-		exampleRecordingSeccompLogsPath,
+		exampleRecordingSeccompLogsPath, seccompNginx,
 		"container", "nginx", "syscallName", "listen",
 	)
 }
@@ -444,8 +451,8 @@ func (e *e2e) testCaseProfileRecordingSelinuxDeploymentLogs() {
 	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
 	defer restoreNs()
 
-	e.profileRecordingSelinuxDeployment(
-		exampleRecordingSelinuxLogsPath,
+	e.profileRecordingDeployment(
+		exampleRecordingSelinuxLogsPath, selinuxNginx,
 		"perm", "listen",
 	)
 }
@@ -518,13 +525,15 @@ func (e *e2e) testCaseProfileRecordingWithMemoryOptimization() {
 	defer restoreNs()
 
 	e.profileRecordingStaticPod(
-		exampleRecordingSeccompLogsPath,
+		exampleRecordingSeccompLogsPath, seccompNginx,
 		enricherLogLine("syscallName", "listen"),
 	)
 }
 
-func (e *e2e) profileRecordingDeployment(recording string, logLine ...string) {
-	e.logf("Creating recording for deployment test")
+func (e *e2e) profileRecordingDeployment(
+	recording string, recorded recordedNginx, logLine ...string,
+) {
+	e.logf("Creating %s recording for deployment test", recorded.resource)
 	e.kubectl("create", "-f", recording)
 
 	since, deployName := e.createRecordingTestDeployment()
@@ -537,38 +546,9 @@ func (e *e2e) profileRecordingDeployment(recording string, logLine ...string) {
 	e.kubectl("delete", "deploy", deployName)
 
 	for _, sfx := range suffixes {
-		recordedProfileName := recordingName + "-nginx-" + sfx
-		profile := e.retryGetSeccompProfile(recordedProfileName)
-		e.Contains(profile, "listen")
-		e.kubectl("delete", "sp", recordedProfileName)
-	}
-
-	e.kubectl("delete", "-f", recording)
-}
-
-func (e *e2e) profileRecordingSelinuxDeployment(recording string, logLine ...string) {
-	e.logf("Creating recording for deployment test")
-	e.kubectl("create", "-f", recording)
-
-	since, deployName := e.createRecordingTestDeployment()
-
-	podNames := e.getRecordingPodNames()
-	e.waitForEnricherLogsOfPods(since, podNames, logLine...)
-
-	suffixes := podSuffixes(podNames)
-
-	e.kubectl("delete", "deploy", deployName)
-
-	e.logf("Seccomp profiles:\n%s", e.kubectl("get", "sp"))
-
-	for _, sfx := range suffixes {
-		recordedProfileName := selinuxRecordingName + "-nginx-" + sfx
-		profileResult := e.retryGetSelinuxJsonpath(
-			"{.spec.allow.http_cache_port_t.tcp_socket}",
-			recordedProfileName,
-		)
-		e.Contains(profileResult, "name_bind")
-		e.kubectl("delete", "selinuxprofile", recordedProfileName)
+		recordedProfileName := recorded.recording + "-nginx-" + sfx
+		recorded.check(e, recordedProfileName)
+		e.kubectl("delete", recorded.resource, recordedProfileName)
 	}
 
 	e.kubectl("delete", "-f", recording)

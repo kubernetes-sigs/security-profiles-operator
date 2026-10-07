@@ -60,7 +60,10 @@ func DefaultApp() (*cli.App, *version.Info) {
 					res = j
 				}
 
-				print(res)
+				// The builtin print writes to stderr, which a pipe does not get.
+				if _, err := fmt.Fprintln(c.App.Writer, res); err != nil {
+					return fmt.Errorf("writing version info: %w", err)
+				}
 
 				return nil
 			},

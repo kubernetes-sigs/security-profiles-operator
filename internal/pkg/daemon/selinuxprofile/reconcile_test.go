@@ -245,6 +245,8 @@ func (f *reconcileFixture) prepareDeletion(t *testing.T) {
 	_, err = ns.Create(ctx)
 	require.NoError(t, err)
 	require.NoError(t, ns.SetNodeStatus(ctx, secprofnodestatusapi.ProfileStateTerminating))
+	// The policy got loaded into the kernel.
+	require.NoError(t, ns.SetAnnotation(ctx, reloadInstallGenerationAnnotation, "1"))
 	require.NoError(t, f.client.Delete(ctx, f.profile(t)))
 
 	deleted := f.profile(t)

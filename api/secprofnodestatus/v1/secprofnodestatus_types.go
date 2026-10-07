@@ -43,7 +43,7 @@ const (
 	ProfileStateTerminating ProfileState = "Terminating"
 	// The profile couldn't be installed.
 	ProfileStateError ProfileState = "Error"
-	// When adding new statuses, remember to also adjust the LowerOfTwoStates function.
+	// When adding new statuses, remember to also rank them in stateOrder.
 )
 
 // Common labels of the node status objects.
@@ -59,8 +59,9 @@ const (
 	StatusKindLabel = "spo.x-k8s.io/profile-kind"
 )
 
-// LowestState defines the "lowest" state for the profiles to be at.
-// All of the statuses would need to reach this for us to get here.
+// LowestState is the best state of stateOrder, which every node status has to
+// reach for the profile to reach it. It is the starting point when folding the
+// node statuses with LowerOfTwoStates, despite its name.
 const LowestState ProfileState = ProfileStateInstalled
 
 // stateOrder maps each ProfileState to its ordinal rank. Lower values represent
@@ -149,7 +150,8 @@ type SecurityProfileNodeStatusStatus struct {
 type SecurityProfileNodeStatusList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []SecurityProfileNodeStatus `json:"items"`
+	// Items is the list of SecurityProfileNodeStatus objects.
+	Items []SecurityProfileNodeStatus `json:"items"`
 }
 
 func init() { //nolint:gochecknoinits // required to init the scheme

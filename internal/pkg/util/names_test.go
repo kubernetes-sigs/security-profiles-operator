@@ -202,13 +202,6 @@ func TestKindNameDNSLengthName(t *testing.T) {
 			"this-is-a-very-long-name-surely-over-64-characters-omg-its-overflowing",
 		),
 	)
-
-	// The kind based variant reads the kind from the type meta.
-	sp := &seccompprofile.SeccompProfile{
-		TypeMeta:   metav1.TypeMeta{Kind: "SeccompProfile"},
-		ObjectMeta: metav1.ObjectMeta{Name: "name"},
-	}
-	require.Equal(t, KindNameDNSLengthName("SeccompProfile", "name"), KindBasedDNSLengthName(sp))
 }
 
 func TestNameHashing(t *testing.T) {
@@ -257,7 +250,7 @@ func TestNameHashing(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			name := KindBasedDNSLengthName(&tc.prof)
+			name := KindNameDNSLengthName(tc.prof.Kind, tc.prof.Name)
 			require.Equal(t, tc.labelName, name)
 		})
 	}

@@ -676,6 +676,25 @@ func TestJsonEnricherLogLinesCacheNoTouch(t *testing.T) {
 	require.Equal(t, expiresAt, hit.ExpiresAt())
 }
 
+// TestJsonEnricherLockedLogBucketEmitted asserts that a line of a process
+// whose bucket got emitted in the meantime starts a new bucket.
+func TestJsonEnricherLockedLogBucketEmitted(t *testing.T) {
+	t.Parallel()
+
+	sut, err := NewJsonEnricherArgs(logr.Discard(), nil)
+	require.NoError(t, err)
+
+	emitted := &types.LogBucket{Emitted: true}
+	sut.logLinesCache.Set(1, emitted, time.Hour)
+
+	bucket, cached := sut.lockedLogBucket(&types.AuditLine{ProcessID: 1, TimestampID: "ts"})
+	bucket.Mu.Unlock()
+
+	require.False(t, cached)
+	require.NotSame(t, emitted, bucket)
+	require.Equal(t, "ts", bucket.TimestampID)
+}
+
 // fakeBpfProcesses is a BPF process cache which counts its lookups.
 type fakeBpfProcesses struct {
 	cmdLine     string

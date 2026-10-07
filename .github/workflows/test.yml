@@ -20,6 +20,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+  # The version of nix the kubernix jobs install, see nix in dependencies.yaml.
+  NIX_VERSION: '2.35.2'
+
 permissions: {}
 
 jobs:
@@ -65,11 +69,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: ./go.mod
-      - name: Install dependencies
-        run: sudo hack/install-packages
+      - uses: ./.github/actions/setup-go-build
       - run: make test-unit
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -140,18 +140,9 @@ jobs:
       # The scanned image is the one the e2e jobs test. Fails on every
       # vulnerability with an available fix. Assessed findings are suppressed
       # through .openvex.json, see doc/hacking.md.
-      - name: Scan for fixable vulnerabilities
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        env:
-          TRIVY_VEX: .openvex.json
-          TRIVY_SHOW_SUPPRESSED: "true"
+      - uses: ./.github/actions/scan-image
         with:
           input: image.tar
-          scanners: vuln
-          ignore-unfixed: true
-          exit-code: "1"
-          format: table
-          version: v0.74.0
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ matrix.name }}
@@ -276,10 +267,10 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: ./go.mod
-      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+      - uses: ./.github/actions/setup-nix
         with:
-          extra_nix_config: |
-            experimental-features = nix-command flakes
+          nix-version: ${{ env.NIX_VERSION }}
+          cachix: none
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ${{ matrix.image }}
@@ -384,11 +375,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: ./go.mod
-      - name: Install dependencies
-        run: sudo hack/install-packages
+      - uses: ./.github/actions/setup-go-build
       - name: Run spoc E2E tests
         run: hack/ci/e2e-spoc.sh
       - name: Upload the diagnostics
@@ -423,10 +410,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+      - uses: ./.github/actions/setup-nix
         with:
-          extra_nix_config: |
-            experimental-features = nix-command flakes
+          nix-version: ${{ env.NIX_VERSION }}
+          cachix: none
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ${{ matrix.image }}
@@ -477,26 +464,23 @@ jobs:
   # Installs the last released chart and upgrades it to the one of this tree,
   # on the oldest supported and the current Kubernetes release, with both
   # Helm major versions. The node images are pinned by digest, see kind-image
-  # and kind-image-min in dependencies.yaml.
+  # and kind-image-min in dependencies.yaml. The digest stays out of the job
+  # name to keep it short.
   helm-install:
     needs: image
     strategy:
       fail-fast: false
       matrix:
         include:
-          - kind: v1.30.13@sha256:397209b3d947d154f6641f2d0ce8d473732bd91c87d9575ade99049aa33cd648
-            helm: v3.22.0
-          - kind: v1.30.13@sha256:397209b3d947d154f6641f2d0ce8d473732bd91c87d9575ade99049aa33cd648
-            helm: v4.3.0
-          - kind: v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
-            helm: v3.22.0
-          - kind: v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
-            helm: v4.3.0
+          - { kind: v1.30.13, digest: "sha256:397209b3d947d154f6641f2d0ce8d473732bd91c87d9575ade99049aa33cd648", helm: v3.22.0 }
+          - { kind: v1.30.13, digest: "sha256:397209b3d947d154f6641f2d0ce8d473732bd91c87d9575ade99049aa33cd648", helm: v4.3.0 }
+          - { kind: v1.37.0, digest: "sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5", helm: v3.22.0 }
+          - { kind: v1.37.0, digest: "sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5", helm: v4.3.0 }
     name: helm-install / kind ${{ matrix.kind }} / helm ${{ matrix.helm }}
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     env:
-      KIND_IMG_TAG: ${{ matrix.kind }}
+      KIND_IMG_TAG: ${{ matrix.kind }}@${{ matrix.digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

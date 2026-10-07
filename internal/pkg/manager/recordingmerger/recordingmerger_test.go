@@ -328,8 +328,9 @@ func TestCreateUpdateProfileRefusesForeignProfile(t *testing.T) {
 	merged, err := newMergeableProfile(partialSeccomp("partial-a", "nginx", "read"))
 	require.NoError(t, err)
 
-	_, err = createUpdateSeccompProfile(
-		t.Context(), r.client, recording, testRecording+"-nginx", merged, "",
+	_, err = createUpdateProfile(
+		t.Context(), r.client, recording, testRecording+"-nginx", merged,
+		profilerecordingapi.ProfileRecordingKindSeccompProfile, "",
 	)
 	require.ErrorIs(t, err, util.ErrProfileOwnedByOtherRecording)
 	require.ElementsMatch(t, []string{"exec"}, mergedSyscalls(t, r, "nginx"))

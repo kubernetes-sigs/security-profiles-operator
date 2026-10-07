@@ -18,6 +18,7 @@ package seccompprofile
 
 import (
 	"context"
+	"sync"
 
 	"github.com/go-logr/logr"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
@@ -81,7 +82,11 @@ func (*defaultImpl) GetSPOD(
 	return common.GetSPOD(ctx, cli, namespace)
 }
 
+// seccompSupported reports whether the node supports seccomp, which does not
+// change while the daemon runs.
+var seccompSupported = sync.OnceValue(seccomp.IsSupported)
+
 // IsSupported returns true if the node supports seccomp.
 func (*defaultImpl) IsSupported() bool {
-	return seccomp.IsSupported()
+	return seccompSupported()
 }

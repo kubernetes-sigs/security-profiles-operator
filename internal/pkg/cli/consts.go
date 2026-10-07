@@ -52,6 +52,10 @@ const (
 	// FilePermissions are the permissions of the profiles spoc writes. They
 	// contain no secrets.
 	FilePermissions = 0o644
+
+	// FlagOIDCDeviceFlow is the flag for signing in to the OIDC provider with
+	// the device flow if there is no terminal.
+	FlagOIDCDeviceFlow string = "oidc-device-flow"
 )
 
 // DefaultFile defines the default input and output location for profiles. It

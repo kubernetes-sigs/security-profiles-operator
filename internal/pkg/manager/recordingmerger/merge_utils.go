@@ -87,6 +87,33 @@ func partialProfileLabels(recording *profilerecordingapi.ProfileRecording) clien
 	}
 }
 
+// eachPartialProfile lists the partial profiles of the recording of the list
+// type and calls fn for each of them.
+func eachPartialProfile(
+	ctx context.Context,
+	cli client.Reader,
+	list client.ObjectList,
+	recording *profilerecordingapi.ProfileRecording,
+	fn func(client.Object) error,
+) error {
+	if err := cli.List(ctx, list, partialProfileLabels(recording)); err != nil {
+		return fmt.Errorf("listing partial profiles for %s: %w", recording.Name, err)
+	}
+
+	if err := meta.EachListItem(list, func(obj runtime.Object) error {
+		clientObj, ok := obj.(client.Object)
+		if !ok {
+			return fmt.Errorf("object %T is not a client.Object", obj)
+		}
+
+		return fn(clientObj)
+	}); err != nil {
+		return fmt.Errorf("iterating over partial profiles: %w", err)
+	}
+
+	return nil
+}
+
 // hasPartialProfiles returns whether the recording has partial profiles of
 // the list type which are not being deleted.
 func hasPartialProfiles(
@@ -95,23 +122,15 @@ func hasPartialProfiles(
 	list client.ObjectList,
 	recording *profilerecordingapi.ProfileRecording,
 ) (bool, error) {
-	if err := cli.List(ctx, list, partialProfileLabels(recording)); err != nil {
-		return false, fmt.Errorf("listing partial profiles for %s: %w", recording.Name, err)
-	}
-
 	found := false
 
-	if err := meta.EachListItem(list, func(obj runtime.Object) error {
-		if o, ok := obj.(metav1.Object); ok && o.GetDeletionTimestamp().IsZero() {
-			found = true
-		}
+	err := eachPartialProfile(ctx, cli, list, recording, func(obj client.Object) error {
+		found = found || obj.GetDeletionTimestamp().IsZero()
 
 		return nil
-	}); err != nil {
-		return false, fmt.Errorf("iterating over partial profiles: %w", err)
-	}
+	})
 
-	return found, nil
+	return found, err
 }
 
 // listPartialProfiles returns the partial profiles of the recording grouped by
@@ -123,39 +142,28 @@ func listPartialProfiles(
 	list client.ObjectList,
 	recording *profilerecordingapi.ProfileRecording,
 ) (perContainerMergeableProfiles, []client.Object, error) {
-	if err := cli.List(ctx, list, partialProfileLabels(recording)); err != nil {
-		return nil, nil, fmt.Errorf("listing partial profiles for %s: %w", recording.Name, err)
-	}
-
 	partialProfiles := make(perContainerMergeableProfiles)
 
 	var listed []client.Object
 
-	if err := meta.EachListItem(list, func(obj runtime.Object) error {
-		clientObj, ok := obj.(client.Object)
-		if !ok {
-			return fmt.Errorf("object %T is not a client.Object", obj)
-		}
-
-		copied, ok := clientObj.DeepCopyObject().(client.Object)
+	if err := eachPartialProfile(ctx, cli, list, recording, func(obj client.Object) error {
+		copied, ok := obj.DeepCopyObject().(client.Object)
 		if !ok {
 			return fmt.Errorf("copy of %T is not a client.Object", obj)
 		}
 
 		listed = append(listed, copied)
 
-		partialPrf, err := newMergeableProfile(clientObj)
+		partialPrf, err := newMergeableProfile(obj)
 		if err != nil {
 			return fmt.Errorf(
-				"failed to create mergeable profile for %s: %w",
-				clientObj.GetName(),
-				err,
+				"failed to create mergeable profile for %s: %w", obj.GetName(), err,
 			)
 		}
 
 		// A partial profile without container cannot be merged, it is only
 		// cleaned up.
-		containerID := getContainerID(clientObj)
+		containerID := getContainerID(obj)
 		if containerID == "" {
 			return nil
 		}
@@ -164,7 +172,7 @@ func listPartialProfiles(
 
 		return nil
 	}); err != nil {
-		return nil, nil, fmt.Errorf("iterating over partial profiles: %w", err)
+		return nil, nil, err
 	}
 
 	return partialProfiles, listed, nil
@@ -324,8 +332,10 @@ func (sp *MergeableSelinuxProfile) getProfile() client.Object {
 	return &sp.SelinuxProfile
 }
 
+// merge adds the allow rules of other. The other attributes, like the
+// inherited policies, are the same for all partial profiles of a recording and
+// stay the ones of sp.
 func (sp *MergeableSelinuxProfile) merge(other mergeableProfile) error {
-	// TODO(jhrozek): should we be defensive about checking if other attributes match as well? (e.g. inherit)
 	otherSP, ok := other.(*MergeableSelinuxProfile)
 	if !ok {
 		return fmt.Errorf("cannot merge selinuxProfile with %T", other)
@@ -337,6 +347,11 @@ func (sp *MergeableSelinuxProfile) merge(other mergeableProfile) error {
 }
 
 func addAllow(union, additional selinuxprofileapi.Allow) selinuxprofileapi.Allow {
+	// A profile without allow rules has none after a round trip.
+	if union == nil && len(additional) > 0 {
+		union = make(selinuxprofileapi.Allow, len(additional))
+	}
+
 	for labelKey, permMap := range additional {
 		if _, ok := union[labelKey]; !ok {
 			union[labelKey] = make(

@@ -17,7 +17,6 @@ limitations under the License.
 package enricher
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"fmt"
@@ -178,41 +177,17 @@ func (d *defaultImpl) RemoveAll(path string) error {
 	return os.RemoveAll(path)
 }
 
-func (d *defaultImpl) CmdlineForPID(
-	pid int,
-) (string, error) {
-	var retErr error
-
+func (d *defaultImpl) CmdlineForPID(pid int) (string, error) {
 	cmdline := fmt.Sprintf("proc/%d/cmdline", pid)
 
-	file, err := d.fsys.Open(filepath.Clean(cmdline))
+	// The arguments are separated by NUL bytes and may contain newlines, and
+	// a command line can be longer than a line a scanner takes.
+	content, err := fs.ReadFile(d.fsys, filepath.Clean(cmdline))
 	if err != nil {
-		retErr = fmt.Errorf("%w: %w", ErrProcessNotFound, err)
-
-		return "", retErr
+		return "", fmt.Errorf("%w: %w", ErrProcessNotFound, err)
 	}
 
-	defer func() {
-		cerr := file.Close()
-		if retErr == nil {
-			retErr = cerr
-		}
-	}()
-
-	var sb strings.Builder
-
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		sb.WriteString(strings.ReplaceAll(scanner.Text(), "\u0000", " "))
-	}
-
-	if err := scanner.Err(); err != nil {
-		retErr = fmt.Errorf("%w: %w", ErrCmdlineNotFound, err)
-
-		return "", retErr
-	}
-
-	return sb.String(), retErr
+	return string(bytes.ReplaceAll(content, []byte{0}, []byte{' '})), nil
 }
 
 func (d *defaultImpl) EnvForPid(pid int) (map[string]string, error) {

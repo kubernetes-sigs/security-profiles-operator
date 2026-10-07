@@ -17,113 +17,13 @@ limitations under the License.
 package utils_test
 
 import (
-	"context"
-	"errors"
 	"testing"
 
-	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
-
-type fakeClient struct {
-	updateFails bool
-}
-
-func (f *fakeClient) Create(
-	context.Context,
-	client.Object,
-	...client.CreateOption,
-) error {
-	if f.updateFails {
-		return errors.New("test")
-	}
-
-	return nil
-}
-
-func (f *fakeClient) Delete(
-	context.Context,
-	client.Object,
-	...client.DeleteOption,
-) error {
-	if f.updateFails {
-		return errors.New("test")
-	}
-
-	return nil
-}
-
-func (f *fakeClient) DeleteAllOf(
-	context.Context,
-	client.Object,
-	...client.DeleteAllOfOption,
-) error {
-	if f.updateFails {
-		return errors.New("test")
-	}
-
-	return nil
-}
-
-func (f *fakeClient) Update(
-	context.Context,
-	client.Object,
-	...client.UpdateOption,
-) error {
-	if f.updateFails {
-		return errors.New("test")
-	}
-
-	return nil
-}
-
-func (*fakeClient) Patch(
-	context.Context,
-	client.Object,
-	client.Patch,
-	...client.PatchOption,
-) error {
-	return nil
-}
-
-func (*fakeClient) Apply(
-	context.Context,
-	runtime.ApplyConfiguration,
-	...client.ApplyOption,
-) error {
-	return nil
-}
-
-func TestUpdateResource(t *testing.T) {
-	t.Parallel()
-
-	for _, tc := range []struct {
-		client    *fakeClient
-		shouldErr bool
-	}{
-		{ // success
-			client: &fakeClient{},
-		},
-		{ // update fails
-			client:    &fakeClient{updateFails: true},
-			shouldErr: true,
-		},
-	} {
-		err := utils.UpdateResource(
-			t.Context(), logr.Discard(), tc.client, nil, "",
-		)
-		if tc.shouldErr {
-			require.Error(t, err)
-		} else {
-			require.NoError(t, err)
-		}
-	}
-}
 
 func TestIsWindowsPod(t *testing.T) {
 	t.Parallel()

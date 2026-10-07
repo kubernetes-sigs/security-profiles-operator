@@ -20,8 +20,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
+	"sync"
 
 	"sigs.k8s.io/release-utils/env"
 )
@@ -204,6 +206,16 @@ const (
 	// by non-root enabler.
 	DefaultSpoProfilePath = "/opt/spo-profiles"
 
+	// SpoSeccompProfile is the file name of the seccomp profile of the
+	// containers of the spod daemonset, which the non-root enabler copies
+	// into the seccomp directory of the kubelet.
+	SpoSeccompProfile = "security-profiles-operator.json"
+
+	// BpfRecorderSeccompProfile is the file name of the seccomp profile of the
+	// bpf-recorder container, which the non-root enabler copies into the
+	// seccomp directory of the kubelet.
+	BpfRecorderSeccompProfile = "bpf-recorder.json"
+
 	// OCIProfilePrefix is the prefix used for specifying security profiles
 	// from OCI artifacts.
 	OCIProfilePrefix = "oci://"
@@ -254,8 +266,20 @@ func KubeletDir() string {
 		return cfg.KubeletDir
 	}
 
+	// A missing file is expected without the non-root enabler, any other
+	// error falls back as well, but is worth knowing about. This runs before
+	// the logger exists, at package initialization.
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		warnKubeletConfig.Do(func() {
+			fmt.Fprintf(os.Stderr, "Using the default kubelet directory: %v\n", err)
+		})
+	}
+
 	return DefaultKubeletDir()
 }
+
+// warnKubeletConfig reports an unusable kubelet config file once.
+var warnKubeletConfig sync.Once
 
 // DefaultKubeletDir returns the kubelet directory from the environment
 // variable if set, or the default Kubernetes path. Unlike KubeletDir it

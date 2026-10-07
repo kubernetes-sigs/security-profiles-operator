@@ -62,6 +62,8 @@ func allowListProfiles() []client.Object {
 		// The daemons pull OCI base profiles, so the manager leaves the
 		// profile to them.
 		allowListProfile("oci-child", "oci://registry/base:v1", "read"),
+		// A base profile which does not exist cannot be resolved either.
+		allowListProfile("missing-base-child", "missing", "write"),
 		deleting,
 	}
 }
@@ -93,7 +95,9 @@ func remainingProfiles(t *testing.T, cl client.Client) []string {
 func TestReconcileAllowList(t *testing.T) {
 	t.Parallel()
 
-	all := []string{"allowed", "forbidden", "base", "child", "oci-child", "deleting"}
+	all := []string{
+		"allowed", "forbidden", "base", "child", "oci-child", "missing-base-child", "deleting",
+	}
 
 	for _, tc := range []struct {
 		name          string
@@ -104,7 +108,7 @@ func TestReconcileAllowList(t *testing.T) {
 		{
 			name:          "deletes the profiles using forbidden syscalls",
 			security:      spodapi.SPODSecurityConfig{AllowedSyscalls: []string{"read"}},
-			wantRemaining: []string{"allowed", "oci-child", "deleting"},
+			wantRemaining: []string{"allowed", "oci-child", "missing-base-child", "deleting"},
 		},
 		{
 			name: "only checks the allowed actions",

@@ -222,9 +222,11 @@ func (r *Recorder) writeProfile(profile []byte) error {
 	return nil
 }
 
+// outFile returns the file to write the profile to. The default file gets the
+// extension of the raw types, a file the user asked for stays as it is.
 func (r *Recorder) outFile() string {
 	outFile := r.options.outputFile
-	if outFile == DefaultOutputFile {
+	if !r.options.outputFileSet {
 		if r.options.typ == TypeRawSeccomp {
 			outFile = strings.TrimSuffix(outFile, ".yaml") + ".json"
 		}
@@ -296,8 +298,12 @@ func (r *Recorder) processSeccomp(writer io.Writer, mntns uint32) error {
 	return nil
 }
 
-func (r *Recorder) generateAppArmorProfile(mntns uint64) apparmorprofileapi.AppArmorAbstract {
-	processed, _ := r.bpfRecorder.AppArmor.GetAppArmorProcessed([]uint64{mntns})
+// generateAppArmorProfile returns the profile recorded for the mount
+// namespace. It reports false if nothing was recorded for it.
+func (r *Recorder) generateAppArmorProfile(
+	mntns uint64,
+) (apparmorprofileapi.AppArmorAbstract, bool) {
+	processed, found := r.AppArmorProcessed(r.bpfRecorder, []uint64{mntns})
 
 	return crd2armor.AbstractFromRecording(&crd2armor.RecordedAccess{
 		AllowedExecutables: processed.FileProcessed.AllowedExecutables,
@@ -309,14 +315,20 @@ func (r *Recorder) generateAppArmorProfile(mntns uint64) apparmorprofileapi.AppA
 		UseTCP:             processed.Socket.UseTCP,
 		UseUDP:             processed.Socket.UseUDP,
 		Capabilities:       processed.Capabilities,
-	})
+	}), found
 }
 
 func (r *Recorder) processAppArmor(writer io.Writer, mntns uint32) error {
 	var spec apparmorprofileapi.AppArmorProfileSpec
 
 	if mntns > 0 {
-		abstract := r.generateAppArmorProfile(uint64(mntns))
+		// Like for seccomp, an empty profile would hide that nothing got
+		// recorded.
+		abstract, found := r.generateAppArmorProfile(uint64(mntns))
+		if !found {
+			return fmt.Errorf("find mntns %d in apparmor data", mntns)
+		}
+
 		spec = apparmorprofileapi.AppArmorProfileSpec{
 			Abstract: abstract,
 		}
@@ -326,10 +338,9 @@ func (r *Recorder) processAppArmor(writer io.Writer, mntns uint32) error {
 		parts := make([]client.Object, 0, len(mountNamespaces))
 
 		for _, mntns := range mountNamespaces {
+			abstract, _ := r.generateAppArmorProfile(mntns)
 			profile := apparmorprofileapi.AppArmorProfile{
-				Spec: apparmorprofileapi.AppArmorProfileSpec{
-					Abstract: r.generateAppArmorProfile(mntns),
-				},
+				Spec: apparmorprofileapi.AppArmorProfileSpec{Abstract: abstract},
 			}
 			parts = append(parts, &profile)
 		}

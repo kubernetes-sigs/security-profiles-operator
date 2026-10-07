@@ -46,10 +46,6 @@ const (
 	// when neither a number nor an age is configured. Keeping them all would
 	// fill the disk of the node.
 	defaultAuditLogMaxBackups = 10
-
-	// flushInterval is how often the expired log buckets are emitted while
-	// lines arrive, in addition to the cache janitor.
-	flushInterval = 30 * time.Second
 )
 
 // errTailEnded is reported when the audit log tail ends without an error.
@@ -296,7 +292,7 @@ func (e *JsonEnricher) run(ctx context.Context) error {
 		e.closeLogWriter()
 	}()
 
-	timePrev := time.Now()
+	// The janitor of the cache emits the buckets once they expire.
 	lines := e.Lines(tailFile)
 
 	for {
@@ -313,14 +309,6 @@ func (e *JsonEnricher) run(ctx context.Context) error {
 				}
 
 				return fmt.Errorf("enricher failed: %w", err)
-			}
-
-			timeNow := time.Now()
-			if timePrev.Add(flushInterval).Before(timeNow) {
-				e.logger.V(config.VerboseLevel).Info("Time to flush log lines")
-				e.logLinesCache.DeleteExpired()
-
-				timePrev = timeNow
 			}
 
 			e.processLine(line)

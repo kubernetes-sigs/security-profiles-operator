@@ -29,6 +29,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
 
 // fuzzUID is the request UID used by the fuzz tests. The API server sets
@@ -121,13 +123,13 @@ func FuzzGetPodPatch(f *testing.F) {
 		{"", `{"spec":{"containers":[{"name":"debugger","env":[{"name":"` + ExecRequestUid + `"}]}]}}`, ""},
 		{"", `{"spec":{"containers":[]}}`, ""},
 		{
-			ephemeralContainersSubResource,
+			utils.EphemeralContainersSubResource,
 			`{"spec":{"ephemeralContainers":[{"name":"a"},{"name":"b"}]},` +
 				`"status":{"ephemeralContainerStatuses":[{"name":"a"}]}}`,
 			`{"spec":{"ephemeralContainers":[{"name":"a"}]}}`,
 		},
-		{ephemeralContainersSubResource, `{"spec":{"ephemeralContainers":[{"name":"a"}]}}`, `[`},
-		{ephemeralContainersSubResource, `{}`, ""},
+		{utils.EphemeralContainersSubResource, `{"spec":{"ephemeralContainers":[{"name":"a"}]}}`, `[`},
+		{utils.EphemeralContainersSubResource, `{}`, ""},
 		{"status", `{}`, ""},
 		{"", `null`, ""},
 		{"", ``, ""},

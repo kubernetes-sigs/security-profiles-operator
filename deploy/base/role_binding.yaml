@@ -22,6 +22,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: security-profiles-operator
+  namespace: security-profiles-operator
 roleRef:
   kind: Role
   name: security-profiles-operator
@@ -79,6 +80,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: spo-webhook
+  namespace: security-profiles-operator
 roleRef:
   kind: Role
   name: spo-webhook

@@ -105,6 +105,8 @@ func (b *BpfRecorder) sweepStaleKeys() {
 
 	b.staleKeys = stale
 
+	b.pruneExcludedKeys(generation)
+
 	if len(drop) == 0 {
 		return
 	}
@@ -126,12 +128,93 @@ func (b *BpfRecorder) sweepStaleKeys() {
 		b.logger.V(config.VerboseLevel).
 			Info("Dropping data of a workload without container", "key", key)
 
+		// Containers unknown to the cluster stay mapped until they are gone,
+		// so that their keys do not pile up during a long recording.
+		b.containerKeys.Delete(key)
+
 		if b.Seccomp != nil {
 			b.Seccomp.Clear(b, []uint64{key})
 		}
 
 		if b.AppArmor != nil {
 			b.AppArmor.Clear([]uint64{key})
+		}
+	}
+}
+
+// pruneExcludedKeys forgets the excluded workloads whose cgroup is gone.
+// Cgroup IDs are never reused, but every excluded one stays in the kernel map
+// otherwise, which fills up during a long recording. With other keys, an
+// excluded workload is only known to be gone once the session ends.
+func (b *BpfRecorder) pruneExcludedKeys(generation uint64) {
+	if !b.cgroupKeys {
+		return
+	}
+
+	// Close frees the map under the write lock, so it is listed under the
+	// read lock.
+	b.attachUnattachMutex.RLock()
+
+	if b.excludeKeysBpfMap == nil {
+		b.attachUnattachMutex.RUnlock()
+
+		return
+	}
+
+	raw, err := b.MapKeys(b.excludeKeysBpfMap)
+	b.attachUnattachMutex.RUnlock()
+
+	if err != nil {
+		b.logger.Error(err, "Unable to list excluded workloads")
+
+		return
+	}
+
+	var gone []uint64
+
+	for _, k := range raw {
+		if len(k) != 8 {
+			continue
+		}
+
+		// Only a removed cgroup is gone. Other errors, like a cgroup outside
+		// of the cgroup namespace of the daemon, tell nothing about it.
+		key := binary.NativeEndian.Uint64(k)
+
+		removed, err := b.CgroupRemoved(key)
+		if err != nil {
+			b.logger.V(config.VerboseLevel).Info(
+				"Unable to check the cgroup of an excluded workload", "key", key, "error", err.Error(),
+			)
+
+			continue
+		}
+
+		if removed {
+			gone = append(gone, key)
+		}
+	}
+
+	if len(gone) == 0 {
+		return
+	}
+
+	b.attachUnattachMutex.RLock()
+	defer b.attachUnattachMutex.RUnlock()
+
+	if b.recordingGeneration.Load() != generation || b.excludeKeysBpfMap == nil {
+		return
+	}
+
+	for _, key := range gone {
+		if err := b.DeleteKey64(b.excludeKeysBpfMap, key); err != nil {
+			b.logger.Error(err, "Unable to forget excluded workload", "key", key)
+
+			continue
+		}
+
+		if b.AppArmor != nil {
+			b.AppArmor.Unexclude(key)
 		}
 	}
 }

@@ -16,11 +16,13 @@ limitations under the License.
 
 package seccomp
 
+// Action is the action of a seccomp profile for a syscall.
 // +kubebuilder:validation:Enum=SCMP_ACT_KILL;SCMP_ACT_KILL_PROCESS;SCMP_ACT_KILL_THREAD;SCMP_ACT_TRAP;SCMP_ACT_ERRNO;SCMP_ACT_TRACE;SCMP_ACT_ALLOW;SCMP_ACT_LOG;SCMP_ACT_NOTIFY
 //
 //nolint:lll // required for kubebuilder
 type Action string
 
+// The actions of the seccomp profiles, see seccomp_rule_add(3).
 const (
 	ActKill        Action = "SCMP_ACT_KILL"
 	ActKillProcess Action = "SCMP_ACT_KILL_PROCESS"
@@ -33,11 +35,13 @@ const (
 	ActNotify      Action = "SCMP_ACT_NOTIFY"
 )
 
+// Operator compares an argument of a syscall in a seccomp profile.
 // +kubebuilder:validation:Enum=SCMP_CMP_NE;SCMP_CMP_LT;SCMP_CMP_LE;SCMP_CMP_EQ;SCMP_CMP_GE;SCMP_CMP_GT;SCMP_CMP_MASKED_EQ
 //
 //nolint:lll // required for kubebuilder
 type Operator string
 
+// The operators of the seccomp profiles, see seccomp_rule_add(3).
 const (
 	OpNotEqual     Operator = "SCMP_CMP_NE"
 	OpLessThan     Operator = "SCMP_CMP_LT"

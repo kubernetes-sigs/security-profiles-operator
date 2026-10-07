@@ -1,0 +1,27 @@
+name: Scan an image
+description: >-
+  Scan an image for vulnerabilities which have a fix, after the suppressions
+  of .openvex.json, see doc/hacking.md. Run it after the checkout.
+inputs:
+  image-ref:
+    description: The reference of the image to scan
+    default: ''
+  input:
+    description: The image archive to scan instead of a reference
+    default: ''
+runs:
+  using: composite
+  steps:
+    - name: Scan for fixable vulnerabilities
+      uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+      env:
+        TRIVY_VEX: .openvex.json
+        TRIVY_SHOW_SUPPRESSED: "true"
+      with:
+        image-ref: ${{ inputs.image-ref }}
+        input: ${{ inputs.input }}
+        scanners: vuln
+        ignore-unfixed: true
+        exit-code: "1"
+        format: table
+        version: v0.74.0

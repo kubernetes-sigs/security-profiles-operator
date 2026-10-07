@@ -54,6 +54,8 @@ type Runner struct {
 	// enricherGracePeriod is how long to wait for audit logs after the
 	// command exited.
 	enricherGracePeriod time.Duration
+	// tail is the audit log tailer of the enricher, once it runs.
+	tail atomic.Pointer[tailer.Tailer]
 }
 
 // New returns a new Runner instance.
@@ -114,6 +116,11 @@ func (r *Runner) Run() error {
 	// the command failed.
 	time.Sleep(r.enricherGracePeriod)
 
+	// Release the audit log, which ends the enricher.
+	if tail := r.tail.Load(); tail != nil {
+		r.StopTail(tail)
+	}
+
 	if waitErr != nil {
 		return fmt.Errorf("wait for command: %w", waitErr)
 	}
@@ -159,6 +166,8 @@ func (r *Runner) startEnricher() {
 
 		return
 	}
+
+	r.tail.Store(tailFile)
 
 	log.Printf("Enricher reading from file %s", filePath)
 

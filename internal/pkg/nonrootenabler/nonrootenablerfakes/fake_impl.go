@@ -37,16 +37,17 @@ type FakeImpl struct {
 	chmodReturnsOnCall map[int]struct {
 		result1 error
 	}
-	CopyDirContentsLocalStub        func(string, string) error
-	copyDirContentsLocalMutex       sync.RWMutex
-	copyDirContentsLocalArgsForCall []struct {
+	CopyFileStub        func(string, string, os.FileMode) error
+	copyFileMutex       sync.RWMutex
+	copyFileArgsForCall []struct {
 		arg1 string
 		arg2 string
+		arg3 os.FileMode
 	}
-	copyDirContentsLocalReturns struct {
+	copyFileReturns struct {
 		result1 error
 	}
-	copyDirContentsLocalReturnsOnCall map[int]struct {
+	copyFileReturnsOnCall map[int]struct {
 		result1 error
 	}
 	InstallApparmorStub        func(apparmorprofile.ProfileManager, string) error
@@ -225,19 +226,20 @@ func (fake *FakeImpl) ChmodReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
-func (fake *FakeImpl) CopyDirContentsLocal(arg1 string, arg2 string) error {
-	fake.copyDirContentsLocalMutex.Lock()
-	ret, specificReturn := fake.copyDirContentsLocalReturnsOnCall[len(fake.copyDirContentsLocalArgsForCall)]
-	fake.copyDirContentsLocalArgsForCall = append(fake.copyDirContentsLocalArgsForCall, struct {
+func (fake *FakeImpl) CopyFile(arg1 string, arg2 string, arg3 os.FileMode) error {
+	fake.copyFileMutex.Lock()
+	ret, specificReturn := fake.copyFileReturnsOnCall[len(fake.copyFileArgsForCall)]
+	fake.copyFileArgsForCall = append(fake.copyFileArgsForCall, struct {
 		arg1 string
 		arg2 string
-	}{arg1, arg2})
-	stub := fake.CopyDirContentsLocalStub
-	fakeReturns := fake.copyDirContentsLocalReturns
-	fake.recordInvocation("CopyDirContentsLocal", []interface{}{arg1, arg2})
-	fake.copyDirContentsLocalMutex.Unlock()
+		arg3 os.FileMode
+	}{arg1, arg2, arg3})
+	stub := fake.CopyFileStub
+	fakeReturns := fake.copyFileReturns
+	fake.recordInvocation("CopyFile", []interface{}{arg1, arg2, arg3})
+	fake.copyFileMutex.Unlock()
 	if stub != nil {
-		return stub(arg1, arg2)
+		return stub(arg1, arg2, arg3)
 	}
 	if specificReturn {
 		return ret.result1
@@ -245,44 +247,44 @@ func (fake *FakeImpl) CopyDirContentsLocal(arg1 string, arg2 string) error {
 	return fakeReturns.result1
 }
 
-func (fake *FakeImpl) CopyDirContentsLocalCallCount() int {
-	fake.copyDirContentsLocalMutex.RLock()
-	defer fake.copyDirContentsLocalMutex.RUnlock()
-	return len(fake.copyDirContentsLocalArgsForCall)
+func (fake *FakeImpl) CopyFileCallCount() int {
+	fake.copyFileMutex.RLock()
+	defer fake.copyFileMutex.RUnlock()
+	return len(fake.copyFileArgsForCall)
 }
 
-func (fake *FakeImpl) CopyDirContentsLocalCalls(stub func(string, string) error) {
-	fake.copyDirContentsLocalMutex.Lock()
-	defer fake.copyDirContentsLocalMutex.Unlock()
-	fake.CopyDirContentsLocalStub = stub
+func (fake *FakeImpl) CopyFileCalls(stub func(string, string, os.FileMode) error) {
+	fake.copyFileMutex.Lock()
+	defer fake.copyFileMutex.Unlock()
+	fake.CopyFileStub = stub
 }
 
-func (fake *FakeImpl) CopyDirContentsLocalArgsForCall(i int) (string, string) {
-	fake.copyDirContentsLocalMutex.RLock()
-	defer fake.copyDirContentsLocalMutex.RUnlock()
-	argsForCall := fake.copyDirContentsLocalArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
+func (fake *FakeImpl) CopyFileArgsForCall(i int) (string, string, os.FileMode) {
+	fake.copyFileMutex.RLock()
+	defer fake.copyFileMutex.RUnlock()
+	argsForCall := fake.copyFileArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
 }
 
-func (fake *FakeImpl) CopyDirContentsLocalReturns(result1 error) {
-	fake.copyDirContentsLocalMutex.Lock()
-	defer fake.copyDirContentsLocalMutex.Unlock()
-	fake.CopyDirContentsLocalStub = nil
-	fake.copyDirContentsLocalReturns = struct {
+func (fake *FakeImpl) CopyFileReturns(result1 error) {
+	fake.copyFileMutex.Lock()
+	defer fake.copyFileMutex.Unlock()
+	fake.CopyFileStub = nil
+	fake.copyFileReturns = struct {
 		result1 error
 	}{result1}
 }
 
-func (fake *FakeImpl) CopyDirContentsLocalReturnsOnCall(i int, result1 error) {
-	fake.copyDirContentsLocalMutex.Lock()
-	defer fake.copyDirContentsLocalMutex.Unlock()
-	fake.CopyDirContentsLocalStub = nil
-	if fake.copyDirContentsLocalReturnsOnCall == nil {
-		fake.copyDirContentsLocalReturnsOnCall = make(map[int]struct {
+func (fake *FakeImpl) CopyFileReturnsOnCall(i int, result1 error) {
+	fake.copyFileMutex.Lock()
+	defer fake.copyFileMutex.Unlock()
+	fake.CopyFileStub = nil
+	if fake.copyFileReturnsOnCall == nil {
+		fake.copyFileReturnsOnCall = make(map[int]struct {
 			result1 error
 		})
 	}
-	fake.copyDirContentsLocalReturnsOnCall[i] = struct {
+	fake.copyFileReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
 }

@@ -60,12 +60,8 @@ wait_for_spod() {
   # Reaching this point already means the manager became ready, which it only
   # does once all of its informer caches synced.
   echo "Waiting for the operator to create the spod daemonset"
-  for ((i = 0; i < 60; i++)); do
-    if k get daemonset spod &>/dev/null; then
-      break
-    fi
-    sleep 5
-  done
+  # The waits below fail with their own message if it never shows up.
+  wait_until 60 5 k get daemonset spod >/dev/null 2>&1 || true
 
   # On the single node kind cluster spod is scheduled exactly once. Asserting
   # that first keeps the checks below from passing on a daemonset with nothing

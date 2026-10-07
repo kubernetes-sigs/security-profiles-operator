@@ -22,10 +22,6 @@ import (
 	ucli "github.com/urfave/cli/v2"
 )
 
-// FlagOIDCDeviceFlow is the flag for signing in to the OIDC provider with the
-// device flow if there is no terminal.
-const FlagOIDCDeviceFlow string = "oidc-device-flow"
-
 // RegistryFlags returns the flags for the registry access shared by the
 // commands which push, pull or sign: the username and password of the
 // registry authentication and HTTP instead of HTTPS.

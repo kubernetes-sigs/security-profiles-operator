@@ -15,6 +15,9 @@
 
 set -euo pipefail
 
+# shellcheck source=hack/lib/common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
+
 install_yq() {
   echo "Installing yq"
   local arch sha256 download
@@ -31,9 +34,9 @@ install_yq() {
     ;;
   esac
   download=$(mktemp)
-  curl -sSfL --retry 5 --retry-delay 3 -o "$download" \
-    "https://github.com/mikefarah/yq/releases/download/v$YQ_VERSION/yq_linux_$arch"
-  echo "$sha256  $download" | sha256sum -c -
+  download_verified \
+    "https://github.com/mikefarah/yq/releases/download/v$YQ_VERSION/yq_linux_$arch" \
+    "$sha256" "$download"
   sudo install -m 0755 "$download" /usr/bin/yq
   rm -f "$download"
   yq --version

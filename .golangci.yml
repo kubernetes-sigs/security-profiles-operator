@@ -232,8 +232,6 @@ linters:
         path: internal/pkg/daemon/profilerecorder/profilerecorder\.go
         text: Function 'Reconcile'
     paths:
-      - third_party$
-      - builtin$
       - examples$
 formatters:
   enable:
@@ -254,7 +252,5 @@ formatters:
   exclusions:
     generated: lax
     paths:
-      - third_party$
-      - builtin$
       - examples$
       - internal/pkg/daemon/bpfrecorder/generated.go

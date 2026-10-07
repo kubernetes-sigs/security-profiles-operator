@@ -259,7 +259,7 @@ metadata:
     capabilities: Basic Install
     categories: Security
     containerImage: us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator:latest
-    createdAt: "2026-10-06T15:01:44Z"
+    createdAt: "2026-10-07T14:26:25Z"
     olm.skipRange: '>=1.0.0 <1.1.2-dev'
     operatorframework.io/cluster-monitoring: "true"
     operatorframework.io/os.linux: supported
@@ -815,6 +815,7 @@ spec:
                   periodSeconds: 3
               priorityClassName: system-cluster-critical
               securityContext:
+                runAsNonRoot: true
                 seccompProfile:
                   type: RuntimeDefault
               serviceAccountName: security-profiles-operator
@@ -868,14 +869,6 @@ spec:
           - patch
           - update
           - watch
-        - apiGroups:
-          - apps
-          resources:
-          - daemonsets/finalizers
-          verbs:
-          - get
-          - patch
-          - update
         - apiGroups:
           - cert-manager.io
           resources:

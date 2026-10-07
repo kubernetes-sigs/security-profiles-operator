@@ -15,6 +15,9 @@
 
 set -euo pipefail
 
+# shellcheck source=hack/lib/common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
+
 # TODO: remove this script once the Debian release the golang images are based
 # on ships the fixed libelf version. Debian trixie (golang:1.27) has 0.192.
 apt-get install -y \
@@ -30,9 +33,7 @@ DIR="elfutils-$VERSION"
 ARCHIVE="$DIR.tar.bz2"
 trap 'rm -rf -- "$DIR" "$ARCHIVE"' EXIT
 
-curl -sSfL --retry 5 --retry-delay 3 -o "$ARCHIVE" \
-    "https://sourceware.org/elfutils/ftp/$VERSION/$ARCHIVE"
-echo "$SHA256  $ARCHIVE" | sha256sum -c -
+download_verified "https://sourceware.org/elfutils/ftp/$VERSION/$ARCHIVE" "$SHA256" "$ARCHIVE"
 tar xfj "$ARCHIVE"
 
 # Only libelf is needed, the other elfutils components are not built. Their

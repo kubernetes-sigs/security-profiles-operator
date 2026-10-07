@@ -66,3 +66,25 @@ func TestDefaultImplRmdir(t *testing.T) {
 	require.Error(t, sut.Rmdir(file))
 	require.FileExists(t, file)
 }
+
+func TestDefaultImplCopyFile(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.json")
+	dst := filepath.Join(dir, "dst.json")
+
+	require.NoError(t, os.WriteFile(src, []byte("{}"), 0o600))
+
+	require.NoError(t, (&defaultImpl{}).CopyFile(src, dst, 0o644))
+
+	content, err := os.ReadFile(dst)
+	require.NoError(t, err)
+	require.Equal(t, "{}", string(content))
+
+	info, err := os.Stat(dst)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o644), info.Mode().Perm())
+
+	require.Error(t, (&defaultImpl{}).CopyFile(filepath.Join(dir, "missing"), dst, 0o644))
+}

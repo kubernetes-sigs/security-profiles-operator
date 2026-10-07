@@ -378,23 +378,24 @@ func TestReconcileSkipsMislabeledStatus(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+		for _, initial := range []secprofnodestatusapi.ProfileState{
+			secprofnodestatusapi.ProfileStatePending, "",
+		} {
+			t.Run(tc.name+"/"+string(initial), func(t *testing.T) {
+				t.Parallel()
 
-			r, c, rec := newTestReconciler(
-				t, testProfile(secprofnodestatusapi.ProfileStatePending), tc.status,
-			)
+				r, c, rec := newTestReconciler(t, testProfile(initial), tc.status.DeepCopy())
 
-			res, err := reconcileStatus(t, r, tc.status)
-			require.NoError(t, err)
-			require.Equal(t, reconcile.Result{}, res)
-			utiltest.RequireEvent(t, rec, tc.wantEvent)
+				res, err := reconcileStatus(t, r, tc.status)
+				require.NoError(t, err)
+				require.Equal(t, reconcile.Result{}, res)
+				utiltest.RequireEvent(t, rec, tc.wantEvent)
 
-			// The profile status stays untouched.
-			require.Equal(t,
-				secprofnodestatusapi.ProfileStatePending, storedProfile(t, c).Status.Status,
-			)
-		})
+				// The profile status stays untouched, it is not seeded from a
+				// status which does not belong to it either.
+				require.Equal(t, initial, storedProfile(t, c).Status.Status)
+			})
+		}
 	}
 }
 
@@ -429,7 +430,9 @@ func TestReconcileWaitsForDaemonSet(t *testing.T) {
 	t.Run("NotAllStatusesReported", func(t *testing.T) {
 		t.Parallel()
 
-		r, c, _ := newTestReconciler(t, profile.DeepCopy(), status.DeepCopy(), spodDS(2, 2))
+		r, c, _ := newTestReconciler(
+			t, profile.DeepCopy(), status.DeepCopy(), spodDS(2, 2), testNode("worker-1"),
+		)
 
 		res, err := reconcileStatus(t, r, status)
 		require.NoError(t, err)
@@ -438,6 +441,23 @@ func TestReconcileWaitsForDaemonSet(t *testing.T) {
 			secprofnodestatusapi.ProfileStatePending, storedProfile(t, c).Status.Status,
 		)
 	})
+}
+
+// Right after a node got deleted, the DaemonSet still counts it, so the
+// profile is reconciled again later instead of aggregating its status.
+func TestReconcileWaitsForDaemonSetToDropDeletedNode(t *testing.T) {
+	t.Parallel()
+
+	live := testNodeStatus("worker-1", secprofnodestatusapi.ProfileStateInstalled)
+	gone := testNodeStatus("worker-2", secprofnodestatusapi.ProfileStateError)
+	profile := testProfile(secprofnodestatusapi.ProfileStatePending)
+
+	r, c, _ := newTestReconciler(t, profile, live, gone, spodDS(2, 2), testNode("worker-1"))
+
+	res, err := reconcileStatus(t, r, live)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{RequeueAfter: dsWait}, res)
+	require.Equal(t, secprofnodestatusapi.ProfileStatePending, storedProfile(t, c).Status.Status)
 }
 
 func TestReconcileRemovesStatusOfDeletedNode(t *testing.T) {
@@ -469,6 +489,22 @@ func TestReconcileRemovesStatusOfDeletedNode(t *testing.T) {
 		[]string{util.GetFinalizerNodeString("worker-1")},
 		storedProfile(t, c).Finalizers,
 	)
+}
+
+func TestDeletedNodeRequests(t *testing.T) {
+	t.Parallel()
+
+	live := testNodeStatus("worker-1", secprofnodestatusapi.ProfileStateInstalled)
+	gone := testNodeStatus("worker-2", secprofnodestatusapi.ProfileStateError)
+	r, _, _ := newTestReconciler(t, live, gone)
+
+	requests := r.deletedNodeRequests(context.Background(), testNode("worker-2"))
+	require.Equal(t,
+		[]reconcile.Request{profileRequest("SeccompProfile", testNamespace, testProfileName)},
+		requests,
+	)
+
+	require.Empty(t, r.deletedNodeRequests(context.Background(), testNode("worker-3")))
 }
 
 func TestStatusesOfDeletedNodesKeepsLiveNodes(t *testing.T) {

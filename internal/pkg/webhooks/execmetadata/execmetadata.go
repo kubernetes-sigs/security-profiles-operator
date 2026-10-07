@@ -36,13 +36,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
 
-const (
-	ExecRequestUid = "SPO_EXEC_REQUEST_UID"
-
-	// ephemeralContainersSubResource is the pod sub resource used to add
-	// ephemeral containers to a running pod, for example by `kubectl debug`.
-	ephemeralContainersSubResource = "ephemeralcontainers"
-)
+const ExecRequestUid = "SPO_EXEC_REQUEST_UID"
 
 var errUnsupportedSubResource = errors.New("unsupported pod sub resource")
 
@@ -65,7 +59,7 @@ func (p Handler) getPodPatch(req *admission.Request) ([]jsonpatch.JsonPatchOpera
 	switch req.SubResource {
 	case "":
 		return p.getNodeDebuggingPodPatch(req)
-	case ephemeralContainersSubResource:
+	case utils.EphemeralContainersSubResource:
 		return p.getEphemeralContainerPatch(req)
 	default:
 		return nil, fmt.Errorf("%w: %s", errUnsupportedSubResource, req.SubResource)
@@ -123,25 +117,17 @@ func (p Handler) getEphemeralContainerPatch(
 
 	p.log.V(1).Info("podObject before mutate", "execPodObject", podObject)
 
-	// The env of already created ephemeral containers cannot be changed. Their
-	// names are unique, see
-	// https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#ephemeralcontainer-v1-core
-	existing := map[string]bool{}
+	// The env of already created ephemeral containers cannot be changed.
+	var oldPod *corev1.Pod
 
 	if len(req.OldObject.Raw) > 0 {
-		oldPod := corev1.Pod{}
-		if err := json.Unmarshal(req.OldObject.Raw, &oldPod); err != nil {
+		oldPod = &corev1.Pod{}
+		if err := json.Unmarshal(req.OldObject.Raw, oldPod); err != nil {
 			return patches, fmt.Errorf("failed to unmarshal old pod object: %w", err)
 		}
-
-		for i := range oldPod.Spec.EphemeralContainers {
-			existing[oldPod.Spec.EphemeralContainers[i].Name] = true
-		}
 	}
 
-	for i := range podObject.Status.EphemeralContainerStatuses {
-		existing[podObject.Status.EphemeralContainerStatuses[i].Name] = true
-	}
+	existing := utils.ExistingEphemeralContainers(&podObject, oldPod)
 
 	for i := range podObject.Spec.EphemeralContainers {
 		container := &podObject.Spec.EphemeralContainers[i]

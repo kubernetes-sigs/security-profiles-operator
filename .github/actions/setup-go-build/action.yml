@@ -1,0 +1,20 @@
+name: Set up the Go build
+description: >-
+  Install the Go version of go.mod and the native libraries the cgo packages
+  link against, see hack/install-packages. Run it after the checkout.
+inputs:
+  cache:
+    description: >-
+      Whether to use the Go cache, which jobs that publish must not, as every
+      job running repository code shares it.
+    default: 'true'
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: ./go.mod
+        cache: ${{ inputs.cache }}
+    - name: Install dependencies
+      shell: bash
+      run: sudo hack/install-packages

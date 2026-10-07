@@ -31,9 +31,7 @@ import (
 
 var errNoContainerInfo = errors.New("no pod of the node has the container")
 
-// NOTE(jaosorior): Should this actually be namespace-scoped?
-//
-// Cluster scoped
+// The pods of the node run in every namespace, so the access is cluster scoped.
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 
 // containerInfos tells the pod of a container, from the watched pods of the

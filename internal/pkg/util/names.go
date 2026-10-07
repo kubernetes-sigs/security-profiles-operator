@@ -153,12 +153,9 @@ func NodeNameLabelValue(nodeName string) string {
 	return hashed
 }
 
-func KindBasedDNSLengthName(obj client.Object) string {
-	return KindNameDNSLengthName(obj.GetObjectKind().GroupVersionKind().Kind, obj.GetName())
-}
-
-// KindNameDNSLengthName is like KindBasedDNSLengthName but takes the kind
-// explicitly, for objects whose TypeMeta may have been cleared.
+// KindNameDNSLengthName returns the label value which identifies the profile
+// of the kind and name. It takes the kind explicitly, because the TypeMeta of
+// objects may have been cleared.
 func KindNameDNSLengthName(kind, name string) string {
 	return DNSLengthName(kind, "%s-%s", kind, name)
 }

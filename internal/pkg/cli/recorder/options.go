@@ -31,6 +31,7 @@ type Options struct {
 	commandOptions *command.Options
 	typ            Type
 	outputFile     string
+	outputFileSet  bool
 	baseSyscalls   []string
 	noProcStart    bool
 }
@@ -91,6 +92,7 @@ func FromContext(ctx *cli.Context) (*Options, error) {
 
 	if ctx.IsSet(FlagOutputFile) {
 		options.outputFile = ctx.String(FlagOutputFile)
+		options.outputFileSet = true
 	}
 
 	if options.outputFile == "" {

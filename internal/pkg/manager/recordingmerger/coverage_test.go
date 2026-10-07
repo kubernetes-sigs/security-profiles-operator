@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	profilebase "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
@@ -473,40 +472,29 @@ func TestMergeTypedProfiles_ComputesCoverageBeforeMerge(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: recordingName, Namespace: namespace},
 	}
 
-	createCalled := false
 	_, err := reconciler.mergeTypedProfiles(
 		context.Background(), recording,
-		func(
-			_ context.Context,
-			_ client.Client,
-			_ *profilerecordingapi.ProfileRecording,
-			_ string,
-			merged mergeableProfile,
-			coverageAnnotation string,
-		) (controllerutil.OperationResult, error) {
-			createCalled = true
-
-			coverage := parseCoverage(t, coverageAnnotation)
-			require.Equal(t, 2, coverage.Total)
-			require.Equal(t, map[string]int{"read": 2, "socket": 1, "write": 1}, coverage.Syscalls)
-
-			mergedProfile := ifaceAsSortedSeccompProfile(merged.getProfile())
-			require.NotNil(t, mergedProfile)
-
-			names := make([]string, 0, len(mergedProfile.Spec.Syscalls))
-			for _, syscall := range mergedProfile.Spec.Syscalls {
-				names = append(names, syscall.Names...)
-			}
-
-			sort.Strings(names)
-			require.Equal(t, []string{"read", "socket", "write"}, names)
-
-			return controllerutil.OperationResultNone, nil
-		},
+		profilerecordingapi.ProfileRecordingKindSeccompProfile,
 		&seccompprofile.SeccompProfileList{},
 	)
 	require.NoError(t, err)
-	require.True(t, createCalled)
+
+	merged := &seccompprofile.SeccompProfile{}
+	require.NoError(t, cl.Get(context.Background(), client.ObjectKey{
+		Name: recordingName + "-" + containerName,
+	}, merged))
+
+	coverage := parseCoverage(t, merged.GetAnnotations()[syscallCoverageAnnotation])
+	require.Equal(t, 2, coverage.Total)
+	require.Equal(t, map[string]int{"read": 2, "socket": 1, "write": 1}, coverage.Syscalls)
+
+	names := make([]string, 0, len(merged.Spec.Syscalls))
+	for _, syscall := range merged.Spec.Syscalls {
+		names = append(names, syscall.Names...)
+	}
+
+	sort.Strings(names)
+	require.Equal(t, []string{"read", "socket", "write"}, names)
 }
 
 func coverageTestScheme(t *testing.T) *runtime.Scheme {

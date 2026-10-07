@@ -15,6 +15,9 @@
 
 set -euo pipefail
 
+# shellcheck source=hack/lib/common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
+
 KUBERNIX_VERSION=v0.4.1
 KUBERNIX_ROOT=/var/lib/kubernix
 KUBERNIX_NODE=kubernix
@@ -37,13 +40,15 @@ kubernix_env() {
 
 install_kubernix() {
   echo "Installing kubernix $KUBERNIX_VERSION"
-  local arch bin=/usr/local/bin/kubernix
+  local arch download
   arch=$(uname -m)
 
-  sudo curl -sSfL --retry 5 --retry-delay 3 -o "$bin" \
-    "https://github.com/saschagrunert/kubernix/releases/download/$KUBERNIX_VERSION/kubernix-$arch"
-  echo "${KUBERNIX_SHA256[$arch]}  $bin" | sha256sum -c
-  sudo chmod +x "$bin"
+  download=$(mktemp)
+  download_verified \
+    "https://github.com/saschagrunert/kubernix/releases/download/$KUBERNIX_VERSION/kubernix-$arch" \
+    "${KUBERNIX_SHA256[$arch]}" "$download"
+  sudo install -m 0755 "$download" /usr/local/bin/kubernix
+  rm -f "$download"
 }
 
 # Boots a single node cluster with CRI-O, which registers the crun (default)

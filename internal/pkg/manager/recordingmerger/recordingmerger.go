@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"slices"
 	"sync/atomic"
@@ -121,7 +122,7 @@ func (r *PolicyMergeReconciler) Healthz(*http.Request) error {
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=apparmorprofiles,verbs=get;list;watch;create;update;patch;delete
 
-// Reconcile reconciles a NodeStatus.
+// Reconcile merges the partial profiles of a deleted ProfileRecording.
 func (r *PolicyMergeReconciler) Reconcile(
 	ctx context.Context,
 	req reconcile.Request,
@@ -168,9 +169,8 @@ func (r *PolicyMergeReconciler) Reconcile(
 
 // mergeKind is a kind of profiles which a recording can record.
 type mergeKind struct {
-	kind         profilerecordingapi.ProfileRecordingKind
-	createUpdate createUpdateFn
-	newList      func() client.ObjectList
+	kind    profilerecordingapi.ProfileRecordingKind
+	newList func() client.ObjectList
 }
 
 // mergeKinds are all kinds of partial profiles which a recording can have.
@@ -179,19 +179,16 @@ type mergeKind struct {
 // ones of the current kind.
 var mergeKinds = []mergeKind{
 	{
-		kind:         profilerecordingapi.ProfileRecordingKindSeccompProfile,
-		createUpdate: createUpdateSeccompProfile,
-		newList:      func() client.ObjectList { return &seccompprofile.SeccompProfileList{} },
+		kind:    profilerecordingapi.ProfileRecordingKindSeccompProfile,
+		newList: func() client.ObjectList { return &seccompprofile.SeccompProfileList{} },
 	},
 	{
-		kind:         profilerecordingapi.ProfileRecordingKindSelinuxProfile,
-		createUpdate: createUpdateSelinuxProfile,
-		newList:      func() client.ObjectList { return &selinuxprofileapi.SelinuxProfileList{} },
+		kind:    profilerecordingapi.ProfileRecordingKindSelinuxProfile,
+		newList: func() client.ObjectList { return &selinuxprofileapi.SelinuxProfileList{} },
 	},
 	{
-		kind:         profilerecordingapi.ProfileRecordingKindAppArmorProfile,
-		createUpdate: createUpdateApparmorProfile,
-		newList:      func() client.ObjectList { return &apparmorprofileapi.AppArmorProfileList{} },
+		kind:    profilerecordingapi.ProfileRecordingKindAppArmorProfile,
+		newList: func() client.ObjectList { return &apparmorprofileapi.AppArmorProfileList{} },
 	},
 }
 
@@ -219,7 +216,7 @@ func (r *PolicyMergeReconciler) mergeProfiles(
 	found := false
 
 	for _, k := range mergeKinds {
-		merged, err := r.mergeTypedProfiles(ctx, profileRecording, k.createUpdate, k.newList())
+		merged, err := r.mergeTypedProfiles(ctx, profileRecording, k.kind, k.newList())
 		if err != nil {
 			return fmt.Errorf("cannot merge profiles of kind %s: %w", k.kind, err)
 		}
@@ -296,7 +293,7 @@ func (r *PolicyMergeReconciler) releaseRecording(
 func (r *PolicyMergeReconciler) mergeTypedProfiles(
 	ctx context.Context,
 	profileRecording *profilerecordingapi.ProfileRecording,
-	createUpdateMergedProfile createUpdateFn,
+	kind profilerecordingapi.ProfileRecordingKind,
 	listItem client.ObjectList,
 ) (bool, error) {
 	partialProfiles, listedProfiles, err := listPartialProfiles(
@@ -359,9 +356,9 @@ func (r *PolicyMergeReconciler) mergeTypedProfiles(
 		r.log.V(1).
 			Info("Computed syscall coverage", "container", cntName, "coverage", coverageAnnotation)
 
-		res, err := createUpdateMergedProfile(
+		res, err := createUpdateProfile(
 			ctx, r.writeClient(), profileRecording, mergedRecordingName, mergedProfile,
-			coverageAnnotation,
+			kind, coverageAnnotation,
 		)
 		if err != nil {
 			r.record.Eventf(
@@ -394,72 +391,6 @@ func (r *PolicyMergeReconciler) mergeTypedProfiles(
 	})
 
 	return true, deletePartialProfiles(ctx, r.client, toDelete)
-}
-
-type createUpdateFn func(
-	ctx context.Context,
-	client client.Client,
-	profileRecording *profilerecordingapi.ProfileRecording,
-	mergedRecordingName string,
-	mergedProfiles mergeableProfile,
-	coverageAnnotation string,
-) (controllerutil.OperationResult, error)
-
-func createUpdateSeccompProfile(
-	ctx context.Context,
-	cl client.Client,
-	profileRecording *profilerecordingapi.ProfileRecording,
-	mergedRecordingName string,
-	mergedProfiles mergeableProfile,
-	coverageAnnotation string,
-) (controllerutil.OperationResult, error) {
-	return createUpdateProfile(
-		ctx,
-		cl,
-		profileRecording,
-		mergedRecordingName,
-		mergedProfiles,
-		profilerecordingapi.ProfileRecordingKindSeccompProfile,
-		coverageAnnotation,
-	)
-}
-
-func createUpdateSelinuxProfile(
-	ctx context.Context,
-	cl client.Client,
-	profileRecording *profilerecordingapi.ProfileRecording,
-	mergedRecordingName string,
-	mergedProfiles mergeableProfile,
-	coverageAnnotation string,
-) (controllerutil.OperationResult, error) {
-	return createUpdateProfile(
-		ctx,
-		cl,
-		profileRecording,
-		mergedRecordingName,
-		mergedProfiles,
-		profilerecordingapi.ProfileRecordingKindSelinuxProfile,
-		coverageAnnotation,
-	)
-}
-
-func createUpdateApparmorProfile(
-	ctx context.Context,
-	cl client.Client,
-	profileRecording *profilerecordingapi.ProfileRecording,
-	mergedRecordingName string,
-	mergedProfiles mergeableProfile,
-	coverageAnnotation string,
-) (controllerutil.OperationResult, error) {
-	return createUpdateProfile(
-		ctx,
-		cl,
-		profileRecording,
-		mergedRecordingName,
-		mergedProfiles,
-		profilerecordingapi.ProfileRecordingKindAppArmorProfile,
-		coverageAnnotation,
-	)
 }
 
 // mergeRetryBackoff is used to retry writing a merged profile if another
@@ -591,6 +522,7 @@ func createUpdateProfile(
 
 	err = retry.OnError(mergeRetryBackoff, isWriteConflict, func() error {
 		obj := newProfileObject(kind, mergedRecordingName, profileRecording)
+		wantLabels := maps.Clone(obj.GetLabels())
 
 		var writeErr error
 
@@ -600,6 +532,16 @@ func createUpdateProfile(
 			); err != nil {
 				return fmt.Errorf("check merged profile owner: %w", err)
 			}
+
+			// A profile merged by an older version misses the labels which
+			// were added since, like the namespace of the recording.
+			labels := obj.GetLabels()
+			if labels == nil {
+				labels = map[string]string{}
+			}
+
+			maps.Copy(labels, wantLabels)
+			obj.SetLabels(labels)
 
 			if err := mergeInto(obj, mergedProfiles, profileRecording); err != nil {
 				return err

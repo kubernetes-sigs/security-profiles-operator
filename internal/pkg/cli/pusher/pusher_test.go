@@ -94,3 +94,20 @@ func TestRun(t *testing.T) {
 		})
 	}
 }
+
+func TestWithSigningHint(t *testing.T) {
+	t.Parallel()
+
+	unsigned := &artifact.UnsignedError{Reference: "registry/profile@sha256:abc", Err: errTest}
+
+	err := withSigningHint(unsigned)
+	require.ErrorIs(t, err, errTest)
+	require.ErrorContains(t, err, "spoc sign registry/profile@sha256:abc")
+
+	err = withSigningHint(artifact.ErrNoInteractiveSignIn)
+	require.ErrorIs(t, err, artifact.ErrNoInteractiveSignIn)
+	require.ErrorContains(t, err, "--"+FlagOIDCDeviceFlow)
+	require.ErrorContains(t, err, "--"+FlagDisableSigning)
+
+	require.Equal(t, errTest, withSigningHint(errTest))
+}

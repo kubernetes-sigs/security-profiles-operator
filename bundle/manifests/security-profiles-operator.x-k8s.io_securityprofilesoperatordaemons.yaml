@@ -1282,6 +1282,8 @@ spec:
                       SCMP_ACT_ALLOW, SCMP_ACT_LOG, SCMP_ACT_TRACE and SCMP_ACT_NOTIFY. If
                       unset, all of them are checked.
                     items:
+                      description: Action is the action of a seccomp profile for a
+                        syscall.
                       enum:
                       - SCMP_ACT_KILL
                       - SCMP_ACT_KILL_PROCESS

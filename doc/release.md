@@ -483,7 +483,7 @@ staging build does, with spoc built from the commit, to a throwaway registry,
 without OIDC token and write access. For every push to `main`, the isolated
 [`provenance`](../.github/workflows/provenance.yml) workflow attests their
 digests at SLSA Build L3, named after their repository
-and tag, for example `base/runc:v1.5.2`, and stores the provenance as
+and tag, for example `base/runc:v<version>`, and stores the provenance as
 artifact attestation of the repository. Releases need no provenance of their
 own for the profiles: a release is tagged on a commit of `main`, whose push
 attested them already.

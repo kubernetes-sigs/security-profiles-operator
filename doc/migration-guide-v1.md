@@ -146,6 +146,7 @@ Update everything that references the SPO APIs to v1:
 ### ProfileRecording
 
 Before (v1alpha1):
+
 ```yaml
 apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
 kind: ProfileRecording
@@ -161,6 +162,7 @@ spec:
 ```
 
 After (v1):
+
 ```yaml
 apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: ProfileRecording

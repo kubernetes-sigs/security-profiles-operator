@@ -570,6 +570,61 @@ func TestHandleKeepsRecordingAnnotation(t *testing.T) {
 	}
 }
 
+// TestHandleConflictingRecordings asserts that the oldest of two recordings of
+// the same container records it, in whatever order the cache lists them.
+func TestHandleConflictingRecordings(t *testing.T) {
+	t.Parallel()
+
+	recording := func(name string, created int64) profilerecordingapi.ProfileRecording {
+		return profilerecordingapi.ProfileRecording{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:              name,
+				Namespace:         "ns",
+				CreationTimestamp: metav1.Unix(created, 0),
+			},
+			Spec: profilerecordingapi.ProfileRecordingSpec{
+				Kind:        profilerecordingapi.ProfileRecordingKindSeccompProfile,
+				Recorder:    profilerecordingapi.ProfileRecorderLogs,
+				PodSelector: selectAll,
+			},
+		}
+	}
+
+	for _, order := range [][]profilerecordingapi.ProfileRecording{
+		{recording("older", 1), recording("newer", 2)},
+		{recording("newer", 2), recording("older", 1)},
+	} {
+		mock := &recordingfakes.FakeImpl{}
+		mock.ListProfileRecordingsReturns(
+			&profilerecordingapi.ProfileRecordingList{Items: order}, nil,
+		)
+
+		sut := newTestRecorder(t, mock)
+		recorder := events.NewFakeRecorder(10)
+		sut.record = utils.NewSafeRecorder(recorder)
+
+		resp := sut.Handle(t.Context(), admission.Request{
+			AdmissionRequest: admissionv1.AdmissionRequest{
+				Operation: admissionv1.Create,
+				Object:    rawPod(t, testPod.DeepCopy()),
+			},
+		})
+		require.True(t, resp.Allowed)
+
+		annotations := slices.DeleteFunc(resp.Patches, func(patch jsonpatch.Operation) bool {
+			return !strings.HasPrefix(patch.Path, "/metadata/annotations")
+		})
+		require.Len(t, annotations, 1)
+
+		value, err := json.Marshal(annotations[0].Value)
+		require.NoError(t, err)
+		require.Contains(t, string(value), "older_container_")
+
+		require.Len(t, recorder.Events, 1)
+		require.Contains(t, <-recorder.Events, reasonConflictingRecording)
+	}
+}
+
 func TestUpdateSeccompSecurityContext(t *testing.T) {
 	t.Parallel()
 

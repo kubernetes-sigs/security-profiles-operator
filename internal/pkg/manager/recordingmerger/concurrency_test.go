@@ -58,7 +58,10 @@ func mergeSyscalls(
 	partial, err := newMergeableProfile(partialSeccomp("partial", "nginx", syscalls...))
 	require.NoError(t, err)
 
-	_, err = createUpdateSeccompProfile(t.Context(), cl, recording, name, partial, "")
+	_, err = createUpdateProfile(
+		t.Context(), cl, recording, name, partial,
+		profilerecordingapi.ProfileRecordingKindSeccompProfile, "",
+	)
 
 	return err
 }

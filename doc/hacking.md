@@ -143,9 +143,17 @@ code, the generated files and the dependencies, these are:
   `deploy/base/role.yaml`. Update the document together with the RBAC
   markers and the profiles.
 
-`make verify-actions` lints the GitHub workflows with actionlint and
-shellcheck. It is not part of `make verify`, run it when changing a workflow.
-The CI runs all of them.
+The Prow jobs run the scripts of the same name in `hack/`, like
+`hack/pull-security-profiles-operator-verify`, which runs `make verify`. A few
+checks are not part of it, because they need nix or take long, and run in
+GitHub Actions only. Run them when changing what they check:
+
+- `make verify-actions` lints the GitHub workflows with actionlint and
+  shellcheck, see the lint workflow.
+- `make verify-bundle` regenerates the OLM bundle, see the OLM workflow.
+- `make verify-bpf` rebuilds the BPF objects and `make verify-go-version`
+  checks that nix builds with the Go version of `go.mod`, both need nix, see
+  the build workflow.
 
 ### Pre-commit hooks
 
@@ -477,6 +485,7 @@ the suite are documented next to their definition in
 | `E2E_RETRY_RUN`             | the quarantined test cases                    | `Makefile`: the tests `make test-flaky-e2e` runs with one retry.                                                                                                                                     |
 | `E2E_RETRY_TIMEOUT`         | `30m`                                         | `Makefile`: the timeout of `make test-flaky-e2e`.                                                                                                                                                    |
 | `E2E_TEST_FLAKY_TESTS_ONLY` | `false`                                       | CI scripts in `hack/ci`: run `make test-flaky-e2e` instead of `make test-e2e`.                                                                                                                       |
+| `E2E_FEDORA_SUITE`          | `enricher`                                    | `hack/ci/e2e-fedora.sh`: the test cases of the Fedora job, `enricher` or `selinux`.                                                                                                                  |
 
 The suite deploys copies of the manifests below `build/e2e-manifests`, the
 tracked manifests stay untouched.

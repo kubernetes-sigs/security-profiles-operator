@@ -30,8 +30,11 @@ import (
 	secprofnodestatusv1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 )
 
+// ProfilePartialLabel marks a profile which a node recorded as part of a
+// recording, which gets merged into the final profile.
 const ProfilePartialLabel = "spo.x-k8s.io/partial"
 
+// SecurityProfileBase is implemented by every kind of security profile.
 type SecurityProfileBase interface {
 	client.Object
 
@@ -101,6 +104,7 @@ type StatusBase struct {
 	Status secprofnodestatusv1.ProfileState `json:"status,omitempty"`
 }
 
+// StatusBaseUser is implemented by the objects which carry a StatusBase.
 type StatusBaseUser interface {
 	metav1.Object
 	runtime.Object

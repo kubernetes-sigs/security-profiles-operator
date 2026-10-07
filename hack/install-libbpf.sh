@@ -15,6 +15,9 @@
 
 set -euo pipefail
 
+# shellcheck source=hack/lib/common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
+
 VERSION=1.8.0
 # The checksum of the source archive of the tag, bump together with VERSION.
 SHA256=b7a1e685f90f6a63ead0dd85d053694b222975da8d09c1a966041cff6f0055ff
@@ -23,9 +26,8 @@ DIR="libbpf-$VERSION"
 ARCHIVE="$DIR.tar.gz"
 trap 'rm -rf -- "$DIR" "$ARCHIVE"' EXIT
 
-curl -sSfL --retry 5 --retry-delay 3 -o "$ARCHIVE" \
-    "https://github.com/libbpf/libbpf/archive/refs/tags/v$VERSION.tar.gz"
-echo "$SHA256  $ARCHIVE" | sha256sum -c -
+download_verified "https://github.com/libbpf/libbpf/archive/refs/tags/v$VERSION.tar.gz" \
+    "$SHA256" "$ARCHIVE"
 tar xfz "$ARCHIVE"
 
 # libbpf installs into lib64 on every 64 bit architecture, which the linker

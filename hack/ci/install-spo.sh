@@ -64,37 +64,32 @@ wait_for_spod() {
   return 1
 }
 
+# pods_with_name_label succeeds if pods with the name label exist.
+pods_with_name_label() {
+  [[ -n $(k get pods -l name="$1" 2>/dev/null) ]]
+}
+
 wait_for_pod_name_label() {
   echo "Waiting for pod with label name=$1"
 
-  for ((i = 0; i < 10; i++)); do
-    FOUND=$(k get pods -l name="$1" 2>/dev/null)
-    if [[ $FOUND ]]; then
-      echo "Found pod"
-      return
-    fi
-    echo "Still waiting ($i)"
-    sleep 5
-  done
+  if ! wait_until 10 5 pods_with_name_label "$1"; then
+    echo "Timed out waiting for pod label name=$1"
+    exit 1
+  fi
 
-  echo "Timed out waiting for pod label name=$1"
-  exit 1
+  echo "Found pod"
 }
 
 wait_for() {
   echo "Waiting for $*"
-  for ((i = 0; i < 10; i++)); do
-    if k get "$@" 2>/dev/null; then
-      echo "Found Kubernetes object $*"
-      return
-    fi
-    echo "Still waiting ($i)"
-    sleep 5
-  done
 
-  echo "Timed out waiting for $*"
-  print_spo_logs
-  exit 1
+  if ! wait_until 10 5 k get "$@"; then
+    echo "Timed out waiting for $*"
+    print_spo_logs
+    exit 1
+  fi
+
+  echo "Found Kubernetes object $*"
 }
 
 print_spo_logs() {

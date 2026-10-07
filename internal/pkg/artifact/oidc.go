@@ -185,7 +185,10 @@ func filesystemToken(context.Context) (token string, ok bool, err error) {
 		return "", false, err
 	}
 
-	return string(raw), true, nil
+	// Like the environment variable, a file ends with a newline often.
+	token = strings.TrimSpace(string(raw))
+
+	return token, token != "", nil
 }
 
 // githubActionsToken requests a token for the job from GitHub Actions.

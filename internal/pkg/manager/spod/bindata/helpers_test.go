@@ -19,6 +19,7 @@ package bindata
 import (
 	"context"
 	"errors"
+	"maps"
 	"slices"
 	"testing"
 
@@ -278,7 +279,7 @@ func TestWebhook_PodDisruptionBudget(t *testing.T) {
 	require.Equal(t, new(intstr.FromInt32(1)), w.pdb.Spec.MinAvailable)
 	// The budget covers exactly the webhook replicas.
 	require.Equal(t, w.deployment.Spec.Selector, w.pdb.Spec.Selector)
-	require.Contains(t, w.objectMap(), "pdb")
+	require.Contains(t, maps.Collect(w.objects()), "pdb")
 
 	c := webhookTestClient(t)
 	ctx := t.Context()

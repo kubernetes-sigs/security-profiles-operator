@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -113,9 +114,7 @@ func (r *BindingTrackerReconciler) Setup(
 			CreateFunc: func(_ event.CreateEvent) bool { return true },
 			DeleteFunc: func(_ event.DeleteEvent) bool { return true },
 			UpdateFunc: func(e event.UpdateEvent) bool {
-				return !reflect.DeepEqual(e.ObjectOld.GetLabels(), e.ObjectNew.GetLabels()) ||
-					e.ObjectOld.GetAnnotations()[profilebindingapi.AppliedBindingsAnnotation] !=
-						e.ObjectNew.GetAnnotations()[profilebindingapi.AppliedBindingsAnnotation]
+				return trackedPodChanged(e.ObjectOld, e.ObjectNew)
 			},
 			GenericFunc: func(_ event.GenericEvent) bool { return true },
 		})).
@@ -133,6 +132,32 @@ func (r *BindingTrackerReconciler) Setup(
 			}),
 		).
 		Complete(r)
+}
+
+// trackedPodChanged reports whether an update of a pod may change the bindings
+// it uses. The webhook applies the bindings of ephemeral containers through
+// their subresource, which cannot change the annotation of the applied
+// bindings, so their images are compared as well.
+func trackedPodChanged(oldObj, newObj client.Object) bool {
+	if !reflect.DeepEqual(oldObj.GetLabels(), newObj.GetLabels()) ||
+		oldObj.GetAnnotations()[profilebindingapi.AppliedBindingsAnnotation] !=
+			newObj.GetAnnotations()[profilebindingapi.AppliedBindingsAnnotation] {
+		return true
+	}
+
+	oldPod, oldOk := oldObj.(*corev1.Pod)
+	newPod, newOk := newObj.(*corev1.Pod)
+
+	if !oldOk || !newOk {
+		return false
+	}
+
+	return !slices.EqualFunc(
+		oldPod.Spec.EphemeralContainers, newPod.Spec.EphemeralContainers,
+		func(a, b corev1.EphemeralContainer) bool {
+			return a.Name == b.Name && a.Image == b.Image
+		},
+	)
 }
 
 // activeWorkloadRequests maps a binding to reconcile requests for the pods it

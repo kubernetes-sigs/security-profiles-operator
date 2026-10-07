@@ -25,6 +25,29 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
+// EphemeralContainersSubResource is the pod sub resource used to add ephemeral
+// containers to a running pod, for example by `kubectl debug`.
+const EphemeralContainersSubResource = "ephemeralcontainers"
+
+// ExistingEphemeralContainers returns the names of the ephemeral containers
+// of the pod which exist already and cannot be changed: the ones of the old
+// pod and the ones with a status. Their names are unique.
+func ExistingEphemeralContainers(pod, oldPod *corev1.Pod) map[string]bool {
+	existing := map[string]bool{}
+
+	if oldPod != nil {
+		for i := range oldPod.Spec.EphemeralContainers {
+			existing[oldPod.Spec.EphemeralContainers[i].Name] = true
+		}
+	}
+
+	for i := range pod.Status.EphemeralContainerStatuses {
+		existing[pod.Status.EphemeralContainerStatuses[i].Name] = true
+	}
+
+	return existing
+}
+
 // RecorderForRequest returns the recorder for the request. A dry run request
 // must not have side effects, which includes events, so it gets none.
 func RecorderForRequest(req *admission.Request, rec *SafeRecorder) *SafeRecorder {

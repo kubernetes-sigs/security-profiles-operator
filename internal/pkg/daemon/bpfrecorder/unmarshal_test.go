@@ -90,7 +90,7 @@ func TestBpfEventUnmarshalVariableSize(t *testing.T) {
 	binary.LittleEndian.PutUint32(raw[0:], 42)
 	binary.LittleEndian.PutUint32(raw[4:], 0x1010)
 	binary.LittleEndian.PutUint64(raw[8:], 0xdeadbeef)
-	raw[16] = uint8(eventTypeAppArmorFile)
+	raw[16] = eventTypeAppArmorFile
 	binary.LittleEndian.PutUint64(raw[17:], flagRead)
 	raw = append(raw, "/a/b\x00"...)
 
@@ -101,9 +101,9 @@ func TestBpfEventUnmarshalVariableSize(t *testing.T) {
 	require.Equal(t, uint32(42), event.Pid)
 	require.Equal(t, uint32(0x1010), event.Mntns)
 	require.Equal(t, uint64(0xdeadbeef), event.Key)
-	require.Equal(t, uint8(eventTypeAppArmorFile), event.Type)
+	require.Equal(t, eventTypeAppArmorFile, event.Type)
 	require.Equal(t, flagRead, event.Flags)
-	require.Equal(t, "/a/b", fileDataToString(event.Data))
+	require.Equal(t, "/a/b", string(fileData(event.Data)))
 
 	// The data references the raw bytes instead of copying them.
 	require.Same(t, &raw[bpfEventHeaderSize], &event.Data[0])
@@ -125,7 +125,7 @@ func TestFileDataToString(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			require.Equal(t, tc.want, fileDataToString(tc.data))
+			require.Equal(t, tc.want, string(fileData(tc.data)))
 		})
 	}
 }

@@ -139,7 +139,7 @@ func TestUpdatePodEphemeralContainers(t *testing.T) {
 	pod, _, resp := binder.updatePod(t.Context(), bindings, &admission.Request{
 		AdmissionRequest: admissionv1.AdmissionRequest{
 			Operation:   admissionv1.Update,
-			SubResource: ephemeralContainersSubResource,
+			SubResource: utils.EphemeralContainersSubResource,
 			Object:      rawObject(t, newPod),
 			OldObject:   rawObject(t, oldPod),
 		},
@@ -201,7 +201,7 @@ func TestHandleEphemeralContainersPatch(t *testing.T) {
 	resp := newTestBinder(t, mock).Handle(t.Context(), admission.Request{
 		AdmissionRequest: admissionv1.AdmissionRequest{
 			Operation:   admissionv1.Update,
-			SubResource: ephemeralContainersSubResource,
+			SubResource: utils.EphemeralContainersSubResource,
 			Object:      rawObject(t, newPod),
 			OldObject:   rawObject(t, oldPod),
 		},
@@ -552,7 +552,7 @@ func TestHandleKeepsUnknownPodFields(t *testing.T) {
 		"ephemeral containers": {
 			req: admissionv1.AdmissionRequest{
 				Operation:   admissionv1.Update,
-				SubResource: ephemeralContainersSubResource,
+				SubResource: utils.EphemeralContainersSubResource,
 				Object:      runtime.RawExtension{Raw: []byte(newPod)},
 				OldObject:   runtime.RawExtension{Raw: []byte(oldPod)},
 			},

@@ -167,8 +167,6 @@ dependencies:
     refPaths:
     - path: test/e2e_test.go
       match: cert-manager/cert-manager
-    - path: doc/installation.md
-      match: cert-manager/cert-manager
     - path: hack/ci/lib.sh
       match: ^CERT_MANAGER_VERSION=
 
@@ -254,6 +252,9 @@ dependencies:
       match: "kubectl.*version v"
     - path: deploy/base/clusterserviceversion.yaml
       match: "minKubeVersion:"
+    # The schema version the manifests are validated against.
+    - path: Makefile
+      match: "^MIN_KUBERNETES_VERSION"
 
   - name: e2e-kubernetes
     version: 1.37
@@ -372,6 +373,10 @@ dependencies:
       match: "^ARG NIX_VERSION"
     - path: .github/workflows/build.yml
       match: "NIX_VERSION:"
+    - path: .github/workflows/test.yml
+      match: "NIX_VERSION:"
+    - path: .github/workflows/e2e-flakes.yml
+      match: "NIX_VERSION:"
 
   # Must be bumped together with nix above.
   - name: nix-sha256
@@ -419,6 +424,8 @@ dependencies:
     refPaths:
     - path: hack/install-libbpf.sh
       match: "^VERSION="
+    - path: nix/overlay.nix
+      match: 'version = "'
 
   # Must be bumped together with libbpf above, the checksum of the source
   # archive of the tag.
@@ -427,9 +434,12 @@ dependencies:
     refPaths:
     - path: hack/install-libbpf.sh
       match: "^SHA256="
+    - path: nix/overlay.nix
+      match: 'sha256 = "'
 
   # The libbpf release libbpfgo is built against. Must be bumped together with
-  # libbpf above, which hack/install-libbpf.sh installs for the build.
+  # libbpf above, which hack/install-libbpf.sh installs for the CI builds and
+  # nix/overlay.nix for the released binaries.
   - name: libbpfgo-libbpf
     version: 1.8-dev
     refPaths:
@@ -448,6 +458,29 @@ dependencies:
     - path: internal/pkg/daemon/bpfrecorder/vmlinux/arm64/vmlinux.h
       match: "@generated from hack/update-vmlinux"
 
+  # Must be bumped together with linux-bpf-dev above, the snapshot of the
+  # Debian archive which still has the package, and the checksums of it.
+  - name: linux-bpf-dev-snapshot
+    version: 20250828T205108Z
+    refPaths:
+    - path: hack/update-vmlinux
+      match: "^SNAPSHOT="
+
+  - name: linux-bpf-dev-sha256-amd64
+    version: 1ca1b2a021fb3acfaca0472924f1e6dae89e8ce655a1adb4757115a7b2b791b8
+    refPaths:
+    - path: hack/update-vmlinux
+      match: "^SHA256_AMD64="
+
+  - name: linux-bpf-dev-sha256-arm64
+    version: 5162b01248a47b7051dc6b6950c19ad1f77a804c4dbd0d194b2f3af45703ef2a
+    refPaths:
+    - path: hack/update-vmlinux
+      match: "^SHA256_ARM64="
+
+  # The libelf of the CI builds. The released binaries use the elfutils of
+  # nixpkgs, whose libelf ABI is stable, as overriding it there rebuilds most
+  # of the toolchain.
   - name: libelf
     version: 0.196
     refPaths:
@@ -518,6 +551,20 @@ dependencies:
     - path: hack/ci/install-kubernix.sh
       match: "^KUBERNIX_VERSION="
 
+  # Must be bumped together with kubernix above, the checksums of its release
+  # binaries.
+  - name: kubernix-sha256-x86_64
+    version: 8c9c587048102f58d08f23114bffddb1f9de2f31343f023928ce5433dd589ae4
+    refPaths:
+    - path: hack/ci/install-kubernix.sh
+      match: "\\[x86_64\\]="
+
+  - name: kubernix-sha256-aarch64
+    version: 6355552e690117c3f6e33cd83fcfba0ffb073b191e2e7ed075fa26c0082d6ca0
+    refPaths:
+    - path: hack/ci/install-kubernix.sh
+      match: "\\[aarch64\\]="
+
   - name: helm
     version: v3.22.0
     upstream:
@@ -554,6 +601,7 @@ dependencies:
     - path: hack/push-chart.sh
       match: "^HELM_SHA256="
 
+  # The cosign of the staging and of the release signing in the workflows.
   - name: cosign for staging signing
     version: v3.1.3
     upstream:
@@ -562,6 +610,10 @@ dependencies:
     refPaths:
     - path: hack/lib/common.sh
       match: "^COSIGN_VERSION="
+    - path: .github/workflows/build.yml
+      match: "cosign-release: v"
+    - path: .github/workflows/helm-chart-package.yaml
+      match: "cosign-release: v"
 
   # Must be bumped together with cosign for staging signing above.
   - name: cosign-sha256-linux-amd64
@@ -623,6 +675,16 @@ dependencies:
       match: "name: golang:"
     - path: .devcontainer/devcontainer.json
       match: '"version": "1\.'
+
+  # Must be bumped together with golang above, the digest of the image the
+  # Cloud Build steps run in.
+  - name: golang-image-digest
+    version: sha256:648f440f42a0958804efb24df176f806f9d353b41f1c0627f666428e40310f6b
+    refPaths:
+    - path: cloudbuild.yaml
+      match: "name: golang:"
+    - path: cloudbuild-release.yaml
+      match: "name: golang:"
 
   # Must be bumped together with golang above, the checksums of
   # go<version>.linux-<arch>.tar.gz from https://go.dev/dl/.
@@ -751,12 +813,8 @@ dependencies:
       flavour: github
       url: aquasecurity/trivy
     refPaths:
-      - path: .github/workflows/build.yml
+      - path: .github/actions/scan-image/action.yml
         match: "version: v0\\."
-      - path: .github/workflows/test.yml
-        match: "version: v0\\.7"
-      - path: .github/workflows/dependencies.yml
-        match: "version: v0\\.7"
 
   - name: yq
     version: 4.53.6
@@ -914,14 +972,26 @@ dependencies:
       - path: .github/workflows/lint.yml
         match: "lycheeVersion:"
 
+  # The release the markdownlint-cli2-action of the lint workflow bundles, so
+  # that the pre-commit hook lints the same way. Bump it together with the
+  # action.
   - name: markdownlint-cli2
-    version: 0.23.3
-    upstream:
-      flavour: github
-      url: DavidAnson/markdownlint-cli2
+    version: 0.23.2
     refPaths:
       - path: .pre-commit-config.yaml
         match: "frozen: v0\\.23"
+
+  # The pre-commit hook and the test workflow run the same release.
+  - name: typos
+    version: v1.50.3
+    upstream:
+      flavour: github
+      url: crate-ci/typos
+    refPaths:
+      - path: .pre-commit-config.yaml
+        match: "frozen: v1\\.50"
+      - path: .github/workflows/test.yml
+        match: "crate-ci/typos@"
 
   - name: kubeconform
     version: v0.8.0
