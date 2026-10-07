@@ -213,3 +213,5 @@ tool (
 	google.golang.org/protobuf/cmd/protoc-gen-go
 	sigs.k8s.io/controller-tools/cmd/controller-gen
 )
+
+replace github.com/pjbgf/go-apparmor => github.com/AndreyZa/go-apparmor v0.1.3-0.20260813201236-b219be000014
