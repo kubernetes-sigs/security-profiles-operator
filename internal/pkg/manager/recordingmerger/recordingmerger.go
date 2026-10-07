@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -67,6 +68,10 @@ type PolicyMergeReconciler struct {
 	reader client.Reader
 	log    logr.Logger
 	record util.EventRecorder
+
+	// legacyAdoptionPending is set until the partial profiles recorded before
+	// 1.0 are adopted at startup, see legacyAdopter.
+	legacyAdoptionPending atomic.Bool
 }
 
 // readerClient is a client which reads from the API server instead of the
@@ -138,6 +143,17 @@ func (r *PolicyMergeReconciler) Reconcile(
 
 	if !profileRecording.GetDeletionTimestamp().IsZero() { // object is being deleted
 		logger.Info("Is being deleted, will check if there are policies to be merged")
+
+		hold, err := r.legacyHold(ctx, profileRecording)
+		if err != nil {
+			return reconcile.Result{}, fmt.Errorf("%s: %w", errMergingRec, err)
+		}
+
+		if hold > 0 {
+			logger.Info("Waiting for partial profiles recorded before 1.0", "requeueAfter", hold)
+
+			return reconcile.Result{RequeueAfter: hold}, nil
+		}
 
 		if err := r.mergeProfiles(ctx, profileRecording); err != nil {
 			return reconcile.Result{}, fmt.Errorf("%s: %w", errMergingRec, err)
@@ -245,13 +261,8 @@ func (r *PolicyMergeReconciler) releaseRecording(
 		return nil
 	}
 
-	reader := client.Reader(r.client)
-	if r.reader != nil {
-		reader = r.reader
-	}
-
 	for _, k := range mergeKinds {
-		left, err := hasPartialProfiles(ctx, reader, k.newList(), profileRecording)
+		left, err := hasPartialProfiles(ctx, r.apiReader(), k.newList(), profileRecording)
 		if err != nil {
 			return fmt.Errorf("cannot list partial profiles of kind %s: %w", k.kind, err)
 		}
