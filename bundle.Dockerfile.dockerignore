@@ -1,4 +1,5 @@
-# bundle.Dockerfile only reads the bundle directory. The main .dockerignore
-# excludes it for the operator image builds.
+# bundle.Dockerfile only reads the bundle directory of its context, which
+# bundle-context in the Makefile stages. The main .dockerignore excludes it for
+# the operator image builds.
 *
 !bundle/

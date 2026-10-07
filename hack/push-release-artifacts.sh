@@ -15,8 +15,8 @@
 
 # Publishes the spoc binaries and the Helm chart of the GitHub release $TAG to
 # the staging registry and attaches the provenance of the release to the
-# per-arch images there (see images), so that they can be promoted to
-# registry.k8s.io, see
+# per-arch images, the bundle and the catalog there (see images), so that they
+# can be promoted to registry.k8s.io, see
 # doc/release.md#oci-artifacts. Nothing is built here: the GitHub workflows of
 # the release build the OCI image layouts (hack/oci-layout.sh) and attest their
 # manifest digests with SLSA Build L3 provenance. This script waits until the
@@ -60,15 +60,14 @@ LOGIN_REGISTRY="${LOGIN_REGISTRY:-}"
 # comes from another user, so git needs to be told to trust it.
 COMMIT="${COMMIT:-$(git -c safe.directory='*' rev-parse HEAD)}"
 
-SIGNER_WORKFLOW="$REPOSITORY_URL/.github/workflows/provenance.yml"
-OIDC_ISSUER=https://token.actions.githubusercontent.com
+SIGNER_WORKFLOW="$PROVENANCE_SIGNER_WORKFLOW"
+OIDC_ISSUER="$GITHUB_OIDC_ISSUER"
 # The identity of the staging build, whose signatures and SBOM attestations
 # are not added again on a rerun, see signer_args. Without it every run signs
 # and attests, an attacker's signature must never count as signed, and the
 # final verification is skipped.
 SIGNER_IDENTITY="${SIGNER_IDENTITY:-}"
 SIGNER_OIDC_ISSUER=https://accounts.google.com
-EMPTY_CONFIG='{"mediaType":"application/vnd.oci.empty.v1+json","digest":"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a","size":2}'
 
 CHART=security-profiles-operator
 SPOC_ARCHES=(amd64 arm64 ppc64le s390x)
@@ -85,11 +84,12 @@ COSIGN="$(cosign_bin)"
 CRANE="$(crane_bin)"
 JQ="$(jq_bin)"
 
-# The per-arch images of the release are built and pushed by Cloud Build for
-# the tagged commit on main, the image-reproducible workflow of the release
-# builds them again from the tag and attests their manifest digests in
-# images.intoto.jsonl, see doc/release.md#per-arch-images. It is not in
-# ASSETS, the job only waits for it after publishing spoc and the chart.
+# The per-arch images, the bundle and the catalog of the release are built and
+# pushed by Cloud Build for the tagged commit on main, the image-reproducible
+# workflow of the release builds them again from the tag and attests their
+# manifest digests in images.intoto.jsonl, see doc/release.md#per-arch-images
+# and doc/release.md#bundle-and-catalog. It is not in ASSETS, the job only
+# waits for it after publishing spoc and the chart.
 IMAGE=security-profiles-operator
 IMAGE_BUNDLE=images.intoto.jsonl
 IMAGE_WORKFLOW=.github/workflows/image-reproducible.yml
@@ -199,23 +199,6 @@ unpack_layout() {
   check_manifest "$layout" "$("$JQ" -c '.manifests[0]' "$layout/index.json")"
 }
 
-# Succeeds when one of the in-toto statements on stdin is provenance of the
-# release workflow for the tag and commit, created on a GitHub hosted runner.
-release_provenance() {
-  local workflow="$1"
-
-  "$JQ" -se \
-    --arg type "$SLSA_PROVENANCE" --arg repo "$REPOSITORY_URL" --arg ref "refs/tags/$TAG" \
-    --arg commit "$COMMIT" --arg workflow "$workflow" '
-      any(.[];
-        .predicateType == $type and
-        .predicate.buildDefinition.externalParameters.workflow == {ref: $ref, repository: $repo, path: $workflow} and
-        .predicate.buildDefinition.internalParameters.github.runner_environment == "github-hosted" and
-        any(.predicate.buildDefinition.resolvedDependencies[]?;
-          .uri == "git+\($repo)@\($ref)" and .digest.gitCommit == $commit))
-    ' >/dev/null
-}
-
 # Verifies that the provenance bundle is GitHub artifact attestation of the
 # provenance workflow for the tag and commit, created for the GitHub release,
 # about each file. Files in the blobs of a layout are named by their digest.
@@ -223,7 +206,7 @@ verify_provenance() {
   local bundle="$1" workflow="$2" file
   shift 2
 
-  "$JQ" -r .dsseEnvelope.payload "$bundle" | base64 -d | release_provenance "$workflow" || {
+  "$JQ" -r .dsseEnvelope.payload "$bundle" | base64 -d | github_workflow_provenance "$workflow" "refs/tags/$TAG" "$COMMIT" || {
     echo "The provenance $bundle is not about $workflow at $TAG ($COMMIT) on GitHub hosted runners" >&2
     return 1
   }
@@ -234,16 +217,7 @@ verify_provenance() {
     else
       echo "Verifying the provenance of ${file##*/}"
     fi
-    "$COSIGN" verify-blob-attestation \
-      --bundle "$bundle" \
-      --type "$SLSA_PROVENANCE" \
-      --certificate-identity "$SIGNER_WORKFLOW@refs/tags/$TAG" \
-      --certificate-oidc-issuer "$OIDC_ISSUER" \
-      --certificate-github-workflow-repository "${REPOSITORY_URL#https://github.com/}" \
-      --certificate-github-workflow-ref "refs/tags/$TAG" \
-      --certificate-github-workflow-sha "$COMMIT" \
-      --certificate-github-workflow-trigger release \
-      "$file"
+    verify_github_provenance "$bundle" "refs/tags/$TAG" "$COMMIT" release "$file"
   done
 }
 
@@ -279,64 +253,32 @@ push_layout() {
   fi
 }
 
-# Attaches a provenance bundle to a manifest as OCI referrer, the way cosign
-# attaches Sigstore bundles. The referrer has no creation time, so the same
-# bundle always gets the same referrer digest and is attached only once.
-attach_bundle() {
-  local repo="$1" desc="$2" bundle="$3" layout layer manifest
+# The per-arch images, the bundle and the catalog are already in staging and
+# signed there, so they are neither pushed nor signed here. They only get the
+# provenance of the release attached, once every staging digest of the tagged
+# commit is the attested one. The manifest list gets none: the image
+# promoter verifies it through its platform manifests, and provenance about
+# the manifest list would have to pass the policy on its own.
 
-  layout="$(mktemp -d "$DIR/referrer.XXXXXX")"
-  mkdir -p "$layout/blobs/sha256"
-  printf '{"imageLayoutVersion":"1.0.0"}' >"$layout/oci-layout"
-  printf '{}' >"$layout/blobs/sha256/$("$JQ" -r '.digest | ltrimstr("sha256:")' <<<"$EMPTY_CONFIG")"
-  cp "$bundle" "$layout/blobs/sha256/$(sha256sum "$bundle" | cut -d' ' -f1)"
-  layer="$("$JQ" -cn --arg mt "$("$JQ" -r .mediaType "$bundle")" \
-    --arg d "sha256:$(sha256sum "$bundle" | cut -d' ' -f1)" --argjson s "$(stat -c %s "$bundle")" \
-    '{mediaType: $mt, digest: $d, size: $s}')"
-
-  "$JQ" -cjn --argjson config "$EMPTY_CONFIG" --argjson layer "$layer" --argjson subject "$desc" \
-    --arg type "$SLSA_PROVENANCE" '{
-      schemaVersion: 2,
-      mediaType: "application/vnd.oci.image.manifest.v1+json",
-      artifactType: $layer.mediaType,
-      config: $config,
-      layers: [$layer],
-      subject: $subject,
-      annotations: {
-        "dev.sigstore.bundle.content": "dsse-envelope",
-        "dev.sigstore.bundle.predicateType": $type
-      }
-    }' >"$layout/manifest.json"
-  manifest="sha256:$(sha256sum "$layout/manifest.json" | cut -d' ' -f1)"
-  mv "$layout/manifest.json" "$layout/blobs/sha256/${manifest#sha256:}"
-  "$JQ" -cn --arg d "$manifest" --argjson s "$(stat -c %s "$layout/blobs/sha256/${manifest#sha256:}")" \
-    '{schemaVersion: 2, manifests: [{mediaType: "application/vnd.oci.image.manifest.v1+json", digest: $d, size: $s}]}' \
-    >"$layout/index.json"
-
-  if "$CRANE" manifest "$repo@$manifest" >/dev/null 2>&1; then
-    echo "Provenance already attached to $repo@$("$JQ" -r .digest <<<"$desc")"
-  else
-    echo "Attaching the provenance to $repo@$("$JQ" -r .digest <<<"$desc") as $manifest"
-    "$CRANE" push "$layout" "$repo@$manifest"
-  fi
-  rm -rf "$layout"
-}
-
-# The per-arch images are already in staging and signed there, so they are
-# neither pushed nor signed here. They only get the provenance of the release
-# attached, once every staging digest of the tagged commit is the attested one.
-# The manifest list gets none: the image promoter verifies it through its
-# platform manifests, and provenance about the manifest list would have to
-# pass the policy on its own.
-
-# Prints the "ARCH DIGEST" lines of the subjects of the image provenance,
-# sorted. The subjects are named after the per-arch repositories.
-image_subjects() {
+# Prints the "NAME DIGEST" lines of the subjects of the image provenance,
+# sorted. The subjects are named after the repositories of the per-arch
+# images, the bundle and the catalog, NAME is what follows the operator image,
+# for example amd64 or bundle. Releases before the bundle and the catalog were
+# reproducible attest the per-arch images only.
+all_image_subjects() {
   "$JQ" -r .dsseEnvelope.payload "$DIR/$IMAGE_BUNDLE" | base64 -d | "$JQ" -r --arg image "$IMAGE" '
     .subject[]
-    | if (.name | test("^\($image)-[a-z0-9]+$")) and (.digest.sha256 // "" | test("^[a-f0-9]{64}$"))
+    | if (.name | test("^\($image)-(amd64|arm64|ppc64le|s390x|bundle|catalog)$")) and (.digest.sha256 // "" | test("^[a-f0-9]{64}$"))
       then "\(.name | ltrimstr("\($image)-")) sha256:\(.digest.sha256)"
       else error("unexpected subject \(.)") end' | sort
+}
+
+# The subjects of the per-arch images, see all_image_subjects.
+image_subjects() {
+  local all
+
+  all="$(all_image_subjects)" || return 1
+  grep -v -E '^(bundle|catalog) ' <<<"$all" || true
 }
 
 # Prints the tags Cloud Build gave the images of the tagged commit in a
@@ -349,18 +291,19 @@ commit_tags() {
 }
 
 # Checks that the staging images of the tagged commit and of the release
-# version are the attested ones: the per-arch images, and the platform
-# manifests of the manifest lists, which the image promoter verifies. Every
-# build of the commit has to have pushed the same digests. Then
-# fetches the per-arch manifests into the blobs of the layout $DIR/images and
-# writes "ARCH DESCRIPTOR" lines to $DIR/images.descriptors.
+# version are the attested ones: the per-arch images, the bundle, the catalog,
+# and the platform manifests of the manifest lists, which the image promoter
+# verifies. Every build of the commit has to have pushed the same digests.
+# Then fetches the manifests into the blobs of the layout $DIR/images and
+# writes "NAME DESCRIPTOR" lines to $DIR/images.descriptors.
 check_images() {
-  local subjects tags tag arch digest repo current file media_type desc failed=0
+  local subjects all tags tag arch digest repo current file media_type desc failed=0
   local -a tag_list
 
+  all="$(all_image_subjects)" || return 1
   subjects="$(image_subjects)" || return 1
-  echo "The provenance attests the per-arch images:"
-  echo "$subjects"
+  echo "The provenance attests the images:"
+  echo "$all"
 
   tags="$(commit_tags "$REGISTRY/$IMAGE")" || return 1
   if [[ -z "$tags" ]]; then
@@ -398,7 +341,7 @@ check_images() {
         failed=1
       fi
     done
-  done <<<"$subjects"
+  done <<<"$all"
   if [[ $failed -ne 0 ]]; then
     echo "The staging images of $COMMIT are not the ones the release attests" >&2
     return 1
@@ -420,13 +363,13 @@ check_images() {
     desc="$("$JQ" -cn --arg mt "$media_type" --arg d "$digest" --argjson s "$(stat -c %s "$file")" \
       '{mediaType: $mt, digest: $d, size: $s}')" || return 1
     echo "$arch $desc" >>"$DIR/images.descriptors"
-  done <<<"$subjects"
+  done <<<"$all"
 }
 
-# Verifies the image provenance and attaches it to every per-arch image, in its
-# own repository and as platform manifest in the repository of the manifest
-# list, where container runtimes pull it and the image promoter verifies it.
-# Writes the references to $DIR/images.refs.
+# Verifies the image provenance and attaches it to every image in its own
+# repository, and to the per-arch images also as platform manifest in the
+# repository of the manifest list, where container runtimes pull it and the
+# image promoter verifies it. Writes the references to $DIR/images.refs.
 publish_images() {
   local arch desc digest i
   local -a archs=() descs=() blobs=()
@@ -444,28 +387,31 @@ publish_images() {
   for i in "${!descs[@]}"; do
     digest="$("$JQ" -r .digest <<<"${descs[$i]}")"
     attach_bundle "$REGISTRY/$IMAGE-${archs[$i]}" "${descs[$i]}" "$DIR/$IMAGE_BUNDLE"
-    attach_bundle "$REGISTRY/$IMAGE" "${descs[$i]}" "$DIR/$IMAGE_BUNDLE"
-    printf '%s\n' "$REGISTRY/$IMAGE-${archs[$i]}@$digest" "$REGISTRY/$IMAGE@$digest" >>"$DIR/images.refs"
+    echo "$REGISTRY/$IMAGE-${archs[$i]}@$digest" >>"$DIR/images.refs"
+    if [[ "${archs[$i]}" != bundle && "${archs[$i]}" != catalog ]]; then
+      attach_bundle "$REGISTRY/$IMAGE" "${descs[$i]}" "$DIR/$IMAGE_BUNDLE"
+      echo "$REGISTRY/$IMAGE@$digest" >>"$DIR/images.refs"
+    fi
   done
 }
 
-# Verifies that every per-arch image carries the provenance of the release as
-# the image promoter finds it, like verify_published does for spoc and the
-# chart. It only needs the GitHub identity, so it runs without signing too.
+# Verifies that every image carries the provenance of the release as the image
+# promoter finds it, like verify_published does for spoc and the chart. It
+# only needs the GitHub identity, so it runs without signing too.
 verify_images() {
   local ref failed=0
 
-  echo "Verifying the provenance of the per-arch images by $SIGNER_WORKFLOW@refs/tags/$TAG"
+  echo "Verifying the provenance of the images by $SIGNER_WORKFLOW@refs/tags/$TAG"
   while read -r ref; do
     echo "Verifying $ref"
     check "SLSA provenance" github_provenance "$ref" "$IMAGE_WORKFLOW" || failed=1
   done <"$DIR/images.refs"
 
   if [[ $failed -ne 0 ]]; then
-    echo "The per-arch images are missing their provenance, see the FAILED checks above" >&2
+    echo "The images are missing their provenance, see the FAILED checks above" >&2
     return 1
   fi
-  echo "All per-arch images carry their provenance"
+  echo "All images carry their provenance"
 }
 
 # Waits for the image provenance, then checks the staging images, attaches the
@@ -587,7 +533,7 @@ github_provenance() {
     echo "no SLSA provenance of $SIGNER_WORKFLOW@refs/tags/$TAG" >&2
     return 1
   fi
-  release_provenance "$workflow" <<<"$statements" || {
+  github_workflow_provenance "$workflow" "refs/tags/$TAG" "$COMMIT" <<<"$statements" || {
     echo "no SLSA provenance of $workflow at $TAG ($COMMIT) on GitHub hosted runners" >&2
     return 1
   }
@@ -675,7 +621,7 @@ else
   fi
 fi
 
-# spoc and the chart are out, so a failure with the per-arch images only fails
+# spoc and the chart are out, so a failure with the images only fails
 # the job here, and a rerun of the job retries them. The subshell keeps
 # errexit, which bash ignores in a function that runs as a condition.
 set +e
@@ -686,7 +632,7 @@ set +e
 images_status=$?
 set -e
 if [[ $images_status -ne 0 ]]; then
-  echo "The per-arch images did not get their provenance, see doc/release.md#per-arch-images" >&2
+  echo "The images did not get their provenance, see doc/release.md#per-arch-images and doc/release.md#bundle-and-catalog" >&2
   exit 1
 fi
 if [[ $failed -ne 0 ]]; then

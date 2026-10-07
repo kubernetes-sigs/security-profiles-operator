@@ -4,6 +4,8 @@
 - [Who does what](#who-does-what)
 - [Release steps](#release-steps)
 - [Per-arch images](#per-arch-images)
+- [Bundle and catalog](#bundle-and-catalog)
+- [Security profiles](#security-profiles)
 - [OCI artifacts](#oci-artifacts)
   - [Rehearsing the release artifacts job](#rehearsing-the-release-artifacts-job)
 - [The provenance signer](#the-provenance-signer)
@@ -267,10 +269,11 @@ required, without it `kpromo` looks for the images in
 `gcr.io/k8s-staging-sp-operator`, which is not where the staging build and
 the release artifacts job push them.
 
-Before merging the promotion PR, check that it promotes the attested per-arch
-images: the digests of `security-profiles-operator-amd64`, `-arm64` and
-`-ppc64le` in it, and the platforms of the `security-profiles-operator`
-manifest list digest in it, have to be the subjects of `images.intoto.jsonl`:
+Before merging the promotion PR, check that it promotes the attested images:
+the digests of `security-profiles-operator-amd64`, `-arm64`, `-ppc64le`,
+`-bundle` and `-catalog` in it, and the platforms of the
+`security-profiles-operator` manifest list digest in it, have to be the
+subjects of `images.intoto.jsonl`:
 
 ```console
 > gh release download vx.y.z -R kubernetes-sigs/security-profiles-operator -p images.intoto.jsonl
@@ -440,6 +443,77 @@ binaries, and the commit time would break that. The version of the binaries
 and the provenance, which names the commit, identify the build instead. The
 image labels carry the commit time, see [`hack/image-cross.sh`](../hack/image-cross.sh).
 
+## Bundle and catalog
+
+The bundle and the catalog are built on Cloud Build like the per-arch images,
+and reproducibly too: [`hack/image-cross.sh`](../hack/image-cross.sh) builds
+them with the same pinned BuildKit, exporter options and commit time, as
+`linux/amd64` images. So the `image-reproducible` workflow builds them with
+`PUSH=false` as well, compares them with the staging images of every commit
+on `main`, and attests their digests for a release in `images.intoto.jsonl`,
+next to the per-arch images, as `security-profiles-operator-bundle` and
+`security-profiles-operator-catalog`. The release artifacts job checks and
+attaches the provenance like for the per-arch images, in their own
+repositories only, since they are not part of the manifest list.
+
+The catalog is rendered by `make catalog-context` from the bundle by digest,
+with the references to the bundle rewritten to the repository it is promoted
+to for a release, or to the staging repository otherwise. Without `PUSH`, the
+bundle is rendered from a throwaway registry that the script starts, which
+gives the same catalog, since opm renders the content of the bundle and only
+names its repository. The catalog image
+([`catalog.Dockerfile`](../catalog.Dockerfile)) has no cache that
+`opm serve --cache-only` pre-built, unlike the Dockerfile of
+`opm generate dockerfile`: the cache database gets a random seed, which gave
+every build another digest. `opm serve` builds the cache when it starts
+instead, which takes well below a second for this catalog, with
+`--cache-enforce-integrity=false`, since there is no pre-built cache to check.
+A `CatalogSource` with `grpcPodConfig.extractContent` would have to name a
+cache directory that the image doesn't have; the examples in this repository
+don't use it.
+
+## Security profiles
+
+The base profiles and the `seccomp-test-profiles` are published from `main`
+and promoted between releases, see [base profiles](release-baseprofiles.md).
+Their digests only depend on the profiles, since spoc writes no creation time
+into the manifests, so the `profiles` job of the
+[`build`](../.github/workflows/build.yml) workflow publishes them like the
+staging build does, with spoc built from the commit, to a throwaway registry,
+without OIDC token and write access. For every push to `main`, the isolated
+[`provenance`](../.github/workflows/provenance.yml) workflow attests their
+digests at SLSA Build L3, named after their repository
+and tag, for example `base/runc:v1.5.2`, and stores the provenance as
+artifact attestation of the repository. Releases need no provenance of their
+own for the profiles: a release is tagged on a commit of `main`, whose push
+attested them already.
+
+In its last step, after everything else got published and attested, the
+staging build fetches that provenance by digest from the attestation API of
+GitHub. It waits up to 10 minutes for the workflow of its commit for the
+profiles it pushed, but not past the timeout of the build, and looks up the
+ones it found published once, without waiting. It verifies that the
+provenance workflow of `main` signed it for the `build.yml` workflow on a
+GitHub hosted runner, and attaches it as OCI referrer, see
+[`hack/attach-profile-provenance.sh`](../hack/attach-profile-provenance.sh).
+The provenance of any commit of `main` counts, since a profile has the same
+digest whenever it is built from the same content. A profile that carries
+provenance of the provenance workflow already gets no other, so that the image
+promoter carries one per profile. The attestation API allows 60 requests an
+hour without authentication, so the build fetches for one profile a round,
+logs failed requests, and stops looking up once it hits the rate limit; a
+`GITHUB_TOKEN` raises the limit. If the workflow is late or failed, or the
+limit is hit, the build only warns, and the build of a later commit looks the
+profile up again and attaches the provenance. Check that a profile has it
+before promoting it:
+
+```console
+> cosign verify-attestation --type slsaprovenance1 \
+    --certificate-identity-regexp '^https://github\.com/kubernetes-sigs/security-profiles-operator/\.github/workflows/provenance\.yml@refs/heads/main$' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+    us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/base/runc@<digest> >/dev/null
+```
+
 ## OCI artifacts
 
 Releases publish the `spoc` binaries and the Helm chart to `registry.k8s.io`
@@ -504,14 +578,14 @@ flow depends on:
 ```yaml
 signers:
   - sigstore::https://accounts.google.com::sp-operator-sa@k8s-staging-images.iam.gserviceaccount.com
-  - sigstore(identityMatch=regex)::https://token.actions.githubusercontent.com::https://github\.com/kubernetes-sigs/security-profiles-operator/\.github/workflows/provenance\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+
+  - sigstore(identityMatch=regex)::https://token.actions.githubusercontent.com::https://github\.com/kubernetes-sigs/security-profiles-operator/\.github/workflows/provenance\.yml@(refs/tags/v[0-9]+\.[0-9]+\.[0-9]+|refs/heads/main)
 builders:
   - id: https://cloudbuild.googleapis.com/projects/k8s-staging-images/serviceAccounts/sp-operator-sa@k8s-staging-images.iam.gserviceaccount.com/cloudbuild.yaml
     level: 1
   - id: https://github.com/kubernetes-sigs/security-profiles-operator/.github/workflows/provenance.yml
     level: 3
     signers:
-      - sigstore(identityMatch=regex)::https://token.actions.githubusercontent.com::https://github\.com/kubernetes-sigs/security-profiles-operator/\.github/workflows/provenance\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+
+      - sigstore(identityMatch=regex)::https://token.actions.githubusercontent.com::https://github\.com/kubernetes-sigs/security-profiles-operator/\.github/workflows/provenance\.yml@(refs/tags/v[0-9]+\.[0-9]+\.[0-9]+|refs/heads/main)
 sources:
   - github.com/kubernetes-sigs/security-profiles-operator
 ```
@@ -520,7 +594,12 @@ The regexp has to match the whole identity, so it needs no anchors, and the
 builder names the signer exactly as written in `signers`. The staging build
 identity may then only claim the Cloud Build builder, which names no signers,
 and the GitHub identity only the GitHub builder. So what the staging build
-attests verifies at level 1, and `spoc` and the released chart at level 3.
+attests verifies at level 1, and what the GitHub workflows attest at level 3:
+`spoc`, the released chart, the per-arch images, the bundle and the catalog of
+a release, and the security profiles. The signer is bound to the `v*` release
+tags and to `main`, which only changes through reviewed pull requests, since
+the profiles are published from `main`, see
+[security profiles](#security-profiles).
 When a digest carries provenance of both builders, the promoter reports the
 highest level that passes.
 [Attestations on registry.k8s.io](#attestations-on-registryk8sio) explains
@@ -626,7 +705,9 @@ provenance of the GitHub release ("GitHub" below), see
 
 The per-arch images of a release, and the platform images of its manifest
 list, also get the GitHub provenance of the release, see
-[per-arch images](#per-arch-images).
+[per-arch images](#per-arch-images), and so do the bundle and the catalog of
+a release, see [bundle and catalog](#bundle-and-catalog). The profiles get the
+GitHub provenance of `main`, see [security profiles](#security-profiles).
 
 Profiles that are already published are not pushed again, but get
 their signature, provenance and SBOM from the next build when the build
@@ -737,7 +818,7 @@ The attestations are:
   commit Scorecard scanned last, and is skipped with a warning when the API is
   unavailable.
 
-The last step of the build,
+The step after the attestations,
 [`hack/verify-attestations.sh`](../hack/verify-attestations.sh), verifies every
 digest the build pushed, or found published with the content it would push,
 against the build identity: the cosign signature
@@ -775,11 +856,12 @@ next to the promoted digest in `registry.k8s.io`, and publishes a
 `promoter-summaries@k8s-releng-prod.iam.gserviceaccount.com`, see
 [verification summaries](verification.md#verification-summaries). The policy
 of this project trusts the attestations of the build identity and of the
-provenance workflow of a release, and checks the builder ID and source of the
-provenance like the verification above, see [OCI artifacts](#oci-artifacts)
-for its content. In `warn` mode it reports violations without blocking the
-promotion, and a digest that violates it gets no attestations carried and a
-failed summary. In `require` mode a violation blocks the promotion.
+provenance workflow of a release or of `main`, and checks the builder ID and
+source of the provenance like the verification above, see
+[OCI artifacts](#oci-artifacts) for its content. In `warn` mode it reports
+violations without blocking the promotion, and a digest that violates it gets
+no attestations carried and a failed summary. In `require` mode a violation
+blocks the promotion.
 
 The attestations land where the promoter manifest lists the digests: those of
 the per-arch images in the per-arch repositories, and those of the `spoc`

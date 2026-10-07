@@ -47,8 +47,14 @@ mkdir -p "$BUILD_DIR"
 
 SKIP_EXISTING="${SKIP_EXISTING:-true}"
 SIGN="${SIGN:-true}"
+# Talks to the registry over HTTP, see hack/push-base-profiles.sh.
+PLAIN_HTTP="${PLAIN_HTTP:-false}"
 
-push_args=()
+registry_args=()
+if [[ "$PLAIN_HTTP" == "true" ]]; then
+  registry_args+=(--plain-http)
+fi
+push_args=(${registry_args[@]+"${registry_args[@]}"})
 if [[ "$SIGN" != "true" ]]; then
   push_args+=(--disable-signing)
 fi
@@ -62,7 +68,7 @@ push() {
   shift 2
 
   if [[ "$SKIP_EXISTING" == "true" ]] &&
-    "$SPOC" pull -s -o /dev/null "$ref" >/dev/null 2>&1; then
+    "$SPOC" pull ${registry_args[@]+"${registry_args[@]}"} -s -o /dev/null "$ref" >/dev/null 2>&1; then
     echo "Already published, skipping $ref"
     published=true
   else
@@ -71,13 +77,16 @@ push() {
   fi
 
   attest_profile "$ref" "$file" "$published"
+  record_profile "$ref" "$published"
 }
 
 push "$EXAMPLES/deny-chmod.json" deny-chmod
 push "$EXAMPLES/permissive.json" permissive
 # Deliberately rejected by container runtimes, so validation is disabled.
 push "$EXAMPLES/invalid.json" invalid --disable-artifact-validation
-push "$oversized" oversized
+# Exceeds the limits of container runtimes on purpose too, so validation is
+# disabled.
+push "$oversized" oversized --disable-artifact-validation
 
 echo
 echo "Add the digests logged above to images.yaml in kubernetes/k8s.io under"

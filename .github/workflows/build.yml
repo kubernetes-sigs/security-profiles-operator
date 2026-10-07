@@ -260,6 +260,88 @@ jobs:
           files: |
             build/*
 
+  # The security profiles that the staging build publishes, converted and
+  # pushed like there, by spoc built from this commit, to a throwaway registry.
+  # Their digests only depend on the profiles, so they are the digests of the
+  # staging profiles, which get SLSA Build L3 provenance for pushes to main,
+  # see doc/release.md#security-profiles. Builds only, without OIDC token or
+  # write access. spoc needs no BPF or AppArmor support to convert and push.
+  profiles:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    name: profiles
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      hashes: ${{ steps.hashes.outputs.hashes }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ./go.mod
+          # This workflow publishes, the Go cache is shared with every job
+          # which runs repository code.
+          cache: false
+      - name: Install libseccomp
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libseccomp-dev
+      - run: make build/spoc BPF_ENABLED=0 APPARMOR_ENABLED=0
+      # The provenance subjects: the digest of every profile the scripts
+      # publish, named after its repository and tag, for example
+      # base/runc:v1.5.2.
+      - id: hashes
+        env:
+          REGISTRY: 127.0.0.1:5000/sp-operator
+          PLAIN_HTTP: "true"
+          SIGN: "false"
+          SKIP_EXISTING: "false"
+        run: |
+          set -o pipefail
+          source hack/lib/common.sh
+          crane="$(crane_bin)"
+          "$crane" registry serve --address 127.0.0.1:5000 &
+          registry=$!
+          # The registry takes a moment to listen.
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            curl -sSf http://127.0.0.1:5000/v2/ >/dev/null && break
+            if [[ $attempt -eq 10 ]] || ! kill -0 "$registry" 2>/dev/null; then
+              echo "The registry on port 5000 did not come up"
+              exit 1
+            fi
+            sleep 1
+          done
+          hack/push-base-profiles.sh
+          hack/push-test-artifacts.sh
+          while read -r ref; do
+            digest="$("$crane" digest --insecure "$ref")"
+            if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "Unexpected digest $digest of $ref"
+              exit 1
+            fi
+            echo "${digest#sha256:}  ${ref#"$REGISTRY"/}"
+          done < build/profile-refs | sort -u > build/profile-subjects.sha256
+          cat build/profile-subjects.sha256
+          echo "hashes=$(base64 -w0 build/profile-subjects.sha256)" >> "$GITHUB_OUTPUT"
+
+  # SLSA Build L3 provenance for the security profiles, generated from their
+  # digests by the isolated provenance workflow. The provenance workflow
+  # stores it as artifact attestation of the repository, where the staging
+  # build fetches it by digest, see hack/attach-profile-provenance.sh.
+  profiles-provenance:
+    needs: profiles
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    name: profiles / provenance
+    permissions:
+      attestations: write  # required for storing the provenance
+      id-token: write  # required for signing the provenance
+    uses: ./.github/workflows/provenance.yml
+    with:
+      base64-subjects: ${{ needs.profiles.outputs.hashes }}
+      provenance-name: profiles.intoto.jsonl
+
   bpf:
     needs: changes
     if: needs.changes.outputs.code == 'true'

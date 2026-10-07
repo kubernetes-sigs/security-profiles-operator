@@ -31,10 +31,15 @@ export DOCKER_BUILDKIT=1
 BUILDKIT_VERSION=v0.33.1
 BUILDKIT_DIGEST=sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
 
-# PUSH=false only builds the per-arch images into the OCI layouts
-# build/images/<arch> and writes their digests to build/image-digests. It
-# pushes and signs nothing, and builds no manifest list, bundle or catalog.
+# PUSH=false only builds the per-arch images, the bundle and the catalog into
+# the OCI layouts build/images/<arch|bundle|catalog> and writes their digests
+# to build/image-digests and build/metadata-image-digests. It pushes and signs
+# nothing and builds no manifest list.
 PUSH=${PUSH:-true}
+
+# PUSH=false renders the catalog from the bundle in a throwaway registry on
+# this port, see build_catalog.
+LOCAL_REGISTRY_PORT=${LOCAL_REGISTRY_PORT:-5001}
 
 REGISTRY=us-central1-docker.pkg.dev/k8s-staging-images/sp-operator
 IMAGE=$REGISTRY/security-profiles-operator
@@ -87,7 +92,8 @@ JQ=$(jq_bin)
 # its version is logged to tell them apart when the digests differ.
 BUILDER=spo-image-cross-$(od -An -N4 -tx4 /dev/urandom | tr -d ' ')
 docker buildx version
-trap 'docker buildx rm "$BUILDER" || true' EXIT
+LOCAL_REGISTRY_PID=
+trap 'docker buildx rm "$BUILDER" || true; [[ -z "$LOCAL_REGISTRY_PID" ]] || kill "$LOCAL_REGISTRY_PID" || true' EXIT
 docker buildx create \
     --name "$BUILDER" \
     --driver docker-container \
@@ -164,6 +170,109 @@ for ARCH in "${ARCHES[@]}"; do
 done
 cat build/image-digests
 
+# The bundle and the catalog are reproducible like the per-arch images, built
+# by the pinned BuildKit with the same exporter options and the commit time,
+# so that the image-reproducible workflow builds the same digests, see
+# doc/release.md#bundle-and-catalog. Both are linux/amd64 images, like the
+# ones the docker daemon built before.
+BUNDLE_IMG_BASE=$IMAGE-bundle
+CATALOG_IMG_BASE=$IMAGE-catalog
+
+build_metadata() {
+    local name="$1" dockerfile="$2" context="$3" layout="build/images/$1" repo="$IMAGE-$1" digest pushed tag names=''
+    local outputs=(--output "type=oci,dest=$layout,tar=false,$EXPORT_OPTS")
+    shift 3
+
+    if [[ $PUSH == "true" ]]; then
+        for tag in "${TAGS[@]}"; do
+            names+="${names:+,}$repo:$tag"
+        done
+        outputs+=(--output "type=image,\"name=$names\",push=true,$EXPORT_OPTS")
+    fi
+
+    rm -rf "$layout"
+    docker buildx build \
+        --builder "$BUILDER" \
+        --platform linux/amd64 \
+        --provenance=false \
+        --sbom=false \
+        --build-arg SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
+        "$@" \
+        -f "$dockerfile" \
+        "${outputs[@]}" \
+        "$context"
+
+    digest=$("$JQ" -er '[.manifests[].digest] | unique | if length == 1 then .[0] else error("expected one image") end' "$layout/index.json")
+    if [[ $PUSH == "true" ]]; then
+        pushed=$(resolve_digest "$repo:$TAG")
+        if [[ ${pushed#*@} != "$digest" ]]; then
+            echo "Pushed $pushed, but the OCI layout has $digest"
+            return 1
+        fi
+    fi
+    echo "$digest" > "$layout.digest"
+}
+
+# The catalog is rendered from the bundle by digest. Released catalogs
+# reference the bundle in the production registry it gets promoted to,
+# because staging images are not kept. Development catalogs keep the staging
+# bundle, which is never promoted. Without PUSH, the bundle is rendered from a
+# throwaway registry and its references are rewritten to the staging bundle,
+# which gives the same catalog, since opm renders the bundle content and only
+# names the repository.
+build_catalog() {
+    local digest bundle catalog_repo='' local_bundle image attempt crane
+    local -a catalog_args=()
+
+    digest=$(cat build/images/bundle.digest)
+    bundle="$BUNDLE_IMG_BASE@$digest"
+    if [[ "$VERSION" != *-dev ]]; then
+        catalog_repo=registry.k8s.io/security-profiles-operator/security-profiles-operator-bundle
+    fi
+
+    if [[ $PUSH != "true" ]]; then
+        crane=$(crane_bin) || return 1
+        "$crane" registry serve --address "127.0.0.1:$LOCAL_REGISTRY_PORT" &
+        LOCAL_REGISTRY_PID=$!
+        local_bundle="127.0.0.1:$LOCAL_REGISTRY_PORT/${BUNDLE_IMG_BASE##*/}"
+        # The registry takes a moment to listen.
+        for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            "$crane" push --insecure build/images/bundle "$local_bundle:$TAG" && break
+            if [[ $attempt -eq 10 ]] || ! kill -0 "$LOCAL_REGISTRY_PID" 2>/dev/null; then
+                echo "Unable to push the bundle to the registry on port $LOCAL_REGISTRY_PORT"
+                return 1
+            fi
+            sleep 1
+        done
+        bundle="$local_bundle@$digest"
+        catalog_repo=${catalog_repo:-$BUNDLE_IMG_BASE}
+        catalog_args+=(OPM_EXTRA_ARGS=--use-http)
+    fi
+    if [[ -n "$catalog_repo" ]]; then
+        catalog_args+=(CATALOG_BUNDLE_REPO="$catalog_repo")
+    fi
+    make catalog-context BUNDLE_IMGS="$bundle" "${catalog_args[@]}"
+
+    # The base image of the catalog by digest, like in its provenance, see
+    # hack/attest-images.sh.
+    image=$(opm_image) || return 1
+    build_metadata catalog catalog.Dockerfile build/catalog \
+        --build-arg OPM_IMAGE="$image"
+}
+
+# The bundle files with fixed modes, like the catalog, see bundle-context in
+# the Makefile.
+make bundle-context
+build_metadata bundle bundle.Dockerfile build/bundle
+build_catalog
+
+# The attestation step attests the bundle and the catalog by digest, see
+# hack/attest-images.sh.
+printf '%s\n' \
+    "$BUNDLE_IMG_BASE@$(cat build/images/bundle.digest)" \
+    "$CATALOG_IMG_BASE@$(cat build/images/catalog.digest)" > build/metadata-image-digests
+cat build/metadata-image-digests
+
 if [[ $PUSH != "true" ]]; then
     exit 0
 fi
@@ -194,53 +303,6 @@ parallel_each push_manifest "${TAGS[@]}"
 INDEX_DIGEST_IMG=$(resolve_digest "$IMAGE:$TAG")
 : > build/artifact-digests
 record_digest index "$INDEX_DIGEST_IMG"
-
-# Build and push the bundle and catalog image
-BUNDLE_IMG_BASE=$IMAGE-bundle
-CATALOG_IMG_BASE=$IMAGE-catalog
-
-export BUNDLE_IMG=$BUNDLE_IMG_BASE:$VERSION
-export CATALOG_IMG=$CATALOG_IMG_BASE:$VERSION
-
-make bundle-build bundle-push CONTAINER_RUNTIME=docker
-
-# The catalog is rendered from the pushed staging bundle by digest. Released
-# catalogs reference the bundle in the production registry it gets promoted
-# to, because staging images are not kept. Development catalogs keep the
-# staging bundle, which is never promoted.
-BUNDLE_DIGEST_IMG=$(docker inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$BUNDLE_IMG" |
-    grep -F "$BUNDLE_IMG_BASE@sha256:" | head -1)
-if [[ -z "$BUNDLE_DIGEST_IMG" ]]; then
-    echo "Unable to resolve the digest of $BUNDLE_IMG"
-    exit 1
-fi
-
-CATALOG_ARGS=(BUNDLE_IMGS="$BUNDLE_DIGEST_IMG")
-if [[ "$VERSION" != *-dev ]]; then
-    CATALOG_ARGS+=(CATALOG_BUNDLE_REPO=registry.k8s.io/security-profiles-operator/security-profiles-operator-bundle)
-fi
-
-make catalog-build catalog-push CONTAINER_RUNTIME=docker "${CATALOG_ARGS[@]}"
-
-# Ensure all tags are up to date
-IMAGES=("$BUNDLE_IMG_BASE" "$CATALOG_IMG_BASE")
-for I in "${IMAGES[@]}"; do
-    for T in "${TAGS[@]}"; do
-        docker tag "$I:$VERSION" "$I:$T"
-        docker push "$I:$T"
-    done
-done
-
-# The bundle and catalog get provenance and an SBOM, the catalog also the
-# vulnerability scan of the opm binaries of its base image, see
-# hack/attest-images.sh
-CATALOG_DIGEST_IMG=$(docker inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$CATALOG_IMG" |
-    grep -F "$CATALOG_IMG_BASE@sha256:" | head -1)
-if [[ -z "$CATALOG_DIGEST_IMG" ]]; then
-    echo "Unable to resolve the digest of $CATALOG_IMG"
-    exit 1
-fi
-printf '%s\n' "$BUNDLE_DIGEST_IMG" "$CATALOG_DIGEST_IMG" > build/metadata-image-digests
 
 # Sign every pushed image once by digest, if SIGN=true
 SIGN_REFS=("$IMAGE:$TAG" "$BUNDLE_IMG_BASE:$TAG" "$CATALOG_IMG_BASE:$TAG")

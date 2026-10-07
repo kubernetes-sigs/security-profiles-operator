@@ -123,9 +123,13 @@ so a promoted `latest` would be frozen at whatever it pointed to first, and
 content re-recorded under a version that was already promoted needs a new tag.
 
 The image promoter copies the profile by digest, signs it as `krel-trust` and
-carries the signature, provenance and SBOM of the staging build along, when
-they satisfy the provenance policy of this project, see
+carries the signature, provenance and SBOM of the staging build along, and the
+SLSA Build L3 provenance of the build workflow, when they satisfy the
+provenance policy of this project, see
 [attestations on registry.k8s.io](release.md#attestations-on-registryk8sio).
+The promoter writes the summary of a digest once, at its first promotion, so
+check that the staging profile has the provenance of the build workflow before
+promoting it, see [security profiles](release.md#security-profiles).
 Once the promotion pull request is merged, check what the promoted version
 carries:
 

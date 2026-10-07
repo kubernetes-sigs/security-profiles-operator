@@ -13,7 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Compares the per-arch image digests in build/image-digests, which
+# Compares the per-arch image digests in build/image-digests and the bundle
+# and catalog digests in build/metadata-image-digests, which
 # `PUSH=false hack/image-cross.sh` wrote, with the staging images Cloud Build
 # pushed for the same commit. Cloud Build tags them vYYYYMMDD-<git describe>,
 # so the staging tags of the commit end with -g<abbreviated commit>. The
@@ -104,7 +105,7 @@ for tag in "${TAGS[@]}"; do
         echo "Image built here:"
         show "$(layout_blob "$want")" layout_blob
         failed=1
-    done <"$BUILD_DIR/image-digests"
+    done < <(cat "$BUILD_DIR/image-digests" "$BUILD_DIR/metadata-image-digests")
 done
 
 exit "$failed"

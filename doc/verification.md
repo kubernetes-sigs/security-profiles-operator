@@ -402,11 +402,15 @@ manifests:
 | Container image: manifest list, platform manifests and per-arch images | `SLSA_BUILD_LEVEL_3` | GitHub (plus Cloud Build at level 1), see [per-arch images](release.md#per-arch-images) |
 | `spoc` | `SLSA_BUILD_LEVEL_3` | GitHub, see [OCI artifacts](release.md#oci-artifacts) |
 | Helm chart | `SLSA_BUILD_LEVEL_3` | GitHub, see [OCI artifacts](release.md#oci-artifacts) |
-| Operator bundle and catalog | `SLSA_BUILD_LEVEL_1` | Cloud Build |
-| Security profiles | `SLSA_BUILD_LEVEL_1` | Cloud Build |
+| Operator bundle and catalog | `SLSA_BUILD_LEVEL_3` | GitHub (plus Cloud Build at level 1), see [bundle and catalog](release.md#bundle-and-catalog) |
+| Security profiles | `SLSA_BUILD_LEVEL_3` | GitHub of `main` (plus Cloud Build at level 1), see [security profiles](release.md#security-profiles) |
 
-The container images of a release that had to be promoted without the GitHub
-provenance only reach level 1, see [per-arch images](release.md#per-arch-images).
+The container images, bundle and catalog of a release that had to be
+promoted without the GitHub provenance only reach level 1, see
+[per-arch images](release.md#per-arch-images). So do the bundles, catalogs
+and profiles promoted before they got the GitHub provenance, see
+[older releases](#older-releases), because a digest keeps the summary of its
+first promotion.
 
 ### Missing and failed summaries
 
@@ -468,7 +472,9 @@ passed summary of the promoter, which includes the
 the plugin first, which only logs. `vsa.minimumLevel: 1` rejects summaries
 that claim no level, see [levels](#levels). The rule matches the operator
 bundle and catalog too, which OLM runs on the nodes and which only reach
-level 1, so require level 3 in a rule for the operator image only. An
+level 3 if they were promoted with the GitHub provenance, see
+[older releases](#older-releases), so require level 3 in a rule for the
+operator image only as long as older bundles and catalogs are in use. An
 `exclude` pattern that matches the images, like `registry.k8s.io/**`, skips
 the rule. The policy documentation of the plugin explains the rule and its
 options in
@@ -707,6 +713,9 @@ v1.1.0 and the releases before it predate most of this page:
   or `spoc.spdx.sig` and `spoc.spdx.cert`) or without any SBOM, so the
   commands of [software bill of materials](#software-bill-of-materials) don't
   work for them as they are.
+- The operator bundles and catalogs of v1.1.1 and the releases before it,
+  and the security profiles promoted with them, only have the Cloud Build
+  provenance and reach level 1, see [levels](#levels).
 - Releases before v1.1.0 have no provenance and no Helm chart on
   `registry.k8s.io`. v1.0.0 and v1.0.1 name the signature of a binary
   `spoc.amd64.bundle`, v0.10.0 and older ship `spoc.amd64.sig` and
