@@ -123,10 +123,21 @@ func (a *AppArmor) LoadPolicy(fileName string) error {
 	}
 	defer os.Remove(fd.Name())
 
-	cmd := exec.Command(parserPath, fileName, "-o", fd.Name())
+	// AppArmor userspace >= 4.0 writes `-o` output in the cache-file format
+	// (header + zstd-compressed policy) by default, which the kernel policy
+	// interface rejects with "invalid profile format" (EPROTONOSUPPORT).
+	// Force uncompressed raw output; older parsers without the flag fall
+	// back to the plain invocation, whose output is already raw.
+	cmd := exec.Command(parserPath, "--zstd-compress-level=none", fileName, "-o", fd.Name())
 	a.opts.logger.V(2).Info(fmt.Sprintf("transform policy into binary: %s", cmd.Args))
 
 	err = cmd.Run()
+	if err != nil {
+		cmd = exec.Command(parserPath, fileName, "-o", fd.Name())
+		a.opts.logger.V(2).Info(fmt.Sprintf("retrying without compression flag: %s", cmd.Args))
+
+		err = cmd.Run()
+	}
 	if err != nil {
 		return fmt.Errorf("parsing profile: %w", err)
 	}
