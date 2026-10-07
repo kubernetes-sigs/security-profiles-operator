@@ -567,6 +567,8 @@ func TestSweepStaleKeys(t *testing.T) {
 
 	sut.containerKeys.Insert(mapped, containerID)
 	sut.containerIDToProfileMap.Insert(containerID, profile)
+	// A container which is not in the cluster.
+	sut.containerKeys.Insert(stale, "unknown")
 
 	mock.MapKeysReturns([][]byte{pidKey(100, alive), pidKey(200, stale)}, nil)
 	mock.StatCalls(func(path string) (os.FileInfo, error) {
@@ -583,6 +585,60 @@ func TestSweepStaleKeys(t *testing.T) {
 	sut.sweepStaleKeys()
 	require.ElementsMatch(t, []uint64{mapped, alive}, sut.AppArmor.GetKnownKeys())
 	require.Empty(t, sut.staleKeys)
+
+	_, found := sut.containerKeys.Get(stale)
+	require.False(t, found)
+
+	_, found = sut.containerKeys.Get(mapped)
+	require.True(t, found)
+}
+
+// TestPruneExcludedKeys asserts that excluded cgroups which are gone get
+// removed from the kernel map, while the ones still around stay excluded.
+func TestPruneExcludedKeys(t *testing.T) {
+	t.Parallel()
+
+	sut, mock := newClusterRecorder(false, true)
+	sut.cgroupKeys = true
+	sut.excludeKeysBpfMap = &libbpfgo.BPFMap{}
+
+	const (
+		gone  uint64 = 1
+		alive uint64 = 2
+	)
+
+	sut.AppArmor.Exclude(gone)
+	sut.AppArmor.Exclude(alive)
+
+	key := func(k uint64) []byte {
+		return binary.NativeEndian.AppendUint64(nil, k)
+	}
+
+	const hidden uint64 = 3
+
+	sut.AppArmor.Exclude(hidden)
+	mock.MapKeysReturns([][]byte{key(gone), key(alive), key(hidden)}, nil)
+	mock.CgroupRemovedCalls(func(id uint64) (bool, error) {
+		switch id {
+		case alive:
+			return false, nil
+		case hidden:
+			// A cgroup outside of the cgroup namespace of the daemon is not
+			// known to be gone.
+			return false, syscall.EPERM
+		default:
+			return true, nil
+		}
+	})
+
+	sut.pruneExcludedKeys(sut.recordingGeneration.Load())
+
+	require.Equal(t, 1, mock.DeleteKey64CallCount())
+	_, deleted := mock.DeleteKey64ArgsForCall(0)
+	require.Equal(t, gone, deleted)
+	require.False(t, sut.AppArmor.isExcluded(gone))
+	require.True(t, sut.AppArmor.isExcluded(alive))
+	require.True(t, sut.AppArmor.isExcluded(hidden))
 }
 
 // TestSweepStaleKeysUnknownProcesses asserts that no data is dropped while the

@@ -118,11 +118,12 @@ func TestMergePredicate(t *testing.T) {
 }
 
 // A recording which keeps its finalizer because of partial profiles which
-// were left gets reconciled again once they are gone.
-func TestPartialProfileDeletionEnqueuesRecording(t *testing.T) {
+// were left gets reconciled again once they are gone, or once a partial
+// profile shows up which a node stored after the merge.
+func TestPartialProfileEventsEnqueueRecording(t *testing.T) {
 	t.Parallel()
 
-	p := partialProfileDeletedPredicate()
+	p := partialProfileEventsPredicate()
 
 	partial := partialSeccomp("partial-a", "nginx", "read")
 	merged := partial.DeepCopy()
@@ -130,7 +131,8 @@ func TestPartialProfileDeletionEnqueuesRecording(t *testing.T) {
 
 	require.True(t, p.Delete(event.DeleteEvent{Object: partial}))
 	require.False(t, p.Delete(event.DeleteEvent{Object: merged}))
-	require.False(t, p.Create(event.CreateEvent{Object: partial}))
+	require.True(t, p.Create(event.CreateEvent{Object: partial}))
+	require.False(t, p.Create(event.CreateEvent{Object: merged}))
 	require.False(t, p.Update(event.UpdateEvent{ObjectOld: partial, ObjectNew: partial}))
 
 	require.Equal(t, []reconcile.Request{{NamespacedName: types.NamespacedName{

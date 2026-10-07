@@ -20,22 +20,19 @@ package e2e_test
 
 import (
 	"fmt"
-	"math/rand/v2"
 	"strconv"
 	"strings"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
 func (e *e2e) testCaseProfilingChange([]string) {
 	e.logf("Change profiling in spod")
 	e.patchSpod(`{"spec":{"enableProfiling": true}}`)
 
-	logs := e.kubectlOperatorNS(
-		"logs",
-		"ds/spod",
-		"security-profiles-operator",
-	)
-
-	e.Contains(logs, "Profiling support enabled: true")
+	// The daemon runs with the rolled out spec, testCaseProfilingHTTP checks
+	// that the endpoint answers.
+	e.Equal("true", e.spodEnv(config.ProfilingEnvKey))
 }
 
 func (e *e2e) testCaseProfilingHTTP([]string) {
@@ -64,13 +61,6 @@ func (e *e2e) getProfilingEndpoint(i int) string {
 
 // This function is inspired by e2e.runAndRetryPodCMD().
 func (e *e2e) getProfilingHTTPVersion() string {
-	letters := []rune("abcdefghijklmnopqrstuvwxyz")
-	b := make([]rune, 10)
-
-	for i := range b {
-		b[i] = letters[rand.IntN(len(letters))] //nolint:gosec // not security-sensitive
-	}
-
 	nPodsOutput := e.kubectlOperatorNS("get", "daemonsets", "spod", "-o",
 		"jsonpath={.status.numberAvailable}")
 
@@ -85,11 +75,13 @@ func (e *e2e) getProfilingHTTPVersion() string {
 	// retrying the endpoint, moving on to the next spod pod each time.
 	var output string
 
+	podName := randomPodName()
+
 	e.eventually(podCommandTimeout, defaultPollInterval, func() error {
 		profilingEndpoint := e.getProfilingEndpoint(index)
 		profilingCurlCMD := curlHTTPVerCMD + profilingEndpoint
 
-		output = e.kubectlRunOperatorNS("pod-"+string(b), "--", "bash", "-c", profilingCurlCMD)
+		output = e.kubectlRunOperatorNS(podName, "--", "bash", "-c", profilingCurlCMD)
 		if len(strings.Split(output, "\n")) > 1 {
 			return nil
 		}

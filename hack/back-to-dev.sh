@@ -15,14 +15,8 @@
 
 set -euo pipefail
 
-# GNU and BSD sed differ in how -i takes the backup suffix.
-sed_i() {
-    if sed --version >/dev/null 2>&1; then
-        sed -i "$@"
-    else
-        sed -i '' "$@"
-    fi
-}
+# shellcheck source=hack/lib/common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
 GIT_ROOT=$(git rev-parse --show-toplevel)
 pushd "$GIT_ROOT" >/dev/null

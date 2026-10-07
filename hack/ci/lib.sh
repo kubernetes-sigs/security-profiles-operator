@@ -20,6 +20,9 @@
 # The scripts sourcing this file use some of the variables.
 # shellcheck disable=SC2034
 
+# shellcheck source=hack/lib/common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
+
 # The namespace the CI scripts install the operator into.
 SPO_NAMESPACE=security-profiles-operator
 
@@ -41,9 +44,9 @@ install_cert_manager() {
 
   echo "Installing cert-manager $CERT_MANAGER_VERSION"
   manifest=$(mktemp) || return 1
-  if ! curl -sSfL --retry 5 --retry-delay 3 -o "$manifest" \
-    "https://github.com/cert-manager/cert-manager/releases/download/$CERT_MANAGER_VERSION/cert-manager.yaml" ||
-    ! echo "$CERT_MANAGER_SHA256  $manifest" | sha256sum -c - ||
+  if ! download_verified \
+    "https://github.com/cert-manager/cert-manager/releases/download/$CERT_MANAGER_VERSION/cert-manager.yaml" \
+    "$CERT_MANAGER_SHA256" "$manifest" ||
     ! kubectl apply -f "$manifest"; then
     rm -f "$manifest"
     return 1
@@ -52,4 +55,21 @@ install_cert_manager() {
 
   # The deployments exist right after the apply, their pods may not yet.
   kubectl -n cert-manager wait --timeout "$timeout" --for condition=available deployment --all
+}
+
+# Runs the command until it succeeds, at most tries times with delay seconds in
+# between. It returns 1 if the command never succeeded.
+wait_until() {
+  local tries="$1" delay="$2" i
+  shift 2
+
+  for ((i = 0; i < tries; i++)); do
+    if "$@"; then
+      return 0
+    fi
+    echo "Still waiting ($i)"
+    sleep "$delay"
+  done
+
+  return 1
 }

@@ -1,3 +1,11 @@
 Security Profiles Operator installed.
 Run `kubectl get pods -n {{ .Release.Namespace }}` to check status.
+
+The daemon runs privileged on every node, so the namespace has to allow the
+privileged Pod Security Standard, which the chart does not configure:
+  kubectl label ns {{ .Release.Namespace }} --overwrite \
+    pod-security.kubernetes.io/enforce=privileged \
+    pod-security.kubernetes.io/audit=privileged \
+    pod-security.kubernetes.io/warn=privileged
+
 See https://sigs.k8s.io/security-profiles-operator for documentation.

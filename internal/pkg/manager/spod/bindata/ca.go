@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"iter"
 	"strings"
 	"time"
 
@@ -151,7 +152,7 @@ func IsCertManagerResourceName(name string) bool {
 // Missing returns true if any of the cert-manager resources does not exist,
 // for example because it got deleted.
 func (c *CertManagerResources) Missing(ctx context.Context, cl client.Reader) (bool, error) {
-	for k, o := range c.objectMap() {
+	for k, o := range c.objects() {
 		existing, ok := o.DeepCopyObject().(client.Object)
 		if !ok {
 			return false, fmt.Errorf("copying %s", k)
@@ -170,7 +171,7 @@ func (c *CertManagerResources) Missing(ctx context.Context, cl client.Reader) (b
 }
 
 func (c *CertManagerResources) Create(ctx context.Context, cl client.Client) error {
-	for k, o := range c.objectMap() {
+	for k, o := range c.objects() {
 		if err := cl.Create(ctx, o); err != nil {
 			if apierrors.IsAlreadyExists(err) {
 				continue
@@ -186,7 +187,7 @@ func (c *CertManagerResources) Create(ctx context.Context, cl client.Client) err
 // Update patches the cert-manager resources and creates the ones which are
 // missing, for example because they got deleted.
 func (c *CertManagerResources) Update(ctx context.Context, cl client.Client) error {
-	for k, o := range c.objectMap() {
+	for k, o := range c.objects() {
 		err := cl.Patch(ctx, o, client.Merge)
 		if apierrors.IsNotFound(err) {
 			err = cl.Create(ctx, o)
@@ -200,12 +201,14 @@ func (c *CertManagerResources) Update(ctx context.Context, cl client.Client) err
 	return nil
 }
 
-func (c *CertManagerResources) objectMap() map[string]client.Object {
-	return map[string]client.Object{
-		"issuer":       c.issuer,
-		"metrics cert": c.metricsCert,
-		"webhook cert": c.webhookCert,
-	}
+// objects returns the cert-manager resources by name, the issuer of the
+// certificates first.
+func (c *CertManagerResources) objects() iter.Seq2[string, client.Object] {
+	return namedObjects([]namedObject{
+		{"issuer", c.issuer},
+		{"metrics cert", c.metricsCert},
+		{"webhook cert", c.webhookCert},
+	})
 }
 
 var issuer = certmanagerv1.Issuer{

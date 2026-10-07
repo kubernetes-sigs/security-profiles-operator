@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euox pipefail
 
+# shellcheck source=hack/lib/common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
+
 CRUN_VERSION=1.30.1
 # Bump together with CRUN_VERSION, see dependencies.yaml.
 CRUN_SHA256_amd64=86d1e6a0e76945975d3aebfab39cbc6a26eea15f1c3fc66b6776d19e5dc346a0
@@ -20,9 +23,9 @@ esac
 crun --version
 
 # Download
-curl -sSfL --retry 5 --retry-delay 3 -o "$CRUN_BIN" \
-    "https://github.com/containers/crun/releases/download/$CRUN_VERSION/crun-$CRUN_VERSION-linux-$ARCH"
-echo "$CRUN_SHA256  $CRUN_BIN" | sha256sum -c -
+download_verified \
+    "https://github.com/containers/crun/releases/download/$CRUN_VERSION/crun-$CRUN_VERSION-linux-$ARCH" \
+    "$CRUN_SHA256" "$CRUN_BIN"
 chmod +x "$CRUN_BIN"
 
 # Override current crun

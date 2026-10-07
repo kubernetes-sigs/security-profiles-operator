@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -71,7 +72,10 @@ func tufTrustedRoot(offline bool) (root.TrustedMaterial, error) {
 	}
 
 	opts.ForceCache = offline
-	key := opts.CachePath + "\x00" + opts.RepositoryBaseURL + "\x00" + strconv.FormatBool(offline)
+	// The trust anchor is part of the key, as it may come from TUF_ROOT_JSON.
+	key := strings.Join([]string{
+		opts.CachePath, opts.RepositoryBaseURL, strconv.FormatBool(offline), string(opts.Root),
+	}, "\x00")
 
 	trustedRoots.Lock()
 	defer trustedRoots.Unlock()

@@ -14,18 +14,19 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package util
+package cli
 
 import (
-	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	"log"
+	"strings"
 )
 
-// IgnoreNotFound returns nil for a NotFound error and err otherwise. New code
-// should use client.IgnoreNotFound of controller-runtime, which does the same.
-func IgnoreNotFound(err error) error {
-	if kerrors.IsNotFound(err) {
-		return nil
+// WarnExtraArgs logs the positional arguments after the first n, which the
+// command ignores. A mistyped invocation, like a file passed as an argument
+// instead of with its flag, gets noticed this way. Rejecting them would change
+// the exit code of invocations which work today.
+func WarnExtraArgs(args []string, n int) {
+	if len(args) > n {
+		log.Printf("Ignoring extra arguments: %s", strings.Join(args[n:], " "))
 	}
-
-	return err
 }

@@ -374,7 +374,10 @@ func (r *PolicyMergeReconciler) legacyHold(
 		return legacyAdoptionWait, nil
 	}
 
-	profiles, err := listLegacyPartialProfiles(ctx, r.apiReader(), recording.GetName())
+	// This runs with every reconcile of a deleted recording, so it reads the
+	// cache, which the adoption waited for. A profile which the cache still
+	// shows only holds the recording until the next check.
+	profiles, err := listLegacyPartialProfiles(ctx, r.client, recording.GetName())
 	if err != nil {
 		return 0, err
 	}

@@ -216,12 +216,16 @@ func MatchSelinuxdImageJSONMapping(node *corev1.Node, mappingObj []byte) (string
 		return "", err
 	}
 
-	return matchSelinuxdImage(node, mapping), nil
+	return matchSelinuxdImage(node, mapping)
 }
 
-func matchSelinuxdImage(node *corev1.Node, mapping []selinuxdImageMap) string {
+// matchSelinuxdImage returns the image variable of the first mapping whose
+// regex matches the OS image of the node. An entry whose regex Go does not
+// support never matches, as before: failing on it would stop the manager on a
+// mapping which works today, even without SELinux.
+func matchSelinuxdImage(node *corev1.Node, mapping []selinuxdImageMap) (string, error) {
 	if node == nil {
-		return ""
+		return "", nil
 	}
 
 	for _, m := range mapping {
@@ -229,13 +233,17 @@ func matchSelinuxdImage(node *corev1.Node, mapping []selinuxdImageMap) string {
 			continue
 		}
 
-		if matched, err := regexp.MatchString(m.Regex, node.Status.NodeInfo.OSImage); err == nil &&
-			matched {
-			return m.ImageFromVar
+		re, err := regexp.Compile(m.Regex)
+		if err != nil {
+			continue
+		}
+
+		if re.MatchString(node.Status.NodeInfo.OSImage) {
+			return m.ImageFromVar, nil
 		}
 	}
 
-	return ""
+	return "", nil
 }
 
 // GetOperatorConfigMap returns the ConfigMap of the operator in the provided

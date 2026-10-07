@@ -28,25 +28,37 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
+// ProfileRecordingKind is the kind of the profiles a recording records.
 type ProfileRecordingKind string
 
 const (
-	ProfileRecordingKindSeccompProfile  ProfileRecordingKind = "SeccompProfile"
-	ProfileRecordingKindSelinuxProfile  ProfileRecordingKind = "SelinuxProfile"
+	// ProfileRecordingKindSeccompProfile records SeccompProfiles.
+	ProfileRecordingKindSeccompProfile ProfileRecordingKind = "SeccompProfile"
+	// ProfileRecordingKindSelinuxProfile records SelinuxProfiles.
+	ProfileRecordingKindSelinuxProfile ProfileRecordingKind = "SelinuxProfile"
+	// ProfileRecordingKindAppArmorProfile records AppArmorProfiles.
 	ProfileRecordingKindAppArmorProfile ProfileRecordingKind = "AppArmorProfile"
 )
 
+// ProfileRecorder is the way a recording records the profiles.
 type ProfileRecorder string
 
 const (
+	// ProfileRecorderLogs records from the audit logs of the nodes.
 	ProfileRecorderLogs ProfileRecorder = "Logs"
-	ProfileRecorderBpf  ProfileRecorder = "Bpf"
+	// ProfileRecorderBpf records with the BPF recorder of the nodes.
+	ProfileRecorderBpf ProfileRecorder = "Bpf"
 )
 
+// ProfileMergeStrategy tells how the recorded profiles of the containers get
+// merged.
 type ProfileMergeStrategy string
 
 const (
-	ProfileMergeNone       ProfileMergeStrategy = "None"
+	// ProfileMergeNone keeps a profile per recorded container instance.
+	ProfileMergeNone ProfileMergeStrategy = "None"
+	// ProfileMergeContainers merges the profiles of the instances of a
+	// container into one profile per container.
 	ProfileMergeContainers ProfileMergeStrategy = "Containers"
 )
 
@@ -292,7 +304,8 @@ func (pr *ProfileRecording) ctrAnnotationApparmor(ctrName string) (key, value st
 type ProfileRecordingList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []ProfileRecording `json:"items"`
+	// Items is the list of ProfileRecording objects.
+	Items []ProfileRecording `json:"items"`
 }
 
 func init() { //nolint:gochecknoinits // required to init the scheme

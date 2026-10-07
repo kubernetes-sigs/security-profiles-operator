@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	configv1 "github.com/openshift/api/config/v1"
@@ -66,7 +67,9 @@ func writeFakeSpoc(t *testing.T, exitCode string) string {
 	t.Helper()
 
 	dir := t.TempDir()
-	script := "#!/bin/sh\necho \"spoc $@\"\nexit " + exitCode + "\n"
+	// The PATH holds only the fake, so it uses shell builtins only.
+	script := "#!/bin/sh\necho \"spoc $@\"\n" +
+		"while IFS= read -r line; do echo \"$line\"; done\nexit " + exitCode + "\n"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, spocCmd), []byte(script), 0o755))
 
 	return dir
@@ -84,8 +87,11 @@ func TestRunSpoc(t *testing.T) {
 			t.Setenv("PATH", writeFakeSpoc(t, tc.exitCode))
 
 			stdout := &bytes.Buffer{}
-			err := runSpoc([]string{"merge", "--check"}, stdout, &bytes.Buffer{})
-			require.Equal(t, "spoc merge --check\n", stdout.String())
+			err := runSpoc(
+				[]string{"merge", "--check"}, strings.NewReader("stdin\n"), stdout, &bytes.Buffer{},
+			)
+			// The input is passed through, like a password for --password-stdin.
+			require.Equal(t, "spoc merge --check\nstdin\n", stdout.String())
 
 			if tc.wantCode == 0 {
 				require.NoError(t, err)
@@ -103,7 +109,7 @@ func TestRunSpoc(t *testing.T) {
 	t.Run("missing binary", func(t *testing.T) {
 		t.Setenv("PATH", t.TempDir())
 
-		err := runSpoc(nil, &bytes.Buffer{}, &bytes.Buffer{})
+		err := runSpoc(nil, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
 		require.Error(t, err)
 
 		_, isExitCoder := err.(cli.ExitCoder) //nolint:errorlint // cli.Exit is not wrapped

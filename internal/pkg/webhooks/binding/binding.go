@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/jellydator/ttlcache/v3"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -52,20 +53,35 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
 
-var ErrProfWithoutStatus = errors.New("profile hasn't been initialized with status")
+var (
+	ErrProfWithoutStatus = errors.New("profile hasn't been initialized with status")
+
+	// errUnsupportedKind is returned for a binding of an unknown kind.
+	errUnsupportedKind = errors.New("unsupported profile kind")
+)
 
 const (
-	// ephemeralContainersSubResource is the pod sub resource used to add
-	// ephemeral containers to a running pod, for example by `kubectl debug`.
-	ephemeralContainersSubResource = "ephemeralcontainers"
-
 	// profileLookupTimeout bounds the time the retried profile lookups of a
 	// single admission request may take, so that the webhook answers before
 	// the API server gives up on it. The webhook configurations use a
 	// timeout of ten seconds.
 	profileLookupTimeout = 3 * time.Second
 
+	// missingProfileRetry is how long a profile which was not found after
+	// waiting for it is only waited for missingProfileWait, instead of the
+	// whole profileLookupTimeout with every pod.
+	missingProfileRetry = time.Minute
+
+	// missingProfileWait is how long a recently missing profile is waited for,
+	// which covers the cache of the webhook catching up with a profile
+	// created right before the pod.
+	missingProfileWait = time.Second
+
+	// maxMissingProfiles bounds the remembered missing profiles.
+	maxMissingProfiles = 1000
+
 	reasonProfileWithoutStatus = "ProfileWithoutStatus"
+	reasonProfileNotFound      = "ProfileNotFound"
 	reasonBindingConflict      = "ProfileBindingConflict"
 	reasonInvalidPodSelector   = "InvalidPodSelector"
 )
@@ -81,6 +97,51 @@ type podBinder struct {
 
 	// isOpenShift is true on OpenShift, where SELinux is enabled by default.
 	isOpenShift bool
+
+	// missing holds the profiles which were not found after waiting for
+	// them. A pointer, as a dry run works on a copy of the binder.
+	missing *missingProfiles
+
+	// dryRun is set for a dry run request, which must not change missing.
+	dryRun bool
+}
+
+// missingProfiles holds the kind and name of the profiles which were not
+// found after waiting for them, for missingProfileRetry. A nil one remembers
+// nothing.
+type missingProfiles struct {
+	profiles *ttlcache.Cache[string, struct{}]
+}
+
+func newMissingProfiles() *missingProfiles {
+	return &missingProfiles{profiles: ttlcache.New(
+		ttlcache.WithTTL[string, struct{}](missingProfileRetry),
+		ttlcache.WithCapacity[string, struct{}](maxMissingProfiles),
+		ttlcache.WithDisableTouchOnHit[string, struct{}](),
+	)}
+}
+
+// missingProfileKey is the key of a profile in missingProfiles.
+func missingProfileKey(kind profilebindingapi.ProfileBindingKind, name string) string {
+	return string(kind) + "/" + name
+}
+
+// recently reports whether the profile was found missing within
+// missingProfileRetry.
+func (m *missingProfiles) recently(key string) bool {
+	return m != nil && m.profiles.Get(key) != nil
+}
+
+func (m *missingProfiles) add(key string) {
+	if m != nil {
+		m.profiles.Set(key, struct{}{}, ttlcache.DefaultTTL)
+	}
+}
+
+func (m *missingProfiles) remove(key string) {
+	if m != nil {
+		m.profiles.Delete(key)
+	}
 }
 
 // RegisterWebhook registers the binding webhook. The reader is used to read
@@ -108,6 +169,7 @@ func RegisterWebhook(
 				record:            utils.NewSafeRecorder(rec),
 				operatorNamespace: operatorNamespace,
 				isOpenShift:       isOpenShift,
+				missing:           newMissingProfiles(),
 			},
 		},
 	)
@@ -140,10 +202,7 @@ func podContainers(pod *corev1.Pod) []*corev1.Container {
 // newEphemeralContainers returns the ephemeral containers of the pod which do
 // not exist in the old pod. Existing ephemeral containers cannot be changed.
 func newEphemeralContainers(pod, oldPod *corev1.Pod) []*corev1.Container {
-	existing := make(map[string]bool, len(oldPod.Spec.EphemeralContainers))
-	for i := range oldPod.Spec.EphemeralContainers {
-		existing[oldPod.Spec.EphemeralContainers[i].Name] = true
-	}
+	existing := utils.ExistingEphemeralContainers(pod, oldPod)
 
 	var ctrs []*corev1.Container
 
@@ -195,6 +254,7 @@ func (p *podBinder) Handle(ctx context.Context, req admission.Request) admission
 	if rec := utils.RecorderForRequest(&req, p.record); rec != p.record {
 		dryRun := *p
 		dryRun.record = rec
+		dryRun.dryRun = true
 		p = &dryRun
 	}
 
@@ -341,7 +401,7 @@ func (p *podBinder) updatePod(
 	req *admission.Request,
 ) (*corev1.Pod, []string, *admission.Response) {
 	isEphemeral := req.Operation == admissionv1.Update &&
-		req.SubResource == ephemeralContainersSubResource
+		req.SubResource == utils.EphemeralContainersSubResource
 
 	// Pod security context fields are immutable after creation, so only
 	// mutate on CREATE and when ephemeral containers get added. Other updates
@@ -549,28 +609,55 @@ func (p *podBinder) getProfile(
 		return nil, false, err
 	}
 
-	// Profiles of enabled kinds may have been created just before the pod,
-	// so wait for them to get installed. Disabled kinds do not change.
-	lookupCtx := ctx
+	lookupKind := func(retry bool, deadline time.Time) (any, error) {
+		lookupCtx := ctx
 
-	if enabled {
-		var cancel context.CancelFunc
+		if retry {
+			var cancel context.CancelFunc
 
-		lookupCtx, cancel = context.WithDeadline(ctx, lookup.retryDeadline)
-		defer cancel()
+			lookupCtx, cancel = context.WithDeadline(ctx, deadline)
+			defer cancel()
+		}
+
+		switch profileKind {
+		case profilebindingapi.ProfileBindingKindSeccompProfile:
+			return lookupProfile(lookupCtx, key, retry, p.GetSeccompProfile)
+		case profilebindingapi.ProfileBindingKindSelinuxProfile:
+			return lookupProfile(lookupCtx, key, retry, p.GetSelinuxProfile)
+		case profilebindingapi.ProfileBindingKindAppArmorProfile:
+			return lookupProfile(lookupCtx, key, retry, p.GetAppArmorProfile)
+		default:
+			return nil, errUnsupportedKind
+		}
 	}
 
-	switch profileKind {
-	case profilebindingapi.ProfileBindingKindSeccompProfile:
-		bindProfile, err = lookupProfile(lookupCtx, key, enabled, p.GetSeccompProfile)
-	case profilebindingapi.ProfileBindingKindSelinuxProfile:
-		bindProfile, err = lookupProfile(lookupCtx, key, enabled, p.GetSelinuxProfile)
-	case profilebindingapi.ProfileBindingKindAppArmorProfile:
-		bindProfile, err = lookupProfile(lookupCtx, key, enabled, p.GetAppArmorProfile)
-	default:
+	// Profiles of enabled kinds may have been created just before the pod,
+	// so wait for them to get installed. Disabled kinds do not change. A
+	// profile which was missing after waiting is likely to stay missing, so
+	// the pods which follow wait for it shortly for a while, and wait for its
+	// status as long as before once it exists.
+	missingKey := missingProfileKey(profileKind, key.Name)
+	recentlyMissing := p.missing.recently(missingKey)
+
+	deadline := lookup.retryDeadline
+	if shortDeadline := time.Now().Add(missingProfileWait); recentlyMissing &&
+		shortDeadline.Before(deadline) {
+		deadline = shortDeadline
+	}
+
+	bindProfile, err = lookupKind(enabled, deadline)
+	if enabled && recentlyMissing && err != nil && !kerrors.IsNotFound(err) {
+		bindProfile, err = lookupKind(true, lookup.retryDeadline)
+	}
+
+	if errors.Is(err, errUnsupportedKind) {
 		p.log.Info("profile kind not supported", "kind", profileKind)
 
 		return nil, true, nil
+	}
+
+	if !kerrors.IsNotFound(err) && !p.dryRun {
+		p.missing.remove(missingKey)
 	}
 
 	switch {
@@ -582,6 +669,24 @@ func (p *podBinder) getProfile(
 		// binding enabled, which might also lead to a DoS by a ProfileBinding
 		// with a non-existing profileRef.
 		p.log.Info("skip binding due to unavailable profile", "kind", profileKind, "profile", key)
+
+		// Reported once while it stays missing, not for every pod.
+		if !recentlyMissing {
+			if !p.dryRun {
+				p.missing.add(missingKey)
+			}
+
+			p.record.Eventf(
+				pb,
+				nil,
+				corev1.EventTypeWarning,
+				reasonProfileNotFound,
+				util.EventActionMutate,
+				"%s %s does not exist, the binding was not applied to a pod",
+				profileKind,
+				key.Name,
+			)
+		}
 
 		return nil, true, nil
 

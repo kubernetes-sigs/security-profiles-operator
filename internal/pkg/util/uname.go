@@ -21,9 +21,9 @@ package util
 import (
 	"fmt"
 	"strings"
-	"syscall"
 
 	"github.com/blang/semver/v4"
+	"golang.org/x/sys/unix"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder/types"
 )
@@ -34,13 +34,15 @@ func normalizeRelease(release string) string {
 }
 
 func Uname() (types.Arch, *semver.Version, error) {
-	uname := syscall.Utsname{}
-	if err := syscall.Uname(&uname); err != nil {
+	// The fields are byte arrays on every architecture, unlike the ones of
+	// the syscall package.
+	uname := unix.Utsname{}
+	if err := unix.Uname(&uname); err != nil {
 		return "", nil, fmt.Errorf("uname syscall failed: %w", err)
 	}
 
-	arch := types.Arch(unameMachineToString(&uname))
-	release := unameReleaseToString(&uname)
+	arch := types.Arch(unix.ByteSliceToString(uname.Machine[:]))
+	release := unix.ByteSliceToString(uname.Release[:])
 	release = normalizeRelease(release)
 
 	version, err := semver.Parse(release)

@@ -803,18 +803,11 @@ func (e *e2e) runAndRetryPodCMD(podCMD string) string {
 	var output string
 
 	e.eventually(podCommandTimeout, defaultPollInterval, func() error {
-		letters := []rune("abcdefghijklmnopqrstuvwxyz")
-		b := make([]rune, 10)
-
-		for i := range b {
-			b[i] = letters[rand.IntN(len(letters))] //nolint:gosec // not security-sensitive
-		}
-
 		var err error
 
 		output, err = e.kubectlCommand(kubectlRunArgs(
 			"-n", config.OperatorName, metricsClientOverrides,
-			"pod-"+string(b), "--", "bash", "-c", podCMD,
+			randomPodName(), "--", "bash", "-c", podCMD,
 		)...)
 		if err != nil {
 			output = ""
@@ -868,6 +861,28 @@ func (e *e2e) patchSpod(patch string) {
 	}
 
 	e.waitForSpodRollout(generation)
+}
+
+// randomPodName returns a name for a pod of a single command, which differs
+// with every retry, as the pod of the previous one may still be terminating.
+func randomPodName() string {
+	letters := []rune("abcdefghijklmnopqrstuvwxyz")
+	b := make([]rune, 10)
+
+	for i := range b {
+		b[i] = letters[rand.IntN(len(letters))] //nolint:gosec // not security-sensitive
+	}
+
+	return "pod-" + string(b)
+}
+
+// spodEnv returns the value of the environment variable of the daemon
+// container of the rolled out spod daemon set, which patchSpod waits for.
+func (e *e2e) spodEnv(name string) string {
+	return e.kubectlOperatorNS("get", "ds", "spod", "-o", fmt.Sprintf(
+		"jsonpath={.spec.template.spec.containers[?(@.name=='security-profiles-operator')]"+
+			".env[?(@.name=='%s')].value}", name,
+	))
 }
 
 // spodDaemonSetGeneration returns the generation of the spod daemon set, to
@@ -978,11 +993,11 @@ func (e *e2e) enableLogEnricherInSpod() {
 	e.patchSpod(`{"spec":{"enricher":{"enableJsonEnricher": false,"enableLogEnricher": true,` +
 		`"logEnricherFilters": null}}}`)
 
-	e.waitForTerminatingPods(5*time.Second, 5)
+	e.waitForTerminatingPods(podStartTimeout)
 
 	for _, podName := range append(e.getSpodPodNames(), e.getSpodWebhookPodNames()...) {
 		operatorName := config.OperatorName
-		if !e.podRunning(podName, &operatorName, 5*time.Second, 5) {
+		if !e.podRunning(podName, &operatorName, podStartTimeout) {
 			e.logf("Pod %s not running", podName)
 			e.Fail("Failed to enable json-enricher in SPOD")
 		}
@@ -1002,13 +1017,13 @@ func (e *e2e) enableJsonEnricherInSpod() {
 	e.patchSpod(`{"spec":{"enricher":{"enableLogEnricher": false, "enableJsonEnricher": true,
 		"jsonEnricherOptions":{"auditLogIntervalSeconds":20}}}}`)
 
-	if !e.checkExecWebhook(5*time.Second, 5) {
+	if !e.checkExecWebhook(podStartTimeout) {
 		e.Fail("Webhooks are not ready")
 	}
 
 	for _, podName := range append(e.getSpodPodNames(), e.getSpodWebhookPodNames()...) {
 		operatorName := config.OperatorName
-		if !e.podRunning(podName, &operatorName, 5*time.Second, 5) {
+		if !e.podRunning(podName, &operatorName, podStartTimeout) {
 			e.logf("Pod %s not running", podName)
 			e.Fail("Failed to enable json-enricher in SPOD")
 		}
@@ -1018,7 +1033,7 @@ func (e *e2e) enableJsonEnricherInSpod() {
 
 	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLongOpTimeout)
 
-	e.waitForTerminatingPods(5*time.Second, 5)
+	e.waitForTerminatingPods(podStartTimeout)
 }
 
 func (e *e2e) enableJsonEnricherInSpodFileOptions(logPath, enricherFilterJsonStr string) {
@@ -1071,12 +1086,12 @@ func (e *e2e) enableJsonEnricherInSpodFileOptions(logPath, enricherFilterJsonStr
 
 	e.kubectlOperatorNS("rollout", "restart", "deployment", "security-profiles-operator")
 
-	e.waitForTerminatingPods(5*time.Second, 5)
+	e.waitForTerminatingPods(podStartTimeout)
 
 	// This is required for all the restarts to complete
 	for _, podName := range e.getOperatorPodNames() {
 		operatorName := config.OperatorName
-		if !e.podRunning(podName, &operatorName, 5*time.Second, 5) {
+		if !e.podRunning(podName, &operatorName, podStartTimeout) {
 			e.logf("Pod %s not running", podName)
 			e.Fail("Failed to restart SPO")
 		}
@@ -1222,8 +1237,8 @@ func (e *e2e) switchToRecordingNs(ns string) func() {
 	return retFunc
 }
 
-func (e *e2e) checkExecWebhook(interval time.Duration, maxTimes int) bool {
-	err := poll(interval*time.Duration(maxTimes), interval, func() error {
+func (e *e2e) checkExecWebhook(timeout time.Duration) bool {
+	err := poll(timeout, defaultPollInterval, func() error {
 		output := e.kubectlOperatorNS(
 			"get",
 			"mutatingwebhookconfigurations",
@@ -1279,15 +1294,14 @@ func (e *e2e) getSpodWebhookPodNames() []string {
 func (e *e2e) podRunning(
 	name string,
 	namespace *string,
-	interval time.Duration,
-	maxTimes int,
+	timeout time.Duration,
 ) bool {
 	args := []string{"get", "pod", name, `-o=jsonpath='{.status.phase}'`}
 	if namespace != nil {
 		args = append(args, "-n", *namespace)
 	}
 
-	err := poll(interval*time.Duration(maxTimes), interval, func() error {
+	err := poll(timeout, defaultPollInterval, func() error {
 		output, err := e.kubectlCommand(args...)
 		if err != nil {
 			return fmt.Errorf("getting the status of pod %s: %w", name, err)
@@ -1310,8 +1324,8 @@ func (e *e2e) podRunning(
 }
 
 // Wait for terminating pods to be deleted.
-func (e *e2e) waitForTerminatingPods(interval time.Duration, maxTimes int) {
-	err := poll(interval*time.Duration(maxTimes), interval, func() error {
+func (e *e2e) waitForTerminatingPods(timeout time.Duration) {
+	err := poll(timeout, defaultPollInterval, func() error {
 		output := e.kubectlOperatorNS(
 			"get",
 			"pods",

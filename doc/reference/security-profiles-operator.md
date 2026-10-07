@@ -115,7 +115,7 @@ run the JSON audit log enricher
 
 **--audit-log-maxage**="": the maximum number of days to retain old audit log files of the JSON enricher, based on the timestamp in their file name, 0 retains them regardless of age (default: 0)
 
-**--audit-log-maxbackup**="": the maximum number of old audit log files of the JSON enricher to retain, 0 retains all (default: 0)
+**--audit-log-maxbackup**="": the maximum number of old audit log files of the JSON enricher to retain, 0 retains all if a maximum age is set and 10 otherwise (default: 0)
 
 **--audit-log-maxsize**="": the maximum size in megabytes of the audit log file of the JSON enricher before it gets rotated (default: 100)
 
@@ -164,4 +164,4 @@ The following variables are read at runtime.
 | `ENABLE_LOG_ENRICHER, ENABLE_JSON_ENRICHER, ENABLE_BPF_RECORDER` | enable the respective daemon container in addition to the `SecurityProfilesOperatorDaemon` configuration, the manager passes them on to the daemon |
 | `ENABLE_INSECURE_METRICS_ACCESS` | read by the manager as well: allows unauthenticated access to the metrics endpoint of the daemon in addition to the `SecurityProfilesOperatorDaemon` configuration |
 | `RELATED_IMAGE_SELINUXD` | image of the selinuxd container of the daemon if the image mapping of the operator ConfigMap selects none for the operating system of the node |
-| `RELATED_IMAGE_SELINUXD_EL8, RELATED_IMAGE_SELINUXD_EL9, RELATED_IMAGE_SELINUXD_EL10, RELATED_IMAGE_SELINUXD_FEDORA` | images of the selinuxd container per operating system of the node, which the `selinuxd-image-mapping.json` mapping of the operator ConfigMap refers to |
+| `RELATED_IMAGE_SELINUXD_EL8, RELATED_IMAGE_SELINUXD_EL9, RELATED_IMAGE_SELINUXD_EL10, RELATED_IMAGE_SELINUXD_FEDORA` | images of the selinuxd container per operating system of the node, which the `selinuxd-image-mapping.json` mapping of the operator ConfigMap refers to, an unset one falls back to RELATED_IMAGE_SELINUXD |

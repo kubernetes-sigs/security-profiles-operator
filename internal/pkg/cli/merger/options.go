@@ -22,7 +22,7 @@ import (
 	ucli "github.com/urfave/cli/v2"
 )
 
-// Options define all possible options for the puller.
+// Options define all possible options for the merger.
 type Options struct {
 	inputFiles []string
 	outputFile string

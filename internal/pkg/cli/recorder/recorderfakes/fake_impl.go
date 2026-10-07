@@ -35,6 +35,20 @@ import (
 )
 
 type FakeImpl struct {
+	AppArmorProcessedStub        func(*bpfrecorder.BpfRecorder, []uint64) (bpfrecorder.BpfAppArmorProcessed, bool)
+	appArmorProcessedMutex       sync.RWMutex
+	appArmorProcessedArgsForCall []struct {
+		arg1 *bpfrecorder.BpfRecorder
+		arg2 []uint64
+	}
+	appArmorProcessedReturns struct {
+		result1 bpfrecorder.BpfAppArmorProcessed
+		result2 bool
+	}
+	appArmorProcessedReturnsOnCall map[int]struct {
+		result1 bpfrecorder.BpfAppArmorProcessed
+		result2 bool
+	}
 	BPFLSMEnabledStub        func() bool
 	bPFLSMEnabledMutex       sync.RWMutex
 	bPFLSMEnabledArgsForCall []struct {
@@ -223,6 +237,76 @@ type FakeImpl struct {
 	}
 	invocations      map[string][][]interface{}
 	invocationsMutex sync.RWMutex
+}
+
+func (fake *FakeImpl) AppArmorProcessed(arg1 *bpfrecorder.BpfRecorder, arg2 []uint64) (bpfrecorder.BpfAppArmorProcessed, bool) {
+	var arg2Copy []uint64
+	if arg2 != nil {
+		arg2Copy = make([]uint64, len(arg2))
+		copy(arg2Copy, arg2)
+	}
+	fake.appArmorProcessedMutex.Lock()
+	ret, specificReturn := fake.appArmorProcessedReturnsOnCall[len(fake.appArmorProcessedArgsForCall)]
+	fake.appArmorProcessedArgsForCall = append(fake.appArmorProcessedArgsForCall, struct {
+		arg1 *bpfrecorder.BpfRecorder
+		arg2 []uint64
+	}{arg1, arg2Copy})
+	stub := fake.AppArmorProcessedStub
+	fakeReturns := fake.appArmorProcessedReturns
+	fake.recordInvocation("AppArmorProcessed", []interface{}{arg1, arg2Copy})
+	fake.appArmorProcessedMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) AppArmorProcessedCallCount() int {
+	fake.appArmorProcessedMutex.RLock()
+	defer fake.appArmorProcessedMutex.RUnlock()
+	return len(fake.appArmorProcessedArgsForCall)
+}
+
+func (fake *FakeImpl) AppArmorProcessedCalls(stub func(*bpfrecorder.BpfRecorder, []uint64) (bpfrecorder.BpfAppArmorProcessed, bool)) {
+	fake.appArmorProcessedMutex.Lock()
+	defer fake.appArmorProcessedMutex.Unlock()
+	fake.AppArmorProcessedStub = stub
+}
+
+func (fake *FakeImpl) AppArmorProcessedArgsForCall(i int) (*bpfrecorder.BpfRecorder, []uint64) {
+	fake.appArmorProcessedMutex.RLock()
+	defer fake.appArmorProcessedMutex.RUnlock()
+	argsForCall := fake.appArmorProcessedArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *FakeImpl) AppArmorProcessedReturns(result1 bpfrecorder.BpfAppArmorProcessed, result2 bool) {
+	fake.appArmorProcessedMutex.Lock()
+	defer fake.appArmorProcessedMutex.Unlock()
+	fake.AppArmorProcessedStub = nil
+	fake.appArmorProcessedReturns = struct {
+		result1 bpfrecorder.BpfAppArmorProcessed
+		result2 bool
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) AppArmorProcessedReturnsOnCall(i int, result1 bpfrecorder.BpfAppArmorProcessed, result2 bool) {
+	fake.appArmorProcessedMutex.Lock()
+	defer fake.appArmorProcessedMutex.Unlock()
+	fake.AppArmorProcessedStub = nil
+	if fake.appArmorProcessedReturnsOnCall == nil {
+		fake.appArmorProcessedReturnsOnCall = make(map[int]struct {
+			result1 bpfrecorder.BpfAppArmorProcessed
+			result2 bool
+		})
+	}
+	fake.appArmorProcessedReturnsOnCall[i] = struct {
+		result1 bpfrecorder.BpfAppArmorProcessed
+		result2 bool
+	}{result1, result2}
 }
 
 func (fake *FakeImpl) BPFLSMEnabled() bool {

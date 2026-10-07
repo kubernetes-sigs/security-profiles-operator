@@ -14,7 +14,7 @@
 
 # shellcheck shell=bash
 
-set -eu
+set -euo pipefail
 
 dev() {
   # --tmpfs=/tmp:size=2G: Allocate 2GB tmpfs to accommodate large vendor dependencies during test runs

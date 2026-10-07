@@ -23,13 +23,19 @@ import (
 	"sigs.k8s.io/security-profiles-operator/api/common"
 )
 
+// ProfileBindingKind is the kind of the profile a binding applies.
 type ProfileBindingKind string
 
 const (
-	ProfileBindingKindSeccompProfile  ProfileBindingKind = "SeccompProfile"
-	ProfileBindingKindSelinuxProfile  ProfileBindingKind = "SelinuxProfile"
+	// ProfileBindingKindSeccompProfile binds a SeccompProfile.
+	ProfileBindingKindSeccompProfile ProfileBindingKind = "SeccompProfile"
+	// ProfileBindingKindSelinuxProfile binds a SelinuxProfile.
+	ProfileBindingKindSelinuxProfile ProfileBindingKind = "SelinuxProfile"
+	// ProfileBindingKindAppArmorProfile binds an AppArmorProfile.
 	ProfileBindingKindAppArmorProfile ProfileBindingKind = "AppArmorProfile"
-	SelectAllContainersImage          string             = "*"
+	// SelectAllContainersImage is the image of a binding which applies to the
+	// containers of every image.
+	SelectAllContainersImage string = "*"
 )
 
 // AppliedBindingsAnnotation is set by the binding webhook on the pods it
@@ -111,7 +117,8 @@ type ProfileBinding struct {
 type ProfileBindingList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []ProfileBinding `json:"items"`
+	// Items is the list of ProfileBinding objects.
+	Items []ProfileBinding `json:"items"`
 }
 
 func init() { //nolint:gochecknoinits // required to register the scheme

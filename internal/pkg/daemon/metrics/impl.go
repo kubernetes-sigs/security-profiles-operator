@@ -17,11 +17,7 @@ limitations under the License.
 package metrics
 
 import (
-	"net/http"
-
 	"github.com/prometheus/client_golang/prometheus"
-
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 type defaultImpl struct{}
@@ -30,19 +26,8 @@ type defaultImpl struct{}
 //counterfeiter:generate . impl
 type impl interface {
 	Register(c prometheus.Collector) error
-	ListenAndServe(addr string, handler http.Handler) error
 }
 
 func (d *defaultImpl) Register(c prometheus.Collector) error {
 	return prometheus.Register(c)
-}
-
-func (d *defaultImpl) ListenAndServe(addr string, handler http.Handler) error {
-	server := &http.Server{
-		Addr:              addr,
-		Handler:           handler,
-		ReadHeaderTimeout: util.DefaultReadHeaderTimeout,
-	}
-
-	return server.ListenAndServe()
 }

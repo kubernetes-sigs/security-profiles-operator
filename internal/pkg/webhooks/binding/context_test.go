@@ -23,14 +23,18 @@ import (
 	"github.com/stretchr/testify/require"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	profilebindingapi "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/binding/bindingfakes"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
 
 // The API server rejects security profiles on Windows pods, and the webhook
@@ -281,4 +285,60 @@ func TestAddSecurityContextUnexpectedType(t *testing.T) {
 	require.False(t, binder.addSecurityContext(ctr, "not a profile"))
 	require.Nil(t, ctr.SecurityContext)
 	require.False(t, binder.addPodSecurityContext(&corev1.Pod{}, "not a profile"))
+}
+
+// A profile which is still missing after waiting for it is not waited for
+// again with the next pods.
+func TestGetProfileRemembersMissingProfiles(t *testing.T) {
+	t.Parallel()
+
+	mock := &bindingfakes.FakeImpl{}
+	mock.GetSeccompProfileReturns(nil, kerrors.NewNotFound(schema.GroupResource{}, "profile"))
+
+	sut := newTestBinder(t, mock)
+	sut.missing = newMissingProfiles()
+	recorder := events.NewFakeRecorder(10)
+	sut.record = utils.NewSafeRecorder(recorder)
+
+	binding := &profilebindingapi.ProfileBinding{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "ns"},
+		Spec: profilebindingapi.ProfileBindingSpec{
+			ProfileRef: profilebindingapi.ProfileRef{
+				Kind: profilebindingapi.ProfileBindingKindSeccompProfile,
+				Name: "profile",
+			},
+		},
+	}
+	lookup := func() *profileLookup {
+		return &profileLookup{
+			retryDeadline: time.Now().Add(profileLookupTimeout),
+			enabled:       map[profilebindingapi.ProfileBindingKind]bool{},
+		}
+	}
+
+	_, skip, err := sut.getProfile(t.Context(), lookup(), binding)
+	require.NoError(t, err)
+	require.True(t, skip)
+
+	waited := mock.GetSeccompProfileCallCount()
+	require.Greater(t, waited, 1, "the first lookup waits for the profile")
+	require.Len(t, recorder.Events, 1)
+
+	_, skip, err = sut.getProfile(t.Context(), lookup(), binding)
+	require.NoError(t, err)
+	require.True(t, skip)
+	// It is waited for shortly, which covers the cache catching up.
+	require.Greater(t, mock.GetSeccompProfileCallCount(), waited)
+	require.Less(t, mock.GetSeccompProfileCallCount()-waited, waited)
+	require.Len(t, recorder.Events, 1, "the missing profile is reported once")
+
+	// Once the profile exists, it gets waited for again later on.
+	mock.GetSeccompProfileReturns(installedSeccompProfile("operator/profile.json"), nil)
+
+	_, skip, err = sut.getProfile(t.Context(), lookup(), binding)
+	require.NoError(t, err)
+	require.False(t, skip)
+	require.False(t, sut.missing.recently(
+		missingProfileKey(profilebindingapi.ProfileBindingKindSeccompProfile, "profile"),
+	))
 }

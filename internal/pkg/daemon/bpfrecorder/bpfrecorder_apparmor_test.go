@@ -188,14 +188,14 @@ func TestNormalizePath(t *testing.T) {
 		want := ReplaceVarianceInFilePath(sanitizeFilePath(path))
 
 		for range 2 {
-			got := sut.normalizePath(path)
+			got := sut.normalizePath([]byte(path))
 			require.Equal(t, want, got.path)
 			require.Equal(t, shouldExcludeFile(want), got.excluded)
 		}
 	}
 
 	for i := range maxNormalizedPaths * 2 {
-		sut.normalizePath("/tmp/" + strconv.Itoa(i))
+		sut.normalizePath([]byte("/tmp/" + strconv.Itoa(i)))
 	}
 
 	require.LessOrEqual(t, len(sut.normalizedPaths), maxNormalizedPaths)

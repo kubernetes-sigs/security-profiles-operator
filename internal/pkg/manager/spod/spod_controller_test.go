@@ -524,6 +524,24 @@ func Test_getConfiguredSPOdJsonEnricherVolumes(t *testing.T) {
 	}, bindata.CAInjectTypeCertManager)
 	requireVolumes(t, off, []string{logVolumeName}, false)
 	requireVolumes(t, off, enricherHostVolumes, false)
+
+	// A ConfigMap which does not configure the volume any more removes it
+	// without an operator restart.
+	operatorConfigMap.Data = nil
+	require.NoError(t, r.client.Update(t.Context(), operatorConfigMap))
+
+	removed := renderedPodSpec(t, r, &spodapi.SPODSpec{
+		Enricher: spodapi.SPODEnricherConfig{EnableJsonEnricher: new(true)},
+	}, bindata.CAInjectTypeCertManager)
+	require.False(t, slices.ContainsFunc(removed.Volumes, func(v v1.Volume) bool {
+		return v.Name == logVolumeName
+	}))
+
+	for i := range removed.Containers {
+		require.False(t, slices.ContainsFunc(removed.Containers[i].VolumeMounts,
+			func(m v1.VolumeMount) bool { return m.Name == logVolumeName }),
+			"container %s", removed.Containers[i].Name)
+	}
 }
 
 func Test_spodNeedsUpdateVolumeCount(t *testing.T) {

@@ -22,7 +22,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -32,9 +31,8 @@ import (
 )
 
 const (
-	defaultTimeout time.Duration = 20 * time.Second
-	maxMsgSize                   = 16 * 1024 * 1024
-	socketMode     os.FileMode   = 0o660
+	maxMsgSize             = 16 * 1024 * 1024
+	socketMode os.FileMode = 0o660
 )
 
 // ServeGRPC runs the GRPC API server in the background.

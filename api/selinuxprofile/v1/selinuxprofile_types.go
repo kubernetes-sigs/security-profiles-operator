@@ -162,7 +162,7 @@ type SelinuxProfileStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:path=selinuxprofiles,scope=Cluster
 // +kubebuilder:printcolumn:name="Usage",type="string",JSONPath=`.status.usage`
-// +kubebuilder:printcolumn:name="State",type="string",JSONPath=`.status.status`
+// +kubebuilder:printcolumn:name="Status",type="string",JSONPath=`.status.status`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 //
 //nolint:lll // CEL rules cannot be wrapped
@@ -175,7 +175,7 @@ type SelinuxProfile struct {
 	// spec defines the desired state of the SelinuxProfile.
 	// +optional
 	//nolint:kubeapilinter // spec has no required fields and is a value by convention
-	Spec SelinuxProfileSpec `json:"spec,omitempty"`
+	Spec SelinuxProfileSpec `json:"spec,omitzero"`
 	// status contains the observed state of the SelinuxProfile.
 	// +optional
 	Status SelinuxProfileStatus `json:"status,omitzero"` //nolint:kubeapilinter // status is a value by convention
@@ -238,7 +238,8 @@ func (sp *SelinuxProfile) IsReconcilable() bool {
 type SelinuxProfileList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []SelinuxProfile `json:"items"`
+	// Items is the list of SelinuxProfile objects.
+	Items []SelinuxProfile `json:"items"`
 }
 
 func init() { //nolint:gochecknoinits // required to init scheme

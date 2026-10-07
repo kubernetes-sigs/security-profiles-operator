@@ -18,25 +18,12 @@ limitations under the License.
 package metricsfakes
 
 import (
-	"net/http"
 	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
 )
 
 type FakeImpl struct {
-	ListenAndServeStub        func(string, http.Handler) error
-	listenAndServeMutex       sync.RWMutex
-	listenAndServeArgsForCall []struct {
-		arg1 string
-		arg2 http.Handler
-	}
-	listenAndServeReturns struct {
-		result1 error
-	}
-	listenAndServeReturnsOnCall map[int]struct {
-		result1 error
-	}
 	RegisterStub        func(prometheus.Collector) error
 	registerMutex       sync.RWMutex
 	registerArgsForCall []struct {
@@ -50,68 +37,6 @@ type FakeImpl struct {
 	}
 	invocations      map[string][][]interface{}
 	invocationsMutex sync.RWMutex
-}
-
-func (fake *FakeImpl) ListenAndServe(arg1 string, arg2 http.Handler) error {
-	fake.listenAndServeMutex.Lock()
-	ret, specificReturn := fake.listenAndServeReturnsOnCall[len(fake.listenAndServeArgsForCall)]
-	fake.listenAndServeArgsForCall = append(fake.listenAndServeArgsForCall, struct {
-		arg1 string
-		arg2 http.Handler
-	}{arg1, arg2})
-	stub := fake.ListenAndServeStub
-	fakeReturns := fake.listenAndServeReturns
-	fake.recordInvocation("ListenAndServe", []interface{}{arg1, arg2})
-	fake.listenAndServeMutex.Unlock()
-	if stub != nil {
-		return stub(arg1, arg2)
-	}
-	if specificReturn {
-		return ret.result1
-	}
-	return fakeReturns.result1
-}
-
-func (fake *FakeImpl) ListenAndServeCallCount() int {
-	fake.listenAndServeMutex.RLock()
-	defer fake.listenAndServeMutex.RUnlock()
-	return len(fake.listenAndServeArgsForCall)
-}
-
-func (fake *FakeImpl) ListenAndServeCalls(stub func(string, http.Handler) error) {
-	fake.listenAndServeMutex.Lock()
-	defer fake.listenAndServeMutex.Unlock()
-	fake.ListenAndServeStub = stub
-}
-
-func (fake *FakeImpl) ListenAndServeArgsForCall(i int) (string, http.Handler) {
-	fake.listenAndServeMutex.RLock()
-	defer fake.listenAndServeMutex.RUnlock()
-	argsForCall := fake.listenAndServeArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
-}
-
-func (fake *FakeImpl) ListenAndServeReturns(result1 error) {
-	fake.listenAndServeMutex.Lock()
-	defer fake.listenAndServeMutex.Unlock()
-	fake.ListenAndServeStub = nil
-	fake.listenAndServeReturns = struct {
-		result1 error
-	}{result1}
-}
-
-func (fake *FakeImpl) ListenAndServeReturnsOnCall(i int, result1 error) {
-	fake.listenAndServeMutex.Lock()
-	defer fake.listenAndServeMutex.Unlock()
-	fake.ListenAndServeStub = nil
-	if fake.listenAndServeReturnsOnCall == nil {
-		fake.listenAndServeReturnsOnCall = make(map[int]struct {
-			result1 error
-		})
-	}
-	fake.listenAndServeReturnsOnCall[i] = struct {
-		result1 error
-	}{result1}
 }
 
 func (fake *FakeImpl) Register(arg1 prometheus.Collector) error {

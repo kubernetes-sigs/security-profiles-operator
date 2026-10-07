@@ -205,7 +205,8 @@ var runtimeEnvVars = []clidocs.EnvVar{
 		Name: "RELATED_IMAGE_SELINUXD_EL8, RELATED_IMAGE_SELINUXD_EL9, " +
 			"RELATED_IMAGE_SELINUXD_EL10, RELATED_IMAGE_SELINUXD_FEDORA",
 		Description: "images of the selinuxd container per operating system of the node, " +
-			"which the `" + util.SelinuxdImageMappingKey + "` mapping of the operator ConfigMap refers to",
+			"which the `" + util.SelinuxdImageMappingKey + "` mapping of the operator ConfigMap refers to, " +
+			"an unset one falls back to RELATED_IMAGE_SELINUXD",
 	},
 }
 
@@ -216,7 +217,14 @@ func main() {
 			os.Exit(0) // intentional exit to trigger pod restart
 		}
 
-		setupLog.Error(err, "running security-profiles-operator")
+		// The logger only exists once a command initialized it, errors of
+		// the flag parsing come before.
+		if loggingInitialized {
+			setupLog.Error(err, "running security-profiles-operator")
+		} else {
+			fmt.Fprintln(os.Stderr, "running security-profiles-operator:", err)
+		}
+
 		os.Exit(1)
 	}
 }
@@ -243,7 +251,27 @@ func newApp() *cli.App {
 
 	app.Flags = globalFlags()
 
+	// Every command which starts the profiling server in initialize runs
+	// before this.
+	app.After = func(*cli.Context) error {
+		shutdownProfiling()
+
+		return nil
+	}
+
 	return app
+}
+
+// enabledByDefault returns a boolean flag which is true unless it is set to
+// false.
+func enabledByDefault(name, usage string, aliases ...string) *cli.BoolFlag {
+	return &cli.BoolFlag{
+		Name:        name,
+		Aliases:     aliases,
+		Value:       true,
+		DefaultText: defaultTrue,
+		Usage:       usage,
+	}
 }
 
 func managerCommand(info *version.Info) *cli.Command {
@@ -256,49 +284,13 @@ func managerCommand(info *version.Info) *cli.Command {
 			return runManager(ctx, info)
 		},
 		Flags: []cli.Flag{
-			&cli.BoolFlag{
-				Name:        webhookFlag,
-				Aliases:     []string{"w"},
-				Value:       true,
-				DefaultText: defaultTrue,
-				Usage:       "manage the Kubernetes resources of the webhook",
-			},
-			&cli.BoolFlag{
-				Name:        nodeStatusControllerFlag,
-				Value:       true,
-				DefaultText: defaultTrue,
-				Usage:       "enable the node status controller",
-			},
-			&cli.BoolFlag{
-				Name:        spodControllerFlag,
-				Value:       true,
-				DefaultText: defaultTrue,
-				Usage:       "enable the SPOD controller",
-			},
-			&cli.BoolFlag{
-				Name:        workloadAnnotatorFlag,
-				Value:       true,
-				DefaultText: defaultTrue,
-				Usage:       "enable the workload annotator",
-			},
-			&cli.BoolFlag{
-				Name:        recordingMergerFlag,
-				Value:       true,
-				DefaultText: defaultTrue,
-				Usage:       "enable the recording merger",
-			},
-			&cli.BoolFlag{
-				Name:        recordingTrackerFlag,
-				Value:       true,
-				DefaultText: defaultTrue,
-				Usage:       "enable the recording tracker",
-			},
-			&cli.BoolFlag{
-				Name:        bindingTrackerFlag,
-				Value:       true,
-				DefaultText: defaultTrue,
-				Usage:       "enable the binding tracker",
-			},
+			enabledByDefault(webhookFlag, "manage the Kubernetes resources of the webhook", "w"),
+			enabledByDefault(nodeStatusControllerFlag, "enable the node status controller"),
+			enabledByDefault(spodControllerFlag, "enable the SPOD controller"),
+			enabledByDefault(workloadAnnotatorFlag, "enable the workload annotator"),
+			enabledByDefault(recordingMergerFlag, "enable the recording merger"),
+			enabledByDefault(recordingTrackerFlag, "enable the recording tracker"),
+			enabledByDefault(bindingTrackerFlag, "enable the binding tracker"),
 			&cli.IntFlag{
 				Name:  maxConcurrentReconcilesFlag,
 				Value: controller.DefaultMaxConcurrentReconciles,
@@ -471,7 +463,7 @@ func jsonEnricherCommand(info *version.Info) *cli.Command {
 				Name:  auditLogMaxBackupParam,
 				Value: 0,
 				Usage: "the maximum number of old audit log files of the JSON enricher to retain, " +
-					"0 retains all",
+					"0 retains all if a maximum age is set and 10 otherwise",
 			},
 			&cli.IntFlag{
 				Name:  auditLogMaxSizeParam,
@@ -558,9 +550,14 @@ func initialize(ctx *cli.Context) error {
 	return nil
 }
 
+// loggingInitialized is set once initLogging set the logger.
+var loggingInitialized bool
+
 func initLogging(ctx *cli.Context) error {
 	logConfig := textlogger.NewConfig()
 	ctrl.SetLogger(textlogger.NewLogger(logConfig))
+
+	loggingInitialized = true
 
 	set := flag.NewFlagSet("logging", flag.ContinueOnError)
 	klog.InitFlags(set)
@@ -642,21 +639,11 @@ func manageWebhook(ctx *cli.Context) bool {
 }
 
 func runManager(ctx *cli.Context, info *version.Info) error {
-	defer shutdownProfiling()
-
 	printInfo("security-profiles-operator", info)
 
-	cfg, err := ctrl.GetConfig()
+	cfg, tlsCfg, err := clusterConfig(ctx.Context)
 	if err != nil {
-		return fmt.Errorf("get config: %w", err)
-	}
-
-	// Fetch initial TLS configuration from OpenShift API Server
-	tlsCfg, err := fetchTLSOptions(
-		ctx.Context, cfg,
-	)
-	if err != nil {
-		return fmt.Errorf("fetch TLS options: %w", err)
+		return err
 	}
 
 	operatorNamespace, err := config.TryToGetOperatorNamespace()
@@ -1048,6 +1035,22 @@ type tlsConfig struct {
 	isOpenShift bool
 }
 
+// clusterConfig returns the config of the cluster connection and the initial
+// TLS configuration of the servers, which the API server of OpenShift sets.
+func clusterConfig(ctx context.Context) (*rest.Config, tlsConfig, error) {
+	cfg, err := ctrl.GetConfig()
+	if err != nil {
+		return nil, tlsConfig{}, fmt.Errorf("get config: %w", err)
+	}
+
+	tlsCfg, err := fetchTLSOptions(ctx, cfg)
+	if err != nil {
+		return nil, tlsConfig{}, fmt.Errorf("fetch TLS options: %w", err)
+	}
+
+	return cfg, tlsCfg, nil
+}
+
 // fetchTLSOptions fetches the TLS configuration from the OpenShift APIServer
 // and builds the TLS configuration for the controller-runtime servers. On
 // non-OpenShift clusters it falls back to the Go defaults with a TLS 1.2
@@ -1307,9 +1310,9 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 		return errors.New("no controllers enabled")
 	}
 
-	cfg, err := ctrl.GetConfig()
+	cfg, tlsCfg, err := clusterConfig(ctx.Context)
 	if err != nil {
-		return fmt.Errorf("get config: %w", err)
+		return err
 	}
 
 	// Setup metrics
@@ -1322,15 +1325,6 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 		return fmt.Errorf("start metrics grpc server: %w", err)
 	}
 	defer met.GracefulStop()
-
-	// Fetch initial TLS configuration from OpenShift API Server
-	tlsCfg, err := fetchTLSOptions(
-		ctx.Context,
-		cfg,
-	)
-	if err != nil {
-		return fmt.Errorf("fetch TLS options: %w", err)
-	}
 
 	operatorNamespace, err := config.TryToGetOperatorNamespace()
 	if err != nil {
@@ -1550,21 +1544,12 @@ func runWebhook(ctx *cli.Context, info *version.Info) error {
 		)
 	}
 
-	cfg, err := ctrl.GetConfig()
+	cfg, tlsCfg, err := clusterConfig(ctx.Context)
 	if err != nil {
-		return fmt.Errorf("get config: %w", err)
+		return err
 	}
 
 	port := ctx.Int("port")
-
-	// Fetch initial TLS configuration from OpenShift API Server
-	tlsCfg, err := fetchTLSOptions(
-		ctx.Context,
-		cfg,
-	)
-	if err != nil {
-		return fmt.Errorf("fetch TLS options: %w", err)
-	}
 
 	webhookServerOptions := webhook.Options{
 		Port:    port,
@@ -1732,15 +1717,17 @@ func setupEnabledControllers(
 // It passes the arguments after the command name, which do not depend on the
 // global flags given before it.
 func runCLI(ctx *cli.Context) error {
-	return runSpoc(ctx.Args().Slice(), os.Stdout, os.Stderr)
+	return runSpoc(ctx.Args().Slice(), os.Stdin, os.Stdout, os.Stderr)
 }
 
 // runSpoc runs the spoc executable found in $PATH with the provided
 // arguments. The exit code of spoc becomes the one of this process, so that
 // scripts can tell a failed spoc invocation apart from a successful one.
-func runSpoc(args []string, stdout, stderr io.Writer) error {
+func runSpoc(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	//nolint:gosec // it's intentional to pass all other args here
 	c := exec.Command(spocCmd, args...)
+	// For --password-stdin and the interactive OIDC sign-in.
+	c.Stdin = stdin
 	c.Stdout = stdout
 	c.Stderr = stderr
 

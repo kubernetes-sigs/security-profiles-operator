@@ -52,6 +52,7 @@ type impl interface {
 	IteratorNext(*libbpfgo.BPFMapIterator) bool
 	IteratorKey(*libbpfgo.BPFMapIterator) []byte
 	SyscallsGetValue(*bpfrecorder.BpfRecorder, uint64) ([]byte, error)
+	AppArmorProcessed(*bpfrecorder.BpfRecorder, []uint64) (bpfrecorder.BpfAppArmorProcessed, bool)
 	GetName(libseccomp.ScmpSyscall) (string, error)
 	Create(string) (io.WriteCloser, error)
 	PrintObj(printers.YAMLPrinter, runtime.Object, io.Writer) error
@@ -68,6 +69,12 @@ func (*defaultImpl) StartBpfRecording(b *bpfrecorder.BpfRecorder) error {
 
 func (*defaultImpl) StopBpfRecording(b *bpfrecorder.BpfRecorder) error {
 	return b.StopRecording()
+}
+
+func (*defaultImpl) AppArmorProcessed(
+	b *bpfrecorder.BpfRecorder, keys []uint64,
+) (bpfrecorder.BpfAppArmorProcessed, bool) {
+	return b.AppArmor.GetAppArmorProcessed(keys)
 }
 
 func (*defaultImpl) BPFLSMEnabled() bool {

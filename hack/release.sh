@@ -20,14 +20,8 @@ if [ $# -eq 0 ]; then
     exit 1
 fi
 
-# GNU and BSD sed differ in how -i takes the backup suffix.
-sed_i() {
-    if sed --version >/dev/null 2>&1; then
-        sed -i "$@"
-    else
-        sed -i '' "$@"
-    fi
-}
+# shellcheck source=hack/lib/common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
 GIT_ROOT=$(git rev-parse --show-toplevel)
 pushd "$GIT_ROOT" >/dev/null
@@ -88,18 +82,10 @@ FILES=(
     dependencies.yaml
     deploy/helm/Chart.yaml
     deploy/helm/README.md
-    doc/installation.md
 )
 for FILE in "${FILES[@]}"; do
     sed_i "s;$PREVIOUS_VERSION_RE;$VERSION;g" "$FILE"
 done
-
-# Update the versioned install manifests and the spoc image and version.
-sed_i -E "s;(raw\.githubusercontent\.com/kubernetes-sigs/security-profiles-operator/v)[0-9]+\.[0-9]+\.[0-9]+/;\1$VERSION/;g" doc/installation.md
-sed_i -E \
-    -e "s;(security-profiles-operator/security-profiles-operator:v)[0-9]+\.[0-9]+\.[0-9]+;\1$VERSION;g" \
-    -e "s;^(   v)[0-9]+\.[0-9]+\.[0-9]+\$;\1$VERSION;" \
-    doc/cli.md
 
 # Fix shields.io badge URL encoding (-- represents literal -)
 PREVIOUS_BADGE="${PREVIOUS_VERSION//-/--}"

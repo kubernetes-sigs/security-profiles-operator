@@ -64,7 +64,7 @@ const (
 	TypeApparmor Type = "apparmor"
 
 	// TypeRawAppArmor is the type indicating that we should record a raw
-	// apparmor JSON profile.
+	// AppArmor profile in the text format of the AppArmor parser.
 	TypeRawAppArmor Type = "raw-apparmor"
 )
 

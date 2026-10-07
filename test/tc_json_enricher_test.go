@@ -91,7 +91,7 @@ spec:
 
 	e.waitFor("condition=initialized", "pod", podName)
 
-	e.checkExecEnvironment(podName, nil, 5*time.Second, 20)
+	e.checkExecEnvironment(podName, nil, execEnvironmentTimeout)
 
 	// In 5 seconds the process info will be captured.
 	e.kubectl("exec", "-i", podName, "--", "sleep", "5")
@@ -189,7 +189,7 @@ spec:
 
 	e.waitFor("condition=initialized", "pod", podName)
 
-	e.checkExecEnvironment(podName, nil, 5*time.Second, 20)
+	e.checkExecEnvironment(podName, nil, execEnvironmentTimeout)
 
 	e.kubectl("debug", "--profile", "general", "-i", podName, "--image",
 		"busybox:latest", "--", "sleep", "6")
@@ -228,25 +228,24 @@ spec:
 func (e *e2e) checkExecEnvironment(
 	podName string,
 	namespace *string,
-	interval time.Duration,
-	maxTimes int,
+	timeout time.Duration,
 ) {
-	if !e.podRunning(podName, namespace, interval, maxTimes) {
+	if !e.podRunning(podName, namespace, timeout) {
 		e.logf("Pod %s is not running", podName)
 		e.Fail("Pod is not running")
 	}
 
-	if !e.canExec(podName, interval, maxTimes) {
+	if !e.canExec(podName, timeout) {
 		e.logf("Pod %s cannot be exec", podName)
 		e.Fail("Pod cannot be exec")
 	}
 }
 
 // Attempt exec into the pod and make sure its up.
-func (e *e2e) canExec(podName string, interval time.Duration, maxTimes int) bool {
+func (e *e2e) canExec(podName string, timeout time.Duration) bool {
 	const expectedEnvVar = "SPO_EXEC_REQUEST_UID"
 
-	err := poll(interval*time.Duration(maxTimes), interval, func() error {
+	err := poll(timeout, defaultPollInterval, func() error {
 		output := e.kubectl("exec", "-i", podName, "--", "env")
 		if !strings.Contains(output, expectedEnvVar) {
 			return fmt.Errorf("no %s in the environment of pod %s", expectedEnvVar, podName)

@@ -120,13 +120,17 @@ func selinuxdTestClient(t *testing.T, handler http.HandlerFunc) *http.Client {
 	target, err := url.Parse(server.URL)
 	require.NoError(t, err)
 
+	// The transport of the server is its own, because closing a server also
+	// closes the idle connections of http.DefaultTransport, which breaks the
+	// requests of parallel tests.
 	return &http.Client{
-		Transport: &rewriteHostTransport{host: target.Host},
+		Transport: &rewriteHostTransport{host: target.Host, base: server.Client().Transport},
 	}
 }
 
 type rewriteHostTransport struct {
 	host string
+	base http.RoundTripper
 }
 
 func (t *rewriteHostTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -134,7 +138,7 @@ func (t *rewriteHostTransport) RoundTrip(req *http.Request) (*http.Response, err
 	req.URL.Scheme = "http"
 	req.URL.Host = t.host
 
-	return http.DefaultTransport.RoundTrip(req)
+	return t.base.RoundTrip(req)
 }
 
 func TestIsSelinuxdReady(t *testing.T) {

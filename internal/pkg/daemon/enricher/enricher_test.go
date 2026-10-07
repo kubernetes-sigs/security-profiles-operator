@@ -237,9 +237,9 @@ func TestRun(t *testing.T) {
 		{
 			name: "failure on log iteration",
 			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine) {
-				mock.DialReturns(nil, errTest)
 				close(lineChan)
 				mock.StartTailReturns(lineChan, nil)
+				mock.PodListerWatcherReturns(podindextest.New())
 				mock.TailErrReturns(errTest)
 			},
 			assert: func(
@@ -248,7 +248,23 @@ func TestRun(t *testing.T) {
 			) {
 				t.Helper()
 
-				require.Error(t, <-runErr)
+				require.ErrorIs(t, <-runErr, errTest)
+			},
+		},
+		{
+			name: "log ends without error",
+			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine) {
+				close(lineChan)
+				mock.StartTailReturns(lineChan, nil)
+				mock.PodListerWatcherReturns(podindextest.New())
+			},
+			assert: func(
+				t *testing.T, sut *Enricher, mock *enricherfakes.FakeImpl,
+				lineChan chan *types.AuditLine, runErr chan error,
+			) {
+				t.Helper()
+
+				require.ErrorIs(t, <-runErr, errTailEnded)
 			},
 		},
 		{
@@ -633,8 +649,10 @@ func TestBacklogKeepsDistinctLinesWhenFull(t *testing.T) {
 		require.NoError(t, sut.addToBacklog(containerID, line("", 100+i)))
 	}
 
-	lines, _ = backlog.snapshot()
+	lines, dropped = backlog.snapshot()
 	require.Len(t, lines, auditBacklogDistinctMax)
+	// The lines over the bound count as dropped.
+	require.Greater(t, dropped, uint64(3))
 }
 
 // TestBacklogIsDispatchedPerContainer asserts that finding a container sends

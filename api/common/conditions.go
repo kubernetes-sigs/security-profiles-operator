@@ -74,28 +74,32 @@ func (s *ConditionedStatus) GetReadyCondition() metav1.Condition {
 
 // SetConditions sets the supplied conditions, replacing any existing conditions
 // of the same type. This is a no-op if all supplied conditions are identical,
-// ignoring the last transition time, to those already set.
+// ignoring the last transition time, to those already set. The last transition
+// time of a condition only changes with its status.
 func (s *ConditionedStatus) SetConditions(c ...metav1.Condition) {
-	for _, new := range c {
+	for _, cond := range c {
 		exists := false
 
 		for i, existing := range s.Conditions {
-			if existing.Type != new.Type {
+			if existing.Type != cond.Type {
 				continue
 			}
 
-			if conditionsEqual(&existing, &new) {
-				exists = true
-
-				continue
-			}
-
-			s.Conditions[i] = new
 			exists = true
+
+			if conditionsEqual(&existing, &cond) {
+				continue
+			}
+
+			if existing.Status == cond.Status {
+				cond.LastTransitionTime = existing.LastTransitionTime
+			}
+
+			s.Conditions[i] = cond
 		}
 
 		if !exists {
-			s.Conditions = append(s.Conditions, new)
+			s.Conditions = append(s.Conditions, cond)
 		}
 	}
 }

@@ -42,6 +42,10 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
 
+// reasonConflictingRecording is the reason of the event of a recording which
+// does not record a container, because an older one records it already.
+const reasonConflictingRecording = "ConflictingRecording"
+
 type podSeccompRecorder struct {
 	impl
 	decoder admission.Decoder
@@ -115,7 +119,25 @@ func (p *podSeccompRecorder) Handle(
 
 	podChanged := false
 	podLabels := labels.Set(pod.GetLabels())
-	items := profileRecordings.Items
+
+	// Recordings which select the same container conflict. The oldest one
+	// records it, independent of the order of the cache.
+	items := slices.Clone(profileRecordings.Items)
+	slices.SortStableFunc(items, func(a, b profilerecordingapi.ProfileRecording) int {
+		if c := a.CreationTimestamp.Compare(b.CreationTimestamp.Time); c != 0 {
+			return c
+		}
+
+		return strings.Compare(a.Name, b.Name)
+	})
+
+	// claimed maps the annotation keys set by this admission to the recording
+	// which set them. On update, a container stays with the recording which
+	// started recording it, even if the labels select an older one now.
+	claimed := map[string]string{}
+	if !isCreate {
+		claimed = ownersOfRecordedContainers(items, pod, oldPod)
+	}
 
 	for i := range items {
 		item := items[i]
@@ -154,7 +176,7 @@ func (p *podSeccompRecorder) Handle(
 		}
 
 		if selector.Matches(podLabels) {
-			changed, err := p.updatePod(pod, oldPod, podName, &item, isCreate)
+			changed, err := p.updatePod(pod, oldPod, podName, &item, isCreate, claimed)
 			if err != nil {
 				return admission.Errored(http.StatusInternalServerError, err)
 			}
@@ -199,6 +221,7 @@ func (p *podSeccompRecorder) updatePod(
 	podName string,
 	profileRecording *profilerecordingapi.ProfileRecording,
 	isCreate bool,
+	claimed map[string]string,
 ) (podChanged bool, err error) {
 	// Collect containers as references to not copy them during modification
 	ctrs := []*corev1.Container{}
@@ -222,6 +245,30 @@ func (p *podSeccompRecorder) updatePod(
 		if err != nil {
 			return false, err
 		}
+
+		if owner, ok := claimed[key]; ok && owner != profileRecording.Name {
+			p.log.Info("container is recorded by another recording already",
+				"pod", podName, "container", ctr.Name, "recording", owner)
+
+			// Reported when the pod gets created, not with every update.
+			if !isCreate {
+				continue
+			}
+
+			p.record.Eventf(
+				profileRecording,
+				nil,
+				corev1.EventTypeWarning,
+				reasonConflictingRecording,
+				util.EventActionMutate,
+				"Container %s of pod %s is recorded by the older recording %s",
+				ctr.Name, podName, owner,
+			)
+
+			continue
+		}
+
+		claimed[key] = profileRecording.Name
 
 		// Container security contexts are immutable after creation, so they
 		// can only be set on CREATE. Mutating them on UPDATE would produce a
@@ -284,6 +331,35 @@ func (p *podSeccompRecorder) updatePod(
 	return podChanged, nil
 }
 
+// ownersOfRecordedContainers returns the recordings which record the
+// containers of the pod, by the annotation keys of the old pod.
+func ownersOfRecordedContainers(
+	recordings []profilerecordingapi.ProfileRecording, pod, oldPod *corev1.Pod,
+) map[string]string {
+	owners := map[string]string{}
+
+	ctrs := slices.Concat(pod.Spec.InitContainers, pod.Spec.Containers)
+
+	for i := range recordings {
+		recording := &recordings[i]
+
+		for j := range ctrs {
+			name := ctrs[j].Name
+
+			key, _, err := recording.CtrAnnotation(name)
+			if err != nil {
+				continue
+			}
+
+			if isRecordingAnnotationValue(oldPod.GetAnnotations()[key], recording.Name, name) {
+				owners[key] = recording.Name
+			}
+		}
+	}
+
+	return owners
+}
+
 // isRecordingAnnotationValue returns true if the annotation value has the
 // format "<recording>_<container>_<nonce>_<timestamp>" for the provided
 // recording and container. The profile name is derived only from the recording
@@ -314,7 +390,8 @@ func (p *podSeccompRecorder) updateSecurityContext(
 	case profilerecordingapi.ProfileRecordingKindSelinuxProfile:
 		p.updateSelinuxSecurityContext(ctr, pr)
 	case profilerecordingapi.ProfileRecordingKindAppArmorProfile:
-		p.updateApparmorSecurityContext(ctr, pr)
+		// Handle skips the logs recorder for AppArmor, see
+		// ValidateRecorderKindCombination.
 	}
 
 	p.log.Info("set SecurityContext for container",
@@ -376,22 +453,6 @@ func (p *podSeccompRecorder) updateSelinuxSecurityContext(
 	}
 
 	ctr.SecurityContext.SELinuxOptions.Type = config.SelinuxPermissiveProfile
-}
-
-func (p *podSeccompRecorder) updateApparmorSecurityContext(
-	ctr *corev1.Container,
-	pr *profilerecordingapi.ProfileRecording,
-) {
-	if pr.Spec.Recorder != profilerecordingapi.ProfileRecorderLogs {
-		return
-	}
-
-	p.record.Eventf(pr,
-		nil,
-		corev1.EventTypeWarning,
-		"AppArmorNotSupported",
-		util.EventActionMutate,
-		"AppArmor log-based recording is not supported, container: %s", ctr.Name)
 }
 
 func (p *podSeccompRecorder) warnEventIfContainerPrivileged(

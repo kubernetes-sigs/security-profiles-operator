@@ -36,7 +36,7 @@ import (
 
 var (
 	errInvalidCRD            = errors.New(errInvalidCustomResourceType)
-	errApparmorProfileExists = errors.New(errProfileExists)
+	errApparmorProfileExists = ErrProfileExists
 )
 
 func TestInstallProfile(t *testing.T) {
@@ -134,7 +134,7 @@ func TestInstallProfile(t *testing.T) {
 				Name: "cri-containerd.apparmor.d",
 			}},
 			previouslyInstalled: true,
-			wantErr:             errors.New(errRuntimeProfile),
+			wantErr:             ErrRuntimeProfile,
 		},
 		{
 			name: "valid profile CRD",

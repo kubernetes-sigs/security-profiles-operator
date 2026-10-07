@@ -65,7 +65,8 @@ func (r *PolicyMergeReconciler) Setup(
 
 	// A deleted recording keeps its finalizer while partial profiles are
 	// left, for example ones which could not be merged. It gets released once
-	// they are gone.
+	// they are gone. A partial profile which a node stored after the merge
+	// gets merged once it shows up.
 	for _, obj := range []client.Object{
 		&seccompprofileapi.SeccompProfile{},
 		&selinuxprofileapi.SelinuxProfile{},
@@ -74,7 +75,7 @@ func (r *PolicyMergeReconciler) Setup(
 		b = b.Watches(
 			obj,
 			handler.EnqueueRequestsFromMapFunc(recordingOfPartialProfile),
-			builder.WithPredicates(partialProfileDeletedPredicate()),
+			builder.WithPredicates(partialProfileEventsPredicate()),
 		)
 	}
 
@@ -95,16 +96,19 @@ func recordingOfPartialProfile(_ context.Context, obj client.Object) []reconcile
 	}}}
 }
 
-// partialProfileDeletedPredicate passes the deletions of partial profiles.
-func partialProfileDeletedPredicate() predicate.Funcs {
-	return predicate.Funcs{
-		CreateFunc: func(event.CreateEvent) bool { return false },
-		UpdateFunc: func(event.UpdateEvent) bool { return false },
-		DeleteFunc: func(e event.DeleteEvent) bool {
-			_, partial := e.Object.GetLabels()[profilebase.ProfilePartialLabel]
+// partialProfileEventsPredicate passes the creations and deletions of partial
+// profiles.
+func partialProfileEventsPredicate() predicate.Funcs {
+	isPartial := func(obj client.Object) bool {
+		_, partial := obj.GetLabels()[profilebase.ProfilePartialLabel]
 
-			return partial
-		},
+		return partial
+	}
+
+	return predicate.Funcs{
+		CreateFunc:  func(e event.CreateEvent) bool { return isPartial(e.Object) },
+		UpdateFunc:  func(event.UpdateEvent) bool { return false },
+		DeleteFunc:  func(e event.DeleteEvent) bool { return isPartial(e.Object) },
 		GenericFunc: func(event.GenericEvent) bool { return false },
 	}
 }

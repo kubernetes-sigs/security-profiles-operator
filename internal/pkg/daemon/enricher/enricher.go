@@ -124,6 +124,22 @@ type Enricher struct {
 	// server. It is a field so that tests do not have to spend the production
 	// backoff as wall-clock time.
 	metricsBackoff wait.Backoff
+	// warned holds the keys of the per audit line warnings which got logged
+	// already, which would otherwise be logged for every syscall. The keys
+	// are bounded by the architectures and syscall numbers.
+	warned sync.Map
+}
+
+// warnOnce logs msg at the default level the first time it is called with
+// key, and at the verbose level afterwards.
+func (e *Enricher) warnOnce(key, msg string, kv ...any) {
+	if _, warned := e.warned.LoadOrStore(key, struct{}{}); warned {
+		e.logger.V(config.VerboseLevel).Info(msg, kv...)
+
+		return
+	}
+
+	e.logger.Info(msg, kv...)
 }
 
 // New returns a new Enricher instance.
@@ -259,8 +275,9 @@ func (e *Enricher) Run(ctx context.Context) error {
 	e.metrics = metrics.NewContextSender(
 		e.logger, metrics.DefaultSenderQueueSize, e.openMetricsStream,
 	)
-	if err := util.RetryEx(
-		&e.metricsBackoff,
+	if err := util.RetryWithBackoff(
+		metricsCtx,
+		e.metricsBackoff,
 		func() error { return e.metrics.ConnectContext(metricsCtx) },
 		func(error) bool { return true },
 	); err != nil {
@@ -295,7 +312,12 @@ func (e *Enricher) Run(ctx context.Context) error {
 			return nil
 		case auditLine, ok := <-log:
 			if !ok {
-				return fmt.Errorf("enricher failed: %w", e.source.TailErr())
+				err := e.TailErr(e.source)
+				if err == nil {
+					err = errTailEnded
+				}
+
+				return fmt.Errorf("enricher failed: %w", err)
 			}
 
 			e.processAuditLine(nodeName, auditLine)
@@ -687,7 +709,8 @@ func (e *Enricher) dispatchSeccompLine(
 ) {
 	syscallName, err := syscallName(auditLine.SystemCallID, auditLine.Arch)
 	if err != nil {
-		e.logger.Info(
+		e.warnOnce(
+			fmt.Sprintf("syscall/%s/%d", auditLine.Arch, auditLine.SystemCallID),
 			"no syscall name found for ID",
 			"syscallID", auditLine.SystemCallID,
 			"arch", auditLine.Arch,
@@ -735,8 +758,11 @@ func (e *Enricher) dispatchSeccompLine(
 	// A recorded profile only covers the native architecture, the syscall
 	// would not be allowed by adding its name.
 	if info.RecordProfile != "" && !isNativeArch(auditLine.Arch) {
-		e.logger.Info(
-			"Not recording syscall of a non-native architecture",
+		// Keyed by the architecture only, the keys of the profiles would
+		// grow without bound on a long running node.
+		e.warnOnce(
+			"arch/"+auditLine.Arch,
+			"Not recording syscalls of a non-native architecture",
 			"profile", info.RecordProfile, "syscallName", syscallName, "arch", auditLine.Arch,
 		)
 

@@ -74,6 +74,19 @@ func createReadySpod(t *testing.T, nodes int32) {
 	require.NoError(t, k8sClient.Status().Update(t.Context(), ds))
 }
 
+// createNode creates a node, which the node statuses refer to. A status of a
+// node which does not exist is one of a deleted node, which the profile does
+// not count.
+func createNode(t *testing.T, name string) {
+	t.Helper()
+
+	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: name}}
+	// A repeated run of the test finds the node of the first run.
+	if err := k8sClient.Create(t.Context(), node); !apierrors.IsAlreadyExists(err) {
+		require.NoError(t, err)
+	}
+}
+
 // createNodeStatus creates the status of the profile on the node, like the
 // daemon of the node does, and sets its state.
 func createNodeStatus(
@@ -171,6 +184,9 @@ func TestNodeStatusAggregatesIntoProfile(t *testing.T) {
 		Spec:       seccompprofileapi.SeccompProfileSpec{DefaultAction: seccompprofileapi.ActAllow},
 	}
 	require.NoError(t, k8sClient.Create(t.Context(), profile))
+
+	createNode(t, "node-1")
+	createNode(t, "node-2")
 
 	// The first status initializes the status of the profile.
 	node1 := createNodeStatus(t, profile, "node-1", secprofnodestatusapi.ProfileStateInstalled)

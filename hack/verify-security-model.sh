@@ -46,8 +46,8 @@ go_const() {
 profiles=(
   "$(go_const internal/pkg/config/config.go SpoApparmorProfileName)"
   "$(go_const internal/pkg/config/config.go BpfRecorderApparmorProfileName)"
-  "$(go_const internal/pkg/manager/spod/bindata/spod.go LocalSeccompProfilePath)"
-  "$(go_const internal/pkg/manager/spod/bindata/spod.go LocalSeccompBpfRecorderProfilePath)"
+  "$(go_const internal/pkg/config/config.go SpoSeccompProfile)"
+  "$(go_const internal/pkg/config/config.go BpfRecorderSeccompProfile)"
 )
 
 for profile in "${profiles[@]}"; do

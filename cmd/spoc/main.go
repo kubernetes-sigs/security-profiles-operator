@@ -114,9 +114,12 @@ func newApp() *cli.App {
 	app.Commands = append(app.Commands,
 		clidocs.Command(newApp, runtimeEnvVars),
 		&cli.Command{
-			Name:      "record",
-			Aliases:   []string{"r"},
-			Usage:     "run a command and record the security profile",
+			Name:    "record",
+			Aliases: []string{"r"},
+			Usage:   "run a command and record the security profile",
+			Description: "Run a command and record the security profile of what it did. " +
+				"The profile is written even if the command fails, and spoc record exits " +
+				"with 0 then, so that a crashing workload can still be profiled.",
 			Action:    record,
 			ArgsUsage: "COMMAND",
 			Flags:     recorder.Flags(),
@@ -144,14 +147,14 @@ func newApp() *cli.App {
 			Aliases:   []string{"i"},
 			Usage:     "install a security profile on the local machine",
 			Action:    install,
-			ArgsUsage: "PROFILE EXECUTABLE",
+			ArgsUsage: "[PROFILE [EXECUTABLE]]",
 		},
 		&cli.Command{
 			Name:      "remove",
 			Aliases:   []string{"rm"},
 			Usage:     "remove a security profile from the local machine",
 			Action:    remove,
-			ArgsUsage: "PROFILE EXECUTABLE",
+			ArgsUsage: "[PROFILE [EXECUTABLE]]",
 		},
 		&cli.Command{
 			Name:    "run",

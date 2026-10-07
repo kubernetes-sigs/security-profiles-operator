@@ -17,6 +17,7 @@ limitations under the License.
 package enricher
 
 import (
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -135,6 +136,22 @@ func TestDefaultImpl_CmdlineForPID(t *testing.T) {
 
 				require.NoError(t, retErr)
 				require.Equal(t, "/sh", cmd)
+			},
+		},
+		{
+			name: "arguments with newlines and a long command line",
+			prepare: func() *fstest.MapFS {
+				long := strings.Repeat("x", 128*1024)
+
+				return &fstest.MapFS{
+					"proc/1234/cmdline": {Data: []byte("sh\x00-c\x00echo a\necho b\x00" + long)},
+				}
+			},
+			assert: func(t *testing.T, cmd string, retErr error) {
+				t.Helper()
+
+				require.NoError(t, retErr)
+				require.Equal(t, "sh -c echo a\necho b "+strings.Repeat("x", 128*1024), cmd)
 			},
 		},
 		{

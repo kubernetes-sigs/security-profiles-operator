@@ -133,7 +133,7 @@ type RawSelinuxProfileSpec struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:path=rawselinuxprofiles,scope=Cluster
 // +kubebuilder:printcolumn:name="Usage",type="string",JSONPath=`.status.usage`
-// +kubebuilder:printcolumn:name="State",type="string",JSONPath=`.status.status`
+// +kubebuilder:printcolumn:name="Status",type="string",JSONPath=`.status.status`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 //
 //nolint:lll // CEL rules cannot be wrapped
@@ -323,7 +323,8 @@ func (sp *RawSelinuxProfile) IsReconcilable() bool {
 type RawSelinuxProfileList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []RawSelinuxProfile `json:"items"`
+	// Items is the list of RawSelinuxProfile objects.
+	Items []RawSelinuxProfile `json:"items"`
 }
 
 func init() { //nolint:gochecknoinits // required to init the scheme

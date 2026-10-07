@@ -211,9 +211,10 @@ func kubeletDirLabelChanged() predicate.Funcs {
 	}
 }
 
-// spodsForNode enqueues every SPOD of the operator namespace, which have to
-// render the kubelet directory volumes again after a node event.
-func (r *ReconcileSPOd) spodsForNode(ctx context.Context, _ client.Object) []reconcile.Request {
+// allSPODs enqueues every SPOD of the operator namespace. It maps the events of
+// every watched kind whose changes the SPODs render, like the kubelet
+// directories of the nodes.
+func (r *ReconcileSPOd) allSPODs(ctx context.Context, _ client.Object) []reconcile.Request {
 	spods := &spodapi.SecurityProfilesOperatorDaemonList{}
 	if err := r.client.List(ctx, spods, client.InNamespace(r.namespace)); err != nil {
 		r.log.Error(err, "Cannot list SPODs for node event")

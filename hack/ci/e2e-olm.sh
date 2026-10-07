@@ -240,7 +240,12 @@ function delete_target_namespaces() {
 }
 
 function try_until_ok() {
-  { set +x; } 2>/dev/null # disable trace output temporarily
+  # Disable the trace output temporarily, and restore it as the caller had it.
+  local xtrace=false
+  if [[ $- == *x* ]]; then
+    xtrace=true
+  fi
+  { set +x; } 2>/dev/null
 
   local cmd="$1"
   shift # Remove the command from the argument list
@@ -258,7 +263,9 @@ function try_until_ok() {
     fi
   done
 
-  set -x
+  if $xtrace; then
+    set -x
+  fi
   # run one final time with all output enabled
   "$cmd" "$@"
 }

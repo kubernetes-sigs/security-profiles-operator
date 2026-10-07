@@ -33,6 +33,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
 
 // getPodAdmRequest returns a pod admission request like the API server sends
@@ -156,7 +158,7 @@ func TestHandler_Handle(t *testing.T) {
 							},
 						},
 					},
-				}, ephemeralContainersSubResource),
+				}, utils.EphemeralContainersSubResource),
 			}},
 			want: admission.Response{
 				Patches: []gomodulesjsonpatch.JsonPatchOperation{
@@ -201,7 +203,7 @@ func TestHandler_Handle(t *testing.T) {
 							},
 						},
 					},
-				}, ephemeralContainersSubResource),
+				}, utils.EphemeralContainersSubResource),
 			}},
 			want: admission.Response{
 				Patches: []gomodulesjsonpatch.JsonPatchOperation{
@@ -391,7 +393,7 @@ func TestHandlerPatchesOnlyNewEphemeralContainers(t *testing.T) {
 	newPod := oldPod.DeepCopy()
 	newPod.Spec.EphemeralContainers = append(newPod.Spec.EphemeralContainers, ephemeral("new"))
 
-	req := getPodAdmRequest(t, newPod, ephemeralContainersSubResource)
+	req := getPodAdmRequest(t, newPod, utils.EphemeralContainersSubResource)
 	req.Operation = admissionv1.Update
 	req.OldObject = runtime.RawExtension{Raw: func() []byte {
 		b, err := json.Marshal(oldPod)

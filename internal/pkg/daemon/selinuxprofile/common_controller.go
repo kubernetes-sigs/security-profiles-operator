@@ -151,6 +151,11 @@ type ReconcileSelinux struct {
 	// reloadFailures counts the failed install reload jobs of the current
 	// generation, per profile, see reloadRetryDelay.
 	reloadFailures map[types.NamespacedName]reloadFailures
+
+	// removalsCounted maps the profiles whose removal got counted in the
+	// metrics to their UID, as a retried deletion counts it again otherwise.
+	// The node status, which records the reload, may be gone already.
+	removalsCounted sync.Map
 }
 
 // installError is an error which keeps a generation of a profile from being
@@ -346,7 +351,7 @@ func (r *ReconcileSelinux) Reconcile(
 	defer cancel()
 
 	reqLogger := r.log.WithValues("profile", request.Name)
-	reqLogger.Info("Reconciling object", "controller", r.controllerName)
+	reqLogger.V(config.VerboseLevel).Info("Reconciling object", "controller", r.controllerName)
 
 	// Fetch the object instance
 	oh, err := r.objectHandlerInit(ctx, r.client, request.NamespacedName, r.namespace)
@@ -462,6 +467,7 @@ func (r *ReconcileSelinux) forgetInstallError(key types.NamespacedName) {
 func (r *ReconcileSelinux) forgetProfile(key types.NamespacedName) {
 	r.forgetInstallError(key)
 	r.forgetReloadFailures(key)
+	r.removalsCounted.Delete(key)
 }
 
 func (r *ReconcileSelinux) reconcilePolicy(
@@ -677,7 +683,7 @@ func (r *ReconcileSelinux) handlePolicyStatus(
 	nodeStatus *nodestatus.StatusClient,
 	l logr.Logger,
 ) (reconcile.Result, error) {
-	l.Info("Checking if policy deployed", "policyName", sp.GetName())
+	l.V(config.VerboseLevel).Info("Checking if policy deployed", "policyName", sp.GetPolicyName())
 	polStatus, err := getPolicyStatus(ctx, sp, r.httpc)
 
 	if errors.Is(err, errPolicyNotFound) {
@@ -736,7 +742,7 @@ func (r *ReconcileSelinux) handlePolicyStatus(
 		r.reportInstallError(sp, reasonCannotInstallPolicy, evstr)
 	}
 
-	l.Info("Policy deployed", "status", polState)
+	l.V(config.VerboseLevel).Info("Policy deployed", "status", polState)
 
 	if err := r.setNodeStatus(ctx, sp, nodeStatus, polState); err != nil {
 		return reconcile.Result{}, err
@@ -1022,7 +1028,7 @@ func (r *ReconcileSelinux) reloadPolicy(
 	}
 
 	if lastReloadGeneration == reloadGeneration {
-		l.Info("Reload already performed for policy generation, skipping",
+		l.V(config.VerboseLevel).Info("Reload already performed for policy generation, skipping",
 			"generation", reloadGeneration, "policyName", sp.GetPolicyName(), "action", action)
 
 		return reconcile.Result{}, nil
@@ -1176,10 +1182,14 @@ func (r *ReconcileSelinux) reconcileDeletePolicy(
 		return res, err
 	}
 
-	l.Info("Checking if policy is removed", "policyName", sp.GetName())
+	l.Info("Checking if policy is removed", "policyName", sp.GetPolicyName())
 	polStatus, err := getPolicyStatus(ctx, sp, r.httpc)
 
 	if errors.Is(err, errPolicyNotFound) {
+		// The reload is needed even if this profile never triggered one: the
+		// reload of any other profile loads the whole policy store, and
+		// releases before the reload annotation did not record one.
+		//
 		// Policy was successfully removed, trigger a reload to update kernel policy
 		return r.reloadRemovedPolicy(ctx, sp, nodeStatus, l)
 	}
@@ -1228,6 +1238,12 @@ func (r *ReconcileSelinux) reloadRemovedPolicy(
 	nodeStatus *nodestatus.StatusClient,
 	l logr.Logger,
 ) (reconcile.Result, error) {
+	// A retried deletion passes here again after the reload, which must not
+	// count the removal again.
+	key := client.ObjectKeyFromObject(sp)
+	countedUID, counted := r.removalsCounted.Load(key)
+	counted = counted && countedUID == sp.GetUID()
+
 	res, err := r.reloadPolicy(ctx, sp, nodeStatus, removeReload, l)
 	if errors.Is(err, errCreateReloadJob) {
 		// Unlike a running job, a failure to create one may not go away, and
@@ -1248,8 +1264,9 @@ func (r *ReconcileSelinux) reloadRemovedPolicy(
 	}
 
 	// A requeue means that a reload job of another generation still runs.
-	if err == nil && res.IsZero() {
+	if err == nil && res.IsZero() && !counted {
 		r.metrics.IncSelinuxProfileDelete()
+		r.removalsCounted.Store(key, sp.GetUID())
 		l.Info("Policy removed")
 	}
 

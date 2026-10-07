@@ -127,7 +127,10 @@ func preparedProfile() *seccompprofile.SeccompProfile {
 	sp := regularSeccompProfile()
 	sp.Finalizers = []string{util.GetFinalizerNodeString(testNode)}
 	sp.Labels = map[string]string{
-		secprofnodestatusapi.StatusToProfLabel: util.KindBasedDNSLengthName(sp),
+		secprofnodestatusapi.StatusToProfLabel: util.KindNameDNSLengthName(
+			"SeccompProfile",
+			sp.GetName(),
+		),
 	}
 
 	return sp
@@ -258,6 +261,38 @@ func TestCreateResetsExistingStatus(t *testing.T) {
 	require.Equal(t, secprofnodestatusapi.ProfileStatePending, status.Status.Status)
 }
 
+// A status left over from a deleted profile of the same name gets the owner
+// and labels of the new profile, so that it is not garbage collected.
+func TestCreateAdoptsLeftoverStatus(t *testing.T) {
+	t.Parallel()
+
+	sp := preparedProfile()
+	leftover := newStatusClient(t, sp, nil).statusObj(secprofnodestatusapi.ProfileStateInstalled)
+	leftover.OwnerReferences = []metav1.OwnerReference{{
+		APIVersion: seccompprofile.GroupVersion.String(),
+		Kind:       "SeccompProfile",
+		Name:       sp.GetName(),
+		UID:        "deleted-profile",
+		Controller: new(true),
+	}}
+
+	c := newFakeClient(t, sp.DeepCopy(), leftover)
+	sc := newStatusClient(t, sp, c)
+
+	_, err := sc.Create(context.Background())
+	require.NoError(t, err)
+
+	status, err := nodeStatus(t, c, wantStatusName)
+	require.NoError(t, err)
+	require.Len(t, status.OwnerReferences, 1)
+	require.Equal(t, sp.GetUID(), status.OwnerReferences[0].UID)
+	require.Equal(t,
+		string(secprofnodestatusapi.ProfileStatePending),
+		status.Labels[secprofnodestatusapi.StatusStateLabel],
+	)
+	require.Equal(t, secprofnodestatusapi.ProfileStatePending, status.Status.Status)
+}
+
 func TestCreateMigratesLegacyStatus(t *testing.T) {
 	t.Parallel()
 
@@ -267,7 +302,10 @@ func TestCreateMigratesLegacyStatus(t *testing.T) {
 			Name:      "test-profile-" + testNode,
 			Namespace: "test-namespace",
 			Labels: map[string]string{
-				secprofnodestatusapi.StatusToProfLabel: util.KindBasedDNSLengthName(sp),
+				secprofnodestatusapi.StatusToProfLabel: util.KindNameDNSLengthName(
+					"SeccompProfile",
+					sp.GetName(),
+				),
 			},
 		},
 		Status: secprofnodestatusapi.SecurityProfileNodeStatusStatus{
@@ -528,7 +566,7 @@ func TestRemovePartialProfileWithoutRecording(t *testing.T) {
 	require.NoError(t, sc.Remove(context.Background(), c))
 }
 
-func TestCreatePolLabelPersistsAfterConflict(t *testing.T) {
+func TestCreateFinalizerAndLabelPersistsAfterConflict(t *testing.T) {
 	t.Parallel()
 
 	sp := regularSeccompProfile()
@@ -556,12 +594,11 @@ func TestCreatePolLabelPersistsAfterConflict(t *testing.T) {
 	})
 
 	sc := newStatusClient(t, sp, c)
-	require.NoError(t, sc.createPolLabel(context.Background()))
+	require.NoError(t, sc.createFinalizerAndLabel(context.Background()))
 	require.Equal(t, 1, conflicts)
-	require.Equal(t,
-		sc.profileID(),
-		storedProfile(t, base, sp.GetName()).Labels[secprofnodestatusapi.StatusToProfLabel],
-	)
+	stored := storedProfile(t, base, sp.GetName())
+	require.Equal(t, sc.profileID(), stored.Labels[secprofnodestatusapi.StatusToProfLabel])
+	require.Contains(t, stored.Finalizers, sc.finalizerString)
 }
 
 func TestSetNodeStatusSkipsUnchangedStatus(t *testing.T) {

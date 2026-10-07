@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -2535,6 +2536,53 @@ func TestGenerateAppArmorProfileAbstractProtocols(t *testing.T) {
 	}
 }
 
+// TestAuthorizedProfilesWarnsOncePerPod asserts that an ignored annotation is
+// reported once, and not with every update of the pod.
+func TestAuthorizedProfilesWarnsOncePerPod(t *testing.T) {
+	t.Parallel()
+
+	mock := newFakeImpl()
+	mock.ListRecordingsReturns(&recordingapi.ProfileRecordingList{}, nil)
+
+	recorder := events.NewFakeRecorder(10)
+	sut := &RecorderReconciler{impl: mock, log: logr.Discard(), record: recorder}
+
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pod", Namespace: "ns", UID: "1"}}
+	profiles := []profileToCollect{{
+		kind: recordingapi.ProfileRecordingKindSeccompProfile,
+		name: "other-recording_ctr_4bbwm_1700000000",
+	}}
+
+	for range 2 {
+		authorized, _, err := sut.authorizedProfiles(
+			t.Context(), pod, profiles, recordingapi.ProfileRecorderBpf,
+		)
+		require.NoError(t, err)
+		require.Empty(t, authorized)
+	}
+
+	require.Len(t, recorder.Events, 1)
+
+	// Another ignored annotation of the same pod is reported.
+	<-recorder.Events
+
+	other := append(slices.Clone(profiles), profileToCollect{
+		kind: recordingapi.ProfileRecordingKindSeccompProfile,
+		name: "third-recording_ctr_4bbwm_1700000000",
+	})
+	_, _, err := sut.authorizedProfiles(t.Context(), pod, other, recordingapi.ProfileRecorderBpf)
+	require.NoError(t, err)
+	require.Len(t, recorder.Events, 1)
+
+	// A new pod of the same name is reported again.
+	<-recorder.Events
+
+	pod.UID = "2"
+	_, _, err = sut.authorizedProfiles(t.Context(), pod, profiles, recordingapi.ProfileRecorderBpf)
+	require.NoError(t, err)
+	require.Len(t, recorder.Events, 1)
+}
+
 // TestReconcileDoesNotArmRecorderWithoutAuthorization pins down the ordering the
 // authorization gate depends on: nothing with a side effect may run before a
 // pod's recording annotations have been matched against a ProfileRecording.
@@ -3179,6 +3227,11 @@ func TestCollectBpfProfileRejected(t *testing.T) {
 			attempts:  1,
 		},
 		{
+			name:      "bad request",
+			rejection: kerrors.NewBadRequest("bad request"),
+			attempts:  1,
+		},
+		{
 			// A permission may not have been granted yet.
 			name:      "forbidden",
 			rejection: kerrors.NewForbidden(schema.GroupResource{}, "p", errTest),
@@ -3391,6 +3444,52 @@ func TestCollectBpfProfilesSkipsProfileOfOtherRecording(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, mock.CreateOrUpdateCallCount())
 	require.False(t, mutated, "the profile of the other recording must not be updated")
+}
+
+// TestStoreProfileAddsMissingLabels asserts that a profile recorded before
+// the namespace label existed gets it on the next update.
+func TestStoreProfileAddsMissingLabels(t *testing.T) {
+	t.Parallel()
+
+	scheme := apiruntime.NewScheme()
+	require.NoError(t, seccompprofileapi.AddToScheme(scheme))
+
+	old := &seccompprofileapi.SeccompProfile{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "recording-ctr",
+			Labels: map[string]string{recordingapi.ProfileToRecordingLabel: "recording"},
+		},
+	}
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(old).Build()
+
+	mock := newFakeImpl()
+	mock.CreateOrUpdateCalls(controllerutil.CreateOrUpdate)
+
+	sut := &RecorderReconciler{
+		impl:   mock,
+		client: kubeClient,
+		log:    logr.Discard(),
+		record: events.NewFakeRecorder(100),
+	}
+
+	labels := map[string]string{
+		recordingapi.ProfileToRecordingLabel:          "recording",
+		recordingapi.ProfileToRecordingNamespaceLabel: "ns",
+	}
+	profile := &seccompprofileapi.SeccompProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: "recording-ctr", Labels: labels},
+		Spec:       seccompprofileapi.SeccompProfileSpec{DefaultAction: seccompprofileapi.ActErrno},
+	}
+
+	require.NoError(t, sut.storeProfile(t.Context(), &profileTarget{
+		name:          types.NamespacedName{Name: "recording-ctr", Namespace: "ns"},
+		recordingName: "recording",
+		labels:        labels,
+	}, profile, &profile.Spec.SpecBase, "seccomp"))
+
+	got := &seccompprofileapi.SeccompProfile{}
+	require.NoError(t, kubeClient.Get(t.Context(), client.ObjectKey{Name: "recording-ctr"}, got))
+	require.Equal(t, labels, got.GetLabels())
 }
 
 // TestStoreProfileConcurrentMerges asserts that nodes merging into the same
@@ -3715,6 +3814,12 @@ func TestRejectedForGoodPerPodAndProfile(t *testing.T) {
 
 	// The profile of the same name in another namespace has its own count.
 	require.False(t, sut.rejectedForGood(keyOf("b"), forbidden))
+
+	// The attempts alone are not enough within the grace period.
+	sut.forbiddenGracePeriod = time.Hour
+	require.False(t, sut.rejectedForGood(keyOf("a"), forbidden))
+
+	sut.forbiddenGracePeriod = 0
 	require.True(t, sut.rejectedForGood(keyOf("a"), forbidden))
 
 	_, counted := sut.forbiddenAttempts.Load(keyOf("a"))

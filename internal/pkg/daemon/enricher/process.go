@@ -19,6 +19,7 @@ package enricher
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"strconv"
 	"strings"
 
@@ -27,16 +28,9 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 )
 
-var (
-
-	// ErrProcessNotFound is the error returned by ContainerIDForPID if the
-	// process path could not be found in /proc.
-	ErrProcessNotFound = errors.New("process not found in process file system path")
-
-	// ErrCmdlineNotFound is the error returned by ContainerIDForPID if the
-	// process path could not be found in /proc.
-	ErrCmdlineNotFound = errors.New("cmdline empty or not found for the process")
-)
+// ErrProcessNotFound is the error returned by ContainerIDForPID if the
+// process path could not be found in /proc.
+var ErrProcessNotFound = errors.New("process not found in process file system path")
 
 const (
 	requestIdEnv = "SPO_EXEC_REQUEST_UID"
@@ -73,7 +67,11 @@ func GetProcessInfo(
 			return withLine(item.Value()), nil
 		}
 
-		info, _ := processInfo(pid, impl)
+		// The details of a process which is gone cannot be read either.
+		info := &types.ProcessInfo{Pid: pid}
+		if !errors.Is(err, fs.ErrNotExist) {
+			info, _ = processInfo(pid, impl)
+		}
 
 		return withLine(info), fmt.Errorf("get process start time for pid %d: %w", pid, err)
 	}

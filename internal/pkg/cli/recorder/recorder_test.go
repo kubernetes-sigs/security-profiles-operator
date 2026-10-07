@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/recorder/recorderfakes"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
 )
 
 var errTest = errors.New("test")
@@ -51,6 +52,7 @@ func TestRun(t *testing.T) {
 		mock.IteratorKeyReturnsOnCall(0, []byte{1, 0, 0, 0, 0, 0, 0, 0})
 		mock.SyscallsGetValueReturns([]byte{1}, nil)
 		mock.BPFLSMEnabledReturns(true)
+		mock.AppArmorProcessedReturns(bpfrecorder.BpfAppArmorProcessed{}, true)
 	}
 
 	for _, tc := range []struct {
@@ -274,6 +276,23 @@ func TestRun(t *testing.T) {
 			},
 		},
 		{
+			name: "no apparmor data",
+			prepare: func(mock *recorderfakes.FakeImpl) *Options {
+				defaultMock(mock)
+				mock.CommandRunReturns(1, nil)
+				mock.AppArmorProcessedReturns(bpfrecorder.BpfAppArmorProcessed{}, false)
+
+				options := Default()
+				options.typ = TypeApparmor
+
+				return options
+			},
+			assert: func(mock *recorderfakes.FakeImpl, err error) {
+				require.ErrorContains(t, err, "find mntns 1 in apparmor data")
+				require.Zero(t, mock.CreateCallCount())
+			},
+		},
+		{
 			name: "no BPF LSM",
 			prepare: func(mock *recorderfakes.FakeImpl) *Options {
 				defaultMock(mock)
@@ -331,6 +350,11 @@ func TestOutFile(t *testing.T) {
 	options := Default()
 	options.typ = TypeRawSeccomp
 	options.outputFile = "/custom/file.yaml"
+	options.outputFileSet = true
 
 	require.Equal(t, "/custom/file.yaml", New(options).outFile())
+
+	// The default file name, explicitly asked for, is kept as well.
+	options.outputFile = DefaultOutputFile
+	require.Equal(t, DefaultOutputFile, New(options).outFile())
 }

@@ -19,6 +19,7 @@
   - [Pull images from private registry](#pull-images-from-private-registry)
   - [Configure the SELinux type](#configure-the-selinux-type)
   - [Configure SELinux support](#configure-selinux-support)
+    - [Select the selinuxd image](#select-the-selinuxd-image)
   - [Customise the daemon resource requirements](#customise-the-daemon-resource-requirements)
   - [Restrict the allowed syscalls in seccomp profiles](#restrict-the-allowed-syscalls-in-seccomp-profiles)
   - [Constrain spod scheduling](#constrain-spod-scheduling)
@@ -44,16 +45,19 @@ cert-manager via `kubectl`, if you're **not** running on
 [OpenShift](https://www.redhat.com/en/technologies/cloud-computing/openshift):
 
 ```sh
-$ kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.21.2/cert-manager.yaml
+$ kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
 $ kubectl --namespace cert-manager wait --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
 ```
 
 OpenShift ships its own CA injector which means we can skip installing
 cert-manager. After this step, apply the operator manifest of the desired
-release:
+[release](https://github.com/kubernetes-sigs/security-profiles-operator/releases),
+where `VERSION` is its version without the `v` prefix. The commands below use
+`VERSION` the same way:
 
 ```sh
-$ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/v1.1.1/deploy/operator.yaml
+$ VERSION=x.y.z
+$ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/v${VERSION}/deploy/operator.yaml
 ```
 
 The manifests on the `main` branch reference the development images from the
@@ -110,7 +114,7 @@ and after every commit to the `main` branch. Provided that your cluster uses OLM
 (see above) you can install a released version using:
 
 ```sh
-$ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/v1.1.1/examples/olm/install-resources.yaml
+$ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/v${VERSION}/examples/olm/install-resources.yaml
 ```
 
 The same file on the `main` branch installs the latest development catalog from
@@ -120,7 +124,7 @@ Note that on OpenShift, the OLM catalogs are deployed into the `openshift-market
 need to replace the namespaces before deploying:
 
 ```shell
-manifest=https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/v1.1.1/examples/olm/install-resources.yaml
+manifest=https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/v${VERSION}/examples/olm/install-resources.yaml
 $ curl $manifest | sed "s#olm#openshift-marketplace#g" | oc apply -f -
 ```
 
@@ -133,7 +137,7 @@ as an artifact, and can be installed by executing the following shell commands:
 ```shell
 # Install cert-manager if it is not already installed, the chart does not
 # install it:
-kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.21.2/cert-manager.yaml
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
 kubectl --namespace cert-manager wait --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
 
 # Create the namespace beforehand
@@ -274,7 +278,7 @@ For installations from the release manifests, apply the manifest of the new
 release, for example:
 
 ```sh
-kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/v1.1.1/deploy/operator.yaml
+kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/v${VERSION}/deploy/operator.yaml
 ```
 
 For Helm installations, apply the CRDs of the new release before upgrading the
@@ -419,6 +423,31 @@ kubectl -n security-profiles-operator patch spod spod --type merge -p \
   '{"spec":{"selinux":{"enableRawSelinuxProfiles":false,"customTemplatesConfigMap":"my-templates"}}}'
 ```
 
+#### Select the selinuxd image
+
+The selinuxd container has to match the SELinux policy of the node, so the
+operator picks its image per node. The `selinuxd-image-mapping.json` key of the
+`security-profiles-operator-profile` ConfigMap maps regular expressions on the
+operating system of the node, as `kubectl get node -o
+jsonpath='{.status.nodeInfo.osImage}'` shows it, to the environment variables
+of the operator deployment which hold the images, like
+`RELATED_IMAGE_SELINUXD_EL9`. The first matching entry wins, and nodes
+without a match get the image of `RELATED_IMAGE_SELINUXD`, like the nodes whose
+variable is not set. The
+[command line reference](reference/security-profiles-operator.md) lists the
+variables.
+
+The released manifests and the Helm chart set the variables of the images
+which [selinuxd](https://github.com/containers/selinuxd) publishes. The mapping
+also refers to `RELATED_IMAGE_SELINUXD_EL10` for RHEL 10 and CoreOS 10 nodes,
+which selinuxd publishes no image for. Without setting it to an image built for
+those nodes, they get the image of `RELATED_IMAGE_SELINUXD`.
+
+For a mirrored registry in an air-gapped cluster, set the variables of the
+operator deployment to the mirrored images. To support another operating
+system, add an entry to the mapping, which refers to a variable the deployment
+sets.
+
 ### Customise the daemon resource requirements
 
 The default resource requirements of the daemon container can be adjusted by using the field `daemonResourceRequirements`
@@ -560,7 +589,7 @@ operator deployment to run in a single namespace, use the
 ```sh
 NAMESPACE=<your-namespace>
 
-curl https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/v1.1.1/deploy/namespace-operator.yaml | sed "s/NS_REPLACE/$NAMESPACE/g" | kubectl apply -f -
+curl https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/v${VERSION}/deploy/namespace-operator.yaml | sed "s/NS_REPLACE/$NAMESPACE/g" | kubectl apply -f -
 ```
 
 #### Restricting to a Single Namespace when installing using OLM

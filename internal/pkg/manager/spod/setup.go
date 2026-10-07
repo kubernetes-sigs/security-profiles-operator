@@ -75,7 +75,7 @@ type daemonTunables struct {
 	jsonEnricherLogVolumeMountPath string
 }
 
-// Setup adds a controller that reconciles the SPOd DaemonSet.
+// Setup adds a controller that reconciles the SPOD and its operands.
 func (r *ReconcileSPOd) Setup(
 	ctx context.Context,
 	mgr ctrl.Manager,
@@ -144,24 +144,24 @@ func (r *ReconcileSPOd) Setup(
 		// behind still call.
 		Watches(
 			&appsv1.Deployment{},
-			handler.EnqueueRequestsFromMapFunc(r.spodsForNode),
+			handler.EnqueueRequestsFromMapFunc(r.allSPODs),
 			builder.WithPredicates(r.isNamedInNamespace(bindata.WebhookName)),
 		).
 		Watches(
 			&policyv1.PodDisruptionBudget{},
-			handler.EnqueueRequestsFromMapFunc(r.spodsForNode),
+			handler.EnqueueRequestsFromMapFunc(r.allSPODs),
 			builder.WithPredicates(r.isNamedInNamespace(bindata.WebhookName)),
 		).
 		Watches(
 			&corev1.Service{},
-			handler.EnqueueRequestsFromMapFunc(r.spodsForNode),
+			handler.EnqueueRequestsFromMapFunc(r.allSPODs),
 			builder.WithPredicates(r.isNamedInNamespace(bindata.WebhookServiceName)),
 		).
 		// The operator ConfigMap configures the log volume of the JSON
 		// enricher. The manager caches it by name.
 		Watches(
 			&corev1.ConfigMap{},
-			handler.EnqueueRequestsFromMapFunc(r.spodsForNode),
+			handler.EnqueueRequestsFromMapFunc(r.allSPODs),
 			builder.WithPredicates(predicate.NewPredicateFuncs(func(obj client.Object) bool {
 				return inNamespace(obj) && obj.GetName() == util.OperatorConfigMap
 			})),
@@ -171,19 +171,19 @@ func (r *ReconcileSPOd) Setup(
 		// manager caches them by name.
 		Watches(
 			&admissionregv1.MutatingWebhookConfiguration{},
-			handler.EnqueueRequestsFromMapFunc(r.spodsForNode),
+			handler.EnqueueRequestsFromMapFunc(r.allSPODs),
 			builder.WithPredicates(isNamed(bindata.MutatingWebhookConfigName)),
 		).
 		Watches(
 			&admissionregv1.ValidatingWebhookConfiguration{},
-			handler.EnqueueRequestsFromMapFunc(r.spodsForNode),
+			handler.EnqueueRequestsFromMapFunc(r.allSPODs),
 			builder.WithPredicates(isNamed(bindata.ValidatingWebhookConfigName)),
 		).
 		// Nodes can configure a custom kubelet directory through a label,
 		// which the SPOd has to mount for the non-root enabler.
 		Watches(
 			&corev1.Node{},
-			handler.EnqueueRequestsFromMapFunc(r.spodsForNode),
+			handler.EnqueueRequestsFromMapFunc(r.allSPODs),
 			builder.OnlyMetadata,
 			builder.WithPredicates(kubeletDirLabelChanged()),
 		)
@@ -208,7 +208,7 @@ func (r *ReconcileSPOd) Setup(
 		} {
 			b = b.Watches(
 				obj,
-				handler.EnqueueRequestsFromMapFunc(r.spodsForNode),
+				handler.EnqueueRequestsFromMapFunc(r.allSPODs),
 				isAdmissionPolicy,
 			)
 		}
@@ -234,7 +234,7 @@ func (r *ReconcileSPOd) Setup(
 			for _, obj := range []client.Object{&certmanagerv1.Issuer{}, &certmanagerv1.Certificate{}} {
 				b = b.Watches(
 					obj,
-					handler.EnqueueRequestsFromMapFunc(r.spodsForNode),
+					handler.EnqueueRequestsFromMapFunc(r.allSPODs),
 					isCertManagerResource,
 				)
 			}

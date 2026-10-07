@@ -35,12 +35,18 @@ var (
 // AppArmorExecutablesRules stores the rules for allowed executable.
 type AppArmorExecutablesRules struct {
 	// allowedExecutables is a list of allowed executables.
+	// Entries of the form "ptrace (read)," are deprecated: use
+	// abstract.ptrace instead. They are still accepted and rendered as ptrace
+	// rules, but support for them will be removed in a future API version.
 	// +optional
 	// +listType=set
 	//nolint:lll // the pattern cannot be wrapped; braces outside of variables never loaded in apparmor_parser
 	// +kubebuilder:validation:items:Pattern=`^(?:/(?:[a-zA-Z0-9_./*?+@ -]|@\{[a-zA-Z0-9_]+\})*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$`
 	AllowedExecutables []string `json:"allowedExecutables,omitempty"`
 	// allowedLibraries is a list of allowed libraries.
+	// Entries of the form "ptrace (read)," are deprecated: use
+	// abstract.ptrace instead. They are still accepted and rendered as ptrace
+	// rules, but support for them will be removed in a future API version.
 	// +optional
 	// +listType=set
 	//nolint:lll // the pattern cannot be wrapped; braces outside of variables never loaded in apparmor_parser
@@ -220,7 +226,7 @@ type AppArmorProfile struct {
 	// spec defines the desired state of the AppArmor profile.
 	// +optional
 	//nolint:kubeapilinter // spec has no required fields and is a value by convention
-	Spec AppArmorProfileSpec `json:"spec,omitempty"`
+	Spec AppArmorProfileSpec `json:"spec,omitzero"`
 	// status contains the observed state of the AppArmor profile.
 	// +optional
 	Status AppArmorProfileStatus `json:"status,omitzero"` //nolint:kubeapilinter // status is a value by convention
@@ -269,7 +275,8 @@ func (sp *AppArmorProfile) IsReconcilable() bool {
 type AppArmorProfileList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []AppArmorProfile `json:"items"`
+	// Items is the list of AppArmorProfile objects.
+	Items []AppArmorProfile `json:"items"`
 }
 
 func init() { //nolint:gochecknoinits // required to init the scheme

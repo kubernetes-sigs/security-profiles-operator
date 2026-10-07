@@ -111,6 +111,11 @@ type FakeImpl struct {
 		result1 *configs.Seccomp
 		result2 error
 	}
+	StopTailStub        func(*tailer.Tailer)
+	stopTailMutex       sync.RWMutex
+	stopTailArgsForCall []struct {
+		arg1 *tailer.Tailer
+	}
 	TailErrStub        func(*tailer.Tailer) error
 	tailErrMutex       sync.RWMutex
 	tailErrArgsForCall []struct {
@@ -554,6 +559,38 @@ func (fake *FakeImpl) SetupSeccompReturnsOnCall(i int, result1 *configs.Seccomp,
 		result1 *configs.Seccomp
 		result2 error
 	}{result1, result2}
+}
+
+func (fake *FakeImpl) StopTail(arg1 *tailer.Tailer) {
+	fake.stopTailMutex.Lock()
+	fake.stopTailArgsForCall = append(fake.stopTailArgsForCall, struct {
+		arg1 *tailer.Tailer
+	}{arg1})
+	stub := fake.StopTailStub
+	fake.recordInvocation("StopTail", []interface{}{arg1})
+	fake.stopTailMutex.Unlock()
+	if stub != nil {
+		fake.StopTailStub(arg1)
+	}
+}
+
+func (fake *FakeImpl) StopTailCallCount() int {
+	fake.stopTailMutex.RLock()
+	defer fake.stopTailMutex.RUnlock()
+	return len(fake.stopTailArgsForCall)
+}
+
+func (fake *FakeImpl) StopTailCalls(stub func(*tailer.Tailer)) {
+	fake.stopTailMutex.Lock()
+	defer fake.stopTailMutex.Unlock()
+	fake.StopTailStub = stub
+}
+
+func (fake *FakeImpl) StopTailArgsForCall(i int) *tailer.Tailer {
+	fake.stopTailMutex.RLock()
+	defer fake.stopTailMutex.RUnlock()
+	argsForCall := fake.stopTailArgsForCall[i]
+	return argsForCall.arg1
 }
 
 func (fake *FakeImpl) TailErr(arg1 *tailer.Tailer) error {

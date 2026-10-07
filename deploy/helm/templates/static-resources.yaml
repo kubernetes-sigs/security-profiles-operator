@@ -257,14 +257,6 @@ rules:
   - update
   - watch
 - apiGroups:
-  - apps
-  resources:
-  - daemonsets/finalizers
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
   - cert-manager.io
   resources:
   - certificates

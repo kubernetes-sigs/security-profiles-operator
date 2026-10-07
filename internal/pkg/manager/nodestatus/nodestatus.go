@@ -276,6 +276,11 @@ func (r *StatusReconciler) reconcileNodeStatus(
 		"Profile.Kind", prof.GetObjectKind().GroupVersionKind(),
 	)
 
+	// A status which does not belong to the profile must not seed its state.
+	if !r.statusMatchesOwner(instance, prof, logger) {
+		return reconcile.Result{}, nil
+	}
+
 	// Initialize the status if it hasn't happened already, so that the profile
 	// shows a state while the aggregation below waits for the other nodes.
 	if prof.GetStatusBase().Status == "" {
@@ -290,10 +295,6 @@ func (r *StatusReconciler) reconcileNodeStatus(
 		if err != nil || prof == nil {
 			return reconcile.Result{}, err
 		}
-	}
-
-	if !r.statusMatchesOwner(instance, prof, logger) {
-		return reconcile.Result{}, nil
 	}
 
 	if nodeStatusList == nil {
@@ -406,6 +407,22 @@ func (r *StatusReconciler) aggregateStatuses(
 	wantsStatuses := spodDS.Status.DesiredNumberScheduled
 
 	requeue := reconcile.Result{}
+
+	// Right after a node got deleted, the DaemonSet may still count it. Its
+	// status must not count for the profile, and nothing but the requeue
+	// reconciles the profile again once the DaemonSet caught up.
+	if wantsStatuses >= int32(hasStatuses) {
+		deleted, err := r.statusesOfDeletedNodes(ctx, nodeStatusList)
+		if err != nil {
+			return reconcile.Result{}, err
+		}
+
+		if len(deleted) > 0 {
+			logger.Info("Waiting for the DaemonSet to drop deleted nodes", "nodes", len(deleted))
+
+			return reconcile.Result{RequeueAfter: dsWait}, nil
+		}
+	}
 
 	if wantsStatuses > int32(hasStatuses) {
 		logger.Info("Not updating policy: not all statuses are ready",
@@ -544,18 +561,19 @@ func (r *StatusReconciler) removeNodeFinalizers(
 	finalizers []string,
 	logger logr.Logger,
 ) error {
-	for _, finalizer := range finalizers {
-		if !controllerutil.ContainsFinalizer(prof, finalizer) {
-			continue
-		}
+	present := slices.DeleteFunc(slices.Clone(finalizers), func(finalizer string) bool {
+		return !controllerutil.ContainsFinalizer(prof, finalizer)
+	})
+	if len(present) == 0 {
+		return nil
+	}
 
-		logger.Info("Removing node finalizer from profile", "finalizer", finalizer)
+	logger.Info("Removing node finalizers from profile", "finalizers", present)
 
-		if err := util.RetryWithContext(ctx, func() error {
-			return client.IgnoreNotFound(util.RemoveFinalizer(ctx, r.client, prof, finalizer))
-		}, util.IsNotFoundOrConflict); err != nil {
-			return fmt.Errorf("cannot remove finalizer %s from profile: %w", finalizer, err)
-		}
+	if err := util.RetryWithContext(ctx, func() error {
+		return client.IgnoreNotFound(util.RemoveFinalizers(ctx, r.client, prof, present...))
+	}, util.IsNotFoundOrConflict); err != nil {
+		return fmt.Errorf("cannot remove finalizers %v from profile: %w", present, err)
 	}
 
 	return nil

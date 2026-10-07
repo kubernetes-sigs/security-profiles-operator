@@ -129,8 +129,8 @@ func convertToInt(val any) (int, bool) {
 	case int32:
 		return int(v), true
 	case int64:
-		if v < int64(int(v)) || v > int64(int(v)) {
-			// Outside int32 range
+		// Only an int narrower than 64 bits cannot hold every value.
+		if int64(int(v)) != v {
 			return 0, false
 		}
 

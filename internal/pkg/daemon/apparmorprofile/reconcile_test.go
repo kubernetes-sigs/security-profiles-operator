@@ -354,6 +354,31 @@ func TestReconcileInstallError(t *testing.T) {
 	require.Equal(t, secprofnodestatusapi.ProfileStatePending, getNodeStatus(t, cli).Status.Status)
 }
 
+// TestReconcileRejectsHostProfile asserts that a profile which conflicts with
+// a profile of the host is reported once and checked again later, instead of
+// being retried with the backoff of the rate limiter.
+func TestReconcileRejectsHostProfile(t *testing.T) {
+	t.Parallel()
+
+	manager := &countingProfileManager{enabled: true, installErr: ErrProfileExists}
+	r, cli, rec := newTestReconciler(t, manager, nil, testAppArmorProfile())
+
+	_, err := r.Reconcile(t.Context(), testRequest())
+	require.NoError(t, err)
+
+	for range 2 {
+		res, err := r.Reconcile(t.Context(), testRequest())
+		require.NoError(t, err)
+		require.Equal(t, reconcile.Result{RequeueAfter: rejectedRetry}, res)
+	}
+
+	utiltest.RequireEvent(
+		t, rec, "Warning CannotLoadAppArmorProfile cannot load profile into node: profile exists",
+	)
+	utiltest.RequireNoEvent(t, rec)
+	require.Equal(t, secprofnodestatusapi.ProfileStateError, getNodeStatus(t, cli).Status.Status)
+}
+
 func TestReconcileStatusUpdateError(t *testing.T) {
 	t.Parallel()
 

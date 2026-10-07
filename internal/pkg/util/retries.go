@@ -37,7 +37,7 @@ func IsNotFoundOrConflict(err error) bool {
 	return kerrors.IsNotFound(err) || kerrors.IsConflict(err)
 }
 
-// DefaultBackoff returns the retry backoff used by Retry and RetryWithContext.
+// DefaultBackoff returns the retry backoff used by RetryWithContext.
 // The jitter keeps many clients, like the daemons of all nodes, from retrying
 // a conflict in lockstep.
 func DefaultBackoff() wait.Backoff {
@@ -49,30 +49,27 @@ func DefaultBackoff() wait.Backoff {
 	}
 }
 
-// Retry attempts to execute fn up to 5 times if its failure meets retryCondition.
-// Callers which have a context should use RetryWithContext instead.
-func Retry(fn func() error, retryCondition func(error) bool) error {
-	backoff := DefaultBackoff()
-
-	return RetryEx(&backoff, fn, retryCondition)
-}
-
-// RetryWithContext is like Retry, but stops waiting between the attempts once
-// the context is done.
+// RetryWithContext runs fn with the DefaultBackoff until it succeeds or fails
+// with an error which does not meet retryCondition. It stops waiting between
+// the attempts once the context is done.
 func RetryWithContext(
 	ctx context.Context, fn func() error, retryCondition func(error) bool,
+) error {
+	return RetryWithBackoff(ctx, DefaultBackoff(), fn, retryCondition)
+}
+
+// RetryWithBackoff is like RetryWithContext with the provided backoff.
+func RetryWithBackoff(
+	ctx context.Context,
+	backoff wait.Backoff,
+	fn func() error,
+	retryCondition func(error) bool,
 ) error {
 	r := &retrier{fn: fn, retryCondition: retryCondition}
 
 	return r.result(wait.ExponentialBackoffWithContext(
-		ctx, DefaultBackoff(), func(context.Context) (bool, error) { return r.attempt() },
+		ctx, backoff, func(context.Context) (bool, error) { return r.attempt() },
 	))
-}
-
-func RetryEx(backoff *wait.Backoff, fn func() error, retryCondition func(error) bool) error {
-	r := &retrier{fn: fn, retryCondition: retryCondition}
-
-	return r.result(wait.ExponentialBackoff(*backoff, r.attempt))
 }
 
 // retryFatalError marks an error which retryCondition did not accept.

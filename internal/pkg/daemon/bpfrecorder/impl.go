@@ -27,6 +27,8 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 	"unsafe"
 
@@ -90,6 +92,7 @@ type impl interface {
 	SendMetric(apimetrics.Metrics_BpfIncClient, *apimetrics.BpfRequest) error
 	InitGlobalVariable(*bpf.Module, string, any) error
 	CgroupPathForID(uint64) (string, error)
+	CgroupRemoved(uint64) (bool, error)
 	Uptime() (time.Duration, error)
 	VerifyProcess(pid, mntns uint32, startedAt, seenAt time.Duration) error
 	DeleteActivePid(m *bpf.BPFMap, pid uint32, key uint64) error
@@ -316,18 +319,42 @@ const fileIDKernfs = 0xfe
 // the cgroup namespace of the caller.
 var errCgroupNotVisible = errors.New("cgroup outside of the cgroup namespace")
 
-// CgroupPathForID returns the path of the cgroup v2 with the provided ID. It
-// does not depend on any process of the cgroup, so it still works after they
-// exited or their PIDs got reused. The path is relative to the root of the
-// hierarchy mounted at cgroupRoot. In a cgroup namespace, which containers get
-// by default, that is the cgroup of the caller, and every cgroup outside of it
-// resolves to "/" instead of its path, so it fails with errCgroupNotVisible.
-func (d *defaultImpl) CgroupPathForID(id uint64) (string, error) {
-	mount, err := unix.Open(cgroupRoot, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
-	if err != nil {
-		return "", fmt.Errorf("open cgroup root: %w", err)
+// cgroupRootFD holds the descriptor of the cgroup mount which the cgroups get
+// resolved below. It is kept for the lifetime of the process once it got
+// opened, as the cgroups of every recorded workload get resolved. A failed
+// open, like one hitting the file descriptor limit, is tried again.
+var cgroupRootFD struct {
+	sync.Mutex
+
+	fd     int
+	opened bool
+}
+
+// openCgroupRoot returns the descriptor of the cgroup mount.
+func openCgroupRoot() (int, error) {
+	cgroupRootFD.Lock()
+	defer cgroupRootFD.Unlock()
+
+	if cgroupRootFD.opened {
+		return cgroupRootFD.fd, nil
 	}
-	defer unix.Close(mount)
+
+	fd, err := unix.Open(cgroupRoot, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return 0, fmt.Errorf("open cgroup root: %w", err)
+	}
+
+	cgroupRootFD.fd, cgroupRootFD.opened = fd, true
+
+	return fd, nil
+}
+
+// openCgroup opens the cgroup v2 with the provided ID by its file handle.
+func openCgroup(id uint64) (int, error) {
+	mount, err := openCgroupRoot()
+	if err != nil {
+		return 0, err
+	}
 
 	handle := make([]byte, 8)
 	binary.NativeEndian.PutUint64(handle, id)
@@ -336,7 +363,38 @@ func (d *defaultImpl) CgroupPathForID(id uint64) (string, error) {
 		mount, unix.NewFileHandle(fileIDKernfs, handle), unix.O_RDONLY|unix.O_PATH|unix.O_CLOEXEC,
 	)
 	if err != nil {
-		return "", fmt.Errorf("open cgroup %d: %w", id, err)
+		return 0, fmt.Errorf("open cgroup %d: %w", id, err)
+	}
+
+	return fd, nil
+}
+
+// CgroupRemoved reports whether the cgroup v2 with the provided ID got
+// removed. Other errors, like one of a cgroup outside of the cgroup namespace
+// of the caller, tell nothing about it and are returned.
+func (d *defaultImpl) CgroupRemoved(id uint64) (bool, error) {
+	fd, err := openCgroup(id)
+	if errors.Is(err, syscall.ESTALE) {
+		return true, nil
+	}
+
+	if err != nil {
+		return false, err
+	}
+
+	return false, unix.Close(fd)
+}
+
+// CgroupPathForID returns the path of the cgroup v2 with the provided ID. It
+// does not depend on any process of the cgroup, so it still works after they
+// exited or their PIDs got reused. The path is relative to the root of the
+// hierarchy mounted at cgroupRoot. In a cgroup namespace, which containers get
+// by default, that is the cgroup of the caller, and every cgroup outside of it
+// resolves to "/" instead of its path, so it fails with errCgroupNotVisible.
+func (d *defaultImpl) CgroupPathForID(id uint64) (string, error) {
+	fd, err := openCgroup(id)
+	if err != nil {
+		return "", err
 	}
 	defer unix.Close(fd)
 

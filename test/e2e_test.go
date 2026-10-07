@@ -62,6 +62,13 @@ const (
 	// podCommandTimeout is how long a command run in a throwaway pod gets
 	// retried until it succeeds.
 	podCommandTimeout = 2 * time.Minute
+
+	// podStartTimeout is how long a pod of the operator gets to start.
+	podStartTimeout = 25 * time.Second
+
+	// execEnvironmentTimeout is how long a pod gets to run and accept an exec
+	// with the environment of the exec metadata webhook.
+	execEnvironmentTimeout = 100 * time.Second
 	// spodGenerationTimeout is how long a SPOD change gets to show up as a
 	// new generation of the spod daemon set.
 	spodGenerationTimeout = 15 * time.Second
@@ -744,8 +751,6 @@ func (e *e2e) waitForOperator() {
 	e.waitForSpod()
 	e.waitInOperatorNSFor("condition=initialized", "pod", "-l", "name=spod")
 	e.waitInOperatorNSFor("condition=ready", "pod", "-l", "name=spod")
-	// Execute the kubectl command to fetch logs from SPOD pods
-	e.kubectl("logs", "-l", "spod-labels")
 	// Wait for spod to be available. Bounded on purpose: an unbounded loop here
 	// can only end at the go test timeout, which reports a whole-suite timeout
 	// rather than the step that actually got stuck.
@@ -973,6 +978,12 @@ func (e *e2e) waitForSpod() {
 			return fmt.Errorf("listing the spod pods: %w", err)
 		}
 
+		// Any other failure of kubectl, like a refused connection, is not
+		// a spod pod either.
+		if !output.Success() {
+			return fmt.Errorf("listing the spod pods: %s", output.Error())
+		}
+
 		if strings.Contains(output.Error(), "No resources found") {
 			return errors.New("no spod pods")
 		}
@@ -992,7 +1003,7 @@ func (e *e2e) retryGet(args ...string) string {
 			return fmt.Errorf("kubectl get %s: %w", strings.Join(args, " "), err)
 		}
 
-		if strings.Contains(output.Error(), "not found") {
+		if !output.Success() {
 			return fmt.Errorf("kubectl get %s: %s", strings.Join(args, " "), output.Error())
 		}
 
@@ -1010,7 +1021,14 @@ func (e *e2e) exists(args ...string) bool {
 	).RunSilent()
 	e.Require().NoError(err)
 
-	return !strings.Contains(output.Error(), "not found")
+	if output.Success() {
+		return true
+	}
+
+	// Only a missing object is an answer, any other failure of kubectl is not.
+	e.Require().Contains(output.Error(), "not found")
+
+	return false
 }
 
 func (e *e2e) getSeccompPolicyID(profile string) string {

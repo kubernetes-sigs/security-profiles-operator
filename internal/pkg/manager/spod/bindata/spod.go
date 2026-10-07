@@ -83,8 +83,8 @@ const (
 	BpfRecorderContainerName                         = "bpf-recorder"
 	NonRootEnablerContainerName                      = "non-root-enabler"
 	SelinuxPoliciesCopierContainerName               = "selinux-shared-policies-copier"
-	LocalSeccompProfilePath                          = "security-profiles-operator.json"
-	LocalSeccompBpfRecorderProfilePath               = "bpf-recorder.json"
+	LocalSeccompProfilePath                          = config.SpoSeccompProfile
+	LocalSeccompBpfRecorderProfilePath               = config.BpfRecorderSeccompProfile
 	DefaultPriorityClassName                         = "system-node-critical"
 	servicePort                                int32 = 443
 	ContainerPort                              int32 = 9443
@@ -218,7 +218,7 @@ var Manifest = &appsv1.DaemonSet{
 							},
 							{
 								Name:      "operator-profiles-volume",
-								MountPath: "/opt/spo-profiles",
+								MountPath: config.DefaultSpoProfilePath,
 								ReadOnly:  true,
 							},
 							kubeletDirVolumeMount,
@@ -239,7 +239,6 @@ var Manifest = &appsv1.DaemonSet{
 							},
 							RunAsUser: &userRoot,
 							SELinuxOptions: &corev1.SELinuxOptions{
-								// TODO(jaosorior): Use a more restricted selinux type
 								Type: selinuxTypeSpcT,
 							},
 						},
@@ -304,7 +303,7 @@ semodule -R
 							},
 							{
 								Name:      "operator-profiles-volume",
-								MountPath: "/opt/spo-profiles",
+								MountPath: config.DefaultSpoProfilePath,
 								ReadOnly:  true,
 							},
 							{
@@ -335,7 +334,6 @@ semodule -R
 							},
 							RunAsUser: &userRoot,
 							SELinuxOptions: &corev1.SELinuxOptions{
-								// TODO(jaosorior): Use a more restricted selinux type
 								Type: selinuxTypeSpcT,
 							},
 						},
@@ -405,7 +403,6 @@ semodule -R
 							RunAsUser:  &userRootless,
 							RunAsGroup: &userRootless,
 							SELinuxOptions: &corev1.SELinuxOptions{
-								// TODO(jaosorior): Use a more restricted selinux type
 								Type: selinuxTypeSpcT,
 							},
 							SeccompProfile: &corev1.SeccompProfile{
@@ -625,7 +622,6 @@ semodule -R
 								},
 							},
 							SELinuxOptions: &corev1.SELinuxOptions{
-								// TODO(pjbgf): Use a more restricted selinux type
 								Type: selinuxTypeSpcT,
 							},
 						},
@@ -718,7 +714,6 @@ semodule -R
 								},
 							},
 							SELinuxOptions: &corev1.SELinuxOptions{
-								// TODO(pjbgf): Use a more restricted selinux type
 								Type: selinuxTypeSpcT,
 							},
 							SeccompProfile: &corev1.SeccompProfile{
@@ -802,7 +797,6 @@ semodule -R
 								},
 							},
 							SELinuxOptions: &corev1.SELinuxOptions{
-								// TODO(pjbgf): Use a more restricted selinux type
 								Type: selinuxTypeSpcT,
 							},
 						},
@@ -838,7 +832,7 @@ semodule -R
 						Name: "host-operator-volume",
 						VolumeSource: corev1.VolumeSource{
 							HostPath: &corev1.HostPathVolumeSource{
-								Path: "/var/lib/security-profiles-operator",
+								Path: config.OperatorRoot,
 								Type: &hostPathDirectoryOrCreate,
 							},
 						},
@@ -1040,18 +1034,22 @@ var metricsService = &corev1.Service{
 	},
 }
 
+// JsonEnricherLogVolumeName is the name of the optional log output volume of
+// the JSON enricher.
+const JsonEnricherLogVolumeName = "json-enricher-log-output-volume"
+
+// CustomLogVolume returns the log output volume of the JSON enricher and its
+// mount.
 func CustomLogVolume(
 	mountPath string,
 	logVolumeSource *corev1.VolumeSource,
 ) (corev1.Volume, corev1.VolumeMount) {
-	const volumeName = "json-enricher-log-output-volume"
-
 	volume := corev1.Volume{
-		Name:         volumeName,
+		Name:         JsonEnricherLogVolumeName,
 		VolumeSource: *logVolumeSource,
 	}
 	mount := corev1.VolumeMount{
-		Name:      volumeName,
+		Name:      JsonEnricherLogVolumeName,
 		MountPath: mountPath,
 		ReadOnly:  false,
 	}

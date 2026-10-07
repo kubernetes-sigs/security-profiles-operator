@@ -43,6 +43,7 @@ type impl interface {
 	TailFile(string, tailer.Config) (*tailer.Tailer, error)
 	Lines(*tailer.Tailer) <-chan string
 	TailErr(*tailer.Tailer) error
+	StopTail(*tailer.Tailer)
 	GetName(libseccomp.ScmpSyscall) (string, error)
 	Printf(format string, v ...any)
 }
@@ -73,6 +74,10 @@ func (*defaultImpl) Lines(tailFile *tailer.Tailer) <-chan string {
 
 func (*defaultImpl) TailErr(tailFile *tailer.Tailer) error {
 	return tailFile.Err()
+}
+
+func (*defaultImpl) StopTail(tailFile *tailer.Tailer) {
+	tailFile.Stop()
 }
 
 func (*defaultImpl) GetName(s libseccomp.ScmpSyscall) (string, error) {

@@ -54,7 +54,7 @@ func podIndex(extract func(*corev1.Pod) []string) client.IndexerFunc {
 	}
 }
 
-// Setup adds a controller that reconciles the SPOd DaemonSet.
+// Setup adds a controller that links the pods to the profiles they use.
 func (r *PodReconciler) Setup(
 	ctx context.Context,
 	mgr ctrl.Manager,

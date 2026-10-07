@@ -20,11 +20,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"strings"
 
+	"k8s.io/apimachinery/pkg/api/equality"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -130,13 +133,9 @@ func (nsf *StatusClient) perNodeStatusNamespacedName() types.NamespacedName {
 }
 
 func (nsf *StatusClient) Create(ctx context.Context) (bool, error) {
-	if err := nsf.createFinalizer(ctx); err != nil {
-		return false, fmt.Errorf("cannot create finalizer for %s: %w", nsf.pol.GetName(), err)
-	}
-
-	if err := nsf.createPolLabel(ctx); err != nil {
+	if err := nsf.createFinalizerAndLabel(ctx); err != nil {
 		return false, fmt.Errorf(
-			"cannot create policy name label for %s: %w",
+			"cannot create finalizer and policy name label for %s: %w",
 			nsf.pol.GetName(),
 			err,
 		)
@@ -203,26 +202,34 @@ func (nsf *StatusClient) createFinalizer(ctx context.Context) error {
 	}, util.IsNotFoundOrConflict)
 }
 
-func (nsf *StatusClient) createPolLabel(ctx context.Context) error {
+// createFinalizerAndLabel adds the finalizer of this node and the label of
+// the profile with a single update. Every node does it for each profile at
+// once, so separate updates would double the conflicts.
+func (nsf *StatusClient) createFinalizerAndLabel(ctx context.Context) error {
 	return util.RetryWithContext(ctx, func() error {
-		// Re-fetch on every attempt: a failed update leaves the label in the
-		// local object, and the retry must not mistake it for a stored one.
+		// Re-fetch on every attempt: a failed update leaves the changes in the
+		// local object, and the retry must not mistake them for stored ones.
 		if err := nsf.client.Get(ctx, client.ObjectKeyFromObject(nsf.pol), nsf.pol); err != nil {
 			return fmt.Errorf("getting profile: %w", err)
 		}
 
-		labels := nsf.pol.GetLabels()
-		if labels == nil {
-			labels = make(map[string]string)
+		changed := controllerutil.AddFinalizer(nsf.pol, nsf.finalizerString)
+
+		polLabels := nsf.pol.GetLabels()
+		if polLabels == nil {
+			polLabels = make(map[string]string)
 		}
 
-		if _, ok := labels[secprofnodestatusapi.StatusToProfLabel]; ok {
-			// the label is already set, nothing to do
+		if _, ok := polLabels[secprofnodestatusapi.StatusToProfLabel]; !ok {
+			polLabels[secprofnodestatusapi.StatusToProfLabel] = nsf.profileID()
+			nsf.pol.SetLabels(polLabels)
+
+			changed = true
+		}
+
+		if !changed {
 			return nil
 		}
-
-		labels[secprofnodestatusapi.StatusToProfLabel] = nsf.profileID()
-		nsf.pol.SetLabels(labels)
 
 		return nsf.client.Update(ctx, nsf.pol)
 	}, util.IsNotFoundOrConflict)
@@ -282,9 +289,33 @@ func (nsf *StatusClient) createNodeStatus(
 	}
 
 	if kerrors.IsAlreadyExists(err) {
-		if getErr := nsf.client.Get(ctx, nsf.perNodeStatusNamespacedName(), s); getErr != nil {
+		existing := &secprofnodestatusapi.SecurityProfileNodeStatus{}
+		if getErr := nsf.client.Get(
+			ctx,
+			nsf.perNodeStatusNamespacedName(),
+			existing,
+		); getErr != nil {
 			return fmt.Errorf("fetching existing node status: %w", getErr)
 		}
+
+		// The status may be left over from a profile of the same name which
+		// got deleted, so its owner and labels become the ones of this
+		// profile. The garbage collector would delete it otherwise.
+		if !equality.Semantic.DeepEqual(existing.OwnerReferences, s.OwnerReferences) ||
+			!labels.SelectorFromSet(s.Labels).Matches(labels.Set(existing.Labels)) {
+			if existing.Labels == nil {
+				existing.Labels = map[string]string{}
+			}
+
+			maps.Copy(existing.Labels, s.Labels)
+			existing.OwnerReferences = s.OwnerReferences
+
+			if updateErr := nsf.client.Update(ctx, existing); updateErr != nil {
+				return fmt.Errorf("updating existing node status: %w", updateErr)
+			}
+		}
+
+		s = existing
 	}
 
 	s.Status.Status = initialStatus
@@ -404,6 +435,10 @@ func (nsf *StatusClient) nodeStatusExists(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
+// SetNodeStatus sets the state of the node status. Only the daemon of this
+// node writes its status, so a conflict resolves right away and does not need
+// the backoff of util.RetryWithContext, which the profiles shared by all nodes
+// get.
 func (nsf *StatusClient) SetNodeStatus(
 	ctx context.Context,
 	polState secprofnodestatusapi.ProfileState,

@@ -47,6 +47,10 @@ const (
 	// default reconcile timeout.
 	reconcileTimeout = 1 * time.Minute
 
+	// rejectedRetry is how often a profile which conflicts with one of the
+	// host is checked again, because the host may remove its profile.
+	rejectedRetry = 5 * time.Minute
+
 	reasonAppArmorNotSupported  string = "AppArmorNotSupportedOnNode"
 	reasonCannotLoadProfile     string = "CannotLoadAppArmorProfile"
 	reasonCannotUnloadProfile   string = "CannotUnloadAppArmorProfile"
@@ -83,6 +87,10 @@ type Reconciler struct {
 	// unsupported remembers the profiles which got reported for a node
 	// without AppArmor.
 	unsupported common.UnsupportedReports
+
+	// rejected maps the profiles which conflict with a profile of the host
+	// or of a container runtime to the conflict which got reported.
+	rejected sync.Map
 }
 
 // warnDeprecatedPtraceRules logs once per profile that it puts ptrace rules
@@ -257,10 +265,47 @@ func (r *Reconciler) reconcileAppArmorProfile(
 	}
 
 	if err := r.installProfile(ctx, sp, nodeStatus, l); err != nil {
+		if errors.Is(err, ErrProfileExists) || errors.Is(err, ErrRuntimeProfile) {
+			return r.rejectProfile(ctx, sp, nodeStatus, err, l)
+		}
+
 		return reconcile.Result{}, err
 	}
 
+	r.rejected.Delete(client.ObjectKeyFromObject(sp))
+
 	return reconcile.Result{}, r.markInstalled(ctx, sp, nodeStatus, l)
+}
+
+// rejectProfile sets the node status of a profile, which conflicts with a
+// profile of the host or of a container runtime, to error. Retrying it with
+// the backoff of the rate limiter would only repeat the same warning.
+func (r *Reconciler) rejectProfile(
+	ctx context.Context,
+	sp *apparmorprofileapi.AppArmorProfile,
+	nodeStatus *nodestatus.StatusClient,
+	rejectErr error,
+	l logr.Logger,
+) (reconcile.Result, error) {
+	// The conflict is reported once, also if the profile failed for another
+	// reason before.
+	key := client.ObjectKeyFromObject(sp)
+	if reported, ok := r.rejected.Load(key); !ok || reported != rejectErr.Error() {
+		l.Error(rejectErr, "Not installing profile")
+		r.reportError(sp, reasonCannotLoadProfile, util.EventActionInstall, rejectErr)
+		r.rejected.Store(key, rejectErr.Error())
+	}
+
+	if err := nodeStatus.SetNodeStatus(
+		ctx,
+		secprofnodestatusapi.ProfileStateError,
+	); err != nil {
+		r.reportError(sp, common.ReasonCannotUpdateStatus, util.EventActionUpdate, err)
+
+		return reconcile.Result{}, fmt.Errorf("setting node status to error: %w", err)
+	}
+
+	return reconcile.Result{RequeueAfter: rejectedRetry}, nil
 }
 
 // installProfile loads the profile into the kernel and records on the node
@@ -288,6 +333,11 @@ func (r *Reconciler) installProfile(
 	r.warnDeprecatedPtraceRules(sp, l)
 
 	updated, err := r.manager.InstallProfile(sp, isAlreadyInstalled)
+	if errors.Is(err, ErrProfileExists) || errors.Is(err, ErrRuntimeProfile) {
+		// Reported by rejectProfile.
+		return fmt.Errorf("cannot load profile into node: %w", err)
+	}
+
 	if err != nil {
 		l.Error(err, "cannot load profile into node")
 		r.reportError(sp, reasonCannotLoadProfile, util.EventActionInstall, err)

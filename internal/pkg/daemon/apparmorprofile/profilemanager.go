@@ -16,7 +16,20 @@ limitations under the License.
 
 package apparmorprofile
 
-import profilebaseapi "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
+import (
+	"errors"
+
+	profilebaseapi "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
+)
+
+var (
+	// ErrProfileExists is returned for a profile whose name the host already
+	// uses for a profile of its own.
+	ErrProfileExists = errors.New("profile exists")
+	// ErrRuntimeProfile is returned for a profile named after the default
+	// profile of a container runtime.
+	ErrRuntimeProfile = errors.New("profile name is reserved for a container runtime")
+)
 
 type ProfileManager interface {
 	// Enabled checks whether the given profile technology is supported and

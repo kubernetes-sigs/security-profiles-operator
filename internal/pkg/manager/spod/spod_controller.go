@@ -18,6 +18,7 @@ package spod
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -58,6 +59,9 @@ const (
 	// conflictRequeueDelay is the delay before a reconciliation which lost a
 	// conflict runs again, which gives the cache time to catch up.
 	conflictRequeueDelay = time.Second
+	// operatorDeploymentRetry is how often a SPOD gets reconciled again while
+	// the operator Deployment, whose image the operands use, is missing.
+	operatorDeploymentRetry = 30 * time.Second
 
 	reasonCannotCreateSPOD           string = "CannotCreateSPOD"
 	reasonCannotUpdateSPOD           string = "CannotUpdateSPOD"
@@ -74,6 +78,10 @@ const (
 	legacyAppArmorAnnotation = "container.seccomp.security.alpha.kubernetes.io/security-profiles-operator"
 )
 
+// errOperatorDeploymentMissing is returned while the operator Deployment does
+// not exist.
+var errOperatorDeploymentMissing = stderrors.New("operator deployment not found")
+
 // NewController returns a new empty controller instance.
 func NewController() controller.Controller {
 	return &ReconcileSPOd{}
@@ -82,7 +90,7 @@ func NewController() controller.Controller {
 // blank assignment to verify that ReconcileSPOd implements `reconcile.Reconciler`.
 var _ reconcile.Reconciler = &ReconcileSPOd{}
 
-// ReconcileSPOd reconciles the SPOd DaemonSet object.
+// ReconcileSPOd reconciles the SPOD and its operands, like the SPOd DaemonSet.
 type ReconcileSPOd struct {
 	// This client, initialized using mgr.Client() above, is a split client
 	// that reads objects from the cache and writes to the apiserver
@@ -145,7 +153,6 @@ func (r *ReconcileSPOd) Healthz(*http.Request) error {
 // kinds is restricted to that namespace by the manager command.
 // +kubebuilder:rbac:groups="",namespace="security-profiles-operator",resources=services,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=apps,namespace="security-profiles-operator",resources=deployments;daemonsets,verbs=get;list;watch;create;update;patch
-// +kubebuilder:rbac:groups=apps,namespace="security-profiles-operator",resources=daemonsets/finalizers,verbs=get;update;patch
 // +kubebuilder:rbac:groups=cert-manager.io,namespace="security-profiles-operator",resources=issuers;certificates,verbs=get;list;watch;create;update;patch
 //
 // The webhook deployment gets a pod disruption budget:
@@ -195,7 +202,7 @@ func (r *ReconcileSPOd) Healthz(*http.Request) error {
 // +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingadmissionpolicies;validatingadmissionpolicybindings,resourceNames=spo-recording-profiles,verbs=get;list;watch;update
 
 // Reconcile reads that state of the cluster for a SPOD object and makes changes based on the state read
-// and what is in the `ConfigMap.Spec`.
+// and what is in the `SPOD.Spec`.
 func (r *ReconcileSPOd) Reconcile(
 	ctx context.Context,
 	req reconcile.Request,
@@ -203,8 +210,8 @@ func (r *ReconcileSPOd) Reconcile(
 	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
 
-	logger := r.log.WithValues("profile", req.Name, "namespace", req.Namespace)
-	// Fetch the ConfigMap instance
+	logger := r.log.WithValues("spod", req.Name, "namespace", req.Namespace)
+	// Fetch the SPOD instance
 	spod := &spodapi.SecurityProfilesOperatorDaemon{}
 	if err := r.client.Get(ctx, req.NamespacedName, spod); err != nil {
 		if errors.IsNotFound(err) {
@@ -219,6 +226,15 @@ func (r *ReconcileSPOd) Reconcile(
 	}
 
 	if err := r.reconcileSPOD(ctx, spod, logger); err != nil {
+		// The Deployment watch only covers the webhook, so nothing else
+		// reconciles the SPOD once the operator Deployment shows up.
+		if stderrors.Is(err, errOperatorDeploymentMissing) {
+			logger.Info("Waiting for the operator deployment",
+				"name", config.OperatorName, "namespace", r.namespace)
+
+			return reconcile.Result{RequeueAfter: operatorDeploymentRetry}, nil
+		}
+
 		// A conflict only means that the cache is behind, which the next
 		// reconciliation resolves, so it is neither reported nor logged as
 		// an error.
@@ -314,7 +330,7 @@ func (r *ReconcileSPOd) reconcileSPOD(
 	}
 
 	if !found {
-		return nil
+		return errOperatorDeploymentMissing
 	}
 
 	r.applyAdmissionPolicies(ctx, spod, ops.webhook)
@@ -343,10 +359,6 @@ func (r *ReconcileSPOd) reconcileSPOD(
 
 	dirs, spodUpdate := kubeletDirsToMount(ops.spod, foundSPOd, ops.kubeletDirs)
 	addKubeletDirVolumes(&ops.spod.Spec.Template.Spec, dirs)
-
-	if err := r.ensureMetricsService(ctx, spod, ops.metricsService); err != nil {
-		return err
-	}
 
 	if err := r.ensureCertManagerResources(ctx, ops.certManagerResources); err != nil {
 		return err
@@ -377,6 +389,11 @@ func (r *ReconcileSPOd) reconcileSPOD(
 		}
 
 		return r.handleUpdatingStatus(ctx, spod, logger)
+	}
+
+	// An update patches the metrics service anyway.
+	if err := r.ensureMetricsService(ctx, spod, ops.metricsService); err != nil {
+		return err
 	}
 
 	if daemonSetRolledOut(foundSPOd) {
@@ -500,9 +517,12 @@ func (r *ReconcileSPOd) applyAdmissionPolicies(
 	policies := bindata.GetAdmissionPolicies(webhook.RecordingNamespaceSelector())
 
 	if err := policies.Apply(ctx, r.client); err != nil {
+		// The API server may not serve the ValidatingAdmissionPolicy API, or
+		// a policy got deleted while it got updated, which the next
+		// reconciliation creates again. The error tells which.
 		if bindata.IsNotFound(err) {
 			r.log.V(config.VerboseLevel).Info(
-				"ValidatingAdmissionPolicy API not available, skipping the admission policies",
+				"Skipping the admission policies", "error", err.Error(),
 			)
 
 			return
@@ -606,7 +626,9 @@ func (r *ReconcileSPOd) handleErrorStatus(
 func (r *ReconcileSPOd) defaultProfiles(
 	cfg *spodapi.SecurityProfilesOperatorDaemon,
 ) (defaultProfiles []*seccompprofileapi.SeccompProfile) {
-	if ptr.Deref(cfg.Spec.Enricher.EnableLogEnricher, false) {
+	// The recording webhook refers to the profile whenever the log enricher
+	// runs, which the environment can enable as well.
+	if r.isLogEnricherEnabled(cfg) {
 		defaultProfiles = append(defaultProfiles, bindata.DefaultLogEnricherProfile())
 	}
 
@@ -1025,9 +1047,7 @@ func (r *ReconcileSPOd) configureRecording(
 				// CAP_SYS_ADMIN by default, see perf_event_paranoid. It ran
 				// privileged with AppArmor before, so it keeps working there.
 				if ptr.Deref(cfg.Spec.EnableAppArmor, false) {
-					ctr.SecurityContext.Capabilities.Add = append(
-						ctr.SecurityContext.Capabilities.Add, "SYS_ADMIN",
-					)
+					addCapabilities(ctr.SecurityContext, "SYS_ADMIN")
 					ctr.SecurityContext.AppArmorProfile = &corev1.AppArmorProfile{
 						Type:             corev1.AppArmorProfileTypeLocalhost,
 						LocalhostProfile: new(config.BpfRecorderApparmorProfileName),
@@ -1068,6 +1088,14 @@ func (r *ReconcileSPOd) addJsonEnricherLogVolume(
 	logVolumeSource, logVolumeMountPath, err := r.getJsonEnricherVolume(ctx, r.client)
 	if err != nil {
 		if isJsonEnricherVolumeNotConfigured(err) {
+			// The base SPOd carries the volume which the ConfigMap configured
+			// when the operator started, which may be gone since.
+			name := bindata.JsonEnricherLogVolumeName
+			templateSpec.Volumes = slices.DeleteFunc(templateSpec.Volumes,
+				func(v corev1.Volume) bool { return v.Name == name })
+			ctr.VolumeMounts = slices.DeleteFunc(ctr.VolumeMounts,
+				func(m corev1.VolumeMount) bool { return m.Name == name })
+
 			return nil
 		}
 
@@ -1467,7 +1495,7 @@ func addArgsConfig(args []string, argonfig string) []string {
 		return args
 	}
 
-	if !sliceContainsString(args, argonfig) {
+	if !slices.Contains(args, argonfig) {
 		return append(args, argonfig)
 	}
 
@@ -1500,10 +1528,6 @@ func sliceReplaceArg(slice []string, s string) bool {
 	}
 
 	return false
-}
-
-func sliceContainsString(slice []string, s string) bool {
-	return slices.Contains(slice, s)
 }
 
 // addEnvVar passes the flag of the operator environment to the daemon.

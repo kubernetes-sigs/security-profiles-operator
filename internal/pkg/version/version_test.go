@@ -56,3 +56,10 @@ func TestAsKeyValues(t *testing.T) {
 	kv := sut.AsKeyValues()
 	require.Len(t, kv, 2*14)
 }
+
+func TestVersionTextSkipsEmptyFields(t *testing.T) {
+	t.Parallel()
+
+	sut := &Info{Version: "v1", Libbpf: ""}
+	require.Equal(t, "Version:  v1", sut.String())
+}

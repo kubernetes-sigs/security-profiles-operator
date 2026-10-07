@@ -67,12 +67,12 @@ const (
 	maxCacheItems           uint64        = 1000
 	defaultHostPid          uint32        = 1
 	pathMax                 int           = 4096
-	eventTypeNewPid         int           = 0
-	eventTypeExit           int           = 1
-	eventTypeAppArmorFile   int           = 2
-	eventTypeAppArmorSocket int           = 3
-	eventTypeAppArmorCap    int           = 4
-	eventTypeClearMntns     int           = 5
+	eventTypeNewPid         uint8         = 0
+	eventTypeExit           uint8         = 1
+	eventTypeAppArmorFile   uint8         = 2
+	eventTypeAppArmorSocket uint8         = 3
+	eventTypeAppArmorCap    uint8         = 4
+	eventTypeClearMntns     uint8         = 5
 	eventTypeExecveEnter    uint8         = 6
 	excludeMntnsEnabled     byte          = 1
 
@@ -278,6 +278,9 @@ type BpfRecorder struct {
 	// room again, so that the BPF program reports them again.
 	droppedPids   map[droppedPid]struct{}
 	droppedPidsMu sync.Mutex
+	// hasDroppedPids is set while droppedPids is not empty, which spares
+	// the handlers the locks after every event in the common case.
+	hasDroppedPids atomic.Bool
 
 	AppArmor *AppArmorRecorder
 	Seccomp  *SeccompRecorder
@@ -308,11 +311,10 @@ type BpfRecorder struct {
 	// would leak an entry per recorded process exit.
 	recentExits *ttlcache.Cache[uint32, struct{}]
 
-	// exitWaiters holds a channel per caller currently inside WaitForPidExit.
-	// Waiters own their channel and remove it themselves, so it is bounded by
-	// the number of concurrent waiters and can never be evicted from under a
-	// parked caller.
-	exitWaiters sync.Map
+	// exitWaiters holds the callers currently inside WaitForPidExit. They
+	// remove themselves, so it is bounded by the number of concurrent waiters
+	// and can never be evicted from under a parked caller.
+	exitWaiters pidExitWaiters
 
 	// keyLimitWarned holds the containers which reached maxKeysPerContainer,
 	// so that the limit is only reported once per container.
@@ -610,7 +612,8 @@ func (b *BpfRecorder) connectMetrics(ctx context.Context) error {
 		b.openMetricsStream,
 	)
 
-	if err := util.Retry(
+	if err := util.RetryWithContext(
+		ctx,
 		func() error { return b.metrics.ConnectContext(ctx) },
 		func(error) bool { return true },
 	); err != nil {
@@ -1076,7 +1079,7 @@ func (b *BpfRecorder) initGlobals(module *bpf.Module) error {
 // We try to front load as much work as possible so that starting a recording is quick.
 // Recorder start races with container initialization, so we can't spend too much time then.
 //
-// Unloading is currently done implicitly on process exit.
+// Close unloads it again.
 func (b *BpfRecorder) Load() (err error) {
 	var module *bpf.Module
 
@@ -1101,6 +1104,14 @@ func (b *BpfRecorder) Load() (err error) {
 	}
 
 	b.module = module
+
+	// Nothing is started before the end, so a failure releases everything
+	// which got loaded until then.
+	defer func() {
+		if err != nil {
+			b.releaseModule()
+		}
+	}()
 
 	if b.programName != "" {
 		programName := []byte(filepath.Base(b.programName))
@@ -1275,12 +1286,17 @@ func (b *BpfRecorder) Close() {
 		return
 	}
 
+	b.logger.Info("Unloading BPF module")
+	b.releaseModule()
+}
+
+// releaseModule detaches the programs and releases the BPF module with its
+// ring buffer and maps.
+func (b *BpfRecorder) releaseModule() {
 	// The lost events reporter takes the map under the lock.
 	b.lostEventsMu.Lock()
 	b.lostEventsBpfMap = nil
 	b.lostEventsMu.Unlock()
-
-	b.logger.Info("Unloading BPF module")
 
 	// Closing the ring buffer closes the events channel, which ends the event
 	// processing.
@@ -1617,25 +1633,25 @@ func (b *BpfRecorder) handleEvent(eventBytes []byte) {
 	}
 
 	switch event.Type {
-	case uint8(eventTypeNewPid):
+	case eventTypeNewPid:
 		// The flags carry when the process started, see submit_new_pid. A
 		// value beyond a duration turns negative, which counts as unknown.
 		b.scheduleNewPidEvent(event.Pid, event.Mntns, event.Key, time.Duration(event.Flags))
-	case uint8(eventTypeExit):
+	case eventTypeExit:
 		b.handleExitEvent(&event)
-	case uint8(eventTypeAppArmorFile):
+	case eventTypeAppArmorFile:
 		if b.AppArmor != nil {
 			b.AppArmor.handleFileEvent(&event)
 		}
-	case uint8(eventTypeAppArmorSocket):
+	case eventTypeAppArmorSocket:
 		if b.AppArmor != nil {
 			b.AppArmor.handleSocketEvent(&event)
 		}
-	case uint8(eventTypeAppArmorCap):
+	case eventTypeAppArmorCap:
 		if b.AppArmor != nil {
 			b.AppArmor.handleCapabilityEvent(&event)
 		}
-	case uint8(eventTypeClearMntns):
+	case eventTypeClearMntns:
 		if b.AppArmor != nil {
 			b.AppArmor.clearKey(&event)
 		}
@@ -1646,8 +1662,8 @@ func (b *BpfRecorder) handleEvent(eventBytes []byte) {
 //
 // It never blocks: handleNewPidEvent does a cgroup lookup and can hit the
 // Kubernetes API, and the caller is the single event processing loop which also
-// delivers the AppArmor events over an unbuffered channel. Stalling it makes the
-// kernel drop recorded events, so a saturated queue drops the event instead.
+// handles the AppArmor events. Stalling it makes the kernel drop recorded
+// events, so a saturated queue drops the event instead.
 func (b *BpfRecorder) scheduleNewPidEvent(pid, mntns uint32, key uint64, startedAt time.Duration) {
 	// The handlers live for the lifetime of the recorder. There is no teardown
 	// because both the daemon and spoc keep a recorder until the process exits,
@@ -1693,6 +1709,7 @@ func (b *BpfRecorder) scheduleNewPidEvent(pid, mntns uint32, key uint64, started
 			}
 
 			b.droppedPids[droppedPid{pid: pid, key: key}] = struct{}{}
+			b.hasDroppedPids.Store(true)
 		}
 		b.droppedPidsMu.Unlock()
 
@@ -1718,13 +1735,14 @@ func (b *BpfRecorder) runPidHandler() {
 // the active_pids map once the queue is at most half full, so that the BPF
 // program reports them again with their next syscall.
 func (b *BpfRecorder) reportDroppedPidsAgain() {
-	if len(b.newPidEvents) > newPidQueueSize/2 {
+	if !b.hasDroppedPids.Load() || len(b.newPidEvents) > newPidQueueSize/2 {
 		return
 	}
 
 	b.droppedPidsMu.Lock()
 	dropped := b.droppedPids
 	b.droppedPids = nil
+	b.hasDroppedPids.Store(false)
 	b.droppedPidsMu.Unlock()
 
 	// Close drops the map under the write lock.
@@ -2036,14 +2054,7 @@ func (b *BpfRecorder) handleExitEvent(exitEvent *bpfEvent) {
 	// after this still observes it.
 	b.recentExits.Set(exitEvent.Pid, struct{}{}, ttlcache.DefaultTTL)
 
-	// LoadAndDelete hands the channel to exactly one caller, so a repeated exit
-	// event for the same pid cannot close it twice. Closing rather than sending
-	// wakes every waiter sharing the channel.
-	if waiter, ok := b.exitWaiters.LoadAndDelete(exitEvent.Pid); ok {
-		if done, ok := waiter.(chan struct{}); ok {
-			close(done)
-		}
-	}
+	b.exitWaiters.wake(exitEvent.Pid)
 }
 
 // FindProcMountNamespace is looking up the mnt ns for a given PID.
@@ -2221,30 +2232,90 @@ func (b *BpfRecorder) cacheProfilesOfPod(pod *v1.Pod) {
 // When running outside of Kubernetes as spoc, we have the use case of
 // waiting for a specific PID to exit.
 func (b *BpfRecorder) WaitForPidExit(ctx context.Context, pid uint32) error {
-	// Concurrent waiters for the same pid share one channel, so that closing it
-	// wakes all of them. Registering happens before the recorded exits are
-	// consulted, so an exit landing between the two cannot be missed.
-	waiter, _ := b.exitWaiters.LoadOrStore(pid, make(chan struct{}))
-
-	done, ok := waiter.(chan struct{})
-	if !ok {
-		return fmt.Errorf("unexpected exit waiter type: %T", waiter)
-	}
-
-	// Only drop the registration if it is still ours, so giving up does not
-	// deregister a channel another waiter is parked on.
-	defer b.exitWaiters.CompareAndDelete(pid, done)
+	// Registering happens before the recorded exits are consulted, so an exit
+	// landing between the two cannot be missed.
+	waiter := b.exitWaiters.register(pid)
+	defer b.exitWaiters.release(pid, waiter)
 
 	if b.recentExits.Get(pid) != nil {
 		return nil
 	}
 
 	select {
-	case <-done:
+	case <-waiter.done:
 		return nil
 	case <-ctx.Done():
 		return fmt.Errorf("waiting for pid exit: %w", ctx.Err())
 	}
+}
+
+// pidExitWaiters holds the waiters for the exit of a pid. Concurrent waiters
+// for the same pid share one channel, so that closing it wakes all of them.
+type pidExitWaiters struct {
+	mu      sync.Mutex
+	waiters map[uint32]*pidExitWaiter
+}
+
+type pidExitWaiter struct {
+	done chan struct{}
+	// refs is the number of callers waiting on done.
+	refs int
+}
+
+func (p *pidExitWaiters) register(pid uint32) *pidExitWaiter {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.waiters == nil {
+		p.waiters = map[uint32]*pidExitWaiter{}
+	}
+
+	waiter, ok := p.waiters[pid]
+	if !ok {
+		waiter = &pidExitWaiter{done: make(chan struct{})}
+		p.waiters[pid] = waiter
+	}
+
+	waiter.refs++
+
+	return waiter
+}
+
+// release drops a caller of waiter. The registration goes with the last one,
+// so giving up does not deregister a channel another waiter is parked on.
+func (p *pidExitWaiters) release(pid uint32, waiter *pidExitWaiter) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	waiter.refs--
+
+	if waiter.refs == 0 && p.waiters[pid] == waiter {
+		delete(p.waiters, pid)
+	}
+}
+
+// wake wakes the waiters of pid. The registration is removed, so a repeated
+// exit event for the same pid cannot close the channel twice.
+func (p *pidExitWaiters) wake(pid uint32) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if waiter, ok := p.waiters[pid]; ok {
+		close(waiter.done)
+		delete(p.waiters, pid)
+	}
+}
+
+// waiting returns the number of callers waiting for the exit of pid.
+func (p *pidExitWaiters) waiting(pid uint32) int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if waiter, ok := p.waiters[pid]; ok {
+		return waiter.refs
+	}
+
+	return 0
 }
 
 var bpfLSMRegex = regexp.MustCompile(`(^|,)bpf(,|$)`)

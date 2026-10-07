@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"net"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -339,6 +340,12 @@ func TestRun(t *testing.T) {
 
 			err := sut.Run()
 			tc.assert(t, err)
+
+			// A load which fails after the module got created releases it.
+			if strings.HasPrefix(tc.name, "load ") &&
+				tc.name != "load NewModuleFromBufferArgs fails" {
+				require.Equal(t, 1, mock.CloseModuleCallCount())
+			}
 
 			// Serve takes over the listener, otherwise Run has to close it.
 			if listened {
@@ -1051,7 +1058,7 @@ func TestProcessEvents(t *testing.T) {
 	event := make([]byte, bpfEventHeaderSize)
 	binary.LittleEndian.PutUint32(event[0:], 42)
 	binary.LittleEndian.PutUint32(event[4:], 0x1010)
-	event[16] = uint8(eventTypeExit)
+	event[16] = eventTypeExit
 
 	ch := make(chan []byte, 1)
 	ch <- event
@@ -1077,7 +1084,7 @@ func TestRecordedExitsAreBounded(t *testing.T) {
 	sut.impl = &bpfrecorderfakes.FakeImpl{}
 
 	for pid := range uint32(maxCacheItems * 2) {
-		sut.handleExitEvent(&bpfEvent{Pid: pid, Type: uint8(eventTypeExit)})
+		sut.handleExitEvent(&bpfEvent{Pid: pid, Type: eventTypeExit})
 	}
 
 	require.LessOrEqual(t, uint64(sut.recentExits.Len()), maxCacheItems)
@@ -1103,9 +1110,7 @@ func TestWaitForPidExitSurvivesEviction(t *testing.T) {
 	// Let the waiter register, then churn the cache past its capacity and clear
 	// it, which is what StopRecording does.
 	require.Eventually(t, func() bool {
-		_, ok := sut.exitWaiters.Load(pid)
-
-		return ok
+		return sut.exitWaiters.waiting(pid) == 1
 	}, time.Minute, time.Millisecond)
 
 	for other := range uint32(maxCacheItems + 10) {
@@ -1114,7 +1119,7 @@ func TestWaitForPidExitSurvivesEviction(t *testing.T) {
 
 	sut.recentExits.DeleteAll()
 
-	sut.handleExitEvent(&bpfEvent{Pid: pid, Type: uint8(eventTypeExit)})
+	sut.handleExitEvent(&bpfEvent{Pid: pid, Type: eventTypeExit})
 
 	select {
 	case err := <-waitErr:
@@ -1136,7 +1141,7 @@ func TestStopRecordingReleasesLookupTables(t *testing.T) {
 	sut.containerKeys.Insert(0x1010, "container-id")
 	sut.containerIDToProfileMap.Insert("container-id", "profile")
 	sut.containersWithoutProfile.Set("other-container", struct{}{}, ttlcache.DefaultTTL)
-	sut.handleExitEvent(&bpfEvent{Pid: 42, Type: uint8(eventTypeExit)})
+	sut.handleExitEvent(&bpfEvent{Pid: 42, Type: eventTypeExit})
 
 	require.Equal(t, 1, sut.containerKeys.Size())
 	require.Equal(t, 1, sut.containerIDToProfileMap.Size())
@@ -1179,6 +1184,36 @@ func TestHandlerFromFinishedRecordingIsDiscarded(t *testing.T) {
 // TestWaitForPidExitWakesConcurrentWaiters asserts that every caller waiting on
 // the same pid is woken. Registering with Store rather than LoadOrStore used to
 // drop the earlier waiters, leaving them parked until their context expired.
+// TestWaitForPidExitEarlyLeaver asserts that a waiter giving up does not take
+// the registration of the waiters which keep waiting with it.
+func TestWaitForPidExitEarlyLeaver(t *testing.T) {
+	t.Parallel()
+
+	sut := New("", logr.Discard(), true, true)
+	sut.impl = &bpfrecorderfakes.FakeImpl{}
+
+	const pid uint32 = 43
+
+	leaverCtx, leave := context.WithCancel(t.Context())
+	leaverErr := make(chan error, 1)
+	stayerErr := make(chan error, 1)
+
+	go func() { leaverErr <- sut.WaitForPidExit(leaverCtx, pid) }()
+	go func() { stayerErr <- sut.WaitForPidExit(t.Context(), pid) }()
+
+	require.Eventually(t, func() bool {
+		return sut.exitWaiters.waiting(pid) == 2
+	}, time.Minute, time.Millisecond)
+
+	leave()
+	require.ErrorIs(t, <-leaverErr, context.Canceled)
+	require.Equal(t, 1, sut.exitWaiters.waiting(pid))
+
+	sut.handleExitEvent(&bpfEvent{Pid: pid, Type: eventTypeExit})
+	require.NoError(t, <-stayerErr)
+	require.Zero(t, sut.exitWaiters.waiting(pid))
+}
+
 func TestWaitForPidExitWakesConcurrentWaiters(t *testing.T) {
 	t.Parallel()
 
@@ -1200,17 +1235,10 @@ func TestWaitForPidExitWakesConcurrentWaiters(t *testing.T) {
 
 	// Wait until every caller is registered on the shared channel.
 	require.Eventually(t, func() bool {
-		waiter, ok := sut.exitWaiters.Load(pid)
-		if !ok {
-			return false
-		}
-
-		done, ok := waiter.(chan struct{})
-
-		return ok && done != nil
+		return sut.exitWaiters.waiting(pid) == waiters
 	}, time.Minute, time.Millisecond)
 
-	sut.handleExitEvent(&bpfEvent{Pid: pid, Type: uint8(eventTypeExit)})
+	sut.handleExitEvent(&bpfEvent{Pid: pid, Type: eventTypeExit})
 
 	for range waiters {
 		select {
@@ -1317,7 +1345,7 @@ func TestNewPidEvent(t *testing.T) {
 					Pid:   42,
 					Mntns: 0x1010,
 					Key:   0x1010,
-					Type:  uint8(eventTypeNewPid),
+					Type:  eventTypeNewPid,
 				}
 			},
 			assert: func(t *testing.T, sut *BpfRecorder, logger *Logger) {
@@ -1346,7 +1374,7 @@ func TestNewPidEvent(t *testing.T) {
 					Pid:   42,
 					Mntns: 0x1010,
 					Key:   0x1010,
-					Type:  uint8(eventTypeNewPid),
+					Type:  eventTypeNewPid,
 				}
 			},
 			assert: func(t *testing.T, sut *BpfRecorder, logger *Logger) {
@@ -1367,7 +1395,7 @@ func TestNewPidEvent(t *testing.T) {
 					Pid:   42,
 					Mntns: 0x1010,
 					Key:   0x1010,
-					Type:  uint8(eventTypeNewPid),
+					Type:  eventTypeNewPid,
 				}
 			},
 			assert: func(t *testing.T, sut *BpfRecorder, logger *Logger) {

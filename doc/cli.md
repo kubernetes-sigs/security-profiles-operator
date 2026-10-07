@@ -30,7 +30,8 @@ For now, the CLI is able to:
 - Merge multiple security profiles into a combined one.
 - Convert seccomp and AppArmor profile CRDs to their raw format.
 - Install and remove AppArmor profiles on the local machine.
-- Push security profiles to and pull them from OCI registries.
+- Push security profiles to and pull them from OCI registries, and sign the
+  pushed ones.
 
 Every command, flag and environment variable of `spoc` is listed in the
 generated [command line reference](reference/spoc.md).
@@ -42,34 +43,14 @@ OCI artifact `registry.k8s.io/security-profiles-operator/spoc` (see
 running it within the official container images:
 
 ```console
-> podman run -it registry.k8s.io/security-profiles-operator/security-profiles-operator:v1.1.1 spoc
-NAME:
-   spoc - Security Profiles Operator CLI
-
-USAGE:
-   spoc [global options] command [command options]
-
-VERSION:
-   v1.1.1
-
-COMMANDS:
-   version, v  display detailed version information
-   record, r   run a command and record the security profile
-   merge, m    merge multiple security profiles
-   convert, c  convert a security profile to its raw format
-   install, i  install a security profile on the local machine
-   remove, rm  remove a security profile from the local machine
-   run, x      run a command using a security profile
-   push, p     push a profile to a container registry
-   pull, l     pull a profile from a container registry
-   help, h     Shows a list of commands or help for one command
-
-GLOBAL OPTIONS:
-   --help, -h     show help
-   --version, -v  print the version
+> podman run -it registry.k8s.io/security-profiles-operator/security-profiles-operator:v${VERSION} spoc --help
 ```
 
-v1.1.0 and older releases don't publish the OCI artifact, see
+where `VERSION` is the version of a [release][releases] without the `v` prefix.
+The help lists the commands, the
+[command line reference](reference/spoc.md) documents them in detail.
+
+Some older releases don't publish the OCI artifact, see
 [older releases](verification.md#older-releases).
 
 Every command documents its flags via `spoc <command> --help`. `spoc version`
@@ -343,8 +324,8 @@ compatible registries. To do that, just run `spoc push`:
 ```
 > export SPOC_USERNAME=my-user
 > export SPOC_PASSWORD=my-pass
-> spoc push -f ./examples/baseprofile-crun.yaml registry.example.com/profiles/crun:v1.8.1
-16:35:43.899886 Pushing profiles to: registry.example.com/profiles/crun:v1.8.1
+> spoc push -f ./examples/baseprofile-crun.yaml registry.example.com/profiles/crun:test
+16:35:43.899886 Pushing profiles to: registry.example.com/profiles/crun:test
 16:35:43.899939 Creating file store (dir=/tmp/push-3618165827)
 16:35:43.899943 Reading profiles (count=1)
 16:35:43.899947 Adding profile to store (file=/home/user/examples/baseprofile-crun.yaml, platform=)
@@ -357,8 +338,8 @@ compatible registries. To do that, just run `spoc push`:
 Your browser will now be opened to:
 https://oauth2.sigstore.dev/auth/auth?access_type=…
 …
-16:35:52.900282 Verifying reference (ref=registry.example.com/profiles/crun:v1.8.1)
-16:35:52.900310 Using tag (tag=v1.8.1)
+16:35:52.900282 Verifying reference (ref=registry.example.com/profiles/crun:test)
+16:35:52.900310 Using tag (tag=test)
 16:35:52.900313 Creating repository (ref=registry.example.com/profiles/crun)
 16:35:52.900319 Using username and password
 16:35:52.900321 Copying profile to repository

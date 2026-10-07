@@ -121,6 +121,19 @@ type FakeImpl struct {
 		result1 string
 		result2 error
 	}
+	CgroupRemovedStub        func(uint64) (bool, error)
+	cgroupRemovedMutex       sync.RWMutex
+	cgroupRemovedArgsForCall []struct {
+		arg1 uint64
+	}
+	cgroupRemovedReturns struct {
+		result1 bool
+		result2 error
+	}
+	cgroupRemovedReturnsOnCall map[int]struct {
+		result1 bool
+		result2 error
+	}
 	ChownStub        func(string, int, int) error
 	chownMutex       sync.RWMutex
 	chownArgsForCall []struct {
@@ -979,6 +992,70 @@ func (fake *FakeImpl) CgroupPathForIDReturnsOnCall(i int, result1 string, result
 	}
 	fake.cgroupPathForIDReturnsOnCall[i] = struct {
 		result1 string
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) CgroupRemoved(arg1 uint64) (bool, error) {
+	fake.cgroupRemovedMutex.Lock()
+	ret, specificReturn := fake.cgroupRemovedReturnsOnCall[len(fake.cgroupRemovedArgsForCall)]
+	fake.cgroupRemovedArgsForCall = append(fake.cgroupRemovedArgsForCall, struct {
+		arg1 uint64
+	}{arg1})
+	stub := fake.CgroupRemovedStub
+	fakeReturns := fake.cgroupRemovedReturns
+	fake.recordInvocation("CgroupRemoved", []interface{}{arg1})
+	fake.cgroupRemovedMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) CgroupRemovedCallCount() int {
+	fake.cgroupRemovedMutex.RLock()
+	defer fake.cgroupRemovedMutex.RUnlock()
+	return len(fake.cgroupRemovedArgsForCall)
+}
+
+func (fake *FakeImpl) CgroupRemovedCalls(stub func(uint64) (bool, error)) {
+	fake.cgroupRemovedMutex.Lock()
+	defer fake.cgroupRemovedMutex.Unlock()
+	fake.CgroupRemovedStub = stub
+}
+
+func (fake *FakeImpl) CgroupRemovedArgsForCall(i int) uint64 {
+	fake.cgroupRemovedMutex.RLock()
+	defer fake.cgroupRemovedMutex.RUnlock()
+	argsForCall := fake.cgroupRemovedArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeImpl) CgroupRemovedReturns(result1 bool, result2 error) {
+	fake.cgroupRemovedMutex.Lock()
+	defer fake.cgroupRemovedMutex.Unlock()
+	fake.CgroupRemovedStub = nil
+	fake.cgroupRemovedReturns = struct {
+		result1 bool
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) CgroupRemovedReturnsOnCall(i int, result1 bool, result2 error) {
+	fake.cgroupRemovedMutex.Lock()
+	defer fake.cgroupRemovedMutex.Unlock()
+	fake.CgroupRemovedStub = nil
+	if fake.cgroupRemovedReturnsOnCall == nil {
+		fake.cgroupRemovedReturnsOnCall = make(map[int]struct {
+			result1 bool
+			result2 error
+		})
+	}
+	fake.cgroupRemovedReturnsOnCall[i] = struct {
+		result1 bool
 		result2 error
 	}{result1, result2}
 }

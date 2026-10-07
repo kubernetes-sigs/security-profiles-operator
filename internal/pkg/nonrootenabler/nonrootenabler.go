@@ -26,12 +26,12 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/moby/sys/mountinfo"
-	"sigs.k8s.io/release-utils/helpers"
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/apparmorprofile"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 // ErrKubeletDirNotMounted is returned if the kubelet directory of the node is
@@ -82,10 +82,16 @@ func (n *NonRootEnabler) Run(logger logr.Logger, runtime, kubeletDir string, app
 
 	logger.Info("Copying profiles into root path", "path", kubeletSeccompDir)
 
-	if err := n.CopyDirContentsLocal(
-		config.DefaultSpoProfilePath, kubeletSeccompDir,
-	); err != nil {
-		return fmt.Errorf("copy local security profiles: %w", err)
+	// Only the seccomp profiles: the directory is a ConfigMap volume, which
+	// holds other files and the symlinks of its own layout as well.
+	for _, profile := range seccompProfiles {
+		if err := n.CopyFile(
+			path.Join(config.DefaultSpoProfilePath, profile),
+			path.Join(kubeletSeccompDir, profile),
+			filePermissions,
+		); err != nil {
+			return fmt.Errorf("copy local security profile %s: %w", profile, err)
+		}
 	}
 
 	if !apparmor {
@@ -182,6 +188,10 @@ func (n *NonRootEnabler) saveKubeletConfig(logger logr.Logger, kubeletDir string
 	return nil
 }
 
+// seccompProfiles are the seccomp profiles of the operator itself, which the
+// containers of the daemon run with.
+var seccompProfiles = []string{config.SpoSeccompProfile, config.BpfRecorderSeccompProfile}
+
 // apparmorProfiles are the AppArmor profiles of the operator itself, which
 // get installed on nodes with AppArmor.
 var apparmorProfiles = []string{config.SpoApparmorProfile, config.BpfRecorderApparmorProfile}
@@ -264,7 +274,7 @@ type impl interface {
 	Mounted(name string) (bool, error)
 	Symlink(oldname, newname string) error
 	Lchown(name string, uid, gid int) error
-	CopyDirContentsLocal(src, dst string) error
+	CopyFile(src, dst string, perm os.FileMode) error
 	SaveKubeletConfig(filename string, kubeletConfig []byte, perm os.FileMode) error
 	InstallApparmor(manager apparmorprofile.ProfileManager, filename string) error
 }
@@ -308,8 +318,19 @@ func (*defaultImpl) Lchown(name string, uid, gid int) error {
 	return os.Lchown(name, uid, gid)
 }
 
-func (*defaultImpl) CopyDirContentsLocal(src, dst string) error {
-	return helpers.CopyDirContentsLocal(src, dst)
+// CopyFile copies the file src to dst, which a reader never sees partially
+// written.
+func (*defaultImpl) CopyFile(src, dst string, perm os.FileMode) error {
+	content, err := os.ReadFile(src)
+	if err != nil {
+		return fmt.Errorf("reading %s: %w", src, err)
+	}
+
+	if err := util.WriteFileAtomic(dst, content, perm); err != nil {
+		return fmt.Errorf("writing %s: %w", dst, err)
+	}
+
+	return nil
 }
 
 func (*defaultImpl) SaveKubeletConfig(
@@ -317,7 +338,8 @@ func (*defaultImpl) SaveKubeletConfig(
 	kubeletConfig []byte,
 	perm os.FileMode,
 ) error {
-	return os.WriteFile(filename, kubeletConfig, perm)
+	// The daemon reads the file while it may get written.
+	return util.WriteFileAtomic(filename, kubeletConfig, perm)
 }
 
 func (*defaultImpl) InstallApparmor(manager apparmorprofile.ProfileManager, filename string) error {

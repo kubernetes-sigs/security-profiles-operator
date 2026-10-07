@@ -21,8 +21,6 @@ import (
 
 	"github.com/go-logr/logr"
 
-	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/installer"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/apparmorprofile"
 )
@@ -52,32 +50,20 @@ func (p *Remover) Run() error {
 		return fmt.Errorf("open profile: %w", err)
 	}
 
-	profile, err := artifact.ReadProfile(content)
+	profile, err := installer.AppArmorProfile(content, p.options, "remove")
 	if err != nil {
-		return fmt.Errorf("failed to read %s: %w", p.options.ProfilePath, err)
+		return err
 	}
 
-	switch obj := profile.(type) {
-	case *apparmorprofileapi.AppArmorProfile:
-		manager := apparmorprofile.NewAppArmorProfileManager(p.logger)
-		if !p.AppArmorEnabled(manager) {
-			return installer.ErrAppArmorUnavailable
-		}
+	manager := apparmorprofile.NewAppArmorProfileManager(p.logger)
+	if !p.AppArmorEnabled(manager) {
+		return installer.ErrAppArmorUnavailable
+	}
 
-		if err := installer.PatchProfileName(obj, p.options); err != nil {
-			return fmt.Errorf("cannot remove apparmor profile: %w", err)
-		}
+	p.logger.Info("Removing AppArmor profile", "profile", profile.Name)
 
-		p.logger.Info("Removing AppArmor profile", "profile", obj.Name)
-
-		if err := p.AppArmorRemoveProfile(manager, obj); err != nil {
-			return fmt.Errorf("remove apparmor profile: %w", err)
-		}
-	default:
-		return fmt.Errorf(
-			"cannot remove %s profiles, only AppArmorProfile is supported",
-			obj.GetObjectKind().GroupVersionKind().Kind,
-		)
+	if err := p.AppArmorRemoveProfile(manager, profile); err != nil {
+		return fmt.Errorf("remove apparmor profile: %w", err)
 	}
 
 	return nil

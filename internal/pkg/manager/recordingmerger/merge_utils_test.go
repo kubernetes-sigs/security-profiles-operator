@@ -458,3 +458,24 @@ func TestNormalizeCheckMergeComparison(t *testing.T) {
 
 	require.True(t, reflect.DeepEqual(base, merged))
 }
+
+// A partial profile without allow rules has a nil map after a round trip
+// through the API server, which must not panic as the merge target.
+func TestMergeSelinuxProfileWithoutAllow(t *testing.T) {
+	t.Parallel()
+
+	empty := &MergeableSelinuxProfile{}
+	other := &MergeableSelinuxProfile{SelinuxProfile: selinuxprofileapi.SelinuxProfile{
+		Spec: selinuxprofileapi.SelinuxProfileSpec{
+			Allow: selinuxprofileapi.Allow{
+				"self": {"file": {"read"}},
+			},
+		},
+	}}
+
+	require.NoError(t, empty.merge(other))
+	require.Equal(t, selinuxprofileapi.PermissionSet{"read"}, empty.Spec.Allow["self"]["file"])
+
+	require.NoError(t, other.merge(&MergeableSelinuxProfile{}))
+	require.Len(t, other.Spec.Allow, 1)
+}

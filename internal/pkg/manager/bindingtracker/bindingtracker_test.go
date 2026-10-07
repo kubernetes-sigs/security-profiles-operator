@@ -599,3 +599,60 @@ func TestUntrackPodKeepsFinalizerForConcurrentlyTrackedPod(t *testing.T) {
 	require.Equal(t, []string{"default/new-pod"}, updated.Status.ActiveWorkloads)
 	require.Contains(t, updated.GetFinalizers(), finalizer)
 }
+
+func TestTrackedPodChanged(t *testing.T) {
+	t.Parallel()
+
+	pod := func(mutate func(*corev1.Pod)) *corev1.Pod {
+		p := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+			Labels:      map[string]string{"app": "a"},
+			Annotations: map[string]string{profilebindingapi.AppliedBindingsAnnotation: "b"},
+		}}
+		if mutate != nil {
+			mutate(p)
+		}
+
+		return p
+	}
+
+	for _, tc := range []struct {
+		name   string
+		mutate func(*corev1.Pod)
+		want   bool
+	}{
+		{name: "unchanged"},
+		{
+			name:   "labels",
+			mutate: func(p *corev1.Pod) { p.Labels["app"] = "b" },
+			want:   true,
+		},
+		{
+			name: "applied bindings",
+			mutate: func(p *corev1.Pod) {
+				p.Annotations[profilebindingapi.AppliedBindingsAnnotation] = "c"
+			},
+			want: true,
+		},
+		{
+			name: "ephemeral container",
+			mutate: func(p *corev1.Pod) {
+				p.Spec.EphemeralContainers = []corev1.EphemeralContainer{{
+					EphemeralContainerCommon: corev1.EphemeralContainerCommon{
+						Name: "debugger", Image: "busybox",
+					},
+				}}
+			},
+			want: true,
+		},
+		{
+			name:   "other annotation",
+			mutate: func(p *corev1.Pod) { p.Annotations["other"] = "x" },
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tc.want, trackedPodChanged(pod(nil), pod(tc.mutate)))
+		})
+	}
+}

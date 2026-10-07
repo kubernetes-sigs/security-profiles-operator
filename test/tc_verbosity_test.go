@@ -18,15 +18,15 @@ limitations under the License.
 
 package e2e_test
 
+import (
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+)
+
 func (e *e2e) testCaseVerbosityChange([]string) {
 	e.logf("Change verbosity in spod")
 	e.patchSpod(`{"spec":{"verbosity": 1}}`)
 
-	logs := e.kubectlOperatorNS(
-		"logs",
-		"ds/spod",
-		"security-profiles-operator",
-	)
-
-	e.Contains(logs, "Set logging verbosity to 1")
+	// The daemon runs with the rolled out spec, whose flag parsing the unit
+	// tests cover, rather than asserting on the text of a log line.
+	e.Equal("1", e.spodEnv(config.VerbosityEnvKey))
 }

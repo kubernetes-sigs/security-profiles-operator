@@ -36,12 +36,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: ./go.mod
       # govulncheck type checks the cgo packages, which needs their headers.
-      - name: Install dependencies
-        run: sudo hack/install-packages
+      - uses: ./.github/actions/setup-go-build
       - run: make verify-vulnerabilities
 
   # The last released and the current staging image, with the assessments of
@@ -76,18 +72,9 @@ jobs:
           fi
           echo "Scanning $ref"
           echo "ref=$ref" >>"$GITHUB_OUTPUT"
-      - name: Scan for fixable vulnerabilities
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        env:
-          TRIVY_VEX: .openvex.json
-          TRIVY_SHOW_SUPPRESSED: "true"
+      - uses: ./.github/actions/scan-image
         with:
           image-ref: ${{ steps.image.outputs.ref }}
-          scanners: vuln
-          ignore-unfixed: true
-          exit-code: "1"
-          format: table
-          version: v0.74.0
 
   # Opens an issue, or comments on the open one, when a scheduled run fails.
   # It runs no repository code.

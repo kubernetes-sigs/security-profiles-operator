@@ -315,7 +315,7 @@ func Test_kubeletDirLabelChanged(t *testing.T) {
 	require.False(t, p.Generic(event.GenericEvent{Object: custom}))
 }
 
-func Test_spodsForNode(t *testing.T) {
+func Test_allSPODs(t *testing.T) {
 	t.Parallel()
 
 	scheme := runtime.NewScheme()
@@ -332,7 +332,7 @@ func Test_spodsForNode(t *testing.T) {
 		},
 	).Build()
 
-	requests := r.spodsForNode(t.Context(), newNode("node", "mnt-resource-kubelet"))
+	requests := r.allSPODs(t.Context(), newNode("node", "mnt-resource-kubelet"))
 	require.Len(t, requests, 1)
 	require.Equal(t, client.ObjectKey{Name: config.SPOdName, Namespace: r.namespace},
 		requests[0].NamespacedName)

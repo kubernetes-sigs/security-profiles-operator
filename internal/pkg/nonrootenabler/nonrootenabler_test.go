@@ -76,9 +76,9 @@ func TestRun(t *testing.T) {
 			},
 			shouldError: true,
 		},
-		"failure on CopyDirContentsLocal": {
+		"failure on CopyFile": {
 			prepare: func(mock *nonrootenablerfakes.FakeImpl) {
-				mock.CopyDirContentsLocalReturns(errTest)
+				mock.CopyFileReturns(errTest)
 			},
 			shouldError: true,
 		},
@@ -180,7 +180,7 @@ func TestRunKubeletDirNotMounted(t *testing.T) {
 	require.Equal(t, "/host/mnt/resource/kubelet/seccomp", mock.MountedArgsForCall(0))
 	require.Zero(t, mock.MkdirAllCallCount())
 	require.Zero(t, mock.SymlinkCallCount())
-	require.Zero(t, mock.CopyDirContentsLocalCallCount())
+	require.Zero(t, mock.CopyFileCallCount())
 }
 
 // TestRunWritesExpectedPaths asserts what Run actually does to the node, rather
@@ -227,10 +227,15 @@ func TestRunWritesExpectedPaths(t *testing.T) {
 	require.Equal(t, config.UserRootless, uid)
 	require.Equal(t, config.UserRootless, gid)
 
-	require.Equal(t, 1, mock.CopyDirContentsLocalCallCount())
-	src, dst := mock.CopyDirContentsLocalArgsForCall(0)
-	require.Equal(t, config.DefaultSpoProfilePath, src)
-	require.Equal(t, wantSeccompDir, dst)
+	// Only the seccomp profiles get copied, not the rest of the ConfigMap.
+	require.Equal(t, 2, mock.CopyFileCallCount())
+
+	for i, profile := range []string{config.SpoSeccompProfile, config.BpfRecorderSeccompProfile} {
+		src, dst, perm := mock.CopyFileArgsForCall(i)
+		require.Equal(t, path.Join(config.DefaultSpoProfilePath, profile), src)
+		require.Equal(t, path.Join(wantSeccompDir, profile), dst)
+		require.Equal(t, os.FileMode(0o644), perm)
+	}
 
 	// The operator root has to end up traversable for the rootless user, which
 	// is what the "failure on Chmod" case above exists for.

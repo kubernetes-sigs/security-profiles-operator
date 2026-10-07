@@ -276,7 +276,7 @@ $(KUSTOMIZE): | $(BUILD_DIR)
 $(BUILD_DIR)/kustomize: $(KUSTOMIZE)
 	ln -sf $(notdir $(KUSTOMIZE)) $@
 
-$(BUILD_DIR)/kubernetes-split-yaml: $(BUILD_DIR)
+$(BUILD_DIR)/kubernetes-split-yaml: | $(BUILD_DIR)
 	$(call go-build,./vendor/github.com/mogensen/kubernetes-split-yaml)
 
 .PHONY: deployments
@@ -404,8 +404,7 @@ update-nixpkgs: ## Update the pinned nixpkgs to the latest master
 
 .PHONY: update-go-mod
 update-go-mod: ## Cleanup, vendor and verify go modules
-	export GO111MODULE=on && \
-		$(GO) mod tidy && \
+	$(GO) mod tidy && \
 		$(GO) mod vendor && \
 		$(GO) mod verify
 
@@ -423,13 +422,12 @@ update-mocks: ## Update all generated mocks
 
 define go-build
 	CGO_LDFLAGS= $(GO) build -o $(BUILD_DIR)/$(shell basename $(1)) $(1)
-	@echo > /dev/null
 endef
 
-$(BUILD_DIR)/protoc-gen-go-grpc: $(BUILD_DIR)
+$(BUILD_DIR)/protoc-gen-go-grpc: | $(BUILD_DIR)
 	$(call go-build,./vendor/google.golang.org/grpc/cmd/protoc-gen-go-grpc)
 
-$(BUILD_DIR)/protoc-gen-go: $(BUILD_DIR)
+$(BUILD_DIR)/protoc-gen-go: | $(BUILD_DIR)
 	$(call go-build,./vendor/google.golang.org/protobuf/cmd/protoc-gen-go)
 
 PROTOC := $(BUILD_DIR)/protoc-$(PROTOC_VERSION)
@@ -507,7 +505,7 @@ update-docs: ## Update the generated command line reference in doc/reference
 
 # Called by nix/derivation-bpf.nix with ARCH set to the kernel architecture
 # name of the vmlinux directory, use make update-bpf to build them.
-$(BUILD_DIR)/recorder.bpf.o: $(BUILD_DIR)
+$(BUILD_DIR)/recorder.bpf.o: $(BPF_RECORDER_FILES) | $(BUILD_DIR)
 	$(CLANG) -g -O2 \
 		-target bpf \
 		-D__TARGET_ARCH_$(ARCH) \
@@ -517,7 +515,7 @@ $(BUILD_DIR)/recorder.bpf.o: $(BUILD_DIR)
 		-o $@
 	$(LLVM_STRIP) -g $@
 
-$(BUILD_DIR)/enricher.bpf.o: $(BUILD_DIR)
+$(BUILD_DIR)/enricher.bpf.o: $(BPF_ENRICHER_FILES) | $(BUILD_DIR)
 	$(CLANG) -g -O2 \
 		-target bpf \
 		-D__TARGET_ARCH_$(ARCH) \
@@ -540,12 +538,13 @@ BPF_UPDATE_OBJECTS := \
 .PHONY: update-bpf
 update-bpf: clean $(BPF_UPDATE_OBJECTS) ## Build and update all generated BPF code with nix
 
-internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.%: $(BPF_RECORDER_FILES) ## Build and update all generated BPF code with nix
+# The objects of an architecture, use make update-bpf to build all of them.
+internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.%: $(BPF_RECORDER_FILES)
 	$(NIX) build --out-link result-bpf-recorder-$* .#bpf-$*
 	cp -f result-bpf-recorder-$*/recorder.bpf.o ./internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.$*
 	chmod 0644 ./internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.$*
 
-internal/pkg/daemon/enricher/auditsource/bpf/enricher.bpf.o.%: $(BPF_ENRICHER_FILES) ## Build and update all generated BPF code with nix
+internal/pkg/daemon/enricher/auditsource/bpf/enricher.bpf.o.%: $(BPF_ENRICHER_FILES)
 	$(NIX) build --out-link result-bpf-enricher-$* .#bpf-$*
 	cp -f result-bpf-enricher-$*/enricher.bpf.o ./internal/pkg/daemon/enricher/auditsource/bpf/enricher.bpf.o.$*
 	chmod 0644 ./internal/pkg/daemon/enricher/auditsource/bpf/enricher.bpf.o.$*
@@ -569,22 +568,13 @@ verify-in-a-container: ## Run all verification targets in a container
 		hack/pull-security-profiles-operator-verify
 
 .PHONY: verify-boilerplate
+# The skipped files are generated, by substring of their path.
 verify-boilerplate: $(BUILD_DIR)/verify_boilerplate.py ## Verify the boilerplate headers for all files
 	$(BUILD_DIR)/verify_boilerplate.py \
 		--boilerplate-dir hack/boilerplate \
-		--skip api/grpc/metrics/api_grpc.pb.go \
-		--skip api/grpc/enricher/api_grpc.pb.go \
-		--skip api/grpc/bpfrecorder/api_grpc.pb.go \
-		--skip api/grpc/bpfrecorder/api.pb.go \
-		--skip api/grpc/enricher/api.pb.go \
-		--skip api/grpc/metrics/api.pb.go \
-		--skip api/common/zz_generated.deepcopy.go \
-		--skip internal/pkg/daemon/bpfrecorder/bpfrecorderfakes/fake_impl.go \
-		--skip internal/pkg/daemon/enricher/enricherfakes/fake_impl.go \
-		--skip internal/pkg/daemon/metrics/metricsfakes/fake_impl.go \
-		--skip internal/pkg/nonrootenabler/nonrootenablerfakes/fake_impl.go \
-		--skip internal/pkg/webhooks/binding/bindingfakes/fake_impl.go \
-		--skip internal/pkg/webhooks/recording/recordingfakes/fake_impl.go
+		--skip api/grpc/ \
+		--skip zz_generated.deepcopy.go \
+		--skip fakes/fake_
 
 
 $(BUILD_DIR)/verify_boilerplate.py: | $(BUILD_DIR)
@@ -604,7 +594,7 @@ verify-deployments: deployments ## Verify the generated deployments
 
 .PHONY: verify-go-lint
 verify-go-lint: $(BUILD_DIR)/golangci-lint-kube-api-linter ## Verify the golang code by linting
-	GL_DEBUG=gocritic $(BUILD_DIR)/golangci-lint-kube-api-linter run --build-tags $(LINT_BUILDTAGS)
+	$(BUILD_DIR)/golangci-lint-kube-api-linter run --build-tags $(LINT_BUILDTAGS)
 
 # The binaries are versioned, so that a bump of GOLANGCI_LINT_VERSION or
 # .custom-gcl.yml rebuilds them instead of linting with a stale binary.
@@ -893,26 +883,11 @@ $(OPERATOR_SDK): | $(BUILD_DIR)
 	chmod +x $@.download
 	mv $@.download $@
 
-# CHANNELS define the bundle channels used in the bundle.
-# Add a new line here if you would like to change its default config. (E.g CHANNELS = "candidate,fast,stable")
-# To re-generate a bundle for other specific channels without changing the standard setup, you can:
-# - use the CHANNELS as arg of the bundle target (e.g make bundle CHANNELS=candidate,fast,stable)
-# - use environment variables to overwrite this value (e.g export CHANNELS="candidate,fast,stable")
-CHANNELS="stable"
-ifneq ($(origin CHANNELS), undefined)
-BUNDLE_CHANNELS := --channels=$(CHANNELS)
-endif
-
-# DEFAULT_CHANNEL defines the default channel used in the bundle.
-# Add a new line here if you would like to change its default config. (E.g DEFAULT_CHANNEL = "stable")
-# To re-generate a bundle for any other default channel without changing the default setup, you can:
-# - use the DEFAULT_CHANNEL as arg of the bundle target (e.g make bundle DEFAULT_CHANNEL=stable)
-# - use environment variables to overwrite this value (e.g export DEFAULT_CHANNEL="stable")
-DEFAULT_CHANNEL="stable"
-ifneq ($(origin DEFAULT_CHANNEL), undefined)
-BUNDLE_DEFAULT_CHANNEL := --default-channel=$(DEFAULT_CHANNEL)
-endif
-BUNDLE_METADATA_OPTS ?= $(BUNDLE_CHANNELS) $(BUNDLE_DEFAULT_CHANNEL)
+# The channels and the default channel of the bundle. Override them as make
+# variables or from the environment, like `make bundle CHANNELS=fast,stable`.
+CHANNELS ?= stable
+DEFAULT_CHANNEL ?= stable
+BUNDLE_METADATA_OPTS ?= --channels=$(CHANNELS) --default-channel=$(DEFAULT_CHANNEL)
 
 # BUNDLE_IMG defines the image:tag used for the bundle.
 # You can use it as an arg. (E.g make bundle-build BUNDLE_IMG=<some-registry>/<project-name-bundle>:<tag>)

@@ -187,6 +187,7 @@ func FromContext(ctx *ucli.Context) (*Options, error) {
 	}
 
 	options.pullFrom = args[0]
+	cli.WarnExtraArgs(args, 1)
 
 	if ctx.IsSet(FlagOutputFile) {
 		options.outputFile = ctx.String(FlagOutputFile)

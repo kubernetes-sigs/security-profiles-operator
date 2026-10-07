@@ -64,7 +64,6 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/recordingmerger"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
 
 const (
@@ -115,7 +114,8 @@ func unrecordable(err error) bool {
 // NewController returns a new empty controller instance.
 func NewController() controller.Controller {
 	return &RecorderReconciler{
-		impl: &defaultImpl{},
+		impl:                 &defaultImpl{},
+		forbiddenGracePeriod: defaultForbiddenGracePeriod,
 	}
 }
 
@@ -128,9 +128,16 @@ type RecorderReconciler struct {
 	// namespace is the namespace of the operator, which holds the SPOD.
 	namespace   string
 	podsToWatch sync.Map
-	// forbiddenAttempts counts per forbiddenKey how often storing a profile
-	// was forbidden.
+	// rejectedPods maps the pods with ignored recording annotations to a
+	// rejectedPod, so that every update of such a pod does not warn about
+	// them again.
+	rejectedPods sync.Map
+	// forbiddenAttempts holds per forbiddenKey the *forbiddenAttempts of
+	// storing a profile.
 	forbiddenAttempts sync.Map
+	// forbiddenGracePeriod is how long storing a profile is retried at least
+	// while the API server forbids it.
+	forbiddenGracePeriod time.Duration
 }
 
 // forbiddenKey identifies the attempts of a pod to store a profile. Profiles
@@ -235,12 +242,11 @@ func (r *RecorderReconciler) Setup(
 	)
 }
 
+// getSPOD returns the SPOD. Like every call of the reconciler, it is bound
+// by the timeout of the reconcile.
 func (r *RecorderReconciler) getSPOD(
 	ctx context.Context,
 ) (*spodapi.SecurityProfilesOperatorDaemon, error) {
-	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
-	defer cancel()
-
 	return r.GetSPOD(ctx, r.client, r.namespace)
 }
 
@@ -294,6 +300,13 @@ func shouldRecordContainer(
 	return slices.Contains(recording.Spec.Containers, containerName)
 }
 
+// rejectedPod holds the ignored recording annotations of a pod, which got
+// reported already.
+type rejectedPod struct {
+	uid         types.UID
+	annotations map[string]struct{}
+}
+
 // authorizedProfiles drops the profiles whose annotation is not backed by a
 // ProfileRecording that selects this pod.
 //
@@ -323,6 +336,33 @@ func (r *RecorderReconciler) authorizedProfiles(
 	authorized := make([]profileToCollect, 0, len(profiles))
 	states := map[string]recordingState{}
 
+	// An ignored annotation is reported once per pod, a newly ignored one of
+	// the same pod gets reported as well.
+	podKey := types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name}.String()
+	warnedBefore := map[string]struct{}{}
+
+	if value, ok := r.rejectedPods.Load(podKey); ok {
+		if previous, ok := value.(rejectedPod); ok && previous.uid == pod.UID {
+			warnedBefore = previous.annotations
+		}
+	}
+
+	rejectedNow := map[string]struct{}{}
+	defer func() {
+		if len(rejectedNow) > 0 {
+			r.rejectedPods.Store(podKey, rejectedPod{uid: pod.UID, annotations: rejectedNow})
+		} else {
+			r.rejectedPods.Delete(podKey)
+		}
+	}()
+
+	reject := func(annotation string) (warned bool) {
+		rejectedNow[annotation] = struct{}{}
+		_, warned = warnedBefore[annotation]
+
+		return warned
+	}
+
 	for _, profile := range profiles {
 		// The annotation value starts with the recording and container name.
 		// The trailing nonce and timestamp are not predictable, and are not
@@ -334,20 +374,22 @@ func (r *RecorderReconciler) authorizedProfiles(
 			// caller see a non-empty profile list and arm the node's BPF
 			// recorder, which is exactly what authorization must prevent, and
 			// the downstream handling requeues such an annotation forever.
-			r.log.Info(
-				"Ignoring malformed recording annotation",
-				"pod", pod.Name, "namespace", pod.Namespace,
-				"annotation", profile.name, "error", err.Error(),
-			)
-			r.record.Eventf(
-				pod,
-				nil,
-				util.EventTypeWarning,
-				reasonAnnotationParsing,
-				util.EventActionRecord,
-				"%s",
-				"ignoring malformed recording annotation: "+err.Error(),
-			)
+			if !reject(profile.name) {
+				r.log.Info(
+					"Ignoring malformed recording annotation",
+					"pod", pod.Name, "namespace", pod.Namespace,
+					"annotation", profile.name, "error", err.Error(),
+				)
+				r.record.Eventf(
+					pod,
+					nil,
+					util.EventTypeWarning,
+					reasonAnnotationParsing,
+					util.EventActionRecord,
+					"%s",
+					"ignoring malformed recording annotation: "+err.Error(),
+				)
+			}
 
 			continue
 		}
@@ -358,6 +400,10 @@ func (r *RecorderReconciler) authorizedProfiles(
 			authorized = append(authorized, profile)
 			states[recording.Name] = recordingStateOf(recording)
 
+			continue
+		}
+
+		if reject(profile.name) {
 			continue
 		}
 
@@ -442,6 +488,8 @@ func (r *RecorderReconciler) Reconcile(
 	pod, err := r.GetPod(ctx, r.client, req.NamespacedName)
 	if err != nil {
 		if kerrors.IsNotFound(err) {
+			r.rejectedPods.Delete(req.String())
+
 			return reconcile.Result{}, r.collectPod(ctx, req.NamespacedName, bpf, "removed")
 		}
 
@@ -727,9 +775,6 @@ func (r *RecorderReconciler) startBpfRecorder(ctx context.Context, bpf *bpfRecor
 		return err
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
-	defer cancel()
-
 	r.log.Info("Starting BPF recorder on node")
 
 	return r.StartBpfRecorder(ctx, recorderClient)
@@ -819,30 +864,44 @@ func (r *RecorderReconciler) releaseBpfProfiles(
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
-	defer cancel()
-
 	if err := r.StopBpfRecorder(ctx, recorderClient); err != nil {
 		r.log.Error(err, "Unable to stop bpf recorder for unrecordable pod")
 	}
 }
 
+// dialEnricher connects to the enricher of the node. The returned function
+// closes the connection.
+func (r *RecorderReconciler) dialEnricher() (enricherapi.EnricherClient, func(), error) {
+	conn, err := r.DialEnricher()
+	if err != nil {
+		return nil, nil, fmt.Errorf("connecting to local GRPC server: %w", err)
+	}
+
+	closeConn := func() {
+		if conn == nil {
+			return
+		}
+
+		if err := conn.Close(); err != nil {
+			r.log.Error(err, "Unable to close the enricher connection")
+		}
+	}
+
+	return enricherapi.NewEnricherClient(conn), closeConn, nil
+}
+
 // releaseLogProfiles drops the data the log enricher holds for profiles.
 func (r *RecorderReconciler) releaseLogProfiles(ctx context.Context, profiles []profileToCollect) {
-	conn, err := r.DialEnricher()
+	enricherClient, closeConn, err := r.dialEnricher()
 	if err != nil {
 		r.log.Error(err, "Unable to connect to the enricher for unrecordable pod")
 
 		return
 	}
-	defer func() {
-		if conn != nil {
-			conn.Close()
-		}
-	}()
+	defer closeConn()
 
-	enricherClient := enricherapi.NewEnricherClient(conn)
-
+	// The log annotations only request seccomp and SELinux profiles, see
+	// parseLogAnnotations, so there is no AppArmor data to reset.
 	for _, prf := range profiles {
 		var err error
 
@@ -856,7 +915,7 @@ func (r *RecorderReconciler) releaseLogProfiles(ctx context.Context, profiles []
 		case profilerecordingapi.ProfileRecordingKindSelinuxProfile:
 			err = r.ResetAvcs(ctx, enricherClient, &enricherapi.AvcRequest{Profile: prf.name})
 		case profilerecordingapi.ProfileRecordingKindAppArmorProfile:
-			continue
+			// parseLogAnnotations never yields it.
 		}
 
 		if err != nil {
@@ -938,17 +997,11 @@ func (r *RecorderReconciler) collectLogProfiles(
 
 	r.log.Info("Connecting to local GRPC enricher server")
 
-	conn, err := r.DialEnricher()
+	enricherClient, closeConn, err := r.dialEnricher()
 	if err != nil {
-		return fmt.Errorf("connecting to local GRPC server: %w", err)
+		return err
 	}
-	defer func() {
-		if conn != nil {
-			conn.Close()
-		}
-	}()
-
-	enricherClient := enricherapi.NewEnricherClient(conn)
+	defer closeConn()
 
 	for _, prf := range profiles {
 		parsedProfileAnnotation, err := parseProfileAnnotation(prf.name)
@@ -970,6 +1023,8 @@ func (r *RecorderReconciler) collectLogProfiles(
 		case profilerecordingapi.ProfileRecordingKindSelinuxProfile:
 			err = r.collectLogSelinuxProfile(ctx, enricherClient, target, prf.name)
 		case profilerecordingapi.ProfileRecordingKindAppArmorProfile:
+			// parseLogAnnotations never yields it, the case keeps the switch
+			// exhaustive.
 			err = errors.New("log recorder doesn't support apparmor profile recording")
 		default:
 			err = fmt.Errorf("unrecognized kind %s", prf.kind)
@@ -1098,28 +1153,9 @@ func (r *RecorderReconciler) collectLogSeccompProfile(
 				)
 			}
 
-			arch, err := r.goArchToSeccompArch(response.GetGoArch())
-			if err != nil {
-				return nil, nil, fmt.Errorf("get seccomp arch: %w", err)
-			}
-
-			profile := &seccompprofileapi.SeccompProfile{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      profileNamespacedName.Name,
-					Namespace: profileNamespacedName.Namespace,
-					Labels:    labels,
-				},
-				Spec: seccompprofileapi.SeccompProfileSpec{
-					DefaultAction: seccompprofileapi.ActErrno,
-					Architectures: []seccompprofileapi.Arch{arch},
-					Syscalls: []seccompprofileapi.Syscall{{
-						Action: seccompprofileapi.ActAllow,
-						Names:  response.GetSyscalls(),
-					}},
-				},
-			}
-
-			return profile, &profile.Spec.SpecBase, nil
+			return r.recordedSeccompProfile(
+				profileNamespacedName, labels, response.GetGoArch(), response.GetSyscalls(),
+			)
 		},
 		resetData: func(ctx context.Context) error {
 			return r.ResetSyscalls(ctx, enricherClient, request)
@@ -1254,12 +1290,9 @@ func (r *RecorderReconciler) collectBpfProfiles(
 		}
 	}
 
-	stopCtx, cancel := context.WithTimeout(ctx, reconcileTimeout)
-	defer cancel()
-
 	r.log.Info("Stopping BPF recorder on node")
 
-	if err := r.StopBpfRecorder(stopCtx, recorderClient); err != nil {
+	if err := r.StopBpfRecorder(ctx, recorderClient); err != nil {
 		r.log.Error(err, "Unable to stop bpf recorder")
 
 		return fmt.Errorf("stop bpf recorder: %w", err)
@@ -1448,23 +1481,33 @@ func (r *RecorderReconciler) fetchSeccompBpfProfile(
 		return nil, nil, r.bpfRecorderError(err, "syscalls", request.GetName())
 	}
 
-	arch, err := r.goArchToSeccompArch(response.GetGoArch())
+	return r.recordedSeccompProfile(
+		target.name, target.labels, response.GetGoArch(), response.GetSyscalls(),
+	)
+}
+
+// recordedSeccompProfile returns the profile which allows the recorded
+// syscalls of the architecture goArch.
+func (r *RecorderReconciler) recordedSeccompProfile(
+	name types.NamespacedName, labels map[string]string, goArch string, syscalls []string,
+) (client.Object, *profilebase.SpecBase, error) {
+	arch, err := r.goArchToSeccompArch(goArch)
 	if err != nil {
 		return nil, nil, fmt.Errorf("getting seccomp arch: %w", err)
 	}
 
 	profile := &seccompprofileapi.SeccompProfile{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      target.name.Name,
-			Namespace: target.name.Namespace,
-			Labels:    target.labels,
+			Name:      name.Name,
+			Namespace: name.Namespace,
+			Labels:    labels,
 		},
 		Spec: seccompprofileapi.SeccompProfileSpec{
 			DefaultAction: seccompprofileapi.ActErrno,
 			Architectures: []seccompprofileapi.Arch{arch},
 			Syscalls: []seccompprofileapi.Syscall{{
 				Action: seccompprofileapi.ActAllow,
-				Names:  response.GetSyscalls(),
+				Names:  syscalls,
 			}},
 		},
 	}
@@ -1688,7 +1731,7 @@ func (r *RecorderReconciler) holdRecording(ctx context.Context, target *profileT
 
 	controllerutil.AddFinalizer(recording, profilerecordingapi.RecordingHasUnmergedProfiles)
 
-	if err := utils.UpdateResource(ctx, r.log, r.client, recording, recording.Kind); err != nil {
+	if err := r.client.Update(ctx, recording); err != nil {
 		return fmt.Errorf("update recording: %w", err)
 	}
 
@@ -1733,6 +1776,16 @@ func (r *RecorderReconciler) storeProfile(
 			); err != nil {
 				return fmt.Errorf("check profile owner: %w", err)
 			}
+
+			// Profiles recorded by an older version miss the labels which
+			// were added since.
+			labels := stored.GetLabels()
+			if labels == nil {
+				labels = map[string]string{}
+			}
+
+			maps.Copy(labels, desired.GetLabels())
+			stored.SetLabels(labels)
 
 			spec := desired
 			if target.merge {
@@ -1828,9 +1881,22 @@ func (r *RecorderReconciler) storePartialProfile(
 	return r.storeProfile(ctx, target, partial, specBaseOf(partial), kind)
 }
 
-// maxForbiddenAttempts is how often storing a profile is tried when the API
-// server forbids it, which can also be caused by a permission not granted yet.
-const maxForbiddenAttempts = 5
+const (
+	// maxForbiddenAttempts is how often storing a profile is tried at least
+	// when the API server forbids it, which can also be caused by a
+	// permission not granted yet.
+	maxForbiddenAttempts = 5
+	// defaultForbiddenGracePeriod is the time a granted permission takes at
+	// most to be in effect. The rate limiter of the controller retries within
+	// a fraction of a second, so the attempts alone do not cover it.
+	defaultForbiddenGracePeriod = 2 * time.Minute
+)
+
+// forbiddenAttempts counts the forbidden attempts to store a profile.
+type forbiddenAttempts struct {
+	count atomic.Int32
+	first time.Time
+}
 
 // rejectedForGood reports whether the API server will reject the profile
 // again, in which case retrying would only keep the recording going for good.
@@ -1844,10 +1910,11 @@ func (r *RecorderReconciler) rejectedForGood(key forbiddenKey, err error) bool {
 		return false
 	}
 
-	value, _ := r.forbiddenAttempts.LoadOrStore(key, new(atomic.Int32))
+	value, _ := r.forbiddenAttempts.LoadOrStore(key, &forbiddenAttempts{first: time.Now()})
 
-	attempts, ok := value.(*atomic.Int32)
-	if !ok || attempts.Add(1) >= maxForbiddenAttempts {
+	attempts, ok := value.(*forbiddenAttempts)
+	if !ok || (attempts.count.Add(1) >= maxForbiddenAttempts &&
+		time.Since(attempts.first) >= r.forbiddenGracePeriod) {
 		r.forbiddenAttempts.Delete(key)
 
 		return true

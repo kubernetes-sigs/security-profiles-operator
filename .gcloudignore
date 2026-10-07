@@ -1,0 +1,3 @@
+# Intentionally ignores nothing. Without this file, gcloud ignores the files of
+# .gitignore and .git, but hack/image-cross.sh runs git rev-parse in the Cloud
+# Build context.

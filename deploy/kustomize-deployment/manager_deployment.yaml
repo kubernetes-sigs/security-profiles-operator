@@ -19,6 +19,7 @@ spec:
         name: security-profiles-operator
     spec:
       securityContext:
+        runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
       serviceAccountName: security-profiles-operator

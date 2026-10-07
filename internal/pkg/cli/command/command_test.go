@@ -20,6 +20,8 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"os/user"
+	"strconv"
 	"syscall"
 	"testing"
 	"time"
@@ -299,4 +301,20 @@ func TestRunDropsSudoPrivileges(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The home directory of a known user comes from the user database, without
+// running sudo.
+func TestGetHomeDirectoryOfKnownUser(t *testing.T) {
+	t.Parallel()
+
+	current, err := user.Current()
+	require.NoError(t, err)
+
+	uid, err := strconv.ParseUint(current.Uid, 10, 32)
+	require.NoError(t, err)
+
+	home, err := getHomeDirectory(uint32(uid))
+	require.NoError(t, err)
+	require.Equal(t, current.HomeDir, home)
 }

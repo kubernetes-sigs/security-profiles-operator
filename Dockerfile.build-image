@@ -16,8 +16,10 @@
 FROM registry.k8s.io/build-image/debian-base@sha256:bb933ac3606ff3f69854a7eba5da1eaef5064ef62d83f3cb0e4be40eb53522e0
 WORKDIR /work
 
+# The builds run in nix, which brings the libraries the binaries link
+# against, so only the tools for installing nix are needed.
 RUN apt-get update && \
-  apt-get install -y wget xz-utils libapparmor-dev && \
+  apt-get install -y --no-install-recommends ca-certificates wget xz-utils && \
   apt-get autoremove  -y && \
   apt-get purge -y --auto-remove && \
   rm -rf /var/lib/apt/lists/*
@@ -31,6 +33,8 @@ ARG NIX_VERSION=2.35.2
 # binary input in the build chain.
 ARG NIX_SHA256=0c3960a9792331a22081c3c7a5d8465db9b17c50b3acdf18587fa4c6f2cb1158
 
+# The image only runs on amd64: Dockerfile uses it on the build platform and
+# cross compiles the binaries of the other architectures with nix.
 RUN \
   export ARCH=x86_64 && \
   wget https://nixos.org/releases/nix/nix-${NIX_VERSION}/nix-${NIX_VERSION}-${ARCH}-linux.tar.xz && \

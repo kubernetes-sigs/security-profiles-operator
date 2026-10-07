@@ -44,9 +44,10 @@ selinuxdImage:
 # installed.
 kubeletDir: /var/lib/kubelet
 
-# Deprecated, use selinux.enable instead
-enableSelinux: false
+# Deprecated, use selinux.enable instead.
+# enableSelinux: false
 selinux:
+  # Unset, SELinux is enabled on OpenShift only, like without the chart.
   # enable: false # Overrides deprecated enableSelinux flag
   enableRawSelinuxProfiles: true
   typeTag: spc_t
