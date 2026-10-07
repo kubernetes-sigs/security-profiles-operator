@@ -32,6 +32,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
@@ -190,6 +191,45 @@ func Test_getConfiguredSPOdAppArmorIsRevertible(t *testing.T) {
 	require.Empty(t, again.Capabilities.Add)
 }
 
+// Test_getConfiguredSPOdAppArmorConfinesRecorder asserts that the recorder
+// stays unprivileged with AppArmor, because CRI-O would not apply its profile
+// to a privileged container.
+func Test_getConfiguredSPOdAppArmorConfinesRecorder(t *testing.T) {
+	t.Parallel()
+
+	r := newTestReconciler()
+	cfg := &spodapi.SecurityProfilesOperatorDaemon{
+		Spec: spodapi.SPODSpec{
+			EnableAppArmor: new(true),
+			Enricher: spodapi.SPODEnricherConfig{
+				EnableBpfRecorder: new(true),
+			},
+		},
+	}
+
+	ds, err := r.getConfiguredSPOd(
+		t.Context(), cfg, "image", v1.PullAlways, bindata.CAInjectTypeCertManager,
+	)
+	require.NoError(t, err)
+
+	var sc *v1.SecurityContext
+
+	for i := range ds.Spec.Template.Spec.Containers {
+		if ctr := &ds.Spec.Template.Spec.Containers[i]; ctr.Name == bindata.BpfRecorderContainerName {
+			sc = ctr.SecurityContext
+		}
+	}
+
+	require.NotNil(t, sc)
+	require.False(t, ptr.Deref(sc.Privileged, true))
+	require.False(t, ptr.Deref(sc.AllowPrivilegeEscalation, true))
+	require.Equal(t, &v1.AppArmorProfile{
+		Type:             v1.AppArmorProfileTypeLocalhost,
+		LocalhostProfile: new(config.BpfRecorderApparmorProfileName),
+	}, sc.AppArmorProfile)
+	require.Contains(t, sc.Capabilities.Add, v1.Capability("SYS_ADMIN"))
+}
+
 // Test_getConfiguredSPOdPrivilegedAllowsEscalation asserts that every
 // privileged container allows privilege escalation, because the API server
 // rejects the DaemonSet otherwise.
@@ -343,6 +383,7 @@ var (
 	enricherHostVolumes = []string{"host-auditlog-volume", "host-syslog-volume"}
 	bpfHostVolumes      = []string{
 		"sys-kernel-debug-volume", "sys-kernel-security-volume", "sys-kernel-tracing-volume",
+		"sys-fs-cgroup-volume",
 	}
 )
 
@@ -473,7 +514,7 @@ func Test_getConfiguredSPOdJsonEnricherVolumes(t *testing.T) {
 		"sys-kernel-debug-volume", "sys-kernel-tracing-volume",
 	}, true)
 	requireVolumes(t, jsonEnricher, []string{
-		"sys-kernel-security-volume", "host-etc-osrelease-volume",
+		"sys-kernel-security-volume", "sys-fs-cgroup-volume", "host-etc-osrelease-volume",
 	}, false)
 	requireVolumes(t, jsonEnricher, selinuxHostVolumes, false)
 

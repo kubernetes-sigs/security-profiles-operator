@@ -4397,6 +4397,7 @@ data:
           - chown
           - dac_read_search
           - perfmon
+          - sys_admin
           - sys_ptrace
           - sys_resource
         executable:
@@ -4406,10 +4407,14 @@ data:
           readOnlyPaths:
           - /proc/@{pid}/cgroup
           - /proc/@{pid}/maps
+          - /proc/@{pid}/mountinfo
+          - /proc/@{pid}/stat
           - /proc/sys/net/core/somaxconn
           - /sys/devices/kprobe/type
           - /sys/devices/system/cpu/online
           - /sys/fs/bpf/
+          - /sys/fs/cgroup/
+          - /sys/fs/cgroup/**
           - /sys/kernel/btf/vmlinux
           - /sys/kernel/debug/tracing/events/**/id
           - /sys/kernel/mm/transparent_hugepage/hpage_pmd_size

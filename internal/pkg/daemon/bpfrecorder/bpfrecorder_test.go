@@ -1244,7 +1244,7 @@ func TestScheduleNewPidEventDropsWhenSaturated(t *testing.T) {
 	go func() {
 		defer close(done)
 
-		sut.scheduleNewPidEvent(42, 0x1010, 0x1010)
+		sut.scheduleNewPidEvent(42, 0x1010, 0x1010, 0)
 	}()
 
 	select {
@@ -1268,7 +1268,7 @@ func TestScheduleNewPidEventRunsHandler(t *testing.T) {
 	sut := New("", logr.New(logSink), true, true)
 	sut.impl = &bpfrecorderfakes.FakeImpl{}
 
-	sut.scheduleNewPidEvent(42, 0x1010, 0x1010)
+	sut.scheduleNewPidEvent(42, 0x1010, 0x1010, 0)
 
 	require.Eventually(t, func() bool {
 		logSink.mutex.RLock()

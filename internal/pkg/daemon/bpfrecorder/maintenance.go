@@ -217,7 +217,9 @@ func (b *BpfRecorder) keysWithProcesses(pids [][]byte) map[uint64]struct{} {
 			continue
 		}
 
-		if _, err := b.Stat("/proc/" + strconv.FormatUint(uint64(pid), 10)); err == nil {
+		// The stat file, which the AppArmor profile of the recorder allows
+		// to read, unlike the directory of the process.
+		if _, err := b.Stat("/proc/" + strconv.FormatUint(uint64(pid), 10) + "/stat"); err == nil {
 			alive[key] = struct{}{}
 		}
 	}

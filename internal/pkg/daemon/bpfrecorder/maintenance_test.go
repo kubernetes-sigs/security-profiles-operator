@@ -25,6 +25,7 @@ import (
 	"os"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -268,21 +269,49 @@ func TestVerifyProcess(t *testing.T) {
 		return func(string) (string, error) { return link, nil }
 	}
 
-	require.NoError(t, verifyProcess(42, 7, time.Hour, startedAt(time.Minute), inMntns("mnt:[7]")))
+	require.NoError(
+		t,
+		verifyProcess(42, 7, 0, time.Hour, startedAt(time.Minute), inMntns("mnt:[7]")),
+	)
 
 	// The time is not known.
-	require.NoError(t, verifyProcess(42, 7, 0, startedAt(time.Minute), inMntns("mnt:[7]")))
+	require.NoError(t, verifyProcess(42, 7, 0, 0, startedAt(time.Minute), inMntns("mnt:[7]")))
 
-	err := verifyProcess(42, 7, time.Minute, startedAt(time.Hour), inMntns("mnt:[7]"))
+	err := verifyProcess(42, 7, 0, time.Minute, startedAt(time.Hour), inMntns("mnt:[7]"))
 	require.ErrorIs(t, err, errProcessChanged)
 
-	err = verifyProcess(42, 7, time.Hour, startedAt(time.Minute), inMntns("mnt:[8]"))
+	err = verifyProcess(42, 7, 0, time.Hour, startedAt(time.Minute), inMntns("mnt:[8]"))
 	require.ErrorIs(t, err, errProcessChanged)
 
-	err = verifyProcess(42, 7, time.Hour, func(int) (time.Duration, error) {
+	err = verifyProcess(42, 7, 0, time.Hour, func(int) (time.Duration, error) {
 		return 0, os.ErrNotExist
 	}, inMntns("mnt:[7]"))
 	require.ErrorIs(t, err, os.ErrNotExist)
+
+	// The reported start time identifies the process without its mount
+	// namespace, which a confined process may not let the recorder read.
+	unreadable := func(string) (string, error) { return "", os.ErrPermission }
+	reported := time.Minute + 5*time.Millisecond
+	tick := util.ProcessStartTimeTick
+
+	err = verifyProcess(42, 7, reported, 0, startedAt(time.Minute), unreadable)
+	require.ErrorIs(t, err, errMntnsDenied)
+	require.ErrorIs(t, err, os.ErrPermission)
+
+	err = verifyProcess(42, 7, reported, 0, startedAt(time.Minute-tick), unreadable)
+	require.ErrorIs(t, err, errProcessChanged)
+
+	err = verifyProcess(42, 7, reported, 0, startedAt(time.Minute+tick), unreadable)
+	require.ErrorIs(t, err, errProcessChanged)
+
+	// A readable mount namespace is still checked, as the process may have
+	// left it after it got reported.
+	err = verifyProcess(42, 7, reported, 0, startedAt(time.Minute), inMntns("mnt:[8]"))
+	require.ErrorIs(t, err, errProcessChanged)
+
+	// Without the start time, the mount namespace has to be readable.
+	err = verifyProcess(42, 7, 0, time.Hour, startedAt(time.Minute), unreadable)
+	require.ErrorIs(t, err, os.ErrPermission)
 }
 
 // TestNewPidEventOfReusedPid asserts that a key is neither mapped nor excluded
@@ -311,6 +340,35 @@ func TestNewPidEventOfReusedPid(t *testing.T) {
 		require.Zero(t, mock.UpdateValue64CallCount(), "the key must not be excluded")
 		require.Contains(t, sut.AppArmor.recordedFiles, recordingKey(7))
 	}
+}
+
+// TestNewPidEventWithDeniedMntns asserts that a process whose start time
+// matches is mapped although its mount namespace could not be read, as the
+// AppArmor profile of a confined process denies it.
+func TestNewPidEventWithDeniedMntns(t *testing.T) {
+	t.Parallel()
+
+	sut, mock := newClusterRecorder(true, true)
+	sut.uniqueKeys = true
+
+	mock.ContainerIDForPIDReturns(containerID, nil)
+	mock.VerifyProcessReturns(fmt.Errorf("%w: %w", errMntnsDenied, os.ErrPermission))
+	watchPods(t, sut, podWithContainer(map[string]string{
+		config.SeccompProfileRecordBpfAnnotationKey + "ctr": profile,
+	}))
+
+	for pid := range uint32(2) {
+		sut.handleNewPidEvent(newPidEvent{
+			pid:        42 + pid,
+			mntns:      1,
+			key:        7 + uint64(pid),
+			generation: sut.recordingGeneration.Load(),
+			startedAt:  time.Minute,
+		})
+	}
+
+	require.ElementsMatch(t, []uint64{7, 8}, sut.containerKeys.Keys(containerID))
+	require.Zero(t, mock.UpdateValue64CallCount(), "the keys must not be excluded")
 }
 
 // TestNewPidEventResolvesCgroup asserts that a cgroup key is mapped by its
@@ -345,9 +403,10 @@ func TestNewPidEventResolvesCgroup(t *testing.T) {
 	require.Equal(t, 1, mock.CgroupPathForIDCallCount())
 }
 
-// TestNewPidEventFallsBackToPid asserts that a cgroup path without container
-// is left to the lookup by PID, which only excludes a verified process.
-func TestNewPidEventFallsBackToPid(t *testing.T) {
+// TestNewPidEventExcludesCgroupWithoutContainer asserts that a key whose
+// cgroup has no container is excluded right away, without looking up its
+// process.
+func TestNewPidEventExcludesCgroupWithoutContainer(t *testing.T) {
 	t.Parallel()
 
 	sut, mock := newClusterRecorder(true, false)
@@ -356,15 +415,101 @@ func TestNewPidEventFallsBackToPid(t *testing.T) {
 	sut.excludeKeysBpfMap = &libbpfgo.BPFMap{}
 
 	mock.CgroupPathForIDReturns("/system.slice/sshd.service", nil)
-	mock.ContainerIDForPIDReturns("", util.ErrContainerIDNotFound)
 
 	sut.handleNewPidEvent(
 		newPidEvent{pid: 42, mntns: 1, key: 7, generation: sut.recordingGeneration.Load()},
 	)
 
-	require.Equal(t, 1, mock.ContainerIDForPIDCallCount())
-	require.Equal(t, 1, mock.VerifyProcessCallCount())
+	require.Zero(t, mock.ContainerIDForPIDCallCount())
+	require.Zero(t, mock.VerifyProcessCallCount())
 	require.Equal(t, 1, mock.UpdateValue64CallCount())
+}
+
+// TestNewPidEventOfMovedProcess asserts that a key whose cgroup has no
+// container is not mapped to the container its process moved into, like the
+// init process of the runtime does.
+func TestNewPidEventOfMovedProcess(t *testing.T) {
+	t.Parallel()
+
+	sut, mock := newClusterRecorder(true, false)
+	sut.uniqueKeys = true
+	sut.cgroupKeys = true
+	sut.excludeKeysBpfMap = &libbpfgo.BPFMap{}
+
+	mock.CgroupPathForIDReturns("/system.slice/containerd.service", nil)
+	mock.ContainerIDForPIDReturns(containerID, nil)
+	watchPods(t, sut, podWithContainer(map[string]string{
+		config.SeccompProfileRecordBpfAnnotationKey + "ctr": profile,
+	}))
+
+	sut.handleNewPidEvent(
+		newPidEvent{pid: 42, mntns: 1, key: 7, generation: sut.recordingGeneration.Load()},
+	)
+
+	require.Zero(t, sut.containerKeys.Size())
+	require.Zero(t, mock.ContainerIDForPIDCallCount())
+}
+
+// TestNewPidEventOfRemovedCgroup asserts that the key of a removed cgroup is
+// not mapped to the container of its process, which moved out of the cgroup.
+func TestNewPidEventOfRemovedCgroup(t *testing.T) {
+	t.Parallel()
+
+	sut, mock := newClusterRecorder(true, false)
+	sut.uniqueKeys = true
+	sut.cgroupKeys = true
+	sut.excludeKeysBpfMap = &libbpfgo.BPFMap{}
+
+	mock.CgroupPathForIDReturns("", fmt.Errorf("open cgroup 7: %w", syscall.ESTALE))
+	mock.ContainerIDForPIDReturns(containerID, nil)
+	watchPods(t, sut, podWithContainer(map[string]string{
+		config.SeccompProfileRecordBpfAnnotationKey + "ctr": profile,
+	}))
+
+	sut.handleNewPidEvent(
+		newPidEvent{pid: 42, mntns: 1, key: 7, generation: sut.recordingGeneration.Load()},
+	)
+
+	require.Zero(t, sut.containerKeys.Size())
+	require.Zero(t, mock.ContainerIDForPIDCallCount())
+	require.Zero(t, mock.UpdateValue64CallCount(), "the key must not be excluded")
+}
+
+// TestNewPidEventFallsBackToPid asserts that a cgroup which cannot be
+// resolved, like one outside of the cgroup namespace of the recorder, is left
+// to the lookup by PID, which verifies the process with its start time and
+// mount namespace before it excludes the key.
+func TestNewPidEventFallsBackToPid(t *testing.T) {
+	t.Parallel()
+
+	for _, cgroupErr := range []error{os.ErrPermission, errCgroupNotVisible} {
+		t.Run(cgroupErr.Error(), func(t *testing.T) {
+			t.Parallel()
+
+			sut, mock := newClusterRecorder(true, false)
+			sut.uniqueKeys = true
+			sut.cgroupKeys = true
+			sut.excludeKeysBpfMap = &libbpfgo.BPFMap{}
+
+			mock.CgroupPathForIDReturns("", cgroupErr)
+			mock.ContainerIDForPIDReturns("", util.ErrContainerIDNotFound)
+
+			sut.handleNewPidEvent(newPidEvent{
+				pid: 42, mntns: 1, key: 7, generation: sut.recordingGeneration.Load(),
+				startedAt: time.Minute, seenAt: time.Hour,
+			})
+
+			require.Equal(t, 1, mock.ContainerIDForPIDCallCount())
+			require.Equal(t, 1, mock.VerifyProcessCallCount())
+			require.Equal(t, 1, mock.UpdateValue64CallCount())
+
+			pid, mntns, startedAt, seenAt := mock.VerifyProcessArgsForCall(0)
+			require.Equal(t, uint32(42), pid)
+			require.Equal(t, uint32(1), mntns)
+			require.Equal(t, time.Minute, startedAt)
+			require.Equal(t, time.Hour, seenAt)
+		})
+	}
 }
 
 // TestScheduleNewPidEventReportsDroppedAgain asserts that a process whose event
@@ -383,8 +528,8 @@ func TestScheduleNewPidEventReportsDroppedAgain(t *testing.T) {
 		sut.newPidEvents <- newPidEvent{}
 	}
 
-	sut.scheduleNewPidEvent(42, 1, 7)
-	sut.scheduleNewPidEvent(42, 1, 7)
+	sut.scheduleNewPidEvent(42, 1, 7, 0)
+	sut.scheduleNewPidEvent(42, 1, 7, 0)
 
 	sut.reportDroppedPidsAgain()
 	require.Zero(t, mock.DeleteActivePidCallCount())
@@ -425,7 +570,7 @@ func TestSweepStaleKeys(t *testing.T) {
 
 	mock.MapKeysReturns([][]byte{pidKey(100, alive), pidKey(200, stale)}, nil)
 	mock.StatCalls(func(path string) (os.FileInfo, error) {
-		if path == "/proc/100" {
+		if path == "/proc/100/stat" {
 			return os.Stat("/")
 		}
 

@@ -53,6 +53,9 @@ var (
 // them in USER_HZ, which is 100 on every architecture Linux runs on.
 const clockTicks = 100
 
+// ProcessStartTimeTick is the resolution of ProcessStartTime.
+const ProcessStartTimeTick = time.Second / clockTicks
+
 // noContainerTimeout is how long ContainerIDForPID remembers that a process
 // runs outside of any container. Host processes can log many audit lines,
 // which would otherwise read their cgroup file for each of them. It is short
@@ -78,18 +81,16 @@ func processStartTime(pid int, reader procFileReader) (time.Duration, error) {
 		return 0, err
 	}
 
-	const tick = time.Second / clockTicks
-
 	ticks, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil {
 		return 0, fmt.Errorf("parse start time of pid %d: %w", pid, err)
 	}
 
-	if ticks < 0 || ticks > math.MaxInt64/int64(tick) {
+	if ticks < 0 || ticks > math.MaxInt64/int64(ProcessStartTimeTick) {
 		return 0, fmt.Errorf("start time of pid %d out of range: %d", pid, ticks)
 	}
 
-	return time.Duration(ticks) * tick, nil
+	return time.Duration(ticks) * ProcessStartTimeTick, nil
 }
 
 // ContainerIDForPID tries to find the 64 digit container ID for the provided
