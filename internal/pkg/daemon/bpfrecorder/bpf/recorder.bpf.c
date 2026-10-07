@@ -366,6 +366,18 @@ static __always_inline u64 get_mntns_id(u32 mntns)
     return mntns;
 }
 
+// get_start_time returns when the current process started, in nanoseconds
+// since boot like the start time in /proc/<pid>/stat. Together with the PID it
+// identifies the process, which the userspace verifies before it looks up the
+// container by PID. Every kernel with the ring buffer of the events, 5.8 and
+// later, has start_boottime.
+static __always_inline u64 get_start_time()
+{
+    struct task_struct * task = (struct task_struct *)bpf_get_current_task();
+
+    return BPF_CORE_READ(task, group_leader, start_boottime);
+}
+
 /**
  * get_key returns the key the recorded data of the current process is stored
  * under. This is the cgroup ID or the mount namespace sequence number if
@@ -458,6 +470,13 @@ static __always_inline int submit_event(u8 type, u32 mntns, u64 key, u64 flags)
     event->flags = flags;
     bpf_ringbuf_submit(event, 0);
     return 0;
+}
+
+// submit_new_pid reports the current process to the userspace, with when it
+// started as the flags.
+static __always_inline int submit_new_pid(u32 mntns, u64 key)
+{
+    return submit_event(EVENT_TYPE_NEWPID, mntns, key, get_start_time());
 }
 
 // clear_seccomp drops the syscalls recorded during the container
@@ -1274,7 +1293,7 @@ int sys_enter(struct trace_event_raw_sys_enter * args)
     if (bpf_map_lookup_elem(&active_pids, &active) == NULL &&
         bpf_map_update_elem(&active_pids, &active, &TRUE, BPF_NOEXIST) == 0) {
         trace_hook("new pid observed: %u, mntns: %u", pid, mntns);
-        if (submit_event(EVENT_TYPE_NEWPID, mntns, key, 0) != 0) {
+        if (submit_new_pid(mntns, key) != 0) {
             // Report the process with its next syscall instead of never.
             bpf_map_delete_elem(&active_pids, &active);
         } else {
@@ -1319,7 +1338,7 @@ int sys_enter(struct trace_event_raw_sys_enter * args)
         // A new key of a known process is reported as well, so that the
         // userspace can exclude it again after its exclusion got evicted.
         if (err == 0 && !reported) {
-            submit_event(EVENT_TYPE_NEWPID, mntns, key, 0);
+            submit_new_pid(mntns, key);
         }
         value = bpf_map_lookup_elem(&recorded_syscalls, &key);
         if (!value) {

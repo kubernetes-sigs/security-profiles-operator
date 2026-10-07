@@ -536,12 +536,13 @@ type FakeImpl struct {
 		result1 time.Duration
 		result2 error
 	}
-	VerifyProcessStub        func(uint32, uint32, time.Duration) error
+	VerifyProcessStub        func(uint32, uint32, time.Duration, time.Duration) error
 	verifyProcessMutex       sync.RWMutex
 	verifyProcessArgsForCall []struct {
 		arg1 uint32
 		arg2 uint32
 		arg3 time.Duration
+		arg4 time.Duration
 	}
 	verifyProcessReturns struct {
 		result1 error
@@ -3049,20 +3050,21 @@ func (fake *FakeImpl) UptimeReturnsOnCall(i int, result1 time.Duration, result2 
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) VerifyProcess(arg1 uint32, arg2 uint32, arg3 time.Duration) error {
+func (fake *FakeImpl) VerifyProcess(arg1 uint32, arg2 uint32, arg3 time.Duration, arg4 time.Duration) error {
 	fake.verifyProcessMutex.Lock()
 	ret, specificReturn := fake.verifyProcessReturnsOnCall[len(fake.verifyProcessArgsForCall)]
 	fake.verifyProcessArgsForCall = append(fake.verifyProcessArgsForCall, struct {
 		arg1 uint32
 		arg2 uint32
 		arg3 time.Duration
-	}{arg1, arg2, arg3})
+		arg4 time.Duration
+	}{arg1, arg2, arg3, arg4})
 	stub := fake.VerifyProcessStub
 	fakeReturns := fake.verifyProcessReturns
-	fake.recordInvocation("VerifyProcess", []interface{}{arg1, arg2, arg3})
+	fake.recordInvocation("VerifyProcess", []interface{}{arg1, arg2, arg3, arg4})
 	fake.verifyProcessMutex.Unlock()
 	if stub != nil {
-		return stub(arg1, arg2, arg3)
+		return stub(arg1, arg2, arg3, arg4)
 	}
 	if specificReturn {
 		return ret.result1
@@ -3076,17 +3078,17 @@ func (fake *FakeImpl) VerifyProcessCallCount() int {
 	return len(fake.verifyProcessArgsForCall)
 }
 
-func (fake *FakeImpl) VerifyProcessCalls(stub func(uint32, uint32, time.Duration) error) {
+func (fake *FakeImpl) VerifyProcessCalls(stub func(uint32, uint32, time.Duration, time.Duration) error) {
 	fake.verifyProcessMutex.Lock()
 	defer fake.verifyProcessMutex.Unlock()
 	fake.VerifyProcessStub = stub
 }
 
-func (fake *FakeImpl) VerifyProcessArgsForCall(i int) (uint32, uint32, time.Duration) {
+func (fake *FakeImpl) VerifyProcessArgsForCall(i int) (uint32, uint32, time.Duration, time.Duration) {
 	fake.verifyProcessMutex.RLock()
 	defer fake.verifyProcessMutex.RUnlock()
 	argsForCall := fake.verifyProcessArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3, argsForCall.arg4
 }
 
 func (fake *FakeImpl) VerifyProcessReturns(result1 error) {

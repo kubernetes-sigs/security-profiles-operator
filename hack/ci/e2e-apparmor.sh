@@ -21,6 +21,7 @@ APPARMOR_RECORDING_FILE="examples/profilerecording-apparmor-bpf.yaml"
 APPARMOR_PROFILE_NAME="test-recording-$PODNAME"
 APPARMOR_REFERENCE_PROFILE_FILE="hack/ci/apparmorprofile-sleep"
 APPARMOR_PROFILE_FILE_COMPLAIN_MODE="hack/ci/apparmorprofile-sleep-complain-mode.yaml"
+BPF_RECORDER_PROFILE="bpfrecorder-apparmor"
 SLEEP_INTERVAL_RECORDING="30"     # 30s sleep interval during recording.
 SLEEP_INTERVAL_VERIFICATION="300" # 5min to make sure that the enforcement check finds a running  PID.
 RUNTIMES=(runc crun)
@@ -93,6 +94,57 @@ check_profile_mode() {
   echo "Apparmor profile mode: $mode"
 }
 
+# Prints the AppArmor denials of the bpf-recorder since
+# BPF_RECORDER_LOG_SINCE, in seconds since the epoch. With "profile", the ones
+# of its own profile, with "peer", the ones of other profiles with the recorder
+# as the peer, like the ptrace reads which the profile of a recorded container
+# denies, and both without an argument. They are in the audit log if auditd
+# runs, and in the kernel log otherwise. The journal keeps the kernel log since
+# AppArmor got enabled, unlike the ring buffer of dmesg which may have wrapped.
+bpf_recorder_denials() {
+  local field="${1:-(profile|peer)}" since="${BPF_RECORDER_LOG_SINCE:-0}"
+  {
+    sudo journalctl -k -o cat --no-pager --since "@$since"
+    # The timestamp of an audit record is the one in audit(<seconds>.<ms>:<id>).
+    sudo cat /var/log/audit/audit.log 2>/dev/null |
+      awk -v since="$since" 'match($0, /audit\([0-9]+/) && substr($0, RSTART + 6, RLENGTH - 6) + 0 >= since' || true
+  } | grep -E "apparmor=\"DENIED\".* $field=\"$BPF_RECORDER_PROFILE\"" || true
+}
+
+# Checks that the bpf-recorder runs confined by its own profile, and that the
+# profile denied nothing the recorder did. Only enforcing the profile tests it,
+# a missing rule shows up as a denial.
+check_bpf_recorder_profile() {
+  local pid mode denials
+  # The newest one, the recorder of a replaced SPOD pod may still terminate.
+  pid="$(pgrep -n -f 'security-profiles-operator bpf-recorder$' || true)"
+  if [[ -z "$pid" ]]; then
+    echo "No bpf-recorder process found"
+    exit 1
+  fi
+  mode="$(cat "/proc/$pid/attr/current")"
+  if [[ "$mode" != "$BPF_RECORDER_PROFILE (enforce)" ]]; then
+    echo "bpf-recorder not confined by $BPF_RECORDER_PROFILE: $mode"
+    exit 1
+  fi
+  echo "bpf-recorder profile mode: $mode"
+
+  # The recorder accepts that a recorded container denies it reading its mount
+  # namespace, see verifyProcess, so these are only printed.
+  denials="$(bpf_recorder_denials peer)"
+  if [[ -n "$denials" ]]; then
+    echo "AppArmor profiles with the bpf-recorder as peer denied:"
+    echo "$denials"
+  fi
+
+  denials="$(bpf_recorder_denials profile)"
+  if [[ -n "$denials" ]]; then
+    echo "AppArmor denied the bpf-recorder:"
+    echo "$denials"
+    exit 1
+  fi
+}
+
 # Records and checks if the profile is properly installed by default in enforce mode.
 check_apparmor_profile_recording() {
   echo "--------------------------------------------------------------------"
@@ -100,6 +152,7 @@ check_apparmor_profile_recording() {
   echo "--------------------------------------------------------------------"
 
   echo "Enable Apparmor profile"
+  BPF_RECORDER_LOG_SINCE="$(date +%s)"
   local generation
   generation=$(k get ds spod -o jsonpath='{.metadata.generation}')
   k patch spod spod --type=merge -p '{"spec":{"enableAppArmor":true}}'
@@ -159,6 +212,7 @@ check_apparmor_profile_recording() {
     echo "Deleting apparmor profile $APPARMOR_PROFILE_NAME"
     k delete apparmorprofile "$APPARMOR_PROFILE_NAME"
 
+    check_bpf_recorder_profile
   done
 
   print_spo_logs
@@ -221,6 +275,9 @@ cleanup() {
   k get events --sort-by=.lastTimestamp >"$dir/events.txt" 2>&1 || true
   k logs deploy/security-profiles-operator --all-containers >"$dir/operator.log" 2>&1 || true
   k logs ds/spod --all-containers >"$dir/spod.log" 2>&1 || true
+  # A denial which broke the recording fails a wait before the check.
+  echo "AppArmor denials of the bpf-recorder:"
+  bpf_recorder_denials | tee "$dir/bpf-recorder-denials.txt" || true
   echo "SPOD status:"
   k get spod spod -o jsonpath='{.status}' || true
 }

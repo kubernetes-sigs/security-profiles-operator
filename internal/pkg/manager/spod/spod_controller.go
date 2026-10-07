@@ -1018,15 +1018,16 @@ func (r *ReconcileSPOd) configureRecording(
 	if r.isBpfRecorderEnabled(cfg) {
 		addContainer(bindata.ContainerIDBpfRecorder, config.EnableBpfRecorderEnvKey,
 			func(ctr *corev1.Container) {
-				// Configure the apparmor profile for bpf-recorder when apparmor is enabled.
-				// The recorder runs privileged then like the daemon, as its
-				// profile does not cover loading the BPF programs yet, see
-				// configureAppArmor.
+				// Confine the recorder with its own AppArmor profile when
+				// AppArmor is enabled. It stays unprivileged, as CRI-O does
+				// not apply AppArmor profiles to privileged containers.
+				// Debian kernels allow attaching the tracepoints only with
+				// CAP_SYS_ADMIN by default, see perf_event_paranoid. It ran
+				// privileged with AppArmor before, so it keeps working there.
 				if ptr.Deref(cfg.Spec.EnableAppArmor, false) {
-					// The API server rejects privileged containers which
-					// disallow privilege escalation.
-					ctr.SecurityContext.AllowPrivilegeEscalation = new(true)
-					ctr.SecurityContext.Privileged = new(true)
+					ctr.SecurityContext.Capabilities.Add = append(
+						ctr.SecurityContext.Capabilities.Add, "SYS_ADMIN",
+					)
 					ctr.SecurityContext.AppArmorProfile = &corev1.AppArmorProfile{
 						Type:             corev1.AppArmorProfileTypeLocalhost,
 						LocalhostProfile: new(config.BpfRecorderApparmorProfileName),

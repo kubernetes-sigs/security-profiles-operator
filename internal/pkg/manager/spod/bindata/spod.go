@@ -67,6 +67,7 @@ const (
 	sysKernelDebugPath                               = "/sys/kernel/debug"
 	sysKernelSecurityPath                            = "/sys/kernel/security"
 	sysKernelTracingPath                             = "/sys/kernel/tracing"
+	sysFsCgroupPath                                  = "/sys/fs/cgroup"
 	InitContainerIDNonRootenabler                    = 0
 	InitContainerIDSelinuxSharedPoliciesCopier       = 1
 	ContainerIDDaemon                                = 0
@@ -674,6 +675,14 @@ semodule -R
 								MountPath: sysKernelTracingPath,
 								ReadOnly:  true,
 							},
+							// The cgroup hierarchy of the host instead of the
+							// one of the container, which contains only its own
+							// cgroup and resolves no other cgroup ID to its path.
+							{
+								Name:      "sys-fs-cgroup-volume",
+								MountPath: sysFsCgroupPath,
+								ReadOnly:  true,
+							},
 							{
 								Name:      "grpc-server-volume",
 								MountPath: filepath.Dir(config.GRPCServerSocketBpfRecorder),
@@ -935,6 +944,15 @@ semodule -R
 						VolumeSource: corev1.VolumeSource{
 							HostPath: &corev1.HostPathVolumeSource{
 								Path: sysKernelTracingPath,
+								Type: &hostPathDirectory,
+							},
+						},
+					},
+					{
+						Name: "sys-fs-cgroup-volume",
+						VolumeSource: corev1.VolumeSource{
+							HostPath: &corev1.HostPathVolumeSource{
+								Path: sysFsCgroupPath,
 								Type: &hostPathDirectory,
 							},
 						},

@@ -292,6 +292,9 @@ type BpfRecorder struct {
 	// queue until the recorder is out of memory.
 	newPidEvents     chan newPidEvent
 	startPidHandlers sync.Once
+	// mntnsDeniedOnce logs the first process whose mount namespace could
+	// not be read, see verifyProcess.
+	mntnsDeniedOnce sync.Once
 
 	// recordingGeneration is bumped whenever a recording session ends. Handlers
 	// carry the generation their event was queued in and skip writing to the
@@ -332,9 +335,11 @@ type newPidEvent struct {
 	mntns      uint32
 	key        uint64
 	generation uint64
-	// seenAt is the time since boot the event was received at, see
+	// startedAt is when the process started as the BPF program reported it,
+	// and seenAt the time the event was received at, both since boot, see
 	// verifyProcess.
-	seenAt time.Duration
+	startedAt time.Duration
+	seenAt    time.Duration
 }
 
 // We use a single shared event ringbuf for all userspace communication.
@@ -1613,7 +1618,9 @@ func (b *BpfRecorder) handleEvent(eventBytes []byte) {
 
 	switch event.Type {
 	case uint8(eventTypeNewPid):
-		b.scheduleNewPidEvent(event.Pid, event.Mntns, event.Key)
+		// The flags carry when the process started, see submit_new_pid. A
+		// value beyond a duration turns negative, which counts as unknown.
+		b.scheduleNewPidEvent(event.Pid, event.Mntns, event.Key, time.Duration(event.Flags))
 	case uint8(eventTypeExit):
 		b.handleExitEvent(&event)
 	case uint8(eventTypeAppArmorFile):
@@ -1641,7 +1648,7 @@ func (b *BpfRecorder) handleEvent(eventBytes []byte) {
 // Kubernetes API, and the caller is the single event processing loop which also
 // delivers the AppArmor events over an unbuffered channel. Stalling it makes the
 // kernel drop recorded events, so a saturated queue drops the event instead.
-func (b *BpfRecorder) scheduleNewPidEvent(pid, mntns uint32, key uint64) {
+func (b *BpfRecorder) scheduleNewPidEvent(pid, mntns uint32, key uint64, startedAt time.Duration) {
 	// The handlers live for the lifetime of the recorder. There is no teardown
 	// because both the daemon and spoc keep a recorder until the process exits,
 	// and a shutdown path would have to guard every send against a closed
@@ -1652,10 +1659,15 @@ func (b *BpfRecorder) scheduleNewPidEvent(pid, mntns uint32, key uint64) {
 		}
 	})
 
-	// A failure only skips the check of the process start time.
-	seenAt, err := b.Uptime()
-	if err != nil {
-		seenAt = 0
+	// The time the event got received at is only checked without the start
+	// time of the process, which the BPF program reports as zero only if it
+	// could not read it. A failure only skips the check.
+	var seenAt time.Duration
+
+	if startedAt <= 0 {
+		if uptime, err := b.Uptime(); err == nil {
+			seenAt = uptime
+		}
 	}
 
 	event := newPidEvent{
@@ -1663,6 +1675,7 @@ func (b *BpfRecorder) scheduleNewPidEvent(pid, mntns uint32, key uint64) {
 		mntns:      mntns,
 		key:        key,
 		generation: b.recordingGeneration.Load(),
+		startedAt:  startedAt,
 		seenAt:     seenAt,
 	}
 
@@ -1844,18 +1857,31 @@ var errProcessChanged = errors.New("process changed since it was reported")
 // records under the key of event. It only fails with util.ErrContainerIDNotFound
 // if the workload is known to run outside of any container.
 func (b *BpfRecorder) containerIDForKey(event *newPidEvent) (string, error) {
-	// A cgroup ID is never reused, so the path of the cgroup tells the
-	// container even after the reported process exited or its PID got
-	// reused. Only a path with a container ID is taken, anything else is left
-	// to the lookup by PID.
+	// A cgroup ID is never reused and cgroup v2 does not rename cgroups, so the
+	// path of the cgroup tells the container even after the reported process
+	// exited, moved into another cgroup or its PID got reused. Only a cgroup
+	// which cannot be resolved, like one outside of the cgroup namespace of the
+	// recorder, is left to the lookup by PID.
 	if b.cgroupKeys {
 		path, err := b.CgroupPathForID(event.key)
-		if err == nil {
+
+		switch {
+		case err == nil:
 			if ids := util.ContainerIDRegex.FindAllString(path, -1); len(ids) > 0 {
 				// The last one, like ContainerIDForPID does.
 				return ids[len(ids)-1], nil
 			}
-		} else {
+
+			// Not a container, even if the process moved into one since,
+			// like the init process of the runtime does.
+			return "", fmt.Errorf("%w: cgroup %s", util.ErrContainerIDNotFound, path)
+
+		case errors.Is(err, syscall.ESTALE):
+			// The cgroup got removed, so the process exited or moved into
+			// another cgroup, which must not be taken for the one of the key.
+			return "", fmt.Errorf("cgroup of key %d got removed: %w", event.key, err)
+
+		default:
 			b.logger.V(config.VerboseLevel).Info(
 				"Unable to resolve cgroup", "key", event.key, "error", err.Error(),
 			)
@@ -1873,19 +1899,46 @@ func (b *BpfRecorder) containerIDForKey(event *newPidEvent) (string, error) {
 	// taken for the one of the key: the key would record for the profile of
 	// another workload, or the data of a recorded one would get dropped as not
 	// recorded.
-	if verifyErr := b.VerifyProcess(event.pid, event.mntns, event.seenAt); verifyErr != nil {
+	verifyErr := b.VerifyProcess(event.pid, event.mntns, event.startedAt, event.seenAt)
+	if errors.Is(verifyErr, errMntnsDenied) {
+		// Logged once, as it applies to every confined process. If it
+		// happens for every process, the recorder lacks the ptrace access.
+		b.mntnsDeniedOnce.Do(func() {
+			b.logger.Info(
+				"Verifying processes by start time only, the mount namespace is not readable",
+				"pid", event.pid, "error", verifyErr.Error(),
+			)
+		})
+	} else if verifyErr != nil {
 		return "", fmt.Errorf("verify pid %d: %w", event.pid, verifyErr)
 	}
 
 	return containerID, err
 }
 
+// errMntnsDenied is returned by verifyProcess if the start time identifies the
+// process, but its mount namespace could not be read.
+var errMntnsDenied = errors.New("mount namespace not readable")
+
 // verifyProcess checks that the process with the PID is still the one which
-// was reported at seenAt, the time since boot, in the mount namespace mntns.
-// seenAt is not checked if it is zero.
+// got reported.
+//
+// The BPF program reports when the process started, startedAt, which
+// identifies it together with the PID. If the program could not read it, it is
+// zero, then the process has to have started before seenAt, the time the event
+// was received at. seenAt is not checked if it is zero.
+//
+// The process also has to still run in the mount namespace mntns, which it
+// could have left after it got reported. Reading the mount namespace is a
+// ptrace read access, which the AppArmor profile of a confined process usually
+// denies to the recorder, like the default profiles of the container runtimes
+// do. Then the start time has to do, as failing would leave every confined
+// container unrecorded on hosts without cgroup keys, so it fails with
+// errMntnsDenied, which the caller accepts. That misses a process which left
+// its mount namespace and got confined before it got verified.
 func verifyProcess(
 	pid, mntns uint32,
-	seenAt time.Duration,
+	startedAt, seenAt time.Duration,
 	startTime func(int) (time.Duration, error),
 	readlink func(string) (string, error),
 ) error {
@@ -1894,11 +1947,23 @@ func verifyProcess(
 		return fmt.Errorf("get process start time: %w", err)
 	}
 
-	if seenAt > 0 && started > seenAt {
+	switch {
+	case startedAt > 0:
+		// /proc has a lower resolution than the BPF program.
+		if started != startedAt.Truncate(util.ProcessStartTimeTick) {
+			return fmt.Errorf("%w: pid %d started at %s instead of %s",
+				errProcessChanged, pid, started, startedAt)
+		}
+	case seenAt > 0 && started > seenAt:
 		return fmt.Errorf("%w: pid %d started after it was reported", errProcessChanged, pid)
 	}
 
 	link, err := readlink(fmt.Sprintf("/proc/%d/ns/mnt", pid))
+	if startedAt > 0 && errors.Is(err, os.ErrPermission) {
+		// A confined process, which the start time identifies already.
+		return fmt.Errorf("%w: pid %d: %w", errMntnsDenied, pid, err)
+	}
+
 	if err != nil {
 		return fmt.Errorf("read mount namespace: %w", err)
 	}

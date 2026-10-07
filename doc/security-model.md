@@ -100,8 +100,8 @@ Throughout their operation they require read and write permissions into host pat
 Host paths of optional features are only mounted when the feature is enabled, and read-only
 unless noted otherwise: the audit and syslog directories for the JSON enricher and the log
 enricher with the default `auditd` source, `/sys/kernel/debug` and `/sys/kernel/tracing` for the
-JSON enricher, and `/sys/kernel/debug`, `/sys/kernel/security` and `/sys/kernel/tracing` for the
-bpf recorder.
+JSON enricher, and `/sys/kernel/debug`, `/sys/kernel/security`, `/sys/kernel/tracing` and
+`/sys/fs/cgroup` for the bpf recorder.
 
 #### Metrics
 
@@ -146,8 +146,10 @@ Each recorder and enricher runs in a container of its own:
 2. The JSON enricher drops all capabilities except `SYS_PTRACE`, `SYS_RESOURCE`, `BPF`,
    `PERFMON` and `DAC_READ_SEARCH`.
 3. The bpf recorder drops all capabilities except `BPF`, `PERFMON`, `SYS_RESOURCE`,
-   `SYS_PTRACE` and `DAC_READ_SEARCH`. With AppArmor enabled it runs privileged.
-4. Only with AppArmor enabled, the runtime default otherwise.
+   `SYS_PTRACE`, `DAC_READ_SEARCH` and `CHOWN`. With AppArmor enabled it also keeps
+   `SYS_ADMIN`, which Debian kernels require for attaching the tracepoints by default.
+4. Only with AppArmor enabled, unconfined otherwise, as the runtime default profile denies
+   reading `/proc` of the host processes.
 
 `HostPID` is set for the whole `spod` pod while a recorder or enricher is enabled, to map the
 processes to their containers.

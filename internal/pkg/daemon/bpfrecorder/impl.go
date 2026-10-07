@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 	"time"
 	"unsafe"
 
@@ -90,7 +91,7 @@ type impl interface {
 	InitGlobalVariable(*bpf.Module, string, any) error
 	CgroupPathForID(uint64) (string, error)
 	Uptime() (time.Duration, error)
-	VerifyProcess(pid, mntns uint32, seenAt time.Duration) error
+	VerifyProcess(pid, mntns uint32, startedAt, seenAt time.Duration) error
 	DeleteActivePid(m *bpf.BPFMap, pid uint32, key uint64) error
 	MapKeys(*bpf.BPFMap) ([][]byte, error)
 }
@@ -311,10 +312,16 @@ const cgroupRoot = "/sys/fs/cgroup"
 // IDs of its nodes. The ID of a cgroup is the one of its directory.
 const fileIDKernfs = 0xfe
 
+// errCgroupNotVisible is returned by CgroupPathForID for a cgroup outside of
+// the cgroup namespace of the caller.
+var errCgroupNotVisible = errors.New("cgroup outside of the cgroup namespace")
+
 // CgroupPathForID returns the path of the cgroup v2 with the provided ID. It
 // does not depend on any process of the cgroup, so it still works after they
 // exited or their PIDs got reused. The path is relative to the root of the
-// hierarchy, also when the caller runs in a cgroup namespace.
+// hierarchy mounted at cgroupRoot. In a cgroup namespace, which containers get
+// by default, that is the cgroup of the caller, and every cgroup outside of it
+// resolves to "/" instead of its path, so it fails with errCgroupNotVisible.
 func (d *defaultImpl) CgroupPathForID(id uint64) (string, error) {
 	mount, err := unix.Open(cgroupRoot, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
 	if err != nil {
@@ -338,7 +345,17 @@ func (d *defaultImpl) CgroupPathForID(id uint64) (string, error) {
 		return "", fmt.Errorf("resolve cgroup %d: %w", id, err)
 	}
 
-	return path, nil
+	// A cgroup below the mount resolves to its path including cgroupRoot.
+	rel, ok := strings.CutPrefix(path, cgroupRoot)
+	if !ok || (rel != "" && rel[0] != '/') {
+		return "", fmt.Errorf("%w: cgroup %d resolves to %s", errCgroupNotVisible, id, path)
+	}
+
+	if rel == "" {
+		return "/", nil
+	}
+
+	return rel, nil
 }
 
 // Uptime returns the time since boot, like the start times of processes.
@@ -352,9 +369,9 @@ func (d *defaultImpl) Uptime() (time.Duration, error) {
 }
 
 // VerifyProcess checks that the process with the PID is the one the BPF
-// program reported at seenAt, see verifyProcess.
-func (d *defaultImpl) VerifyProcess(pid, mntns uint32, seenAt time.Duration) error {
-	return verifyProcess(pid, mntns, seenAt, util.ProcessStartTime, os.Readlink)
+// program reported, see verifyProcess.
+func (d *defaultImpl) VerifyProcess(pid, mntns uint32, startedAt, seenAt time.Duration) error {
+	return verifyProcess(pid, mntns, startedAt, seenAt, util.ProcessStartTime, os.Readlink)
 }
 
 // DeleteActivePid removes a process from the active_pids map, so that the BPF
