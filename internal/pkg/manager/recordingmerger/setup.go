@@ -18,6 +18,7 @@ package recordingmerger
 
 import (
 	"context"
+	"fmt"
 
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -47,6 +48,14 @@ func (r *PolicyMergeReconciler) Setup(
 	r.reader = mgr.GetAPIReader()
 	r.log = ctrl.Log.WithName(r.Name())
 	r.record = util.NewEventRecorder(mgr, r.Name())
+
+	// Deleted recordings wait until the partial profiles recorded before 1.0
+	// are adopted, see legacyAdopter.
+	r.legacyAdoptionPending.Store(true)
+
+	if err := mgr.Add(&legacyAdopter{r: r}); err != nil {
+		return fmt.Errorf("adding the adoption of partial profiles recorded before 1.0: %w", err)
+	}
 
 	b := ctrl.NewControllerManagedBy(mgr).
 		Named(r.Name()).
