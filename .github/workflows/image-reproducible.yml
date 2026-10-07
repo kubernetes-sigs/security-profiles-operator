@@ -1,14 +1,15 @@
 name: image-reproducible
-# The per-arch images are built and pushed to staging on Cloud Build. This
-# workflow builds them from the same commit with the same script and the same
-# pinned BuildKit, without pushing anything and without credentials. On main
-# it compares their digests with the staging images Cloud Build pushes for the
-# commit, which shows that the staging images are reproducible from the
-# source. Releases are built from a commit on main, which was compared then.
-# For a release, the images of the tagged commit are built once more and their
-# digests get SLSA Build L3 provenance, which the release artifacts job
-# attaches to the staging images with the same digests, see
-# doc/release.md#per-arch-images.
+# The per-arch images, the bundle and the catalog are built and pushed to
+# staging on Cloud Build. This workflow builds them from the same commit with
+# the same script and the same pinned BuildKit, without pushing anything and
+# without credentials. On main it compares their digests with the staging
+# images Cloud Build pushes for the commit, which shows that the staging
+# images are reproducible from the source. Releases are built from a commit on
+# main, which was compared then. For a release, the images of the tagged
+# commit are built once more and their digests get SLSA Build L3 provenance,
+# which the release artifacts job attaches to the staging images with the
+# same digests, see doc/release.md#per-arch-images and
+# doc/release.md#bundle-and-catalog.
 on:
   push:
     branches:
@@ -53,18 +54,29 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Build the per-arch images
+      # For crane, which serves the throwaway registry the catalog is rendered
+      # from, see build_catalog in hack/image-cross.sh.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ./go.mod
+          # This workflow builds the release subjects, the Go cache is shared
+          # with every job which runs repository code.
+          cache: false
+      - name: Build the per-arch images, the bundle and the catalog
         env:
           PUSH: "false"
         run: hack/image-cross.sh
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: image-digests
-          path: build/image-digests
+          path: |
+            build/image-digests
+            build/metadata-image-digests
           if-no-files-found: error
       # The provenance subjects of a release: the manifest digest of each
-      # per-arch image, named after its repository, for example
-      # security-profiles-operator-amd64.
+      # per-arch image, of the bundle and of the catalog, named after its
+      # repository, for example security-profiles-operator-amd64 or
+      # security-profiles-operator-bundle.
       - id: hashes
         if: github.event_name == 'release'
         run: |
@@ -74,7 +86,7 @@ jobs:
               exit 1
             fi
             echo "${digest#sha256:}  ${repo##*/}"
-          done < build/image-digests > build/image-subjects.sha256
+          done < <(cat build/image-digests build/metadata-image-digests) > build/image-subjects.sha256
           cat build/image-subjects.sha256
           echo "hashes=$(base64 -w0 build/image-subjects.sha256)" >> "$GITHUB_OUTPUT"
       - name: Compare with the staging images

@@ -952,13 +952,25 @@ bundle: operator-sdk deployments ## Generate bundle manifests and metadata, then
 	cp deploy/bundle-test-config.yaml ./bundle/tests/scorecard/config.yaml
 	$(OPERATOR_SDK) bundle validate ./bundle
 
-.PHONY: bundle-build
-bundle-build: ## Build the bundle image.
-	$(CONTAINER_RUNTIME) build -f bundle.Dockerfile -t $(BUNDLE_IMG) .
+# The build context of bundle.Dockerfile, with the bundle files at the same
+# paths as in the repository.
+BUNDLE_DIR = $(BUILD_DIR)/bundle
 
-.PHONY: bundle-push
-bundle-push: ## Push the bundle image.
-	$(CONTAINER_RUNTIME) push $(BUNDLE_IMG)
+# Copy the files of the bundle image into $(BUNDLE_DIR) with fixed file modes,
+# so that hack/image-cross.sh builds it reproducibly whatever modes the
+# checkout created.
+.PHONY: bundle-context
+bundle-context: ## Copy the bundle files into the build context of bundle.Dockerfile.
+	rm -rf $(BUNDLE_DIR)
+	mkdir -p $(BUNDLE_DIR)/bundle/tests
+	cp -R bundle/manifests bundle/metadata $(BUNDLE_DIR)/bundle/
+	cp -R bundle/tests/scorecard $(BUNDLE_DIR)/bundle/tests/
+	find $(BUNDLE_DIR) -type d -exec chmod 0755 {} +
+	find $(BUNDLE_DIR) -type f -exec chmod 0644 {} +
+
+.PHONY: bundle-build
+bundle-build: bundle-context ## Build the bundle image.
+	$(CONTAINER_RUNTIME) build -f bundle.Dockerfile -t $(BUNDLE_IMG) $(BUNDLE_DIR)
 
 .PHONY: verify-bundle
 verify-bundle: bundle ## Verify the bundle doesn't alter the state of the tree
@@ -997,26 +1009,32 @@ BUNDLE_REPO = $(firstword $(subst @, ,$(BUNDLE_IMGS)))
 OPM_IMAGE ?= quay.io/operator-framework/opm:$(OPM_VERSION)@sha256:b32d3891616662620da08d7f0ec42c2e69fa2de43427dc975d35b12f7a969a0f
 
 # Build a catalog image by adding bundle images to an empty catalog using the operator package manager tool, 'opm'.
-# This target uses the file-based catalog format (https://olm.operatorframework.io/docs/reference/file-based-catalogs/)
-.PHONY: catalog-build
-catalog-build: opm ## Build a catalog image.
-	$(eval TMP_DIR := $(shell mktemp -d))
-	$(eval CATALOG_DOCKERFILE := $(TMP_DIR).Dockerfile)
-	cp deploy/catalog-preamble.json $(TMP_DIR)/security-profiles-operator-catalog.json
-	XDG_RUNTIME_DIR=$(TMP_DIR) $(OPM) $(OPM_EXTRA_ARGS) render $(BUNDLE_IMGS) >> $(TMP_DIR)/security-profiles-operator-catalog.json
+# The build context of catalog.Dockerfile, with the file-based catalog in
+# configs.
+CATALOG_DIR = $(BUILD_DIR)/catalog
+
+# Render the file-based catalog of the bundle images into $(CATALOG_DIR). The
+# catalog only depends on the bundles, the preamble and opm, with fixed file
+# modes, so that hack/image-cross.sh builds it reproducibly.
+.PHONY: catalog-context
+catalog-context: opm ## Render the file-based catalog into the build context of catalog.Dockerfile.
+	rm -rf $(CATALOG_DIR) $(CATALOG_DIR).opm
+	mkdir -p $(CATALOG_DIR)/configs $(CATALOG_DIR).opm
+	cp deploy/catalog-preamble.json $(CATALOG_DIR)/configs/security-profiles-operator-catalog.json
+	XDG_RUNTIME_DIR=$(abspath $(CATALOG_DIR).opm) $(OPM) $(OPM_EXTRA_ARGS) render $(BUNDLE_IMGS) >> $(CATALOG_DIR)/configs/security-profiles-operator-catalog.json
 ifneq ($(CATALOG_BUNDLE_REPO),)
 	@case "$(BUNDLE_IMGS)" in *,*) echo "CATALOG_BUNDLE_REPO needs a single bundle image" >&2; exit 1;; *@sha256:*) ;; *) echo "CATALOG_BUNDLE_REPO needs BUNDLE_IMGS pinned by digest" >&2; exit 1;; esac
-	$(SED) 's#"$(BUNDLE_REPO)@sha256:#"$(CATALOG_BUNDLE_REPO)@sha256:#g' $(TMP_DIR)/security-profiles-operator-catalog.json
-	! grep -F '"$(BUNDLE_REPO)@' $(TMP_DIR)/security-profiles-operator-catalog.json
+	$(SED) 's#"$(BUNDLE_REPO)@sha256:#"$(CATALOG_BUNDLE_REPO)@sha256:#g' $(CATALOG_DIR)/configs/security-profiles-operator-catalog.json
+	! grep -F '"$(BUNDLE_REPO)@' $(CATALOG_DIR)/configs/security-profiles-operator-catalog.json
 endif
-	XDG_RUNTIME_DIR=$(TMP_DIR) $(OPM) generate dockerfile -i $(OPM_IMAGE) -b $(OPM_IMAGE) $(TMP_DIR)
-	$(CONTAINER_RUNTIME) build -f $(CATALOG_DOCKERFILE) -t $(CATALOG_IMG) $(shell dirname $(TMP_DIR))
-	rm -rf $(TMP_DIR) $(CATALOG_DOCKERFILE)
+	chmod 0755 $(CATALOG_DIR)/configs
+	chmod 0644 $(CATALOG_DIR)/configs/security-profiles-operator-catalog.json
+	rm -rf $(CATALOG_DIR).opm
 
-# Push the catalog image.
-.PHONY: catalog-push
-catalog-push: ## Push a catalog image.
-	$(CONTAINER_RUNTIME) push $(CATALOG_IMG)
+# This target uses the file-based catalog format (https://olm.operatorframework.io/docs/reference/file-based-catalogs/)
+.PHONY: catalog-build
+catalog-build: catalog-context ## Build a catalog image.
+	$(CONTAINER_RUNTIME) build -f catalog.Dockerfile --build-arg OPM_IMAGE=$(OPM_IMAGE) -t $(CATALOG_IMG) $(CATALOG_DIR)
 
 ## OpenShift-only
 ## These targets are meant to make development in OpenShift easier.

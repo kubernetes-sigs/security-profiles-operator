@@ -57,8 +57,8 @@ steps:
       ./hack/push-base-profiles.sh || status=1
       ./hack/push-chart.sh || status=1
       exit $$status
-  # Attesting runs last, so that a failure there doesn't keep the profiles and
-  # the chart from being published.
+  # Attesting runs after publishing, so that a failure there doesn't keep the
+  # profiles and the chart from being published.
   - name: golang:1.27.1-bookworm@sha256:648f440f42a0958804efb24df176f806f9d353b41f1c0627f666428e40310f6b
     entrypoint: bash
     env:
@@ -83,6 +83,18 @@ steps:
     args:
     - -c
     - ./hack/verify-attestations.sh
+  # Attaches the provenance of the build workflow to the profiles, which may
+  # wait for that workflow, so it runs after everything else got published and
+  # attested, and only waits as long as the build timeout leaves time.
+  - name: golang:1.27.1-bookworm@sha256:648f440f42a0958804efb24df176f806f9d353b41f1c0627f666428e40310f6b
+    entrypoint: bash
+    env:
+      - BUILD_ID=$BUILD_ID
+      # The timeout of the build above.
+      - BUILD_TIMEOUT=2400
+    args:
+    - -c
+    - ./hack/attach-profile-provenance.sh
 substitutions:
   # _GIT_TAG will be filled with a git-based tag for the image, of the form
   # vYYYYMMDD-hash, and can be used as a substitution

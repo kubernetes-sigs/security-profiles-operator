@@ -44,6 +44,9 @@ SIGN="${SIGN:-true}"
 # registry; what is already published is left alone to spare the pushes and
 # the latest repoint. Set this to false to publish regardless.
 SKIP_EXISTING="${SKIP_EXISTING:-true}"
+# Talks to the registry over HTTP, for the throwaway registry of the build
+# workflow, which attests the profiles, see doc/release.md#security-profiles.
+PLAIN_HTTP="${PLAIN_HTTP:-false}"
 EXAMPLES="${EXAMPLES:-examples}"
 # Base profiles live under their own path, which keeps them apart from the test
 # profiles and from anything else published under the same prefix. The profile
@@ -58,7 +61,11 @@ fi
 
 mkdir -p "$BUILD_DIR"
 
-push_args=()
+registry_args=()
+if [[ "$PLAIN_HTTP" == "true" ]]; then
+  registry_args+=(--plain-http)
+fi
+push_args=(${registry_args[@]+"${registry_args[@]}"})
 if [[ "$SIGN" != "true" ]]; then
   push_args+=(--disable-signing)
 fi
@@ -70,7 +77,7 @@ export PROVENANCE_DEPENDENCIES
 published() {
   [[ "$SKIP_EXISTING" == "true" ]] || return 1
 
-  "$SPOC" pull -s -o /dev/null "$1" >/dev/null 2>&1
+  "$SPOC" pull ${registry_args[@]+"${registry_args[@]}"} -s -o /dev/null "$1" >/dev/null 2>&1
 }
 
 # Whether a tag already serves this exact content, which is how latest is
@@ -81,7 +88,7 @@ serves() {
 
   [[ "$SKIP_EXISTING" == "true" ]] || return 1
 
-  "$SPOC" pull -s -o "$pulled" "$ref" >/dev/null 2>&1 || return 1
+  "$SPOC" pull ${registry_args[@]+"${registry_args[@]}"} -s -o "$pulled" "$ref" >/dev/null 2>&1 || return 1
 
   cmp -s "$pulled" "$file"
 }
@@ -120,6 +127,7 @@ for runtime in "${RUNTIMES[@]}"; do
     push "$converted" "$version_ref"
     push "$converted" "$latest_ref"
     attest_profile "$version_ref" "$converted"
+    record_profile "$version_ref"
     continue
   fi
 
@@ -131,4 +139,5 @@ for runtime in "${RUNTIMES[@]}"; do
   # latest is not promoted, and serves the same digest whenever the version
   # does.
   attest_profile "$version_ref" "$converted" true
+  record_profile "$version_ref" true
 done

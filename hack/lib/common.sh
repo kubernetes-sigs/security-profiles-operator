@@ -41,6 +41,10 @@ STAGING_REGISTRY=us-central1-docker.pkg.dev/k8s-staging-images/sp-operator
 PRODUCTION_REGISTRY=registry.k8s.io/security-profiles-operator
 
 SLSA_PROVENANCE=https://slsa.dev/provenance/v1
+# The isolated workflow that signs the SLSA Build L3 provenance of the GitHub
+# workflows, and the issuer of its certificates.
+PROVENANCE_SIGNER_WORKFLOW="$REPOSITORY_URL/.github/workflows/provenance.yml"
+GITHUB_OIDC_ISSUER=https://token.actions.githubusercontent.com
 SPDX_DOCUMENT=https://spdx.dev/Document
 VULNS=https://in-toto.io/attestation/vulns/v0.2
 OPENVEX=https://openvex.dev/ns
@@ -416,6 +420,83 @@ attest_profile() {
   "$(dirname "${BASH_SOURCE[0]}")/../attest-artifact.sh" "$digest" "$file" profile.json
 }
 
+# The empty config descriptor of OCI referrers, see attach_bundle.
+EMPTY_CONFIG='{"mediaType":"application/vnd.oci.empty.v1+json","digest":"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a","size":2}'
+
+# Attaches a provenance bundle to a manifest as OCI referrer, the way cosign
+# attaches Sigstore bundles. DESC is the descriptor of the manifest. The
+# referrer has no creation time, so the same bundle always gets the same
+# referrer digest and is attached only once.
+attach_bundle() {
+  local repo="$1" desc="$2" bundle="$3" layout status=0
+
+  mkdir -p "$BUILD_DIR" || return 1
+  layout="$(mktemp -d "$BUILD_DIR/referrer.XXXXXX")" || return 1
+  attach_bundle_layout "$repo" "$desc" "$bundle" "$layout" || status=1
+  rm -rf "$layout"
+  return "$status"
+}
+
+# Writes the referrer of attach_bundle as OCI layout to LAYOUT and pushes it,
+# see attach_bundle.
+# shellcheck disable=SC2016
+attach_bundle_layout() {
+  local repo="$1" desc="$2" bundle="$3" layout="$4" jq crane layer manifest
+
+  jq="$(jq_bin)" || return 1
+  crane="$(crane_bin)" || return 1
+  mkdir -p "$layout/blobs/sha256" || return 1
+  printf '{"imageLayoutVersion":"1.0.0"}' >"$layout/oci-layout" || return 1
+  printf '{}' >"$layout/blobs/sha256/$("$jq" -r '.digest | ltrimstr("sha256:")' <<<"$EMPTY_CONFIG")" || return 1
+  cp "$bundle" "$layout/blobs/sha256/$(sha256sum "$bundle" | cut -d' ' -f1)" || return 1
+  layer="$("$jq" -cn --arg mt "$("$jq" -r .mediaType "$bundle")" \
+    --arg d "sha256:$(sha256sum "$bundle" | cut -d' ' -f1)" --argjson s "$(stat -c %s "$bundle")" \
+    '{mediaType: $mt, digest: $d, size: $s}')" || return 1
+
+  "$jq" -cjn --argjson config "$EMPTY_CONFIG" --argjson layer "$layer" --argjson subject "$desc" \
+    --arg type "$SLSA_PROVENANCE" '{
+      schemaVersion: 2,
+      mediaType: "application/vnd.oci.image.manifest.v1+json",
+      artifactType: $layer.mediaType,
+      config: $config,
+      layers: [$layer],
+      subject: $subject,
+      annotations: {
+        "dev.sigstore.bundle.content": "dsse-envelope",
+        "dev.sigstore.bundle.predicateType": $type
+      }
+    }' >"$layout/manifest.json" || return 1
+  manifest="sha256:$(sha256sum "$layout/manifest.json" | cut -d' ' -f1)"
+  mv "$layout/manifest.json" "$layout/blobs/sha256/${manifest#sha256:}" || return 1
+  "$jq" -cn --arg d "$manifest" --argjson s "$(stat -c %s "$layout/blobs/sha256/${manifest#sha256:}")" \
+    '{schemaVersion: 2, manifests: [{mediaType: "application/vnd.oci.image.manifest.v1+json", digest: $d, size: $s}]}' \
+    >"$layout/index.json" || return 1
+
+  if "$crane" manifest "$repo@$manifest" >/dev/null 2>&1; then
+    echo "Provenance already attached to $repo@$("$jq" -r .digest <<<"$desc")"
+  else
+    echo "Attaching the provenance to $repo@$("$jq" -r .digest <<<"$desc") as $manifest"
+    "$crane" push "$layout" "$repo@$manifest" || return 1
+  fi
+}
+
+# Appends the tag of a security profile that the build pushed or found
+# published to $BUILD_DIR/profile-refs, whose digests the build workflow
+# attests with SLSA Build L3 provenance and the staging build attaches that
+# provenance to, see hack/attach-profile-provenance.sh. A profile this build
+# pushed, PUBLISHED being false, also goes to $BUILD_DIR/profile-pushed-refs:
+# only for those the staging build waits for the build workflow of the same
+# commit.
+record_profile() {
+  local ref="$1" published="${2:-false}"
+
+  mkdir -p "$BUILD_DIR"
+  echo "$ref" >>"$BUILD_DIR/profile-refs"
+  if [[ "$published" != true ]]; then
+    echo "$ref" >>"$BUILD_DIR/profile-pushed-refs"
+  fi
+}
+
 # The builder ID of the provenance the build writes: the Cloud Build
 # configuration of the repository as the service account of the staging
 # project. Fails without the service account, which a builder ID has to name
@@ -448,6 +529,18 @@ file_dependency() {
   digest="$(sha256sum "$path" | cut -d' ' -f1)" || return 1
   "$(jq_bin)" -cn --arg name "$name" --arg digest "$digest" --arg uri "$uri" \
     '{name: $name, digest: {sha256: $digest}} + if $uri == "" then {} else {uri: $uri} end'
+}
+
+# The base image of the catalog by digest, as hack/image-cross.sh builds it
+# and its provenance names it: OPM_IMAGE of the Makefile without its tag.
+opm_image() {
+  local makefile image
+
+  makefile="$(dirname "${BASH_SOURCE[0]}")/../../Makefile"
+  image="$(sed -n 's/^OPM_IMAGE ?= //p' "$makefile")" || return 1
+  image="${image%%:*}@${image#*@}"
+  require_digest "$image" || return 1
+  echo "$image"
 }
 
 # The resolved dependency of the provenance for the spoc binary that converts
@@ -519,6 +612,45 @@ signed() {
 
   statements="$(attestations "$1" "$COSIGN_SIGNATURE")" || return 2
   [[ -n "$statements" ]]
+}
+
+# Whether one of the in-toto statements on stdin is SLSA provenance of the
+# GitHub workflow at the ref of this repository, built on a GitHub hosted
+# runner. With a commit, the provenance has to name it for the ref, and with a
+# digest, it has to be about it.
+# shellcheck disable=SC2016
+github_workflow_provenance() {
+  local workflow="$1" ref="$2" commit="${3:-}" digest="${4:-}"
+
+  "$(jq_bin)" -se \
+    --arg type "$SLSA_PROVENANCE" --arg repo "$REPOSITORY_URL" --arg ref "$ref" \
+    --arg workflow "$workflow" --arg commit "$commit" --arg digest "${digest#sha256:}" '
+      any(.[];
+        .predicateType == $type and
+        .predicate.buildDefinition.externalParameters.workflow == {ref: $ref, repository: $repo, path: $workflow} and
+        .predicate.buildDefinition.internalParameters.github.runner_environment == "github-hosted" and
+        ($commit == "" or any(.predicate.buildDefinition.resolvedDependencies[]?;
+          .uri == "git+\($repo)@\($ref)" and .digest.gitCommit == $commit)) and
+        ($digest == "" or any(.subject[]?; .digest.sha256 == $digest)))
+    ' >/dev/null
+}
+
+# Verifies that the provenance bundle is GitHub artifact attestation of the
+# provenance workflow at the ref and commit, created for the trigger, about the
+# file.
+verify_github_provenance() {
+  local bundle="$1" ref="$2" commit="$3" trigger="$4" file="$5"
+
+  "$(cosign_bin)" verify-blob-attestation \
+    --bundle "$bundle" \
+    --type "$SLSA_PROVENANCE" \
+    --certificate-identity "$PROVENANCE_SIGNER_WORKFLOW@$ref" \
+    --certificate-oidc-issuer "$GITHUB_OIDC_ISSUER" \
+    --certificate-github-workflow-repository "${REPOSITORY_URL#https://github.com/}" \
+    --certificate-github-workflow-ref "$ref" \
+    --certificate-github-workflow-sha "$commit" \
+    --certificate-github-workflow-trigger "$trigger" \
+    "$file"
 }
 
 # Prints the in-toto statements of the predicate type attached to an image

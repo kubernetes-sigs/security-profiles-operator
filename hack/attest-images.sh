@@ -55,10 +55,11 @@ export BUILD_STARTED
 # The resolved dependencies of the provenance: the binaries of the per-arch
 # images are compiled with the build toolchain and the images built by the
 # pinned BuildKit image, which decides their digests, from
-# build/buildkit-image. The docker daemon builds the bundle, which holds the
+# build/buildkit-image. The same BuildKit builds the bundle, which holds the
 # files of this repository only, and the catalog, which is rendered from the
-# bundle by the opm release binary on top of the opm image, see catalog-build
-# in the Makefile.
+# bundle by the opm release binary on top of the opm image, see
+# catalog-context and catalog-build in the Makefile, so it is a dependency of
+# both as well.
 TOOLCHAIN_DEPENDENCIES="$(toolchain_dependencies)"
 BUILDKIT_DEPENDENCY="$(oci_dependency "$(cat "$BUILD_DIR/buildkit-image")" buildkit)"
 # jq programs are single quoted on purpose
@@ -67,8 +68,7 @@ IMAGE_DEPENDENCIES="$("$(jq_bin)" -cn \
   --argjson toolchain "$TOOLCHAIN_DEPENDENCIES" --argjson buildkit "$BUILDKIT_DEPENDENCY" \
   '$toolchain + [$buildkit]')"
 BUNDLE="$(grep -E -- '-bundle@sha256:' "$BUILD_DIR/metadata-image-digests")"
-OPM_IMAGE="$(sed -n 's/^OPM_IMAGE ?= //p' Makefile)"
-OPM_IMAGE="${OPM_IMAGE%%:*}@${OPM_IMAGE#*@}"
+OPM_IMAGE="$(opm_image)"
 OPM_VERSION="$(sed -n 's/^OPM_VERSION ?= //p' Makefile)"
 if [[ -z "$OPM_VERSION" ]]; then
   echo "Unable to read OPM_VERSION from the Makefile" >&2
@@ -78,8 +78,11 @@ CATALOG_DEPENDENCIES="$({
   oci_dependency "$OPM_IMAGE" opm-image &&
     file_dependency opm "$BUILD_DIR/opm" \
       "https://github.com/operator-framework/operator-registry/releases/download/$OPM_VERSION/linux-amd64-opm" &&
-    oci_dependency "$BUNDLE" bundle
+    oci_dependency "$BUNDLE" bundle &&
+    echo "$BUILDKIT_DEPENDENCY"
 } | "$(jq_bin)" -cs .)"
+# shellcheck disable=SC2016
+BUNDLE_DEPENDENCIES="$("$(jq_bin)" -cn --argjson buildkit "$BUILDKIT_DEPENDENCY" '[$buildkit]')"
 
 # Install the tools once, before the parallel runs.
 cosign_bin >/dev/null
@@ -110,7 +113,8 @@ attest_metadata_image() {
   name="$(image_name "$ref")"
   case "$name" in
   *-bundle)
-    prefixed "$name" "$HACK_DIR/attest-provenance.sh" "$ref"
+    PROVENANCE_DEPENDENCIES="$BUNDLE_DEPENDENCIES" \
+      prefixed "$name" "$HACK_DIR/attest-provenance.sh" "$ref"
     prefixed "$name" "$HACK_DIR/attest-sbom.sh" "$ref"
     ;;
   *-catalog)
