@@ -202,7 +202,35 @@ func (i *Index) find(containerID string) (pod *corev1.Pod, wait bool) {
 		return pod, false
 	}
 
-	return nil, !i.HasSynced() || i.containersPending()
+	if !i.HasSynced() {
+		return nil, true
+	}
+
+	// The pod may have reported the container since, so one list of the pods
+	// tells both whether one has it and whether one has pending containers.
+	return findIn(i.informer.GetStore().List(), containerID)
+}
+
+// findIn returns the pod of pods which has the container with the ID, or
+// whether one of them has a container which is being created or restarted, see
+// ContainersPending.
+func findIn(pods []any, containerID string) (*corev1.Pod, bool) {
+	wait := false
+
+	for _, obj := range pods {
+		pod, ok := obj.(*corev1.Pod)
+		if !ok {
+			continue
+		}
+
+		if _, ok := ContainerName(pod, containerID); ok {
+			return pod, false
+		}
+
+		wait = wait || ContainersPending(pod)
+	}
+
+	return nil, wait
 }
 
 // notFound returns ErrNotFound for the container if no pod was found.
@@ -212,18 +240,6 @@ func notFound(pod *corev1.Pod, containerID string) error {
 	}
 
 	return fmt.Errorf("%w: %s", ErrNotFound, containerID)
-}
-
-// containersPending reports whether a pod of the node has a container which
-// is being created or restarted, see ContainersPending.
-func (i *Index) containersPending() bool {
-	for _, obj := range i.informer.GetStore().List() {
-		if pod, ok := obj.(*corev1.Pod); ok && ContainersPending(pod) {
-			return true
-		}
-	}
-
-	return false
 }
 
 // ContainersPending reports whether the pod has a container whose ID the
