@@ -547,7 +547,7 @@ sboms() {
 
   statements="$(attestations "$ref" "$SPDX_DOCUMENT")" || return 1
   if [[ -z "$statements" ]]; then
-    echo "no SPDX SBOM" >&2
+    echo "no SPDX 3 SBOM" >&2
     return 1
   fi
   for sbom in "$@"; do

@@ -153,15 +153,17 @@ require() {
   }
 }
 
+# shellcheck disable=SC2016
 sbom() {
   local kind="$1" ref="$2" statements
+  # Whether the SPDX 3 document is the SBOM of the native libraries.
+  local native='first(.predicate["@graph"][]? | select(.type == "SpdxDocument")
+    | .name) // "" | endswith("-native")'
 
-  statements="$(lookup "$ref" "$SPDX_DOCUMENT" "no SPDX SBOM")" || return 1
+  statements="$(lookup "$ref" "$SPDX_DOCUMENT" "no SPDX 3 SBOM")" || return 1
   if [[ "$kind" == image ]]; then
-    require '.predicate["@context"] | tostring | contains("spdx.org/rdf/3")' \
-      "no SPDX 3 SBOM of the image" <<<"$statements" || return 1
-    require '.predicate.name // "" | endswith("-native")' \
-      "no SBOM of the native libraries" <<<"$statements" || return 1
+    require "$native | not" "no SBOM of the image" <<<"$statements" || return 1
+    require "$native" "no SBOM of the native libraries" <<<"$statements" || return 1
   fi
 }
 
