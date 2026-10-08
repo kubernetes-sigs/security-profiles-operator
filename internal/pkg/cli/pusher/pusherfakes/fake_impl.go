@@ -28,37 +28,33 @@ import (
 type FakeImpl struct {
 	PushStub        func(context.Context, map[*v1.Platform]string, string, string, string, map[string]string, *artifact.PushOptions) error
 	pushMutex       sync.RWMutex
-	pushArgsForCall []struct {
-		arg1 context.Context
-		arg2 map[*v1.Platform]string
-		arg3 string
-		arg4 string
-		arg5 string
-		arg6 map[string]string
-		arg7 *artifact.PushOptions
-	}
-	pushReturns struct {
+	pushArgsForCall []FakeImplPushArgs
+	pushReturns     struct {
 		result1 error
 	}
 	pushReturnsOnCall map[int]struct {
 		result1 error
 	}
 	invocations      map[string][][]interface{}
+	callOrder        []string
 	invocationsMutex sync.RWMutex
+}
+
+// FakeImplPushArgs holds the arguments of one call to Push.
+type FakeImplPushArgs struct {
+	Arg1 context.Context
+	Arg2 map[*v1.Platform]string
+	Arg3 string
+	Arg4 string
+	Arg5 string
+	Arg6 map[string]string
+	Arg7 *artifact.PushOptions
 }
 
 func (fake *FakeImpl) Push(arg1 context.Context, arg2 map[*v1.Platform]string, arg3 string, arg4 string, arg5 string, arg6 map[string]string, arg7 *artifact.PushOptions) error {
 	fake.pushMutex.Lock()
 	ret, specificReturn := fake.pushReturnsOnCall[len(fake.pushArgsForCall)]
-	fake.pushArgsForCall = append(fake.pushArgsForCall, struct {
-		arg1 context.Context
-		arg2 map[*v1.Platform]string
-		arg3 string
-		arg4 string
-		arg5 string
-		arg6 map[string]string
-		arg7 *artifact.PushOptions
-	}{arg1, arg2, arg3, arg4, arg5, arg6, arg7})
+	fake.pushArgsForCall = append(fake.pushArgsForCall, FakeImplPushArgs{arg1, arg2, arg3, arg4, arg5, arg6, arg7})
 	stub := fake.PushStub
 	fakeReturns := fake.pushReturns
 	fake.recordInvocation("Push", []interface{}{arg1, arg2, arg3, arg4, arg5, arg6, arg7})
@@ -88,7 +84,15 @@ func (fake *FakeImpl) PushArgsForCall(i int) (context.Context, map[*v1.Platform]
 	fake.pushMutex.RLock()
 	defer fake.pushMutex.RUnlock()
 	argsForCall := fake.pushArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3, argsForCall.arg4, argsForCall.arg5, argsForCall.arg6, argsForCall.arg7
+	return argsForCall.Arg1, argsForCall.Arg2, argsForCall.Arg3, argsForCall.Arg4, argsForCall.Arg5, argsForCall.Arg6, argsForCall.Arg7
+}
+
+func (fake *FakeImpl) PushArgs() []FakeImplPushArgs {
+	fake.pushMutex.RLock()
+	defer fake.pushMutex.RUnlock()
+	args := make([]FakeImplPushArgs, len(fake.pushArgsForCall))
+	copy(args, fake.pushArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) PushReturns(result1 error) {
@@ -124,9 +128,18 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	return copiedInvocations
 }
 
+func (fake *FakeImpl) CallOrder() []string {
+	fake.invocationsMutex.RLock()
+	defer fake.invocationsMutex.RUnlock()
+	order := make([]string, len(fake.callOrder))
+	copy(order, fake.callOrder)
+	return order
+}
+
 func (fake *FakeImpl) recordInvocation(key string, args []interface{}) {
 	fake.invocationsMutex.Lock()
 	defer fake.invocationsMutex.Unlock()
+	fake.callOrder = append(fake.callOrder, key)
 	if fake.invocations == nil {
 		fake.invocations = map[string][][]interface{}{}
 	}

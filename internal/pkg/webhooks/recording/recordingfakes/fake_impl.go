@@ -28,11 +28,8 @@ import (
 type FakeImpl struct {
 	ListProfileRecordingsStub        func(context.Context, ...client.ListOption) (*v1.ProfileRecordingList, error)
 	listProfileRecordingsMutex       sync.RWMutex
-	listProfileRecordingsArgsForCall []struct {
-		arg1 context.Context
-		arg2 []client.ListOption
-	}
-	listProfileRecordingsReturns struct {
+	listProfileRecordingsArgsForCall []FakeImplListProfileRecordingsArgs
+	listProfileRecordingsReturns     struct {
 		result1 *v1.ProfileRecordingList
 		result2 error
 	}
@@ -41,7 +38,14 @@ type FakeImpl struct {
 		result2 error
 	}
 	invocations      map[string][][]interface{}
+	callOrder        []string
 	invocationsMutex sync.RWMutex
+}
+
+// FakeImplListProfileRecordingsArgs holds the arguments of one call to ListProfileRecordings.
+type FakeImplListProfileRecordingsArgs struct {
+	Arg1 context.Context
+	Arg2 []client.ListOption
 }
 
 func (fake *FakeImpl) ListProfileRecordings(arg1 context.Context, arg2 ...client.ListOption) (*v1.ProfileRecordingList, error) {
@@ -52,10 +56,7 @@ func (fake *FakeImpl) ListProfileRecordings(arg1 context.Context, arg2 ...client
 	}
 	fake.listProfileRecordingsMutex.Lock()
 	ret, specificReturn := fake.listProfileRecordingsReturnsOnCall[len(fake.listProfileRecordingsArgsForCall)]
-	fake.listProfileRecordingsArgsForCall = append(fake.listProfileRecordingsArgsForCall, struct {
-		arg1 context.Context
-		arg2 []client.ListOption
-	}{arg1, arg2Copy})
+	fake.listProfileRecordingsArgsForCall = append(fake.listProfileRecordingsArgsForCall, FakeImplListProfileRecordingsArgs{arg1, arg2Copy})
 	stub := fake.ListProfileRecordingsStub
 	fakeReturns := fake.listProfileRecordingsReturns
 	fake.recordInvocation("ListProfileRecordings", []interface{}{arg1, arg2Copy})
@@ -85,7 +86,15 @@ func (fake *FakeImpl) ListProfileRecordingsArgsForCall(i int) (context.Context, 
 	fake.listProfileRecordingsMutex.RLock()
 	defer fake.listProfileRecordingsMutex.RUnlock()
 	argsForCall := fake.listProfileRecordingsArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
+	return argsForCall.Arg1, argsForCall.Arg2
+}
+
+func (fake *FakeImpl) ListProfileRecordingsArgs() []FakeImplListProfileRecordingsArgs {
+	fake.listProfileRecordingsMutex.RLock()
+	defer fake.listProfileRecordingsMutex.RUnlock()
+	args := make([]FakeImplListProfileRecordingsArgs, len(fake.listProfileRecordingsArgsForCall))
+	copy(args, fake.listProfileRecordingsArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) ListProfileRecordingsReturns(result1 *v1.ProfileRecordingList, result2 error) {
@@ -124,9 +133,18 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	return copiedInvocations
 }
 
+func (fake *FakeImpl) CallOrder() []string {
+	fake.invocationsMutex.RLock()
+	defer fake.invocationsMutex.RUnlock()
+	order := make([]string, len(fake.callOrder))
+	copy(order, fake.callOrder)
+	return order
+}
+
 func (fake *FakeImpl) recordInvocation(key string, args []interface{}) {
 	fake.invocationsMutex.Lock()
 	defer fake.invocationsMutex.Unlock()
+	fake.callOrder = append(fake.callOrder, key)
 	if fake.invocations == nil {
 		fake.invocations = map[string][][]interface{}{}
 	}

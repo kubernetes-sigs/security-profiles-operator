@@ -28,12 +28,8 @@ import (
 type FakeEnricherImpl struct {
 	AvcsStub        func(context.Context, api_enricher.EnricherClient, *api_enricher.AvcRequest) (*api_enricher.AvcResponse, error)
 	avcsMutex       sync.RWMutex
-	avcsArgsForCall []struct {
-		arg1 context.Context
-		arg2 api_enricher.EnricherClient
-		arg3 *api_enricher.AvcRequest
-	}
-	avcsReturns struct {
+	avcsArgsForCall []FakeEnricherImplAvcsArgs
+	avcsReturns     struct {
 		result1 *api_enricher.AvcResponse
 		result2 error
 	}
@@ -43,9 +39,8 @@ type FakeEnricherImpl struct {
 	}
 	DialEnricherStub        func() (*grpc.ClientConn, error)
 	dialEnricherMutex       sync.RWMutex
-	dialEnricherArgsForCall []struct {
-	}
-	dialEnricherReturns struct {
+	dialEnricherArgsForCall []struct{}
+	dialEnricherReturns     struct {
 		result1 *grpc.ClientConn
 		result2 error
 	}
@@ -55,12 +50,8 @@ type FakeEnricherImpl struct {
 	}
 	ResetAvcsStub        func(context.Context, api_enricher.EnricherClient, *api_enricher.AvcRequest) error
 	resetAvcsMutex       sync.RWMutex
-	resetAvcsArgsForCall []struct {
-		arg1 context.Context
-		arg2 api_enricher.EnricherClient
-		arg3 *api_enricher.AvcRequest
-	}
-	resetAvcsReturns struct {
+	resetAvcsArgsForCall []FakeEnricherImplResetAvcsArgs
+	resetAvcsReturns     struct {
 		result1 error
 	}
 	resetAvcsReturnsOnCall map[int]struct {
@@ -68,12 +59,8 @@ type FakeEnricherImpl struct {
 	}
 	ResetSyscallsStub        func(context.Context, api_enricher.EnricherClient, *api_enricher.SyscallsRequest) error
 	resetSyscallsMutex       sync.RWMutex
-	resetSyscallsArgsForCall []struct {
-		arg1 context.Context
-		arg2 api_enricher.EnricherClient
-		arg3 *api_enricher.SyscallsRequest
-	}
-	resetSyscallsReturns struct {
+	resetSyscallsArgsForCall []FakeEnricherImplResetSyscallsArgs
+	resetSyscallsReturns     struct {
 		result1 error
 	}
 	resetSyscallsReturnsOnCall map[int]struct {
@@ -81,12 +68,8 @@ type FakeEnricherImpl struct {
 	}
 	SyscallsStub        func(context.Context, api_enricher.EnricherClient, *api_enricher.SyscallsRequest) (*api_enricher.SyscallsResponse, error)
 	syscallsMutex       sync.RWMutex
-	syscallsArgsForCall []struct {
-		arg1 context.Context
-		arg2 api_enricher.EnricherClient
-		arg3 *api_enricher.SyscallsRequest
-	}
-	syscallsReturns struct {
+	syscallsArgsForCall []FakeEnricherImplSyscallsArgs
+	syscallsReturns     struct {
 		result1 *api_enricher.SyscallsResponse
 		result2 error
 	}
@@ -95,17 +78,42 @@ type FakeEnricherImpl struct {
 		result2 error
 	}
 	invocations      map[string][][]interface{}
+	callOrder        []string
 	invocationsMutex sync.RWMutex
+}
+
+// FakeEnricherImplAvcsArgs holds the arguments of one call to Avcs.
+type FakeEnricherImplAvcsArgs struct {
+	Arg1 context.Context
+	Arg2 api_enricher.EnricherClient
+	Arg3 *api_enricher.AvcRequest
+}
+
+// FakeEnricherImplResetAvcsArgs holds the arguments of one call to ResetAvcs.
+type FakeEnricherImplResetAvcsArgs struct {
+	Arg1 context.Context
+	Arg2 api_enricher.EnricherClient
+	Arg3 *api_enricher.AvcRequest
+}
+
+// FakeEnricherImplResetSyscallsArgs holds the arguments of one call to ResetSyscalls.
+type FakeEnricherImplResetSyscallsArgs struct {
+	Arg1 context.Context
+	Arg2 api_enricher.EnricherClient
+	Arg3 *api_enricher.SyscallsRequest
+}
+
+// FakeEnricherImplSyscallsArgs holds the arguments of one call to Syscalls.
+type FakeEnricherImplSyscallsArgs struct {
+	Arg1 context.Context
+	Arg2 api_enricher.EnricherClient
+	Arg3 *api_enricher.SyscallsRequest
 }
 
 func (fake *FakeEnricherImpl) Avcs(arg1 context.Context, arg2 api_enricher.EnricherClient, arg3 *api_enricher.AvcRequest) (*api_enricher.AvcResponse, error) {
 	fake.avcsMutex.Lock()
 	ret, specificReturn := fake.avcsReturnsOnCall[len(fake.avcsArgsForCall)]
-	fake.avcsArgsForCall = append(fake.avcsArgsForCall, struct {
-		arg1 context.Context
-		arg2 api_enricher.EnricherClient
-		arg3 *api_enricher.AvcRequest
-	}{arg1, arg2, arg3})
+	fake.avcsArgsForCall = append(fake.avcsArgsForCall, FakeEnricherImplAvcsArgs{arg1, arg2, arg3})
 	stub := fake.AvcsStub
 	fakeReturns := fake.avcsReturns
 	fake.recordInvocation("Avcs", []interface{}{arg1, arg2, arg3})
@@ -135,7 +143,15 @@ func (fake *FakeEnricherImpl) AvcsArgsForCall(i int) (context.Context, api_enric
 	fake.avcsMutex.RLock()
 	defer fake.avcsMutex.RUnlock()
 	argsForCall := fake.avcsArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+	return argsForCall.Arg1, argsForCall.Arg2, argsForCall.Arg3
+}
+
+func (fake *FakeEnricherImpl) AvcsArgs() []FakeEnricherImplAvcsArgs {
+	fake.avcsMutex.RLock()
+	defer fake.avcsMutex.RUnlock()
+	args := make([]FakeEnricherImplAvcsArgs, len(fake.avcsArgsForCall))
+	copy(args, fake.avcsArgsForCall)
+	return args
 }
 
 func (fake *FakeEnricherImpl) AvcsReturns(result1 *api_enricher.AvcResponse, result2 error) {
@@ -167,8 +183,7 @@ func (fake *FakeEnricherImpl) AvcsReturnsOnCall(i int, result1 *api_enricher.Avc
 func (fake *FakeEnricherImpl) DialEnricher() (*grpc.ClientConn, error) {
 	fake.dialEnricherMutex.Lock()
 	ret, specificReturn := fake.dialEnricherReturnsOnCall[len(fake.dialEnricherArgsForCall)]
-	fake.dialEnricherArgsForCall = append(fake.dialEnricherArgsForCall, struct {
-	}{})
+	fake.dialEnricherArgsForCall = append(fake.dialEnricherArgsForCall, struct{}{})
 	stub := fake.DialEnricherStub
 	fakeReturns := fake.dialEnricherReturns
 	fake.recordInvocation("DialEnricher", []interface{}{})
@@ -223,11 +238,7 @@ func (fake *FakeEnricherImpl) DialEnricherReturnsOnCall(i int, result1 *grpc.Cli
 func (fake *FakeEnricherImpl) ResetAvcs(arg1 context.Context, arg2 api_enricher.EnricherClient, arg3 *api_enricher.AvcRequest) error {
 	fake.resetAvcsMutex.Lock()
 	ret, specificReturn := fake.resetAvcsReturnsOnCall[len(fake.resetAvcsArgsForCall)]
-	fake.resetAvcsArgsForCall = append(fake.resetAvcsArgsForCall, struct {
-		arg1 context.Context
-		arg2 api_enricher.EnricherClient
-		arg3 *api_enricher.AvcRequest
-	}{arg1, arg2, arg3})
+	fake.resetAvcsArgsForCall = append(fake.resetAvcsArgsForCall, FakeEnricherImplResetAvcsArgs{arg1, arg2, arg3})
 	stub := fake.ResetAvcsStub
 	fakeReturns := fake.resetAvcsReturns
 	fake.recordInvocation("ResetAvcs", []interface{}{arg1, arg2, arg3})
@@ -257,7 +268,15 @@ func (fake *FakeEnricherImpl) ResetAvcsArgsForCall(i int) (context.Context, api_
 	fake.resetAvcsMutex.RLock()
 	defer fake.resetAvcsMutex.RUnlock()
 	argsForCall := fake.resetAvcsArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+	return argsForCall.Arg1, argsForCall.Arg2, argsForCall.Arg3
+}
+
+func (fake *FakeEnricherImpl) ResetAvcsArgs() []FakeEnricherImplResetAvcsArgs {
+	fake.resetAvcsMutex.RLock()
+	defer fake.resetAvcsMutex.RUnlock()
+	args := make([]FakeEnricherImplResetAvcsArgs, len(fake.resetAvcsArgsForCall))
+	copy(args, fake.resetAvcsArgsForCall)
+	return args
 }
 
 func (fake *FakeEnricherImpl) ResetAvcsReturns(result1 error) {
@@ -286,11 +305,7 @@ func (fake *FakeEnricherImpl) ResetAvcsReturnsOnCall(i int, result1 error) {
 func (fake *FakeEnricherImpl) ResetSyscalls(arg1 context.Context, arg2 api_enricher.EnricherClient, arg3 *api_enricher.SyscallsRequest) error {
 	fake.resetSyscallsMutex.Lock()
 	ret, specificReturn := fake.resetSyscallsReturnsOnCall[len(fake.resetSyscallsArgsForCall)]
-	fake.resetSyscallsArgsForCall = append(fake.resetSyscallsArgsForCall, struct {
-		arg1 context.Context
-		arg2 api_enricher.EnricherClient
-		arg3 *api_enricher.SyscallsRequest
-	}{arg1, arg2, arg3})
+	fake.resetSyscallsArgsForCall = append(fake.resetSyscallsArgsForCall, FakeEnricherImplResetSyscallsArgs{arg1, arg2, arg3})
 	stub := fake.ResetSyscallsStub
 	fakeReturns := fake.resetSyscallsReturns
 	fake.recordInvocation("ResetSyscalls", []interface{}{arg1, arg2, arg3})
@@ -320,7 +335,15 @@ func (fake *FakeEnricherImpl) ResetSyscallsArgsForCall(i int) (context.Context, 
 	fake.resetSyscallsMutex.RLock()
 	defer fake.resetSyscallsMutex.RUnlock()
 	argsForCall := fake.resetSyscallsArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+	return argsForCall.Arg1, argsForCall.Arg2, argsForCall.Arg3
+}
+
+func (fake *FakeEnricherImpl) ResetSyscallsArgs() []FakeEnricherImplResetSyscallsArgs {
+	fake.resetSyscallsMutex.RLock()
+	defer fake.resetSyscallsMutex.RUnlock()
+	args := make([]FakeEnricherImplResetSyscallsArgs, len(fake.resetSyscallsArgsForCall))
+	copy(args, fake.resetSyscallsArgsForCall)
+	return args
 }
 
 func (fake *FakeEnricherImpl) ResetSyscallsReturns(result1 error) {
@@ -349,11 +372,7 @@ func (fake *FakeEnricherImpl) ResetSyscallsReturnsOnCall(i int, result1 error) {
 func (fake *FakeEnricherImpl) Syscalls(arg1 context.Context, arg2 api_enricher.EnricherClient, arg3 *api_enricher.SyscallsRequest) (*api_enricher.SyscallsResponse, error) {
 	fake.syscallsMutex.Lock()
 	ret, specificReturn := fake.syscallsReturnsOnCall[len(fake.syscallsArgsForCall)]
-	fake.syscallsArgsForCall = append(fake.syscallsArgsForCall, struct {
-		arg1 context.Context
-		arg2 api_enricher.EnricherClient
-		arg3 *api_enricher.SyscallsRequest
-	}{arg1, arg2, arg3})
+	fake.syscallsArgsForCall = append(fake.syscallsArgsForCall, FakeEnricherImplSyscallsArgs{arg1, arg2, arg3})
 	stub := fake.SyscallsStub
 	fakeReturns := fake.syscallsReturns
 	fake.recordInvocation("Syscalls", []interface{}{arg1, arg2, arg3})
@@ -383,7 +402,15 @@ func (fake *FakeEnricherImpl) SyscallsArgsForCall(i int) (context.Context, api_e
 	fake.syscallsMutex.RLock()
 	defer fake.syscallsMutex.RUnlock()
 	argsForCall := fake.syscallsArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+	return argsForCall.Arg1, argsForCall.Arg2, argsForCall.Arg3
+}
+
+func (fake *FakeEnricherImpl) SyscallsArgs() []FakeEnricherImplSyscallsArgs {
+	fake.syscallsMutex.RLock()
+	defer fake.syscallsMutex.RUnlock()
+	args := make([]FakeEnricherImplSyscallsArgs, len(fake.syscallsArgsForCall))
+	copy(args, fake.syscallsArgsForCall)
+	return args
 }
 
 func (fake *FakeEnricherImpl) SyscallsReturns(result1 *api_enricher.SyscallsResponse, result2 error) {
@@ -422,9 +449,18 @@ func (fake *FakeEnricherImpl) Invocations() map[string][][]interface{} {
 	return copiedInvocations
 }
 
+func (fake *FakeEnricherImpl) CallOrder() []string {
+	fake.invocationsMutex.RLock()
+	defer fake.invocationsMutex.RUnlock()
+	order := make([]string, len(fake.callOrder))
+	copy(order, fake.callOrder)
+	return order
+}
+
 func (fake *FakeEnricherImpl) recordInvocation(key string, args []interface{}) {
 	fake.invocationsMutex.Lock()
 	defer fake.invocationsMutex.Unlock()
+	fake.callOrder = append(fake.callOrder, key)
 	if fake.invocations == nil {
 		fake.invocations = map[string][][]interface{}{}
 	}

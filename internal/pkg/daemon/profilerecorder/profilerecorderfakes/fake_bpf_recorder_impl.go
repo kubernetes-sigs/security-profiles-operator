@@ -28,12 +28,8 @@ import (
 type FakeBpfRecorderImpl struct {
 	ApparmorForProfileStub        func(context.Context, api_bpfrecorder.BpfRecorderClient, *api_bpfrecorder.ProfileRequest) (*api_bpfrecorder.ApparmorResponse, error)
 	apparmorForProfileMutex       sync.RWMutex
-	apparmorForProfileArgsForCall []struct {
-		arg1 context.Context
-		arg2 api_bpfrecorder.BpfRecorderClient
-		arg3 *api_bpfrecorder.ProfileRequest
-	}
-	apparmorForProfileReturns struct {
+	apparmorForProfileArgsForCall []FakeBpfRecorderImplApparmorForProfileArgs
+	apparmorForProfileReturns     struct {
 		result1 *api_bpfrecorder.ApparmorResponse
 		result2 error
 	}
@@ -43,9 +39,8 @@ type FakeBpfRecorderImpl struct {
 	}
 	DialBpfRecorderStub        func() (*grpc.ClientConn, error)
 	dialBpfRecorderMutex       sync.RWMutex
-	dialBpfRecorderArgsForCall []struct {
-	}
-	dialBpfRecorderReturns struct {
+	dialBpfRecorderArgsForCall []struct{}
+	dialBpfRecorderReturns     struct {
 		result1 *grpc.ClientConn
 		result2 error
 	}
@@ -55,12 +50,8 @@ type FakeBpfRecorderImpl struct {
 	}
 	ResetApparmorForProfileStub        func(context.Context, api_bpfrecorder.BpfRecorderClient, *api_bpfrecorder.ProfileRequest) error
 	resetApparmorForProfileMutex       sync.RWMutex
-	resetApparmorForProfileArgsForCall []struct {
-		arg1 context.Context
-		arg2 api_bpfrecorder.BpfRecorderClient
-		arg3 *api_bpfrecorder.ProfileRequest
-	}
-	resetApparmorForProfileReturns struct {
+	resetApparmorForProfileArgsForCall []FakeBpfRecorderImplResetApparmorForProfileArgs
+	resetApparmorForProfileReturns     struct {
 		result1 error
 	}
 	resetApparmorForProfileReturnsOnCall map[int]struct {
@@ -68,12 +59,8 @@ type FakeBpfRecorderImpl struct {
 	}
 	ResetSyscallsForProfileStub        func(context.Context, api_bpfrecorder.BpfRecorderClient, *api_bpfrecorder.ProfileRequest) error
 	resetSyscallsForProfileMutex       sync.RWMutex
-	resetSyscallsForProfileArgsForCall []struct {
-		arg1 context.Context
-		arg2 api_bpfrecorder.BpfRecorderClient
-		arg3 *api_bpfrecorder.ProfileRequest
-	}
-	resetSyscallsForProfileReturns struct {
+	resetSyscallsForProfileArgsForCall []FakeBpfRecorderImplResetSyscallsForProfileArgs
+	resetSyscallsForProfileReturns     struct {
 		result1 error
 	}
 	resetSyscallsForProfileReturnsOnCall map[int]struct {
@@ -81,11 +68,8 @@ type FakeBpfRecorderImpl struct {
 	}
 	StartBpfRecorderStub        func(context.Context, api_bpfrecorder.BpfRecorderClient) error
 	startBpfRecorderMutex       sync.RWMutex
-	startBpfRecorderArgsForCall []struct {
-		arg1 context.Context
-		arg2 api_bpfrecorder.BpfRecorderClient
-	}
-	startBpfRecorderReturns struct {
+	startBpfRecorderArgsForCall []FakeBpfRecorderImplStartBpfRecorderArgs
+	startBpfRecorderReturns     struct {
 		result1 error
 	}
 	startBpfRecorderReturnsOnCall map[int]struct {
@@ -93,11 +77,8 @@ type FakeBpfRecorderImpl struct {
 	}
 	StopBpfRecorderStub        func(context.Context, api_bpfrecorder.BpfRecorderClient) error
 	stopBpfRecorderMutex       sync.RWMutex
-	stopBpfRecorderArgsForCall []struct {
-		arg1 context.Context
-		arg2 api_bpfrecorder.BpfRecorderClient
-	}
-	stopBpfRecorderReturns struct {
+	stopBpfRecorderArgsForCall []FakeBpfRecorderImplStopBpfRecorderArgs
+	stopBpfRecorderReturns     struct {
 		result1 error
 	}
 	stopBpfRecorderReturnsOnCall map[int]struct {
@@ -105,12 +86,8 @@ type FakeBpfRecorderImpl struct {
 	}
 	SyscallsForProfileStub        func(context.Context, api_bpfrecorder.BpfRecorderClient, *api_bpfrecorder.ProfileRequest) (*api_bpfrecorder.SyscallsResponse, error)
 	syscallsForProfileMutex       sync.RWMutex
-	syscallsForProfileArgsForCall []struct {
-		arg1 context.Context
-		arg2 api_bpfrecorder.BpfRecorderClient
-		arg3 *api_bpfrecorder.ProfileRequest
-	}
-	syscallsForProfileReturns struct {
+	syscallsForProfileArgsForCall []FakeBpfRecorderImplSyscallsForProfileArgs
+	syscallsForProfileReturns     struct {
 		result1 *api_bpfrecorder.SyscallsResponse
 		result2 error
 	}
@@ -119,17 +96,54 @@ type FakeBpfRecorderImpl struct {
 		result2 error
 	}
 	invocations      map[string][][]interface{}
+	callOrder        []string
 	invocationsMutex sync.RWMutex
+}
+
+// FakeBpfRecorderImplApparmorForProfileArgs holds the arguments of one call to ApparmorForProfile.
+type FakeBpfRecorderImplApparmorForProfileArgs struct {
+	Arg1 context.Context
+	Arg2 api_bpfrecorder.BpfRecorderClient
+	Arg3 *api_bpfrecorder.ProfileRequest
+}
+
+// FakeBpfRecorderImplResetApparmorForProfileArgs holds the arguments of one call to ResetApparmorForProfile.
+type FakeBpfRecorderImplResetApparmorForProfileArgs struct {
+	Arg1 context.Context
+	Arg2 api_bpfrecorder.BpfRecorderClient
+	Arg3 *api_bpfrecorder.ProfileRequest
+}
+
+// FakeBpfRecorderImplResetSyscallsForProfileArgs holds the arguments of one call to ResetSyscallsForProfile.
+type FakeBpfRecorderImplResetSyscallsForProfileArgs struct {
+	Arg1 context.Context
+	Arg2 api_bpfrecorder.BpfRecorderClient
+	Arg3 *api_bpfrecorder.ProfileRequest
+}
+
+// FakeBpfRecorderImplStartBpfRecorderArgs holds the arguments of one call to StartBpfRecorder.
+type FakeBpfRecorderImplStartBpfRecorderArgs struct {
+	Arg1 context.Context
+	Arg2 api_bpfrecorder.BpfRecorderClient
+}
+
+// FakeBpfRecorderImplStopBpfRecorderArgs holds the arguments of one call to StopBpfRecorder.
+type FakeBpfRecorderImplStopBpfRecorderArgs struct {
+	Arg1 context.Context
+	Arg2 api_bpfrecorder.BpfRecorderClient
+}
+
+// FakeBpfRecorderImplSyscallsForProfileArgs holds the arguments of one call to SyscallsForProfile.
+type FakeBpfRecorderImplSyscallsForProfileArgs struct {
+	Arg1 context.Context
+	Arg2 api_bpfrecorder.BpfRecorderClient
+	Arg3 *api_bpfrecorder.ProfileRequest
 }
 
 func (fake *FakeBpfRecorderImpl) ApparmorForProfile(arg1 context.Context, arg2 api_bpfrecorder.BpfRecorderClient, arg3 *api_bpfrecorder.ProfileRequest) (*api_bpfrecorder.ApparmorResponse, error) {
 	fake.apparmorForProfileMutex.Lock()
 	ret, specificReturn := fake.apparmorForProfileReturnsOnCall[len(fake.apparmorForProfileArgsForCall)]
-	fake.apparmorForProfileArgsForCall = append(fake.apparmorForProfileArgsForCall, struct {
-		arg1 context.Context
-		arg2 api_bpfrecorder.BpfRecorderClient
-		arg3 *api_bpfrecorder.ProfileRequest
-	}{arg1, arg2, arg3})
+	fake.apparmorForProfileArgsForCall = append(fake.apparmorForProfileArgsForCall, FakeBpfRecorderImplApparmorForProfileArgs{arg1, arg2, arg3})
 	stub := fake.ApparmorForProfileStub
 	fakeReturns := fake.apparmorForProfileReturns
 	fake.recordInvocation("ApparmorForProfile", []interface{}{arg1, arg2, arg3})
@@ -159,7 +173,15 @@ func (fake *FakeBpfRecorderImpl) ApparmorForProfileArgsForCall(i int) (context.C
 	fake.apparmorForProfileMutex.RLock()
 	defer fake.apparmorForProfileMutex.RUnlock()
 	argsForCall := fake.apparmorForProfileArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+	return argsForCall.Arg1, argsForCall.Arg2, argsForCall.Arg3
+}
+
+func (fake *FakeBpfRecorderImpl) ApparmorForProfileArgs() []FakeBpfRecorderImplApparmorForProfileArgs {
+	fake.apparmorForProfileMutex.RLock()
+	defer fake.apparmorForProfileMutex.RUnlock()
+	args := make([]FakeBpfRecorderImplApparmorForProfileArgs, len(fake.apparmorForProfileArgsForCall))
+	copy(args, fake.apparmorForProfileArgsForCall)
+	return args
 }
 
 func (fake *FakeBpfRecorderImpl) ApparmorForProfileReturns(result1 *api_bpfrecorder.ApparmorResponse, result2 error) {
@@ -191,8 +213,7 @@ func (fake *FakeBpfRecorderImpl) ApparmorForProfileReturnsOnCall(i int, result1 
 func (fake *FakeBpfRecorderImpl) DialBpfRecorder() (*grpc.ClientConn, error) {
 	fake.dialBpfRecorderMutex.Lock()
 	ret, specificReturn := fake.dialBpfRecorderReturnsOnCall[len(fake.dialBpfRecorderArgsForCall)]
-	fake.dialBpfRecorderArgsForCall = append(fake.dialBpfRecorderArgsForCall, struct {
-	}{})
+	fake.dialBpfRecorderArgsForCall = append(fake.dialBpfRecorderArgsForCall, struct{}{})
 	stub := fake.DialBpfRecorderStub
 	fakeReturns := fake.dialBpfRecorderReturns
 	fake.recordInvocation("DialBpfRecorder", []interface{}{})
@@ -247,11 +268,7 @@ func (fake *FakeBpfRecorderImpl) DialBpfRecorderReturnsOnCall(i int, result1 *gr
 func (fake *FakeBpfRecorderImpl) ResetApparmorForProfile(arg1 context.Context, arg2 api_bpfrecorder.BpfRecorderClient, arg3 *api_bpfrecorder.ProfileRequest) error {
 	fake.resetApparmorForProfileMutex.Lock()
 	ret, specificReturn := fake.resetApparmorForProfileReturnsOnCall[len(fake.resetApparmorForProfileArgsForCall)]
-	fake.resetApparmorForProfileArgsForCall = append(fake.resetApparmorForProfileArgsForCall, struct {
-		arg1 context.Context
-		arg2 api_bpfrecorder.BpfRecorderClient
-		arg3 *api_bpfrecorder.ProfileRequest
-	}{arg1, arg2, arg3})
+	fake.resetApparmorForProfileArgsForCall = append(fake.resetApparmorForProfileArgsForCall, FakeBpfRecorderImplResetApparmorForProfileArgs{arg1, arg2, arg3})
 	stub := fake.ResetApparmorForProfileStub
 	fakeReturns := fake.resetApparmorForProfileReturns
 	fake.recordInvocation("ResetApparmorForProfile", []interface{}{arg1, arg2, arg3})
@@ -281,7 +298,15 @@ func (fake *FakeBpfRecorderImpl) ResetApparmorForProfileArgsForCall(i int) (cont
 	fake.resetApparmorForProfileMutex.RLock()
 	defer fake.resetApparmorForProfileMutex.RUnlock()
 	argsForCall := fake.resetApparmorForProfileArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+	return argsForCall.Arg1, argsForCall.Arg2, argsForCall.Arg3
+}
+
+func (fake *FakeBpfRecorderImpl) ResetApparmorForProfileArgs() []FakeBpfRecorderImplResetApparmorForProfileArgs {
+	fake.resetApparmorForProfileMutex.RLock()
+	defer fake.resetApparmorForProfileMutex.RUnlock()
+	args := make([]FakeBpfRecorderImplResetApparmorForProfileArgs, len(fake.resetApparmorForProfileArgsForCall))
+	copy(args, fake.resetApparmorForProfileArgsForCall)
+	return args
 }
 
 func (fake *FakeBpfRecorderImpl) ResetApparmorForProfileReturns(result1 error) {
@@ -310,11 +335,7 @@ func (fake *FakeBpfRecorderImpl) ResetApparmorForProfileReturnsOnCall(i int, res
 func (fake *FakeBpfRecorderImpl) ResetSyscallsForProfile(arg1 context.Context, arg2 api_bpfrecorder.BpfRecorderClient, arg3 *api_bpfrecorder.ProfileRequest) error {
 	fake.resetSyscallsForProfileMutex.Lock()
 	ret, specificReturn := fake.resetSyscallsForProfileReturnsOnCall[len(fake.resetSyscallsForProfileArgsForCall)]
-	fake.resetSyscallsForProfileArgsForCall = append(fake.resetSyscallsForProfileArgsForCall, struct {
-		arg1 context.Context
-		arg2 api_bpfrecorder.BpfRecorderClient
-		arg3 *api_bpfrecorder.ProfileRequest
-	}{arg1, arg2, arg3})
+	fake.resetSyscallsForProfileArgsForCall = append(fake.resetSyscallsForProfileArgsForCall, FakeBpfRecorderImplResetSyscallsForProfileArgs{arg1, arg2, arg3})
 	stub := fake.ResetSyscallsForProfileStub
 	fakeReturns := fake.resetSyscallsForProfileReturns
 	fake.recordInvocation("ResetSyscallsForProfile", []interface{}{arg1, arg2, arg3})
@@ -344,7 +365,15 @@ func (fake *FakeBpfRecorderImpl) ResetSyscallsForProfileArgsForCall(i int) (cont
 	fake.resetSyscallsForProfileMutex.RLock()
 	defer fake.resetSyscallsForProfileMutex.RUnlock()
 	argsForCall := fake.resetSyscallsForProfileArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+	return argsForCall.Arg1, argsForCall.Arg2, argsForCall.Arg3
+}
+
+func (fake *FakeBpfRecorderImpl) ResetSyscallsForProfileArgs() []FakeBpfRecorderImplResetSyscallsForProfileArgs {
+	fake.resetSyscallsForProfileMutex.RLock()
+	defer fake.resetSyscallsForProfileMutex.RUnlock()
+	args := make([]FakeBpfRecorderImplResetSyscallsForProfileArgs, len(fake.resetSyscallsForProfileArgsForCall))
+	copy(args, fake.resetSyscallsForProfileArgsForCall)
+	return args
 }
 
 func (fake *FakeBpfRecorderImpl) ResetSyscallsForProfileReturns(result1 error) {
@@ -373,10 +402,7 @@ func (fake *FakeBpfRecorderImpl) ResetSyscallsForProfileReturnsOnCall(i int, res
 func (fake *FakeBpfRecorderImpl) StartBpfRecorder(arg1 context.Context, arg2 api_bpfrecorder.BpfRecorderClient) error {
 	fake.startBpfRecorderMutex.Lock()
 	ret, specificReturn := fake.startBpfRecorderReturnsOnCall[len(fake.startBpfRecorderArgsForCall)]
-	fake.startBpfRecorderArgsForCall = append(fake.startBpfRecorderArgsForCall, struct {
-		arg1 context.Context
-		arg2 api_bpfrecorder.BpfRecorderClient
-	}{arg1, arg2})
+	fake.startBpfRecorderArgsForCall = append(fake.startBpfRecorderArgsForCall, FakeBpfRecorderImplStartBpfRecorderArgs{arg1, arg2})
 	stub := fake.StartBpfRecorderStub
 	fakeReturns := fake.startBpfRecorderReturns
 	fake.recordInvocation("StartBpfRecorder", []interface{}{arg1, arg2})
@@ -406,7 +432,15 @@ func (fake *FakeBpfRecorderImpl) StartBpfRecorderArgsForCall(i int) (context.Con
 	fake.startBpfRecorderMutex.RLock()
 	defer fake.startBpfRecorderMutex.RUnlock()
 	argsForCall := fake.startBpfRecorderArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
+	return argsForCall.Arg1, argsForCall.Arg2
+}
+
+func (fake *FakeBpfRecorderImpl) StartBpfRecorderArgs() []FakeBpfRecorderImplStartBpfRecorderArgs {
+	fake.startBpfRecorderMutex.RLock()
+	defer fake.startBpfRecorderMutex.RUnlock()
+	args := make([]FakeBpfRecorderImplStartBpfRecorderArgs, len(fake.startBpfRecorderArgsForCall))
+	copy(args, fake.startBpfRecorderArgsForCall)
+	return args
 }
 
 func (fake *FakeBpfRecorderImpl) StartBpfRecorderReturns(result1 error) {
@@ -435,10 +469,7 @@ func (fake *FakeBpfRecorderImpl) StartBpfRecorderReturnsOnCall(i int, result1 er
 func (fake *FakeBpfRecorderImpl) StopBpfRecorder(arg1 context.Context, arg2 api_bpfrecorder.BpfRecorderClient) error {
 	fake.stopBpfRecorderMutex.Lock()
 	ret, specificReturn := fake.stopBpfRecorderReturnsOnCall[len(fake.stopBpfRecorderArgsForCall)]
-	fake.stopBpfRecorderArgsForCall = append(fake.stopBpfRecorderArgsForCall, struct {
-		arg1 context.Context
-		arg2 api_bpfrecorder.BpfRecorderClient
-	}{arg1, arg2})
+	fake.stopBpfRecorderArgsForCall = append(fake.stopBpfRecorderArgsForCall, FakeBpfRecorderImplStopBpfRecorderArgs{arg1, arg2})
 	stub := fake.StopBpfRecorderStub
 	fakeReturns := fake.stopBpfRecorderReturns
 	fake.recordInvocation("StopBpfRecorder", []interface{}{arg1, arg2})
@@ -468,7 +499,15 @@ func (fake *FakeBpfRecorderImpl) StopBpfRecorderArgsForCall(i int) (context.Cont
 	fake.stopBpfRecorderMutex.RLock()
 	defer fake.stopBpfRecorderMutex.RUnlock()
 	argsForCall := fake.stopBpfRecorderArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
+	return argsForCall.Arg1, argsForCall.Arg2
+}
+
+func (fake *FakeBpfRecorderImpl) StopBpfRecorderArgs() []FakeBpfRecorderImplStopBpfRecorderArgs {
+	fake.stopBpfRecorderMutex.RLock()
+	defer fake.stopBpfRecorderMutex.RUnlock()
+	args := make([]FakeBpfRecorderImplStopBpfRecorderArgs, len(fake.stopBpfRecorderArgsForCall))
+	copy(args, fake.stopBpfRecorderArgsForCall)
+	return args
 }
 
 func (fake *FakeBpfRecorderImpl) StopBpfRecorderReturns(result1 error) {
@@ -497,11 +536,7 @@ func (fake *FakeBpfRecorderImpl) StopBpfRecorderReturnsOnCall(i int, result1 err
 func (fake *FakeBpfRecorderImpl) SyscallsForProfile(arg1 context.Context, arg2 api_bpfrecorder.BpfRecorderClient, arg3 *api_bpfrecorder.ProfileRequest) (*api_bpfrecorder.SyscallsResponse, error) {
 	fake.syscallsForProfileMutex.Lock()
 	ret, specificReturn := fake.syscallsForProfileReturnsOnCall[len(fake.syscallsForProfileArgsForCall)]
-	fake.syscallsForProfileArgsForCall = append(fake.syscallsForProfileArgsForCall, struct {
-		arg1 context.Context
-		arg2 api_bpfrecorder.BpfRecorderClient
-		arg3 *api_bpfrecorder.ProfileRequest
-	}{arg1, arg2, arg3})
+	fake.syscallsForProfileArgsForCall = append(fake.syscallsForProfileArgsForCall, FakeBpfRecorderImplSyscallsForProfileArgs{arg1, arg2, arg3})
 	stub := fake.SyscallsForProfileStub
 	fakeReturns := fake.syscallsForProfileReturns
 	fake.recordInvocation("SyscallsForProfile", []interface{}{arg1, arg2, arg3})
@@ -531,7 +566,15 @@ func (fake *FakeBpfRecorderImpl) SyscallsForProfileArgsForCall(i int) (context.C
 	fake.syscallsForProfileMutex.RLock()
 	defer fake.syscallsForProfileMutex.RUnlock()
 	argsForCall := fake.syscallsForProfileArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+	return argsForCall.Arg1, argsForCall.Arg2, argsForCall.Arg3
+}
+
+func (fake *FakeBpfRecorderImpl) SyscallsForProfileArgs() []FakeBpfRecorderImplSyscallsForProfileArgs {
+	fake.syscallsForProfileMutex.RLock()
+	defer fake.syscallsForProfileMutex.RUnlock()
+	args := make([]FakeBpfRecorderImplSyscallsForProfileArgs, len(fake.syscallsForProfileArgsForCall))
+	copy(args, fake.syscallsForProfileArgsForCall)
+	return args
 }
 
 func (fake *FakeBpfRecorderImpl) SyscallsForProfileReturns(result1 *api_bpfrecorder.SyscallsResponse, result2 error) {
@@ -570,9 +613,18 @@ func (fake *FakeBpfRecorderImpl) Invocations() map[string][][]interface{} {
 	return copiedInvocations
 }
 
+func (fake *FakeBpfRecorderImpl) CallOrder() []string {
+	fake.invocationsMutex.RLock()
+	defer fake.invocationsMutex.RUnlock()
+	order := make([]string, len(fake.callOrder))
+	copy(order, fake.callOrder)
+	return order
+}
+
 func (fake *FakeBpfRecorderImpl) recordInvocation(key string, args []interface{}) {
 	fake.invocationsMutex.Lock()
 	defer fake.invocationsMutex.Unlock()
+	fake.callOrder = append(fake.callOrder, key)
 	if fake.invocations == nil {
 		fake.invocations = map[string][][]interface{}{}
 	}

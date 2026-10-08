@@ -27,10 +27,8 @@ import (
 type FakeImpl struct {
 	AppArmorEnabledStub        func(apparmorprofile.ProfileManager) bool
 	appArmorEnabledMutex       sync.RWMutex
-	appArmorEnabledArgsForCall []struct {
-		arg1 apparmorprofile.ProfileManager
-	}
-	appArmorEnabledReturns struct {
+	appArmorEnabledArgsForCall []FakeImplAppArmorEnabledArgs
+	appArmorEnabledReturns     struct {
 		result1 bool
 	}
 	appArmorEnabledReturnsOnCall map[int]struct {
@@ -38,11 +36,8 @@ type FakeImpl struct {
 	}
 	AppArmorInstallProfileStub        func(apparmorprofile.ProfileManager, v1.StatusBaseUser) (bool, error)
 	appArmorInstallProfileMutex       sync.RWMutex
-	appArmorInstallProfileArgsForCall []struct {
-		arg1 apparmorprofile.ProfileManager
-		arg2 v1.StatusBaseUser
-	}
-	appArmorInstallProfileReturns struct {
+	appArmorInstallProfileArgsForCall []FakeImplAppArmorInstallProfileArgs
+	appArmorInstallProfileReturns     struct {
 		result1 bool
 		result2 error
 	}
@@ -52,10 +47,8 @@ type FakeImpl struct {
 	}
 	ReadFileStub        func(string) ([]byte, error)
 	readFileMutex       sync.RWMutex
-	readFileArgsForCall []struct {
-		arg1 string
-	}
-	readFileReturns struct {
+	readFileArgsForCall []FakeImplReadFileArgs
+	readFileReturns     struct {
 		result1 []byte
 		result2 error
 	}
@@ -64,15 +57,30 @@ type FakeImpl struct {
 		result2 error
 	}
 	invocations      map[string][][]interface{}
+	callOrder        []string
 	invocationsMutex sync.RWMutex
+}
+
+// FakeImplAppArmorEnabledArgs holds the arguments of one call to AppArmorEnabled.
+type FakeImplAppArmorEnabledArgs struct {
+	Arg1 apparmorprofile.ProfileManager
+}
+
+// FakeImplAppArmorInstallProfileArgs holds the arguments of one call to AppArmorInstallProfile.
+type FakeImplAppArmorInstallProfileArgs struct {
+	Arg1 apparmorprofile.ProfileManager
+	Arg2 v1.StatusBaseUser
+}
+
+// FakeImplReadFileArgs holds the arguments of one call to ReadFile.
+type FakeImplReadFileArgs struct {
+	Arg1 string
 }
 
 func (fake *FakeImpl) AppArmorEnabled(arg1 apparmorprofile.ProfileManager) bool {
 	fake.appArmorEnabledMutex.Lock()
 	ret, specificReturn := fake.appArmorEnabledReturnsOnCall[len(fake.appArmorEnabledArgsForCall)]
-	fake.appArmorEnabledArgsForCall = append(fake.appArmorEnabledArgsForCall, struct {
-		arg1 apparmorprofile.ProfileManager
-	}{arg1})
+	fake.appArmorEnabledArgsForCall = append(fake.appArmorEnabledArgsForCall, FakeImplAppArmorEnabledArgs{arg1})
 	stub := fake.AppArmorEnabledStub
 	fakeReturns := fake.appArmorEnabledReturns
 	fake.recordInvocation("AppArmorEnabled", []interface{}{arg1})
@@ -102,7 +110,15 @@ func (fake *FakeImpl) AppArmorEnabledArgsForCall(i int) apparmorprofile.ProfileM
 	fake.appArmorEnabledMutex.RLock()
 	defer fake.appArmorEnabledMutex.RUnlock()
 	argsForCall := fake.appArmorEnabledArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) AppArmorEnabledArgs() []FakeImplAppArmorEnabledArgs {
+	fake.appArmorEnabledMutex.RLock()
+	defer fake.appArmorEnabledMutex.RUnlock()
+	args := make([]FakeImplAppArmorEnabledArgs, len(fake.appArmorEnabledArgsForCall))
+	copy(args, fake.appArmorEnabledArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) AppArmorEnabledReturns(result1 bool) {
@@ -131,10 +147,7 @@ func (fake *FakeImpl) AppArmorEnabledReturnsOnCall(i int, result1 bool) {
 func (fake *FakeImpl) AppArmorInstallProfile(arg1 apparmorprofile.ProfileManager, arg2 v1.StatusBaseUser) (bool, error) {
 	fake.appArmorInstallProfileMutex.Lock()
 	ret, specificReturn := fake.appArmorInstallProfileReturnsOnCall[len(fake.appArmorInstallProfileArgsForCall)]
-	fake.appArmorInstallProfileArgsForCall = append(fake.appArmorInstallProfileArgsForCall, struct {
-		arg1 apparmorprofile.ProfileManager
-		arg2 v1.StatusBaseUser
-	}{arg1, arg2})
+	fake.appArmorInstallProfileArgsForCall = append(fake.appArmorInstallProfileArgsForCall, FakeImplAppArmorInstallProfileArgs{arg1, arg2})
 	stub := fake.AppArmorInstallProfileStub
 	fakeReturns := fake.appArmorInstallProfileReturns
 	fake.recordInvocation("AppArmorInstallProfile", []interface{}{arg1, arg2})
@@ -164,7 +177,15 @@ func (fake *FakeImpl) AppArmorInstallProfileArgsForCall(i int) (apparmorprofile.
 	fake.appArmorInstallProfileMutex.RLock()
 	defer fake.appArmorInstallProfileMutex.RUnlock()
 	argsForCall := fake.appArmorInstallProfileArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
+	return argsForCall.Arg1, argsForCall.Arg2
+}
+
+func (fake *FakeImpl) AppArmorInstallProfileArgs() []FakeImplAppArmorInstallProfileArgs {
+	fake.appArmorInstallProfileMutex.RLock()
+	defer fake.appArmorInstallProfileMutex.RUnlock()
+	args := make([]FakeImplAppArmorInstallProfileArgs, len(fake.appArmorInstallProfileArgsForCall))
+	copy(args, fake.appArmorInstallProfileArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) AppArmorInstallProfileReturns(result1 bool, result2 error) {
@@ -196,9 +217,7 @@ func (fake *FakeImpl) AppArmorInstallProfileReturnsOnCall(i int, result1 bool, r
 func (fake *FakeImpl) ReadFile(arg1 string) ([]byte, error) {
 	fake.readFileMutex.Lock()
 	ret, specificReturn := fake.readFileReturnsOnCall[len(fake.readFileArgsForCall)]
-	fake.readFileArgsForCall = append(fake.readFileArgsForCall, struct {
-		arg1 string
-	}{arg1})
+	fake.readFileArgsForCall = append(fake.readFileArgsForCall, FakeImplReadFileArgs{arg1})
 	stub := fake.ReadFileStub
 	fakeReturns := fake.readFileReturns
 	fake.recordInvocation("ReadFile", []interface{}{arg1})
@@ -228,7 +247,15 @@ func (fake *FakeImpl) ReadFileArgsForCall(i int) string {
 	fake.readFileMutex.RLock()
 	defer fake.readFileMutex.RUnlock()
 	argsForCall := fake.readFileArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) ReadFileArgs() []FakeImplReadFileArgs {
+	fake.readFileMutex.RLock()
+	defer fake.readFileMutex.RUnlock()
+	args := make([]FakeImplReadFileArgs, len(fake.readFileArgsForCall))
+	copy(args, fake.readFileArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) ReadFileReturns(result1 []byte, result2 error) {
@@ -267,9 +294,18 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	return copiedInvocations
 }
 
+func (fake *FakeImpl) CallOrder() []string {
+	fake.invocationsMutex.RLock()
+	defer fake.invocationsMutex.RUnlock()
+	order := make([]string, len(fake.callOrder))
+	copy(order, fake.callOrder)
+	return order
+}
+
 func (fake *FakeImpl) recordInvocation(key string, args []interface{}) {
 	fake.invocationsMutex.Lock()
 	defer fake.invocationsMutex.Unlock()
+	fake.callOrder = append(fake.callOrder, key)
 	if fake.invocations == nil {
 		fake.invocations = map[string][][]interface{}{}
 	}

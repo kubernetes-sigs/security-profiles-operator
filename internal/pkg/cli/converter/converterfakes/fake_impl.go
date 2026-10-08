@@ -25,10 +25,8 @@ import (
 type FakeImpl struct {
 	ReadFileStub        func(string) ([]byte, error)
 	readFileMutex       sync.RWMutex
-	readFileArgsForCall []struct {
-		arg1 string
-	}
-	readFileReturns struct {
+	readFileArgsForCall []FakeImplReadFileArgs
+	readFileReturns     struct {
 		result1 []byte
 		result2 error
 	}
@@ -38,27 +36,34 @@ type FakeImpl struct {
 	}
 	WriteFileStub        func(string, []byte, os.FileMode) error
 	writeFileMutex       sync.RWMutex
-	writeFileArgsForCall []struct {
-		arg1 string
-		arg2 []byte
-		arg3 os.FileMode
-	}
-	writeFileReturns struct {
+	writeFileArgsForCall []FakeImplWriteFileArgs
+	writeFileReturns     struct {
 		result1 error
 	}
 	writeFileReturnsOnCall map[int]struct {
 		result1 error
 	}
 	invocations      map[string][][]interface{}
+	callOrder        []string
 	invocationsMutex sync.RWMutex
+}
+
+// FakeImplReadFileArgs holds the arguments of one call to ReadFile.
+type FakeImplReadFileArgs struct {
+	Arg1 string
+}
+
+// FakeImplWriteFileArgs holds the arguments of one call to WriteFile.
+type FakeImplWriteFileArgs struct {
+	Arg1 string
+	Arg2 []byte
+	Arg3 os.FileMode
 }
 
 func (fake *FakeImpl) ReadFile(arg1 string) ([]byte, error) {
 	fake.readFileMutex.Lock()
 	ret, specificReturn := fake.readFileReturnsOnCall[len(fake.readFileArgsForCall)]
-	fake.readFileArgsForCall = append(fake.readFileArgsForCall, struct {
-		arg1 string
-	}{arg1})
+	fake.readFileArgsForCall = append(fake.readFileArgsForCall, FakeImplReadFileArgs{arg1})
 	stub := fake.ReadFileStub
 	fakeReturns := fake.readFileReturns
 	fake.recordInvocation("ReadFile", []interface{}{arg1})
@@ -88,7 +93,15 @@ func (fake *FakeImpl) ReadFileArgsForCall(i int) string {
 	fake.readFileMutex.RLock()
 	defer fake.readFileMutex.RUnlock()
 	argsForCall := fake.readFileArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) ReadFileArgs() []FakeImplReadFileArgs {
+	fake.readFileMutex.RLock()
+	defer fake.readFileMutex.RUnlock()
+	args := make([]FakeImplReadFileArgs, len(fake.readFileArgsForCall))
+	copy(args, fake.readFileArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) ReadFileReturns(result1 []byte, result2 error) {
@@ -125,11 +138,7 @@ func (fake *FakeImpl) WriteFile(arg1 string, arg2 []byte, arg3 os.FileMode) erro
 	}
 	fake.writeFileMutex.Lock()
 	ret, specificReturn := fake.writeFileReturnsOnCall[len(fake.writeFileArgsForCall)]
-	fake.writeFileArgsForCall = append(fake.writeFileArgsForCall, struct {
-		arg1 string
-		arg2 []byte
-		arg3 os.FileMode
-	}{arg1, arg2Copy, arg3})
+	fake.writeFileArgsForCall = append(fake.writeFileArgsForCall, FakeImplWriteFileArgs{arg1, arg2Copy, arg3})
 	stub := fake.WriteFileStub
 	fakeReturns := fake.writeFileReturns
 	fake.recordInvocation("WriteFile", []interface{}{arg1, arg2Copy, arg3})
@@ -159,7 +168,15 @@ func (fake *FakeImpl) WriteFileArgsForCall(i int) (string, []byte, os.FileMode) 
 	fake.writeFileMutex.RLock()
 	defer fake.writeFileMutex.RUnlock()
 	argsForCall := fake.writeFileArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+	return argsForCall.Arg1, argsForCall.Arg2, argsForCall.Arg3
+}
+
+func (fake *FakeImpl) WriteFileArgs() []FakeImplWriteFileArgs {
+	fake.writeFileMutex.RLock()
+	defer fake.writeFileMutex.RUnlock()
+	args := make([]FakeImplWriteFileArgs, len(fake.writeFileArgsForCall))
+	copy(args, fake.writeFileArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) WriteFileReturns(result1 error) {
@@ -195,9 +212,18 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	return copiedInvocations
 }
 
+func (fake *FakeImpl) CallOrder() []string {
+	fake.invocationsMutex.RLock()
+	defer fake.invocationsMutex.RUnlock()
+	order := make([]string, len(fake.callOrder))
+	copy(order, fake.callOrder)
+	return order
+}
+
 func (fake *FakeImpl) recordInvocation(key string, args []interface{}) {
 	fake.invocationsMutex.Lock()
 	defer fake.invocationsMutex.Unlock()
+	fake.callOrder = append(fake.callOrder, key)
 	if fake.invocations == nil {
 		fake.invocations = map[string][][]interface{}{}
 	}

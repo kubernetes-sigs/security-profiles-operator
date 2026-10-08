@@ -27,33 +27,31 @@ import (
 type FakeImpl struct {
 	SignStub        func(context.Context, string, string, string, *artifact.SignOptions) error
 	signMutex       sync.RWMutex
-	signArgsForCall []struct {
-		arg1 context.Context
-		arg2 string
-		arg3 string
-		arg4 string
-		arg5 *artifact.SignOptions
-	}
-	signReturns struct {
+	signArgsForCall []FakeImplSignArgs
+	signReturns     struct {
 		result1 error
 	}
 	signReturnsOnCall map[int]struct {
 		result1 error
 	}
 	invocations      map[string][][]interface{}
+	callOrder        []string
 	invocationsMutex sync.RWMutex
+}
+
+// FakeImplSignArgs holds the arguments of one call to Sign.
+type FakeImplSignArgs struct {
+	Arg1 context.Context
+	Arg2 string
+	Arg3 string
+	Arg4 string
+	Arg5 *artifact.SignOptions
 }
 
 func (fake *FakeImpl) Sign(arg1 context.Context, arg2 string, arg3 string, arg4 string, arg5 *artifact.SignOptions) error {
 	fake.signMutex.Lock()
 	ret, specificReturn := fake.signReturnsOnCall[len(fake.signArgsForCall)]
-	fake.signArgsForCall = append(fake.signArgsForCall, struct {
-		arg1 context.Context
-		arg2 string
-		arg3 string
-		arg4 string
-		arg5 *artifact.SignOptions
-	}{arg1, arg2, arg3, arg4, arg5})
+	fake.signArgsForCall = append(fake.signArgsForCall, FakeImplSignArgs{arg1, arg2, arg3, arg4, arg5})
 	stub := fake.SignStub
 	fakeReturns := fake.signReturns
 	fake.recordInvocation("Sign", []interface{}{arg1, arg2, arg3, arg4, arg5})
@@ -83,7 +81,15 @@ func (fake *FakeImpl) SignArgsForCall(i int) (context.Context, string, string, s
 	fake.signMutex.RLock()
 	defer fake.signMutex.RUnlock()
 	argsForCall := fake.signArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3, argsForCall.arg4, argsForCall.arg5
+	return argsForCall.Arg1, argsForCall.Arg2, argsForCall.Arg3, argsForCall.Arg4, argsForCall.Arg5
+}
+
+func (fake *FakeImpl) SignArgs() []FakeImplSignArgs {
+	fake.signMutex.RLock()
+	defer fake.signMutex.RUnlock()
+	args := make([]FakeImplSignArgs, len(fake.signArgsForCall))
+	copy(args, fake.signArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) SignReturns(result1 error) {
@@ -119,9 +125,18 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	return copiedInvocations
 }
 
+func (fake *FakeImpl) CallOrder() []string {
+	fake.invocationsMutex.RLock()
+	defer fake.invocationsMutex.RUnlock()
+	order := make([]string, len(fake.callOrder))
+	copy(order, fake.callOrder)
+	return order
+}
+
 func (fake *FakeImpl) recordInvocation(key string, args []interface{}) {
 	fake.invocationsMutex.Lock()
 	defer fake.invocationsMutex.Unlock()
+	fake.callOrder = append(fake.callOrder, key)
 	if fake.invocations == nil {
 		fake.invocations = map[string][][]interface{}{}
 	}

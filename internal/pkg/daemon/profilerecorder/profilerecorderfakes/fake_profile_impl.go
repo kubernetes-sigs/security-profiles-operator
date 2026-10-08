@@ -26,10 +26,8 @@ import (
 type FakeProfileImpl struct {
 	GoArchToSeccompArchStub        func(string) (seccomp.Arch, error)
 	goArchToSeccompArchMutex       sync.RWMutex
-	goArchToSeccompArchArgsForCall []struct {
-		arg1 string
-	}
-	goArchToSeccompArchReturns struct {
+	goArchToSeccompArchArgsForCall []FakeProfileImplGoArchToSeccompArchArgs
+	goArchToSeccompArchReturns     struct {
 		result1 seccomp.Arch
 		result2 error
 	}
@@ -38,15 +36,19 @@ type FakeProfileImpl struct {
 		result2 error
 	}
 	invocations      map[string][][]interface{}
+	callOrder        []string
 	invocationsMutex sync.RWMutex
+}
+
+// FakeProfileImplGoArchToSeccompArchArgs holds the arguments of one call to GoArchToSeccompArch.
+type FakeProfileImplGoArchToSeccompArchArgs struct {
+	Arg1 string
 }
 
 func (fake *FakeProfileImpl) GoArchToSeccompArch(arg1 string) (seccomp.Arch, error) {
 	fake.goArchToSeccompArchMutex.Lock()
 	ret, specificReturn := fake.goArchToSeccompArchReturnsOnCall[len(fake.goArchToSeccompArchArgsForCall)]
-	fake.goArchToSeccompArchArgsForCall = append(fake.goArchToSeccompArchArgsForCall, struct {
-		arg1 string
-	}{arg1})
+	fake.goArchToSeccompArchArgsForCall = append(fake.goArchToSeccompArchArgsForCall, FakeProfileImplGoArchToSeccompArchArgs{arg1})
 	stub := fake.GoArchToSeccompArchStub
 	fakeReturns := fake.goArchToSeccompArchReturns
 	fake.recordInvocation("GoArchToSeccompArch", []interface{}{arg1})
@@ -76,7 +78,15 @@ func (fake *FakeProfileImpl) GoArchToSeccompArchArgsForCall(i int) string {
 	fake.goArchToSeccompArchMutex.RLock()
 	defer fake.goArchToSeccompArchMutex.RUnlock()
 	argsForCall := fake.goArchToSeccompArchArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeProfileImpl) GoArchToSeccompArchArgs() []FakeProfileImplGoArchToSeccompArchArgs {
+	fake.goArchToSeccompArchMutex.RLock()
+	defer fake.goArchToSeccompArchMutex.RUnlock()
+	args := make([]FakeProfileImplGoArchToSeccompArchArgs, len(fake.goArchToSeccompArchArgsForCall))
+	copy(args, fake.goArchToSeccompArchArgsForCall)
+	return args
 }
 
 func (fake *FakeProfileImpl) GoArchToSeccompArchReturns(result1 seccomp.Arch, result2 error) {
@@ -115,9 +125,18 @@ func (fake *FakeProfileImpl) Invocations() map[string][][]interface{} {
 	return copiedInvocations
 }
 
+func (fake *FakeProfileImpl) CallOrder() []string {
+	fake.invocationsMutex.RLock()
+	defer fake.invocationsMutex.RUnlock()
+	order := make([]string, len(fake.callOrder))
+	copy(order, fake.callOrder)
+	return order
+}
+
 func (fake *FakeProfileImpl) recordInvocation(key string, args []interface{}) {
 	fake.invocationsMutex.Lock()
 	defer fake.invocationsMutex.Unlock()
+	fake.callOrder = append(fake.callOrder, key)
 	if fake.invocations == nil {
 		fake.invocations = map[string][][]interface{}{}
 	}
