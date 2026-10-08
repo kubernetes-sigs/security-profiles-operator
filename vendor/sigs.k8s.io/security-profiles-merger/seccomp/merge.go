@@ -22,8 +22,6 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"strconv"
-	"strings"
 
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 
@@ -119,6 +117,55 @@ func Union(profiles ...*specs.LinuxSeccomp) (*specs.LinuxSeccomp, error) {
 	return foldProfiles(profiles, unionRules())
 }
 
+// IntersectForArch merges as Intersect does on a node whose native
+// architecture is the given one, and is otherwise identical to it.
+//
+// Intersect settles the result for the architecture of the running program,
+// which a runtime always adds to the filter: the 32-bit and multiplexing
+// architectures are read differently where one of them is native (see the
+// Architectures section of the package documentation). Use this where the
+// merge does not run on the node that loads its result, as in a control
+// plane merging for a node of another architecture. Pass the empty Arch to
+// imply none, as DiffForArch takes it and as Intersect runs on a platform
+// without a native architecture: the result is then settled by the listed
+// architectures alone. An architecture this package does not know is
+// reported with ErrUnknownArch.
+func IntersectForArch(
+	native specs.Arch, profiles ...*specs.LinuxSeccomp,
+) (*specs.LinuxSeccomp, error) {
+	err := checkNative(native)
+	if err != nil {
+		return nil, err
+	}
+
+	return foldProfiles(profiles, intersectRulesFor(native))
+}
+
+// UnionForArch merges as Union does on a node whose native architecture is
+// the given one, and is otherwise identical to it. See IntersectForArch.
+func UnionForArch(
+	native specs.Arch, profiles ...*specs.LinuxSeccomp,
+) (*specs.LinuxSeccomp, error) {
+	err := checkNative(native)
+	if err != nil {
+		return nil, err
+	}
+
+	return foldProfiles(profiles, unionRulesFor(native))
+}
+
+// checkNative reports a native architecture this package does not know. The
+// empty Arch implies none and passes.
+func checkNative(native specs.Arch) error {
+	if native != "" && !isKnownArch(native) {
+		return fmt.Errorf(
+			"native architecture: %w %s", ErrUnknownArch, merge.QuoteBounded(string(native)),
+		)
+	}
+
+	return nil
+}
+
 func foldProfiles(
 	profiles []*specs.LinuxSeccomp, rules ruleMerger,
 ) (*specs.LinuxSeccomp, error) {
@@ -149,6 +196,8 @@ func foldProfiles(
 		return nil, err
 	}
 
+	result.Flags = flagsForListener(result.Flags, result.ListenerPath)
+
 	result.Syscalls = regroupSyscalls(result.Syscalls)
 
 	slices.Sort(result.Architectures)
@@ -174,7 +223,7 @@ func normalizeProfile(profile *specs.LinuxSeccomp, rules ruleMerger) *specs.Linu
 		DefaultAction:    def.action,
 		DefaultErrnoRet:  outputErrno(def.action, def.errnoRet),
 		Architectures:    merge.DeduplicateSlice(profile.Architectures),
-		Flags:            merge.DeduplicateSlice(profile.Flags),
+		Flags:            normalizeFlags(profile.Flags),
 		ListenerPath:     profile.ListenerPath,
 		ListenerMetadata: profile.ListenerMetadata,
 		Syscalls:         settledSyscalls(&rules, profile.Syscalls, def),
@@ -396,19 +445,7 @@ func regroupSyscalls(syscalls []specs.LinuxSyscall) []specs.LinuxSyscall {
 }
 
 func groupKey(entry *specs.LinuxSyscall) string {
-	var builder strings.Builder
-
-	builder.WriteString(string(entry.Action))
-	builder.WriteByte('|')
-
-	if entry.ErrnoRet != nil {
-		builder.WriteString(strconv.FormatUint(uint64(*entry.ErrnoRet), 10))
-	}
-
-	builder.WriteByte('|')
-	builder.WriteString(argsKey(entry.Args))
-
-	return builder.String()
+	return resultKey(entry.Action, entry.ErrnoRet, argsKey(entry.Args))
 }
 
 // UnionSyscalls merges two syscall lists via union, following the rules of
@@ -427,8 +464,8 @@ func groupKey(entry *specs.LinuxSyscall) string {
 // documentation.
 //
 // This function does not validate its inputs. Callers should ensure that
-// actions are known and that every entry has at least one name, or call
-// Validate on the enclosing profile first.
+// actions are known, that every entry has at least one name and that no
+// name holds a NUL byte, or call Validate on the enclosing profile first.
 func UnionSyscalls(left, right []specs.LinuxSyscall) []specs.LinuxSyscall {
 	return regroupSyscalls(unionRules().mergeBareSyscalls(left, right))
 }
@@ -449,8 +486,8 @@ func UnionSyscalls(left, right []specs.LinuxSyscall) []specs.LinuxSyscall {
 // the package documentation.
 //
 // This function does not validate its inputs. Callers should ensure that
-// actions are known and that every entry has at least one name, or call
-// Validate on the enclosing profile first.
+// actions are known, that every entry has at least one name and that no
+// name holds a NUL byte, or call Validate on the enclosing profile first.
 func IntersectSyscalls(left, right []specs.LinuxSyscall) []specs.LinuxSyscall {
 	return regroupSyscalls(intersectRules().mergeBareSyscalls(left, right))
 }

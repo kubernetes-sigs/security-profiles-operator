@@ -46,7 +46,7 @@ GOTESTSUM_VERSION = v1.13.0
 # setup-envtest downloads the kube-apiserver and etcd binaries of the
 # integration tests. It is released together with controller-runtime, bump
 # them together.
-SETUP_ENVTEST_VERSION = v0.25.1
+SETUP_ENVTEST_VERSION = v0.25.2
 SHELLCHECK_VERSION = v0.11.0
 # Checksums of the shellcheck release archives per GOOS_GOARCH, bump them
 # together with the version above.

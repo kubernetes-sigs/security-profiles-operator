@@ -105,7 +105,7 @@ type strategy interface {
 
 func foldProfiles(profiles []*Profile, mergeOp strategy) (*Profile, error) {
 	for idx, profile := range profiles {
-		err := validateEmptyPathsInProfile(profile)
+		err := validateRawPaths(profile)
 		if err != nil {
 			return nil, &spm.InputError{Index: idx, Err: err}
 		}

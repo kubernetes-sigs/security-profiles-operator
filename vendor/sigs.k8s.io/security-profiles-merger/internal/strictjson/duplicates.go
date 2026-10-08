@@ -165,13 +165,27 @@ func (frame *scanFrame) startValue() {
 	frame.index++
 }
 
-// memberPath returns the path of the member the innermost frame is at. Every
-// outer frame is at the value holding the next one: an object at its current
+// maxPathBytes is how much of a path memberPath builds before it stops. A
+// path is only ever shown through merge.QuoteBounded, which cuts it at
+// merge.MaxQuotedBytes, so a path past that only has to stay past it. A
+// document chooses both how deep it nests and how long its names are, and
+// appending every level copies the path so far: a five-megabyte document of
+// five thousand levels under thousand-byte names took most of a minute to
+// name the members it repeats.
+const maxPathBytes = merge.MaxQuotedBytes + utf8.UTFMax
+
+// memberPath returns the path of the member the innermost frame is at, or
+// the start of it once it is longer than any report shows. Every outer
+// frame is at the value holding the next one: an object at its current
 // member, an array at the element before its next index.
 func memberPath(stack []*scanFrame) string {
 	path := ""
 
 	for _, frame := range stack {
+		if len(path) > maxPathBytes {
+			break
+		}
+
 		if frame.keys != nil {
 			path = joinFieldPath(path, frame.member)
 

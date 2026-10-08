@@ -794,7 +794,7 @@ dependencies:
   # setup-envtest of make test-integration is released together with
   # controller-runtime, keep both at the same version.
   - name: setup-envtest
-    version: v0.25.1
+    version: v0.25.2
     refPaths:
       - path: Makefile
         match: "^SETUP_ENVTEST_VERSION"

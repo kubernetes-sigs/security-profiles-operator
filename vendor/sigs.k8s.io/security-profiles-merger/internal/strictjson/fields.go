@@ -25,6 +25,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf16"
 	"unicode/utf8"
@@ -202,6 +203,268 @@ func MisspelledFieldsOf[T any](raw []byte) ([]string, int) {
 	return found.misspelled.paths, found.misspelled.omitted
 }
 
+// The struct tag `strict:"required"` marks a field a document has to hold.
+// It is for a field whose zero value is a value of its own, so that a member
+// left out cannot be told from one that names it.
+const (
+	requiredTagKey   = "strict"
+	requiredTagValue = "required"
+)
+
+// MissingFieldsOf reports the required fields of T that raw names no value
+// for: the member is left out or null, or the object that would hold it is.
+// encoding/json decodes the zero value in each case. decoded is what raw
+// decoded into.
+//
+// A field is reported only where decoded holds its zero value. A member the
+// document repeats is read as its last occurrence here, while the decoder
+// keeps an earlier value when the last one is null, so the decoded value is
+// what says whether the document named one.
+//
+// The walk decodes the document a second time, into interface values, so it
+// only runs for a type that has required fields at all and a document that
+// left one of them zero.
+func MissingFieldsOf[T any](raw []byte, decoded *T) ([]string, int) {
+	value := reflect.ValueOf(decoded)
+	if !requiresFields(reflect.TypeFor[T]()) || !holdsZeroRequired(value) {
+		return nil, 0
+	}
+
+	var (
+		document any
+		found    pathCollector
+	)
+
+	err := json.Unmarshal(raw, &document)
+	if err != nil {
+		return nil, 0
+	}
+
+	walkMissing(document, value, "", &found)
+
+	return found.paths, found.omitted
+}
+
+// requiredTypes caches requiresFields by type.
+//
+//nolint:gochecknoglobals // a cache of immutable values keyed by type
+var requiredTypes sync.Map
+
+// requiresFields reports whether a struct type reachable from target has a
+// required field, embedded structs included.
+func requiresFields(target reflect.Type) bool {
+	if cached, ok := requiredTypes.Load(target); ok {
+		required, _ := cached.(bool)
+
+		return required
+	}
+
+	required := false
+	seen := map[reflect.Type]bool{}
+	pending := []reflect.Type{target}
+
+	for len(pending) > 0 && !required {
+		typ := elementType(pending[len(pending)-1])
+		pending = pending[:len(pending)-1]
+
+		if typ.Kind() != reflect.Struct || seen[typ] {
+			continue
+		}
+
+		seen[typ] = true
+
+		for idx := range typ.NumField() {
+			field := typ.Field(idx)
+			required = required || isRequired(field.Tag)
+			pending = append(pending, field.Type)
+		}
+	}
+
+	requiredTypes.Store(target, required)
+
+	return required
+}
+
+// holdsZeroRequired reports whether a decoded value holds the zero value in
+// a required field, at any depth.
+func holdsZeroRequired(value reflect.Value) bool {
+	kind := value.Kind()
+
+	if kind == reflect.Pointer || kind == reflect.Interface {
+		return !value.IsNil() && holdsZeroRequired(value.Elem())
+	}
+
+	if kind == reflect.Slice || kind == reflect.Array {
+		for idx := range value.Len() {
+			if holdsZeroRequired(value.Index(idx)) {
+				return true
+			}
+		}
+
+		return false
+	}
+
+	if kind == reflect.Map {
+		return slices.ContainsFunc(value.MapKeys(), func(key reflect.Value) bool {
+			return holdsZeroRequired(value.MapIndex(key))
+		})
+	}
+
+	return kind == reflect.Struct && structHoldsZeroRequired(value)
+}
+
+// structHoldsZeroRequired is holdsZeroRequired for a struct.
+func structHoldsZeroRequired(value reflect.Value) bool {
+	for idx := range value.NumField() {
+		// An embedded struct holds exported fields the decoder fills even
+		// where its own type is not exported.
+		field := value.Type().Field(idx)
+		if !field.IsExported() && !field.Anonymous {
+			continue
+		}
+
+		if isRequired(field.Tag) && value.Field(idx).IsZero() ||
+			holdsZeroRequired(value.Field(idx)) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// isRequired reports whether the tag of a struct field marks it required.
+func isRequired(tag reflect.StructTag) bool {
+	return tag.Get(requiredTagKey) == requiredTagValue
+}
+
+// walkMissing walks a decoded value next to the document it was decoded
+// from and collects the required fields the document names no value for.
+// value is nil where the document holds null or nothing for decoded, which
+// leaves every member of a struct there unnamed.
+func walkMissing(value any, decoded reflect.Value, prefix string, found *pathCollector) {
+	kind := decoded.Kind()
+
+	if kind == reflect.Pointer || kind == reflect.Interface {
+		if !decoded.IsNil() {
+			walkMissing(value, decoded.Elem(), prefix, found)
+		}
+
+		return
+	}
+
+	if kind == reflect.Slice || kind == reflect.Array {
+		walkMissingItems(value, decoded, prefix, found)
+	}
+
+	if kind == reflect.Map {
+		walkMissingValues(value, decoded, prefix, found)
+	}
+
+	if kind == reflect.Struct {
+		object, _ := value.(map[string]any)
+		walkMissingFields(object, decoded, prefix, found)
+	}
+}
+
+// walkMissingItems is walkMissing for a slice or an array.
+func walkMissingItems(value any, decoded reflect.Value, prefix string, found *pathCollector) {
+	items, _ := value.([]any)
+
+	for idx := range decoded.Len() {
+		var item any
+		if idx < len(items) {
+			item = items[idx]
+		}
+
+		walkMissing(item, decoded.Index(idx), prefix+"["+strconv.Itoa(idx)+"]", found)
+	}
+}
+
+// walkMissingValues is walkMissing for a map with string keys, the only
+// kind a document's members decode into.
+func walkMissingValues(value any, decoded reflect.Value, prefix string, found *pathCollector) {
+	if decoded.Type().Key().Kind() != reflect.String {
+		return
+	}
+
+	object, _ := value.(map[string]any)
+
+	for _, key := range slices.Sorted(maps.Keys(object)) {
+		held := decoded.MapIndex(reflect.ValueOf(key).Convert(decoded.Type().Key()))
+		if held.IsValid() {
+			walkMissing(object[key], held, joinFieldPath(prefix, key), found)
+		}
+	}
+}
+
+// walkMissingFields is walkMissing for a struct, whose members object
+// holds. A struct embedded in it reads its members from the same object.
+func walkMissingFields(
+	object map[string]any, decoded reflect.Value, prefix string, found *pathCollector,
+) {
+	for idx := range decoded.NumField() {
+		field := decoded.Type().Field(idx)
+
+		name, embedded, visible := memberName(&field)
+		if !visible {
+			continue
+		}
+
+		if embedded {
+			walkMissing(object, decoded.Field(idx), prefix, found)
+
+			continue
+		}
+
+		member := memberOf(object, name)
+		path := joinFieldPath(prefix, name)
+
+		if isRequired(field.Tag) && member == nil && decoded.Field(idx).IsZero() {
+			found.add(path)
+		}
+
+		walkMissing(member, decoded.Field(idx), path, found)
+	}
+}
+
+// memberName returns the name of the member that fills a struct field, as
+// jsonFields reads it: whether the field is an embedded struct, whose
+// members sit in the object of the struct embedding it, and whether the
+// decoder sees the field at all.
+func memberName(field *reflect.StructField) (string, bool, bool) {
+	name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
+
+	switch {
+	case name == "-" || !field.IsExported() && !field.Anonymous:
+		return "", false, false
+	case field.Anonymous && name == "":
+		return "", true, true
+	case name == "":
+		return field.Name, false, true
+	default:
+		return name, false, true
+	}
+}
+
+// memberOf returns the value of the member of an object that fills the
+// named field, matched as encoding/json matches it, or nil when the object
+// holds none or holds null for it.
+func memberOf(object map[string]any, name string) any {
+	if value, ok := object[name]; ok {
+		return value
+	}
+
+	folded := foldName(name)
+
+	for key, value := range object {
+		if foldName(key) == folded {
+			return value
+		}
+	}
+
+	return nil
+}
+
 // HasField reports whether a member of the given name fills a field of the
 // struct type target, matched the way encoding/json matches it: exactly or
 // ignoring case.
@@ -214,7 +477,7 @@ func HasField(target reflect.Type, name string) bool {
 		return false
 	}
 
-	_, known, _ := jsonFields(target).lookup(name)
+	_, known, _ := fieldsOf(target).lookup(name)
 
 	return known
 }
@@ -298,12 +561,12 @@ func walkStructFields(value any, typ reflect.Type, prefix string, found *fieldFi
 		return
 	}
 
-	fields := jsonFields(typ)
+	fields := fieldsOf(typ)
 
 	for _, key := range slices.Sorted(maps.Keys(object)) {
 		fieldType, known, exact := fields.lookup(key)
 		if !known {
-			found.unknown.add(joinFieldPath(prefix, key))
+			found.unknown.addLazily(func() string { return joinFieldPath(prefix, key) })
 
 			continue
 		}
@@ -466,6 +729,28 @@ func (set fieldSet) lookup(key string) (reflect.Type, bool, bool) {
 	fieldType, ok := set.folded[foldName(key)]
 
 	return fieldType, ok, false
+}
+
+// fieldSets holds the field set of every struct type asked for, by type. A
+// walk asks once per object of a document and type detection once per
+// member, and a document chooses how many of both it has, while the types
+// are the handful a profile is made of.
+//
+//nolint:gochecknoglobals // a cache of immutable values keyed by type
+var fieldSets sync.Map
+
+// fieldsOf returns jsonFields of a struct type, computed once per type.
+func fieldsOf(typ reflect.Type) fieldSet {
+	if cached, ok := fieldSets.Load(typ); ok {
+		set, _ := cached.(fieldSet)
+
+		return set
+	}
+
+	set := jsonFields(typ)
+	fieldSets.Store(typ, set)
+
+	return set
 }
 
 // jsonFields collects the JSON-visible fields of a struct type, including

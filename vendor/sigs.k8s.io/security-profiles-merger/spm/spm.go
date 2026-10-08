@@ -91,6 +91,12 @@ var (
 	// it, while a reader that compares names exactly drops it, so the two
 	// read different rules from one profile.
 	ErrMisspelledField = errors.New("misspelled field")
+	// ErrMissingField is returned by UnmarshalStrict when the document
+	// leaves out, or sets to null, a member that has no value standing for
+	// its absence. encoding/json decodes the zero value then, which for the
+	// port of a Landlock network rule is a port of its own: 0, the one a
+	// socket binds to for an ephemeral port.
+	ErrMissingField = errors.New("missing field")
 	// ErrInvalidUTF8 is returned by UnmarshalStrict of every package when
 	// the document holds a byte that is not valid UTF-8, or a \u escape
 	// spelling half a surrogate pair. encoding/json replaces both with

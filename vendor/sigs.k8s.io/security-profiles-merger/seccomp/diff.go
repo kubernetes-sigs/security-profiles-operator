@@ -394,7 +394,7 @@ func withoutNative(native specs.Arch, archs []specs.Arch) []specs.Arch {
 func diffFlags(
 	diff *ProfileDiff, left, right *specs.LinuxSeccomp,
 ) {
-	added, removed := merge.DiffSlice(left.Flags, right.Flags)
+	added, removed := merge.DiffSlice(loadedFlags(left.Flags), loadedFlags(right.Flags))
 	if len(added) > 0 || len(removed) > 0 {
 		diff.Equal = false
 		diff.Flags = &SliceDiff[specs.LinuxSeccompFlag]{Added: added, Removed: removed}
@@ -534,19 +534,7 @@ func buildSyscallMap(
 // syscallEntryKey formats the fields equalSyscallEntry compares, so that
 // entries compare equal exactly when their keys do.
 func syscallEntryKey(entry SyscallEntry) string {
-	var builder strings.Builder
-
-	builder.WriteString(string(entry.Action))
-	builder.WriteByte('|')
-
-	if entry.ErrnoRet != nil {
-		builder.WriteString(strconv.FormatUint(uint64(*entry.ErrnoRet), 10))
-	}
-
-	builder.WriteByte('|')
-	builder.WriteString(sortedArgsKey(entry.Args))
-
-	return builder.String()
+	return resultKey(entry.Action, entry.ErrnoRet, sortedArgsKey(entry.Args))
 }
 
 func entriesToDetails(entries []SyscallEntry) []SyscallDetail {
@@ -614,25 +602,7 @@ func compareUintPtr(left, right *uint) int {
 }
 
 func compareSyscallArgs(left, right []specs.LinuxSeccompArg) int {
-	for idx := range min(len(left), len(right)) {
-		if result := cmp.Compare(left[idx].Index, right[idx].Index); result != 0 {
-			return result
-		}
-
-		if result := cmp.Compare(left[idx].Value, right[idx].Value); result != 0 {
-			return result
-		}
-
-		if result := cmp.Compare(left[idx].ValueTwo, right[idx].ValueTwo); result != 0 {
-			return result
-		}
-
-		if result := cmp.Compare(left[idx].Op, right[idx].Op); result != 0 {
-			return result
-		}
-	}
-
-	return cmp.Compare(len(left), len(right))
+	return slices.CompareFunc(left, right, compareArg)
 }
 
 func equalSyscallEntry(first, second SyscallEntry) bool {
