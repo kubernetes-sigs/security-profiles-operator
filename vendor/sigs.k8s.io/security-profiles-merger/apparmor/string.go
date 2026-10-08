@@ -18,6 +18,8 @@ package apparmor
 
 import (
 	"fmt"
+	"slices"
+	"strconv"
 	"strings"
 
 	"sigs.k8s.io/security-profiles-merger/internal/merge"
@@ -131,11 +133,23 @@ func formatBool(name string, val bool) string {
 	return "!" + name
 }
 
+// emptyCapabilities is how an empty capability list reads.
+const emptyCapabilities = "none"
+
 // String returns a human-readable representation of the capability rules.
+// An empty list reads "none", so a capability spelled that way is quoted,
+// which keeps a profile naming it apart from one granting nothing.
 func (c CapabilityRules) String() string {
 	if len(c.AllowedCapabilities) == 0 {
-		return "caps:none"
+		return "caps:" + emptyCapabilities
 	}
 
-	return "caps:" + strings.Join(merge.SafeTexts(c.AllowedCapabilities), ",")
+	names := slices.Clone(merge.SafeTexts(c.AllowedCapabilities))
+	for idx, name := range names {
+		if name == emptyCapabilities {
+			names[idx] = strconv.Quote(name)
+		}
+	}
+
+	return "caps:" + strings.Join(names, ",")
 }

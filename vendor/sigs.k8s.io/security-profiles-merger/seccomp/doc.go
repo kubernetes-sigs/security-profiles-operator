@@ -113,6 +113,23 @@ limitations under the License.
 // with different results, and Intersect of it denies every read. A single
 // clause with several conditions is a safe shape (b).
 //
+// A baseline is read the same way, and one that relies on libseccomp's
+// order loses the syscall in an intersection. The default profile of CRI-O
+// and Podman is one: it denies socket for two address families and allows
+// it otherwise through four clauses, two of them with two conditions, which
+// is no safe shape, so an intersection with it denies every socket call.
+// [ValidateArtifact] names such a syscall in a baseline as it does in an
+// artifact ([ErrConflictingEntries]).
+//
+// runc adds one thing to the program that no rule states: unless the
+// default action is SCMP_ACT_ALLOW, SCMP_ACT_LOG or SCMP_ACT_TRACE, a call
+// whose number lies above the highest syscall the profile names fails with
+// ENOSYS, so that a syscall newer than the profile reads as one the kernel
+// does not have. A merge result names the syscalls its rules need, which
+// can be fewer than an input names, since a rule equal to the default is
+// dropped. A syscall above them then gets ENOSYS where the input applied
+// its default, which denies it either way.
+//
 // Merge results only contain safe shapes, and never an unconditional entry
 // next to conditional entries for the same syscall. Where the merged rules
 // of a syscall would need both, there are three outcomes. A single filtered
@@ -147,11 +164,17 @@ limitations under the License.
 // inputs. Filters on different argument indices are conjoined into one
 // entry, identical filters are kept, several entries for one syscall (an OR
 // of filters) are preserved, and filters that provably never overlap (arg0
-// == 1 and arg0 == 2) produce no shared entry. Where the exact intersection
-// is not expressible in OCI terms, such as different conditions on the same
-// argument index, the affected calls fall back to the more restrictive
-// surrounding action. The result never permits a call that any input
-// denies.
+// == 1 and arg0 == 2) produce no shared entry. Two different conditions on
+// one argument are conjoined where one implies the other, as the one that
+// says more: arg0 == 2 against arg0 != 40 is arg0 == 2, and arg0 < 5
+// against arg0 <= 10 is arg0 < 5. Implication is only read off values that
+// fit 32 bits, which mean the same on every architecture. Where the exact
+// intersection is not expressible in OCI terms, such as conditions on the
+// same argument index of which neither implies the other, the affected
+// calls fall back to the more restrictive surrounding action. The result
+// never permits a call that any input denies, as libseccomp evaluates the
+// inputs and the result; the one exception is a defect of libseccomp the
+// merge does not model, described in the Architectures section.
 //
 // The result is conservative rather than exact where filters interact: a
 // conditional entry is lowered by every overlapping entry of the other side,
@@ -165,7 +188,8 @@ limitations under the License.
 // raised to the least restrictive action any input applies to calls
 // matching its filter. Where the exact union is not expressible, or would
 // not form a safe shape, the result over-approximates in the permissive
-// direction. It never denies a call that any input permits.
+// direction. It never denies a call that any input permits, with the same
+// exception.
 //
 // Both directions are conservative where filters interact, in their own
 // direction. Intersecting read: ALLOW if arg0 == 1 under default ERRNO with
@@ -204,11 +228,11 @@ limitations under the License.
 //
 // [Validate] does not range-check errnoRet; [ValidateStrict] and
 // [ValidateArtifact] reject values above 4095 on actions that return them.
-// runc narrows errnoRet to an int16 and skips an entry whose action and
-// errno equal the default, so a value such as 65537 against a default errno
-// of 1 survives the merge as an entry runc would have skipped. That entry is
-// redundant rather than wrong: it applies the same action and the same
-// truncated errno the default applies.
+// runc and crun load only the lower 16 bits of errnoRet, and the merges and
+// [Diff] read a value the same way: 65537 is EPERM, so an entry carrying it
+// against a default errno of 1 is one a runtime skips for equaling the
+// default, and it hides no other rule of its syscall. Results spell an
+// errno as it is loaded.
 //
 // # Architectures
 //
@@ -216,14 +240,16 @@ limitations under the License.
 // the native architecture, and the listed architectures are added to it. An
 // empty list means "native only" and a non-empty list "native plus these".
 // A list need not name the native architecture, and a profile listing only
-// foreign architectures is valid. [Intersect] takes the plain set
-// intersection of the lists, which may be empty, less the architectures it
-// drops as described below. [Union] combines them. The set the union covers
-// is exact, but the behavior on an architecture only one input lists is not
-// the rule-by-rule union: there the other input's filter applies
-// libseccomp's action for an unlisted architecture, SCMP_ACT_KILL, while the
-// result applies the merged rules. That is the permissive direction, so the
-// union guarantee holds.
+// foreign architectures is valid. [Validate] accepts every architecture the
+// runtime-spec names. runc knows no parisc, m68k or sh and refuses a profile
+// listing one, while crun resolves the name through libseccomp. [Intersect]
+// takes the plain set intersection of the lists, which may be empty, less
+// the architectures it drops as described below. [Union] combines them. The
+// set the union covers is exact, but the behavior on an architecture only
+// one input lists is not the rule-by-rule union: there the other input's
+// filter applies libseccomp's action for an unlisted architecture,
+// SCMP_ACT_KILL, while the result applies the merged rules. That is the
+// permissive direction, so the union guarantee holds.
 //
 // The evaluation model covers the program libseccomp compiles for a 64-bit
 // architecture on which every syscall is called directly. Two effects of
@@ -231,8 +257,27 @@ limitations under the License.
 // lists and for the native architecture, which the merges and [Diff] take
 // to be the one of the running program (see [NativeArchitecture]). Both
 // were checked against libseccomp 2.6.1 for every architecture it knows,
-// and the libseccomp tests of this package check merge results on x86 and
-// ppc64le against it.
+// and the libseccomp tests of this package check merge results on x86,
+// x32, arm, aarch64 and ppc64le against it, with libseccomp sorting the
+// syscalls by priority and into a binary tree.
+//
+// One thing libseccomp does there is not followed, because it is a defect
+// rather than a reading: libseccomp 2.5.5 and 2.6.1 load the syscall number
+// in the code of the syscall they test first and leave that code out when
+// the syscall does not exist on the architecture. The rules of that
+// architecture then apply to no call, and every call gets the default
+// action. The syscall tested first is one of those whose rule has the
+// fewest conditions, so this takes a profile in which every such rule names
+// a syscall the architecture lacks, as "socketcall" with one unconditional
+// rule and "socket" with a conditional one does on x86_64, in a filter of
+// x86_64 and x32 together or of any other architecture. It does not happen
+// where libseccomp sorts into a binary tree, which runc asks for above 32
+// syscall names and crun never does. An input can have that form, and a
+// merge can produce it from inputs that do not, since it drops rules equal
+// to the default and collapses others to unconditional ones; under a
+// permissive default the result then permits what an input denies. A
+// profile that names one syscall every covered architecture has in an
+// unconditional rule is not affected, which every allowlist is.
 //
 // On a 32-bit architecture (x86, x32, arm, 32-bit and n32 MIPS, ppc, s390,
 // parisc, m68k, sh), libseccomp compares only the lower 32 bits of each
@@ -295,7 +340,9 @@ limitations under the License.
 // where it is native, so [Intersect] is meant to run on the node that loads
 // its result. For [Diff] the native architecture means the same two profiles
 // compare differently depending on where the comparison runs; [DiffForArch]
-// names it instead. [IntersectSyscalls] and [UnionSyscalls] know no
+// names it instead, as [IntersectForArch], [UnionForArch],
+// [ValidateArtifactForArch] and [ValidateStrictForArch] do for a merge that
+// does not run on the node loading its result. [IntersectSyscalls] and [UnionSyscalls] know no
 // architectures and apply neither settling: a caller loading their result
 // for such an architecture gets the settling by merging whole profiles.
 //
@@ -305,10 +352,23 @@ limitations under the License.
 // baseline. SECCOMP_FILTER_FLAG_SPEC_ALLOW disables a mitigation:
 // intersection keeps it only if every input sets it, union if any does.
 // SECCOMP_FILTER_FLAG_LOG adds audit logging: intersection keeps it if any
-// input sets it, union only if every input does.
-// SECCOMP_FILTER_FLAG_WAIT_KILLABLE_RECV only matters with a listener and
-// comes from the input the listener comes from (see the Listener section).
-// [Validate] rejects unknown flags. An empty list means "no flags".
+// input sets it, union only if every input does. SECCOMP_FILTER_FLAG_TSYNC,
+// which the runtime-spec lists and runc ignores, loosens nothing and is
+// merged the same way, except that a result with a listener never carries
+// it: the kernel refuses it next to the flag that creates the listener,
+// which crun passes along with it. SECCOMP_FILTER_FLAG_WAIT_KILLABLE_RECV
+// only matters with a listener and comes from the input the listener comes
+// from (see the Listener section). [Validate] rejects unknown flags.
+//
+// A nil list is not an empty one. It leaves the flags to the runtime, and
+// runc since 1.2 and crun then set SECCOMP_FILTER_FLAG_SPEC_ALLOW, while a
+// list that is set but empty sets no flag. The merges and [Diff] therefore
+// read a nil list as one naming the flag. A result is nil again where the
+// flag survives through an input that left it to the runtime and no other
+// flag does; a list cannot leave one flag to the runtime and set another,
+// so next to other flags the result names it. specs.LinuxSeccomp leaves an
+// empty list out when it is marshaled, so a caller writing a result as JSON
+// has to write "flags": [] itself to keep the flag off.
 //
 // # Listener
 //
@@ -445,9 +505,9 @@ limitations under the License.
 // [UnionSyscalls] keeps everything, and collapses a syscall that is not in a
 // safe shape to its least restrictive action, which decides calls the lists
 // leave to the default but never less permissively than the default would.
-// Neither validates its inputs: callers ensure that actions are known and
-// that every entry has at least one name, or call [Validate] on the
-// enclosing profile first.
+// Neither validates its inputs: callers ensure that actions are known, that
+// every entry has at least one name and that no name holds a NUL byte, or
+// call [Validate] on the enclosing profile first.
 //
 // # Conflicting rules
 //

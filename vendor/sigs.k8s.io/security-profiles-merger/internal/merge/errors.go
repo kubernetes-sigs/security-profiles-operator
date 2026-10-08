@@ -49,12 +49,22 @@ func QuoteBounded(value string) string {
 		return strconv.Quote(value)
 	}
 
-	end := MaxQuotedBytes
-	for end > 0 && !utf8.RuneStart(value[end]) {
-		end--
+	return strconv.Quote(value[:runeBoundary(value, MaxQuotedBytes)]) + "..."
+}
+
+// runeBoundary returns the largest index up to limit at which text can be
+// cut without splitting a UTF-8 sequence. A sequence is at most utf8.UTFMax
+// bytes long, so the cut backs off by less than that: text that holds no
+// rune start within reach is not valid UTF-8, where there is no sequence to
+// keep whole and backing off further would cut away what is to be shown.
+func runeBoundary(text string, limit int) int {
+	for back := range utf8.UTFMax {
+		if utf8.RuneStart(text[limit-back]) {
+			return limit - back
+		}
 	}
 
-	return strconv.Quote(value[:end]) + "..."
+	return limit
 }
 
 // MaxMessageBytes bounds a message built from text the caller did not
@@ -72,12 +82,7 @@ func BoundedText(text string) string {
 		return text
 	}
 
-	end := MaxMessageBytes
-	for end > 0 && !utf8.RuneStart(text[end]) {
-		end--
-	}
-
-	return text[:end] + "..."
+	return text[:runeBoundary(text, MaxMessageBytes)] + "..."
 }
 
 // BoundedError returns err with its message bounded by BoundedText. errors.Is

@@ -70,7 +70,8 @@ type NetworkDiff struct {
 	AllowUDP *BoolPtrDiff `json:"allowUdp,omitempty"`
 }
 
-// BoolPtrDiff represents a change in an optional boolean value.
+// BoolPtrDiff represents a change in an optional boolean value. Diff sets
+// both sides, since it compares an unset boolean as false.
 type BoolPtrDiff struct {
 	Left  *bool `json:"left"`
 	Right *bool `json:"right"`
@@ -120,38 +121,29 @@ func Diff(left, right *Profile) (*ProfileDiff, error) {
 	return diff, nil
 }
 
+// The comparisons below read sections and network booleans without checking
+// for nil: Diff runs them on profiles populateEmpty has made explicit.
+
 func diffExecutables(diff *ProfileDiff, left, right *Profile) {
-	if execDiff := diffPaths(executablePaths(left), executablePaths(right)); execDiff != nil {
+	execDiff := diffPaths(
+		left.Executable.AllowedExecutables, right.Executable.AllowedExecutables,
+	)
+	if execDiff != nil {
 		diff.Equal = false
 		diff.Executables = execDiff
 	}
 
-	if libDiff := diffPaths(libraryPaths(left), libraryPaths(right)); libDiff != nil {
+	libDiff := diffPaths(left.Executable.AllowedLibraries, right.Executable.AllowedLibraries)
+	if libDiff != nil {
 		diff.Equal = false
 		diff.Libraries = libDiff
 	}
 }
 
-func executablePaths(profile *Profile) []string {
-	if profile.Executable == nil {
-		return nil
-	}
-
-	return profile.Executable.AllowedExecutables
-}
-
-func libraryPaths(profile *Profile) []string {
-	if profile.Executable == nil {
-		return nil
-	}
-
-	return profile.Executable.AllowedLibraries
-}
-
 func diffFilesystem(diff *ProfileDiff, left, right *Profile) {
-	roDiff := diffPaths(fsPaths(left, fsReadOnly), fsPaths(right, fsReadOnly))
-	woDiff := diffPaths(fsPaths(left, fsWriteOnly), fsPaths(right, fsWriteOnly))
-	rwDiff := diffPaths(fsPaths(left, fsReadWrite), fsPaths(right, fsReadWrite))
+	roDiff := diffPaths(left.Filesystem.ReadOnlyPaths, right.Filesystem.ReadOnlyPaths)
+	woDiff := diffPaths(left.Filesystem.WriteOnlyPaths, right.Filesystem.WriteOnlyPaths)
+	rwDiff := diffPaths(left.Filesystem.ReadWritePaths, right.Filesystem.ReadWritePaths)
 
 	if roDiff != nil || woDiff != nil || rwDiff != nil {
 		diff.Equal = false
@@ -163,112 +155,34 @@ func diffFilesystem(diff *ProfileDiff, left, right *Profile) {
 	}
 }
 
-type fsCategory int
-
-const (
-	fsReadOnly fsCategory = iota
-	fsWriteOnly
-	fsReadWrite
-)
-
-func fsPaths(profile *Profile, category fsCategory) []string {
-	if profile.Filesystem == nil {
-		return nil
-	}
-
-	switch category {
-	case fsReadOnly:
-		return profile.Filesystem.ReadOnlyPaths
-	case fsWriteOnly:
-		return profile.Filesystem.WriteOnlyPaths
-	case fsReadWrite:
-		return profile.Filesystem.ReadWritePaths
-	default:
-		return nil
-	}
-}
-
 func diffNetwork(diff *ProfileDiff, left, right *Profile) {
-	var networkDiff NetworkDiff
-
-	changed := false
-
-	rawGetter := func(net *NetworkRules) *bool { return net.AllowRaw }
-
-	if rawDiff := diffBoolPtr(
-		netBoolPtr(left, rawGetter), netBoolPtr(right, rawGetter),
-	); rawDiff != nil {
-		networkDiff.AllowRaw = rawDiff
-		changed = true
+	networkDiff := NetworkDiff{
+		AllowRaw: diffBool(left.Network.AllowRaw, right.Network.AllowRaw),
+		AllowTCP: diffBool(left.Network.Protocols.AllowTCP, right.Network.Protocols.AllowTCP),
+		AllowUDP: diffBool(left.Network.Protocols.AllowUDP, right.Network.Protocols.AllowUDP),
 	}
 
-	tcpGetter := func(proto *AllowedProtocols) *bool { return proto.AllowTCP }
-
-	if tcpDiff := diffBoolPtr(
-		protoBoolPtr(left, tcpGetter), protoBoolPtr(right, tcpGetter),
-	); tcpDiff != nil {
-		networkDiff.AllowTCP = tcpDiff
-		changed = true
-	}
-
-	udpGetter := func(proto *AllowedProtocols) *bool { return proto.AllowUDP }
-
-	if udpDiff := diffBoolPtr(
-		protoBoolPtr(left, udpGetter), protoBoolPtr(right, udpGetter),
-	); udpDiff != nil {
-		networkDiff.AllowUDP = udpDiff
-		changed = true
-	}
-
-	if changed {
+	if networkDiff.AllowRaw != nil || networkDiff.AllowTCP != nil || networkDiff.AllowUDP != nil {
 		diff.Equal = false
 		diff.Network = &networkDiff
 	}
 }
 
-func netBoolPtr(profile *Profile, getter func(*NetworkRules) *bool) *bool {
-	if profile.Network == nil {
+// diffBool compares two network booleans, which populateEmpty has set, and
+// returns nil when they agree. The diff holds copies of the values.
+func diffBool(left, right *bool) *BoolPtrDiff {
+	if *left == *right {
 		return nil
 	}
 
-	return getter(profile.Network)
-}
-
-func protoBoolPtr(profile *Profile, getter func(*AllowedProtocols) *bool) *bool {
-	if profile.Network == nil || profile.Network.Protocols == nil {
-		return nil
-	}
-
-	return getter(profile.Network.Protocols)
-}
-
-func diffBoolPtr(left, right *bool) *BoolPtrDiff {
-	if left == nil && right == nil {
-		return nil
-	}
-
-	if left == nil || right == nil || *left != *right {
-		return &BoolPtrDiff{
-			Left:  merge.ClonePtr(left),
-			Right: merge.ClonePtr(right),
-		}
-	}
-
-	return nil
+	return &BoolPtrDiff{Left: merge.ClonePtr(left), Right: merge.ClonePtr(right)}
 }
 
 func diffCapabilities(diff *ProfileDiff, left, right *Profile) {
-	var leftCaps, rightCaps []string
-
-	if left.Capabilities != nil {
-		leftCaps = left.Capabilities.AllowedCapabilities
-	}
-
-	if right.Capabilities != nil {
-		rightCaps = right.Capabilities.AllowedCapabilities
-	}
-
-	if capDiff := diffStringSlice(leftCaps, rightCaps); capDiff != nil {
+	capDiff := diffStringSlice(
+		left.Capabilities.AllowedCapabilities, right.Capabilities.AllowedCapabilities,
+	)
+	if capDiff != nil {
 		diff.Equal = false
 		diff.Capabilities = capDiff
 	}
@@ -324,9 +238,12 @@ func pathsByRule(paths []string) map[string]string {
 
 // ruleText identifies the rule a path spells without compiling it. Diff
 // validates nothing, so it must stay linear in what it is given: the name a
-// literal denotes, or the expression the parser port translates a pattern
-// into, which two spellings of one pattern share. A path the port rejects,
-// or one too long for it, is identified by its text.
+// literal denotes, or the expression the matcher would compile for a
+// pattern, which two spellings of one pattern share and which is what
+// Validate and the merge identify it by (see keyForPath). That expression
+// spells a class by its members, so "[a-c]" and "[abc]" are one rule here as
+// they are there. A path the port rejects, or one too long for it, is
+// identified by its text.
 func ruleText(path string) string {
 	if !strings.ContainsAny(path, patternSyntax) {
 		return "l:" + filterSlashes(path)
@@ -342,9 +259,18 @@ func ruleText(path string) string {
 	case kindLiteral:
 		return "l:" + literalBytes(conv.regex[:conv.literalEnd])
 	case kindGlob:
-		return "g:" + conv.regex
+		fragment, ok := translateRegex(conv.regex)
+
+		switch {
+		case !ok:
+		case path[0] != '/':
+			// A relative pattern loads no rule, so it is none an absolute
+			// pattern spells, whatever their expressions.
+			return "r:" + fragment
+		default:
+			return "g:" + fragment
+		}
 	case kindInvalid:
-		return "t:" + path
 	}
 
 	return "t:" + path

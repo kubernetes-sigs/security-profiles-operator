@@ -907,10 +907,11 @@ func validateEmptyPaths(context string, paths []string) []error {
 	}, ErrEmptyPath, false)
 }
 
-// validateEmptyPathsInProfile checks for empty and oversized paths before
-// normalization, so that no normalization work is spent on an oversized
-// path.
-func validateEmptyPathsInProfile(profile *Profile) error {
+// validateRawPaths checks a profile for empty and oversized paths as the
+// caller wrote them, before a merge normalizes them, so that no
+// normalization work is spent on an oversized path. Validate reports both
+// again on the normalized profile, where neither can appear anymore.
+func validateRawPaths(profile *Profile) error {
 	if profile == nil {
 		return ErrNilProfile
 	}
@@ -932,7 +933,8 @@ func validateEmptyPathsInProfile(profile *Profile) error {
 // validateFilesystemPaths reports the paths listed in more than one
 // category. Paths are compared by the rule they spell, not by their text, so
 // that two spellings of one path are the pair of rules they are to
-// apparmor_parser (see keyForPath).
+// apparmor_parser (see keyForPath). A path one category lists twice is left
+// to validateDuplicatePathsInCategory.
 func validateFilesystemPaths(rules *FilesystemRules) error {
 	seen := make(map[pathKey]string)
 
@@ -952,7 +954,7 @@ func validateFilesystemPaths(rules *FilesystemRules) error {
 		for _, path := range category.paths {
 			key := keyForPath(path)
 
-			if earlier, ok := seen[key]; ok {
+			if earlier, ok := seen[key]; ok && earlier != category.name {
 				errs = append(errs, fmt.Errorf(
 					"path %s in both %s and %s: %w",
 					merge.QuoteBounded(path), earlier, category.name,
@@ -1005,12 +1007,12 @@ func validateDuplicateCapabilities(caps []string) error {
 
 	var errs []error
 
-	for _, cap := range caps {
+	for idx, cap := range caps {
 		upper := asciiUpper(cap)
 		if _, ok := seen[upper]; ok {
 			errs = append(errs, fmt.Errorf(
-				"AllowedCapabilities: %s: %w",
-				merge.QuoteBounded(cap), ErrDuplicateCapability,
+				"AllowedCapabilities[%d]: %s: %w",
+				idx, merge.QuoteBounded(cap), ErrDuplicateCapability,
 			))
 		}
 
@@ -1044,12 +1046,12 @@ func validateDuplicatesInSlice(
 
 	var errs []error
 
-	for _, item := range items {
+	for idx, item := range items {
 		key := keyForPath(item)
 
 		if _, ok := seen[key]; ok {
 			errs = append(errs, fmt.Errorf(
-				"%s: %s: %w", context, merge.QuoteBounded(item), sentinel,
+				"%s[%d]: %s: %w", context, idx, merge.QuoteBounded(item), sentinel,
 			))
 		}
 

@@ -48,13 +48,8 @@ func FormatProfile(profile *specs.LinuxSeccomp) string {
 		parts = append(parts, "arch:"+strings.Join(archs, ","))
 	}
 
-	if len(profile.Flags) > 0 {
-		flags := make([]string, len(profile.Flags))
-		for idx, flag := range profile.Flags {
-			flags[idx] = merge.SafeText(string(flag))
-		}
-
-		parts = append(parts, "flags:"+strings.Join(flags, ","))
+	if profile.Flags != nil {
+		parts = append(parts, formatFlags(profile.Flags))
 	}
 
 	if profile.ListenerPath != "" {
@@ -72,6 +67,22 @@ func FormatProfile(profile *specs.LinuxSeccomp) string {
 	}
 
 	return fmt.Sprintf("Profile{%s}", strings.Join(parts, " "))
+}
+
+// formatFlags renders a flag list that is set. An empty one reads "none"
+// rather than nothing: it turns off the flags a runtime sets for a profile
+// without a list, so it is not the same profile.
+func formatFlags(flags []specs.LinuxSeccompFlag) string {
+	if len(flags) == 0 {
+		return "flags:none"
+	}
+
+	parts := make([]string, len(flags))
+	for idx, flag := range flags {
+		parts[idx] = merge.SafeText(string(flag))
+	}
+
+	return "flags:" + strings.Join(parts, ",")
 }
 
 // String returns a human-readable representation of the syscall entry.

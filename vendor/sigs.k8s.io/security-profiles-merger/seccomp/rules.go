@@ -506,17 +506,21 @@ type ruleMerger struct {
 }
 
 func intersectRules() ruleMerger {
-	return ruleMerger{
-		pick: moreRestrictive, intersect: true, narrow: false,
-		native: runningArchitecture(),
-	}
+	return intersectRulesFor(runningArchitecture())
 }
 
 func unionRules() ruleMerger {
-	return ruleMerger{
-		pick: lessRestrictive, intersect: false, narrow: false,
-		native: runningArchitecture(),
-	}
+	return unionRulesFor(runningArchitecture())
+}
+
+// intersectRulesFor and unionRulesFor return the merger of a node whose
+// native architecture is the given one.
+func intersectRulesFor(native specs.Arch) ruleMerger {
+	return ruleMerger{pick: moreRestrictive, intersect: true, narrow: false, native: native}
+}
+
+func unionRulesFor(native specs.Arch) ruleMerger {
+	return ruleMerger{pick: lessRestrictive, intersect: false, narrow: false, native: native}
 }
 
 func (m ruleMerger) pickClause(left, right clause) clause {
@@ -979,8 +983,8 @@ func (m ruleMerger) mergeFallback(left, right *clause) *clause {
 // sides allow; for union it raises it to what either side allows.
 //
 // The other side's fallback applies inside the region unless an other-side
-// clause matches everything the clause matches (its filter is a subset), in
-// which case the fallback can never be reached there. Intersection also
+// clause matches everything the clause matches (see argsCover), in which
+// case the fallback can never be reached there. Intersection also
 // lowers the action by every overlapping other-side clause, because the
 // working model applies the least restrictive matching clause. Union does
 // not need that: every other-side clause is emitted on its own and raises
@@ -1034,7 +1038,7 @@ func (m ruleMerger) adjustAgainstOthers(
 			continue
 		}
 
-		if argsSubset(other.args, current.args) {
+		if argsCover(other.args, current.args) {
 			subsumed = true
 		}
 
@@ -1093,8 +1097,8 @@ func (m ruleMerger) collapseClauses(clauses []clause, fallback *clause) []clause
 }
 
 // pruneDominated drops clauses that can never decide a call under the
-// working model: a clause whose filter is a superset of another clause's
-// filter matches only calls the other matches too, and since the least
+// working model: a clause whose filter another clause's filter covers (see
+// argsCover) matches only calls the other matches too, and since the least
 // restrictive matching clause wins, it is dead unless it is less restrictive
 // than that other clause. Clauses with the same result also collapse into
 // the wider one.
@@ -1114,8 +1118,10 @@ func pruneDominated(clauses []clause) []clause {
 		dominated := false
 
 		for otherIdx, other := range clauses {
-			if otherIdx == idx || len(other.args) >= len(current.args) ||
-				!argsSubset(other.args, current.args) {
+			// other must be strictly wider: a clause with an equivalent
+			// filter would otherwise prune this one and be pruned by it.
+			if otherIdx == idx || !argsCover(other.args, current.args) ||
+				argsCover(current.args, other.args) {
 				continue
 			}
 

@@ -18,13 +18,17 @@ package seccomp
 
 import (
 	specs "github.com/opencontainers/runtime-spec/specs-go"
-
-	"sigs.k8s.io/security-profiles-merger/internal/merge"
 )
 
 // defaultErrno is the errno runc and crun apply for SCMP_ACT_ERRNO and
 // SCMP_ACT_TRACE when errnoRet is unset: EPERM.
 const defaultErrno uint = 1
+
+// errnoMask selects the part of errnoRet a runtime loads. The errno travels
+// in the 16 data bits of the action: runc narrows errnoRet to an int16 and
+// crun passes it through SCMP_ACT_ERRNO, which masks it, so 65537 is loaded
+// as EPERM.
+const errnoMask uint = 0xffff
 
 // Restrictiveness levels, ordered from most restrictive (kill) to least
 // (allow). Notify sits between Errno and Trace: it blocks the syscall pending
@@ -147,30 +151,32 @@ func errnoSignificant(action specs.LinuxSeccompAction) bool {
 }
 
 // runtimeErrno returns the errno a runtime applies for an action: the
-// explicit value or EPERM for ERRNO and TRACE, and nil for every other
-// action, which ignores errnoRet. Clauses carry this form so that entries
-// differing only in how they spell EPERM compare equal.
+// explicit value, narrowed to the bits a runtime loads (see errnoMask), or
+// EPERM for ERRNO and TRACE, and nil for every other action, which ignores
+// errnoRet. Clauses carry this form so that entries differing only in how
+// they spell one errno compare equal.
 func runtimeErrno(action specs.LinuxSeccompAction, ret *uint) *uint {
 	if !errnoSignificant(action) {
 		return nil
 	}
 
-	if ret == nil {
-		val := defaultErrno
-
-		return &val
+	val := defaultErrno
+	if ret != nil {
+		val = *ret & errnoMask
 	}
 
-	return merge.ClonePtr(ret)
+	return &val
 }
 
 // outputErrno returns the serialized form of an errno: nil when the runtime
 // ignores it or would apply EPERM anyway, so that merge results spell the
-// default the way most profiles do.
+// default the way most profiles do, and otherwise the value the runtime
+// loads (see errnoMask).
 func outputErrno(action specs.LinuxSeccompAction, ret *uint) *uint {
-	if !errnoSignificant(action) || ret == nil || *ret == defaultErrno {
+	loaded := runtimeErrno(action, ret)
+	if loaded == nil || *loaded == defaultErrno {
 		return nil
 	}
 
-	return merge.ClonePtr(ret)
+	return loaded
 }

@@ -66,14 +66,17 @@ func sortedArgs(args []specs.LinuxSeccompArg) []specs.LinuxSeccompArg {
 }
 
 func sortArgs(args []specs.LinuxSeccompArg) {
-	slices.SortFunc(args, func(left, right specs.LinuxSeccompArg) int {
-		return cmp.Or(
-			cmp.Compare(left.Index, right.Index),
-			cmp.Compare(left.Value, right.Value),
-			cmp.Compare(left.ValueTwo, right.ValueTwo),
-			cmp.Compare(left.Op, right.Op),
-		)
-	})
+	slices.SortFunc(args, compareArg)
+}
+
+// compareArg orders two conditions by index, value, valueTwo and operator.
+func compareArg(left, right specs.LinuxSeccompArg) int {
+	return cmp.Or(
+		cmp.Compare(left.Index, right.Index),
+		cmp.Compare(left.Value, right.Value),
+		cmp.Compare(left.ValueTwo, right.ValueTwo),
+		cmp.Compare(left.Op, right.Op),
+	)
 }
 
 // argsKey returns a canonical string for a set of argument filters so that
@@ -141,7 +144,9 @@ func groupArgsByIndex(
 // conjoinArgs returns a single filter matching exactly the calls matched by
 // both inputs. OCI argument filters are AND-joined and a runtime accepts at
 // most one condition per argument index, so the conjunction exists only when
-// every index present on both sides carries an identical condition. The
+// every index present on both sides carries one condition that says what
+// both say: the same condition, or one of two where the one implies the
+// other (see condImplies), which is then the conjunction of the two. The
 // second return value is false when no such filter exists.
 func conjoinArgs(
 	left, right []specs.LinuxSeccompArg,
@@ -152,11 +157,19 @@ func conjoinArgs(
 	result := make([]specs.LinuxSeccompArg, 0, len(left)+len(right))
 
 	for idx, leftGroup := range leftByIndex {
-		if rightGroup, ok := rightByIndex[idx]; ok && !slices.Equal(leftGroup, rightGroup) {
+		rightGroup, shared := rightByIndex[idx]
+		if !shared {
+			result = append(result, leftGroup...)
+
+			continue
+		}
+
+		stronger, ok := strongerGroup(leftGroup, rightGroup)
+		if !ok {
 			return nil, false
 		}
 
-		result = append(result, leftGroup...)
+		result = append(result, stronger...)
 	}
 
 	for idx, rightGroup := range rightByIndex {
@@ -170,16 +183,108 @@ func conjoinArgs(
 	return result, true
 }
 
-// argsSubset reports whether every condition of sub also appears in super,
-// which implies that super matches only calls that sub matches.
-func argsSubset(sub, super []specs.LinuxSeccompArg) bool {
-	for _, arg := range sub {
-		if !slices.Contains(super, arg) {
+// strongerGroup returns the conditions of one argument index that match
+// exactly the calls both groups match: either group when they are equal, or
+// the single condition that implies the single condition of the other. A
+// group holds several conditions only in unvalidated input, where nothing
+// but equality is read from it.
+func strongerGroup(left, right []specs.LinuxSeccompArg) ([]specs.LinuxSeccompArg, bool) {
+	switch {
+	case slices.Equal(left, right):
+		return left, true
+	case len(left) != 1 || len(right) != 1:
+		return nil, false
+	case condImplies(left[0], right[0]):
+		return left, true
+	case condImplies(right[0], left[0]):
+		return right, true
+	default:
+		return nil, false
+	}
+}
+
+// argsCover reports whether the filter wide matches every call the filter
+// narrow matches: each condition of wide is implied by a condition narrow
+// puts on the same argument. A filter whose conditions all appear in the
+// other covers it, as does one whose conditions say less: "a0 != 40" covers
+// "a0 == 2". It is conservative: false means wide may still cover narrow.
+func argsCover(wide, narrow []specs.LinuxSeccompArg) bool {
+	for _, loose := range wide {
+		if !slices.ContainsFunc(narrow, func(strict specs.LinuxSeccompArg) bool {
+			return strict.Index == loose.Index && condImplies(strict, loose)
+		}) {
 			return false
 		}
 	}
 
 	return true
+}
+
+// condImplies reports whether every value the condition strong matches is
+// one the condition weak matches, both read on one argument. It is
+// conservative: false means the implication may still hold.
+//
+// Two different conditions are compared only when neither holds a value
+// above 32 bits. libseccomp compares the lower 32 bits alone on a 32-bit
+// architecture, where "a0 == 0x100000028" matches 40 and so does not imply
+// "a0 != 40", and below that width a condition reads the same on every
+// architecture.
+func condImplies(strong, weak specs.LinuxSeccompArg) bool {
+	if strong == weak {
+		return true
+	}
+
+	if wideArg(strong) || wideArg(weak) {
+		return false
+	}
+
+	switch strong.Op {
+	case specs.OpEqualTo:
+		return condHolds(weak, strong.Value)
+	case specs.OpMaskedEqual:
+		return maskImplies(strong, weak)
+	case specs.OpNotEqual, specs.OpLessThan, specs.OpLessEqual,
+		specs.OpGreaterEqual, specs.OpGreaterThan:
+		return rangeImplies(strong, weak)
+	default:
+		return false
+	}
+}
+
+// rangeImplies is condImplies for a condition that matches a range of
+// values, if any: it implies a range holding its own, and that the argument
+// is not a value outside it.
+func rangeImplies(strong, weak specs.LinuxSeccompArg) bool {
+	low, high, ok := condInterval(strong)
+	if !ok {
+		return false
+	}
+
+	if weak.Op == specs.OpNotEqual {
+		return weak.Value < low || weak.Value > high
+	}
+
+	weakLow, weakHigh, weakOk := condInterval(weak)
+
+	return weakOk && weakLow <= low && high <= weakHigh
+}
+
+// maskImplies is condImplies for a masked comparison: it fixes the bits of
+// its mask, so it implies a masked comparison of a part of those bits with
+// the same values, and that the argument is not a value that differs from
+// its own in one of them.
+func maskImplies(strong, weak specs.LinuxSeccompArg) bool {
+	switch weak.Op {
+	case specs.OpMaskedEqual:
+		return weak.Value&^strong.Value == 0 && strong.ValueTwo&weak.Value == weak.ValueTwo
+	case specs.OpNotEqual:
+		return weak.Value&strong.Value != strong.ValueTwo
+	case specs.OpEqualTo, specs.OpLessThan, specs.OpLessEqual,
+		specs.OpGreaterEqual, specs.OpGreaterThan:
+		return false
+	default:
+		return false
+	}
 }
 
 // argsDisjoint reports whether two filters provably never match the same

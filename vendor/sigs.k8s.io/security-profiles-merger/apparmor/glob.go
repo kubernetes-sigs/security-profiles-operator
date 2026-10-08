@@ -73,7 +73,9 @@ const (
 	// exceedsPairBudget), and it admits a profile of MaxArtifactPaths paths
 	// of typicalPathLen bytes against a node baseline of baselinePathBytes.
 	// At the budget the costliest comparisons take about a second and a half
-	// in total.
+	// in total. That is the cost of one list: a merge weighs the executables,
+	// the libraries and the filesystem rules of two profiles separately, so
+	// it costs up to three times that.
 	maxMergePathWork = MaxArtifactPaths * typicalPathLen * baselinePathBytes
 	// typicalPathLen is the path length the budgets assume a profile names.
 	typicalPathLen = 64
@@ -99,6 +101,12 @@ const (
 	// globInvalid is a pattern apparmor_parser rejects, or accepts with a
 	// meaning this package does not model. It matches nothing.
 	globInvalid
+	// globRelative is a pattern that does not start with "/". The parser
+	// reads no file rule from it, so it matches nothing, whatever names its
+	// expression would cover: "**" covers every name and grants none. It
+	// is kept apart from globInvalid because the validators report it as a
+	// relative path rather than as a pattern.
+	globRelative
 )
 
 // globMatcher is the analyzed form of a path.
@@ -118,6 +126,10 @@ type globMatcher struct {
 	// starStar reports a usable pattern that is its literal prefix
 	// followed by "**", and nothing else.
 	starStar bool
+	// relativeExpr is the expression a globRelative pattern translates
+	// to. It is never compiled, since the pattern matches nothing, but it
+	// identifies the rule the pattern spells as expr does for a usable one.
+	relativeExpr string
 }
 
 // usable reports whether the matcher can match anything.
@@ -142,10 +154,9 @@ func (matcher *globMatcher) matches(name string) bool {
 // never narrowed. A "/" after a "/" spelled by an alternation or a class,
 // as in "/etc/{\/a,b}" or "/etc/[/]x", is not detected: such a glob may
 // match a name with "//" that base does not, but no such name reaches
-// AppArmor. A base with an empty prefix is never used, since a relative
-// pattern cannot be loaded.
+// AppArmor. Both patterns are absolute, since a relative one is not usable.
 func (matcher *globMatcher) expandedBy(base *globMatcher) bool {
-	if !base.starStar || base.prefix == "" || !matcher.usable() ||
+	if !base.starStar || !matcher.usable() ||
 		!strings.HasPrefix(matcher.prefix, base.prefix) ||
 		strings.Contains(matcher.prefix, "//") {
 		return false
@@ -165,6 +176,8 @@ func literalMatcher(path string) *globMatcher {
 		literal:  name,
 		prefix:   name[:strings.LastIndexByte(name, '/')+1],
 		starStar: false,
+
+		relativeExpr: "",
 	}
 }
 
@@ -180,6 +193,8 @@ func analyzePattern(pattern string, compile bool) *globMatcher {
 		literal:  "",
 		prefix:   "",
 		starStar: false,
+
+		relativeExpr: "",
 	}
 
 	if conv.kind == kindInvalid {
@@ -203,6 +218,13 @@ func analyzePattern(pattern string, compile bool) *globMatcher {
 
 	fragment, ok := translateRegex(conv.regex)
 	if !ok {
+		return matcher
+	}
+
+	if pattern[0] != '/' {
+		matcher.status = globRelative
+		matcher.relativeExpr = fragment
+
 		return matcher
 	}
 
@@ -303,16 +325,12 @@ func IsGlobPattern(path string) bool {
 }
 
 // forEachAncestor calls visit with every literal prefix a glob pattern could
-// have and still match name: the empty prefix, which belongs to patterns
-// starting with a glob token, and every directory prefix of name. A glob's
-// prefix is either empty or ends in "/" (see globMatcher.prefix), so this is
+// have and still match name: every directory prefix of name. The prefix of a
+// usable glob ends in "/" (see globMatcher.prefix), since a pattern that
+// starts with a glob token is relative and matches nothing, so this is
 // exactly the set of prefixes name starts with. It stops when visit returns
 // true, which it then reports.
 func forEachAncestor(name string, visit func(prefix string) bool) bool {
-	if visit("") {
-		return true
-	}
-
 	for idx := range len(name) {
 		if name[idx] == '/' && visit(name[:idx+1]) {
 			return true
@@ -329,10 +347,13 @@ func forEachAncestor(name string, visit func(prefix string) bool) bool {
 // "/a/b" and `/a/\b` are one rule for one file. A pattern is identified by
 // the regular expression it compiles to, which two spellings of one pattern
 // share, and by its text when it compiles to nothing, since patterns that
-// match nothing are not thereby the same rule.
+// match nothing are not thereby the same rule. A relative pattern matches
+// nothing either, but it has an expression two spellings of it share, and is
+// identified by that, apart from every absolute pattern.
 type pathKey struct {
-	glob bool
-	text string
+	glob     bool
+	relative bool
+	text     string
 }
 
 // keyForPath returns the identity of a path.
@@ -341,11 +362,13 @@ func keyForPath(path string) pathKey {
 
 	switch {
 	case matcher.kind == kindLiteral:
-		return pathKey{glob: false, text: matcher.literal}
+		return pathKey{glob: false, relative: false, text: matcher.literal}
 	case matcher.expr != nil:
-		return pathKey{glob: true, text: matcher.expr.String()}
+		return pathKey{glob: true, relative: false, text: matcher.expr.String()}
+	case matcher.status == globRelative:
+		return pathKey{glob: true, relative: true, text: matcher.relativeExpr}
 	default:
-		return pathKey{glob: true, text: path}
+		return pathKey{glob: true, relative: false, text: path}
 	}
 }
 
@@ -429,7 +452,7 @@ func (index prefixIndex) candidates(name string, visit func(pattern string) bool
 
 // addStarStar files a "**" pattern under its prefix, if it is one.
 func (index prefixIndex) addStarStar(pattern string, matcher *globMatcher) {
-	if matcher.starStar && matcher.prefix != "" {
+	if matcher.starStar {
 		index.add(matcher.prefix, pattern)
 	}
 }

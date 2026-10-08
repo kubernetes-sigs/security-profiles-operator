@@ -152,9 +152,17 @@ limitations under the License.
 //
 // A pattern with more than 100 alternatives in total never matches, and
 // neither does a pattern apparmor_parser rejects (see Paths the validators
-// reject). The merge drops such a pattern on intersection and keeps it
-// verbatim on union. Intersecting a single profile drops them too, so
-// Intersect(p) equals Intersect(p, p).
+// reject), which includes one that does not start with "/": "**" covers
+// every name and grants none. The merge drops such a pattern on intersection
+// and keeps it verbatim on union. Intersecting a single profile drops them
+// too, so Intersect(p) equals Intersect(p, p).
+//
+// A union therefore still holds every pattern of its inputs that does not
+// load, and a consumer rendering it checks the result with
+// [ValidateArtifact] first, as it would an input. One such pattern does not
+// fail to load but stops the parser: apparmor_parser 5.0.2 does not return
+// from a class holding an escaped comma, such as "/a/[\,]", and its worker
+// processes outlive it.
 //
 // # Path spelling
 //
@@ -240,7 +248,8 @@ limitations under the License.
 // every alternation and class: "/a/*/../b" is reported, while "/{a,b/./c}"
 // is not, as its "/a" alternative can match. A path that does not start
 // with "/" is reported with [ErrRelativePath], since file rules must use
-// absolute paths.
+// absolute paths, and a pattern that does not start with one matches
+// nothing.
 //
 // # Filesystem merge
 //
@@ -325,6 +334,11 @@ limitations under the License.
 // against a baseline of a few kilobytes of paths. Two artifacts of that size
 // merged with each other, or a profile of long paths, may exceed the work
 // budget and be merged conservatively instead.
+//
+// The budgets apply to each list a merge matches: the executables, the
+// libraries, and the filesystem rules taken together. A merge of two
+// profiles therefore costs up to three times what one list at its budget
+// costs.
 //
 // # Concurrency
 //

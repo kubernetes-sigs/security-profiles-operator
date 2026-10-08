@@ -204,10 +204,10 @@ func collectMultiplexRules(
 ) map[string]*multiplexRules {
 	rules := make(map[string]*multiplexRules)
 
-	skip := func(name string) bool {
+	relevant := func(name string) bool {
 		_, multiplexed := multiplexedSyscalls[name]
 
-		return !multiplexed && name != socketMultiplexer && name != ipcMultiplexer
+		return multiplexed || name == socketMultiplexer || name == ipcMultiplexer
 	}
 
 	visit := func(_ int, name string, next clause) {
@@ -230,11 +230,24 @@ func collectMultiplexRules(
 		current.add(next)
 	}
 
-	// Only the entries naming one of these syscalls are expanded, so a
-	// merge pays for the rest of a profile once, in collectRules.
+	// Only the entries naming one of these syscalls are expanded, and only
+	// for those names, so a merge pays for the rest of a profile once, in
+	// collectRules. A name an entry repeats loads the same rules each time,
+	// which add records once, so every name is read once per entry: the
+	// expansion is then bounded by the syscalls there are to multiplex
+	// rather than by how often an entry names one.
 	for idx := range syscalls {
-		if slices.ContainsFunc(syscalls[idx].Names, func(name string) bool { return !skip(name) }) {
-			forEachClause(syscalls[idx:idx+1], def, skip, visit)
+		entry := syscalls[idx]
+
+		entry.Names = nil
+		for _, name := range syscalls[idx].Names {
+			if relevant(name) && !slices.Contains(entry.Names, name) {
+				entry.Names = append(entry.Names, name)
+			}
+		}
+
+		if len(entry.Names) > 0 {
+			forEachClause([]specs.LinuxSyscall{entry}, def, nil, visit)
 		}
 	}
 
@@ -466,11 +479,11 @@ func (m ruleMerger) settleMultiplexer(
 	if current == nil {
 		// The default decides every call of the multiplexer that no
 		// multiplexed rule of the result decides.
-		if m.pickAnyCall(*result.def, target, inputs).sameResult(*result.def) {
+		collapsed := m.pickAnyCall(*result.def, target, inputs)
+		if collapsed.sameResult(*result.def) {
 			return false
 		}
 
-		collapsed := m.pickAnyCall(*result.def, target, inputs)
 		for _, name := range names {
 			collapsed = m.pickInputs(collapsed, name, inputs)
 		}

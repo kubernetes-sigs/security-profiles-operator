@@ -39,7 +39,8 @@ const jsonSpace = " \t\r\n"
 // (spm.ErrInvalidUTF8), a member repeated within one object
 // (spm.ErrDuplicateKey), a member the target type has no field for
 // (spm.ErrUnknownField), a member that names a field only ignoring case
-// (spm.ErrMisspelledField), and anything but whitespace behind the document
+// (spm.ErrMisspelledField), a required member left out or null
+// (spm.ErrMissingField), and anything but whitespace behind the document
 // (spm.ErrUnexpectedData). A document that is not a JSON object is refused
 // too: encoding/json decodes null into a struct as nothing at all, which
 // would make it an empty profile.
@@ -96,6 +97,13 @@ func Unmarshal[T any](data []byte, target *T) error {
 	paths, omitted = MisspelledFieldsOf[T](data)
 
 	err = PathsError(spm.ErrMisspelledField, paths, omitted)
+	if err != nil {
+		return err
+	}
+
+	paths, omitted = MissingFieldsOf(data, &decoded)
+
+	err = PathsError(spm.ErrMissingField, paths, omitted)
 	if err != nil {
 		return err
 	}
