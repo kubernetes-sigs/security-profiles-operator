@@ -45,7 +45,10 @@ SLSA_PROVENANCE=https://slsa.dev/provenance/v1
 # workflows, and the issuer of its certificates.
 PROVENANCE_SIGNER_WORKFLOW="$REPOSITORY_URL/.github/workflows/provenance.yml"
 GITHUB_OIDC_ISSUER=https://token.actions.githubusercontent.com
-SPDX_DOCUMENT=https://spdx.dev/Document
+# The predicate type of SPDX 3 SBOMs. SBOMs attested before use
+# https://spdx.dev/Document, the type of SPDX 2. Security profiles attested
+# with it get another SBOM on the next build.
+SPDX_DOCUMENT=https://spdx.dev/Document/v3
 VULNS=https://in-toto.io/attestation/vulns/v0.2
 OPENVEX=https://openvex.dev/ns
 BUILD_ENV=https://in-toto.io/attestation/build-env/v1
@@ -356,6 +359,31 @@ record_digest() {
   require_digest "$ref" || return 1
   mkdir -p "$BUILD_DIR"
   echo "$kind $ref" >>"$BUILD_DIR/artifact-digests"
+}
+
+# Sets the version of the module of this repository in an SPDX 3 SBOM that bom
+# wrote to the one in the VERSION file. bom reads the versions from the build
+# information of the binaries, where it is (devel), since nix builds them
+# without version control information. Scanners match the SBOM against
+# advisories of the operator itself by that version. SBOMs without the module
+# stay as they are.
+# shellcheck disable=SC2016
+set_sbom_module_version() {
+  local sbom="$1" version jq tmp status=0
+
+  version="v$(<"$(dirname "${BASH_SOURCE[0]}")/../../VERSION")" || return 1
+  jq="$(jq_bin)" || return 1
+  tmp="$(mktemp)" || return 1
+  "$jq" --arg module sigs.k8s.io/security-profiles-operator --arg version "$version" '
+    "pkg:golang/\($module)@\($version)" as $purl
+    | (."@graph"[] | select(.type == "software_Package" and .name == $module))
+    |= (.software_packageVersion = $version
+      | .software_packageUrl = $purl
+      | (.externalIdentifier[]? | select(.externalIdentifierType == "packageUrl")
+        | .identifier) = $purl)
+  ' "$sbom" >"$tmp" && cat "$tmp" >"$sbom" || status=$?
+  rm -f "$tmp"
+  return "$status"
 }
 
 # Writes an SPDX 3 SBOM of an artifact file with bom to DIR/sbom.spdx.json and

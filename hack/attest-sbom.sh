@@ -13,12 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Attests SPDX SBOMs (https://spdx.dev/Document) for each given image digest.
-# bom lists the image layers, the operating system packages and the Go binary
-# dependencies directly from the image, so the SBOM includes actual build-time
-# module versions. The C libraries the binaries of the operator images link
-# statically are in a second SBOM, which the image build writes to
-# /sbom/native-libraries.spdx.json from the nix build inputs.
+# Attests SPDX 3 SBOMs (https://spdx.dev/Document/v3) for each given image
+# digest. bom lists the image layers, the operating system packages and the Go
+# binary dependencies directly from the image, so the SBOM includes actual
+# build-time module versions, with the one of this module set from VERSION.
+# The C libraries the binaries of the operator images link statically are in a
+# second SBOM, which the image build writes to /sbom/native-libraries.spdx.json
+# from the nix build inputs.
 
 set -euo pipefail
 
@@ -46,6 +47,7 @@ for ref in "$@"; do
     --name "$name" \
     -i "$ref" \
     -o "$sbom"
+  set_sbom_module_version "$sbom"
 
   attest "$ref" "$SPDX_DOCUMENT" "$sbom"
 

@@ -13,9 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Attests SLSA provenance and an SPDX SBOM for an OCI artifact the build pushed,
-# a security profile or the -dev helm chart, or a profile it found already
-# published. FILE is the content of its layer: the SBOM lists a profile as file
+# Attests SLSA provenance and an SPDX 3 SBOM for an OCI artifact the build
+# pushed, a security profile or the -dev helm chart, or a profile it found
+# already published. FILE is the content of its layer: the SBOM lists a profile as file
 # by the NAME it has in the artifact, which defaults to the name of FILE, and a
 # chart archive with the files it holds. Callers make sure that the published content is the
 # one of FILE.

@@ -589,7 +589,7 @@ example with [oras](https://oras.land):
 ```
 
 The provenance is also attached as OCI referrer to the `spoc` index and the
-chart manifest, next to the SBOMs (`https://spdx.dev/Document`) the staging
+chart manifest, next to the SBOMs (`https://spdx.dev/Document/v3`) the staging
 build attests for them: for `spoc` the `spoc.spdx.json` and
 `spoc-native.spdx.json` of the release page, for the chart an SBOM of the
 chart archive and the files in it. The `spoc` SBOM is a few hundred kilobytes,
@@ -605,7 +605,7 @@ so the second command only prints the names of the SBOMs:
     --certificate-github-workflow-trigger release \
     registry.k8s.io/security-profiles-operator/spoc:$VERSION
 > cosign verify-attestation \
-    --type https://spdx.dev/Document \
+    --type https://spdx.dev/Document/v3 \
     --certificate-identity sp-operator-sa@k8s-staging-images.iam.gserviceaccount.com \
     --certificate-oidc-issuer https://accounts.google.com \
     registry.k8s.io/security-profiles-operator/spoc:$VERSION |
@@ -713,6 +713,8 @@ v1.1.0 and the releases before it predate most of this page:
   or `spoc.spdx.sig` and `spoc.spdx.cert`) or without any SBOM, so the
   commands of [software bill of materials](#software-bill-of-materials) don't
   work for them as they are.
+- v1.1.1 and the releases before it attest their SBOMs as
+  `https://spdx.dev/Document`, so use that `--type` for them.
 - The operator bundles and catalogs of v1.1.1 and the releases before it,
   and the security profiles promoted with them, only have the Cloud Build
   provenance and reach level 1, see [levels](#levels).

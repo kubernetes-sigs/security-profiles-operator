@@ -370,7 +370,8 @@ spoc-sign: ## Sign the spoc binaries and their SBOMs in the build directory
 	$(foreach file,$(SPOC_ARCHES:%=spoc.%) spoc.spdx.json spoc-native.spdx.json,cosign sign-blob -y $(BUILD_DIR)/$(file) --bundle $(BUILD_DIR)/$(file).sigstore.json &&) true
 
 # bom lists the Go modules from the build information embedded in the
-# binaries, so the SBOM has the versions that were actually built in. The C
+# binaries, so the SBOM has the versions that were actually built in, apart
+# from the one of this module, see hack/set-sbom-module-version.sh. The C
 # libraries the binaries link statically come from the nix build inputs.
 .PHONY: spoc-sbom
 spoc-sbom: ## Generate the SBOMs for the spoc binaries in the build directory
@@ -380,6 +381,7 @@ spoc-sbom: ## Generate the SBOMs for the spoc binaries in the build directory
 		--name spoc \
 		$(foreach arch,$(SPOC_ARCHES),-f $(BUILD_DIR)/spoc.$(arch)) \
 		-o $(BUILD_DIR)/spoc.spdx.json
+	hack/set-sbom-module-version.sh $(BUILD_DIR)/spoc.spdx.json
 	hack/native-sbom.sh spoc-native $(BUILD_DIR)/spoc-native.spdx.json $(SPOC_ARCHES:%=spoc-%)
 
 .PHONY: nix-spoc-amd64

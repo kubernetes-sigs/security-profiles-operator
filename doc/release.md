@@ -544,7 +544,7 @@ and attest their digests, and the staging job only verifies and copies them:
   for byte, so they keep the attested digests, attaches the provenance bundle
   to the index and to every manifest as OCI referrer, the way cosign attaches
   Sigstore bundles, and signs them as `sp-operator-sa@k8s-staging-images`. It
-  attests SBOMs (`https://spdx.dev/Document`) for them as the same account,
+  attests SBOMs (`https://spdx.dev/Document/v3`) for them as the same account,
   like the staging build does for its artifacts: the `spoc.spdx.json` and
   `spoc-native.spdx.json` release assets, whose provenance it verifies too,
   for the `spoc` index and every platform manifest, and an SBOM of the chart
@@ -604,9 +604,12 @@ When a digest carries provenance of both builders, the promoter reports the
 highest level that passes.
 [Attestations on registry.k8s.io](#attestations-on-registryk8sio) explains
 the `mode` of the policy. With
-`predicateTypes: [https://spdx.dev/Document]` the policy can require an SBOM
-too, since the staging build and the release artifacts job attest one as
-`sp-operator-sa@k8s-staging-images` for every artifact they publish.
+`predicateTypes: [https://spdx.dev/Document/v3]` the policy can require an
+SBOM too, since the staging build and the release artifacts job attest one as
+`sp-operator-sa@k8s-staging-images` for every artifact they publish. Releases
+up to v1.1.1 attest them as `https://spdx.dev/Document`, so require the new
+type only for digests built from v1.1.2 on. The staging build attests the
+security profiles it published before once more with the new type.
 
 ### Rehearsing the release artifacts job
 
@@ -781,15 +784,19 @@ The attestations are:
   `https://cloudbuild.googleapis.com/projects/k8s-staging-images/serviceAccounts/sp-operator-sa@k8s-staging-images.iam.gserviceaccount.com/cloudbuild.yaml`.
   The build fails rather than attesting provenance without the service
   account.
-- SPDX SBOMs (`https://spdx.dev/Document`). For the images,
+- SPDX 3 SBOMs (`https://spdx.dev/Document/v3`). For the images,
   [`hack/attest-sbom.sh`](../hack/attest-sbom.sh) lets bom list the image
-  layers, the operating system packages and the Go binary dependencies
-  directly from the image, so the SPDX 3 SBOM includes the actual build-time
-  module versions. The bundle holds manifests only, so its SBOM lists the image
-  and its layers. The catalog is built on the opm image, so its SBOM lists the
-  Debian packages of that image and the Go modules of the opm binaries. The
-  operator binaries link C libraries like libseccomp and libbpf statically,
-  which the image build lists from the nix build inputs in an SPDX 2.3 SBOM at
+  layers, the operating system packages and the Go binary dependencies directly
+  from the image, so the SBOM includes the actual build-time module versions.
+  Only the version of this module, which the binaries record as `(devel)`
+  because nix builds them without version control information, is set from
+  [`VERSION`](../VERSION), for the `spoc` SBOM too, see
+  [`hack/set-sbom-module-version.sh`](../hack/set-sbom-module-version.sh). The
+  bundle holds manifests only, so its SBOM lists the image and its layers. The
+  catalog is built on the opm image, so its SBOM lists the Debian packages of
+  that image and the Go modules of the opm binaries. The operator binaries link
+  C libraries like libseccomp and libbpf statically, which the image build
+  lists from the nix build inputs in an SPDX 3 SBOM at
   `/sbom/native-libraries.spdx.json` of the image
   ([`hack/native-sbom.sh`](../hack/native-sbom.sh)), which is attested as well.
   The SBOMs of the profiles and the chart, written by

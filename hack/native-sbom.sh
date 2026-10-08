@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Writes an SPDX 2.3 SBOM of the C libraries the binaries of the given flake
+# Writes an SPDX 3 SBOM of the C libraries the binaries of the given flake
 # packages link statically, for example spoc-amd64. The Go SBOMs only list Go
 # modules, because bom reads them from the build information of the binaries,
 # which knows nothing about libseccomp, libbpf and the other native libraries.
@@ -73,38 +73,63 @@ else
   CREATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 fi
 
+# The IDs of the elements are IRIs in the namespace of the document. Only the
+# blank node of the creation info is local.
 jq -n \
   --arg name "$NAME" \
   --arg created "$CREATED" \
   --arg nixpkgs "$NIXPKGS_REV" \
-  --arg id "$DOCUMENT_ID" \
+  --arg document "https://github.com/kubernetes-sigs/security-profiles-operator/spdx/$NAME/$NIXPKGS_REV/$DOCUMENT_ID" \
   --argjson packages "$packages" \
-  'def spdxid: "SPDXRef-Package-\(.name)-\(.version)" | gsub("[^A-Za-z0-9.-]"; "-");
+  'def id($kind): "\($document)#\($kind)";
+  def package_id: id("Package-\(.name)-\(.version)" | gsub("[^A-Za-z0-9.-]"; "-"));
   {
-    spdxVersion: "SPDX-2.3",
-    dataLicense: "CC0-1.0",
-    SPDXID: "SPDXRef-DOCUMENT",
-    name: $name,
-    documentNamespace: "https://github.com/kubernetes-sigs/security-profiles-operator/spdx/\($name)/\($nixpkgs)/\($id)",
-    creationInfo: {
-      created: $created,
-      creators: ["Tool: hack/native-sbom.sh"]
-    },
-    packages: [
+    "@context": "https://spdx.org/rdf/3.0.1/spdx-context.jsonld",
+    "@graph": ([
+      {
+        type: "CreationInfo",
+        "@id": "_:creationinfo",
+        specVersion: "3.0.1",
+        created: $created,
+        createdBy: [id("organization")],
+        createdUsing: [id("tool")]
+      },
+      {
+        type: "Organization",
+        spdxId: id("organization"),
+        creationInfo: "_:creationinfo",
+        name: "Kubernetes Security Profiles Operator"
+      },
+      {
+        type: "Tool",
+        spdxId: id("tool"),
+        creationInfo: "_:creationinfo",
+        name: "hack/native-sbom.sh"
+      },
+      {
+        type: "SpdxDocument",
+        spdxId: $document,
+        creationInfo: "_:creationinfo",
+        name: $name,
+        profileConformance: ["core", "software"],
+        rootElement: [id("sbom")]
+      },
+      {
+        type: "software_Sbom",
+        spdxId: id("sbom"),
+        creationInfo: "_:creationinfo",
+        software_sbomType: ["build"],
+        rootElement: [$packages[] | package_id]
+      }
+    ] + [
       $packages[] | {
-        SPDXID: spdxid,
+        type: "software_Package",
+        spdxId: package_id,
+        creationInfo: "_:creationinfo",
         name: .name,
-        versionInfo: .version,
-        downloadLocation: .url,
-        filesAnalyzed: false,
-        sourceInfo: "built from nixpkgs \($nixpkgs)"
-      }
-    ],
-    relationships: [
-      $packages[] | {
-        spdxElementId: "SPDXRef-DOCUMENT",
-        relationshipType: "DESCRIBES",
-        relatedSpdxElement: spdxid
-      }
-    ]
+        software_packageVersion: .version,
+        software_primaryPurpose: "library",
+        software_sourceInfo: "built from nixpkgs \($nixpkgs)"
+      } + if .url == "NOASSERTION" then {} else {software_downloadLocation: .url} end
+    ])
   }' >"$OUTPUT"
