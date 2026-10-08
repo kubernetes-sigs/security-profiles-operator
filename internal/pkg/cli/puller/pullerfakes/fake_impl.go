@@ -29,15 +29,8 @@ import (
 type FakeImpl struct {
 	PullStub        func(context.Context, string, string, string, *v1.Platform, *artifact.PullOptions) (*artifact.PullResult, error)
 	pullMutex       sync.RWMutex
-	pullArgsForCall []struct {
-		arg1 context.Context
-		arg2 string
-		arg3 string
-		arg4 string
-		arg5 *v1.Platform
-		arg6 *artifact.PullOptions
-	}
-	pullReturns struct {
+	pullArgsForCall []FakeImplPullArgs
+	pullReturns     struct {
 		result1 *artifact.PullResult
 		result2 error
 	}
@@ -47,32 +40,39 @@ type FakeImpl struct {
 	}
 	WriteFileStub        func(string, []byte, os.FileMode) error
 	writeFileMutex       sync.RWMutex
-	writeFileArgsForCall []struct {
-		arg1 string
-		arg2 []byte
-		arg3 os.FileMode
-	}
-	writeFileReturns struct {
+	writeFileArgsForCall []FakeImplWriteFileArgs
+	writeFileReturns     struct {
 		result1 error
 	}
 	writeFileReturnsOnCall map[int]struct {
 		result1 error
 	}
 	invocations      map[string][][]interface{}
+	callOrder        []string
 	invocationsMutex sync.RWMutex
+}
+
+// FakeImplPullArgs holds the arguments of one call to Pull.
+type FakeImplPullArgs struct {
+	Arg1 context.Context
+	Arg2 string
+	Arg3 string
+	Arg4 string
+	Arg5 *v1.Platform
+	Arg6 *artifact.PullOptions
+}
+
+// FakeImplWriteFileArgs holds the arguments of one call to WriteFile.
+type FakeImplWriteFileArgs struct {
+	Arg1 string
+	Arg2 []byte
+	Arg3 os.FileMode
 }
 
 func (fake *FakeImpl) Pull(arg1 context.Context, arg2 string, arg3 string, arg4 string, arg5 *v1.Platform, arg6 *artifact.PullOptions) (*artifact.PullResult, error) {
 	fake.pullMutex.Lock()
 	ret, specificReturn := fake.pullReturnsOnCall[len(fake.pullArgsForCall)]
-	fake.pullArgsForCall = append(fake.pullArgsForCall, struct {
-		arg1 context.Context
-		arg2 string
-		arg3 string
-		arg4 string
-		arg5 *v1.Platform
-		arg6 *artifact.PullOptions
-	}{arg1, arg2, arg3, arg4, arg5, arg6})
+	fake.pullArgsForCall = append(fake.pullArgsForCall, FakeImplPullArgs{arg1, arg2, arg3, arg4, arg5, arg6})
 	stub := fake.PullStub
 	fakeReturns := fake.pullReturns
 	fake.recordInvocation("Pull", []interface{}{arg1, arg2, arg3, arg4, arg5, arg6})
@@ -102,7 +102,15 @@ func (fake *FakeImpl) PullArgsForCall(i int) (context.Context, string, string, s
 	fake.pullMutex.RLock()
 	defer fake.pullMutex.RUnlock()
 	argsForCall := fake.pullArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3, argsForCall.arg4, argsForCall.arg5, argsForCall.arg6
+	return argsForCall.Arg1, argsForCall.Arg2, argsForCall.Arg3, argsForCall.Arg4, argsForCall.Arg5, argsForCall.Arg6
+}
+
+func (fake *FakeImpl) PullArgs() []FakeImplPullArgs {
+	fake.pullMutex.RLock()
+	defer fake.pullMutex.RUnlock()
+	args := make([]FakeImplPullArgs, len(fake.pullArgsForCall))
+	copy(args, fake.pullArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) PullReturns(result1 *artifact.PullResult, result2 error) {
@@ -139,11 +147,7 @@ func (fake *FakeImpl) WriteFile(arg1 string, arg2 []byte, arg3 os.FileMode) erro
 	}
 	fake.writeFileMutex.Lock()
 	ret, specificReturn := fake.writeFileReturnsOnCall[len(fake.writeFileArgsForCall)]
-	fake.writeFileArgsForCall = append(fake.writeFileArgsForCall, struct {
-		arg1 string
-		arg2 []byte
-		arg3 os.FileMode
-	}{arg1, arg2Copy, arg3})
+	fake.writeFileArgsForCall = append(fake.writeFileArgsForCall, FakeImplWriteFileArgs{arg1, arg2Copy, arg3})
 	stub := fake.WriteFileStub
 	fakeReturns := fake.writeFileReturns
 	fake.recordInvocation("WriteFile", []interface{}{arg1, arg2Copy, arg3})
@@ -173,7 +177,15 @@ func (fake *FakeImpl) WriteFileArgsForCall(i int) (string, []byte, os.FileMode) 
 	fake.writeFileMutex.RLock()
 	defer fake.writeFileMutex.RUnlock()
 	argsForCall := fake.writeFileArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+	return argsForCall.Arg1, argsForCall.Arg2, argsForCall.Arg3
+}
+
+func (fake *FakeImpl) WriteFileArgs() []FakeImplWriteFileArgs {
+	fake.writeFileMutex.RLock()
+	defer fake.writeFileMutex.RUnlock()
+	args := make([]FakeImplWriteFileArgs, len(fake.writeFileArgsForCall))
+	copy(args, fake.writeFileArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) WriteFileReturns(result1 error) {
@@ -209,9 +221,18 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	return copiedInvocations
 }
 
+func (fake *FakeImpl) CallOrder() []string {
+	fake.invocationsMutex.RLock()
+	defer fake.invocationsMutex.RUnlock()
+	order := make([]string, len(fake.callOrder))
+	copy(order, fake.callOrder)
+	return order
+}
+
 func (fake *FakeImpl) recordInvocation(key string, args []interface{}) {
 	fake.invocationsMutex.Lock()
 	defer fake.invocationsMutex.Unlock()
+	fake.callOrder = append(fake.callOrder, key)
 	if fake.invocations == nil {
 		fake.invocations = map[string][][]interface{}{}
 	}

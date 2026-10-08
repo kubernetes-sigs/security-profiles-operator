@@ -32,13 +32,8 @@ import (
 type FakeImpl struct {
 	ClientGetProfileStub        func(context.Context, client.Client, client.ObjectKey, ...client.GetOption) (*v1.SeccompProfile, error)
 	clientGetProfileMutex       sync.RWMutex
-	clientGetProfileArgsForCall []struct {
-		arg1 context.Context
-		arg2 client.Client
-		arg3 client.ObjectKey
-		arg4 []client.GetOption
-	}
-	clientGetProfileReturns struct {
+	clientGetProfileArgsForCall []FakeImplClientGetProfileArgs
+	clientGetProfileReturns     struct {
 		result1 *v1.SeccompProfile
 		result2 error
 	}
@@ -48,12 +43,8 @@ type FakeImpl struct {
 	}
 	GetSPODStub        func(context.Context, client.Client, string) (*v1a.SecurityProfilesOperatorDaemon, error)
 	getSPODMutex       sync.RWMutex
-	getSPODArgsForCall []struct {
-		arg1 context.Context
-		arg2 client.Client
-		arg3 string
-	}
-	getSPODReturns struct {
+	getSPODArgsForCall []FakeImplGetSPODArgs
+	getSPODReturns     struct {
 		result1 *v1a.SecurityProfilesOperatorDaemon
 		result2 error
 	}
@@ -63,9 +54,8 @@ type FakeImpl struct {
 	}
 	IsSupportedStub        func() bool
 	isSupportedMutex       sync.RWMutex
-	isSupportedArgsForCall []struct {
-	}
-	isSupportedReturns struct {
+	isSupportedArgsForCall []struct{}
+	isSupportedReturns     struct {
 		result1 bool
 	}
 	isSupportedReturnsOnCall map[int]struct {
@@ -73,16 +63,8 @@ type FakeImpl struct {
 	}
 	PullStub        func(context.Context, logr.Logger, string, string, string, *v1b.Platform, *artifact.PullOptions) (*artifact.PullResult, error)
 	pullMutex       sync.RWMutex
-	pullArgsForCall []struct {
-		arg1 context.Context
-		arg2 logr.Logger
-		arg3 string
-		arg4 string
-		arg5 string
-		arg6 *v1b.Platform
-		arg7 *artifact.PullOptions
-	}
-	pullReturns struct {
+	pullArgsForCall []FakeImplPullArgs
+	pullReturns     struct {
 		result1 *artifact.PullResult
 		result2 error
 	}
@@ -92,10 +74,8 @@ type FakeImpl struct {
 	}
 	PullResultSeccompProfileStub        func(*artifact.PullResult) *v1.SeccompProfile
 	pullResultSeccompProfileMutex       sync.RWMutex
-	pullResultSeccompProfileArgsForCall []struct {
-		arg1 *artifact.PullResult
-	}
-	pullResultSeccompProfileReturns struct {
+	pullResultSeccompProfileArgsForCall []FakeImplPullResultSeccompProfileArgs
+	pullResultSeccompProfileReturns     struct {
 		result1 *v1.SeccompProfile
 	}
 	pullResultSeccompProfileReturnsOnCall map[int]struct {
@@ -103,17 +83,52 @@ type FakeImpl struct {
 	}
 	PullResultTypeStub        func(*artifact.PullResult) artifact.PullResultType
 	pullResultTypeMutex       sync.RWMutex
-	pullResultTypeArgsForCall []struct {
-		arg1 *artifact.PullResult
-	}
-	pullResultTypeReturns struct {
+	pullResultTypeArgsForCall []FakeImplPullResultTypeArgs
+	pullResultTypeReturns     struct {
 		result1 artifact.PullResultType
 	}
 	pullResultTypeReturnsOnCall map[int]struct {
 		result1 artifact.PullResultType
 	}
 	invocations      map[string][][]interface{}
+	callOrder        []string
 	invocationsMutex sync.RWMutex
+}
+
+// FakeImplClientGetProfileArgs holds the arguments of one call to ClientGetProfile.
+type FakeImplClientGetProfileArgs struct {
+	Arg1 context.Context
+	Arg2 client.Client
+	Arg3 client.ObjectKey
+	Arg4 []client.GetOption
+}
+
+// FakeImplGetSPODArgs holds the arguments of one call to GetSPOD.
+type FakeImplGetSPODArgs struct {
+	Arg1 context.Context
+	Arg2 client.Client
+	Arg3 string
+}
+
+// FakeImplPullArgs holds the arguments of one call to Pull.
+type FakeImplPullArgs struct {
+	Arg1 context.Context
+	Arg2 logr.Logger
+	Arg3 string
+	Arg4 string
+	Arg5 string
+	Arg6 *v1b.Platform
+	Arg7 *artifact.PullOptions
+}
+
+// FakeImplPullResultSeccompProfileArgs holds the arguments of one call to PullResultSeccompProfile.
+type FakeImplPullResultSeccompProfileArgs struct {
+	Arg1 *artifact.PullResult
+}
+
+// FakeImplPullResultTypeArgs holds the arguments of one call to PullResultType.
+type FakeImplPullResultTypeArgs struct {
+	Arg1 *artifact.PullResult
 }
 
 func (fake *FakeImpl) ClientGetProfile(arg1 context.Context, arg2 client.Client, arg3 client.ObjectKey, arg4 ...client.GetOption) (*v1.SeccompProfile, error) {
@@ -124,12 +139,7 @@ func (fake *FakeImpl) ClientGetProfile(arg1 context.Context, arg2 client.Client,
 	}
 	fake.clientGetProfileMutex.Lock()
 	ret, specificReturn := fake.clientGetProfileReturnsOnCall[len(fake.clientGetProfileArgsForCall)]
-	fake.clientGetProfileArgsForCall = append(fake.clientGetProfileArgsForCall, struct {
-		arg1 context.Context
-		arg2 client.Client
-		arg3 client.ObjectKey
-		arg4 []client.GetOption
-	}{arg1, arg2, arg3, arg4Copy})
+	fake.clientGetProfileArgsForCall = append(fake.clientGetProfileArgsForCall, FakeImplClientGetProfileArgs{arg1, arg2, arg3, arg4Copy})
 	stub := fake.ClientGetProfileStub
 	fakeReturns := fake.clientGetProfileReturns
 	fake.recordInvocation("ClientGetProfile", []interface{}{arg1, arg2, arg3, arg4Copy})
@@ -159,7 +169,15 @@ func (fake *FakeImpl) ClientGetProfileArgsForCall(i int) (context.Context, clien
 	fake.clientGetProfileMutex.RLock()
 	defer fake.clientGetProfileMutex.RUnlock()
 	argsForCall := fake.clientGetProfileArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3, argsForCall.arg4
+	return argsForCall.Arg1, argsForCall.Arg2, argsForCall.Arg3, argsForCall.Arg4
+}
+
+func (fake *FakeImpl) ClientGetProfileArgs() []FakeImplClientGetProfileArgs {
+	fake.clientGetProfileMutex.RLock()
+	defer fake.clientGetProfileMutex.RUnlock()
+	args := make([]FakeImplClientGetProfileArgs, len(fake.clientGetProfileArgsForCall))
+	copy(args, fake.clientGetProfileArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) ClientGetProfileReturns(result1 *v1.SeccompProfile, result2 error) {
@@ -191,11 +209,7 @@ func (fake *FakeImpl) ClientGetProfileReturnsOnCall(i int, result1 *v1.SeccompPr
 func (fake *FakeImpl) GetSPOD(arg1 context.Context, arg2 client.Client, arg3 string) (*v1a.SecurityProfilesOperatorDaemon, error) {
 	fake.getSPODMutex.Lock()
 	ret, specificReturn := fake.getSPODReturnsOnCall[len(fake.getSPODArgsForCall)]
-	fake.getSPODArgsForCall = append(fake.getSPODArgsForCall, struct {
-		arg1 context.Context
-		arg2 client.Client
-		arg3 string
-	}{arg1, arg2, arg3})
+	fake.getSPODArgsForCall = append(fake.getSPODArgsForCall, FakeImplGetSPODArgs{arg1, arg2, arg3})
 	stub := fake.GetSPODStub
 	fakeReturns := fake.getSPODReturns
 	fake.recordInvocation("GetSPOD", []interface{}{arg1, arg2, arg3})
@@ -225,7 +239,15 @@ func (fake *FakeImpl) GetSPODArgsForCall(i int) (context.Context, client.Client,
 	fake.getSPODMutex.RLock()
 	defer fake.getSPODMutex.RUnlock()
 	argsForCall := fake.getSPODArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+	return argsForCall.Arg1, argsForCall.Arg2, argsForCall.Arg3
+}
+
+func (fake *FakeImpl) GetSPODArgs() []FakeImplGetSPODArgs {
+	fake.getSPODMutex.RLock()
+	defer fake.getSPODMutex.RUnlock()
+	args := make([]FakeImplGetSPODArgs, len(fake.getSPODArgsForCall))
+	copy(args, fake.getSPODArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) GetSPODReturns(result1 *v1a.SecurityProfilesOperatorDaemon, result2 error) {
@@ -257,8 +279,7 @@ func (fake *FakeImpl) GetSPODReturnsOnCall(i int, result1 *v1a.SecurityProfilesO
 func (fake *FakeImpl) IsSupported() bool {
 	fake.isSupportedMutex.Lock()
 	ret, specificReturn := fake.isSupportedReturnsOnCall[len(fake.isSupportedArgsForCall)]
-	fake.isSupportedArgsForCall = append(fake.isSupportedArgsForCall, struct {
-	}{})
+	fake.isSupportedArgsForCall = append(fake.isSupportedArgsForCall, struct{}{})
 	stub := fake.IsSupportedStub
 	fakeReturns := fake.isSupportedReturns
 	fake.recordInvocation("IsSupported", []interface{}{})
@@ -310,15 +331,7 @@ func (fake *FakeImpl) IsSupportedReturnsOnCall(i int, result1 bool) {
 func (fake *FakeImpl) Pull(arg1 context.Context, arg2 logr.Logger, arg3 string, arg4 string, arg5 string, arg6 *v1b.Platform, arg7 *artifact.PullOptions) (*artifact.PullResult, error) {
 	fake.pullMutex.Lock()
 	ret, specificReturn := fake.pullReturnsOnCall[len(fake.pullArgsForCall)]
-	fake.pullArgsForCall = append(fake.pullArgsForCall, struct {
-		arg1 context.Context
-		arg2 logr.Logger
-		arg3 string
-		arg4 string
-		arg5 string
-		arg6 *v1b.Platform
-		arg7 *artifact.PullOptions
-	}{arg1, arg2, arg3, arg4, arg5, arg6, arg7})
+	fake.pullArgsForCall = append(fake.pullArgsForCall, FakeImplPullArgs{arg1, arg2, arg3, arg4, arg5, arg6, arg7})
 	stub := fake.PullStub
 	fakeReturns := fake.pullReturns
 	fake.recordInvocation("Pull", []interface{}{arg1, arg2, arg3, arg4, arg5, arg6, arg7})
@@ -348,7 +361,15 @@ func (fake *FakeImpl) PullArgsForCall(i int) (context.Context, logr.Logger, stri
 	fake.pullMutex.RLock()
 	defer fake.pullMutex.RUnlock()
 	argsForCall := fake.pullArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3, argsForCall.arg4, argsForCall.arg5, argsForCall.arg6, argsForCall.arg7
+	return argsForCall.Arg1, argsForCall.Arg2, argsForCall.Arg3, argsForCall.Arg4, argsForCall.Arg5, argsForCall.Arg6, argsForCall.Arg7
+}
+
+func (fake *FakeImpl) PullArgs() []FakeImplPullArgs {
+	fake.pullMutex.RLock()
+	defer fake.pullMutex.RUnlock()
+	args := make([]FakeImplPullArgs, len(fake.pullArgsForCall))
+	copy(args, fake.pullArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) PullReturns(result1 *artifact.PullResult, result2 error) {
@@ -380,9 +401,7 @@ func (fake *FakeImpl) PullReturnsOnCall(i int, result1 *artifact.PullResult, res
 func (fake *FakeImpl) PullResultSeccompProfile(arg1 *artifact.PullResult) *v1.SeccompProfile {
 	fake.pullResultSeccompProfileMutex.Lock()
 	ret, specificReturn := fake.pullResultSeccompProfileReturnsOnCall[len(fake.pullResultSeccompProfileArgsForCall)]
-	fake.pullResultSeccompProfileArgsForCall = append(fake.pullResultSeccompProfileArgsForCall, struct {
-		arg1 *artifact.PullResult
-	}{arg1})
+	fake.pullResultSeccompProfileArgsForCall = append(fake.pullResultSeccompProfileArgsForCall, FakeImplPullResultSeccompProfileArgs{arg1})
 	stub := fake.PullResultSeccompProfileStub
 	fakeReturns := fake.pullResultSeccompProfileReturns
 	fake.recordInvocation("PullResultSeccompProfile", []interface{}{arg1})
@@ -412,7 +431,15 @@ func (fake *FakeImpl) PullResultSeccompProfileArgsForCall(i int) *artifact.PullR
 	fake.pullResultSeccompProfileMutex.RLock()
 	defer fake.pullResultSeccompProfileMutex.RUnlock()
 	argsForCall := fake.pullResultSeccompProfileArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) PullResultSeccompProfileArgs() []FakeImplPullResultSeccompProfileArgs {
+	fake.pullResultSeccompProfileMutex.RLock()
+	defer fake.pullResultSeccompProfileMutex.RUnlock()
+	args := make([]FakeImplPullResultSeccompProfileArgs, len(fake.pullResultSeccompProfileArgsForCall))
+	copy(args, fake.pullResultSeccompProfileArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) PullResultSeccompProfileReturns(result1 *v1.SeccompProfile) {
@@ -441,9 +468,7 @@ func (fake *FakeImpl) PullResultSeccompProfileReturnsOnCall(i int, result1 *v1.S
 func (fake *FakeImpl) PullResultType(arg1 *artifact.PullResult) artifact.PullResultType {
 	fake.pullResultTypeMutex.Lock()
 	ret, specificReturn := fake.pullResultTypeReturnsOnCall[len(fake.pullResultTypeArgsForCall)]
-	fake.pullResultTypeArgsForCall = append(fake.pullResultTypeArgsForCall, struct {
-		arg1 *artifact.PullResult
-	}{arg1})
+	fake.pullResultTypeArgsForCall = append(fake.pullResultTypeArgsForCall, FakeImplPullResultTypeArgs{arg1})
 	stub := fake.PullResultTypeStub
 	fakeReturns := fake.pullResultTypeReturns
 	fake.recordInvocation("PullResultType", []interface{}{arg1})
@@ -473,7 +498,15 @@ func (fake *FakeImpl) PullResultTypeArgsForCall(i int) *artifact.PullResult {
 	fake.pullResultTypeMutex.RLock()
 	defer fake.pullResultTypeMutex.RUnlock()
 	argsForCall := fake.pullResultTypeArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) PullResultTypeArgs() []FakeImplPullResultTypeArgs {
+	fake.pullResultTypeMutex.RLock()
+	defer fake.pullResultTypeMutex.RUnlock()
+	args := make([]FakeImplPullResultTypeArgs, len(fake.pullResultTypeArgsForCall))
+	copy(args, fake.pullResultTypeArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) PullResultTypeReturns(result1 artifact.PullResultType) {
@@ -509,9 +542,18 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	return copiedInvocations
 }
 
+func (fake *FakeImpl) CallOrder() []string {
+	fake.invocationsMutex.RLock()
+	defer fake.invocationsMutex.RUnlock()
+	order := make([]string, len(fake.callOrder))
+	copy(order, fake.callOrder)
+	return order
+}
+
 func (fake *FakeImpl) recordInvocation(key string, args []interface{}) {
 	fake.invocationsMutex.Lock()
 	defer fake.invocationsMutex.Unlock()
+	fake.callOrder = append(fake.callOrder, key)
 	if fake.invocations == nil {
 		fake.invocations = map[string][][]interface{}{}
 	}

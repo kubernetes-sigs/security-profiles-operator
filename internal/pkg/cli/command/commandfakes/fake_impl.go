@@ -26,10 +26,8 @@ import (
 type FakeImpl struct {
 	CmdPidStub        func(*exec.Cmd) uint32
 	cmdPidMutex       sync.RWMutex
-	cmdPidArgsForCall []struct {
-		arg1 *exec.Cmd
-	}
-	cmdPidReturns struct {
+	cmdPidArgsForCall []FakeImplCmdPidArgs
+	cmdPidReturns     struct {
 		result1 uint32
 	}
 	cmdPidReturnsOnCall map[int]struct {
@@ -37,10 +35,8 @@ type FakeImpl struct {
 	}
 	CmdStartStub        func(*exec.Cmd) error
 	cmdStartMutex       sync.RWMutex
-	cmdStartArgsForCall []struct {
-		arg1 *exec.Cmd
-	}
-	cmdStartReturns struct {
+	cmdStartArgsForCall []FakeImplCmdStartArgs
+	cmdStartReturns     struct {
 		result1 error
 	}
 	cmdStartReturnsOnCall map[int]struct {
@@ -48,10 +44,8 @@ type FakeImpl struct {
 	}
 	CmdWaitStub        func(*exec.Cmd) error
 	cmdWaitMutex       sync.RWMutex
-	cmdWaitArgsForCall []struct {
-		arg1 *exec.Cmd
-	}
-	cmdWaitReturns struct {
+	cmdWaitArgsForCall []FakeImplCmdWaitArgs
+	cmdWaitReturns     struct {
 		result1 error
 	}
 	cmdWaitReturnsOnCall map[int]struct {
@@ -59,11 +53,8 @@ type FakeImpl struct {
 	}
 	CommandStub        func(string, ...string) *exec.Cmd
 	commandMutex       sync.RWMutex
-	commandArgsForCall []struct {
-		arg1 string
-		arg2 []string
-	}
-	commandReturns struct {
+	commandArgsForCall []FakeImplCommandArgs
+	commandReturns     struct {
 		result1 *exec.Cmd
 	}
 	commandReturnsOnCall map[int]struct {
@@ -71,10 +62,8 @@ type FakeImpl struct {
 	}
 	GetHomeDirectoryStub        func(uint32) (string, error)
 	getHomeDirectoryMutex       sync.RWMutex
-	getHomeDirectoryArgsForCall []struct {
-		arg1 uint32
-	}
-	getHomeDirectoryReturns struct {
+	getHomeDirectoryArgsForCall []FakeImplGetHomeDirectoryArgs
+	getHomeDirectoryReturns     struct {
 		result1 string
 		result2 error
 	}
@@ -84,37 +73,71 @@ type FakeImpl struct {
 	}
 	NotifyStub        func(chan<- os.Signal, ...os.Signal)
 	notifyMutex       sync.RWMutex
-	notifyArgsForCall []struct {
-		arg1 chan<- os.Signal
-		arg2 []os.Signal
-	}
+	notifyArgsForCall []FakeImplNotifyArgs
 	SignalStub        func(*exec.Cmd, os.Signal) error
 	signalMutex       sync.RWMutex
-	signalArgsForCall []struct {
-		arg1 *exec.Cmd
-		arg2 os.Signal
-	}
-	signalReturns struct {
+	signalArgsForCall []FakeImplSignalArgs
+	signalReturns     struct {
 		result1 error
 	}
 	signalReturnsOnCall map[int]struct {
 		result1 error
 	}
-	StopStub        func(chan<- os.Signal)
-	stopMutex       sync.RWMutex
-	stopArgsForCall []struct {
-		arg1 chan<- os.Signal
-	}
+	StopStub         func(chan<- os.Signal)
+	stopMutex        sync.RWMutex
+	stopArgsForCall  []FakeImplStopArgs
 	invocations      map[string][][]interface{}
+	callOrder        []string
 	invocationsMutex sync.RWMutex
+}
+
+// FakeImplCmdPidArgs holds the arguments of one call to CmdPid.
+type FakeImplCmdPidArgs struct {
+	Arg1 *exec.Cmd
+}
+
+// FakeImplCmdStartArgs holds the arguments of one call to CmdStart.
+type FakeImplCmdStartArgs struct {
+	Arg1 *exec.Cmd
+}
+
+// FakeImplCmdWaitArgs holds the arguments of one call to CmdWait.
+type FakeImplCmdWaitArgs struct {
+	Arg1 *exec.Cmd
+}
+
+// FakeImplCommandArgs holds the arguments of one call to Command.
+type FakeImplCommandArgs struct {
+	Arg1 string
+	Arg2 []string
+}
+
+// FakeImplGetHomeDirectoryArgs holds the arguments of one call to GetHomeDirectory.
+type FakeImplGetHomeDirectoryArgs struct {
+	Arg1 uint32
+}
+
+// FakeImplNotifyArgs holds the arguments of one call to Notify.
+type FakeImplNotifyArgs struct {
+	Arg1 chan<- os.Signal
+	Arg2 []os.Signal
+}
+
+// FakeImplSignalArgs holds the arguments of one call to Signal.
+type FakeImplSignalArgs struct {
+	Arg1 *exec.Cmd
+	Arg2 os.Signal
+}
+
+// FakeImplStopArgs holds the arguments of one call to Stop.
+type FakeImplStopArgs struct {
+	Arg1 chan<- os.Signal
 }
 
 func (fake *FakeImpl) CmdPid(arg1 *exec.Cmd) uint32 {
 	fake.cmdPidMutex.Lock()
 	ret, specificReturn := fake.cmdPidReturnsOnCall[len(fake.cmdPidArgsForCall)]
-	fake.cmdPidArgsForCall = append(fake.cmdPidArgsForCall, struct {
-		arg1 *exec.Cmd
-	}{arg1})
+	fake.cmdPidArgsForCall = append(fake.cmdPidArgsForCall, FakeImplCmdPidArgs{arg1})
 	stub := fake.CmdPidStub
 	fakeReturns := fake.cmdPidReturns
 	fake.recordInvocation("CmdPid", []interface{}{arg1})
@@ -144,7 +167,15 @@ func (fake *FakeImpl) CmdPidArgsForCall(i int) *exec.Cmd {
 	fake.cmdPidMutex.RLock()
 	defer fake.cmdPidMutex.RUnlock()
 	argsForCall := fake.cmdPidArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) CmdPidArgs() []FakeImplCmdPidArgs {
+	fake.cmdPidMutex.RLock()
+	defer fake.cmdPidMutex.RUnlock()
+	args := make([]FakeImplCmdPidArgs, len(fake.cmdPidArgsForCall))
+	copy(args, fake.cmdPidArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) CmdPidReturns(result1 uint32) {
@@ -173,9 +204,7 @@ func (fake *FakeImpl) CmdPidReturnsOnCall(i int, result1 uint32) {
 func (fake *FakeImpl) CmdStart(arg1 *exec.Cmd) error {
 	fake.cmdStartMutex.Lock()
 	ret, specificReturn := fake.cmdStartReturnsOnCall[len(fake.cmdStartArgsForCall)]
-	fake.cmdStartArgsForCall = append(fake.cmdStartArgsForCall, struct {
-		arg1 *exec.Cmd
-	}{arg1})
+	fake.cmdStartArgsForCall = append(fake.cmdStartArgsForCall, FakeImplCmdStartArgs{arg1})
 	stub := fake.CmdStartStub
 	fakeReturns := fake.cmdStartReturns
 	fake.recordInvocation("CmdStart", []interface{}{arg1})
@@ -205,7 +234,15 @@ func (fake *FakeImpl) CmdStartArgsForCall(i int) *exec.Cmd {
 	fake.cmdStartMutex.RLock()
 	defer fake.cmdStartMutex.RUnlock()
 	argsForCall := fake.cmdStartArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) CmdStartArgs() []FakeImplCmdStartArgs {
+	fake.cmdStartMutex.RLock()
+	defer fake.cmdStartMutex.RUnlock()
+	args := make([]FakeImplCmdStartArgs, len(fake.cmdStartArgsForCall))
+	copy(args, fake.cmdStartArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) CmdStartReturns(result1 error) {
@@ -234,9 +271,7 @@ func (fake *FakeImpl) CmdStartReturnsOnCall(i int, result1 error) {
 func (fake *FakeImpl) CmdWait(arg1 *exec.Cmd) error {
 	fake.cmdWaitMutex.Lock()
 	ret, specificReturn := fake.cmdWaitReturnsOnCall[len(fake.cmdWaitArgsForCall)]
-	fake.cmdWaitArgsForCall = append(fake.cmdWaitArgsForCall, struct {
-		arg1 *exec.Cmd
-	}{arg1})
+	fake.cmdWaitArgsForCall = append(fake.cmdWaitArgsForCall, FakeImplCmdWaitArgs{arg1})
 	stub := fake.CmdWaitStub
 	fakeReturns := fake.cmdWaitReturns
 	fake.recordInvocation("CmdWait", []interface{}{arg1})
@@ -266,7 +301,15 @@ func (fake *FakeImpl) CmdWaitArgsForCall(i int) *exec.Cmd {
 	fake.cmdWaitMutex.RLock()
 	defer fake.cmdWaitMutex.RUnlock()
 	argsForCall := fake.cmdWaitArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) CmdWaitArgs() []FakeImplCmdWaitArgs {
+	fake.cmdWaitMutex.RLock()
+	defer fake.cmdWaitMutex.RUnlock()
+	args := make([]FakeImplCmdWaitArgs, len(fake.cmdWaitArgsForCall))
+	copy(args, fake.cmdWaitArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) CmdWaitReturns(result1 error) {
@@ -300,10 +343,7 @@ func (fake *FakeImpl) Command(arg1 string, arg2 ...string) *exec.Cmd {
 	}
 	fake.commandMutex.Lock()
 	ret, specificReturn := fake.commandReturnsOnCall[len(fake.commandArgsForCall)]
-	fake.commandArgsForCall = append(fake.commandArgsForCall, struct {
-		arg1 string
-		arg2 []string
-	}{arg1, arg2Copy})
+	fake.commandArgsForCall = append(fake.commandArgsForCall, FakeImplCommandArgs{arg1, arg2Copy})
 	stub := fake.CommandStub
 	fakeReturns := fake.commandReturns
 	fake.recordInvocation("Command", []interface{}{arg1, arg2Copy})
@@ -333,7 +373,15 @@ func (fake *FakeImpl) CommandArgsForCall(i int) (string, []string) {
 	fake.commandMutex.RLock()
 	defer fake.commandMutex.RUnlock()
 	argsForCall := fake.commandArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
+	return argsForCall.Arg1, argsForCall.Arg2
+}
+
+func (fake *FakeImpl) CommandArgs() []FakeImplCommandArgs {
+	fake.commandMutex.RLock()
+	defer fake.commandMutex.RUnlock()
+	args := make([]FakeImplCommandArgs, len(fake.commandArgsForCall))
+	copy(args, fake.commandArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) CommandReturns(result1 *exec.Cmd) {
@@ -362,9 +410,7 @@ func (fake *FakeImpl) CommandReturnsOnCall(i int, result1 *exec.Cmd) {
 func (fake *FakeImpl) GetHomeDirectory(arg1 uint32) (string, error) {
 	fake.getHomeDirectoryMutex.Lock()
 	ret, specificReturn := fake.getHomeDirectoryReturnsOnCall[len(fake.getHomeDirectoryArgsForCall)]
-	fake.getHomeDirectoryArgsForCall = append(fake.getHomeDirectoryArgsForCall, struct {
-		arg1 uint32
-	}{arg1})
+	fake.getHomeDirectoryArgsForCall = append(fake.getHomeDirectoryArgsForCall, FakeImplGetHomeDirectoryArgs{arg1})
 	stub := fake.GetHomeDirectoryStub
 	fakeReturns := fake.getHomeDirectoryReturns
 	fake.recordInvocation("GetHomeDirectory", []interface{}{arg1})
@@ -394,7 +440,15 @@ func (fake *FakeImpl) GetHomeDirectoryArgsForCall(i int) uint32 {
 	fake.getHomeDirectoryMutex.RLock()
 	defer fake.getHomeDirectoryMutex.RUnlock()
 	argsForCall := fake.getHomeDirectoryArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) GetHomeDirectoryArgs() []FakeImplGetHomeDirectoryArgs {
+	fake.getHomeDirectoryMutex.RLock()
+	defer fake.getHomeDirectoryMutex.RUnlock()
+	args := make([]FakeImplGetHomeDirectoryArgs, len(fake.getHomeDirectoryArgsForCall))
+	copy(args, fake.getHomeDirectoryArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) GetHomeDirectoryReturns(result1 string, result2 error) {
@@ -430,15 +484,12 @@ func (fake *FakeImpl) Notify(arg1 chan<- os.Signal, arg2 ...os.Signal) {
 		copy(arg2Copy, arg2)
 	}
 	fake.notifyMutex.Lock()
-	fake.notifyArgsForCall = append(fake.notifyArgsForCall, struct {
-		arg1 chan<- os.Signal
-		arg2 []os.Signal
-	}{arg1, arg2Copy})
+	fake.notifyArgsForCall = append(fake.notifyArgsForCall, FakeImplNotifyArgs{arg1, arg2Copy})
 	stub := fake.NotifyStub
 	fake.recordInvocation("Notify", []interface{}{arg1, arg2Copy})
 	fake.notifyMutex.Unlock()
 	if stub != nil {
-		fake.NotifyStub(arg1, arg2...)
+		stub(arg1, arg2...)
 	}
 }
 
@@ -458,16 +509,21 @@ func (fake *FakeImpl) NotifyArgsForCall(i int) (chan<- os.Signal, []os.Signal) {
 	fake.notifyMutex.RLock()
 	defer fake.notifyMutex.RUnlock()
 	argsForCall := fake.notifyArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
+	return argsForCall.Arg1, argsForCall.Arg2
+}
+
+func (fake *FakeImpl) NotifyArgs() []FakeImplNotifyArgs {
+	fake.notifyMutex.RLock()
+	defer fake.notifyMutex.RUnlock()
+	args := make([]FakeImplNotifyArgs, len(fake.notifyArgsForCall))
+	copy(args, fake.notifyArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) Signal(arg1 *exec.Cmd, arg2 os.Signal) error {
 	fake.signalMutex.Lock()
 	ret, specificReturn := fake.signalReturnsOnCall[len(fake.signalArgsForCall)]
-	fake.signalArgsForCall = append(fake.signalArgsForCall, struct {
-		arg1 *exec.Cmd
-		arg2 os.Signal
-	}{arg1, arg2})
+	fake.signalArgsForCall = append(fake.signalArgsForCall, FakeImplSignalArgs{arg1, arg2})
 	stub := fake.SignalStub
 	fakeReturns := fake.signalReturns
 	fake.recordInvocation("Signal", []interface{}{arg1, arg2})
@@ -497,7 +553,15 @@ func (fake *FakeImpl) SignalArgsForCall(i int) (*exec.Cmd, os.Signal) {
 	fake.signalMutex.RLock()
 	defer fake.signalMutex.RUnlock()
 	argsForCall := fake.signalArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
+	return argsForCall.Arg1, argsForCall.Arg2
+}
+
+func (fake *FakeImpl) SignalArgs() []FakeImplSignalArgs {
+	fake.signalMutex.RLock()
+	defer fake.signalMutex.RUnlock()
+	args := make([]FakeImplSignalArgs, len(fake.signalArgsForCall))
+	copy(args, fake.signalArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) SignalReturns(result1 error) {
@@ -525,14 +589,12 @@ func (fake *FakeImpl) SignalReturnsOnCall(i int, result1 error) {
 
 func (fake *FakeImpl) Stop(arg1 chan<- os.Signal) {
 	fake.stopMutex.Lock()
-	fake.stopArgsForCall = append(fake.stopArgsForCall, struct {
-		arg1 chan<- os.Signal
-	}{arg1})
+	fake.stopArgsForCall = append(fake.stopArgsForCall, FakeImplStopArgs{arg1})
 	stub := fake.StopStub
 	fake.recordInvocation("Stop", []interface{}{arg1})
 	fake.stopMutex.Unlock()
 	if stub != nil {
-		fake.StopStub(arg1)
+		stub(arg1)
 	}
 }
 
@@ -552,7 +614,15 @@ func (fake *FakeImpl) StopArgsForCall(i int) chan<- os.Signal {
 	fake.stopMutex.RLock()
 	defer fake.stopMutex.RUnlock()
 	argsForCall := fake.stopArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) StopArgs() []FakeImplStopArgs {
+	fake.stopMutex.RLock()
+	defer fake.stopMutex.RUnlock()
+	args := make([]FakeImplStopArgs, len(fake.stopArgsForCall))
+	copy(args, fake.stopArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) Invocations() map[string][][]interface{} {
@@ -565,9 +635,18 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	return copiedInvocations
 }
 
+func (fake *FakeImpl) CallOrder() []string {
+	fake.invocationsMutex.RLock()
+	defer fake.invocationsMutex.RUnlock()
+	order := make([]string, len(fake.callOrder))
+	copy(order, fake.callOrder)
+	return order
+}
+
 func (fake *FakeImpl) recordInvocation(key string, args []interface{}) {
 	fake.invocationsMutex.Lock()
 	defer fake.invocationsMutex.Unlock()
+	fake.callOrder = append(fake.callOrder, key)
 	if fake.invocations == nil {
 		fake.invocations = map[string][][]interface{}{}
 	}

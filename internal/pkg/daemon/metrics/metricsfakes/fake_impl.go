@@ -26,25 +26,27 @@ import (
 type FakeImpl struct {
 	RegisterStub        func(prometheus.Collector) error
 	registerMutex       sync.RWMutex
-	registerArgsForCall []struct {
-		arg1 prometheus.Collector
-	}
-	registerReturns struct {
+	registerArgsForCall []FakeImplRegisterArgs
+	registerReturns     struct {
 		result1 error
 	}
 	registerReturnsOnCall map[int]struct {
 		result1 error
 	}
 	invocations      map[string][][]interface{}
+	callOrder        []string
 	invocationsMutex sync.RWMutex
+}
+
+// FakeImplRegisterArgs holds the arguments of one call to Register.
+type FakeImplRegisterArgs struct {
+	Arg1 prometheus.Collector
 }
 
 func (fake *FakeImpl) Register(arg1 prometheus.Collector) error {
 	fake.registerMutex.Lock()
 	ret, specificReturn := fake.registerReturnsOnCall[len(fake.registerArgsForCall)]
-	fake.registerArgsForCall = append(fake.registerArgsForCall, struct {
-		arg1 prometheus.Collector
-	}{arg1})
+	fake.registerArgsForCall = append(fake.registerArgsForCall, FakeImplRegisterArgs{arg1})
 	stub := fake.RegisterStub
 	fakeReturns := fake.registerReturns
 	fake.recordInvocation("Register", []interface{}{arg1})
@@ -74,7 +76,15 @@ func (fake *FakeImpl) RegisterArgsForCall(i int) prometheus.Collector {
 	fake.registerMutex.RLock()
 	defer fake.registerMutex.RUnlock()
 	argsForCall := fake.registerArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) RegisterArgs() []FakeImplRegisterArgs {
+	fake.registerMutex.RLock()
+	defer fake.registerMutex.RUnlock()
+	args := make([]FakeImplRegisterArgs, len(fake.registerArgsForCall))
+	copy(args, fake.registerArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) RegisterReturns(result1 error) {
@@ -110,9 +120,18 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	return copiedInvocations
 }
 
+func (fake *FakeImpl) CallOrder() []string {
+	fake.invocationsMutex.RLock()
+	defer fake.invocationsMutex.RUnlock()
+	order := make([]string, len(fake.callOrder))
+	copy(order, fake.callOrder)
+	return order
+}
+
 func (fake *FakeImpl) recordInvocation(key string, args []interface{}) {
 	fake.invocationsMutex.Lock()
 	defer fake.invocationsMutex.Unlock()
+	fake.callOrder = append(fake.callOrder, key)
 	if fake.invocations == nil {
 		fake.invocations = map[string][][]interface{}{}
 	}

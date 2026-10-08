@@ -39,11 +39,8 @@ import (
 type FakeImpl struct {
 	AuditIncStub        func(context.Context, api_metrics.MetricsClient) (api_metrics.Metrics_AuditIncClient, error)
 	auditIncMutex       sync.RWMutex
-	auditIncArgsForCall []struct {
-		arg1 context.Context
-		arg2 api_metrics.MetricsClient
-	}
-	auditIncReturns struct {
+	auditIncArgsForCall []FakeImplAuditIncArgs
+	auditIncReturns     struct {
 		result1 api_metrics.Metrics_AuditIncClient
 		result2 error
 	}
@@ -53,12 +50,8 @@ type FakeImpl struct {
 	}
 	ChownStub        func(string, int, int) error
 	chownMutex       sync.RWMutex
-	chownArgsForCall []struct {
-		arg1 string
-		arg2 int
-		arg3 int
-	}
-	chownReturns struct {
+	chownArgsForCall []FakeImplChownArgs
+	chownReturns     struct {
 		result1 error
 	}
 	chownReturnsOnCall map[int]struct {
@@ -66,10 +59,8 @@ type FakeImpl struct {
 	}
 	CloseStub        func(*grpc.ClientConn) error
 	closeMutex       sync.RWMutex
-	closeArgsForCall []struct {
-		arg1 *grpc.ClientConn
-	}
-	closeReturns struct {
+	closeArgsForCall []FakeImplCloseArgs
+	closeReturns     struct {
 		result1 error
 	}
 	closeReturnsOnCall map[int]struct {
@@ -77,10 +68,8 @@ type FakeImpl struct {
 	}
 	CmdlineForPIDStub        func(int) (string, error)
 	cmdlineForPIDMutex       sync.RWMutex
-	cmdlineForPIDArgsForCall []struct {
-		arg1 int
-	}
-	cmdlineForPIDReturns struct {
+	cmdlineForPIDArgsForCall []FakeImplCmdlineForPIDArgs
+	cmdlineForPIDReturns     struct {
 		result1 string
 		result2 error
 	}
@@ -90,11 +79,8 @@ type FakeImpl struct {
 	}
 	ContainerIDForPIDStub        func(*ttlcache.Cache[string, string], int) (string, error)
 	containerIDForPIDMutex       sync.RWMutex
-	containerIDForPIDArgsForCall []struct {
-		arg1 *ttlcache.Cache[string, string]
-		arg2 int
-	}
-	containerIDForPIDReturns struct {
+	containerIDForPIDArgsForCall []FakeImplContainerIDForPIDArgs
+	containerIDForPIDReturns     struct {
 		result1 string
 		result2 error
 	}
@@ -104,9 +90,8 @@ type FakeImpl struct {
 	}
 	DialStub        func() (*grpc.ClientConn, error)
 	dialMutex       sync.RWMutex
-	dialArgsForCall []struct {
-	}
-	dialReturns struct {
+	dialArgsForCall []struct{}
+	dialReturns     struct {
 		result1 *grpc.ClientConn
 		result2 error
 	}
@@ -116,10 +101,8 @@ type FakeImpl struct {
 	}
 	EnvForPidStub        func(int) (map[string]string, error)
 	envForPidMutex       sync.RWMutex
-	envForPidArgsForCall []struct {
-		arg1 int
-	}
-	envForPidReturns struct {
+	envForPidArgsForCall []FakeImplEnvForPidArgs
+	envForPidReturns     struct {
 		result1 map[string]string
 		result2 error
 	}
@@ -129,9 +112,8 @@ type FakeImpl struct {
 	}
 	InClusterConfigStub        func() (*rest.Config, error)
 	inClusterConfigMutex       sync.RWMutex
-	inClusterConfigArgsForCall []struct {
-	}
-	inClusterConfigReturns struct {
+	inClusterConfigArgsForCall []struct{}
+	inClusterConfigReturns     struct {
 		result1 *rest.Config
 		result2 error
 	}
@@ -141,10 +123,8 @@ type FakeImpl struct {
 	}
 	LinesStub        func(*tailer.Tailer) <-chan string
 	linesMutex       sync.RWMutex
-	linesArgsForCall []struct {
-		arg1 *tailer.Tailer
-	}
-	linesReturns struct {
+	linesArgsForCall []FakeImplLinesArgs
+	linesReturns     struct {
 		result1 <-chan string
 	}
 	linesReturnsOnCall map[int]struct {
@@ -152,11 +132,8 @@ type FakeImpl struct {
 	}
 	ListenStub        func(string, string) (net.Listener, error)
 	listenMutex       sync.RWMutex
-	listenArgsForCall []struct {
-		arg1 string
-		arg2 string
-	}
-	listenReturns struct {
+	listenArgsForCall []FakeImplListenArgs
+	listenReturns     struct {
 		result1 net.Listener
 		result2 error
 	}
@@ -166,10 +143,8 @@ type FakeImpl struct {
 	}
 	NewForConfigStub        func(*rest.Config) (*kubernetes.Clientset, error)
 	newForConfigMutex       sync.RWMutex
-	newForConfigArgsForCall []struct {
-		arg1 *rest.Config
-	}
-	newForConfigReturns struct {
+	newForConfigArgsForCall []FakeImplNewForConfigArgs
+	newForConfigReturns     struct {
 		result1 *kubernetes.Clientset
 		result2 error
 	}
@@ -179,28 +154,20 @@ type FakeImpl struct {
 	}
 	PodListerWatcherStub        func(kubernetes.Interface, string) podindex.ListerWatcher
 	podListerWatcherMutex       sync.RWMutex
-	podListerWatcherArgsForCall []struct {
-		arg1 kubernetes.Interface
-		arg2 string
-	}
-	podListerWatcherReturns struct {
+	podListerWatcherArgsForCall []FakeImplPodListerWatcherArgs
+	podListerWatcherReturns     struct {
 		result1 podindex.ListerWatcher
 	}
 	podListerWatcherReturnsOnCall map[int]struct {
 		result1 podindex.ListerWatcher
 	}
-	PrintJsonOutputStub        func(io.Writer, []byte)
-	printJsonOutputMutex       sync.RWMutex
-	printJsonOutputArgsForCall []struct {
-		arg1 io.Writer
-		arg2 []byte
-	}
+	PrintJsonOutputStub         func(io.Writer, []byte)
+	printJsonOutputMutex        sync.RWMutex
+	printJsonOutputArgsForCall  []FakeImplPrintJsonOutputArgs
 	ProcessStartTimeStub        func(int) (time.Duration, error)
 	processStartTimeMutex       sync.RWMutex
-	processStartTimeArgsForCall []struct {
-		arg1 int
-	}
-	processStartTimeReturns struct {
+	processStartTimeArgsForCall []FakeImplProcessStartTimeArgs
+	processStartTimeReturns     struct {
 		result1 time.Duration
 		result2 error
 	}
@@ -210,10 +177,8 @@ type FakeImpl struct {
 	}
 	ReasonStub        func(*tailer.Tailer) error
 	reasonMutex       sync.RWMutex
-	reasonArgsForCall []struct {
-		arg1 *tailer.Tailer
-	}
-	reasonReturns struct {
+	reasonArgsForCall []FakeImplReasonArgs
+	reasonReturns     struct {
 		result1 error
 	}
 	reasonReturnsOnCall map[int]struct {
@@ -221,10 +186,8 @@ type FakeImpl struct {
 	}
 	RemoveAllStub        func(string) error
 	removeAllMutex       sync.RWMutex
-	removeAllArgsForCall []struct {
-		arg1 string
-	}
-	removeAllReturns struct {
+	removeAllArgsForCall []FakeImplRemoveAllArgs
+	removeAllReturns     struct {
 		result1 error
 	}
 	removeAllReturnsOnCall map[int]struct {
@@ -232,11 +195,8 @@ type FakeImpl struct {
 	}
 	SendMetricStub        func(api_metrics.Metrics_AuditIncClient, *api_metrics.AuditRequest) error
 	sendMetricMutex       sync.RWMutex
-	sendMetricArgsForCall []struct {
-		arg1 api_metrics.Metrics_AuditIncClient
-		arg2 *api_metrics.AuditRequest
-	}
-	sendMetricReturns struct {
+	sendMetricArgsForCall []FakeImplSendMetricArgs
+	sendMetricReturns     struct {
 		result1 error
 	}
 	sendMetricReturnsOnCall map[int]struct {
@@ -244,11 +204,8 @@ type FakeImpl struct {
 	}
 	ServeStub        func(*grpc.Server, net.Listener) error
 	serveMutex       sync.RWMutex
-	serveArgsForCall []struct {
-		arg1 *grpc.Server
-		arg2 net.Listener
-	}
-	serveReturns struct {
+	serveArgsForCall []FakeImplServeArgs
+	serveReturns     struct {
 		result1 error
 	}
 	serveReturnsOnCall map[int]struct {
@@ -256,10 +213,8 @@ type FakeImpl struct {
 	}
 	StartTailStub        func(auditsource.AuditLineSource) (chan *types.AuditLine, error)
 	startTailMutex       sync.RWMutex
-	startTailArgsForCall []struct {
-		arg1 auditsource.AuditLineSource
-	}
-	startTailReturns struct {
+	startTailArgsForCall []FakeImplStartTailArgs
+	startTailReturns     struct {
 		result1 chan *types.AuditLine
 		result2 error
 	}
@@ -269,10 +224,8 @@ type FakeImpl struct {
 	}
 	StatStub        func(string) (os.FileInfo, error)
 	statMutex       sync.RWMutex
-	statArgsForCall []struct {
-		arg1 string
-	}
-	statReturns struct {
+	statArgsForCall []FakeImplStatArgs
+	statReturns     struct {
 		result1 os.FileInfo
 		result2 error
 	}
@@ -282,15 +235,11 @@ type FakeImpl struct {
 	}
 	StopTailStub        func(*tailer.Tailer)
 	stopTailMutex       sync.RWMutex
-	stopTailArgsForCall []struct {
-		arg1 *tailer.Tailer
-	}
-	TailErrStub        func(auditsource.AuditLineSource) error
-	tailErrMutex       sync.RWMutex
-	tailErrArgsForCall []struct {
-		arg1 auditsource.AuditLineSource
-	}
-	tailErrReturns struct {
+	stopTailArgsForCall []FakeImplStopTailArgs
+	TailErrStub         func(auditsource.AuditLineSource) error
+	tailErrMutex        sync.RWMutex
+	tailErrArgsForCall  []FakeImplTailErrArgs
+	tailErrReturns      struct {
 		result1 error
 	}
 	tailErrReturnsOnCall map[int]struct {
@@ -298,11 +247,8 @@ type FakeImpl struct {
 	}
 	TailFileStub        func(string, tailer.Config) (*tailer.Tailer, error)
 	tailFileMutex       sync.RWMutex
-	tailFileArgsForCall []struct {
-		arg1 string
-		arg2 tailer.Config
-	}
-	tailFileReturns struct {
+	tailFileArgsForCall []FakeImplTailFileArgs
+	tailFileReturns     struct {
 		result1 *tailer.Tailer
 		result2 error
 	}
@@ -311,16 +257,129 @@ type FakeImpl struct {
 		result2 error
 	}
 	invocations      map[string][][]interface{}
+	callOrder        []string
 	invocationsMutex sync.RWMutex
+}
+
+// FakeImplAuditIncArgs holds the arguments of one call to AuditInc.
+type FakeImplAuditIncArgs struct {
+	Arg1 context.Context
+	Arg2 api_metrics.MetricsClient
+}
+
+// FakeImplChownArgs holds the arguments of one call to Chown.
+type FakeImplChownArgs struct {
+	Arg1 string
+	Arg2 int
+	Arg3 int
+}
+
+// FakeImplCloseArgs holds the arguments of one call to Close.
+type FakeImplCloseArgs struct {
+	Arg1 *grpc.ClientConn
+}
+
+// FakeImplCmdlineForPIDArgs holds the arguments of one call to CmdlineForPID.
+type FakeImplCmdlineForPIDArgs struct {
+	Arg1 int
+}
+
+// FakeImplContainerIDForPIDArgs holds the arguments of one call to ContainerIDForPID.
+type FakeImplContainerIDForPIDArgs struct {
+	Arg1 *ttlcache.Cache[string, string]
+	Arg2 int
+}
+
+// FakeImplEnvForPidArgs holds the arguments of one call to EnvForPid.
+type FakeImplEnvForPidArgs struct {
+	Arg1 int
+}
+
+// FakeImplLinesArgs holds the arguments of one call to Lines.
+type FakeImplLinesArgs struct {
+	Arg1 *tailer.Tailer
+}
+
+// FakeImplListenArgs holds the arguments of one call to Listen.
+type FakeImplListenArgs struct {
+	Arg1 string
+	Arg2 string
+}
+
+// FakeImplNewForConfigArgs holds the arguments of one call to NewForConfig.
+type FakeImplNewForConfigArgs struct {
+	Arg1 *rest.Config
+}
+
+// FakeImplPodListerWatcherArgs holds the arguments of one call to PodListerWatcher.
+type FakeImplPodListerWatcherArgs struct {
+	Arg1 kubernetes.Interface
+	Arg2 string
+}
+
+// FakeImplPrintJsonOutputArgs holds the arguments of one call to PrintJsonOutput.
+type FakeImplPrintJsonOutputArgs struct {
+	Arg1 io.Writer
+	Arg2 []byte
+}
+
+// FakeImplProcessStartTimeArgs holds the arguments of one call to ProcessStartTime.
+type FakeImplProcessStartTimeArgs struct {
+	Arg1 int
+}
+
+// FakeImplReasonArgs holds the arguments of one call to Reason.
+type FakeImplReasonArgs struct {
+	Arg1 *tailer.Tailer
+}
+
+// FakeImplRemoveAllArgs holds the arguments of one call to RemoveAll.
+type FakeImplRemoveAllArgs struct {
+	Arg1 string
+}
+
+// FakeImplSendMetricArgs holds the arguments of one call to SendMetric.
+type FakeImplSendMetricArgs struct {
+	Arg1 api_metrics.Metrics_AuditIncClient
+	Arg2 *api_metrics.AuditRequest
+}
+
+// FakeImplServeArgs holds the arguments of one call to Serve.
+type FakeImplServeArgs struct {
+	Arg1 *grpc.Server
+	Arg2 net.Listener
+}
+
+// FakeImplStartTailArgs holds the arguments of one call to StartTail.
+type FakeImplStartTailArgs struct {
+	Arg1 auditsource.AuditLineSource
+}
+
+// FakeImplStatArgs holds the arguments of one call to Stat.
+type FakeImplStatArgs struct {
+	Arg1 string
+}
+
+// FakeImplStopTailArgs holds the arguments of one call to StopTail.
+type FakeImplStopTailArgs struct {
+	Arg1 *tailer.Tailer
+}
+
+// FakeImplTailErrArgs holds the arguments of one call to TailErr.
+type FakeImplTailErrArgs struct {
+	Arg1 auditsource.AuditLineSource
+}
+
+// FakeImplTailFileArgs holds the arguments of one call to TailFile.
+type FakeImplTailFileArgs struct {
+	Arg1 string
+	Arg2 tailer.Config
 }
 
 func (fake *FakeImpl) AuditInc(arg1 context.Context, arg2 api_metrics.MetricsClient) (api_metrics.Metrics_AuditIncClient, error) {
 	fake.auditIncMutex.Lock()
 	ret, specificReturn := fake.auditIncReturnsOnCall[len(fake.auditIncArgsForCall)]
-	fake.auditIncArgsForCall = append(fake.auditIncArgsForCall, struct {
-		arg1 context.Context
-		arg2 api_metrics.MetricsClient
-	}{arg1, arg2})
+	fake.auditIncArgsForCall = append(fake.auditIncArgsForCall, FakeImplAuditIncArgs{arg1, arg2})
 	stub := fake.AuditIncStub
 	fakeReturns := fake.auditIncReturns
 	fake.recordInvocation("AuditInc", []interface{}{arg1, arg2})
@@ -350,7 +409,15 @@ func (fake *FakeImpl) AuditIncArgsForCall(i int) (context.Context, api_metrics.M
 	fake.auditIncMutex.RLock()
 	defer fake.auditIncMutex.RUnlock()
 	argsForCall := fake.auditIncArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
+	return argsForCall.Arg1, argsForCall.Arg2
+}
+
+func (fake *FakeImpl) AuditIncArgs() []FakeImplAuditIncArgs {
+	fake.auditIncMutex.RLock()
+	defer fake.auditIncMutex.RUnlock()
+	args := make([]FakeImplAuditIncArgs, len(fake.auditIncArgsForCall))
+	copy(args, fake.auditIncArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) AuditIncReturns(result1 api_metrics.Metrics_AuditIncClient, result2 error) {
@@ -382,11 +449,7 @@ func (fake *FakeImpl) AuditIncReturnsOnCall(i int, result1 api_metrics.Metrics_A
 func (fake *FakeImpl) Chown(arg1 string, arg2 int, arg3 int) error {
 	fake.chownMutex.Lock()
 	ret, specificReturn := fake.chownReturnsOnCall[len(fake.chownArgsForCall)]
-	fake.chownArgsForCall = append(fake.chownArgsForCall, struct {
-		arg1 string
-		arg2 int
-		arg3 int
-	}{arg1, arg2, arg3})
+	fake.chownArgsForCall = append(fake.chownArgsForCall, FakeImplChownArgs{arg1, arg2, arg3})
 	stub := fake.ChownStub
 	fakeReturns := fake.chownReturns
 	fake.recordInvocation("Chown", []interface{}{arg1, arg2, arg3})
@@ -416,7 +479,15 @@ func (fake *FakeImpl) ChownArgsForCall(i int) (string, int, int) {
 	fake.chownMutex.RLock()
 	defer fake.chownMutex.RUnlock()
 	argsForCall := fake.chownArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+	return argsForCall.Arg1, argsForCall.Arg2, argsForCall.Arg3
+}
+
+func (fake *FakeImpl) ChownArgs() []FakeImplChownArgs {
+	fake.chownMutex.RLock()
+	defer fake.chownMutex.RUnlock()
+	args := make([]FakeImplChownArgs, len(fake.chownArgsForCall))
+	copy(args, fake.chownArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) ChownReturns(result1 error) {
@@ -445,9 +516,7 @@ func (fake *FakeImpl) ChownReturnsOnCall(i int, result1 error) {
 func (fake *FakeImpl) Close(arg1 *grpc.ClientConn) error {
 	fake.closeMutex.Lock()
 	ret, specificReturn := fake.closeReturnsOnCall[len(fake.closeArgsForCall)]
-	fake.closeArgsForCall = append(fake.closeArgsForCall, struct {
-		arg1 *grpc.ClientConn
-	}{arg1})
+	fake.closeArgsForCall = append(fake.closeArgsForCall, FakeImplCloseArgs{arg1})
 	stub := fake.CloseStub
 	fakeReturns := fake.closeReturns
 	fake.recordInvocation("Close", []interface{}{arg1})
@@ -477,7 +546,15 @@ func (fake *FakeImpl) CloseArgsForCall(i int) *grpc.ClientConn {
 	fake.closeMutex.RLock()
 	defer fake.closeMutex.RUnlock()
 	argsForCall := fake.closeArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) CloseArgs() []FakeImplCloseArgs {
+	fake.closeMutex.RLock()
+	defer fake.closeMutex.RUnlock()
+	args := make([]FakeImplCloseArgs, len(fake.closeArgsForCall))
+	copy(args, fake.closeArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) CloseReturns(result1 error) {
@@ -506,9 +583,7 @@ func (fake *FakeImpl) CloseReturnsOnCall(i int, result1 error) {
 func (fake *FakeImpl) CmdlineForPID(arg1 int) (string, error) {
 	fake.cmdlineForPIDMutex.Lock()
 	ret, specificReturn := fake.cmdlineForPIDReturnsOnCall[len(fake.cmdlineForPIDArgsForCall)]
-	fake.cmdlineForPIDArgsForCall = append(fake.cmdlineForPIDArgsForCall, struct {
-		arg1 int
-	}{arg1})
+	fake.cmdlineForPIDArgsForCall = append(fake.cmdlineForPIDArgsForCall, FakeImplCmdlineForPIDArgs{arg1})
 	stub := fake.CmdlineForPIDStub
 	fakeReturns := fake.cmdlineForPIDReturns
 	fake.recordInvocation("CmdlineForPID", []interface{}{arg1})
@@ -538,7 +613,15 @@ func (fake *FakeImpl) CmdlineForPIDArgsForCall(i int) int {
 	fake.cmdlineForPIDMutex.RLock()
 	defer fake.cmdlineForPIDMutex.RUnlock()
 	argsForCall := fake.cmdlineForPIDArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) CmdlineForPIDArgs() []FakeImplCmdlineForPIDArgs {
+	fake.cmdlineForPIDMutex.RLock()
+	defer fake.cmdlineForPIDMutex.RUnlock()
+	args := make([]FakeImplCmdlineForPIDArgs, len(fake.cmdlineForPIDArgsForCall))
+	copy(args, fake.cmdlineForPIDArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) CmdlineForPIDReturns(result1 string, result2 error) {
@@ -570,10 +653,7 @@ func (fake *FakeImpl) CmdlineForPIDReturnsOnCall(i int, result1 string, result2 
 func (fake *FakeImpl) ContainerIDForPID(arg1 *ttlcache.Cache[string, string], arg2 int) (string, error) {
 	fake.containerIDForPIDMutex.Lock()
 	ret, specificReturn := fake.containerIDForPIDReturnsOnCall[len(fake.containerIDForPIDArgsForCall)]
-	fake.containerIDForPIDArgsForCall = append(fake.containerIDForPIDArgsForCall, struct {
-		arg1 *ttlcache.Cache[string, string]
-		arg2 int
-	}{arg1, arg2})
+	fake.containerIDForPIDArgsForCall = append(fake.containerIDForPIDArgsForCall, FakeImplContainerIDForPIDArgs{arg1, arg2})
 	stub := fake.ContainerIDForPIDStub
 	fakeReturns := fake.containerIDForPIDReturns
 	fake.recordInvocation("ContainerIDForPID", []interface{}{arg1, arg2})
@@ -603,7 +683,15 @@ func (fake *FakeImpl) ContainerIDForPIDArgsForCall(i int) (*ttlcache.Cache[strin
 	fake.containerIDForPIDMutex.RLock()
 	defer fake.containerIDForPIDMutex.RUnlock()
 	argsForCall := fake.containerIDForPIDArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
+	return argsForCall.Arg1, argsForCall.Arg2
+}
+
+func (fake *FakeImpl) ContainerIDForPIDArgs() []FakeImplContainerIDForPIDArgs {
+	fake.containerIDForPIDMutex.RLock()
+	defer fake.containerIDForPIDMutex.RUnlock()
+	args := make([]FakeImplContainerIDForPIDArgs, len(fake.containerIDForPIDArgsForCall))
+	copy(args, fake.containerIDForPIDArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) ContainerIDForPIDReturns(result1 string, result2 error) {
@@ -635,8 +723,7 @@ func (fake *FakeImpl) ContainerIDForPIDReturnsOnCall(i int, result1 string, resu
 func (fake *FakeImpl) Dial() (*grpc.ClientConn, error) {
 	fake.dialMutex.Lock()
 	ret, specificReturn := fake.dialReturnsOnCall[len(fake.dialArgsForCall)]
-	fake.dialArgsForCall = append(fake.dialArgsForCall, struct {
-	}{})
+	fake.dialArgsForCall = append(fake.dialArgsForCall, struct{}{})
 	stub := fake.DialStub
 	fakeReturns := fake.dialReturns
 	fake.recordInvocation("Dial", []interface{}{})
@@ -691,9 +778,7 @@ func (fake *FakeImpl) DialReturnsOnCall(i int, result1 *grpc.ClientConn, result2
 func (fake *FakeImpl) EnvForPid(arg1 int) (map[string]string, error) {
 	fake.envForPidMutex.Lock()
 	ret, specificReturn := fake.envForPidReturnsOnCall[len(fake.envForPidArgsForCall)]
-	fake.envForPidArgsForCall = append(fake.envForPidArgsForCall, struct {
-		arg1 int
-	}{arg1})
+	fake.envForPidArgsForCall = append(fake.envForPidArgsForCall, FakeImplEnvForPidArgs{arg1})
 	stub := fake.EnvForPidStub
 	fakeReturns := fake.envForPidReturns
 	fake.recordInvocation("EnvForPid", []interface{}{arg1})
@@ -723,7 +808,15 @@ func (fake *FakeImpl) EnvForPidArgsForCall(i int) int {
 	fake.envForPidMutex.RLock()
 	defer fake.envForPidMutex.RUnlock()
 	argsForCall := fake.envForPidArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) EnvForPidArgs() []FakeImplEnvForPidArgs {
+	fake.envForPidMutex.RLock()
+	defer fake.envForPidMutex.RUnlock()
+	args := make([]FakeImplEnvForPidArgs, len(fake.envForPidArgsForCall))
+	copy(args, fake.envForPidArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) EnvForPidReturns(result1 map[string]string, result2 error) {
@@ -755,8 +848,7 @@ func (fake *FakeImpl) EnvForPidReturnsOnCall(i int, result1 map[string]string, r
 func (fake *FakeImpl) InClusterConfig() (*rest.Config, error) {
 	fake.inClusterConfigMutex.Lock()
 	ret, specificReturn := fake.inClusterConfigReturnsOnCall[len(fake.inClusterConfigArgsForCall)]
-	fake.inClusterConfigArgsForCall = append(fake.inClusterConfigArgsForCall, struct {
-	}{})
+	fake.inClusterConfigArgsForCall = append(fake.inClusterConfigArgsForCall, struct{}{})
 	stub := fake.InClusterConfigStub
 	fakeReturns := fake.inClusterConfigReturns
 	fake.recordInvocation("InClusterConfig", []interface{}{})
@@ -811,9 +903,7 @@ func (fake *FakeImpl) InClusterConfigReturnsOnCall(i int, result1 *rest.Config, 
 func (fake *FakeImpl) Lines(arg1 *tailer.Tailer) <-chan string {
 	fake.linesMutex.Lock()
 	ret, specificReturn := fake.linesReturnsOnCall[len(fake.linesArgsForCall)]
-	fake.linesArgsForCall = append(fake.linesArgsForCall, struct {
-		arg1 *tailer.Tailer
-	}{arg1})
+	fake.linesArgsForCall = append(fake.linesArgsForCall, FakeImplLinesArgs{arg1})
 	stub := fake.LinesStub
 	fakeReturns := fake.linesReturns
 	fake.recordInvocation("Lines", []interface{}{arg1})
@@ -843,7 +933,15 @@ func (fake *FakeImpl) LinesArgsForCall(i int) *tailer.Tailer {
 	fake.linesMutex.RLock()
 	defer fake.linesMutex.RUnlock()
 	argsForCall := fake.linesArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) LinesArgs() []FakeImplLinesArgs {
+	fake.linesMutex.RLock()
+	defer fake.linesMutex.RUnlock()
+	args := make([]FakeImplLinesArgs, len(fake.linesArgsForCall))
+	copy(args, fake.linesArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) LinesReturns(result1 <-chan string) {
@@ -872,10 +970,7 @@ func (fake *FakeImpl) LinesReturnsOnCall(i int, result1 <-chan string) {
 func (fake *FakeImpl) Listen(arg1 string, arg2 string) (net.Listener, error) {
 	fake.listenMutex.Lock()
 	ret, specificReturn := fake.listenReturnsOnCall[len(fake.listenArgsForCall)]
-	fake.listenArgsForCall = append(fake.listenArgsForCall, struct {
-		arg1 string
-		arg2 string
-	}{arg1, arg2})
+	fake.listenArgsForCall = append(fake.listenArgsForCall, FakeImplListenArgs{arg1, arg2})
 	stub := fake.ListenStub
 	fakeReturns := fake.listenReturns
 	fake.recordInvocation("Listen", []interface{}{arg1, arg2})
@@ -905,7 +1000,15 @@ func (fake *FakeImpl) ListenArgsForCall(i int) (string, string) {
 	fake.listenMutex.RLock()
 	defer fake.listenMutex.RUnlock()
 	argsForCall := fake.listenArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
+	return argsForCall.Arg1, argsForCall.Arg2
+}
+
+func (fake *FakeImpl) ListenArgs() []FakeImplListenArgs {
+	fake.listenMutex.RLock()
+	defer fake.listenMutex.RUnlock()
+	args := make([]FakeImplListenArgs, len(fake.listenArgsForCall))
+	copy(args, fake.listenArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) ListenReturns(result1 net.Listener, result2 error) {
@@ -937,9 +1040,7 @@ func (fake *FakeImpl) ListenReturnsOnCall(i int, result1 net.Listener, result2 e
 func (fake *FakeImpl) NewForConfig(arg1 *rest.Config) (*kubernetes.Clientset, error) {
 	fake.newForConfigMutex.Lock()
 	ret, specificReturn := fake.newForConfigReturnsOnCall[len(fake.newForConfigArgsForCall)]
-	fake.newForConfigArgsForCall = append(fake.newForConfigArgsForCall, struct {
-		arg1 *rest.Config
-	}{arg1})
+	fake.newForConfigArgsForCall = append(fake.newForConfigArgsForCall, FakeImplNewForConfigArgs{arg1})
 	stub := fake.NewForConfigStub
 	fakeReturns := fake.newForConfigReturns
 	fake.recordInvocation("NewForConfig", []interface{}{arg1})
@@ -969,7 +1070,15 @@ func (fake *FakeImpl) NewForConfigArgsForCall(i int) *rest.Config {
 	fake.newForConfigMutex.RLock()
 	defer fake.newForConfigMutex.RUnlock()
 	argsForCall := fake.newForConfigArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) NewForConfigArgs() []FakeImplNewForConfigArgs {
+	fake.newForConfigMutex.RLock()
+	defer fake.newForConfigMutex.RUnlock()
+	args := make([]FakeImplNewForConfigArgs, len(fake.newForConfigArgsForCall))
+	copy(args, fake.newForConfigArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) NewForConfigReturns(result1 *kubernetes.Clientset, result2 error) {
@@ -1001,10 +1110,7 @@ func (fake *FakeImpl) NewForConfigReturnsOnCall(i int, result1 *kubernetes.Clien
 func (fake *FakeImpl) PodListerWatcher(arg1 kubernetes.Interface, arg2 string) podindex.ListerWatcher {
 	fake.podListerWatcherMutex.Lock()
 	ret, specificReturn := fake.podListerWatcherReturnsOnCall[len(fake.podListerWatcherArgsForCall)]
-	fake.podListerWatcherArgsForCall = append(fake.podListerWatcherArgsForCall, struct {
-		arg1 kubernetes.Interface
-		arg2 string
-	}{arg1, arg2})
+	fake.podListerWatcherArgsForCall = append(fake.podListerWatcherArgsForCall, FakeImplPodListerWatcherArgs{arg1, arg2})
 	stub := fake.PodListerWatcherStub
 	fakeReturns := fake.podListerWatcherReturns
 	fake.recordInvocation("PodListerWatcher", []interface{}{arg1, arg2})
@@ -1034,7 +1140,15 @@ func (fake *FakeImpl) PodListerWatcherArgsForCall(i int) (kubernetes.Interface, 
 	fake.podListerWatcherMutex.RLock()
 	defer fake.podListerWatcherMutex.RUnlock()
 	argsForCall := fake.podListerWatcherArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
+	return argsForCall.Arg1, argsForCall.Arg2
+}
+
+func (fake *FakeImpl) PodListerWatcherArgs() []FakeImplPodListerWatcherArgs {
+	fake.podListerWatcherMutex.RLock()
+	defer fake.podListerWatcherMutex.RUnlock()
+	args := make([]FakeImplPodListerWatcherArgs, len(fake.podListerWatcherArgsForCall))
+	copy(args, fake.podListerWatcherArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) PodListerWatcherReturns(result1 podindex.ListerWatcher) {
@@ -1067,15 +1181,12 @@ func (fake *FakeImpl) PrintJsonOutput(arg1 io.Writer, arg2 []byte) {
 		copy(arg2Copy, arg2)
 	}
 	fake.printJsonOutputMutex.Lock()
-	fake.printJsonOutputArgsForCall = append(fake.printJsonOutputArgsForCall, struct {
-		arg1 io.Writer
-		arg2 []byte
-	}{arg1, arg2Copy})
+	fake.printJsonOutputArgsForCall = append(fake.printJsonOutputArgsForCall, FakeImplPrintJsonOutputArgs{arg1, arg2Copy})
 	stub := fake.PrintJsonOutputStub
 	fake.recordInvocation("PrintJsonOutput", []interface{}{arg1, arg2Copy})
 	fake.printJsonOutputMutex.Unlock()
 	if stub != nil {
-		fake.PrintJsonOutputStub(arg1, arg2)
+		stub(arg1, arg2)
 	}
 }
 
@@ -1095,15 +1206,21 @@ func (fake *FakeImpl) PrintJsonOutputArgsForCall(i int) (io.Writer, []byte) {
 	fake.printJsonOutputMutex.RLock()
 	defer fake.printJsonOutputMutex.RUnlock()
 	argsForCall := fake.printJsonOutputArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
+	return argsForCall.Arg1, argsForCall.Arg2
+}
+
+func (fake *FakeImpl) PrintJsonOutputArgs() []FakeImplPrintJsonOutputArgs {
+	fake.printJsonOutputMutex.RLock()
+	defer fake.printJsonOutputMutex.RUnlock()
+	args := make([]FakeImplPrintJsonOutputArgs, len(fake.printJsonOutputArgsForCall))
+	copy(args, fake.printJsonOutputArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) ProcessStartTime(arg1 int) (time.Duration, error) {
 	fake.processStartTimeMutex.Lock()
 	ret, specificReturn := fake.processStartTimeReturnsOnCall[len(fake.processStartTimeArgsForCall)]
-	fake.processStartTimeArgsForCall = append(fake.processStartTimeArgsForCall, struct {
-		arg1 int
-	}{arg1})
+	fake.processStartTimeArgsForCall = append(fake.processStartTimeArgsForCall, FakeImplProcessStartTimeArgs{arg1})
 	stub := fake.ProcessStartTimeStub
 	fakeReturns := fake.processStartTimeReturns
 	fake.recordInvocation("ProcessStartTime", []interface{}{arg1})
@@ -1133,7 +1250,15 @@ func (fake *FakeImpl) ProcessStartTimeArgsForCall(i int) int {
 	fake.processStartTimeMutex.RLock()
 	defer fake.processStartTimeMutex.RUnlock()
 	argsForCall := fake.processStartTimeArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) ProcessStartTimeArgs() []FakeImplProcessStartTimeArgs {
+	fake.processStartTimeMutex.RLock()
+	defer fake.processStartTimeMutex.RUnlock()
+	args := make([]FakeImplProcessStartTimeArgs, len(fake.processStartTimeArgsForCall))
+	copy(args, fake.processStartTimeArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) ProcessStartTimeReturns(result1 time.Duration, result2 error) {
@@ -1165,9 +1290,7 @@ func (fake *FakeImpl) ProcessStartTimeReturnsOnCall(i int, result1 time.Duration
 func (fake *FakeImpl) Reason(arg1 *tailer.Tailer) error {
 	fake.reasonMutex.Lock()
 	ret, specificReturn := fake.reasonReturnsOnCall[len(fake.reasonArgsForCall)]
-	fake.reasonArgsForCall = append(fake.reasonArgsForCall, struct {
-		arg1 *tailer.Tailer
-	}{arg1})
+	fake.reasonArgsForCall = append(fake.reasonArgsForCall, FakeImplReasonArgs{arg1})
 	stub := fake.ReasonStub
 	fakeReturns := fake.reasonReturns
 	fake.recordInvocation("Reason", []interface{}{arg1})
@@ -1197,7 +1320,15 @@ func (fake *FakeImpl) ReasonArgsForCall(i int) *tailer.Tailer {
 	fake.reasonMutex.RLock()
 	defer fake.reasonMutex.RUnlock()
 	argsForCall := fake.reasonArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) ReasonArgs() []FakeImplReasonArgs {
+	fake.reasonMutex.RLock()
+	defer fake.reasonMutex.RUnlock()
+	args := make([]FakeImplReasonArgs, len(fake.reasonArgsForCall))
+	copy(args, fake.reasonArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) ReasonReturns(result1 error) {
@@ -1226,9 +1357,7 @@ func (fake *FakeImpl) ReasonReturnsOnCall(i int, result1 error) {
 func (fake *FakeImpl) RemoveAll(arg1 string) error {
 	fake.removeAllMutex.Lock()
 	ret, specificReturn := fake.removeAllReturnsOnCall[len(fake.removeAllArgsForCall)]
-	fake.removeAllArgsForCall = append(fake.removeAllArgsForCall, struct {
-		arg1 string
-	}{arg1})
+	fake.removeAllArgsForCall = append(fake.removeAllArgsForCall, FakeImplRemoveAllArgs{arg1})
 	stub := fake.RemoveAllStub
 	fakeReturns := fake.removeAllReturns
 	fake.recordInvocation("RemoveAll", []interface{}{arg1})
@@ -1258,7 +1387,15 @@ func (fake *FakeImpl) RemoveAllArgsForCall(i int) string {
 	fake.removeAllMutex.RLock()
 	defer fake.removeAllMutex.RUnlock()
 	argsForCall := fake.removeAllArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) RemoveAllArgs() []FakeImplRemoveAllArgs {
+	fake.removeAllMutex.RLock()
+	defer fake.removeAllMutex.RUnlock()
+	args := make([]FakeImplRemoveAllArgs, len(fake.removeAllArgsForCall))
+	copy(args, fake.removeAllArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) RemoveAllReturns(result1 error) {
@@ -1287,10 +1424,7 @@ func (fake *FakeImpl) RemoveAllReturnsOnCall(i int, result1 error) {
 func (fake *FakeImpl) SendMetric(arg1 api_metrics.Metrics_AuditIncClient, arg2 *api_metrics.AuditRequest) error {
 	fake.sendMetricMutex.Lock()
 	ret, specificReturn := fake.sendMetricReturnsOnCall[len(fake.sendMetricArgsForCall)]
-	fake.sendMetricArgsForCall = append(fake.sendMetricArgsForCall, struct {
-		arg1 api_metrics.Metrics_AuditIncClient
-		arg2 *api_metrics.AuditRequest
-	}{arg1, arg2})
+	fake.sendMetricArgsForCall = append(fake.sendMetricArgsForCall, FakeImplSendMetricArgs{arg1, arg2})
 	stub := fake.SendMetricStub
 	fakeReturns := fake.sendMetricReturns
 	fake.recordInvocation("SendMetric", []interface{}{arg1, arg2})
@@ -1320,7 +1454,15 @@ func (fake *FakeImpl) SendMetricArgsForCall(i int) (api_metrics.Metrics_AuditInc
 	fake.sendMetricMutex.RLock()
 	defer fake.sendMetricMutex.RUnlock()
 	argsForCall := fake.sendMetricArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
+	return argsForCall.Arg1, argsForCall.Arg2
+}
+
+func (fake *FakeImpl) SendMetricArgs() []FakeImplSendMetricArgs {
+	fake.sendMetricMutex.RLock()
+	defer fake.sendMetricMutex.RUnlock()
+	args := make([]FakeImplSendMetricArgs, len(fake.sendMetricArgsForCall))
+	copy(args, fake.sendMetricArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) SendMetricReturns(result1 error) {
@@ -1349,10 +1491,7 @@ func (fake *FakeImpl) SendMetricReturnsOnCall(i int, result1 error) {
 func (fake *FakeImpl) Serve(arg1 *grpc.Server, arg2 net.Listener) error {
 	fake.serveMutex.Lock()
 	ret, specificReturn := fake.serveReturnsOnCall[len(fake.serveArgsForCall)]
-	fake.serveArgsForCall = append(fake.serveArgsForCall, struct {
-		arg1 *grpc.Server
-		arg2 net.Listener
-	}{arg1, arg2})
+	fake.serveArgsForCall = append(fake.serveArgsForCall, FakeImplServeArgs{arg1, arg2})
 	stub := fake.ServeStub
 	fakeReturns := fake.serveReturns
 	fake.recordInvocation("Serve", []interface{}{arg1, arg2})
@@ -1382,7 +1521,15 @@ func (fake *FakeImpl) ServeArgsForCall(i int) (*grpc.Server, net.Listener) {
 	fake.serveMutex.RLock()
 	defer fake.serveMutex.RUnlock()
 	argsForCall := fake.serveArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
+	return argsForCall.Arg1, argsForCall.Arg2
+}
+
+func (fake *FakeImpl) ServeArgs() []FakeImplServeArgs {
+	fake.serveMutex.RLock()
+	defer fake.serveMutex.RUnlock()
+	args := make([]FakeImplServeArgs, len(fake.serveArgsForCall))
+	copy(args, fake.serveArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) ServeReturns(result1 error) {
@@ -1411,9 +1558,7 @@ func (fake *FakeImpl) ServeReturnsOnCall(i int, result1 error) {
 func (fake *FakeImpl) StartTail(arg1 auditsource.AuditLineSource) (chan *types.AuditLine, error) {
 	fake.startTailMutex.Lock()
 	ret, specificReturn := fake.startTailReturnsOnCall[len(fake.startTailArgsForCall)]
-	fake.startTailArgsForCall = append(fake.startTailArgsForCall, struct {
-		arg1 auditsource.AuditLineSource
-	}{arg1})
+	fake.startTailArgsForCall = append(fake.startTailArgsForCall, FakeImplStartTailArgs{arg1})
 	stub := fake.StartTailStub
 	fakeReturns := fake.startTailReturns
 	fake.recordInvocation("StartTail", []interface{}{arg1})
@@ -1443,7 +1588,15 @@ func (fake *FakeImpl) StartTailArgsForCall(i int) auditsource.AuditLineSource {
 	fake.startTailMutex.RLock()
 	defer fake.startTailMutex.RUnlock()
 	argsForCall := fake.startTailArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) StartTailArgs() []FakeImplStartTailArgs {
+	fake.startTailMutex.RLock()
+	defer fake.startTailMutex.RUnlock()
+	args := make([]FakeImplStartTailArgs, len(fake.startTailArgsForCall))
+	copy(args, fake.startTailArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) StartTailReturns(result1 chan *types.AuditLine, result2 error) {
@@ -1475,9 +1628,7 @@ func (fake *FakeImpl) StartTailReturnsOnCall(i int, result1 chan *types.AuditLin
 func (fake *FakeImpl) Stat(arg1 string) (os.FileInfo, error) {
 	fake.statMutex.Lock()
 	ret, specificReturn := fake.statReturnsOnCall[len(fake.statArgsForCall)]
-	fake.statArgsForCall = append(fake.statArgsForCall, struct {
-		arg1 string
-	}{arg1})
+	fake.statArgsForCall = append(fake.statArgsForCall, FakeImplStatArgs{arg1})
 	stub := fake.StatStub
 	fakeReturns := fake.statReturns
 	fake.recordInvocation("Stat", []interface{}{arg1})
@@ -1507,7 +1658,15 @@ func (fake *FakeImpl) StatArgsForCall(i int) string {
 	fake.statMutex.RLock()
 	defer fake.statMutex.RUnlock()
 	argsForCall := fake.statArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) StatArgs() []FakeImplStatArgs {
+	fake.statMutex.RLock()
+	defer fake.statMutex.RUnlock()
+	args := make([]FakeImplStatArgs, len(fake.statArgsForCall))
+	copy(args, fake.statArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) StatReturns(result1 os.FileInfo, result2 error) {
@@ -1538,14 +1697,12 @@ func (fake *FakeImpl) StatReturnsOnCall(i int, result1 os.FileInfo, result2 erro
 
 func (fake *FakeImpl) StopTail(arg1 *tailer.Tailer) {
 	fake.stopTailMutex.Lock()
-	fake.stopTailArgsForCall = append(fake.stopTailArgsForCall, struct {
-		arg1 *tailer.Tailer
-	}{arg1})
+	fake.stopTailArgsForCall = append(fake.stopTailArgsForCall, FakeImplStopTailArgs{arg1})
 	stub := fake.StopTailStub
 	fake.recordInvocation("StopTail", []interface{}{arg1})
 	fake.stopTailMutex.Unlock()
 	if stub != nil {
-		fake.StopTailStub(arg1)
+		stub(arg1)
 	}
 }
 
@@ -1565,15 +1722,21 @@ func (fake *FakeImpl) StopTailArgsForCall(i int) *tailer.Tailer {
 	fake.stopTailMutex.RLock()
 	defer fake.stopTailMutex.RUnlock()
 	argsForCall := fake.stopTailArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) StopTailArgs() []FakeImplStopTailArgs {
+	fake.stopTailMutex.RLock()
+	defer fake.stopTailMutex.RUnlock()
+	args := make([]FakeImplStopTailArgs, len(fake.stopTailArgsForCall))
+	copy(args, fake.stopTailArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) TailErr(arg1 auditsource.AuditLineSource) error {
 	fake.tailErrMutex.Lock()
 	ret, specificReturn := fake.tailErrReturnsOnCall[len(fake.tailErrArgsForCall)]
-	fake.tailErrArgsForCall = append(fake.tailErrArgsForCall, struct {
-		arg1 auditsource.AuditLineSource
-	}{arg1})
+	fake.tailErrArgsForCall = append(fake.tailErrArgsForCall, FakeImplTailErrArgs{arg1})
 	stub := fake.TailErrStub
 	fakeReturns := fake.tailErrReturns
 	fake.recordInvocation("TailErr", []interface{}{arg1})
@@ -1603,7 +1766,15 @@ func (fake *FakeImpl) TailErrArgsForCall(i int) auditsource.AuditLineSource {
 	fake.tailErrMutex.RLock()
 	defer fake.tailErrMutex.RUnlock()
 	argsForCall := fake.tailErrArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) TailErrArgs() []FakeImplTailErrArgs {
+	fake.tailErrMutex.RLock()
+	defer fake.tailErrMutex.RUnlock()
+	args := make([]FakeImplTailErrArgs, len(fake.tailErrArgsForCall))
+	copy(args, fake.tailErrArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) TailErrReturns(result1 error) {
@@ -1632,10 +1803,7 @@ func (fake *FakeImpl) TailErrReturnsOnCall(i int, result1 error) {
 func (fake *FakeImpl) TailFile(arg1 string, arg2 tailer.Config) (*tailer.Tailer, error) {
 	fake.tailFileMutex.Lock()
 	ret, specificReturn := fake.tailFileReturnsOnCall[len(fake.tailFileArgsForCall)]
-	fake.tailFileArgsForCall = append(fake.tailFileArgsForCall, struct {
-		arg1 string
-		arg2 tailer.Config
-	}{arg1, arg2})
+	fake.tailFileArgsForCall = append(fake.tailFileArgsForCall, FakeImplTailFileArgs{arg1, arg2})
 	stub := fake.TailFileStub
 	fakeReturns := fake.tailFileReturns
 	fake.recordInvocation("TailFile", []interface{}{arg1, arg2})
@@ -1665,7 +1833,15 @@ func (fake *FakeImpl) TailFileArgsForCall(i int) (string, tailer.Config) {
 	fake.tailFileMutex.RLock()
 	defer fake.tailFileMutex.RUnlock()
 	argsForCall := fake.tailFileArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
+	return argsForCall.Arg1, argsForCall.Arg2
+}
+
+func (fake *FakeImpl) TailFileArgs() []FakeImplTailFileArgs {
+	fake.tailFileMutex.RLock()
+	defer fake.tailFileMutex.RUnlock()
+	args := make([]FakeImplTailFileArgs, len(fake.tailFileArgsForCall))
+	copy(args, fake.tailFileArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) TailFileReturns(result1 *tailer.Tailer, result2 error) {
@@ -1704,9 +1880,18 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	return copiedInvocations
 }
 
+func (fake *FakeImpl) CallOrder() []string {
+	fake.invocationsMutex.RLock()
+	defer fake.invocationsMutex.RUnlock()
+	order := make([]string, len(fake.callOrder))
+	copy(order, fake.callOrder)
+	return order
+}
+
 func (fake *FakeImpl) recordInvocation(key string, args []interface{}) {
 	fake.invocationsMutex.Lock()
 	defer fake.invocationsMutex.Unlock()
+	fake.callOrder = append(fake.callOrder, key)
 	if fake.invocations == nil {
 		fake.invocations = map[string][][]interface{}{}
 	}

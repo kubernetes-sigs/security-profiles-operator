@@ -37,11 +37,8 @@ import (
 type FakeImpl struct {
 	AppArmorProcessedStub        func(*bpfrecorder.BpfRecorder, []uint64) (bpfrecorder.BpfAppArmorProcessed, bool)
 	appArmorProcessedMutex       sync.RWMutex
-	appArmorProcessedArgsForCall []struct {
-		arg1 *bpfrecorder.BpfRecorder
-		arg2 []uint64
-	}
-	appArmorProcessedReturns struct {
+	appArmorProcessedArgsForCall []FakeImplAppArmorProcessedArgs
+	appArmorProcessedReturns     struct {
 		result1 bpfrecorder.BpfAppArmorProcessed
 		result2 bool
 	}
@@ -51,9 +48,8 @@ type FakeImpl struct {
 	}
 	BPFLSMEnabledStub        func() bool
 	bPFLSMEnabledMutex       sync.RWMutex
-	bPFLSMEnabledArgsForCall []struct {
-	}
-	bPFLSMEnabledReturns struct {
+	bPFLSMEnabledArgsForCall []struct{}
+	bPFLSMEnabledReturns     struct {
 		result1 bool
 	}
 	bPFLSMEnabledReturnsOnCall map[int]struct {
@@ -61,10 +57,8 @@ type FakeImpl struct {
 	}
 	CommandRunStub        func(*command.Command) (uint32, error)
 	commandRunMutex       sync.RWMutex
-	commandRunArgsForCall []struct {
-		arg1 *command.Command
-	}
-	commandRunReturns struct {
+	commandRunArgsForCall []FakeImplCommandRunArgs
+	commandRunReturns     struct {
 		result1 uint32
 		result2 error
 	}
@@ -74,10 +68,8 @@ type FakeImpl struct {
 	}
 	CommandWaitStub        func(*command.Command) error
 	commandWaitMutex       sync.RWMutex
-	commandWaitArgsForCall []struct {
-		arg1 *command.Command
-	}
-	commandWaitReturns struct {
+	commandWaitArgsForCall []FakeImplCommandWaitArgs
+	commandWaitReturns     struct {
 		result1 error
 	}
 	commandWaitReturnsOnCall map[int]struct {
@@ -85,10 +77,8 @@ type FakeImpl struct {
 	}
 	CreateStub        func(string) (io.WriteCloser, error)
 	createMutex       sync.RWMutex
-	createArgsForCall []struct {
-		arg1 string
-	}
-	createReturns struct {
+	createArgsForCall []FakeImplCreateArgs
+	createReturns     struct {
 		result1 io.WriteCloser
 		result2 error
 	}
@@ -98,11 +88,8 @@ type FakeImpl struct {
 	}
 	FindProcMountNamespaceStub        func(*bpfrecorder.BpfRecorder, uint32) (uint32, error)
 	findProcMountNamespaceMutex       sync.RWMutex
-	findProcMountNamespaceArgsForCall []struct {
-		arg1 *bpfrecorder.BpfRecorder
-		arg2 uint32
-	}
-	findProcMountNamespaceReturns struct {
+	findProcMountNamespaceArgsForCall []FakeImplFindProcMountNamespaceArgs
+	findProcMountNamespaceReturns     struct {
 		result1 uint32
 		result2 error
 	}
@@ -112,10 +99,8 @@ type FakeImpl struct {
 	}
 	GetNameStub        func(seccomp.ScmpSyscall) (string, error)
 	getNameMutex       sync.RWMutex
-	getNameArgsForCall []struct {
-		arg1 seccomp.ScmpSyscall
-	}
-	getNameReturns struct {
+	getNameArgsForCall []FakeImplGetNameArgs
+	getNameReturns     struct {
 		result1 string
 		result2 error
 	}
@@ -125,10 +110,8 @@ type FakeImpl struct {
 	}
 	IteratorKeyStub        func(*libbpfgo.BPFMapIterator) []byte
 	iteratorKeyMutex       sync.RWMutex
-	iteratorKeyArgsForCall []struct {
-		arg1 *libbpfgo.BPFMapIterator
-	}
-	iteratorKeyReturns struct {
+	iteratorKeyArgsForCall []FakeImplIteratorKeyArgs
+	iteratorKeyReturns     struct {
 		result1 []byte
 	}
 	iteratorKeyReturnsOnCall map[int]struct {
@@ -136,10 +119,8 @@ type FakeImpl struct {
 	}
 	IteratorNextStub        func(*libbpfgo.BPFMapIterator) bool
 	iteratorNextMutex       sync.RWMutex
-	iteratorNextArgsForCall []struct {
-		arg1 *libbpfgo.BPFMapIterator
-	}
-	iteratorNextReturns struct {
+	iteratorNextArgsForCall []FakeImplIteratorNextArgs
+	iteratorNextReturns     struct {
 		result1 bool
 	}
 	iteratorNextReturnsOnCall map[int]struct {
@@ -147,29 +128,20 @@ type FakeImpl struct {
 	}
 	LoadBpfRecorderStub        func(*bpfrecorder.BpfRecorder) error
 	loadBpfRecorderMutex       sync.RWMutex
-	loadBpfRecorderArgsForCall []struct {
-		arg1 *bpfrecorder.BpfRecorder
-	}
-	loadBpfRecorderReturns struct {
+	loadBpfRecorderArgsForCall []FakeImplLoadBpfRecorderArgs
+	loadBpfRecorderReturns     struct {
 		result1 error
 	}
 	loadBpfRecorderReturnsOnCall map[int]struct {
 		result1 error
 	}
-	NotifyStub        func(chan<- os.Signal, ...os.Signal)
-	notifyMutex       sync.RWMutex
-	notifyArgsForCall []struct {
-		arg1 chan<- os.Signal
-		arg2 []os.Signal
-	}
+	NotifyStub          func(chan<- os.Signal, ...os.Signal)
+	notifyMutex         sync.RWMutex
+	notifyArgsForCall   []FakeImplNotifyArgs
 	PrintObjStub        func(printers.YAMLPrinter, runtime.Object, io.Writer) error
 	printObjMutex       sync.RWMutex
-	printObjArgsForCall []struct {
-		arg1 printers.YAMLPrinter
-		arg2 runtime.Object
-		arg3 io.Writer
-	}
-	printObjReturns struct {
+	printObjArgsForCall []FakeImplPrintObjArgs
+	printObjReturns     struct {
 		result1 error
 	}
 	printObjReturnsOnCall map[int]struct {
@@ -177,10 +149,8 @@ type FakeImpl struct {
 	}
 	StartBpfRecordingStub        func(*bpfrecorder.BpfRecorder) error
 	startBpfRecordingMutex       sync.RWMutex
-	startBpfRecordingArgsForCall []struct {
-		arg1 *bpfrecorder.BpfRecorder
-	}
-	startBpfRecordingReturns struct {
+	startBpfRecordingArgsForCall []FakeImplStartBpfRecordingArgs
+	startBpfRecordingReturns     struct {
 		result1 error
 	}
 	startBpfRecordingReturnsOnCall map[int]struct {
@@ -188,10 +158,8 @@ type FakeImpl struct {
 	}
 	StopBpfRecordingStub        func(*bpfrecorder.BpfRecorder) error
 	stopBpfRecordingMutex       sync.RWMutex
-	stopBpfRecordingArgsForCall []struct {
-		arg1 *bpfrecorder.BpfRecorder
-	}
-	stopBpfRecordingReturns struct {
+	stopBpfRecordingArgsForCall []FakeImplStopBpfRecordingArgs
+	stopBpfRecordingReturns     struct {
 		result1 error
 	}
 	stopBpfRecordingReturnsOnCall map[int]struct {
@@ -199,11 +167,8 @@ type FakeImpl struct {
 	}
 	SyscallsGetValueStub        func(*bpfrecorder.BpfRecorder, uint64) ([]byte, error)
 	syscallsGetValueMutex       sync.RWMutex
-	syscallsGetValueArgsForCall []struct {
-		arg1 *bpfrecorder.BpfRecorder
-		arg2 uint64
-	}
-	syscallsGetValueReturns struct {
+	syscallsGetValueArgsForCall []FakeImplSyscallsGetValueArgs
+	syscallsGetValueReturns     struct {
 		result1 []byte
 		result2 error
 	}
@@ -213,10 +178,8 @@ type FakeImpl struct {
 	}
 	SyscallsIteratorStub        func(*bpfrecorder.BpfRecorder) *libbpfgo.BPFMapIterator
 	syscallsIteratorMutex       sync.RWMutex
-	syscallsIteratorArgsForCall []struct {
-		arg1 *bpfrecorder.BpfRecorder
-	}
-	syscallsIteratorReturns struct {
+	syscallsIteratorArgsForCall []FakeImplSyscallsIteratorArgs
+	syscallsIteratorReturns     struct {
 		result1 *libbpfgo.BPFMapIterator
 	}
 	syscallsIteratorReturnsOnCall map[int]struct {
@@ -224,19 +187,104 @@ type FakeImpl struct {
 	}
 	WaitForPidExitStub        func(*bpfrecorder.BpfRecorder, context.Context, uint32) error
 	waitForPidExitMutex       sync.RWMutex
-	waitForPidExitArgsForCall []struct {
-		arg1 *bpfrecorder.BpfRecorder
-		arg2 context.Context
-		arg3 uint32
-	}
-	waitForPidExitReturns struct {
+	waitForPidExitArgsForCall []FakeImplWaitForPidExitArgs
+	waitForPidExitReturns     struct {
 		result1 error
 	}
 	waitForPidExitReturnsOnCall map[int]struct {
 		result1 error
 	}
 	invocations      map[string][][]interface{}
+	callOrder        []string
 	invocationsMutex sync.RWMutex
+}
+
+// FakeImplAppArmorProcessedArgs holds the arguments of one call to AppArmorProcessed.
+type FakeImplAppArmorProcessedArgs struct {
+	Arg1 *bpfrecorder.BpfRecorder
+	Arg2 []uint64
+}
+
+// FakeImplCommandRunArgs holds the arguments of one call to CommandRun.
+type FakeImplCommandRunArgs struct {
+	Arg1 *command.Command
+}
+
+// FakeImplCommandWaitArgs holds the arguments of one call to CommandWait.
+type FakeImplCommandWaitArgs struct {
+	Arg1 *command.Command
+}
+
+// FakeImplCreateArgs holds the arguments of one call to Create.
+type FakeImplCreateArgs struct {
+	Arg1 string
+}
+
+// FakeImplFindProcMountNamespaceArgs holds the arguments of one call to FindProcMountNamespace.
+type FakeImplFindProcMountNamespaceArgs struct {
+	Arg1 *bpfrecorder.BpfRecorder
+	Arg2 uint32
+}
+
+// FakeImplGetNameArgs holds the arguments of one call to GetName.
+type FakeImplGetNameArgs struct {
+	Arg1 seccomp.ScmpSyscall
+}
+
+// FakeImplIteratorKeyArgs holds the arguments of one call to IteratorKey.
+type FakeImplIteratorKeyArgs struct {
+	Arg1 *libbpfgo.BPFMapIterator
+}
+
+// FakeImplIteratorNextArgs holds the arguments of one call to IteratorNext.
+type FakeImplIteratorNextArgs struct {
+	Arg1 *libbpfgo.BPFMapIterator
+}
+
+// FakeImplLoadBpfRecorderArgs holds the arguments of one call to LoadBpfRecorder.
+type FakeImplLoadBpfRecorderArgs struct {
+	Arg1 *bpfrecorder.BpfRecorder
+}
+
+// FakeImplNotifyArgs holds the arguments of one call to Notify.
+type FakeImplNotifyArgs struct {
+	Arg1 chan<- os.Signal
+	Arg2 []os.Signal
+}
+
+// FakeImplPrintObjArgs holds the arguments of one call to PrintObj.
+type FakeImplPrintObjArgs struct {
+	Arg1 printers.YAMLPrinter
+	Arg2 runtime.Object
+	Arg3 io.Writer
+}
+
+// FakeImplStartBpfRecordingArgs holds the arguments of one call to StartBpfRecording.
+type FakeImplStartBpfRecordingArgs struct {
+	Arg1 *bpfrecorder.BpfRecorder
+}
+
+// FakeImplStopBpfRecordingArgs holds the arguments of one call to StopBpfRecording.
+type FakeImplStopBpfRecordingArgs struct {
+	Arg1 *bpfrecorder.BpfRecorder
+}
+
+// FakeImplSyscallsGetValueArgs holds the arguments of one call to SyscallsGetValue.
+type FakeImplSyscallsGetValueArgs struct {
+	Arg1 *bpfrecorder.BpfRecorder
+	Arg2 uint64
+}
+
+// FakeImplSyscallsIteratorArgs holds the arguments of one call to SyscallsIterator.
+type FakeImplSyscallsIteratorArgs struct {
+	Arg1 *bpfrecorder.BpfRecorder
+}
+
+// FakeImplWaitForPidExitArgs holds the arguments of one call to WaitForPidExit.
+type FakeImplWaitForPidExitArgs struct {
+	Arg1 *bpfrecorder.BpfRecorder
+	Arg2 context.Context
+	Arg3 uint32
 }
 
 func (fake *FakeImpl) AppArmorProcessed(arg1 *bpfrecorder.BpfRecorder, arg2 []uint64) (bpfrecorder.BpfAppArmorProcessed, bool) {
@@ -247,10 +295,7 @@ func (fake *FakeImpl) AppArmorProcessed(arg1 *bpfrecorder.BpfRecorder, arg2 []ui
 	}
 	fake.appArmorProcessedMutex.Lock()
 	ret, specificReturn := fake.appArmorProcessedReturnsOnCall[len(fake.appArmorProcessedArgsForCall)]
-	fake.appArmorProcessedArgsForCall = append(fake.appArmorProcessedArgsForCall, struct {
-		arg1 *bpfrecorder.BpfRecorder
-		arg2 []uint64
-	}{arg1, arg2Copy})
+	fake.appArmorProcessedArgsForCall = append(fake.appArmorProcessedArgsForCall, FakeImplAppArmorProcessedArgs{arg1, arg2Copy})
 	stub := fake.AppArmorProcessedStub
 	fakeReturns := fake.appArmorProcessedReturns
 	fake.recordInvocation("AppArmorProcessed", []interface{}{arg1, arg2Copy})
@@ -280,7 +325,15 @@ func (fake *FakeImpl) AppArmorProcessedArgsForCall(i int) (*bpfrecorder.BpfRecor
 	fake.appArmorProcessedMutex.RLock()
 	defer fake.appArmorProcessedMutex.RUnlock()
 	argsForCall := fake.appArmorProcessedArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
+	return argsForCall.Arg1, argsForCall.Arg2
+}
+
+func (fake *FakeImpl) AppArmorProcessedArgs() []FakeImplAppArmorProcessedArgs {
+	fake.appArmorProcessedMutex.RLock()
+	defer fake.appArmorProcessedMutex.RUnlock()
+	args := make([]FakeImplAppArmorProcessedArgs, len(fake.appArmorProcessedArgsForCall))
+	copy(args, fake.appArmorProcessedArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) AppArmorProcessedReturns(result1 bpfrecorder.BpfAppArmorProcessed, result2 bool) {
@@ -312,8 +365,7 @@ func (fake *FakeImpl) AppArmorProcessedReturnsOnCall(i int, result1 bpfrecorder.
 func (fake *FakeImpl) BPFLSMEnabled() bool {
 	fake.bPFLSMEnabledMutex.Lock()
 	ret, specificReturn := fake.bPFLSMEnabledReturnsOnCall[len(fake.bPFLSMEnabledArgsForCall)]
-	fake.bPFLSMEnabledArgsForCall = append(fake.bPFLSMEnabledArgsForCall, struct {
-	}{})
+	fake.bPFLSMEnabledArgsForCall = append(fake.bPFLSMEnabledArgsForCall, struct{}{})
 	stub := fake.BPFLSMEnabledStub
 	fakeReturns := fake.bPFLSMEnabledReturns
 	fake.recordInvocation("BPFLSMEnabled", []interface{}{})
@@ -365,9 +417,7 @@ func (fake *FakeImpl) BPFLSMEnabledReturnsOnCall(i int, result1 bool) {
 func (fake *FakeImpl) CommandRun(arg1 *command.Command) (uint32, error) {
 	fake.commandRunMutex.Lock()
 	ret, specificReturn := fake.commandRunReturnsOnCall[len(fake.commandRunArgsForCall)]
-	fake.commandRunArgsForCall = append(fake.commandRunArgsForCall, struct {
-		arg1 *command.Command
-	}{arg1})
+	fake.commandRunArgsForCall = append(fake.commandRunArgsForCall, FakeImplCommandRunArgs{arg1})
 	stub := fake.CommandRunStub
 	fakeReturns := fake.commandRunReturns
 	fake.recordInvocation("CommandRun", []interface{}{arg1})
@@ -397,7 +447,15 @@ func (fake *FakeImpl) CommandRunArgsForCall(i int) *command.Command {
 	fake.commandRunMutex.RLock()
 	defer fake.commandRunMutex.RUnlock()
 	argsForCall := fake.commandRunArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) CommandRunArgs() []FakeImplCommandRunArgs {
+	fake.commandRunMutex.RLock()
+	defer fake.commandRunMutex.RUnlock()
+	args := make([]FakeImplCommandRunArgs, len(fake.commandRunArgsForCall))
+	copy(args, fake.commandRunArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) CommandRunReturns(result1 uint32, result2 error) {
@@ -429,9 +487,7 @@ func (fake *FakeImpl) CommandRunReturnsOnCall(i int, result1 uint32, result2 err
 func (fake *FakeImpl) CommandWait(arg1 *command.Command) error {
 	fake.commandWaitMutex.Lock()
 	ret, specificReturn := fake.commandWaitReturnsOnCall[len(fake.commandWaitArgsForCall)]
-	fake.commandWaitArgsForCall = append(fake.commandWaitArgsForCall, struct {
-		arg1 *command.Command
-	}{arg1})
+	fake.commandWaitArgsForCall = append(fake.commandWaitArgsForCall, FakeImplCommandWaitArgs{arg1})
 	stub := fake.CommandWaitStub
 	fakeReturns := fake.commandWaitReturns
 	fake.recordInvocation("CommandWait", []interface{}{arg1})
@@ -461,7 +517,15 @@ func (fake *FakeImpl) CommandWaitArgsForCall(i int) *command.Command {
 	fake.commandWaitMutex.RLock()
 	defer fake.commandWaitMutex.RUnlock()
 	argsForCall := fake.commandWaitArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) CommandWaitArgs() []FakeImplCommandWaitArgs {
+	fake.commandWaitMutex.RLock()
+	defer fake.commandWaitMutex.RUnlock()
+	args := make([]FakeImplCommandWaitArgs, len(fake.commandWaitArgsForCall))
+	copy(args, fake.commandWaitArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) CommandWaitReturns(result1 error) {
@@ -490,9 +554,7 @@ func (fake *FakeImpl) CommandWaitReturnsOnCall(i int, result1 error) {
 func (fake *FakeImpl) Create(arg1 string) (io.WriteCloser, error) {
 	fake.createMutex.Lock()
 	ret, specificReturn := fake.createReturnsOnCall[len(fake.createArgsForCall)]
-	fake.createArgsForCall = append(fake.createArgsForCall, struct {
-		arg1 string
-	}{arg1})
+	fake.createArgsForCall = append(fake.createArgsForCall, FakeImplCreateArgs{arg1})
 	stub := fake.CreateStub
 	fakeReturns := fake.createReturns
 	fake.recordInvocation("Create", []interface{}{arg1})
@@ -522,7 +584,15 @@ func (fake *FakeImpl) CreateArgsForCall(i int) string {
 	fake.createMutex.RLock()
 	defer fake.createMutex.RUnlock()
 	argsForCall := fake.createArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) CreateArgs() []FakeImplCreateArgs {
+	fake.createMutex.RLock()
+	defer fake.createMutex.RUnlock()
+	args := make([]FakeImplCreateArgs, len(fake.createArgsForCall))
+	copy(args, fake.createArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) CreateReturns(result1 io.WriteCloser, result2 error) {
@@ -554,10 +624,7 @@ func (fake *FakeImpl) CreateReturnsOnCall(i int, result1 io.WriteCloser, result2
 func (fake *FakeImpl) FindProcMountNamespace(arg1 *bpfrecorder.BpfRecorder, arg2 uint32) (uint32, error) {
 	fake.findProcMountNamespaceMutex.Lock()
 	ret, specificReturn := fake.findProcMountNamespaceReturnsOnCall[len(fake.findProcMountNamespaceArgsForCall)]
-	fake.findProcMountNamespaceArgsForCall = append(fake.findProcMountNamespaceArgsForCall, struct {
-		arg1 *bpfrecorder.BpfRecorder
-		arg2 uint32
-	}{arg1, arg2})
+	fake.findProcMountNamespaceArgsForCall = append(fake.findProcMountNamespaceArgsForCall, FakeImplFindProcMountNamespaceArgs{arg1, arg2})
 	stub := fake.FindProcMountNamespaceStub
 	fakeReturns := fake.findProcMountNamespaceReturns
 	fake.recordInvocation("FindProcMountNamespace", []interface{}{arg1, arg2})
@@ -587,7 +654,15 @@ func (fake *FakeImpl) FindProcMountNamespaceArgsForCall(i int) (*bpfrecorder.Bpf
 	fake.findProcMountNamespaceMutex.RLock()
 	defer fake.findProcMountNamespaceMutex.RUnlock()
 	argsForCall := fake.findProcMountNamespaceArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
+	return argsForCall.Arg1, argsForCall.Arg2
+}
+
+func (fake *FakeImpl) FindProcMountNamespaceArgs() []FakeImplFindProcMountNamespaceArgs {
+	fake.findProcMountNamespaceMutex.RLock()
+	defer fake.findProcMountNamespaceMutex.RUnlock()
+	args := make([]FakeImplFindProcMountNamespaceArgs, len(fake.findProcMountNamespaceArgsForCall))
+	copy(args, fake.findProcMountNamespaceArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) FindProcMountNamespaceReturns(result1 uint32, result2 error) {
@@ -619,9 +694,7 @@ func (fake *FakeImpl) FindProcMountNamespaceReturnsOnCall(i int, result1 uint32,
 func (fake *FakeImpl) GetName(arg1 seccomp.ScmpSyscall) (string, error) {
 	fake.getNameMutex.Lock()
 	ret, specificReturn := fake.getNameReturnsOnCall[len(fake.getNameArgsForCall)]
-	fake.getNameArgsForCall = append(fake.getNameArgsForCall, struct {
-		arg1 seccomp.ScmpSyscall
-	}{arg1})
+	fake.getNameArgsForCall = append(fake.getNameArgsForCall, FakeImplGetNameArgs{arg1})
 	stub := fake.GetNameStub
 	fakeReturns := fake.getNameReturns
 	fake.recordInvocation("GetName", []interface{}{arg1})
@@ -651,7 +724,15 @@ func (fake *FakeImpl) GetNameArgsForCall(i int) seccomp.ScmpSyscall {
 	fake.getNameMutex.RLock()
 	defer fake.getNameMutex.RUnlock()
 	argsForCall := fake.getNameArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) GetNameArgs() []FakeImplGetNameArgs {
+	fake.getNameMutex.RLock()
+	defer fake.getNameMutex.RUnlock()
+	args := make([]FakeImplGetNameArgs, len(fake.getNameArgsForCall))
+	copy(args, fake.getNameArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) GetNameReturns(result1 string, result2 error) {
@@ -683,9 +764,7 @@ func (fake *FakeImpl) GetNameReturnsOnCall(i int, result1 string, result2 error)
 func (fake *FakeImpl) IteratorKey(arg1 *libbpfgo.BPFMapIterator) []byte {
 	fake.iteratorKeyMutex.Lock()
 	ret, specificReturn := fake.iteratorKeyReturnsOnCall[len(fake.iteratorKeyArgsForCall)]
-	fake.iteratorKeyArgsForCall = append(fake.iteratorKeyArgsForCall, struct {
-		arg1 *libbpfgo.BPFMapIterator
-	}{arg1})
+	fake.iteratorKeyArgsForCall = append(fake.iteratorKeyArgsForCall, FakeImplIteratorKeyArgs{arg1})
 	stub := fake.IteratorKeyStub
 	fakeReturns := fake.iteratorKeyReturns
 	fake.recordInvocation("IteratorKey", []interface{}{arg1})
@@ -715,7 +794,15 @@ func (fake *FakeImpl) IteratorKeyArgsForCall(i int) *libbpfgo.BPFMapIterator {
 	fake.iteratorKeyMutex.RLock()
 	defer fake.iteratorKeyMutex.RUnlock()
 	argsForCall := fake.iteratorKeyArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) IteratorKeyArgs() []FakeImplIteratorKeyArgs {
+	fake.iteratorKeyMutex.RLock()
+	defer fake.iteratorKeyMutex.RUnlock()
+	args := make([]FakeImplIteratorKeyArgs, len(fake.iteratorKeyArgsForCall))
+	copy(args, fake.iteratorKeyArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) IteratorKeyReturns(result1 []byte) {
@@ -744,9 +831,7 @@ func (fake *FakeImpl) IteratorKeyReturnsOnCall(i int, result1 []byte) {
 func (fake *FakeImpl) IteratorNext(arg1 *libbpfgo.BPFMapIterator) bool {
 	fake.iteratorNextMutex.Lock()
 	ret, specificReturn := fake.iteratorNextReturnsOnCall[len(fake.iteratorNextArgsForCall)]
-	fake.iteratorNextArgsForCall = append(fake.iteratorNextArgsForCall, struct {
-		arg1 *libbpfgo.BPFMapIterator
-	}{arg1})
+	fake.iteratorNextArgsForCall = append(fake.iteratorNextArgsForCall, FakeImplIteratorNextArgs{arg1})
 	stub := fake.IteratorNextStub
 	fakeReturns := fake.iteratorNextReturns
 	fake.recordInvocation("IteratorNext", []interface{}{arg1})
@@ -776,7 +861,15 @@ func (fake *FakeImpl) IteratorNextArgsForCall(i int) *libbpfgo.BPFMapIterator {
 	fake.iteratorNextMutex.RLock()
 	defer fake.iteratorNextMutex.RUnlock()
 	argsForCall := fake.iteratorNextArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) IteratorNextArgs() []FakeImplIteratorNextArgs {
+	fake.iteratorNextMutex.RLock()
+	defer fake.iteratorNextMutex.RUnlock()
+	args := make([]FakeImplIteratorNextArgs, len(fake.iteratorNextArgsForCall))
+	copy(args, fake.iteratorNextArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) IteratorNextReturns(result1 bool) {
@@ -805,9 +898,7 @@ func (fake *FakeImpl) IteratorNextReturnsOnCall(i int, result1 bool) {
 func (fake *FakeImpl) LoadBpfRecorder(arg1 *bpfrecorder.BpfRecorder) error {
 	fake.loadBpfRecorderMutex.Lock()
 	ret, specificReturn := fake.loadBpfRecorderReturnsOnCall[len(fake.loadBpfRecorderArgsForCall)]
-	fake.loadBpfRecorderArgsForCall = append(fake.loadBpfRecorderArgsForCall, struct {
-		arg1 *bpfrecorder.BpfRecorder
-	}{arg1})
+	fake.loadBpfRecorderArgsForCall = append(fake.loadBpfRecorderArgsForCall, FakeImplLoadBpfRecorderArgs{arg1})
 	stub := fake.LoadBpfRecorderStub
 	fakeReturns := fake.loadBpfRecorderReturns
 	fake.recordInvocation("LoadBpfRecorder", []interface{}{arg1})
@@ -837,7 +928,15 @@ func (fake *FakeImpl) LoadBpfRecorderArgsForCall(i int) *bpfrecorder.BpfRecorder
 	fake.loadBpfRecorderMutex.RLock()
 	defer fake.loadBpfRecorderMutex.RUnlock()
 	argsForCall := fake.loadBpfRecorderArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) LoadBpfRecorderArgs() []FakeImplLoadBpfRecorderArgs {
+	fake.loadBpfRecorderMutex.RLock()
+	defer fake.loadBpfRecorderMutex.RUnlock()
+	args := make([]FakeImplLoadBpfRecorderArgs, len(fake.loadBpfRecorderArgsForCall))
+	copy(args, fake.loadBpfRecorderArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) LoadBpfRecorderReturns(result1 error) {
@@ -870,15 +969,12 @@ func (fake *FakeImpl) Notify(arg1 chan<- os.Signal, arg2 ...os.Signal) {
 		copy(arg2Copy, arg2)
 	}
 	fake.notifyMutex.Lock()
-	fake.notifyArgsForCall = append(fake.notifyArgsForCall, struct {
-		arg1 chan<- os.Signal
-		arg2 []os.Signal
-	}{arg1, arg2Copy})
+	fake.notifyArgsForCall = append(fake.notifyArgsForCall, FakeImplNotifyArgs{arg1, arg2Copy})
 	stub := fake.NotifyStub
 	fake.recordInvocation("Notify", []interface{}{arg1, arg2Copy})
 	fake.notifyMutex.Unlock()
 	if stub != nil {
-		fake.NotifyStub(arg1, arg2...)
+		stub(arg1, arg2...)
 	}
 }
 
@@ -898,17 +994,21 @@ func (fake *FakeImpl) NotifyArgsForCall(i int) (chan<- os.Signal, []os.Signal) {
 	fake.notifyMutex.RLock()
 	defer fake.notifyMutex.RUnlock()
 	argsForCall := fake.notifyArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
+	return argsForCall.Arg1, argsForCall.Arg2
+}
+
+func (fake *FakeImpl) NotifyArgs() []FakeImplNotifyArgs {
+	fake.notifyMutex.RLock()
+	defer fake.notifyMutex.RUnlock()
+	args := make([]FakeImplNotifyArgs, len(fake.notifyArgsForCall))
+	copy(args, fake.notifyArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) PrintObj(arg1 printers.YAMLPrinter, arg2 runtime.Object, arg3 io.Writer) error {
 	fake.printObjMutex.Lock()
 	ret, specificReturn := fake.printObjReturnsOnCall[len(fake.printObjArgsForCall)]
-	fake.printObjArgsForCall = append(fake.printObjArgsForCall, struct {
-		arg1 printers.YAMLPrinter
-		arg2 runtime.Object
-		arg3 io.Writer
-	}{arg1, arg2, arg3})
+	fake.printObjArgsForCall = append(fake.printObjArgsForCall, FakeImplPrintObjArgs{arg1, arg2, arg3})
 	stub := fake.PrintObjStub
 	fakeReturns := fake.printObjReturns
 	fake.recordInvocation("PrintObj", []interface{}{arg1, arg2, arg3})
@@ -938,7 +1038,15 @@ func (fake *FakeImpl) PrintObjArgsForCall(i int) (printers.YAMLPrinter, runtime.
 	fake.printObjMutex.RLock()
 	defer fake.printObjMutex.RUnlock()
 	argsForCall := fake.printObjArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+	return argsForCall.Arg1, argsForCall.Arg2, argsForCall.Arg3
+}
+
+func (fake *FakeImpl) PrintObjArgs() []FakeImplPrintObjArgs {
+	fake.printObjMutex.RLock()
+	defer fake.printObjMutex.RUnlock()
+	args := make([]FakeImplPrintObjArgs, len(fake.printObjArgsForCall))
+	copy(args, fake.printObjArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) PrintObjReturns(result1 error) {
@@ -967,9 +1075,7 @@ func (fake *FakeImpl) PrintObjReturnsOnCall(i int, result1 error) {
 func (fake *FakeImpl) StartBpfRecording(arg1 *bpfrecorder.BpfRecorder) error {
 	fake.startBpfRecordingMutex.Lock()
 	ret, specificReturn := fake.startBpfRecordingReturnsOnCall[len(fake.startBpfRecordingArgsForCall)]
-	fake.startBpfRecordingArgsForCall = append(fake.startBpfRecordingArgsForCall, struct {
-		arg1 *bpfrecorder.BpfRecorder
-	}{arg1})
+	fake.startBpfRecordingArgsForCall = append(fake.startBpfRecordingArgsForCall, FakeImplStartBpfRecordingArgs{arg1})
 	stub := fake.StartBpfRecordingStub
 	fakeReturns := fake.startBpfRecordingReturns
 	fake.recordInvocation("StartBpfRecording", []interface{}{arg1})
@@ -999,7 +1105,15 @@ func (fake *FakeImpl) StartBpfRecordingArgsForCall(i int) *bpfrecorder.BpfRecord
 	fake.startBpfRecordingMutex.RLock()
 	defer fake.startBpfRecordingMutex.RUnlock()
 	argsForCall := fake.startBpfRecordingArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) StartBpfRecordingArgs() []FakeImplStartBpfRecordingArgs {
+	fake.startBpfRecordingMutex.RLock()
+	defer fake.startBpfRecordingMutex.RUnlock()
+	args := make([]FakeImplStartBpfRecordingArgs, len(fake.startBpfRecordingArgsForCall))
+	copy(args, fake.startBpfRecordingArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) StartBpfRecordingReturns(result1 error) {
@@ -1028,9 +1142,7 @@ func (fake *FakeImpl) StartBpfRecordingReturnsOnCall(i int, result1 error) {
 func (fake *FakeImpl) StopBpfRecording(arg1 *bpfrecorder.BpfRecorder) error {
 	fake.stopBpfRecordingMutex.Lock()
 	ret, specificReturn := fake.stopBpfRecordingReturnsOnCall[len(fake.stopBpfRecordingArgsForCall)]
-	fake.stopBpfRecordingArgsForCall = append(fake.stopBpfRecordingArgsForCall, struct {
-		arg1 *bpfrecorder.BpfRecorder
-	}{arg1})
+	fake.stopBpfRecordingArgsForCall = append(fake.stopBpfRecordingArgsForCall, FakeImplStopBpfRecordingArgs{arg1})
 	stub := fake.StopBpfRecordingStub
 	fakeReturns := fake.stopBpfRecordingReturns
 	fake.recordInvocation("StopBpfRecording", []interface{}{arg1})
@@ -1060,7 +1172,15 @@ func (fake *FakeImpl) StopBpfRecordingArgsForCall(i int) *bpfrecorder.BpfRecorde
 	fake.stopBpfRecordingMutex.RLock()
 	defer fake.stopBpfRecordingMutex.RUnlock()
 	argsForCall := fake.stopBpfRecordingArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) StopBpfRecordingArgs() []FakeImplStopBpfRecordingArgs {
+	fake.stopBpfRecordingMutex.RLock()
+	defer fake.stopBpfRecordingMutex.RUnlock()
+	args := make([]FakeImplStopBpfRecordingArgs, len(fake.stopBpfRecordingArgsForCall))
+	copy(args, fake.stopBpfRecordingArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) StopBpfRecordingReturns(result1 error) {
@@ -1089,10 +1209,7 @@ func (fake *FakeImpl) StopBpfRecordingReturnsOnCall(i int, result1 error) {
 func (fake *FakeImpl) SyscallsGetValue(arg1 *bpfrecorder.BpfRecorder, arg2 uint64) ([]byte, error) {
 	fake.syscallsGetValueMutex.Lock()
 	ret, specificReturn := fake.syscallsGetValueReturnsOnCall[len(fake.syscallsGetValueArgsForCall)]
-	fake.syscallsGetValueArgsForCall = append(fake.syscallsGetValueArgsForCall, struct {
-		arg1 *bpfrecorder.BpfRecorder
-		arg2 uint64
-	}{arg1, arg2})
+	fake.syscallsGetValueArgsForCall = append(fake.syscallsGetValueArgsForCall, FakeImplSyscallsGetValueArgs{arg1, arg2})
 	stub := fake.SyscallsGetValueStub
 	fakeReturns := fake.syscallsGetValueReturns
 	fake.recordInvocation("SyscallsGetValue", []interface{}{arg1, arg2})
@@ -1122,7 +1239,15 @@ func (fake *FakeImpl) SyscallsGetValueArgsForCall(i int) (*bpfrecorder.BpfRecord
 	fake.syscallsGetValueMutex.RLock()
 	defer fake.syscallsGetValueMutex.RUnlock()
 	argsForCall := fake.syscallsGetValueArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
+	return argsForCall.Arg1, argsForCall.Arg2
+}
+
+func (fake *FakeImpl) SyscallsGetValueArgs() []FakeImplSyscallsGetValueArgs {
+	fake.syscallsGetValueMutex.RLock()
+	defer fake.syscallsGetValueMutex.RUnlock()
+	args := make([]FakeImplSyscallsGetValueArgs, len(fake.syscallsGetValueArgsForCall))
+	copy(args, fake.syscallsGetValueArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) SyscallsGetValueReturns(result1 []byte, result2 error) {
@@ -1154,9 +1279,7 @@ func (fake *FakeImpl) SyscallsGetValueReturnsOnCall(i int, result1 []byte, resul
 func (fake *FakeImpl) SyscallsIterator(arg1 *bpfrecorder.BpfRecorder) *libbpfgo.BPFMapIterator {
 	fake.syscallsIteratorMutex.Lock()
 	ret, specificReturn := fake.syscallsIteratorReturnsOnCall[len(fake.syscallsIteratorArgsForCall)]
-	fake.syscallsIteratorArgsForCall = append(fake.syscallsIteratorArgsForCall, struct {
-		arg1 *bpfrecorder.BpfRecorder
-	}{arg1})
+	fake.syscallsIteratorArgsForCall = append(fake.syscallsIteratorArgsForCall, FakeImplSyscallsIteratorArgs{arg1})
 	stub := fake.SyscallsIteratorStub
 	fakeReturns := fake.syscallsIteratorReturns
 	fake.recordInvocation("SyscallsIterator", []interface{}{arg1})
@@ -1186,7 +1309,15 @@ func (fake *FakeImpl) SyscallsIteratorArgsForCall(i int) *bpfrecorder.BpfRecorde
 	fake.syscallsIteratorMutex.RLock()
 	defer fake.syscallsIteratorMutex.RUnlock()
 	argsForCall := fake.syscallsIteratorArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) SyscallsIteratorArgs() []FakeImplSyscallsIteratorArgs {
+	fake.syscallsIteratorMutex.RLock()
+	defer fake.syscallsIteratorMutex.RUnlock()
+	args := make([]FakeImplSyscallsIteratorArgs, len(fake.syscallsIteratorArgsForCall))
+	copy(args, fake.syscallsIteratorArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) SyscallsIteratorReturns(result1 *libbpfgo.BPFMapIterator) {
@@ -1215,11 +1346,7 @@ func (fake *FakeImpl) SyscallsIteratorReturnsOnCall(i int, result1 *libbpfgo.BPF
 func (fake *FakeImpl) WaitForPidExit(arg1 *bpfrecorder.BpfRecorder, arg2 context.Context, arg3 uint32) error {
 	fake.waitForPidExitMutex.Lock()
 	ret, specificReturn := fake.waitForPidExitReturnsOnCall[len(fake.waitForPidExitArgsForCall)]
-	fake.waitForPidExitArgsForCall = append(fake.waitForPidExitArgsForCall, struct {
-		arg1 *bpfrecorder.BpfRecorder
-		arg2 context.Context
-		arg3 uint32
-	}{arg1, arg2, arg3})
+	fake.waitForPidExitArgsForCall = append(fake.waitForPidExitArgsForCall, FakeImplWaitForPidExitArgs{arg1, arg2, arg3})
 	stub := fake.WaitForPidExitStub
 	fakeReturns := fake.waitForPidExitReturns
 	fake.recordInvocation("WaitForPidExit", []interface{}{arg1, arg2, arg3})
@@ -1249,7 +1376,15 @@ func (fake *FakeImpl) WaitForPidExitArgsForCall(i int) (*bpfrecorder.BpfRecorder
 	fake.waitForPidExitMutex.RLock()
 	defer fake.waitForPidExitMutex.RUnlock()
 	argsForCall := fake.waitForPidExitArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+	return argsForCall.Arg1, argsForCall.Arg2, argsForCall.Arg3
+}
+
+func (fake *FakeImpl) WaitForPidExitArgs() []FakeImplWaitForPidExitArgs {
+	fake.waitForPidExitMutex.RLock()
+	defer fake.waitForPidExitMutex.RUnlock()
+	args := make([]FakeImplWaitForPidExitArgs, len(fake.waitForPidExitArgsForCall))
+	copy(args, fake.waitForPidExitArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) WaitForPidExitReturns(result1 error) {
@@ -1285,9 +1420,18 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	return copiedInvocations
 }
 
+func (fake *FakeImpl) CallOrder() []string {
+	fake.invocationsMutex.RLock()
+	defer fake.invocationsMutex.RUnlock()
+	order := make([]string, len(fake.callOrder))
+	copy(order, fake.callOrder)
+	return order
+}
+
 func (fake *FakeImpl) recordInvocation(key string, args []interface{}) {
 	fake.invocationsMutex.Lock()
 	defer fake.invocationsMutex.Unlock()
+	fake.callOrder = append(fake.callOrder, key)
 	if fake.invocations == nil {
 		fake.invocations = map[string][][]interface{}{}
 	}

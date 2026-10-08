@@ -33,10 +33,8 @@ import (
 type FakeImpl struct {
 	CommandRunStub        func(*command.Command) (uint32, error)
 	commandRunMutex       sync.RWMutex
-	commandRunArgsForCall []struct {
-		arg1 *command.Command
-	}
-	commandRunReturns struct {
+	commandRunArgsForCall []FakeImplCommandRunArgs
+	commandRunReturns     struct {
 		result1 uint32
 		result2 error
 	}
@@ -46,10 +44,8 @@ type FakeImpl struct {
 	}
 	CommandWaitStub        func(*command.Command) error
 	commandWaitMutex       sync.RWMutex
-	commandWaitArgsForCall []struct {
-		arg1 *command.Command
-	}
-	commandWaitReturns struct {
+	commandWaitArgsForCall []FakeImplCommandWaitArgs
+	commandWaitReturns     struct {
 		result1 error
 	}
 	commandWaitReturnsOnCall map[int]struct {
@@ -57,10 +53,8 @@ type FakeImpl struct {
 	}
 	GetNameStub        func(seccomp.ScmpSyscall) (string, error)
 	getNameMutex       sync.RWMutex
-	getNameArgsForCall []struct {
-		arg1 seccomp.ScmpSyscall
-	}
-	getNameReturns struct {
+	getNameArgsForCall []FakeImplGetNameArgs
+	getNameReturns     struct {
 		result1 string
 		result2 error
 	}
@@ -70,27 +64,20 @@ type FakeImpl struct {
 	}
 	LinesStub        func(*tailer.Tailer) <-chan string
 	linesMutex       sync.RWMutex
-	linesArgsForCall []struct {
-		arg1 *tailer.Tailer
-	}
-	linesReturns struct {
+	linesArgsForCall []FakeImplLinesArgs
+	linesReturns     struct {
 		result1 <-chan string
 	}
 	linesReturnsOnCall map[int]struct {
 		result1 <-chan string
 	}
-	PrintfStub        func(string, ...any)
-	printfMutex       sync.RWMutex
-	printfArgsForCall []struct {
-		arg1 string
-		arg2 []any
-	}
+	PrintfStub          func(string, ...any)
+	printfMutex         sync.RWMutex
+	printfArgsForCall   []FakeImplPrintfArgs
 	ReadFileStub        func(string) ([]byte, error)
 	readFileMutex       sync.RWMutex
-	readFileArgsForCall []struct {
-		arg1 string
-	}
-	readFileReturns struct {
+	readFileArgsForCall []FakeImplReadFileArgs
+	readFileReturns     struct {
 		result1 []byte
 		result2 error
 	}
@@ -100,10 +87,8 @@ type FakeImpl struct {
 	}
 	SetupSeccompStub        func(*specs.LinuxSeccomp) (*configs.Seccomp, error)
 	setupSeccompMutex       sync.RWMutex
-	setupSeccompArgsForCall []struct {
-		arg1 *specs.LinuxSeccomp
-	}
-	setupSeccompReturns struct {
+	setupSeccompArgsForCall []FakeImplSetupSeccompArgs
+	setupSeccompReturns     struct {
 		result1 *configs.Seccomp
 		result2 error
 	}
@@ -113,15 +98,11 @@ type FakeImpl struct {
 	}
 	StopTailStub        func(*tailer.Tailer)
 	stopTailMutex       sync.RWMutex
-	stopTailArgsForCall []struct {
-		arg1 *tailer.Tailer
-	}
-	TailErrStub        func(*tailer.Tailer) error
-	tailErrMutex       sync.RWMutex
-	tailErrArgsForCall []struct {
-		arg1 *tailer.Tailer
-	}
-	tailErrReturns struct {
+	stopTailArgsForCall []FakeImplStopTailArgs
+	TailErrStub         func(*tailer.Tailer) error
+	tailErrMutex        sync.RWMutex
+	tailErrArgsForCall  []FakeImplTailErrArgs
+	tailErrReturns      struct {
 		result1 error
 	}
 	tailErrReturnsOnCall map[int]struct {
@@ -129,11 +110,8 @@ type FakeImpl struct {
 	}
 	TailFileStub        func(string, tailer.Config) (*tailer.Tailer, error)
 	tailFileMutex       sync.RWMutex
-	tailFileArgsForCall []struct {
-		arg1 string
-		arg2 tailer.Config
-	}
-	tailFileReturns struct {
+	tailFileArgsForCall []FakeImplTailFileArgs
+	tailFileReturns     struct {
 		result1 *tailer.Tailer
 		result2 error
 	}
@@ -142,15 +120,66 @@ type FakeImpl struct {
 		result2 error
 	}
 	invocations      map[string][][]interface{}
+	callOrder        []string
 	invocationsMutex sync.RWMutex
+}
+
+// FakeImplCommandRunArgs holds the arguments of one call to CommandRun.
+type FakeImplCommandRunArgs struct {
+	Arg1 *command.Command
+}
+
+// FakeImplCommandWaitArgs holds the arguments of one call to CommandWait.
+type FakeImplCommandWaitArgs struct {
+	Arg1 *command.Command
+}
+
+// FakeImplGetNameArgs holds the arguments of one call to GetName.
+type FakeImplGetNameArgs struct {
+	Arg1 seccomp.ScmpSyscall
+}
+
+// FakeImplLinesArgs holds the arguments of one call to Lines.
+type FakeImplLinesArgs struct {
+	Arg1 *tailer.Tailer
+}
+
+// FakeImplPrintfArgs holds the arguments of one call to Printf.
+type FakeImplPrintfArgs struct {
+	Arg1 string
+	Arg2 []any
+}
+
+// FakeImplReadFileArgs holds the arguments of one call to ReadFile.
+type FakeImplReadFileArgs struct {
+	Arg1 string
+}
+
+// FakeImplSetupSeccompArgs holds the arguments of one call to SetupSeccomp.
+type FakeImplSetupSeccompArgs struct {
+	Arg1 *specs.LinuxSeccomp
+}
+
+// FakeImplStopTailArgs holds the arguments of one call to StopTail.
+type FakeImplStopTailArgs struct {
+	Arg1 *tailer.Tailer
+}
+
+// FakeImplTailErrArgs holds the arguments of one call to TailErr.
+type FakeImplTailErrArgs struct {
+	Arg1 *tailer.Tailer
+}
+
+// FakeImplTailFileArgs holds the arguments of one call to TailFile.
+type FakeImplTailFileArgs struct {
+	Arg1 string
+	Arg2 tailer.Config
 }
 
 func (fake *FakeImpl) CommandRun(arg1 *command.Command) (uint32, error) {
 	fake.commandRunMutex.Lock()
 	ret, specificReturn := fake.commandRunReturnsOnCall[len(fake.commandRunArgsForCall)]
-	fake.commandRunArgsForCall = append(fake.commandRunArgsForCall, struct {
-		arg1 *command.Command
-	}{arg1})
+	fake.commandRunArgsForCall = append(fake.commandRunArgsForCall, FakeImplCommandRunArgs{arg1})
 	stub := fake.CommandRunStub
 	fakeReturns := fake.commandRunReturns
 	fake.recordInvocation("CommandRun", []interface{}{arg1})
@@ -180,7 +209,15 @@ func (fake *FakeImpl) CommandRunArgsForCall(i int) *command.Command {
 	fake.commandRunMutex.RLock()
 	defer fake.commandRunMutex.RUnlock()
 	argsForCall := fake.commandRunArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) CommandRunArgs() []FakeImplCommandRunArgs {
+	fake.commandRunMutex.RLock()
+	defer fake.commandRunMutex.RUnlock()
+	args := make([]FakeImplCommandRunArgs, len(fake.commandRunArgsForCall))
+	copy(args, fake.commandRunArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) CommandRunReturns(result1 uint32, result2 error) {
@@ -212,9 +249,7 @@ func (fake *FakeImpl) CommandRunReturnsOnCall(i int, result1 uint32, result2 err
 func (fake *FakeImpl) CommandWait(arg1 *command.Command) error {
 	fake.commandWaitMutex.Lock()
 	ret, specificReturn := fake.commandWaitReturnsOnCall[len(fake.commandWaitArgsForCall)]
-	fake.commandWaitArgsForCall = append(fake.commandWaitArgsForCall, struct {
-		arg1 *command.Command
-	}{arg1})
+	fake.commandWaitArgsForCall = append(fake.commandWaitArgsForCall, FakeImplCommandWaitArgs{arg1})
 	stub := fake.CommandWaitStub
 	fakeReturns := fake.commandWaitReturns
 	fake.recordInvocation("CommandWait", []interface{}{arg1})
@@ -244,7 +279,15 @@ func (fake *FakeImpl) CommandWaitArgsForCall(i int) *command.Command {
 	fake.commandWaitMutex.RLock()
 	defer fake.commandWaitMutex.RUnlock()
 	argsForCall := fake.commandWaitArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) CommandWaitArgs() []FakeImplCommandWaitArgs {
+	fake.commandWaitMutex.RLock()
+	defer fake.commandWaitMutex.RUnlock()
+	args := make([]FakeImplCommandWaitArgs, len(fake.commandWaitArgsForCall))
+	copy(args, fake.commandWaitArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) CommandWaitReturns(result1 error) {
@@ -273,9 +316,7 @@ func (fake *FakeImpl) CommandWaitReturnsOnCall(i int, result1 error) {
 func (fake *FakeImpl) GetName(arg1 seccomp.ScmpSyscall) (string, error) {
 	fake.getNameMutex.Lock()
 	ret, specificReturn := fake.getNameReturnsOnCall[len(fake.getNameArgsForCall)]
-	fake.getNameArgsForCall = append(fake.getNameArgsForCall, struct {
-		arg1 seccomp.ScmpSyscall
-	}{arg1})
+	fake.getNameArgsForCall = append(fake.getNameArgsForCall, FakeImplGetNameArgs{arg1})
 	stub := fake.GetNameStub
 	fakeReturns := fake.getNameReturns
 	fake.recordInvocation("GetName", []interface{}{arg1})
@@ -305,7 +346,15 @@ func (fake *FakeImpl) GetNameArgsForCall(i int) seccomp.ScmpSyscall {
 	fake.getNameMutex.RLock()
 	defer fake.getNameMutex.RUnlock()
 	argsForCall := fake.getNameArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) GetNameArgs() []FakeImplGetNameArgs {
+	fake.getNameMutex.RLock()
+	defer fake.getNameMutex.RUnlock()
+	args := make([]FakeImplGetNameArgs, len(fake.getNameArgsForCall))
+	copy(args, fake.getNameArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) GetNameReturns(result1 string, result2 error) {
@@ -337,9 +386,7 @@ func (fake *FakeImpl) GetNameReturnsOnCall(i int, result1 string, result2 error)
 func (fake *FakeImpl) Lines(arg1 *tailer.Tailer) <-chan string {
 	fake.linesMutex.Lock()
 	ret, specificReturn := fake.linesReturnsOnCall[len(fake.linesArgsForCall)]
-	fake.linesArgsForCall = append(fake.linesArgsForCall, struct {
-		arg1 *tailer.Tailer
-	}{arg1})
+	fake.linesArgsForCall = append(fake.linesArgsForCall, FakeImplLinesArgs{arg1})
 	stub := fake.LinesStub
 	fakeReturns := fake.linesReturns
 	fake.recordInvocation("Lines", []interface{}{arg1})
@@ -369,7 +416,15 @@ func (fake *FakeImpl) LinesArgsForCall(i int) *tailer.Tailer {
 	fake.linesMutex.RLock()
 	defer fake.linesMutex.RUnlock()
 	argsForCall := fake.linesArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) LinesArgs() []FakeImplLinesArgs {
+	fake.linesMutex.RLock()
+	defer fake.linesMutex.RUnlock()
+	args := make([]FakeImplLinesArgs, len(fake.linesArgsForCall))
+	copy(args, fake.linesArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) LinesReturns(result1 <-chan string) {
@@ -402,15 +457,12 @@ func (fake *FakeImpl) Printf(arg1 string, arg2 ...any) {
 		copy(arg2Copy, arg2)
 	}
 	fake.printfMutex.Lock()
-	fake.printfArgsForCall = append(fake.printfArgsForCall, struct {
-		arg1 string
-		arg2 []any
-	}{arg1, arg2Copy})
+	fake.printfArgsForCall = append(fake.printfArgsForCall, FakeImplPrintfArgs{arg1, arg2Copy})
 	stub := fake.PrintfStub
 	fake.recordInvocation("Printf", []interface{}{arg1, arg2Copy})
 	fake.printfMutex.Unlock()
 	if stub != nil {
-		fake.PrintfStub(arg1, arg2...)
+		stub(arg1, arg2...)
 	}
 }
 
@@ -430,15 +482,21 @@ func (fake *FakeImpl) PrintfArgsForCall(i int) (string, []any) {
 	fake.printfMutex.RLock()
 	defer fake.printfMutex.RUnlock()
 	argsForCall := fake.printfArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
+	return argsForCall.Arg1, argsForCall.Arg2
+}
+
+func (fake *FakeImpl) PrintfArgs() []FakeImplPrintfArgs {
+	fake.printfMutex.RLock()
+	defer fake.printfMutex.RUnlock()
+	args := make([]FakeImplPrintfArgs, len(fake.printfArgsForCall))
+	copy(args, fake.printfArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) ReadFile(arg1 string) ([]byte, error) {
 	fake.readFileMutex.Lock()
 	ret, specificReturn := fake.readFileReturnsOnCall[len(fake.readFileArgsForCall)]
-	fake.readFileArgsForCall = append(fake.readFileArgsForCall, struct {
-		arg1 string
-	}{arg1})
+	fake.readFileArgsForCall = append(fake.readFileArgsForCall, FakeImplReadFileArgs{arg1})
 	stub := fake.ReadFileStub
 	fakeReturns := fake.readFileReturns
 	fake.recordInvocation("ReadFile", []interface{}{arg1})
@@ -468,7 +526,15 @@ func (fake *FakeImpl) ReadFileArgsForCall(i int) string {
 	fake.readFileMutex.RLock()
 	defer fake.readFileMutex.RUnlock()
 	argsForCall := fake.readFileArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) ReadFileArgs() []FakeImplReadFileArgs {
+	fake.readFileMutex.RLock()
+	defer fake.readFileMutex.RUnlock()
+	args := make([]FakeImplReadFileArgs, len(fake.readFileArgsForCall))
+	copy(args, fake.readFileArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) ReadFileReturns(result1 []byte, result2 error) {
@@ -500,9 +566,7 @@ func (fake *FakeImpl) ReadFileReturnsOnCall(i int, result1 []byte, result2 error
 func (fake *FakeImpl) SetupSeccomp(arg1 *specs.LinuxSeccomp) (*configs.Seccomp, error) {
 	fake.setupSeccompMutex.Lock()
 	ret, specificReturn := fake.setupSeccompReturnsOnCall[len(fake.setupSeccompArgsForCall)]
-	fake.setupSeccompArgsForCall = append(fake.setupSeccompArgsForCall, struct {
-		arg1 *specs.LinuxSeccomp
-	}{arg1})
+	fake.setupSeccompArgsForCall = append(fake.setupSeccompArgsForCall, FakeImplSetupSeccompArgs{arg1})
 	stub := fake.SetupSeccompStub
 	fakeReturns := fake.setupSeccompReturns
 	fake.recordInvocation("SetupSeccomp", []interface{}{arg1})
@@ -532,7 +596,15 @@ func (fake *FakeImpl) SetupSeccompArgsForCall(i int) *specs.LinuxSeccomp {
 	fake.setupSeccompMutex.RLock()
 	defer fake.setupSeccompMutex.RUnlock()
 	argsForCall := fake.setupSeccompArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) SetupSeccompArgs() []FakeImplSetupSeccompArgs {
+	fake.setupSeccompMutex.RLock()
+	defer fake.setupSeccompMutex.RUnlock()
+	args := make([]FakeImplSetupSeccompArgs, len(fake.setupSeccompArgsForCall))
+	copy(args, fake.setupSeccompArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) SetupSeccompReturns(result1 *configs.Seccomp, result2 error) {
@@ -563,14 +635,12 @@ func (fake *FakeImpl) SetupSeccompReturnsOnCall(i int, result1 *configs.Seccomp,
 
 func (fake *FakeImpl) StopTail(arg1 *tailer.Tailer) {
 	fake.stopTailMutex.Lock()
-	fake.stopTailArgsForCall = append(fake.stopTailArgsForCall, struct {
-		arg1 *tailer.Tailer
-	}{arg1})
+	fake.stopTailArgsForCall = append(fake.stopTailArgsForCall, FakeImplStopTailArgs{arg1})
 	stub := fake.StopTailStub
 	fake.recordInvocation("StopTail", []interface{}{arg1})
 	fake.stopTailMutex.Unlock()
 	if stub != nil {
-		fake.StopTailStub(arg1)
+		stub(arg1)
 	}
 }
 
@@ -590,15 +660,21 @@ func (fake *FakeImpl) StopTailArgsForCall(i int) *tailer.Tailer {
 	fake.stopTailMutex.RLock()
 	defer fake.stopTailMutex.RUnlock()
 	argsForCall := fake.stopTailArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) StopTailArgs() []FakeImplStopTailArgs {
+	fake.stopTailMutex.RLock()
+	defer fake.stopTailMutex.RUnlock()
+	args := make([]FakeImplStopTailArgs, len(fake.stopTailArgsForCall))
+	copy(args, fake.stopTailArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) TailErr(arg1 *tailer.Tailer) error {
 	fake.tailErrMutex.Lock()
 	ret, specificReturn := fake.tailErrReturnsOnCall[len(fake.tailErrArgsForCall)]
-	fake.tailErrArgsForCall = append(fake.tailErrArgsForCall, struct {
-		arg1 *tailer.Tailer
-	}{arg1})
+	fake.tailErrArgsForCall = append(fake.tailErrArgsForCall, FakeImplTailErrArgs{arg1})
 	stub := fake.TailErrStub
 	fakeReturns := fake.tailErrReturns
 	fake.recordInvocation("TailErr", []interface{}{arg1})
@@ -628,7 +704,15 @@ func (fake *FakeImpl) TailErrArgsForCall(i int) *tailer.Tailer {
 	fake.tailErrMutex.RLock()
 	defer fake.tailErrMutex.RUnlock()
 	argsForCall := fake.tailErrArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) TailErrArgs() []FakeImplTailErrArgs {
+	fake.tailErrMutex.RLock()
+	defer fake.tailErrMutex.RUnlock()
+	args := make([]FakeImplTailErrArgs, len(fake.tailErrArgsForCall))
+	copy(args, fake.tailErrArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) TailErrReturns(result1 error) {
@@ -657,10 +741,7 @@ func (fake *FakeImpl) TailErrReturnsOnCall(i int, result1 error) {
 func (fake *FakeImpl) TailFile(arg1 string, arg2 tailer.Config) (*tailer.Tailer, error) {
 	fake.tailFileMutex.Lock()
 	ret, specificReturn := fake.tailFileReturnsOnCall[len(fake.tailFileArgsForCall)]
-	fake.tailFileArgsForCall = append(fake.tailFileArgsForCall, struct {
-		arg1 string
-		arg2 tailer.Config
-	}{arg1, arg2})
+	fake.tailFileArgsForCall = append(fake.tailFileArgsForCall, FakeImplTailFileArgs{arg1, arg2})
 	stub := fake.TailFileStub
 	fakeReturns := fake.tailFileReturns
 	fake.recordInvocation("TailFile", []interface{}{arg1, arg2})
@@ -690,7 +771,15 @@ func (fake *FakeImpl) TailFileArgsForCall(i int) (string, tailer.Config) {
 	fake.tailFileMutex.RLock()
 	defer fake.tailFileMutex.RUnlock()
 	argsForCall := fake.tailFileArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
+	return argsForCall.Arg1, argsForCall.Arg2
+}
+
+func (fake *FakeImpl) TailFileArgs() []FakeImplTailFileArgs {
+	fake.tailFileMutex.RLock()
+	defer fake.tailFileMutex.RUnlock()
+	args := make([]FakeImplTailFileArgs, len(fake.tailFileArgsForCall))
+	copy(args, fake.tailFileArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) TailFileReturns(result1 *tailer.Tailer, result2 error) {
@@ -729,9 +818,18 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	return copiedInvocations
 }
 
+func (fake *FakeImpl) CallOrder() []string {
+	fake.invocationsMutex.RLock()
+	defer fake.invocationsMutex.RUnlock()
+	order := make([]string, len(fake.callOrder))
+	copy(order, fake.callOrder)
+	return order
+}
+
 func (fake *FakeImpl) recordInvocation(key string, args []interface{}) {
 	fake.invocationsMutex.Lock()
 	defer fake.invocationsMutex.Unlock()
+	fake.callOrder = append(fake.callOrder, key)
 	if fake.invocations == nil {
 		fake.invocations = map[string][][]interface{}{}
 	}
