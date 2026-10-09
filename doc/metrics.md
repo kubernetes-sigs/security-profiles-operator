@@ -141,6 +141,7 @@ additional metrics are provided by the daemon, which are always prefixed with
 | `apparmor_profile_audit_total`  | `node`, `namespace`, `pod`, `container`, `profile`, `operation`, `apparmor` | Counter | Amount of AppArmor profile audits. Requires the log enricher to be enabled.               |
 | `apparmor_profile_error_total`  | `profile`, `reason`                                                     | Counter | Amount of AppArmor profile errors.                                                            |
 | `apparmor_profile_denial_total` | `profile`, `operation`                                                  | Counter | Amount of AppArmor profile denials. Requires the log enricher to be enabled.                  |
+| `series_dropped_total`          | `metric`                                                                | Counter | Amount of per workload metric increments dropped for exceeding the series limit.              |
 
 The labels have the following meaning:
 
@@ -168,6 +169,9 @@ The labels have the following meaning:
   which gets recorded for its container.
 - `reason` of the error metrics is the reason of the failure, which the daemon
   also uses for the warning event on the profile or node.
+- `metric` of `series_dropped_total` is the name of the per workload metric,
+  without the `security_profiles_operator_` prefix, whose increments got
+  dropped, see [Metric cardinality](#metric-cardinality).
 
 The error metrics use these reasons:
 
@@ -198,6 +202,24 @@ Every observed label combination becomes a distinct Prometheus time series. The
 spod DaemonSet drops a series after one hour without increments, but Prometheus
 keeps the scraped series for its whole retention. On clusters with a lot of pod
 churn, or when the log enricher is enabled cluster wide, this adds up quickly.
+
+The spod DaemonSet can also limit the number of series per metric with
+`--max-metric-series`, see the [command line
+reference](reference/security-profiles-operator.md). It keeps any number by
+default. With a limit, the increments of further series are dropped until idle
+series expire, and are counted in `series_dropped_total`. The
+`MAX_METRIC_SERIES` environment variable of the operator deployment sets the
+limit, which the operator passes on to the daemon, and `0` removes it again:
+
+```
+> kubectl -n security-profiles-operator set env deploy/security-profiles-operator MAX_METRIC_SERIES=50000
+```
+
+When installing the operator using OLM, set the variable in the
+`spec.config.env` field of the `Subscription` instead, see [Restricting to a
+Single Namespace when installing using
+OLM](installation.md#restricting-to-a-single-namespace-when-installing-using-olm)
+for an example.
 
 These metrics are most useful while recording or debugging a workload. If you
 scrape them permanently, consider dropping the high cardinality labels in the

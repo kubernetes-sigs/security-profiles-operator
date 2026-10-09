@@ -22,6 +22,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -311,9 +312,8 @@ func (b *BpfRecorder) keysWithProcesses(pids [][]byte) map[uint64]struct{} {
 }
 
 // releaseAbandonedRecording stops a recording once no pod on the node asked for
-// one for a while. Start and Stop are counted, and a Start which the client
-// retried or whose Stop got lost, for example because the client restarted,
-// would keep the hooks attached for the lifetime of the recorder.
+// one for a while. A Start whose Stop got lost, for example because the client
+// restarted, would keep the hooks attached for the lifetime of the recorder.
 func (b *BpfRecorder) releaseAbandonedRecording() {
 	// Without the initial list every node looks idle.
 	if b.pods == nil || !b.pods.HasSynced() {
@@ -361,18 +361,23 @@ func (b *BpfRecorder) releaseAbandonedRecording() {
 	b.logger.Info(
 		"Stopping the recording, no pod on the node is recorded any more",
 		"startRequests", atomic.LoadInt64(&b.startRequests),
+		"sessions", slices.Sorted(maps.Keys(b.sessions)),
 		"idleSince", b.idleSince,
 	)
 
 	b.idleSince = time.Time{}
 
-	if err := b.StopRecording(); err != nil {
+	if err := b.stopRecording(); err != nil {
 		b.logger.Error(err, "Unable to stop abandoned recording")
 
 		return
 	}
 
-	atomic.StoreInt64(&b.startRequests, 0)
+	// A later Stop of these clients finds nothing to stop, so it cannot end
+	// the recording of a client which starts one afterwards.
+	clear(b.sessions)
+	b.anonymousStarts = 0
+	b.updateStartRequests()
 }
 
 // recordsBpf reports whether a pod asks for a recording by the BPF recorder.

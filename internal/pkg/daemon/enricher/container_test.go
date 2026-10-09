@@ -96,7 +96,7 @@ func TestContainerInfoOf(t *testing.T) {
 				PodName: pod, Namespace: namespace, ContainerName: "container", ContainerID: containerID,
 			},
 		},
-		"seccomp recording": {
+		"seccomp and SELinux recording": {
 			pod: withAnnotations(map[string]string{
 				config.SeccompProfileRecordLogsAnnotationKey + "container": "seccomp-profile",
 				config.SelinuxProfileRecordLogsAnnotationKey + "container": "selinux-profile",
@@ -104,7 +104,8 @@ func TestContainerInfoOf(t *testing.T) {
 			containerID: containerID,
 			want: types.ContainerInfo{
 				PodName: pod, Namespace: namespace, ContainerName: "container", ContainerID: containerID,
-				RecordProfile: "seccomp-profile",
+				SeccompRecordProfile: "seccomp-profile",
+				SelinuxRecordProfile: "selinux-profile",
 			},
 		},
 		"SELinux recording of an init container": {
@@ -115,7 +116,7 @@ func TestContainerInfoOf(t *testing.T) {
 			containerID: otherContainerID,
 			want: types.ContainerInfo{
 				PodName: pod, Namespace: namespace, ContainerName: "init", ContainerID: otherContainerID,
-				RecordProfile: "selinux-profile",
+				SelinuxRecordProfile: "selinux-profile",
 			},
 		},
 	} {

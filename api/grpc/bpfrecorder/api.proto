@@ -20,8 +20,8 @@ package api_bpfrecorder;
 option go_package = "sigs.k8s.io/security-profiles-operator/api/grpc/bpfrecorder;api_bpfrecorder";
 
 service BpfRecorder {
-  rpc Start(EmptyRequest) returns (EmptyResponse) {}
-  rpc Stop(EmptyRequest) returns (EmptyResponse) {}
+  rpc Start(RecordingRequest) returns (EmptyResponse) {}
+  rpc Stop(RecordingRequest) returns (EmptyResponse) {}
   // SyscallsForProfile and ApparmorForProfile return the recorded data without
   // removing it, so that a failure to persist the profile can be retried. The
   // Reset calls drop the data once the profile has been stored.
@@ -34,11 +34,29 @@ service BpfRecorder {
 message EmptyRequest {}
 message EmptyResponse {}
 
-message ProfileRequest { string name = 1; }
+// RecordingRequest starts or stops the recording for a client. The recording
+// runs while a client wants it.
+message RecordingRequest {
+  // id identifies the recording of a client, like the UID of the recorded
+  // pod. Start and Stop are idempotent per id, so that a retried or stale
+  // request does not affect the recordings of other clients. Requests without
+  // an id are counted, every Start needs its own Stop.
+  string id = 1;
+}
+
+message ProfileRequest {
+  string name = 1;
+  // allow_partial makes SyscallsForProfile return the syscalls which could be
+  // read if the ones of some containers cannot be read, instead of failing
+  // with DATA_LOSS.
+  bool allow_partial = 2;
+}
 
 message SyscallsResponse {
   repeated string syscalls = 1;
   string go_arch = 2;
+  // incomplete is set if the syscalls of some containers could not be read.
+  bool incomplete = 3;
 }
 
 message ApparmorResponse {

@@ -22,7 +22,9 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
@@ -253,6 +255,85 @@ func TestClearKey(t *testing.T) {
 	require.NotContains(t, sut.recordedSocketsUse, recordingKey(testKey))
 	require.NotContains(t, sut.recordedCapabilities, recordingKey(testKey))
 	require.Contains(t, sut.recordedFiles, recordingKey(2))
+}
+
+// TestExcludeDuringEvent asserts that an event which is handled while its key
+// gets excluded does not record data or take up a tracked key after the data
+// of the key got cleared. The handler waits for the lock of its data here,
+// after it found the key not to be excluded yet, while the key gets excluded.
+func TestExcludeDuringEvent(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name   string
+		lock   func(*AppArmorRecorder) *sync.Mutex
+		handle func(*AppArmorRecorder)
+	}{
+		{
+			name: "file",
+			lock: func(b *AppArmorRecorder) *sync.Mutex { return &b.lockRecordedFiles },
+			handle: func(b *AppArmorRecorder) {
+				b.handleFileEvent(fileEvent(testKey, flagRead, "/etc/passwd"))
+			},
+		},
+		{
+			name: "socket",
+			lock: func(b *AppArmorRecorder) *sync.Mutex { return &b.lockRecordedSocketsUse },
+			handle: func(b *AppArmorRecorder) {
+				b.handleSocketEvent(&bpfEvent{Key: testKey, Flags: socketFlags(afInet, sockStream)})
+			},
+		},
+		{
+			name: "capability",
+			lock: func(b *AppArmorRecorder) *sync.Mutex { return &b.lockRecordedCapabilities },
+			handle: func(b *AppArmorRecorder) {
+				b.handleCapabilityEvent(&bpfEvent{Key: testKey, Flags: 1})
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			sut := newTestAppArmorRecorder()
+			lock := tc.lock(sut)
+
+			lock.Lock()
+
+			done := make(chan struct{})
+
+			go func() {
+				defer close(done)
+
+				tc.handle(sut)
+			}()
+
+			// Give the handler the time to get to the lock. If it does
+			// not, it finds the key excluded right away.
+			time.Sleep(50 * time.Millisecond)
+
+			// What Exclude does: it marks the key and clears its data. There
+			// is no data yet, but the handler may have tracked the key.
+			sut.lockExcluded.Lock()
+			sut.excluded[recordingKey(testKey)] = struct{}{}
+			sut.lockExcluded.Unlock()
+
+			sut.lockTrackedKeys.Lock()
+			clear(sut.trackedKeys)
+			sut.lockTrackedKeys.Unlock()
+
+			lock.Unlock()
+			<-done
+
+			sut.handleFileEvent(fileEvent(testKey, flagRead, "/etc/shadow"))
+			sut.handleSocketEvent(&bpfEvent{Key: testKey, Flags: socketFlags(afInet, sockDgram)})
+			sut.handleCapabilityEvent(&bpfEvent{Key: testKey, Flags: 2})
+
+			require.Empty(t, sut.recordedFiles)
+			require.Empty(t, sut.recordedSocketsUse)
+			require.Empty(t, sut.recordedCapabilities)
+			require.Empty(t, sut.trackedKeys)
+		})
+	}
 }
 
 // GetAppArmorProcessed turns the recorded events into the profile contents. It

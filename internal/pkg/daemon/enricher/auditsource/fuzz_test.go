@@ -23,6 +23,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/require"
 
@@ -103,6 +104,15 @@ func FuzzExtractAuditLine(f *testing.F) {
 		require.Contains(t, record, "audit("+line.TimestampID+")")
 
 		requireAuditLineFields(t, record, line)
+
+		// The strings end up in protobuf messages.
+		for _, s := range []string{
+			line.TimestampID, line.Executable, line.Arch, line.Scontext, line.Tcontext,
+			line.Tclass, line.Perm, line.Apparmor, line.Operation, line.Profile, line.Name,
+			line.ExtraInfo,
+		} {
+			require.True(t, utf8.ValidString(s), "%q", s)
+		}
 
 		again, err := ExtractAuditLine(logLine)
 		require.NoError(t, err)
@@ -199,16 +209,18 @@ func FuzzParseAuditFields(f *testing.F) {
 
 			offset += pos + len(field.key) + 1 + len(field.raw)
 
+			require.True(t, utf8.ValidString(field.value), "%q", field.value)
+
 			switch {
 			case strings.HasPrefix(field.raw, `"`):
-				require.Equal(t, strings.TrimSuffix(field.raw[1:], `"`), field.value)
+				require.Equal(t, validUTF8(strings.TrimSuffix(field.raw[1:], `"`)), field.value)
 				require.NotContains(t, field.value, `"`)
 			case untrustedFields[field.key]:
 				require.NotContains(t, field.raw, " ")
 				require.Equal(t, decodeUntrusted(field.raw), field.value)
 			default:
 				require.NotContains(t, field.raw, " ")
-				require.Equal(t, field.raw, field.value)
+				require.Equal(t, validUTF8(field.raw), field.value)
 			}
 		}
 	})
@@ -260,8 +272,8 @@ func FuzzParseBpfAuditEvent(f *testing.F) {
 		}
 
 		strs := bytes.Split(raw[bpfAuditHeaderSize:], []byte{0})
-		require.Equal(t, string(strs[0]), line.Operation)
-		require.Equal(t, string(strs[1]), line.Executable)
-		require.Equal(t, string(strs[2]), line.Name)
+		require.Equal(t, validUTF8(string(strs[0])), line.Operation)
+		require.Equal(t, validUTF8(string(strs[1])), line.Executable)
+		require.Equal(t, validUTF8(string(strs[2])), line.Name)
 	})
 }

@@ -468,7 +468,7 @@ func TestStart(t *testing.T) {
 
 				require.NoError(t, err)
 				require.EqualValues(t, 1, sut.startRequests)
-				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
+				_, err = sut.Start(t.Context(), &api.RecordingRequest{})
 				require.NoError(t, err)
 				require.EqualValues(t, 2, sut.startRequests)
 			},
@@ -501,7 +501,7 @@ func TestStart(t *testing.T) {
 			err := sut.Load()
 			require.NoError(t, err)
 
-			_, err = sut.Start(t.Context(), &api.EmptyRequest{})
+			_, err = sut.Start(t.Context(), &api.RecordingRequest{})
 			tc.assert(t, sut, err)
 		})
 	}
@@ -546,7 +546,7 @@ func TestStop(t *testing.T) {
 
 				err := sut.Load()
 				require.NoError(t, err)
-				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
+				_, err = sut.Start(t.Context(), &api.RecordingRequest{})
 				require.NoError(t, err)
 			},
 			assert: func(t *testing.T, sut *BpfRecorder, err error) {
@@ -565,9 +565,9 @@ func TestStop(t *testing.T) {
 
 				err := sut.Load()
 				require.NoError(t, err)
-				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
+				_, err = sut.Start(t.Context(), &api.RecordingRequest{})
 				require.NoError(t, err)
-				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
+				_, err = sut.Start(t.Context(), &api.RecordingRequest{})
 				require.NoError(t, err)
 			},
 			assert: func(t *testing.T, sut *BpfRecorder, err error) {
@@ -588,10 +588,207 @@ func TestStop(t *testing.T) {
 
 			tc.prepare(t, sut, mock)
 
-			_, err := sut.Stop(t.Context(), &api.EmptyRequest{})
+			_, err := sut.Stop(t.Context(), &api.RecordingRequest{})
 			tc.assert(t, sut, err)
 		})
 	}
+}
+
+// newLoadedRecorder returns a recorder which is loaded but not recording.
+func newLoadedRecorder(t *testing.T) (*BpfRecorder, *bpfrecorderfakes.FakeImpl) {
+	t.Helper()
+
+	sut := New("", logr.Discard(), true, false)
+	mock := &bpfrecorderfakes.FakeImpl{}
+	mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
+	sut.impl = mock
+
+	require.NoError(t, sut.Load())
+
+	return sut, mock
+}
+
+// isRecording reports whether the last update of the is_recording map started
+// the recording.
+func isRecording(mock *bpfrecorderfakes.FakeImpl) bool {
+	calls := mock.UpdateValueCallCount()
+	if calls == 0 {
+		return false
+	}
+
+	_, _, value := mock.UpdateValueArgsForCall(calls - 1)
+
+	return len(value) == 1 && value[0] == 1
+}
+
+// TestStartStopSessions asserts that Start and Stop are idempotent per
+// session, so that a retried or stale request does not end the recording of
+// another session.
+func TestStartStopSessions(t *testing.T) {
+	t.Parallel()
+
+	sut, mock := newLoadedRecorder(t)
+
+	start := func(id string) {
+		t.Helper()
+
+		_, err := sut.Start(t.Context(), &api.RecordingRequest{Id: id})
+		require.NoError(t, err)
+	}
+
+	stop := func(id string) {
+		t.Helper()
+
+		_, err := sut.Stop(t.Context(), &api.RecordingRequest{Id: id})
+		require.NoError(t, err)
+	}
+
+	start("a")
+	start("a")
+	require.EqualValues(t, 1, atomic.LoadInt64(&sut.startRequests))
+
+	start("b")
+	start("")
+	require.EqualValues(t, 3, atomic.LoadInt64(&sut.startRequests))
+
+	stop("a")
+	stop("a")
+	stop("unknown")
+	require.EqualValues(t, 2, atomic.LoadInt64(&sut.startRequests))
+
+	stop("")
+	stop("")
+	require.EqualValues(t, 1, atomic.LoadInt64(&sut.startRequests))
+	require.True(t, isRecording(mock))
+
+	stop("b")
+	require.Zero(t, atomic.LoadInt64(&sut.startRequests))
+	require.False(t, isRecording(mock))
+}
+
+// TestStopKeepsSessionOnFailure asserts that a session stays registered if the
+// recording could not be stopped, so that the retry of the client and the
+// maintenance still see the recording.
+func TestStopKeepsSessionOnFailure(t *testing.T) {
+	t.Parallel()
+
+	sut, mock := newLoadedRecorder(t)
+
+	_, err := sut.Start(t.Context(), &api.RecordingRequest{Id: "a"})
+	require.NoError(t, err)
+
+	mock.UpdateValueReturns(errTest)
+
+	_, err = sut.Stop(t.Context(), &api.RecordingRequest{Id: "a"})
+	require.ErrorIs(t, err, errTest)
+	require.EqualValues(t, 1, atomic.LoadInt64(&sut.startRequests))
+
+	mock.UpdateValueReturns(nil)
+
+	_, err = sut.Stop(t.Context(), &api.RecordingRequest{Id: "a"})
+	require.NoError(t, err)
+	require.Zero(t, atomic.LoadInt64(&sut.startRequests))
+}
+
+// TestStartAfterPartiallyFailedStop asserts that a Start switches the
+// recording on again if a Stop failed after it switched it off, while the
+// stopped session is still counted until its Stop gets retried.
+func TestStartAfterPartiallyFailedStop(t *testing.T) {
+	t.Parallel()
+
+	sut := New("", logr.Discard(), true, false)
+	mock := &bpfrecorderfakes.FakeImpl{}
+	mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
+	// The maps exist, so that stopping the recording clears them.
+	mock.GetMapReturns(&libbpfgo.BPFMap{}, nil)
+	sut.impl = mock
+
+	require.NoError(t, sut.Load())
+
+	_, err := sut.Start(t.Context(), &api.RecordingRequest{Id: "a"})
+	require.NoError(t, err)
+	require.True(t, isRecording(mock))
+
+	// Clearing the maps fails after the recording got switched off.
+	mock.MapKeysReturns(nil, errTest)
+
+	_, err = sut.Stop(t.Context(), &api.RecordingRequest{Id: "a"})
+	require.ErrorIs(t, err, errTest)
+	require.False(t, isRecording(mock))
+	require.EqualValues(t, 1, atomic.LoadInt64(&sut.startRequests))
+
+	mock.MapKeysReturns(nil, nil)
+
+	_, err = sut.Start(t.Context(), &api.RecordingRequest{Id: "b"})
+	require.NoError(t, err)
+	require.True(t, isRecording(mock), "the recording runs for the new session")
+	require.EqualValues(t, 2, atomic.LoadInt64(&sut.startRequests))
+
+	// The retried Stop keeps recording for the other session.
+	_, err = sut.Stop(t.Context(), &api.RecordingRequest{Id: "a"})
+	require.NoError(t, err)
+	require.True(t, isRecording(mock))
+
+	_, err = sut.Stop(t.Context(), &api.RecordingRequest{Id: "b"})
+	require.NoError(t, err)
+	require.False(t, isRecording(mock))
+	require.Zero(t, atomic.LoadInt64(&sut.startRequests))
+}
+
+// TestStaleStopAfterAbandonedRecording asserts that the Stop of a session
+// whose recording got stopped as abandoned does not end the recording which
+// another session started afterwards.
+func TestStaleStopAfterAbandonedRecording(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+
+	sut, mock := newLoadedRecorder(t)
+	sut.clientset = &kubernetes.Clientset{}
+	sut.now = func() time.Time { return now }
+
+	watchPods(t, sut, podWithContainer(nil))
+
+	_, err := sut.Start(t.Context(), &api.RecordingRequest{Id: "a"})
+	require.NoError(t, err)
+
+	sut.releaseAbandonedRecording()
+
+	now = now.Add(abandonedRecordingTimeout)
+
+	sut.releaseAbandonedRecording()
+	require.Zero(t, atomic.LoadInt64(&sut.startRequests))
+	require.False(t, isRecording(mock))
+
+	_, err = sut.Start(t.Context(), &api.RecordingRequest{Id: "b"})
+	require.NoError(t, err)
+
+	_, err = sut.Stop(t.Context(), &api.RecordingRequest{Id: "a"})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, atomic.LoadInt64(&sut.startRequests))
+	require.True(t, isRecording(mock))
+}
+
+// TestClearBpfMap asserts that the keys are deleted, and that a failure to
+// list them is reported instead of leaving them in place silently.
+func TestClearBpfMap(t *testing.T) {
+	t.Parallel()
+
+	sut, mock := newClusterRecorder(false, false)
+	bpfMap := &libbpfgo.BPFMap{}
+
+	mock.MapKeysReturns([][]byte{{1}, {2}}, nil)
+	mock.DeleteMapKeyReturnsOnCall(0, syscall.ENOENT)
+	require.NoError(t, clearBpfMap(sut, bpfMap))
+	require.Equal(t, 2, mock.DeleteMapKeyCallCount())
+
+	mock.MapKeysReturns(nil, errTest)
+	require.ErrorIs(t, clearBpfMap(sut, bpfMap), errTest)
+	require.Equal(t, 2, mock.DeleteMapKeyCallCount())
+
+	mock.MapKeysReturns([][]byte{{1}}, nil)
+	mock.DeleteMapKeyReturns(errTest)
+	require.ErrorIs(t, clearBpfMap(sut, bpfMap), errTest)
 }
 
 func TestSyscallsForProfile(t *testing.T) {
@@ -611,7 +808,7 @@ func TestSyscallsForProfile(t *testing.T) {
 
 				err := sut.Load()
 				require.NoError(t, err)
-				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
+				_, err = sut.Start(t.Context(), &api.RecordingRequest{})
 				require.NoError(t, err)
 				sut.containerIDToProfileMap.Insert(containerID, profile)
 				sut.containerKeys.Insert(uint64(mntns), containerID)
@@ -642,7 +839,7 @@ func TestSyscallsForProfile(t *testing.T) {
 
 				err := sut.Load()
 				require.NoError(t, err)
-				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
+				_, err = sut.Start(t.Context(), &api.RecordingRequest{})
 				require.NoError(t, err)
 				sut.containerIDToProfileMap.Insert(containerID, profile)
 				sut.containerKeys.Insert(uint64(mntns), containerID)
@@ -695,7 +892,7 @@ func TestSyscallsForProfile(t *testing.T) {
 
 				err := sut.Load()
 				require.NoError(t, err)
-				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
+				_, err = sut.Start(t.Context(), &api.RecordingRequest{})
 				require.NoError(t, err)
 			},
 			assert: func(t *testing.T, sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
@@ -715,7 +912,7 @@ func TestSyscallsForProfile(t *testing.T) {
 
 				err := sut.Load()
 				require.NoError(t, err)
-				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
+				_, err = sut.Start(t.Context(), &api.RecordingRequest{})
 				require.NoError(t, err)
 				sut.containerIDToProfileMap.Insert(containerID, profile)
 				sut.containerKeys.Insert(uint64(mntns), containerID)
@@ -736,7 +933,7 @@ func TestSyscallsForProfile(t *testing.T) {
 
 				err := sut.Load()
 				require.NoError(t, err)
-				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
+				_, err = sut.Start(t.Context(), &api.RecordingRequest{})
 				require.NoError(t, err)
 				sut.containerIDToProfileMap.Insert(containerID, profile)
 				sut.containerKeys.Insert(uint64(mntns), containerID)
@@ -797,7 +994,7 @@ func TestApparmorForProfile(t *testing.T) {
 
 				err := sut.Load()
 				require.NoError(t, err)
-				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
+				_, err = sut.Start(t.Context(), &api.RecordingRequest{})
 				require.NoError(t, err)
 				sut.containerIDToProfileMap.Insert(containerID, profile)
 				sut.containerKeys.Insert(uint64(mntns), containerID)
@@ -837,7 +1034,7 @@ func TestApparmorForProfile(t *testing.T) {
 
 				err := sut.Load()
 				require.NoError(t, err)
-				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
+				_, err = sut.Start(t.Context(), &api.RecordingRequest{})
 				require.NoError(t, err)
 				sut.containerIDToProfileMap.Insert(containerID, profile)
 				sut.containerKeys.Insert(uint64(mntns), containerID)
@@ -904,7 +1101,7 @@ func TestApparmorForProfile(t *testing.T) {
 				mock.BPFLSMEnabledReturns(false)
 
 				require.NoError(t, sut.Load())
-				_, err := sut.Start(t.Context(), &api.EmptyRequest{})
+				_, err := sut.Start(t.Context(), &api.RecordingRequest{})
 				require.NoError(t, err)
 				sut.containerIDToProfileMap.Insert(containerID, profile)
 				sut.containerKeys.Insert(uint64(mntns), containerID)
@@ -926,7 +1123,7 @@ func TestApparmorForProfile(t *testing.T) {
 
 				err := sut.Load()
 				require.NoError(t, err)
-				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
+				_, err = sut.Start(t.Context(), &api.RecordingRequest{})
 				require.NoError(t, err)
 			},
 			assert: func(t *testing.T, sut *BpfRecorder, resp *api.ApparmorResponse, err error) {
@@ -1514,7 +1711,7 @@ func newRecordingRecorder(
 
 	require.NoError(t, sut.Load())
 
-	_, err := sut.Start(t.Context(), &api.EmptyRequest{})
+	_, err := sut.Start(t.Context(), &api.RecordingRequest{})
 	require.NoError(t, err)
 
 	return sut, mock
@@ -1590,6 +1787,60 @@ func TestSyscallsForProfileMergesAllKeys(t *testing.T) {
 	require.Equal(t, []string{"syscall_0", "syscall_2"}, resp.GetSyscalls())
 }
 
+// TestSyscallsForProfileFailsOnPartialRead asserts that the syscalls of some
+// keys are not handed out as the complete profile if the ones of another key
+// could not be read. The data would be dropped after the profile got stored.
+func TestSyscallsForProfileFailsOnPartialRead(t *testing.T) {
+	t.Parallel()
+
+	sut, mock := newRecordingRecorder(t, true, false)
+
+	sut.containerIDToProfileMap.Insert(containerID, profile)
+	sut.containerKeys.Insert(1, containerID)
+	sut.containerKeys.Insert(2, containerID)
+
+	mock.GetValue64ReturnsOnCall(0, []byte{1, 0, 0}, nil)
+	mock.GetValue64ReturnsOnCall(1, nil, errTest)
+	mock.GetNameReturns("syscall", nil)
+
+	_, err := sut.SyscallsForProfile(t.Context(), &api.ProfileRequest{Name: profile})
+	require.ErrorIs(t, err, errTest)
+	require.NotErrorIs(t, err, ErrNotFound)
+	require.Equal(t, codes.DataLoss, status.Code(err))
+}
+
+// TestSyscallsForProfileAllowsPartialRead asserts that a caller which gave up
+// on reading every key gets the syscalls of the readable keys, marked as
+// incomplete.
+func TestSyscallsForProfileAllowsPartialRead(t *testing.T) {
+	t.Parallel()
+
+	sut, mock := newRecordingRecorder(t, true, false)
+
+	sut.containerIDToProfileMap.Insert(containerID, profile)
+	sut.containerKeys.Insert(1, containerID)
+	sut.containerKeys.Insert(2, containerID)
+
+	mock.GetValue64ReturnsOnCall(0, []byte{1, 0, 0}, nil)
+	mock.GetValue64ReturnsOnCall(1, nil, errTest)
+	mock.GetValue64ReturnsOnCall(2, nil, errTest)
+	mock.GetValue64ReturnsOnCall(3, nil, errTest)
+	mock.GetNameReturns("syscall", nil)
+
+	resp, err := sut.SyscallsForProfile(
+		t.Context(), &api.ProfileRequest{Name: profile, AllowPartial: true},
+	)
+	require.NoError(t, err)
+	require.Equal(t, []string{"syscall"}, resp.GetSyscalls())
+	require.True(t, resp.GetIncomplete())
+
+	// Without any readable key there is nothing to hand out.
+	_, err = sut.SyscallsForProfile(
+		t.Context(), &api.ProfileRequest{Name: profile, AllowPartial: true},
+	)
+	require.Equal(t, codes.DataLoss, status.Code(err))
+}
+
 // TestSyscallsForProfileWithoutData asserts that a container which recorded
 // nothing is reported as not found instead of failing the collection forever.
 func TestSyscallsForProfileWithoutData(t *testing.T) {
@@ -1619,7 +1870,7 @@ func TestApparmorForProfileWithoutData(t *testing.T) {
 
 	require.NoError(t, sut.Load())
 
-	_, err := sut.Start(t.Context(), &api.EmptyRequest{})
+	_, err := sut.Start(t.Context(), &api.RecordingRequest{})
 	require.NoError(t, err)
 
 	sut.containerIDToProfileMap.Insert(containerID, profile)

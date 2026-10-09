@@ -153,8 +153,10 @@ type ReconcileSelinux struct {
 	reloadFailures map[types.NamespacedName]reloadFailures
 
 	// removalsCounted maps the profiles whose removal got counted in the
-	// metrics to their UID, as a retried deletion counts it again otherwise.
-	// The node status, which records the reload, may be gone already.
+	// metrics to their UID, as a retried deletion or the deletion of a
+	// disabled profile counts it again otherwise. The node status, which
+	// records the reload, may be gone already. An installation forgets the
+	// counted removal, so that the next removal counts again.
 	removalsCounted sync.Map
 }
 
@@ -376,7 +378,10 @@ func (r *ReconcileSelinux) Reconcile(
 	}
 
 	if !instance.GetDeletionTimestamp().IsZero() {
-		r.forgetProfile(request.NamespacedName)
+		// The counted removal is kept until the profile is gone, a retry
+		// must not count it again.
+		r.forgetInstallError(request.NamespacedName)
+		r.forgetReloadFailures(request.NamespacedName)
 
 		return common.ReconcileDeletion(
 			ctx, instance, nodeStatus, r.client, reqLogger, r.record,
@@ -462,8 +467,7 @@ func (r *ReconcileSelinux) forgetInstallError(key types.NamespacedName) {
 	delete(r.reported, key)
 }
 
-// forgetProfile forgets what got remembered about a profile which is gone or
-// being deleted.
+// forgetProfile forgets what got remembered about a profile which is gone.
 func (r *ReconcileSelinux) forgetProfile(key types.NamespacedName) {
 	r.forgetInstallError(key)
 	r.forgetReloadFailures(key)
@@ -714,6 +718,7 @@ func (r *ReconcileSelinux) handlePolicyStatus(
 		}
 
 		r.forgetInstallError(client.ObjectKeyFromObject(sp))
+		r.removalsCounted.Delete(client.ObjectKeyFromObject(sp))
 
 		if !alreadyInstalled {
 			evstr := "Successfully saved profile to disk on " + r.nodeName
@@ -1224,10 +1229,24 @@ func (r *ReconcileSelinux) reconcileDeletePolicy(
 		l.Info("Policy reported as failed but the module is not installed")
 	}
 
-	r.metrics.IncSelinuxProfileDelete()
+	r.countRemoval(sp)
 	l.Info("Policy removed")
 
 	return reconcile.Result{}, nil
+}
+
+// countRemoval counts the removal of the policy in the metrics, unless it got
+// counted since the policy got installed last. It reports whether it counted
+// the removal.
+func (r *ReconcileSelinux) countRemoval(sp selinuxprofileapi.SelinuxProfileObject) bool {
+	counted, ok := r.removalsCounted.Swap(client.ObjectKeyFromObject(sp), sp.GetUID())
+	if ok && counted == sp.GetUID() {
+		return false
+	}
+
+	r.metrics.IncSelinuxProfileDelete()
+
+	return true
 }
 
 // reloadRemovedPolicy reloads the kernel policy after the removal of the
@@ -1238,12 +1257,6 @@ func (r *ReconcileSelinux) reloadRemovedPolicy(
 	nodeStatus *nodestatus.StatusClient,
 	l logr.Logger,
 ) (reconcile.Result, error) {
-	// A retried deletion passes here again after the reload, which must not
-	// count the removal again.
-	key := client.ObjectKeyFromObject(sp)
-	countedUID, counted := r.removalsCounted.Load(key)
-	counted = counted && countedUID == sp.GetUID()
-
 	res, err := r.reloadPolicy(ctx, sp, nodeStatus, removeReload, l)
 	if errors.Is(err, errCreateReloadJob) {
 		// Unlike a running job, a failure to create one may not go away, and
@@ -1263,10 +1276,10 @@ func (r *ReconcileSelinux) reloadRemovedPolicy(
 		res, err = reconcile.Result{}, nil
 	}
 
-	// A requeue means that a reload job of another generation still runs.
-	if err == nil && res.IsZero() && !counted {
-		r.metrics.IncSelinuxProfileDelete()
-		r.removalsCounted.Store(key, sp.GetUID())
+	// A requeue means that a reload job of another generation still runs. A
+	// retried deletion passes here again after the reload, which must not
+	// count the removal again.
+	if err == nil && res.IsZero() && r.countRemoval(sp) {
 		l.Info("Policy removed")
 	}
 

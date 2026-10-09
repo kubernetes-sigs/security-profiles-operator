@@ -69,6 +69,8 @@ run the manager
 
 run the daemon
 
+**--max-metric-series**="": number of series each per workload metric keeps at most, increments of further series get dropped, 0 keeps any number (default: 0)
+
 **--with-apparmor**: listen for AppArmor API resources
 
 **--with-insecure-metrics-access**: allow unauthenticated access to the metrics endpoint
@@ -148,6 +150,7 @@ The following variables set the default of a flag.
 | `ENABLE_RECORDING` | `--with-recording` | daemon |
 | `ENABLE_MEM_OPTIM` | `--with-mem-optim` | daemon |
 | `ENABLE_INSECURE_METRICS_ACCESS` | `--with-insecure-metrics-access` | daemon |
+| `MAX_METRIC_SERIES` | `--max-metric-series` | daemon |
 | `SPO_APPARMOR` | `--apparmor` | non-root-enabler |
 
 The following variables are read at runtime.
@@ -163,5 +166,6 @@ The following variables are read at runtime.
 | `KUBELET_DIR` | kubelet root directory, used when the kubelet configuration written by the non-root-enabler has none, defaults to `/var/lib/kubelet` |
 | `ENABLE_LOG_ENRICHER, ENABLE_JSON_ENRICHER, ENABLE_BPF_RECORDER` | enable the respective daemon container in addition to the `SecurityProfilesOperatorDaemon` configuration, the manager passes them on to the daemon |
 | `ENABLE_INSECURE_METRICS_ACCESS` | read by the manager as well: allows unauthenticated access to the metrics endpoint of the daemon in addition to the `SecurityProfilesOperatorDaemon` configuration |
+| `MAX_METRIC_SERIES` | read by the manager as well: passed on to the daemon if set |
 | `RELATED_IMAGE_SELINUXD` | image of the selinuxd container of the daemon if the image mapping of the operator ConfigMap selects none for the operating system of the node |
 | `RELATED_IMAGE_SELINUXD_EL8, RELATED_IMAGE_SELINUXD_EL9, RELATED_IMAGE_SELINUXD_EL10, RELATED_IMAGE_SELINUXD_FEDORA` | images of the selinuxd container per operating system of the node, which the `selinuxd-image-mapping.json` mapping of the operator ConfigMap refers to, an unset one falls back to RELATED_IMAGE_SELINUXD |

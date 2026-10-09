@@ -92,10 +92,12 @@ func (a *aaProfileManager) Enabled() bool {
 	return hostSupportsAppArmor
 }
 
-func (a *aaProfileManager) RemoveProfile(bp profilebaseapi.StatusBaseUser, ownedByUs bool) error {
+func (a *aaProfileManager) RemoveProfile(
+	bp profilebaseapi.StatusBaseUser, ownedByUs bool,
+) (bool, error) {
 	profile, ok := bp.(*apparmorprofileapi.AppArmorProfile)
 	if !ok {
-		return errors.New(errInvalidCustomResourceType)
+		return false, errors.New(errInvalidCustomResourceType)
 	}
 
 	// A profile installed before the ownership marker existed carries none, so
@@ -447,7 +449,9 @@ func policyFileOwned(path, policy string, ownedByUs bool) bool {
 	return fileManagedByUs(path) || fileHasContent(path, policy)
 }
 
-func removeProfile(logger logr.Logger, profileName, policy string, ownedByUs bool) error {
+func removeProfile(logger logr.Logger, profileName, policy string, ownedByUs bool) (bool, error) {
+	removed := false
+
 	mount := hostop.NewMountHostOp(
 		hostop.WithLogger(logger),
 		hostop.WithAssumeContainer(),
@@ -480,6 +484,8 @@ func removeProfile(logger logr.Logger, profileName, policy string, ownedByUs boo
 			if err := a.DeletePolicy(profileName); err != nil {
 				return fmt.Errorf("deleting apparmor policy %s: %w", profileName, err)
 			}
+
+			removed = true
 		} else {
 			logger.Info(
 				"profile is not loaded into host: removing the policy file only",
@@ -490,15 +496,18 @@ func removeProfile(logger logr.Logger, profileName, policy string, ownedByUs boo
 
 		// Remove the file even when the policy was not loaded, otherwise it
 		// stays behind as a stale ownership marker.
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		err = os.Remove(path)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("removing policy file %s: %w", path, err)
 		}
+
+		removed = removed || err == nil
 
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("removing apparmor profile: %w", err)
+		return false, fmt.Errorf("removing apparmor profile: %w", err)
 	}
 
-	return nil
+	return removed, nil
 }

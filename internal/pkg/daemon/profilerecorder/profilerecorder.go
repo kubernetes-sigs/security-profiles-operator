@@ -42,6 +42,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -81,6 +82,18 @@ const (
 	seContextRequiredParts = 3
 )
 
+// storeProfileBackoff retries conflicting writes of a recorded profile. The
+// daemons of all nodes running a recorded workload merge into the same
+// profile at once, so the retries spread out with jitter and the default of
+// five quick attempts would leave some of them failed.
+var storeProfileBackoff = wait.Backoff{
+	Steps:    12,
+	Duration: 10 * time.Millisecond,
+	Factor:   1.5,
+	Jitter:   1,
+	Cap:      5 * time.Second,
+}
+
 var errNameNotValid = errors.New(
 	"recording name is not valid DNS1123 subdomain, check profileRecording events")
 
@@ -100,6 +113,9 @@ var (
 	// out the recorded data at all, for example because it stopped a
 	// recording which looked abandoned, or got restarted.
 	errBpfRecorderUnavailable = errors.New("bpf recorder cannot provide the recorded data")
+	// errIncompleteRead is returned if the BPF recorder cannot read all the
+	// data recorded for a profile.
+	errIncompleteRead = errors.New("bpf recorder cannot read all recorded data")
 )
 
 // unrecordable reports whether a collect error means the pod can never be
@@ -114,17 +130,21 @@ func unrecordable(err error) bool {
 // NewController returns a new empty controller instance.
 func NewController() controller.Controller {
 	return &RecorderReconciler{
-		impl:                 &defaultImpl{},
-		forbiddenGracePeriod: defaultForbiddenGracePeriod,
+		impl:                      &defaultImpl{},
+		forbiddenGracePeriod:      defaultForbiddenGracePeriod,
+		incompleteReadGracePeriod: defaultIncompleteReadGracePeriod,
 	}
 }
 
 type RecorderReconciler struct {
 	impl
-	client        client.Client
-	log           logr.Logger
-	record        util.EventRecorder
-	nodeAddresses []string
+	client client.Client
+	// uncachedClient reads what the daemon does not watch, like the
+	// namespaces.
+	uncachedClient client.Client
+	log            logr.Logger
+	record         util.EventRecorder
+	nodeAddresses  []string
 	// namespace is the namespace of the operator, which holds the SPOD.
 	namespace   string
 	podsToWatch sync.Map
@@ -132,17 +152,26 @@ type RecorderReconciler struct {
 	// rejectedPod, so that every update of such a pod does not warn about
 	// them again.
 	rejectedPods sync.Map
-	// forbiddenAttempts holds per forbiddenKey the *forbiddenAttempts of
-	// storing a profile.
+	// scope caches whether the recording webhook applies to a pod.
+	scope recordingScope
+	// forbiddenAttempts holds per attemptKey the *failedAttempts of storing
+	// a profile.
 	forbiddenAttempts sync.Map
 	// forbiddenGracePeriod is how long storing a profile is retried at least
 	// while the API server forbids it.
 	forbiddenGracePeriod time.Duration
+	// incompleteReads holds per attemptKey the *failedAttempts of reading
+	// the data the BPF recorder recorded for a profile.
+	incompleteReads sync.Map
+	// incompleteReadGracePeriod is how long reading the recorded data of a
+	// profile is retried at least while the BPF recorder cannot read all of
+	// it.
+	incompleteReadGracePeriod time.Duration
 }
 
-// forbiddenKey identifies the attempts of a pod to store a profile. Profiles
-// of different namespaces can have the same name.
-type forbiddenKey struct {
+// attemptKey identifies the attempts of a pod to collect or store a profile.
+// Profiles of different namespaces can have the same name.
+type attemptKey struct {
 	pod     types.NamespacedName
 	profile types.NamespacedName
 }
@@ -233,6 +262,7 @@ func (r *RecorderReconciler) Setup(
 	}
 
 	r.client = r.ManagerGetClient(mgr)
+	r.uncachedClient = c
 	r.nodeAddresses = nodeAddresses
 	r.namespace = namespace
 	r.record = r.ManagerGetEventRecorder(mgr, name)
@@ -308,7 +338,8 @@ type rejectedPod struct {
 }
 
 // authorizedProfiles drops the profiles whose annotation is not backed by a
-// ProfileRecording that selects this pod.
+// ProfileRecording that selects this pod, and all of them if the recording
+// webhook does not apply to the pod or its namespace.
 //
 // The trace annotations are written by the recording webhook, but that webhook
 // is gated by a namespace selector, so in a namespace where it never runs the
@@ -327,15 +358,6 @@ func (r *RecorderReconciler) authorizedProfiles(
 		return profiles, nil, nil
 	}
 
-	recordings, err := r.ListRecordings(ctx, r.client, pod.Namespace)
-	if err != nil {
-		return nil, nil, fmt.Errorf("list profile recordings: %w", err)
-	}
-
-	podLabels := k8slabels.Set(pod.GetLabels())
-	authorized := make([]profileToCollect, 0, len(profiles))
-	states := map[string]recordingState{}
-
 	// An ignored annotation is reported once per pod, a newly ignored one of
 	// the same pod gets reported as well.
 	podKey := types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name}.String()
@@ -346,6 +368,36 @@ func (r *RecorderReconciler) authorizedProfiles(
 			warnedBefore = previous.annotations
 		}
 	}
+
+	enabled, err := r.recordingEnabled(ctx, pod)
+	if err == nil && !enabled && slices.ContainsFunc(profiles, func(p profileToCollect) bool {
+		_, warned := warnedBefore[p.name]
+
+		return !warned
+	}) {
+		// The cached scope may be older than the pod, like the labels of a
+		// namespace which got labeled for recording right before the pod got
+		// created. Nothing looks at a rejected pod again unless it changes,
+		// so its first rejection is checked against the current scope.
+		r.scope.forget(pod.Namespace)
+		enabled, err = r.recordingEnabled(ctx, pod)
+	}
+
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var recordings *profilerecordingapi.ProfileRecordingList
+	if enabled {
+		recordings, err = r.ListRecordings(ctx, r.client, pod.Namespace)
+		if err != nil {
+			return nil, nil, fmt.Errorf("list profile recordings: %w", err)
+		}
+	}
+
+	podLabels := k8slabels.Set(pod.GetLabels())
+	authorized := make([]profileToCollect, 0, len(profiles))
+	states := map[string]recordingState{}
 
 	rejectedNow := map[string]struct{}{}
 	defer func() {
@@ -361,6 +413,35 @@ func (r *RecorderReconciler) authorizedProfiles(
 		_, warned = warnedBefore[annotation]
 
 		return warned
+	}
+
+	if !enabled {
+		warned := true
+		for _, profile := range profiles {
+			warned = reject(profile.name) && warned
+		}
+
+		if !warned {
+			r.log.Info(
+				"Ignoring recording annotations, the recording webhook does not apply to the pod",
+				"pod",
+				pod.Name,
+				"namespace",
+				pod.Namespace,
+			)
+			r.record.Eventf(
+				pod,
+				nil,
+				util.EventTypeWarning,
+				reasonAnnotationParsing,
+				util.EventActionRecord,
+				"%s",
+				"ignoring recording annotations, profile recording is not enabled for namespace "+
+					pod.Namespace+" or the pod",
+			)
+		}
+
+		return authorized, states, nil
 	}
 
 	for _, profile := range profiles {
@@ -539,7 +620,7 @@ func (r *RecorderReconciler) Reconcile(
 		}
 
 		if recorder == profilerecordingapi.ProfileRecorderBpf {
-			if err := r.startBpfRecorder(ctx, bpf); err != nil {
+			if err := r.startBpfRecorder(ctx, bpf, pod.UID); err != nil {
 				logger.Error(err, "unable to start bpf recorder")
 
 				return reconcile.Result{}, err
@@ -769,15 +850,25 @@ func (s *bpfRecorderSession) Close() {
 	s.conn = nil
 }
 
-func (r *RecorderReconciler) startBpfRecorder(ctx context.Context, bpf *bpfRecorderSession) error {
+// startBpfRecorder starts the BPF recorder for the pod with the UID. The
+// recorder runs once per pod, so a retried start is not counted again.
+func (r *RecorderReconciler) startBpfRecorder(
+	ctx context.Context, bpf *bpfRecorderSession, uid types.UID,
+) error {
 	recorderClient, err := bpf.Client(ctx)
 	if err != nil {
 		return err
 	}
 
-	r.log.Info("Starting BPF recorder on node")
+	r.log.Info("Starting BPF recorder on node", "uid", uid)
 
-	return r.StartBpfRecorder(ctx, recorderClient)
+	return r.StartBpfRecorder(ctx, recorderClient, bpfRecordingRequest(uid))
+}
+
+// bpfRecordingRequest returns the request which starts or stops the BPF
+// recorder for the pod with the UID.
+func bpfRecordingRequest(uid types.UID) *bpfrecorderapi.RecordingRequest {
+	return &bpfrecorderapi.RecordingRequest{Id: string(uid)}
 }
 
 // abandonPod releases a pod whose profiles can never be collected and tells
@@ -813,14 +904,16 @@ func (r *RecorderReconciler) abandonPod(
 func (r *RecorderReconciler) releaseUnrecordablePod(
 	ctx context.Context, podName types.NamespacedName, bpf *bpfRecorderSession,
 ) {
-	// Nothing retries storing the profiles of the pod any more.
-	r.forbiddenAttempts.Range(func(key, _ any) bool {
-		if k, ok := key.(forbiddenKey); ok && k.pod == podName {
-			r.forbiddenAttempts.Delete(key)
-		}
+	// Nothing retries collecting or storing the profiles of the pod any more.
+	for _, attempts := range []*sync.Map{&r.forbiddenAttempts, &r.incompleteReads} {
+		attempts.Range(func(key, _ any) bool {
+			if k, ok := key.(attemptKey); ok && k.pod == podName {
+				attempts.Delete(key)
+			}
 
-		return true
-	})
+			return true
+		})
+	}
 
 	n := podName.String()
 
@@ -832,7 +925,7 @@ func (r *RecorderReconciler) releaseUnrecordablePod(
 	if podToWatch, ok := value.(podToWatch); ok {
 		switch podToWatch.recorder {
 		case profilerecordingapi.ProfileRecorderBpf:
-			r.releaseBpfProfiles(ctx, bpf, podToWatch.profiles)
+			r.releaseBpfProfiles(ctx, bpf, podToWatch.uid, podToWatch.profiles)
 		case profilerecordingapi.ProfileRecorderLogs:
 			r.releaseLogProfiles(ctx, podToWatch.profiles)
 		}
@@ -844,7 +937,7 @@ func (r *RecorderReconciler) releaseUnrecordablePod(
 // releaseBpfProfiles drops the data the BPF recorder holds for profiles and
 // stops the recorder.
 func (r *RecorderReconciler) releaseBpfProfiles(
-	ctx context.Context, bpf *bpfRecorderSession, profiles []profileToCollect,
+	ctx context.Context, bpf *bpfRecorderSession, uid types.UID, profiles []profileToCollect,
 ) {
 	recorderClient, err := bpf.Client(ctx)
 	if err != nil {
@@ -864,7 +957,7 @@ func (r *RecorderReconciler) releaseBpfProfiles(
 		}
 	}
 
-	if err := r.StopBpfRecorder(ctx, recorderClient); err != nil {
+	if err := r.StopBpfRecorder(ctx, recorderClient, bpfRecordingRequest(uid)); err != nil {
 		r.log.Error(err, "Unable to stop bpf recorder for unrecordable pod")
 	}
 }
@@ -961,7 +1054,13 @@ func (r *RecorderReconciler) collectProfile(
 
 	if podToWatch.recorder == profilerecordingapi.ProfileRecorderBpf {
 		if err := r.collectBpfProfiles(
-			ctx, bpf, replicaSuffix, podName, podToWatch.profiles, podToWatch.recordings,
+			ctx,
+			bpf,
+			replicaSuffix,
+			podName,
+			podToWatch.uid,
+			podToWatch.profiles,
+			podToWatch.recordings,
 		); err != nil {
 			return fmt.Errorf("collect bpf profile: %w", err)
 		}
@@ -1110,7 +1209,9 @@ func (r *RecorderReconciler) collectLogSeccompProfile(
 	target *profileTarget,
 	profileID string,
 ) error {
-	request := &enricherapi.SyscallsRequest{Profile: profileID}
+	// Collecting stops the recording, so that the syscalls of lines read
+	// afterwards are not recorded again for nobody to collect.
+	request := &enricherapi.SyscallsRequest{Profile: profileID, Collect: true}
 	profileNamespacedName := target.name
 
 	collector := logProfileCollector{
@@ -1171,7 +1272,8 @@ func (r *RecorderReconciler) collectLogSelinuxProfile(
 	target *profileTarget,
 	profileID string,
 ) error {
-	request := &enricherapi.AvcRequest{Profile: profileID}
+	// Collecting stops the recording, see collectLogSeccompProfile.
+	request := &enricherapi.AvcRequest{Profile: profileID, Collect: true}
 	profileNamespacedName := target.name
 
 	collector := logProfileCollector{
@@ -1274,6 +1376,7 @@ func (r *RecorderReconciler) collectBpfProfiles(
 	bpf *bpfRecorderSession,
 	replicaSuffix string,
 	podName types.NamespacedName,
+	uid types.UID,
 	profiles []profileToCollect,
 	recordings map[string]recordingState,
 ) error {
@@ -1292,7 +1395,7 @@ func (r *RecorderReconciler) collectBpfProfiles(
 
 	r.log.Info("Stopping BPF recorder on node")
 
-	if err := r.StopBpfRecorder(ctx, recorderClient); err != nil {
+	if err := r.StopBpfRecorder(ctx, recorderClient, bpfRecordingRequest(uid)); err != nil {
 		r.log.Error(err, "Unable to stop bpf recorder")
 
 		return fmt.Errorf("stop bpf recorder: %w", err)
@@ -1408,6 +1511,20 @@ func (r *RecorderReconciler) collectBpfProfile(
 	request := &bpfrecorderapi.ProfileRequest{Name: ptc.name}
 
 	profile, specBase, err := collector.fetch(ctx, request, target)
+	if errors.Is(err, errIncompleteRead) && r.incompleteForGood(target.attemptKey()) {
+		// Waiting for data which cannot be read would keep the pod and the
+		// recorder session around until the maintenance of the recorder
+		// stops it. The profile is stored with what can be read instead.
+		r.log.Error(err, "Collecting the recorded data which can be read", "name", ptc.name)
+
+		request.AllowPartial = true
+		profile, specBase, err = collector.fetch(ctx, request, target)
+	}
+
+	if !errors.Is(err, errIncompleteRead) {
+		r.incompleteReads.Delete(target.attemptKey())
+	}
+
 	if err != nil {
 		// skip empty profiles
 		if errors.Is(err, errRecordedProfileNotFound) {
@@ -1452,7 +1569,8 @@ func (r *RecorderReconciler) resetBpfProfile(
 // status code. The BPF recorder returns NotFound if nothing got recorded for
 // the profile, this might be an init container which is no longer active, so
 // that the profile is skipped. FailedPrecondition means that the recorder
-// cannot provide the data at all, which releases the pod.
+// cannot provide the data at all, which releases the pod. DataLoss means that
+// some of the recorded data cannot be read.
 func (r *RecorderReconciler) bpfRecorderError(err error, what, profile string) error {
 	code := grpcstatus.Code(err)
 
@@ -1465,6 +1583,11 @@ func (r *RecorderReconciler) bpfRecorderError(err error, what, profile string) e
 	if code == grpccodes.FailedPrecondition {
 		return fmt.Errorf("getting %s for profile: %w: %s",
 			what, errBpfRecorderUnavailable, grpcstatus.Convert(err).Message())
+	}
+
+	if code == grpccodes.DataLoss {
+		return fmt.Errorf("getting %s for profile: %w: %s",
+			what, errIncompleteRead, grpcstatus.Convert(err).Message())
 	}
 
 	return fmt.Errorf("getting %s for profile: %w", what, err)
@@ -1481,9 +1604,23 @@ func (r *RecorderReconciler) fetchSeccompBpfProfile(
 		return nil, nil, r.bpfRecorderError(err, "syscalls", request.GetName())
 	}
 
-	return r.recordedSeccompProfile(
+	profile, specBase, err := r.recordedSeccompProfile(
 		target.name, target.labels, response.GetGoArch(), response.GetSyscalls(),
 	)
+	if err == nil && response.GetIncomplete() {
+		r.log.Info("Some recorded syscalls cannot be read, the profile may be incomplete",
+			"profile", target.name.Name)
+		r.record.Eventf(
+			profile,
+			nil,
+			util.EventTypeWarning,
+			reasonRecordingIncomplete,
+			util.EventActionRecord,
+			"Some recorded syscalls cannot be read, the profile may be incomplete",
+		)
+	}
+
+	return profile, specBase, err
 }
 
 // recordedSeccompProfile returns the profile which allows the recorded
@@ -1616,8 +1753,8 @@ type profileTarget struct {
 	pod types.NamespacedName
 }
 
-func (t *profileTarget) forbiddenKey() forbiddenKey {
-	return forbiddenKey{pod: t.pod, profile: t.name}
+func (t *profileTarget) attemptKey() attemptKey {
+	return attemptKey{pod: t.pod, profile: t.name}
 }
 
 // resolveProfileTarget determines how the profile for the parsed annotation is
@@ -1760,7 +1897,7 @@ func (r *RecorderReconciler) storeProfile(
 	// Several nodes can merge into the same profile at once. The merge is
 	// done against the object fetched right before the update, which fails
 	// on a conflicting write in between and is then done again.
-	err := retry.OnError(retry.DefaultRetry, func(err error) bool {
+	err := retry.OnError(storeProfileBackoff, func(err error) bool {
 		return kerrors.IsConflict(err) || kerrors.IsAlreadyExists(err)
 	}, func() error {
 		stored, ok := desired.DeepCopyObject().(client.Object)
@@ -1820,14 +1957,14 @@ func (r *RecorderReconciler) storeProfile(
 			return nil
 		}
 
-		if r.rejectedForGood(target.forbiddenKey(), err) {
+		if r.rejectedForGood(target.attemptKey(), err) {
 			return fmt.Errorf("%w: %w", errProfileRejected, err)
 		}
 
 		return fmt.Errorf("create %s profile resource: %w", kind, err)
 	}
 
-	r.forbiddenAttempts.Delete(target.forbiddenKey())
+	r.forbiddenAttempts.Delete(target.attemptKey())
 
 	r.log.Info("Created/updated profile", "action", res, "name", target.name.Name)
 	r.record.Eventf(
@@ -1890,17 +2027,51 @@ const (
 	// most to be in effect. The rate limiter of the controller retries within
 	// a fraction of a second, so the attempts alone do not cover it.
 	defaultForbiddenGracePeriod = 2 * time.Minute
+
+	// maxIncompleteReadAttempts is how often reading the recorded data of
+	// a profile is tried at least while the BPF recorder cannot read all of
+	// it.
+	maxIncompleteReadAttempts = 5
+	// defaultIncompleteReadGracePeriod is how long reading the recorded data
+	// is tried at least, so that a short failure does not cost data.
+	defaultIncompleteReadGracePeriod = time.Minute
 )
 
-// forbiddenAttempts counts the forbidden attempts to store a profile.
-type forbiddenAttempts struct {
+// failedAttempts counts the failed attempts to collect or store a profile.
+type failedAttempts struct {
 	count atomic.Int32
 	first time.Time
 }
 
+// failedForGood counts a failed attempt for key in attempts. It reports
+// whether at least maxAttempts failed, the first at least gracePeriod ago, and
+// then forgets the attempts.
+func failedForGood(
+	attempts *sync.Map, key attemptKey, maxAttempts int32, gracePeriod time.Duration,
+) bool {
+	value, _ := attempts.LoadOrStore(key, &failedAttempts{first: time.Now()})
+
+	failed, ok := value.(*failedAttempts)
+	if !ok || (failed.count.Add(1) >= maxAttempts && time.Since(failed.first) >= gracePeriod) {
+		attempts.Delete(key)
+
+		return true
+	}
+
+	return false
+}
+
+// incompleteForGood reports whether the BPF recorder failed to read all the
+// data recorded for a profile often and long enough to give up on it.
+func (r *RecorderReconciler) incompleteForGood(key attemptKey) bool {
+	return failedForGood(
+		&r.incompleteReads, key, maxIncompleteReadAttempts, r.incompleteReadGracePeriod,
+	)
+}
+
 // rejectedForGood reports whether the API server will reject the profile
 // again, in which case retrying would only keep the recording going for good.
-func (r *RecorderReconciler) rejectedForGood(key forbiddenKey, err error) bool {
+func (r *RecorderReconciler) rejectedForGood(key attemptKey, err error) bool {
 	if kerrors.IsInvalid(err) || kerrors.IsRequestEntityTooLargeError(err) ||
 		kerrors.IsBadRequest(err) {
 		return true
@@ -1910,17 +2081,7 @@ func (r *RecorderReconciler) rejectedForGood(key forbiddenKey, err error) bool {
 		return false
 	}
 
-	value, _ := r.forbiddenAttempts.LoadOrStore(key, &forbiddenAttempts{first: time.Now()})
-
-	attempts, ok := value.(*forbiddenAttempts)
-	if !ok || (attempts.count.Add(1) >= maxForbiddenAttempts &&
-		time.Since(attempts.first) >= r.forbiddenGracePeriod) {
-		r.forbiddenAttempts.Delete(key)
-
-		return true
-	}
-
-	return false
+	return failedForGood(&r.forbiddenAttempts, key, maxForbiddenAttempts, r.forbiddenGracePeriod)
 }
 
 // mergeStoredProfile returns desired merged with the stored profile, the way

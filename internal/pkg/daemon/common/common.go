@@ -92,21 +92,32 @@ func LogFilePath() string {
 }
 
 func AuditTimeToIso(timestampAuditID string) (string, error) {
+	t, err := AuditTime(timestampAuditID)
+	if err != nil {
+		return "", err
+	}
+
+	return t.In(time.UTC).Format("2006-01-02T15:04:05.000Z"), nil
+}
+
+// AuditTime returns the time of an audit record from its timestamp ID, like
+// 1746611740.574:325.
+func AuditTime(timestampAuditID string) (time.Time, error) {
 	parts := strings.Split(timestampAuditID, ":")
 	if len(parts) == 0 {
-		return "", fmt.Errorf("invalid timestamp audit ID: %s", timestampAuditID)
+		return time.Time{}, fmt.Errorf("invalid timestamp audit ID: %s", timestampAuditID)
 	}
 
 	timestampStr := parts[0]
 
 	fractionalParts := strings.Split(timestampStr, ".")
 	if len(fractionalParts) == 0 {
-		return "", fmt.Errorf("invalid timestamp audit ID: %s", timestampStr)
+		return time.Time{}, fmt.Errorf("invalid timestamp audit ID: %s", timestampStr)
 	}
 
 	seconds, err := strconv.ParseInt(fractionalParts[0], 10, 64)
 	if err != nil {
-		return "", fmt.Errorf("invalid timestamp audit ID: %s", timestampStr)
+		return time.Time{}, fmt.Errorf("invalid timestamp audit ID: %s", timestampStr)
 	}
 
 	// The kernel writes the milliseconds as three digits, keep them.
@@ -117,11 +128,9 @@ func AuditTimeToIso(timestampAuditID string) (string, error) {
 
 		millis, err = strconv.ParseInt(fraction, 10, 64)
 		if err != nil || millis < 0 {
-			return "", fmt.Errorf("invalid timestamp audit ID: %s", timestampStr)
+			return time.Time{}, fmt.Errorf("invalid timestamp audit ID: %s", timestampStr)
 		}
 	}
 
-	t := time.Unix(seconds, millis*int64(time.Millisecond)).In(time.UTC)
-
-	return t.Format("2006-01-02T15:04:05.000Z"), nil
+	return time.Unix(seconds, millis*int64(time.Millisecond)), nil
 }

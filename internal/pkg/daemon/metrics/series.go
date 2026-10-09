@@ -33,6 +33,15 @@ const (
 
 	// seriesExpiryInterval is how often the idle series are dropped.
 	seriesExpiryInterval = 5 * time.Minute
+
+	// DefaultMaxSeries is the default number of series a per workload metric
+	// keeps at most. The limit drops increments of existing metrics, so it
+	// is opt-in and zero keeps any number by default.
+	DefaultMaxSeries = 0
+
+	// seriesDropLogInterval is how many dropped increments of a metric are
+	// logged once.
+	seriesDropLogInterval = 1000
 )
 
 // seriesKey identifies a series of a metric.
@@ -47,40 +56,83 @@ type seriesEntry struct {
 	lastSeen time.Time
 }
 
+// seriesStats is the bookkeeping of the series of a metric.
+type seriesStats struct {
+	// live is the number of tracked series.
+	live int
+	// dropped is the number of increments of new series which got dropped
+	// for exceeding maxSeries.
+	dropped uint64
+}
+
 // seriesTracker drops the series of counters which were not incremented for
-// seriesTTL. Prometheus handles a counter which starts over as a reset.
+// seriesTTL. Prometheus handles a counter which starts over as a reset. It
+// also limits the number of series per metric, as the expiry alone does not
+// bound them on a node with a lot of workload churn.
 type seriesTracker struct {
 	mu     sync.Mutex
 	series map[seriesKey]*seriesEntry
-	now    func() time.Time
+	counts map[*prometheus.CounterVec]*seriesStats
+	// maxSeries is the number of series a metric keeps at most, zero keeps
+	// any number.
+	maxSeries int
+	now       func() time.Time
 }
 
 func newSeriesTracker() *seriesTracker {
 	return &seriesTracker{
-		series: map[seriesKey]*seriesEntry{},
-		now:    time.Now,
+		series:    map[seriesKey]*seriesEntry{},
+		counts:    map[*prometheus.CounterVec]*seriesStats{},
+		maxSeries: DefaultMaxSeries,
+		now:       time.Now,
 	}
 }
 
-// inc increments the series of vec with the label values.
-func (t *seriesTracker) inc(vec *prometheus.CounterVec, labels ...string) {
+// setMaxSeries sets the number of series a metric keeps at most, zero keeps
+// any number.
+func (t *seriesTracker) setMaxSeries(maxSeries int) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+
+	t.maxSeries = maxSeries
+}
+
+// inc increments the series of vec with the label values. A new series which
+// exceeds the limit of series is not created. inc then returns the number of
+// increments of vec dropped so far, and zero otherwise.
+func (t *seriesTracker) inc(vec *prometheus.CounterVec, labels ...string) uint64 {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	// A label value is valid UTF-8, which never contains 0xff.
+	key := seriesKey{vec: vec, labels: strings.Join(labels, "\xff")}
+
+	count, ok := t.counts[vec]
+	if !ok {
+		count = &seriesStats{}
+		t.counts[vec] = count
+	}
+
+	entry, ok := t.series[key]
+	if !ok {
+		if t.maxSeries > 0 && count.live >= t.maxSeries {
+			count.dropped++
+
+			return count.dropped
+		}
+
+		entry = &seriesEntry{labels: labels}
+		t.series[key] = entry
+		count.live++
+	}
 
 	// Incrementing under the lock keeps expire from deleting the series in
 	// between.
 	vec.WithLabelValues(labels...).Inc()
 
-	// A label value is valid UTF-8, which never contains 0xff.
-	key := seriesKey{vec: vec, labels: strings.Join(labels, "\xff")}
-
-	entry, ok := t.series[key]
-	if !ok {
-		entry = &seriesEntry{labels: labels}
-		t.series[key] = entry
-	}
-
 	entry.lastSeen = t.now()
+
+	return 0
 }
 
 // expire drops the series which were not incremented for seriesTTL.
@@ -94,6 +146,8 @@ func (t *seriesTracker) expire() {
 		if entry.lastSeen.Before(cutoff) {
 			key.vec.DeleteLabelValues(entry.labels...)
 			delete(t.series, key)
+
+			t.counts[key.vec].live--
 		}
 	}
 }

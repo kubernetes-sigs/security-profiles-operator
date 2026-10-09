@@ -85,6 +85,19 @@ func TestParseBpfAuditEvent(t *testing.T) {
 		require.Empty(t, line.Name)
 	})
 
+	// The strings end up in protobuf messages, which take valid UTF-8 only.
+	t.Run("invalid UTF-8", func(t *testing.T) {
+		t.Parallel()
+
+		line, _, err := parseBpfAuditEvent(
+			bpfAuditEvent(1, 0, 0, "open\xff", "c\xfeat", "/etc/\xc0\xaf"), now,
+		)
+		require.NoError(t, err)
+		require.Equal(t, "open\uFFFD", line.Operation)
+		require.Equal(t, "c\uFFFDat", line.Executable)
+		require.Equal(t, "/etc/\uFFFD", line.Name)
+	})
+
 	for name, raw := range map[string][]byte{
 		"empty":           nil,
 		"header only":     bpfAuditEvent(1, 0, 0),

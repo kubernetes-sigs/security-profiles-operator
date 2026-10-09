@@ -22,7 +22,7 @@ import (
 
 type aaProfileManager struct {
 	loadProfile        func(_ logr.Logger, _, _ string, _ bool) (bool, error)
-	removeProfile      func(_ logr.Logger, _, _ string, _ bool) error
+	removeProfile      func(_ logr.Logger, _, _ string, _ bool) (bool, error)
 	checkProfileExist  func(_ logr.Logger, _ string) bool
 	profileManagedByUs func(_ logr.Logger, _ string) bool
 

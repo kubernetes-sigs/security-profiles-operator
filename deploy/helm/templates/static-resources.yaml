@@ -322,12 +322,26 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - namespaces
+  verbs:
+  - get
+- apiGroups:
+  - ""
+  resources:
   - nodes
   - pods
   verbs:
   - get
   - list
   - watch
+- apiGroups:
+  - admissionregistration.k8s.io
+  resourceNames:
+  - spo-mutating-webhook-configuration
+  resources:
+  - mutatingwebhookconfigurations
+  verbs:
+  - get
 - apiGroups:
   - authentication.k8s.io
   resources:

@@ -21,6 +21,7 @@ import (
 
 	"go.podman.io/common/pkg/seccomp"
 	"google.golang.org/grpc"
+	admissionregv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -68,6 +69,10 @@ type kubernetesImpl interface {
 	ManagerGetClient(manager.Manager) client.Client
 	ManagerGetEventRecorder(manager.Manager, string) util.EventRecorder
 	GetPod(context.Context, client.Client, client.ObjectKey) (*corev1.Pod, error)
+	GetNamespace(context.Context, client.Client, string) (*corev1.Namespace, error)
+	GetMutatingWebhookConfiguration(
+		context.Context, client.Client, string,
+	) (*admissionregv1.MutatingWebhookConfiguration, error)
 	OperatorNamespace() (string, error)
 	GetSPOD(context.Context, client.Client, string) (*spodapi.SecurityProfilesOperatorDaemon, error)
 	CreateOrUpdate(
@@ -85,8 +90,12 @@ type kubernetesImpl interface {
 //counterfeiter:generate . bpfRecorderImpl
 type bpfRecorderImpl interface {
 	DialBpfRecorder() (*grpc.ClientConn, error)
-	StartBpfRecorder(context.Context, bpfrecorderapi.BpfRecorderClient) error
-	StopBpfRecorder(context.Context, bpfrecorderapi.BpfRecorderClient) error
+	StartBpfRecorder(
+		context.Context, bpfrecorderapi.BpfRecorderClient, *bpfrecorderapi.RecordingRequest,
+	) error
+	StopBpfRecorder(
+		context.Context, bpfrecorderapi.BpfRecorderClient, *bpfrecorderapi.RecordingRequest,
+	) error
 	SyscallsForProfile(
 		context.Context,
 		bpfrecorderapi.BpfRecorderClient,
@@ -183,6 +192,24 @@ func (*defaultImpl) GetPod(
 	return pod, err
 }
 
+func (*defaultImpl) GetNamespace(
+	ctx context.Context, c client.Client, name string,
+) (*corev1.Namespace, error) {
+	namespace := &corev1.Namespace{}
+	err := c.Get(ctx, client.ObjectKey{Name: name}, namespace)
+
+	return namespace, err
+}
+
+func (*defaultImpl) GetMutatingWebhookConfiguration(
+	ctx context.Context, c client.Client, name string,
+) (*admissionregv1.MutatingWebhookConfiguration, error) {
+	cfg := &admissionregv1.MutatingWebhookConfiguration{}
+	err := c.Get(ctx, client.ObjectKey{Name: name}, cfg)
+
+	return cfg, err
+}
+
 func (*defaultImpl) OperatorNamespace() (string, error) {
 	return config.TryToGetOperatorNamespace()
 }
@@ -198,17 +225,17 @@ func (*defaultImpl) DialBpfRecorder() (*grpc.ClientConn, error) {
 }
 
 func (*defaultImpl) StartBpfRecorder(
-	ctx context.Context, c bpfrecorderapi.BpfRecorderClient,
+	ctx context.Context, c bpfrecorderapi.BpfRecorderClient, req *bpfrecorderapi.RecordingRequest,
 ) error {
-	_, err := c.Start(ctx, &bpfrecorderapi.EmptyRequest{})
+	_, err := c.Start(ctx, req)
 
 	return err
 }
 
 func (*defaultImpl) StopBpfRecorder(
-	ctx context.Context, c bpfrecorderapi.BpfRecorderClient,
+	ctx context.Context, c bpfrecorderapi.BpfRecorderClient, req *bpfrecorderapi.RecordingRequest,
 ) error {
-	_, err := c.Stop(ctx, &bpfrecorderapi.EmptyRequest{})
+	_, err := c.Stop(ctx, req)
 
 	return err
 }

@@ -18,13 +18,17 @@ package metrics
 
 import (
 	"net"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	api "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
 )
@@ -34,10 +38,10 @@ import (
 func newGRPCTestClient(t *testing.T, sut *Metrics) api.MetricsClient {
 	t.Helper()
 
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 
-	server := grpc.NewServer()
+	server := grpc.NewServer(grpc.MaxRecvMsgSize(MaxMsgSize))
 	api.RegisterMetricsServer(server, sut)
 
 	serveErr := make(chan error, 1)
@@ -49,10 +53,7 @@ func newGRPCTestClient(t *testing.T, sut *Metrics) api.MetricsClient {
 		require.NoError(t, <-serveErr)
 	})
 
-	conn, err := grpc.NewClient(
-		listener.Addr().String(),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
+	conn, err := grpc.NewClient(listener.Addr().String(), dialOptions()...)
 	require.NoError(t, err)
 
 	t.Cleanup(func() { require.NoError(t, conn.Close()) })
@@ -201,4 +202,86 @@ func TestBpfIncOverGRPC(t *testing.T) {
 	require.Equal(t, map[string]float64{
 		"mount_namespace=4026531840,node=node,profile=profile": 3,
 	}, series(t, sut.metricSeccompProfileBpf))
+}
+
+// TestStopGRPCServerWithOpenStream asserts that a stream, which a client
+// keeps open, does not keep the server from stopping.
+func TestStopGRPCServerWithOpenStream(t *testing.T) {
+	t.Parallel()
+
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	server := grpc.NewServer()
+	api.RegisterMetricsServer(server, New())
+
+	serveErr := make(chan error, 1)
+
+	go func() { serveErr <- server.Serve(listener) }()
+
+	conn, err := grpc.NewClient(listener.Addr().String(), dialOptions()...)
+	require.NoError(t, err)
+
+	t.Cleanup(func() { require.NoError(t, conn.Close()) })
+
+	stream, err := api.NewMetricsClient(conn).AuditInc(t.Context())
+	require.NoError(t, err)
+
+	// The server only knows about the stream once a request arrived.
+	require.NoError(t, stream.Send(&api.AuditRequest{Node: "node"}))
+
+	stopped := make(chan struct{})
+
+	go func() {
+		stopGRPCServer(server, 10*time.Millisecond, logr.Discard())
+		close(stopped)
+	}()
+
+	select {
+	case <-stopped:
+	case <-time.After(time.Minute):
+		require.FailNow(t, "the server did not stop")
+	}
+
+	require.NoError(t, <-serveErr)
+}
+
+// TestStopGRPCServerGracefully asserts that a server without streams stops
+// without waiting for the timeout.
+func TestStopGRPCServerGracefully(t *testing.T) {
+	t.Parallel()
+
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	server := grpc.NewServer()
+	serveErr := make(chan error, 1)
+
+	go func() { serveErr <- server.Serve(listener) }()
+
+	start := time.Now()
+
+	stopGRPCServer(server, time.Hour, logr.Discard())
+	require.Less(t, time.Since(start), time.Minute)
+
+	// Serve may not have started before the server got stopped.
+	if err := <-serveErr; err != nil {
+		require.ErrorIs(t, err, grpc.ErrServerStopped)
+	}
+}
+
+// TestAuditIncOversizedOverGRPC asserts that a request above the size limit
+// of the server fails on the client side with ResourceExhausted, which the
+// sender drops, instead of a reset stream which it retries.
+func TestAuditIncOversizedOverGRPC(t *testing.T) {
+	t.Parallel()
+
+	client := newGRPCTestClient(t, New())
+
+	stream, err := client.AuditInc(t.Context())
+	require.NoError(t, err)
+
+	err = stream.Send(&api.AuditRequest{Pod: strings.Repeat("a", MaxMsgSize)})
+	require.Equal(t, codes.ResourceExhausted, status.Code(err))
+	require.True(t, requestError(err))
 }

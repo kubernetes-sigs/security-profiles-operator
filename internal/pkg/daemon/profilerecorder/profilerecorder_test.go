@@ -53,6 +53,7 @@ import (
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 )
 
 var (
@@ -175,6 +176,7 @@ func TestCollectBpfProfilesProfileName(t *testing.T) {
 			err := sut.collectBpfProfiles(t.Context(), sut.newBpfRecorderSession(),
 				tc.replicaSuffix,
 				types.NamespacedName{Name: tc.podName, Namespace: recording.Namespace},
+				testPodUID,
 				[]profileToCollect{{
 					kind: recordingapi.ProfileRecordingKindSeccompProfile,
 					name: "recording_container_nonce_timestamp",
@@ -1652,9 +1654,14 @@ func TestReconcile(t *testing.T) {
 					Spec: spodapi.SPODSpec{Enricher: spodapi.SPODEnricherConfig{EnableLogEnricher: ptrTrue()}},
 				}, nil)
 				mock.DialEnricherReturns(nil, nil)
-				mock.SyscallsReturns(
-					&enricherapi.SyscallsResponse{GoArch: runtime.GOARCH}, nil,
-				)
+				mock.SyscallsCalls(func(
+					_ context.Context, _ enricherapi.EnricherClient, r *enricherapi.SyscallsRequest,
+				) (*enricherapi.SyscallsResponse, error) {
+					// Nothing gets recorded after the syscalls got fetched.
+					assert.True(t, r.GetCollect())
+
+					return &enricherapi.SyscallsResponse{GoArch: runtime.GOARCH}, nil
+				})
 				mock.CreateOrUpdateCalls(func(
 					ctx context.Context,
 					c client.Client,
@@ -2092,14 +2099,21 @@ func TestReconcile(t *testing.T) {
 					Spec: spodapi.SPODSpec{Enricher: spodapi.SPODEnricherConfig{EnableLogEnricher: ptrTrue()}},
 				}, nil)
 				mock.DialEnricherReturns(nil, nil)
-				mock.AvcsReturns(&enricherapi.AvcResponse{
-					Avc: []*enricherapi.AvcResponse_SelinuxAvc{
-						{
-							Tclass:   "class",
-							Tcontext: "0:1:2",
+				mock.AvcsCalls(func(
+					_ context.Context, _ enricherapi.EnricherClient, r *enricherapi.AvcRequest,
+				) (*enricherapi.AvcResponse, error) {
+					// Nothing gets recorded after the AVCs got fetched.
+					assert.True(t, r.GetCollect())
+
+					return &enricherapi.AvcResponse{
+						Avc: []*enricherapi.AvcResponse_SelinuxAvc{
+							{
+								Tclass:   "class",
+								Tcontext: "0:1:2",
+							},
 						},
-					},
-				}, nil)
+					}, nil
+				})
 				mock.CreateOrUpdateCalls(func(
 					ctx context.Context,
 					c client.Client,
@@ -2599,7 +2613,16 @@ func TestReconcileDoesNotArmRecorderWithoutAuthorization(t *testing.T) {
 		name       string
 		annotation string
 		recordings *recordingapi.ProfileRecordingList
+		namespace  *corev1.Namespace
 	}{
+		{
+			// The recording webhook does not apply to the namespace, so the
+			// pod author set the annotation.
+			name:       "namespace without recording label",
+			annotation: testAnnotationValue,
+			recordings: bpfSeccompRecordingList(),
+			namespace:  &corev1.Namespace{},
+		},
 		{
 			// A malformed value must not be passed through: doing so makes the
 			// profile list non-empty, which arms the recorder.
@@ -2649,6 +2672,10 @@ func TestReconcileDoesNotArmRecorderWithoutAuthorization(t *testing.T) {
 				},
 			}, nil)
 
+			if tc.namespace != nil {
+				mock.GetNamespaceReturns(tc.namespace, nil)
+			}
+
 			sut := &RecorderReconciler{
 				impl:   mock,
 				log:    logr.Discard(),
@@ -2663,6 +2690,117 @@ func TestReconcileDoesNotArmRecorderWithoutAuthorization(t *testing.T) {
 
 			_, tracked := sut.podsToWatch.Load(testRequest.String())
 			assert.False(t, tracked, "the pod must not be watched")
+		})
+	}
+}
+
+// TestAuthorizedProfilesRequiresRecordingNamespace asserts that annotations
+// are only accepted in the namespaces the recording webhook applies to. In the
+// other ones, the pod author sets them, even with a matching ProfileRecording.
+func TestAuthorizedProfilesRequiresRecordingNamespace(t *testing.T) {
+	t.Parallel()
+
+	labeled := func(labels map[string]string) *corev1.Namespace {
+		return &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns", Labels: labels}}
+	}
+
+	teamSelector := &spodapi.SecurityProfilesOperatorDaemon{Spec: spodapi.SPODSpec{
+		Webhook: spodapi.SPODWebhookConfig{Options: []spodapi.WebhookOptions{{
+			Name: "recording.spo.io",
+			NamespaceSelector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"team": "a"},
+			},
+		}}},
+	}}
+
+	for _, tc := range []struct {
+		name         string
+		spod         *spodapi.SecurityProfilesOperatorDaemon
+		namespace    *corev1.Namespace
+		namespaceErr error
+		authorized   bool
+		wantErr      bool
+	}{
+		{
+			name:       "labeled namespace",
+			namespace:  labeled(map[string]string{bindata.EnableRecordingLabel: "true"}),
+			authorized: true,
+		},
+		{
+			name:      "namespace without label",
+			namespace: labeled(map[string]string{"team": "a"}),
+		},
+		{
+			name:       "namespace selected by the webhook options",
+			spod:       teamSelector,
+			namespace:  labeled(map[string]string{"team": "a"}),
+			authorized: true,
+		},
+		{
+			name:      "labeled namespace not selected by the webhook options",
+			spod:      teamSelector,
+			namespace: labeled(map[string]string{bindata.EnableRecordingLabel: ""}),
+		},
+		{
+			name:         "namespace gone",
+			namespaceErr: kerrors.NewNotFound(corev1.Resource("namespaces"), "ns"),
+		},
+		{
+			name:         "namespace not readable",
+			namespaceErr: errTest,
+			wantErr:      true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			mock := newFakeImpl()
+			mock.ListRecordingsReturns(bpfSeccompRecordingList(), nil)
+			mock.GetNamespaceReturns(tc.namespace, tc.namespaceErr)
+
+			if tc.spod != nil {
+				mock.GetSPODReturns(tc.spod, nil)
+			}
+
+			recorder := events.NewFakeRecorder(10)
+			sut := &RecorderReconciler{impl: mock, log: logr.Discard(), record: recorder}
+
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{Name: "pod", Namespace: "ns", UID: "1"},
+			}
+			profiles := []profileToCollect{
+				{kind: recordingapi.ProfileRecordingKindSeccompProfile, name: testAnnotationValue},
+				{
+					kind: recordingapi.ProfileRecordingKindSeccompProfile,
+					name: "profile_ctr2_4bbwm_1700000000",
+				},
+			}
+
+			// Reported once per pod, not with every update of it.
+			for range 2 {
+				authorized, _, err := sut.authorizedProfiles(
+					t.Context(), pod, profiles, recordingapi.ProfileRecorderBpf,
+				)
+
+				if tc.wantErr {
+					require.ErrorIs(t, err, errTest)
+
+					return
+				}
+
+				require.NoError(t, err)
+
+				if tc.authorized {
+					require.Equal(t, profiles, authorized)
+					require.Empty(t, recorder.Events)
+
+					return
+				}
+
+				require.Empty(t, authorized)
+				require.Zero(t, mock.ListRecordingsCallCount())
+				require.Len(t, recorder.Events, 1)
+			}
 		})
 	}
 }
@@ -3041,6 +3179,7 @@ func TestCollectBpfProfileKeepsDataOnFailure(t *testing.T) {
 		sut.newBpfRecorderSession(),
 		"",
 		podName,
+		testPodUID,
 		profiles,
 		nil,
 	)
@@ -3053,6 +3192,7 @@ func TestCollectBpfProfileKeepsDataOnFailure(t *testing.T) {
 		sut.newBpfRecorderSession(),
 		"",
 		podName,
+		testPodUID,
 		profiles,
 		nil,
 	)
@@ -3191,6 +3331,7 @@ func TestCollectBpfProfileOfRecordingWhoseMergeFinished(t *testing.T) {
 	require.NoError(t, sut.collectBpfProfiles(t.Context(), sut.newBpfRecorderSession(),
 		"",
 		types.NamespacedName{Name: "pod", Namespace: recording.Namespace},
+		testPodUID,
 		[]profileToCollect{{
 			kind: recordingapi.ProfileRecordingKindSeccompProfile,
 			name: "recording_ctr_nonce_timestamp",
@@ -3273,6 +3414,7 @@ func TestCollectBpfProfileRejected(t *testing.T) {
 				err := sut.collectBpfProfiles(t.Context(), sut.newBpfRecorderSession(),
 					"",
 					types.NamespacedName{Name: "pod", Namespace: recording.Namespace},
+					testPodUID,
 					[]profileToCollect{{
 						kind: recordingapi.ProfileRecordingKindSeccompProfile,
 						name: "recording_ctr_nonce_timestamp",
@@ -3332,6 +3474,7 @@ func TestCollectBpfProfileRetriesTransientErrors(t *testing.T) {
 	require.Error(t, sut.collectBpfProfiles(t.Context(), sut.newBpfRecorderSession(),
 		"",
 		types.NamespacedName{Name: "pod", Namespace: recording.Namespace},
+		testPodUID,
 		[]profileToCollect{{
 			kind: recordingapi.ProfileRecordingKindSeccompProfile,
 			name: "recording_ctr_nonce_timestamp",
@@ -3435,6 +3578,7 @@ func TestCollectBpfProfilesSkipsProfileOfOtherRecording(t *testing.T) {
 	err := sut.collectBpfProfiles(t.Context(), sut.newBpfRecorderSession(),
 		"",
 		types.NamespacedName{Name: "pod", Namespace: recording.Namespace},
+		testPodUID,
 		[]profileToCollect{{
 			kind: recordingapi.ProfileRecordingKindSeccompProfile,
 			name: "recording_container_nonce_timestamp",
@@ -3747,6 +3891,79 @@ func TestCollectBpfProfileRecorderNotRunning(t *testing.T) {
 	}
 }
 
+// TestCollectBpfProfileIncompleteRead asserts that recorded data which cannot
+// be read completely is retried for a while, and then stored as far as it can
+// be read instead of keeping the pod and the recorder session for good.
+func TestCollectBpfProfileIncompleteRead(t *testing.T) {
+	t.Parallel()
+
+	podName := types.NamespacedName{Namespace: "ns", Name: "pod"}
+	request := reconcile.Request{NamespacedName: podName}
+
+	mock := newFakeImpl()
+	recorder := events.NewFakeRecorder(10)
+	sut := &RecorderReconciler{impl: mock, log: logr.Discard(), record: recorder}
+	bpfCollectPod(sut, mock, podName, recordingapi.ProfileRecordingKindSeccompProfile)
+	mock.ListRecordingsReturns(bpfSeccompRecordingList(), nil)
+	mock.SyscallsForProfileCalls(func(
+		_ context.Context, _ bpfrecorderapi.BpfRecorderClient, req *bpfrecorderapi.ProfileRequest,
+	) (*bpfrecorderapi.SyscallsResponse, error) {
+		if !req.GetAllowPartial() {
+			return nil, grpcstatus.Error(grpccodes.DataLoss, "unable to read all recorded syscalls")
+		}
+
+		return &bpfrecorderapi.SyscallsResponse{
+			Syscalls:   []string{"read"},
+			GoArch:     runtime.GOARCH,
+			Incomplete: true,
+		}, nil
+	})
+
+	// The attempts alone are not enough within the grace period.
+	sut.incompleteReadGracePeriod = time.Hour
+
+	for range maxIncompleteReadAttempts {
+		_, err := sut.Reconcile(t.Context(), request)
+		require.ErrorIs(t, err, errIncompleteRead)
+	}
+
+	require.Zero(t, mock.CreateOrUpdateCallCount())
+	require.Zero(t, mock.ResetSyscallsForProfileCallCount())
+	require.Zero(t, mock.StopBpfRecorderCallCount())
+
+	sut.incompleteReadGracePeriod = 0
+
+	_, err := sut.Reconcile(t.Context(), request)
+	require.NoError(t, err)
+
+	require.Equal(t, 1, mock.CreateOrUpdateCallCount())
+	require.Equal(t, 1, mock.ResetSyscallsForProfileCallCount())
+	require.Equal(t, 1, mock.StopBpfRecorderCallCount())
+
+	_, _, partial := mock.SyscallsForProfileArgsForCall(mock.SyscallsForProfileCallCount() - 1)
+	require.True(t, partial.GetAllowPartial())
+
+	counted := false
+
+	sut.incompleteReads.Range(func(any, any) bool {
+		counted = true
+
+		return false
+	})
+	require.False(t, counted)
+
+	close(recorder.Events)
+
+	reasons := []string{}
+	for event := range recorder.Events {
+		reasons = append(reasons, event)
+	}
+
+	require.True(t, slices.ContainsFunc(reasons, func(event string) bool {
+		return strings.Contains(event, reasonRecordingIncomplete)
+	}), reasons)
+}
+
 func TestBpfRecorderError(t *testing.T) {
 	t.Parallel()
 
@@ -3768,6 +3985,11 @@ func TestBpfRecorderError(t *testing.T) {
 			name:   "message of not found without its code",
 			err:    grpcstatus.Error(grpccodes.Unknown, bpfrecorder.ErrNotFound.Error()),
 			wantIs: nil,
+		},
+		{
+			name:   "data loss",
+			err:    grpcstatus.Error(grpccodes.DataLoss, "unable to read all recorded syscalls"),
+			wantIs: errIncompleteRead,
 		},
 		{name: "other error", err: errTest, wantIs: errTest},
 	} {
@@ -3799,8 +4021,8 @@ func TestRejectedForGoodPerPodAndProfile(t *testing.T) {
 	t.Parallel()
 
 	forbidden := kerrors.NewForbidden(schema.GroupResource{}, "profile", errTest)
-	keyOf := func(namespace string) forbiddenKey {
-		return forbiddenKey{
+	keyOf := func(namespace string) attemptKey {
+		return attemptKey{
 			pod:     types.NamespacedName{Namespace: namespace, Name: "pod"},
 			profile: types.NamespacedName{Namespace: namespace, Name: "profile"},
 		}

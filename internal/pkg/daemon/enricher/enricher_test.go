@@ -45,12 +45,11 @@ import (
 )
 
 const (
-	node        = "test-node"
-	namespace   = "test-namespace"
-	pod         = "test-pod"
-	executable  = "/bin/busybox"
-	crioPrefix  = "cri-o://"
-	containerID = "218ce99dd8b33f6f9b6565863d7cd47dc880963ddd2cd987bcb2d330c65144bf"
+	node       = "test-node"
+	namespace  = "test-namespace"
+	pod        = "test-pod"
+	executable = "/bin/busybox"
+	crioPrefix = "cri-o://"
 
 	otherContainerID = "e1d4c1dbd3b5d9a4e9e2f6f5a1c8f1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8"
 )
@@ -120,7 +119,7 @@ func TestRun(t *testing.T) {
 			name: "success",
 			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine) {
 				mock.StartTailReturns(lineChan, nil)
-				mock.ContainerIDForPIDReturns(containerID, nil)
+				mock.ContainerIDForPIDReturns(containerID, 0, nil)
 				mock.PodListerWatcherReturns(podindextest.New(*runningPod()))
 			},
 			assert: func(
@@ -271,7 +270,7 @@ func TestRun(t *testing.T) {
 			name: "success, but metrics send failed",
 			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine) {
 				mock.StartTailReturns(lineChan, nil)
-				mock.ContainerIDForPIDReturns(containerID, nil)
+				mock.ContainerIDForPIDReturns(containerID, 0, nil)
 				mock.PodListerWatcherReturns(podindextest.New(*runningPod()))
 				mock.SendMetricReturns(errTest)
 			},
@@ -296,7 +295,7 @@ func TestRun(t *testing.T) {
 			name: "success, but using the backlog",
 			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine) {
 				mock.StartTailReturns(lineChan, nil)
-				mock.ContainerIDForPIDReturns(containerID, nil)
+				mock.ContainerIDForPIDReturns(containerID, 0, nil)
 				mock.PodListerWatcherReturns(backlogPods)
 			},
 			assert: func(
@@ -404,8 +403,8 @@ func TestRunDropsLinesWithoutContainer(t *testing.T) {
 			lineChan := make(chan *types.AuditLine)
 			mock := &enricherfakes.FakeImpl{}
 			mock.StartTailReturns(lineChan, nil)
-			mock.ContainerIDForPIDReturnsOnCall(0, "", lookupErr)
-			mock.ContainerIDForPIDReturnsOnCall(1, containerID, nil)
+			mock.ContainerIDForPIDReturnsOnCall(0, "", 0, lookupErr)
+			mock.ContainerIDForPIDReturnsOnCall(1, containerID, 0, nil)
 			mock.PodListerWatcherReturns(podindextest.New(*runningPod()))
 
 			sut, err := New(logr.Discard(), nil)
@@ -444,8 +443,8 @@ func TestRunAttributesLinesOfExitedProcess(t *testing.T) {
 	lineChan := make(chan *types.AuditLine)
 	mock := &enricherfakes.FakeImpl{}
 	mock.StartTailReturns(lineChan, nil)
-	mock.ContainerIDForPIDReturnsOnCall(0, containerID, nil)
-	mock.ContainerIDForPIDReturns("", os.ErrNotExist)
+	mock.ContainerIDForPIDReturnsOnCall(0, containerID, 0, nil)
+	mock.ContainerIDForPIDReturns("", 0, os.ErrNotExist)
 	mock.PodListerWatcherReturns(podindextest.New(v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      pod,
@@ -491,9 +490,9 @@ func TestRunAttributesLinesOfExitedProcess(t *testing.T) {
 	waitForCallCount(t, mock.ContainerIDForPIDCallCount, 4)
 	waitForCallCount(t, mock.SendMetricCallCount, 3)
 
-	item := sut.syscalls.Get(recordProfile)
-	require.NotNil(t, item)
-	require.ElementsMatch(t, names, item.Value().UnsortedList())
+	recorded, found := sut.syscalls.get(recordProfile, false)
+	require.True(t, found)
+	require.ElementsMatch(t, names, recorded)
 
 	stopRun(t, lineChan, runErr)
 }
@@ -505,23 +504,23 @@ func TestContainerIDForProcessForgetsReusedPID(t *testing.T) {
 	t.Parallel()
 
 	mock := &enricherfakes.FakeImpl{}
-	mock.ContainerIDForPIDReturnsOnCall(0, containerID, nil)
-	mock.ContainerIDForPIDReturnsOnCall(1, "", util.ErrContainerIDNotFound)
-	mock.ContainerIDForPIDReturnsOnCall(2, "", os.ErrNotExist)
+	mock.ContainerIDForPIDReturnsOnCall(0, containerID, 0, nil)
+	mock.ContainerIDForPIDReturnsOnCall(1, "", 0, util.ErrContainerIDNotFound)
+	mock.ContainerIDForPIDReturnsOnCall(2, "", 0, os.ErrNotExist)
 
 	sut, err := New(logr.Discard(), nil)
 	require.NoError(t, err)
 
 	sut.impl = mock
 
-	cID, err := sut.lookup.containerIDForProcess(sut.impl, 42)
+	cID, err := sut.lookup.containerIDForProcess(sut.impl, 42, time.Time{})
 	require.NoError(t, err)
 	require.Equal(t, containerID, cID)
 
-	_, err = sut.lookup.containerIDForProcess(sut.impl, 42)
+	_, err = sut.lookup.containerIDForProcess(sut.impl, 42, time.Time{})
 	require.ErrorIs(t, err, util.ErrContainerIDNotFound)
 
-	_, err = sut.lookup.containerIDForProcess(sut.impl, 42)
+	_, err = sut.lookup.containerIDForProcess(sut.impl, 42, time.Time{})
 	require.ErrorIs(t, err, os.ErrNotExist)
 }
 
@@ -532,18 +531,175 @@ func TestContainerIDForProcessWithESRCH(t *testing.T) {
 	t.Parallel()
 
 	mock := &enricherfakes.FakeImpl{}
-	mock.ContainerIDForPIDReturnsOnCall(0, containerID, nil)
-	mock.ContainerIDForPIDReturnsOnCall(1, "", fmt.Errorf("read stat: %w", syscall.ESRCH))
+	mock.ContainerIDForPIDReturnsOnCall(0, containerID, 0, nil)
+	mock.ContainerIDForPIDReturnsOnCall(1, "", 0, fmt.Errorf("read stat: %w", syscall.ESRCH))
 
 	lookup := newContainerLookup(logr.Discard())
 
-	cID, err := lookup.containerIDForProcess(mock, 42)
+	cID, err := lookup.containerIDForProcess(mock, 42, time.Time{})
 	require.NoError(t, err)
 	require.Equal(t, containerID, cID)
 
-	cID, err = lookup.containerIDForProcess(mock, 42)
+	cID, err = lookup.containerIDForProcess(mock, 42, time.Time{})
 	require.NoError(t, err)
 	require.Equal(t, containerID, cID)
+}
+
+// TestContainerIDForProcessChecksStartTime asserts that the line of a process
+// is not attributed to a process which reused its PID after the line got
+// logged.
+func TestContainerIDForProcessChecksStartTime(t *testing.T) {
+	t.Parallel()
+
+	mock := &enricherfakes.FakeImpl{}
+	// The process with the PID started ten seconds ago.
+	mock.ContainerIDForPIDReturns(containerID, time.Hour-10*time.Second, nil)
+	mock.UptimeReturns(time.Hour, nil)
+
+	lookup := newContainerLookup(logr.Discard())
+
+	_, err := lookup.containerIDForProcess(mock, 42, time.Now().Add(-time.Minute))
+	require.ErrorIs(t, err, errProcessStartedLater)
+	require.Nil(t, lookup.processContainers.Get(42))
+
+	cID, err := lookup.containerIDForProcess(mock, 42, time.Now())
+	require.NoError(t, err)
+	require.Equal(t, containerID, cID)
+
+	// The start time comes with the container, the stat file of the process
+	// is not read again.
+	require.Zero(t, mock.ProcessStartTimeCallCount())
+
+	// Without the time of the line, the check is skipped.
+	cID, err = lookup.containerIDForProcess(mock, 42, time.Time{})
+	require.NoError(t, err)
+	require.Equal(t, containerID, cID)
+
+	// As it is without the time since boot.
+	mock.UptimeReturns(0, errors.New("no boot time"))
+
+	cID, err = lookup.containerIDForProcess(mock, 42, time.Now().Add(-time.Minute))
+	require.NoError(t, err)
+	require.Equal(t, containerID, cID)
+
+	// A process which exited after its container got looked up gets the
+	// container it was last seen running in.
+	mock.ContainerIDForPIDReturns("", 0, os.ErrNotExist)
+
+	cID, err = lookup.containerIDForProcess(mock, 42, time.Now())
+	require.NoError(t, err)
+	require.Equal(t, containerID, cID)
+}
+
+// TestContainerIDForProcessClockSteps asserts that a step of the wall clock
+// while lines wait does not drop the lines of a process, while a reused PID
+// is still detected.
+func TestContainerIDForProcessClockSteps(t *testing.T) {
+	t.Parallel()
+
+	mock := &enricherfakes.FakeImpl{}
+	// The process with the PID started ten seconds ago.
+	mock.ContainerIDForPIDReturns(containerID, time.Hour-10*time.Second, nil)
+	mock.UptimeReturns(time.Hour, nil)
+
+	lookup := newContainerLookup(logr.Discard())
+
+	// The line got logged five seconds ago, before the wall clock got
+	// stepped forward by 30 seconds: the boot seems to be 30 seconds later
+	// now, and the process to have started 20 seconds in the future.
+	logged := time.Now().Add(-5 * time.Second)
+
+	_, err := lookup.containerIDForProcess(mock, 42, logged)
+	require.NoError(t, err)
+
+	mock.UptimeReturns(time.Hour-30*time.Second, nil)
+
+	cID, err := lookup.containerIDForProcess(mock, 42, logged)
+	require.NoError(t, err)
+	require.Equal(t, containerID, cID)
+
+	// A line logged before the process started is still dropped.
+	_, err = lookup.containerIDForProcess(mock, 42, time.Now().Add(-time.Minute))
+	require.ErrorIs(t, err, errProcessStartedLater)
+
+	// A backward step makes the boot earlier right away. The process which
+	// reused the PID started ten seconds ago in that time.
+	mock.UptimeReturns(time.Hour+30*time.Second, nil)
+	mock.ContainerIDForPIDReturns(containerID, time.Hour+20*time.Second, nil)
+
+	_, err = lookup.containerIDForProcess(mock, 42, time.Now().Add(-time.Minute))
+	require.ErrorIs(t, err, errProcessStartedLater)
+
+	cID, err = lookup.containerIDForProcess(mock, 42, time.Now())
+	require.NoError(t, err)
+	require.Equal(t, containerID, cID)
+}
+
+// TestBootClockWindow asserts that a later boot time gets used once the
+// earlier one is older than the window.
+func TestBootClockWindow(t *testing.T) {
+	t.Parallel()
+
+	mock := &enricherfakes.FakeImpl{}
+	mock.UptimeReturns(time.Hour, nil)
+
+	var sut bootClock
+
+	early, ok := sut.get(mock)
+	require.True(t, ok)
+
+	// A forward step by a minute.
+	mock.UptimeReturns(time.Hour-time.Minute, nil)
+
+	boot, ok := sut.get(mock)
+	require.True(t, ok)
+	require.Equal(t, early, boot)
+
+	// The window of the early boot time passed, it is still used during the
+	// next one.
+	sut.windowStart = sut.windowStart.Add(-bootTimeWindow)
+
+	boot, ok = sut.get(mock)
+	require.True(t, ok)
+	require.Equal(t, early, boot)
+
+	sut.windowStart = sut.windowStart.Add(-bootTimeWindow)
+
+	boot, ok = sut.get(mock)
+	require.True(t, ok)
+	require.WithinDuration(t, early.Add(time.Minute), boot, time.Second)
+
+	mock.UptimeReturns(0, nil)
+
+	_, ok = sut.get(mock)
+	require.False(t, ok)
+}
+
+// TestProcessAuditLineDropsLineOfReusedPID asserts that the line of a process
+// whose PID got reused after the line got logged is dropped.
+func TestProcessAuditLineDropsLineOfReusedPID(t *testing.T) {
+	t.Parallel()
+
+	mock := &enricherfakes.FakeImpl{}
+	mock.ContainerIDForPIDReturns(containerID, time.Hour-10*time.Second, nil)
+	mock.UptimeReturns(time.Hour, nil)
+
+	sut, err := New(logr.Discard(), nil)
+	require.NoError(t, err)
+
+	sut.impl = mock
+
+	logged := time.Now().Add(-time.Minute)
+	sut.processAuditLine(node, &types.AuditLine{
+		AuditType:   types.AuditTypeSeccomp,
+		ProcessID:   42,
+		TimestampID: fmt.Sprintf("%d.%03d:1", logged.Unix(), logged.UnixMilli()%1000),
+	})
+
+	// Neither kept for its container nor attributed to the container of the
+	// process which reused the PID.
+	require.Zero(t, sut.auditLineCache.Len())
+	require.Nil(t, sut.lookup.processContainers.Get(42))
 }
 
 // TestContainerIDForProcessRefreshesRarely asserts that the container of a
@@ -553,23 +709,23 @@ func TestContainerIDForProcessRefreshesRarely(t *testing.T) {
 	t.Parallel()
 
 	mock := &enricherfakes.FakeImpl{}
-	mock.ContainerIDForPIDReturns(containerID, nil)
+	mock.ContainerIDForPIDReturns(containerID, 0, nil)
 
 	lookup := newContainerLookup(logr.Discard())
 
-	_, err := lookup.containerIDForProcess(mock, 42)
+	_, err := lookup.containerIDForProcess(mock, 42, time.Time{})
 	require.NoError(t, err)
 
 	kept := lookup.processContainers.Get(42)
 	require.NotNil(t, kept)
 
-	_, err = lookup.containerIDForProcess(mock, 42)
+	_, err = lookup.containerIDForProcess(mock, 42, time.Time{})
 	require.NoError(t, err)
 	require.Equal(t, kept.ExpiresAt(), lookup.processContainers.Get(42).ExpiresAt())
 
-	mock.ContainerIDForPIDReturns(otherContainerID, nil)
+	mock.ContainerIDForPIDReturns(otherContainerID, 0, nil)
 
-	_, err = lookup.containerIDForProcess(mock, 42)
+	_, err = lookup.containerIDForProcess(mock, 42, time.Time{})
 	require.NoError(t, err)
 	require.Equal(t, otherContainerID, lookup.processContainers.Get(42).Value())
 
@@ -581,7 +737,7 @@ func TestContainerIDForProcessRefreshesRarely(t *testing.T) {
 	)
 	stale := lookup.processContainers.Get(42).ExpiresAt()
 
-	_, err = lookup.containerIDForProcess(mock, 42)
+	_, err = lookup.containerIDForProcess(mock, 42, time.Time{})
 	require.NoError(t, err)
 	require.True(t, lookup.processContainers.Get(42).ExpiresAt().After(stale))
 }
@@ -664,7 +820,7 @@ func TestBacklogIsDispatchedPerContainer(t *testing.T) {
 	sut, err := New(logr.Discard(), nil)
 	require.NoError(t, err)
 
-	info := &types.ContainerInfo{ContainerID: "container", RecordProfile: "profile"}
+	info := &types.ContainerInfo{ContainerID: "container", SeccompRecordProfile: "profile"}
 
 	for _, pid := range []int{1, 2} {
 		require.NoError(t, sut.addToBacklog(info.ContainerID, &types.AuditLine{
@@ -681,7 +837,8 @@ func TestBacklogIsDispatchedPerContainer(t *testing.T) {
 	sut.dispatchBacklog(node, info)
 
 	require.Equal(t, 1, sut.auditLineCache.Len(), "only the other container is left")
-	require.NotNil(t, sut.syscalls.Get("profile"))
+	_, found := sut.syscalls.get("profile", false)
+	require.True(t, found)
 }
 
 // TestRunDispatchesBacklogOnPodUpdate asserts that the lines of a container
@@ -693,12 +850,14 @@ func TestRunDispatchesBacklogOnPodUpdate(t *testing.T) {
 	lineChan := make(chan *types.AuditLine)
 	mock := &enricherfakes.FakeImpl{}
 	mock.StartTailReturns(lineChan, nil)
-	mock.ContainerIDForPIDCalls(func(_ *ttlcache.Cache[string, string], pid int) (string, error) {
+	mock.ContainerIDForPIDCalls(func(
+		_ *ttlcache.Cache[string, string], pid int,
+	) (string, time.Duration, error) {
 		if pid == 3 {
-			return otherContainerID, nil
+			return otherContainerID, 0, nil
 		}
 
-		return containerID, nil
+		return containerID, 0, nil
 	})
 
 	other := runningPod()

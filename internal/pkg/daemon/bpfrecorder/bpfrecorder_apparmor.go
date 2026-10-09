@@ -326,6 +326,11 @@ func (b *AppArmorRecorder) StopRecording(r *BpfRecorder) error {
 // trackKey reports whether data can be recorded for key. The number of keys
 // tracked at once is bounded across files, sockets and capabilities, so that
 // many containers starting at once cannot grow the maps without bounds.
+//
+// The caller holds the lock of the data it records and checked that the key
+// is not excluded while holding it. Exclude clears the data, which takes that
+// lock, only after it marked the key, so an excluded key is either seen as
+// such or its data and slot get cleared after they were recorded.
 func (b *AppArmorRecorder) trackKey(key recordingKey) bool {
 	b.lockTrackedKeys.Lock()
 	defer b.lockTrackedKeys.Unlock()
@@ -414,12 +419,14 @@ func (b *AppArmorRecorder) handleFileEvent(fileEvent *bpfEvent) {
 	}
 
 	key := recordingKey(fileEvent.Key)
-	if !b.trackKey(key) {
-		return
-	}
 
 	b.lockRecordedFiles.Lock()
 	defer b.lockRecordedFiles.Unlock()
+
+	// The key may have been excluded since the check above, see trackKey.
+	if b.isExcluded(fileEvent.Key) || !b.trackKey(key) {
+		return
+	}
 
 	if _, ok := b.recordedFiles[key]; !ok {
 		b.recordedFiles[key] = map[string]*fileAccess{}
@@ -450,16 +457,21 @@ func (b *AppArmorRecorder) handleFileEvent(fileEvent *bpfEvent) {
 }
 
 func (b *AppArmorRecorder) handleSocketEvent(socketEvent *bpfEvent) {
-	if b.isExcluded(socketEvent.Key) {
-		return
-	}
-
 	var use BpfAppArmorSocketTypes
 	if !socketUse(socketEvent.Flags, &use) {
 		return
 	}
 
 	key := recordingKey(socketEvent.Key)
+
+	b.lockRecordedSocketsUse.Lock()
+	defer b.lockRecordedSocketsUse.Unlock()
+
+	// Checked under the lock, see trackKey.
+	if b.isExcluded(socketEvent.Key) {
+		return
+	}
+
 	if !b.trackKey(key) {
 		// The BPF program reports a socket type only once per key, so it
 		// has to report it again once the key can be tracked.
@@ -467,9 +479,6 @@ func (b *AppArmorRecorder) handleSocketEvent(socketEvent *bpfEvent) {
 
 		return
 	}
-
-	b.lockRecordedSocketsUse.Lock()
-	defer b.lockRecordedSocketsUse.Unlock()
 
 	if _, ok := b.recordedSocketsUse[key]; !ok {
 		b.recordedSocketsUse[key] = &BpfAppArmorSocketTypes{}
@@ -514,11 +523,16 @@ func socketUse(flags uint64, use *BpfAppArmorSocketTypes) bool {
 }
 
 func (b *AppArmorRecorder) handleCapabilityEvent(capEvent *bpfEvent) {
+	key := recordingKey(capEvent.Key)
+
+	b.lockRecordedCapabilities.Lock()
+	defer b.lockRecordedCapabilities.Unlock()
+
+	// Checked under the lock, see trackKey.
 	if b.isExcluded(capEvent.Key) {
 		return
 	}
 
-	key := recordingKey(capEvent.Key)
 	if !b.trackKey(key) {
 		// The BPF program reports a capability only once per key, so it
 		// has to report it again once the key can be tracked.
@@ -526,9 +540,6 @@ func (b *AppArmorRecorder) handleCapabilityEvent(capEvent *bpfEvent) {
 
 		return
 	}
-
-	b.lockRecordedCapabilities.Lock()
-	defer b.lockRecordedCapabilities.Unlock()
 
 	requestedCap := int(capEvent.Flags)
 	if slices.Contains(b.recordedCapabilities[key], requestedCap) {

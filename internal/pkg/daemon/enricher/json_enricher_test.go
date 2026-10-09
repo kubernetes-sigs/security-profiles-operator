@@ -332,7 +332,7 @@ func TestJsonRun(t *testing.T) {
 				lineChan := make(chan string)
 				mock := &enricherfakes.FakeImpl{}
 				mock.LinesReturns(lineChan)
-				mock.ContainerIDForPIDReturns(containerIDJsonTest, nil)
+				mock.ContainerIDForPIDReturns(containerIDJsonTest, 0, nil)
 				tc.prepare(mock)
 
 				opts := &JsonEnricherOptions{
@@ -367,7 +367,7 @@ func TestJsonRunFlushesOnShutdown(t *testing.T) {
 	lineChan := make(chan string)
 	mock := &enricherfakes.FakeImpl{}
 	mock.LinesReturns(lineChan)
-	mock.ContainerIDForPIDReturns(containerIDJsonTest, nil)
+	mock.ContainerIDForPIDReturns(containerIDJsonTest, 0, nil)
 
 	var mu sync.Mutex
 
@@ -420,7 +420,7 @@ func TestJsonRunResolvesContainerOnEmission(t *testing.T) {
 	lineChan := make(chan string)
 	mock := &enricherfakes.FakeImpl{}
 	mock.LinesReturns(lineChan)
-	mock.ContainerIDForPIDReturns(containerIDJsonTest, nil)
+	mock.ContainerIDForPIDReturns(containerIDJsonTest, 0, nil)
 
 	sut := newJsonRunSut(t, mock, &JsonEnricherOptions{AuditFreq: time.Hour})
 
@@ -514,7 +514,7 @@ func TestJsonRunSplitsBucketOnExecutableChange(t *testing.T) {
 	lineChan := make(chan string)
 	mock := &enricherfakes.FakeImpl{}
 	mock.LinesReturns(lineChan)
-	mock.ContainerIDForPIDReturns(containerIDJsonTest, nil)
+	mock.ContainerIDForPIDReturns(containerIDJsonTest, 0, nil)
 
 	stop := startJsonRun(t, newJsonRunSut(t, mock, &JsonEnricherOptions{AuditFreq: time.Hour}))
 
@@ -789,8 +789,8 @@ func TestJsonRunAttributesLinesOfExitedProcess(t *testing.T) {
 	lineChan := make(chan string)
 	mock := &enricherfakes.FakeImpl{}
 	mock.LinesReturns(lineChan)
-	mock.ContainerIDForPIDReturnsOnCall(0, containerIDJsonTest, nil)
-	mock.ContainerIDForPIDReturns("", os.ErrNotExist)
+	mock.ContainerIDForPIDReturnsOnCall(0, containerIDJsonTest, 0, nil)
+	mock.ContainerIDForPIDReturns("", 0, os.ErrNotExist)
 
 	stop := startJsonRun(t, newJsonRunSut(t, mock, &JsonEnricherOptions{AuditFreq: time.Hour}))
 

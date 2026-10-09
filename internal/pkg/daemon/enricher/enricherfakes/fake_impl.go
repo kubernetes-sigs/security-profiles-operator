@@ -77,16 +77,18 @@ type FakeImpl struct {
 		result1 string
 		result2 error
 	}
-	ContainerIDForPIDStub        func(*ttlcache.Cache[string, string], int) (string, error)
+	ContainerIDForPIDStub        func(*ttlcache.Cache[string, string], int) (string, time.Duration, error)
 	containerIDForPIDMutex       sync.RWMutex
 	containerIDForPIDArgsForCall []FakeImplContainerIDForPIDArgs
 	containerIDForPIDReturns     struct {
 		result1 string
-		result2 error
+		result2 time.Duration
+		result3 error
 	}
 	containerIDForPIDReturnsOnCall map[int]struct {
 		result1 string
-		result2 error
+		result2 time.Duration
+		result3 error
 	}
 	DialStub        func() (*grpc.ClientConn, error)
 	dialMutex       sync.RWMutex
@@ -254,6 +256,17 @@ type FakeImpl struct {
 	}
 	tailFileReturnsOnCall map[int]struct {
 		result1 *tailer.Tailer
+		result2 error
+	}
+	UptimeStub        func() (time.Duration, error)
+	uptimeMutex       sync.RWMutex
+	uptimeArgsForCall []struct{}
+	uptimeReturns     struct {
+		result1 time.Duration
+		result2 error
+	}
+	uptimeReturnsOnCall map[int]struct {
+		result1 time.Duration
 		result2 error
 	}
 	invocations      map[string][][]interface{}
@@ -650,7 +663,7 @@ func (fake *FakeImpl) CmdlineForPIDReturnsOnCall(i int, result1 string, result2 
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) ContainerIDForPID(arg1 *ttlcache.Cache[string, string], arg2 int) (string, error) {
+func (fake *FakeImpl) ContainerIDForPID(arg1 *ttlcache.Cache[string, string], arg2 int) (string, time.Duration, error) {
 	fake.containerIDForPIDMutex.Lock()
 	ret, specificReturn := fake.containerIDForPIDReturnsOnCall[len(fake.containerIDForPIDArgsForCall)]
 	fake.containerIDForPIDArgsForCall = append(fake.containerIDForPIDArgsForCall, FakeImplContainerIDForPIDArgs{arg1, arg2})
@@ -662,9 +675,9 @@ func (fake *FakeImpl) ContainerIDForPID(arg1 *ttlcache.Cache[string, string], ar
 		return stub(arg1, arg2)
 	}
 	if specificReturn {
-		return ret.result1, ret.result2
+		return ret.result1, ret.result2, ret.result3
 	}
-	return fakeReturns.result1, fakeReturns.result2
+	return fakeReturns.result1, fakeReturns.result2, fakeReturns.result3
 }
 
 func (fake *FakeImpl) ContainerIDForPIDCallCount() int {
@@ -673,7 +686,7 @@ func (fake *FakeImpl) ContainerIDForPIDCallCount() int {
 	return len(fake.containerIDForPIDArgsForCall)
 }
 
-func (fake *FakeImpl) ContainerIDForPIDCalls(stub func(*ttlcache.Cache[string, string], int) (string, error)) {
+func (fake *FakeImpl) ContainerIDForPIDCalls(stub func(*ttlcache.Cache[string, string], int) (string, time.Duration, error)) {
 	fake.containerIDForPIDMutex.Lock()
 	defer fake.containerIDForPIDMutex.Unlock()
 	fake.ContainerIDForPIDStub = stub
@@ -694,30 +707,33 @@ func (fake *FakeImpl) ContainerIDForPIDArgs() []FakeImplContainerIDForPIDArgs {
 	return args
 }
 
-func (fake *FakeImpl) ContainerIDForPIDReturns(result1 string, result2 error) {
+func (fake *FakeImpl) ContainerIDForPIDReturns(result1 string, result2 time.Duration, result3 error) {
 	fake.containerIDForPIDMutex.Lock()
 	defer fake.containerIDForPIDMutex.Unlock()
 	fake.ContainerIDForPIDStub = nil
 	fake.containerIDForPIDReturns = struct {
 		result1 string
-		result2 error
-	}{result1, result2}
+		result2 time.Duration
+		result3 error
+	}{result1, result2, result3}
 }
 
-func (fake *FakeImpl) ContainerIDForPIDReturnsOnCall(i int, result1 string, result2 error) {
+func (fake *FakeImpl) ContainerIDForPIDReturnsOnCall(i int, result1 string, result2 time.Duration, result3 error) {
 	fake.containerIDForPIDMutex.Lock()
 	defer fake.containerIDForPIDMutex.Unlock()
 	fake.ContainerIDForPIDStub = nil
 	if fake.containerIDForPIDReturnsOnCall == nil {
 		fake.containerIDForPIDReturnsOnCall = make(map[int]struct {
 			result1 string
-			result2 error
+			result2 time.Duration
+			result3 error
 		})
 	}
 	fake.containerIDForPIDReturnsOnCall[i] = struct {
 		result1 string
-		result2 error
-	}{result1, result2}
+		result2 time.Duration
+		result3 error
+	}{result1, result2, result3}
 }
 
 func (fake *FakeImpl) Dial() (*grpc.ClientConn, error) {
@@ -1866,6 +1882,61 @@ func (fake *FakeImpl) TailFileReturnsOnCall(i int, result1 *tailer.Tailer, resul
 	}
 	fake.tailFileReturnsOnCall[i] = struct {
 		result1 *tailer.Tailer
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) Uptime() (time.Duration, error) {
+	fake.uptimeMutex.Lock()
+	ret, specificReturn := fake.uptimeReturnsOnCall[len(fake.uptimeArgsForCall)]
+	fake.uptimeArgsForCall = append(fake.uptimeArgsForCall, struct{}{})
+	stub := fake.UptimeStub
+	fakeReturns := fake.uptimeReturns
+	fake.recordInvocation("Uptime", []interface{}{})
+	fake.uptimeMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) UptimeCallCount() int {
+	fake.uptimeMutex.RLock()
+	defer fake.uptimeMutex.RUnlock()
+	return len(fake.uptimeArgsForCall)
+}
+
+func (fake *FakeImpl) UptimeCalls(stub func() (time.Duration, error)) {
+	fake.uptimeMutex.Lock()
+	defer fake.uptimeMutex.Unlock()
+	fake.UptimeStub = stub
+}
+
+func (fake *FakeImpl) UptimeReturns(result1 time.Duration, result2 error) {
+	fake.uptimeMutex.Lock()
+	defer fake.uptimeMutex.Unlock()
+	fake.UptimeStub = nil
+	fake.uptimeReturns = struct {
+		result1 time.Duration
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) UptimeReturnsOnCall(i int, result1 time.Duration, result2 error) {
+	fake.uptimeMutex.Lock()
+	defer fake.uptimeMutex.Unlock()
+	fake.UptimeStub = nil
+	if fake.uptimeReturnsOnCall == nil {
+		fake.uptimeReturnsOnCall = make(map[int]struct {
+			result1 time.Duration
+			result2 error
+		})
+	}
+	fake.uptimeReturnsOnCall[i] = struct {
+		result1 time.Duration
 		result2 error
 	}{result1, result2}
 }

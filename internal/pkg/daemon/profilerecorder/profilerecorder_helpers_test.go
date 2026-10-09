@@ -23,7 +23,9 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
+	admissionregv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
@@ -38,7 +40,12 @@ import (
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/profilerecorder/profilerecorderfakes"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 )
+
+// testPodUID is the UID of the recorded pod, which the BPF recorder is started
+// and stopped for.
+const testPodUID types.UID = "pod-uid"
 
 // fakeImpl combines the fakes of all concerns of impl. Each test stubs the
 // methods it needs through the promoted methods of the embedded fakes.
@@ -50,12 +57,30 @@ type fakeImpl struct {
 }
 
 func newFakeImpl() *fakeImpl {
-	return &fakeImpl{
+	mock := &fakeImpl{
 		FakeKubernetesImpl:  &profilerecorderfakes.FakeKubernetesImpl{},
 		FakeBpfRecorderImpl: &profilerecorderfakes.FakeBpfRecorderImpl{},
 		FakeEnricherImpl:    &profilerecorderfakes.FakeEnricherImpl{},
 		FakeProfileImpl:     &profilerecorderfakes.FakeProfileImpl{},
 	}
+
+	// Recording is enabled for the namespaces of the pods by default, by the
+	// recording webhook which the operator deploys for the SPOD.
+	mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{}, nil)
+	mock.GetNamespaceReturns(recordingNamespace(), nil)
+	mock.GetMutatingWebhookConfigurationReturns(nil, kerrors.NewNotFound(
+		admissionregv1.Resource("mutatingwebhookconfigurations"), bindata.MutatingWebhookConfigName,
+	))
+
+	return mock
+}
+
+// recordingNamespace returns a namespace which profile recording is enabled
+// for.
+func recordingNamespace() *corev1.Namespace {
+	return &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+		Labels: map[string]string{bindata.EnableRecordingLabel: ""},
+	}}
 }
 
 // replacedPodMock returns a fake which records a pod with the BPF recorder
@@ -176,13 +201,21 @@ func TestReconcileRecreatedPod(t *testing.T) {
 				require.Equal(t, previousProfile, req.GetName())
 				require.Equal(t, 1, mock.StopBpfRecorderCallCount())
 
+				// The recorder is stopped for the previous pod only.
+				_, _, stopReq := mock.StopBpfRecorderArgsForCall(0)
+				require.Equal(t, string(tc.previousUID), stopReq.GetId())
+
 				require.Equal(t, 1, mock.StartBpfRecorderCallCount())
 				require.Equal(t, newPod.UID, watched.uid)
 				require.Equal(t, testAnnotationValue, watched.profiles[0].name)
 
-				// Collecting and starting share the connection.
+				_, _, startReq := mock.StartBpfRecorderArgsForCall(0)
+				require.Equal(t, string(newPod.UID), startReq.GetId())
+
+				// Collecting and starting share the connection. The SPOD is
+				// read for the connection and for the recording namespaces.
 				require.Equal(t, 1, mock.DialBpfRecorderCallCount())
-				require.Equal(t, 1, mock.GetSPODCallCount())
+				require.Equal(t, 2, mock.GetSPODCallCount())
 			}
 		})
 	}
@@ -208,6 +241,7 @@ func TestCollectBpfProfilesUsesOneConnection(t *testing.T) {
 
 	require.NoError(t, sut.collectBpfProfiles(
 		t.Context(), session, "", types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace},
+		testPodUID,
 		[]profileToCollect{
 			{kind: recordingapi.ProfileRecordingKindSeccompProfile, name: "profile_a_nonce_1"},
 			{kind: recordingapi.ProfileRecordingKindSeccompProfile, name: "profile_b_nonce_1"},

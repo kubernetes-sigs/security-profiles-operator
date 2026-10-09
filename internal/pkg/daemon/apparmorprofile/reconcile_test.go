@@ -58,6 +58,8 @@ type countingProfileManager struct {
 	updated    bool
 	installErr error
 	removeErr  error
+	// notRemoved makes RemoveProfile report that it removed nothing.
+	notRemoved bool
 
 	installs     int
 	removes      int
@@ -77,10 +79,10 @@ func (m *countingProfileManager) InstallProfile(
 	return m.updated, m.installErr
 }
 
-func (m *countingProfileManager) RemoveProfile(profilebaseapi.StatusBaseUser, bool) error {
+func (m *countingProfileManager) RemoveProfile(profilebaseapi.StatusBaseUser, bool) (bool, error) {
 	m.removes++
 
-	return m.removeErr
+	return m.removeErr == nil && !m.notRemoved, m.removeErr
 }
 
 func testAppArmorProfile() *apparmorprofileapi.AppArmorProfile {
@@ -800,4 +802,146 @@ func TestReconcileNotSupportedReportsProfileOnce(t *testing.T) {
 
 	utiltest.RequireEvent(t, rec, wantEvent)
 	utiltest.RequireNoEvent(t, rec)
+}
+
+// removals returns the number of profile removals counted in the metrics.
+func removals(t *testing.T, r *Reconciler) float64 {
+	t.Helper()
+
+	return utiltest.CounterValue(t, r.metrics.Collectors(),
+		"security_profiles_operator_apparmor_profile_total",
+		map[string]string{"operation": "delete"})
+}
+
+// deleteUntilGone reconciles the deletion of the profile until it is gone.
+func deleteUntilGone(t *testing.T, r *Reconciler, cli client.Client) {
+	t.Helper()
+
+	deletingProfile(t, cli)
+
+	for range 2 {
+		_, err := r.Reconcile(t.Context(), testRequest())
+		require.NoError(t, err)
+	}
+
+	err := cli.Get(t.Context(), testRequest().NamespacedName, &apparmorprofileapi.AppArmorProfile{})
+	require.True(t, kerrors.IsNotFound(err), "profile should be gone, got %v", err)
+}
+
+// Only a deletion which removed the profile from the host counts as one.
+func TestReconcileDeletionCountsRemovedProfiles(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name       string
+		notRemoved bool
+		want       float64
+	}{
+		{name: "removed", want: 1},
+		{name: "nothing to remove", notRemoved: true, want: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			manager := &countingProfileManager{enabled: true, notRemoved: tc.notRemoved}
+			r, cli, _ := newTestReconciler(t, manager, nil, testAppArmorProfile())
+
+			reconcileUntilInstalled(t, r)
+			deleteUntilGone(t, r, cli)
+
+			require.Equal(t, 1, manager.removes)
+			require.InDelta(t, tc.want, removals(t, r), 0)
+		})
+	}
+}
+
+// A profile which conflicts with one of the host is reported again once it
+// got created again, and the deletion does not count it as removed.
+func TestReconcileRejectsRecreatedProfileAgain(t *testing.T) {
+	t.Parallel()
+
+	const wantEvent = "Warning CannotLoadAppArmorProfile cannot load profile into node: profile exists"
+
+	profile := testAppArmorProfile()
+	profile.UID = "first"
+
+	manager := &countingProfileManager{
+		enabled: true, installErr: ErrProfileExists, notRemoved: true,
+	}
+	r, cli, rec := newTestReconciler(t, manager, nil, profile)
+
+	for range 3 {
+		_, err := r.Reconcile(t.Context(), testRequest())
+		require.NoError(t, err)
+	}
+
+	utiltest.RequireEvent(t, rec, wantEvent)
+	utiltest.RequireNoEvent(t, rec)
+
+	deleteUntilGone(t, r, cli)
+	require.Zero(t, removals(t, r))
+
+	_, rejected := r.rejected.Load(testRequest().NamespacedName)
+	require.False(t, rejected, "the conflict of a deleted profile is forgotten")
+
+	recreated := testAppArmorProfile()
+	recreated.UID = "second"
+	require.NoError(t, cli.Create(t.Context(), recreated))
+
+	for range 2 {
+		_, err := r.Reconcile(t.Context(), testRequest())
+		require.NoError(t, err)
+	}
+
+	utiltest.RequireEvent(t, rec, wantEvent)
+	utiltest.RequireNoEvent(t, rec)
+}
+
+// The profiles which got warned about deprecated ptrace rules are forgotten
+// once they are gone, and a profile created again gets warned again.
+func TestReconcileForgetsPtraceWarningOfDeletedProfile(t *testing.T) {
+	t.Parallel()
+
+	profile := testAppArmorProfile()
+	profile.UID = "first"
+	profile.Spec.Abstract = apparmorprofileapi.AppArmorAbstract{
+		Filesystem: &apparmorprofileapi.AppArmorFsRules{
+			ReadWritePaths: []string{"ptrace (read),", "/tmp"},
+		},
+	}
+
+	r, cli, _ := newTestReconciler(t, &countingProfileManager{enabled: true}, nil, profile)
+
+	var (
+		mu       sync.Mutex
+		warnings int
+	)
+
+	r.log = funcr.New(func(_, args string) {
+		if strings.Contains(args, "DEPRECATED: ptrace rules") {
+			mu.Lock()
+			warnings++
+			mu.Unlock()
+		}
+	}, funcr.Options{})
+
+	reconcileUntilInstalled(t, r)
+	deleteUntilGone(t, r, cli)
+
+	_, warned := r.ptraceWarned.Load(testRequest().NamespacedName)
+	require.False(t, warned, "the warning about a deleted profile is forgotten")
+
+	recreated := profile.DeepCopy()
+	recreated.UID = "second"
+	recreated.ResourceVersion = ""
+	recreated.Finalizers = nil
+	recreated.DeletionTimestamp = nil
+	require.NoError(t, cli.Create(t.Context(), recreated))
+
+	reconcileUntilInstalled(t, r)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	require.Equal(t, 2, warnings)
 }

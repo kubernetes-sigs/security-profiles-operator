@@ -19,7 +19,6 @@ limitations under the License.
 package bpfrecorder
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -35,7 +34,6 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
-	"unsafe"
 
 	bpf "github.com/aquasecurity/libbpfgo"
 	"github.com/go-logr/logr"
@@ -105,6 +103,11 @@ const (
 	// up in the status of its pod. The kubelet reports a container within a
 	// few seconds after it (re)started it.
 	containerLookupTimeout = 10 * time.Second
+
+	// maxWaitingLookups is how many container lookups wait at once, see
+	// waitForContainer. The other handlers go on with the processes of known
+	// containers meanwhile.
+	maxWaitingLookups = maxNewPidHandlers / 4
 
 	// maintenanceInterval is how often the recorder looks for data nobody is
 	// going to collect.
@@ -205,8 +208,21 @@ func initExePrefixValue(prefix string) ([initExePrefixLen]byte, error) {
 type BpfRecorder struct {
 	api.UnimplementedBpfRecorderServer
 	impl
-	logger                  logr.Logger
-	startRequests           int64
+	logger logr.Logger
+	// startRequests is how many clients want the recording to run, written
+	// under startMu and read atomically: the sessions and the anonymous
+	// starts.
+	startRequests int64
+	// sessions holds the IDs of the clients the recording runs for, see
+	// api.RecordingRequest. Guarded by startMu.
+	sessions map[string]struct{}
+	// anonymousStarts counts the starts without ID which were not stopped
+	// yet. Guarded by startMu.
+	anonymousStarts int64
+	// stopFailed is set if stopping the recording failed, which may have
+	// switched it off while its clients are still counted. The next Start
+	// switches it on again then. Guarded by startMu.
+	stopFailed              bool
 	btfPath                 string
 	pidToContainerIDCache   *ttlcache.Cache[string, string]
 	containerKeys           *containerKeys
@@ -266,6 +282,9 @@ type BpfRecorder struct {
 	// cluster, so that the processes of a container which is not managed by
 	// Kubernetes do not wait for it again and again.
 	containersNotFound *ttlcache.Cache[string, struct{}]
+	// waitingLookups holds a slot for every lookup which waits for its
+	// container, bounded by maxWaitingLookups.
+	waitingLookups chan struct{}
 	// profileLookups makes the handlers of processes of the same container
 	// share a single lookup.
 	profileLookups singleflight.Group
@@ -432,6 +451,7 @@ func New(programName string, logger logr.Logger, recordSeccomp, recordAppArmor b
 			ttlcache.WithDisableTouchOnHit[string, struct{}](),
 		),
 		staleKeys:           map[uint64]int{},
+		sessions:            map[string]struct{}{},
 		now:                 time.Now,
 		attachUnattachMutex: sync.RWMutex{},
 		programName:         programName,
@@ -445,6 +465,7 @@ func New(programName string, logger logr.Logger, recordSeccomp, recordAppArmor b
 		),
 		closed:                 make(chan struct{}),
 		containerLookupTimeout: containerLookupTimeout,
+		waitingLookups:         make(chan struct{}, maxWaitingLookups),
 	}
 }
 
@@ -671,54 +692,110 @@ func Dial() (*grpc.ClientConn, error) {
 	return conn, nil
 }
 
+// Start starts the recording for the client of the request. A client with an
+// ID is only counted once, so that a retried Start does not keep the recording
+// running after its Stop.
 func (b *BpfRecorder) Start(
-	context.Context, *api.EmptyRequest,
+	_ context.Context, r *api.RecordingRequest,
 ) (*api.EmptyResponse, error) {
 	b.startMu.Lock()
 	defer b.startMu.Unlock()
 
 	b.lastStart = b.now()
 
-	if atomic.LoadInt64(&b.startRequests) == 0 {
+	id := r.GetId()
+	if _, running := b.sessions[id]; running && id != "" && !b.stopFailed {
+		b.logger.Info("bpf recorder already running for session", "session", id)
+
+		return &api.EmptyResponse{}, nil
+	}
+
+	// A failed stop may have switched the recording off half way, while
+	// its client is still counted until its Stop gets retried.
+	if atomic.LoadInt64(&b.startRequests) == 0 || b.stopFailed {
 		b.logger.Info("Starting bpf recorder")
 
 		if err := b.StartRecording(); err != nil {
 			return nil, fmt.Errorf("start recording: %w", err)
 		}
+
+		b.stopFailed = false
 	} else {
 		b.logger.Info("bpf recorder already running")
 	}
 
-	atomic.AddInt64(&b.startRequests, 1)
+	if id == "" {
+		b.anonymousStarts++
+	} else {
+		b.sessions[id] = struct{}{}
+	}
+
+	b.updateStartRequests()
 
 	return &api.EmptyResponse{}, nil
 }
 
+// Stop stops the recording for the client of the request, and the recording
+// once no client wants it any more. A Stop for an ID the recording does not
+// run for, like a retried one or one after the recording got stopped as
+// abandoned, does nothing, so that it cannot end the recording of another
+// client.
 func (b *BpfRecorder) Stop(
-	context.Context, *api.EmptyRequest,
+	_ context.Context, r *api.RecordingRequest,
 ) (*api.EmptyResponse, error) {
 	b.startMu.Lock()
 	defer b.startMu.Unlock()
 
-	if atomic.LoadInt64(&b.startRequests) == 0 {
-		b.logger.Info("bpf recorder not running")
+	id := r.GetId()
+
+	_, running := b.sessions[id]
+	if id == "" {
+		running = b.anonymousStarts > 0
+	}
+
+	if !running {
+		b.logger.Info("bpf recorder not running", "session", id)
 
 		return &api.EmptyResponse{}, nil
 	}
 
-	atomic.AddInt64(&b.startRequests, -1)
-
-	if atomic.LoadInt64(&b.startRequests) == 0 {
+	if atomic.LoadInt64(&b.startRequests) == 1 {
 		b.logger.Info("Stopping bpf recorder")
 
-		if err := b.StopRecording(); err != nil {
+		// The client is only forgotten once the recording stopped, so that
+		// a failure leaves the recording to the retry of the client or to
+		// the maintenance, which both only see a running recording.
+		if err := b.stopRecording(); err != nil {
 			return nil, fmt.Errorf("stop recording: %w", err)
 		}
 	} else {
 		b.logger.Info("Not stopping because another recording is in progress")
 	}
 
+	if id == "" {
+		b.anonymousStarts--
+	} else {
+		delete(b.sessions, id)
+	}
+
+	b.updateStartRequests()
+
 	return &api.EmptyResponse{}, nil
+}
+
+// stopRecording stops the recording and remembers whether that failed, see
+// stopFailed. It has to be called with startMu held.
+func (b *BpfRecorder) stopRecording() error {
+	err := b.StopRecording()
+	b.stopFailed = err != nil
+
+	return err
+}
+
+// updateStartRequests sets startRequests from the clients which want the
+// recording to run. It has to be called with startMu held.
+func (b *BpfRecorder) updateStartRequests() {
+	atomic.StoreInt64(&b.startRequests, b.anonymousStarts+int64(len(b.sessions)))
 }
 
 // SyscallsForProfile returns the syscall names for the provided profile name.
@@ -749,7 +826,7 @@ func (b *BpfRecorder) SyscallsForProfile(
 	}
 
 	b.attachUnattachMutex.RLock()
-	syscalls, err := b.Seccomp.Syscalls(b, keys)
+	syscalls, incomplete, err := b.Seccomp.Syscalls(b, keys, r.GetAllowPartial())
 	b.attachUnattachMutex.RUnlock()
 
 	if err != nil {
@@ -762,11 +839,13 @@ func (b *BpfRecorder) SyscallsForProfile(
 		fmt.Sprintf("Found %d syscalls for profile", len(syscalls)),
 		"profile", r.GetName(),
 		"keys", keys,
+		"incomplete", incomplete,
 	)
 
 	return &api.SyscallsResponse{
-		Syscalls: syscalls,
-		GoArch:   runtime.GOARCH,
+		Syscalls:   syscalls,
+		GoArch:     runtime.GOARCH,
+		Incomplete: incomplete,
 	}, nil
 }
 
@@ -876,6 +955,9 @@ var (
 	errNotRunning          = errors.New("bpf recorder not running")
 	errNoSeccompRecording  = errors.New("not seccomp profiles recording running")
 	errNoAppArmorRecording = errors.New("no apparmor profiles recording running")
+	// errIncompleteRead means that the syscalls of some containers of a
+	// profile could not be read.
+	errIncompleteRead = errors.New("unable to read all recorded syscalls")
 )
 
 // statusError is an error with a gRPC status code. It keeps the message and
@@ -915,6 +997,8 @@ func rpcError(err error) error {
 		errors.Is(err, errNoAppArmorRecording),
 		errors.Is(err, ErrAppArmorUnavailable):
 		return &statusError{code: codes.FailedPrecondition, err: err}
+	case errors.Is(err, errIncompleteRead):
+		return &statusError{code: codes.DataLoss, err: err}
 	default:
 		return err
 	}
@@ -1578,15 +1662,14 @@ func clearBpfMap(b *BpfRecorder, bpfMap *bpf.BPFMap) error {
 		return nil
 	}
 
-	var keys [][]byte
-
-	it := b.BPFMapIterator(bpfMap)
-	for b.BPFMapIteratorNext(it) {
-		keys = append(keys, bytes.Clone(it.Key()))
+	// A failed iteration would leave the keys after the failure in place.
+	keys, err := b.MapKeys(bpfMap)
+	if err != nil {
+		return fmt.Errorf("list keys: %w", err)
 	}
 
 	for _, key := range keys {
-		if err := bpfMap.DeleteKey(unsafe.Pointer(&key[0])); err != nil &&
+		if err := b.DeleteMapKey(bpfMap, key); err != nil &&
 			!errors.Is(err, syscall.ENOENT) {
 			return fmt.Errorf("delete key: %w", err)
 		}
@@ -2144,17 +2227,8 @@ func (b *BpfRecorder) lookupProfileForContainerID(id string) (string, error) {
 
 	b.logger.V(config.VerboseLevel).Info("Looking up container ID in cluster", "id", id)
 
-	// The pod status tells a container only once it got created, and the one
-	// of a restarted container only after it started. The lookup only waits
-	// while a pod of the node has such a container, so that a container which
-	// is not managed by Kubernetes does not block the handler.
-	ctx, cancel := context.WithTimeout(context.Background(), b.containerLookupTimeout)
-	defer cancel()
-
-	pod, err := b.pods.Lookup(ctx, id)
+	pod, err := b.waitForContainer(id)
 	if err != nil {
-		b.containersNotFound.Set(id, struct{}{}, ttlcache.DefaultTTL)
-
 		return "", fmt.Errorf(
 			"searching container ID %s: %w: %w",
 			id,
@@ -2180,6 +2254,43 @@ func (b *BpfRecorder) lookupProfileForContainerID(id string) (string, error) {
 	b.containersWithoutProfile.Set(id, struct{}{}, ttlcache.DefaultTTL)
 
 	return "", errNoProfileForContainer
+}
+
+// waitForContainer returns the pod which has the container with the ID.
+//
+// The pod status tells a container only once it got created, and the one of a
+// restarted container only after it started. The lookup only waits while a pod
+// of the node has such a container, so that a container which is not managed
+// by Kubernetes does not block the handler. The sandbox containers of the pods
+// never show up in the pod status though, and a pod which cannot start its
+// containers keeps the lookups waiting for as long as it is around. Only
+// maxWaitingLookups lookups wait at once, so that a burst of new containers
+// does not block every handler. A container which is not waited for is
+// resolved later on, see cacheProfilesOfUnresolvedContainers, and is not
+// remembered as missing, so that its next process looks it up again.
+func (b *BpfRecorder) waitForContainer(id string) (*v1.Pod, error) {
+	select {
+	case b.waitingLookups <- struct{}{}:
+		defer func() { <-b.waitingLookups }()
+	default:
+		if pod, ok := b.pods.Get(id); ok {
+			return pod, nil
+		}
+
+		return nil, fmt.Errorf("%w: %s, too many lookups wait already", podindex.ErrNotFound, id)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), b.containerLookupTimeout)
+	defer cancel()
+
+	pod, err := b.pods.Lookup(ctx, id)
+	if err != nil {
+		b.containersNotFound.Set(id, struct{}{}, ttlcache.DefaultTTL)
+
+		return nil, err
+	}
+
+	return pod, nil
 }
 
 // cacheProfilesOfUnresolvedContainers caches the profiles of the containers

@@ -1374,3 +1374,88 @@ func TestReconcileReportsInstallErrorOnce(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, f.r.reported)
 }
+
+// removals returns the number of policy removals counted in the metrics.
+func (f *reconcileFixture) removals(t *testing.T) float64 {
+	t.Helper()
+
+	return utiltest.CounterValue(t, f.r.metrics.Collectors(),
+		"security_profiles_operator_selinux_profile_total",
+		map[string]string{"operation": "delete"})
+}
+
+// A deletion which gets retried after the removal, because the finalizer of
+// the node cannot be removed, must not count the removal again.
+func TestReconcileDeletionRetryCountsRemovalOnce(t *testing.T) {
+	t.Parallel()
+
+	f := newReconcileFixture(t, testProfile(), nil,
+		selinuxd(t, true, http.StatusNotFound, ""))
+	f.prepareDeletion(t)
+
+	ctx := context.Background()
+	errUpdate := errors.New("update failed")
+
+	base, ok := f.client.(client.WithWatch)
+	require.True(t, ok)
+
+	f.r.client = interceptor.NewClient(base, interceptor.Funcs{
+		Update: func(
+			ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption,
+		) error {
+			if _, isProfile := obj.(*selinuxprofileapi.SelinuxProfile); isProfile {
+				return errUpdate
+			}
+
+			return c.Update(ctx, obj, opts...)
+		},
+	})
+
+	_, err := f.r.Reconcile(ctx, f.request)
+	require.ErrorIs(t, err, errUpdate)
+	require.InDelta(t, 1, f.removals(t), 0)
+
+	f.r.client = f.client
+
+	res, err := f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{}, res)
+
+	err = f.client.Get(ctx, f.request.NamespacedName, &selinuxprofileapi.SelinuxProfile{})
+	require.True(t, kerrors.IsNotFound(err), "profile should be deleted, got %v", err)
+	require.InDelta(t, 1, f.removals(t), 0)
+}
+
+// Every removal of an installed policy counts once: a removal is not counted
+// again until the policy got installed again, for example when a profile
+// gets disabled, enabled and disabled again.
+func TestCountRemovalOncePerInstallation(t *testing.T) {
+	t.Parallel()
+
+	f := newReconcileFixture(t, testProfile(), nil,
+		selinuxd(t, true, http.StatusOK, `{"status": "Installed", "msg": ""}`))
+	ctx := context.Background()
+
+	sp := f.profile(t)
+
+	require.True(t, f.r.countRemoval(sp))
+	require.False(t, f.r.countRemoval(sp))
+	require.InDelta(t, 1, f.removals(t), 0)
+
+	// The installation of the policy forgets the counted removal.
+	for range 2 {
+		_, err := f.r.Reconcile(ctx, f.request)
+		require.NoError(t, err)
+	}
+
+	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, f.nodeStatus(t).Status.Status)
+
+	require.True(t, f.r.countRemoval(sp))
+	require.False(t, f.r.countRemoval(sp))
+	require.InDelta(t, 2, f.removals(t), 0)
+
+	// A profile created again under the same name counts on its own.
+	sp.UID = "recreated"
+	require.True(t, f.r.countRemoval(sp))
+	require.InDelta(t, 3, f.removals(t), 0)
+}

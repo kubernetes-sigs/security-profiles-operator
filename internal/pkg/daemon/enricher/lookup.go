@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"syscall"
 	"time"
 
@@ -29,6 +30,8 @@ import (
 	"k8s.io/client-go/tools/cache"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -48,7 +51,22 @@ const (
 	maxProcessItems uint64 = 16 * 1024
 	// podSyncTimeout bounds the wait for the pods of the node at start.
 	podSyncTimeout = 30 * time.Second
+	// processStartSlack is how much later than its audit line a process may
+	// seem to have started. Its start time is truncated to
+	// util.ProcessStartTimeTick, and the audit timestamp comes from a coarse
+	// clock.
+	processStartSlack = time.Second
+	// bootTimeWindow is how long a wall clock time of the boot is used at
+	// least, see bootClock. It covers how long an audit line waits at most
+	// until its process gets checked: the delay of reading the audit log and
+	// backlogTimeout.
+	bootTimeWindow = 5 * time.Minute
 )
+
+// errProcessStartedLater is returned by containerIDForProcess if the process
+// with the PID started after the audit line got logged. The process of the
+// line is gone and another one reused its PID.
+var errProcessStartedLater = errors.New("process started after its audit line")
 
 // containerLookup tells the container of the process of an audit line. The
 // log and the JSON enricher share it.
@@ -61,6 +79,69 @@ type containerLookup struct {
 	// container ID, for their lines read after they exited.
 	processContainers *ttlcache.Cache[int, string]
 	containers        *containerInfos
+	boot              bootClock
+}
+
+// bootClock tells when the system booted on the wall clock, which converts
+// the start time of a process, relative to the boot, to the wall clock of the
+// audit timestamps. That is the current wall clock time minus the time since
+// boot, which changes whenever the wall clock gets stepped or slewed. A later
+// boot time makes a process seem to have started later, which drops its
+// lines, so the earliest boot time seen within the last bootTimeWindow is
+// used. That covers the time the audit lines checked now got logged at, which
+// makes a change of the wall clock fail open:
+//
+//   - A forward step makes the boot time later. The earlier one is still used
+//     for the lines logged before the step, so that the processes only seem
+//     to have started earlier. Until the window passed, this accepts the line
+//     of a process whose PID got reused within the size of the step.
+//   - A backward step makes the boot time earlier, which gets used right
+//     away. Lines logged before the step seem to have been logged later than
+//     the processes started, which accepts them as well.
+//
+// Slewing moves the boot time slowly, the window keeps that from adding up.
+// A line can still be dropped if the wall clock got stepped forward by more
+// than processStartSlack after it got logged, and the line got checked more
+// than bootTimeWindow later or was logged before the enricher started.
+type bootClock struct {
+	mu sync.Mutex
+	// current and previous are the earliest boot times seen within the
+	// current and the previous window, which started at windowStart.
+	current, previous time.Time
+	windowStart       time.Time
+}
+
+// get returns the earliest wall clock time of the boot seen within at least
+// the last bootTimeWindow. It reports false if the time since boot is unknown.
+func (b *bootClock) get(i impl) (time.Time, bool) {
+	sinceBoot, err := i.Uptime()
+	if err != nil || sinceBoot <= 0 {
+		return time.Time{}, false
+	}
+
+	now := time.Now()
+	// Without its monotonic reading, the boot time compares by the wall
+	// clock with other boot times and with the audit timestamps.
+	boot := now.Round(0).Add(-sinceBoot)
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	// The window is measured with the monotonic clock, which the wall clock
+	// changes do not affect.
+	if b.windowStart.IsZero() || now.Sub(b.windowStart) >= bootTimeWindow {
+		b.previous, b.current, b.windowStart = b.current, boot, now
+	}
+
+	if boot.Before(b.current) {
+		b.current = boot
+	}
+
+	if !b.previous.IsZero() && b.previous.Before(b.current) {
+		return b.previous, true
+	}
+
+	return b.current, true
 }
 
 func newContainerLookup(logger logr.Logger) *containerLookup {
@@ -137,10 +218,18 @@ func processGone(err error) bool {
 	return errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ESRCH)
 }
 
-// containerIDForProcess returns the container ID of a process. The container
-// of a process which exited is the one it had when it was last seen running.
-func (c *containerLookup) containerIDForProcess(i impl, pid int) (string, error) {
-	cID, err := i.ContainerIDForPID(c.containerIDCache, pid)
+// containerIDForProcess returns the container ID of the process which logged
+// an audit line at eventTime. The container of a process which exited is the
+// one it had when it was last seen running. A line can be read up to a minute
+// after it got logged, so the process with the PID has to have started before
+// eventTime, unless it is zero.
+func (c *containerLookup) containerIDForProcess(
+	i impl, pid int, eventTime time.Time,
+) (string, error) {
+	cID, started, err := i.ContainerIDForPID(c.containerIDCache, pid)
+	if err == nil {
+		err = c.startedBefore(i, pid, started, eventTime)
+	}
 
 	switch {
 	case err == nil:
@@ -162,6 +251,41 @@ func (c *containerLookup) containerIDForProcess(i impl, pid int) (string, error)
 	}
 
 	return "", err
+}
+
+// startedBefore fails with errProcessStartedLater if the process with the PID,
+// which started the duration started after the boot, started after eventTime.
+// It skips the check if eventTime is zero or the time since boot is unknown.
+func (c *containerLookup) startedBefore(
+	i impl, pid int, started time.Duration, eventTime time.Time,
+) error {
+	if eventTime.IsZero() {
+		return nil
+	}
+
+	boot, ok := c.boot.get(i)
+	if !ok {
+		return nil
+	}
+
+	if startedAt := boot.Add(started); startedAt.After(eventTime.Add(processStartSlack)) {
+		return fmt.Errorf("%w: pid %d started at %s, the line got logged at %s",
+			errProcessStartedLater, pid, startedAt.Format(time.RFC3339Nano),
+			eventTime.Format(time.RFC3339Nano))
+	}
+
+	return nil
+}
+
+// auditTime returns when the audit line got logged, or the zero time if its
+// timestamp cannot be parsed.
+func auditTime(line *types.AuditLine) time.Time {
+	t, err := common.AuditTime(line.TimestampID)
+	if err != nil {
+		return time.Time{}
+	}
+
+	return t
 }
 
 // keepProcessContainer keeps the container of a running process, unless it

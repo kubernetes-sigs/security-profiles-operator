@@ -351,7 +351,7 @@ func (e *JsonEnricher) processLine(line string) {
 
 	if logBucket.ContainerInfo == nil {
 		logBucket.ContainerInfo, logBucket.ContainerID = e.fetchContainerInfo(
-			auditLine.ProcessID,
+			auditLine.ProcessID, auditTime(auditLine),
 		)
 	}
 
@@ -479,11 +479,11 @@ func (e *JsonEnricher) processEbpf(logBucket *types.LogBucket, auditLine *types.
 // returned as well, the next line of the process or the emission of its bucket
 // look it up again. Waiting for it here would stall the processing of the
 // lines. A process which exited gets the container it was last seen running
-// in.
+// in. eventTime is when the line of the process got logged.
 func (e *JsonEnricher) fetchContainerInfo(
-	processId int,
+	processId int, eventTime time.Time,
 ) (info *types.ContainerInfo, containerID string) {
-	cID, errContainer := e.lookup.containerIDForProcess(e.impl, processId)
+	cID, errContainer := e.lookup.containerIDForProcess(e.impl, processId, eventTime)
 	e.logger.V(config.VerboseLevel).Info("Container ID for PID",
 		"containerID", cID, "len", len(cID))
 

@@ -71,3 +71,76 @@ func TestSeriesExpire(t *testing.T) {
 	require.Equal(t, 1, seriesCount(sut.metricAppArmorProfileDenial))
 	require.Len(t, sut.series.series, 1)
 }
+
+// TestSeriesLimit asserts that a per workload metric keeps at most the
+// configured number of series, and that the increments of further series are
+// counted as dropped.
+func TestSeriesLimit(t *testing.T) {
+	t.Parallel()
+
+	sut := New()
+	sut.SetMaxSeries(2)
+
+	now := time.Now()
+	sut.series.now = func() time.Time { return now }
+
+	sut.IncSeccompProfileAudit("node", "ns", "pod", "ctr", "read")
+	sut.IncSeccompProfileAudit("node", "ns", "pod", "ctr", "write")
+	sut.IncSeccompProfileAudit("node", "ns", "pod", "ctr", "open")
+	sut.IncSeccompProfileAudit("node", "ns", "pod", "ctr", "close")
+
+	// The existing series still get incremented.
+	sut.IncSeccompProfileAudit("node", "ns", "pod", "ctr", "read")
+
+	// The limit applies per metric.
+	sut.IncSeccompProfileBpf("node", "profile", 1)
+	sut.IncSelinuxProfileAudit("node", "ns", "pod", "ctr", "s", "t")
+	sut.IncAppArmorProfileAudit("node", "ns", "pod", "ctr", "profile", "open", "DENIED")
+
+	require.Equal(t, 2, seriesCount(sut.metricSeccompProfileAudit))
+	require.Equal(t, 1, seriesCount(sut.metricSeccompProfileBpf))
+	require.Equal(t, 1, seriesCount(sut.metricSelinuxProfileAudit))
+	require.Equal(t, 1, seriesCount(sut.metricAppArmorProfileAudit))
+
+	value := dto.Metric{}
+	require.NoError(t, sut.metricSeccompProfileAudit.
+		WithLabelValues("node", "ns", "pod", "ctr", "read").Write(&value))
+	require.InDelta(t, 2, value.GetCounter().GetValue(), 0)
+
+	require.Equal(t, 1, seriesCount(sut.metricSeriesDropped))
+	require.NoError(t, sut.metricSeriesDropped.
+		WithLabelValues(metricNameSeccompProfileAudit).Write(&value))
+	require.InDelta(t, 2, value.GetCounter().GetValue(), 0)
+
+	// Expired series make room for new ones.
+	now = now.Add(seriesTTL / 2)
+
+	sut.IncSeccompProfileAudit("node", "ns", "pod", "ctr", "write")
+
+	now = now.Add(seriesTTL/2 + time.Second)
+
+	sut.series.expire()
+	sut.IncSeccompProfileAudit("node", "ns", "pod", "ctr", "open")
+
+	got := series(t, sut.metricSeccompProfileAudit)
+	require.Equal(t, map[string]float64{
+		"container=ctr,namespace=ns,node=node,pod=pod,syscall=open":  1,
+		"container=ctr,namespace=ns,node=node,pod=pod,syscall=write": 2,
+	}, got)
+}
+
+// TestSeriesWithoutLimit asserts that a limit of zero keeps any number of
+// series.
+func TestSeriesWithoutLimit(t *testing.T) {
+	t.Parallel()
+
+	sut := New()
+	sut.SetMaxSeries(0)
+
+	for i := range 10 {
+		sut.IncSeccompProfileBpf("node", "profile", uint32(i))
+	}
+
+	require.Equal(t, 10, seriesCount(sut.metricSeccompProfileBpf))
+	require.Zero(t, seriesCount(sut.metricSeriesDropped))
+}

@@ -18,6 +18,7 @@ package common
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
@@ -75,4 +76,15 @@ func Test_AuditTimeToIso(t *testing.T) {
 
 	_, errInvalid2 := AuditTimeToIso("invalid.invalid")
 	require.Error(t, errInvalid2)
+}
+
+func TestAuditTime(t *testing.T) {
+	t.Parallel()
+
+	ts, err := AuditTime("1746611740.574:325")
+	require.NoError(t, err)
+	require.True(t, time.Unix(1746611740, 574*int64(time.Millisecond)).Equal(ts))
+
+	_, err = AuditTime("invalid")
+	require.Error(t, err)
 }

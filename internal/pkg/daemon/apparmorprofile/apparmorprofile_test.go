@@ -147,10 +147,12 @@ func (f *FakeProfileManager) InstallProfile(
 	return f.installed, f.err
 }
 
-func (f *FakeProfileManager) RemoveProfile(_ profilebaseapi.StatusBaseUser, ownedByUs bool) error {
+func (f *FakeProfileManager) RemoveProfile(
+	_ profilebaseapi.StatusBaseUser, ownedByUs bool,
+) (bool, error) {
 	f.gotRemoveOwnedByUs = ownedByUs
 
-	return f.err
+	return f.err == nil, f.err
 }
 
 // TestHandleDeletionOwnership covers the evidence passed on removal. Only this

@@ -30,6 +30,7 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -80,8 +81,8 @@ type Reconciler struct {
 	manager  ProfileManager
 	nodeName string
 
-	// ptraceWarned holds the profiles which were already reported for using
-	// the deprecated ptrace rules in their paths.
+	// ptraceWarned maps the profiles which were already reported for using
+	// the deprecated ptrace rules in their paths to their UID.
 	ptraceWarned sync.Map
 
 	// unsupported remembers the profiles which got reported for a node
@@ -91,6 +92,20 @@ type Reconciler struct {
 	// rejected maps the profiles which conflict with a profile of the host
 	// or of a container runtime to the conflict which got reported.
 	rejected sync.Map
+}
+
+// rejection is a conflict of a profile which got reported.
+type rejection struct {
+	uid types.UID
+	msg string
+}
+
+// forgetProfile forgets what got reported about a profile which is gone or
+// being deleted, so that the same name gets reported again once created
+// again.
+func (r *Reconciler) forgetProfile(key types.NamespacedName) {
+	r.ptraceWarned.Delete(key)
+	r.rejected.Delete(key)
 }
 
 // warnDeprecatedPtraceRules logs once per profile that it puts ptrace rules
@@ -105,8 +120,8 @@ func (r *Reconciler) warnDeprecatedPtraceRules(
 	}
 
 	// The UID tells apart a profile which got deleted and created again.
-	key := string(sp.GetUID()) + "/" + sp.GetName()
-	if _, warned := r.ptraceWarned.LoadOrStore(key, struct{}{}); warned {
+	warned, ok := r.ptraceWarned.Swap(client.ObjectKeyFromObject(sp), sp.GetUID())
+	if ok && warned == sp.GetUID() {
 		return
 	}
 
@@ -190,6 +205,10 @@ func (r *Reconciler) Reconcile(
 
 	appArmorProfile := &apparmorprofileapi.AppArmorProfile{}
 	if found, err := common.GetProfile(ctx, r.client, req.NamespacedName, appArmorProfile); !found {
+		if err == nil {
+			r.forgetProfile(req.NamespacedName)
+		}
+
 		return reconcile.Result{}, err
 	}
 
@@ -241,6 +260,8 @@ func (r *Reconciler) reconcileAppArmorProfile(
 	}
 
 	if !sp.GetDeletionTimestamp().IsZero() { // object is being deleted
+		r.forgetProfile(client.ObjectKeyFromObject(sp))
+
 		return r.reconcileDeletion(ctx, sp, nodeStatus, l)
 	}
 
@@ -289,11 +310,12 @@ func (r *Reconciler) rejectProfile(
 ) (reconcile.Result, error) {
 	// The conflict is reported once, also if the profile failed for another
 	// reason before.
-	key := client.ObjectKeyFromObject(sp)
-	if reported, ok := r.rejected.Load(key); !ok || reported != rejectErr.Error() {
+	report := rejection{uid: sp.GetUID(), msg: rejectErr.Error()}
+
+	reported, ok := r.rejected.Swap(client.ObjectKeyFromObject(sp), report)
+	if !ok || reported != report {
 		l.Error(rejectErr, "Not installing profile")
 		r.reportError(sp, reasonCannotLoadProfile, util.EventActionInstall, rejectErr)
-		r.rejected.Store(key, rejectErr.Error())
 	}
 
 	if err := nodeStatus.SetNodeStatus(
@@ -448,12 +470,17 @@ func (r *Reconciler) handleDeletion(
 		return fmt.Errorf("checking if the profile was installed on this node: %w", err)
 	}
 
-	if err := r.manager.RemoveProfile(sp, installed == "true"); err != nil {
+	removed, err := r.manager.RemoveProfile(sp, installed == "true")
+	if err != nil {
 		return fmt.Errorf("unloading profile from host: %w", err)
 	}
 
-	l.Info("removed profile", "profile", sp.GetProfileName())
-	r.metrics.IncAppArmorProfileDelete()
+	// Nothing got removed for a profile which never got installed here, for
+	// example because it conflicts with a profile of the host.
+	if removed {
+		l.Info("removed profile", "profile", sp.GetProfileName())
+		r.metrics.IncAppArmorProfileDelete()
+	}
 
 	return nil
 }

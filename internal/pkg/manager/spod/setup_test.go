@@ -118,6 +118,57 @@ func Test_getEffectiveSPOdJsonEnricher(t *testing.T) {
 	}
 }
 
+// The limit of the metric series is passed on to the daemon only if the
+// operator environment sets it.
+func Test_getEffectiveSPOdMaxMetricSeries(t *testing.T) {
+	t.Parallel()
+
+	for _, value := range []string{"", "100"} {
+		env := getEffectiveSPOd(&daemonTunables{maxMetricSeries: value}).
+			Spec.Template.Spec.Containers[bindata.ContainerIDDaemon].Env
+		idx := slices.IndexFunc(env, func(e corev1.EnvVar) bool {
+			return e.Name == config.MaxMetricSeriesEnvKey
+		})
+
+		if value == "" {
+			require.Equal(t, -1, idx)
+		} else {
+			require.GreaterOrEqual(t, idx, 0)
+			require.Equal(t, value, env[idx].Value)
+		}
+	}
+}
+
+// The limit of the metric series is validated in the manager, a value which
+// the daemon refuses would make every daemon pod fail to start.
+func Test_maxMetricSeries(t *testing.T) {
+	for value, want := range map[string]string{
+		"":     "",
+		"0":    "0",
+		"100":  "100",
+		"+100": "100",
+		"20k":  "",
+		"-1":   "",
+		"0x10": "",
+		"1.5":  "",
+	} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv(config.MaxMetricSeriesEnvKey, value)
+
+			got, err := maxMetricSeries()
+			if want == "" && value != "" {
+				require.ErrorIs(t, err, errInvalidTunable)
+				require.ErrorContains(t, err, config.MaxMetricSeriesEnvKey)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, want, got)
+		})
+	}
+}
+
 func Test_isStaticWebhook(t *testing.T) {
 	t.Parallel()
 
@@ -148,6 +199,7 @@ func Test_getTunables(t *testing.T) {
 	t.Setenv("RELATED_IMAGE_SELINUXD", "selinuxd:default")
 	t.Setenv("RELATED_IMAGE_SELINUXD_EL9", "selinuxd:el9")
 	t.Setenv(config.NodeNameEnvKey, "node")
+	t.Setenv(config.MaxMetricSeriesEnvKey, "100")
 
 	node := &corev1.Node{
 		ObjectMeta: metav1.ObjectMeta{Name: "node"},
@@ -163,10 +215,10 @@ func Test_getTunables(t *testing.T) {
 
 	mapping := `[{"regex":"Red Hat Enterprise Linux CoreOS 9","imageFromVar":"RELATED_IMAGE_SELINUXD_EL9"}]`
 
-	//nolint:paralleltest // the test sets the environment
 	for name, tc := range map[string]struct {
 		data       map[string]string
 		getErr     error
+		maxSeries  string
 		wantErr    bool
 		wantVolume bool
 	}{
@@ -187,8 +239,17 @@ func Test_getTunables(t *testing.T) {
 			wantErr: true,
 		},
 		"API error": {getErr: errTest, wantErr: true},
+		"invalid metric series": {
+			data:      map[string]string{util.SelinuxdImageMappingKey: mapping},
+			maxSeries: "-1",
+			wantErr:   true,
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
+			if tc.maxSeries != "" {
+				t.Setenv(config.MaxMetricSeriesEnvKey, tc.maxSeries)
+			}
+
 			c := fake.NewClientBuilder().
 				WithObjects(node, operatorConfigMap(tc.data)).
 				WithInterceptorFuncs(interceptor.Funcs{
@@ -216,6 +277,7 @@ func Test_getTunables(t *testing.T) {
 
 			require.NoError(t, err)
 			require.Equal(t, "watched", dt.watchNamespace)
+			require.Equal(t, "100", dt.maxMetricSeries)
 			require.Equal(t, "cri-o", dt.containerRuntime)
 			require.Equal(t, "selinuxd:el9", dt.selinuxdImage)
 			require.Equal(t, bindata.LocalSeccompProfilePath, dt.seccompLocalhostProfile)

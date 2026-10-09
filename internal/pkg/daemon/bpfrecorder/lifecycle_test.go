@@ -662,7 +662,7 @@ func TestLoadWithoutAppArmorHook(t *testing.T) {
 	require.NoError(t, sut.StartRecording())
 	require.NoError(t, sut.StopRecording())
 
-	_, err := sut.Start(t.Context(), &api.EmptyRequest{})
+	_, err := sut.Start(t.Context(), &api.RecordingRequest{})
 	require.NoError(t, err)
 
 	_, err = sut.ApparmorForProfile(t.Context(), &api.ProfileRequest{Name: "profile"})

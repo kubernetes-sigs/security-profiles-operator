@@ -81,6 +81,12 @@ func processStartTime(pid int, reader procFileReader) (time.Duration, error) {
 		return 0, err
 	}
 
+	return parseProcessStartTime(pid, raw)
+}
+
+// parseProcessStartTime converts the start time of a process in clock ticks,
+// as /proc/<pid>/stat tells it, to the time since boot.
+func parseProcessStartTime(pid int, raw string) (time.Duration, error) {
 	ticks, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil {
 		return 0, fmt.Errorf("parse start time of pid %d: %w", pid, err)
@@ -98,6 +104,17 @@ func processStartTime(pid int, reader procFileReader) (time.Duration, error) {
 // also remembers a process without a container for a short time, as an empty
 // value.
 func ContainerIDForPID(cache *ttlcache.Cache[string, string], pid int) (string, error) {
+	containerID, _, err := ContainerIDAndStartTimeForPID(cache, pid)
+
+	return containerID, err
+}
+
+// ContainerIDAndStartTimeForPID is ContainerIDForPID which also returns when
+// the process started, like ProcessStartTime. The start time is the one the
+// container got looked up for, read only once.
+func ContainerIDAndStartTimeForPID(
+	cache *ttlcache.Cache[string, string], pid int,
+) (containerID string, started time.Duration, err error) {
 	readFile := func(pid int) ([]byte, error) {
 		return os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
 	}
@@ -105,7 +122,30 @@ func ContainerIDForPID(cache *ttlcache.Cache[string, string], pid int) (string, 
 		return os.ReadFile(fmt.Sprintf("/proc/%d/cgroup", pid))
 	}
 
-	return containerIDForPID(cache, pid, readFile, readCgroup)
+	return containerIDAndStartTimeForPID(cache, pid, readFile, readCgroup)
+}
+
+func containerIDAndStartTimeForPID(
+	cache *ttlcache.Cache[string, string],
+	pid int,
+	statReader, cgroupReader procFileReader,
+) (containerID string, started time.Duration, err error) {
+	startTime, err := getProcessStartTimeTicks(pid, statReader)
+	if err != nil {
+		return "", 0, fmt.Errorf("reading proc start time: %w", err)
+	}
+
+	started, err = parseProcessStartTime(pid, startTime)
+	if err != nil {
+		return "", 0, err
+	}
+
+	containerID, err = containerIDForStartTime(cache, pid, startTime, cgroupReader)
+	if err != nil {
+		return "", 0, err
+	}
+
+	return containerID, started, nil
 }
 
 func containerIDForPID(
@@ -118,6 +158,17 @@ func containerIDForPID(
 		return "", fmt.Errorf("reading proc start time: %w", err)
 	}
 
+	return containerIDForStartTime(cache, pid, startTime, cgroupReader)
+}
+
+// containerIDForStartTime looks the container of the process with the PID and
+// the start time in clock ticks up.
+func containerIDForStartTime(
+	cache *ttlcache.Cache[string, string],
+	pid int,
+	startTime string,
+	cgroupReader procFileReader,
+) (string, error) {
 	// Combine the pid with the process start time as a cache key to avoid "fork-bomb"
 	// attack which reuses a PID for a different container within the cache TTL.
 	cacheKey := strconv.Itoa(pid) + "_" + startTime

@@ -102,6 +102,51 @@ func TestFindProfileRemembersMissingContainers(t *testing.T) {
 	require.ErrorIs(t, err, errNoProfileForContainer)
 }
 
+// TestFindProfileBoundsWaitingLookups asserts that only a few lookups wait for
+// their containers at once. The containers of the pods include the sandbox
+// containers, which never show up in the pod status and wait as long as a pod
+// of the node has a pending container, and every handler would be blocked by
+// a burst of them otherwise.
+func TestFindProfileBoundsWaitingLookups(t *testing.T) {
+	t.Parallel()
+
+	// A pod with a container which is being created keeps the lookups
+	// waiting.
+	creating := podWithContainer(nil)
+	creating.Name = "creating"
+	creating.Status.ContainerStatuses[0].ContainerID = ""
+
+	sut, _ := newClusterRecorder(true, false)
+	watchPods(t, sut, creating, podWithContainer(nil))
+
+	for range maxWaitingLookups {
+		sut.waitingLookups <- struct{}{}
+	}
+
+	sut.containerLookupTimeout = time.Hour
+
+	const sandbox = "0000000000000000000000000000000000000000000000000000000000000003"
+
+	// Not waited for, and looked up again with the next process.
+	_, err := sut.findProfileForContainerID(sandbox)
+	require.ErrorIs(t, err, errContainerNotInCluster)
+	require.False(t, sut.containersNotFound.Has(sandbox))
+
+	// A container which a pod has is still found right away.
+	_, err = sut.findProfileForContainerID(containerID)
+	require.ErrorIs(t, err, errNoProfileForContainer)
+
+	// Waited for once a lookup is done.
+	<-sut.waitingLookups
+
+	sut.containerLookupTimeout = 10 * time.Millisecond
+
+	_, err = sut.findProfileForContainerID(sandbox)
+	require.ErrorIs(t, err, errContainerNotInCluster)
+	require.True(t, sut.containersNotFound.Has(sandbox))
+	require.Len(t, sut.waitingLookups, maxWaitingLookups-1)
+}
+
 // TestFindProfileWaitsForContainers asserts that the lookup waits for the pod
 // status to tell the container, which it does only once the container got
 // created, or started again after a restart.
@@ -706,7 +751,7 @@ func TestReleaseAbandonedRecording(t *testing.T) {
 	require.EqualValues(t, 1, atomic.LoadInt64(&sut.startRequests))
 
 	// A Stop got lost.
-	_, err = sut.Start(t.Context(), &api.EmptyRequest{})
+	_, err = sut.Start(t.Context(), &api.RecordingRequest{})
 	require.NoError(t, err)
 
 	recorded := podWithContainer(map[string]string{
@@ -729,7 +774,7 @@ func TestReleaseAbandonedRecording(t *testing.T) {
 	require.EqualValues(t, 2, atomic.LoadInt64(&sut.startRequests))
 
 	// A new recording starts the wait over.
-	_, err = sut.Start(t.Context(), &api.EmptyRequest{})
+	_, err = sut.Start(t.Context(), &api.RecordingRequest{})
 	require.NoError(t, err)
 
 	now = now.Add(abandonedRecordingTimeout)
@@ -743,7 +788,7 @@ func TestReleaseAbandonedRecording(t *testing.T) {
 	require.Zero(t, atomic.LoadInt64(&sut.startRequests))
 
 	// The client stops its recordings afterwards.
-	_, err = sut.Stop(t.Context(), &api.EmptyRequest{})
+	_, err = sut.Stop(t.Context(), &api.RecordingRequest{})
 	require.NoError(t, err)
 	require.Zero(t, atomic.LoadInt64(&sut.startRequests))
 }
