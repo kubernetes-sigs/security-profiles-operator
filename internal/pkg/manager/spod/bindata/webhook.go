@@ -22,6 +22,7 @@ import (
 	"iter"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -33,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -85,6 +87,34 @@ var (
 			},
 		},
 	}
+	// The bindings only apply on creation, so changing the image of a
+	// container afterwards would run the new image with the profile bound to
+	// the old one. The match condition keeps the fail closed webhook off the
+	// other pod updates, like the ones of the garbage collector.
+	bindingImageUpdateRules = []admissionregv1.RuleWithOperations{
+		{
+			Operations: []admissionregv1.OperationType{
+				"UPDATE",
+			},
+			Rule: admissionregv1.Rule{
+				APIGroups:   []string{""},
+				APIVersions: []string{"v1"},
+				Resources:   []string{"pods"},
+				Scope:       &allScopes,
+			},
+		},
+	}
+	bindingImageUpdateMatchConditions = []admissionregv1.MatchCondition{
+		{
+			Name: "container-image-change",
+			// Containers cannot be added, removed or renamed on update.
+			Expression: "object.spec.containers.exists(c, oldObject.spec.containers.exists(o, " +
+				"o.name == c.name && o.image != c.image)) || " +
+				"(has(object.spec.initContainers) && has(oldObject.spec.initContainers) && " +
+				"object.spec.initContainers.exists(c, oldObject.spec.initContainers.exists(o, " +
+				"o.name == c.name && o.image != c.image)))",
+		},
+	}
 	recordingRules = []admissionregv1.RuleWithOperations{
 		{
 			Operations: []admissionregv1.OperationType{
@@ -96,6 +126,17 @@ var (
 				Resources:   []string{"pods"},
 				Scope:       &allScopes,
 			},
+		},
+	}
+	// On update the recording webhook only restores the recording annotations
+	// of the old pod, so it only needs to see the updates which remove or
+	// change one of them. The other updates, like the ones of the garbage
+	// collector or the removal of a finalizer, do not depend on the fail
+	// closed webhook being up.
+	recordingMatchConditions = []admissionregv1.MatchCondition{
+		{
+			Name:       "create-or-recording-annotation-change",
+			Expression: recordingMatchExpression(),
 		},
 	}
 	rulesExec = []admissionregv1.RuleWithOperations{
@@ -144,6 +185,34 @@ var (
 	}
 )
 
+// recordingAnnotationPrefixes are the prefixes of the recording annotation
+// keys, see ProfileRecording.CtrAnnotation.
+var recordingAnnotationPrefixes = []string{
+	config.SeccompProfileRecordLogsAnnotationKey,
+	config.SeccompProfileRecordBpfAnnotationKey,
+	config.ApparmorProfileRecordBpfAnnotationKey,
+	config.SelinuxProfileRecordLogsAnnotationKey,
+}
+
+// recordingMatchExpression returns the expression which is true for pod
+// creations and for pod updates which remove or change a recording
+// annotation of the old pod.
+func recordingMatchExpression() string {
+	isRecordingKey := make([]string, 0, len(recordingAnnotationPrefixes))
+	for _, prefix := range recordingAnnotationPrefixes {
+		isRecordingKey = append(
+			isRecordingKey,
+			fmt.Sprintf("k.startsWith(%s)", strconv.Quote(prefix)),
+		)
+	}
+
+	return "request.operation != 'UPDATE' || " +
+		"(has(oldObject.metadata.annotations) && oldObject.metadata.annotations.exists(k, " +
+		"(" + strings.Join(isRecordingKey, " || ") + ") && " +
+		"!(has(object.metadata.annotations) && k in object.metadata.annotations && " +
+		"object.metadata.annotations[k] == oldObject.metadata.annotations[k])))"
+}
+
 // systemNamespaces are the namespaces of the cluster components. Execs into
 // their pods do not get the exec metadata injected, because the injected
 // command requires an env binary in the container image, which minimal system
@@ -182,8 +251,9 @@ func requireLabel(requiredLabel string) *metav1.LabelSelector {
 	}
 }
 
-// excludeOperatorNamespace additionally keeps a webhook out of the operator's
-// own namespace. Unlike excludeOperatorPods this cannot be opted out of by the
+// excludeOperatorNamespace selects the namespaces carrying the binding enable
+// label, and additionally keeps a webhook out of the operator's own namespace.
+// Unlike excludeOperatorPods this cannot be opted out of by the
 // pod author, because "kubernetes.io/metadata.name" is set by the API server.
 //
 // It is used for binding and not for recording, and the asymmetry is
@@ -198,8 +268,8 @@ func requireLabel(requiredLabel string) *metav1.LabelSelector {
 // from GetWebhook, rather than read from the environment here: guessing the
 // default install namespace would silently stop excluding the operator on any
 // install that uses a different namespace.
-func excludeOperatorNamespace(requiredLabel, operatorNamespace string) *metav1.LabelSelector {
-	return withOperatorNamespaceExcluded(requireLabel(requiredLabel), operatorNamespace)
+func excludeOperatorNamespace(operatorNamespace string) *metav1.LabelSelector {
+	return withOperatorNamespaceExcluded(requireLabel(EnableBindingLabel), operatorNamespace)
 }
 
 // withOperatorNamespaceExcluded appends the operator namespace exclusion to
@@ -272,10 +342,15 @@ type webhook struct {
 }
 
 var (
-	binding                  = webhook{0, "binding.spo.io", "/mutate-v1-pod-binding"}
+	binding                  = webhook{0, BindingWebhookName, "/mutate-v1-pod-binding"}
 	recording                = webhook{1, RecordingWebhookName, "/mutate-v1-pod-recording"}
 	execMetadata             = webhook{2, "execmetadata.spo.io", "/mutate-v1-exec-metadata"}
 	nodeDebuggingPodMetadata = webhook{3, "nodedebuggingpod.spo.io", "/mutate-v1-exec-metadata"}
+
+	// bindingImageUpdate is part of the validating webhook configuration, so
+	// its index is the one there. The webhook options of binding.spo.io apply
+	// to it as well.
+	bindingImageUpdate = webhook{1, "binding-image.spo.io", "/validate-v1-pod-binding-image"}
 )
 
 type Webhook struct {
@@ -350,8 +425,12 @@ func GetWebhook(
 	// then apply the user-specified opts
 	applyWebhookOptions(cfg, webhookOpts, namespace)
 
-	valCfg := getValidatingWebhookConfig().DeepCopy()
-	valCfg.Webhooks[0].ClientConfig.Service.Namespace = namespace
+	valCfg := getValidatingWebhookConfig(namespace).DeepCopy()
+	for i := range valCfg.Webhooks {
+		valCfg.Webhooks[i].ClientConfig.Service.Namespace = namespace
+	}
+
+	applyBindingOptions(&valCfg.Webhooks[bindingImageUpdate.index], webhookOpts, namespace)
 
 	switch caInjectType {
 	case CAInjectTypeCertManager:
@@ -410,6 +489,55 @@ func RecordingWebhookSelectors(
 	return hook.NamespaceSelector, hook.ObjectSelector
 }
 
+// BindingWebhookName is the name of the binding webhook in the mutating
+// webhook configuration.
+const BindingWebhookName = "binding.spo.io"
+
+// WebhookSelectsNamespace returns whether the webhook of the mutating webhook
+// configuration of the operator selects the namespace. Without the webhook
+// configuration, the webhook in it or the namespace nothing can be told, and
+// the namespace counts as selected.
+func WebhookSelectsNamespace(
+	ctx context.Context, c client.Reader, webhookName, namespace string,
+) (bool, error) {
+	webhookConfig := &admissionregv1.MutatingWebhookConfiguration{}
+	if err := c.Get(
+		ctx, client.ObjectKey{Name: MutatingWebhookConfigName}, webhookConfig,
+	); err != nil {
+		if errors.IsNotFound(err) {
+			return true, nil
+		}
+
+		return false, fmt.Errorf("getting mutating webhook configuration: %w", err)
+	}
+
+	i := slices.IndexFunc(webhookConfig.Webhooks, func(w admissionregv1.MutatingWebhook) bool {
+		return w.Name == webhookName
+	})
+	if i < 0 || webhookConfig.Webhooks[i].NamespaceSelector == nil {
+		return true, nil
+	}
+
+	selector, err := metav1.LabelSelectorAsSelector(webhookConfig.Webhooks[i].NamespaceSelector)
+	if err != nil {
+		// The API server does not accept invalid selectors.
+		return true, nil //nolint:nilerr // nothing can be told
+	}
+
+	ns := &metav1.PartialObjectMetadata{}
+	ns.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("Namespace"))
+
+	if err := c.Get(ctx, client.ObjectKey{Name: namespace}, ns); err != nil {
+		if errors.IsNotFound(err) {
+			return true, nil
+		}
+
+		return false, fmt.Errorf("getting namespace %s: %w", namespace, err)
+	}
+
+	return selector.Matches(labels.Set(ns.GetLabels())), nil
+}
+
 func (w *Webhook) Create(ctx context.Context, c client.Client) error {
 	for k, o := range w.objects() {
 		if err := c.Create(ctx, o); err != nil {
@@ -439,30 +567,58 @@ func applyWebhookOptions(
 		hook := &cfg.Webhooks[i]
 
 		for j := range opts {
-			userOpt := &opts[j]
-			if userOpt.Name != hook.Name {
-				continue
-			}
-
-			if userOpt.FailurePolicy != nil {
-				hook.FailurePolicy = new(*userOpt.FailurePolicy)
-			}
-
-			if userOpt.NamespaceSelector != nil {
-				hook.NamespaceSelector = userOpt.NamespaceSelector.DeepCopy()
-
-				// A custom selector narrows or widens which namespaces opt in,
-				// but must not lift the operator namespace exclusion that
-				// makes binding a security boundary.
-				if hook.Name == binding.name {
-					withOperatorNamespaceExcluded(hook.NamespaceSelector, operatorNamespace)
-				}
-			}
-
-			if userOpt.ObjectSelector != nil {
-				hook.ObjectSelector = userOpt.ObjectSelector.DeepCopy()
+			if opts[j].Name == hook.Name {
+				applyWebhookOption(
+					&opts[j], hook.Name == binding.name, operatorNamespace,
+					&hook.FailurePolicy, &hook.NamespaceSelector, &hook.ObjectSelector,
+				)
 			}
 		}
+	}
+}
+
+// applyBindingOptions applies the webhook options of binding.spo.io to the
+// validating webhook of the image updates, which has to select the same pods.
+func applyBindingOptions(
+	hook *admissionregv1.ValidatingWebhook,
+	opts []spodapi.WebhookOptions,
+	operatorNamespace string,
+) {
+	for j := range opts {
+		if opts[j].Name == binding.name {
+			applyWebhookOption(
+				&opts[j], true, operatorNamespace,
+				&hook.FailurePolicy, &hook.NamespaceSelector, &hook.ObjectSelector,
+			)
+		}
+	}
+}
+
+// applyWebhookOption applies the user option to the fields of a webhook.
+func applyWebhookOption(
+	userOpt *spodapi.WebhookOptions,
+	isBinding bool,
+	operatorNamespace string,
+	failurePolicy **admissionregv1.FailurePolicyType,
+	namespaceSelector, objectSelector **metav1.LabelSelector,
+) {
+	if userOpt.FailurePolicy != nil {
+		*failurePolicy = new(*userOpt.FailurePolicy)
+	}
+
+	if userOpt.NamespaceSelector != nil {
+		*namespaceSelector = userOpt.NamespaceSelector.DeepCopy()
+
+		// A custom selector narrows or widens which namespaces opt in, but
+		// must not lift the operator namespace exclusion that makes binding a
+		// security boundary.
+		if isBinding {
+			withOperatorNamespaceExcluded(*namespaceSelector, operatorNamespace)
+		}
+	}
+
+	if userOpt.ObjectSelector != nil {
+		*objectSelector = userOpt.ObjectSelector.DeepCopy()
 	}
 }
 
@@ -700,6 +856,7 @@ type hookFields struct {
 	sideEffects             *admissionregv1.SideEffectClass
 	timeoutSeconds          *int32
 	admissionReviewVersions []string
+	matchConditions         []admissionregv1.MatchCondition
 }
 
 func mutatingHookFields(h *admissionregv1.MutatingWebhook) *hookFields {
@@ -713,6 +870,7 @@ func mutatingHookFields(h *admissionregv1.MutatingWebhook) *hookFields {
 		sideEffects:             h.SideEffects,
 		timeoutSeconds:          h.TimeoutSeconds,
 		admissionReviewVersions: h.AdmissionReviewVersions,
+		matchConditions:         h.MatchConditions,
 	}
 }
 
@@ -727,6 +885,7 @@ func validatingHookFields(h *admissionregv1.ValidatingWebhook) *hookFields {
 		sideEffects:             h.SideEffects,
 		timeoutSeconds:          h.TimeoutSeconds,
 		admissionReviewVersions: h.AdmissionReviewVersions,
+		matchConditions:         h.MatchConditions,
 	}
 }
 
@@ -757,6 +916,10 @@ func differingHookField(existing, configured *hookFields) string {
 		return "clientConfig"
 	case !slices.Equal(existing.admissionReviewVersions, configured.admissionReviewVersions):
 		return "admissionReviewVersions"
+	// The match conditions have no defaults, and an unset list equals an
+	// empty one.
+	case !slices.Equal(existing.matchConditions, configured.matchConditions):
+		return "matchConditions"
 	// The selectors are compared as a whole, so that any change to the
 	// webhook options of the SPOD gets rolled out. A nil selector matches
 	// everything like an empty one, and some platforms store an empty
@@ -1040,7 +1203,7 @@ func getWebhookConfig(
 			TimeoutSeconds:     &timeoutSeconds,
 			ReinvocationPolicy: &reinvocationPolicy,
 			Rules:              bindingRules,
-			NamespaceSelector:  excludeOperatorNamespace(EnableBindingLabel, operatorNamespace),
+			NamespaceSelector:  excludeOperatorNamespace(operatorNamespace),
 			ClientConfig: admissionregv1.WebhookClientConfig{
 				CABundle: caBundle,
 				Service: &admissionregv1.ServiceReference{
@@ -1057,6 +1220,7 @@ func getWebhookConfig(
 			TimeoutSeconds:     &timeoutSeconds,
 			ReinvocationPolicy: &reinvocationPolicy,
 			Rules:              recordingRules,
+			MatchConditions:    recordingMatchConditions,
 			ObjectSelector:     &excludeOperatorPods,
 			NamespaceSelector:  requireLabel(EnableRecordingLabel),
 			ClientConfig: admissionregv1.WebhookClientConfig{
@@ -1114,7 +1278,11 @@ func getWebhookConfig(
 	}
 }
 
-func getValidatingWebhookConfig() *admissionregv1.ValidatingWebhookConfiguration {
+// getValidatingWebhookConfig returns the webhooks in the order of the raw
+// SELinux profile validation and bindingImageUpdate.
+func getValidatingWebhookConfig(
+	operatorNamespace string,
+) *admissionregv1.ValidatingWebhookConfiguration {
 	path := rawSelinuxProfileWebhookPath
 
 	return &admissionregv1.ValidatingWebhookConfiguration{
@@ -1145,6 +1313,23 @@ func getValidatingWebhookConfig() *admissionregv1.ValidatingWebhookConfiguration
 					Service: &admissionregv1.ServiceReference{
 						Name: serviceName,
 						Path: &path,
+					},
+				},
+				AdmissionReviewVersions: admissionReviewVersions,
+			},
+			{
+				Name:              bindingImageUpdate.name,
+				FailurePolicy:     &failurePolicyFail,
+				SideEffects:       &sideEffects,
+				TimeoutSeconds:    &timeoutSeconds,
+				Rules:             bindingImageUpdateRules,
+				MatchConditions:   bindingImageUpdateMatchConditions,
+				NamespaceSelector: excludeOperatorNamespace(operatorNamespace),
+				ClientConfig: admissionregv1.WebhookClientConfig{
+					CABundle: caBundle,
+					Service: &admissionregv1.ServiceReference{
+						Name: serviceName,
+						Path: &bindingImageUpdate.path,
 					},
 				},
 				AdmissionReviewVersions: admissionReviewVersions,

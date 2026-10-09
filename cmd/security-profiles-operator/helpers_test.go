@@ -403,6 +403,52 @@ func TestManagerMaxConcurrentReconcilesFlag(t *testing.T) {
 	)
 }
 
+func TestManagerKubeAPIRateLimitFlags(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name      string
+		args      []string
+		wantQPS   float32
+		wantBurst int
+	}{
+		{
+			// The controller-runtime disables the client side rate limit.
+			name:    "unset",
+			wantQPS: -1,
+		},
+		{
+			name:    "burst without qps",
+			args:    []string{"--kube-api-burst=100"},
+			wantQPS: -1,
+		},
+		{
+			name:    "qps",
+			args:    []string{"--kube-api-qps=50"},
+			wantQPS: 50,
+		},
+		{
+			name:      "qps and burst",
+			args:      []string{"--kube-api-qps=50", "--kube-api-burst=100"},
+			wantQPS:   50,
+			wantBurst: 100,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Applying a flag sets its default, so every parallel test case
+			// needs its own flags.
+			flags := managerCommand(&version.Info{}).Flags
+			ctx := newCLIContext(t, flags, tc.args...)
+			cfg := &rest.Config{QPS: -1}
+			setKubeAPIRateLimit(cfg, ctx.Float64(kubeAPIQPSFlag), ctx.Int(kubeAPIBurstFlag))
+			require.InDelta(t, tc.wantQPS, cfg.QPS, 0)
+			require.Equal(t, tc.wantBurst, cfg.Burst)
+		})
+	}
+}
+
 // The spoc command passes every argument after its name to spoc, flags
 // included, wherever global flags precede it.
 func TestSpocCommandPassesArguments(t *testing.T) {

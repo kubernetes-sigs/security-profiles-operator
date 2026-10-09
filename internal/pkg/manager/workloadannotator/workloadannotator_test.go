@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
@@ -79,33 +80,25 @@ func newCountingReader(
 	return countingReader, &calls
 }
 
-//nolint:dupl // Seccomp and SELinux profiles intentionally exercise the same reconciliation contract.
-func TestUpdatePodReferencesRefreshesBeforeNoOpCheck(t *testing.T) {
+// A profile which the cache shows with the current pods costs no read from
+// the API server. If the cache was behind, the profile gets reconciled again
+// once the cache has the update, see profileReconciler.
+func TestUpdatePodReferencesSkipsReadForCachedNoOp(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
-		name         string
-		addToScheme  func(*runtime.Scheme) error
-		ownerKey     string
-		profiles     func() (client.Object, client.Object)
-		update       func(context.Context, *PodReconciler, client.Object) error
-		assertStatus func(*testing.T, context.Context, client.Client)
+		name        string
+		addToScheme func(*runtime.Scheme) error
+		ownerKey    string
+		profile     client.Object
+		update      func(context.Context, *PodReconciler, client.Object) error
 	}{
 		{
 			name:        "SeccompProfile",
 			addToScheme: seccompprofileapi.AddToScheme,
 			ownerKey:    spOwnerKey,
-			profiles: func() (client.Object, client.Object) {
-				stored := &seccompprofileapi.SeccompProfile{
-					ObjectMeta: metav1.ObjectMeta{Name: "test-profile"},
-					Status: seccompprofileapi.SeccompProfileStatus{
-						ActiveWorkloads: []string{"example/pod-a"},
-					},
-				}
-				stale := stored.DeepCopy()
-				stale.Status.ActiveWorkloads = nil
-
-				return stored, stale
+			profile: &seccompprofileapi.SeccompProfile{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-profile"},
 			},
 			update: func(ctx context.Context, r *PodReconciler, object client.Object) error {
 				profile, ok := object.(*seccompprofileapi.SeccompProfile)
@@ -115,29 +108,13 @@ func TestUpdatePodReferencesRefreshesBeforeNoOpCheck(t *testing.T) {
 
 				return r.updatePodReferencesForSeccomp(ctx, profile)
 			},
-			assertStatus: func(t *testing.T, ctx context.Context, c client.Client) {
-				t.Helper()
-
-				updated := &seccompprofileapi.SeccompProfile{}
-				require.NoError(t, c.Get(ctx, client.ObjectKey{Name: "test-profile"}, updated))
-				require.Empty(t, updated.Status.ActiveWorkloads)
-			},
 		},
 		{
 			name:        "SelinuxProfile",
 			addToScheme: selinuxprofileapi.AddToScheme,
 			ownerKey:    seOwnerKey,
-			profiles: func() (client.Object, client.Object) {
-				stored := &selinuxprofileapi.SelinuxProfile{
-					ObjectMeta: metav1.ObjectMeta{Name: "test-profile"},
-					Status: selinuxprofileapi.SelinuxProfileStatus{
-						ActiveWorkloads: []string{"example/pod-a"},
-					},
-				}
-				stale := stored.DeepCopy()
-				stale.Status.ActiveWorkloads = nil
-
-				return stored, stale
+			profile: &selinuxprofileapi.SelinuxProfile{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-profile"},
 			},
 			update: func(ctx context.Context, r *PodReconciler, object client.Object) error {
 				profile, ok := object.(*selinuxprofileapi.SelinuxProfile)
@@ -146,13 +123,6 @@ func TestUpdatePodReferencesRefreshesBeforeNoOpCheck(t *testing.T) {
 				}
 
 				return r.updatePodReferencesForSelinux(ctx, profile)
-			},
-			assertStatus: func(t *testing.T, ctx context.Context, c client.Client) {
-				t.Helper()
-
-				updated := &selinuxprofileapi.SelinuxProfile{}
-				require.NoError(t, c.Get(ctx, client.ObjectKey{Name: "test-profile"}, updated))
-				require.Empty(t, updated.Status.ActiveWorkloads)
 			},
 		},
 	}
@@ -167,19 +137,17 @@ func TestUpdatePodReferencesRefreshesBeforeNoOpCheck(t *testing.T) {
 			require.NoError(t, corev1.AddToScheme(testScheme))
 			require.NoError(t, testCase.addToScheme(testScheme))
 
-			stored, stale := testCase.profiles()
-			apiReader, readerGetCalls := newCountingReader(t, testScheme, stored)
+			apiReader, readerGetCalls := newCountingReader(t, testScheme, testCase.profile)
 			fakeClient := fake.NewClientBuilder().
 				WithScheme(testScheme).
-				WithStatusSubresource(stored).
-				WithObjects(stored).
+				WithStatusSubresource(testCase.profile).
+				WithObjects(testCase.profile).
 				WithIndex(&corev1.Pod{}, testCase.ownerKey, func(client.Object) []string { return nil }).
 				Build()
 
 			r := &PodReconciler{client: fakeClient, reader: apiReader}
-			require.NoError(t, testCase.update(ctx, r, stale))
-			require.Equal(t, 1, *readerGetCalls)
-			testCase.assertStatus(t, ctx, fakeClient)
+			require.NoError(t, testCase.update(ctx, r, testCase.profile))
+			require.Zero(t, *readerGetCalls)
 		})
 	}
 }
@@ -212,13 +180,13 @@ func TestUpdatePodReferencesForSeccompIgnoresDeletedProfile(t *testing.T) {
 
 				return c.Update(ctx, obj, opts...)
 			},
-			SubResourceUpdate: func(
+			SubResourcePatch: func(
 				ctx context.Context, c client.Client, sub string, obj client.Object,
-				opts ...client.SubResourceUpdateOption,
+				patch client.Patch, opts ...client.SubResourcePatchOption,
 			) error {
 				writes++
 
-				return c.SubResource(sub).Update(ctx, obj, opts...)
+				return c.SubResource(sub).Patch(ctx, obj, patch, opts...)
 			},
 		}).
 		Build()
@@ -249,7 +217,8 @@ func TestUpdatePodReferencesIgnoresDeletionBeforeFinalizerUpdate(t *testing.T) {
 			profile: &seccompprofileapi.SeccompProfile{
 				ObjectMeta: metav1.ObjectMeta{Name: "test-profile"},
 				Status: seccompprofileapi.SeccompProfileStatus{
-					ActiveWorkloads: []string{"example/pod"},
+					ActiveWorkloads:      []string{"example/pod"},
+					ActiveWorkloadsCount: 1,
 				},
 			},
 			ownerKey:         spOwnerKey,
@@ -268,7 +237,8 @@ func TestUpdatePodReferencesIgnoresDeletionBeforeFinalizerUpdate(t *testing.T) {
 			profile: &selinuxprofileapi.SelinuxProfile{
 				ObjectMeta: metav1.ObjectMeta{Name: "test-profile"},
 				Status: selinuxprofileapi.SelinuxProfileStatus{
-					ActiveWorkloads: []string{"example/pod"},
+					ActiveWorkloads:      []string{"example/pod"},
+					ActiveWorkloadsCount: 1,
 				},
 			},
 			ownerKey:         seOwnerKey,
@@ -400,7 +370,8 @@ func TestUpdatePodReferencesForSelinuxSkipsEquivalentStatusUpdate(t *testing.T) 
 	stored := &selinuxprofileapi.SelinuxProfile{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-profile"},
 		Status: selinuxprofileapi.SelinuxProfileStatus{
-			ActiveWorkloads: []string{"example/pod-b", "example/pod-a"},
+			ActiveWorkloads:      []string{"example/pod-b", "example/pod-a"},
+			ActiveWorkloadsCount: 2,
 		},
 	}
 	podA := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Namespace: "example", Name: "pod-a"}}
@@ -420,16 +391,17 @@ func TestUpdatePodReferencesForSelinuxSkipsEquivalentStatusUpdate(t *testing.T) 
 			return []string{stored.GetPolicyUsage()}
 		}).
 		WithInterceptorFuncs(interceptor.Funcs{
-			SubResourceUpdate: func(
+			SubResourcePatch: func(
 				ctx context.Context,
 				c client.Client,
 				subresource string,
 				obj client.Object,
-				opts ...client.SubResourceUpdateOption,
+				patch client.Patch,
+				opts ...client.SubResourcePatchOption,
 			) error {
 				statusUpdateCalls++
 
-				return c.SubResource(subresource).Update(ctx, obj, opts...)
+				return c.SubResource(subresource).Patch(ctx, obj, patch, opts...)
 			},
 		}).
 		Build()
@@ -675,6 +647,14 @@ func TestActiveWorkloadRequests(t *testing.T) {
 	se := &selinuxprofileapi.SelinuxProfile{}
 	se.Status.ActiveWorkloads = workloads
 	require.Equal(t, want, activeWorkloadRequests(t.Context(), se))
+
+	raw := &selinuxprofileapi.RawSelinuxProfile{}
+	raw.Status.ActiveWorkloads = workloads
+	require.Equal(t, want, activeWorkloadRequests(t.Context(), raw))
+
+	aa := &apparmorprofileapi.AppArmorProfile{}
+	aa.Status.ActiveWorkloads = workloads
+	require.Equal(t, want, activeWorkloadRequests(t.Context(), aa))
 
 	require.Empty(t, activeWorkloadRequests(t.Context(), &corev1.Pod{}))
 }

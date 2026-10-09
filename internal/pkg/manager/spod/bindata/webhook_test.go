@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/go-logr/logr"
+	"github.com/google/cel-go/cel"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	admissionregv1 "k8s.io/api/admissionregistration/v1"
@@ -197,7 +198,7 @@ func TestWebhook_NeedsUpdate(t *testing.T) {
 			},
 			configured: &admissionregv1.MutatingWebhook{
 				Name:              "foo",
-				NamespaceSelector: excludeOperatorNamespace(EnableBindingLabel, "spo"),
+				NamespaceSelector: excludeOperatorNamespace("spo"),
 			},
 			expected: true,
 		},
@@ -398,7 +399,7 @@ func TestApplyWebhookOptionsKeepsOperatorNamespaceExcluded(t *testing.T) {
 
 	// A user selector that already excludes the operator namespace does not
 	// get a duplicate expression.
-	excluding := excludeOperatorNamespace(EnableBindingLabel, operatorNamespace)
+	excluding := excludeOperatorNamespace(operatorNamespace)
 	cfg = getWebhookConfig(false, operatorNamespace)
 	applyWebhookOptions(cfg, []spodapi.WebhookOptions{
 		{Name: binding.name, NamespaceSelector: excluding},
@@ -1067,6 +1068,17 @@ func TestDifferingHookField(t *testing.T) {
 			mutate: func(h *admissionregv1.MutatingWebhook) { h.FailurePolicy = new(admissionregv1.Ignore) },
 			want:   "failurePolicy",
 		},
+		"empty match conditions": {
+			mutate: func(h *admissionregv1.MutatingWebhook) {
+				h.MatchConditions = []admissionregv1.MatchCondition{}
+			},
+		},
+		"match conditions": {
+			mutate: func(h *admissionregv1.MutatingWebhook) {
+				h.MatchConditions = []admissionregv1.MatchCondition{{Name: "c", Expression: "true"}}
+			},
+			want: "matchConditions",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -1160,5 +1172,240 @@ func TestWebhook_UseDaemonPriorityClass(t *testing.T) {
 		w := newTestWebhook(t, nil)
 		w.UseDaemonPriorityClass(daemonClass)
 		require.Equal(t, want, w.deployment.Spec.Template.Spec.PriorityClassName, daemonClass)
+	}
+}
+
+// The image update webhook has to select the same pods as binding.spo.io, so
+// the options of binding.spo.io apply to it, including the operator namespace
+// exclusion.
+func TestWebhook_BindingOptionsApplyToImageUpdates(t *testing.T) {
+	t.Parallel()
+
+	userSelector := &metav1.LabelSelector{MatchLabels: map[string]string{"team": "a"}}
+	objectSelector := &metav1.LabelSelector{MatchLabels: map[string]string{"app": "b"}}
+
+	w := GetWebhook(
+		logr.Discard(), "spo-ns", []spodapi.WebhookOptions{
+			{Name: recording.name, FailurePolicy: new(admissionregv1.Ignore)},
+			{
+				Name:              binding.name,
+				FailurePolicy:     new(admissionregv1.Ignore),
+				NamespaceSelector: userSelector,
+				ObjectSelector:    objectSelector,
+			},
+		}, "image", corev1.PullAlways, CAInjectTypeCertManager, nil, nil, false,
+	)
+
+	hook := w.validatingConfig.Webhooks[bindingImageUpdate.index]
+	require.Equal(t, bindingImageUpdate.name, hook.Name)
+	require.Equal(t, "spo-ns", hook.ClientConfig.Service.Namespace)
+	require.Equal(t, admissionregv1.Ignore, *hook.FailurePolicy)
+	require.Equal(t, objectSelector, hook.ObjectSelector)
+	require.Equal(t, userSelector.MatchLabels, hook.NamespaceSelector.MatchLabels)
+	require.Equal(t, []metav1.LabelSelectorRequirement{{
+		Key:      corev1.LabelMetadataName,
+		Operator: metav1.LabelSelectorOpNotIn,
+		Values:   []string{"spo-ns"},
+	}}, hook.NamespaceSelector.MatchExpressions)
+
+	// The raw SELinux profile validation cannot be configured.
+	require.Equal(t, admissionregv1.Fail, *w.validatingConfig.Webhooks[0].FailurePolicy)
+	require.Nil(t, w.validatingConfig.Webhooks[0].NamespaceSelector)
+}
+
+// evaluateMatchCondition evaluates the match condition expression for a pod
+// request of the operation, like the API server does.
+func evaluateMatchCondition(
+	t *testing.T,
+	expression string,
+	operation admissionregv1.OperationType,
+	pod, oldPod *corev1.Pod,
+) bool {
+	t.Helper()
+
+	env, err := cel.NewEnv(
+		cel.Variable("object", cel.DynType),
+		cel.Variable("oldObject", cel.DynType),
+		cel.Variable("request", cel.DynType),
+	)
+	require.NoError(t, err)
+
+	ast, issues := env.Compile(expression)
+	require.NoError(t, issues.Err())
+
+	prg, err := env.Program(ast)
+	require.NoError(t, err)
+
+	object, err := runtime.DefaultUnstructuredConverter.ToUnstructured(pod)
+	require.NoError(t, err)
+
+	var oldObject map[string]any
+
+	if oldPod != nil {
+		oldObject, err = runtime.DefaultUnstructuredConverter.ToUnstructured(oldPod)
+		require.NoError(t, err)
+	}
+
+	out, _, err := prg.Eval(map[string]any{
+		"object":    object,
+		"oldObject": oldObject,
+		"request":   map[string]any{"operation": string(operation)},
+	})
+	require.NoError(t, err)
+
+	matches, ok := out.Value().(bool)
+	require.True(t, ok)
+
+	return matches
+}
+
+func TestBindingImageUpdateMatchCondition(t *testing.T) {
+	t.Parallel()
+
+	require.Len(t, bindingImageUpdateMatchConditions, 1)
+	expression := bindingImageUpdateMatchConditions[0].Expression
+
+	oldPod := &corev1.Pod{Spec: corev1.PodSpec{
+		InitContainers: []corev1.Container{{Name: "init", Image: "busybox"}},
+		Containers: []corev1.Container{
+			{Name: "app", Image: "nginx:1.23.2"},
+			{Name: "sidecar", Image: "envoy"},
+		},
+	}}
+
+	for name, tc := range map[string]struct {
+		mutate func(*corev1.Pod)
+		want   bool
+	}{
+		"unchanged": {mutate: func(*corev1.Pod) {}},
+		"labels": {
+			mutate: func(p *corev1.Pod) { p.Labels = map[string]string{"a": "b"} },
+		},
+		"container image": {
+			mutate: func(p *corev1.Pod) { p.Spec.Containers[1].Image = "nginx:1.23.2" },
+			want:   true,
+		},
+		"init container image": {
+			mutate: func(p *corev1.Pod) { p.Spec.InitContainers[0].Image = "nginx:1.23.2" },
+			want:   true,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			pod := oldPod.DeepCopy()
+			tc.mutate(pod)
+
+			require.Equal(t, tc.want,
+				evaluateMatchCondition(t, expression, admissionregv1.Update, pod, oldPod))
+		})
+	}
+
+	// A pod without init containers.
+	noInit := &corev1.Pod{
+		Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "app", Image: "a"}}},
+	}
+	require.False(t, evaluateMatchCondition(t, expression, admissionregv1.Update, noInit, noInit))
+}
+
+// The recording webhook used to get every pod update in the recording
+// namespaces, so an unavailable webhook blocked the garbage collector and the
+// removal of finalizers.
+func TestRecordingMatchCondition(t *testing.T) {
+	t.Parallel()
+
+	require.Len(t, recordingMatchConditions, 1)
+	expression := recordingMatchConditions[0].Expression
+
+	const recordingKey = config.SeccompProfileRecordBpfAnnotationKey + "ctr"
+
+	recorded := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+		recordingKey: "recording_ctr_nonce_1",
+		"other":      "value",
+	}}}
+
+	for name, tc := range map[string]struct {
+		operation   admissionregv1.OperationType
+		pod, oldPod *corev1.Pod
+		mutate      func(*corev1.Pod)
+		want        bool
+	}{
+		"create": {
+			operation: admissionregv1.Create,
+			pod:       &corev1.Pod{},
+			want:      true,
+		},
+		"update without annotations": {
+			operation: admissionregv1.Update,
+			oldPod:    &corev1.Pod{},
+			mutate:    func(p *corev1.Pod) { p.Finalizers = []string{"f"} },
+		},
+		"update of a recorded pod keeping its annotation": {
+			operation: admissionregv1.Update,
+			oldPod:    recorded,
+			mutate: func(p *corev1.Pod) {
+				p.Finalizers = []string{"f"}
+				delete(p.Annotations, "other")
+			},
+		},
+		"removed recording annotation": {
+			operation: admissionregv1.Update,
+			oldPod:    recorded,
+			mutate:    func(p *corev1.Pod) { delete(p.Annotations, recordingKey) },
+			want:      true,
+		},
+		"removed all annotations": {
+			operation: admissionregv1.Update,
+			oldPod:    recorded,
+			mutate:    func(p *corev1.Pod) { p.Annotations = nil },
+			want:      true,
+		},
+		"changed recording annotation": {
+			operation: admissionregv1.Update,
+			oldPod:    recorded,
+			mutate:    func(p *corev1.Pod) { p.Annotations[recordingKey] = "other" },
+			want:      true,
+		},
+		"added recording annotation": {
+			operation: admissionregv1.Update,
+			oldPod:    &corev1.Pod{},
+			mutate: func(p *corev1.Pod) {
+				p.Annotations = map[string]string{recordingKey: "recording_ctr_nonce_1"}
+			},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			pod := tc.pod
+			if pod == nil {
+				pod = tc.oldPod.DeepCopy()
+			}
+
+			if tc.mutate != nil {
+				tc.mutate(pod)
+			}
+
+			require.Equal(t, tc.want,
+				evaluateMatchCondition(t, expression, tc.operation, pod, tc.oldPod))
+		})
+	}
+
+	// Every recording annotation prefix counts.
+	for _, prefix := range recordingAnnotationPrefixes {
+		oldPod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{prefix + "ctr": "value"},
+		}}
+		require.True(
+			t,
+			evaluateMatchCondition(
+				t,
+				expression,
+				admissionregv1.Update,
+				&corev1.Pod{},
+				oldPod,
+			),
+			prefix,
+		)
 	}
 }

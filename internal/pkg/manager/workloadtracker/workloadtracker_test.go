@@ -107,9 +107,9 @@ func TestTrackRetriesConflicts(t *testing.T) {
 	conflicts := 0
 
 	sut, c := newTracker(t, &interceptor.Funcs{
-		SubResourceUpdate: func(
+		SubResourcePatch: func(
 			ctx context.Context, cl client.Client, sub string, obj client.Object,
-			opts ...client.SubResourceUpdateOption,
+			patch client.Patch, opts ...client.SubResourcePatchOption,
 		) error {
 			if conflicts == 0 {
 				conflicts++
@@ -117,7 +117,7 @@ func TestTrackRetriesConflicts(t *testing.T) {
 				return kerrors.NewConflict(schema.GroupResource{}, obj.GetName(), errTest)
 			}
 
-			return cl.SubResource(sub).Update(ctx, obj, opts...)
+			return cl.SubResource(sub).Patch(ctx, obj, patch, opts...)
 		},
 	}, testBinding())
 
@@ -148,4 +148,34 @@ func TestTrackErrors(t *testing.T) {
 
 	require.ErrorIs(t, sut.Track(t.Context(), testBinding(), "pod-a"), errTest)
 	require.ErrorIs(t, sut.Untrack(t.Context(), testBinding(), "pod-a"), errTest)
+}
+
+// A write based on an outdated object fails with a conflict, so the retry
+// keeps the workload which another reconcile tracked in the meantime.
+func TestTrackKeepsConcurrentlyTrackedWorkload(t *testing.T) {
+	t.Parallel()
+
+	var c client.Client
+
+	concurrent := false
+	sut, c := newTracker(t, &interceptor.Funcs{
+		SubResourcePatch: func(
+			ctx context.Context, cl client.Client, sub string, obj client.Object,
+			patch client.Patch, opts ...client.SubResourcePatchOption,
+		) error {
+			if !concurrent {
+				concurrent = true
+
+				other := &profilebindingapi.ProfileBinding{}
+				require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(testBinding()), other))
+				other.Status.ActiveWorkloads = []string{"pod-b"}
+				require.NoError(t, cl.Status().Update(ctx, other))
+			}
+
+			return cl.SubResource(sub).Patch(ctx, obj, patch, opts...)
+		},
+	}, testBinding())
+
+	require.NoError(t, sut.Track(t.Context(), testBinding(), "pod-a"))
+	require.Equal(t, []string{"pod-b", "pod-a"}, stored(t, c).Status.ActiveWorkloads)
 }

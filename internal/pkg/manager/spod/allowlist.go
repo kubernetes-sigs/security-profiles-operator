@@ -29,6 +29,7 @@ import (
 
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/seccompcheck"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
@@ -66,6 +67,12 @@ func (r *ReconcileSPOd) reconcileAllowList(
 	spod := &spodapi.SecurityProfilesOperatorDaemon{}
 	if err := r.client.Get(ctx, req.NamespacedName, spod); err != nil {
 		return reconcile.Result{}, client.IgnoreNotFound(err)
+	}
+
+	// The daemons only follow the allow lists of the SPOD named spod, see
+	// Reconcile.
+	if spod.GetName() != config.SPOdName {
+		return reconcile.Result{}, nil
 	}
 
 	security := &spod.Spec.Security

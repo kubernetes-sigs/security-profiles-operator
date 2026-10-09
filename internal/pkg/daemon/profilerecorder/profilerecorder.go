@@ -1722,14 +1722,12 @@ func parseProfileAnnotation(annotation string) (*parsedAnnotation, error) {
 	}, nil
 }
 
+// createProfileName returns the name of the profile which the recording
+// records for the container. The recording status predicts the same names,
+// see util.RecordedProfileName.
 func createProfileName(cntName, replicaSuffix, namespace, profileName string) types.NamespacedName {
-	name := fmt.Sprintf("%s-%s", profileName, cntName)
-	if replicaSuffix != "" {
-		name = fmt.Sprintf("%s-%s", name, replicaSuffix)
-	}
-
 	return types.NamespacedName{
-		Name:      name,
+		Name:      util.RecordedProfileName(profileName, cntName, replicaSuffix),
 		Namespace: namespace,
 	}
 }

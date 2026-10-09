@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"reflect"
 	"slices"
@@ -30,10 +31,9 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -146,29 +146,29 @@ func (r *StatusReconciler) Reconcile(
 type clusterView struct {
 	r *StatusReconciler
 
-	ds *appsv1.DaemonSet
+	ds    *appsv1.DaemonSet
+	hasDS bool
 
 	nodeNames    []string
 	hasNodeNames bool
 
-	spodNodes    map[string]bool
-	spodSettled  bool
-	hasSpodNodes bool
+	spodPods    []v1.Pod
+	hasSpodPods bool
 }
 
 func (r *StatusReconciler) newClusterView() *clusterView {
 	return &clusterView{r: r}
 }
 
-// daemonSet returns the SPOd DaemonSet.
+// daemonSet returns the SPOd DaemonSet, or nil if it does not exist.
 func (v *clusterView) daemonSet(ctx context.Context) (*appsv1.DaemonSet, error) {
-	if v.ds == nil {
+	if !v.hasDS {
 		ds, err := v.r.getDS(ctx)
-		if err != nil {
+		if err != nil && !kerrors.IsNotFound(err) {
 			return nil, err
 		}
 
-		v.ds = ds
+		v.ds, v.hasDS = ds, true
 	}
 
 	return v.ds, nil
@@ -189,21 +189,50 @@ func (v *clusterView) nodes(ctx context.Context) ([]string, error) {
 	return v.nodeNames, nil
 }
 
-// spodNodesOf returns the nodes which run a SPOd pod of the DaemonSet, see
-// StatusReconciler.spodNodes.
+// pods returns the pods of the SPOd DaemonSet, see StatusReconciler.spodPods.
+func (v *clusterView) pods(ctx context.Context, spodDS *appsv1.DaemonSet) ([]v1.Pod, error) {
+	if !v.hasSpodPods {
+		pods, err := v.r.spodPods(ctx, spodDS)
+		if err != nil {
+			return nil, err
+		}
+
+		v.spodPods, v.hasSpodPods = pods, true
+	}
+
+	return v.spodPods, nil
+}
+
+// spodNodesOf returns the nodes which run a SPOd pod, including terminating
+// ones, because their daemon may still run. It returns false if the
+// DaemonSet has not settled, so that a node without a pod cannot be told
+// apart from a node whose pod is about to be created. Without a DaemonSet, no
+// node runs a SPOd pod or gets one, so that is settled.
 func (v *clusterView) spodNodesOf(
 	ctx context.Context, spodDS *appsv1.DaemonSet,
 ) (nodes map[string]bool, settled bool, err error) {
-	if !v.hasSpodNodes {
-		nodes, settled, err := v.r.spodNodes(ctx, spodDS)
-		if err != nil {
-			return nil, false, err
-		}
-
-		v.spodNodes, v.spodSettled, v.hasSpodNodes = nodes, settled, true
+	if spodDS == nil {
+		return map[string]bool{}, true, nil
 	}
 
-	return v.spodNodes, v.spodSettled, nil
+	if spodDS.Spec.Selector == nil {
+		return nil, false, nil
+	}
+
+	pods, err := v.pods(ctx, spodDS)
+	if err != nil {
+		return nil, false, err
+	}
+
+	nodes = make(map[string]bool, len(pods))
+
+	for i := range pods {
+		if pods[i].Spec.NodeName != "" {
+			nodes[pods[i].Spec.NodeName] = true
+		}
+	}
+
+	return nodes, daemonSetSettled(spodDS, len(nodes)), nil
 }
 
 // reconcileProfile aggregates the node statuses of a profile into the status
@@ -291,7 +320,7 @@ func (r *StatusReconciler) reconcileNodeStatus(
 			targetStatus = instance.Status.Status
 		}
 
-		prof, err = r.reconcileStatus(ctx, prof, targetStatus, nil, lprof)
+		prof, err = r.reconcileStatus(ctx, prof, aggregation{state: targetStatus}, lprof)
 		if err != nil || prof == nil {
 			return reconcile.Result{}, err
 		}
@@ -380,7 +409,8 @@ func (r *StatusReconciler) statusMatchesOwner(
 // aggregateStatuses sets the lowest state of the node statuses as the status
 // of the profile, once every node running the SPOd reported one. It removes
 // the statuses and finalizers of nodes which are gone or do not run the SPOd
-// anymore.
+// anymore. While the SPOd pods of some nodes are unavailable, the statuses of
+// the other nodes are aggregated, see aggregateAvailableStatuses.
 func (r *StatusReconciler) aggregateStatuses(
 	ctx context.Context,
 	prof profilebaseapi.StatusBaseUser,
@@ -393,10 +423,22 @@ func (r *StatusReconciler) aggregateStatuses(
 		return reconcile.Result{}, fmt.Errorf("cannot get the DS: %w", err)
 	}
 
+	if spodDS == nil {
+		logger.V(config.VerboseLevel).Info(
+			"Not updating policy because the SPOd DaemonSet does not exist",
+		)
+
+		return reconcile.Result{RequeueAfter: dsWait}, nil
+	}
+
 	if !daemonSetIsReady(spodDS) || daemonSetIsUpdating(spodDS) {
-		// If the DS is not ready or updating, don't bother updating the
-		// status. This repeats every dsWait for every profile, so it is
-		// not worth an info log.
+		if !daemonSetIsRollingOut(spodDS) {
+			return r.aggregateAvailableStatuses(ctx, prof, nodeStatusList, spodDS, view, logger)
+		}
+
+		// If the DS is rolling out, don't bother updating the status. This
+		// repeats every dsWait for every profile, so it is not worth an info
+		// log.
 		logger.V(config.VerboseLevel).Info("Not updating policy because the SPOd is not ready")
 
 		return reconcile.Result{RequeueAfter: dsWait}, nil
@@ -427,8 +469,11 @@ func (r *StatusReconciler) aggregateStatuses(
 	if wantsStatuses > hasStatuses {
 		logger.Info("Not updating policy: not all statuses are ready",
 			"has", hasStatuses, "wants", wantsStatuses)
-		// Don't reconcile again, let's just wait for another update
-		return reconcile.Result{}, nil
+
+		// The status of a node usually follows soon and triggers the next
+		// reconcile. Check again later anyway, a SPOd pod which becomes
+		// unavailable before its daemon created the status triggers nothing.
+		return reconcile.Result{RequeueAfter: dsWait}, nil
 	} else if wantsStatuses < hasStatuses {
 		// this happens when nodes are removed from the cluster or no longer
 		// run the SPOd, for example because of a new taint
@@ -451,49 +496,186 @@ func (r *StatusReconciler) aggregateStatuses(
 		requeue = reconcile.Result{RequeueAfter: dsWait}
 	}
 
-	// Remove the finalizers of nodes which do not exist anymore. They are
-	// taken from the profile rather than from the statuses, because a status
-	// can be gone already, for example after a failed attempt to remove the
-	// finalizer or when the garbage collector deleted it.
-	nodeNames, err := view.nodes(ctx)
-	if err != nil {
+	if err := r.removeDeletedNodeFinalizers(ctx, prof, view, logger); err != nil {
 		return reconcile.Result{}, err
 	}
 
-	if err := r.removeNodeFinalizers(
-		ctx, prof, deletedNodeFinalizers(prof, nodeNames), logger,
-	); err != nil {
-		return reconcile.Result{}, err
-	}
+	agg := lowestState(nodeStatusList.Items)
 
-	lowestCommonState, failedNodes := lowestState(nodeStatusList)
+	logger.V(config.VerboseLevel).Info("Setting the status to", "Status", agg.state)
 
-	logger.V(config.VerboseLevel).Info("Setting the status to", "Status", lowestCommonState)
-
-	_, err = r.reconcileStatus(ctx, prof, lowestCommonState, failedNodes, logger)
+	_, err = r.reconcileStatus(ctx, prof, agg, logger)
 
 	return requeue, err
 }
 
-// lowestState returns the lowest state of the node statuses, and the nodes
-// whose profile is in the Error state.
-func lowestState(
+// aggregateAvailableStatuses aggregates the statuses of the nodes which run
+// an available SPOd pod, while the pods of other nodes are unavailable, for
+// example because their node is not ready. Waiting for every pod would keep
+// all profiles from getting ready until the last node recovered. The rules:
+//
+//   - The DaemonSet runs its current pods on every node, a rollout is waited
+//     for, see daemonSetIsRollingOut.
+//   - Every node with an available SPOd pod has to report a status, otherwise
+//     the profile waits for it, like it waits for all nodes otherwise.
+//   - The statuses of the nodes without an available SPOd pod do not count,
+//     their daemon cannot update them. The Ready condition names these nodes.
+//   - The statuses and finalizers of deleted nodes and of nodes which do not
+//     run a SPOd pod are removed as usual.
+//
+// The profile is checked again after dsWait, because a recovering pod does
+// not change any status.
+func (r *StatusReconciler) aggregateAvailableStatuses(
+	ctx context.Context,
+	prof profilebaseapi.StatusBaseUser,
 	nodeStatusList *secprofnodestatusapi.SecurityProfileNodeStatusList,
-) (lowest secprofnodestatusapi.ProfileState, failedNodes []string) {
-	lowest = secprofnodestatusapi.LowestState
+	spodDS *appsv1.DaemonSet,
+	view *clusterView,
+	logger logr.Logger,
+) (reconcile.Result, error) {
+	requeue := reconcile.Result{RequeueAfter: dsWait}
+
+	pods, err := view.pods(ctx, spodDS)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+
+	available := availableSpodNodes(spodDS, pods, time.Now())
+	if len(available) == 0 {
+		logger.V(config.VerboseLevel).Info("Not updating policy because no SPOd pod is available")
+
+		return requeue, nil
+	}
+
+	removed, err := r.removeStaleStatuses(ctx, prof, spodDS, nodeStatusList, view, logger)
+	if err != nil {
+		return reconcile.Result{}, fmt.Errorf("cannot remove extra statuses: %w", err)
+	}
+
+	if removed {
+		return reconcile.Result{RequeueAfter: time.Second}, nil
+	}
+
+	if err := r.removeDeletedNodeFinalizers(ctx, prof, view, logger); err != nil {
+		return reconcile.Result{}, err
+	}
+
+	var counted []secprofnodestatusapi.SecurityProfileNodeStatus
+
+	reported := map[string]bool{}
 
 	for i := range nodeStatusList.Items {
-		status := &nodeStatusList.Items[i]
-		lowest = secprofnodestatusapi.LowerOfTwoStates(lowest, status.Status.Status)
-
-		if status.Status.Status == secprofnodestatusapi.ProfileStateError {
-			failedNodes = append(failedNodes, status.Spec.NodeName)
+		if node := nodeStatusList.Items[i].Spec.NodeName; available[node] {
+			counted = append(counted, nodeStatusList.Items[i])
+			reported[node] = true
 		}
 	}
 
-	slices.Sort(failedNodes)
+	if len(reported) < len(available) {
+		logger.Info(
+			"Not updating policy: not all nodes with an available SPOd pod reported a status",
+			"has",
+			len(reported),
+			"wants",
+			len(available),
+		)
 
-	return lowest, failedNodes
+		return requeue, nil
+	}
+
+	agg := lowestState(counted)
+
+	unavailable := map[string]bool{}
+
+	for i := range pods {
+		if node := pods[i].Spec.NodeName; node != "" && !available[node] {
+			unavailable[node] = true
+		}
+	}
+
+	agg.unavailableNodes = slices.Sorted(maps.Keys(unavailable))
+
+	// The DaemonSet may want pods which do not exist yet, whose nodes are
+	// unknown.
+	agg.unnamedUnavailable = max(0,
+		int(spodDS.Status.DesiredNumberScheduled)-len(available)-len(agg.unavailableNodes))
+
+	logger.V(config.VerboseLevel).Info("Setting the status to", "Status", agg.state,
+		"unavailableNodes", len(agg.unavailableNodes)+agg.unnamedUnavailable)
+
+	_, err = r.reconcileStatus(ctx, prof, agg, logger)
+
+	return requeue, err
+}
+
+// removeDeletedNodeFinalizers removes the finalizers of nodes which do not
+// exist anymore. They are taken from the profile rather than from the
+// statuses, because a status can be gone already, for example after a failed
+// attempt to remove the finalizer or when the garbage collector deleted it.
+func (r *StatusReconciler) removeDeletedNodeFinalizers(
+	ctx context.Context, prof client.Object, view *clusterView, logger logr.Logger,
+) error {
+	nodeNames, err := view.nodes(ctx)
+	if err != nil {
+		return err
+	}
+
+	return r.removeNodeFinalizers(ctx, prof, deletedNodeFinalizers(prof, nodeNames), logger)
+}
+
+// aggregation is the aggregated state of the node statuses of a profile.
+type aggregation struct {
+	state secprofnodestatusapi.ProfileState
+
+	// failedNodes are the nodes whose profile is in the Error state, if
+	// known.
+	failedNodes []string
+
+	// unavailableNodes are the nodes whose SPOd pod is not available, so
+	// that the state leaves them out. unnamedUnavailable counts further
+	// such nodes whose names are unknown.
+	unavailableNodes   []string
+	unnamedUnavailable int
+}
+
+// unavailableMessage returns the part of the message of the Ready condition
+// which names the nodes the state leaves out, if any.
+func (a *aggregation) unavailableMessage() string {
+	if len(a.unavailableNodes)+a.unnamedUnavailable == 0 {
+		return ""
+	}
+
+	return "the SPOd pod is not available on " + a.unavailableNodeList() + ", which the state leaves out"
+}
+
+// unavailableNodeList returns the nodes whose SPOd pod is not available, for
+// a message.
+func (a *aggregation) unavailableNodeList() string {
+	nodes := nodeList(a.unavailableNodes, a.unnamedUnavailable)
+	if len(a.unavailableNodes) > 0 {
+		nodes = "nodes " + nodes
+	}
+
+	return nodes
+}
+
+// lowestState aggregates the node statuses into their lowest state and the
+// nodes whose profile is in the Error state.
+func lowestState(statuses []secprofnodestatusapi.SecurityProfileNodeStatus) aggregation {
+	agg := aggregation{state: secprofnodestatusapi.LowestState}
+
+	for i := range statuses {
+		status := &statuses[i]
+		agg.state = secprofnodestatusapi.LowerOfTwoStates(agg.state, status.Status.Status)
+
+		if status.Status.Status == secprofnodestatusapi.ProfileStateError {
+			agg.failedNodes = append(agg.failedNodes, status.Spec.NodeName)
+		}
+	}
+
+	slices.Sort(agg.failedNodes)
+
+	return agg
 }
 
 // removeStaleStatuses removes the statuses and finalizers of nodes which have
@@ -570,8 +752,10 @@ func (r *StatusReconciler) removeNodeFinalizers(
 
 	logger.Info("Removing node finalizers from profile", "finalizers", present)
 
-	if err := util.RetryWithContext(ctx, func() error {
-		return client.IgnoreNotFound(util.RemoveFinalizers(ctx, r.client, prof, present...))
+	// A retry reads the profile from the API server, the cache may keep
+	// returning the version which conflicted.
+	if err := util.RetryWithFreshReads(ctx, r.client, r.reader, func(c client.Client) error {
+		return client.IgnoreNotFound(util.RemoveFinalizers(ctx, c, prof, present...))
 	}, util.IsNotFoundOrConflict); err != nil {
 		return fmt.Errorf("cannot remove finalizers %v from profile: %w", present, err)
 	}
@@ -672,20 +856,18 @@ func deletedNodeFinalizers(prof client.Object, nodeNames []string) []string {
 	return stale
 }
 
-// spodNodes returns the nodes which run a SPOd pod, including terminating
-// ones, because their daemon may still run. It returns false if the
-// DaemonSet has not settled, so that a node without a pod cannot be told
-// apart from a node whose pod is about to be created.
-func (r *StatusReconciler) spodNodes(
+// spodPods returns the pods of the SPOd DaemonSet, none if it has no
+// selector.
+func (r *StatusReconciler) spodPods(
 	ctx context.Context, spodDS *appsv1.DaemonSet,
-) (nodes map[string]bool, settled bool, err error) {
+) ([]v1.Pod, error) {
 	if spodDS.Spec.Selector == nil {
-		return nil, false, nil
+		return nil, nil
 	}
 
 	selector, err := metav1.LabelSelectorAsSelector(spodDS.Spec.Selector)
 	if err != nil {
-		return nil, false, fmt.Errorf("cannot parse SPOd selector: %w", err)
+		return nil, fmt.Errorf("cannot parse SPOd selector: %w", err)
 	}
 
 	pods := &v1.PodList{}
@@ -693,18 +875,34 @@ func (r *StatusReconciler) spodNodes(
 		client.InNamespace(spodDS.Namespace),
 		client.MatchingLabelsSelector{Selector: selector},
 	); err != nil {
-		return nil, false, fmt.Errorf("cannot list SPOd pods: %w", err)
+		return nil, fmt.Errorf("cannot list SPOd pods: %w", err)
 	}
 
-	nodes = make(map[string]bool, len(pods.Items))
+	return pods.Items, nil
+}
 
-	for i := range pods.Items {
-		if pods.Items[i].Spec.NodeName != "" {
-			nodes[pods.Items[i].Spec.NodeName] = true
+// availableSpodNodes returns the nodes which run an available SPOd pod, like
+// the DaemonSet controller counts them: the pod is not being deleted and has
+// been ready for the minReadySeconds of the DaemonSet.
+func availableSpodNodes(spodDS *appsv1.DaemonSet, pods []v1.Pod, now time.Time) map[string]bool {
+	minReady := time.Duration(spodDS.Spec.MinReadySeconds) * time.Second
+	nodes := map[string]bool{}
+
+	for i := range pods {
+		pod := &pods[i]
+		if pod.Spec.NodeName == "" || !pod.DeletionTimestamp.IsZero() {
+			continue
+		}
+
+		for _, cond := range pod.Status.Conditions {
+			if cond.Type == v1.PodReady && cond.Status == v1.ConditionTrue &&
+				(minReady == 0 || !cond.LastTransitionTime.Add(minReady).After(now)) {
+				nodes[pod.Spec.NodeName] = true
+			}
 		}
 	}
 
-	return nodes, daemonSetSettled(spodDS, len(nodes)), nil
+	return nodes
 }
 
 // statusesOfUnscheduledNodes returns the statuses of live nodes which do not
@@ -806,12 +1004,16 @@ func (r *StatusReconciler) reconcileDeletingProfile(
 		return reconcile.Result{}, nil
 	}
 
+	// The finalizers of deleted nodes go first, they do not depend on the
+	// SPOd DaemonSet.
+	if err := r.removeDeletedNodeFinalizers(ctx, prof, view, logger); err != nil {
+		return reconcile.Result{}, err
+	}
+
 	nodeNames, err := view.nodes(ctx)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
-
-	stale := deletedNodeFinalizers(prof, nodeNames)
 
 	spodDS, err := view.daemonSet(ctx)
 	if err != nil {
@@ -832,11 +1034,11 @@ func (r *StatusReconciler) reconcileDeletingProfile(
 			}
 		}
 
-		stale = append(stale, staleNodeFinalizers(unscheduled, unscheduled, nodeNames)...)
-	}
-
-	if err := r.removeNodeFinalizers(ctx, prof, stale, logger); err != nil {
-		return reconcile.Result{}, err
+		if err := r.removeNodeFinalizers(
+			ctx, prof, staleNodeFinalizers(unscheduled, unscheduled, nodeNames), logger,
+		); err != nil {
+			return reconcile.Result{}, err
+		}
 	}
 
 	// Check again once the DaemonSet settled. The daemons of the remaining
@@ -870,7 +1072,7 @@ func parseProfileRequest(req reconcile.Request) (kind, name string, ok bool) {
 
 func (r *StatusReconciler) getDS(ctx context.Context) (*appsv1.DaemonSet, error) {
 	spodDS := appsv1.DaemonSet{}
-	spodName := util.NamespacedName("spod", r.namespace)
+	spodName := util.NamespacedName(config.SPOdName, r.namespace)
 
 	if err := r.client.Get(ctx, spodName, &spodDS); err != nil {
 		return nil, fmt.Errorf("cannot Get DS: %w", err)
@@ -921,17 +1123,48 @@ func newProfile(kind string) (profilebaseapi.StatusBaseUser, error) {
 	}
 }
 
+// newProfileList returns an empty list of profiles of the provided kind.
+func newProfileList(kind string) (client.ObjectList, error) {
+	switch kind {
+	case "SeccompProfile":
+		return &seccompprofileapi.SeccompProfileList{}, nil
+	case "SelinuxProfile":
+		return &selinuxprofileapi.SelinuxProfileList{}, nil
+	case "RawSelinuxProfile":
+		return &selinuxprofileapi.RawSelinuxProfileList{}, nil
+	case "AppArmorProfile":
+		return &apparmorapi.AppArmorProfileList{}, nil
+	default:
+		return nil, fmt.Errorf("listing profiles: %w", ErrUnknownOwnerKind)
+	}
+}
+
+// profilesOf returns the profiles of a list returned by newProfileList.
+func profilesOf(list client.ObjectList) ([]client.Object, error) {
+	var profiles []client.Object
+
+	if err := apimeta.EachListItem(list, func(obj runtime.Object) error {
+		if prof, ok := obj.(client.Object); ok {
+			profiles = append(profiles, prof)
+		}
+
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("reading the profile list: %w", err)
+	}
+
+	return profiles, nil
+}
+
 // reconcileStatus sets the aggregated state on the profile and returns the
 // profile as stored afterwards, or nil if the profile is gone. The profile is
 // expected to come from the cache, so an unchanged status costs no request to
 // the API server. The profile is only read from the API server after a
-// conflict, which means that the cache is outdated. failedNodes names the
-// nodes on which the profile failed, if the caller knows them.
+// conflict, which means that the cache is outdated.
 func (r *StatusReconciler) reconcileStatus(
 	ctx context.Context,
 	prof profilebaseapi.StatusBaseUser,
-	state secprofnodestatusapi.ProfileState,
-	failedNodes []string,
+	agg aggregation,
 	l logr.Logger,
 ) (profilebaseapi.StatusBaseUser, error) {
 	key := client.ObjectKeyFromObject(prof)
@@ -949,7 +1182,7 @@ func (r *StatusReconciler) reconcileStatus(
 
 		var err error
 
-		stored, err = r.updateProfileStatus(ctx, current, state, failedNodes, l)
+		stored, err = r.updateProfileStatus(ctx, current, agg, l)
 		current = nil
 
 		return err
@@ -959,25 +1192,41 @@ func (r *StatusReconciler) reconcileStatus(
 	return stored, client.IgnoreNotFound(err)
 }
 
-// maxFailedNodesInMessage limits the nodes the Ready condition of a failed
-// profile names, the SecurityProfileNodeStatus objects list all of them.
-const maxFailedNodesInMessage = 5
+// maxNodesInMessage limits the nodes the Ready condition of a profile names,
+// the SecurityProfileNodeStatus objects list all of them.
+const maxNodesInMessage = 5
 
 // errorConditionMessage returns the message of the Ready condition of a
 // profile which failed to install on the provided nodes.
 func errorConditionMessage(failedNodes []string) string {
-	const hint = "see the SecurityProfileNodeStatus objects of the profile for details"
+	const hint = "the status.message of the SecurityProfileNodeStatus objects with the " +
+		secprofnodestatusapi.StatusToProfLabel + " label of the profile tells why"
 
 	if len(failedNodes) == 0 {
 		return "profile failed to install on one or more nodes, " + hint
 	}
 
-	nodes := strings.Join(failedNodes[:min(len(failedNodes), maxFailedNodesInMessage)], ", ")
-	if more := len(failedNodes) - maxFailedNodesInMessage; more > 0 {
-		nodes += fmt.Sprintf(" and %d more", more)
-	}
+	return fmt.Sprintf("profile failed to install on nodes %s, %s", nodeList(failedNodes, 0), hint)
+}
 
-	return fmt.Sprintf("profile failed to install on nodes %s, %s", nodes, hint)
+// nodeList returns the first nodes of the list, followed by the number of
+// the others. unnamed is the number of further nodes whose names are unknown.
+func nodeList(nodes []string, unnamed int) string {
+	shown := min(len(nodes), maxNodesInMessage)
+	list := strings.Join(nodes[:shown], ", ")
+
+	more := len(nodes) - shown + unnamed
+
+	switch {
+	case more <= 0:
+		return list
+	case shown == 0 && more == 1:
+		return "1 node"
+	case shown == 0:
+		return fmt.Sprintf("%d nodes", more)
+	default:
+		return fmt.Sprintf("%s and %d more", list, more)
+	}
 }
 
 // updateProfileStatus writes the status of the profile if it changed, and
@@ -985,8 +1234,7 @@ func errorConditionMessage(failedNodes []string) string {
 func (r *StatusReconciler) updateProfileStatus(
 	ctx context.Context,
 	prof profilebaseapi.StatusBaseUser,
-	state secprofnodestatusapi.ProfileState,
-	failedNodes []string,
+	agg aggregation,
 	l logr.Logger,
 ) (profilebaseapi.StatusBaseUser, error) {
 	pCopy := prof.DeepCopyToStatusBaseIf()
@@ -1000,7 +1248,7 @@ func (r *StatusReconciler) updateProfileStatus(
 
 	// The reasons of the conditions are part of the API, only the messages
 	// may change.
-	switch state {
+	switch agg.state {
 	case secprofnodestatusapi.ProfileStatePending, "":
 		outStatus.Status = secprofnodestatusapi.ProfileStatePending
 		condition = common.Creating()
@@ -1010,12 +1258,17 @@ func (r *StatusReconciler) updateProfileStatus(
 	case secprofnodestatusapi.ProfileStateInstalled:
 		outStatus.Status = secprofnodestatusapi.ProfileStateInstalled
 		condition = common.Available()
+
+		// The profile may be missing on the nodes the state leaves out.
+		if agg.unavailableMessage() != "" {
+			condition.Reason = string(profilebaseapi.ReasonInstalledOnAvailableNodes)
+		}
 	case secprofnodestatusapi.ProfileStateTerminating:
 		outStatus.Status = secprofnodestatusapi.ProfileStateTerminating
 		condition = common.Deleting()
 	case secprofnodestatusapi.ProfileStateError:
 		outStatus.Status = secprofnodestatusapi.ProfileStateError
-		condition = common.Unavailable(errorConditionMessage(failedNodes))
+		condition = common.Unavailable(errorConditionMessage(agg.failedNodes))
 	case secprofnodestatusapi.ProfileStatePartial:
 		outStatus.Status = secprofnodestatusapi.ProfileStatePartial
 		condition = common.Unavailable(
@@ -1031,6 +1284,14 @@ func (r *StatusReconciler) updateProfileStatus(
 	}
 
 	if condition.Type != "" {
+		if msg := agg.unavailableMessage(); msg != "" {
+			if condition.Message != "" {
+				msg = condition.Message + "; " + msg
+			}
+
+			condition.Message = msg
+		}
+
 		outStatus.SetConditionForGeneration(&condition, pCopy.GetGeneration())
 	}
 
@@ -1044,7 +1305,40 @@ func (r *StatusReconciler) updateProfileStatus(
 		return nil, fmt.Errorf("updating policy status: %w", updateErr)
 	}
 
+	r.reportUnavailableNodes(prof, pCopy, agg)
+
 	return pCopy, nil
+}
+
+// reportUnavailableNodes records a warning event on a profile which got
+// installed while the SPOd pods of some nodes are not available, because pods
+// using the profile fail on these nodes. The status only gets written if it
+// changed, and the event only gets recorded if the Ready condition changed
+// with it, so it repeats only when the named nodes change, not on every
+// requeue.
+func (r *StatusReconciler) reportUnavailableNodes(
+	old, updated profilebaseapi.StatusBaseUser, agg aggregation,
+) {
+	cond := updated.GetStatusBase().GetReadyCondition()
+	if cond.Reason != string(profilebaseapi.ReasonInstalledOnAvailableNodes) {
+		return
+	}
+
+	if oldCond := old.GetStatusBase().GetReadyCondition(); oldCond.Reason == cond.Reason &&
+		oldCond.Message == cond.Message {
+		return
+	}
+
+	r.record.Eventf(
+		updated,
+		nil,
+		v1.EventTypeWarning,
+		string(profilebaseapi.ReasonInstalledOnAvailableNodes),
+		util.EventActionReconcile,
+		"Profile is only installed on the nodes with an available SPOd pod, it may be missing on %s, "+
+			"where pods using it fail to start until the SPOd pod recovers",
+		agg.unavailableNodeList(),
+	)
 }
 
 func profileStatusChanged(current, desired profilebaseapi.StatusBaseUser) bool {
@@ -1080,25 +1374,30 @@ func daemonSetIsUpdating(ds *appsv1.DaemonSet) bool {
 		(ds.Status.UpdatedNumberScheduled < ds.Status.DesiredNumberScheduled || ds.Status.NumberUnavailable > 0)
 }
 
+// daemonSetIsRollingOut returns true if the pods of the DaemonSet are about
+// to change: it schedules no pod, its controller has not observed its spec
+// yet, or not every node it schedules to runs the current pod template.
+// Unlike daemonSetIsUpdating, a pod which is current but not available, like
+// on a node which is not ready, does not count.
+func daemonSetIsRollingOut(ds *appsv1.DaemonSet) bool {
+	status := &ds.Status
+
+	return status.DesiredNumberScheduled == 0 ||
+		status.ObservedGeneration != ds.Generation ||
+		status.UpdatedNumberScheduled < status.DesiredNumberScheduled
+}
+
+// listStatusesForProfile lists the node statuses whose profile label has the
+// provided value. They are looked up with the index of the label, instead of
+// filtering the statuses of all profiles.
 func listStatusesForProfile(
 	ctx context.Context, c client.Client, namespace string, labelVal string,
 ) (*secprofnodestatusapi.SecurityProfileNodeStatusList, error) {
-	statusSelect := labels.NewSelector()
-
-	statusFilter, err := labels.NewRequirement(
-		secprofnodestatusapi.StatusToProfLabel, selection.Equals, []string{labelVal})
-	if err != nil {
-		return nil, fmt.Errorf("cannot create node status list label: %w", err)
-	}
-
-	statusSelect = statusSelect.Add(*statusFilter)
-	statusListOpts := client.ListOptions{
-		LabelSelector: statusSelect,
-		Namespace:     namespace,
-	}
-
 	statusList := secprofnodestatusapi.SecurityProfileNodeStatusList{}
-	if err := c.List(ctx, &statusList, &statusListOpts); err != nil {
+	if err := c.List(ctx, &statusList,
+		client.InNamespace(namespace),
+		client.MatchingFields{statusProfileIndex: labelVal},
+	); err != nil {
 		return nil, fmt.Errorf("listing statuses: %w", err)
 	}
 

@@ -262,6 +262,17 @@ func TryToGetOperatorNamespace() (string, error) {
 	return operatorNS, nil
 }
 
+// WatchNamespaces returns the comma separated namespaces which the manager
+// cache is restricted to, empty if it covers all namespaces. WATCH_NAMESPACE is
+// used if RestrictNamespaceEnvKey is not set.
+func WatchNamespaces() string {
+	if namespaces, ok := os.LookupEnv(RestrictNamespaceEnvKey); ok {
+		return namespaces
+	}
+
+	return os.Getenv("WATCH_NAMESPACE")
+}
+
 // KubeletDir returns the kubelet directory either form a config file, an environment variable
 // when is set or the default Kubernetes path.
 func KubeletDir() string {

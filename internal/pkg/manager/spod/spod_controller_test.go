@@ -923,3 +923,20 @@ func Test_baseSPOdReadinessProbe(t *testing.T) {
 	require.NotNil(t, probe)
 	require.Equal(t, "/readyz", probe.HTTPGet.Path)
 }
+
+// The health checks of the daemon ask selinuxd, which can be slow to answer,
+// so a single slow or failed check does not restart the daemon.
+func Test_baseSPOdLivenessProbe(t *testing.T) {
+	t.Parallel()
+
+	ctr := bindata.Manifest.Spec.Template.Spec.Containers[bindata.ContainerIDDaemon]
+
+	for _, probe := range []*v1.Probe{ctr.LivenessProbe, ctr.StartupProbe} {
+		require.NotNil(t, probe)
+		require.Equal(t, "/healthz", probe.HTTPGet.Path)
+		require.Greater(t, probe.TimeoutSeconds, int32(1))
+		require.LessOrEqual(t, probe.TimeoutSeconds, probe.PeriodSeconds)
+	}
+
+	require.GreaterOrEqual(t, ctr.LivenessProbe.FailureThreshold, int32(3))
+}

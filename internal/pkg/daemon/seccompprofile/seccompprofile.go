@@ -987,6 +987,8 @@ func (r *Reconciler) reconcileSeccompProfile(
 		return reconcile.Result{}, fmt.Errorf("cannot create nodeStatus: %w", err)
 	}
 
+	nodeStatus.WithAPIReader(r.apiReader())
+
 	if !sp.GetDeletionTimestamp().IsZero() { // object is being deleted
 		return r.reconcileDeletion(ctx, sp, nodeStatus, l)
 	}
@@ -1210,7 +1212,9 @@ func (r *Reconciler) rejectProfile(
 		return fmt.Errorf("removing rejected profile: %w", err)
 	}
 
-	if err := nodeStatus.SetNodeStatus(ctx, secprofnodestatusapi.ProfileStateError); err != nil {
+	if err := nodeStatus.SetNodeStatusWithMessage(
+		ctx, secprofnodestatusapi.ProfileStateError, rejectErr.Error(),
+	); err != nil {
 		r.reportError(sp, common.ReasonCannotUpdateStatus, util.EventActionUpdate, err)
 
 		return fmt.Errorf("setting node status to error: %w", err)
@@ -1442,7 +1446,9 @@ func (r *Reconciler) handleFileConflict(
 	l.Error(conflictErr, "Not saving profile")
 	r.reportError(sp, reasonProfileFileConflict, util.EventActionInstall, conflictErr)
 
-	if err := nodeStatus.SetNodeStatus(ctx, secprofnodestatusapi.ProfileStateError); err != nil {
+	if err := nodeStatus.SetNodeStatusWithMessage(
+		ctx, secprofnodestatusapi.ProfileStateError, conflictErr.Error(),
+	); err != nil {
 		return true, false, fmt.Errorf("setting node status to error: %w", err)
 	}
 

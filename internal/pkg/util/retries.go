@@ -24,6 +24,7 @@ import (
 
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
@@ -56,6 +57,44 @@ func RetryWithContext(
 	ctx context.Context, fn func() error, retryCondition func(error) bool,
 ) error {
 	return RetryWithBackoff(ctx, DefaultBackoff(), fn, retryCondition)
+}
+
+// RetryWithFreshReads is like RetryWithContext for a fn which reads and writes
+// an object through the client it gets. The first attempt gets c, which
+// usually reads from the cache. The later ones read through the reader,
+// usually the API reader of the manager, because the cache may keep returning
+// the version of the object which made the attempt fail. Without a reader,
+// every attempt gets c.
+func RetryWithFreshReads(
+	ctx context.Context,
+	c client.Client,
+	reader client.Reader,
+	fn func(client.Client) error,
+	retryCondition func(error) bool,
+) error {
+	attemptClient := c
+
+	return RetryWithContext(ctx, func() error {
+		err := fn(attemptClient)
+		if reader != nil {
+			attemptClient = &freshReadClient{Client: c, reader: reader}
+		}
+
+		return err
+	}, retryCondition)
+}
+
+// freshReadClient is a client which reads objects through the reader.
+type freshReadClient struct {
+	client.Client
+
+	reader client.Reader
+}
+
+func (c *freshReadClient) Get(
+	ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption,
+) error {
+	return c.reader.Get(ctx, key, obj, opts...)
 }
 
 // RetryWithBackoff is like RetryWithContext with the provided backoff.

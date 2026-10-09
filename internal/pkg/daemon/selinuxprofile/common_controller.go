@@ -329,11 +329,11 @@ func (r *ReconcileSelinux) Healthz(req *http.Request) error {
 // written by the manager. The finalizers subresource allows the node statuses
 // to block the deletion of their owner profile.
 //nolint:lll // required for kubebuilder
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles,verbs=get;list;watch;create;update
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles/finalizers,verbs=get;update;patch
 
 //nolint:lll // required for kubebuilder
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=rawselinuxprofiles,verbs=get;list;watch;update
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=rawselinuxprofiles,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=rawselinuxprofiles/finalizers,verbs=get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons,verbs=get;list;watch
 
@@ -376,6 +376,8 @@ func (r *ReconcileSelinux) Reconcile(
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("cannot create nodeStatus instance: %w", err)
 	}
+
+	nodeStatus.WithAPIReader(r.clientReader)
 
 	if !instance.GetDeletionTimestamp().IsZero() {
 		// The counted removal is kept until the profile is gone, a retry
@@ -594,18 +596,20 @@ func (r *ReconcileSelinux) checkConflicts(
 	}
 
 	if found {
-		if err := r.setNodeStatus(
-			ctx, sp, nodeStatus, secprofnodestatusapi.ProfileStateError,
+		msg := fmt.Sprintf(
+			"Policy %q of %s %s is already used by %s %s, rename one of them",
+			sp.GetPolicyName(), kindOf(sp), sp.GetName(), kindOf(owner), owner.GetName(),
+		)
+
+		if err := r.setNodeStatusWithMessage(
+			ctx, sp, nodeStatus, secprofnodestatusapi.ProfileStateError, msg,
 		); err != nil {
 			return true, err
 		}
 
 		// The watch on the other kind enqueues this profile once the owner
 		// is gone.
-		r.reportInstallError(sp, reasonPolicyNameConflict, fmt.Sprintf(
-			"Policy %q of %s %s is already used by %s %s, rename one of them",
-			sp.GetPolicyName(), kindOf(sp), sp.GetName(), kindOf(owner), owner.GetName(),
-		))
+		r.reportInstallError(sp, reasonPolicyNameConflict, msg)
 
 		return true, nil
 	}
@@ -619,17 +623,19 @@ func (r *ReconcileSelinux) checkConflicts(
 		return false, nil
 	}
 
-	if err := r.setNodeStatus(
-		ctx, sp, nodeStatus, secprofnodestatusapi.ProfileStateError,
+	msg := fmt.Sprintf(
+		"Profile name %q conflicts with a system SELinux module on %s; "+
+			"use a different name (e.g. %q)",
+		sp.GetPolicyName(), r.nodeName, "custom-"+sp.GetPolicyName(),
+	)
+
+	if err := r.setNodeStatusWithMessage(
+		ctx, sp, nodeStatus, secprofnodestatusapi.ProfileStateError, msg,
 	); err != nil {
 		return true, err
 	}
 
-	r.reportInstallError(sp, reasonSystemModuleConflict, fmt.Sprintf(
-		"Profile name %q conflicts with a system SELinux module on %s; "+
-			"use a different name (e.g. %q)",
-		sp.GetPolicyName(), r.nodeName, "custom-"+sp.GetPolicyName(),
-	))
+	r.reportInstallError(sp, reasonSystemModuleConflict, msg)
 
 	return true, nil
 }
@@ -646,15 +652,15 @@ func (r *ReconcileSelinux) waitForAncestors(
 ) (reconcile.Result, bool, error) {
 	installed, err := r.inheritedProfilesInstalled(ctx, oh, l)
 	if errors.Is(err, errInheritedProfileUnusable) {
-		if err := r.setNodeStatus(
-			ctx, sp, nodeStatus, secprofnodestatusapi.ProfileStateError,
+		msg := fmt.Sprintf("Profile cannot be installed on %s: %s", r.nodeName, err.Error())
+
+		if err := r.setNodeStatusWithMessage(
+			ctx, sp, nodeStatus, secprofnodestatusapi.ProfileStateError, msg,
 		); err != nil {
 			return reconcile.Result{}, true, err
 		}
 
-		r.reportInstallError(sp, reasonCannotInstallPolicy, fmt.Sprintf(
-			"Profile cannot be installed on %s: %s", r.nodeName, err.Error(),
-		))
+		r.reportInstallError(sp, reasonCannotInstallPolicy, msg)
 
 		// The inherited profile may still be fixed.
 		return reconcile.Result{RequeueAfter: inheritRetryInterval}, true, nil
@@ -702,6 +708,7 @@ func (r *ReconcileSelinux) handlePolicyStatus(
 
 	var (
 		polState  secprofnodestatusapi.ProfileState
+		message   string
 		reloadRes reconcile.Result
 		reloadErr error
 	)
@@ -738,18 +745,18 @@ func (r *ReconcileSelinux) handlePolicyStatus(
 		reloadRes, reloadErr = r.reloadInstalledPolicy(ctx, sp, nodeStatus, l)
 	case failedStatus:
 		polState = secprofnodestatusapi.ProfileStateError
-		evstr := fmt.Sprintf(
+		message = fmt.Sprintf(
 			"Failed to save profile to disk on %s: %s",
 			r.nodeName,
 			polStatus.Msg,
 		)
 
-		r.reportInstallError(sp, reasonCannotInstallPolicy, evstr)
+		r.reportInstallError(sp, reasonCannotInstallPolicy, message)
 	}
 
 	l.V(config.VerboseLevel).Info("Policy deployed", "status", polState)
 
-	if err := r.setNodeStatus(ctx, sp, nodeStatus, polState); err != nil {
+	if err := r.setNodeStatusWithMessage(ctx, sp, nodeStatus, polState, message); err != nil {
 		return reconcile.Result{}, err
 	}
 
@@ -873,7 +880,19 @@ func (r *ReconcileSelinux) setNodeStatus(
 	nodeStatus *nodestatus.StatusClient,
 	state secprofnodestatusapi.ProfileState,
 ) error {
-	if err := nodeStatus.SetNodeStatus(ctx, state); err != nil {
+	return r.setNodeStatusWithMessage(ctx, sp, nodeStatus, state, "")
+}
+
+// setNodeStatusWithMessage is setNodeStatus with a message which tells why
+// the profile is in the state, see nodestatus.StatusClient.SetNodeStatusWithMessage.
+func (r *ReconcileSelinux) setNodeStatusWithMessage(
+	ctx context.Context,
+	sp selinuxprofileapi.SelinuxProfileObject,
+	nodeStatus *nodestatus.StatusClient,
+	state secprofnodestatusapi.ProfileState,
+	message string,
+) error {
+	if err := nodeStatus.SetNodeStatusWithMessage(ctx, state, message); err != nil {
 		r.reportError(sp, reasonCannotUpdatePolicyStatus, util.EventActionUpdate, err.Error())
 
 		return fmt.Errorf("setting node status to %s: %w", state, err)
@@ -895,16 +914,18 @@ func (r *ReconcileSelinux) handleValidationError(
 		return reconcile.Result{}, fmt.Errorf("validating profile: %w", valErr)
 	}
 
-	if err := r.setNodeStatus(
+	evstr := fmt.Sprintf("Profile failed validation on %s: %s", r.nodeName, valErr.Error())
+
+	if err := r.setNodeStatusWithMessage(
 		ctx,
 		sp,
 		nodeStatus,
 		secprofnodestatusapi.ProfileStateError,
+		evstr,
 	); err != nil {
 		return reconcile.Result{}, err
 	}
 
-	evstr := fmt.Sprintf("Profile failed validation on %s: %s", r.nodeName, valErr.Error())
 	r.reportInstallError(sp, reasonCannotInstallPolicy, evstr)
 
 	if errors.Is(valErr, ErrInheritNotFound) {

@@ -60,7 +60,7 @@ func mergeSyscalls(
 
 	_, err = createUpdateProfile(
 		t.Context(), cl, recording, name, partial,
-		profilerecordingapi.ProfileRecordingKindSeccompProfile, "",
+		profilerecordingapi.ProfileRecordingKindSeccompProfile, nil, nil,
 	)
 
 	return err

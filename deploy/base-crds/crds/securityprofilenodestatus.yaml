@@ -7,6 +7,8 @@ metadata:
 spec:
   group: security-profiles-operator.x-k8s.io
   names:
+    categories:
+    - spo
     kind: SecurityProfileNodeStatus
     listKind: SecurityProfileNodeStatusList
     plural: securityprofilenodestatuses
@@ -68,6 +70,13 @@ spec:
           status:
             description: status contains the observed state of the SecurityProfileNodeStatus.
             properties:
+              message:
+                description: |-
+                  message is a human readable message which tells why the profile is in
+                  its state on this node, like the reason why it failed to install.
+                maxLength: 4096
+                minLength: 1
+                type: string
               status:
                 default: Pending
                 description: status is the installation status of the profile on this

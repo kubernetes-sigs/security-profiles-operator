@@ -34,6 +34,12 @@ import (
 // recording, which gets merged into the final profile.
 const ProfilePartialLabel = "spo.x-k8s.io/partial"
 
+// ReasonInstalledOnAvailableNodes is the reason of the true Ready condition
+// of a profile which is installed on every node with an available SPOd pod,
+// while the SPOd pods of other nodes are not available, so the profile may be
+// missing there. The message of the condition names these nodes.
+const ReasonInstalledOnAvailableNodes common.ConditionReason = "InstalledOnAvailableNodes"
+
 // SecurityProfileBase is implemented by every kind of security profile.
 type SecurityProfileBase interface {
 	client.Object

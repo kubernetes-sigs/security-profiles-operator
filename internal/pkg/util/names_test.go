@@ -112,6 +112,43 @@ func TestCheckRecordingOwner(t *testing.T) {
 	}
 }
 
+func TestIsLegacyRecordedProfile(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		labels map[string]string
+		want   bool
+	}{
+		"not recorded": {},
+		"recorded before the namespace label": {
+			labels: map[string]string{profilerecordingapi.ProfileToRecordingLabel: "rec"},
+			want:   true,
+		},
+		"recorded with the namespace label": {
+			labels: map[string]string{
+				profilerecordingapi.ProfileToRecordingLabel:          "rec",
+				profilerecordingapi.ProfileToRecordingNamespaceLabel: "ns",
+			},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			profile := &seccompprofile.SeccompProfile{
+				ObjectMeta: metav1.ObjectMeta{Name: "rec-ctr", Labels: tc.labels},
+			}
+			require.Equal(t, tc.want, IsLegacyRecordedProfile(profile))
+		})
+	}
+}
+
+func TestRecordedProfileName(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, "rec-ctr", RecordedProfileName("rec", "ctr", ""))
+	require.Equal(t, "rec-ctr-abcde", RecordedProfileName("rec", "ctr", "abcde"))
+}
+
 func TestLengthName(t *testing.T) {
 	t.Parallel()
 

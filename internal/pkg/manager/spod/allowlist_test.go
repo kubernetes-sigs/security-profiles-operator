@@ -168,6 +168,24 @@ func TestReconcileAllowListMissingSPOD(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// The daemons ignore the allow lists of a SPOD which is not named spod, so
+// they do not delete any profile either.
+func TestReconcileAllowListUnsupportedName(t *testing.T) {
+	t.Parallel()
+
+	spod := testSPOD()
+	spod.Name = "other"
+	spod.Spec.Security = spodapi.SPODSecurityConfig{AllowedSyscalls: []string{"read"}}
+
+	r, cl, _ := newReconcileTest(t, spod, &interceptor.Funcs{}, allowListProfiles()...)
+
+	_, err := r.reconcileAllowList(t.Context(), reconcile.Request{
+		NamespacedName: client.ObjectKeyFromObject(spod),
+	})
+	require.NoError(t, err)
+	require.Len(t, remainingProfiles(t, cl), len(allowListProfiles()))
+}
+
 func TestReconcileAllowListDeleteErrors(t *testing.T) {
 	t.Parallel()
 

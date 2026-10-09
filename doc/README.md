@@ -12,6 +12,23 @@ The Security Profiles Operator (SPO) provides:
   its per-node daemon.
 - A `SecurityProfileNodeStatus` CRD reporting the installation state of each
   profile on each node.
+
+The CRDs have these short names for `kubectl`, and belong to the `spo`
+category, so `kubectl get spo -A` lists the objects of all of them:
+
+| Kind                             | Short name |
+|----------------------------------|------------|
+| `SeccompProfile`                 | `sp`       |
+| `AppArmorProfile`                | `aa`       |
+| `SelinuxProfile`                 | `selp`     |
+| `RawSelinuxProfile`              | `rselp`    |
+| `ProfileBinding`                 | `pb`       |
+| `ProfileRecording`               | `prec`     |
+| `SecurityProfilesOperatorDaemon` | `spod`     |
+| `SecurityProfileNodeStatus`      | `spns`     |
+
+The operator also provides:
+
 - Synchronization of seccomp, AppArmor and SELinux profiles across all worker
   nodes.
 - Metrics endpoints.

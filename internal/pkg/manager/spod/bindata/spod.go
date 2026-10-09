@@ -467,6 +467,11 @@ semodule -R
 								Protocol:      corev1.ProtocolTCP,
 							},
 						},
+						// The health checks of the daemon include the ones of
+						// its controllers, like the SELinux one, which asks
+						// selinuxd over its socket. selinuxd can be slow to
+						// answer while it installs policies, so a single slow
+						// or failed check must not restart the daemon.
 						StartupProbe: &corev1.Probe{
 							ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{
 								Path:   healthzPath,
@@ -475,7 +480,7 @@ semodule -R
 							}},
 							FailureThreshold: 10,
 							PeriodSeconds:    3,
-							TimeoutSeconds:   1,
+							TimeoutSeconds:   3,
 							SuccessThreshold: 1,
 						},
 						LivenessProbe: &corev1.Probe{
@@ -484,9 +489,9 @@ semodule -R
 								Port:   intstr.FromString("liveness-port"),
 								Scheme: corev1.URISchemeHTTP,
 							}},
-							FailureThreshold: 1,
+							FailureThreshold: 3,
 							PeriodSeconds:    10,
-							TimeoutSeconds:   1,
+							TimeoutSeconds:   5,
 							SuccessThreshold: 1,
 						},
 						// The daemon counts as ready once its caches are

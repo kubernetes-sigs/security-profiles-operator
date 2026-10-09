@@ -47,11 +47,18 @@ func applyServerDefaults(t *testing.T, obj client.Object) {
 			o.Spec.UpdateStrategy.Type = appsv1.RollingUpdateDaemonSetStrategyType
 		}
 
-		if o.Spec.UpdateStrategy.Type == appsv1.RollingUpdateDaemonSetStrategyType &&
-			o.Spec.UpdateStrategy.RollingUpdate == nil {
-			o.Spec.UpdateStrategy.RollingUpdate = &appsv1.RollingUpdateDaemonSet{
-				MaxUnavailable: new(intstr.FromInt32(1)),
-				MaxSurge:       new(intstr.FromInt32(0)),
+		if o.Spec.UpdateStrategy.Type == appsv1.RollingUpdateDaemonSetStrategyType {
+			if o.Spec.UpdateStrategy.RollingUpdate == nil {
+				o.Spec.UpdateStrategy.RollingUpdate = &appsv1.RollingUpdateDaemonSet{}
+			}
+
+			rollingUpdate := o.Spec.UpdateStrategy.RollingUpdate
+			if rollingUpdate.MaxUnavailable == nil {
+				rollingUpdate.MaxUnavailable = new(intstr.FromInt32(1))
+			}
+
+			if rollingUpdate.MaxSurge == nil {
+				rollingUpdate.MaxSurge = new(intstr.FromInt32(0))
 			}
 		}
 

@@ -68,6 +68,7 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - namespaces
   - nodes
   - pods
   verbs:
@@ -379,11 +380,13 @@ rules:
   - security-profiles-operator.x-k8s.io
   resources:
   - apparmorprofiles
+  - seccompprofiles
   - selinuxprofiles
   verbs:
   - create
   - get
   - list
+  - patch
   - update
   - watch
 - apiGroups:
@@ -402,27 +405,8 @@ rules:
   - security-profiles-operator.x-k8s.io
   resources:
   - profilerecordings
-  verbs:
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - security-profiles-operator.x-k8s.io
-  resources:
   - rawselinuxprofiles
   verbs:
-  - get
-  - list
-  - update
-  - watch
-- apiGroups:
-  - security-profiles-operator.x-k8s.io
-  resources:
-  - seccompprofiles
-  verbs:
-  - create
   - get
   - list
   - patch
@@ -831,8 +815,12 @@ spec:
       == 'spod'
     message: Jobs of the spod service account have to run as the spod service account
     reason: Forbidden
+  - expression: size(variables.requestNodes) > 0
+    message: The service account token of the spod service account has to name the
+      node of the requesting pod
+    reason: Forbidden
   - expression: has(variables.podSpec.nodeName) && variables.podSpec.nodeName != ''
-      && (size(variables.requestNodes) == 0 || variables.podSpec.nodeName in variables.requestNodes)
+      && variables.podSpec.nodeName in variables.requestNodes
     message: Jobs of the spod service account have to run on the node of the requesting
       pod
     reason: Forbidden
@@ -874,6 +862,112 @@ metadata:
   name: spo-spod-jobs
 spec:
   policyName: spo-spod-jobs
+  validationActions:
+  - Deny
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  annotations:
+    meta.helm.sh/release-name: security-profiles-operator
+    meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
+  labels:
+    app: security-profiles-operator
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: security-profiles-operator
+  name: spo-spod-profiles
+spec:
+  failurePolicy: Fail
+  matchConditions:
+  - expression: request.userInfo.username.matches('^system:serviceaccount:[^:]+:spod$')
+    name: spod-service-account
+  matchConstraints:
+    resourceRules:
+    - apiGroups:
+      - security-profiles-operator.x-k8s.io
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - apparmorprofiles
+      - rawselinuxprofiles
+      - seccompprofiles
+      - selinuxprofiles
+  validations:
+  - expression: request.operation != 'CREATE' || (request.kind.kind != 'RawSelinuxProfile'
+      && 'spo.x-k8s.io/recording-id' in variables.labels && 'spo.x-k8s.io/recording-namespace'
+      in variables.labels)
+    message: The spod service account may only create recorded profiles
+    reason: Forbidden
+  - expression: request.operation != 'UPDATE' || variables.recorded || variables.specs[0]
+      == variables.specs[1]
+    message: The spod service account may only change the spec of the profiles which
+      it recorded
+    reason: Forbidden
+  - expression: request.operation != 'UPDATE' || variables.labels[?'spo.x-k8s.io/recording-id']
+      == variables.oldLabels[?'spo.x-k8s.io/recording-id']
+    message: The spod service account must not change the spo.x-k8s.io/recording-id
+      label
+    reason: Forbidden
+  - expression: request.operation != 'UPDATE' || variables.recorded || (variables.oldLabels.all(k,
+      k == 'spo.x-k8s.io/profile-id' || variables.labels[?k] == optional.of(variables.oldLabels[k]))
+      && variables.labels.all(k, k == 'spo.x-k8s.io/profile-id' || k in variables.oldLabels))
+    message: The spod service account may only add the spo.x-k8s.io/profile-id label
+      to the profiles which it did not record
+    reason: Forbidden
+  - expression: request.operation != 'UPDATE' || object.metadata.?ownerReferences.orValue([])
+      == oldObject.metadata.?ownerReferences.orValue([])
+    message: The spod service account must not change the owner references
+    reason: Forbidden
+  variables:
+  - expression: 'has(object.metadata.labels) ? object.metadata.labels : {}'
+    name: labels
+  - expression: 'request.operation == ''UPDATE'' && has(oldObject.metadata.labels)
+      ? oldObject.metadata.labels : {}'
+    name: oldLabels
+  - expression: request.kind.kind != 'RawSelinuxProfile' && 'spo.x-k8s.io/recording-id'
+      in variables.oldLabels
+    name: recorded
+  - expression: '[object, oldObject].map(o, o.?spec.orValue({})).map(s, request.kind.kind
+      == ''SeccompProfile'' ? [ dyn(s.?state.orValue('''')), dyn(s.?baseProfileName.orValue('''')),
+      dyn(s.?defaultAction.orValue('''')), dyn(s.?architectures.orValue([])), dyn(s.?listenerPath.orValue('''')),
+      dyn(s.?listenerMetadata.orValue('''')), dyn(s.?flags.orValue([])), dyn(s.?syscalls.orValue([]).map(c,
+      [ dyn(c.?names.orValue([])), dyn(c.?action.orValue('''')), dyn(c.?errnoRet.orValue(0)),
+      dyn(c.?args.orValue([]).map(a, [ dyn(has(a.index) ? [a.index] : []), dyn(a.?value.orValue(0)),
+      dyn(a.?valueTwo.orValue(0)), dyn(a.?op.orValue(''''))]))]))] : request.kind.kind
+      == ''AppArmorProfile'' ? [ dyn(s.?state.orValue('''')), dyn(s.?mode.orValue('''')),
+      dyn(s.?abstract.?executable.hasValue() ? [ dyn(s.abstract.executable.?allowedExecutables.orValue([])),
+      dyn(s.abstract.executable.?allowedLibraries.orValue([]))] : []), dyn(s.?abstract.?filesystem.hasValue()
+      ? [ dyn(s.abstract.filesystem.?readOnlyPaths.orValue([])), dyn(s.abstract.filesystem.?writeOnlyPaths.orValue([])),
+      dyn(s.abstract.filesystem.?readWritePaths.orValue([]))] : []), dyn(s.?abstract.?network.hasValue()
+      ? [ dyn(has(s.abstract.network.allowRaw) ? [s.abstract.network.allowRaw] : []),
+      dyn(has(s.abstract.network.allowedProtocols) ? [ dyn(has(s.abstract.network.allowedProtocols.allowTcp)
+      ? [s.abstract.network.allowedProtocols.allowTcp] : []), dyn(has(s.abstract.network.allowedProtocols.allowUdp)
+      ? [s.abstract.network.allowedProtocols.allowUdp] : [])] : [])] : []), dyn(s.?abstract.?capability.hasValue()
+      ? [ dyn(s.abstract.capability.?allowedCapabilities.orValue([]))] : []), dyn(s.?abstract.?ptrace.hasValue()
+      ? [ dyn(s.abstract.ptrace.?allowedAccess.orValue([])), dyn(s.abstract.ptrace.?peer.orValue(''''))]
+      : [])] : request.kind.kind == ''SelinuxProfile'' ? [ dyn(s.?state.orValue('''')),
+      dyn(s.?mode.orValue('''')), dyn(s.?inherit.orValue([]).size() > 0 ? s.inherit.map(i,
+      [ dyn(i.?kind.orValue('''')), dyn(i.?name.orValue(''''))]) : [[dyn(''System''),
+      dyn(''container'')]]), dyn(s.?allow.orValue({}))] : [ dyn(s.?state.orValue('''')),
+      dyn(s.?policy.orValue(''''))])'
+    name: specs
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  annotations:
+    meta.helm.sh/release-name: security-profiles-operator
+    meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
+  labels:
+    app: security-profiles-operator
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: security-profiles-operator
+  name: spo-spod-profiles
+spec:
+  policyName: spo-spod-profiles
   validationActions:
   - Deny
 ---

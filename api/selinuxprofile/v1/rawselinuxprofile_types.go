@@ -23,7 +23,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"unicode"
 	"unicode/utf8"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -87,14 +86,9 @@ var inheritableTemplates = map[string]struct{}{
 	"x_container":      {},
 }
 
-var (
-	// blockinheritRegex finds each blockinherit statement, which
-	// blockinheritStatementRegex then has to match completely.
-	blockinheritRegex          = regexp.MustCompile(`(?i)\(\s*blockinherit`)
-	blockinheritStatementRegex = regexp.MustCompile(
-		`^(?i:\(\s*blockinherit)\s+([A-Za-z0-9_]+)\s*\)`,
-	)
-)
+// templateNameRegex matches the names which blockinherit may refer to. It
+// rules out the names of nested blocks, like container.process.
+var templateNameRegex = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
 
 var (
 	// Ensure RawSelinuxProfile implements the StatusBaseUser and SecurityProfileBase interfaces.
@@ -128,10 +122,17 @@ type RawSelinuxProfileSpec struct {
 // letter and must not contain dots. Existing objects are exempt, so that they
 // can still be updated and deleted.
 //
+// The policy is placed into that block. Statements which change the global
+// policy, like typepermissive, are rejected, but the statements may still
+// refer to global types, attributes and blocks: allow rules for global types
+// like container_t, typeattributeset and in statements can affect other
+// workloads. Only cluster admins should be allowed to write raw SELinux
+// profiles.
+//
 // +kubebuilder:validation:XValidation:rule="oldSelf.hasValue() || self.metadata.name.matches('^[a-z][-a-z0-9]*$')",optionalOldSelf=true,message="name must start with a letter and may only contain lowercase alphanumeric characters and '-'"
 // +kubebuilder:storageversion
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:path=rawselinuxprofiles,scope=Cluster
+// +kubebuilder:resource:path=rawselinuxprofiles,shortName=rselp,scope=Cluster,categories=spo
 // +kubebuilder:printcolumn:name="Usage",type="string",JSONPath=`.status.usage`
 // +kubebuilder:printcolumn:name="Status",type="string",JSONPath=`.status.status`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
@@ -206,67 +207,78 @@ func (sp *RawSelinuxProfile) ValidatePolicy() error {
 		return errors.New("policy must not contain null bytes")
 	}
 
-	if err := validateBlockInherits(policy); err != nil {
-		return err
-	}
-
-	// Prevent block escape via unbalanced parentheses.
+	// depth counts the open parentheses, which must not drop below zero, so
+	// that the policy cannot escape its block.
 	depth := 0
-	directive := []rune{}
-	atDirectivePosition := false
+	// statement is true if the next token is the keyword of a statement.
+	statement := false
+	inherit := inheritNone
 
-	checkDirective := func() error {
-		if len(directive) == 0 || !atDirectivePosition {
+	if err := scanCIL(policy, func(kind cilTokenKind, value string) error {
+		switch inherit {
+		case inheritNone:
+		case inheritTemplate:
+			if kind != cilSymbol || !templateNameRegex.MatchString(value) {
+				return errSingleTemplate
+			}
+
+			if _, ok := inheritableTemplates[value]; !ok {
+				return fmt.Errorf(
+					"invalid policy: blockinherit of '%s' is not allowed, only of the container templates",
+					value,
+				)
+			}
+
+			inherit = inheritClose
+
 			return nil
-		}
-
-		d := strings.ToLower(string(directive))
-		if _, ok := restrictedDirectives[d]; ok {
-			return fmt.Errorf(
-				"invalid policy: use of restricted global directive '%s' is not allowed", d)
-		}
-
-		return nil
-	}
-
-	for _, r := range policy {
-		switch r {
-		case '(':
-			if err := checkDirective(); err != nil {
-				return err
+		case inheritClose:
+			if kind != cilClose {
+				return errSingleTemplate
 			}
 
+			inherit = inheritNone
+		}
+
+		switch kind {
+		case cilOpen:
 			depth++
-			directive = []rune{}
-			atDirectivePosition = true
-		case ')':
-			if err := checkDirective(); err != nil {
-				return err
-			}
+			statement = true
 
+			return nil
+		case cilClose:
 			depth--
 			if depth < 0 {
 				return errors.New(
 					"invalid policy: unmatched closing parenthesis ')' allows block escape")
 			}
 
-			directive = []rune{}
-			atDirectivePosition = false
-		default:
-			if isDirectiveCharacter(r) {
-				directive = append(directive, r)
-			} else if len(directive) > 0 {
-				if err := checkDirective(); err != nil {
-					return err
-				}
+			statement = false
 
-				directive = []rune{}
-				atDirectivePosition = false
-			}
+			return nil
+		case cilSymbol, cilString:
 		}
-	}
 
-	if err := checkDirective(); err != nil {
+		if !statement {
+			return nil
+		}
+
+		statement = false
+
+		// CIL takes the value of a string as keyword as well. Keywords are
+		// case sensitive, matching them in any case is the safe side.
+		directive := strings.ToLower(value)
+		if _, ok := restrictedDirectives[directive]; ok {
+			return fmt.Errorf(
+				"invalid policy: use of restricted global directive '%s' is not allowed", directive)
+		}
+
+		if directive == "blockinherit" {
+			inherit = inheritTemplate
+		}
+
+		return nil
+	}); err != nil {
 		return err
 	}
 
@@ -277,32 +289,117 @@ func (sp *RawSelinuxProfile) ValidatePolicy() error {
 	return nil
 }
 
-func validateBlockInherits(policy string) error {
-	for _, loc := range blockinheritRegex.FindAllStringIndex(policy, -1) {
-		match := blockinheritStatementRegex.FindStringSubmatch(policy[loc[0]:])
-		if match == nil {
-			return errors.New(
-				"invalid policy: blockinherit must name a single template, like (blockinherit container)",
-			)
+// cilTokenKind is the kind of a token of a CIL policy.
+type cilTokenKind int32
+
+const (
+	cilOpen cilTokenKind = iota
+	cilClose
+	cilSymbol
+	cilString
+)
+
+// inheritState tracks a blockinherit statement: its template comes next, or
+// the closing parenthesis.
+type inheritState int32
+
+const (
+	inheritNone inheritState = iota
+	inheritTemplate
+	inheritClose
+)
+
+// errSingleTemplate rejects a blockinherit statement which does not name a
+// single template.
+var errSingleTemplate = errors.New(
+	"invalid policy: blockinherit must name a single template, like (blockinherit container)",
+)
+
+// scanCIL calls token for each token of the policy, the way the CIL lexer and
+// parser of libsepol split it: comments run from a ';' up to the end of the
+// line, and strings are quoted with '"' and cannot span lines. Neither of
+// them can open or close a statement, so counting the parentheses in them
+// would let a policy escape its block.
+func scanCIL(policy string, token func(kind cilTokenKind, value string) error) error {
+	for i := 0; i < len(policy); {
+		var err error
+
+		switch c := policy[i]; {
+		case c == ' ' || c == '\t' || c == '\n' || c == '\r':
+			i++
+
+			continue
+		case c == ';':
+			i = skipCILComment(policy, i+1)
+
+			continue
+		case c == '"':
+			end := strings.IndexAny(policy[i+1:], "\"\n")
+			if end < 0 || policy[i+1+end] != '"' {
+				return errors.New("invalid policy: unterminated string")
+			}
+
+			err = token(cilString, policy[i+1:i+1+end])
+			i += end + 2
+		case c == '(':
+			err = token(cilOpen, "(")
+			i++
+		case c == ')':
+			err = token(cilClose, ")")
+			i++
+		case isCILSymbolCharacter(c):
+			end := i + 1
+			for end < len(policy) && isCILSymbolCharacter(policy[end]) {
+				end++
+			}
+
+			err = token(cilSymbol, policy[i:end])
+			i = end
+		default:
+			// The CIL lexer rejects any other character. It separates the
+			// tokens here, so that a restricted directive next to it does not
+			// go unnoticed.
+			_, size := utf8.DecodeRuneInString(policy[i:])
+			i += size
+
+			continue
 		}
 
-		if _, ok := inheritableTemplates[match[1]]; !ok {
-			return fmt.Errorf(
-				"invalid policy: blockinherit of '%s' is not allowed, only of the container templates",
-				match[1],
-			)
+		if err != nil {
+			return err
 		}
 	}
 
 	return nil
 }
 
-func isDirectiveCharacter(r rune) bool {
-	if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-' {
-		return true
+// skipCILComment returns the end of the comment whose text starts at start.
+// The CIL parser skips the tokens of a comment up to the next newline token,
+// so a string in a comment hides a carriage return, which ends the line
+// otherwise.
+func skipCILComment(policy string, start int) int {
+	for i := start; i < len(policy); i++ {
+		switch policy[i] {
+		case '\n', '\r':
+			return i
+		case '"':
+			// A quote without a closing one on the same line is a token of
+			// its own.
+			end := strings.IndexAny(policy[i+1:], "\"\n")
+			if end >= 0 && policy[i+1+end] == '"' {
+				i += end + 1
+			}
+		}
 	}
 
-	return false
+	return len(policy)
+}
+
+// isCILSymbolCharacter returns whether c can be part of a symbol for the CIL
+// lexer.
+func isCILSymbolCharacter(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+		strings.IndexByte("[].@=/*-_$%+!|&^:~`#{}'<>?,", c) >= 0
 }
 
 func (sp *RawSelinuxProfile) IsPartial() bool {

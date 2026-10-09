@@ -150,7 +150,80 @@ func TestValidatePolicy(t *testing.T) {
 			errContains: "unmatched closing parenthesis",
 		},
 
-		// --- 4. False Positive Prevention ---
+		// --- 4. Comments and Strings ---
+		{
+			name:        "Opening parenthesis in a comment",
+			policy:      "; (\n) (typepermissive spc_t) (block x ; )",
+			wantErr:     true,
+			errContains: "unmatched closing parenthesis",
+		},
+		{
+			name:        "Comment ended by a carriage return",
+			policy:      "; (\r) (block x",
+			wantErr:     true,
+			errContains: "unmatched closing parenthesis",
+		},
+		{
+			name:        "Carriage return in a string in a comment",
+			policy:      "; \"x\r(\" \"\n) (block x",
+			wantErr:     true,
+			errContains: "unmatched closing parenthesis",
+		},
+		{
+			name:        "Opening parenthesis in a string",
+			policy:      `(typetransition process tmp_t file "(" tmp_t)) (allow spc_t self (file (read))) (block x`,
+			wantErr:     true,
+			errContains: "unmatched closing parenthesis",
+		},
+		{
+			name:        "Restricted directive after a comment",
+			policy:      "( ; comment\n typepermissive spc_t)",
+			wantErr:     true,
+			errContains: "restricted global directive 'typepermissive'",
+		},
+		{
+			name:        "Restricted directive as string",
+			policy:      `("typepermissive" spc_t)`,
+			wantErr:     true,
+			errContains: "restricted global directive 'typepermissive'",
+		},
+		{
+			name:        "Restricted directive next to a character CIL rejects",
+			policy:      "(\vtypepermissive spc_t)",
+			wantErr:     true,
+			errContains: "restricted global directive 'typepermissive'",
+		},
+		{
+			name:        "Blockinherit split by a comment",
+			policy:      "( ; comment\n blockinherit ; comment\n spc ; )\n)",
+			wantErr:     true,
+			errContains: "blockinherit of 'spc' is not allowed",
+		},
+		{
+			name:        "Inherit a string",
+			policy:      `(blockinherit "container")`,
+			wantErr:     true,
+			errContains: "must name a single template",
+		},
+		{
+			name:        "Unterminated string",
+			policy:      "(typetransition process tmp_t file \"name\n)",
+			wantErr:     true,
+			errContains: "unterminated string",
+		},
+		{
+			name: "Parentheses and directives in comments and strings",
+			policy: "; (typepermissive spc_t) :)\n(blockinherit container) ; (block\n" +
+				`(typetransition process tmp_t file "(block x" tmp_t)`,
+			wantErr: false,
+		},
+		{
+			name:    "Blockinherit with a trailing comment",
+			policy:  "(blockinherit container ; the template\n)",
+			wantErr: false,
+		},
+
+		// --- 5. False Positive Prevention ---
 		{
 			name:    "Restricted keyword used as an argument (Safe)",
 			policy:  "(allow typepermissive file (read))",

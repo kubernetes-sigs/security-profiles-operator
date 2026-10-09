@@ -59,6 +59,14 @@ func (r *StatusReconciler) Setup(
 
 	r.namespace = namespace
 
+	for _, index := range fieldIndexes() {
+		if err := mgr.GetFieldIndexer().IndexField(
+			ctx, index.obj, index.field, index.extract,
+		); err != nil {
+			return fmt.Errorf("creating %s index: %w", index.field, err)
+		}
+	}
+
 	// A spec change of a profile does not necessarily change a node status,
 	// but the conditions of the profile have to report the new generation.
 	// A deleted profile has no status to update.
@@ -89,8 +97,9 @@ func (r *StatusReconciler) Setup(
 		Watches(&apparmorapi.AppArmorProfile{},
 			handler.EnqueueRequestsFromMapFunc(r.statusRequests("AppArmorProfile")),
 			generationChanged).
-		// The status of a deleted node is dropped from the aggregation, which
-		// nothing else triggers.
+		// The status of a deleted node is dropped from the aggregation, and
+		// the finalizer of a deleted node is removed from the profiles which
+		// are being deleted, which nothing else triggers.
 		Watches(&corev1.Node{},
 			handler.EnqueueRequestsFromMapFunc(r.deletedNodeRequests),
 			builder.OnlyMetadata,
@@ -104,16 +113,15 @@ func (r *StatusReconciler) Setup(
 }
 
 // deletedNodeRequests maps a deleted node to the requests of the profiles
-// which it has a status of.
+// which it has a status of, and of the profiles being deleted which carry its
+// finalizer. The garbage collector may have deleted the statuses of such a
+// profile already, for example with a foreground deletion.
 func (r *StatusReconciler) deletedNodeRequests(
 	ctx context.Context, obj client.Object,
 ) []reconcile.Request {
 	statuses := &secprofnodestatusapi.SecurityProfileNodeStatusList{}
-	// The statuses live next to their profiles.
 	if err := r.client.List(ctx, statuses,
-		client.MatchingLabels{
-			secprofnodestatusapi.StatusToNodeLabel: util.NodeNameLabelValue(obj.GetName()),
-		},
+		client.MatchingFields{statusNodeIndex: util.NodeNameLabelValue(obj.GetName())},
 	); err != nil {
 		r.log.Error(err, "Cannot list the statuses of a deleted node", "node", obj.GetName())
 
@@ -127,7 +135,132 @@ func (r *StatusReconciler) deletedNodeRequests(
 		requests = append(requests, r.siblingStatusRequests(ctx, &statuses.Items[i])...)
 	}
 
+	for _, kind := range profileKinds {
+		for _, finalizer := range nodeFinalizers(obj.GetName()) {
+			profiles, err := r.deletingProfilesWithFinalizer(ctx, kind, finalizer)
+			if err != nil {
+				r.log.Error(err, "Cannot list the profiles of a deleted node",
+					"node", obj.GetName(), "kind", kind)
+
+				continue
+			}
+
+			for _, prof := range profiles {
+				requests = append(
+					requests,
+					profileRequest(kind, prof.GetNamespace(), prof.GetName()),
+				)
+			}
+		}
+	}
+
 	return requests
+}
+
+// deletingProfilesWithFinalizer returns the profiles of the kind which are
+// being deleted and carry the node finalizer.
+func (r *StatusReconciler) deletingProfilesWithFinalizer(
+	ctx context.Context, kind, finalizer string,
+) ([]client.Object, error) {
+	list, err := newProfileList(kind)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := r.client.List(ctx, list,
+		client.MatchingFields{deletingProfileNodeFinalizerIndex: finalizer},
+	); err != nil {
+		return nil, fmt.Errorf("listing profiles: %w", err)
+	}
+
+	return profilesOf(list)
+}
+
+const (
+	// statusProfileIndex indexes the node statuses by the profile label.
+	statusProfileIndex = "nodestatus.profile"
+	// statusNodeIndex indexes the node statuses by the node label.
+	statusNodeIndex = "nodestatus.node"
+	// deletingProfileNodeFinalizerIndex indexes the profiles which are being
+	// deleted by their node finalizers.
+	deletingProfileNodeFinalizerIndex = "profile.deletingNodeFinalizers"
+)
+
+// profileKinds are the kinds of profiles which have node statuses.
+var profileKinds = []string{
+	"SeccompProfile", "SelinuxProfile", "RawSelinuxProfile", "AppArmorProfile",
+}
+
+// fieldIndex is an index of the cache of the manager.
+type fieldIndex struct {
+	obj     client.Object
+	field   string
+	extract client.IndexerFunc
+}
+
+// fieldIndexes returns the indexes which the controller looks objects up
+// with, instead of filtering all cached objects by their labels.
+func fieldIndexes() []fieldIndex {
+	indexes := []fieldIndex{
+		{
+			obj:     &secprofnodestatusapi.SecurityProfileNodeStatus{},
+			field:   statusProfileIndex,
+			extract: labelIndex(secprofnodestatusapi.StatusToProfLabel),
+		},
+		{
+			obj:     &secprofnodestatusapi.SecurityProfileNodeStatus{},
+			field:   statusNodeIndex,
+			extract: labelIndex(secprofnodestatusapi.StatusToNodeLabel),
+		},
+	}
+
+	for _, kind := range profileKinds {
+		prof, err := newProfile(kind)
+		if err != nil {
+			// Cannot happen: every kind has a profile type.
+			continue
+		}
+
+		indexes = append(indexes, fieldIndex{
+			obj:     prof,
+			field:   deletingProfileNodeFinalizerIndex,
+			extract: deletingProfileNodeFinalizers,
+		})
+	}
+
+	return indexes
+}
+
+// labelIndex returns an index function which indexes an object by the value
+// of the label.
+func labelIndex(label string) client.IndexerFunc {
+	return func(obj client.Object) []string {
+		if value, ok := obj.GetLabels()[label]; ok {
+			return []string{value}
+		}
+
+		return nil
+	}
+}
+
+// deletingProfileNodeFinalizers indexes a profile which is being deleted by
+// its node finalizers. Only a profile which is being deleted can lose its
+// node statuses while it keeps node finalizers, so the others are left out,
+// which keeps the index small.
+func deletingProfileNodeFinalizers(obj client.Object) []string {
+	if obj.GetDeletionTimestamp().IsZero() {
+		return nil
+	}
+
+	var finalizers []string
+
+	for _, finalizer := range obj.GetFinalizers() {
+		if isNodeFinalizer(finalizer) {
+			finalizers = append(finalizers, finalizer)
+		}
+	}
+
+	return finalizers
 }
 
 // nodeStatusChanged passes the updates of a node status which matter for the

@@ -37,8 +37,11 @@ import (
 	profilebindingapi "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 func (r *BindingTrackerReconciler) Setup(
@@ -74,18 +77,34 @@ func (r *BindingTrackerReconciler) Setup(
 		return fmt.Errorf("creating profile reference index: %w", err)
 	}
 
-	status := &bindingStatusReconciler{
-		client: r.client,
-		reader: r.reader,
-		log:    r.log.WithName("status"),
+	operatorNamespace, err := config.TryToGetOperatorNamespace()
+	if err != nil {
+		operatorNamespace = config.OperatorName
 	}
 
-	// Creating or deleting a profile changes the Ready condition of the
-	// bindings which refer to it.
+	// The SPOD controller enables SELinux by default on OpenShift, which it
+	// detects like this once on startup.
+	caInjectType, err := bindata.GetCAInjectType(ctx, r.log, r.reader)
+	if err != nil {
+		return fmt.Errorf("detecting the platform: %w", err)
+	}
+
+	status := &bindingStatusReconciler{
+		client:            r.client,
+		reader:            r.reader,
+		log:               r.log.WithName("status"),
+		operatorNamespace: operatorNamespace,
+		isOpenShift:       caInjectType == bindata.CAInjectTypeOpenShift,
+	}
+
+	// Creating or deleting a profile and changing its state change the Ready
+	// condition of the bindings which refer to it.
 	profileEvents := builder.WithPredicates(predicate.Funcs{
-		CreateFunc:  func(event.CreateEvent) bool { return true },
-		DeleteFunc:  func(event.DeleteEvent) bool { return true },
-		UpdateFunc:  func(event.UpdateEvent) bool { return false },
+		CreateFunc: func(event.CreateEvent) bool { return true },
+		DeleteFunc: func(event.DeleteEvent) bool { return true },
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			return profileState(e.ObjectOld) != profileState(e.ObjectNew)
+		},
 		GenericFunc: func(event.GenericEvent) bool { return false },
 	})
 
@@ -137,11 +156,13 @@ func (r *BindingTrackerReconciler) Setup(
 // trackedPodChanged reports whether an update of a pod may change the bindings
 // it uses. The webhook applies the bindings of ephemeral containers through
 // their subresource, which cannot change the annotation of the applied
-// bindings, so their images are compared as well.
+// bindings, so their images are compared as well. A completed pod does not use
+// its bindings anymore.
 func trackedPodChanged(oldObj, newObj client.Object) bool {
 	if !reflect.DeepEqual(oldObj.GetLabels(), newObj.GetLabels()) ||
 		oldObj.GetAnnotations()[profilebindingapi.AppliedBindingsAnnotation] !=
-			newObj.GetAnnotations()[profilebindingapi.AppliedBindingsAnnotation] {
+			newObj.GetAnnotations()[profilebindingapi.AppliedBindingsAnnotation] ||
+		util.PodCompletedNow(oldObj, newObj) {
 		return true
 	}
 

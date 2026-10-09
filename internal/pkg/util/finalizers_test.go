@@ -17,14 +17,22 @@ limitations under the License.
 package util
 
 import (
+	"context"
+	"errors"
+	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation"
+	"k8s.io/apimachinery/pkg/util/validation/field"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/utiltest"
 )
@@ -142,6 +150,129 @@ func TestRemoveFinalizers(t *testing.T) {
 		require.Equal(t, []string{"other"}, after.GetFinalizers())
 		require.Equal(t, before.GetResourceVersion(), after.GetResourceVersion())
 	})
+}
+
+func TestAddFinalizerAndLabel(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		obj            *corev1.ConfigMap
+		wantFinalizers []string
+		wantLabels     map[string]string
+	}{
+		"empty object": {
+			obj:            testConfigMap(),
+			wantFinalizers: []string{"new"},
+			wantLabels:     map[string]string{"example.com/key": "value"},
+		},
+		"appends to finalizers and labels": {
+			obj: func() *corev1.ConfigMap {
+				cm := testConfigMap("other")
+				cm.Labels = map[string]string{"other": "label"}
+
+				return cm
+			}(),
+			wantFinalizers: []string{"other", "new"},
+			wantLabels:     map[string]string{"other": "label", "example.com/key": "value"},
+		},
+		"keeps the value of a present label": {
+			obj: func() *corev1.ConfigMap {
+				cm := testConfigMap("other")
+				cm.Labels = map[string]string{"example.com/key": "kept"}
+
+				return cm
+			}(),
+			wantFinalizers: []string{"other", "new"},
+			wantLabels:     map[string]string{"example.com/key": "kept"},
+		},
+		"adds a label next to the finalizers": {
+			obj:            testConfigMap("new"),
+			wantFinalizers: []string{"new"},
+			wantLabels:     map[string]string{"example.com/key": "value"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			c := fake.NewClientBuilder().
+				WithScheme(utiltest.NewScheme(t)).WithObjects(tc.obj.DeepCopy()).Build()
+
+			require.NoError(t, AddFinalizerAndLabel(
+				t.Context(), c, tc.obj, "new", "example.com/key", "value",
+			))
+
+			stored := &corev1.ConfigMap{}
+			require.NoError(t, c.Get(t.Context(), NamespacedName("test", "test-ns"), stored))
+			require.Equal(t, tc.wantFinalizers, stored.Finalizers)
+			require.Equal(t, tc.wantLabels, stored.Labels)
+		})
+	}
+}
+
+func TestRemoveFinalizersRemovesDuplicates(t *testing.T) {
+	t.Parallel()
+
+	obj := testConfigMap("first", "other", "first")
+	c := fake.NewClientBuilder().
+		WithScheme(utiltest.NewScheme(t)).WithObjects(obj.DeepCopy()).Build()
+
+	require.NoError(t, RemoveFinalizers(t.Context(), c, obj, "first"))
+	require.Equal(t, []string{"other"}, obj.GetFinalizers())
+}
+
+// The API server rejects a JSON patch which does not apply as invalid, but
+// without the causes of a failed validation. This means that the object
+// changed since it was read, which the callers retry like a conflict.
+func TestPatchDidNotApplyIsConflict(t *testing.T) {
+	t.Parallel()
+
+	notApplied := kerrors.NewGenericServerResponse(
+		http.StatusUnprocessableEntity,
+		"PATCH",
+		schema.GroupResource{},
+		"",
+		"test failed",
+		0,
+		false,
+	)
+	invalid := kerrors.NewInvalid(
+		schema.GroupKind{Kind: "ConfigMap"},
+		"test",
+		field.ErrorList{
+			field.Forbidden(field.NewPath("metadata", "finalizers"), "no new finalizers"),
+		},
+	)
+
+	for name, tc := range map[string]struct {
+		patchErr     error
+		wantConflict bool
+	}{
+		"not applied": {patchErr: notApplied, wantConflict: true},
+		"invalid":     {patchErr: invalid},
+		"other":       {patchErr: errors.New("other")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			obj := testConfigMap("first")
+			c := fake.NewClientBuilder().
+				WithScheme(utiltest.NewScheme(t)).
+				WithObjects(obj.DeepCopy()).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Patch: func(
+						context.Context, client.WithWatch, client.Object, client.Patch, ...client.PatchOption,
+					) error {
+						return tc.patchErr
+					},
+				}).
+				Build()
+
+			err := RemoveFinalizer(t.Context(), c, obj, "first")
+			require.Error(t, err)
+			require.Equal(t, tc.wantConflict, kerrors.IsConflict(err), err)
+			require.Equal(t, tc.wantConflict, IsNotFoundOrConflict(err), err)
+		})
+	}
 }
 
 // A finalizer is a label-shaped string, so a long node name has to be

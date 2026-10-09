@@ -9,9 +9,13 @@ metadata:
 spec:
   group: security-profiles-operator.x-k8s.io
   names:
+    categories:
+    - spo
     kind: ProfileBinding
     listKind: ProfileBindingList
     plural: profilebindings
+    shortNames:
+    - pb
     singular: profilebinding
   scope: Namespaced
   versions:
@@ -235,9 +239,13 @@ metadata:
 spec:
   group: security-profiles-operator.x-k8s.io
   names:
+    categories:
+    - spo
     kind: ProfileRecording
     listKind: ProfileRecordingList
     plural: profilerecordings
+    shortNames:
+    - prec
     singular: profilerecording
   scope: Namespaced
   versions:
@@ -492,6 +500,8 @@ metadata:
 spec:
   group: security-profiles-operator.x-k8s.io
   names:
+    categories:
+    - spo
     kind: SeccompProfile
     listKind: SeccompProfileList
     plural: seccompprofiles
@@ -734,12 +744,20 @@ spec:
             description: status contains the observed state of the SeccompProfile.
             properties:
               activeWorkloads:
-                description: activeWorkloads lists the workloads currently using this
-                  profile.
+                description: |-
+                  activeWorkloads lists the pods currently using this profile as
+                  namespace/name, sorted and limited to the first 1000 of them.
                 items:
                   type: string
                 type: array
                 x-kubernetes-list-type: set
+              activeWorkloadsCount:
+                description: |-
+                  activeWorkloadsCount is the number of pods currently using this
+                  profile, which can be more than activeWorkloads lists.
+                format: int32
+                minimum: 1
+                type: integer
               conditions:
                 description: conditions contains the conditions of the resource.
                 items:
@@ -841,6 +859,8 @@ metadata:
 spec:
   group: security-profiles-operator.x-k8s.io
   names:
+    categories:
+    - spo
     kind: SecurityProfileNodeStatus
     listKind: SecurityProfileNodeStatusList
     plural: securityprofilenodestatuses
@@ -902,6 +922,13 @@ spec:
           status:
             description: status contains the observed state of the SecurityProfileNodeStatus.
             properties:
+              message:
+                description: |-
+                  message is a human readable message which tells why the profile is in
+                  its state on this node, like the reason why it failed to install.
+                maxLength: 4096
+                minLength: 1
+                type: string
               status:
                 default: Pending
                 description: status is the installation status of the profile on this
@@ -935,6 +962,8 @@ metadata:
 spec:
   group: security-profiles-operator.x-k8s.io
   names:
+    categories:
+    - spo
     kind: SecurityProfilesOperatorDaemon
     listKind: SecurityProfilesOperatorDaemonList
     plural: securityprofilesoperatordaemons
@@ -956,8 +985,14 @@ spec:
     name: v1
     schema:
       openAPIV3Schema:
-        description: SecurityProfilesOperatorDaemon is the Schema to configure the
-          spod deployment.
+        description: |-
+          SecurityProfilesOperatorDaemon is the Schema to configure the spod deployment.
+
+          There is a single SecurityProfilesOperatorDaemon, named spod, in the
+          operator namespace. The daemons, the webhooks and the node statuses only
+          read the one named spod, and further ones would render operands which
+          clash with its operands, so no other name ever worked. Existing objects
+          are exempt, so that they can still be updated and deleted.
         properties:
           apiVersion:
             description: |-
@@ -1039,6 +1074,30 @@ spec:
                       otherwise to an implementation-defined value. Requests cannot exceed Limits.
                       More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
                     type: object
+                type: object
+              daemonUpdateStrategy:
+                description: |-
+                  daemonUpdateStrategy configures the rolling update of the SPOD
+                  daemonset. If unset, all daemon pods get replaced at once.
+                minProperties: 1
+                properties:
+                  maxUnavailable:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    description: |-
+                      maxUnavailable is the maximum number of daemon pods, or the percentage
+                      of the scheduled daemon pods, which can be unavailable during an
+                      update, like in the rolling update of a daemonset. It has to be at
+                      least 1 or 1%, because a daemonset rejects 0. Defaults to 100%, which
+                      replaces all daemon pods at once. A lower value keeps the daemons of the
+                      other nodes running during an update, which also limits the impact of a
+                      daemon pod which cannot start, at the cost of a slower rollout.
+                    x-kubernetes-int-or-string: true
+                    x-kubernetes-validations:
+                    - message: maxUnavailable must be an integer of at least 1 or
+                        a percentage between 1% and 100%
+                      rule: 'type(self) == int ? self >= 1 : self.matches(''^([1-9][0-9]?|100)%$'')'
                 type: object
               enableAppArmor:
                 default: false
@@ -2475,8 +2534,11 @@ spec:
                     type: object
                   typeTag:
                     default: spc_t
-                    description: typeTag is the SELinux type tag applied to the security
-                      context of SPOD.
+                    description: |-
+                      typeTag is the SELinux type tag applied to the security context of SPOD.
+                      It is ignored while enableAppArmor is true, and the daemon pod keeps
+                      its default SELinux types then. The operator reports a value other
+                      than spc_t which gets ignored with a warning event on the SPOD.
                     type: string
                 type: object
               verbosity:
@@ -2770,6 +2832,10 @@ spec:
                 type: string
             type: object
         type: object
+        x-kubernetes-validations:
+        - message: the SecurityProfilesOperatorDaemon must be named spod
+          optionalOldSelf: true
+          rule: oldSelf.hasValue() || self.metadata.name == 'spod'
     served: true
     storage: true
     subresources:
@@ -2786,9 +2852,13 @@ metadata:
 spec:
   group: security-profiles-operator.x-k8s.io
   names:
+    categories:
+    - spo
     kind: RawSelinuxProfile
     listKind: RawSelinuxProfileList
     plural: rawselinuxprofiles
+    shortNames:
+    - rselp
     singular: rawselinuxprofile
   scope: Cluster
   versions:
@@ -2811,6 +2881,13 @@ spec:
           The name is used as the name of a CIL block, which has to start with a
           letter and must not contain dots. Existing objects are exempt, so that they
           can still be updated and deleted.
+
+          The policy is placed into that block. Statements which change the global
+          policy, like typepermissive, are rejected, but the statements may still
+          refer to global types, attributes and blocks: allow rules for global types
+          like container_t, typeattributeset and in statements can affect other
+          workloads. Only cluster admins should be allowed to write raw SELinux
+          profiles.
         properties:
           apiVersion:
             description: |-
@@ -2851,12 +2928,20 @@ spec:
             description: status contains the observed state of the RawSelinuxProfile.
             properties:
               activeWorkloads:
-                description: activeWorkloads lists the workloads currently using this
-                  profile.
+                description: |-
+                  activeWorkloads lists the pods currently using this profile as
+                  namespace/name, sorted and limited to the first 1000 of them.
                 items:
                   type: string
                 type: array
                 x-kubernetes-list-type: set
+              activeWorkloadsCount:
+                description: |-
+                  activeWorkloadsCount is the number of pods currently using this
+                  profile, which can be more than activeWorkloads lists.
+                format: int32
+                minimum: 1
+                type: integer
               conditions:
                 description: conditions contains the conditions of the resource.
                 items:
@@ -2956,9 +3041,13 @@ metadata:
 spec:
   group: security-profiles-operator.x-k8s.io
   names:
+    categories:
+    - spo
     kind: SelinuxProfile
     listKind: SelinuxProfileList
     plural: selinuxprofiles
+    shortNames:
+    - selp
     singular: selinuxprofile
   scope: Cluster
   versions:
@@ -3085,12 +3174,20 @@ spec:
             description: status contains the observed state of the SelinuxProfile.
             properties:
               activeWorkloads:
-                description: activeWorkloads lists the workloads currently using this
-                  profile.
+                description: |-
+                  activeWorkloads lists the pods currently using this profile as
+                  namespace/name, sorted and limited to the first 1000 of them.
                 items:
                   type: string
                 type: array
                 x-kubernetes-list-type: set
+              activeWorkloadsCount:
+                description: |-
+                  activeWorkloadsCount is the number of pods currently using this
+                  profile, which can be more than activeWorkloads lists.
+                format: int32
+                minimum: 1
+                type: integer
               conditions:
                 description: conditions contains the conditions of the resource.
                 items:
@@ -3190,6 +3287,8 @@ metadata:
 spec:
   group: security-profiles-operator.x-k8s.io
   names:
+    categories:
+    - spo
     kind: AppArmorProfile
     listKind: AppArmorProfileList
     plural: apparmorprofiles
@@ -3387,6 +3486,21 @@ spec:
           status:
             description: status contains the observed state of the AppArmor profile.
             properties:
+              activeWorkloads:
+                description: |-
+                  activeWorkloads lists the pods currently using this profile as
+                  namespace/name, sorted and limited to the first 1000 of them.
+                items:
+                  type: string
+                type: array
+                x-kubernetes-list-type: set
+              activeWorkloadsCount:
+                description: |-
+                  activeWorkloadsCount is the number of pods currently using this
+                  profile, which can be more than activeWorkloads lists.
+                format: int32
+                minimum: 1
+                type: integer
               conditions:
                 description: conditions contains the conditions of the resource.
                 items:
@@ -3526,6 +3640,7 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - namespaces
   - nodes
   - pods
   verbs:
@@ -3827,11 +3942,13 @@ rules:
   - security-profiles-operator.x-k8s.io
   resources:
   - apparmorprofiles
+  - seccompprofiles
   - selinuxprofiles
   verbs:
   - create
   - get
   - list
+  - patch
   - update
   - watch
 - apiGroups:
@@ -3850,27 +3967,8 @@ rules:
   - security-profiles-operator.x-k8s.io
   resources:
   - profilerecordings
-  verbs:
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - security-profiles-operator.x-k8s.io
-  resources:
   - rawselinuxprofiles
   verbs:
-  - get
-  - list
-  - update
-  - watch
-- apiGroups:
-  - security-profiles-operator.x-k8s.io
-  resources:
-  - seccompprofiles
-  verbs:
-  - create
   - get
   - list
   - patch
@@ -4205,8 +4303,12 @@ spec:
       == 'spod'
     message: Jobs of the spod service account have to run as the spod service account
     reason: Forbidden
+  - expression: size(variables.requestNodes) > 0
+    message: The service account token of the spod service account has to name the
+      node of the requesting pod
+    reason: Forbidden
   - expression: has(variables.podSpec.nodeName) && variables.podSpec.nodeName != ''
-      && (size(variables.requestNodes) == 0 || variables.podSpec.nodeName in variables.requestNodes)
+      && variables.podSpec.nodeName in variables.requestNodes
     message: Jobs of the spod service account have to run on the node of the requesting
       pod
     reason: Forbidden
@@ -4243,6 +4345,102 @@ metadata:
   name: spo-spod-jobs
 spec:
   policyName: spo-spod-jobs
+  validationActions:
+  - Deny
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  labels:
+    app: security-profiles-operator
+  name: spo-spod-profiles
+spec:
+  failurePolicy: Fail
+  matchConditions:
+  - expression: request.userInfo.username.matches('^system:serviceaccount:[^:]+:spod$')
+    name: spod-service-account
+  matchConstraints:
+    resourceRules:
+    - apiGroups:
+      - security-profiles-operator.x-k8s.io
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - apparmorprofiles
+      - rawselinuxprofiles
+      - seccompprofiles
+      - selinuxprofiles
+  validations:
+  - expression: request.operation != 'CREATE' || (request.kind.kind != 'RawSelinuxProfile'
+      && 'spo.x-k8s.io/recording-id' in variables.labels && 'spo.x-k8s.io/recording-namespace'
+      in variables.labels)
+    message: The spod service account may only create recorded profiles
+    reason: Forbidden
+  - expression: request.operation != 'UPDATE' || variables.recorded || variables.specs[0]
+      == variables.specs[1]
+    message: The spod service account may only change the spec of the profiles which
+      it recorded
+    reason: Forbidden
+  - expression: request.operation != 'UPDATE' || variables.labels[?'spo.x-k8s.io/recording-id']
+      == variables.oldLabels[?'spo.x-k8s.io/recording-id']
+    message: The spod service account must not change the spo.x-k8s.io/recording-id
+      label
+    reason: Forbidden
+  - expression: request.operation != 'UPDATE' || variables.recorded || (variables.oldLabels.all(k,
+      k == 'spo.x-k8s.io/profile-id' || variables.labels[?k] == optional.of(variables.oldLabels[k]))
+      && variables.labels.all(k, k == 'spo.x-k8s.io/profile-id' || k in variables.oldLabels))
+    message: The spod service account may only add the spo.x-k8s.io/profile-id label
+      to the profiles which it did not record
+    reason: Forbidden
+  - expression: request.operation != 'UPDATE' || object.metadata.?ownerReferences.orValue([])
+      == oldObject.metadata.?ownerReferences.orValue([])
+    message: The spod service account must not change the owner references
+    reason: Forbidden
+  variables:
+  - expression: 'has(object.metadata.labels) ? object.metadata.labels : {}'
+    name: labels
+  - expression: 'request.operation == ''UPDATE'' && has(oldObject.metadata.labels)
+      ? oldObject.metadata.labels : {}'
+    name: oldLabels
+  - expression: request.kind.kind != 'RawSelinuxProfile' && 'spo.x-k8s.io/recording-id'
+      in variables.oldLabels
+    name: recorded
+  - expression: '[object, oldObject].map(o, o.?spec.orValue({})).map(s, request.kind.kind
+      == ''SeccompProfile'' ? [ dyn(s.?state.orValue('''')), dyn(s.?baseProfileName.orValue('''')),
+      dyn(s.?defaultAction.orValue('''')), dyn(s.?architectures.orValue([])), dyn(s.?listenerPath.orValue('''')),
+      dyn(s.?listenerMetadata.orValue('''')), dyn(s.?flags.orValue([])), dyn(s.?syscalls.orValue([]).map(c,
+      [ dyn(c.?names.orValue([])), dyn(c.?action.orValue('''')), dyn(c.?errnoRet.orValue(0)),
+      dyn(c.?args.orValue([]).map(a, [ dyn(has(a.index) ? [a.index] : []), dyn(a.?value.orValue(0)),
+      dyn(a.?valueTwo.orValue(0)), dyn(a.?op.orValue(''''))]))]))] : request.kind.kind
+      == ''AppArmorProfile'' ? [ dyn(s.?state.orValue('''')), dyn(s.?mode.orValue('''')),
+      dyn(s.?abstract.?executable.hasValue() ? [ dyn(s.abstract.executable.?allowedExecutables.orValue([])),
+      dyn(s.abstract.executable.?allowedLibraries.orValue([]))] : []), dyn(s.?abstract.?filesystem.hasValue()
+      ? [ dyn(s.abstract.filesystem.?readOnlyPaths.orValue([])), dyn(s.abstract.filesystem.?writeOnlyPaths.orValue([])),
+      dyn(s.abstract.filesystem.?readWritePaths.orValue([]))] : []), dyn(s.?abstract.?network.hasValue()
+      ? [ dyn(has(s.abstract.network.allowRaw) ? [s.abstract.network.allowRaw] : []),
+      dyn(has(s.abstract.network.allowedProtocols) ? [ dyn(has(s.abstract.network.allowedProtocols.allowTcp)
+      ? [s.abstract.network.allowedProtocols.allowTcp] : []), dyn(has(s.abstract.network.allowedProtocols.allowUdp)
+      ? [s.abstract.network.allowedProtocols.allowUdp] : [])] : [])] : []), dyn(s.?abstract.?capability.hasValue()
+      ? [ dyn(s.abstract.capability.?allowedCapabilities.orValue([]))] : []), dyn(s.?abstract.?ptrace.hasValue()
+      ? [ dyn(s.abstract.ptrace.?allowedAccess.orValue([])), dyn(s.abstract.ptrace.?peer.orValue(''''))]
+      : [])] : request.kind.kind == ''SelinuxProfile'' ? [ dyn(s.?state.orValue('''')),
+      dyn(s.?mode.orValue('''')), dyn(s.?inherit.orValue([]).size() > 0 ? s.inherit.map(i,
+      [ dyn(i.?kind.orValue('''')), dyn(i.?name.orValue(''''))]) : [[dyn(''System''),
+      dyn(''container'')]]), dyn(s.?allow.orValue({}))] : [ dyn(s.?state.orValue('''')),
+      dyn(s.?policy.orValue(''''))])'
+    name: specs
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  labels:
+    app: security-profiles-operator
+  name: spo-spod-profiles
+spec:
+  policyName: spo-spod-profiles
   validationActions:
   - Deny
 ---
@@ -4775,7 +4973,7 @@ spec:
         resources:
           limits:
             cpu: 500m
-            memory: 128Mi
+            memory: 512Mi
           requests:
             cpu: 250m
             memory: 50Mi

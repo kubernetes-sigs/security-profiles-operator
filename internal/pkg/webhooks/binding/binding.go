@@ -46,6 +46,7 @@ import (
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	profilebase "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	profilebindingapi "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
+	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
@@ -84,6 +85,7 @@ const (
 	reasonProfileNotFound      = "ProfileNotFound"
 	reasonBindingConflict      = "ProfileBindingConflict"
 	reasonInvalidPodSelector   = "InvalidPodSelector"
+	reasonRecordedElsewhere    = "ProfileRecordedInOtherNamespace"
 )
 
 type podBinder struct {
@@ -159,27 +161,37 @@ func RegisterWebhook(
 		operatorNamespace = config.OperatorName
 	}
 
+	decoder := admission.NewDecoder(scheme)
+	binder := &podBinder{
+		impl:              &defaultImpl{client: c, reader: reader},
+		decoder:           decoder,
+		log:               logf.Log.WithName("binding"),
+		record:            utils.NewSafeRecorder(rec),
+		operatorNamespace: operatorNamespace,
+		isOpenShift:       isOpenShift,
+		missing:           newMissingProfiles(),
+	}
+
+	server.Register("/mutate-v1-pod-binding", &webhook.Admission{Handler: binder})
+
 	server.Register(
-		"/mutate-v1-pod-binding",
+		"/validate-v1-pod-binding-image",
 		&webhook.Admission{
-			Handler: &podBinder{
-				impl:              &defaultImpl{client: c, reader: reader},
-				decoder:           admission.NewDecoder(scheme),
-				log:               logf.Log.WithName("binding"),
-				record:            utils.NewSafeRecorder(rec),
-				operatorNamespace: operatorNamespace,
-				isOpenShift:       isOpenShift,
-				missing:           newMissingProfiles(),
+			Handler: &imageUpdateValidator{
+				binder:  binder,
+				decoder: decoder,
+				log:     logf.Log.WithName("binding-image-update"),
 			},
 		},
 	)
 }
 
-// containersByImage groups the provided containers by their image.
+// containersByImage groups the provided containers by their normalized image.
 func containersByImage(ctrs []*corev1.Container) map[string][]*corev1.Container {
 	res := make(map[string][]*corev1.Container, len(ctrs))
 	for _, c := range ctrs {
-		res[c.Image] = append(res[c.Image], c)
+		image := util.NormalizeImage(c.Image)
+		res[image] = append(res[image], c)
 	}
 
 	return res
@@ -469,6 +481,13 @@ func (p *podBinder) updatePod(
 		}
 
 		p.applyBinding(state, pb, bindProfile)
+
+		if namespace := recordingNamespace(bindProfile); namespace != "" &&
+			namespace != req.Namespace {
+			state.recordedElsewhere = append(
+				state.recordedElsewhere, recordedProfile{binding: pb, namespace: namespace},
+			)
+		}
 	}
 
 	for kind, bindProfile := range state.wildcardProfiles {
@@ -478,6 +497,8 @@ func (p *podBinder) updatePod(
 			state.podChanged = true
 		}
 	}
+
+	p.warnRecordedElsewhere(state, req.Namespace)
 
 	// The ephemeralcontainers subresource only accepts changes to the
 	// ephemeral containers, so the annotation is only set on creation.
@@ -511,6 +532,10 @@ type bindState struct {
 
 	// applied are the names of the applied bindings.
 	applied sets.Set[string]
+
+	// recordedElsewhere are the bindings to profiles which got recorded in
+	// another namespace than the one of the pod.
+	recordedElsewhere []recordedProfile
 
 	warnings   []string
 	podChanged bool
@@ -557,7 +582,7 @@ func (p *podBinder) applyBinding(
 		state.boundBy[profileKind] = map[*corev1.Container]*profilebindingapi.ProfileBinding{}
 	}
 
-	for _, c := range state.images[pb.Spec.Image] {
+	for _, c := range state.images[util.NormalizeImage(pb.Spec.Image)] {
 		if winner, ok := state.boundBy[profileKind][c]; ok {
 			if winner.Spec.ProfileRef.Name != pb.Spec.ProfileRef.Name {
 				state.warnings = append(
@@ -574,6 +599,55 @@ func (p *podBinder) applyBinding(
 		if p.addSecurityContext(c, bindProfile) {
 			state.podChanged = true
 		}
+	}
+}
+
+// recordedProfile is a binding to a profile recorded in another namespace.
+type recordedProfile struct {
+	binding   *profilebindingapi.ProfileBinding
+	namespace string
+}
+
+// recordingNamespace returns the namespace of the recording which produced the
+// profile, or an empty string if it was not recorded.
+func recordingNamespace(bindProfile any) string {
+	obj, ok := bindProfile.(metav1.Object)
+	if !ok {
+		return ""
+	}
+
+	return obj.GetLabels()[profilerecordingapi.ProfileToRecordingNamespaceLabel]
+}
+
+// warnRecordedElsewhere warns about the applied bindings to profiles recorded
+// in another namespace than the one of the pod. The names of recorded profiles
+// only consist of the recording and container name, so a recording in any
+// namespace can produce the profile a binding expects. Sharing profiles across
+// namespaces is valid, so the binding still gets applied.
+func (p *podBinder) warnRecordedElsewhere(state *bindState, namespace string) {
+	for _, r := range state.recordedElsewhere {
+		if !state.applied.Has(r.binding.Name) {
+			continue
+		}
+
+		msg := fmt.Sprintf(
+			"profile binding %s applied %s %s to pod %s, which was recorded in namespace %s "+
+				"instead of %s: verify that it is the intended profile",
+			r.binding.Name,
+			r.binding.Spec.ProfileRef.Kind,
+			r.binding.Spec.ProfileRef.Name,
+			state.podName,
+			r.namespace,
+			namespace,
+		)
+
+		p.log.Info(msg)
+		p.record.Eventf(
+			r.binding, nil, corev1.EventTypeWarning, reasonRecordedElsewhere,
+			util.EventActionMutate, "%s", msg,
+		)
+
+		state.warnings = append(state.warnings, msg)
 	}
 }
 

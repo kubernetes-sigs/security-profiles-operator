@@ -24,6 +24,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+
+	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 func seccompPod(uid types.UID, profile string) *corev1.Pod {
@@ -51,6 +54,12 @@ func TestPodPredicateUpdate(t *testing.T) {
 		pod.Status.Conditions = []corev1.PodCondition{
 			{Type: corev1.PodReady, Status: corev1.ConditionTrue},
 		}
+
+		return pod
+	}
+
+	completed := func(pod *corev1.Pod) *corev1.Pod {
+		pod.Status.Phase = corev1.PodSucceeded
 
 		return pod
 	}
@@ -93,6 +102,15 @@ func TestPodPredicateUpdate(t *testing.T) {
 		},
 		"apparmor profile added": {
 			oldPod: seccompPod("a", profile), newPod: withAppArmor(seccompPod("a", profile)), want: true,
+		},
+		"pod completed": {
+			oldPod: withStatus(seccompPod("a", profile)), newPod: completed(seccompPod("a", profile)), want: true,
+		},
+		"completed pod updated": {
+			oldPod: completed(seccompPod("a", profile)), newPod: completed(seccompPod("a", profile)),
+		},
+		"pod without profile completed": {
+			oldPod: seccompPod("a", ""), newPod: completed(seccompPod("a", "")),
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -166,4 +184,59 @@ func TestAllContainers(t *testing.T) {
 	}
 
 	require.Equal(t, "changed", pod.Spec.Containers[0].Image)
+}
+
+// Completed pods do not use their profiles anymore.
+func TestPodIndexSkipsCompletedPods(t *testing.T) {
+	t.Parallel()
+
+	index := podIndex(getSeccompProfilesFromPod)
+	pod := seccompPod("a", "operator/profile.json")
+	require.Equal(t, []string{"operator/profile.json"}, index(pod))
+
+	pod.Status.Phase = corev1.PodFailed
+	require.Empty(t, index(pod))
+	require.Empty(t, index(&corev1.Node{}))
+}
+
+// The profiles get reconciled once the cache has a change of the pods they
+// list or of their in-use finalizer, but not for other updates.
+func TestProfileWorkloadsPredicate(t *testing.T) {
+	t.Parallel()
+
+	profile := func(mutate func(*apparmorprofileapi.AppArmorProfile)) *apparmorprofileapi.AppArmorProfile {
+		aa := &apparmorprofileapi.AppArmorProfile{ObjectMeta: metav1.ObjectMeta{Name: "aa"}}
+		aa.Status.ActiveWorkloads = []string{"ns/pod"}
+		aa.Status.ActiveWorkloadsCount = 1
+		mutate(aa)
+
+		return aa
+	}
+
+	unchanged := profile(func(*apparmorprofileapi.AppArmorProfile) {})
+
+	for name, tc := range map[string]struct {
+		newProfile *apparmorprofileapi.AppArmorProfile
+		want       bool
+	}{
+		"unchanged": {newProfile: profile(func(aa *apparmorprofileapi.AppArmorProfile) {
+			aa.Status.Status = "Installed"
+		})},
+		"pod added": {newProfile: profile(func(aa *apparmorprofileapi.AppArmorProfile) {
+			aa.Status.ActiveWorkloads = append(aa.Status.ActiveWorkloads, "ns/other")
+		}), want: true},
+		"count changed": {newProfile: profile(func(aa *apparmorprofileapi.AppArmorProfile) {
+			aa.Status.ActiveWorkloadsCount = 2
+		}), want: true},
+		"finalizer added": {newProfile: profile(func(aa *apparmorprofileapi.AppArmorProfile) {
+			aa.Finalizers = []string{util.HasActivePodsFinalizerString}
+		}), want: true},
+	} {
+		require.Equal(t, tc.want, profileWorkloadsPredicate.Update(event.UpdateEvent{
+			ObjectOld: unchanged, ObjectNew: tc.newProfile,
+		}), name)
+	}
+
+	require.True(t, profileWorkloadsPredicate.Create(event.CreateEvent{Object: unchanged}))
+	require.False(t, profileWorkloadsPredicate.Delete(event.DeleteEvent{Object: unchanged}))
 }

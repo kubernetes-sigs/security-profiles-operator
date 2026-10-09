@@ -79,7 +79,7 @@ func TestMergeProfilesCreateError(t *testing.T) {
 	})
 
 	recording := testMergeRecording(profilerecordingapi.ProfileRecordingKindSeccompProfile, true)
-	require.ErrorIs(t, r.mergeProfiles(t.Context(), recording), errMergeTest)
+	requireMergeError(t, r, recording)
 	require.Contains(t, recordedEvents(recorder), reasonCannotCreateUpdate)
 
 	partials := &seccompprofile.SeccompProfileList{}
@@ -100,7 +100,7 @@ func TestMergeProfilesListError(t *testing.T) {
 	})
 
 	recording := testMergeRecording(profilerecordingapi.ProfileRecordingKindSeccompProfile, true)
-	require.ErrorIs(t, r.mergeProfiles(t.Context(), recording), errMergeTest)
+	requireMergeError(t, r, recording)
 }
 
 // A partial profile which cannot be deleted after the merge fails the merge,
@@ -117,6 +117,6 @@ func TestMergeProfilesDeleteError(t *testing.T) {
 	})
 
 	recording := testMergeRecording(profilerecordingapi.ProfileRecordingKindSeccompProfile, true)
-	require.ErrorIs(t, r.mergeProfiles(t.Context(), recording), errMergeTest)
+	requireMergeError(t, r, recording)
 	require.Equal(t, []string{"read"}, mergedSyscallsOf(t, cl, testRecording+"-nginx"))
 }

@@ -149,16 +149,49 @@ func Test_kubeletDirsToMount(t *testing.T) {
 		return ds
 	}
 
+	available := appsv1.DaemonSetStatus{
+		DesiredNumberScheduled: 3, UpdatedNumberScheduled: 3, NumberAvailable: 3, NumberReady: 3,
+	}
+
 	spec := &spodapi.SPODSpec{}
 	found := render(spec, "/data/kubelet", "/mnt/resource/kubelet")
+	found.Status = available
 	require.Equal(t, []string{"/data/kubelet", "/mnt/resource/kubelet"}, mountedKubeletDirs(found))
 	require.Empty(t, mountedKubeletDirs(render(spec)))
+
+	withStatus := func(ds *appsv1.DaemonSet) *appsv1.DaemonSet {
+		ds.Status = available
+
+		return ds
+	}
+
+	// One pod of the SPOd is not available, for example because its node is
+	// NotReady or about to leave the cluster.
+	partlyAvailable := found.DeepCopy()
+	partlyAvailable.Status.NumberAvailable = 2
+	partlyAvailable.Status.NumberReady = 2
+
+	// No pod of the SPOd is available, for example because they cannot mount
+	// one of the directories.
+	unavailable := found.DeepCopy()
+	unavailable.Status.NumberAvailable = 0
+	unavailable.Status.NumberReady = 0
+
+	// The rollout of the current template stalls, while pods of the previous
+	// one are still available.
+	stalled := found.DeepCopy()
+	stalled.Status.UpdatedNumberScheduled = 1
+	stalled.Status.NumberAvailable = 2
 
 	for _, tc := range []struct {
 		name     string
 		spec     *spodapi.SPODSpec
+		found    *appsv1.DaemonSet
 		nodeDirs []string
 		want     []string
+		// dropsInvalid is set if the found SPOd mounts an invalid
+		// directory, which mountedKubeletDirs skips.
+		dropsInvalid bool
 	}{
 		{
 			name:     "unchanged",
@@ -190,9 +223,52 @@ func Test_kubeletDirsToMount(t *testing.T) {
 			nodeDirs: []string{"/mnt/resource/kubelet"},
 			want:     []string{"/mnt/resource/kubelet"},
 		},
+		{
+			name:     "partly available pods keep the unreferenced ones",
+			spec:     spec,
+			found:    partlyAvailable,
+			nodeDirs: []string{"/mnt/resource/kubelet"},
+			want:     []string{"/data/kubelet", "/mnt/resource/kubelet"},
+		},
+		{
+			name:     "stalled rollout drops the unreferenced ones",
+			spec:     spec,
+			found:    stalled,
+			nodeDirs: []string{"/mnt/resource/kubelet"},
+			want:     []string{"/mnt/resource/kubelet"},
+		},
+		{
+			name:     "unavailable pods drop the unreferenced ones",
+			spec:     spec,
+			found:    unavailable,
+			nodeDirs: []string{"/mnt/resource/kubelet"},
+			want:     []string{"/mnt/resource/kubelet"},
+		},
+		{
+			name:     "unavailable pods keep the referenced ones",
+			spec:     spec,
+			found:    unavailable,
+			nodeDirs: []string{"/data/kubelet", "/mnt/resource/kubelet"},
+			want:     []string{"/data/kubelet", "/mnt/resource/kubelet"},
+		},
+		{
+			// Mounted by a version which accepted it, it gets dropped even
+			// while the pods are available.
+			name:         "directory which is no longer valid",
+			spec:         spec,
+			found:        withStatus(render(spec, "/mnt/resource/kubelet", "/var/lib/kubelet/cpu_manager_state/kubelet")),
+			nodeDirs:     []string{"/mnt/resource/kubelet"},
+			want:         []string{"/mnt/resource/kubelet"},
+			dropsInvalid: true,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+
+			found := found
+			if tc.found != nil {
+				found = tc.found
+			}
 
 			configured := render(tc.spec)
 			dirs, needsUpdate := kubeletDirsToMount(configured, found, tc.nodeDirs)
@@ -206,7 +282,8 @@ func Test_kubeletDirsToMount(t *testing.T) {
 			require.Equal(t, spodNeedsUpdate(configured, found), needsUpdate)
 
 			// Keeping the directories must not cause an update loop.
-			if slices.Equal(tc.want, mountedKubeletDirs(found)) && tc.spec == spec {
+			if slices.Equal(tc.want, mountedKubeletDirs(found)) &&
+				tc.spec == spec && !tc.dropsInvalid {
 				require.False(t, needsUpdate)
 			} else {
 				require.True(t, needsUpdate)
@@ -304,10 +381,10 @@ func Test_kubeletDirLabelChanged(t *testing.T) {
 
 	require.False(t, p.Create(event.CreateEvent{Object: plain}))
 	require.True(t, p.Create(event.CreateEvent{Object: custom}))
-	// Removing a directory does not roll the SPOd by itself.
+	// Removing a directory lets a SPOd whose pods cannot start drop it.
 	require.False(t, p.Delete(event.DeleteEvent{Object: plain}))
-	require.False(t, p.Delete(event.DeleteEvent{Object: custom}))
-	require.False(t, p.Update(event.UpdateEvent{ObjectOld: custom, ObjectNew: plain}))
+	require.True(t, p.Delete(event.DeleteEvent{Object: custom}))
+	require.True(t, p.Update(event.UpdateEvent{ObjectOld: custom, ObjectNew: plain}))
 	require.False(t, p.Update(event.UpdateEvent{ObjectOld: plain, ObjectNew: plain}))
 	require.False(t, p.Update(event.UpdateEvent{ObjectOld: custom, ObjectNew: custom}))
 	require.True(t, p.Update(event.UpdateEvent{ObjectOld: plain, ObjectNew: custom}))

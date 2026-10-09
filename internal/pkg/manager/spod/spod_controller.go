@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	"sigs.k8s.io/security-profiles-operator/api/common"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
@@ -67,6 +68,11 @@ const (
 	reasonCannotUpdateSPOD           string = "CannotUpdateSPOD"
 	reasonCannotMountCustomTemplates string = "CannotMountCustomTemplates"
 	reasonInvalidKubeletDirLabel     string = "InvalidKubeletDirLabel"
+	reasonIgnoredSelinuxTypeTag      string = "IgnoredSelinuxTypeTag"
+
+	// reasonUnsupportedName is the reason of the Ready condition of a SPOD
+	// which is not named spod.
+	reasonUnsupportedName string = "UnsupportedName"
 
 	reasonCannotApplyAdmissionPolicies string = "CannotApplyAdmissionPolicies"
 	reasonWeakenedBindingWebhook       string = "WeakenedBindingWebhook"
@@ -122,8 +128,20 @@ type ReconcileSPOd struct {
 	kubeletDirMu            sync.Mutex
 	invalidKubeletDirLabels map[string]string
 
+	// typeTagWarningMu guards typeTagWarned, the SPOD and its generation for
+	// which the ignored SELinux type tag got reported last, see
+	// warnIgnoredSelinuxTypeTag.
+	typeTagWarningMu sync.Mutex
+	typeTagWarned    spodGeneration
+
 	// env holds the features which the environment of the operator enables.
 	env envFlags
+}
+
+// spodGeneration identifies a generation of a SPOD.
+type spodGeneration struct {
+	uid        types.UID
+	generation int64
 }
 
 // Name returns the name of the controller.
@@ -219,6 +237,22 @@ func (r *ReconcileSPOd) Reconcile(
 		}
 
 		return reconcile.Result{}, fmt.Errorf("getting spod configuration: %w", err)
+	}
+
+	// The daemons, the webhooks and the node statuses only read the SPOD
+	// named spod. Another one would render a second daemonset for the same
+	// pods and take the metrics service and the webhook configurations over,
+	// so nothing gets rendered for it. The CRD rejects such names for new
+	// objects, which only leaves the ones created before.
+	if spod.GetName() != config.SPOdName {
+		return reconcile.Result{}, r.handleUnsupportedName(ctx, spod, logger)
+	}
+
+	// Warn once per spec change, which the status records as the observed
+	// generation once the SPOD got reconciled. A reconcile which fails or
+	// conflicts does not record it, see warnIgnoredSelinuxTypeTag.
+	if spod.Generation != spod.Status.ObservedGeneration {
+		r.warnIgnoredSelinuxTypeTag(spod)
 	}
 
 	if spod.Status.State == "" {
@@ -372,8 +406,13 @@ func (r *ReconcileSPOd) reconcileSPOD(
 		}
 	}
 
-	if spodUpdate || hookUpdate {
-		r.log.Info("Updating spod", "spodUpdate", spodUpdate, "hookUpdate", hookUpdate)
+	// The update strategy does not roll the pods, so it is compared on its
+	// own, which also keeps it out of the kubelet directory decision above.
+	strategyUpdate := updateStrategyDiffers(ops.spod, foundSPOd)
+
+	if spodUpdate || hookUpdate || strategyUpdate {
+		r.log.Info("Updating spod",
+			"spodUpdate", spodUpdate, "hookUpdate", hookUpdate, "strategyUpdate", strategyUpdate)
 
 		if err := r.handleUpdate(ctx, spod, foundSPOd, ops); err != nil {
 			// A conflict is expected when the cache is behind, and the next
@@ -567,6 +606,28 @@ func (r *ReconcileSPOd) updateStatus(
 	return nil
 }
 
+// handleUnsupportedName reports in the status of a SPOD which is not named
+// spod that it does not get reconciled.
+func (r *ReconcileSPOd) handleUnsupportedName(
+	ctx context.Context,
+	spod *spodapi.SecurityProfilesOperatorDaemon,
+	l logr.Logger,
+) error {
+	message := fmt.Sprintf(
+		"Only the SecurityProfilesOperatorDaemon named %s gets reconciled, "+
+			"configure that one and delete %s",
+		config.SPOdName, spod.GetName(),
+	)
+
+	return r.updateStatus(ctx, spod, l, "Adding 'Error' status to the unsupported SPOD instance",
+		func(s *spodapi.SPODStatus) {
+			condition := common.Unavailable(message)
+			condition.Reason = reasonUnsupportedName
+			s.State = spodapi.SPODStateError
+			s.SetConditions(condition)
+		})
+}
+
 func (r *ReconcileSPOd) handleInitialStatus(
 	ctx context.Context,
 	spod *spodapi.SecurityProfilesOperatorDaemon,
@@ -734,6 +795,7 @@ func (r *ReconcileSPOd) handleUpdate(
 
 	updatedSPOd := foundSPOd.DeepCopy()
 	updatedSPOd.Spec.Template = ops.spod.Spec.Template
+	applyUpdateStrategy(updatedSPOd, ops.spod)
 	delete(updatedSPOd.Annotations, legacyAppArmorAnnotation)
 
 	// The patch is the difference between the found and the updated
@@ -804,6 +866,35 @@ func (r *ReconcileSPOd) handleUpdate(
 	return nil
 }
 
+// warnIgnoredSelinuxTypeTag reports a SELinux type tag of the SPOD which does
+// not get applied, because AppArmor is enabled, see configureContainerDefaults.
+// It reports every generation of the SPOD once, also if the reconciles which
+// would record the generation in the status fail or conflict.
+func (r *ReconcileSPOd) warnIgnoredSelinuxTypeTag(spod *spodapi.SecurityProfilesOperatorDaemon) {
+	typeTag := spod.Spec.Selinux.TypeTag
+	if !ptr.Deref(spod.Spec.EnableAppArmor, false) ||
+		typeTag == "" || typeTag == bindata.DefaultSelinuxTypeTag {
+		return
+	}
+
+	current := spodGeneration{uid: spod.GetUID(), generation: spod.GetGeneration()}
+
+	r.typeTagWarningMu.Lock()
+	defer r.typeTagWarningMu.Unlock()
+
+	if r.typeTagWarned == current {
+		return
+	}
+
+	r.log.Info("Ignoring the SELinux type tag, because AppArmor is enabled", "typeTag", typeTag)
+	r.record.Eventf(
+		spod, nil, util.EventTypeWarning, reasonIgnoredSelinuxTypeTag, util.EventActionReconcile,
+		"The SELinux type tag %s is ignored, because AppArmor is enabled", typeTag,
+	)
+
+	r.typeTagWarned = current
+}
+
 // warnWeakenedBinding reports the webhook options of the SPOD which weaken the
 // enforcement of the profile bindings. They are valid and get applied, so the
 // report is a warning when the webhook configuration gets written.
@@ -858,6 +949,12 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 
 	newSPOd.SetName(cfg.GetName())
 	newSPOd.SetNamespace(r.namespace)
+
+	if strategy := cfg.Spec.DaemonUpdateStrategy; strategy != nil &&
+		strategy.MaxUnavailable != nil {
+		newSPOd.Spec.UpdateStrategy.RollingUpdate.MaxUnavailable = new(*strategy.MaxUnavailable)
+	}
+
 	templateSpec := &newSPOd.Spec.Template.Spec
 
 	templateSpec.InitContainers = []corev1.Container{
@@ -1625,6 +1722,45 @@ func spodNeedsUpdate(configured, found *appsv1.DaemonSet) bool {
 		!apiequality.Semantic.DeepEqual(cSpec.ImagePullSecrets, fSpec.ImagePullSecrets) ||
 		found.Annotations[legacyAppArmorAnnotation] != "" ||
 		!apiequality.Semantic.DeepDerivative(configured.Spec.Template, found.Spec.Template))
+}
+
+// updateStrategyDiffers reports if the found DaemonSet does not roll its pods
+// out like the configured one. Only the type and the maximum of unavailable
+// pods are compared, which are the fields the operator sets, while the API
+// server defaults the others.
+func updateStrategyDiffers(configured, found *appsv1.DaemonSet) bool {
+	cStrategy, fStrategy := &configured.Spec.UpdateStrategy, &found.Spec.UpdateStrategy
+	if cStrategy.Type != fStrategy.Type {
+		return true
+	}
+
+	if cStrategy.RollingUpdate == nil || fStrategy.RollingUpdate == nil {
+		return (cStrategy.RollingUpdate == nil) != (fStrategy.RollingUpdate == nil)
+	}
+
+	return !apiequality.Semantic.DeepEqual(
+		cStrategy.RollingUpdate.MaxUnavailable, fStrategy.RollingUpdate.MaxUnavailable,
+	)
+}
+
+// applyUpdateStrategy sets the fields of the update strategy which
+// updateStrategyDiffers compares from the configured DaemonSet, and keeps
+// the ones which the API server defaulted.
+func applyUpdateStrategy(updated, configured *appsv1.DaemonSet) {
+	strategy := &updated.Spec.UpdateStrategy
+	strategy.Type = configured.Spec.UpdateStrategy.Type
+
+	if configured.Spec.UpdateStrategy.RollingUpdate == nil {
+		strategy.RollingUpdate = nil
+
+		return
+	}
+
+	if strategy.RollingUpdate == nil {
+		strategy.RollingUpdate = &appsv1.RollingUpdateDaemonSet{}
+	}
+
+	strategy.RollingUpdate.MaxUnavailable = configured.Spec.UpdateStrategy.RollingUpdate.MaxUnavailable
 }
 
 // containerListsDiffer reports if the containers at the same index have a

@@ -75,6 +75,27 @@ const (
 	RecordingHasUnmergedProfiles = "spo.x-k8s.io/has-unmerged-profiles"
 )
 
+const (
+	// ConditionTypeProfileConflict is true if a profile which the recording
+	// writes exists already, but belongs to another recording or was not
+	// recorded at all. The recorded data for that profile gets dropped.
+	ConditionTypeProfileConflict common.ConditionType = "ProfileConflict"
+
+	// ReasonRecorderDisabled is the reason of the Ready condition if the
+	// recorder of the recording is not enabled in the
+	// SecurityProfilesOperatorDaemon.
+	ReasonRecorderDisabled common.ConditionReason = "RecorderDisabled"
+	// ReasonNamespaceNotEnabled is the reason of the Ready condition if the
+	// recording webhook does not select the namespace of the recording.
+	ReasonNamespaceNotEnabled common.ConditionReason = "NamespaceNotEnabled"
+	// ReasonProfileOwnedByOther is the reason of the ProfileConflict
+	// condition if it is true.
+	ReasonProfileOwnedByOther common.ConditionReason = "ProfileOwnedByOther"
+	// ReasonNoProfileConflict is the reason of the ProfileConflict condition
+	// if it is false.
+	ReasonNoProfileConflict common.ConditionReason = "NoProfileConflict"
+)
+
 // ProfileRecordingSpec defines the desired state of ProfileRecording.
 //
 // +kubebuilder:validation:XValidation:rule="self.kind != 'SelinuxProfile' || self.recorder == 'Logs'",message="SelinuxProfile recordings only support the Logs recorder"
@@ -130,7 +151,12 @@ type ProfileRecordingSpec struct {
 // ProfileRecordingStatus contains status of the ProfileRecording.
 type ProfileRecordingStatus struct {
 	// The Ready condition reports whether the recording can record, which
-	// depends on a supported combination of kind and recorder.
+	// depends on a supported combination of kind and recorder, on the
+	// recorder being enabled in the SecurityProfilesOperatorDaemon and on the
+	// recording webhook selecting the namespace, by default through the
+	// spo.x-k8s.io/enable-recording label. The ProfileConflict condition
+	// reports the profiles which the recording would write, but which belong
+	// to another recording or were not recorded at all.
 	common.ConditionedStatus `json:",inline"`
 
 	// activeWorkloads lists the workloads currently using this recording.
@@ -150,6 +176,7 @@ type ProfileRecordingStatus struct {
 // +kubebuilder:validation:XValidation:rule="oldSelf.hasValue() || size(self.metadata.name) <= 63",optionalOldSelf=true,message="name must be no more than 63 characters"
 // +kubebuilder:storageversion
 // +kubebuilder:subresource:status
+// +kubebuilder:resource:shortName=prec,categories=spo
 // +kubebuilder:printcolumn:name="Kind",type=string,JSONPath=`.spec.kind`
 // +kubebuilder:printcolumn:name="Recorder",type=string,JSONPath=`.spec.recorder`
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`

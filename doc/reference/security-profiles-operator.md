@@ -49,6 +49,10 @@ display detailed version information
 
 run the manager
 
+**--kube-api-burst**="": the burst of the client to the API server, which only applies if --kube-api-qps limits the queries per second (default: 10)
+
+**--kube-api-qps**="": the queries per second of the client to the API server, which only API priority and fairness limits if it is 0 or less (default: unlimited)
+
 **--max-concurrent-reconciles**="": the number of concurrent reconciles of the pod driven controllers (default: 4)
 
 **--webhook, -w**: manage the Kubernetes resources of the webhook (default: true)

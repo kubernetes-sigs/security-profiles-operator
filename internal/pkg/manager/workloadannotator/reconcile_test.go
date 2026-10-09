@@ -19,6 +19,7 @@ package workloadannotator
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"testing"
 
@@ -30,9 +31,12 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/tools/events"
+	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
@@ -72,24 +76,10 @@ func newAnnotator(
 		WithIndex(&corev1.Pod{}, spOwnerKey, podIndex(getSeccompProfilesFromPod)).
 		WithIndex(&corev1.Pod{}, seOwnerKey, podIndex(getSelinuxProfilesFromPod)).
 		WithIndex(&corev1.Pod{}, aaOwnerKey, podIndex(getAppArmorProfilesFromPod)).
-		WithIndex(&apparmorprofileapi.AppArmorProfile{}, inUseKey, inUseIndex).
-		WithIndex(&selinuxprofileapi.RawSelinuxProfile{}, inUseKey, inUseIndex).
-		WithIndex(&seccompprofileapi.SeccompProfile{}, linkedPodsKey, func(o client.Object) []string {
-			sp, ok := o.(*seccompprofileapi.SeccompProfile)
-			if !ok {
-				return nil
-			}
-
-			return sp.Status.ActiveWorkloads
-		}).
-		WithIndex(&selinuxprofileapi.SelinuxProfile{}, linkedPodsKey, func(o client.Object) []string {
-			sp, ok := o.(*selinuxprofileapi.SelinuxProfile)
-			if !ok {
-				return nil
-			}
-
-			return sp.Status.ActiveWorkloads
-		})
+		WithIndex(&seccompprofileapi.SeccompProfile{}, linkedPodsKey, workloadIndex).
+		WithIndex(&selinuxprofileapi.SelinuxProfile{}, linkedPodsKey, workloadIndex).
+		WithIndex(&selinuxprofileapi.RawSelinuxProfile{}, linkedPodsKey, workloadIndex).
+		WithIndex(&apparmorprofileapi.AppArmorProfile{}, linkedPodsKey, workloadIndex)
 
 	if funcs != nil {
 		builder = builder.WithInterceptorFuncs(*funcs)
@@ -229,6 +219,10 @@ func TestReconcileMarksRawSelinuxAndAppArmorProfilesInUse(t *testing.T) {
 	require.NoError(t, reconcilePod(t, r))
 	requireInUse(t, c, raw, true)
 	requireInUse(t, c, aa, true)
+	require.Equal(t, []string{"default/" + testPodName}, raw.Status.ActiveWorkloads)
+	require.Equal(t, []string{"default/" + testPodName}, aa.Status.ActiveWorkloads)
+	require.EqualValues(t, 1, raw.Status.ActiveWorkloadsCount)
+	require.EqualValues(t, 1, aa.Status.ActiveWorkloadsCount)
 }
 
 func TestReconcileIgnoresForeignAppArmorProfile(t *testing.T) {
@@ -282,9 +276,13 @@ func TestReconcilePodDeletionReleasesProfiles(t *testing.T) {
 	}
 	raw := &selinuxprofileapi.RawSelinuxProfile{
 		ObjectMeta: objectMeta("raw", util.HasActivePodsFinalizerString),
+		Status:     selinuxprofileapi.SelinuxProfileStatus{ActiveWorkloads: []string{podID}},
 	}
 	aa := &apparmorprofileapi.AppArmorProfile{
 		ObjectMeta: objectMeta("aa", util.HasActivePodsFinalizerString),
+		Status: apparmorprofileapi.AppArmorProfileStatus{
+			ActiveWorkloads: []string{"default/other", podID},
+		},
 	}
 
 	// Another pod still uses the AppArmor profile.
@@ -298,7 +296,31 @@ func TestReconcilePodDeletionReleasesProfiles(t *testing.T) {
 	require.Empty(t, sp.Status.ActiveWorkloads)
 	requireInUse(t, c, se, false)
 	requireInUse(t, c, raw, false)
+	require.Empty(t, raw.Status.ActiveWorkloads)
 	requireInUse(t, c, aa, true)
+	require.Equal(t, []string{"default/other"}, aa.Status.ActiveWorkloads)
+	require.EqualValues(t, 1, aa.Status.ActiveWorkloadsCount)
+}
+
+// A completed pod, like the one of a finished Job, keeps its object, but
+// releases its profiles.
+func TestReconcileCompletedPodReleasesProfiles(t *testing.T) {
+	t.Parallel()
+
+	sp := &seccompprofileapi.SeccompProfile{ObjectMeta: objectMeta("foo")}
+	pod := podWith(withSeccomp("operator/foo.json"))
+	r, c, _ := newAnnotator(t, nil, sp, pod)
+
+	require.NoError(t, reconcilePod(t, r))
+	requireInUse(t, c, sp, true)
+
+	pod.Status.Phase = corev1.PodSucceeded
+	require.NoError(t, c.Status().Update(t.Context(), pod))
+
+	require.NoError(t, reconcilePod(t, r))
+	requireInUse(t, c, sp, false)
+	require.Empty(t, sp.Status.ActiveWorkloads)
+	require.Zero(t, sp.Status.ActiveWorkloadsCount)
 }
 
 func TestProfileWorkloadRequests(t *testing.T) {
@@ -364,9 +386,10 @@ func TestReconcileIgnoresForeignSelinuxType(t *testing.T) {
 
 // A pod which went away while the operator was down produces no pod event,
 // so the profile itself has to release the in-use finalizer.
-func TestProfileReleaserReleasesUnusedProfiles(t *testing.T) {
+func TestProfileReconcilerReleasesUnusedProfiles(t *testing.T) {
 	t.Parallel()
 
+	// Profiles of a version without active workloads for these kinds.
 	unused := &apparmorprofileapi.AppArmorProfile{
 		ObjectMeta: objectMeta("unused", util.HasActivePodsFinalizerString),
 	}
@@ -376,22 +399,20 @@ func TestProfileReleaserReleasesUnusedProfiles(t *testing.T) {
 	raw := &selinuxprofileapi.RawSelinuxProfile{
 		ObjectMeta: objectMeta("raw", util.HasActivePodsFinalizerString),
 	}
-	r, c, _ := newAnnotator(t, nil, unused, used, raw, podWith(withAppArmor("used")))
+	sp := &seccompprofileapi.SeccompProfile{
+		ObjectMeta: objectMeta("foo", util.HasActivePodsFinalizerString),
+		Status: seccompprofileapi.SeccompProfileStatus{
+			ActiveWorkloads: []string{"default/gone"}, ActiveWorkloadsCount: 1,
+		},
+	}
+	r, c, _ := newAnnotator(t, nil, unused, used, raw, sp, podWith(withAppArmor("used")))
 
-	appArmor := &profileReleaser[*apparmorprofileapi.AppArmorProfile]{
-		pods:   r,
-		newObj: func() *apparmorprofileapi.AppArmorProfile { return &apparmorprofileapi.AppArmorProfile{} },
-		release: func(ctx context.Context, r *PodReconciler, p *apparmorprofileapi.AppArmorProfile) error {
-			return r.updatePodReferencesForAppArmor(ctx, p)
-		},
+	appArmor := &profileReconciler[*apparmorprofileapi.AppArmorProfile]{pods: r, kind: appArmorKind}
+	rawSelinux := &profileReconciler[*selinuxprofileapi.RawSelinuxProfile]{
+		pods: r,
+		kind: rawSelinuxKind,
 	}
-	rawSelinux := &profileReleaser[*selinuxprofileapi.RawSelinuxProfile]{
-		pods:   r,
-		newObj: func() *selinuxprofileapi.RawSelinuxProfile { return &selinuxprofileapi.RawSelinuxProfile{} },
-		release: func(ctx context.Context, r *PodReconciler, p *selinuxprofileapi.RawSelinuxProfile) error {
-			return r.updatePodReferencesForRawSelinux(ctx, p)
-		},
-	}
+	seccomp := &profileReconciler[*seccompprofileapi.SeccompProfile]{pods: r, kind: seccompKind}
 
 	for _, tc := range []struct {
 		reconciler reconcile.Reconciler
@@ -401,6 +422,7 @@ func TestProfileReleaserReleasesUnusedProfiles(t *testing.T) {
 		{appArmor, "used"},
 		{appArmor, "gone"},
 		{rawSelinux, "raw"},
+		{seccomp, "foo"},
 	} {
 		_, err := tc.reconciler.Reconcile(t.Context(), reconcile.Request{
 			NamespacedName: client.ObjectKey{Name: tc.name},
@@ -410,59 +432,85 @@ func TestProfileReleaserReleasesUnusedProfiles(t *testing.T) {
 
 	requireInUse(t, c, unused, false)
 	requireInUse(t, c, used, true)
+	require.Equal(t, []string{"default/" + testPodName}, used.Status.ActiveWorkloads)
 	requireInUse(t, c, raw, false)
+	requireInUse(t, c, sp, false)
+	require.Empty(t, sp.Status.ActiveWorkloads)
 }
 
-// A pod deletion only checks the AppArmor and raw SELinux profiles in use,
-// not every profile in the cluster.
-func TestReconcilePodDeletionOnlyChecksProfilesInUse(t *testing.T) {
+// The reconcile of a pod deleted right after the reconcile which listed it
+// in a profile can miss the profile, because the cache does not have that
+// update yet. Once the cache has it, the profile gets reconciled and released.
+func TestProfileReconcilerReleasesPodDeletedBeforeCacheUpdate(t *testing.T) {
 	t.Parallel()
 
-	inUse := &apparmorprofileapi.AppArmorProfile{
-		ObjectMeta: objectMeta("in-use", util.HasActivePodsFinalizerString),
-	}
-	unused := &apparmorprofileapi.AppArmorProfile{ObjectMeta: objectMeta("unused")}
-	unusedRaw := &selinuxprofileapi.RawSelinuxProfile{ObjectMeta: objectMeta("unused-raw")}
-
-	var listed []string
-
-	r, c, _ := newAnnotator(t, &interceptor.Funcs{
-		List: func(
-			ctx context.Context, cl client.WithWatch, list client.ObjectList, opts ...client.ListOption,
-		) error {
-			if err := cl.List(ctx, list, opts...); err != nil {
-				return err
-			}
-
-			switch l := list.(type) {
-			case *apparmorprofileapi.AppArmorProfileList:
-				for i := range l.Items {
-					listed = append(listed, l.Items[i].Name)
-				}
-			case *selinuxprofileapi.RawSelinuxProfileList:
-				for i := range l.Items {
-					listed = append(listed, l.Items[i].Name)
-				}
-			}
-
-			return nil
-		},
-	}, inUse, unused, unusedRaw)
+	sp := &seccompprofileapi.SeccompProfile{ObjectMeta: objectMeta("foo")}
+	pod := podWith(withSeccomp("operator/foo.json"))
+	r, c, _ := newAnnotator(t, nil, sp, pod)
+	stale := sp.DeepCopy()
 
 	require.NoError(t, reconcilePod(t, r))
-	require.Equal(t, []string{"in-use"}, listed)
-	requireInUse(t, c, inUse, false)
+	requireInUse(t, c, sp, true)
+
+	// The deletion got reconciled with a cache which missed the update, so
+	// no profile listed the pod and nothing got released.
+	require.NoError(t, c.Delete(t.Context(), pod))
+	requireInUse(t, c, sp, true)
+
+	// The cache gets the update, which reconciles the profile.
+	require.True(
+		t,
+		profileWorkloadsPredicate.Update(event.UpdateEvent{ObjectOld: stale, ObjectNew: sp}),
+	)
+
+	_, err := (&profileReconciler[*seccompprofileapi.SeccompProfile]{pods: r, kind: seccompKind}).
+		Reconcile(t.Context(), reconcile.Request{NamespacedName: client.ObjectKeyFromObject(sp)})
+	require.NoError(t, err)
+	requireInUse(t, c, sp, false)
+	require.Empty(t, sp.Status.ActiveWorkloads)
 }
 
-func TestInUseIndex(t *testing.T) {
+// A pod deletion only checks the profiles which list the pod, not every
+// profile in the cluster.
+func TestReconcilePodDeletionOnlyChecksListingProfiles(t *testing.T) {
 	t.Parallel()
 
-	require.Equal(t, []string{inUseValue}, inUseIndex(&apparmorprofileapi.AppArmorProfile{
-		ObjectMeta: objectMeta("in-use", util.HasActivePodsFinalizerString),
-	}))
-	require.Empty(t, inUseIndex(&selinuxprofileapi.RawSelinuxProfile{
-		ObjectMeta: objectMeta("unused", "other-finalizer"),
-	}))
+	listing := &apparmorprofileapi.AppArmorProfile{
+		ObjectMeta: objectMeta("listing", util.HasActivePodsFinalizerString),
+		Status: apparmorprofileapi.AppArmorProfileStatus{
+			ActiveWorkloads: []string{"default/" + testPodName}, ActiveWorkloadsCount: 1,
+		},
+	}
+	// Lists a pod which is gone as well, but not the reconciled one.
+	other := &apparmorprofileapi.AppArmorProfile{
+		ObjectMeta: objectMeta("other", util.HasActivePodsFinalizerString),
+		Status: apparmorprofileapi.AppArmorProfileStatus{
+			ActiveWorkloads: []string{"default/gone"}, ActiveWorkloadsCount: 1,
+		},
+	}
+
+	r, c, _ := newAnnotator(t, nil, listing, other)
+
+	require.NoError(t, reconcilePod(t, r))
+	requireInUse(t, c, listing, false)
+	requireInUse(t, c, other, true)
+}
+
+func TestWorkloadIndex(t *testing.T) {
+	t.Parallel()
+
+	aa := &apparmorprofileapi.AppArmorProfile{}
+	aa.Status.ActiveWorkloads = []string{"ns/a", "ns/b"}
+	aa.Status.ActiveWorkloadsCount = 2
+	require.Equal(t, []string{"ns/a", "ns/b"}, workloadIndex(aa))
+
+	// A profile which lists only part of its pods may count any pod.
+	aa.Status.ActiveWorkloadsCount = 3
+	require.Equal(t, []string{"ns/a", "ns/b", truncatedValue}, workloadIndex(aa))
+	require.Equal(t, []string{"ns/a", "ns/b"}, aa.Status.ActiveWorkloads)
+
+	require.Empty(t, workloadIndex(&selinuxprofileapi.RawSelinuxProfile{}))
+	require.Empty(t, workloadIndex(&corev1.Pod{}))
 }
 
 // A pod recorded with the log recorder runs every container, including init
@@ -556,10 +604,9 @@ func TestReconcileSameNamePodReleasesUnusedProfiles(t *testing.T) {
 	require.Equal(t, []string{podID}, newSeccomp.Status.ActiveWorkloads)
 }
 
-// The AppArmor and raw SELinux profiles have no list of active workloads, so
-// they have to be checked again once a pod got replaced by one with the same
-// name.
-func TestReconcileSameNamePodReleasesUnusedProfilesWithoutActiveWorkloads(t *testing.T) {
+// The AppArmor and raw SELinux profiles of a pod which got replaced by one
+// with the same name are released as well.
+func TestReconcileSameNamePodReleasesAppArmorAndRawSelinuxProfiles(t *testing.T) {
 	t.Parallel()
 
 	raw := &selinuxprofileapi.RawSelinuxProfile{ObjectMeta: objectMeta("raw")}
@@ -585,23 +632,281 @@ func TestReconcileSameNamePodReleasesUnusedProfilesWithoutActiveWorkloads(t *tes
 	requireInUse(t, c, aa, false)
 }
 
-// The AppArmor and raw SELinux profiles have no list of active workloads, so
-// releasing them needs no read from the API server and no write if the
-// finalizer does not change.
-func TestReleaseProfilesWithoutActiveWorkloadsUsesCache(t *testing.T) {
+// A pod event for profiles which the cache shows with the current pods and
+// the finalizer needs no read from the API server and no write.
+func TestUpdatePodReferencesUsesCache(t *testing.T) {
 	t.Parallel()
 
-	aa := &apparmorprofileapi.AppArmorProfile{
-		ObjectMeta: objectMeta("aa", util.HasActivePodsFinalizerString),
+	podID := "default/" + testPodName
+	workloads := []string{podID}
+	sp := &seccompprofileapi.SeccompProfile{
+		ObjectMeta: objectMeta("sp", util.HasActivePodsFinalizerString),
+		Status: seccompprofileapi.SeccompProfileStatus{
+			ActiveWorkloads: workloads, ActiveWorkloadsCount: 1,
+		},
+	}
+	se := &selinuxprofileapi.SelinuxProfile{
+		ObjectMeta: objectMeta("se", util.HasActivePodsFinalizerString),
+		Status: selinuxprofileapi.SelinuxProfileStatus{
+			ActiveWorkloads: workloads, ActiveWorkloadsCount: 1,
+		},
 	}
 	raw := &selinuxprofileapi.RawSelinuxProfile{
-		ObjectMeta: objectMeta("raw", util.HasActivePodsFinalizerString),
+		ObjectMeta: objectMeta("se", util.HasActivePodsFinalizerString),
+		Status: selinuxprofileapi.SelinuxProfileStatus{
+			ActiveWorkloads: workloads, ActiveWorkloadsCount: 1,
+		},
 	}
-	user := podWith(func(pod *corev1.Pod) {
+	aa := &apparmorprofileapi.AppArmorProfile{
+		ObjectMeta: objectMeta("aa", util.HasActivePodsFinalizerString),
+		Status: apparmorprofileapi.AppArmorProfileStatus{
+			ActiveWorkloads: workloads, ActiveWorkloadsCount: 1,
+		},
+	}
+	pod := podWith(func(pod *corev1.Pod) {
+		withSeccomp("operator/sp.json")(pod)
+		withSelinuxType("se.process")(pod)
 		withAppArmor("aa")(pod)
-		withSelinuxType("raw.process")(pod)
 	})
-	user.Name = "user"
+
+	writes := 0
+	r, c, _ := newAnnotator(t, &interceptor.Funcs{
+		Update: func(
+			ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.UpdateOption,
+		) error {
+			writes++
+
+			return cl.Update(ctx, obj, opts...)
+		},
+		SubResourcePatch: func(
+			ctx context.Context, cl client.Client, sub string, obj client.Object,
+			patch client.Patch, opts ...client.SubResourcePatchOption,
+		) error {
+			writes++
+
+			return cl.SubResource(sub).Patch(ctx, obj, patch, opts...)
+		},
+	}, sp, se, raw, aa, pod)
+	r.reader = failingReader{}
+
+	require.NoError(t, reconcilePod(t, r))
+	requireInUse(t, c, sp, true)
+	requireInUse(t, c, se, true)
+	requireInUse(t, c, raw, true)
+	requireInUse(t, c, aa, true)
+	require.Zero(t, writes)
+}
+
+// A profile used by more pods than its status lists keeps the in-use
+// finalizer and counts all pods, also once a pod which it does not list goes
+// away.
+func TestReconcileTruncatesActiveWorkloads(t *testing.T) {
+	t.Parallel()
+
+	const pods = maxActiveWorkloads + 2
+
+	sp := &seccompprofileapi.SeccompProfile{ObjectMeta: objectMeta("foo")}
+	objs := make([]client.Object, 0, 1+pods)
+	objs = append(objs, sp)
+
+	for i := range pods {
+		pod := podWith(withSeccomp("operator/foo.json"))
+		pod.Name = fmt.Sprintf("pod-%04d", i)
+		objs = append(objs, pod)
+	}
+
+	statusUpdates := 0
+	r, c, _ := newAnnotator(t, &interceptor.Funcs{
+		SubResourceUpdate: func(
+			ctx context.Context, cl client.Client, sub string, obj client.Object,
+			opts ...client.SubResourceUpdateOption,
+		) error {
+			statusUpdates++
+
+			return cl.SubResource(sub).Update(ctx, obj, opts...)
+		},
+	}, objs...)
+
+	_, err := r.Reconcile(t.Context(), reconcile.Request{
+		NamespacedName: client.ObjectKey{Namespace: "default", Name: "pod-0000"},
+	})
+	require.NoError(t, err)
+	requireInUse(t, c, sp, true)
+	require.Len(t, sp.Status.ActiveWorkloads, maxActiveWorkloads)
+	require.True(t, slices.IsSorted(sp.Status.ActiveWorkloads))
+	require.Equal(t, "default/pod-0000", sp.Status.ActiveWorkloads[0])
+	require.EqualValues(t, pods, sp.Status.ActiveWorkloadsCount)
+
+	// The last pod is not listed.
+	last, ok := objs[pods].(*corev1.Pod)
+	require.True(t, ok)
+	require.NotContains(t, sp.Status.ActiveWorkloads, "default/"+last.Name)
+	require.NoError(t, c.Delete(t.Context(), last))
+
+	_, err = r.Reconcile(
+		t.Context(),
+		reconcile.Request{NamespacedName: client.ObjectKeyFromObject(last)},
+	)
+	require.NoError(t, err)
+	requireInUse(t, c, sp, true)
+	require.Len(t, sp.Status.ActiveWorkloads, maxActiveWorkloads)
+	require.EqualValues(t, pods-1, sp.Status.ActiveWorkloadsCount)
+
+	// The status gets patched, not replaced.
+	require.Zero(t, statusUpdates)
+}
+
+// truncatedAppArmorProfile returns an AppArmor profile in use which lists
+// only part of its pods.
+func truncatedAppArmorProfile(name string) *apparmorprofileapi.AppArmorProfile {
+	return &apparmorprofileapi.AppArmorProfile{
+		ObjectMeta: objectMeta(name, util.HasActivePodsFinalizerString),
+		Status: apparmorprofileapi.AppArmorProfileStatus{
+			ActiveWorkloads: []string{"default/listed"}, ActiveWorkloadsCount: 5,
+		},
+	}
+}
+
+// A pod deletion used to update every profile which lists only part of its
+// pods, which lists and sorts all their pods. Only the ones the deleted pod
+// used get updated now, unless the pod is unknown.
+func TestReconcilePodDeletionOnlyChecksTruncatedProfilesOfPod(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		deleteEvent bool
+		wantOther   int32
+	}{
+		"pod known from its delete event": {deleteEvent: true, wantOther: 5},
+		"unknown pod":                     {wantOther: 0},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			used := truncatedAppArmorProfile("used")
+			other := truncatedAppArmorProfile("other")
+			pod := podWith(withAppArmor("used"))
+			listedPod := podWith(withAppArmor("used"))
+			listedPod.Name = "listed"
+
+			r, c, _ := newAnnotator(t, nil, used, other, pod, listedPod)
+
+			require.NoError(t, c.Delete(t.Context(), pod))
+
+			if tc.deleteEvent {
+				h := &podEventHandler{EventHandler: &handler.EnqueueRequestForObject{}, pods: r}
+				q := workqueue.NewTypedRateLimitingQueue(
+					workqueue.DefaultTypedControllerRateLimiter[reconcile.Request](),
+				)
+				t.Cleanup(q.ShutDown)
+
+				h.Delete(t.Context(), event.DeleteEvent{Object: pod}, q)
+				require.Equal(t, 1, q.Len())
+
+				_, known := r.deletedPod("default/" + testPodName)
+				require.True(t, known)
+			}
+
+			require.NoError(t, reconcilePod(t, r))
+
+			// The profile of the pod gets its count updated.
+			requireInUse(t, c, used, true)
+			require.Equal(t, []string{"default/listed"}, used.Status.ActiveWorkloads)
+			require.EqualValues(t, 1, used.Status.ActiveWorkloadsCount)
+
+			// The other profile only gets updated if the pod is unknown.
+			require.NoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(other), other))
+			require.Equal(t, tc.wantOther, other.Status.ActiveWorkloadsCount)
+
+			// The references of the pod are dropped once the deletion got
+			// reconciled.
+			_, known := r.deletedPod("default/" + testPodName)
+			require.False(t, known)
+		})
+	}
+}
+
+// A pod replaced by one with the same name before the deletion of the old
+// one got reconciled releases the profiles which list only part of their
+// pods and which only the old pod used.
+func TestReconcileSameNamePodReleasesTruncatedProfiles(t *testing.T) {
+	t.Parallel()
+
+	old := truncatedAppArmorProfile("old")
+	current := &apparmorprofileapi.AppArmorProfile{ObjectMeta: objectMeta("current")}
+	pod := podWith(withAppArmor("current"))
+
+	r, c, _ := newAnnotator(t, nil, old, current, pod)
+	r.rememberDeletedPod(podWith(withAppArmor("old")))
+
+	require.NoError(t, reconcilePod(t, r))
+	requireInUse(t, c, old, false)
+	require.Zero(t, old.Status.ActiveWorkloadsCount)
+	requireInUse(t, c, current, true)
+
+	_, known := r.deletedPod("default/" + testPodName)
+	require.False(t, known)
+}
+
+func TestActiveWorkloads(t *testing.T) {
+	t.Parallel()
+
+	pods := make([]string, 0, maxActiveWorkloads+2)
+	for i := range maxActiveWorkloads + 2 {
+		pods = append(pods, fmt.Sprintf("ns/pod-%04d", i))
+	}
+
+	first := slices.Clone(pods[:maxActiveWorkloads])
+	shuffled := slices.Clone(pods)
+	slices.Reverse(shuffled)
+
+	for name, tc := range map[string]struct {
+		pods, current []string
+		want          []string
+	}{
+		"no pods": {current: []string{"ns/gone"}},
+		"unsorted pods": {
+			pods: []string{"ns/b", "ns/a"}, want: []string{"ns/a", "ns/b"},
+		},
+		"listed pods unchanged": {
+			pods: []string{"ns/b", "ns/a"}, current: []string{"ns/a", "ns/b"},
+			want: []string{"ns/a", "ns/b"},
+		},
+		"listed pod gone": {
+			pods: []string{"ns/c", "ns/a"}, current: []string{"ns/a", "ns/b"},
+			want: []string{"ns/a", "ns/c"},
+		},
+		"truncated, unlisted pod gone": {
+			pods: shuffled[1:], current: first, want: first,
+		},
+		"truncated, listed pod gone": {
+			pods: shuffled[:len(shuffled)-1], current: first, want: pods[1 : maxActiveWorkloads+1],
+		},
+		"truncated, pod added in front": {
+			pods: append(slices.Clone(shuffled[1:]), "ns/a"), current: first,
+			want: append([]string{"ns/a"}, first[:maxActiveWorkloads-1]...),
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			listed, total := activeWorkloads(tc.pods, tc.current)
+			require.Equal(t, tc.want, listed)
+			require.EqualValues(t, len(tc.pods), total)
+		})
+	}
+}
+
+// The API server rejects adding a finalizer to a profile which is being
+// deleted, so the profile only lists the pod.
+func TestReconcileDoesNotAddFinalizerToDeletingProfile(t *testing.T) {
+	t.Parallel()
+
+	now := metav1.Now()
+	sp := &seccompprofileapi.SeccompProfile{
+		ObjectMeta: objectMeta("foo", util.GetFinalizerNodeString("node")),
+	}
+	sp.DeletionTimestamp = &now
 
 	updates := 0
 	r, c, _ := newAnnotator(t, &interceptor.Funcs{
@@ -612,13 +917,47 @@ func TestReleaseProfilesWithoutActiveWorkloadsUsesCache(t *testing.T) {
 
 			return cl.Update(ctx, obj, opts...)
 		},
-	}, aa, raw, user)
-	r.reader = failingReader{}
+	}, sp, podWith(withSeccomp("operator/foo.json")))
 
 	require.NoError(t, reconcilePod(t, r))
-	requireInUse(t, c, aa, true)
-	requireInUse(t, c, raw, true)
+	requireInUse(t, c, sp, false)
+	require.Equal(t, []string{"default/" + testPodName}, sp.Status.ActiveWorkloads)
 	require.Zero(t, updates)
+}
+
+// A patch based on a cache which is behind fails with a conflict, and the
+// retry reads the profile from the API server.
+func TestUpdatePodReferencesRetriesStaleCache(t *testing.T) {
+	t.Parallel()
+
+	sp := &seccompprofileapi.SeccompProfile{ObjectMeta: objectMeta("foo")}
+	conflicts := 0
+	r, c, _ := newAnnotator(t, &interceptor.Funcs{
+		SubResourcePatch: func(
+			ctx context.Context, cl client.Client, sub string, obj client.Object,
+			patch client.Patch, opts ...client.SubResourcePatchOption,
+		) error {
+			err := cl.SubResource(sub).Patch(ctx, obj, patch, opts...)
+			if kerrors.IsConflict(err) {
+				conflicts++
+			}
+
+			return err
+		},
+	}, sp, podWith(withSeccomp("operator/foo.json")))
+
+	stale := &seccompprofileapi.SeccompProfile{}
+	require.NoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(sp), stale))
+
+	// Another writer changes the profile after the cache got it.
+	current := stale.DeepCopy()
+	current.Status.ActiveWorkloads = []string{"default/other"}
+	require.NoError(t, c.Status().Update(t.Context(), current))
+
+	require.NoError(t, r.updatePodReferencesForSeccomp(t.Context(), stale))
+	require.Equal(t, 1, conflicts)
+	requireInUse(t, c, sp, true)
+	require.Equal(t, []string{"default/" + testPodName}, sp.Status.ActiveWorkloads)
 }
 
 // failingReader is a client.Reader which fails every read.
@@ -678,15 +1017,15 @@ func TestReconcilePodDeletionRecomputesActiveWorkloadsOnConflict(t *testing.T) {
 	conflict := conflictOnce(t, other)
 
 	r, c, _ := newAnnotator(t, &interceptor.Funcs{
-		SubResourceUpdate: func(
+		SubResourcePatch: func(
 			ctx context.Context, cl client.Client, sub string, obj client.Object,
-			opts ...client.SubResourceUpdateOption,
+			patch client.Patch, opts ...client.SubResourcePatchOption,
 		) error {
 			if err := conflict(ctx, cl); err != nil {
 				return err
 			}
 
-			return cl.SubResource(sub).Update(ctx, obj, opts...)
+			return cl.SubResource(sub).Patch(ctx, obj, patch, opts...)
 		},
 	}, sp)
 
@@ -695,13 +1034,16 @@ func TestReconcilePodDeletionRecomputesActiveWorkloadsOnConflict(t *testing.T) {
 	require.Equal(t, []string{"default/other"}, sp.Status.ActiveWorkloads)
 }
 
-// The finalizer of a profile without a list of active workloads is only
-// removed if no pod uses the profile once the removal gets written.
+// The finalizer of a profile is only removed if no pod uses the profile once
+// the removal gets written.
 func TestReconcilePodDeletionKeepsFinalizerOnConflict(t *testing.T) {
 	t.Parallel()
 
 	aa := &apparmorprofileapi.AppArmorProfile{
 		ObjectMeta: objectMeta("aa", util.HasActivePodsFinalizerString),
+		Status: apparmorprofileapi.AppArmorProfileStatus{
+			ActiveWorkloads: []string{"default/" + testPodName}, ActiveWorkloadsCount: 1,
+		},
 	}
 
 	other := podWith(withAppArmor("aa"))

@@ -21,6 +21,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/intstr"
 
 	"sigs.k8s.io/security-profiles-operator/api/common"
 	seccompapi "sigs.k8s.io/security-profiles-operator/api/seccomp"
@@ -225,6 +226,11 @@ type SPODSpec struct {
 	// requirements of SPOD daemon.
 	// +optional
 	DaemonResourceRequirements *corev1.ResourceRequirements `json:"daemonResourceRequirements,omitempty"`
+	// daemonUpdateStrategy configures the rolling update of the SPOD
+	// daemonset. If unset, all daemon pods get replaced at once.
+	// +optional
+	//nolint:kubeapilinter // a nil pointer marks the whole update strategy as unset
+	DaemonUpdateStrategy *SPODDaemonUpdateStrategy `json:"daemonUpdateStrategy,omitempty"`
 	// selinux contains SELinux-specific configuration.
 	// +optional
 	// +default={}
@@ -252,6 +258,24 @@ type SPODSpec struct {
 	Security SPODSecurityConfig `json:"security,omitzero"`
 }
 
+// SPODDaemonUpdateStrategy configures the rolling update of the SPOD
+// daemonset.
+// +kubebuilder:validation:MinProperties=1
+type SPODDaemonUpdateStrategy struct {
+	// maxUnavailable is the maximum number of daemon pods, or the percentage
+	// of the scheduled daemon pods, which can be unavailable during an
+	// update, like in the rolling update of a daemonset. It has to be at
+	// least 1 or 1%, because a daemonset rejects 0. Defaults to 100%, which
+	// replaces all daemon pods at once. A lower value keeps the daemons of the
+	// other nodes running during an update, which also limits the impact of a
+	// daemon pod which cannot start, at the cost of a slower rollout.
+	// +optional
+	// +kubebuilder:validation:XIntOrString
+	//nolint:lll // CEL rules cannot be wrapped
+	// +kubebuilder:validation:XValidation:rule="type(self) == int ? self >= 1 : self.matches('^([1-9][0-9]?|100)%$')",message="maxUnavailable must be an integer of at least 1 or a percentage between 1% and 100%"
+	MaxUnavailable *intstr.IntOrString `json:"maxUnavailable,omitempty"`
+}
+
 // SPODSelinuxConfig contains SELinux-specific configuration.
 type SPODSelinuxConfig struct {
 	// enable tells the operator whether or not to enable SELinux support for
@@ -267,6 +291,9 @@ type SPODSelinuxConfig struct {
 	// +default=true
 	EnableRawSelinuxProfiles *bool `json:"enableRawSelinuxProfiles,omitempty"`
 	// typeTag is the SELinux type tag applied to the security context of SPOD.
+	// It is ignored while enableAppArmor is true, and the daemon pod keeps
+	// its default SELinux types then. The operator reports a value other
+	// than spc_t which gets ignored with a warning event on the SPOD.
 	// +optional
 	// +default="spc_t"
 	//nolint:kubeapilinter // released v1 API: empty means unset, a MinLength would reject existing manifests
@@ -535,12 +562,22 @@ type SPODStatus struct {
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // SecurityProfilesOperatorDaemon is the Schema to configure the spod deployment.
+//
+// There is a single SecurityProfilesOperatorDaemon, named spod, in the
+// operator namespace. The daemons, the webhooks and the node statuses only
+// read the one named spod, and further ones would render operands which
+// clash with its operands, so no other name ever worked. Existing objects
+// are exempt, so that they can still be updated and deleted.
+//
+// +kubebuilder:validation:XValidation:rule="oldSelf.hasValue() || self.metadata.name == 'spod'",optionalOldSelf=true,message="the SecurityProfilesOperatorDaemon must be named spod"
 // +kubebuilder:storageversion
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:path=securityprofilesoperatordaemons,shortName=spod
+// +kubebuilder:resource:path=securityprofilesoperatordaemons,shortName=spod,categories=spo
 // +kubebuilder:printcolumn:name="State",type="string",JSONPath=`.status.state`
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=`.status.conditions[?(@.type=="Ready")].status`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
+//
+//nolint:lll // CEL rules cannot be wrapped
 type SecurityProfilesOperatorDaemon struct {
 	metav1.TypeMeta `json:",inline"`
 	// metadata contains the object metadata.

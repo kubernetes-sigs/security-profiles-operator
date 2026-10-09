@@ -19,11 +19,14 @@ package recordingmerger
 import (
 	"context"
 	"fmt"
+	"maps"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
@@ -34,13 +37,14 @@ import (
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 // Setup adds a controller that reconciles any profilerecordings.
 func (r *PolicyMergeReconciler) Setup(
-	_ context.Context,
+	ctx context.Context,
 	mgr ctrl.Manager,
 	_ *metrics.Metrics,
 ) error {
@@ -48,6 +52,20 @@ func (r *PolicyMergeReconciler) Setup(
 	r.reader = mgr.GetAPIReader()
 	r.log = ctrl.Log.WithName(r.Name())
 	r.record = util.NewEventRecorder(mgr, r.Name())
+
+	// A recording outside of the namespaces of a restricted cache may have
+	// recorded a profile as well, see checkLegacyOwner, so they are listed
+	// from the API server then.
+	r.recordingReader = r.client
+	if config.WatchNamespaces() != "" {
+		r.recordingReader = r.reader
+	}
+
+	if err := mgr.GetFieldIndexer().IndexField(
+		ctx, &profilerecordingapi.ProfileRecording{}, recordingNameKey, recordingNameIndex,
+	); err != nil {
+		return fmt.Errorf("creating profile recording name index: %w", err)
+	}
 
 	// Deleted recordings wait until the partial profiles recorded before 1.0
 	// are adopted, see legacyAdopter.
@@ -77,9 +95,74 @@ func (r *PolicyMergeReconciler) Setup(
 			handler.EnqueueRequestsFromMapFunc(recordingOfPartialProfile),
 			builder.WithPredicates(partialProfileEventsPredicate()),
 		)
+
+		// A deleted recording whose merge is blocked by a profile of
+		// somebody else gets merged once that profile is deleted or labeled
+		// for it.
+		b = b.Watches(
+			obj,
+			handler.EnqueueRequestsFromMapFunc(r.recordingsBlockedBy),
+			builder.WithPredicates(blockingProfileEventsPredicate()),
+		)
 	}
 
 	return b.Complete(r)
+}
+
+// blockingProfileEventsPredicate passes the deletions and label changes of
+// profiles which are not partial, which can unblock the merge of a deleted
+// recording.
+func blockingProfileEventsPredicate() predicate.Funcs {
+	isPartial := func(obj client.Object) bool {
+		_, partial := obj.GetLabels()[profilebase.ProfilePartialLabel]
+
+		return partial
+	}
+
+	return predicate.Funcs{
+		CreateFunc: func(event.CreateEvent) bool { return false },
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			return !isPartial(e.ObjectNew) &&
+				!maps.Equal(e.ObjectOld.GetLabels(), e.ObjectNew.GetLabels())
+		},
+		DeleteFunc:  func(e event.DeleteEvent) bool { return !isPartial(e.Object) },
+		GenericFunc: func(event.GenericEvent) bool { return false },
+	}
+}
+
+// recordingsBlockedBy maps a profile to the deleted recordings which wait for
+// their partial profiles to be merged and whose merged profiles it may be:
+// their names prefix its name.
+func (r *PolicyMergeReconciler) recordingsBlockedBy(
+	ctx context.Context, obj client.Object,
+) []reconcile.Request {
+	recordings := &profilerecordingapi.ProfileRecordingList{}
+	if err := r.client.List(ctx, recordings); err != nil {
+		r.log.Error(err, "Cannot list recordings blocked by profile", "profile", obj.GetName())
+
+		return nil
+	}
+
+	var requests []reconcile.Request
+
+	for i := range recordings.Items {
+		recording := &recordings.Items[i]
+
+		if recording.GetDeletionTimestamp().IsZero() ||
+			!controllerutil.ContainsFinalizer(
+				recording,
+				profilerecordingapi.RecordingHasUnmergedProfiles,
+			) ||
+			!strings.HasPrefix(obj.GetName(), recording.GetName()+"-") {
+			continue
+		}
+
+		requests = append(requests, reconcile.Request{
+			NamespacedName: client.ObjectKeyFromObject(recording),
+		})
+	}
+
+	return requests
 }
 
 // recordingOfPartialProfile returns the recording of a partial profile.

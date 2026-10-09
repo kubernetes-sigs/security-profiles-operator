@@ -21,11 +21,13 @@
   - [Configure SELinux support](#configure-selinux-support)
     - [Select the selinuxd image](#select-the-selinuxd-image)
   - [Customise the daemon resource requirements](#customise-the-daemon-resource-requirements)
+  - [Configure the rollout of the daemon](#configure-the-rollout-of-the-daemon)
   - [Restrict the allowed syscalls in seccomp profiles](#restrict-the-allowed-syscalls-in-seccomp-profiles)
   - [Constrain spod scheduling](#constrain-spod-scheduling)
   - [Select the log enricher source](#select-the-log-enricher-source)
   - [Enable memory optimization in spod](#enable-memory-optimization-in-spod)
   - [Configure the concurrent reconciles of the manager](#configure-the-concurrent-reconciles-of-the-manager)
+  - [Configure the API server rate limit of the manager](#configure-the-api-server-rate-limit-of-the-manager)
   - [Restricting to a Single Namespace](#restricting-to-a-single-namespace)
     - [Restricting to a Single Namespace with upstream deployment manifests](#restricting-to-a-single-namespace-with-upstream-deployment-manifests)
     - [Restricting to a Single Namespace when installing using OLM](#restricting-to-a-single-namespace-when-installing-using-olm)
@@ -298,6 +300,13 @@ of their `Subscription`, including the CRDs.
 
 ## Configure Operator
 
+The operator gets configured through the `SecurityProfilesOperatorDaemon`
+named `spod` in the operator namespace, which the operator creates if it is
+missing. The daemons, the webhooks and the node statuses only read that one,
+so the API rejects new objects with another name. Objects with another name
+created before are not reconciled and report `UnsupportedName` as reason of
+their `Ready` condition, delete them and configure `spod` instead.
+
 ### Configure a custom kubelet root directory
 
 You can configure a custom kubelet root directory in case your cluster is not using the default `/var/lib/kubelet` path.
@@ -318,14 +327,21 @@ by the operator from `mnt-resource-kubelet` into path `/mnt/resource/kubelet`.
 The last component of the path has to be `kubelet`, for example `var-lib-k0s-kubelet` (`/var/lib/k0s/kubelet`) or
 `var-snap-microk8s-common-var-lib-kubelet` (`/var/snap/microk8s/common/var/lib/kubelet`). Kubelets can set this label
 on their own node, so the operator ignores other values, reports them as `InvalidKubeletDirLabel` warning event on the
-spod object and uses the default kubelet root directory for such nodes.
+spod object and uses the default kubelet root directory for such nodes. This includes paths below the system and
+executable directories, like `/usr/bin/kubelet`, and paths below the files and directories which the kubelet keeps in
+its root directory, like `/var/lib/kubelet/cpu_manager_state/kubelet`, where `cpu_manager_state` is a file.
 
 The spod daemonset only mounts the kubelet root directories from the host, not the whole host filesystem. Because
 the daemonset uses the same pod template on every node, each distinct directory from these labels gets mounted
 (and created if missing) on all nodes. Adding a node with a new kubelet root directory, or changing the label to a
 new directory, rolls out the spod daemonset on all nodes. Directories which are no longer referenced by any node,
 for example after removing the label or the last node using it, stay mounted until the spod daemonset gets rolled
-out for another reason, like a spod configuration change or a new kubelet root directory.
+out for another reason, like a spod configuration change or a new kubelet root directory. A single unavailable
+daemon pod, for example on a node which is not ready, does not change that. While no daemon pod is available or the
+rollout of the daemonset does not finish, for example because a directory cannot be mounted, the directories which
+are no longer referenced get removed right away instead. The
+[rollout of the daemon](#configure-the-rollout-of-the-daemon) limits how many daemon pods a broken directory stops
+at once.
 
 ### Set a custom priority class name for spod daemon pod
 
@@ -386,7 +402,9 @@ changed to a different SELinux type by patching the spod config as follows:
 securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
 ```
 
-The `ds/spod` should now be updated by the manager with the new SELinux type, and all daemon pods recreated:
+The type is ignored while AppArmor support is enabled through `enableAppArmor`, which the operator reports with an
+`IgnoredSelinuxTypeTag` warning event on the spod object. Otherwise the `ds/spod` should now be updated by the
+manager with the new SELinux type, and all daemon pods recreated:
 
 ```
 > kubectl -n security-profiles-operator get ds spod -o yaml | grep unconfined_t -B2
@@ -459,6 +477,21 @@ kubectl -n security-profiles-operator patch spod spod --type merge -p \
 ```
 
 These values can also be specified via the Helm chart.
+
+### Configure the rollout of the daemon
+
+The operator replaces all daemon pods at once when the spod daemonset changes, for example on an upgrade or a
+configuration change. To keep the daemons of the other nodes running during a rollout, limit the number or the
+percentage of daemon pods which can be unavailable at the same time through `daemonUpdateStrategy.maxUnavailable`,
+like in the rolling update of a daemonset:
+
+```
+kubectl -n security-profiles-operator patch spod spod --type merge -p \
+  '{"spec":{"daemonUpdateStrategy":{"maxUnavailable":"25%"}}}'
+```
+
+It has to be at least `1` or `1%`, and it defaults to `100%`. A lower value makes rollouts slower, but a daemon pod
+which cannot start, for example because of a broken node, only stops the rollout instead of the daemons on all nodes.
 
 ### Restrict the allowed syscalls in seccomp profiles
 
@@ -575,6 +608,25 @@ kubectl -n security-profiles-operator patch deployment security-profiles-operato
 
 Values below 1 fall back to the default.
 
+### Configure the API server rate limit of the manager
+
+The manager does not limit its requests to the API server on the client side, it relies on
+[API priority and fairness](https://kubernetes.io/docs/concepts/cluster-administration/flow-control/) of the API
+server instead. To limit them, add the `--kube-api-qps` flag, and optionally the `--kube-api-burst` flag, to the args
+of the `security-profiles-operator` deployment:
+
+```shell
+kubectl -n security-profiles-operator patch deployment security-profiles-operator --type json -p \
+  '[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kube-api-qps=50"},
+    {"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kube-api-burst=100"}]'
+```
+
+The burst only applies together with the queries per second and defaults to the one of client-go.
+
+The manager caches the profiles, their node statuses and the pods of the whole cluster, so its memory usage grows
+with the cluster. Raise the memory limit of the deployment, or the `resources` value of the Helm chart, if the
+manager runs out of memory in a large cluster.
+
 ### Restricting to a Single Namespace
 
 The security-profiles-operator can optionally be restricted to a single
@@ -683,4 +735,7 @@ Next to the mutating webhooks, SPO manages the `spo-validating-webhook-configura
 `ValidatingWebhookConfiguration`. Its `rawselinuxprofile-validation.spo.io` webhook
 rejects `RawSelinuxProfile` objects with CIL statements which would affect the
 whole node instead of the profile, like `class`, `role` or `typepermissive`. It uses
-the `Fail` failure policy and cannot be configured with `webhook.options`.
+the `Fail` failure policy and cannot be configured with `webhook.options`. The
+`binding-image.spo.io` webhook of the same configuration rejects image changes of running pods
+which a profile binding matches, see [the profile bindings](profiles.md#binding-precedence-and-status). It takes the
+`webhook.options` of `binding.spo.io`, so that it selects the same namespaces and pods.

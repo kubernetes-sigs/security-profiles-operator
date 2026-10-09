@@ -26,6 +26,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
@@ -50,39 +51,122 @@ func TestSPODValidation(t *testing.T) {
 
 	for _, tc := range []struct {
 		name    string
-		sv      *spodapi.SPODSignatureVerification
+		mutate  func(*spodapi.SecurityProfilesOperatorDaemon)
 		wantErr string
 	}{
 		{
-			name:    "offline without trusted root",
-			sv:      &spodapi.SPODSignatureVerification{Offline: new(true)},
+			name: "offline without trusted root",
+			mutate: func(spod *spodapi.SecurityProfilesOperatorDaemon) {
+				spod.Spec.Security.SignatureVerification = &spodapi.SPODSignatureVerification{
+					Offline: new(true),
+				}
+			},
 			wantErr: "offline requires trustedRootConfigMapRef",
 		},
 		{
 			name: "offline with trusted root",
-			sv: &spodapi.SPODSignatureVerification{
-				Offline:                 new(true),
-				TrustedRootConfigMapRef: trustedRoot,
+			mutate: func(spod *spodapi.SecurityProfilesOperatorDaemon) {
+				spod.Spec.Security.SignatureVerification = &spodapi.SPODSignatureVerification{
+					Offline:                 new(true),
+					TrustedRootConfigMapRef: trustedRoot,
+				}
 			},
 		},
 		{
 			name: "online without trusted root",
-			sv: &spodapi.SPODSignatureVerification{
-				Offline:           new(false),
-				AllowedOidcIssuer: "https://issuer.example.com",
+			mutate: func(spod *spodapi.SecurityProfilesOperatorDaemon) {
+				spod.Spec.Security.SignatureVerification = &spodapi.SPODSignatureVerification{
+					Offline:           new(false),
+					AllowedOidcIssuer: "https://issuer.example.com",
+				}
 			},
+		},
+		{
+			name: "other name",
+			mutate: func(spod *spodapi.SecurityProfilesOperatorDaemon) {
+				spod.Name = "other"
+			},
+			wantErr: "must be named spod",
+		},
+		{
+			name: "generated name",
+			mutate: func(spod *spodapi.SecurityProfilesOperatorDaemon) {
+				spod.Name = ""
+				spod.GenerateName = "spod-"
+			},
+			wantErr: "must be named spod",
+		},
+		{
+			name: "empty update strategy",
+			mutate: func(spod *spodapi.SecurityProfilesOperatorDaemon) {
+				spod.Spec.DaemonUpdateStrategy = &spodapi.SPODDaemonUpdateStrategy{}
+			},
+			wantErr: "daemonUpdateStrategy",
+		},
+		{
+			name: "max unavailable number",
+			mutate: func(spod *spodapi.SecurityProfilesOperatorDaemon) {
+				spod.Spec.DaemonUpdateStrategy = &spodapi.SPODDaemonUpdateStrategy{
+					MaxUnavailable: new(intstr.FromInt32(1)),
+				}
+			},
+		},
+		{
+			name: "max unavailable percentage",
+			mutate: func(spod *spodapi.SecurityProfilesOperatorDaemon) {
+				spod.Spec.DaemonUpdateStrategy = &spodapi.SPODDaemonUpdateStrategy{
+					MaxUnavailable: new(intstr.FromString("100%")),
+				}
+			},
+		},
+		{
+			name: "max unavailable zero",
+			mutate: func(spod *spodapi.SecurityProfilesOperatorDaemon) {
+				spod.Spec.DaemonUpdateStrategy = &spodapi.SPODDaemonUpdateStrategy{
+					MaxUnavailable: new(intstr.FromInt32(0)),
+				}
+			},
+			wantErr: "maxUnavailable must be",
+		},
+		{
+			name: "max unavailable zero percent",
+			mutate: func(spod *spodapi.SecurityProfilesOperatorDaemon) {
+				spod.Spec.DaemonUpdateStrategy = &spodapi.SPODDaemonUpdateStrategy{
+					MaxUnavailable: new(intstr.FromString("0%")),
+				}
+			},
+			wantErr: "maxUnavailable must be",
+		},
+		{
+			name: "max unavailable above 100 percent",
+			mutate: func(spod *spodapi.SecurityProfilesOperatorDaemon) {
+				spod.Spec.DaemonUpdateStrategy = &spodapi.SPODDaemonUpdateStrategy{
+					MaxUnavailable: new(intstr.FromString("101%")),
+				}
+			},
+			wantErr: "maxUnavailable must be",
+		},
+		{
+			name: "max unavailable without percent sign",
+			mutate: func(spod *spodapi.SecurityProfilesOperatorDaemon) {
+				spod.Spec.DaemonUpdateStrategy = &spodapi.SPODDaemonUpdateStrategy{
+					MaxUnavailable: new(intstr.FromString("1")),
+				}
+			},
+			wantErr: "maxUnavailable must be",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
+			// The SPOD has to be named spod, so every case gets its own
+			// namespace.
 			spod := &spodapi.SecurityProfilesOperatorDaemon{
 				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: "spod-",
-					Namespace:    operatorNamespace,
+					Name:      "spod",
+					Namespace: newNamespace(t),
 				},
 				Spec: spodapi.SPODSpec{
-					Security: spodapi.SPODSecurityConfig{SignatureVerification: tc.sv},
 					Webhook: spodapi.SPODWebhookConfig{
 						Options: []spodapi.WebhookOptions{{
 							Name: "binding.spo.io",
@@ -97,6 +181,7 @@ func TestSPODValidation(t *testing.T) {
 					},
 				},
 			}
+			tc.mutate(spod)
 
 			err := c.Create(t.Context(), spod)
 			if tc.wantErr == "" {

@@ -38,6 +38,7 @@ func (r *Reconciler) Setup(
 	met *metrics.Metrics,
 ) error {
 	r.client = mgr.GetClient()
+	r.reader = mgr.GetAPIReader()
 	r.log = ctrl.Log.WithName(r.Name())
 	r.record = util.NewEventRecorder(mgr, "apparmorprofile")
 	r.metrics = met

@@ -116,6 +116,8 @@ const (
 	insecureMetricsAccessFlag    string = "with-insecure-metrics-access"
 	maxConcurrentReconcilesFlag  string = "max-concurrent-reconciles"
 	maxMetricSeriesFlag          string = "max-metric-series"
+	kubeAPIQPSFlag               string = "kube-api-qps"
+	kubeAPIBurstFlag             string = "kube-api-burst"
 	profilingAddressFlag         string = "profiling-address"
 	defaultWebhookPort           int    = 9443
 	metricsPort                  int    = 8443
@@ -300,6 +302,18 @@ func managerCommand(info *version.Info) *cli.Command {
 				Name:  maxConcurrentReconcilesFlag,
 				Value: controller.DefaultMaxConcurrentReconciles,
 				Usage: "the number of concurrent reconciles of the pod driven controllers",
+			},
+			&cli.Float64Flag{
+				Name:        kubeAPIQPSFlag,
+				DefaultText: "unlimited",
+				Usage: "the queries per second of the client to the API server, " +
+					"which only API priority and fairness limits if it is 0 or less",
+			},
+			&cli.IntFlag{
+				Name:        kubeAPIBurstFlag,
+				DefaultText: "10",
+				Usage: "the burst of the client to the API server, " +
+					"which only applies if --" + kubeAPIQPSFlag + " limits the queries per second",
 			},
 		},
 	}
@@ -658,6 +672,8 @@ func runManager(ctx *cli.Context, info *version.Info) error {
 		return err
 	}
 
+	setKubeAPIRateLimit(cfg, ctx.Float64(kubeAPIQPSFlag), ctx.Int(kubeAPIBurstFlag))
+
 	operatorNamespace, err := config.TryToGetOperatorNamespace()
 	if err != nil {
 		return fmt.Errorf("get operator namespace: %w", err)
@@ -751,14 +767,28 @@ func runManager(ctx *cli.Context, info *version.Info) error {
 	)
 }
 
+// setKubeAPIRateLimit limits the requests of the client to the API server to
+// qps queries per second with the given burst, if qps is positive. The
+// controller-runtime disables the client side rate limit otherwise and relies
+// on API priority and fairness. A burst of 0 or less keeps the default of
+// client-go.
+func setKubeAPIRateLimit(cfg *rest.Config, qps float64, burst int) {
+	if qps <= 0 {
+		return
+	}
+
+	cfg.QPS = float32(qps)
+
+	if burst > 0 {
+		cfg.Burst = burst
+	}
+}
+
 // setControllerOptionsForNamespaces restricts the cache to the watched
 // namespaces and the operator namespace, if the watched namespaces are
 // restricted.
 func setControllerOptionsForNamespaces(opts *ctrl.Options, operatorNS string) {
-	namespace, ok := os.LookupEnv(config.RestrictNamespaceEnvKey)
-	if !ok {
-		namespace = os.Getenv("WATCH_NAMESPACE")
-	}
+	namespace := config.WatchNamespaces()
 
 	// Supports multiple namespaces set in WATCH_NAMESPACE (e.g ns1,ns2).
 	// This is not intended to be used for excluding namespaces, which is better
@@ -905,22 +935,52 @@ func restrictOperandCache(
 		Field:      fields.OneTermEqualSelector("metadata.name", util.OperatorConfigMap),
 	}
 
-	opts.Cache.ByObject[&corev1.Pod{}] = cache.ByObject{Transform: stripPod}
+	opts.Cache.ByObject[&corev1.Pod{}] = cache.ByObject{Transform: podStripper(operatorNamespace)}
+}
+
+// podStripper returns the transform of the cached pods, see stripPod. The
+// pods of the operator namespace keep the status and time of their Ready
+// condition: the node status controller tells by it which nodes run an
+// available SPOd pod. Other objects get the managed fields stripped by the
+// default transform, which a per kind transform replaces.
+func podStripper(operatorNamespace string) func(any) (any, error) {
+	return func(obj any) (any, error) {
+		pod, ok := obj.(*corev1.Pod)
+		if !ok {
+			return obj, nil
+		}
+
+		var ready *corev1.PodCondition
+
+		if pod.Namespace == operatorNamespace {
+			for i := range pod.Status.Conditions {
+				if cond := pod.Status.Conditions[i]; cond.Type == corev1.PodReady {
+					ready = &corev1.PodCondition{
+						Type:               cond.Type,
+						Status:             cond.Status,
+						LastTransitionTime: cond.LastTransitionTime,
+					}
+				}
+			}
+		}
+
+		stripPod(pod)
+
+		if ready != nil {
+			pod.Status.Conditions = []corev1.PodCondition{*ready}
+		}
+
+		return pod, nil
+	}
 }
 
 // stripPod drops the fields of a cached pod which no manager controller
 // reads, so that the cluster wide pod cache holds only the labels,
-// annotations, UID, node name, images and security contexts of the pods.
-// Other objects get the managed fields stripped by the default transform,
-// which a per kind transform replaces.
-func stripPod(obj any) (any, error) {
-	pod, ok := obj.(*corev1.Pod)
-	if !ok {
-		return obj, nil
-	}
-
+// annotations, UID, node name, phase, images and security contexts of the
+// pods. The phase tells the controllers which pods completed.
+func stripPod(pod *corev1.Pod) {
 	pod.ManagedFields = nil
-	pod.Status = corev1.PodStatus{}
+	pod.Status = corev1.PodStatus{Phase: pod.Status.Phase}
 	pod.Spec.Volumes = nil
 
 	for i := range pod.Spec.Containers {
@@ -937,8 +997,6 @@ func stripPod(obj any) (any, error) {
 		stripContainer(&ctr)
 		ephemeral.EphemeralContainerCommon = corev1.EphemeralContainerCommon(ctr)
 	}
-
-	return pod, nil
 }
 
 // stripContainer drops the container fields which no manager controller
@@ -1645,6 +1703,10 @@ func runWebhook(ctx *cli.Context, info *version.Info) error {
 	execmetadata.RegisterWebhook(hookserver, mgr.GetAPIReader())
 	validation.RegisterWebhook(hookserver, mgr.GetScheme())
 
+	if err := addWebhookInformers(ctx.Context, mgr.GetCache()); err != nil {
+		return err
+	}
+
 	sigHandler := ctrl.SetupSignalHandler()
 
 	return setupManagerWithTLSWatcher(
@@ -1699,6 +1761,41 @@ func addCacheSyncReadyzCheck(mgr readyzManager) error {
 		return nil
 	}); err != nil {
 		return fmt.Errorf("add cache sync readiness check: %w", err)
+	}
+
+	return nil
+}
+
+// webhookInformerObjects are the objects which the webhooks read from the
+// cache.
+func webhookInformerObjects() []client.Object {
+	return []client.Object{
+		&profilebindingv1.ProfileBinding{},
+		&profilerecordingv1.ProfileRecording{},
+		&seccompprofilev1.SeccompProfile{},
+		&selinuxprofilev1.SelinuxProfile{},
+		&apparmorprofilev1.AppArmorProfile{},
+	}
+}
+
+// informerGetter is the part of the cache which addWebhookInformers uses.
+type informerGetter interface {
+	GetInformer(
+		ctx context.Context, obj client.Object, opts ...cache.InformerGetOption,
+	) (cache.Informer, error)
+}
+
+// addWebhookInformers creates the informers of the objects which the webhooks
+// read. The cache otherwise only creates an informer on the first read, so
+// the cache sync readiness check would pass before any informer synced, and
+// the first admission requests would wait for the informers and could time
+// out, which the fail closed webhooks turn into rejected pods.
+func addWebhookInformers(ctx context.Context, informers informerGetter) error {
+	for _, obj := range webhookInformerObjects() {
+		// The informers start with the manager, so this does not block.
+		if _, err := informers.GetInformer(ctx, obj, cache.BlockUntilSynced(false)); err != nil {
+			return fmt.Errorf("get informer for %T: %w", obj, err)
+		}
 	}
 
 	return nil

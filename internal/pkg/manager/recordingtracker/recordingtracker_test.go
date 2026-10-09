@@ -186,6 +186,7 @@ func TestPodNoLongerMatchingRecording(t *testing.T) {
 
 	for name, tc := range map[string]struct {
 		annotations map[string]string
+		phase       corev1.PodPhase
 		wantTracked bool
 	}{
 		"untracked without recording annotation": {},
@@ -194,6 +195,12 @@ func TestPodNoLongerMatchingRecording(t *testing.T) {
 				config.SeccompProfileRecordBpfAnnotationKey + "ctr": "test-recording_ctr_123_456",
 			},
 			wantTracked: true,
+		},
+		"untracked once completed": {
+			annotations: map[string]string{
+				config.SeccompProfileRecordBpfAnnotationKey + "ctr": "test-recording_ctr_123_456",
+			},
+			phase: corev1.PodSucceeded,
 		},
 		"annotation of another recording": {
 			annotations: map[string]string{
@@ -230,6 +237,7 @@ func TestPodNoLongerMatchingRecording(t *testing.T) {
 					Labels:      map[string]string{"app": "other"},
 					Annotations: tc.annotations,
 				},
+				Status: corev1.PodStatus{Phase: tc.phase},
 			}
 
 			c := fake.NewClientBuilder().
@@ -508,13 +516,13 @@ func TestTrackedPodSkipsAPIRequests(t *testing.T) {
 
 				return c.Update(ctx, obj, opts...)
 			},
-			SubResourceUpdate: func(
+			SubResourcePatch: func(
 				ctx context.Context, c client.Client, sub string, obj client.Object,
-				opts ...client.SubResourceUpdateOption,
+				patch client.Patch, opts ...client.SubResourcePatchOption,
 			) error {
 				writes++
 
-				return c.SubResource(sub).Update(ctx, obj, opts...)
+				return c.SubResource(sub).Patch(ctx, obj, patch, opts...)
 			},
 		}).
 		Build()
@@ -559,9 +567,9 @@ func TestTrackPodRetriesConflict(t *testing.T) {
 		WithObjects(recording, recordedPod()).
 		WithIndex(&profilerecordingapi.ProfileRecording{}, linkedPodsKey, recordingIndexFunc).
 		WithInterceptorFuncs(interceptor.Funcs{
-			SubResourceUpdate: func(
+			SubResourcePatch: func(
 				ctx context.Context, c client.Client, sub string, obj client.Object,
-				opts ...client.SubResourceUpdateOption,
+				patch client.Patch, opts ...client.SubResourcePatchOption,
 			) error {
 				if conflicts > 0 {
 					conflicts--
@@ -574,7 +582,7 @@ func TestTrackPodRetriesConflict(t *testing.T) {
 					)
 				}
 
-				return c.SubResource(sub).Update(ctx, obj, opts...)
+				return c.SubResource(sub).Patch(ctx, obj, patch, opts...)
 			},
 		}).
 		Build()
