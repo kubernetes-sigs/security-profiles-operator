@@ -17,8 +17,13 @@ limitations under the License.
 package common
 
 import (
+	"crypto/rand"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/go-logr/logr/funcr"
 	"github.com/stretchr/testify/require"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -57,6 +62,61 @@ func Test_GetSPOD(t *testing.T) {
 
 	_, err = GetSPOD(t.Context(), cl, "other-ns")
 	require.True(t, kerrors.IsNotFound(err))
+}
+
+func Test_RemoveStaleTempFiles(t *testing.T) {
+	t.Parallel()
+
+	var logs []string
+	log := funcr.New(func(_, args string) { logs = append(logs, args) }, funcr.Options{})
+
+	dir := t.TempDir()
+	old := time.Now().Add(-time.Hour)
+
+	stale := filepath.Join(dir, ".tmp-"+rand.Text())
+	require.NoError(t, os.WriteFile(stale, []byte("data"), 0o600))
+	require.NoError(t, os.Chtimes(stale, old, old))
+
+	fresh := filepath.Join(dir, ".tmp-"+rand.Text())
+	require.NoError(t, os.WriteFile(fresh, []byte("data"), 0o600))
+
+	RemoveStaleTempFiles(log, dir)
+
+	require.NoFileExists(t, stale)
+	require.FileExists(t, fresh)
+	require.Len(t, logs, 1)
+	require.Contains(t, logs[0], `"msg"="Removed stale temporary file"`)
+	require.Contains(t, logs[0], stale)
+}
+
+func Test_RemoveStaleTempFilesRemoveError(t *testing.T) {
+	t.Parallel()
+
+	if os.Geteuid() == 0 {
+		t.Skip("root can remove files regardless of directory permissions")
+	}
+
+	var logs []string
+	log := funcr.New(func(_, args string) { logs = append(logs, args) }, funcr.Options{})
+
+	dir := t.TempDir()
+	old := time.Now().Add(-time.Hour)
+
+	stale := filepath.Join(dir, ".tmp-"+rand.Text())
+	require.NoError(t, os.WriteFile(stale, []byte("data"), 0o600))
+	require.NoError(t, os.Chtimes(stale, old, old))
+
+	// Removing a file requires write permission on its directory, not on
+	// the file itself.
+	require.NoError(t, os.Chmod(dir, 0o500))
+	t.Cleanup(func() { require.NoError(t, os.Chmod(dir, 0o700)) })
+
+	RemoveStaleTempFiles(log, dir)
+
+	require.FileExists(t, stale)
+	require.Len(t, logs, 1)
+	require.Contains(t, logs[0], `"msg"="Cannot remove stale temporary files"`)
+	require.Contains(t, logs[0], dir)
 }
 
 func Test_AuditTimeToIso(t *testing.T) {
