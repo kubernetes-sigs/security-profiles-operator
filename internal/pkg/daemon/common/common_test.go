@@ -68,6 +68,7 @@ func Test_RemoveStaleTempFiles(t *testing.T) {
 	t.Parallel()
 
 	var logs []string
+
 	log := funcr.New(func(_, args string) { logs = append(logs, args) }, funcr.Options{})
 
 	dir := t.TempDir()
@@ -94,6 +95,7 @@ func Test_RemoveStaleTempFilesReadError(t *testing.T) {
 	t.Parallel()
 
 	var logs []string
+
 	log := funcr.New(func(_, args string) { logs = append(logs, args) }, funcr.Options{})
 
 	// A regular file is not a directory, so os.ReadDir fails reading it.
