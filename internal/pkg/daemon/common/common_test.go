@@ -85,38 +85,30 @@ func Test_RemoveStaleTempFiles(t *testing.T) {
 	require.NoFileExists(t, stale)
 	require.FileExists(t, fresh)
 	require.Len(t, logs, 1)
+	require.Contains(t, logs[0], `"level"=0`)
 	require.Contains(t, logs[0], `"msg"="Removed stale temporary file"`)
-	require.Contains(t, logs[0], stale)
+	require.Contains(t, logs[0], `"path"="`+stale+`"`)
 }
 
-func Test_RemoveStaleTempFilesRemoveError(t *testing.T) {
+func Test_RemoveStaleTempFilesReadError(t *testing.T) {
 	t.Parallel()
-
-	if os.Geteuid() == 0 {
-		t.Skip("root can remove files regardless of directory permissions")
-	}
 
 	var logs []string
 	log := funcr.New(func(_, args string) { logs = append(logs, args) }, funcr.Options{})
 
-	dir := t.TempDir()
-	old := time.Now().Add(-time.Hour)
+	// A regular file is not a directory, so os.ReadDir fails reading it.
+	// It exercises the same error-logging branch as a failed removal
+	// would, without depending on directory permissions or the euid the
+	// test runs as.
+	notADir := filepath.Join(t.TempDir(), "file")
+	require.NoError(t, os.WriteFile(notADir, []byte("data"), 0o600))
 
-	stale := filepath.Join(dir, ".tmp-"+rand.Text())
-	require.NoError(t, os.WriteFile(stale, []byte("data"), 0o600))
-	require.NoError(t, os.Chtimes(stale, old, old))
+	RemoveStaleTempFiles(log, notADir)
 
-	// Removing a file requires write permission on its directory, not on
-	// the file itself.
-	require.NoError(t, os.Chmod(dir, 0o500))
-	t.Cleanup(func() { require.NoError(t, os.Chmod(dir, 0o700)) })
-
-	RemoveStaleTempFiles(log, dir)
-
-	require.FileExists(t, stale)
 	require.Len(t, logs, 1)
 	require.Contains(t, logs[0], `"msg"="Cannot remove stale temporary files"`)
-	require.Contains(t, logs[0], dir)
+	require.Contains(t, logs[0], `"error"=`)
+	require.Contains(t, logs[0], `"dir"="`+notADir+`"`)
 }
 
 func Test_AuditTimeToIso(t *testing.T) {
