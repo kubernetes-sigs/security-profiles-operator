@@ -404,14 +404,14 @@ func (r *StatusReconciler) aggregateStatuses(
 
 	// make sure we have all the statuses already
 	hasStatuses := len(nodeStatusList.Items)
-	wantsStatuses := spodDS.Status.DesiredNumberScheduled
+	wantsStatuses := int(spodDS.Status.DesiredNumberScheduled)
 
 	requeue := reconcile.Result{}
 
 	// Right after a node got deleted, the DaemonSet may still count it. Its
 	// status must not count for the profile, and nothing but the requeue
 	// reconciles the profile again once the DaemonSet caught up.
-	if wantsStatuses >= int32(hasStatuses) {
+	if wantsStatuses >= hasStatuses {
 		deleted, err := r.statusesOfDeletedNodes(ctx, nodeStatusList)
 		if err != nil {
 			return reconcile.Result{}, err
@@ -424,12 +424,12 @@ func (r *StatusReconciler) aggregateStatuses(
 		}
 	}
 
-	if wantsStatuses > int32(hasStatuses) {
+	if wantsStatuses > hasStatuses {
 		logger.Info("Not updating policy: not all statuses are ready",
 			"has", hasStatuses, "wants", wantsStatuses)
 		// Don't reconcile again, let's just wait for another update
 		return reconcile.Result{}, nil
-	} else if wantsStatuses < int32(hasStatuses) {
+	} else if wantsStatuses < hasStatuses {
 		// this happens when nodes are removed from the cluster or no longer
 		// run the SPOd, for example because of a new taint
 		logger.Info("Removing extra statuses", "has", hasStatuses, "wants", wantsStatuses)
@@ -753,7 +753,7 @@ func daemonSetSettled(ds *appsv1.DaemonSet, podNodes int) bool {
 		status.NumberMisscheduled == 0 &&
 		status.CurrentNumberScheduled == status.DesiredNumberScheduled &&
 		status.UpdatedNumberScheduled == status.DesiredNumberScheduled &&
-		int32(podNodes) == status.DesiredNumberScheduled
+		podNodes == int(status.DesiredNumberScheduled)
 }
 
 // statusesOfDeletedNodes returns the statuses of nodes which have been

@@ -10,8 +10,21 @@ apt-get install -y lsb-release gnupg unzip xz-utils
 # verifies with the repository key, instead of running its install script.
 CLANG_VERSION=23
 CODENAME=$(lsb_release -cs)
-curl -sSfL --retry 5 --retry-delay 3 https://apt.llvm.org/llvm-snapshot.gpg.key |
-    gpg --dearmor -o /usr/share/keyrings/llvm-archive-keyring.gpg
+# The fingerprint of the repository key, see https://apt.llvm.org. apt trusts
+# the key for the repository, so it is checked before it gets installed. A key
+# rotation fails here until the fingerprint gets updated.
+LLVM_FINGERPRINT=6084F3CF814B57C1CF12EFD515CF4D18AF4F7421
+key=$(mktemp)
+trap 'rm -f "$key"' EXIT
+curl -sSfL --retry 5 --retry-delay 3 -o "$key" https://apt.llvm.org/llvm-snapshot.gpg.key
+# The fingerprints of the primary keys, there must be exactly the one.
+fingerprints=$(gpg --show-keys --with-colons "$key" |
+    awk -F: '$1 == "pub" { primary = 1; next } $1 == "fpr" && primary { print $10; primary = 0 }')
+if [[ "$fingerprints" != "$LLVM_FINGERPRINT" ]]; then
+    echo "Unexpected LLVM key fingerprints: $fingerprints" >&2
+    exit 1
+fi
+gpg --dearmor -o /usr/share/keyrings/llvm-archive-keyring.gpg "$key"
 echo "deb [signed-by=/usr/share/keyrings/llvm-archive-keyring.gpg] https://apt.llvm.org/$CODENAME/ llvm-toolchain-$CODENAME-$CLANG_VERSION main" \
     >/etc/apt/sources.list.d/llvm.list
 apt-get update

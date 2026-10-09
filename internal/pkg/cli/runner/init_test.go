@@ -143,7 +143,7 @@ func TestConfineUnknownCommand(t *testing.T) {
 func TestConfinePassesCredential(t *testing.T) {
 	t.Parallel()
 
-	cmd := exec.Command("true")
+	cmd := exec.CommandContext(t.Context(), "true")
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Credential: &syscall.Credential{Uid: 1000, Gid: 1001},
 	}

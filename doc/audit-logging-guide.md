@@ -23,8 +23,9 @@ Install the SPO by following the detailed installation instructions at [Install 
 
 ## Step 2: Configure SPO to Store Logs Locally
 
-Mount the host directory `/tmp/logs` into the JSON enricher by following steps 1 and 2 of
-[Audit Log File Destination](profiles.md#audit-log-file-destination), which configure the volume and restart the operator.
+Mount the host directory `/tmp/logs` into the JSON enricher by following step 1 of
+[Audit Log File Destination](profiles.md#audit-log-file-destination), which configures the volume. The operator picks up
+the change without a restart.
 
 ## Step 3: Enable JSON Logging and Filters
 
@@ -121,11 +122,15 @@ root@my-node:/# exit
 
 ## Step 8: Correlate with Kubernetes Audit Logs
 
-Use the requestUID from the SPO log to find the corresponding API server log entry, confirming who initiated the session.
+Use the requestUID from the SPO log to find the corresponding API server log entry, which records who initiated the session.
 
 ```bash
 cat /tmp/kube-apiserver-audit.log | grep <requestUID>
 ```
+
+The requestUID comes from an environment variable of the audited process, which the workload can set or unset, so it
+is a best effort hint and not audit evidence. See
+[Correlating with API Server Audit Log](profiles.md#correlating-with-api-server-audit-log).
 
 ## Step 9 (For CRI-O): Enable Privileged Seccomp Profiles
 

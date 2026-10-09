@@ -170,3 +170,28 @@ func TestUnionSyscalls(t *testing.T) {
 		})
 	}
 }
+
+// A base profile pulled from a registry skips the CRD validation, a negative
+// value must fail the merge instead of wrapping around.
+func TestUnionSyscallsNegativeValue(t *testing.T) {
+	t.Parallel()
+
+	base := []seccompprofileapi.Syscall{{
+		Names:  []string{"personality"},
+		Action: seccompprofileapi.ActAllow,
+		Args: []seccompprofileapi.Arg{
+			{Index: ptr.To[int32](0), Value: -1, Op: seccompprofileapi.OpEqualTo},
+		},
+	}}
+	applied := []seccompprofileapi.Syscall{{
+		Names:  []string{"read"},
+		Action: seccompprofileapi.ActAllow,
+	}}
+
+	_, err := UnionSyscalls(base, applied)
+	require.ErrorIs(t, err, ErrSeccompArgOutOfRange)
+	require.ErrorContains(t, err, "negative value -1")
+
+	_, err = UnionSyscalls(applied, base)
+	require.ErrorIs(t, err, ErrSeccompArgOutOfRange)
+}

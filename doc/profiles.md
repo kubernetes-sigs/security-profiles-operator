@@ -51,6 +51,20 @@ $ kubectl label ns spo-test spo.x-k8s.io/enable-recording=
 
 Note that the label value is not important, only its presence matters.
 
+A `ProfileRecording` lives in the namespace of the recorded workload, but the
+profiles it produces are cluster scoped. Each recorded container results in a
+profile named `<recording name>-<container name>`, for example
+`test-recording-nginx`, without the namespace. With the default
+`mergeStrategy: None`, the profiles of the replicas of a replicating
+controller additionally carry the suffix of the pod name, see
+[Merging per-container profile instances](#merging-per-container-profile-instances).
+Recordings with the same name in different namespaces therefore produce
+profiles with the same name, and the first recording which stores a profile
+wins: the operator refuses to overwrite it for the other recording, emits a
+warning event and drops that recording's data. A recording also never replaces
+a profile which was not recorded. Use recording names which are unique across
+the cluster, for example by including the namespace in the name.
+
 ### Seccomp profile
 
 #### Record Seccomp profile
@@ -453,15 +467,10 @@ By default, audit logs go to your standard output in JSON lines format. You can 
    kubectl patch configmap security-profiles-operator-profile -n security-profiles-operator --patch-file patch-volume-source.json
    ```
 
-2. Restart the Operator
+   The operator watches this ConfigMap, so no restart is needed. While the JSON enricher is enabled, a change of the
+   ConfigMap rolls out the `spod` DaemonSet with the new volume.
 
-   The security profiles operator won't automatically pick up ConfigMap changes. You need to restart its pods for the new volume mount to take effect.
-
-   ```sh
-   kubectl rollout restart deployment security-profiles-operator -n security-profiles-operator
-   ```
-
-3. Set the Audit Log File Path
+2. Set the Audit Log File Path
 
    Tell the JSON log enricher the full path to your audit log file (including the filename).
 
@@ -611,10 +620,12 @@ Now, when the administrator enables audit logging on the API server, the webhook
 `SPO_EXEC_REQUEST_UID`. The API server audit log will contain this information. This request ID will also be available
 in the JSON lines produced by the JSON Log Enricher, specifically within the `requestUID` field.
 
-By default, these webhooks are enabled for all the namespaces where JSON Log Enricher is enabled.
+Both webhooks get deployed together with the JSON Log Enricher. By default, `execmetadata.spo.io` applies to all
+namespaces except `kube-system`, `kube-public`, `kube-node-lease` and the operator namespace, and
+`nodedebuggingpod.spo.io` to the debug pods of all namespaces.
 
-`spec.enricher.enableExecMetadata` controls the exec metadata webhook, which gets deployed together with the JSON
-enricher (default `true`). The webhook rewrites every `kubectl exec` into the recorded namespaces to run through the
+`spec.enricher.enableExecMetadata` controls both webhooks (default `true`). The exec metadata webhook rewrites every
+`kubectl exec` into these namespaces to run through the
 `env` binary of the container image, so that the JSON enricher can attribute the syscalls of an exec session to the
 request that started it. Images without an `env` binary then fail to exec. Disable the webhook for such clusters:
 
@@ -655,6 +666,13 @@ details to be passed into `kubectl exec` sessions cluster-wide.
 NOTE: This webhook injects the environment variable `SPO_EXEC_REQUEST_UID` into your exec request. If a container in your Pod
 already defines an environment variable with this exact name, the webhook's injected value will override it for this
 exec session.
+
+The exec attribution is best effort and not audit evidence. The JSON enricher reads `SPO_EXEC_REQUEST_UID` from the
+environment of the process (or from its `env SPO_EXEC_REQUEST_UID=...` command line), and the workload controls both:
+a pod author can set the variable on a container, so that its processes carry a made-up request UID, and a process in
+an exec session can unset or change it before it starts other programs, so that their activity is not attributed to
+the exec request. Use the API server audit log as the record of who started an exec session or a debug pod, and the
+`requestUID` in the JSON lines only to correlate the node activity with it.
 
 When you use `kubectl debug node/<node-name>`, the `nodedebuggingpod.spo.io` webhook automatically injects the
 `SPO_EXEC_REQUEST_UID` environment variable into the debug pod.
@@ -744,6 +762,15 @@ I1115 12:02:48.406908  110307 bpfrecorder.go:677] bpf-recorder "msg"="Unloading 
 I1115 12:02:48.411636  110307 bpfrecorder.go:176] bpf-recorder "msg"="Starting GRPC API server"
 ```
 
+Record the workload in its own namespace, not in the privileged operator
+namespace, and enable recording in it as described in
+[Create and Install Security Profiles](#create-and-install-security-profiles):
+
+```
+kubectl create ns spo-test
+kubectl label ns spo-test spo.x-k8s.io/enable-recording=
+```
+
 You can now set up an AppArmor profile recording for `nginx` container by creating the following configuration:
 
 ```
@@ -752,7 +779,7 @@ apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: ProfileRecording
 metadata:
   name: nginx-recording
-  namespace: security-profiles-operator
+  namespace: spo-test
 spec:
   kind: AppArmorProfile
   recorder: Bpf
@@ -771,7 +798,7 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: nginx-pod
-  namespace: security-profiles-operator
+  namespace: spo-test
   labels:
     app: nginx
 spec:
@@ -786,7 +813,7 @@ We can now let the container run for at least a few minutes to make sure that th
 Stop the nginx pod, this will make the operator save and install the AppArmor profile in the cluster.
 
 ```
-kubectl delete pod -n security-profiles-operator nginx-pod
+kubectl delete pod -n spo-test nginx-pod
 ```
 
 We can check now that the profile was properly installed:
@@ -974,10 +1001,24 @@ I0623 12:51:04.258061 1854764 enricher.go:69] log-enricher "msg"="Reading from f
 2021/06/23 12:51:04 Sought /var/log/audit/audit.log - &{Offset:0 Whence:2}
 ```
 
-To record by using the log enricher, create a `ProfileRecording` which is using
-`recorder: Logs`:
+Record the workload in its own namespace, not in the privileged operator
+namespace, and enable recording in it as described in
+[Create and Install Security Profiles](#create-and-install-security-profiles).
+Only the `privileged` Pod Security Standard allows a custom SELinux type, so
+the namespace has to run on it if the cluster enforces
+[Pod Security Admission](https://kubernetes.io/docs/concepts/security/pod-security-admission/).
+On OpenShift, the workload also needs an SCC which allows the custom type, see
+[Notes on OpenShift and SCCs](troubleshooting.md#notes-on-openshift-and-sccs).
 
-You can now record a SELinux profile for `nginx` container by creating the following `ProfileRecording` configuration:
+```
+kubectl create ns spo-selinux
+kubectl label ns spo-selinux spo.x-k8s.io/enable-recording= \
+  pod-security.kubernetes.io/enforce=privileged
+```
+
+To record by using the log enricher, create a `ProfileRecording` which is using
+`recorder: Logs`. You can now record a SELinux profile for `nginx` container by
+creating the following `ProfileRecording` configuration:
 
 ```
 kubectl apply -f - <<EOF
@@ -985,7 +1026,7 @@ apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: ProfileRecording
 metadata:
   name: nginx-recording
-  namespace: security-profiles-operator
+  namespace: spo-selinux
 spec:
   kind: SelinuxProfile
   recorder: Logs
@@ -995,8 +1036,9 @@ spec:
 EOF
 ```
 
-Now, an nginx container can be started with the SELinux type `selinuxrecording.process` in the security context.
-The operator will record a SELinux profile for it in the background.
+Now, an nginx container can be started. The recording webhook sets the SELinux type `selinuxrecording.process` in
+the security context of its containers, which makes them run permissive and log their AVC denials. The operator will
+record a SELinux profile for it in the background.
 
 ```
 kubectl apply -f - <<EOF
@@ -1004,16 +1046,13 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: nginx-pod
-  namespace: security-profiles-operator
+  namespace: spo-selinux
   labels:
     app: nginx
 spec:
   containers:
     - name: nginx-container
       image: nginx
-      securityContext:
-        seLinuxOptions:
-          type: selinuxrecording.process
 EOF
 ```
 
@@ -1022,7 +1061,7 @@ We can now let the container run for at least a few minutes to make sure that th
 Stop the nginx pod, this will make the operator save and install the SELinux profile in the cluster.
 
 ```
-kubectl delete pod -n security-profiles-operator nginx-pod
+kubectl delete pod -n spo-selinux nginx-pod
 ```
 
 We can check now that the profile was properly installed:
@@ -1033,7 +1072,7 @@ kubectl get selinuxprofile
 # Output should show the selinux profile.
 
 NAME                              USAGE                                     STATUS
-nginx-recording-nginx-container   nginx-recording-nginx-container.process   Partial
+nginx-recording-nginx-container   nginx-recording-nginx-container.process   Installed
 
 # The content of the profile can be inspected.
 
@@ -1051,7 +1090,7 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: nginx-secure
-  namespace: security-profiles-operator
+  namespace: spo-selinux
 spec:
   containers:
     - image: nginxinc/nginx-unprivileged:1.21
@@ -1170,8 +1209,8 @@ spec:
 
 If you're not using runc but the alternative
 [crun](https://github.com/containers/crun), then you can do the same by using
-the [corresponding example profile](../examples/baseprofile-crun.yaml) (tested
-with version 1.30).
+the [corresponding example profile](../examples/baseprofile-crun.yaml) (recorded
+with version 1.30.1).
 
 #### Recording profiles without applying them
 
@@ -1275,11 +1314,29 @@ By default, the signatures of OCI base profiles are verified keyless against
 `spec.security.allowedIdentityRegexp` and `allowedOidcIssuerRegexp` of the
 SPOD. `spec.security.signatureVerification` pins the signer of base profiles
 outside of the official repositories (`registry.k8s.io/security-profiles-operator/`
-and its staging repository) further. Official base profiles are always
-verified against the official keyless signers, so that a key or identity for
+and its staging repository) further. Official base profiles are verified
+against the official keyless signers instead, so that a key or identity for
 private base profiles does not break them. Only `trustedRootConfigMapRef` and
 `offline` apply to official base profiles as well, so that air-gapped clusters
 can verify them against a copy of the public Sigstore trusted root.
+
+Both regexps default to `.*`. Without any further configuration, a private base
+profile is therefore accepted with a valid signature of any signer, for example
+of anybody who signs it keyless through the public Sigstore instance. The
+signature then only proves that the artifact was signed, not who signed it.
+Unlike `signatureVerification`, the regexps apply to the official base profiles
+too once either of them differs from `.*`, so the official base profiles then
+fail to verify unless the regexps also match the official signers. Pin the
+signer of your private base profiles with the `signatureVerification` settings
+below instead, for example to the workflow which signs them:
+
+```yaml
+spec:
+  security:
+    signatureVerification:
+      allowedIdentity: https://github.com/my-org/my-profiles/.github/workflows/sign.yml@refs/heads/main
+      allowedOidcIssuer: https://token.actions.githubusercontent.com
+```
 
 - `allowedIdentity` and `allowedOidcIssuer` require an exact certificate
   identity and OIDC issuer and take precedence over the regexps.
@@ -1355,9 +1412,10 @@ You need to enable the profile binding for a namespace by applying the label
 $ kubectl label ns spo-test spo.x-k8s.io/enable-binding=
 ```
 
-To bind a Pod that uses an 'nginx:1.23.2' image to the 'profile-complain'
-example seccomp profile, create a ProfileBinding in the same namespace as the
-Pod (seccomp profiles are cluster-scoped):
+To bind a Pod that uses an `nginx:1.23.2` image to the `profile-complain-unsafe`
+seccomp profile of [the examples](../examples/seccompprofile.yaml), create a
+ProfileBinding in the same namespace as the Pod (seccomp profiles are
+cluster-scoped):
 
 ```yaml
 apiVersion: security-profiles-operator.x-k8s.io/v1
@@ -1367,7 +1425,7 @@ metadata:
 spec:
   profileRef:
     kind: SeccompProfile
-    name: profile-complain
+    name: profile-complain-unsafe
   image: nginx:1.23.2
 ```
 
@@ -1382,7 +1440,7 @@ metadata:
 spec:
   profileRef:
     kind: SeccompProfile
-    name: profile-complain
+    name: profile-complain-unsafe
   image: "*"
 ```
 
@@ -1401,7 +1459,7 @@ metadata:
 spec:
   profileRef:
     kind: SeccompProfile
-    name: profile-complain
+    name: profile-complain-unsafe
   image: nginx:1.23.2
   podSelector:
     matchLabels:
@@ -1460,7 +1518,7 @@ whether the referenced profile exists:
 
 ```sh
 $ kubectl get profilebinding nginx-binding -o jsonpath='{.status.conditions[?(@.type=="Ready")]}'
-{"lastTransitionTime":"…","message":"SeccompProfile profile-complain not found","reason":"Unavailable","status":"False","type":"Ready"}
+{"lastTransitionTime":"…","message":"SeccompProfile profile-complain-unsafe not found","reason":"Unavailable","status":"False","type":"Ready"}
 ```
 
 #### Merging per-container profile instances
@@ -1484,8 +1542,9 @@ example uses a `SeccompProfile` as the `kind` but the same applies to
 apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: ProfileRecording
 metadata:
-  # The name of the Recording is the same as the resulting `SeccompProfile` CRD
-  # after reconciliation.
+  # Each recorded container results in a `SeccompProfile` named
+  # `<recording name>-<container name>`. Profiles are cluster scoped, so use a
+  # recording name which is unique across all namespaces.
   name: test-recording
 spec:
   kind: SeccompProfile
@@ -1542,9 +1601,9 @@ The profiles will be reconciled, one per container. Note that the profiles are m
 ```bash
 > kubectl get sp -lspo.x-k8s.io/recording-id=test-recording --show-labels
 NAME                                STATUS    AGE     LABELS
-test-recording-nginx-record-gmbrj   Partial   2m50s   spo.x-k8s.io/container-id=sp-record,spo.x-k8s.io/partial=true,spo.x-k8s.io/profile-id=SeccompProfile-test-recording-sp-record-gmbrj,spo.x-k8s.io/recording-id=test-recording
-test-recording-nginx-record-lclnb   Partial   2m50s   spo.x-k8s.io/container-id=sp-record,spo.x-k8s.io/partial=true,spo.x-k8s.io/profile-id=SeccompProfile-test-recording-sp-record-lclnb,spo.x-k8s.io/recording-id=test-recording
-test-recording-nginx-record-wdv2r   Partial   2m50s   spo.x-k8s.io/container-id=sp-record,spo.x-k8s.io/partial=true,spo.x-k8s.io/profile-id=SeccompProfile-test-recording-sp-record-wdv2r,spo.x-k8s.io/recording-id=test-recording
+test-recording-nginx-record-gmbrj   Partial   2m50s   spo.x-k8s.io/container-id=nginx-record,spo.x-k8s.io/partial=true,spo.x-k8s.io/profile-id=SeccompProfile-test-recording-nginx-record-gmbrj,spo.x-k8s.io/recording-id=test-recording
+test-recording-nginx-record-lclnb   Partial   2m50s   spo.x-k8s.io/container-id=nginx-record,spo.x-k8s.io/partial=true,spo.x-k8s.io/profile-id=SeccompProfile-test-recording-nginx-record-lclnb,spo.x-k8s.io/recording-id=test-recording
+test-recording-nginx-record-wdv2r   Partial   2m50s   spo.x-k8s.io/container-id=nginx-record,spo.x-k8s.io/partial=true,spo.x-k8s.io/profile-id=SeccompProfile-test-recording-nginx-record-wdv2r,spo.x-k8s.io/recording-id=test-recording
 ```
 
 Inspecting the first partial profile, which corresponds to the pod where we ran the extra command

@@ -100,10 +100,12 @@ func getArgsEnvData() []byte {
 
 	argsLenOffset := envOffset + MAX_ENV*MAX_ENV_LEN
 
+	//nolint:gosec // a few test values
 	binary.LittleEndian.PutUint32(eventBytes[argsLenOffset:], uint32(len(sampleArgs)))
 
 	envLenOffset := argsLenOffset + 4
 
+	//nolint:gosec // a few test values
 	binary.LittleEndian.PutUint32(eventBytes[envLenOffset:], uint32(len(sampleEnv)))
 
 	return eventBytes

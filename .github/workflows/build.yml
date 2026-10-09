@@ -6,12 +6,20 @@ on:
   release:
     types: [published]
   pull_request:
+  # Scheduled and manual runs rebuild the toolchain image without cache and
+  # skip the builds and tests, see build-image.
+  schedule:
+    - cron: '37 4 * * 1'
+  workflow_dispatch:
 env:
   NIX_VERSION: '2.35.2'
 # Runs on main and releases publish images, spoc binaries and the SBOM, so only
-# pull request runs are cancelled by newer pushes.
+# pull request runs are cancelled by newer pushes. Every push to main gets a
+# group of its own: GitHub cancels the pending run of a group when a newer one
+# queues, even without cancel-in-progress, which would skip the publishing for
+# that commit.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions: {}
@@ -97,7 +105,8 @@ jobs:
           - arm64
           - ppc64le
           - s390x
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+    # Scheduled and manual runs only rebuild the toolchain image.
+    if: github.event_name == 'push' || github.event_name == 'release'
     name: nix / spoc / push / ${{ matrix.arch }}
     runs-on: ubuntu-24.04
     # Releases build the dependencies which are not on cache.nixos.org from
@@ -125,6 +134,8 @@ jobs:
             build/*
 
   provenance-subjects:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     name: spoc / provenance subjects
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -137,7 +148,7 @@ jobs:
 
   spoc-sbom:
     needs: nix-spoc-push
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+    if: github.event_name == 'push' || github.event_name == 'release'
     name: spoc / sbom
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -391,13 +402,19 @@ jobs:
           cache: 'false'
       - run: make test-integration
 
-  # The toolchain image that compiles every released binary. On main it is
-  # built without any cache, pull requests only check that it builds and may
-  # use the caches. The job pushes on main but holds no OIDC token, the
-  # signature and the provenance come from build-image-sign.
+  # The toolchain image that compiles every released binary. It only gets built
+  # when a pull request or a push to main changes its inputs, see
+  # hack/ci/code-changed.sh, and once a week or on a manual run, which pick up
+  # the updates of its base image and of the nix dependencies. Releases never
+  # build it. On main it is built without any cache, pull requests only check
+  # that it builds and may use the caches. The job pushes on main but holds no
+  # OIDC token, the signature and the provenance come from build-image-sign.
+  # It pushes the commit tag and moves the floating tags only while no later
+  # commit of main changes the inputs, see hack/ci/build-image-tags.sh, as the
+  # runs of main can finish out of order.
   build-image:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.build-image == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     # Forks have no Quay credentials, their main branch only builds.
@@ -432,10 +449,7 @@ jobs:
           images: |
             quay.io/security-profiles-operator/build
           tags: |
-            type=raw,value=latest
-            type=ref,event=branch
             type=ref,event=pr
-            type=ref,event=tag
             type=sha,format=long
       - name: Build (and push if needed)
         id: build
@@ -451,11 +465,18 @@ jobs:
           no-cache: ${{ github.event_name != 'pull_request' }}
           cache-from: ${{ github.event_name == 'pull_request' && 'type=gha,scope=build-image' || '' }}
           cache-to: ${{ github.event_name == 'pull_request' && 'type=gha,mode=min,scope=build-image' || '' }}
+      - name: Move the latest and main tags
+        if: env.PUSH == 'true'
+        env:
+          IMAGE: quay.io/security-profiles-operator/build
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: hack/ci/build-image-tags.sh
 
   # This image is the toolchain that compiles every released binary, so it
   # needs the same provenance as the binaries themselves. Without it, anyone
   # who can push to the repository can silently replace the compiler. The job
-  # runs no repository code.
+  # runs no repository code. It signs the digest that build-image pushed, which
+  # the floating tags point to if build-image moved them.
   build-image-sign:
     needs: build-image
     if: github.repository == 'kubernetes-sigs/security-profiles-operator' && github.ref == 'refs/heads/main'
@@ -485,6 +506,32 @@ jobs:
           subject-name: ${{ env.IMAGE }}
           subject-digest: ${{ env.DIGEST }}
           push-to-registry: true
+
+  # Opens an issue, or comments on the open one, when a scheduled rebuild of the
+  # toolchain image fails, like the dependencies workflow. It runs no
+  # repository code.
+  report:
+    needs: [changes, build-image, build-image-sign]
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      issues: write  # required for reporting the failure
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Report the failure
+        run: |
+          title="Scheduled toolchain image build failed"
+          body="The scheduled run $RUN_URL failed, see its build-image and build-image-sign jobs."
+          number=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
+          if [[ -n "$number" ]]; then
+            gh issue comment "$number" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
 
   # Builds the UBI image for the vulnerability scan, the published images are
   # built on Cloud Build. The image of Dockerfile gets scanned by the image

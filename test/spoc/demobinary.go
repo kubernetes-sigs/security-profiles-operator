@@ -23,6 +23,7 @@ package main
 import "C"
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -191,7 +192,7 @@ func main() {
 	}
 
 	if *netTCP {
-		listener, err := net.Listen("tcp", ":0")
+		listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", ":0")
 		if err != nil {
 			log.Fatal("❌ Error starting TCP server:", err)
 		}
@@ -201,7 +202,7 @@ func main() {
 	}
 
 	if *netUDP {
-		server, err := net.ListenPacket("udp", ":0")
+		server, err := (&net.ListenConfig{}).ListenPacket(context.Background(), "udp", ":0")
 		if err != nil {
 			//nolint:gocritic  // gocritic is terminally confused here.
 			log.Fatal("❌ Error starting UDP server:", err)
@@ -222,7 +223,7 @@ func main() {
 	}
 
 	if *netUnix != "" {
-		server, err := net.ListenPacket("unix", *netUnix)
+		server, err := (&net.ListenConfig{}).ListenPacket(context.Background(), "unix", *netUnix)
 		if err != nil {
 			log.Fatal("❌ Error starting Unix server:", err)
 		}
@@ -232,7 +233,7 @@ func main() {
 	}
 
 	if len(subprocess) > 0 {
-		cmd := exec.Command(subprocess[0], subprocess[1:]...)
+		cmd := exec.CommandContext(context.Background(), subprocess[0], subprocess[1:]...)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		cmd.Env = append(os.Environ(), "LOGPREFIX=\t"+os.Getenv(LogPrefixEnvVar))

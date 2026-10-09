@@ -698,9 +698,10 @@ func (r *Reconciler) pullBaseProfile(
 		MaxBlobSize: artifact.MaxRuntimeProfileSize,
 	}
 
-	// The signer settings are meant for private base profiles. The official
-	// ones are always verified against the official signers, so that a key
-	// or an identity for the private base profiles does not break them. The
+	// The signer settings of signatureVerification are meant for private base
+	// profiles. The official ones are verified against the official signers
+	// instead, unless the regexps differ from the default, so that a key or
+	// an identity for the private base profiles does not break them. The
 	// trusted root and offline apply to both, so that air-gapped clusters
 	// can verify the official base profiles as well.
 	official := artifact.IsOfficialArtifact(from)

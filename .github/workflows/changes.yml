@@ -1,14 +1,19 @@
 name: changes
-# Tells whether a change touches more than the documentation, see
-# hack/ci/code-changed.sh. The build, test, olm and image-reproducible
-# workflows call it as their changes job and skip their other jobs unless the
-# code output is true.
+# Tells whether a change touches more than the documentation, and whether it
+# touches the inputs of the toolchain image, see hack/ci/code-changed.sh. The
+# build, codeql, test, olm and image-reproducible workflows call it as their
+# changes job and skip their other jobs unless the code output is true. The
+# build workflow builds the toolchain image only if the build-image output is
+# true.
 on:
   workflow_call:
     outputs:
       code:
         description: Whether the change touches more than the documentation
         value: ${{ jobs.changes.outputs.code }}
+      build-image:
+        description: Whether the change touches the inputs of the toolchain image
+        value: ${{ jobs.changes.outputs.build-image }}
 
 permissions: {}
 
@@ -18,6 +23,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       code: ${{ steps.changes.outputs.code }}
+      build-image: ${{ steps.changes.outputs.build-image }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -26,4 +32,7 @@ jobs:
       - id: changes
         env:
           EVENT_NAME: ${{ github.event_name }}
+          # The previous head of the branch for a push, fetched if a push
+          # brings more than one commit.
+          BEFORE: ${{ github.event.before }}
         run: hack/ci/code-changed.sh

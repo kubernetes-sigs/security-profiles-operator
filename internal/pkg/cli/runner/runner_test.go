@@ -149,7 +149,7 @@ func TestRun(t *testing.T) {
 		{
 			name: "failure on CommandWait keeps the exit code",
 			prepare: func(mock *runnerfakes.FakeImpl) {
-				mock.CommandWaitReturns(exec.Command("sh", "-c", "exit 42").Run())
+				mock.CommandWaitReturns(exec.CommandContext(t.Context(), "sh", "-c", "exit 42").Run())
 			},
 			assert: func(err error) {
 				code, exited := command.ExitCode(err)

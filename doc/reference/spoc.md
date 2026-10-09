@@ -58,15 +58,15 @@ convert a security profile to its raw format
 
 ### install, i
 
-install a security profile on the local machine
+install an AppArmor profile on the local machine
 
 ### remove, rm
 
-remove a security profile from the local machine
+remove an AppArmor profile from the local machine
 
 ### run, x
 
-run a command using a security profile
+run a command using a seccomp profile
 
 **--privileged**: do not drop sudo privileges when running the target command
 
@@ -76,7 +76,7 @@ run a command using a security profile
 
 ### push, p
 
-push a profile to a container registry
+push profiles to a container registry
 
 **--annotations, -a**="": the annotations to be set in `KEY:VALUE` format
 
@@ -92,7 +92,7 @@ push a profile to a container registry
 
 **--platforms, -p, --platform**="": the platforms to be used in format: os[/arch][/variant][:os_version], one per profile; without platforms, the single profile is platform independent and gets pulled on every platform
 
-**--profiles, -f**="": the profiles to be used (profile CRD YAML or raw runtime-spec seccomp JSON) (default: profile.yaml)
+**--profiles, -f, --profile**="": the profiles to be used (profile CRD YAML or raw runtime-spec seccomp JSON) (default: profile.yaml)
 
 **--username, -u**="": the username for registry authentication (default: $SPOC_USERNAME), the password is read from $SPOC_PASSWORD or with --password-stdin from stdin; without both, the docker config credentials are used; $USERNAME and $PASSWORD are deprecated and still used with a warning
 

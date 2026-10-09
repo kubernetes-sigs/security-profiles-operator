@@ -19,6 +19,7 @@ limitations under the License.
 package e2e_test
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math/rand/v2"
@@ -47,7 +48,8 @@ const (
 )
 
 // kindSHA512 are the checksums of the kind binaries, keyed by
-// runtime.GOOS + "-" + runtime.GOARCH.
+// runtime.GOOS + "-" + runtime.GOARCH. hack/kind-with-registry.sh has them too,
+// dependencies.yaml tracks them in both files.
 //
 //nolint:lll // full length SHA
 var kindSHA512 = map[string]string{
@@ -424,7 +426,8 @@ func (e *kinde2e) SetupTest() {
 	e.logf("Deploying the cluster")
 	e.clusterName = fmt.Sprintf("spo-e2e-%d", time.Now().Unix())
 
-	cmd := exec.Command(
+	cmd := exec.CommandContext(
+		context.Background(),
 		e.kindPath, "create", "cluster",
 		"--name="+e.clusterName,
 		"--image="+kindImage,

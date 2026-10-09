@@ -55,7 +55,7 @@ func Flags() []ucli.Flag {
 	flags := []ucli.Flag{
 		&ucli.StringSliceFlag{
 			Name:        FlagProfiles,
-			Aliases:     []string{"f"},
+			Aliases:     []string{"f", flagProfileAlias},
 			Usage:       "the profiles to be used (profile CRD YAML or raw runtime-spec seccomp JSON)",
 			DefaultText: DefaultInputFile,
 			TakesFile:   true,

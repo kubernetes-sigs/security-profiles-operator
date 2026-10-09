@@ -18,8 +18,8 @@ every node into the profile status:
 
 ```sh
 $ kubectl get seccompprofiles
-NAME            STATUS      AGE
-profile-block   Installed   2m
+NAME                STATUS      AGE
+profile-block-all   Installed   2m
 ```
 
 The state of each node is available from the `SecurityProfileNodeStatus`
@@ -28,14 +28,14 @@ installed everywhere:
 
 ```sh
 $ kubectl get securityprofilenodestatuses -o wide
-NAME                            STATUS      AGE   NODE
-profile-block-node-1            Installed   2m    node-1
+NAME                                      STATUS      AGE   NODE
+seccompprofile-profile-block-all-node-1   Installed   2m    node-1
 ```
 
 The events of the profile carry the error message of a failed installation:
 
 ```sh
-kubectl describe seccompprofile profile-block
+kubectl describe seccompprofile profile-block-all
 ```
 
 The `spod` daemon installs the profiles on each node, so its logs show how
@@ -51,8 +51,8 @@ files exist:
 
 ```sh
 $ kubectl -n security-profiles-operator exec ds/spod -c security-profiles-operator -- ls /var/lib/kubelet/seccomp/operator
-profile-block.json
-profile-complain.json
+profile-block-all.json
+profile-complain-unsafe.json
 ```
 
 Please note that corrupted seccomp profiles can disrupt your workloads.

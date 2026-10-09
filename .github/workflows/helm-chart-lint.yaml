@@ -5,10 +5,12 @@ on:
     branches:
       - main
   pull_request:
-# Only pull request runs are cancelled by newer pushes, runs on main or for a
-# release always complete.
+# Only pull request runs are cancelled by newer pushes. Every push to main gets
+# a group of its own: GitHub cancels the pending run of a group when a newer
+# one queues, even without cancel-in-progress, which would leave that commit
+# untested.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions: {}

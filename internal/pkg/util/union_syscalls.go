@@ -26,8 +26,16 @@ import (
 func UnionSyscalls(
 	syscalls, appliedSyscalls []seccompprofile.Syscall,
 ) ([]seccompprofile.Syscall, error) {
-	left := syscallsToOCI(syscalls)
-	right := syscallsToOCI(appliedSyscalls)
+	left, err := syscallsToOCI(syscalls)
+	if err != nil {
+		return nil, err
+	}
+
+	right, err := syscallsToOCI(appliedSyscalls)
+	if err != nil {
+		return nil, err
+	}
+
 	merged := seccomp.UnionSyscalls(left, right)
 
 	return syscallsFromOCI(merged)

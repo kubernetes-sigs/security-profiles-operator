@@ -76,7 +76,7 @@ type impl interface {
 	PodListerWatcher(c kubernetes.Interface, nodeName string) podindex.ListerWatcher
 	AuditInc(ctx context.Context, client api.MetricsClient) (api.Metrics_AuditIncClient, error)
 	SendMetric(client api.Metrics_AuditIncClient, in *api.AuditRequest) error
-	Listen(string, string) (net.Listener, error)
+	Listen(context.Context, string, string) (net.Listener, error)
 	Serve(*grpc.Server, net.Listener) error
 	Chown(string, int, int) error
 	Stat(string) (os.FileInfo, error)
@@ -170,8 +170,8 @@ func (d *defaultImpl) Serve(grpcServer *grpc.Server, listener net.Listener) erro
 	return grpcServer.Serve(listener)
 }
 
-func (d *defaultImpl) Listen(network, address string) (net.Listener, error) {
-	return net.Listen(network, address)
+func (d *defaultImpl) Listen(ctx context.Context, network, address string) (net.Listener, error) {
+	return (&net.ListenConfig{}).Listen(ctx, network, address)
 }
 
 func (d *defaultImpl) Chown(name string, uid, gid int) error {

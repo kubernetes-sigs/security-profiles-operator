@@ -413,7 +413,7 @@ func (e *Enricher) Run(ctx context.Context) error {
 
 	go e.metrics.Run(metricsCtx)
 
-	if err := e.startGrpcServer(); err != nil {
+	if err := e.startGrpcServer(ctx); err != nil {
 		return fmt.Errorf("start GRPC server: %w", err)
 	}
 	defer func() {
@@ -555,7 +555,7 @@ func (e *Enricher) sendMetric(req *apimetrics.AuditRequest) {
 	}
 }
 
-func (e *Enricher) startGrpcServer() error {
+func (e *Enricher) startGrpcServer(ctx context.Context) error {
 	e.logger.Info("Starting GRPC server API")
 
 	if _, err := e.Stat(config.GRPCServerSocketEnricher); err == nil {
@@ -564,7 +564,7 @@ func (e *Enricher) startGrpcServer() error {
 		}
 	}
 
-	listener, err := e.Listen("unix", config.GRPCServerSocketEnricher)
+	listener, err := e.Listen(ctx, "unix", config.GRPCServerSocketEnricher)
 	if err != nil {
 		return fmt.Errorf("create listener: %w", err)
 	}

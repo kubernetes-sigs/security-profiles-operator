@@ -240,7 +240,7 @@ func newApp() *cli.App {
 	app.Name = config.OperatorName
 	app.Usage = "Kubernetes Security Profiles Operator"
 	app.Description = "The Security Profiles Operator makes it easier for cluster admins " +
-		"to manage their seccomp or AppArmor profiles and apply them to Kubernetes' workloads."
+		"to manage their seccomp, AppArmor or SELinux profiles and apply them to Kubernetes' workloads."
 
 	app.Commands = append(app.Commands,
 		managerCommand(info),
@@ -1353,7 +1353,7 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 		return fmt.Errorf("register metrics: %w", err)
 	}
 
-	if err := met.ServeGRPC(); err != nil {
+	if err := met.ServeGRPC(ctx.Context); err != nil {
 		return fmt.Errorf("start metrics grpc server: %w", err)
 	}
 	defer met.GracefulStop()
@@ -1751,15 +1751,15 @@ func setupEnabledControllers(
 // It passes the arguments after the command name, which do not depend on the
 // global flags given before it.
 func runCLI(ctx *cli.Context) error {
-	return runSpoc(ctx.Args().Slice(), os.Stdin, os.Stdout, os.Stderr)
+	return runSpoc(ctx.Context, ctx.Args().Slice(), os.Stdin, os.Stdout, os.Stderr)
 }
 
 // runSpoc runs the spoc executable found in $PATH with the provided
 // arguments. The exit code of spoc becomes the one of this process, so that
 // scripts can tell a failed spoc invocation apart from a successful one.
-func runSpoc(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
+func runSpoc(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	//nolint:gosec // it's intentional to pass all other args here
-	c := exec.Command(spocCmd, args...)
+	c := exec.CommandContext(ctx, spocCmd, args...)
 	// For --password-stdin and the interactive OIDC sign-in.
 	c.Stdin = stdin
 	c.Stdout = stdout

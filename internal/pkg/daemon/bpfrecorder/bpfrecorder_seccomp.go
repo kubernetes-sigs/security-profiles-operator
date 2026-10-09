@@ -171,7 +171,7 @@ func (s *SeccompRecorder) syscallNameForID(b *BpfRecorder, id int) (string, erro
 		return item, nil
 	}
 
-	name, err := b.GetName(seccomp.ScmpSyscall(id))
+	name, err := b.GetName(seccomp.ScmpSyscall(id)) //nolint:gosec // an index of the syscalls map
 	if err != nil {
 		return "", fmt.Errorf("get syscall name for ID %d: %w", id, err)
 	}

@@ -1,7 +1,8 @@
 name: dependencies
-# Checks the pinned selinuxd images and scans main and the published images
-# for vulnerabilities once a week, which new releases and advisories can affect
-# without any change here. Opens an issue when a scheduled run fails.
+# Checks the pinned selinuxd images and the pinned versions of
+# dependencies.yaml against their upstreams, and scans main and the published
+# images for vulnerabilities once a week, which new releases and advisories can
+# affect without any change here. Opens an issue when a scheduled run fails.
 on:
   schedule:
     - cron: '17 6 * * 1'
@@ -25,6 +26,28 @@ jobs:
           go-version-file: ./go.mod
       - name: Check the selinuxd digests
         run: hack/update-selinuxd.sh --check
+
+  # The versions of dependencies.yaml against the releases of their upstreams,
+  # make verify only checks that the files reference them. Fails with the
+  # available updates.
+  upstream:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read  # required for the checkout
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ./go.mod
+      - name: Check for upstream updates
+        env:
+          # zeitgeist lists the releases of the GitHub upstreams, which exceeds
+          # the rate limit of the API without a token.
+          GITHUB_TOKEN: ${{ github.token }}
+        run: make verify-dependencies-upstream
 
   # Reachable vulnerabilities in the code of main, like make verify.
   vulnerabilities:
@@ -79,7 +102,7 @@ jobs:
   # Opens an issue, or comments on the open one, when a scheduled run fails.
   # It runs no repository code.
   report:
-    needs: [selinuxd, vulnerabilities, image-scan]
+    needs: [selinuxd, upstream, vulnerabilities, image-scan]
     if: failure() && github.event_name == 'schedule'
     runs-on: ubuntu-24.04
     timeout-minutes: 5

@@ -283,7 +283,7 @@ type FakeImpl struct {
 	isCgroupV2ReturnsOnCall map[int]struct {
 		result1 bool
 	}
-	ListenStub        func(string, string) (net.Listener, error)
+	ListenStub        func(context.Context, string, string) (net.Listener, error)
 	listenMutex       sync.RWMutex
 	listenArgsForCall []FakeImplListenArgs
 	listenReturns     struct {
@@ -573,8 +573,9 @@ type FakeImplInitRingBufArgs struct {
 
 // FakeImplListenArgs holds the arguments of one call to Listen.
 type FakeImplListenArgs struct {
-	Arg1 string
+	Arg1 context.Context
 	Arg2 string
+	Arg3 string
 }
 
 // FakeImplMapKeysArgs holds the arguments of one call to MapKeys.
@@ -2294,16 +2295,16 @@ func (fake *FakeImpl) IsCgroupV2ReturnsOnCall(i int, result1 bool) {
 	}{result1}
 }
 
-func (fake *FakeImpl) Listen(arg1 string, arg2 string) (net.Listener, error) {
+func (fake *FakeImpl) Listen(arg1 context.Context, arg2 string, arg3 string) (net.Listener, error) {
 	fake.listenMutex.Lock()
 	ret, specificReturn := fake.listenReturnsOnCall[len(fake.listenArgsForCall)]
-	fake.listenArgsForCall = append(fake.listenArgsForCall, FakeImplListenArgs{arg1, arg2})
+	fake.listenArgsForCall = append(fake.listenArgsForCall, FakeImplListenArgs{arg1, arg2, arg3})
 	stub := fake.ListenStub
 	fakeReturns := fake.listenReturns
-	fake.recordInvocation("Listen", []interface{}{arg1, arg2})
+	fake.recordInvocation("Listen", []interface{}{arg1, arg2, arg3})
 	fake.listenMutex.Unlock()
 	if stub != nil {
-		return stub(arg1, arg2)
+		return stub(arg1, arg2, arg3)
 	}
 	if specificReturn {
 		return ret.result1, ret.result2
@@ -2317,17 +2318,17 @@ func (fake *FakeImpl) ListenCallCount() int {
 	return len(fake.listenArgsForCall)
 }
 
-func (fake *FakeImpl) ListenCalls(stub func(string, string) (net.Listener, error)) {
+func (fake *FakeImpl) ListenCalls(stub func(context.Context, string, string) (net.Listener, error)) {
 	fake.listenMutex.Lock()
 	defer fake.listenMutex.Unlock()
 	fake.ListenStub = stub
 }
 
-func (fake *FakeImpl) ListenArgsForCall(i int) (string, string) {
+func (fake *FakeImpl) ListenArgsForCall(i int) (context.Context, string, string) {
 	fake.listenMutex.RLock()
 	defer fake.listenMutex.RUnlock()
 	argsForCall := fake.listenArgsForCall[i]
-	return argsForCall.Arg1, argsForCall.Arg2
+	return argsForCall.Arg1, argsForCall.Arg2, argsForCall.Arg3
 }
 
 func (fake *FakeImpl) ListenArgs() []FakeImplListenArgs {
