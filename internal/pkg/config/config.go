@@ -118,6 +118,10 @@ const (
 	// access to metrics endpoint.
 	EnableInsecureMetricsAccessEnvKey = "ENABLE_INSECURE_METRICS_ACCESS"
 
+	// MaxMetricSeriesEnvKey is the environment variable key for the number of
+	// series each per workload metric of the daemon keeps at most.
+	MaxMetricSeriesEnvKey = "MAX_METRIC_SERIES"
+
 	// VerboseLevel is the increased verbosity log level.
 	VerboseLevel = 1
 

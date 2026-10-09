@@ -47,6 +47,8 @@ type ProfileManager interface {
 	// ownedByUs reports that the caller has independent evidence that this
 	// operator installed the profile on this node. It is what allows unloading
 	// a profile whose policy file is gone, because a container runtime loads its
-	// default profile without any file to establish ownership from.
-	RemoveProfile(p profilebaseapi.StatusBaseUser, ownedByUs bool) error
+	// default profile without any file to establish ownership from. It reports
+	// whether it unloaded the profile or removed its policy file, which it
+	// does not for a profile which is not ours or not on the host.
+	RemoveProfile(p profilebaseapi.StatusBaseUser, ownedByUs bool) (bool, error)
 }

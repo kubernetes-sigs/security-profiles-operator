@@ -164,9 +164,12 @@ the namespaces selected by the recording webhook (by default the ones labeled wi
 tenants cannot grant this to themselves. On clusters without the ValidatingAdmissionPolicy API
 the policy is skipped.
 
-Profiles recorded into a profile which already exists, but was not recorded by the same
-`ProfileRecording`, are dropped. That keeps recordings from overwriting profiles which were
-written by an admin or recorded by another namespace.
+The recording annotations of a pod are only accepted if the deployed recording webhook applies
+to the pod and its namespace and a `ProfileRecording` of the namespace selects the pod, as the
+pod author controls the annotations of the other pods. Profiles recorded into a profile which
+already exists, but was not recorded by the same `ProfileRecording`, are dropped. That keeps
+recordings from overwriting profiles which were written by an admin or recorded by another
+namespace.
 
 ## Control Plane RBAC
 
@@ -202,7 +205,9 @@ API groups of its role.
 
 ### spod
 
-- Cluster wide: events (`events.k8s.io`), nodes and pods (read), tokenreviews
+- Cluster wide: events (`events.k8s.io`), nodes and pods (read), get on namespaces and on the
+  `spo-mutating-webhook-configuration` (`admissionregistration.k8s.io`) to check that the
+  recording webhook applies to a recorded pod and its namespace, tokenreviews
   (`authentication.k8s.io`) and subjectaccessreviews (`authorization.k8s.io`) for the metrics,
   OpenShift apiservers and clusteroperators (`config.openshift.io`, read), for the TLS profile
   of the metrics endpoint.

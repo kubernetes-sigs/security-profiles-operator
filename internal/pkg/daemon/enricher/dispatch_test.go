@@ -114,7 +114,8 @@ func TestDispatchSelinuxLine(t *testing.T) {
 	t.Parallel()
 
 	info := &types.ContainerInfo{
-		PodName: pod, Namespace: namespace, ContainerName: "container", RecordProfile: "profile",
+		PodName: pod, Namespace: namespace, ContainerName: "container",
+		SeccompRecordProfile: "seccomp-profile", SelinuxRecordProfile: "profile",
 	}
 
 	sut, mock := newDispatchSut(t, nil)
@@ -132,11 +133,13 @@ func TestDispatchSelinuxLine(t *testing.T) {
 	require.Equal(t, line.Tcontext, req.GetSelinuxReq().GetTcontext())
 	require.Nil(t, req.GetSeccompReq())
 
-	// Every permission is recorded on its own.
-	item := sut.avcs.Get("profile")
-	require.NotNil(t, item)
+	// Every permission is recorded on its own, for the SELinux profile only.
+	_, found := sut.syscalls.get("seccomp-profile", false)
+	require.False(t, found)
 
-	avcs := item.Value().UnsortedList()
+	avcs, found := sut.avcs.get("profile", false)
+	require.True(t, found)
+
 	perms := make([]string, 0, len(avcs))
 
 	for _, avcJSON := range avcs {
@@ -158,7 +161,7 @@ func TestDispatchSelinuxLineWithoutRecording(t *testing.T) {
 	sut.dispatchSelinuxLine(node, selinuxTestLine(), &types.ContainerInfo{Namespace: namespace})
 
 	sentMetric(t, mock)
-	require.Zero(t, sut.avcs.Len())
+	require.Zero(t, sut.avcs.data.Len())
 }
 
 // TestDispatchSelinuxLineFiltered asserts that a filtered line is neither
@@ -169,10 +172,11 @@ func TestDispatchSelinuxLineFiltered(t *testing.T) {
 	sut, mock := newDispatchSut(t, filterNamespace())
 
 	sut.dispatchSelinuxLine(node, selinuxTestLine(), &types.ContainerInfo{
-		Namespace: namespace, RecordProfile: "profile",
+		Namespace: namespace, SelinuxRecordProfile: "profile",
 	})
 
-	require.NotNil(t, sut.avcs.Get("profile"))
+	_, found := sut.avcs.get("profile", false)
+	require.True(t, found)
 	require.Never(t, func() bool {
 		return mock.SendMetricCallCount() > 0
 	}, 100*time.Millisecond, time.Millisecond)
@@ -201,8 +205,8 @@ func TestDispatchApparmorLine(t *testing.T) {
 	require.Nil(t, req.GetSelinuxReq())
 
 	// AppArmor lines are not recorded.
-	require.Zero(t, sut.avcs.Len())
-	require.Zero(t, sut.syscalls.Len())
+	require.Zero(t, sut.avcs.data.Len())
+	require.Zero(t, sut.syscalls.data.Len())
 }
 
 func TestDispatchApparmorLineFiltered(t *testing.T) {
@@ -243,9 +247,51 @@ func TestDispatchSelinuxLineSkipsInvalidAvc(t *testing.T) {
 	line.Tcontext = "\xff"
 
 	sut.dispatchSelinuxLine(node, line, &types.ContainerInfo{
-		Namespace: namespace, RecordProfile: "profile",
+		Namespace: namespace, SelinuxRecordProfile: "profile",
 	})
 
 	sentMetric(t, mock)
-	require.Zero(t, sut.avcs.Len())
+	require.Zero(t, sut.avcs.data.Len())
+}
+
+// TestDispatchRecordsPerKind asserts that a container recorded for seccomp and
+// SELinux at the same time gets its syscalls and AVCs recorded for the profile
+// of each, and that nothing gets recorded for a collected profile.
+func TestDispatchRecordsPerKind(t *testing.T) {
+	t.Parallel()
+
+	sut, _ := newDispatchSut(t, filterNamespace())
+
+	info := &types.ContainerInfo{
+		Namespace:            namespace,
+		SeccompRecordProfile: "seccomp-profile",
+		SelinuxRecordProfile: "selinux-profile",
+	}
+	seccompLine := &types.AuditLine{AuditType: types.AuditTypeSeccomp, SystemCallID: 0}
+
+	require.NoError(t, sut.dispatchAuditLine(node, seccompLine, info))
+	require.NoError(t, sut.dispatchAuditLine(node, selinuxTestLine(), info))
+
+	syscalls, found := sut.syscalls.get("seccomp-profile", false)
+	require.True(t, found)
+	require.Len(t, syscalls, 1)
+
+	avcs, found := sut.avcs.get("selinux-profile", false)
+	require.True(t, found)
+	require.Len(t, avcs, 2)
+
+	_, found = sut.syscalls.get("selinux-profile", false)
+	require.False(t, found)
+
+	_, found = sut.avcs.get("seccomp-profile", false)
+	require.False(t, found)
+
+	sut.syscalls.reset("seccomp-profile")
+	sut.avcs.reset("selinux-profile")
+
+	require.NoError(t, sut.dispatchAuditLine(node, seccompLine, info))
+	require.NoError(t, sut.dispatchAuditLine(node, selinuxTestLine(), info))
+
+	require.Zero(t, sut.syscalls.data.Len())
+	require.Zero(t, sut.avcs.data.Len())
 }

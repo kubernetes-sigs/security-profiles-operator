@@ -114,16 +114,12 @@ func (c *containerInfos) changed() <-chan struct{} {
 func containerInfoOf(pod *v1.Pod, containerID string) *types.ContainerInfo {
 	containerName, _ := podindex.ContainerName(pod, containerID)
 
-	recordProfile, ok := pod.Annotations[config.SeccompProfileRecordLogsAnnotationKey+containerName]
-	if !ok {
-		recordProfile = pod.Annotations[config.SelinuxProfileRecordLogsAnnotationKey+containerName]
-	}
-
 	return &types.ContainerInfo{
-		PodName:       pod.Name,
-		ContainerName: containerName,
-		Namespace:     pod.Namespace,
-		ContainerID:   containerID,
-		RecordProfile: recordProfile,
+		PodName:              pod.Name,
+		ContainerName:        containerName,
+		Namespace:            pod.Namespace,
+		ContainerID:          containerID,
+		SeccompRecordProfile: pod.Annotations[config.SeccompProfileRecordLogsAnnotationKey+containerName],
+		SelinuxRecordProfile: pod.Annotations[config.SelinuxProfileRecordLogsAnnotationKey+containerName],
 	}
 }

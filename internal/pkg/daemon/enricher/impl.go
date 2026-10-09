@@ -66,7 +66,11 @@ type impl interface {
 	Lines(tailFile *tailer.Tailer) <-chan string
 	Reason(tailFile *tailer.Tailer) error
 	StopTail(tailFile *tailer.Tailer)
-	ContainerIDForPID(cache *ttlcache.Cache[string, string], pid int) (string, error)
+	// ContainerIDForPID returns the container ID of the process with the PID
+	// and when it started, relative to the boot.
+	ContainerIDForPID(
+		cache *ttlcache.Cache[string, string], pid int,
+	) (containerID string, started time.Duration, err error)
 	InClusterConfig() (*rest.Config, error)
 	NewForConfig(c *rest.Config) (*kubernetes.Clientset, error)
 	PodListerWatcher(c kubernetes.Interface, nodeName string) podindex.ListerWatcher
@@ -81,6 +85,7 @@ type impl interface {
 	PrintJsonOutput(w io.Writer, output []byte)
 	EnvForPid(pid int) (map[string]string, error)
 	ProcessStartTime(pid int) (time.Duration, error)
+	Uptime() (time.Duration, error)
 }
 
 func (d *defaultImpl) Dial() (*grpc.ClientConn, error) {
@@ -121,11 +126,15 @@ func (d *defaultImpl) ProcessStartTime(pid int) (time.Duration, error) {
 	return util.ProcessStartTime(pid)
 }
 
+func (d *defaultImpl) Uptime() (time.Duration, error) {
+	return uptime()
+}
+
 func (d *defaultImpl) ContainerIDForPID(
 	cache *ttlcache.Cache[string, string],
 	pid int,
-) (string, error) {
-	return util.ContainerIDForPID(cache, pid)
+) (containerID string, started time.Duration, err error) {
+	return util.ContainerIDAndStartTimeForPID(cache, pid)
 }
 
 func (d *defaultImpl) InClusterConfig() (*rest.Config, error) {

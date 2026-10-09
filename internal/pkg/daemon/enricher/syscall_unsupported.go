@@ -18,7 +18,10 @@ limitations under the License.
 
 package enricher
 
-import "errors"
+import (
+	"errors"
+	"time"
+)
 
 var errUnsupportedPlatform = errors.New("unsupported platform")
 
@@ -31,4 +34,9 @@ func syscallName(int32, string) (string, error) {
 // syscalls.
 func isNativeArch(string) bool {
 	return true
+}
+
+// uptime returns the time since boot.
+func uptime() (time.Duration, error) {
+	return 0, errUnsupportedPlatform
 }

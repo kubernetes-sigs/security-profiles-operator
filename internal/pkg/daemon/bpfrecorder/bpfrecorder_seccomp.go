@@ -75,15 +75,19 @@ func (s *SeccompRecorder) StopRecording(b *BpfRecorder) error {
 }
 
 // Syscalls returns the names of the syscalls recorded for keys. The data stays
-// in the map until Clear is called.
-func (s *SeccompRecorder) Syscalls(b *BpfRecorder, keys []uint64) ([]string, error) {
+// in the map until Clear is called. It fails with errIncompleteRead if the
+// syscalls of a key could not be read, unless allowPartial is set: then it
+// returns the syscalls of the other keys and reports them as incomplete.
+func (s *SeccompRecorder) Syscalls(
+	b *BpfRecorder, keys []uint64, allowPartial bool,
+) (syscalls []string, incomplete bool, err error) {
 	var (
 		merged  []byte
 		lastErr error
 	)
 
 	for _, key := range keys {
-		syscalls, err := b.GetValue64(s.syscalls, key)
+		recorded, err := b.GetValue64(s.syscalls, key)
 		if err != nil {
 			if !errors.Is(err, syscall.ENOENT) {
 				s.logger.Error(err, "Unable to read syscalls", "key", key)
@@ -94,26 +98,29 @@ func (s *SeccompRecorder) Syscalls(b *BpfRecorder, keys []uint64) ([]string, err
 		}
 
 		if merged == nil {
-			merged = make([]byte, len(syscalls))
+			merged = make([]byte, len(recorded))
 		}
 
-		for id, set := range syscalls {
+		for id, set := range recorded {
 			if set == 1 && id < len(merged) {
 				merged[id] = 1
 			}
 		}
 	}
 
-	if merged == nil {
-		if lastErr != nil {
-			return nil, fmt.Errorf("read syscalls: %w", lastErr)
-		}
-
-		// Nothing was recorded, which is not going to change on a retry.
-		return nil, ErrNotFound
+	// The syscalls of the keys which were read are not the complete profile,
+	// which would be stored and the data of all keys dropped afterwards. The
+	// collection is retried instead, until the caller accepts partial data.
+	if lastErr != nil && (!allowPartial || merged == nil) {
+		return nil, false, fmt.Errorf("%w: %w", errIncompleteRead, lastErr)
 	}
 
-	return sortUnique(s.convertSyscallIDsToNames(b, merged)), nil
+	if merged == nil {
+		// Nothing was recorded, which is not going to change on a retry.
+		return nil, false, ErrNotFound
+	}
+
+	return sortUnique(s.convertSyscallIDsToNames(b, merged)), lastErr != nil, nil
 }
 
 // Clear drops the syscalls recorded for keys.

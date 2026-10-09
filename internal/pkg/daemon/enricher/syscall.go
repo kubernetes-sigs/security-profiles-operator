@@ -19,9 +19,12 @@ limitations under the License.
 package enricher
 
 import (
+	"fmt"
 	"runtime"
+	"time"
 
 	seccomp "github.com/seccomp/libseccomp-golang"
+	"golang.org/x/sys/unix"
 )
 
 // auditArches maps the audit architectures (AUDIT_ARCH_* in
@@ -70,4 +73,14 @@ func isNativeArch(arch string) bool {
 	native, ok := nativeAuditArches[runtime.GOARCH]
 
 	return arch == "" || !ok || arch == native
+}
+
+// uptime returns the time since boot, like the start times of processes.
+func uptime() (time.Duration, error) {
+	var ts unix.Timespec
+	if err := unix.ClockGettime(unix.CLOCK_BOOTTIME, &ts); err != nil {
+		return 0, fmt.Errorf("get boot time: %w", err)
+	}
+
+	return time.Duration(ts.Nano()), nil
 }

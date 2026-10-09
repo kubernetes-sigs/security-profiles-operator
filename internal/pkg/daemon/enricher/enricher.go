@@ -65,29 +65,168 @@ const (
 	defaultTimeout time.Duration = time.Minute
 	maxMsgSize     int           = 16 * 1024 * 1024
 	maxCacheItems  uint64        = 1000
+
+	// collectedProfileTimeout is how long the lines of a collected profile
+	// get dropped. The audit log is read with a delay, and the lines can wait
+	// in the backlog of their container for up to backlogTimeout.
+	collectedProfileTimeout = defaultCacheTimeout
+	// maxCollectedItems bounds the collected profiles which are remembered.
+	maxCollectedItems uint64 = 16 * 1024
 )
 
-type syncSet struct {
-	mu  sync.RWMutex
-	set sets.Set[string]
+// recordedData holds what the log recorder recorded per profile, the
+// syscalls or the AVCs, until the profile recorder collected it.
+type recordedData struct {
+	// mu makes collecting a profile atomic with recording for it.
+	mu sync.Mutex
+	// data holds the recordings themselves, not a cache of something
+	// re-derivable: the recorder deletes each entry explicitly once it has
+	// collected the profile. Expiring them on a timer silently truncates any
+	// recording whose workload goes quiet for longer than the TTL, and the
+	// recorder then sees "no syscalls" and writes no profile at all.
+	data *ttlcache.Cache[string, *recording]
+	// collected holds per profile the containers whose recording got
+	// collected. Their lines can be read after that, which would otherwise
+	// record them again for nobody to collect. The lines of other containers,
+	// like the ones of a pod which starts with the same profile after the
+	// collection, are still recorded.
+	collected *ttlcache.Cache[string, sets.Set[string]]
 }
 
-func newSyncSet() *syncSet {
-	return &syncSet{set: sets.New[string]()}
+// recording is what got recorded for a profile, per container.
+type recording struct {
+	containers map[string]sets.Set[string]
+	// collecting holds the containers whose data a collecting get handed
+	// out, which reset drops. It is nil if no collecting get happened.
+	collecting sets.Set[string]
 }
 
-func (s *syncSet) Insert(items ...string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.set.Insert(items...)
+func newRecordedData() *recordedData {
+	return &recordedData{
+		data: ttlcache.New(
+			ttlcache.WithTTL[string, *recording](ttlcache.NoTTL),
+			ttlcache.WithCapacity[string, *recording](maxCacheItems),
+		),
+		collected: ttlcache.New(
+			ttlcache.WithTTL[string, sets.Set[string]](collectedProfileTimeout),
+			ttlcache.WithCapacity[string, sets.Set[string]](maxCollectedItems),
+			ttlcache.WithDisableTouchOnHit[string, sets.Set[string]](),
+		),
+	}
 }
 
-func (s *syncSet) UnsortedList() []string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+// insert records the items of a container for the profile. It reports false
+// if the recording of the container got collected already, then nothing is
+// recorded.
+func (r *recordedData) insert(profile, containerID string, items ...string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
-	return s.set.UnsortedList()
+	if collected := r.collected.Get(profile); collected != nil &&
+		collected.Value().Has(containerID) {
+		return false
+	}
+
+	item, _ := r.data.GetOrSetFunc(profile, func() *recording {
+		return &recording{containers: map[string]sets.Set[string]{}}
+	})
+
+	rec := item.Value()
+
+	recorded, ok := rec.containers[containerID]
+	if !ok {
+		recorded = sets.New[string]()
+		rec.containers[containerID] = recorded
+	}
+
+	recorded.Insert(items...)
+
+	return true
+}
+
+// get returns what got recorded for the profile. With collect, nothing gets
+// recorded afterwards for the containers which recorded it, so that the
+// returned data is all that reset drops. The data stays until then, so that a
+// failed collection can be retried. Nothing is marked as collected if nothing
+// got recorded.
+func (r *recordedData) get(profile string, collect bool) (items []string, found bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	item := r.data.Get(profile)
+	if item == nil {
+		return nil, false
+	}
+
+	rec := item.Value()
+	merged := sets.New[string]()
+
+	for _, recorded := range rec.containers {
+		merged = merged.Union(recorded)
+	}
+
+	if collect {
+		rec.collecting = sets.KeySet(rec.containers)
+		r.markCollected(profile, rec.collecting)
+	}
+
+	return merged.UnsortedList(), true
+}
+
+// reset drops what got recorded for the profile by the containers whose data
+// the last collecting get handed out, or by all of them without one. Nothing
+// gets recorded for these containers afterwards.
+func (r *recordedData) reset(profile string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	item := r.data.Get(profile)
+	if item == nil {
+		return
+	}
+
+	rec := item.Value()
+
+	drop := rec.collecting
+	if drop == nil {
+		drop = sets.KeySet(rec.containers)
+	}
+
+	for containerID := range drop {
+		delete(rec.containers, containerID)
+	}
+
+	r.markCollected(profile, drop)
+
+	rec.collecting = nil
+
+	// A container which started with the same profile while it got
+	// collected keeps its recording.
+	if len(rec.containers) == 0 {
+		r.data.Delete(profile)
+	}
+}
+
+// markCollected adds containers to the collected containers of the profile.
+// It has to be called with mu held.
+func (r *recordedData) markCollected(profile string, containers sets.Set[string]) {
+	collected := containers.Clone()
+	if item := r.collected.Get(profile); item != nil {
+		collected = collected.Union(item.Value())
+	}
+
+	r.collected.Set(profile, collected, ttlcache.DefaultTTL)
+}
+
+// start expires the collected profiles until stop gets called.
+func (r *recordedData) start() {
+	go r.data.Start()
+	go r.collected.Start()
+}
+
+func (r *recordedData) stop() {
+	r.data.Stop()
+	r.collected.Stop()
 }
 
 type LogEnricherOptions struct {
@@ -111,8 +250,8 @@ type Enricher struct {
 	// drained by the Reset* RPCs, but a recording that never completes (pod
 	// force-deleted, recording removed) would otherwise keep its entry for the
 	// lifetime of the daemon, so they are bounded like every other cache here.
-	syscalls        *ttlcache.Cache[string, *syncSet]
-	avcs            *ttlcache.Cache[string, *syncSet]
+	syscalls        *recordedData
+	avcs            *recordedData
 	auditLineCache  *ttlcache.Cache[string, *auditBacklog]
 	enricherFilters []types.EnricherFilterOptions
 	grpcServer      *grpc.Server
@@ -174,24 +313,12 @@ func New(logger logr.Logger, opts *LogEnricherOptions) (*Enricher, error) {
 	}
 
 	e := &Enricher{
-		impl:   newDefaultImpl(logger),
-		source: source,
-		logger: logger,
-		lookup: newContainerLookup(logger),
-		// The syscall and AVC sets are the recording itself, not a cache of
-		// something re-derivable: the recorder deletes each entry explicitly
-		// once it has collected the profile (grpc.go Syscalls/Avcs reset).
-		// Expiring them on a timer silently truncates any recording whose
-		// workload goes quiet for longer than the TTL, and the recorder then
-		// sees "no syscalls" and writes no profile at all.
-		syscalls: ttlcache.New(
-			ttlcache.WithTTL[string, *syncSet](ttlcache.NoTTL),
-			ttlcache.WithCapacity[string, *syncSet](maxCacheItems),
-		),
-		avcs: ttlcache.New(
-			ttlcache.WithTTL[string, *syncSet](ttlcache.NoTTL),
-			ttlcache.WithCapacity[string, *syncSet](maxCacheItems),
-		),
+		impl:     newDefaultImpl(logger),
+		source:   source,
+		logger:   logger,
+		lookup:   newContainerLookup(logger),
+		syscalls: newRecordedData(),
+		avcs:     newRecordedData(),
 		auditLineCache: ttlcache.New(
 			ttlcache.WithTTL[string, *auditBacklog](backlogTimeout),
 			ttlcache.WithCapacity[string, *auditBacklog](maxCacheItems),
@@ -209,13 +336,13 @@ func New(logger logr.Logger, opts *LogEnricherOptions) (*Enricher, error) {
 	// Say plainly when a recording is dropped for capacity. Otherwise the
 	// recorder just reports "no syscalls found" and writes no profile, with
 	// nothing explaining why.
-	for name, cache := range map[string]*ttlcache.Cache[string, *syncSet]{
+	for name, recorded := range map[string]*recordedData{
 		"syscalls": e.syscalls,
 		"avcs":     e.avcs,
 	} {
-		cache.OnEviction(func(
+		recorded.data.OnEviction(func(
 			_ context.Context, reason ttlcache.EvictionReason,
-			item *ttlcache.Item[string, *syncSet],
+			item *ttlcache.Item[string, *recording],
 		) {
 			if reason != ttlcache.EvictionReasonCapacityReached {
 				return
@@ -256,11 +383,11 @@ func (e *Enricher) Run(ctx context.Context) error {
 	go e.auditLineCache.Start()
 	defer e.auditLineCache.Stop()
 
-	go e.syscalls.Start()
-	defer e.syscalls.Stop()
+	e.syscalls.start()
+	defer e.syscalls.stop()
 
-	go e.avcs.Start()
-	defer e.avcs.Stop()
+	e.avcs.start()
+	defer e.avcs.stop()
 
 	e.logger.Info("Connecting to local GRPC server")
 
@@ -336,13 +463,14 @@ func (e *Enricher) processAuditLine(nodeName string, auditLine *types.AuditLine)
 	e.logger.V(config.VerboseLevel).
 		Info("Get container ID for PID", "pid", auditLine.ProcessID)
 
-	cID, err := e.lookup.containerIDForProcess(e.impl, auditLine.ProcessID)
+	cID, err := e.lookup.containerIDForProcess(e.impl, auditLine.ProcessID, auditTime(auditLine))
 	if err != nil {
 		// Nothing is going to tell the container of this line later on:
 		// the process is either gone without having been seen running or
 		// runs outside of a container, and a later line with the same PID
 		// may come from whatever process reused it.
-		if processGone(err) || errors.Is(err, util.ErrContainerIDNotFound) {
+		if processGone(err) || errors.Is(err, util.ErrContainerIDNotFound) ||
+			errors.Is(err, errProcessStartedLater) {
 			e.logger.V(config.VerboseLevel).Info(
 				"Dropping audit line without container",
 				"processID", auditLine.ProcessID, "reason", err.Error(),
@@ -647,7 +775,7 @@ func (e *Enricher) dispatchSelinuxLine(
 	kv := []any{
 		"timestamp", auditLine.TimestampID,
 		"type", auditLine.AuditType,
-		"profile", info.RecordProfile,
+		"profile", info.SelinuxRecordProfile,
 		"node", nodeName,
 		"namespace", info.Namespace,
 		"pod", info.PodName,
@@ -677,7 +805,9 @@ func (e *Enricher) dispatchSelinuxLine(
 		})
 	}
 
-	if info.RecordProfile != "" {
+	if info.SelinuxRecordProfile != "" {
+		avcs := []string{}
+
 		for perm := range strings.SplitSeq(auditLine.Perm, " ") {
 			avc := &apienricher.AvcResponse_SelinuxAvc{
 				Perm:     perm,
@@ -694,10 +824,13 @@ func (e *Enricher) dispatchSelinuxLine(
 				continue
 			}
 
-			item, _ := e.avcs.GetOrSetFunc(info.RecordProfile, newSyncSet)
-			if item != nil {
-				item.Value().Insert(string(jsonBytes))
-			}
+			avcs = append(avcs, string(jsonBytes))
+		}
+
+		if len(avcs) > 0 && !e.avcs.insert(info.SelinuxRecordProfile, info.ContainerID, avcs...) {
+			e.logger.V(config.VerboseLevel).Info(
+				"Dropping AVC of a collected profile", "profile", info.SelinuxRecordProfile,
+			)
 		}
 	}
 }
@@ -757,23 +890,28 @@ func (e *Enricher) dispatchSeccompLine(
 
 	// A recorded profile only covers the native architecture, the syscall
 	// would not be allowed by adding its name.
-	if info.RecordProfile != "" && !isNativeArch(auditLine.Arch) {
+	if info.SeccompRecordProfile != "" && !isNativeArch(auditLine.Arch) {
 		// Keyed by the architecture only, the keys of the profiles would
 		// grow without bound on a long running node.
 		e.warnOnce(
 			"arch/"+auditLine.Arch,
 			"Not recording syscalls of a non-native architecture",
-			"profile", info.RecordProfile, "syscallName", syscallName, "arch", auditLine.Arch,
+			"profile", info.SeccompRecordProfile,
+			"syscallName", syscallName,
+			"arch", auditLine.Arch,
 		)
 
 		return
 	}
 
-	if info.RecordProfile != "" {
-		item, _ := e.syscalls.GetOrSetFunc(info.RecordProfile, newSyncSet)
-		if item != nil {
-			item.Value().Insert(syscallName)
-		}
+	if info.SeccompRecordProfile == "" {
+		return
+	}
+
+	if !e.syscalls.insert(info.SeccompRecordProfile, info.ContainerID, syscallName) {
+		e.logger.V(config.VerboseLevel).Info(
+			"Dropping syscall of a collected profile", "profile", info.SeccompRecordProfile,
+		)
 	}
 }
 

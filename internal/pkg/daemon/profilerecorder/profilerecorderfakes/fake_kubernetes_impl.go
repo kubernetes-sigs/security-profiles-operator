@@ -21,15 +21,16 @@ import (
 	"context"
 	"sync"
 
-	v1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/admissionregistration/v1"
+	v1a "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	controllerruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	v1b "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
-	v1a "sigs.k8s.io/security-profiles-operator/api/spod/v1"
+	v1c "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
+	v1b "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -54,37 +55,59 @@ type FakeKubernetesImpl struct {
 		result1 controllerutil.OperationResult
 		result2 error
 	}
-	GetPodStub        func(context.Context, client.Client, client.ObjectKey) (*v1.Pod, error)
+	GetMutatingWebhookConfigurationStub        func(context.Context, client.Client, string) (*v1.MutatingWebhookConfiguration, error)
+	getMutatingWebhookConfigurationMutex       sync.RWMutex
+	getMutatingWebhookConfigurationArgsForCall []FakeKubernetesImplGetMutatingWebhookConfigurationArgs
+	getMutatingWebhookConfigurationReturns     struct {
+		result1 *v1.MutatingWebhookConfiguration
+		result2 error
+	}
+	getMutatingWebhookConfigurationReturnsOnCall map[int]struct {
+		result1 *v1.MutatingWebhookConfiguration
+		result2 error
+	}
+	GetNamespaceStub        func(context.Context, client.Client, string) (*v1a.Namespace, error)
+	getNamespaceMutex       sync.RWMutex
+	getNamespaceArgsForCall []FakeKubernetesImplGetNamespaceArgs
+	getNamespaceReturns     struct {
+		result1 *v1a.Namespace
+		result2 error
+	}
+	getNamespaceReturnsOnCall map[int]struct {
+		result1 *v1a.Namespace
+		result2 error
+	}
+	GetPodStub        func(context.Context, client.Client, client.ObjectKey) (*v1a.Pod, error)
 	getPodMutex       sync.RWMutex
 	getPodArgsForCall []FakeKubernetesImplGetPodArgs
 	getPodReturns     struct {
-		result1 *v1.Pod
+		result1 *v1a.Pod
 		result2 error
 	}
 	getPodReturnsOnCall map[int]struct {
-		result1 *v1.Pod
+		result1 *v1a.Pod
 		result2 error
 	}
-	GetSPODStub        func(context.Context, client.Client, string) (*v1a.SecurityProfilesOperatorDaemon, error)
+	GetSPODStub        func(context.Context, client.Client, string) (*v1b.SecurityProfilesOperatorDaemon, error)
 	getSPODMutex       sync.RWMutex
 	getSPODArgsForCall []FakeKubernetesImplGetSPODArgs
 	getSPODReturns     struct {
-		result1 *v1a.SecurityProfilesOperatorDaemon
+		result1 *v1b.SecurityProfilesOperatorDaemon
 		result2 error
 	}
 	getSPODReturnsOnCall map[int]struct {
-		result1 *v1a.SecurityProfilesOperatorDaemon
+		result1 *v1b.SecurityProfilesOperatorDaemon
 		result2 error
 	}
-	ListRecordingsStub        func(context.Context, client.Client, string) (*v1b.ProfileRecordingList, error)
+	ListRecordingsStub        func(context.Context, client.Client, string) (*v1c.ProfileRecordingList, error)
 	listRecordingsMutex       sync.RWMutex
 	listRecordingsArgsForCall []FakeKubernetesImplListRecordingsArgs
 	listRecordingsReturns     struct {
-		result1 *v1b.ProfileRecordingList
+		result1 *v1c.ProfileRecordingList
 		result2 error
 	}
 	listRecordingsReturnsOnCall map[int]struct {
-		result1 *v1b.ProfileRecordingList
+		result1 *v1c.ProfileRecordingList
 		result2 error
 	}
 	ManagerGetClientStub        func(manager.Manager) client.Client
@@ -155,6 +178,20 @@ type FakeKubernetesImplCreateOrUpdateArgs struct {
 	Arg2 client.Client
 	Arg3 client.Object
 	Arg4 controllerutil.MutateFn
+}
+
+// FakeKubernetesImplGetMutatingWebhookConfigurationArgs holds the arguments of one call to GetMutatingWebhookConfiguration.
+type FakeKubernetesImplGetMutatingWebhookConfigurationArgs struct {
+	Arg1 context.Context
+	Arg2 client.Client
+	Arg3 string
+}
+
+// FakeKubernetesImplGetNamespaceArgs holds the arguments of one call to GetNamespace.
+type FakeKubernetesImplGetNamespaceArgs struct {
+	Arg1 context.Context
+	Arg2 client.Client
+	Arg3 string
 }
 
 // FakeKubernetesImplGetPodArgs holds the arguments of one call to GetPod.
@@ -340,7 +377,147 @@ func (fake *FakeKubernetesImpl) CreateOrUpdateReturnsOnCall(i int, result1 contr
 	}{result1, result2}
 }
 
-func (fake *FakeKubernetesImpl) GetPod(arg1 context.Context, arg2 client.Client, arg3 client.ObjectKey) (*v1.Pod, error) {
+func (fake *FakeKubernetesImpl) GetMutatingWebhookConfiguration(arg1 context.Context, arg2 client.Client, arg3 string) (*v1.MutatingWebhookConfiguration, error) {
+	fake.getMutatingWebhookConfigurationMutex.Lock()
+	ret, specificReturn := fake.getMutatingWebhookConfigurationReturnsOnCall[len(fake.getMutatingWebhookConfigurationArgsForCall)]
+	fake.getMutatingWebhookConfigurationArgsForCall = append(fake.getMutatingWebhookConfigurationArgsForCall, FakeKubernetesImplGetMutatingWebhookConfigurationArgs{arg1, arg2, arg3})
+	stub := fake.GetMutatingWebhookConfigurationStub
+	fakeReturns := fake.getMutatingWebhookConfigurationReturns
+	fake.recordInvocation("GetMutatingWebhookConfiguration", []interface{}{arg1, arg2, arg3})
+	fake.getMutatingWebhookConfigurationMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeKubernetesImpl) GetMutatingWebhookConfigurationCallCount() int {
+	fake.getMutatingWebhookConfigurationMutex.RLock()
+	defer fake.getMutatingWebhookConfigurationMutex.RUnlock()
+	return len(fake.getMutatingWebhookConfigurationArgsForCall)
+}
+
+func (fake *FakeKubernetesImpl) GetMutatingWebhookConfigurationCalls(stub func(context.Context, client.Client, string) (*v1.MutatingWebhookConfiguration, error)) {
+	fake.getMutatingWebhookConfigurationMutex.Lock()
+	defer fake.getMutatingWebhookConfigurationMutex.Unlock()
+	fake.GetMutatingWebhookConfigurationStub = stub
+}
+
+func (fake *FakeKubernetesImpl) GetMutatingWebhookConfigurationArgsForCall(i int) (context.Context, client.Client, string) {
+	fake.getMutatingWebhookConfigurationMutex.RLock()
+	defer fake.getMutatingWebhookConfigurationMutex.RUnlock()
+	argsForCall := fake.getMutatingWebhookConfigurationArgsForCall[i]
+	return argsForCall.Arg1, argsForCall.Arg2, argsForCall.Arg3
+}
+
+func (fake *FakeKubernetesImpl) GetMutatingWebhookConfigurationArgs() []FakeKubernetesImplGetMutatingWebhookConfigurationArgs {
+	fake.getMutatingWebhookConfigurationMutex.RLock()
+	defer fake.getMutatingWebhookConfigurationMutex.RUnlock()
+	args := make([]FakeKubernetesImplGetMutatingWebhookConfigurationArgs, len(fake.getMutatingWebhookConfigurationArgsForCall))
+	copy(args, fake.getMutatingWebhookConfigurationArgsForCall)
+	return args
+}
+
+func (fake *FakeKubernetesImpl) GetMutatingWebhookConfigurationReturns(result1 *v1.MutatingWebhookConfiguration, result2 error) {
+	fake.getMutatingWebhookConfigurationMutex.Lock()
+	defer fake.getMutatingWebhookConfigurationMutex.Unlock()
+	fake.GetMutatingWebhookConfigurationStub = nil
+	fake.getMutatingWebhookConfigurationReturns = struct {
+		result1 *v1.MutatingWebhookConfiguration
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeKubernetesImpl) GetMutatingWebhookConfigurationReturnsOnCall(i int, result1 *v1.MutatingWebhookConfiguration, result2 error) {
+	fake.getMutatingWebhookConfigurationMutex.Lock()
+	defer fake.getMutatingWebhookConfigurationMutex.Unlock()
+	fake.GetMutatingWebhookConfigurationStub = nil
+	if fake.getMutatingWebhookConfigurationReturnsOnCall == nil {
+		fake.getMutatingWebhookConfigurationReturnsOnCall = make(map[int]struct {
+			result1 *v1.MutatingWebhookConfiguration
+			result2 error
+		})
+	}
+	fake.getMutatingWebhookConfigurationReturnsOnCall[i] = struct {
+		result1 *v1.MutatingWebhookConfiguration
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeKubernetesImpl) GetNamespace(arg1 context.Context, arg2 client.Client, arg3 string) (*v1a.Namespace, error) {
+	fake.getNamespaceMutex.Lock()
+	ret, specificReturn := fake.getNamespaceReturnsOnCall[len(fake.getNamespaceArgsForCall)]
+	fake.getNamespaceArgsForCall = append(fake.getNamespaceArgsForCall, FakeKubernetesImplGetNamespaceArgs{arg1, arg2, arg3})
+	stub := fake.GetNamespaceStub
+	fakeReturns := fake.getNamespaceReturns
+	fake.recordInvocation("GetNamespace", []interface{}{arg1, arg2, arg3})
+	fake.getNamespaceMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeKubernetesImpl) GetNamespaceCallCount() int {
+	fake.getNamespaceMutex.RLock()
+	defer fake.getNamespaceMutex.RUnlock()
+	return len(fake.getNamespaceArgsForCall)
+}
+
+func (fake *FakeKubernetesImpl) GetNamespaceCalls(stub func(context.Context, client.Client, string) (*v1a.Namespace, error)) {
+	fake.getNamespaceMutex.Lock()
+	defer fake.getNamespaceMutex.Unlock()
+	fake.GetNamespaceStub = stub
+}
+
+func (fake *FakeKubernetesImpl) GetNamespaceArgsForCall(i int) (context.Context, client.Client, string) {
+	fake.getNamespaceMutex.RLock()
+	defer fake.getNamespaceMutex.RUnlock()
+	argsForCall := fake.getNamespaceArgsForCall[i]
+	return argsForCall.Arg1, argsForCall.Arg2, argsForCall.Arg3
+}
+
+func (fake *FakeKubernetesImpl) GetNamespaceArgs() []FakeKubernetesImplGetNamespaceArgs {
+	fake.getNamespaceMutex.RLock()
+	defer fake.getNamespaceMutex.RUnlock()
+	args := make([]FakeKubernetesImplGetNamespaceArgs, len(fake.getNamespaceArgsForCall))
+	copy(args, fake.getNamespaceArgsForCall)
+	return args
+}
+
+func (fake *FakeKubernetesImpl) GetNamespaceReturns(result1 *v1a.Namespace, result2 error) {
+	fake.getNamespaceMutex.Lock()
+	defer fake.getNamespaceMutex.Unlock()
+	fake.GetNamespaceStub = nil
+	fake.getNamespaceReturns = struct {
+		result1 *v1a.Namespace
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeKubernetesImpl) GetNamespaceReturnsOnCall(i int, result1 *v1a.Namespace, result2 error) {
+	fake.getNamespaceMutex.Lock()
+	defer fake.getNamespaceMutex.Unlock()
+	fake.GetNamespaceStub = nil
+	if fake.getNamespaceReturnsOnCall == nil {
+		fake.getNamespaceReturnsOnCall = make(map[int]struct {
+			result1 *v1a.Namespace
+			result2 error
+		})
+	}
+	fake.getNamespaceReturnsOnCall[i] = struct {
+		result1 *v1a.Namespace
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeKubernetesImpl) GetPod(arg1 context.Context, arg2 client.Client, arg3 client.ObjectKey) (*v1a.Pod, error) {
 	fake.getPodMutex.Lock()
 	ret, specificReturn := fake.getPodReturnsOnCall[len(fake.getPodArgsForCall)]
 	fake.getPodArgsForCall = append(fake.getPodArgsForCall, FakeKubernetesImplGetPodArgs{arg1, arg2, arg3})
@@ -363,7 +540,7 @@ func (fake *FakeKubernetesImpl) GetPodCallCount() int {
 	return len(fake.getPodArgsForCall)
 }
 
-func (fake *FakeKubernetesImpl) GetPodCalls(stub func(context.Context, client.Client, client.ObjectKey) (*v1.Pod, error)) {
+func (fake *FakeKubernetesImpl) GetPodCalls(stub func(context.Context, client.Client, client.ObjectKey) (*v1a.Pod, error)) {
 	fake.getPodMutex.Lock()
 	defer fake.getPodMutex.Unlock()
 	fake.GetPodStub = stub
@@ -384,33 +561,33 @@ func (fake *FakeKubernetesImpl) GetPodArgs() []FakeKubernetesImplGetPodArgs {
 	return args
 }
 
-func (fake *FakeKubernetesImpl) GetPodReturns(result1 *v1.Pod, result2 error) {
+func (fake *FakeKubernetesImpl) GetPodReturns(result1 *v1a.Pod, result2 error) {
 	fake.getPodMutex.Lock()
 	defer fake.getPodMutex.Unlock()
 	fake.GetPodStub = nil
 	fake.getPodReturns = struct {
-		result1 *v1.Pod
+		result1 *v1a.Pod
 		result2 error
 	}{result1, result2}
 }
 
-func (fake *FakeKubernetesImpl) GetPodReturnsOnCall(i int, result1 *v1.Pod, result2 error) {
+func (fake *FakeKubernetesImpl) GetPodReturnsOnCall(i int, result1 *v1a.Pod, result2 error) {
 	fake.getPodMutex.Lock()
 	defer fake.getPodMutex.Unlock()
 	fake.GetPodStub = nil
 	if fake.getPodReturnsOnCall == nil {
 		fake.getPodReturnsOnCall = make(map[int]struct {
-			result1 *v1.Pod
+			result1 *v1a.Pod
 			result2 error
 		})
 	}
 	fake.getPodReturnsOnCall[i] = struct {
-		result1 *v1.Pod
+		result1 *v1a.Pod
 		result2 error
 	}{result1, result2}
 }
 
-func (fake *FakeKubernetesImpl) GetSPOD(arg1 context.Context, arg2 client.Client, arg3 string) (*v1a.SecurityProfilesOperatorDaemon, error) {
+func (fake *FakeKubernetesImpl) GetSPOD(arg1 context.Context, arg2 client.Client, arg3 string) (*v1b.SecurityProfilesOperatorDaemon, error) {
 	fake.getSPODMutex.Lock()
 	ret, specificReturn := fake.getSPODReturnsOnCall[len(fake.getSPODArgsForCall)]
 	fake.getSPODArgsForCall = append(fake.getSPODArgsForCall, FakeKubernetesImplGetSPODArgs{arg1, arg2, arg3})
@@ -433,7 +610,7 @@ func (fake *FakeKubernetesImpl) GetSPODCallCount() int {
 	return len(fake.getSPODArgsForCall)
 }
 
-func (fake *FakeKubernetesImpl) GetSPODCalls(stub func(context.Context, client.Client, string) (*v1a.SecurityProfilesOperatorDaemon, error)) {
+func (fake *FakeKubernetesImpl) GetSPODCalls(stub func(context.Context, client.Client, string) (*v1b.SecurityProfilesOperatorDaemon, error)) {
 	fake.getSPODMutex.Lock()
 	defer fake.getSPODMutex.Unlock()
 	fake.GetSPODStub = stub
@@ -454,33 +631,33 @@ func (fake *FakeKubernetesImpl) GetSPODArgs() []FakeKubernetesImplGetSPODArgs {
 	return args
 }
 
-func (fake *FakeKubernetesImpl) GetSPODReturns(result1 *v1a.SecurityProfilesOperatorDaemon, result2 error) {
+func (fake *FakeKubernetesImpl) GetSPODReturns(result1 *v1b.SecurityProfilesOperatorDaemon, result2 error) {
 	fake.getSPODMutex.Lock()
 	defer fake.getSPODMutex.Unlock()
 	fake.GetSPODStub = nil
 	fake.getSPODReturns = struct {
-		result1 *v1a.SecurityProfilesOperatorDaemon
+		result1 *v1b.SecurityProfilesOperatorDaemon
 		result2 error
 	}{result1, result2}
 }
 
-func (fake *FakeKubernetesImpl) GetSPODReturnsOnCall(i int, result1 *v1a.SecurityProfilesOperatorDaemon, result2 error) {
+func (fake *FakeKubernetesImpl) GetSPODReturnsOnCall(i int, result1 *v1b.SecurityProfilesOperatorDaemon, result2 error) {
 	fake.getSPODMutex.Lock()
 	defer fake.getSPODMutex.Unlock()
 	fake.GetSPODStub = nil
 	if fake.getSPODReturnsOnCall == nil {
 		fake.getSPODReturnsOnCall = make(map[int]struct {
-			result1 *v1a.SecurityProfilesOperatorDaemon
+			result1 *v1b.SecurityProfilesOperatorDaemon
 			result2 error
 		})
 	}
 	fake.getSPODReturnsOnCall[i] = struct {
-		result1 *v1a.SecurityProfilesOperatorDaemon
+		result1 *v1b.SecurityProfilesOperatorDaemon
 		result2 error
 	}{result1, result2}
 }
 
-func (fake *FakeKubernetesImpl) ListRecordings(arg1 context.Context, arg2 client.Client, arg3 string) (*v1b.ProfileRecordingList, error) {
+func (fake *FakeKubernetesImpl) ListRecordings(arg1 context.Context, arg2 client.Client, arg3 string) (*v1c.ProfileRecordingList, error) {
 	fake.listRecordingsMutex.Lock()
 	ret, specificReturn := fake.listRecordingsReturnsOnCall[len(fake.listRecordingsArgsForCall)]
 	fake.listRecordingsArgsForCall = append(fake.listRecordingsArgsForCall, FakeKubernetesImplListRecordingsArgs{arg1, arg2, arg3})
@@ -503,7 +680,7 @@ func (fake *FakeKubernetesImpl) ListRecordingsCallCount() int {
 	return len(fake.listRecordingsArgsForCall)
 }
 
-func (fake *FakeKubernetesImpl) ListRecordingsCalls(stub func(context.Context, client.Client, string) (*v1b.ProfileRecordingList, error)) {
+func (fake *FakeKubernetesImpl) ListRecordingsCalls(stub func(context.Context, client.Client, string) (*v1c.ProfileRecordingList, error)) {
 	fake.listRecordingsMutex.Lock()
 	defer fake.listRecordingsMutex.Unlock()
 	fake.ListRecordingsStub = stub
@@ -524,28 +701,28 @@ func (fake *FakeKubernetesImpl) ListRecordingsArgs() []FakeKubernetesImplListRec
 	return args
 }
 
-func (fake *FakeKubernetesImpl) ListRecordingsReturns(result1 *v1b.ProfileRecordingList, result2 error) {
+func (fake *FakeKubernetesImpl) ListRecordingsReturns(result1 *v1c.ProfileRecordingList, result2 error) {
 	fake.listRecordingsMutex.Lock()
 	defer fake.listRecordingsMutex.Unlock()
 	fake.ListRecordingsStub = nil
 	fake.listRecordingsReturns = struct {
-		result1 *v1b.ProfileRecordingList
+		result1 *v1c.ProfileRecordingList
 		result2 error
 	}{result1, result2}
 }
 
-func (fake *FakeKubernetesImpl) ListRecordingsReturnsOnCall(i int, result1 *v1b.ProfileRecordingList, result2 error) {
+func (fake *FakeKubernetesImpl) ListRecordingsReturnsOnCall(i int, result1 *v1c.ProfileRecordingList, result2 error) {
 	fake.listRecordingsMutex.Lock()
 	defer fake.listRecordingsMutex.Unlock()
 	fake.ListRecordingsStub = nil
 	if fake.listRecordingsReturnsOnCall == nil {
 		fake.listRecordingsReturnsOnCall = make(map[int]struct {
-			result1 *v1b.ProfileRecordingList
+			result1 *v1c.ProfileRecordingList
 			result2 error
 		})
 	}
 	fake.listRecordingsReturnsOnCall[i] = struct {
-		result1 *v1b.ProfileRecordingList
+		result1 *v1c.ProfileRecordingList
 		result2 error
 	}{result1, result2}
 }

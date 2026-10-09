@@ -54,6 +54,7 @@ const (
 	metricNameSelinuxProfileError   = "selinux_profile_error_total"
 	metricNameAppArmorProfileError  = "apparmor_profile_error_total"
 	metricNameAppArmorProfileDenial = "apparmor_profile_denial_total"
+	metricNameSeriesDropped         = "series_dropped_total"
 
 	// Metrics label values.
 	metricLabelValueProfileUpdate = "update"
@@ -72,6 +73,7 @@ const (
 	metricsLabelTcontext       = "tcontext"
 	metricsLabelMountNamespace = "mount_namespace"
 	metricsLabelApparmor       = "apparmor"
+	metricsLabelMetric         = "metric"
 
 	// HandlerPath is the default path for serving metrics.
 	HandlerPath = "/metrics-spod"
@@ -97,6 +99,7 @@ type Metrics struct {
 	metricAppArmorProfileAudit  *prometheus.CounterVec
 	metricAppArmorProfileError  *prometheus.CounterVec
 	metricAppArmorProfileDenial *prometheus.CounterVec
+	metricSeriesDropped         *prometheus.CounterVec
 	// series drops the idle series of the per workload metrics.
 	series     *seriesTracker
 	stopSeries chan struct{}
@@ -229,12 +232,56 @@ func New() *Metrics {
 				metricsLabelOperation,
 			},
 		),
+		metricSeriesDropped: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name:      metricNameSeriesDropped,
+				Namespace: metricNamespace,
+				Help:      "Amount of per workload metric increments dropped for exceeding the series limit.",
+			},
+			[]string{metricsLabelMetric},
+		),
+	}
+}
+
+// SetMaxSeries sets the number of series each per workload metric keeps at
+// most, zero keeps any number. The increments of further series are dropped
+// and counted in the series_dropped_total metric.
+func (m *Metrics) SetMaxSeries(maxSeries int) {
+	m.series.setMaxSeries(maxSeries)
+}
+
+// incSeries increments the series of a per workload metric.
+func (m *Metrics) incSeries(name string, vec *prometheus.CounterVec, labels ...string) {
+	dropped := m.series.inc(vec, labels...)
+	if dropped == 0 {
+		return
+	}
+
+	m.metricSeriesDropped.WithLabelValues(name).Inc()
+
+	// Only log every so often, a metric at its limit drops a lot.
+	if dropped == 1 || dropped%seriesDropLogInterval == 0 {
+		m.log.Info("Dropping metrics because the metric has too many series",
+			"metric", name, "dropped", dropped)
 	}
 }
 
 // Register iterates over all available metrics and registers them.
 func (m *Metrics) Register() error {
-	for name, collector := range map[string]prometheus.Collector{
+	for name, collector := range m.Collectors() {
+		m.log.Info("Registering metric", "name", name)
+
+		if err := m.impl.Register(collector); err != nil {
+			return fmt.Errorf("register collector for %s metric: %w", name, err)
+		}
+	}
+
+	return nil
+}
+
+// Collectors returns the collectors of all metrics by their name.
+func (m *Metrics) Collectors() map[string]prometheus.Collector {
+	return map[string]prometheus.Collector{
 		metricNameSeccompProfile:        m.metricSeccompProfile,
 		metricNameSeccompProfileAudit:   m.metricSeccompProfileAudit,
 		metricNameSeccompProfileBpf:     m.metricSeccompProfileBpf,
@@ -246,15 +293,8 @@ func (m *Metrics) Register() error {
 		metricNameAppArmorProfileAudit:  m.metricAppArmorProfileAudit,
 		metricNameAppArmorProfileError:  m.metricAppArmorProfileError,
 		metricNameAppArmorProfileDenial: m.metricAppArmorProfileDenial,
-	} {
-		m.log.Info("Registering metric", "name", name)
-
-		if err := m.impl.Register(collector); err != nil {
-			return fmt.Errorf("register collector for %s metric: %w", name, err)
-		}
+		metricNameSeriesDropped:         m.metricSeriesDropped,
 	}
-
-	return nil
 }
 
 // Handler creates an HTTP handler for the metrics.
@@ -282,7 +322,7 @@ func (m *Metrics) IncSeccompProfileDelete() {
 func (m *Metrics) IncSeccompProfileAudit(
 	node, namespace, pod, container, syscall string,
 ) {
-	m.series.inc(m.metricSeccompProfileAudit,
+	m.incSeries(metricNameSeccompProfileAudit, m.metricSeccompProfileAudit,
 		node, namespace, pod, container, syscall,
 	)
 }
@@ -292,7 +332,7 @@ func (m *Metrics) IncSeccompProfileAudit(
 func (m *Metrics) IncSeccompProfileBpf(
 	node, profile string, mountNamespace uint32,
 ) {
-	m.series.inc(m.metricSeccompProfileBpf,
+	m.incSeries(metricNameSeccompProfileBpf, m.metricSeccompProfileBpf,
 		node, strconv.FormatUint(uint64(mountNamespace), 10), profile,
 	)
 }
@@ -320,7 +360,7 @@ func (m *Metrics) IncSelinuxProfileDelete() {
 func (m *Metrics) IncSelinuxProfileAudit(
 	node, namespace, pod, container, scontext, tcontext string,
 ) {
-	m.series.inc(m.metricSelinuxProfileAudit,
+	m.incSeries(metricNameSelinuxProfileAudit, m.metricSelinuxProfileAudit,
 		node, namespace, pod, container, scontext, tcontext,
 	)
 }
@@ -348,7 +388,7 @@ func (m *Metrics) IncAppArmorProfileDelete() {
 func (m *Metrics) IncAppArmorProfileAudit(
 	node, namespace, pod, container, profile, operation, apparmor string,
 ) {
-	m.series.inc(m.metricAppArmorProfileAudit,
+	m.incSeries(metricNameAppArmorProfileAudit, m.metricAppArmorProfileAudit,
 		node, namespace, pod, container, profile, operation, apparmor,
 	)
 

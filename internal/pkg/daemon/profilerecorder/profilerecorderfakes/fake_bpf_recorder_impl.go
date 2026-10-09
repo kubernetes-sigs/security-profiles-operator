@@ -66,7 +66,7 @@ type FakeBpfRecorderImpl struct {
 	resetSyscallsForProfileReturnsOnCall map[int]struct {
 		result1 error
 	}
-	StartBpfRecorderStub        func(context.Context, api_bpfrecorder.BpfRecorderClient) error
+	StartBpfRecorderStub        func(context.Context, api_bpfrecorder.BpfRecorderClient, *api_bpfrecorder.RecordingRequest) error
 	startBpfRecorderMutex       sync.RWMutex
 	startBpfRecorderArgsForCall []FakeBpfRecorderImplStartBpfRecorderArgs
 	startBpfRecorderReturns     struct {
@@ -75,7 +75,7 @@ type FakeBpfRecorderImpl struct {
 	startBpfRecorderReturnsOnCall map[int]struct {
 		result1 error
 	}
-	StopBpfRecorderStub        func(context.Context, api_bpfrecorder.BpfRecorderClient) error
+	StopBpfRecorderStub        func(context.Context, api_bpfrecorder.BpfRecorderClient, *api_bpfrecorder.RecordingRequest) error
 	stopBpfRecorderMutex       sync.RWMutex
 	stopBpfRecorderArgsForCall []FakeBpfRecorderImplStopBpfRecorderArgs
 	stopBpfRecorderReturns     struct {
@@ -125,12 +125,14 @@ type FakeBpfRecorderImplResetSyscallsForProfileArgs struct {
 type FakeBpfRecorderImplStartBpfRecorderArgs struct {
 	Arg1 context.Context
 	Arg2 api_bpfrecorder.BpfRecorderClient
+	Arg3 *api_bpfrecorder.RecordingRequest
 }
 
 // FakeBpfRecorderImplStopBpfRecorderArgs holds the arguments of one call to StopBpfRecorder.
 type FakeBpfRecorderImplStopBpfRecorderArgs struct {
 	Arg1 context.Context
 	Arg2 api_bpfrecorder.BpfRecorderClient
+	Arg3 *api_bpfrecorder.RecordingRequest
 }
 
 // FakeBpfRecorderImplSyscallsForProfileArgs holds the arguments of one call to SyscallsForProfile.
@@ -399,16 +401,16 @@ func (fake *FakeBpfRecorderImpl) ResetSyscallsForProfileReturnsOnCall(i int, res
 	}{result1}
 }
 
-func (fake *FakeBpfRecorderImpl) StartBpfRecorder(arg1 context.Context, arg2 api_bpfrecorder.BpfRecorderClient) error {
+func (fake *FakeBpfRecorderImpl) StartBpfRecorder(arg1 context.Context, arg2 api_bpfrecorder.BpfRecorderClient, arg3 *api_bpfrecorder.RecordingRequest) error {
 	fake.startBpfRecorderMutex.Lock()
 	ret, specificReturn := fake.startBpfRecorderReturnsOnCall[len(fake.startBpfRecorderArgsForCall)]
-	fake.startBpfRecorderArgsForCall = append(fake.startBpfRecorderArgsForCall, FakeBpfRecorderImplStartBpfRecorderArgs{arg1, arg2})
+	fake.startBpfRecorderArgsForCall = append(fake.startBpfRecorderArgsForCall, FakeBpfRecorderImplStartBpfRecorderArgs{arg1, arg2, arg3})
 	stub := fake.StartBpfRecorderStub
 	fakeReturns := fake.startBpfRecorderReturns
-	fake.recordInvocation("StartBpfRecorder", []interface{}{arg1, arg2})
+	fake.recordInvocation("StartBpfRecorder", []interface{}{arg1, arg2, arg3})
 	fake.startBpfRecorderMutex.Unlock()
 	if stub != nil {
-		return stub(arg1, arg2)
+		return stub(arg1, arg2, arg3)
 	}
 	if specificReturn {
 		return ret.result1
@@ -422,17 +424,17 @@ func (fake *FakeBpfRecorderImpl) StartBpfRecorderCallCount() int {
 	return len(fake.startBpfRecorderArgsForCall)
 }
 
-func (fake *FakeBpfRecorderImpl) StartBpfRecorderCalls(stub func(context.Context, api_bpfrecorder.BpfRecorderClient) error) {
+func (fake *FakeBpfRecorderImpl) StartBpfRecorderCalls(stub func(context.Context, api_bpfrecorder.BpfRecorderClient, *api_bpfrecorder.RecordingRequest) error) {
 	fake.startBpfRecorderMutex.Lock()
 	defer fake.startBpfRecorderMutex.Unlock()
 	fake.StartBpfRecorderStub = stub
 }
 
-func (fake *FakeBpfRecorderImpl) StartBpfRecorderArgsForCall(i int) (context.Context, api_bpfrecorder.BpfRecorderClient) {
+func (fake *FakeBpfRecorderImpl) StartBpfRecorderArgsForCall(i int) (context.Context, api_bpfrecorder.BpfRecorderClient, *api_bpfrecorder.RecordingRequest) {
 	fake.startBpfRecorderMutex.RLock()
 	defer fake.startBpfRecorderMutex.RUnlock()
 	argsForCall := fake.startBpfRecorderArgsForCall[i]
-	return argsForCall.Arg1, argsForCall.Arg2
+	return argsForCall.Arg1, argsForCall.Arg2, argsForCall.Arg3
 }
 
 func (fake *FakeBpfRecorderImpl) StartBpfRecorderArgs() []FakeBpfRecorderImplStartBpfRecorderArgs {
@@ -466,16 +468,16 @@ func (fake *FakeBpfRecorderImpl) StartBpfRecorderReturnsOnCall(i int, result1 er
 	}{result1}
 }
 
-func (fake *FakeBpfRecorderImpl) StopBpfRecorder(arg1 context.Context, arg2 api_bpfrecorder.BpfRecorderClient) error {
+func (fake *FakeBpfRecorderImpl) StopBpfRecorder(arg1 context.Context, arg2 api_bpfrecorder.BpfRecorderClient, arg3 *api_bpfrecorder.RecordingRequest) error {
 	fake.stopBpfRecorderMutex.Lock()
 	ret, specificReturn := fake.stopBpfRecorderReturnsOnCall[len(fake.stopBpfRecorderArgsForCall)]
-	fake.stopBpfRecorderArgsForCall = append(fake.stopBpfRecorderArgsForCall, FakeBpfRecorderImplStopBpfRecorderArgs{arg1, arg2})
+	fake.stopBpfRecorderArgsForCall = append(fake.stopBpfRecorderArgsForCall, FakeBpfRecorderImplStopBpfRecorderArgs{arg1, arg2, arg3})
 	stub := fake.StopBpfRecorderStub
 	fakeReturns := fake.stopBpfRecorderReturns
-	fake.recordInvocation("StopBpfRecorder", []interface{}{arg1, arg2})
+	fake.recordInvocation("StopBpfRecorder", []interface{}{arg1, arg2, arg3})
 	fake.stopBpfRecorderMutex.Unlock()
 	if stub != nil {
-		return stub(arg1, arg2)
+		return stub(arg1, arg2, arg3)
 	}
 	if specificReturn {
 		return ret.result1
@@ -489,17 +491,17 @@ func (fake *FakeBpfRecorderImpl) StopBpfRecorderCallCount() int {
 	return len(fake.stopBpfRecorderArgsForCall)
 }
 
-func (fake *FakeBpfRecorderImpl) StopBpfRecorderCalls(stub func(context.Context, api_bpfrecorder.BpfRecorderClient) error) {
+func (fake *FakeBpfRecorderImpl) StopBpfRecorderCalls(stub func(context.Context, api_bpfrecorder.BpfRecorderClient, *api_bpfrecorder.RecordingRequest) error) {
 	fake.stopBpfRecorderMutex.Lock()
 	defer fake.stopBpfRecorderMutex.Unlock()
 	fake.StopBpfRecorderStub = stub
 }
 
-func (fake *FakeBpfRecorderImpl) StopBpfRecorderArgsForCall(i int) (context.Context, api_bpfrecorder.BpfRecorderClient) {
+func (fake *FakeBpfRecorderImpl) StopBpfRecorderArgsForCall(i int) (context.Context, api_bpfrecorder.BpfRecorderClient, *api_bpfrecorder.RecordingRequest) {
 	fake.stopBpfRecorderMutex.RLock()
 	defer fake.stopBpfRecorderMutex.RUnlock()
 	argsForCall := fake.stopBpfRecorderArgsForCall[i]
-	return argsForCall.Arg1, argsForCall.Arg2
+	return argsForCall.Arg1, argsForCall.Arg2, argsForCall.Arg3
 }
 
 func (fake *FakeBpfRecorderImpl) StopBpfRecorderArgs() []FakeBpfRecorderImplStopBpfRecorderArgs {

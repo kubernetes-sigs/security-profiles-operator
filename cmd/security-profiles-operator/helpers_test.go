@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -31,13 +32,20 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/urfave/cli/v2"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 
+	secprofnodestatusv1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/version"
 )
 
@@ -150,34 +158,97 @@ func TestGetEnabledControllers(t *testing.T) {
 func TestDaemonCacheOptions(t *testing.T) {
 	t.Parallel()
 
+	// byObject returns the options of the objects of the type of obj.
+	byObject := func(opts cache.Options, obj client.Object) (cache.ByObject, bool) {
+		t.Helper()
+
+		for o, byObject := range opts.ByObject {
+			if reflect.TypeOf(o) == reflect.TypeOf(obj) {
+				return byObject, true
+			}
+		}
+
+		return cache.ByObject{}, false
+	}
+
 	podOptions := func(opts cache.Options) cache.ByObject {
 		t.Helper()
 
-		require.Len(t, opts.ByObject, 1)
+		byPod, ok := byObject(opts, &corev1.Pod{})
+		require.True(t, ok)
 
-		for obj, byObject := range opts.ByObject {
-			require.IsType(t, &corev1.Pod{}, obj)
-
-			return byObject
-		}
-
-		return cache.ByObject{}
+		return byPod
 	}
 
 	opts := cache.Options{}
 	setDaemonCacheOptions(&opts, "node", false)
 	require.Equal(t, &daemonSyncPeriod, opts.SyncPeriod)
 	require.Nil(t, opts.DefaultLabelSelector)
+	require.Len(t, opts.ByObject, 2)
 	require.Equal(t, fields.OneTermEqualSelector("spec.nodeName", "node"), podOptions(opts).Field)
 	require.Nil(t, podOptions(opts).Label)
 
+	byStatus, ok := byObject(opts, &secprofnodestatusv1.SecurityProfileNodeStatus{})
+	require.True(t, ok, "only the node statuses of the node are cached")
+	require.Nil(t, byStatus.Field)
+	require.True(
+		t,
+		byStatus.Label.Matches(labels.Set{secprofnodestatusv1.StatusToNodeLabel: "node"}),
+	)
+	require.False(
+		t,
+		byStatus.Label.Matches(labels.Set{secprofnodestatusv1.StatusToNodeLabel: "other"}),
+	)
+	require.False(t, byStatus.Label.Matches(labels.Set{}))
+
+	// Long node names are hashed in the label value, like the node status
+	// client does.
+	longName := strings.Repeat("n", 100)
+	opts = cache.Options{}
+	setDaemonCacheOptions(&opts, longName, false)
+	byStatus, ok = byObject(opts, &secprofnodestatusv1.SecurityProfileNodeStatus{})
+	require.True(t, ok)
+	require.True(t, byStatus.Label.Matches(labels.Set{
+		secprofnodestatusv1.StatusToNodeLabel: util.NodeNameLabelValue(longName),
+	}))
+
 	opts = cache.Options{}
 	setDaemonCacheOptions(&opts, "", true)
+	require.Len(t, opts.ByObject, 1, "without a node name every node status is cached")
 	require.Nil(t, podOptions(opts).Field, "without a node name every pod is cached")
 	require.Equal(t,
 		labels.SelectorFromSet(labels.Set{bindata.EnableRecordingLabel: "true"}),
 		podOptions(opts).Label,
 	)
+}
+
+// The daemon creates its cache before it sets up the controllers, so the
+// scheme has to know the node status kind by then.
+func TestDaemonCacheOptionsCreateCache(t *testing.T) {
+	t.Parallel()
+
+	mapper := meta.NewDefaultRESTMapper(nil)
+	mapper.Add(corev1.SchemeGroupVersion.WithKind("Pod"), meta.RESTScopeNamespace)
+	mapper.Add(
+		secprofnodestatusv1.GroupVersion.WithKind("SecurityProfileNodeStatus"),
+		meta.RESTScopeNamespace,
+	)
+
+	newCache := func(scheme *runtime.Scheme) error {
+		opts := cache.Options{Scheme: scheme, Mapper: mapper}
+		setDaemonCacheOptions(&opts, "node", true)
+
+		_, err := cache.New(&rest.Config{Host: "https://127.0.0.1:1"}, opts)
+
+		return err
+	}
+
+	scheme := runtime.NewScheme()
+	require.NoError(t, clientgoscheme.AddToScheme(scheme))
+	require.Error(t, newCache(scheme))
+
+	require.NoError(t, secprofnodestatusv1.AddToScheme(scheme))
+	require.NoError(t, newCache(scheme))
 }
 
 func TestNewDaemonCache(t *testing.T) {

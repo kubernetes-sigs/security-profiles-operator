@@ -37,8 +37,13 @@ const (
 )
 
 type SyscallsRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Profile       string                 `protobuf:"bytes,1,opt,name=profile,proto3" json:"profile,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Profile string                 `protobuf:"bytes,1,opt,name=profile,proto3" json:"profile,omitempty"`
+	// collect stops recording syscalls for the profile in the containers which
+	// recorded it, so that the response holds all of theirs. They are kept
+	// until ResetSyscalls, so that a failed collection can be retried. Other
+	// containers with the same profile keep recording it.
+	Collect       bool `protobuf:"varint,2,opt,name=collect,proto3" json:"collect,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -78,6 +83,13 @@ func (x *SyscallsRequest) GetProfile() string {
 		return x.Profile
 	}
 	return ""
+}
+
+func (x *SyscallsRequest) GetCollect() bool {
+	if x != nil {
+		return x.Collect
+	}
+	return false
 }
 
 type SyscallsResponse struct {
@@ -133,8 +145,13 @@ func (x *SyscallsResponse) GetGoArch() string {
 }
 
 type AvcRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Profile       string                 `protobuf:"bytes,1,opt,name=profile,proto3" json:"profile,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Profile string                 `protobuf:"bytes,1,opt,name=profile,proto3" json:"profile,omitempty"`
+	// collect stops recording AVCs for the profile in the containers which
+	// recorded it, so that the response holds all of theirs. They are kept until
+	// ResetAvcs, so that a failed collection can be retried. Other containers
+	// with the same profile keep recording it.
+	Collect       bool `protobuf:"varint,2,opt,name=collect,proto3" json:"collect,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -174,6 +191,13 @@ func (x *AvcRequest) GetProfile() string {
 		return x.Profile
 	}
 	return ""
+}
+
+func (x *AvcRequest) GetCollect() bool {
+	if x != nil {
+		return x.Collect
+	}
+	return false
 }
 
 type AvcResponse struct {
@@ -328,15 +352,17 @@ var File_api_grpc_enricher_api_proto protoreflect.FileDescriptor
 
 const file_api_grpc_enricher_api_proto_rawDesc = "" +
 	"\n" +
-	"\x1bapi/grpc/enricher/api.proto\x12\fapi_enricher\"+\n" +
+	"\x1bapi/grpc/enricher/api.proto\x12\fapi_enricher\"E\n" +
 	"\x0fSyscallsRequest\x12\x18\n" +
-	"\aprofile\x18\x01 \x01(\tR\aprofile\"G\n" +
+	"\aprofile\x18\x01 \x01(\tR\aprofile\x12\x18\n" +
+	"\acollect\x18\x02 \x01(\bR\acollect\"G\n" +
 	"\x10SyscallsResponse\x12\x1a\n" +
 	"\bsyscalls\x18\x01 \x03(\tR\bsyscalls\x12\x17\n" +
-	"\ago_arch\x18\x02 \x01(\tR\x06goArch\"&\n" +
+	"\ago_arch\x18\x02 \x01(\tR\x06goArch\"@\n" +
 	"\n" +
 	"AvcRequest\x12\x18\n" +
-	"\aprofile\x18\x01 \x01(\tR\aprofile\"\xb7\x01\n" +
+	"\aprofile\x18\x01 \x01(\tR\aprofile\x12\x18\n" +
+	"\acollect\x18\x02 \x01(\bR\acollect\"\xb7\x01\n" +
 	"\vAvcResponse\x126\n" +
 	"\x03avc\x18\x01 \x03(\v2$.api_enricher.AvcResponse.SelinuxAvcR\x03avc\x1ap\n" +
 	"\n" +

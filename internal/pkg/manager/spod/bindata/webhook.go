@@ -246,6 +246,9 @@ const (
 	WebhookName = webhookName
 	// WebhookServiceName is the name of the service of the managed webhook.
 	WebhookServiceName = serviceName
+	// RecordingWebhookName is the name of the recording webhook in the
+	// mutating webhook configuration.
+	RecordingWebhookName = "recording.spo.io"
 
 	// openshiftRequiredSCCAnnotation pins the SCC which OpenShift admits a pod
 	// with, instead of choosing one of the SCCs the pod is allowed to use.
@@ -270,7 +273,7 @@ type webhook struct {
 
 var (
 	binding                  = webhook{0, "binding.spo.io", "/mutate-v1-pod-binding"}
-	recording                = webhook{1, "recording.spo.io", "/mutate-v1-pod-recording"}
+	recording                = webhook{1, RecordingWebhookName, "/mutate-v1-pod-recording"}
 	execMetadata             = webhook{2, "execmetadata.spo.io", "/mutate-v1-exec-metadata"}
 	nodeDebuggingPodMetadata = webhook{3, "nodedebuggingpod.spo.io", "/mutate-v1-exec-metadata"}
 )
@@ -386,6 +389,25 @@ func (w *Webhook) UseDaemonPriorityClass(daemonPriorityClassName string) {
 // webhook, which selects all namespaces if nil.
 func (w *Webhook) RecordingNamespaceSelector() *metav1.LabelSelector {
 	return w.config.Webhooks[recording.index].NamespaceSelector
+}
+
+// RecordingWebhookSelectors returns the namespace and the object selector of
+// the recording webhook as the operator deploys it, with the webhook options of
+// the SPOD applied unless the webhook configuration is static, which the
+// operator leaves alone. A nil selector selects everything. The pod author
+// controls the recording annotations of the pods the webhook does not apply
+// to, so the daemon checks the selectors as well.
+func RecordingWebhookSelectors(
+	opts []spodapi.WebhookOptions, static bool,
+) (namespaceSelector, objectSelector *metav1.LabelSelector) {
+	cfg := getWebhookConfig(false, "").DeepCopy()
+	if !static {
+		applyWebhookOptions(cfg, opts, "")
+	}
+
+	hook := &cfg.Webhooks[recording.index]
+
+	return hook.NamespaceSelector, hook.ObjectSelector
 }
 
 func (w *Webhook) Create(ctx context.Context, c client.Client) error {

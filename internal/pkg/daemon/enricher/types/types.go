@@ -67,7 +67,11 @@ type ContainerInfo struct {
 	ContainerName string
 	Namespace     string
 	ContainerID   string
-	RecordProfile string
+	// SeccompRecordProfile and SelinuxRecordProfile are the profiles the log
+	// recorder records the container for, empty if it does not. A container
+	// can be recorded for both at the same time.
+	SeccompRecordProfile string
+	SelinuxRecordProfile string
 }
 
 type ProcessInfo struct {

@@ -407,6 +407,53 @@ func TestApplyWebhookOptionsKeepsOperatorNamespaceExcluded(t *testing.T) {
 		cfg.Webhooks[binding.index].NamespaceSelector.MatchExpressions)
 }
 
+// TestRecordingWebhookSelectors asserts that the daemon gets the selectors
+// the recording webhook is configured with.
+func TestRecordingWebhookSelectors(t *testing.T) {
+	t.Parallel()
+
+	namespaceSelector, objectSelector := RecordingWebhookSelectors(nil, false)
+	require.Equal(t, requireLabel(EnableRecordingLabel), namespaceSelector)
+	require.Equal(t, &excludeOperatorPods, objectSelector)
+	require.NotSame(t, &excludeOperatorPods, objectSelector)
+
+	userSelector := &metav1.LabelSelector{MatchLabels: map[string]string{"team": "a"}}
+	userObjectSelector := &metav1.LabelSelector{MatchLabels: map[string]string{"app": "a"}}
+	opts := []spodapi.WebhookOptions{
+		{Name: binding.name, NamespaceSelector: &metav1.LabelSelector{}},
+		{
+			Name:              RecordingWebhookName,
+			NamespaceSelector: userSelector,
+			ObjectSelector:    userObjectSelector,
+		},
+	}
+
+	namespaceSelector, objectSelector = RecordingWebhookSelectors(opts, false)
+	require.Equal(t, userSelector, namespaceSelector)
+	require.NotSame(t, userSelector, namespaceSelector)
+	require.Equal(t, userObjectSelector, objectSelector)
+
+	// They are the ones of the webhook which the operator deploys.
+	webhook := GetWebhook(
+		logr.Discard(),
+		"ns",
+		opts,
+		"image",
+		corev1.PullAlways,
+		CAInjectTypeCertManager,
+		nil,
+		nil,
+		false,
+	)
+	require.Equal(t, webhook.RecordingNamespaceSelector(), namespaceSelector)
+	require.Equal(t, webhook.config.Webhooks[recording.index].ObjectSelector, objectSelector)
+
+	// The operator does not apply the options to a static configuration.
+	namespaceSelector, objectSelector = RecordingWebhookSelectors(opts, true)
+	require.Equal(t, requireLabel(EnableRecordingLabel), namespaceSelector)
+	require.Equal(t, &excludeOperatorPods, objectSelector)
+}
+
 func TestWebhook_DeploymentSecurityContext(t *testing.T) {
 	t.Parallel()
 

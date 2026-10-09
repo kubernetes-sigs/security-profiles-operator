@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 
 	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	admissionregv1 "k8s.io/api/admissionregistration/v1"
@@ -61,6 +62,9 @@ var (
 	ErrJsonEnricherVolMountPathNotFound = errors.New(
 		"no json enricher mount path in configmap found",
 	)
+	// errInvalidTunable is returned for an operator environment variable
+	// which the daemon would refuse.
+	errInvalidTunable = errors.New("invalid daemon tunable")
 )
 
 // daemonTunables defines the parameters to tune/modify for the
@@ -73,6 +77,8 @@ type daemonTunables struct {
 	bpfRecorderSeccompProfile      string
 	jsonEnricherLogVolumeSource    *corev1.VolumeSource // Optionally provide a volume for usage in JSON Enricher
 	jsonEnricherLogVolumeMountPath string
+	// maxMetricSeries is passed on to the daemon unless empty.
+	maxMetricSeries string
 }
 
 // Setup adds a controller that reconciles the SPOD and its operands.
@@ -338,6 +344,11 @@ func (r *ReconcileSPOd) getTunables(ctx context.Context) (*daemonTunables, error
 	dt := &daemonTunables{}
 	dt.watchNamespace = os.Getenv(config.RestrictNamespaceEnvKey)
 
+	dt.maxMetricSeries, err = maxMetricSeries()
+	if err != nil {
+		return dt, err
+	}
+
 	node := &corev1.Node{}
 
 	nodeName := os.Getenv(config.NodeNameEnvKey)
@@ -375,6 +386,27 @@ func (r *ReconcileSPOd) getTunables(ctx context.Context) (*daemonTunables, error
 	}
 
 	return dt, nil
+}
+
+// maxMetricSeries returns the limit of the metric series of the daemon from
+// the operator environment, or an empty string if it is unset. A value the
+// daemon would refuse is rejected here, where it gets reported, instead of
+// making every daemon pod fail to start.
+func maxMetricSeries() (string, error) {
+	value := os.Getenv(config.MaxMetricSeriesEnvKey)
+	if value == "" {
+		return "", nil
+	}
+
+	series, err := strconv.Atoi(value)
+	if err != nil || series < 0 {
+		return "", fmt.Errorf(
+			"%w: %s must be a non-negative integer: %q",
+			errInvalidTunable, config.MaxMetricSeriesEnvKey, value,
+		)
+	}
+
+	return strconv.Itoa(series), nil
 }
 
 // isJsonEnricherVolumeNotConfigured returns true if the error of
@@ -443,6 +475,13 @@ func getEffectiveSPOd(dt *daemonTunables) *appsv1.DaemonSet {
 		daemon.Env = append(daemon.Env, corev1.EnvVar{
 			Name:  config.RestrictNamespaceEnvKey,
 			Value: dt.watchNamespace,
+		})
+	}
+
+	if dt.maxMetricSeries != "" {
+		daemon.Env = append(daemon.Env, corev1.EnvVar{
+			Name:  config.MaxMetricSeriesEnvKey,
+			Value: dt.maxMetricSeries,
 		})
 	}
 

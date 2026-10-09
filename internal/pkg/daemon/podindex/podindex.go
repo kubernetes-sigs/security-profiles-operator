@@ -52,6 +52,8 @@ var ErrNotFound = errors.New("container not found in the pods of the node")
 // modified.
 type Index struct {
 	informer cache.SharedIndexInformer
+	// handler is the registration of the change notifications.
+	handler cache.ResourceEventHandlerRegistration
 
 	mu sync.Mutex
 	// changed is closed and replaced whenever a pod got added or updated.
@@ -97,12 +99,15 @@ func New(lw ListerWatcher) (*Index, error) {
 
 	// The informer updates its store before it notifies the handlers, so a
 	// pod is in the index once the signal fires.
-	if _, err := informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	handler, err := informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    func(any) { idx.notify() },
 		UpdateFunc: func(any, any) { idx.notify() },
-	}); err != nil {
+	})
+	if err != nil {
 		return nil, fmt.Errorf("add pod event handler: %w", err)
 	}
+
+	idx.handler = handler
 
 	return idx, nil
 }
@@ -112,9 +117,11 @@ func (i *Index) Run(ctx context.Context) {
 	i.informer.RunWithContext(ctx)
 }
 
-// HasSynced reports whether the initial list of the pods got indexed.
+// HasSynced reports whether the initial list of the pods got indexed and
+// notified. The handler gets the pods of the initial list after the store, so
+// a notification of them could otherwise still fire after a later change.
 func (i *Index) HasSynced() bool {
-	return i.informer.HasSynced()
+	return i.informer.HasSynced() && i.handler.HasSynced()
 }
 
 // Changed returns a channel which is closed once a pod got added or updated.

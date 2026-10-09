@@ -63,9 +63,9 @@ func parseBpfAuditEvent(raw []byte, now time.Time) (*types.AuditLine, uint32, er
 		ProcessID:   pid,
 		TimestampID: fmt.Sprintf("%d.%03d", ts/1000, ts%1000),
 		Apparmor:    apparmor,
-		Operation:   string(strs[0]),
-		Executable:  string(strs[1]),
-		Name:        string(strs[2]),
+		Operation:   validUTF8(string(strs[0])),
+		Executable:  validUTF8(string(strs[1])),
+		Name:        validUTF8(string(strs[2])),
 		ExtraInfo:   fmt.Sprintf("request:%d", request),
 	}, mntns, nil
 }

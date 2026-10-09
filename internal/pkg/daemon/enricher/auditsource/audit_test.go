@@ -432,3 +432,109 @@ func TestExtractProcessID(t *testing.T) {
 		require.Equal(t, want, line.ProcessID, raw)
 	}
 }
+
+// TestExtractAuditLineOnlyFromKernel asserts that only the records the kernel
+// or auditd logged are taken. Every process which can log to syslog could
+// otherwise forge records, with the PID of another process.
+func TestExtractAuditLineOnlyFromKernel(t *testing.T) {
+	t.Parallel()
+
+	const (
+		seccompRecord = `type=1326 audit(1625740283.502:574): auid=4294967295 uid=0 gid=0 ` +
+			`ses=4294967295 pid=4709 comm="sh" exe="/bin/busybox" sig=0 arch=c000003e ` +
+			`syscall=13 compat=0 ip=0x7f3c012e467b code=0x7ffc0000`
+		avcRecord = `type=1400 audit(1613173578.156:2946): avc:  denied  { write } for  ` +
+			`pid=75594 comm="app" name="data" dev="tmpfs" ino=612460 ` +
+			`scontext=system_u:system_r:container_t:s0:c4,c808 ` +
+			`tcontext=system_u:object_r:var_lib_t:s0 tclass=dir permissive=0`
+		auditdRecord = `type=SECCOMP msg=audit(1613596317.899:6461): auid=4294967295 uid=0 ` +
+			`gid=0 ses=4294967295 pid=2039886 comm="ls" exe="/bin/ls" sig=0 arch=c000003e ` +
+			`syscall=3 compat=0 ip=0x7f62dce3d4c7 code=0x7ffc0000`
+	)
+
+	for name, tc := range map[string]struct {
+		line string
+		want bool
+	}{
+		"auditd":                      {auditdRecord, true},
+		"auditd with node name":       {"node=worker-1 " + auditdRecord, true},
+		"kernel log":                  {"audit: " + seccompRecord, true},
+		"kernel log of an old kernel": {seccompRecord, true},
+		"kernel log with timestamp":   {"[  270.853767] audit: " + seccompRecord, true},
+		"rsyslog traditional format": {
+			"Jul  8 10:31:23 ubuntu2004 kernel: [  270.853767] audit: " + seccompRecord, true,
+		},
+		"rsyslog traditional format forwarded by journald": {
+			"Oct 19 08:04:51 node-1 kernel: audit: " + avcRecord, true,
+		},
+		"rsyslog RFC 3339 format forwarded by journald": {
+			"2025-10-19T08:04:51.123456+00:00 node-1 kernel: audit: " + avcRecord, true,
+		},
+		"user message": {
+			"Jul  8 10:31:23 ubuntu2004 app: audit: " + seccompRecord, false,
+		},
+		"user message with a kernel tag in the message": {
+			"Jul  8 10:31:23 ubuntu2004 app: Jul  8 10:31:23 ubuntu2004 kernel: audit: " +
+				seccompRecord, false,
+		},
+		"process logging as kernel with its PID": {
+			"Jul  8 10:31:23 ubuntu2004 kernel[1234]: audit: " + seccompRecord, false,
+		},
+		"forwarded container output": {
+			"2025-10-19T08:04:51.123456+00:00 node-1 conmon[4242]: " + auditdRecord, false,
+		},
+		"auditd record within a line": {"echo " + auditdRecord, false},
+		"auditd record within a user record": {
+			`type=USER_AVC msg=audit(1613596317.899:6461): pid=1 uid=0 msg='` + auditdRecord + `'`,
+			false,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			line, err := ExtractAuditLine(tc.line)
+			if !tc.want {
+				require.ErrorIs(t, err, ErrUnsupportedLine)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotZero(t, line.ProcessID)
+		})
+	}
+}
+
+// TestExtractAuditLineValidUTF8 asserts that the strings of an audit line are
+// valid UTF-8, which they have to be in protobuf messages, even if the kernel
+// logged a hex encoded name which is not.
+func TestExtractAuditLineValidUTF8(t *testing.T) {
+	t.Parallel()
+
+	line, err := ExtractAuditLine(
+		`type=SECCOMP msg=audit(1613596317.899:6462): auid=4294967295 uid=0 gid=0 ` +
+			`pid=2039887 comm=61FF62 exe=2F62696E2FFF sig=0 arch=c000003e syscall=2 compat=0`,
+	)
+	require.NoError(t, err)
+	require.Equal(t, "/bin/\uFFFD", line.Executable)
+
+	line, err = ExtractAuditLine(
+		`audit: type=1400 audit(1668191154.949:65): apparmor="DENIED" operation="open" ` +
+			`profile=70726FFE66696C65 name=2F6574632FC0AF pid=4167 comm=61FF62 ` +
+			"requested_mask=\"r\xff\" denied_mask=\"r\"",
+	)
+	require.NoError(t, err)
+	require.Equal(t, "pro\uFFFDfile", line.Profile)
+	require.Equal(t, "/etc/\uFFFD", line.Name)
+	require.Equal(t, "a\uFFFDb", line.Executable)
+	require.Equal(t, "requested_mask='r\uFFFD' denied_mask='r'", line.ExtraInfo)
+
+	line, err = ExtractAuditLine(
+		"type=AVC msg=audit(1613173578.156:2945): avc:  denied  { read\xff } for  pid=75593 " +
+			"comm=\"app\" scontext=system_u:system_r:container_t:s0\xfe " +
+			"tcontext=system_u:object_r:var_lib_t:s0 tclass=file permissive=0",
+	)
+	require.NoError(t, err)
+	require.Equal(t, "read\uFFFD", line.Perm)
+	require.Equal(t, "system_u:system_r:container_t:s0\uFFFD", line.Scontext)
+}

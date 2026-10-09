@@ -53,13 +53,13 @@ func Dial() (*grpc.ClientConn, error) {
 }
 
 func (b *BpfRecorder) Start(
-	context.Context, *api.EmptyRequest,
+	context.Context, *api.RecordingRequest,
 ) (*api.EmptyResponse, error) {
 	return nil, errUnsupported
 }
 
 func (b *BpfRecorder) Stop(
-	context.Context, *api.EmptyRequest,
+	context.Context, *api.RecordingRequest,
 ) (*api.EmptyResponse, error) {
 	return nil, errUnsupported
 }

@@ -46,8 +46,8 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type BpfRecorderClient interface {
-	Start(ctx context.Context, in *EmptyRequest, opts ...grpc.CallOption) (*EmptyResponse, error)
-	Stop(ctx context.Context, in *EmptyRequest, opts ...grpc.CallOption) (*EmptyResponse, error)
+	Start(ctx context.Context, in *RecordingRequest, opts ...grpc.CallOption) (*EmptyResponse, error)
+	Stop(ctx context.Context, in *RecordingRequest, opts ...grpc.CallOption) (*EmptyResponse, error)
 	// SyscallsForProfile and ApparmorForProfile return the recorded data without
 	// removing it, so that a failure to persist the profile can be retried. The
 	// Reset calls drop the data once the profile has been stored.
@@ -65,7 +65,7 @@ func NewBpfRecorderClient(cc grpc.ClientConnInterface) BpfRecorderClient {
 	return &bpfRecorderClient{cc}
 }
 
-func (c *bpfRecorderClient) Start(ctx context.Context, in *EmptyRequest, opts ...grpc.CallOption) (*EmptyResponse, error) {
+func (c *bpfRecorderClient) Start(ctx context.Context, in *RecordingRequest, opts ...grpc.CallOption) (*EmptyResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(EmptyResponse)
 	err := c.cc.Invoke(ctx, BpfRecorder_Start_FullMethodName, in, out, cOpts...)
@@ -75,7 +75,7 @@ func (c *bpfRecorderClient) Start(ctx context.Context, in *EmptyRequest, opts ..
 	return out, nil
 }
 
-func (c *bpfRecorderClient) Stop(ctx context.Context, in *EmptyRequest, opts ...grpc.CallOption) (*EmptyResponse, error) {
+func (c *bpfRecorderClient) Stop(ctx context.Context, in *RecordingRequest, opts ...grpc.CallOption) (*EmptyResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(EmptyResponse)
 	err := c.cc.Invoke(ctx, BpfRecorder_Stop_FullMethodName, in, out, cOpts...)
@@ -129,8 +129,8 @@ func (c *bpfRecorderClient) ResetApparmorForProfile(ctx context.Context, in *Pro
 // All implementations must embed UnimplementedBpfRecorderServer
 // for forward compatibility.
 type BpfRecorderServer interface {
-	Start(context.Context, *EmptyRequest) (*EmptyResponse, error)
-	Stop(context.Context, *EmptyRequest) (*EmptyResponse, error)
+	Start(context.Context, *RecordingRequest) (*EmptyResponse, error)
+	Stop(context.Context, *RecordingRequest) (*EmptyResponse, error)
 	// SyscallsForProfile and ApparmorForProfile return the recorded data without
 	// removing it, so that a failure to persist the profile can be retried. The
 	// Reset calls drop the data once the profile has been stored.
@@ -148,10 +148,10 @@ type BpfRecorderServer interface {
 // pointer dereference when methods are called.
 type UnimplementedBpfRecorderServer struct{}
 
-func (UnimplementedBpfRecorderServer) Start(context.Context, *EmptyRequest) (*EmptyResponse, error) {
+func (UnimplementedBpfRecorderServer) Start(context.Context, *RecordingRequest) (*EmptyResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Start not implemented")
 }
-func (UnimplementedBpfRecorderServer) Stop(context.Context, *EmptyRequest) (*EmptyResponse, error) {
+func (UnimplementedBpfRecorderServer) Stop(context.Context, *RecordingRequest) (*EmptyResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Stop not implemented")
 }
 func (UnimplementedBpfRecorderServer) SyscallsForProfile(context.Context, *ProfileRequest) (*SyscallsResponse, error) {
@@ -188,7 +188,7 @@ func RegisterBpfRecorderServer(s grpc.ServiceRegistrar, srv BpfRecorderServer) {
 }
 
 func _BpfRecorder_Start_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(EmptyRequest)
+	in := new(RecordingRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -200,13 +200,13 @@ func _BpfRecorder_Start_Handler(srv interface{}, ctx context.Context, dec func(i
 		FullMethod: BpfRecorder_Start_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(BpfRecorderServer).Start(ctx, req.(*EmptyRequest))
+		return srv.(BpfRecorderServer).Start(ctx, req.(*RecordingRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _BpfRecorder_Stop_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(EmptyRequest)
+	in := new(RecordingRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -218,7 +218,7 @@ func _BpfRecorder_Stop_Handler(srv interface{}, ctx context.Context, dec func(in
 		FullMethod: BpfRecorder_Stop_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(BpfRecorderServer).Stop(ctx, req.(*EmptyRequest))
+		return srv.(BpfRecorderServer).Stop(ctx, req.(*RecordingRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }

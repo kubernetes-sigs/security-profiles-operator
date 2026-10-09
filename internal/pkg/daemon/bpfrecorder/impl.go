@@ -56,8 +56,6 @@ type impl interface {
 	Listen(string, string) (net.Listener, error)
 	Serve(*grpc.Server, net.Listener) error
 	NewModuleFromBufferArgs(*bpf.NewModuleArgs) (*bpf.Module, error)
-	BPFMapIterator(*bpf.BPFMap) *bpf.BPFMapIterator
-	BPFMapIteratorNext(*bpf.BPFMapIterator) bool
 	BPFLoadObject(*bpf.Module) error
 	GetProgram(*bpf.Module, string) (*bpf.BPFProg, error)
 	ProgramNames(*bpf.Module) []string
@@ -97,6 +95,7 @@ type impl interface {
 	VerifyProcess(pid, mntns uint32, startedAt, seenAt time.Duration) error
 	DeleteActivePid(m *bpf.BPFMap, pid uint32, key uint64) error
 	MapKeys(*bpf.BPFMap) ([][]byte, error)
+	DeleteMapKey(*bpf.BPFMap, []byte) error
 }
 
 func (d *defaultImpl) InClusterConfig() (*rest.Config, error) {
@@ -119,14 +118,6 @@ func (d *defaultImpl) Serve(grpcServer *grpc.Server, listener net.Listener) erro
 
 func (d *defaultImpl) NewModuleFromBufferArgs(args *bpf.NewModuleArgs) (*bpf.Module, error) {
 	return bpf.NewModuleFromBufferArgs(*args)
-}
-
-func (*defaultImpl) BPFMapIterator(m *bpf.BPFMap) *bpf.BPFMapIterator {
-	return m.Iterator()
-}
-
-func (*defaultImpl) BPFMapIteratorNext(it *bpf.BPFMapIterator) bool {
-	return it.Next()
 }
 
 func (d *defaultImpl) BPFLoadObject(module *bpf.Module) error {
@@ -465,4 +456,17 @@ func (d *defaultImpl) MapKeys(m *bpf.BPFMap) ([][]byte, error) {
 	}
 
 	return keys, nil
+}
+
+// DeleteMapKey deletes a key as MapKeys returns it.
+func (d *defaultImpl) DeleteMapKey(m *bpf.BPFMap, key []byte) error {
+	if m == nil {
+		return errors.New("provided bpf map is nil")
+	}
+
+	if len(key) == 0 {
+		return errors.New("provided key is empty")
+	}
+
+	return m.DeleteKey(unsafe.Pointer(&key[0]))
 }

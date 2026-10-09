@@ -190,6 +190,7 @@ func TestRemoveProfile(t *testing.T) {
 		sut       aaProfileManager
 		profile   profilebaseapi.StatusBaseUser
 		ownedByUs bool
+		want      bool
 		wantErr   error
 	}{
 		{
@@ -201,12 +202,12 @@ func TestRemoveProfile(t *testing.T) {
 		{
 			name: "valid profile CRD",
 			sut: aaProfileManager{
-				removeProfile: func(_ logr.Logger, _, _ string, ownedByUs bool) error {
+				removeProfile: func(_ logr.Logger, _, _ string, ownedByUs bool) (bool, error) {
 					if ownedByUs {
-						return errors.New("ownership must be passed through")
+						return false, errors.New("ownership must be passed through")
 					}
 
-					return nil
+					return false, nil
 				},
 			},
 			profile: &apparmorprofileapi.AppArmorProfile{},
@@ -214,16 +215,17 @@ func TestRemoveProfile(t *testing.T) {
 		{
 			name: "passes the ownership evidence through",
 			sut: aaProfileManager{
-				removeProfile: func(_ logr.Logger, _, _ string, ownedByUs bool) error {
+				removeProfile: func(_ logr.Logger, _, _ string, ownedByUs bool) (bool, error) {
 					if !ownedByUs {
-						return errors.New("ownership must be passed through")
+						return false, errors.New("ownership must be passed through")
 					}
 
-					return nil
+					return true, nil
 				},
 			},
 			profile:   &apparmorprofileapi.AppArmorProfile{},
 			ownedByUs: true,
+			want:      true,
 		},
 	}
 
@@ -231,7 +233,9 @@ func TestRemoveProfile(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			gotErr := tc.sut.RemoveProfile(tc.profile, tc.ownedByUs)
+			got, gotErr := tc.sut.RemoveProfile(tc.profile, tc.ownedByUs)
+			require.Equal(t, tc.want, got)
+
 			if tc.wantErr == nil {
 				require.NoError(t, gotErr)
 			}

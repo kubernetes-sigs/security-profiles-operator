@@ -92,6 +92,10 @@ var (
 	// fix, only a change of the profiles can.
 	errInvalidBaseProfile = seccompcheck.ErrInvalidBaseProfile
 
+	// errBaseProfileNotFound marks an invalid base profile which is missing.
+	// It may be created again, so the profiles in use keep their files.
+	errBaseProfileNotFound = errors.New("not found")
+
 	// errMissingKey is returned if the Secret or ConfigMap of the signature
 	// verification lacks the selected key.
 	errMissingKey = errors.New("missing key")
@@ -161,6 +165,10 @@ type Reconciler struct {
 	// unsupported remembers the profiles which got reported for a node
 	// without seccomp.
 	unsupported common.UnsupportedReports
+	// rejections remembers the profiles which got reported as rejected.
+	rejections rejectionReports
+	// pullFailures backs off the pulls of OCI base profiles which failed.
+	pullFailures pullFailures
 }
 
 // profilePath returns the path of the file of the profile on the node.
@@ -308,9 +316,13 @@ func (r *Reconciler) handleAllowedSyscallsChanged(
 
 	reconcileRequests := make([]reconcile.Request, 0, len(seccompProfileList.Items))
 	for i := range seccompProfileList.Items {
-		reconcileRequests = append(reconcileRequests, reconcile.Request{
-			NamespacedName: client.ObjectKeyFromObject(&seccompProfileList.Items[i]),
-		})
+		key := client.ObjectKeyFromObject(&seccompProfileList.Items[i])
+
+		// A profile which is still rejected gets reported again, because
+		// the reason may have changed.
+		r.rejections.forget(key)
+
+		reconcileRequests = append(reconcileRequests, reconcile.Request{NamespacedName: key})
 	}
 
 	return reconcileRequests
@@ -387,9 +399,13 @@ func (r *Reconciler) derivedProfileRequests(
 
 			seen[name] = true
 			bases = append(bases, name)
-			requests = append(requests, reconcile.Request{
-				NamespacedName: client.ObjectKeyFromObject(&list.Items[i]),
-			})
+			key := client.ObjectKeyFromObject(&list.Items[i])
+
+			// The base profile changed, so a rejection may have changed as
+			// well and gets reported again.
+			r.rejections.forget(key)
+
+			requests = append(requests, reconcile.Request{NamespacedName: key})
 		}
 	}
 
@@ -473,6 +489,10 @@ func (r *Reconciler) Reconcile(
 
 	seccompProfile := &seccompprofileapi.SeccompProfile{}
 	if found, err := common.GetProfile(ctx, r.client, req.NamespacedName, seccompProfile); !found {
+		if err == nil {
+			r.rejections.forget(req.NamespacedName)
+		}
+
 		return reconcile.Result{}, err
 	}
 
@@ -600,7 +620,7 @@ func (r *Reconciler) resolveSyscallsForProfile(
 				// derivedProfileRequests enqueues the profile again once
 				// the base profile gets created.
 				return nil, false, fmt.Errorf(
-					"%w: %s not found", errInvalidBaseProfile, baseProfileName,
+					"%w: %s %w", errInvalidBaseProfile, baseProfileName, errBaseProfileNotFound,
 				)
 			}
 
@@ -631,7 +651,9 @@ func (r *Reconciler) resolveSyscallsForProfile(
 }
 
 // pullBaseProfile pulls the base profile of sp from the OCI artifact registry
-// and caches it.
+// and caches it. A failed pull is not repeated with the same pull settings of
+// the SPOD before its backoff passed, and returns the error of the failed pull
+// until then, which is reported once per profile.
 func (r *Reconciler) pullBaseProfile(
 	ctx context.Context,
 	sp *seccompprofileapi.SeccompProfile,
@@ -641,6 +663,18 @@ func (r *Reconciler) pullBaseProfile(
 	spod, err := r.GetSPOD(ctx, r.client, r.namespace)
 	if err != nil {
 		return nil, fmt.Errorf("retrieving the SPOD configuration: %w", err)
+	}
+
+	key := newPullKey(from, &spod.Spec.Security)
+	if err := r.pullFailures.check(key); err != nil {
+		// A pulled base profile which is no seccomp profile rejects the
+		// profile, which reports it.
+		if !errors.Is(err, errInvalidBaseProfile) &&
+			r.pullFailures.report(key, client.ObjectKeyFromObject(sp)) {
+			r.reportError(sp, reasonCannotPullProfile, util.EventActionInstall, err)
+		}
+
+		return nil, err
 	}
 
 	if spod.Spec.Security.AllowedIdentityRegexp == "" {
@@ -710,18 +744,25 @@ func (r *Reconciler) pullBaseProfile(
 		l.Error(err, "cannot pull base profile", "profile", sp.Spec.BaseProfileName)
 		r.reportError(sp, reasonCannotPullProfile, util.EventActionInstall, err)
 
-		return nil, fmt.Errorf("retrieve base profile %s from OCI registry: %w", from, err)
+		err = fmt.Errorf("retrieve base profile %s from OCI registry: %w", from, err)
+		r.pullFailures.failed(key, err, client.ObjectKeyFromObject(sp))
+
+		return nil, err
 	}
 
 	resType := r.PullResultType(res)
 	if resType != artifact.PullResultTypeSeccompProfile {
-		return nil, fmt.Errorf(
+		err := fmt.Errorf(
 			"%w: pull result type %s is not a seccomp profile", errInvalidBaseProfile, resType,
 		)
+		r.pullFailures.failed(key, err, client.ObjectKeyFromObject(sp))
+
+		return nil, err
 	}
 
 	baseProfile := r.PullResultSeccompProfile(res)
 	r.baseProfiles.Set(from, baseProfile, ttlcache.DefaultTTL)
+	r.pullFailures.succeeded(key)
 
 	l.Info(
 		"Set remote base seccomp profile",
@@ -1052,6 +1093,8 @@ func (r *Reconciler) buildProfileContent(
 		return nil, fmt.Errorf("cannot validate profile: %w", err)
 	}
 
+	r.rejections.forget(client.ObjectKeyFromObject(sp))
+
 	return profileContent, nil
 }
 
@@ -1117,10 +1160,14 @@ func (r *Reconciler) writeProfile(
 
 // rejectProfile marks a profile which cannot be installed until it, one of
 // its base profiles or the SPOD configuration changes. Each of them triggers
-// a reconcile, so it is not retried. An earlier version of the profile may be
-// installed already, for example before the allow list got tightened or an
-// OCI base profile changed. Its file gets removed, so that new pods cannot
-// use a profile which is not allowed anymore.
+// a reconcile, so it is not retried. The resyncs of the daemon reconcile it
+// all the same, which reports it only once per generation and reason. An
+// earlier version of the profile may be installed already, for example before
+// the allow list got tightened or an OCI base profile changed. Its file gets
+// removed, so that new pods cannot use a profile which is not allowed anymore.
+// A profile whose local base profile is missing keeps its file while pods use
+// it and the allow lists allow it: the base profile may come back, and the
+// containers of the pods would fail to restart without the file.
 func (r *Reconciler) rejectProfile(
 	ctx context.Context,
 	sp *seccompprofileapi.SeccompProfile,
@@ -1129,10 +1176,33 @@ func (r *Reconciler) rejectProfile(
 	rejectErr error,
 	l logr.Logger,
 ) error {
-	l.Error(rejectErr, "Not installing profile")
-	r.reportError(sp, reason, util.EventActionInstall, rejectErr)
+	// Every resync rejects an unchanged profile again, which is only worth
+	// an error once.
+	if r.rejections.shouldReport(sp, reason) {
+		l.Error(rejectErr, "Not installing profile")
+		r.reportError(sp, reason, util.EventActionInstall, rejectErr)
+	} else {
+		l.V(config.VerboseLevel).Info(
+			"Not installing profile, rejected already", "reason", reason, "error", rejectErr.Error(),
+		)
+	}
 
-	if err := r.handleDeletion(ctx, sp, l); err != nil {
+	keep := false
+
+	if errors.Is(rejectErr, errBaseProfileNotFound) && common.InUse(sp) {
+		allowed, err := r.installedProfileAllowed(ctx, sp, l)
+		if err != nil {
+			return fmt.Errorf("checking installed profile: %w", err)
+		}
+
+		keep = allowed
+	}
+
+	if keep {
+		l.Info(
+			"Keeping the installed profile which is in use by pods until its base profile is back",
+		)
+	} else if err := r.handleDeletion(ctx, sp, l); err != nil {
 		l.Error(err, "Cannot remove rejected profile")
 		r.reportError(sp, reasonCannotRemoveProfile, util.EventActionRemove, err)
 
@@ -1146,6 +1216,43 @@ func (r *Reconciler) rejectProfile(
 	}
 
 	return nil
+}
+
+// installedProfileAllowed reports whether the installed file of the profile is
+// allowed by the allow lists of the SPOD, which may have been tightened since
+// the file got written. A file which is missing or cannot be parsed is not.
+func (r *Reconciler) installedProfileAllowed(
+	ctx context.Context, sp *seccompprofileapi.SeccompProfile, l logr.Logger,
+) (bool, error) {
+	content, err := os.ReadFile(r.profilePath(sp))
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			l.Error(err, "Cannot read the installed profile")
+		}
+
+		return false, nil
+	}
+
+	installed := sp.DeepCopy()
+	installed.Spec = seccompprofileapi.SeccompProfileSpec{}
+
+	if err := json.Unmarshal(content, &installed.Spec); err != nil {
+		l.Error(err, "Cannot parse the installed profile")
+
+		return false, nil
+	}
+
+	if err := r.validateProfile(ctx, installed); err != nil {
+		if seccompcheck.NotAllowed(err) {
+			l.Info("The installed profile is not allowed anymore", "error", err.Error())
+
+			return false, nil
+		}
+
+		return false, err
+	}
+
+	return true, nil
 }
 
 // errorReporter returns the reporter of the errors of this controller.

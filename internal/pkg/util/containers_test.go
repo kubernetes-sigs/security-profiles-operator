@@ -228,6 +228,40 @@ func TestContainerIDForPID_CacheKeyWithStartTime(t *testing.T) {
 	require.NotEqual(t, id1, id2)
 }
 
+// TestContainerIDAndStartTimeForPID asserts that the start time comes from
+// the same read of the stat file as the container lookup.
+func TestContainerIDAndStartTimeForPID(t *testing.T) {
+	t.Parallel()
+
+	cache := ttlcache.New[string, string]()
+
+	statReads := 0
+	statReader := func(pid int) ([]byte, error) {
+		statReads++
+
+		return fmt.Appendf(nil, "%d (bash) %s 250 1234", pid, testStatFiller), nil
+	}
+	cgroupReader := func(_ int) ([]byte, error) {
+		return fmt.Appendf(nil, "0::/kubepods/pod123/crio-%s\n", testContainerID1), nil
+	}
+
+	id, started, err := containerIDAndStartTimeForPID(cache, 1234, statReader, cgroupReader)
+	require.NoError(t, err)
+	require.Equal(t, testContainerID1, id)
+	require.Equal(t, 2500*time.Millisecond, started)
+	require.Equal(t, 1, statReads)
+
+	// A process outside of a container has no start time to check.
+	noContainer := func(_ int) ([]byte, error) { return []byte("0::/user.slice\n"), nil }
+
+	id, started, err = containerIDAndStartTimeForPID(
+		ttlcache.New[string, string](), 1234, statReader, noContainer,
+	)
+	require.ErrorIs(t, err, ErrContainerIDNotFound)
+	require.Empty(t, id)
+	require.Zero(t, started)
+}
+
 func TestContainerIDForPID_CacheHit(t *testing.T) {
 	t.Parallel()
 

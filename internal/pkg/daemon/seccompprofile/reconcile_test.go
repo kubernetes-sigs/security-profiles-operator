@@ -23,9 +23,11 @@ import (
 	"os"
 	goruntime "runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr/funcr"
 	"github.com/jellydator/ttlcache/v3"
 	"github.com/stretchr/testify/require"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
@@ -177,7 +179,7 @@ func (e *reconcileEnv) reconcile(t *testing.T) (reconcile.Result, error) {
 	sp := &seccompprofileapi.SeccompProfile{}
 	require.NoError(t, e.cli.Get(t.Context(), testProfileKey, sp))
 
-	return e.rec.reconcileSeccompProfile(t.Context(), sp, log.Log)
+	return e.rec.reconcileSeccompProfile(t.Context(), sp, e.rec.log)
 }
 
 func (e *reconcileEnv) nodeStatus(t *testing.T) *secprofnodestatusapi.SecurityProfileNodeStatus {
@@ -449,6 +451,259 @@ func TestReconcileSeccompProfileMergeError(t *testing.T) {
 	require.Contains(t, evs[0], "missing not found")
 	require.Equal(t, secprofnodestatusapi.ProfileStateError, env.nodeStatus(t).Status.Status)
 	require.Empty(t, env.saved)
+}
+
+// A profile whose base profile is missing keeps its file while pods use it,
+// so that their containers can restart, and gets installed again once the
+// base profile is back.
+func TestReconcileSeccompProfileMissingBaseProfileInUse(t *testing.T) {
+	t.Parallel()
+
+	base := newTestProfile()
+	base.Name = "base"
+	base.Spec.Syscalls[0].Names = []string{"close"}
+
+	sp := newTestProfile()
+	sp.Spec.BaseProfileName = base.Name
+	env := newReconcileEnv(t, sp)
+	env.rec.profileRoot = t.TempDir()
+	env.rec.save = saveProfileOnDisk
+	env.impl.ClientGetProfileReturns(base, nil)
+
+	for range 2 {
+		_, err := env.reconcile(t)
+		require.NoError(t, err)
+	}
+
+	require.NoError(t, env.cli.Get(t.Context(), testProfileKey, sp))
+
+	profilePath := env.rec.profilePath(sp)
+	require.FileExists(t, profilePath)
+	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, env.nodeStatus(t).Status.Status)
+	env.events()
+
+	sp.SetFinalizers(append(sp.GetFinalizers(), util.HasActivePodsFinalizerString))
+	require.NoError(t, env.cli.Update(t.Context(), sp))
+
+	env.impl.ClientGetProfileReturns(nil, kerrors.NewNotFound(schema.GroupResource{}, base.Name))
+
+	// The error is shown, but the file stays, also on the resyncs.
+	for range 2 {
+		res, err := env.reconcile(t)
+		require.NoError(t, err)
+		require.Equal(t, reconcile.Result{}, res)
+		require.FileExists(t, profilePath)
+		require.Equal(t, secprofnodestatusapi.ProfileStateError, env.nodeStatus(t).Status.Status)
+	}
+
+	evs := env.events()
+	require.Len(t, evs, 1)
+	require.True(t, strings.HasPrefix(evs[0], "Warning "+reasonInvalidSeccompProfile+" "), evs[0])
+	require.Contains(t, evs[0], "base not found")
+
+	// The creation of the base profile enqueues the profile, which gets
+	// installed again.
+	require.Equal(t,
+		[]reconcile.Request{{NamespacedName: testProfileKey}},
+		env.rec.derivedProfileRequests(t.Context(), base),
+	)
+	env.impl.ClientGetProfileReturns(base, nil)
+
+	_, err := env.reconcile(t)
+	require.NoError(t, err)
+	require.FileExists(t, profilePath)
+	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, env.nodeStatus(t).Status.Status)
+
+	// Without pods using it, the file of the profile goes with the base
+	// profile like before.
+	require.NoError(t, env.cli.Get(t.Context(), testProfileKey, sp))
+	sp.SetFinalizers([]string{util.GetFinalizerNodeString(testNode)})
+	require.NoError(t, env.cli.Update(t.Context(), sp))
+
+	env.impl.ClientGetProfileReturns(nil, kerrors.NewNotFound(schema.GroupResource{}, base.Name))
+
+	_, err = env.reconcile(t)
+	require.NoError(t, err)
+	require.NoFileExists(t, profilePath)
+	require.Equal(t, secprofnodestatusapi.ProfileStateError, env.nodeStatus(t).Status.Status)
+}
+
+// The installed file of a profile whose base profile is missing is only kept
+// while the allow lists allow it, they may have been tightened since it got
+// written.
+func TestReconcileSeccompProfileMissingBaseProfileInUseNotAllowed(t *testing.T) {
+	t.Parallel()
+
+	base := newTestProfile()
+	base.Name = "base"
+	base.Spec.Syscalls[0].Names = []string{"close"}
+
+	sp := newTestProfile()
+	sp.Spec.BaseProfileName = base.Name
+	sp.SetFinalizers([]string{util.HasActivePodsFinalizerString})
+	env := newReconcileEnv(t, sp)
+	env.rec.profileRoot = t.TempDir()
+	env.rec.save = saveProfileOnDisk
+	env.impl.ClientGetProfileReturns(base, nil)
+
+	allow := func(syscalls ...string) {
+		env.impl.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
+			Spec: spodapi.SPODSpec{
+				Security: spodapi.SPODSecurityConfig{AllowedSyscalls: syscalls},
+			},
+		}, nil)
+	}
+	allow("close", "read", "write")
+
+	for range 2 {
+		_, err := env.reconcile(t)
+		require.NoError(t, err)
+	}
+
+	require.NoError(t, env.cli.Get(t.Context(), testProfileKey, sp))
+
+	profilePath := env.rec.profilePath(sp)
+	require.FileExists(t, profilePath)
+
+	env.impl.ClientGetProfileReturns(nil, kerrors.NewNotFound(schema.GroupResource{}, base.Name))
+
+	_, err := env.reconcile(t)
+	require.NoError(t, err)
+	require.FileExists(t, profilePath, "the allowed file is kept")
+
+	// The allow list no longer allows a syscall of the base profile.
+	allow("read", "write")
+
+	_, err = env.reconcile(t)
+	require.NoError(t, err)
+	require.NoFileExists(t, profilePath)
+	require.Equal(t, secprofnodestatusapi.ProfileStateError, env.nodeStatus(t).Status.Status)
+
+	// A failure to read the allow lists is retried instead of removing the
+	// file.
+	allow("close", "read", "write")
+	env.impl.ClientGetProfileReturns(base, nil)
+
+	_, err = env.reconcile(t)
+	require.NoError(t, err)
+	require.FileExists(t, profilePath)
+
+	env.impl.ClientGetProfileReturns(nil, kerrors.NewNotFound(schema.GroupResource{}, base.Name))
+	env.impl.GetSPODReturns(nil, errTest)
+
+	_, err = env.reconcile(t)
+	require.ErrorIs(t, err, errTest)
+	require.FileExists(t, profilePath)
+}
+
+// A profile which is still rejected for the same reason is not reported again
+// on every resync, only after it, a base profile or the allow lists change.
+func TestReconcileSeccompProfileRejectionReportedOnce(t *testing.T) {
+	t.Parallel()
+
+	env := newReconcileEnv(t, newTestProfile())
+	env.impl.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
+		Spec: spodapi.SPODSpec{
+			Security: spodapi.SPODSecurityConfig{AllowedSyscalls: []string{"read"}},
+		},
+	}, nil)
+
+	// The rejection is logged as an error only when it gets reported.
+	var (
+		mu      sync.Mutex
+		errLogs int
+	)
+
+	env.rec.log = funcr.New(func(_, args string) {
+		if strings.Contains(args, `"msg"="Not installing profile"`) {
+			mu.Lock()
+			errLogs++
+			mu.Unlock()
+		}
+	}, funcr.Options{})
+
+	loggedErrors := func() int {
+		mu.Lock()
+		defer mu.Unlock()
+
+		logged := errLogs
+		errLogs = 0
+
+		return logged
+	}
+
+	_, err := env.reconcile(t)
+	require.NoError(t, err)
+
+	// The error metric is counted along with the event.
+	countedErrors := func() float64 {
+		t.Helper()
+
+		return utiltest.CounterValue(t, env.rec.metrics.Collectors(),
+			"security_profiles_operator_seccomp_profile_error_total",
+			map[string]string{"reason": reasonProfileNotAllowed})
+	}
+
+	reconcileReports := func(want int) {
+		t.Helper()
+
+		counted := countedErrors()
+
+		_, err := env.reconcile(t)
+		require.NoError(t, err)
+		require.Len(t, env.events(), want)
+		require.Equal(t, want, loggedErrors())
+		require.InDelta(t, float64(want), countedErrors()-counted, 0)
+		require.Equal(t, secprofnodestatusapi.ProfileStateError, env.nodeStatus(t).Status.Status)
+	}
+
+	reconcileReports(1)
+	reconcileReports(0)
+	reconcileReports(0)
+
+	// A new generation of the profile is reported again.
+	sp := &seccompprofileapi.SeccompProfile{}
+	require.NoError(t, env.cli.Get(t.Context(), testProfileKey, sp))
+	sp.Spec.Syscalls[0].Names = []string{"read", "write", "close"}
+	sp.SetGeneration(sp.GetGeneration() + 1)
+	require.NoError(t, env.cli.Update(t.Context(), sp))
+
+	reconcileReports(1)
+	reconcileReports(0)
+
+	// So is a profile after the allow lists changed.
+	require.NotEmpty(t, env.rec.handleAllowedSyscallsChanged(
+		t.Context(), &spodapi.SecurityProfilesOperatorDaemon{},
+	))
+	reconcileReports(1)
+	reconcileReports(0)
+
+	// And after its base profile changed.
+	base := newTestProfile()
+	base.Name = "base"
+
+	require.NoError(t, env.cli.Get(t.Context(), testProfileKey, sp))
+	sp.Spec.BaseProfileName = base.Name
+	require.NoError(t, env.cli.Update(t.Context(), sp))
+	env.impl.ClientGetProfileReturns(base, nil)
+
+	reconcileReports(0)
+	require.NotEmpty(t, env.rec.derivedProfileRequests(t.Context(), base))
+	reconcileReports(1)
+
+	// An installed profile is reported again once it gets rejected again.
+	env.impl.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{}, nil)
+	_, err = env.reconcile(t)
+	require.NoError(t, err)
+	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, env.nodeStatus(t).Status.Status)
+	env.events()
+
+	env.impl.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
+		Spec: spodapi.SPODSpec{
+			Security: spodapi.SPODSecurityConfig{AllowedSyscalls: []string{"read"}},
+		},
+	}, nil)
+	reconcileReports(1)
 }
 
 func TestDerivedProfileRequests(t *testing.T) {

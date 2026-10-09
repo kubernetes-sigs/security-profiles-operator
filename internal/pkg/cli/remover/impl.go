@@ -50,5 +50,7 @@ func (*defaultImpl) AppArmorRemoveProfile(
 ) error {
 	// The user explicitly asked to remove this profile from the local host, so
 	// there is no custom resource whose name could target a runtime profile.
-	return manager.RemoveProfile(p, true)
+	_, err := manager.RemoveProfile(p, true)
+
+	return err
 }

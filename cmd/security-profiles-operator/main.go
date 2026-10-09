@@ -115,6 +115,7 @@ const (
 	memOptimFlag                 string = "with-mem-optim"
 	insecureMetricsAccessFlag    string = "with-insecure-metrics-access"
 	maxConcurrentReconcilesFlag  string = "max-concurrent-reconciles"
+	maxMetricSeriesFlag          string = "max-metric-series"
 	profilingAddressFlag         string = "profiling-address"
 	defaultWebhookPort           int    = 9443
 	metricsPort                  int    = 8443
@@ -195,6 +196,10 @@ var runtimeEnvVars = []clidocs.EnvVar{
 		Name: config.EnableInsecureMetricsAccessEnvKey,
 		Description: "read by the manager as well: allows unauthenticated access to the metrics " +
 			"endpoint of the daemon in addition to the `SecurityProfilesOperatorDaemon` configuration",
+	},
+	{
+		Name:        config.MaxMetricSeriesEnvKey,
+		Description: "read by the manager as well: passed on to the daemon if set",
 	},
 	{
 		Name: "RELATED_IMAGE_SELINUXD",
@@ -352,6 +357,13 @@ func daemonCommand(info *version.Info) *cli.Command {
 				Usage:   "allow unauthenticated access to the metrics endpoint",
 				Value:   false,
 				EnvVars: []string{config.EnableInsecureMetricsAccessEnvKey},
+			},
+			&cli.IntFlag{
+				Name: maxMetricSeriesFlag,
+				Usage: "number of series each per workload metric keeps at most, " +
+					"increments of further series get dropped, 0 keeps any number",
+				Value:   metrics.DefaultMaxSeries,
+				EnvVars: []string{config.MaxMetricSeriesEnvKey},
 			},
 		},
 	}
@@ -979,13 +991,16 @@ func getEnabledControllers(ctx *cli.Context) []controller.Controller {
 // a copy of every pod in the cluster, which costs both memory per node and
 // watch bandwidth on the API server.
 //
+// The same goes for the node statuses: the daemon only reads and writes the
+// ones of its own node, while the cluster holds one per node and profile.
+//
 // When memory optimization is additionally enabled, only pods labeled for
 // recording are cached on top of that.
 func newDaemonCache(ctx *cli.Context) cache.NewCacheFunc {
 	nodeName := os.Getenv(config.NodeNameEnvKey)
 	if nodeName == "" {
 		setupLog.Info(
-			"Node name not set, caching pods cluster wide",
+			"Node name not set, caching pods and node statuses cluster wide",
 			"env", config.NodeNameEnvKey,
 		)
 	}
@@ -1001,12 +1016,20 @@ func newDaemonCache(ctx *cli.Context) cache.NewCacheFunc {
 
 // setDaemonCacheOptions sets the cache options of the daemon, which restrict
 // the pod cache to the pods of the node and, with memory optimization, to the
-// pods labeled for recording.
+// pods labeled for recording. The node status cache is restricted to the
+// statuses of the node by their node label, which every status carries since
+// the per-node statuses got introduced.
 func setDaemonCacheOptions(opts *cache.Options, nodeName string, memOptim bool) {
 	byPod := cache.ByObject{}
+	byObject := map[client.Object]cache.ByObject{}
 
 	if nodeName != "" {
 		byPod.Field = fields.OneTermEqualSelector("spec.nodeName", nodeName)
+		byObject[&secprofnodestatusv1.SecurityProfileNodeStatus{}] = cache.ByObject{
+			Label: labels.SelectorFromSet(labels.Set{
+				secprofnodestatusv1.StatusToNodeLabel: util.NodeNameLabelValue(nodeName),
+			}),
+		}
 	}
 
 	if memOptim {
@@ -1015,8 +1038,10 @@ func setDaemonCacheOptions(opts *cache.Options, nodeName string, memOptim bool) 
 		})
 	}
 
+	byObject[&corev1.Pod{}] = byPod
+
 	opts.SyncPeriod = &daemonSyncPeriod
-	opts.ByObject = map[client.Object]cache.ByObject{&corev1.Pod{}: byPod}
+	opts.ByObject = byObject
 }
 
 // tlsConfig is the TLS configuration used by the controller-runtime servers
@@ -1315,8 +1340,15 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 		return err
 	}
 
+	maxSeries := ctx.Int(maxMetricSeriesFlag)
+	if maxSeries < 0 {
+		return fmt.Errorf("%s must not be negative: %d", maxMetricSeriesFlag, maxSeries)
+	}
+
 	// Setup metrics
 	met := metrics.New()
+	met.SetMaxSeries(maxSeries)
+
 	if err := met.Register(); err != nil {
 		return fmt.Errorf("register metrics: %w", err)
 	}
@@ -1358,20 +1390,22 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 
 	setControllerOptionsForNamespaces(&ctrlOpts, operatorNamespace)
 
+	// The node status API provides the status which every profile kind uses.
+	// The manager uses the default scheme, which has to know the node status
+	// kind of the cache options before the manager creates the cache.
+	if err := addToScheme(clientgoscheme.Scheme,
+		schemeAPI{"per-node Status v1", secprofnodestatusv1.AddToScheme},
+		schemeAPI{"SPOD config v1", spodv1.AddToScheme},
+	); err != nil {
+		return err
+	}
+
 	mgr, err := ctrl.NewManager(cfg, ctrlOpts)
 	if err != nil {
 		return fmt.Errorf("create manager: %w", err)
 	}
 
 	if err := addCacheSyncReadyzCheck(mgr); err != nil {
-		return err
-	}
-
-	// The node status API provides the status which every profile kind uses.
-	if err := addToScheme(mgr.GetScheme(),
-		schemeAPI{"per-node Status v1", secprofnodestatusv1.AddToScheme},
-		schemeAPI{"SPOD config v1", spodv1.AddToScheme},
-	); err != nil {
 		return err
 	}
 

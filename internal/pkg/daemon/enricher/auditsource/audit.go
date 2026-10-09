@@ -23,6 +23,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/go-logr/logr"
 
@@ -130,9 +131,30 @@ func (a *AuditdSource) Stop() {
 // type IDs are defined at https://elixir.bootlin.com/linux/latest/source/include/uapi/linux/audit.h
 var (
 	// auditHeaderRegex matches the record type and the timestamp of an audit
-	// record, as written by auditd (type=SECCOMP msg=audit(...):) and by the
-	// kernel to its log (audit: type=1326 audit(...):).
-	auditHeaderRegex = regexp.MustCompile(`type=(\w+)\s+(?:msg=)?audit\(([^)]+)\):?`)
+	// record at the start of a line, as written by auditd and by the kernel:
+	//
+	//	type=SECCOMP msg=audit(...): ...
+	//	node=host type=SECCOMP msg=audit(...): ...
+	//	audit: type=1326 audit(...): ...
+	//	[  270.853767] audit: type=1326 audit(...): ...
+	//
+	// The kernel log lines are also matched in syslog, but only with the
+	// kernel tag and the traditional or the RFC 3339 timestamp, as written by
+	// rsyslog and syslog-ng, from the kernel log or forwarded by journald:
+	//
+	//	Jul  8 10:31:23 host kernel: [  270.853767] audit: type=1326 audit(...): ...
+	//	2025-07-08T10:31:23.123456+00:00 host kernel: audit: type=1326 audit(...): ...
+	//
+	// Every process which can log to syslog could otherwise forge records,
+	// with the PID of another process. A process logging with the kernel tag
+	// is still mistaken for the kernel, the syslog file does not tell them
+	// apart.
+	auditHeaderRegex = regexp.MustCompile(
+		`^(?:node=\S+ |` +
+			`(?:(?:[A-Z][a-z]{2} +\d{1,2} \d{2}:\d{2}:\d{2}|\d{4}-\d{2}-\d{2}T\S+) \S+ kernel: )?` +
+			`(?:\[ *\d+\.\d+\] )?(?:audit: )?)` +
+			`type=(\w+)\s+(?:msg=)?audit\(([\d.:]+)\):?`,
+	)
 
 	selinuxPermsRegex = regexp.MustCompile(`\{\s*(.*?)\s*\}`)
 )
@@ -161,7 +183,7 @@ var untrustedFields = map[string]bool{
 // auditField is a single key=value pair of an audit record.
 type auditField struct {
 	key string
-	// value is unquoted and decoded.
+	// value is unquoted and decoded, and valid UTF-8.
 	value string
 	// raw is the value as it was logged.
 	raw string
@@ -231,25 +253,33 @@ func parseAuditFields(record string) auditFields {
 			}
 		}
 
-		fields = append(fields, auditField{key: key, value: value, raw: raw})
+		fields = append(fields, auditField{key: key, value: validUTF8(value), raw: raw})
 	}
 
 	return fields
 }
 
 // decodeUntrusted decodes a hex encoded untrusted string. Values which are
-// not valid hex are returned as they are.
+// not valid hex are returned as they are. The result is valid UTF-8, see
+// validUTF8.
 func decodeUntrusted(raw string) string {
 	if raw == "" || raw == "(null)" || len(raw)%2 != 0 {
-		return raw
+		return validUTF8(raw)
 	}
 
 	decoded, err := hex.DecodeString(raw)
 	if err != nil {
-		return raw
+		return validUTF8(raw)
 	}
 
-	return string(decoded)
+	return validUTF8(string(decoded))
+}
+
+// validUTF8 replaces the invalid UTF-8 sequences of s, like the ones of a hex
+// encoded file name. The values end up in protobuf strings, which have to be
+// valid UTF-8: marshalling a request with an invalid one fails.
+func validUTF8(s string) string {
+	return strings.ToValidUTF8(s, string(utf8.RuneError))
 }
 
 // ErrUnsupportedLine is returned by ExtractAuditLine for a line which is no
@@ -396,7 +426,7 @@ func extractSelinuxLine(body string, fields auditFields) *types.AuditLine {
 
 	line := types.AuditLine{
 		AuditType: types.AuditTypeSelinux,
-		Perm:      perms[1],
+		Perm:      validUTF8(perms[1]),
 		Scontext:  scontext,
 		Tcontext:  tcontext,
 		Tclass:    tclass,
@@ -468,7 +498,7 @@ func extractApparmorLine(fields auditFields) *types.AuditLine {
 		extra = append(extra, field.key+"="+strings.ReplaceAll(field.raw, "\"", "'"))
 	}
 
-	line.ExtraInfo = strings.Join(extra, " ")
+	line.ExtraInfo = validUTF8(strings.Join(extra, " "))
 
 	return &line
 }

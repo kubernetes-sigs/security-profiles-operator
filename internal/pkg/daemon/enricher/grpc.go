@@ -35,48 +35,51 @@ const (
 	ErrorNoAvcs = "no avcs recorded for profile"
 )
 
-// Syscalls returns the syscalls for a provided profile.
+// Syscalls returns the syscalls for a provided profile. With collect set, no
+// syscalls of the containers which recorded them get recorded for the profile
+// afterwards, see recordedData.get.
 func (e *Enricher) Syscalls(
 	_ context.Context, r *api.SyscallsRequest,
 ) (*api.SyscallsResponse, error) {
-	item := e.syscalls.Get(r.GetProfile())
-	if item == nil {
+	syscalls, found := e.syscalls.get(r.GetProfile(), r.GetCollect())
+	if !found {
 		st := status.New(codes.NotFound, ErrorNoSyscalls)
 
 		return nil, st.Err()
 	}
 
-	stringSet := item.Value()
-
 	return &api.SyscallsResponse{
-		Syscalls: stringSet.UnsortedList(),
+		Syscalls: syscalls,
 		GoArch:   runtime.GOARCH,
 	}, nil
 }
 
-// ResetSyscalls removes the syscalls for a provided profile.
+// ResetSyscalls removes the syscalls for a provided profile, see
+// recordedData.reset. No syscalls of the containers which recorded them get
+// recorded for it afterwards.
 func (e *Enricher) ResetSyscalls(
 	_ context.Context, r *api.SyscallsRequest,
 ) (*api.EmptyResponse, error) {
-	e.syscalls.Delete(r.GetProfile())
+	e.syscalls.reset(r.GetProfile())
 
 	return &api.EmptyResponse{}, nil
 }
 
-// Avcs returns the AVC messages for a provided profile.
+// Avcs returns the AVC messages for a provided profile. With collect set, no
+// AVCs of the containers which recorded them get recorded for the profile
+// afterwards, see recordedData.get.
 func (e *Enricher) Avcs(
 	_ context.Context, r *api.AvcRequest,
 ) (*api.AvcResponse, error) {
-	item := e.avcs.Get(r.GetProfile())
-	if item == nil {
+	jsonList, found := e.avcs.get(r.GetProfile(), r.GetCollect())
+	if !found {
 		st := status.New(codes.NotFound, ErrorNoAvcs)
 
 		return nil, st.Err()
 	}
 
-	avcList := make([]*api.AvcResponse_SelinuxAvc, 0)
+	avcList := make([]*api.AvcResponse_SelinuxAvc, 0, len(jsonList))
 
-	jsonList := item.Value().UnsortedList()
 	for i := range jsonList {
 		avc := &api.AvcResponse_SelinuxAvc{}
 
@@ -91,11 +94,12 @@ func (e *Enricher) Avcs(
 	return &api.AvcResponse{Avc: avcList}, nil
 }
 
-// ResetAvcs removes the avcs for a provided profile.
+// ResetAvcs removes the avcs for a provided profile, see recordedData.reset. No
+// AVCs of the containers which recorded them get recorded for it afterwards.
 func (e *Enricher) ResetAvcs(
 	_ context.Context, r *api.AvcRequest,
 ) (*api.EmptyResponse, error) {
-	e.avcs.Delete(r.GetProfile())
+	e.avcs.reset(r.GetProfile())
 
 	return &api.EmptyResponse{}, nil
 }

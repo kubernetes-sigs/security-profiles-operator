@@ -69,20 +69,21 @@ func TestDispatchSeccompLineSkipsCompatSyscalls(t *testing.T) {
 	sut, err := New(logr.Discard(), nil)
 	require.NoError(t, err)
 
-	info := &types.ContainerInfo{RecordProfile: "profile"}
+	info := &types.ContainerInfo{SeccompRecordProfile: "profile"}
 
 	sut.dispatchSeccompLine(node, &types.AuditLine{
 		AuditType: types.AuditTypeSeccomp, SystemCallID: 102, Arch: "40000003",
 	}, info)
-	require.Nil(t, sut.syscalls.Get("profile"))
+	_, found := sut.syscalls.get("profile", false)
+	require.False(t, found)
 
 	sut.dispatchSeccompLine(node, &types.AuditLine{
 		AuditType: types.AuditTypeSeccomp, SystemCallID: 0, Arch: nativeAuditArches[runtime.GOARCH],
 	}, info)
 
-	item := sut.syscalls.Get("profile")
-	require.NotNil(t, item)
-	require.Len(t, item.Value().UnsortedList(), 1)
+	recorded, found := sut.syscalls.get("profile", false)
+	require.True(t, found)
+	require.Len(t, recorded, 1)
 }
 
 // TestJsonDispatchResolvesArchPerLine asserts that the syscalls of a process
