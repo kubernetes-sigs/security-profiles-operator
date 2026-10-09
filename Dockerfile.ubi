@@ -17,7 +17,7 @@
 # PATH, not the Red Hat Go of the image with its OpenSSL based FIPS crypto.
 
 # The digest is tracked as ubi9-go-toolset-digest in dependencies.yaml.
-FROM registry.access.redhat.com/ubi9/go-toolset@sha256:890b54e8d329f33f094ab17881bd37e20b80a54cc39141637310911d8dd9c575 AS build
+FROM registry.access.redhat.com/ubi9/go-toolset@sha256:6f246e8913d082df463b62a74c72f0d2b410583e1b2ac48add39cd7ede59ce62 AS build
 # Only the build stage runs as root, the final image does not.
 # hadolint ignore=DL3002
 USER root
@@ -38,8 +38,8 @@ RUN dnf install -y \
 # version nobody chose and unrecorded in the provenance.
 # The checksums are pinned per architecture and tracked next to the golang
 # entry of dependencies.yaml, a Go bump in go.mod has to update them as well.
-ARG GO_SHA256_amd64=63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445
-ARG GO_SHA256_arm64=3450b45a3f9ee8568792736a5c5e70a1f2e9b36c35a8f74958c03e51d7d92bec
+ARG GO_SHA256_amd64=ecbadb99091a3f46e31f5f934b068b1864eafa7995211b39eaddf76996045fe5
+ARG GO_SHA256_arm64=94f3e30b8e374bc285e7dadc11e0865726b9bc6e85b841ccceaabc0214c6b7c8
 COPY go.mod hack/go-version.sh /tmp/
 RUN ARCH=$(arch | sed 's|x86_64|amd64|g' | sed 's|aarch64|arm64|g') && \
     GO_VERSION=go$(/tmp/go-version.sh /tmp/go.mod) && \

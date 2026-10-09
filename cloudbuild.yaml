@@ -59,7 +59,7 @@ steps:
       exit $$status
   # Attesting runs after publishing, so that a failure there doesn't keep the
   # profiles and the chart from being published.
-  - name: golang:1.27.1-bookworm@sha256:648f440f42a0958804efb24df176f806f9d353b41f1c0627f666428e40310f6b
+  - name: golang:1.27.2-bookworm@sha256:648f440f42a0958804efb24df176f806f9d353b41f1c0627f666428e40310f6b
     entrypoint: bash
     env:
       - TAG=$_GIT_TAG
@@ -72,7 +72,7 @@ steps:
     - ./hack/attest-images.sh
   # Fails the build when a digest it pushed or found published misses its
   # signature or one of its attestations, see hack/verify-attestations.sh.
-  - name: golang:1.27.1-bookworm@sha256:648f440f42a0958804efb24df176f806f9d353b41f1c0627f666428e40310f6b
+  - name: golang:1.27.2-bookworm@sha256:648f440f42a0958804efb24df176f806f9d353b41f1c0627f666428e40310f6b
     entrypoint: bash
     env:
       - BUILD_ID=$BUILD_ID
@@ -86,7 +86,7 @@ steps:
   # Attaches the provenance of the build workflow to the profiles, which may
   # wait for that workflow, so it runs after everything else got published and
   # attested, and only waits as long as the build timeout leaves time.
-  - name: golang:1.27.1-bookworm@sha256:648f440f42a0958804efb24df176f806f9d353b41f1c0627f666428e40310f6b
+  - name: golang:1.27.2-bookworm@sha256:648f440f42a0958804efb24df176f806f9d353b41f1c0627f666428e40310f6b
     entrypoint: bash
     env:
       - BUILD_ID=$BUILD_ID
