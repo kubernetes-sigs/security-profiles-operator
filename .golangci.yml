@@ -67,6 +67,7 @@ linters:
     - nilnesserr
     - nilnil
     - nlreturn
+    - noctx
     - nolintlint
     - nosprintfhostport
     - paralleltest
@@ -112,7 +113,6 @@ linters:
     # - interfacebloat
     # - ireturn
     # - mnd
-    # - noctx
     # - noinlineerr
     # - nonamedreturns
     # - testpackage
@@ -155,7 +155,6 @@ linters:
         - HACK
     gosec:
       excludes:
-        - G115
         - G602
         # Unhandled errors, errcheck reports them already.
         - G104

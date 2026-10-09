@@ -326,7 +326,7 @@ func TestRun(t *testing.T) {
 
 			listener := &fakeListener{}
 			listened := false
-			mock.ListenStub = func(string, string) (net.Listener, error) {
+			mock.ListenStub = func(context.Context, string, string) (net.Listener, error) {
 				listened = true
 
 				return listener, nil
@@ -1284,7 +1284,7 @@ func TestRecordedExitsAreBounded(t *testing.T) {
 		sut.handleExitEvent(&bpfEvent{Pid: pid, Type: eventTypeExit})
 	}
 
-	require.LessOrEqual(t, uint64(sut.recentExits.Len()), maxCacheItems)
+	require.LessOrEqual(t, sut.recentExits.Len(), int(maxCacheItems))
 }
 
 // TestWaitForPidExitSurvivesEviction asserts that a parked waiter is still
@@ -1658,9 +1658,9 @@ func TestTrackProfileMetricSerializesSends(t *testing.T) {
 	go sut.metrics.Run(t.Context())
 
 	var wg sync.WaitGroup
-	for i := range 10 {
+	for i := range uint32(10) {
 		wg.Go(func() {
-			sut.trackProfileMetric(uint32(i), "profile")
+			sut.trackProfileMetric(i, "profile")
 		})
 	}
 

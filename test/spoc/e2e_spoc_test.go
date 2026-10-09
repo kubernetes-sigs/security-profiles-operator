@@ -21,6 +21,7 @@ package main_test
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -68,7 +69,7 @@ const (
 
 //nolint:paralleltest // should not run in parallel
 func TestSpoc(t *testing.T) {
-	cmd := exec.Command("go", "build", "demobinary.go")
+	cmd := exec.CommandContext(t.Context(), "go", "build", "demobinary.go")
 	err := cmd.Run()
 	require.NoError(t, err, "failed to build demobinary.go")
 	err = helpers.CopyFileLocal("demobinary", "demobinary-child", true)
@@ -321,7 +322,10 @@ func recordAppArmorTest(t *testing.T) {
 		demobinary, err := filepath.Abs("./demobinary")
 		require.NoError(t, err)
 
-		cmd := exec.Command(
+		// Not the context of the test case: it ends before the cleanup below,
+		// and killing sudo would orphan the recorder.
+		cmd := exec.CommandContext(
+			context.Background(),
 			"sudo",
 			spocPath,
 			"record",
@@ -374,7 +378,7 @@ func recordAppArmorTest(t *testing.T) {
 		waitForLog(t, spocLogs, recorder.WaitForSigIntMessage)
 
 		// Run binary...
-		cmd2 := exec.Command(demobinary, "--net-tcp")
+		cmd2 := exec.CommandContext(t.Context(), demobinary, "--net-tcp")
 		err = cmd2.Run()
 		require.NoError(t, err)
 
@@ -401,7 +405,8 @@ func recordAppArmorTest(t *testing.T) {
 // Process.Signal here as sudo will not forward SIGINT when running outside of a
 // pty (i.e. in CI).
 func interruptRecorder(pid int) error {
-	if err := exec.Command(
+	if err := exec.CommandContext(
+		context.Background(),
 		"sudo",
 		"setsid",
 		"kill",
@@ -418,7 +423,8 @@ func interruptRecorder(pid int) error {
 // targets the child of sudo rather than sudo itself, which runs as root and
 // would just orphan the recorder.
 func killRecorder(pid int) error {
-	err := exec.Command(
+	err := exec.CommandContext(
+		context.Background(),
 		"sudo",
 		"pkill",
 		"-KILL",
@@ -568,7 +574,8 @@ func runSpoc(t *testing.T, args ...string) ([]byte, error) {
 	t.Helper()
 
 	args = append([]string{spocPath}, args...)
-	cmd := exec.Command(
+	cmd := exec.CommandContext(
+		t.Context(),
 		"sudo",
 		args...,
 	)
@@ -612,7 +619,8 @@ func runWithProfile(
 	_, err = runSpoc(t, "install", f.Name(), demobinary)
 	require.NoError(t, err)
 
-	cmd := exec.Command(
+	cmd := exec.CommandContext(
+		t.Context(),
 		binary,
 		args...,
 	)
@@ -694,7 +702,7 @@ func writeSeccompProfile(t *testing.T, path, name, baseProfileName, syscallName 
 func runSpocUnprivileged(t *testing.T, args ...string) (string, error) {
 	t.Helper()
 
-	out, err := exec.Command(spocPath, args...).CombinedOutput()
+	out, err := exec.CommandContext(t.Context(), spocPath, args...).CombinedOutput()
 
 	return string(out), err
 }

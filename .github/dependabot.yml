@@ -20,11 +20,14 @@ updates:
         - "k8s.io/*"
         - "sigs.k8s.io/*"
 - package-ecosystem: "github-actions"
-  # The composite actions pin actions of their own.
+  # The composite actions pin actions of their own, every directory below
+  # .github/actions has to be listed.
   directories:
     - "/"
     - "/.github/actions/e2e-vm"
     - "/.github/actions/e2e-vm-artifacts"
+    - "/.github/actions/scan-image"
+    - "/.github/actions/setup-go-build"
     - "/.github/actions/setup-nix"
     - "/.github/actions/setup-vagrant"
   schedule:

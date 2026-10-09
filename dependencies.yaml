@@ -58,12 +58,12 @@ dependencies:
     - path: Makefile
       match: "^VERIFY_BOILERPLATE_SHA256"
 
+  # No upstream: zeitgeist cannot parse the release tags of
+  # kubernetes-sigs/kustomize, like kustomize/v5.8.1, and its upstream check
+  # stops at the first dependency it fails on. hack/check-release-tags.py
+  # checks it instead.
   - name: kustomize
     version: 5.8.1
-    upstream:
-      flavour: github
-      url: kubernetes-sigs/kustomize
-      constraints: "< 6.0.0"
     refPaths:
     - path: Makefile
       match: "^KUSTOMIZE_VERSION"
@@ -202,6 +202,43 @@ dependencies:
     refPaths:
     - path: test/suite_test.go
       match: 'kindVersion\s+='
+    - path: hack/kind-with-registry.sh
+      match: "^KIND_VERSION="
+
+  # Must be bumped together with kind above, the SHA512 of the release binary
+  # kind-<platform>. The release only publishes SHA256 files, so compute it from
+  # the binary once its SHA256 matches.
+  - name: kind-sha512-linux-amd64
+    version: f58a029ef8dee72f7fcf0345a5731795de0745ee6c955efd24801ced8409395cd2a4dc0ca41663c43231a48e94a5375cd01e63bc37b4557bf708e9ce6703fffa
+    refPaths:
+    - path: test/suite_test.go
+      match: '"linux-amd64":'
+    - path: hack/kind-with-registry.sh
+      match: "^KIND_SHA512_linux_amd64="
+
+  - name: kind-sha512-linux-arm64
+    version: 034585fbb3766f34c3cdbc127b145c76904073918e2af76e31a81349aa2c67979e35ab780cc4a1cb1dadc5df04ae3b9c2984c1b382f1cff6b4ee48b560b7f048
+    refPaths:
+    - path: test/suite_test.go
+      match: '"linux-arm64":'
+    - path: hack/kind-with-registry.sh
+      match: "^KIND_SHA512_linux_arm64="
+
+  - name: kind-sha512-darwin-amd64
+    version: 5dccea9fd7fef0d5f5e8212bc4683389b13c4724b55057911da9d34bb6b605641e024affaa34b17b672ed22df4534cdcbc56a505a3078d6f17a10ac81fbd5f10
+    refPaths:
+    - path: test/suite_test.go
+      match: '"darwin-amd64":'
+    - path: hack/kind-with-registry.sh
+      match: "^KIND_SHA512_darwin_amd64="
+
+  - name: kind-sha512-darwin-arm64
+    version: 443edbc6dac7bf44025e90dafe0c66fd6489ee37ed58c80647578b8fcdd39567f986389b4bf38a0de0529ba7415da9c5c2ef9860b0227f3708d30c586671869b
+    refPaths:
+    - path: test/suite_test.go
+      match: '"darwin-arm64":'
+    - path: hack/kind-with-registry.sh
+      match: "^KIND_SHA512_darwin_arm64="
 
   - name: kind-image
     version: 1.37.0
@@ -344,6 +381,22 @@ dependencies:
     refPaths:
       - path: hack/ci/Vagrantfile-fedora
         match: Fedora-Cloud-Base-Vagrant
+
+  # Must be bumped together with e2e-fedora-image-url above, the SHA256 of the
+  # VirtualBox box from the signed Fedora-Cloud-<version>-x86_64-CHECKSUM.
+  - name: e2e-fedora-virtualbox-box-sha256
+    version: 7fb67d4224541a548f4d9622695b245f007a5bdfe608e291860da0d8597ec4b1
+    refPaths:
+      - path: hack/ci/Vagrantfile-fedora
+        match: "^ *virtualbox_box_sha256 ="
+
+  # Must be bumped together with e2e-fedora-image-url above, the SHA256 of the
+  # libvirt box from the signed Fedora-Cloud-<version>-x86_64-CHECKSUM.
+  - name: e2e-fedora-libvirt-box-sha256
+    version: 4695d5ef2bfcc882649b98de0c545d04671d2064f6609e7e68e606718c8333dc
+    refPaths:
+      - path: hack/ci/Vagrantfile-fedora
+        match: "^ *libvirt_box_sha256 ="
 
   - name: debian-base-digest
     version: sha256:bb933ac3606ff3f69854a7eba5da1eaef5064ef62d83f3cb0e4be40eb53522e0
@@ -638,11 +691,10 @@ dependencies:
     - path: hack/lib/common.sh
       match: "^BOM_SHA256="
 
+  # No upstream: zeitgeist cannot parse the release tags of jqlang/jq, like
+  # jq-1.8.2, see kustomize.
   - name: jq
     version: 1.8.2
-    upstream:
-      flavour: github
-      url: jqlang/jq
     refPaths:
     - path: hack/lib/common.sh
       match: "^JQ_VERSION="
@@ -755,6 +807,14 @@ dependencies:
     refPaths:
     - path: hack/ci/Vagrantfile-flatcar
       match: "^ *DEVELOPER_CONTAINER_SHA512="
+
+  # Must be bumped together with flatcar above, the SHA512 of
+  # flatcar_production_vagrant.box from its signed DIGESTS.asc file.
+  - name: flatcar-vagrant-box-sha512
+    version: aab3e55313e71a0846036a8674d8f01de7361a148a909e4595b7a7f8cd91a18db271c02061b140671992f7f932c82b1ea4dad65cf511f756d0c66f781832b144
+    refPaths:
+    - path: hack/ci/Vagrantfile-flatcar
+      match: "box_download_checksum ="
 
   - name: zeitgeist
     version: 0.8.0
@@ -875,11 +935,10 @@ dependencies:
       - path: Makefile
         match: "^SHELLCHECK_SHA256_darwin_arm64"
 
+  # No upstream: zeitgeist cannot parse the two part release tags of
+  # protocolbuffers/protobuf, like v36.2, see kustomize.
   - name: protoc
     version: v36.2
-    upstream:
-      flavour: github
-      url: protocolbuffers/protobuf
     refPaths:
       - path: Makefile
         match: "^PROTOC_VERSION"
@@ -963,11 +1022,10 @@ dependencies:
       - path: .github/workflows/lint.yml
         match: "version: 1\\."
 
+  # No upstream: zeitgeist cannot parse the release tags of
+  # lycheeverse/lychee, which carry a lychee- prefix, see kustomize.
   - name: lychee
     version: v0.24.2
-    upstream:
-      flavour: github
-      url: lycheeverse/lychee
     refPaths:
       - path: .github/workflows/lint.yml
         match: "lycheeVersion:"

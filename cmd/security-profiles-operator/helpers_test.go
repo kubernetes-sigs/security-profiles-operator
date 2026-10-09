@@ -96,7 +96,11 @@ func TestRunSpoc(t *testing.T) {
 
 			stdout := &bytes.Buffer{}
 			err := runSpoc(
-				[]string{"merge", "--check"}, strings.NewReader("stdin\n"), stdout, &bytes.Buffer{},
+				t.Context(),
+				[]string{"merge", "--check"},
+				strings.NewReader("stdin\n"),
+				stdout,
+				&bytes.Buffer{},
 			)
 			// The input is passed through, like a password for --password-stdin.
 			require.Equal(t, "spoc merge --check\nstdin\n", stdout.String())
@@ -117,7 +121,7 @@ func TestRunSpoc(t *testing.T) {
 	t.Run("missing binary", func(t *testing.T) {
 		t.Setenv("PATH", t.TempDir())
 
-		err := runSpoc(nil, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
+		err := runSpoc(t.Context(), nil, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
 		require.Error(t, err)
 
 		_, isExitCoder := err.(cli.ExitCoder) //nolint:errorlint // cli.Exit is not wrapped

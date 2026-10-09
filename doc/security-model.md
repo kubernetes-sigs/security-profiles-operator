@@ -245,9 +245,11 @@ namespace, and also binds ephemeral containers, which get added to running pods 
 is not installed yet, so pods bound to it are rejected, unless its kind is disabled
 in the `spod` resource, in which case the binding is skipped with an event.
 
-The exec metadata webhooks use the `Ignore` failure policy and exclude the `kube-system`,
-`kube-public`, `kube-node-lease` and operator namespaces. Other system namespaces, like the
-`openshift-*` ones, can be excluded through `spec.webhook.options` of the `spod` resource.
+The exec metadata webhooks use the `Ignore` failure policy. `execmetadata.spo.io` excludes the
+`kube-system`, `kube-public`, `kube-node-lease` and operator namespaces. Other system namespaces,
+like the `openshift-*` ones, can be excluded through `spec.webhook.options` of the `spod`
+resource. `nodedebuggingpod.spo.io` applies to the pods of all namespaces which carry the
+`app.kubernetes.io/managed-by: kubectl-debug` label of `kubectl debug node`.
 
 
 For the most up-to-date rbac requirements refer to the materialised [role.yaml](../deploy/base/role.yaml) file.
@@ -268,19 +270,26 @@ spec:
 ```
 
 The shipped defaults for `allowedIdentityRegexp` and `allowedOidcIssuerRegexp`
-match any value. With those defaults a signature is accepted regardless of who
-produced it, which only proves that the artifact was signed by somebody. An
+match any value. Official base profiles are then verified against the official
+signers, but for any other base profile a signature is accepted regardless of
+who produced it, which only proves that the artifact was signed by somebody. An
 attacker able to publish to the referenced registry can sign with their own
 Fulcio identity and pass verification.
 
-Constrain both fields to the signers you actually trust, for example:
+Pin the signer of private base profiles with `signatureVerification`, which
+leaves the official base profiles on their official signers, for example:
 
 ```yaml
 spec:
   security:
-    allowedIdentityRegexp: "^https://github\\.com/my-org/my-profiles/"
-    allowedOidcIssuerRegexp: "^https://token\\.actions\\.githubusercontent\\.com$"
+    signatureVerification:
+      allowedIdentity: https://github.com/my-org/my-profiles/.github/workflows/sign.yml@refs/heads/main
+      allowedOidcIssuer: https://token.actions.githubusercontent.com
 ```
+
+Constraining `allowedIdentityRegexp` and `allowedOidcIssuerRegexp` instead
+applies to the official base profiles too, so the regexps then also have to
+match the official signers.
 
 The operator logs a warning when it recognises an unconstrained signer pattern,
 such as the shipped default, so an unintentionally permissive configuration is

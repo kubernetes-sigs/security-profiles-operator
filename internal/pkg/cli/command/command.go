@@ -17,6 +17,7 @@ limitations under the License.
 package command
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -102,7 +103,8 @@ func getHomeDirectory(uid uint32) (string, error) {
 		return usr.HomeDir, nil
 	}
 	//nolint:gosec // uid is trusted here
-	cmd := exec.Command(
+	cmd := exec.CommandContext(
+		context.Background(),
 		"sudo",
 		fmt.Sprintf("--user=#%d", uid),
 		"--set-home",

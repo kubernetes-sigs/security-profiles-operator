@@ -17,6 +17,7 @@ limitations under the License.
 package metrics
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -45,14 +46,14 @@ const (
 )
 
 // ServeGRPC runs the GRPC API server in the background.
-func (m *Metrics) ServeGRPC() error {
+func (m *Metrics) ServeGRPC(ctx context.Context) error {
 	if _, err := os.Stat(config.GRPCServerSocketMetrics); err == nil {
 		if err := os.RemoveAll(config.GRPCServerSocketMetrics); err != nil {
 			return fmt.Errorf("remove GRPC socket file: %w", err)
 		}
 	}
 
-	listener, err := net.Listen("unix", config.GRPCServerSocketMetrics)
+	listener, err := (&net.ListenConfig{}).Listen(ctx, "unix", config.GRPCServerSocketMetrics)
 	if err != nil {
 		return fmt.Errorf("create listener: %w", err)
 	}

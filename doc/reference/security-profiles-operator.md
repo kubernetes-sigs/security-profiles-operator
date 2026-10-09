@@ -19,7 +19,7 @@ security-profiles-operator
 
 ## DESCRIPTION
 
-The Security Profiles Operator makes it easier for cluster admins to manage their seccomp or AppArmor profiles and apply them to Kubernetes' workloads.
+The Security Profiles Operator makes it easier for cluster admins to manage their seccomp, AppArmor or SELinux profiles and apply them to Kubernetes' workloads.
 
 **Usage**:
 

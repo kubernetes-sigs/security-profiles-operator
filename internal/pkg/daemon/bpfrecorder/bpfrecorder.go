@@ -530,7 +530,7 @@ func (b *BpfRecorder) Run() error {
 		}
 	}
 
-	listener, err := b.Listen("unix", config.GRPCServerSocketBpfRecorder)
+	listener, err := b.Listen(podsCtx, "unix", config.GRPCServerSocketBpfRecorder)
 	if err != nil {
 		return fmt.Errorf("create listener: %w", err)
 	}
@@ -1719,6 +1719,7 @@ func (b *BpfRecorder) handleEvent(eventBytes []byte) {
 	case eventTypeNewPid:
 		// The flags carry when the process started, see submit_new_pid. A
 		// value beyond a duration turns negative, which counts as unknown.
+		//nolint:gosec // the overflow is intended, see above
 		b.scheduleNewPidEvent(event.Pid, event.Mntns, event.Key, time.Duration(event.Flags))
 	case eventTypeExit:
 		b.handleExitEvent(&event)

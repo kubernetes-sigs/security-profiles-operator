@@ -541,7 +541,7 @@ func (b *AppArmorRecorder) handleCapabilityEvent(capEvent *bpfEvent) {
 		return
 	}
 
-	requestedCap := int(capEvent.Flags)
+	requestedCap := int(capEvent.Flags) //nolint:gosec // a capability number, see CAP_LAST_CAP
 	if slices.Contains(b.recordedCapabilities[key], requestedCap) {
 		return
 	}

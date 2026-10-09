@@ -131,37 +131,48 @@ func newApp() *cli.App {
 			Description: "Merge multiple security profiles into a combined profile. " +
 				"Permissions are additive. For AppArmor, the first profile may additionally contain glob paths.",
 			Action:    merge,
-			ArgsUsage: "INFILE...",
+			ArgsUsage: "PROFILE...",
 			Flags:     merger.Flags(),
 		},
 		&cli.Command{
-			Name:      "convert",
-			Aliases:   []string{"c"},
-			Usage:     "convert a security profile to its raw format",
+			Name:    "convert",
+			Aliases: []string{"c"},
+			Usage:   "convert a security profile to its raw format",
+			Description: "Convert a SeccompProfile CRD into a raw OCI runtime-spec seccomp " +
+				"profile in JSON, or an AppArmorProfile CRD into a raw AppArmor profile. " +
+				"The raw profile is written to stdout unless --output-file is set.",
 			Action:    convert,
 			ArgsUsage: "PROFILE",
 			Flags:     converter.Flags(),
 		},
 		&cli.Command{
-			Name:      "install",
-			Aliases:   []string{"i"},
-			Usage:     "install a security profile on the local machine",
+			Name:    "install",
+			Aliases: []string{"i"},
+			Usage:   "install an AppArmor profile on the local machine",
+			Description: "Load the AppArmorProfile CRD of PROFILE (default: " + installer.DefaultProfileFile +
+				") into the kernel. The profile confines EXECUTABLE, which becomes its name. " +
+				"Without it, a profile name which is a command on the PATH is resolved to its " +
+				"executable. Other profile kinds are rejected. Requires root on a host with " +
+				"AppArmor enabled.",
 			Action:    install,
 			ArgsUsage: "[PROFILE [EXECUTABLE]]",
 		},
 		&cli.Command{
-			Name:      "remove",
-			Aliases:   []string{"rm"},
-			Usage:     "remove a security profile from the local machine",
+			Name:    "remove",
+			Aliases: []string{"rm"},
+			Usage:   "remove an AppArmor profile from the local machine",
+			Description: "Unload the AppArmorProfile CRD of PROFILE (default: " + installer.DefaultProfileFile +
+				") from the kernel. The profile name is derived like on install, so pass the " +
+				"same EXECUTABLE. Requires root on a host with AppArmor enabled.",
 			Action:    remove,
 			ArgsUsage: "[PROFILE [EXECUTABLE]]",
 		},
 		&cli.Command{
 			Name:    "run",
 			Aliases: []string{"x"},
-			Usage:   "run a command using a security profile",
-			Description: "The command runs confined by the seccomp profile, and the denials " +
-				"found in the audit log are printed. spoc exits with the exit code of the command.",
+			Usage:   "run a command using a seccomp profile",
+			Description: "Run a command confined by the seccomp profile of --profile, and print " +
+				"the denials found in the audit log. spoc exits with the exit code of the command.",
 			Action:    run,
 			ArgsUsage: "COMMAND",
 			Flags:     runner.Flags(),
@@ -169,21 +180,23 @@ func newApp() *cli.App {
 		&cli.Command{
 			Name:    "push",
 			Aliases: []string{"p"},
-			Usage:   "push a profile to a container registry",
-			Description: "Profile CRDs are pushed as YAML artifacts for oci:// base profiles. " +
+			Usage:   "push profiles to a container registry",
+			Description: "Push the profiles of --profiles to IMAGE. " +
+				"Profile CRDs are pushed as YAML artifacts for oci:// base profiles. " +
 				"A raw OCI runtime-spec seccomp profile in JSON is pushed in the KEP-6061 " +
 				"runtime format for container runtimes (single JSON layer, media type " +
 				"application/vnd.cncf.seccomp-profile.config.v1+json); exactly one profile " +
 				"is allowed in that format.",
 			Action:    push,
-			ArgsUsage: "FILE",
+			ArgsUsage: "IMAGE",
 			Flags:     pusher.Flags(),
 		},
 		&cli.Command{
 			Name:    "pull",
 			Aliases: []string{"l"},
 			Usage:   "pull a profile from a container registry",
-			Description: "Profile CRD artifacts and KEP-6061 runtime format artifacts are " +
+			Description: "Pull the profile of IMAGE, verifying its signature by default. " +
+				"Profile CRD artifacts and KEP-6061 runtime format artifacts are " +
 				"supported; the artifact content is written unchanged, so runtime format " +
 				"artifacts are saved as runtime-spec JSON and the default output file " +
 				"switches to a .json extension.",
@@ -194,7 +207,7 @@ func newApp() *cli.App {
 		&cli.Command{
 			Name:  "sign",
 			Usage: "sign an artifact in a container registry",
-			Description: "Signs an artifact keyless like spoc push does, for example one " +
+			Description: "Sign an artifact keyless like spoc push does, for example one " +
 				"whose signing failed after the push. A tag is resolved to its digest, " +
 				"which the signature is about.",
 			Action:    sign,

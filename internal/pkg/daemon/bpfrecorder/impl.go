@@ -53,7 +53,7 @@ type defaultImpl struct{}
 type impl interface {
 	InClusterConfig() (*rest.Config, error)
 	NewForConfig(*rest.Config) (*kubernetes.Clientset, error)
-	Listen(string, string) (net.Listener, error)
+	Listen(context.Context, string, string) (net.Listener, error)
 	Serve(*grpc.Server, net.Listener) error
 	NewModuleFromBufferArgs(*bpf.NewModuleArgs) (*bpf.Module, error)
 	BPFLoadObject(*bpf.Module) error
@@ -108,8 +108,8 @@ func (d *defaultImpl) NewForConfig(
 	return kubernetes.NewForConfig(c)
 }
 
-func (d *defaultImpl) Listen(network, address string) (net.Listener, error) {
-	return net.Listen(network, address)
+func (d *defaultImpl) Listen(ctx context.Context, network, address string) (net.Listener, error) {
+	return (&net.ListenConfig{}).Listen(ctx, network, address)
 }
 
 func (d *defaultImpl) Serve(grpcServer *grpc.Server, listener net.Listener) error {

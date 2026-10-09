@@ -209,7 +209,7 @@ func runSpocOutput(t *testing.T, args ...string) string {
 	t.Helper()
 
 	args = append([]string{spocPath}, args...)
-	out, err := exec.Command("sudo", args...).CombinedOutput()
+	out, err := exec.CommandContext(t.Context(), "sudo", args...).CombinedOutput()
 	require.NoError(t, err, "failed to run spoc: %s", string(out))
 
 	return string(out)

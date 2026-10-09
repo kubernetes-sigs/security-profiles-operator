@@ -30,19 +30,28 @@ import (
 // not fit into the SeccompProfile API.
 var ErrSeccompArgOutOfRange = errors.New("seccomp value out of range")
 
-func syscallsToOCI(syscalls []seccompprofile.Syscall) []specs.LinuxSyscall {
+// maxSeccompArgIndex is the index of the last of the six syscall arguments
+// seccomp can compare.
+const maxSeccompArgIndex = 5
+
+func syscallsToOCI(syscalls []seccompprofile.Syscall) ([]specs.LinuxSyscall, error) {
 	result := make([]specs.LinuxSyscall, len(syscalls))
 
 	for i, sc := range syscalls {
+		args, err := argsToOCI(sc.Args)
+		if err != nil {
+			return nil, fmt.Errorf("syscalls %v: %w", sc.Names, err)
+		}
+
 		result[i] = specs.LinuxSyscall{
 			Names:    sc.Names,
 			Action:   specs.LinuxSeccompAction(sc.Action),
 			ErrnoRet: errnoRetToOCI(sc.ErrnoRet),
-			Args:     argsToOCI(sc.Args),
+			Args:     args,
 		}
 	}
 
-	return result
+	return result, nil
 }
 
 func syscallsFromOCI(syscalls []specs.LinuxSyscall) ([]seccompprofile.Syscall, error) {
@@ -70,17 +79,41 @@ func syscallsFromOCI(syscalls []specs.LinuxSyscall) ([]seccompprofile.Syscall, e
 	return result, nil
 }
 
-func argsToOCI(args []seccompprofile.Arg) []specs.LinuxSeccompArg {
+// argsToOCI converts the CRD syscall arguments into the runtime-spec
+// representation. The CRD validation keeps the index between 0 and 5 and the
+// values non-negative, but base profiles pulled from a registry or read from a
+// file skip it, so values which would wrap around are an error.
+func argsToOCI(args []seccompprofile.Arg) ([]specs.LinuxSeccompArg, error) {
 	if len(args) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	result := make([]specs.LinuxSeccompArg, len(args))
 
 	for i, arg := range args {
 		var index uint
+
 		if arg.Index != nil {
+			if *arg.Index < 0 || *arg.Index > maxSeccompArgIndex {
+				return nil, fmt.Errorf(
+					"%w: index %d is not between 0 and %d",
+					ErrSeccompArgOutOfRange, *arg.Index, maxSeccompArgIndex,
+				)
+			}
+
 			index = uint(*arg.Index)
+		}
+
+		if arg.Value < 0 {
+			return nil, fmt.Errorf("%w: negative value %d", ErrSeccompArgOutOfRange, arg.Value)
+		}
+
+		if arg.ValueTwo < 0 {
+			return nil, fmt.Errorf(
+				"%w: negative valueTwo %d",
+				ErrSeccompArgOutOfRange,
+				arg.ValueTwo,
+			)
 		}
 
 		result[i] = specs.LinuxSeccompArg{
@@ -91,7 +124,7 @@ func argsToOCI(args []seccompprofile.Arg) []specs.LinuxSeccompArg {
 		}
 	}
 
-	return result
+	return result, nil
 }
 
 // argsFromOCI converts the runtime-spec syscall arguments into the CRD

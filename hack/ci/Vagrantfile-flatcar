@@ -5,6 +5,9 @@ Vagrant.configure("2") do |config|
   config.vm.box = "flatcar-stable"
   config.vm.box_check_update = true
   config.vm.box_url = "https://stable.release.flatcar-linux.net/amd64-usr/3510.2.3/flatcar_production_vagrant.box"
+  # The SHA512 of the box from the signed DIGESTS.asc file next to it.
+  config.vm.box_download_checksum_type = "sha512"
+  config.vm.box_download_checksum = "aab3e55313e71a0846036a8674d8f01de7361a148a909e4595b7a7f8cd91a18db271c02061b140671992f7f932c82b1ea4dad65cf511f756d0c66f781832b144"
   memory = 8192
   cpus = 4
 

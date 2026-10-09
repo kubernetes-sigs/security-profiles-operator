@@ -330,12 +330,14 @@ type SPODEnricherConfig struct {
 	// +default=false
 	EnableBpfRecorder *bool `json:"enableBpfRecorder,omitempty"`
 	// enableExecMetadata tells the operator whether the exec metadata
-	// webhook gets deployed together with the JSON enricher. The webhook
-	// rewrites every "kubectl exec" into the recorded namespaces to run
-	// through the env binary of the container image, so that the enricher
-	// can attribute the syscalls to the exec request. Disable it for
-	// clusters with images which do not ship an env binary. It has no
-	// effect while the JSON enricher is disabled.
+	// webhooks get deployed together with the JSON enricher. The exec
+	// metadata webhook rewrites every "kubectl exec" outside of the system
+	// and operator namespaces to run through the env binary of the
+	// container image, so that the enricher can attribute the syscalls to
+	// the exec request. The node debugging pod webhook injects the request
+	// UID into the pods of "kubectl debug node". Disable them for clusters
+	// with images which do not ship an env binary.
+	// It has no effect while the JSON enricher is disabled.
 	// +optional
 	// +default=true
 	EnableExecMetadata *bool `json:"enableExecMetadata,omitempty"`
@@ -410,7 +412,10 @@ type SPODSecurityConfig struct {
 	// image used to distribute the base profile in the cluster.
 	// The default ".*" matches any identity, which means a signature from any
 	// signer is accepted. That only proves the artifact was signed by somebody,
-	// not by somebody trusted, so set this to the identities you trust.
+	// not by somebody trusted. Once this or allowedOidcIssuerRegexp differs
+	// from ".*", both apply to the official base profiles too, which then
+	// fail to verify unless they match the official signers. Pin the signer
+	// of the other base profiles with signatureVerification instead.
 	// +optional
 	// +default=".*"
 	//nolint:kubeapilinter // released v1 API: empty means unset, a MinLength would reject existing manifests
@@ -427,8 +432,9 @@ type SPODSecurityConfig struct {
 	// signatureVerification configures how the signatures of OCI base
 	// profiles get verified, beyond the identity and issuer regexps. Official
 	// base profiles of this project (registry.k8s.io/security-profiles-operator/
-	// and its staging repository) are always verified against the official
-	// keyless signers, so that a key or identity for private base profiles
+	// and its staging repository) are verified against the official keyless
+	// signers while allowedIdentityRegexp and allowedOidcIssuerRegexp keep
+	// their default, so that a key or identity for private base profiles
 	// does not break them: publicKeySecretRef, allowedIdentity and
 	// allowedOidcIssuer apply to the other base profiles only.
 	// trustedRootConfigMapRef and offline apply to the official base profiles

@@ -31,6 +31,8 @@ extend-ignore-re = [
 
 [default.extend-words]
 bimap = "bimap"
+# GnuPG fingerprint record of gpg --with-colons
+fpr = "fpr"
 # in-toto attestation file suffix, as in spoc.intoto.jsonl
 intoto = "intoto"
 # AppArmor ptrace access keyword, as in ptrace (readby)

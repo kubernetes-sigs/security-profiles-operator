@@ -6,6 +6,8 @@
 - [Removal of the old API versions](#removal-of-the-old-api-versions)
 - [Upgrade path](#upgrade-path)
 - [Recommended actions](#recommended-actions)
+- [Examples](#examples)
+  - [ProfileRecording](#profilerecording)
 - [Go API consumers](#go-api-consumers)
   - [Import paths](#import-paths)
   - [Struct compatibility](#struct-compatibility)
@@ -132,7 +134,6 @@ Update everything that references the SPO APIs to v1:
    ```go
    // Before
    import profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1"
-
    // After
    import profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
    ```

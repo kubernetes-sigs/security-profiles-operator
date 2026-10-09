@@ -176,7 +176,7 @@ func TestRunPreStart(t *testing.T) {
 			t.Parallel()
 
 			mock := &commandfakes.FakeImpl{}
-			mock.CommandReturns(exec.Command("true"))
+			mock.CommandReturns(exec.CommandContext(t.Context(), "true"))
 			mock.CmdStartReturns(tc.startErr)
 
 			postCalls := 0
@@ -223,7 +223,7 @@ func TestExitCode(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			err := exec.Command(tc.cmd[0], tc.cmd[1:]...).Run()
+			err := exec.CommandContext(t.Context(), tc.cmd[0], tc.cmd[1:]...).Run()
 			if !tc.exited {
 				require.NoError(t, err)
 			}
@@ -261,7 +261,7 @@ func TestRunDropsSudoPrivileges(t *testing.T) {
 			t.Setenv("SUDO_COMMAND", "spoc")
 
 			mock := &commandfakes.FakeImpl{}
-			mock.CommandReturns(exec.Command("true"))
+			mock.CommandReturns(exec.CommandContext(t.Context(), "true"))
 			mock.GetHomeDirectoryReturns("/home/user", tc.homeErr)
 
 			options := Default()

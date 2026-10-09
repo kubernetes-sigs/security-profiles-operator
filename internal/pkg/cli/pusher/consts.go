@@ -58,4 +58,7 @@ const (
 
 	// flagPlatformAlias is the alias of FlagPlatforms, the flag name of pull.
 	flagPlatformAlias string = "platform"
+
+	// flagProfileAlias is the alias of FlagProfiles, the flag name of run.
+	flagProfileAlias string = "profile"
 )

@@ -27,11 +27,17 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup-go-build
+      # A failing target does not stop the others, the step fails at the end.
       - run: make test-fuzz FUZZ_TIME=3m
+      # The fuzz targets live below the same directories as FUZZ_TARGETS of
+      # the Makefile.
       - name: Upload the failing inputs
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: fuzz-failures
-          path: internal/**/testdata/fuzz/
+          path: |
+            internal/**/testdata/fuzz/
+            cmd/**/testdata/fuzz/
+            api/**/testdata/fuzz/
           if-no-files-found: ignore

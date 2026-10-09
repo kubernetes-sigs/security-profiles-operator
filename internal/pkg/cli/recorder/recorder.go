@@ -177,6 +177,7 @@ func (r *Recorder) recordCommand() (mntns uint32, err error) {
 	// there if the command exits right away.
 	spocPid := os.Getpid()
 
+	//nolint:gosec // PIDs are positive and below the kernel pid_max of 2^22
 	mntns, err = r.FindProcMountNamespace(r.bpfRecorder, uint32(spocPid))
 	if err != nil {
 		return 0, fmt.Errorf("finding mntns of spoc PID %d: %w", spocPid, err)

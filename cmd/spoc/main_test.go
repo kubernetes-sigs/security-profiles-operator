@@ -19,6 +19,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -97,6 +98,42 @@ func TestPlatformFlagsAreConsistent(t *testing.T) {
 		require.True(t, names["platform"], commandName)
 		require.True(t, names["platforms"], commandName)
 		require.True(t, names["s"], commandName)
+	}
+}
+
+// TestProfileFlagIsConsistent guards that the commands which read profiles
+// from a flag accept the same spelling of it.
+func TestProfileFlagIsConsistent(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range newApp().Commands {
+		if command.Name != "run" && command.Name != "push" {
+			continue
+		}
+
+		found := false
+
+		for _, flag := range command.Flags {
+			found = found || slices.Contains(flag.Names(), "profile")
+		}
+
+		require.True(t, found, command.Name)
+	}
+}
+
+// TestCommandsAreDocumented guards that every visible command explains itself
+// in its help beyond the one line usage.
+func TestCommandsAreDocumented(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range newApp().Commands {
+		if command.Hidden || command.Name == "version" {
+			continue
+		}
+
+		require.NotEmpty(t, command.Usage, command.Name)
+		require.NotEmpty(t, command.Description, command.Name)
+		require.NotEmpty(t, command.ArgsUsage, command.Name)
 	}
 }
 

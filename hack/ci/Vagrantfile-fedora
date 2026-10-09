@@ -5,11 +5,17 @@
 Vagrant.configure("2") do |config|
   config.vm.box = "fedora/44-cloud-base"
   config.vm.box_url = "override-by-provider"
+  # The SHA256 checksums of the boxes of the providers below, from the signed
+  # Fedora-Cloud-44-1.7-x86_64-CHECKSUM next to them.
+  config.vm.box_download_checksum_type = "sha256"
+  virtualbox_box_sha256 = "7fb67d4224541a548f4d9622695b245f007a5bdfe608e291860da0d8597ec4b1"
+  libvirt_box_sha256 = "4695d5ef2bfcc882649b98de0c545d04671d2064f6609e7e68e606718c8333dc"
   memory = 8192
   cpus = 4
 
   config.vm.provider :virtualbox do |v, override|
     override.vm.box_url = "https://dl.fedoraproject.org/pub/fedora/linux/releases/44/Cloud/x86_64/images/Fedora-Cloud-Base-Vagrant-VirtualBox-44-1.7.x86_64.vagrant.virtualbox.box"
+    override.vm.box_download_checksum = virtualbox_box_sha256
     v.memory = memory
     v.cpus = cpus
     # VirtualBox needs the I/O APIC for more than one CPU.
@@ -18,6 +24,7 @@ Vagrant.configure("2") do |config|
 
   config.vm.provider :libvirt do |v, override|
     override.vm.box_url = "https://dl.fedoraproject.org/pub/fedora/linux/releases/44/Cloud/x86_64/images/Fedora-Cloud-Base-Vagrant-libvirt-44-1.7.x86_64.vagrant.libvirt.box"
+    override.vm.box_download_checksum = libvirt_box_sha256
     v.memory = memory
     v.cpus = cpus
   end

@@ -262,6 +262,17 @@ $(BUILD_DIR)/$(CLI_BINARY): $(BUILD_FILES) | $(BUILD_DIR)
 clean: ## Clean the build directory
 	rm -rf $(BUILD_DIR) $(BPF_OUTPUT_FILES)
 
+# The build tags and the linker flags of the cgo libraries, as the build
+# computes them, for tools which run go build themselves, like the CodeQL
+# workflow.
+.PHONY: print-buildtags
+print-buildtags: ## Print the Go build tags of the build
+	@echo '$(BUILDTAGS)'
+
+.PHONY: print-cgo-ldflags
+print-cgo-ldflags: ## Print the CGO_LDFLAGS of the build
+	@echo '$(CGO_LDFLAGS)'
+
 # kustomize shapes the committed manifests and the OLM bundle. It is built
 # from source, the module checksum database verifies it. The binary is
 # versioned, so that a bump of KUSTOMIZE_VERSION installs the new one.
@@ -634,6 +645,22 @@ verify-dependencies: $(BUILD_DIR)/zeitgeist ## Verify external dependencies
 $(BUILD_DIR)/zeitgeist: | $(BUILD_DIR)
 	GOBIN=$(abspath $(BUILD_DIR)) GOFLAGS= CGO_ENABLED=0 $(GO) install sigs.k8s.io/zeitgeist@$(ZEITGEIST_VERSION)
 
+# Compares the versions of dependencies.yaml with the releases of their
+# upstreams. GitHub upstreams need a GITHUB_TOKEN for the API rate limit.
+# hack/check-release-tags.py checks the dependencies whose release tags
+# zeitgeist cannot parse. Both only print the available updates, so the target
+# fails on them.
+.PHONY: verify-dependencies-upstream
+verify-dependencies-upstream: $(BUILD_DIR)/zeitgeist-remote/zeitgeist ## Check external dependencies for upstream updates
+	$(BUILD_DIR)/zeitgeist-remote/zeitgeist validate --base-path . --config dependencies.yaml >$(BUILD_DIR)/dependency-updates
+	python3 hack/check-release-tags.py dependencies.yaml >>$(BUILD_DIR)/dependency-updates
+	@if grep '^Update available' $(BUILD_DIR)/dependency-updates; then exit 1; fi
+
+# The upstream checks are only part of the remote build of zeitgeist, which
+# is a command named zeitgeist too.
+$(BUILD_DIR)/zeitgeist-remote/zeitgeist: | $(BUILD_DIR)
+	GOBIN=$(abspath $(BUILD_DIR))/zeitgeist-remote GOFLAGS= CGO_ENABLED=0 $(GO) install sigs.k8s.io/zeitgeist/remote/zeitgeist@$(ZEITGEIST_VERSION)
+
 .PHONY: verify-toc
 verify-toc: update-toc ## Verify the table of contents for the documentation
 	hack/tree-status
@@ -765,18 +792,25 @@ test-integration: $(BUILD_DIR)/setup-envtest ## Run the controller integration t
 
 # FUZZ_TARGETS lists the fuzz tests as package:FuzzName, by default every
 # func Fuzz of the test files below internal, cmd and api. go test fuzzes only
-# one target per run, so test-fuzz runs them one after another.
+# one target per run, so test-fuzz runs them one after another. A failing
+# target does not stop the others, test-fuzz fails at the end and lists the
+# failing ones.
 FUZZ_TIME ?= 30s
 FUZZ_TARGETS ?= $(shell grep -rHo --include='*_test.go' '^func Fuzz[A-Za-z0-9_]*' internal cmd api | \
 	sed -E 's;^(.*)/[^/]+_test\.go:func (Fuzz[A-Za-z0-9_]*)$$;./\1:\2;' | sort)
 
 .PHONY: test-fuzz
 test-fuzz: ## Run every fuzz target for FUZZ_TIME, one target per go test run
-	@set -e; for target in $(FUZZ_TARGETS); do \
+	@failed=""; for target in $(FUZZ_TARGETS); do \
 		pkg=$${target%%:*}; fuzz=$${target##*:}; \
 		echo "Fuzzing $$fuzz in $$pkg for $(FUZZ_TIME)"; \
-		$(GO) test -tags '$(BUILDTAGS)' -run '^$$' -fuzz "^$$fuzz$$" -fuzztime $(FUZZ_TIME) $$pkg; \
-	done
+		$(GO) test -tags '$(BUILDTAGS)' -run '^$$' -fuzz "^$$fuzz$$" -fuzztime $(FUZZ_TIME) $$pkg || \
+			failed="$$failed $$target"; \
+	done; \
+	if [ -n "$$failed" ]; then \
+		echo "Failing fuzz targets:$$failed"; \
+		exit 1; \
+	fi
 
 # E2E_TEST_BINARY is a prebuilt e2e test binary (go test -c -tags e2e ./test) to run
 # instead of building the tests. CI builds it outside of the test VMs, where

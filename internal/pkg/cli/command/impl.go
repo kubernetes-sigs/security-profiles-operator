@@ -17,6 +17,7 @@ limitations under the License.
 package command
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -50,7 +51,9 @@ func (*defaultImpl) Signal(c *exec.Cmd, sig os.Signal) error {
 }
 
 func (*defaultImpl) Command(name string, arg ...string) *exec.Cmd {
-	cmd := exec.Command(name, arg...)
+	// spoc forwards signals to the command instead of killing it through a
+	// context.
+	cmd := exec.CommandContext(context.Background(), name, arg...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
@@ -62,6 +65,7 @@ func (*defaultImpl) CmdStart(cmd *exec.Cmd) error {
 }
 
 func (*defaultImpl) CmdPid(cmd *exec.Cmd) uint32 {
+	//nolint:gosec // PIDs are positive and below the kernel pid_max of 2^22
 	return uint32(cmd.Process.Pid)
 }
 

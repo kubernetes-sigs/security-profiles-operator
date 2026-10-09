@@ -1,0 +1,72 @@
+name: codeql
+# CodeQL analyzes the Go code as make builds it, with AppArmor and BPF
+# enabled, so that the files behind the apparmor build tag and the cgo
+# packages get analyzed too. The weekly run picks up new queries without a
+# change here.
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+      - 'doc/**'
+      - 'LICENSE'
+      - 'OWNERS'
+      - 'SECURITY_CONTACTS'
+  # Deliberately no paths-ignore here, see the test workflow.
+  pull_request:
+  schedule:
+    - cron: '29 4 * * 2'
+# Only pull request runs are cancelled by newer pushes. Every push to main gets
+# a group of its own: GitHub cancels the pending run of a group when a newer
+# one queues, even without cancel-in-progress, which would leave that commit
+# unanalyzed.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions: {}
+
+jobs:
+  # Documentation only pull requests skip the analysis, see
+  # hack/ci/code-changed.sh, which reports no code change for scheduled runs.
+  changes:
+    uses: ./.github/workflows/changes.yml
+
+  analyze:
+    needs: changes
+    if: github.event_name == 'schedule' || needs.changes.outputs.code == 'true'
+    permissions:
+      security-events: write  # required for uploading the results
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The cgo packages need the native libraries, see hack/install-packages.
+      - uses: ./.github/actions/setup-go-build
+      # The build tags and libraries of make with AppArmor and BPF enabled, see
+      # BUILDTAGS and CGO_LDFLAGS in the Makefile. Before the CodeQL tracing,
+      # which only needs the build.
+      - name: Build settings
+        id: build-settings
+        run: |
+          buildtags="$(make print-buildtags APPARMOR_ENABLED=1 BPF_ENABLED=1)"
+          cgo_ldflags="$(make print-cgo-ldflags APPARMOR_ENABLED=1 BPF_ENABLED=1)"
+          echo "Build tags: $buildtags, CGO_LDFLAGS: $cgo_ldflags"
+          {
+            echo "buildtags=$buildtags"
+            echo "cgo-ldflags=$cgo_ldflags"
+          } >>"$GITHUB_OUTPUT"
+      - uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          languages: go
+          build-mode: manual
+      # The extractor reads the build tags from the traced go command.
+      - name: Build
+        env:
+          BUILDTAGS: ${{ steps.build-settings.outputs.buildtags }}
+          CGO_LDFLAGS: ${{ steps.build-settings.outputs.cgo-ldflags }}
+        run: go build -tags "$BUILDTAGS" ./...
+      - uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
