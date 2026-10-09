@@ -43,6 +43,18 @@ const (
 // the applied bindings in the namespace of the pod.
 const AppliedBindingsAnnotation = "spo.x-k8s.io/profile-bindings"
 
+// Reasons of a Ready condition which is not true, besides the reason
+// Unavailable of a missing profile.
+const (
+	// ReasonProfileNotInstalled tells that the profile exists, but is not
+	// installed on the nodes, so its state is reported in the message.
+	ReasonProfileNotInstalled common.ConditionReason = "ProfileNotInstalled"
+	// ReasonProfileKindDisabled tells that the profile kind is disabled in
+	// the SPOD configuration, so that no node installs the profile and the
+	// binding is not applied.
+	ReasonProfileKindDisabled common.ConditionReason = "ProfileKindDisabled"
+)
+
 // ProfileBindingSpec defines the desired state of ProfileBinding.
 type ProfileBindingSpec struct {
 	// profileRef references the cluster-scoped SeccompProfile, SelinuxProfile
@@ -78,7 +90,8 @@ type ProfileRef struct {
 
 // ProfileBindingStatus contains status of the Profilebinding.
 type ProfileBindingStatus struct {
-	// The Ready condition reports whether the referenced profile exists.
+	// The Ready condition reports whether the referenced profile exists and
+	// is installed.
 	common.ConditionedStatus `json:",inline"`
 
 	// activeWorkloads lists the workloads currently using this binding.
@@ -92,6 +105,7 @@ type ProfileBindingStatus struct {
 // ProfileBinding is the Schema for the profilebindings API.
 // +kubebuilder:storageversion
 // +kubebuilder:subresource:status
+// +kubebuilder:resource:shortName=pb,categories=spo
 // +kubebuilder:printcolumn:name="Kind",type=string,JSONPath=`.spec.profileRef.kind`
 // +kubebuilder:printcolumn:name="Profile",type=string,JSONPath=`.spec.profileRef.name`
 // +kubebuilder:printcolumn:name="Image",type=string,JSONPath=`.spec.image`

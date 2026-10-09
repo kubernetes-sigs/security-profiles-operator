@@ -172,8 +172,7 @@ func TestReconcileStatusRetriesConflictWithFreshGet(t *testing.T) {
 	_, err := r.reconcileStatus(
 		ctx,
 		profile,
-		secprofnodestatusapi.ProfileStateInstalled,
-		nil,
+		aggregation{state: secprofnodestatusapi.ProfileStateInstalled},
 		logr.Discard(),
 	)
 

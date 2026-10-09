@@ -10,9 +10,13 @@ metadata:
 spec:
   group: security-profiles-operator.x-k8s.io
   names:
+    categories:
+    - spo
     kind: SelinuxProfile
     listKind: SelinuxProfileList
     plural: selinuxprofiles
+    shortNames:
+    - selp
     singular: selinuxprofile
   scope: Cluster
   versions:
@@ -139,12 +143,20 @@ spec:
             description: status contains the observed state of the SelinuxProfile.
             properties:
               activeWorkloads:
-                description: activeWorkloads lists the workloads currently using this
-                  profile.
+                description: |-
+                  activeWorkloads lists the pods currently using this profile as
+                  namespace/name, sorted and limited to the first 1000 of them.
                 items:
                   type: string
                 type: array
                 x-kubernetes-list-type: set
+              activeWorkloadsCount:
+                description: |-
+                  activeWorkloadsCount is the number of pods currently using this
+                  profile, which can be more than activeWorkloads lists.
+                format: int32
+                minimum: 1
+                type: integer
               conditions:
                 description: conditions contains the conditions of the resource.
                 items:

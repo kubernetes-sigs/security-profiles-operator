@@ -10,9 +10,13 @@ metadata:
 spec:
   group: security-profiles-operator.x-k8s.io
   names:
+    categories:
+    - spo
     kind: RawSelinuxProfile
     listKind: RawSelinuxProfileList
     plural: rawselinuxprofiles
+    shortNames:
+    - rselp
     singular: rawselinuxprofile
   scope: Cluster
   versions:
@@ -35,6 +39,13 @@ spec:
           The name is used as the name of a CIL block, which has to start with a
           letter and must not contain dots. Existing objects are exempt, so that they
           can still be updated and deleted.
+
+          The policy is placed into that block. Statements which change the global
+          policy, like typepermissive, are rejected, but the statements may still
+          refer to global types, attributes and blocks: allow rules for global types
+          like container_t, typeattributeset and in statements can affect other
+          workloads. Only cluster admins should be allowed to write raw SELinux
+          profiles.
         properties:
           apiVersion:
             description: |-
@@ -75,12 +86,20 @@ spec:
             description: status contains the observed state of the RawSelinuxProfile.
             properties:
               activeWorkloads:
-                description: activeWorkloads lists the workloads currently using this
-                  profile.
+                description: |-
+                  activeWorkloads lists the pods currently using this profile as
+                  namespace/name, sorted and limited to the first 1000 of them.
                 items:
                   type: string
                 type: array
                 x-kubernetes-list-type: set
+              activeWorkloadsCount:
+                description: |-
+                  activeWorkloadsCount is the number of pods currently using this
+                  profile, which can be more than activeWorkloads lists.
+                format: int32
+                minimum: 1
+                type: integer
               conditions:
                 description: conditions contains the conditions of the resource.
                 items:

@@ -35,8 +35,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	profilebindingapi "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
+	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/workloadtracker"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 const (
@@ -62,8 +65,10 @@ func (r *BindingTrackerReconciler) Name() string {
 	return "binding-tracker"
 }
 
+// SchemeBuilder returns the APIs of the bindings and of the SPOD
+// configuration, which tells whether a profile kind is enabled.
 func (r *BindingTrackerReconciler) SchemeBuilder() runtime.SchemeBuilder {
-	return profilebindingapi.SchemeBuilder
+	return runtime.NewSchemeBuilder(profilebindingapi.AddToScheme, spodapi.AddToScheme)
 }
 
 func (r *BindingTrackerReconciler) Healthz(*http.Request) error {
@@ -74,7 +79,10 @@ func (r *BindingTrackerReconciler) Healthz(*http.Request) error {
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilebindings,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilebindings/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilebindings/finalizers,verbs=get;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups=core,resources=namespaces,verbs=get;list;watch
+// +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=mutatingwebhookconfigurations,resourceNames=spo-mutating-webhook-configuration,verbs=get;list;watch
 
 func (r *BindingTrackerReconciler) Reconcile(
 	ctx context.Context,
@@ -137,10 +145,21 @@ func (r *BindingTrackerReconciler) handlePodCreateOrUpdate(
 		return reconcile.Result{}, fmt.Errorf("listing bindings: %w", err)
 	}
 
+	if len(bindings.Items) == 0 {
+		return reconcile.Result{}, nil
+	}
+
+	bindingEnabled, err := r.bindingEnabled(ctx, pod)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+
 	for i := range bindings.Items {
 		binding := &bindings.Items[i]
 		tracked := slices.Contains(binding.Status.ActiveWorkloads, podID)
-		uses := podUsesBinding(binding, pod, tracked)
+		// A completed pod, like the one of a finished Job, does not use the
+		// binding anymore, although it exists until it gets deleted.
+		uses := !util.PodCompleted(pod) && podUsesBinding(binding, pod, tracked, bindingEnabled)
 
 		// A binding which is being deleted must not track new pods: the API
 		// server rejects adding finalizers to it.
@@ -205,24 +224,54 @@ func (r *BindingTrackerReconciler) untrackPod(
 	return r.tracker().Untrack(ctx, binding, podID)
 }
 
+// bindingEnabled returns whether the binding webhook mutates the pods of the
+// namespace of the pod, see podUsesBinding. It is only looked up for a pod
+// with ephemeral containers and without the applied bindings annotation, the
+// others do not need it.
+func (r *BindingTrackerReconciler) bindingEnabled(
+	ctx context.Context, pod *corev1.Pod,
+) (bool, error) {
+	if _, ok := pod.GetAnnotations()[profilebindingapi.AppliedBindingsAnnotation]; ok ||
+		len(pod.Spec.EphemeralContainers) == 0 {
+		return true, nil
+	}
+
+	enabled, err := bindata.WebhookSelectsNamespace(
+		ctx, r.client, bindata.BindingWebhookName, pod.Namespace,
+	)
+	if err != nil {
+		return false, fmt.Errorf("checking whether binding is enabled: %w", err)
+	}
+
+	return enabled, nil
+}
+
 // podUsesBinding returns true if the binding webhook applied the binding to
 // the pod, which it records in an annotation of the pod. Pods created before
 // the webhook set the annotation stay tracked while they match the binding,
 // but do not get tracked anew, because matching the binding does not mean that
 // the webhook applied it, for example in a namespace without binding enabled.
-func podUsesBinding(pb *profilebindingapi.ProfileBinding, pod *corev1.Pod, tracked bool) bool {
+// bindingEnabled tells whether the binding webhook mutates the pods of the
+// namespace of the pod.
+func podUsesBinding(
+	pb *profilebindingapi.ProfileBinding, pod *corev1.Pod, tracked, bindingEnabled bool,
+) bool {
 	applied, ok := pod.GetAnnotations()[profilebindingapi.AppliedBindingsAnnotation]
-	if !ok {
-		return tracked && podMatchesBinding(pb, pod)
+	if ok && slices.Contains(strings.Split(applied, ","), pb.GetName()) {
+		return true
 	}
 
-	if slices.Contains(strings.Split(applied, ","), pb.GetName()) {
+	if !ok && tracked && podMatchesBinding(pb, pod) {
 		return true
 	}
 
 	// The annotation cannot be changed when ephemeral containers get added,
-	// so the bindings the webhook applied to them are not listed.
-	return podMatchesSelector(pb, labels.Set(pod.GetLabels())) &&
+	// so the bindings the webhook applied to them are not listed. A pod which
+	// got no binding applied on creation has no annotation at all, like the
+	// pods of a namespace without binding enabled, whose ephemeral
+	// containers the webhook does not bind either.
+	return (ok || bindingEnabled) &&
+		podMatchesSelector(pb, labels.Set(pod.GetLabels())) &&
 		ephemeralContainersUseImage(pb, pod)
 }
 
@@ -248,19 +297,22 @@ func podMatchesSelector(
 	return selector.Matches(podLabels)
 }
 
+// podUsesImage returns true if a container of the pod uses the image of the
+// binding. The images get compared like the binding webhook does, so a binding
+// for nginx matches a container using docker.io/library/nginx:latest.
 func podUsesImage(pb *profilebindingapi.ProfileBinding, pod *corev1.Pod) bool {
 	if pb.Spec.Image == profilebindingapi.SelectAllContainersImage {
 		return true
 	}
 
 	for i := range pod.Spec.Containers {
-		if pod.Spec.Containers[i].Image == pb.Spec.Image {
+		if util.SameImage(pod.Spec.Containers[i].Image, pb.Spec.Image) {
 			return true
 		}
 	}
 
 	for i := range pod.Spec.InitContainers {
-		if pod.Spec.InitContainers[i].Image == pb.Spec.Image {
+		if util.SameImage(pod.Spec.InitContainers[i].Image, pb.Spec.Image) {
 			return true
 		}
 	}
@@ -271,7 +323,7 @@ func podUsesImage(pb *profilebindingapi.ProfileBinding, pod *corev1.Pod) bool {
 func ephemeralContainersUseImage(pb *profilebindingapi.ProfileBinding, pod *corev1.Pod) bool {
 	for i := range pod.Spec.EphemeralContainers {
 		if pb.Spec.Image == profilebindingapi.SelectAllContainersImage ||
-			pod.Spec.EphemeralContainers[i].Image == pb.Spec.Image {
+			util.SameImage(pod.Spec.EphemeralContainers[i].Image, pb.Spec.Image) {
 			return true
 		}
 	}

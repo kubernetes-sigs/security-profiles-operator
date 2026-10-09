@@ -23,6 +23,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
+	admissionregv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -30,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	profilebindingapi "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/utiltest"
 )
 
@@ -140,14 +142,14 @@ func testBinding(image string, activeWorkloads ...string) *profilebindingapi.Pro
 }
 
 func reconcileTestPod(
-	t *testing.T, binding *profilebindingapi.ProfileBinding, pod *corev1.Pod,
+	t *testing.T, binding *profilebindingapi.ProfileBinding, pod *corev1.Pod, objs ...client.Object,
 ) *profilebindingapi.ProfileBinding {
 	t.Helper()
 
 	c := fake.NewClientBuilder().
 		WithScheme(utiltest.NewScheme(t)).
 		WithStatusSubresource(binding).
-		WithObjects(binding, pod).
+		WithObjects(append([]client.Object{binding, pod}, objs...)...).
 		WithIndex(&profilebindingapi.ProfileBinding{}, linkedPodsKey, bindingIndexFunc).
 		Build()
 
@@ -178,6 +180,10 @@ func TestPodMatchesBindingImage(t *testing.T) {
 			podImages:    []string{"busybox"},
 			wantTracked:  true,
 		},
+		"equivalent image reference": {
+			bindingImage: "nginx", podImages: []string{"docker.io/library/nginx:latest"}, wantTracked: true,
+		},
+		"other tag":          {bindingImage: "nginx", podImages: []string{"nginx:1.23.2"}},
 		"other image":        {bindingImage: "nginx", podImages: []string{"busybox"}},
 		"pod without images": {bindingImage: "nginx"},
 		"wildcard empty pod": {bindingImage: profilebindingapi.SelectAllContainersImage, wantTracked: true},
@@ -210,6 +216,26 @@ func TestInitContainerImageMatchesBinding(t *testing.T) {
 	require.Equal(t, []string{"default/test-pod"}, updated.Status.ActiveWorkloads)
 }
 
+// The binding webhook compares the normalized images, so it applies a binding
+// for nginx to an ephemeral container using docker.io/library/nginx:latest.
+// The tracker used to compare the plain strings, so the binding got no
+// finalizer.
+func TestEphemeralContainerWithEquivalentImageIsTracked(t *testing.T) {
+	t.Parallel()
+
+	pod := testPod(map[string]string{"app": "bound"}, "busybox")
+	pod.Annotations = map[string]string{profilebindingapi.AppliedBindingsAnnotation: "other"}
+	pod.Spec.EphemeralContainers = []corev1.EphemeralContainer{{
+		EphemeralContainerCommon: corev1.EphemeralContainerCommon{
+			Name: "debugger", Image: "docker.io/library/nginx:latest",
+		},
+	}}
+
+	updated := reconcileTestPod(t, testBinding("nginx"), pod)
+	require.Equal(t, []string{"default/test-pod"}, updated.Status.ActiveWorkloads)
+	require.Contains(t, updated.GetFinalizers(), finalizer)
+}
+
 // Pods used to be tracked when they matched a binding, even if the webhook
 // never applied it, for example in a namespace without binding enabled. Only
 // the bindings the webhook recorded on the pod are tracked now.
@@ -221,7 +247,11 @@ func TestPodTrackedByAppliedBindings(t *testing.T) {
 		tracked        bool
 		podLabels      map[string]string
 		ephemeralImage string
-		wantTracked    bool
+		completed      bool
+		// namespaceLabels are the labels of the namespace of the pod, which
+		// the binding webhook selects by the label which enables binding.
+		namespaceLabels map[string]string
+		wantTracked     bool
 	}{
 		"applied binding": {
 			annotation: new("other,test-binding"), podLabels: map[string]string{"app": "bound"},
@@ -251,6 +281,26 @@ func TestPodTrackedByAppliedBindings(t *testing.T) {
 			annotation: new("other"), podLabels: map[string]string{"app": "other"},
 			ephemeralImage: "debug",
 		},
+		"binding applied to an ephemeral container of a pod without bindings": {
+			podLabels: map[string]string{"app": "bound"}, ephemeralImage: "debug", wantTracked: true,
+		},
+		"binding applied to an ephemeral container in a namespace with binding enabled": {
+			podLabels: map[string]string{"app": "bound"}, ephemeralImage: "debug",
+			namespaceLabels: map[string]string{bindata.EnableBindingLabel: "true"},
+			wantTracked:     true,
+		},
+		"ephemeral container in a namespace without binding enabled": {
+			podLabels: map[string]string{"app": "bound"}, ephemeralImage: "debug",
+			namespaceLabels: map[string]string{},
+		},
+		"ephemeral container of a pod with bindings in a namespace without binding enabled": {
+			annotation: new("other"), podLabels: map[string]string{"app": "bound"},
+			ephemeralImage: "debug", namespaceLabels: map[string]string{}, wantTracked: true,
+		},
+		"completed pod gets untracked": {
+			annotation: new("test-binding"), tracked: true, podLabels: map[string]string{"app": "bound"},
+			completed: true,
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -276,7 +326,16 @@ func TestPodTrackedByAppliedBindings(t *testing.T) {
 				}
 			}
 
-			updated := reconcileTestPod(t, binding, pod)
+			if tc.completed {
+				pod.Status.Phase = corev1.PodSucceeded
+			}
+
+			var objs []client.Object
+			if tc.namespaceLabels != nil {
+				objs = bindingWebhookObjects(tc.namespaceLabels)
+			}
+
+			updated := reconcileTestPod(t, binding, pod, objs...)
 
 			if tc.wantTracked {
 				require.Equal(t, []string{"default/test-pod"}, updated.Status.ActiveWorkloads)
@@ -286,6 +345,24 @@ func TestPodTrackedByAppliedBindings(t *testing.T) {
 				require.NotContains(t, updated.GetFinalizers(), finalizer)
 			}
 		})
+	}
+}
+
+// bindingWebhookObjects returns the webhook configuration whose binding
+// webhook selects the namespaces with binding enabled, and the namespace of
+// the test pod with the provided labels.
+func bindingWebhookObjects(namespaceLabels map[string]string) []client.Object {
+	return []client.Object{
+		&admissionregv1.MutatingWebhookConfiguration{
+			ObjectMeta: metav1.ObjectMeta{Name: bindata.MutatingWebhookConfigName},
+			Webhooks: []admissionregv1.MutatingWebhook{{
+				Name: bindata.BindingWebhookName,
+				NamespaceSelector: &metav1.LabelSelector{
+					MatchLabels: map[string]string{bindata.EnableBindingLabel: "true"},
+				},
+			}},
+		},
+		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default", Labels: namespaceLabels}},
 	}
 }
 
@@ -647,6 +724,15 @@ func TestTrackedPodChanged(t *testing.T) {
 		{
 			name:   "other annotation",
 			mutate: func(p *corev1.Pod) { p.Annotations["other"] = "x" },
+		},
+		{
+			name:   "completed",
+			mutate: func(p *corev1.Pod) { p.Status.Phase = corev1.PodFailed },
+			want:   true,
+		},
+		{
+			name:   "running",
+			mutate: func(p *corev1.Pod) { p.Status.Phase = corev1.PodRunning },
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

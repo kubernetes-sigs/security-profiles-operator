@@ -26,6 +26,7 @@ import (
 	"github.com/go-logr/logr"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -406,28 +407,41 @@ func (p *podSeccompRecorder) updateSeccompSecurityContext(
 		ctr.SecurityContext = &corev1.SecurityContext{}
 	}
 
-	if ctr.SecurityContext.SeccompProfile == nil {
-		ctr.SecurityContext.SeccompProfile = &corev1.SeccompProfile{}
-	} else {
-		p.record.Eventf(
-			pr,
-			nil,
-			corev1.EventTypeWarning,
-			"SecurityContextAlreadySet",
-			util.EventActionMutate,
-			"Container %s had SecurityContext already set, the profile recorder overwrote it",
-			ctr.Name,
-		)
-	}
-
-	ctr.SecurityContext.SeccompProfile.Type = corev1.SeccompProfileTypeLocalhost
 	// Seccomp profiles are cluster scoped, so the file of the log enricher
 	// profile has no namespace directory.
-	profile := path.Join(
-		config.OperatorProfilesFolder,
-		config.LogEnricherProfile+seccompprofileapi.ExtJSON,
+	profile := &corev1.SeccompProfile{
+		Type: corev1.SeccompProfileTypeLocalhost,
+		LocalhostProfile: new(path.Join(
+			config.OperatorProfilesFolder,
+			config.LogEnricherProfile+seccompprofileapi.ExtJSON,
+		)),
+	}
+
+	// The webhook gets invoked again if another webhook changed the pod, and
+	// then finds the profile it set itself.
+	if existing := ctr.SecurityContext.SeccompProfile; existing != nil &&
+		!equality.Semantic.DeepEqual(existing, profile) {
+		p.securityContextOverwritten(ctr, pr)
+	}
+
+	ctr.SecurityContext.SeccompProfile = profile
+}
+
+// securityContextOverwritten records that the recording overwrote a security
+// context value which the container had set.
+func (p *podSeccompRecorder) securityContextOverwritten(
+	ctr *corev1.Container,
+	pr *profilerecordingapi.ProfileRecording,
+) {
+	p.record.Eventf(
+		pr,
+		nil,
+		corev1.EventTypeWarning,
+		"SecurityContextAlreadySet",
+		util.EventActionMutate,
+		"Container %s had SecurityContext already set, the profile recorder overwrote it",
+		ctr.Name,
 	)
-	ctr.SecurityContext.SeccompProfile.LocalhostProfile = &profile
 }
 
 func (p *podSeccompRecorder) updateSelinuxSecurityContext(
@@ -440,16 +454,13 @@ func (p *podSeccompRecorder) updateSelinuxSecurityContext(
 
 	if ctr.SecurityContext.SELinuxOptions == nil {
 		ctr.SecurityContext.SELinuxOptions = &corev1.SELinuxOptions{}
-	} else {
-		p.record.Eventf(
-			pr,
-			nil,
-			corev1.EventTypeWarning,
-			"SecurityContextAlreadySet",
-			util.EventActionMutate,
-			"Container %s had SecurityContext already set, the profile recorder overwrote it",
-			ctr.Name,
-		)
+	}
+
+	// Only the type gets overwritten. It is the permissive type already when
+	// the webhook gets invoked again after another webhook changed the pod.
+	if selinuxType := ctr.SecurityContext.SELinuxOptions.Type; selinuxType != "" &&
+		selinuxType != config.SelinuxPermissiveProfile {
+		p.securityContextOverwritten(ctr, pr)
 	}
 
 	ctr.SecurityContext.SELinuxOptions.Type = config.SelinuxPermissiveProfile

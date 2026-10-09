@@ -217,9 +217,18 @@ func TestNamespaceSelectorExpression(t *testing.T) {
 func TestGetValidatingWebhookConfig(t *testing.T) {
 	t.Parallel()
 
-	cfg := getValidatingWebhookConfig()
+	cfg := getValidatingWebhookConfig("ns")
 	require.Equal(t, ValidatingWebhookConfigName, cfg.Name)
-	require.Len(t, cfg.Webhooks, 1)
+	require.Len(t, cfg.Webhooks, 2)
+
+	imageHook := cfg.Webhooks[bindingImageUpdate.index]
+	require.Equal(t, bindingImageUpdate.name, imageHook.Name)
+	require.Equal(t, admissionregv1.Fail, *imageHook.FailurePolicy)
+	require.Equal(t, bindingImageUpdate.path, *imageHook.ClientConfig.Service.Path)
+	require.Equal(t, []string{"pods"}, imageHook.Rules[0].Resources)
+	require.Equal(t, []admissionregv1.OperationType{"UPDATE"}, imageHook.Rules[0].Operations)
+	require.Equal(t, excludeOperatorNamespace("ns"), imageHook.NamespaceSelector)
+	require.Len(t, imageHook.MatchConditions, 1)
 
 	hook := cfg.Webhooks[0]
 	require.Equal(t, rawSelinuxProfileValidation, hook.Name)
@@ -233,7 +242,7 @@ func TestGetValidatingWebhookConfig(t *testing.T) {
 
 	// Every call returns a new object.
 	hook.Name = "changed"
-	require.Equal(t, rawSelinuxProfileValidation, getValidatingWebhookConfig().Webhooks[0].Name)
+	require.Equal(t, rawSelinuxProfileValidation, getValidatingWebhookConfig("ns").Webhooks[0].Name)
 }
 
 func TestKeepCABundles(t *testing.T) {
@@ -247,7 +256,7 @@ func TestKeepCABundles(t *testing.T) {
 	// A webhook without an injected bundle keeps the configured placeholder.
 	existingMutating.Webhooks[recording.index].ClientConfig.CABundle = nil
 
-	validating := getValidatingWebhookConfig()
+	validating := getValidatingWebhookConfig("ns")
 	existingValidating := validating.DeepCopy()
 	existingValidating.Webhooks[0].ClientConfig.CABundle = injected
 
@@ -266,7 +275,7 @@ func TestKeepCABundles(t *testing.T) {
 	require.NoError(t, keepCABundles(t.Context(), empty, mutating))
 	require.Equal(t, caBundle, mutating.Webhooks[binding.index].ClientConfig.CABundle)
 
-	validating = getValidatingWebhookConfig()
+	validating = getValidatingWebhookConfig("ns")
 	require.NoError(t, keepCABundles(t.Context(), empty, validating))
 	require.Equal(t, caBundle, validating.Webhooks[0].ClientConfig.CABundle)
 }

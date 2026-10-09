@@ -10,9 +10,13 @@ metadata:
 spec:
   group: security-profiles-operator.x-k8s.io
   names:
+    categories:
+    - spo
     kind: ProfileRecording
     listKind: ProfileRecordingList
     plural: profilerecordings
+    shortNames:
+    - prec
     singular: profilerecording
   scope: Namespaced
   versions:

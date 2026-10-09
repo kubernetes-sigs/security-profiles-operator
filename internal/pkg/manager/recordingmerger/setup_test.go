@@ -140,3 +140,24 @@ func TestPartialProfileEventsEnqueueRecording(t *testing.T) {
 	}}}, recordingOfPartialProfile(t.Context(), partial))
 	require.Empty(t, recordingOfPartialProfile(t.Context(), &seccompprofile.SeccompProfile{}))
 }
+
+// The deletion or relabeling of a profile which blocks the merge of a deleted
+// recording reconciles it again.
+func TestBlockingProfileEventsPredicate(t *testing.T) {
+	t.Parallel()
+
+	p := blockingProfileEventsPredicate()
+
+	partial := partialSeccomp("partial-a", "nginx", "read")
+	merged := partial.DeepCopy()
+	delete(merged.Labels, profilebase.ProfilePartialLabel)
+
+	relabeled := merged.DeepCopy()
+	relabeled.Labels[profilerecordingapi.ProfileToRecordingNamespaceLabel] = "other-ns"
+
+	require.True(t, p.Delete(event.DeleteEvent{Object: merged}))
+	require.False(t, p.Delete(event.DeleteEvent{Object: partial}))
+	require.False(t, p.Create(event.CreateEvent{Object: merged}))
+	require.True(t, p.Update(event.UpdateEvent{ObjectOld: merged, ObjectNew: relabeled}))
+	require.False(t, p.Update(event.UpdateEvent{ObjectOld: merged, ObjectNew: merged}))
+}

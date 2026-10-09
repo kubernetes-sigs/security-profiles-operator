@@ -26,6 +26,10 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/utiltest"
 )
 
 // testBackoff returns a backoff which does not slow the tests down.
@@ -183,4 +187,62 @@ func TestDefaultBackoff(t *testing.T) {
 	require.InDelta(t, backoffFactor, backoff.Factor, 0)
 	require.Equal(t, backoffSteps, backoff.Steps)
 	require.InDelta(t, backoffJitter, backoff.Jitter, 0)
+}
+
+func TestRetryWithFreshReads(t *testing.T) {
+	t.Parallel()
+
+	errConflict := kerrors.NewConflict(schema.GroupResource{}, "test", errors.New("conflict"))
+
+	cached := fake.NewClientBuilder().WithScheme(utiltest.NewScheme(t)).Build()
+	fresh := fake.NewClientBuilder().WithScheme(utiltest.NewScheme(t)).Build()
+
+	t.Run("retries read through the reader", func(t *testing.T) {
+		t.Parallel()
+
+		var got []client.Client
+
+		require.NoError(
+			t,
+			RetryWithFreshReads(t.Context(), cached, fresh, func(c client.Client) error {
+				got = append(got, c)
+				if len(got) < 3 {
+					return errConflict
+				}
+
+				return nil
+			}, IsNotFoundOrConflict),
+		)
+
+		require.Len(t, got, 3)
+		require.Same(t, cached, got[0])
+
+		for _, c := range got[1:] {
+			freshClient, ok := c.(*freshReadClient)
+			require.True(t, ok)
+			require.Same(t, fresh, freshClient.reader)
+		}
+	})
+
+	t.Run("without reader every attempt gets the client", func(t *testing.T) {
+		t.Parallel()
+
+		attempts := 0
+
+		require.NoError(
+			t,
+			RetryWithFreshReads(t.Context(), cached, nil, func(c client.Client) error {
+				attempts++
+
+				require.Same(t, cached, c)
+
+				if attempts < 2 {
+					return errConflict
+				}
+
+				return nil
+			}, IsNotFoundOrConflict),
+		)
+		require.Equal(t, 2, attempts)
+	})
 }

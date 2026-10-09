@@ -43,7 +43,7 @@ please refer to [Installation Guide](https://github.com/kubernetes-sigs/security
 | replicaCount | int | `3` | the number of replicas of the pods |
 | restrictToNamespace | string | `""` | restrict the operator to a single namespace |
 | resources.limits.cpu | string | `"500m"` | cpu limits for the pod |
-| resources.limits.memory | string | `"128Mi"` | memory limits for the pod |
+| resources.limits.memory | string | `"512Mi"` | memory limits for the pod |
 | resources.requests.cpu | string | `"250m"` | cpu requests for the pod |
 | resources.requests.memory | string | `"50Mi"` | memory requests for pod |
 | selinux.customTemplatesConfigMap | string | `""` | ConfigMap with .cil files replacing the bundled selinuxd templates |

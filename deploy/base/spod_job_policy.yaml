@@ -28,8 +28,10 @@ spec:
   variables:
   - name: podSpec
     expression: object.spec.template.spec
-  # The node of the pod the service account token was issued for. It is
-  # available since Kubernetes 1.30 for projected service account tokens.
+  # The node of the pod the service account token was issued for. Kubernetes
+  # adds it to projected service account tokens by default since 1.30, the
+  # minimum version of the operator. Without it the node of the requesting
+  # pod is unknown, so the Job is denied.
   - name: requestNodes
     expression: >-
       has(request.userInfo.extra) &&
@@ -41,9 +43,14 @@ spec:
       variables.podSpec.serviceAccountName == 'spod'
     message: Jobs of the spod service account have to run as the spod service account
     reason: Forbidden
+  - expression: size(variables.requestNodes) > 0
+    message: >-
+      The service account token of the spod service account has to name the
+      node of the requesting pod
+    reason: Forbidden
   - expression: >-
       has(variables.podSpec.nodeName) && variables.podSpec.nodeName != '' &&
-      (size(variables.requestNodes) == 0 || variables.podSpec.nodeName in variables.requestNodes)
+      variables.podSpec.nodeName in variables.requestNodes
     message: Jobs of the spod service account have to run on the node of the requesting pod
     reason: Forbidden
   - expression: >-

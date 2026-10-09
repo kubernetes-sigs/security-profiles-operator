@@ -10,6 +10,8 @@ metadata:
 spec:
   group: security-profiles-operator.x-k8s.io
   names:
+    categories:
+    - spo
     kind: AppArmorProfile
     listKind: AppArmorProfileList
     plural: apparmorprofiles
@@ -207,6 +209,21 @@ spec:
           status:
             description: status contains the observed state of the AppArmor profile.
             properties:
+              activeWorkloads:
+                description: |-
+                  activeWorkloads lists the pods currently using this profile as
+                  namespace/name, sorted and limited to the first 1000 of them.
+                items:
+                  type: string
+                type: array
+                x-kubernetes-list-type: set
+              activeWorkloadsCount:
+                description: |-
+                  activeWorkloadsCount is the number of pods currently using this
+                  profile, which can be more than activeWorkloads lists.
+                format: int32
+                minimum: 1
+                type: integer
               conditions:
                 description: conditions contains the conditions of the resource.
                 items:

@@ -18,8 +18,11 @@ package nodestatus
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/require"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
@@ -566,39 +569,228 @@ func TestRemovePartialProfileWithoutRecording(t *testing.T) {
 	require.NoError(t, sc.Remove(context.Background(), c))
 }
 
-func TestCreateFinalizerAndLabelPersistsAfterConflict(t *testing.T) {
+// staleOnce returns a client whose first read of the profile returns the
+// outdated copy, like a cache which has not seen the latest write yet.
+func staleOnce(base client.WithWatch, stale *seccompprofile.SeccompProfile) client.WithWatch {
+	served := false
+
+	return interceptor.NewClient(base, interceptor.Funcs{
+		Get: func(
+			ctx context.Context, cl client.WithWatch, key client.ObjectKey,
+			obj client.Object, opts ...client.GetOption,
+		) error {
+			if sp, ok := obj.(*seccompprofile.SeccompProfile); ok && !served {
+				served = true
+
+				stale.DeepCopyInto(sp)
+
+				return nil
+			}
+
+			return cl.Get(ctx, key, obj, opts...)
+		},
+	})
+}
+
+// countWrites returns a client which counts the writes of objects and their
+// status.
+func countWrites(base client.WithWatch) (c client.WithWatch, writes *int) {
+	writes = new(int)
+
+	return interceptor.NewClient(base, interceptor.Funcs{
+		Create: func(
+			ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.CreateOption,
+		) error {
+			(*writes)++
+
+			return cl.Create(ctx, obj, opts...)
+		},
+		Update: func(
+			ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.UpdateOption,
+		) error {
+			(*writes)++
+
+			return cl.Update(ctx, obj, opts...)
+		},
+		Patch: func(
+			ctx context.Context, cl client.WithWatch, obj client.Object,
+			patch client.Patch, opts ...client.PatchOption,
+		) error {
+			(*writes)++
+
+			return cl.Patch(ctx, obj, patch, opts...)
+		},
+		SubResourceUpdate: func(
+			ctx context.Context, cl client.Client, sub string, obj client.Object,
+			opts ...client.SubResourceUpdateOption,
+		) error {
+			(*writes)++
+
+			return cl.SubResource(sub).Update(ctx, obj, opts...)
+		},
+		SubResourcePatch: func(
+			ctx context.Context, cl client.Client, sub string, obj client.Object,
+			patch client.Patch, opts ...client.SubResourcePatchOption,
+		) error {
+			(*writes)++
+
+			return cl.SubResource(sub).Patch(ctx, obj, patch, opts...)
+		},
+	}), writes
+}
+
+// The daemons of all nodes add their finalizers to a profile at once. A node
+// whose cache misses the finalizer another node just added appends its own
+// without a conflict, and without dropping the other one.
+func TestCreateFinalizerAndLabelKeepsConcurrentFinalizers(t *testing.T) {
+	t.Parallel()
+
+	sp := preparedProfile()
+	sp.Finalizers = []string{util.GetFinalizerNodeString("worker-0")}
+	base := newFakeClient(t, sp.DeepCopy())
+	stale := storedProfile(t, base, sp.GetName())
+
+	other := stale.DeepCopy()
+	controllerutil.AddFinalizer(other, util.GetFinalizerNodeString("worker-2"))
+	require.NoError(t, base.Update(context.Background(), other))
+
+	c, writes := countWrites(staleOnce(base, stale))
+	sc := newStatusClient(t, sp, c)
+
+	require.NoError(t, sc.createFinalizerAndLabel(context.Background()))
+	require.Equal(t, 1, *writes)
+	require.Equal(t,
+		[]string{
+			util.GetFinalizerNodeString("worker-0"),
+			util.GetFinalizerNodeString("worker-2"),
+			sc.finalizerString,
+		},
+		storedProfile(t, base, sp.GetName()).Finalizers,
+	)
+}
+
+// A profile without finalizers gets its first one with a patch which
+// replaces the whole list, so it conflicts if another node added one in the
+// meantime. The retry appends to the finalizer of the other node.
+func TestCreateFinalizerAndLabelRetriesFirstFinalizer(t *testing.T) {
 	t.Parallel()
 
 	sp := regularSeccompProfile()
 	base := newFakeClient(t, sp.DeepCopy())
-	conflicts := 0
+	stale := storedProfile(t, base, sp.GetName())
 
-	// The first label update fails with a conflict, like it does when many
-	// daemons add their finalizers at once.
-	c := interceptor.NewClient(base, interceptor.Funcs{
-		Update: func(
-			ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.UpdateOption,
+	other := stale.DeepCopy()
+	controllerutil.AddFinalizer(other, util.GetFinalizerNodeString("worker-2"))
+	other.Labels = map[string]string{
+		secprofnodestatusapi.StatusToProfLabel: "SeccompProfile-test-profile",
+	}
+	require.NoError(t, base.Update(context.Background(), other))
+
+	c, writes := countWrites(staleOnce(base, stale))
+	sc := newStatusClient(t, sp, c)
+
+	require.NoError(t, sc.createFinalizerAndLabel(context.Background()))
+	require.Equal(t, 2, *writes, "the conflicting patch and the one of the retry")
+
+	stored := storedProfile(t, base, sp.GetName())
+	require.Equal(t, sc.profileID(), stored.Labels[secprofnodestatusapi.StatusToProfLabel])
+	require.Equal(t,
+		[]string{util.GetFinalizerNodeString("worker-2"), sc.finalizerString},
+		stored.Finalizers,
+	)
+}
+
+// Removing the finalizer of this node keeps the finalizers other nodes added
+// since the profile was read.
+func TestRemoveFinalizerKeepsConcurrentFinalizers(t *testing.T) {
+	t.Parallel()
+
+	sp := preparedProfile()
+	sp.Finalizers = append(sp.Finalizers, util.GetFinalizerNodeString("worker-2"))
+	base := newFakeClient(t, sp.DeepCopy())
+	stale := storedProfile(t, base, sp.GetName())
+
+	other := stale.DeepCopy()
+	controllerutil.AddFinalizer(other, util.GetFinalizerNodeString("worker-3"))
+	require.NoError(t, base.Update(context.Background(), other))
+
+	sc := newStatusClient(t, sp, staleOnce(base, stale))
+
+	require.NoError(t, sc.removeFinalizer(context.Background()))
+	require.Equal(t,
+		[]string{util.GetFinalizerNodeString("worker-2"), util.GetFinalizerNodeString("worker-3")},
+		storedProfile(t, base, sp.GetName()).Finalizers,
+	)
+}
+
+// apiServerPatches returns a client which, like the API server, rejects a
+// JSON patch which does not apply as invalid.
+func apiServerPatches(base client.WithWatch) client.WithWatch {
+	return interceptor.NewClient(base, interceptor.Funcs{
+		Patch: func(
+			ctx context.Context, cl client.WithWatch, obj client.Object,
+			patch client.Patch, opts ...client.PatchOption,
 		) error {
-			if _, ok := obj.GetLabels()[secprofnodestatusapi.StatusToProfLabel]; ok &&
-				conflicts == 0 {
-				conflicts++
+			var statusErr *kerrors.StatusError
 
-				return kerrors.NewConflict(
-					seccompprofile.GroupVersion.WithResource("seccompprofiles").GroupResource(),
-					obj.GetName(), nil,
+			err := cl.Patch(ctx, obj, patch, opts...)
+			if err != nil && !errors.As(err, &statusErr) {
+				return kerrors.NewGenericServerResponse(
+					http.StatusUnprocessableEntity,
+					"PATCH",
+					schema.GroupResource{},
+					"",
+					err.Error(),
+					0,
+					false,
 				)
 			}
 
-			return cl.Update(ctx, obj, opts...)
+			return err
+		},
+	})
+}
+
+// Another node which removed its finalizer in front of the one of this node
+// moves it. The cache may keep returning the profile from before, so the
+// retry reads it from the API server.
+func TestRemoveFinalizerRetriesWithAPIReader(t *testing.T) {
+	t.Parallel()
+
+	sp := preparedProfile()
+	sp.Finalizers = append([]string{util.GetFinalizerNodeString("worker-0")}, sp.Finalizers...)
+	base := newFakeClient(t, sp.DeepCopy())
+	stale := storedProfile(t, base, sp.GetName())
+
+	other := stale.DeepCopy()
+	controllerutil.RemoveFinalizer(other, util.GetFinalizerNodeString("worker-0"))
+	controllerutil.AddFinalizer(other, util.GetFinalizerNodeString("worker-2"))
+	require.NoError(t, base.Update(context.Background(), other))
+
+	server := apiServerPatches(base)
+	staleCache := interceptor.NewClient(server, interceptor.Funcs{
+		Get: func(
+			ctx context.Context, cl client.WithWatch, key client.ObjectKey,
+			obj client.Object, opts ...client.GetOption,
+		) error {
+			if sp, ok := obj.(*seccompprofile.SeccompProfile); ok {
+				stale.DeepCopyInto(sp)
+
+				return nil
+			}
+
+			return cl.Get(ctx, key, obj, opts...)
 		},
 	})
 
-	sc := newStatusClient(t, sp, c)
-	require.NoError(t, sc.createFinalizerAndLabel(context.Background()))
-	require.Equal(t, 1, conflicts)
-	stored := storedProfile(t, base, sp.GetName())
-	require.Equal(t, sc.profileID(), stored.Labels[secprofnodestatusapi.StatusToProfLabel])
-	require.Contains(t, stored.Finalizers, sc.finalizerString)
+	sc := newStatusClient(t, sp, staleCache)
+	sc.WithAPIReader(base)
+
+	require.NoError(t, sc.removeFinalizer(context.Background()))
+	require.Equal(t,
+		[]string{util.GetFinalizerNodeString("worker-2")},
+		storedProfile(t, base, sp.GetName()).Finalizers,
+	)
 }
 
 func TestSetNodeStatusSkipsUnchangedStatus(t *testing.T) {
@@ -606,33 +798,177 @@ func TestSetNodeStatusSkipsUnchangedStatus(t *testing.T) {
 
 	sp := preparedProfile()
 	existing := newStatusClient(t, sp, nil).statusObj(secprofnodestatusapi.ProfileStateInstalled)
-	base := newFakeClient(t, sp.DeepCopy(), existing)
-	updates := 0
-
-	c := interceptor.NewClient(base, interceptor.Funcs{
-		Update: func(
-			ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.UpdateOption,
-		) error {
-			updates++
-
-			return cl.Update(ctx, obj, opts...)
-		},
-		SubResourceUpdate: func(
-			ctx context.Context, cl client.Client, sub string, obj client.Object,
-			opts ...client.SubResourceUpdateOption,
-		) error {
-			updates++
-
-			return cl.SubResource(sub).Update(ctx, obj, opts...)
-		},
-	})
+	c, writes := countWrites(newFakeClient(t, sp.DeepCopy(), existing))
 
 	sc := newStatusClient(t, sp, c)
 	require.NoError(
 		t,
 		sc.SetNodeStatus(context.Background(), secprofnodestatusapi.ProfileStateInstalled),
 	)
-	require.Zero(t, updates)
+	require.Zero(t, *writes)
+}
+
+// The daemon of the node is the only writer of the state, so it does not
+// need the resource version of the status, which may be outdated in the
+// cache.
+func TestSetNodeStatusWithOutdatedCache(t *testing.T) {
+	t.Parallel()
+
+	sp := preparedProfile()
+	existing := newStatusClient(t, sp, nil).statusObj(secprofnodestatusapi.ProfileStatePending)
+	base := newFakeClient(t, sp.DeepCopy(), existing)
+
+	outdated, err := nodeStatus(t, base, wantStatusName)
+	require.NoError(t, err)
+
+	current := outdated.DeepCopy()
+	current.Annotations = map[string]string{"key": "value"}
+	require.NoError(t, base.Update(context.Background(), current))
+
+	c, writes := countWrites(interceptor.NewClient(base, interceptor.Funcs{
+		Get: func(
+			ctx context.Context, cl client.WithWatch, key client.ObjectKey,
+			obj client.Object, opts ...client.GetOption,
+		) error {
+			if status, ok := obj.(*secprofnodestatusapi.SecurityProfileNodeStatus); ok {
+				outdated.DeepCopyInto(status)
+
+				return nil
+			}
+
+			return cl.Get(ctx, key, obj, opts...)
+		},
+	}))
+
+	sc := newStatusClient(t, sp, c)
+	require.NoError(
+		t,
+		sc.SetNodeStatus(context.Background(), secprofnodestatusapi.ProfileStateInstalled),
+	)
+	require.Equal(t, 2, *writes, "the state label and the status")
+
+	status, err := nodeStatus(t, base, wantStatusName)
+	require.NoError(t, err)
+	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, status.Status.Status)
+	require.Equal(t,
+		string(secprofnodestatusapi.ProfileStateInstalled),
+		status.Labels[secprofnodestatusapi.StatusStateLabel],
+	)
+	require.Equal(t, "value", status.Annotations["key"])
+}
+
+func TestSetNodeStatusWithMessage(t *testing.T) {
+	t.Parallel()
+
+	sp := preparedProfile()
+	existing := newStatusClient(t, sp, nil).statusObj(secprofnodestatusapi.ProfileStatePending)
+	base := newFakeClient(t, sp.DeepCopy(), existing)
+	c, writes := countWrites(base)
+	sc := newStatusClient(t, sp, c)
+	ctx := context.Background()
+
+	require.NoError(t, sc.SetNodeStatusWithMessage(
+		ctx, secprofnodestatusapi.ProfileStateError, "cannot load the profile",
+	))
+
+	status, err := nodeStatus(t, base, wantStatusName)
+	require.NoError(t, err)
+	require.Equal(t, secprofnodestatusapi.ProfileStateError, status.Status.Status)
+	require.Equal(t, "cannot load the profile", status.Status.Message)
+
+	// Another message for the same state replaces it, without touching the
+	// state label.
+	*writes = 0
+
+	require.NoError(t, sc.SetNodeStatusWithMessage(
+		ctx, secprofnodestatusapi.ProfileStateError, "still cannot load the profile",
+	))
+	require.Equal(t, 1, *writes)
+
+	status, err = nodeStatus(t, base, wantStatusName)
+	require.NoError(t, err)
+	require.Equal(t, "still cannot load the profile", status.Status.Message)
+
+	// A message longer than the API allows is truncated.
+	require.NoError(t, sc.SetNodeStatusWithMessage(
+		ctx, secprofnodestatusapi.ProfileStateError,
+		strings.Repeat("ä", secprofnodestatusapi.MaxMessageLength+1),
+	))
+
+	status, err = nodeStatus(t, base, wantStatusName)
+	require.NoError(t, err)
+	require.Equal(t,
+		secprofnodestatusapi.MaxMessageLength, utf8.RuneCountInString(status.Status.Message),
+	)
+	require.True(t, strings.HasSuffix(status.Status.Message, "..."))
+
+	// The next state clears the message.
+	require.NoError(t, sc.SetNodeStatus(ctx, secprofnodestatusapi.ProfileStateInstalled))
+
+	status, err = nodeStatus(t, base, wantStatusName)
+	require.NoError(t, err)
+	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, status.Status.Status)
+	require.Empty(t, status.Status.Message)
+}
+
+// A state written while the cache lags behind an earlier error still clears
+// the stored message of that error.
+func TestSetNodeStatusClearsMessageWithStaleCache(t *testing.T) {
+	t.Parallel()
+
+	sp := preparedProfile()
+	stale := newStatusClient(t, sp, nil).statusObj(secprofnodestatusapi.ProfileStatePending)
+	stored := stale.DeepCopy()
+	stored.Labels[secprofnodestatusapi.StatusStateLabel] = string(
+		secprofnodestatusapi.ProfileStateError,
+	)
+	stored.Status.Status = secprofnodestatusapi.ProfileStateError
+	stored.Status.Message = "cannot load the profile"
+	base := newFakeClient(t, sp.DeepCopy(), stored)
+
+	staleCache := interceptor.NewClient(base, interceptor.Funcs{
+		Get: func(
+			ctx context.Context, cl client.WithWatch, key client.ObjectKey,
+			obj client.Object, opts ...client.GetOption,
+		) error {
+			if status, ok := obj.(*secprofnodestatusapi.SecurityProfileNodeStatus); ok {
+				stale.DeepCopyInto(status)
+
+				return nil
+			}
+
+			return cl.Get(ctx, key, obj, opts...)
+		},
+	})
+
+	sc := newStatusClient(t, sp, staleCache)
+	require.NoError(
+		t,
+		sc.SetNodeStatus(context.Background(), secprofnodestatusapi.ProfileStateInstalled),
+	)
+
+	status, err := nodeStatus(t, base, wantStatusName)
+	require.NoError(t, err)
+	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, status.Status.Status)
+	require.Empty(t, status.Status.Message)
+}
+
+// A node status which exists already in the initial state, for example after
+// a restart of the daemon, is not written again.
+func TestCreateSkipsUpToDateStatus(t *testing.T) {
+	t.Parallel()
+
+	sp := preparedProfile()
+	sp.UID = "profile-uid"
+	existing := newStatusClient(t, sp, nil).statusObj(secprofnodestatusapi.ProfileStatePending)
+	require.NoError(t, controllerutil.SetControllerReference(sp, existing, utiltest.NewScheme(t)))
+
+	c, writes := countWrites(newFakeClient(t, sp.DeepCopy(), existing))
+	sc := newStatusClient(t, sp, c)
+
+	_, err := sc.Create(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, 1, *writes, "only the attempt to create the status")
 }
 
 // conflictOnce returns a client which fails the first update of the objects

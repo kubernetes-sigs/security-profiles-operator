@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"math"
 	"net/http"
 	"slices"
 	"strings"
@@ -30,7 +31,9 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -48,11 +51,17 @@ const (
 	seOwnerKey    = ".metadata.selinuxProfileOwner"
 	aaOwnerKey    = ".metadata.apparmorProfileOwner"
 	linkedPodsKey = ".metadata.activeWorkloads"
-	// inUseKey indexes profiles by whether they carry the in-use finalizer.
-	inUseKey         = ".metadata.inUse"
-	inUseValue       = "true"
-	reconcileTimeout = 1 * time.Minute
-	pathParts        = 2
+	// truncatedValue is indexed under linkedPodsKey for the profiles which
+	// list only part of the pods using them. Pod identifiers contain a slash,
+	// so they cannot clash with it.
+	truncatedValue = "truncated"
+	// maxActiveWorkloads limits the pods listed in the status of a profile,
+	// so that a profile used by very many pods stays far below the size limit
+	// of etcd. Whether a profile is in use follows the pod index, not the
+	// list.
+	maxActiveWorkloads = 1000
+	reconcileTimeout   = 1 * time.Minute
+	pathParts          = 2
 
 	seccompOperatorDir = "operator/"
 	selinuxTypeSuffix  = ".process"
@@ -73,9 +82,57 @@ type PodReconciler struct {
 	log    logr.Logger
 	record util.EventRecorder
 
-	// podUIDs maps the pods to their UIDs, to tell when a pod got replaced
-	// by one with the same name.
-	podUIDs sync.Map
+	// deletedMu guards deleted, which holds the profile references of the
+	// deleted pods whose deletion is not reconciled yet, see
+	// podEventHandler.
+	deletedMu sync.Mutex
+	deleted   map[string]podReferences
+}
+
+// podReferences are the profile references of a pod, as the profiles of each
+// kind return them.
+type podReferences struct {
+	seccomp, selinux, appArmor []string
+}
+
+func referencesOf(pod *corev1.Pod) podReferences {
+	return podReferences{
+		seccomp:  getSeccompProfilesFromPod(pod),
+		selinux:  getSelinuxProfilesFromPod(pod),
+		appArmor: getAppArmorProfilesFromPod(pod),
+	}
+}
+
+// rememberDeletedPod keeps the profile references of a deleted pod until its
+// deletion got reconciled. The pod is gone from the cache by then.
+func (r *PodReconciler) rememberDeletedPod(pod *corev1.Pod) {
+	r.deletedMu.Lock()
+	defer r.deletedMu.Unlock()
+
+	if r.deleted == nil {
+		r.deleted = map[string]podReferences{}
+	}
+
+	r.deleted[pod.Namespace+"/"+pod.Name] = referencesOf(pod)
+}
+
+// deletedPod returns the profile references of the deleted pod, if known.
+func (r *PodReconciler) deletedPod(podID string) (podReferences, bool) {
+	r.deletedMu.Lock()
+	defer r.deletedMu.Unlock()
+
+	refs, ok := r.deleted[podID]
+
+	return refs, ok
+}
+
+// forgetDeletedPod drops the profile references of the deleted pod once its
+// deletion got reconciled.
+func (r *PodReconciler) forgetDeletedPod(podID string) {
+	r.deletedMu.Lock()
+	defer r.deletedMu.Unlock()
+
+	delete(r.deleted, podID)
 }
 
 // Name returns the name of the controller.
@@ -111,11 +168,16 @@ func (r *PodReconciler) Reconcile(
 
 	podID := req.Namespace + "/" + req.Name
 
+	deletedRefs, deletedKnown := r.deletedPod(podID)
+
 	err := r.client.Get(ctx, req.NamespacedName, pod)
 	if kerrors.IsNotFound(err) {
-		r.podUIDs.Delete(podID)
+		var refs *podReferences
+		if deletedKnown {
+			refs = &deletedRefs
+		}
 
-		return reconcile.Result{}, r.handlePodDeletion(ctx, podID)
+		return reconcile.Result{}, r.handlePodDeletion(ctx, podID, refs)
 	}
 
 	if err != nil {
@@ -123,25 +185,40 @@ func (r *PodReconciler) Reconcile(
 		return reconcile.Result{}, fmt.Errorf("looking up pod in pod reconciler: %w", err)
 	}
 
-	// A pod can be replaced by one with the same name, like the pods of a
-	// StatefulSet, before the deletion of the old one got reconciled. The
-	// profiles which only the old pod used have to be released then.
-	errs := []error{
-		r.handlePodUpdate(ctx, logger, pod),
-		r.releaseUnusedSeccompProfiles(ctx, podID, pod),
-		r.releaseUnusedSelinuxProfiles(ctx, podID, pod),
+	// A completed pod, like the one of a finished Job, does not use its
+	// profiles anymore, although it exists until it gets deleted.
+	if util.PodCompleted(pod) {
+		refs := referencesOf(pod)
+
+		return reconcile.Result{}, r.handlePodDeletion(ctx, podID, &refs)
 	}
 
-	// The profile kinds without a list of active workloads can only be
-	// checked all at once, which is only worth it for a replaced pod.
-	if previous, known := r.podUIDs.Swap(podID, pod.GetUID()); known && previous != pod.GetUID() {
-		errs = append(errs,
-			r.releaseAppArmorProfiles(ctx),
-			r.releaseRawSelinuxProfiles(ctx),
-		)
+	// A pod can be replaced by one with the same name, like the pods of a
+	// StatefulSet, before the deletion of the old one got reconciled. The
+	// profiles which only the old pod used have to be released then,
+	// including the ones which list only part of their pods, if the deletion
+	// of the old pod told which profiles it used.
+	refs := referencesOf(pod)
+	oldRefs := deletedRefs
+
+	truncated := func([]string) func(string) bool { return nil }
+	if deletedKnown {
+		truncated = usedBy
+	}
+
+	errs := []error{
+		r.handlePodUpdate(ctx, logger, pod),
+		seccompKind.release(ctx, r, podID, truncated(oldRefs.seccomp), usedBy(refs.seccomp)),
+		selinuxKind.release(ctx, r, podID, truncated(oldRefs.selinux), usedBy(refs.selinux)),
+		rawSelinuxKind.release(ctx, r, podID, truncated(oldRefs.selinux), usedBy(refs.selinux)),
+		appArmorKind.release(ctx, r, podID, truncated(oldRefs.appArmor), usedBy(refs.appArmor)),
 	}
 
 	updateErr := errors.Join(errs...)
+	if updateErr == nil && deletedKnown {
+		r.forgetDeletedPod(podID)
+	}
+
 	if updateErr != nil {
 		r.record.Eventf(
 			pod, nil, corev1.EventTypeWarning, reasonReconcileErr, util.EventActionReconcile,
@@ -154,158 +231,53 @@ func (r *PodReconciler) Reconcile(
 	return reconcile.Result{}, nil
 }
 
-// releaseUnusedSeccompProfiles releases the SeccompProfiles which list the pod
-// as active workload although the pod does not use them.
-func (r *PodReconciler) releaseUnusedSeccompProfiles(
-	ctx context.Context, podID string, pod *corev1.Pod,
-) error {
-	profiles := &seccompprofileapi.SeccompProfileList{}
-	if err := r.client.List(
-		ctx, profiles, client.MatchingFields{linkedPodsKey: podID},
-	); err != nil {
-		return fmt.Errorf("listing SeccompProfiles of pod: %w", err)
-	}
-
-	used := getSeccompProfilesFromPod(pod)
-
-	var errs []error
-
-	for i := range profiles.Items {
-		if !slices.Contains(used, seccompProfileReference(&profiles.Items[i])) {
-			errs = append(errs, r.updatePodReferencesForSeccomp(ctx, &profiles.Items[i]))
-		}
-	}
-
-	return errors.Join(errs...)
+// usedBy returns a function which tells if a profile reference is one of the
+// provided references of a pod.
+func usedBy(references []string) func(string) bool {
+	return func(reference string) bool { return slices.Contains(references, reference) }
 }
 
-// releaseUnusedSelinuxProfiles releases the SelinuxProfiles which list the pod
-// as active workload although the pod does not use them.
-func (r *PodReconciler) releaseUnusedSelinuxProfiles(
-	ctx context.Context, podID string, pod *corev1.Pod,
+// handlePodDeletion updates all profiles which were used by the deleted or
+// completed pod. refs are the profile references of the pod, nil if unknown.
+func (r *PodReconciler) handlePodDeletion(
+	ctx context.Context, podID string, refs *podReferences,
 ) error {
-	profiles := &selinuxprofileapi.SelinuxProfileList{}
-	if err := r.client.List(
-		ctx, profiles, client.MatchingFields{linkedPodsKey: podID},
-	); err != nil {
-		return fmt.Errorf("listing SelinuxProfiles of pod: %w", err)
-	}
-
-	used := getSelinuxProfilesFromPod(pod)
-
-	var errs []error
-
-	for i := range profiles.Items {
-		if !slices.Contains(used, profiles.Items[i].GetPolicyUsage()) {
-			errs = append(errs, r.updatePodReferencesForSelinux(ctx, &profiles.Items[i]))
+	// The profiles which list only part of their pods may count the pod
+	// without listing it, so the ones the pod used are updated as well. If
+	// the pod is unknown, for example because it got deleted before its
+	// creation got reconciled, all of them have to be checked.
+	truncated := func(references func(*podReferences) []string) func(string) bool {
+		if refs == nil {
+			return func(string) bool { return true }
 		}
+
+		return usedBy(references(refs))
 	}
 
-	return errors.Join(errs...)
-}
-
-// handlePodDeletion updates all profiles which were used by the deleted pod.
-func (r *PodReconciler) handlePodDeletion(ctx context.Context, podID string) error {
 	// Every profile kind is released on its own, so that a failure with one
 	// kind does not keep the profiles of the other kinds in use.
 	errs := []error{
-		r.releaseSeccompProfiles(ctx, podID),
-		r.releaseSelinuxProfiles(ctx, podID),
-		r.releaseAppArmorProfiles(ctx),
-		r.releaseRawSelinuxProfiles(ctx),
+		seccompKind.release(ctx, r, podID,
+			truncated(func(p *podReferences) []string { return p.seccomp }), nil),
+		selinuxKind.release(ctx, r, podID,
+			truncated(func(p *podReferences) []string { return p.selinux }), nil),
+		rawSelinuxKind.release(ctx, r, podID,
+			truncated(func(p *podReferences) []string { return p.selinux }), nil),
+		appArmorKind.release(ctx, r, podID,
+			truncated(func(p *podReferences) []string { return p.appArmor }), nil),
 	}
 
 	if err := errors.Join(errs...); err != nil {
 		return fmt.Errorf("updating profiles for deleted pod: %w", err)
 	}
 
+	r.forgetDeletedPod(podID)
+
 	return nil
-}
-
-func (r *PodReconciler) releaseSeccompProfiles(ctx context.Context, podID string) error {
-	profiles := &seccompprofileapi.SeccompProfileList{}
-	if err := r.client.List(
-		ctx, profiles, client.MatchingFields{linkedPodsKey: podID},
-	); err != nil {
-		return fmt.Errorf("listing SeccompProfiles for deleted pod: %w", err)
-	}
-
-	errs := make([]error, 0, len(profiles.Items))
-	for i := range profiles.Items {
-		errs = append(errs, r.updatePodReferencesForSeccomp(ctx, &profiles.Items[i]))
-	}
-
-	return errors.Join(errs...)
-}
-
-func (r *PodReconciler) releaseSelinuxProfiles(ctx context.Context, podID string) error {
-	profiles := &selinuxprofileapi.SelinuxProfileList{}
-	if err := r.client.List(
-		ctx, profiles, client.MatchingFields{linkedPodsKey: podID},
-	); err != nil {
-		return fmt.Errorf("listing SelinuxProfiles for deleted pod: %w", err)
-	}
-
-	errs := make([]error, 0, len(profiles.Items))
-	for i := range profiles.Items {
-		errs = append(errs, r.updatePodReferencesForSelinux(ctx, &profiles.Items[i]))
-	}
-
-	return errors.Join(errs...)
-}
-
-// releaseAppArmorProfiles checks every AppArmorProfile in use again, because
-// the kind has no list of active workloads. The index keeps the profiles
-// nobody uses out of the listing.
-func (r *PodReconciler) releaseAppArmorProfiles(ctx context.Context) error {
-	profiles := &apparmorprofileapi.AppArmorProfileList{}
-	if err := r.client.List(
-		ctx, profiles, client.MatchingFields{inUseKey: inUseValue},
-	); err != nil {
-		return fmt.Errorf("listing AppArmorProfiles for deleted pod: %w", err)
-	}
-
-	errs := make([]error, 0, len(profiles.Items))
-	for i := range profiles.Items {
-		if isInUse(&profiles.Items[i]) {
-			errs = append(errs, r.updatePodReferencesForAppArmor(ctx, &profiles.Items[i]))
-		}
-	}
-
-	return errors.Join(errs...)
-}
-
-// releaseRawSelinuxProfiles checks every RawSelinuxProfile in use again, like
-// releaseAppArmorProfiles.
-func (r *PodReconciler) releaseRawSelinuxProfiles(ctx context.Context) error {
-	profiles := &selinuxprofileapi.RawSelinuxProfileList{}
-	if err := r.client.List(
-		ctx, profiles, client.MatchingFields{inUseKey: inUseValue},
-	); err != nil {
-		return fmt.Errorf("listing RawSelinuxProfiles for deleted pod: %w", err)
-	}
-
-	errs := make([]error, 0, len(profiles.Items))
-	for i := range profiles.Items {
-		if isInUse(&profiles.Items[i]) {
-			errs = append(errs, r.updatePodReferencesForRawSelinux(ctx, &profiles.Items[i]))
-		}
-	}
-
-	return errors.Join(errs...)
 }
 
 func isInUse(obj client.Object) bool {
 	return controllerutil.ContainsFinalizer(obj, util.HasActivePodsFinalizerString)
-}
-
-// inUseIndex indexes profiles which carry the in-use finalizer.
-func inUseIndex(obj client.Object) []string {
-	if isInUse(obj) {
-		return []string{inUseValue}
-	}
-
-	return nil
 }
 
 // handlePodUpdate marks every profile used by the pod as in use. A profile
@@ -450,32 +422,170 @@ func (r *PodReconciler) updateSelinuxProfilesByName(
 	return found, nil
 }
 
-// updatePodReferences updates a profile with the identifiers of the pods using
-// it and ensures it carries a finalizer indicating it is in use, so that it
-// cannot be deleted from under a running workload. It is shared by every
-// profile kind: the kinds differ only in how pods reference them and in where
-// the active workload list lives. Kinds without a list of active workloads
-// pass nil accessors.
-//
-// Reconciles of different pods using the same profile run concurrently, so
-// every attempt lists the pods again after reading the profile. A write based
-// on a pod list which another reconcile already superseded then fails with a
-// conflict, and the retry recomputes the list instead of dropping the pods the
-// other reconcile added.
-func updatePodReferences[T client.Object](
+// profileKind describes how the pods reference the profiles of a kind and
+// where the profiles list the pods using them.
+type profileKind[T client.Object] struct {
+	// name is the kind of the profiles.
+	name string
+	// ownerKey is the pod index of the profile references.
+	ownerKey string
+	// reference returns how the pods reference the profile.
+	reference func(T) string
+	// status returns the active workloads and their count in the status of
+	// the profile.
+	status  func(T) (*[]string, *int32)
+	newObj  func() T
+	newList func() client.ObjectList
+}
+
+var (
+	seccompKind = &profileKind[*seccompprofileapi.SeccompProfile]{
+		name:      "SeccompProfile",
+		ownerKey:  spOwnerKey,
+		reference: seccompProfileReference,
+		status: func(p *seccompprofileapi.SeccompProfile) (*[]string, *int32) {
+			return &p.Status.ActiveWorkloads, &p.Status.ActiveWorkloadsCount
+		},
+		newObj:  func() *seccompprofileapi.SeccompProfile { return &seccompprofileapi.SeccompProfile{} },
+		newList: func() client.ObjectList { return &seccompprofileapi.SeccompProfileList{} },
+	}
+	selinuxKind = &profileKind[*selinuxprofileapi.SelinuxProfile]{
+		name:      "SelinuxProfile",
+		ownerKey:  seOwnerKey,
+		reference: (*selinuxprofileapi.SelinuxProfile).GetPolicyUsage,
+		status: func(p *selinuxprofileapi.SelinuxProfile) (*[]string, *int32) {
+			return &p.Status.ActiveWorkloads, &p.Status.ActiveWorkloadsCount
+		},
+		newObj:  func() *selinuxprofileapi.SelinuxProfile { return &selinuxprofileapi.SelinuxProfile{} },
+		newList: func() client.ObjectList { return &selinuxprofileapi.SelinuxProfileList{} },
+	}
+	rawSelinuxKind = &profileKind[*selinuxprofileapi.RawSelinuxProfile]{
+		name:      "RawSelinuxProfile",
+		ownerKey:  seOwnerKey,
+		reference: (*selinuxprofileapi.RawSelinuxProfile).GetPolicyUsage,
+		status: func(p *selinuxprofileapi.RawSelinuxProfile) (*[]string, *int32) {
+			return &p.Status.ActiveWorkloads, &p.Status.ActiveWorkloadsCount
+		},
+		newObj:  func() *selinuxprofileapi.RawSelinuxProfile { return &selinuxprofileapi.RawSelinuxProfile{} },
+		newList: func() client.ObjectList { return &selinuxprofileapi.RawSelinuxProfileList{} },
+	}
+	appArmorKind = &profileKind[*apparmorprofileapi.AppArmorProfile]{
+		name:      "AppArmorProfile",
+		ownerKey:  aaOwnerKey,
+		reference: (*apparmorprofileapi.AppArmorProfile).GetProfileName,
+		status: func(p *apparmorprofileapi.AppArmorProfile) (*[]string, *int32) {
+			return &p.Status.ActiveWorkloads, &p.Status.ActiveWorkloadsCount
+		},
+		newObj:  func() *apparmorprofileapi.AppArmorProfile { return &apparmorprofileapi.AppArmorProfile{} },
+		newList: func() client.ObjectList { return &apparmorprofileapi.AppArmorProfileList{} },
+	}
+)
+
+// workloadStatus returns the active workloads and their count in the status
+// of a profile of any kind.
+func workloadStatus(obj client.Object) (workloads []string, count int32) {
+	switch p := obj.(type) {
+	case *seccompprofileapi.SeccompProfile:
+		return p.Status.ActiveWorkloads, p.Status.ActiveWorkloadsCount
+	case *selinuxprofileapi.SelinuxProfile:
+		return p.Status.ActiveWorkloads, p.Status.ActiveWorkloadsCount
+	case *selinuxprofileapi.RawSelinuxProfile:
+		return p.Status.ActiveWorkloads, p.Status.ActiveWorkloadsCount
+	case *apparmorprofileapi.AppArmorProfile:
+		return p.Status.ActiveWorkloads, p.Status.ActiveWorkloadsCount
+	default:
+		return nil, 0
+	}
+}
+
+// workloadIndex indexes the profiles by the pods they list, and the ones
+// which list only part of their pods by truncatedValue.
+func workloadIndex(obj client.Object) []string {
+	workloads, count := workloadStatus(obj)
+	if int(count) > len(workloads) {
+		return append(slices.Clone(workloads), truncatedValue)
+	}
+
+	return workloads
+}
+
+// release updates the profiles of the kind which list the pod as active
+// workload, except the ones whose reference used reports as still used by
+// the pod. It updates the profiles which list only part of their pods as
+// well, if truncated reports their reference as used by the pod before.
+func (k *profileKind[T]) release(
 	ctx context.Context,
 	r *PodReconciler,
-	prof T,
-	kind, ownerKey, profileReference string,
-	getActiveWorkloads func(T) []string,
-	setActiveWorkloads func(T, []string),
+	podID string,
+	truncated func(string) bool,
+	used func(string) bool,
 ) error {
+	values := []string{podID}
+	if truncated != nil {
+		values = append(values, truncatedValue)
+	}
+
+	seen := sets.New[string]()
+
+	var errs []error
+
+	for _, value := range values {
+		profiles := k.newList()
+		if err := r.client.List(
+			ctx, profiles, client.MatchingFields{linkedPodsKey: value},
+		); err != nil {
+			errs = append(errs, fmt.Errorf("listing %ss of pod: %w", k.name, err))
+
+			continue
+		}
+
+		if err := meta.EachListItem(profiles, func(obj runtime.Object) error {
+			profile, ok := obj.(T)
+			if !ok || seen.Has(profile.GetName()) ||
+				(used != nil && used(k.reference(profile))) ||
+				(value == truncatedValue && !truncated(k.reference(profile))) {
+				return nil
+			}
+
+			seen.Insert(profile.GetName())
+			errs = append(errs, k.update(ctx, r, profile))
+
+			return nil
+		}); err != nil {
+			errs = append(errs, fmt.Errorf("iterating %ss of pod: %w", k.name, err))
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
+// update updates a profile with the identifiers of the pods using it and
+// ensures it carries a finalizer indicating it is in use, so that it cannot
+// be deleted from under a running workload.
+//
+// The status gets patched as the cache has the profile, so that a pod event
+// costs no read from the API server. The patch carries the resource version
+// of the profile and fails with a conflict if the cache is behind or another
+// reconcile wrote the profile in the meantime. Every retry then reads the
+// profile from the API server and lists the pods again, instead of dropping
+// the pods the other reconcile added. A profile which the cache shows with
+// the current pods already is not written. If the cache was behind in that
+// case, the profile gets reconciled again once the cache catches up, see
+// profileReconciler.
+func (k *profileKind[T]) update(ctx context.Context, r *PodReconciler, prof T) error {
+	reference := k.reference(prof)
+
 	linkedPods := func() ([]string, error) {
 		pods := &corev1.PodList{}
 
-		err := r.client.List(ctx, pods, client.MatchingFields{ownerKey: profileReference})
+		// The pods are only read, so the cache does not have to copy them.
+		err := r.client.List(
+			ctx, pods,
+			client.MatchingFields{k.ownerKey: reference},
+			client.UnsafeDisableDeepCopy,
+		)
 		if client.IgnoreNotFound(err) != nil {
-			return nil, fmt.Errorf("listing pods to update %s: %w", kind, err)
+			return nil, fmt.Errorf("listing pods to update %s: %w", k.name, err)
 		}
 
 		podList := make([]string, len(pods.Items))
@@ -484,59 +594,115 @@ func updatePodReferences[T client.Object](
 			podList[i] = pods.Items[i].Namespace + "/" + pods.Items[i].Name
 		}
 
-		slices.Sort(podList)
-
 		return podList, nil
 	}
 
-	// Kinds without a list of active workloads only need the finalizer, which
-	// the cached profile tells about already.
-	if getActiveWorkloads == nil {
-		return updateInUseFinalizer(ctx, r, prof, linkedPods)
+	pods, err := linkedPods()
+	if err != nil {
+		return err
 	}
 
+	cached := true
 	profileDeleted := false
 
 	if err := util.RetryWithContext(ctx, func() error {
-		if err := r.reader.Get(
-			ctx,
-			util.NamespacedName(prof.GetName(), prof.GetNamespace()),
-			prof,
-		); err != nil {
-			if kerrors.IsNotFound(err) {
-				profileDeleted = true
+		if !cached {
+			if err := r.reader.Get(ctx, client.ObjectKeyFromObject(prof), prof); err != nil {
+				if kerrors.IsNotFound(err) {
+					profileDeleted = true
 
-				return nil
+					return nil
+				}
+
+				return fmt.Errorf("retrieving profile: %w", err)
 			}
 
-			return fmt.Errorf("retrieving profile: %w", err)
+			current, err := linkedPods()
+			if err != nil {
+				return err
+			}
+
+			pods = current
 		}
 
-		podList, err := linkedPods()
-		if err != nil {
-			return err
-		}
+		cached = false
 
-		if sameActiveWorkloads(getActiveWorkloads(prof), podList) {
+		workloads, count := k.status(prof)
+		listed, total := activeWorkloads(pods, *workloads)
+
+		if *count == total && sameActiveWorkloads(*workloads, listed) {
 			return nil
 		}
 
-		setActiveWorkloads(prof, podList)
+		base, ok := prof.DeepCopyObject().(client.Object)
+		if !ok {
+			return fmt.Errorf("copying %s %s", k.name, prof.GetName())
+		}
 
-		if err := r.client.Status().Update(ctx, prof); err != nil {
-			return fmt.Errorf("updating profile: %w", err)
+		*workloads, *count = listed, total
+
+		if err := r.client.Status().Patch(
+			ctx, prof, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{}),
+		); err != nil {
+			return fmt.Errorf("patching profile: %w", err)
 		}
 
 		return nil
 	}, util.IsNotFoundOrConflict); err != nil {
-		return fmt.Errorf("updating %s status: %w", kind, err)
+		return fmt.Errorf("updating %s status: %w", k.name, err)
 	}
 
 	if profileDeleted {
 		return nil
 	}
 
-	return updateInUseFinalizer(ctx, r, prof, linkedPods)
+	return updateInUseFinalizer(ctx, r, prof, len(pods) > 0, linkedPods)
+}
+
+// activeWorkloads returns the sorted pods which the status of a profile lists,
+// at most maxActiveWorkloads of them, and the number of all pods. The pods
+// only get sorted if the currently listed ones are not the first of them
+// anymore, so that a pod which goes away without being listed does not sort
+// all pods of a profile which lists only part of them.
+func activeWorkloads(pods, current []string) (listed []string, total int32) {
+	if len(pods) == 0 {
+		return nil, 0
+	}
+
+	total = int32(min(len(pods), math.MaxInt32))
+
+	if listsFirstPods(pods, current) {
+		return slices.Clone(current), total
+	}
+
+	sorted := slices.Sorted(slices.Values(pods))
+
+	return sorted[:min(len(sorted), maxActiveWorkloads)], total
+}
+
+// listsFirstPods returns true if the listed pods are the first ones of the
+// pods in sort order, as many as the status of a profile lists.
+func listsFirstPods(pods, listed []string) bool {
+	if len(listed) != min(len(pods), maxActiveWorkloads) || !slices.IsSorted(listed) {
+		return false
+	}
+
+	last := listed[len(listed)-1]
+	found := 0
+
+	for _, pod := range pods {
+		if pod > last {
+			continue
+		}
+
+		if _, ok := slices.BinarySearch(listed, pod); !ok {
+			return false
+		}
+
+		found++
+	}
+
+	return found == len(listed)
 }
 
 // updateInUseFinalizer adds the in-use finalizer to the profile if pods use
@@ -544,18 +710,18 @@ func updatePodReferences[T client.Object](
 // written if the provided profile has the finalizer it needs. Otherwise every
 // attempt reads the profile and lists the pods again, so that a pod which
 // started using the profile in the meantime keeps the finalizer in place.
+//
+// The API server rejects adding a finalizer to a profile which is being
+// deleted, so such a profile does not get it. Its status still lists the pods
+// using it.
 func updateInUseFinalizer(
 	ctx context.Context,
 	r *PodReconciler,
 	prof client.Object,
+	inUse bool,
 	linkedPods func() ([]string, error),
 ) error {
-	pods, err := linkedPods()
-	if err != nil {
-		return err
-	}
-
-	if (len(pods) > 0) == isInUse(prof) {
+	if inUse == isInUse(prof) || (inUse && !prof.GetDeletionTimestamp().IsZero()) {
 		return nil
 	}
 
@@ -572,7 +738,7 @@ func updateInUseFinalizer(
 		}
 
 		inUse := len(pods) > 0
-		if inUse == isInUse(prof) {
+		if inUse == isInUse(prof) || (inUse && !prof.GetDeletionTimestamp().IsZero()) {
 			return nil
 		}
 
@@ -596,20 +762,6 @@ func seccompProfileReference(sp *seccompprofileapi.SeccompProfile) string {
 	return seccompOperatorDir + sp.GetProfileFile()
 }
 
-// updatePodReferencesForSeccomp updates a SeccompProfile with the identifiers of pods using it and ensures
-// it has a finalizer indicating it is in use to prevent it from being deleted.
-func (r *PodReconciler) updatePodReferencesForSeccomp(
-	ctx context.Context,
-	sp *seccompprofileapi.SeccompProfile,
-) error {
-	return updatePodReferences(
-		ctx, r, sp,
-		"seccompProfile", spOwnerKey, seccompProfileReference(sp),
-		func(p *seccompprofileapi.SeccompProfile) []string { return p.Status.ActiveWorkloads },
-		func(p *seccompprofileapi.SeccompProfile, w []string) { p.Status.ActiveWorkloads = w },
-	)
-}
-
 func sameActiveWorkloads(current, desired []string) bool {
 	if len(current) != len(desired) {
 		return false
@@ -624,68 +776,68 @@ func sameActiveWorkloads(current, desired []string) bool {
 	return slices.Equal(currentCopy, desiredCopy)
 }
 
-// updatePodReferencesForSelinux updates a SelinuxProfile with the identifiers of pods using it and ensures
-// it has a finalizer indicating it is in use to prevent it from being deleted.
+// updatePodReferencesForSeccomp updates a SeccompProfile with the identifiers
+// of pods using it and ensures it has a finalizer indicating it is in use to
+// prevent it from being deleted.
+func (r *PodReconciler) updatePodReferencesForSeccomp(
+	ctx context.Context,
+	sp *seccompprofileapi.SeccompProfile,
+) error {
+	return seccompKind.update(ctx, r, sp)
+}
+
+// updatePodReferencesForSelinux updates a SelinuxProfile like
+// updatePodReferencesForSeccomp.
 func (r *PodReconciler) updatePodReferencesForSelinux(
 	ctx context.Context,
 	se *selinuxprofileapi.SelinuxProfile,
 ) error {
-	return updatePodReferences(
-		ctx, r, se,
-		"selinuxProfile", seOwnerKey, se.GetPolicyUsage(),
-		func(p *selinuxprofileapi.SelinuxProfile) []string { return p.Status.ActiveWorkloads },
-		func(p *selinuxprofileapi.SelinuxProfile, w []string) { p.Status.ActiveWorkloads = w },
-	)
+	return selinuxKind.update(ctx, r, se)
 }
 
-// updatePodReferencesForRawSelinux ensures that a RawSelinuxProfile used by
-// pods has a finalizer which prevents it from being deleted.
+// updatePodReferencesForRawSelinux updates a RawSelinuxProfile like
+// updatePodReferencesForSeccomp.
 func (r *PodReconciler) updatePodReferencesForRawSelinux(
 	ctx context.Context,
 	se *selinuxprofileapi.RawSelinuxProfile,
 ) error {
-	return updatePodReferences[*selinuxprofileapi.RawSelinuxProfile](
-		ctx, r, se, "rawSelinuxProfile", seOwnerKey, se.GetPolicyUsage(), nil, nil,
-	)
+	return rawSelinuxKind.update(ctx, r, se)
 }
 
-// updatePodReferencesForAppArmor ensures that an AppArmorProfile used by pods
-// has a finalizer which prevents it from being deleted.
+// updatePodReferencesForAppArmor updates an AppArmorProfile like
+// updatePodReferencesForSeccomp.
 func (r *PodReconciler) updatePodReferencesForAppArmor(
 	ctx context.Context,
 	aa *apparmorprofileapi.AppArmorProfile,
 ) error {
-	return updatePodReferences[*apparmorprofileapi.AppArmorProfile](
-		ctx, r, aa, "appArmorProfile", aaOwnerKey, aa.GetProfileName(), nil, nil,
-	)
+	return appArmorKind.update(ctx, r, aa)
 }
 
-// profileReleaser reconciles AppArmorProfiles and RawSelinuxProfiles, which
-// have no list of active workloads. If the last pod using such a profile went
-// away while the operator did not run, no pod event releases the profile, so
-// the profile itself gets checked.
-type profileReleaser[T client.Object] struct {
-	pods    *PodReconciler
-	newObj  func() T
-	release func(context.Context, *PodReconciler, T) error
+// profileReconciler reconciles the profiles of a kind once they enter the
+// cache, and whenever the pods they list or their in-use finalizer change.
+// Pod events alone miss two cases: a pod which went away while the operator
+// did not run produces no event, and the reconcile of a pod deleted right
+// after the reconcile which listed it in a profile may look up the profile
+// before the cache has that update. The cache gets the update later on,
+// which reconciles the profile, and the pod index tells then that the pod is
+// gone.
+type profileReconciler[T client.Object] struct {
+	pods *PodReconciler
+	kind *profileKind[T]
 }
 
-func (p *profileReleaser[T]) Reconcile(
+func (p *profileReconciler[T]) Reconcile(
 	ctx context.Context, req reconcile.Request,
 ) (reconcile.Result, error) {
 	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
 
-	profile := p.newObj()
+	profile := p.kind.newObj()
 	if err := p.pods.client.Get(ctx, req.NamespacedName, profile); err != nil {
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 
-	if !isInUse(profile) {
-		return reconcile.Result{}, nil
-	}
-
-	return reconcile.Result{}, p.release(ctx, p.pods, profile)
+	return reconcile.Result{}, p.kind.update(ctx, p.pods, profile)
 }
 
 // allContainers iterates over the regular, init and ephemeral containers of

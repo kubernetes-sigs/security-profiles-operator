@@ -42,10 +42,12 @@ import (
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	profilebaseapi "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	profilebindingapi "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
+	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/binding/bindingfakes"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
@@ -966,11 +968,32 @@ func TestContainersByImage(t *testing.T) {
 				"bash": {"init", "app"},
 			},
 		},
+		{
+			name: "EquivalentReferences",
+			podSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{
+					{Name: "short", Image: "nginx"},
+					{Name: "qualified", Image: "docker.io/library/nginx:latest"},
+					{Name: "index", Image: "index.docker.io/nginx"},
+					{Name: "other-tag", Image: "nginx:1.23.2"},
+				},
+			},
+			want: map[string][]string{
+				"nginx":        {"short", "qualified", "index"},
+				"nginx:1.23.2": {"other-tag"},
+			},
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+
+			// The containers are grouped by their normalized image.
+			want := map[string][]string{}
+			for image, names := range tc.want {
+				want[util.NormalizeImage(image)] = names
+			}
 
 			got := map[string][]string{}
 
@@ -980,7 +1003,7 @@ func TestContainersByImage(t *testing.T) {
 				}
 			}
 
-			require.Equal(t, tc.want, got)
+			require.Equal(t, want, got)
 		})
 	}
 }
@@ -1362,6 +1385,98 @@ func TestHandleAppliedBindings(t *testing.T) {
 		Operation: "remove",
 		Path:      "/metadata/annotations/spo.x-k8s.io~1profile-bindings",
 	}}, resp.Patches)
+}
+
+// Bindings used to compare the images as strings, so a pod could escape a
+// binding by writing the same image differently.
+func TestHandleNormalizesImages(t *testing.T) {
+	t.Parallel()
+
+	mock := &bindingfakes.FakeImpl{}
+	mock.GetSeccompProfileCalls(localhostSeccompProfiles)
+	mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
+		Items: []profilebindingapi.ProfileBinding{
+			seccompBinding("binding", "profile", "nginx:1.23.2", 1),
+		},
+	}, nil)
+
+	for _, image := range []string{
+		"nginx:1.23.2", "docker.io/nginx:1.23.2", "docker.io/library/nginx:1.23.2",
+	} {
+		pod := testPod.DeepCopy()
+		pod.Spec.Containers[0].Image = image
+
+		resp := newTestBinder(t, mock).Handle(t.Context(), admission.Request{
+			AdmissionRequest: admissionv1.AdmissionRequest{
+				Operation: admissionv1.Create,
+				Object:    rawObject(t, pod),
+			},
+		})
+		require.True(t, resp.Allowed, image)
+		require.Contains(t, resp.Patches, jsonpatch.JsonPatchOperation{
+			Operation: "add",
+			Path:      "/spec/containers/0/securityContext",
+			Value: map[string]any{
+				"seccompProfile": map[string]any{
+					"type":             "Localhost",
+					"localhostProfile": "profile",
+				},
+			},
+		}, image)
+	}
+}
+
+// Recorded profiles are named after the recording and container only, so a
+// recording in another namespace can produce the profile a binding expects.
+func TestHandleWarnsAboutProfilesRecordedElsewhere(t *testing.T) {
+	t.Parallel()
+
+	mock := &bindingfakes.FakeImpl{}
+	mock.GetSeccompProfileCalls(func(ctx context.Context, key types.NamespacedName) (
+		*seccompprofileapi.SeccompProfile, error,
+	) {
+		profile, err := localhostSeccompProfiles(ctx, key)
+		profile.Labels = map[string]string{
+			profilerecordingapi.ProfileToRecordingNamespaceLabel: strings.TrimSuffix(
+				key.Name,
+				"-profile",
+			),
+		}
+
+		return profile, err
+	})
+	mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
+		Items: []profilebindingapi.ProfileBinding{
+			seccompBinding("same", "pod-ns-profile", "foo", 1),
+			seccompBinding("other", "other-ns-profile", "bar", 1),
+			seccompBinding(
+				"applied",
+				"other-ns-profile",
+				profilebindingapi.SelectAllContainersImage,
+				1,
+			),
+		},
+	}, nil)
+
+	recorder := events.NewFakeRecorder(10)
+	binder := newTestBinder(t, mock)
+	binder.record = utils.NewSafeRecorder(recorder)
+
+	resp := binder.Handle(t.Context(), admission.Request{
+		AdmissionRequest: admissionv1.AdmissionRequest{
+			Operation: admissionv1.Create,
+			Namespace: "pod-ns",
+			Object:    rawObject(t, testPod),
+		},
+	})
+	require.True(t, resp.Allowed)
+
+	// Only the applied binding to the profile of another namespace warns.
+	require.Len(t, resp.Warnings, 1)
+	require.Contains(t, resp.Warnings[0], "profile binding applied")
+	require.Contains(t, resp.Warnings[0], "recorded in namespace other-ns")
+	require.Len(t, recorder.Events, 1)
+	require.Contains(t, <-recorder.Events, reasonRecordedElsewhere)
 }
 
 // Dry-run requests must not have side effects like events.

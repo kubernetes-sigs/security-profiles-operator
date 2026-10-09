@@ -113,9 +113,9 @@ func TestReconcileDeletion(t *testing.T) {
 			name:    "StatusExistsNotTerminating_SetsTerminatingAndRequeues",
 			profile: testProfile(finalizer),
 			funcs: interceptor.Funcs{
-				Get:               statusGetFn(secprofnodestatusapi.ProfileStatePending),
-				Update:            utiltest.UpdateReturns(nil),
-				SubResourceUpdate: utiltest.SubResourceUpdateReturns(nil),
+				Get:              statusGetFn(secprofnodestatusapi.ProfileStatePending),
+				Patch:            utiltest.PatchReturns(nil),
+				SubResourcePatch: utiltest.SubResourcePatchReturns(nil),
 			},
 			wantResult: reconcile.Result{RequeueAfter: Wait},
 		},
@@ -160,7 +160,7 @@ func TestReconcileDeletion(t *testing.T) {
 			profile: testProfile(finalizer),
 			funcs: interceptor.Funcs{
 				Get:    statusGetFn(secprofnodestatusapi.ProfileStateTerminating),
-				Update: utiltest.UpdateReturns(errors.New("must not be called")),
+				Patch:  utiltest.PatchReturns(errors.New("must not be called")),
 				Delete: utiltest.DeleteReturns(errors.New("must not be called")),
 			},
 			handleDeletion: func() (reconcile.Result, error) {
@@ -184,7 +184,7 @@ func TestReconcileDeletion(t *testing.T) {
 
 					return nil
 				},
-				Update: utiltest.UpdateReturns(nil),
+				Patch:  utiltest.PatchReturns(nil),
 				Delete: utiltest.DeleteReturns(nil),
 			},
 			wantResult:  reconcile.Result{},
@@ -195,7 +195,7 @@ func TestReconcileDeletion(t *testing.T) {
 			profile: testProfile(finalizer),
 			funcs: interceptor.Funcs{
 				Get:    statusGetFn(secprofnodestatusapi.ProfileStateTerminating),
-				Update: utiltest.UpdateReturns(nil),
+				Patch:  utiltest.PatchReturns(nil),
 				Delete: utiltest.DeleteReturns(nil),
 			},
 			wantResult:  reconcile.Result{},
@@ -273,11 +273,12 @@ func TestEnsureNodeStatus(t *testing.T) {
 			name:    "CreatedSuccessfully",
 			profile: testProfile(),
 			funcs: interceptor.Funcs{
-				Get:               utiltest.GetReturns(nil),
-				Create:            utiltest.CreateReturns(nil),
-				Update:            utiltest.UpdateReturns(nil),
-				Delete:            utiltest.DeleteReturns(nil),
-				SubResourceUpdate: utiltest.SubResourceUpdateReturns(nil),
+				Get:              utiltest.GetReturns(nil),
+				Create:           utiltest.CreateReturns(nil),
+				Update:           utiltest.UpdateReturns(nil),
+				Patch:            utiltest.PatchReturns(nil),
+				Delete:           utiltest.DeleteReturns(nil),
+				SubResourcePatch: utiltest.SubResourcePatchReturns(nil),
 			},
 			wantCreated: true,
 		},
@@ -433,11 +434,7 @@ func TestMarkInstalledErrors(t *testing.T) {
 		t.Parallel()
 
 		env := newFakeEnv(t, &interceptor.Funcs{
-			SubResourceUpdate: func(
-				_ context.Context, _ client.Client, _ string, _ client.Object, _ ...client.SubResourceUpdateOption,
-			) error {
-				return errUpdate
-			},
+			SubResourcePatch: utiltest.SubResourcePatchReturns(errUpdate),
 		})
 
 		// The status cannot be created either without status updates, so

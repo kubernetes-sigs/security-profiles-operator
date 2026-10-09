@@ -17,7 +17,10 @@ limitations under the License.
 package config
 
 import (
+	"os"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestGetOperatorNamespace(t *testing.T) {
@@ -55,4 +58,20 @@ func TestGetOperatorNamespace(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestWatchNamespaces(t *testing.T) {
+	// Note: this test cannot run in parallel because environment variables
+	// are global.
+	t.Setenv(RestrictNamespaceEnvKey, "")
+	require.NoError(t, os.Unsetenv(RestrictNamespaceEnvKey))
+	t.Setenv("WATCH_NAMESPACE", "watched")
+	require.Equal(t, "watched", WatchNamespaces())
+
+	t.Setenv(RestrictNamespaceEnvKey, "restricted")
+	require.Equal(t, "restricted", WatchNamespaces())
+
+	// An empty restriction is used as well.
+	t.Setenv(RestrictNamespaceEnvKey, "")
+	require.Empty(t, WatchNamespaces())
 }

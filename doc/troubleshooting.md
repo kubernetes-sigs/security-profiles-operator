@@ -32,6 +32,28 @@ NAME                                      STATUS      AGE   NODE
 seccompprofile-profile-block-all-node-1   Installed   2m    node-1
 ```
 
+The `status.message` of a node status tells why the profile failed on that
+node:
+
+```sh
+kubectl get securityprofilenodestatuses -l spo.x-k8s.io/profile-id=SeccompProfile-profile-block \
+  -o custom-columns=NODE:.spec.nodeName,STATUS:.status.status,MESSAGE:.status.message
+```
+
+A node whose `spod` pod is not available, for example because the node is not
+ready or the pod crashes, does not hold back the state of the profile: the
+profile gets the state of the other nodes, and the message of its `Ready`
+condition names the nodes it leaves out. The profile may be missing on these
+nodes, so pods using it fail to start there until the `spod` pod recovers. An
+installed profile then has the `Ready` condition reason
+`InstalledOnAvailableNodes` instead of `Available`, and gets a warning event
+with the same reason whenever the nodes it leaves out change:
+
+```sh
+kubectl get seccompprofiles \
+  -o custom-columns=NAME:.metadata.name,STATUS:.status.status,REASON:'.status.conditions[?(@.type=="Ready")].reason'
+```
+
 The events of the profile carry the error message of a failed installation:
 
 ```sh

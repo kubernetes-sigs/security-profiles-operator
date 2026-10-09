@@ -25,22 +25,26 @@ import (
 	"github.com/go-logr/logr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/retry"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/api/common"
+	profilebasev1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	profilebindingapi "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
+	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
+	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 const (
 	// missingProfileRetry is the time after which a binding to a missing
-	// profile is checked again.
+	// profile or to a profile without status is checked again.
 	missingProfileRetry = time.Minute
 
 	// profileRefKey indexes bindings by the profile they refer to.
@@ -48,12 +52,18 @@ const (
 )
 
 // bindingStatusReconciler reports on the Ready condition of a ProfileBinding
-// whether the profile it refers to exists. The binding webhook skips bindings
-// to missing profiles, so this is the only place where the user can see it.
+// whether the profile it refers to exists and is installed. The binding
+// webhook skips bindings to missing profiles, so this is the only place where
+// the user can see it.
 type bindingStatusReconciler struct {
 	client client.Client
 	reader client.Reader
 	log    logr.Logger
+	// operatorNamespace is the namespace of the SPOD configuration.
+	operatorNamespace string
+	// isOpenShift is true on OpenShift, where SELinux is enabled unless the
+	// SPOD configuration disables it.
+	isOpenShift bool
 }
 
 // profileRefValue returns the value of the profile reference index.
@@ -108,19 +118,9 @@ func (r *bindingStatusReconciler) Reconcile(
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 
-	found, err := r.profileExists(ctx, binding.Spec.ProfileRef)
+	condition, res, err := r.readyCondition(ctx, binding.Spec.ProfileRef)
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("looking up profile of binding: %w", err)
-	}
-
-	condition := common.Available()
-	res := reconcile.Result{}
-
-	if !found {
-		condition = common.Unavailable(fmt.Sprintf(
-			"%s %s not found", binding.Spec.ProfileRef.Kind, binding.Spec.ProfileRef.Name,
-		))
-		res.RequeueAfter = missingProfileRetry
 	}
 
 	if err := r.setCondition(ctx, req, &condition); err != nil {
@@ -130,11 +130,72 @@ func (r *bindingStatusReconciler) Reconcile(
 	return res, nil
 }
 
-func (r *bindingStatusReconciler) profileExists(
+// readyCondition returns the Ready condition of a binding to the profile. The
+// webhook binds a profile which is not installed yet, unless it has no status
+// at all, so the condition tells about any state other than Installed. A
+// profile without status gets checked again after a while like a missing one,
+// because the SPOD configuration which tells if its kind is enabled is not
+// watched.
+func (r *bindingStatusReconciler) readyCondition(
 	ctx context.Context, ref profilebindingapi.ProfileRef,
-) (bool, error) {
-	var profile client.Object
+) (metav1.Condition, reconcile.Result, error) {
+	profile, found, err := r.getProfile(ctx, ref)
+	if err != nil {
+		return metav1.Condition{}, reconcile.Result{}, err
+	}
 
+	requeue := reconcile.Result{RequeueAfter: missingProfileRetry}
+
+	if !found {
+		return common.Unavailable(fmt.Sprintf("%s %s not found", ref.Kind, ref.Name)), requeue, nil
+	}
+
+	notReady := func(reason common.ConditionReason, format string, args ...any) metav1.Condition {
+		condition := common.Unavailable(
+			fmt.Sprintf("%s %s ", ref.Kind, ref.Name) + fmt.Sprintf(format, args...),
+		)
+		condition.Reason = string(reason)
+
+		return condition
+	}
+
+	state := profile.GetStatusBase().Status
+	if state == secprofnodestatusapi.ProfileStateInstalled {
+		return common.Available(), reconcile.Result{}, nil
+	}
+
+	if state == "" {
+		disabled, err := r.profileKindDisabled(ctx, ref.Kind)
+		if err != nil {
+			return metav1.Condition{}, reconcile.Result{}, err
+		}
+
+		if disabled {
+			return notReady(
+				profilebindingapi.ReasonProfileKindDisabled,
+				"has no status because the kind is disabled in the SPOD configuration, "+
+					"so the binding is not applied",
+			), requeue, nil
+		}
+
+		return notReady(
+			profilebindingapi.ReasonProfileNotInstalled,
+			"has no status yet, so pods matching the binding are rejected",
+		), requeue, nil
+	}
+
+	return notReady(
+		profilebindingapi.ReasonProfileNotInstalled,
+		"is not installed, its status is %s",
+		state,
+	), reconcile.Result{}, nil
+}
+
+// getProfile returns the profile the reference points to. It returns false if
+// the profile does not exist.
+func (r *bindingStatusReconciler) getProfile(
+	ctx context.Context, ref profilebindingapi.ProfileRef,
+) (profile profilebasev1.StatusBaseUser, found bool, err error) {
 	switch ref.Kind {
 	case profilebindingapi.ProfileBindingKindSeccompProfile:
 		profile = &seccompprofileapi.SeccompProfile{}
@@ -143,14 +204,50 @@ func (r *bindingStatusReconciler) profileExists(
 	case profilebindingapi.ProfileBindingKindAppArmorProfile:
 		profile = &apparmorprofileapi.AppArmorProfile{}
 	default:
-		return false, nil
+		return nil, false, nil
 	}
 
 	if err := r.client.Get(ctx, util.NamespacedName(ref.Name, ""), profile); err != nil {
+		return nil, false, client.IgnoreNotFound(err)
+	}
+
+	return profile, true, nil
+}
+
+// profileKindDisabled returns true if the SPOD configuration disables the
+// profile kind, so that the binding webhook skips bindings to its profiles
+// without status. A missing configuration counts as enabled, like for the
+// webhook. SELinux is enabled by default only on OpenShift, like the SPOD
+// controller and the webhook decide it.
+func (r *bindingStatusReconciler) profileKindDisabled(
+	ctx context.Context, kind profilebindingapi.ProfileBindingKind,
+) (bool, error) {
+	if kind != profilebindingapi.ProfileBindingKindSelinuxProfile &&
+		kind != profilebindingapi.ProfileBindingKindAppArmorProfile {
+		return false, nil
+	}
+
+	spod := &spodapi.SecurityProfilesOperatorDaemon{}
+	if err := r.client.Get(
+		ctx, util.NamespacedName(config.SPOdName, r.operatorNamespace), spod,
+	); err != nil {
 		return false, client.IgnoreNotFound(err)
 	}
 
-	return true, nil
+	if kind == profilebindingapi.ProfileBindingKindSelinuxProfile {
+		return !ptr.Deref(spod.Spec.Selinux.Enable, r.isOpenShift), nil
+	}
+
+	return !ptr.Deref(spod.Spec.EnableAppArmor, false), nil
+}
+
+// profileState returns the state in the status of a profile.
+func profileState(obj client.Object) secprofnodestatusapi.ProfileState {
+	if profile, ok := obj.(profilebasev1.StatusBaseUser); ok {
+		return profile.GetStatusBase().Status
+	}
+
+	return ""
 }
 
 func (r *bindingStatusReconciler) setCondition(
@@ -173,7 +270,10 @@ func (r *bindingStatusReconciler) setCondition(
 			Info("Updating binding condition", "binding", req.NamespacedName,
 				"reason", condition.Reason)
 
-		if err := r.client.Status().Update(ctx, updated); err != nil {
+		// Only the conditions get patched, not the active workloads.
+		if err := r.client.Status().Patch(
+			ctx, updated, client.MergeFromWithOptions(binding, client.MergeFromWithOptimisticLock{}),
+		); err != nil {
 			return fmt.Errorf("updating binding status: %w", err)
 		}
 

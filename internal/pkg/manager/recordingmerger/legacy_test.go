@@ -17,21 +17,26 @@ limitations under the License.
 package recordingmerger
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	profilebase "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 	seccompprofile "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 const otherNamespace = "other-ns"
@@ -153,18 +158,48 @@ func TestLegacyAdopter(t *testing.T) {
 		require.Equal(t, testNamespace, recordingNamespaceOf(t, r, "partial-b"))
 	})
 
-	t.Run("a profile merged before 1.0 is not adopted", func(t *testing.T) {
+	t.Run("a profile merged before 1.0 is adopted", func(t *testing.T) {
 		t.Parallel()
 
 		r := newMergeReconciler(t,
 			legacyRecording(testNamespace, 0, false),
+			legacyRecording(otherNamespace, 2, false),
 			legacyMerged("merged", 1),
 		)
 
 		startLegacyAdopter(t, r)
 
-		// Recordings with this name in any namespace may still merge into it.
+		// Recordings with this name in other namespaces cannot write into it
+		// any more.
+		require.Equal(t, testNamespace, recordingNamespaceOf(t, r, "merged"))
+	})
+
+	t.Run("a profile merged before 1.0 without recording is not adopted", func(t *testing.T) {
+		t.Parallel()
+
+		r := newMergeReconciler(t,
+			legacyMerged("merged", 0),
+			legacyRecording(testNamespace, 1, false),
+		)
+
+		startLegacyAdopter(t, r)
+
 		require.Empty(t, recordingNamespaceOf(t, r, "merged"))
+	})
+
+	t.Run("a profile merged before 1.0 of several recordings is not adopted", func(t *testing.T) {
+		t.Parallel()
+
+		r := newMergeReconciler(t,
+			legacyRecording(testNamespace, 0, false),
+			legacyRecording(otherNamespace, 0, false),
+			legacyMerged("merged", 1),
+		)
+
+		startLegacyAdopter(t, r)
+
+		require.Empty(t, recordingNamespaceOf(t, r, "merged"))
+		requireEvent(t, r, reasonAmbiguousLegacyFinal)
 	})
 
 	t.Run("a recording created after the profiles does not adopt them", func(t *testing.T) {
@@ -319,6 +354,91 @@ func TestLegacyHold(t *testing.T) {
 			requireRecordingReleased(t, r)
 		},
 	)
+}
+
+// A profile merged before 1.0 which was not adopted is only written while no
+// recording with the same name exists in another namespace, which could have
+// recorded it as well.
+func TestCreateUpdateProfileLegacyOwner(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		others    []client.Object
+		wantError bool
+	}{
+		"only recording with the name claims it": {},
+		"recording with the name in another namespace": {
+			others:    []client.Object{legacyRecording(otherNamespace, 0, false)},
+			wantError: true,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			recording := legacyRecording(testNamespace, 2, true)
+			merged := legacyMerged(testRecording+"-nginx", 3)
+
+			r := newMergeReconciler(t, append(tc.others, recording, merged)...)
+
+			_, err := createUpdateProfile(
+				t.Context(), r.writeClient(), recording, merged.GetName(),
+				seccompPartial("partial", allow("write")),
+				profilerecordingapi.ProfileRecordingKindSeccompProfile, nil, nil,
+			)
+
+			if tc.wantError {
+				require.ErrorIs(t, err, util.ErrProfileOwnedByOtherRecording)
+				require.Empty(t, recordingNamespaceOf(t, r, merged.GetName()))
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, testNamespace, recordingNamespaceOf(t, r, merged.GetName()))
+		})
+	}
+}
+
+// The recordings used to be listed from the API server for every merged
+// profile recorded before 1.0 and every write attempt. They are listed from
+// the cache by their name, once per reconcile.
+func TestMergeProfilesListsNamesakeRecordingsOnce(t *testing.T) {
+	t.Parallel()
+
+	recording := legacyRecording(testNamespace, 2, true)
+	other := legacyRecording(otherNamespace, 0, false)
+	other.Name = "other"
+
+	recordingLists := 0
+	c := fake.NewClientBuilder().
+		WithScheme(mergerTestScheme(t)).
+		WithObjects(
+			recording, other,
+			legacyMerged(testRecording+"-nginx", 3), legacyMerged(testRecording+"-redis", 3),
+			partialSeccomp("partial-nginx", "nginx", "write"),
+			partialSeccomp("partial-redis", "redis", "open"),
+		).
+		WithIndex(&profilerecordingapi.ProfileRecording{}, recordingNameKey, recordingNameIndex).
+		WithInterceptorFuncs(interceptor.Funcs{
+			List: func(
+				ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption,
+			) error {
+				if _, ok := list.(*profilerecordingapi.ProfileRecordingList); ok {
+					recordingLists++
+				}
+
+				return c.List(ctx, list, opts...)
+			},
+		}).
+		Build()
+
+	r := &PolicyMergeReconciler{client: c, log: logr.Discard(), record: events.NewFakeRecorder(20)}
+
+	require.Empty(t, requireMerged(t, r, recording))
+
+	require.Equal(t, 1, recordingLists)
+	require.Equal(t, testNamespace, recordingNamespaceOf(t, r, testRecording+"-nginx"))
+	require.Equal(t, testNamespace, recordingNamespaceOf(t, r, testRecording+"-redis"))
 }
 
 func requireRecordingHeld(t *testing.T, r *PolicyMergeReconciler) {

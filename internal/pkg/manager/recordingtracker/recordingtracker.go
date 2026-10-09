@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -36,6 +35,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/workloadtracker"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 const (
@@ -74,6 +74,16 @@ func (r *RecordingTrackerReconciler) Healthz(*http.Request) error {
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilerecordings/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilerecordings/finalizers,verbs=get;update;patch
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
+//
+// The Ready condition of a recording tells whether the SPODs enable its
+// recorder and whether the recording webhook selects its namespace.
+// +kubebuilder:rbac:groups=core,resources=namespaces,verbs=get;list;watch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons,verbs=get;list;watch
+// +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=mutatingwebhookconfigurations,resourceNames=spo-mutating-webhook-configuration,verbs=get;list;watch
+//
+// The ProfileConflict condition of a recording names the profiles it would
+// write, but which belong to somebody else.
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles;selinuxprofiles;apparmorprofiles,verbs=get;list;watch
 
 func (r *RecordingTrackerReconciler) Reconcile(
 	ctx context.Context,
@@ -143,8 +153,9 @@ func (r *RecordingTrackerReconciler) handlePodCreateOrUpdate(
 		// A pod which matches the selector without the annotations, for
 		// example because it got created before the recording, is not. A
 		// recorded pod stays recorded while it carries the annotations, even
-		// if its labels changed.
-		if !podRecordedBy(pod, recording.Name) {
+		// if its labels changed, until it completes, like the pod of a
+		// finished Job, whose profiles the recorder collects then.
+		if util.PodCompleted(pod) || !podRecordedBy(pod, recording.Name) {
 			if slices.Contains(recording.Status.ActiveWorkloads, podName) {
 				logger.Info("Removing pod which is not recorded", "recording", recording.Name)
 
@@ -195,18 +206,9 @@ var recordingAnnotationKeys = []string{
 }
 
 // podRecordedBy returns true if the pod carries a recording annotation of the
-// recording. The annotation values start with the recording name followed by
-// an underscore, which is not valid in object names.
+// recording.
 func podRecordedBy(pod *corev1.Pod, recordingName string) bool {
-	for key, value := range pod.GetAnnotations() {
-		for _, prefix := range recordingAnnotationKeys {
-			if strings.HasPrefix(key, prefix) && strings.HasPrefix(value, recordingName+"_") {
-				return true
-			}
-		}
-	}
-
-	return false
+	return len(recordedContainers(pod, recordingName)) > 0
 }
 
 // tracker tracks the pods in the active workloads of the recordings.

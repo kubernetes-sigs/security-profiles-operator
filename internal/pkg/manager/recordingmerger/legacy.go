@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	profilebase "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
@@ -42,7 +43,9 @@ import (
 // recording which may own them still exists then. A recording which may own
 // partial profiles that could not be adopted keeps its finalizer, because
 // releasing it would orphan them and merging them could add the syscalls of
-// another workload to its profile.
+// another workload to its profile. The final profiles recorded before 1.0 get
+// adopted at startup as well where only one recording may own them, so that
+// recordings with the same name in other namespaces cannot write into them.
 
 const (
 	// legacyAdoptionWait is how long a deleted recording waits for the
@@ -60,8 +63,9 @@ const (
 	// legacyEventProfiles is how many partial profiles an event names.
 	legacyEventProfiles = 5
 
-	reasonAmbiguousLegacy string = "AmbiguousLegacyPartialProfiles"
-	reasonHeldForLegacy   string = "UnattributedLegacyPartialProfiles"
+	reasonAmbiguousLegacy      string = "AmbiguousLegacyPartialProfiles"
+	reasonAmbiguousLegacyFinal string = "AmbiguousLegacyProfiles"
+	reasonHeldForLegacy        string = "UnattributedLegacyPartialProfiles"
 )
 
 // legacyAdoptionBackoff retries the adoption at startup after errors.
@@ -71,24 +75,29 @@ var legacyAdoptionBackoff = wait.Backoff{
 	Steps:    6,
 }
 
-// legacyPartialProfileSelector selects the partial profiles recorded before
-// 1.0 by the recordings with this name: the partial profile labels of a
-// recording, without the recording namespace.
-func legacyPartialProfileSelector(recordingName string) (client.MatchingLabelsSelector, error) {
+// legacyProfileSelector selects the partial or the final profiles recorded
+// before 1.0 by the recordings with this name: the partial profile labels of
+// a recording, without the recording namespace and, for the final profiles,
+// without the partial label.
+func legacyProfileSelector(
+	recordingName string,
+	partial bool,
+) (client.MatchingLabelsSelector, error) {
 	selector := labels.NewSelector()
 
 	for key, value := range partialProfileLabels(&profilerecordingapi.ProfileRecording{
 		ObjectMeta: metav1.ObjectMeta{Name: recordingName},
 	}) {
 		op, values := selection.Equals, []string{value}
-		if key == profilerecordingapi.ProfileToRecordingNamespaceLabel {
+		if key == profilerecordingapi.ProfileToRecordingNamespaceLabel ||
+			(key == profilebase.ProfilePartialLabel && !partial) {
 			op, values = selection.DoesNotExist, nil
 		}
 
 		requirement, err := labels.NewRequirement(key, op, values)
 		if err != nil {
 			return client.MatchingLabelsSelector{}, fmt.Errorf(
-				"selecting partial profiles recorded before 1.0: %w", err,
+				"selecting profiles recorded before 1.0: %w", err,
 			)
 		}
 
@@ -106,7 +115,19 @@ func listLegacyPartialProfiles(
 	reader client.Reader,
 	recordingName string,
 ) ([]client.Object, error) {
-	selector, err := legacyPartialProfileSelector(recordingName)
+	return listLegacyProfiles(ctx, reader, recordingName, true)
+}
+
+// listLegacyProfiles lists the partial or the final profiles of every kind
+// which were recorded before 1.0 by a recording with this name and are not
+// being deleted.
+func listLegacyProfiles(
+	ctx context.Context,
+	reader client.Reader,
+	recordingName string,
+	partial bool,
+) ([]client.Object, error) {
+	selector, err := legacyProfileSelector(recordingName, partial)
 	if err != nil {
 		return nil, err
 	}
@@ -117,7 +138,7 @@ func listLegacyPartialProfiles(
 		list := k.newList()
 		if err := reader.List(ctx, list, selector); err != nil {
 			return nil, fmt.Errorf(
-				"listing partial profiles of kind %s recorded before 1.0: %w",
+				"listing profiles of kind %s recorded before 1.0: %w",
 				k.kind,
 				err,
 			)
@@ -260,7 +281,7 @@ func (r *PolicyMergeReconciler) adoptLegacyPartialProfiles(ctx context.Context) 
 				r.log.Info("No recording may own the partial profile recorded before 1.0",
 					"profile", prf.GetName(), "recording", name)
 			case 1:
-				if err := r.adoptLegacyPartialProfile(ctx, prf, owners[0]); err != nil {
+				if err := r.adoptLegacyProfile(ctx, prf, owners[0]); err != nil {
 					return err
 				}
 
@@ -286,6 +307,10 @@ func (r *PolicyMergeReconciler) adoptLegacyPartialProfiles(ctx context.Context) 
 				profileNames(ownerProfiles),
 			)
 		}
+
+		if err := r.adoptLegacyFinalProfiles(ctx, reader, name, recordingsWithName); err != nil {
+			return err
+		}
 	}
 
 	if len(adopted) > 0 {
@@ -295,9 +320,80 @@ func (r *PolicyMergeReconciler) adoptLegacyPartialProfiles(ctx context.Context) 
 	return r.waitForCachedAdoption(ctx, adopted)
 }
 
-// adoptLegacyPartialProfile labels a partial profile recorded before 1.0 with
-// the namespace of its recording.
-func (r *PolicyMergeReconciler) adoptLegacyPartialProfile(
+// adoptLegacyFinalProfiles labels the final profiles recorded before 1.0 by a
+// recording with this name with the namespace of the only recording which may
+// have recorded them. Without the label any recording with that name could
+// write into them, see util.CheckRecordingOwner. Unlike for partial profiles,
+// the recording of a final profile is usually gone, so a final profile which
+// no existing recording may have recorded keeps its labels. A final profile
+// which several recordings may have recorded keeps them as well, and the
+// merger does not write it while recordings with its name exist in several
+// namespaces, see checkLegacyOwner.
+func (r *PolicyMergeReconciler) adoptLegacyFinalProfiles(
+	ctx context.Context,
+	reader client.Reader,
+	name string,
+	recordingsWithName []*profilerecordingapi.ProfileRecording,
+) error {
+	profiles, err := listLegacyProfiles(ctx, reader, name, false)
+	if err != nil {
+		return err
+	}
+
+	ambiguous := map[*profilerecordingapi.ProfileRecording][]client.Object{}
+	adopted := 0
+
+	for _, prf := range profiles {
+		var owners []*profilerecordingapi.ProfileRecording
+
+		for _, recording := range recordingsWithName {
+			if mayOwn(recording, prf) {
+				owners = append(owners, recording)
+			}
+		}
+
+		switch len(owners) {
+		case 0:
+			// Recorded by a recording which is gone.
+		case 1:
+			if err := r.adoptLegacyProfile(ctx, prf, owners[0]); err != nil {
+				return err
+			}
+
+			adopted++
+		default:
+			for _, owner := range owners {
+				ambiguous[owner] = append(ambiguous[owner], prf)
+			}
+		}
+	}
+
+	for owner, ownerProfiles := range ambiguous {
+		r.record.Eventf(
+			owner,
+			nil,
+			util.EventTypeWarning,
+			reasonAmbiguousLegacyFinal,
+			util.EventActionMerge,
+			"Profiles recorded before 1.0 may belong to this or another recording named %s, "+
+				"set the %s label to the namespace of their recording, "+
+				"so that only it can record into them: %s",
+			name,
+			profilerecordingapi.ProfileToRecordingNamespaceLabel,
+			profileNames(ownerProfiles),
+		)
+	}
+
+	if adopted > 0 {
+		r.log.Info("Adopted profiles recorded before 1.0", "recording", name, "profiles", adopted)
+	}
+
+	return nil
+}
+
+// adoptLegacyProfile labels a profile recorded before 1.0 with the namespace
+// of its recording.
+func (r *PolicyMergeReconciler) adoptLegacyProfile(
 	ctx context.Context,
 	prf client.Object,
 	recording *profilerecordingapi.ProfileRecording,
@@ -312,7 +408,7 @@ func (r *PolicyMergeReconciler) adoptLegacyPartialProfile(
 	prf.SetLabels(prfLabels)
 
 	if err := r.client.Patch(ctx, prf, client.MergeFrom(orig)); err != nil {
-		return fmt.Errorf("labeling partial profile %s: %w", prf.GetName(), err)
+		return fmt.Errorf("labeling profile %s: %w", prf.GetName(), err)
 	}
 
 	return nil

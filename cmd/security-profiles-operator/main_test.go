@@ -21,6 +21,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -271,10 +272,14 @@ func TestStripPod(t *testing.T) {
 				EphemeralContainerCommon: corev1.EphemeralContainerCommon(*ctr.DeepCopy()),
 			}},
 		},
-		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+		Status: corev1.PodStatus{
+			Phase:      corev1.PodSucceeded,
+			Conditions: []corev1.PodCondition{{Type: corev1.PodReady}},
+			PodIP:      "10.0.0.1",
+		},
 	}
 
-	got, err := stripPod(pod)
+	got, err := podStripper("spo")(pod)
 	require.NoError(t, err)
 
 	stripped, ok := got.(*corev1.Pod)
@@ -287,6 +292,7 @@ func TestStripPod(t *testing.T) {
 	require.Equal(t, map[string]string{"a": "v"}, stripped.Annotations)
 	require.Equal(t, "node", stripped.Spec.NodeName)
 	require.True(t, *stripped.Spec.SecurityContext.RunAsNonRoot)
+	require.Equal(t, corev1.PodSucceeded, stripped.Status.Phase)
 
 	want := corev1.Container{Name: "ctr", Image: "image", SecurityContext: sc}
 	require.Equal(t, []corev1.Container{want}, stripped.Spec.Containers)
@@ -297,13 +303,63 @@ func TestStripPod(t *testing.T) {
 	// Everything else is gone.
 	require.Nil(t, stripped.ManagedFields)
 	require.Nil(t, stripped.Spec.Volumes)
-	require.Equal(t, corev1.PodStatus{}, stripped.Status)
+	require.Equal(t, corev1.PodStatus{Phase: corev1.PodSucceeded}, stripped.Status)
 
 	// Other objects are passed through.
 	node := &corev1.Node{}
-	got, err = stripPod(node)
+	got, err = podStripper("spo")(node)
 	require.NoError(t, err)
 	require.Same(t, node, got)
+}
+
+// The node status controller tells by the Ready condition of the SPOd pods
+// which nodes run an available daemon, so the pods of the operator namespace
+// keep it.
+func TestPodStripperKeepsReadyConditionOfOperatorPods(t *testing.T) {
+	t.Parallel()
+
+	since := metav1.Now()
+	pod := func(namespace string) *corev1.Pod {
+		return &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: "pod", Namespace: namespace},
+			Status: corev1.PodStatus{
+				Phase: corev1.PodRunning,
+				Conditions: []corev1.PodCondition{
+					{Type: corev1.PodScheduled, Status: corev1.ConditionTrue},
+					{
+						Type:               corev1.PodReady,
+						Status:             corev1.ConditionTrue,
+						LastTransitionTime: since,
+						Reason:             "reason",
+						Message:            "message",
+					},
+				},
+			},
+		}
+	}
+
+	strip := podStripper("spo")
+
+	got, err := strip(pod("spo"))
+	require.NoError(t, err)
+
+	stripped, ok := got.(*corev1.Pod)
+	require.True(t, ok)
+	require.Equal(t, corev1.PodStatus{
+		Phase: corev1.PodRunning,
+		Conditions: []corev1.PodCondition{{
+			Type:               corev1.PodReady,
+			Status:             corev1.ConditionTrue,
+			LastTransitionTime: since,
+		}},
+	}, stripped.Status)
+
+	got, err = strip(pod("other"))
+	require.NoError(t, err)
+
+	stripped, ok = got.(*corev1.Pod)
+	require.True(t, ok)
+	require.Equal(t, corev1.PodStatus{Phase: corev1.PodRunning}, stripped.Status)
 }
 
 func TestSecureMetricsOptions(t *testing.T) {
@@ -540,4 +596,46 @@ func TestNonRootEnablerKubeletDir(t *testing.T) {
 			require.Equal(t, tc.want, got)
 		})
 	}
+}
+
+// fakeInformerGetter records the objects of the requested informers.
+type fakeInformerGetter struct {
+	objects []string
+	block   []bool
+	err     error
+}
+
+func (f *fakeInformerGetter) GetInformer(
+	_ context.Context, obj client.Object, opts ...cache.InformerGetOption,
+) (cache.Informer, error) {
+	getOpts := &cache.InformerGetOptions{}
+	for _, opt := range opts {
+		opt(getOpts)
+	}
+
+	f.objects = append(f.objects, fmt.Sprintf("%T", obj))
+	f.block = append(f.block, getOpts.BlockUntilSynced == nil || *getOpts.BlockUntilSynced)
+
+	return nil, f.err
+}
+
+// The informers used to start on the first admission request, so the webhook
+// got ready before any of them synced.
+func TestAddWebhookInformers(t *testing.T) {
+	t.Parallel()
+
+	informers := &fakeInformerGetter{}
+	require.NoError(t, addWebhookInformers(t.Context(), informers))
+	require.Equal(t, []string{
+		"*v1.ProfileBinding",
+		"*v1.ProfileRecording",
+		"*v1.SeccompProfile",
+		"*v1.SelinuxProfile",
+		"*v1.AppArmorProfile",
+	}, informers.objects)
+	require.NotContains(t, informers.block, true, "the cache is not started yet")
+
+	informers = &fakeInformerGetter{err: errTest}
+	require.ErrorIs(t, addWebhookInformers(t.Context(), informers), errTest)
+	require.Len(t, informers.objects, 1)
 }

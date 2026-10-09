@@ -100,7 +100,9 @@ func (t *Tracker[T]) Untrack(ctx context.Context, obj T, workload string) error 
 }
 
 // updateWorkloads writes the workloads which update returns for the current
-// ones into the status of the object, if they changed.
+// ones into the status of the object, if they changed. Only the workloads get
+// patched, along with the resource version, so that a concurrent write fails
+// with a conflict and the retry sees it.
 func (t *Tracker[T]) updateWorkloads(
 	ctx context.Context, obj T, update func([]string) []string,
 ) error {
@@ -116,9 +118,16 @@ func (t *Tracker[T]) updateWorkloads(
 			return nil
 		}
 
+		base, ok := obj.DeepCopyObject().(client.Object)
+		if !ok {
+			return fmt.Errorf("copying %s %s", t.Kind, obj.GetName())
+		}
+
 		*workloads = updated
 
-		if err := t.Client.Status().Update(ctx, obj); err != nil {
+		if err := t.Client.Status().Patch(
+			ctx, obj, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{}),
+		); err != nil {
 			return fmt.Errorf("updating %s status: %w", t.Kind, err)
 		}
 

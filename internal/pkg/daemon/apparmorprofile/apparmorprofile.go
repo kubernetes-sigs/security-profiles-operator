@@ -75,6 +75,7 @@ func NewController() controller.Controller {
 // A Reconciler reconciles AppArmor profiles.
 type Reconciler struct {
 	client   client.Client
+	reader   client.Reader
 	log      logr.Logger
 	record   util.EventRecorder
 	metrics  *metrics.Metrics
@@ -181,7 +182,7 @@ func (r *Reconciler) checkAppArmor() error {
 // written by the manager. The finalizers subresource allows the node statuses
 // to block the deletion of their owner profile.
 //nolint:lll // required for kubebuilder
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=apparmorprofiles,verbs=get;list;watch;create;update
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=apparmorprofiles,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=apparmorprofiles/finalizers,verbs=get;update;patch
 
 // Reconcile reconciles a AppArmorProfile.
@@ -259,6 +260,8 @@ func (r *Reconciler) reconcileAppArmorProfile(
 		return reconcile.Result{}, fmt.Errorf("cannot create nodeStatus: %w", err)
 	}
 
+	nodeStatus.WithAPIReader(r.reader)
+
 	if !sp.GetDeletionTimestamp().IsZero() { // object is being deleted
 		r.forgetProfile(client.ObjectKeyFromObject(sp))
 
@@ -318,9 +321,10 @@ func (r *Reconciler) rejectProfile(
 		r.reportError(sp, reasonCannotLoadProfile, util.EventActionInstall, rejectErr)
 	}
 
-	if err := nodeStatus.SetNodeStatus(
+	if err := nodeStatus.SetNodeStatusWithMessage(
 		ctx,
 		secprofnodestatusapi.ProfileStateError,
+		rejectErr.Error(),
 	); err != nil {
 		r.reportError(sp, common.ReasonCannotUpdateStatus, util.EventActionUpdate, err)
 

@@ -143,10 +143,16 @@ type SelinuxProfileStatus struct {
 	// +optional
 	//nolint:kubeapilinter // released v1 API: empty means unset, a MinLength would reject existing manifests
 	Usage string `json:"usage,omitempty"`
-	// activeWorkloads lists the workloads currently using this profile.
+	// activeWorkloads lists the pods currently using this profile as
+	// namespace/name, sorted and limited to the first 1000 of them.
 	// +optional
 	// +listType=set
 	ActiveWorkloads []string `json:"activeWorkloads,omitempty"`
+	// activeWorkloadsCount is the number of pods currently using this
+	// profile, which can be more than activeWorkloads lists.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	ActiveWorkloadsCount int32 `json:"activeWorkloadsCount,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -160,7 +166,7 @@ type SelinuxProfileStatus struct {
 // +kubebuilder:validation:XValidation:rule="oldSelf.hasValue() || self.metadata.name.matches('^[a-z][-a-z0-9]*$')",optionalOldSelf=true,message="name must start with a letter and may only contain lowercase alphanumeric characters and '-'"
 // +kubebuilder:storageversion
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:path=selinuxprofiles,scope=Cluster
+// +kubebuilder:resource:path=selinuxprofiles,shortName=selp,scope=Cluster,categories=spo
 // +kubebuilder:printcolumn:name="Usage",type="string",JSONPath=`.status.usage`
 // +kubebuilder:printcolumn:name="Status",type="string",JSONPath=`.status.status`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`

@@ -25,3 +25,35 @@ webhooks:
       caBundle: "Cg=="
     admissionReviewVersions:
     - v1
+  - name: binding-image.spo.io
+    failurePolicy: Fail
+    timeoutSeconds: 10
+    sideEffects: None
+    rules:
+      - operations: ["UPDATE"]
+        apiGroups: [""]
+        apiVersions: ["v1"]
+        resources: ["pods"]
+    matchConditions:
+      - name: container-image-change
+        expression: >-
+          object.spec.containers.exists(c, oldObject.spec.containers.exists(o,
+          o.name == c.name && o.image != c.image)) ||
+          (has(object.spec.initContainers) && has(oldObject.spec.initContainers) &&
+          object.spec.initContainers.exists(c, oldObject.spec.initContainers.exists(o,
+          o.name == c.name && o.image != c.image)))
+    namespaceSelector:
+      matchExpressions:
+        - key: spo.x-k8s.io/enable-binding
+          operator: Exists
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values: ["security-profiles-operator"]
+    clientConfig:
+      service:
+        namespace: "security-profiles-operator"
+        name: "webhook-service"
+        path: "/validate-v1-pod-binding-image"
+      caBundle: "Cg=="
+    admissionReviewVersions:
+    - v1

@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"sigs.k8s.io/security-profiles-operator/api/common"
+	profilebaseapi "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
@@ -118,8 +119,7 @@ func newTestReconciler(
 	// Like the cache backed client of the manager, return objects with their
 	// type meta set. The reconciler compares the kind based profile name with
 	// the status label.
-	c := fake.NewClientBuilder().
-		WithScheme(scheme).
+	c := withIndexes(fake.NewClientBuilder().WithScheme(scheme)).
 		WithObjects(objs...).
 		WithStatusSubresource(&seccompprofileapi.SeccompProfile{}).
 		WithInterceptorFuncs(interceptor.Funcs{
@@ -156,6 +156,16 @@ func newTestReconciler(
 	}, c, rec
 }
 
+// withIndexes adds the field indexes of the manager to the fake client, which
+// needs its scheme already.
+func withIndexes(b *fake.ClientBuilder) *fake.ClientBuilder {
+	for _, index := range fieldIndexes() {
+		b = b.WithIndex(index.obj, index.field, index.extract)
+	}
+
+	return b
+}
+
 func reconcileStatus(
 	t *testing.T, r *StatusReconciler, status *secprofnodestatusapi.SecurityProfileNodeStatus,
 ) (reconcile.Result, error) {
@@ -174,7 +184,7 @@ func setProfileStatus(
 	state secprofnodestatusapi.ProfileState,
 	l logr.Logger,
 ) error {
-	_, err := r.reconcileStatus(ctx, prof, state, nil, l)
+	_, err := r.reconcileStatus(ctx, prof, aggregation{state: state}, l)
 
 	return err
 }
@@ -286,8 +296,9 @@ func TestReconcileInitializesProfileStatus(t *testing.T) {
 			// profile gets its initial status anyway.
 			r, c, _ := newTestReconciler(t, testProfile(""), status)
 
-			_, err := reconcileStatus(t, r, status)
-			require.ErrorContains(t, err, "cannot get the DS")
+			res, err := reconcileStatus(t, r, status)
+			require.NoError(t, err)
+			require.Equal(t, dsWait, res.RequeueAfter)
 
 			sp := storedProfile(t, c)
 			require.Equal(t, tc.wantStatus, sp.Status.Status)
@@ -335,8 +346,9 @@ func TestReconcileErrorConditionNamesFailedNodes(t *testing.T) {
 	sp := storedProfile(t, c)
 	require.Equal(t, secprofnodestatusapi.ProfileStateError, sp.Status.Status)
 	require.Equal(t,
-		"profile failed to install on nodes worker-2, "+
-			"see the SecurityProfileNodeStatus objects of the profile for details",
+		"profile failed to install on nodes worker-2, the status.message of the "+
+			"SecurityProfileNodeStatus objects with the spo.x-k8s.io/profile-id label "+
+			"of the profile tells why",
 		sp.Status.GetReadyCondition().Message,
 	)
 }
@@ -349,6 +361,39 @@ func TestErrorConditionMessage(t *testing.T) {
 		errorConditionMessage([]string{"a", "b", "c", "d", "e", "f", "g"}),
 		"nodes a, b, c, d, e and 2 more,",
 	)
+}
+
+func TestUnavailableMessage(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		agg  aggregation
+		want string
+	}{
+		{agg: aggregation{}, want: ""},
+		{
+			agg:  aggregation{unavailableNodes: []string{"a"}},
+			want: "the SPOd pod is not available on nodes a, which the state leaves out",
+		},
+		{
+			agg: aggregation{
+				unavailableNodes:   []string{"a", "b", "c", "d", "e", "f"},
+				unnamedUnavailable: 2,
+			},
+			want: "the SPOd pod is not available on nodes a, b, c, d, e and 3 more, " +
+				"which the state leaves out",
+		},
+		{
+			agg:  aggregation{unnamedUnavailable: 1},
+			want: "the SPOd pod is not available on 1 node, which the state leaves out",
+		},
+		{
+			agg:  aggregation{unnamedUnavailable: 2},
+			want: "the SPOd pod is not available on 2 nodes, which the state leaves out",
+		},
+	} {
+		require.Equal(t, tc.want, tc.agg.unavailableMessage())
+	}
 }
 
 func TestReconcileSkipsMislabeledStatus(t *testing.T) {
@@ -410,8 +455,9 @@ func TestReconcileWaitsForDaemonSet(t *testing.T) {
 
 		r, _, _ := newTestReconciler(t, profile.DeepCopy(), status.DeepCopy())
 
-		_, err := reconcileStatus(t, r, status)
-		require.ErrorContains(t, err, "cannot get the DS")
+		res, err := reconcileStatus(t, r, status)
+		require.NoError(t, err)
+		require.Equal(t, dsWait, res.RequeueAfter)
 	})
 
 	t.Run("NotReady", func(t *testing.T) {
@@ -434,9 +480,11 @@ func TestReconcileWaitsForDaemonSet(t *testing.T) {
 			t, profile.DeepCopy(), status.DeepCopy(), spodDS(2, 2), testNode("worker-1"),
 		)
 
+		// The missing status usually triggers the next reconcile, but the
+		// profile is checked again in any case.
 		res, err := reconcileStatus(t, r, status)
 		require.NoError(t, err)
-		require.Equal(t, reconcile.Result{}, res)
+		require.Equal(t, reconcile.Result{RequeueAfter: dsWait}, res)
 		require.Equal(t,
 			secprofnodestatusapi.ProfileStatePending, storedProfile(t, c).Status.Status,
 		)
@@ -559,9 +607,8 @@ func TestRemoveStaleStatusesRemovesFinalizerFirst(t *testing.T) {
 	)
 
 	scheme := utiltest.NewScheme(t)
-	failUpdate := true
-	c := fake.NewClientBuilder().
-		WithScheme(scheme).
+	failPatch := true
+	c := withIndexes(fake.NewClientBuilder().WithScheme(scheme)).
 		WithObjects(profile, live, gone, spodDS(1, 1), testNode("worker-1")).
 		WithStatusSubresource(&seccompprofileapi.SeccompProfile{}).
 		WithInterceptorFuncs(interceptor.Funcs{
@@ -582,14 +629,15 @@ func TestRemoveStaleStatusesRemovesFinalizerFirst(t *testing.T) {
 
 				return nil
 			},
-			Update: func(
-				ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption,
+			Patch: func(
+				ctx context.Context, c client.WithWatch, obj client.Object,
+				patch client.Patch, opts ...client.PatchOption,
 			) error {
-				if _, ok := obj.(*seccompprofileapi.SeccompProfile); ok && failUpdate {
-					return errors.New("update failed")
+				if _, ok := obj.(*seccompprofileapi.SeccompProfile); ok && failPatch {
+					return errors.New("patch failed")
 				}
 
-				return c.Update(ctx, obj, opts...)
+				return c.Patch(ctx, obj, patch, opts...)
 			},
 		}).
 		Build()
@@ -605,7 +653,7 @@ func TestRemoveStaleStatusesRemovesFinalizerFirst(t *testing.T) {
 		&secprofnodestatusapi.SecurityProfileNodeStatus{}))
 	require.Len(t, storedProfile(t, c).Finalizers, 2)
 
-	failUpdate = false
+	failPatch = false
 
 	_, err = reconcileStatus(t, r, live)
 	require.NoError(t, err)
@@ -1050,30 +1098,36 @@ func TestDaemonSetReadiness(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name         string
-		status       appsv1.DaemonSetStatus
-		wantReady    bool
-		wantUpdating bool
+		name           string
+		generation     int64
+		status         appsv1.DaemonSetStatus
+		wantReady      bool
+		wantUpdating   bool
+		wantRollingOut bool
 	}{
 		{
-			name: "NothingScheduled",
+			name:           "NothingScheduled",
+			wantRollingOut: true,
 		},
 		{
-			name:      "AllAvailable",
-			status:    appsv1.DaemonSetStatus{DesiredNumberScheduled: 3, NumberAvailable: 3},
-			wantReady: true,
+			name:           "AllAvailable",
+			status:         appsv1.DaemonSetStatus{DesiredNumberScheduled: 3, NumberAvailable: 3},
+			wantReady:      true,
+			wantRollingOut: true,
 		},
 		{
-			name:   "SomeUnavailable",
-			status: appsv1.DaemonSetStatus{DesiredNumberScheduled: 3, NumberAvailable: 2},
+			name:           "SomeUnavailable",
+			status:         appsv1.DaemonSetStatus{DesiredNumberScheduled: 3, NumberAvailable: 2},
+			wantRollingOut: true,
 		},
 		{
 			name: "RollingOut",
 			status: appsv1.DaemonSetStatus{
 				DesiredNumberScheduled: 3, NumberAvailable: 3, UpdatedNumberScheduled: 1,
 			},
-			wantReady:    true,
-			wantUpdating: true,
+			wantReady:      true,
+			wantUpdating:   true,
+			wantRollingOut: true,
 		},
 		{
 			name: "UpdatedButUnavailable",
@@ -1082,6 +1136,17 @@ func TestDaemonSetReadiness(t *testing.T) {
 				UpdatedNumberScheduled: 3, NumberUnavailable: 1,
 			},
 			wantUpdating: true,
+		},
+		{
+			name:       "SpecNotObserved",
+			generation: 2,
+			status: appsv1.DaemonSetStatus{
+				ObservedGeneration:     1,
+				DesiredNumberScheduled: 3, NumberAvailable: 2,
+				UpdatedNumberScheduled: 3, NumberUnavailable: 1,
+			},
+			wantUpdating:   true,
+			wantRollingOut: true,
 		},
 		{
 			name: "RolledOut",
@@ -1097,8 +1162,10 @@ func TestDaemonSetReadiness(t *testing.T) {
 			t.Parallel()
 
 			ds := &appsv1.DaemonSet{Status: tc.status}
+			ds.Generation = tc.generation
 			require.Equal(t, tc.wantReady, daemonSetIsReady(ds))
 			require.Equal(t, tc.wantUpdating, daemonSetIsUpdating(ds))
+			require.Equal(t, tc.wantRollingOut, daemonSetIsRollingOut(ds))
 		})
 	}
 }
@@ -1381,4 +1448,352 @@ func TestNodeStatusChangedPredicate(t *testing.T) {
 	}))
 	require.True(t, p.Create(event.CreateEvent{Object: base}))
 	require.True(t, p.Delete(event.DeleteEvent{Object: base}))
+}
+
+// readySpodPod returns a SPOd pod which is ready since the provided time.
+func readySpodPod(node string, since time.Time) *corev1.Pod {
+	pod := spodPod(node)
+	pod.Status.Conditions = []corev1.PodCondition{{
+		Type:               corev1.PodReady,
+		Status:             corev1.ConditionTrue,
+		LastTransitionTime: metav1.NewTime(since),
+	}}
+
+	return pod
+}
+
+// degradedSpodDS returns a SPOd DaemonSet which runs its current pods on all
+// of three nodes, but not all of them are available.
+func degradedSpodDS(available int32) *appsv1.DaemonSet {
+	const desired = 3
+
+	ds := selectingSpodDS(desired, available)
+	ds.Status.NumberUnavailable = desired - available
+
+	return ds
+}
+
+// The SPOd pod on a node which is not ready keeps the DaemonSet from getting
+// available. The profile gets the state of the other nodes, and its Ready
+// condition names the node which it leaves out.
+func TestReconcileAggregatesAvailableNodes(t *testing.T) {
+	t.Parallel()
+
+	ready := time.Now().Add(-time.Hour)
+	first := testNodeStatus("worker-1", secprofnodestatusapi.ProfileStateInstalled)
+	second := testNodeStatus("worker-2", secprofnodestatusapi.ProfileStateInstalled)
+	notReady := testNodeStatus("worker-3", secprofnodestatusapi.ProfileStatePending)
+	profile := testProfile(
+		secprofnodestatusapi.ProfileStatePending,
+		util.GetFinalizerNodeString("worker-1"),
+		util.GetFinalizerNodeString("worker-2"),
+		util.GetFinalizerNodeString("worker-3"),
+	)
+
+	r, c, rec := newTestReconciler(t,
+		profile, first, second, notReady, degradedSpodDS(2),
+		testNode("worker-1"), testNode("worker-2"), testNode("worker-3"),
+		readySpodPod("worker-1", ready), readySpodPod("worker-2", ready), spodPod("worker-3"),
+	)
+
+	res, err := reconcileStatus(t, r, first)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{RequeueAfter: dsWait}, res)
+
+	sp := storedProfile(t, c)
+	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, sp.Status.Status)
+
+	// The profile may be missing on the node which is left out, which a
+	// distinct reason and a warning event tell.
+	cond := sp.Status.GetReadyCondition()
+	require.Equal(t, metav1.ConditionTrue, cond.Status)
+	require.Equal(t, string(profilebaseapi.ReasonInstalledOnAvailableNodes), cond.Reason)
+	require.Equal(t,
+		"the SPOd pod is not available on nodes worker-3, which the state leaves out",
+		cond.Message,
+	)
+
+	require.Len(t, rec.Events, 1)
+	warning := <-rec.Events
+	require.Contains(t, warning, "Warning "+string(profilebaseapi.ReasonInstalledOnAvailableNodes))
+	require.Contains(t, warning, "nodes worker-3")
+
+	// The requeue does not repeat the event.
+	_, err = reconcileStatus(t, r, first)
+	require.NoError(t, err)
+	require.Empty(t, rec.Events)
+
+	// Another unavailable node gets reported.
+	require.NoError(t, c.Delete(context.Background(), spodPod("worker-2")))
+	require.NoError(t, c.Create(context.Background(), spodPod("worker-2")))
+
+	_, err = reconcileStatus(t, r, first)
+	require.NoError(t, err)
+	require.Len(t, rec.Events, 1)
+	require.Contains(t, <-rec.Events, "nodes worker-2, worker-3")
+
+	// The node which is not ready keeps its status and finalizer.
+	require.NoError(t, c.Get(context.Background(), client.ObjectKeyFromObject(notReady),
+		&secprofnodestatusapi.SecurityProfileNodeStatus{}))
+	require.Len(t, storedProfile(t, c).Finalizers, 3)
+}
+
+func TestReconcileAggregatesAvailableNodesRules(t *testing.T) {
+	t.Parallel()
+
+	ready := time.Now().Add(-time.Hour)
+
+	for name, tc := range map[string]struct {
+		ds          *appsv1.DaemonSet
+		objs        []client.Object
+		wantState   secprofnodestatusapi.ProfileState
+		wantMessage string
+	}{
+		"an available node without status is waited for": {
+			ds: degradedSpodDS(2),
+			objs: []client.Object{
+				readySpodPod("worker-1", ready), readySpodPod("worker-2", ready),
+				spodPod("worker-3"),
+			},
+			wantState: secprofnodestatusapi.ProfileStatePending,
+		},
+		"a pod which is not ready for long enough is not available": {
+			ds: func() *appsv1.DaemonSet {
+				ds := degradedSpodDS(1)
+				ds.Spec.MinReadySeconds = 3600
+
+				return ds
+			}(),
+			objs: []client.Object{
+				readySpodPod("worker-1", time.Now().Add(-2*time.Hour)),
+				readySpodPod("worker-2", time.Now()),
+				spodPod("worker-3"),
+			},
+			wantState: secprofnodestatusapi.ProfileStateInstalled,
+			wantMessage: "the SPOd pod is not available on nodes worker-2, worker-3, " +
+				"which the state leaves out",
+		},
+		"a node without pod is counted": {
+			ds: degradedSpodDS(1),
+			objs: []client.Object{
+				readySpodPod("worker-1", ready), spodPod("worker-3"),
+			},
+			wantState: secprofnodestatusapi.ProfileStateInstalled,
+			wantMessage: "the SPOd pod is not available on nodes worker-3 and 1 more, " +
+				"which the state leaves out",
+		},
+		"a rollout is waited for": {
+			ds: func() *appsv1.DaemonSet {
+				ds := degradedSpodDS(2)
+				ds.Status.UpdatedNumberScheduled = 2
+
+				return ds
+			}(),
+			objs: []client.Object{
+				readySpodPod("worker-1", ready), readySpodPod("worker-2", ready),
+				spodPod("worker-3"),
+			},
+			wantState: secprofnodestatusapi.ProfileStatePending,
+		},
+		"no available pod is waited for": {
+			ds: degradedSpodDS(0),
+			objs: []client.Object{
+				spodPod("worker-1"), spodPod("worker-2"), spodPod("worker-3"),
+			},
+			wantState: secprofnodestatusapi.ProfileStatePending,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			first := testNodeStatus("worker-1", secprofnodestatusapi.ProfileStateInstalled)
+			third := testNodeStatus("worker-3", secprofnodestatusapi.ProfileStateError)
+
+			objs := append([]client.Object{
+				testProfile(secprofnodestatusapi.ProfileStatePending), first, third, tc.ds,
+				testNode("worker-1"), testNode("worker-2"), testNode("worker-3"),
+			}, tc.objs...)
+			r, c, _ := newTestReconciler(t, objs...)
+
+			res, err := reconcileStatus(t, r, first)
+			require.NoError(t, err)
+			require.Equal(t, reconcile.Result{RequeueAfter: dsWait}, res)
+
+			sp := storedProfile(t, c)
+			require.Equal(t, tc.wantState, sp.Status.Status)
+
+			if tc.wantMessage != "" {
+				require.Equal(t, tc.wantMessage, sp.Status.GetReadyCondition().Message)
+			}
+		})
+	}
+}
+
+func TestAvailableSpodNodes(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	ds := selectingSpodDS(4, 4)
+	ds.Spec.MinReadySeconds = 10
+
+	terminating := readySpodPod("terminating", now.Add(-time.Minute))
+	deleted := metav1.NewTime(now)
+	terminating.DeletionTimestamp = &deleted
+
+	notReady := readySpodPod("not-ready", now.Add(-time.Minute))
+	notReady.Status.Conditions[0].Status = corev1.ConditionFalse
+
+	pods := []corev1.Pod{
+		*readySpodPod("available", now.Add(-time.Minute)),
+		*readySpodPod("too-young", now.Add(-time.Second)),
+		*terminating,
+		*notReady,
+		*spodPod(""),
+	}
+
+	require.Equal(t,
+		map[string]bool{"available": true},
+		availableSpodNodes(ds, pods, now),
+	)
+}
+
+// Without the SPOd DaemonSet no daemon removes its finalizer, so a profile
+// which is being deleted loses all node finalizers.
+func TestReconcileDeletingProfileWithoutDaemonSet(t *testing.T) {
+	t.Parallel()
+
+	profile := testProfile(
+		secprofnodestatusapi.ProfileStateInstalled,
+		util.GetFinalizerNodeString("worker-1"),
+		util.GetFinalizerNodeString("worker-2"),
+		util.HasActivePodsFinalizerString,
+	)
+	now := metav1.Now()
+	profile.DeletionTimestamp = &now
+
+	r, c, _ := newTestReconciler(t, profile, testNode("worker-1"))
+
+	res, err := r.Reconcile(context.Background(),
+		profileRequest("SeccompProfile", testNamespace, testProfileName))
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{}, res)
+	require.Equal(t, []string{util.HasActivePodsFinalizerString}, storedProfile(t, c).Finalizers)
+}
+
+// The finalizer of a deleted node does not depend on the SPOd DaemonSet, so
+// it is removed even if the DaemonSet cannot be read.
+func TestReconcileDeletingProfileRemovesDeletedNodeFirst(t *testing.T) {
+	t.Parallel()
+
+	profile := testProfile(
+		secprofnodestatusapi.ProfileStateInstalled,
+		util.GetFinalizerNodeString("worker-1"),
+		util.GetFinalizerNodeString("worker-2"),
+	)
+	now := metav1.Now()
+	profile.DeletionTimestamp = &now
+
+	scheme := utiltest.NewScheme(t)
+	c := withIndexes(fake.NewClientBuilder().WithScheme(scheme)).
+		WithObjects(profile, selectingSpodDS(1, 1), testNode("worker-1"), spodPod("worker-1")).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(
+				ctx context.Context, c client.WithWatch, key client.ObjectKey,
+				obj client.Object, opts ...client.GetOption,
+			) error {
+				if _, ok := obj.(*appsv1.DaemonSet); ok {
+					return errors.New("cannot read the DaemonSet")
+				}
+
+				return c.Get(ctx, key, obj, opts...)
+			},
+		}).
+		Build()
+	r := &StatusReconciler{
+		client: c, reader: c, log: logr.Discard(), record: events.NewFakeRecorder(10),
+		namespace: operatorNS,
+	}
+
+	_, err := r.Reconcile(context.Background(),
+		profileRequest("SeccompProfile", testNamespace, testProfileName))
+	require.ErrorContains(t, err, "cannot get the DS")
+	require.Equal(t,
+		[]string{util.GetFinalizerNodeString("worker-1")},
+		storedProfile(t, c).Finalizers,
+	)
+}
+
+// With a foreground deletion, the garbage collector deletes the node statuses
+// before the profile. The finalizer of a node whose daemon is gone stays, and
+// deleting the node later has to reconcile the profile without any status.
+func TestDeletedNodeRequestsForDeletingProfile(t *testing.T) {
+	t.Parallel()
+
+	deleting := testProfile(
+		secprofnodestatusapi.ProfileStateTerminating,
+		util.GetFinalizerNodeString("worker-2"),
+		metav1.FinalizerDeleteDependents,
+	)
+	now := metav1.Now()
+	deleting.DeletionTimestamp = &now
+
+	live := testProfile(
+		secprofnodestatusapi.ProfileStateInstalled, util.GetFinalizerNodeString("worker-2"),
+	)
+	live.Name = "live-profile"
+
+	r, c, _ := newTestReconciler(t, deleting, live, testNode("worker-1"))
+
+	requests := r.deletedNodeRequests(context.Background(), testNode("worker-2"))
+	require.Equal(t,
+		[]reconcile.Request{profileRequest("SeccompProfile", testNamespace, testProfileName)},
+		requests,
+	)
+	require.Empty(t, r.deletedNodeRequests(context.Background(), testNode("worker-3")))
+
+	// The request removes the finalizer of the deleted node.
+	_, err := r.Reconcile(context.Background(), requests[0])
+	require.NoError(t, err)
+	require.Equal(t,
+		[]string{metav1.FinalizerDeleteDependents},
+		storedProfile(t, c).Finalizers,
+	)
+}
+
+func TestFieldIndexes(t *testing.T) {
+	t.Parallel()
+
+	status := testNodeStatus("worker-1", secprofnodestatusapi.ProfileStateInstalled)
+	require.Equal(t, []string{testProfLabel},
+		labelIndex(secprofnodestatusapi.StatusToProfLabel)(status))
+	require.Equal(t, []string{"worker-1"},
+		labelIndex(secprofnodestatusapi.StatusToNodeLabel)(status))
+	require.Empty(t, labelIndex("absent")(status))
+
+	profile := testProfile("",
+		util.GetFinalizerNodeString("worker-1"), util.HasActivePodsFinalizerString,
+	)
+	require.Empty(t, deletingProfileNodeFinalizers(profile),
+		"a profile which is not being deleted is not indexed")
+
+	now := metav1.Now()
+	profile.DeletionTimestamp = &now
+	require.Equal(t,
+		[]string{util.GetFinalizerNodeString("worker-1")},
+		deletingProfileNodeFinalizers(profile),
+	)
+
+	// Every kind of profile is indexed.
+	kinds := map[string]bool{}
+
+	for _, index := range fieldIndexes() {
+		if index.field == deletingProfileNodeFinalizerIndex {
+			gvk, err := apiutil.GVKForObject(index.obj, utiltest.NewScheme(t))
+			require.NoError(t, err)
+
+			kinds[gvk.Kind] = true
+		}
+	}
+
+	require.Len(t, kinds, len(profileKinds))
 }

@@ -388,7 +388,10 @@ $ kubectl --namespace my-namespace get deployment myapp --output=jsonpath='{.spe
 
 Note that a security profile that is in use by existing pods cannot be
 deleted unless the pods exit or are removed - the profile deletion is
-protected by finalizers.
+protected by finalizers. Completed pods, like the ones of a finished Job, do
+not count as using the profile. The `status.activeWorkloads` of a profile
+lists the first 1000 pods using it and `status.activeWorkloadsCount` counts
+all of them.
 
 ### Audit JSON log enricher
 
@@ -1429,6 +1432,17 @@ spec:
   image: nginx:1.23.2
 ```
 
+The image of a binding matches a container image if both are the same after
+normalizing them like the container runtime does: an image without a registry
+is a Docker Hub image, official Docker Hub images get the `library/` namespace,
+and an image without a tag or digest gets the `latest` tag. The binding above
+therefore also matches `docker.io/library/nginx:1.23.2`, and a binding for
+`nginx` matches `nginx:latest`. A binding for a tag cannot know which digest
+the tag points to, so it does not match a reference by digest like
+`nginx@sha256:…`. A reference with both a tag and a digest gets pulled by its
+digest, so only a binding for the digest matches it. Use a `"*"` binding to
+enforce a profile independent of the image reference.
+
 You can enable a default profile binding by using the string "\*" as the image name.
 This will only apply a profile binding if no other profile binding matches a container in the pod.
 
@@ -1503,6 +1517,18 @@ security context of a pod cannot be changed after its creation.
 - A binding always replaces a security context value of the pod author, so
   that the bound profile cannot be weakened, for example with
   `type: Unconfined`.
+- The bindings only apply when a pod is created, so the image of a container
+  of a running pod cannot be changed while an image binding of the namespace
+  matches the old or the new image, independent of its `podSelector`. The
+  `binding-image.spo.io` validating webhook rejects such updates, recreate the
+  pod instead. It follows the `webhook.options` of `binding.spo.io` in the SPOD
+  configuration and only gets the pod updates which change an image.
+- The names of recorded profiles only consist of the recording and container
+  names, so a recording in any namespace can produce the profile a binding
+  expects. A binding to a profile recorded in another namespace than the one
+  of the pod still applies, because profiles can be shared across namespaces,
+  but the pod is admitted with an admission warning and the binding gets a
+  `ProfileRecordedInOtherNamespace` event.
 - Bindings to a profile which does not exist are skipped, so that a binding
   cannot block all pods of a namespace. A pod is rejected while the referenced
   profile exists but has no status yet, which means that no node installed it,
@@ -1514,12 +1540,16 @@ security context of a pod cannot be changed after its creation.
 The names of the bindings applied to a pod are listed in its
 `spo.x-k8s.io/profile-bindings` annotation, and the workloads using a binding
 in its `status.activeWorkloads`. The `Ready` condition of a binding reports
-whether the referenced profile exists:
+whether the referenced profile exists and is installed:
 
 ```sh
 $ kubectl get profilebinding nginx-binding -o jsonpath='{.status.conditions[?(@.type=="Ready")]}'
 {"lastTransitionTime":"…","message":"SeccompProfile profile-complain-unsafe not found","reason":"Unavailable","status":"False","type":"Ready"}
 ```
+
+The reason `ProfileNotInstalled` tells that the profile exists, but is not
+installed, along with its status, and `ProfileKindDisabled` that the profile
+has no status because its kind is disabled in the SPOD configuration.
 
 #### Merging per-container profile instances
 
@@ -1642,6 +1672,14 @@ including the `mknod` syscall:
   - mknod
 ```
 
+Profiles are cluster scoped, so the merged profile `<recording>-<container>` may exist already and
+belong to a recording with the same name in another namespace, or not be recorded at all. The
+partial profiles of that container are then kept, and the recording stays `Terminating` with a
+`MergedProfileConflict` event, until that profile is deleted or labeled with the
+`spo.x-k8s.io/recording-id` and `spo.x-k8s.io/recording-namespace` of the recording. The
+`ProfileConflict` condition of the recording names such profiles while it records, see
+[ProfileRecording](#profilerecording).
+
 **Syscall coverage annotation**
 
 When a `SeccompProfile` is produced by a merge (`mergeStrategy: Containers`), the resulting profile
@@ -1665,6 +1703,16 @@ collected and included in the merge, and each entry under `syscalls` is **N**, t
 partial profiles that contained that syscall. A syscall that appears more than once inside a single
 partial profile still counts once for that profile. In the example above, `read` and `write` were
 observed in all three recorded containers, while `mknod` was observed in only one.
+
+A merge adds the partial profiles to the syscalls the profile already holds from earlier merges of
+the same recording, for example of partial profiles which showed up after the first merge, and the
+counts of the annotation add up the same way. A profile which was created before the recording
+belongs to an earlier recording with the same name and gets replaced, together with its counts.
+Syscalls which got into the profile without a merge are not counted: the ones a node records
+straight into the profile of a recording which is already being deleted, and the ones of a profile
+which was merged before the annotation existed. The `spo.x-k8s.io/syscall-coverage-partials`
+annotation lists the UIDs of the partial profiles of the last merge, so that merging them again, for
+example after deleting them failed, does not count them twice.
 
 This is **observation coverage, not confidence or probability**, and it does not measure how many
 times a syscall was invoked. `total` counts the partial profiles that were actually collected, which
@@ -1802,6 +1850,20 @@ spec:
   containers:
     - nginx
 ```
+
+The status of a `ProfileRecording` carries two conditions:
+
+- `Ready` is `True` if the recording can record. Otherwise its reason tells why not: `Unavailable`
+  if `kind` and `recorder` cannot be combined, `RecorderDisabled` if no
+  `SecurityProfilesOperatorDaemon` enables the recorder (`spec.enricher.enableLogEnricher` for
+  `Logs`, `spec.enricher.enableBpfRecorder` for `Bpf`), and `NamespaceNotEnabled` if the recording
+  webhook does not select the namespace, by default because it lacks the
+  `spo.x-k8s.io/enable-recording` label.
+- `ProfileConflict` is `True` with the reason `ProfileOwnedByOther` if profiles which the recording
+  would write exist already, but were recorded by a recording in another namespace or not recorded
+  at all. The recorded data for them gets dropped. The check is best effort: it covers the
+  containers of the pods the recording tracks, the merged profiles of its partial profiles, and
+  with `mergeStrategy: Containers` the merged profiles of `containers`.
 
 ### SecurityProfilesOperatorDaemon
 

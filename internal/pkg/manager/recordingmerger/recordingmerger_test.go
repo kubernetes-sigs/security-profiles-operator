@@ -18,6 +18,8 @@ package recordingmerger
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"testing"
 	"time"
 
@@ -26,6 +28,7 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -110,10 +113,35 @@ func newMergeReconciler(t *testing.T, objs ...client.Object) *PolicyMergeReconci
 		client: fake.NewClientBuilder().
 			WithScheme(mergerTestScheme(t)).
 			WithObjects(objs...).
+			WithIndex(&profilerecordingapi.ProfileRecording{}, recordingNameKey, recordingNameIndex).
 			Build(),
 		log:    logr.Discard(),
 		record: events.NewFakeRecorder(20),
 	}
+}
+
+// requireMerged merges the partial profiles of the recording and returns the
+// merged profiles which blocked the merge.
+func requireMerged(
+	t *testing.T, r *PolicyMergeReconciler, recording *profilerecordingapi.ProfileRecording,
+) []string {
+	t.Helper()
+
+	blocked, err := r.mergeProfiles(t.Context(), recording)
+	require.NoError(t, err)
+
+	return blocked
+}
+
+// requireMergeError requires the merge of the partial profiles of the
+// recording to fail with errMergeTest.
+func requireMergeError(
+	t *testing.T, r *PolicyMergeReconciler, recording *profilerecordingapi.ProfileRecording,
+) {
+	t.Helper()
+
+	_, err := r.mergeProfiles(t.Context(), recording)
+	require.ErrorIs(t, err, errMergeTest)
 }
 
 // Reconcile only acts on a recording that is being deleted; anything else is a
@@ -219,11 +247,11 @@ func TestMergeProfilesKeepsExistingMergedProfile(t *testing.T) {
 	recording := testMergeRecording(profilerecordingapi.ProfileRecordingKindSeccompProfile, true)
 	r := newMergeReconciler(t, recording, partialSeccomp("partial-a", "redis", "read"))
 
-	require.NoError(t, r.mergeProfiles(t.Context(), recording))
+	requireMerged(t, r, recording)
 	require.ElementsMatch(t, []string{"read"}, mergedSyscalls(t, r, "redis"))
 
 	require.NoError(t, r.client.Create(t.Context(), partialSeccomp("partial-b", "redis", "write")))
-	require.NoError(t, r.mergeProfiles(t.Context(), recording))
+	requireMerged(t, r, recording)
 	require.ElementsMatch(t, []string{"read", "write"}, mergedSyscalls(t, r, "redis"))
 }
 
@@ -258,7 +286,7 @@ func TestMergeProfilesReplacesUnrelatedMergedProfile(t *testing.T) {
 				partialSeccomp("partial-a", "redis", "read"),
 			)
 
-			require.NoError(t, r.mergeProfiles(t.Context(), recording))
+			requireMerged(t, r, recording)
 			require.ElementsMatch(t, []string{"read"}, mergedSyscalls(t, r, "redis"))
 		})
 	}
@@ -280,7 +308,7 @@ func TestMergeProfilesSkipsProfileOfOtherRecording(t *testing.T) {
 		partialSeccomp("partial-b", "redis", "write"),
 	)
 
-	require.NoError(t, r.mergeProfiles(t.Context(), recording))
+	require.Equal(t, []string{testRecording + "-nginx"}, requireMerged(t, r, recording))
 	require.ElementsMatch(t, []string{"exec"}, mergedSyscalls(t, r, "nginx"))
 	require.ElementsMatch(t, []string{"write"}, mergedSyscalls(t, r, "redis"))
 
@@ -309,8 +337,86 @@ func TestMergeProfilesSkipsProfileWithoutRecordingLabels(t *testing.T) {
 
 	r := newMergeReconciler(t, recording, foreign, partialSeccomp("partial-a", "nginx", "read"))
 
-	require.NoError(t, r.mergeProfiles(t.Context(), recording))
+	require.Equal(t, []string{testRecording + "-nginx"}, requireMerged(t, r, recording))
 	require.ElementsMatch(t, []string{"exec"}, mergedSyscalls(t, r, "nginx"))
+}
+
+// A deleted recording whose merge is blocked by a profile of somebody else is
+// retried, and released once the profile is gone.
+func TestReconcileRequeuesBlockedMerge(t *testing.T) {
+	t.Parallel()
+
+	recording := testMergeRecording(profilerecordingapi.ProfileRecordingKindSeccompProfile, true)
+
+	foreign := partialSeccomp(testRecording+"-nginx", "nginx", "exec")
+	foreign.Labels = nil
+
+	r := newMergeReconciler(t, recording, foreign, partialSeccomp("partial-a", "nginx", "read"))
+	r.legacyAdoptionPending.Store(false)
+
+	res, err := r.Reconcile(t.Context(), reconcile.Request{
+		NamespacedName: client.ObjectKeyFromObject(recording),
+	})
+	require.NoError(t, err)
+	require.Equal(t, blockedRequeueMinDelay, res.RequeueAfter)
+	requireEvent(t, r, reasonMergedProfileConflict)
+
+	// The profile which blocks the merge enqueues the recording.
+	require.Equal(t,
+		[]reconcile.Request{{NamespacedName: client.ObjectKeyFromObject(recording)}},
+		r.recordingsBlockedBy(t.Context(), foreign))
+
+	require.NoError(t, r.client.Delete(t.Context(), foreign))
+
+	res, err = r.Reconcile(t.Context(), reconcile.Request{
+		NamespacedName: client.ObjectKeyFromObject(recording),
+	})
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{}, res)
+	require.ElementsMatch(t, []string{"read"}, mergedSyscalls(t, r, "nginx"))
+
+	// The fake client deletes the released recording, which was only kept
+	// by the finalizer.
+	require.True(t, kerrors.IsNotFound(r.client.Get(t.Context(),
+		client.ObjectKeyFromObject(recording), &profilerecordingapi.ProfileRecording{})))
+}
+
+func TestBlockedRequeueDelay(t *testing.T) {
+	t.Parallel()
+
+	deletedAt := func(ago time.Duration) *profilerecordingapi.ProfileRecording {
+		recording := testMergeRecording(
+			profilerecordingapi.ProfileRecordingKindSeccompProfile,
+			true,
+		)
+		recording.DeletionTimestamp = &metav1.Time{Time: time.Now().Add(-ago)}
+
+		return recording
+	}
+
+	require.Equal(t, blockedRequeueMinDelay, blockedRequeueDelay(deletedAt(time.Second)))
+	require.InDelta(
+		t,
+		time.Minute,
+		blockedRequeueDelay(deletedAt(time.Minute)),
+		float64(time.Second),
+	)
+	require.Equal(t, blockedRequeueMaxDelay, blockedRequeueDelay(deletedAt(time.Hour)))
+}
+
+func TestRecordingsBlockedBy(t *testing.T) {
+	t.Parallel()
+
+	deleted := testMergeRecording(profilerecordingapi.ProfileRecordingKindSeccompProfile, true)
+	live := testMergeRecording(profilerecordingapi.ProfileRecordingKindSeccompProfile, false)
+	live.Namespace = "other-ns"
+
+	r := newMergeReconciler(t, deleted, live)
+
+	require.Equal(t,
+		[]reconcile.Request{{NamespacedName: client.ObjectKeyFromObject(deleted)}},
+		r.recordingsBlockedBy(t.Context(), partialSeccomp(testRecording+"-nginx", "nginx")))
+	require.Empty(t, r.recordingsBlockedBy(t.Context(), partialSeccomp("unrelated-nginx", "nginx")))
 }
 
 // The owner check also has to hold when the profile appears between merging
@@ -330,7 +436,7 @@ func TestCreateUpdateProfileRefusesForeignProfile(t *testing.T) {
 
 	_, err = createUpdateProfile(
 		t.Context(), r.client, recording, testRecording+"-nginx", merged,
-		profilerecordingapi.ProfileRecordingKindSeccompProfile, "",
+		profilerecordingapi.ProfileRecordingKindSeccompProfile, nil, nil,
 	)
 	require.ErrorIs(t, err, util.ErrProfileOwnedByOtherRecording)
 	require.ElementsMatch(t, []string{"exec"}, mergedSyscalls(t, r, "nginx"))
@@ -344,7 +450,7 @@ func TestMergeProfilesUnknownKind(t *testing.T) {
 	recording := testMergeRecording("NotAKind", true)
 	r := newMergeReconciler(t, recording, partialSeccomp("partial-a", "nginx", "read"))
 
-	require.NoError(t, r.mergeProfiles(t.Context(), recording))
+	requireMerged(t, r, recording)
 	require.ElementsMatch(t, []string{"read"}, mergedSyscalls(t, r, "nginx"))
 
 	recorder, ok := r.record.(*events.FakeRecorder)
@@ -396,7 +502,7 @@ func TestMergeProfilesPerKind(t *testing.T) {
 			profilerecordingapi.ProfileRecordingKindAppArmorProfile, true)
 		r := newMergeReconciler(t, recording)
 
-		require.NoError(t, r.mergeProfiles(t.Context(), recording))
+		requireMerged(t, r, recording)
 
 		list := &apparmorprofileapi.AppArmorProfileList{}
 		require.NoError(t, r.client.List(t.Context(), list))
@@ -410,7 +516,7 @@ func TestMergeProfilesPerKind(t *testing.T) {
 			profilerecordingapi.ProfileRecordingKindSelinuxProfile, true)
 		r := newMergeReconciler(t, recording)
 
-		require.NoError(t, r.mergeProfiles(t.Context(), recording))
+		requireMerged(t, r, recording)
 	})
 }
 
@@ -457,12 +563,40 @@ func TestReleaseRecordingRetriesAgainstAPIReader(t *testing.T) {
 	stale := &profilerecordingapi.ProfileRecording{}
 	require.NoError(t, base.Get(t.Context(), key, stale))
 
-	// Another writer updates the recording after the cache saw it.
+	// Another writer adds a finalizer in front of the one of the recording
+	// after the cache saw it, which moves it.
 	current := stale.DeepCopy()
 	current.Labels = map[string]string{"other": "writer"}
+	current.Finalizers = append([]string{"example.com/other"}, current.Finalizers...)
 	require.NoError(t, base.Update(t.Context(), current))
 
-	staleCache := interceptor.NewClient(base, interceptor.Funcs{
+	// Like the API server, reject a JSON patch which does not apply as
+	// invalid.
+	server := interceptor.NewClient(base, interceptor.Funcs{
+		Patch: func(
+			ctx context.Context, cl client.WithWatch, obj client.Object,
+			patch client.Patch, opts ...client.PatchOption,
+		) error {
+			var statusErr *kerrors.StatusError
+
+			err := cl.Patch(ctx, obj, patch, opts...)
+			if err != nil && !errors.As(err, &statusErr) {
+				return kerrors.NewGenericServerResponse(
+					http.StatusUnprocessableEntity,
+					"PATCH",
+					schema.GroupResource{},
+					"",
+					err.Error(),
+					0,
+					false,
+				)
+			}
+
+			return err
+		},
+	})
+
+	staleCache := interceptor.NewClient(server, interceptor.Funcs{
 		Get: func(
 			_ context.Context, _ client.WithWatch, _ client.ObjectKey, obj client.Object,
 			_ ...client.GetOption,
@@ -490,7 +624,54 @@ func TestReleaseRecordingRetriesAgainstAPIReader(t *testing.T) {
 
 	released := &profilerecordingapi.ProfileRecording{}
 	require.NoError(t, base.Get(t.Context(), key, released))
-	require.Empty(t, released.Finalizers)
+	require.Equal(t, []string{"example.com/other"}, released.Finalizers)
+	require.Equal(t, "writer", released.Labels["other"])
+}
+
+// Changes of another writer which leave the finalizer in place do not fail the
+// release, even if the cache does not show them yet: the patch only touches
+// the finalizer.
+func TestReleaseRecordingWithOutdatedCache(t *testing.T) {
+	t.Parallel()
+
+	base := fake.NewClientBuilder().
+		WithScheme(mergerTestScheme(t)).
+		WithObjects(testMergeRecording(profilerecordingapi.ProfileRecordingKindSeccompProfile, false)).
+		Build()
+
+	key := types.NamespacedName{Name: testRecording, Namespace: testNamespace}
+	stale := &profilerecordingapi.ProfileRecording{}
+	require.NoError(t, base.Get(t.Context(), key, stale))
+
+	current := stale.DeepCopy()
+	current.Labels = map[string]string{"other": "writer"}
+	current.Finalizers = append(current.Finalizers, "example.com/other")
+	require.NoError(t, base.Update(t.Context(), current))
+
+	staleCache := interceptor.NewClient(base, interceptor.Funcs{
+		Get: func(
+			_ context.Context, _ client.WithWatch, _ client.ObjectKey, obj client.Object,
+			_ ...client.GetOption,
+		) error {
+			rec, ok := obj.(*profilerecordingapi.ProfileRecording)
+			require.True(t, ok)
+			stale.DeepCopyInto(rec)
+
+			return nil
+		},
+	})
+
+	r := &PolicyMergeReconciler{
+		client: staleCache,
+		log:    logr.Discard(),
+		record: events.NewFakeRecorder(20),
+	}
+
+	require.NoError(t, r.releaseRecording(t.Context(), stale.DeepCopy()))
+
+	released := &profilerecordingapi.ProfileRecording{}
+	require.NoError(t, base.Get(t.Context(), key, released))
+	require.Equal(t, []string{"example.com/other"}, released.Finalizers)
 	require.Equal(t, "writer", released.Labels["other"])
 }
 

@@ -1409,6 +1409,17 @@ func TestReconcileDeletionRetryCountsRemovalOnce(t *testing.T) {
 
 			return c.Update(ctx, obj, opts...)
 		},
+		// The node finalizer gets removed with a patch.
+		Patch: func(
+			ctx context.Context, c client.WithWatch, obj client.Object,
+			patch client.Patch, opts ...client.PatchOption,
+		) error {
+			if _, isProfile := obj.(*selinuxprofileapi.SelinuxProfile); isProfile {
+				return errUpdate
+			}
+
+			return c.Patch(ctx, obj, patch, opts...)
+		},
 	})
 
 	_, err := f.r.Reconcile(ctx, f.request)

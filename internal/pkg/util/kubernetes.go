@@ -57,6 +57,21 @@ func GetSeccompLocalhostProfilePath(node *corev1.Node, seccompProfile string) st
 	return seccompProfile
 }
 
+// PodCompleted returns true if all containers of the pod terminated for good,
+// like the ones of a finished Job. The pod object stays until it gets
+// deleted, but it does not use its profiles, bindings or recordings anymore.
+func PodCompleted(pod *corev1.Pod) bool {
+	return pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed
+}
+
+// PodCompletedNow returns true if a pod update completed the pod.
+func PodCompletedNow(oldObj, newObj client.Object) bool {
+	oldPod, oldOk := oldObj.(*corev1.Pod)
+	newPod, newOk := newObj.(*corev1.Pod)
+
+	return oldOk && newOk && !PodCompleted(oldPod) && PodCompleted(newPod)
+}
+
 // GetContainerRuntime parses the container runtime from a node object.
 func GetContainerRuntime(node *corev1.Node) string {
 	if node == nil {
@@ -147,6 +162,31 @@ var systemTopLevelDirs = []string{
 // filesystem, like /opt/bin on Flatcar.
 var binaryDirs = []string{"bin", "sbin", "libexec"}
 
+// kubeletRootEntries are the names of the files and directories which the
+// kubelet keeps in its root directory. Some of them, like cpu_manager_state,
+// are files on every node, and none of them holds another kubelet root
+// directory.
+var kubeletRootEntries = []string{
+	"actuated_pods_state",
+	"allocated_pods_state",
+	"bootstrap-kubeconfig",
+	"checkpoints",
+	"config.yaml",
+	"cpu_manager_state",
+	"device-plugins",
+	"dra_manager_state",
+	"image_manager",
+	"kubeadm-flags.env",
+	"kubeconfig",
+	"memory_manager_state",
+	"pki",
+	"pod-resources",
+	"plugins",
+	"plugins_registry",
+	"pods",
+	"seccomp",
+}
+
 // ValidateKubeletDir returns an error if the given kubelet root directory from
 // a node label is not a clean absolute path ending with "kubelet".
 func ValidateKubeletDir(dir string) error {
@@ -178,6 +218,24 @@ func ValidateKubeletDir(dir string) error {
 
 	if len(parts) > 1 && slices.Contains(binaryDirs, parts[len(parts)-2]) {
 		return fmt.Errorf("%q is in a directory for executables", dir)
+	}
+
+	// The same applies to the state which the kubelet keeps in its root
+	// directory, like /var/lib/kubelet/cpu_manager_state/kubelet, where
+	// cpu_manager_state is a file. Such paths are below the default kubelet
+	// root directory or below another directory named "kubelet".
+	defaultParts := strings.Split(
+		strings.TrimPrefix(filepath.Clean(config.DefaultKubeletDir()), "/"), "/",
+	)
+
+	for i := range len(parts) - 1 {
+		isRoot := parts[i] == kubeletDirBase || slices.Equal(parts[:i+1], defaultParts)
+		if isRoot && slices.Contains(kubeletRootEntries, parts[i+1]) {
+			return fmt.Errorf(
+				"%q is below the %s entry of the kubelet root directory /%s",
+				dir, parts[i+1], strings.Join(parts[:i+1], "/"),
+			)
+		}
 	}
 
 	return nil

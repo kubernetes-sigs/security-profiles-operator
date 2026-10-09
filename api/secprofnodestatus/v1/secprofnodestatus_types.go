@@ -22,8 +22,8 @@ import (
 )
 
 // ProfileState defines the state that the profile is in. A profile in this context
-// refers to a SeccompProfile or a SELinux profile, the states are shared between them
-// as well as the management API.
+// refers to a SeccompProfile, a SELinux profile or an AppArmorProfile, the states are
+// shared between them as well as the management API.
 // +kubebuilder:validation:Enum=Partial;Disabled;Pending;InProgress;Installed;Terminating;Error
 type ProfileState string
 
@@ -105,7 +105,7 @@ func orDefaultState(state ProfileState) ProfileState {
 
 // SecurityProfileNodeStatus is a per-node status of a security profile
 // +kubebuilder:storageversion
-// +kubebuilder:resource:shortName=spns,scope=Cluster
+// +kubebuilder:resource:shortName=spns,scope=Cluster,categories=spo
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.status`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
@@ -142,7 +142,16 @@ type SecurityProfileNodeStatusStatus struct {
 	// +optional
 	// +default="Pending"
 	Status ProfileState `json:"status,omitempty"`
+	// message is a human readable message which tells why the profile is in
+	// its state on this node, like the reason why it failed to install.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=4096
+	Message string `json:"message,omitempty"`
 }
+
+// MaxMessageLength is the maximum length of the message of a node status.
+const MaxMessageLength = 4096
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 

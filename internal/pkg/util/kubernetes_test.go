@@ -566,6 +566,13 @@ func TestGetKubeletDirFromNodeLabel(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			// A kubelet can set this on its own node, and the mount would
+			// fail on all nodes, where cpu_manager_state is a file.
+			name:    "below a file of the kubelet root directory",
+			label:   "var-lib-kubelet-cpu_manager_state-kubelet",
+			wantErr: true,
+		},
+		{
 			name:  "nested state directory",
 			label: "var-snap-microk8s-common-var-lib-kubelet",
 			want:  "/var/snap/microk8s/common/var/lib/kubelet",
@@ -656,6 +663,16 @@ func TestValidateKubeletDir(t *testing.T) {
 		"/opt/sbin/kubelet":        "is in a directory for executables",
 		"/opt/libexec/kubelet":     "is in a directory for executables",
 		"/var/lib/kubelet/kubelet": "",
+		// cpu_manager_state is a file on every node, which a mount below it
+		// fails on.
+		"/var/lib/kubelet/cpu_manager_state/kubelet": "is below the cpu_manager_state entry " +
+			"of the kubelet root directory /var/lib/kubelet",
+		"/var/lib/kubelet/pods/uid/volumes/kubelet": "is below the pods entry",
+		"/mnt/resource/kubelet/kubeconfig/kubelet": "is below the kubeconfig entry " +
+			"of the kubelet root directory /mnt/resource/kubelet",
+		"/mnt/kubelet/kubelet/plugins_registry/kubelet": "is below the plugins_registry entry",
+		"/mnt/pods/kubelet":                             "",
+		"/var/lib/kubelet/data/pods/kubelet":            "",
 	} {
 		err := ValidateKubeletDir(dir)
 		if want == "" {
@@ -666,6 +683,17 @@ func TestValidateKubeletDir(t *testing.T) {
 
 		require.ErrorContains(t, err, want, dir)
 	}
+}
+
+// The entries of the default kubelet root directory are rejected even if it
+// is not named "kubelet".
+func TestValidateKubeletDirCustomDefault(t *testing.T) {
+	t.Setenv(config.KubeletDirEnvKey, "/data/k8s/")
+
+	require.ErrorContains(t, ValidateKubeletDir("/data/k8s/cpu_manager_state/kubelet"),
+		"is below the cpu_manager_state entry of the kubelet root directory /data/k8s")
+	require.NoError(t, ValidateKubeletDir("/data/k8s/kubelet"))
+	require.NoError(t, ValidateKubeletDir("/data/cpu_manager_state/kubelet"))
 }
 
 func TestKubeletDirFromNodeLabels(t *testing.T) {
@@ -713,4 +741,22 @@ func TestKubeletDirFromNodeLabels(t *testing.T) {
 		})
 		require.Error(t, err, value)
 	}
+}
+
+func TestPodCompleted(t *testing.T) {
+	t.Parallel()
+
+	pod := func(phase corev1.PodPhase) *corev1.Pod {
+		return &corev1.Pod{Status: corev1.PodStatus{Phase: phase}}
+	}
+
+	require.True(t, PodCompleted(pod(corev1.PodSucceeded)))
+	require.True(t, PodCompleted(pod(corev1.PodFailed)))
+	require.False(t, PodCompleted(pod(corev1.PodRunning)))
+	require.False(t, PodCompleted(pod("")))
+
+	require.True(t, PodCompletedNow(pod(corev1.PodRunning), pod(corev1.PodSucceeded)))
+	require.False(t, PodCompletedNow(pod(corev1.PodFailed), pod(corev1.PodFailed)))
+	require.False(t, PodCompletedNow(pod(corev1.PodPending), pod(corev1.PodRunning)))
+	require.False(t, PodCompletedNow(&corev1.Node{}, pod(corev1.PodFailed)))
 }

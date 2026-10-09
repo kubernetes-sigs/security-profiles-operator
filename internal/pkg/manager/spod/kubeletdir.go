@@ -134,32 +134,55 @@ func mountedKubeletDirs(ds *appsv1.DaemonSet) []string {
 // into the configured SPOd, given the directories which nodes currently
 // reference, and whether the SPOd needs an update with them.
 //
-// Every change of the directories rolls all SPOd pods at once, so removing a
-// directory as soon as its last node is gone would restart the SPOd whenever
-// an autoscaled node leaves or a label flaps. Directories which the found
-// DaemonSet already mounts are therefore kept as long as the SPOd does not
-// need an update for another reason, like a new directory or a changed SPOD
-// configuration. Such a rollout drops the unreferenced directories again, so
-// the set is bounded by the directories referenced at the last rollout.
+// Every change of the directories rolls the SPOd pods, by default all at
+// once, so removing a directory as soon as its last node is gone would restart
+// the SPOd whenever an autoscaled node leaves or a label flaps. Directories
+// which the found DaemonSet already mounts are therefore kept as long as the
+// SPOd does not need an update for another reason, like a new directory or a
+// changed SPOD configuration. Such a rollout drops the unreferenced
+// directories again, so the set is bounded by the directories referenced at
+// the last rollout.
 //
-// If the SPOd with the retained directories needs an update, so does the one
-// with only the node directories: the found DaemonSet mounts exactly the node
-// directories otherwise, and the retained ones would then be the same set.
+// Directories are only kept while the found DaemonSet is rolled out and at
+// least one of its pods is available, so a single NotReady node or a node
+// which is about to leave does not roll the healthy pods. If no pod is
+// available, or the rollout of the current template stalls, one of the
+// directories may be what stops the pods, for example a directory which
+// cannot be created, because a parent of it is a file. Dropping the
+// directories which no node references any more then lets the SPOd recover as
+// soon as the label which caused it got removed. Directories which fail the
+// validation are never kept.
 func kubeletDirsToMount(
 	configured, found *appsv1.DaemonSet, nodeDirs []string,
 ) (dirs []string, needsUpdate bool) {
-	dirs = slices.Concat(mountedKubeletDirs(found), nodeDirs)
-	slices.Sort(dirs)
-	dirs = slices.Compact(dirs)
+	if daemonSetServing(found) {
+		dirs = slices.Concat(mountedKubeletDirs(found), nodeDirs)
+		slices.Sort(dirs)
+		dirs = slices.Compact(dirs)
 
-	retained := configured.DeepCopy()
-	addKubeletDirVolumes(&retained.Spec.Template.Spec, dirs)
+		retained := configured.DeepCopy()
+		addKubeletDirVolumes(&retained.Spec.Template.Spec, dirs)
 
-	if !spodNeedsUpdate(retained, found) {
-		return dirs, false
+		if !spodNeedsUpdate(retained, found) {
+			return dirs, false
+		}
 	}
 
-	return nodeDirs, true
+	withNodeDirs := configured.DeepCopy()
+	addKubeletDirVolumes(&withNodeDirs.Spec.Template.Spec, nodeDirs)
+
+	return nodeDirs, spodNeedsUpdate(withNodeDirs, found)
+}
+
+// daemonSetServing returns true if the DaemonSet controller observed the
+// current spec, every scheduled pod runs the current template and at least
+// one of them is available.
+func daemonSetServing(ds *appsv1.DaemonSet) bool {
+	status := &ds.Status
+
+	return status.ObservedGeneration >= ds.Generation &&
+		status.UpdatedNumberScheduled == status.DesiredNumberScheduled &&
+		status.NumberAvailable > 0
 }
 
 // addKubeletDirVolumes adds a hostPath volume for each of the given kubelet
@@ -179,10 +202,10 @@ func addKubeletDirVolumes(templateSpec *corev1.PodSpec, dirs []string) {
 	}
 }
 
-// kubeletDirLabelChanged filters node events down to the ones which may add
-// a kubelet directory to mount. Removing a label or deleting a node does not
-// roll the SPOd by itself (see kubeletDirsToMount), so these events are
-// ignored.
+// kubeletDirLabelChanged filters node events down to the ones which change
+// the kubelet directory of a node. Removing the label or deleting the node
+// does not roll a SPOd which serves on some nodes (see kubeletDirsToMount), but
+// lets one whose pods cannot start drop the directory of the node.
 func kubeletDirLabelChanged() predicate.Funcs {
 	hasLabel := func(obj client.Object) bool {
 		if obj == nil {
@@ -196,7 +219,7 @@ func kubeletDirLabelChanged() predicate.Funcs {
 
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool { return hasLabel(e.Object) },
-		DeleteFunc: func(event.DeleteEvent) bool { return false },
+		DeleteFunc: func(e event.DeleteEvent) bool { return hasLabel(e.Object) },
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			if e.ObjectOld == nil || e.ObjectNew == nil {
 				return false
@@ -205,7 +228,7 @@ func kubeletDirLabelChanged() predicate.Funcs {
 			oldDir, oldOk := e.ObjectOld.GetLabels()[config.KubeletDirNodeLabelKey]
 			newDir, newOk := e.ObjectNew.GetLabels()[config.KubeletDirNodeLabelKey]
 
-			return newOk && (!oldOk || oldDir != newDir)
+			return oldOk != newOk || oldDir != newDir
 		},
 		GenericFunc: func(event.GenericEvent) bool { return false },
 	}

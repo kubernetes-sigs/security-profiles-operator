@@ -72,12 +72,15 @@ spec:
             capabilities:
               drop:
                 - ALL
+          # The manager caches the profiles, their node statuses and the pods
+          # of the whole cluster, which grows with the cluster. The request
+          # fits small clusters, while the limit leaves room for large ones.
           resources:
             requests:
               memory: 50Mi
               cpu: 250m
             limits:
-              memory: 128Mi
+              memory: 512Mi
               cpu: 500m
           env:
             # The selinuxd images run privileged on every node, so they are

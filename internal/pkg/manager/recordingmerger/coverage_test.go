@@ -19,15 +19,19 @@ package recordingmerger
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	profilebase "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
@@ -472,10 +476,10 @@ func TestMergeTypedProfiles_ComputesCoverageBeforeMerge(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: recordingName, Namespace: namespace},
 	}
 
-	_, err := reconciler.mergeTypedProfiles(
+	_, _, err := reconciler.mergeTypedProfiles(
 		context.Background(), recording,
 		profilerecordingapi.ProfileRecordingKindSeccompProfile,
-		&seccompprofile.SeccompProfileList{},
+		&seccompprofile.SeccompProfileList{}, nil,
 	)
 	require.NoError(t, err)
 
@@ -525,6 +529,11 @@ func TestCreateUpdateProfile_CoverageAnnotation(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: recordingName, Namespace: namespace},
 	}
 
+	partials := []partialCoverage{
+		{uid: "uid-a", syscalls: []string{"read"}},
+		{uid: "uid-b", syscalls: []string{"read"}},
+	}
+
 	t.Run("seccomp merged profile receives the annotation", func(t *testing.T) {
 		t.Parallel()
 
@@ -537,7 +546,8 @@ func TestCreateUpdateProfile_CoverageAnnotation(t *testing.T) {
 			mergedName,
 			&mergeableSeccompProfile{},
 			profilerecordingapi.ProfileRecordingKindSeccompProfile,
-			coverage,
+			partials,
+			nil,
 		)
 		require.NoError(t, err)
 
@@ -545,6 +555,7 @@ func TestCreateUpdateProfile_CoverageAnnotation(t *testing.T) {
 		require.NoError(t, cl.Get(context.Background(),
 			client.ObjectKey{Name: mergedName}, got))
 		require.JSONEq(t, coverage, got.GetAnnotations()[syscallCoverageAnnotation])
+		require.Equal(t, "uid-a,uid-b", got.GetAnnotations()[syscallCoveragePartialsAnnotation])
 	})
 
 	t.Run("selinux merged profile never receives the annotation", func(t *testing.T) {
@@ -559,7 +570,8 @@ func TestCreateUpdateProfile_CoverageAnnotation(t *testing.T) {
 			mergedName,
 			&MergeableSelinuxProfile{},
 			profilerecordingapi.ProfileRecordingKindSelinuxProfile,
-			coverage,
+			partials,
+			nil,
 		)
 		require.NoError(t, err)
 
@@ -567,6 +579,7 @@ func TestCreateUpdateProfile_CoverageAnnotation(t *testing.T) {
 		require.NoError(t, cl.Get(context.Background(),
 			client.ObjectKey{Name: mergedName}, got))
 		require.NotContains(t, got.GetAnnotations(), syscallCoverageAnnotation)
+		require.NotContains(t, got.GetAnnotations(), syscallCoveragePartialsAnnotation)
 	})
 
 	t.Run("apparmor merged profile never receives the annotation", func(t *testing.T) {
@@ -581,7 +594,8 @@ func TestCreateUpdateProfile_CoverageAnnotation(t *testing.T) {
 			mergedName,
 			&mergeableAppArmorProfile{},
 			profilerecordingapi.ProfileRecordingKindAppArmorProfile,
-			coverage,
+			partials,
+			nil,
 		)
 		require.NoError(t, err)
 
@@ -589,6 +603,7 @@ func TestCreateUpdateProfile_CoverageAnnotation(t *testing.T) {
 		require.NoError(t, cl.Get(context.Background(),
 			client.ObjectKey{Name: mergedName}, got))
 		require.NotContains(t, got.GetAnnotations(), syscallCoverageAnnotation)
+		require.NotContains(t, got.GetAnnotations(), syscallCoveragePartialsAnnotation)
 	})
 
 	t.Run("existing annotations are preserved on update", func(t *testing.T) {
@@ -614,7 +629,8 @@ func TestCreateUpdateProfile_CoverageAnnotation(t *testing.T) {
 			mergedName,
 			&mergeableSeccompProfile{},
 			profilerecordingapi.ProfileRecordingKindSeccompProfile,
-			coverage,
+			partials,
+			nil,
 		)
 		require.NoError(t, err)
 
@@ -624,4 +640,250 @@ func TestCreateUpdateProfile_CoverageAnnotation(t *testing.T) {
 		require.JSONEq(t, coverage, got.GetAnnotations()[syscallCoverageAnnotation])
 		require.Equal(t, "yes", got.GetAnnotations()["user.example.com/keep"])
 	})
+}
+
+func TestAddSyscallCoverage(t *testing.T) {
+	t.Parallel()
+
+	const current = `{"version":"v1","total":2,"syscalls":{"read":2,"socket":1}}`
+
+	for name, tc := range map[string]struct {
+		previous string
+		current  string
+		want     string
+	}{
+		"adds up the previous coverage": {
+			previous: `{"version":"v1","total":3,"syscalls":{"read":3,"mknod":1}}`,
+			current:  current,
+			want:     `{"version":"v1","total":5,"syscalls":{"read":5,"socket":1,"mknod":1}}`,
+		},
+		"without previous coverage": {
+			current: current,
+			want:    current,
+		},
+		"previous coverage which cannot be read": {
+			previous: "invalid",
+			current:  current,
+			want:     current,
+		},
+		"previous coverage of another version": {
+			previous: `{"version":"v2","total":3,"syscalls":{"read":3}}`,
+			current:  current,
+			want:     current,
+		},
+		"without current coverage": {
+			previous: current,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			got := addSyscallCoverage(tc.previous, tc.current)
+			if tc.want == "" {
+				require.Empty(t, got)
+
+				return
+			}
+
+			require.JSONEq(t, tc.want, got)
+		})
+	}
+}
+
+// The merged profile holds the union of every merge into it, so its coverage
+// adds up over the merges, unless the profile of an earlier recording with
+// the same name gets replaced.
+func TestCreateUpdateProfile_AccumulatesCoverage(t *testing.T) {
+	t.Parallel()
+
+	const (
+		mergedName = "rec-ctr"
+		previous   = `{"version":"v1","total":3,"syscalls":{"read":3,"mknod":1}}`
+		current    = `{"version":"v1","total":2,"syscalls":{"read":2,"socket":1}}`
+	)
+
+	recordingCreated := metav1.Now()
+
+	for name, tc := range map[string]struct {
+		existingCreated metav1.Time
+		want            string
+	}{
+		"profile of the recording": {
+			existingCreated: metav1.NewTime(recordingCreated.Add(time.Minute)),
+			want:            `{"version":"v1","total":5,"syscalls":{"read":5,"socket":1,"mknod":1}}`,
+		},
+		"profile of an earlier recording": {
+			existingCreated: metav1.NewTime(recordingCreated.Add(-time.Minute)),
+			want:            current,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			recording := &profilerecordingapi.ProfileRecording{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "rec", Namespace: "ns", CreationTimestamp: recordingCreated,
+				},
+			}
+			existing := &seccompprofile.SeccompProfile{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              mergedName,
+					CreationTimestamp: tc.existingCreated,
+					Annotations:       map[string]string{syscallCoverageAnnotation: previous},
+					Labels: map[string]string{
+						profilerecordingapi.ProfileToRecordingLabel:          "rec",
+						profilerecordingapi.ProfileToRecordingNamespaceLabel: "ns",
+					},
+				},
+			}
+			cl := fake.NewClientBuilder().
+				WithScheme(coverageTestScheme(t)).WithObjects(existing).Build()
+
+			_, err := createUpdateProfile(
+				context.Background(),
+				cl,
+				recording,
+				mergedName,
+				seccompPartial("partial", allow("read", "socket")),
+				profilerecordingapi.ProfileRecordingKindSeccompProfile,
+				[]partialCoverage{
+					{uid: "uid-a", syscalls: []string{"read", "socket"}},
+					{uid: "uid-b", syscalls: []string{"read"}},
+				},
+				nil,
+			)
+			require.NoError(t, err)
+
+			got := &seccompprofile.SeccompProfile{}
+			require.NoError(
+				t,
+				cl.Get(context.Background(), client.ObjectKey{Name: mergedName}, got),
+			)
+			require.JSONEq(t, tc.want, got.GetAnnotations()[syscallCoverageAnnotation])
+		})
+	}
+}
+
+// The partial profiles get deleted after the merged profile got written. If
+// deleting them fails, the retry merges them again, which must not count
+// their coverage twice. Partial profiles which showed up in the meantime
+// still count.
+func TestMergeTypedProfiles_RetryDoesNotCountCoverageTwice(t *testing.T) {
+	t.Parallel()
+
+	const (
+		recordingName = "rec"
+		namespace     = "ns"
+		containerName = "ctr"
+	)
+
+	partial := func(name string, syscalls ...string) *seccompprofile.SeccompProfile {
+		return &seccompprofile.SeccompProfile{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: name, Namespace: namespace, UID: types.UID("uid-" + name),
+				Labels: map[string]string{
+					profilerecordingapi.ProfileToRecordingLabel:          recordingName,
+					profilerecordingapi.ProfileToRecordingNamespaceLabel: namespace,
+					profilerecordingapi.ProfileToContainerLabel:          containerName,
+					profilebase.ProfilePartialLabel:                      "true",
+				},
+			},
+			Spec: seccompprofile.SeccompProfileSpec{
+				DefaultAction: seccompprofile.ActErrno,
+				Syscalls:      []seccompprofile.Syscall{allow(syscalls...)},
+			},
+		}
+	}
+
+	failDelete := true
+	cl := fake.NewClientBuilder().
+		WithScheme(coverageTestScheme(t)).
+		WithObjects(partial("a", "read", "write"), partial("b", "read", "socket")).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Delete: func(
+				ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption,
+			) error {
+				if failDelete {
+					return errors.New("delete failed")
+				}
+
+				return c.Delete(ctx, obj, opts...)
+			},
+		}).
+		Build()
+	reconciler := &PolicyMergeReconciler{client: cl, log: logr.Discard()}
+	recording := &profilerecordingapi.ProfileRecording{
+		ObjectMeta: metav1.ObjectMeta{Name: recordingName, Namespace: namespace},
+	}
+
+	merge := func() error {
+		_, _, err := reconciler.mergeTypedProfiles(
+			context.Background(), recording,
+			profilerecordingapi.ProfileRecordingKindSeccompProfile,
+			&seccompprofile.SeccompProfileList{}, nil,
+		)
+
+		return err
+	}
+
+	coverage := func() syscallCoverage {
+		merged := &seccompprofile.SeccompProfile{}
+		require.NoError(t, cl.Get(context.Background(), client.ObjectKey{
+			Name: recordingName + "-" + containerName,
+		}, merged))
+
+		return parseCoverage(t, merged.GetAnnotations()[syscallCoverageAnnotation])
+	}
+
+	want := syscallCoverage{
+		Version: syscallCoverageSchemaVersion, Total: 2,
+		Syscalls: map[string]int{"read": 2, "socket": 1, "write": 1},
+	}
+
+	require.Error(t, merge())
+	require.Equal(t, want, coverage())
+
+	// The retry merges the same partial profiles again.
+	require.Error(t, merge())
+	require.Equal(t, want, coverage())
+
+	// A new partial profile adds to the coverage.
+	require.NoError(t, cl.Create(context.Background(), partial("c", "mknod")))
+
+	failDelete = false
+
+	require.NoError(t, merge())
+	require.Equal(t, syscallCoverage{
+		Version: syscallCoverageSchemaVersion, Total: 3,
+		Syscalls: map[string]int{"read": 2, "socket": 1, "write": 1, "mknod": 1},
+	}, coverage())
+}
+
+func TestMergedCoverage(t *testing.T) {
+	t.Parallel()
+
+	partials := []partialCoverage{
+		{uid: "uid-b", syscalls: []string{"read"}},
+		{uid: "uid-a", syscalls: []string{"read", "socket"}},
+	}
+	previous := map[string]string{
+		syscallCoverageAnnotation:         `{"version":"v1","total":1,"syscalls":{"read":1}}`,
+		syscallCoveragePartialsAnnotation: "uid-a",
+	}
+
+	// A kept profile adds the partial profiles it does not count yet.
+	coverage, counted := mergedCoverage(partials, previous, true)
+	require.JSONEq(t, `{"version":"v1","total":2,"syscalls":{"read":2}}`, coverage)
+	require.Equal(t, "uid-a,uid-b", counted)
+
+	// Partial profiles which are all counted already change nothing.
+	previous[syscallCoveragePartialsAnnotation] = "uid-a,uid-b"
+	coverage, counted = mergedCoverage(partials, previous, true)
+	require.Empty(t, coverage)
+	require.Equal(t, "uid-a,uid-b", counted)
+
+	// A replaced profile counts all of them.
+	coverage, counted = mergedCoverage(partials, previous, false)
+	require.JSONEq(t, `{"version":"v1","total":2,"syscalls":{"read":2,"socket":1}}`, coverage)
+	require.Equal(t, "uid-a,uid-b", counted)
 }

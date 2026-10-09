@@ -18,11 +18,13 @@ package nodestatus
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
 	"os"
 	"strings"
+	"unicode/utf8"
 
 	"k8s.io/apimachinery/pkg/api/equality"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
@@ -53,6 +55,9 @@ type StatusClient struct {
 	// util.GetLegacyFinalizerNodeString. It is empty for every other node.
 	legacyFinalizerString string
 	client                client.Client
+
+	// reader reads the profile after a conflict, see WithAPIReader.
+	reader client.Reader
 
 	// kind is the profile kind, resolved once on construction so that names
 	// and labels do not depend on the TypeMeta of pol, which is empty for
@@ -95,6 +100,14 @@ func NewForProfileOnNode(
 		legacyFinalizerString: getLegacyFinalizerString(pol, nodeName),
 		client:                c,
 	}, nil
+}
+
+// WithAPIReader sets the reader which the retries of a conflicting write of
+// the finalizer read the profile with, usually the API reader of the manager.
+// The cache may keep returning the version of the profile which conflicted.
+// Without it, the retries read through the client.
+func (nsf *StatusClient) WithAPIReader(reader client.Reader) {
+	nsf.reader = reader
 }
 
 // profileKind returns the kind of the profile. It falls back to the scheme if
@@ -197,41 +210,29 @@ func (nsf *StatusClient) removeLegacyNodeStatus(
 // createFinalizer adds the finalizer of this node. A legacy finalizer of an
 // earlier release is left in place, see MigrateLegacyFinalizer.
 func (nsf *StatusClient) createFinalizer(ctx context.Context) error {
-	return util.RetryWithContext(ctx, func() error {
-		return util.AddFinalizer(ctx, nsf.client, nsf.pol, nsf.finalizerString)
+	return util.RetryWithFreshReads(ctx, nsf.client, nsf.reader, func(c client.Client) error {
+		return util.AddFinalizer(ctx, c, nsf.pol, nsf.finalizerString)
 	}, util.IsNotFoundOrConflict)
 }
 
 // createFinalizerAndLabel adds the finalizer of this node and the label of
-// the profile with a single update. Every node does it for each profile at
-// once, so separate updates would double the conflicts.
+// the profile with a single patch. Every node does it for each profile at
+// once, so the patch appends the finalizer instead of writing the whole
+// profile, which would conflict with the other nodes, see
+// util.AddFinalizerAndLabel.
 func (nsf *StatusClient) createFinalizerAndLabel(ctx context.Context) error {
-	return util.RetryWithContext(ctx, func() error {
-		// Re-fetch on every attempt: a failed update leaves the changes in the
-		// local object, and the retry must not mistake them for stored ones.
-		if err := nsf.client.Get(ctx, client.ObjectKeyFromObject(nsf.pol), nsf.pol); err != nil {
-			return fmt.Errorf("getting profile: %w", err)
-		}
-
-		changed := controllerutil.AddFinalizer(nsf.pol, nsf.finalizerString)
-
-		polLabels := nsf.pol.GetLabels()
-		if polLabels == nil {
-			polLabels = make(map[string]string)
-		}
-
-		if _, ok := polLabels[secprofnodestatusapi.StatusToProfLabel]; !ok {
-			polLabels[secprofnodestatusapi.StatusToProfLabel] = nsf.profileID()
-			nsf.pol.SetLabels(polLabels)
-
-			changed = true
-		}
-
-		if !changed {
-			return nil
-		}
-
-		return nsf.client.Update(ctx, nsf.pol)
+	return util.RetryWithFreshReads(ctx, nsf.client, nsf.reader, func(c client.Client) error {
+		// The profile is fetched again on every attempt, so a failed patch
+		// does not leave changes in it which the retry would take for stored
+		// ones.
+		return util.AddFinalizerAndLabel(
+			ctx,
+			c,
+			nsf.pol,
+			nsf.finalizerString,
+			secprofnodestatusapi.StatusToProfLabel,
+			nsf.profileID(),
+		)
 	}, util.IsNotFoundOrConflict)
 }
 
@@ -258,9 +259,11 @@ func (nsf *StatusClient) statusObj(
 	}
 }
 
-// createNodeStatus creates the node status. A status migrated from a legacy
-// status keeps the state of the legacy one, which tells for example whether
-// the profile got installed on the node already.
+// createNodeStatus creates the node status with all of its labels. A status
+// migrated from a legacy status keeps the state of the legacy one, which tells
+// for example whether the profile got installed on the node already. The API
+// server drops the status of a created object, so the state takes a second
+// write, unless an existing status has it already.
 func (nsf *StatusClient) createNodeStatus(
 	ctx context.Context, legacyState secprofnodestatusapi.ProfileState,
 ) error {
@@ -318,9 +321,16 @@ func (nsf *StatusClient) createNodeStatus(
 		s = existing
 	}
 
+	if s.Status.Status == initialStatus && s.Status.Message == "" {
+		return nil
+	}
+
+	base := s.DeepCopy()
 	s.Status.Status = initialStatus
-	if updateErr := nsf.client.Status().Update(ctx, s); updateErr != nil {
-		return fmt.Errorf("setting initial node status: %w", updateErr)
+	s.Status.Message = ""
+
+	if patchErr := nsf.client.Status().Patch(ctx, s, client.MergeFrom(base)); patchErr != nil {
+		return fmt.Errorf("setting initial node status: %w", patchErr)
 	}
 
 	return nil
@@ -389,9 +399,9 @@ func (nsf *StatusClient) MigrateLegacyFinalizer(ctx context.Context) error {
 // removeFinalizer removes the finalizer of this node and the legacy one of
 // earlier releases, which other nodes may share, see MigrateLegacyFinalizer.
 func (nsf *StatusClient) removeFinalizer(ctx context.Context) error {
-	return util.RetryWithContext(ctx, func() error {
+	return util.RetryWithFreshReads(ctx, nsf.client, nsf.reader, func(c client.Client) error {
 		return util.RemoveFinalizers(
-			ctx, nsf.client, nsf.pol, nsf.finalizerString, nsf.legacyFinalizerString,
+			ctx, c, nsf.pol, nsf.finalizerString, nsf.legacyFinalizerString,
 		)
 	}, util.IsNotFoundOrConflict)
 }
@@ -435,51 +445,94 @@ func (nsf *StatusClient) nodeStatusExists(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
-// SetNodeStatus sets the state of the node status. Only the daemon of this
-// node writes its status, so a conflict resolves right away and does not need
-// the backoff of util.RetryWithContext, which the profiles shared by all nodes
-// get.
+// SetNodeStatus sets the state of the node status and clears its message.
 func (nsf *StatusClient) SetNodeStatus(
 	ctx context.Context,
 	polState secprofnodestatusapi.ProfileState,
 ) error {
-	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		status := secprofnodestatusapi.SecurityProfileNodeStatus{}
+	return nsf.SetNodeStatusWithMessage(ctx, polState, "")
+}
 
-		err := nsf.client.Get(ctx, nsf.perNodeStatusNamespacedName(), &status)
-		if kerrors.IsNotFound(err) && polState == secprofnodestatusapi.ProfileStateTerminating {
-			// it's OK if we're about to terminate a profile but it was already gone
-			return nil
-		} else if err != nil {
-			return fmt.Errorf("retrieving the current status: %w", err)
-		}
+// SetNodeStatusWithMessage sets the state of the node status along with a
+// message which tells why the profile is in that state, like the reason why
+// it failed to install. A message longer than the API allows is truncated.
+//
+// Only the daemon of this node writes its status, so the state label and the
+// status are written with patches which do not carry the resource version.
+// They cannot conflict, and the status does not depend on the resource
+// version which the label write returns. Nothing gets written if the state
+// and the message are set already.
+func (nsf *StatusClient) SetNodeStatusWithMessage(
+	ctx context.Context,
+	polState secprofnodestatusapi.ProfileState,
+	message string,
+) error {
+	message = truncateMessage(message)
+
+	status := &secprofnodestatusapi.SecurityProfileNodeStatus{}
+
+	err := nsf.client.Get(ctx, nsf.perNodeStatusNamespacedName(), status)
+	if kerrors.IsNotFound(err) && polState == secprofnodestatusapi.ProfileStateTerminating {
+		// it's OK if we're about to terminate a profile but it was already gone
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("retrieving the current status: %w", err)
+	}
+
+	if status.Labels[secprofnodestatusapi.StatusStateLabel] != string(polState) {
+		base := status.DeepCopy()
 
 		if status.Labels == nil {
 			status.Labels = map[string]string{}
 		}
 
-		if status.Labels[secprofnodestatusapi.StatusStateLabel] != string(polState) {
-			status.Labels[secprofnodestatusapi.StatusStateLabel] = string(polState)
+		status.Labels[secprofnodestatusapi.StatusStateLabel] = string(polState)
 
-			// The update refreshes the resource version of status, which
-			// is required for the status update below. Reading it again
-			// from the cache could return the previous version.
-			if err := nsf.client.Update(ctx, &status); err != nil {
-				return fmt.Errorf("updating node status labels: %w", err)
-			}
+		if err := nsf.client.Patch(ctx, status, client.MergeFrom(base)); err != nil {
+			return fmt.Errorf("updating node status labels: %w", err)
 		}
+	}
 
-		if status.Status.Status == polState {
-			return nil
-		}
-
-		status.Status.Status = polState
-		if err := nsf.client.Status().Update(ctx, &status); err != nil {
-			return fmt.Errorf("updating node status: %w", err)
-		}
-
+	if status.Status.Status == polState && status.Status.Message == message {
 		return nil
+	}
+
+	// The status read from the cache can lag behind the stored one, so the
+	// patch sets both fields instead of the difference to the cached status.
+	// A null message removes an earlier one.
+	var messageValue any
+	if message != "" {
+		messageValue = message
+	}
+
+	patch, err := json.Marshal(map[string]any{
+		"status": map[string]any{"status": polState, "message": messageValue},
 	})
+	if err != nil {
+		return fmt.Errorf("marshaling node status patch: %w", err)
+	}
+
+	if err := nsf.client.Status().Patch(
+		ctx, status, client.RawPatch(types.MergePatchType, patch),
+	); err != nil {
+		return fmt.Errorf("updating node status: %w", err)
+	}
+
+	return nil
+}
+
+// truncateMessage shortens the message to the length the API allows for the
+// message of a node status.
+func truncateMessage(message string) string {
+	if utf8.RuneCountInString(message) <= secprofnodestatusapi.MaxMessageLength {
+		return message
+	}
+
+	const ellipsis = "..."
+
+	runes := []rune(message)
+
+	return string(runes[:secprofnodestatusapi.MaxMessageLength-len(ellipsis)]) + ellipsis
 }
 
 func (nsf *StatusClient) GetAnnotation(ctx context.Context, key string) (string, error) {

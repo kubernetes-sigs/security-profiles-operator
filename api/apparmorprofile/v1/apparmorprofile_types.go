@@ -207,13 +207,23 @@ type AppArmorProfileSpec struct {
 // AppArmorProfileStatus defines the observed state of AppArmorProfile.
 type AppArmorProfileStatus struct {
 	profilebasev1.StatusBase `json:",inline"`
+	// activeWorkloads lists the pods currently using this profile as
+	// namespace/name, sorted and limited to the first 1000 of them.
+	// +optional
+	// +listType=set
+	ActiveWorkloads []string `json:"activeWorkloads,omitempty"`
+	// activeWorkloadsCount is the number of pods currently using this
+	// profile, which can be more than activeWorkloads lists.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	ActiveWorkloadsCount int32 `json:"activeWorkloadsCount,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 
 // AppArmorProfile is a cluster level specification for an AppArmor profile.
 // +kubebuilder:storageversion
-// +kubebuilder:resource:shortName=aa,scope=Cluster
+// +kubebuilder:resource:shortName=aa,scope=Cluster,categories=spo
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Status",type="string",JSONPath=`.status.status`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`

@@ -7,9 +7,13 @@ metadata:
 spec:
   group: security-profiles-operator.x-k8s.io
   names:
+    categories:
+    - spo
     kind: ProfileBinding
     listKind: ProfileBindingList
     plural: profilebindings
+    shortNames:
+    - pb
     singular: profilebinding
   scope: Namespaced
   versions:

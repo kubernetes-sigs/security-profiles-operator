@@ -49,6 +49,15 @@ webhooks:
         apiGroups: [""]
         apiVersions: ["v1"]
         resources: ["pods"]
+    matchConditions:
+      - name: create-or-recording-annotation-change
+        expression: >-
+          request.operation != 'UPDATE' ||
+          (has(oldObject.metadata.annotations) && oldObject.metadata.annotations.exists(k,
+          (k.startsWith("io.containers.trace-logs/") || k.startsWith("io.containers.trace-bpf/") ||
+          k.startsWith("io.containers.trace-bpf-apparmor/") || k.startsWith("io.containers.trace-avcs/")) &&
+          !(has(object.metadata.annotations) && k in object.metadata.annotations &&
+          object.metadata.annotations[k] == oldObject.metadata.annotations[k])))
     objectSelector:
       matchExpressions:
         - key: name

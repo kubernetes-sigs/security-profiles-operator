@@ -201,10 +201,16 @@ type SeccompProfileStatus struct {
 	// +optional
 	//nolint:kubeapilinter // released v1 API: empty means unset, a MinLength would reject existing manifests
 	Path string `json:"path,omitempty"`
-	// activeWorkloads lists the workloads currently using this profile.
+	// activeWorkloads lists the pods currently using this profile as
+	// namespace/name, sorted and limited to the first 1000 of them.
 	// +optional
 	// +listType=set
 	ActiveWorkloads []string `json:"activeWorkloads,omitempty"`
+	// activeWorkloadsCount is the number of pods currently using this
+	// profile, which can be more than activeWorkloads lists.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	ActiveWorkloadsCount int32 `json:"activeWorkloadsCount,omitempty"`
 	// localhostProfile is the path that should be provided to the
 	// `securityContext.seccompProfile.localhostProfile` field of a Pod
 	// or container spec.
@@ -218,7 +224,7 @@ type SeccompProfileStatus struct {
 // SeccompProfile is a cluster level specification for a seccomp profile.
 // See https://github.com/opencontainers/runtime-spec/blob/master/config-linux.md#seccomp
 // +kubebuilder:storageversion
-// +kubebuilder:resource:shortName=sp,scope=Cluster
+// +kubebuilder:resource:shortName=sp,scope=Cluster,categories=spo
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.status`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`

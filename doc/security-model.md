@@ -73,7 +73,7 @@ The running permissions for the three core technologies supported:
    `CHOWN`, `FOWNER`, `FSETID` and `DAC_OVERRIDE` capabilities to the runtime defaults, and runs
    with the `selinuxd.process` type.
 2. The type can be changed through `spec.selinux.typeTag` of the `spod` resource, for
-   example to `unconfined_t` on Flatcar Linux.
+   example to `unconfined_t` on Flatcar Linux. It is ignored while AppArmor is enabled.
 3. The daemon container runs with the Localhost seccomp profile `security-profiles-operator.json`,
    which the operator ships in the `security-profiles-operator-profile` ConfigMap and the
    `non-root-enabler` copies into the `seccomp` directory of the kubelet. The pod level default
@@ -169,7 +169,13 @@ to the pod and its namespace and a `ProfileRecording` of the namespace selects t
 pod author controls the annotations of the other pods. Profiles recorded into a profile which
 already exists, but was not recorded by the same `ProfileRecording`, are dropped. That keeps
 recordings from overwriting profiles which were written by an admin or recorded by another
-namespace.
+namespace. The `ProfileConflict` condition of the recording names such profiles. Profiles
+recorded before 1.0 lack the `spo.x-k8s.io/recording-namespace` label which tells the namespace
+of their recording. At startup the operator sets it where only one existing `ProfileRecording`
+with their recording name can have recorded them. The others are still written by a recording
+with that name, which then sets the label, but the operator does not merge into them while
+recordings with that name exist in several namespaces. Set the label on such profiles to keep
+other namespaces from recording into them.
 
 ## Control Plane RBAC
 
@@ -184,7 +190,8 @@ API groups of its role.
 ### security-profiles-operator
 
 - Cluster wide: events (`events.k8s.io`, and core events for the leader election), nodes and
-  pods (read), the `security-profiles-operator-profile` ConfigMap (read), tokenreviews
+  pods (read), namespaces (read, for whether the recording webhook selects the namespace of a
+  `ProfileRecording` and the binding webhook the one of a pod), the `security-profiles-operator-profile` ConfigMap (read), tokenreviews
   (`authentication.k8s.io`) and subjectaccessreviews (`authorization.k8s.io`) for the metrics,
   OpenShift clusteroperators and apiservers (`config.openshift.io`, read).
 - Mutating and validating webhook configurations (`admissionregistration.k8s.io`): create, and
@@ -214,14 +221,40 @@ API groups of its role.
 - Operator namespace only: jobs (`batch`) to reload SELinux policies, get on secrets and
   configmaps for the public keys and the Sigstore trusted roots of the
   [signature verification](#oci-artifact-signature-verification) of OCI base profiles, and the
-  `privileged` SCC (`security.openshift.io`).
+  `privileged` SCC (`security.openshift.io`). The `spod` resource names these secrets and
+  configmaps, so the role cannot be limited to them and allows reading all secrets and
+  configmaps of the operator namespace, like the `spo-metrics-client-token` Secret and the
+  TLS certificates of the webhook and the metrics endpoints. Do not store other secrets in the
+  operator namespace.
 - Own API: no delete on seccomp profiles, the daemons reject profiles which the allow lists do
-  not allow instead of deleting them. The daemons update the finalizers and labels of the
-  profiles and patch the annotations of seccomp profiles, but do not write the profile status,
+  not allow instead of deleting them. The daemons patch the finalizers and labels of the
+  profiles and the annotations of seccomp profiles, but do not write the profile status,
   which the operator aggregates from the node statuses. Create is limited to the seccomp,
   SELinux and AppArmor profiles which the profile recorder records, raw SELinux profiles cannot
   be created. The `*/finalizers` subresources are limited to get, update and patch, without
   delete.
+
+RBAC cannot restrict what a write changes, and every daemon uses the same service account, so
+the root user of a single node could otherwise change the profiles of all nodes. Two
+ValidatingAdmissionPolicies limit the writes of the `spod` service account:
+
+- `spo-spod-profiles`: profiles may only be created with the labels of a recording. The spec
+  may only change for profiles with the `spo.x-k8s.io/recording-id` label, which may not be
+  added, changed or removed, and never for raw SELinux profiles. Other profiles may only get
+  the `spo.x-k8s.io/profile-id` label of the node statuses, and the owner references may not
+  change. Finalizers and annotations are not restricted. A compromised node can therefore
+  still change recorded profiles, which are cluster scoped. Removing the
+  `spo.x-k8s.io/recording-id` label from a recorded profile once its recording is done keeps
+  the daemons from changing it.
+- `spo-spod-jobs`: jobs have to be the SELinux policy reload job, running as `spod` on the
+  node of the requesting daemon. The node is taken from the node name which Kubernetes adds to
+  projected service account tokens, by default since 1.30 through the
+  `ServiceAccountTokenPodNodeInfo` feature gate. Without it the jobs are denied, so SELinux
+  policies cannot be reloaded.
+
+The operator namespace is not known to the policies, so they apply to the service accounts
+named `spod` of all namespaces. The OLM bundle cannot ship ValidatingAdmissionPolicies, so
+installations through OLM come without these policies.
 
 ### spo-webhook
 
@@ -243,13 +276,27 @@ and only apply to namespaces with the `spo.x-k8s.io/enable-binding` or
 namespace, and also binds ephemeral containers, which get added to running pods for example by
 `kubectl debug`. Bindings to profiles which do not exist are skipped. A profile without status
 is not installed yet, so pods bound to it are rejected, unless its kind is disabled
-in the `spod` resource, in which case the binding is skipped with an event.
+in the `spod` resource, in which case the binding is skipped with an event. The bindings only
+apply on pod creation, so the `binding-image.spo.io` validating webhook, which selects the same
+namespaces and pods, rejects image changes of running pods while an image binding matches the
+old or the new image. A match condition limits it to the updates which change an image. The
+recording webhook only gets the pod updates which remove or change a recording annotation,
+so that other updates, like the ones of the garbage collector, do not depend on it.
 
 The exec metadata webhooks use the `Ignore` failure policy. `execmetadata.spo.io` excludes the
 `kube-system`, `kube-public`, `kube-node-lease` and operator namespaces. Other system namespaces,
 like the `openshift-*` ones, can be excluded through `spec.webhook.options` of the `spod`
 resource. `nodedebuggingpod.spo.io` applies to the pods of all namespaces which carry the
 `app.kubernetes.io/managed-by: kubectl-debug` label of `kubectl debug node`.
+
+The validating webhook and the daemons check the CIL policy of raw SELinux profiles, which
+the daemons place into a block named after the profile. The parentheses have to be balanced
+outside of comments and strings, so that the policy cannot leave its block, statements which
+change the global policy, like `typepermissive`, are rejected, and `blockinherit` may only
+name the container templates. The check cannot tell which global types, attributes and blocks
+the statements refer to: allow rules for global types like `container_t`, `typeattributeset`
+and `in` statements can still affect other workloads. Only cluster admins should be able to
+write raw SELinux profiles.
 
 
 For the most up-to-date rbac requirements refer to the materialised [role.yaml](../deploy/base/role.yaml) file.

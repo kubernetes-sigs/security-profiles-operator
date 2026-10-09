@@ -102,6 +102,63 @@ func TestUpdateSelinuxSecurityContext(t *testing.T) {
 		)
 		requireEvent(t, fake, "SecurityContextAlreadySet")
 	})
+
+	// A reinvocation of the webhook finds the type it set itself, and options
+	// without a type have nothing to overwrite.
+	for name, opts := range map[string]*corev1.SELinuxOptions{
+		"reinvocation":         {Type: config.SelinuxPermissiveProfile, Level: "s0:c1,c2"},
+		"options without type": {Level: "s0:c1,c2"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			sut, fake := eventRecorder()
+			ctr := &corev1.Container{
+				Name:            "container",
+				SecurityContext: &corev1.SecurityContext{SELinuxOptions: opts},
+			}
+
+			sut.updateSelinuxSecurityContext(
+				ctr,
+				logsRecording(profilerecordingapi.ProfileRecordingKindSelinuxProfile),
+			)
+
+			require.Equal(t,
+				&corev1.SELinuxOptions{Type: config.SelinuxPermissiveProfile, Level: "s0:c1,c2"},
+				ctr.SecurityContext.SELinuxOptions,
+			)
+			require.Empty(t, fake.Events)
+		})
+	}
+}
+
+func TestUpdateSeccompSecurityContextEvents(t *testing.T) {
+	t.Parallel()
+
+	rec := logsRecording(profilerecordingapi.ProfileRecordingKindSeccompProfile)
+
+	// The webhook sets the log enricher profile, and a reinvocation of the
+	// webhook finds it.
+	sut, fake := eventRecorder()
+	ctr := &corev1.Container{Name: "container"}
+
+	sut.updateSeccompSecurityContext(ctr, rec)
+	require.Empty(t, fake.Events)
+
+	set := ctr.SecurityContext.SeccompProfile.DeepCopy()
+
+	sut.updateSeccompSecurityContext(ctr, rec)
+	require.Empty(t, fake.Events)
+	require.Equal(t, set, ctr.SecurityContext.SeccompProfile)
+
+	// A profile of the pod author gets overwritten and reported.
+	ctr.SecurityContext.SeccompProfile = &corev1.SeccompProfile{
+		Type: corev1.SeccompProfileTypeRuntimeDefault,
+	}
+
+	sut.updateSeccompSecurityContext(ctr, rec)
+	requireEvent(t, fake, "SecurityContextAlreadySet")
+	require.Equal(t, set, ctr.SecurityContext.SeccompProfile)
 }
 
 func TestUpdateSecurityContext(t *testing.T) {

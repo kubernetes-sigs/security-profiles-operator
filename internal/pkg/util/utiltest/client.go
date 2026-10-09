@@ -85,6 +85,28 @@ func UpdateReturns(
 	}
 }
 
+// PatchReturns returns a Patch interceptor which does not ask the client, but
+// only returns err.
+func PatchReturns(
+	err error,
+) func(context.Context, client.WithWatch, client.Object, client.Patch, ...client.PatchOption) error {
+	return func(context.Context, client.WithWatch, client.Object, client.Patch, ...client.PatchOption) error {
+		return err
+	}
+}
+
+// SubResourcePatchReturns returns a SubResourcePatch interceptor which does
+// not ask the client, but only returns err.
+func SubResourcePatchReturns(err error) func(
+	context.Context, client.Client, string, client.Object, client.Patch, ...client.SubResourcePatchOption,
+) error {
+	return func(
+		context.Context, client.Client, string, client.Object, client.Patch, ...client.SubResourcePatchOption,
+	) error {
+		return err
+	}
+}
+
 // SubResourceUpdateReturns returns a SubResourceUpdate interceptor which does
 // not ask the client, but only returns err.
 func SubResourceUpdateReturns(err error) func(

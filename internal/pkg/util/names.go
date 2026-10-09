@@ -116,7 +116,10 @@ func CheckRecordingOwner(profile client.Object, recordingName, recordingNamespac
 	}
 
 	// Profiles recorded before the namespace label existed only carry the
-	// recording name.
+	// recording name. The manager labels them with the namespace of their
+	// recording at startup where it can tell it, see the recording merger.
+	// The others are accepted, like before the label existed, and the writer
+	// adds the label, so that only its namespace can write them afterwards.
 	if name != recordingName || (hasNamespace && namespace != recordingNamespace) {
 		return fmt.Errorf(
 			"%w: profile %s was recorded by %s/%s, not by %s/%s",
@@ -126,6 +129,29 @@ func CheckRecordingOwner(profile client.Object, recordingName, recordingNamespac
 	}
 
 	return nil
+}
+
+// IsLegacyRecordedProfile returns true if the profile was recorded before the
+// recording namespace label existed: it carries the recording name, but not
+// the namespace of the recording.
+func IsLegacyRecordedProfile(profile client.Object) bool {
+	labels := profile.GetLabels()
+	_, hasName := labels[profilerecordingapi.ProfileToRecordingLabel]
+	_, hasNamespace := labels[profilerecordingapi.ProfileToRecordingNamespaceLabel]
+
+	return hasName && !hasNamespace
+}
+
+// RecordedProfileName returns the name of the profile which a recording
+// records for a container. The suffix tells the replicas apart, it is empty
+// for a merged profile and for a pod without generated name.
+func RecordedProfileName(recordingName, containerName, suffix string) string {
+	name := recordingName + "-" + containerName
+	if suffix != "" {
+		name += "-" + suffix
+	}
+
+	return name
 }
 
 // nodeLabelHashPrefixLen is how many characters of a long node name are kept

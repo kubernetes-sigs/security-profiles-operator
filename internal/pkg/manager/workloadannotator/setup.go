@@ -18,6 +18,7 @@ package workloadannotator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -25,6 +26,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -43,10 +45,12 @@ import (
 )
 
 // podIndex returns an index function over pods for the provided extractor.
+// Completed pods are not indexed, because they do not use their profiles
+// anymore.
 func podIndex(extract func(*corev1.Pod) []string) client.IndexerFunc {
 	return func(rawObj client.Object) []string {
 		pod, ok := rawObj.(*corev1.Pod)
-		if !ok {
+		if !ok || util.PodCompleted(pod) {
 			return []string{}
 		}
 
@@ -79,88 +83,42 @@ func (r *PodReconciler) Setup(
 		}
 	}
 
-	// Index SeccompProfiles with active pods
-	if err := indexer.IndexField(
-		ctx,
-		&seccompprofileapi.SeccompProfile{},
-		linkedPodsKey,
-		func(rawObj client.Object) []string {
-			sp, ok := rawObj.(*seccompprofileapi.SeccompProfile)
-			if !ok {
-				return []string{}
-			}
-
-			return sp.Status.ActiveWorkloads
-		},
-	); err != nil {
-		return fmt.Errorf("creating seccomp profile index: %w", err)
-	}
-
-	// Index the AppArmor and raw SELinux profiles in use, which have no list
-	// of active workloads to index.
+	// Index the profiles by the pods they list.
 	for _, obj := range []client.Object{
-		&apparmorprofileapi.AppArmorProfile{}, &selinuxprofileapi.RawSelinuxProfile{},
+		&seccompprofileapi.SeccompProfile{},
+		&selinuxprofileapi.SelinuxProfile{},
+		&selinuxprofileapi.RawSelinuxProfile{},
+		&apparmorprofileapi.AppArmorProfile{},
 	} {
-		if err := indexer.IndexField(ctx, obj, inUseKey, inUseIndex); err != nil {
-			return fmt.Errorf("creating in-use profile index: %w", err)
+		if err := indexer.IndexField(ctx, obj, linkedPodsKey, workloadIndex); err != nil {
+			return fmt.Errorf("creating active workloads index: %w", err)
 		}
 	}
 
-	// Index SelinuxProfile with active pods
-	if err := indexer.IndexField(
-		ctx,
-		&selinuxprofileapi.SelinuxProfile{},
-		linkedPodsKey,
-		func(rawObj client.Object) []string {
-			sp, ok := rawObj.(*selinuxprofileapi.SelinuxProfile)
-			if !ok {
-				return []string{}
-			}
-
-			return sp.Status.ActiveWorkloads
-		},
-	); err != nil {
-		return fmt.Errorf("creating selinux profile index: %w", err)
-	}
-
-	profileWatch := handler.EnqueueRequestsFromMapFunc(r.profileWorkloadRequests)
-	releaserOptions := ctrlcontroller.Options{
+	profileOptions := ctrlcontroller.Options{
 		MaxConcurrentReconciles: controller.MaxConcurrentReconciles(ctx),
 	}
 
-	if err := ctrl.NewControllerManagedBy(mgr).
-		Named(name+"-apparmor").
-		WithOptions(releaserOptions).
-		For(&apparmorprofileapi.AppArmorProfile{}, builder.WithPredicates(profileCreatedPredicate)).
-		Complete(&profileReleaser[*apparmorprofileapi.AppArmorProfile]{
-			pods:   r,
-			newObj: func() *apparmorprofileapi.AppArmorProfile { return &apparmorprofileapi.AppArmorProfile{} },
-			release: func(ctx context.Context, r *PodReconciler, p *apparmorprofileapi.AppArmorProfile) error {
-				return r.updatePodReferencesForAppArmor(ctx, p)
-			},
-		}); err != nil {
-		return fmt.Errorf("creating AppArmorProfile releaser: %w", err)
+	if err := errors.Join(
+		setupProfileReconciler(mgr, name+"-seccomp", &profileOptions, r, seccompKind),
+		setupProfileReconciler(mgr, name+"-selinux", &profileOptions, r, selinuxKind),
+		setupProfileReconciler(mgr, name+"-rawselinux", &profileOptions, r, rawSelinuxKind),
+		setupProfileReconciler(mgr, name+"-apparmor", &profileOptions, r, appArmorKind),
+	); err != nil {
+		return err
 	}
 
-	if err := ctrl.NewControllerManagedBy(mgr).
-		Named(name+"-rawselinux").
-		WithOptions(releaserOptions).
-		For(&selinuxprofileapi.RawSelinuxProfile{}, builder.WithPredicates(profileCreatedPredicate)).
-		Complete(&profileReleaser[*selinuxprofileapi.RawSelinuxProfile]{
-			pods:   r,
-			newObj: func() *selinuxprofileapi.RawSelinuxProfile { return &selinuxprofileapi.RawSelinuxProfile{} },
-			release: func(ctx context.Context, r *PodReconciler, p *selinuxprofileapi.RawSelinuxProfile) error {
-				return r.updatePodReferencesForRawSelinux(ctx, p)
-			},
-		}); err != nil {
-		return fmt.Errorf("creating RawSelinuxProfile releaser: %w", err)
-	}
+	profileWatch := handler.EnqueueRequestsFromMapFunc(r.profileWorkloadRequests)
 
 	// Register a special reconciler for pod events
 	return ctrl.NewControllerManagedBy(mgr).
 		Named(name).
 		WithOptions(controller.Options(ctx)).
-		For(&corev1.Pod{}, builder.WithPredicates(podPredicate())).
+		Watches(
+			&corev1.Pod{},
+			&podEventHandler{EventHandler: &handler.EnqueueRequestForObject{}, pods: r},
+			builder.WithPredicates(podPredicate()),
+		).
 		// Reconcile the pods using a profile once the profile enters the
 		// cache, for example after an operator restart or if the profile got
 		// created after the pod. Pods deleted while no delete event could be
@@ -188,6 +146,62 @@ func (r *PodReconciler) Setup(
 		Complete(r)
 }
 
+// podEventHandler enqueues the pod events like handler.EnqueueRequestForObject
+// and remembers the profile references of the deleted pods, which are gone
+// from the cache once their deletion gets reconciled. They tell which of the
+// profiles that list only part of their pods may count the deleted pod.
+type podEventHandler struct {
+	handler.EventHandler
+
+	pods *PodReconciler
+}
+
+func (h *podEventHandler) Delete(
+	ctx context.Context,
+	e event.DeleteEvent,
+	q workqueue.TypedRateLimitingInterface[reconcile.Request],
+) {
+	if pod, ok := e.Object.(*corev1.Pod); ok {
+		h.pods.rememberDeletedPod(pod)
+	}
+
+	h.EventHandler.Delete(ctx, e, q)
+}
+
+// setupProfileReconciler adds the profileReconciler of a profile kind.
+func setupProfileReconciler[T client.Object](
+	mgr ctrl.Manager,
+	name string,
+	options *ctrlcontroller.Options,
+	pods *PodReconciler,
+	kind *profileKind[T],
+) error {
+	if err := ctrl.NewControllerManagedBy(mgr).
+		Named(name).
+		WithOptions(*options).
+		For(kind.newObj(), builder.WithPredicates(profileWorkloadsPredicate)).
+		Complete(&profileReconciler[T]{pods: pods, kind: kind}); err != nil {
+		return fmt.Errorf("creating %s reconciler: %w", kind.name, err)
+	}
+
+	return nil
+}
+
+// profileWorkloadsPredicate selects the profiles entering the cache and the
+// updates of the pods they list or of their in-use finalizer.
+var profileWorkloadsPredicate = predicate.Funcs{
+	CreateFunc: func(event.CreateEvent) bool { return true },
+	DeleteFunc: func(event.DeleteEvent) bool { return false },
+	UpdateFunc: func(e event.UpdateEvent) bool {
+		oldWorkloads, oldCount := workloadStatus(e.ObjectOld)
+		newWorkloads, newCount := workloadStatus(e.ObjectNew)
+
+		return oldCount != newCount || !slices.Equal(oldWorkloads, newWorkloads) ||
+			isInUse(e.ObjectOld) != isInUse(e.ObjectNew)
+	},
+	GenericFunc: func(event.GenericEvent) bool { return false },
+}
+
 // podPredicate selects the pod events which can change the profiles in use:
 // a pod referencing a profile appears or disappears, or the profiles a pod
 // references change. Status updates of a pod, like readiness flaps or
@@ -203,8 +217,9 @@ func podPredicate() predicate.Funcs {
 }
 
 // podProfilesChanged returns true if the new pod references a profile and
-// the referenced profiles differ from the old pod, or the pod got replaced
-// by one with the same name, which the reconciler tells apart by UID.
+// the referenced profiles differ from the old pod, the pod got replaced by
+// one with the same name, which the reconciler tells apart by UID, or the pod
+// completed.
 func podProfilesChanged(e event.UpdateEvent) bool {
 	o, ok := e.ObjectOld.(*corev1.Pod)
 	if !ok {
@@ -216,7 +231,7 @@ func podProfilesChanged(e event.UpdateEvent) bool {
 		return false
 	}
 
-	return hasProfile(n) && (o.UID != n.UID ||
+	return hasProfile(n) && (o.UID != n.UID || util.PodCompletedNow(o, n) ||
 		!slices.Equal(getSeccompProfilesFromPod(o), getSeccompProfilesFromPod(n)) ||
 		!slices.Equal(getSelinuxProfilesFromPod(o), getSelinuxProfilesFromPod(n)) ||
 		!slices.Equal(getAppArmorProfilesFromPod(o), getAppArmorProfilesFromPod(n)))
@@ -273,16 +288,7 @@ func (r *PodReconciler) profileWorkloadRequests(
 // activeWorkloadRequests maps a profile to reconcile requests for the pods
 // in its list of active workloads.
 func activeWorkloadRequests(_ context.Context, obj client.Object) []reconcile.Request {
-	var podIDs []string
-
-	switch profile := obj.(type) {
-	case *seccompprofileapi.SeccompProfile:
-		podIDs = profile.Status.ActiveWorkloads
-	case *selinuxprofileapi.SelinuxProfile:
-		podIDs = profile.Status.ActiveWorkloads
-	default:
-		return nil
-	}
+	podIDs, _ := workloadStatus(obj)
 
 	requests := make([]reconcile.Request, 0, len(podIDs))
 	for _, podID := range podIDs {

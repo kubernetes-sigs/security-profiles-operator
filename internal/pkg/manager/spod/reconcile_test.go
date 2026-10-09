@@ -38,6 +38,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -918,4 +919,259 @@ func TestReconcileWarnsAboutWeakenedBinding(t *testing.T) {
 		Name: bindata.MutatingWebhookConfigName,
 	}, hooks))
 	require.Equal(t, admissionregv1.Ignore, *hooks.Webhooks[0].FailurePolicy)
+}
+
+// A SPOD which is not named spod reports that it is not reconciled, and
+// renders nothing which would clash with the operands of the SPOD named spod.
+func TestReconcileUnsupportedName(t *testing.T) {
+	t.Parallel()
+
+	spod := testSPOD()
+	spod.Name = "other"
+
+	var writes atomic.Int32
+
+	r, cl, _ := newReconcileTest(t, spod, countingWrites(t, &writes))
+	req := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(spod)}
+
+	_, err := r.Reconcile(t.Context(), req)
+	require.NoError(t, err)
+
+	stored := &spodapi.SecurityProfilesOperatorDaemon{}
+	require.NoError(t, cl.Get(t.Context(), req.NamespacedName, stored))
+	require.Equal(t, spodapi.SPODStateError, stored.Status.State)
+
+	ready := stored.Status.GetReadyCondition()
+	require.Equal(t, metav1.ConditionFalse, ready.Status)
+	require.Equal(t, reasonUnsupportedName, ready.Reason)
+	require.Contains(t, ready.Message, "named spod")
+
+	for _, obj := range []client.Object{
+		&appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: "other", Namespace: testNamespace}},
+		&corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "metrics", Namespace: testNamespace}},
+		&admissionregv1.MutatingWebhookConfiguration{ObjectMeta: metav1.ObjectMeta{
+			Name: bindata.MutatingWebhookConfigName,
+		}},
+	} {
+		err := cl.Get(t.Context(), client.ObjectKeyFromObject(obj), obj)
+		require.True(t, apierrors.IsNotFound(err), "%T: %v", obj, err)
+	}
+
+	// The status is only written once.
+	writes.Store(0)
+
+	_, err = r.Reconcile(t.Context(), req)
+	require.NoError(t, err)
+	require.Zero(t, writes.Load())
+}
+
+// The maximum of unavailable daemon pods of the SPOD gets applied to the
+// existing DaemonSet without rolling its pods, and unsetting it restores the
+// default.
+func TestReconcileDaemonUpdateStrategy(t *testing.T) {
+	t.Parallel()
+
+	spod := testSPOD()
+	spod.Spec.DaemonUpdateStrategy = &spodapi.SPODDaemonUpdateStrategy{
+		MaxUnavailable: new(intstr.FromInt32(1)),
+	}
+
+	var writes atomic.Int32
+
+	r, cl, _ := newReconcileTest(t, spod, countingWrites(t, &writes))
+	reconcileUntilRunning(t, r, cl)
+
+	maxUnavailable := func() intstr.IntOrString {
+		t.Helper()
+
+		rollingUpdate := getDaemonSet(t, cl).Spec.UpdateStrategy.RollingUpdate
+		require.NotNil(t, rollingUpdate)
+		// The defaults of the API server are kept.
+		require.Equal(t, intstr.FromInt32(0), *rollingUpdate.MaxSurge)
+
+		return *rollingUpdate.MaxUnavailable
+	}
+
+	require.Equal(t, intstr.FromInt32(1), maxUnavailable())
+
+	// The fake client does not default the patched DaemonSet like the API
+	// server.
+	template := func() corev1.PodTemplateSpec {
+		t.Helper()
+
+		ds := getDaemonSet(t, cl)
+		applyServerDefaults(t, ds)
+
+		return ds.Spec.Template
+	}
+	before := template()
+
+	for _, value := range []*intstr.IntOrString{new(intstr.FromString("25%")), nil} {
+		stored := getSPOD(t, cl)
+		stored.Spec.DaemonUpdateStrategy = nil
+
+		if value != nil {
+			stored.Spec.DaemonUpdateStrategy = &spodapi.SPODDaemonUpdateStrategy{
+				MaxUnavailable: value,
+			}
+		}
+
+		require.NoError(t, cl.Update(t.Context(), stored))
+
+		reconcileSPOD(t, r)
+		require.Equal(t, spodapi.SPODStateUpdating, spodState(t, cl))
+		require.Equal(t, before, template())
+
+		want := intstr.FromString("100%")
+		if value != nil {
+			want = *value
+		}
+
+		require.Equal(t, want, maxUnavailable())
+
+		setDaemonSetStatus(t, cl, appsv1.DaemonSetStatus{})
+		reconcileUntilRunning(t, r, cl)
+
+		writes.Store(0)
+		reconcileSPOD(t, r)
+		require.Zero(t, writes.Load())
+	}
+}
+
+func Test_updateStrategyDiffers(t *testing.T) {
+	t.Parallel()
+
+	configured := bindata.Manifest.DeepCopy()
+	found := configured.DeepCopy()
+	applyServerDefaults(t, found)
+	require.False(t, updateStrategyDiffers(configured, found))
+
+	found.Spec.UpdateStrategy.RollingUpdate.MaxUnavailable = new(intstr.FromInt32(1))
+	require.True(t, updateStrategyDiffers(configured, found))
+
+	applyUpdateStrategy(found, configured)
+	require.False(t, updateStrategyDiffers(configured, found))
+	require.NotNil(t, found.Spec.UpdateStrategy.RollingUpdate.MaxSurge)
+
+	found.Spec.UpdateStrategy = appsv1.DaemonSetUpdateStrategy{
+		Type: appsv1.OnDeleteDaemonSetStrategyType,
+	}
+	require.True(t, updateStrategyDiffers(configured, found))
+
+	applyUpdateStrategy(found, configured)
+	require.False(t, updateStrategyDiffers(configured, found))
+}
+
+// The ignored SELinux type tag used to be reported on every reconcile until
+// the status recorded the generation, so a reconcile which failed or
+// conflicted reported it again.
+func TestReconcileWarnsAboutIgnoredSelinuxTypeTagOnceDespiteErrors(t *testing.T) {
+	t.Parallel()
+
+	spod := testSPOD()
+	spod.UID = "spod-uid"
+	spod.Generation = 1
+	spod.Spec.EnableAppArmor = new(true)
+	spod.Spec.Selinux.TypeTag = "unconfined_t"
+
+	errConflict := apierrors.NewConflict(
+		spodapi.GroupVersion.WithResource("securityprofilesoperatordaemons").GroupResource(),
+		config.SPOdName, errTest,
+	)
+
+	r, _, recorder := newReconcileTest(t, spod, &interceptor.Funcs{
+		SubResourceUpdate: func(
+			context.Context, client.Client, string, client.Object, ...client.SubResourceUpdateOption,
+		) error {
+			return errConflict
+		},
+		SubResourcePatch: func(
+			context.Context, client.Client, string, client.Object, client.Patch,
+			...client.SubResourcePatchOption,
+		) error {
+			return errConflict
+		},
+	})
+
+	warnings := func() int {
+		count := 0
+
+		for len(recorder.Events) > 0 {
+			if strings.Contains(<-recorder.Events, reasonIgnoredSelinuxTypeTag) {
+				count++
+			}
+		}
+
+		return count
+	}
+
+	for range 3 {
+		//nolint:errcheck // the status writes fail on purpose
+		r.Reconcile(t.Context(), reconcile.Request{
+			NamespacedName: types.NamespacedName{Name: config.SPOdName, Namespace: testNamespace},
+		})
+	}
+
+	require.Equal(t, 1, warnings())
+
+	// A spec change gets reported again, as does another SPOD.
+	changed := spod.DeepCopy()
+	changed.Generation = 2
+	r.warnIgnoredSelinuxTypeTag(changed)
+	r.warnIgnoredSelinuxTypeTag(changed)
+	require.Equal(t, 1, warnings())
+
+	recreated := changed.DeepCopy()
+	recreated.UID = "other-uid"
+	r.warnIgnoredSelinuxTypeTag(recreated)
+	require.Equal(t, 1, warnings())
+}
+
+// A SELinux type tag which gets ignored because of AppArmor is reported once
+// per spec change.
+func TestReconcileWarnsAboutIgnoredSelinuxTypeTag(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		appArmor bool
+		typeTag  string
+		want     bool
+	}{
+		"ignored type tag": {appArmor: true, typeTag: "unconfined_t", want: true},
+		"default type tag": {appArmor: true, typeTag: bindata.DefaultSelinuxTypeTag},
+		"unset type tag":   {appArmor: true},
+		"applied type tag": {typeTag: "unconfined_t"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			spod := testSPOD()
+			spod.Generation = 1
+			spod.Spec.EnableAppArmor = new(tc.appArmor)
+			spod.Spec.Selinux.TypeTag = tc.typeTag
+
+			r, cl, recorder := newReconcileTest(t, spod, &interceptor.Funcs{})
+			reconcileUntilRunning(t, r, cl)
+
+			var recorded []string
+
+			for len(recorder.Events) > 0 {
+				recorded = append(recorded, <-recorder.Events)
+			}
+
+			count := 0
+
+			for _, e := range recorded {
+				if strings.Contains(e, reasonIgnoredSelinuxTypeTag) {
+					count++
+				}
+			}
+
+			if tc.want {
+				require.Equal(t, 1, count, recorded)
+			} else {
+				require.Zero(t, count, recorded)
+			}
+		})
+	}
 }
