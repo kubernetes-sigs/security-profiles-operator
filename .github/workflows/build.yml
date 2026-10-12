@@ -6,8 +6,9 @@ on:
   release:
     types: [published]
   pull_request:
-  # Scheduled and manual runs rebuild the toolchain image without cache and
-  # skip the builds and tests, see build-image.
+  # Scheduled and manual runs rebuild the toolchain image without cache, scan
+  # the UBI image for newly fixed vulnerabilities and skip the builds and tests,
+  # see build-image and image.
   schedule:
     - cron: '37 4 * * 1'
   workflow_dispatch:
@@ -508,10 +509,10 @@ jobs:
           push-to-registry: true
 
   # Opens an issue, or comments on the open one, when a scheduled rebuild of the
-  # toolchain image fails, like the dependencies workflow. It runs no
-  # repository code.
+  # toolchain image or scan of the UBI image fails, like the dependencies
+  # workflow. It runs no repository code.
   report:
-    needs: [changes, build-image, build-image-sign]
+    needs: [changes, build-image, build-image-sign, image]
     if: failure() && github.event_name == 'schedule'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -521,24 +522,39 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      # A failed changes job skips all others, it gets reported with the
+      # toolchain image.
+      TOOLCHAIN_FAILED: ${{ needs.changes.result == 'failure' || needs.build-image.result == 'failure' || needs.build-image-sign.result == 'failure' }}
+      UBI_FAILED: ${{ needs.image.result == 'failure' }}
     steps:
       - name: Report the failure
         run: |
-          title="Scheduled toolchain image build failed"
-          body="The scheduled run $RUN_URL failed, see its build-image and build-image-sign jobs."
-          number=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
-          if [[ -n "$number" ]]; then
-            gh issue comment "$number" --body "$body"
-          else
-            gh issue create --title "$title" --body "$body"
+          report() {
+            local title="$1" body="$2" number
+            number=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
+            if [[ -n "$number" ]]; then
+              gh issue comment "$number" --body "$body"
+            else
+              gh issue create --title "$title" --body "$body"
+            fi
+          }
+          if [[ "$TOOLCHAIN_FAILED" == true ]]; then
+            report "Scheduled toolchain image build failed" \
+              "The scheduled run $RUN_URL failed, see its changes, build-image and build-image-sign jobs."
+          fi
+          if [[ "$UBI_FAILED" == true ]]; then
+            report "Scheduled UBI image build or scan failed" \
+              "The scheduled run $RUN_URL failed, see its ubi-image job. A failed scan means a dependency needs an update or the UBI repositories lack a fix yet, see doc/hacking.md."
           fi
 
   # Builds the UBI image for the vulnerability scan, the published images are
   # built on Cloud Build. The image of Dockerfile gets scanned by the image
   # job of the test workflow, which scans the image the e2e tests run.
+  # Scheduled and manual runs scan the UBI image too, so fixes published in the
+  # UBI repositories or the vulnerability database surface without a push.
   image:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
@@ -570,6 +586,33 @@ jobs:
             type=ref,event=pr
             type=ref,event=tag
             type=sha,format=long
+      # Keys the package update of the UBI image to the revisions of the
+      # enabled UBI repositories. The cached update layer gets reused until new
+      # errata land, then the update runs again and installs them.
+      - name: UBI repository revisions
+        id: repos
+        env:
+          FILE: ${{ matrix.file }}
+          BASE_URL: https://cdn-ubi.redhat.com/content/public/ubi/dist/ubi9/9/x86_64
+        run: |
+          # The final stage has to be based on the UBI 9 minimal image of
+          # BASE_URL and declare the ARG before its package update.
+          if ! awk '
+            /^FROM / { base = $2; arg = 0; ok = 0 }
+            /^ARG UBI_REPOS_REVISION$/ { arg = 1 }
+            /^RUN microdnf update/ { ok = arg }
+            END { exit !(ok && base ~ /^registry\.access\.redhat\.com\/ubi9\/ubi-minimal@/) }
+          ' "$FILE"; then
+            echo "::error file=$FILE::The final stage of $FILE needs the ubi9/ubi-minimal base and ARG UBI_REPOS_REVISION before its microdnf update, or its package update stays cached"
+            exit 1
+          fi
+          revisions=()
+          for repo in baseos appstream codeready-builder; do
+            repomd=$(curl -fsSL --retry 5 --retry-all-errors "$BASE_URL/$repo/os/repodata/repomd.xml")
+            revision=$(grep -oPm1 '(?<=<revision>)[0-9]+(?=</revision>)' <<<"$repomd")
+            revisions+=("$repo-$revision")
+          done
+          echo "revision=$(IFS=_; echo "${revisions[*]}")" | tee -a "$GITHUB_OUTPUT"
       - name: Build
         id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -579,6 +622,8 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           load: true
+          build-args: |
+            UBI_REPOS_REVISION=${{ steps.repos.outputs.revision }}
           cache-from: type=gha,scope=${{ matrix.cache }}
           cache-to: type=gha,mode=max,scope=${{ matrix.cache }}
       - name: Tag for the vulnerability scan
