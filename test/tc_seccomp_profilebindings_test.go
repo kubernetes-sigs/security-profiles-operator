@@ -20,7 +20,6 @@ package e2e_test
 
 import (
 	"fmt"
-	"os"
 	"time"
 )
 
@@ -73,27 +72,13 @@ spec:
 
 	e.logf("Creating test profile binding")
 
-	testBindingFile, err := os.CreateTemp(e.T().TempDir(), "hello-binding*.yaml")
-	e.Require().NoError(err)
-
-	_, err = testBindingFile.WriteString(testBinding)
-	e.Require().NoError(err)
-	err = testBindingFile.Close()
-	e.Require().NoError(err)
-	e.kubectl("create", "-f", testBindingFile.Name())
+	e.writeAndCreate(testBinding, "hello-binding*.yaml")
 
 	e.kubectlCleanup("profilebinding", "hello-binding")
 
 	e.logf("Creating test pod")
 
-	testPodFile, err := os.CreateTemp(e.T().TempDir(), "hello-pod*.yaml")
-	e.Require().NoError(err)
-
-	_, err = testPodFile.WriteString(testPod)
-	e.Require().NoError(err)
-	err = testPodFile.Close()
-	e.Require().NoError(err)
-	e.kubectl("create", "-f", testPodFile.Name())
+	e.writeAndCreate(testPod, "hello-pod*.yaml")
 
 	e.kubectlCleanup("pod", "hello")
 

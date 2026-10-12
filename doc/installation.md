@@ -48,7 +48,7 @@ cert-manager via `kubectl`, if you're **not** running on
 
 ```sh
 $ kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
-$ kubectl --namespace cert-manager wait --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
+$ kubectl --namespace cert-manager wait --for condition=available deployment --all
 ```
 
 OpenShift ships its own CA injector which means we can skip installing
@@ -140,7 +140,7 @@ as an artifact, and can be installed by executing the following shell commands:
 # Install cert-manager if it is not already installed, the chart does not
 # install it:
 kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
-kubectl --namespace cert-manager wait --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
+kubectl --namespace cert-manager wait --for condition=available deployment --all
 
 # Create the namespace beforehand
 export spo_ns=security-profiles-operator

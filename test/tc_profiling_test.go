@@ -19,9 +19,11 @@ limitations under the License.
 package e2e_test
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
-	"strconv"
-	"strings"
+
+	corev1 "k8s.io/api/core/v1"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
@@ -36,7 +38,6 @@ func (e *e2e) testCaseProfilingChange([]string) {
 }
 
 func (e *e2e) testCaseProfilingHTTP([]string) {
-	e.selinuxOnlyTestCase()
 	e.logf("Test profiling HTTP version")
 
 	e.logf("Enable spod profiling to test endpoint HTTP version")
@@ -46,56 +47,59 @@ func (e *e2e) testCaseProfilingHTTP([]string) {
 	e.Contains(output, "1.1\n")
 }
 
-func (e *e2e) getProfilingEndpoint(i int) string {
-	podName := e.kubectlOperatorNS("get", "pods", "-l", "name=spod", "-o",
-		fmt.Sprintf("jsonpath={.items[%d].metadata.name}", i))
-	podIP := e.kubectlOperatorNS("get", "pods", "-l", "name=spod", "-o",
-		fmt.Sprintf("jsonpath={.items[?(@.metadata.name=='%s')].status.podIP}", podName))
-	podPort := e.kubectlOperatorNS("get", "pods", "-l", "name=spod", "-o",
-		fmt.Sprintf("jsonpath={.items[?(@.metadata.name=='%s')]"+
-			".spec.containers[?(@.name=='security-profiles-operator')]"+
-			".env[?(@.name=='SPO_PROFILING_PORT')].value}", podName))
+// getProfilingHTTPVersion returns the HTTP version the profiling endpoint
+// answers with, moving on to the next spod pod with every attempt.
+func (e *e2e) getProfilingHTTPVersion() string {
+	attempt := 0
 
-	return "http://" + podIP + ":" + podPort + "/debug/pprof/heap"
+	return e.retryPodCMD(func() (string, error) {
+		endpoint, err := e.profilingEndpoint(attempt)
+		attempt++
+
+		if err != nil {
+			return "", err
+		}
+
+		return curlHTTPVerCMD + endpoint, nil
+	})
 }
 
-// This function is inspired by e2e.runAndRetryPodCMD().
-func (e *e2e) getProfilingHTTPVersion() string {
-	nPodsOutput := e.kubectlOperatorNS("get", "daemonsets", "spod", "-o",
-		"jsonpath={.status.numberAvailable}")
-
-	nPods, err := strconv.Atoi(nPodsOutput)
+// profilingEndpoint returns the profiling endpoint of a spod pod, picked by
+// the attempt. While the pods restart, the lookup fails instead of the test,
+// so that the caller retries.
+func (e *e2e) profilingEndpoint(attempt int) (string, error) {
+	output, err := e.kubectlCommand(
+		"-n", config.OperatorName, "get", "pods", "-l", "name=spod", "-o", "json",
+	)
 	if err != nil {
-		e.Failf("could not get size of spod daemonset", "error: %s", err)
+		return "", fmt.Errorf("listing the spod pods: %w", err)
 	}
 
-	index := 0
+	pods := &corev1.PodList{}
+	if err := json.Unmarshal([]byte(output), pods); err != nil {
+		return "", fmt.Errorf("decoding the spod pods: %w", err)
+	}
 
-	// Sometimes the endpoint does not output anything in CI. We fix that by
-	// retrying the endpoint, moving on to the next spod pod each time.
-	var output string
+	if len(pods.Items) == 0 {
+		return "", errors.New("no spod pods")
+	}
 
-	podName := randomPodName()
+	pod := &pods.Items[attempt%len(pods.Items)]
+	if pod.Status.PodIP == "" {
+		return "", fmt.Errorf("pod %s has no IP yet", pod.Name)
+	}
 
-	e.eventually(podCommandTimeout, defaultPollInterval, func() error {
-		profilingEndpoint := e.getProfilingEndpoint(index)
-		profilingCurlCMD := curlHTTPVerCMD + profilingEndpoint
-
-		output = e.kubectlRunOperatorNS(podName, "--", "bash", "-c", profilingCurlCMD)
-		if len(strings.Split(output, "\n")) > 1 {
-			return nil
+	for i := range pod.Spec.Containers {
+		if pod.Spec.Containers[i].Name != config.OperatorName {
+			continue
 		}
 
-		output = ""
-
-		if nPods > 0 {
-			index = (index + 1) % nPods
+		for _, env := range pod.Spec.Containers[i].Env {
+			if env.Name == config.ProfilingPortEnvKey && env.Value != "" {
+				return "http://" + pod.Status.PodIP + ":" + env.Value + "/debug/pprof/heap", nil
+			}
 		}
+	}
 
-		e.logf("Retrying the profiling endpoint: no output")
-
-		return fmt.Errorf("no output from profiling curl command for %s", profilingEndpoint)
-	})
-
-	return output
+	return "", fmt.Errorf("pod %s has no profiling port", pod.Name)
 }

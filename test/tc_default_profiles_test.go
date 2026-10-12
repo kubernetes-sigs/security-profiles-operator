@@ -87,7 +87,7 @@ func (e *e2e) getConfigMap(name, namespace string) *v1.ConfigMap {
 		"-n", namespace, "get", "configmap", name, "-o", "json",
 	)
 	configMap := &v1.ConfigMap{}
-	e.NoError(json.Unmarshal([]byte(configMapJSON), configMap))
+	e.Require().NoError(json.Unmarshal([]byte(configMapJSON), configMap))
 
 	return configMap
 }

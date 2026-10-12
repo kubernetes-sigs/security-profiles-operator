@@ -20,7 +20,6 @@ package e2e_test
 
 import (
 	"fmt"
-	"os"
 	"regexp"
 	"time"
 )
@@ -182,52 +181,10 @@ func (e *e2e) testCaseBpfRecorderDeployment() {
 	e.logf("Creating bpf recording for deployment test")
 	e.kubectl("create", "-f", exampleRecordingBpfPath)
 
-	e.logf("Creating test deployment")
-
-	const testDeployment = `
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: my-deployment
-spec:
-  selector:
-    matchLabels:
-      app: alpine
-  replicas: 2
-  template:
-    metadata:
-      labels:
-        app: alpine
-    spec:
-      containers:
-      - name: nginx
-        image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21
-        ports:
-        - containerPort: 8080
-        readinessProbe:
-          tcpSocket:
-              port: 8080
-          initialDelaySeconds: 5
-          periodSeconds: 5
-`
-
-	testFile, err := os.CreateTemp(e.T().TempDir(), "recording-deployment*.yaml")
-	e.Require().NoError(err)
-	_, err = testFile.WriteString(testDeployment)
-	e.Require().NoError(err)
-	err = testFile.Close()
-	e.Require().NoError(err)
-
 	// The recorder finds the profiles as soon as the containers start, which
-	// is before the deployment is available.
-	since := time.Now()
-
-	e.kubectl("create", "-f", testFile.Name())
-
-	const deployName = "my-deployment"
-
-	e.retryGet("deploy", deployName)
-	e.waitFor("condition=available", "deploy", deployName)
+	// is before the deployment is available. The returned time is taken
+	// before the deployment gets created.
+	since, deployName := e.createRecordingTestDeployment()
 
 	podNames := e.getRecordingPodNames()
 	suffixes := podSuffixes(podNames)
@@ -305,14 +262,7 @@ spec:
   restartPolicy: Never
 `, podName, i, image)
 
-		testPodFile, err := os.CreateTemp(e.T().TempDir(), "recording-pod*.yaml")
-		e.Require().NoError(err)
-		_, err = testPodFile.WriteString(testPod)
-		e.Require().NoError(err)
-		err = testPodFile.Close()
-		e.Require().NoError(err)
-
-		e.kubectl("create", "-f", testPodFile.Name())
+		e.writeAndCreate(testPod, "recording-pod*.yaml")
 
 		e.logf("Waiting for test pod to be initialized")
 		e.retryGet("pod", podName)

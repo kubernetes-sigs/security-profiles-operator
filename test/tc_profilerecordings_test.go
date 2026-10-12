@@ -342,10 +342,19 @@ func (e *e2e) profileRecordingSelinuxMultiContainer(
 	)
 	e.Contains(nginxpathresult, "name_bind")
 
-	const profileNameInit = recordingName + "-init"
+	// The init container only does what the container policy allows, so it
+	// causes no AVCs and the recorder skips its profile. The recorder writes
+	// the profiles of the pod one after another, so a wrongly recorded init
+	// profile shows up shortly after the other two.
+	const profileNameInit = selinuxRecordingName + "-init"
 
-	exists := e.existsSelinuxProfile(profileNameInit)
-	e.False(exists)
+	e.consistently(absentProfileTimeout, defaultPollInterval, func() error {
+		if e.existsSelinuxProfile(profileNameInit) {
+			return fmt.Errorf("profile %s exists", profileNameInit)
+		}
+
+		return nil
+	})
 
 	e.kubectl("delete", "-f", recording)
 	e.kubectl("delete", "selinuxprofile", profileNameRedis, profileNameNginx)
@@ -463,8 +472,6 @@ func (e *e2e) testCaseRecordingFinalizers() {
 	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
 	defer restoreNs()
 
-	const recordingName = "test-recording"
-
 	e.logf("Creating recording for static pod test")
 	e.kubectl("create", "-f", exampleRecordingSeccompLogsPath)
 
@@ -519,7 +526,9 @@ func (e *e2e) testCaseRecordingFinalizers() {
 
 func (e *e2e) testCaseProfileRecordingWithMemoryOptimization() {
 	e.logEnricherOnlyTestCase()
-	e.testCaseMemOptmEnable([]string{})
+
+	e.enableMemoryOptimization()
+	defer e.disableMemoryOptimization()
 
 	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
 	defer restoreNs()
@@ -595,16 +604,9 @@ func (e *e2e) createRecordingTestDeploymentFromManifest(
 
 	e.setupRecordingSa(e.getCurrentContextNamespace(defaultNamespace))
 
-	testFile, err := os.CreateTemp(e.T().TempDir(), "recording-deployment*.yaml")
-	e.Require().NoError(err)
-	_, err = testFile.WriteString(manifest)
-	e.Require().NoError(err)
-	err = testFile.Close()
-	e.Require().NoError(err)
-
 	since = time.Now()
 
-	e.kubectl("create", "-f", testFile.Name())
+	e.writeAndCreate(manifest, "recording-deployment*.yaml")
 
 	e.retryGet("deploy", deployName)
 	e.waitFor("condition=available", "deploy", deployName)
@@ -661,16 +663,9 @@ spec:
   restartPolicy: Never
 `
 
-	testPodFile, err := os.CreateTemp(e.T().TempDir(), "recording-pod*.yaml")
-	e.Require().NoError(err)
-	_, err = testPodFile.WriteString(testPod)
-	e.Require().NoError(err)
-	err = testPodFile.Close()
-	e.Require().NoError(err)
-
 	since = time.Now()
 
-	e.kubectl("create", "-f", testPodFile.Name())
+	e.writeAndCreate(testPod, "recording-pod*.yaml")
 
 	e.logf("Waiting for test pod to be initialized")
 	e.retryGet("pod", podName)
@@ -713,16 +708,9 @@ spec:
   restartPolicy: Never
 `
 
-	testPodFile, err := os.CreateTemp(e.T().TempDir(), "recording-pod*.yaml")
-	e.Require().NoError(err)
-	_, err = testPodFile.WriteString(testPod)
-	e.Require().NoError(err)
-	err = testPodFile.Close()
-	e.Require().NoError(err)
-
 	since = time.Now()
 
-	e.kubectl("create", "-f", testPodFile.Name())
+	e.writeAndCreate(testPod, "recording-pod*.yaml")
 
 	e.logf("Waiting for test pod to be initialized")
 	e.retryGet("pod", podName)

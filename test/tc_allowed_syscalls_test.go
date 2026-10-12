@@ -19,7 +19,6 @@ limitations under the License.
 package e2e_test
 
 import (
-	"encoding/json"
 	"fmt"
 	"path"
 	"slices"
@@ -254,8 +253,6 @@ spec:
 	}
 }
 
-// seccompProfileNodeState returns the state of the node status of a seccomp
-// profile and whether the node status exists.
 // waitForSeccompProfileRemoved waits until the operator removed the seccomp
 // profile, which the allowed syscalls do not allow anymore.
 func (e *e2e) waitForSeccompProfileRemoved(name string) {
@@ -270,23 +267,15 @@ func (e *e2e) waitForSeccompProfileRemoved(name string) {
 	})
 }
 
+// seccompProfileNodeState returns the state of the node status of a seccomp
+// profile and whether the node status exists.
 func (e *e2e) seccompProfileNodeState(
 	id, node string,
 ) (state secprofnodestatusapi.ProfileState, found bool) {
-	selector := fmt.Sprintf(
-		"spo.x-k8s.io/node-name=%s,spo.x-k8s.io/profile-id=SeccompProfile-%s",
-		node,
-		id,
-	)
-	seccompProfileNodeStatusJSON := e.kubectl(
-		"get", "securityprofilenodestatus", "-l", selector, "-o", "json",
-	)
-	secpolNodeStatusList := &secprofnodestatusapi.SecurityProfileNodeStatusList{}
-	e.Require().NoError(json.Unmarshal([]byte(seccompProfileNodeStatusJSON), secpolNodeStatusList))
-
-	if len(secpolNodeStatusList.Items) == 0 {
+	items := e.listSeccompProfileNodeStatuses(id, node)
+	if len(items) == 0 {
 		return "", false
 	}
 
-	return secpolNodeStatusList.Items[0].Status.Status, true
+	return items[0].Status.Status, true
 }

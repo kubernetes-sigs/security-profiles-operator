@@ -43,7 +43,7 @@ func (e *e2e) testCaseTLSProfileOpenShift([]string) {
 
 	// Verify HTTP/1.1 is enforced (HTTP/2 disabled as part of TLS config)
 	webhookOutput := e.runAndRetryPodCMD(curlHTTPVerCMD + webhooksURL + "mutate-v1-pod-binding")
-	e.Contains(webhookOutput, "1.1")
+	e.Contains(webhookOutput, "1.1\n")
 
 	e.logf("TLS profile verification passed on OpenShift")
 }

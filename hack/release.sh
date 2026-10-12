@@ -64,7 +64,9 @@ sed_i 's;newTag: latest;newTag: v'"$VERSION"';g' $FILE
 FILE=deploy/helm/values.yaml
 sed_i 's;registry: us-central1-docker.pkg.dev;registry: registry.k8s.io;g' $FILE
 sed_i 's;repository: k8s-staging-images/sp-operator/security-profiles-operator;repository: security-profiles-operator/security-profiles-operator;g' $FILE
-sed_i '0,/tag: latest/{s;tag: latest;tag: v'"$VERSION"';}' $FILE
+# Only the spoImage block, the selinuxd images stay on latest. A range up to
+# the next top-level key works with both GNU and BSD sed.
+sed_i '/^spoImage:/,/^[a-zA-Z]/ s;tag: latest;tag: v'"$VERSION"';' $FILE
 sed_i 's;pullPolicy: Always;pullPolicy: IfNotPresent;g' $FILE
 
 # The Helm chart README documents the same defaults
@@ -106,9 +108,6 @@ if [[ ! "$OPERATOR_VERSION" =~ ^security-profiles-operator\.v[0-9]+\.[0-9]+\.[0-
 fi
 sed_i 's;replaces:.*;replaces: '"$OPERATOR_VERSION"';g' $FILE
 sed_i 's;containerImage:.*;containerImage: registry.k8s.io/security-profiles-operator/security-profiles-operator:v'"$VERSION"';g' $FILE
-
-# Stage the sources, because `make bundle` will use `git restore`
-git add .
 
 # Build bundle
 make bundle

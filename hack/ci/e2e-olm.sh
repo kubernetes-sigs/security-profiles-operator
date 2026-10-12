@@ -51,9 +51,6 @@ function build_and_push_packages() {
   sed -i "s#image: us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator.*\$#image: ${IMG}#" "${OPERATOR_MANIFEST}"
   grep "${IMG}" "${OPERATOR_MANIFEST}" || exit 1
 
-  # this is a kludge, we need to make sure kustomize can be overwritten
-  rm -f build/kustomize
-
   # create bundle, bundle image, push bundle using our manifest created earlier
   make bundle BUNDLE_OPERATOR_MANIFEST="${OPERATOR_MANIFEST}"
   # GH CI workers have pretty limited CPU and won't be able to run SPO, OLM and cert-manager at the same time

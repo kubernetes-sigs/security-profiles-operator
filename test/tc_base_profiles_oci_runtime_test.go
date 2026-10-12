@@ -21,7 +21,6 @@ package e2e_test
 import (
 	"context"
 	"fmt"
-	"os"
 	"path"
 	"strings"
 	"time"
@@ -120,13 +119,7 @@ spec:
 
 	e.logf("Creating profile with a runtime format base profile")
 
-	profileFile, err := os.CreateTemp(e.T().TempDir(), "profile-*.yaml")
-	e.Require().NoError(err)
-
-	_, err = profileFile.WriteString(profileYAML)
-	e.Require().NoError(err)
-	e.Require().NoError(profileFile.Close())
-	e.kubectl("create", "-f", profileFile.Name())
+	e.writeAndCreate(profileYAML, "profile-*.yaml")
 
 	e.kubectlCleanup("sp", profileName)
 
@@ -168,13 +161,7 @@ spec:
 
 	e.logf("Creating pod")
 
-	podFile, err := os.CreateTemp(e.T().TempDir(), "pod-*.yaml")
-	e.Require().NoError(err)
-
-	_, err = podFile.WriteString(podYAML)
-	e.Require().NoError(err)
-	e.Require().NoError(podFile.Close())
-	e.kubectl("create", "-f", podFile.Name())
+	e.writeAndCreate(podYAML, "pod-*.yaml")
 
 	e.kubectlCleanup("pod", podName)
 
@@ -185,7 +172,7 @@ spec:
 
 	createError := false
 
-	err = poll(time.Minute, time.Second, func() error {
+	err := poll(time.Minute, time.Second, func() error {
 		output := e.kubectl("get", "pod", podName)
 		// Waiting longer does not help against a container create error.
 		createError = strings.Contains(output, "CreateContainerError")

@@ -87,12 +87,12 @@ container build directly.
 
 `make help` lists the targets with a description. Besides the ones above:
 
-- `make nix` builds the binaries for all architectures with
+- `make nix` builds the binaries for amd64, arm64 and ppc64le with
   [Nix](https://nixos.org/download) into `build.tar.gz`, `make nix-amd64`,
-  `make nix-arm64` and so on build a single architecture. `make nix-spoc` and
-  `make nix-spoc-<arch>` build `spoc` the same way. Nix needs no
-  native libraries on the host, and `make update-nixpkgs` updates its pinned
-  package set.
+  `make nix-arm64` and so on build a single architecture. `make nix-spoc`
+  builds `spoc` for these architectures and s390x, `make nix-spoc-<arch>` for
+  a single one. Nix needs no native libraries on the host, and
+  `make update-nixpkgs` updates its pinned package set.
 - `make update-bpf` rebuilds the committed BPF objects of the recorder and the
   enricher for amd64 and arm64 with Nix, after changing the BPF programs.
   `make update-vmlinux` regenerates the `vmlinux.h` they build against.

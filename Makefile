@@ -110,11 +110,11 @@ endif
 
 CLANG ?= clang
 LLVM_STRIP ?= llvm-strip
+# The kernel architecture name of the BPF build, which is also the directory
+# name below internal/pkg/daemon/bpfrecorder/vmlinux, see BPF_ARCHES.
 ARCH ?= $(shell uname -m | \
-	sed 's/x86_64/amd64/' | \
-	sed 's/aarch64/arm64/' | \
-	sed 's/ppc64le/powerpc/' | \
-	sed 's/mips.*/mips/')
+	sed 's/x86_64/x86/' | \
+	sed 's/aarch64/arm64/')
 
 DATE_FMT = +'%Y-%m-%dT%H:%M:%SZ'
 ifdef SOURCE_DATE_EPOCH
@@ -165,7 +165,7 @@ export CGO_ENABLED=1
 
 # vendor/modules.txt changes with every dependency change, walking all of
 # vendor on every make invocation is not worth it.
-BUILD_FILES := $(shell find . \( -path ./vendor -o -path ./.git -o -path ./$(BUILD_DIR) \) -prune -o -type f \( -name '*.go' -or -name '*.mod' -or -name '*.sum' -or -name 'recorder.bpf.o.*' \) -not -name '*_test.go' -print) vendor/modules.txt
+BUILD_FILES := $(shell find . \( -path ./vendor -o -path ./.git -o -path ./$(BUILD_DIR) \) -prune -o -type f \( -name '*.go' -or -name '*.mod' -or -name '*.sum' -or -name 'recorder.bpf.o.*' -or -name 'enricher.bpf.o.*' \) -not -name '*_test.go' -print) vendor/modules.txt
 BPF_RECORDER_PATH := internal/pkg/daemon/bpfrecorder/bpf
 BPF_RECORDER_FILES := $(shell find internal/pkg/daemon/bpfrecorder/bpf -type f \( -name '*.c' -or -name '*.h' \))
 BPF_RECORDER_OUTPUT_FILES := $(shell find internal/pkg/daemon/bpfrecorder/bpf -type f -name 'recorder.bpf.o.*')
@@ -260,7 +260,7 @@ $(BUILD_DIR)/$(CLI_BINARY): $(BUILD_FILES) | $(BUILD_DIR)
 
 .PHONY: clean
 clean: ## Clean the build directory
-	rm -rf $(BUILD_DIR) $(BPF_OUTPUT_FILES)
+	rm -rf $(BUILD_DIR)
 
 # The build tags and the linker flags of the cgo libraries, as the build
 # computes them, for tools which run go build themselves, like the CodeQL
@@ -516,9 +516,17 @@ update-docs: ## Update the generated command line reference in doc/reference
 	$(GO) run ./cmd/spoc docs > doc/reference/spoc.md
 	$(GO) run ./cmd/security-profiles-operator docs > doc/reference/security-profiles-operator.md
 
+# The kernel architecture names which have vmlinux headers.
+BPF_ARCHES := x86 arm64
+
+# Stops the build of a BPF object for an architecture without vmlinux headers.
+check-bpf-arch = $(if $(filter $(ARCH),$(BPF_ARCHES)),,$(error ARCH=$(ARCH) has no vmlinux headers, the BPF objects build for $(BPF_ARCHES)))
+
 # Called by nix/derivation-bpf.nix with ARCH set to the kernel architecture
-# name of the vmlinux directory, use make update-bpf to build them.
+# name of the vmlinux directory (x86 or arm64), use make update-bpf to build
+# the committed objects.
 $(BUILD_DIR)/recorder.bpf.o: $(BPF_RECORDER_FILES) | $(BUILD_DIR)
+	$(check-bpf-arch)
 	$(CLANG) -g -O2 \
 		-target bpf \
 		-D__TARGET_ARCH_$(ARCH) \
@@ -529,6 +537,7 @@ $(BUILD_DIR)/recorder.bpf.o: $(BPF_RECORDER_FILES) | $(BUILD_DIR)
 	$(LLVM_STRIP) -g $@
 
 $(BUILD_DIR)/enricher.bpf.o: $(BPF_ENRICHER_FILES) | $(BUILD_DIR)
+	$(check-bpf-arch)
 	$(CLANG) -g -O2 \
 		-target bpf \
 		-D__TARGET_ARCH_$(ARCH) \
@@ -548,8 +557,13 @@ BPF_UPDATE_OBJECTS := \
     internal/pkg/daemon/enricher/auditsource/bpf/enricher.bpf.o.amd64 \
     internal/pkg/daemon/enricher/auditsource/bpf/enricher.bpf.o.arm64
 
+.PHONY: clean-bpf
+clean-bpf: ## Remove the committed BPF objects, make update-bpf rebuilds them
+	rm -f $(BPF_OUTPUT_FILES)
+
 .PHONY: update-bpf
-update-bpf: clean $(BPF_UPDATE_OBJECTS) ## Build and update all generated BPF code with nix
+update-bpf: clean-bpf ## Build and update all generated BPF code with nix
+	$(MAKE) $(BPF_UPDATE_OBJECTS)
 
 # The objects of an architecture, use make update-bpf to build all of them.
 internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.%: $(BPF_RECORDER_FILES)
@@ -570,7 +584,7 @@ verify: verify-boilerplate verify-go-mod verify-go-lint verify-deployments verif
 .PHONY: verify-in-a-container
 verify-in-a-container: ## Run all verification targets in a container
 	export WORKDIR=/go/src/sigs.k8s.io/security-profiles-operator && \
-	$(CONTAINER_RUNTIME) run -it \
+	$(CONTAINER_RUNTIME) run -i$(if $(shell tty -s && echo t),t) \
 		-v $(shell pwd):$$WORKDIR \
 		-v $(shell go env GOCACHE):/root/.cache/go-build \
 		-v $(shell go env GOMODCACHE):/go/pkg/mod \
