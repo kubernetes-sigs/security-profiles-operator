@@ -322,7 +322,7 @@ func TestPullBaseProfileSignatureVerification(t *testing.T) {
 				image = "registry/base:v1"
 			}
 
-			_, err := sut.pullBaseProfile(t.Context(), baseProfileUser(), image, logr.Discard())
+			_, err := pullBaseProfile(t, sut, image)
 			if tc.wantErr != "" {
 				require.ErrorContains(t, err, tc.wantErr)
 				require.Zero(t, mock.PullCallCount())
@@ -428,7 +428,7 @@ func TestPullOfficialBaseProfileFallsBackToPublicTrustedRoot(t *testing.T) {
 				return &artifact.PullResult{}, tc.pullErrs[len(pulled)-1]
 			}
 
-			_, err := sut.pullBaseProfile(t.Context(), baseProfileUser(), tc.image, logr.Discard())
+			_, err := pullBaseProfile(t, sut, tc.image)
 			require.Len(t, pulled, tc.wantPulls)
 
 			if len(tc.wantErrs) > 0 {
@@ -452,4 +452,23 @@ func TestPullOfficialBaseProfileFallsBackToPublicTrustedRoot(t *testing.T) {
 			}
 		})
 	}
+}
+
+// pullBaseProfile pulls the image as base profile with the pull settings of
+// the SPOD, like resolveSyscallsForProfile does.
+func pullBaseProfile(
+	t *testing.T, sut *Reconciler, image string,
+) (*seccompprofileapi.SeccompProfile, error) {
+	t.Helper()
+
+	spod, err := sut.GetSPOD(t.Context(), sut.client, sut.namespace)
+	require.NoError(t, err)
+
+	return sut.pullBaseProfile(
+		t.Context(),
+		baseProfileUser(),
+		spod,
+		newPullKey(image, &spod.Spec.Security),
+		logr.Discard(),
+	)
 }

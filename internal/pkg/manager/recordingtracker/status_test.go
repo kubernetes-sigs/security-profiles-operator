@@ -543,3 +543,39 @@ func TestLabelsChanged(t *testing.T) {
 	require.False(t, pred.Update(event.UpdateEvent{ObjectOld: old, ObjectNew: old}))
 	require.True(t, pred.Update(event.UpdateEvent{ObjectOld: old, ObjectNew: labeled}))
 }
+
+// Profiles which are created, deleted or relabeled can change the conflicts of
+// the recordings, other updates like the ones of their status cannot.
+func TestProfileOwnerEventsPredicate(t *testing.T) {
+	t.Parallel()
+
+	pred := profileOwnerEventsPredicate()
+	profile := &seccompprofileapi.SeccompProfile{ObjectMeta: metav1.ObjectMeta{Name: "p"}}
+	relabeled := profile.DeepCopy()
+	relabeled.Labels = map[string]string{profilerecordingapi.ProfileToRecordingLabel: "rec"}
+	statusChanged := profile.DeepCopy()
+	statusChanged.Status.Status = "Installed"
+
+	require.True(t, pred.Create(event.CreateEvent{Object: profile}))
+	require.True(t, pred.Delete(event.DeleteEvent{Object: profile}))
+	require.True(t, pred.Update(event.UpdateEvent{ObjectOld: profile, ObjectNew: relabeled}))
+	require.False(t, pred.Update(event.UpdateEvent{ObjectOld: profile, ObjectNew: statusChanged}))
+	require.False(t, pred.Generic(event.GenericEvent{Object: profile}))
+}
+
+//nolint:paralleltest // t.Setenv cannot be used in parallel tests
+func TestRecorderEnvFromEnvironment(t *testing.T) {
+	for _, tc := range []struct {
+		logEnricher, bpfRecorder string
+		want                     recorderEnv
+	}{
+		{want: recorderEnv{}},
+		{logEnricher: "true", bpfRecorder: "1", want: recorderEnv{logEnricher: true, bpfRecorder: true}},
+		{logEnricher: "false", bpfRecorder: "yes", want: recorderEnv{}},
+	} {
+		t.Setenv(config.EnableLogEnricherEnvKey, tc.logEnricher)
+		t.Setenv(config.EnableBpfRecorderEnvKey, tc.bpfRecorder)
+
+		require.Equal(t, tc.want, recorderEnvFromEnvironment())
+	}
+}

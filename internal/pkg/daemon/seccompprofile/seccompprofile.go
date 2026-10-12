@@ -128,20 +128,27 @@ func syscallsAnnotationKey(archSpecific bool) string {
 // NewController returns a new empty controller instance.
 func NewController() controller.Controller {
 	return &Reconciler{
-		impl: &defaultImpl{},
-		baseProfiles: ttlcache.New(
-			ttlcache.WithTTL[string, *seccompprofileapi.SeccompProfile](defaultCacheTimeout),
-			ttlcache.WithCapacity[string, *seccompprofileapi.SeccompProfile](maxCacheItems),
-			// A base profile referenced by tag has to be pulled again after
-			// the TTL to pick up a new version, no matter how often it is
-			// used in between. Touching on hit would keep a busy profile
-			// stale forever.
-			ttlcache.WithDisableTouchOnHit[string, *seccompprofileapi.SeccompProfile](),
-		),
+		impl:         &defaultImpl{},
+		baseProfiles: newBaseProfileCache(),
 	}
 }
 
 type saver func(string, []byte) (bool, error)
+
+// newBaseProfileCache returns the cache of the pulled base profiles, by the
+// reference and the pull settings of the SPOD, so that stricter settings, like
+// an enabled signature verification, pull the base profile again.
+func newBaseProfileCache() *ttlcache.Cache[pullKey, *seccompprofileapi.SeccompProfile] {
+	return ttlcache.New(
+		ttlcache.WithTTL[pullKey, *seccompprofileapi.SeccompProfile](defaultCacheTimeout),
+		ttlcache.WithCapacity[pullKey, *seccompprofileapi.SeccompProfile](maxCacheItems),
+		// A base profile referenced by tag has to be pulled again after
+		// the TTL to pick up a new version, no matter how often it is
+		// used in between. Touching on hit would keep a busy profile
+		// stale forever.
+		ttlcache.WithDisableTouchOnHit[pullKey, *seccompprofileapi.SeccompProfile](),
+	)
+}
 
 // A Reconciler reconciles seccomp profiles.
 type Reconciler struct {
@@ -151,7 +158,7 @@ type Reconciler struct {
 	record       util.EventRecorder
 	save         saver
 	metrics      *metrics.Metrics
-	baseProfiles *ttlcache.Cache[string, *seccompprofileapi.SeccompProfile]
+	baseProfiles *ttlcache.Cache[pullKey, *seccompprofileapi.SeccompProfile]
 	nodeName     string
 	// namespace is the namespace of the operator, which holds the key and
 	// the trusted root for the signature verification of base profiles.
@@ -458,7 +465,8 @@ func (r *Reconciler) reportUnsupported(
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilenodestatuses,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilenodestatuses/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons,verbs=get;list;watch
-// +kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch
+// The node is read uncached, by the profile recorder and the non-root enabler:
+// +kubebuilder:rbac:groups=core,resources=nodes,verbs=get
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 //
 // The public key and the trusted root for the signature verification of base
@@ -600,12 +608,29 @@ func (r *Reconciler) resolveSyscallsForProfile(
 	if from, ok := strings.CutPrefix(baseProfileName, config.OCIProfilePrefix); ok {
 		archSpecific = true
 
-		if item := r.baseProfiles.Get(from); item != nil {
+		// The SPOD comes from the cache of the daemon. Its pull settings are
+		// part of the key, so that stricter ones pull the base profile again.
+		spod, err := r.GetSPOD(ctx, r.client, r.namespace)
+		if err != nil {
+			// Without the settings, a base profile pulled before is used,
+			// like before the settings were part of the key.
+			cached := r.cachedBaseProfile(from)
+			if cached == nil {
+				return nil, false, fmt.Errorf("retrieving the SPOD configuration: %w", err)
+			}
+
+			l.Info("Using cached base profile, the SPOD cannot be read",
+				"baseProfile", from, "error", err.Error())
+
+			baseProfile = cached
+		} else if item := r.baseProfiles.Get(newPullKey(from, &spod.Spec.Security)); item != nil {
 			l.Info("Using cached base profile", "baseProfile", from)
 
 			baseProfile = item.Value()
 		} else {
-			baseProfile, err = r.pullBaseProfile(ctx, sp, from, l)
+			key := newPullKey(from, &spod.Spec.Security)
+
+			baseProfile, err = r.pullBaseProfile(ctx, sp, spod, key, l)
 			if err != nil {
 				return nil, false, err
 			}
@@ -650,22 +675,40 @@ func (r *Reconciler) resolveSyscallsForProfile(
 	return syscalls, archSpecific || baseArchSpecific, err
 }
 
+// cachedBaseProfile returns a base profile pulled from the reference with any
+// pull settings, or nil if none is cached.
+func (r *Reconciler) cachedBaseProfile(ref string) *seccompprofileapi.SeccompProfile {
+	var profile *seccompprofileapi.SeccompProfile
+
+	r.baseProfiles.Range(
+		func(item *ttlcache.Item[pullKey, *seccompprofileapi.SeccompProfile]) bool {
+			if item.Key().ref != ref {
+				return true
+			}
+
+			profile = item.Value()
+
+			return false
+		},
+	)
+
+	return profile
+}
+
 // pullBaseProfile pulls the base profile of sp from the OCI artifact registry
-// and caches it. A failed pull is not repeated with the same pull settings of
-// the SPOD before its backoff passed, and returns the error of the failed pull
-// until then, which is reported once per profile.
+// with the pull settings of the SPOD, and caches it under the key of these
+// settings. A failed pull is not repeated with the same settings before its
+// backoff passed, and returns the error of the failed pull until then, which
+// is reported once per profile.
 func (r *Reconciler) pullBaseProfile(
 	ctx context.Context,
 	sp *seccompprofileapi.SeccompProfile,
-	from string,
+	spod *spodapi.SecurityProfilesOperatorDaemon,
+	key pullKey,
 	l logr.Logger,
 ) (*seccompprofileapi.SeccompProfile, error) {
-	spod, err := r.GetSPOD(ctx, r.client, r.namespace)
-	if err != nil {
-		return nil, fmt.Errorf("retrieving the SPOD configuration: %w", err)
-	}
+	from := key.ref
 
-	key := newPullKey(from, &spod.Spec.Security)
 	if err := r.pullFailures.check(key); err != nil {
 		// A pulled base profile which is no seccomp profile rejects the
 		// profile, which reports it.
@@ -762,7 +805,7 @@ func (r *Reconciler) pullBaseProfile(
 	}
 
 	baseProfile := r.PullResultSeccompProfile(res)
-	r.baseProfiles.Set(from, baseProfile, ttlcache.DefaultTTL)
+	r.baseProfiles.Set(key, baseProfile, ttlcache.DefaultTTL)
 	r.pullFailures.succeeded(key)
 
 	l.Info(

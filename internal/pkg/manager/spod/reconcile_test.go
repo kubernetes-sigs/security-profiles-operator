@@ -44,6 +44,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -264,6 +265,65 @@ func TestReconcileAdmissionPolicyFailure(t *testing.T) {
 	require.NoError(t, cl.Get(t.Context(), key, policy))
 }
 
+// The operator does not apply the webhook options to a static webhook
+// configuration, so the admission policy follows the recording webhook as it
+// is deployed, not the options.
+func TestReconcileAdmissionPolicyFollowsStaticWebhook(t *testing.T) {
+	t.Parallel()
+
+	policyExpression := func(t *testing.T, cl client.Client) string {
+		t.Helper()
+
+		policy := &admissionregv1.ValidatingAdmissionPolicy{}
+		require.NoError(t, cl.Get(t.Context(),
+			client.ObjectKey{Name: bindata.RecordingProfilesPolicyName}, policy))
+
+		spec, err := json.Marshal(policy.Spec)
+		require.NoError(t, err)
+
+		return string(spec)
+	}
+
+	spod := testSPOD()
+	spod.Spec.Webhook.StaticConfig = new(true)
+	spod.Spec.Webhook.Options = []spodapi.WebhookOptions{{
+		Name: bindata.RecordingWebhookName,
+		NamespaceSelector: &metav1.LabelSelector{
+			MatchLabels: map[string]string{"from-options": "true"},
+		},
+	}}
+
+	t.Run("deployed configuration", func(t *testing.T) {
+		t.Parallel()
+
+		deployed := &admissionregv1.MutatingWebhookConfiguration{
+			ObjectMeta: metav1.ObjectMeta{Name: bindata.MutatingWebhookConfigName},
+			Webhooks: []admissionregv1.MutatingWebhook{{
+				Name: bindata.RecordingWebhookName,
+				NamespaceSelector: &metav1.LabelSelector{
+					MatchLabels: map[string]string{"from-static-config": "true"},
+				},
+			}},
+		}
+
+		r, cl, _ := newReconcileTest(t, spod.DeepCopy(), &interceptor.Funcs{}, deployed)
+		reconcileUntilRunning(t, r, cl)
+
+		expression := policyExpression(t, cl)
+		require.Contains(t, expression, "from-static-config")
+		require.NotContains(t, expression, "from-options")
+	})
+
+	t.Run("without deployed configuration", func(t *testing.T) {
+		t.Parallel()
+
+		r, cl, _ := newReconcileTest(t, spod.DeepCopy(), &interceptor.Funcs{})
+		reconcileUntilRunning(t, r, cl)
+
+		require.NotContains(t, policyExpression(t, cl), "from-options")
+	})
+}
+
 func TestReconcileSkipsUnservedAdmissionPolicies(t *testing.T) {
 	t.Parallel()
 
@@ -469,6 +529,41 @@ func TestReconcileRestoresMetricsService(t *testing.T) {
 	reconcileSPOD(t, r)
 	require.NoError(t, cl.Get(t.Context(), key, service))
 	require.True(t, metav1.IsControlledBy(service, stored))
+}
+
+// A deleted default profile gets restored, even if nothing else changed,
+// because the recording webhook keeps referring to it.
+func TestReconcileRestoresDefaultProfile(t *testing.T) {
+	t.Parallel()
+
+	spod := testSPOD()
+	spod.Spec.Enricher.EnableLogEnricher = new(true)
+
+	r, cl, _ := newReconcileTest(t, spod, &interceptor.Funcs{})
+	reconcileUntilRunning(t, r, cl)
+
+	profile := &seccompprofileapi.SeccompProfile{}
+	key := types.NamespacedName{Name: config.LogEnricherProfile}
+	require.NoError(t, cl.Get(t.Context(), key, profile))
+	require.NoError(t, cl.Delete(t.Context(), profile))
+
+	reconcileSPOD(t, r)
+	require.NoError(t, cl.Get(t.Context(), key, profile))
+	require.Equal(t, spodapi.SPODStateRunning, spodState(t, cl))
+}
+
+func TestDeletedWithName(t *testing.T) {
+	t.Parallel()
+
+	p := deletedWithName("name")
+	obj := &seccompprofileapi.SeccompProfile{ObjectMeta: metav1.ObjectMeta{Name: "name"}}
+	other := &seccompprofileapi.SeccompProfile{ObjectMeta: metav1.ObjectMeta{Name: "other"}}
+
+	require.True(t, p.Delete(event.DeleteEvent{Object: obj}))
+	require.False(t, p.Delete(event.DeleteEvent{Object: other}))
+	require.False(t, p.Create(event.CreateEvent{Object: obj}))
+	require.False(t, p.Update(event.UpdateEvent{ObjectOld: obj, ObjectNew: obj}))
+	require.False(t, p.Generic(event.GenericEvent{Object: obj}))
 }
 
 // A missing service monitor gets created on update, while a cluster without

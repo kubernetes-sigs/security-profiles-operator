@@ -794,6 +794,89 @@ func Test_webhookTolerationsFallback(t *testing.T) {
 	}
 }
 
+// A custom host /proc path gets mounted at the default path into the
+// containers which need it, the default path needs no extra volume.
+func Test_getConfiguredSPOdHostProcVolume(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		path       string
+		wantVolume bool
+	}{
+		"default": {path: bindata.DefaultHostProcPath},
+		"unset":   {},
+		"custom":  {path: "/custom/proc", wantVolume: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := &spodapi.SecurityProfilesOperatorDaemon{}
+			cfg.Spec.HostProcVolumePath = tc.path
+			cfg.Spec.Enricher.EnableLogEnricher = new(true)
+
+			ds, err := newTestReconciler().getConfiguredSPOd(
+				t.Context(), cfg, "image", v1.PullAlways, bindata.CAInjectTypeCertManager,
+			)
+			require.NoError(t, err)
+
+			spec := ds.Spec.Template.Spec
+			volume, mount := bindata.CustomHostProcVolume(tc.path)
+
+			hasVolume := slices.ContainsFunc(spec.Volumes, func(v v1.Volume) bool {
+				return v.Name == volume.Name
+			})
+			require.Equal(t, tc.wantVolume, hasVolume)
+
+			if !tc.wantVolume {
+				return
+			}
+
+			i := slices.IndexFunc(
+				spec.Volumes,
+				func(v v1.Volume) bool { return v.Name == volume.Name },
+			)
+			require.Equal(t, tc.path, spec.Volumes[i].HostPath.Path)
+
+			enricher := slices.IndexFunc(spec.Containers, func(c v1.Container) bool {
+				return c.Name == bindata.LogEnricherContainerName
+			})
+			require.GreaterOrEqual(t, enricher, 0)
+			require.Contains(t, spec.Containers[enricher].VolumeMounts, mount)
+		})
+	}
+}
+
+// A SPOD without tolerations keeps the ones of the base manifest, like the
+// webhook does, while configured ones replace them. An empty list tolerates
+// nothing.
+func Test_getConfiguredSPOdTolerations(t *testing.T) {
+	t.Parallel()
+
+	configured := []v1.Toleration{{Operator: v1.TolerationOpExists}}
+
+	for name, tc := range map[string]struct {
+		tolerations []v1.Toleration
+		want        []v1.Toleration
+	}{
+		"not set":    {want: bindata.Manifest.Spec.Template.Spec.Tolerations},
+		"configured": {tolerations: configured, want: configured},
+		"empty":      {tolerations: []v1.Toleration{}, want: []v1.Toleration{}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := &spodapi.SecurityProfilesOperatorDaemon{}
+			cfg.Spec.Scheduling.Tolerations = tc.tolerations
+
+			ds, err := newTestReconciler().getConfiguredSPOd(
+				t.Context(), cfg, "image", v1.PullAlways, bindata.CAInjectTypeCertManager,
+			)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, ds.Spec.Template.Spec.Tolerations)
+		})
+	}
+}
+
 // A SPOD without a selinux section gets no type tag from the API server, which
 // must not drop the SELinux type of the containers.
 func Test_getConfiguredSPOdDefaultSelinuxTypeTag(t *testing.T) {

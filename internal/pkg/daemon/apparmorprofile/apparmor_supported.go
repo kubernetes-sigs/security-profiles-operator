@@ -148,9 +148,11 @@ func (a *aaProfileManager) InstallProfile(
 	// existed have none, and the caller is what proves they are ours: this
 	// node's own status for a custom resource, or simply being one of the
 	// operator's bundled profiles. Reinstalling them here writes the marker, so
-	// the migration happens on the first reconcile after the upgrade.
-	if a.checkProfileExist(a.logger, profile.GetProfileName()) &&
-		!ownedByUs &&
+	// the migration happens on the first reconcile after the upgrade. It is
+	// checked first, because checking the loaded profiles enters the mount
+	// namespace of the host.
+	if !ownedByUs &&
+		a.checkProfileExist(a.logger, profile.GetProfileName()) &&
 		!a.profileManagedByUs(a.logger, profile.GetProfileName()) {
 		return false, ErrProfileExists
 	}

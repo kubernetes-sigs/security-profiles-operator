@@ -105,6 +105,12 @@ func TestImageUpdateValidator(t *testing.T) {
 			mutate: func(p *corev1.Pod) { p.Spec.InitContainers[0].Image = "nginx:1.23.2" },
 		},
 		{
+			name:     "same bound image in another notation",
+			bindings: []profilebindingapi.ProfileBinding{seccompBinding("b", "p", "nginx:1.23.2", 1)},
+			mutate:   func(p *corev1.Pod) { p.Spec.Containers[1].Image = "nginx:1.23.2" },
+			allowed:  true,
+		},
+		{
 			name:     "old image is bound",
 			bindings: []profilebindingapi.ProfileBinding{seccompBinding("b", "p", "nginx:1.23.2", 1)},
 			mutate:   func(p *corev1.Pod) { p.Spec.Containers[1].Image = "unbound" },

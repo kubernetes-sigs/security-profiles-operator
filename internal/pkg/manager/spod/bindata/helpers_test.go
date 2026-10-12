@@ -108,22 +108,30 @@ func TestServiceMonitor(t *testing.T) {
 
 			sm := ServiceMonitor(tc.namespace, tc.caType, tc.insecure)
 			require.Equal(t, tc.namespace, sm.Namespace)
+
+			// The Prometheus Operator selects the endpoints by the name of a
+			// port of the metrics Service.
+			servicePorts := map[string]bool{}
+			for _, port := range GetMetricsService(tc.namespace, tc.caType).Spec.Ports {
+				servicePorts[port.Name] = true
+			}
+
 			require.Len(t, sm.Spec.Endpoints, 2)
 			require.Equal(t, "/metrics", sm.Spec.Endpoints[0].Path)
 			require.Equal(t, "/metrics-spod", sm.Spec.Endpoints[1].Path)
 
 			for _, ep := range sm.Spec.Endpoints {
 				require.Equal(t, tc.wantScheme, *ep.Scheme)
+				require.True(t, servicePorts[ep.Port],
+					"endpoint port %q is no port name of the metrics Service", ep.Port)
 
 				if tc.insecure {
-					require.Equal(t, "http", ep.Port)
 					require.Nil(t, ep.Authorization)
 					require.Nil(t, ep.TLSConfig)
 
 					continue
 				}
 
-				require.Equal(t, "https", ep.Port)
 				require.NotNil(t, ep.Authorization)
 				require.Equal(t, "spo-metrics-client-token", ep.Authorization.Credentials.Name)
 				require.NotNil(t, ep.TLSConfig)

@@ -379,8 +379,11 @@ type SPODWebhookConfig struct {
 	// +optional
 	// +default=false
 	StaticConfig *bool `json:"staticConfig,omitempty"`
-	// options set custom namespace selectors and failure mode for SPO's webhooks.
-	// There can be at most one entry for each of the four webhooks.
+	// options set custom namespace selectors, object selectors and failure
+	// mode for SPO's webhooks. There can be at most one entry for each of the
+	// four webhooks. The options of binding.spo.io configure the validating
+	// binding-image.spo.io webhook as well, which keeps the images of the
+	// bound pods from changing.
 	// +optional
 	// +listType=map
 	// +listMapKey=name
@@ -395,7 +398,10 @@ type SPODWebhookConfig struct {
 
 // SPODSchedulingConfig contains scheduling-related configuration.
 type SPODSchedulingConfig struct {
-	// tolerations if specified, the SPOD's tolerations.
+	// tolerations if specified, the SPOD's tolerations. When not set, the
+	// SPOD tolerates the NoSchedule taints of control plane nodes and the
+	// NoExecute taint of nodes which are not ready. An empty list tolerates
+	// no taint.
 	// +optional
 	// +listType=atomic
 	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
@@ -547,7 +553,7 @@ const (
 // SPODStatus defines the observed state of SPOD.
 type SPODStatus struct {
 	common.ConditionedStatus `json:",inline"`
-	// state represents the state that the policy is in. Can be:
+	// state represents the state of the SPOD instance. Can be:
 	// Pending, Creating, Updating, Running or Error
 	// +optional
 	State SPODState `json:"state,omitempty"`
@@ -638,6 +644,22 @@ func (s *SPODStatus) SetObservedGeneration(generation int64) {
 			s.Conditions[i].ObservedGeneration = generation
 		}
 	}
+}
+
+// SelinuxEnabled returns true if the SPOD enables SELinux, which it does by
+// default on OpenShift only.
+func (s *SecurityProfilesOperatorDaemon) SelinuxEnabled(isOpenShift bool) bool {
+	if s.Spec.Selinux.Enable == nil {
+		return isOpenShift
+	}
+
+	return *s.Spec.Selinux.Enable
+}
+
+// AppArmorEnabled returns true if the SPOD enables AppArmor, which it does
+// not by default.
+func (s *SecurityProfilesOperatorDaemon) AppArmorEnabled() bool {
+	return s.Spec.EnableAppArmor != nil && *s.Spec.EnableAppArmor
 }
 
 func init() { //nolint:gochecknoinits // required to init the scheme

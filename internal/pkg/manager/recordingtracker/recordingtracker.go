@@ -72,7 +72,6 @@ func (r *RecordingTrackerReconciler) Healthz(*http.Request) error {
 //nolint:lll // required for kubebuilder
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilerecordings,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilerecordings/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilerecordings/finalizers,verbs=get;update;patch
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 //
 // The Ready condition of a recording tells whether the SPODs enable its

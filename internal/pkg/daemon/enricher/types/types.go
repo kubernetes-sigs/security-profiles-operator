@@ -18,6 +18,7 @@ package types
 
 import (
 	"sync"
+	"time"
 )
 
 const (
@@ -88,8 +89,9 @@ type LogBucket struct {
 	// Mu guards the fields of the bucket, which is emitted from another
 	// goroutine than the one filling it.
 	Mu sync.Mutex
-	// SyscallIds holds the recorded syscalls as SyscallKey.
-	SyscallIds    sync.Map
+	// SyscallIds holds the recorded syscalls. Mu guards it like the other
+	// fields.
+	SyscallIds    map[SyscallKey]struct{}
 	ContainerInfo *ContainerInfo
 	// ContainerID is the container whose info was not known yet.
 	ContainerID string
@@ -100,6 +102,12 @@ type LogBucket struct {
 	// BpfLookedUp is set once the process got looked up in the BPF process
 	// cache.
 	BpfLookedUp bool
+	// NoContainerAt is when the process turned out to run outside of a
+	// container, or exited without a known container. Its further lines do
+	// not look it up again for a while, since every lookup reads /proc. The
+	// lookup gets repeated after that, in case a process of a container
+	// reused the PID with the same executable.
+	NoContainerAt time.Time
 }
 
 // SyscallKey identifies a syscall. The numbers differ per architecture, and a

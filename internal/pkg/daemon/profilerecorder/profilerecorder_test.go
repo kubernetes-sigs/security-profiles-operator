@@ -458,6 +458,47 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		{
+			name: "seccomp BPF disabled recorder warns once",
+			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
+				t.Helper()
+
+				mock.GetPodReturns(&corev1.Pod{
+					Status: corev1.PodStatus{Phase: corev1.PodPending},
+					ObjectMeta: metav1.ObjectMeta{
+						UID: "pod-uid",
+						Annotations: map[string]string{
+							config.SeccompProfileRecordBpfAnnotationKey + "ctr": testAnnotationValue,
+						},
+					},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "ctr"}},
+					},
+				}, nil)
+				mock.ListRecordingsReturns(bpfSeccompRecordingList(), nil)
+				mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{}, nil)
+			},
+			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
+				t.Helper()
+
+				// A disabled recorder does not get enabled by a retry.
+				require.NoError(t, err)
+
+				_, tracked := sut.podsToWatch.Load(testRequest.String())
+				assert.False(t, tracked)
+
+				recorder, ok := sut.record.(*events.FakeRecorder)
+				require.True(t, ok)
+				require.Len(t, recorder.Events, 1)
+				assert.Contains(t, <-recorder.Events, "Warning "+reasonRecordingAbandoned)
+
+				// Every update of the pod gets here again without another
+				// warning.
+				_, err = sut.Reconcile(t.Context(), testRequest)
+				require.NoError(t, err)
+				assert.Empty(t, recorder.Events)
+			},
+		},
+		{
 			name: "trace annotation without recording does not record",
 			// A trace annotation that no ProfileRecording asks for must not
 			// start a recording: the annotation is attacker controlled in any
@@ -980,7 +1021,9 @@ func TestReconcile(t *testing.T) {
 			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
 				t.Helper()
 
-				assert.Error(t, err)
+				// A disabled recorder is not retried and the pod not tracked.
+				require.NoError(t, err)
+				assert.Zero(t, trackedPods(sut))
 			},
 		},
 		{
@@ -1007,7 +1050,9 @@ func TestReconcile(t *testing.T) {
 			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
 				t.Helper()
 
-				assert.Error(t, err)
+				// A disabled recorder is not retried and the pod not tracked.
+				require.NoError(t, err)
+				assert.Zero(t, trackedPods(sut))
 			},
 		},
 		{
@@ -1470,7 +1515,9 @@ func TestReconcile(t *testing.T) {
 			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
 				t.Helper()
 
-				assert.Error(t, err)
+				// A disabled recorder is not retried and the pod not tracked.
+				require.NoError(t, err)
+				assert.Zero(t, trackedPods(sut))
 			},
 		},
 		{
@@ -1497,7 +1544,9 @@ func TestReconcile(t *testing.T) {
 			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
 				t.Helper()
 
-				assert.Error(t, err)
+				// A disabled recorder is not retried and the pod not tracked.
+				require.NoError(t, err)
+				assert.Zero(t, trackedPods(sut))
 			},
 		},
 		{
@@ -2987,19 +3036,30 @@ func TestResolveProfileTarget(t *testing.T) {
 	}
 }
 
-func TestResolveProfileTargetInvalidName(t *testing.T) {
+// The CRD and the webhook accept recording names with dots, which name valid
+// seccomp and AppArmor profiles, but no valid SELinux profiles.
+func TestValidateRecordingName(t *testing.T) {
 	t.Parallel()
 
-	sut := &RecorderReconciler{impl: newFakeImpl(), log: logr.Discard()}
-
-	_, err := sut.resolveProfileTarget(
-		t.Context(),
-		&parsedAnnotation{profileName: "Invalid.Name", cntName: "ctr"},
-		"",
-		types.NamespacedName{Name: "pod", Namespace: "ns"},
-		nil,
-	)
-	require.ErrorIs(t, err, errNameNotValid)
+	for _, tc := range []struct {
+		kind  recordingapi.ProfileRecordingKind
+		name  string
+		valid bool
+	}{
+		{recordingapi.ProfileRecordingKindSeccompProfile, "recording", true},
+		{recordingapi.ProfileRecordingKindSeccompProfile, "my.recording", true},
+		{recordingapi.ProfileRecordingKindAppArmorProfile, "my.recording", true},
+		{recordingapi.ProfileRecordingKindSelinuxProfile, "recording", true},
+		{recordingapi.ProfileRecordingKindSelinuxProfile, "my.recording", false},
+		{recordingapi.ProfileRecordingKindSeccompProfile, "Invalid.Name", false},
+	} {
+		err := validateRecordingName(tc.kind, tc.name)
+		if tc.valid {
+			require.NoError(t, err, "%s %s", tc.kind, tc.name)
+		} else {
+			require.ErrorIs(t, err, errNameNotValid, "%s %s", tc.kind, tc.name)
+		}
+	}
 }
 
 // TestReleaseUnrecordablePod covers the cleanup for a pod that can never be
@@ -3067,6 +3127,29 @@ func TestReleaseUnrecordablePod(t *testing.T) {
 		require.Equal(t, 1, mock.ResetAvcsCallCount())
 		_, _, avcReq := mock.ResetAvcsArgsForCall(0)
 		require.Equal(t, "selinux", avcReq.GetProfile())
+	})
+
+	t.Run("disabled recorder is not reset", func(t *testing.T) {
+		t.Parallel()
+
+		mock := newFakeImpl()
+		sut := &RecorderReconciler{
+			impl: mock, log: logr.Discard(), record: events.NewFakeRecorder(10),
+		}
+		sut.podsToWatch.Store(podName.String(), podToWatch{
+			recorder: recordingapi.ProfileRecorderLogs,
+			profiles: []profileToCollect{
+				{kind: recordingapi.ProfileRecordingKindSeccompProfile, name: "seccomp"},
+			},
+		})
+
+		sut.abandonPod(t.Context(), podName,
+			fmt.Errorf("log enricher %w", errRecorderDisabled), sut.newBpfRecorderSession())
+
+		_, tracked := sut.podsToWatch.Load(podName.String())
+		require.False(t, tracked)
+		require.Zero(t, mock.DialEnricherCallCount())
+		require.Zero(t, mock.ResetSyscallsCallCount())
 	})
 
 	t.Run("unknown pod is a no-op", func(t *testing.T) {
@@ -4127,4 +4210,17 @@ func TestReconcileReplacedPod(t *testing.T) {
 			require.Equal(t, types.UID("current"), watched.uid)
 		})
 	}
+}
+
+// trackedPods returns the number of pods whose profiles get recorded.
+func trackedPods(sut *RecorderReconciler) int {
+	tracked := 0
+
+	sut.podsToWatch.Range(func(any, any) bool {
+		tracked++
+
+		return true
+	})
+
+	return tracked
 }

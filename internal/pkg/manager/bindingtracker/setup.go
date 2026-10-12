@@ -21,10 +21,8 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
-	"strings"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -41,6 +39,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/workloadtracker"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -189,17 +188,5 @@ func activeWorkloadRequests(_ context.Context, obj client.Object) []reconcile.Re
 		return nil
 	}
 
-	requests := make([]reconcile.Request, 0, len(binding.Status.ActiveWorkloads))
-	for _, podID := range binding.Status.ActiveWorkloads {
-		namespace, name, found := strings.Cut(podID, "/")
-		if !found {
-			continue
-		}
-
-		requests = append(requests, reconcile.Request{
-			NamespacedName: types.NamespacedName{Name: name, Namespace: namespace},
-		})
-	}
-
-	return requests
+	return workloadtracker.PodRequests(binding.Status.ActiveWorkloads)
 }

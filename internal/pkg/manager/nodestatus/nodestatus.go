@@ -99,22 +99,18 @@ func (r *StatusReconciler) Healthz(*http.Request) error {
 //nolint:lll // required for kubebuilder
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles/finalizers,verbs=get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=rawselinuxprofiles,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=rawselinuxprofiles/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=rawselinuxprofiles/finalizers,verbs=get;update;patch
 
 // Security Profiles Operator RBAC permissions to manage SeccompProfile
 //nolint:lll // required for kubebuilder
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles/finalizers,verbs=get;update;patch
 
 // Security Profiles Operator RBAC permissions to manage AppArmorProfile
 //nolint:lll // required for kubebuilder
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=apparmorprofiles,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=apparmorprofiles/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=apparmorprofiles/finalizers,verbs=get;update;patch
 
 // Security Profiles Operator RBAC permissions to manage Node Statuses
 //nolint:lll // required for kubebuilder
@@ -312,13 +308,15 @@ func (r *StatusReconciler) reconcileNodeStatus(
 
 	// Initialize the status if it hasn't happened already, so that the profile
 	// shows a state while the aggregation below waits for the other nodes.
+	// A single node must not make the profile Installed or Ready while other
+	// nodes have not reported yet, so the state of this node only counts if
+	// it is worse than Pending, like Error or Terminating.
 	if prof.GetStatusBase().Status == "" {
 		lprof.Info("Initializing Profile status")
 
-		targetStatus := secprofnodestatusapi.ProfileStatePending
-		if instance.Status.Status != "" {
-			targetStatus = instance.Status.Status
-		}
+		targetStatus := secprofnodestatusapi.LowerOfTwoStates(
+			secprofnodestatusapi.ProfileStatePending, instance.Status.Status,
+		)
 
 		prof, err = r.reconcileStatus(ctx, prof, aggregation{state: targetStatus}, lprof)
 		if err != nil || prof == nil {
@@ -1107,36 +1105,54 @@ func (r *StatusReconciler) getProfileFromStatus(
 	return prof, nil
 }
 
+// profileKind creates the objects of a kind of profiles with node statuses.
+type profileKind struct {
+	newProfile func() profilebaseapi.StatusBaseUser
+	newList    func() client.ObjectList
+}
+
+// profileKindsByName are the kinds of profiles which have node statuses, by
+// the kind which the owner references of the node statuses name.
+var profileKindsByName = map[string]profileKind{
+	"SeccompProfile": {
+		newProfile: func() profilebaseapi.StatusBaseUser { return &seccompprofileapi.SeccompProfile{} },
+		newList:    func() client.ObjectList { return &seccompprofileapi.SeccompProfileList{} },
+	},
+	"SelinuxProfile": {
+		newProfile: func() profilebaseapi.StatusBaseUser { return &selinuxprofileapi.SelinuxProfile{} },
+		newList:    func() client.ObjectList { return &selinuxprofileapi.SelinuxProfileList{} },
+	},
+	"RawSelinuxProfile": {
+		newProfile: func() profilebaseapi.StatusBaseUser { return &selinuxprofileapi.RawSelinuxProfile{} },
+		newList:    func() client.ObjectList { return &selinuxprofileapi.RawSelinuxProfileList{} },
+	},
+	"AppArmorProfile": {
+		newProfile: func() profilebaseapi.StatusBaseUser { return &apparmorapi.AppArmorProfile{} },
+		newList:    func() client.ObjectList { return &apparmorapi.AppArmorProfileList{} },
+	},
+}
+
+// profileKinds are the sorted names of profileKindsByName.
+var profileKinds = slices.Sorted(maps.Keys(profileKindsByName))
+
 // newProfile returns an empty profile of the provided kind.
 func newProfile(kind string) (profilebaseapi.StatusBaseUser, error) {
-	switch kind {
-	case "SeccompProfile":
-		return &seccompprofileapi.SeccompProfile{}, nil
-	case "SelinuxProfile":
-		return &selinuxprofileapi.SelinuxProfile{}, nil
-	case "RawSelinuxProfile":
-		return &selinuxprofileapi.RawSelinuxProfile{}, nil
-	case "AppArmorProfile":
-		return &apparmorapi.AppArmorProfile{}, nil
-	default:
+	k, ok := profileKindsByName[kind]
+	if !ok {
 		return nil, fmt.Errorf("getting owner profile: %w", ErrUnknownOwnerKind)
 	}
+
+	return k.newProfile(), nil
 }
 
 // newProfileList returns an empty list of profiles of the provided kind.
 func newProfileList(kind string) (client.ObjectList, error) {
-	switch kind {
-	case "SeccompProfile":
-		return &seccompprofileapi.SeccompProfileList{}, nil
-	case "SelinuxProfile":
-		return &selinuxprofileapi.SelinuxProfileList{}, nil
-	case "RawSelinuxProfile":
-		return &selinuxprofileapi.RawSelinuxProfileList{}, nil
-	case "AppArmorProfile":
-		return &apparmorapi.AppArmorProfileList{}, nil
-	default:
+	k, ok := profileKindsByName[kind]
+	if !ok {
 		return nil, fmt.Errorf("listing profiles: %w", ErrUnknownOwnerKind)
 	}
+
+	return k.newList(), nil
 }
 
 // profilesOf returns the profiles of a list returned by newProfileList.

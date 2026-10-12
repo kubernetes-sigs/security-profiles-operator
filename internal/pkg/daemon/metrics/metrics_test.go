@@ -282,3 +282,37 @@ func TestAppArmorProfileError(t *testing.T) {
 	require.NoError(t, ctr.Write(&m))
 	require.InDelta(t, 1, m.GetCounter().GetValue(), 0)
 }
+
+// The reason label of the error counters and the operation label of the
+// SELinux and AppArmor counters are part of the documented metrics.
+func TestProfileCounters(t *testing.T) {
+	t.Parallel()
+
+	sut := New()
+	sut.IncSeccompProfileError("CannotSaveProfile")
+	sut.IncSeccompProfileError("CannotSaveProfile")
+	sut.IncSelinuxProfileError("CannotSaveProfile")
+	sut.IncSelinuxProfileUpdate()
+	sut.IncSelinuxProfileDelete()
+	sut.IncSelinuxProfileDelete()
+	sut.IncAppArmorProfileUpdate()
+	sut.IncAppArmorProfileUpdate()
+	sut.IncAppArmorProfileDelete()
+
+	for _, tc := range []struct {
+		vec   *prometheus.CounterVec
+		label string
+		want  int
+	}{
+		{sut.metricSeccompProfileError, "CannotSaveProfile", 2},
+		{sut.metricSelinuxProfileError, "CannotSaveProfile", 1},
+		{sut.metricSelinuxProfile, metricLabelValueProfileUpdate, 1},
+		{sut.metricSelinuxProfile, metricLabelValueProfileDelete, 2},
+		{sut.metricAppArmorProfile, metricLabelValueProfileUpdate, 2},
+		{sut.metricAppArmorProfile, metricLabelValueProfileDelete, 1},
+	} {
+		ctr, err := tc.vec.GetMetricWithLabelValues(tc.label)
+		require.NoError(t, err)
+		require.Equal(t, tc.want, getMetricValue(t, ctr), tc.label)
+	}
+}

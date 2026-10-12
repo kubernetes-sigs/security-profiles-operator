@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strconv"
 	"sync"
 	"syscall"
 
@@ -38,13 +37,13 @@ type SeccompRecorder struct {
 	// from the SyscallsForProfile gRPC handler, which holds only a read lock on
 	// the recorder, so concurrent calls would otherwise write the map at once.
 	syscallIDtoNameCacheMutex sync.RWMutex
-	syscallIDtoNameCache      map[string]string
+	syscallIDtoNameCache      map[int]string
 }
 
 func newSeccompRecorder(logger logr.Logger) *SeccompRecorder {
 	return &SeccompRecorder{
 		logger:               logger,
-		syscallIDtoNameCache: make(map[string]string),
+		syscallIDtoNameCache: make(map[int]string),
 	}
 }
 
@@ -161,10 +160,8 @@ func (s *SeccompRecorder) convertSyscallIDsToNames(b *BpfRecorder, syscalls []by
 }
 
 func (s *SeccompRecorder) syscallNameForID(b *BpfRecorder, id int) (string, error) {
-	key := strconv.Itoa(id)
-
 	s.syscallIDtoNameCacheMutex.RLock()
-	item, ok := s.syscallIDtoNameCache[key]
+	item, ok := s.syscallIDtoNameCache[id]
 	s.syscallIDtoNameCacheMutex.RUnlock()
 
 	if ok {
@@ -177,7 +174,7 @@ func (s *SeccompRecorder) syscallNameForID(b *BpfRecorder, id int) (string, erro
 	}
 
 	s.syscallIDtoNameCacheMutex.Lock()
-	s.syscallIDtoNameCache[key] = name
+	s.syscallIDtoNameCache[id] = name
 	s.syscallIDtoNameCacheMutex.Unlock()
 
 	return name, nil

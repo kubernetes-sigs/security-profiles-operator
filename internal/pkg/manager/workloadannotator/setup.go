@@ -21,11 +21,9 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -41,6 +39,7 @@ import (
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/workloadtracker"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -290,19 +289,7 @@ func (r *PodReconciler) profileWorkloadRequests(
 func activeWorkloadRequests(_ context.Context, obj client.Object) []reconcile.Request {
 	podIDs, _ := workloadStatus(obj)
 
-	requests := make([]reconcile.Request, 0, len(podIDs))
-	for _, podID := range podIDs {
-		namespace, name, found := strings.Cut(podID, "/")
-		if !found {
-			continue
-		}
-
-		requests = append(requests, reconcile.Request{
-			NamespacedName: types.NamespacedName{Name: name, Namespace: namespace},
-		})
-	}
-
-	return requests
+	return workloadtracker.PodRequests(podIDs)
 }
 
 // hasProfile returns true if the pod references a profile which can be

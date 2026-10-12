@@ -24,7 +24,7 @@ import (
 )
 
 // PolicyRefKind describes the kind of policy that a SELinux profile inherits from.
-// +kubebuilder:validation:Enum=System;SelinuxProfile;
+// +kubebuilder:validation:Enum=System;SelinuxProfile
 type PolicyRefKind string
 
 const (

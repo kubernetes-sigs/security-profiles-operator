@@ -1,26 +1,30 @@
 ---
 # The webhook configurations are static in this overlay, so the operator does
-# not need to manage them. The test operations make the build fail instead of
-# changing the wrong rule if the generated rules change.
+# not manage them. It still reads them, the SPOD controller watches them and
+# the admission policies follow the deployed recording webhook. The test
+# operations make the build fail instead of changing the wrong rule if the
+# generated rules change.
 - op: test
-  path: /rules/6/resourceNames
+  path: /rules/5/resourceNames
   value: ["spo-validating-webhook-configuration"]
-- op: remove
-  path: /rules/6
+- op: replace
+  path: /rules/5/verbs
+  value: ["get", "list", "watch"]
 - op: test
-  path: /rules/4/resources
+  path: /rules/3/resources
   value:
     - mutatingwebhookconfigurations
     - validatingadmissionpolicies
     - validatingadmissionpolicybindings
     - validatingwebhookconfigurations
 - op: replace
-  path: /rules/4/resources
+  path: /rules/3/resources
   value:
     - validatingadmissionpolicies
     - validatingadmissionpolicybindings
 - op: test
-  path: /rules/3/resourceNames
+  path: /rules/2/resourceNames
   value: ["spo-mutating-webhook-configuration"]
-- op: remove
-  path: /rules/3
+- op: replace
+  path: /rules/2/verbs
+  value: ["get", "list", "watch"]

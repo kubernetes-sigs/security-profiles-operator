@@ -170,13 +170,6 @@ func (r *ReconcileSelinux) createPolicyReloadJob(
 
 	namespace := r.namespace
 
-	// The job runs the selinuxd image of the current pod, which the operator
-	// picks per node, and copies what makes the pod run on this node.
-	pod, selinuxd, err := r.getSelinuxdPod(ctx, namespace)
-	if err != nil {
-		return reloadJobBusy, fmt.Errorf("getting selinuxd container: %w", err)
-	}
-
 	state, err := r.existingReloadJob(
 		ctx,
 		namespace,
@@ -189,6 +182,14 @@ func (r *ReconcileSelinux) createPolicyReloadJob(
 	)
 	if err != nil || state != reloadJobCreated {
 		return state, err
+	}
+
+	// The job runs the selinuxd image of the current pod, which the operator
+	// picks per node, and copies what makes the pod run on this node. The pod
+	// is read uncached, so only when a job has to be created.
+	pod, selinuxd, err := r.getSelinuxdPod(ctx, namespace)
+	if err != nil {
+		return reloadJobBusy, fmt.Errorf("getting selinuxd container: %w", err)
 	}
 
 	job := newReloadJob(

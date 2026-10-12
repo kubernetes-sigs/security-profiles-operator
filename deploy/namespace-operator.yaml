@@ -2200,7 +2200,11 @@ spec:
                       to them as well.
                     type: string
                   tolerations:
-                    description: tolerations if specified, the SPOD's tolerations.
+                    description: |-
+                      tolerations if specified, the SPOD's tolerations. When not set, the
+                      SPOD tolerates the NoSchedule taints of control plane nodes and the
+                      NoExecute taint of nodes which are not ready. An empty list tolerates
+                      no taint.
                     items:
                       description: |-
                         The pod this Toleration is attached to tolerates any taint that matches
@@ -2553,8 +2557,11 @@ spec:
                 properties:
                   options:
                     description: |-
-                      options set custom namespace selectors and failure mode for SPO's webhooks.
-                      There can be at most one entry for each of the four webhooks.
+                      options set custom namespace selectors, object selectors and failure
+                      mode for SPO's webhooks. There can be at most one entry for each of the
+                      four webhooks. The options of binding.spo.io configure the validating
+                      binding-image.spo.io webhook as well, which keeps the images of the
+                      bound pods from changing.
                     items:
                       description: WebhookOptions defines per-webhook configuration
                         options.
@@ -2821,7 +2828,7 @@ spec:
                 type: integer
               state:
                 description: |-
-                  state represents the state that the policy is in. Can be:
+                  state represents the state of the SPOD instance. Can be:
                   Pending, Creating, Updating, Running or Error
                 enum:
                 - Pending
@@ -3623,16 +3630,6 @@ metadata:
 rules:
 - apiGroups:
   - ""
-  resourceNames:
-  - security-profiles-operator-profile
-  resources:
-  - configmaps
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - ""
   resources:
   - events
   verbs:
@@ -3657,7 +3654,6 @@ rules:
   - get
   - list
   - patch
-  - update
   - watch
 - apiGroups:
   - admissionregistration.k8s.io
@@ -3690,7 +3686,6 @@ rules:
   - get
   - list
   - patch
-  - update
   - watch
 - apiGroups:
   - authentication.k8s.io
@@ -3742,19 +3737,13 @@ rules:
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
-  - apparmorprofiles/finalizers
   - apparmorprofiles/status
-  - profilebindings/finalizers
   - profilebindings/status
-  - profilerecordings/finalizers
   - profilerecordings/status
-  - rawselinuxprofiles/finalizers
   - rawselinuxprofiles/status
-  - seccompprofiles/finalizers
   - seccompprofiles/status
   - securityprofilesoperatordaemons/finalizers
   - securityprofilesoperatordaemons/status
-  - selinuxprofiles/finalizers
   - selinuxprofiles/status
   verbs:
   - get
@@ -3803,6 +3792,16 @@ metadata:
 rules:
 - apiGroups:
   - ""
+  resourceNames:
+  - security-profiles-operator-profile
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
   resources:
   - services
   verbs:
@@ -3810,12 +3809,20 @@ rules:
   - get
   - list
   - patch
-  - update
   - watch
 - apiGroups:
   - apps
   resources:
   - daemonsets
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - apps
+  resources:
   - deployments
   verbs:
   - create
@@ -3834,7 +3841,6 @@ rules:
   - get
   - list
   - patch
-  - update
   - watch
 - apiGroups:
   - coordination.k8s.io
@@ -3850,11 +3856,7 @@ rules:
   - servicemonitors
   verbs:
   - create
-  - get
-  - list
   - patch
-  - update
-  - watch
 - apiGroups:
   - policy
   resources:
@@ -3864,7 +3866,6 @@ rules:
   - get
   - list
   - patch
-  - update
   - watch
 - apiGroups:
   - security.openshift.io
@@ -3886,12 +3887,12 @@ rules:
   - ""
   resources:
   - namespaces
+  - nodes
   verbs:
   - get
 - apiGroups:
   - ""
   resources:
-  - nodes
   - pods
   verbs:
   - get
@@ -4096,22 +4097,6 @@ metadata:
   name: spo-webhook
   namespace: security-profiles-operator
 rules:
-- apiGroups:
-  - coordination.k8s.io
-  resources:
-  - leases
-  verbs:
-  - create
-- apiGroups:
-  - coordination.k8s.io
-  resourceNames:
-  - security-profiles-operator-webhook-lock
-  resources:
-  - leases
-  verbs:
-  - get
-  - patch
-  - update
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:

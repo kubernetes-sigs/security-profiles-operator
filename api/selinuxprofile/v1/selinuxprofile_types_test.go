@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func TestSortLabelKeys(t *testing.T) {
@@ -82,4 +83,26 @@ func requireSortedKeys[M ~map[K]V, K ~string, V any](
 	}
 
 	require.Equal(t, want, got)
+}
+
+// Pods refer to a SELinux profile by the usage which its status reports, the
+// policy module is named like the profile.
+func TestSelinuxPolicyNameAndUsage(t *testing.T) {
+	t.Parallel()
+
+	for _, profile := range []SelinuxProfileObject{
+		&SelinuxProfile{ObjectMeta: metav1.ObjectMeta{Name: "my-policy"}},
+		&RawSelinuxProfile{ObjectMeta: metav1.ObjectMeta{Name: "my-policy"}},
+	} {
+		require.Equal(t, "my-policy", profile.GetPolicyName())
+		require.Equal(t, "my-policy.process", profile.GetPolicyUsage())
+	}
+
+	typed := &SelinuxProfile{ObjectMeta: metav1.ObjectMeta{Name: "typed"}}
+	typed.SetImplementationStatus()
+	require.Equal(t, "typed.process", typed.Status.Usage)
+
+	raw := &RawSelinuxProfile{ObjectMeta: metav1.ObjectMeta{Name: "raw"}}
+	raw.SetImplementationStatus()
+	require.Equal(t, "raw.process", raw.Status.Usage)
 }

@@ -186,11 +186,6 @@ const (
 	deletingProfileNodeFinalizerIndex = "profile.deletingNodeFinalizers"
 )
 
-// profileKinds are the kinds of profiles which have node statuses.
-var profileKinds = []string{
-	"SeccompProfile", "SelinuxProfile", "RawSelinuxProfile", "AppArmorProfile",
-}
-
 // fieldIndex is an index of the cache of the manager.
 type fieldIndex struct {
 	obj     client.Object

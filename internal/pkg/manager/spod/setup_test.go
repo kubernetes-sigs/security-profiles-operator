@@ -20,14 +20,20 @@ import (
 	"context"
 	"encoding/json"
 	"slices"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
@@ -319,16 +325,64 @@ func Test_defaultSPODCreator(t *testing.T) {
 	require.NoError(t, c.Get(t.Context(), key, created))
 	require.Equal(t, int32(3), created.Spec.Verbosity)
 
-	// Other errors are returned.
+	fastBackoff := wait.Backoff{Duration: time.Millisecond, Factor: 1, Steps: 3}
+
+	// Other errors are retried and returned once the retries are exhausted.
+	var attempts atomic.Int32
+
 	failing := &defaultSPODCreator{
 		client: fake.NewClientBuilder().WithScheme(scheme).WithInterceptorFuncs(interceptor.Funcs{
 			Create: func(context.Context, client.WithWatch, client.Object, ...client.CreateOption) error {
+				attempts.Add(1)
+
 				return errTest
 			},
 		}).Build(),
 		namespace: testNamespace,
+		backoff:   fastBackoff,
 	}
 	require.ErrorIs(t, failing.Start(t.Context()), errTest)
+	require.Equal(t, int32(3), attempts.Load())
+
+	// A transient error does not stop the manager.
+	attempts.Store(0)
+
+	flaky := &defaultSPODCreator{
+		client: fake.NewClientBuilder().WithScheme(scheme).WithInterceptorFuncs(interceptor.Funcs{
+			Create: func(
+				ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption,
+			) error {
+				// Right after an install, the RBAC bindings may not have
+				// reached the authorizer yet.
+				if attempts.Add(1) == 1 {
+					return apierrors.NewForbidden(schema.GroupResource{}, config.SPOdName, errTest)
+				}
+
+				return c.Create(ctx, obj, opts...)
+			},
+		}).Build(),
+		namespace: testNamespace,
+		backoff:   fastBackoff,
+	}
+	require.NoError(t, flaky.Start(t.Context()))
+	require.Equal(t, int32(2), attempts.Load())
+
+	// Errors which a retry cannot fix are returned right away.
+	attempts.Store(0)
+
+	invalid := &defaultSPODCreator{
+		client: fake.NewClientBuilder().WithScheme(scheme).WithInterceptorFuncs(interceptor.Funcs{
+			Create: func(context.Context, client.WithWatch, client.Object, ...client.CreateOption) error {
+				attempts.Add(1)
+
+				return apierrors.NewBadRequest(errTest.Error())
+			},
+		}).Build(),
+		namespace: testNamespace,
+		backoff:   fastBackoff,
+	}
+	require.True(t, apierrors.IsBadRequest(invalid.Start(t.Context())))
+	require.Equal(t, int32(1), attempts.Load())
 }
 
 func Test_isInNamespace(t *testing.T) {
@@ -341,4 +395,25 @@ func Test_isInNamespace(t *testing.T) {
 	require.False(t, isInNamespace(&corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "other"},
 	}, testNamespace))
+}
+
+func Test_isNamed(t *testing.T) {
+	t.Parallel()
+
+	named := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "name", Namespace: "other"}}
+	other := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "other", Namespace: testNamespace},
+	}
+
+	pred := isNamed("name")
+	require.True(t, pred.Generic(event.GenericEvent{Object: named}))
+	require.False(t, pred.Generic(event.GenericEvent{Object: other}))
+
+	r := &ReconcileSPOd{namespace: testNamespace}
+	inNamespace := r.isNamedInNamespace("name")
+	require.False(t, inNamespace.Generic(event.GenericEvent{Object: named}), "other namespace")
+
+	named.Namespace = testNamespace
+	require.True(t, inNamespace.Generic(event.GenericEvent{Object: named}))
+	require.False(t, inNamespace.Generic(event.GenericEvent{Object: other}))
 }

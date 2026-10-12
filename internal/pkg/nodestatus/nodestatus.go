@@ -31,7 +31,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -550,11 +549,12 @@ func (nsf *StatusClient) GetAnnotation(ctx context.Context, key string) (string,
 
 // SetAnnotation sets the annotation on the node status of the profile. A
 // conflict with another writer of the status, like SetNodeStatus running for
-// the same profile, is retried.
+// the same profile, is retried with the status read from the API server, the
+// cache may still return the version which lost.
 func (nsf *StatusClient) SetAnnotation(ctx context.Context, key, value string) error {
-	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+	return util.RetryWithFreshReads(ctx, nsf.client, nsf.reader, func(c client.Client) error {
 		status := secprofnodestatusapi.SecurityProfileNodeStatus{}
-		if err := nsf.client.Get(ctx, nsf.perNodeStatusNamespacedName(), &status); err != nil {
+		if err := c.Get(ctx, nsf.perNodeStatusNamespacedName(), &status); err != nil {
 			return fmt.Errorf("getting node status for annotation update: %w", err)
 		}
 
@@ -568,12 +568,12 @@ func (nsf *StatusClient) SetAnnotation(ctx context.Context, key, value string) e
 
 		status.Annotations[key] = value
 
-		if err := nsf.client.Update(ctx, &status); err != nil {
+		if err := c.Update(ctx, &status); err != nil {
 			return fmt.Errorf("updating node status annotation: %w", err)
 		}
 
 		return nil
-	})
+	}, kerrors.IsConflict)
 }
 
 // State returns the state of the profile on the node.

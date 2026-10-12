@@ -27,16 +27,16 @@ import (
 
 	"github.com/go-logr/logr"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	api "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/daemongrpc"
 )
 
 const (
 	// MaxMsgSize is the largest message the metrics server receives and its
 	// clients send.
-	MaxMsgSize             = 16 * 1024 * 1024
+	MaxMsgSize             = daemongrpc.MaxMsgSize
 	socketMode os.FileMode = 0o660
 
 	// grpcStopTimeout bounds the graceful stop of the GRPC server. The log
@@ -65,10 +65,7 @@ func (m *Metrics) ServeGRPC(ctx context.Context) error {
 		return errors.Join(fmt.Errorf("change GRPC socket mode: %w", err), listener.Close())
 	}
 
-	m.grpcServer = grpc.NewServer(
-		grpc.MaxSendMsgSize(MaxMsgSize),
-		grpc.MaxRecvMsgSize(MaxMsgSize),
-	)
+	m.grpcServer = grpc.NewServer(daemongrpc.ServerOptions()...)
 	api.RegisterMetricsServer(m.grpcServer, m)
 
 	go m.series.run(m.stopSeries)
@@ -121,25 +118,7 @@ func stopGRPCServer(server *grpc.Server, timeout time.Duration, log logr.Logger)
 // Dial can be used to connect to the default GRPC server by creating a new
 // client.
 func Dial() (*grpc.ClientConn, error) {
-	conn, err := grpc.NewClient(
-		"unix://"+config.GRPCServerSocketMetrics,
-		dialOptions()...,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("GRPC dial: %w", err)
-	}
-
-	return conn, nil
-}
-
-func dialOptions() []grpc.DialOption {
-	return []grpc.DialOption{
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		// A request which exceeds the limit of the server has to fail with
-		// ResourceExhausted on the client side. The server would otherwise
-		// reset the stream, which makes Send fail like a broken transport.
-		grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(MaxMsgSize)),
-	}
+	return daemongrpc.Dial(config.GRPCServerSocketMetrics) //nolint:wrapcheck // wrapped already
 }
 
 // AuditInc updates the metrics for the audit counter.

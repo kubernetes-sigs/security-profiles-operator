@@ -21,6 +21,7 @@ import (
 	"regexp"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -435,6 +436,83 @@ func Test_selinuxProfileHandler(t *testing.T) {
 						)
 					}
 				}
+			}
+		})
+	}
+}
+
+// The typed handler renders the CIL policy with the inherited profiles and the
+// SELinux options of the SPOD.
+func Test_selinuxProfileHandlerCILPolicy(t *testing.T) {
+	t.Parallel()
+
+	const ns = "security-profiles-operator"
+
+	scheme := runtime.NewScheme()
+	require.NoError(t, spodapi.AddToScheme(scheme))
+	require.NoError(t, selinuxprofileapi.AddToScheme(scheme))
+
+	profile := func(name string, inherit ...selinuxprofileapi.PolicyRef) *selinuxprofileapi.SelinuxProfile {
+		return &selinuxprofileapi.SelinuxProfile{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "ns"},
+			Spec: selinuxprofileapi.SelinuxProfileSpec{
+				Inherit: inherit,
+				Allow: selinuxprofileapi.Allow{
+					"var_log_t": {"file": []string{"read"}},
+				},
+			},
+		}
+	}
+
+	for _, tc := range []struct {
+		name        string
+		deniedTypes []string
+		wantCIL     []string
+		wantErr     string
+	}{
+		{
+			name:    "inherits the profile of the operator",
+			wantCIL: []string{"(blockinherit base)", "var_log_t"},
+		},
+		{
+			name:        "denied type of the SPOD",
+			deniedTypes: []string{"var_log_t"},
+			wantErr:     "type var_log_t is denied",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			spod := bindata.DefaultSPOD.DeepCopy()
+			spod.Namespace = ns
+			spod.Spec.Selinux.Options.DeniedTypes = tc.deniedTypes
+
+			child := profile("child", selinuxprofileapi.PolicyRef{
+				Kind: selinuxprofileapi.SelinuxProfilePolicyKind, Name: "base",
+			})
+
+			cli := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(spod, profile("base"), child).
+				Build()
+
+			sph, err := newSelinuxProfileHandler(
+				t.Context(), cli, types.NamespacedName{Name: "child", Namespace: "ns"}, ns,
+			)
+			require.NoError(t, err)
+			require.NoError(t, sph.Validate(t.Context()))
+
+			cil, err := sph.GetCILPolicy()
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			for _, want := range tc.wantCIL {
+				require.Contains(t, cil, want)
 			}
 		})
 	}

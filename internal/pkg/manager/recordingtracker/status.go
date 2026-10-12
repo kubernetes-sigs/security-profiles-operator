@@ -31,19 +31,16 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/util/retry"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/api/common"
 	profilebase "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
-	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
-	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/recordingkinds"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
@@ -101,40 +98,50 @@ func (r *recordingStatusReconciler) Reconcile(
 	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
 
-	return reconcile.Result{}, retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		recording := &profilerecordingapi.ProfileRecording{}
-		if err := r.reader.Get(ctx, req.NamespacedName, recording); err != nil {
-			return client.IgnoreNotFound(err)
-		}
+	// The SPOD, webhook and namespace events reconcile every recording, so the
+	// first attempt reads the recording from the cache. A retry after a
+	// conflict reads it from the API server, the cache may still return the
+	// version which lost.
+	return reconcile.Result{}, util.RetryWithFreshReads(
+		ctx,
+		r.client,
+		r.reader,
+		func(c client.Client) error {
+			recording := &profilerecordingapi.ProfileRecording{}
+			if err := c.Get(ctx, req.NamespacedName, recording); err != nil {
+				return client.IgnoreNotFound(err)
+			}
 
-		ready, err := r.readyCondition(ctx, recording)
-		if err != nil {
-			return err
-		}
+			ready, err := r.readyCondition(ctx, recording)
+			if err != nil {
+				return err
+			}
 
-		conflict, err := r.conflictCondition(ctx, recording)
-		if err != nil {
-			return err
-		}
+			conflict, err := r.conflictCondition(ctx, recording)
+			if err != nil {
+				return err
+			}
 
-		updated := recording.DeepCopy()
-		updated.Status.SetConditionForGeneration(&ready, recording.GetGeneration())
-		updated.Status.SetConditionForGeneration(&conflict, recording.GetGeneration())
+			updated := recording.DeepCopy()
+			updated.Status.SetConditionForGeneration(&ready, recording.GetGeneration())
+			updated.Status.SetConditionForGeneration(&conflict, recording.GetGeneration())
 
-		if reflect.DeepEqual(recording.Status, updated.Status) {
+			if reflect.DeepEqual(recording.Status, updated.Status) {
+				return nil
+			}
+
+			r.log.V(config.VerboseLevel).
+				Info("Updating recording conditions", "recording", req.NamespacedName,
+					"reason", ready.Reason, "conflict", conflict.Reason)
+
+			if err := c.Status().Update(ctx, updated); err != nil {
+				return fmt.Errorf("updating recording status: %w", err)
+			}
+
 			return nil
-		}
-
-		r.log.V(config.VerboseLevel).
-			Info("Updating recording conditions", "recording", req.NamespacedName,
-				"reason", ready.Reason, "conflict", conflict.Reason)
-
-		if err := r.client.Status().Update(ctx, updated); err != nil {
-			return fmt.Errorf("updating recording status: %w", err)
-		}
-
-		return nil
-	})
+		},
+		errors.IsConflict,
+	)
 }
 
 // readyCondition returns the Ready condition of the recording.
@@ -237,11 +244,11 @@ func (r *recordingStatusReconciler) recorderEnabled(
 }
 
 // namespaceSelected returns whether the recording webhook selects the
-// namespace, see bindata.WebhookSelectsNamespace.
+// namespace, see bindata.RecordingWebhookSelectsNamespace.
 func (r *recordingStatusReconciler) namespaceSelected(
 	ctx context.Context, namespace string,
 ) (bool, error) {
-	return bindata.WebhookSelectsNamespace(ctx, r.client, bindata.RecordingWebhookName, namespace)
+	return bindata.RecordingWebhookSelectsNamespace(ctx, r.client, namespace)
 }
 
 // conflictCondition returns the ProfileConflict condition of the recording.
@@ -258,7 +265,7 @@ func (r *recordingStatusReconciler) conflictCondition(
 		Reason:             string(profilerecordingapi.ReasonNoProfileConflict),
 	}
 
-	kind, ok := profileKinds[recording.Spec.Kind]
+	kind, ok := recordingkinds.Of(recording.Spec.Kind)
 	if !ok {
 		return condition, nil
 	}
@@ -271,7 +278,7 @@ func (r *recordingStatusReconciler) conflictCondition(
 	var conflicts []string
 
 	for _, name := range names {
-		prf := kind.newObject()
+		prf := kind.NewObject()
 		if err := r.client.Get(ctx, client.ObjectKey{Name: name}, prf); err != nil {
 			if errors.IsNotFound(err) {
 				continue
@@ -310,28 +317,6 @@ func shortList(names []string) string {
 		strings.Join(names[:conflictProfilesShown], ", "), len(names)-conflictProfilesShown)
 }
 
-// profileKind is a kind of profiles which a recording records.
-type profileKind struct {
-	newObject func() client.Object
-	newList   func() client.ObjectList
-}
-
-// profileKinds are the kinds of profiles which the recordings record.
-var profileKinds = map[profilerecordingapi.ProfileRecordingKind]profileKind{
-	profilerecordingapi.ProfileRecordingKindSeccompProfile: {
-		newObject: func() client.Object { return &seccompprofileapi.SeccompProfile{} },
-		newList:   func() client.ObjectList { return &seccompprofileapi.SeccompProfileList{} },
-	},
-	profilerecordingapi.ProfileRecordingKindSelinuxProfile: {
-		newObject: func() client.Object { return &selinuxprofileapi.SelinuxProfile{} },
-		newList:   func() client.ObjectList { return &selinuxprofileapi.SelinuxProfileList{} },
-	},
-	profilerecordingapi.ProfileRecordingKindAppArmorProfile: {
-		newObject: func() client.Object { return &apparmorprofileapi.AppArmorProfile{} },
-		newList:   func() client.ObjectList { return &apparmorprofileapi.AppArmorProfileList{} },
-	},
-}
-
 // recordedProfileNames returns the sorted names of the profiles which the
 // recording writes, as far as they can be told: the profiles of the recorded
 // containers of the tracked pods, and the merged profiles of the containers
@@ -339,7 +324,7 @@ var profileKinds = map[profilerecordingapi.ProfileRecordingKind]profileKind{
 // pods which are not tracked yet are not known. They are named like the
 // profile recorder of the daemon and the merger name them.
 func (r *recordingStatusReconciler) recordedProfileNames(
-	ctx context.Context, recording *profilerecordingapi.ProfileRecording, kind profileKind,
+	ctx context.Context, recording *profilerecordingapi.ProfileRecording, kind recordingkinds.Kind,
 ) ([]string, error) {
 	names := sets.New[string]()
 	merge := recording.Spec.MergeStrategy == profilerecordingapi.ProfileMergeContainers
@@ -391,7 +376,7 @@ func (r *recordingStatusReconciler) recordedProfileNames(
 
 	// The partial profiles get merged into the profile of their container,
 	// also if the merge strategy changed since.
-	partials := kind.newList()
+	partials := kind.NewList()
 	if err := r.client.List(ctx, partials, client.MatchingLabels{
 		profilerecordingapi.ProfileToRecordingLabel:          recording.GetName(),
 		profilerecordingapi.ProfileToRecordingNamespaceLabel: recording.GetNamespace(),

@@ -301,6 +301,31 @@ func TestCacheProfilesOfPod(t *testing.T) {
 	require.False(t, ok)
 }
 
+// TestCacheProfilesOfPodForgetsCollectedProfile asserts that a collected
+// profile gets recorded again for a new container, like the one of a pod
+// created again with the same recording annotation, but not for the
+// containers it was collected from.
+func TestCacheProfilesOfPodForgetsCollectedProfile(t *testing.T) {
+	t.Parallel()
+
+	sut, _ := newClusterRecorder(true, false)
+	p := podWithContainer(
+		map[string]string{config.SeccompProfileRecordBpfAnnotationKey + "ctr": profile},
+	)
+
+	sut.collectedProfiles.Store(profile, []string{containerID})
+	sut.cacheProfilesOfPod(p)
+
+	_, collected := sut.collectedProfiles.Load(profile)
+	require.True(t, collected, "the collected container stays collected")
+
+	sut.collectedProfiles.Store(profile, []string{strings.Repeat("5", 64)})
+	sut.cacheProfilesOfPod(p)
+
+	_, collected = sut.collectedProfiles.Load(profile)
+	require.False(t, collected, "a new container gets recorded again")
+}
+
 // TestVerifyProcess asserts that a PID which belongs to another process than
 // the reported one is detected.
 func TestVerifyProcess(t *testing.T) {

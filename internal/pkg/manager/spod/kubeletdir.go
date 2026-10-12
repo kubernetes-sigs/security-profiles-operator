@@ -240,7 +240,7 @@ func kubeletDirLabelChanged() predicate.Funcs {
 func (r *ReconcileSPOd) allSPODs(ctx context.Context, _ client.Object) []reconcile.Request {
 	spods := &spodapi.SecurityProfilesOperatorDaemonList{}
 	if err := r.client.List(ctx, spods, client.InNamespace(r.namespace)); err != nil {
-		r.log.Error(err, "Cannot list SPODs for node event")
+		r.log.Error(err, "Cannot list SPODs for a watched object event")
 
 		return nil
 	}

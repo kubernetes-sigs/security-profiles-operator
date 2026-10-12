@@ -18,6 +18,7 @@ package config
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -98,6 +99,64 @@ func TestGetKubeletConfigFromFileMissing(t *testing.T) {
 	require.ErrorIs(t, err, os.ErrNotExist)
 	require.ErrorContains(t, err, "reading kubelet config")
 	require.Nil(t, cfg)
+}
+
+// writeKubeletConfig writes the content to a kubelet config file in a
+// temporary directory and returns its path.
+func writeKubeletConfig(t *testing.T, content string) string {
+	t.Helper()
+
+	configPath := filepath.Join(t.TempDir(), KubeletConfigFile)
+	require.NoError(t, os.WriteFile(configPath, []byte(content), 0o600))
+
+	return configPath
+}
+
+// The kubelet config file which the non-root enabler writes wins over the
+// environment. A file without a directory and an unusable file fall back to
+// it.
+func TestKubeletDirFromConfigFile(t *testing.T) {
+	t.Setenv(KubeletDirEnvKey, "/from/env")
+
+	for _, tc := range []struct {
+		name       string
+		configPath string
+		want       string
+	}{
+		{
+			name:       "file wins over env",
+			configPath: writeKubeletConfig(t, `{"kubeletDir":"/from/file"}`),
+			want:       "/from/file",
+		},
+		{
+			name:       "file without directory",
+			configPath: writeKubeletConfig(t, `{}`),
+			want:       "/from/env",
+		},
+		{
+			name:       "invalid file",
+			configPath: writeKubeletConfig(t, `{`),
+			want:       "/from/env",
+		},
+		{
+			name:       "missing file",
+			configPath: filepath.Join(t.TempDir(), KubeletConfigFile),
+			want:       "/from/env",
+		},
+	} {
+		require.Equal(t, tc.want, kubeletDir(tc.configPath), tc.name)
+	}
+}
+
+func TestReadKubeletConfig(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := readKubeletConfig(writeKubeletConfig(t, `{"kubeletDir":"/data/kubelet"}`))
+	require.NoError(t, err)
+	require.Equal(t, "/data/kubelet", cfg.KubeletDir)
+
+	_, err = readKubeletConfig(writeKubeletConfig(t, `{`))
+	require.ErrorContains(t, err, "parsing kubelet config")
 }
 
 func TestTryToGetOperatorNamespaceSet(t *testing.T) {

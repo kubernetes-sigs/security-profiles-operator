@@ -90,7 +90,7 @@ const (
 	// EnableLogEnricherEnvKey is the environment variable key for enabling the log enricher.
 	EnableLogEnricherEnvKey = "ENABLE_LOG_ENRICHER"
 
-	// EnableJsonEnricherEnvKey is the environment variable key for enabling the log enricher.
+	// EnableJsonEnricherEnvKey is the environment variable key for enabling the JSON enricher.
 	EnableJsonEnricherEnvKey = "ENABLE_JSON_ENRICHER"
 
 	// EnableBpfRecorderEnvKey is the environment variable key for enabling the BPF recorder.
@@ -273,17 +273,25 @@ func WatchNamespaces() string {
 	return os.Getenv("WATCH_NAMESPACE")
 }
 
-// KubeletDir returns the kubelet directory either form a config file, an environment variable
-// when is set or the default Kubernetes path.
+// KubeletDir returns the kubelet directory either from the kubelet config
+// file, which the non-root enabler writes, from an environment variable when
+// it is set, or the default Kubernetes path. The file is read on every call,
+// because the non-root enabler may write it after the daemon started.
 func KubeletDir() string {
-	cfg, err := GetKubeletConfigFromFile()
+	return kubeletDir(KubeletConfigFilePath())
+}
+
+// kubeletDir is KubeletDir with the kubelet config file at configPath.
+func kubeletDir(configPath string) string {
+	cfg, err := readKubeletConfig(configPath)
 	if err == nil && cfg.KubeletDir != "" {
 		return cfg.KubeletDir
 	}
 
 	// A missing file is expected without the non-root enabler, any other
-	// error falls back as well, but is worth knowing about. This runs before
-	// the logger exists, at package initialization.
+	// error falls back as well, but is worth knowing about. The callers have
+	// no logger at hand, and the path is looked up on every reconciliation,
+	// so the warning goes to stderr once.
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		warnKubeletConfig.Do(func() {
 			fmt.Fprintf(os.Stderr, "Using the default kubelet directory: %v\n", err)
@@ -328,7 +336,12 @@ func KubeletConfigFilePath() string {
 
 // GetKubeletConfigFromFile reads the kubelet config from file.
 func GetKubeletConfigFromFile() (*KubeletConfig, error) {
-	cfg, err := os.ReadFile(KubeletConfigFilePath())
+	return readKubeletConfig(KubeletConfigFilePath())
+}
+
+// readKubeletConfig reads the kubelet config from the file at configPath.
+func readKubeletConfig(configPath string) (*KubeletConfig, error) {
+	cfg, err := os.ReadFile(configPath) //nolint:gosec // the path of the operator, not user input
 	if err != nil {
 		return nil, fmt.Errorf("reading kubelet config: %w", err)
 	}

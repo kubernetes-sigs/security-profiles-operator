@@ -24,6 +24,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -39,6 +40,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/auditsource"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/tailer"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 const (
@@ -46,6 +48,16 @@ const (
 	// when neither a number nor an age is configured. Keeping them all would
 	// fill the disk of the node.
 	defaultAuditLogMaxBackups = 10
+
+	// maxProcessInfoItems bounds the process cache. Every process takes two
+	// entries, one by PID and start time and one by PID for the processes
+	// which exited before their lines got read, so it holds as many
+	// processes as the other caches hold entries.
+	maxProcessInfoItems = 2 * maxCacheItems
+
+	// noContainerRecheck is how long the lines of a process which runs
+	// outside of a container do not look its container up again.
+	noContainerRecheck = time.Second
 )
 
 // errTailEnded is reported when the audit log tail ends without an error.
@@ -170,7 +182,7 @@ func NewJsonEnricherArgs(logger logr.Logger, opts *JsonEnricherOptions) (*JsonEn
 		),
 		processCache: ttlcache.New(
 			ttlcache.WithTTL[string, *types.ProcessInfo](defaultCacheTimeout),
-			ttlcache.WithCapacity[string, *types.ProcessInfo](maxCacheItems),
+			ttlcache.WithCapacity[string, *types.ProcessInfo](maxProcessInfoItems),
 		),
 		enricherFilters: enricherFilters,
 		// Read once, like the rest of the configuration.
@@ -349,15 +361,21 @@ func (e *JsonEnricher) processLine(line string) {
 
 	e.processEbpf(logBucket, auditLine)
 
-	if logBucket.ContainerInfo == nil {
-		logBucket.ContainerInfo, logBucket.ContainerID = e.fetchContainerInfo(
-			auditLine.ProcessID, auditTime(auditLine),
+	if logBucket.ContainerInfo == nil && time.Since(logBucket.NoContainerAt) >= noContainerRecheck {
+		var noContainer bool
+
+		logBucket.ContainerInfo, logBucket.ContainerID, noContainer = e.fetchContainerInfo(
+			auditLine.ProcessID,
+			auditTime(auditLine),
 		)
+
+		logBucket.NoContainerAt = time.Time{}
+		if noContainer {
+			logBucket.NoContainerAt = time.Now()
+		}
 	}
 
-	logBucket.SyscallIds.LoadOrStore(
-		types.SyscallKey{ID: auditLine.SystemCallID, Arch: auditLine.Arch}, struct{}{},
-	)
+	logBucket.SyscallIds[types.SyscallKey{ID: auditLine.SystemCallID, Arch: auditLine.Arch}] = struct{}{}
 
 	logBucket.Mu.Unlock()
 
@@ -416,7 +434,7 @@ func (e *JsonEnricher) lockedLogBucket(
 	}
 
 	logBucket = &types.LogBucket{
-		SyscallIds:    sync.Map{},
+		SyscallIds:    map[types.SyscallKey]struct{}{},
 		ContainerInfo: nil,
 		ProcessInfo:   nil,
 		TimestampID:   auditLine.TimestampID,
@@ -479,10 +497,12 @@ func (e *JsonEnricher) processEbpf(logBucket *types.LogBucket, auditLine *types.
 // returned as well, the next line of the process or the emission of its bucket
 // look it up again. Waiting for it here would stall the processing of the
 // lines. A process which exited gets the container it was last seen running
-// in. eventTime is when the line of the process got logged.
+// in. eventTime is when the line of the process got logged. noContainer is
+// true if the process runs outside of a container, or exited without a known
+// container, which looking it up again does not change.
 func (e *JsonEnricher) fetchContainerInfo(
 	processId int, eventTime time.Time,
-) (info *types.ContainerInfo, containerID string) {
+) (info *types.ContainerInfo, containerID string, noContainer bool) {
 	cID, errContainer := e.lookup.containerIDForProcess(e.impl, processId, eventTime)
 	e.logger.V(config.VerboseLevel).Info("Container ID for PID",
 		"containerID", cID, "len", len(cID))
@@ -490,7 +510,8 @@ func (e *JsonEnricher) fetchContainerInfo(
 	if errContainer != nil || cID == "" {
 		e.logger.V(config.VerboseLevel).Info("unable to get container Id", "error", errContainer)
 
-		return nil, ""
+		return nil, "", errors.Is(errContainer, util.ErrContainerIDNotFound) ||
+			processGone(errContainer)
 	}
 
 	containerInfo, err := e.lookup.containers.get(cID)
@@ -498,13 +519,13 @@ func (e *JsonEnricher) fetchContainerInfo(
 		e.logger.V(config.VerboseLevel).Info("Container info not known yet",
 			"containerID", cID, "reason", err.Error())
 
-		return nil, cID
+		return nil, cID, false
 	}
 
 	e.logger.V(config.VerboseLevel).Info("Container info",
 		"containerInfo", containerInfo)
 
-	return containerInfo, cID
+	return containerInfo, cID, false
 }
 
 // Returns nil if the processInfo couldn't be loaded.
@@ -527,26 +548,27 @@ func (e *JsonEnricher) fetchProcessInfo(
 func (e *JsonEnricher) dispatchSeccompLine(
 	logBucket *types.LogBucket, nodeName string,
 ) {
-	var syscallNames []string
+	// The names are sorted, so that buckets with the same syscalls emit the
+	// same record, and never null, which consumers expecting a list would
+	// trip over.
+	syscallNames := make([]string, 0, len(logBucket.SyscallIds))
 
-	logBucket.SyscallIds.Range(func(k, _ any) bool {
-		syscall, ok := k.(types.SyscallKey)
-		if !ok {
-			return false
-		}
-
+	for syscall := range logBucket.SyscallIds {
 		syscallName, err := syscallName(syscall.ID, syscall.Arch)
 		if err != nil {
 			e.logger.Error(
 				err,
 				"no syscall name found for ID", "syscallId", syscall.ID, "arch", syscall.Arch,
 			)
-		} else {
-			syscallNames = append(syscallNames, syscallName)
+
+			continue
 		}
 
-		return true
-	})
+		syscallNames = append(syscallNames, syscallName)
+	}
+
+	slices.Sort(syscallNames)
+	syscallNames = slices.Compact(syscallNames)
 
 	var resource map[string]string
 

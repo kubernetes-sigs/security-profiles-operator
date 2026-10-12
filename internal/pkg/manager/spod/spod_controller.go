@@ -22,10 +22,12 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -88,6 +90,11 @@ const (
 // not exist.
 var errOperatorDeploymentMissing = stderrors.New("operator deployment not found")
 
+// errAdmissionPoliciesPending is returned once the operands got reconciled,
+// but the admission policies could not be applied yet, because the deployed
+// recording webhook could not be read.
+var errAdmissionPoliciesPending = stderrors.New("admission policies not applied")
+
 // NewController returns a new empty controller instance.
 func NewController() controller.Controller {
 	return &ReconcileSPOd{}
@@ -98,6 +105,9 @@ var _ reconcile.Reconciler = &ReconcileSPOd{}
 
 // ReconcileSPOd reconciles the SPOD and its operands, like the SPOd DaemonSet.
 type ReconcileSPOd struct {
+	// serviceMonitorSynced is set once the ServiceMonitor got patched by this
+	// process, see ensureServiceMonitor.
+	serviceMonitorSynced atomic.Bool
 	// This client, initialized using mgr.Client() above, is a split client
 	// that reads objects from the cache and writes to the apiserver
 	client client.Client
@@ -168,21 +178,25 @@ func (r *ReconcileSPOd) Healthz(*http.Request) error {
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 //
 // Operand, which lives in the operator namespace. The manager cache for these
-// kinds is restricted to that namespace by the manager command.
-// +kubebuilder:rbac:groups="",namespace="security-profiles-operator",resources=services,verbs=get;list;watch;create;update;patch
-// +kubebuilder:rbac:groups=apps,namespace="security-profiles-operator",resources=deployments;daemonsets,verbs=get;list;watch;create;update;patch
-// +kubebuilder:rbac:groups=cert-manager.io,namespace="security-profiles-operator",resources=issuers;certificates,verbs=get;list;watch;create;update;patch
+// kinds is restricted to that namespace by the manager command. The services,
+// the DaemonSet and the cert-manager resources are only merge patched, the
+// webhook deployment gets its spec replaced by an update.
+// +kubebuilder:rbac:groups="",namespace="security-profiles-operator",resources=services,verbs=get;list;watch;create;patch
+// +kubebuilder:rbac:groups=apps,namespace="security-profiles-operator",resources=deployments,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=apps,namespace="security-profiles-operator",resources=daemonsets,verbs=get;list;watch;create;patch
+// +kubebuilder:rbac:groups=cert-manager.io,namespace="security-profiles-operator",resources=issuers;certificates,verbs=get;list;watch;create;patch
 //
 // The webhook deployment gets a pod disruption budget:
-// +kubebuilder:rbac:groups=policy,namespace="security-profiles-operator",resources=poddisruptionbudgets,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=policy,namespace="security-profiles-operator",resources=poddisruptionbudgets,verbs=get;list;watch;create;patch
 //
 // Webhook configurations are cluster scoped. Create cannot be restricted by
 // name, but everything else is limited to the operator owned configurations.
 // The manager caches these kinds by name, so list and watch carry the name
-// as field selector, which the API server authorizes like a get.
+// as field selector, which the API server authorizes like a get. They are
+// only merge patched.
 // +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=mutatingwebhookconfigurations;validatingwebhookconfigurations,verbs=create
-// +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=mutatingwebhookconfigurations,resourceNames=spo-mutating-webhook-configuration,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingwebhookconfigurations,resourceNames=spo-validating-webhook-configuration,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=mutatingwebhookconfigurations,resourceNames=spo-mutating-webhook-configuration,verbs=get;list;watch;patch
+// +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingwebhookconfigurations,resourceNames=spo-validating-webhook-configuration,verbs=get;list;watch;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons/finalizers,verbs=get;update;patch
@@ -193,8 +207,9 @@ func (r *ReconcileSPOd) Healthz(*http.Request) error {
 // syscalls of the SPOD reject:
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles,verbs=get;list;watch;create;update;patch;delete
 //
-// Needed for the ServiceMonitor
-// +kubebuilder:rbac:groups=monitoring.coreos.com,namespace="security-profiles-operator",resources=servicemonitors,verbs=get;list;watch;create;update;patch
+// Needed for the ServiceMonitor, which is created or merge patched without
+// being read:
+// +kubebuilder:rbac:groups=monitoring.coreos.com,namespace="security-profiles-operator",resources=servicemonitors,verbs=create;patch
 //
 // OpenShift (This is ignored in other distros):
 //nolint:lll // required for kubebuilder
@@ -207,8 +222,8 @@ func (r *ReconcileSPOd) Healthz(*http.Request) error {
 //
 // Needed to detect the proper selinux image and the log volume of the JSON
 // enricher. The manager caches the ConfigMap by name like the webhook
-// configurations:
-// +kubebuilder:rbac:groups="",resources=configmaps,resourceNames=security-profiles-operator-profile,verbs=get;list;watch
+// configurations, in the operator namespace only:
+// +kubebuilder:rbac:groups="",namespace="security-profiles-operator",resources=configmaps,resourceNames=security-profiles-operator-profile,verbs=get;list;watch
 //
 // Needed to authenticate and authorize metrics requests
 // +kubebuilder:rbac:groups=authentication.k8s.io,resources=tokenreviews,verbs=create
@@ -266,6 +281,13 @@ func (r *ReconcileSPOd) Reconcile(
 			logger.Info("Waiting for the operator deployment",
 				"name", config.OperatorName, "namespace", r.namespace)
 
+			return reconcile.Result{RequeueAfter: operatorDeploymentRetry}, nil
+		}
+
+		// The operands are fine, only the admission policies wait for the
+		// recording webhook to be readable, which applyAdmissionPolicies
+		// reported.
+		if stderrors.Is(err, errAdmissionPoliciesPending) {
 			return reconcile.Result{RequeueAfter: operatorDeploymentRetry}, nil
 		}
 
@@ -367,8 +389,25 @@ func (r *ReconcileSPOd) reconcileSPOD(
 		return errOperatorDeploymentMissing
 	}
 
-	r.applyAdmissionPolicies(ctx, spod, ops.webhook)
+	// A failure to read the recording webhook is retried after the rest of
+	// the SPOD got reconciled.
+	policyErr := r.applyAdmissionPolicies(ctx, spod, ops.webhook)
 
+	if err := r.reconcileOperands(ctx, spod, ops, logger); err != nil {
+		return err
+	}
+
+	return policyErr
+}
+
+// reconcileOperands creates or updates the DaemonSet, the webhook and the
+// other operands of the SPOD, and reports the rollout in its status.
+func (r *ReconcileSPOd) reconcileOperands(
+	ctx context.Context,
+	spod *spodapi.SecurityProfilesOperatorDaemon,
+	ops *operands,
+	logger logr.Logger,
+) error {
 	spodKey := types.NamespacedName{Name: spod.GetName(), Namespace: r.namespace}
 	foundSPOd := &appsv1.DaemonSet{}
 
@@ -399,7 +438,10 @@ func (r *ReconcileSPOd) reconcileSPOD(
 	}
 
 	var hookUpdate bool
+
 	if !ptr.Deref(spod.Spec.Webhook.StaticConfig, false) {
+		var err error
+
 		hookUpdate, err = ops.webhook.NeedsUpdate(ctx, r.client)
 		if err != nil {
 			return fmt.Errorf("determining if webhook needs update: %w", err)
@@ -432,6 +474,16 @@ func (r *ReconcileSPOd) reconcileSPOD(
 
 	// An update patches the metrics service anyway.
 	if err := r.ensureMetricsService(ctx, spod, ops.metricsService); err != nil {
+		return err
+	}
+
+	// An update patches the ServiceMonitor anyway.
+	if err := r.ensureServiceMonitor(ctx, ops.serviceMonitor); err != nil {
+		return err
+	}
+
+	// An update writes the default profiles anyway.
+	if err := r.syncDefaultProfiles(ctx, spod, false); err != nil {
 		return err
 	}
 
@@ -508,6 +560,80 @@ func (r *ReconcileSPOd) ensureMetricsService(
 	return nil
 }
 
+// ensureServiceMonitor patches the ServiceMonitor once per operator process.
+// The operator may not read it, so it cannot tell whether it is current, and
+// an upgrade which changes neither the DaemonSet nor the webhook would keep
+// the one of the previous version otherwise.
+func (r *ReconcileSPOd) ensureServiceMonitor(
+	ctx context.Context, serviceMonitor *monitoringv1.ServiceMonitor,
+) error {
+	if r.serviceMonitorSynced.Load() {
+		return nil
+	}
+
+	if err := patchOrCreate(ctx, r.client, serviceMonitor.DeepCopy()); err != nil {
+		if bindata.IsNotFound(err) {
+			r.log.V(config.VerboseLevel).
+				Info("Service monitor resource does not seem to exist, ignoring")
+			r.serviceMonitorSynced.Store(true)
+
+			return nil
+		}
+
+		return fmt.Errorf("updating service monitor: %w", err)
+	}
+
+	r.serviceMonitorSynced.Store(true)
+
+	return nil
+}
+
+// syncDefaultProfiles creates the default profiles which are missing, for
+// example because they got deleted, as the recording webhook keeps referring
+// to them. With updateSpec, the existing ones get the spec the operator
+// ships. A default profile which the allow lists of the SPOD reject is
+// skipped: the allow list controller deletes it on purpose, and the daemons
+// would not install it.
+func (r *ReconcileSPOd) syncDefaultProfiles(
+	ctx context.Context,
+	cfg *spodapi.SecurityProfilesOperatorDaemon,
+	updateSpec bool,
+) error {
+	for _, profile := range r.defaultProfiles(cfg) {
+		if rejectedByAllowLists(profile, &cfg.Spec.Security) {
+			r.log.V(config.VerboseLevel).Info(
+				"Not deploying operator default profile, the allow lists reject it",
+				"profile", profile.Name,
+			)
+
+			continue
+		}
+
+		found := &seccompprofileapi.SeccompProfile{}
+		err := r.client.Get(ctx, client.ObjectKeyFromObject(profile), found)
+
+		switch {
+		case errors.IsNotFound(err):
+			r.log.Info("Creating operator default profile", "profile", profile.Name)
+
+			if err := r.client.Create(ctx, profile); err != nil && !errors.IsAlreadyExists(err) {
+				return fmt.Errorf("creating operator default profile %s: %w", profile.Name, err)
+			}
+		case err != nil:
+			return fmt.Errorf("getting operator default profile %s: %w", profile.Name, err)
+		case updateSpec && !reflect.DeepEqual(found.Spec, profile.Spec):
+			updated := found.DeepCopy()
+			updated.Spec = *profile.Spec.DeepCopy()
+
+			if err := r.client.Update(ctx, updated); err != nil {
+				return fmt.Errorf("updating operator default profile %s: %w", profile.Name, err)
+			}
+		}
+	}
+
+	return nil
+}
+
 // ensureCertManagerResources creates the cert-manager resources which are
 // missing, for example because they got deleted. They are not owned by the
 // SPOD, so that deleting the SPOD does not remove the certificates of the
@@ -539,21 +665,71 @@ func (r *ReconcileSPOd) ensureCertManagerResources(
 	return nil
 }
 
+// recordingNamespaceSelector returns the namespace selector of the recording
+// webhook which the admission policies follow. The operator leaves a static
+// webhook configuration alone and does not apply the webhook options of the
+// SPOD to it, so its selector is read from the deployed configuration, like
+// the daemon does: a configuration without the recording webhook selects no
+// namespace, and without the configuration, the static configuration as the
+// operator ships it applies.
+func (r *ReconcileSPOd) recordingNamespaceSelector(
+	ctx context.Context,
+	spod *spodapi.SecurityProfilesOperatorDaemon,
+	webhook *bindata.Webhook,
+) (*metav1.LabelSelector, error) {
+	static := ptr.Deref(spod.Spec.Webhook.StaticConfig, false)
+	if !static {
+		return webhook.RecordingNamespaceSelector(), nil
+	}
+
+	selector, deployed, err := bindata.DeployedRecordingNamespaceSelector(ctx, r.client)
+	if err != nil {
+		return nil, fmt.Errorf("reading the static recording webhook: %w", err)
+	}
+
+	if deployed {
+		return selector, nil
+	}
+
+	selector, _ = bindata.RecordingWebhookSelectors(spod.Spec.Webhook.Options, static)
+
+	return selector, nil
+}
+
 // applyAdmissionPolicies applies the admission policies of the operator,
 // which for example restrict the use of the recording profiles to the
 // namespaces selected by the recording webhook. The policies are watched, so
 // changed or deleted ones are restored. Failures are reported but do not block
-// the reconciliation, and the policies get applied again on the next one.
+// the reconciliation, and the policies get applied again on the next one. If
+// the selector of a static recording webhook cannot be read, the deployed
+// policies stay and the error is returned, so that the caller retries once it
+// reconciled the rest.
 func (r *ReconcileSPOd) applyAdmissionPolicies(
 	ctx context.Context,
 	spod *spodapi.SecurityProfilesOperatorDaemon,
 	webhook *bindata.Webhook,
-) {
+) error {
 	if r.skipAdmissionPolicies {
-		return
+		return nil
 	}
 
-	policies := bindata.GetAdmissionPolicies(webhook.RecordingNamespaceSelector())
+	selector, err := r.recordingNamespaceSelector(ctx, spod, webhook)
+	if err != nil {
+		r.log.Error(err, "Cannot apply the admission policies")
+		r.record.Eventf(
+			spod,
+			nil,
+			util.EventTypeWarning,
+			reasonCannotApplyAdmissionPolicies,
+			util.EventActionReconcile,
+			"%s",
+			err.Error(),
+		)
+
+		return fmt.Errorf("%w: %w", errAdmissionPoliciesPending, err)
+	}
+
+	policies := bindata.GetAdmissionPolicies(selector)
 
 	if err := policies.Apply(ctx, r.client); err != nil {
 		// The API server may not serve the ValidatingAdmissionPolicy API, or
@@ -564,7 +740,7 @@ func (r *ReconcileSPOd) applyAdmissionPolicies(
 				"Skipping the admission policies", "error", err.Error(),
 			)
 
-			return
+			return nil
 		}
 
 		r.log.Error(err, "Cannot apply the admission policies")
@@ -578,6 +754,8 @@ func (r *ReconcileSPOd) applyAdmissionPolicies(
 			err.Error(),
 		)
 	}
+
+	return nil
 }
 
 // updateStatus applies set to a copy of the SPOD status, records the
@@ -732,14 +910,8 @@ func (r *ReconcileSPOd) handleCreate(
 
 	r.log.Info("Deploying operator default profiles")
 
-	for _, profile := range r.defaultProfiles(cfg) {
-		if err := r.client.Create(ctx, profile); err != nil {
-			if errors.IsAlreadyExists(err) {
-				continue
-			}
-
-			return fmt.Errorf("creating operator default profile %s: %w", profile.Name, err)
-		}
+	if err := r.syncDefaultProfiles(ctx, cfg, false); err != nil {
+		return err
 	}
 
 	r.log.Info("Deploying metrics service")
@@ -810,41 +982,8 @@ func (r *ReconcileSPOd) handleUpdate(
 
 	r.log.Info("Updating operator default profiles")
 
-	for _, profile := range r.defaultProfiles(cfg) {
-		pKey := types.NamespacedName{Name: profile.GetName()}
-		foundProfile := &seccompprofileapi.SeccompProfile{}
-
-		var err error
-		if err = r.client.Get(ctx, pKey, foundProfile); err == nil {
-			updatedProfile := foundProfile.DeepCopy()
-			updatedProfile.Spec = *profile.Spec.DeepCopy()
-
-			if updateErr := r.client.Update(ctx, updatedProfile); updateErr != nil {
-				return fmt.Errorf(
-					"updating operator default profile %s: %w",
-					profile.Name,
-					updateErr,
-				)
-			}
-
-			continue
-		}
-
-		if errors.IsNotFound(err) {
-			// Handle new default profile
-			if createErr := r.client.Create(ctx, profile); createErr != nil &&
-				!errors.IsAlreadyExists(createErr) {
-				return fmt.Errorf(
-					"creating operator default profile %s: %w",
-					profile.Name,
-					createErr,
-				)
-			}
-
-			continue
-		}
-
-		return fmt.Errorf("getting operator default profile %s: %w", profile.Name, err)
+	if err := r.syncDefaultProfiles(ctx, cfg, true); err != nil {
+		return err
 	}
 
 	r.log.Info("Updating metrics service")
@@ -872,7 +1011,7 @@ func (r *ReconcileSPOd) handleUpdate(
 // would record the generation in the status fail or conflict.
 func (r *ReconcileSPOd) warnIgnoredSelinuxTypeTag(spod *spodapi.SecurityProfilesOperatorDaemon) {
 	typeTag := spod.Spec.Selinux.TypeTag
-	if !ptr.Deref(spod.Spec.EnableAppArmor, false) ||
+	if !spod.AppArmorEnabled() ||
 		typeTag == "" || typeTag == bindata.DefaultSelinuxTypeTag {
 		return
 	}
@@ -1010,7 +1149,12 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 
 	configureContainerDefaults(cfg, templateSpec, pullPolicy)
 
-	templateSpec.Tolerations = cfg.Spec.Scheduling.Tolerations
+	// Like the webhook, the daemon keeps the tolerations of the base manifest
+	// if the SPOD does not set them. An empty list tolerates nothing.
+	if cfg.Spec.Scheduling.Tolerations != nil {
+		templateSpec.Tolerations = cfg.Spec.Scheduling.Tolerations
+	}
+
 	templateSpec.Affinity = cfg.Spec.Scheduling.Affinity
 	templateSpec.ImagePullSecrets = cfg.Spec.ImagePullSecrets
 	templateSpec.PriorityClassName = cfg.Spec.Scheduling.PriorityClassName
@@ -1027,9 +1171,7 @@ func (r *ReconcileSPOd) configureSelinux(
 	templateSpec *corev1.PodSpec,
 	caInjectType bindata.CAInjectType,
 ) error {
-	enableSelinux := (cfg.Spec.Selinux.Enable != nil && *cfg.Spec.Selinux.Enable) ||
-		// enable SELinux support per default in OpenShift
-		(cfg.Spec.Selinux.Enable == nil && caInjectType == bindata.CAInjectTypeOpenShift)
+	enableSelinux := cfg.SelinuxEnabled(caInjectType == bindata.CAInjectTypeOpenShift)
 
 	if !enableSelinux {
 		if cfg.Spec.Selinux.CustomTemplatesConfigMap != "" {
@@ -1143,7 +1285,7 @@ func (r *ReconcileSPOd) configureRecording(
 				// Debian kernels allow attaching the tracepoints only with
 				// CAP_SYS_ADMIN by default, see perf_event_paranoid. It ran
 				// privileged with AppArmor before, so it keeps working there.
-				if ptr.Deref(cfg.Spec.EnableAppArmor, false) {
+				if cfg.AppArmorEnabled() {
 					addCapabilities(ctr.SecurityContext, "SYS_ADMIN")
 					ctr.SecurityContext.AppArmorProfile = &corev1.AppArmorProfile{
 						Type:             corev1.AppArmorProfileTypeLocalhost,
@@ -1235,7 +1377,7 @@ func (r *ReconcileSPOd) addJsonEnricherLogVolume(
 // containers. The non root enabler has to load the profiles of the SPOd
 // before its containers can start with them.
 func configureAppArmor(cfg *spodapi.SecurityProfilesOperatorDaemon, templateSpec *corev1.PodSpec) {
-	if !ptr.Deref(cfg.Spec.EnableAppArmor, false) {
+	if !cfg.AppArmorEnabled() {
 		return
 	}
 
@@ -1298,7 +1440,7 @@ func configureContainerDefaults(
 	// SELinux can be active on the node regardless if the SELinux feature is enabled or not in the operator.
 	// For instance, on Flatcar Linux SELinux type tag needs to be set to 'unconfined_t' instead of 'spc_t'
 	// even though SELinux is disabled in order to get the containers to start.
-	configureSelinuxTag := !ptr.Deref(cfg.Spec.EnableAppArmor, false)
+	configureSelinuxTag := !cfg.AppArmorEnabled()
 
 	// The API server only defaults the type tag if the SPOD has a selinux
 	// section, and an empty type would drop the one of the base SPOd.

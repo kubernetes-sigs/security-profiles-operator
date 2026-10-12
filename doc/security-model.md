@@ -191,28 +191,31 @@ API groups of its role.
 
 - Cluster wide: events (`events.k8s.io`, and core events for the leader election), nodes and
   pods (read), namespaces (read, for whether the recording webhook selects the namespace of a
-  `ProfileRecording` and the binding webhook the one of a pod), the `security-profiles-operator-profile` ConfigMap (read), tokenreviews
+  `ProfileRecording` and the binding webhook the one of a pod), tokenreviews
   (`authentication.k8s.io`) and subjectaccessreviews (`authorization.k8s.io`) for the metrics,
   OpenShift clusteroperators and apiservers (`config.openshift.io`, read).
 - Mutating and validating webhook configurations (`admissionregistration.k8s.io`): create, and
-  read and update only for `spo-mutating-webhook-configuration` and
+  read and patch only for `spo-mutating-webhook-configuration` and
   `spo-validating-webhook-configuration`.
 - ValidatingAdmissionPolicies and their bindings (`admissionregistration.k8s.io`): create, and
   read and update only for `spo-recording-profiles`.
 - Operator namespace only: daemonsets and deployments (`apps`), the PodDisruptionBudget of the
-  webhook (`policy`), services, servicemonitors (`monitoring.coreos.com`), cert-manager issuers
-  and certificates (`cert-manager.io`), leases (`coordination.k8s.io`), and the `restricted-v2`
-  SCC (`security.openshift.io`).
+  webhook (`policy`), services, servicemonitors (`monitoring.coreos.com`, create and patch
+  only), cert-manager issuers and certificates (`cert-manager.io`), the
+  `security-profiles-operator-profile` ConfigMap (read), leases (`coordination.k8s.io`), and
+  the `restricted-v2` SCC (`security.openshift.io`). Only the webhook deployment gets updated,
+  the other operands are created and merge patched.
 - Own API: delete on seccomp profiles, to remove the ones which the allow lists of the `spod`
   resource reject once for the cluster, see
   [Restrict the allowed syscalls](installation.md#restrict-the-allowed-syscalls-in-seccomp-profiles).
   Create on the seccomp, SELinux and AppArmor profiles which the operator ships or merges from
-  recordings, but not on raw SELinux profiles. The `*/finalizers` subresources are limited to
-  get, update and patch, without delete.
+  recordings, but not on raw SELinux profiles. The only `*/finalizers` subresource is the one of
+  the `spod` resource, which owns the operands, limited to get, update and patch, without
+  delete.
 
 ### spod
 
-- Cluster wide: events (`events.k8s.io`), nodes and pods (read), get on namespaces and on the
+- Cluster wide: events (`events.k8s.io`), get on nodes, pods (read), get on namespaces and on the
   `spo-mutating-webhook-configuration` (`admissionregistration.k8s.io`) to check that the
   recording webhook applies to a recorded pod and its namespace, tokenreviews
   (`authentication.k8s.io`) and subjectaccessreviews (`authorization.k8s.io`) for the metrics,
@@ -265,8 +268,8 @@ installations through OLM come without these policies.
   the admission requests, so the webhook has no list or watch on pods and no access to raw
   SELinux profiles. Only the exec metadata webhook gets single pods: an exec request carries
   the `PodExecOptions`, not the pod, so it reads the target pod to skip Windows pods.
-- Operator namespace only: leases (`coordination.k8s.io`), and the `restricted-v2` SCC
-  (`security.openshift.io`).
+- Operator namespace only: the `restricted-v2` SCC (`security.openshift.io`). Every replica
+  serves requests, so the webhook runs without leader election and needs no leases.
 
 ## Admission webhooks
 

@@ -25,9 +25,11 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	profilebindingapi "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/utiltest"
@@ -178,4 +180,14 @@ func TestTrackKeepsConcurrentlyTrackedWorkload(t *testing.T) {
 
 	require.NoError(t, sut.Track(t.Context(), testBinding(), "pod-a"))
 	require.Equal(t, []string{"pod-b", "pod-a"}, stored(t, c).Status.ActiveWorkloads)
+}
+
+func TestPodRequests(t *testing.T) {
+	t.Parallel()
+
+	require.Empty(t, PodRequests(nil))
+	require.Equal(t, []reconcile.Request{
+		{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "a"}},
+		{NamespacedName: types.NamespacedName{Namespace: "other", Name: "b"}},
+	}, PodRequests([]string{"ns/a", "malformed", "other/b"}))
 }

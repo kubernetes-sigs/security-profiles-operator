@@ -88,15 +88,19 @@ const (
 	DefaultPriorityClassName                         = "system-node-critical"
 	servicePort                                int32 = 443
 	ContainerPort                              int32 = 9443
-	metricsServerCert                                = "metrics-server-cert"
-	MetricsCertPath                                  = "/var/run/secrets/metrics"
-	SelinuxCustomTemplatesVolumeName                 = "selinux-custom-templates"
-	SelinuxModuleStorePath                           = "/var/lib/selinux"
-	labelApp                                         = "app"
-	labelName                                        = "name"
-	selinuxTypeSpcT                                  = "spc_t"
-	KubeletDirVolumeName                             = "host-kubelet-dir-volume"
-	ServiceAccountTokenVolumeName                    = "kube-api-access"
+	// MetricsServicePortName is the name of the metrics Service port. The
+	// ServiceMonitor endpoints refer to it, it carries HTTPS unless insecure
+	// metrics access is enabled.
+	MetricsServicePortName           = "http"
+	metricsServerCert                = "metrics-server-cert"
+	MetricsCertPath                  = "/var/run/secrets/metrics"
+	SelinuxCustomTemplatesVolumeName = "selinux-custom-templates"
+	SelinuxModuleStorePath           = "/var/lib/selinux"
+	labelApp                         = "app"
+	labelName                        = "name"
+	selinuxTypeSpcT                  = "spc_t"
+	KubeletDirVolumeName             = "host-kubelet-dir-volume"
+	ServiceAccountTokenVolumeName    = "kube-api-access"
 	//nolint:gosec // a path, no credential
 	serviceAccountTokenMountPath               = "/var/run/secrets/kubernetes.io/serviceaccount"
 	serviceAccountTokenExpirationSeconds int64 = 3607
@@ -1027,7 +1031,7 @@ var metricsService = &corev1.Service{
 	Spec: corev1.ServiceSpec{
 		Ports: []corev1.ServicePort{
 			{
-				Name:       "http",
+				Name:       MetricsServicePortName,
 				Port:       servicePort,
 				TargetPort: intstr.FromInt32(ContainerPort),
 			},

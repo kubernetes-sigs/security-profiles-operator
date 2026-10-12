@@ -410,7 +410,7 @@ func TestReconcileStatusUpdateError(t *testing.T) {
 	utiltest.RequireEvent(
 		t,
 		rec,
-		"Warning CannotUpdateNodeStatus updating node status annotation: update failed",
+		"Warning CannotUpdateNodeStatus retry function: updating node status annotation: update failed",
 	)
 }
 

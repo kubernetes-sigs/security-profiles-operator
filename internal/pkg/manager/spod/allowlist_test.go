@@ -32,6 +32,7 @@ import (
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 )
 
 func allowListProfile(name, base string, syscalls ...string) *seccompprofileapi.SeccompProfile {
@@ -231,6 +232,43 @@ func TestReconcileAllowListDeleteErrors(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
+		})
+	}
+}
+
+func TestRejectedByAllowLists(t *testing.T) {
+	t.Parallel()
+
+	// The default action of the log enricher profile lets every syscall run
+	// and logs it.
+	profile := bindata.DefaultLogEnricherProfile()
+
+	for name, tc := range map[string]struct {
+		security spodapi.SPODSecurityConfig
+		want     bool
+	}{
+		"no allow lists": {},
+		"logged syscalls checked by default": {
+			security: spodapi.SPODSecurityConfig{AllowedSyscalls: []string{"read"}},
+			want:     true,
+		},
+		"logged syscalls not checked": {
+			security: spodapi.SPODSecurityConfig{
+				AllowedSyscalls:       []string{"read"},
+				AllowedSeccompActions: []seccompprofileapi.Action{seccompprofileapi.ActAllow},
+			},
+		},
+		"invalid allowed actions": {
+			security: spodapi.SPODSecurityConfig{
+				AllowedSyscalls:       []string{"read"},
+				AllowedSeccompActions: []seccompprofileapi.Action{seccompprofileapi.ActErrno},
+			},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tc.want, rejectedByAllowLists(profile, &tc.security))
 		})
 	}
 }

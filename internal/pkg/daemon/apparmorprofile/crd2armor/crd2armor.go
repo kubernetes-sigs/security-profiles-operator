@@ -65,14 +65,14 @@ profile {{.Name}} flags=({{.ProfileMode}},attach_disconnected,mediate_deleted) {
   ptrace ({{join $rule.Access ", "}}){{if $rule.Peer}} peer={{$rule.Peer}}{{end}},{{end}}{{end}}
 
   # Network rules
-{{ if ne .Data.Network nil }}{{ if ne .Data.Network.AllowRaw nil }}
+{{ if ne .Data.Network nil }}
 {{ if .Data.Network.AllowRaw}}  network raw,{{else}}{{ if not .ComplainMode }}  deny network raw,{{end}}
-{{end}}{{end}}
-{{if ne .Data.Network.AllowTCP nil }}
+{{end}}
+
 {{if .Data.Network.AllowTCP}}  network tcp,
-{{end}}{{end}}{{if ne .Data.Network.AllowUDP nil }}
+{{end}}
 {{if .Data.Network.AllowUDP}}  network udp,
-{{end}}{{end}}{{end}}
+{{end}}{{end}}
 
   # Capabilities rules
 {{ if ne .Data.Capability nil}}{{range $cap := .Data.Capability.AllowedCapabilities}}  capability {{$cap}},

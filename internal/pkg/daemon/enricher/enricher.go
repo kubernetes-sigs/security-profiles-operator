@@ -29,7 +29,6 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/jellydator/ttlcache/v3"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/encoding/protojson"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -37,6 +36,7 @@ import (
 	apienricher "sigs.k8s.io/security-profiles-operator/api/grpc/enricher"
 	apimetrics "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/daemongrpc"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/auditsource"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
@@ -63,7 +63,6 @@ const (
 	backlogTimeout time.Duration = time.Minute
 
 	defaultTimeout time.Duration = time.Minute
-	maxMsgSize     int           = 16 * 1024 * 1024
 	maxCacheItems  uint64        = 1000
 
 	// collectedProfileTimeout is how long the lines of a collected profile
@@ -356,7 +355,35 @@ func New(logger logr.Logger, opts *LogEnricherOptions) (*Enricher, error) {
 		})
 	}
 
+	e.auditLineCache.OnEviction(e.logDroppedBacklog)
+
 	return e, nil
+}
+
+// logDroppedBacklog tells about a backlog which got dropped because its
+// container did not show up in time or the cache is full. Its lines are
+// missing from the recording, which is otherwise hard to explain. A backlog
+// which got flushed after its container showed up is deleted, not dropped.
+func (e *Enricher) logDroppedBacklog(
+	_ context.Context, reason ttlcache.EvictionReason, item *ttlcache.Item[string, *auditBacklog],
+) {
+	var why string
+
+	switch reason {
+	case ttlcache.EvictionReasonExpired:
+		why = "the container did not show up in time"
+	case ttlcache.EvictionReasonCapacityReached:
+		why = "the backlog cache is full"
+	case ttlcache.EvictionReasonDeleted, ttlcache.EvictionReasonMaxCostExceeded:
+		// A flushed backlog gets deleted.
+		return
+	}
+
+	kept, dropped := item.Value().size()
+	e.logger.Info(
+		"Dropping the audit backlog of a container, its lines are missing from recordings",
+		"containerID", item.Key(), "reason", why, "lines", kept, "droppedLines", dropped,
+	)
 }
 
 // Run the log-enricher to scrap audit logs and enrich them with
@@ -580,10 +607,7 @@ func (e *Enricher) startGrpcServer(ctx context.Context) error {
 		)
 	}
 
-	e.grpcServer = grpc.NewServer(
-		grpc.MaxSendMsgSize(maxMsgSize),
-		grpc.MaxRecvMsgSize(maxMsgSize),
-	)
+	e.grpcServer = grpc.NewServer(daemongrpc.ServerOptions()...)
 	apienricher.RegisterEnricherServer(e.grpcServer, e)
 
 	go func() {
@@ -598,15 +622,7 @@ func (e *Enricher) startGrpcServer(ctx context.Context) error {
 // Dial can be used to connect to the default GRPC server by creating a new
 // client.
 func Dial() (*grpc.ClientConn, error) {
-	conn, err := grpc.NewClient(
-		"unix://"+config.GRPCServerSocketEnricher,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("GRPC dial: %w", err)
-	}
-
-	return conn, nil
+	return daemongrpc.Dial(config.GRPCServerSocketEnricher) //nolint:wrapcheck // wrapped already
 }
 
 // auditBacklog holds the lines of a container until it got looked up.
@@ -617,6 +633,18 @@ type auditBacklog struct {
 	seen map[types.AuditLine]struct{}
 	// dropped counts the lines which did not fit.
 	dropped uint64
+}
+
+// size returns the number of kept and dropped lines.
+func (b *auditBacklog) size() (kept int, dropped uint64) {
+	if b == nil {
+		return 0, 0
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return len(b.lines), b.dropped
 }
 
 // add keeps the line, unless the backlog is full. Once auditBacklogMax is
@@ -670,12 +698,17 @@ func (e *Enricher) addToBacklog(containerID string, line *types.AuditLine) error
 			return errors.New("nil backlog in cache")
 		}
 	} else {
+		// Get hides a backlog which expired but was not cleaned up yet, and
+		// Set would overwrite it without an eviction. Evicting the expired
+		// ones logs that their lines got dropped, see logDroppedBacklog.
+		e.auditLineCache.DeleteExpired()
+
 		backlog = &auditBacklog{seen: map[types.AuditLine]struct{}{}}
 	}
 
-	// If the backlog is full, we just stop adding new lines. Eventually the
-	// TTL will expire and the backlog will flush. In case the workload
-	// appears later, we create a partial policy.
+	// If the backlog is full, we just stop adding new lines. The backlog gets
+	// flushed into the recording once the container shows up, or dropped with
+	// a log line once its TTL expires.
 	kept, dropped := backlog.add(line)
 	if !kept {
 		if dropped%auditBacklogMax == 1 {

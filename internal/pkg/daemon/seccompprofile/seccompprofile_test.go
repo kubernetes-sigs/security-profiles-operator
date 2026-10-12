@@ -601,7 +601,7 @@ func TestResolveSyscallsForProfileBaseProfileCache(t *testing.T) {
 	}
 
 	require.Equal(t, 1, mock.PullCallCount(), "later resolutions must use the cache")
-	require.Equal(t, 1, mock.GetSPODCallCount())
+	require.Equal(t, 3, mock.GetSPODCallCount(), "the pull settings are part of the cache key")
 
 	_, _, namespace := mock.GetSPODArgsForCall(0)
 	require.Equal(t, "operator-ns", namespace, "the SPOD is read from the operator namespace")
@@ -615,6 +615,18 @@ func TestResolveSyscallsForProfileBaseProfileCache(t *testing.T) {
 	require.False(t, opts.DisableSignatureVerification)
 	require.Equal(t, allowedAllRegexp, opts.AllowedIdentityRegexp)
 	require.Equal(t, allowedAllRegexp, opts.AllowedOidcIssuerRegexp)
+
+	// Other pull settings, like a stricter identity, pull the base profile
+	// again instead of using the one pulled with the former settings.
+	mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
+		Spec: spodapi.SPODSpec{Security: spodapi.SPODSecurityConfig{
+			AllowedIdentityRegexp: "^me$",
+		}},
+	}, nil)
+
+	_, _, err := sut.resolveSyscallsForProfile(t.Context(), sp, sp.Spec.Syscalls, logr.Discard(), 0)
+	require.NoError(t, err)
+	require.Equal(t, 2, mock.PullCallCount())
 }
 
 // TestRemoveStaleTempFiles asserts that the leftovers of interrupted profile

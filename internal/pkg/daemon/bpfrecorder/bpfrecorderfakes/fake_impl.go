@@ -141,15 +141,6 @@ type FakeImpl struct {
 	deleteActivePidReturnsOnCall map[int]struct {
 		result1 error
 	}
-	DeleteKeyStub        func(*libbpfgo.BPFMap, uint32) error
-	deleteKeyMutex       sync.RWMutex
-	deleteKeyArgsForCall []FakeImplDeleteKeyArgs
-	deleteKeyReturns     struct {
-		result1 error
-	}
-	deleteKeyReturnsOnCall map[int]struct {
-		result1 error
-	}
 	DeleteKey64Stub        func(*libbpfgo.BPFMap, uint64) error
 	deleteKey64Mutex       sync.RWMutex
 	deleteKey64ArgsForCall []FakeImplDeleteKey64Args
@@ -503,12 +494,6 @@ type FakeImplDeleteActivePidArgs struct {
 	Arg1 *libbpfgo.BPFMap
 	Arg2 uint32
 	Arg3 uint64
-}
-
-// FakeImplDeleteKeyArgs holds the arguments of one call to DeleteKey.
-type FakeImplDeleteKeyArgs struct {
-	Arg1 *libbpfgo.BPFMap
-	Arg2 uint32
 }
 
 // FakeImplDeleteKey64Args holds the arguments of one call to DeleteKey64.
@@ -1369,73 +1354,6 @@ func (fake *FakeImpl) DeleteActivePidReturnsOnCall(i int, result1 error) {
 		})
 	}
 	fake.deleteActivePidReturnsOnCall[i] = struct {
-		result1 error
-	}{result1}
-}
-
-func (fake *FakeImpl) DeleteKey(arg1 *libbpfgo.BPFMap, arg2 uint32) error {
-	fake.deleteKeyMutex.Lock()
-	ret, specificReturn := fake.deleteKeyReturnsOnCall[len(fake.deleteKeyArgsForCall)]
-	fake.deleteKeyArgsForCall = append(fake.deleteKeyArgsForCall, FakeImplDeleteKeyArgs{arg1, arg2})
-	stub := fake.DeleteKeyStub
-	fakeReturns := fake.deleteKeyReturns
-	fake.recordInvocation("DeleteKey", []interface{}{arg1, arg2})
-	fake.deleteKeyMutex.Unlock()
-	if stub != nil {
-		return stub(arg1, arg2)
-	}
-	if specificReturn {
-		return ret.result1
-	}
-	return fakeReturns.result1
-}
-
-func (fake *FakeImpl) DeleteKeyCallCount() int {
-	fake.deleteKeyMutex.RLock()
-	defer fake.deleteKeyMutex.RUnlock()
-	return len(fake.deleteKeyArgsForCall)
-}
-
-func (fake *FakeImpl) DeleteKeyCalls(stub func(*libbpfgo.BPFMap, uint32) error) {
-	fake.deleteKeyMutex.Lock()
-	defer fake.deleteKeyMutex.Unlock()
-	fake.DeleteKeyStub = stub
-}
-
-func (fake *FakeImpl) DeleteKeyArgsForCall(i int) (*libbpfgo.BPFMap, uint32) {
-	fake.deleteKeyMutex.RLock()
-	defer fake.deleteKeyMutex.RUnlock()
-	argsForCall := fake.deleteKeyArgsForCall[i]
-	return argsForCall.Arg1, argsForCall.Arg2
-}
-
-func (fake *FakeImpl) DeleteKeyArgs() []FakeImplDeleteKeyArgs {
-	fake.deleteKeyMutex.RLock()
-	defer fake.deleteKeyMutex.RUnlock()
-	args := make([]FakeImplDeleteKeyArgs, len(fake.deleteKeyArgsForCall))
-	copy(args, fake.deleteKeyArgsForCall)
-	return args
-}
-
-func (fake *FakeImpl) DeleteKeyReturns(result1 error) {
-	fake.deleteKeyMutex.Lock()
-	defer fake.deleteKeyMutex.Unlock()
-	fake.DeleteKeyStub = nil
-	fake.deleteKeyReturns = struct {
-		result1 error
-	}{result1}
-}
-
-func (fake *FakeImpl) DeleteKeyReturnsOnCall(i int, result1 error) {
-	fake.deleteKeyMutex.Lock()
-	defer fake.deleteKeyMutex.Unlock()
-	fake.DeleteKeyStub = nil
-	if fake.deleteKeyReturnsOnCall == nil {
-		fake.deleteKeyReturnsOnCall = make(map[int]struct {
-			result1 error
-		})
-	}
-	fake.deleteKeyReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
 }
