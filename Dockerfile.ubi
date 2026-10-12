@@ -80,7 +80,12 @@ ARG created
 USER root
 
 # Update all packages of the base image, since the vulnerability scan fails on
-# any fixed package the base image does not include yet.
+# any fixed package the base image does not include yet. The image job of
+# .github/workflows/build.yml sets UBI_REPOS_REVISION to the revisions of the
+# UBI 9 repositories, which invalidates the cached update when new errata land.
+# The job fails without this ARG or on another base image, keep the ARG name
+# and the repository URL of the job in sync.
+ARG UBI_REPOS_REVISION
 RUN microdnf update -y \
   && microdnf install -y \
   libseccomp \

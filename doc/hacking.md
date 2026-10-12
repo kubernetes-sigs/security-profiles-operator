@@ -193,15 +193,26 @@ Two checks keep known vulnerabilities out:
 
 - `make verify-vulnerabilities` runs govulncheck on the source and fails when
   the code calls a vulnerable function that has a fixed version upstream.
-- The `operator-image` and `ubi-image` jobs in
-  [`.github/workflows/build.yml`](../.github/workflows/build.yml) scan the built
-  images with trivy and fail on every vulnerability with an available fix,
-  including the OS packages of the UBI image.
+- The `ubi-image` job in
+  [`.github/workflows/build.yml`](../.github/workflows/build.yml) and the
+  `image` jobs in [`.github/workflows/test.yml`](../.github/workflows/test.yml)
+  scan the UBI image and the image of `Dockerfile` with trivy and fail on every
+  vulnerability with an available fix, including the OS packages of the UBI
+  image. The scheduled build workflow run scans the UBI image weekly and opens
+  an issue when the scan fails.
 
 Vulnerabilities without a fix are reported but don't fail either check. Both
 checks can also fail when a fix gets published for a dependency the operator
 already uses, without any change in the pull request. Updating the dependency,
 usually through a Dependabot pull request, resolves that for all pull requests.
+
+The UBI image installs the OS package updates of the UBI repositories at build
+time. The `ubi-image` job reruns that update whenever the repositories change,
+so fixed OS packages need no change in the repository. Local builds reuse the
+cached update layer, build without cache to get the latest packages there. If
+the scan of the job still fails on an OS package, the vulnerability database
+knows of a fix the UBI repositories don't ship yet. Assess it as described
+below, or wait for the fixed package.
 
 When a check fails, update the affected module or image to the fixed version.
 Only if the vulnerability doesn't affect the operator, for example because the
