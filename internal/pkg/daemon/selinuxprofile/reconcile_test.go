@@ -332,9 +332,8 @@ func TestReconcileSelinuxdNotReady(t *testing.T) {
 	require.Len(t, sp.GetFinalizers(), 1)
 	require.Equal(t, secprofnodestatusapi.ProfileStatePending, f.nodeStatus(t).Status.Status)
 	require.Equal(t, testReconcileNode, f.nodeStatus(t).Spec.NodeName)
-	require.Equal(t,
-		[]string{"Warning " + reasonCannotContactSelinuxd + " selinuxd not yet ready"},
-		f.events())
+	// Waiting for selinuxd to start is no reason to warn on every poll.
+	require.Empty(t, f.events())
 }
 
 func TestReconcileSelinuxdUnreachable(t *testing.T) {

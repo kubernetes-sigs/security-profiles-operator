@@ -95,7 +95,7 @@ var storeProfileBackoff = wait.Backoff{
 }
 
 var errNameNotValid = errors.New(
-	"recording name is not valid DNS1123 subdomain, check profileRecording events")
+	"recording name cannot name the recorded profiles, check profileRecording events")
 
 var (
 	errInvalidAnnotation = errors.New("invalid annotation")
@@ -152,6 +152,10 @@ type RecorderReconciler struct {
 	// rejectedPod, so that every update of such a pod does not warn about
 	// them again.
 	rejectedPods sync.Map
+	// disabledRecorderPods maps the pods which got the warning that the BPF
+	// recorder is disabled to their UID, so that every update of such a pod
+	// does not warn again.
+	disabledRecorderPods sync.Map
 	// scope caches whether the recording webhook applies to a pod.
 	scope recordingScope
 	// forbiddenAttempts holds per attemptKey the *failedAttempts of storing
@@ -570,6 +574,7 @@ func (r *RecorderReconciler) Reconcile(
 	if err != nil {
 		if kerrors.IsNotFound(err) {
 			r.rejectedPods.Delete(req.String())
+			r.disabledRecorderPods.Delete(req.String())
 
 			return reconcile.Result{}, r.collectPod(ctx, req.NamespacedName, bpf, "removed")
 		}
@@ -621,6 +626,14 @@ func (r *RecorderReconciler) Reconcile(
 
 		if recorder == profilerecordingapi.ProfileRecorderBpf {
 			if err := r.startBpfRecorder(ctx, bpf, pod.UID); err != nil {
+				// A disabled recorder does not get enabled by a retry, the
+				// SPOD change restarts the daemon anyway.
+				if unrecordable(err) {
+					r.reportNotRecorded(logger, req, pod, err)
+
+					return reconcile.Result{}, nil
+				}
+
 				logger.Error(err, "unable to start bpf recorder")
 
 				return reconcile.Result{}, err
@@ -893,8 +906,34 @@ func (r *RecorderReconciler) abandonPod(
 	)
 
 	// Not reconcilable, so nothing will ever collect this pod: release it
-	// rather than leaking the watch and the recorder.
-	r.releaseUnrecordablePod(ctx, podName, bpf)
+	// rather than leaking the watch and the recorder. A disabled recorder does
+	// not run, so there is nothing to reset in it.
+	r.releasePod(ctx, podName, bpf, !errors.Is(collErr, errRecorderDisabled))
+}
+
+// reportNotRecorded reports that the profiles of the pod do not get recorded,
+// for example because its recorder is disabled. Every update of the pod gets
+// here again, the warning is emitted once per pod.
+func (r *RecorderReconciler) reportNotRecorded(
+	logger logr.Logger, req reconcile.Request, pod *corev1.Pod, err error,
+) {
+	if uid, warned := r.disabledRecorderPods.Load(req.String()); warned && uid == pod.UID {
+		logger.V(config.VerboseLevel).Info("Not recording pod", "reason", err.Error())
+
+		return
+	}
+
+	r.disabledRecorderPods.Store(req.String(), pod.UID)
+	logger.Info("Not recording pod", "reason", err.Error())
+	r.record.Eventf(
+		pod,
+		nil,
+		util.EventTypeWarning,
+		reasonRecordingAbandoned,
+		util.EventActionRecord,
+		"Not recording the profiles: %s",
+		err.Error(),
+	)
 }
 
 // releaseUnrecordablePod drops a pod whose profiles can never be collected. It
@@ -903,6 +942,16 @@ func (r *RecorderReconciler) abandonPod(
 // recorder, the node stays armed for the lifetime of the daemon.
 func (r *RecorderReconciler) releaseUnrecordablePod(
 	ctx context.Context, podName types.NamespacedName, bpf *bpfRecorderSession,
+) {
+	r.releasePod(ctx, podName, bpf, true)
+}
+
+// releasePod drops a pod whose profiles can never be collected, see
+// releaseUnrecordablePod. The recorded data is only dropped from the
+// recorders if releaseRecorder is true.
+func (r *RecorderReconciler) releasePod(
+	ctx context.Context, podName types.NamespacedName, bpf *bpfRecorderSession,
+	releaseRecorder bool,
 ) {
 	// Nothing retries collecting or storing the profiles of the pod any more.
 	for _, attempts := range []*sync.Map{&r.forbiddenAttempts, &r.incompleteReads} {
@@ -922,7 +971,7 @@ func (r *RecorderReconciler) releaseUnrecordablePod(
 		return
 	}
 
-	if podToWatch, ok := value.(podToWatch); ok {
+	if podToWatch, ok := value.(podToWatch); ok && releaseRecorder {
 		switch podToWatch.recorder {
 		case profilerecordingapi.ProfileRecorderBpf:
 			r.releaseBpfProfiles(ctx, bpf, podToWatch.uid, podToWatch.profiles)
@@ -1106,6 +1155,10 @@ func (r *RecorderReconciler) collectLogProfiles(
 		parsedProfileAnnotation, err := parseProfileAnnotation(prf.name)
 		if err != nil {
 			return fmt.Errorf("parse profile raw annotation: %w", err)
+		}
+
+		if err := validateRecordingName(prf.kind, parsedProfileAnnotation.profileName); err != nil {
+			return err
 		}
 
 		target, err := r.resolveProfileTarget(
@@ -1488,6 +1541,10 @@ func (r *RecorderReconciler) collectBpfProfile(
 		return fmt.Errorf("parse profile raw annotation: %w", err)
 	}
 
+	if err := validateRecordingName(ptc.kind, parsedProfileName.profileName); err != nil {
+		return err
+	}
+
 	target, err := r.resolveProfileTarget(
 		ctx,
 		parsedProfileName,
@@ -1755,6 +1812,24 @@ func (t *profileTarget) attemptKey() attemptKey {
 	return attemptKey{pod: t.pod, profile: t.name}
 }
 
+// validateRecordingName returns errNameNotValid if the profiles of the kind
+// cannot be named after the recording. The recorded profiles are cluster
+// scoped objects, whose names have to be DNS subdomains, and SELinux profile
+// names cannot contain dots, which separate the namespaces of a CIL policy.
+// The recording name is the value of a label of the profiles as well.
+func validateRecordingName(kind profilerecordingapi.ProfileRecordingKind, name string) error {
+	validate := validation.IsDNS1123Subdomain
+	if kind == profilerecordingapi.ProfileRecordingKindSelinuxProfile {
+		validate = validation.IsDNS1123Label
+	}
+
+	if errs := append(validate(name), validation.IsValidLabelValue(name)...); len(errs) > 0 {
+		return fmt.Errorf("%w: %s", errNameNotValid, strings.Join(errs, ", "))
+	}
+
+	return nil
+}
+
 // resolveProfileTarget determines how the profile for the parsed annotation is
 // stored. The recording is looked up again, as it is authoritative, but the
 // state captured when the pod started being recorded is used once it is gone.
@@ -1765,10 +1840,6 @@ func (r *RecorderReconciler) resolveProfileTarget(
 	podName types.NamespacedName,
 	recordings map[string]recordingState,
 ) (*profileTarget, error) {
-	if errs := validation.IsDNS1123Label(parsed.profileName); len(errs) > 0 {
-		return nil, errNameNotValid
-	}
-
 	target := &profileTarget{recordingName: parsed.profileName, pod: podName}
 	recording := &profilerecordingapi.ProfileRecording{}
 
@@ -2083,15 +2154,11 @@ func (r *RecorderReconciler) rejectedForGood(key attemptKey, err error) bool {
 }
 
 // mergeStoredProfile returns desired merged with the stored profile, the way
-// the recording merger does it for partial profiles. A profile of anything
-// else than the recording is not merged: storing replaces it, or is rejected
-// as it belongs to another recording.
+// the recording merger does it for partial profiles. A new profile is stored
+// as desired. The caller rejects stored profiles of anything else than the
+// recording before, see util.CheckRecordingOwner.
 func mergeStoredProfile(stored, desired client.Object) (client.Object, error) {
 	if stored.GetResourceVersion() == "" {
-		return desired, nil
-	}
-
-	if _, recorded := stored.GetLabels()[profilerecordingapi.ProfileToRecordingLabel]; !recorded {
 		return desired, nil
 	}
 

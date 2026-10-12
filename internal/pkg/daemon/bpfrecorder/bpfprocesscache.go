@@ -137,7 +137,6 @@ func (b *BpfProcessCache) Load() (err error) {
 	module, err = b.recorder.NewModuleFromBufferArgs(&bpf.NewModuleArgs{
 		BPFObjBuff: bpfObject,
 		BPFObjName: "recorder.bpf.o",
-		BTFObjPath: b.recorder.btfPath,
 	})
 	if err != nil {
 		return fmt.Errorf("load bpf module: %w", err)

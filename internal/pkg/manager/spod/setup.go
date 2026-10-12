@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 
 	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	admissionregv1 "k8s.io/api/admissionregistration/v1"
@@ -32,6 +33,7 @@ import (
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/wait"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -40,6 +42,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
@@ -185,6 +188,13 @@ func (r *ReconcileSPOd) Setup(
 			handler.EnqueueRequestsFromMapFunc(r.allSPODs),
 			builder.WithPredicates(isNamed(bindata.ValidatingWebhookConfigName)),
 		).
+		// The default profiles get restored if they are deleted. Their status
+		// changes often and does not matter here.
+		Watches(
+			&seccompprofileapi.SeccompProfile{},
+			handler.EnqueueRequestsFromMapFunc(r.allSPODs),
+			builder.WithPredicates(deletedWithName(config.LogEnricherProfile)),
+		).
 		// Nodes can configure a custom kubelet directory through a label,
 		// which the SPOd has to mount for the non-root enabler.
 		Watches(
@@ -257,6 +267,17 @@ func isNamed(name string) predicate.Predicate {
 	})
 }
 
+// deletedWithName returns a predicate which passes the deletion of objects of
+// the name only.
+func deletedWithName(name string) predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc:  func(event.CreateEvent) bool { return false },
+		UpdateFunc:  func(event.UpdateEvent) bool { return false },
+		DeleteFunc:  func(e event.DeleteEvent) bool { return e.Object.GetName() == name },
+		GenericFunc: func(event.GenericEvent) bool { return false },
+	}
+}
+
 // isNamedInNamespace returns a predicate which passes the objects of the name
 // in the operator namespace.
 func (r *ReconcileSPOd) isNamedInNamespace(name string) predicate.Predicate {
@@ -306,6 +327,18 @@ type defaultSPODCreator struct {
 	client        client.Client
 	namespace     string
 	staticWebhook bool
+	// backoff overrides defaultSPODCreateBackoff if it has steps.
+	backoff wait.Backoff
+}
+
+// defaultSPODCreateBackoff retries the creation of the default SPOD for about
+// a minute. An error returned by a runnable stops the manager, so a transient
+// API error right after the leader election would restart the operator.
+var defaultSPODCreateBackoff = wait.Backoff{
+	Duration: time.Second,
+	Factor:   2,
+	Jitter:   0.1,
+	Steps:    7,
 }
 
 var _ manager.LeaderElectionRunnable = &defaultSPODCreator{}
@@ -316,13 +349,43 @@ func (c *defaultSPODCreator) NeedLeaderElection() bool {
 	return true
 }
 
-// Start creates the default SPOD and returns.
+// Start creates the default SPOD and returns. Transient errors are retried.
 func (c *defaultSPODCreator) Start(ctx context.Context) error {
 	obj := bindata.DefaultSPOD.DeepCopy()
 	obj.Namespace = c.namespace
 	obj.Spec.Webhook.StaticConfig = &c.staticWebhook
 
-	if err := c.client.Create(ctx, obj); err != nil && !k8serrors.IsAlreadyExists(err) {
+	backoff := c.backoff
+	if backoff.Steps == 0 {
+		backoff = defaultSPODCreateBackoff
+	}
+
+	var lastErr error
+
+	err := wait.ExponentialBackoffWithContext(
+		ctx,
+		backoff,
+		func(ctx context.Context) (bool, error) {
+			lastErr = c.client.Create(ctx, obj.DeepCopy())
+
+			switch {
+			case lastErr == nil, k8serrors.IsAlreadyExists(lastErr):
+				return true, nil
+			case k8serrors.IsInvalid(lastErr), k8serrors.IsBadRequest(lastErr):
+				// A retry cannot fix these. A Forbidden one is retried,
+				// right after an install the RBAC bindings may not have
+				// reached the authorizer yet.
+				return false, lastErr
+			default:
+				return false, nil
+			}
+		},
+	)
+	if err != nil {
+		if lastErr != nil {
+			err = lastErr
+		}
+
 		return fmt.Errorf("create SecurityProfilesOperatorDaemon object: %w", err)
 	}
 

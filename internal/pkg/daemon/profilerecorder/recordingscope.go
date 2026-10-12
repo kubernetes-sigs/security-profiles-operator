@@ -21,12 +21,10 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"slices"
 	"sync"
 	"time"
 
 	"github.com/jellydator/ttlcache/v3"
-	admissionregv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -166,10 +164,8 @@ func (r *RecorderReconciler) recordingWebhookSelectors(
 		ctx, r.uncachedClient, bindata.MutatingWebhookConfigName,
 	)
 	if err == nil && webhookConfig != nil {
-		i := slices.IndexFunc(webhookConfig.Webhooks, func(w admissionregv1.MutatingWebhook) bool {
-			return w.Name == bindata.RecordingWebhookName
-		})
-		if i < 0 {
+		hook := bindata.RecordingWebhook(webhookConfig)
+		if hook == nil {
 			// The pod authors set the recording annotations of all pods.
 			r.log.Info(
 				"No recording webhook configured, ignoring all recording annotations",
@@ -181,8 +177,6 @@ func (r *RecorderReconciler) recordingWebhookSelectors(
 				object:    k8slabels.Nothing(),
 			}, nil
 		}
-
-		hook := &webhookConfig.Webhooks[i]
 
 		return &recordingSelectors{
 			namespace: r.webhookSelector(hook.NamespaceSelector, "namespace"),

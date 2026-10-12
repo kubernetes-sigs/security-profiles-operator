@@ -282,47 +282,27 @@ func (pr *ProfileRecording) ctrAnnotationSeccomp(ctrName string) (key, value str
 }
 
 func (pr *ProfileRecording) ctrAnnotationSelinux(ctrName string) (key, value string, err error) {
-	var annotationPrefix string
-
-	switch pr.Spec.Recorder {
-	case ProfileRecorderLogs:
-		annotationPrefix = config.SelinuxProfileRecordLogsAnnotationKey
-	case ProfileRecorderBpf:
-		return "", "", fmt.Errorf(
-			"invalid recorder: %s, only %s is supported", pr.Spec.Recorder, ProfileRecorderLogs,
-		)
-	default:
+	if pr.Spec.Recorder != ProfileRecorderLogs {
 		return "", "", fmt.Errorf(
 			"invalid recorder: %s, only %s is supported", pr.Spec.Recorder, ProfileRecorderLogs,
 		)
 	}
 
-	value = pr.ctrAnnotationValue(ctrName)
-	key = annotationPrefix + ctrName
-
-	return
+	return config.SelinuxProfileRecordLogsAnnotationKey + ctrName, pr.ctrAnnotationValue(
+		ctrName,
+	), nil
 }
 
 func (pr *ProfileRecording) ctrAnnotationApparmor(ctrName string) (key, value string, err error) {
-	var annotationPrefix string
-
-	switch pr.Spec.Recorder {
-	case ProfileRecorderBpf:
-		annotationPrefix = config.ApparmorProfileRecordBpfAnnotationKey
-	case ProfileRecorderLogs:
-		return "", "", fmt.Errorf(
-			"invalid recorder: %s, only %s is supported", pr.Spec.Recorder, ProfileRecorderBpf,
-		)
-	default:
+	if pr.Spec.Recorder != ProfileRecorderBpf {
 		return "", "", fmt.Errorf(
 			"invalid recorder: %s, only %s is supported", pr.Spec.Recorder, ProfileRecorderBpf,
 		)
 	}
 
-	key = annotationPrefix + ctrName
-	value = pr.ctrAnnotationValue(ctrName)
-
-	return key, value, err
+	return config.ApparmorProfileRecordBpfAnnotationKey + ctrName, pr.ctrAnnotationValue(
+		ctrName,
+	), nil
 }
 
 // +kubebuilder:object:root=true

@@ -39,7 +39,9 @@ import (
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 	seccompprofile "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/recordingkinds"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -140,7 +142,8 @@ func (r *PolicyMergeReconciler) Healthz(*http.Request) error {
 	return nil
 }
 
-// Security Profiles Operator RBAC permissions to manage SelinuxProfile
+// RBAC permissions to read the recordings and to merge their partial profiles
+// of every kind.
 //nolint:lll // required for kubebuilder
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilerecordings,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles,verbs=get;list;watch;create;update;patch;delete
@@ -156,7 +159,7 @@ func (r *PolicyMergeReconciler) Reconcile(
 	defer cancel()
 
 	logger := r.log.WithValues("profileRecording", req.Name, "namespace", req.Namespace)
-	logger.Info("Reconciling profile recording")
+	logger.V(config.VerboseLevel).Info("Reconciling profile recording")
 
 	profileRecording := &profilerecordingapi.ProfileRecording{}
 	if err := r.client.Get(ctx, req.NamespacedName, profileRecording); err != nil {
@@ -168,7 +171,9 @@ func (r *PolicyMergeReconciler) Reconcile(
 	}
 
 	if !profileRecording.GetDeletionTimestamp().IsZero() { // object is being deleted
-		logger.Info("Is being deleted, will check if there are policies to be merged")
+		logger.V(config.VerboseLevel).Info(
+			"Is being deleted, will check if there are policies to be merged",
+		)
 
 		hold, err := r.legacyHold(ctx, profileRecording)
 		if err != nil {
@@ -205,30 +210,11 @@ func (r *PolicyMergeReconciler) Reconcile(
 	return reconcile.Result{}, nil
 }
 
-// mergeKind is a kind of profiles which a recording can record.
-type mergeKind struct {
-	kind    profilerecordingapi.ProfileRecordingKind
-	newList func() client.ObjectList
-}
-
 // mergeKinds are all kinds of partial profiles which a recording can have.
 // The kind of a recording can change while partial profiles of the former
 // kind exist, so the partial profiles of every kind get merged, not only the
 // ones of the current kind.
-var mergeKinds = []mergeKind{
-	{
-		kind:    profilerecordingapi.ProfileRecordingKindSeccompProfile,
-		newList: func() client.ObjectList { return &seccompprofile.SeccompProfileList{} },
-	},
-	{
-		kind:    profilerecordingapi.ProfileRecordingKindSelinuxProfile,
-		newList: func() client.ObjectList { return &selinuxprofileapi.SelinuxProfileList{} },
-	},
-	{
-		kind:    profilerecordingapi.ProfileRecordingKindAppArmorProfile,
-		newList: func() client.ObjectList { return &apparmorprofileapi.AppArmorProfileList{} },
-	},
-}
+var mergeKinds = recordingkinds.All
 
 // blockedRequeueDelay returns how long a deleted recording whose merge is
 // blocked waits before it is merged again. The delay grows with the time the
@@ -246,9 +232,7 @@ func (r *PolicyMergeReconciler) mergeProfiles(
 	ctx context.Context,
 	profileRecording *profilerecordingapi.ProfileRecording,
 ) ([]string, error) {
-	if !slices.ContainsFunc(mergeKinds, func(k mergeKind) bool {
-		return k.kind == profileRecording.Spec.Kind
-	}) {
+	if _, ok := recordingkinds.Of(profileRecording.Spec.Kind); !ok {
 		// The partial profiles of the supported kinds still get merged, so
 		// that the recording can go.
 		r.record.Eventf(
@@ -280,12 +264,12 @@ func (r *PolicyMergeReconciler) mergeProfiles(
 		merged, blockedOfKind, err := r.mergeTypedProfiles(
 			ctx,
 			profileRecording,
-			k.kind,
-			k.newList(),
+			k.Kind,
+			k.NewList(),
 			namesakes,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("cannot merge profiles of kind %s: %w", k.kind, err)
+			return nil, fmt.Errorf("cannot merge profiles of kind %s: %w", k.Kind, err)
 		}
 
 		found = found || merged
@@ -293,7 +277,13 @@ func (r *PolicyMergeReconciler) mergeProfiles(
 		blocked = append(blocked, blockedOfKind...)
 	}
 
-	if !found {
+	// Only a recording which recorded partial profiles carries the finalizer
+	// until they are merged. Without it, the recorder stored the profiles
+	// directly, and every later update of the deleting recording, like the
+	// removal of another finalizer, would repeat the warning.
+	if !found && controllerutil.ContainsFinalizer(
+		profileRecording, profilerecordingapi.RecordingHasUnmergedProfiles,
+	) {
 		r.record.Eventf(
 			profileRecording,
 			nil,
@@ -328,9 +318,9 @@ func (r *PolicyMergeReconciler) releaseRecording(
 	}
 
 	for _, k := range mergeKinds {
-		left, err := hasPartialProfiles(ctx, r.apiReader(), k.newList(), profileRecording)
+		left, err := hasPartialProfiles(ctx, r.apiReader(), k.NewList(), profileRecording)
 		if err != nil {
-			return fmt.Errorf("cannot list partial profiles of kind %s: %w", k.kind, err)
+			return fmt.Errorf("cannot list partial profiles of kind %s: %w", k.Kind, err)
 		}
 
 		if left {

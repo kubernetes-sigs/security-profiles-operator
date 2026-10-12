@@ -270,8 +270,15 @@ func (b *AppArmorRecorder) Unavailable() error {
 	return fmt.Errorf("%w: %w", ErrAppArmorUnavailable, b.unavailable)
 }
 
-// unload forgets the maps of the closed module.
+// unload forgets the maps of the module. The event handlers use them while
+// they hold the lock of their kind, see forgetReported, so both are held.
 func (b *AppArmorRecorder) unload() {
+	b.lockRecordedSocketsUse.Lock()
+	defer b.lockRecordedSocketsUse.Unlock()
+
+	b.lockRecordedCapabilities.Lock()
+	defer b.lockRecordedCapabilities.Unlock()
+
 	b.recordedCaps = nil
 	b.recordedSockets = nil
 	b.loaded = false

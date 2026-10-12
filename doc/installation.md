@@ -541,7 +541,8 @@ kubectl -n security-profiles-operator patch spod spod --type merge -p \
   '{"spec":{"scheduling":{"affinity": {...}}}}'
 ```
 
-These settings are also available in the Helm chart.
+These settings are also available in the Helm chart. Without `tolerations`, the spod tolerates the `NoSchedule` taints
+of control plane nodes and the `NoExecute` taint of nodes which are not ready. An empty list tolerates no taint.
 
 The webhook deployment uses the `scheduling.tolerations` of the spod as well, unless `webhook.tolerations` sets its own
 list:

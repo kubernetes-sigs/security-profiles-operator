@@ -23,10 +23,13 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
@@ -137,6 +140,26 @@ func (t *Tracker[T]) updateWorkloads(
 	}
 
 	return nil
+}
+
+// PodRequests returns reconcile requests for the pods of the active
+// workloads, which are identified by namespace and name separated by a slash.
+// Malformed identifiers are skipped.
+func PodRequests(podIDs []string) []reconcile.Request {
+	requests := make([]reconcile.Request, 0, len(podIDs))
+
+	for _, podID := range podIDs {
+		namespace, name, found := strings.Cut(podID, "/")
+		if !found {
+			continue
+		}
+
+		requests = append(requests, reconcile.Request{
+			NamespacedName: types.NamespacedName{Name: name, Namespace: namespace},
+		})
+	}
+
+	return requests
 }
 
 // get reads the object from the API server. It returns false if the object

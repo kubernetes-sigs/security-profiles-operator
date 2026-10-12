@@ -520,6 +520,51 @@ func TestMergeProfilesPerKind(t *testing.T) {
 	})
 }
 
+// The warning about missing partial profiles is only recorded for a recording
+// which carries the finalizer of unmerged profiles. A recording without it got
+// its profiles stored directly, and its updates while it is being deleted must
+// not repeat the warning.
+func TestMergeProfilesNoPartialProfilesEvent(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		finalizers []string
+		wantEvent  bool
+	}{
+		"with the unmerged profiles finalizer": {
+			finalizers: []string{profilerecordingapi.RecordingHasUnmergedProfiles},
+			wantEvent:  true,
+		},
+		"without the unmerged profiles finalizer": {
+			finalizers: []string{"other"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			recording := testMergeRecording(
+				profilerecordingapi.ProfileRecordingKindSeccompProfile,
+				true,
+			)
+			recording.Finalizers = tc.finalizers
+			r := newMergeReconciler(t, recording)
+
+			requireMerged(t, r, recording)
+
+			recorder, ok := r.record.(*events.FakeRecorder)
+			require.True(t, ok)
+
+			select {
+			case event := <-recorder.Events:
+				require.True(t, tc.wantEvent, "unexpected event %q", event)
+				require.Contains(t, event, reasonNoPartialProfiles)
+			default:
+				require.False(t, tc.wantEvent, "missing event")
+			}
+		})
+	}
+}
+
 // A partial profile created after the listing, for example by another pod of
 // the recording, must survive the cleanup so that the next merge includes it.
 func TestDeletePartialProfilesOnlyDeletesListed(t *testing.T) {

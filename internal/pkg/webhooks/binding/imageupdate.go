@@ -54,7 +54,10 @@ type imageChange struct {
 }
 
 // changedImages returns the image changes of the init and regular containers.
-// The containers of a pod cannot be added, removed or renamed on update.
+// The containers of a pod cannot be added, removed or renamed on update. A
+// change to the same image in another notation, like from nginx to
+// docker.io/library/nginx:latest, keeps the container and its profile as they
+// are, so it is no change.
 func changedImages(pod, oldPod *corev1.Pod) []imageChange {
 	oldImages := map[string]string{}
 	for _, c := range podContainers(oldPod) {
@@ -64,7 +67,7 @@ func changedImages(pod, oldPod *corev1.Pod) []imageChange {
 	var changes []imageChange
 
 	for _, c := range podContainers(pod) {
-		if oldImage, ok := oldImages[c.Name]; ok && oldImage != c.Image {
+		if oldImage, ok := oldImages[c.Name]; ok && !util.SameImage(oldImage, c.Image) {
 			changes = append(changes, imageChange{c.Name, oldImage, c.Image})
 		}
 	}

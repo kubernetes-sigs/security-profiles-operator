@@ -37,7 +37,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -244,10 +243,7 @@ func newEphemeralContainers(pod, oldPod *corev1.Pod) []*corev1.Container {
 
 // The event recorders use the events.k8s.io API, which creates an event and
 // patches it for repeated ones:
-//nolint:lll // required for kubebuilder
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
-// +kubebuilder:rbac:groups=coordination.k8s.io,namespace=security-profiles-operator,resources=leases,verbs=create
-// +kubebuilder:rbac:groups=coordination.k8s.io,namespace=security-profiles-operator,resourceNames=security-profiles-operator-webhook-lock,resources=leases,verbs=get;patch;update
 
 // Needed to authenticate and authorize metrics requests:
 // +kubebuilder:rbac:groups=authentication.k8s.io,resources=tokenreviews,verbs=create
@@ -844,11 +840,10 @@ func (p *podBinder) profileKindEnabled(
 	}
 
 	if kind == profilebindingapi.ProfileBindingKindSelinuxProfile {
-		// SELinux is enabled by default on OpenShift.
-		return ptr.Deref(spod.Spec.Selinux.Enable, p.isOpenShift), nil
+		return spod.SelinuxEnabled(p.isOpenShift), nil
 	}
 
-	return ptr.Deref(spod.Spec.EnableAppArmor, false), nil
+	return spod.AppArmorEnabled(), nil
 }
 
 // applyWildcardProfile sets the profile of a wildcard binding on the pod

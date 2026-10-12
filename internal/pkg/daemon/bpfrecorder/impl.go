@@ -70,7 +70,6 @@ type impl interface {
 	ContainerIDForPID(*ttlcache.Cache[string, string], int) (string, error)
 	GetValue(*bpf.BPFMap, uint32) ([]byte, error)
 	UpdateValue(*bpf.BPFMap, uint32, []byte) error
-	DeleteKey(*bpf.BPFMap, uint32) error
 	GetValue64(*bpf.BPFMap, uint64) ([]byte, error)
 	UpdateValue64(*bpf.BPFMap, uint64, []byte) error
 	DeleteKey64(*bpf.BPFMap, uint64) error
@@ -201,14 +200,6 @@ func (d *defaultImpl) UpdateValue(m *bpf.BPFMap, key uint32, value []byte) error
 	}
 
 	return m.Update(unsafe.Pointer(&key), unsafe.Pointer(&value[0]))
-}
-
-func (d *defaultImpl) DeleteKey(m *bpf.BPFMap, key uint32) error {
-	if m == nil {
-		return errors.New("provided bpf map is nil")
-	}
-
-	return m.DeleteKey(unsafe.Pointer(&key))
 }
 
 func (d *defaultImpl) GetValue64(m *bpf.BPFMap, key uint64) ([]byte, error) {

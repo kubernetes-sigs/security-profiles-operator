@@ -102,9 +102,11 @@ func TestJsonDispatchResolvesArchPerLine(t *testing.T) {
 	bucket := &types.LogBucket{
 		TimestampID: "1613173578.156:2945",
 		ProcessInfo: &types.ProcessInfo{Pid: 1},
+		SyscallIds: map[types.SyscallKey]struct{}{
+			{ID: 102, Arch: "c000003e"}: {},
+			{ID: 102, Arch: "40000003"}: {},
+		},
 	}
-	bucket.SyscallIds.Store(types.SyscallKey{ID: 102, Arch: "c000003e"}, struct{}{})
-	bucket.SyscallIds.Store(types.SyscallKey{ID: 102, Arch: "40000003"}, struct{}{})
 
 	sut.dispatchSeccompLine(bucket, "node")
 

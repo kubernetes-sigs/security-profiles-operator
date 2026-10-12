@@ -493,6 +493,93 @@ func RecordingWebhookSelectors(
 // webhook configuration.
 const BindingWebhookName = "binding.spo.io"
 
+// RecordingWebhook returns the recording webhook of the mutating webhook
+// configuration of the operator, or nil if the configuration has none. The
+// daemon ignores all recording annotations then, so a configuration without
+// the recording webhook selects no namespace for recording.
+func RecordingWebhook(
+	webhookConfig *admissionregv1.MutatingWebhookConfiguration,
+) *admissionregv1.MutatingWebhook {
+	i := slices.IndexFunc(webhookConfig.Webhooks, func(w admissionregv1.MutatingWebhook) bool {
+		return w.Name == RecordingWebhookName
+	})
+	if i < 0 {
+		return nil
+	}
+
+	return &webhookConfig.Webhooks[i]
+}
+
+// NoNamespaceSelector returns a namespace selector which selects no
+// namespace, like a webhook configuration without the recording webhook.
+func NoNamespaceSelector() *metav1.LabelSelector {
+	const key = "security-profiles-operator.x-k8s.io/no-recording-webhook"
+
+	return &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{
+		{Key: key, Operator: metav1.LabelSelectorOpExists},
+		{Key: key, Operator: metav1.LabelSelectorOpDoesNotExist},
+	}}
+}
+
+// mutatingWebhookConfig returns the mutating webhook configuration of the
+// operator. found is false if it does not exist.
+func mutatingWebhookConfig(
+	ctx context.Context, c client.Reader,
+) (webhookConfig *admissionregv1.MutatingWebhookConfiguration, found bool, err error) {
+	webhookConfig = &admissionregv1.MutatingWebhookConfiguration{}
+	if err := c.Get(
+		ctx, client.ObjectKey{Name: MutatingWebhookConfigName}, webhookConfig,
+	); err != nil {
+		if errors.IsNotFound(err) {
+			return nil, false, nil
+		}
+
+		return nil, false, fmt.Errorf("getting mutating webhook configuration: %w", err)
+	}
+
+	return webhookConfig, true, nil
+}
+
+// DeployedRecordingNamespaceSelector returns the namespace selector of the
+// deployed recording webhook. A configuration without the recording webhook
+// selects no namespace, see RecordingWebhook. Without the configuration,
+// deployed is false.
+func DeployedRecordingNamespaceSelector(
+	ctx context.Context, c client.Reader,
+) (selector *metav1.LabelSelector, deployed bool, err error) {
+	webhookConfig, found, err := mutatingWebhookConfig(ctx, c)
+	if err != nil || !found {
+		return nil, false, err
+	}
+
+	hook := RecordingWebhook(webhookConfig)
+	if hook == nil {
+		return NoNamespaceSelector(), true, nil
+	}
+
+	return hook.NamespaceSelector, true, nil
+}
+
+// RecordingWebhookSelectsNamespace returns whether the recording webhook
+// selects the namespace. A configuration without the recording webhook
+// selects none, see RecordingWebhook. Without the configuration or the
+// namespace nothing can be told, and the namespace counts as selected.
+func RecordingWebhookSelectsNamespace(
+	ctx context.Context, c client.Reader, namespace string,
+) (bool, error) {
+	webhookConfig, found, err := mutatingWebhookConfig(ctx, c)
+	if err != nil || !found {
+		return err == nil, err
+	}
+
+	hook := RecordingWebhook(webhookConfig)
+	if hook == nil {
+		return false, nil
+	}
+
+	return selectsNamespace(ctx, c, hook, namespace)
+}
+
 // WebhookSelectsNamespace returns whether the webhook of the mutating webhook
 // configuration of the operator selects the namespace. Without the webhook
 // configuration, the webhook in it or the namespace nothing can be told, and
@@ -500,25 +587,31 @@ const BindingWebhookName = "binding.spo.io"
 func WebhookSelectsNamespace(
 	ctx context.Context, c client.Reader, webhookName, namespace string,
 ) (bool, error) {
-	webhookConfig := &admissionregv1.MutatingWebhookConfiguration{}
-	if err := c.Get(
-		ctx, client.ObjectKey{Name: MutatingWebhookConfigName}, webhookConfig,
-	); err != nil {
-		if errors.IsNotFound(err) {
-			return true, nil
-		}
-
-		return false, fmt.Errorf("getting mutating webhook configuration: %w", err)
+	webhookConfig, found, err := mutatingWebhookConfig(ctx, c)
+	if err != nil || !found {
+		return err == nil, err
 	}
 
 	i := slices.IndexFunc(webhookConfig.Webhooks, func(w admissionregv1.MutatingWebhook) bool {
 		return w.Name == webhookName
 	})
-	if i < 0 || webhookConfig.Webhooks[i].NamespaceSelector == nil {
+	if i < 0 {
 		return true, nil
 	}
 
-	selector, err := metav1.LabelSelectorAsSelector(webhookConfig.Webhooks[i].NamespaceSelector)
+	return selectsNamespace(ctx, c, &webhookConfig.Webhooks[i], namespace)
+}
+
+// selectsNamespace returns whether the webhook selects the namespace. Without
+// the namespace nothing can be told, and it counts as selected.
+func selectsNamespace(
+	ctx context.Context, c client.Reader, hook *admissionregv1.MutatingWebhook, namespace string,
+) (bool, error) {
+	if hook.NamespaceSelector == nil {
+		return true, nil
+	}
+
+	selector, err := metav1.LabelSelectorAsSelector(hook.NamespaceSelector)
 	if err != nil {
 		// The API server does not accept invalid selectors.
 		return true, nil //nolint:nilerr // nothing can be told

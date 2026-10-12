@@ -547,16 +547,11 @@ func (r *ReconcileSelinux) checkPreconditions(
 		return reconcile.Result{}, true, fmt.Errorf("contacting selinuxd: %w", err)
 	}
 
+	// selinuxd starts up with the daemon, which polls it for every profile.
+	// An event per poll and profile would only be noise, like for a deleted
+	// profile.
 	if !selinuxdReady {
 		l.Info("selinuxd not yet up, requeue")
-		r.record.Eventf(
-			sp,
-			nil,
-			util.EventTypeWarning,
-			reasonCannotContactSelinuxd,
-			util.EventActionInstall,
-			"selinuxd not yet ready",
-		)
 
 		return reconcile.Result{RequeueAfter: selinuxdPollInterval}, true, nil
 	}

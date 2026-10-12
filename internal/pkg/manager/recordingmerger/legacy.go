@@ -135,11 +135,11 @@ func listLegacyProfiles(
 	var profiles []client.Object
 
 	for _, k := range mergeKinds {
-		list := k.newList()
+		list := k.NewList()
 		if err := reader.List(ctx, list, selector); err != nil {
 			return nil, fmt.Errorf(
 				"listing profiles of kind %s recorded before 1.0: %w",
-				k.kind,
+				k.Kind,
 				err,
 			)
 		}

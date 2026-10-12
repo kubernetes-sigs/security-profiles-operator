@@ -6,16 +6,6 @@ metadata:
 rules:
 - apiGroups:
   - ""
-  resourceNames:
-  - security-profiles-operator-profile
-  resources:
-  - configmaps
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - ""
   resources:
   - events
   verbs:
@@ -40,7 +30,6 @@ rules:
   - get
   - list
   - patch
-  - update
   - watch
 - apiGroups:
   - admissionregistration.k8s.io
@@ -73,7 +62,6 @@ rules:
   - get
   - list
   - patch
-  - update
   - watch
 - apiGroups:
   - authentication.k8s.io
@@ -125,19 +113,13 @@ rules:
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
-  - apparmorprofiles/finalizers
   - apparmorprofiles/status
-  - profilebindings/finalizers
   - profilebindings/status
-  - profilerecordings/finalizers
   - profilerecordings/status
-  - rawselinuxprofiles/finalizers
   - rawselinuxprofiles/status
-  - seccompprofiles/finalizers
   - seccompprofiles/status
   - securityprofilesoperatordaemons/finalizers
   - securityprofilesoperatordaemons/status
-  - selinuxprofiles/finalizers
   - selinuxprofiles/status
   verbs:
   - get
@@ -184,6 +166,16 @@ metadata:
 rules:
 - apiGroups:
   - ""
+  resourceNames:
+  - security-profiles-operator-profile
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
   resources:
   - services
   verbs:
@@ -191,12 +183,20 @@ rules:
   - get
   - list
   - patch
-  - update
   - watch
 - apiGroups:
   - apps
   resources:
   - daemonsets
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - apps
+  resources:
   - deployments
   verbs:
   - create
@@ -215,7 +215,6 @@ rules:
   - get
   - list
   - patch
-  - update
   - watch
 - apiGroups:
   - coordination.k8s.io
@@ -231,11 +230,7 @@ rules:
   - servicemonitors
   verbs:
   - create
-  - get
-  - list
   - patch
-  - update
-  - watch
 - apiGroups:
   - policy
   resources:
@@ -245,7 +240,6 @@ rules:
   - get
   - list
   - patch
-  - update
   - watch
 - apiGroups:
   - security.openshift.io
@@ -265,12 +259,12 @@ rules:
   - ""
   resources:
   - namespaces
+  - nodes
   verbs:
   - get
 - apiGroups:
   - ""
   resources:
-  - nodes
   - pods
   verbs:
   - get
@@ -469,22 +463,6 @@ metadata:
   name: spo-webhook
   namespace: security-profiles-operator
 rules:
-- apiGroups:
-  - coordination.k8s.io
-  resources:
-  - leases
-  verbs:
-  - create
-- apiGroups:
-  - coordination.k8s.io
-  resourceNames:
-  - security-profiles-operator-webhook-lock
-  resources:
-  - leases
-  verbs:
-  - get
-  - patch
-  - update
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:

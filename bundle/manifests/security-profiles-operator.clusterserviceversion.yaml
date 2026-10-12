@@ -259,7 +259,7 @@ metadata:
     capabilities: Basic Install
     categories: Security
     containerImage: us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator:latest
-    createdAt: "2026-10-07T14:26:25Z"
+    createdAt: "2026-10-12T06:53:51Z"
     olm.skipRange: '>=1.0.0 <1.1.2-dev'
     operatorframework.io/cluster-monitoring: "true"
     operatorframework.io/os.linux: supported
@@ -389,16 +389,6 @@ spec:
       - rules:
         - apiGroups:
           - ""
-          resourceNames:
-          - security-profiles-operator-profile
-          resources:
-          - configmaps
-          verbs:
-          - get
-          - list
-          - watch
-        - apiGroups:
-          - ""
           resources:
           - events
           verbs:
@@ -423,7 +413,6 @@ spec:
           - get
           - list
           - patch
-          - update
           - watch
         - apiGroups:
           - admissionregistration.k8s.io
@@ -456,7 +445,6 @@ spec:
           - get
           - list
           - patch
-          - update
           - watch
         - apiGroups:
           - authentication.k8s.io
@@ -508,19 +496,13 @@ spec:
         - apiGroups:
           - security-profiles-operator.x-k8s.io
           resources:
-          - apparmorprofiles/finalizers
           - apparmorprofiles/status
-          - profilebindings/finalizers
           - profilebindings/status
-          - profilerecordings/finalizers
           - profilerecordings/status
-          - rawselinuxprofiles/finalizers
           - rawselinuxprofiles/status
-          - seccompprofiles/finalizers
           - seccompprofiles/status
           - securityprofilesoperatordaemons/finalizers
           - securityprofilesoperatordaemons/status
-          - selinuxprofiles/finalizers
           - selinuxprofiles/status
           verbs:
           - get
@@ -617,12 +599,12 @@ spec:
           - ""
           resources:
           - namespaces
+          - nodes
           verbs:
           - get
         - apiGroups:
           - ""
           resources:
-          - nodes
           - pods
           verbs:
           - get
@@ -846,6 +828,16 @@ spec:
       - rules:
         - apiGroups:
           - ""
+          resourceNames:
+          - security-profiles-operator-profile
+          resources:
+          - configmaps
+          verbs:
+          - get
+          - list
+          - watch
+        - apiGroups:
+          - ""
           resources:
           - services
           verbs:
@@ -853,12 +845,20 @@ spec:
           - get
           - list
           - patch
-          - update
           - watch
         - apiGroups:
           - apps
           resources:
           - daemonsets
+          verbs:
+          - create
+          - get
+          - list
+          - patch
+          - watch
+        - apiGroups:
+          - apps
+          resources:
           - deployments
           verbs:
           - create
@@ -877,7 +877,6 @@ spec:
           - get
           - list
           - patch
-          - update
           - watch
         - apiGroups:
           - coordination.k8s.io
@@ -893,11 +892,7 @@ spec:
           - servicemonitors
           verbs:
           - create
-          - get
-          - list
           - patch
-          - update
-          - watch
         - apiGroups:
           - policy
           resources:
@@ -907,7 +902,6 @@ spec:
           - get
           - list
           - patch
-          - update
           - watch
         - apiGroups:
           - security.openshift.io
@@ -919,22 +913,6 @@ spec:
           - use
         serviceAccountName: security-profiles-operator
       - rules:
-        - apiGroups:
-          - coordination.k8s.io
-          resources:
-          - leases
-          verbs:
-          - create
-        - apiGroups:
-          - coordination.k8s.io
-          resourceNames:
-          - security-profiles-operator-webhook-lock
-          resources:
-          - leases
-          verbs:
-          - get
-          - patch
-          - update
         - apiGroups:
           - security-profiles-operator.x-k8s.io
           resources:

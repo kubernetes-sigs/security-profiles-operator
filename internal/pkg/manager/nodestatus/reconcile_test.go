@@ -275,9 +275,14 @@ func TestReconcileInitializesProfileStatus(t *testing.T) {
 		wantStatus secprofnodestatusapi.ProfileState
 	}{
 		{
-			name:       "FromNodeStatus",
+			name:       "InstalledNodeStatusSeedsPending",
 			nodeState:  secprofnodestatusapi.ProfileStateInstalled,
-			wantStatus: secprofnodestatusapi.ProfileStateInstalled,
+			wantStatus: secprofnodestatusapi.ProfileStatePending,
+		},
+		{
+			name:       "FromFailedNodeStatus",
+			nodeState:  secprofnodestatusapi.ProfileStateError,
+			wantStatus: secprofnodestatusapi.ProfileStateError,
 		},
 		{
 			name:       "PendingWithoutNodeStatus",
@@ -327,6 +332,28 @@ func TestReconcileInitializationAggregatesAllNodes(t *testing.T) {
 	require.Equal(t,
 		secprofnodestatusapi.ProfileStatePending, storedProfile(t, c).Status.Status,
 	)
+}
+
+// A single Installed node status must not make the profile Installed while
+// another node has not reported yet. The aggregation does not write while
+// statuses are missing, so the seeded state would persist.
+func TestReconcileInitializationWithMissingNodeStatus(t *testing.T) {
+	t.Parallel()
+
+	installed := testNodeStatus("worker-1", secprofnodestatusapi.ProfileStateInstalled)
+
+	r, c, _ := newTestReconciler(t,
+		testProfile(""), installed, spodDS(2, 2),
+		testNode("worker-1"), testNode("worker-2"),
+	)
+
+	res, err := reconcileStatus(t, r, installed)
+	require.NoError(t, err)
+	require.Equal(t, dsWait, res.RequeueAfter)
+
+	sp := storedProfile(t, c)
+	require.Equal(t, secprofnodestatusapi.ProfileStatePending, sp.Status.Status)
+	require.NotEqual(t, metav1.ConditionTrue, sp.Status.GetReadyCondition().Status)
 }
 
 func TestReconcileErrorConditionNamesFailedNodes(t *testing.T) {
@@ -1244,6 +1271,14 @@ func TestReconcileProfileRequestSkipsUnownedStatus(t *testing.T) {
 	)
 
 	_, err := r.Reconcile(context.Background(),
+		profileRequest("SeccompProfile", testNamespace, testProfileName))
+	require.NoError(t, err)
+	// The owned status initializes the profile, the unowned one would leave
+	// it without a state, since its owner cannot be resolved. The status of
+	// the unknown node gets removed before the aggregation.
+	require.Equal(t, secprofnodestatusapi.ProfileStatePending, storedProfile(t, c).Status.Status)
+
+	_, err = r.Reconcile(context.Background(),
 		profileRequest("SeccompProfile", testNamespace, testProfileName))
 	require.NoError(t, err)
 	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, storedProfile(t, c).Status.Status)

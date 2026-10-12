@@ -31,6 +31,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	api "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/daemongrpc"
 )
 
 // newGRPCTestClient serves the metrics over a loopback listener and returns
@@ -53,7 +54,7 @@ func newGRPCTestClient(t *testing.T, sut *Metrics) api.MetricsClient {
 		require.NoError(t, <-serveErr)
 	})
 
-	conn, err := grpc.NewClient(listener.Addr().String(), dialOptions()...)
+	conn, err := grpc.NewClient(listener.Addr().String(), daemongrpc.DialOptions()...)
 	require.NoError(t, err)
 
 	t.Cleanup(func() { require.NoError(t, conn.Close()) })
@@ -219,7 +220,7 @@ func TestStopGRPCServerWithOpenStream(t *testing.T) {
 
 	go func() { serveErr <- server.Serve(listener) }()
 
-	conn, err := grpc.NewClient(listener.Addr().String(), dialOptions()...)
+	conn, err := grpc.NewClient(listener.Addr().String(), daemongrpc.DialOptions()...)
 	require.NoError(t, err)
 
 	t.Cleanup(func() { require.NoError(t, conn.Close()) })

@@ -111,8 +111,8 @@ func (r *ReconcileSPOd) reconcileAllowList(
 
 	for _, sp := range rejected {
 		if err := r.client.Delete(ctx, sp); err != nil && !k8serrors.IsNotFound(err) {
-			errs = append(errs, fmt.Errorf("deleting not allowed seccomp profile %s/%s: %w",
-				sp.GetNamespace(), sp.GetName(), err))
+			errs = append(errs, fmt.Errorf("deleting not allowed seccomp profile %s: %w",
+				sp.GetName(), err))
 		}
 	}
 
@@ -133,7 +133,8 @@ func (r *ReconcileSPOd) notAllowed(
 		return false
 	}
 
-	logger := r.log.WithValues("namespace", sp.GetNamespace(), "name", sp.GetName())
+	// Seccomp profiles are cluster scoped.
+	logger := r.log.WithValues("name", sp.GetName())
 
 	syscalls, err := seccompcheck.ResolveLocalSyscalls(ctx, r.client, sp)
 	if err != nil {
@@ -158,4 +159,22 @@ func (r *ReconcileSPOd) notAllowed(
 	logger.Info("Deleting not allowed seccomp profile", "reason", err.Error())
 
 	return true
+}
+
+// rejectedByAllowLists returns true if the allow lists of the SPOD reject the
+// profile, which has no base profile, like reconcileAllowList decides it.
+func rejectedByAllowLists(
+	sp *seccompprofileapi.SeccompProfile, security *spodapi.SPODSecurityConfig,
+) bool {
+	if len(security.AllowedSyscalls) == 0 {
+		return false
+	}
+
+	if _, err := seccompcheck.CheckedActions(security.AllowedSeccompActions); err != nil {
+		return false
+	}
+
+	return seccompcheck.AllowProfile(
+		sp, security.AllowedSyscalls, security.AllowedSeccompActions,
+	) != nil
 }

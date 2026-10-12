@@ -28,7 +28,6 @@ import (
 	"time"
 
 	"github.com/go-logr/logr/funcr"
-	"github.com/jellydator/ttlcache/v3"
 	"github.com/stretchr/testify/require"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1217,7 +1216,7 @@ func TestHandleAllowedSyscallsChangedDoesNotPull(t *testing.T) {
 	sp.Spec.BaseProfileName = "oci://registry/base:v1"
 
 	env := newReconcileEnv(t, sp)
-	env.rec.baseProfiles = ttlcache.New[string, *seccompprofileapi.SeccompProfile]()
+	env.rec.baseProfiles = newBaseProfileCache()
 
 	spod := &spodapi.SecurityProfilesOperatorDaemon{
 		Spec: spodapi.SPODSpec{

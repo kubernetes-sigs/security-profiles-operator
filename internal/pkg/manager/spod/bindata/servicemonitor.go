@@ -71,18 +71,18 @@ func endpointFor(
 	enableInsecureMetricsAccess bool,
 ) v1.Endpoint {
 	serverName := fmt.Sprintf("metrics.%s.svc", namespace)
-	scheme := v1.Scheme("https")
-	port := "https"
 
+	scheme := v1.Scheme("https")
 	if enableInsecureMetricsAccess {
 		scheme = v1.Scheme("http")
-		port = "http"
 	}
 
+	// The Prometheus Operator selects the endpoint by the name of the Service
+	// port. The scheme decides between TLS and plain HTTP.
 	ep := v1.Endpoint{
 		Path:     path,
 		Interval: "10s",
-		Port:     port,
+		Port:     MetricsServicePortName,
 		Scheme:   &scheme,
 	}
 

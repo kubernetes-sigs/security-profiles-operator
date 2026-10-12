@@ -14,6 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package v1 contains the parts of the API which the profiles share.
+// +kubebuilder:object:generate=true
 package v1
 
 import (
@@ -41,6 +43,7 @@ const ProfilePartialLabel = "spo.x-k8s.io/partial"
 const ReasonInstalledOnAvailableNodes common.ConditionReason = "InstalledOnAvailableNodes"
 
 // SecurityProfileBase is implemented by every kind of security profile.
+// +kubebuilder:object:generate=false
 type SecurityProfileBase interface {
 	client.Object
 
@@ -111,6 +114,7 @@ type StatusBase struct {
 }
 
 // StatusBaseUser is implemented by the objects which carry a StatusBase.
+// +kubebuilder:object:generate=false
 type StatusBaseUser interface {
 	metav1.Object
 	runtime.Object

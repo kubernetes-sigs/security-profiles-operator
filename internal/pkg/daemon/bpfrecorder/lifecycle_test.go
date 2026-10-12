@@ -668,3 +668,56 @@ func TestLoadWithoutAppArmorHook(t *testing.T) {
 	_, err = sut.ApparmorForProfile(t.Context(), &api.ProfileRequest{Name: "profile"})
 	require.ErrorIs(t, err, ErrAppArmorUnavailable)
 }
+
+// TestInitGlobalsKeyMode asserts how the recorded data is keyed: spoc records
+// per mount namespace, the daemon per cgroup on cgroup v2 hosts and per mount
+// namespace sequence number otherwise.
+func TestInitGlobalsKeyMode(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name                     string
+		cluster, cgroupV2        bool
+		wantGlobal               string
+		wantUnique, wantCgroupID bool
+	}{
+		{name: "spoc"},
+		{
+			name: "cgroup v2", cluster: true, cgroupV2: true,
+			wantGlobal: globalUseCgroupID, wantUnique: true, wantCgroupID: true,
+		},
+		{
+			name: "cgroup v1", cluster: true,
+			wantGlobal: globalUseMntnsSeq, wantUnique: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			sut := New("", logr.Discard(), true, false)
+			mock := &bpfrecorderfakes.FakeImpl{}
+			mock.IsCgroupV2Returns(tc.cgroupV2)
+			sut.impl = mock
+
+			if tc.cluster {
+				sut.clientset = &kubernetes.Clientset{}
+			}
+
+			require.NoError(t, sut.initGlobals(&libbpfgo.Module{}))
+			require.Equal(t, tc.wantUnique, sut.uniqueKeys)
+			require.Equal(t, tc.wantCgroupID, sut.cgroupKeys)
+
+			globals := make([]string, 0, mock.InitGlobalVariableCallCount())
+
+			for i := range mock.InitGlobalVariableCallCount() {
+				_, name, _ := mock.InitGlobalVariableArgsForCall(i)
+				globals = append(globals, name)
+			}
+
+			for _, keyGlobal := range []string{globalUseCgroupID, globalUseMntnsSeq} {
+				require.Equal(t, keyGlobal == tc.wantGlobal, slices.Contains(globals, keyGlobal),
+					keyGlobal)
+			}
+		})
+	}
+}

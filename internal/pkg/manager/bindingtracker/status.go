@@ -25,7 +25,6 @@ import (
 	"github.com/go-logr/logr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/retry"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -235,10 +234,10 @@ func (r *bindingStatusReconciler) profileKindDisabled(
 	}
 
 	if kind == profilebindingapi.ProfileBindingKindSelinuxProfile {
-		return !ptr.Deref(spod.Spec.Selinux.Enable, r.isOpenShift), nil
+		return !spod.SelinuxEnabled(r.isOpenShift), nil
 	}
 
-	return !ptr.Deref(spod.Spec.EnableAppArmor, false), nil
+	return !spod.AppArmorEnabled(), nil
 }
 
 // profileState returns the state in the status of a profile.

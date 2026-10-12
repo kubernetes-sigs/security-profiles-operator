@@ -41,7 +41,6 @@ import (
 	"golang.org/x/sync/singleflight"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -50,6 +49,7 @@ import (
 	api "sigs.k8s.io/security-profiles-operator/api/grpc/bpfrecorder"
 	apimetrics "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/daemongrpc"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/podindex"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
@@ -57,7 +57,6 @@ import (
 
 const (
 	defaultTimeout          time.Duration = time.Minute
-	maxMsgSize              int           = 16 * 1024 * 1024
 	maxCommLen              int           = 64
 	defaultCacheTimeout     time.Duration = time.Hour
 	maxNewPidHandlers       int           = 32
@@ -223,13 +222,14 @@ type BpfRecorder struct {
 	// switched it off while its clients are still counted. The next Start
 	// switches it on again then. Guarded by startMu.
 	stopFailed              bool
-	btfPath                 string
 	pidToContainerIDCache   *ttlcache.Cache[string, string]
 	containerKeys           *containerKeys
 	containerIDToProfileMap *containerProfiles
 	// collectedProfiles holds the profiles whose data was reset after they had
-	// been persisted, so that a retried collection is told right away that
-	// there is nothing left to collect.
+	// been persisted, with the IDs of their containers, so that a retried
+	// collection is told right away that there is nothing left to collect. A
+	// new container of the profile, like the one of a pod created again with
+	// the same recording annotation, gets recorded again.
 	collectedProfiles sync.Map
 	// containersWithoutProfile remembers container IDs that were found in the
 	// cluster but carry no recording annotation. Without it every event from
@@ -612,10 +612,7 @@ func (b *BpfRecorder) Run() error {
 
 	b.logger.Info("Starting GRPC API server")
 
-	grpcServer := grpc.NewServer(
-		grpc.MaxSendMsgSize(maxMsgSize),
-		grpc.MaxRecvMsgSize(maxMsgSize),
-	)
+	grpcServer := grpc.NewServer(daemongrpc.ServerOptions()...)
 	api.RegisterBpfRecorderServer(grpcServer, b)
 
 	serving = true
@@ -681,15 +678,7 @@ func (b *BpfRecorder) openMetricsStream(
 // Dial can be used to connect to the default GRPC server by creating a new
 // client.
 func Dial() (*grpc.ClientConn, error) {
-	conn, err := grpc.NewClient(
-		"unix://"+config.GRPCServerSocketBpfRecorder,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("GRPC dial: %w", err)
-	}
-
-	return conn, nil
+	return daemongrpc.Dial(config.GRPCServerSocketBpfRecorder) //nolint:wrapcheck // wrapped already
 }
 
 // Start starts the recording for the client of the request. A client with an
@@ -1034,7 +1023,7 @@ func (b *BpfRecorder) resetProfile(profile string, clearData func([]uint64)) {
 	})
 	b.attachUnattachMutex.RUnlock()
 
-	b.collectedProfiles.Store(profile, struct{}{})
+	b.collectedProfiles.Store(profile, containerIDs)
 
 	for _, containerID := range b.containerIDToProfileMap.DeleteProfile(profile) {
 		b.containerKeys.DeleteContainer(containerID)
@@ -1181,7 +1170,6 @@ func (b *BpfRecorder) Load() (err error) {
 	module, err = b.NewModuleFromBufferArgs(&bpf.NewModuleArgs{
 		BPFObjBuff: bpfObject,
 		BPFObjName: "recorder.bpf.o",
-		BTFObjPath: b.btfPath,
 	})
 	if err != nil {
 		return fmt.Errorf("load bpf module: %w", err)
@@ -1382,6 +1370,12 @@ func (b *BpfRecorder) releaseModule() {
 	b.lostEventsBpfMap = nil
 	b.lostEventsMu.Unlock()
 
+	// The AppArmor event handlers may still process queued events, which
+	// must not use its maps once the module freed them.
+	if b.AppArmor != nil {
+		b.AppArmor.unload()
+	}
+
 	// Closing the ring buffer closes the events channel, which ends the event
 	// processing.
 	b.CloseModule(b.module)
@@ -1396,10 +1390,6 @@ func (b *BpfRecorder) releaseModule() {
 
 	if b.Seccomp != nil {
 		b.Seccomp.syscalls = nil
-	}
-
-	if b.AppArmor != nil {
-		b.AppArmor.unload()
 	}
 }
 
@@ -2334,10 +2324,28 @@ func (b *BpfRecorder) cacheProfilesOfPod(pod *v1.Pod) {
 					"podName", pod.Name,
 					"containerName", containerName,
 				)
+				b.forgetCollected(profile, containerID)
 				b.containerIDToProfileMap.Insert(containerID, profile)
 			}
 		}
 	}
+}
+
+// forgetCollected forgets that the profile got collected if the container is
+// a new one of it, so that its data gets collected again.
+func (b *BpfRecorder) forgetCollected(profile, containerID string) {
+	value, ok := b.collectedProfiles.Load(profile)
+	if !ok {
+		return
+	}
+
+	if containerIDs, ok := value.([]string); ok && slices.Contains(containerIDs, containerID) {
+		return
+	}
+
+	b.logger.Info("Recording a collected profile again for a new container",
+		"profile", profile, "containerID", containerID)
+	b.collectedProfiles.Delete(profile)
 }
 
 // WaitForPidExit waits for a specific PID to exit.

@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/recordingkinds"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
@@ -182,10 +183,10 @@ func (r *RecordingTrackerReconciler) setupStatus(mgr ctrl.Manager, name string) 
 			builder.WithPredicates(labelsChanged()),
 		)
 
-	for kind, k := range profileKinds {
+	for _, k := range recordingkinds.All {
 		b = b.Watches(
-			k.newObject(),
-			handler.EnqueueRequestsFromMapFunc(status.recordingsWritingProfile(kind)),
+			k.NewObject(),
+			handler.EnqueueRequestsFromMapFunc(status.recordingsWritingProfile(k.Kind)),
 			builder.WithPredicates(profileOwnerEventsPredicate()),
 		)
 	}

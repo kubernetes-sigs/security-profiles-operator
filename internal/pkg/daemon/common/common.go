@@ -103,19 +103,10 @@ func AuditTimeToIso(timestampAuditID string) (string, error) {
 // AuditTime returns the time of an audit record from its timestamp ID, like
 // 1746611740.574:325.
 func AuditTime(timestampAuditID string) (time.Time, error) {
-	parts := strings.Split(timestampAuditID, ":")
-	if len(parts) == 0 {
-		return time.Time{}, fmt.Errorf("invalid timestamp audit ID: %s", timestampAuditID)
-	}
+	timestampStr, _, _ := strings.Cut(timestampAuditID, ":")
+	secondsStr, fractionStr, hasFraction := strings.Cut(timestampStr, ".")
 
-	timestampStr := parts[0]
-
-	fractionalParts := strings.Split(timestampStr, ".")
-	if len(fractionalParts) == 0 {
-		return time.Time{}, fmt.Errorf("invalid timestamp audit ID: %s", timestampStr)
-	}
-
-	seconds, err := strconv.ParseInt(fractionalParts[0], 10, 64)
+	seconds, err := strconv.ParseInt(secondsStr, 10, 64)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("invalid timestamp audit ID: %s", timestampStr)
 	}
@@ -123,8 +114,8 @@ func AuditTime(timestampAuditID string) (time.Time, error) {
 	// The kernel writes the milliseconds as three digits, keep them.
 	var millis int64
 
-	if len(fractionalParts) > 1 {
-		fraction := (fractionalParts[1] + "000")[:3]
+	if hasFraction {
+		fraction := (fractionStr + "000")[:3]
 
 		millis, err = strconv.ParseInt(fraction, 10, 64)
 		if err != nil || millis < 0 {

@@ -700,3 +700,59 @@ func TestUsesDeprecatedPtraceRules(t *testing.T) {
 		})
 	}
 }
+
+// The network rules allow the listed protocols. Raw sockets are denied unless
+// allowed, which only an enforced profile states.
+func TestGenerateProfileNetworkRules(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name    string
+		mode    apparmorprofileapi.AppArmorMode
+		network *apparmorprofileapi.AppArmorNetworkRules
+		want    []string
+		notWant []string
+	}{
+		{
+			name: "protocols allowed, raw unset",
+			mode: apparmorprofileapi.AppArmorModeEnforce,
+			network: &apparmorprofileapi.AppArmorNetworkRules{
+				Protocols: &apparmorprofileapi.AppArmorAllowedProtocols{
+					AllowTCP: new(true), AllowUDP: new(false),
+				},
+			},
+			want:    []string{"  network tcp,", "  deny network raw,"},
+			notWant: []string{"network udp,"},
+		},
+		{
+			name:    "raw allowed",
+			mode:    apparmorprofileapi.AppArmorModeEnforce,
+			network: &apparmorprofileapi.AppArmorNetworkRules{AllowRaw: new(true)},
+			want:    []string{"  network raw,"},
+			notWant: []string{"deny network raw,", "network tcp,"},
+		},
+		{
+			name:    "complain mode states no deny rule",
+			mode:    apparmorprofileapi.AppArmorModeComplain,
+			network: &apparmorprofileapi.AppArmorNetworkRules{},
+			notWant: []string{"network raw,"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			profile, err := GenerateProfile(
+				"profile", tc.mode, &apparmorprofileapi.AppArmorAbstract{Network: tc.network},
+			)
+			require.NoError(t, err)
+
+			for _, rule := range tc.want {
+				require.Contains(t, profile, rule)
+			}
+
+			for _, rule := range tc.notWant {
+				require.NotContains(t, profile, rule)
+			}
+		})
+	}
+}

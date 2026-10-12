@@ -28,6 +28,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/utils/ptr"
@@ -1408,4 +1409,73 @@ func TestRecordingMatchCondition(t *testing.T) {
 			prefix,
 		)
 	}
+}
+
+// TestRecordingWebhookSelection verifies that a mutating webhook configuration
+// without the recording webhook selects no namespace for recording, like the
+// daemon ignores all recording annotations then.
+func TestRecordingWebhookSelection(t *testing.T) {
+	t.Parallel()
+
+	namespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+		Name: "ns", Labels: map[string]string{"record": "true"},
+	}}
+	selector := &metav1.LabelSelector{MatchLabels: map[string]string{"record": "true"}}
+	webhookConfig := func(webhooks ...admissionregv1.MutatingWebhook) *admissionregv1.MutatingWebhookConfiguration {
+		return &admissionregv1.MutatingWebhookConfiguration{
+			ObjectMeta: metav1.ObjectMeta{Name: MutatingWebhookConfigName},
+			Webhooks:   webhooks,
+		}
+	}
+
+	for name, tc := range map[string]struct {
+		objs         []client.Object
+		wantSelector *metav1.LabelSelector
+		wantDeployed bool
+		wantSelected bool
+	}{
+		"no configuration": {
+			objs:         []client.Object{namespace},
+			wantSelected: true,
+		},
+		"recording webhook": {
+			objs: []client.Object{namespace, webhookConfig(admissionregv1.MutatingWebhook{
+				Name: RecordingWebhookName, NamespaceSelector: selector,
+			})},
+			wantSelector: selector,
+			wantDeployed: true,
+			wantSelected: true,
+		},
+		"no recording webhook": {
+			objs: []client.Object{namespace, webhookConfig(admissionregv1.MutatingWebhook{
+				Name: "binding.spo.io",
+			})},
+			wantSelector: NoNamespaceSelector(),
+			wantDeployed: true,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			c := webhookTestClient(t, tc.objs...)
+
+			got, deployed, err := DeployedRecordingNamespaceSelector(t.Context(), c)
+			require.NoError(t, err)
+			require.Equal(t, tc.wantDeployed, deployed)
+			require.Equal(t, tc.wantSelector, got)
+
+			selected, err := RecordingWebhookSelectsNamespace(t.Context(), c, namespace.Name)
+			require.NoError(t, err)
+			require.Equal(t, tc.wantSelected, selected)
+		})
+	}
+
+	// The selector of no namespace matches no labels at all.
+	nothing, err := metav1.LabelSelectorAsSelector(NoNamespaceSelector())
+	require.NoError(t, err)
+	require.False(t, nothing.Matches(labels.Set{}))
+	require.False(
+		t,
+		nothing.Matches(labels.Set{"security-profiles-operator.x-k8s.io/no-recording-webhook": ""}),
+	)
 }
