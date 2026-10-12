@@ -28,8 +28,8 @@ export DOCKER_BUILDKIT=1
 # with PUSH=false. That needs the same BuildKit everywhere, so the images are
 # built in a container of this pinned BuildKit image instead of by the docker
 # daemon. Bump the version and the digest together.
-BUILDKIT_VERSION=v0.33.1
-BUILDKIT_DIGEST=sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
+BUILDKIT_VERSION=v0.34.0
+BUILDKIT_DIGEST=sha256:b059f8d7226d0b326bc871af489a5dddf65e36af4d20d14251b072974d9ee87c
 
 # PUSH=false only builds the per-arch images, the bundle and the catalog into
 # the OCI layouts build/images/<arch|bundle|catalog> and writes their digests
