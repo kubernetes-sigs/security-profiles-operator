@@ -23,7 +23,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
@@ -124,7 +123,7 @@ func TestRun(t *testing.T) {
 			mock := &removerfakes.FakeImpl{}
 			options := prepare(mock)
 
-			sut := New(options, logr.New(&cli.LogSink{}))
+			sut := New(options, cli.Logger())
 			sut.impl = mock
 
 			err := sut.Run()

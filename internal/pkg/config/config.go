@@ -24,8 +24,6 @@ import (
 	"os"
 	"path"
 	"sync"
-
-	"sigs.k8s.io/release-utils/env"
 )
 
 const (
@@ -254,7 +252,7 @@ type KubeletConfig struct {
 func TryToGetOperatorNamespace() (string, error) {
 	// This is OPERATOR_NAMESPACE should have been set by the downward API to identify
 	// the namespace which this controller is running from
-	operatorNS := env.Default(OperatorNamespaceEnvKey, "")
+	operatorNS := os.Getenv(OperatorNamespaceEnvKey)
 	if operatorNS == "" {
 		return "", ErrPodNamespaceEnvNotFound
 	}
@@ -309,7 +307,7 @@ var warnKubeletConfig sync.Once
 // ignores the kubelet config file, which the non-root enabler persists on the
 // node and which therefore can be outdated.
 func DefaultKubeletDir() string {
-	kubeletDir := env.Default(KubeletDirEnvKey, "")
+	kubeletDir := os.Getenv(KubeletDirEnvKey)
 	if kubeletDir == "" {
 		return DefaultKubeletPath
 	}

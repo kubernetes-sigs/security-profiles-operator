@@ -21,6 +21,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -70,6 +72,79 @@ func TestGitHubActionsToken(t *testing.T) {
 
 	_, _, err = githubActionsToken(t.Context())
 	require.ErrorIs(t, err, ErrIDToken)
+}
+
+func TestFileToken(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+
+	for _, tc := range []struct {
+		name      string
+		content   *string
+		wantToken string
+	}{
+		{name: "missing"},
+		{name: "present", content: new("file-token"), wantToken: "file-token"},
+		{name: "trailing newline", content: new("file-token\n"), wantToken: "file-token"},
+		{name: "empty", content: new("")},
+		{name: "whitespace only", content: new(" \n\t")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			path := filepath.Join(dir, tc.name)
+			if tc.content != nil {
+				require.NoError(t, os.WriteFile(path, []byte(*tc.content), 0o600))
+			}
+
+			token, ok, err := fileToken(path)
+			require.NoError(t, err)
+			require.Equal(t, tc.wantToken != "", ok)
+			require.Equal(t, tc.wantToken, token)
+		})
+	}
+
+	t.Run("unreadable", func(t *testing.T) {
+		t.Parallel()
+
+		// A directory exists but cannot be read as a file.
+		_, ok, err := fileToken(dir)
+		require.Error(t, err)
+		require.False(t, ok)
+	})
+
+	t.Run("no permission", func(t *testing.T) {
+		t.Parallel()
+
+		if os.Geteuid() == 0 {
+			t.Skip("root reads the files anyway")
+		}
+
+		// A file which cannot be read is an error, the sign in must not
+		// fall back to another identity.
+		path := filepath.Join(t.TempDir(), "token")
+		require.NoError(t, os.WriteFile(path, []byte("file-token"), 0o000))
+
+		_, ok, err := fileToken(path)
+		require.ErrorIs(t, err, os.ErrPermission)
+		require.False(t, ok)
+
+		// A directory which cannot be read hides the file, like a missing
+		// one.
+		hidden := t.TempDir()
+		require.NoError(
+			t,
+			os.WriteFile(filepath.Join(hidden, "token"), []byte("file-token"), 0o600),
+		)
+		require.NoError(t, os.Chmod(hidden, 0o000))
+		t.Cleanup(func() { require.NoError(t, os.Chmod(hidden, 0o700)) })
+
+		token, ok, err := fileToken(filepath.Join(hidden, "token"))
+		require.NoError(t, err)
+		require.False(t, ok)
+		require.Empty(t, token)
+	})
 }
 
 func TestIDTokenAmbient(t *testing.T) {

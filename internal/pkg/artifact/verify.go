@@ -99,7 +99,7 @@ func (a *Artifact) verifySignatureOf(
 		identity = &certIdentity
 	}
 
-	candidates, legacy, err := a.signatureCandidates(ctx, repo, subject)
+	candidates, legacy, referrersErr, err := a.signatureCandidates(ctx, repo, subject)
 	if err != nil {
 		return err
 	}
@@ -134,6 +134,15 @@ func (a *Artifact) verifySignatureOf(
 		}
 
 		errs = append(errs, fmt.Errorf("signature %s: %w", candidate.Digest, err))
+	}
+
+	// A registry error may have hidden a valid signature bundle.
+	if referrersErr != nil {
+		return fmt.Errorf(
+			"%w, looking up signature bundles failed as well: %w",
+			summarizeErrors(errs),
+			referrersErr,
+		)
 	}
 
 	return summarizeErrors(errs)
@@ -193,10 +202,11 @@ func summarizeErrors(errs []error) error {
 // are no bundles. Attestations like SLSA provenance or promotion records are
 // bundles with other predicate types, which do not count as signature. A
 // failed lookup of the bundles is part of the error if no legacy signature
-// is found either.
+// is found either, and returned as referrersErr next to the legacy
+// signatures otherwise.
 func (a *Artifact) signatureCandidates(
 	ctx context.Context, repo *remote.Repository, subject *v1.Descriptor,
-) (candidates []v1.Descriptor, legacy bool, err error) {
+) (candidates []v1.Descriptor, legacy bool, referrersErr, err error) {
 	// SignatureReferrers returns at most maxSignatures signature bundles.
 	referrers, referrersErr := a.SignatureReferrers(ctx, repo, subject)
 	if referrersErr != nil {
@@ -208,26 +218,26 @@ func (a *Artifact) signatureCandidates(
 	}
 
 	if len(referrers) > 0 {
-		return referrers, false, nil
+		return referrers, false, nil, nil
 	}
 
 	candidates, err = a.legacySignatureLayers(ctx, repo, subject.Digest)
 
 	switch {
 	case err != nil && referrersErr != nil:
-		return nil, true, fmt.Errorf(
+		return nil, true, nil, fmt.Errorf(
 			"%w, looking up signature bundles failed as well: %w", err, referrersErr,
 		)
 	case err != nil:
-		return nil, true, err
+		return nil, true, nil, err
 	case len(candidates) == 0 && referrersErr != nil:
-		return nil, true, fmt.Errorf(
+		return nil, true, nil, fmt.Errorf(
 			"%w for %s, looking up signature bundles failed: %w",
 			ErrNoSignature, subject.Digest, referrersErr,
 		)
 	}
 
-	return candidates, true, nil
+	return candidates, true, referrersErr, nil
 }
 
 // isSignatureReferrer reports whether the referrer is a signature bundle, as
@@ -449,12 +459,12 @@ func (c verifierConfig) options() []verify.VerifierOption {
 // has to match. An exact identity or issuer replaces the regexp, an empty
 // regexp matches everything.
 func (p *PullOptions) certificateIdentity() (verify.CertificateIdentity, error) {
-	identityRegexp := cmp.Or(p.AllowedIdentityRegexp, allowAllRegexp)
+	identityRegexp := cmp.Or(p.AllowedIdentityRegexp, AllowAllRegexp)
 	if p.CertIdentity != "" {
 		identityRegexp = ""
 	}
 
-	issuerRegexp := cmp.Or(p.AllowedOidcIssuerRegexp, allowAllRegexp)
+	issuerRegexp := cmp.Or(p.AllowedOidcIssuerRegexp, AllowAllRegexp)
 	if p.CertOidcIssuer != "" {
 		issuerRegexp = ""
 	}

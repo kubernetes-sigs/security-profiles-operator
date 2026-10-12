@@ -47,8 +47,8 @@ func TestFromContext(t *testing.T) {
 		{
 			name: "failure username without password",
 			prepare: func(set *flag.FlagSet) {
-				set.String(FlagUsername, "", "")
-				require.NoError(t, set.Set(FlagUsername, "username"))
+				set.String(cli.FlagUsername, "", "")
+				require.NoError(t, set.Set(cli.FlagUsername, "username"))
 				require.NoError(t, set.Parse([]string{"echo"}))
 			},
 			assert: func(_ *Options, err error) {

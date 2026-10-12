@@ -148,19 +148,6 @@ func containerIDAndStartTimeForPID(
 	return containerID, started, nil
 }
 
-func containerIDForPID(
-	cache *ttlcache.Cache[string, string],
-	pid int,
-	statReader, cgroupReader procFileReader,
-) (string, error) {
-	startTime, err := getProcessStartTimeTicks(pid, statReader)
-	if err != nil {
-		return "", fmt.Errorf("reading proc start time: %w", err)
-	}
-
-	return containerIDForStartTime(cache, pid, startTime, cgroupReader)
-}
-
 // containerIDForStartTime looks the container of the process with the PID and
 // the start time in clock ticks up.
 func containerIDForStartTime(

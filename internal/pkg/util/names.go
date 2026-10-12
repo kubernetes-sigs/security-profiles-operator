@@ -21,7 +21,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -58,31 +57,47 @@ func lengthName(maxLen int, hashPrefix, format string, a ...any) (string, error)
 // hash of name as fits into maxLen characters. It is not very user friendly,
 // but it keeps names apart which a truncation would merge.
 func hashedName(maxLen int, hashPrefix, name string) (string, error) {
-	hasher := sha256.New()
-	if _, err := io.WriteString(hasher, name); err != nil {
-		return "", fmt.Errorf("writing string: %w", err)
-	}
-
-	hashStr := hex.EncodeToString(hasher.Sum(nil))
-
-	hashUseLen := maxLen - len(hashPrefix) - 1 // -1 for the dash separator
-	if hashUseLen < 1 {
+	if maxLen-len(hashPrefix)-1 < 1 { // -1 for the dash separator
 		return "", fmt.Errorf(
 			"shortening string: prefix %q leaves no room for a hash within %d characters",
 			hashPrefix, maxLen,
 		)
 	}
 
-	return hashPrefix + "-" + hashStr[:min(hashUseLen, len(hashStr))], nil
+	return withHash(maxLen, hashPrefix, name), nil
 }
 
-func DNSLengthName(hashPrefix, format string, a ...any) string {
-	//nolint:errcheck // (jhrozek): I think it makes sense to make the utility
-	// 					  function return error, but here I think it's OK to
-	// 					  just ignore
-	name, _ := lengthName(validation.DNS1123LabelMaxLength, hashPrefix, format, a...)
+// withHash returns the prefix and as much of the SHA256 hash of name as fits
+// into maxLen. The prefix has to leave room for at least one character of the
+// hash.
+func withHash(maxLen int, hashPrefix, name string) string {
+	sum := sha256.Sum256([]byte(name))
+	hashStr := hex.EncodeToString(sum[:])
 
-	return name
+	return hashPrefix + "-" + hashStr[:min(maxLen-len(hashPrefix)-1, len(hashStr))]
+}
+
+// dnsMinHashLen is how many characters of the hash a hashed DNS label name
+// keeps at least.
+const dnsMinHashLen = 16
+
+// DNSLengthName returns the friendly name if it fits into a DNS label, and
+// its hashed form otherwise, see lengthName. A prefix too long to leave room
+// for the hash gets shortened, so that the name is never empty. The callers
+// pass profile kinds, which are short enough to be kept as they are.
+func DNSLengthName(hashPrefix, format string, a ...any) string {
+	const maxPrefixLen = validation.DNS1123LabelMaxLength - 1 - dnsMinHashLen
+
+	friendlyName := fmt.Sprintf(format, a...)
+	if len(friendlyName) < validation.DNS1123LabelMaxLength {
+		return friendlyName
+	}
+
+	return withHash(
+		validation.DNS1123LabelMaxLength,
+		hashPrefix[:min(len(hashPrefix), maxPrefixLen)],
+		friendlyName,
+	)
 }
 
 // ErrProfileOwnedByOtherRecording is returned by CheckRecordingOwner if a

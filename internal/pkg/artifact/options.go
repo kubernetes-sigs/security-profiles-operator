@@ -20,7 +20,9 @@ import (
 	"strings"
 )
 
-const allowAllRegexp = ".*"
+// AllowAllRegexp is the default signer regexp of the spoc flags and the SPOD
+// API, which accepts any signer.
+const AllowAllRegexp = ".*"
 
 // PullOptions are the options for pulling an OCI artifact: how to reach the
 // registry and how to verify the artifact's signature.
@@ -88,6 +90,14 @@ type PullOptions struct {
 	// copies from the registry. Bigger blobs fail the pull before they are
 	// fetched. Zero means DefaultMaxBlobSize.
 	MaxBlobSize int64
+
+	// KeepRawRuntimeProfile keeps a raw runtime-spec seccomp profile whose
+	// values the SeccompProfile CRD cannot express, instead of failing the
+	// pull. The SeccompProfile of the result then has an empty spec and
+	// only the content holds the profile. Callers which write the content
+	// out as is, like spoc pull, set this; callers which need the spec
+	// leave it off.
+	KeepRawRuntimeProfile bool
 }
 
 // maxBlobSize returns the blob size limit to apply on pull.
@@ -143,12 +153,12 @@ func (p *PullOptions) withDefaultSigner(image string) *PullOptions {
 	opts := *p
 
 	if opts.hasKey() ||
-		!isDefaultRegexp(opts.AllowedIdentityRegexp) ||
-		!isDefaultRegexp(opts.AllowedOidcIssuerRegexp) {
+		!IsDefaultRegexp(opts.AllowedIdentityRegexp) ||
+		!IsDefaultRegexp(opts.AllowedOidcIssuerRegexp) {
 		return &opts
 	}
 
-	if isOfficialArtifact(image) {
+	if IsOfficialArtifact(image) {
 		if opts.CertIdentity == "" {
 			opts.AllowedIdentityRegexp = OfficialSignerIdentityRegexp
 		}
@@ -160,8 +170,8 @@ func (p *PullOptions) withDefaultSigner(image string) *PullOptions {
 		return &opts
 	}
 
-	opts.AllowedIdentityRegexp = allowAllRegexp
-	opts.AllowedOidcIssuerRegexp = allowAllRegexp
+	opts.AllowedIdentityRegexp = AllowAllRegexp
+	opts.AllowedOidcIssuerRegexp = AllowAllRegexp
 
 	return &opts
 }
@@ -175,22 +185,16 @@ func (p *PullOptions) Signer(image string) (identity, issuer string) {
 	return opts.AllowedIdentityRegexp, opts.AllowedOidcIssuerRegexp
 }
 
-// isDefaultRegexp reports whether the signer regexp is the default, which is
-// empty or the ".*" of the spoc flags and the SPOD API.
-func isDefaultRegexp(pattern string) bool {
-	return pattern == "" || pattern == allowAllRegexp
+// IsDefaultRegexp reports whether the signer regexp is the default, which is
+// empty or AllowAllRegexp, and accepts any signer.
+func IsDefaultRegexp(pattern string) bool {
+	return pattern == "" || pattern == AllowAllRegexp
 }
 
 // IsOfficialArtifact reports whether the image belongs to one of the
 // repositories this project publishes to, whose artifacts are signed keyless by
 // the official signers through the public Sigstore instance.
 func IsOfficialArtifact(image string) bool {
-	return isOfficialArtifact(image)
-}
-
-// isOfficialArtifact reports whether the image belongs to one of the
-// repositories this project publishes to.
-func isOfficialArtifact(image string) bool {
 	for _, prefix := range officialRepositories {
 		if strings.HasPrefix(image, prefix) {
 			return true
@@ -244,7 +248,7 @@ func (p *PullOptions) hasUnconstrainedSigner() bool {
 // unconstrained" rather than "constrained".
 func matchesAnything(pattern string) bool {
 	switch strings.TrimSpace(pattern) {
-	case "", allowAllRegexp, ".+", "^.*$", "^.+$", "(.*)", "(.+)", "^", "$":
+	case "", AllowAllRegexp, ".+", "^.*$", "^.+$", "(.*)", "(.+)", "^", "$":
 		return true
 	}
 

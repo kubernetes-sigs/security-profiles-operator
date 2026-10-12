@@ -241,17 +241,6 @@ type FakeImpl struct {
 		result1 *root.SigningConfig
 		result2 error
 	}
-	StoreAddStub        func(context.Context, *file.Store, string, string, string) (v1.Descriptor, error)
-	storeAddMutex       sync.RWMutex
-	storeAddArgsForCall []FakeImplStoreAddArgs
-	storeAddReturns     struct {
-		result1 v1.Descriptor
-		result2 error
-	}
-	storeAddReturnsOnCall map[int]struct {
-		result1 v1.Descriptor
-		result2 error
-	}
 	StoreFetchStub        func(context.Context, *file.Store, *v1.Descriptor) (io.ReadCloser, error)
 	storeFetchMutex       sync.RWMutex
 	storeFetchArgsForCall []FakeImplStoreFetchArgs
@@ -426,15 +415,6 @@ type FakeImplSignatureReferrersArgs struct {
 // FakeImplSigningConfigArgs holds the arguments of one call to SigningConfig.
 type FakeImplSigningConfigArgs struct {
 	Arg1 context.Context
-}
-
-// FakeImplStoreAddArgs holds the arguments of one call to StoreAdd.
-type FakeImplStoreAddArgs struct {
-	Arg1 context.Context
-	Arg2 *file.Store
-	Arg3 string
-	Arg4 string
-	Arg5 string
 }
 
 // FakeImplStoreFetchArgs holds the arguments of one call to StoreFetch.
@@ -1806,76 +1786,6 @@ func (fake *FakeImpl) SigningConfigReturnsOnCall(i int, result1 *root.SigningCon
 	}
 	fake.signingConfigReturnsOnCall[i] = struct {
 		result1 *root.SigningConfig
-		result2 error
-	}{result1, result2}
-}
-
-func (fake *FakeImpl) StoreAdd(arg1 context.Context, arg2 *file.Store, arg3 string, arg4 string, arg5 string) (v1.Descriptor, error) {
-	fake.storeAddMutex.Lock()
-	ret, specificReturn := fake.storeAddReturnsOnCall[len(fake.storeAddArgsForCall)]
-	fake.storeAddArgsForCall = append(fake.storeAddArgsForCall, FakeImplStoreAddArgs{arg1, arg2, arg3, arg4, arg5})
-	stub := fake.StoreAddStub
-	fakeReturns := fake.storeAddReturns
-	fake.recordInvocation("StoreAdd", []interface{}{arg1, arg2, arg3, arg4, arg5})
-	fake.storeAddMutex.Unlock()
-	if stub != nil {
-		return stub(arg1, arg2, arg3, arg4, arg5)
-	}
-	if specificReturn {
-		return ret.result1, ret.result2
-	}
-	return fakeReturns.result1, fakeReturns.result2
-}
-
-func (fake *FakeImpl) StoreAddCallCount() int {
-	fake.storeAddMutex.RLock()
-	defer fake.storeAddMutex.RUnlock()
-	return len(fake.storeAddArgsForCall)
-}
-
-func (fake *FakeImpl) StoreAddCalls(stub func(context.Context, *file.Store, string, string, string) (v1.Descriptor, error)) {
-	fake.storeAddMutex.Lock()
-	defer fake.storeAddMutex.Unlock()
-	fake.StoreAddStub = stub
-}
-
-func (fake *FakeImpl) StoreAddArgsForCall(i int) (context.Context, *file.Store, string, string, string) {
-	fake.storeAddMutex.RLock()
-	defer fake.storeAddMutex.RUnlock()
-	argsForCall := fake.storeAddArgsForCall[i]
-	return argsForCall.Arg1, argsForCall.Arg2, argsForCall.Arg3, argsForCall.Arg4, argsForCall.Arg5
-}
-
-func (fake *FakeImpl) StoreAddArgs() []FakeImplStoreAddArgs {
-	fake.storeAddMutex.RLock()
-	defer fake.storeAddMutex.RUnlock()
-	args := make([]FakeImplStoreAddArgs, len(fake.storeAddArgsForCall))
-	copy(args, fake.storeAddArgsForCall)
-	return args
-}
-
-func (fake *FakeImpl) StoreAddReturns(result1 v1.Descriptor, result2 error) {
-	fake.storeAddMutex.Lock()
-	defer fake.storeAddMutex.Unlock()
-	fake.StoreAddStub = nil
-	fake.storeAddReturns = struct {
-		result1 v1.Descriptor
-		result2 error
-	}{result1, result2}
-}
-
-func (fake *FakeImpl) StoreAddReturnsOnCall(i int, result1 v1.Descriptor, result2 error) {
-	fake.storeAddMutex.Lock()
-	defer fake.storeAddMutex.Unlock()
-	fake.StoreAddStub = nil
-	if fake.storeAddReturnsOnCall == nil {
-		fake.storeAddReturnsOnCall = make(map[int]struct {
-			result1 v1.Descriptor
-			result2 error
-		})
-	}
-	fake.storeAddReturnsOnCall[i] = struct {
-		result1 v1.Descriptor
 		result2 error
 	}{result1, result2}
 }

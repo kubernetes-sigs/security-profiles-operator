@@ -246,6 +246,7 @@ func TestRunDropsSudoPrivileges(t *testing.T) {
 		sudoUID    string
 		privileged bool
 		homeErr    error
+		groupsErr  error
 		wantCred   bool
 		wantErr    error
 	}{
@@ -253,6 +254,7 @@ func TestRunDropsSudoPrivileges(t *testing.T) {
 		{name: "not in a sudo environment", sudoUID: ""},
 		{name: "privileged", sudoUID: "1000", privileged: true},
 		{name: "home directory lookup fails", sudoUID: "1000", homeErr: errTest, wantErr: errTest},
+		{name: "group lookup fails", sudoUID: "1000", groupsErr: errTest, wantCred: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("SUDO_UID", tc.sudoUID)
@@ -263,6 +265,7 @@ func TestRunDropsSudoPrivileges(t *testing.T) {
 			mock := &commandfakes.FakeImpl{}
 			mock.CommandReturns(exec.CommandContext(t.Context(), "true"))
 			mock.GetHomeDirectoryReturns("/home/user", tc.homeErr)
+			mock.GetGroupIDsReturns([]uint32{1001, 27}, tc.groupsErr)
 
 			options := Default()
 			options.DropSudoPrivileges = !tc.privileged
@@ -292,7 +295,20 @@ func TestRunDropsSudoPrivileges(t *testing.T) {
 
 			require.Equal(t, 1, mock.GetHomeDirectoryCallCount())
 			require.Equal(t, uint32(1000), mock.GetHomeDirectoryArgsForCall(0))
-			require.Equal(t, &syscall.Credential{Uid: 1000, Gid: 1001}, cmd.SysProcAttr.Credential)
+			require.Equal(t, uint32(1000), mock.GetGroupIDsArgsForCall(0))
+
+			wantGroups := []uint32{1001, 27}
+			if tc.groupsErr != nil {
+				// Like before the groups were kept, the command runs
+				// without supplementary groups.
+				wantGroups = nil
+			}
+
+			require.Equal(
+				t,
+				&syscall.Credential{Uid: 1000, Gid: 1001, Groups: wantGroups},
+				cmd.SysProcAttr.Credential,
+			)
 			require.Contains(t, cmd.Env, "HOME=/home/user")
 			require.Contains(t, cmd.Env, "USER=user")
 

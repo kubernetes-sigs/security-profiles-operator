@@ -51,7 +51,7 @@ func selectLayer(manifest *v1.Manifest, platform *v1.Platform) (*v1.Descriptor, 
 	}
 
 	if platform != nil {
-		name := profileName(platform)
+		name := ProfileName(platform)
 
 		for i := range manifest.Layers {
 			layer := &manifest.Layers[i]

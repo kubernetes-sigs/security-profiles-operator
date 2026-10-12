@@ -52,7 +52,7 @@ func (a *Artifact) Pull(
 	signOpts = signOpts.withDefaultSigner(originalImage)
 
 	if !signOpts.DisableSignatureVerification &&
-		isOfficialArtifact(originalImage) && signOpts.hasCustomSigner() {
+		IsOfficialArtifact(originalImage) && signOpts.hasCustomSigner() {
 		// Verified as requested, the caller may have mirrored and re-signed
 		// the artifact, but the official signature will not match.
 		a.logger.Info(
@@ -87,7 +87,7 @@ func (a *Artifact) Pull(
 		return nil, err
 	}
 
-	return a.pullResult(originalImage, content, runtimeFormat)
+	return a.pullResult(originalImage, content, runtimeFormat, signOpts.KeepRawRuntimeProfile)
 }
 
 // fetchProfile copies the manifest of the subject for the platform and its
@@ -153,33 +153,35 @@ func (a *Artifact) fetchProfile(
 	return content, runtimeFormat, nil
 }
 
-// pullResult decodes the pulled profile content.
+// pullResult decodes the pulled profile content. keepRaw keeps runtime-spec
+// seccomp profiles whose values the SeccompProfile CRD cannot hold, see
+// PullOptions.KeepRawRuntimeProfile.
 func (a *Artifact) pullResult(
 	originalImage string,
 	content []byte,
-	runtimeFormat bool,
+	runtimeFormat, keepRaw bool,
 ) (*PullResult, error) {
 	if runtimeFormat {
-		spec, err := runtimeSpecSeccompProfileSpec(content)
+		result, err := a.runtimeSpecPullResult(originalImage, content, keepRaw)
 		if err != nil {
 			return nil, fmt.Errorf("decode %s artifact: %w", MediaTypeSeccompProfile, err)
 		}
 
-		return seccompPullResult(originalImage, spec, content, true), nil
+		return result, nil
 	}
 
 	profile, err := a.ReadProfile(content)
 	if err != nil {
 		// Artifacts without the KEP-6061 media type may still hold a raw
 		// runtime-spec seccomp profile.
-		spec, specErr := runtimeSpecSeccompProfileSpec(content)
+		result, specErr := a.runtimeSpecPullResult(originalImage, content, keepRaw)
 		if specErr != nil {
 			return nil, errors.Join(ErrDecodeYAML, err, specErr)
 		}
 
 		a.logger.Info("Profile is an OCI runtime-spec seccomp profile")
 
-		return seccompPullResult(originalImage, spec, content, true), nil
+		return result, nil
 	}
 
 	switch obj := profile.(type) {
@@ -330,6 +332,31 @@ func (a *Artifact) blobContent(
 	}
 
 	return content, nil
+}
+
+// runtimeSpecPullResult builds the PullResult for a raw OCI runtime-spec
+// seccomp profile. If the profile holds values the SeccompProfile CRD cannot
+// express and keepRaw is set, the result keeps the content as is with an
+// empty spec instead of failing.
+func (a *Artifact) runtimeSpecPullResult(
+	image string, content []byte, keepRaw bool,
+) (*PullResult, error) {
+	spec, err := runtimeSpecSeccompProfileSpec(content)
+	if err == nil {
+		return seccompPullResult(image, spec, content, true), nil
+	}
+
+	if !keepRaw || !errors.Is(err, ErrCRDConversion) {
+		return nil, err
+	}
+
+	a.logger.Info(
+		"Profile holds values the SeccompProfile CRD cannot express, keeping the raw runtime-spec profile",
+		"error",
+		err.Error(),
+	)
+
+	return seccompPullResult(image, &seccompprofileapi.SeccompProfileSpec{}, content, true), nil
 }
 
 // seccompPullResult builds the PullResult for a raw OCI runtime-spec seccomp

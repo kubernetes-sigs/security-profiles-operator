@@ -63,6 +63,7 @@ func (p *Puller) Run() error {
 			TrustedRootPath:              p.options.trustedRootPath,
 			Offline:                      p.options.offline,
 			PlainHTTP:                    p.options.plainHTTP,
+			KeepRawRuntimeProfile:        true,
 		},
 	)
 	if errors.Is(err, artifact.ErrNoCachedTrustedRoot) {

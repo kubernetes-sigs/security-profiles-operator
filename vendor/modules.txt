@@ -328,13 +328,6 @@ github.com/google/gnostic-models/extensions
 github.com/google/gnostic-models/jsonschema
 github.com/google/gnostic-models/openapiv2
 github.com/google/gnostic-models/openapiv3
-# github.com/google/go-cmp v0.7.0
-## explicit; go 1.21
-github.com/google/go-cmp/cmp
-github.com/google/go-cmp/cmp/internal/diff
-github.com/google/go-cmp/cmp/internal/flags
-github.com/google/go-cmp/cmp/internal/function
-github.com/google/go-cmp/cmp/internal/value
 # github.com/google/go-containerregistry v0.22.1
 ## explicit; go 1.25.0
 github.com/google/go-containerregistry/internal/and
@@ -374,9 +367,6 @@ github.com/grpc-ecosystem/grpc-gateway/v2/internal/httprule
 github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2/options
 github.com/grpc-ecosystem/grpc-gateway/v2/runtime
 github.com/grpc-ecosystem/grpc-gateway/v2/utilities
-# github.com/hairyhenderson/go-which v0.2.3
-## explicit; go 1.25.0
-github.com/hairyhenderson/go-which
 # github.com/hashicorp/go-cleanhttp v0.5.2
 ## explicit; go 1.13
 github.com/hashicorp/go-cleanhttp
@@ -1711,8 +1701,6 @@ sigs.k8s.io/randfill/bytesource
 # sigs.k8s.io/release-utils v0.12.5
 ## explicit; go 1.26.0
 sigs.k8s.io/release-utils/command
-sigs.k8s.io/release-utils/env
-sigs.k8s.io/release-utils/env/internal
 sigs.k8s.io/release-utils/helpers
 # sigs.k8s.io/security-profiles-merger v0.7.0
 ## explicit; go 1.24

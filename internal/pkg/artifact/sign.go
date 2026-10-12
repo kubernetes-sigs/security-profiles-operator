@@ -89,7 +89,9 @@ type signingSession struct {
 }
 
 // prepareSigning loads the Sigstore signing config and gets the identity
-// token of the signer, interactively if the environment furnishes none.
+// token of the signer, interactively if the environment furnishes none. The
+// TUF requests and the lookups in the environment have their own timeouts,
+// the interactive sign in has none.
 func (a *Artifact) prepareSigning(ctx context.Context, deviceFlow bool) (*signingSession, error) {
 	material, err := a.TrustedMaterial(ctx, "", false)
 	if err != nil {

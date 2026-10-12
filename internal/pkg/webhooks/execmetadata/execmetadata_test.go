@@ -19,12 +19,10 @@ package execmetadata
 import (
 	"context"
 	"encoding/json"
-	"reflect"
 	"testing"
 
 	jsonpatch "github.com/evanphx/json-patch/v5"
 	"github.com/go-logr/logr"
-	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/require"
 	gomodulesjsonpatch "gomodules.xyz/jsonpatch/v2"
 	admissionv1 "k8s.io/api/admission/v1"
@@ -309,13 +307,7 @@ func TestHandler_Handle(t *testing.T) {
 			p := Handler{
 				log: tt.fields.log,
 			}
-			if got := p.Handle(tt.args.in0, tt.args.req); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("Handle() = %v, want %v", got, tt.want)
-
-				if diff := cmp.Diff(tt.want, got); diff != "" {
-					t.Errorf("response mismatch (-want +got):\n%s", diff)
-				}
-			}
+			require.Equal(t, tt.want, p.Handle(tt.args.in0, tt.args.req))
 		})
 	}
 }

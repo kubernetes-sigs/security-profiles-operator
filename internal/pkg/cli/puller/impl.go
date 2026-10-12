@@ -20,7 +20,6 @@ import (
 	"context"
 	"os"
 
-	"github.com/go-logr/logr"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
@@ -49,7 +48,7 @@ func (*defaultImpl) Pull(
 	platform *v1.Platform,
 	signOpts *artifact.PullOptions,
 ) (*artifact.PullResult, error) {
-	return artifact.New(logr.New(&cli.LogSink{})).Pull(
+	return artifact.New(cli.Logger()).Pull(
 		ctx, from, username, password, platform, signOpts,
 	)
 }

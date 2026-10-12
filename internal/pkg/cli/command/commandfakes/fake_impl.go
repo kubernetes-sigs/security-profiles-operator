@@ -60,6 +60,17 @@ type FakeImpl struct {
 	commandReturnsOnCall map[int]struct {
 		result1 *exec.Cmd
 	}
+	GetGroupIDsStub        func(uint32) ([]uint32, error)
+	getGroupIDsMutex       sync.RWMutex
+	getGroupIDsArgsForCall []FakeImplGetGroupIDsArgs
+	getGroupIDsReturns     struct {
+		result1 []uint32
+		result2 error
+	}
+	getGroupIDsReturnsOnCall map[int]struct {
+		result1 []uint32
+		result2 error
+	}
 	GetHomeDirectoryStub        func(uint32) (string, error)
 	getHomeDirectoryMutex       sync.RWMutex
 	getHomeDirectoryArgsForCall []FakeImplGetHomeDirectoryArgs
@@ -110,6 +121,11 @@ type FakeImplCmdWaitArgs struct {
 type FakeImplCommandArgs struct {
 	Arg1 string
 	Arg2 []string
+}
+
+// FakeImplGetGroupIDsArgs holds the arguments of one call to GetGroupIDs.
+type FakeImplGetGroupIDsArgs struct {
+	Arg1 uint32
 }
 
 // FakeImplGetHomeDirectoryArgs holds the arguments of one call to GetHomeDirectory.
@@ -405,6 +421,76 @@ func (fake *FakeImpl) CommandReturnsOnCall(i int, result1 *exec.Cmd) {
 	fake.commandReturnsOnCall[i] = struct {
 		result1 *exec.Cmd
 	}{result1}
+}
+
+func (fake *FakeImpl) GetGroupIDs(arg1 uint32) ([]uint32, error) {
+	fake.getGroupIDsMutex.Lock()
+	ret, specificReturn := fake.getGroupIDsReturnsOnCall[len(fake.getGroupIDsArgsForCall)]
+	fake.getGroupIDsArgsForCall = append(fake.getGroupIDsArgsForCall, FakeImplGetGroupIDsArgs{arg1})
+	stub := fake.GetGroupIDsStub
+	fakeReturns := fake.getGroupIDsReturns
+	fake.recordInvocation("GetGroupIDs", []interface{}{arg1})
+	fake.getGroupIDsMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) GetGroupIDsCallCount() int {
+	fake.getGroupIDsMutex.RLock()
+	defer fake.getGroupIDsMutex.RUnlock()
+	return len(fake.getGroupIDsArgsForCall)
+}
+
+func (fake *FakeImpl) GetGroupIDsCalls(stub func(uint32) ([]uint32, error)) {
+	fake.getGroupIDsMutex.Lock()
+	defer fake.getGroupIDsMutex.Unlock()
+	fake.GetGroupIDsStub = stub
+}
+
+func (fake *FakeImpl) GetGroupIDsArgsForCall(i int) uint32 {
+	fake.getGroupIDsMutex.RLock()
+	defer fake.getGroupIDsMutex.RUnlock()
+	argsForCall := fake.getGroupIDsArgsForCall[i]
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) GetGroupIDsArgs() []FakeImplGetGroupIDsArgs {
+	fake.getGroupIDsMutex.RLock()
+	defer fake.getGroupIDsMutex.RUnlock()
+	args := make([]FakeImplGetGroupIDsArgs, len(fake.getGroupIDsArgsForCall))
+	copy(args, fake.getGroupIDsArgsForCall)
+	return args
+}
+
+func (fake *FakeImpl) GetGroupIDsReturns(result1 []uint32, result2 error) {
+	fake.getGroupIDsMutex.Lock()
+	defer fake.getGroupIDsMutex.Unlock()
+	fake.GetGroupIDsStub = nil
+	fake.getGroupIDsReturns = struct {
+		result1 []uint32
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) GetGroupIDsReturnsOnCall(i int, result1 []uint32, result2 error) {
+	fake.getGroupIDsMutex.Lock()
+	defer fake.getGroupIDsMutex.Unlock()
+	fake.GetGroupIDsStub = nil
+	if fake.getGroupIDsReturnsOnCall == nil {
+		fake.getGroupIDsReturnsOnCall = make(map[int]struct {
+			result1 []uint32
+			result2 error
+		})
+	}
+	fake.getGroupIDsReturnsOnCall[i] = struct {
+		result1 []uint32
+		result2 error
+	}{result1, result2}
 }
 
 func (fake *FakeImpl) GetHomeDirectory(arg1 uint32) (string, error) {

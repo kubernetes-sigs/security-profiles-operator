@@ -22,8 +22,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/blang/semver/v4"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/mod/semver"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -172,8 +172,9 @@ func TestGetVersion(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := GetVersion(tt.node)
-			require.True(t, semver.IsValid(got), "should return a valid version")
+			got := getVersion(tt.node)
+			_, err := semver.ParseTolerant(got)
+			require.NoError(t, err, "should return a valid version")
 			require.Equal(t, tt.want, got)
 		})
 	}
@@ -388,7 +389,7 @@ func TestMatchSelinuxdImageVersion(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := MatchSelinuxdImageJSONMapping(tt.node, []byte(mappingJSON))
+			got, err := matchSelinuxdImageJSONMapping(tt.node, []byte(mappingJSON))
 			require.NoError(t, err)
 			require.Equal(t, tt.want, got)
 		})
@@ -403,7 +404,7 @@ func TestMatchSelinuxdImageInvalidRegex(t *testing.T) {
 	}}
 
 	// An unsupported regex never matches, the entries after it still do.
-	got, err := MatchSelinuxdImageJSONMapping(node, []byte(`[
+	got, err := matchSelinuxdImageJSONMapping(node, []byte(`[
 		{"regex": "(?!el8).*", "imageFromVar": "RELATED_IMAGE_SELINUXD_EL8"},
 		{"regex": "Fedora", "imageFromVar": "RELATED_IMAGE_SELINUXD_FEDORA"}
 	]`))
@@ -470,9 +471,9 @@ func TestGetOperatorConfigMap(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := GetOperatorConfigMap(t.Context(), tt.args.c, "test")
+			got, err := getOperatorConfigMap(t.Context(), tt.args.c, "test")
 			if (err != nil) != tt.wantErr {
-				t.Errorf("GetOperatorConfigMap() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("getOperatorConfigMap() error = %v, wantErr %v", err, tt.wantErr)
 
 				return
 			}
@@ -486,7 +487,7 @@ func TestGetOperatorConfigMap(t *testing.T) {
 			}
 
 			if !reflect.DeepEqual(got.Data, tt.want.Data) {
-				t.Errorf("GetOperatorConfigMap() got = %v, want %v", got.Data, tt.want.Data)
+				t.Errorf("getOperatorConfigMap() got = %v, want %v", got.Data, tt.want.Data)
 			}
 		})
 	}
@@ -759,4 +760,76 @@ func TestPodCompleted(t *testing.T) {
 	require.False(t, PodCompletedNow(pod(corev1.PodFailed), pod(corev1.PodFailed)))
 	require.False(t, PodCompletedNow(pod(corev1.PodPending), pod(corev1.PodRunning)))
 	require.False(t, PodCompletedNow(&corev1.Node{}, pod(corev1.PodFailed)))
+}
+
+func TestOlderThanKubeVersionWithFields(t *testing.T) {
+	t.Parallel()
+
+	for version, want := range map[string]bool{
+		"":                    true,
+		"garbage":             true,
+		"v1.22.5":             true,
+		"v1.23.0-alpha.1":     true,
+		"v1.23.0":             false,
+		"v1.27.6-gke.1248000": false,
+		"v1.30.1+k3s1":        false,
+	} {
+		require.Equal(t, want, olderThanKubeVersionWithFields(version), version)
+	}
+}
+
+func TestGetSelinuxdImage(t *testing.T) {
+	const (
+		namespace = "test"
+		mappedVar = "TEST_SELINUXD_IMAGE_EL9"
+	)
+
+	node := &corev1.Node{Status: corev1.NodeStatus{NodeInfo: corev1.NodeSystemInfo{
+		OSImage: "Red Hat Enterprise Linux CoreOS 9.6",
+	}}}
+	configMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: OperatorConfigMap, Namespace: namespace},
+		Data: map[string]string{
+			SelinuxdImageMappingKey: `[{"regex":"CoreOS 9\\.","imageFromVar":"` + mappedVar + `"}]`,
+		},
+	}
+
+	for _, tc := range []struct {
+		name        string
+		mappedImage string
+		fallback    string
+		noConfigMap bool
+		want        string
+		wantErr     error
+	}{
+		{name: "mapped", mappedImage: "mapped:latest", fallback: "fallback:latest", want: "mapped:latest"},
+		{name: "fallback", fallback: "fallback:latest", want: "fallback:latest"},
+		{name: "none", wantErr: ErrNoSelinuxdImage},
+		{name: "no ConfigMap", noConfigMap: true, mappedImage: "mapped:latest"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(mappedVar, tc.mappedImage)
+			t.Setenv(selinuxdImageKey, tc.fallback)
+
+			builder := fake.NewClientBuilder()
+			if !tc.noConfigMap {
+				builder = builder.WithObjects(configMap)
+			}
+
+			got, err := GetSelinuxdImage(t.Context(), builder.Build(), namespace, node)
+
+			switch {
+			case tc.noConfigMap:
+				require.True(t, kerrors.IsNotFound(err))
+			case tc.wantErr != nil:
+				require.ErrorIs(t, err, tc.wantErr)
+				require.ErrorContains(t, err, mappedVar)
+				require.ErrorContains(t, err, selinuxdImageKey)
+			default:
+				require.NoError(t, err)
+			}
+
+			require.Equal(t, tc.want, got)
+		})
+	}
 }

@@ -58,7 +58,6 @@ type impl interface {
 	) (ocispec.Descriptor, error)
 	ReadFile(string) ([]byte, error)
 	ReadProfile([]byte) (client.Object, error)
-	StoreAdd(context.Context, *file.Store, string, string, string) (ocispec.Descriptor, error)
 	StorePush(context.Context, *file.Store, *ocispec.Descriptor, io.Reader) error
 	StoreFetch(context.Context, *file.Store, *ocispec.Descriptor) (io.ReadCloser, error)
 	StoreTag(context.Context, *file.Store, *ocispec.Descriptor, string) error
@@ -139,12 +138,6 @@ func (*defaultImpl) ReadFile(name string) ([]byte, error) {
 
 func (*defaultImpl) ReadProfile(raw []byte) (client.Object, error) {
 	return ReadProfile(raw)
-}
-
-func (*defaultImpl) StoreAdd(
-	ctx context.Context, store *file.Store, name, mediaType, path string,
-) (ocispec.Descriptor, error) {
-	return store.Add(ctx, name, mediaType, path)
 }
 
 func (*defaultImpl) StorePush(
@@ -268,12 +261,7 @@ func signatureReferrers(
 }
 
 func (*defaultImpl) SigningConfig(context.Context) (*root.SigningConfig, error) {
-	opts, err := tufOptions()
-	if err != nil {
-		return nil, err
-	}
-
-	return root.FetchSigningConfigWithOptions(opts)
+	return tufSigningConfig()
 }
 
 func (*defaultImpl) TrustedMaterial(

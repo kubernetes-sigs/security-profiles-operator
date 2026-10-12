@@ -44,7 +44,6 @@ func pushSigningMock(t *testing.T) *artifactfakes.FakeImpl {
 
 	mock := &artifactfakes.FakeImpl{}
 	stubSigning(t, mock)
-	mock.StoreAddReturns(defaultDescriptor(), nil)
 	mock.ParseReferenceReturns(testRef, nil)
 	mock.NewRepositoryReturns(&remote.Repository{
 		Reference: registry.Reference{Registry: "registry.example.com", Repository: "foo/bar"},

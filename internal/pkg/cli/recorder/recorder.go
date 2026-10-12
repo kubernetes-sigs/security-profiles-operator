@@ -35,7 +35,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/go-logr/logr"
 	libseccomp "github.com/seccomp/libseccomp-golang"
 	"go.podman.io/common/pkg/seccomp"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -96,7 +95,7 @@ func (r *Recorder) Run() error {
 
 	r.bpfRecorder = bpfrecorder.New(
 		r.options.commandOptions.Command(),
-		logr.New(&cli.LogSink{}),
+		cli.Logger(),
 		recordSeccomp,
 		recordAppArmor,
 	)

@@ -63,13 +63,13 @@ func (t *truncatingRecorder) Eventf(
 		reason,
 		action,
 		"%s",
-		TruncateEventNote(fmt.Sprintf(note, args...)),
+		truncateEventNote(fmt.Sprintf(note, args...)),
 	)
 }
 
-// TruncateEventNote shortens a note to at most MaxEventNoteLength bytes
+// truncateEventNote shortens a note to at most MaxEventNoteLength bytes
 // without splitting a UTF-8 sequence.
-func TruncateEventNote(note string) string {
+func truncateEventNote(note string) string {
 	if len(note) <= MaxEventNoteLength {
 		return note
 	}

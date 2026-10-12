@@ -217,34 +217,12 @@ func (AllowListChangedPredicate) Update(e event.UpdateEvent) bool {
 }
 
 // AllowListChanged returns true if the allowed syscalls or the allowed seccomp
-// actions differ between the two configurations. The order of the entries
-// does not matter.
+// actions differ between the two configurations. The order and duplicates of
+// the entries do not matter, they do not change what is allowed.
 func AllowListChanged(oldCfg, newCfg *spodapi.SPODSecurityConfig) bool {
-	if !sets.New(newCfg.AllowedSeccompActions...).Equal(
+	return !sets.New(newCfg.AllowedSeccompActions...).Equal(
 		sets.New(oldCfg.AllowedSeccompActions...),
-	) {
-		return true
-	}
-
-	if len(newCfg.AllowedSyscalls) != len(oldCfg.AllowedSyscalls) {
-		return true
-	}
-
-	diff := make(map[string]int, len(newCfg.AllowedSyscalls))
-	for _, s := range newCfg.AllowedSyscalls {
-		diff[s]++
-	}
-
-	for _, s := range oldCfg.AllowedSyscalls {
-		if _, ok := diff[s]; !ok {
-			return true
-		}
-
-		diff[s]--
-		if diff[s] == 0 {
-			delete(diff, s)
-		}
-	}
-
-	return len(diff) != 0
+	) || !sets.New(newCfg.AllowedSyscalls...).Equal(
+		sets.New(oldCfg.AllowedSyscalls...),
+	)
 }

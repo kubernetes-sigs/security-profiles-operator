@@ -145,7 +145,7 @@ func TestConfinePassesCredential(t *testing.T) {
 
 	cmd := exec.CommandContext(t.Context(), "true")
 	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Credential: &syscall.Credential{Uid: 1000, Gid: 1001},
+		Credential: &syscall.Credential{Uid: 1000, Gid: 1001, Groups: []uint32{1001, 27}},
 	}
 	path := cmd.Path
 
@@ -165,7 +165,11 @@ func TestConfinePassesCredential(t *testing.T) {
 
 	config := &initConfig{}
 	require.NoError(t, json.NewDecoder(cmd.ExtraFiles[0]).Decode(config))
-	require.Equal(t, &initCredential{UID: 1000, GID: 1001}, config.Credential)
+	require.Equal(
+		t,
+		&initCredential{UID: 1000, GID: 1001, Groups: []uint32{1001, 27}},
+		config.Credential,
+	)
 	require.Equal(t, path, config.Path)
 	require.Equal(t, []string{"true"}, config.Args)
 }

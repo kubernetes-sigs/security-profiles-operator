@@ -22,6 +22,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/urfave/cli/v2"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/command"
 )
 
 func TestFromContext(t *testing.T) {
@@ -49,9 +51,9 @@ func TestFromContext(t *testing.T) {
 			prepare: func(set *flag.FlagSet) {
 				set.Bool(FlagNoBaseSyscalls, false, "")
 				set.Bool(FlagNoProcStart, false, "")
-				set.Bool(FlagPrivileged, false, "")
+				set.Bool(command.FlagPrivileged, false, "")
 				require.NoError(t, set.Parse([]string{
-					"--" + FlagNoBaseSyscalls, "--" + FlagNoProcStart, "--" + FlagPrivileged, "echo",
+					"--" + FlagNoBaseSyscalls, "--" + FlagNoProcStart, "--" + command.FlagPrivileged, "echo",
 				}))
 			},
 			assert: func(options *Options, err error) {
@@ -66,11 +68,11 @@ func TestFromContext(t *testing.T) {
 			prepare: func(set *flag.FlagSet) {
 				set.Bool(FlagNoBaseSyscalls, false, "")
 				set.Bool(FlagNoProcStart, false, "")
-				set.Bool(FlagPrivileged, false, "")
+				set.Bool(command.FlagPrivileged, false, "")
 				require.NoError(t, set.Parse([]string{
 					"--" + FlagNoBaseSyscalls + "=false",
 					"--" + FlagNoProcStart + "=false",
-					"--" + FlagPrivileged + "=false",
+					"--" + command.FlagPrivileged + "=false",
 					"echo",
 				}))
 			},

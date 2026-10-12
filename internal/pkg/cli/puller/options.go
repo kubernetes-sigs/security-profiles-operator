@@ -25,11 +25,9 @@ import (
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	ucli "github.com/urfave/cli/v2"
 
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
 )
-
-// allowAllRegexp is the default signer regexp, which accepts any signer.
-const allowAllRegexp = ".*"
 
 // Options define all possible options for the puller.
 type Options struct {
@@ -54,8 +52,8 @@ type Options struct {
 func Default() *Options {
 	return &Options{
 		outputFile:              DefaultOutputFile,
-		allowedIdentityRegexp:   allowAllRegexp,
-		allowedOidcIssuerRegexp: allowAllRegexp,
+		allowedIdentityRegexp:   artifact.AllowAllRegexp,
+		allowedOidcIssuerRegexp: artifact.AllowAllRegexp,
 	}
 }
 
@@ -90,14 +88,14 @@ func Flags() []ucli.Flag {
 			// The unprefixed variable is the former name, kept working.
 			EnvVars:     []string{"SPOC_ALLOWED_IDENTITY_REGEXP", "ALLOWED_IDENTITIES_REGEXP"},
 			Usage:       "regexp for allowed identities in signature verification",
-			DefaultText: allowAllRegexp,
+			DefaultText: artifact.AllowAllRegexp,
 		},
 		&ucli.StringFlag{
 			Name: FlagAllowedOidcIssuerRegexp,
 			// The unprefixed variable is the former name, kept working.
 			EnvVars:     []string{"SPOC_ALLOWED_OIDC_ISSUER_REGEXP", "ALLOWED_OIDC_ISSUER_REGEXP"},
 			Usage:       "regexp for allowed OIDC issuers in signature verification",
-			DefaultText: allowAllRegexp,
+			DefaultText: artifact.AllowAllRegexp,
 		},
 		&ucli.StringFlag{
 			Name:    FlagCertificateIdentity,
@@ -153,11 +151,11 @@ func (o *Options) checkSigner() error {
 		conflicting = append(conflicting, "--"+FlagCertificateOidcIssuer)
 	}
 
-	if !isDefaultRegexp(o.allowedIdentityRegexp) {
+	if !artifact.IsDefaultRegexp(o.allowedIdentityRegexp) {
 		conflicting = append(conflicting, "--"+FlagAllowedIdentityRegexp)
 	}
 
-	if !isDefaultRegexp(o.allowedOidcIssuerRegexp) {
+	if !artifact.IsDefaultRegexp(o.allowedOidcIssuerRegexp) {
 		conflicting = append(conflicting, "--"+FlagAllowedOidcIssuerRegexp)
 	}
 
@@ -169,12 +167,6 @@ func (o *Options) checkSigner() error {
 		"%w: --%s cannot be combined with %s",
 		ErrKeyWithIdentity, FlagKey, strings.Join(conflicting, ", "),
 	)
-}
-
-// isDefaultRegexp reports whether the signer regexp accepts any signer, the
-// default which does not constrain a key signature.
-func isDefaultRegexp(pattern string) bool {
-	return pattern == "" || pattern == allowAllRegexp
 }
 
 // FromContext can be used to create Options from an CLI context.

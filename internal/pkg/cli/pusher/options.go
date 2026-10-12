@@ -24,8 +24,8 @@ import (
 
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	ucli "github.com/urfave/cli/v2"
-	"k8s.io/apimachinery/pkg/util/sets"
 
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
 )
 
@@ -151,20 +151,28 @@ func inputFiles(profiles, platforms []string) (map[*v1.Platform]string, error) {
 		return files, nil
 	}
 
-	// Avoid duplicate platforms because they have to be unique in the map.
-	if sets.New(platforms...).Len() != len(platforms) {
-		return nil, fmt.Errorf(
-			"duplicate platforms defined: %v", strings.Join(platforms, ", "),
-		)
-	}
-
 	parsedPlatforms := []*v1.Platform{}
+
+	// Every platform gets its own layer, named after it. Spellings like
+	// "linux" and "linux/amd64" on an amd64 host parse to the same platform,
+	// and "linux/arm/v7" and "linux/arm:v7" give the same layer name.
+	layers := map[string]string{}
 
 	for _, platform := range platforms {
 		parsedPlatform, err := cli.ParsePlatform(platform)
 		if err != nil {
 			return nil, fmt.Errorf("parse platform %s: %w", platform, err)
 		}
+
+		layer := artifact.ProfileName(parsedPlatform)
+		if other, ok := layers[layer]; ok {
+			return nil, fmt.Errorf(
+				"duplicate platforms defined: %s and %s both name the layer %s",
+				other, platform, layer,
+			)
+		}
+
+		layers[layer] = platform
 
 		parsedPlatforms = append(parsedPlatforms, parsedPlatform)
 	}

@@ -357,6 +357,24 @@ func TestAllowListChangedPredicate(t *testing.T) {
 			want: false,
 		},
 		{
+			name: "SameAllowedSyscallsWithDuplicates",
+			event: event.UpdateEvent{
+				ObjectOld: &spodapi.SecurityProfilesOperatorDaemon{
+					Spec: spodapi.SPODSpec{
+						Security: spodapi.SPODSecurityConfig{
+							AllowedSyscalls: []string{"a", "b", "a"},
+						},
+					},
+				},
+				ObjectNew: &spodapi.SecurityProfilesOperatorDaemon{
+					Spec: spodapi.SPODSpec{
+						Security: spodapi.SPODSecurityConfig{AllowedSyscalls: []string{"a", "b"}},
+					},
+				},
+			},
+			want: false,
+		},
+		{
 			name: "DiffAllowedSeccompActions",
 			event: event.UpdateEvent{
 				ObjectOld: &spodapi.SecurityProfilesOperatorDaemon{

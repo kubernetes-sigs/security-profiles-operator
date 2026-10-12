@@ -138,6 +138,11 @@ raw-seccomp`. The other supported types are `apparmor`, `raw-apparmor` and
 All commands are interruptible by using Ctrl^C, while `spoc record` will still
 write the resulting seccomp profile after process terminating.
 
+The command reads the standard input of `spoc`. When `spoc` drops the
+privileges of `sudo`, as described below, the command keeps the supplementary
+groups of the user, like the `docker` group, which `id -G` looks up. If they
+cannot be looked up, the command runs without them.
+
 `spoc record` drops the privileges of `sudo` when starting the command, so
 that the command runs as the user who invoked `sudo`. Use `--privileged` to
 run the command with the privileges of `spoc` instead. If the privileges

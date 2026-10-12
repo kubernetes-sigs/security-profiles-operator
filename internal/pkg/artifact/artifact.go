@@ -111,8 +111,8 @@ func nameFromReference(ref string) string {
 	return name
 }
 
-// profileName returns the layer name for the platform.
-func profileName(platform *v1.Platform) string {
+// ProfileName returns the layer name for the platform.
+func ProfileName(platform *v1.Platform) string {
 	name := strings.Builder{}
 	name.WriteString("profile")
 
