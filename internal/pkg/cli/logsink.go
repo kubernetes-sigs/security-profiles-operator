@@ -28,6 +28,11 @@ import (
 // missingValue is printed for the value of a key without one.
 const missingValue = "<no value>"
 
+// Logger returns the logger of spoc, which prints through LogSink.
+func Logger() logr.Logger {
+	return logr.New(&LogSink{})
+}
+
 // LogSink is the logr.LogSink of spoc, which prints through the standard
 // logger: the name, the message, the error and the key/value pairs.
 type LogSink struct {

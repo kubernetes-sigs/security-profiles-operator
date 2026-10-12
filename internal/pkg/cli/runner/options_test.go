@@ -22,6 +22,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/urfave/cli/v2"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/command"
 )
 
 func TestFromContext(t *testing.T) {
@@ -99,14 +101,14 @@ func TestFromContextPrivileged(t *testing.T) {
 		wantDrop bool
 	}{
 		{name: "default", args: []string{"echo"}, wantDrop: true},
-		{name: "privileged", args: []string{"--" + FlagPrivileged, "echo"}},
-		{name: "privileged false", args: []string{"--" + FlagPrivileged + "=false", "echo"}, wantDrop: true},
+		{name: "privileged", args: []string{"--" + command.FlagPrivileged, "echo"}},
+		{name: "privileged false", args: []string{"--" + command.FlagPrivileged + "=false", "echo"}, wantDrop: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
 			set := flag.NewFlagSet("", flag.ContinueOnError)
-			set.Bool(FlagPrivileged, false, "")
+			set.Bool(command.FlagPrivileged, false, "")
 			require.NoError(t, set.Parse(tc.args))
 
 			options, err := FromContext(cli.NewContext(cli.NewApp(), set, nil))

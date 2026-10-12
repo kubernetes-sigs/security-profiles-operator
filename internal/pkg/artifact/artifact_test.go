@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"runtime"
 	"strconv"
@@ -67,7 +68,6 @@ func TestPushDisableSigning(t *testing.T) {
 	t.Parallel()
 
 	mock := &artifactfakes.FakeImpl{}
-	mock.StoreAddReturns(defaultDescriptor(), nil)
 	mock.ParseReferenceReturns(testRef, nil)
 	mock.NewRepositoryReturns(&remote.Repository{}, nil)
 	// Signing would fail if it ran at all.
@@ -106,7 +106,6 @@ func TestPush(t *testing.T) {
 		{
 			name: "success with failed cleanup",
 			prepare: func(mock *artifactfakes.FakeImpl) {
-				mock.StoreAddReturns(defaultDescriptor(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.RemoveAllReturns(errTest)
@@ -119,7 +118,6 @@ func TestPush(t *testing.T) {
 		{
 			name: "success",
 			prepare: func(mock *artifactfakes.FakeImpl) {
-				mock.StoreAddReturns(defaultDescriptor(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 			},
@@ -130,7 +128,6 @@ func TestPush(t *testing.T) {
 		{
 			name: "success without trusted root",
 			prepare: func(mock *artifactfakes.FakeImpl) {
-				mock.StoreAddReturns(defaultDescriptor(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.TrustedMaterialReturns(nil, errTest)
@@ -142,7 +139,6 @@ func TestPush(t *testing.T) {
 		{
 			name: "failure on SignBundle",
 			prepare: func(mock *artifactfakes.FakeImpl) {
-				mock.StoreAddReturns(defaultDescriptor(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.SignBundleReturns(nil, errTest)
@@ -154,7 +150,6 @@ func TestPush(t *testing.T) {
 		{
 			name: "failure on SigningConfig",
 			prepare: func(mock *artifactfakes.FakeImpl) {
-				mock.StoreAddReturns(defaultDescriptor(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.SigningConfigReturns(nil, errTest)
@@ -166,7 +161,6 @@ func TestPush(t *testing.T) {
 		{
 			name: "failure without SigningConfig",
 			prepare: func(mock *artifactfakes.FakeImpl) {
-				mock.StoreAddReturns(defaultDescriptor(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.SigningConfigReturns(nil, nil)
@@ -178,7 +172,6 @@ func TestPush(t *testing.T) {
 		{
 			name: "failure on IDToken",
 			prepare: func(mock *artifactfakes.FakeImpl) {
-				mock.StoreAddReturns(defaultDescriptor(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.IDTokenReturns("", errTest)
@@ -190,7 +183,6 @@ func TestPush(t *testing.T) {
 		{
 			name: "failure on RepositoryPush",
 			prepare: func(mock *artifactfakes.FakeImpl) {
-				mock.StoreAddReturns(defaultDescriptor(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.RepositoryPushReturns(errTest)
@@ -202,7 +194,6 @@ func TestPush(t *testing.T) {
 		{
 			name: "failure on Copy",
 			prepare: func(mock *artifactfakes.FakeImpl) {
-				mock.StoreAddReturns(defaultDescriptor(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.CopyReturns(defaultDescriptor(), errTest)
@@ -214,7 +205,6 @@ func TestPush(t *testing.T) {
 		{
 			name: "failure on NewRepository",
 			prepare: func(mock *artifactfakes.FakeImpl) {
-				mock.StoreAddReturns(defaultDescriptor(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.NewRepositoryReturns(nil, errTest)
 			},
@@ -225,7 +215,6 @@ func TestPush(t *testing.T) {
 		{
 			name: "failure on StoreTag",
 			prepare: func(mock *artifactfakes.FakeImpl) {
-				mock.StoreAddReturns(defaultDescriptor(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.StoreTagReturns(errTest)
 			},
@@ -236,7 +225,6 @@ func TestPush(t *testing.T) {
 		{
 			name: "failure on ParseReferenceReturns",
 			prepare: func(mock *artifactfakes.FakeImpl) {
-				mock.StoreAddReturns(defaultDescriptor(), nil)
 				mock.ParseReferenceReturns(nil, errTest)
 			},
 			assert: func(err error) {
@@ -246,7 +234,6 @@ func TestPush(t *testing.T) {
 		{
 			name: "failure on PackManifest",
 			prepare: func(mock *artifactfakes.FakeImpl) {
-				mock.StoreAddReturns(defaultDescriptor(), nil)
 				mock.PackManifestReturns(defaultDescriptor(), errTest)
 			},
 			assert: func(err error) {
@@ -256,7 +243,6 @@ func TestPush(t *testing.T) {
 		{
 			name: "failure on FilepathAbs",
 			prepare: func(mock *artifactfakes.FakeImpl) {
-				mock.StoreAddReturns(defaultDescriptor(), nil)
 				mock.FilepathAbsReturns("", errTest)
 			},
 			assert: func(err error) {
@@ -264,9 +250,9 @@ func TestPush(t *testing.T) {
 			},
 		},
 		{
-			name: "failure on StoreAdd",
+			name: "failure on adding the profile to the store",
 			prepare: func(mock *artifactfakes.FakeImpl) {
-				mock.StoreAddReturns(defaultDescriptor(), errTest)
+				mock.StorePushReturns(errTest)
 			},
 			assert: func(err error) {
 				require.ErrorIs(t, err, errTest)
@@ -828,7 +814,7 @@ func TestPushMediaTypes(t *testing.T) {
 			content:            []byte(profileCRDYAML),
 			readProfileErr:     nil,
 			wantLayerName:      "profile-linux-amd64.yaml",
-			wantLayerMediaType: "",
+			wantLayerMediaType: ocispec.MediaTypeImageLayer,
 			wantLayerPlatform:  platform,
 			wantMediaType:      oras.MediaTypeUnknownConfig,
 			wantConfig:         false,
@@ -840,7 +826,6 @@ func TestPushMediaTypes(t *testing.T) {
 			mock := &artifactfakes.FakeImpl{}
 			mock.ReadFileReturns(tc.content, nil)
 			mock.ReadProfileReturns(&seccompprofileapi.SeccompProfile{}, tc.readProfileErr)
-			mock.StoreAddReturns(defaultDescriptor(), nil)
 			mock.ParseReferenceReturns(testRef, nil)
 			mock.NewRepositoryReturns(&remote.Repository{}, nil)
 
@@ -858,10 +843,17 @@ func TestPushMediaTypes(t *testing.T) {
 			)
 			require.NoError(t, err)
 
-			require.Equal(t, 1, mock.StoreAddCallCount())
-			_, _, layerName, layerMediaType, _ := mock.StoreAddArgsForCall(0)
-			require.Equal(t, tc.wantLayerName, layerName)
-			require.Equal(t, tc.wantLayerMediaType, layerMediaType)
+			// The layer gets pushed first, the config afterwards.
+			_, _, layer, layerReader := mock.StorePushArgsForCall(0)
+			require.Equal(t, tc.wantLayerName, layer.Annotations[ocispec.AnnotationTitle])
+			require.Equal(t, tc.wantLayerMediaType, layer.MediaType)
+
+			// The validated content is pushed, the file is not read again.
+			layerContent, err := io.ReadAll(layerReader)
+			require.NoError(t, err)
+			require.Equal(t, tc.content, layerContent)
+			require.Equal(t, digest.FromBytes(tc.content), layer.Digest)
+			require.Equal(t, 1, mock.ReadFileCallCount())
 
 			require.Equal(t, 1, mock.PackManifestCallCount())
 			_, _, _, mediaType, opts := mock.PackManifestArgsForCall(0)
@@ -871,7 +863,7 @@ func TestPushMediaTypes(t *testing.T) {
 
 			if !tc.wantConfig {
 				require.Nil(t, opts.ConfigDescriptor)
-				require.Equal(t, 0, mock.StorePushCallCount())
+				require.Equal(t, 1, mock.StorePushCallCount())
 
 				return
 			}
@@ -881,8 +873,8 @@ func TestPushMediaTypes(t *testing.T) {
 			require.NotNil(t, opts.ConfigDescriptor)
 			require.Equal(t, tc.wantMediaType, opts.ConfigDescriptor.MediaType)
 
-			require.Equal(t, 1, mock.StorePushCallCount())
-			_, _, configDescriptor, _ := mock.StorePushArgsForCall(0)
+			require.Equal(t, 2, mock.StorePushCallCount())
+			_, _, configDescriptor, _ := mock.StorePushArgsForCall(1)
 			require.Equal(t, opts.ConfigDescriptor, configDescriptor)
 		})
 	}
@@ -902,16 +894,6 @@ func TestPushManifest(t *testing.T) {
 	mock.ReadProfileReturns(nil, errTest)
 	mock.ParseReferenceReturns(testRef, nil)
 	mock.NewRepositoryReturns(&remote.Repository{}, nil)
-	mock.StoreAddStub = func(
-		_ context.Context, _ *file.Store, layerName, mediaType, _ string,
-	) (ocispec.Descriptor, error) {
-		return ocispec.Descriptor{
-			MediaType:   mediaType,
-			Digest:      digest.FromString(rawSeccompJSON),
-			Size:        int64(len(rawSeccompJSON)),
-			Annotations: map[string]string{ocispec.AnnotationTitle: layerName},
-		}, nil
-	}
 
 	sut := New(logr.Discard())
 	sut.impl = mock
@@ -990,13 +972,6 @@ func TestPushLayerOrder(t *testing.T) {
 		mock.ReadProfileReturns(&seccompprofileapi.SeccompProfile{}, nil)
 		mock.ParseReferenceReturns(testRef, nil)
 		mock.NewRepositoryReturns(&remote.Repository{}, nil)
-		mock.StoreAddStub = func(
-			_ context.Context, _ *file.Store, layerName, _, _ string,
-		) (ocispec.Descriptor, error) {
-			return ocispec.Descriptor{
-				Annotations: map[string]string{ocispec.AnnotationTitle: layerName},
-			}, nil
-		}
 
 		files := map[*ocispec.Platform]string{}
 		for _, platform := range platforms {
@@ -1021,7 +996,7 @@ func TestPushLayerOrder(t *testing.T) {
 		require.Equal(t, expected, names)
 
 		for i, layer := range packOptions.Layers {
-			require.Equal(t, profileName(layer.Platform), expected[i])
+			require.Equal(t, ProfileName(layer.Platform), expected[i])
 		}
 	}
 }
@@ -1133,7 +1108,6 @@ func TestPushRuntimeSpecSeccompProfileErrors(t *testing.T) {
 
 			mock := &artifactfakes.FakeImpl{}
 			mock.FilepathAbsStub = func(path string) (string, error) { return path, nil }
-			mock.StoreAddReturns(defaultDescriptor(), nil)
 			tc.prepare(mock)
 
 			sut := New(logr.Discard())
@@ -1247,8 +1221,58 @@ func TestRuntimeSpecSeccompProfileSpec(t *testing.T) {
 		require.NotNil(t, runtimeSpec)
 
 		spec, specErr := runtimeSpecSeccompProfileSpec([]byte(rawSeccompArgJSON))
-		require.ErrorContains(t, specErr, "convert runtime-spec seccomp profile")
+		require.ErrorIs(t, specErr, ErrCRDConversion)
 		require.Nil(t, spec)
+	})
+}
+
+func TestPullResultValuesTheCRDCannotHold(t *testing.T) {
+	t.Parallel()
+
+	for _, runtimeFormat := range []bool{true, false} {
+		t.Run(fmt.Sprintf("runtimeFormat=%v", runtimeFormat), func(t *testing.T) {
+			t.Parallel()
+
+			sut := New(logr.Discard())
+			sut.impl = &artifactfakes.FakeImpl{
+				ReadProfileStub: func([]byte) (client.Object, error) {
+					return nil, errTest
+				},
+			}
+
+			// The daemon needs the spec, so the pull fails by default.
+			result, err := sut.pullResult(
+				"registry.example.com/profile:v1",
+				[]byte(rawSeccompArgJSON),
+				runtimeFormat,
+				false,
+			)
+			require.ErrorIs(t, err, ErrCRDConversion)
+			require.Nil(t, result)
+
+			// spoc pull writes the content out as is, so it keeps the profile.
+			result, err = sut.pullResult(
+				"registry.example.com/profile:v1",
+				[]byte(rawSeccompArgJSON),
+				runtimeFormat,
+				true,
+			)
+			require.NoError(t, err)
+			require.Equal(t, PullResultTypeSeccompProfile, result.Type())
+			require.True(t, result.IsRuntimeFormat())
+			require.Equal(t, "profile", result.SeccompProfile().GetName())
+			require.Empty(t, result.SeccompProfile().Spec.DefaultAction)
+			require.JSONEq(t, rawSeccompArgJSON, string(result.Content()))
+		})
+	}
+
+	t.Run("invalid content still fails", func(t *testing.T) {
+		t.Parallel()
+
+		sut := New(logr.Discard())
+		result, err := sut.pullResult("profile", []byte(`{"syscalls":[]}`), true, true)
+		require.ErrorIs(t, err, ErrNoDefaultAction)
+		require.Nil(t, result)
 	})
 }
 
@@ -1578,7 +1602,6 @@ func TestPushCreatedAnnotation(t *testing.T) {
 
 		mock := &artifactfakes.FakeImpl{}
 		mock.ReadFileReturns([]byte(`{"defaultAction":"SCMP_ACT_ERRNO"}`), nil)
-		mock.StoreAddReturns(defaultDescriptor(), nil)
 
 		ref, err := name.ParseReference("docker.io/foo/bar:v1")
 		require.NoError(t, err)
@@ -1634,7 +1657,6 @@ func TestPushPlainHTTP(t *testing.T) {
 	repo := &remote.Repository{}
 	mock := &artifactfakes.FakeImpl{}
 	mock.ReadFileReturns([]byte(`{"defaultAction":"SCMP_ACT_ERRNO"}`), nil)
-	mock.StoreAddReturns(defaultDescriptor(), nil)
 
 	ref, err := name.ParseReference("docker.io/foo/bar:v1")
 	require.NoError(t, err)
@@ -1779,7 +1801,6 @@ func TestRegistryOptions(t *testing.T) {
 		mock := &artifactfakes.FakeImpl{}
 		stubSigning(t, mock)
 		mock.ReadFileReturns([]byte(`{"defaultAction":"SCMP_ACT_ERRNO"}`), nil)
-		mock.StoreAddReturns(defaultDescriptor(), nil)
 		mock.ParseReferenceReturns(testRef, nil)
 		mock.NewRepositoryReturns(repo, nil)
 

@@ -110,8 +110,9 @@ func decodeRuntimeSpecSeccompProfile(content []byte) (*specs.LinuxSeccomp, error
 // into a SeccompProfileSpec. Fields the CRD cannot express, such as
 // defaultErrnoRet, are dropped in the conversion. Values which do not fit the
 // CRD, for example syscall argument values beyond the signed 64 bit range,
-// are an error. Detection on push does not use this conversion, so profiles
-// the CRD cannot hold are still published in the right format.
+// are an error wrapping ErrCRDConversion. Detection on push does not use this
+// conversion, so profiles the CRD cannot hold are still published in the
+// right format.
 func runtimeSpecSeccompProfileSpec(
 	content []byte,
 ) (*seccompprofileapi.SeccompProfileSpec, error) {
@@ -121,7 +122,10 @@ func runtimeSpecSeccompProfileSpec(
 
 	spec := &seccompprofileapi.SeccompProfileSpec{}
 	if err := json.Unmarshal(content, spec); err != nil {
-		return nil, fmt.Errorf("convert runtime-spec seccomp profile: %w", err)
+		return nil, fmt.Errorf(
+			"convert runtime-spec seccomp profile: %w",
+			errors.Join(ErrCRDConversion, err),
+		)
 	}
 
 	return spec, nil

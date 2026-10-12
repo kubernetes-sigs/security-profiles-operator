@@ -19,8 +19,6 @@ package signer
 import (
 	"context"
 
-	"github.com/go-logr/logr"
-
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
 )
@@ -38,5 +36,5 @@ func (*defaultImpl) Sign(
 	image, username, password string,
 	opts *artifact.SignOptions,
 ) error {
-	return artifact.New(logr.New(&cli.LogSink{})).Sign(ctx, image, username, password, opts)
+	return artifact.New(cli.Logger()).Sign(ctx, image, username, password, opts)
 }

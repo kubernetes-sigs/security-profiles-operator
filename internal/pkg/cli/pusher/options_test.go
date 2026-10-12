@@ -49,8 +49,8 @@ func TestFromContext(t *testing.T) {
 		{
 			name: "failure username without password",
 			prepare: func(set *flag.FlagSet) {
-				set.String(FlagUsername, "", "")
-				require.NoError(t, set.Set(FlagUsername, "username"))
+				set.String(cli.FlagUsername, "", "")
+				require.NoError(t, set.Set(cli.FlagUsername, "username"))
 				require.NoError(t, set.Parse([]string{"echo"}))
 			},
 			assert: func(_ *Options, err error) {
@@ -206,6 +206,28 @@ func TestFromContext(t *testing.T) {
 			},
 			assert: func(_ *Options, err error) {
 				assert.Error(t, err)
+			},
+		},
+		{
+			name: "failure duplicate platforms in different spellings",
+			prepare: func(set *flag.FlagSet) {
+				require.NoError(t, set.Parse([]string{"echo"}))
+				set.Var(ucli.NewStringSlice(""), FlagPlatforms, "")
+				require.NoError(t, set.Set(FlagPlatforms, "linux/amd64,linux/amd64:"))
+			},
+			assert: func(_ *Options, err error) {
+				require.ErrorContains(t, err, "duplicate platforms defined")
+			},
+		},
+		{
+			name: "failure different platforms with the same layer name",
+			prepare: func(set *flag.FlagSet) {
+				require.NoError(t, set.Parse([]string{"echo"}))
+				set.Var(ucli.NewStringSlice(""), FlagPlatforms, "")
+				require.NoError(t, set.Set(FlagPlatforms, "linux/arm/v7,linux/arm:v7"))
+			},
+			assert: func(_ *Options, err error) {
+				require.ErrorContains(t, err, "both name the layer profile-linux-arm-v7")
 			},
 		},
 		{

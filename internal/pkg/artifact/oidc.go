@@ -97,7 +97,14 @@ func stdinIsTerminal() bool {
 // issuer in the browser. Without a terminal, the sign in uses the device flow
 // if deviceFlow is set and fails with ErrNoInteractiveSignIn otherwise.
 func idToken(ctx context.Context, issuer string, deviceFlow bool) (string, error) {
-	getter, err := tokenGetter(ctx, ambientTokenProviders, issuer, deviceFlow, stdinIsTerminal())
+	// The lookups in the environment are bounded, the interactive sign in
+	// below waits for the user as long as it takes.
+	ambientCtx, cancel := context.WithTimeout(ctx, defaultTimeout)
+	defer cancel()
+
+	getter, err := tokenGetter(
+		ambientCtx, ambientTokenProviders, issuer, deviceFlow, stdinIsTerminal(),
+	)
 	if err != nil {
 		return "", err
 	}
@@ -176,13 +183,22 @@ func envToken(context.Context) (token string, ok bool, err error) {
 
 // filesystemToken returns the token mounted at the path cosign reads.
 func filesystemToken(context.Context) (token string, ok bool, err error) {
-	if _, err := os.Stat(filesystemTokenPath); err != nil {
-		return "", false, nil //nolint:nilerr // a missing token is not an error
+	return fileToken(filesystemTokenPath)
+}
+
+// fileToken returns the token stored in the file at path. Like cosign, a file
+// which cannot be found, also because its directory cannot be read, does not
+// count as identity. A file which exists but cannot be read is an error, so
+// that the sign in does not fall back to another identity. A file without a
+// token does not count as identity either.
+func fileToken(path string) (token string, ok bool, err error) {
+	if _, err := os.Stat(path); err != nil {
+		return "", false, nil //nolint:nilerr // not an environment with an identity
 	}
 
-	raw, err := os.ReadFile(filesystemTokenPath)
+	raw, err := os.ReadFile(path) //nolint:gosec // the token path of cosign or a test
 	if err != nil {
-		return "", false, err
+		return "", false, fmt.Errorf("read identity token: %w", err)
 	}
 
 	// Like the environment variable, a file ends with a newline often.
@@ -256,11 +272,15 @@ func googleWorkloadIdentityToken(ctx context.Context) (token string, ok bool, er
 		ctx,
 		"instance/service-accounts/default/identity?"+query.Encode(),
 	)
-	if err != nil || strings.TrimSpace(token) == "" {
-		// Like cosign, the metadata server of an instance without a
-		// service account does not count as identity.
+	if err != nil {
+		// Like cosign, a metadata server which furnishes no identity token,
+		// like the one of an instance without a service account or of a GKE
+		// pod without Workload Identity, does not count as identity. The sign
+		// in falls back to an interactive one then.
 		return "", false, nil //nolint:nilerr // not an environment with an identity
 	}
 
-	return token, true, nil
+	token = strings.TrimSpace(token)
+
+	return token, token != "", nil
 }

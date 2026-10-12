@@ -137,6 +137,8 @@ func TestRunPullOptions(t *testing.T) {
 		TrustedRootPath:         "root.json",
 		Offline:                 true,
 		PlainHTTP:               true,
+		// spoc writes the pulled content as is.
+		KeepRawRuntimeProfile: true,
 	}, pullOpts)
 }
 

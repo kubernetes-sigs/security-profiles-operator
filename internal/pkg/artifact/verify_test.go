@@ -17,6 +17,7 @@ limitations under the License.
 package artifact
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -160,7 +161,12 @@ func TestSignatureCandidatesKeepsReferrersError(t *testing.T) {
 			sut.impl = mock
 
 			subject := testSubject()
-			_, _, err := sut.signatureCandidates(t.Context(), &remote.Repository{}, &subject)
+			_, _, referrersErr, err := sut.signatureCandidates(
+				t.Context(),
+				&remote.Repository{},
+				&subject,
+			)
+			require.NoError(t, referrersErr, "the lookup error is part of err")
 
 			for _, want := range tc.wantErrs {
 				require.ErrorIs(t, err, want)
@@ -277,4 +283,34 @@ func TestVerificationMaterial(t *testing.T) {
 			require.Equal(t, tc.wantKey, isKey)
 		})
 	}
+}
+
+// TestVerifySignatureOfKeepsReferrersErrorOnLegacyFailure verifies that a
+// failed lookup of the signature bundles is reported when the legacy
+// signatures fail to verify, as it may have hidden a valid bundle.
+func TestVerifySignatureOfKeepsReferrersErrorOnLegacyFailure(t *testing.T) {
+	t.Parallel()
+
+	manifest, err := json.Marshal(ocispec.Manifest{
+		Layers: []ocispec.Descriptor{
+			{MediaType: "application/vnd.dev.cosign.simplesigning.v1+json"},
+		},
+	})
+	require.NoError(t, err)
+
+	errLegacy := errors.New("legacy signature invalid")
+
+	mock := &artifactfakes.FakeImpl{}
+	mock.TrustedMaterialReturns(&root.BaseTrustedMaterial{}, nil)
+	mock.SignatureReferrersReturns(nil, errTest)
+	mock.FetchReferenceReturns(ocispec.Descriptor{}, manifest, nil)
+	mock.FetchAllReturns(nil, errLegacy)
+
+	sut := New(logr.Discard())
+	sut.impl = mock
+
+	subject := testSubject()
+	err = sut.verifySignatureOf(t.Context(), &remote.Repository{}, &subject, &PullOptions{})
+	require.ErrorIs(t, err, errLegacy)
+	require.ErrorIs(t, err, errTest)
 }

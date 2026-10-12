@@ -28,7 +28,7 @@ import (
 	"slices"
 	"strings"
 
-	"golang.org/x/mod/semver"
+	"github.com/blang/semver/v4"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -37,24 +37,35 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
-const kubeVersionWithFields = "v1.23.0"
+// kubeVersionWithFields is the first Kubernetes version which sets seccomp
+// up from fields.
+var kubeVersionWithFields = semver.Version{Major: 1, Minor: 23}
 
 // GetSeccompLocalhostProfilePath returns the path of local seccomp profile
 // according to the runtime.
 func GetSeccompLocalhostProfilePath(node *corev1.Node, seccompProfile string) string {
 	containerRuntime := GetContainerRuntime(node)
-	kubeVersion := GetVersion(node)
+	kubeVersion := getVersion(node)
 	// cri-o expects the local seccomp profile to be prefixed with 'localhost' when seccomp is set up
 	// from path (older Kubernetes version).
 	// see for more details:
 	// https://github.com/cri-o/cri-o/blob/1e6fd9c520d03d47835d1d4c3209e0f77c38f542/internal/config/seccomp/seccomp.go#L240
 	//
 	// Note: the newer Kubernetes versions set up the seccomp from fields and it doesn't require this fix.
-	if containerRuntime == "cri-o" && semver.Compare(kubeVersion, kubeVersionWithFields) == -1 {
+	if containerRuntime == "cri-o" && olderThanKubeVersionWithFields(kubeVersion) {
 		return path.Join("localhost", seccompProfile)
 	}
 
 	return seccompProfile
+}
+
+// olderThanKubeVersionWithFields reports whether the kubelet version is older
+// than kubeVersionWithFields. A version which cannot be parsed, like an empty
+// one, counts as older.
+func olderThanKubeVersionWithFields(kubeVersion string) bool {
+	version, err := semver.ParseTolerant(kubeVersion)
+
+	return err != nil || version.LT(kubeVersionWithFields)
 }
 
 // PodCompleted returns true if all containers of the pod terminated for good,
@@ -89,8 +100,8 @@ func GetContainerRuntime(node *corev1.Node) string {
 	return containerRuntime
 }
 
-// GetVersion returns the version of the kubelet running on the node.
-func GetVersion(node *corev1.Node) string {
+// getVersion returns the version of the kubelet running on the node.
+func getVersion(node *corev1.Node) string {
 	if node == nil {
 		return ""
 	}
@@ -267,7 +278,7 @@ type selinuxdImageMap struct {
 	ImageFromVar string `json:"imageFromVar"`
 }
 
-func MatchSelinuxdImageJSONMapping(node *corev1.Node, mappingObj []byte) (string, error) {
+func matchSelinuxdImageJSONMapping(node *corev1.Node, mappingObj []byte) (string, error) {
 	var mapping []selinuxdImageMap
 
 	if err := json.Unmarshal(mappingObj, &mapping); err != nil {
@@ -304,9 +315,9 @@ func matchSelinuxdImage(node *corev1.Node, mapping []selinuxdImageMap) (string, 
 	return "", nil
 }
 
-// GetOperatorConfigMap returns the ConfigMap of the operator in the provided
+// getOperatorConfigMap returns the ConfigMap of the operator in the provided
 // namespace.
-func GetOperatorConfigMap(
+func getOperatorConfigMap(
 	ctx context.Context, c client.Reader, namespace string,
 ) (*corev1.ConfigMap, error) {
 	var operatorCm corev1.ConfigMap
@@ -331,20 +342,24 @@ func GetOperatorConfigMap(
 
 const selinuxdImageKey = "RELATED_IMAGE_SELINUXD"
 
+// ErrNoSelinuxdImage is returned by GetSelinuxdImage if no image is set for
+// the node.
+var ErrNoSelinuxdImage = errors.New("no selinuxd image")
+
 // GetSelinuxdImage returns the appropriate selinuxd image for the given node
 // by matching the node's OS against the image mapping in the operator
 // ConfigMap, which lives in the provided namespace.
 func GetSelinuxdImage(
 	ctx context.Context, c client.Reader, namespace string, node *corev1.Node,
 ) (string, error) {
-	operatorCm, err := GetOperatorConfigMap(ctx, c, namespace)
+	operatorCm, err := getOperatorConfigMap(ctx, c, namespace)
 	if err != nil {
 		return "", err
 	}
 
 	selinuxdImageMapping := operatorCm.Data[SelinuxdImageMappingKey]
 
-	selinuxdImageEnvVar, err := MatchSelinuxdImageJSONMapping(node, []byte(selinuxdImageMapping))
+	selinuxdImageEnvVar, err := matchSelinuxdImageJSONMapping(node, []byte(selinuxdImageMapping))
 	if err != nil {
 		return "", fmt.Errorf("matching selinuxd image: %w", err)
 	}
@@ -360,5 +375,30 @@ func GetSelinuxdImage(
 		return selinuxdImage, nil
 	}
 
-	return "", errors.New("invalid selinuxd image")
+	if node == nil {
+		return "", fmt.Errorf("%w: %s is not set and there is no node to map an image for",
+			ErrNoSelinuxdImage, selinuxdImageKey)
+	}
+
+	osImage := node.Status.NodeInfo.OSImage
+
+	if selinuxdImageEnvVar == "" {
+		return "", fmt.Errorf(
+			"%w: %s is not set and the OS image %q matches no entry of %s in the ConfigMap %s/%s",
+			ErrNoSelinuxdImage,
+			selinuxdImageKey,
+			osImage,
+			SelinuxdImageMappingKey,
+			namespace,
+			OperatorConfigMap,
+		)
+	}
+
+	return "", fmt.Errorf(
+		"%w: neither %s, which the OS image %q maps to, nor %s is set",
+		ErrNoSelinuxdImage,
+		selinuxdImageEnvVar,
+		osImage,
+		selinuxdImageKey,
+	)
 }

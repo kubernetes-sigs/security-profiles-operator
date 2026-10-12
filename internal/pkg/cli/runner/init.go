@@ -27,6 +27,7 @@ import (
 	"os/exec"
 	"runtime"
 	"syscall"
+	"unsafe"
 
 	"github.com/opencontainers/runc/libcontainer/seccomp"
 	"github.com/opencontainers/runc/libcontainer/specconv"
@@ -55,10 +56,11 @@ type initConfig struct {
 	Credential *initCredential     `json:"credential,omitempty"`
 }
 
-// initCredential are the user and group the command runs as.
+// initCredential are the user and groups the command runs as.
 type initCredential struct {
-	UID uint32 `json:"uid"`
-	GID uint32 `json:"gid"`
+	UID    uint32   `json:"uid"`
+	GID    uint32   `json:"gid"`
+	Groups []uint32 `json:"groups,omitempty"`
 }
 
 // confine returns the command.Options.PreStart hook which starts the command
@@ -80,8 +82,9 @@ func confine(profile *specs.LinuxSeccomp) func(*exec.Cmd) (func(), error) {
 		// once the filter is in place.
 		if cmd.SysProcAttr != nil && cmd.SysProcAttr.Credential != nil {
 			config.Credential = &initCredential{
-				UID: cmd.SysProcAttr.Credential.Uid,
-				GID: cmd.SysProcAttr.Credential.Gid,
+				UID:    cmd.SysProcAttr.Credential.Uid,
+				GID:    cmd.SysProcAttr.Credential.Gid,
+				Groups: cmd.SysProcAttr.Credential.Groups,
 			}
 			cmd.SysProcAttr.Credential = nil
 		}
@@ -205,8 +208,21 @@ func loadSeccomp(profile *specs.LinuxSeccomp) error {
 // one executing the command. For a privileged caller, setgid and setuid set
 // the real, effective and saved IDs.
 func dropPrivileges(credential *initCredential) error {
-	if _, _, errno := unix.RawSyscall(sysSetgroups, 0, 0, 0); errno != 0 {
-		return fmt.Errorf("drop supplementary groups: %w", errno)
+	// setgroups takes the address of the list, like in Go's fork/exec. The
+	// conversion to uintptr stays in the call expression, which keeps the
+	// list alive for the call.
+	var groups *uint32
+	if len(credential.Groups) > 0 {
+		groups = &credential.Groups[0]
+	}
+
+	if _, _, errno := unix.RawSyscall(
+		sysSetgroups,
+		uintptr(len(credential.Groups)),
+		uintptr(unsafe.Pointer(groups)), //nolint:gosec // see above
+		0,
+	); errno != 0 {
+		return fmt.Errorf("set supplementary groups: %w", errno)
 	}
 
 	if _, _, errno := unix.RawSyscall(sysSetgid, uintptr(credential.GID), 0, 0); errno != 0 {

@@ -222,10 +222,32 @@ func TestDNSLengthName(t *testing.T) {
 	require.True(t, strings.HasPrefix(long, "kind-"))
 	require.Empty(t, validation.IsDNS1123Label(long))
 
-	// The error of lengthName is swallowed.
-	require.Empty(t, DNSLengthName(
+	// A prefix leaving no room for the hash gets shortened.
+	tooLongPrefix := DNSLengthName(
 		strings.Repeat("p", validation.DNS1123LabelMaxLength), "%s", strings.Repeat("n", 100),
+	)
+	require.Len(t, tooLongPrefix, validation.DNS1123LabelMaxLength)
+	require.True(t, strings.HasPrefix(
+		tooLongPrefix, strings.Repeat("p", validation.DNS1123LabelMaxLength-1-dnsMinHashLen)+"-",
 	))
+	require.Empty(t, validation.IsDNS1123Label(tooLongPrefix))
+}
+
+func TestNodeNameLabelValue(t *testing.T) {
+	t.Parallel()
+
+	short := strings.Repeat("n", validation.LabelValueMaxLength)
+	require.Equal(t, short, NodeNameLabelValue(short))
+
+	long := "node-" + strings.Repeat("a", 100) + ".example.com"
+	hashed := NodeNameLabelValue(long)
+	require.Len(t, hashed, validation.LabelValueMaxLength)
+	require.True(t, strings.HasPrefix(hashed, long[:nodeLabelHashPrefixLen]+"-"))
+	require.Empty(t, validation.IsValidLabelValue(hashed))
+	require.Equal(t, hashed, NodeNameLabelValue(long))
+
+	// Names which only differ after the kept prefix stay apart.
+	require.NotEqual(t, hashed, NodeNameLabelValue(long+"x"))
 }
 
 func TestKindNameDNSLengthName(t *testing.T) {

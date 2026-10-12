@@ -36,6 +36,7 @@ type impl interface {
 	CmdPid(*exec.Cmd) uint32
 	CmdWait(*exec.Cmd) error
 	GetHomeDirectory(uid uint32) (string, error)
+	GetGroupIDs(uid uint32) ([]uint32, error)
 }
 
 func (*defaultImpl) Notify(c chan<- os.Signal, sig ...os.Signal) {
@@ -54,6 +55,7 @@ func (*defaultImpl) Command(name string, arg ...string) *exec.Cmd {
 	// spoc forwards signals to the command instead of killing it through a
 	// context.
 	cmd := exec.CommandContext(context.Background(), name, arg...)
+	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
@@ -75,4 +77,8 @@ func (*defaultImpl) CmdWait(cmd *exec.Cmd) error {
 
 func (*defaultImpl) GetHomeDirectory(uid uint32) (string, error) {
 	return getHomeDirectory(uid)
+}
+
+func (*defaultImpl) GetGroupIDs(uid uint32) ([]uint32, error) {
+	return getGroupIDs(uid)
 }

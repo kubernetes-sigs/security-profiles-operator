@@ -16,10 +16,7 @@ limitations under the License.
 
 package recorder
 
-import (
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/command"
-)
+import "sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
 
 const (
 	// FlagOutputFile is the flag for defining the output file location.
@@ -39,9 +36,6 @@ const (
 	// FlagNoProcStart can be used to indicate that the target process is managed
 	// externally and should not be started.
 	FlagNoProcStart string = "no-proc-start"
-
-	// FlagPrivileged is the flag for running commands without dropping sudo privileges.
-	FlagPrivileged string = command.FlagPrivileged
 )
 
 // Type is the enum for all available recorder types.

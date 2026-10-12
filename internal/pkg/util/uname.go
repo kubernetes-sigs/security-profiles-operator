@@ -20,7 +20,7 @@ package util
 
 import (
 	"fmt"
-	"strings"
+	"regexp"
 
 	"github.com/blang/semver/v4"
 	"golang.org/x/sys/unix"
@@ -28,9 +28,20 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder/types"
 )
 
-func normalizeRelease(release string) string {
-	// Work around kernels with empty build metadata, e.g. `6.6.93+`.
-	return strings.TrimSuffix(release, "+")
+// releaseRegexp matches the numeric part of a kernel release. Distribution
+// suffixes like `-427.13.1.el9_4.x86_64`, `-45-generic` or `+` are not valid
+// semver, so they get ignored.
+var releaseRegexp = regexp.MustCompile(`^\d+\.\d+(\.\d+)?`)
+
+// parseRelease returns the major, minor and patch version of a kernel
+// release.
+func parseRelease(release string) (semver.Version, error) {
+	version, err := semver.ParseTolerant(releaseRegexp.FindString(release))
+	if err != nil {
+		return semver.Version{}, fmt.Errorf("unable to parse kernel release %q: %w", release, err)
+	}
+
+	return version, nil
 }
 
 func Uname() (types.Arch, *semver.Version, error) {
@@ -42,15 +53,11 @@ func Uname() (types.Arch, *semver.Version, error) {
 	}
 
 	arch := types.Arch(unix.ByteSliceToString(uname.Machine[:]))
-	release := unix.ByteSliceToString(uname.Release[:])
-	release = normalizeRelease(release)
 
-	version, err := semver.Parse(release)
+	version, err := parseRelease(unix.ByteSliceToString(uname.Release[:]))
 	if err != nil {
-		return "", nil, fmt.Errorf("unable to parse semver for release %s: %w", release, err)
+		return "", nil, err
 	}
-
-	version.Pre = nil
 
 	return arch, &version, nil
 }

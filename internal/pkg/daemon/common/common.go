@@ -18,6 +18,7 @@ package common
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -27,7 +28,6 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/release-utils/helpers"
 
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
@@ -84,7 +84,10 @@ func GetSPOD(
 // syslog if the audit log path does not exist.
 func LogFilePath() string {
 	filePath := config.SyslogLogPath
-	if helpers.Exists(config.AuditLogPath) {
+
+	// A path which cannot be inspected may exist, the tailer reports why it
+	// cannot read it then.
+	if _, err := os.Stat(config.AuditLogPath); !errors.Is(err, os.ErrNotExist) {
 		filePath = config.AuditLogPath
 	}
 

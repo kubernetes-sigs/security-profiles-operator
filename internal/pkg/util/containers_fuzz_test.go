@@ -55,7 +55,7 @@ func FuzzContainerIDForPID(f *testing.F) {
 		statReader := func(int) ([]byte, error) { return stat, nil }
 		cgroupReader := func(int) ([]byte, error) { return cgroup, nil }
 
-		containerID, err := containerIDForPID(cache, 1, statReader, cgroupReader)
+		containerID, _, err := containerIDAndStartTimeForPID(cache, 1, statReader, cgroupReader)
 		if err != nil {
 			require.Empty(t, containerID)
 
@@ -67,7 +67,7 @@ func FuzzContainerIDForPID(f *testing.F) {
 		require.Contains(t, string(cgroup), containerID)
 
 		failingReader := func(int) ([]byte, error) { return nil, errFuzzNotCached }
-		cached, err := containerIDForPID(cache, 1, statReader, failingReader)
+		cached, _, err := containerIDAndStartTimeForPID(cache, 1, statReader, failingReader)
 		require.NoError(t, err)
 		require.Equal(t, containerID, cached)
 	})

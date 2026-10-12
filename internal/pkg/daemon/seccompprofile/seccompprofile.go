@@ -79,7 +79,7 @@ const (
 	defaultCacheTimeout time.Duration = 24 * time.Hour
 	maxCacheItems       uint64        = 1000
 
-	allowedAllRegexp string = ".*"
+	allowedAllRegexp = artifact.AllowAllRegexp
 )
 
 var (

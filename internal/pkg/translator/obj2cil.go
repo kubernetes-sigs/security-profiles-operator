@@ -114,9 +114,7 @@ type deniedOptions struct {
 }
 
 func deniedOptionsFromOpts(opts *Options) *deniedOptions {
-	// Global maps are cloned to avoid data race in this function is
-	// executed in parallel (e.g. in tests).
-	// Clone global maps to avoid data races when executed in parallel.
+	// Clone the global maps to avoid data races when executed in parallel.
 	denied := &deniedOptions{
 		deniedTypes:       maps.Clone(deniedTypes),
 		deniedClasses:     maps.Clone(deniedClasses),
@@ -186,19 +184,20 @@ func Object2CIL(
 	cilbuilder := strings.Builder{}
 	cilbuilder.WriteString(getCILStart(sp))
 
-	// all templates must inherit from the system container. Without explicitly
-	// inheriting from the system container, the policy will not be loaded
-	// if it uses e.g. net_container or any other template because only the
-	// container template includes a "process" definition unless it is inhrienting
-	// another selinuxProfile object because the system container is already being
-	// inherited in that case.
+	// All templates must inherit from the system container. Without it, the
+	// policy will not be loaded if it uses e.g. net_container or any other
+	// template, because only the container template includes a "process"
+	// definition. A profile inheriting other profile objects gets it through
+	// them instead: those inherit the system container themselves, and
+	// inheriting it twice would declare "process" twice. This assumes raw
+	// profiles used as inherits do the same.
 	if len(objInherits) == 0 {
 		cilbuilder.WriteString(getCILInheritline(systemContainerInherit))
 	}
 
 	for _, inherit := range systemInherits {
 		if inherit == systemContainerInherit {
-			// already appended above
+			// Either written above or inherited through the profile objects.
 			continue
 		}
 

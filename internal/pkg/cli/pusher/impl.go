@@ -19,7 +19,6 @@ package pusher
 import (
 	"context"
 
-	"github.com/go-logr/logr"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
@@ -49,6 +48,6 @@ func (*defaultImpl) Push(
 	annotations map[string]string,
 	signOpts *artifact.PushOptions,
 ) error {
-	return artifact.New(logr.New(&cli.LogSink{})).
+	return artifact.New(cli.Logger()).
 		Push(ctx, files, to, username, password, annotations, signOpts)
 }

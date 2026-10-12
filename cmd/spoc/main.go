@@ -22,7 +22,6 @@ import (
 	"log"
 	"os"
 
-	"github.com/go-logr/logr"
 	"github.com/urfave/cli/v2"
 
 	"sigs.k8s.io/security-profiles-operator/cmd"
@@ -279,7 +278,7 @@ func install(ctx *cli.Context) error {
 		return fmt.Errorf("build options: %w", err)
 	}
 
-	if err := installer.New(options, logr.New(&spocli.LogSink{})).Run(); err != nil {
+	if err := installer.New(options, spocli.Logger()).Run(); err != nil {
 		return fmt.Errorf("launch installer: %w", err)
 	}
 
@@ -293,7 +292,7 @@ func remove(ctx *cli.Context) error {
 		return fmt.Errorf("build options: %w", err)
 	}
 
-	if err := remover.New(options, logr.New(&spocli.LogSink{})).Run(); err != nil {
+	if err := remover.New(options, spocli.Logger()).Run(); err != nil {
 		return fmt.Errorf("launch profile remover: %w", err)
 	}
 

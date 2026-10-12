@@ -37,7 +37,7 @@ import (
 )
 
 func platformLayer(platform *ocispec.Platform) ocispec.Descriptor {
-	layer := testLayer(profileName(platform))
+	layer := testLayer(ProfileName(platform))
 	layer.Platform = platform
 
 	return layer

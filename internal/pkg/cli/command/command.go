@@ -28,6 +28,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 )
 
 var errNoSudoEnvironment = errors.New("not in a sudo environment")
@@ -125,6 +126,61 @@ func getHomeDirectory(uid uint32) (string, error) {
 	return string(out), nil
 }
 
+// groupLookupTimeout bounds the lookup of the supplementary groups with
+// id(1), whose NSS backend may hang.
+const groupLookupTimeout = 10 * time.Second
+
+// getGroupIDs returns the supplementary groups of the user. id(1) goes
+// through NSS and sees the groups of directory services like SSSD or LDAP,
+// which the user database of spoc, built without cgo, does not. The groups of
+// /etc/group are the fallback for systems where id fails, hangs or prints
+// something else than group IDs.
+func getGroupIDs(uid uint32) ([]uint32, error) {
+	uidString := strconv.FormatUint(uint64(uid), 10)
+
+	ctx, cancel := context.WithTimeout(context.Background(), groupLookupTimeout)
+	defer cancel()
+
+	//nolint:gosec // a fixed command with a numeric user ID
+	out, err := exec.CommandContext(ctx, "id", "-G", uidString).Output()
+	if err == nil {
+		ids, parseErr := parseGroupIDs(strings.Fields(string(out)))
+		if parseErr == nil {
+			return ids, nil
+		}
+
+		err = parseErr
+	}
+
+	usr, lookupErr := user.LookupId(uidString)
+	if lookupErr != nil {
+		return nil, fmt.Errorf("group lookup failed: %w", errors.Join(err, lookupErr))
+	}
+
+	groups, lookupErr := usr.GroupIds()
+	if lookupErr != nil {
+		return nil, fmt.Errorf("group lookup failed: %w", errors.Join(err, lookupErr))
+	}
+
+	return parseGroupIDs(groups)
+}
+
+// parseGroupIDs parses the numeric group IDs.
+func parseGroupIDs(groups []string) ([]uint32, error) {
+	ids := make([]uint32, 0, len(groups))
+
+	for _, group := range groups {
+		id, err := strconv.ParseUint(group, 10, 32)
+		if err != nil {
+			return nil, fmt.Errorf("parse group ID %q: %w", group, err)
+		}
+
+		ids = append(ids, uint32(id))
+	}
+
+	return ids, nil
+}
+
 func (c *Command) DropSudoPrivileges() error {
 	uid, err := strconv.ParseUint(os.Getenv("SUDO_UID"), 10, 32)
 	if err != nil {
@@ -146,10 +202,23 @@ func (c *Command) DropSudoPrivileges() error {
 		return fmt.Errorf("failed to drop privileges: %w", err)
 	}
 
+	// Without them, the command would lack the access the user has through
+	// supplementary groups, like the docker group, and record a different
+	// profile than it would produce without sudo. If they cannot be looked
+	// up, the command runs without supplementary groups.
+	groups, err := c.GetGroupIDs(uint32(uid))
+	if err != nil {
+		log.Printf("WARNING: running the command without the supplementary groups of user %d: %v",
+			uid, err)
+
+		groups = nil
+	}
+
 	c.cmd.SysProcAttr = &syscall.SysProcAttr{
 		Credential: &syscall.Credential{
-			Uid: uint32(uid),
-			Gid: uint32(gid),
+			Uid:    uint32(uid),
+			Gid:    uint32(gid),
+			Groups: groups,
 		},
 	}
 	c.cmd.Env = append(

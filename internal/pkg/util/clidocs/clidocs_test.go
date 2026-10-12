@@ -156,3 +156,16 @@ func TestCommand(t *testing.T) {
 	require.Contains(t, out.String(), "(default: 1)")
 	require.NotContains(t, out.String(), "42")
 }
+
+// TestDemoteHeadings verifies that comments in fenced code blocks are not
+// mistaken for headings and that blank lines in them are kept.
+func TestDemoteHeadings(t *testing.T) {
+	t.Parallel()
+
+	doc := "# Title\n\n\n## Section\n\n```bash\n# a comment, not a heading\n\n\necho\n```\n\ntext\n\n"
+
+	require.Equal(t,
+		"## Title\n\n### Section\n\n```bash\n# a comment, not a heading\n\n\necho\n```\n\ntext\n",
+		demoteHeadings(doc),
+	)
+}

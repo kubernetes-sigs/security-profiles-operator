@@ -37,14 +37,6 @@ const (
 	// FlagProfiles is the flag for defining the input file locations.
 	FlagProfiles string = "profiles"
 
-	// FlagUsername is the flag for defining the username for registry
-	// authentication.
-	FlagUsername string = cli.FlagUsername
-
-	// FlagPasswordStdin is the flag for reading the password for registry
-	// authentication from stdin.
-	FlagPasswordStdin string = cli.FlagPasswordStdin
-
 	// FlagAnnotations is the flag for setting custom annotations to the pushed
 	// artifact.
 	FlagAnnotations string = "annotations"

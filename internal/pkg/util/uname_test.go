@@ -34,10 +34,36 @@ func TestUname(t *testing.T) {
 	require.NotEmpty(t, arch)
 }
 
-func TestNormalize(t *testing.T) {
+func TestParseRelease(t *testing.T) {
 	t.Parallel()
 
-	require.Equal(t, "6.6.93", normalizeRelease("6.6.93"))
-	require.Equal(t, "6.6.93", normalizeRelease("6.6.93+"))
-	require.Equal(t, "6.6.93+extra", normalizeRelease("6.6.93+extra"))
+	for _, tc := range []struct {
+		release string
+		want    semver.Version
+		wantErr bool
+	}{
+		{release: "6.6.93", want: semver.Version{Major: 6, Minor: 6, Patch: 93}},
+		{release: "6.6.93+", want: semver.Version{Major: 6, Minor: 6, Patch: 93}},
+		{release: "6.6.93+extra", want: semver.Version{Major: 6, Minor: 6, Patch: 93}},
+		{release: "5.14.0-427.13.1.el9_4.x86_64", want: semver.Version{Major: 5, Minor: 14}},
+		{release: "6.8.0-45-generic", want: semver.Version{Major: 6, Minor: 8}},
+		{release: "6.12.0-rc1", want: semver.Version{Major: 6, Minor: 12}},
+		{release: "6.1", want: semver.Version{Major: 6, Minor: 1}},
+		{release: "", wantErr: true},
+		{release: "linux", wantErr: true},
+	} {
+		t.Run(tc.release, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := parseRelease(tc.release)
+			if tc.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
 }

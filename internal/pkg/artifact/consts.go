@@ -180,7 +180,7 @@ var officialRepositories = []string{
 // media type which identifies the artifact.
 var emptyConfig = []byte("{}")
 
-// platformQualifiedName matches the layer names profileName generates for a
+// platformQualifiedName matches the layer names ProfileName generates for a
 // platform.
 var platformQualifiedName = regexp.MustCompile(
 	`^profile-.+` + regexp.QuoteMeta(extYAML) + `$`,
@@ -207,6 +207,13 @@ var (
 	// ErrTrailingData is returned when a raw runtime-spec seccomp profile is
 	// followed by additional data.
 	ErrTrailingData = errors.New("trailing data after runtime-spec seccomp profile")
+
+	// ErrCRDConversion is returned when a raw runtime-spec seccomp profile
+	// holds values the SeccompProfile CRD cannot express, like syscall
+	// argument values beyond the signed 64 bit range.
+	ErrCRDConversion = errors.New(
+		"runtime-spec seccomp profile does not fit the SeccompProfile CRD",
+	)
 
 	// ErrInvalidSourceDateEpoch is returned when SOURCE_DATE_EPOCH is set
 	// but is not an integer number of seconds.

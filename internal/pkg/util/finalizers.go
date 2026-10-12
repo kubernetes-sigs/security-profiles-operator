@@ -33,6 +33,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
+// errGetProfile is returned if the profile cannot be fetched for a finalizer
+// update.
+var errGetProfile = errors.New("cannot get security profile")
+
 // AddFinalizer adds the finalizer to the object if it is missing, see
 // AddFinalizerAndLabel.
 func AddFinalizer(ctx context.Context, c client.Client, pol client.Object, finalizer string) error {
@@ -61,7 +65,7 @@ func AddFinalizerAndLabel(
 	ctx context.Context, c client.Client, pol client.Object, finalizer, labelKey, labelValue string,
 ) error {
 	if err := c.Get(ctx, NamespacedName(pol.GetName(), pol.GetNamespace()), pol); err != nil {
-		return fmt.Errorf("%s: %w", ErrGetProfile, err)
+		return fmt.Errorf("%w: %w", errGetProfile, err)
 	}
 
 	addFinalizer := !controllerutil.ContainsFinalizer(pol, finalizer)
@@ -163,7 +167,7 @@ func RemoveFinalizers(
 	finalizers ...string,
 ) error {
 	if err := c.Get(ctx, NamespacedName(pol.GetName(), pol.GetNamespace()), pol); err != nil {
-		return fmt.Errorf("%s: %w", ErrGetProfile, err)
+		return fmt.Errorf("%w: %w", errGetProfile, err)
 	}
 
 	var ops []jsonPatchOp

@@ -30,6 +30,7 @@ import (
 	"github.com/opencontainers/go-digest"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2"
+	orascontent "oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/content/file"
 	"oras.land/oras-go/v2/registry/remote"
 )
@@ -168,9 +169,12 @@ func (a *Artifact) packProfiles(
 			"platform", platformToString(entry.platform),
 		)
 
-		fileDescriptor, err := a.StoreAdd(
-			ctx, store, entry.name, entry.layerMediaType, entry.absPath,
-		)
+		// The content which got validated is the one pushed, the file may
+		// have changed since it was read.
+		fileDescriptor := orascontent.NewDescriptorFromBytes(entry.layerMediaType, entry.content)
+		fileDescriptor.Annotations = map[string]string{v1.AnnotationTitle: entry.name}
+
+		err := a.StorePush(ctx, store, &fileDescriptor, bytes.NewReader(entry.content))
 		if err != nil {
 			return v1.Descriptor{}, fmt.Errorf("add profile to store: %w", err)
 		}
@@ -269,6 +273,7 @@ func (a *Artifact) copyToRepository(
 type profileEntry struct {
 	platform       *v1.Platform
 	absPath        string
+	content        []byte
 	name           string
 	layerMediaType string
 	runtimeSpec    bool
@@ -298,7 +303,10 @@ func (a *Artifact) profileEntries(
 		entry := profileEntry{
 			platform: platform,
 			absPath:  absPath,
-			name:     profileName(platform),
+			content:  content,
+			name:     ProfileName(platform),
+			// The media type ORAS file stores give files by default.
+			layerMediaType: v1.MediaTypeImageLayer,
 		}
 
 		runtimeSpec, isRuntimeSpec, err := a.runtimeSpecSeccompProfile(content)

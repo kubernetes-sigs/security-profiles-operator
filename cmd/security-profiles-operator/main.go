@@ -72,6 +72,7 @@ import (
 	selinuxprofilev1 "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 	spodv1 "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/cmd"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/command"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/apparmorprofile"
@@ -1863,8 +1864,9 @@ func runSpoc(ctx context.Context, args []string, stdin io.Reader, stdout, stderr
 	c.Stderr = stderr
 
 	if err := c.Run(); err != nil {
-		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
-			return cli.Exit("", exitErr.ExitCode())
+		// A spoc killed by a signal exits like a shell reports it.
+		if code, ok := command.ExitCode(err); ok {
+			return cli.Exit("", code)
 		}
 
 		return fmt.Errorf("running %s: %w", spocCmd, err)

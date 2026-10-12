@@ -209,7 +209,7 @@ func TestContainerIDForPID_CacheKeyWithStartTime(t *testing.T) {
 		return fmt.Appendf(nil, "0::/kubepods/pod123/crio-%s\n", testContainerID1), nil
 	}
 
-	id1, err := containerIDForPID(cache, 1234, statReader, cgroupReader)
+	id1, _, err := containerIDAndStartTimeForPID(cache, 1234, statReader, cgroupReader)
 	require.NoError(t, err)
 	require.Equal(t, testContainerID1, id1)
 
@@ -222,7 +222,7 @@ func TestContainerIDForPID_CacheKeyWithStartTime(t *testing.T) {
 		return fmt.Appendf(nil, "0::/kubepods/pod456/crio-%s\n", testContainerID2), nil
 	}
 
-	id2, err := containerIDForPID(cache, 1234, statReader2, cgroupReader2)
+	id2, _, err := containerIDAndStartTimeForPID(cache, 1234, statReader2, cgroupReader2)
 	require.NoError(t, err)
 	require.Equal(t, testContainerID2, id2)
 	require.NotEqual(t, id1, id2)
@@ -277,14 +277,14 @@ func TestContainerIDForPID_CacheHit(t *testing.T) {
 		return fmt.Appendf(nil, "0::/kubepods/pod123/crio-%s\n", testContainerID1), nil
 	}
 
-	id1, err := containerIDForPID(cache, 1234, statReader, cgroupReader)
+	id1, _, err := containerIDAndStartTimeForPID(cache, 1234, statReader, cgroupReader)
 	require.NoError(t, err)
 	require.Equal(t, testContainerID1, id1)
 	require.Equal(t, 1, cgroupCalls)
 
 	// Second call with the same PID and start time should hit the cache
 	// and skip the cgroup read entirely.
-	id2, err := containerIDForPID(cache, 1234, statReader, cgroupReader)
+	id2, _, err := containerIDAndStartTimeForPID(cache, 1234, statReader, cgroupReader)
 	require.NoError(t, err)
 	require.Equal(t, id1, id2)
 	require.Equal(t, 1, cgroupCalls)
@@ -308,7 +308,7 @@ func TestContainerIDForPID_CachesProcessWithoutContainer(t *testing.T) {
 	}
 
 	for range 2 {
-		_, err := containerIDForPID(cache, 1234, statReader, cgroupReader)
+		_, _, err := containerIDAndStartTimeForPID(cache, 1234, statReader, cgroupReader)
 		require.ErrorIs(t, err, ErrContainerIDNotFound)
 	}
 
@@ -322,7 +322,7 @@ func TestContainerIDForPID_CachesProcessWithoutContainer(t *testing.T) {
 	// Lookups do not extend the time it is remembered.
 	expiresAt := item.ExpiresAt()
 
-	_, lookupErr := containerIDForPID(cache, 1234, statReader, cgroupReader)
+	_, _, lookupErr := containerIDAndStartTimeForPID(cache, 1234, statReader, cgroupReader)
 	require.ErrorIs(t, lookupErr, ErrContainerIDNotFound)
 	require.Equal(t, expiresAt, item.ExpiresAt())
 	require.Equal(t, 1, cgroupCalls)
@@ -336,7 +336,7 @@ func TestContainerIDForPID_CachesProcessWithoutContainer(t *testing.T) {
 	}
 
 	for range 2 {
-		_, err := containerIDForPID(cache, 1, statReader, failingReader)
+		_, _, err := containerIDAndStartTimeForPID(cache, 1, statReader, failingReader)
 		require.ErrorIs(t, err, errRead)
 	}
 

@@ -20,9 +20,9 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os/exec"
 
 	"github.com/go-logr/logr"
-	"github.com/hairyhenderson/go-which"
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
@@ -112,7 +112,7 @@ func PatchProfileName(profile *apparmorprofileapi.AppArmorProfile, options *Opti
 	} else {
 		// The profile name may as well be a command on the PATH, whose
 		// executable the profile then confines.
-		if resolved := which.Which(profile.Name); resolved != "" {
+		if resolved, err := exec.LookPath(profile.Name); err == nil {
 			log.Printf("Resolved profile name %s to executable %s", profile.Name, resolved)
 			profile.Name = resolved
 		}

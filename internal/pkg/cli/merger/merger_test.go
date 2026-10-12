@@ -74,6 +74,20 @@ spec:
         - open
 `
 
+const SelinuxB = `
+apiVersion: security-profiles-operator.x-k8s.io/v1
+kind: SelinuxProfile
+spec:
+  inherit:
+    - name: container
+  allow:
+    var_log_t:
+      dir:
+        - read
+      file:
+        - getattr
+`
+
 const AppArmorBase = `
 apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: AppArmorProfile
@@ -189,6 +203,55 @@ spec:
 			prepare: func(mock *mergerfakes.FakeImpl) *Options {
 				mock.ReadFileReturnsOnCall(0, []byte(AppArmorBase), nil)
 				mock.ReadFileReturnsOnCall(1, []byte(AppArmorSubset), nil)
+
+				options := defaultOptions()
+				options.check = true
+
+				return options
+			},
+			assert: func(mock *mergerfakes.FakeImpl, err error) {
+				require.NoError(t, err)
+				require.Equal(t, 0, mock.WriteFileCallCount())
+			},
+		},
+		{
+			name: "successful selinux merge",
+			prepare: func(mock *mergerfakes.FakeImpl) *Options {
+				mock.ReadFileReturnsOnCall(0, []byte(SelinuxA), nil)
+				mock.ReadFileReturnsOnCall(1, []byte(SelinuxB), nil)
+
+				return defaultOptions()
+			},
+			assert: func(mock *mergerfakes.FakeImpl, err error) {
+				require.NoError(t, err)
+
+				_, merged, _ := mock.WriteFileArgsForCall(0)
+				require.Contains(t, string(merged), "kind: SelinuxProfile")
+				require.Contains(t, string(merged), "- name: container")
+				require.Regexp(t, `(?s)var_log_t:.*dir:\s+- open\s+- read.*file:\s+- getattr`, string(merged))
+			},
+		},
+		{
+			name: "seccomp base profile is outdated",
+			prepare: func(mock *mergerfakes.FakeImpl) *Options {
+				mock.ReadFileReturnsOnCall(0, []byte(SeccompA), nil)
+				mock.ReadFileReturnsOnCall(1, []byte(SeccompB), nil)
+
+				options := defaultOptions()
+				options.check = true
+
+				return options
+			},
+			assert: func(mock *mergerfakes.FakeImpl, err error) {
+				require.ErrorIs(t, err, ErrBaseProfileOutdated)
+				require.Equal(t, 0, mock.WriteFileCallCount())
+			},
+		},
+		{
+			name: "seccomp base profile is up-to-date",
+			prepare: func(mock *mergerfakes.FakeImpl) *Options {
+				mock.ReadFileReturnsOnCall(0, []byte(SeccompMerged), nil)
+				mock.ReadFileReturnsOnCall(1, []byte(SeccompB), nil)
 
 				options := defaultOptions()
 				options.check = true

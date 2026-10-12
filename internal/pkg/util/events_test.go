@@ -57,7 +57,7 @@ func TestTruncateEventNote(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			require.Equal(t, tc.want, TruncateEventNote(tc.note))
+			require.Equal(t, tc.want, truncateEventNote(tc.note))
 		})
 	}
 }
@@ -67,7 +67,7 @@ func TestTruncateEventNoteKeepsUTF8Valid(t *testing.T) {
 
 	// A three byte rune straddles the cut, it must not be split.
 	note := strings.Repeat("a", MaxEventNoteLength-len(truncatedSuffix)-1) + strings.Repeat("€", 10)
-	got := TruncateEventNote(note)
+	got := truncateEventNote(note)
 
 	require.LessOrEqual(t, len(got), MaxEventNoteLength)
 	require.True(t, utf8.ValidString(got))

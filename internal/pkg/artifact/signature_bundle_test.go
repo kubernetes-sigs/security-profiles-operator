@@ -127,10 +127,11 @@ func TestSignatureCandidates(t *testing.T) {
 				name := "profiles/" + tc.name
 				subject := pushWithReferrers(t, host, name, tc.predicateTypes...)
 
-				candidates, legacy, err := New(logr.Discard()).signatureCandidates(
+				candidates, legacy, referrersErr, err := New(logr.Discard()).signatureCandidates(
 					t.Context(), testRepository(t, host, name), &subject,
 				)
 				require.NoError(t, err)
+				require.NoError(t, referrersErr)
 				require.Len(t, candidates, tc.bundles)
 
 				// Without bundles, the legacy signature tag is looked up,
