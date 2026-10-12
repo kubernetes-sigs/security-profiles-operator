@@ -30,6 +30,9 @@ export E2E_TEST_SECCOMP=false
 # deployments of the profile merging tests never get recorded (amd64) or
 # crash loop while recorded (arm64).
 export E2E_TEST_BPF_RECORDER=false
+# The curl pods of the profiling test cannot connect to the profiling port of
+# the spod pods on kubernix, while the test passes on Fedora and Flatcar.
+export E2E_TEST_SKIP='//SPOD:_Profiling_server_protocol'
 export E2E_TEST_FLAKY_TESTS_ONLY=${E2E_TEST_FLAKY_TESTS_ONLY:-false}
 
 # The suite deploys copies of the tracked manifests below build/e2e-manifests

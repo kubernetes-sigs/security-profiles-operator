@@ -191,6 +191,9 @@ spec:
 
 	e.checkExecEnvironment(podName, nil, execEnvironmentTimeout)
 
+	// The debug session adds an ephemeral container, whose environment the
+	// exec metadata webhook patches. Its sleep is not asserted below, the
+	// enricher does not reliably attribute it.
 	e.kubectl("debug", "--profile", "general", "-i", podName, "--image",
 		"busybox:latest", "--", "sleep", "6")
 
@@ -217,8 +220,6 @@ spec:
 	e.Contains(output, "\"auditID\"")
 	e.Contains(output, "\"requestUID\"")
 	e.Contains(output, "\"cmdLine\"")
-	// Failed once in the Fedora platform.
-	// e.Contains(output, "sleep 6")
 	e.Contains(output, "sleep 5")
 	e.Contains(output, "\"container\"")
 	e.Contains(output, "\"namespace\"")

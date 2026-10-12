@@ -20,6 +20,8 @@ package e2e_test
 
 import (
 	"context"
+	"crypto/sha512"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/rand/v2"
@@ -399,14 +401,14 @@ func (e *kinde2e) SetupSuite() {
 	e.kindPath = filepath.Join(buildDir, "kind")
 	platform := runtime.GOOS + "-" + e.hostArch()
 
-	sha512, ok := kindSHA512[platform]
+	kindSum, ok := kindSHA512[platform]
 	e.Require().True(ok, "no kind binary for %s", platform)
 
 	e.downloadAndVerify(
 		fmt.Sprintf("https://github.com/kubernetes-sigs/kind/releases/download/%s/kind-%s",
 			kindVersion, platform),
 		e.kindPath,
-		sha512,
+		kindSum,
 	)
 
 	var err error
@@ -691,7 +693,7 @@ func (e *e2e) setWorkDir() string {
 	e.Require().NoError(err)
 
 	parentCwd := filepath.Dir(cwd)
-	e.NoError(os.Chdir(parentCwd))
+	e.Require().NoError(os.Chdir(parentCwd))
 
 	return parentCwd
 }
@@ -716,20 +718,52 @@ func (e *e2e) runCommand(cmd string, args ...string) (string, error) {
 	return "", nil
 }
 
-func (e *e2e) downloadAndVerify(url, binaryPath, sha512 string) {
-	if !helpers.Exists(binaryPath) {
-		e.logf("Downloading %s", binaryPath)
-		e.run("curl", "-o", binaryPath, "-fL", url)
-		e.Require().NoError(os.Chmod(binaryPath, 0o700))
-		e.verifySHA512(binaryPath, sha512)
+// downloadAndVerify downloads the binary unless one with the checksum is
+// already there. A file with another checksum, like a truncated download or
+// the binary of an older version, gets downloaded again. The test stops if the
+// download does not match the checksum either.
+func (e *e2e) downloadAndVerify(url, binaryPath, sha512Sum string) {
+	if helpers.Exists(binaryPath) {
+		if e.hasSHA512(binaryPath, sha512Sum) {
+			// A run which got stopped right after the download left it
+			// without the exec bit.
+			e.Require().NoError(os.Chmod(binaryPath, 0o700))
+
+			return
+		}
+
+		e.logf("Checksum of %s does not match, downloading it again", binaryPath)
+		e.Require().NoError(os.Remove(binaryPath))
 	}
+
+	e.logf("Downloading %s", binaryPath)
+	e.run("curl", "-o", binaryPath, "-fL", url)
+
+	if !e.hasSHA512(binaryPath, sha512Sum) {
+		// The next run downloads it again instead of using it.
+		if err := os.Remove(binaryPath); err != nil {
+			e.logf("Unable to remove %s: %v", binaryPath, err)
+		}
+
+		e.FailNowf(
+			"checksum mismatch",
+			"%s does not have the SHA512 checksum %s",
+			binaryPath,
+			sha512Sum,
+		)
+	}
+
+	e.Require().NoError(os.Chmod(binaryPath, 0o700))
 }
 
-func (e *e2e) verifySHA512(binaryPath, sha512 string) {
-	e.NoError(command.New("sha512sum", binaryPath).
-		Pipe("grep", sha512).
-		RunSilentSuccess(),
-	)
+// hasSHA512 reports whether the file has the SHA512 checksum.
+func (e *e2e) hasSHA512(path, sha512Sum string) bool {
+	content, err := os.ReadFile(path)
+	e.Require().NoError(err)
+
+	sum := sha512.Sum512(content)
+
+	return hex.EncodeToString(sum[:]) == sha512Sum
 }
 
 func (e *e2e) kubectl(args ...string) string {
@@ -775,12 +809,6 @@ func kubectlRunArgs(args ...string) []string {
 	}, args...)
 }
 
-func (e *e2e) kubectlRunOperatorNS(args ...string) string {
-	return e.kubectlRun(
-		append([]string{"-n", config.OperatorName}, args...)...,
-	)
-}
-
 const (
 	curlBaseCMD    = "curl -ksL --connect-timeout 10 --retry 5 --retry-delay 3 --show-error "
 	headerAuth     = "-H \"Authorization: Bearer `cat /var/run/secrets/kubernetes.io/serviceaccount/token`\" "
@@ -798,20 +826,35 @@ const (
 		`"automountServiceAccountToken":true}}`
 )
 
+// runAndRetryPodCMD runs the command in a pod of the operator namespace with
+// the service account of the metrics client, see retryPodCMD.
 func (e *e2e) runAndRetryPodCMD(podCMD string) string {
-	// Sometimes the metrics command does not output anything in CI, or its
-	// TLS connection fails. We fix that by retrying the metrics retrieval
-	// until podCommandTimeout passes, since curl does not retry TLS errors
-	// itself.
+	return e.retryPodCMD(func() (string, error) {
+		return podCMD, nil
+	}, metricsClientOverrides)
+}
+
+// retryPodCMD runs the command podCMD returns in a new pod of the operator
+// namespace until it prints something, and returns the output. Sometimes the
+// command does not output anything in CI, or its TLS connection fails, and
+// curl does not retry TLS errors itself. Every attempt asks podCMD again and
+// runs in a pod with a new name, since the pod of the previous attempt may
+// still be terminating.
+func (e *e2e) retryPodCMD(podCMD func() (string, error), kubectlRunFlags ...string) string {
 	var output string
 
 	e.eventually(podCommandTimeout, defaultPollInterval, func() error {
-		var err error
+		cmd, err := podCMD()
+		if err != nil {
+			e.logf("Retrying the pod command: %v", err)
 
-		output, err = e.kubectlCommand(kubectlRunArgs(
-			"-n", config.OperatorName, metricsClientOverrides,
-			randomPodName(), "--", "bash", "-c", podCMD,
-		)...)
+			return fmt.Errorf("getting pod command: %w", err)
+		}
+
+		args := append([]string{"-n", config.OperatorName}, kubectlRunFlags...)
+		args = append(args, randomPodName(), "--", "bash", "-c", cmd)
+
+		output, err = e.kubectlCommand(kubectlRunArgs(args...)...)
 		if err != nil {
 			output = ""
 
@@ -1002,7 +1045,7 @@ func (e *e2e) enableLogEnricherInSpod() {
 		operatorName := config.OperatorName
 		if !e.podRunning(podName, &operatorName, podStartTimeout) {
 			e.logf("Pod %s not running", podName)
-			e.Fail("Failed to enable json-enricher in SPOD")
+			e.Fail("Failed to enable log-enricher in SPOD")
 		}
 	}
 }

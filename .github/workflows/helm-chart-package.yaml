@@ -3,8 +3,8 @@ on:
   pull_request:
   release:
     types: [published]
-# Only pull request runs are cancelled by newer pushes, runs on main or for a
-# release always complete.
+# Only pull request runs are cancelled by newer pushes, runs for a release
+# always complete.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}

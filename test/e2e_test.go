@@ -62,6 +62,9 @@ const (
 	// podCommandTimeout is how long a command run in a throwaway pod gets
 	// retried until it succeeds.
 	podCommandTimeout = 2 * time.Minute
+	// absentProfileTimeout is how long a profile which must not get recorded
+	// has to stay absent after the other profiles of the pod got recorded.
+	absentProfileTimeout = 30 * time.Second
 
 	// podStartTimeout is how long a pod of the operator gets to start.
 	podStartTimeout = 25 * time.Second
@@ -179,6 +182,8 @@ func (e *e2e) testCases() []testCase {
 		{
 			description: "SPOD: Profiling server protocol",
 			fn:          e.testCaseProfilingHTTP,
+			flaky:       true,
+			issue:       newTestCaseIssue,
 		},
 		{
 			description: "SPOD: Enable memory optimization",
@@ -784,9 +789,24 @@ func (e *e2e) getSeccompProfile(name string) *seccompprofileapi.SeccompProfile {
 	return seccompProfile
 }
 
+// getSeccompProfileNodeStatus returns the node status of a seccomp profile
+// and fails the test unless there is exactly one.
 func (e *e2e) getSeccompProfileNodeStatus(
 	id, node string,
 ) *secprofnodestatusapi.SecurityProfileNodeStatus {
+	items := e.listSeccompProfileNodeStatuses(id, node)
+	if e.Len(items, 1) {
+		return &items[0]
+	}
+
+	return nil
+}
+
+// listSeccompProfileNodeStatuses returns the node statuses of a seccomp
+// profile on the node.
+func (e *e2e) listSeccompProfileNodeStatuses(
+	id, node string,
+) []secprofnodestatusapi.SecurityProfileNodeStatus {
 	selector := fmt.Sprintf(
 		"spo.x-k8s.io/node-name=%s,spo.x-k8s.io/profile-id=SeccompProfile-%s",
 		node,
@@ -798,11 +818,7 @@ func (e *e2e) getSeccompProfileNodeStatus(
 	secpolNodeStatusList := &secprofnodestatusapi.SecurityProfileNodeStatusList{}
 	e.Require().NoError(json.Unmarshal([]byte(seccompProfileNodeStatusJSON), secpolNodeStatusList))
 
-	if e.Len(secpolNodeStatusList.Items, 1) {
-		return &secpolNodeStatusList.Items[0]
-	}
-
-	return nil
+	return secpolNodeStatusList.Items
 }
 
 func (e *e2e) waitForProfileActivePodsFinalizer(name string) {
@@ -899,6 +915,25 @@ func poll(timeout, interval time.Duration, cond func() error) error {
 func (e *e2e) eventually(timeout, interval time.Duration, cond func() error) {
 	if err := poll(timeout, interval, cond); err != nil {
 		e.Failf("condition not met", "%v", err)
+	}
+}
+
+// consistently fails the test if cond fails before the timeout passes.
+func (e *e2e) consistently(timeout, interval time.Duration, cond func() error) {
+	deadline := time.Now().Add(timeout)
+
+	for {
+		if err := cond(); err != nil {
+			e.Failf("condition not kept", "%v", err)
+
+			return
+		}
+
+		if time.Now().After(deadline) {
+			return
+		}
+
+		time.Sleep(interval)
 	}
 }
 

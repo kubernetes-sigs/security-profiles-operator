@@ -613,13 +613,25 @@ func TestWebhook_DeploymentAvailability(t *testing.T) {
 	assert.Equal(t, w.deployment.Spec.Selector, terms[0].PodAffinityTerm.LabelSelector)
 }
 
+// webhookTestClient returns a fake client with copies of the objects, because
+// building it sets their resource version, which races with the parallel
+// tests sharing them.
 func webhookTestClient(t *testing.T, objs ...client.Object) client.Client {
 	t.Helper()
 
 	scheme := runtime.NewScheme()
 	require.NoError(t, clientgoscheme.AddToScheme(scheme))
 
-	return fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
+	copies := make([]client.Object, 0, len(objs))
+
+	for _, obj := range objs {
+		copied, ok := obj.DeepCopyObject().(client.Object)
+		require.True(t, ok)
+
+		copies = append(copies, copied)
+	}
+
+	return fake.NewClientBuilder().WithScheme(scheme).WithObjects(copies...).Build()
 }
 
 // The API server fills in defaults when it stores the deployment, which must

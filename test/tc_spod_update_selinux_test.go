@@ -35,8 +35,6 @@ func (e *e2e) testCaseSPODUpdateSelinux([]string) {
 		if selinuxEnabledInSPODObj != "" && selinuxEnabledInSPODObj != "true" {
 			e.Fail("Expected that SELinux is enabled explicitly or by default on OCP")
 		}
-
-		e.Empty(selinuxEnabledInSPODObj)
 	} else {
 		e.Equal("true", selinuxEnabledInSPODObj)
 	}

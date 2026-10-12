@@ -18,10 +18,6 @@ set -euo pipefail
 # shellcheck source=hack/ci/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-curl_retry() {
-  sudo curl -sSfL --retry 5 --retry-delay 3 "$@"
-}
-
 k_wait() {
   k wait --timeout 120s --for condition=ready "$@"
 }

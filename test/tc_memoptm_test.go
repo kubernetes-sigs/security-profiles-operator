@@ -24,7 +24,8 @@ func (e *e2e) testCaseMemOptmEnable([]string) {
 	e.enableMemoryOptimization()
 	defer e.disableMemoryOptimization()
 
-	e.waitForSpod()
-	e.waitInOperatorNSFor("condition=initialized", "pod", "-l", "name=spod")
-	e.waitInOperatorNSFor("condition=ready", "pod", "-l", "name=spod")
+	// patchSpod already waited for the rollout, so the daemon set carries the
+	// flag of the patched SPOD.
+	daemonSet := e.kubectlOperatorNS("get", "ds", "spod", "-o", "yaml")
+	e.Contains(daemonSet, "--with-mem-optim=true")
 }

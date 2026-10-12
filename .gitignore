@@ -9,6 +9,7 @@ image.tar
 selinuxd-fedora.tar
 result
 result-*
+__pycache__/
 ssh-config
 .direnv
 # The report of the link check, see the lint workflow.

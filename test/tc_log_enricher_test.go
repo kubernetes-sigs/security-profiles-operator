@@ -176,7 +176,6 @@ spec:
 	e.waitForProfile(profileName)
 
 	e.logf("Creating test pod")
-	e.getCurrentContextNamespace(defaultNamespace)
 
 	pod := fmt.Sprintf(`
 apiVersion: v1

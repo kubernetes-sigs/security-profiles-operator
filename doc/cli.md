@@ -118,6 +118,9 @@ raw-seccomp`. The other supported types are `apparmor`, `raw-apparmor` and
 10:15:17.309114 Wrote profile to: profile.json
 ```
 
+Without `-o/--output-file`, `raw-seccomp` writes to `profile.json` and
+`raw-apparmor` writes to `profile.apparmor` instead of `profile.yaml`.
+
 ```console
 > jq . profile.json
 ```
@@ -149,11 +152,10 @@ run the command with the privileges of `spoc` instead. If the privileges
 cannot be dropped, for example because the home directory of the user cannot
 be looked up, the command does not run at all instead of running as root.
 `spoc run` drops the privileges the same way and accepts `--privileged` as
-well. With `--no-proc-start`,
-`spoc record` does not start a command at all, but records all processes
-matching the command name until it gets interrupted by Ctrl^C or `SIGINT`. This
-is useful for processes which are started by another tool, like a service
-manager:
+well. With `--no-proc-start`, `spoc record` does not start a command at all,
+but records all processes matching the command name until it receives
+`SIGINT` (Ctrl^C), `SIGTERM` or `SIGHUP`. This is useful for processes which
+are started by another tool, like a service manager:
 
 ```console
 > sudo spoc record --no-proc-start my-daemon
@@ -185,7 +187,11 @@ be missing. The `--type` / `-t` flag selects the profile type, which is
 `seccomp`, the only supported type for now. The profile is loaded in the
 process of the command right before it gets executed, so `spoc` itself is not
 confined. `SIGINT`, `SIGTERM` and `SIGHUP` are forwarded to the command, and
-`spoc run` exits with the exit code of the command.
+`spoc run` exits with the exit code of the command. While the command runs
+and shortly after it exits, `spoc run` prints the seccomp, SELinux and
+AppArmor audit log lines of the process it started, like the syscalls its
+profile denies or logs. The lines of child processes the command forks are
+not printed.
 
 Then running `chmod` via `spoc run` will now throw an error, because the syscall
 is not allowed any more:

@@ -119,7 +119,8 @@ spec:
 	e.kubectl("delete", "sp", profileName)
 
 	e.logf("Retrieving controller runtime metrics")
-	e.kubectlRunOperatorNS(metricsClientOverrides, "pod-2", "--", "bash", "-c", curlCtrlCMD)
+	// The daemons just reconciled the profile.
+	e.Contains(e.runAndRetryPodCMD(curlCtrlCMD), "controller_runtime_reconcile_total")
 
 	e.logf("Asserting that the daemons counted the update and the deletion")
 	e.waitForMetricsIncrease(operationUpdate, operationDelete, metricUpdates, metricDeletions)
@@ -169,9 +170,9 @@ func (e *e2e) parseMetric(content, metric string) int {
 		line := scanner.Text()
 		if strings.HasPrefix(line, metric) {
 			fields := strings.Fields(line)
-			e.Len(fields, 2)
+			e.Require().Len(fields, 2, "metric line %q", line)
 			i, err := strconv.Atoi(fields[1])
-			e.NoError(err)
+			e.Require().NoError(err, "metric line %q", line)
 
 			sum += i
 		}
