@@ -16,14 +16,16 @@
 """Checks the dependencies with release tags zeitgeist cannot parse.
 
 zeitgeist only understands semantic version tags with an optional v prefix and
-fails its whole upstream check on the first dependency with other tags. The
-dependencies below therefore have no upstream in dependencies.yaml, and this
-script compares their versions there with the latest GitHub release whose tag
-matches their pattern instead. It prints the available updates like zeitgeist,
-which make verify-dependencies-upstream fails on. Set GITHUB_TOKEN for the API
-rate limit.
+fails on dependencies with other tags. The dependencies below therefore have
+no upstream in dependencies.yaml, and this script compares their versions
+there with the latest GitHub release whose tag matches their pattern instead.
+It prints the available updates like zeitgeist and a "Check failed" line for
+each dependency whose releases it cannot get, which make
+verify-dependencies-upstream fails on. Set GITHUB_TOKEN for the API rate
+limit.
 """
 
+import http.client
 import json
 import os
 import re
@@ -71,7 +73,7 @@ def latest_release(api, repo, pattern):
         if match
     ]
     if not found:
-        sys.exit(f"no release of {repo} matches {pattern}")
+        raise ValueError(f"no release of {repo} matches {pattern}")
     return max(found, key=parse)
 
 
@@ -85,7 +87,13 @@ def main():
 
     for name, repo, pattern in DEPENDENCIES:
         current = pinned[name]
-        latest = latest_release(api, repo, pattern)
+        try:
+            latest = latest_release(api, repo, pattern)
+        # A connection which breaks while the response gets read raises an
+        # HTTPException, which is no OSError.
+        except (OSError, ValueError, http.client.HTTPException) as error:
+            print(f"Check failed for dependency {name}: {error}")
+            continue
         # The version keeps the v prefix style of dependencies.yaml.
         if current.startswith("v"):
             latest = f"v{latest}"

@@ -2,7 +2,11 @@ self: super:
 {
   buildGoModule = super.buildGo127Module;
 
+  # The overrides rebuild gnutls instead of substituting it, which runs its
+  # test suite on every image build. It takes most of the build time and fails
+  # intermittently, without testing anything of the operator.
   gnutls = super.gnutls.overrideAttrs (old: {
+    doCheck = false;
     configureFlags = (old.configureFlags or [ ]) ++ [ "--disable-doc" ];
     outputs = builtins.filter (o: o != "devdoc" && o != "man") (old.outputs or [ "out" ]);
   });

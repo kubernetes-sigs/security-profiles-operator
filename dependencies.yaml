@@ -59,11 +59,10 @@ dependencies:
       match: "^VERIFY_BOILERPLATE_SHA256"
 
   # No upstream: zeitgeist cannot parse the release tags of
-  # kubernetes-sigs/kustomize, like kustomize/v5.8.1, and its upstream check
-  # stops at the first dependency it fails on. hack/check-release-tags.py
-  # checks it instead.
+  # kubernetes-sigs/kustomize, like kustomize/v5.8.1.
+  # hack/check-release-tags.py checks it instead.
   - name: kustomize
-    version: 5.8.1
+    version: 5.8.3
     refPaths:
     - path: Makefile
       match: "^KUSTOMIZE_VERSION"
@@ -304,7 +303,7 @@ dependencies:
       match: "KUBERNETES_VERSION="
 
   - name: e2e-flatcar-calico
-    version: v3.32.2
+    version: v3.33.0
     upstream:
       flavour: github
       url: projectcalico/calico
@@ -315,7 +314,7 @@ dependencies:
   # Must be bumped together with e2e-flatcar-calico above, the checksum of
   # manifests/tigera-operator.yaml at that tag.
   - name: e2e-flatcar-calico-sha256
-    version: 4e372754e4e1c3a61cf7c0ceb9bc9fff2f78aa6575dcadcb5ea4e716bb00dffa
+    version: aef423b36aef8cf86567f92bbe5eea4b4ca105a6fc7dbf43de599c6fa70388ba
     refPaths:
     - path: hack/ci/Vagrantfile-flatcar
       match: "^ *CALICO_SHA256="
@@ -323,7 +322,7 @@ dependencies:
   # Must be bumped together with e2e-flatcar-calico above, the checksum of
   # manifests/operator-crds.yaml at that tag.
   - name: e2e-flatcar-calico-crds-sha256
-    version: cb46786692404fb7955c6d31329c667d0dd8f1ff4821dc7869d0156c93d3a859
+    version: ac1826106c081f291631cc709754c71acdeaaede06853680d2aae159af612631
     refPaths:
     - path: hack/ci/Vagrantfile-flatcar
       match: "^ *CALICO_CRDS_SHA256="
@@ -454,7 +453,7 @@ dependencies:
   # The BuildKit of the reproducible image builds, on Cloud Build and in the
   # image-reproducible workflow alike.
   - name: buildkit
-    version: v0.33.1
+    version: v0.34.0
     upstream:
       flavour: github
       url: moby/buildkit
@@ -464,7 +463,7 @@ dependencies:
 
   # Must be bumped together with buildkit above.
   - name: buildkit-digest
-    version: sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
+    version: sha256:b059f8d7226d0b326bc871af489a5dddf65e36af4d20d14251b072974d9ee87c
     refPaths:
     - path: hack/image-cross.sh
       match: "^BUILDKIT_DIGEST="
@@ -596,7 +595,7 @@ dependencies:
       match: "runcVersion ="
 
   - name: kubernix
-    version: v0.4.1
+    version: v0.4.2
     upstream:
       flavour: github
       url: saschagrunert/kubernix
@@ -607,13 +606,13 @@ dependencies:
   # Must be bumped together with kubernix above, the checksums of its release
   # binaries.
   - name: kubernix-sha256-x86_64
-    version: 8c9c587048102f58d08f23114bffddb1f9de2f31343f023928ce5433dd589ae4
+    version: fdb61e53148da60e112ca575531e5a310293cf40c1de306358f5250c243986b1
     refPaths:
     - path: hack/ci/install-kubernix.sh
       match: "\\[x86_64\\]="
 
   - name: kubernix-sha256-aarch64
-    version: 6355552e690117c3f6e33cd83fcfba0ffb073b191e2e7ed075fa26c0082d6ca0
+    version: f702588ead795c8de5069da6421f3541efa6397e5338fc81c7cf5253875f88e3
     refPaths:
     - path: hack/ci/install-kubernix.sh
       match: "\\[aarch64\\]="
@@ -754,7 +753,7 @@ dependencies:
 
   # The release the upgrade e2e test starts from when git has no tags.
   - name: spo-previous-release
-    version: 1.1.0
+    version: 1.1.1
     upstream:
       flavour: github
       url: kubernetes-sigs/security-profiles-operator
@@ -867,17 +866,21 @@ dependencies:
       - path: .github/workflows/helm-chart-lint.yaml
         match: "python-version:"
 
+  # The aquasecurity organization restricts authenticated GitHub API access
+  # with an IP allow list, so check the published container image tags. They
+  # have no v prefix and include per-architecture tags like 0.71.2-amd64, pin
+  # the release version with the v prefix.
   - name: trivy
-    version: v0.74.0
+    version: v0.75.0
     upstream:
-      flavour: github
-      url: aquasecurity/trivy
+      flavour: container
+      registry: ghcr.io/aquasecurity/trivy
     refPaths:
       - path: .github/actions/scan-image/action.yml
         match: "version: v0\\."
 
   - name: yq
-    version: 4.53.6
+    version: 4.54.1
     upstream:
       flavour: github
       url: mikefarah/yq
@@ -889,13 +892,13 @@ dependencies:
 
   # Must be bumped together with yq above.
   - name: yq-sha256-linux-amd64
-    version: c5f056448f973ae7d39b5401949648a78f2dc1947d6a8eb65be60d5c504b9385
+    version: 8e34fc298390875de416e6a4afcb8cabeceb25d9aa8506c1a2f9353cf702ea5f
     refPaths:
       - path: hack/ci/install-yq.sh
         match: "YQ_SHA256_amd64="
 
   - name: yq-sha256-linux-arm64
-    version: 88a1016bc1d657375a35864e4f44b6f333df8ff97b559f51bba0adcb2169df09
+    version: 189088da0c6429ec5178dfaab1a114805f6cab0b61b165ab236efedf1d57a71b
     refPaths:
       - path: hack/ci/install-yq.sh
         match: "YQ_SHA256_arm64="
@@ -1041,13 +1044,13 @@ dependencies:
 
   # The pre-commit hook and the test workflow run the same release.
   - name: typos
-    version: v1.50.3
+    version: v1.51.1
     upstream:
       flavour: github
       url: crate-ci/typos
     refPaths:
       - path: .pre-commit-config.yaml
-        match: "frozen: v1\\.50"
+        match: "frozen: v1\\."
       - path: .github/workflows/test.yml
         match: "crate-ci/typos@"
 

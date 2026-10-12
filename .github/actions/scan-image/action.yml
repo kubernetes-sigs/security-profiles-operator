@@ -24,4 +24,4 @@ runs:
         ignore-unfixed: true
         exit-code: "1"
         format: table
-        version: v0.74.0
+        version: v0.75.0

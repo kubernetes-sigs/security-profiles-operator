@@ -26,7 +26,7 @@ KAL_VERSION = v0.0.0-20260716143926-092fe0c72997
 REPO_INFRA_VERSION = v0.2.6
 # Checksum of hack/verify_boilerplate.py of REPO_INFRA_VERSION.
 VERIFY_BOILERPLATE_SHA256 = 3ee0139a0a2865ad2e9674012a2459d56f4009844aa1b430119d0da4c603da95
-KUSTOMIZE_VERSION = 5.8.1
+KUSTOMIZE_VERSION = 5.8.3
 OPERATOR_SDK_VERSION ?= v1.42.3
 OPM_VERSION ?= v1.74.0
 # Checksums of the operator-sdk and opm release binaries per GOOS_GOARCH, bump
@@ -72,7 +72,7 @@ HADOLINT_SHA256_darwin_arm64 = 5c09f3213f8e40406abe048233d985eebef336d4a6a20021b
 ACTIONLINT_VERSION = v1.7.12
 KUBECONFORM_VERSION = v0.8.0
 KUBE_LINTER_VERSION = v0.8.3
-YQ_VERSION = 4.53.6
+YQ_VERSION = 4.54.1
 # The oldest Kubernetes release the manifests are validated against, see
 # minimum-kubernetes in dependencies.yaml.
 MIN_KUBERNETES_VERSION = 1.30.0
@@ -647,14 +647,16 @@ $(BUILD_DIR)/zeitgeist: | $(BUILD_DIR)
 
 # Compares the versions of dependencies.yaml with the releases of their
 # upstreams. GitHub upstreams need a GITHUB_TOKEN for the API rate limit.
+# hack/check-upstream-dependencies.py runs zeitgeist for each dependency, so
+# that one unreachable upstream doesn't hide the others, and
 # hack/check-release-tags.py checks the dependencies whose release tags
-# zeitgeist cannot parse. Both only print the available updates, so the target
-# fails on them.
+# zeitgeist cannot parse. Both only print the available updates and failed
+# checks, so the target fails on them.
 .PHONY: verify-dependencies-upstream
 verify-dependencies-upstream: $(BUILD_DIR)/zeitgeist-remote/zeitgeist ## Check external dependencies for upstream updates
-	$(BUILD_DIR)/zeitgeist-remote/zeitgeist validate --base-path . --config dependencies.yaml >$(BUILD_DIR)/dependency-updates
+	python3 hack/check-upstream-dependencies.py $(BUILD_DIR)/zeitgeist-remote/zeitgeist dependencies.yaml >$(BUILD_DIR)/dependency-updates
 	python3 hack/check-release-tags.py dependencies.yaml >>$(BUILD_DIR)/dependency-updates
-	@if grep '^Update available' $(BUILD_DIR)/dependency-updates; then exit 1; fi
+	@if grep -E '^(Update available|Check failed)' $(BUILD_DIR)/dependency-updates; then exit 1; fi
 
 # The upstream checks are only part of the remote build of zeitgeist, which
 # is a command named zeitgeist too.

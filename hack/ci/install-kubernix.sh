@@ -18,7 +18,7 @@ set -euo pipefail
 # shellcheck source=hack/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
-KUBERNIX_VERSION=v0.4.1
+KUBERNIX_VERSION=v0.4.2
 KUBERNIX_ROOT=/var/lib/kubernix
 KUBERNIX_NODE=kubernix
 KUBERNIX_LOG=${RUNNER_TEMP:-/tmp}/kubernix.log
@@ -26,8 +26,8 @@ KUBERNIX_LOG=${RUNNER_TEMP:-/tmp}/kubernix.log
 export SPO_KUBELET_DIR=$KUBERNIX_ROOT/kubelet/$KUBERNIX_NODE/run
 
 declare -A KUBERNIX_SHA256=(
-  [x86_64]=8c9c587048102f58d08f23114bffddb1f9de2f31343f023928ce5433dd589ae4
-  [aarch64]=6355552e690117c3f6e33cd83fcfba0ffb073b191e2e7ed075fa26c0082d6ca0
+  [x86_64]=fdb61e53148da60e112ca575531e5a310293cf40c1de306358f5250c243986b1
+  [aarch64]=f702588ead795c8de5069da6421f3541efa6397e5338fc81c7cf5253875f88e3
 )
 
 # Runs a command in the Nix environment of the cluster, which provides the
