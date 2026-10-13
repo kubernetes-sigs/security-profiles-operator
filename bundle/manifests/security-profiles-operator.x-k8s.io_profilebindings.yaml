@@ -154,8 +154,9 @@ spec:
             description: status contains the observed state of the ProfileBinding.
             properties:
               activeWorkloads:
-                description: activeWorkloads lists the workloads currently using this
-                  binding.
+                description: |-
+                  activeWorkloads lists the workloads currently using this binding. It
+                  holds at most 1000 workloads.
                 items:
                   type: string
                 type: array

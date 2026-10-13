@@ -145,6 +145,18 @@ func Test_getEffectiveSPOdMaxMetricSeries(t *testing.T) {
 	}
 }
 
+// The pod template does not depend on the node the operator runs on, so that
+// moving the operator does not roll the SPOd pods.
+func Test_getEffectiveSPOdNoRuntime(t *testing.T) {
+	t.Parallel()
+
+	args := getEffectiveSPOd(&daemonTunables{}).
+		Spec.Template.Spec.InitContainers[bindata.InitContainerIDNonRootenabler].Args
+	for _, arg := range args {
+		require.NotContains(t, arg, "--runtime")
+	}
+}
+
 // The limit of the metric series is validated in the manager, a value which
 // the daemon refuses would make every daemon pod fail to start.
 func Test_maxMetricSeries(t *testing.T) {
@@ -284,7 +296,6 @@ func Test_getTunables(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, "watched", dt.watchNamespace)
 			require.Equal(t, "100", dt.maxMetricSeries)
-			require.Equal(t, "cri-o", dt.containerRuntime)
 			require.Equal(t, "selinuxd:el9", dt.selinuxdImage)
 			require.Equal(t, bindata.LocalSeccompProfilePath, dt.seccompLocalhostProfile)
 			require.Equal(

@@ -428,7 +428,8 @@ func nonRootEnablerCommand(info *version.Info) *cli.Command {
 				Name:    "runtime",
 				Aliases: []string{"r"},
 				Value:   "",
-				Usage:   "the container runtime in the cluster (cri-o, containerd or docker), only logged",
+				Usage: "the container runtime in the cluster (cri-o, containerd or docker), " +
+					"only logged, the operator does not set it",
 			},
 			&cli.BoolFlag{
 				Name:    "apparmor",
@@ -1077,7 +1078,8 @@ func newDaemonCache(ctx *cli.Context) cache.NewCacheFunc {
 // the pod cache to the pods of the node and, with memory optimization, to the
 // pods labeled for recording. The node status cache is restricted to the
 // statuses of the node by their node label, which every status carries since
-// the per-node statuses got introduced.
+// the per-node statuses got introduced. Like in the manager and the webhook,
+// the managed fields, which no daemon controller reads, are not cached.
 func setDaemonCacheOptions(opts *cache.Options, nodeName string, memOptim bool) {
 	byPod := cache.ByObject{}
 	byObject := map[client.Object]cache.ByObject{}
@@ -1100,6 +1102,7 @@ func setDaemonCacheOptions(opts *cache.Options, nodeName string, memOptim bool) 
 	byObject[&corev1.Pod{}] = byPod
 
 	opts.SyncPeriod = &daemonSyncPeriod
+	opts.DefaultTransform = cache.TransformStripManagedFields()
 	opts.ByObject = byObject
 }
 
@@ -1651,12 +1654,16 @@ func runWebhook(ctx *cli.Context, info *version.Info) error {
 
 	webhookServer := webhook.NewServer(webhookServerOptions)
 
+	// The manager uses the default scheme, which has to know the kinds of the
+	// cache options before the manager creates the cache.
+	if err := addWebhookAPIs(clientgoscheme.Scheme); err != nil {
+		return err
+	}
+
 	// The webhook is stateless and every replica serves requests, so no
 	// leader election is required.
 	ctrlOpts := manager.Options{
-		Cache: cache.Options{
-			DefaultTransform: cache.TransformStripManagedFields(),
-		},
+		Cache:                  webhookCacheOptions(),
 		HealthProbeBindAddress: fmt.Sprintf(":%d", config.HealthProbePort),
 		WebhookServer:          webhookServer,
 		Metrics:                secureMetricsOptions(&tlsCfg),
@@ -1668,18 +1675,6 @@ func runWebhook(ctx *cli.Context, info *version.Info) error {
 	}
 
 	if err := addWebhookHealthChecks(mgr, webhookServer); err != nil {
-		return err
-	}
-
-	// Register OpenShift config API for TLS watcher (watches APIServer resource for TLS profile changes)
-	if err := addToScheme(mgr.GetScheme(),
-		schemeAPI{"profilebinding v1", profilebindingv1.AddToScheme},
-		schemeAPI{"seccompprofile v1", seccompprofilev1.AddToScheme},
-		schemeAPI{"apparmorprofile v1", apparmorprofilev1.AddToScheme},
-		schemeAPI{"selinuxprofile v1", selinuxprofilev1.AddToScheme},
-		schemeAPI{"profilerecording v1", profilerecordingv1.AddToScheme},
-		schemeAPI{"SPOD config v1", spodv1.AddToScheme},
-	); err != nil {
 		return err
 	}
 
@@ -1712,6 +1707,20 @@ func runWebhook(ctx *cli.Context, info *version.Info) error {
 
 	return setupManagerWithTLSWatcher(
 		sigHandler, mgr, &tlsCfg, "webhook",
+	)
+}
+
+// addWebhookAPIs registers the APIs which the webhooks read, the ones of the
+// cache options of webhookCacheOptions among them, and the OpenShift config
+// API of the TLS watcher with the scheme.
+func addWebhookAPIs(scheme *runtime.Scheme) error {
+	return addToScheme(scheme,
+		schemeAPI{"profilebinding v1", profilebindingv1.AddToScheme},
+		schemeAPI{"seccompprofile v1", seccompprofilev1.AddToScheme},
+		schemeAPI{"apparmorprofile v1", apparmorprofilev1.AddToScheme},
+		schemeAPI{"selinuxprofile v1", selinuxprofilev1.AddToScheme},
+		schemeAPI{"profilerecording v1", profilerecordingv1.AddToScheme},
+		schemeAPI{"SPOD config v1", spodv1.AddToScheme},
 	)
 }
 
@@ -1777,6 +1786,51 @@ func webhookInformerObjects() []client.Object {
 		&selinuxprofilev1.SelinuxProfile{},
 		&apparmorprofilev1.AppArmorProfile{},
 	}
+}
+
+// webhookCacheOptions returns the cache options of the webhook. The webhooks
+// read the metadata and the spec of the bindings and recordings, and only the
+// metadata and the state, localhost profile or SELinux type of the profiles.
+// The cache drops the other fields of the profiles and the active workloads
+// of all objects, so that the memory of the webhook does not grow with the
+// size of the recorded profiles or the number of pods using them.
+func webhookCacheOptions() cache.Options {
+	byObject := map[client.Object]cache.ByObject{}
+	for _, obj := range webhookInformerObjects() {
+		byObject[obj] = cache.ByObject{Transform: stripWebhookObject}
+	}
+
+	return cache.Options{
+		DefaultTransform: cache.TransformStripManagedFields(),
+		ByObject:         byObject,
+	}
+}
+
+// stripWebhookObject drops the fields of an object cached by the webhook which
+// no webhook reads, see webhookCacheOptions. A per kind transform replaces the
+// default one, so the managed fields get dropped here as well.
+func stripWebhookObject(obj any) (any, error) {
+	if accessor, err := meta.Accessor(obj); err == nil {
+		accessor.SetManagedFields(nil)
+	}
+
+	switch o := obj.(type) {
+	case *profilebindingv1.ProfileBinding:
+		o.Status.ActiveWorkloads = nil
+	case *profilerecordingv1.ProfileRecording:
+		o.Status.ActiveWorkloads = nil
+	case *seccompprofilev1.SeccompProfile:
+		o.Spec = seccompprofilev1.SeccompProfileSpec{}
+		o.Status.ActiveWorkloads = nil
+	case *selinuxprofilev1.SelinuxProfile:
+		o.Spec = selinuxprofilev1.SelinuxProfileSpec{}
+		o.Status.ActiveWorkloads = nil
+	case *apparmorprofilev1.AppArmorProfile:
+		o.Spec = apparmorprofilev1.AppArmorProfileSpec{}
+		o.Status.ActiveWorkloads = nil
+	}
+
+	return obj, nil
 }
 
 // informerGetter is the part of the cache which addWebhookInformers uses.

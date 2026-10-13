@@ -254,6 +254,55 @@ func TestBindingStatusReportsProfile(t *testing.T) {
 	}
 }
 
+// A binding whose cached condition is current costs no read from the API
+// server, which every binding reconciled on startup and every requeue of a
+// binding to a missing profile would otherwise do.
+func TestBindingStatusReadsCacheFirst(t *testing.T) {
+	t.Parallel()
+
+	binding := &profilebindingapi.ProfileBinding{
+		ObjectMeta: metav1.ObjectMeta{Name: "binding", Namespace: "default"},
+		Spec: profilebindingapi.ProfileBindingSpec{
+			ProfileRef: profilebindingapi.ProfileRef{
+				Kind: profilebindingapi.ProfileBindingKindSeccompProfile, Name: "profile",
+			},
+			Image: "nginx",
+		},
+	}
+
+	scheme := utiltest.NewScheme(t)
+	c := fake.NewClientBuilder().WithScheme(scheme).
+		WithStatusSubresource(binding).WithObjects(binding).Build()
+
+	apiReads := 0
+	reader := fake.NewClientBuilder().WithScheme(scheme).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(
+				ctx context.Context, cl client.WithWatch, key client.ObjectKey,
+				obj client.Object, opts ...client.GetOption,
+			) error {
+				apiReads++
+
+				return c.Get(ctx, key, obj, opts...)
+			},
+		}).Build()
+
+	r := &bindingStatusReconciler{client: c, reader: reader, log: logr.Discard()}
+	req := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(binding)}
+
+	// The first reconcile sets the condition, the second finds it set.
+	for range 2 {
+		_, err := r.Reconcile(t.Context(), req)
+		require.NoError(t, err)
+	}
+
+	require.Zero(t, apiReads)
+
+	updated := &profilebindingapi.ProfileBinding{}
+	require.NoError(t, c.Get(t.Context(), req.NamespacedName, updated))
+	require.Equal(t, string(common.ReasonUnavailable), updated.Status.GetReadyCondition().Reason)
+}
+
 func TestProfileState(t *testing.T) {
 	t.Parallel()
 

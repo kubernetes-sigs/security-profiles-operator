@@ -44,9 +44,16 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
+	apparmorprofilev1 "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
+	profilebindingv1 "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
+	profilerecordingv1 "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
+	seccompprofilev1 "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
+	secprofnodestatusv1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
+	selinuxprofilev1 "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/clidocs"
@@ -638,4 +645,144 @@ func TestAddWebhookInformers(t *testing.T) {
 	informers = &fakeInformerGetter{err: errTest}
 	require.ErrorIs(t, addWebhookInformers(t.Context(), informers), errTest)
 	require.Len(t, informers.objects, 1)
+}
+
+// The cache of the webhook gets created with its options, which requires the
+// scheme of the manager to know every kind of them. It got registered only
+// after the manager creation once, which made every webhook replica fail.
+func TestWebhookCacheCreation(t *testing.T) {
+	t.Parallel()
+
+	newScheme := func(webhookAPIs bool) *runtime.Scheme {
+		scheme := runtime.NewScheme()
+		require.NoError(t, clientgoscheme.AddToScheme(scheme))
+
+		if webhookAPIs {
+			require.NoError(t, addWebhookAPIs(scheme))
+		}
+
+		return scheme
+	}
+
+	// The API server knows every kind, the profiles are cluster scoped.
+	mapper := meta.NewDefaultRESTMapper(nil)
+
+	for obj := range webhookCacheOptions().ByObject {
+		gvk, err := apiutil.GVKForObject(obj, newScheme(true))
+		require.NoError(t, err)
+
+		scope := meta.RESTScopeRoot
+
+		switch obj.(type) {
+		case *profilebindingv1.ProfileBinding, *profilerecordingv1.ProfileRecording:
+			scope = meta.RESTScopeNamespace
+		}
+
+		mapper.Add(gvk, scope)
+	}
+
+	newCache := func(scheme *runtime.Scheme) error {
+		opts := webhookCacheOptions()
+		opts.Scheme = scheme
+		opts.Mapper = mapper
+
+		_, err := cache.New(&rest.Config{Host: "https://127.0.0.1:1"}, opts)
+
+		return err
+	}
+
+	require.ErrorContains(t, newCache(newScheme(false)), "no kind is registered")
+	require.NoError(t, newCache(newScheme(true)))
+}
+
+// The webhook caches only the fields the webhooks read, so that its memory
+// does not grow with the recorded profiles or the pods using them.
+func TestWebhookCacheOptions(t *testing.T) {
+	t.Parallel()
+
+	opts := webhookCacheOptions()
+	require.NotNil(t, opts.DefaultTransform)
+	require.Len(t, opts.ByObject, len(webhookInformerObjects()))
+
+	for obj, byObject := range opts.ByObject {
+		require.NotNil(t, byObject.Transform, "%T", obj)
+	}
+
+	managed := []metav1.ManagedFieldsEntry{{Manager: "test"}}
+	workloads := []string{"ns/pod"}
+
+	seccomp := &seccompprofilev1.SeccompProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: "profile", ManagedFields: managed},
+		Spec: seccompprofilev1.SeccompProfileSpec{
+			Syscalls: []seccompprofilev1.Syscall{{Names: []string{"read"}}},
+		},
+		Status: seccompprofilev1.SeccompProfileStatus{
+			LocalhostProfile: "operator/profile.json",
+			ActiveWorkloads:  workloads,
+		},
+	}
+	seccomp.Status.Status = secprofnodestatusv1.ProfileStateInstalled
+
+	_, err := stripWebhookObject(seccomp)
+	require.NoError(t, err)
+	require.Equal(t, "profile", seccomp.Name)
+	require.Nil(t, seccomp.ManagedFields)
+	require.Empty(t, seccomp.Spec.Syscalls)
+	require.Nil(t, seccomp.Status.ActiveWorkloads)
+	require.Equal(t, "operator/profile.json", seccomp.Status.LocalhostProfile)
+	require.Equal(t, secprofnodestatusv1.ProfileStateInstalled, seccomp.Status.Status)
+
+	selinux := &selinuxprofilev1.SelinuxProfile{
+		Spec: selinuxprofilev1.SelinuxProfileSpec{
+			Inherit: []selinuxprofilev1.PolicyRef{{Name: "base"}},
+		},
+		Status: selinuxprofilev1.SelinuxProfileStatus{
+			Usage:           "profile.process",
+			ActiveWorkloads: workloads,
+		},
+	}
+
+	_, err = stripWebhookObject(selinux)
+	require.NoError(t, err)
+	require.Empty(t, selinux.Spec.Inherit)
+	require.Nil(t, selinux.Status.ActiveWorkloads)
+	require.Equal(t, "profile.process", selinux.Status.Usage)
+
+	apparmor := &apparmorprofilev1.AppArmorProfile{
+		Spec:   apparmorprofilev1.AppArmorProfileSpec{Mode: apparmorprofilev1.AppArmorModeComplain},
+		Status: apparmorprofilev1.AppArmorProfileStatus{ActiveWorkloads: workloads},
+	}
+
+	_, err = stripWebhookObject(apparmor)
+	require.NoError(t, err)
+	require.Empty(t, apparmor.Spec.Mode)
+	require.Nil(t, apparmor.Status.ActiveWorkloads)
+
+	binding := &profilebindingv1.ProfileBinding{
+		Spec:   profilebindingv1.ProfileBindingSpec{Image: "nginx"},
+		Status: profilebindingv1.ProfileBindingStatus{ActiveWorkloads: workloads},
+	}
+
+	_, err = stripWebhookObject(binding)
+	require.NoError(t, err)
+	require.Equal(t, "nginx", binding.Spec.Image)
+	require.Nil(t, binding.Status.ActiveWorkloads)
+
+	recording := &profilerecordingv1.ProfileRecording{
+		Spec: profilerecordingv1.ProfileRecordingSpec{
+			Recorder: profilerecordingv1.ProfileRecorderBpf,
+		},
+		Status: profilerecordingv1.ProfileRecordingStatus{ActiveWorkloads: workloads},
+	}
+
+	_, err = stripWebhookObject(recording)
+	require.NoError(t, err)
+	require.Equal(t, profilerecordingv1.ProfileRecorderBpf, recording.Spec.Recorder)
+	require.Nil(t, recording.Status.ActiveWorkloads)
+
+	// Other objects pass unchanged.
+	other := "tombstone"
+	res, err := stripWebhookObject(other)
+	require.NoError(t, err)
+	require.Equal(t, other, res)
 }

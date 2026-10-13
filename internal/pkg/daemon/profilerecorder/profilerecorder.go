@@ -313,18 +313,6 @@ func (r *RecorderReconciler) isPodWithTraceAnnotation(obj runtime.Object) bool {
 	return false
 }
 
-// shouldRecordContainer mirrors the webhook's container selection: an empty
-// container list means every container of the pod is recorded.
-func shouldRecordContainer(
-	containerName string, recording *profilerecordingapi.ProfileRecording,
-) bool {
-	if recording.Spec.Containers == nil {
-		return true
-	}
-
-	return slices.Contains(recording.Spec.Containers, containerName)
-}
-
 // rejectedPod holds the ignored recording annotations of a pod, which got
 // reported already.
 type rejectedPod struct {
@@ -534,7 +522,7 @@ func (r *RecorderReconciler) recordingAuthorizes(
 			continue
 		}
 
-		if !shouldRecordContainer(parsed.cntName, recording) {
+		if !util.RecordsContainer(recording, parsed.cntName) {
 			continue
 		}
 
@@ -1798,12 +1786,13 @@ func (t *profileTarget) attemptKey() attemptKey {
 // validateRecordingName returns errNameNotValid if the profiles of the kind
 // cannot be named after the recording. The recorded profiles are cluster
 // scoped objects, whose names have to be DNS subdomains, and SELinux profile
-// names cannot contain dots, which separate the namespaces of a CIL policy.
-// The recording name is the value of a label of the profiles as well.
+// names cannot contain dots, which separate the namespaces of a CIL policy,
+// and have to start with a letter like CIL block names. The recording name
+// is the value of a label of the profiles as well.
 func validateRecordingName(kind profilerecordingapi.ProfileRecordingKind, name string) error {
 	validate := validation.IsDNS1123Subdomain
 	if kind == profilerecordingapi.ProfileRecordingKindSelinuxProfile {
-		validate = validation.IsDNS1123Label
+		validate = validateSelinuxRecordingName
 	}
 
 	if errs := append(validate(name), validation.IsValidLabelValue(name)...); len(errs) > 0 {
@@ -1811,6 +1800,17 @@ func validateRecordingName(kind profilerecordingapi.ProfileRecordingKind, name s
 	}
 
 	return nil
+}
+
+// validateSelinuxRecordingName validates the name of a SelinuxProfile
+// recording like the SelinuxProfile CRD validates the names of the profiles.
+func validateSelinuxRecordingName(name string) []string {
+	errs := validation.IsDNS1123Label(name)
+	if name != "" && (name[0] < 'a' || name[0] > 'z') {
+		errs = append(errs, "must start with a lowercase letter")
+	}
+
+	return errs
 }
 
 // resolveProfileTarget determines how the profile for the parsed annotation is

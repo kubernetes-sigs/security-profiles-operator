@@ -29,6 +29,7 @@ import (
 
 	profilebindingapi "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
+	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 	spoconfig "sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/bindingtracker"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/recordingtracker"
@@ -43,8 +44,12 @@ const (
 	recordingFinalizer = "active-seccomp-profile-recording-lock"
 )
 
-// createBinding creates a ProfileBinding for the pods with the app label.
-func createBinding(t *testing.T, namespace, name string) *profilebindingapi.ProfileBinding {
+// createBinding creates a ProfileBinding of the SeccompProfile for the pods
+// with the app label.
+func createBinding(
+	t *testing.T,
+	namespace, name, profile string,
+) *profilebindingapi.ProfileBinding {
 	t.Helper()
 
 	binding := &profilebindingapi.ProfileBinding{
@@ -52,7 +57,7 @@ func createBinding(t *testing.T, namespace, name string) *profilebindingapi.Prof
 		Spec: profilebindingapi.ProfileBindingSpec{
 			ProfileRef: profilebindingapi.ProfileRef{
 				Kind: profilebindingapi.ProfileBindingKindSeccompProfile,
-				Name: "bound-profile",
+				Name: profile,
 			},
 			Image:       profilebindingapi.SelectAllContainersImage,
 			PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "bound"}},
@@ -88,14 +93,29 @@ func TestBindingTrackerTracksAppliedPods(t *testing.T) {
 	ns := newNamespace(t)
 	startManager(t, bindingtracker.NewController(), managerOptions{namespaces: []string{ns}})
 
-	binding := createBinding(t, ns, "binding")
+	// The binding webhook only applies a profile which got installed.
+	profile := createSeccompProfile(t, ns+"-profile")
+	profile.Status.Status = secprofnodestatusapi.ProfileStateInstalled
+	profile.SetImplementationStatus()
+	require.NoError(t, k8sClient.Status().Update(t.Context(), profile))
+
+	binding := createBinding(t, ns, "binding", profile.Name)
 
 	// The binding webhook records the bindings it applied in an annotation,
-	// which the tracker relies on.
-	pod := newPod(ns, "bound")
+	// which the tracker relies on, and sets the profile.
+	pod := seccompPod(ns, "bound", profile)
 	pod.Labels = map[string]string{"app": "bound"}
 	pod.Annotations = map[string]string{profilebindingapi.AppliedBindingsAnnotation: binding.Name}
 	require.NoError(t, k8sClient.Create(t.Context(), pod))
+
+	// A pod which only carries the annotation, which pod authors can add
+	// themselves, stays untracked without the profile.
+	annotated := newPod(ns, "annotated")
+	annotated.Labels = map[string]string{"app": "bound"}
+	annotated.Annotations = map[string]string{
+		profilebindingapi.AppliedBindingsAnnotation: binding.Name,
+	}
+	require.NoError(t, k8sClient.Create(t.Context(), annotated))
 
 	// A pod the webhook did not apply the binding to stays untracked,
 	// although it matches the binding.
@@ -117,7 +137,7 @@ func TestBindingTrackerReleasesStaleWorkloads(t *testing.T) {
 
 	// A binding which tracks a pod that got deleted while the operator did
 	// not run.
-	binding := createBinding(t, ns, "stale")
+	binding := createBinding(t, ns, "stale", ns+"-profile")
 	binding.Status.ActiveWorkloads = []string{ns + "/gone"}
 	require.NoError(t, k8sClient.Status().Update(t.Context(), binding))
 	require.True(t, controllerutil.AddFinalizer(binding, bindingFinalizer))

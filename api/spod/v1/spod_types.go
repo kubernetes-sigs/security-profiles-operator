@@ -207,12 +207,20 @@ type SPODSpec struct {
 	// +optional
 	// +default=false
 	EnableAppArmor *bool `json:"enableAppArmor,omitempty"`
+
+	// The pattern rejects ".." elements, which only rejects values that never
+	// worked: the DaemonSet of such a SPOD fails the validation of host path
+	// volumes. It is a pattern instead of a CEL rule to not add to the CEL
+	// cost of the SPOD CRD. Like the "." of the earlier pattern, the character
+	// classes do not match newlines.
+
 	// hostProcVolumePath is the path for specifying a custom host /proc
 	// volume, which is required for the log-enricher as well as bpf-recorder
 	// to retrieve the container ID for a process ID. This can be helpful for
-	// nested environments, for example when using "kind".
+	// nested environments, for example when using "kind". It must not
+	// contain ".." elements, which host path volumes do not allow.
 	// +optional
-	// +kubebuilder:validation:Pattern="^/proc(/.*)?$"
+	// +kubebuilder:validation:Pattern=`^/proc(/([^/.\n][^/\n]*|[.]([^/.\n][^/\n]*)?|[.][.][^/\n]+)?)*$`
 	//nolint:kubeapilinter // released v1 API: empty means unset, a MinLength would reject existing manifests
 	HostProcVolumePath string `json:"hostProcVolumePath,omitempty"`
 	// imagePullSecrets if defined, list of references to secrets in the

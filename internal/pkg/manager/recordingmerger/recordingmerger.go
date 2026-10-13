@@ -409,7 +409,7 @@ func (r *PolicyMergeReconciler) mergeTypedProfiles(
 			continue
 		}
 
-		mergedRecordingName := mergedProfileName(profileRecording.Name, cntPartialProfiles[0])
+		mergedRecordingName := util.RecordedProfileName(profileRecording.Name, cntName, "")
 
 		res, err := createUpdateProfile(
 			ctx, r.writeClient(), profileRecording, mergedRecordingName, mergedProfile,
@@ -486,18 +486,18 @@ func newProfileObject(
 	mergedRecordingName string,
 	profileRecording *profilerecordingapi.ProfileRecording,
 ) client.Object {
-	meta := *mergedObjectMeta(mergedRecordingName, profileRecording.Name, profileRecording.Namespace)
-
-	switch kind {
-	case profilerecordingapi.ProfileRecordingKindSeccompProfile:
-		return &seccompprofile.SeccompProfile{ObjectMeta: meta}
-	case profilerecordingapi.ProfileRecordingKindSelinuxProfile:
-		return &selinuxprofileapi.SelinuxProfile{ObjectMeta: meta}
-	case profilerecordingapi.ProfileRecordingKindAppArmorProfile:
-		return &apparmorprofileapi.AppArmorProfile{ObjectMeta: meta}
-	default:
+	k, ok := recordingkinds.Of(kind)
+	if !ok {
 		return nil
 	}
+
+	meta := mergedObjectMeta(mergedRecordingName, profileRecording.Name, profileRecording.Namespace)
+
+	obj := k.NewObject()
+	obj.SetName(meta.Name)
+	obj.SetLabels(meta.Labels)
+
+	return obj
 }
 
 // setMergedSpec sets the spec of the merged profile on the object.

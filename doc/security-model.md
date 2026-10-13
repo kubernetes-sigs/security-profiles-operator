@@ -114,8 +114,11 @@ the webhook serve them on port 8443. Only the daemon endpoint can be opened up t
 The `spo-metrics-client` ClusterRole only allows reading the metrics paths. It is bound to the
 dedicated `spo-metrics-client` ServiceAccount of the operator namespace, which does not mount
 its token into pods. The `spo-metrics-client-token` Secret holds a long lived token of that
-ServiceAccount for the `ServiceMonitor` of the operator. Pods running with the `default` ServiceAccount of the
-operator namespace have no access to the metrics.
+ServiceAccount for the `ServiceMonitor` of the operator. Pods running with the `default`
+ServiceAccount of the operator namespace have no access to the metrics. The OpenShift downstream
+manifests bind the ClusterRole to the `prometheus-k8s` ServiceAccount of the
+`openshift-monitoring` namespace as well, and let it discover the endpoints through a Role which
+only allows reading the pods, services, endpoints and endpoint slices of the operator namespace.
 
 ### Profile Generation Mode (auto-generating security profiles)
 
@@ -135,21 +138,22 @@ Each recorder and enricher runs in a container of its own:
 |                 Requires HostPID | Yes          | Yes           | Yes          |
 |  Requires "privileged container" | No (1)       | No (2)        | No (3)       |
 |     Requires SSH Access to nodes | No           | No            | No           |
-|                 AppArmor Profile | `default`    | `default`     | `bpfrecorder-apparmor` (4) |
+|                 AppArmor Profile | unconfined (4) | unconfined (4) | `bpfrecorder-apparmor` (5) |
 |                     SELinux type | `spc_t`      | `spc_t`       | `spc_t`      |
 |                  Seccomp Profile | `RuntimeDefault` | `RuntimeDefault` | `bpf-recorder.json` |
 
 1. The log enricher drops all capabilities except `SYS_PTRACE` and `DAC_READ_SEARCH`, which
-   it needs to resolve the processes of other containers through `/proc`. With the `Bpf` log
-   source it adds `BPF`, `PERFMON` and `SYS_RESOURCE`, and does not mount the host log
-   directories.
+   it needs to resolve the processes of other containers through `/proc`, and `CHOWN`, which it
+   needs to hand its GRPC socket over to the non-root daemon. With the `Bpf` log source it adds `BPF`,
+   `PERFMON` and `SYS_RESOURCE`, and does not mount the host log directories.
 2. The JSON enricher drops all capabilities except `SYS_PTRACE`, `SYS_RESOURCE`, `BPF`,
    `PERFMON` and `DAC_READ_SEARCH`.
 3. The bpf recorder drops all capabilities except `BPF`, `PERFMON`, `SYS_RESOURCE`,
    `SYS_PTRACE`, `DAC_READ_SEARCH` and `CHOWN`. With AppArmor enabled it also keeps
    `SYS_ADMIN`, which Debian kernels require for attaching the tracepoints by default.
-4. Only with AppArmor enabled, unconfined otherwise, as the runtime default profile denies
-   reading `/proc` of the host processes.
+4. The runtime default AppArmor profile denies reading `/proc` of the host processes, which
+   the enrichers need, so they run unconfined.
+5. Only with AppArmor enabled, unconfined otherwise, for the same reason as (4).
 
 `HostPID` is set for the whole `spod` pod while a recorder or enricher is enabled, to map the
 processes to their containers.
@@ -207,9 +211,10 @@ API groups of its role.
   the other operands are created and merge patched.
 - Own API: delete on seccomp profiles, to remove the ones which the allow lists of the `spod`
   resource reject once for the cluster, see
-  [Restrict the allowed syscalls](installation.md#restrict-the-allowed-syscalls-in-seccomp-profiles).
-  Create on the seccomp, SELinux and AppArmor profiles which the operator ships or merges from
-  recordings, but not on raw SELinux profiles. The only `*/finalizers` subresource is the one of
+  [Restrict the allowed syscalls](installation.md#restrict-the-allowed-syscalls-in-seccomp-profiles),
+  and on SELinux and AppArmor profiles, to remove the partial profiles of a recording once they
+  are merged. Create on the seccomp, SELinux and AppArmor profiles which the operator ships or
+  merges from recordings, but not on raw SELinux profiles. The only `*/finalizers` subresource is the one of
   the `spod` resource, which owns the operands, limited to get, update and patch, without
   delete.
 
@@ -238,7 +243,7 @@ API groups of its role.
   delete.
 
 RBAC cannot restrict what a write changes, and every daemon uses the same service account, so
-the root user of a single node could otherwise change the profiles of all nodes. Two
+the root user of a single node could otherwise change the profiles of all nodes. Four
 ValidatingAdmissionPolicies limit the writes of the `spod` service account:
 
 - `spo-spod-profiles`: profiles may only be created with the labels of a recording. The spec
@@ -254,6 +259,21 @@ ValidatingAdmissionPolicies limit the writes of the `spod` service account:
   projected service account tokens, by default since 1.30 through the
   `ServiceAccountTokenPodNodeInfo` feature gate. Without it the jobs are denied, so SELinux
   policies cannot be reloaded.
+- `spo-spod-recordings`: profile recordings may not be created, and updates may only add the
+  `spo.x-k8s.io/has-unmerged-profiles` finalizer, which keeps a recording until its partial
+  profiles are merged. Otherwise a compromised node could change the pod selector of a
+  recording, so that the recording webhook applies the logging seccomp profile and the
+  permissive SELinux type to the pods of the other nodes.
+- `spo-spod-node-statuses`: node statuses may only be created, updated and deleted for the
+  node of the requesting daemon, taken from the same node name claim, and the
+  `spo.x-k8s.io/node-name` label has to name that node and may not change once it is set. The
+  name of a new node status has to end with the name of its node, unless it is hashed to fit
+  into a DNS label, so that a node cannot take the name of the status of another node. Node
+  statuses written by old releases without the node name in their spec are attributed to a
+  node by that label, or by their name, which ends with the node name, if they have no label,
+  so that the daemons can repair or remove them. Without the claim no write can be attributed to a node, and
+  denying them would keep the daemons from installing profiles, so the writes are not
+  restricted then.
 
 The operator namespace is not known to the policies, so they apply to the service accounts
 named `spod` of all namespaces. The OLM bundle cannot ship ValidatingAdmissionPolicies, so

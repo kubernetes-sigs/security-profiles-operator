@@ -76,7 +76,6 @@ type daemonTunables struct {
 	selinuxdImage                  string
 	watchNamespace                 string
 	seccompLocalhostProfile        string
-	containerRuntime               string
 	bpfRecorderSeccompProfile      string
 	jsonEnricherLogVolumeSource    *corev1.VolumeSource // Optionally provide a volume for usage in JSON Enricher
 	jsonEnricherLogVolumeMountPath string
@@ -432,7 +431,6 @@ func (r *ReconcileSPOd) getTunables(ctx context.Context) (*daemonTunables, error
 		node,
 		bindata.LocalSeccompBpfRecorderProfilePath,
 	)
-	dt.containerRuntime = util.GetContainerRuntime(node)
 
 	dt.selinuxdImage, err = r.getSelinuxdImage(ctx, node)
 	if err != nil {
@@ -551,9 +549,6 @@ func getEffectiveSPOd(dt *daemonTunables) *appsv1.DaemonSet {
 	if dt.seccompLocalhostProfile != "" {
 		daemon.SecurityContext.SeccompProfile.LocalhostProfile = &dt.seccompLocalhostProfile
 	}
-
-	nonRootEnabler := &refSPOd.Spec.Template.Spec.InitContainers[bindata.InitContainerIDNonRootenabler]
-	nonRootEnabler.Args = append(nonRootEnabler.Args, "--runtime="+dt.containerRuntime)
 
 	selinuxd := &refSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDSelinuxd]
 	selinuxd.Image = dt.selinuxdImage

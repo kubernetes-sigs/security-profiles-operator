@@ -1,0 +1,45 @@
+---
+# Prometheus discovers the metrics endpoints of the ServiceMonitor in the
+# operator namespace, so it only needs to read the pods, services and
+# endpoints there. The spo-metrics-client ClusterRole keeps granting the
+# metrics paths only. Like every namespaced object of this overlay, the Role
+# and its binding name the security-profiles-operator namespace, and the
+# downstream packaging moves them into its own namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: spo-prometheus-k8s
+  namespace: security-profiles-operator
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  - services
+  - endpoints
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - discovery.k8s.io
+  resources:
+  - endpointslices
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: spo-prometheus-k8s
+  namespace: security-profiles-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: spo-prometheus-k8s
+subjects:
+- kind: ServiceAccount
+  name: prometheus-k8s
+  namespace: openshift-monitoring

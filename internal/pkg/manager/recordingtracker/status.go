@@ -19,16 +19,18 @@ package recordingtracker
 import (
 	"context"
 	"fmt"
-	"os"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/ptr"
@@ -79,15 +81,9 @@ type recorderEnv struct {
 // recorderEnvFromEnvironment reads the recorders which the environment of the
 // operator enables. Values which are not a boolean do not enable them.
 func recorderEnvFromEnvironment() recorderEnv {
-	envBool := func(key string) bool {
-		value, err := strconv.ParseBool(os.Getenv(key))
-
-		return err == nil && value
-	}
-
 	return recorderEnv{
-		logEnricher: envBool(config.EnableLogEnricherEnvKey),
-		bpfRecorder: envBool(config.EnableBpfRecorderEnvKey),
+		logEnricher: config.EnvEnabled(config.EnableLogEnricherEnvKey),
+		bpfRecorder: config.EnvEnabled(config.EnableBpfRecorderEnvKey),
 	}
 }
 
@@ -355,7 +351,7 @@ func (r *recordingStatusReconciler) recordedProfileNames(
 			replicaSuffix = strings.TrimPrefix(pod.GetName(), pod.GenerateName)
 		}
 
-		for _, ctr := range recordedContainers(pod, recording.GetName()) {
+		for _, ctr := range annotatedContainers(pod, recording.GetName(), false) {
 			if !merge {
 				names.Insert(util.RecordedProfileName(recording.GetName(), ctr, replicaSuffix))
 
@@ -403,18 +399,91 @@ func (r *recordingStatusReconciler) recordedProfileNames(
 	return sets.List(names), nil
 }
 
-// recordedContainers returns the names of the containers of the pod which
-// the recording webhook annotated for the recording. The annotation values
-// start with the recording name followed by an underscore, which is not valid
-// in object names.
-func recordedContainers(pod *corev1.Pod, recordingName string) []string {
+// admissionClockSkew is how much later than the creation of a pod the time in
+// a recording annotation may be, which the recording webhook set while it
+// admitted the pod. It covers the clocks of the webhook and the API server
+// which differ.
+const admissionClockSkew = time.Minute
+
+// annotatedContainers returns the sorted names of the containers of the pod
+// which carry a recording annotation of the recording, of any kind and
+// recorder. The annotation values have the form
+// "<recording>_<container>_<nonce>_<unix time>", the underscore is not valid
+// in object names. With admitted, only the annotations of existing containers
+// count which the recording webhook set while it admitted the pod: the webhook
+// takes the time before the API server stores the pod and sets its creation
+// timestamp, while an annotation added by a later update gets a later time.
+func annotatedContainers(pod *corev1.Pod, recordingName string, admitted bool) []string {
 	var containers []string
 
 	for key, value := range pod.GetAnnotations() {
-		for _, prefix := range recordingAnnotationKeys {
-			if strings.HasPrefix(key, prefix) && strings.HasPrefix(value, recordingName+"_") {
-				containers = append(containers, strings.TrimPrefix(key, prefix))
+		for _, prefix := range bindata.RecordingAnnotationPrefixes {
+			ctr, ok := strings.CutPrefix(key, prefix)
+			if !ok {
+				continue
 			}
+
+			rest, ok := strings.CutPrefix(value, recordingName+"_"+ctr+"_")
+			if !ok || (admitted && !admittedAnnotation(pod, ctr, rest)) {
+				continue
+			}
+
+			containers = append(containers, ctr)
+		}
+	}
+
+	slices.Sort(containers)
+
+	return slices.Compact(containers)
+}
+
+// admittedAnnotation returns true if the container exists and the rest of the
+// annotation value, "<nonce>_<unix time>", has a time which is not later than
+// the creation of the pod, see annotatedContainers.
+func admittedAnnotation(pod *corev1.Pod, ctr, rest string) bool {
+	_, timestamp, ok := strings.Cut(rest, "_")
+	if !ok || pod.CreationTimestamp.IsZero() {
+		return false
+	}
+
+	seconds, err := strconv.ParseInt(timestamp, 10, 64)
+	if err != nil {
+		return false
+	}
+
+	exists := slices.ContainsFunc(util.PodContainers(pod), func(c *corev1.Container) bool {
+		return c.Name == ctr
+	})
+
+	return exists && !time.Unix(seconds, 0).After(pod.CreationTimestamp.Add(admissionClockSkew))
+}
+
+// recordedContainers returns the names of the init and regular containers of
+// the pod which the recording selects now, and which carry the annotation of
+// the kind and recorder of the recording, like the daemon checks it when a
+// container starts. It tells whether a pod gets tracked anew whose annotation
+// the recording webhook did not set while it admitted the pod, see
+// podRecordedBy.
+func recordedContainers(pod *corev1.Pod, recording *profilerecordingapi.ProfileRecording) []string {
+	selector, err := metav1.LabelSelectorAsSelector(recording.Spec.PodSelector)
+	if err != nil || !selector.Matches(labels.Set(pod.GetLabels())) {
+		return nil
+	}
+
+	var containers []string
+
+	for _, ctr := range util.PodContainers(pod) {
+		if !util.RecordsContainer(recording, ctr.Name) {
+			continue
+		}
+
+		key, _, err := recording.CtrAnnotation(ctr.Name)
+		if err != nil {
+			return nil
+		}
+
+		if strings.HasPrefix(pod.GetAnnotations()[key], recording.GetName()+"_"+ctr.Name+"_") {
+			containers = append(containers, ctr.Name)
 		}
 	}
 

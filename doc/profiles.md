@@ -1538,9 +1538,9 @@ security context of a pod cannot be changed after its creation.
   SELinux and AppArmor settings on them.
 
 The names of the bindings applied to a pod are listed in its
-`spo.x-k8s.io/profile-bindings` annotation, and the workloads using a binding
-in its `status.activeWorkloads`. The `Ready` condition of a binding reports
-whether the referenced profile exists and is installed:
+`spo.x-k8s.io/profile-bindings` annotation, and up to 1000 of the workloads
+using a binding in its `status.activeWorkloads`. The `Ready` condition of a
+binding reports whether the referenced profile exists and is installed:
 
 ```sh
 $ kubectl get profilebinding nginx-binding -o jsonpath='{.status.conditions[?(@.type=="Ready")]}'

@@ -187,6 +187,7 @@ func TestDaemonCacheOptions(t *testing.T) {
 	opts := cache.Options{}
 	setDaemonCacheOptions(&opts, "node", false)
 	require.Equal(t, &daemonSyncPeriod, opts.SyncPeriod)
+	require.NotNil(t, opts.DefaultTransform, "the managed fields are not cached")
 	require.Nil(t, opts.DefaultLabelSelector)
 	require.Len(t, opts.ByObject, 2)
 	require.Equal(t, fields.OneTermEqualSelector("spec.nodeName", "node"), podOptions(opts).Field)

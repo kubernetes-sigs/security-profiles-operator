@@ -75,3 +75,19 @@ func TestWatchNamespaces(t *testing.T) {
 	t.Setenv(RestrictNamespaceEnvKey, "")
 	require.Empty(t, WatchNamespaces())
 }
+
+func TestEnvEnabled(t *testing.T) {
+	// Note: this test cannot run in parallel because environment variables
+	// are global.
+	const key = "SPO_TEST_ENV_ENABLED"
+
+	t.Setenv(key, "")
+	require.False(t, EnvEnabled(key))
+
+	for value, want := range map[string]bool{
+		"true": true, "1": true, "false": false, "": false, "yes": false,
+	} {
+		t.Setenv(key, value)
+		require.Equal(t, want, EnvEnabled(key), value)
+	}
+}

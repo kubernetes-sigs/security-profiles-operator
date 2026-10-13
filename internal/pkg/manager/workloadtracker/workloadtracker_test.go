@@ -18,7 +18,9 @@ package workloadtracker
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -32,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	profilebindingapi "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/utiltest"
 )
 
@@ -180,6 +183,227 @@ func TestTrackKeepsConcurrentlyTrackedWorkload(t *testing.T) {
 
 	require.NoError(t, sut.Track(t.Context(), testBinding(), "pod-a"))
 	require.Equal(t, []string{"pod-b", "pod-a"}, stored(t, c).Status.ActiveWorkloads)
+}
+
+// The list of workloads is capped. It only gets filled up again from the
+// users of the object once it runs empty, so that the finalizer stays while
+// any workload uses the object, and the users are not looked up for every
+// removed workload.
+func TestTrackCapsWorkloads(t *testing.T) {
+	t.Parallel()
+
+	pb := testBinding()
+	for i := range MaxWorkloads {
+		pb.Status.ActiveWorkloads = append(pb.Status.ActiveWorkloads, fmt.Sprintf("pod-%04d", i))
+	}
+
+	sut, c := newTracker(t, &interceptor.Funcs{}, pb)
+
+	userLookups := 0
+	users := []string{"pod-z", "pod-x", "pod-0999", "pod-y"}
+	sut.Users = func(context.Context, *profilebindingapi.ProfileBinding) ([]string, error) {
+		userLookups++
+
+		return users, nil
+	}
+
+	// A full list does not grow.
+	require.NoError(t, sut.Track(t.Context(), testBinding(), "pod-x"))
+	require.Len(t, stored(t, c).Status.ActiveWorkloads, MaxWorkloads)
+	require.NotContains(t, stored(t, c).Status.ActiveWorkloads, "pod-x")
+
+	// The users are not looked up while workloads are left.
+	for i := range MaxWorkloads - 1 {
+		require.NoError(t, sut.Untrack(t.Context(), testBinding(), fmt.Sprintf("pod-%04d", i)))
+	}
+
+	require.Equal(t, []string{"pod-0999"}, stored(t, c).Status.ActiveWorkloads)
+	require.Zero(t, userLookups)
+
+	// The emptied list gets filled up with the other users in sort order.
+	require.NoError(t, sut.Untrack(t.Context(), testBinding(), "pod-0999"))
+	require.Equal(t, 1, userLookups)
+	require.Equal(t, []string{"pod-x", "pod-y", "pod-z"}, stored(t, c).Status.ActiveWorkloads)
+	require.Contains(t, stored(t, c).Finalizers, testFinalizer)
+
+	// The finalizer goes once no user is left.
+	users = nil
+
+	for _, workload := range []string{"pod-x", "pod-y", "pod-z"} {
+		require.NoError(t, sut.Untrack(t.Context(), testBinding(), workload))
+	}
+
+	require.Empty(t, stored(t, c).Status.ActiveWorkloads)
+	require.NotContains(t, stored(t, c).Finalizers, testFinalizer)
+}
+
+// A failing lookup of the users keeps the last workload and the finalizer,
+// which would go otherwise while users may be left, and the error lets the
+// untrack get retried. Other workloads get removed without the lookup.
+func TestUntrackUsersError(t *testing.T) {
+	t.Parallel()
+
+	pb := testBinding()
+	pb.Finalizers = []string{testFinalizer}
+	pb.Status.ActiveWorkloads = []string{"pod-a", "pod-b"}
+
+	sut, c := newTracker(t, &interceptor.Funcs{}, pb)
+
+	fail := true
+	sut.Users = func(context.Context, *profilebindingapi.ProfileBinding) ([]string, error) {
+		if fail {
+			return nil, errTest
+		}
+
+		return nil, nil
+	}
+
+	require.NoError(t, sut.Untrack(t.Context(), testBinding(), "pod-a"))
+	require.Equal(t, []string{"pod-b"}, stored(t, c).Status.ActiveWorkloads)
+
+	require.ErrorIs(t, sut.Untrack(t.Context(), testBinding(), "pod-b"), errTest)
+	require.Equal(t, []string{"pod-b"}, stored(t, c).Status.ActiveWorkloads)
+	require.Contains(t, stored(t, c).Finalizers, testFinalizer)
+
+	fail = false
+
+	require.NoError(t, sut.Untrack(t.Context(), testBinding(), "pod-b"))
+	require.Empty(t, stored(t, c).Status.ActiveWorkloads)
+	require.NotContains(t, stored(t, c).Finalizers, testFinalizer)
+}
+
+// jsonReader reads like the API server client, which decodes the JSON of the
+// object into the provided one and leaves the fields which the JSON omits as
+// they are.
+type jsonReader struct {
+	client.Client
+}
+
+func (r jsonReader) Get(
+	ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption,
+) error {
+	stored := &profilebindingapi.ProfileBinding{}
+	if err := r.Client.Get(ctx, key, stored, opts...); err != nil {
+		return err
+	}
+
+	raw, err := json.Marshal(stored)
+	if err != nil {
+		return err
+	}
+
+	return json.Unmarshal(raw, obj)
+}
+
+// A write of an outdated object conflicts, and the retry reads the object
+// again. Its empty list of workloads is left out of the JSON, so the outdated
+// list must not survive the read, otherwise the finalizer never goes.
+func TestUntrackConflictWithEmptyStoredList(t *testing.T) {
+	t.Parallel()
+
+	pb := testBinding()
+	pb.Finalizers = []string{testFinalizer}
+
+	sut, c := newTracker(t, &interceptor.Funcs{}, pb)
+	sut.Reader = jsonReader{Client: c}
+
+	outdated := stored(t, c)
+	outdated.Status.ActiveWorkloads = []string{"pod-a"}
+	outdated.ResourceVersion = "1"
+
+	require.NoError(t, sut.Untrack(t.Context(), outdated, "pod-a"))
+	require.NotContains(t, stored(t, c).Finalizers, testFinalizer)
+
+	// The object of the caller stays as it is.
+	require.Equal(t, []string{"pod-a"}, outdated.Status.ActiveWorkloads)
+	require.Equal(t, []string{testFinalizer}, outdated.Finalizers)
+}
+
+// Tracking a workload with the cached object costs no read from the API
+// server, unless the write conflicts.
+func TestTrackWritesCachedObject(t *testing.T) {
+	t.Parallel()
+
+	sut, c := newTracker(t, &interceptor.Funcs{}, testBinding())
+
+	apiReads := 0
+	sut.Reader = fake.NewClientBuilder().
+		WithScheme(utiltest.NewScheme(t)).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(
+				ctx context.Context, _ client.WithWatch, key client.ObjectKey,
+				obj client.Object, opts ...client.GetOption,
+			) error {
+				apiReads++
+
+				return c.Get(ctx, key, obj, opts...)
+			},
+		}).
+		Build()
+
+	cached := stored(t, c)
+	require.NoError(t, sut.Track(t.Context(), cached, "pod-a"))
+	require.Zero(t, apiReads)
+	require.Equal(t, []string{"pod-a"}, stored(t, c).Status.ActiveWorkloads)
+
+	// An outdated object conflicts and gets read again.
+	outdated := cached.DeepCopy()
+	outdated.Status.ActiveWorkloads = nil
+	outdated.ResourceVersion = "1"
+
+	require.NoError(t, sut.Track(t.Context(), outdated, "pod-b"))
+	require.Equal(t, 1, apiReads)
+	require.Equal(t, []string{"pod-a", "pod-b"}, stored(t, c).Status.ActiveWorkloads)
+
+	// An object which needs no change may be outdated, so it is read again.
+	require.NoError(t, sut.Track(t.Context(), stored(t, c), "pod-b"))
+	require.Equal(t, 2, apiReads)
+}
+
+// Tracking a workload with a full cached object which has the finalizer costs
+// no request to the API server, as every event of every pod beyond the cap
+// would do otherwise.
+func TestTrackFullCachedObject(t *testing.T) {
+	t.Parallel()
+
+	pb := testBinding()
+	pb.Finalizers = []string{testFinalizer}
+
+	for i := range MaxWorkloads {
+		pb.Status.ActiveWorkloads = append(pb.Status.ActiveWorkloads, fmt.Sprintf("pod-%04d", i))
+	}
+
+	requests := 0
+	sut, c := newTracker(t, &interceptor.Funcs{
+		Get: func(
+			ctx context.Context, cl client.WithWatch, key client.ObjectKey,
+			obj client.Object, opts ...client.GetOption,
+		) error {
+			requests++
+
+			return cl.Get(ctx, key, obj, opts...)
+		},
+		SubResourcePatch: func(
+			ctx context.Context, cl client.Client, sub string, obj client.Object,
+			patch client.Patch, opts ...client.SubResourcePatchOption,
+		) error {
+			requests++
+
+			return cl.SubResource(sub).Patch(ctx, obj, patch, opts...)
+		},
+	}, pb)
+
+	cached := stored(t, c)
+	requests = 0
+
+	require.NoError(t, sut.Track(t.Context(), cached, "pod-x"))
+	require.Zero(t, requests)
+
+	// Without the finalizer, it gets added.
+	require.NoError(t, util.RemoveFinalizer(t.Context(), c, cached, testFinalizer))
+	require.NoError(t, sut.Track(t.Context(), stored(t, c), "pod-x"))
+	require.Contains(t, stored(t, c).Finalizers, testFinalizer)
+	require.NotContains(t, stored(t, c).Status.ActiveWorkloads, "pod-x")
 }
 
 func TestPodRequests(t *testing.T) {

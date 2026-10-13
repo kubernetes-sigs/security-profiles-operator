@@ -323,15 +323,21 @@ func (nsf *StatusClient) createNodeStatus(
 
 		// The status may be left over from a profile of the same name which
 		// got deleted, so its owner and labels become the ones of this
-		// profile. The garbage collector would delete it otherwise.
+		// profile. The garbage collector would delete it otherwise. A status
+		// written before the node name moved into the spec gets it as well.
 		if !equality.Semantic.DeepEqual(existing.OwnerReferences, s.OwnerReferences) ||
-			!labels.SelectorFromSet(s.Labels).Matches(labels.Set(existing.Labels)) {
+			!labels.SelectorFromSet(s.Labels).Matches(labels.Set(existing.Labels)) ||
+			existing.Spec.NodeName == "" {
 			if existing.Labels == nil {
 				existing.Labels = map[string]string{}
 			}
 
 			maps.Copy(existing.Labels, s.Labels)
 			existing.OwnerReferences = s.OwnerReferences
+
+			if existing.Spec.NodeName == "" {
+				existing.Spec.NodeName = nsf.nodeName
+			}
 
 			if updateErr := nsf.client.Update(ctx, existing); updateErr != nil {
 				return fmt.Errorf("updating existing node status: %w", updateErr)

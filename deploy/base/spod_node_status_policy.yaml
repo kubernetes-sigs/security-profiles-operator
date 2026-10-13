@@ -1,0 +1,116 @@
+---
+# Each daemon creates, updates and deletes the SecurityProfileNodeStatus of
+# its own node for every profile, see internal/pkg/nodestatus/nodestatus.go.
+# RBAC cannot restrict a write to the objects of one node, and every daemon
+# uses the same service account, so this policy limits the writes of the spod
+# service account to the node statuses of the node of the requesting pod.
+# Otherwise a compromised node could delete the node statuses of other nodes
+# or report profiles as installed there.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: spo-spod-node-statuses
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - apiGroups: ["security-profiles-operator.x-k8s.io"]
+      apiVersions: ["v1"]
+      operations: ["CREATE", "UPDATE", "DELETE"]
+      resources:
+      - securityprofilenodestatuses
+      - securityprofilenodestatuses/status
+  matchConditions:
+  # The node statuses are cluster scoped, and the operator namespace is not
+  # known here, so this matches the spod service account of any namespace.
+  - name: spod-service-account
+    expression: >-
+      request.userInfo.username.matches('^system:serviceaccount:[^:]+:spod$')
+  variables:
+  # The node of the pod the service account token was issued for, see the
+  # spo-spod-jobs policy. Without the node name claim no write can be
+  # attributed to a node, and denying them would keep every daemon from
+  # installing profiles, so the writes are not restricted then.
+  - name: requestNodes
+    expression: >-
+      has(request.userInfo.extra) &&
+      'authentication.kubernetes.io/node-name' in request.userInfo.extra ?
+      request.userInfo.extra['authentication.kubernetes.io/node-name'] : []
+  # The node statuses before and after the request. A deletion has no new
+  # object and a creation no old one.
+  - name: statuses
+    expression: >-
+      request.operation == 'CREATE' ? [object] :
+      request.operation == 'DELETE' ? [oldObject] : [object, oldObject]
+  # Whether each of the statuses belongs to the node of the requesting pod.
+  # Statuses written before the node name moved into the spec have none, so
+  # they are attributed to a node by the spo.x-k8s.io/node-name label, which
+  # the releases of that time set to the node name as it is. Statuses of node
+  # names longer than a label value could not be written then, so a label
+  # never has to match the hashed form of a long node name. Only a status
+  # without the label is attributed by its name, which ends with the node
+  # name. The name cannot tell node "b" from node "a-b", which only matters
+  # for unlabeled leftovers of old releases. The daemons repair such statuses
+  # and remove the legacy ones named <profile>-<node>.
+  - name: ownStatuses
+    expression: >-
+      variables.statuses.map(s, s.?spec.?nodeName.orValue('') != '' ?
+      s.spec.nodeName in variables.requestNodes :
+      s.metadata.?labels[?'spo.x-k8s.io/node-name'].hasValue() ?
+      s.metadata.labels['spo.x-k8s.io/node-name'] in variables.requestNodes :
+      variables.requestNodes.exists(n, s.metadata.name.endsWith('-' + n)))
+  - name: label
+    expression: >-
+      object.metadata.?labels[?'spo.x-k8s.io/node-name']
+  - name: oldLabel
+    expression: >-
+      oldObject.metadata.?labels[?'spo.x-k8s.io/node-name']
+  validations:
+  - expression: >-
+      size(variables.requestNodes) == 0 ||
+      (request.operation != 'CREATE' || object.spec.nodeName in variables.requestNodes) &&
+      variables.ownStatuses.all(own, own)
+    message: >-
+      The spod service account may only write the node statuses of the node
+      of the requesting pod
+    reason: Forbidden
+  # The operator looks node statuses up by this label as well. Node names
+  # longer than a label value are hashed into it, which cannot be checked
+  # here. A status without the label gets it when a daemon repairs it.
+  - expression: >-
+      !(request.operation == 'CREATE' ||
+      request.operation == 'UPDATE' && !variables.oldLabel.hasValue() && variables.label.hasValue()) ||
+      (object.?spec.?nodeName.orValue('') != '' ?
+      size(object.spec.nodeName) > 63 || variables.label == optional.of(object.spec.nodeName) :
+      size(variables.requestNodes) == 0 || variables.label.orValue('') in variables.requestNodes)
+    message: >-
+      The spo.x-k8s.io/node-name label of a node status has to name its node
+    reason: Forbidden
+  - expression: >-
+      request.operation != 'UPDATE' || !variables.oldLabel.hasValue() ||
+      variables.label == variables.oldLabel
+    message: >-
+      The spod service account must not change or remove the
+      spo.x-k8s.io/node-name label of a node status
+    reason: Forbidden
+  # The daemons name the status of a node <kind>-<profile>-<node>, see
+  # perNodeStatusName in internal/pkg/nodestatus. Checking the end of the name
+  # keeps a node from taking the name of the status of another node first,
+  # which would then never get its own status. Like these names themselves,
+  # the check cannot tell node "b" of profile "p-a" from node "a-b" of
+  # profile "p". Names which do not fit into a DNS label are hashed into one
+  # of 63 characters, which cannot be checked here.
+  - expression: >-
+      request.operation != 'CREATE' || size(object.metadata.name) >= 63 ||
+      object.metadata.name.endsWith('-' + object.spec.nodeName)
+    message: >-
+      The name of a node status has to end with the name of its node
+    reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: spo-spod-node-statuses
+spec:
+  policyName: spo-spod-node-statuses
+  validationActions: ["Deny"]

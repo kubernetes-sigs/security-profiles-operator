@@ -46,15 +46,6 @@ func mergedObjectMeta(profileName, recordingName, namespace string) *metav1.Obje
 	}
 }
 
-func mergedProfileName(recordingName string, prf metav1.Object) string {
-	suffix := prf.GetLabels()[profilerecordingapi.ProfileToContainerLabel]
-	if suffix == "" {
-		suffix = prf.GetName()
-	}
-
-	return fmt.Sprintf("%s-%s", recordingName, suffix)
-}
-
 func mergeMergeableProfiles(profiles []mergeableProfile) (mergeableProfile, error) {
 	if len(profiles) == 0 {
 		return nil, errors.New("cannot merge empty list of profiles")

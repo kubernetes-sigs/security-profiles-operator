@@ -153,8 +153,9 @@ spec:
             description: status contains the observed state of the ProfileBinding.
             properties:
               activeWorkloads:
-                description: activeWorkloads lists the workloads currently using this
-                  binding.
+                description: |-
+                  activeWorkloads lists the workloads currently using this binding. It
+                  holds at most 1000 workloads.
                 items:
                   type: string
                 type: array
@@ -273,8 +274,11 @@ spec:
           ProfileRecording is the Schema for the profilerecordings API.
 
           The name is used as a label value on the recorded profiles, so it is
-          limited to 63 characters. Existing objects are exempt, so that they can
-          still be updated and deleted.
+          limited to 63 characters. The recorded profiles of a SelinuxProfile
+          recording are named after it, so its name has to be a valid SelinuxProfile
+          name, which starts with a letter and contains no dots. Names which break
+          these rules never recorded a profile. Existing objects are exempt, so that
+          they can still be updated and deleted.
         properties:
           apiVersion:
             description: |-
@@ -410,8 +414,9 @@ spec:
             description: status contains the observed state of the ProfileRecording.
             properties:
               activeWorkloads:
-                description: activeWorkloads lists the workloads currently using this
-                  recording.
+                description: |-
+                  activeWorkloads lists the workloads currently using this recording. It
+                  holds at most 1000 workloads.
                 items:
                   type: string
                 type: array
@@ -484,6 +489,11 @@ spec:
         - message: name must be no more than 63 characters
           optionalOldSelf: true
           rule: oldSelf.hasValue() || size(self.metadata.name) <= 63
+        - message: the name of a SelinuxProfile recording must start with a letter
+            and may only contain lowercase alphanumeric characters and '-'
+          optionalOldSelf: true
+          rule: (oldSelf.hasValue() && oldSelf.value().spec.kind == 'SelinuxProfile')
+            || self.spec.kind != 'SelinuxProfile' || self.metadata.name.matches('^[a-z][-a-z0-9]*$')
     served: true
     storage: true
     subresources:
@@ -1240,8 +1250,9 @@ spec:
                   hostProcVolumePath is the path for specifying a custom host /proc
                   volume, which is required for the log-enricher as well as bpf-recorder
                   to retrieve the container ID for a process ID. This can be helpful for
-                  nested environments, for example when using "kind".
-                pattern: ^/proc(/.*)?$
+                  nested environments, for example when using "kind". It must not
+                  contain ".." elements, which host path volumes do not allow.
+                pattern: ^/proc(/([^/.\n][^/\n]*|[.]([^/.\n][^/\n]*)?|[.][.][^/\n]+)?)*$
                 type: string
               imagePullSecrets:
                 description: |-

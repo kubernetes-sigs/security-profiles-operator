@@ -288,8 +288,9 @@ spec:
                   hostProcVolumePath is the path for specifying a custom host /proc
                   volume, which is required for the log-enricher as well as bpf-recorder
                   to retrieve the container ID for a process ID. This can be helpful for
-                  nested environments, for example when using "kind".
-                pattern: ^/proc(/.*)?$
+                  nested environments, for example when using "kind". It must not
+                  contain ".." elements, which host path volumes do not allow.
+                pattern: ^/proc(/([^/.\n][^/\n]*|[.]([^/.\n][^/\n]*)?|[.][.][^/\n]+)?)*$
                 type: string
               imagePullSecrets:
                 description: |-

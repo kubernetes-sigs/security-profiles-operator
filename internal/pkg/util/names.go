@@ -21,6 +21,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"slices"
 
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -155,6 +156,13 @@ func IsLegacyRecordedProfile(profile client.Object) bool {
 	_, hasNamespace := labels[profilerecordingapi.ProfileToRecordingNamespaceLabel]
 
 	return hasName && !hasNamespace
+}
+
+// RecordsContainer returns true if the recording selects the container: an
+// unset container list selects every container of the pod.
+func RecordsContainer(recording *profilerecordingapi.ProfileRecording, containerName string) bool {
+	return recording.Spec.Containers == nil ||
+		slices.Contains(recording.Spec.Containers, containerName)
 }
 
 // RecordedProfileName returns the name of the profile which a recording

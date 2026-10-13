@@ -153,8 +153,9 @@ spec:
             description: status contains the observed state of the ProfileBinding.
             properties:
               activeWorkloads:
-                description: activeWorkloads lists the workloads currently using this
-                  binding.
+                description: |-
+                  activeWorkloads lists the workloads currently using this binding. It
+                  holds at most 1000 workloads.
                 items:
                   type: string
                 type: array
@@ -273,8 +274,11 @@ spec:
           ProfileRecording is the Schema for the profilerecordings API.
 
           The name is used as a label value on the recorded profiles, so it is
-          limited to 63 characters. Existing objects are exempt, so that they can
-          still be updated and deleted.
+          limited to 63 characters. The recorded profiles of a SelinuxProfile
+          recording are named after it, so its name has to be a valid SelinuxProfile
+          name, which starts with a letter and contains no dots. Names which break
+          these rules never recorded a profile. Existing objects are exempt, so that
+          they can still be updated and deleted.
         properties:
           apiVersion:
             description: |-
@@ -410,8 +414,9 @@ spec:
             description: status contains the observed state of the ProfileRecording.
             properties:
               activeWorkloads:
-                description: activeWorkloads lists the workloads currently using this
-                  recording.
+                description: |-
+                  activeWorkloads lists the workloads currently using this recording. It
+                  holds at most 1000 workloads.
                 items:
                   type: string
                 type: array
@@ -484,6 +489,11 @@ spec:
         - message: name must be no more than 63 characters
           optionalOldSelf: true
           rule: oldSelf.hasValue() || size(self.metadata.name) <= 63
+        - message: the name of a SelinuxProfile recording must start with a letter
+            and may only contain lowercase alphanumeric characters and '-'
+          optionalOldSelf: true
+          rule: (oldSelf.hasValue() && oldSelf.value().spec.kind == 'SelinuxProfile')
+            || self.spec.kind != 'SelinuxProfile' || self.metadata.name.matches('^[a-z][-a-z0-9]*$')
     served: true
     storage: true
     subresources:
@@ -1240,8 +1250,9 @@ spec:
                   hostProcVolumePath is the path for specifying a custom host /proc
                   volume, which is required for the log-enricher as well as bpf-recorder
                   to retrieve the container ID for a process ID. This can be helpful for
-                  nested environments, for example when using "kind".
-                pattern: ^/proc(/.*)?$
+                  nested environments, for example when using "kind". It must not
+                  contain ".." elements, which host path volumes do not allow.
+                pattern: ^/proc(/([^/.\n][^/\n]*|[.]([^/.\n][^/\n]*)?|[.][.][^/\n]+)?)*$
                 type: string
               imagePullSecrets:
                 description: |-
@@ -4224,16 +4235,6 @@ metadata:
     app: security-profiles-operator
   name: spo-metrics-client
 rules:
-- apiGroups:
-  - ""
-  resources:
-  - pods
-  - services
-  - endpoints
-  verbs:
-  - get
-  - list
-  - watch
 - nonResourceURLs:
   - /metrics
   - /metrics-spod
@@ -4356,6 +4357,81 @@ kind: ValidatingAdmissionPolicy
 metadata:
   labels:
     app: security-profiles-operator
+  name: spo-spod-node-statuses
+spec:
+  failurePolicy: Fail
+  matchConditions:
+  - expression: request.userInfo.username.matches('^system:serviceaccount:[^:]+:spod$')
+    name: spod-service-account
+  matchConstraints:
+    resourceRules:
+    - apiGroups:
+      - security-profiles-operator.x-k8s.io
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      - DELETE
+      resources:
+      - securityprofilenodestatuses
+      - securityprofilenodestatuses/status
+  validations:
+  - expression: size(variables.requestNodes) == 0 || (request.operation != 'CREATE'
+      || object.spec.nodeName in variables.requestNodes) && variables.ownStatuses.all(own,
+      own)
+    message: The spod service account may only write the node statuses of the node
+      of the requesting pod
+    reason: Forbidden
+  - expression: '!(request.operation == ''CREATE'' || request.operation == ''UPDATE''
+      && !variables.oldLabel.hasValue() && variables.label.hasValue()) || (object.?spec.?nodeName.orValue('''')
+      != '''' ? size(object.spec.nodeName) > 63 || variables.label == optional.of(object.spec.nodeName)
+      : size(variables.requestNodes) == 0 || variables.label.orValue('''') in variables.requestNodes)'
+    message: The spo.x-k8s.io/node-name label of a node status has to name its node
+    reason: Forbidden
+  - expression: request.operation != 'UPDATE' || !variables.oldLabel.hasValue() ||
+      variables.label == variables.oldLabel
+    message: The spod service account must not change or remove the spo.x-k8s.io/node-name
+      label of a node status
+    reason: Forbidden
+  - expression: request.operation != 'CREATE' || size(object.metadata.name) >= 63
+      || object.metadata.name.endsWith('-' + object.spec.nodeName)
+    message: The name of a node status has to end with the name of its node
+    reason: Forbidden
+  variables:
+  - expression: 'has(request.userInfo.extra) && ''authentication.kubernetes.io/node-name''
+      in request.userInfo.extra ? request.userInfo.extra[''authentication.kubernetes.io/node-name'']
+      : []'
+    name: requestNodes
+  - expression: 'request.operation == ''CREATE'' ? [object] : request.operation ==
+      ''DELETE'' ? [oldObject] : [object, oldObject]'
+    name: statuses
+  - expression: 'variables.statuses.map(s, s.?spec.?nodeName.orValue('''') != ''''
+      ? s.spec.nodeName in variables.requestNodes : s.metadata.?labels[?''spo.x-k8s.io/node-name''].hasValue()
+      ? s.metadata.labels[''spo.x-k8s.io/node-name''] in variables.requestNodes :
+      variables.requestNodes.exists(n, s.metadata.name.endsWith(''-'' + n)))'
+    name: ownStatuses
+  - expression: object.metadata.?labels[?'spo.x-k8s.io/node-name']
+    name: label
+  - expression: oldObject.metadata.?labels[?'spo.x-k8s.io/node-name']
+    name: oldLabel
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  labels:
+    app: security-profiles-operator
+  name: spo-spod-node-statuses
+spec:
+  policyName: spo-spod-node-statuses
+  validationActions:
+  - Deny
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  labels:
+    app: security-profiles-operator
   name: spo-spod-profiles
 spec:
   failurePolicy: Fail
@@ -4444,6 +4520,69 @@ metadata:
   name: spo-spod-profiles
 spec:
   policyName: spo-spod-profiles
+  validationActions:
+  - Deny
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  labels:
+    app: security-profiles-operator
+  name: spo-spod-recordings
+spec:
+  failurePolicy: Fail
+  matchConditions:
+  - expression: request.userInfo.username.matches('^system:serviceaccount:[^:]+:spod$')
+    name: spod-service-account
+  matchConstraints:
+    resourceRules:
+    - apiGroups:
+      - security-profiles-operator.x-k8s.io
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - profilerecordings
+  validations:
+  - expression: request.operation == 'UPDATE'
+    message: The spod service account must not create recordings
+    reason: Forbidden
+  - expression: variables.specs[0] == variables.specs[1]
+    message: The spod service account must not change the spec of recordings
+    reason: Forbidden
+  - expression: object.metadata.?labels.orValue({}) == oldObject.metadata.?labels.orValue({})
+      && object.metadata.?annotations.orValue({}) == oldObject.metadata.?annotations.orValue({})
+      && object.metadata.?ownerReferences.orValue([]) == oldObject.metadata.?ownerReferences.orValue([])
+    message: The spod service account must not change the labels, annotations or owner
+      references of recordings
+    reason: Forbidden
+  - expression: variables.oldFinalizers.all(f, f in variables.finalizers) && variables.finalizers.all(f,
+      f in variables.oldFinalizers || f == 'spo.x-k8s.io/has-unmerged-profiles')
+    message: The spod service account may only add the spo.x-k8s.io/has-unmerged-profiles
+      finalizer to recordings
+    reason: Forbidden
+  variables:
+  - expression: '[object, oldObject].map(o, o.?spec.orValue({})).map(s, [ dyn(s.?kind.orValue('''')),
+      dyn(s.?recorder.orValue('''')), dyn(s.?mergeStrategy.orValue(''None'')), dyn(s.?podSelector.hasValue()),
+      dyn(s.?podSelector.?matchLabels.orValue({})), dyn(s.?podSelector.?matchExpressions.orValue([]).map(e,
+      [ dyn(e.?key.orValue('''')), dyn(e.?operator.orValue('''')), dyn(e.?values.orValue([]))])),
+      dyn(s.?containers.orValue([])), dyn(s.?disableProfileAfterRecording.orValue(false))])'
+    name: specs
+  - expression: object.metadata.?finalizers.orValue([])
+    name: finalizers
+  - expression: oldObject.metadata.?finalizers.orValue([])
+    name: oldFinalizers
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  labels:
+    app: security-profiles-operator
+  name: spo-spod-recordings
+spec:
+  policyName: spo-spod-recordings
   validationActions:
   - Deny
 ---
@@ -5024,3 +5163,42 @@ spec:
         maxSkew: 1
         topologyKey: topology.kubernetes.io/zone
         whenUnsatisfiable: ScheduleAnyway
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: spo-prometheus-k8s
+  namespace: security-profiles-operator
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  - services
+  - endpoints
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - discovery.k8s.io
+  resources:
+  - endpointslices
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: spo-prometheus-k8s
+  namespace: security-profiles-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: spo-prometheus-k8s
+subjects:
+- kind: ServiceAccount
+  name: prometheus-k8s
+  namespace: openshift-monitoring

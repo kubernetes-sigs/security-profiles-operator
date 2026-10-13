@@ -358,7 +358,51 @@ func TestUpdatePodSPODContextDone(t *testing.T) {
 
 	require.False(t, resp.Allowed)
 	require.Equal(t, int32(http.StatusInternalServerError), resp.Result.Code)
-	require.Zero(t, mock.GetAppArmorProfileCallCount())
+	require.Equal(t, 1, mock.GetAppArmorProfileCallCount(), "the profile is not retried")
+}
+
+// An installed profile gets bound without reading the SPOD, so a failing read
+// of the SPOD does not reject the pod.
+func TestUpdatePodInstalledProfileSkipsSPOD(t *testing.T) {
+	t.Parallel()
+
+	mock := &bindingfakes.FakeImpl{}
+	mock.GetAppArmorProfileReturns(&apparmorprofileapi.AppArmorProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: "profile"},
+		Status: apparmorprofileapi.AppArmorProfileStatus{
+			StatusBase: profilebaseapi.StatusBase{
+				Status: secprofnodestatusapi.ProfileStateInstalled,
+			},
+		},
+	}, nil)
+	mock.GetSPODReturns(nil, errTest)
+
+	pod, _, resp := newTestBinder(t, mock).updatePod(
+		t.Context(),
+		[]profilebindingapi.ProfileBinding{{
+			ObjectMeta: metav1.ObjectMeta{Name: "binding"},
+			Spec: profilebindingapi.ProfileBindingSpec{
+				ProfileRef: profilebindingapi.ProfileRef{
+					Kind: profilebindingapi.ProfileBindingKindAppArmorProfile,
+					Name: "profile",
+				},
+				Image: "foo",
+			},
+		}},
+		&admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
+			Operation: admissionv1.Create,
+			Object:    rawObject(t, testPod),
+		}},
+	)
+
+	require.Nil(t, resp)
+	require.Equal(
+		t,
+		"profile",
+		*pod.Spec.Containers[0].SecurityContext.AppArmorProfile.LocalhostProfile,
+	)
+	require.Zero(t, mock.GetSPODCallCount())
+	require.Equal(t, 1, mock.GetAppArmorProfileCallCount())
 }
 
 // Bindings to profiles of enabled kinds without status are rejected, because

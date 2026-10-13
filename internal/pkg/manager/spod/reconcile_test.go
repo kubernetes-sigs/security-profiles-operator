@@ -265,6 +265,50 @@ func TestReconcileAdmissionPolicyFailure(t *testing.T) {
 	require.NoError(t, cl.Get(t.Context(), key, policy))
 }
 
+// A conflict while restoring an admission policy only means that the cache is
+// behind, so it is retried without an event.
+func TestReconcileAdmissionPolicyConflict(t *testing.T) {
+	t.Parallel()
+
+	spod := testSPOD()
+	spod.Status.StatePending()
+
+	var conflict atomic.Bool
+
+	r, cl, recorder := newReconcileTest(t, spod, &interceptor.Funcs{
+		Update: func(
+			ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption,
+		) error {
+			if _, ok := obj.(*admissionregv1.ValidatingAdmissionPolicy); ok && conflict.Load() {
+				return apierrors.NewConflict(schema.GroupResource{}, obj.GetName(), errTest)
+			}
+
+			return c.Update(ctx, obj, opts...)
+		},
+	})
+
+	reconcileSPOD(t, r)
+
+	key := client.ObjectKey{Name: bindata.RecordingProfilesPolicyName}
+	policy := &admissionregv1.ValidatingAdmissionPolicy{}
+	require.NoError(t, cl.Get(t.Context(), key, policy))
+
+	policy.Spec.Validations = nil
+	require.NoError(t, cl.Update(t.Context(), policy))
+
+	conflict.Store(true)
+
+	res, err := r.Reconcile(t.Context(), reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: config.SPOdName, Namespace: testNamespace},
+	})
+	require.NoError(t, err)
+	require.Equal(t, conflictRequeueDelay, res.RequeueAfter)
+
+	for len(recorder.Events) > 0 {
+		require.NotContains(t, <-recorder.Events, reasonCannotApplyAdmissionPolicies)
+	}
+}
+
 // The operator does not apply the webhook options to a static webhook
 // configuration, so the admission policy follows the recording webhook as it
 // is deployed, not the options.

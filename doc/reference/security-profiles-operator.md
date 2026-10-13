@@ -103,7 +103,7 @@ run the non root enabler
 
 **--apparmor, -a**: install the AppArmor profiles of the operator
 
-**--runtime, -r**="": the container runtime in the cluster (cri-o, containerd or docker), only logged
+**--runtime, -r**="": the container runtime in the cluster (cri-o, containerd or docker), only logged, the operator does not set it
 
 ### log-enricher, l
 

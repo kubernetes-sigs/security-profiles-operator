@@ -997,7 +997,7 @@ func TestContainersByImage(t *testing.T) {
 
 			got := map[string][]string{}
 
-			for image, ctrs := range containersByImage(podContainers(&corev1.Pod{Spec: *tc.podSpec})) {
+			for image, ctrs := range containersByImage(util.PodContainers(&corev1.Pod{Spec: *tc.podSpec})) {
 				for _, c := range ctrs {
 					got[image] = append(got[image], c.Name)
 				}

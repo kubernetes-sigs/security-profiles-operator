@@ -102,7 +102,9 @@ SPO using the provided manifest:
 $ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/main/examples/olm/operatorhub-io.yaml
 ```
 
-SPO would be then installed in the `security-profiles-operator` namespace. To troubleshoot the installation,
+SPO would be then installed in the `security-profiles-operator` namespace. Its `OperatorGroup` targets all
+namespaces, see [Restricting to a Single Namespace when installing using OLM](#restricting-to-a-single-namespace-when-installing-using-olm)
+to restrict the operator. To troubleshoot the installation,
 check the state of the `Subscription`, `CSV` and `InstallPlan` objects in the `security-profiles-operator` namespace:
 
 ```sh

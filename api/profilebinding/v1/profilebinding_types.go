@@ -94,7 +94,8 @@ type ProfileBindingStatus struct {
 	// is installed.
 	common.ConditionedStatus `json:",inline"`
 
-	// activeWorkloads lists the workloads currently using this binding.
+	// activeWorkloads lists the workloads currently using this binding. It
+	// holds at most 1000 workloads.
 	// +optional
 	// +listType=set
 	ActiveWorkloads []string `json:"activeWorkloads,omitempty"`

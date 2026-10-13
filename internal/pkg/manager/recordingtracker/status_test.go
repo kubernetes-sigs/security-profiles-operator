@@ -115,8 +115,9 @@ func statusRecording(
 			Generation: 1,
 		},
 		Spec: profilerecordingapi.ProfileRecordingSpec{
-			Kind:     profilerecordingapi.ProfileRecordingKindSeccompProfile,
-			Recorder: recorder,
+			Kind:        profilerecordingapi.ProfileRecordingKindSeccompProfile,
+			Recorder:    recorder,
+			PodSelector: &metav1.LabelSelector{},
 		},
 	}
 }
@@ -361,6 +362,7 @@ func TestRecordingStatusReportsProfileConflicts(t *testing.T) {
 				config.SeccompProfileRecordBpfAnnotationKey + "other": "other_other_12345_1",
 			},
 		},
+		Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "nginx"}, {Name: "other"}}},
 	}
 
 	partial := seccompProfile("recording-redis-xyz", map[string]string{

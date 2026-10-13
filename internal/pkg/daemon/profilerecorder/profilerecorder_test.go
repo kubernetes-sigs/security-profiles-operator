@@ -2985,8 +2985,8 @@ func TestResolveProfileTarget(t *testing.T) {
 	}
 }
 
-// The CRD and the webhook accept recording names with dots, which name valid
-// seccomp and AppArmor profiles, but no valid SELinux profiles.
+// Recording names with dots or a leading digit name valid seccomp and
+// AppArmor profiles, but no valid SELinux profiles.
 func TestValidateRecordingName(t *testing.T) {
 	t.Parallel()
 
@@ -3000,6 +3000,8 @@ func TestValidateRecordingName(t *testing.T) {
 		{recordingapi.ProfileRecordingKindAppArmorProfile, "my.recording", true},
 		{recordingapi.ProfileRecordingKindSelinuxProfile, "recording", true},
 		{recordingapi.ProfileRecordingKindSelinuxProfile, "my.recording", false},
+		{recordingapi.ProfileRecordingKindSelinuxProfile, "1recording", false},
+		{recordingapi.ProfileRecordingKindSeccompProfile, "1recording", true},
 		{recordingapi.ProfileRecordingKindSeccompProfile, "Invalid.Name", false},
 	} {
 		err := validateRecordingName(tc.kind, tc.name)
