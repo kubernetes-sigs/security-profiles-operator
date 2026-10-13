@@ -810,3 +810,27 @@ func TestObject2CILAllowsValidIdentifiers(t *testing.T) {
 	require.Contains(t, got, "(allow process foo-bar_1.process ( tcp_socket ( listen )))\n")
 	require.Contains(t, got, "(allow process other.process ( unix_stream_socket ( connectto )))\n")
 }
+
+// The capabilities within user namespaces stay allowed by default, so that
+// existing profiles keep working, and the SPOD can deny them.
+func TestObject2CILUserNamespaceCapabilities(t *testing.T) {
+	t.Parallel()
+
+	sp := &selinuxprofileapi.SelinuxProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: "foo"},
+		Spec: selinuxprofileapi.SelinuxProfileSpec{
+			Allow: selinuxprofileapi.Allow{
+				selinuxprofileapi.AllowSelf: {"cap_userns": {"sys_admin"}},
+			},
+		},
+	}
+
+	got, err := Object2CIL([]string{"container"}, nil, sp, nil)
+	require.NoError(t, err)
+	require.Contains(t, got, "(allow process foo.process ( cap_userns ( sys_admin )))\n")
+
+	_, err = Object2CIL([]string{"container"}, nil, sp, &Options{
+		DeniedClasses: []string{"cap_userns", "cap2_userns"},
+	})
+	require.ErrorContains(t, err, "class cap_userns is denied")
+}

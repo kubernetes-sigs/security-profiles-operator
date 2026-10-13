@@ -41,6 +41,8 @@
 #define PROT_EXEC 0x4  /* Page can be executed.  */
 #define PROT_NONE 0x0
 
+#define MAP_PRIVATE 0x02 /* Changes are private.  */
+
 #define S_IFMT 0170000
 #define S_IFIFO 0010000
 #define S_IFCHR 0020000
@@ -223,9 +225,10 @@ struct {
 #define LOST_SYSCALLS_MAP_FULL 1
 #define LOST_FILE_EVENT_BUSY 2
 #define LOST_COMPAT_SYSCALL 3
+#define LOST_UNRESOLVED_PATH 4
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
-    __uint(max_entries, 4);
+    __uint(max_entries, 5);
     __type(key, u32);
     __type(value, u64);
 } lost_events SEC(".maps");
@@ -276,7 +279,10 @@ struct {
 // The last file event sent per thread, used to discard repeated accesses.
 // Keeping it per thread makes the result independent of the CPUs a process
 // runs on, and a thread cannot preempt itself in the middle of an update.
+// The key tells the data the event got recorded for, a thread which moves to
+// another key has to report its files again.
 struct file_event_state {
+    u64 key;
     u64 inode;
     u64 flags;
     u32 dev;
@@ -513,10 +519,13 @@ static __always_inline u32 clear_apparmor(u32 mntns, u64 key)
         }
         return -1;
     }
-    // The userspace drops what it recorded, so the capabilities and sockets
+    // The userspace drops what it recorded, so the capabilities, sockets and
+    // the last file of the thread, the only one of a starting container,
     // have to be reported again.
     bpf_map_delete_elem(&recorded_caps, &key);
     bpf_map_delete_elem(&recorded_sockets, &key);
+    u32 tid = (u32)bpf_get_current_pid_tgid();
+    bpf_map_delete_elem(&last_file_event, &tid);
     return 0;
 }
 
@@ -716,6 +725,13 @@ static __always_inline int bpf_d_path_tetragon(struct path * path, char * buf,
     if (!fullpath) {
         return -1;
     }
+    // A path which does not fit into the buffer, or which has more components
+    // than d_path_local walks, is cut at its start. The rest still starts with
+    // a slash, it would be taken for another absolute path.
+    if (error != 0 || size < 0 || size >= (int)sz) {
+        count_lost(LOST_UNRESOLVED_PATH);
+        return -1;
+    }
     // make the ebpf verifier happy
     asm volatile("%[size] &= 0xfff;\n" : [size] "+r"(size));
     probe_read(buf, size, fullpath);
@@ -739,10 +755,12 @@ static __always_inline void register_fs_event_locked(
     // right away, with the same inode number on another device. Its path is
     // the one within the layer, which the workload never uses, so it is
     // discarded as well.
+    u64 key = get_key(mntns);
     u32 tid = (u32)bpf_get_current_pid_tgid();
     struct file_event_state * last =
         bpf_map_lookup_elem(&last_file_event, &tid);
-    bool same_file = last && inode_number && inode_number == last->inode &&
+    bool same_file = last && inode_number && key == last->key &&
+                     inode_number == last->inode &&
                      (dev == last->dev || (last->overlay && !overlay));
     if (same_file && (flags | last->flags) == last->flags) {
         // very noisy
@@ -783,7 +801,7 @@ static __always_inline void register_fs_event_locked(
 
     event->hdr.pid = pid;
     event->hdr.mntns = mntns;
-    event->hdr.key = get_key(mntns);
+    event->hdr.key = key;
     event->hdr.type = EVENT_TYPE_APPARMOR_FILE;
     event->hdr.flags = flags;
 
@@ -807,6 +825,7 @@ static __always_inline void register_fs_event_locked(
 
     if (last) {
         last->flags = same_file ? (flags | last->flags) : flags;
+        last->key = key;
         last->inode = inode_number;
         last->dev = dev;
         last->overlay = overlay;
@@ -814,6 +833,7 @@ static __always_inline void register_fs_event_locked(
     }
 
     struct file_event_state state = {
+        .key = key,
         .inode = inode_number,
         .flags = flags,
         .dev = dev,
@@ -904,9 +924,12 @@ int BPF_PROG(file_lock, struct file * file)
     return register_file_event(file, FLAG_WRITE);
 }
 
+// The hook gets the protection the caller requested and the one the kernel
+// applies, which can add PROT_EXEC. AppArmor checks the latter, see
+// common_mmap in security/apparmor/lsm.c.
 SEC("lsm/mmap_file")
-int BPF_PROG(mmap_file, struct file * file, unsigned long prot,
-             unsigned long flags)
+int BPF_PROG(mmap_file, struct file * file, unsigned long reqprot,
+             unsigned long prot, unsigned long flags)
 {
     if (!_is_recording_cached)
         return 0;
@@ -915,7 +938,10 @@ int BPF_PROG(mmap_file, struct file * file, unsigned long prot,
     if (prot & PROT_READ) {
         file_flags |= FLAG_READ;
     }
-    if (prot & PROT_WRITE) {
+    // A private mapping never writes to the file, like the copy on write
+    // data segments the loader maps. AppArmor only requires write access
+    // for shared writable mappings.
+    if ((prot & PROT_WRITE) && !(flags & MAP_PRIVATE)) {
         file_flags |= FLAG_WRITE;
     }
     if (prot & PROT_EXEC) {
@@ -1086,7 +1112,9 @@ static __always_inline void submit_exec_event(const __u8 * filename,
     exec_event->hdr.mntns = mntns;
     exec_event->hdr.key = get_key(mntns);
     exec_event->hdr.type = EVENT_TYPE_EXECVE_ENTER;
-    exec_event->hdr.flags = 0;
+    // When the process started, which tells it apart from a later process
+    // with the same PID, see submit_new_pid.
+    exec_event->hdr.flags = get_start_time();
 
     // Get filename (first argument)
     bpf_probe_read_user_str(&exec_event->filename, sizeof(exec_event->filename),
@@ -1264,9 +1292,10 @@ int sys_enter(struct trace_event_raw_sys_enter * args)
 {
     if (!_is_recording_cached)
         return 0;
-    // Sanity check for syscall ID range
+    // Sanity check for syscall ID range, an invalid syscall of -1 wraps
+    // around.
     u32 syscall_id = args->id;
-    if (syscall_id < 0 || syscall_id >= MAX_SYSCALLS) {
+    if (syscall_id >= MAX_SYSCALLS) {
         return 0;
     }
 

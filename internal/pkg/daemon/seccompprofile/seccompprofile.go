@@ -84,7 +84,6 @@ const (
 
 var (
 	errSeccompNotSupported = errors.New("seccomp not supported")
-	errSeccompProfileNil   = errors.New("seccomp profile cannot be nil")
 	errSavingProfile       = errors.New("cannot save profile")
 	errCreatingOperatorDir = errors.New("cannot create operator directory")
 
@@ -173,7 +172,7 @@ type Reconciler struct {
 	// without seccomp.
 	unsupported common.UnsupportedReports
 	// rejections remembers the profiles which got reported as rejected.
-	rejections rejectionReports
+	rejections common.Reports[rejection]
 	// pullFailures backs off the pulls of OCI base profiles which failed.
 	pullFailures pullFailures
 }
@@ -288,8 +287,7 @@ func (r *Reconciler) Setup(
 //   - A partial profile being merged, and the status label added by the
 //     node status client, are label changes.
 //   - Everything which waits for a change of the metadata, like pods which
-//     still use a disabled or deleted profile, or the node status which was
-//     just created, requeues itself after a delay.
+//     still use a disabled or deleted profile, requeues itself after a delay.
 var profileChangedPredicate = predicate.Or(
 	predicate.GenerationChangedPredicate{},
 	predicate.LabelChangedPredicate{},
@@ -327,7 +325,7 @@ func (r *Reconciler) handleAllowedSyscallsChanged(
 
 		// A profile which is still rejected gets reported again, because
 		// the reason may have changed.
-		r.rejections.forget(key)
+		r.rejections.Forget(key)
 
 		reconcileRequests = append(reconcileRequests, reconcile.Request{NamespacedName: key})
 	}
@@ -410,7 +408,7 @@ func (r *Reconciler) derivedProfileRequests(
 
 			// The base profile changed, so a rejection may have changed as
 			// well and gets reported again.
-			r.rejections.forget(key)
+			r.rejections.Forget(key)
 
 			requests = append(requests, reconcile.Request{NamespacedName: key})
 		}
@@ -434,24 +432,6 @@ func (r *Reconciler) checkSeccomp() error {
 	return nil
 }
 
-// reportUnsupported reports a profile which a node without seccomp cannot
-// install. Every profile is counted in the error metric and gets a warning
-// event once, and again if it is created again, instead of on every
-// reconcile.
-func (r *Reconciler) reportUnsupported(
-	ctx context.Context, key client.ObjectKey, l logr.Logger, err error,
-) {
-	l.Error(err, "profile not added")
-
-	if !r.unsupported.ShouldReport(ctx, r.client, key, &seccompprofileapi.SeccompProfile{}) {
-		return
-	}
-
-	r.reportError(
-		util.EventNode(r.nodeName), reasonSeccompNotSupported, util.EventActionInstall, err,
-	)
-}
-
 // Security Profiles Operator RBAC permissions to manage SeccompProfile
 // The daemon updates the finalizers and labels and patches the annotations of
 // the profiles, and the profile recorder creates recorded SeccompProfiles. The
@@ -465,7 +445,7 @@ func (r *Reconciler) reportUnsupported(
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilenodestatuses,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilenodestatuses/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons,verbs=get;list;watch
-// The node is read uncached, by the profile recorder and the non-root enabler:
+// The node is read uncached, by the non-root enabler:
 // +kubebuilder:rbac:groups=core,resources=nodes,verbs=get
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 //
@@ -488,7 +468,13 @@ func (r *Reconciler) Reconcile(
 	defer cancel()
 
 	if err := r.checkSeccomp(); err != nil {
-		r.reportUnsupported(ctx, req.NamespacedName, logger, err)
+		// Every profile is counted in the error metric and gets a warning
+		// event once, and again if it is created again, instead of on
+		// every reconcile.
+		r.unsupported.Report(
+			ctx, r.client, req.NamespacedName, &seccompprofileapi.SeccompProfile{}, logger,
+			r.errorReporter(), r.nodeName, reasonSeccompNotSupported, err,
+		)
 		// Do not requeue (will be requeued if a change to the object is
 		// observed, or after the usually very long reconcile timeout
 		// configured for the controller manager)
@@ -498,7 +484,7 @@ func (r *Reconciler) Reconcile(
 	seccompProfile := &seccompprofileapi.SeccompProfile{}
 	if found, err := common.GetProfile(ctx, r.client, req.NamespacedName, seccompProfile); !found {
 		if err == nil {
-			r.rejections.forget(req.NamespacedName)
+			r.rejections.Forget(req.NamespacedName)
 		}
 
 		return reconcile.Result{}, err
@@ -1021,10 +1007,6 @@ func (r *Reconciler) configMapKey(
 func (r *Reconciler) reconcileSeccompProfile(
 	ctx context.Context, sp *seccompprofileapi.SeccompProfile, l logr.Logger,
 ) (reconcile.Result, error) {
-	if sp == nil {
-		return reconcile.Result{}, errSeccompProfileNil
-	}
-
 	nodeStatus, err := nodestatus.NewForProfileOnNode(sp, r.client, r.nodeName)
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("cannot create nodeStatus: %w", err)
@@ -1036,9 +1018,10 @@ func (r *Reconciler) reconcileSeccompProfile(
 		return r.reconcileDeletion(ctx, sp, nodeStatus, l)
 	}
 
-	// The object is not being deleted
-	if res, stop, err := common.EnsureNodeStatusOrRequeue(ctx, nodeStatus, l); stop {
-		return res, err
+	// The object is not being deleted. A status which just got created is
+	// updated in the same reconcile.
+	if _, _, err := common.EnsureNodeStatus(ctx, nodeStatus, l); err != nil {
+		return reconcile.Result{}, err
 	}
 
 	if !sp.IsReconcilable() {
@@ -1046,7 +1029,7 @@ func (r *Reconciler) reconcileSeccompProfile(
 			return r.reconcileDisabled(ctx, sp, nodeStatus, l)
 		}
 
-		l.Info("Profile is partial, skipping")
+		l.V(config.VerboseLevel).Info("Profile is partial, skipping")
 
 		return reconcile.Result{}, nil
 	}
@@ -1139,7 +1122,7 @@ func (r *Reconciler) buildProfileContent(
 		return nil, fmt.Errorf("cannot validate profile: %w", err)
 	}
 
-	r.rejections.forget(client.ObjectKeyFromObject(sp))
+	r.rejections.Forget(client.ObjectKeyFromObject(sp))
 
 	return profileContent, nil
 }
@@ -1224,7 +1207,7 @@ func (r *Reconciler) rejectProfile(
 ) error {
 	// Every resync rejects an unchanged profile again, which is only worth
 	// an error once.
-	if r.rejections.shouldReport(sp, reason) {
+	if r.rejections.ShouldReport(client.ObjectKeyFromObject(sp), newRejection(sp, reason)) {
 		l.Error(rejectErr, "Not installing profile")
 		r.reportError(sp, reason, util.EventActionInstall, rejectErr)
 	} else {
@@ -1318,7 +1301,8 @@ func deletionReasons() common.DeletionReasons {
 
 // reconcileDisabled removes a disabled profile from the node, which may have
 // installed it before it got disabled. This keeps the file if another profile
-// owns it.
+// owns it. A node without the file has nothing to remove, even while pods on
+// other nodes use the profile.
 func (r *Reconciler) reconcileDisabled(
 	ctx context.Context,
 	sp *seccompprofileapi.SeccompProfile,
@@ -1326,9 +1310,25 @@ func (r *Reconciler) reconcileDisabled(
 	l logr.Logger,
 ) (reconcile.Result, error) {
 	return common.ReconcileDisabled(
-		ctx, sp, nodeStatus, l, r.errorReporter(), deletionReasons(),
-		func() error { return r.handleDeletion(ctx, sp, l) },
-		nil,
+		ctx,
+		sp,
+		nodeStatus,
+		l,
+		r.errorReporter(),
+		deletionReasons(),
+		common.Removal{
+			Installed: func(secprofnodestatusapi.ProfileState) (bool, error) {
+				_, err := os.Lstat(r.profilePath(sp))
+				if errors.Is(err, os.ErrNotExist) {
+					return false, nil
+				}
+
+				return err == nil, err
+			},
+			Remove: func() (reconcile.Result, error) {
+				return reconcile.Result{}, r.handleDeletion(ctx, sp, l)
+			},
+		},
 	)
 }
 
@@ -1344,9 +1344,8 @@ func (r *Reconciler) reconcileDeletion(
 		nsc,
 		r.client,
 		l,
-		r.record,
+		r.errorReporter(),
 		deletionReasons(),
-		r.metrics.IncSeccompProfileError,
 		func() (reconcile.Result, error) { return reconcile.Result{}, r.handleDeletion(ctx, sp, l) },
 	)
 }
@@ -1503,6 +1502,15 @@ func (r *Reconciler) handleDeletion(
 	sp *seccompprofileapi.SeccompProfile,
 	l logr.Logger,
 ) error {
+	profilePath := r.profilePath(sp)
+
+	// Nothing is left to remove, which is usually the case for a rejected
+	// profile on every resync. Looking up the owner of the file would read
+	// from the API server each time.
+	if _, err := os.Lstat(profilePath); errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+
 	// The file belongs to another profile, which must keep it. This is also
 	// the case if the other profile lost the file to this one, because it
 	// takes the file over once this profile is gone.
@@ -1514,8 +1522,6 @@ func (r *Reconciler) handleDeletion(
 	if owner != "" {
 		return nil
 	}
-
-	profilePath := r.profilePath(sp)
 
 	err = os.Remove(profilePath)
 	if os.IsNotExist(err) {

@@ -621,3 +621,66 @@ func TestLoadPolicyFileHostFile(t *testing.T) {
 		})
 	}
 }
+
+// A policy which cannot be generated from the profile is rejected for good.
+func TestInstallProfileInvalidPolicy(t *testing.T) {
+	t.Parallel()
+
+	sut := aaProfileManager{
+		loadProfile: func(_ logr.Logger, _, _ string, _ bool) (bool, error) {
+			t.Error("an invalid policy must not be loaded")
+
+			return false, nil
+		},
+		checkProfileExist:  func(_ logr.Logger, _ string) bool { return false },
+		profileManagedByUs: func(_ logr.Logger, _ string) bool { return false },
+	}
+
+	profile := &apparmorprofileapi.AppArmorProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: "invalid"},
+		Spec: apparmorprofileapi.AppArmorProfileSpec{
+			Abstract: apparmorprofileapi.AppArmorAbstract{
+				Capability: &apparmorprofileapi.AppArmorCapabilityRules{
+					AllowedCapabilities: []string{"foo"},
+				},
+			},
+		},
+	}
+
+	updated, err := sut.InstallProfile(profile, false)
+	require.ErrorIs(t, err, ErrInvalidProfile)
+	require.ErrorContains(t, err, "invalid or forbidden capability")
+	require.False(t, updated)
+}
+
+// Only a loaded profile whose policy file carries the ownership marker got
+// installed by this operator.
+func TestProfileInstalled(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name          string
+		loaded, ours  bool
+		wantInstalled bool
+	}{
+		{name: "loaded and ours", loaded: true, ours: true, wantInstalled: true},
+		{name: "loaded by the host", loaded: true},
+		{name: "not loaded", ours: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			sut := aaProfileManager{
+				checkProfileExist:  func(logr.Logger, string) bool { return tc.loaded },
+				profileManagedByUs: func(logr.Logger, string) bool { return tc.ours },
+			}
+
+			installed, err := sut.ProfileInstalled(&apparmorprofileapi.AppArmorProfile{})
+			require.NoError(t, err)
+			require.Equal(t, tc.wantInstalled, installed)
+		})
+	}
+
+	_, err := (&aaProfileManager{}).ProfileInstalled(&sec.SeccompProfile{})
+	require.EqualError(t, err, errInvalidCRD.Error())
+}

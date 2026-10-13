@@ -94,6 +94,9 @@ var storeProfileBackoff = wait.Backoff{
 	Cap:      5 * time.Second,
 }
 
+// errNoNodeName is returned if the name of the node is unknown.
+var errNoNodeName = errors.New(config.NodeNameEnvKey + " environment variable not set")
+
 var errNameNotValid = errors.New(
 	"recording name cannot name the recorded profiles, check profileRecording events")
 
@@ -144,7 +147,9 @@ type RecorderReconciler struct {
 	uncachedClient client.Client
 	log            logr.Logger
 	record         util.EventRecorder
-	nodeAddresses  []string
+	// nodeName is the name of the node the daemon runs on, which Setup reads
+	// from the environment unless it is set already.
+	nodeName string
 	// namespace is the namespace of the operator, which holds the SPOD.
 	namespace   string
 	podsToWatch sync.Map
@@ -237,28 +242,16 @@ func (r *RecorderReconciler) Setup(
 		return fmt.Errorf("cannot get client connection: %w", err)
 	}
 
-	node := &corev1.Node{}
-	if err := r.ClientGet(
-		ctx, c, client.ObjectKey{Name: os.Getenv(config.NodeNameEnvKey)}, node,
-	); err != nil {
-		return fmt.Errorf("cannot get node object: %w", err)
+	if r.nodeName == "" {
+		r.nodeName = os.Getenv(config.NodeNameEnvKey)
+	}
+
+	if r.nodeName == "" {
+		return errNoNodeName
 	}
 
 	r.log = ctrl.Log.WithName(r.Name())
-	nodeAddresses := []string{}
-
-	for _, addr := range node.Status.Addresses {
-		if addr.Type == corev1.NodeInternalIP {
-			r.log.Info("Setting up profile recorder", "Node", addr.Address)
-			nodeAddresses = append(nodeAddresses, addr.Address)
-
-			break
-		}
-	}
-
-	if len(nodeAddresses) == 0 {
-		return errors.New("unable to get node's internal Address")
-	}
+	r.log.Info("Setting up profile recorder", "node", r.nodeName)
 
 	namespace, err := r.OperatorNamespace()
 	if err != nil {
@@ -267,7 +260,6 @@ func (r *RecorderReconciler) Setup(
 
 	r.client = r.ManagerGetClient(mgr)
 	r.uncachedClient = c
-	r.nodeAddresses = nodeAddresses
 	r.namespace = namespace
 	r.record = r.ManagerGetEventRecorder(mgr, name)
 
@@ -293,14 +285,13 @@ func (r *RecorderReconciler) Healthz(*http.Request) error {
 	return nil
 }
 
+// isPodOnLocalNode reports whether the pod got scheduled to the node of the
+// daemon. Unlike the IP of the host in the status of the pod, the node name is
+// set before the kubelet starts the pod.
 func (r *RecorderReconciler) isPodOnLocalNode(obj runtime.Object) bool {
 	p, ok := obj.(*corev1.Pod)
 
-	if !ok {
-		return false
-	}
-
-	return slices.Contains(r.nodeAddresses, p.Status.HostIP)
+	return ok && p.Spec.NodeName != "" && p.Spec.NodeName == r.nodeName
 }
 
 func (r *RecorderReconciler) isPodWithTraceAnnotation(obj runtime.Object) bool {
@@ -936,19 +927,11 @@ func (r *RecorderReconciler) reportNotRecorded(
 	)
 }
 
-// releaseUnrecordablePod drops a pod whose profiles can never be collected. It
-// must undo whatever Reconcile set up, otherwise the watch entry leaks, the
-// recorded data stays in the recorders until they are full and, for the BPF
-// recorder, the node stays armed for the lifetime of the daemon.
-func (r *RecorderReconciler) releaseUnrecordablePod(
-	ctx context.Context, podName types.NamespacedName, bpf *bpfRecorderSession,
-) {
-	r.releasePod(ctx, podName, bpf, true)
-}
-
-// releasePod drops a pod whose profiles can never be collected, see
-// releaseUnrecordablePod. The recorded data is only dropped from the
-// recorders if releaseRecorder is true.
+// releasePod drops a pod whose profiles can never be collected. It must undo
+// whatever Reconcile set up, otherwise the watch entry leaks, the recorded data
+// stays in the recorders until they are full and, for the BPF recorder, the
+// node stays armed for the lifetime of the daemon. The recorded data is only
+// dropped from the recorders if releaseRecorder is true.
 func (r *RecorderReconciler) releasePod(
 	ctx context.Context, podName types.NamespacedName, bpf *bpfRecorderSession,
 	releaseRecorder bool,

@@ -59,7 +59,10 @@ var (
 		"shadow_t":   {}, // /etc/shadow
 	}
 
-	// deniedClasses prevents manipulation of the SELinux system itself.
+	// deniedClasses prevents manipulation of the SELinux system itself. The
+	// capabilities within user namespaces, cap_userns and cap2_userns, are
+	// not denied by default: denying them breaks the existing profiles which
+	// use them. The DeniedClasses of the SPOD can deny them.
 	deniedClasses = map[string]struct{}{
 		"capability":  {}, // Linux capabilities
 		"capability2": {}, // Newer Linux capabilities

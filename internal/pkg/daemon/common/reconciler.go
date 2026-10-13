@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/nodestatus"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
@@ -85,24 +86,22 @@ type DeletionReasons struct {
 }
 
 // ReconcileDeletion implements the shared deletion reconciliation flow for
-// profile controllers. Profile-specific behavior is injected via callbacks:
-// incError increments the appropriate error metric, and handleDeletion
-// performs the actual profile removal (e.g., file delete or kernel unload).
-// handleDeletion can request a requeue, for example to wait for an
-// asynchronous removal, in which case the node status is kept.
+// profile controllers. reporter reports the failures with the error metric of
+// the profile kind, and handleDeletion performs the actual profile removal
+// (e.g., file delete or kernel unload). handleDeletion can request a requeue,
+// for example to wait for an asynchronous removal, in which case the node
+// status is kept. A profile which pods still use is checked again after
+// InUseRetry, because removing it would break them.
 func ReconcileDeletion(
 	ctx context.Context,
 	profile client.Object,
 	nsc *nodestatus.StatusClient,
 	cl client.Client,
 	log logr.Logger,
-	rec util.EventRecorder,
+	reporter ErrorReporter,
 	reasons DeletionReasons,
-	incError func(reason string),
 	handleDeletion func() (reconcile.Result, error),
 ) (reconcile.Result, error) {
-	reporter := ErrorReporter{Record: rec, IncError: incError}
-
 	// The node status API removes the finalizer of this node only after the
 	// profile is gone from the node, so without it there is nothing left to
 	// do. The node status alone is not a reliable signal: a foreground
@@ -144,8 +143,6 @@ func ReconcileDeletion(
 					err,
 				)
 			}
-
-			return reconcile.Result{RequeueAfter: Wait}, nil
 		}
 	}
 
@@ -159,9 +156,9 @@ func ReconcileDeletion(
 			}
 		}
 
-		log.Info("cannot delete profile in use by pod, requeuing")
+		log.V(config.VerboseLevel).Info("Cannot delete profile in use by pods, requeuing")
 
-		return reconcile.Result{RequeueAfter: Wait}, nil
+		return reconcile.Result{RequeueAfter: InUseRetry}, nil
 	}
 
 	res, err := handleDeletion()
@@ -193,27 +190,6 @@ func ReconcileDeletion(
 	return ctrl.Result{}, nil
 }
 
-// EnsureNodeStatusOrRequeue creates the node status of a profile if it does
-// not exist. It returns true with the result to return if the reconcile has
-// to stop here: the status got created, so the profile is reconciled again
-// after Wait, or the status could not be ensured.
-func EnsureNodeStatusOrRequeue(
-	ctx context.Context,
-	nsc *nodestatus.StatusClient,
-	log logr.Logger,
-) (res reconcile.Result, stop bool, err error) {
-	created, _, err := EnsureNodeStatus(ctx, nsc, log)
-	if err != nil {
-		return reconcile.Result{}, true, err
-	}
-
-	if created {
-		return reconcile.Result{RequeueAfter: Wait}, true, nil
-	}
-
-	return reconcile.Result{}, false, nil
-}
-
 // MarkInstalled sets the node status of the profile to installed unless it is
 // already, and returns true if it changed. A failure to read or update the
 // status is reported on the profile with ReasonCannotUpdateStatus.
@@ -232,7 +208,7 @@ func MarkInstalled(
 	}
 
 	if isInstalled {
-		log.Info("Already in the expected Installed state")
+		log.V(config.VerboseLevel).Info("Already in the expected Installed state")
 
 		return false, nil
 	}
@@ -247,11 +223,26 @@ func MarkInstalled(
 	return true, nil
 }
 
+// Removal takes a disabled profile off the node, see ReconcileDisabled.
+type Removal struct {
+	// Installed reports whether the node may have installed the profile,
+	// given the state of its node status. A profile which is not installed
+	// on the node has nothing to remove, even while pods on other nodes use
+	// it.
+	Installed func(state secprofnodestatusapi.ProfileState) (bool, error)
+	// Remove takes the profile off the node and can request a requeue, for
+	// example to wait for an asynchronous removal, in which case the node
+	// status is kept.
+	Remove func() (reconcile.Result, error)
+	// AfterRemove, which may be nil, runs once the profile is gone, before
+	// the node status moves to disabled.
+	AfterRemove func() error
+}
+
 // ReconcileDisabled removes a disabled profile from the node, which may have
-// installed it before it got disabled. remove takes the profile off the node
-// and afterRemove, which may be nil, runs once it is gone, before the node
-// status moves to disabled. A profile which pods still use is checked again
-// after InUseRetry, because removing it would break them.
+// installed it before it got disabled, see Removal. A profile which pods
+// still use is checked again after InUseRetry, because removing it would
+// break them.
 func ReconcileDisabled(
 	ctx context.Context,
 	profile client.Object,
@@ -259,8 +250,7 @@ func ReconcileDisabled(
 	log logr.Logger,
 	reporter ErrorReporter,
 	reasons DeletionReasons,
-	remove func() error,
-	afterRemove func() error,
+	removal Removal,
 ) (reconcile.Result, error) {
 	state, err := nsc.State(ctx)
 	if err != nil {
@@ -268,26 +258,65 @@ func ReconcileDisabled(
 	}
 
 	if state == secprofnodestatusapi.ProfileStateDisabled {
-		log.Info("Profile is disabled, skipping")
+		log.V(config.VerboseLevel).Info("Profile is disabled, skipping")
 
 		return reconcile.Result{}, nil
 	}
 
+	installed, err := removal.Installed(state)
+	if err != nil {
+		return reconcile.Result{}, fmt.Errorf("checking if the profile is installed: %w", err)
+	}
+
+	if installed {
+		if res, err := removeDisabled(profile, log, reporter, reasons, removal); err != nil ||
+			res.RequeueAfter > 0 {
+			return res, err
+		}
+	}
+
+	if err := nsc.SetNodeStatus(ctx, secprofnodestatusapi.ProfileStateDisabled); err != nil {
+		reporter.Report(profile, reasons.CannotUpdateStatus, util.EventActionUpdate, err.Error())
+
+		return reconcile.Result{}, fmt.Errorf("setting node status to disabled: %w", err)
+	}
+
+	log.Info("Disabled profile is not on the node")
+
+	return reconcile.Result{}, nil
+}
+
+// removeDisabled removes a disabled profile which the node installed, unless
+// pods still use it.
+func removeDisabled(
+	profile client.Object,
+	log logr.Logger,
+	reporter ErrorReporter,
+	reasons DeletionReasons,
+	removal Removal,
+) (reconcile.Result, error) {
 	if InUse(profile) {
 		log.Info("Not removing disabled profile which is in use by pods, requeuing")
 
 		return reconcile.Result{RequeueAfter: InUseRetry}, nil
 	}
 
-	if err := remove(); err != nil {
+	res, err := removal.Remove()
+	if err != nil {
 		log.Error(err, "cannot remove disabled profile")
 		reporter.Report(profile, reasons.CannotRemoveProfile, util.EventActionRemove, err.Error())
 
+		// The result is dropped: controller-runtime ignores a requeue
+		// returned with an error and retries with backoff instead.
 		return reconcile.Result{}, fmt.Errorf("removing disabled profile: %w", err)
 	}
 
-	if afterRemove != nil {
-		if err := afterRemove(); err != nil {
+	if res.RequeueAfter > 0 {
+		return res, nil
+	}
+
+	if removal.AfterRemove != nil {
+		if err := removal.AfterRemove(); err != nil {
 			reporter.Report(
 				profile,
 				reasons.CannotUpdateStatus,
@@ -298,14 +327,6 @@ func ReconcileDisabled(
 			return reconcile.Result{}, fmt.Errorf("recording profile removal: %w", err)
 		}
 	}
-
-	if err := nsc.SetNodeStatus(ctx, secprofnodestatusapi.ProfileStateDisabled); err != nil {
-		reporter.Report(profile, reasons.CannotUpdateStatus, util.EventActionUpdate, err.Error())
-
-		return reconcile.Result{}, fmt.Errorf("setting node status to disabled: %w", err)
-	}
-
-	log.Info("Removed disabled profile from the node")
 
 	return reconcile.Result{}, nil
 }

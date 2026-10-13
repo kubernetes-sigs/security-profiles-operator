@@ -66,8 +66,7 @@ var errTailEnded = errors.New("audit log tail ended")
 // bpfProcesses tells the command line and the environment of the processes
 // which the BPF process cache saw executing.
 type bpfProcesses interface {
-	GetCmdLine(pid int) (string, error)
-	GetEnv(pid int) (map[string]string, error)
+	GetCmdLineAndEnv(pid int) (cmdLine string, env map[string]string, err error)
 }
 
 type JsonEnricher struct {
@@ -454,41 +453,45 @@ func (e *JsonEnricher) processEbpf(logBucket *types.LogBucket, auditLine *types.
 
 	logBucket.BpfLookedUp = true
 
-	if logBucket.ProcessInfo.CmdLine == "" {
-		//nolint:staticcheck,nolintlint // platform-dependent
-		cmdLine, errCmdLine := e.bpfProcessCache.GetCmdLine(auditLine.ProcessID)
-		//nolint:staticcheck,nolintlint // platform-dependent
-		if errCmdLine == nil {
-			logBucket.ProcessInfo.CmdLine = cmdLine
+	needCmdLine := logBucket.ProcessInfo.CmdLine == ""
+	needRequest := logBucket.ProcessInfo.ExecRequestId == nil
 
-			e.logger.V(config.VerboseLevel).Info("cmdline found in eBPF",
-				"processId", auditLine.ProcessID, "cmdLine", cmdLine)
-		} else {
-			e.logger.V(config.VerboseLevel).Info("cmdline not found in eBPF also",
-				"processId", auditLine.ProcessID)
-		}
+	if !needCmdLine && !needRequest {
+		return
 	}
 
-	if logBucket.ProcessInfo.ExecRequestId == nil {
-		//nolint:staticcheck,nolintlint // platform-dependent
-		procEnv, errEnv := e.bpfProcessCache.GetEnv(auditLine.ProcessID)
-		//nolint:staticcheck,nolintlint // platform-dependent
-		if errEnv == nil {
-			reqId, ok := procEnv[requestIdEnv]
-			if !ok {
-				e.logger.V(config.VerboseLevel).Info("exec request id info not found in eBPF also",
-					"processId", auditLine.ProcessID)
-			} else {
-				logBucket.ProcessInfo.ExecRequestId = &reqId
+	// A single lookup, which checks the process with the PID only once.
+	//nolint:staticcheck,nolintlint // platform-dependent
+	cmdLine, procEnv, err := e.bpfProcessCache.GetCmdLineAndEnv(auditLine.ProcessID)
+	//nolint:staticcheck,nolintlint // platform-dependent
+	if err != nil {
+		e.logger.V(config.VerboseLevel).Info("process not found in eBPF either",
+			"processId", auditLine.ProcessID, "error", err.Error())
 
-				e.logger.V(config.VerboseLevel).
-					Info("exec request id info found in eBPF", "reqId", reqId,
-						"processId", auditLine.ProcessID)
-			}
-		} else {
-			e.logger.V(config.VerboseLevel).Error(errEnv, "fetching exec request id",
+		return
+	}
+
+	if needCmdLine {
+		logBucket.ProcessInfo.CmdLine = cmdLine
+
+		e.logger.V(config.VerboseLevel).Info("cmdline found in eBPF",
+			"processId", auditLine.ProcessID, "cmdLine", cmdLine)
+	}
+
+	if needRequest {
+		reqId, ok := procEnv[requestIdEnv]
+		if !ok {
+			e.logger.V(config.VerboseLevel).Info("exec request id info not found in eBPF either",
 				"processId", auditLine.ProcessID)
+
+			return
 		}
+
+		logBucket.ProcessInfo.ExecRequestId = &reqId
+
+		e.logger.V(config.VerboseLevel).
+			Info("exec request id info found in eBPF", "reqId", reqId,
+				"processId", auditLine.ProcessID)
 	}
 }
 
@@ -528,7 +531,8 @@ func (e *JsonEnricher) fetchContainerInfo(
 	return containerInfo, cID, false
 }
 
-// Returns nil if the processInfo couldn't be loaded.
+// fetchProcessInfo returns the details of a process. What could not be read
+// stays empty, see GetProcessInfo.
 func (e *JsonEnricher) fetchProcessInfo(
 	processId int,
 	executable string,
@@ -548,6 +552,14 @@ func (e *JsonEnricher) fetchProcessInfo(
 func (e *JsonEnricher) dispatchSeccompLine(
 	logBucket *types.LogBucket, nodeName string,
 ) {
+	// processLine fills in the process info of every bucket before it gets
+	// cached, a bucket without one is not emitted in any case.
+	if logBucket.ProcessInfo == nil {
+		e.logger.V(config.VerboseLevel).Info("process info not found")
+
+		return
+	}
+
 	// The names are sorted, so that buckets with the same syscalls emit the
 	// same record, and never null, which consumers expecting a list would
 	// trip over.
@@ -570,27 +582,21 @@ func (e *JsonEnricher) dispatchSeccompLine(
 	slices.Sort(syscallNames)
 	syscallNames = slices.Compact(syscallNames)
 
-	var resource map[string]string
-
-	if logBucket.ProcessInfo == nil {
-		e.logger.V(config.VerboseLevel).Info("process info not found")
-
-		return
-	}
+	// The nested maps hold any values, which the filters walk into for keys
+	// like resource/pod, see matchPathFilterLabel.
+	var resource map[string]any
 
 	if logBucket.ContainerInfo == nil {
 		e.logger.V(config.VerboseLevel).Info("Container info not found in cache")
-	}
-
-	if logBucket.ContainerInfo != nil {
-		resource = map[string]string{
+	} else {
+		resource = map[string]any{
 			"pod":       logBucket.ContainerInfo.PodName,
 			"namespace": logBucket.ContainerInfo.Namespace,
 			"container": logBucket.ContainerInfo.ContainerName,
 		}
 	}
 
-	node := map[string]string{
+	node := map[string]any{
 		"name": nodeName,
 	}
 

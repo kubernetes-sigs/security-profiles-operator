@@ -147,6 +147,10 @@ func (f *FakeProfileManager) InstallProfile(
 	return f.installed, f.err
 }
 
+func (f *FakeProfileManager) ProfileInstalled(profilebaseapi.StatusBaseUser) (bool, error) {
+	return f.installed, f.err
+}
+
 func (f *FakeProfileManager) RemoveProfile(
 	_ profilebaseapi.StatusBaseUser, ownedByUs bool,
 ) (bool, error) {

@@ -202,32 +202,15 @@ func TestSetup(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
-		name    string
-		prepare func(*testing.T, *fakeImpl)
-		assert  func(*testing.T, error)
+		name       string
+		noNodeName bool
+		prepare    func(*testing.T, *fakeImpl)
+		assert     func(*testing.T, error)
 	}{
 		{
 			name: "Success",
 			prepare: func(t *testing.T, mock *fakeImpl) {
 				t.Helper()
-
-				mock.ClientGetCalls(func(
-					ctx context.Context,
-					c client.Client,
-					key types.NamespacedName,
-					obj client.Object,
-				) error {
-					node, ok := obj.(*corev1.Node)
-					assert.True(t, ok)
-
-					node.Status = corev1.NodeStatus{
-						Addresses: []corev1.NodeAddress{
-							{Type: corev1.NodeInternalIP, Address: "127.0.0.1"},
-						},
-					}
-
-					return nil
-				})
 			},
 			assert: func(t *testing.T, err error) {
 				t.Helper()
@@ -249,27 +232,15 @@ func TestSetup(t *testing.T) {
 			},
 		},
 		{
-			name: "ClientGet fails",
-			prepare: func(t *testing.T, mock *fakeImpl) {
-				t.Helper()
-
-				mock.ClientGetReturns(errTest)
-			},
-			assert: func(t *testing.T, err error) {
-				t.Helper()
-
-				assert.Error(t, err)
-			},
-		},
-		{
-			name: "no node addresses",
+			name:       "no node name",
+			noNodeName: true,
 			prepare: func(t *testing.T, mock *fakeImpl) {
 				t.Helper()
 			},
 			assert: func(t *testing.T, err error) {
 				t.Helper()
 
-				assert.Error(t, err)
+				assert.ErrorIs(t, err, errNoNodeName)
 			},
 		},
 		{
@@ -277,18 +248,6 @@ func TestSetup(t *testing.T) {
 			prepare: func(t *testing.T, mock *fakeImpl) {
 				t.Helper()
 
-				mock.ClientGetCalls(func(
-					_ context.Context, _ client.Client, _ types.NamespacedName, obj client.Object,
-				) error {
-					node, ok := obj.(*corev1.Node)
-					assert.True(t, ok)
-
-					node.Status.Addresses = []corev1.NodeAddress{
-						{Type: corev1.NodeInternalIP, Address: "127.0.0.1"},
-					}
-
-					return nil
-				})
 				mock.OperatorNamespaceReturns("", errTest)
 			},
 			assert: func(t *testing.T, err error) {
@@ -318,9 +277,13 @@ func TestSetup(t *testing.T) {
 			tc.prepare(t, mock)
 
 			sut := &RecorderReconciler{impl: mock}
+			if !tc.noNodeName {
+				sut.nodeName = "node"
+			}
 
 			err := sut.Setup(t.Context(), nil, nil)
 			tc.assert(t, err)
+			assert.Zero(t, mock.ClientGetCallCount(), "the node must not be read")
 		})
 	}
 }
@@ -2354,65 +2317,51 @@ func TestReconcile(t *testing.T) {
 func TestIsPodOnLocalNode(t *testing.T) {
 	t.Parallel()
 
-	const ip = "127.0.0.1"
+	const node = "node"
 
 	for _, tc := range []struct {
-		name    string
-		prepare func(*testing.T, *RecorderReconciler) apiruntime.Object
-		assert  func(*testing.T, bool)
+		name string
+		obj  apiruntime.Object
+		want bool
 	}{
 		{
-			name: "success",
-			prepare: func(t *testing.T, sut *RecorderReconciler) apiruntime.Object {
-				t.Helper()
-
-				sut.nodeAddresses = []string{ip}
-
-				return &corev1.Pod{Status: corev1.PodStatus{HostIP: ip}}
+			name: "scheduled to the node",
+			obj:  &corev1.Pod{Spec: corev1.PodSpec{NodeName: node}},
+			want: true,
+		},
+		{
+			// The kubelet sets the IP of the host only once it started
+			// working on the pod.
+			name: "scheduled to the node without host IP",
+			obj: &corev1.Pod{
+				Spec:   corev1.PodSpec{NodeName: node},
+				Status: corev1.PodStatus{HostIP: ""},
 			},
-			assert: func(t *testing.T, res bool) {
-				t.Helper()
-
-				assert.True(t, res)
-			},
+			want: true,
 		},
 		{
 			name: "no pod",
-			prepare: func(t *testing.T, sut *RecorderReconciler) apiruntime.Object {
-				t.Helper()
-
-				return &corev1.PodList{}
-			},
-			assert: func(t *testing.T, res bool) {
-				t.Helper()
-
-				assert.False(t, res)
-			},
+			obj:  &corev1.PodList{},
 		},
 		{
-			name: "not found",
-			prepare: func(t *testing.T, sut *RecorderReconciler) apiruntime.Object {
-				t.Helper()
-
-				return &corev1.Pod{Status: corev1.PodStatus{HostIP: ip}}
-			},
-			assert: func(t *testing.T, res bool) {
-				t.Helper()
-
-				assert.False(t, res)
-			},
+			name: "other node",
+			obj:  &corev1.Pod{Spec: corev1.PodSpec{NodeName: "other"}},
+		},
+		{
+			name: "not scheduled",
+			obj:  &corev1.Pod{},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			sut := &RecorderReconciler{}
-			obj := tc.prepare(t, sut)
-
-			res := sut.isPodOnLocalNode(obj)
-			tc.assert(t, res)
+			sut := &RecorderReconciler{nodeName: node}
+			assert.Equal(t, tc.want, sut.isPodOnLocalNode(tc.obj))
 		})
 	}
+
+	// A daemon without node name does not take unscheduled pods for its own.
+	require.False(t, (&RecorderReconciler{}).isPodOnLocalNode(&corev1.Pod{}))
 }
 
 func TestIsPodWithTraceAnnotation(t *testing.T) {
@@ -3089,7 +3038,7 @@ func TestReleaseUnrecordablePod(t *testing.T) {
 			},
 		})
 
-		sut.releaseUnrecordablePod(t.Context(), podName, sut.newBpfRecorderSession())
+		sut.releasePod(t.Context(), podName, sut.newBpfRecorderSession(), true)
 
 		_, tracked := sut.podsToWatch.Load(podName.String())
 		require.False(t, tracked)
@@ -3115,7 +3064,7 @@ func TestReleaseUnrecordablePod(t *testing.T) {
 			},
 		})
 
-		sut.releaseUnrecordablePod(t.Context(), podName, sut.newBpfRecorderSession())
+		sut.releasePod(t.Context(), podName, sut.newBpfRecorderSession(), true)
 
 		_, tracked := sut.podsToWatch.Load(podName.String())
 		require.False(t, tracked)
@@ -3158,7 +3107,7 @@ func TestReleaseUnrecordablePod(t *testing.T) {
 		mock := newFakeImpl()
 		sut := &RecorderReconciler{impl: mock, log: logr.Discard()}
 
-		sut.releaseUnrecordablePod(t.Context(), podName, sut.newBpfRecorderSession())
+		sut.releasePod(t.Context(), podName, sut.newBpfRecorderSession(), true)
 
 		require.Zero(t, mock.StopBpfRecorderCallCount())
 	})
@@ -4130,7 +4079,7 @@ func TestRejectedForGoodPerPodAndProfile(t *testing.T) {
 	_, counted := sut.forbiddenAttempts.Load(keyOf("a"))
 	require.False(t, counted)
 
-	sut.releaseUnrecordablePod(t.Context(), keyOf("b").pod, sut.newBpfRecorderSession())
+	sut.releasePod(t.Context(), keyOf("b").pod, sut.newBpfRecorderSession(), true)
 
 	_, counted = sut.forbiddenAttempts.Load(keyOf("b"))
 	require.False(t, counted)

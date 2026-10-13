@@ -122,6 +122,17 @@ func (a *aaProfileManager) RemoveProfile(
 	return a.removeProfile(a.logger, profile.GetProfileName(), policy, ownedByUs)
 }
 
+func (a *aaProfileManager) ProfileInstalled(bp profilebaseapi.StatusBaseUser) (bool, error) {
+	profile, ok := bp.(*apparmorprofileapi.AppArmorProfile)
+	if !ok {
+		return false, errors.New(errInvalidCustomResourceType)
+	}
+
+	name := profile.GetProfileName()
+
+	return a.checkProfileExist(a.logger, name) && a.profileManagedByUs(a.logger, name), nil
+}
+
 func (a *aaProfileManager) InstallProfile(
 	bp profilebaseapi.StatusBaseUser, ownedByUs bool,
 ) (bool, error) {
@@ -163,7 +174,7 @@ func (a *aaProfileManager) InstallProfile(
 		&profile.Spec.Abstract,
 	)
 	if err != nil {
-		return false, fmt.Errorf("generating raw apparmor profile: %w", err)
+		return false, fmt.Errorf("%w: generating raw apparmor profile: %w", ErrInvalidProfile, err)
 	}
 
 	return a.loadProfile(a.logger, profile.GetProfileName(), policy, ownedByUs)

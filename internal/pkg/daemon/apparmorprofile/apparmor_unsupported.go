@@ -40,6 +40,10 @@ func (a *aaProfileManager) InstallProfile(profilebaseapi.StatusBaseUser, bool) (
 	return false, errAppArmorNotSupported
 }
 
+func (a *aaProfileManager) ProfileInstalled(profilebaseapi.StatusBaseUser) (bool, error) {
+	return false, errAppArmorNotSupported
+}
+
 func loadProfile(logr.Logger, string, string, bool) (bool, error) {
 	return false, errAppArmorNotSupported
 }

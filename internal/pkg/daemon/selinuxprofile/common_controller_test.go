@@ -158,7 +158,7 @@ func TestReconcileDeletionWithActivePods(t *testing.T) {
 		NamespacedName: types.NamespacedName{Name: "profile", Namespace: "default"},
 	})
 	require.NoError(t, err)
-	require.Equal(t, reconcile.Result{RequeueAfter: common.Wait}, res)
+	require.Equal(t, reconcile.Result{RequeueAfter: common.InUseRetry}, res)
 }
 
 // A Failed status from selinuxd during deletion must keep the finalizer while
@@ -240,11 +240,6 @@ func TestReconcileDeletionWithFailedRemoval(t *testing.T) {
 
 			key := types.NamespacedName{Name: policyName, Namespace: "default"}
 
-			// The first pass marks the node status as terminating.
-			res, err := r.Reconcile(t.Context(), reconcile.Request{NamespacedName: key})
-			require.NoError(t, err)
-			require.Equal(t, reconcile.Result{RequeueAfter: common.Wait}, res)
-
 			_, err = r.Reconcile(t.Context(), reconcile.Request{NamespacedName: key})
 
 			if tc.wantErr != nil {
@@ -264,4 +259,47 @@ func TestReconcileDeletionWithFailedRemoval(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A module store which cannot be read may hold the module, which is told
+// apart from a store without it.
+func TestSELinuxModuleInstalledUnreadableStore(t *testing.T) {
+	t.Parallel()
+
+	store := t.TempDir()
+	installed, err := selinuxModuleInstalled(filepath.Join(store, "missing"), "module")
+	require.NoError(t, err)
+	require.False(t, installed)
+
+	active := filepath.Join(store, "targeted", "active")
+	require.NoError(t, os.MkdirAll(active, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(active, "modules"), nil, 0o600))
+
+	_, err = selinuxModuleInstalled(store, "module")
+	require.Error(t, err)
+	require.False(t, isSELinuxModuleInstalled(store, "module"))
+}
+
+// A directory of the module store which cannot be read does not hide the
+// module in another one.
+func TestSELinuxModuleInstalledSkipsUnreadableDirectories(t *testing.T) {
+	t.Parallel()
+
+	store := t.TempDir()
+
+	unreadable := filepath.Join(store, "a", "active")
+	require.NoError(t, os.MkdirAll(unreadable, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(unreadable, "modules"), nil, 0o600))
+
+	_, err := selinuxModuleInstalled(store, "module")
+	require.Error(t, err, "the module may be in the directory which cannot be read")
+
+	require.NoError(t, os.MkdirAll(
+		filepath.Join(store, "b", "active", "modules", "400", "module"), 0o755,
+	))
+
+	installed, err := selinuxModuleInstalled(store, "module")
+	require.NoError(t, err)
+	require.True(t, installed)
+	require.True(t, isSELinuxModuleInstalled(store, "module"))
 }

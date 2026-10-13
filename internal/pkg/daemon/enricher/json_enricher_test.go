@@ -654,6 +654,73 @@ func TestDispatchSeccompLineUidGid(t *testing.T) {
 	}
 }
 
+// TestDispatchSeccompLineWithoutProcessInfo asserts that a bucket without
+// process info is not emitted.
+func TestDispatchSeccompLineWithoutProcessInfo(t *testing.T) {
+	t.Parallel()
+
+	mock := &enricherfakes.FakeImpl{}
+
+	sut, err := NewJsonEnricherArgs(logr.Discard(), nil)
+	require.NoError(t, err)
+
+	sut.impl = mock
+
+	require.NotPanics(t, func() {
+		sut.dispatchSeccompLine(&types.LogBucket{TimestampID: "1613173578.156:2945"}, nodeJsonTest)
+	})
+	require.Zero(t, mock.PrintJsonOutputCallCount())
+}
+
+// TestDispatchSeccompLinePathFilters asserts that the filters reach into the
+// nested values of the emitted records, like the pod of the resource.
+func TestDispatchSeccompLinePathFilters(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		matchKey string
+		value    string
+		wantSkip bool
+	}{
+		{name: "matching pod", matchKey: "resource/pod", value: podJsonTest, wantSkip: true},
+		{name: "matching namespace", matchKey: "resource/namespace", value: namespaceJsonTest, wantSkip: true},
+		{name: "matching node", matchKey: "node/name", value: nodeJsonTest, wantSkip: true},
+		{name: "other pod", matchKey: "resource/pod", value: "other", wantSkip: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			mock := &enricherfakes.FakeImpl{}
+
+			sut, err := NewJsonEnricherArgs(logr.Discard(), &JsonEnricherOptions{
+				EnricherFiltersJson: `[{"priority":1,"level":"None","matchKeys":["` +
+					tc.matchKey + `"],"matchValues":["` + tc.value + `"]}]`,
+			})
+			require.NoError(t, err)
+
+			sut.impl = mock
+
+			sut.dispatchSeccompLine(&types.LogBucket{
+				TimestampID: "1613173578.156:2945",
+				ProcessInfo: &types.ProcessInfo{Pid: 1234},
+				ContainerInfo: &types.ContainerInfo{
+					PodName:   podJsonTest,
+					Namespace: namespaceJsonTest,
+				},
+			}, nodeJsonTest)
+
+			if tc.wantSkip {
+				require.Zero(t, mock.PrintJsonOutputCallCount())
+
+				return
+			}
+
+			require.Equal(t, 1, mock.PrintJsonOutputCallCount())
+		})
+	}
+}
+
 // TestJsonEnricherLogLinesCacheNoTouch asserts that reading a log bucket does
 // not extend its lifetime. Buckets are only flushed on eviction, so touching
 // them on every hit would keep a busy process from ever emitting its records.
@@ -697,23 +764,18 @@ func TestJsonEnricherLockedLogBucketEmitted(t *testing.T) {
 
 // fakeBpfProcesses is a BPF process cache which counts its lookups.
 type fakeBpfProcesses struct {
-	cmdLine     string
-	env         map[string]string
-	err         error
-	cmdLineHits int
-	envHits     int
+	cmdLine string
+	env     map[string]string
+	err     error
+	hits    int
 }
 
-func (f *fakeBpfProcesses) GetCmdLine(int) (string, error) {
-	f.cmdLineHits++
+func (f *fakeBpfProcesses) GetCmdLineAndEnv(
+	int,
+) (cmdLine string, env map[string]string, err error) {
+	f.hits++
 
-	return f.cmdLine, f.err
-}
-
-func (f *fakeBpfProcesses) GetEnv(int) (map[string]string, error) {
-	f.envHits++
-
-	return f.env, f.err
+	return f.cmdLine, f.env, f.err
 }
 
 // TestProcessEbpf asserts that the BPF process cache fills in what the
@@ -747,6 +809,16 @@ func TestProcessEbpf(t *testing.T) {
 			wantCmdLine:    cmdLineJsonTest,
 			wantRequestUID: new(requestUID),
 		},
+		"fills in only the request": {
+			cache: &fakeBpfProcesses{
+				cmdLine: "other",
+				env:     map[string]string{requestIdEnv: requestUID},
+			},
+			info:           types.ProcessInfo{CmdLine: cmdLineJsonTest},
+			wantCmdLine:    cmdLineJsonTest,
+			wantRequestUID: new(requestUID),
+			wantLookups:    1,
+		},
 		"process without request": {
 			cache:       &fakeBpfProcesses{env: map[string]string{}},
 			wantLookups: 1,
@@ -774,8 +846,7 @@ func TestProcessEbpf(t *testing.T) {
 
 			require.Equal(t, tc.wantCmdLine, bucket.ProcessInfo.CmdLine)
 			require.Equal(t, tc.wantRequestUID, bucket.ProcessInfo.ExecRequestId)
-			require.Equal(t, tc.wantLookups, tc.cache.envHits)
-			require.LessOrEqual(t, tc.cache.cmdLineHits, 1)
+			require.Equal(t, tc.wantLookups, tc.cache.hits)
 		})
 	}
 }

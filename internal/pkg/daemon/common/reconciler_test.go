@@ -110,14 +110,18 @@ func TestReconcileDeletion(t *testing.T) {
 			wantResult: reconcile.Result{},
 		},
 		{
-			name:    "StatusExistsNotTerminating_SetsTerminatingAndRequeues",
+			// The removal goes on in the same reconcile once the status
+			// is terminating.
+			name:    "StatusExistsNotTerminating_SetsTerminatingAndDeletes",
 			profile: testProfile(finalizer),
 			funcs: interceptor.Funcs{
 				Get:              statusGetFn(secprofnodestatusapi.ProfileStatePending),
 				Patch:            utiltest.PatchReturns(nil),
 				SubResourcePatch: utiltest.SubResourcePatchReturns(nil),
+				Delete:           utiltest.DeleteReturns(nil),
 			},
-			wantResult: reconcile.Result{RequeueAfter: Wait},
+			wantResult:  reconcile.Result{},
+			wantHandled: true,
 		},
 		{
 			name:    "StatusExistsTerminating_ActivePodsFinalizer_Requeues",
@@ -125,7 +129,7 @@ func TestReconcileDeletion(t *testing.T) {
 			funcs: interceptor.Funcs{
 				Get: statusGetFn(secprofnodestatusapi.ProfileStateTerminating),
 			},
-			wantResult: reconcile.Result{RequeueAfter: Wait},
+			wantResult: reconcile.Result{RequeueAfter: InUseRetry},
 		},
 		{
 			name:    "HandleDeletionFails",
@@ -227,8 +231,8 @@ func TestReconcileDeletion(t *testing.T) {
 			recorder := events.NewFakeRecorder(10)
 
 			gotResult, gotErr := ReconcileDeletion(
-				t.Context(), tc.profile, nsc, cl,
-				log.Log, recorder, testReasons(), incError, handleDeletion,
+				t.Context(), tc.profile, nsc, cl, log.Log,
+				ErrorReporter{Record: recorder, IncError: incError}, testReasons(), handleDeletion,
 			)
 
 			if tc.wantErr {
@@ -369,41 +373,24 @@ func (e *fakeEnv) state(t *testing.T) secprofnodestatusapi.ProfileState {
 	return state
 }
 
-func TestEnsureNodeStatusOrRequeue(t *testing.T) {
+// A created status is pending, and the reconcile goes on to update it.
+func TestEnsureNodeStatusCreatesPendingStatus(t *testing.T) {
 	t.Parallel()
 
 	env := newFakeEnv(t, &interceptor.Funcs{})
 
-	// The status gets created, which is picked up after a delay.
-	res, stop, err := EnsureNodeStatusOrRequeue(t.Context(), env.nsc, log.Log)
+	created, _, err := EnsureNodeStatus(t.Context(), env.nsc, log.Log)
 	require.NoError(t, err)
-	require.True(t, stop)
-	require.Equal(t, reconcile.Result{RequeueAfter: Wait}, res)
+	require.True(t, created)
 	require.Equal(t, secprofnodestatusapi.ProfileStatePending, env.state(t))
 
-	// An existing status lets the reconcile go on.
-	res, stop, err = EnsureNodeStatusOrRequeue(t.Context(), env.nsc, log.Log)
+	changed, err := MarkInstalled(t.Context(), env.profile, env.nsc, log.Log, env.reporter())
 	require.NoError(t, err)
-	require.False(t, stop)
-	require.Equal(t, reconcile.Result{}, res)
-}
+	require.True(t, changed)
 
-func TestEnsureNodeStatusOrRequeueError(t *testing.T) {
-	t.Parallel()
-
-	errGet := errors.New("get failed")
-	env := newFakeEnv(t, &interceptor.Funcs{
-		Get: func(
-			_ context.Context, _ client.WithWatch, _ client.ObjectKey, _ client.Object, _ ...client.GetOption,
-		) error {
-			return errGet
-		},
-	}, util.GetFinalizerNodeString(testNodeName))
-
-	res, stop, err := EnsureNodeStatusOrRequeue(t.Context(), env.nsc, log.Log)
-	require.ErrorIs(t, err, errGet)
-	require.True(t, stop)
-	require.Equal(t, reconcile.Result{}, res)
+	created, _, err = EnsureNodeStatus(t.Context(), env.nsc, log.Log)
+	require.NoError(t, err)
+	require.False(t, created)
 }
 
 func TestMarkInstalled(t *testing.T) {
@@ -471,8 +458,11 @@ func TestReconcileDisabled(t *testing.T) {
 	for _, tc := range []struct {
 		name            string
 		finalizers      []string
+		notInstalled    bool
+		installedErr    error
 		state           secprofnodestatusapi.ProfileState
 		removeErr       error
+		removeResult    reconcile.Result
 		afterRemoveErr  error
 		wantResult      reconcile.Result
 		wantErr         error
@@ -499,6 +489,30 @@ func TestReconcileDisabled(t *testing.T) {
 			state:      secprofnodestatusapi.ProfileStateInstalled,
 			wantResult: reconcile.Result{RequeueAfter: InUseRetry},
 			wantState:  secprofnodestatusapi.ProfileStateInstalled,
+		},
+		{
+			// Pods on other nodes may use a profile which this node never
+			// installed.
+			name:         "disables a profile which is not installed although pods use it",
+			finalizers:   []string{util.HasActivePodsFinalizerString},
+			notInstalled: true,
+			state:        secprofnodestatusapi.ProfileStatePending,
+			wantState:    secprofnodestatusapi.ProfileStateDisabled,
+		},
+		{
+			name:         "fails if the installation cannot be told",
+			state:        secprofnodestatusapi.ProfileStateInstalled,
+			installedErr: errRemove,
+			wantErr:      errRemove,
+			wantState:    secprofnodestatusapi.ProfileStateInstalled,
+		},
+		{
+			name:         "waits for an asynchronous removal",
+			state:        secprofnodestatusapi.ProfileStateInstalled,
+			removeResult: reconcile.Result{RequeueAfter: Wait},
+			wantResult:   reconcile.Result{RequeueAfter: Wait},
+			wantRemoved:  true,
+			wantState:    secprofnodestatusapi.ProfileStateInstalled,
 		},
 		{
 			name:        "reports a failed removal",
@@ -532,22 +546,33 @@ func TestReconcileDisabled(t *testing.T) {
 
 			res, err := ReconcileDisabled(
 				t.Context(), env.profile, env.nsc, log.Log, env.reporter(), testReasons(),
-				func() error {
-					removed = true
+				Removal{
+					Installed: func(state secprofnodestatusapi.ProfileState) (bool, error) {
+						require.Equal(t, tc.state, state)
 
-					return tc.removeErr
-				},
-				func() error {
-					afterRemove = true
+						return !tc.notInstalled, tc.installedErr
+					},
+					Remove: func() (reconcile.Result, error) {
+						removed = true
 
-					return tc.afterRemoveErr
+						return tc.removeResult, tc.removeErr
+					},
+					AfterRemove: func() error {
+						afterRemove = true
+
+						return tc.afterRemoveErr
+					},
 				},
 			)
 
-			if tc.wantErr != nil {
+			switch {
+			case tc.installedErr != nil:
+				require.ErrorIs(t, err, tc.wantErr)
+				require.Empty(t, env.reasons)
+			case tc.wantErr != nil:
 				require.ErrorIs(t, err, tc.wantErr)
 				require.Equal(t, []string{tc.wantReason}, env.reasons)
-			} else {
+			default:
 				require.NoError(t, err)
 				require.Empty(t, env.reasons)
 			}
@@ -568,7 +593,10 @@ func TestReconcileDisabled(t *testing.T) {
 
 		res, err := ReconcileDisabled(
 			t.Context(), env.profile, env.nsc, log.Log, env.reporter(), testReasons(),
-			func() error { return nil }, nil,
+			Removal{
+				Installed: func(secprofnodestatusapi.ProfileState) (bool, error) { return true, nil },
+				Remove:    func() (reconcile.Result, error) { return reconcile.Result{}, nil },
+			},
 		)
 		require.NoError(t, err)
 		require.Equal(t, reconcile.Result{}, res)

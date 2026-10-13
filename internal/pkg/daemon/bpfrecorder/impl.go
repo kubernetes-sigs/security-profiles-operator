@@ -65,6 +65,7 @@ type impl interface {
 	CloseModule(*bpf.Module)
 	BPFLSMEnabled() bool
 	GetMap(*bpf.Module, string) (*bpf.BPFMap, error)
+	SetMaxEntries(*bpf.BPFMap, uint32) error
 	InitRingBuf(*bpf.Module, string, chan []byte) (*bpf.RingBuffer, error)
 	Stat(string) (os.FileInfo, error)
 	ContainerIDForPID(*ttlcache.Cache[string, string], int) (string, error)
@@ -165,6 +166,15 @@ func (d *defaultImpl) BPFLSMEnabled() bool {
 
 func (d *defaultImpl) GetMap(module *bpf.Module, mapName string) (*bpf.BPFMap, error) {
 	return module.GetMap(mapName)
+}
+
+// SetMaxEntries resizes a map of a module which is not loaded yet.
+func (d *defaultImpl) SetMaxEntries(m *bpf.BPFMap, maxEntries uint32) error {
+	if m == nil {
+		return errors.New("provided bpf map is nil")
+	}
+
+	return m.SetMaxEntries(maxEntries)
 }
 
 func (d *defaultImpl) InitRingBuf(

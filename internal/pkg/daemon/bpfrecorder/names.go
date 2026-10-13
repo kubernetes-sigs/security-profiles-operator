@@ -34,6 +34,7 @@ const (
 	mapLostEvents          = "lost_events"
 	mapRecordedCaps        = "recorded_caps"
 	mapRecordedSockets     = "recorded_sockets"
+	mapLastFileEvent       = "last_file_event"
 	globalFilterName       = "filter_name"
 	globalUseCgroupID      = "use_cgroup_id"
 	globalUseMntnsSeq      = "use_mntns_seq"
@@ -63,6 +64,7 @@ var (
 		mapIsRecording, mapEvents, mapExcludeMntns, mapRecordedSyscalls,
 		mapActivePids, mapChildPids, mapExcludeKeys, mapSeccompInitialized,
 		mapApparmorInitialized, mapLostEvents, mapRecordedCaps, mapRecordedSockets,
+		mapLastFileEvent,
 	}
 
 	bpfGlobalNames = []string{
@@ -99,5 +101,13 @@ var (
 		progSysEnterExecve,
 		progSysEnterExecveat,
 		progSysEnterGetgid,
+	}
+
+	// procCacheUnusedMaps are the maps of the recorder which the hooks of the
+	// process cache do not fill, see BpfProcessCache.Load.
+	procCacheUnusedMaps = []string{
+		mapExcludeMntns, mapRecordedSyscalls, mapActivePids, mapChildPids,
+		mapExcludeKeys, mapSeccompInitialized, mapApparmorInitialized,
+		mapRecordedCaps, mapRecordedSockets, mapLastFileEvent,
 	}
 )

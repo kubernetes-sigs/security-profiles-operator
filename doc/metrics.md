@@ -156,7 +156,8 @@ The labels have the following meaning:
   audited access.
 - `profile` of the AppArmor audit and denial metrics is the AppArmor profile
   the kernel reported for the event. `profile` of `apparmor_profile_error_total`
-  is the name of the `AppArmorProfile` object which failed to reconcile.
+  is the name of the `AppArmorProfile` object which failed to reconcile. Its
+  series get dropped once the `AppArmorProfile` is gone.
 - `operation` of `apparmor_profile_audit_total` and
   `apparmor_profile_denial_total` is the AppArmor operation of the audit
   event, for example `open`, `exec` or `capable`.
@@ -197,6 +198,9 @@ cluster:
 - `pod` is unique per pod and turns over on every restart, rollout or job run
 - `syscall` has a few hundred possible values
 - `mount_namespace` is a raw kernel identifier, unique per container
+
+`apparmor_profile_denial_total` is handled like them, because its `profile`
+comes from the audit log as well.
 
 Every observed label combination becomes a distinct Prometheus time series. The
 spod DaemonSet drops a series after one hour without increments, but Prometheus

@@ -386,6 +386,15 @@ type FakeImpl struct {
 	setAutoloadReturnsOnCall map[int]struct {
 		result1 error
 	}
+	SetMaxEntriesStub        func(*libbpfgo.BPFMap, uint32) error
+	setMaxEntriesMutex       sync.RWMutex
+	setMaxEntriesArgsForCall []FakeImplSetMaxEntriesArgs
+	setMaxEntriesReturns     struct {
+		result1 error
+	}
+	setMaxEntriesReturnsOnCall map[int]struct {
+		result1 error
+	}
 	StatStub        func(string) (os.FileInfo, error)
 	statMutex       sync.RWMutex
 	statArgsForCall []FakeImplStatArgs
@@ -621,6 +630,12 @@ type FakeImplServeArgs struct {
 type FakeImplSetAutoloadArgs struct {
 	Arg1 *libbpfgo.BPFProg
 	Arg2 bool
+}
+
+// FakeImplSetMaxEntriesArgs holds the arguments of one call to SetMaxEntries.
+type FakeImplSetMaxEntriesArgs struct {
+	Arg1 *libbpfgo.BPFMap
+	Arg2 uint32
 }
 
 // FakeImplStatArgs holds the arguments of one call to Stat.
@@ -2999,6 +3014,73 @@ func (fake *FakeImpl) SetAutoloadReturnsOnCall(i int, result1 error) {
 		})
 	}
 	fake.setAutoloadReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) SetMaxEntries(arg1 *libbpfgo.BPFMap, arg2 uint32) error {
+	fake.setMaxEntriesMutex.Lock()
+	ret, specificReturn := fake.setMaxEntriesReturnsOnCall[len(fake.setMaxEntriesArgsForCall)]
+	fake.setMaxEntriesArgsForCall = append(fake.setMaxEntriesArgsForCall, FakeImplSetMaxEntriesArgs{arg1, arg2})
+	stub := fake.SetMaxEntriesStub
+	fakeReturns := fake.setMaxEntriesReturns
+	fake.recordInvocation("SetMaxEntries", []interface{}{arg1, arg2})
+	fake.setMaxEntriesMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) SetMaxEntriesCallCount() int {
+	fake.setMaxEntriesMutex.RLock()
+	defer fake.setMaxEntriesMutex.RUnlock()
+	return len(fake.setMaxEntriesArgsForCall)
+}
+
+func (fake *FakeImpl) SetMaxEntriesCalls(stub func(*libbpfgo.BPFMap, uint32) error) {
+	fake.setMaxEntriesMutex.Lock()
+	defer fake.setMaxEntriesMutex.Unlock()
+	fake.SetMaxEntriesStub = stub
+}
+
+func (fake *FakeImpl) SetMaxEntriesArgsForCall(i int) (*libbpfgo.BPFMap, uint32) {
+	fake.setMaxEntriesMutex.RLock()
+	defer fake.setMaxEntriesMutex.RUnlock()
+	argsForCall := fake.setMaxEntriesArgsForCall[i]
+	return argsForCall.Arg1, argsForCall.Arg2
+}
+
+func (fake *FakeImpl) SetMaxEntriesArgs() []FakeImplSetMaxEntriesArgs {
+	fake.setMaxEntriesMutex.RLock()
+	defer fake.setMaxEntriesMutex.RUnlock()
+	args := make([]FakeImplSetMaxEntriesArgs, len(fake.setMaxEntriesArgsForCall))
+	copy(args, fake.setMaxEntriesArgsForCall)
+	return args
+}
+
+func (fake *FakeImpl) SetMaxEntriesReturns(result1 error) {
+	fake.setMaxEntriesMutex.Lock()
+	defer fake.setMaxEntriesMutex.Unlock()
+	fake.SetMaxEntriesStub = nil
+	fake.setMaxEntriesReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) SetMaxEntriesReturnsOnCall(i int, result1 error) {
+	fake.setMaxEntriesMutex.Lock()
+	defer fake.setMaxEntriesMutex.Unlock()
+	fake.SetMaxEntriesStub = nil
+	if fake.setMaxEntriesReturnsOnCall == nil {
+		fake.setMaxEntriesReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.setMaxEntriesReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
 }

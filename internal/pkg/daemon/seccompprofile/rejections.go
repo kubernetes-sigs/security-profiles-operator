@@ -17,39 +17,21 @@ limitations under the License.
 package seccompprofile
 
 import (
-	"sync"
-
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// rejectionReports remembers the last reported rejection of each profile, so
-// that the resyncs of the daemon do not record an event and count an error
-// for an unchanged profile every time. The zero value is ready to use.
-type rejectionReports struct {
-	// reported holds the last reported rejection, keyed by the namespaced
-	// name of the profile.
-	reported sync.Map
-}
-
-// rejection identifies a rejected version of a profile.
+// rejection identifies a rejected version of a profile. A rejection gets
+// reported once, so that the resyncs of the daemon do not record an event and
+// count an error for an unchanged profile every time.
 type rejection struct {
 	uid        types.UID
 	generation int64
 	reason     string
 }
 
-// shouldReport returns true if the rejection of obj for reason has to be
-// reported, which is the case unless it got reported for the same generation
-// of the profile already.
-func (r *rejectionReports) shouldReport(obj client.Object, reason string) bool {
-	current := rejection{uid: obj.GetUID(), generation: obj.GetGeneration(), reason: reason}
-	previous, reported := r.reported.Swap(client.ObjectKeyFromObject(obj), current)
-
-	return !reported || previous != current
-}
-
-// forget makes the next rejection of the profile of key get reported.
-func (r *rejectionReports) forget(key types.NamespacedName) {
-	r.reported.Delete(key)
+// newRejection returns the rejection of the current generation of obj for
+// reason.
+func newRejection(obj client.Object, reason string) rejection {
+	return rejection{uid: obj.GetUID(), generation: obj.GetGeneration(), reason: reason}
 }
