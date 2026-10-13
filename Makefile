@@ -22,7 +22,6 @@ GOLANGCI_LINT_SHA256_linux_amd64 = ab90aeb7b066f92a33415b638a50fe5344bbb75a0d32a
 GOLANGCI_LINT_SHA256_linux_arm64 = ee7ec5f3453d15ddf106fae5a4d6c71737712348a979d1fe9cd52ec7ea299bae
 GOLANGCI_LINT_SHA256_darwin_amd64 = a5667c1c3536be1740133213e1e822bfb8f0d98ea12903174d6d5f635e4ed68d
 GOLANGCI_LINT_SHA256_darwin_arm64 = 5ef5f36a7147e91dc58ef9ef4d11bb7bad5ead0c76eb6c01327a73c641d1dcc3
-KAL_VERSION = v0.0.0-20260716143926-092fe0c72997
 REPO_INFRA_VERSION = v0.2.6
 # Checksum of hack/verify_boilerplate.py of REPO_INFRA_VERSION.
 VERIFY_BOILERPLATE_SHA256 = 3ee0139a0a2865ad2e9674012a2459d56f4009844aa1b430119d0da4c603da95
@@ -709,9 +708,21 @@ verify-go-version: ## Verify that nix builds with the Go version of go.mod
 		exit 1; \
 	fi
 
+# The major version of clang-format which formats the C and protobuf sources,
+# the one hack/pull-security-profiles-operator-verify installs. Other versions
+# may format differently, so verify-format warns about them, a diff then may
+# stem from the version. CLANG_FORMAT selects the binary, like
+# CLANG_FORMAT=clang-format-23.
+CLANG_FORMAT_VERSION = 23
+CLANG_FORMAT ?= clang-format
+
 .PHONY: verify-format
 verify-format: ## Verify the code format
-	clang-format -i $(shell find . -type f -name '*.c' -or -name '*.proto' | grep -v ./vendor)
+	@version="$$($(CLANG_FORMAT) --version | sed -nE 's/.*clang-format version ([0-9]+)\..*/\1/p')"; \
+	if [ "$$version" != "$(CLANG_FORMAT_VERSION)" ]; then \
+		echo "Warning: CI formats with clang-format $(CLANG_FORMAT_VERSION), but $(CLANG_FORMAT) is version $${version:-unknown}, which may format differently, select another one with CLANG_FORMAT" >&2; \
+	fi
+	$(CLANG_FORMAT) -i $$(git ls-files '*.c' '*.proto' ':!:vendor')
 	hack/tree-status
 
 # Architecture names of the shellcheck and hadolint release assets. shellcheck
@@ -899,7 +910,7 @@ endif
 
 .PHONY: test-spoc-e2e
 test-spoc-e2e: $(BUILD_DIR)/$(CLI_BINARY) ## Run the spoc end-to-end tests
-	$(GO) test -v -timeout 20m ./test/spoc $(ARGS)
+	$(GO) test -tags e2e -v -timeout 20m ./test/spoc $(ARGS)
 
 manifests: $(BUILD_DIR)/kubernetes-split-yaml $(BUILD_DIR)/kustomize ## Generate the CRD manifests
 	./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/spod/...' output:crd:stdout" "deploy/base-crds/crds/securityprofilesoperatordaemon.yaml"

@@ -28,6 +28,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strconv"
@@ -72,7 +73,10 @@ var (
 	envSkipBuildImages = os.Getenv("E2E_SKIP_BUILD_IMAGES")
 	// E2E_SPO_IMAGE is the operator image to test.
 	envTestImage = os.Getenv("E2E_SPO_IMAGE")
-	// E2E_SELINUXD_IMAGE is the selinuxd image to deploy.
+	// E2E_SELINUXD_IMAGE is the selinuxd image to deploy for all node
+	// operating systems. kind and vanilla default to the
+	// RELATED_IMAGE_SELINUXD image of the operator manifest, OpenShift to
+	// the images the manifest selects per operating system.
 	envSelinuxdTestImage = os.Getenv("E2E_SELINUXD_IMAGE")
 	// E2E_SPOD_CONFIG is a SPOD manifest which is applied after the
 	// deployment, to change the default configuration.
@@ -278,9 +282,6 @@ func TestSuite(t *testing.T) {
 	}
 
 	selinuxdImage := envSelinuxdTestImage
-	if selinuxdImage == "" {
-		selinuxdImage = "quay.io/security-profiles-operator/selinuxd"
-	}
 
 	switch {
 	case clusterType == "" || strings.EqualFold(clusterType, clusterTypeKind):
@@ -414,16 +415,35 @@ func (e *kinde2e) SetupSuite() {
 	var err error
 
 	e.kubectlPath, err = exec.LookPath("kubectl")
-	e.updateManifest(
-		e.operatorManifest,
-		"value: .*quay.io/.*/selinuxd.*",
-		"value: "+e.selinuxdImage,
-	)
 	e.Require().NoError(err)
+	e.setDefaultSelinuxdImage()
+
+	// kind load docker-image names no image for a reference by digest only,
+	// so the selinuxd pods would never start with the pull policy Never.
+	if e.selinuxEnabled && !hasTag(e.selinuxdImage) {
+		e.FailNowf(
+			"selinuxd image without tag",
+			"kind cannot load %s, set E2E_SELINUXD_IMAGE to a tagged image for the SELinux tests",
+			e.selinuxdImage,
+		)
+	}
 }
 
-// SetupTest starts a fresh kind cluster for each test.
+// hasTag reports whether the image reference has a tag, also next to a
+// digest.
+func hasTag(image string) bool {
+	name, _, _ := strings.Cut(image, "@")
+
+	return strings.Contains(name[strings.LastIndex(name, "/")+1:], ":")
+}
+
+// SetupTest starts a fresh kind cluster for each test, unless the test gets
+// skipped anyway.
 func (e *kinde2e) SetupTest() {
+	if e.skipsQuarantinedTests() {
+		return
+	}
+
 	// Deploy the cluster
 	e.logf("Deploying the cluster")
 	e.clusterName = fmt.Sprintf("spo-e2e-%d", time.Now().Unix())
@@ -451,16 +471,23 @@ func (e *kinde2e) SetupTest() {
 	e.run(
 		e.kindPath, "load", "docker-image", "--name="+e.clusterName, e.testImage,
 	)
-	e.run(
-		containerRuntime, "pull", e.selinuxdImage,
-	)
-	e.run(
-		e.kindPath, "load", "docker-image", "--name="+e.clusterName, e.selinuxdImage,
-	)
+
+	// The pull policy of the operator applies to selinuxd too, so it has to
+	// be on the nodes. Only the SELinux test cases deploy it.
+	if e.selinuxEnabled {
+		e.run(containerRuntime, "pull", e.selinuxdImage)
+		e.run(
+			e.kindPath, "load", "docker-image", "--name="+e.clusterName, e.selinuxdImage,
+		)
+	}
 }
 
-// TearDownTest stops the kind cluster.
+// TearDownTest stops the kind cluster, if SetupTest started one.
 func (e *kinde2e) TearDownTest() {
+	if e.clusterName == "" {
+		return
+	}
+
 	e.logf("#### Snapshot of cert-manager namespace ####")
 	e.kubectl("--namespace", "cert-manager", "describe", "all")
 	e.logf("########")
@@ -474,6 +501,7 @@ func (e *kinde2e) TearDownTest() {
 		"--name="+e.clusterName,
 		"-v=3",
 	)
+	e.clusterName = ""
 }
 
 // hostArch returns the architecture of the host in the notation of Go, from
@@ -649,12 +677,8 @@ func (e *vanilla) SetupSuite() {
 	e.waitForReadyPods = e.waitForReadyPodsVanilla
 	e.deployCertManager = e.deployCertManagerVanilla
 	e.setupRecordingSa = e.deployRecordingSa
-	e.updateManifest(
-		e.operatorManifest,
-		"value: .*quay.io/.*/selinuxd.*",
-		"value: "+e.selinuxdImage,
-	)
 	e.Require().NoError(err)
+	e.setDefaultSelinuxdImage()
 }
 
 func (e *vanilla) SetupTest() {
@@ -686,6 +710,29 @@ func (e *e2e) waitForReadyPodsVanilla() {
 
 func (e *e2e) deployCertManagerVanilla() {
 	doDeployCertManager(e)
+}
+
+// relatedImageSelinuxd matches the generic selinuxd image of the operator
+// manifest, which the operator deploys on nodes without a more specific one.
+var relatedImageSelinuxd = regexp.MustCompile(
+	`(?m)^\s*- name: RELATED_IMAGE_SELINUXD\n\s*value: (\S+)$`,
+)
+
+// setDefaultSelinuxdImage deploys the pinned generic selinuxd image of the
+// operator manifest for all node operating systems, unless E2E_SELINUXD_IMAGE
+// selects one. Call it after setWorkDir.
+func (e *e2e) setDefaultSelinuxdImage() {
+	if e.selinuxdImage != "" {
+		return
+	}
+
+	content, err := os.ReadFile(e.operatorManifest)
+	e.Require().NoError(err)
+
+	match := relatedImageSelinuxd.FindSubmatch(content)
+	e.Require().NotNil(match, "no RELATED_IMAGE_SELINUXD in %s", e.operatorManifest)
+	e.selinuxdImage = string(match[1])
+	e.logf("Using the selinuxd image %s of %s", e.selinuxdImage, e.operatorManifest)
 }
 
 func (e *e2e) setWorkDir() string {

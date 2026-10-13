@@ -63,6 +63,11 @@ gpgcheck=1
 gpgkey=https://pkgs.k8s.io/core:/stable:/$KUBERNETES_VERSION/rpm/repodata/repomd.xml.key
 EOF
 
+      # CRI-O comes from the development builds of its main branch on purpose,
+      # so that the e2e tests catch CRI-O changes which break the operator
+      # before they get released. To rule out a CRI-O regression, switch to
+      # the stable stream of the Kubernetes minor version, like
+      # isv:/cri-o:/stable:/$KUBERNETES_VERSION.
 cat <<EOF | tee /etc/yum.repos.d/cri-o.repo
 [cri-o]
 name=CRI-O

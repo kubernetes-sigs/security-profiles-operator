@@ -16,7 +16,9 @@
 set -euo pipefail
 
 dev() {
-  # --tmpfs=/tmp:size=2G: Allocate 2GB tmpfs to accommodate large vendor dependencies during test runs
+  # /tmp is a 2G tmpfs for the work directories of the Go builds below it, of
+  # gotestsum and, without a prebuilt test binary, of the e2e tests, which do
+  # not fit into the developer container image.
   systemd-nspawn -q -i /opt/bin/flatcar_developer_container.bin --bind=/:/hostfs --tmpfs=/tmp:size=2G "$@"
 }
 

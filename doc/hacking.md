@@ -61,7 +61,8 @@ for actually deploying the operator, `libseccomp` is not optional and whether
 to build against seccomp is determined automatically based on the build
 platform.
 
-Also make sure you have `clang-tools-extra` installed
+`make verify-format` needs `clang-format` from `clang-tools-extra`, see
+[verifying changes](#verifying-changes).
 
 To build SPO with all the features simply run:
 ```shell
@@ -103,10 +104,11 @@ container build directly.
   the generated code and the deployment manifests after API changes.
 - [`hack/update-selinuxd.sh`](../hack/update-selinuxd.sh) pins the selinuxd
   images to the current digest of their `latest` tag in the kustomize
-  deployment, the Helm values and `dependencies.yaml`. Run
-  `make deployments bundle` afterwards to regenerate the manifests.
-  `hack/update-selinuxd.sh --check` only reports moved tags, which the weekly
-  dependencies workflow does.
+  deployment, the Helm values and `dependencies.yaml`, and the selinuxd
+  commit which the Fedora e2e job builds to the head of the selinuxd main
+  branch. Run `make deployments bundle` afterwards to regenerate the
+  manifests. `hack/update-selinuxd.sh --check` only reports moved tags and a
+  newer commit, which the weekly dependencies workflow does.
 - `make update-docs` regenerates the command line reference of `spoc` and the
   operator binary below [`reference/`](reference/) after changing their flags,
   `make verify-docs` checks that it is up to date.
@@ -127,9 +129,16 @@ targets or disable the optional features.
 
 `make verify` runs all checks which need no cluster, each of which is a target
 of its own. The linters get downloaded into `build/` with pinned versions and
-checksums, so no local installation is needed. Besides the checks of the
-code, the generated files and the dependencies, these are:
+checksums, so no local installation is needed, except for `clang-format`.
+Besides the checks of the code, the generated files and the dependencies,
+these are:
 
+- `make verify-format` formats the C and protobuf sources with the
+  `clang-format` of the host. The Prow job installs the major version
+  `CLANG_FORMAT_VERSION` of the `Makefile`. Other major versions may format
+  differently, so the target warns about them, and a resulting diff may stem
+  from the version rather than the change. `CLANG_FORMAT` selects another
+  binary, like `make verify-format CLANG_FORMAT=clang-format-<version>`.
 - `make verify-shellcheck` checks the shell scripts with shellcheck.
 - `make verify-dockerfiles` lints the Dockerfiles with hadolint and checks that
   `Dockerfile` and `Dockerfile.ubi` did not drift apart.
@@ -469,34 +478,34 @@ not start them. The `Makefile` targets pass it. The environment variables of
 the suite are documented next to their definition in
 [suite_test.go](../test/suite_test.go), keep this table in sync with them:
 
-| Variable                    | Default                                       | Description                                                                                                                                                                                          |
-| --------------------------- | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `E2E_CLUSTER_TYPE`          | `kind`                                        | The cluster driver: `kind` creates a kind cluster per test, `vanilla` uses the cluster of the current context, like the Fedora, Flatcar and Ubuntu CI jobs, `openshift` a Red Hat OpenShift cluster. |
-| `E2E_SPO_IMAGE`             | per driver                                    | The operator image to test. `kind` builds and loads it under this name, `vanilla` deploys it as is, `openshift` skips pushing an image when set.                                                     |
-| `E2E_SKIP_BUILD_IMAGES`     | `false`                                       | OpenShift only: push the image without building it first.                                                                                                                                            |
-| `E2E_SELINUXD_IMAGE`        | `quay.io/security-profiles-operator/selinuxd` | The selinuxd image to deploy.                                                                                                                                                                        |
-| `E2E_SPOD_CONFIG`           | none                                          | A SPOD manifest which gets applied after deploying the operator, like `test/flatcar-spod-config.yaml`.                                                                                               |
-| `E2E_SKIP_FLAKY_TESTS`      | `false`, `true` in `make test-e2e`            | Skip the [quarantined test cases](#quarantined-test-cases). `make test-e2e E2E_SKIP_FLAKY_TESTS=false` runs them as well, without retries.                                                           |
-| `E2E_SKIP_NAMESPACED_TESTS` | `false`                                       | Skip the second run of the test cases against the namespaced operator.                                                                                                                               |
-| `E2E_TEST_SECCOMP`          | `true`                                        | Run the seccomp test cases, which need the kubelet directory at `/var/lib/kubelet`.                                                                                                                  |
-| `E2E_TEST_SELINUX`          | `false`                                       | Run the SELinux test cases, which need a node with SELinux enabled.                                                                                                                                  |
-| `E2E_TEST_LOG_ENRICHER`     | `false`                                       | Run the log enricher test cases, which record profiles from the `audit.log`.                                                                                                                         |
-| `E2E_TEST_JSON_ENRICHER`    | `false`                                       | Run the JSON enricher test cases.                                                                                                                                                                    |
-| `E2E_TEST_BPF_RECORDER`     | `false`                                       | Run the test cases which record through the eBPF recorder.                                                                                                                                           |
-| `E2E_TEST_BPF_LOG_ENRICHER` | `false`                                       | Run the log enricher test case with the BPF source, which only reports AppArmor denials.                                                                                                             |
-| `E2E_TEST_WEBHOOK_CONFIG`   | `true`                                        | Run the webhook configuration test cases.                                                                                                                                                            |
-| `E2E_TEST_WEBHOOK_HTTP`     | `true`                                        | Run the webhook HTTP version test case.                                                                                                                                                              |
-| `E2E_TEST_METRICS_HTTP`     | `true`                                        | Run the metrics HTTP version test case.                                                                                                                                                              |
-| `E2E_ARTIFACTS_DIR`         | none                                          | Write the [diagnostics of failed tests](#failure-diagnostics) to a directory per test below it instead of logging them.                                                                              |
-| `CONTAINER_RUNTIME`         | `podman` if found, else `docker`              | The container runtime of the host, detected by the `Makefile`.                                                                                                                                       |
-| `NODE_ROOTFS_PREFIX`        | none                                          | The prefix of the node root filesystem, when commands reach the node through a chroot.                                                                                                               |
-| `OPERATOR_MANIFEST`         | `deploy/operator.yaml`                        | The cluster wide operator manifest to deploy.                                                                                                                                                        |
-| `E2E_TEST_BINARY`           | none                                          | `Makefile`: a prebuilt test binary (`go test -c -tags e2e ./test`) to run instead of compiling the tests, see the `Makefile`.                                                                        |
-| `E2E_TEST_SKIP`             | none                                          | `Makefile`: a regular expression of the tests to skip, see `-skip` in `go help testflag`.                                                                                                            |
-| `E2E_RETRY_RUN`             | the quarantined test cases                    | `Makefile`: the tests `make test-flaky-e2e` runs with one retry.                                                                                                                                     |
-| `E2E_RETRY_TIMEOUT`         | `30m`                                         | `Makefile`: the timeout of `make test-flaky-e2e`.                                                                                                                                                    |
-| `E2E_TEST_FLAKY_TESTS_ONLY` | `false`                                       | CI scripts in `hack/ci`: run `make test-flaky-e2e` instead of `make test-e2e`.                                                                                                                       |
-| `E2E_FEDORA_SUITE`          | `enricher`                                    | `hack/ci/e2e-fedora.sh`: the test cases of the Fedora job, `enricher` or `selinux`.                                                                                                                  |
+| Variable                    | Default                            | Description                                                                                                                                                                                                                                                                                                                              |
+| --------------------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `E2E_CLUSTER_TYPE`          | `kind`                             | The cluster driver: `kind` creates a kind cluster per test, `vanilla` uses the cluster of the current context, like the Fedora, Flatcar and Ubuntu CI jobs, `openshift` a Red Hat OpenShift cluster.                                                                                                                                     |
+| `E2E_SPO_IMAGE`             | per driver                         | The operator image to test. `kind` builds and loads it under this name, `vanilla` deploys it as is, `openshift` skips pushing an image when set.                                                                                                                                                                                         |
+| `E2E_SKIP_BUILD_IMAGES`     | `false`                            | OpenShift only: push the image without building it first.                                                                                                                                                                                                                                                                                |
+| `E2E_SELINUXD_IMAGE`        | `RELATED_IMAGE_SELINUXD`           | The selinuxd image to deploy for all node operating systems. `kind` and `vanilla` default to the `RELATED_IMAGE_SELINUXD` image of the operator manifest, `openshift` keeps the images the operator selects per operating system. With `E2E_TEST_SELINUX` on `kind`, it has to be a tagged image, `kind` cannot load one by digest only. |
+| `E2E_SPOD_CONFIG`           | none                               | A SPOD manifest which gets applied after deploying the operator, like `test/flatcar-spod-config.yaml`.                                                                                                                                                                                                                                   |
+| `E2E_SKIP_FLAKY_TESTS`      | `false`, `true` in `make test-e2e` | Skip the [quarantined test cases](#quarantined-test-cases). `make test-e2e E2E_SKIP_FLAKY_TESTS=false` runs them as well, without retries.                                                                                                                                                                                               |
+| `E2E_SKIP_NAMESPACED_TESTS` | `false`                            | Skip the second run of the test cases against the namespaced operator.                                                                                                                                                                                                                                                                   |
+| `E2E_TEST_SECCOMP`          | `true`                             | Run the seccomp test cases, which need the kubelet directory at `/var/lib/kubelet`.                                                                                                                                                                                                                                                      |
+| `E2E_TEST_SELINUX`          | `false`                            | Run the SELinux test cases, which need a node with SELinux enabled.                                                                                                                                                                                                                                                                      |
+| `E2E_TEST_LOG_ENRICHER`     | `false`                            | Run the log enricher test cases, which record profiles from the `audit.log`.                                                                                                                                                                                                                                                             |
+| `E2E_TEST_JSON_ENRICHER`    | `false`                            | Run the JSON enricher test cases.                                                                                                                                                                                                                                                                                                        |
+| `E2E_TEST_BPF_RECORDER`     | `false`                            | Run the test cases which record through the eBPF recorder.                                                                                                                                                                                                                                                                               |
+| `E2E_TEST_BPF_LOG_ENRICHER` | `false`                            | Run the log enricher test case with the BPF source, which only reports AppArmor denials.                                                                                                                                                                                                                                                 |
+| `E2E_TEST_WEBHOOK_CONFIG`   | `true`                             | Run the webhook configuration test cases.                                                                                                                                                                                                                                                                                                |
+| `E2E_TEST_WEBHOOK_HTTP`     | `true`                             | Run the webhook HTTP version test case.                                                                                                                                                                                                                                                                                                  |
+| `E2E_TEST_METRICS_HTTP`     | `true`                             | Run the metrics HTTP version test case.                                                                                                                                                                                                                                                                                                  |
+| `E2E_ARTIFACTS_DIR`         | none                               | Write the [diagnostics of failed tests](#failure-diagnostics) to a directory per test below it instead of logging them.                                                                                                                                                                                                                  |
+| `CONTAINER_RUNTIME`         | `podman` if found, else `docker`   | The container runtime of the host, detected by the `Makefile`.                                                                                                                                                                                                                                                                           |
+| `NODE_ROOTFS_PREFIX`        | none                               | The prefix of the node root filesystem, when commands reach the node through a chroot.                                                                                                                                                                                                                                                   |
+| `OPERATOR_MANIFEST`         | `deploy/operator.yaml`             | The cluster wide operator manifest to deploy.                                                                                                                                                                                                                                                                                            |
+| `E2E_TEST_BINARY`           | none                               | `Makefile`: a prebuilt test binary (`go test -c -tags e2e ./test`) to run instead of compiling the tests, see the `Makefile`.                                                                                                                                                                                                            |
+| `E2E_TEST_SKIP`             | none                               | `Makefile`: a regular expression of the tests to skip, see `-skip` in `go help testflag`.                                                                                                                                                                                                                                                |
+| `E2E_RETRY_RUN`             | the quarantined test cases         | `Makefile`: the tests `make test-flaky-e2e` runs with one retry.                                                                                                                                                                                                                                                                         |
+| `E2E_RETRY_TIMEOUT`         | `30m`                              | `Makefile`: the timeout of `make test-flaky-e2e`.                                                                                                                                                                                                                                                                                        |
+| `E2E_TEST_FLAKY_TESTS_ONLY` | `false`                            | CI scripts in `hack/ci`: run `make test-flaky-e2e` instead of `make test-e2e`.                                                                                                                                                                                                                                                           |
+| `E2E_FEDORA_SUITE`          | `enricher`                         | `hack/ci/e2e-fedora.sh`: the test cases of the Fedora job, `enricher` or `selinux`.                                                                                                                                                                                                                                                      |
 
 The suite deploys copies of the manifests below `build/e2e-manifests`, the
 tracked manifests stay untouched.
@@ -532,7 +541,8 @@ quarantined, ideally with a link to the issue which tracks it.
   over the reports of the last runs of the test workflow on `main`, which
   cover the quarantined test cases on all e2e environments. It fails when a
   test case needs to be quarantined and lists the ones to promote in the job
-  summary.
+  summary. A failed scheduled run opens an issue, or comments on the open
+  one.
 
 To quarantine a flaky test case, set `flaky: true` and its `issue`. To promote
 it, remove both again. New test cases start quarantined until they pass
@@ -626,7 +636,8 @@ the Flatcar VM runs `hack/ci/e2e-flatcar-dev-container.sh`.
 ### Running the spoc e2e tests
 `make test-spoc-e2e` builds `spoc` and runs its end-to-end tests in
 [`test/spoc`](../test/spoc), which record and run profiles on the local host
-without a cluster. The CI runs them on the Debian VM and on an arm64 runner
+without a cluster. Like the e2e suite, they only build with the `e2e` build
+tag. The CI runs them on the Debian VM and on an arm64 runner
 through `hack/ci/e2e-spoc.sh`.
 
 ## Adding support for a new distribution

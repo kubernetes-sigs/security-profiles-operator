@@ -69,10 +69,15 @@ if "$E2E_TEST_SELINUX" && ! podman image exists "$E2E_SELINUXD_IMAGE"; then
 fi
 
 # CI compiles the tests outside of the VM, see E2E_TEST_BINARY in the Makefile.
-# The artifact download loses the executable bit.
+# The artifact download loses the executable bit. The VM gets build/ of the
+# checkout, so a local run uses a test binary which is left there, remove it
+# to test the sources instead.
 if [[ -f build/e2e.test ]]; then
   chmod +x build/e2e.test
   export E2E_TEST_BINARY=build/e2e.test
+  echo "Using the prebuilt e2e test binary $E2E_TEST_BINARY of $(date -r "$E2E_TEST_BINARY")"
+else
+  echo "No prebuilt e2e test binary, compiling the tests"
 fi
 
 export E2E_TEST_FLAKY_TESTS_ONLY=${E2E_TEST_FLAKY_TESTS_ONLY:-false}

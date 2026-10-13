@@ -31,6 +31,15 @@ SPO_NAMESPACE=security-profiles-operator
 CERT_MANAGER_VERSION=v1.21.2
 CERT_MANAGER_SHA256=e03b668ec8675214af6b0a671699d088f2601fa3878e0dbe1b41d3feafd1879f
 
+# The image of the pods whose seccomp and AppArmor profiles get recorded. The
+# recordings are compared with the committed base profiles and AppArmor
+# reference profiles, which list the syscalls and the files of its busybox
+# and musl, so it is pinned by digest. Bump the version and the digest
+# together, see alpine in dependencies.yaml, and commit the recordings of the
+# new image.
+ALPINE_VERSION=3.24.2
+ALPINE_IMAGE=docker.io/library/alpine:$ALPINE_VERSION@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+
 # Runs kubectl in the namespace of the operator.
 k() {
   kubectl -n "$SPO_NAMESPACE" "$@"
