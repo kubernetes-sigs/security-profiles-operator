@@ -95,6 +95,12 @@ const (
 const (
 	reloadInstallGenerationAnnotation = "spo.x-k8s.io/selinux-policy-reload-generation"
 	reloadRemoveGenerationAnnotation  = "spo.x-k8s.io/selinux-policy-reload-remove-generation"
+
+	// policyWrittenAnnotation is set on the node status of a profile before
+	// its policy file gets written on the node. The policy file lives in an
+	// emptyDir and the node status turns terminating on deletion, so neither
+	// tells afterwards whether selinuxd may have installed the module.
+	policyWrittenAnnotation = "spo.x-k8s.io/selinux-policy-written"
 )
 
 // blank assignment to verify that ReconcileSelinux implements `reconcile.Reconciler`.
@@ -141,11 +147,9 @@ type ReconcileSelinux struct {
 	// podName is the name of the SPOd pod the daemon runs in.
 	podName string
 
-	// reportedMu guards reported.
-	reportedMu sync.Mutex
 	// reported is the last error which keeps a profile from being
 	// installed, per profile, see reportInstallError.
-	reported map[types.NamespacedName]installError
+	reported common.Reports[installError]
 
 	// reloadFailuresMu guards reloadFailures.
 	reloadFailuresMu sync.Mutex
@@ -153,17 +157,19 @@ type ReconcileSelinux struct {
 	// generation, per profile, see reloadRetryDelay.
 	reloadFailures map[types.NamespacedName]reloadFailures
 
-	// removalsCounted maps the profiles whose removal got counted in the
-	// metrics to their UID, as a retried deletion or the deletion of a
+	// removalsCounted holds the UID of the profiles whose removal got
+	// counted in the metrics, as a retried deletion or the deletion of a
 	// disabled profile counts it again otherwise. The node status, which
 	// records the reload, may be gone already. An installation forgets the
 	// counted removal, so that the next removal counts again.
-	removalsCounted sync.Map
+	removalsCounted common.Reports[types.UID]
 }
 
 // installError is an error which keeps a generation of a profile from being
-// installed.
+// installed. The UID tells apart a profile which got created again under the
+// same name.
 type installError struct {
+	uid        types.UID
 	generation int64
 	reason     string
 	msg        string
@@ -383,17 +389,11 @@ func (r *ReconcileSelinux) Reconcile(
 	if !instance.GetDeletionTimestamp().IsZero() {
 		// The counted removal is kept until the profile is gone, a retry
 		// must not count it again.
-		r.forgetInstallError(request.NamespacedName)
+		r.reported.Forget(request.NamespacedName)
 		r.forgetReloadFailures(request.NamespacedName)
 
 		return common.ReconcileDeletion(
-			ctx, instance, nodeStatus, r.client, reqLogger, r.record,
-			common.DeletionReasons{
-				CannotUpdateProfile: reasonCannotUpdatePolicyStatus,
-				CannotRemoveProfile: reasonCannotRemovePolicy,
-				CannotUpdateStatus:  reasonCannotUpdatePolicyStatus,
-			},
-			r.metrics.IncSelinuxProfileError,
+			ctx, instance, nodeStatus, r.client, reqLogger, r.errorReporter(), deletionReasons(),
 			func() (reconcile.Result, error) {
 				owner, found, err := r.policyOwner(ctx, instance)
 				if err != nil {
@@ -421,13 +421,29 @@ func (r *ReconcileSelinux) Reconcile(
 	return r.reconcilePolicy(ctx, instance, oh, nodeStatus, reqLogger)
 }
 
+// errorReporter returns the reporter of the errors of this controller.
+func (r *ReconcileSelinux) errorReporter() common.ErrorReporter {
+	return common.ErrorReporter{
+		Record:   r.record,
+		IncError: r.metrics.IncSelinuxProfileError,
+	}
+}
+
+// deletionReasons returns the event reasons for removing a policy. Unlike
+// the other profile kinds, a failed update of the node status has a reason
+// of its own.
+func deletionReasons() common.DeletionReasons {
+	return common.DeletionReasons{
+		CannotUpdateProfile: reasonCannotUpdatePolicyStatus,
+		CannotRemoveProfile: reasonCannotRemovePolicy,
+		CannotUpdateStatus:  reasonCannotUpdatePolicyStatus,
+	}
+}
+
 // reportError increments the error metric for reason and records a warning
 // event with the message on obj.
 func (r *ReconcileSelinux) reportError(obj runtime.Object, reason, action, msg string) {
-	common.ErrorReporter{
-		Record:   r.record,
-		IncError: r.metrics.IncSelinuxProfileError,
-	}.Report(obj, reason, action, msg)
+	r.errorReporter().Report(obj, reason, action, msg)
 }
 
 // reportInstallError reports an error which keeps the profile from being
@@ -438,43 +454,22 @@ func (r *ReconcileSelinux) reportError(obj runtime.Object, reason, action, msg s
 func (r *ReconcileSelinux) reportInstallError(
 	sp selinuxprofileapi.SelinuxProfileObject, reason, msg string,
 ) {
-	key := client.ObjectKeyFromObject(sp)
-	report := installError{generation: sp.GetGeneration(), reason: reason, msg: msg}
-
-	r.reportedMu.Lock()
-
-	duplicate := r.reported[key] == report
-	if !duplicate {
-		if r.reported == nil {
-			r.reported = map[types.NamespacedName]installError{}
-		}
-
-		r.reported[key] = report
+	report := installError{
+		uid: sp.GetUID(), generation: sp.GetGeneration(), reason: reason, msg: msg,
 	}
 
-	r.reportedMu.Unlock()
-
-	if duplicate {
+	if !r.reported.ShouldReport(client.ObjectKeyFromObject(sp), report) {
 		return
 	}
 
 	r.reportError(sp, reason, util.EventActionInstall, msg)
 }
 
-// forgetInstallError forgets the error reported last for the profile, which
-// got installed or is gone.
-func (r *ReconcileSelinux) forgetInstallError(key types.NamespacedName) {
-	r.reportedMu.Lock()
-	defer r.reportedMu.Unlock()
-
-	delete(r.reported, key)
-}
-
 // forgetProfile forgets what got remembered about a profile which is gone.
 func (r *ReconcileSelinux) forgetProfile(key types.NamespacedName) {
-	r.forgetInstallError(key)
+	r.reported.Forget(key)
 	r.forgetReloadFailures(key)
-	r.removalsCounted.Delete(key)
+	r.removalsCounted.Forget(key)
 }
 
 func (r *ReconcileSelinux) reconcilePolicy(
@@ -488,6 +483,16 @@ func (r *ReconcileSelinux) reconcilePolicy(
 		return res, err
 	}
 
+	// A policy which cannot be generated, for example because it uses a type
+	// which the SPOD denies, fails like an invalid profile. Only a change of
+	// the profile or of the SPOD fixes it, which both trigger a reconcile.
+	cil, err := oh.GetCILPolicy()
+	if err != nil {
+		return r.handleValidationError(
+			ctx, sp, nodeStatus, fmt.Errorf("generating CIL: %w", err),
+		)
+	}
+
 	if conflict, err := r.checkConflicts(ctx, sp, nodeStatus); conflict || err != nil {
 		return reconcile.Result{}, err
 	}
@@ -496,7 +501,13 @@ func (r *ReconcileSelinux) reconcilePolicy(
 		return res, err
 	}
 
-	policyUpdated, err := r.reconcilePolicyFile(sp, oh, l)
+	if err := nodeStatus.SetAnnotation(ctx, policyWrittenAnnotation, "true"); err != nil {
+		r.reportError(sp, reasonCannotUpdatePolicyStatus, util.EventActionUpdate, err.Error())
+
+		return reconcile.Result{}, fmt.Errorf("recording the policy file: %w", err)
+	}
+
+	policyUpdated, err := r.writePolicyFile(sp, cil, l)
 	if err != nil {
 		r.reportError(sp, reasonCannotWritePolicyFile, util.EventActionInstall, err.Error())
 
@@ -570,7 +581,7 @@ func (r *ReconcileSelinux) checkPreconditions(
 	}
 
 	if !sp.IsReconcilable() {
-		l.Info("Profile is partial, skipping")
+		l.V(config.VerboseLevel).Info("Profile is partial, skipping")
 
 		return reconcile.Result{}, true, nil
 	}
@@ -720,8 +731,8 @@ func (r *ReconcileSelinux) handlePolicyStatus(
 			return reconcile.Result{}, fmt.Errorf("getting the current node status: %w", err)
 		}
 
-		r.forgetInstallError(client.ObjectKeyFromObject(sp))
-		r.removalsCounted.Delete(client.ObjectKeyFromObject(sp))
+		r.reported.Forget(client.ObjectKeyFromObject(sp))
+		r.removalsCounted.Forget(client.ObjectKeyFromObject(sp))
 
 		if !alreadyInstalled {
 			evstr := "Successfully saved profile to disk on " + r.nodeName
@@ -767,65 +778,56 @@ func (r *ReconcileSelinux) reconcileDisabledPolicy(
 	nodeStatus *nodestatus.StatusClient,
 	l logr.Logger,
 ) (reconcile.Result, error) {
-	state, err := nodeStatus.State(ctx)
-	if err != nil {
-		return reconcile.Result{}, fmt.Errorf("getting node status: %w", err)
-	}
+	return common.ReconcileDisabled(
+		ctx, sp, nodeStatus, l, r.errorReporter(), deletionReasons(),
+		common.Removal{
+			Installed: func(state secprofnodestatusapi.ProfileState) (bool, error) {
+				return r.policyInstalled(ctx, sp, nodeStatus, state)
+			},
+			Remove: func() (reconcile.Result, error) {
+				return r.reconcileDeletePolicy(ctx, sp, nodeStatus, l)
+			},
+			// The policy is not on the node anymore until it gets written
+			// again.
+			AfterRemove: func() error {
+				return nodeStatus.SetAnnotation(ctx, policyWrittenAnnotation, "")
+			},
+		},
+	)
+}
 
+// policyInstalled returns true if the node may have installed the policy of
+// the profile: its file is on disk, the node status in state moved past
+// pending, which it only does after the policy file got written, see
+// conflictsWithSystemModule, or the node status tells that the policy file
+// got written, see policyMayBeWritten. The latter covers a policy which got
+// installed before its profile failed, and whose file got lost with the
+// emptyDir of a restarted SPOd pod. A policy which belongs to the profile of
+// the other kind is not the one of this profile.
+func (r *ReconcileSelinux) policyInstalled(
+	ctx context.Context,
+	sp selinuxprofileapi.SelinuxProfileObject,
+	nodeStatus *nodestatus.StatusClient,
+	state secprofnodestatusapi.ProfileState,
+) (bool, error) {
 	_, statErr := os.Stat(r.policyPath(sp))
 	if statErr != nil && !os.IsNotExist(statErr) {
-		return reconcile.Result{}, fmt.Errorf("checking policy file: %w", statErr)
+		return false, fmt.Errorf("checking policy file: %w", statErr)
 	}
 
-	// The node status moves past pending only after the policy file got
-	// written, see conflictsWithSystemModule.
-	installed := statErr == nil ||
-		state == secprofnodestatusapi.ProfileStateInProgress ||
-		state == secprofnodestatusapi.ProfileStateInstalled
-
-	if installed {
-		_, found, err := r.policyOwner(ctx, sp)
-		if err != nil {
-			return reconcile.Result{}, err
-		}
-
-		// The policy belongs to the other profile.
-		installed = !found
+	if statErr != nil &&
+		state != secprofnodestatusapi.ProfileStateInProgress &&
+		state != secprofnodestatusapi.ProfileStateInstalled &&
+		!r.policyMayBeWritten(ctx, nodeStatus) {
+		return false, nil
 	}
 
-	if installed {
-		// Removing the module breaks the pods which run with its types.
-		if common.InUse(sp) {
-			l.Info("Not removing disabled policy which is in use by pods, requeuing")
-
-			return reconcile.Result{RequeueAfter: common.InUseRetry}, nil
-		}
-
-		res, err := r.reconcileDeletePolicy(ctx, sp, nodeStatus, l)
-		if err != nil {
-			r.reportError(sp, reasonCannotRemovePolicy, util.EventActionRemove, err.Error())
-
-			// A requeue returned with an error is ignored by
-			// controller-runtime, which retries with backoff instead.
-			return reconcile.Result{}, fmt.Errorf("removing disabled policy: %w", err)
-		}
-
-		if res.RequeueAfter > 0 {
-			return res, nil
-		}
+	_, found, err := r.policyOwner(ctx, sp)
+	if err != nil {
+		return false, err
 	}
 
-	if state != secprofnodestatusapi.ProfileStateDisabled {
-		if err := r.setNodeStatus(
-			ctx, sp, nodeStatus, secprofnodestatusapi.ProfileStateDisabled,
-		); err != nil {
-			return reconcile.Result{}, err
-		}
-	}
-
-	l.Info("Profile is disabled")
-
-	return reconcile.Result{}, nil
+	return !found, nil
 }
 
 // conflictsWithSystemModule returns true if a module with the name of the
@@ -1158,23 +1160,14 @@ func (r *ReconcileSelinux) reloadInstalledPolicy(
 	return res, err
 }
 
-// reconcilePolicyFile writes the policy file to the drop directory if the content differs.
-// Returns (policyUpdated, error) where policyUpdated is true if the file was actually written.
-func (r *ReconcileSelinux) reconcilePolicyFile(
+// writePolicyFile writes the policy file with the CIL policy to the drop
+// directory if the content differs. It returns true if the file got written.
+func (r *ReconcileSelinux) writePolicyFile(
 	sp selinuxprofileapi.SelinuxProfileObject,
-	oh SelinuxObjectHandler,
+	cil string,
 	l logr.Logger,
 ) (bool, error) {
-	policyPath := r.policyPath(sp)
-
-	cil, parseErr := oh.GetCILPolicy()
-	if parseErr != nil {
-		return false, fmt.Errorf("generating CIL: %w", parseErr)
-	}
-
-	policyContent := []byte(cil)
-
-	written, err := writeFileIfDiffers(policyPath, policyContent, l)
+	written, err := writeFileIfDiffers(r.policyPath(sp), []byte(cil), l)
 	if err != nil {
 		return false, fmt.Errorf("writing policy file: %w", err)
 	}
@@ -1189,6 +1182,22 @@ func (r *ReconcileSelinux) reconcileDeletePolicy(
 	l logr.Logger,
 ) (reconcile.Result, error) {
 	selinuxdReady, err := isSelinuxdReady(ctx, r.httpc)
+	if (err != nil || !selinuxdReady) && !r.policyMayBeWritten(ctx, nodeStatus) {
+		// A node without SELinux never gets a ready selinuxd, but it never
+		// wrote the policy either. Waiting for selinuxd would keep the
+		// profile from being removed for good. A policy which got written
+		// may have been installed, and has to be removed and reloaded by
+		// selinuxd even if its file and module are gone already. Only a
+		// module store which can be read tells that the module is gone.
+		if gone, goneErr := r.policyGone(sp, l); goneErr != nil {
+			return reconcile.Result{}, goneErr
+		} else if gone {
+			l.Info("Policy was never written on the node, not waiting for selinuxd")
+
+			return reconcile.Result{}, nil
+		}
+	}
+
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("contacting selinuxd: %w", err)
 	}
@@ -1252,12 +1261,62 @@ func (r *ReconcileSelinux) reconcileDeletePolicy(
 	return reconcile.Result{}, nil
 }
 
+// policyMayBeWritten returns true unless the node status tells that the node
+// never wrote the policy file, see policyWrittenAnnotation. A reload of the
+// installed policy, which earlier releases recorded without the annotation,
+// tells that it got written as well. A node status which cannot be read tells
+// nothing, so the policy may be written. A node status which is gone, like
+// after a foreground deletion, which removes it before the profile, does not
+// tell either. It is handled like the status of an earlier release, which
+// leaves it to the policy file and the module store, see policyGone.
+func (r *ReconcileSelinux) policyMayBeWritten(
+	ctx context.Context, nodeStatus *nodestatus.StatusClient,
+) bool {
+	mayBeWritten := func(key string) bool {
+		value, err := nodeStatus.GetAnnotation(ctx, key)
+		if err != nil {
+			return !kerrors.IsNotFound(err)
+		}
+
+		return value != ""
+	}
+
+	return mayBeWritten(policyWrittenAnnotation) ||
+		mayBeWritten(reloadInstallGenerationAnnotation)
+}
+
+// policyGone returns true if neither the policy file nor the module of the
+// profile is on the node. A module store which cannot be read may still hold
+// the module, which is not gone then: dropping the finalizer would leave the
+// module loaded for good.
+func (r *ReconcileSelinux) policyGone(
+	sp selinuxprofileapi.SelinuxProfileObject, l logr.Logger,
+) (bool, error) {
+	if _, err := os.Stat(r.policyPath(sp)); err == nil {
+		return false, nil
+	} else if !os.IsNotExist(err) {
+		return false, fmt.Errorf("checking policy file: %w", err)
+	}
+
+	installed, err := selinuxModuleInstalled(
+		r.selinuxModuleStorePath(), filepath.Clean(sp.GetPolicyName()),
+	)
+	if err != nil {
+		l.V(config.VerboseLevel).Info(
+			"Cannot tell if the module is installed, waiting for selinuxd", "error", err.Error(),
+		)
+
+		return false, nil
+	}
+
+	return !installed, nil
+}
+
 // countRemoval counts the removal of the policy in the metrics, unless it got
 // counted since the policy got installed last. It reports whether it counted
 // the removal.
 func (r *ReconcileSelinux) countRemoval(sp selinuxprofileapi.SelinuxProfileObject) bool {
-	counted, ok := r.removalsCounted.Swap(client.ObjectKeyFromObject(sp), sp.GetUID())
-	if ok && counted == sp.GetUID() {
+	if !r.removalsCounted.ShouldReport(client.ObjectKeyFromObject(sp), sp.GetUID()) {
 		return false
 	}
 
@@ -1430,37 +1489,58 @@ func writeFileIfDiffers(filePath string, contents []byte, l logr.Logger) (bool, 
 }
 
 // isSELinuxModuleInstalled checks whether an SELinux module with the given name
-// is installed in the host's module store. The store layout is
-// /var/lib/selinux/<policy_type>/active/modules/<priority>/<module_name>/.
+// is installed in the host's module store. A store which cannot be read counts
+// as one without the module, see selinuxModuleInstalled.
 func isSELinuxModuleInstalled(moduleStorePath, name string) bool {
-	policyTypes, err := os.ReadDir(moduleStorePath)
-	if err != nil {
-		return false
+	installed, err := selinuxModuleInstalled(moduleStorePath, name)
+
+	return err == nil && installed
+}
+
+// selinuxModuleInstalled checks whether an SELinux module with the given name
+// is installed in the host's module store. The store layout is
+// /var/lib/selinux/<policy_type>/active/modules/<priority>/<module_name>/. A
+// missing directory of the store is one without the module. A directory which
+// cannot be read is skipped, the module may be in another one. Only if the
+// module is not found anywhere, the first such failure is returned, because
+// the module may be in the directory which cannot be read: the directories of
+// the store are usually only readable by root.
+func selinuxModuleInstalled(moduleStorePath, name string) (bool, error) {
+	var firstErr error
+
+	// readDir returns the entries of dir, and remembers why it cannot be
+	// read.
+	readDir := func(dir string) []os.DirEntry {
+		entries, err := os.ReadDir(dir)
+		if err != nil && !errors.Is(err, os.ErrNotExist) && firstErr == nil {
+			firstErr = fmt.Errorf("reading SELinux module store: %w", err)
+		}
+
+		return entries
 	}
 
-	for _, pt := range policyTypes {
+	for _, pt := range readDir(moduleStorePath) {
 		if !pt.IsDir() {
 			continue
 		}
 
 		modulesDir := filepath.Join(moduleStorePath, pt.Name(), "active", "modules")
 
-		priorities, err := os.ReadDir(modulesDir)
-		if err != nil {
-			continue
-		}
-
-		for _, prio := range priorities {
+		for _, prio := range readDir(modulesDir) {
 			if !prio.IsDir() {
 				continue
 			}
 
-			moduleDir := filepath.Join(modulesDir, prio.Name(), name)
-			if fi, err := os.Stat(moduleDir); err == nil && fi.IsDir() {
-				return true
+			fi, err := os.Stat(filepath.Join(modulesDir, prio.Name(), name))
+			if err == nil && fi.IsDir() {
+				return true, nil
+			}
+
+			if err != nil && !errors.Is(err, os.ErrNotExist) && firstErr == nil {
+				firstErr = fmt.Errorf("reading SELinux module store: %w", err)
 			}
 		}
 	}
 
-	return false
+	return false, firstErr
 }

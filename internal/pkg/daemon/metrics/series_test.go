@@ -67,8 +67,8 @@ func TestSeriesExpire(t *testing.T) {
 	require.Zero(t, seriesCount(sut.metricAppArmorProfileAudit))
 	require.Zero(t, seriesCount(sut.metricSelinuxProfileAudit))
 
-	// Denials are not per workload.
-	require.Equal(t, 1, seriesCount(sut.metricAppArmorProfileDenial))
+	// The profiles of the denials come from the audit log as well.
+	require.Zero(t, seriesCount(sut.metricAppArmorProfileDenial))
 	require.Len(t, sut.series.series, 1)
 }
 
@@ -143,4 +143,38 @@ func TestSeriesWithoutLimit(t *testing.T) {
 
 	require.Equal(t, 10, seriesCount(sut.metricSeccompProfileBpf))
 	require.Zero(t, seriesCount(sut.metricSeriesDropped))
+}
+
+// TestDenialSeriesLimit asserts that the denials, whose profiles come from the
+// audit log, keep at most the configured number of series.
+func TestDenialSeriesLimit(t *testing.T) {
+	t.Parallel()
+
+	sut := New()
+	sut.SetMaxSeries(1)
+
+	sut.IncAppArmorProfileDenial("first", "open")
+	sut.IncAppArmorProfileDenial("second", "open")
+	sut.IncAppArmorProfileDenial("first", "open")
+
+	require.Equal(t, map[string]float64{
+		"operation=open,profile=first": 2,
+	}, series(t, sut.metricAppArmorProfileDenial))
+}
+
+// TestDeleteAppArmorProfileErrors asserts that the error series of a profile
+// which is gone are dropped, and only those.
+func TestDeleteAppArmorProfileErrors(t *testing.T) {
+	t.Parallel()
+
+	sut := New()
+	sut.IncAppArmorProfileError("gone", "first")
+	sut.IncAppArmorProfileError("gone", "second")
+	sut.IncAppArmorProfileError("kept", "first")
+
+	sut.DeleteAppArmorProfileErrors("gone")
+
+	require.Equal(t, map[string]float64{
+		"profile=kept,reason=first": 1,
+	}, series(t, sut.metricAppArmorProfileError))
 }

@@ -79,6 +79,7 @@ func matchPathFilterLabel(
 	subLabels := strings.SplitN(label, "/", 2)
 
 	if len(subLabels) == 2 {
+		// The JSON enricher emits the nested values as map[string]any.
 		if subMap, ok := logMap[subLabels[0]].(map[string]any); ok {
 			// Recursive search for the filter label with path.
 			// For example resource/pod.

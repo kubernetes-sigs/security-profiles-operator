@@ -143,7 +143,6 @@ const (
 	reloadJobLabelAction     = "action"
 	reloadJobLabelGeneration = "generation"
 	reloadJobLabelProfileUID = "profile-uid"
-	reloadJobLabelCreated    = "created"
 )
 
 // createPolicyReloadJob creates a short-lived privileged Job to run semodule -R
@@ -441,7 +440,6 @@ func newReloadJob(
 	jobLabels[reloadJobLabelAction] = action
 	jobLabels[reloadJobLabelGeneration] = strconv.FormatInt(generation, 10)
 	jobLabels[reloadJobLabelProfileUID] = string(uid)
-	jobLabels[reloadJobLabelCreated] = strconv.FormatInt(time.Now().Unix(), 10)
 
 	return &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{

@@ -135,6 +135,7 @@ const (
 	lostSyscallsMapFull
 	lostFileEventBusy
 	lostCompatSyscall
+	lostUnresolvedPath
 	lostReasons
 )
 
@@ -250,6 +251,7 @@ type BpfRecorder struct {
 	seccompInitBpfMap        *bpf.BPFMap
 	apparmorInitBpfMap       *bpf.BPFMap
 	lostEventsBpfMap         *bpf.BPFMap
+	lastFileEventBpfMap      *bpf.BPFMap
 	// lostEvents holds the drop counters last reported, guarded by
 	// lostEventsMu.
 	lostEvents   [lostReasons]uint64
@@ -1283,6 +1285,7 @@ func (b *BpfRecorder) Load() (err error) {
 		mapSeccompInitialized:  &b.seccompInitBpfMap,
 		mapApparmorInitialized: &b.apparmorInitBpfMap,
 		mapLostEvents:          &b.lostEventsBpfMap,
+		mapLastFileEvent:       &b.lastFileEventBpfMap,
 	} {
 		if *bpfMap, err = b.GetMap(b.module, name); err != nil {
 			return fmt.Errorf("getting `%s` map: %w", name, err)
@@ -1387,6 +1390,7 @@ func (b *BpfRecorder) releaseModule() {
 	b.excludeKeysBpfMap = nil
 	b.seccompInitBpfMap = nil
 	b.apparmorInitBpfMap = nil
+	b.lastFileEventBpfMap = nil
 
 	if b.Seccomp != nil {
 		b.Seccomp.syscalls = nil
@@ -1460,6 +1464,12 @@ func (b *BpfRecorder) checkLostEvents() {
 				"WARNING: 32 bit syscalls are not recorded, "+
 					"recorded seccomp profiles of 32 bit programs are incomplete",
 				"lostSyscalls", lost, "lostSyscallsTotal", total,
+			)
+		case lostUnresolvedPath:
+			b.logger.Info(
+				"WARNING: paths which are too long or too deep are not recorded, "+
+					"recorded AppArmor profiles may be incomplete",
+				"lostFileEvents", lost, "lostFileEventsTotal", total,
 			)
 		}
 	}
@@ -1631,11 +1641,12 @@ func (b *BpfRecorder) StopRecording() error {
 
 // clearPidMaps empties the per session tracking maps. A PID which exited while
 // nothing was recording stays in them otherwise, so a new process reusing that
-// PID would never be reported.
+// PID would never be reported. The last file of a thread would not be reported
+// in the next session either.
 func (b *BpfRecorder) clearPidMaps() error {
 	for _, bpfMap := range []*bpf.BPFMap{
 		b.activePidsBpfMap, b.childPidsBpfMap, b.excludeKeysBpfMap,
-		b.seccompInitBpfMap, b.apparmorInitBpfMap,
+		b.seccompInitBpfMap, b.apparmorInitBpfMap, b.lastFileEventBpfMap,
 	} {
 		if err := clearBpfMap(b, bpfMap); err != nil {
 			return fmt.Errorf("clear process tracking map: %w", err)
@@ -2118,11 +2129,18 @@ func (b *BpfRecorder) excludeKey(key, generation uint64) {
 }
 
 func (b *BpfRecorder) handleExitEvent(exitEvent *bpfEvent) {
-	// Logged at the default level, unlike the other per-process events: an exit
-	// only reaches userspace for a pid the recorder actually tracks, and spoc
-	// --no-proc-start has no other way to tell that the recording caught up with
-	// an externally started process before it is stopped.
-	b.logger.Info("Record pid exit", "pid", exitEvent.Pid)
+	// Logged at the default level by spoc, unlike the other per-process
+	// events: an exit only reaches userspace for a pid the recorder actually
+	// tracks, and spoc --no-proc-start has no other way to tell that the
+	// recording caught up with an externally started process before it is
+	// stopped. In-cluster, every exit of a recorded workload gets here, which
+	// would flood the log of a workload starting many processes.
+	logger := b.logger
+	if b.clientset != nil {
+		logger = logger.V(config.VerboseLevel)
+	}
+
+	logger.Info("Record pid exit", "pid", exitEvent.Pid)
 
 	// Remember the exit first, so that a WaitForPidExit which registers right
 	// after this still observes it.

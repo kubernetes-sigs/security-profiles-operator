@@ -19,6 +19,7 @@ package apparmorprofile
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -40,8 +41,10 @@ import (
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	profilebaseapi "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/nodestatus"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/utiltest"
 )
@@ -60,6 +63,9 @@ type countingProfileManager struct {
 	removeErr  error
 	// notRemoved makes RemoveProfile report that it removed nothing.
 	notRemoved bool
+	// loaded makes ProfileInstalled report the profile as loaded by the
+	// operator.
+	loaded bool
 
 	installs     int
 	removes      int
@@ -77,6 +83,10 @@ func (m *countingProfileManager) InstallProfile(
 	m.gotOwnedByUs = ownedByUs
 
 	return m.updated, m.installErr
+}
+
+func (m *countingProfileManager) ProfileInstalled(profilebaseapi.StatusBaseUser) (bool, error) {
+	return m.loaded, nil
 }
 
 func (m *countingProfileManager) RemoveProfile(profilebaseapi.StatusBaseUser, bool) (bool, error) {
@@ -200,15 +210,11 @@ func getNodeStatus(
 }
 
 // reconcileUntilInstalled drives a fresh profile through the initial node
-// status creation and the installation.
+// status creation and the installation, which happen in the same reconcile.
 func reconcileUntilInstalled(t *testing.T, r *Reconciler) {
 	t.Helper()
 
 	res, err := r.Reconcile(t.Context(), testRequest())
-	require.NoError(t, err)
-	require.Equal(t, reconcile.Result{RequeueAfter: common.Wait}, res)
-
-	res, err = r.Reconcile(t.Context(), testRequest())
 	require.NoError(t, err)
 	require.Equal(t, reconcile.Result{}, res)
 }
@@ -261,23 +267,17 @@ func TestReconcileInstallsProfile(t *testing.T) {
 	manager := &countingProfileManager{enabled: true, updated: true}
 	r, cli, rec := newTestReconciler(t, manager, nil, testAppArmorProfile())
 
-	// The first pass only creates the node status, finalizer and label.
+	// The first pass creates the node status, finalizer and label, then
+	// installs the profile and reports it.
 	res, err := r.Reconcile(t.Context(), testRequest())
 	require.NoError(t, err)
-	require.Equal(t, reconcile.Result{RequeueAfter: common.Wait}, res)
-	require.Zero(t, manager.installs)
-	require.Equal(t, secprofnodestatusapi.ProfileStatePending, getNodeStatus(t, cli).Status.Status)
+	require.Equal(t, reconcile.Result{}, res)
 
 	profile := &apparmorprofileapi.AppArmorProfile{}
 	require.NoError(t, cli.Get(t.Context(), testRequest().NamespacedName, profile))
 	require.Contains(t, profile.GetFinalizers(), util.GetFinalizerNodeString(testNode))
 	require.Equal(t, "AppArmorProfile-"+testProfile,
 		profile.GetLabels()[secprofnodestatusapi.StatusToProfLabel])
-
-	// The second pass installs the profile and reports it.
-	res, err = r.Reconcile(t.Context(), testRequest())
-	require.NoError(t, err)
-	require.Equal(t, reconcile.Result{}, res)
 	require.Equal(t, 1, manager.installs)
 	require.False(
 		t,
@@ -348,9 +348,6 @@ func TestReconcileInstallError(t *testing.T) {
 	r, cli, rec := newTestReconciler(t, manager, nil, testAppArmorProfile())
 
 	_, err := r.Reconcile(t.Context(), testRequest())
-	require.NoError(t, err)
-
-	_, err = r.Reconcile(t.Context(), testRequest())
 	require.ErrorIs(t, err, errInstall)
 	utiltest.RequireEvent(t, rec, "Warning CannotLoadAppArmorProfile apparmor_parser failed")
 	require.Equal(t, secprofnodestatusapi.ProfileStatePending, getNodeStatus(t, cli).Status.Status)
@@ -365,10 +362,7 @@ func TestReconcileRejectsHostProfile(t *testing.T) {
 	manager := &countingProfileManager{enabled: true, installErr: ErrProfileExists}
 	r, cli, rec := newTestReconciler(t, manager, nil, testAppArmorProfile())
 
-	_, err := r.Reconcile(t.Context(), testRequest())
-	require.NoError(t, err)
-
-	for range 2 {
+	for range 3 {
 		res, err := r.Reconcile(t.Context(), testRequest())
 		require.NoError(t, err)
 		require.Equal(t, reconcile.Result{RequeueAfter: rejectedRetry}, res)
@@ -386,13 +380,12 @@ func TestReconcileStatusUpdateError(t *testing.T) {
 
 	errUpdate := errors.New("update failed")
 	manager := &countingProfileManager{enabled: true}
-	failUpdates := false
 	setGVK := gvkSetter(utiltest.NewScheme(t))
 	r, _, rec := newTestReconciler(t, manager, &interceptor.Funcs{
 		Update: func(
 			ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption,
 		) error {
-			if _, ok := obj.(*secprofnodestatusapi.SecurityProfileNodeStatus); ok && failUpdates {
+			if _, ok := obj.(*secprofnodestatusapi.SecurityProfileNodeStatus); ok {
 				return errUpdate
 			}
 
@@ -401,10 +394,6 @@ func TestReconcileStatusUpdateError(t *testing.T) {
 	}, testAppArmorProfile())
 
 	_, err := r.Reconcile(t.Context(), testRequest())
-	require.NoError(t, err)
-
-	failUpdates = true
-	_, err = r.Reconcile(t.Context(), testRequest())
 	require.ErrorIs(t, err, errUpdate)
 	require.Equal(t, 1, manager.installs)
 	utiltest.RequireEvent(
@@ -551,19 +540,9 @@ func TestReconcileDeletion(t *testing.T) {
 	reconcileUntilInstalled(t, r)
 	deletingProfile(t, cli)
 
-	// The node status turns terminating first.
+	// The node status turns terminating, then the profile gets unloaded, and
+	// the status and finalizer go away.
 	res, err := r.Reconcile(t.Context(), testRequest())
-	require.NoError(t, err)
-	require.Equal(t, reconcile.Result{RequeueAfter: common.Wait}, res)
-	require.Zero(t, manager.removes)
-	require.Equal(
-		t,
-		secprofnodestatusapi.ProfileStateTerminating,
-		getNodeStatus(t, cli).Status.Status,
-	)
-
-	// Then the profile gets unloaded, and the status and finalizer go away.
-	res, err = r.Reconcile(t.Context(), testRequest())
 	require.NoError(t, err)
 	require.Equal(t, reconcile.Result{}, res)
 	require.Equal(t, 1, manager.removes)
@@ -616,7 +595,7 @@ func TestReconcileDeletionWaitsForActivePods(t *testing.T) {
 	for range 2 {
 		res, err := r.Reconcile(t.Context(), testRequest())
 		require.NoError(t, err)
-		require.Equal(t, reconcile.Result{RequeueAfter: common.Wait}, res)
+		require.Equal(t, reconcile.Result{RequeueAfter: common.InUseRetry}, res)
 	}
 
 	require.Zero(t, manager.removes, "a profile in use by pods must stay loaded")
@@ -633,9 +612,6 @@ func TestReconcileDeletionRemoveError(t *testing.T) {
 	deletingProfile(t, cli)
 
 	_, err := r.Reconcile(t.Context(), testRequest())
-	require.NoError(t, err)
-
-	_, err = r.Reconcile(t.Context(), testRequest())
 	require.ErrorIs(t, err, errRemove)
 	utiltest.RequireEvent(
 		t,
@@ -663,14 +639,6 @@ func TestReconcileWithoutNodeName(t *testing.T) {
 
 	_, err := r.Reconcile(t.Context(), testRequest())
 	require.ErrorContains(t, err, "cannot determine node name")
-}
-
-func TestReconcileAppArmorProfileNil(t *testing.T) {
-	t.Parallel()
-
-	r := &Reconciler{}
-	_, err := r.reconcileAppArmorProfile(t.Context(), nil, log.Log)
-	require.ErrorIs(t, err, errAppArmorProfileNil)
 }
 
 func TestHealthz(t *testing.T) {
@@ -786,10 +754,21 @@ func TestReconcileNotSupportedReportsProfileOnce(t *testing.T) {
 	utiltest.RequireEvent(t, rec, wantEvent)
 	utiltest.RequireNoEvent(t, rec)
 
+	countedErrors := func() float64 {
+		t.Helper()
+
+		return utiltest.CounterValue(t, r.metrics.Collectors(),
+			"security_profiles_operator_apparmor_profile_error_total",
+			map[string]string{"profile": testProfile, "reason": reasonAppArmorNotSupported})
+	}
+	require.InDelta(t, 1, countedErrors(), 0)
+
+	// The error series of a deleted profile are dropped.
 	require.NoError(t, cli.Delete(t.Context(), profile))
 	_, err := r.Reconcile(t.Context(), testRequest())
 	require.NoError(t, err)
 	utiltest.RequireNoEvent(t, rec)
+	require.Zero(t, countedErrors())
 
 	recreated := testAppArmorProfile()
 	recreated.UID = "second"
@@ -881,7 +860,7 @@ func TestReconcileRejectsRecreatedProfileAgain(t *testing.T) {
 	deleteUntilGone(t, r, cli)
 	require.Zero(t, removals(t, r))
 
-	_, rejected := r.rejected.Load(testRequest().NamespacedName)
+	_, rejected := r.rejected.Reported(testRequest().NamespacedName)
 	require.False(t, rejected, "the conflict of a deleted profile is forgotten")
 
 	recreated := testAppArmorProfile()
@@ -928,7 +907,7 @@ func TestReconcileForgetsPtraceWarningOfDeletedProfile(t *testing.T) {
 	reconcileUntilInstalled(t, r)
 	deleteUntilGone(t, r, cli)
 
-	_, warned := r.ptraceWarned.Load(testRequest().NamespacedName)
+	_, warned := r.ptraceWarned.Reported(testRequest().NamespacedName)
 	require.False(t, warned, "the warning about a deleted profile is forgotten")
 
 	recreated := profile.DeepCopy()
@@ -944,4 +923,153 @@ func TestReconcileForgetsPtraceWarningOfDeletedProfile(t *testing.T) {
 	defer mu.Unlock()
 
 	require.Equal(t, 2, warnings)
+}
+
+// The profiles of the operator carry the ownership marker. An AppArmorProfile
+// named after one of them must neither replace nor remove it.
+func TestReconcileRejectsOperatorProfile(t *testing.T) {
+	t.Parallel()
+
+	profile := testAppArmorProfile()
+	profile.Name = config.SpoApparmorProfileName
+
+	manager := &countingProfileManager{enabled: true}
+	r, cli, rec := newTestReconciler(t, manager, nil, profile)
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: profile.Name}}
+
+	for range 2 {
+		res, err := r.Reconcile(t.Context(), req)
+		require.NoError(t, err)
+		require.Equal(t, reconcile.Result{}, res, "a reserved name does not change")
+	}
+
+	require.Zero(t, manager.installs)
+	utiltest.RequireEvent(t, rec, "Warning CannotLoadAppArmorProfile "+
+		"cannot load profile into node: profile name is reserved for the operator")
+	utiltest.RequireNoEvent(t, rec)
+
+	status := &secprofnodestatusapi.SecurityProfileNodeStatus{}
+	require.NoError(t, cli.Get(t.Context(), types.NamespacedName{
+		Name: "apparmorprofile-" + profile.Name + "-" + testNode,
+	}, status))
+	require.Equal(t, secprofnodestatusapi.ProfileStateError, status.Status.Status)
+
+	// An earlier release may have recorded the profile as installed.
+	nsc, err := nodestatus.NewForProfileOnNode(profile, cli, testNode)
+	require.NoError(t, err)
+	require.NoError(t, nsc.SetAnnotation(t.Context(), installedAnnotation, "true"))
+
+	stored := &apparmorprofileapi.AppArmorProfile{}
+	require.NoError(t, cli.Get(t.Context(), req.NamespacedName, stored))
+	require.NoError(t, cli.Delete(t.Context(), stored))
+
+	_, err = r.Reconcile(t.Context(), req)
+	require.NoError(t, err)
+	require.Zero(t, manager.removes, "the profile of the operator must stay")
+
+	err = cli.Get(t.Context(), req.NamespacedName, &apparmorprofileapi.AppArmorProfile{})
+	require.True(t, kerrors.IsNotFound(err), "profile should be gone, got %v", err)
+}
+
+// A profile whose policy cannot be generated is reported once and shows the
+// error in the node status, instead of being retried with every reconcile.
+func TestReconcileRejectsInvalidProfile(t *testing.T) {
+	t.Parallel()
+
+	manager := &countingProfileManager{
+		enabled:    true,
+		installErr: fmt.Errorf("%w: invalid or forbidden capability: \"foo\"", ErrInvalidProfile),
+	}
+	r, cli, rec := newTestReconciler(t, manager, nil, testAppArmorProfile())
+
+	for range 3 {
+		res, err := r.Reconcile(t.Context(), testRequest())
+		require.NoError(t, err)
+		require.Equal(t, reconcile.Result{}, res, "only a change of the profile fixes it")
+	}
+
+	utiltest.RequireEvent(t, rec, "Warning CannotLoadAppArmorProfile cannot load profile "+
+		"into node: invalid profile: invalid or forbidden capability: \"foo\"")
+	utiltest.RequireNoEvent(t, rec)
+
+	status := getNodeStatus(t, cli)
+	require.Equal(t, secprofnodestatusapi.ProfileStateError, status.Status.Status)
+	require.Contains(t, status.Status.Message, "invalid or forbidden capability")
+}
+
+// The error series of a profile are dropped once the profile is gone.
+func TestReconcileDeletesErrorSeriesOfGoneProfile(t *testing.T) {
+	t.Parallel()
+
+	manager := &countingProfileManager{enabled: true, installErr: errors.New("failed")}
+	r, cli, _ := newTestReconciler(t, manager, nil, testAppArmorProfile())
+
+	countedErrors := func() float64 {
+		t.Helper()
+
+		return utiltest.CounterValue(t, r.metrics.Collectors(),
+			"security_profiles_operator_apparmor_profile_error_total",
+			map[string]string{"profile": testProfile, "reason": reasonCannotLoadProfile})
+	}
+
+	_, err := r.Reconcile(t.Context(), testRequest())
+	require.Error(t, err)
+	require.InDelta(t, 1, countedErrors(), 0)
+
+	manager.installErr = nil
+
+	reconcileUntilInstalled(t, r)
+	deleteUntilGone(t, r, cli)
+
+	require.Zero(t, countedErrors())
+}
+
+// A disabled profile which this node never loaded has nothing to unload, so
+// pods using it on other nodes do not keep it from being disabled here.
+func TestReconcileDisabledNotInstalledInUse(t *testing.T) {
+	t.Parallel()
+
+	profile := testAppArmorProfile()
+	profile.Spec.State = profilebaseapi.SpecStateDisabled
+	profile.SetFinalizers([]string{util.HasActivePodsFinalizerString})
+
+	manager := &countingProfileManager{enabled: true}
+	r, cli, _ := newTestReconciler(t, manager, nil, profile)
+
+	nsc, err := nodestatus.NewForProfileOnNode(profile, cli, testNode)
+	require.NoError(t, err)
+	_, err = nsc.Create(t.Context())
+	require.NoError(t, err)
+	require.NoError(t, nsc.SetNodeStatus(t.Context(), secprofnodestatusapi.ProfileStateError))
+
+	res, err := r.Reconcile(t.Context(), testRequest())
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{}, res)
+	require.Zero(t, manager.removes)
+	require.Equal(t, secprofnodestatusapi.ProfileStateDisabled, getNodeStatus(t, cli).Status.Status)
+}
+
+// A profile which got loaded while the record of its installation failed is
+// unloaded once it gets disabled, which the ownership marker of its policy
+// file tells.
+func TestReconcileDisabledLoadedWithoutRecord(t *testing.T) {
+	t.Parallel()
+
+	profile := testAppArmorProfile()
+	profile.Spec.State = profilebaseapi.SpecStateDisabled
+
+	manager := &countingProfileManager{enabled: true, loaded: true}
+	r, cli, _ := newTestReconciler(t, manager, nil, profile)
+
+	nsc, err := nodestatus.NewForProfileOnNode(profile, cli, testNode)
+	require.NoError(t, err)
+	_, err = nsc.Create(t.Context())
+	require.NoError(t, err)
+	require.NoError(t, nsc.SetNodeStatus(t.Context(), secprofnodestatusapi.ProfileStatePending))
+
+	res, err := r.Reconcile(t.Context(), testRequest())
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{}, res)
+	require.Equal(t, 1, manager.removes)
+	require.Equal(t, secprofnodestatusapi.ProfileStateDisabled, getNodeStatus(t, cli).Status.Status)
 }

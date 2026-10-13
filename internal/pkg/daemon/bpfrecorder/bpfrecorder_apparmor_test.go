@@ -126,6 +126,21 @@ func TestAllowAnyFiles(t *testing.T) {
 			want:  []string{"/etc/nginx/conf.d/default.conf", "/dev/null"},
 		},
 		{
+			name:  "keep a directory next to the glob of its files",
+			paths: []string{"/tmp/foo/", "/tmp/foo/a", "/tmp/foo/b"},
+			want:  []string{"/tmp/foo/", "/tmp/foo/*"},
+		},
+		{
+			name:  "do not count a directory as a file of it",
+			paths: []string{"/tmp/foo/", "/tmp/foo/a"},
+			want:  []string{"/tmp/foo/", "/tmp/foo/a"},
+		},
+		{
+			name:  "keep the huge page workaround next to files in the root",
+			paths: []string{"/", "/a", "/b"},
+			want:  []string{"/", "/*"},
+		},
+		{
 			name:  "do not allow anything if nothing is allowed",
 			paths: []string{},
 			want:  []string{},

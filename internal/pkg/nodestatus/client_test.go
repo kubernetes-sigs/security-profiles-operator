@@ -1149,3 +1149,58 @@ func TestLegacyNodeFinalizer(t *testing.T) {
 		require.Empty(t, sc.legacyFinalizerString)
 	})
 }
+
+// The cache may not have a status which the client just created yet. The
+// reconcile which created it still updates it right away.
+func TestCreatedStatusReadsThroughAPIReaderUntilCached(t *testing.T) {
+	t.Parallel()
+
+	sp := preparedProfile()
+	base := newFakeClient(t, sp.DeepCopy())
+	lagging := interceptor.NewClient(base, interceptor.Funcs{
+		Get: func(
+			ctx context.Context, cl client.WithWatch, key client.ObjectKey,
+			obj client.Object, opts ...client.GetOption,
+		) error {
+			if _, ok := obj.(*secprofnodestatusapi.SecurityProfileNodeStatus); ok {
+				return kerrors.NewNotFound(schema.GroupResource{}, key.Name)
+			}
+
+			return cl.Get(ctx, key, obj, opts...)
+		},
+	})
+
+	ctx := context.Background()
+
+	// A status which this client did not create is not looked up further.
+	other := newStatusClient(t, sp, lagging)
+	other.WithAPIReader(base)
+	_, err := other.State(ctx)
+	require.True(t, kerrors.IsNotFound(err), "got %v", err)
+
+	sc := newStatusClient(t, sp, lagging)
+	sc.WithAPIReader(base)
+
+	_, err = sc.Create(ctx)
+	require.NoError(t, err)
+
+	state, err := sc.State(ctx)
+	require.NoError(t, err)
+	require.Equal(t, secprofnodestatusapi.ProfileStatePending, state)
+
+	require.NoError(t, sc.SetNodeStatus(ctx, secprofnodestatusapi.ProfileStateInstalled))
+
+	matches, err := sc.Matches(ctx, secprofnodestatusapi.ProfileStateInstalled)
+	require.NoError(t, err)
+	require.True(t, matches)
+
+	require.NoError(t, sc.SetAnnotation(ctx, "key", "value"))
+
+	value, err := sc.GetAnnotation(ctx, "key")
+	require.NoError(t, err)
+	require.Equal(t, "value", value)
+
+	exists, err := sc.Exists(ctx)
+	require.NoError(t, err)
+	require.True(t, exists)
+}

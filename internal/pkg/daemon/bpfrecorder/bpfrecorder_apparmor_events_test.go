@@ -376,9 +376,11 @@ func TestGetAppArmorProcessed(t *testing.T) {
 		got, ok := sut.GetAppArmorProcessed(keys)
 		require.True(t, ok)
 
-		require.Equal(t, []string{"/etc/localtime"}, got.FileProcessed.WriteOnlyPaths)
-		require.Equal(t, []string{"/dev/log"}, got.FileProcessed.ReadOnlyPaths)
-		require.Empty(t, got.FileProcessed.ReadWritePaths)
+		// A write only or read only rule would deny the access the
+		// abstractions allow.
+		require.Equal(t, []string{"/dev/log", "/etc/localtime"}, got.FileProcessed.ReadWritePaths)
+		require.Empty(t, got.FileProcessed.WriteOnlyPaths)
+		require.Empty(t, got.FileProcessed.ReadOnlyPaths)
 	})
 
 	t.Run("reports sockets and capabilities", func(t *testing.T) {
@@ -587,17 +589,84 @@ func TestProcessedFileRules(t *testing.T) {
 		require.Equal(t, []string{"/app/*"}, got.FileProcessed.ReadWritePaths)
 	})
 
-	t.Run("execute wins within a key", func(t *testing.T) {
+	t.Run("write and execute within a key keep both", func(t *testing.T) {
 		t.Parallel()
 
 		sut := newTestAppArmorRecorder()
-		sut.handleFileEvent(fileEvent(1, flagWrite|flagSpawn, "/app/tool"))
+		sut.handleFileEvent(fileEvent(1, flagWrite, "/app/tool"))
+		sut.handleFileEvent(fileEvent(1, flagSpawn, "/app/tool"))
+		sut.handleFileEvent(fileEvent(1, flagWrite, "/app/plugin.so"))
+		sut.handleFileEvent(fileEvent(1, flagExec, "/app/plugin.so"))
 
 		got, ok := sut.GetAppArmorProcessed([]uint64{1})
 		require.True(t, ok)
 
 		require.Equal(t, []string{"/app/tool"}, got.FileProcessed.AllowedExecutables)
+		require.Equal(t, []string{"/app/plugin.so"}, got.FileProcessed.AllowedLibraries)
+		require.Equal(t, []string{"/app/*"}, got.FileProcessed.ReadWritePaths)
+		require.Empty(t, got.FileProcessed.WriteOnlyPaths)
+	})
+
+	t.Run("a written known read file stays readable", func(t *testing.T) {
+		t.Parallel()
+
+		sut := newTestAppArmorRecorder()
+		sut.handleFileEvent(fileEvent(1, flagWrite, "/etc/localtime"))
+		sut.handleFileEvent(fileEvent(2, flagRead, "/etc/localtime"))
+		sut.handleFileEvent(fileEvent(3, flagRead|flagWrite, "/usr/share/locale/locale.alias"))
+
+		got, ok := sut.GetAppArmorProcessed([]uint64{1, 2, 3})
+		require.True(t, ok)
+
+		require.Equal(
+			t,
+			[]string{"/etc/localtime", "/usr/share/locale/locale.alias"},
+			got.FileProcessed.ReadWritePaths,
+		)
+		require.Empty(t, got.FileProcessed.WriteOnlyPaths)
+		require.Empty(t, got.FileProcessed.ReadOnlyPaths)
+	})
+
+	t.Run("a read of a known written file stays writable", func(t *testing.T) {
+		t.Parallel()
+
+		sut := newTestAppArmorRecorder()
+		sut.handleFileEvent(fileEvent(1, flagWrite, "/dev/log"))
+		sut.handleFileEvent(fileEvent(2, flagRead, "/dev/log"))
+
+		got, ok := sut.GetAppArmorProcessed([]uint64{1, 2})
+		require.True(t, ok)
+
+		require.Equal(t, []string{"/dev/log"}, got.FileProcessed.ReadWritePaths)
+		require.Empty(t, got.FileProcessed.ReadOnlyPaths)
+	})
+
+	t.Run("a known read file without write needs no rule", func(t *testing.T) {
+		t.Parallel()
+
+		sut := newTestAppArmorRecorder()
+		sut.handleFileEvent(fileEvent(1, flagRead, "/etc/localtime"))
+
+		got, ok := sut.GetAppArmorProcessed([]uint64{1})
+		require.True(t, ok)
+
 		require.Empty(t, got.FileProcessed.ReadWritePaths)
+		require.Empty(t, got.FileProcessed.WriteOnlyPaths)
+		require.Empty(t, got.FileProcessed.ReadOnlyPaths)
+	})
+
+	t.Run("a written known library stays readable", func(t *testing.T) {
+		t.Parallel()
+
+		sut := newTestAppArmorRecorder()
+		sut.handleFileEvent(fileEvent(1, flagWrite, "/lib64/libfoo.so"))
+		sut.handleFileEvent(fileEvent(2, flagExec, "/lib64/libfoo.so"))
+
+		got, ok := sut.GetAppArmorProcessed([]uint64{1, 2})
+		require.True(t, ok)
+
+		require.Empty(t, got.FileProcessed.AllowedLibraries)
+		require.Equal(t, []string{"/lib64/libfoo.so"}, got.FileProcessed.ReadWritePaths)
 		require.Empty(t, got.FileProcessed.WriteOnlyPaths)
 	})
 

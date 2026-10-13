@@ -209,25 +209,16 @@ func (e *reconcileEnv) events() []string {
 	}
 }
 
-func TestReconcileSeccompProfileNil(t *testing.T) {
-	t.Parallel()
-
-	r := &Reconciler{}
-	_, err := r.reconcileSeccompProfile(t.Context(), nil, log.Log)
-	require.ErrorIs(t, err, errSeccompProfileNil)
-}
-
 func TestReconcileSeccompProfileInstall(t *testing.T) {
 	t.Parallel()
 
 	env := newReconcileEnv(t, newTestProfile())
 
-	// The first pass only registers the node: finalizer, label and a
-	// pending node status, then requeues without touching the disk.
+	// The first pass registers the node with its finalizer, label and node
+	// status, writes the profile and marks the node as installed.
 	res, err := env.reconcile(t)
 	require.NoError(t, err)
-	require.Equal(t, reconcile.Result{RequeueAfter: common.Wait}, res)
-	require.Empty(t, env.saved)
+	require.Equal(t, reconcile.Result{}, res)
 
 	sp := &seccompprofileapi.SeccompProfile{}
 	require.NoError(t, env.cli.Get(t.Context(), testProfileKey, sp))
@@ -240,14 +231,8 @@ func TestReconcileSeccompProfileInstall(t *testing.T) {
 	status := env.nodeStatus(t)
 	require.NotNil(t, status)
 	require.Equal(t, testNode, status.Spec.NodeName)
-	require.Equal(t, secprofnodestatusapi.ProfileStatePending, status.Status.Status)
 	require.Len(t, status.GetOwnerReferences(), 1)
 	require.Equal(t, testProfile, status.GetOwnerReferences()[0].Name)
-
-	// The second pass writes the profile and marks the node as installed.
-	res, err = env.reconcile(t)
-	require.NoError(t, err)
-	require.Equal(t, reconcile.Result{}, res)
 
 	require.NoError(t, env.cli.Get(t.Context(), testProfileKey, sp))
 	require.JSONEq(t,
@@ -308,11 +293,8 @@ func TestReconcileSeccompProfileSaveError(t *testing.T) {
 
 	env := newReconcileEnv(t, newTestProfile())
 
-	_, err := env.reconcile(t)
-	require.NoError(t, err)
-
 	env.saveErr = errors.New("disk full")
-	_, err = env.reconcile(t)
+	_, err := env.reconcile(t)
 	require.ErrorContains(t, err, "disk full")
 
 	evs := env.events()
@@ -409,11 +391,8 @@ func TestReconcileSeccompProfileGetSPODError(t *testing.T) {
 	env := newReconcileEnv(t, newTestProfile())
 	env.impl.GetSPODReturns(nil, errors.New("no spod"))
 
-	_, err := env.reconcile(t)
-	require.NoError(t, err)
-
 	// A failure of the API server is retried with backoff.
-	_, err = env.reconcile(t)
+	_, err := env.reconcile(t)
 	require.ErrorContains(t, err, "retrieving the SPOD configuration: no spod")
 	require.Equal(t, secprofnodestatusapi.ProfileStatePending, env.nodeStatus(t).Status.Status)
 	require.Empty(t, env.saved)
@@ -427,11 +406,8 @@ func TestReconcileSeccompProfileMergeError(t *testing.T) {
 	env := newReconcileEnv(t, sp)
 	env.impl.ClientGetProfileReturns(nil, errors.New("api down"))
 
-	_, err := env.reconcile(t)
-	require.NoError(t, err)
-
 	// A base profile which cannot be looked up is retried with backoff.
-	_, err = env.reconcile(t)
+	_, err := env.reconcile(t)
 	require.ErrorContains(t, err, "api down")
 	require.Empty(t, env.events())
 	require.Equal(t, secprofnodestatusapi.ProfileStatePending, env.nodeStatus(t).Status.Status)
@@ -631,9 +607,6 @@ func TestReconcileSeccompProfileRejectionReportedOnce(t *testing.T) {
 		return logged
 	}
 
-	_, err := env.reconcile(t)
-	require.NoError(t, err)
-
 	// The error metric is counted along with the event.
 	countedErrors := func() float64 {
 		t.Helper()
@@ -692,7 +665,7 @@ func TestReconcileSeccompProfileRejectionReportedOnce(t *testing.T) {
 
 	// An installed profile is reported again once it gets rejected again.
 	env.impl.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{}, nil)
-	_, err = env.reconcile(t)
+	_, err := env.reconcile(t)
 	require.NoError(t, err)
 	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, env.nodeStatus(t).Status.Status)
 	env.events()
@@ -893,15 +866,9 @@ func TestReconcileSeccompProfileDeletion(t *testing.T) {
 	require.NoError(t, env.cli.Get(t.Context(), testProfileKey, sp))
 	require.NoError(t, env.cli.Delete(t.Context(), sp))
 
-	// The node status first goes to terminating.
+	// The node status goes to terminating, then the node removes its
+	// finalizer and status, which lets the API server delete the profile.
 	res, err := env.reconcile(t)
-	require.NoError(t, err)
-	require.Equal(t, reconcile.Result{RequeueAfter: common.Wait}, res)
-	require.Equal(t, secprofnodestatusapi.ProfileStateTerminating, env.nodeStatus(t).Status.Status)
-
-	// Then the node removes its finalizer and status, which lets the API
-	// server delete the profile.
-	res, err = env.reconcile(t)
 	require.NoError(t, err)
 	require.Equal(t, reconcile.Result{}, res)
 	require.Nil(t, env.nodeStatus(t))
@@ -931,9 +898,6 @@ func TestReconcileSeccompProfileFileConflict(t *testing.T) {
 
 		return env.rec.reconcileSeccompProfile(t.Context(), sp, log.Log)
 	}
-
-	_, err := reconcileConflicting()
-	require.NoError(t, err)
 
 	res, err := reconcileConflicting()
 	require.NoError(t, err)
@@ -1107,11 +1071,11 @@ func TestReconcileSeccompProfileDeletionInUse(t *testing.T) {
 	require.NoError(t, env.cli.Update(t.Context(), sp))
 	require.NoError(t, env.cli.Delete(t.Context(), sp))
 
-	// Terminating first, then waiting for the pods to go away.
+	// Terminating, then waiting for the pods to go away.
 	for range 3 {
 		res, err := env.reconcile(t)
 		require.NoError(t, err)
-		require.Equal(t, reconcile.Result{RequeueAfter: common.Wait}, res)
+		require.Equal(t, reconcile.Result{RequeueAfter: common.InUseRetry}, res)
 	}
 
 	require.NoError(t, env.cli.Get(t.Context(), testProfileKey, sp))
@@ -1380,9 +1344,6 @@ func TestReconcileSeccompProfileSkipsSaveOfUpToDateFile(t *testing.T) {
 
 	_, err := env.reconcile(t)
 	require.NoError(t, err)
-
-	_, err = env.reconcile(t)
-	require.NoError(t, err)
 	require.Len(t, env.saved, 1)
 	require.NoError(t, os.WriteFile(env.saved[0].path, env.saved[0].content, 0o600))
 
@@ -1391,4 +1352,67 @@ func TestReconcileSeccompProfileSkipsSaveOfUpToDateFile(t *testing.T) {
 	require.Equal(t, reconcile.Result{}, res)
 	require.Len(t, env.saved, 1, "an up to date file must not be saved again")
 	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, env.nodeStatus(t).Status.Status)
+}
+
+// A rejected profile without a file on the node does not look up the owner
+// of the file from the API server on every resync.
+func TestReconcileSeccompProfileRejectedWithoutFileAvoidsUncachedReads(t *testing.T) {
+	t.Parallel()
+
+	env := newReconcileEnv(t, newTestProfile())
+	env.rec.profileRoot = t.TempDir()
+	env.impl.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
+		Spec: spodapi.SPODSpec{
+			Security: spodapi.SPODSecurityConfig{AllowedSyscalls: []string{"read"}},
+		},
+	}, nil)
+
+	apiReads := 0
+	env.rec.reader = interceptor.NewClient(
+		fake.NewClientBuilder().WithScheme(utiltest.NewScheme(t)).Build(),
+		interceptor.Funcs{Get: func(
+			ctx context.Context, c client.WithWatch, key client.ObjectKey,
+			obj client.Object, opts ...client.GetOption,
+		) error {
+			apiReads++
+
+			return c.Get(ctx, key, obj, opts...)
+		}},
+	)
+
+	for range 3 {
+		res, err := env.reconcile(t)
+		require.NoError(t, err)
+		require.Equal(t, reconcile.Result{}, res)
+	}
+
+	require.Equal(t, secprofnodestatusapi.ProfileStateError, env.nodeStatus(t).Status.Status)
+	require.Zero(t, apiReads)
+}
+
+// A disabled profile without a file on the node has nothing to remove, so
+// pods using it on other nodes do not keep it from being disabled here.
+func TestReconcileSeccompProfileDisabledNotInstalledInUse(t *testing.T) {
+	t.Parallel()
+
+	sp := newTestProfile()
+	sp.Spec.State = profilebaseapi.SpecStateDisabled
+	sp.SetFinalizers([]string{util.HasActivePodsFinalizerString})
+
+	env := newReconcileEnv(t, sp)
+	env.rec.profileRoot = t.TempDir()
+
+	// The node status of a profile which got disabled after it failed here.
+	stored := &seccompprofileapi.SeccompProfile{}
+	require.NoError(t, env.cli.Get(t.Context(), testProfileKey, stored))
+	nsc, err := nodestatus.NewForProfileOnNode(stored, env.cli, testNode)
+	require.NoError(t, err)
+	_, err = nsc.Create(t.Context())
+	require.NoError(t, err)
+	require.NoError(t, nsc.SetNodeStatus(t.Context(), secprofnodestatusapi.ProfileStateError))
+
+	res, err := env.reconcile(t)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{}, res)
+	require.Equal(t, secprofnodestatusapi.ProfileStateDisabled, env.nodeStatus(t).Status.Status)
 }

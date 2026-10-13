@@ -753,6 +753,12 @@ type fileRule struct {
 	library bool
 	read    bool
 	write   bool
+	// reads is set if the file got read, executed or mapped executable, and
+	// writes if it got written, even if the abstractions allow that already.
+	// They emit no rule on their own, but the read only and write only rules
+	// deny the other access, which must not take away what got used.
+	reads  bool
+	writes bool
 }
 
 // processExecFsEvents classifies the file accesses recorded for keys.
@@ -800,6 +806,8 @@ func (b *AppArmorRecorder) processExecFsEvents(keys []uint64) (BpfAppArmorFilePr
 			merged.library = merged.library || rule.library
 			merged.read = merged.read || rule.read
 			merged.write = merged.write || rule.write
+			merged.reads = merged.reads || rule.reads
+			merged.writes = merged.writes || rule.writes
 			rules[fileName] = merged
 		}
 	}
@@ -821,14 +829,18 @@ func (b *AppArmorRecorder) processExecFsEvents(keys []uint64) (BpfAppArmorFilePr
 		}
 
 		// Executing and mapping allow reading. A write only rule would deny
-		// the reading, so it becomes a read write rule next to them.
-		readable := rule.read || rule.execute || rule.library
+		// the reading, so it becomes a read write rule next to them, like
+		// next to a read the abstractions allow. A read only rule would deny
+		// a write the abstractions allow in the same way.
+		readable := rule.read || rule.execute || rule.library || rule.reads
 
 		switch {
 		case rule.write && readable:
 			processedEvents.ReadWritePaths = append(processedEvents.ReadWritePaths, fileName)
 		case rule.write:
 			processedEvents.WriteOnlyPaths = append(processedEvents.WriteOnlyPaths, fileName)
+		case rule.read && !rule.execute && !rule.library && rule.writes:
+			processedEvents.ReadWritePaths = append(processedEvents.ReadWritePaths, fileName)
 		case rule.read && !rule.execute && !rule.library:
 			processedEvents.ReadOnlyPaths = append(processedEvents.ReadOnlyPaths, fileName)
 		}
@@ -853,8 +865,9 @@ func (b *AppArmorRecorder) processExecFsEvents(keys []uint64) (BpfAppArmorFilePr
 }
 
 // classifyFileAccess returns the rule the access of a single workload to a
-// file needs. Executing a file takes precedence over any other access of the
-// same workload, and accesses the profile already allows through its
+// file needs. Executing a file takes precedence over mapping it, a write of
+// the same workload is kept next to both, like the one of another workload,
+// see processExecFsEvents. Accesses the profile already allows through its
 // abstractions are left out.
 func (b *AppArmorRecorder) classifyFileAccess(fileName string, access *fileAccess) fileRule {
 	knownLibrary := isKnownFile(fileName, knownLibrariesPrefixes) || fileName == b.programName
@@ -862,17 +875,21 @@ func (b *AppArmorRecorder) classifyFileAccess(fileName string, access *fileAcces
 	knownRead := isKnownFile(fileName, knownReadPrefixes) || knownLibrary
 	knownWrite := isKnownFile(fileName, knownWritePrefixes)
 
+	rule := fileRule{write: access.write && !knownWrite, writes: access.write}
+
 	switch {
 	case access.spawn:
-		return fileRule{execute: true}
+		rule.execute = true
+		rule.reads = true
 	case access.exec:
-		return fileRule{library: !knownLibrary}
+		rule.library = !knownLibrary
+		rule.reads = true
 	default:
-		return fileRule{
-			read:  access.read && !knownRead,
-			write: access.write && !knownWrite,
-		}
+		rule.read = access.read && !knownRead
+		rule.reads = access.read
 	}
+
+	return rule
 }
 
 // processDeletedFiles process file paths which are marked as deleted by the Linux kernel.
@@ -913,18 +930,30 @@ func processDeletedFiles(
 	return false
 }
 
-// allowAnyFiles allows any file in a directory if more than two files are allowed.
+// allowAnyFiles allows any file in a directory if at least two files of it are
+// allowed. Directories, which the recorder reports with a trailing slash, are
+// kept as they are: the glob of the files in a directory does not match the
+// directory itself, which creating it needs.
 func allowAnyFiles(filePaths []string) []string {
 	dupDirs := map[string]int{}
 
 	for _, fp := range filePaths {
-		dir := filepath.Dir(fp)
-		dupDirs[dir] += 1
+		if strings.HasSuffix(fp, "/") {
+			continue
+		}
+
+		dupDirs[filepath.Dir(fp)]++
 	}
 
 	result := []string{}
 
 	for _, fp := range filePaths {
+		if strings.HasSuffix(fp, "/") {
+			result = append(result, fp)
+
+			continue
+		}
+
 		dir := filepath.Dir(fp)
 		if dupDirs[dir] > 1 {
 			result = append(result, filepath.Join(dir, "*"))

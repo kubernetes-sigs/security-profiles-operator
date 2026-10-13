@@ -602,7 +602,7 @@ func TestExecEventLengthsAreClamped(t *testing.T) {
 
 	require.NotPanics(t, func() { sut.handleEvent(event) })
 
-	cmdLine, err := sut.GetCmdLine(1)
+	cmdLine, _, err := sut.GetCmdLineAndEnv(1)
 	require.NoError(t, err)
 	require.Equal(t, "arg1 --flag value with spaces last_arg", strings.TrimSpace(cmdLine))
 }

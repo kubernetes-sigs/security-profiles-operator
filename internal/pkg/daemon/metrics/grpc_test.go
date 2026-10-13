@@ -179,7 +179,7 @@ func TestAuditIncOverGRPC(t *testing.T) {
 	sut.series.mu.Lock()
 	defer sut.series.mu.Unlock()
 
-	require.Len(t, sut.series.series, 4)
+	require.Len(t, sut.series.series, 5)
 }
 
 func TestBpfIncOverGRPC(t *testing.T) {

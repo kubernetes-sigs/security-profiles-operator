@@ -510,7 +510,6 @@ func TestNewReloadJob(t *testing.T) {
 	require.Equal(t, "3", job.Labels[reloadJobLabelGeneration])
 	require.Equal(t, string(testUID), job.Labels[reloadJobLabelProfileUID])
 	require.Empty(t, validation.IsValidLabelValue(job.Labels[reloadJobLabelProfileUID]))
-	require.NotEmpty(t, job.Labels[reloadJobLabelCreated])
 	require.Equal(t, reloadJobTTL, *job.Spec.TTLSecondsAfterFinished)
 	require.Equal(t, reloadJobDeadline, *job.Spec.ActiveDeadlineSeconds)
 

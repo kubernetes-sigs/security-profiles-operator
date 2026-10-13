@@ -23,12 +23,14 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aquasecurity/libbpfgo"
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder/bpfrecorderfakes"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 // newExecEvent returns an exec event with the header set, laid out like the
@@ -174,26 +176,23 @@ func TestBpfProcessCache_GetCmdLineEnv(t *testing.T) {
 				b.handleEvent(tt.args.eventBytes)
 			}
 
-			gotCmdLine, err := b.GetCmdLine(tt.args.pid)
+			gotCmdLine, gotEnv, err := b.GetCmdLineAndEnv(tt.args.pid)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("GetCmdLine() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("GetCmdLineAndEnv() error = %v, wantErr %v", err, tt.wantErr)
 
 				return
 			}
 
 			if strings.TrimSpace(gotCmdLine) != strings.TrimSpace(tt.wantCmdLine) {
-				t.Errorf("GetCmdLine() gotCmdLine = %v, want %v", gotCmdLine, tt.wantCmdLine)
-			}
-
-			gotEnv, err := b.GetEnv(tt.args.pid)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("GetEnv() error = %v, wantErr %v", err, tt.wantErr)
-
-				return
+				t.Errorf("GetCmdLineAndEnv() gotCmdLine = %v, want %v", gotCmdLine, tt.wantCmdLine)
 			}
 
 			if len(gotEnv) != len(tt.wantEnv) {
-				t.Errorf("GetEnv() gotEnv len = %v, want len %v", len(gotEnv), len(tt.wantEnv))
+				t.Errorf(
+					"GetCmdLineAndEnv() gotEnv len = %v, want len %v",
+					len(gotEnv),
+					len(tt.wantEnv),
+				)
 			}
 
 			if len(gotEnv) == 0 {
@@ -201,7 +200,7 @@ func TestBpfProcessCache_GetCmdLineEnv(t *testing.T) {
 			}
 
 			if !reflect.DeepEqual(gotEnv, tt.wantEnv) {
-				t.Errorf("GetEnv() gotEnv = %v, want %v", gotEnv, tt.wantEnv)
+				t.Errorf("GetCmdLineAndEnv() gotEnv = %v, want %v", gotEnv, tt.wantEnv)
 			}
 		})
 	}
@@ -220,8 +219,71 @@ func TestBpfProcessCacheIgnoresOtherEvents(t *testing.T) {
 
 	b.handleEvent(event)
 
-	_, err := b.GetCmdLine(1)
+	_, _, err := b.GetCmdLineAndEnv(1)
 	require.Error(t, err)
+}
+
+// TestBpfProcessCacheChecksStartTime asserts that the exec of a process is not
+// handed out for another process which reused its PID.
+func TestBpfProcessCacheChecksStartTime(t *testing.T) {
+	t.Parallel()
+
+	const startedAt = 5*time.Second + 3*time.Millisecond
+
+	for _, tc := range []struct {
+		name      string
+		startedAt time.Duration
+		running   time.Duration
+		runErr    error
+		wantErr   error
+	}{
+		{name: "same process", startedAt: startedAt, running: startedAt.Truncate(util.ProcessStartTimeTick)},
+		{name: "process exited", startedAt: startedAt, runErr: errTest},
+		{name: "unknown start", running: time.Hour},
+		{
+			name: "pid reused", startedAt: startedAt, running: time.Hour,
+			wantErr: errProcessReplaced,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := NewBpfProcessCache(logr.Discard())
+
+			event := newExecEvent()
+			//nolint:gosec // a duration which is never negative
+			binary.LittleEndian.PutUint64(event[17:25], uint64(tc.startedAt))
+			putExecSlot(argSlot(event, 0), "sh", "")
+			putExecSlot(envSlot(event, 0), "K=v", "")
+			setExecLens(event, 1, 1)
+			b.handleEvent(event)
+
+			var startTimeReads int
+
+			b.startTime = func(int) (time.Duration, error) {
+				startTimeReads++
+
+				return tc.running, tc.runErr
+			}
+
+			cmdLine, env, err := b.GetCmdLineAndEnv(1)
+
+			// The process gets checked once for both.
+			if tc.startedAt > 0 {
+				require.Equal(t, 1, startTimeReads)
+			}
+
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, "sh ", cmdLine)
+			require.Equal(t, map[string]string{"K": "v"}, env)
+		})
+	}
 }
 
 // putExecSlot writes value into a slot of the args or env array of an exec
@@ -342,7 +404,7 @@ func TestBpfProcessCacheHandleEvent(t *testing.T) {
 			b := NewBpfProcessCache(logr.Discard())
 			b.handleEvent(tc.event())
 
-			cmdLine, err := b.GetCmdLine(1)
+			cmdLine, env, err := b.GetCmdLineAndEnv(1)
 			if !tc.wantCached {
 				require.Error(t, err)
 
@@ -351,9 +413,6 @@ func TestBpfProcessCacheHandleEvent(t *testing.T) {
 
 			require.NoError(t, err)
 			require.Equal(t, tc.wantCmdLine, cmdLine)
-
-			env, err := b.GetEnv(1)
-			require.NoError(t, err)
 			require.Equal(t, tc.wantEnv, env)
 		})
 	}
@@ -372,4 +431,31 @@ func TestBpfProcessCacheLoadClosesModuleOnError(t *testing.T) {
 
 	require.ErrorIs(t, b.Load(), errTest)
 	require.Equal(t, 1, mock.CloseModuleCallCount())
+}
+
+// TestBpfProcessCacheLoadShrinksUnusedMaps asserts that the maps only the
+// recorder fills are shrunk before the object gets loaded.
+func TestBpfProcessCacheLoadShrinksUnusedMaps(t *testing.T) {
+	t.Parallel()
+
+	b := NewBpfProcessCache(logr.Discard())
+	mock := &bpfrecorderfakes.FakeImpl{}
+	mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
+	b.recorder.impl = mock
+
+	require.NoError(t, b.Load())
+
+	require.Equal(t, len(procCacheUnusedMaps), mock.SetMaxEntriesCallCount())
+
+	for i := range mock.SetMaxEntriesCallCount() {
+		_, maxEntries := mock.SetMaxEntriesArgsForCall(i)
+		require.Equal(t, uint32(1), maxEntries)
+	}
+
+	for i, name := range procCacheUnusedMaps {
+		_, got := mock.GetMapArgsForCall(i)
+		require.Equal(t, name, got)
+	}
+
+	b.Close()
 }

@@ -69,6 +69,7 @@ var errTestValidation = errors.New("invalid permission")
 type fakeHandler struct {
 	sp          *selinuxprofileapi.SelinuxProfile
 	validateErr error
+	cilErr      error
 }
 
 func (f *fakeHandler) Init(ctx context.Context, cli client.Client, key types.NamespacedName) error {
@@ -84,6 +85,10 @@ func (f *fakeHandler) Validate(context.Context) error {
 }
 
 func (f *fakeHandler) GetCILPolicy() (string, error) {
+	if f.cilErr != nil {
+		return "", f.cilErr
+	}
+
 	return "(blockinherit container)", nil
 }
 
@@ -235,6 +240,15 @@ func (f *reconcileFixture) events() []string {
 func (f *reconcileFixture) prepareDeletion(t *testing.T) {
 	t.Helper()
 
+	// The policy got loaded into the kernel.
+	f.prepareDeletionWith(t, map[string]string{reloadInstallGenerationAnnotation: "1"})
+}
+
+// prepareDeletionWith is prepareDeletion with the annotations of the node
+// status.
+func (f *reconcileFixture) prepareDeletionWith(t *testing.T, annotations map[string]string) {
+	t.Helper()
+
 	ctx := context.Background()
 	sp := f.profile(t)
 	sp.SetGroupVersionKind(selinuxprofileapi.GroupVersion.WithKind("SelinuxProfile"))
@@ -245,18 +259,24 @@ func (f *reconcileFixture) prepareDeletion(t *testing.T) {
 	_, err = ns.Create(ctx)
 	require.NoError(t, err)
 	require.NoError(t, ns.SetNodeStatus(ctx, secprofnodestatusapi.ProfileStateTerminating))
-	// The policy got loaded into the kernel.
-	require.NoError(t, ns.SetAnnotation(ctx, reloadInstallGenerationAnnotation, "1"))
+
+	for key, value := range annotations {
+		require.NoError(t, ns.SetAnnotation(ctx, key, value))
+	}
+
 	require.NoError(t, f.client.Delete(ctx, f.profile(t)))
 
 	deleted := f.profile(t)
 	require.False(t, deleted.GetDeletionTimestamp().IsZero())
 }
 
+// The node status turns terminating and the removal of the policy starts in
+// the same reconcile.
 func TestReconcileDeletionMarksStatusTerminating(t *testing.T) {
 	t.Parallel()
 
-	f := newReconcileFixture(t, testProfile(), nil, selinuxd(t, true, http.StatusNotFound, ""))
+	f := newReconcileFixture(t, testProfile(), nil,
+		selinuxd(t, true, http.StatusOK, `{"status": "Installed", "msg": ""}`))
 	ctx := context.Background()
 
 	ns, err := nodestatus.NewForProfileOnNode(f.profile(t), f.client, testReconcileNode)
@@ -267,7 +287,7 @@ func TestReconcileDeletionMarksStatusTerminating(t *testing.T) {
 
 	res, err := f.r.Reconcile(ctx, f.request)
 	require.NoError(t, err)
-	require.Equal(t, reconcile.Result{RequeueAfter: common.Wait}, res)
+	require.Equal(t, reconcile.Result{RequeueAfter: selinuxdPollInterval}, res)
 	require.Equal(t, secprofnodestatusapi.ProfileStateTerminating, f.nodeStatus(t).Status.Status)
 	require.Len(t, f.profile(t).GetFinalizers(), 1)
 }
@@ -803,6 +823,9 @@ func TestReconcileDeletionSelinuxdNotReady(t *testing.T) {
 
 	f := newReconcileFixture(t, testProfile(), nil, selinuxd(t, false, http.StatusOK, ""))
 	f.prepareDeletion(t)
+	require.NoError(t, os.WriteFile(
+		filepath.Join(f.r.policyDir, testReconcileProfile+".cil"), []byte("policy"), 0o600,
+	))
 
 	res, err := f.r.Reconcile(context.Background(), f.request)
 	require.NoError(t, err)
@@ -810,6 +833,76 @@ func TestReconcileDeletionSelinuxdNotReady(t *testing.T) {
 	require.Equal(t, secprofnodestatusapi.ProfileStateTerminating, f.nodeStatus(t).Status.Status)
 	require.Len(t, f.profile(t).GetFinalizers(), 1,
 		"the finalizer must stay until the policy is gone")
+}
+
+// A node without SELinux never gets a ready selinuxd. A policy which is not on
+// the node does not wait for it, so that the profile can be deleted.
+func TestReconcileDeletionSelinuxdNotReadyWithoutPolicy(t *testing.T) {
+	t.Parallel()
+
+	for name, selinuxdHandler := range map[string]http.HandlerFunc{
+		"not ready": selinuxd(t, false, http.StatusOK, ""),
+		"broken": func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newReconcileFixture(t, testProfile(), nil, selinuxdHandler)
+			f.prepareDeletionWith(t, nil)
+
+			res, err := f.r.Reconcile(context.Background(), f.request)
+			require.NoError(t, err)
+			require.Equal(t, reconcile.Result{}, res)
+
+			err = f.client.Get(
+				context.Background(), f.request.NamespacedName, &selinuxprofileapi.SelinuxProfile{},
+			)
+			require.True(t, kerrors.IsNotFound(err), "profile should be deleted, got %v", err)
+		})
+	}
+
+	// A module which is still installed, or a module store which cannot be
+	// read and may hold it, keeps the profile around. So does a policy which
+	// got written, because the reload after its removal is still missing,
+	// even if its file and module are gone already.
+	for name, prepareStore := range map[string]func(t *testing.T, store string){
+		"policy written": nil,
+		"module installed": func(t *testing.T, store string) {
+			t.Helper()
+
+			require.NoError(t, os.MkdirAll(filepath.Join(
+				store, "targeted", "active", "modules", "400", testReconcileProfile,
+			), 0o755))
+		},
+		"store cannot be read": func(t *testing.T, store string) {
+			t.Helper()
+
+			active := filepath.Join(store, "targeted", "active")
+			require.NoError(t, os.MkdirAll(active, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(active, "modules"), nil, 0o600))
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newReconcileFixture(t, testProfile(), nil, selinuxd(t, false, http.StatusOK, ""))
+
+			if prepareStore == nil {
+				f.prepareDeletionWith(t, map[string]string{policyWrittenAnnotation: "true"})
+			} else {
+				f.prepareDeletionWith(t, nil)
+				prepareStore(t, f.r.moduleStorePath)
+			}
+
+			res, err := f.r.Reconcile(context.Background(), f.request)
+			require.NoError(t, err)
+			require.Equal(t, selinuxdPollInterval, res.RequeueAfter)
+			require.Len(t, f.profile(t).GetFinalizers(), 1,
+				"the finalizer must stay while the module may be installed")
+		})
+	}
 }
 
 func TestReconcileDeletionPolicyStillInstalled(t *testing.T) {
@@ -1371,7 +1464,9 @@ func TestReconcileReportsInstallErrorOnce(t *testing.T) {
 
 	_, err = f.r.Reconcile(ctx, f.request)
 	require.NoError(t, err)
-	require.Empty(t, f.r.reported)
+
+	_, reported := f.r.reported.Reported(f.request.NamespacedName)
+	require.False(t, reported)
 }
 
 // removals returns the number of policy removals counted in the metrics.
@@ -1468,4 +1563,223 @@ func TestCountRemovalOncePerInstallation(t *testing.T) {
 	sp.UID = "recreated"
 	require.True(t, f.r.countRemoval(sp))
 	require.InDelta(t, 3, f.removals(t), 0)
+}
+
+// A policy which cannot be generated, like one which uses a type the SPOD
+// denies, fails like an invalid profile: the node status shows the error
+// instead of an earlier installation, and it is reported once instead of on
+// every retry.
+func TestReconcilePolicyGenerationFailure(t *testing.T) {
+	t.Parallel()
+
+	f := newReconcileFixture(t, testProfile(), nil,
+		selinuxd(t, true, http.StatusOK, `{"status": "Installed", "msg": ""}`))
+	errCIL := errors.New("type shadow_t is denied")
+	f.r.objectHandlerInit = func(
+		ctx context.Context, c client.Client, key types.NamespacedName, _ string,
+	) (SelinuxObjectHandler, error) {
+		oh := &fakeHandler{sp: &selinuxprofileapi.SelinuxProfile{}, cilErr: errCIL}
+		err := oh.Init(ctx, c, key)
+
+		return oh, err
+	}
+
+	ctx := context.Background()
+	ns, err := nodestatus.NewForProfileOnNode(f.profile(t), f.client, testReconcileNode)
+	require.NoError(t, err)
+	_, err = ns.Create(ctx)
+	require.NoError(t, err)
+	require.NoError(t, ns.SetNodeStatus(ctx, secprofnodestatusapi.ProfileStateInstalled))
+
+	for range 2 {
+		res, err := f.r.Reconcile(ctx, f.request)
+		require.NoError(t, err)
+		require.Equal(t, reconcile.Result{}, res)
+	}
+
+	status := f.nodeStatus(t)
+	require.Equal(t, secprofnodestatusapi.ProfileStateError, status.Status.Status)
+	require.Contains(t, status.Status.Message, "type shadow_t is denied")
+
+	evts := f.events()
+	require.Len(t, evts, 1)
+	require.True(t, strings.HasPrefix(evts[0], "Warning "+reasonCannotInstallPolicy+" "), evts[0])
+
+	_, err = os.Stat(filepath.Join(f.r.policyDir, testReconcileProfile+".cil"))
+	require.True(t, os.IsNotExist(err), "no policy file must be written")
+}
+
+// A deletion which removed the policy file waits for selinuxd to remove the
+// module and reload the policy, even if selinuxd restarts after it removed
+// the module: the file and the module are gone then, but the module is still
+// loaded into the kernel.
+func TestReconcileDeletionWaitsForReloadAfterSelinuxdRestart(t *testing.T) {
+	t.Parallel()
+
+	var ready atomic.Bool
+
+	ready.Store(true)
+
+	f := newReconcileFixture(t, testProfile(), nil, func(w http.ResponseWriter, r *http.Request) {
+		selinuxd(t, ready.Load(), http.StatusOK, `{"status": "Installed", "msg": ""}`)(w, r)
+	})
+	ctx := context.Background()
+
+	// The policy file gets written.
+	res, err := f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+	require.Equal(t, selinuxdPollInterval, res.RequeueAfter)
+
+	policyFile := filepath.Join(f.r.policyDir, testReconcileProfile+".cil")
+	require.FileExists(t, policyFile)
+
+	// The deletion removes the policy file and waits for selinuxd.
+	require.NoError(t, f.client.Delete(ctx, f.profile(t)))
+
+	res, err = f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+	require.Equal(t, selinuxdPollInterval, res.RequeueAfter)
+	require.NoFileExists(t, policyFile)
+
+	// selinuxd removed the module and restarts.
+	ready.Store(false)
+
+	res, err = f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+	require.Equal(t, selinuxdPollInterval, res.RequeueAfter)
+	require.Len(t, f.profile(t).GetFinalizers(), 1,
+		"the finalizer must stay until the removal got reloaded")
+	require.Zero(t, f.removals(t))
+}
+
+// A disabled profile whose policy this node never installed has nothing to
+// remove, so pods using it on other nodes do not keep it from being disabled
+// here.
+func TestReconcileDisabledNotInstalledInUse(t *testing.T) {
+	t.Parallel()
+
+	sp := testProfile()
+	sp.Spec.State = profilebasev1.SpecStateDisabled
+	sp.Finalizers = []string{util.HasActivePodsFinalizerString}
+
+	f := newReconcileFixture(t, sp, nil, selinuxd(t, true, http.StatusOK, ""))
+	ctx := context.Background()
+
+	ns, err := nodestatus.NewForProfileOnNode(f.profile(t), f.client, testReconcileNode)
+	require.NoError(t, err)
+	_, err = ns.Create(ctx)
+	require.NoError(t, err)
+	require.NoError(t, ns.SetNodeStatus(ctx, secprofnodestatusapi.ProfileStateError))
+
+	res, err := f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{}, res)
+	require.Equal(t, secprofnodestatusapi.ProfileStateDisabled, f.nodeStatus(t).Status.Status)
+	require.Empty(t, f.reloadJobs(t))
+}
+
+// annotation returns an annotation of the node status.
+func (f *reconcileFixture) annotation(t *testing.T, key string) string {
+	t.Helper()
+
+	return f.nodeStatus(t).GetAnnotations()[key]
+}
+
+// The node status records that the policy file gets written before it is
+// written, so that a failed write cannot leave a policy behind unrecorded.
+func TestReconcileRecordsPolicyFileBeforeWritingIt(t *testing.T) {
+	t.Parallel()
+
+	f := newReconcileFixture(t, testProfile(), nil, selinuxd(t, true, http.StatusOK, ""))
+	f.r.policyDir = filepath.Join(t.TempDir(), "missing")
+
+	_, err := f.r.Reconcile(context.Background(), f.request)
+	require.ErrorContains(t, err, "creating policy file")
+	require.Equal(t, "true", f.annotation(t, policyWrittenAnnotation))
+
+	f = newReconcileFixture(t, testProfile(), nil, selinuxd(t, true, http.StatusOK, ""))
+
+	_, err = f.r.Reconcile(context.Background(), f.request)
+	require.NoError(t, err)
+	require.FileExists(t, filepath.Join(f.r.policyDir, testReconcileProfile+".cil"))
+	require.Equal(t, "true", f.annotation(t, policyWrittenAnnotation))
+}
+
+// A policy which got installed before its profile failed is removed once the
+// profile gets disabled, even if its file got lost with the emptyDir of a
+// restarted SPOd pod. The record of the written policy is cleared afterwards.
+func TestReconcileDisabledRemovesWrittenPolicyWithoutFile(t *testing.T) {
+	t.Parallel()
+
+	sp := testProfile()
+	sp.Spec.State = profilebasev1.SpecStateDisabled
+
+	f := newReconcileFixture(t, sp, nil, selinuxd(t, true, http.StatusNotFound, ""))
+	ctx := context.Background()
+
+	ns, err := nodestatus.NewForProfileOnNode(f.profile(t), f.client, testReconcileNode)
+	require.NoError(t, err)
+	_, err = ns.Create(ctx)
+	require.NoError(t, err)
+	require.NoError(t, ns.SetNodeStatus(ctx, secprofnodestatusapi.ProfileStateError))
+	require.NoError(t, ns.SetAnnotation(ctx, policyWrittenAnnotation, "true"))
+
+	res, err := f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{}, res)
+	require.Len(t, f.reloadJobs(t), 1, "the removal has to be reloaded")
+	require.Equal(t, secprofnodestatusapi.ProfileStateDisabled, f.nodeStatus(t).Status.Status)
+	require.Empty(t, f.annotation(t, policyWrittenAnnotation))
+	require.InDelta(t, 1, f.removals(t), 0)
+}
+
+// A foreground deletion removes the node status before the profile. On a
+// node whose selinuxd never gets ready, only the policy file and the module
+// store tell whether the policy is gone then.
+func TestReconcileDeletionWithoutNodeStatusSelinuxdNotReady(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		moduleInstalled bool
+		wantGone        bool
+	}{
+		"policy gone":      {wantGone: true},
+		"module installed": {moduleInstalled: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newReconcileFixture(t, testProfile(), nil, selinuxd(t, false, http.StatusOK, ""))
+			f.prepareDeletionWith(t, map[string]string{policyWrittenAnnotation: "true"})
+			require.NoError(t, f.client.Delete(context.Background(), f.nodeStatus(t)))
+
+			if tc.moduleInstalled {
+				require.NoError(t, os.MkdirAll(filepath.Join(
+					f.r.moduleStorePath,
+					"targeted",
+					"active",
+					"modules",
+					"400",
+					testReconcileProfile,
+				), 0o755))
+			}
+
+			res, err := f.r.Reconcile(context.Background(), f.request)
+			require.NoError(t, err)
+
+			err = f.client.Get(
+				context.Background(), f.request.NamespacedName, &selinuxprofileapi.SelinuxProfile{},
+			)
+
+			if tc.wantGone {
+				require.Equal(t, reconcile.Result{}, res)
+				require.True(t, kerrors.IsNotFound(err), "profile should be deleted, got %v", err)
+
+				return
+			}
+
+			require.Equal(t, selinuxdPollInterval, res.RequeueAfter)
+			require.NoError(t, err)
+		})
+	}
 }

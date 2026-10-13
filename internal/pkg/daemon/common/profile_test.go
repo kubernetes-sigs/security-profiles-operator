@@ -20,7 +20,10 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -122,7 +125,9 @@ func TestUnsupportedReports(t *testing.T) {
 	var reports UnsupportedReports
 
 	shouldReport := func() bool {
-		return reports.ShouldReport(t.Context(), cl, key, &seccompprofileapi.SeccompProfile{})
+		report, _ := reports.check(t.Context(), cl, key, &seccompprofileapi.SeccompProfile{})
+
+		return report
 	}
 
 	require.True(t, shouldReport())
@@ -131,7 +136,7 @@ func TestUnsupportedReports(t *testing.T) {
 	require.NoError(t, cl.Delete(t.Context(), profile))
 	require.False(t, shouldReport())
 
-	_, loaded := reports.reported.Load(key)
+	_, loaded := reports.reported.Reported(key)
 	require.False(t, loaded, "a deleted profile is forgotten")
 
 	recreated := testProfile()
@@ -139,4 +144,107 @@ func TestUnsupportedReports(t *testing.T) {
 	require.NoError(t, cl.Create(t.Context(), recreated))
 	require.True(t, shouldReport())
 	require.False(t, shouldReport())
+}
+
+// A report is repeated only once it changed or got forgotten.
+func TestReports(t *testing.T) {
+	t.Parallel()
+
+	key := client.ObjectKeyFromObject(testProfile())
+
+	var reports Reports[string]
+
+	_, reported := reports.Reported(key)
+	require.False(t, reported)
+
+	require.True(t, reports.ShouldReport(key, "first"))
+	require.False(t, reports.ShouldReport(key, "first"))
+	require.True(t, reports.ShouldReport(key, "second"))
+
+	report, reported := reports.Reported(key)
+	require.True(t, reported)
+	require.Equal(t, "second", report)
+
+	reports.Forget(key)
+	require.True(t, reports.ShouldReport(key, "second"))
+}
+
+// An unsupported profile is reported as an event on the node and counted
+// once, and only logged verbosely afterwards.
+func TestUnsupportedReportsReport(t *testing.T) {
+	t.Parallel()
+
+	profile := testProfile()
+	profile.UID = "uid"
+	key := client.ObjectKeyFromObject(profile)
+	cl := utiltest.NewFakeClient(t, &interceptor.Funcs{}, profile)
+	recorder := events.NewFakeRecorder(10)
+	reasons := []string{}
+	reporter := ErrorReporter{
+		Record:   recorder,
+		IncError: func(reason string) { reasons = append(reasons, reason) },
+	}
+
+	var reports UnsupportedReports
+
+	report := func() bool {
+		return reports.Report(
+			t.Context(), cl, key, &seccompprofileapi.SeccompProfile{}, logr.Discard(),
+			reporter, "node", "NotSupported", errors.New("not supported"),
+		)
+	}
+
+	for range 3 {
+		require.False(t, report())
+	}
+
+	require.Equal(t, []string{"NotSupported"}, reasons)
+	utiltest.RequireEvent(t, recorder, "Warning NotSupported not supported")
+	utiltest.RequireNoEvent(t, recorder)
+
+	// A profile which is gone is told to the caller.
+	require.NoError(t, cl.Delete(t.Context(), profile))
+	require.True(t, report())
+	utiltest.RequireNoEvent(t, recorder)
+}
+
+// relatedRecorder records the objects of the events.
+type relatedRecorder struct {
+	regarding, related []runtime.Object
+}
+
+func (r *relatedRecorder) Eventf(
+	regarding, related runtime.Object, _, _, _, _ string, _ ...any,
+) {
+	r.regarding = append(r.regarding, regarding)
+	r.related = append(r.related, related)
+}
+
+// The event of an unsupported profile on the node refers to the profile, so
+// that the events of the profiles can be told apart.
+func TestUnsupportedReportsReportRelatesProfile(t *testing.T) {
+	t.Parallel()
+
+	profile := testProfile()
+	profile.UID = "uid"
+	cl := utiltest.NewFakeClient(t, &interceptor.Funcs{}, profile)
+	recorder := &relatedRecorder{}
+
+	var reports UnsupportedReports
+
+	require.False(t, reports.Report(
+		t.Context(), cl, client.ObjectKeyFromObject(profile), &seccompprofileapi.SeccompProfile{},
+		logr.Discard(), ErrorReporter{Record: recorder}, "node", "NotSupported",
+		errors.New("not supported"),
+	))
+
+	require.Len(t, recorder.regarding, 1)
+	node, ok := recorder.regarding[0].(*corev1.Node)
+	require.True(t, ok)
+	require.Equal(t, "node", node.GetName())
+
+	related, ok := recorder.related[0].(*seccompprofileapi.SeccompProfile)
+	require.True(t, ok)
+	require.Equal(t, profile.GetName(), related.GetName())
+	require.Equal(t, profile.GetUID(), related.GetUID())
 }

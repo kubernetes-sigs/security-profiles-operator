@@ -30,6 +30,8 @@ import (
 	bpf "github.com/aquasecurity/libbpfgo"
 	"github.com/go-logr/logr"
 	"github.com/jellydator/ttlcache/v3"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 const (
@@ -100,13 +102,23 @@ type BpfProcessInfo struct {
 	Pid     int
 	CmdLine string
 	Env     map[string]string
+	// StartedAt is when the process started, since boot. It is zero if the
+	// BPF program could not tell.
+	StartedAt time.Duration
 }
 
 type BpfProcessCache struct {
 	recorder *BpfRecorder
 	logger   logr.Logger
 	cache    *ttlcache.Cache[int, *BpfProcessInfo]
+	// startTime returns when the process with the PID started, a field so
+	// that tests can fake the processes.
+	startTime func(int) (time.Duration, error)
 }
+
+// errProcessReplaced is returned for a PID whose cached exec belongs to a
+// process which is gone, while another one runs with the PID now.
+var errProcessReplaced = errors.New("another process runs with the PID since its exec")
 
 func NewBpfProcessCache(logger logr.Logger) *BpfProcessCache {
 	bpfProcCache := &BpfProcessCache{
@@ -119,6 +131,7 @@ func NewBpfProcessCache(logger logr.Logger) *BpfProcessCache {
 			// keep them beyond the timeout.
 			ttlcache.WithDisableTouchOnHit[int, *BpfProcessInfo](),
 		),
+		startTime: util.ProcessStartTime,
 	}
 
 	return bpfProcCache
@@ -163,6 +176,19 @@ func (b *BpfProcessCache) Load() (err error) {
 	// kernels without the BPF LSM.
 	if err := b.recorder.disableProgramsExcept(module, procCacheHooks); err != nil {
 		return err
+	}
+
+	// The maps are created with the object even if no hook fills them, the
+	// ones of the recorder would take megabytes of kernel memory for nothing.
+	for _, name := range procCacheUnusedMaps {
+		bpfMap, err := b.recorder.GetMap(module, name)
+		if err != nil {
+			return fmt.Errorf("get bpf map %s: %w", name, err)
+		}
+
+		if err := b.recorder.SetMaxEntries(bpfMap, 1); err != nil {
+			return fmt.Errorf("shrink bpf map %s: %w", name, err)
+		}
 	}
 
 	b.logger.Info("Loading bpf object from module")
@@ -216,22 +242,32 @@ func (b *BpfProcessCache) Close() {
 	b.cache.Stop()
 }
 
-func (b *BpfProcessCache) GetCmdLine(pid int) (cmdLine string, err error) {
+// GetCmdLineAndEnv returns the command line and the environment of the last
+// exec of the process with the PID. Both come from a single lookup, which
+// reads the start time of the process once. The exec of a process which
+// exited is still returned, as the audit lines are read with a delay, unless
+// another process runs with the PID by now: a process which only forked does
+// not exec, it must not get the arguments and the environment of the
+// previous process with its PID.
+func (b *BpfProcessCache) GetCmdLineAndEnv(
+	pid int,
+) (cmdLine string, env map[string]string, err error) {
 	item := b.cache.Get(pid)
-	if item != nil {
-		return item.Value().CmdLine, nil
+	if item == nil {
+		return "", nil, errors.New("no process info for Pid")
 	}
 
-	return "", errors.New("no process info for Pid")
-}
-
-func (b *BpfProcessCache) GetEnv(pid int) (env map[string]string, err error) {
-	item := b.cache.Get(pid)
-	if item != nil {
-		return item.Value().Env, nil
+	info := item.Value()
+	if info.StartedAt <= 0 {
+		return info.CmdLine, info.Env, nil
 	}
 
-	return nil, errors.New("no process info for Pid")
+	started, err := b.startTime(pid)
+	if err == nil && started != info.StartedAt.Truncate(util.ProcessStartTimeTick) {
+		return "", nil, fmt.Errorf("%w: pid %d", errProcessReplaced, pid)
+	}
+
+	return info.CmdLine, info.Env, nil
 }
 
 func (b *BpfProcessCache) processEvents(events chan []byte) {
@@ -261,8 +297,6 @@ func (b *BpfProcessCache) handleEvent(eventBytes []byte) {
 		return
 	}
 
-	b.logger.V(2).Info("eventTypeExecevEnter received", "execEvent", &execEvent)
-
 	// The lengths come from the kernel, but must not make the slices below
 	// panic whatever they say.
 	argsLen := min(int(execEvent.ArgsLen), maxArgs)
@@ -289,10 +323,17 @@ func (b *BpfProcessCache) handleEvent(eventBytes []byte) {
 		Pid:     int(execEvent.Pid),
 		CmdLine: cmdLine,
 		Env:     envMap,
+		// The flags carry when the process started, see submit_exec_event. A
+		// value beyond a duration turns negative, which counts as unknown.
+		//nolint:gosec // the overflow is intended, see above
+		StartedAt: time.Duration(execEvent.Flags),
 	}
 
 	b.cache.Set(int(execEvent.Pid), pInfo, ttlcache.DefaultTTL)
-	b.logger.V(2).Info("eventTypeExecevEnter processed", "pInfo", &pInfo)
+
+	// The arguments and the environment are not logged, they are those of
+	// every exec on the node and can carry credentials.
+	b.logger.V(2).Info("Exec processed", "pid", execEvent.Pid)
 }
 
 // cString returns the NUL terminated string at the start of buf. The ring

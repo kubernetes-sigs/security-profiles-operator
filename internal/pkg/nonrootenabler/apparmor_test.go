@@ -47,6 +47,10 @@ func (*fakeProfileManager) RemoveProfile(profilebaseapi.StatusBaseUser, bool) (b
 	return false, nil
 }
 
+func (*fakeProfileManager) ProfileInstalled(profilebaseapi.StatusBaseUser) (bool, error) {
+	return false, nil
+}
+
 func TestInstallApparmorProfiles(t *testing.T) {
 	t.Parallel()
 

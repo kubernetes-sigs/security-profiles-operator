@@ -652,3 +652,62 @@ func TestRemoveStaleTempFiles(t *testing.T) {
 	require.NoFileExists(t, stale)
 	require.FileExists(t, profile)
 }
+
+// A base profile pulled before is used if the SPOD with the pull settings
+// cannot be read. Without one, the resolution fails and gets retried.
+func TestResolveSyscallsForProfileCachedBaseProfileWithoutSPOD(t *testing.T) {
+	t.Parallel()
+
+	mock := &seccompprofilefakes.FakeImpl{}
+	mock.GetSPODReturns(nil, errors.New("no spod"))
+	mock.PullResultTypeReturns(artifact.PullResultTypeSeccompProfile)
+	mock.PullResultSeccompProfileReturns(&seccompprofileapi.SeccompProfile{
+		Spec: seccompprofileapi.SeccompProfileSpec{
+			Syscalls: []seccompprofileapi.Syscall{
+				{Names: []string{"second"}, Action: seccompprofileapi.ActAllow},
+			},
+		},
+	})
+
+	sut, ok := NewController().(*Reconciler)
+	require.True(t, ok)
+
+	sut.impl = mock
+	sut.metrics = metrics.New()
+	sut.record = events.NewFakeRecorder(10)
+
+	sp := &seccompprofileapi.SeccompProfile{
+		Spec: seccompprofileapi.SeccompProfileSpec{
+			BaseProfileName: config.OCIProfilePrefix + "registry/base:v1",
+			Syscalls: []seccompprofileapi.Syscall{
+				{Names: []string{"first"}, Action: seccompprofileapi.ActAllow},
+			},
+		},
+	}
+
+	resolve := func() ([]seccompprofileapi.Syscall, error) {
+		syscalls, _, err := sut.resolveSyscallsForProfile(
+			t.Context(), sp, sp.Spec.Syscalls, logr.Discard(), 0,
+		)
+
+		return syscalls, err
+	}
+
+	_, err := resolve()
+	require.ErrorContains(t, err, "retrieving the SPOD configuration: no spod")
+	require.Zero(t, mock.PullCallCount())
+
+	mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{}, nil)
+
+	_, err = resolve()
+	require.NoError(t, err)
+	require.Equal(t, 1, mock.PullCallCount())
+
+	mock.GetSPODReturns(nil, errors.New("no spod"))
+
+	syscalls, err := resolve()
+	require.NoError(t, err)
+	require.Len(t, syscalls, 1)
+	require.Equal(t, []string{"first", "second"}, syscalls[0].Names)
+	require.Equal(t, 1, mock.PullCallCount(), "the cached base profile is used")
+}

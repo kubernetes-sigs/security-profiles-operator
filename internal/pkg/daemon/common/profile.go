@@ -21,15 +21,35 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 // ReportError reports err like Report does with its message.
 func (e ErrorReporter) ReportError(obj runtime.Object, reason, action string, err error) {
 	e.Report(obj, reason, action, err.Error())
+}
+
+// ReportRelated is like ReportError for an event on obj which is about the
+// related object, like a profile which a node cannot install. Without the
+// related object, the events of all profiles would look the same.
+func (e ErrorReporter) ReportRelated(
+	obj, related runtime.Object, reason, action string, err error,
+) {
+	if e.IncError != nil {
+		e.IncError(reason)
+	}
+
+	if e.Record != nil {
+		e.Record.Eventf(obj, related, corev1.EventTypeWarning, reason, action, "%s", err.Error())
+	}
 }
 
 // NewDeletionReasons returns the event reasons for removing a profile of a
@@ -59,30 +79,97 @@ func GetProfile(
 	return true, nil
 }
 
+// Reports remembers the last report about each profile, so that the periodic
+// resyncs of the daemon do not repeat an unchanged report on every reconcile.
+// A report is a comparable value which tells apart what got reported, like
+// the UID and the generation of the profile with the reason. The zero value
+// is ready to use.
+type Reports[V comparable] struct {
+	// reported holds the last report, keyed by the namespaced name of the
+	// profile.
+	reported sync.Map
+}
+
+// ShouldReport returns true if report differs from the last one of the
+// profile of key, which it replaces.
+func (r *Reports[V]) ShouldReport(key types.NamespacedName, report V) bool {
+	previous, reported := r.reported.Swap(key, report)
+
+	return !reported || previous != report
+}
+
+// Reported returns the last report of the profile of key, and false if there
+// is none.
+func (r *Reports[V]) Reported(key types.NamespacedName) (report V, ok bool) {
+	value, ok := r.reported.Load(key)
+	if !ok {
+		return report, false
+	}
+
+	report, ok = value.(V)
+
+	return report, ok
+}
+
+// Forget makes the next report of the profile of key get reported.
+func (r *Reports[V]) Forget(key types.NamespacedName) {
+	r.reported.Delete(key)
+}
+
 // UnsupportedReports remembers the profiles which got reported for a node
 // which does not support their kind, so that each one gets reported once
 // instead of on every reconcile. The zero value is ready to use.
 type UnsupportedReports struct {
-	// reported holds the UID of every reported profile, keyed by its
-	// namespaced name.
-	reported sync.Map
+	// reported holds the UID of every reported profile.
+	reported Reports[types.UID]
 }
 
-// ShouldReport returns true if the profile of key has to be reported for a
-// node which does not support it. A profile gets reported once, and again if
-// it is deleted and created again. obj receives the profile.
-func (u *UnsupportedReports) ShouldReport(
+// check returns whether the profile of key has to be reported for a node
+// which does not support it, and whether it is gone. A profile gets reported
+// once, and again if it is deleted and created again. obj receives the
+// profile.
+func (u *UnsupportedReports) check(
 	ctx context.Context, c client.Reader, key types.NamespacedName, obj client.Object,
-) bool {
+) (report, gone bool) {
 	if err := c.Get(ctx, key, obj); err != nil {
 		if kerrors.IsNotFound(err) {
-			u.reported.Delete(key)
+			u.reported.Forget(key)
+
+			return false, true
 		}
 
-		return false
+		return false, false
 	}
 
-	previous, reported := u.reported.Swap(key, obj.GetUID())
+	return u.reported.ShouldReport(key, obj.GetUID()), false
+}
 
-	return !reported || previous != obj.GetUID()
+// Report logs that the node cannot install the profile of key, because it
+// does not support its kind, and reports it as a warning event on the node
+// with reason, which refers to the profile as related object. Every profile
+// gets reported once, and again if it is deleted and created again, the
+// further reconciles only log it verbosely. obj receives the profile. Report
+// returns true if the profile is gone, so that the caller can drop what it
+// kept about it.
+func (u *UnsupportedReports) Report(
+	ctx context.Context,
+	c client.Reader,
+	key types.NamespacedName,
+	obj client.Object,
+	l logr.Logger,
+	reporter ErrorReporter,
+	nodeName, reason string,
+	err error,
+) (gone bool) {
+	report, gone := u.check(ctx, c, key, obj)
+	if !report {
+		l.V(config.VerboseLevel).Info("Profile not added", "reason", err.Error())
+
+		return gone
+	}
+
+	l.Error(err, "Profile not added")
+	reporter.ReportRelated(util.EventNode(nodeName), obj, reason, util.EventActionInstall, err)
+
+	return false
 }

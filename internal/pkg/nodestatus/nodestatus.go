@@ -58,6 +58,10 @@ type StatusClient struct {
 	// reader reads the profile after a conflict, see WithAPIReader.
 	reader client.Reader
 
+	// created is set once this client created the node status, which the
+	// cache may not have yet, see getStatus.
+	created bool
+
 	// kind is the profile kind, resolved once on construction so that names
 	// and labels do not depend on the TypeMeta of pol, which is empty for
 	// objects decoded by the uncached typed client.
@@ -165,7 +169,24 @@ func (nsf *StatusClient) Create(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("cannot create node status for %s: %w", nsf.pol.GetName(), err)
 	}
 
+	nsf.created = true
+
 	return wasMigrated, nil
+}
+
+// getStatus reads the node status through c. The cache may not have a status
+// which this client just created yet, so that the reconcile which created it
+// can go on to update it. Such a status is read through the reader then, see
+// WithAPIReader.
+func (nsf *StatusClient) getStatus(
+	ctx context.Context, c client.Reader, status *secprofnodestatusapi.SecurityProfileNodeStatus,
+) error {
+	err := c.Get(ctx, nsf.perNodeStatusNamespacedName(), status)
+	if kerrors.IsNotFound(err) && nsf.created && nsf.reader != nil {
+		return nsf.reader.Get(ctx, nsf.perNodeStatusNamespacedName(), status)
+	}
+
+	return err
 }
 
 // removeLegacyNodeStatus removes old-format status objects that used
@@ -434,7 +455,7 @@ func (nsf *StatusClient) FinalizerExists() bool {
 func (nsf *StatusClient) nodeStatusExists(ctx context.Context) (bool, error) {
 	status := secprofnodestatusapi.SecurityProfileNodeStatus{}
 
-	err := nsf.client.Get(ctx, nsf.perNodeStatusNamespacedName(), &status)
+	err := nsf.getStatus(ctx, nsf.client, &status)
 	if kerrors.IsNotFound(err) {
 		return false, nil
 	} else if err != nil {
@@ -470,7 +491,7 @@ func (nsf *StatusClient) SetNodeStatusWithMessage(
 
 	status := &secprofnodestatusapi.SecurityProfileNodeStatus{}
 
-	err := nsf.client.Get(ctx, nsf.perNodeStatusNamespacedName(), status)
+	err := nsf.getStatus(ctx, nsf.client, status)
 	if kerrors.IsNotFound(err) && polState == secprofnodestatusapi.ProfileStateTerminating {
 		// it's OK if we're about to terminate a profile but it was already gone
 		return nil
@@ -536,7 +557,7 @@ func truncateMessage(message string) string {
 
 func (nsf *StatusClient) GetAnnotation(ctx context.Context, key string) (string, error) {
 	status := secprofnodestatusapi.SecurityProfileNodeStatus{}
-	if err := nsf.client.Get(ctx, nsf.perNodeStatusNamespacedName(), &status); err != nil {
+	if err := nsf.getStatus(ctx, nsf.client, &status); err != nil {
 		return "", fmt.Errorf("getting node status for annotation: %w", err)
 	}
 
@@ -554,7 +575,7 @@ func (nsf *StatusClient) GetAnnotation(ctx context.Context, key string) (string,
 func (nsf *StatusClient) SetAnnotation(ctx context.Context, key, value string) error {
 	return util.RetryWithFreshReads(ctx, nsf.client, nsf.reader, func(c client.Client) error {
 		status := secprofnodestatusapi.SecurityProfileNodeStatus{}
-		if err := c.Get(ctx, nsf.perNodeStatusNamespacedName(), &status); err != nil {
+		if err := nsf.getStatus(ctx, c, &status); err != nil {
 			return fmt.Errorf("getting node status for annotation update: %w", err)
 		}
 
@@ -579,7 +600,7 @@ func (nsf *StatusClient) SetAnnotation(ctx context.Context, key, value string) e
 // State returns the state of the profile on the node.
 func (nsf *StatusClient) State(ctx context.Context) (secprofnodestatusapi.ProfileState, error) {
 	status := secprofnodestatusapi.SecurityProfileNodeStatus{}
-	if err := nsf.client.Get(ctx, nsf.perNodeStatusNamespacedName(), &status); err != nil {
+	if err := nsf.getStatus(ctx, nsf.client, &status); err != nil {
 		return "", fmt.Errorf("getting node status: %w", err)
 	}
 
@@ -590,7 +611,7 @@ func (nsf *StatusClient) Matches(
 	ctx context.Context, polState secprofnodestatusapi.ProfileState,
 ) (bool, error) {
 	status := secprofnodestatusapi.SecurityProfileNodeStatus{}
-	if err := nsf.client.Get(ctx, nsf.perNodeStatusNamespacedName(), &status); err != nil {
+	if err := nsf.getStatus(ctx, nsf.client, &status); err != nil {
 		if kerrors.IsNotFound(err) && polState == secprofnodestatusapi.ProfileStateTerminating {
 			// it's OK if we're about to terminate a profile but it was already gone
 			return true, nil

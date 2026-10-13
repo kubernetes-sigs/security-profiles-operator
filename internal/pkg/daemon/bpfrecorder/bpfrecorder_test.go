@@ -34,6 +34,7 @@ import (
 
 	"github.com/aquasecurity/libbpfgo"
 	"github.com/go-logr/logr"
+	"github.com/go-logr/logr/funcr"
 	"github.com/jellydator/ttlcache/v3"
 	seccomp "github.com/seccomp/libseccomp-golang"
 	"github.com/stretchr/testify/assert"
@@ -2121,4 +2122,38 @@ func TestExcludeKeyAfterSessionEnded(t *testing.T) {
 
 	sut.excludeKey(7, sut.recordingGeneration.Load())
 	require.Equal(t, 1, mock.UpdateValue64CallCount())
+}
+
+// TestHandleExitEventLogLevel asserts that the exits of the recorded processes
+// are only logged at the default level by spoc, which waits for them.
+func TestHandleExitEventLogLevel(t *testing.T) {
+	t.Parallel()
+
+	for _, inCluster := range []bool{false, true} {
+		t.Run(fmt.Sprintf("in cluster %v", inCluster), func(t *testing.T) {
+			t.Parallel()
+
+			var logs []string
+
+			logger := funcr.New(func(_, args string) {
+				logs = append(logs, args)
+			}, funcr.Options{})
+
+			sut := New("", logger, false, false)
+			if inCluster {
+				sut.clientset = &kubernetes.Clientset{}
+			}
+
+			sut.handleExitEvent(&bpfEvent{Pid: 42, Type: eventTypeExit})
+
+			if inCluster {
+				require.Empty(t, logs)
+			} else {
+				require.Len(t, logs, 1)
+				require.Contains(t, logs[0], "Record pid exit")
+			}
+
+			require.Equal(t, 1, sut.recentExits.Len())
+		})
+	}
 }

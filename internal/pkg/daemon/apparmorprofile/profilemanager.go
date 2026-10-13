@@ -20,6 +20,7 @@ import (
 	"errors"
 
 	profilebaseapi "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
 var (
@@ -29,7 +30,30 @@ var (
 	// ErrRuntimeProfile is returned for a profile named after the default
 	// profile of a container runtime.
 	ErrRuntimeProfile = errors.New("profile name is reserved for a container runtime")
+	// ErrOperatorProfile is returned for a profile named after one of the
+	// profiles which the operator installs for its own containers.
+	ErrOperatorProfile = errors.New("profile name is reserved for the operator")
+	// ErrInvalidProfile is returned for a profile whose policy cannot be
+	// generated, which only a change of the profile fixes.
+	ErrInvalidProfile = errors.New("invalid profile")
 )
+
+// operatorProfiles are the profiles which the non-root enabler installs for
+// the containers of the daemon. The policy files of both carry the ownership
+// marker, so the ownership checks of InstallProfile and RemoveProfile cannot
+// protect them from an AppArmorProfile of the same name.
+var operatorProfiles = map[string]struct{}{
+	config.SpoApparmorProfileName:         {},
+	config.BpfRecorderApparmorProfileName: {},
+}
+
+// isOperatorProfile reports whether name is one of the profiles of the
+// operator itself.
+func isOperatorProfile(name string) bool {
+	_, ok := operatorProfiles[name]
+
+	return ok
+}
 
 type ProfileManager interface {
 	// Enabled checks whether the given profile technology is supported and
@@ -51,4 +75,8 @@ type ProfileManager interface {
 	// whether it unloaded the profile or removed its policy file, which it
 	// does not for a profile which is not ours or not on the host.
 	RemoveProfile(p profilebaseapi.StatusBaseUser, ownedByUs bool) (bool, error)
+	// ProfileInstalled reports whether this operator installed the profile:
+	// it is loaded into the kernel from a policy file which carries the
+	// ownership marker.
+	ProfileInstalled(p profilebaseapi.StatusBaseUser) (bool, error)
 }

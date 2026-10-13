@@ -403,8 +403,16 @@ func (m *Metrics) IncAppArmorProfileError(profile, reason string) {
 	m.metricAppArmorProfileError.WithLabelValues(profile, reason).Inc()
 }
 
+// DeleteAppArmorProfileErrors drops the series of the apparmor profile error
+// counter of a profile which is gone.
+func (m *Metrics) DeleteAppArmorProfileErrors(profile string) {
+	m.metricAppArmorProfileError.DeletePartialMatch(prometheus.Labels{metricsLabelProfile: profile})
+}
+
 // IncAppArmorProfileDenial increments the apparmor denial counter for the
-// operation being denied in a profile.
+// operation being denied in a profile. The profile comes from the audit log,
+// so the series are limited and dropped when idle like the ones of the audit
+// counter.
 func (m *Metrics) IncAppArmorProfileDenial(profile, operation string) {
-	m.metricAppArmorProfileDenial.WithLabelValues(profile, operation).Inc()
+	m.incSeries(metricNameAppArmorProfileDenial, m.metricAppArmorProfileDenial, profile, operation)
 }
