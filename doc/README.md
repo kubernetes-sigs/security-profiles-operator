@@ -77,6 +77,14 @@ The operator also provides:
 
 ![Architecture](architecture.svg)
 
+The diagram is generated from its Mermaid source
+[`architecture.mmd`](architecture.mmd) with the
+[Mermaid CLI](https://github.com/mermaid-js/mermaid-cli), update both together:
+
+```shell
+mmdc -i doc/architecture.mmd -o doc/architecture.svg -b white
+```
+
 The operator consists of three components, which run in the operator namespace:
 
 - The **manager** (Deployment `security-profiles-operator`) watches the SPOD

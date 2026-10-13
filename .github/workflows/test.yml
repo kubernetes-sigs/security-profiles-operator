@@ -149,8 +149,8 @@ jobs:
           name: selinuxd-fedora
           path: selinuxd-fedora.tar
 
-  # Compiling the e2e tests takes more than 10 minutes in the Fedora VM, see
-  # E2E_TEST_BINARY in the Makefile.
+  # Compiling the e2e tests takes more than 10 minutes in the Fedora and
+  # Flatcar VMs, see E2E_TEST_BINARY in the Makefile.
   e2e-test-binary:
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -290,7 +290,7 @@ jobs:
           print_kubernix_logs
 
   e2e-flatcar:
-    needs: image
+    needs: [image, e2e-test-binary]
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
@@ -299,6 +299,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # The VM syncs the repository when it boots, so the artifact has to be
+      # there before.
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: e2e-test-binary
+          path: build
       # The tests run in a container with the root of the VM at /hostfs.
       - uses: ./.github/actions/e2e-vm
         with:

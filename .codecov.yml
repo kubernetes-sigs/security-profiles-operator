@@ -1,7 +1,11 @@
 ---
 codecov:
   notify:
-    after_n_builds: 1
+    # The coverage-upload job of the test workflow uploads one report per
+    # architecture, the statuses wait for both. That job ignores failed
+    # uploads, so if one fails, like during an outage of Codecov, the commit
+    # gets no status and no comment at all.
+    after_n_builds: 2
     require_ci_to_pass: false
 
 coverage:

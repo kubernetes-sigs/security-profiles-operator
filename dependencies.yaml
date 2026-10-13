@@ -39,8 +39,6 @@ dependencies:
   - name: kube-api-linter
     version: v0.0.0-20260716143926-092fe0c72997
     refPaths:
-    - path: Makefile
-      match: KAL_VERSION
     - path: .custom-gcl.yml
       match: "version: 'v0.0.0"
 
@@ -178,6 +176,26 @@ dependencies:
       match: ^CERT_MANAGER_SHA256=
     - path: test/e2e_test.go
       match: "certmanagerSHA256 *="
+
+  # The image of the pods of the seccomp and AppArmor recordings in CI. The
+  # tags of the repository include date tags like 20260805, which the
+  # constraint leaves out.
+  - name: alpine
+    version: 3.24.2
+    upstream:
+      flavour: container
+      registry: docker.io/library/alpine
+      constraints: "< 4.0.0"
+    refPaths:
+    - path: hack/ci/lib.sh
+      match: ^ALPINE_VERSION=
+
+  # Must be bumped together with alpine above, the digest of its image index.
+  - name: alpine-digest
+    version: sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+    refPaths:
+    - path: hack/ci/lib.sh
+      match: ^ALPINE_IMAGE=
 
   # The local registry of the kind clusters of the Helm and OLM tests.
   - name: kind-registry
@@ -396,6 +414,16 @@ dependencies:
     refPaths:
       - path: hack/ci/Vagrantfile-fedora
         match: "^ *libvirt_box_sha256 ="
+
+  # The selinuxd commit which hack/ci/build-selinuxd-fedora.sh builds for the
+  # Fedora release of the e2e VM. Commits have no versions to compare,
+  # hack/update-selinuxd.sh pins it to the head of the selinuxd main branch
+  # and its --check of the weekly dependencies workflow reports a newer one.
+  - name: selinuxd-fedora-commit
+    version: 6bd301111e8f151e1bf5931cb46a6e50c34b42c8
+    refPaths:
+      - path: hack/ci/build-selinuxd-fedora.sh
+        match: ^SELINUXD_COMMIT=
 
   - name: debian-base-digest
     version: sha256:bb933ac3606ff3f69854a7eba5da1eaef5064ef62d83f3cb0e4be40eb53522e0
@@ -790,6 +818,8 @@ dependencies:
     refPaths:
     - path: hack/pull-security-profiles-operator-verify
       match: "^CLANG_VERSION="
+    - path: Makefile
+      match: "^CLANG_FORMAT_VERSION ="
 
   - name: flatcar
     version: 3510.2.3

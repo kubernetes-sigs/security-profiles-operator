@@ -53,7 +53,7 @@ spec:
   restartPolicy: Never
   containers:
   - name: $PODNAME
-    image: alpine:3
+    image: $ALPINE_IMAGE
     command: ["sleep", "3"]
 EOT
     echo "Creating pod:"

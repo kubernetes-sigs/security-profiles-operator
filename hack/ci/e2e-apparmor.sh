@@ -47,7 +47,7 @@ spec:
   restartPolicy: Never
   containers:
   - name: $pod_name
-    image: alpine:3
+    image: $ALPINE_IMAGE
     command: ["sleep", "$sleep_interval"]
 EOT
 

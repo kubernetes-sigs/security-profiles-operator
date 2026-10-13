@@ -24,6 +24,7 @@
 
 set -euo pipefail
 
+# hack/update-selinuxd.sh bumps the commit, see dependencies.yaml.
 SELINUXD_COMMIT=6bd301111e8f151e1bf5931cb46a6e50c34b42c8
 IMAGE=${1:-localhost/selinuxd-fedora:latest}
 

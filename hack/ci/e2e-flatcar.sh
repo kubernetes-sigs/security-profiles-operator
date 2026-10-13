@@ -41,25 +41,24 @@ export KUBECONFIG=$HOSTFS_DEV_MOUNT_PATH/etc/kubernetes/admin.conf
 # Configure git to consider the mounted host filesystem as safe
 git config --global --add safe.directory "/hostfs/vagrant"
 
-# Clean up Go build cache to free up disk space before running tests
-go clean -cache -testcache || true
-
-# Clean up old temporary build directories from /tmp if they exist
-find /tmp -maxdepth 1 -name "go-build*" -type d -exec rm -rf {} + 2>/dev/null || true
-
-# Display disk space before tests to aid debugging
-echo "Disk space before tests:"
-df -h /tmp 2>/dev/null || df -h /
-
-# Trap to ensure cleanup happens even if tests fail
-cleanup() {
-    echo "Cleaning up Go build cache..."
-    go clean -cache -testcache 2>/dev/null || true
-    rm -rf /tmp/go-build* 2>/dev/null || true
-    echo "Disk space after cleanup:"
-    df -h /tmp 2>/dev/null || df -h /
-}
-trap cleanup EXIT
+# CI compiles the tests outside of the VM, see E2E_TEST_BINARY in the Makefile.
+# The artifact download loses the executable bit. The VM syncs build/ of the
+# checkout, so a local run uses a test binary which is left there, remove it
+# to test the sources instead.
+if [[ -f build/e2e.test ]]; then
+    chmod +x build/e2e.test
+    export E2E_TEST_BINARY=build/e2e.test
+    echo "Using the prebuilt e2e test binary $E2E_TEST_BINARY of $(date -r "$E2E_TEST_BINARY")"
+else
+    echo "No prebuilt e2e test binary, compiling the tests"
+    # The compilation needs the space of the developer container, so it
+    # starts without and leaves no build cache behind.
+    go clean -cache -testcache || true
+    cleanup() {
+        go clean -cache -testcache || true
+    }
+    trap cleanup EXIT
+fi
 
 if "${E2E_TEST_FLAKY_TESTS_ONLY}"; then
     make test-flaky-e2e

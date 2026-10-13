@@ -448,8 +448,19 @@ func (e *e2e) TestSecurityProfilesOperator() {
 	e.runTestCases(false)
 }
 
+// quarantinedTestName is the name of the suite method which runs the
+// quarantined test cases.
+const quarantinedTestName = "TestSecurityProfilesOperator_Flaky"
+
+// skipsQuarantinedTests reports whether the current suite method runs the
+// quarantined test cases, which E2E_SKIP_FLAKY_TESTS skips. SetupTest uses it
+// to not prepare a cluster for nothing.
+func (e *e2e) skipsQuarantinedTests() bool {
+	return e.skipFlakyTests && strings.HasSuffix(e.T().Name(), "/"+quarantinedTestName)
+}
+
 func (e *e2e) TestSecurityProfilesOperator_Flaky() {
-	if e.skipFlakyTests {
+	if e.skipsQuarantinedTests() {
 		e.T().Skip("Skipping the quarantined test cases, E2E_SKIP_FLAKY_TESTS is set")
 
 		return
@@ -478,7 +489,7 @@ func (e *e2e) runTestCases(quarantined bool) {
 	e.deployOperator(e.operatorManifest)
 
 	// Retrieve the inputs for the test cases
-	nodes := e.getWorkerNodes()
+	nodes := e.getNodes()
 
 	e.logf("testing cluster-wide operator")
 	e.runTestCasesWithPrefix("cluster-wide", testCases, nodes)
@@ -537,7 +548,6 @@ func (e *e2e) testNamespacedOperator(
 	// Deploy the namespace operator
 	e.kubectl("create", "namespace", namespace)
 	e.updateManifest(manifest, "NS_REPLACE", namespace)
-	e.updateManifest(manifest, "value: .*quay.io/.*/selinuxd.*", "value: "+e.selinuxdImage)
 
 	// All following operations such as create pod will be in the test namespace
 	// at the same time, let's re-set the context to allow subsequent test runs
@@ -731,8 +741,10 @@ func (e *e2e) prepareManifest(manifest string) string {
 	e.updateManifest(manifest, "image: "+stagingImage, "image: "+e.testImage)
 	e.updateManifest(manifest, "value: "+stagingImage, "value: "+e.testImage)
 
-	if e.selinuxEnabled {
-		e.updateManifest(manifest, "enableSelinux: false", "enableSelinux: true")
+	// The copy starts from the tracked manifest again after resetManifest,
+	// so the selinuxd image gets set on every deployment.
+	if e.selinuxdImage != "" {
+		e.updateManifest(manifest, "value: .*quay.io/.*/selinuxd.*", "value: "+e.selinuxdImage)
 	}
 
 	return e.renderedManifest(manifest)
@@ -766,15 +778,16 @@ func (e *e2e) waitForOperator() {
 	})
 }
 
-func (e *e2e) getWorkerNodes() []string {
-	e.logf("Getting worker nodes")
+// getNodes returns the names of all nodes. The spod runs on the control plane
+// nodes too, so the profiles get installed there as well.
+func (e *e2e) getNodes() []string {
+	e.logf("Getting nodes")
 	nodesOutput := e.kubectl(
 		"get", "nodes",
-		"-l", "node-role.kubernetes.io/master!=",
 		"-o", `jsonpath={range .items[*]}{@.metadata.name}{" "}{end}`,
 	)
 	nodes := strings.Fields(nodesOutput)
-	e.logf("Got worker nodes: %v", nodes)
+	e.logf("Got nodes: %v", nodes)
 
 	return nodes
 }
