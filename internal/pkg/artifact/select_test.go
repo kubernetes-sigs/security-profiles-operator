@@ -29,11 +29,13 @@ import (
 	"strconv"
 	"testing"
 
+	ggcrname "github.com/google/go-containerregistry/pkg/name"
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/stretchr/testify/require"
 	"oras.land/oras-go/v2/content/file"
 	"oras.land/oras-go/v2/errdef"
+	"oras.land/oras-go/v2/registry/remote"
 )
 
 func platformLayer(platform *ocispec.Platform) ocispec.Descriptor {
@@ -390,7 +392,14 @@ func TestKeychainCredential(t *testing.T) {
 	require.Equal(t, "user", credential.Username)
 	require.Equal(t, "pass", credential.Password)
 
-	credential, err = keychainCredential(t.Context(), dockerHubRegistryHost)
+	// Docker Hub references reach ORAS by the name of the index.
+	ref, err := ggcrname.ParseReference("docker.io/library/busybox")
+	require.NoError(t, err)
+
+	repo, err := remote.NewRepository(ref.Context().Name())
+	require.NoError(t, err)
+
+	credential, err = keychainCredential(t.Context(), repo.Reference.Host())
 	require.NoError(t, err)
 	require.Equal(t, "hub", credential.Username)
 	require.Equal(t, "secret", credential.Password)

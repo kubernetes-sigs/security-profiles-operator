@@ -220,6 +220,28 @@ func TestFromContext(t *testing.T) {
 			},
 		},
 		{
+			name: "failure duplicate platforms with the default variant",
+			prepare: func(set *flag.FlagSet) {
+				require.NoError(t, set.Parse([]string{"echo"}))
+				set.Var(ucli.NewStringSlice(""), FlagPlatforms, "")
+				require.NoError(t, set.Set(FlagPlatforms, "linux/arm64,linux/arm64/v8"))
+			},
+			assert: func(_ *Options, err error) {
+				require.ErrorContains(t, err, "linux/arm64 and linux/arm64/v8 are the same platform")
+			},
+		},
+		{
+			name: "failure duplicate platforms with the default arm variant",
+			prepare: func(set *flag.FlagSet) {
+				require.NoError(t, set.Parse([]string{"echo"}))
+				set.Var(ucli.NewStringSlice(""), FlagPlatforms, "")
+				require.NoError(t, set.Set(FlagPlatforms, "linux/arm/v7,linux/arm"))
+			},
+			assert: func(_ *Options, err error) {
+				require.ErrorContains(t, err, "linux/arm/v7 and linux/arm are the same platform")
+			},
+		},
+		{
 			name: "failure different platforms with the same layer name",
 			prepare: func(set *flag.FlagSet) {
 				require.NoError(t, set.Parse([]string{"echo"}))

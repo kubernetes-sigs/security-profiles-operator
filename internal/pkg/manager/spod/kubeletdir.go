@@ -78,7 +78,7 @@ func (r *ReconcileSPOd) nodeKubeletDirs(
 				r.record.Eventf(
 					spod,
 					nil,
-					util.EventTypeWarning,
+					corev1.EventTypeWarning,
 					reasonInvalidKubeletDirLabel,
 					util.EventActionReconcile,
 					"Ignoring kubelet directory label of node %s: %v",

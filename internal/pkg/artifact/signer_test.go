@@ -79,6 +79,14 @@ func TestIsOfficialArtifact(t *testing.T) {
 		{image: "registry.k8s.io/security-profiles-operator", expected: false},
 		{image: "registry.k8s.io/other/base/runc:v1.5.1", expected: false},
 		{image: "registry.example.com/registry.k8s.io/security-profiles-operator/base/runc:v1", expected: false},
+		{image: "registry.k8s.io:443/security-profiles-operator/base/runc:v1.5.1", expected: true},
+		{image: "REGISTRY.K8S.IO/security-profiles-operator/base/runc:v1.5.1", expected: true},
+		{image: "registry.k8s.io:5000/security-profiles-operator/base/runc:v1.5.1", expected: false},
+		{image: "registry.k8s.io./security-profiles-operator/base/runc:v1.5.1", expected: true},
+		{image: "registry.k8s.io:0443/security-profiles-operator/base/runc:v1.5.1", expected: true},
+		{image: "registry.k8s.io.:0443/security-profiles-operator/base/runc:v1.5.1", expected: true},
+		{image: "registry.k8s.io:4430/security-profiles-operator/base/runc:v1.5.1", expected: false},
+		{image: "registry.k8s.io../security-profiles-operator/base/runc:v1.5.1", expected: false},
 		{image: "", expected: false},
 	} {
 		t.Run(tc.image, func(t *testing.T) {

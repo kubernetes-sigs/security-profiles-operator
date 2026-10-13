@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -71,7 +72,7 @@ func (e ErrorReporter) Report(obj runtime.Object, reason, action, msg string) {
 	}
 
 	if e.Record != nil {
-		e.Record.Eventf(obj, nil, util.EventTypeWarning, reason, action, "%s", msg)
+		e.Record.Eventf(obj, nil, corev1.EventTypeWarning, reason, action, "%s", msg)
 	}
 }
 

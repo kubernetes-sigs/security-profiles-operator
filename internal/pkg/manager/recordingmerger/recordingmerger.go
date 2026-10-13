@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -238,7 +239,7 @@ func (r *PolicyMergeReconciler) mergeProfiles(
 		r.record.Eventf(
 			profileRecording,
 			nil,
-			util.EventTypeWarning,
+			corev1.EventTypeWarning,
 			reasonCannotMergeKind,
 			util.EventActionMerge,
 			"%s: %s",
@@ -287,7 +288,7 @@ func (r *PolicyMergeReconciler) mergeProfiles(
 		r.record.Eventf(
 			profileRecording,
 			nil,
-			util.EventTypeWarning,
+			corev1.EventTypeWarning,
 			reasonNoPartialProfiles,
 			util.EventActionMerge,
 			"%s",
@@ -393,7 +394,7 @@ func (r *PolicyMergeReconciler) mergeTypedProfiles(
 			r.record.Eventf(
 				profileRecording,
 				nil,
-				util.EventTypeWarning,
+				corev1.EventTypeWarning,
 				reasonMergedEmptyProfile,
 				util.EventActionMerge,
 				"%s",
@@ -421,7 +422,7 @@ func (r *PolicyMergeReconciler) mergeTypedProfiles(
 			r.record.Eventf(
 				profileRecording,
 				nil,
-				util.EventTypeWarning,
+				corev1.EventTypeWarning,
 				reasonMergedProfileConflict,
 				util.EventActionMerge,
 				"Keeping the partial profiles of container %s until the profile %s "+
@@ -443,7 +444,7 @@ func (r *PolicyMergeReconciler) mergeTypedProfiles(
 			r.record.Eventf(
 				profileRecording,
 				nil,
-				util.EventTypeWarning,
+				corev1.EventTypeWarning,
 				reasonCannotCreateUpdate,
 				util.EventActionMerge,
 				"%s",

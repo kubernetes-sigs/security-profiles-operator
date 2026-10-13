@@ -1193,7 +1193,7 @@ func (r *Reconciler) writeProfile(
 		r.record.Eventf(
 			sp,
 			nil,
-			util.EventTypeNormal,
+			corev1.EventTypeNormal,
 			reasonSavedProfile,
 			util.EventActionInstall,
 			"%s",

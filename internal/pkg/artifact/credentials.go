@@ -75,13 +75,9 @@ func (a *Artifact) setRepoCredentials(repo *remote.Repository, username, passwor
 // keychainCredential resolves the registry credentials from the docker config
 // and its credential helpers, the default keychain of cosign and most other
 // registry clients. Registries without an entry are accessed anonymously.
+// Docker Hub is reached through index.docker.io, the name of the docker
+// config, because the repositories are named after the parsed references.
 func keychainCredential(_ context.Context, hostport string) (auth.Credential, error) {
-	// ORAS talks to Docker Hub through its registry host, which the docker
-	// config knows by the name of the index.
-	if hostport == dockerHubRegistryHost {
-		hostport = ggcrname.DefaultRegistry
-	}
-
 	registry, err := ggcrname.NewRegistry(hostport)
 	if err != nil {
 		return auth.EmptyCredential, fmt.Errorf("parse registry %s: %w", hostport, err)

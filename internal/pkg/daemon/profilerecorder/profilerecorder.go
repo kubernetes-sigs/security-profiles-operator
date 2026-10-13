@@ -436,7 +436,7 @@ func (r *RecorderReconciler) authorizedProfiles(
 			r.record.Eventf(
 				pod,
 				nil,
-				util.EventTypeWarning,
+				corev1.EventTypeWarning,
 				reasonAnnotationParsing,
 				util.EventActionRecord,
 				"%s",
@@ -468,7 +468,7 @@ func (r *RecorderReconciler) authorizedProfiles(
 				r.record.Eventf(
 					pod,
 					nil,
-					util.EventTypeWarning,
+					corev1.EventTypeWarning,
 					reasonAnnotationParsing,
 					util.EventActionRecord,
 					"%s",
@@ -500,7 +500,7 @@ func (r *RecorderReconciler) authorizedProfiles(
 		r.record.Eventf(
 			pod,
 			nil,
-			util.EventTypeWarning,
+			corev1.EventTypeWarning,
 			reasonAnnotationParsing,
 			util.EventActionRecord,
 			"%s",
@@ -697,7 +697,7 @@ func (r *RecorderReconciler) ignoreAnnotations(
 	r.record.Eventf(
 		pod,
 		nil,
-		util.EventTypeWarning,
+		corev1.EventTypeWarning,
 		reasonAnnotationParsing,
 		util.EventActionRecord,
 		"%s",
@@ -747,7 +747,7 @@ func (r *RecorderReconciler) trackPod(
 	r.record.Eventf(
 		pod,
 		nil,
-		util.EventTypeNormal,
+		corev1.EventTypeNormal,
 		reasonProfileRecording,
 		util.EventActionRecord,
 		"Recording profiles",
@@ -761,7 +761,7 @@ func (r *RecorderReconciler) trackPod(
 		r.record.Eventf(
 			pod,
 			nil,
-			util.EventTypeWarning,
+			corev1.EventTypeWarning,
 			reasonRecordingIncomplete,
 			util.EventActionRecord,
 			"Recording started after the pod was already running, the profiles may be incomplete",
@@ -898,7 +898,7 @@ func (r *RecorderReconciler) abandonPod(
 	r.record.Eventf(
 		pod,
 		nil,
-		util.EventTypeWarning,
+		corev1.EventTypeWarning,
 		reasonRecordingAbandoned,
 		util.EventActionRecord,
 		"Giving up on collecting the recorded profiles: %s",
@@ -928,7 +928,7 @@ func (r *RecorderReconciler) reportNotRecorded(
 	r.record.Eventf(
 		pod,
 		nil,
-		util.EventTypeWarning,
+		corev1.EventTypeWarning,
 		reasonRecordingAbandoned,
 		util.EventActionRecord,
 		"Not recording the profiles: %s",
@@ -1229,7 +1229,7 @@ func (r *RecorderReconciler) collectLogProfileGeneric(
 			r.record.Eventf(
 				profile,
 				nil,
-				util.EventTypeWarning,
+				corev1.EventTypeWarning,
 				reasonProfileCreationFailed,
 				util.EventActionRecord,
 				"%s",
@@ -1670,7 +1670,7 @@ func (r *RecorderReconciler) fetchSeccompBpfProfile(
 		r.record.Eventf(
 			profile,
 			nil,
-			util.EventTypeWarning,
+			corev1.EventTypeWarning,
 			reasonRecordingIncomplete,
 			util.EventActionRecord,
 			"Some recorded syscalls cannot be read, the profile may be incomplete",
@@ -2014,7 +2014,7 @@ func (r *RecorderReconciler) storeProfile(
 		r.record.Eventf(
 			profile,
 			nil,
-			util.EventTypeWarning,
+			corev1.EventTypeWarning,
 			reasonProfileCreationFailed,
 			util.EventActionRecord,
 			"%s",
@@ -2039,7 +2039,7 @@ func (r *RecorderReconciler) storeProfile(
 	r.record.Eventf(
 		profile,
 		nil,
-		util.EventTypeNormal,
+		corev1.EventTypeNormal,
 		reasonProfileCreated,
 		util.EventActionRecord,
 		"%s",
@@ -2064,7 +2064,7 @@ func (r *RecorderReconciler) storePartialProfile(
 	r.record.Eventf(
 		profile,
 		nil,
-		util.EventTypeWarning,
+		corev1.EventTypeWarning,
 		reasonProfileMergeFailed,
 		util.EventActionRecord,
 		"%s",

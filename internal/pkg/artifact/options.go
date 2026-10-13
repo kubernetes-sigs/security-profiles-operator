@@ -17,12 +17,19 @@ limitations under the License.
 package artifact
 
 import (
+	"net"
+	"strconv"
 	"strings"
+
+	ggcrname "github.com/google/go-containerregistry/pkg/name"
 )
 
 // AllowAllRegexp is the default signer regexp of the spoc flags and the SPOD
 // API, which accepts any signer.
 const AllowAllRegexp = ".*"
+
+// httpsPort is the port registries are reached at by default.
+const httpsPort = 443
 
 // PullOptions are the options for pulling an OCI artifact: how to reach the
 // registry and how to verify the artifact's signature.
@@ -193,15 +200,46 @@ func IsDefaultRegexp(pattern string) bool {
 
 // IsOfficialArtifact reports whether the image belongs to one of the
 // repositories this project publishes to, whose artifacts are signed keyless by
-// the official signers through the public Sigstore instance.
+// the official signers through the public Sigstore instance. Other spellings
+// of the registry which reach it as well, like one with the HTTPS port, count
+// as the official one, they must not lift the pinning to the official signers.
 func IsOfficialArtifact(image string) bool {
+	repository := image
+
+	if ref, err := ggcrname.ParseReference(image); err == nil {
+		registry := normalizeRegistry(ref.Context().RegistryStr())
+		repository = registry + "/" + ref.Context().RepositoryStr()
+	}
+
 	for _, prefix := range officialRepositories {
-		if strings.HasPrefix(image, prefix) {
+		if strings.HasPrefix(repository, prefix) {
 			return true
 		}
 	}
 
 	return false
+}
+
+// normalizeRegistry returns the registry host in lower case, without the
+// trailing dot of a fully qualified name and without the HTTPS port, which
+// all reach the same registry.
+func normalizeRegistry(registry string) string {
+	host, port, err := net.SplitHostPort(registry)
+	if err != nil {
+		host, port = registry, ""
+	}
+
+	host = strings.TrimSuffix(strings.ToLower(host), ".")
+
+	if port == "" {
+		return host
+	}
+
+	if number, err := strconv.ParseUint(port, 10, 16); err == nil && number == httpsPort {
+		return host
+	}
+
+	return net.JoinHostPort(host, port)
 }
 
 // hasExplicitSigner reports whether the caller pinned the signer to a key or

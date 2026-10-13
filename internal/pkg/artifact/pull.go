@@ -76,10 +76,15 @@ func (a *Artifact) Pull(
 		return nil, fmt.Errorf("resolving digest for image %q: %w", originalImage, err)
 	}
 
-	if !signOpts.DisableSignatureVerification {
-		if err := a.verifySignature(ctx, originalImage, repo, &subject, signOpts); err != nil {
-			return nil, err
-		}
+	if signOpts.DisableSignatureVerification {
+		// It may be disabled through the environment, which is easy to
+		// overlook, so every unverified pull leaves a trace.
+		a.logger.Info(
+			"WARNING: signature verification is disabled, the artifact is not verified",
+			"image", originalImage,
+		)
+	} else if err := a.verifySignature(ctx, originalImage, repo, &subject, signOpts); err != nil {
+		return nil, err
 	}
 
 	content, runtimeFormat, err := a.fetchProfile(ctx, repo, from, &subject, platform, signOpts)

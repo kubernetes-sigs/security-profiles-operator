@@ -18,9 +18,11 @@ package command
 
 import (
 	"errors"
+	"math"
 	"os"
 	"os/exec"
 	"os/user"
+	"path/filepath"
 	"strconv"
 	"syscall"
 	"testing"
@@ -155,6 +157,101 @@ func TestRunForwardsSignals(t *testing.T) {
 
 	require.NoError(t, sut.Wait())
 	require.Equal(t, 1, mock.StopCallCount())
+}
+
+// TestRunDoesNotForwardTerminalInterrupt verifies that a SIGINT is not
+// forwarded while the command is in the foreground process group of the
+// terminal, which sends it to the command as well, while the other signals
+// still are. A command in a process group of its own gets it forwarded.
+func TestRunDoesNotForwardTerminalInterrupt(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name      string
+		group     int
+		groupErr  error
+		forwarded []os.Signal
+	}{
+		{name: "foreground", group: 100, forwarded: []os.Signal{syscall.SIGTERM}},
+		{
+			name:      "own process group",
+			group:     200,
+			forwarded: []os.Signal{os.Interrupt, syscall.SIGTERM},
+		},
+		{
+			name:      "failed process group lookup",
+			groupErr:  errTest,
+			forwarded: []os.Signal{os.Interrupt, syscall.SIGTERM},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			mock := &commandfakes.FakeImpl{}
+			mock.ForegroundProcessGroupReturns(100, nil)
+			mock.ProcessGroupReturns(tc.group, tc.groupErr)
+			mock.CmdPidReturns(42)
+
+			var signals chan<- os.Signal
+
+			mock.NotifyCalls(func(c chan<- os.Signal, _ ...os.Signal) { signals = c })
+
+			forwarded := make(chan os.Signal, 2)
+
+			mock.SignalCalls(func(_ *exec.Cmd, sig os.Signal) error {
+				forwarded <- sig
+
+				return nil
+			})
+
+			sut := New(Default())
+			sut.impl = mock
+
+			_, err := sut.Run()
+			require.NoError(t, err)
+
+			// The signals are handled in order, so the SIGTERM comes last.
+			signals <- os.Interrupt
+
+			signals <- syscall.SIGTERM
+
+			for _, want := range tc.forwarded {
+				select {
+				case got := <-forwarded:
+					require.Equal(t, want, got)
+				case <-time.After(10 * time.Second):
+					require.FailNow(t, "signal not forwarded", "%v", want)
+				}
+			}
+
+			require.NoError(t, sut.Wait())
+			require.Len(t, tc.forwarded, mock.SignalCallCount())
+			require.Equal(t, 42, mock.ProcessGroupArgsForCall(0))
+		})
+	}
+}
+
+// TestProcessGroup verifies the process group lookup of a command which runs
+// in a process group of its own.
+func TestProcessGroup(t *testing.T) {
+	t.Parallel()
+
+	cmd := exec.CommandContext(t.Context(), "sleep", "10")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	require.NoError(t, cmd.Start())
+
+	t.Cleanup(func() {
+		require.NoError(t, cmd.Process.Kill())
+		require.Error(t, cmd.Wait(), "killed")
+	})
+
+	group, err := (&defaultImpl{}).ProcessGroup(cmd.Process.Pid)
+	require.NoError(t, err)
+	require.Equal(t, cmd.Process.Pid, group)
+
+	own, err := (&defaultImpl{}).ProcessGroup(os.Getpid())
+	require.NoError(t, err)
+	require.NotEqual(t, group, own)
 }
 
 func TestRunPreStart(t *testing.T) {
@@ -311,6 +408,7 @@ func TestRunDropsSudoPrivileges(t *testing.T) {
 			)
 			require.Contains(t, cmd.Env, "HOME=/home/user")
 			require.Contains(t, cmd.Env, "USER=user")
+			require.Contains(t, cmd.Env, "LOGNAME=user")
 
 			for _, env := range cmd.Env {
 				require.NotContains(t, env, "SUDO_")
@@ -333,4 +431,201 @@ func TestGetHomeDirectoryOfKnownUser(t *testing.T) {
 	home, err := getHomeDirectory(uint32(uid))
 	require.NoError(t, err)
 	require.Equal(t, current.HomeDir, home)
+}
+
+func TestPasswdHomeDirectory(t *testing.T) {
+	t.Parallel()
+
+	home, err := passwdHomeDirectory("user:x:1000:1000:User:/home/user:/bin/bash\n")
+	require.NoError(t, err)
+	require.Equal(t, "/home/user", home)
+
+	for _, entry := range []string{"", "user:x:1000", "user:x:1000:1000:User::/bin/bash"} {
+		_, err := passwdHomeDirectory(entry)
+		require.Error(t, err, entry)
+	}
+}
+
+// TestCreateFile verifies that a file gets handed to the user who invoked
+// spoc through sudo only if spoc runs as root and the file is in a directory
+// of that user, and that no symlink or hard link gets written through then.
+func TestCreateFile(t *testing.T) {
+	owner := strconv.Itoa(os.Getuid())
+	group := strconv.Itoa(os.Getgid())
+
+	for _, tc := range []struct {
+		name    string
+		euid    int
+		sudoUID string
+		path    func(t *testing.T) string
+		prepare func(t *testing.T, name string) (target string)
+		chowned bool
+		wantErr error
+		errMsg  string
+	}{
+		{name: "new file in a directory of the sudo user", sudoUID: owner, chowned: true},
+		{
+			name:    "existing file in a directory of the sudo user",
+			sudoUID: owner,
+			prepare: func(t *testing.T, name string) string {
+				t.Helper()
+				require.NoError(t, os.WriteFile(name, []byte("old content"), 0o600))
+
+				return ""
+			},
+			chowned: true,
+		},
+		{
+			name:    "symlink in a directory of the sudo user",
+			sudoUID: owner,
+			prepare: func(t *testing.T, name string) string {
+				t.Helper()
+
+				target := filepath.Join(t.TempDir(), "passwd")
+				require.NoError(t, os.WriteFile(target, []byte("old content"), 0o600))
+				require.NoError(t, os.Symlink(target, name))
+
+				return target
+			},
+			wantErr: syscall.ELOOP,
+			errMsg:  "refusing to write through the symlink",
+		},
+		{
+			name:    "hard link in a directory of the sudo user",
+			sudoUID: owner,
+			prepare: func(t *testing.T, name string) string {
+				t.Helper()
+
+				target := filepath.Join(filepath.Dir(name), "passwd")
+				require.NoError(t, os.WriteFile(target, []byte("old content"), 0o600))
+				require.NoError(t, os.Link(target, name))
+
+				return target
+			},
+			wantErr: ErrNotSingleRegularFile,
+		},
+		{
+			name:    "directory reached through a symlink",
+			sudoUID: owner,
+			path: func(t *testing.T) string {
+				t.Helper()
+
+				link := filepath.Join(t.TempDir(), "link")
+				require.NoError(t, os.Symlink(t.TempDir(), link))
+
+				return filepath.Join(link, "profile.yaml")
+			},
+			chowned: true,
+		},
+		{name: "directory of another user", sudoUID: owner + "1"},
+		{name: "not in a sudo environment"},
+		{name: "not root", euid: 1000, sudoUID: owner},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("SUDO_UID", tc.sudoUID)
+			t.Setenv("SUDO_GID", group)
+
+			name := filepath.Join(t.TempDir(), "profile.yaml")
+			if tc.path != nil {
+				name = tc.path(t)
+			}
+
+			target := ""
+			if tc.prepare != nil {
+				target = tc.prepare(t, name)
+			}
+
+			calls := 0
+			chown := func(file *os.File, uid, gid int) error {
+				calls++
+
+				require.Equal(t, name, file.Name())
+				require.Equal(t, os.Getuid(), uid)
+				require.Equal(t, os.Getgid(), gid)
+
+				return nil
+			}
+
+			file, err := createFile(name, 0o644, tc.euid, chown)
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				require.ErrorContains(t, err, tc.errMsg)
+				require.Zero(t, calls)
+
+				content, err := os.ReadFile(target)
+				require.NoError(t, err)
+				require.Equal(t, "old content", string(content), "written through")
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			_, err = file.WriteString("profile")
+			require.NoError(t, err)
+			require.NoError(t, file.Close())
+
+			content, err := os.ReadFile(name)
+			require.NoError(t, err)
+			require.Equal(t, "profile", string(content))
+
+			if tc.chowned {
+				require.Equal(t, 1, calls)
+			} else {
+				require.Zero(t, calls)
+			}
+		})
+	}
+}
+
+// TestHandOverIDsOutOfRange verifies that IDs which do not fit the int of a
+// 32-bit platform keep the file owned by root instead of overflowing.
+func TestHandOverIDsOutOfRange(t *testing.T) {
+	t.Parallel()
+
+	for _, ids := range [][2]uint32{{1 << 31, 0}, {0, 1 << 31}, {math.MaxUint32, math.MaxUint32}} {
+		file, err := os.Create(filepath.Join(t.TempDir(), "profile.yaml"))
+		require.NoError(t, err)
+
+		chown := func(*os.File, int, int) error {
+			t.Fatal("chown called")
+
+			return nil
+		}
+
+		require.NoError(t, handOver(file, ids[0], ids[1], chown))
+		require.NoError(t, file.Close())
+	}
+}
+
+// TestCreateFileDirectory verifies that the name of a directory fails like
+// before, instead of naming a file in the directory.
+func TestCreateFileDirectory(t *testing.T) {
+	chown := func(*os.File, int, int) error { return nil }
+
+	for name, isDir := range map[string]bool{"profiles": true, "profiles/": true, "missing/": false} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("SUDO_UID", strconv.Itoa(os.Getuid()))
+			t.Setenv("SUDO_GID", strconv.Itoa(os.Getgid()))
+
+			dir := t.TempDir()
+			require.NoError(t, os.Mkdir(filepath.Join(dir, "profiles"), 0o700))
+
+			path := dir + "/" + name
+
+			// A missing directory fails with ENOENT instead of EISDIR on macOS.
+			_, err := createFile(path, 0o644, 0, chown)
+			require.Error(t, err)
+
+			if isDir {
+				require.ErrorIs(t, err, syscall.EISDIR)
+				require.ErrorContains(t, err, "is a directory")
+			}
+
+			entries, err := os.ReadDir(filepath.Join(dir, "profiles"))
+			require.NoError(t, err)
+			require.Empty(t, entries)
+			require.NoFileExists(t, filepath.Join(dir, "missing"))
+		})
+	}
 }

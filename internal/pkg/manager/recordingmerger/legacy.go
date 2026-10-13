@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -297,7 +298,7 @@ func (r *PolicyMergeReconciler) adoptLegacyPartialProfiles(ctx context.Context) 
 			r.record.Eventf(
 				owner,
 				nil,
-				util.EventTypeWarning,
+				corev1.EventTypeWarning,
 				reasonAmbiguousLegacy,
 				util.EventActionMerge,
 				"Partial profiles recorded before 1.0 may belong to this or another recording named %s, "+
@@ -372,7 +373,7 @@ func (r *PolicyMergeReconciler) adoptLegacyFinalProfiles(
 		r.record.Eventf(
 			owner,
 			nil,
-			util.EventTypeWarning,
+			corev1.EventTypeWarning,
 			reasonAmbiguousLegacyFinal,
 			util.EventActionMerge,
 			"Profiles recorded before 1.0 may belong to this or another recording named %s, "+
@@ -493,7 +494,7 @@ func (r *PolicyMergeReconciler) legacyHold(
 	r.record.Eventf(
 		recording,
 		nil,
-		util.EventTypeWarning,
+		corev1.EventTypeWarning,
 		reasonHeldForLegacy,
 		util.EventActionMerge,
 		"Waiting for %d partial profiles recorded before 1.0 which may belong to this recording, "+

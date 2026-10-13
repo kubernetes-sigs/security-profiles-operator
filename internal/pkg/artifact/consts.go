@@ -75,9 +75,6 @@ const (
 	// list, which has the layout of an OCI image index.
 	mediaTypeDockerManifestList = "application/vnd.docker.distribution.manifest.list.v2+json"
 
-	// dockerHubRegistryHost is the host ORAS reaches Docker Hub through.
-	dockerHubRegistryHost = "registry-1.docker.io"
-
 	// defaultTimeout is the default timeout for push and pull operations.
 	defaultTimeout = 5 * time.Minute
 

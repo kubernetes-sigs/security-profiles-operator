@@ -21,6 +21,9 @@ package recorder
 import (
 	"bytes"
 	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -357,4 +360,40 @@ func TestOutFile(t *testing.T) {
 	// The default file name, explicitly asked for, is kept as well.
 	options.outputFile = DefaultOutputFile
 	require.Equal(t, DefaultOutputFile, New(options).outFile())
+}
+
+// TestProgramPath verifies that the raw AppArmor profile attaches to the
+// executable the command resolves to, like when it gets started.
+func TestProgramPath(t *testing.T) {
+	t.Parallel()
+
+	sh, err := exec.LookPath("sh")
+	require.NoError(t, err)
+
+	wantSh, err := filepath.Abs(sh)
+	require.NoError(t, err)
+
+	wantSh, err = filepath.EvalSymlinks(wantSh)
+	require.NoError(t, err)
+
+	got, err := programPath("sh")
+	require.NoError(t, err)
+	require.Equal(t, wantSh, got)
+
+	// A symlink to the executable resolves to the executable.
+	link := filepath.Join(t.TempDir(), "link")
+	require.NoError(t, os.Symlink(sh, link))
+
+	got, err = programPath(link)
+	require.NoError(t, err)
+	require.Equal(t, wantSh, got)
+
+	wd, err := os.Getwd()
+	require.NoError(t, err)
+
+	for _, command := range []string{"./spoc-does-not-exist", "spoc-does-not-exist"} {
+		got, err := programPath(command)
+		require.NoError(t, err)
+		require.Equal(t, filepath.Join(wd, "spoc-does-not-exist"), got)
+	}
 }
