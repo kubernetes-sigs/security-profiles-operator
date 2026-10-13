@@ -54,8 +54,10 @@ type Runner struct {
 	// enricherGracePeriod is how long to wait for audit logs after the
 	// command exited.
 	enricherGracePeriod time.Duration
-	// tail is the audit log tailer of the enricher, once it runs.
-	tail atomic.Pointer[tailer.Tailer]
+	// descendants are the start times of the processes the enricher found
+	// to be descendants of the command, by process ID. It is only used by
+	// the enricher.
+	descendants map[int]uint64
 }
 
 // New returns a new Runner instance.
@@ -79,9 +81,17 @@ func (r *Runner) Run() error {
 	if filepath.Ext(r.options.profile) != seccompprofileapi.ExtJSON {
 		log.Print("Assuming YAML profile")
 
-		content, err = specFromCRD(content)
-		if err != nil {
-			return err
+		spec, crdErr := specFromCRD(content)
+
+		switch {
+		case errors.Is(crdErr, artifact.ErrNoKind) && json.Valid(content):
+			// A raw profile under another name, like the one spoc pull
+			// saves for a runtime format artifact with --output-file.
+			log.Print("Profile has no kind, using it as JSON profile")
+		case crdErr != nil:
+			return crdErr
+		default:
+			content = spec
 		}
 	}
 
@@ -98,17 +108,27 @@ func (r *Runner) Run() error {
 		return fmt.Errorf("convert profile: %w", err)
 	}
 
-	go r.startEnricher()
+	// The audit log gets followed from its end before the command starts,
+	// so that none of its lines are missed.
+	tail := r.followAuditLog()
 
 	r.options.commandOptions.PreStart = confine(runtimeSpecConfig)
 	cmd := command.New(r.options.commandOptions)
 
 	newPid, err := r.CommandRun(cmd)
 	if err != nil {
+		r.stopAuditLog(tail)
+
 		return fmt.Errorf("run command: %w", err)
 	}
 
+	// The lines get read once the process ID is known, the tailer keeps
+	// them until then.
 	r.pid.Store(newPid)
+
+	if tail != nil {
+		go r.enrich(tail)
+	}
 
 	waitErr := r.CommandWait(cmd)
 
@@ -117,9 +137,7 @@ func (r *Runner) Run() error {
 	time.Sleep(r.enricherGracePeriod)
 
 	// Release the audit log, which ends the enricher.
-	if tail := r.tail.Load(); tail != nil {
-		r.StopTail(tail)
-	}
+	r.stopAuditLog(tail)
 
 	if waitErr != nil {
 		return fmt.Errorf("wait for command: %w", waitErr)
@@ -155,38 +173,109 @@ func specFromCRD(content []byte) ([]byte, error) {
 	return content, nil
 }
 
-func (r *Runner) startEnricher() {
+// followAuditLog starts following the audit log at its end. It returns nil
+// if the audit log cannot be followed, for example without root.
+func (r *Runner) followAuditLog() *tailer.Tailer {
 	log.Print("Starting audit log enricher")
 
 	filePath := common.LogFilePath()
 
-	tailFile, err := r.TailFile(filePath, tailer.Config{})
+	tail, err := r.TailFile(filePath, tailer.Config{})
 	if err != nil {
 		log.Printf("Unable to tail file: %v", err)
 
-		return
+		return nil
 	}
-
-	r.tail.Store(tailFile)
 
 	log.Printf("Enricher reading from file %s", filePath)
 
-	for line := range r.Lines(tailFile) {
+	return tail
+}
+
+// stopAuditLog stops following the audit log, if it gets followed.
+func (r *Runner) stopAuditLog(tail *tailer.Tailer) {
+	if tail != nil {
+		r.StopTail(tail)
+	}
+}
+
+// enrich prints the audit lines of the command and its descendants, which
+// inherit the profile, until the tailer stops.
+func (r *Runner) enrich(tail *tailer.Tailer) {
+	for line := range r.Lines(tail) {
 		auditLine, err := auditsource.ExtractAuditLine(line)
 		if err != nil {
 			// Not an audit line spoc understands.
 			continue
 		}
 
-		currentPid := r.pid.Load()
-		if currentPid != 0 && auditLine.ProcessID == int(currentPid) {
+		if r.isCommandProcess(auditLine.ProcessID) {
 			r.printAuditLine(auditLine)
 		}
 	}
 
-	if err := r.TailErr(tailFile); err != nil {
+	if err := r.TailErr(tail); err != nil {
 		log.Printf("Enricher failed to tail: %v", err)
 	}
+}
+
+// maxProcessDepth bounds the walk up the process tree, which could otherwise
+// loop if process IDs get reused while walking.
+const maxProcessDepth = 64
+
+// isCommandProcess reports whether the process is the command or one of its
+// descendants. A descendant which exited before its audit line got read
+// cannot be told apart from any other process, unless it was seen before.
+// The descendants seen are known by their start time as well, so that a
+// later process with the same process ID does not count as one.
+func (r *Runner) isCommandProcess(pid int) bool {
+	commandPid := int(r.pid.Load())
+	if commandPid == 0 || pid <= 1 {
+		return false
+	}
+
+	if pid == commandPid {
+		return true
+	}
+
+	parent, startTime, err := r.ProcessInfo(pid)
+	if err != nil {
+		// The audit line is the one of the last process with the process
+		// ID, which is gone now.
+		_, known := r.descendants[pid]
+
+		return known
+	}
+
+	current, currentStartTime := pid, startTime
+
+	for range maxProcessDepth {
+		start, known := r.descendants[current]
+		if (known && start == currentStartTime) || parent == commandPid {
+			if r.descendants == nil {
+				r.descendants = map[int]uint64{}
+			}
+
+			r.descendants[pid] = startTime
+
+			return true
+		}
+
+		if parent <= 1 {
+			break
+		}
+
+		current = parent
+
+		if parent, currentStartTime, err = r.ProcessInfo(current); err != nil {
+			break
+		}
+	}
+
+	// A process seen before with the same process ID has exited.
+	delete(r.descendants, pid)
+
+	return false
 }
 
 func (r *Runner) printAuditLine(line *types.AuditLine) {

@@ -21,6 +21,7 @@ package runner
 import (
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"testing"
 	"time"
@@ -29,6 +30,7 @@ import (
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/command"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/runner/runnerfakes"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/tailer"
 )
 
 var errTest = errors.New("test")
@@ -107,6 +109,15 @@ func TestRun(t *testing.T) {
 			},
 			assert: func(err error) {
 				require.ErrorContains(t, err, "expected a SeccompProfile, got AppArmorProfile")
+			},
+		},
+		{
+			name: "success with JSON profile under the YAML name",
+			prepare: func(mock *runnerfakes.FakeImpl) {
+				mock.ReadFileReturns([]byte(`{"defaultAction":"SCMP_ACT_ERRNO"}`), nil)
+			},
+			assert: func(err error) {
+				require.NoError(t, err)
 			},
 		},
 		{
@@ -190,7 +201,7 @@ func waitForFunctionCall(t *testing.T, fn func() int) {
 	require.Eventually(t, func() bool { return fn() > 0 }, 5*time.Second, 10*time.Millisecond)
 }
 
-func TestStartEnricher(t *testing.T) {
+func TestEnrich(t *testing.T) {
 	const testPid = 123
 
 	t.Parallel()
@@ -302,12 +313,59 @@ func TestStartEnricher(t *testing.T) {
 			},
 		},
 		{
-			name: "failure on TailFile",
+			name: "success with line of a descendant",
 			prepare: func(mock *runnerfakes.FakeImpl, lineChan chan string) {
-				mock.TailFileReturns(nil, errTest)
+				mock.LinesReturns(lineChan)
+				mock.ProcessInfoCalls(func(pid int) (int, uint64, error) {
+					return map[int]int{testPid + 2: testPid + 1, testPid + 1: testPid}[pid], 1, nil
+				})
 			},
 			assert: func(mock *runnerfakes.FakeImpl, lineChan chan string) {
-				require.Zero(t, mock.LinesCallCount())
+				lineChan <- seccompLine(testPid + 2)
+
+				waitForFunctionCall(t, mock.PrintfCallCount)
+				require.Equal(t, 1, mock.GetNameCallCount())
+			},
+		},
+		{
+			name: "success with line of an exited descendant seen before",
+			prepare: func(mock *runnerfakes.FakeImpl, lineChan chan string) {
+				mock.LinesReturns(lineChan)
+				mock.ProcessInfoReturnsOnCall(0, testPid, 1, nil)
+				mock.ProcessInfoReturns(0, 0, errTest)
+			},
+			assert: func(mock *runnerfakes.FakeImpl, lineChan chan string) {
+				lineChan <- seccompLine(testPid + 1)
+
+				lineChan <- seccompLine(testPid + 1)
+
+				require.Eventually(t, func() bool {
+					return mock.GetNameCallCount() == 2
+				}, 5*time.Second, 10*time.Millisecond)
+			},
+		},
+		{
+			name: "line of another process with the process ID of a descendant",
+			prepare: func(mock *runnerfakes.FakeImpl, lineChan chan string) {
+				mock.LinesReturns(lineChan)
+				mock.ProcessInfoReturnsOnCall(0, testPid, 1, nil)
+				// The process ID got reused by a process of another tree.
+				mock.ProcessInfoReturnsOnCall(1, 999, 2, nil)
+				mock.ProcessInfoReturnsOnCall(2, 1, 1, nil)
+			},
+			assert: func(mock *runnerfakes.FakeImpl, lineChan chan string) {
+				lineChan <- seccompLine(testPid + 1)
+
+				lineChan <- seccompLine(testPid + 1)
+
+				// The lines get processed in order, so the second one got
+				// skipped once the last one is printed.
+				lineChan <- seccompLine(testPid)
+
+				require.Eventually(t, func() bool {
+					return mock.GetNameCallCount() == 2
+				}, 5*time.Second, 10*time.Millisecond)
+				require.Equal(t, 3, mock.ProcessInfoCallCount())
 			},
 		},
 	} {
@@ -325,7 +383,7 @@ func TestStartEnricher(t *testing.T) {
 			sut.impl = mock
 			sut.pid.Store(testPid)
 
-			go sut.startEnricher()
+			go sut.enrich(nil)
 
 			assert(mock, lineChan)
 		})
@@ -337,4 +395,82 @@ func seccompLine(pid int) string {
 		`type=SECCOMP msg=audit(1613596317.899:6461): auid=4294967295 uid=0 gid=0 `+
 			`pid=%d comm="ls" exe="/bin/ls" sig=0 arch=c000003e syscall=3 compat=0`, pid,
 	)
+}
+
+// TestRunFollowsAuditLogBeforeStart verifies that the audit log is followed
+// before the command starts, so that none of its lines are missed, and that
+// it is released in the end.
+func TestRunFollowsAuditLogBeforeStart(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name   string
+		runErr error
+	}{
+		{name: "success"},
+		{name: "failure on CommandRun", runErr: errTest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			mock := &runnerfakes.FakeImpl{}
+			mock.ReadFileReturns([]byte(seccompProfileYAML), nil)
+			mock.TailFileReturns(&tailer.Tailer{}, nil)
+			mock.LinesReturns(make(chan string))
+			mock.CommandRunCalls(func(*command.Command) (uint32, error) {
+				require.Equal(t, 1, mock.TailFileCallCount())
+
+				return 1, tc.runErr
+			})
+
+			sut := New(Default())
+			sut.impl = mock
+			sut.enricherGracePeriod = 0
+
+			require.ErrorIs(t, sut.Run(), tc.runErr)
+			require.Equal(t, 1, mock.StopTailCallCount())
+		})
+	}
+}
+
+func TestRunWithoutAuditLog(t *testing.T) {
+	t.Parallel()
+
+	mock := &runnerfakes.FakeImpl{}
+	mock.ReadFileReturns([]byte(seccompProfileYAML), nil)
+	mock.TailFileReturns(nil, errTest)
+
+	sut := New(Default())
+	sut.impl = mock
+	sut.enricherGracePeriod = 0
+
+	require.NoError(t, sut.Run())
+	require.Equal(t, 1, mock.CommandRunCallCount())
+	require.Zero(t, mock.LinesCallCount())
+	require.Zero(t, mock.StopTailCallCount())
+}
+
+func TestParseProcessStat(t *testing.T) {
+	t.Parallel()
+
+	parent, startTime, err := parseProcessStat(
+		"123 (a (b) c) S 45 123 123 0 -1 4194304 1 0 0 0 0 0 0 0 20 0 1 0 6789 0 0",
+	)
+	require.NoError(t, err)
+	require.Equal(t, 45, parent)
+	require.Equal(t, uint64(6789), startTime)
+
+	for _, stat := range []string{
+		"", "123 (x)", "123 (x) S 45",
+		"123 (x) S y 1 1 0 -1 0 1 0 0 0 0 0 0 0 20 0 1 0 6789",
+		"123 (x) S 45 1 1 0 -1 0 1 0 0 0 0 0 0 0 20 0 1 0 -1",
+	} {
+		_, _, err := parseProcessStat(stat)
+		require.Error(t, err, stat)
+	}
+
+	parent, startTime, err = (&defaultImpl{}).ProcessInfo(os.Getpid())
+	require.NoError(t, err)
+	require.Equal(t, os.Getppid(), parent)
+	require.NotZero(t, startTime)
 }

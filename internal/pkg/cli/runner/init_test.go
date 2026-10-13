@@ -33,6 +33,7 @@ import (
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/stretchr/testify/require"
 	"github.com/urfave/cli/v2"
+	"golang.org/x/sys/unix"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/command"
 )
@@ -118,6 +119,55 @@ func TestConfine(t *testing.T) {
 		require.NoDirExists(t, filepath.Join(dir, fmt.Sprintf("confined-%d", i)))
 		require.NoError(t, spocErrs[i], "run %d", i)
 	}
+}
+
+// TestConfineKillsNothingButTheCommand verifies that nothing but the
+// execution of the command is subject to the profile, so that a profile which
+// kills on a syscall the command does not make lets it run.
+//
+//nolint:paralleltest // lowers the file limit of the test process
+func TestConfineKillsNothingButTheCommand(t *testing.T) {
+	if !seccomp.Enabled {
+		t.Skip("built without seccomp support")
+	}
+
+	if _, err := exec.LookPath("true"); err != nil {
+		t.Skipf("true not available: %v", err)
+	}
+
+	// The run helper only raises a soft limit below the hard one, which it
+	// then sets back before executing the command.
+	var limit syscall.Rlimit
+	require.NoError(t, syscall.Getrlimit(syscall.RLIMIT_NOFILE, &limit))
+
+	if limit.Max < 4 {
+		t.Skipf("hard file limit %d too low", limit.Max)
+	}
+
+	lowered := limit
+	lowered.Cur = limit.Max / 2
+	require.NoError(t, syscall.Setrlimit(syscall.RLIMIT_NOFILE, &lowered))
+
+	t.Cleanup(func() {
+		require.NoError(t, syscall.Setrlimit(syscall.RLIMIT_NOFILE, &limit))
+	})
+
+	// Go sets the file limit through prlimit64 before executing a command,
+	// the dynamic loader only reads the stack limit.
+	profile := &specs.LinuxSeccomp{
+		DefaultAction: specs.ActAllow,
+		Syscalls: []specs.LinuxSyscall{{
+			Names:  []string{"prlimit64"},
+			Action: specs.ActKillProcess,
+			Args: []specs.LinuxSeccompArg{{
+				Index: 1,
+				Value: unix.RLIMIT_NOFILE,
+				Op:    specs.OpEqualTo,
+			}},
+		}},
+	}
+
+	require.NoError(t, runConfined(t, profile, "true"))
 }
 
 // TestConfineUnknownCommand verifies that a command which does not exist

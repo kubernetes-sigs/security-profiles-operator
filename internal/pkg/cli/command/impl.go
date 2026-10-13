@@ -21,6 +21,8 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+
+	"golang.org/x/sys/unix"
 )
 
 type defaultImpl struct{}
@@ -37,6 +39,8 @@ type impl interface {
 	CmdWait(*exec.Cmd) error
 	GetHomeDirectory(uid uint32) (string, error)
 	GetGroupIDs(uid uint32) ([]uint32, error)
+	ForegroundProcessGroup() (int, error)
+	ProcessGroup(pid int) (int, error)
 }
 
 func (*defaultImpl) Notify(c chan<- os.Signal, sig ...os.Signal) {
@@ -81,4 +85,22 @@ func (*defaultImpl) GetHomeDirectory(uid uint32) (string, error) {
 
 func (*defaultImpl) GetGroupIDs(uid uint32) ([]uint32, error) {
 	return getGroupIDs(uid)
+}
+
+// ForegroundProcessGroup returns the foreground process group of the
+// controlling terminal of spoc, which gets the signals of the terminal.
+func (*defaultImpl) ForegroundProcessGroup() (int, error) {
+	tty, err := unix.Open("/dev/tty", unix.O_RDONLY|unix.O_NOCTTY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return 0, err
+	}
+
+	defer unix.Close(tty)
+
+	return unix.IoctlGetInt(tty, unix.TIOCGPGRP)
+}
+
+// ProcessGroup returns the process group of the process.
+func (*defaultImpl) ProcessGroup(pid int) (int, error) {
+	return unix.Getpgid(pid)
 }

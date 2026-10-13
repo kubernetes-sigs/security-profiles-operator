@@ -33,6 +33,15 @@ func (*defaultImpl) ReadFile(name string) ([]byte, error) {
 	return os.ReadFile(name)
 }
 
+// WriteFile writes the data to the file, or to stdout for DefaultOutputFile.
+// Opening /dev/stdout would truncate a file stdout gets appended to and fail
+// for a socket.
 func (*defaultImpl) WriteFile(name string, data []byte, perm os.FileMode) error {
+	if name == DefaultOutputFile {
+		_, err := os.Stdout.Write(data)
+
+		return err
+	}
+
 	return os.WriteFile(name, data, perm)
 }

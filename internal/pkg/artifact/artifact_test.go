@@ -770,6 +770,39 @@ func TestPull(t *testing.T) {
 	}
 }
 
+// TestPullWithoutVerificationWarns verifies that a pull without signature
+// verification logs a warning naming the image, since the verification may
+// be disabled through the environment.
+func TestPullWithoutVerificationWarns(t *testing.T) {
+	t.Parallel()
+
+	const image = "registry.example.com/foo/bar:v1"
+
+	testRef, err := name.ParseReference(image)
+	require.NoError(t, err)
+
+	mock := &artifactfakes.FakeImpl{}
+	stubProfile(mock, "")
+	mock.NewRepositoryReturns(&remote.Repository{}, nil)
+	mock.ResolveRepositoryReturns(testSubject(), nil)
+	mock.ParseReferenceReturns(testRef, nil)
+	mock.ReadProfileReturns(&seccompprofileapi.SeccompProfile{}, nil)
+
+	logs := &bytes.Buffer{}
+	sut := New(funcr.New(func(_, args string) {
+		logs.WriteString(args + "\n")
+	}, funcr.Options{}))
+	sut.impl = mock
+
+	_, err = sut.Pull(
+		t.Context(), image, "", "", nil, &PullOptions{DisableSignatureVerification: true},
+	)
+	require.NoError(t, err)
+	require.Zero(t, mock.SignatureReferrersCallCount())
+	require.Contains(t, logs.String(), "WARNING: signature verification is disabled")
+	require.Contains(t, logs.String(), image)
+}
+
 const rawSeccompJSON = `{"defaultAction":"SCMP_ACT_ERRNO","architectures":["SCMP_ARCH_X86_64"],` +
 	`"syscalls":[{"names":["read","write"],"action":"SCMP_ACT_ALLOW"}]}`
 

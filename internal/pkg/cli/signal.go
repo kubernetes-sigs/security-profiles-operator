@@ -26,6 +26,17 @@ import (
 // SignalContext returns a context which gets canceled on the signals which
 // terminate spoc otherwise, so that commands can clean up, for example their
 // temporary files. The returned function restores the default handling.
+//
+// The first signal restores the default handling as well, so that a second
+// one terminates spoc. Some steps do not stop on the context, like an
+// interactive sign in or a TUF refresh, and would otherwise keep spoc running
+// with every further signal ignored.
 func SignalContext() (context.Context, context.CancelFunc) {
-	return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	ctx, stop := signal.NotifyContext(
+		context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP,
+	)
+
+	context.AfterFunc(ctx, stop)
+
+	return ctx, stop
 }

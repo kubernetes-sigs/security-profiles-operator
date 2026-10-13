@@ -60,6 +60,17 @@ type FakeImpl struct {
 	commandReturnsOnCall map[int]struct {
 		result1 *exec.Cmd
 	}
+	ForegroundProcessGroupStub        func() (int, error)
+	foregroundProcessGroupMutex       sync.RWMutex
+	foregroundProcessGroupArgsForCall []struct{}
+	foregroundProcessGroupReturns     struct {
+		result1 int
+		result2 error
+	}
+	foregroundProcessGroupReturnsOnCall map[int]struct {
+		result1 int
+		result2 error
+	}
 	GetGroupIDsStub        func(uint32) ([]uint32, error)
 	getGroupIDsMutex       sync.RWMutex
 	getGroupIDsArgsForCall []FakeImplGetGroupIDsArgs
@@ -82,9 +93,20 @@ type FakeImpl struct {
 		result1 string
 		result2 error
 	}
-	NotifyStub        func(chan<- os.Signal, ...os.Signal)
-	notifyMutex       sync.RWMutex
-	notifyArgsForCall []FakeImplNotifyArgs
+	NotifyStub              func(chan<- os.Signal, ...os.Signal)
+	notifyMutex             sync.RWMutex
+	notifyArgsForCall       []FakeImplNotifyArgs
+	ProcessGroupStub        func(int) (int, error)
+	processGroupMutex       sync.RWMutex
+	processGroupArgsForCall []FakeImplProcessGroupArgs
+	processGroupReturns     struct {
+		result1 int
+		result2 error
+	}
+	processGroupReturnsOnCall map[int]struct {
+		result1 int
+		result2 error
+	}
 	SignalStub        func(*exec.Cmd, os.Signal) error
 	signalMutex       sync.RWMutex
 	signalArgsForCall []FakeImplSignalArgs
@@ -137,6 +159,11 @@ type FakeImplGetHomeDirectoryArgs struct {
 type FakeImplNotifyArgs struct {
 	Arg1 chan<- os.Signal
 	Arg2 []os.Signal
+}
+
+// FakeImplProcessGroupArgs holds the arguments of one call to ProcessGroup.
+type FakeImplProcessGroupArgs struct {
+	Arg1 int
 }
 
 // FakeImplSignalArgs holds the arguments of one call to Signal.
@@ -423,6 +450,61 @@ func (fake *FakeImpl) CommandReturnsOnCall(i int, result1 *exec.Cmd) {
 	}{result1}
 }
 
+func (fake *FakeImpl) ForegroundProcessGroup() (int, error) {
+	fake.foregroundProcessGroupMutex.Lock()
+	ret, specificReturn := fake.foregroundProcessGroupReturnsOnCall[len(fake.foregroundProcessGroupArgsForCall)]
+	fake.foregroundProcessGroupArgsForCall = append(fake.foregroundProcessGroupArgsForCall, struct{}{})
+	stub := fake.ForegroundProcessGroupStub
+	fakeReturns := fake.foregroundProcessGroupReturns
+	fake.recordInvocation("ForegroundProcessGroup", []interface{}{})
+	fake.foregroundProcessGroupMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) ForegroundProcessGroupCallCount() int {
+	fake.foregroundProcessGroupMutex.RLock()
+	defer fake.foregroundProcessGroupMutex.RUnlock()
+	return len(fake.foregroundProcessGroupArgsForCall)
+}
+
+func (fake *FakeImpl) ForegroundProcessGroupCalls(stub func() (int, error)) {
+	fake.foregroundProcessGroupMutex.Lock()
+	defer fake.foregroundProcessGroupMutex.Unlock()
+	fake.ForegroundProcessGroupStub = stub
+}
+
+func (fake *FakeImpl) ForegroundProcessGroupReturns(result1 int, result2 error) {
+	fake.foregroundProcessGroupMutex.Lock()
+	defer fake.foregroundProcessGroupMutex.Unlock()
+	fake.ForegroundProcessGroupStub = nil
+	fake.foregroundProcessGroupReturns = struct {
+		result1 int
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) ForegroundProcessGroupReturnsOnCall(i int, result1 int, result2 error) {
+	fake.foregroundProcessGroupMutex.Lock()
+	defer fake.foregroundProcessGroupMutex.Unlock()
+	fake.ForegroundProcessGroupStub = nil
+	if fake.foregroundProcessGroupReturnsOnCall == nil {
+		fake.foregroundProcessGroupReturnsOnCall = make(map[int]struct {
+			result1 int
+			result2 error
+		})
+	}
+	fake.foregroundProcessGroupReturnsOnCall[i] = struct {
+		result1 int
+		result2 error
+	}{result1, result2}
+}
+
 func (fake *FakeImpl) GetGroupIDs(arg1 uint32) ([]uint32, error) {
 	fake.getGroupIDsMutex.Lock()
 	ret, specificReturn := fake.getGroupIDsReturnsOnCall[len(fake.getGroupIDsArgsForCall)]
@@ -604,6 +686,76 @@ func (fake *FakeImpl) NotifyArgs() []FakeImplNotifyArgs {
 	args := make([]FakeImplNotifyArgs, len(fake.notifyArgsForCall))
 	copy(args, fake.notifyArgsForCall)
 	return args
+}
+
+func (fake *FakeImpl) ProcessGroup(arg1 int) (int, error) {
+	fake.processGroupMutex.Lock()
+	ret, specificReturn := fake.processGroupReturnsOnCall[len(fake.processGroupArgsForCall)]
+	fake.processGroupArgsForCall = append(fake.processGroupArgsForCall, FakeImplProcessGroupArgs{arg1})
+	stub := fake.ProcessGroupStub
+	fakeReturns := fake.processGroupReturns
+	fake.recordInvocation("ProcessGroup", []interface{}{arg1})
+	fake.processGroupMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) ProcessGroupCallCount() int {
+	fake.processGroupMutex.RLock()
+	defer fake.processGroupMutex.RUnlock()
+	return len(fake.processGroupArgsForCall)
+}
+
+func (fake *FakeImpl) ProcessGroupCalls(stub func(int) (int, error)) {
+	fake.processGroupMutex.Lock()
+	defer fake.processGroupMutex.Unlock()
+	fake.ProcessGroupStub = stub
+}
+
+func (fake *FakeImpl) ProcessGroupArgsForCall(i int) int {
+	fake.processGroupMutex.RLock()
+	defer fake.processGroupMutex.RUnlock()
+	argsForCall := fake.processGroupArgsForCall[i]
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) ProcessGroupArgs() []FakeImplProcessGroupArgs {
+	fake.processGroupMutex.RLock()
+	defer fake.processGroupMutex.RUnlock()
+	args := make([]FakeImplProcessGroupArgs, len(fake.processGroupArgsForCall))
+	copy(args, fake.processGroupArgsForCall)
+	return args
+}
+
+func (fake *FakeImpl) ProcessGroupReturns(result1 int, result2 error) {
+	fake.processGroupMutex.Lock()
+	defer fake.processGroupMutex.Unlock()
+	fake.ProcessGroupStub = nil
+	fake.processGroupReturns = struct {
+		result1 int
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) ProcessGroupReturnsOnCall(i int, result1 int, result2 error) {
+	fake.processGroupMutex.Lock()
+	defer fake.processGroupMutex.Unlock()
+	fake.ProcessGroupStub = nil
+	if fake.processGroupReturnsOnCall == nil {
+		fake.processGroupReturnsOnCall = make(map[int]struct {
+			result1 int
+			result2 error
+		})
+	}
+	fake.processGroupReturnsOnCall[i] = struct {
+		result1 int
+		result2 error
+	}{result1, result2}
 }
 
 func (fake *FakeImpl) Signal(arg1 *exec.Cmd, arg2 os.Signal) error {

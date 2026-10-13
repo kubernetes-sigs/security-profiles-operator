@@ -155,6 +155,10 @@ func runInit(configFile *os.File) error {
 		return fmt.Errorf("read config: %w", decodeErr)
 	}
 
+	if err := keepFileLimit(); err != nil {
+		return err
+	}
+
 	if err := loadSeccomp(config.Profile); err != nil {
 		return err
 	}
@@ -171,6 +175,26 @@ func runInit(configFile *os.File) error {
 	err := syscall.Exec(config.Path, config.Args, os.Environ())
 
 	return fmt.Errorf("execute %s: %w", config.Path, err)
+}
+
+// keepFileLimit keeps the RLIMIT_NOFILE soft limit as it is when the command
+// gets executed. Go raises it at startup and syscall.Exec sets it back right
+// before the execve, which would then be subject to the profile: a profile
+// which kills on prlimit64 would kill the run helper, and one which logs it
+// would report a syscall the command never made. Setting the limit makes Go
+// skip that, so the command gets the raised limit, like it does whenever the
+// profile denies prlimit64, which recorded profiles usually do.
+func keepFileLimit() error {
+	var limit syscall.Rlimit
+	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &limit); err != nil {
+		return fmt.Errorf("get file limit: %w", err)
+	}
+
+	if err := syscall.Setrlimit(syscall.RLIMIT_NOFILE, &limit); err != nil {
+		return fmt.Errorf("set file limit: %w", err)
+	}
+
+	return nil
 }
 
 // loadSeccomp loads the profile for the calling thread. Unprivileged users

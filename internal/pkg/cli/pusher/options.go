@@ -172,6 +172,18 @@ func inputFiles(profiles, platforms []string) (map[*v1.Platform]string, error) {
 			)
 		}
 
+		// Platforms which differ in the default variant only, like
+		// "linux/arm64" and "linux/arm64/v8", are the same one on pull,
+		// which would then pick one of their profiles.
+		for j, other := range parsedPlatforms {
+			if artifact.SamePlatform(other, parsedPlatform) {
+				return nil, fmt.Errorf(
+					"duplicate platforms defined: %s and %s are the same platform",
+					platforms[j], platform,
+				)
+			}
+		}
+
 		layers[layer] = platform
 
 		parsedPlatforms = append(parsedPlatforms, parsedPlatform)

@@ -23,11 +23,6 @@ const (
 	DefaultReadHeaderTimeout     = 3 * time.Second
 )
 
-const (
-	EventTypeNormal  string = "Normal"
-	EventTypeWarning string = "Warning"
-)
-
 // Actions of the events.k8s.io/v1 events the operator emits. The action says
 // what the reporting controller did or failed to do to the regarding object.
 const (

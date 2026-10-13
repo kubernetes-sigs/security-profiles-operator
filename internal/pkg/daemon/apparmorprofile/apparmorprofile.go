@@ -27,6 +27,7 @@ import (
 	"github.com/go-logr/logr"
 	aa "github.com/pjbgf/go-apparmor/pkg/apparmor"
 	"github.com/pjbgf/go-apparmor/pkg/hostop"
+	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -240,7 +241,7 @@ func (r *Reconciler) reportUnsupported(
 		&apparmorprofileapi.AppArmorProfile{
 			ObjectMeta: metav1.ObjectMeta{Name: key.Name},
 		},
-		util.EventTypeWarning,
+		corev1.EventTypeWarning,
 		reasonAppArmorNotSupported,
 		util.EventActionInstall,
 		"node does not support apparmor, %s",
@@ -395,7 +396,7 @@ func (r *Reconciler) reportLoaded(sp *apparmorprofileapi.AppArmorProfile) {
 	r.record.Eventf(
 		sp,
 		nil,
-		util.EventTypeNormal,
+		corev1.EventTypeNormal,
 		reasonLoadedAppArmorProfile,
 		util.EventActionInstall,
 		"%s",

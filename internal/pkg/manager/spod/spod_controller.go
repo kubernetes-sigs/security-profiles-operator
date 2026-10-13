@@ -420,7 +420,7 @@ func (r *ReconcileSPOd) reconcileOperands(
 
 		if err := r.handleCreate(ctx, spod, ops); err != nil {
 			r.record.Eventf(
-				spod, nil, util.EventTypeWarning, reasonCannotCreateSPOD,
+				spod, nil, corev1.EventTypeWarning, reasonCannotCreateSPOD,
 				util.EventActionReconcile, "%s", err.Error(),
 			)
 
@@ -461,7 +461,7 @@ func (r *ReconcileSPOd) reconcileOperands(
 			// reconciliation resolves it without anyone having to act.
 			if !errors.IsConflict(err) {
 				r.record.Eventf(
-					spod, nil, util.EventTypeWarning, reasonCannotUpdateSPOD,
+					spod, nil, corev1.EventTypeWarning, reasonCannotUpdateSPOD,
 					util.EventActionUpdate, "%s", err.Error(),
 				)
 			}
@@ -719,7 +719,7 @@ func (r *ReconcileSPOd) applyAdmissionPolicies(
 		r.record.Eventf(
 			spod,
 			nil,
-			util.EventTypeWarning,
+			corev1.EventTypeWarning,
 			reasonCannotApplyAdmissionPolicies,
 			util.EventActionReconcile,
 			"%s",
@@ -747,7 +747,7 @@ func (r *ReconcileSPOd) applyAdmissionPolicies(
 		r.record.Eventf(
 			spod,
 			nil,
-			util.EventTypeWarning,
+			corev1.EventTypeWarning,
 			reasonCannotApplyAdmissionPolicies,
 			util.EventActionReconcile,
 			"%s",
@@ -1027,7 +1027,7 @@ func (r *ReconcileSPOd) warnIgnoredSelinuxTypeTag(spod *spodapi.SecurityProfiles
 
 	r.log.Info("Ignoring the SELinux type tag, because AppArmor is enabled", "typeTag", typeTag)
 	r.record.Eventf(
-		spod, nil, util.EventTypeWarning, reasonIgnoredSelinuxTypeTag, util.EventActionReconcile,
+		spod, nil, corev1.EventTypeWarning, reasonIgnoredSelinuxTypeTag, util.EventActionReconcile,
 		"The SELinux type tag %s is ignored, because AppArmor is enabled", typeTag,
 	)
 
@@ -1043,7 +1043,7 @@ func (r *ReconcileSPOd) warnWeakenedBinding(
 	for _, warning := range webhook.BindingWarnings() {
 		r.log.Info("Webhook options weaken the profile bindings", "warning", warning)
 		r.record.Eventf(
-			spod, nil, util.EventTypeWarning, reasonWeakenedBindingWebhook,
+			spod, nil, corev1.EventTypeWarning, reasonWeakenedBindingWebhook,
 			util.EventActionReconcile, "%s", warning,
 		)
 	}
@@ -1208,7 +1208,7 @@ func (r *ReconcileSPOd) configureSelinux(
 		r.record.Eventf(
 			cfg,
 			nil,
-			util.EventTypeWarning,
+			corev1.EventTypeWarning,
 			reasonCannotMountCustomTemplates,
 			util.EventActionReconcile,
 			"%s",

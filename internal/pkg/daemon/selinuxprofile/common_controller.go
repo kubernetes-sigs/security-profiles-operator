@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -729,7 +730,7 @@ func (r *ReconcileSelinux) handlePolicyStatus(
 			r.record.Eventf(
 				sp,
 				nil,
-				util.EventTypeNormal,
+				corev1.EventTypeNormal,
 				reasonInstalledPolicy,
 				util.EventActionInstall,
 				"%s",
@@ -1113,7 +1114,7 @@ func (r *ReconcileSelinux) retryFailedReload(
 		r.record.Eventf(
 			sp,
 			nil,
-			util.EventTypeWarning,
+			corev1.EventTypeWarning,
 			reasonCannotReloadPolicy,
 			kind.eventAction,
 			"Policy reload job failed on %s, retrying",
@@ -1145,7 +1146,7 @@ func (r *ReconcileSelinux) reloadInstalledPolicy(
 		r.record.Eventf(
 			sp,
 			nil,
-			util.EventTypeWarning,
+			corev1.EventTypeWarning,
 			reasonCannotReloadPolicy,
 			util.EventActionInstall,
 			"Failed to create policy reload job on %s: %s",
@@ -1281,7 +1282,7 @@ func (r *ReconcileSelinux) reloadRemovedPolicy(
 		r.record.Eventf(
 			sp,
 			nil,
-			util.EventTypeWarning,
+			corev1.EventTypeWarning,
 			reasonCannotReloadPolicy,
 			util.EventActionRemove,
 			"Failed to create policy reload job after removal on %s: %s",

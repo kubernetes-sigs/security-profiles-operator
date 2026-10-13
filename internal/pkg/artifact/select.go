@@ -102,6 +102,12 @@ func layerMatchesPlatform(layer *v1.Descriptor, platform *v1.Platform) bool {
 	return platform != nil && platformMatches(layer.Platform, platform)
 }
 
+// SamePlatform reports whether a pull selects the profiles of both platforms
+// for the same platform, see platformMatches.
+func SamePlatform(a, b *v1.Platform) bool {
+	return platformMatches(a, b)
+}
+
 // platformMatches reports whether both platforms are the same, with the
 // variants normalized the way container runtimes do it, so that for example
 // linux/arm64/v8 matches linux/arm64.

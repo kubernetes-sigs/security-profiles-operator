@@ -60,7 +60,9 @@ func Get() (*Info, error) {
 	const unknown = "unknown"
 
 	gitCommit := unknown
-	gitTreeState := "clean"
+	// A build without version control information, like one of a source
+	// archive, says nothing about the tree state.
+	gitTreeState := unknown
 	gitCommitDate := unknown
 	buildTags := unknown
 	ldFlags := unknown
@@ -72,6 +74,7 @@ func Get() (*Info, error) {
 			gitCommit = s.Value
 
 		case "vcs.modified":
+			gitTreeState = "clean"
 			if s.Value == "true" {
 				gitTreeState = "dirty"
 			}

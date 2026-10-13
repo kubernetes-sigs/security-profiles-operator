@@ -19,8 +19,11 @@ limitations under the License.
 package runner
 
 import (
+	"fmt"
 	"log"
 	"os"
+	"strconv"
+	"strings"
 
 	"github.com/opencontainers/runc/libcontainer/configs"
 	"github.com/opencontainers/runc/libcontainer/specconv"
@@ -46,6 +49,7 @@ type impl interface {
 	StopTail(*tailer.Tailer)
 	GetName(libseccomp.ScmpSyscall) (string, error)
 	Printf(format string, v ...any)
+	ProcessInfo(pid int) (parentPID int, startTime uint64, err error)
 }
 
 func (*defaultImpl) ReadFile(name string) ([]byte, error) {
@@ -86,4 +90,47 @@ func (*defaultImpl) GetName(s libseccomp.ScmpSyscall) (string, error) {
 
 func (*defaultImpl) Printf(format string, v ...any) {
 	log.Printf(format, v...)
+}
+
+// ProcessInfo returns the parent and the start time of the process. The start
+// time, in clock ticks since boot, tells processes with the same process ID
+// apart.
+func (*defaultImpl) ProcessInfo(pid int) (parentPID int, startTime uint64, err error) {
+	raw, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err != nil {
+		return 0, 0, err
+	}
+
+	return parseProcessStat(string(raw))
+}
+
+// parseProcessStat returns the parent and the start time of a
+// /proc/<pid>/stat. The command name in parentheses may contain spaces and
+// parentheses itself, the fields after it are: state ppid ... starttime ...
+func parseProcessStat(stat string) (parentPID int, startTime uint64, err error) {
+	_, after, found := strings.CutLast(stat, ")")
+	if !found {
+		return 0, 0, fmt.Errorf("invalid process stat %q", stat)
+	}
+
+	// The fields after the command name start with the third one, starttime
+	// is the 22nd.
+	const ppidField, startTimeField = 1, 19
+
+	fields := strings.Fields(after)
+	if len(fields) <= startTimeField {
+		return 0, 0, fmt.Errorf("invalid process stat %q", stat)
+	}
+
+	parentPID, err = strconv.Atoi(fields[ppidField])
+	if err != nil {
+		return 0, 0, fmt.Errorf("parse parent process ID: %w", err)
+	}
+
+	startTime, err = strconv.ParseUint(fields[startTimeField], 10, 64)
+	if err != nil {
+		return 0, 0, fmt.Errorf("parse start time: %w", err)
+	}
+
+	return parentPID, startTime, nil
 }

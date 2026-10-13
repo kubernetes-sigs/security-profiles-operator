@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 
+	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -85,7 +86,7 @@ func (r *ReconcileSPOd) reconcileAllowList(
 	if _, err := seccompcheck.CheckedActions(security.AllowedSeccompActions); err != nil {
 		r.log.Error(err, "Not deleting seccomp profiles because of an invalid SPOD configuration")
 		r.record.Eventf(
-			spod, nil, util.EventTypeWarning, reasonInvalidSPODConfig, util.EventActionUpdate,
+			spod, nil, corev1.EventTypeWarning, reasonInvalidSPODConfig, util.EventActionUpdate,
 			"Invalid allowedSeccompActions, no seccomp profile gets installed: %s", err.Error(),
 		)
 

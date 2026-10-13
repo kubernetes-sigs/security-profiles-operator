@@ -71,9 +71,22 @@ type FakeImpl struct {
 	linesReturnsOnCall map[int]struct {
 		result1 <-chan string
 	}
-	PrintfStub          func(string, ...any)
-	printfMutex         sync.RWMutex
-	printfArgsForCall   []FakeImplPrintfArgs
+	PrintfStub             func(string, ...any)
+	printfMutex            sync.RWMutex
+	printfArgsForCall      []FakeImplPrintfArgs
+	ProcessInfoStub        func(int) (int, uint64, error)
+	processInfoMutex       sync.RWMutex
+	processInfoArgsForCall []FakeImplProcessInfoArgs
+	processInfoReturns     struct {
+		result1 int
+		result2 uint64
+		result3 error
+	}
+	processInfoReturnsOnCall map[int]struct {
+		result1 int
+		result2 uint64
+		result3 error
+	}
 	ReadFileStub        func(string) ([]byte, error)
 	readFileMutex       sync.RWMutex
 	readFileArgsForCall []FakeImplReadFileArgs
@@ -148,6 +161,11 @@ type FakeImplLinesArgs struct {
 type FakeImplPrintfArgs struct {
 	Arg1 string
 	Arg2 []any
+}
+
+// FakeImplProcessInfoArgs holds the arguments of one call to ProcessInfo.
+type FakeImplProcessInfoArgs struct {
+	Arg1 int
 }
 
 // FakeImplReadFileArgs holds the arguments of one call to ReadFile.
@@ -491,6 +509,79 @@ func (fake *FakeImpl) PrintfArgs() []FakeImplPrintfArgs {
 	args := make([]FakeImplPrintfArgs, len(fake.printfArgsForCall))
 	copy(args, fake.printfArgsForCall)
 	return args
+}
+
+func (fake *FakeImpl) ProcessInfo(arg1 int) (int, uint64, error) {
+	fake.processInfoMutex.Lock()
+	ret, specificReturn := fake.processInfoReturnsOnCall[len(fake.processInfoArgsForCall)]
+	fake.processInfoArgsForCall = append(fake.processInfoArgsForCall, FakeImplProcessInfoArgs{arg1})
+	stub := fake.ProcessInfoStub
+	fakeReturns := fake.processInfoReturns
+	fake.recordInvocation("ProcessInfo", []interface{}{arg1})
+	fake.processInfoMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2, ret.result3
+	}
+	return fakeReturns.result1, fakeReturns.result2, fakeReturns.result3
+}
+
+func (fake *FakeImpl) ProcessInfoCallCount() int {
+	fake.processInfoMutex.RLock()
+	defer fake.processInfoMutex.RUnlock()
+	return len(fake.processInfoArgsForCall)
+}
+
+func (fake *FakeImpl) ProcessInfoCalls(stub func(int) (int, uint64, error)) {
+	fake.processInfoMutex.Lock()
+	defer fake.processInfoMutex.Unlock()
+	fake.ProcessInfoStub = stub
+}
+
+func (fake *FakeImpl) ProcessInfoArgsForCall(i int) int {
+	fake.processInfoMutex.RLock()
+	defer fake.processInfoMutex.RUnlock()
+	argsForCall := fake.processInfoArgsForCall[i]
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) ProcessInfoArgs() []FakeImplProcessInfoArgs {
+	fake.processInfoMutex.RLock()
+	defer fake.processInfoMutex.RUnlock()
+	args := make([]FakeImplProcessInfoArgs, len(fake.processInfoArgsForCall))
+	copy(args, fake.processInfoArgsForCall)
+	return args
+}
+
+func (fake *FakeImpl) ProcessInfoReturns(result1 int, result2 uint64, result3 error) {
+	fake.processInfoMutex.Lock()
+	defer fake.processInfoMutex.Unlock()
+	fake.ProcessInfoStub = nil
+	fake.processInfoReturns = struct {
+		result1 int
+		result2 uint64
+		result3 error
+	}{result1, result2, result3}
+}
+
+func (fake *FakeImpl) ProcessInfoReturnsOnCall(i int, result1 int, result2 uint64, result3 error) {
+	fake.processInfoMutex.Lock()
+	defer fake.processInfoMutex.Unlock()
+	fake.ProcessInfoStub = nil
+	if fake.processInfoReturnsOnCall == nil {
+		fake.processInfoReturnsOnCall = make(map[int]struct {
+			result1 int
+			result2 uint64
+			result3 error
+		})
+	}
+	fake.processInfoReturnsOnCall[i] = struct {
+		result1 int
+		result2 uint64
+		result3 error
+	}{result1, result2, result3}
 }
 
 func (fake *FakeImpl) ReadFile(arg1 string) ([]byte, error) {

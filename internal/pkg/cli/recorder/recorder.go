@@ -28,6 +28,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -474,7 +475,7 @@ func (r *Recorder) buildAppArmorProfileRaw(
 	writer io.Writer,
 	spec *apparmorprofileapi.AppArmorProfileSpec,
 ) error {
-	programName, err := filepath.Abs(r.options.commandOptions.Command())
+	programName, err := programPath(r.options.commandOptions.Command())
 	if err != nil {
 		return fmt.Errorf("get program name: %w", err)
 	}
@@ -491,6 +492,29 @@ func (r *Recorder) buildAppArmorProfileRaw(
 	}
 
 	return nil
+}
+
+// programPath returns the absolute path of the executable of the command,
+// which the raw AppArmor profile attaches to. A command name without a path
+// is resolved on the PATH like when it gets started, a relative path to the
+// working directory. A command which cannot be found, for example the one of
+// --no-proc-start, is taken relative to the working directory. AppArmor
+// attaches to the executable a symlink resolves to, so they get resolved.
+func programPath(name string) (string, error) {
+	if resolved, err := exec.LookPath(name); err == nil {
+		name = resolved
+	}
+
+	path, err := filepath.Abs(name)
+	if err != nil {
+		return "", err
+	}
+
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return resolved, nil
+	}
+
+	return path, nil
 }
 
 func (r *Recorder) goArchToSeccompArch(goarch string) (seccompprofileapi.Arch, error) {
