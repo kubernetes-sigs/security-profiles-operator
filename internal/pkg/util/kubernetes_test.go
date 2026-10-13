@@ -833,3 +833,46 @@ func TestGetSelinuxdImage(t *testing.T) {
 		})
 	}
 }
+
+func TestAllContainers(t *testing.T) {
+	t.Parallel()
+
+	pod := &corev1.Pod{Spec: corev1.PodSpec{
+		Containers:     []corev1.Container{{Name: "a"}, {Name: "b"}},
+		InitContainers: []corev1.Container{{Name: "init"}},
+		EphemeralContainers: []corev1.EphemeralContainer{{
+			EphemeralContainerCommon: corev1.EphemeralContainerCommon{Name: "debug"},
+		}},
+	}}
+
+	names := []string{}
+	for ctr := range AllContainers(pod) {
+		names = append(names, ctr.Name)
+	}
+
+	require.Equal(t, []string{"init", "a", "b", "debug"}, names)
+
+	// The iteration stops early without visiting the other containers.
+	names = names[:0]
+	for ctr := range AllContainers(pod) {
+		names = append(names, ctr.Name)
+
+		if ctr.Name == "b" {
+			break
+		}
+	}
+
+	require.Equal(t, []string{"init", "a", "b"}, names)
+
+	// The init and regular containers are not copied.
+	for ctr := range AllContainers(pod) {
+		ctr.Image = "changed"
+
+		break
+	}
+
+	require.Equal(t, "changed", pod.Spec.InitContainers[0].Image)
+	require.Equal(t, []*corev1.Container{
+		&pod.Spec.InitContainers[0], &pod.Spec.Containers[0], &pod.Spec.Containers[1],
+	}, PodContainers(pod))
+}

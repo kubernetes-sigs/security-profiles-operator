@@ -39,6 +39,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	profilebindingapi "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
@@ -185,9 +186,9 @@ var (
 	}
 )
 
-// recordingAnnotationPrefixes are the prefixes of the recording annotation
+// RecordingAnnotationPrefixes are the prefixes of the recording annotation
 // keys, see ProfileRecording.CtrAnnotation.
-var recordingAnnotationPrefixes = []string{
+var RecordingAnnotationPrefixes = []string{
 	config.SeccompProfileRecordLogsAnnotationKey,
 	config.SeccompProfileRecordBpfAnnotationKey,
 	config.ApparmorProfileRecordBpfAnnotationKey,
@@ -198,8 +199,8 @@ var recordingAnnotationPrefixes = []string{
 // creations and for pod updates which remove or change a recording
 // annotation of the old pod.
 func recordingMatchExpression() string {
-	isRecordingKey := make([]string, 0, len(recordingAnnotationPrefixes))
-	for _, prefix := range recordingAnnotationPrefixes {
+	isRecordingKey := make([]string, 0, len(RecordingAnnotationPrefixes))
+	for _, prefix := range RecordingAnnotationPrefixes {
 		isRecordingKey = append(
 			isRecordingKey,
 			fmt.Sprintf("k.startsWith(%s)", strconv.Quote(prefix)),
@@ -492,6 +493,38 @@ func RecordingWebhookSelectors(
 // BindingWebhookName is the name of the binding webhook in the mutating
 // webhook configuration.
 const BindingWebhookName = "binding.spo.io"
+
+// ProfileKindEnabled returns true if the SPOD configuration enables the
+// profile kind of a binding, so that the daemons install its profiles.
+// Seccomp support cannot be disabled, so getSPOD only gets called for the
+// other kinds. A missing configuration counts as enabled, so that a binding
+// never gets skipped by mistake. SELinux is enabled by default only on
+// OpenShift, like the SPOD controller decides it.
+func ProfileKindEnabled(
+	kind profilebindingapi.ProfileBindingKind,
+	isOpenShift bool,
+	getSPOD func() (*spodapi.SecurityProfilesOperatorDaemon, error),
+) (bool, error) {
+	if kind != profilebindingapi.ProfileBindingKindSelinuxProfile &&
+		kind != profilebindingapi.ProfileBindingKindAppArmorProfile {
+		return true, nil
+	}
+
+	spod, err := getSPOD()
+	if errors.IsNotFound(err) || (err == nil && spod == nil) {
+		return true, nil
+	}
+
+	if err != nil {
+		return false, err
+	}
+
+	if kind == profilebindingapi.ProfileBindingKindSelinuxProfile {
+		return spod.SelinuxEnabled(isOpenShift), nil
+	}
+
+	return spod.AppArmorEnabled(), nil
+}
 
 // RecordingWebhook returns the recording webhook of the mutating webhook
 // configuration of the operator, or nil if the configuration has none. The

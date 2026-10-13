@@ -314,3 +314,17 @@ func TestNameHashing(t *testing.T) {
 		})
 	}
 }
+
+func TestRecordsContainer(t *testing.T) {
+	t.Parallel()
+
+	recording := &profilerecordingapi.ProfileRecording{}
+	require.True(t, RecordsContainer(recording, "a"), "an unset list selects every container")
+
+	recording.Spec.Containers = []string{"a"}
+	require.True(t, RecordsContainer(recording, "a"))
+	require.False(t, RecordsContainer(recording, "b"))
+
+	recording.Spec.Containers = []string{}
+	require.False(t, RecordsContainer(recording, "a"), "an empty list selects none")
+}

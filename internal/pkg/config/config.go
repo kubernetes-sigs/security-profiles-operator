@@ -23,6 +23,7 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"strconv"
 	"sync"
 )
 
@@ -269,6 +270,15 @@ func WatchNamespaces() string {
 	}
 
 	return os.Getenv("WATCH_NAMESPACE")
+}
+
+// EnvEnabled returns true if the environment variable is a true boolean, like
+// the ones which enable the recorders and enrichers. Values which are not a
+// boolean count as false.
+func EnvEnabled(key string) bool {
+	value, err := strconv.ParseBool(os.Getenv(key))
+
+	return err == nil && value
 }
 
 // KubeletDir returns the kubelet directory either from the kubelet config

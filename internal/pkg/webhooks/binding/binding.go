@@ -48,7 +48,9 @@ import (
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
+	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
@@ -194,20 +196,6 @@ func containersByImage(ctrs []*corev1.Container) map[string][]*corev1.Container 
 	}
 
 	return res
-}
-
-// podContainers returns the init and regular containers of the pod.
-func podContainers(pod *corev1.Pod) []*corev1.Container {
-	ctrs := make([]*corev1.Container, 0, len(pod.Spec.InitContainers)+len(pod.Spec.Containers))
-	for i := range pod.Spec.InitContainers {
-		ctrs = append(ctrs, &pod.Spec.InitContainers[i])
-	}
-
-	for i := range pod.Spec.Containers {
-		ctrs = append(ctrs, &pod.Spec.Containers[i])
-	}
-
-	return ctrs
 }
 
 // newEphemeralContainers returns the ephemeral containers of the pod which do
@@ -441,7 +429,7 @@ func (p *podBinder) updatePod(
 		ctrs = newEphemeralContainers(pod, oldPod)
 		applyWildcard = p.applyWildcardProfileToContainers(ctrs)
 	} else {
-		ctrs = podContainers(pod)
+		ctrs = util.PodContainers(pod)
 		applyWildcard = p.applyWildcardProfile
 	}
 
@@ -662,7 +650,9 @@ type profileLookup struct {
 // skipped, because rejecting the pod would block every pod matching the
 // binding. Profiles without status are not installed yet, so pods get
 // rejected, unless the SPOD does not enable the profile kind, which means
-// that no daemon ever reports a status.
+// that no daemon ever reports a status. The SPOD is only read for a profile
+// which is missing or has no status, so that admitting pods with installed
+// profiles does not depend on reading it.
 func (p *podBinder) getProfile(
 	ctx context.Context,
 	lookup *profileLookup,
@@ -671,13 +661,6 @@ func (p *podBinder) getProfile(
 	profileKind := pb.Spec.ProfileRef.Kind
 	// Profiles are cluster scoped, so the key carries no namespace.
 	key := types.NamespacedName{Name: pb.Spec.ProfileRef.Name}
-
-	enabled, err := p.cachedProfileKindEnabled(ctx, lookup, profileKind)
-	if err != nil {
-		p.log.Error(err, "failed to check if the profile kind is enabled", "kind", profileKind)
-
-		return nil, false, err
-	}
 
 	lookupKind := func(retry bool, deadline time.Time) (any, error) {
 		lookupCtx := ctx
@@ -701,23 +684,42 @@ func (p *podBinder) getProfile(
 		}
 	}
 
-	// Profiles of enabled kinds may have been created just before the pod,
-	// so wait for them to get installed. Disabled kinds do not change. A
-	// profile which was missing after waiting is likely to stay missing, so
-	// the pods which follow wait for it shortly for a while, and wait for its
-	// status as long as before once it exists.
 	missingKey := missingProfileKey(profileKind, key.Name)
 	recentlyMissing := p.missing.recently(missingKey)
 
-	deadline := lookup.retryDeadline
-	if shortDeadline := time.Now().Add(missingProfileWait); recentlyMissing &&
-		shortDeadline.Before(deadline) {
-		deadline = shortDeadline
-	}
+	// An installed profile needs neither a retry nor the SPOD.
+	bindProfile, err = lookupKind(false, time.Time{})
 
-	bindProfile, err = lookupKind(enabled, deadline)
-	if enabled && recentlyMissing && err != nil && !kerrors.IsNotFound(err) {
-		bindProfile, err = lookupKind(true, lookup.retryDeadline)
+	// Whether the kind is enabled only matters for a profile which is
+	// missing or has no status, so it is only looked up for those.
+	enabled := true
+
+	if kerrors.IsNotFound(err) || errors.Is(err, ErrProfWithoutStatus) {
+		var enabledErr error
+
+		enabled, enabledErr = p.cachedProfileKindEnabled(ctx, lookup, profileKind)
+		if enabledErr != nil {
+			p.log.Error(
+				enabledErr,
+				"failed to check if the profile kind is enabled",
+				"kind",
+				profileKind,
+			)
+
+			return nil, false, enabledErr
+		}
+
+		// Profiles of enabled kinds may have been created just before the
+		// pod, so wait for them to get installed. Disabled kinds do not
+		// change. A profile which was missing after waiting is likely to stay
+		// missing, so the pods which follow wait for it shortly for a while,
+		// and wait for its status as long as before once it exists.
+		if enabled {
+			bindProfile, err = lookupKind(true, missingDeadline(lookup, recentlyMissing))
+			if recentlyMissing && err != nil && !kerrors.IsNotFound(err) {
+				bindProfile, err = lookupKind(true, lookup.retryDeadline)
+			}
+		}
 	}
 
 	if errors.Is(err, errUnsupportedKind) {
@@ -793,6 +795,17 @@ func (p *podBinder) getProfile(
 	}
 }
 
+// missingDeadline returns the deadline of the retried lookup of a profile.
+// A profile which was missing recently is only waited for shortly.
+func missingDeadline(lookup *profileLookup, recentlyMissing bool) time.Time {
+	if shortDeadline := time.Now().Add(missingProfileWait); recentlyMissing &&
+		shortDeadline.Before(lookup.retryDeadline) {
+		return shortDeadline
+	}
+
+	return lookup.retryDeadline
+}
+
 // cachedProfileKindEnabled is profileKindEnabled, which reads the SPOD only
 // once per profile kind and admission request.
 func (p *podBinder) cachedProfileKindEnabled(
@@ -813,37 +826,16 @@ func (p *podBinder) cachedProfileKindEnabled(
 }
 
 // profileKindEnabled returns true if the SPOD configuration enables the
-// profile kind. A missing configuration counts as enabled, so that a binding
-// never gets skipped by mistake.
+// profile kind, see bindata.ProfileKindEnabled.
 func (p *podBinder) profileKindEnabled(
 	ctx context.Context, kind profilebindingapi.ProfileBindingKind,
 ) (bool, error) {
-	// Seccomp support cannot be disabled.
-	if kind != profilebindingapi.ProfileBindingKindSelinuxProfile &&
-		kind != profilebindingapi.ProfileBindingKindAppArmorProfile {
-		return true, nil
-	}
-
-	spod, err := p.GetSPOD(ctx, types.NamespacedName{
-		Name: config.SPOdName, Namespace: p.operatorNamespace,
-	})
-	if err != nil {
-		if kerrors.IsNotFound(err) {
-			return true, nil
-		}
-
-		return false, err
-	}
-
-	if spod == nil {
-		return true, nil
-	}
-
-	if kind == profilebindingapi.ProfileBindingKindSelinuxProfile {
-		return spod.SelinuxEnabled(p.isOpenShift), nil
-	}
-
-	return spod.AppArmorEnabled(), nil
+	return bindata.ProfileKindEnabled(kind, p.isOpenShift,
+		func() (*spodapi.SecurityProfilesOperatorDaemon, error) {
+			return p.GetSPOD(ctx, types.NamespacedName{
+				Name: config.SPOdName, Namespace: p.operatorNamespace,
+			})
+		})
 }
 
 // applyWildcardProfile sets the profile of a wildcard binding on the pod
@@ -857,7 +849,7 @@ func (p *podBinder) applyWildcardProfile(
 ) bool {
 	podChanged := p.addPodSecurityContext(pod, bindProfile)
 
-	for _, c := range podContainers(pod) {
+	for _, c := range util.PodContainers(pod) {
 		if _, ok := bound[c]; ok || !hasContainerContext(c, bindProfile) {
 			continue
 		}

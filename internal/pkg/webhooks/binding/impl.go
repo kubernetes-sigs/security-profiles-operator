@@ -107,7 +107,7 @@ func (d *defaultImpl) GetAppArmorProfile(
 }
 
 // GetSPOD reads the SPOD directly from the API server, because it is only
-// needed for bindings to profiles without status.
+// needed for bindings to profiles which are missing or have no status.
 func (d *defaultImpl) GetSPOD(
 	ctx context.Context, key types.NamespacedName,
 ) (*spodapi.SecurityProfilesOperatorDaemon, error) {

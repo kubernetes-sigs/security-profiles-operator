@@ -30,11 +30,16 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
+	profilebasev1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	profilebindingapi "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
+	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
@@ -158,17 +163,32 @@ func (r *BindingTrackerReconciler) handlePodCreateOrUpdate(
 		tracked := slices.Contains(binding.Status.ActiveWorkloads, podID)
 		// A completed pod, like the one of a finished Job, does not use the
 		// binding anymore, although it exists until it gets deleted.
-		uses := !util.PodCompleted(pod) && podUsesBinding(binding, pod, tracked, bindingEnabled)
+		uses := !util.PodCompleted(pod) &&
+			podAnnotatedWithBinding(binding, pod, tracked, bindingEnabled)
+
+		// The cached binding tells if the pod is tracked already, so a pod
+		// update does not cost an API read or a profile lookup per binding.
+		if uses && tracked && controllerutil.ContainsFinalizer(binding, finalizer) {
+			continue
+		}
+
+		// The pod author can change the annotation of the applied bindings
+		// after the creation of the pod, unlike its security contexts, so a
+		// pod only gets tracked anew if it carries the profile of the
+		// binding. A tracked pod stays tracked while it is annotated, also
+		// if its profile is gone or has no status by now.
+		if uses && !tracked {
+			carries, err := r.profileCarrier(ctx, binding)
+			if err != nil {
+				return reconcile.Result{}, err
+			}
+
+			uses = carries(pod)
+		}
 
 		// A binding which is being deleted must not track new pods: the API
 		// server rejects adding finalizers to it.
 		if uses && binding.GetDeletionTimestamp().IsZero() {
-			// The cached binding tells if the pod is tracked already, so a
-			// pod update does not cost an API read per binding.
-			if tracked && controllerutil.ContainsFinalizer(binding, finalizer) {
-				continue
-			}
-
 			if !tracked {
 				logger.Info("Tracking pod in binding", "binding", binding.Name)
 			}
@@ -196,6 +216,64 @@ func (r *BindingTrackerReconciler) handlePodCreateOrUpdate(
 	return reconcile.Result{}, nil
 }
 
+// bindingUsers returns the pods which use the binding, which fill up an
+// emptied list of active workloads, see workloadtracker.Tracker. They get
+// checked like pods tracked anew, including the profile, as the pod author
+// can add the annotation of the applied bindings, which would otherwise keep
+// the binding from being deleted. Pods created before the webhook set that
+// annotation only stay tracked while they are listed, so they are left out.
+// The profile and whether the binding webhook selects the namespace are only
+// looked up once.
+func (r *BindingTrackerReconciler) bindingUsers(
+	ctx context.Context, pb *profilebindingapi.ProfileBinding,
+) ([]string, error) {
+	carries, err := r.profileCarrier(ctx, pb)
+	if err != nil {
+		return nil, err
+	}
+
+	pods := &corev1.PodList{}
+	// The pods are only read, so the cache does not have to copy them.
+	if err := r.client.List(
+		ctx, pods, client.InNamespace(pb.Namespace), client.UnsafeDisableDeepCopy,
+	); err != nil {
+		return nil, fmt.Errorf("listing pods: %w", err)
+	}
+
+	var (
+		users            []string
+		namespaceEnabled *bool
+	)
+
+	for i := range pods.Items {
+		pod := &pods.Items[i]
+		if util.PodCompleted(pod) {
+			continue
+		}
+
+		bindingEnabled := true
+
+		if needsNamespaceCheck(pod) {
+			if namespaceEnabled == nil {
+				enabled, err := r.namespaceBindingEnabled(ctx, pb.Namespace)
+				if err != nil {
+					return nil, err
+				}
+
+				namespaceEnabled = &enabled
+			}
+
+			bindingEnabled = *namespaceEnabled
+		}
+
+		if podAnnotatedWithBinding(pb, pod, false, bindingEnabled) && carries(pod) {
+			users = append(users, pod.Namespace+"/"+pod.Name)
+		}
+	}
+
+	return users, nil
+}
+
 // tracker tracks the pods in the active workloads of the bindings.
 func (r *BindingTrackerReconciler) tracker() *workloadtracker.Tracker[*profilebindingapi.ProfileBinding] {
 	return &workloadtracker.Tracker[*profilebindingapi.ProfileBinding]{
@@ -204,6 +282,7 @@ func (r *BindingTrackerReconciler) tracker() *workloadtracker.Tracker[*profilebi
 		Finalizer: finalizer,
 		Kind:      "binding",
 		Workloads: func(obj *profilebindingapi.ProfileBinding) *[]string { return &obj.Status.ActiveWorkloads },
+		Users:     r.bindingUsers,
 	}
 }
 
@@ -224,19 +303,34 @@ func (r *BindingTrackerReconciler) untrackPod(
 }
 
 // bindingEnabled returns whether the binding webhook mutates the pods of the
-// namespace of the pod, see podUsesBinding. It is only looked up for a pod
-// with ephemeral containers and without the applied bindings annotation, the
-// others do not need it.
+// namespace of the pod, see podAnnotatedWithBinding. It is only looked up if
+// needsNamespaceCheck, the others do not need it.
 func (r *BindingTrackerReconciler) bindingEnabled(
 	ctx context.Context, pod *corev1.Pod,
 ) (bool, error) {
-	if _, ok := pod.GetAnnotations()[profilebindingapi.AppliedBindingsAnnotation]; ok ||
-		len(pod.Spec.EphemeralContainers) == 0 {
+	if !needsNamespaceCheck(pod) {
 		return true, nil
 	}
 
+	return r.namespaceBindingEnabled(ctx, pod.Namespace)
+}
+
+// needsNamespaceCheck returns true for a pod with ephemeral containers and
+// without the applied bindings annotation, whose bindings depend on whether
+// the binding webhook selects its namespace.
+func needsNamespaceCheck(pod *corev1.Pod) bool {
+	_, ok := pod.GetAnnotations()[profilebindingapi.AppliedBindingsAnnotation]
+
+	return !ok && len(pod.Spec.EphemeralContainers) > 0
+}
+
+// namespaceBindingEnabled returns whether the binding webhook mutates the pods
+// of the namespace.
+func (r *BindingTrackerReconciler) namespaceBindingEnabled(
+	ctx context.Context, namespace string,
+) (bool, error) {
 	enabled, err := bindata.WebhookSelectsNamespace(
-		ctx, r.client, bindata.BindingWebhookName, pod.Namespace,
+		ctx, r.client, bindata.BindingWebhookName, namespace,
 	)
 	if err != nil {
 		return false, fmt.Errorf("checking whether binding is enabled: %w", err)
@@ -245,14 +339,14 @@ func (r *BindingTrackerReconciler) bindingEnabled(
 	return enabled, nil
 }
 
-// podUsesBinding returns true if the binding webhook applied the binding to
-// the pod, which it records in an annotation of the pod. Pods created before
-// the webhook set the annotation stay tracked while they match the binding,
-// but do not get tracked anew, because matching the binding does not mean that
-// the webhook applied it, for example in a namespace without binding enabled.
-// bindingEnabled tells whether the binding webhook mutates the pods of the
-// namespace of the pod.
-func podUsesBinding(
+// podAnnotatedWithBinding returns true if the binding webhook applied the
+// binding to the pod, which it records in an annotation of the pod. Pods
+// created before the webhook set the annotation stay tracked while they match
+// the binding, but do not get tracked anew, because matching the binding does
+// not mean that the webhook applied it, for example in a namespace without
+// binding enabled. bindingEnabled tells whether the binding webhook mutates
+// the pods of the namespace of the pod.
+func podAnnotatedWithBinding(
 	pb *profilebindingapi.ProfileBinding, pod *corev1.Pod, tracked, bindingEnabled bool,
 ) bool {
 	applied, ok := pod.GetAnnotations()[profilebindingapi.AppliedBindingsAnnotation]
@@ -328,4 +422,96 @@ func ephemeralContainersUseImage(pb *profilebindingapi.ProfileBinding, pod *core
 	}
 
 	return false
+}
+
+// profileCarrier returns a function which tells whether the pod or one of its
+// containers uses the profile of the binding like the binding webhook sets
+// it. A profile which does not exist, or has no status, cannot have been
+// applied, so no pod carries it.
+func (r *BindingTrackerReconciler) profileCarrier(
+	ctx context.Context, pb *profilebindingapi.ProfileBinding,
+) (func(*corev1.Pod) bool, error) {
+	none := func(*corev1.Pod) bool { return false }
+	key := util.NamespacedName(pb.Spec.ProfileRef.Name, "")
+
+	var carries func(seccomp *corev1.SeccompProfile, selinux *corev1.SELinuxOptions,
+		apparmor *corev1.AppArmorProfile) bool
+
+	switch pb.Spec.ProfileRef.Kind {
+	case profilebindingapi.ProfileBindingKindSeccompProfile:
+		profile := &seccompprofileapi.SeccompProfile{}
+		if found, err := r.getProfile(ctx, key, profile); err != nil || !found {
+			return none, err
+		}
+
+		localhost := profile.Status.LocalhostProfile
+		if localhost == "" {
+			return none, nil
+		}
+
+		carries = func(seccomp *corev1.SeccompProfile, _ *corev1.SELinuxOptions, _ *corev1.AppArmorProfile) bool {
+			return seccomp != nil && seccomp.Type == corev1.SeccompProfileTypeLocalhost &&
+				ptr.Deref(seccomp.LocalhostProfile, "") == localhost
+		}
+	case profilebindingapi.ProfileBindingKindSelinuxProfile:
+		profile := &selinuxprofileapi.SelinuxProfile{}
+		if found, err := r.getProfile(ctx, key, profile); err != nil || !found {
+			return none, err
+		}
+
+		usage := profile.Status.Usage
+		if usage == "" {
+			return none, nil
+		}
+
+		carries = func(_ *corev1.SeccompProfile, selinux *corev1.SELinuxOptions, _ *corev1.AppArmorProfile) bool {
+			return selinux != nil && selinux.Type == usage
+		}
+	case profilebindingapi.ProfileBindingKindAppArmorProfile:
+		profile := &apparmorprofileapi.AppArmorProfile{}
+		if found, err := r.getProfile(ctx, key, profile); err != nil || !found {
+			return none, err
+		}
+
+		name := profile.GetProfileName()
+		carries = func(_ *corev1.SeccompProfile, _ *corev1.SELinuxOptions, apparmor *corev1.AppArmorProfile) bool {
+			return apparmor != nil && apparmor.Type == corev1.AppArmorProfileTypeLocalhost &&
+				ptr.Deref(apparmor.LocalhostProfile, "") == name
+		}
+	default:
+		return none, nil
+	}
+
+	return func(pod *corev1.Pod) bool {
+		if sc := pod.Spec.SecurityContext; sc != nil &&
+			carries(sc.SeccompProfile, sc.SELinuxOptions, sc.AppArmorProfile) {
+			return true
+		}
+
+		for ctr := range util.AllContainers(pod) {
+			if sc := ctr.SecurityContext; sc != nil &&
+				carries(sc.SeccompProfile, sc.SELinuxOptions, sc.AppArmorProfile) {
+				return true
+			}
+		}
+
+		return false
+	}, nil
+}
+
+// getProfile reads the profile of the key from the cache, without copying
+// it, as it is only read. It returns false if the profile does not exist or
+// has no status, like a profile which the binding webhook does not apply.
+func (r *BindingTrackerReconciler) getProfile(
+	ctx context.Context, key client.ObjectKey, profile profilebasev1.StatusBaseUser,
+) (bool, error) {
+	if err := r.client.Get(ctx, key, profile, client.UnsafeDisableDeepCopy); err != nil {
+		if errors.IsNotFound(err) {
+			return false, nil
+		}
+
+		return false, fmt.Errorf("getting profile %s: %w", key.Name, err)
+	}
+
+	return profile.GetStatusBase().Status != "", nil
 }

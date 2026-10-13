@@ -21,7 +21,6 @@ import (
 	stderrors "errors"
 	"fmt"
 	"net/http"
-	"os"
 	"reflect"
 	"slices"
 	"strconv"
@@ -703,7 +702,7 @@ func (r *ReconcileSPOd) recordingNamespaceSelector(
 // the reconciliation, and the policies get applied again on the next one. If
 // the selector of a static recording webhook cannot be read, the deployed
 // policies stay and the error is returned, so that the caller retries once it
-// reconciled the rest.
+// reconciled the rest. A conflict is returned as well, without reporting it.
 func (r *ReconcileSPOd) applyAdmissionPolicies(
 	ctx context.Context,
 	spod *spodapi.SecurityProfilesOperatorDaemon,
@@ -741,6 +740,12 @@ func (r *ReconcileSPOd) applyAdmissionPolicies(
 			)
 
 			return nil
+		}
+
+		// A conflict only means that the cache is behind, which the retry
+		// of Reconcile resolves without anyone having to act.
+		if errors.IsConflict(err) {
+			return err
 		}
 
 		r.log.Error(err, "Cannot apply the admission policies")
@@ -1682,18 +1687,11 @@ type envFlags struct {
 // the operator. Values which are not a boolean disable the feature.
 func envFlagsFromEnvironment() envFlags {
 	return envFlags{
-		enableLogEnricher:           envBool(config.EnableLogEnricherEnvKey),
-		enableJsonEnricher:          envBool(config.EnableJsonEnricherEnvKey),
-		enableBpfRecorder:           envBool(config.EnableBpfRecorderEnvKey),
-		enableInsecureMetricsAccess: envBool(config.EnableInsecureMetricsAccessEnvKey),
+		enableLogEnricher:           config.EnvEnabled(config.EnableLogEnricherEnvKey),
+		enableJsonEnricher:          config.EnvEnabled(config.EnableJsonEnricherEnvKey),
+		enableBpfRecorder:           config.EnvEnabled(config.EnableBpfRecorderEnvKey),
+		enableInsecureMetricsAccess: config.EnvEnabled(config.EnableInsecureMetricsAccessEnvKey),
 	}
-}
-
-// envBool returns true if the environment variable is a true boolean.
-func envBool(key string) bool {
-	value, err := strconv.ParseBool(os.Getenv(key))
-
-	return err == nil && value
 }
 
 // byEnvKey returns the flag of the environment variable.

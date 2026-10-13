@@ -19,6 +19,7 @@ package recordingtracker
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -69,6 +70,23 @@ func TestPodMatchesRecording(t *testing.T) {
 		},
 		// For example a pod created before the recording.
 		"not recorded by the webhook": {},
+		// The recording webhook does not see annotations added after the
+		// creation of the pod, and the daemon does not record them.
+		"annotation of another recorder": {
+			annotations: map[string]string{
+				config.SeccompProfileRecordLogsAnnotationKey + "ctr": "test-recording_ctr_123_456",
+			},
+		},
+		"annotation of a missing container": {
+			annotations: map[string]string{
+				config.SeccompProfileRecordBpfAnnotationKey + "other": "test-recording_other_123_456",
+			},
+		},
+		"annotation naming another container": {
+			annotations: map[string]string{
+				config.SeccompProfileRecordBpfAnnotationKey + "ctr": "test-recording_other_123_456",
+			},
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -104,6 +122,7 @@ func testPodMatchesRecording(t *testing.T, annotations map[string]string, wantTr
 			Labels:      map[string]string{"app": "test"},
 			Annotations: annotations,
 		},
+		Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "ctr"}}},
 	}
 
 	c := fake.NewClientBuilder().
@@ -184,28 +203,39 @@ func TestPodDoesNotMatchRecording(t *testing.T) {
 func TestPodNoLongerMatchingRecording(t *testing.T) {
 	t.Parallel()
 
+	recorded := map[string]string{
+		config.SeccompProfileRecordBpfAnnotationKey + "ctr": "test-recording_ctr_123_456",
+	}
+
 	for name, tc := range map[string]struct {
 		annotations map[string]string
+		labels      map[string]string
 		phase       corev1.PodPhase
 		wantTracked bool
 	}{
-		"untracked without recording annotation": {},
+		"untracked without recording annotation": {labels: map[string]string{"app": "recorded"}},
 		"kept while still recorded": {
-			annotations: map[string]string{
-				config.SeccompProfileRecordBpfAnnotationKey + "ctr": "test-recording_ctr_123_456",
-			},
+			annotations: recorded,
+			labels:      map[string]string{"app": "recorded"},
+			wantTracked: true,
+		},
+		// The daemon checks the selector when the container starts and keeps
+		// recording the pod afterwards.
+		"kept once the labels changed": {
+			annotations: recorded,
+			labels:      map[string]string{"app": "other"},
 			wantTracked: true,
 		},
 		"untracked once completed": {
-			annotations: map[string]string{
-				config.SeccompProfileRecordBpfAnnotationKey + "ctr": "test-recording_ctr_123_456",
-			},
-			phase: corev1.PodSucceeded,
+			annotations: recorded,
+			labels:      map[string]string{"app": "recorded"},
+			phase:       corev1.PodSucceeded,
 		},
 		"annotation of another recording": {
 			annotations: map[string]string{
 				config.SeccompProfileRecordBpfAnnotationKey + "ctr": "other-recording_ctr_123_456",
 			},
+			labels: map[string]string{"app": "recorded"},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -229,14 +259,14 @@ func TestPodNoLongerMatchingRecording(t *testing.T) {
 				},
 			}
 
-			// The labels of the pod changed after it got tracked.
 			pod := &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:        "test-pod",
 					Namespace:   "default",
-					Labels:      map[string]string{"app": "other"},
+					Labels:      tc.labels,
 					Annotations: tc.annotations,
 				},
+				Spec:   corev1.PodSpec{Containers: []corev1.Container{{Name: "ctr"}}},
 				Status: corev1.PodStatus{Phase: tc.phase},
 			}
 
@@ -481,15 +511,18 @@ func recordedPod() *corev1.Pod {
 				config.SeccompProfileRecordBpfAnnotationKey + "ctr": "test-recording_ctr_123_456",
 			},
 		},
+		Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "ctr"}}},
 	}
 }
 
+// testRecording returns a recording which selects every pod.
 func testRecording() *profilerecordingapi.ProfileRecording {
 	return &profilerecordingapi.ProfileRecording{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-recording", Namespace: "default"},
 		Spec: profilerecordingapi.ProfileRecordingSpec{
-			Kind:     profilerecordingapi.ProfileRecordingKindSeccompProfile,
-			Recorder: profilerecordingapi.ProfileRecorderBpf,
+			Kind:        profilerecordingapi.ProfileRecordingKindSeccompProfile,
+			Recorder:    profilerecordingapi.ProfileRecorderBpf,
+			PodSelector: &metav1.LabelSelector{},
 		},
 	}
 }
@@ -663,8 +696,9 @@ func TestUntrackPodKeepsFinalizerForConcurrentlyTrackedPod(t *testing.T) {
 	reads := 0
 	r := newReconciler(c)
 	r.reader = hookReader{Reader: c, reads: &reads, afterGet: func(n int) {
-		// The second read checks whether the finalizer can go.
-		if n != 2 {
+		// The status gets written as cached, the first read checks whether
+		// the finalizer can go.
+		if n != 1 {
 			return
 		}
 
@@ -678,10 +712,177 @@ func TestUntrackPodKeepsFinalizerForConcurrentlyTrackedPod(t *testing.T) {
 		NamespacedName: client.ObjectKey{Namespace: "default", Name: "deleted-pod"},
 	})
 	require.NoError(t, err)
-	require.Greater(t, reads, 2, "the finalizer removal got retried")
+	require.Greater(t, reads, 1, "the finalizer removal got retried")
 
 	updated := &profilerecordingapi.ProfileRecording{}
 	require.NoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(recording), updated))
 	require.Equal(t, []string{"new-pod"}, updated.Status.ActiveWorkloads)
 	require.Contains(t, updated.GetFinalizers(), finalizer)
+}
+
+// A recording whose last listed pod goes away gets filled up with the other
+// recorded pods, which a full list did not take, so that it keeps its
+// finalizer.
+func TestEmptiedRecordingGetsFilledUp(t *testing.T) {
+	t.Parallel()
+
+	recording := testRecording()
+	recording.Finalizers = []string{finalizer}
+	recording.Status.ActiveWorkloads = []string{"listed"}
+
+	recording.Spec.PodSelector = &metav1.LabelSelector{
+		MatchLabels: map[string]string{"app": "recorded"},
+	}
+
+	recorded := recordedPod()
+	recorded.Labels = map[string]string{"app": "recorded"}
+
+	// The pod got relabeled after the webhook annotated it at its admission,
+	// which counts like a tracked pod.
+	relabeled := recordedPod()
+	relabeled.Name = "relabeled"
+	relabeled.CreationTimestamp = metav1.Unix(456, 0)
+
+	// The annotation of a pod which the recording does not select got added
+	// long after its creation, by the pod author, so it does not count.
+	forged := recordedPod()
+	forged.Name = "forged"
+	forged.CreationTimestamp = metav1.Unix(0, 0)
+
+	completed := recordedPod()
+	completed.Name = "completed"
+	completed.Status.Phase = corev1.PodSucceeded
+
+	other := recordedPod()
+	other.Name = "other"
+	other.Annotations = map[string]string{
+		config.SeccompProfileRecordBpfAnnotationKey + "ctr": "other-recording_ctr_123_456",
+	}
+
+	c := fake.NewClientBuilder().
+		WithScheme(utiltest.NewScheme(t)).
+		WithStatusSubresource(recording).
+		WithObjects(recording, recorded, relabeled, forged, completed, other).
+		WithIndex(&profilerecordingapi.ProfileRecording{}, linkedPodsKey, recordingIndexFunc).
+		Build()
+
+	_, err := newReconciler(c).Reconcile(t.Context(), reconcile.Request{
+		NamespacedName: client.ObjectKey{Namespace: "default", Name: "listed"},
+	})
+	require.NoError(t, err)
+
+	updated := &profilerecordingapi.ProfileRecording{}
+	require.NoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(recording), updated))
+	require.Equal(t, []string{"relabeled", "test-pod"}, updated.Status.ActiveWorkloads)
+	require.Contains(t, updated.GetFinalizers(), finalizer)
+}
+
+// A tracked pod stays tracked while it carries an annotation of the recording,
+// like the daemon keeps recording it, while a pod gets tracked anew only if
+// the recording selects it. Otherwise an edited recording would lose its
+// finalizer and get merged without the profiles of its running pods.
+func TestTrackedPodSurvivesRecordingChange(t *testing.T) {
+	t.Parallel()
+
+	for name, tracked := range map[string]bool{"tracked pod": true, "new pod": false} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			// The recording selects other pods and containers by now.
+			recording := testRecording()
+			recording.Spec.PodSelector = &metav1.LabelSelector{
+				MatchLabels: map[string]string{"app": "other"},
+			}
+			recording.Spec.Containers = []string{"other"}
+
+			if tracked {
+				recording.Finalizers = []string{finalizer}
+				recording.Status.ActiveWorkloads = []string{"test-pod"}
+			}
+
+			c := fake.NewClientBuilder().
+				WithScheme(utiltest.NewScheme(t)).
+				WithStatusSubresource(recording).
+				WithObjects(recording, recordedPod()).
+				WithIndex(&profilerecordingapi.ProfileRecording{}, linkedPodsKey, recordingIndexFunc).
+				Build()
+
+			_, err := newReconciler(c).Reconcile(t.Context(), reconcile.Request{
+				NamespacedName: client.ObjectKeyFromObject(recordedPod()),
+			})
+			require.NoError(t, err)
+
+			updated := &profilerecordingapi.ProfileRecording{}
+			require.NoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(recording), updated))
+
+			if tracked {
+				require.Equal(t, []string{"test-pod"}, updated.Status.ActiveWorkloads)
+				require.Contains(t, updated.GetFinalizers(), finalizer)
+			} else {
+				require.Empty(t, updated.Status.ActiveWorkloads)
+				require.NotContains(t, updated.GetFinalizers(), finalizer)
+			}
+		})
+	}
+}
+
+// A pod which the recording webhook annotated while it admitted the pod gets
+// tracked anew also if the recording changed since, like the daemon records
+// it. An annotation added after the creation of the pod has a later time and
+// needs the recording to select the pod.
+func TestPodAnnotatedAtAdmissionIsTracked(t *testing.T) {
+	t.Parallel()
+
+	created := time.Unix(1_700_000_000, 0)
+	value := func(ctr string, at time.Time) string {
+		return fmt.Sprintf("test-recording_%s_abcde_%d", ctr, at.Unix())
+	}
+
+	for name, tc := range map[string]struct {
+		key, value  string
+		created     time.Time
+		wantTracked bool
+	}{
+		"annotated at admission": {
+			key: "ctr", value: value("ctr", created.Add(-time.Second)), created: created,
+			wantTracked: true,
+		},
+		"clocks differ": {
+			key: "ctr", value: value("ctr", created.Add(30*time.Second)), created: created,
+			wantTracked: true,
+		},
+		"annotated after the creation": {
+			key: "ctr", value: value("ctr", created.Add(time.Hour)), created: created,
+		},
+		"pod without creation time": {key: "ctr", value: value("ctr", created)},
+		"missing container": {
+			key: "other", value: value("other", created), created: created,
+		},
+		"invalid time": {
+			key: "ctr", value: "test-recording_ctr_abcde_now", created: created,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			// The recording selects other pods and containers by now.
+			recording := testRecording()
+			recording.Spec.PodSelector = &metav1.LabelSelector{
+				MatchLabels: map[string]string{"app": "other"},
+			}
+			recording.Spec.Containers = []string{"other"}
+
+			pod := recordedPod()
+			pod.CreationTimestamp = metav1.NewTime(tc.created)
+			pod.Annotations = map[string]string{
+				config.SeccompProfileRecordLogsAnnotationKey + tc.key: tc.value,
+			}
+
+			require.Equal(t, tc.wantTracked, podRecordedBy(pod, recording, false))
+
+			// A tracked pod stays tracked with any annotation of the
+			// recording.
+			require.True(t, podRecordedBy(pod, recording, true))
+		})
+	}
 }

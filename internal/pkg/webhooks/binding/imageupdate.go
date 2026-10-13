@@ -60,13 +60,13 @@ type imageChange struct {
 // are, so it is no change.
 func changedImages(pod, oldPod *corev1.Pod) []imageChange {
 	oldImages := map[string]string{}
-	for _, c := range podContainers(oldPod) {
+	for _, c := range util.PodContainers(oldPod) {
 		oldImages[c.Name] = c.Image
 	}
 
 	var changes []imageChange
 
-	for _, c := range podContainers(pod) {
+	for _, c := range util.PodContainers(pod) {
 		if oldImage, ok := oldImages[c.Name]; ok && !util.SameImage(oldImage, c.Image) {
 			changes = append(changes, imageChange{c.Name, oldImage, c.Image})
 		}

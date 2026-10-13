@@ -109,16 +109,17 @@ func (r *PolicyMergeReconciler) Setup(
 	return b.Complete(r)
 }
 
+// isPartial returns true if the profile is a partial profile.
+func isPartial(obj client.Object) bool {
+	_, partial := obj.GetLabels()[profilebase.ProfilePartialLabel]
+
+	return partial
+}
+
 // blockingProfileEventsPredicate passes the deletions and label changes of
 // profiles which are not partial, which can unblock the merge of a deleted
 // recording.
 func blockingProfileEventsPredicate() predicate.Funcs {
-	isPartial := func(obj client.Object) bool {
-		_, partial := obj.GetLabels()[profilebase.ProfilePartialLabel]
-
-		return partial
-	}
-
 	return predicate.Funcs{
 		CreateFunc: func(event.CreateEvent) bool { return false },
 		UpdateFunc: func(e event.UpdateEvent) bool {
@@ -182,12 +183,6 @@ func recordingOfPartialProfile(_ context.Context, obj client.Object) []reconcile
 // partialProfileEventsPredicate passes the creations and deletions of partial
 // profiles.
 func partialProfileEventsPredicate() predicate.Funcs {
-	isPartial := func(obj client.Object) bool {
-		_, partial := obj.GetLabels()[profilebase.ProfilePartialLabel]
-
-		return partial
-	}
-
 	return predicate.Funcs{
 		CreateFunc:  func(e event.CreateEvent) bool { return isPartial(e.Object) },
 		UpdateFunc:  func(event.UpdateEvent) bool { return false },

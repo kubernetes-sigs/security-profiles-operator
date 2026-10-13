@@ -159,7 +159,8 @@ type ProfileRecordingStatus struct {
 	// to another recording or were not recorded at all.
 	common.ConditionedStatus `json:",inline"`
 
-	// activeWorkloads lists the workloads currently using this recording.
+	// activeWorkloads lists the workloads currently using this recording. It
+	// holds at most 1000 workloads.
 	// +optional
 	// +listType=set
 	ActiveWorkloads []string `json:"activeWorkloads,omitempty"`
@@ -170,10 +171,14 @@ type ProfileRecordingStatus struct {
 // ProfileRecording is the Schema for the profilerecordings API.
 //
 // The name is used as a label value on the recorded profiles, so it is
-// limited to 63 characters. Existing objects are exempt, so that they can
-// still be updated and deleted.
+// limited to 63 characters. The recorded profiles of a SelinuxProfile
+// recording are named after it, so its name has to be a valid SelinuxProfile
+// name, which starts with a letter and contains no dots. Names which break
+// these rules never recorded a profile. Existing objects are exempt, so that
+// they can still be updated and deleted.
 //
 // +kubebuilder:validation:XValidation:rule="oldSelf.hasValue() || size(self.metadata.name) <= 63",optionalOldSelf=true,message="name must be no more than 63 characters"
+// +kubebuilder:validation:XValidation:rule="(oldSelf.hasValue() && oldSelf.value().spec.kind == 'SelinuxProfile') || self.spec.kind != 'SelinuxProfile' || self.metadata.name.matches('^[a-z][-a-z0-9]*$')",optionalOldSelf=true,message="the name of a SelinuxProfile recording must start with a letter and may only contain lowercase alphanumeric characters and '-'"
 // +kubebuilder:storageversion
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:shortName=prec,categories=spo

@@ -296,6 +296,32 @@ func TestCreateAdoptsLeftoverStatus(t *testing.T) {
 	require.Equal(t, secprofnodestatusapi.ProfileStatePending, status.Status.Status)
 }
 
+// A status written before the node name moved into the spec has neither the
+// node name nor the node label, which the adoption adds.
+func TestCreateRepairsStatusWithoutNodeName(t *testing.T) {
+	t.Parallel()
+
+	sp := preparedProfile()
+	leftover := newStatusClient(t, sp, nil).statusObj(secprofnodestatusapi.ProfileStateInstalled)
+	leftover.Spec.NodeName = ""
+	delete(leftover.Labels, secprofnodestatusapi.StatusToNodeLabel)
+
+	c := newFakeClient(t, sp.DeepCopy(), leftover)
+	sc := newStatusClient(t, sp, c)
+
+	_, err := sc.Create(context.Background())
+	require.NoError(t, err)
+
+	status, err := nodeStatus(t, c, wantStatusName)
+	require.NoError(t, err)
+	require.Equal(t, testNode, status.Spec.NodeName)
+	require.Equal(t,
+		util.NodeNameLabelValue(testNode),
+		status.Labels[secprofnodestatusapi.StatusToNodeLabel],
+	)
+	require.Equal(t, secprofnodestatusapi.ProfileStatePending, status.Status.Status)
+}
+
 func TestCreateMigratesLegacyStatus(t *testing.T) {
 	t.Parallel()
 

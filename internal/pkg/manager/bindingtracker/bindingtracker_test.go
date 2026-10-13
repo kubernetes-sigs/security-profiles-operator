@@ -28,9 +28,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	profilebindingapi "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
+	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
+	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/utiltest"
 )
@@ -79,7 +84,7 @@ func TestPodMatchesBindingNilSelector(t *testing.T) {
 	c := fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithStatusSubresource(binding).
-		WithObjects(binding, pod).
+		WithObjects(binding, pod, testProfile()).
 		WithIndex(&profilebindingapi.ProfileBinding{}, linkedPodsKey, bindingIndexFunc).
 		Build()
 
@@ -96,6 +101,23 @@ func TestPodMatchesBindingNilSelector(t *testing.T) {
 	require.Contains(t, updated.GetFinalizers(), finalizer)
 }
 
+// testLocalhostProfile is the localhost profile of the test profile.
+const testLocalhostProfile = "operator/test-profile.json"
+
+// testProfile returns the installed seccomp profile which the test bindings
+// refer to.
+func testProfile() *seccompprofileapi.SeccompProfile {
+	profile := &seccompprofileapi.SeccompProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-profile"},
+		Status:     seccompprofileapi.SeccompProfileStatus{LocalhostProfile: testLocalhostProfile},
+	}
+	profile.Status.Status = secprofnodestatusapi.ProfileStateInstalled
+
+	return profile
+}
+
+// testPod returns a pod which carries the test profile, like the binding
+// webhook sets it.
 func testPod(podLabels map[string]string, images ...string) *corev1.Pod {
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -103,6 +125,12 @@ func testPod(podLabels map[string]string, images ...string) *corev1.Pod {
 			Namespace: "default",
 			Labels:    podLabels,
 		},
+		Spec: corev1.PodSpec{SecurityContext: &corev1.PodSecurityContext{
+			SeccompProfile: &corev1.SeccompProfile{
+				Type:             corev1.SeccompProfileTypeLocalhost,
+				LocalhostProfile: new(testLocalhostProfile),
+			},
+		}},
 	}
 
 	for i, image := range images {
@@ -149,7 +177,7 @@ func reconcileTestPod(
 	c := fake.NewClientBuilder().
 		WithScheme(utiltest.NewScheme(t)).
 		WithStatusSubresource(binding).
-		WithObjects(append([]client.Object{binding, pod}, objs...)...).
+		WithObjects(append([]client.Object{binding, pod, testProfile()}, objs...)...).
 		WithIndex(&profilebindingapi.ProfileBinding{}, linkedPodsKey, bindingIndexFunc).
 		Build()
 
@@ -346,6 +374,273 @@ func TestPodTrackedByAppliedBindings(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The annotation of the applied bindings can be changed after the creation of
+// the pod, so a pod only uses a binding while it carries its profile.
+func TestPodWithoutBoundProfileIsNotTracked(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		mutate  func(*corev1.Pod)
+		profile *seccompprofileapi.SeccompProfile
+	}{
+		"annotation added afterwards": {
+			mutate: func(p *corev1.Pod) { p.Spec.SecurityContext = nil },
+		},
+		"other localhost profile": {
+			mutate: func(p *corev1.Pod) {
+				p.Spec.SecurityContext.SeccompProfile.LocalhostProfile = new("operator/other.json")
+			},
+		},
+		"profile without status": {
+			profile: &seccompprofileapi.SeccompProfile{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-profile"},
+				Status:     seccompprofileapi.SeccompProfileStatus{LocalhostProfile: testLocalhostProfile},
+			},
+		},
+		"missing profile": {
+			profile: &seccompprofileapi.SeccompProfile{
+				ObjectMeta: metav1.ObjectMeta{Name: "other-profile"},
+			},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			binding := testBinding("nginx")
+
+			pod := testPod(map[string]string{"app": "bound"}, "nginx")
+			pod.Annotations = map[string]string{
+				profilebindingapi.AppliedBindingsAnnotation: "test-binding",
+			}
+
+			if tc.mutate != nil {
+				tc.mutate(pod)
+			}
+
+			profile := testProfile()
+			if tc.profile != nil {
+				profile = tc.profile
+			}
+
+			c := fake.NewClientBuilder().
+				WithScheme(utiltest.NewScheme(t)).
+				WithStatusSubresource(binding).
+				WithObjects(binding, pod, profile).
+				WithIndex(&profilebindingapi.ProfileBinding{}, linkedPodsKey, bindingIndexFunc).
+				Build()
+
+			_, err := newReconciler(c).Reconcile(t.Context(), reconcile.Request{
+				NamespacedName: client.ObjectKeyFromObject(pod),
+			})
+			require.NoError(t, err)
+
+			updated := &profilebindingapi.ProfileBinding{}
+			require.NoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(binding), updated))
+			require.Empty(t, updated.Status.ActiveWorkloads)
+			require.NotContains(t, updated.GetFinalizers(), finalizer)
+		})
+	}
+}
+
+// A tracked pod stays tracked while it is annotated, also if the profile of
+// the binding is gone or has no status by now, and costs no profile lookup.
+func TestTrackedPodKeepsBinding(t *testing.T) {
+	t.Parallel()
+
+	for name, finalizers := range map[string][]string{
+		"with finalizer":    {finalizer},
+		"without finalizer": nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			binding := testBinding("nginx", "default/test-pod")
+			binding.Finalizers = finalizers
+
+			pod := testPod(map[string]string{"app": "bound"}, "nginx")
+			pod.Annotations = map[string]string{
+				profilebindingapi.AppliedBindingsAnnotation: "test-binding",
+			}
+
+			profileReads := 0
+			c := fake.NewClientBuilder().
+				WithScheme(utiltest.NewScheme(t)).
+				WithStatusSubresource(binding).
+				WithObjects(binding, pod).
+				WithIndex(&profilebindingapi.ProfileBinding{}, linkedPodsKey, bindingIndexFunc).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Get: func(
+						ctx context.Context, cl client.WithWatch, key client.ObjectKey,
+						obj client.Object, opts ...client.GetOption,
+					) error {
+						if _, ok := obj.(*seccompprofileapi.SeccompProfile); ok {
+							profileReads++
+						}
+
+						return cl.Get(ctx, key, obj, opts...)
+					},
+				}).
+				Build()
+
+			_, err := newReconciler(c).Reconcile(t.Context(), reconcile.Request{
+				NamespacedName: client.ObjectKeyFromObject(pod),
+			})
+			require.NoError(t, err)
+			require.Zero(t, profileReads)
+
+			updated := &profilebindingapi.ProfileBinding{}
+			require.NoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(binding), updated))
+			require.Equal(t, []string{"default/test-pod"}, updated.Status.ActiveWorkloads)
+			require.Contains(t, updated.GetFinalizers(), finalizer)
+		})
+	}
+}
+
+// The profile of every kind is matched like the binding webhook sets it, on
+// the pod or on any of its containers.
+func TestProfileCarrier(t *testing.T) {
+	t.Parallel()
+
+	selinux := &selinuxprofileapi.SelinuxProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: "selinux"},
+		Status:     selinuxprofileapi.SelinuxProfileStatus{Usage: "selinux.process"},
+	}
+	selinux.Status.Status = secprofnodestatusapi.ProfileStateInstalled
+
+	apparmor := &apparmorprofileapi.AppArmorProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: "apparmor"},
+	}
+	apparmor.Status.Status = secprofnodestatusapi.ProfileStateInstalled
+
+	c := fake.NewClientBuilder().
+		WithScheme(utiltest.NewScheme(t)).
+		WithObjects(testProfile(), selinux, apparmor).
+		Build()
+	r := newReconciler(c)
+
+	binding := func(kind profilebindingapi.ProfileBindingKind, name string) *profilebindingapi.ProfileBinding {
+		return &profilebindingapi.ProfileBinding{Spec: profilebindingapi.ProfileBindingSpec{
+			ProfileRef: profilebindingapi.ProfileRef{Kind: kind, Name: name},
+		}}
+	}
+
+	for name, tc := range map[string]struct {
+		binding *profilebindingapi.ProfileBinding
+		pod     func() *corev1.Pod
+		want    bool
+	}{
+		"seccomp on the pod": {
+			binding: binding(profilebindingapi.ProfileBindingKindSeccompProfile, "test-profile"),
+			pod:     func() *corev1.Pod { return testPod(nil) },
+			want:    true,
+		},
+		"selinux on an init container": {
+			binding: binding(profilebindingapi.ProfileBindingKindSelinuxProfile, "selinux"),
+			pod: func() *corev1.Pod {
+				pod := testPod(nil)
+				pod.Spec.InitContainers = []corev1.Container{{
+					Name: "init",
+					SecurityContext: &corev1.SecurityContext{
+						SELinuxOptions: &corev1.SELinuxOptions{Type: "selinux.process", Level: "s0"},
+					},
+				}}
+
+				return pod
+			},
+			want: true,
+		},
+		"selinux of another type": {
+			binding: binding(profilebindingapi.ProfileBindingKindSelinuxProfile, "selinux"),
+			pod: func() *corev1.Pod {
+				pod := testPod(nil)
+				pod.Spec.SecurityContext.SELinuxOptions = &corev1.SELinuxOptions{Type: "other.process"}
+
+				return pod
+			},
+		},
+		"apparmor on an ephemeral container": {
+			binding: binding(profilebindingapi.ProfileBindingKindAppArmorProfile, "apparmor"),
+			pod: func() *corev1.Pod {
+				pod := testPod(nil)
+				pod.Spec.EphemeralContainers = []corev1.EphemeralContainer{{
+					EphemeralContainerCommon: corev1.EphemeralContainerCommon{
+						Name: "debugger",
+						SecurityContext: &corev1.SecurityContext{AppArmorProfile: &corev1.AppArmorProfile{
+							Type: corev1.AppArmorProfileTypeLocalhost, LocalhostProfile: new("apparmor"),
+						}},
+					},
+				}}
+
+				return pod
+			},
+			want: true,
+		},
+		"apparmor runtime default": {
+			binding: binding(profilebindingapi.ProfileBindingKindAppArmorProfile, "apparmor"),
+			pod: func() *corev1.Pod {
+				pod := testPod(nil)
+				pod.Spec.SecurityContext.AppArmorProfile = &corev1.AppArmorProfile{
+					Type: corev1.AppArmorProfileTypeRuntimeDefault,
+				}
+
+				return pod
+			},
+		},
+		"unsupported kind": {
+			binding: binding("Other", "test-profile"),
+			pod:     func() *corev1.Pod { return testPod(nil) },
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			carries, err := r.profileCarrier(t.Context(), tc.binding)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, carries(tc.pod()))
+		})
+	}
+}
+
+// A binding whose last listed pod goes away gets filled up with the other pods
+// using it, which a full list did not take, so that it keeps its finalizer.
+// Like pods tracked anew, they have to carry the profile of the binding.
+func TestEmptiedBindingGetsFilledUp(t *testing.T) {
+	t.Parallel()
+
+	binding := testBinding("nginx", "default/listed")
+	binding.Spec.PodSelector = nil
+
+	pod := testPod(nil, "nginx")
+	pod.Annotations = map[string]string{profilebindingapi.AppliedBindingsAnnotation: "test-binding"}
+
+	unannotated := testPod(nil, "nginx")
+	unannotated.Name = "unannotated"
+
+	// A pod which only carries the annotation does not keep the binding, the
+	// pod author can add it.
+	otherProfile := testPod(nil, "nginx")
+	otherProfile.Name = "other-profile"
+	otherProfile.Annotations = pod.Annotations
+	otherProfile.Spec.SecurityContext.SeccompProfile.LocalhostProfile = new("operator/other.json")
+
+	c := fake.NewClientBuilder().
+		WithScheme(utiltest.NewScheme(t)).
+		WithStatusSubresource(binding).
+		WithObjects(binding, pod, unannotated, otherProfile, testProfile()).
+		WithIndex(&profilebindingapi.ProfileBinding{}, linkedPodsKey, bindingIndexFunc).
+		Build()
+
+	_, err := newReconciler(c).Reconcile(t.Context(), reconcile.Request{
+		NamespacedName: client.ObjectKey{Namespace: "default", Name: "listed"},
+	})
+	require.NoError(t, err)
+
+	updated := &profilebindingapi.ProfileBinding{}
+	require.NoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(binding), updated))
+	require.Equal(t, []string{"default/test-pod"}, updated.Status.ActiveWorkloads)
+	require.Contains(t, updated.GetFinalizers(), finalizer)
 }
 
 // bindingWebhookObjects returns the webhook configuration whose binding
@@ -589,7 +884,7 @@ func TestTrackedPodSkipsAPIRequests(t *testing.T) {
 			c := fake.NewClientBuilder().
 				WithScheme(utiltest.NewScheme(t)).
 				WithStatusSubresource(binding).
-				WithObjects(binding, pod).
+				WithObjects(binding, pod, testProfile()).
 				WithIndex(&profilebindingapi.ProfileBinding{}, linkedPodsKey, bindingIndexFunc).
 				Build()
 
@@ -651,8 +946,9 @@ func TestUntrackPodKeepsFinalizerForConcurrentlyTrackedPod(t *testing.T) {
 	reads := 0
 	r := newReconciler(c)
 	r.reader = hookReader{Reader: c, reads: &reads, afterGet: func(n int) {
-		// The second read checks whether the finalizer can go.
-		if n != 2 {
+		// The status gets written as cached, the first read checks whether
+		// the finalizer can go.
+		if n != 1 {
 			return
 		}
 
@@ -669,7 +965,7 @@ func TestUntrackPodKeepsFinalizerForConcurrentlyTrackedPod(t *testing.T) {
 		NamespacedName: client.ObjectKey{Namespace: "default", Name: "deleted-pod"},
 	})
 	require.NoError(t, err)
-	require.Greater(t, reads, 2, "the finalizer removal got retried")
+	require.Greater(t, reads, 1, "the finalizer removal got retried")
 
 	updated := &profilebindingapi.ProfileBinding{}
 	require.NoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(binding), updated))

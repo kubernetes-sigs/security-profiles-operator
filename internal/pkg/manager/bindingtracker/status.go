@@ -23,8 +23,8 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -38,6 +38,7 @@ import (
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -215,29 +216,23 @@ func (r *bindingStatusReconciler) getProfile(
 
 // profileKindDisabled returns true if the SPOD configuration disables the
 // profile kind, so that the binding webhook skips bindings to its profiles
-// without status. A missing configuration counts as enabled, like for the
-// webhook. SELinux is enabled by default only on OpenShift, like the SPOD
-// controller and the webhook decide it.
+// without status, see bindata.ProfileKindEnabled.
 func (r *bindingStatusReconciler) profileKindDisabled(
 	ctx context.Context, kind profilebindingapi.ProfileBindingKind,
 ) (bool, error) {
-	if kind != profilebindingapi.ProfileBindingKindSelinuxProfile &&
-		kind != profilebindingapi.ProfileBindingKindAppArmorProfile {
-		return false, nil
+	enabled, err := bindata.ProfileKindEnabled(kind, r.isOpenShift,
+		func() (*spodapi.SecurityProfilesOperatorDaemon, error) {
+			spod := &spodapi.SecurityProfilesOperatorDaemon{}
+
+			return spod, r.client.Get(
+				ctx, util.NamespacedName(config.SPOdName, r.operatorNamespace), spod,
+			)
+		})
+	if err != nil {
+		return false, err
 	}
 
-	spod := &spodapi.SecurityProfilesOperatorDaemon{}
-	if err := r.client.Get(
-		ctx, util.NamespacedName(config.SPOdName, r.operatorNamespace), spod,
-	); err != nil {
-		return false, client.IgnoreNotFound(err)
-	}
-
-	if kind == profilebindingapi.ProfileBindingKindSelinuxProfile {
-		return !spod.SelinuxEnabled(r.isOpenShift), nil
-	}
-
-	return !spod.AppArmorEnabled(), nil
+	return !enabled, nil
 }
 
 // profileState returns the state in the status of a profile.
@@ -249,12 +244,16 @@ func profileState(obj client.Object) secprofnodestatusapi.ProfileState {
 	return ""
 }
 
+// setCondition sets the condition on the binding. The first attempt reads the
+// binding from the cache, so that a binding which has the condition already
+// costs no request to the API server. A retry after a conflict reads it from
+// the API server, the cache may still return the version which lost.
 func (r *bindingStatusReconciler) setCondition(
 	ctx context.Context, req reconcile.Request, condition *metav1.Condition,
 ) error {
-	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+	return util.RetryWithFreshReads(ctx, r.client, r.reader, func(c client.Client) error {
 		binding := &profilebindingapi.ProfileBinding{}
-		if err := r.reader.Get(ctx, req.NamespacedName, binding); err != nil {
+		if err := c.Get(ctx, req.NamespacedName, binding); err != nil {
 			return client.IgnoreNotFound(err)
 		}
 
@@ -270,12 +269,12 @@ func (r *bindingStatusReconciler) setCondition(
 				"reason", condition.Reason)
 
 		// Only the conditions get patched, not the active workloads.
-		if err := r.client.Status().Patch(
+		if err := c.Status().Patch(
 			ctx, updated, client.MergeFromWithOptions(binding, client.MergeFromWithOptimisticLock{}),
 		); err != nil {
 			return fmt.Errorf("updating binding status: %w", err)
 		}
 
 		return nil
-	})
+	}, apierrors.IsConflict)
 }

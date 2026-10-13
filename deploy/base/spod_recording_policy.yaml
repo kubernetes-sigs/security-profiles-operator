@@ -1,0 +1,85 @@
+---
+# The spod service account updates ProfileRecordings only to add the
+# spo.x-k8s.io/has-unmerged-profiles finalizer, see holdRecording in
+# internal/pkg/daemon/profilerecorder/profilerecorder.go. RBAC cannot restrict
+# the content of a write, so this policy limits the writes of the spod service
+# account to that finalizer. Otherwise a compromised node could change the
+# pod selector of a recording, so that the recording webhook applies the
+# logging seccomp profile and the permissive SELinux type of the recordings to
+# the pods of other nodes.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: spo-spod-recordings
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - apiGroups: ["security-profiles-operator.x-k8s.io"]
+      apiVersions: ["v1"]
+      operations: ["CREATE", "UPDATE"]
+      resources: ["profilerecordings"]
+  matchConditions:
+  # The operator namespace is not known here, so this matches the spod
+  # service account of any namespace.
+  - name: spod-service-account
+    expression: >-
+      request.userInfo.username.matches('^system:serviceaccount:[^:]+:spod$')
+  variables:
+  # The new and the old spec, with the fields which are left out replaced by
+  # their zero values or defaults. The daemons write the recording which they
+  # decoded, which drops the fields that are set to their zero value, so the
+  # specs differ without changing the recording. Every field of the spec has
+  # to be listed here, otherwise changing it is not detected, which the tests
+  # of internal/pkg/manifests check.
+  - name: specs
+    expression: >-
+      [object, oldObject].map(o, o.?spec.orValue({})).map(s, [
+      dyn(s.?kind.orValue('')),
+      dyn(s.?recorder.orValue('')),
+      dyn(s.?mergeStrategy.orValue('None')),
+      dyn(s.?podSelector.hasValue()),
+      dyn(s.?podSelector.?matchLabels.orValue({})),
+      dyn(s.?podSelector.?matchExpressions.orValue([]).map(e, [
+      dyn(e.?key.orValue('')),
+      dyn(e.?operator.orValue('')),
+      dyn(e.?values.orValue([]))])),
+      dyn(s.?containers.orValue([])),
+      dyn(s.?disableProfileAfterRecording.orValue(false))])
+  - name: finalizers
+    expression: >-
+      object.metadata.?finalizers.orValue([])
+  - name: oldFinalizers
+    expression: >-
+      oldObject.metadata.?finalizers.orValue([])
+  validations:
+  - expression: request.operation == 'UPDATE'
+    message: The spod service account must not create recordings
+    reason: Forbidden
+  - expression: variables.specs[0] == variables.specs[1]
+    message: The spod service account must not change the spec of recordings
+    reason: Forbidden
+  - expression: >-
+      object.metadata.?labels.orValue({}) == oldObject.metadata.?labels.orValue({}) &&
+      object.metadata.?annotations.orValue({}) == oldObject.metadata.?annotations.orValue({}) &&
+      object.metadata.?ownerReferences.orValue([]) == oldObject.metadata.?ownerReferences.orValue([])
+    message: >-
+      The spod service account must not change the labels, annotations or
+      owner references of recordings
+    reason: Forbidden
+  - expression: >-
+      variables.oldFinalizers.all(f, f in variables.finalizers) &&
+      variables.finalizers.all(f, f in variables.oldFinalizers ||
+      f == 'spo.x-k8s.io/has-unmerged-profiles')
+    message: >-
+      The spod service account may only add the
+      spo.x-k8s.io/has-unmerged-profiles finalizer to recordings
+    reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: spo-spod-recordings
+spec:
+  policyName: spo-spod-recordings
+  validationActions: ["Deny"]

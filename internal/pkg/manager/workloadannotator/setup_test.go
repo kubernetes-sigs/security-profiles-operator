@@ -146,46 +146,6 @@ func TestPodPredicateCreateDelete(t *testing.T) {
 	require.False(t, p.Generic(event.GenericEvent{Object: withoutProfile}))
 }
 
-func TestAllContainers(t *testing.T) {
-	t.Parallel()
-
-	pod := &corev1.Pod{Spec: corev1.PodSpec{
-		Containers:     []corev1.Container{{Name: "a"}, {Name: "b"}},
-		InitContainers: []corev1.Container{{Name: "init"}},
-		EphemeralContainers: []corev1.EphemeralContainer{{
-			EphemeralContainerCommon: corev1.EphemeralContainerCommon{Name: "debug"},
-		}},
-	}}
-
-	names := []string{}
-	for ctr := range allContainers(pod) {
-		names = append(names, ctr.Name)
-	}
-
-	require.Equal(t, []string{"a", "b", "init", "debug"}, names)
-
-	// The iteration stops early without visiting the other containers.
-	names = names[:0]
-	for ctr := range allContainers(pod) {
-		names = append(names, ctr.Name)
-
-		if ctr.Name == "b" {
-			break
-		}
-	}
-
-	require.Equal(t, []string{"a", "b"}, names)
-
-	// The containers are not copied.
-	for ctr := range allContainers(pod) {
-		ctr.Image = "changed"
-
-		break
-	}
-
-	require.Equal(t, "changed", pod.Spec.Containers[0].Image)
-}
-
 // Completed pods do not use their profiles anymore.
 func TestPodIndexSkipsCompletedPods(t *testing.T) {
 	t.Parallel()

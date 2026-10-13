@@ -9,13 +9,14 @@ sortOptions:
 resources:
 - ../../base
 patches:
-  # Target all namespaced resources present in the project.
+  # Target all namespaced kinds of the project. The profiles and the node
+  # statuses are cluster scoped.
 - patch: |
     - op: replace
       path: /metadata/namespace
       value: "{{ .Release.Namespace }}"
   target:
-    kind: (AppArmorProfile|Binding|Certificate|CertificateRequest|ConfigMap|ControllerRevision|DaemonSet|Deployment|Ingress|Issuer|ProfileBinding|ProfileRecording|RawSelinuxProfile|Role|RoleBinding|SeccompProfile|Secret|SecurityProfileNodeStatus|SecurityProfilesOperatorDaemon|SelinuxProfile|Service|ServiceAccount)
+    kind: (Binding|Certificate|CertificateRequest|ConfigMap|ControllerRevision|DaemonSet|Deployment|Ingress|Issuer|ProfileBinding|ProfileRecording|Role|RoleBinding|Secret|SecurityProfilesOperatorDaemon|Service|ServiceAccount)
 
   # Replace the namespace into the role binding associations.
 - patch: |

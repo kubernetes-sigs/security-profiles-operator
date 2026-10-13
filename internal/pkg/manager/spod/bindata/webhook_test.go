@@ -17,6 +17,7 @@ limitations under the License.
 package bindata
 
 import (
+	"errors"
 	"slices"
 	"testing"
 
@@ -27,14 +28,17 @@ import (
 	admissionregv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	profilebindingapi "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
@@ -1405,7 +1409,7 @@ func TestRecordingMatchCondition(t *testing.T) {
 	}
 
 	// Every recording annotation prefix counts.
-	for _, prefix := range recordingAnnotationPrefixes {
+	for _, prefix := range RecordingAnnotationPrefixes {
 		oldPod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
 			Annotations: map[string]string{prefix + "ctr": "value"},
 		}}
@@ -1490,4 +1494,50 @@ func TestRecordingWebhookSelection(t *testing.T) {
 		t,
 		nothing.Matches(labels.Set{"security-profiles-operator.x-k8s.io/no-recording-webhook": ""}),
 	)
+}
+
+func TestProfileKindEnabled(t *testing.T) {
+	t.Parallel()
+
+	errTest := errors.New("test")
+	selinux := profilebindingapi.ProfileBindingKindSelinuxProfile
+	apparmor := profilebindingapi.ProfileBindingKindAppArmorProfile
+
+	for name, tc := range map[string]struct {
+		kind        profilebindingapi.ProfileBindingKind
+		isOpenShift bool
+		spod        *spodapi.SecurityProfilesOperatorDaemon
+		err         error
+		want        bool
+		wantErr     bool
+	}{
+		"seccomp does not need the SPOD": {
+			kind: profilebindingapi.ProfileBindingKindSeccompProfile, err: errTest, want: true,
+		},
+		"missing SPOD": {
+			kind: apparmor, err: kerrors.NewNotFound(schema.GroupResource{}, "spod"), want: true,
+		},
+		"nil SPOD":          {kind: apparmor, want: true},
+		"SPOD error":        {kind: apparmor, err: errTest, wantErr: true},
+		"apparmor disabled": {kind: apparmor, spod: &spodapi.SecurityProfilesOperatorDaemon{}},
+		"selinux disabled":  {kind: selinux, spod: &spodapi.SecurityProfilesOperatorDaemon{}},
+		"selinux default on OpenShift": {
+			kind: selinux, isOpenShift: true, spod: &spodapi.SecurityProfilesOperatorDaemon{}, want: true,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := ProfileKindEnabled(tc.kind, tc.isOpenShift,
+				func() (*spodapi.SecurityProfilesOperatorDaemon, error) { return tc.spod, tc.err })
+			if tc.wantErr {
+				require.ErrorIs(t, err, errTest)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
 }

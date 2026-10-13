@@ -108,6 +108,9 @@ func (p *podSeccompRecorder) Handle(
 	// annotations of the old pod are the ones to keep, so that a recording
 	// created later does not start on a pod which is already running, and
 	// removing or changing the annotation cannot rename the recorded profile.
+	// The match condition of the webhook leaves out updates which only add
+	// annotations, which the daemon and the recording tracker only count for
+	// a recording which selects the pod and the container.
 	oldPod := &corev1.Pod{}
 
 	if !isCreate && len(req.OldObject.Raw) > 0 {
@@ -201,17 +204,6 @@ func (p *podSeccompRecorder) Handle(
 	return utils.PodPatchResponse(p.decoder, &req, pod)
 }
 
-func (p *podSeccompRecorder) shouldRecordContainer(containerName string,
-	profileRecording *profilerecordingapi.ProfileRecording,
-) bool {
-	// Allow all containers when no containers are explicitly listed
-	if profileRecording.Spec.Containers == nil {
-		return true
-	}
-
-	return slices.Contains(profileRecording.Spec.Containers, containerName)
-}
-
 // updatePod applies the recording to the containers of the pod. On creation
 // the containers get their security context and a fresh recording annotation.
 // Otherwise oldPod is the pod before the update: only annotations which
@@ -225,19 +217,9 @@ func (p *podSeccompRecorder) updatePod(
 	claimed map[string]string,
 ) (podChanged bool, err error) {
 	// Collect containers as references to not copy them during modification
-	ctrs := []*corev1.Container{}
-
-	for i := range pod.Spec.InitContainers {
-		if p.shouldRecordContainer(pod.Spec.InitContainers[i].Name, profileRecording) {
-			ctrs = append(ctrs, &pod.Spec.InitContainers[i])
-		}
-	}
-
-	for i := range pod.Spec.Containers {
-		if p.shouldRecordContainer(pod.Spec.Containers[i].Name, profileRecording) {
-			ctrs = append(ctrs, &pod.Spec.Containers[i])
-		}
-	}
+	ctrs := slices.DeleteFunc(util.PodContainers(pod), func(c *corev1.Container) bool {
+		return !util.RecordsContainer(profileRecording, c.Name)
+	})
 
 	for i := range ctrs {
 		ctr := ctrs[i]

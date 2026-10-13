@@ -9,6 +9,7 @@ sortOptions:
 
 resources:
 - ../cluster
+- prometheus_role.yaml
 patches:
 - patch: |-
     - op: replace
@@ -21,10 +22,6 @@ patches:
   target:
     kind: CustomResourceDefinition
     name: securityprofilesoperatordaemons.security-profiles-operator.x-k8s.io
-- path: service_discovery_rules.yaml
-  target:
-    kind: ClusterRole
-    name: spo-metrics-client
 - path: bind_monitoring_sa.yaml
   target:
     kind: ClusterRoleBinding

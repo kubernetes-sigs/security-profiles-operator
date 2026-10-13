@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"iter"
 	"os"
 	"path"
 	"path/filepath"
@@ -81,6 +82,42 @@ func PodCompletedNow(oldObj, newObj client.Object) bool {
 	newPod, newOk := newObj.(*corev1.Pod)
 
 	return oldOk && newOk && !PodCompleted(oldPod) && PodCompleted(newPod)
+}
+
+// PodContainers returns the init and regular containers of the pod. Changes
+// of the returned containers change the pod.
+func PodContainers(pod *corev1.Pod) []*corev1.Container {
+	ctrs := make([]*corev1.Container, 0, len(pod.Spec.InitContainers)+len(pod.Spec.Containers))
+	for i := range pod.Spec.InitContainers {
+		ctrs = append(ctrs, &pod.Spec.InitContainers[i])
+	}
+
+	for i := range pod.Spec.Containers {
+		ctrs = append(ctrs, &pod.Spec.Containers[i])
+	}
+
+	return ctrs
+}
+
+// AllContainers iterates over the init, regular and ephemeral containers of
+// the pod without copying the init and regular ones. The common fields of the
+// ephemeral containers are the ones of regular containers, they are yielded
+// as a copy, so changes of them do not change the pod.
+func AllContainers(pod *corev1.Pod) iter.Seq[*corev1.Container] {
+	return func(yield func(*corev1.Container) bool) {
+		for _, ctr := range PodContainers(pod) {
+			if !yield(ctr) {
+				return
+			}
+		}
+
+		for i := range pod.Spec.EphemeralContainers {
+			ctr := corev1.Container(pod.Spec.EphemeralContainers[i].EphemeralContainerCommon)
+			if !yield(&ctr) {
+				return
+			}
+		}
+	}
 }
 
 // GetContainerRuntime parses the container runtime from a node object.

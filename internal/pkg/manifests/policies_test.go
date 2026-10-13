@@ -37,6 +37,7 @@ import (
 	"k8s.io/apiserver/pkg/cel/environment"
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
+	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 )
@@ -49,6 +50,9 @@ const (
 	nodeNameClaim    = "authentication.kubernetes.io/node-name"
 	recordingIDLabel = "spo.x-k8s.io/recording-id"
 	profileIDLabel   = "spo.x-k8s.io/profile-id"
+	nodeNameLabel    = "spo.x-k8s.io/node-name"
+
+	unmergedFinalizer = "spo.x-k8s.io/has-unmerged-profiles"
 )
 
 // profileTypes are the Go types of the profile kinds which the
@@ -907,6 +911,645 @@ func TestSpodJobsPolicy(t *testing.T) {
 				username:  spodUser,
 				nodes:     tc.nodes,
 				object:    job,
+			}))
+		})
+	}
+}
+
+// recording returns a ProfileRecording with the spec and finalizers.
+func recording(spec map[string]any, finalizers ...any) map[string]any {
+	metadata := map[string]any{"name": "recording", "namespace": "default"}
+	if len(finalizers) > 0 {
+		metadata["finalizers"] = finalizers
+	}
+
+	return map[string]any{
+		"apiVersion": "security-profiles-operator.x-k8s.io/v1",
+		"kind":       "ProfileRecording",
+		"metadata":   metadata,
+		"spec":       spec,
+	}
+}
+
+// fullRecordingSpec sets every field of the spec of a ProfileRecording to a
+// value which is neither the zero value nor the default.
+func fullRecordingSpec() map[string]any {
+	return map[string]any{
+		"kind":          "SeccompProfile",
+		"recorder":      "Bpf",
+		"mergeStrategy": "Containers",
+		"podSelector": map[string]any{
+			"matchLabels": map[string]any{"app": "a"},
+			"matchExpressions": []any{map[string]any{
+				"key": "tier", "operator": "In", "values": []any{"web"},
+			}},
+		},
+		"containers":                   []any{"nginx"},
+		"disableProfileAfterRecording": true,
+	}
+}
+
+// recordingRoundTrip returns the recording the way a daemon writes it back:
+// decoded into its Go type, encoded again and defaulted by the API server.
+func recordingRoundTrip(t *testing.T, obj map[string]any) map[string]any {
+	t.Helper()
+
+	data, err := json.Marshal(obj)
+	require.NoError(t, err)
+
+	typed := &profilerecordingapi.ProfileRecording{}
+	require.NoError(t, json.Unmarshal(data, typed))
+
+	data, err = json.Marshal(typed)
+	require.NoError(t, err)
+
+	out := map[string]any{}
+	require.NoError(t, utiljson.Unmarshal(data, &out))
+
+	applyRecordingDefaults(out)
+
+	return out
+}
+
+// applyRecordingDefaults applies the defaults of the CRD to the spec of the
+// recording, like the API server does for each object it decodes.
+func applyRecordingDefaults(obj map[string]any) {
+	spec, ok := obj["spec"].(map[string]any)
+	if !ok {
+		return
+	}
+
+	for key, value := range map[string]any{
+		"mergeStrategy":                "None",
+		"disableProfileAfterRecording": false,
+	} {
+		if _, ok := spec[key]; !ok {
+			spec[key] = value
+		}
+	}
+}
+
+func TestSpodRecordingsPolicySpecs(t *testing.T) {
+	t.Parallel()
+
+	env := newEnv(t)
+	policy := readPolicy(t, "spod_recording_policy.yaml")
+
+	paths := specPaths(reflect.TypeFor[profilerecordingapi.ProfileRecordingSpec](), "")
+	require.NotEmpty(t, paths)
+
+	for _, path := range paths {
+		for _, mutation := range []string{"change", "remove"} {
+			t.Run(mutation+"/"+path, func(t *testing.T) {
+				t.Parallel()
+
+				spec := fullRecordingSpec()
+				newSpec := deepCopy(t, spec)
+
+				// Each field has to be set in the full spec, so that the
+				// policy has to detect a change of it.
+				parent, key := fieldParent(t, newSpec, path)
+				if mutation == "change" {
+					parent[key] = changeValue(t, parent[key])
+				} else {
+					delete(parent, key)
+				}
+
+				require.False(t, evaluate(t, env, policy, &request{
+					operation: "UPDATE",
+					kind:      "ProfileRecording",
+					username:  spodUser,
+					object:    recording(newSpec, unmergedFinalizer),
+					oldObject: recording(spec),
+				}))
+			})
+		}
+	}
+}
+
+func TestSpodRecordingsPolicyRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	env := newEnv(t)
+	policy := readPolicy(t, "spod_recording_policy.yaml")
+
+	files, err := filepath.Glob(filepath.Join(examplesDir, "profilerecording-*.yaml"))
+	require.NoError(t, err)
+	require.NotEmpty(t, files)
+
+	recordings := make([]map[string]any, 0, len(files)+2)
+
+	// Fields which are set to their zero values, which the daemons drop when
+	// writing a recording back.
+	recordings = append(recordings,
+		recording(map[string]any{
+			"kind":     "SeccompProfile",
+			"recorder": "Logs",
+			"podSelector": map[string]any{
+				"matchLabels":      map[string]any{},
+				"matchExpressions": []any{},
+			},
+			"containers": []any{},
+		}),
+		recording(map[string]any{
+			"kind":     "SeccompProfile",
+			"recorder": "Bpf",
+			"podSelector": map[string]any{"matchExpressions": []any{map[string]any{
+				"key": "tier", "operator": "Exists", "values": []any{},
+			}}},
+			"disableProfileAfterRecording": false,
+		}),
+	)
+
+	for _, file := range files {
+		recordings = append(recordings, readObjects(t, file)...)
+	}
+
+	// The daemons add the finalizer to the recording they read.
+	for _, stored := range recordings {
+		applyRecordingDefaults(stored)
+
+		written := recordingRoundTrip(t, stored)
+		metadata, ok := written["metadata"].(map[string]any)
+		require.True(t, ok)
+
+		metadata["finalizers"] = []any{unmergedFinalizer}
+
+		require.True(t, evaluate(t, env, policy, &request{
+			operation: "UPDATE",
+			kind:      "ProfileRecording",
+			username:  spodUser,
+			object:    written,
+			oldObject: stored,
+		}), "%v", stored)
+	}
+}
+
+func TestSpodRecordingsPolicyMetadata(t *testing.T) {
+	t.Parallel()
+
+	env := newEnv(t)
+	policy := readPolicy(t, "spod_recording_policy.yaml")
+	withMetadata := func(obj map[string]any, key string, value any) map[string]any {
+		metadata, ok := obj["metadata"].(map[string]any)
+		require.True(t, ok)
+
+		metadata[key] = value
+
+		return obj
+	}
+
+	for _, tc := range []struct {
+		name     string
+		req      *request
+		admitted bool
+	}{
+		{
+			name: "add finalizer",
+			req: &request{
+				operation: "UPDATE",
+				object:    recording(fullRecordingSpec(), "other", unmergedFinalizer),
+				oldObject: recording(fullRecordingSpec(), "other"),
+			},
+			admitted: true,
+		},
+		{
+			name: "keep finalizer",
+			req: &request{
+				operation: "UPDATE",
+				object:    recording(fullRecordingSpec(), unmergedFinalizer),
+				oldObject: recording(fullRecordingSpec(), unmergedFinalizer),
+			},
+			admitted: true,
+		},
+		{
+			name: "create",
+			req: &request{
+				operation: "CREATE",
+				object:    recording(fullRecordingSpec()),
+			},
+			admitted: false,
+		},
+		{
+			name: "remove finalizer",
+			req: &request{
+				operation: "UPDATE",
+				object:    recording(fullRecordingSpec()),
+				oldObject: recording(fullRecordingSpec(), unmergedFinalizer),
+			},
+			admitted: false,
+		},
+		{
+			name: "remove other finalizer",
+			req: &request{
+				operation: "UPDATE",
+				object:    recording(fullRecordingSpec(), unmergedFinalizer),
+				oldObject: recording(fullRecordingSpec(), "other"),
+			},
+			admitted: false,
+		},
+		{
+			name: "add other finalizer",
+			req: &request{
+				operation: "UPDATE",
+				object:    recording(fullRecordingSpec(), "other"),
+				oldObject: recording(fullRecordingSpec()),
+			},
+			admitted: false,
+		},
+		{
+			name: "add label",
+			req: &request{
+				operation: "UPDATE",
+				object: withMetadata(recording(fullRecordingSpec(), unmergedFinalizer),
+					"labels", map[string]any{"team": "a"}),
+				oldObject: recording(fullRecordingSpec()),
+			},
+			admitted: false,
+		},
+		{
+			name: "add annotation",
+			req: &request{
+				operation: "UPDATE",
+				object: withMetadata(recording(fullRecordingSpec(), unmergedFinalizer),
+					"annotations", map[string]any{"note": "a"}),
+				oldObject: recording(fullRecordingSpec()),
+			},
+			admitted: false,
+		},
+		{
+			name: "add owner reference",
+			req: &request{
+				operation: "UPDATE",
+				object: withMetadata(recording(fullRecordingSpec()), "ownerReferences", []any{
+					map[string]any{"apiVersion": "v1", "kind": "ConfigMap", "name": "gone", "uid": "uid"},
+				}),
+				oldObject: recording(fullRecordingSpec()),
+			},
+			admitted: false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			tc.req.kind = "ProfileRecording"
+			tc.req.username = spodUser
+			require.Equal(t, tc.admitted, evaluate(t, env, policy, tc.req))
+		})
+	}
+}
+
+func TestSpodRecordingsPolicyUsers(t *testing.T) {
+	t.Parallel()
+
+	env := newEnv(t)
+	policy := readPolicy(t, "spod_recording_policy.yaml")
+	widened := fullRecordingSpec()
+	widened["podSelector"] = map[string]any{}
+
+	for username, admitted := range map[string]bool{
+		spodUser:                           false,
+		"system:serviceaccount:other:spod": false,
+		"system:serviceaccount:security-profiles-operator:security-profiles-operator": true,
+		"kube:admin": true,
+	} {
+		t.Run(username, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, admitted, evaluate(t, env, policy, &request{
+				operation: "UPDATE",
+				kind:      "ProfileRecording",
+				username:  username,
+				object:    recording(widened),
+				oldObject: recording(fullRecordingSpec()),
+			}))
+		})
+	}
+}
+
+// nodeStatus returns a SecurityProfileNodeStatus of the node with the value
+// of the node name label, which is left out if it is empty.
+func nodeStatus(node, label string) map[string]any {
+	labels := map[string]any{
+		profileIDLabel:               "SeccompProfile-profile",
+		"spo.x-k8s.io/profile-state": "Installed",
+		"spo.x-k8s.io/profile-kind":  "SeccompProfile",
+	}
+	if label != "" {
+		labels[nodeNameLabel] = label
+	}
+
+	return map[string]any{
+		"apiVersion": "security-profiles-operator.x-k8s.io/v1",
+		"kind":       "SecurityProfileNodeStatus",
+		"metadata": map[string]any{
+			"name":   "seccompprofile-profile-" + node,
+			"labels": labels,
+		},
+		"spec":   map[string]any{"nodeName": node},
+		"status": map[string]any{"status": "Installed"},
+	}
+}
+
+// legacyNodeStatus returns a SecurityProfileNodeStatus written before the
+// node name moved into the spec, with the value of the node name label, which
+// is left out if it is empty.
+func legacyNodeStatus(name, label string) map[string]any {
+	status := nodeStatus("", label)
+	status["spec"] = map[string]any{}
+
+	metadata, ok := status["metadata"].(map[string]any)
+	if ok {
+		metadata["name"] = name
+	}
+
+	return status
+}
+
+// withName returns the node status with the name.
+func withName(status map[string]any, name string) map[string]any {
+	if metadata, ok := status["metadata"].(map[string]any); ok {
+		metadata["name"] = name
+	}
+
+	return status
+}
+
+func TestSpodNodeStatusesPolicy(t *testing.T) {
+	t.Parallel()
+
+	env := newEnv(t)
+	policy := readPolicy(t, "spod_node_status_policy.yaml")
+	longNode := strings.Repeat("n", 70)
+
+	for _, tc := range []struct {
+		name     string
+		req      *request
+		admitted bool
+	}{
+		{
+			name: "create own",
+			req: &request{
+				operation: "CREATE",
+				object:    nodeStatus("node-a", "node-a"),
+			},
+			admitted: true,
+		},
+		{
+			name: "create own with long node name",
+			req: &request{
+				operation: "CREATE",
+				nodes:     []any{longNode},
+				object: withName(nodeStatus(longNode, "hashed"),
+					"seccompprofile-"+strings.Repeat("0", 48)),
+			},
+			admitted: true,
+		},
+		{
+			name: "create with the name of the status of other node",
+			req: &request{
+				operation: "CREATE",
+				object:    withName(nodeStatus("node-a", "node-a"), "seccompprofile-profile-node-b"),
+			},
+			admitted: false,
+		},
+		{
+			name: "delete labeled legacy status of other node",
+			req: &request{
+				operation: "DELETE",
+				nodes:     []any{"b"},
+				oldObject: legacyNodeStatus("p-a-b", "a-b"),
+			},
+			admitted: false,
+		},
+		{
+			name: "delete own labeled legacy status",
+			req: &request{
+				operation: "DELETE",
+				nodes:     []any{"b"},
+				oldObject: legacyNodeStatus("p-b", "b"),
+			},
+			admitted: true,
+		},
+		{
+			name: "repair labeled legacy status of other node",
+			req: &request{
+				operation: "UPDATE",
+				nodes:     []any{"b"},
+				object:    withName(nodeStatus("b", "a-b"), "p-a-b"),
+				oldObject: legacyNodeStatus("p-a-b", "a-b"),
+			},
+			admitted: false,
+		},
+		{
+			name: "create other",
+			req: &request{
+				operation: "CREATE",
+				object:    nodeStatus("node-b", "node-b"),
+			},
+			admitted: false,
+		},
+		{
+			name: "create own labeled as other",
+			req: &request{
+				operation: "CREATE",
+				object:    nodeStatus("node-a", "node-b"),
+			},
+			admitted: false,
+		},
+		{
+			name: "create own without node label",
+			req: &request{
+				operation: "CREATE",
+				object:    nodeStatus("node-a", ""),
+			},
+			admitted: false,
+		},
+		{
+			name: "update own",
+			req: &request{
+				operation: "UPDATE",
+				object:    nodeStatus("node-a", "node-a"),
+				oldObject: nodeStatus("node-a", "node-a"),
+			},
+			admitted: true,
+		},
+		{
+			name: "update other",
+			req: &request{
+				operation: "UPDATE",
+				object:    nodeStatus("node-b", "node-b"),
+				oldObject: nodeStatus("node-b", "node-b"),
+			},
+			admitted: false,
+		},
+		{
+			name: "change node label",
+			req: &request{
+				operation: "UPDATE",
+				object:    nodeStatus("node-a", "node-b"),
+				oldObject: nodeStatus("node-a", "node-a"),
+			},
+			admitted: false,
+		},
+		{
+			name: "delete own",
+			req: &request{
+				operation: "DELETE",
+				oldObject: nodeStatus("node-a", "node-a"),
+			},
+			admitted: true,
+		},
+		{
+			name: "delete other",
+			req: &request{
+				operation: "DELETE",
+				oldObject: nodeStatus("node-b", "node-b"),
+			},
+			admitted: false,
+		},
+		{
+			name: "delete own legacy status",
+			req: &request{
+				operation: "DELETE",
+				oldObject: legacyNodeStatus("profile-node-a", ""),
+			},
+			admitted: true,
+		},
+		{
+			name: "delete legacy status of other node",
+			req: &request{
+				operation: "DELETE",
+				oldObject: legacyNodeStatus("profile-node-b", ""),
+			},
+			admitted: false,
+		},
+		{
+			name: "delete own status without node name by label",
+			req: &request{
+				operation: "DELETE",
+				oldObject: legacyNodeStatus("seccompprofile-profile-hashed", "node-a"),
+			},
+			admitted: true,
+		},
+		{
+			name: "repair own status without node name and label",
+			req: &request{
+				operation: "UPDATE",
+				object:    nodeStatus("node-a", "node-a"),
+				oldObject: legacyNodeStatus("seccompprofile-profile-node-a", ""),
+			},
+			admitted: true,
+		},
+		{
+			name: "repair own status without node name",
+			req: &request{
+				operation: "UPDATE",
+				object:    nodeStatus("node-a", "node-a"),
+				oldObject: legacyNodeStatus("seccompprofile-profile-node-a", "node-a"),
+			},
+			admitted: true,
+		},
+		{
+			name: "repair status of other node",
+			req: &request{
+				operation: "UPDATE",
+				object:    nodeStatus("node-b", "node-b"),
+				oldObject: legacyNodeStatus("seccompprofile-profile-node-b", ""),
+			},
+			admitted: false,
+		},
+		{
+			name: "take over status of other node",
+			req: &request{
+				operation: "UPDATE",
+				object:    nodeStatus("node-a", "node-a"),
+				oldObject: legacyNodeStatus("seccompprofile-profile-node-b", "node-b"),
+			},
+			admitted: false,
+		},
+		{
+			name: "repair own status with label of other node",
+			req: &request{
+				operation: "UPDATE",
+				object:    nodeStatus("node-a", "node-b"),
+				oldObject: legacyNodeStatus("seccompprofile-profile-node-a", ""),
+			},
+			admitted: false,
+		},
+		{
+			name: "add label of other node to own status without node name",
+			req: &request{
+				operation: "UPDATE",
+				object:    legacyNodeStatus("seccompprofile-profile-node-a", "node-b"),
+				oldObject: legacyNodeStatus("seccompprofile-profile-node-a", ""),
+			},
+			admitted: false,
+		},
+		{
+			name: "update status without node name of other node",
+			req: &request{
+				operation: "UPDATE",
+				object:    legacyNodeStatus("seccompprofile-profile-node-b", "node-b"),
+				oldObject: legacyNodeStatus("seccompprofile-profile-node-b", "node-b"),
+			},
+			admitted: false,
+		},
+		{
+			name: "remove node label",
+			req: &request{
+				operation: "UPDATE",
+				object:    nodeStatus("node-a", ""),
+				oldObject: nodeStatus("node-a", "node-a"),
+			},
+			admitted: false,
+		},
+		{
+			name: "delete other without node claim",
+			req: &request{
+				operation: "DELETE",
+				nodes:     []any{},
+				oldObject: nodeStatus("node-b", "node-b"),
+			},
+			admitted: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			tc.req.kind = "SecurityProfileNodeStatus"
+			tc.req.username = spodUser
+
+			if tc.req.nodes == nil {
+				tc.req.nodes = []any{"node-a"}
+			}
+
+			require.Equal(t, tc.admitted, evaluate(t, env, policy, tc.req))
+		})
+	}
+}
+
+func TestSpodNodeStatusesPolicyUsers(t *testing.T) {
+	t.Parallel()
+
+	env := newEnv(t)
+	policy := readPolicy(t, "spod_node_status_policy.yaml")
+
+	for username, admitted := range map[string]bool{
+		spodUser:                           false,
+		"system:serviceaccount:other:spod": false,
+		"system:serviceaccount:security-profiles-operator:security-profiles-operator": true,
+		"kube:admin": true,
+	} {
+		t.Run(username, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, admitted, evaluate(t, env, policy, &request{
+				operation: "DELETE",
+				kind:      "SecurityProfileNodeStatus",
+				username:  username,
+				nodes:     []any{"node-a"},
+				oldObject: nodeStatus("node-b", "node-b"),
 			}))
 		})
 	}

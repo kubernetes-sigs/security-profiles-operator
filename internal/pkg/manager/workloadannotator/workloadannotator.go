@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"iter"
 	"math"
 	"net/http"
 	"slices"
@@ -43,6 +42,7 @@ import (
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/workloadtracker"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -55,11 +55,10 @@ const (
 	// list only part of the pods using them. Pod identifiers contain a slash,
 	// so they cannot clash with it.
 	truncatedValue = "truncated"
-	// maxActiveWorkloads limits the pods listed in the status of a profile,
-	// so that a profile used by very many pods stays far below the size limit
-	// of etcd. Whether a profile is in use follows the pod index, not the
-	// list.
-	maxActiveWorkloads = 1000
+	// maxActiveWorkloads limits the pods listed in the status of a profile
+	// like the ones of bindings and recordings. Whether a profile is in use
+	// follows the pod index, not the list.
+	maxActiveWorkloads = workloadtracker.MaxWorkloads
 	reconcileTimeout   = 1 * time.Minute
 	pathParts          = 2
 
@@ -840,32 +839,6 @@ func (p *profileReconciler[T]) Reconcile(
 	return reconcile.Result{}, p.kind.update(ctx, p.pods, profile)
 }
 
-// allContainers iterates over the regular, init and ephemeral containers of
-// the pod without copying them, because the profile extractors run on every
-// pod event.
-func allContainers(pod *corev1.Pod) iter.Seq[*corev1.Container] {
-	return func(yield func(*corev1.Container) bool) {
-		for i := range pod.Spec.Containers {
-			if !yield(&pod.Spec.Containers[i]) {
-				return
-			}
-		}
-
-		for i := range pod.Spec.InitContainers {
-			if !yield(&pod.Spec.InitContainers[i]) {
-				return
-			}
-		}
-
-		for i := range pod.Spec.EphemeralContainers {
-			ctr := corev1.Container(pod.Spec.EphemeralContainers[i].EphemeralContainerCommon)
-			if !yield(&ctr) {
-				return
-			}
-		}
-	}
-}
-
 // getSeccompProfilesFromPod returns a slice of strings representing seccomp profiles required by the pod.
 // It looks first at the pod spec level, then in each container and init container, then in the annotations.
 func getSeccompProfilesFromPod(pod *corev1.Pod) []string {
@@ -877,7 +850,7 @@ func getSeccompProfilesFromPod(pod *corev1.Pod) []string {
 	}
 
 	// try to get profile(s) from securityContext in pods
-	for ctr := range allContainers(pod) {
+	for ctr := range util.AllContainers(pod) {
 		sc := ctr.SecurityContext
 		if sc != nil && isOperatorSeccompProfile(sc.SeccompProfile) {
 			profileString := *sc.SeccompProfile.LocalhostProfile
@@ -916,7 +889,7 @@ func getSelinuxProfilesFromPod(pod *corev1.Pod) []string {
 	}
 
 	// try to get profile(s) from securityContext in containers
-	for ctr := range allContainers(pod) {
+	for ctr := range util.AllContainers(pod) {
 		sc := ctr.SecurityContext
 		if sc != nil && isOperatorSelinuxType(sc.SELinuxOptions) {
 			profileString := sc.SELinuxOptions.Type
@@ -954,7 +927,7 @@ func getAppArmorProfilesFromPod(pod *corev1.Pod) []string {
 		add(localhostName(sc.AppArmorProfile))
 	}
 
-	for ctr := range allContainers(pod) {
+	for ctr := range util.AllContainers(pod) {
 		if sc := ctr.SecurityContext; sc != nil {
 			add(localhostName(sc.AppArmorProfile))
 		}

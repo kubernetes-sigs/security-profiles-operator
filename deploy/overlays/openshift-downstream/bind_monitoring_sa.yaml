@@ -1,3 +1,10 @@
+# The endpoints of the ServiceMonitor authenticate with the token of the
+# spo-metrics-client-token Secret, which belongs to the spo-metrics-client
+# service account. The downstream packaging installs the operator into the
+# openshift-security-profiles namespace, which is where that service account
+# lives then. The packaging moves the namespaced objects there, but does not
+# rewrite the subjects of this ClusterRoleBinding, so the namespace is set
+# here. The prometheus-k8s service account gets the metrics paths as well.
 - op: add
   path: /subjects/0
   value:
