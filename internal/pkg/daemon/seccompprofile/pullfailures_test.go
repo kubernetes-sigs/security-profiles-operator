@@ -215,6 +215,66 @@ func TestPullBaseProfileBacksOff(t *testing.T) {
 	}
 }
 
+// TestPullBaseProfileConfigErrorBacksOff asserts that a signature
+// verification configuration which cannot be applied, like a missing key of
+// the Secret, is reported once and backs off like a failed pull, instead of
+// reading the Secret uncached and warning on every reconcile.
+func TestPullBaseProfileConfigErrorBacksOff(t *testing.T) {
+	t.Parallel()
+
+	spod := &spodapi.SecurityProfilesOperatorDaemon{}
+	spod.Spec.Security.SignatureVerification = &spodapi.SPODSignatureVerification{
+		Offline: new(true),
+	}
+
+	mock := &seccompprofilefakes.FakeImpl{}
+	mock.GetSPODCalls(func(
+		context.Context, client.Client, string,
+	) (*spodapi.SecurityProfilesOperatorDaemon, error) {
+		return spod.DeepCopy(), nil
+	})
+
+	sut, ok := NewController().(*Reconciler)
+	require.True(t, ok)
+
+	now := time.Unix(1000, 0)
+	recorder := events.NewFakeRecorder(10)
+	sut.impl = mock
+	sut.metrics = metrics.New()
+	sut.record = recorder
+	sut.pullFailures.now = func() time.Time { return now }
+
+	sp := &seccompprofileapi.SeccompProfile{
+		Spec: seccompprofileapi.SeccompProfileSpec{
+			BaseProfileName: config.OCIProfilePrefix + "registry/base:v1",
+		},
+	}
+
+	resolve := func() error {
+		_, _, err := sut.resolveSyscallsForProfile(
+			t.Context(), sp, sp.Spec.Syscalls, logr.Discard(), 0,
+		)
+
+		return err
+	}
+
+	for range 3 {
+		require.ErrorIs(t, resolve(), errOfflineWithoutTrustedRoot)
+	}
+
+	require.Zero(t, mock.PullCallCount())
+	require.Len(t, recorder.Events, 1)
+
+	// A fixed configuration gets pulled right away.
+	spod.Spec.Security.SignatureVerification = nil
+
+	mock.PullResultTypeReturns(artifact.PullResultTypeSeccompProfile)
+	mock.PullResultSeccompProfileReturns(&seccompprofileapi.SeccompProfile{})
+
+	require.NoError(t, resolve())
+	require.Equal(t, 1, mock.PullCallCount())
+}
+
 // TestPullBaseProfileReportsBackoffPerProfile asserts that a profile which
 // shares a base profile, whose pull failed for another profile, gets the
 // failure reported once during the backoff.

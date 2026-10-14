@@ -41,6 +41,7 @@ import (
 	profilebaseapi "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/utiltest"
 )
@@ -174,6 +175,52 @@ func reconcileStatus(
 	return r.Reconcile(context.Background(), reconcile.Request{
 		NamespacedName: util.NamespacedName(status.Name, status.Namespace),
 	})
+}
+
+// TestWaitingRequests asserts that a profile whose reconcile waits for the
+// SPOd DaemonSet gets reconciled again when the DaemonSet changes, and only
+// as long as it waits.
+func TestWaitingRequests(t *testing.T) {
+	t.Parallel()
+
+	status := testNodeStatus("worker-1", secprofnodestatusapi.ProfileStateInstalled)
+	r, _, _ := newTestReconciler(t, testProfile(""), status)
+
+	require.Empty(t, r.waitingRequests(t.Context(), nil))
+
+	// Without a SPOd DaemonSet the reconcile waits for it.
+	res, err := reconcileStatus(t, r, status)
+	require.NoError(t, err)
+	require.Equal(t, dsWait, res.RequeueAfter)
+
+	want := reconcile.Request{NamespacedName: util.NamespacedName(status.Name, status.Namespace)}
+	require.Equal(t, []reconcile.Request{want}, r.waitingRequests(t.Context(), nil))
+	require.Empty(t, r.waitingRequests(t.Context(), nil), "a request is enqueued once")
+
+	// A profile which is gone waits for nothing.
+	require.NoError(t, r.client.Delete(t.Context(), status))
+
+	_, err = reconcileStatus(t, r, status)
+	require.NoError(t, err)
+	require.Empty(t, r.waitingRequests(t.Context(), nil))
+
+	// Only a status change of the SPOd DaemonSet is of interest.
+	ds := func(available int32) *appsv1.DaemonSet {
+		return &appsv1.DaemonSet{
+			ObjectMeta: metav1.ObjectMeta{Name: config.SPOdName, Namespace: r.namespace},
+			Status:     appsv1.DaemonSetStatus{NumberAvailable: available},
+		}
+	}
+	other := ds(1)
+	other.Name = "other"
+
+	predicates := r.spodDaemonSetChanged()
+	require.True(t, predicates.Create(event.CreateEvent{Object: ds(0)}))
+	require.True(t, predicates.Delete(event.DeleteEvent{Object: ds(0)}))
+	require.True(t, predicates.Update(event.UpdateEvent{ObjectOld: ds(0), ObjectNew: ds(1)}))
+	require.False(t, predicates.Update(event.UpdateEvent{ObjectOld: ds(1), ObjectNew: ds(1)}))
+	require.False(t, predicates.Create(event.CreateEvent{Object: other}))
+	require.False(t, predicates.Update(event.UpdateEvent{ObjectOld: other, ObjectNew: other}))
 }
 
 // setProfileStatus sets the state on the profile without naming failed nodes.

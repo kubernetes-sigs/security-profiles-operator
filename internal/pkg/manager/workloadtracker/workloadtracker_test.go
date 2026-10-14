@@ -185,6 +185,77 @@ func TestTrackKeepsConcurrentlyTrackedWorkload(t *testing.T) {
 	require.Equal(t, []string{"pod-b", "pod-a"}, stored(t, c).Status.ActiveWorkloads)
 }
 
+// TestTrackAddsFinalizerRemovedConcurrently asserts that a workload tracked
+// while the last one got untracked, which removed the finalizer, adds the
+// finalizer again although the cache still shows it.
+func TestTrackAddsFinalizerRemovedConcurrently(t *testing.T) {
+	t.Parallel()
+
+	binding := testBinding()
+	binding.Finalizers = []string{testFinalizer}
+	binding.Status.ActiveWorkloads = []string{"pod-a"}
+
+	var c client.WithWatch
+
+	concurrent := false
+	c = fake.NewClientBuilder().
+		WithScheme(utiltest.NewScheme(t)).
+		WithObjects(binding).
+		WithStatusSubresource(&profilebindingapi.ProfileBinding{}).
+		WithInterceptorFuncs(interceptor.Funcs{
+			SubResourcePatch: func(
+				ctx context.Context, cl client.Client, sub string, obj client.Object,
+				patch client.Patch, opts ...client.SubResourcePatchOption,
+			) error {
+				if !concurrent {
+					concurrent = true
+
+					// The Untrack of the last workload drops it and the
+					// finalizer before the patch lands.
+					other := &profilebindingapi.ProfileBinding{}
+					require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(testBinding()), other))
+					other.Status.ActiveWorkloads = nil
+					require.NoError(t, cl.Status().Update(ctx, other))
+					require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(testBinding()), other))
+					other.Finalizers = nil
+					require.NoError(t, cl.Update(ctx, other))
+				}
+
+				return cl.SubResource(sub).Patch(ctx, obj, patch, opts...)
+			},
+		}).
+		Build()
+
+	// The cache still shows the finalizer.
+	stale := interceptor.NewClient(c, interceptor.Funcs{
+		Get: func(
+			ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object,
+			opts ...client.GetOption,
+		) error {
+			err := cl.Get(ctx, key, obj, opts...)
+			if pb, ok := obj.(*profilebindingapi.ProfileBinding); ok && err == nil {
+				pb.Finalizers = []string{testFinalizer}
+			}
+
+			return err
+		},
+	})
+
+	sut := &Tracker[*profilebindingapi.ProfileBinding]{
+		Client:    stale,
+		Reader:    c,
+		Finalizer: testFinalizer,
+		Kind:      "ProfileBinding",
+		Workloads: func(pb *profilebindingapi.ProfileBinding) *[]string {
+			return &pb.Status.ActiveWorkloads
+		},
+	}
+
+	require.NoError(t, sut.Track(t.Context(), testBinding(), "pod-b"))
+	require.Equal(t, []string{"pod-b"}, stored(t, c).Status.ActiveWorkloads)
+	require.Equal(t, []string{testFinalizer}, stored(t, c).Finalizers)
+}
+
 // The list of workloads is capped. It only gets filled up again from the
 // users of the object once it runs empty, so that the finalizer stays while
 // any workload uses the object, and the users are not looked up for every
@@ -319,12 +390,17 @@ func TestUntrackConflictWithEmptyStoredList(t *testing.T) {
 	require.Equal(t, []string{testFinalizer}, outdated.Finalizers)
 }
 
-// Tracking a workload with the cached object costs no read from the API
-// server, unless the write conflicts.
+// Tracking a workload with the cached object which has the finalizer costs no
+// read from the API server, unless the write conflicts. Without the finalizer,
+// it gets read for adding the finalizer, see
+// TestTrackAddsFinalizerRemovedConcurrently.
 func TestTrackWritesCachedObject(t *testing.T) {
 	t.Parallel()
 
-	sut, c := newTracker(t, &interceptor.Funcs{}, testBinding())
+	pb := testBinding()
+	pb.Finalizers = []string{testFinalizer}
+
+	sut, c := newTracker(t, &interceptor.Funcs{}, pb)
 
 	apiReads := 0
 	sut.Reader = fake.NewClientBuilder().

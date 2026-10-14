@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -88,6 +87,10 @@ type Reconciler struct {
 	// for using the deprecated ptrace rules in their paths.
 	ptraceWarned common.Reports[types.UID]
 
+	// traversalWarned holds the generation of the profiles which were
+	// already reported for file system paths with a directory traversal.
+	traversalWarned common.Reports[int64]
+
 	// unsupported remembers the profiles which got reported for a node
 	// without AppArmor.
 	unsupported common.UnsupportedReports
@@ -109,6 +112,7 @@ type rejection struct {
 // again.
 func (r *Reconciler) forgetProfile(key types.NamespacedName) {
 	r.ptraceWarned.Forget(key)
+	r.traversalWarned.Forget(key)
 	r.rejected.Forget(key)
 }
 
@@ -129,6 +133,25 @@ func (r *Reconciler) warnDeprecatedPtraceRules(
 	}
 
 	l.Info(crd2armor.DeprecatedPtraceRulesMessage, "profile", sp.GetName())
+}
+
+// warnTraversalPaths logs once per profile generation the file system paths
+// with a directory traversal. They stay in the policy like before, the rest
+// of the profile is enforced, but their rules never match anything.
+func (r *Reconciler) warnTraversalPaths(
+	sp *apparmorprofileapi.AppArmorProfile,
+	l logr.Logger,
+) {
+	paths := crd2armor.TraversalPaths(&sp.Spec.Abstract)
+	if len(paths) == 0 {
+		return
+	}
+
+	if !r.traversalWarned.ShouldReport(client.ObjectKeyFromObject(sp), sp.GetGeneration()) {
+		return
+	}
+
+	l.Info("WARNING: "+crd2armor.TraversalPathsMessage, "profile", sp.GetName(), "paths", paths)
 }
 
 // reportError increments the error metric of the profile for reason and
@@ -165,19 +188,6 @@ func (r *Reconciler) Name() string {
 // SchemeBuilder returns the API scheme of the controller.
 func (r *Reconciler) SchemeBuilder() runtime.SchemeBuilder {
 	return apparmorprofileapi.SchemeBuilder
-}
-
-// Healthz is the liveness probe endpoint of the controller.
-func (r *Reconciler) Healthz(*http.Request) error {
-	return r.checkAppArmor()
-}
-
-func (r *Reconciler) checkAppArmor() error {
-	if !r.manager.Enabled() {
-		return fmt.Errorf("node %q does not support apparmor", r.nodeName)
-	}
-
-	return nil
 }
 
 // Security Profiles Operator RBAC permissions to manage AppArmorProfile
@@ -288,6 +298,7 @@ func (r *Reconciler) reconcileAppArmorProfile(
 // changes, see rejectProfile.
 func isRejection(err error) bool {
 	return errors.Is(err, ErrProfileExists) ||
+		errors.Is(err, ErrHostPolicyFile) ||
 		errors.Is(err, ErrRuntimeProfile) ||
 		errors.Is(err, ErrOperatorProfile) ||
 		errors.Is(err, ErrInvalidProfile)
@@ -323,10 +334,11 @@ func (r *Reconciler) rejectProfile(
 		return reconcile.Result{}, fmt.Errorf("setting node status to error: %w", err)
 	}
 
-	// Only the host can resolve a conflict with one of its profiles without
-	// a change of the profile, which reconciles it anyway. A reserved name
-	// or an invalid policy stays rejected until then.
-	if errors.Is(rejectErr, ErrProfileExists) {
+	// Only the host can resolve a conflict with one of its profiles or
+	// policy files without a change of the profile, which reconciles it
+	// anyway. A reserved name or an invalid policy stays rejected until
+	// then.
+	if errors.Is(rejectErr, ErrProfileExists) || errors.Is(rejectErr, ErrHostPolicyFile) {
 		return reconcile.Result{RequeueAfter: rejectedRetry}, nil
 	}
 
@@ -356,6 +368,7 @@ func (r *Reconciler) installProfile(
 	}
 
 	r.warnDeprecatedPtraceRules(sp, l)
+	r.warnTraversalPaths(sp, l)
 
 	// The profiles of the operator carry the ownership marker, so only the
 	// name tells that they are not the ones of this profile.

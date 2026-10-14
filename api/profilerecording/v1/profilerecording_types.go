@@ -186,7 +186,6 @@ type ProfileRecordingStatus struct {
 // +kubebuilder:printcolumn:name="Recorder",type=string,JSONPath=`.spec.recorder`
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
-// +kubebuilder:printcolumn:name="PodSelector",type=string,priority=10,JSONPath=`.spec.podSelector`
 //
 //nolint:lll // CEL rules cannot be wrapped
 type ProfileRecording struct {

@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -97,6 +98,12 @@ func (r *StatusReconciler) Setup(
 		Watches(&apparmorapi.AppArmorProfile{},
 			handler.EnqueueRequestsFromMapFunc(r.statusRequests("AppArmorProfile")),
 			generationChanged).
+		// The profiles which wait for the SPOd DaemonSet, for example during
+		// a rollout, are reconciled again once its status changes, instead
+		// of only after dsWait.
+		Watches(&appsv1.DaemonSet{},
+			handler.EnqueueRequestsFromMapFunc(r.waitingRequests),
+			builder.WithPredicates(r.spodDaemonSetChanged())).
 		// The status of a deleted node is dropped from the aggregation, and
 		// the finalizer of a deleted node is removed from the profiles which
 		// are being deleted, which nothing else triggers.
@@ -110,6 +117,30 @@ func (r *StatusReconciler) Setup(
 				GenericFunc: func(event.GenericEvent) bool { return false },
 			})).
 		Complete(r)
+}
+
+// spodDaemonSetChanged selects the SPOd DaemonSet when it gets created or
+// deleted, or when its status changes.
+func (r *StatusReconciler) spodDaemonSetChanged() predicate.Funcs {
+	isSPOd := func(obj client.Object) bool {
+		return obj != nil && obj.GetName() == config.SPOdName && obj.GetNamespace() == r.namespace
+	}
+
+	return predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool { return isSPOd(e.Object) },
+		DeleteFunc: func(e event.DeleteEvent) bool { return isSPOd(e.Object) },
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			if !isSPOd(e.ObjectNew) {
+				return false
+			}
+
+			oldDS, okOld := e.ObjectOld.(*appsv1.DaemonSet)
+			newDS, okNew := e.ObjectNew.(*appsv1.DaemonSet)
+
+			return !okOld || !okNew || !equality.Semantic.DeepEqual(oldDS.Status, newDS.Status)
+		},
+		GenericFunc: func(event.GenericEvent) bool { return false },
+	}
 }
 
 // deletedNodeRequests maps a deleted node to the requests of the profiles

@@ -159,6 +159,13 @@ func RegisterWebhook(
 ) {
 	operatorNamespace, err := config.TryToGetOperatorNamespace()
 	if err != nil {
+		// Without the namespace, the SPOD cannot be read and every profile
+		// kind counts as enabled, so pods bound to a profile without status
+		// get rejected instead of skipped.
+		logf.Log.WithName("binding").Error(err,
+			"Cannot get the operator namespace, assuming the default one",
+			"namespace", config.OperatorName)
+
 		operatorNamespace = config.OperatorName
 	}
 

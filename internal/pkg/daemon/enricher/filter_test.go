@@ -57,6 +57,18 @@ func TestGetEnricherFilters(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			// A typo counts as Metadata, like in the released versions, and
+			// only gets a warning.
+			name: "Unknown level",
+			args: args{
+				enricherFiltersJsonStr: `[{"priority":100,"level":"none","matchKeys":["namespace"]}]`,
+			},
+			want: []types.EnricherFilterOptions{
+				{Priority: 100, Level: "none", MatchKeys: []string{"namespace"}},
+			},
+			wantErr: false,
+		},
+		{
 			name: "One filter",
 			args: args{
 				enricherFiltersJsonStr: "[{\"priority\":101, \"Level\":\"Metadata\"," +

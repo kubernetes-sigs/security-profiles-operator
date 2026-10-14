@@ -77,9 +77,9 @@ var legacyAdoptionBackoff = wait.Backoff{
 }
 
 // legacyProfileSelector selects the partial or the final profiles recorded
-// before 1.0 by the recordings with this name: the partial profile labels of
-// a recording, without the recording namespace and, for the final profiles,
-// without the partial label.
+// before 1.0 by the recordings with this name, or by any recording for an
+// empty name: the partial profile labels of a recording, without the
+// recording namespace and, for the final profiles, without the partial label.
 func legacyProfileSelector(
 	recordingName string,
 	partial bool,
@@ -90,9 +90,13 @@ func legacyProfileSelector(
 		ObjectMeta: metav1.ObjectMeta{Name: recordingName},
 	}) {
 		op, values := selection.Equals, []string{value}
-		if key == profilerecordingapi.ProfileToRecordingNamespaceLabel ||
-			(key == profilebase.ProfilePartialLabel && !partial) {
+
+		switch {
+		case key == profilerecordingapi.ProfileToRecordingNamespaceLabel ||
+			(key == profilebase.ProfilePartialLabel && !partial):
 			op, values = selection.DoesNotExist, nil
+		case key == profilerecordingapi.ProfileToRecordingLabel && recordingName == "":
+			op, values = selection.Exists, nil
 		}
 
 		requirement, err := labels.NewRequirement(key, op, values)
@@ -119,9 +123,34 @@ func listLegacyPartialProfiles(
 	return listLegacyProfiles(ctx, reader, recordingName, true)
 }
 
+// listLegacyProfilesByRecording lists the partial or the final profiles of
+// every kind which were recorded before 1.0 and are not being deleted, by the
+// name of the recording which recorded them. One list per kind serves all
+// recordings, instead of one per kind and recording name at every start of
+// the manager.
+func listLegacyProfilesByRecording(
+	ctx context.Context,
+	reader client.Reader,
+	partial bool,
+) (map[string][]client.Object, error) {
+	profiles, err := listLegacyProfiles(ctx, reader, "", partial)
+	if err != nil {
+		return nil, err
+	}
+
+	byRecording := map[string][]client.Object{}
+
+	for _, prf := range profiles {
+		name := prf.GetLabels()[profilerecordingapi.ProfileToRecordingLabel]
+		byRecording[name] = append(byRecording[name], prf)
+	}
+
+	return byRecording, nil
+}
+
 // listLegacyProfiles lists the partial or the final profiles of every kind
-// which were recorded before 1.0 by a recording with this name and are not
-// being deleted.
+// which were recorded before 1.0 by a recording with this name, or by any
+// recording for an empty name, and are not being deleted.
 func listLegacyProfiles(
 	ctx context.Context,
 	reader client.Reader,
@@ -256,17 +285,22 @@ func (r *PolicyMergeReconciler) adoptLegacyPartialProfiles(ctx context.Context) 
 		byName[recording.GetName()] = append(byName[recording.GetName()], recording)
 	}
 
+	partials, err := listLegacyProfilesByRecording(ctx, reader, true)
+	if err != nil {
+		return err
+	}
+
+	finals, err := listLegacyProfilesByRecording(ctx, reader, false)
+	if err != nil {
+		return err
+	}
+
 	var adopted []client.Object
 
 	for name, recordingsWithName := range byName {
-		profiles, err := listLegacyPartialProfiles(ctx, reader, name)
-		if err != nil {
-			return err
-		}
-
 		ambiguous := map[*profilerecordingapi.ProfileRecording][]client.Object{}
 
-		for _, prf := range profiles {
+		for _, prf := range partials[name] {
 			var owners []*profilerecordingapi.ProfileRecording
 
 			for _, recording := range recordingsWithName {
@@ -309,7 +343,12 @@ func (r *PolicyMergeReconciler) adoptLegacyPartialProfiles(ctx context.Context) 
 			)
 		}
 
-		if err := r.adoptLegacyFinalProfiles(ctx, reader, name, recordingsWithName); err != nil {
+		if err := r.adoptLegacyFinalProfiles(
+			ctx,
+			finals[name],
+			name,
+			recordingsWithName,
+		); err != nil {
 			return err
 		}
 	}
@@ -332,15 +371,10 @@ func (r *PolicyMergeReconciler) adoptLegacyPartialProfiles(ctx context.Context) 
 // namespaces, see checkLegacyOwner.
 func (r *PolicyMergeReconciler) adoptLegacyFinalProfiles(
 	ctx context.Context,
-	reader client.Reader,
+	profiles []client.Object,
 	name string,
 	recordingsWithName []*profilerecordingapi.ProfileRecording,
 ) error {
-	profiles, err := listLegacyProfiles(ctx, reader, name, false)
-	if err != nil {
-		return err
-	}
-
 	ambiguous := map[*profilerecordingapi.ProfileRecording][]client.Object{}
 	adopted := 0
 

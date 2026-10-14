@@ -110,10 +110,11 @@ func TestMergePredicate(t *testing.T) {
 		require.False(t, p.Generic(event.GenericEvent{Object: recording(false)}))
 	})
 
-	t.Run("delete is accepted", func(t *testing.T) {
+	// A recording which is gone has nothing left to merge.
+	t.Run("delete is ignored", func(t *testing.T) {
 		t.Parallel()
 
-		require.True(t, p.Delete(event.DeleteEvent{Object: recording(true)}))
+		require.False(t, p.Delete(event.DeleteEvent{Object: recording(true)}))
 	})
 }
 

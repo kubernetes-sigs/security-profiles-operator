@@ -478,9 +478,13 @@ func TestHandleKeepsRecordingAnnotation(t *testing.T) {
 		old       string
 		existing  string
 		// keep expects the existing value to stay, want the exact new
-		// value, otherwise a fresh value is expected.
-		keep bool
-		want string
+		// value, removed the annotation to be removed, otherwise a fresh
+		// value is expected. unannotated leaves the old pod without the
+		// annotation on update.
+		keep        bool
+		want        string
+		removed     bool
+		unannotated bool
 	}{
 		{name: "own recording on create", operation: admissionv1.Create, existing: valid, keep: true},
 		{name: "other recording on create", operation: admissionv1.Create, existing: "other_container_abcde_1661693966"},
@@ -490,10 +494,27 @@ func TestHandleKeepsRecordingAnnotation(t *testing.T) {
 		{name: "empty on create", operation: admissionv1.Create, existing: ""},
 		{name: "own recording on update", operation: admissionv1.Update, old: valid, existing: valid, keep: true},
 		{
+			// The pod was recorded by another recording, which may be
+			// gone: this recording must not start on the running pod.
 			name:      "other recording on update",
 			operation: admissionv1.Update,
 			old:       "other_container_abcde_1661693966",
 			existing:  "other_container_abcde_1661693966",
+			keep:      true,
+		},
+		{
+			name:      "other recording changed on update",
+			operation: admissionv1.Update,
+			old:       "other_container_abcde_1661693966",
+			existing:  valid,
+			want:      "other_container_abcde_1661693966",
+		},
+		{
+			name:        "added on update",
+			operation:   admissionv1.Update,
+			unannotated: true,
+			existing:    valid,
+			removed:     true,
 		},
 		{
 			name:      "changed nonce on update",
@@ -509,7 +530,7 @@ func TestHandleKeepsRecordingAnnotation(t *testing.T) {
 			existing:  "other_container_abcde_1661693966",
 			want:      valid,
 		},
-		{name: "empty on update", operation: admissionv1.Update, old: "", existing: ""},
+		{name: "empty on update", operation: admissionv1.Update, old: "", existing: "", keep: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -533,7 +554,12 @@ func TestHandleKeepsRecordingAnnotation(t *testing.T) {
 				},
 			}
 			if tc.operation == admissionv1.Update {
-				request.OldObject = rawPod(t, annotatedPod(tc.old))
+				oldPod := annotatedPod(tc.old)
+				if tc.unannotated {
+					oldPod = testPod.DeepCopy()
+				}
+
+				request.OldObject = rawPod(t, oldPod)
 			}
 
 			resp := newTestRecorder(t, mock).Handle(t.Context(), request)
@@ -541,6 +567,14 @@ func TestHandleKeepsRecordingAnnotation(t *testing.T) {
 
 			if tc.keep {
 				require.Empty(t, resp.Patches)
+
+				return
+			}
+
+			if tc.removed {
+				require.Len(t, resp.Patches, 1)
+				require.Equal(t, "remove", resp.Patches[0].Operation)
+				require.Contains(t, resp.Patches[0].Path, "/metadata/annotations")
 
 				return
 			}

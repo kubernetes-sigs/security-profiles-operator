@@ -263,10 +263,6 @@ spec:
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
-    - jsonPath: .spec.podSelector
-      name: PodSelector
-      priority: 10
-      type: string
     name: v1
     schema:
       openAPIV3Schema:

@@ -201,8 +201,8 @@ func tufTarget[T any](opts *tuf.Options, key string, get func(*tuf.Client) (T, e
 
 // tufOptions returns the options of the TUF client the way cosign sets them:
 // the cache directory from TUF_ROOT, the mirror from TUF_MIRROR or from the
-// remote.json of `cosign initialize`, and for any mirror but the public one
-// the trust anchor from TUF_ROOT_JSON or from the cache.
+// remote.json of `cosign initialize`, and the trust anchor from TUF_ROOT_JSON,
+// which any mirror but the public one needs, from the cache otherwise.
 func tufOptions() (*tuf.Options, error) {
 	opts := tuf.DefaultOptions()
 
@@ -219,13 +219,19 @@ func tufOptions() (*tuf.Options, error) {
 		return nil, err
 	}
 
+	rootJSON := os.Getenv(envTUFRootJSON)
+
 	if mirror == "" || mirror == tuf.DefaultMirror {
-		return opts, nil
+		// The public mirror has its root embedded, unless one is pinned.
+		if rootJSON == "" {
+			return opts, nil
+		}
+
+		mirror = tuf.DefaultMirror
 	}
 
 	opts.RepositoryBaseURL = mirror
 
-	rootJSON := os.Getenv(envTUFRootJSON)
 	if rootJSON == "" {
 		rootJSON = filepath.Join(opts.CachePath, tuf.URLToPath(mirror), "root.json")
 	}

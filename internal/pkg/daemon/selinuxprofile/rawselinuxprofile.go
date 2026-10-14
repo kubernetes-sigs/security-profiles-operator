@@ -41,6 +41,9 @@ const profileWrapper = `(block {{.Name}}
     {{.Policy}}
 )`
 
+// profileWrapperTemplate is the parsed profileWrapper, which is static.
+var profileWrapperTemplate = template.Must(template.New("profileWrapper").Parse(profileWrapper))
+
 // NewRawController returns a new empty controller instance.
 func NewRawController() controller.Controller {
 	return &ReconcileSelinux{
@@ -99,11 +102,8 @@ func (sph *rawSelinuxProfileHandler) GetCILPolicy() (string, error) {
 }
 
 func (sph *rawSelinuxProfileHandler) wrapPolicy() (string, error) {
-	parsedpolicy := strings.TrimSpace(sph.rsp.Spec.Policy)
-	// ident
-	parsedpolicy = strings.ReplaceAll(parsedpolicy, "\n", "\n    ")
-	// replace empty lines
-	parsedpolicy = strings.TrimSpace(parsedpolicy)
+	// Indent the policy into the block.
+	parsedpolicy := strings.ReplaceAll(strings.TrimSpace(sph.rsp.Spec.Policy), "\n", "\n    ")
 	data := struct {
 		Name   string
 		Policy string
@@ -127,16 +127,9 @@ func newRawSelinuxProfileHandler(
 	key types.NamespacedName,
 	_ string,
 ) (SelinuxObjectHandler, error) {
-	// Create template to wrap policies.
-	// We ignore the error as the wrapper is static.
-	tmpl, tmplerr := template.New("profileWrapper").Parse(profileWrapper)
-	if tmplerr != nil {
-		return nil, tmplerr
-	}
-
 	oh := &rawSelinuxProfileHandler{
 		rsp:            &selinuxprofileapi.RawSelinuxProfile{},
-		policyTemplate: tmpl,
+		policyTemplate: profileWrapperTemplate,
 	}
 	err := oh.Init(ctx, cli, key)
 

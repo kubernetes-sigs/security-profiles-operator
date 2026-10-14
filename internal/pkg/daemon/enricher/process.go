@@ -112,16 +112,16 @@ func processInfo(pid int, impl impl) (*types.ProcessInfo, []error) {
 		errs = append(errs, fmt.Errorf("failed to get cmdline for pid %d: %w", pid, err))
 	}
 
+	// Only the processes of kubectl exec carry a request ID, so a missing
+	// one is no error, which would hide the real failures of reading the
+	// details of a process.
 	reqIdEnvFound := false
 
 	env, err := impl.EnvForPid(pid)
 	if err == nil {
-		reqId, ok := env[requestIdEnv]
-		if ok {
+		if reqId, ok := env[requestIdEnv]; ok {
 			procInfo.ExecRequestId = &reqId
 			reqIdEnvFound = true
-		} else {
-			errs = append(errs, fmt.Errorf("failed to get requestId for pid from env %d", pid))
 		}
 	} else {
 		errs = append(errs, fmt.Errorf("failed to get env for pid %d: %w", pid, err))
@@ -130,11 +130,8 @@ func processInfo(pid int, impl impl) (*types.ProcessInfo, []error) {
 	// Special case: Extract UID directly from cmdLine if 'env' variable is missing it.
 	// e.g., "env SPO_EXEC_REQUEST_UID=dbbf5fca-c955-4922-99d2-27a50212071c ls"
 	if !reqIdEnvFound && cmdLineFound {
-		reqId, ok := extractSPORequestUID(cmdLine)
-		if ok {
+		if reqId, ok := extractSPORequestUID(cmdLine); ok {
 			procInfo.ExecRequestId = &reqId
-		} else {
-			errs = append(errs, fmt.Errorf("failed to get requestId for pid from env %d", pid))
 		}
 	}
 

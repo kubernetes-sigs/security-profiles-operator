@@ -29,6 +29,10 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 )
 
+// GetEnricherFilters parses the filters of the enricher from their JSON
+// encoding and sorts them by priority. A filter with an unknown level counts
+// as Metadata, like in the released versions, and gets a warning: a typo like
+// "none" logs the lines the filter is meant to drop.
 func GetEnricherFilters(
 	enricherFiltersJsonStr string,
 	logger logr.Logger,
@@ -39,6 +43,17 @@ func GetEnricherFilters(
 			"enricherFiltersJsonStr", enricherFiltersJsonStr)
 
 		return nil, err
+	}
+
+	for _, filter := range enricherFilters {
+		if filter.Level != types.EnricherLogLevelMetadata &&
+			filter.Level != types.EnricherLogLevelNone {
+			logger.Info(
+				"WARNING: unknown enricher filter level, using Metadata, "+
+					"valid levels are Metadata and None",
+				"level", filter.Level, "priority", filter.Priority,
+			)
+		}
 	}
 
 	// Lower the priority value, higher the precedence

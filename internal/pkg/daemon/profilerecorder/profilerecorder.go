@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"net/http"
 	"os"
 	"slices"
 	"strconv"
@@ -43,7 +42,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/util/retry"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -106,7 +104,6 @@ var (
 	// profile for good, which retrying cannot change.
 	errProfileRejected         = errors.New("recorded profile rejected")
 	errRecordedProfileNotFound = errors.New("recorded profile not found")
-	errRecordingGone           = errors.New("profile recording no longer exists")
 	errMergeFailed             = errors.New("merge profile")
 	// errRecorderDisabled is returned if the recorder of a pod got disabled
 	// in the SPOD. The daemon restarts without it, which loses the recorded
@@ -125,7 +122,6 @@ var (
 // collected, so that the reconciler releases it instead of requeuing forever.
 func unrecordable(err error) bool {
 	return errors.Is(err, errNameNotValid) ||
-		errors.Is(err, errRecordingGone) ||
 		errors.Is(err, errRecorderDisabled) ||
 		errors.Is(err, errBpfRecorderUnavailable)
 }
@@ -153,9 +149,9 @@ type RecorderReconciler struct {
 	// namespace is the namespace of the operator, which holds the SPOD.
 	namespace   string
 	podsToWatch sync.Map
-	// rejectedPods maps the pods with ignored recording annotations to a
-	// rejectedPod, so that every update of such a pod does not warn about
-	// them again.
+	// rejectedPods maps the pods with ignored recording annotations, rejected
+	// or unparsable ones, to a rejectedPod, so that every update of such a
+	// pod does not warn about them again.
 	rejectedPods sync.Map
 	// disabledRecorderPods maps the pods which got the warning that the BPF
 	// recorder is disabled to their UID, so that every update of such a pod
@@ -274,15 +270,6 @@ func (r *RecorderReconciler) getSPOD(
 	ctx context.Context,
 ) (*spodapi.SecurityProfilesOperatorDaemon, error) {
 	return r.GetSPOD(ctx, r.client, r.namespace)
-}
-
-// Healthz is the liveness probe endpoint of the controller.
-func (r *RecorderReconciler) Healthz(*http.Request) error {
-	if r.record == nil {
-		return errors.New("recorder reconciler not initialized")
-	}
-
-	return nil
 }
 
 // isPodOnLocalNode reports whether the pod got scheduled to the node of the
@@ -568,21 +555,8 @@ func (r *RecorderReconciler) Reconcile(
 	// tracked yet was missed, for example because the daemon restarted, and
 	// is still recorded rather than never.
 	if pod.Status.Phase == corev1.PodPending || pod.Status.Phase == corev1.PodRunning {
-		if value, ok := r.podsToWatch.Load(req.String()); ok {
-			if watched, ok := value.(podToWatch); !ok || watched.uid == pod.UID {
-				// We're tracking this pod already
-				return reconcile.Result{}, nil
-			}
-
-			// The pod got deleted and created again under the same name, like
-			// the pods of a StatefulSet, with both events handled at once. The
-			// profiles of the previous pod are collected like for a removed
-			// pod before the new one is recorded.
-			logger.Info("Pod got replaced, collecting the profiles of the previous one")
-
-			if err := r.collectPod(ctx, req.NamespacedName, bpf, "replaced"); err != nil {
-				return reconcile.Result{}, err
-			}
+		if done, err := r.reconcileTrackedPod(ctx, logger, req, pod, bpf); done {
+			return reconcile.Result{}, err
 		}
 
 		profiles, recorder := r.podProfiles(logger, pod)
@@ -634,6 +608,51 @@ func (r *RecorderReconciler) Reconcile(
 	return reconcile.Result{}, nil
 }
 
+// reconcileTrackedPod handles a pending or running pod which is tracked
+// already. It reports true if the reconcile is done with the pod: it is
+// tracked and still annotated, or it lost its recording annotations and got
+// collected. A pod which replaced the tracked one under its name gets the
+// previous one collected and is reconciled on.
+func (r *RecorderReconciler) reconcileTrackedPod(
+	ctx context.Context,
+	logger logr.Logger,
+	req reconcile.Request,
+	pod *corev1.Pod,
+	bpf *bpfRecorderSession,
+) (bool, error) {
+	value, ok := r.podsToWatch.Load(req.String())
+	if !ok {
+		return false, nil
+	}
+
+	if watched, ok := value.(podToWatch); !ok || watched.uid == pod.UID {
+		if !r.isPodWithTraceAnnotation(pod) {
+			// The recording annotations got removed from the pod, which is
+			// still running. What it did until then gets recorded, like for
+			// a pod which gets deleted, and the pod is not tracked any
+			// longer.
+			logger.Info("Recording annotations got removed, collecting the profiles")
+
+			return true, r.collectPod(ctx, req.NamespacedName, bpf, "unannotated")
+		}
+
+		// We're tracking this pod already
+		return true, nil
+	}
+
+	// The pod got deleted and created again under the same name, like the
+	// pods of a StatefulSet, with both events handled at once. The profiles
+	// of the previous pod are collected like for a removed pod before the
+	// new one is recorded.
+	logger.Info("Pod got replaced, collecting the profiles of the previous one")
+
+	if err := r.collectPod(ctx, req.NamespacedName, bpf, "replaced"); err != nil {
+		return true, err
+	}
+
+	return false, nil
+}
+
 // podProfiles returns the profiles which the annotations of a pod ask to record
 // and the recorder for them. It returns no profiles if there are none or if the
 // annotations cannot be parsed.
@@ -668,10 +687,27 @@ func (r *RecorderReconciler) podProfiles(
 
 // ignoreAnnotations reports annotations of a pod which cannot be parsed.
 // Malformed annotations could be set by users directly, which is why they are
-// ignored.
+// ignored. Every status update of the pod reconciles it again, so the report
+// is given once per pod and error, like for rejected annotations.
 func (r *RecorderReconciler) ignoreAnnotations(
 	logger logr.Logger, pod *corev1.Pod, recorder string, err error,
 ) {
+	podKey := client.ObjectKeyFromObject(pod).String()
+	annotation := recorder + ": " + err.Error()
+
+	if value, ok := r.rejectedPods.Load(podKey); ok {
+		if previous, ok := value.(rejectedPod); ok && previous.uid == pod.UID {
+			if _, warned := previous.annotations[annotation]; warned {
+				return
+			}
+		}
+	}
+
+	r.rejectedPods.Store(podKey, rejectedPod{
+		uid:         pod.UID,
+		annotations: map[string]struct{}{annotation: {}},
+	})
+
 	logger.Info("Ignoring because unable to parse "+recorder+" annotation", "error", err)
 	r.record.Eventf(
 		pod,
@@ -1835,14 +1871,10 @@ func (r *RecorderReconciler) resolveProfileTarget(
 
 	switch {
 	case kerrors.IsNotFound(err):
-		state, ok := recordings[parsed.profileName]
-		if !ok {
-			// Nothing tells how the recording wanted its profiles stored.
-			return nil, errRecordingGone
-		}
-
-		target.state = state
-		target.merge = state.partial
+		// The pod only got tracked for recordings which authorized its
+		// annotations, so the state of the recording is known.
+		target.state = recordings[parsed.profileName]
+		target.merge = target.state.partial
 	case err != nil:
 		return nil, fmt.Errorf("get recording: %w", err)
 	default:
@@ -1895,7 +1927,8 @@ func (r *RecorderReconciler) resolveProfileTarget(
 }
 
 // holdRecording adds the finalizer which keeps the recording around until its
-// partial profiles are merged.
+// partial profiles are merged. A recording which is being deleted gets merged
+// instead, see resolveProfileTarget, so the finalizer is never added to one.
 func (r *RecorderReconciler) holdRecording(ctx context.Context, target *profileTarget) error {
 	recording := target.recording
 	if !target.state.partial || target.merge || recording == nil {
@@ -1909,19 +1942,24 @@ func (r *RecorderReconciler) holdRecording(ctx context.Context, target *profileT
 		return nil
 	}
 
-	// The API server rejects adding finalizers to an object which is being
-	// deleted, so retrying would never succeed.
-	if !recording.GetDeletionTimestamp().IsZero() {
-		r.log.Info("Not adding finalizer to recording being deleted",
-			"recording", recording.Name, "namespace", recording.Namespace)
+	// The daemons of all nodes running the recorded workload finish at about
+	// the same time, so the finalizer gets appended with a patch, which does
+	// not conflict with the other daemons adding it to the same recording.
+	// Only the first finalizer of a recording is written with its resource
+	// version, which conflicts if another daemon added one first, so that
+	// gets retried here instead of requeuing the whole collection. Every
+	// attempt patches a fresh copy, which keeps the cached recording of the
+	// target untouched.
+	if err := util.RetryWithContext(ctx, func() error {
+		held := &profilerecordingapi.ProfileRecording{
+			ObjectMeta: metav1.ObjectMeta{Name: recording.Name, Namespace: recording.Namespace},
+		}
 
-		return nil
-	}
-
-	controllerutil.AddFinalizer(recording, profilerecordingapi.RecordingHasUnmergedProfiles)
-
-	if err := r.client.Update(ctx, recording); err != nil {
-		return fmt.Errorf("update recording: %w", err)
+		return util.AddFinalizer(
+			ctx, r.client, held, profilerecordingapi.RecordingHasUnmergedProfiles,
+		)
+	}, kerrors.IsConflict); err != nil {
+		return fmt.Errorf("add finalizer to recording: %w", err)
 	}
 
 	return nil
@@ -1948,10 +1986,9 @@ func (r *RecorderReconciler) storeProfile(
 
 	// Several nodes can merge into the same profile at once. The merge is
 	// done against the object fetched right before the update, which fails
-	// on a conflicting write in between and is then done again.
-	err := retry.OnError(storeProfileBackoff, func(err error) bool {
-		return kerrors.IsConflict(err) || kerrors.IsAlreadyExists(err)
-	}, func() error {
+	// on a conflicting write in between and is then done again, as long as
+	// the reconcile has time left.
+	err := util.RetryWithBackoff(ctx, storeProfileBackoff, func() error {
 		stored, ok := desired.DeepCopyObject().(client.Object)
 		if !ok {
 			return fmt.Errorf("object %T is not a client.Object", desired)
@@ -1987,6 +2024,8 @@ func (r *RecorderReconciler) storeProfile(
 		})
 
 		return err
+	}, func(err error) bool {
+		return kerrors.IsConflict(err) || kerrors.IsAlreadyExists(err)
 	})
 	if errors.Is(err, errMergeFailed) {
 		return r.storePartialProfile(ctx, target, profile, kind, err)

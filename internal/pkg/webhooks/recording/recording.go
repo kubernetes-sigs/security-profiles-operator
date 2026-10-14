@@ -264,17 +264,24 @@ func (p *podSeccompRecorder) updatePod(
 			oldValue, existed := oldPod.GetAnnotations()[key]
 			if !existed {
 				// The pod predates the recording, or did not match it on
-				// creation, so it is not being recorded.
+				// creation, so it is not being recorded. An annotation
+				// added since would start recording the running pod.
+				if _, added := pod.GetAnnotations()[key]; added {
+					delete(pod.Annotations, key)
+					p.log.Info("removing recording annotation added to the running pod",
+						"key", key, "pod", pod.Name)
+
+					podChanged = true
+				}
+
 				continue
 			}
 
 			// The value carries a random nonce and a timestamp, so a fresh
-			// one would rename the recorded profile. Keep the value the
-			// recording started with, unless it is not one of this
-			// recording and container.
-			if isRecordingAnnotationValue(oldValue, profileRecording.Name, ctr.Name) {
-				value = oldValue
-			}
+			// one would rename the recorded profile, and a value of this
+			// recording would start recording a pod which another recording
+			// recorded. Keep the value the pod started with.
+			value = oldValue
 		}
 
 		existingValue, ok := pod.GetAnnotations()[key]

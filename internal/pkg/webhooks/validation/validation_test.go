@@ -204,7 +204,14 @@ func TestHandleUpdate(t *testing.T) {
 		allowed   bool
 	}{
 		{name: "unchanged invalid policy", oldPolicy: invalid, newPolicy: invalid, allowed: true},
-		{name: "invalid policy being deleted", oldPolicy: valid, newPolicy: invalid, deleting: true, allowed: true},
+		{
+			name: "unchanged invalid policy being deleted", oldPolicy: invalid, newPolicy: invalid,
+			deleting: true, allowed: true,
+		},
+		{
+			name: "changed to invalid policy being deleted", oldPolicy: valid, newPolicy: invalid,
+			deleting: true,
+		},
 		{name: "changed to invalid policy", oldPolicy: valid, newPolicy: invalid},
 		{name: "changed to valid policy", oldPolicy: invalid, newPolicy: valid, allowed: true},
 	} {

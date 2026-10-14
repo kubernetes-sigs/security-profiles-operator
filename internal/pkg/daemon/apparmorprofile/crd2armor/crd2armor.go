@@ -372,8 +372,9 @@ func newApparmorData(name string, abstract *apparmorprofileapi.AppArmorAbstract)
 }
 
 func (d *ApparmorData) Validate() error {
-	// 1. Validate profile name (usually limited to [a-zA-Z0-9_-])
-	if d.Name != "" && !profileNameChars.MatchString(d.Name) {
+	// 1. Validate profile name (usually limited to [a-zA-Z0-9_-]). An empty
+	// name renders a profile without a name, which apparmor_parser rejects.
+	if !profileNameChars.MatchString(d.Name) {
 		return fmt.Errorf("invalid profile name: %q", d.Name)
 	}
 
@@ -451,6 +452,36 @@ func validPath(path string) error {
 	}
 
 	return nil
+}
+
+// TraversalPathsMessage is the warning for a profile for which TraversalPaths
+// reports paths.
+const TraversalPathsMessage = "spec.abstract.filesystem paths with a directory traversal " +
+	"never match anything, because the kernel matches resolved paths, " +
+	"use the resolved paths instead"
+
+// TraversalPaths returns the filesystem paths of abstract which contain a
+// directory traversal. Unlike executables and libraries, such paths are
+// accepted and rendered, like by the released versions, but their rules never
+// match anything, because the kernel matches resolved paths.
+func TraversalPaths(abstract *apparmorprofileapi.AppArmorAbstract) []string {
+	if abstract == nil || abstract.Filesystem == nil {
+		return nil
+	}
+
+	var paths []string
+
+	for _, path := range slices.Concat(
+		abstract.Filesystem.ReadOnlyPaths,
+		abstract.Filesystem.WriteOnlyPaths,
+		abstract.Filesystem.ReadWritePaths,
+	) {
+		if strings.Contains(path, "/../") || strings.HasPrefix(path, "/..") {
+			paths = append(paths, path)
+		}
+	}
+
+	return paths
 }
 
 // normalizeCapabilities returns the capabilities in the lower case form

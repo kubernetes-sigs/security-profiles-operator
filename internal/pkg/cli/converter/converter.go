@@ -65,7 +65,23 @@ func (p *Converter) Run() error {
 			log.Printf("WARNING: profile %q: %s", obj.Name, crd2armor.DeprecatedPtraceRulesMessage)
 		}
 
+		if paths := crd2armor.TraversalPaths(&obj.Spec.Abstract); len(paths) > 0 {
+			log.Printf(
+				"WARNING: profile %q: %s: %q",
+				obj.Name,
+				crd2armor.TraversalPathsMessage,
+				paths,
+			)
+		}
+
 		programName := p.options.programName
+		if programName == "" && obj.Name == "" {
+			return fmt.Errorf(
+				"profile has no name, set its metadata.name or pass --%s",
+				FlagProgramName,
+			)
+		}
+
 		if programName == "" {
 			//nolint:lll  // long url is long
 			log.Printf("Creating an unattached AppArmor profile '%s'. "+

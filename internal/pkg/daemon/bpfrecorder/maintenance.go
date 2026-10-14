@@ -365,13 +365,15 @@ func (b *BpfRecorder) releaseAbandonedRecording() {
 		"idleSince", b.idleSince,
 	)
 
-	b.idleSince = time.Time{}
-
 	if err := b.stopRecording(); err != nil {
+		// The idle time is kept, so that the next tick tries again instead
+		// of waiting for the whole timeout once more.
 		b.logger.Error(err, "Unable to stop abandoned recording")
 
 		return
 	}
+
+	b.idleSince = time.Time{}
 
 	// A later Stop of these clients finds nothing to stop, so it cannot end
 	// the recording of a client which starts one afterwards.

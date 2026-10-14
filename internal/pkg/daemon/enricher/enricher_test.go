@@ -174,7 +174,6 @@ func TestRun(t *testing.T) {
 		{
 			name: "failure on MetricsAuditInc",
 			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine) {
-				mock.DialReturns(nil, errTest)
 				mock.AuditIncReturns(nil, errTest)
 			},
 			assert: func(
@@ -190,7 +189,6 @@ func TestRun(t *testing.T) {
 		{
 			name: "failure on Tail",
 			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine) {
-				mock.DialReturns(nil, errTest)
 				mock.StartTailReturns(nil, errTest)
 			},
 			assert: func(
@@ -205,7 +203,6 @@ func TestRun(t *testing.T) {
 		{
 			name: "failure on Listen",
 			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine) {
-				mock.DialReturns(nil, errTest)
 				mock.ListenReturns(nil, errTest)
 			},
 			assert: func(
@@ -221,7 +218,6 @@ func TestRun(t *testing.T) {
 		{
 			name: "failure on Chown",
 			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine) {
-				mock.DialReturns(nil, errTest)
 				mock.ChownReturns(errTest)
 			},
 			assert: func(
@@ -702,6 +698,49 @@ func TestProcessAuditLineDropsLineOfReusedPID(t *testing.T) {
 	require.Nil(t, sut.lookup.processContainers.Get(42))
 }
 
+// TestContainerIDForProcessAfterPIDReuse asserts that a line of a process
+// which exited gets the container the process was last seen in, also once
+// another process reused its PID, unless that process started before the line
+// got logged as well, which means that the line is of an earlier process which
+// was never seen.
+func TestContainerIDForProcessAfterPIDReuse(t *testing.T) {
+	t.Parallel()
+
+	mock := &enricherfakes.FakeImpl{}
+	mock.UptimeReturns(time.Hour, nil)
+
+	lookup := newContainerLookup(logr.Discard())
+
+	// The process started 30 minutes after the boot and was seen running.
+	mock.ContainerIDForPIDReturns(containerID, 30*time.Minute, nil)
+
+	cID, err := lookup.containerIDForProcess(mock, 42, time.Now().Add(-time.Minute))
+	require.NoError(t, err)
+	require.Equal(t, containerID, cID)
+
+	// Another process reused the PID 10 seconds ago, after the line of the
+	// exited process got logged.
+	mock.ContainerIDForPIDReturns(otherContainerID, time.Hour-10*time.Second, nil)
+
+	cID, err = lookup.containerIDForProcess(mock, 42, time.Now().Add(-time.Minute))
+	require.NoError(t, err)
+	require.Equal(t, containerID, cID)
+
+	// A line logged before the exited process started is of a process which
+	// was never seen.
+	_, err = lookup.containerIDForProcess(mock, 42, time.Now().Add(-45*time.Minute))
+	require.ErrorIs(t, err, errProcessStartedLater)
+
+	// Once the new process was seen running, the lines logged before it
+	// started are not attributed to its container.
+	cID, err = lookup.containerIDForProcess(mock, 42, time.Now())
+	require.NoError(t, err)
+	require.Equal(t, otherContainerID, cID)
+
+	_, err = lookup.containerIDForProcess(mock, 42, time.Now().Add(-time.Minute))
+	require.ErrorIs(t, err, errProcessStartedLater)
+}
+
 // TestContainerIDForProcessRefreshesRarely asserts that the container of a
 // running process is not kept again for each of its lines, while a change of
 // the container is kept right away.
@@ -727,12 +766,12 @@ func TestContainerIDForProcessRefreshesRarely(t *testing.T) {
 
 	_, err = lookup.containerIDForProcess(mock, 42, time.Time{})
 	require.NoError(t, err)
-	require.Equal(t, otherContainerID, lookup.processContainers.Get(42).Value())
+	require.Equal(t, otherContainerID, lookup.processContainers.Get(42).Value().id)
 
 	// An entry kept longer ago than the refresh interval is kept again.
 	lookup.processContainers.Set(
 		42,
-		otherContainerID,
+		processContainer{id: otherContainerID},
 		exitedProcessTimeout-2*processRefreshInterval,
 	)
 	stale := lookup.processContainers.Get(42).ExpiresAt()

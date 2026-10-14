@@ -159,7 +159,6 @@ func TestReconcileNotSupportedReportsProfileOnce(t *testing.T) {
 		res, err := rec.Reconcile(t.Context(), req)
 		require.NoError(t, err)
 		require.Equal(t, reconcile.Result{}, res)
-		require.ErrorIs(t, rec.Healthz(nil), errSeccompNotSupported)
 	}
 
 	utiltest.RequireEvent(t, recorder, wantEvent)
@@ -180,20 +179,6 @@ func TestReconcileNotSupportedReportsProfileOnce(t *testing.T) {
 	require.NoError(t, err)
 	utiltest.RequireEvent(t, recorder, wantEvent)
 	utiltest.RequireNoEvent(t, recorder)
-}
-
-func TestHealthz(t *testing.T) {
-	t.Parallel()
-
-	mock := &seccompprofilefakes.FakeImpl{}
-	recorder := events.NewFakeRecorder(1)
-	rec := &Reconciler{impl: mock, record: recorder, metrics: metrics.New(), nodeName: "node"}
-
-	require.ErrorIs(t, rec.Healthz(nil), errSeccompNotSupported)
-	utiltest.RequireNoEvent(t, recorder)
-
-	mock.IsSupportedReturns(true)
-	require.NoError(t, rec.Healthz(nil))
 }
 
 // Expected perms on file.

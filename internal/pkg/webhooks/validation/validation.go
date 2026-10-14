@@ -60,12 +60,10 @@ func (v *rawSelinuxProfileValidator) Handle(
 
 	// Updates which do not change the policy, like status updates or the
 	// removal of a finalizer, must not be rejected. Otherwise objects stored
-	// before a validation rule got tightened could never be deleted.
+	// before a validation rule got tightened could never be deleted. A
+	// changed policy is validated also while the object is being deleted:
+	// the daemon installs the policy of an object held by a finalizer.
 	if req.Operation == admissionv1.Update {
-		if rsp.GetDeletionTimestamp() != nil {
-			return admission.Allowed("object is being deleted")
-		}
-
 		old := &selinuxprofileapi.RawSelinuxProfile{}
 		if err := v.decoder.DecodeRaw(req.OldObject, old); err != nil {
 			v.log.Error(err, "failed to decode old RawSelinuxProfile")

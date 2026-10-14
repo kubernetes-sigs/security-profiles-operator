@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"net/http"
 	"slices"
 	"sync/atomic"
 	"time"
@@ -136,11 +135,6 @@ func (r *PolicyMergeReconciler) Name() string {
 // SchemeBuilder returns the API scheme of the controller.
 func (r *PolicyMergeReconciler) SchemeBuilder() runtime.SchemeBuilder {
 	return profilerecordingapi.SchemeBuilder
-}
-
-// Healthz is the liveness probe endpoint of the controller.
-func (r *PolicyMergeReconciler) Healthz(*http.Request) error {
-	return nil
 }
 
 // RBAC permissions to read the recordings and to merge their partial profiles
