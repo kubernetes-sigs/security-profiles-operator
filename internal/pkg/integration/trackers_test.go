@@ -21,6 +21,7 @@ package integration
 import (
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -36,6 +37,10 @@ import (
 )
 
 const (
+	// consistentlyTimeout is how long a state which must not change gets
+	// watched.
+	consistentlyTimeout = 2 * time.Second
+
 	// bindingFinalizer is the finalizer of the bindings with active
 	// workloads.
 	bindingFinalizer = "active-workload-lock"
@@ -124,6 +129,17 @@ func TestBindingTrackerTracksAppliedPods(t *testing.T) {
 	require.NoError(t, k8sClient.Create(t.Context(), unbound))
 
 	requireBindingWorkloads(t, binding, ns+"/bound")
+
+	// The bound pod may get tracked before the tracker reconciled the other
+	// two, so a wrongly tracked one would only show up afterwards.
+	require.Never(t, func() bool {
+		pb := &profilebindingapi.ProfileBinding{}
+		if err := k8sClient.Get(t.Context(), client.ObjectKeyFromObject(binding), pb); err != nil {
+			return false
+		}
+
+		return !slices.Equal(pb.Status.ActiveWorkloads, []string{ns + "/bound"})
+	}, consistentlyTimeout, tick, "only the bound pod is tracked")
 
 	deletePod(t, pod)
 	requireBindingWorkloads(t, binding)

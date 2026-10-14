@@ -311,7 +311,7 @@ func TestGetProfileRemembersMissingProfiles(t *testing.T) {
 	}
 	lookup := func() *profileLookup {
 		return &profileLookup{
-			retryDeadline: time.Now().Add(profileLookupTimeout),
+			retryDeadline: time.Now().Add(sut.budget.lookupTimeout()),
 			enabled:       map[profilebindingapi.ProfileBindingKind]bool{},
 		}
 	}

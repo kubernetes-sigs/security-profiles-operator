@@ -262,6 +262,12 @@ func (e *e2e) dumpNodeJournals(d *diagnostics, since time.Time) {
 func (e *e2e) cleanupOperator(manifest string) {
 	e.logf("Cleaning up operator")
 
+	// The operator recreates the profiles of the SPOD, like the one of the
+	// log enricher, once they are deleted. The daemon keeps its finalizer on
+	// such a profile, which then blocks the deletion of its CRD once the
+	// daemon is gone, so the operator stops before the profiles get deleted.
+	e.stopOperator()
+
 	for _, kind := range profileKinds {
 		e.kubectl("delete", kind, "--all", "--all-namespaces", "--ignore-not-found", "--wait=false")
 	}
@@ -275,6 +281,38 @@ func (e *e2e) cleanupOperator(manifest string) {
 		"delete", "--ignore-not-found", "--timeout", defaultLongOpTimeout,
 		"-f", e.renderedManifest(manifest),
 	)
+}
+
+// stopOperator scales the operator deployment down in every namespace it runs
+// in. A missing deployment is fine, the test which failed may have left none.
+func (e *e2e) stopOperator() {
+	namespaces, err := e.kubectlCommand(
+		"get", "deployments", "--all-namespaces",
+		"--field-selector", "metadata.name="+config.OperatorName,
+		"-o", `jsonpath={range .items[*]}{.metadata.namespace}{" "}{end}`,
+	)
+	if err != nil {
+		e.logf("Unable to find the operator deployment: %v", err)
+
+		return
+	}
+
+	for namespace := range strings.FieldsSeq(namespaces) {
+		if _, err := e.kubectlCommand(
+			"-n", namespace, "scale", "deployment", config.OperatorName, "--replicas=0",
+		); err != nil {
+			e.logf("Unable to stop the operator in %s: %v", namespace, err)
+
+			continue
+		}
+
+		if _, err := e.kubectlCommand(
+			"-n", namespace, "wait", "--for=delete", "pod",
+			"-l", "name="+config.OperatorName, "--timeout", defaultWaitTimeout,
+		); err != nil {
+			e.logf("The operator pods in %s did not stop: %v", namespace, err)
+		}
+	}
 }
 
 // remainingProfiles returns the profiles which still exist, as their kind,

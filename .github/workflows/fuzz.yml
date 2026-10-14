@@ -41,3 +41,29 @@ jobs:
             cmd/**/testdata/fuzz/
             api/**/testdata/fuzz/
           if-no-files-found: ignore
+
+  # Opens an issue, or comments on the open one, when a scheduled run fails,
+  # like the e2e-flakes workflow, so that a crash the fuzzer found does not
+  # go unnoticed. It runs no repository code.
+  report:
+    needs: fuzz
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      issues: write  # required for reporting the failure
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Report the failure
+        run: |
+          title="Weekly fuzz run failed"
+          body="The scheduled run $RUN_URL failed, see the fuzz-failures artifact of its fuzz job for the failing inputs, commit them below testdata/fuzz of the package to turn them into regression tests."
+          number=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
+          if [[ -n "$number" ]]; then
+            gh issue comment "$number" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi

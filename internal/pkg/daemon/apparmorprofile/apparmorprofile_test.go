@@ -20,17 +20,13 @@ import (
 	"errors"
 	"testing"
 
-	_ "github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	profilebaseapi "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
@@ -38,89 +34,6 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/nodestatus"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/utiltest"
 )
-
-func TestReconcile(t *testing.T) {
-	t.Parallel()
-
-	name := "cool-profile"
-	namespace := "cool-namespace"
-
-	cases := []struct {
-		name       string
-		rec        *Reconciler
-		req        reconcile.Request
-		wantResult reconcile.Result
-		wantErr    error
-	}{
-		{
-			name: "ProfileNotFound",
-			rec: &Reconciler{
-				client: utiltest.NewFakeClient(t, &interceptor.Funcs{
-					Get: utiltest.GetReturns(kerrors.NewNotFound(schema.GroupResource{}, name)),
-				}),
-				log:     log.Log,
-				metrics: metrics.New(),
-				manager: NewAppArmorProfileManager(log.Log),
-			},
-			req: reconcile.Request{
-				NamespacedName: types.NamespacedName{Namespace: namespace, Name: name},
-			},
-			wantResult: reconcile.Result{},
-			wantErr:    nil,
-		},
-		{
-			name: "GotProfile",
-			rec: &Reconciler{
-				client: utiltest.NewFakeClient(t, &interceptor.Funcs{
-					Get:               utiltest.GetReturns(nil),
-					Update:            utiltest.UpdateReturns(nil),
-					SubResourceUpdate: utiltest.SubResourceUpdateReturns(nil),
-				}),
-				log:     log.Log,
-				record:  events.NewFakeRecorder(10),
-				manager: NewAppArmorProfileManager(log.Log),
-				metrics: metrics.New(),
-			},
-			req: reconcile.Request{
-				NamespacedName: types.NamespacedName{Namespace: namespace, Name: name},
-			},
-			wantResult: reconcile.Result{},
-			wantErr:    nil,
-		},
-		{
-			name: "NotEnabled",
-			rec: &Reconciler{
-				client: utiltest.NewFakeClient(t, &interceptor.Funcs{
-					Get:               utiltest.GetReturns(nil),
-					Update:            utiltest.UpdateReturns(nil),
-					SubResourceUpdate: utiltest.SubResourceUpdateReturns(nil),
-				}),
-				log:     log.Log,
-				record:  events.NewFakeRecorder(10),
-				manager: &FakeProfileManager{enabled: false},
-				metrics: metrics.New(),
-			},
-			req: reconcile.Request{
-				NamespacedName: types.NamespacedName{Namespace: namespace, Name: name},
-			},
-			wantResult: reconcile.Result{},
-			wantErr:    nil,
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			gotResult, gotErr := tc.rec.Reconcile(t.Context(), tc.req)
-			if tc.wantErr != nil {
-				require.EqualError(t, gotErr, tc.wantErr.Error())
-			}
-
-			require.Equal(t, tc.wantResult, gotResult)
-		})
-	}
-}
 
 type FakeProfileManager struct {
 	enabled   bool

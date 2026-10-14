@@ -19,6 +19,8 @@ limitations under the License.
 package e2e_test
 
 func (e *e2e) testCaseResourceRequirementsChange([]string) {
+	e.restoreSpodSpec()
+
 	e.logf("Change resource requirements in spod")
 	e.patchSpod(`{"spec":{"daemonResourceRequirements":
 		{"requests": {"memory": "256Mi", "cpu": "250m"},

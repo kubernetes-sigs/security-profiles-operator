@@ -476,7 +476,7 @@ func TestRetryProfileLookup(t *testing.T) {
 		t.Parallel()
 
 		calls := 0
-		err := retryProfileLookup(t.Context(), true, func() error {
+		err := retryProfileLookup(t.Context(), true, testBackoff(), func() error {
 			calls++
 			if calls < 2 {
 				return errProfWithoutStatus
@@ -489,11 +489,28 @@ func TestRetryProfileLookup(t *testing.T) {
 		require.Equal(t, 2, calls)
 	})
 
+	t.Run("gives up after the steps of the backoff", func(t *testing.T) {
+		t.Parallel()
+
+		backoff := testBackoff()
+		backoff.Steps = 3
+
+		calls := 0
+		err := retryProfileLookup(t.Context(), true, backoff, func() error {
+			calls++
+
+			return errProfWithoutStatus
+		})
+
+		require.ErrorIs(t, err, errProfWithoutStatus)
+		require.Equal(t, 3, calls)
+	})
+
 	t.Run("does not retry other errors", func(t *testing.T) {
 		t.Parallel()
 
 		calls := 0
-		err := retryProfileLookup(t.Context(), true, func() error {
+		err := retryProfileLookup(t.Context(), true, testBackoff(), func() error {
 			calls++
 
 			return errTest
@@ -507,7 +524,7 @@ func TestRetryProfileLookup(t *testing.T) {
 		t.Parallel()
 
 		calls := 0
-		err := retryProfileLookup(t.Context(), false, func() error {
+		err := retryProfileLookup(t.Context(), false, testBackoff(), func() error {
 			calls++
 
 			return errProfWithoutStatus
@@ -523,8 +540,11 @@ func TestRetryProfileLookup(t *testing.T) {
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
 		defer cancel()
 
+		backoff := testBackoff()
+		backoff.Duration = time.Second
+
 		start := time.Now()
-		err := retryProfileLookup(ctx, true, func() error { return errProfWithoutStatus })
+		err := retryProfileLookup(ctx, true, backoff, func() error { return errProfWithoutStatus })
 
 		require.ErrorIs(t, err, errProfWithoutStatus)
 		require.Less(t, time.Since(start), time.Second)

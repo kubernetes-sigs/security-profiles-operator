@@ -223,6 +223,7 @@ func (e *e2e) testCaseSelinuxIncompletePolicy() {
 	e.writeAndCreate(
 		fmt.Sprintf(errorloggerIncompletePolFmt, "enforcing", "mode", "Enforcing"),
 		"errorlogger-policy-incomplete-enforcing.yml")
+	e.kubectlCleanup("selinuxprofile", enforcingProfileName)
 
 	// Let's wait for the policy to be processed
 	e.kubectl("wait", "--timeout", defaultLongOpTimeout,
@@ -234,6 +235,7 @@ func (e *e2e) testCaseSelinuxIncompletePolicy() {
 		e.getSELinuxPolicyUsage("selinuxprofile", enforcingProfileName),
 	)
 	e.writeAndCreate(podWithPolicy, "pod-w-incomplete-policy.yml")
+	e.kubectlCleanup("pod", "errorlogger")
 
 	// note: this would have been much nicer with kubectl wait --jsonpath, but I found it racy incase the status
 	// doesn't exist yet. So we're polling instead.
@@ -289,6 +291,7 @@ func (e *e2e) testCaseSelinuxIncompletePermissivePolicy() {
 	e.writeAndCreate(
 		fmt.Sprintf(errorloggerIncompletePolFmt, "permissive", "mode", "Permissive"),
 		"errorlogger-policy-incomplete-permissive.yml")
+	e.kubectlCleanup("selinuxprofile", permissiveProfileName)
 
 	// Let's wait for the policy to be processed
 	e.kubectl("wait", "--timeout", defaultLongOpTimeout,
@@ -300,6 +303,7 @@ func (e *e2e) testCaseSelinuxIncompletePermissivePolicy() {
 		e.getSELinuxPolicyUsage("selinuxprofile", permissiveProfileName),
 	)
 	e.writeAndCreate(podWithPolicy, "pod-w-incomplete-permissive-policy.yml")
+	e.kubectlCleanup("pod", "errorlogger")
 
 	e.waitFor("condition=ready", "pod", "errorlogger")
 
@@ -322,6 +326,7 @@ func (e *e2e) testCaseSelinuxIncompleteDisabledPolicy() {
 	e.writeAndCreate(
 		fmt.Sprintf(errorloggerIncompletePolFmt, "disabled", "state", "Disabled"),
 		"errorlogger-policy-incomplete-disabled.yml")
+	e.kubectlCleanup("selinuxprofile", disabledProfileName)
 
 	// Let's wait for the policy to be processed, it will be ready=false
 	e.kubectl("wait", "--timeout", defaultLongOpTimeout,
@@ -333,6 +338,7 @@ func (e *e2e) testCaseSelinuxIncompleteDisabledPolicy() {
 		e.getSELinuxPolicyUsage("selinuxprofile", disabledProfileName),
 	)
 	e.writeAndCreate(podWithPolicy, "pod-w-incomplete-disabled-policy.yml")
+	e.kubectlCleanup("pod", "errorlogger")
 
 	// The pod might still be in creating state.
 	e.eventually(selinuxWaitTimeout, defaultPollInterval, func() error {

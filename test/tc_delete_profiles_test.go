@@ -94,7 +94,7 @@ metadata:
 spec:
   initContainers:
   - name: init-container
-    image: registry.fedoraproject.org/fedora-minimal:latest
+    image: ` + throwawayImage + `
     securityContext:
       seccompProfile:
         type: Localhost
@@ -117,6 +117,13 @@ spec:
 `
 		deletePodName = "test-pod"
 	)
+
+	// The test deletes the objects itself, the cleanups cover a failure, so
+	// that the objects do not fail the next test of the same names. The pod
+	// goes first, since it keeps the profile from being deleted.
+	e.kubectlCleanup("securityprofilenodestatus", fakeNodeStatusName)
+	e.kubectlCleanup("seccompprofile", deleteProfileName)
+	e.kubectlCleanup("pod", deletePodName)
 
 	e.writeAndCreate(deleteProfile, "delete-profile*.yaml")
 

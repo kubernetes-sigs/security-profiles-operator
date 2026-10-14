@@ -28,6 +28,7 @@ import (
 
 	"sigs.k8s.io/yaml"
 
+	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
@@ -42,20 +43,11 @@ const (
 // waitForJsonEnricherLogs waits until the JSON enricher logs since the
 // provided time match the conditions, and returns them.
 func (e *e2e) waitForJsonEnricherLogs(since time.Time, conditions ...*regexp.Regexp) string {
-	var logs string
-
 	// This covers the flush interval of the JSON enricher.
-	e.eventually(time.Minute, 3*time.Second, func() error {
-		e.logf("Waiting for JSON enricher to record syscalls")
-		logs = e.kubectlOperatorNS(
-			"logs",
-			"--since-time="+since.Format(time.RFC3339),
-			"ds/spod",
-			"json-enricher",
-		)
-
-		return unmatchedLogs(logs, conditions)
-	})
+	logs, err := e.pollEnricherContainerLogs(time.Minute, "json-enricher", since, conditions...)
+	if err != nil {
+		e.Failf("condition not met", "%v", err)
+	}
 
 	return logs
 }
@@ -135,17 +127,32 @@ func (e *e2e) waitForEnricherLogs(since time.Time, conditions ...*regexp.Regexp)
 func (e *e2e) pollEnricherLogs(
 	timeout time.Duration, since time.Time, conditions ...*regexp.Regexp,
 ) error {
-	return poll(timeout, 3*time.Second, func() error {
-		e.logf("Waiting for enricher to record syscalls")
-		logs := e.kubectlOperatorNS(
+	_, err := e.pollEnricherContainerLogs(timeout, "log-enricher", since, conditions...)
+
+	return err
+}
+
+// pollEnricherContainerLogs polls the logs of the enricher container of the
+// spod since the provided time until they match the conditions, and returns
+// them, or the error of the last poll once the timeout passes.
+func (e *e2e) pollEnricherContainerLogs(
+	timeout time.Duration, container string, since time.Time, conditions ...*regexp.Regexp,
+) (string, error) {
+	var logs string
+
+	err := poll(timeout, 3*time.Second, func() error {
+		e.logf("Waiting for the %s to record syscalls", container)
+		logs = e.kubectlOperatorNS(
 			"logs",
 			"--since-time="+since.Format(time.RFC3339),
 			"ds/spod",
-			"log-enricher",
+			container,
 		)
 
 		return unmatchedLogs(logs, conditions)
 	})
+
+	return logs, err
 }
 
 // enricherLogLine matches a line of the log enricher which has the key and
@@ -257,7 +264,7 @@ func (e *e2e) profileRecordingStaticPod(
 	recording string, recorded recordedNginx, waitConditions ...*regexp.Regexp,
 ) {
 	e.logf("Creating %s recording for static pod test", recorded.resource)
-	e.kubectl("create", "-f", recording)
+	e.createRecording(recording, recorded.resource, recorded.recording)
 
 	since, podName := e.createRecordingTestPod()
 
@@ -269,9 +276,22 @@ func (e *e2e) profileRecordingStaticPod(
 
 	resourceName := recorded.recording + "-nginx"
 	recorded.check(e, resourceName)
+}
 
-	e.kubectl("delete", "-f", recording)
-	e.kubectl("delete", recorded.resource, resourceName)
+// createRecording creates the recording of the manifest, which gets deleted
+// together with the profiles it recorded once the current test ends, also if
+// it failed. The profiles of a failed test would otherwise make the next one
+// fail, since the recordings of the tests share their names.
+func (e *e2e) createRecording(manifest, resource, recordingName string) {
+	e.kubectl("create", "-f", manifest)
+	e.kubectlCleanup("-f", manifest)
+	e.cleanupRecordedProfiles(resource, recordingName)
+}
+
+// cleanupRecordedProfiles deletes the profiles the recording recorded once
+// the current test ends.
+func (e *e2e) cleanupRecordedProfiles(resource, recordingName string) {
+	e.kubectlCleanup(resource, "-l", profilerecordingapi.ProfileToRecordingLabel+"="+recordingName)
 }
 
 func (e *e2e) testCaseProfileRecordingMultiContainerLogs() {
@@ -316,7 +336,7 @@ func (e *e2e) profileRecordingSelinuxMultiContainer(
 	recording string, waitConditions ...*regexp.Regexp,
 ) {
 	e.logf("Creating SELinux recording for multi container test")
-	e.kubectl("create", "-f", recording)
+	e.createRecording(recording, "selinuxprofile", selinuxRecordingName)
 
 	since, podName := e.createRecordingTestMultiPod()
 
@@ -355,16 +375,13 @@ func (e *e2e) profileRecordingSelinuxMultiContainer(
 
 		return nil
 	})
-
-	e.kubectl("delete", "-f", recording)
-	e.kubectl("delete", "selinuxprofile", profileNameRedis, profileNameNginx)
 }
 
 func (e *e2e) profileRecordingMultiContainer(
 	recording string, waitConditions ...*regexp.Regexp,
 ) {
 	e.logf("Creating recording for multi container test")
-	e.kubectl("create", "-f", recording)
+	e.createRecording(recording, "sp", recordingName)
 
 	since, podName := e.createRecordingTestMultiPod()
 
@@ -391,16 +408,13 @@ func (e *e2e) profileRecordingMultiContainer(
 	const profileNameInit = recordingName + "-init"
 
 	e.NotEmpty(e.retryGetSeccompProfile(profileNameInit))
-
-	e.kubectl("delete", "-f", recording)
-	e.kubectl("delete", "sp", profileNameRedis, profileNameNginx, profileNameInit)
 }
 
 func (e *e2e) profileRecordingSpecificContainer(
 	recording string, waitConditions ...*regexp.Regexp,
 ) {
 	e.logf("Creating recording for specific container test")
-	e.kubectl("create", "-f", recording)
+	e.createRecording(recording, "sp", recordingName)
 
 	since, podName := e.createRecordingTestMultiPod()
 
@@ -415,18 +429,24 @@ func (e *e2e) profileRecordingSpecificContainer(
 	profileNginx := e.retryGetSeccompProfile(profileNameNginx)
 	e.Contains(profileNginx, "close")
 
-	const profileNameRedis = recordingName + "-redis"
+	// The recorder writes the profiles of the pod one after another, so a
+	// wrongly recorded profile of the other containers shows up shortly
+	// after the one of nginx.
+	e.consistentlyNoSeccompProfiles(recordingName+"-redis", recordingName+"-init")
+}
 
-	exists := e.existsSeccompProfile(profileNameRedis)
-	e.False(exists)
+// consistentlyNoSeccompProfiles checks that none of the profiles shows up
+// for absentProfileTimeout.
+func (e *e2e) consistentlyNoSeccompProfiles(names ...string) {
+	e.consistently(absentProfileTimeout, defaultPollInterval, func() error {
+		for _, name := range names {
+			if e.existsSeccompProfile(name) {
+				return fmt.Errorf("profile %s exists", name)
+			}
+		}
 
-	const profileNameInit = recordingName + "-init"
-
-	exists = e.existsSeccompProfile(profileNameInit)
-	e.False(exists)
-
-	e.kubectl("delete", "-f", recording)
-	e.kubectl("delete", "sp", profileNameNginx)
+		return nil
+	})
 }
 
 func (e *e2e) testCaseProfileRecordingDeploymentLogs() {
@@ -473,7 +493,7 @@ func (e *e2e) testCaseRecordingFinalizers() {
 	defer restoreNs()
 
 	e.logf("Creating recording for static pod test")
-	e.kubectl("create", "-f", exampleRecordingSeccompLogsPath)
+	e.createRecording(exampleRecordingSeccompLogsPath, "sp", recordingName)
 
 	since, podName := e.createRecordingTestPod()
 	e.waitForEnricherLogs(since, enricherLogLine("syscallName", "listen"))
@@ -520,8 +540,6 @@ func (e *e2e) testCaseRecordingFinalizers() {
 	resourceName := recordingName + "-nginx"
 	profile := e.retryGetSeccompProfile(resourceName)
 	e.Contains(profile, "listen")
-	e.kubectl("delete", "-f", exampleRecordingSeccompLogsPath)
-	e.kubectl("delete", "sp", resourceName)
 }
 
 func (e *e2e) testCaseProfileRecordingWithMemoryOptimization() {
@@ -543,7 +561,7 @@ func (e *e2e) profileRecordingDeployment(
 	recording string, recorded recordedNginx, logLine ...string,
 ) {
 	e.logf("Creating %s recording for deployment test", recorded.resource)
-	e.kubectl("create", "-f", recording)
+	e.createRecording(recording, recorded.resource, recorded.recording)
 
 	since, deployName := e.createRecordingTestDeployment()
 
@@ -557,10 +575,7 @@ func (e *e2e) profileRecordingDeployment(
 	for _, sfx := range suffixes {
 		recordedProfileName := recorded.recording + "-nginx-" + sfx
 		recorded.check(e, recordedProfileName)
-		e.kubectl("delete", recorded.resource, recordedProfileName)
 	}
-
-	e.kubectl("delete", "-f", recording)
 }
 
 func (e *e2e) createRecordingTestDeployment() (since time.Time, deployName string) {
@@ -607,6 +622,7 @@ func (e *e2e) createRecordingTestDeploymentFromManifest(
 	since = time.Now()
 
 	e.writeAndCreate(manifest, "recording-deployment*.yaml")
+	e.kubectlCleanup("deploy", deployName)
 
 	e.retryGet("deploy", deployName)
 	e.waitFor("condition=available", "deploy", deployName)
@@ -666,6 +682,7 @@ spec:
 	since = time.Now()
 
 	e.writeAndCreate(testPod, "recording-pod*.yaml")
+	e.kubectlCleanup("pod", podName)
 
 	e.logf("Waiting for test pod to be initialized")
 	e.retryGet("pod", podName)
@@ -711,6 +728,7 @@ spec:
 	since = time.Now()
 
 	e.writeAndCreate(testPod, "recording-pod*.yaml")
+	e.kubectlCleanup("pod", podName)
 
 	e.logf("Waiting for test pod to be initialized")
 	e.retryGet("pod", podName)
@@ -723,7 +741,7 @@ spec:
 // independent of what happens with the deployment.
 func (e *e2e) profileRecordingScaleDeployment(recording string, logLine ...string) {
 	e.logf("Creating recording for deployment test")
-	e.kubectl("create", "-f", recording)
+	e.createRecording(recording, "sp", recordingName)
 
 	since, deployName := e.createRecordingTestDeployment()
 
@@ -746,10 +764,7 @@ func (e *e2e) profileRecordingScaleDeployment(recording string, logLine ...strin
 		recordedProfileName := recordingName + "-nginx-" + sfx
 		profile := e.retryGetSeccompProfile(recordedProfileName)
 		e.Contains(profile, "listen")
-		e.kubectl("delete", "sp", recordedProfileName)
 	}
-
-	e.kubectl("delete", "-f", recording)
 }
 
 // getRecordingPodNames returns the names of the recorded test pods, which

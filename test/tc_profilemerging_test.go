@@ -234,6 +234,10 @@ spec:
 		labelValue:     "alpine",
 		policyDisabled: isPolicyDisabled,
 	})
+	// A failed test would otherwise leave the recording and its profiles
+	// behind, which fail the next test of the shared names.
+	e.kubectlCleanup("profilerecording", mergeProfileRecordingName)
+	e.cleanupRecordedProfiles(resource, mergeProfileRecordingName)
 
 	since, deployName := e.createRecordingTestDeploymentFromManifest(testDeploymentMultiContainer)
 	podNames := e.getRecordingPodNames()
@@ -330,7 +334,6 @@ spec:
 	mergedProfile := e.retryGetProfile(resource, mergedProfileNginx)
 	e.Contains(mergedProfile, triggeredAction)
 	e.Contains(mergedProfile, commonAction)
-	e.kubectl("delete", resource, mergedProfileNginx, mergedProfileRedis)
 }
 
 func retryAssertPrfStatus(

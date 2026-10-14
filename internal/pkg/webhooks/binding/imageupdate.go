@@ -171,13 +171,16 @@ func (p *podBinder) bindingApplies(
 
 	var err error
 
+	// The lookup is not retried, so the backoff does not matter.
+	backoff := p.budget.newBackoff()
+
 	switch profileKind {
 	case profilebindingapi.ProfileBindingKindSeccompProfile:
-		_, err = lookupProfile(ctx, key, false, p.GetSeccompProfile)
+		_, err = lookupProfile(ctx, key, false, backoff, p.GetSeccompProfile)
 	case profilebindingapi.ProfileBindingKindSelinuxProfile:
-		_, err = lookupProfile(ctx, key, false, p.GetSelinuxProfile)
+		_, err = lookupProfile(ctx, key, false, backoff, p.GetSelinuxProfile)
 	case profilebindingapi.ProfileBindingKindAppArmorProfile:
-		_, err = lookupProfile(ctx, key, false, p.GetAppArmorProfile)
+		_, err = lookupProfile(ctx, key, false, backoff, p.GetAppArmorProfile)
 	default:
 		// The mutating webhook skips the unsupported kinds.
 		return false, nil

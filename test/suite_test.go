@@ -22,6 +22,7 @@ import (
 	"context"
 	"crypto/sha512"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/rand/v2"
@@ -488,12 +489,19 @@ func (e *kinde2e) TearDownTest() {
 		return
 	}
 
-	e.logf("#### Snapshot of cert-manager namespace ####")
-	e.kubectl("--namespace", "cert-manager", "describe", "all")
-	e.logf("########")
-	e.logf("#### Snapshot of security-profiles-operator namespace ####")
-	e.kubectl("--namespace", "security-profiles-operator", "describe", "all")
-	e.logf("########")
+	// The snapshots must not stop the teardown, which would leak the cluster
+	// when the API server is gone.
+	for _, namespace := range []string{"cert-manager", config.OperatorName} {
+		e.logf("#### Snapshot of %s namespace ####", namespace)
+
+		output, err := e.kubectlCommand("--namespace", namespace, "describe", "all")
+		if err != nil {
+			e.logf("Unable to describe the namespace: %v", err)
+		}
+
+		e.logf("%s", output)
+		e.logf("########")
+	}
 
 	e.logf("Destroying cluster")
 	e.run(
@@ -844,6 +852,11 @@ func (e *e2e) kubectlRun(args ...string) string {
 	return e.kubectl(kubectlRunArgs(args...)...)
 }
 
+// throwawayImage is the image of the pods which run a command for the suite.
+// It gets pulled once per node, every pod of a retried command would pull
+// a latest tag again, since the pull policy of such a tag is Always.
+const throwawayImage = "registry.fedoraproject.org/fedora-minimal:44"
+
 // kubectlRunArgs returns the kubectl arguments to run a command in a new pod.
 func kubectlRunArgs(args ...string) []string {
 	return append([]string{
@@ -852,7 +865,8 @@ func kubectlRunArgs(args ...string) []string {
 		"--rm",
 		"-i",
 		"--restart=Never",
-		"--image=registry.fedoraproject.org/fedora-minimal:latest",
+		"--image=" + throwawayImage,
+		"--image-pull-policy=IfNotPresent",
 	}, args...)
 }
 
@@ -886,7 +900,8 @@ func (e *e2e) runAndRetryPodCMD(podCMD string) string {
 // command does not output anything in CI, or its TLS connection fails, and
 // curl does not retry TLS errors itself. Every attempt asks podCMD again and
 // runs in a pod with a new name, since the pod of the previous attempt may
-// still be terminating.
+// still be terminating. The output does not include the line kubectl prints
+// when it deletes the pod.
 func (e *e2e) retryPodCMD(podCMD func() (string, error), kubectlRunFlags ...string) string {
 	var output string
 
@@ -898,8 +913,10 @@ func (e *e2e) retryPodCMD(podCMD func() (string, error), kubectlRunFlags ...stri
 			return fmt.Errorf("getting pod command: %w", err)
 		}
 
+		podName := randomPodName()
+
 		args := append([]string{"-n", config.OperatorName}, kubectlRunFlags...)
-		args = append(args, randomPodName(), "--", "bash", "-c", cmd)
+		args = append(args, podName, "--", "bash", "-c", cmd)
 
 		output, err = e.kubectlCommand(kubectlRunArgs(args...)...)
 		if err != nil {
@@ -910,11 +927,10 @@ func (e *e2e) retryPodCMD(podCMD func() (string, error), kubectlRunFlags ...stri
 			return fmt.Errorf("running pod command: %w", err)
 		}
 
-		if len(strings.Split(output, "\n")) > 1 {
+		output = podCommandOutput(output, podName)
+		if output != "" {
 			return nil
 		}
-
-		output = ""
 
 		e.logf("Retrying the pod command: no output")
 
@@ -922,6 +938,32 @@ func (e *e2e) retryPodCMD(podCMD func() (string, error), kubectlRunFlags ...stri
 	})
 
 	return output
+}
+
+// podCommandOutput returns the output of kubectl run --rm without the line
+// which reports the deletion of the pod and the surrounding white space.
+func podCommandOutput(output, podName string) string {
+	deleted := fmt.Sprintf("pod %q deleted", podName)
+
+	var lines []string
+
+	for line := range strings.SplitSeq(output, "\n") {
+		if strings.HasPrefix(line, deleted) {
+			continue
+		}
+
+		lines = append(lines, line)
+	}
+
+	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+// assertHTTP11 checks that every line of the output of a curl pod command
+// reports HTTP/1.1, the endpoints of the operator disable HTTP/2. kubectl run
+// prints the output twice when the command exits before kubectl attached to
+// the pod, since it falls back to the logs of the pod then.
+func (e *e2e) assertHTTP11(output string) {
+	e.Equal([]string{"1.1"}, slices.Compact(strings.Fields(output)))
 }
 
 func (e *e2e) waitFor(args ...string) {
@@ -944,9 +986,15 @@ func (e *e2e) waitInOperatorNSFor(args ...string) {
 
 // patchSpod merge patches the SPOD and waits until the change is rolled out.
 func (e *e2e) patchSpod(patch string) {
+	e.patchSpodWithType("merge", patch)
+}
+
+// patchSpodWithType patches the SPOD with a patch of the type, see kubectl
+// patch --type, and waits until the change is rolled out.
+func (e *e2e) patchSpodWithType(patchType, patch string) {
 	generation := e.spodDaemonSetGeneration()
 
-	output := e.kubectlOperatorNS("patch", "spod", "spod", "-p", patch, "--type=merge")
+	output := e.kubectlOperatorNS("patch", "spod", "spod", "-p", patch, "--type="+patchType)
 	// Waiting for a rollout would only run into the timeout for the daemon set
 	// generation.
 	if strings.Contains(output, "(no change)") {
@@ -1074,9 +1122,33 @@ func (e *e2e) jsonEnricherOnlyTestCaseFileOptions(jsonLogFileName string,
 	e.enableJsonEnricherInSpodFileOptions(jsonLogFileName, enricherFilterJsonStr)
 }
 
+// enableLogEnricherBpfInSpod switches the log enricher to the BPF source
+// and restores the previous source once the current test ends, since the
+// other enricher tests wait for the lines of the audit log source.
 func (e *e2e) enableLogEnricherBpfInSpod() {
-	e.kubectlOperatorNS("patch", "spod", "spod", "-p",
-		`{"spec":{"enricher":{"logEnricherSource": "Bpf"}}}`, "--type=merge")
+	e.restoreSpodSpec()
+	e.patchSpod(`{"spec":{"enricher":{"logEnricherSource": "Bpf"}}}`)
+}
+
+// restoreSpodSpec restores the current SPOD spec once the current test ends,
+// also if it failed, so that a changed SPOD does not leak into the following
+// test cases. The spec gets replaced as a whole, which removes the fields
+// the test added, and the restore waits for the rollout like patchSpod.
+func (e *e2e) restoreSpodSpec() {
+	spod := e.kubectlOperatorNS("get", "spod", "spod", "-o", "json")
+
+	var object struct {
+		Spec json.RawMessage `json:"spec"`
+	}
+
+	e.Require().NoError(json.Unmarshal([]byte(spod), &object))
+
+	e.cleanup(func() {
+		e.logf("Restoring the SPOD spec")
+		e.patchSpodWithType(
+			"json", `[{"op": "replace", "path": "/spec", "value": `+string(object.Spec)+`}]`,
+		)
+	})
 }
 
 func (e *e2e) enableLogEnricherInSpod() {
@@ -1132,6 +1204,11 @@ func (e *e2e) enableJsonEnricherInSpod() {
 func (e *e2e) enableJsonEnricherInSpodFileOptions(logPath, enricherFilterJsonStr string) {
 	e.logf("Enable json-enricher in SPOD with 20 second flush interval")
 
+	// The log file is only mounted into the JSON enricher for this test,
+	// the following tests run with the tracked operator configuration.
+	e.restoreSpodSpec()
+	e.restoreOperatorConfigMap()
+
 	jsonVolumeSource := fmt.Sprintf(
 		`{\"hostPath\": {\"path\": \"%s\",\"type\": \"DirectoryOrCreate\"}}`,
 		filepath.Dir(logPath),
@@ -1170,14 +1247,63 @@ func (e *e2e) enableJsonEnricherInSpodFileOptions(logPath, enricherFilterJsonStr
 	e.kubectlOperatorNS(
 		"patch",
 		"configmap",
-		"security-profiles-operator-profile",
+		operatorConfigMap,
 		"--patch-file",
 		patchOperatorJson,
 	)
 
+	e.restartOperator()
+
+	e.patchSpod(
+		fmt.Sprintf(`{"spec":{"enricher":{"enableLogEnricher": false,"enableJsonEnricher": true,
+		"jsonEnricherOptions":{"auditLogIntervalSeconds":20,"auditLogPath": "%s"},"jsonEnricherFilters": "%s"}}}`,
+			logPath, enricherFilterJsonStr),
+	)
+
+	e.logf("Patched the SPOD")
+}
+
+// operatorConfigMap is the ConfigMap with the configuration of the operator
+// deployment, see deploy/base/kustomization.yaml.
+const operatorConfigMap = "security-profiles-operator-profile"
+
+// restoreOperatorConfigMap restores the data of the ConfigMap of the operator
+// once the current test ends, also if it failed, and restarts the operator
+// so that it runs with the restored configuration again.
+func (e *e2e) restoreOperatorConfigMap() {
+	configMap := e.kubectlOperatorNS("get", "configmap", operatorConfigMap, "-o", "json")
+
+	var object struct {
+		Data json.RawMessage `json:"data"`
+	}
+
+	e.Require().NoError(json.Unmarshal([]byte(configMap), &object))
+
+	e.cleanup(func() {
+		e.logf("Restoring the operator ConfigMap")
+
+		output := e.kubectlOperatorNS(
+			"patch", "configmap", operatorConfigMap, "--type=json", "-p",
+			`[{"op": "replace", "path": "/data", "value": `+string(object.Data)+`}]`,
+		)
+		if strings.Contains(output, "(no change)") {
+			return
+		}
+
+		e.restartOperator()
+	})
+}
+
+// restartOperator restarts the operator deployment and waits until the new
+// pods run.
+func (e *e2e) restartOperator() {
 	e.logf("Rollout restart deployment security-profiles-operator")
 
 	e.kubectlOperatorNS("rollout", "restart", "deployment", "security-profiles-operator")
+	e.kubectlOperatorNS(
+		"rollout", "status", "deployment", "security-profiles-operator",
+		"--timeout", defaultLongOpTimeout,
+	)
 
 	e.waitForTerminatingPods(podStartTimeout)
 
@@ -1191,14 +1317,6 @@ func (e *e2e) enableJsonEnricherInSpodFileOptions(logPath, enricherFilterJsonStr
 	}
 
 	e.logf("Done waiting for the rollout restart")
-
-	e.patchSpod(
-		fmt.Sprintf(`{"spec":{"enricher":{"enableLogEnricher": false,"enableJsonEnricher": true,
-		"jsonEnricherOptions":{"auditLogIntervalSeconds":20,"auditLogPath": "%s"},"jsonEnricherFilters": "%s"}}}`,
-			logPath, enricherFilterJsonStr),
-	)
-
-	e.logf("Patched the SPOD")
 }
 
 func (e *e2e) seccompOnlyTestCase() {
@@ -1353,18 +1471,19 @@ func (e *e2e) checkExecWebhook(timeout time.Duration) bool {
 	return true
 }
 
+// getPodNamesByLabel returns the names of the pending and running pods of
+// the operator namespace with the label. A field selector cannot select two
+// phases, it requires every term, so the phases get filtered here.
 func (e *e2e) getPodNamesByLabel(labelMatcher string) []string {
 	output := e.kubectlOperatorNS("get", "pods", "-l", labelMatcher,
-		"--field-selector", "status.phase=Running,status.phase=Pending",
-		`-o=jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}'`)
+		`-o=jsonpath={range .items[*]}{.metadata.name}{" "}{.status.phase}{"\n"}{end}`)
 
 	var filteredPodNames []string
 
-	podNames := strings.SplitSeq(output, "\n")
-	for name := range podNames {
-		trimmedName := strings.Trim(name, "'")
-		if trimmedName != "" {
-			filteredPodNames = append(filteredPodNames, trimmedName)
+	for line := range strings.SplitSeq(output, "\n") {
+		name, phase, _ := strings.Cut(strings.TrimSpace(line), " ")
+		if name != "" && (phase == "Running" || phase == "Pending") {
+			filteredPodNames = append(filteredPodNames, name)
 		}
 	}
 

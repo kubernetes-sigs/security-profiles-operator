@@ -20,6 +20,7 @@ package e2e_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path"
 	"strings"
@@ -63,11 +64,31 @@ func (e *e2e) publishedBaseProfileTag(repository, tag string) string {
 	repo, err := remote.NewRepository(strings.TrimPrefix(repository, "oci://"))
 	e.Require().NoError(err)
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
+	// Only a missing artifact is a definitive answer, a timeout or an error
+	// of the registry gets retried like the other downloads of the suite.
+	published := false
 
-	if _, err := repo.Resolve(ctx, tag); err != nil {
-		e.Require().ErrorIs(err, errdef.ErrNotFound, "resolve base profile %s:%s", repository, tag)
+	e.requireEventually(2*time.Minute, defaultPollInterval, func() error {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		_, err := repo.Resolve(ctx, tag)
+		if errors.Is(err, errdef.ErrNotFound) {
+			return nil
+		}
+
+		if err != nil {
+			e.logf("Retrying to resolve base profile %s:%s: %v", repository, tag, err)
+
+			return fmt.Errorf("resolve base profile %s:%s: %w", repository, tag, err)
+		}
+
+		published = true
+
+		return nil
+	})
+
+	if !published {
 		e.logf("Base profile %s:%s is not published yet, using latest", repository, tag)
 
 		return "latest"

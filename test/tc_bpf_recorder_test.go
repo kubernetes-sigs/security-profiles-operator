@@ -90,7 +90,7 @@ func (e *e2e) testCaseBpfRecorderKubectlRun() {
 	defer restoreNs()
 
 	e.logf("Creating bpf recording for kubectl run test")
-	e.kubectl("create", "-f", exampleRecordingBpfPath)
+	e.createRecording(exampleRecordingBpfPath, "sp", recordingName)
 
 	e.logf("Creating test pod")
 	e.kubectlRun("--labels=app=alpine", "fedora", "--", "sh", "-c", "sleep 20; mkdir /test")
@@ -98,19 +98,22 @@ func (e *e2e) testCaseBpfRecorderKubectlRun() {
 	resourceName := recordingName + "-fedora"
 	profile := e.retryGetSeccompProfile(resourceName)
 	e.Contains(profile, "mkdir")
-
-	e.kubectl("delete", "-f", exampleRecordingBpfPath)
-	e.kubectl("delete", "sp", resourceName)
 }
 
 func (e *e2e) testCaseBpfRecorderStaticPod() {
 	e.bpfRecorderOnlyTestCase()
 
+	e.bpfRecorderStaticPod()
+}
+
+// bpfRecorderStaticPod records a static pod with the bpf recorder and checks
+// the recorded profile and the metrics of the recorder.
+func (e *e2e) bpfRecorderStaticPod() {
 	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
 	defer restoreNs()
 
 	e.logf("Creating bpf recording for static pod test")
-	e.kubectl("create", "-f", exampleRecordingBpfPath)
+	e.createRecording(exampleRecordingBpfPath, "sp", recordingName)
 
 	since, podName := e.createRecordingTestPod()
 
@@ -122,9 +125,6 @@ func (e *e2e) testCaseBpfRecorderStaticPod() {
 
 	profile := e.retryGetSeccompProfile(resourceName)
 	e.Contains(profile, "listen")
-
-	e.kubectl("delete", "-f", exampleRecordingBpfPath)
-	e.kubectl("delete", "sp", resourceName)
 
 	metrics := e.runAndRetryPodCMD(curlSpodCMD)
 	// we don't use resource name here, because the metrics are tracked by the annotation name which contains
@@ -145,7 +145,7 @@ func (e *e2e) testCaseBpfRecorderMultiContainer() {
 	defer restoreNs()
 
 	e.logf("Creating bpf recording for multi container test")
-	e.kubectl("create", "-f", exampleRecordingBpfPath)
+	e.createRecording(exampleRecordingBpfPath, "sp", recordingName)
 
 	since, podName := e.createRecordingTestMultiPod()
 
@@ -167,9 +167,6 @@ func (e *e2e) testCaseBpfRecorderMultiContainer() {
 
 	profileInit := e.retryGetSeccompProfile(profileNameInit)
 	e.Contains(profileInit, "write")
-
-	e.kubectl("delete", "-f", exampleRecordingBpfPath)
-	e.kubectl("delete", "sp", profileNameRedis, profileNameNginx, profileNameInit)
 }
 
 func (e *e2e) testCaseBpfRecorderDeployment() {
@@ -179,7 +176,7 @@ func (e *e2e) testCaseBpfRecorderDeployment() {
 	defer restoreNs()
 
 	e.logf("Creating bpf recording for deployment test")
-	e.kubectl("create", "-f", exampleRecordingBpfPath)
+	e.createRecording(exampleRecordingBpfPath, "sp", recordingName)
 
 	// The recorder finds the profiles as soon as the containers start, which
 	// is before the deployment is available. The returned time is taken
@@ -200,9 +197,6 @@ func (e *e2e) testCaseBpfRecorderDeployment() {
 	profile1 := e.retryGetSeccompProfile(profileName1)
 	e.Contains(profile0, "listen")
 	e.Contains(profile1, "listen")
-
-	e.kubectl("delete", "-f", exampleRecordingBpfPath)
-	e.kubectl("delete", "sp", profileName0, profileName1)
 }
 
 func (e *e2e) testCaseBpfRecorderParallel() {
@@ -212,7 +206,7 @@ func (e *e2e) testCaseBpfRecorderParallel() {
 	defer restoreNs()
 
 	e.logf("Creating bpf recording for parallel test")
-	e.kubectl("create", "-f", exampleRecordingBpfPath)
+	e.createRecording(exampleRecordingBpfPath, "sp", recordingName)
 
 	since, podNames := e.createRecordingTestParallelPods()
 
@@ -231,9 +225,6 @@ func (e *e2e) testCaseBpfRecorderParallel() {
 
 	secondProfile := e.retryGetSeccompProfile(profileNameSecondCtr)
 	e.Contains(secondProfile, "epoll_wait")
-
-	e.kubectl("delete", "-f", exampleRecordingBpfPath)
-	e.kubectl("delete", "sp", profileNameSecondCtr, profileNameFirstCtr)
 }
 
 func (e *e2e) createRecordingTestParallelPods() (since time.Time, podNames []string) {
@@ -263,6 +254,7 @@ spec:
 `, podName, i, image)
 
 		e.writeAndCreate(testPod, "recording-pod*.yaml")
+		e.kubectlCleanup("pod", podName)
 
 		e.logf("Waiting for test pod to be initialized")
 		e.retryGet("pod", podName)
@@ -279,7 +271,7 @@ func (e *e2e) testCaseBpfRecorderSelectContainer() {
 	defer restoreNs()
 
 	e.logf("Creating bpf recording for specific container test")
-	e.kubectl("create", "-f", exampleRecordingBpfSpecificContainerPath)
+	e.createRecording(exampleRecordingBpfSpecificContainerPath, "sp", recordingName)
 
 	since, podName := e.createRecordingTestMultiPod()
 
@@ -292,18 +284,10 @@ func (e *e2e) testCaseBpfRecorderSelectContainer() {
 	profileNginx := e.retryGetSeccompProfile(profileNameNginx)
 	e.Contains(profileNginx, "epoll_wait")
 
-	const profileNameRedis = recordingName + "-redis"
-
-	exists := e.existsSeccompProfile(profileNameRedis)
-	e.False(exists)
-
-	const profileNameInit = recordingName + "-init"
-
-	exists = e.existsSeccompProfile(profileNameInit)
-	e.False(exists)
-
-	e.kubectl("delete", "-f", exampleRecordingBpfSpecificContainerPath)
-	e.kubectl("delete", "sp", profileNameNginx)
+	// The recorder writes the profiles of the pod one after another, so a
+	// wrongly recorded profile of the other containers shows up shortly
+	// after the one of nginx.
+	e.consistentlyNoSeccompProfiles(recordingName+"-redis", recordingName+"-init")
 }
 
 func (e *e2e) testCaseBpfRecorderWithMemoryOptimization() {
@@ -312,34 +296,5 @@ func (e *e2e) testCaseBpfRecorderWithMemoryOptimization() {
 	e.enableMemoryOptimization()
 	defer e.disableMemoryOptimization()
 
-	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
-	defer restoreNs()
-
-	e.logf("Creating bpf recording for static pod test")
-	e.kubectl("create", "-f", exampleRecordingBpfPath)
-
-	since, podName := e.createRecordingTestPod()
-
-	resourceName := recordingName + "-nginx"
-
-	e.waitForBpfRecorderLogs(since, "nginx")
-
-	e.kubectl("delete", "pod", podName)
-
-	profile := e.retryGetSeccompProfile(resourceName)
-	e.Contains(profile, "listen")
-
-	e.kubectl("delete", "-f", exampleRecordingBpfPath)
-	e.kubectl("delete", "sp", resourceName)
-
-	metrics := e.runAndRetryPodCMD(curlSpodCMD)
-	// we don't use resource name here, because the metrics are tracked by the annotation name which contains
-	// underscores instead of dashes
-	metricName := recordingName + "_nginx"
-	e.Regexp(fmt.Sprintf(`(?m)security_profiles_operator_seccomp_profile_bpf_total{`+
-		`mount_namespace=".*",`+
-		`node=".*",`+
-		`profile="%s_.*"} \d+`,
-		metricName,
-	), metrics)
+	e.bpfRecorderStaticPod()
 }

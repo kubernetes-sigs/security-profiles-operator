@@ -63,7 +63,7 @@ func (e *e2e) testCaseWebhookDown([]string) {
 	e.kubectlOperatorNS("scale", "deployment", config.OperatorName, "--replicas=0")
 	e.kubectlOperatorNS("scale", "deployment", webhookDeployment, "--replicas=0")
 	// Leave a working manager and webhook behind, also if the test fails.
-	e.T().Cleanup(func() {
+	e.cleanup(func() {
 		e.scaleDeployment(config.OperatorName, managerReplicas)
 		e.scaleDeployment(webhookDeployment, replicas)
 	})

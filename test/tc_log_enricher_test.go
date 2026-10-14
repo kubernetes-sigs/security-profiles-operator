@@ -204,13 +204,32 @@ spec:
 
 	e.waitFor("jsonpath={.status.phase}=Running", "pod", podName)
 
-	// wait for at least one component of the expected logs to appear
+	// nginx calls listen after the execve of its start, so a listen line
+	// may only be missing because the enricher did not process it yet. An
+	// exec into the pod adds later lines, and once a getpid line shows up,
+	// the check that no listen line gets logged runs for a while, which
+	// covers the enricher catching up.
 	e.waitForEnricherLogs(since, enricherLogLine("syscallName", "execve"))
+	e.kubectl("exec", podName, "--", "sh", "-c", "exit 0")
+	e.waitForEnricherLogs(since, enricherLogLine("syscallName", "getpid"))
 
-	e.logf("Checking log enricher output")
-	output := e.kubectlOperatorNS(
-		"logs", "--since-time="+since.Format(time.RFC3339), "-l", "name=spod", "-c", "log-enricher",
-	)
+	e.logf("Checking that the log enricher filters the listen lines")
 
-	e.NotContains(output, fmt.Sprintf(`syscallID=%d`, 50))
+	listenLine := fmt.Sprintf(`syscallID=%d`, 50)
+
+	e.consistently(absentProfileTimeout, defaultPollInterval, func() error {
+		output := e.kubectlOperatorNS(
+			"logs",
+			"--since-time="+since.Format(time.RFC3339),
+			"-l",
+			"name=spod",
+			"-c",
+			"log-enricher",
+		)
+		if strings.Contains(output, listenLine) {
+			return fmt.Errorf("the filtered %s got logged", listenLine)
+		}
+
+		return nil
+	})
 }

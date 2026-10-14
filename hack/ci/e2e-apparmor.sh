@@ -203,7 +203,10 @@ check_apparmor_profile_recording() {
     echo "Creating pod $PODNAME with recorded profile in security context"
     sec_pod_file="${TMP_DIR}/${PODNAME}-apparmor.yml"
     create_pod "$PODNAME" "$sec_pod_file" "$SLEEP_INTERVAL_VERIFICATION" "$runtime" "$APPARMOR_PROFILE_NAME"
-    wait_for_pod_status "$PODNAME" "Running" || k describe pod test-pod
+    if ! wait_for_pod_status "$PODNAME" "Running"; then
+      k describe pod "$PODNAME"
+      exit 1
+    fi
 
     echo "Checking apparmor profile enforcement on container"
     check_profile_mode "sleep" "$APPARMOR_PROFILE_NAME" "enforce"
