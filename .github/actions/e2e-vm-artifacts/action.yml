@@ -24,7 +24,7 @@ runs:
       run: hack/ci/copy-from-vm.sh /vagrant/build/junit-flaky-e2e.xml build || echo "Unable to copy the flaky test report"
     - name: Upload the flaky test report
       if: always() && inputs.flaky-report == 'true'
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: junit-flaky-${{ inputs.name }}
         path: build/junit-flaky-e2e.xml
@@ -35,7 +35,7 @@ runs:
       run: hack/ci/copy-from-vm.sh /vagrant/build/e2e-artifacts build || echo "Unable to copy the diagnostics"
     - name: Upload the diagnostics
       if: always() && inputs.job-status == 'failure'
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: e2e-artifacts-${{ inputs.name }}
         path: build/e2e-artifacts
