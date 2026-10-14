@@ -45,7 +45,7 @@ repos:
         name: hadolint and Dockerfile drift
         entry: make verify-dockerfiles
         language: system
-        files: (^|/)(Dockerfile[^/]*|bundle\.Dockerfile|\.hadolint\.yaml)$
+        files: (^|/)(Dockerfile[^/]*|bundle\.Dockerfile|catalog\.Dockerfile|\.hadolint\.yaml)$
         pass_filenames: false
       - id: actionlint
         name: actionlint

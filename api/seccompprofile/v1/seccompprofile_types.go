@@ -285,21 +285,13 @@ func pathSegment(s string) string {
 func (sp *SeccompProfile) GetProfilePath() string {
 	pfile := sp.GetProfileFile()
 
-	return path.Join(
-		config.ProfilesRootPath(),
-		pathSegment(sp.GetNamespace()),
-		pathSegment(pfile),
-	)
+	return path.Join(config.ProfilesRootPath(), pathSegment(pfile))
 }
 
 func (sp *SeccompProfile) GetProfileOperatorPath() string {
 	pfile := sp.GetProfileFile()
 
-	return path.Join(
-		config.OperatorRoot,
-		pathSegment(sp.GetNamespace()),
-		pathSegment(pfile),
-	)
+	return path.Join(config.OperatorRoot, pathSegment(pfile))
 }
 
 func (sp *SeccompProfile) ListProfilesByRecording(

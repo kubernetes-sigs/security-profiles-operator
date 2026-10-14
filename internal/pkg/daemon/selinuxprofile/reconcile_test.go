@@ -396,7 +396,7 @@ func TestReconcileValidationFailure(t *testing.T) {
 func TestReconcileMissingInheritIsRetried(t *testing.T) {
 	t.Parallel()
 
-	f := newReconcileFixture(t, testProfile(), ErrInheritNotFound,
+	f := newReconcileFixture(t, testProfile(), errInheritNotFound,
 		selinuxd(t, true, http.StatusOK, ""))
 
 	res, err := f.r.Reconcile(context.Background(), f.request)

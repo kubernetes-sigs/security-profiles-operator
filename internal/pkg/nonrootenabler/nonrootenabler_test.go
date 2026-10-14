@@ -113,15 +113,9 @@ func TestRun(t *testing.T) {
 			},
 			shouldError: true,
 		},
-		"failure on MkdirAll with KubeletSeccompRootPath": {
-			prepare: func(mock *nonrootenablerfakes.FakeImpl) {
-				mock.MkdirAllReturnsOnCall(0, errTest)
-			},
-			shouldError: true,
-		},
 		"failure on MkdirAll with OperatorRoot": {
 			prepare: func(mock *nonrootenablerfakes.FakeImpl) {
-				mock.MkdirAllReturnsOnCall(1, errTest)
+				mock.MkdirAllReturnsOnCall(0, errTest)
 			},
 			shouldError: true,
 		},
@@ -207,12 +201,9 @@ func TestRunWritesExpectedPaths(t *testing.T) {
 	require.Equal(t, 1, mock.ReadlinkCallCount())
 	require.Zero(t, mock.RemoveCallCount())
 
-	require.Equal(t, 2, mock.MkdirAllCallCount())
+	// The seccomp directory of the kubelet is the mount point, so it exists.
+	require.Equal(t, 1, mock.MkdirAllCallCount())
 	gotDir, gotPerm := mock.MkdirAllArgsForCall(0)
-	require.Equal(t, wantSeccompDir, gotDir)
-	require.Equal(t, os.FileMode(0o744), gotPerm)
-
-	gotDir, gotPerm = mock.MkdirAllArgsForCall(1)
 	require.Equal(t, config.OperatorRoot, gotDir)
 	require.Equal(t, os.FileMode(0o744), gotPerm)
 

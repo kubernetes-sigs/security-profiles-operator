@@ -188,7 +188,7 @@ func (p *podBinder) bindingApplies(
 		return true, nil
 	case kerrors.IsNotFound(err):
 		return false, nil
-	case errors.Is(err, ErrProfWithoutStatus):
+	case errors.Is(err, errProfWithoutStatus):
 		return p.cachedProfileKindEnabled(ctx, lookup, profileKind)
 	default:
 		return false, fmt.Errorf("get %s %s: %w", profileKind, key.Name, err)

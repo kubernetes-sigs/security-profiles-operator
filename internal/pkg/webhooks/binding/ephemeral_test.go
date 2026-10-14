@@ -479,7 +479,7 @@ func TestRetryProfileLookup(t *testing.T) {
 		err := retryProfileLookup(t.Context(), true, func() error {
 			calls++
 			if calls < 2 {
-				return ErrProfWithoutStatus
+				return errProfWithoutStatus
 			}
 
 			return nil
@@ -510,10 +510,10 @@ func TestRetryProfileLookup(t *testing.T) {
 		err := retryProfileLookup(t.Context(), false, func() error {
 			calls++
 
-			return ErrProfWithoutStatus
+			return errProfWithoutStatus
 		})
 
-		require.ErrorIs(t, err, ErrProfWithoutStatus)
+		require.ErrorIs(t, err, errProfWithoutStatus)
 		require.Equal(t, 1, calls)
 	})
 
@@ -524,9 +524,9 @@ func TestRetryProfileLookup(t *testing.T) {
 		defer cancel()
 
 		start := time.Now()
-		err := retryProfileLookup(ctx, true, func() error { return ErrProfWithoutStatus })
+		err := retryProfileLookup(ctx, true, func() error { return errProfWithoutStatus })
 
-		require.ErrorIs(t, err, ErrProfWithoutStatus)
+		require.ErrorIs(t, err, errProfWithoutStatus)
 		require.Less(t, time.Since(start), time.Second)
 	})
 }

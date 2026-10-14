@@ -17,6 +17,7 @@ limitations under the License.
 package bpfrecorder
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -42,7 +43,7 @@ func TestContainerProfilesKeepsEveryProfileOfAContainer(t *testing.T) {
 			"profile %s must resolve back to its container", profile)
 	}
 
-	assert.Equal(t, []string{"seccomp-profile", "apparmor-profile"}, sut.GetAll("container-1"))
+	assert.Equal(t, []string{"seccomp-profile", "apparmor-profile"}, sut.getAll("container-1"))
 	assert.Equal(t, 1, sut.Size(), "both profiles belong to one container")
 }
 
@@ -87,7 +88,7 @@ func TestContainerProfiles(t *testing.T) {
 		assert.False(t, ok)
 
 		assert.Empty(t, sut.Containers("nope"))
-		assert.Empty(t, sut.GetAll("nope"))
+		assert.Empty(t, sut.getAll("nope"))
 	})
 
 	t.Run("delete forgets the container and its profiles", func(t *testing.T) {
@@ -137,4 +138,12 @@ func TestContainerProfilesDeleteProfile(t *testing.T) {
 	assert.Zero(t, sut.Size())
 
 	assert.Empty(t, sut.DeleteProfile("unknown"))
+}
+
+// getAll returns every profile recorded for containerID.
+func (c *containerProfiles) getAll(containerID string) []string {
+	c.l.RLock()
+	defer c.l.RUnlock()
+
+	return slices.Clone(c.byContainer[containerID])
 }

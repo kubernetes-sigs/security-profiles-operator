@@ -55,13 +55,13 @@ so not every command of this page works for them, see
 | Artifact | Signature | Provenance | SBOM |
 | -------- | --------- | ---------- | ---- |
 | Container images on `registry.k8s.io` | `krel-trust`, staging build | Build L3 from GitHub and Build L1 from Cloud Build, of the per-arch images | attested, of the per-arch images |
-| Operator bundle and catalog on `registry.k8s.io` | `krel-trust`, staging build | Build L1 from Cloud Build | attested |
+| Operator bundle and catalog on `registry.k8s.io` | `krel-trust`, staging build | Build L3 from GitHub and Build L1 from Cloud Build | attested |
 | `spoc` binaries | release workflow | Build L3 from GitHub | `spoc.spdx.json`, `spoc-native.spdx.json` |
 | `spoc.spdx.json`, `spoc-native.spdx.json` | release workflow | Build L3 from GitHub | |
 | Helm chart archive on the release page | release workflow | Build L3 from GitHub | |
 | Helm chart on `registry.k8s.io` | `krel-trust`, staging build | Build L3 from GitHub | attested |
 | `spoc` on `registry.k8s.io` | `krel-trust`, staging build | Build L3 from GitHub | attested, the ones of the release page |
-| Security profiles on `registry.k8s.io` | `krel-trust`, staging build | Build L1 from Cloud Build | attested |
+| Security profiles on `registry.k8s.io` | `krel-trust`, staging build | Build L3 from GitHub of `main` and Build L1 from Cloud Build | attested |
 
 On `registry.k8s.io` the image promoter signs as `krel-trust` and carries the
 signature of the staging build along with the attestations.

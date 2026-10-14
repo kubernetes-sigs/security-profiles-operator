@@ -106,7 +106,7 @@ func TestUpdatePodReferencesSkipsReadForCachedNoOp(t *testing.T) {
 					return errors.New("object is not a SeccompProfile")
 				}
 
-				return r.updatePodReferencesForSeccomp(ctx, profile)
+				return seccompKind.update(ctx, r, profile)
 			},
 		},
 		{
@@ -122,7 +122,7 @@ func TestUpdatePodReferencesSkipsReadForCachedNoOp(t *testing.T) {
 					return errors.New("object is not a SelinuxProfile")
 				}
 
-				return r.updatePodReferencesForSelinux(ctx, profile)
+				return selinuxKind.update(ctx, r, profile)
 			},
 		},
 	}
@@ -192,7 +192,7 @@ func TestUpdatePodReferencesForSeccompIgnoresDeletedProfile(t *testing.T) {
 		Build()
 
 	r := &PodReconciler{client: fakeClient, reader: apiReader}
-	require.NoError(t, r.updatePodReferencesForSeccomp(ctx, profile))
+	require.NoError(t, seccompKind.update(ctx, r, profile))
 
 	// The deleted profile is neither updated nor recreated.
 	require.Zero(t, writes)
@@ -229,7 +229,7 @@ func TestUpdatePodReferencesIgnoresDeletionBeforeFinalizerUpdate(t *testing.T) {
 					return errors.New("object is not a SeccompProfile")
 				}
 
-				return r.updatePodReferencesForSeccomp(ctx, profile)
+				return seccompKind.update(ctx, r, profile)
 			},
 		},
 		{
@@ -249,7 +249,7 @@ func TestUpdatePodReferencesIgnoresDeletionBeforeFinalizerUpdate(t *testing.T) {
 					return errors.New("object is not a SelinuxProfile")
 				}
 
-				return r.updatePodReferencesForSelinux(ctx, profile)
+				return selinuxKind.update(ctx, r, profile)
 			},
 		},
 	}
@@ -309,7 +309,7 @@ func TestUpdatePodReferencesIgnoresDeletionBeforeFinalizerRemoval(t *testing.T) 
 					return errors.New("object is not a SeccompProfile")
 				}
 
-				return r.updatePodReferencesForSeccomp(ctx, profile)
+				return seccompKind.update(ctx, r, profile)
 			},
 		},
 		{
@@ -327,7 +327,7 @@ func TestUpdatePodReferencesIgnoresDeletionBeforeFinalizerRemoval(t *testing.T) 
 					return errors.New("object is not a SelinuxProfile")
 				}
 
-				return r.updatePodReferencesForSelinux(ctx, profile)
+				return selinuxKind.update(ctx, r, profile)
 			},
 		},
 	}
@@ -407,7 +407,7 @@ func TestUpdatePodReferencesForSelinuxSkipsEquivalentStatusUpdate(t *testing.T) 
 		Build()
 
 	r := &PodReconciler{client: fakeClient, reader: apiReader}
-	require.NoError(t, r.updatePodReferencesForSelinux(ctx, stored.DeepCopy()))
+	require.NoError(t, selinuxKind.update(ctx, r, stored.DeepCopy()))
 	require.Zero(t, statusUpdateCalls)
 }
 

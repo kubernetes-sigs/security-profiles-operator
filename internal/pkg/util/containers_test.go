@@ -342,3 +342,23 @@ func TestContainerIDForPID_CachesProcessWithoutContainer(t *testing.T) {
 
 	require.Equal(t, 3, cgroupCalls)
 }
+
+func TestParseProcessStat(t *testing.T) {
+	t.Parallel()
+
+	parent, startTime, err := ParseProcessStat(
+		"123 (a (b) c) S 45 123 123 0 -1 4194304 1 0 0 0 0 0 0 0 20 0 1 0 6789 0 0",
+	)
+	require.NoError(t, err)
+	require.Equal(t, 45, parent)
+	require.Equal(t, uint64(6789), startTime)
+
+	for _, stat := range []string{
+		"", "123 (x)", "123 (x) S 45",
+		"123 (x) S y 1 1 0 -1 0 1 0 0 0 0 0 0 0 20 0 1 0 6789",
+		"123 (x) S 45 1 1 0 -1 0 1 0 0 0 0 0 0 0 20 0 1 0 -1",
+	} {
+		_, _, err := ParseProcessStat(stat)
+		require.Error(t, err, stat)
+	}
+}

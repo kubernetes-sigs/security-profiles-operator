@@ -93,8 +93,6 @@ func (a *AuditdSource) forward(lines <-chan string, log chan<- *types.AuditLine)
 
 		a.logger.V(config.VerboseLevel).Info("Got line", "line", line)
 
-		// ExtractAuditLine already reports non-matching lines, so calling
-		// IsAuditLine first would just run the same regexes twice.
 		auditLine, err := ExtractAuditLine(line)
 		if err != nil {
 			a.logger.V(config.VerboseLevel).Info("Not an audit line")
@@ -286,13 +284,6 @@ func validUTF8(s string) string {
 // supported audit record. It carries no details, since most lines of the log
 // are no audit records and the callers skip them.
 var ErrUnsupportedLine = errors.New("unsupported log line")
-
-// IsAuditLine checks whether logLine is a supported audit line.
-func IsAuditLine(logLine string) bool {
-	_, err := ExtractAuditLine(logLine)
-
-	return err == nil
-}
 
 // ExtractAuditLine extracts an auditline from logLine. It returns
 // ErrUnsupportedLine for a line which is no supported audit record. The fields

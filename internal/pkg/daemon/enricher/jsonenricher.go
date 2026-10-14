@@ -33,7 +33,6 @@ import (
 	"github.com/jellydator/ttlcache/v3"
 	"gopkg.in/natefinch/lumberjack.v2"
 
-	apienricher "sigs.k8s.io/security-profiles-operator/api/grpc/enricher"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
@@ -70,7 +69,6 @@ type bpfProcesses interface {
 }
 
 type JsonEnricher struct {
-	apienricher.UnimplementedEnricherServer
 	impl
 	logger          logr.Logger
 	lookup          *containerLookup
@@ -331,8 +329,6 @@ func (e *JsonEnricher) run(ctx context.Context) error {
 func (e *JsonEnricher) processLine(line string) {
 	e.logger.V(config.VerboseLevel).Info("Got line", "line", line)
 
-	// ExtractAuditLine rejects non-audit lines itself, so an IsAuditLine
-	// call here would only repeat the same regex matching.
 	auditLine, err := auditsource.ExtractAuditLine(line)
 	if err != nil {
 		e.logger.V(config.VerboseLevel).Info("Not an audit line")

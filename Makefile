@@ -475,7 +475,7 @@ update-proto: $(PROTOC) $(BUILD_DIR)/protoc-gen-go $(BUILD_DIR)/protoc-gen-go-gr
 
 define vagrant-up
 	if [ ! -f image.tar ] && [ $(2) = build ]; then \
-		make image IMAGE=$(IMAGE) && \
+		$(MAKE) image IMAGE=$(IMAGE) && \
 		$(CONTAINER_RUNTIME) save -o image.tar $(IMAGE); \
 	fi
 	ln -sf hack/ci/Vagrantfile-$(1) Vagrantfile
@@ -578,7 +578,7 @@ internal/pkg/daemon/enricher/auditsource/bpf/enricher.bpf.o.%: $(BPF_ENRICHER_FI
 # Verification targets
 
 .PHONY: verify
-verify: verify-boilerplate verify-go-mod verify-go-lint verify-deployments verify-dependencies verify-toc verify-mocks verify-proto verify-format verify-vulnerabilities verify-shellcheck verify-dockerfiles verify-manifests verify-security-model verify-docs ## Run all verification targets
+verify: verify-boilerplate verify-go-mod verify-go-lint verify-deployments verify-dependencies verify-toc verify-mocks verify-proto verify-format verify-vulnerabilities verify-shellcheck verify-dockerfiles verify-manifests verify-security-model verify-docs ## Run the verification targets of the verify CI job, see the other verify-* targets for the ones of their own jobs
 
 .PHONY: verify-in-a-container
 verify-in-a-container: ## Run all verification targets in a container
@@ -759,7 +759,7 @@ $(HADOLINT): | $(BUILD_DIR)
 
 .PHONY: verify-dockerfiles
 verify-dockerfiles: $(HADOLINT) ## Lint the Dockerfiles and verify that the image variants match
-	$(HADOLINT) --config .hadolint.yaml Dockerfile Dockerfile.ubi Dockerfile.build-image bundle.Dockerfile
+	$(HADOLINT) --config .hadolint.yaml Dockerfile Dockerfile.ubi Dockerfile.build-image bundle.Dockerfile catalog.Dockerfile
 	hack/ci/dockerfile-drift.sh Dockerfile Dockerfile.ubi
 
 .PHONY: verify-actions
@@ -913,13 +913,13 @@ test-spoc-e2e: $(BUILD_DIR)/$(CLI_BINARY) ## Run the spoc end-to-end tests
 	$(GO) test -tags e2e -v -timeout 20m ./test/spoc $(ARGS)
 
 manifests: $(BUILD_DIR)/kubernetes-split-yaml $(BUILD_DIR)/kustomize ## Generate the CRD manifests
-	./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/spod/...' output:crd:stdout" "deploy/base-crds/crds/securityprofilesoperatordaemon.yaml"
-	./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/secprofnodestatus/...' output:crd:stdout" "deploy/base-crds/crds/securityprofilenodestatus.yaml"
-	./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/seccompprofile/...' output:crd:stdout" "deploy/base-crds/crds/seccompprofile.yaml"
-	./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/selinuxprofile/...' output:crd:stdout" "deploy/base-crds/crds/selinuxpolicy.yaml"
-	./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/profilebinding/...' output:crd:stdout" "deploy/base-crds/crds/profilebinding.yaml"
-	./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/profilerecording/...' output:crd:stdout" "deploy/base-crds/crds/profilerecording.yaml"
-	./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/apparmorprofile/...' output:crd:stdout" "deploy/base-crds/crds/apparmorprofile.yaml"
+	BUILD_DIR=$(BUILD_DIR) ./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/spod/...' output:crd:stdout" "deploy/base-crds/crds/securityprofilesoperatordaemon.yaml"
+	BUILD_DIR=$(BUILD_DIR) ./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/secprofnodestatus/...' output:crd:stdout" "deploy/base-crds/crds/securityprofilenodestatus.yaml"
+	BUILD_DIR=$(BUILD_DIR) ./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/seccompprofile/...' output:crd:stdout" "deploy/base-crds/crds/seccompprofile.yaml"
+	BUILD_DIR=$(BUILD_DIR) ./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/selinuxprofile/...' output:crd:stdout" "deploy/base-crds/crds/selinuxpolicy.yaml"
+	BUILD_DIR=$(BUILD_DIR) ./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/profilebinding/...' output:crd:stdout" "deploy/base-crds/crds/profilebinding.yaml"
+	BUILD_DIR=$(BUILD_DIR) ./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/profilerecording/...' output:crd:stdout" "deploy/base-crds/crds/profilerecording.yaml"
+	BUILD_DIR=$(BUILD_DIR) ./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/apparmorprofile/...' output:crd:stdout" "deploy/base-crds/crds/apparmorprofile.yaml"
 
 generate: ## Generate the deepcopy code and the RBAC roles
 	$(CONTROLLER_GEN_CMD) object:headerFile="hack/boilerplate/boilerplate.go.txt" paths="./api/..."
@@ -976,16 +976,14 @@ BUNDLE_SA_OPTS ?= --extra-service-accounts security-profiles-operator,spod,spo-w
 
 .PHONY: bundle
 bundle: operator-sdk deployments ## Generate bundle manifests and metadata, then validate generated files.
-	# The skipRange gets bumped only for the bundle. Keep a copy instead of
-	# using git restore, which would also drop uncommitted changes to the file.
-	cp deploy/base/clusterserviceversion.yaml $(BUILD_DIR)/clusterserviceversion.yaml.orig
+	# The upper bound of the skipRange follows VERSION, in the base CSV and
+	# the catalog preamble, so that the sources match the generated bundle.
 	$(SED) "s/\(olm.skipRange: '>=.*\)<.*'/\1<$(VERSION)'/" deploy/base/clusterserviceversion.yaml
 	$(SED) "s/\(\"name\": \"security-profiles-operator.v\).*\"/\1$(VERSION)\"/" deploy/catalog-preamble.json
 	$(SED) "s/\(\"skipRange\": \">=.*\)<.*\"/\1<$(VERSION)\"/" deploy/catalog-preamble.json
 	# operator-sdk never removes files, so start clean to not ship stale manifests
 	rm -rf ./bundle/manifests ./bundle/metadata
 	cat $(OLM_EXAMPLES) $(BUNDLE_OPERATOR_MANIFEST) deploy/base/clusterserviceversion.yaml | $(OPERATOR_SDK) generate bundle -q --overwrite $(BUNDLE_SA_OPTS) --version $(VERSION) $(BUNDLE_METADATA_OPTS)
-	mv $(BUILD_DIR)/clusterserviceversion.yaml.orig deploy/base/clusterserviceversion.yaml
 	mkdir -p ./bundle/tests/scorecard
 	cp deploy/bundle-test-config.yaml ./bundle/tests/scorecard/config.yaml
 	$(OPERATOR_SDK) bundle validate ./bundle
@@ -1012,7 +1010,7 @@ bundle-build: bundle-context ## Build the bundle image.
 
 .PHONY: verify-bundle
 verify-bundle: bundle ## Verify the bundle doesn't alter the state of the tree
-	git diff --exit-code -I'^    createdAt: ' -- bundle bundle.Dockerfile
+	git diff --exit-code -I'^    createdAt: ' -- bundle bundle.Dockerfile deploy/base/clusterserviceversion.yaml deploy/catalog-preamble.json
 	test -z "$$(git ls-files --others --exclude-standard -- bundle bundle.Dockerfile)"
 
 OPM = $(BUILD_DIR)/opm-$(OPM_VERSION)
@@ -1102,12 +1100,12 @@ _push-image-openshift-dev: ## Push IMAGE to the OpenShift image registry
 	@echo "Pushing image $(IMAGE) to the image registry"
 ifeq ($(CONTAINER_RUNTIME),docker)
 	@IMAGE_REGISTRY_HOST=$$(oc get route default-route -n openshift-image-registry --template='{{ .spec.host }}'); \
-		$(CONTAINER_RUNTIME) login $(LOGIN_PUSH_OPTS) -u $(OPENSHIFT_USER) -p $(shell oc whoami -t) $${IMAGE_REGISTRY_HOST}; \
+		oc whoami -t | $(CONTAINER_RUNTIME) login $(LOGIN_PUSH_OPTS) -u $(OPENSHIFT_USER) --password-stdin $${IMAGE_REGISTRY_HOST}; \
 		$(CONTAINER_RUNTIME) tag $(LOGIN_PUSH_OPTS) $(IMAGE) $${IMAGE_REGISTRY_HOST}/openshift/$(IMAGE); \
 		$(CONTAINER_RUNTIME) push $(LOGIN_PUSH_OPTS) $${IMAGE_REGISTRY_HOST}/openshift/$(IMAGE)
 else
 	@IMAGE_REGISTRY_HOST=$$(oc get route default-route -n openshift-image-registry --template='{{ .spec.host }}'); \
-		$(CONTAINER_RUNTIME) login $(LOGIN_PUSH_OPTS) -u $(OPENSHIFT_USER) -p $(shell oc whoami -t) $${IMAGE_REGISTRY_HOST}; \
+		oc whoami -t | $(CONTAINER_RUNTIME) login $(LOGIN_PUSH_OPTS) -u $(OPENSHIFT_USER) --password-stdin $${IMAGE_REGISTRY_HOST}; \
 		$(CONTAINER_RUNTIME) push $(LOGIN_PUSH_OPTS) localhost/$(IMAGE) $${IMAGE_REGISTRY_HOST}/openshift/$(IMAGE)
 
 endif
@@ -1134,8 +1132,8 @@ deploy-prebuilt-openshift-dev: push-prebuilt-image-openshift-dev do-deploy-opens
 
 .PHONY: deploy
 deploy: ## Deploy the operator with IMAGE into the current kubectl context
-	mkdir -p build/deploy && cp deploy/operator.yaml build/deploy/
-	$(SED) "s#us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator:latest#$(IMAGE)#g" build/deploy/operator.yaml
-	$(SED) "s#replicas: 3#replicas: 1#g" build/deploy/operator.yaml
-	kubectl apply -f build/deploy/operator.yaml
+	mkdir -p $(BUILD_DIR)/deploy && cp deploy/operator.yaml $(BUILD_DIR)/deploy/
+	$(SED) "s#us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator:latest#$(IMAGE)#g" $(BUILD_DIR)/deploy/operator.yaml
+	$(SED) "s#replicas: 3#replicas: 1#g" $(BUILD_DIR)/deploy/operator.yaml
+	kubectl apply -f $(BUILD_DIR)/deploy/operator.yaml
 	kubectl apply -f examples/config.yaml

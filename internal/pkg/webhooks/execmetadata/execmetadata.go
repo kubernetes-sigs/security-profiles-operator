@@ -33,14 +33,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
 
-const ExecRequestUid = "SPO_EXEC_REQUEST_UID"
-
 var errUnsupportedSubResource = errors.New("unsupported pod sub resource")
 
-var execRequestUidRegex = regexp.MustCompile(`^` + ExecRequestUid + `=.*$`)
+var execRequestUidRegex = regexp.MustCompile(`^` + config.ExecRequestUIDEnvKey + `=.*$`)
 
 type Handler struct {
 	log logr.Logger
@@ -84,10 +83,10 @@ func (p Handler) getNodeDebuggingPodPatch(
 	}
 
 	container := podObject.Spec.Containers[0]
-	container.Env = removeExistingEnv(container.Env, ExecRequestUid)
+	container.Env = removeExistingEnv(container.Env, config.ExecRequestUIDEnvKey)
 	container.Env = append(
 		container.Env,
-		corev1.EnvVar{Name: ExecRequestUid, Value: string(req.UID)},
+		corev1.EnvVar{Name: config.ExecRequestUIDEnvKey, Value: string(req.UID)},
 	)
 
 	// "add" rather than "replace": Container.Env is omitempty, so the member is
@@ -135,10 +134,10 @@ func (p Handler) getEphemeralContainerPatch(
 			continue
 		}
 
-		container.Env = removeExistingEnv(container.Env, ExecRequestUid)
+		container.Env = removeExistingEnv(container.Env, config.ExecRequestUIDEnvKey)
 		container.Env = append(
 			container.Env,
-			corev1.EnvVar{Name: ExecRequestUid, Value: string(req.UID)},
+			corev1.EnvVar{Name: config.ExecRequestUIDEnvKey, Value: string(req.UID)},
 		)
 
 		patches = append(patches, jsonpatch.JsonPatchOperation{
@@ -173,11 +172,11 @@ func (p Handler) getPodExecPatch(req *admission.Request) ([]jsonpatch.JsonPatchO
 	p.log.V(1).Info("execObject before mutate", "execObject", execObject)
 
 	execCommand, replaced := replaceRegexMatches(execObject.Command,
-		execRequestUidRegex, fmt.Sprintf("%s=%s", ExecRequestUid, req.UID))
+		execRequestUidRegex, fmt.Sprintf("%s=%s", config.ExecRequestUIDEnvKey, req.UID))
 
 	if !replaced {
 		execObject.Command = slices.Insert(execObject.Command, 0, "env",
-			fmt.Sprintf("%s=%s", ExecRequestUid, req.UID))
+			fmt.Sprintf("%s=%s", config.ExecRequestUIDEnvKey, req.UID))
 	} else {
 		execObject.Command = execCommand
 	}
@@ -270,7 +269,7 @@ func (p Handler) Handle(ctx context.Context, req admission.Request) admission.Re
 
 	// The RequestUid will be used to correlate the log from container and API server
 	resp.AuditAnnotations = map[string]string{
-		ExecRequestUid: string(req.UID),
+		config.ExecRequestUIDEnvKey: string(req.UID),
 	}
 
 	p.log.V(1).Info("response sent", "resp", resp)

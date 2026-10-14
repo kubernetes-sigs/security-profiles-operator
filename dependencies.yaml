@@ -106,6 +106,16 @@ dependencies:
     - path: Makefile
       match: "^OPERATOR_SDK_SHA256_darwin_arm64"
 
+  # The scorecard tests of the bundle, released with operator-sdk.
+  - name: scorecard-test
+    version: v1.42.3
+    upstream:
+      flavour: github
+      url: operator-framework/operator-sdk
+    refPaths:
+    - path: deploy/bundle-test-config.yaml
+      match: quay.io/operator-framework/scorecard-test
+
   - name: opm
     version: v1.74.0
     upstream:
@@ -431,11 +441,13 @@ dependencies:
     - path: Dockerfile.build-image
       match: registry.k8s.io/build-image/debian-base
 
+  # The tag of debian-base-digest above, which only the comment next to the
+  # digest names. Bump both together.
   - name: debian-base
     version: bookworm-v1.0.8
     refPaths:
     - path: Dockerfile.build-image
-      match: tag
+      match: "hash below relates to tag:"
 
   - name: build-image
     version: sha256:dc669ccf589a45079e01d3b7d0ed58a68e60492f62a2caf7acb25a7ca5cf412f
@@ -607,6 +619,19 @@ dependencies:
     - path: hack/install-crun
       match: "^CRUN_SHA256_arm64="
 
+  # The same binaries in the nix SRI format of the kubernix overlay.
+  - name: crun-nix-sha256-amd64
+    version: sha256-htHmoOdpRZddOuv6s5y8aibuoV8cP8ZrZ3bRnl3DRqA=
+    refPaths:
+    - path: hack/ci/kubernix-overlay.nix
+      match: "# crun amd64"
+
+  - name: crun-nix-sha256-arm64
+    version: sha256-DvMLD7tJTcnFMD1GsJGoTifLismcmFEj+x6zOYVLaeo=
+    refPaths:
+    - path: hack/ci/kubernix-overlay.nix
+      match: "# crun arm64"
+
   - name: runc
     version: v1.5.2
     upstream:
@@ -621,6 +646,19 @@ dependencies:
       match: "base/runc:"
     - path: hack/ci/kubernix-overlay.nix
       match: "runcVersion ="
+
+  # Must be bumped together with runc above, see crun-nix-sha256-* above.
+  - name: runc-nix-sha256-amd64
+    version: sha256-WZ9vlP+MUFckHv8NVMPHT5XDSTW2RXsz/lRd78YelIg=
+    refPaths:
+    - path: hack/ci/kubernix-overlay.nix
+      match: "# runc amd64"
+
+  - name: runc-nix-sha256-arm64
+    version: sha256-0Q7K6Jg2GDKgWb4gibq5LRWK7FRmGxjtc0bteWKLRrA=
+    refPaths:
+    - path: hack/ci/kubernix-overlay.nix
+      match: "# runc arm64"
 
   - name: kubernix
     version: v0.4.2

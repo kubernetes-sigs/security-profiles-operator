@@ -37,7 +37,9 @@ const (
 var (
 	// blockNameRegexp matches the names CIL accepts for a block declaration:
 	// the first character has to be a letter and dots are namespace
-	// separators, so they are not allowed.
+	// separators, so they are not allowed. The SelinuxProfile CRD restricts
+	// the names further to lowercase letters, digits and '-', while spoc
+	// converts profiles from files, whose names only have to be valid CIL.
 	blockNameRegexp = regexp.MustCompile(`^[a-zA-Z][-a-zA-Z0-9_]*$`)
 
 	// identifierRegexp matches the SELinux types, object classes, permissions

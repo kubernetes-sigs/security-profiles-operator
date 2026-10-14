@@ -5,3 +5,21 @@ type: application
 kubeVersion: ">=1.30.0-0"
 version: "1.1.2-dev"
 appVersion: "1.1.2-dev"
+home: https://github.com/kubernetes-sigs/security-profiles-operator
+sources:
+  - https://github.com/kubernetes-sigs/security-profiles-operator
+keywords:
+  - security
+  - selinux
+  - seccomp
+  - apparmor
+  - ebpf
+maintainers:
+  - name: ccojocar
+    url: https://github.com/ccojocar
+  - name: saschagrunert
+    url: https://github.com/saschagrunert
+  - name: JAORMX
+    url: https://github.com/JAORMX
+  - name: jhrozek
+    url: https://github.com/jhrozek

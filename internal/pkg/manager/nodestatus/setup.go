@@ -148,7 +148,7 @@ func (r *StatusReconciler) deletedNodeRequests(
 			for _, prof := range profiles {
 				requests = append(
 					requests,
-					profileRequest(kind, prof.GetNamespace(), prof.GetName()),
+					profileRequest(kind, prof.GetName()),
 				)
 			}
 		}
@@ -291,7 +291,7 @@ func nodeStatusChanged() predicate.Funcs {
 // deleted, whose node statuses may be gone already.
 func (r *StatusReconciler) statusRequests(kind string) handler.MapFunc {
 	return func(_ context.Context, obj client.Object) []reconcile.Request {
-		return []reconcile.Request{profileRequest(kind, obj.GetNamespace(), obj.GetName())}
+		return []reconcile.Request{profileRequest(kind, obj.GetName())}
 	}
 }
 
@@ -309,7 +309,7 @@ func (r *StatusReconciler) siblingStatusRequests(
 		return []reconcile.Request{{NamespacedName: client.ObjectKeyFromObject(obj)}}
 	}
 
-	return []reconcile.Request{profileRequest(owner.Kind, obj.GetNamespace(), owner.Name)}
+	return []reconcile.Request{profileRequest(owner.Kind, owner.Name)}
 }
 
 // firstOwnedStatus returns the status with the lowest name which is

@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"iter"
-	"strings"
 	"time"
 
 	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
@@ -90,15 +89,6 @@ func IsNotFound(err error) bool {
 			if apierrors.IsNotFound(err) {
 				return true
 			}
-		}
-	}
-
-	// Fallback
-	for _, msg := range []string{
-		"failed to get restmapping",
-	} {
-		if strings.Contains(err.Error(), msg) {
-			return true
 		}
 	}
 

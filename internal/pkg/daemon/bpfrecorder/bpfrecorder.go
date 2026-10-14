@@ -2444,18 +2444,6 @@ func (p *pidExitWaiters) wake(pid uint32) {
 	}
 }
 
-// waiting returns the number of callers waiting for the exit of pid.
-func (p *pidExitWaiters) waiting(pid uint32) int {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if waiter, ok := p.waiters[pid]; ok {
-		return waiter.refs
-	}
-
-	return 0
-}
-
 var bpfLSMRegex = regexp.MustCompile(`(^|,)bpf(,|$)`)
 
 func BPFLSMEnabled() bool {

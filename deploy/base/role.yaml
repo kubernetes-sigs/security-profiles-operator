@@ -154,8 +154,6 @@ rules:
   - create
   - get
   - list
-  - patch
-  - update
   - watch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -202,7 +200,6 @@ rules:
   - create
   - get
   - list
-  - patch
   - update
   - watch
 - apiGroups:

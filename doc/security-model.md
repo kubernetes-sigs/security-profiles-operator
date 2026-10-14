@@ -216,7 +216,8 @@ API groups of its role.
   are merged. Create on the seccomp, SELinux and AppArmor profiles which the operator ships or
   merges from recordings, but not on raw SELinux profiles. The only `*/finalizers` subresource is the one of
   the `spod` resource, which owns the operands, limited to get, update and patch, without
-  delete.
+  delete. Delete on node statuses, to remove the ones of nodes which are gone, since their
+  daemons cannot remove them any more.
 
 ### spod
 
@@ -288,8 +289,13 @@ installations through OLM come without these policies.
   the admission requests, so the webhook has no list or watch on pods and no access to raw
   SELinux profiles. Only the exec metadata webhook gets single pods: an exec request carries
   the `PodExecOptions`, not the pod, so it reads the target pod to skip Windows pods.
-- Operator namespace only: the `restricted-v2` SCC (`security.openshift.io`). Every replica
-  serves requests, so the webhook runs without leader election and needs no leases.
+- Operator namespace only: the `restricted-v2` SCC (`security.openshift.io`), and get on the
+  `spod` resource, for the profile kinds the binding webhook binds and the webhook options.
+  Every replica serves requests, so the webhook runs without leader election and needs no
+  leases.
+- Own API: read on the profiles, bindings and recordings, which the webhooks match pods
+  against, no writes. The profile statuses, which the binding webhook checks, are read from
+  the profiles.
 
 ## Admission webhooks
 

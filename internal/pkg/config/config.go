@@ -25,6 +25,8 @@ import (
 	"path"
 	"strconv"
 	"sync"
+
+	profilerecordingv1 "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 )
 
 const (
@@ -153,25 +155,20 @@ const (
 	// DefaultProfilingPort is the start port where the profiling endpoint runs.
 	DefaultProfilingPort = 6060
 
-	// SeccompProfileRecordLogsAnnotationKey is the annotation on a Pod that
-	// triggers the internal log enricher to trace the syscalls of a Pod and
-	// creates a seccomp profile.
-	SeccompProfileRecordLogsAnnotationKey = "io.containers.trace-logs/"
+	// SeccompProfileRecordLogsAnnotationKey and the other recording
+	// annotations are part of the ProfileRecording API, see the api package.
+	SeccompProfileRecordLogsAnnotationKey = profilerecordingv1.SeccompProfileRecordLogsAnnotationKey
+	// SeccompProfileRecordBpfAnnotationKey is the bpf seccomp annotation.
+	SeccompProfileRecordBpfAnnotationKey = profilerecordingv1.SeccompProfileRecordBpfAnnotationKey
+	// ApparmorProfileRecordBpfAnnotationKey is the bpf AppArmor annotation.
+	ApparmorProfileRecordBpfAnnotationKey = profilerecordingv1.ApparmorProfileRecordBpfAnnotationKey
+	// SelinuxProfileRecordLogsAnnotationKey is the SELinux log annotation.
+	SelinuxProfileRecordLogsAnnotationKey = profilerecordingv1.SelinuxProfileRecordLogsAnnotationKey
 
-	// SeccompProfileRecordBpfAnnotationKey is the annotation on a Pod that
-	// triggers the internal bpf module to trace the syscalls of a Pod and
-	// creates a seccomp profile.
-	SeccompProfileRecordBpfAnnotationKey = "io.containers.trace-bpf/"
-
-	// ApparmorProfileRecordBpfAnnotationKey is the annotation on a Pod that
-	// triggers the internal bpf module to trace the apparmor profile of a Pod
-	// and creates a apparmor profile.
-	ApparmorProfileRecordBpfAnnotationKey = "io.containers.trace-bpf-apparmor/"
-
-	// SelinuxProfileRecordLogsAnnotationKey is the annotation on a Pod that
-	// triggers the internal log enricher to trace the AVC denials of a Pod and
-	// creates a selinux profile.
-	SelinuxProfileRecordLogsAnnotationKey = "io.containers.trace-avcs/"
+	// ExecRequestUIDEnvKey is the environment variable which the exec
+	// metadata webhook sets on exec requests, so that the enrichers can
+	// attribute the processes of an exec to its request.
+	ExecRequestUIDEnvKey = "SPO_EXEC_REQUEST_UID"
 
 	// KubeletDirNodeLabelKey is the label on a Node that specifies
 	// a custom kubelet root directory configured for this node. The directory
@@ -340,11 +337,6 @@ func ProfilesRootPath() string {
 // KubeletConfigFilePath returns the kubelet config file path.
 func KubeletConfigFilePath() string {
 	return path.Join(OperatorRoot, KubeletConfigFile)
-}
-
-// GetKubeletConfigFromFile reads the kubelet config from file.
-func GetKubeletConfigFromFile() (*KubeletConfig, error) {
-	return readKubeletConfig(KubeletConfigFilePath())
 }
 
 // readKubeletConfig reads the kubelet config from the file at configPath.

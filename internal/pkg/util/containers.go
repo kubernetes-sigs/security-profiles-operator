@@ -200,27 +200,48 @@ func containerIDForStartTime(
 	return "", ErrContainerIDNotFound
 }
 
-// getProcessStartTimeTicks return the start time for a process.
+// getProcessStartTimeTicks returns the start time of a process in clock
+// ticks since boot, as /proc/<pid>/stat tells it.
 func getProcessStartTimeTicks(pid int, reader procFileReader) (string, error) {
 	stat, err := reader(pid)
 	if err != nil {
 		return "", fmt.Errorf("reading proc start time for %d pid: %w", pid, err)
 	}
 
-	// The comm field (field 2) is in parentheses and can contain spaces,
-	// so split after the last ")" to get reliable field indices.
-	raw := string(stat)
-
-	i := strings.LastIndexByte(raw, ')')
-	if i < 0 || i+2 >= len(raw) {
-		return "", fmt.Errorf("invalid proc stat format for pid: %d", pid)
-	}
-	// After ")" the fields are: state(3) ppid(4) ... starttime(22),
-	// which is index 19 in the zero-based slice after ")".
-	fields := strings.Fields(raw[i+2:])
-	if len(fields) < 20 {
-		return "", fmt.Errorf("invalid proc stat format for pid: %d", pid)
+	_, startTime, err := ParseProcessStat(string(stat))
+	if err != nil {
+		return "", fmt.Errorf("invalid proc stat format for pid %d: %w", pid, err)
 	}
 
-	return fields[19], nil
+	return strconv.FormatUint(startTime, 10), nil
+}
+
+// ParseProcessStat returns the parent process ID and the start time in clock
+// ticks since boot of a /proc/<pid>/stat. The command name in parentheses
+// may contain spaces and parentheses itself, so the fields are counted after
+// the last ")": state ppid ... starttime, the 22nd field of the file.
+func ParseProcessStat(stat string) (parentPID int, startTime uint64, err error) {
+	_, after, found := strings.CutLast(stat, ")")
+	if !found {
+		return 0, 0, fmt.Errorf("invalid process stat %q", stat)
+	}
+
+	const ppidField, startTimeField = 1, 19
+
+	fields := strings.Fields(after)
+	if len(fields) <= startTimeField {
+		return 0, 0, fmt.Errorf("invalid process stat %q", stat)
+	}
+
+	parentPID, err = strconv.Atoi(fields[ppidField])
+	if err != nil {
+		return 0, 0, fmt.Errorf("parse parent process ID: %w", err)
+	}
+
+	startTime, err = strconv.ParseUint(fields[startTimeField], 10, 64)
+	if err != nil {
+		return 0, 0, fmt.Errorf("parse start time: %w", err)
+	}
+
+	return parentPID, startTime, nil
 }

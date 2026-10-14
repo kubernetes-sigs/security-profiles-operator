@@ -101,9 +101,9 @@ func (n *NonRootEnabler) Run(logger logr.Logger, runtime, kubeletDir string, app
 	return n.installApparmorProfiles(logger, apparmorprofile.NewAppArmorProfileManager(logger))
 }
 
-// ensureDirs creates the seccomp directory of the kubelet and the operator
-// root, and links the operator directory of the kubelet to the operator root.
-// It returns the seccomp directory of the kubelet.
+// ensureDirs checks that the seccomp directory of the kubelet is mounted,
+// creates the operator root and links the operator directory of the kubelet
+// to the operator root. It returns the seccomp directory of the kubelet.
 func (n *NonRootEnabler) ensureDirs(logger logr.Logger, kubeletDir string) (string, error) {
 	// Only the seccomp directories of the kubelet directories are mounted
 	// from the host below config.HostRoot, not the host root filesystem and
@@ -128,17 +128,6 @@ func (n *NonRootEnabler) ensureDirs(logger logr.Logger, kubeletDir string) (stri
 		return "", fmt.Errorf(
 			"%w: kubelet seccomp directory %s at %s",
 			ErrKubeletDirNotMounted, kubeletDir, kubeletSeccompDir,
-		)
-	}
-
-	logger.Info("Ensuring seccomp root path", "path", kubeletSeccompDir)
-
-	if err := n.MkdirAll(
-		kubeletSeccompDir, dirPermissions,
-	); err != nil {
-		return "", fmt.Errorf(
-			"create seccomp root path %s: %w",
-			kubeletSeccompDir, err,
 		)
 	}
 

@@ -15,12 +15,9 @@ exclude_path = [
     "(^|/)\\.claude/",
 ]
 
-# Sites which reject automated requests or need a login.
-exclude = [
-    "^https://github\\.com/kubernetes-sigs/security-profiles-operator/(compare|pull|issues)/",
-    "^https://console\\.cloud\\.google\\.com/",
-    "^https://(www\\.)?linkedin\\.com/",
-]
+# Sites which reject automated requests or need a login. None at the moment,
+# add the ones which keep failing the scheduled run here.
+exclude = []
 
 # Retries against flaky hosts.
 max_retries = 3

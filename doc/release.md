@@ -115,14 +115,14 @@ The script basically:
 - updates [./dependencies.yaml](../dependencies.yaml) `spo-current` version as
   well as its linked files. Run `make verify-dependencies` to verify the
   results.
-- updates the versioned install manifests in
-  [`installation.md`](installation.md) and the `spoc` image and version in
-  [`cli.md`](cli.md)
 - updates ./hack/deploy-localhost.patch to match the new deployment
 - updates [./deploy/base/clusterserviceversion.yaml](../deploy/base/clusterserviceversion.yaml)
   to change `replaces` to the latest available version on OperatorHub as well as
   update the `containerImage`.
-- runs `make bundle`
+- runs `make bundle`, which sets the upper bound of the `olm.skipRange` in
+  that file and in
+  [./deploy/catalog-preamble.json](../deploy/catalog-preamble.json) to the
+  version
 
 Create a new PR from the proposed changes and wait for the CI to succeed.
 
@@ -352,9 +352,7 @@ After that, run the `./hack/back-to-dev.sh` script, which:
   [./examples/olm/install-resources.yaml](../examples/olm/install-resources.yaml),
   [`hack/ci/e2e-olm.sh`](../hack/ci/e2e-olm.sh),
   [`hack/deploy-localhost.patch`](../hack/deploy-localhost.patch), the e2e tests
-  and the webhook overlay back to the staging registry, and the image of
-  [`deploy/openshift-dev.yaml`](../deploy/openshift-dev.yaml) to the OpenShift
-  internal registry.
+  and the webhook overlay back to the staging registry.
 - reverts the Helm chart [values](../deploy/helm/values.yaml) to the staging
   image with the `Always` pull policy.
 - sets the development version in

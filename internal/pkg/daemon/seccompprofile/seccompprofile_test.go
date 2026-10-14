@@ -287,38 +287,22 @@ func TestGetProfilePath(t *testing.T) {
 		sp   *seccompprofileapi.SeccompProfile
 	}{
 		{
-			name: "AppendNamespaceAndProfile",
-			want: path.Join(config.ProfilesRootPath(), "config-namespace", "file.json"),
+			name: "AppendProfile",
+			want: path.Join(config.ProfilesRootPath(), "file.json"),
 			sp: &seccompprofileapi.SeccompProfile{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "file.json",
-					Namespace: "config-namespace",
-				},
+				ObjectMeta: metav1.ObjectMeta{Name: "file.json"},
 			},
 		},
 		{
 			name: "BlockTraversalAtProfileName",
-			want: path.Join(config.ProfilesRootPath(), "ns", "file.json"),
+			want: path.Join(config.ProfilesRootPath(), "file.json"),
 			sp: &seccompprofileapi.SeccompProfile{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "../../../../../file.json",
-					Namespace: "ns",
-				},
+				ObjectMeta: metav1.ObjectMeta{Name: "../../../../../file.json"},
 			},
 		},
 		{
-			name: "BlockTraversalAtTargetName",
-			want: path.Join(config.ProfilesRootPath(), "ns", "file.json"),
-			sp: &seccompprofileapi.SeccompProfile{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "file.json",
-					Namespace: "ns",
-				},
-			},
-		},
-		{
-			name: "BlockTraversalAtSPNamespace",
-			want: path.Join(config.ProfilesRootPath(), "ns", "file.json"),
+			name: "IgnoreNamespace",
+			want: path.Join(config.ProfilesRootPath(), "file.json"),
 			sp: &seccompprofileapi.SeccompProfile{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "file.json",
@@ -328,12 +312,9 @@ func TestGetProfilePath(t *testing.T) {
 		},
 		{
 			name: "AppendExtension",
-			want: path.Join(config.ProfilesRootPath(), "config-namespace", "file.json"),
+			want: path.Join(config.ProfilesRootPath(), "file.json"),
 			sp: &seccompprofileapi.SeccompProfile{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "file",
-					Namespace: "config-namespace",
-				},
+				ObjectMeta: metav1.ObjectMeta{Name: "file"},
 			},
 		},
 	}

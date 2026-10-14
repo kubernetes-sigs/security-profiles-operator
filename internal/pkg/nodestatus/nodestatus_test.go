@@ -34,13 +34,14 @@ import (
 	seccompprofile "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 	selinuxprofile "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/utiltest"
 )
 
 // Expected shorten the node name if length exceed the limit.
 func TestShortenNodeName(t *testing.T) {
+	t.Parallel()
+
 	cases := []struct {
 		name              string
 		nodeName          string
@@ -79,8 +80,9 @@ func TestShortenNodeName(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv(config.NodeNameEnvKey, tc.nodeName)
-			sc, err := NewForProfile(tc.profileBase, nil)
+			t.Parallel()
+
+			sc, err := NewForProfileOnNode(tc.profileBase, nil, tc.nodeName)
 			require.NoError(t, err)
 
 			require.Equal(t, tc.wantFinalizerName, sc.finalizerString)
@@ -90,6 +92,8 @@ func TestShortenNodeName(t *testing.T) {
 }
 
 func TestPerNodeStatusNameIncludesKind(t *testing.T) {
+	t.Parallel()
+
 	cases := []struct {
 		name           string
 		nodeName       string
@@ -127,8 +131,9 @@ func TestPerNodeStatusNameIncludesKind(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv(config.NodeNameEnvKey, tc.nodeName)
-			sc, err := NewForProfile(tc.profile, nil)
+			t.Parallel()
+
+			sc, err := NewForProfileOnNode(tc.profile, nil, tc.nodeName)
 			require.NoError(t, err)
 
 			require.Equal(t, tc.wantStatusName, sc.perNodeStatusName())
@@ -277,9 +282,9 @@ func TestRemoveLegacyNodeStatus(t *testing.T) {
 // stays stable when the TypeMeta of the profile is empty or gets cleared, so
 // that Remove deletes the same status object that Create made.
 func TestCreateAndRemoveWithClearedTypeMeta(t *testing.T) {
-	const nodeName = "worker-1"
+	t.Parallel()
 
-	t.Setenv(config.NodeNameEnvKey, nodeName)
+	const nodeName = "worker-1"
 
 	scheme := runtime.NewScheme()
 	require.NoError(t, seccompprofile.AddToScheme(scheme))
@@ -314,7 +319,7 @@ func TestCreateAndRemoveWithClearedTypeMeta(t *testing.T) {
 			clearTypeMeta(pol)
 		}
 
-		sc, err := NewForProfile(pol, cl)
+		sc, err := NewForProfileOnNode(pol, cl, nodeName)
 		require.NoError(t, err)
 
 		_, err = sc.Create(t.Context())

@@ -48,16 +48,16 @@ in
     release "crun" crunVersion
       "https://github.com/containers/crun/releases/download/${crunVersion}/crun-${crunVersion}-linux-${arch}"
       {
-        amd64 = "sha256-htHmoOdpRZddOuv6s5y8aibuoV8cP8ZrZ3bRnl3DRqA=";
-        arm64 = "sha256-DvMLD7tJTcnFMD1GsJGoTifLismcmFEj+x6zOYVLaeo=";
+        amd64 = "sha256-htHmoOdpRZddOuv6s5y8aibuoV8cP8ZrZ3bRnl3DRqA="; # crun amd64
+        arm64 = "sha256-DvMLD7tJTcnFMD1GsJGoTifLismcmFEj+x6zOYVLaeo="; # crun arm64
       };
 
   runc =
     release "runc" runcVersion
       "https://github.com/opencontainers/runc/releases/download/${runcVersion}/runc.${arch}"
       {
-        amd64 = "sha256-WZ9vlP+MUFckHv8NVMPHT5XDSTW2RXsz/lRd78YelIg=";
-        arm64 = "sha256-0Q7K6Jg2GDKgWb4gibq5LRWK7FRmGxjtc0bteWKLRrA=";
+        amd64 = "sha256-WZ9vlP+MUFckHv8NVMPHT5XDSTW2RXsz/lRd78YelIg="; # runc amd64
+        arm64 = "sha256-0Q7K6Jg2GDKgWb4gibq5LRWK7FRmGxjtc0bteWKLRrA="; # runc arm64
       };
 
   # podman does not run the cluster workloads, so it keeps the runtimes it was

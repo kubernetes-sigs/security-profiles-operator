@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
 
@@ -53,8 +54,8 @@ func fuzzRequest(subResource string, object, oldObject []byte) *admission.Reques
 func FuzzGetPodExecPatch(f *testing.F) {
 	for _, seed := range []string{
 		`{"command":["sh","-c","true"],"container":"app"}`,
-		`{"command":["env","` + ExecRequestUid + `=old","sh"]}`,
-		`{"command":["` + ExecRequestUid + `=a\nb"]}`,
+		`{"command":["env","` + config.ExecRequestUIDEnvKey + `=old","sh"]}`,
+		`{"command":["` + config.ExecRequestUIDEnvKey + `=a\nb"]}`,
 		`{"command":[]}`,
 		`{"command":null}`,
 		`{}`,
@@ -66,7 +67,7 @@ func FuzzGetPodExecPatch(f *testing.F) {
 	}
 
 	handler := Handler{log: logr.Discard()}
-	assignment := ExecRequestUid + "=" + fuzzUID
+	assignment := config.ExecRequestUIDEnvKey + "=" + fuzzUID
 
 	f.Fuzz(func(t *testing.T, object []byte) {
 		patches, err := handler.getPodExecPatch(fuzzRequest("", object, nil))
@@ -120,7 +121,7 @@ func FuzzGetPodPatch(f *testing.F) {
 		subResource, object, oldObject string
 	}{
 		{"", `{"spec":{"containers":[{"name":"debugger"}]}}`, ""},
-		{"", `{"spec":{"containers":[{"name":"debugger","env":[{"name":"` + ExecRequestUid + `"}]}]}}`, ""},
+		{"", `{"spec":{"containers":[{"name":"debugger","env":[{"name":"` + config.ExecRequestUIDEnvKey + `"}]}]}}`, ""},
 		{"", `{"spec":{"containers":[]}}`, ""},
 		{
 			utils.EphemeralContainersSubResource,
@@ -152,7 +153,11 @@ func FuzzGetPodPatch(f *testing.F) {
 			env, ok := patch.Value.([]corev1.EnvVar)
 			require.True(t, ok)
 			require.NotEmpty(t, env)
-			require.Equal(t, corev1.EnvVar{Name: ExecRequestUid, Value: fuzzUID}, env[len(env)-1])
+			require.Equal(
+				t,
+				corev1.EnvVar{Name: config.ExecRequestUIDEnvKey, Value: fuzzUID},
+				env[len(env)-1],
+			)
 		}
 	})
 }

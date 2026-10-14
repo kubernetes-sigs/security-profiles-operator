@@ -450,26 +450,10 @@ func TestRunWithoutAuditLog(t *testing.T) {
 	require.Zero(t, mock.StopTailCallCount())
 }
 
-func TestParseProcessStat(t *testing.T) {
+func TestProcessInfo(t *testing.T) {
 	t.Parallel()
 
-	parent, startTime, err := parseProcessStat(
-		"123 (a (b) c) S 45 123 123 0 -1 4194304 1 0 0 0 0 0 0 0 20 0 1 0 6789 0 0",
-	)
-	require.NoError(t, err)
-	require.Equal(t, 45, parent)
-	require.Equal(t, uint64(6789), startTime)
-
-	for _, stat := range []string{
-		"", "123 (x)", "123 (x) S 45",
-		"123 (x) S y 1 1 0 -1 0 1 0 0 0 0 0 0 0 20 0 1 0 6789",
-		"123 (x) S 45 1 1 0 -1 0 1 0 0 0 0 0 0 0 20 0 1 0 -1",
-	} {
-		_, _, err := parseProcessStat(stat)
-		require.Error(t, err, stat)
-	}
-
-	parent, startTime, err = (&defaultImpl{}).ProcessInfo(os.Getpid())
+	parent, startTime, err := (&defaultImpl{}).ProcessInfo(os.Getpid())
 	require.NoError(t, err)
 	require.Equal(t, os.Getppid(), parent)
 	require.NotZero(t, startTime)

@@ -537,8 +537,6 @@ spec:
           - create
           - get
           - list
-          - patch
-          - update
           - watch
         serviceAccountName: security-profiles-operator
       - rules:
@@ -864,7 +862,6 @@ spec:
           - create
           - get
           - list
-          - patch
           - update
           - watch
         - apiGroups:
