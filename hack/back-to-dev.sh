@@ -50,7 +50,9 @@ sed_i \
     bundle/manifests/security-profiles-operator.clusterserviceversion.yaml
 
 # The bundle CSV is generated from this one, see make bundle.
-sed_i 's;containerImage: registry.k8s.io/security-profiles-operator/security-profiles-operator.*;containerImage: us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator:latest;g' \
+sed_i \
+    -e 's;\(olm.skipRange.*\)'"$VERSION_RE"';\1'"$DEV_VERSION"';g' \
+    -e 's;containerImage: registry.k8s.io/security-profiles-operator/security-profiles-operator.*;containerImage: us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator:latest;g' \
     deploy/base/clusterserviceversion.yaml
 
 sed_i "s;registry.k8s.io/security-profiles-operator/security-profiles-operator-catalog.*;us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator-catalog:latest;g" \

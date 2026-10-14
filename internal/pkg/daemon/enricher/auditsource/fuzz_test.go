@@ -84,8 +84,6 @@ func FuzzExtractAuditLine(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, logLine string) {
 		line, err := ExtractAuditLine(logLine)
-		require.Equal(t, err == nil, IsAuditLine(logLine))
-
 		if err != nil {
 			require.Nil(t, line)
 

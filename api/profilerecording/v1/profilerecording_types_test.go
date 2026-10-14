@@ -22,8 +22,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
 func recording(kind ProfileRecordingKind, recorder ProfileRecorder) *ProfileRecording {
@@ -45,22 +43,22 @@ func TestCtrAnnotation(t *testing.T) {
 	}{
 		{
 			name: "seccomp logs", kind: ProfileRecordingKindSeccompProfile, recorder: ProfileRecorderLogs,
-			wantKey: config.SeccompProfileRecordLogsAnnotationKey + "ctr",
+			wantKey: SeccompProfileRecordLogsAnnotationKey + "ctr",
 		},
 		{
 			name: "seccomp bpf", kind: ProfileRecordingKindSeccompProfile, recorder: ProfileRecorderBpf,
-			wantKey: config.SeccompProfileRecordBpfAnnotationKey + "ctr",
+			wantKey: SeccompProfileRecordBpfAnnotationKey + "ctr",
 		},
 		{name: "seccomp unknown recorder", kind: ProfileRecordingKindSeccompProfile, recorder: "Other", wantErr: true},
 		{
 			name: "selinux logs", kind: ProfileRecordingKindSelinuxProfile, recorder: ProfileRecorderLogs,
-			wantKey: config.SelinuxProfileRecordLogsAnnotationKey + "ctr",
+			wantKey: SelinuxProfileRecordLogsAnnotationKey + "ctr",
 		},
 		{name: "selinux bpf", kind: ProfileRecordingKindSelinuxProfile, recorder: ProfileRecorderBpf, wantErr: true},
 		{name: "selinux unknown recorder", kind: ProfileRecordingKindSelinuxProfile, recorder: "Other", wantErr: true},
 		{
 			name: "apparmor bpf", kind: ProfileRecordingKindAppArmorProfile, recorder: ProfileRecorderBpf,
-			wantKey: config.ApparmorProfileRecordBpfAnnotationKey + "ctr",
+			wantKey: ApparmorProfileRecordBpfAnnotationKey + "ctr",
 		},
 		{name: "apparmor logs", kind: ProfileRecordingKindAppArmorProfile, recorder: ProfileRecorderLogs, wantErr: true},
 		{name: "apparmor unknown recorder", kind: ProfileRecordingKindAppArmorProfile, recorder: "Other", wantErr: true},

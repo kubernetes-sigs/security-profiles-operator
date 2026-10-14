@@ -954,7 +954,7 @@ func TestUpdatePodReferencesRetriesStaleCache(t *testing.T) {
 	current.Status.ActiveWorkloads = []string{"default/other"}
 	require.NoError(t, c.Status().Update(t.Context(), current))
 
-	require.NoError(t, r.updatePodReferencesForSeccomp(t.Context(), stale))
+	require.NoError(t, seccompKind.update(t.Context(), r, stale))
 	require.Equal(t, 1, conflicts)
 	requireInUse(t, c, sp, true)
 	require.Equal(t, []string{"default/" + testPodName}, sp.Status.ActiveWorkloads)

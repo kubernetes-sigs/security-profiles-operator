@@ -887,3 +887,9 @@ func TestMergedCoverage(t *testing.T) {
 	require.JSONEq(t, `{"version":"v1","total":2,"syscalls":{"read":2,"socket":1}}`, coverage)
 	require.Equal(t, "uid-a,uid-b", counted)
 }
+
+// seccompCoverageAnnotation returns the coverage annotation value of the
+// seccomp partials, like the merger composes it.
+func seccompCoverageAnnotation(partials []mergeableProfile) (string, error) {
+	return coverageAnnotation(seccompPartialCoverage(partials))
+}

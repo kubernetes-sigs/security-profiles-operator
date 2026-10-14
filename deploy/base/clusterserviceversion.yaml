@@ -7,7 +7,7 @@ metadata:
     capabilities: Basic Install
     categories: Security
     containerImage: us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator:latest
-    olm.skipRange: '>=1.0.0 <1.1.1-dev'
+    olm.skipRange: '>=1.0.0 <1.1.2-dev'
     operatorframework.io/suggested-namespace: security-profiles-operator
     operators.openshift.io/valid-subscription: '["OpenShift Kubernetes Engine", "OpenShift Container Platform", "OpenShift Platform Plus"]'
     operatorframework.io/cluster-monitoring: "true"

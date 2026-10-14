@@ -74,14 +74,6 @@ func (c *containerProfiles) Get(containerID string) (string, bool) {
 	return profiles[0], true
 }
 
-// GetAll returns every profile recorded for containerID.
-func (c *containerProfiles) GetAll(containerID string) []string {
-	c.l.RLock()
-	defer c.l.RUnlock()
-
-	return slices.Clone(c.byContainer[containerID])
-}
-
 // Containers returns the containers a profile is recorded for.
 func (c *containerProfiles) Containers(profile string) []string {
 	c.l.RLock()

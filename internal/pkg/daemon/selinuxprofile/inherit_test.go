@@ -112,7 +112,7 @@ func TestCheckInheritCycle(t *testing.T) {
 				return objs
 			}(),
 			inherits: "level-0",
-			wantErr:  ErrInheritTooDeep,
+			wantErr:  errInheritTooDeep,
 		},
 		"chain without cycle": {
 			profiles: []client.Object{
@@ -142,7 +142,7 @@ func TestCheckInheritCycle(t *testing.T) {
 
 			switch {
 			case tc.wantCycle:
-				require.ErrorIs(t, err, ErrInheritCycle)
+				require.ErrorIs(t, err, errInheritCycle)
 			case tc.wantErr != nil:
 				require.ErrorIs(t, err, tc.wantErr)
 			default:

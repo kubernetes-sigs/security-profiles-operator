@@ -130,7 +130,7 @@ func (r *StatusReconciler) Reconcile(
 	defer cancel()
 
 	if kind, name, ok := parseProfileRequest(req); ok {
-		return r.reconcileProfile(ctx, kind, util.NamespacedName(name, req.Namespace))
+		return r.reconcileProfile(ctx, kind, name)
 	}
 
 	return r.reconcileNodeStatus(ctx, req, nil, r.newClusterView())
@@ -237,11 +237,9 @@ func (v *clusterView) spodNodesOf(
 // all node statuses of a profile map to this single request, so a rollout
 // over many nodes lists the statuses once per reconcile, not once per event.
 func (r *StatusReconciler) reconcileProfile(
-	ctx context.Context, kind string, key types.NamespacedName,
+	ctx context.Context, kind, name string,
 ) (reconcile.Result, error) {
-	list, err := listStatusesForProfile(
-		ctx, r.client, key.Namespace, util.KindNameDNSLengthName(kind, key.Name),
-	)
+	list, err := listStatusesForProfile(ctx, r.client, util.KindNameDNSLengthName(kind, name))
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("cannot list node statuses of profile: %w", err)
 	}
@@ -250,7 +248,7 @@ func (r *StatusReconciler) reconcileProfile(
 
 	var statusResult reconcile.Result
 
-	if first := firstOwnedStatus(list, kind, key.Name); first != nil {
+	if first := firstOwnedStatus(list, kind, name); first != nil {
 		statusResult, err = r.reconcileNodeStatus(
 			ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(first)}, list, view,
 		)
@@ -259,7 +257,7 @@ func (r *StatusReconciler) reconcileProfile(
 		}
 	}
 
-	deletionResult, err := r.reconcileDeletingProfile(ctx, kind, key, view)
+	deletionResult, err := r.reconcileDeletingProfile(ctx, kind, name, view)
 	if err != nil {
 		return deletionResult, err
 	}
@@ -280,7 +278,7 @@ func (r *StatusReconciler) reconcileNodeStatus(
 	nodeStatusList *secprofnodestatusapi.SecurityProfileNodeStatusList,
 	view *clusterView,
 ) (reconcile.Result, error) {
-	logger := r.log.WithValues("nodeStatus", req.Name, "namespace", req.Namespace)
+	logger := r.log.WithValues("nodeStatus", req.Name)
 	logger.V(config.VerboseLevel).Info("Reconciling node status")
 
 	// get the status to be reconciled
@@ -326,10 +324,7 @@ func (r *StatusReconciler) reconcileNodeStatus(
 
 	if nodeStatusList == nil {
 		nodeStatusList, err = listStatusesForProfile(
-			ctx,
-			r.client,
-			instance.Namespace,
-			instance.Labels[secprofnodestatusapi.StatusToProfLabel],
+			ctx, r.client, instance.Labels[secprofnodestatusapi.StatusToProfLabel],
 		)
 		if err != nil {
 			return reconcile.Result{}, fmt.Errorf("cannot list the node statuses: %w", err)
@@ -985,16 +980,16 @@ func (r *StatusReconciler) statusesOfDeletedNodes(
 // to reconcile, for example after a foreground deletion, so it is reconciled
 // on its own.
 func (r *StatusReconciler) reconcileDeletingProfile(
-	ctx context.Context, kind string, key types.NamespacedName, view *clusterView,
+	ctx context.Context, kind, name string, view *clusterView,
 ) (reconcile.Result, error) {
-	logger := r.log.WithValues("profile", key.Name, "namespace", key.Namespace, "kind", kind)
+	logger := r.log.WithValues("profile", name, "kind", kind)
 
 	prof, err := newProfile(kind)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
 
-	if err := r.client.Get(ctx, key, prof); err != nil {
+	if err := r.client.Get(ctx, util.NamespacedName(name, ""), prof); err != nil {
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 
@@ -1055,10 +1050,9 @@ const profileRequestSeparator = "/"
 
 // profileRequest returns the request which reconciles the profile of the
 // provided kind and name itself, rather than one of its node statuses.
-func profileRequest(kind, namespace, name string) reconcile.Request {
+func profileRequest(kind, name string) reconcile.Request {
 	return reconcile.Request{NamespacedName: types.NamespacedName{
-		Namespace: namespace,
-		Name:      kind + profileRequestSeparator + name,
+		Name: kind + profileRequestSeparator + name,
 	}}
 }
 
@@ -1088,18 +1082,13 @@ func (r *StatusReconciler) getProfileFromStatus(
 		return nil, fmt.Errorf("getting owner profile: %w", ErrNoOwnerProfile)
 	}
 
-	key := types.NamespacedName{
-		Name:      ctrl.Name,
-		Namespace: s.GetNamespace(),
-	}
-
 	prof, err := newProfile(ctrl.Kind)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := r.client.Get(ctx, key, prof); err != nil {
-		return nil, fmt.Errorf("getting owner profile: %s/%s: %w", s.GetNamespace(), ctrl.Name, err)
+	if err := r.client.Get(ctx, util.NamespacedName(ctrl.Name, ""), prof); err != nil {
+		return nil, fmt.Errorf("getting owner profile %s: %w", ctrl.Name, err)
 	}
 
 	return prof, nil
@@ -1407,11 +1396,10 @@ func daemonSetIsRollingOut(ds *appsv1.DaemonSet) bool {
 // provided value. They are looked up with the index of the label, instead of
 // filtering the statuses of all profiles.
 func listStatusesForProfile(
-	ctx context.Context, c client.Client, namespace string, labelVal string,
+	ctx context.Context, c client.Client, labelVal string,
 ) (*secprofnodestatusapi.SecurityProfileNodeStatusList, error) {
 	statusList := secprofnodestatusapi.SecurityProfileNodeStatusList{}
 	if err := c.List(ctx, &statusList,
-		client.InNamespace(namespace),
 		client.MatchingFields{statusProfileIndex: labelVal},
 	); err != nil {
 		return nil, fmt.Errorf("listing statuses: %w", err)

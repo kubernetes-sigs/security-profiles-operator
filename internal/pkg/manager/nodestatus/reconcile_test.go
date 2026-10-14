@@ -46,7 +46,6 @@ import (
 )
 
 const (
-	testNamespace   = "test-namespace"
 	testProfileName = "test-profile"
 	operatorNS      = "security-profiles-operator"
 )
@@ -61,7 +60,6 @@ func testProfile(
 	sp := &seccompprofileapi.SeccompProfile{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:       testProfileName,
-			Namespace:  testNamespace,
 			UID:        "profile-uid",
 			Finalizers: finalizers,
 		},
@@ -76,8 +74,7 @@ func testNodeStatus(
 ) *secprofnodestatusapi.SecurityProfileNodeStatus {
 	return &secprofnodestatusapi.SecurityProfileNodeStatus{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "seccompprofile-" + testProfileName + "-" + node,
-			Namespace: testNamespace,
+			Name: "seccompprofile-" + testProfileName + "-" + node,
 			Labels: map[string]string{
 				secprofnodestatusapi.StatusToProfLabel: testProfLabel,
 				secprofnodestatusapi.StatusToNodeLabel: node,
@@ -194,7 +191,7 @@ func storedProfile(t *testing.T, c client.Client) *seccompprofileapi.SeccompProf
 
 	sp := &seccompprofileapi.SeccompProfile{}
 	require.NoError(t, c.Get(
-		context.Background(), util.NamespacedName(testProfileName, testNamespace), sp,
+		context.Background(), util.NamespacedName(testProfileName, ""), sp,
 	))
 
 	return sp
@@ -575,7 +572,7 @@ func TestDeletedNodeRequests(t *testing.T) {
 
 	requests := r.deletedNodeRequests(context.Background(), testNode("worker-2"))
 	require.Equal(t,
-		[]reconcile.Request{profileRequest("SeccompProfile", testNamespace, testProfileName)},
+		[]reconcile.Request{profileRequest("SeccompProfile", testProfileName)},
 		requests,
 	)
 
@@ -768,7 +765,7 @@ func TestReconcileDeletingProfile(t *testing.T) {
 			r, c, _ := newTestReconciler(t, append(tc.objs, profile, tc.ds)...)
 
 			res, err := r.Reconcile(context.Background(),
-				profileRequest("SeccompProfile", testNamespace, testProfileName))
+				profileRequest("SeccompProfile", testProfileName))
 			require.NoError(t, err)
 			require.Equal(t, tc.wantRequeue, res.RequeueAfter)
 			require.Equal(t, tc.wantFinalizers, storedProfile(t, c).Finalizers)
@@ -782,12 +779,12 @@ func TestReconcileDeletingProfileNotFound(t *testing.T) {
 	r, _, _ := newTestReconciler(t)
 
 	res, err := r.Reconcile(context.Background(),
-		profileRequest("SeccompProfile", testNamespace, testProfileName))
+		profileRequest("SeccompProfile", testProfileName))
 	require.NoError(t, err)
 	require.Equal(t, reconcile.Result{}, res)
 
 	_, err = r.Reconcile(context.Background(),
-		profileRequest("Pod", testNamespace, testProfileName))
+		profileRequest("Pod", testProfileName))
 	require.ErrorIs(t, err, ErrUnknownOwnerKind)
 }
 
@@ -881,15 +878,12 @@ func TestListStatusesForProfile(t *testing.T) {
 
 	mine := testNodeStatus("worker-1", secprofnodestatusapi.ProfileStateInstalled)
 
-	otherNamespace := testNodeStatus("worker-2", secprofnodestatusapi.ProfileStateInstalled)
-	otherNamespace.Namespace = "other"
-
 	otherProfile := testNodeStatus("worker-3", secprofnodestatusapi.ProfileStateInstalled)
 	otherProfile.Labels[secprofnodestatusapi.StatusToProfLabel] = "SeccompProfile-other"
 
-	_, c, _ := newTestReconciler(t, mine, otherNamespace, otherProfile)
+	_, c, _ := newTestReconciler(t, mine, otherProfile)
 
-	list, err := listStatusesForProfile(context.Background(), c, testNamespace, testProfLabel)
+	list, err := listStatusesForProfile(context.Background(), c, testProfLabel)
 	require.NoError(t, err)
 	require.Len(t, list.Items, 1)
 	require.Equal(t, mine.Name, list.Items[0].Name)
@@ -1060,7 +1054,7 @@ func TestSiblingStatusRequests(t *testing.T) {
 	// All statuses of a profile map to the request of the profile.
 	for _, status := range []*secprofnodestatusapi.SecurityProfileNodeStatus{first, second} {
 		require.Equal(t,
-			[]reconcile.Request{profileRequest("SeccompProfile", testNamespace, testProfileName)},
+			[]reconcile.Request{profileRequest("SeccompProfile", testProfileName)},
 			r.siblingStatusRequests(ctx, status),
 		)
 	}
@@ -1083,7 +1077,7 @@ func TestStatusRequestsForDeletingProfile(t *testing.T) {
 	profile.DeletionTimestamp = &now
 
 	require.Equal(t,
-		[]reconcile.Request{profileRequest("SeccompProfile", testNamespace, testProfileName)},
+		[]reconcile.Request{profileRequest("SeccompProfile", testProfileName)},
 		r.statusRequests("SeccompProfile")(context.Background(), profile),
 	)
 }
@@ -1096,7 +1090,7 @@ func TestReconcileProfileRequestAggregatesStatuses(t *testing.T) {
 	r, c, _ := newTestReconciler(t, testProfile(""), status, spodDS(1, 1), testNode("worker-1"))
 
 	_, err := r.Reconcile(context.Background(),
-		profileRequest("SeccompProfile", testNamespace, testProfileName))
+		profileRequest("SeccompProfile", testProfileName))
 	require.NoError(t, err)
 	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, storedProfile(t, c).Status.Status)
 }
@@ -1116,7 +1110,7 @@ func TestReconcileStatusOfDeletedProfile(t *testing.T) {
 	))
 
 	err := c.Get(context.Background(),
-		util.NamespacedName(testProfileName, testNamespace), &seccompprofileapi.SeccompProfile{})
+		util.NamespacedName(testProfileName, ""), &seccompprofileapi.SeccompProfile{})
 	require.True(t, kerrors.IsNotFound(err))
 	utiltest.RequireNoEvent(t, rec)
 }
@@ -1271,7 +1265,7 @@ func TestReconcileProfileRequestSkipsUnownedStatus(t *testing.T) {
 	)
 
 	_, err := r.Reconcile(context.Background(),
-		profileRequest("SeccompProfile", testNamespace, testProfileName))
+		profileRequest("SeccompProfile", testProfileName))
 	require.NoError(t, err)
 	// The owned status initializes the profile, the unowned one would leave
 	// it without a state, since its owner cannot be resolved. The status of
@@ -1279,7 +1273,7 @@ func TestReconcileProfileRequestSkipsUnownedStatus(t *testing.T) {
 	require.Equal(t, secprofnodestatusapi.ProfileStatePending, storedProfile(t, c).Status.Status)
 
 	_, err = r.Reconcile(context.Background(),
-		profileRequest("SeccompProfile", testNamespace, testProfileName))
+		profileRequest("SeccompProfile", testProfileName))
 	require.NoError(t, err)
 	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, storedProfile(t, c).Status.Status)
 }
@@ -1291,7 +1285,7 @@ func TestStatusRequestsForProfile(t *testing.T) {
 
 	require.Equal(
 		t,
-		[]reconcile.Request{profileRequest("SeccompProfile", testNamespace, testProfileName)},
+		[]reconcile.Request{profileRequest("SeccompProfile", testProfileName)},
 		r.statusRequests("SeccompProfile")(context.Background(), testProfile("")),
 	)
 }
@@ -1709,7 +1703,7 @@ func TestReconcileDeletingProfileWithoutDaemonSet(t *testing.T) {
 	r, c, _ := newTestReconciler(t, profile, testNode("worker-1"))
 
 	res, err := r.Reconcile(context.Background(),
-		profileRequest("SeccompProfile", testNamespace, testProfileName))
+		profileRequest("SeccompProfile", testProfileName))
 	require.NoError(t, err)
 	require.Equal(t, reconcile.Result{}, res)
 	require.Equal(t, []string{util.HasActivePodsFinalizerString}, storedProfile(t, c).Finalizers)
@@ -1750,7 +1744,7 @@ func TestReconcileDeletingProfileRemovesDeletedNodeFirst(t *testing.T) {
 	}
 
 	_, err := r.Reconcile(context.Background(),
-		profileRequest("SeccompProfile", testNamespace, testProfileName))
+		profileRequest("SeccompProfile", testProfileName))
 	require.ErrorContains(t, err, "cannot get the DS")
 	require.Equal(t,
 		[]string{util.GetFinalizerNodeString("worker-1")},
@@ -1781,7 +1775,7 @@ func TestDeletedNodeRequestsForDeletingProfile(t *testing.T) {
 
 	requests := r.deletedNodeRequests(context.Background(), testNode("worker-2"))
 	require.Equal(t,
-		[]reconcile.Request{profileRequest("SeccompProfile", testNamespace, testProfileName)},
+		[]reconcile.Request{profileRequest("SeccompProfile", testProfileName)},
 		requests,
 	)
 	require.Empty(t, r.deletedNodeRequests(context.Background(), testNode("worker-3")))

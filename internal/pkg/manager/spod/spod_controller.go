@@ -181,7 +181,7 @@ func (r *ReconcileSPOd) Healthz(*http.Request) error {
 // the DaemonSet and the cert-manager resources are only merge patched, the
 // webhook deployment gets its spec replaced by an update.
 // +kubebuilder:rbac:groups="",namespace="security-profiles-operator",resources=services,verbs=get;list;watch;create;patch
-// +kubebuilder:rbac:groups=apps,namespace="security-profiles-operator",resources=deployments,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=apps,namespace="security-profiles-operator",resources=deployments,verbs=get;list;watch;create;update
 // +kubebuilder:rbac:groups=apps,namespace="security-profiles-operator",resources=daemonsets,verbs=get;list;watch;create;patch
 // +kubebuilder:rbac:groups=cert-manager.io,namespace="security-profiles-operator",resources=issuers;certificates,verbs=get;list;watch;create;patch
 //
@@ -196,7 +196,7 @@ func (r *ReconcileSPOd) Healthz(*http.Request) error {
 // +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=mutatingwebhookconfigurations;validatingwebhookconfigurations,verbs=create
 // +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=mutatingwebhookconfigurations,resourceNames=spo-mutating-webhook-configuration,verbs=get;list;watch;patch
 // +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingwebhookconfigurations,resourceNames=spo-validating-webhook-configuration,verbs=get;list;watch;patch
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons,verbs=get;list;watch;create
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons/finalizers,verbs=get;update;patch
 // Helpers:

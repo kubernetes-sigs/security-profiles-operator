@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
 
@@ -136,7 +137,7 @@ func TestHandler_Handle(t *testing.T) {
 						Message: "UID added to execmetadata",
 					},
 					AuditAnnotations: map[string]string{
-						ExecRequestUid: "test-uid",
+						config.ExecRequestUIDEnvKey: "test-uid",
 					},
 				},
 			},
@@ -175,7 +176,7 @@ func TestHandler_Handle(t *testing.T) {
 						Message: "UID added to execmetadata",
 					},
 					AuditAnnotations: map[string]string{
-						ExecRequestUid: "test-uid",
+						config.ExecRequestUIDEnvKey: "test-uid",
 					},
 				},
 			},
@@ -220,7 +221,7 @@ func TestHandler_Handle(t *testing.T) {
 						Message: "UID added to execmetadata",
 					},
 					AuditAnnotations: map[string]string{
-						ExecRequestUid: "test-uid",
+						config.ExecRequestUIDEnvKey: "test-uid",
 					},
 				},
 			},
@@ -257,7 +258,7 @@ func TestHandler_Handle(t *testing.T) {
 						Message: "UID added to execmetadata",
 					},
 					AuditAnnotations: map[string]string{
-						ExecRequestUid: "test-uid",
+						config.ExecRequestUIDEnvKey: "test-uid",
 					},
 				},
 			},
@@ -267,11 +268,16 @@ func TestHandler_Handle(t *testing.T) {
 			fields: fields{log: logr.Discard()},
 			args: args{t.Context(), admission.Request{
 				AdmissionRequest: getPodExecAdmRequest(t, &corev1.PodExecOptions{
-					Command: []string{"env", ExecRequestUid + "=overwrite", "echo", "hello"},
-					Stdin:   true,
-					Stdout:  true,
-					Stderr:  true,
-					TTY:     true,
+					Command: []string{
+						"env",
+						config.ExecRequestUIDEnvKey + "=overwrite",
+						"echo",
+						"hello",
+					},
+					Stdin:  true,
+					Stdout: true,
+					Stderr: true,
+					TTY:    true,
 				}),
 			}},
 			want: admission.Response{
@@ -294,7 +300,7 @@ func TestHandler_Handle(t *testing.T) {
 						Message: "UID added to execmetadata",
 					},
 					AuditAnnotations: map[string]string{
-						ExecRequestUid: "test-uid",
+						config.ExecRequestUIDEnvKey: "test-uid",
 					},
 				},
 			},
@@ -359,7 +365,7 @@ func TestHandlerPatchAppliesToContainerWithoutEnv(t *testing.T) {
 			require.NoError(t, json.Unmarshal(patched, result))
 			require.Len(t, result.Spec.Containers, 1)
 			require.Contains(t, result.Spec.Containers[0].Env, corev1.EnvVar{
-				Name:  ExecRequestUid,
+				Name:  config.ExecRequestUIDEnvKey,
 				Value: "test-uid",
 			})
 		})
@@ -473,7 +479,7 @@ func TestHandlerSkipsWindowsPodExec(t *testing.T) {
 			require.Len(t, resp.Patches, 1)
 			require.Equal(
 				t,
-				[]string{"env", ExecRequestUid + "=test-uid", "cmd"},
+				[]string{"env", config.ExecRequestUIDEnvKey + "=test-uid", "cmd"},
 				resp.Patches[0].Value,
 			)
 		})

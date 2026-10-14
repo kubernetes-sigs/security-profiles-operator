@@ -321,7 +321,7 @@ func ownersOfRecordedContainers(
 ) map[string]string {
 	owners := map[string]string{}
 
-	ctrs := slices.Concat(pod.Spec.InitContainers, pod.Spec.Containers)
+	ctrs := util.PodContainers(pod)
 
 	for i := range recordings {
 		recording := &recordings[i]

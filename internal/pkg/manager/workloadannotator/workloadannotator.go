@@ -151,6 +151,12 @@ func (r *PodReconciler) Healthz(*http.Request) error {
 
 // Namespace scoped
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
+//
+// The profiles get the pods which use them patched into their status and
+// their in-use finalizer added and removed with an update.
+//nolint:lll // required for kubebuilder
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles;selinuxprofiles;rawselinuxprofiles;apparmorprofiles,verbs=get;list;watch;update
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles/status;selinuxprofiles/status;rawselinuxprofiles/status;apparmorprofiles/status,verbs=get;patch
 
 // Reconcile reacts to pod events and marks the profiles used by a pod as in
 // use, or releases them once no pod uses them anymore.
@@ -310,7 +316,7 @@ func (r *PodReconciler) handlePodUpdate(
 		}
 
 		for _, sp := range profiles {
-			errs = append(errs, r.updatePodReferencesForSeccomp(ctx, sp))
+			errs = append(errs, seccompKind.update(ctx, r, sp))
 		}
 	}
 
@@ -345,7 +351,7 @@ func (r *PodReconciler) handlePodUpdate(
 			continue
 		}
 
-		errs = append(errs, r.updatePodReferencesForAppArmor(ctx, profile))
+		errs = append(errs, appArmorKind.update(ctx, r, profile))
 	}
 
 	if err := errors.Join(errs...); err != nil {
@@ -400,7 +406,7 @@ func (r *PodReconciler) updateSelinuxProfilesByName(
 	if err == nil {
 		found = true
 
-		if err := r.updatePodReferencesForSelinux(ctx, selinuxProfile); err != nil {
+		if err := selinuxKind.update(ctx, r, selinuxProfile); err != nil {
 			return found, err
 		}
 	} else if !kerrors.IsNotFound(err) {
@@ -413,7 +419,7 @@ func (r *PodReconciler) updateSelinuxProfilesByName(
 	if err == nil {
 		found = true
 
-		return found, r.updatePodReferencesForRawSelinux(ctx, rawProfile)
+		return found, rawSelinuxKind.update(ctx, r, rawProfile)
 	} else if !kerrors.IsNotFound(err) {
 		return found, fmt.Errorf("looking up RawSelinuxProfile %s: %w", name, err)
 	}
@@ -773,43 +779,6 @@ func sameActiveWorkloads(current, desired []string) bool {
 	slices.Sort(desiredCopy)
 
 	return slices.Equal(currentCopy, desiredCopy)
-}
-
-// updatePodReferencesForSeccomp updates a SeccompProfile with the identifiers
-// of pods using it and ensures it has a finalizer indicating it is in use to
-// prevent it from being deleted.
-func (r *PodReconciler) updatePodReferencesForSeccomp(
-	ctx context.Context,
-	sp *seccompprofileapi.SeccompProfile,
-) error {
-	return seccompKind.update(ctx, r, sp)
-}
-
-// updatePodReferencesForSelinux updates a SelinuxProfile like
-// updatePodReferencesForSeccomp.
-func (r *PodReconciler) updatePodReferencesForSelinux(
-	ctx context.Context,
-	se *selinuxprofileapi.SelinuxProfile,
-) error {
-	return selinuxKind.update(ctx, r, se)
-}
-
-// updatePodReferencesForRawSelinux updates a RawSelinuxProfile like
-// updatePodReferencesForSeccomp.
-func (r *PodReconciler) updatePodReferencesForRawSelinux(
-	ctx context.Context,
-	se *selinuxprofileapi.RawSelinuxProfile,
-) error {
-	return rawSelinuxKind.update(ctx, r, se)
-}
-
-// updatePodReferencesForAppArmor updates an AppArmorProfile like
-// updatePodReferencesForSeccomp.
-func (r *PodReconciler) updatePodReferencesForAppArmor(
-	ctx context.Context,
-	aa *apparmorprofileapi.AppArmorProfile,
-) error {
-	return appArmorKind.update(ctx, r, aa)
 }
 
 // profileReconciler reconciles the profiles of a kind once they enter the

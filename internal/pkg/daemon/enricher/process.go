@@ -25,6 +25,7 @@ import (
 
 	"github.com/jellydator/ttlcache/v3"
 
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 )
 
@@ -32,9 +33,7 @@ import (
 // process path could not be found in /proc.
 var ErrProcessNotFound = errors.New("process not found in process file system path")
 
-const (
-	requestIdEnv = "SPO_EXEC_REQUEST_UID"
-)
+const requestIdEnv = config.ExecRequestUIDEnvKey
 
 // GetProcessInfo returns the details of the process with the PID. The
 // executable, uid and gid come from the audit line, the rest from the process.

@@ -56,7 +56,7 @@ import (
 )
 
 var (
-	ErrProfWithoutStatus = errors.New("profile hasn't been initialized with status")
+	errProfWithoutStatus = errors.New("profile hasn't been initialized with status")
 
 	// errUnsupportedKind is returned for a binding of an unknown kind.
 	errUnsupportedKind = errors.New("unsupported profile kind")
@@ -447,7 +447,7 @@ func (p *podBinder) updatePod(
 		}
 
 		bindProfile, skip, err := p.getProfile(ctx, lookup, pb)
-		if errors.Is(err, ErrProfWithoutStatus) {
+		if errors.Is(err, errProfWithoutStatus) {
 			return pod, state.warnings, new(admission.Denied(fmt.Sprintf(
 				"profile binding %s binds %s %s, which is not installed yet: "+
 					"retry once the profile has a status, the SecurityProfileNodeStatus "+
@@ -694,7 +694,7 @@ func (p *podBinder) getProfile(
 	// missing or has no status, so it is only looked up for those.
 	enabled := true
 
-	if kerrors.IsNotFound(err) || errors.Is(err, ErrProfWithoutStatus) {
+	if kerrors.IsNotFound(err) || errors.Is(err, errProfWithoutStatus) {
 		var enabledErr error
 
 		enabled, enabledErr = p.cachedProfileKindEnabled(ctx, lookup, profileKind)
@@ -762,14 +762,14 @@ func (p *podBinder) getProfile(
 
 		return nil, true, nil
 
-	case errors.Is(err, ErrProfWithoutStatus) && enabled:
+	case errors.Is(err, errProfWithoutStatus) && enabled:
 		// Admitting the pod before a daemon installed the profile would run
 		// it without the enforced profile.
 		p.log.Error(err, "profile has no status yet", "kind", profileKind, "profile", key)
 
 		return nil, false, err
 
-	case errors.Is(err, ErrProfWithoutStatus):
+	case errors.Is(err, errProfWithoutStatus):
 		// No daemon ever reports a status for a disabled kind, so rejecting
 		// the pod would block it forever.
 		p.log.Info(
@@ -917,7 +917,7 @@ func retryProfileLookup(ctx context.Context, retry bool, get func() error) error
 	for {
 		err := get()
 		if err == nil || !retry ||
-			(!errors.Is(err, ErrProfWithoutStatus) && !kerrors.IsNotFound(err)) ||
+			(!errors.Is(err, errProfWithoutStatus) && !kerrors.IsNotFound(err)) ||
 			backoff.Steps <= 1 {
 			return err
 		}
@@ -936,7 +936,7 @@ func retryProfileLookup(ctx context.Context, retry bool, get func() error) error
 
 // lookupProfile gets the profile of the key with get, retried as
 // retryProfileLookup describes. A profile without status is not installed
-// yet, which ErrProfWithoutStatus tells.
+// yet, which errProfWithoutStatus tells.
 func lookupProfile[T profilebase.StatusBaseUser](
 	ctx context.Context,
 	key types.NamespacedName,
@@ -952,7 +952,7 @@ func lookupProfile[T profilebase.StatusBaseUser](
 		}
 
 		if profile.GetStatusBase().Status == "" {
-			return ErrProfWithoutStatus
+			return errProfWithoutStatus
 		}
 
 		return nil

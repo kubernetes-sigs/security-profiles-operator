@@ -91,11 +91,10 @@ func TestKubeletConfigFilePath(t *testing.T) {
 	)
 }
 
-func TestGetKubeletConfigFromFileMissing(t *testing.T) {
+func TestReadKubeletConfigMissing(t *testing.T) {
 	t.Parallel()
-	skipIfKubeletConfigExists(t)
 
-	cfg, err := GetKubeletConfigFromFile()
+	cfg, err := readKubeletConfig(filepath.Join(t.TempDir(), KubeletConfigFile))
 	require.ErrorIs(t, err, os.ErrNotExist)
 	require.ErrorContains(t, err, "reading kubelet config")
 	require.Nil(t, cfg)

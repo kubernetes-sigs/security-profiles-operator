@@ -93,10 +93,6 @@ func seccompPartialCoverage(partials []mergeableProfile) []partialCoverage {
 	return coverage
 }
 
-func seccompCoverageAnnotation(partials []mergeableProfile) (string, error) {
-	return coverageAnnotation(seccompPartialCoverage(partials))
-}
-
 // coverageAnnotation returns the value of syscallCoverageAnnotation for the
 // partial profiles, empty if there are none.
 func coverageAnnotation(partials []partialCoverage) (string, error) {

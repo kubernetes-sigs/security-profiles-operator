@@ -88,34 +88,27 @@ func TestGetProfilePathIsContained(t *testing.T) {
 	}
 }
 
+// TestGetProfilePath pins that the paths do not depend on a namespace, which
+// a cluster scoped profile never has.
 func TestGetProfilePath(t *testing.T) {
 	t.Parallel()
 
-	sp := newProfile("my-ns", "my-profile")
+	for _, namespace := range []string{"", ".", "my-ns"} {
+		sp := newProfile(namespace, "my-profile")
 
-	require.Equal(t,
-		config.ProfilesRootPath()+"/my-ns/my-profile"+ExtJSON,
-		sp.GetProfilePath())
-	require.Equal(t,
-		config.OperatorRoot+"/my-ns/my-profile"+ExtJSON,
-		sp.GetProfileOperatorPath())
-}
-
-// TestGetProfilePathEmptyNamespace pins that an empty or dotted namespace still
-// collapses the way path.Join always handled it, rather than growing a segment.
-func TestGetProfilePathEmptyNamespace(t *testing.T) {
-	t.Parallel()
-
-	want := config.ProfilesRootPath() + "/my-profile" + ExtJSON
-
-	require.Equal(t, want, newProfile("", "my-profile").GetProfilePath())
-	require.Equal(t, want, newProfile(".", "my-profile").GetProfilePath())
+		require.Equal(t,
+			config.ProfilesRootPath()+"/my-profile"+ExtJSON,
+			sp.GetProfilePath())
+		require.Equal(t,
+			config.OperatorRoot+"/my-profile"+ExtJSON,
+			sp.GetProfileOperatorPath())
+	}
 }
 
 func TestSetImplementationStatus(t *testing.T) {
 	t.Parallel()
 
-	sp := newProfile("my-ns", "my-profile")
+	sp := newProfile("", "my-profile")
 	sp.SetImplementationStatus()
 
 	require.Equal(t,
@@ -126,7 +119,7 @@ func TestSetImplementationStatus(t *testing.T) {
 	// The path is the absolute location of the profile on the node.
 	require.Equal(t, sp.GetProfilePath(), sp.Status.Path)
 	require.True(t, strings.HasPrefix(sp.Status.Path, "/"), sp.Status.Path)
-	require.True(t, strings.HasSuffix(sp.Status.Path, "/my-ns/my-profile.json"), sp.Status.Path)
+	require.True(t, strings.HasSuffix(sp.Status.Path, "/operator/my-profile.json"), sp.Status.Path)
 }
 
 func TestIsDisabledAndReconcilable(t *testing.T) {

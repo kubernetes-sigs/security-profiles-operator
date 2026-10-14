@@ -185,7 +185,7 @@ func (r *ReconcileSelinux) policyDirectory() string {
 }
 
 func (r *ReconcileSelinux) policyPath(sp selinuxprofileapi.SelinuxProfileObject) string {
-	return filepath.Join(r.policyDirectory(), filepath.Clean(sp.GetPolicyName()+".cil"))
+	return filepath.Join(r.policyDirectory(), sp.GetPolicyName()+".cil")
 }
 
 // existenceChangedPredicate passes the creation and removal of objects.
@@ -841,7 +841,7 @@ func (r *ReconcileSelinux) conflictsWithSystemModule(
 	sp selinuxprofileapi.SelinuxProfileObject,
 	nodeStatus *nodestatus.StatusClient,
 ) (bool, error) {
-	if !isSELinuxModuleInstalled(r.selinuxModuleStorePath(), filepath.Clean(sp.GetPolicyName())) {
+	if !isSELinuxModuleInstalled(r.selinuxModuleStorePath(), sp.GetPolicyName()) {
 		return false, nil
 	}
 
@@ -926,7 +926,7 @@ func (r *ReconcileSelinux) handleValidationError(
 
 	r.reportInstallError(sp, reasonCannotInstallPolicy, evstr)
 
-	if errors.Is(valErr, ErrInheritNotFound) {
+	if errors.Is(valErr, errInheritNotFound) {
 		return reconcile.Result{RequeueAfter: inheritRetryInterval}, nil
 	}
 
@@ -1241,7 +1241,7 @@ func (r *ReconcileSelinux) reconcileDeletePolicy(
 		// processes the removal of the policy file, and it keeps the last
 		// status if removing the module fails. The removal is only done
 		// once the module is gone from the module store.
-		policyName := filepath.Clean(sp.GetPolicyName())
+		policyName := sp.GetPolicyName()
 		if isSELinuxModuleInstalled(r.selinuxModuleStorePath(), policyName) {
 			return reconcile.Result{}, fmt.Errorf(
 				"%w %s on %s: %s",
@@ -1299,7 +1299,7 @@ func (r *ReconcileSelinux) policyGone(
 	}
 
 	installed, err := selinuxModuleInstalled(
-		r.selinuxModuleStorePath(), filepath.Clean(sp.GetPolicyName()),
+		r.selinuxModuleStorePath(), sp.GetPolicyName(),
 	)
 	if err != nil {
 		l.V(config.VerboseLevel).Info(

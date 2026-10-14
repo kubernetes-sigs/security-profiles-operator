@@ -25,7 +25,31 @@ import (
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
 
 	"sigs.k8s.io/security-profiles-operator/api/common"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+)
+
+// The annotations which the recording webhook sets on the containers of a
+// pod selected by a ProfileRecording. The container name follows the prefix,
+// the value names the profile to record.
+const (
+	// SeccompProfileRecordLogsAnnotationKey is the annotation on a Pod that
+	// triggers the internal log enricher to trace the syscalls of a Pod and
+	// creates a seccomp profile.
+	SeccompProfileRecordLogsAnnotationKey = "io.containers.trace-logs/"
+
+	// SeccompProfileRecordBpfAnnotationKey is the annotation on a Pod that
+	// triggers the internal bpf module to trace the syscalls of a Pod and
+	// creates a seccomp profile.
+	SeccompProfileRecordBpfAnnotationKey = "io.containers.trace-bpf/"
+
+	// ApparmorProfileRecordBpfAnnotationKey is the annotation on a Pod that
+	// triggers the internal bpf module to trace the apparmor profile of a Pod
+	// and creates a apparmor profile.
+	ApparmorProfileRecordBpfAnnotationKey = "io.containers.trace-bpf-apparmor/"
+
+	// SelinuxProfileRecordLogsAnnotationKey is the annotation on a Pod that
+	// triggers the internal log enricher to trace the AVC denials of a Pod and
+	// creates a selinux profile.
+	SelinuxProfileRecordLogsAnnotationKey = "io.containers.trace-avcs/"
 )
 
 // ProfileRecordingKind is the kind of the profiles a recording records.
@@ -271,9 +295,9 @@ func (pr *ProfileRecording) ctrAnnotationSeccomp(ctrName string) (key, value str
 
 	switch pr.Spec.Recorder {
 	case ProfileRecorderLogs:
-		annotationPrefix = config.SeccompProfileRecordLogsAnnotationKey
+		annotationPrefix = SeccompProfileRecordLogsAnnotationKey
 	case ProfileRecorderBpf:
-		annotationPrefix = config.SeccompProfileRecordBpfAnnotationKey
+		annotationPrefix = SeccompProfileRecordBpfAnnotationKey
 	default:
 		return "", "", fmt.Errorf(
 			"invalid recorder: %s", pr.Spec.Recorder,
@@ -293,7 +317,7 @@ func (pr *ProfileRecording) ctrAnnotationSelinux(ctrName string) (key, value str
 		)
 	}
 
-	return config.SelinuxProfileRecordLogsAnnotationKey + ctrName, pr.ctrAnnotationValue(
+	return SelinuxProfileRecordLogsAnnotationKey + ctrName, pr.ctrAnnotationValue(
 		ctrName,
 	), nil
 }
@@ -305,7 +329,7 @@ func (pr *ProfileRecording) ctrAnnotationApparmor(ctrName string) (key, value st
 		)
 	}
 
-	return config.ApparmorProfileRecordBpfAnnotationKey + ctrName, pr.ctrAnnotationValue(
+	return ApparmorProfileRecordBpfAnnotationKey + ctrName, pr.ctrAnnotationValue(
 		ctrName,
 	), nil
 }

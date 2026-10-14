@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"os"
 	"strings"
 	"unicode/utf8"
 
@@ -37,7 +36,6 @@ import (
 
 	profilebase "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -70,17 +68,6 @@ type StatusClient struct {
 
 // ErrNoNodeName is returned if the node name cannot be determined.
 var ErrNoNodeName = errors.New("cannot determine node name")
-
-// NewForProfile returns a status client for the node set in the node name
-// environment variable.
-func NewForProfile(pol profilebase.SecurityProfileBase, c client.Client) (*StatusClient, error) {
-	nodeName, ok := os.LookupEnv(config.NodeNameEnvKey)
-	if !ok {
-		return nil, ErrNoNodeName
-	}
-
-	return NewForProfileOnNode(pol, c, nodeName)
-}
 
 // NewForProfileOnNode returns a status client for the provided node.
 func NewForProfileOnNode(

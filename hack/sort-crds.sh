@@ -33,9 +33,9 @@ EOF
 echo "$1" | bash >"${TEMP}/tmp_output.yaml"
 
 mkdir -p "${TEMP}/crds"
-./build/kubernetes-split-yaml --outdir "${TEMP}/crds" "${TEMP}/tmp_output.yaml"
+"${BUILD_DIR:-build}/kubernetes-split-yaml" --outdir "${TEMP}/crds" "${TEMP}/tmp_output.yaml"
 
 find "${TEMP}/crds" -type f -exec basename {} \; | sort | xargs -I {} echo "- ./crds/{}" >>"${TEMP}/kustomization.yaml"
 cat "${TEMP}/kustomization.yaml"
 
-./build/kustomize build "${TEMP}" -o "$2"
+"${BUILD_DIR:-build}/kustomize" build "${TEMP}" -o "$2"

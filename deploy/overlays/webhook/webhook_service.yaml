@@ -5,7 +5,7 @@ metadata:
   name: webhook-service
   namespace: security-profiles-operator
   labels:
-    name: security-profiles-operator
+    app: security-profiles-operator
 spec:
   selector:
     app: security-profiles-operator

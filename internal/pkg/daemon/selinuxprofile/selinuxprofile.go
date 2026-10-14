@@ -41,14 +41,14 @@ import (
 )
 
 var (
-	ErrInvalidLabelKey         = errors.New("invalid label key")
-	ErrInvalidObjClass         = errors.New("invalid object class")
-	ErrInvalidPermission       = errors.New("invalid permission")
-	ErrSystemInheritNotAllowed = errors.New("system profile not allowed")
-	ErrUnknownKindForEntry     = errors.New("unknown inherit kind for entry")
-	ErrInheritNotFound         = errors.New("inherited profile not found")
-	ErrInheritCycle            = errors.New("inherited profiles form a cycle")
-	ErrInheritTooDeep          = errors.New("inheritance too deep")
+	errInvalidLabelKey         = errors.New("invalid label key")
+	errInvalidObjClass         = errors.New("invalid object class")
+	errInvalidPermission       = errors.New("invalid permission")
+	errSystemInheritNotAllowed = errors.New("system profile not allowed")
+	errUnknownKindForEntry     = errors.New("unknown inherit kind for entry")
+	errInheritNotFound         = errors.New("inherited profile not found")
+	errInheritCycle            = errors.New("inherited profiles form a cycle")
+	errInheritTooDeep          = errors.New("inheritance too deep")
 
 	// errTemporaryValidation marks validation failures which are caused by
 	// the API server and not by the profile, so they have to be retried.
@@ -216,14 +216,14 @@ func (sph *selinuxProfileHandler) validateAndTrackInherit(
 		return sph.handleInheritSPOPolicy(ctx, ancestorRef, namespace)
 	}
 
-	return fmt.Errorf("%s/%s: %w", ancestorRef.Kind, ancestorRef.Name, ErrUnknownKindForEntry)
+	return fmt.Errorf("%s/%s: %w", ancestorRef.Kind, ancestorRef.Name, errUnknownKindForEntry)
 }
 
 func (sph *selinuxProfileHandler) validateLabelKey(
 	key selinuxprofileapi.LabelKey,
 ) error {
 	if !labelRegex.MatchString(string(key)) {
-		return fmt.Errorf("'%s' didn't match expected characters: %w", key, ErrInvalidLabelKey)
+		return fmt.Errorf("'%s' didn't match expected characters: %w", key, errInvalidLabelKey)
 	}
 
 	return nil
@@ -233,7 +233,7 @@ func (sph *selinuxProfileHandler) validateObjClass(
 	key selinuxprofileapi.ObjectClassKey,
 ) error {
 	if !objClassPermRegex.MatchString(string(key)) {
-		return fmt.Errorf("'%s' didn't match expected characters: %w", key, ErrInvalidObjClass)
+		return fmt.Errorf("'%s' didn't match expected characters: %w", key, errInvalidObjClass)
 	}
 
 	return nil
@@ -243,7 +243,7 @@ func (sph *selinuxProfileHandler) validatePermission(
 	perm string,
 ) error {
 	if !objClassPermRegex.MatchString(perm) {
-		return fmt.Errorf("'%s' didn't match expected characters: %w", perm, ErrInvalidPermission)
+		return fmt.Errorf("'%s' didn't match expected characters: %w", perm, errInvalidPermission)
 	}
 
 	return nil
@@ -260,7 +260,7 @@ func (sph *selinuxProfileHandler) handleInheritSPOPolicy(
 	if err := sph.cli.Get(ctx, key, ancestor); err != nil {
 		if kerrors.IsNotFound(err) {
 			return fmt.Errorf("couldn't find inherit reference %s/%s: %w",
-				ancestorRef.Kind, ancestorRef.Name, ErrInheritNotFound)
+				ancestorRef.Kind, ancestorRef.Name, errInheritNotFound)
 		}
 
 		return fmt.Errorf("%w: getting inherit reference %s/%s: %w",
@@ -303,12 +303,12 @@ func (sph *selinuxProfileHandler) checkInheritCycle(
 		queue = queue[1:]
 
 		if current.profile.GetName() == sph.sp.GetName() {
-			return fmt.Errorf("%w: %s inherits from itself", ErrInheritCycle, sph.sp.GetName())
+			return fmt.Errorf("%w: %s inherits from itself", errInheritCycle, sph.sp.GetName())
 		}
 
 		if current.depth > maxInheritDepth {
 			return fmt.Errorf(
-				"%w: more than %d levels", ErrInheritTooDeep, maxInheritDepth,
+				"%w: more than %d levels", errInheritTooDeep, maxInheritDepth,
 			)
 		}
 
@@ -324,7 +324,7 @@ func (sph *selinuxProfileHandler) checkInheritCycle(
 			}
 
 			if ref.Name == sph.sp.GetName() {
-				return fmt.Errorf("%w: %s inherits from itself", ErrInheritCycle, sph.sp.GetName())
+				return fmt.Errorf("%w: %s inherits from itself", errInheritCycle, sph.sp.GetName())
 			}
 
 			next := &selinuxprofileapi.SelinuxProfile{}
@@ -384,7 +384,7 @@ func (sph *selinuxProfileHandler) handleInheritSystemPolicy(
 
 	return fmt.Errorf(
 		"system profile %s not in SecurityProfilesOperatorDaemon's allow list: %w",
-		ancestorRef.Name, ErrSystemInheritNotAllowed,
+		ancestorRef.Name, errSystemInheritNotAllowed,
 	)
 }
 
