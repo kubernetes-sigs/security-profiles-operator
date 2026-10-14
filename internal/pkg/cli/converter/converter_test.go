@@ -50,6 +50,8 @@ func TestRun(t *testing.T) {
 			input: `
 apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: AppArmorProfile
+metadata:
+  name: test
 spec:
   abstract:
     filesystem:
@@ -63,6 +65,8 @@ spec:
 			input: `
 apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: AppArmorProfile
+metadata:
+  name: test
 spec:
   mode: Enforce
   abstract:
@@ -77,6 +81,8 @@ spec:
 			input: `
 apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: AppArmorProfile
+metadata:
+  name: test
 spec:
   mode: Complain
   abstract:
@@ -101,6 +107,22 @@ spec:
 `,
 			outputContains: []string{`ptrace (read),`},
 			logContains:    `profile "legacy": DEPRECATED: ptrace rules`,
+		},
+		{
+			name: "AppArmor CRD with a directory traversal",
+			input: `
+apiVersion: security-profiles-operator.x-k8s.io/v1
+kind: AppArmorProfile
+metadata:
+  name: traversal
+spec:
+  abstract:
+    filesystem:
+      readOnlyPaths:
+      - /usr/../etc/hosts
+`,
+			outputContains: []string{`/usr/../etc/hosts r,`},
+			logContains:    `profile "traversal": spec.abstract.filesystem paths with a directory traversal`,
 		},
 		{
 			name: "seccomp",
@@ -228,6 +250,20 @@ spec:
 			},
 			assert: func(mock *converterfakes.FakeImpl, err error) {
 				require.ErrorContains(t, err, "cannot parse yaml")
+			},
+		},
+		{
+			name: "AppArmor CRD without a name",
+			prepare: func(mock *converterfakes.FakeImpl) *Options {
+				mock.ReadFileReturnsOnCall(0, []byte(
+					"apiVersion: security-profiles-operator.x-k8s.io/v1\nkind: AppArmorProfile\n",
+				), nil)
+
+				return defaultOptions()
+			},
+			assert: func(mock *converterfakes.FakeImpl, err error) {
+				require.ErrorContains(t, err, "profile has no name")
+				require.Zero(t, mock.WriteFileCallCount())
 			},
 		},
 		{

@@ -56,7 +56,6 @@ import (
 )
 
 const (
-	defaultTimeout          time.Duration = time.Minute
 	maxCommLen              int           = 64
 	defaultCacheTimeout     time.Duration = time.Hour
 	maxNewPidHandlers       int           = 32
@@ -1905,6 +1904,17 @@ func (b *BpfRecorder) handleNewPidEvent(event newPidEvent) {
 		return
 	}
 
+	// The generation may end while the lookups below are running, in which
+	// case StopRecording has already cleared the tables and the entries of
+	// this handler would linger into the next recording, whatever the
+	// lookups return.
+	defer func() {
+		if b.recordingGeneration.Load() != generation {
+			b.containerKeys.Delete(key)
+			b.containerIDToProfileMap.Delete(containerID)
+		}
+	}()
+
 	b.logger.V(config.VerboseLevel).Info(
 		"Found container ID for PID", "pid", pid,
 		"mntns", mntns, "key", key, "containerID", containerID,
@@ -1942,14 +1952,6 @@ func (b *BpfRecorder) handleNewPidEvent(event newPidEvent) {
 	)
 
 	b.trackProfileMetric(mntns, profile)
-
-	// The generation may have ended while the lookups above were running, in
-	// which case StopRecording has already cleared the tables and these entries
-	// would linger into the next recording.
-	if b.recordingGeneration.Load() != generation {
-		b.containerKeys.Delete(key)
-		b.containerIDToProfileMap.Delete(containerID)
-	}
 }
 
 // errProcessChanged is returned by verifyProcess if the PID of a reported

@@ -103,6 +103,24 @@ func TestPushSignsInBeforeTheTimeout(t *testing.T) {
 	require.Zero(t, mock.CopyCallCount())
 }
 
+// TestPushWithoutOIDCProvider asserts that a signing config without OIDC
+// providers, like the one of a private Sigstore deployment whose Fulcio
+// trusts the CI issuer, signs with an identity token of the environment.
+func TestPushWithoutOIDCProvider(t *testing.T) {
+	t.Parallel()
+
+	mock := pushSigningMock(t)
+	mock.SigningConfigReturns(testSigningConfigWithoutOIDC(t), nil)
+	mock.IDTokenReturns("token", nil)
+
+	require.NoError(t, push(t, t.Context(), mock))
+	require.Equal(t, 1, mock.IDTokenCallCount())
+	require.Equal(t, 1, mock.SignBundleCallCount())
+
+	_, issuer, _ := mock.IDTokenArgsForCall(0)
+	require.Empty(t, issuer, "there is no provider to sign in at")
+}
+
 // TestPushUnsigned verifies that a failed signature after the push names the
 // pushed digest, so that it can be signed afterwards.
 func TestPushUnsigned(t *testing.T) {

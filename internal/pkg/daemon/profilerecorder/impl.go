@@ -164,9 +164,13 @@ func (*defaultImpl) NewControllerManagedBy(
 	return ctrl.NewControllerManagedBy(m).
 		Named(name).
 		WithEventFilter(predicate.Funcs{
-			CreateFunc:  func(e event.CreateEvent) bool { return p1(e.Object) && p2(e.Object) },
-			DeleteFunc:  func(e event.DeleteEvent) bool { return p1(e.Object) && p2(e.Object) },
-			UpdateFunc:  func(e event.UpdateEvent) bool { return p1(e.ObjectNew) && p2(e.ObjectNew) },
+			CreateFunc: func(e event.CreateEvent) bool { return p1(e.Object) && p2(e.Object) },
+			DeleteFunc: func(e event.DeleteEvent) bool { return p1(e.Object) && p2(e.Object) },
+			// A pod which lost its recording annotations is reconciled once
+			// more, so that the recorder stops tracking it.
+			UpdateFunc: func(e event.UpdateEvent) bool {
+				return (p1(e.ObjectNew) && p2(e.ObjectNew)) || (p1(e.ObjectOld) && p2(e.ObjectOld))
+			},
 			GenericFunc: func(e event.GenericEvent) bool { return p1(e.Object) && p2(e.Object) },
 		}).
 		For(&corev1.Pod{}).

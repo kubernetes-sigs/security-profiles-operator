@@ -115,18 +115,30 @@ func (a *Artifact) prepareSigning(ctx context.Context, deviceFlow bool) (*signin
 		return nil, ErrNoSigningConfig
 	}
 
+	// The identity token comes from the environment, like in CI, or from a
+	// sign in at an OIDC provider of the signing config. A signing config
+	// without OIDC providers, like the one of a private Sigstore deployment
+	// whose Fulcio trusts the CI issuer directly, still signs with a token
+	// of the environment.
+	issuer := ""
+
 	oidcIssuer, err := root.SelectService(
 		signingConfig.OIDCProviderURLs(),
 		oidcAPIVersions,
 		time.Now(),
 	)
-	if err != nil {
-		return nil, fmt.Errorf("select OIDC provider: %w", err)
+	if err == nil {
+		issuer = oidcIssuer.URL
+	} else {
+		a.logger.Info(
+			"No OIDC provider in the signing config, using an identity token of the environment",
+			"error", err.Error(),
+		)
 	}
 
-	a.logger.Info("Getting the OIDC identity token for signing", "issuer", oidcIssuer.URL)
+	a.logger.Info("Getting the OIDC identity token for signing", "issuer", issuer)
 
-	token, err := a.IDToken(ctx, oidcIssuer.URL, deviceFlow)
+	token, err := a.IDToken(ctx, issuer, deviceFlow)
 	if err != nil {
 		return nil, fmt.Errorf("get OIDC identity token: %w", err)
 	}

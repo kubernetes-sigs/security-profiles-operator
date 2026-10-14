@@ -278,7 +278,10 @@ func TestGenerateProfileApparmorParser(t *testing.T) {
 	for i := range fuzzProfileSeeds {
 		in := fuzzProfileSeeds[i]
 		if in.name == "" || strings.HasPrefix(in.name, "/") {
-			// A path name is attached by path and only makes sense for spoc.
+			// The seeds without a name test their rules, and an empty name
+			// is rejected before anything gets rendered, see
+			// TestGenerateProfileRejectsEmptyName. A path name is attached
+			// by path and only makes sense for spoc.
 			in.name = "fuzz-seed"
 		}
 

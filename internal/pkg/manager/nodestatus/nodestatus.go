@@ -21,10 +21,10 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"net/http"
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -78,6 +78,9 @@ type StatusReconciler struct {
 	record util.EventRecorder
 	// namespace is the operator namespace, which holds the SPOd DaemonSet.
 	namespace string
+	// waiting holds the requests of the profiles whose reconcile waits for
+	// the SPOd DaemonSet, see waitingRequests.
+	waiting sync.Map
 }
 
 // Name returns the name of the controller.
@@ -88,11 +91,6 @@ func (r *StatusReconciler) Name() string {
 // SchemeBuilder returns the API scheme of the controller.
 func (r *StatusReconciler) SchemeBuilder() runtime.SchemeBuilder {
 	return secprofnodestatusapi.SchemeBuilder
-}
-
-// Healthz is the liveness probe endpoint of the controller.
-func (r *StatusReconciler) Healthz(*http.Request) error {
-	return nil
 }
 
 // Security Profiles Operator RBAC permissions to manage SelinuxProfile
@@ -129,11 +127,48 @@ func (r *StatusReconciler) Reconcile(
 	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
 
+	res, err := r.reconcile(ctx, req)
+
+	// A reconcile which waits for the SPOd DaemonSet, for example during a
+	// rollout, checks again after dsWait. The watch of the DaemonSet
+	// reconciles the waiting profiles as soon as its status changes.
+	if err == nil && res.RequeueAfter == dsWait {
+		r.waiting.Store(req, struct{}{})
+	} else {
+		r.waiting.Delete(req)
+	}
+
+	return res, err
+}
+
+func (r *StatusReconciler) reconcile(
+	ctx context.Context,
+	req reconcile.Request,
+) (reconcile.Result, error) {
 	if kind, name, ok := parseProfileRequest(req); ok {
 		return r.reconcileProfile(ctx, kind, name)
 	}
 
 	return r.reconcileNodeStatus(ctx, req, nil, r.newClusterView())
+}
+
+// waitingRequests returns the requests of the profiles which wait for the
+// SPOd DaemonSet and forgets them: a profile which still has to wait gets
+// remembered again by its reconcile.
+func (r *StatusReconciler) waitingRequests(context.Context, client.Object) []reconcile.Request {
+	var requests []reconcile.Request
+
+	r.waiting.Range(func(key, _ any) bool {
+		if req, ok := key.(reconcile.Request); ok {
+			requests = append(requests, req)
+		}
+
+		r.waiting.Delete(key)
+
+		return true
+	})
+
+	return requests
 }
 
 // clusterView looks up the SPOd DaemonSet, the node names and the nodes which

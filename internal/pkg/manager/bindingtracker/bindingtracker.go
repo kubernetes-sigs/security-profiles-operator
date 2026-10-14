@@ -19,7 +19,6 @@ package bindingtracker
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"slices"
 	"strings"
 	"time"
@@ -74,10 +73,6 @@ func (r *BindingTrackerReconciler) Name() string {
 // configuration, which tells whether a profile kind is enabled.
 func (r *BindingTrackerReconciler) SchemeBuilder() runtime.SchemeBuilder {
 	return runtime.NewSchemeBuilder(profilebindingapi.AddToScheme, spodapi.AddToScheme)
-}
-
-func (r *BindingTrackerReconciler) Healthz(*http.Request) error {
-	return nil
 }
 
 //nolint:lll // required for kubebuilder

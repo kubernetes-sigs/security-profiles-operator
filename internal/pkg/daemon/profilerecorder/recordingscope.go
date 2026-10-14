@@ -189,7 +189,7 @@ func (r *RecorderReconciler) recordingWebhookSelectors(
 	}
 
 	logger := r.log
-	if err == nil || kerrors.IsNotFound(err) {
+	if kerrors.IsNotFound(err) {
 		logger = logger.V(config.VerboseLevel)
 	}
 

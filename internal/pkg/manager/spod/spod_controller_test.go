@@ -21,11 +21,13 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -722,6 +724,9 @@ func Test_addSelinuxCustomTemplatesVolume(t *testing.T) {
 	)
 }
 
+// Test_webhookTolerationsFallback asserts that the webhook inherits the
+// tolerations of the daemon unless the SPOD sets its own, and that an empty
+// list counts as unset, like in the released versions.
 func Test_webhookTolerationsFallback(t *testing.T) {
 	t.Parallel()
 
@@ -735,63 +740,87 @@ func Test_webhookTolerationsFallback(t *testing.T) {
 			Effect: v1.TaintEffectNoSchedule,
 		},
 	}
+	baseTolerations := webhookDeploymentTolerations(t, bindata.GetWebhook(
+		logr.Discard(), testNamespace, nil, "image", v1.PullAlways,
+		bindata.CAInjectTypeCertManager, nil, nil, false,
+	))
 
 	for _, tc := range []struct {
-		name     string
-		cfg      *spodapi.SecurityProfilesOperatorDaemon
-		expected []v1.Toleration
+		name       string
+		scheduling []v1.Toleration
+		webhook    []v1.Toleration
+		expected   []v1.Toleration
 	}{
 		{
-			name: "falls back to daemon tolerations when webhook tolerations not set",
-			cfg: &spodapi.SecurityProfilesOperatorDaemon{
-				Spec: spodapi.SPODSpec{
-					Scheduling: spodapi.SPODSchedulingConfig{
-						Tolerations: daemonTolerations,
-					},
-				},
-			},
-			expected: daemonTolerations,
+			name:       "falls back to daemon tolerations when webhook tolerations not set",
+			scheduling: daemonTolerations,
+			expected:   daemonTolerations,
 		},
 		{
-			name: "uses webhook tolerations when set",
-			cfg: &spodapi.SecurityProfilesOperatorDaemon{
-				Spec: spodapi.SPODSpec{
-					Scheduling: spodapi.SPODSchedulingConfig{
-						Tolerations: daemonTolerations,
-					},
-					Webhook: spodapi.SPODWebhookConfig{
-						Tolerations: webhookTolerations,
-					},
-				},
-			},
-			expected: webhookTolerations,
+			name:       "uses webhook tolerations when set",
+			scheduling: daemonTolerations,
+			webhook:    webhookTolerations,
+			expected:   webhookTolerations,
 		},
 		{
-			name: "uses daemon tolerations when webhook tolerations are nil",
-			cfg: &spodapi.SecurityProfilesOperatorDaemon{
-				Spec: spodapi.SPODSpec{
-					Scheduling: spodapi.SPODSchedulingConfig{
-						Tolerations: daemonTolerations,
-					},
-					Webhook: spodapi.SPODWebhookConfig{
-						Tolerations: nil,
-					},
-				},
-			},
-			expected: daemonTolerations,
+			name:     "keeps the base tolerations when neither is set",
+			expected: baseTolerations,
+		},
+		{
+			name:       "an empty list inherits the daemon tolerations",
+			scheduling: daemonTolerations,
+			webhook:    []v1.Toleration{},
+			expected:   daemonTolerations,
+		},
+		{
+			name:       "an empty daemon list keeps the base tolerations",
+			scheduling: []v1.Toleration{},
+			expected:   baseTolerations,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			tolerations := tc.cfg.Spec.Webhook.Tolerations
-			if len(tolerations) == 0 {
-				tolerations = tc.cfg.Spec.Scheduling.Tolerations
+			cfg := &spodapi.SecurityProfilesOperatorDaemon{
+				Spec: spodapi.SPODSpec{
+					Scheduling: spodapi.SPODSchedulingConfig{Tolerations: tc.scheduling},
+					Webhook:    spodapi.SPODWebhookConfig{Tolerations: tc.webhook},
+				},
 			}
 
-			require.Equal(t, tc.expected, tolerations)
+			r := &ReconcileSPOd{log: logr.Discard(), namespace: testNamespace}
+			webhook := r.getConfiguredWebook(
+				cfg,
+				"image",
+				v1.PullAlways,
+				bindata.CAInjectTypeCertManager,
+			)
+
+			require.Equal(t, tc.expected, webhookDeploymentTolerations(t, webhook))
 		})
 	}
+}
+
+// webhookDeploymentTolerations returns the tolerations of the webhook
+// Deployment, which the webhook creates in a fake client.
+func webhookDeploymentTolerations(t *testing.T, webhook *bindata.Webhook) []v1.Toleration {
+	t.Helper()
+
+	cl := fake.NewClientBuilder().WithScheme(reconcileTestScheme(t)).Build()
+	require.NoError(t, webhook.Create(t.Context(), cl))
+
+	deployment := &appsv1.Deployment{}
+	require.NoError(t, cl.Get(t.Context(), types.NamespacedName{
+		Name: bindata.WebhookName, Namespace: testNamespace,
+	}, deployment))
+
+	tolerations := deployment.Spec.Template.Spec.Tolerations
+	if tolerations == nil {
+		// The fake client drops an empty list, like the API server.
+		return []v1.Toleration{}
+	}
+
+	return tolerations
 }
 
 // A custom host /proc path gets mounted at the default path into the

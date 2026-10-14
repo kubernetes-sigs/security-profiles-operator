@@ -342,10 +342,6 @@ type policyLoader interface {
 	PolicyLoaded(policyName string) (bool, error)
 }
 
-// errHostPolicyFile is returned if the policy file at the managed location
-// belongs to the host.
-var errHostPolicyFile = errors.New("policy file belongs to the host")
-
 // loadPolicyFile writes the policy with the given content to path and loads
 // it. It returns false without touching anything if the file holds the
 // policy already and it is loaded, so that a restart of the daemon or a
@@ -373,7 +369,7 @@ func loadPolicyFile(
 	if readErr == nil && !ownedByUs &&
 		!bytes.HasPrefix(previous, []byte(managedByMarker)) &&
 		string(previous) != content {
-		return false, fmt.Errorf("%w: %s", errHostPolicyFile, path)
+		return false, fmt.Errorf("%w: %s", ErrHostPolicyFile, path)
 	}
 
 	if readErr == nil && bytes.Equal(previous, policy) {

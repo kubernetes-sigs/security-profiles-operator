@@ -68,6 +68,14 @@ const (
 // line is gone and another one reused its PID.
 var errProcessStartedLater = errors.New("process started after its audit line")
 
+// processContainer is the container of a process which was seen running,
+// along with the start time of the process relative to the boot, which tells
+// the process apart from a later one with the same PID.
+type processContainer struct {
+	id      string
+	started time.Duration
+}
+
 // containerLookup tells the container of the process of an audit line. The
 // log and the JSON enricher share it.
 type containerLookup struct {
@@ -76,8 +84,8 @@ type containerLookup struct {
 	// time.
 	containerIDCache *ttlcache.Cache[string, string]
 	// processContainers maps the PIDs of processes seen running to their
-	// container ID, for their lines read after they exited.
-	processContainers *ttlcache.Cache[int, string]
+	// container, for their lines read after they exited.
+	processContainers *ttlcache.Cache[int, processContainer]
 	containers        *containerInfos
 	boot              bootClock
 }
@@ -152,9 +160,9 @@ func newContainerLookup(logger logr.Logger) *containerLookup {
 			ttlcache.WithCapacity[string, string](maxCacheItems),
 		),
 		processContainers: ttlcache.New(
-			ttlcache.WithTTL[int, string](exitedProcessTimeout),
-			ttlcache.WithCapacity[int, string](maxProcessItems),
-			ttlcache.WithDisableTouchOnHit[int, string](),
+			ttlcache.WithTTL[int, processContainer](exitedProcessTimeout),
+			ttlcache.WithCapacity[int, processContainer](maxProcessItems),
+			ttlcache.WithDisableTouchOnHit[int, processContainer](),
 		),
 		containers: newContainerInfos(),
 	}
@@ -220,9 +228,10 @@ func processGone(err error) bool {
 
 // containerIDForProcess returns the container ID of the process which logged
 // an audit line at eventTime. The container of a process which exited is the
-// one it had when it was last seen running. A line can be read up to a minute
-// after it got logged, so the process with the PID has to have started before
-// eventTime, unless it is zero.
+// one it had when it was last seen running, also if another process reused
+// its PID since. A line can be read up to a minute after it got logged, so
+// the process with the PID has to have started before eventTime, unless it is
+// zero.
 func (c *containerLookup) containerIDForProcess(
 	i impl, pid int, eventTime time.Time,
 ) (string, error) {
@@ -233,17 +242,23 @@ func (c *containerLookup) containerIDForProcess(
 
 	switch {
 	case err == nil:
-		c.keepProcessContainer(pid, cID)
+		c.keepProcessContainer(pid, processContainer{id: cID, started: started})
 
 		return cID, nil
-	case processGone(err):
-		if item := c.processContainers.Get(pid); item != nil {
+	case processGone(err), errors.Is(err, errProcessStartedLater):
+		// The process of the line is gone. The container of the process
+		// last seen running with the PID is the one of the line, unless
+		// that process started after the line got logged as well: then it
+		// is the one which reused the PID, and the line is of an earlier
+		// process which was never seen.
+		if item := c.processContainers.Get(pid); item != nil &&
+			c.startedBefore(i, pid, item.Value().started, eventTime) == nil {
 			c.logger.V(config.VerboseLevel).Info(
 				"Using the container of the exited process",
-				"processID", pid, "containerID", item.Value(),
+				"processID", pid, "containerID", item.Value().id,
 			)
 
-			return item.Value(), nil
+			return item.Value().id, nil
 		}
 	case errors.Is(err, util.ErrContainerIDNotFound):
 		// A process outside of a container runs with the PID now.
@@ -290,11 +305,11 @@ func auditTime(line *types.AuditLine) time.Time {
 
 // keepProcessContainer keeps the container of a running process, unless it
 // got kept within the refresh interval already.
-func (c *containerLookup) keepProcessContainer(pid int, containerID string) {
-	if item := c.processContainers.Get(pid); item != nil && item.Value() == containerID &&
+func (c *containerLookup) keepProcessContainer(pid int, container processContainer) {
+	if item := c.processContainers.Get(pid); item != nil && item.Value() == container &&
 		time.Until(item.ExpiresAt()) > exitedProcessTimeout-processRefreshInterval {
 		return
 	}
 
-	c.processContainers.Set(pid, containerID, ttlcache.DefaultTTL)
+	c.processContainers.Set(pid, container, ttlcache.DefaultTTL)
 }

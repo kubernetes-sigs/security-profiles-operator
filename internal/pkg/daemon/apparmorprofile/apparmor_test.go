@@ -94,6 +94,7 @@ func TestInstallProfile(t *testing.T) {
 				profileManagedByUs: func(_ logr.Logger, _ string) bool { return true },
 			},
 			profile: &apparmorprofileapi.AppArmorProfile{ObjectMeta: metav1.ObjectMeta{
+				Name:       "test-profile",
 				Generation: 3,
 			}},
 			wantResult: true,
@@ -112,7 +113,7 @@ func TestInstallProfile(t *testing.T) {
 					return false
 				},
 			},
-			profile:             &apparmorprofileapi.AppArmorProfile{},
+			profile:             namedProfile(),
 			previouslyInstalled: true,
 			wantResult:          true,
 		},
@@ -143,7 +144,7 @@ func TestInstallProfile(t *testing.T) {
 				checkProfileExist:  func(_ logr.Logger, _ string) bool { return false },
 				profileManagedByUs: func(_ logr.Logger, _ string) bool { return false },
 			},
-			profile: &apparmorprofileapi.AppArmorProfile{},
+			profile: namedProfile(),
 		},
 		{
 			// The loader decides on the policy file it sees, so it needs the
@@ -160,7 +161,7 @@ func TestInstallProfile(t *testing.T) {
 				checkProfileExist:  func(_ logr.Logger, _ string) bool { return false },
 				profileManagedByUs: func(_ logr.Logger, _ string) bool { return false },
 			},
-			profile:             &apparmorprofileapi.AppArmorProfile{},
+			profile:             namedProfile(),
 			previouslyInstalled: true,
 			wantResult:          true,
 		},
@@ -210,7 +211,7 @@ func TestRemoveProfile(t *testing.T) {
 					return false, nil
 				},
 			},
-			profile: &apparmorprofileapi.AppArmorProfile{},
+			profile: namedProfile(),
 		},
 		{
 			name: "passes the ownership evidence through",
@@ -223,7 +224,7 @@ func TestRemoveProfile(t *testing.T) {
 					return true, nil
 				},
 			},
-			profile:   &apparmorprofileapi.AppArmorProfile{},
+			profile:   namedProfile(),
 			ownedByUs: true,
 			want:      true,
 		},
@@ -569,7 +570,7 @@ func TestLoadPolicyFileHostFile(t *testing.T) {
 		{
 			name:     "an unmarked file of the host is left alone",
 			previous: hostPolicy,
-			wantErr:  errHostPolicyFile,
+			wantErr:  ErrHostPolicyFile,
 			wantFile: hostPolicy,
 		},
 		{
@@ -683,4 +684,10 @@ func TestProfileInstalled(t *testing.T) {
 
 	_, err := (&aaProfileManager{}).ProfileInstalled(&sec.SeccompProfile{})
 	require.EqualError(t, err, errInvalidCRD.Error())
+}
+
+// namedProfile returns a profile with a name, which a profile needs to get
+// rendered.
+func namedProfile() *apparmorprofileapi.AppArmorProfile {
+	return &apparmorprofileapi.AppArmorProfile{ObjectMeta: metav1.ObjectMeta{Name: "test-profile"}}
 }

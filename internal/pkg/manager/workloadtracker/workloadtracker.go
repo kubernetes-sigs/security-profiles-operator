@@ -76,14 +76,30 @@ func (t *Tracker[T]) Track(ctx context.Context, obj T, workload string) error {
 		return nil
 	}
 
-	if err := t.updateWorkloads(ctx, obj, func(workloads []string) ([]string, error) {
+	base, written, err := t.updateWorkloads(ctx, obj, func(workloads []string) ([]string, error) {
 		if slices.Contains(workloads, workload) || len(workloads) >= MaxWorkloads {
 			return workloads, nil
 		}
 
 		return append(workloads, workload), nil
-	}); err != nil {
+	})
+	if err != nil {
 		return err
+	}
+
+	// The written patch carried the resource version of base, so its
+	// finalizers are the stored ones: with the finalizer, nothing is left to
+	// do. Without it, the finalizer is read through the API server as well,
+	// because the cache may still show the finalizer which an Untrack of the
+	// last workload removed in the meantime, in which case nothing would
+	// add it again.
+	if written && controllerutil.ContainsFinalizer(base, t.Finalizer) {
+		return nil
+	}
+
+	c := t.Client
+	if written && t.Reader != nil {
+		c = util.FreshReadClient(t.Client, t.Reader)
 	}
 
 	// AddFinalizer reads the object into the one it gets, which must not be
@@ -94,7 +110,7 @@ func (t *Tracker[T]) Track(ctx context.Context, obj T, workload string) error {
 	}
 
 	if err := util.RetryWithContext(ctx, func() error {
-		return client.IgnoreNotFound(util.AddFinalizer(ctx, t.Client, withFinalizer, t.Finalizer))
+		return client.IgnoreNotFound(util.AddFinalizer(ctx, c, withFinalizer, t.Finalizer))
 	}, util.IsNotFoundOrConflict); err != nil {
 		return fmt.Errorf("adding finalizer: %w", err)
 	}
@@ -111,7 +127,7 @@ func (t *Tracker[T]) Track(ctx context.Context, obj T, workload string) error {
 func (t *Tracker[T]) Untrack(ctx context.Context, obj T, workload string) error {
 	var usersErr error
 
-	if err := t.updateWorkloads(ctx, obj, func(workloads []string) ([]string, error) {
+	if _, _, err := t.updateWorkloads(ctx, obj, func(workloads []string) ([]string, error) {
 		usersErr = nil
 
 		remaining := slices.DeleteFunc(
@@ -184,16 +200,20 @@ func fillUp(workloads, users []string, removed string) []string {
 // of the cache, gets written first if it has a resource version and needs a
 // change, so that tracking a workload costs no read from the API server. The
 // object is read from the API server otherwise, because an outdated object
-// may need no change, and for every retry. The provided object stays as it is.
+// may need no change, and for every retry. The provided object stays as it
+// is. It returns the object the last attempt was based on, and whether that
+// attempt wrote it.
 func (t *Tracker[T]) updateWorkloads(
 	ctx context.Context, obj T, update func([]string) ([]string, error),
-) error {
+) (base T, written bool, err error) {
 	if obj.GetResourceVersion() != "" {
 		written, err := t.writeWorkloads(ctx, obj, update)
 		if written || (err != nil && !util.IsNotFoundOrConflict(err)) {
-			return err
+			return obj, written, err
 		}
 	}
+
+	base = obj
 
 	if err := util.RetryWithContext(ctx, func() error {
 		current, found, err := t.get(ctx, obj)
@@ -201,14 +221,15 @@ func (t *Tracker[T]) updateWorkloads(
 			return err
 		}
 
-		_, err = t.writeWorkloads(ctx, current, update)
+		base = current
+		written, err = t.writeWorkloads(ctx, current, update)
 
 		return err
 	}, util.IsNotFoundOrConflict); err != nil {
-		return fmt.Errorf("updating %s status: %w", t.Kind, err)
+		return base, false, fmt.Errorf("updating %s status: %w", t.Kind, err)
 	}
 
-	return nil
+	return base, written, nil
 }
 
 // writeWorkloads patches the workloads which update returns for the ones of

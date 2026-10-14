@@ -41,6 +41,7 @@ import (
 	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -2857,10 +2858,9 @@ func TestReconcileRecordsRunningPod(t *testing.T) {
 }
 
 // TestResolveProfileTargetRecordingGone covers what happens when the
-// ProfileRecording disappears while its pods are still being collected. With
-// nothing known about it the pod can never be collected. Otherwise the state
-// captured when the pod started being recorded is used, and a partial profile
-// is merged right away, as nothing would merge it any more.
+// ProfileRecording disappears while its pods are still being collected. The
+// state captured when the pod started being recorded is used, and a partial
+// profile is merged right away, as nothing would merge it any more.
 func TestResolveProfileTargetRecordingGone(t *testing.T) {
 	t.Parallel()
 
@@ -2870,10 +2870,6 @@ func TestResolveProfileTargetRecordingGone(t *testing.T) {
 	sut := &RecorderReconciler{impl: mock, log: logr.Discard()}
 	parsed := &parsedAnnotation{profileName: "recording", cntName: "ctr"}
 	podName := types.NamespacedName{Name: "pod", Namespace: "ns"}
-
-	_, err := sut.resolveProfileTarget(t.Context(), parsed, "", podName, nil)
-	require.ErrorIs(t, err, errRecordingGone)
-	require.True(t, unrecordable(err), "the reconciler must release the pod for this error")
 
 	target, err := sut.resolveProfileTarget(t.Context(), parsed, "abcde", podName,
 		map[string]recordingState{"recording": {partial: true, disable: true}})
@@ -3115,55 +3111,115 @@ func TestReleaseUnrecordablePod(t *testing.T) {
 	})
 }
 
-func TestHoldRecordingSkipsDeletedRecording(t *testing.T) {
+// TestHoldRecording asserts that the finalizer which keeps a recording around
+// until its partial profiles are merged gets added without touching the
+// cached recording of the target, and only once.
+func TestHoldRecording(t *testing.T) {
 	t.Parallel()
 
-	for _, tc := range []struct {
-		name          string
-		deleting      bool
-		wantFinalizer bool
-	}{
-		{name: "active recording", wantFinalizer: true},
-		{name: "recording being deleted", deleting: true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			recording := &recordingapi.ProfileRecording{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:       "recording",
-					Namespace:  "ns",
-					Finalizers: []string{"other"},
-				},
-			}
-			if tc.deleting {
-				recording.DeletionTimestamp = &metav1.Time{Time: time.Now()}
-			}
-
-			scheme := apiruntime.NewScheme()
-			require.NoError(t, recordingapi.AddToScheme(scheme))
-			kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(recording).Build()
-
-			stored := &recordingapi.ProfileRecording{}
-			require.NoError(t, kubeClient.Get(
-				t.Context(), client.ObjectKeyFromObject(recording), stored,
-			))
-
-			sut := &RecorderReconciler{client: kubeClient, log: logr.Discard()}
-
-			require.NoError(t, sut.holdRecording(t.Context(), &profileTarget{
-				state:     recordingState{partial: true},
-				recording: stored,
-			}))
-
-			got := &recordingapi.ProfileRecording{}
-			require.NoError(t, kubeClient.Get(
-				t.Context(), client.ObjectKeyFromObject(recording), got,
-			))
-			require.Equal(t, tc.wantFinalizer,
-				controllerutil.ContainsFinalizer(got, recordingapi.RecordingHasUnmergedProfiles))
-		})
+	recording := &recordingapi.ProfileRecording{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "recording",
+			Namespace:  "ns",
+			Finalizers: []string{"other"},
+		},
 	}
+
+	scheme := apiruntime.NewScheme()
+	require.NoError(t, recordingapi.AddToScheme(scheme))
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(recording).Build()
+
+	cached := &recordingapi.ProfileRecording{}
+	require.NoError(t, kubeClient.Get(t.Context(), client.ObjectKeyFromObject(recording), cached))
+
+	sut := &RecorderReconciler{client: kubeClient, log: logr.Discard()}
+	target := &profileTarget{state: recordingState{partial: true}, recording: cached}
+
+	require.NoError(t, sut.holdRecording(t.Context(), target))
+	require.Equal(t, []string{"other"}, target.recording.GetFinalizers(),
+		"the cached recording of the target must stay untouched")
+
+	got := &recordingapi.ProfileRecording{}
+	require.NoError(t, kubeClient.Get(t.Context(), client.ObjectKeyFromObject(recording), got))
+	require.Equal(
+		t,
+		[]string{"other", recordingapi.RecordingHasUnmergedProfiles},
+		got.GetFinalizers(),
+	)
+
+	// A second daemon with an outdated cached recording appends nothing.
+	require.NoError(t, sut.holdRecording(t.Context(), target))
+	require.NoError(t, kubeClient.Get(t.Context(), client.ObjectKeyFromObject(recording), got))
+	require.Equal(
+		t,
+		[]string{"other", recordingapi.RecordingHasUnmergedProfiles},
+		got.GetFinalizers(),
+	)
+
+	// A merged profile or a final one needs no finalizer.
+	for _, target := range []*profileTarget{
+		{state: recordingState{partial: true}, recording: cached, merge: true},
+		{state: recordingState{}, recording: cached},
+		{state: recordingState{partial: true}},
+	} {
+		require.NoError(t, sut.holdRecording(t.Context(), target))
+	}
+}
+
+// TestHoldRecordingRetriesConflict asserts that the first finalizer of a
+// recording, which another daemon adds at the same time, gets retried instead
+// of failing the collection.
+func TestHoldRecordingRetriesConflict(t *testing.T) {
+	t.Parallel()
+
+	recording := &recordingapi.ProfileRecording{
+		ObjectMeta: metav1.ObjectMeta{Name: "recording", Namespace: "ns"},
+	}
+
+	scheme := apiruntime.NewScheme()
+	require.NoError(t, recordingapi.AddToScheme(scheme))
+
+	patches := 0
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(recording).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Patch: func(
+				ctx context.Context,
+				c client.WithWatch,
+				obj client.Object,
+				patch client.Patch,
+				opts ...client.PatchOption,
+			) error {
+				patches++
+				if patches == 1 {
+					// Another daemon adds its finalizer first.
+					other := &recordingapi.ProfileRecording{}
+					if err := c.Get(ctx, client.ObjectKeyFromObject(obj), other); err != nil {
+						return err
+					}
+
+					other.Finalizers = append(other.Finalizers, "other")
+					if err := c.Update(ctx, other); err != nil {
+						return err
+					}
+				}
+
+				return c.Patch(ctx, obj, patch, opts...)
+			},
+		}).Build()
+
+	sut := &RecorderReconciler{client: kubeClient, log: logr.Discard()}
+	target := &profileTarget{state: recordingState{partial: true}, recording: recording.DeepCopy()}
+
+	require.NoError(t, sut.holdRecording(t.Context(), target))
+	require.Equal(t, 2, patches, "the conflicting patch is retried")
+
+	got := &recordingapi.ProfileRecording{}
+	require.NoError(t, kubeClient.Get(t.Context(), client.ObjectKeyFromObject(recording), got))
+	require.Equal(
+		t,
+		[]string{"other", recordingapi.RecordingHasUnmergedProfiles},
+		got.GetFinalizers(),
+	)
 }
 
 // TestCollectBpfProfileKeepsDataOnFailure asserts that the recorded data is
@@ -4161,6 +4217,84 @@ func TestReconcileReplacedPod(t *testing.T) {
 			require.Equal(t, types.UID("current"), watched.uid)
 		})
 	}
+}
+
+// TestReconcileUnannotatedPod asserts that a running pod whose recording
+// annotations got removed is collected and no longer tracked, like a pod which
+// gets deleted.
+func TestReconcileUnannotatedPod(t *testing.T) {
+	t.Parallel()
+
+	podName := types.NamespacedName{Namespace: "ns", Name: "pod"}
+
+	mock := newFakeImpl()
+	recorder := events.NewFakeRecorder(10)
+	sut := &RecorderReconciler{impl: mock, log: logr.Discard(), record: recorder}
+	bpfCollectPod(sut, mock, podName, recordingapi.ProfileRecordingKindSeccompProfile)
+
+	mock.GetPodReturns(&corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: podName.Name, Namespace: podName.Namespace},
+		Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "ctr"}}},
+		Status:     corev1.PodStatus{Phase: corev1.PodRunning},
+	}, nil)
+	mock.SyscallsForProfileReturns(&bpfrecorderapi.SyscallsResponse{
+		Syscalls: []string{"read"},
+		GoArch:   runtime.GOARCH,
+	}, nil)
+
+	_, err := sut.Reconcile(t.Context(), reconcile.Request{NamespacedName: podName})
+	require.NoError(t, err)
+
+	_, tracked := sut.podsToWatch.Load(podName.String())
+	require.False(t, tracked)
+	require.Equal(t, 1, mock.CreateOrUpdateCallCount(), "the recorded data is stored")
+	require.Equal(t, 1, mock.StopBpfRecorderCallCount())
+
+	// A pod which is tracked and still annotated is left alone.
+	bpfCollectPod(sut, mock, podName, recordingapi.ProfileRecordingKindSeccompProfile)
+	mock.GetPodReturns(&corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      podName.Name,
+			Namespace: podName.Namespace,
+			Annotations: map[string]string{
+				config.SeccompProfileRecordBpfAnnotationKey + "ctr": testAnnotationValue,
+			},
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+	}, nil)
+
+	_, err = sut.Reconcile(t.Context(), reconcile.Request{NamespacedName: podName})
+	require.NoError(t, err)
+
+	_, tracked = sut.podsToWatch.Load(podName.String())
+	require.True(t, tracked)
+	require.Equal(t, 1, mock.CreateOrUpdateCallCount())
+}
+
+// TestIgnoreAnnotationsOnce asserts that an annotation which cannot be parsed
+// is reported once per pod and error, as every status update of the pod
+// reconciles it again.
+func TestIgnoreAnnotationsOnce(t *testing.T) {
+	t.Parallel()
+
+	recorder := events.NewFakeRecorder(10)
+	sut := &RecorderReconciler{log: logr.Discard(), record: recorder}
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pod", Namespace: "ns", UID: "first"}}
+
+	sut.ignoreAnnotations(logr.Discard(), pod, "log", errTest)
+	sut.ignoreAnnotations(logr.Discard(), pod, "log", errTest)
+	require.Len(t, recorder.Events, 1)
+	require.Contains(t, <-recorder.Events, "Warning "+reasonAnnotationParsing)
+
+	// Another error of the same pod is reported, and the same one again for a
+	// pod created again under the same name.
+	sut.ignoreAnnotations(logr.Discard(), pod, "bpf", errTest)
+	require.Len(t, recorder.Events, 1)
+	<-recorder.Events
+
+	pod.UID = "second"
+	sut.ignoreAnnotations(logr.Discard(), pod, "bpf", errTest)
+	require.Len(t, recorder.Events, 1)
 }
 
 // trackedPods returns the number of pods whose profiles get recorded.

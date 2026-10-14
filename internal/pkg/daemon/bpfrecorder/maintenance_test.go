@@ -818,6 +818,40 @@ func TestReleaseAbandonedRecording(t *testing.T) {
 	require.Zero(t, atomic.LoadInt64(&sut.startRequests))
 }
 
+// TestReleaseAbandonedRecordingRetriesFailedStop asserts that a stop which
+// fails is tried again with the next tick, instead of waiting for the whole
+// timeout once more.
+func TestReleaseAbandonedRecordingRetriesFailedStop(t *testing.T) {
+	t.Parallel()
+
+	sut, mock := newRecordingRecorder(t, false, false)
+	sut.clientset = &kubernetes.Clientset{}
+
+	// After the Start, so that the node counts as idle since the first tick.
+	now := time.Now()
+	sut.now = func() time.Time { return now }
+
+	watchPods(t, sut)
+
+	sut.releaseAbandonedRecording()
+
+	mock.UpdateValueReturns(errTest)
+
+	updates := mock.UpdateValueCallCount()
+	now = now.Add(abandonedRecordingTimeout)
+
+	sut.releaseAbandonedRecording()
+	require.Greater(t, mock.UpdateValueCallCount(), updates, "the stop was tried")
+	require.EqualValues(t, 1, atomic.LoadInt64(&sut.startRequests), "the stop failed")
+
+	mock.UpdateValueReturns(nil)
+
+	now = now.Add(time.Minute)
+
+	sut.releaseAbandonedRecording()
+	require.Zero(t, atomic.LoadInt64(&sut.startRequests), "the next tick stops the recording")
+}
+
 // TestReleaseAbandonedRecordingKeepsUncollectedProfiles asserts that the data
 // of profiles which are still to be collected is kept for the retries of the
 // collection.

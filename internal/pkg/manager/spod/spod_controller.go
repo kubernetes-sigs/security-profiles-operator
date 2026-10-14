@@ -20,7 +20,6 @@ import (
 	"context"
 	stderrors "errors"
 	"fmt"
-	"net/http"
 	"reflect"
 	"slices"
 	"strconv"
@@ -163,11 +162,6 @@ func (r *ReconcileSPOd) SchemeBuilder() runtime.SchemeBuilder {
 	return spodapi.SchemeBuilder
 }
 
-// Healthz is the liveness probe endpoint of the controller.
-func (r *ReconcileSPOd) Healthz(*http.Request) error {
-	return nil
-}
-
 // Security Profiles Operator RBAC permissions to manage its own configuration
 //nolint:lll // required for kubebuilder
 //
@@ -259,7 +253,7 @@ func (r *ReconcileSPOd) Reconcile(
 	// so nothing gets rendered for it. The CRD rejects such names for new
 	// objects, which only leaves the ones created before.
 	if spod.GetName() != config.SPOdName {
-		return reconcile.Result{}, r.handleUnsupportedName(ctx, spod, logger)
+		return statusResult(r.handleUnsupportedName(ctx, spod, logger), logger)
 	}
 
 	// Warn once per spec change, which the status records as the observed
@@ -270,7 +264,7 @@ func (r *ReconcileSPOd) Reconcile(
 	}
 
 	if spod.Status.State == "" {
-		return reconcile.Result{}, r.handleInitialStatus(ctx, spod, logger)
+		return statusResult(r.handleInitialStatus(ctx, spod, logger), logger)
 	}
 
 	if err := r.reconcileSPOD(ctx, spod, logger); err != nil {
@@ -305,6 +299,20 @@ func (r *ReconcileSPOd) Reconcile(
 	}
 
 	return reconcile.Result{}, nil
+}
+
+// statusResult turns the error of a status write which ends the reconcile
+// into its result. A conflict only means that the cache is behind, which the
+// next reconciliation resolves, so it is requeued like a conflict of the
+// operands instead of being reported and retried with backoff.
+func statusResult(err error, logger logr.Logger) (reconcile.Result, error) {
+	if errors.IsConflict(err) {
+		logger.V(config.VerboseLevel).Info("Retrying after a conflict", "reason", err)
+
+		return reconcile.Result{RequeueAfter: conflictRequeueDelay}, nil
+	}
+
+	return reconcile.Result{}, err
 }
 
 // operands are the objects rendered for a SPOD.
@@ -363,7 +371,7 @@ func (r *ReconcileSPOd) renderOperands(
 		webhook:        r.getConfiguredWebook(spod, image, pullPolicy, r.caInjectType),
 		metricsService: metricsService,
 		serviceMonitor: bindata.ServiceMonitor(
-			r.namespace, r.caInjectType, ptr.Deref(spod.Spec.EnableInsecureMetricsAccess, false),
+			r.namespace, r.caInjectType, r.isInsecureMetricsEnabled(spod),
 		),
 	}
 

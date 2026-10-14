@@ -139,6 +139,42 @@ func spodState(t *testing.T, cl client.Client) spodapi.SPODState {
 	return spod.Status.State
 }
 
+// TestReconcileInsecureMetricsFromEnvironment asserts that the environment
+// variable which enables the insecure metrics access configures the
+// ServiceMonitor like the SPOD field does, so that Prometheus scrapes the
+// plain HTTP endpoint the daemon serves then.
+func TestReconcileInsecureMetricsFromEnvironment(t *testing.T) {
+	t.Parallel()
+
+	r, cl, _ := newReconcileTest(t, testSPOD(), &interceptor.Funcs{})
+	r.env.enableInsecureMetricsAccess = true
+
+	for range 3 {
+		reconcileSPOD(t, r)
+	}
+
+	monitor := &monitoringv1.ServiceMonitor{}
+	require.NoError(t, cl.Get(t.Context(), types.NamespacedName{
+		Name: "security-profiles-operator-monitor", Namespace: testNamespace,
+	}, monitor))
+	require.NotEmpty(t, monitor.Spec.Endpoints)
+
+	for _, endpoint := range monitor.Spec.Endpoints {
+		require.NotNil(t, endpoint.Scheme)
+		require.Equal(t, monitoringv1.Scheme("http"), *endpoint.Scheme)
+		require.Nil(t, endpoint.TLSConfig)
+	}
+
+	ds := &appsv1.DaemonSet{}
+	require.NoError(t, cl.Get(t.Context(), types.NamespacedName{
+		Name: config.SPOdName, Namespace: testNamespace,
+	}, ds))
+	require.Contains(t,
+		ds.Spec.Template.Spec.Containers[bindata.ContainerIDDaemon].Args,
+		"--with-insecure-metrics-access=true",
+	)
+}
+
 func TestReconcileLifecycle(t *testing.T) {
 	t.Parallel()
 

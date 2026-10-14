@@ -39,8 +39,9 @@ type PullResult struct {
 	runtimeFormat bool
 }
 
-// IsRuntimeFormat returns whether the artifact used the KEP-6061 runtime
-// format, which means that the content is raw runtime-spec JSON.
+// IsRuntimeFormat returns whether the content is a raw OCI runtime-spec
+// seccomp profile in JSON: from an artifact in the KEP-6061 runtime format, or
+// from an artifact of another media type which holds such a profile.
 func (p *PullResult) IsRuntimeFormat() bool {
 	return p.runtimeFormat
 }

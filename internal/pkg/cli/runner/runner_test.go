@@ -416,7 +416,11 @@ func TestRunFollowsAuditLogBeforeStart(t *testing.T) {
 			mock := &runnerfakes.FakeImpl{}
 			mock.ReadFileReturns([]byte(seccompProfileYAML), nil)
 			mock.TailFileReturns(&tailer.Tailer{}, nil)
-			mock.LinesReturns(make(chan string))
+
+			// Stopping the tailer closes its lines, which ends the enricher.
+			lines := make(chan string)
+			mock.LinesReturns(lines)
+			mock.StopTailCalls(func(*tailer.Tailer) { close(lines) })
 			mock.CommandRunCalls(func(*command.Command) (uint32, error) {
 				require.Equal(t, 1, mock.TailFileCallCount())
 

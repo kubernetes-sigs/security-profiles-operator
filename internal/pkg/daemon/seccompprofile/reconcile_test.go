@@ -911,6 +911,16 @@ func TestReconcileSeccompProfileFileConflict(t *testing.T) {
 	require.Contains(t, gotEvents[0],
 		conflicting.Name+" is stored as "+conflicting.Name+" like "+testProfile)
 
+	// The conflict is checked again every fileConflictRetry, but reported
+	// once.
+	for range 2 {
+		res, err = reconcileConflicting()
+		require.NoError(t, err)
+		require.Equal(t, reconcile.Result{RequeueAfter: fileConflictRetry}, res)
+	}
+
+	require.Empty(t, env.events())
+
 	// The owner is unaffected by the later profile.
 	other, err := fileOwner(t.Context(), env.rec.apiReader(), owner)
 	require.NoError(t, err)
@@ -960,6 +970,16 @@ func TestFileOwnerSkipsInactiveOwners(t *testing.T) {
 				sp.DeletionTimestamp = &now
 				sp.Finalizers = []string{"test"}
 			},
+		},
+		// The file of a deleted profile stays for the pods which use it,
+		// so the later profile must not overwrite it yet.
+		"owner being deleted but in use": {
+			mutateOwner: func(sp *seccompprofileapi.SeccompProfile) {
+				now := metav1.Now()
+				sp.DeletionTimestamp = &now
+				sp.Finalizers = []string{util.HasActivePodsFinalizerString}
+			},
+			wantOwner: true,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

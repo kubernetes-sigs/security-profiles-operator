@@ -294,7 +294,26 @@ func (r *testRekor) GetTransparencyLogEntry(
 func testSigningConfig(t *testing.T) *root.SigningConfig {
 	t.Helper()
 
+	return testSigningConfigWithOIDC(t, "https://oauth2.example.com")
+}
+
+// testSigningConfigWithoutOIDC returns the signing config of a Sigstore
+// deployment whose Fulcio trusts the issuers of the environment directly, so
+// it has no OIDC provider to sign in at.
+func testSigningConfigWithoutOIDC(t *testing.T) *root.SigningConfig {
+	t.Helper()
+
+	return testSigningConfigWithOIDC(t, "")
+}
+
+func testSigningConfigWithOIDC(t *testing.T, oidcURL string) *root.SigningConfig {
+	t.Helper()
+
 	service := func(url string) []root.Service {
+		if url == "" {
+			return nil
+		}
+
 		return []root.Service{
 			{URL: url, MajorAPIVersion: 1, ValidityPeriodStart: time.Now().Add(-time.Hour)},
 		}
@@ -303,7 +322,7 @@ func testSigningConfig(t *testing.T) *root.SigningConfig {
 	config, err := root.NewSigningConfig(
 		root.SigningConfigMediaType02,
 		service("https://fulcio.example.com"),
-		service("https://oauth2.example.com"),
+		service(oidcURL),
 		service("https://rekor.example.com"),
 		root.ServiceConfiguration{Selector: prototrustroot.ServiceSelector_ANY, Count: 1},
 		nil,

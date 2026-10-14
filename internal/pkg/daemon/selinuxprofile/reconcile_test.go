@@ -130,7 +130,6 @@ func newReconcileFixture(
 	r := &ReconcileSelinux{
 		client:          cli,
 		clientReader:    cli,
-		scheme:          scheme,
 		record:          recorder,
 		metrics:         metrics.New(),
 		log:             logf.Log.WithName("test"),
@@ -1294,43 +1293,6 @@ func TestSelinuxProfileRequests(t *testing.T) {
 		context.Background(), &spodapi.SecurityProfilesOperatorDaemon{},
 	)
 	require.Equal(t, []reconcile.Request{f.request}, reqs)
-}
-
-func TestHealthz(t *testing.T) {
-	t.Parallel()
-
-	for name, tc := range map[string]struct {
-		body    string
-		wantErr string
-	}{
-		"ready":     {body: `{"ready": true}`},
-		"not ready": {body: `{"ready": false}`, wantErr: "not ready"},
-		"malformed": {body: "not json", wantErr: "getting health status"},
-	} {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
-			r := &ReconcileSelinux{
-				httpc: selinuxdTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
-					writeBody(t, w, tc.body)
-				}),
-			}
-
-			req, err := http.NewRequestWithContext(
-				context.Background(), http.MethodGet, "/healthz", http.NoBody,
-			)
-			require.NoError(t, err)
-
-			err = r.Healthz(req)
-			if tc.wantErr == "" {
-				require.NoError(t, err)
-
-				return
-			}
-
-			require.ErrorContains(t, err, tc.wantErr)
-		})
-	}
 }
 
 // A reload which cannot be recorded is retried, and the retry must not create

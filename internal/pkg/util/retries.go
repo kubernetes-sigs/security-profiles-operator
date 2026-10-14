@@ -84,6 +84,12 @@ func RetryWithFreshReads(
 	}, retryCondition)
 }
 
+// FreshReadClient returns a client which reads objects through the reader,
+// usually the API reader of the manager, and writes through c.
+func FreshReadClient(c client.Client, reader client.Reader) client.Client {
+	return &freshReadClient{Client: c, reader: reader}
+}
+
 // freshReadClient is a client which reads objects through the reader.
 type freshReadClient struct {
 	client.Client

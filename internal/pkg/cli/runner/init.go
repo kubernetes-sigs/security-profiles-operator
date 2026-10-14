@@ -100,9 +100,11 @@ func confine(profile *specs.LinuxSeccomp) func(*exec.Cmd) (func(), error) {
 		}
 
 		// The pipe buffer may be smaller than the profile, so write it while
-		// the helper reads. The write fails once the helper is gone.
+		// the helper reads. The write fails with a broken pipe once the
+		// helper is gone, like when it could not be started, which the
+		// caller reports already.
 		go func() {
-			if _, err := writer.Write(content); err != nil {
+			if _, err := writer.Write(content); err != nil && !errors.Is(err, syscall.EPIPE) {
 				log.Printf("Unable to pass the profile to the run helper: %v", err)
 			}
 

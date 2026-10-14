@@ -36,6 +36,9 @@ var (
 	// ErrInvalidProfile is returned for a profile whose policy cannot be
 	// generated, which only a change of the profile fixes.
 	ErrInvalidProfile = errors.New("invalid profile")
+	// ErrHostPolicyFile is returned for a profile whose policy file at the
+	// managed location belongs to the host, which only the host can resolve.
+	ErrHostPolicyFile = errors.New("policy file belongs to the host")
 )
 
 // operatorProfiles are the profiles which the non-root enabler installs for

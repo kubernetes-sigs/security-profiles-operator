@@ -95,8 +95,6 @@ run the webhook
 
 **--port, -p**="": the port on which to expose the webhook service (default: 9443)
 
-**--static, -s**: the Kubernetes resources of the webhook are managed statically
-
 ### non-root-enabler
 
 run the non root enabler

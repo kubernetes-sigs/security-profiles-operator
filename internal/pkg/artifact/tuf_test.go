@@ -37,6 +37,18 @@ func TestTUFOptions(t *testing.T) {
 	require.Equal(t, tuf.DefaultMirror, opts.RepositoryBaseURL)
 	require.Equal(t, tuf.DefaultRoot(), opts.Root)
 
+	// A pinned trust anchor applies to the public mirror as well.
+	pinnedRoot := filepath.Join(t.TempDir(), "root.json")
+	require.NoError(t, os.WriteFile(pinnedRoot, []byte(`{"pinned":{}}`), 0o600))
+	t.Setenv(envTUFRootJSON, pinnedRoot)
+
+	opts, err = tufOptions()
+	require.NoError(t, err)
+	require.Equal(t, tuf.DefaultMirror, opts.RepositoryBaseURL)
+	require.JSONEq(t, `{"pinned":{}}`, string(opts.Root))
+
+	t.Setenv(envTUFRootJSON, "")
+
 	// A mirror needs its own trust anchor.
 	const mirror = "https://tuf.example.com"
 

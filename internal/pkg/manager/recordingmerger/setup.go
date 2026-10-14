@@ -198,7 +198,8 @@ func partialProfileEventsPredicate() predicate.Funcs {
 // controller is responsible for removing, so filtering updates out would leave
 // every recording stuck in Terminating with its profiles never merged.
 // A recording which is already being deleted when the manager starts only
-// arrives as a create event, which must pass for the same reason.
+// arrives as a create event, which must pass for the same reason. A recording
+// which is gone has nothing left to merge, so the delete event is dropped.
 func mergePredicate() predicate.Funcs {
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
@@ -207,6 +208,7 @@ func mergePredicate() predicate.Funcs {
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			return e.ObjectNew != nil && !e.ObjectNew.GetDeletionTimestamp().IsZero()
 		},
+		DeleteFunc:  func(event.DeleteEvent) bool { return false },
 		GenericFunc: func(event.GenericEvent) bool { return false },
 	}
 }

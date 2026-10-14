@@ -403,8 +403,8 @@ func webhookCommand(info *version.Info) *cli.Command {
 			&cli.BoolFlag{
 				Name:    "static",
 				Aliases: []string{"s"},
-				Value:   false,
-				Usage:   "the Kubernetes resources of the webhook are managed statically",
+				Hidden:  true,
+				Usage:   "deprecated and ignored, the operator manages the resources of the webhook",
 			},
 			&cli.StringFlag{
 				Name:   tlsMinVersionParam,
@@ -1887,13 +1887,17 @@ func setupEnabledControllers(
 		if err := enableCtrl.Setup(ctx, mgr, met); err != nil {
 			return fmt.Errorf("setup %s controller: %w", enableCtrl.Name(), err)
 		}
+	}
 
-		// Unconditionally, because controller-runtime only serves the liveness
-		// endpoint at all once a check is registered, and the manager passes no
-		// metrics while still exposing the health probe address.
-		if err := mgr.AddHealthzCheck(enableCtrl.Name(), enableCtrl.Healthz); err != nil {
-			return fmt.Errorf("add health check to controller: %w", err)
-		}
+	// The liveness probe only tells that the process answers. Whether the
+	// node supports a profile kind, or whether selinuxd is up, is no reason to
+	// restart the daemon: the controllers report an unsupported node through
+	// events, metrics and the node statuses, and a liveness check on it kept
+	// the daemon from ever passing its startup probe on such nodes. Registered
+	// unconditionally, because controller-runtime only serves the liveness
+	// endpoint at all once a check is registered.
+	if err := mgr.AddHealthzCheck("ping", healthz.Ping); err != nil {
+		return fmt.Errorf("add health check: %w", err)
 	}
 
 	return nil

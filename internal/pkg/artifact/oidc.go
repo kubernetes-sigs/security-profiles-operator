@@ -92,10 +92,18 @@ func stdinIsTerminal() bool {
 	return term.IsTerminal(int(os.Stdin.Fd()))
 }
 
+// ErrNoOIDCProvider is returned if the signing config has no OIDC provider
+// to sign in at, and the environment furnishes no identity token either.
+var ErrNoOIDCProvider = errors.New(
+	"no OIDC provider in the signing config and no identity token in the environment",
+)
+
 // idToken returns an identity token for Fulcio: from the first provider of
 // the environment which furnishes one, otherwise by signing in to the OIDC
 // issuer in the browser. Without a terminal, the sign in uses the device flow
-// if deviceFlow is set and fails with ErrNoInteractiveSignIn otherwise.
+// if deviceFlow is set and fails with ErrNoInteractiveSignIn otherwise. An
+// empty issuer means that the signing config has no OIDC provider, which
+// fails with ErrNoOIDCProvider without a token of the environment.
 func idToken(ctx context.Context, issuer string, deviceFlow bool) (string, error) {
 	// The lookups in the environment are bounded, the interactive sign in
 	// below waits for the user as long as it takes.
@@ -111,6 +119,10 @@ func idToken(ctx context.Context, issuer string, deviceFlow bool) (string, error
 
 	if getter.token != "" {
 		return getter.token, nil
+	}
+
+	if issuer == "" {
+		return "", ErrNoOIDCProvider
 	}
 
 	token, err := oauthflow.OIDConnect(issuer, oidcClientID, "", "", getter.interactive)

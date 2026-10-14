@@ -375,6 +375,32 @@ func TestReconcileRejectsHostProfile(t *testing.T) {
 	require.Equal(t, secprofnodestatusapi.ProfileStateError, getNodeStatus(t, cli).Status.Status)
 }
 
+// TestReconcileRejectsHostPolicyFile asserts that a profile whose policy file
+// belongs to the host is rejected like a conflict with a loaded profile of the
+// host: reported once, with an error node status, and checked again later.
+func TestReconcileRejectsHostPolicyFile(t *testing.T) {
+	t.Parallel()
+
+	manager := &countingProfileManager{
+		enabled:    true,
+		installErr: fmt.Errorf("%w: /etc/apparmor.d/test", ErrHostPolicyFile),
+	}
+	r, cli, rec := newTestReconciler(t, manager, nil, testAppArmorProfile())
+
+	for range 3 {
+		res, err := r.Reconcile(t.Context(), testRequest())
+		require.NoError(t, err)
+		require.Equal(t, reconcile.Result{RequeueAfter: rejectedRetry}, res)
+	}
+
+	utiltest.RequireEvent(
+		t, rec, "Warning CannotLoadAppArmorProfile cannot load profile into node: "+
+			"policy file belongs to the host: /etc/apparmor.d/test",
+	)
+	utiltest.RequireNoEvent(t, rec)
+	require.Equal(t, secprofnodestatusapi.ProfileStateError, getNodeStatus(t, cli).Status.Status)
+}
+
 func TestReconcileStatusUpdateError(t *testing.T) {
 	t.Parallel()
 
@@ -639,16 +665,6 @@ func TestReconcileWithoutNodeName(t *testing.T) {
 
 	_, err := r.Reconcile(t.Context(), testRequest())
 	require.ErrorContains(t, err, "cannot determine node name")
-}
-
-func TestHealthz(t *testing.T) {
-	t.Parallel()
-
-	r := &Reconciler{manager: &countingProfileManager{enabled: true}}
-	require.NoError(t, r.Healthz(nil))
-
-	r.manager = &countingProfileManager{enabled: false}
-	require.ErrorContains(t, r.Healthz(nil), "does not support apparmor")
 }
 
 func TestControllerMetadata(t *testing.T) {

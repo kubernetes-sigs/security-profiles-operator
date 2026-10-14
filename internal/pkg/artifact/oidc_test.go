@@ -172,6 +172,24 @@ func TestIDTokenAmbient(t *testing.T) {
 	require.Equal(t, "github-token", token)
 }
 
+// TestIDTokenWithoutIssuer asserts that a signing config without OIDC
+// provider signs with a token of the environment, and fails without one
+// instead of signing in nowhere.
+func TestIDTokenWithoutIssuer(t *testing.T) {
+	t.Setenv(envGitHubRequestToken, "")
+	t.Setenv(envGitHubRequestURL, "")
+	t.Setenv(envSigstoreIDToken, "env-token")
+
+	token, err := idToken(t.Context(), "", false)
+	require.NoError(t, err)
+	require.Equal(t, "env-token", token)
+
+	t.Setenv(envSigstoreIDToken, "")
+
+	_, err = idToken(t.Context(), "", true)
+	require.ErrorIs(t, err, ErrNoOIDCProvider)
+}
+
 func TestEnvToken(t *testing.T) {
 	for _, tc := range []struct {
 		name  string

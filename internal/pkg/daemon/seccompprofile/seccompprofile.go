@@ -22,7 +22,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"path"
 	"path/filepath"
@@ -173,6 +172,9 @@ type Reconciler struct {
 	unsupported common.UnsupportedReports
 	// rejections remembers the profiles which got reported as rejected.
 	rejections common.Reports[rejection]
+	// conflicts remembers the profiles which got reported for a file
+	// conflict with another profile, by the name of the other profile.
+	conflicts common.Reports[rejection]
 	// pullFailures backs off the pulls of OCI base profiles which failed.
 	pullFailures pullFailures
 }
@@ -417,12 +419,6 @@ func (r *Reconciler) derivedProfileRequests(
 	return requests
 }
 
-// Healthz is the liveness probe endpoint of the controller. It only reports
-// a node without seccomp: the reconciler records the event and the metric.
-func (r *Reconciler) Healthz(*http.Request) error {
-	return r.checkSeccomp()
-}
-
 // checkSeccomp returns an error if the node does not support seccomp.
 func (r *Reconciler) checkSeccomp() error {
 	if !r.IsSupported() {
@@ -485,6 +481,7 @@ func (r *Reconciler) Reconcile(
 	if found, err := common.GetProfile(ctx, r.client, req.NamespacedName, seccompProfile); !found {
 		if err == nil {
 			r.rejections.Forget(req.NamespacedName)
+			r.conflicts.Forget(req.NamespacedName)
 		}
 
 		return reconcile.Result{}, err
@@ -744,9 +741,17 @@ func (r *Reconciler) pullBaseProfile(
 			l,
 		)
 		if err != nil {
+			// A Secret or ConfigMap which is missing its key is fixed by a
+			// change of the SPOD or of the object, not by a retry, which
+			// would read the object uncached and warn again with every
+			// reconcile. The failure backs off like a failed pull, and the
+			// retry picks up a fixed object.
 			r.reportError(sp, reasonCannotPullProfile, util.EventActionInstall, err)
 
-			return nil, fmt.Errorf("configuring the signature verification: %w", err)
+			err = fmt.Errorf("configuring the signature verification: %w", err)
+			r.pullFailures.failed(key, err, client.ObjectKeyFromObject(sp))
+
+			return nil, err
 		}
 	}
 
@@ -1410,8 +1415,9 @@ func sibling(
 // fileOwner returns the name of the other profile which is stored in the same
 // file as sp and owns it, or an empty string. A profile which is being deleted
 // or which is not installed, because it is disabled or partial, owns nothing.
-// Otherwise the profile created first owns the file, and the name decides on
-// a tie.
+// A profile which is being deleted but is still in use by pods keeps its file
+// for them, so it owns the file until its last pod is gone. Otherwise the
+// profile created first owns the file, and the name decides on a tie.
 func fileOwner(
 	ctx context.Context, reader client.Reader, sp *seccompprofileapi.SeccompProfile,
 ) (string, error) {
@@ -1420,7 +1426,7 @@ func fileOwner(
 		return "", err
 	}
 
-	if !other.GetDeletionTimestamp().IsZero() || !other.IsReconcilable() {
+	if (!other.GetDeletionTimestamp().IsZero() && !common.InUse(other)) || !other.IsReconcilable() {
 		return "", nil
 	}
 
@@ -1473,20 +1479,36 @@ func (r *Reconciler) handleFileConflict(
 	}
 
 	if !cached && !fileDiffers(profilePath, content) {
+		r.conflicts.Forget(client.ObjectKeyFromObject(sp))
+
 		return false, true, nil
 	}
 
 	owner, err := fileOwner(ctx, r.apiReader(), sp)
-	if err != nil || owner == "" {
+	if err != nil {
 		return false, false, err
+	}
+
+	if owner == "" {
+		r.conflicts.Forget(client.ObjectKeyFromObject(sp))
+
+		return false, false, nil
 	}
 
 	conflictErr := fmt.Errorf(
 		"%w: %s is stored as %s like %s, rename one of them",
 		errProfileFileConflict, sp.GetName(), sp.GetProfileFile(), owner,
 	)
-	l.Error(conflictErr, "Not saving profile")
-	r.reportError(sp, reasonProfileFileConflict, util.EventActionInstall, conflictErr)
+
+	// The conflict is checked again every fileConflictRetry, which is only
+	// worth a warning once per generation and owner, like a rejection.
+	if r.conflicts.ShouldReport(client.ObjectKeyFromObject(sp), newRejection(sp, owner)) {
+		l.Error(conflictErr, "Not saving profile")
+		r.reportError(sp, reasonProfileFileConflict, util.EventActionInstall, conflictErr)
+	} else {
+		l.V(config.VerboseLevel).
+			Info("Not saving profile, conflict reported already", "owner", owner)
+	}
 
 	if err := nodeStatus.SetNodeStatusWithMessage(
 		ctx, secprofnodestatusapi.ProfileStateError, conflictErr.Error(),

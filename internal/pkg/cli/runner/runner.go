@@ -126,18 +126,33 @@ func (r *Runner) Run() error {
 	// them until then.
 	r.pid.Store(newPid)
 
+	var enriched chan struct{}
+
 	if tail != nil {
-		go r.enrich(tail)
+		enriched = make(chan struct{})
+
+		go func() {
+			defer close(enriched)
+
+			r.enrich(tail)
+		}()
 	}
 
 	waitErr := r.CommandWait(cmd)
 
-	// Wait for the late syscalls from the audit logs, which matter most if
-	// the command failed.
-	time.Sleep(r.enricherGracePeriod)
+	if tail != nil {
+		// Wait for the late syscalls from the audit logs, which matter most
+		// if the command failed.
+		time.Sleep(r.enricherGracePeriod)
+	}
 
-	// Release the audit log, which ends the enricher.
+	// Release the audit log, which ends the enricher, and wait for the lines
+	// it still has to print.
 	r.stopAuditLog(tail)
+
+	if enriched != nil {
+		<-enriched
+	}
 
 	if waitErr != nil {
 		return fmt.Errorf("wait for command: %w", waitErr)

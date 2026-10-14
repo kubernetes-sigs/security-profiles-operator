@@ -27,6 +27,45 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/utiltest"
 )
 
+// TestGenerateProfileRejectsEmptyName asserts that a profile without a name
+// is rejected instead of rendering a profile which apparmor_parser rejects.
+func TestGenerateProfileRejectsEmptyName(t *testing.T) {
+	t.Parallel()
+
+	_, err := GenerateProfile(
+		"",
+		apparmorprofileapi.AppArmorModeEnforce,
+		&apparmorprofileapi.AppArmorAbstract{},
+	)
+	require.ErrorContains(t, err, "invalid profile name")
+}
+
+// TestGenerateProfileKeepsPathTraversal asserts that a file system path with
+// a directory traversal is rendered like by the released versions, and
+// reported by TraversalPaths, because the kernel matches resolved paths, so
+// such a rule never matches anything.
+func TestGenerateProfileKeepsPathTraversal(t *testing.T) {
+	t.Parallel()
+
+	paths := []string{"/usr/bin/../etc/shadow", "/../etc/shadow"}
+	abstract := &apparmorprofileapi.AppArmorAbstract{
+		Filesystem: &apparmorprofileapi.AppArmorFsRules{
+			ReadOnlyPaths: append([]string{"/etc/hosts"}, paths...),
+		},
+	}
+
+	got, err := GenerateProfile("test", apparmorprofileapi.AppArmorModeEnforce, abstract)
+	require.NoError(t, err)
+
+	for _, path := range paths {
+		require.Contains(t, got, path+" r,")
+	}
+
+	require.Equal(t, paths, TraversalPaths(abstract))
+	require.Empty(t, TraversalPaths(&apparmorprofileapi.AppArmorAbstract{}))
+	require.Empty(t, TraversalPaths(nil))
+}
+
 func TestGenerateProfile(t *testing.T) {
 	t.Parallel()
 
@@ -584,7 +623,14 @@ func TestGenerateProfile(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := GenerateProfile(tc.profileName, tc.mode, tc.abstract)
+			// The cases without a name test their rules, see
+			// TestGenerateProfileRejectsEmptyName for an empty name.
+			profileName := tc.profileName
+			if profileName == "" {
+				profileName = "test"
+			}
+
+			got, err := GenerateProfile(profileName, tc.mode, tc.abstract)
 			if tc.wantErr {
 				require.Error(t, err)
 

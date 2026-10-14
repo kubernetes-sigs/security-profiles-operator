@@ -19,7 +19,6 @@ package recordingtracker
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"slices"
 	"time"
 
@@ -62,10 +61,6 @@ func (r *RecordingTrackerReconciler) Name() string {
 
 func (r *RecordingTrackerReconciler) SchemeBuilder() runtime.SchemeBuilder {
 	return profilerecordingapi.SchemeBuilder
-}
-
-func (r *RecordingTrackerReconciler) Healthz(*http.Request) error {
-	return nil
 }
 
 //nolint:lll // required for kubebuilder

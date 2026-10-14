@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"net/http"
 	"slices"
 	"strings"
 	"sync"
@@ -141,11 +140,6 @@ func (r *PodReconciler) Name() string {
 
 // SchemeBuilder returns the API scheme of the controller.
 func (r *PodReconciler) SchemeBuilder() runtime.SchemeBuilder {
-	return nil
-}
-
-// Healthz is the liveness probe endpoint of the controller.
-func (r *PodReconciler) Healthz(*http.Request) error {
 	return nil
 }
 

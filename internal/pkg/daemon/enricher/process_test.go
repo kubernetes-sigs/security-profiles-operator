@@ -114,7 +114,7 @@ func TestGetProcessInfoReusedPid(t *testing.T) {
 	mock.CmdlineForPIDReturns("first "+requestIdEnv+"=first-request", nil)
 
 	first, err := GetProcessInfo(pid, "/bin/first", &uid, nil, cache, mock)
-	require.Error(t, err, "the request is not in the environment")
+	require.NoError(t, err)
 	require.Equal(t, "first "+requestIdEnv+"=first-request", first.CmdLine)
 	require.Equal(t, "first-request", *first.ExecRequestId)
 	require.Equal(t, "/bin/first", first.Executable)
@@ -133,7 +133,7 @@ func TestGetProcessInfoReusedPid(t *testing.T) {
 	mock.CmdlineForPIDReturns("second", nil)
 
 	second, err := GetProcessInfo(pid, "/bin/second", nil, nil, cache, mock)
-	require.Error(t, err, "the request is not in the environment")
+	require.NoError(t, err, "a process without request ID is no failure")
 	require.Equal(t, "second", second.CmdLine)
 	require.Nil(t, second.ExecRequestId)
 

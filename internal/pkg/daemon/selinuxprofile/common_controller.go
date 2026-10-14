@@ -126,7 +126,6 @@ type ReconcileSelinux struct {
 	// clientReader reads objects directly from api-server, this is useful when
 	// the cache is filtered or otherwise not expected to contain an object.
 	clientReader      client.Reader
-	scheme            *runtime.Scheme
 	record            util.EventRecorder
 	metrics           *metrics.Metrics
 	log               logr.Logger
@@ -281,7 +280,6 @@ func (r *ReconcileSelinux) Setup(
 	r.log = logf.Log.WithName(r.controllerName)
 	r.client = mgr.GetClient()
 	r.clientReader = mgr.GetAPIReader()
-	r.scheme = mgr.GetScheme()
 	r.record = util.NewEventRecorder(mgr, r.controllerName)
 	r.metrics = met
 	r.nodeName = os.Getenv(config.NodeNameEnvKey)
@@ -315,20 +313,6 @@ func (r *ReconcileSelinux) Name() string {
 // SchemeBuilder returns the API scheme of the controller.
 func (r *ReconcileSelinux) SchemeBuilder() runtime.SchemeBuilder {
 	return selinuxprofileapi.SchemeBuilder
-}
-
-// Healthz is the liveness probe endpoint of the controller.
-func (r *ReconcileSelinux) Healthz(req *http.Request) error {
-	ready, err := isSelinuxdReady(req.Context(), r.httpc)
-	if err != nil {
-		return fmt.Errorf("getting health status: %w", err)
-	}
-
-	if !ready {
-		return errors.New("not ready")
-	}
-
-	return nil
 }
 
 // The daemon updates the finalizers and labels of the profiles, and the
@@ -563,7 +547,9 @@ func (r *ReconcileSelinux) checkPreconditions(
 	// An event per poll and profile would only be noise, like for a deleted
 	// profile.
 	if !selinuxdReady {
-		l.Info("selinuxd not yet up, requeue")
+		// Polled every selinuxdPollInterval, and never up on a node without
+		// SELinux, so this is not worth an info log per profile.
+		l.V(config.VerboseLevel).Info("selinuxd not yet up, requeue")
 
 		return reconcile.Result{RequeueAfter: selinuxdPollInterval}, true, nil
 	}
@@ -718,6 +704,10 @@ func (r *ReconcileSelinux) handlePolicyStatus(
 		message   string
 		reloadRes reconcile.Result
 		reloadErr error
+		// reportInstalled tells to count and report the installation once
+		// the node status records it, so that a failed status write does
+		// not report it again on the retry.
+		reportInstalled bool
 	)
 
 	switch polStatus.Status {
@@ -734,21 +724,7 @@ func (r *ReconcileSelinux) handlePolicyStatus(
 		r.reported.Forget(client.ObjectKeyFromObject(sp))
 		r.removalsCounted.Forget(client.ObjectKeyFromObject(sp))
 
-		if !alreadyInstalled {
-			evstr := "Successfully saved profile to disk on " + r.nodeName
-
-			r.metrics.IncSelinuxProfileUpdate()
-			r.record.Eventf(
-				sp,
-				nil,
-				corev1.EventTypeNormal,
-				reasonInstalledPolicy,
-				util.EventActionInstall,
-				"%s",
-				evstr,
-			)
-		}
-
+		reportInstalled = !alreadyInstalled
 		reloadRes, reloadErr = r.reloadInstalledPolicy(ctx, sp, nodeStatus, l)
 	case failedStatus:
 		polState = secprofnodestatusapi.ProfileStateError
@@ -765,6 +741,21 @@ func (r *ReconcileSelinux) handlePolicyStatus(
 
 	if err := r.setNodeStatusWithMessage(ctx, sp, nodeStatus, polState, message); err != nil {
 		return reconcile.Result{}, err
+	}
+
+	if reportInstalled {
+		evstr := "Successfully saved profile to disk on " + r.nodeName
+
+		r.metrics.IncSelinuxProfileUpdate()
+		r.record.Eventf(
+			sp,
+			nil,
+			corev1.EventTypeNormal,
+			reasonInstalledPolicy,
+			util.EventActionInstall,
+			"%s",
+			evstr,
+		)
 	}
 
 	return reloadRes, reloadErr
@@ -1203,7 +1194,9 @@ func (r *ReconcileSelinux) reconcileDeletePolicy(
 	}
 
 	if !selinuxdReady {
-		l.Info("selinuxd not yet up, requeue")
+		// Polled every selinuxdPollInterval, and never up on a node without
+		// SELinux, so this is not worth an info log per profile.
+		l.V(config.VerboseLevel).Info("selinuxd not yet up, requeue")
 
 		return reconcile.Result{RequeueAfter: selinuxdPollInterval}, nil
 	}
