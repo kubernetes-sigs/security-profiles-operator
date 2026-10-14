@@ -149,8 +149,7 @@ spec:
 		"--output", "jsonpath={.status.activeWorkloads[0]}")
 
 	e.Equal(namespace+"/hello", output)
-	output = e.kubectl("get", "seccompprofile", "profile-allow-unsafe",
-		"--output", "jsonpath={.metadata.finalizers}")
 
-	e.Contains(output, "in-use-by-active-pods")
+	// The finalizer gets added after the status.
+	e.waitForProfileActivePodsFinalizer("profile-allow-unsafe")
 }

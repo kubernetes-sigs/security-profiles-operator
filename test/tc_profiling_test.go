@@ -29,6 +29,8 @@ import (
 )
 
 func (e *e2e) testCaseProfilingChange([]string) {
+	e.restoreSpodSpec()
+
 	e.logf("Change profiling in spod")
 	e.patchSpod(`{"spec":{"enableProfiling": true}}`)
 
@@ -40,11 +42,13 @@ func (e *e2e) testCaseProfilingChange([]string) {
 func (e *e2e) testCaseProfilingHTTP([]string) {
 	e.logf("Test profiling HTTP version")
 
+	e.restoreSpodSpec()
+
 	e.logf("Enable spod profiling to test endpoint HTTP version")
 	e.patchSpod(`{"spec":{"enableProfiling": true}}`)
 
 	output := e.getProfilingHTTPVersion()
-	e.Contains(output, "1.1\n")
+	e.assertHTTP11(output)
 }
 
 // getProfilingHTTPVersion returns the HTTP version the profiling endpoint

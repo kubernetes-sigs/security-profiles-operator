@@ -252,29 +252,41 @@ func recordAppArmorTest(t *testing.T) {
 		})
 		t.Run("tcp", func(t *testing.T) {
 			profile := recordAppArmor(t, "./demobinary", "--net-tcp")
+			require.NotNil(t, profile.Network)
+			require.NotNil(t, profile.Network.Protocols)
+			require.NotNil(t, profile.Network.Protocols.AllowTCP)
 			require.True(t, *profile.Network.Protocols.AllowTCP)
 			require.Nil(t, profile.Capability)
 			runWithProfile(t, profile, "./demobinary", "--net-tcp")
 		})
 		t.Run("udp", func(t *testing.T) {
 			profile := recordAppArmor(t, "./demobinary", "--net-udp")
+			require.NotNil(t, profile.Network)
+			require.NotNil(t, profile.Network.Protocols)
+			require.NotNil(t, profile.Network.Protocols.AllowUDP)
 			require.True(t, *profile.Network.Protocols.AllowUDP)
 			require.Nil(t, profile.Capability)
 			runWithProfile(t, profile, "./demobinary", "--net-udp")
 		})
 		t.Run("icmp", func(t *testing.T) {
 			profile := recordAppArmor(t, "--privileged", "./demobinary", "--net-icmp")
+			require.NotNil(t, profile.Network)
+			require.NotNil(t, profile.Network.AllowRaw)
 			require.True(t, *profile.Network.AllowRaw)
+			require.NotNil(t, profile.Capability)
 			require.Contains(t, profile.Capability.AllowedCapabilities, "net_raw")
 		})
 	})
 	t.Run("capabilities", func(t *testing.T) {
 		profile := recordAppArmor(t, "--privileged", "./demobinary", "--cap-sys-admin")
+		require.NotNil(t, profile.Capability)
 		require.Contains(t, profile.Capability.AllowedCapabilities, "sys_admin")
 
 		if os.Geteuid() != 0 {
 			profile = recordAppArmor(t, "./demobinary", "--cap-sys-admin")
-			require.NotContains(t, profile.Capability.AllowedCapabilities, "sys_admin")
+			if profile.Capability != nil {
+				require.NotContains(t, profile.Capability.AllowedCapabilities, "sys_admin")
+			}
 		}
 	})
 	t.Run("subprocess", func(t *testing.T) {
@@ -285,11 +297,13 @@ func recordAppArmorTest(t *testing.T) {
 			"--file-read",
 			"/dev/null",
 		)
-		require.Contains(t, profile.Executable.AllowedExecutables[0], "/demobinary-child")
+		require.Contains(t, firstExecutable(t, profile), "/demobinary-child")
+		require.NotNil(t, profile.Filesystem)
 		require.Contains(t, profile.Filesystem.ReadOnlyPaths, "/dev/null")
 
 		profile = recordAppArmor(t, "./demobinary", "./demobinary", "--file-read", "/dev/null")
-		require.Contains(t, profile.Executable.AllowedExecutables[0], "/demobinary")
+		require.Contains(t, firstExecutable(t, profile), "/demobinary")
+		require.NotNil(t, profile.Filesystem)
 		require.Contains(t, profile.Filesystem.ReadOnlyPaths, "/dev/null")
 
 		profile = recordAppArmor(
@@ -300,7 +314,8 @@ func recordAppArmorTest(t *testing.T) {
 			"--file-read",
 			"/dev/null",
 		)
-		require.Contains(t, profile.Executable.AllowedExecutables[0], "/demobinary-child")
+		require.Contains(t, firstExecutable(t, profile), "/demobinary-child")
+		require.NotNil(t, profile.Filesystem)
 		require.Contains(t, profile.Filesystem.ReadOnlyPaths, "/dev/null")
 	})
 	t.Run("huge pages", func(t *testing.T) {
@@ -652,6 +667,17 @@ func recordAppArmor(t *testing.T, args ...string) apparmorprofileapi.AppArmorAbs
 	record(t, "apparmor", &profile, args...)
 
 	return profile.Spec.Abstract
+}
+
+// firstExecutable returns the first recorded executable of the profile. It
+// fails the test instead of panicking when the recording has none.
+func firstExecutable(t *testing.T, profile apparmorprofileapi.AppArmorAbstract) string {
+	t.Helper()
+
+	require.NotNil(t, profile.Executable)
+	require.NotEmpty(t, profile.Executable.AllowedExecutables)
+
+	return profile.Executable.AllowedExecutables[0]
 }
 
 func recordSeccomp(t *testing.T, args ...string) seccompprofileapi.SeccompProfileSpec {

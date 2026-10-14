@@ -85,16 +85,42 @@ Vagrant.configure("2") do |config|
       install -m 0755 /tmp/cosign /usr/bin/cosign
       rm -f /tmp/cosign
 
-      # Install kubernetes related binaries
+      # Installs the apt signing key of the URL as keyring after checking
+      # the fingerprint of its primary key, like
+      # .github/actions/setup-vagrant/action.yml does for the HashiCorp key.
+      # apt trusts the key for the repository, so it is checked before it
+      # gets installed. A key rotation fails the provisioning until the
+      # fingerprint gets updated.
+      install_apt_key() {
+        local url=$1 fingerprint=$2 keyring=$3 key fingerprints
+        key=$(mktemp)
+        curl -fsSL --retry 5 --retry-delay 3 -o "$key" "$url"
+        # The fingerprints of the primary keys, there must be exactly the one.
+        fingerprints=$(gpg --show-keys --with-colons "$key" |
+          awk -F: '$1 == "pub" { primary = 1; next } $1 == "fpr" && primary { print $10; primary = 0 }')
+        if [[ "$fingerprints" != "$fingerprint" ]]; then
+          echo "Unexpected key fingerprints of $url: $fingerprints" >&2
+          exit 1
+        fi
+        gpg --dearmor -o "$keyring" "$key"
+        rm -f "$key"
+      }
+
+      # Install kubernetes related binaries. The key is the one of the
+      # isv:kubernetes project of the openSUSE Build Service, see
+      # https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/.
       KUBERNETES_VERSION=v1.37
-      curl -fsSL https://pkgs.k8s.io/core:/stable:/$KUBERNETES_VERSION/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+      install_apt_key "https://pkgs.k8s.io/core:/stable:/$KUBERNETES_VERSION/deb/Release.key" \
+        DE15B14486CD377B9E876E1A234654DA9A296436 /etc/apt/keyrings/kubernetes-apt-keyring.gpg
       echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/$KUBERNETES_VERSION/deb/ /" | tee /etc/apt/sources.list.d/kubernetes.list
       # CRI-O comes from the development builds of its main branch on purpose,
       # so that the e2e tests catch CRI-O changes which break the operator
       # before they get released. To rule out a CRI-O regression, switch to
       # the stable stream of the Kubernetes minor version, like
-      # isv:/cri-o:/stable:/$KUBERNETES_VERSION.
-      curl -fsSL https://download.opensuse.org/repositories/isv:/cri-o:/prerelease:/main/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/cri-o-apt-keyring.gpg
+      # isv:/cri-o:/stable:/$KUBERNETES_VERSION. The key is the one of the
+      # isv:cri-o project of the openSUSE Build Service.
+      install_apt_key "https://download.opensuse.org/repositories/isv:/cri-o:/prerelease:/main/deb/Release.key" \
+        85B67D5C50100B1AC8CEFE49CBA9C85640A2B579 /etc/apt/keyrings/cri-o-apt-keyring.gpg
       echo "deb [signed-by=/etc/apt/keyrings/cri-o-apt-keyring.gpg] https://download.opensuse.org/repositories/isv:/cri-o:/prerelease:/main/deb/ /" | tee /etc/apt/sources.list.d/cri-o.list
       apt_install \
         cri-o \

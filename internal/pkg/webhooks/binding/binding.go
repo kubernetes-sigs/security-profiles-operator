@@ -37,6 +37,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -89,6 +90,50 @@ const (
 	reasonRecordedElsewhere    = "ProfileRecordedInOtherNamespace"
 )
 
+// lookupBudget bounds the retried profile lookups of the admission requests.
+// The zero value is the production budget, the tests shorten it.
+type lookupBudget struct {
+	// timeout bounds the retried lookups of a request, profileLookupTimeout
+	// by default.
+	timeout time.Duration
+
+	// missingWait is how long a recently missing profile is waited for,
+	// missingProfileWait by default.
+	missingWait time.Duration
+
+	// backoff returns the backoff between the lookups, util.DefaultBackoff
+	// by default.
+	backoff func() wait.Backoff
+}
+
+// lookupTimeout returns the timeout of the retried lookups of a request.
+func (b lookupBudget) lookupTimeout() time.Duration {
+	if b.timeout > 0 {
+		return b.timeout
+	}
+
+	return profileLookupTimeout
+}
+
+// missingProfileWait returns how long a recently missing profile is waited
+// for.
+func (b lookupBudget) missingProfileWait() time.Duration {
+	if b.missingWait > 0 {
+		return b.missingWait
+	}
+
+	return missingProfileWait
+}
+
+// newBackoff returns the backoff between the lookups.
+func (b lookupBudget) newBackoff() wait.Backoff {
+	if b.backoff != nil {
+		return b.backoff()
+	}
+
+	return util.DefaultBackoff()
+}
+
 type podBinder struct {
 	impl
 	decoder admission.Decoder
@@ -97,6 +142,9 @@ type podBinder struct {
 
 	// operatorNamespace is the namespace of the SPOD configuration.
 	operatorNamespace string
+
+	// budget bounds the retried profile lookups.
+	budget lookupBudget
 
 	// isOpenShift is true on OpenShift, where SELinux is enabled by default.
 	isOpenShift bool
@@ -441,7 +489,7 @@ func (p *podBinder) updatePod(
 	}
 
 	lookup := &profileLookup{
-		retryDeadline: time.Now().Add(profileLookupTimeout),
+		retryDeadline: time.Now().Add(p.budget.lookupTimeout()),
 		enabled:       map[profilebindingapi.ProfileBindingKind]bool{},
 	}
 
@@ -679,13 +727,15 @@ func (p *podBinder) getProfile(
 			defer cancel()
 		}
 
+		backoff := p.budget.newBackoff()
+
 		switch profileKind {
 		case profilebindingapi.ProfileBindingKindSeccompProfile:
-			return lookupProfile(lookupCtx, key, retry, p.GetSeccompProfile)
+			return lookupProfile(lookupCtx, key, retry, backoff, p.GetSeccompProfile)
 		case profilebindingapi.ProfileBindingKindSelinuxProfile:
-			return lookupProfile(lookupCtx, key, retry, p.GetSelinuxProfile)
+			return lookupProfile(lookupCtx, key, retry, backoff, p.GetSelinuxProfile)
 		case profilebindingapi.ProfileBindingKindAppArmorProfile:
-			return lookupProfile(lookupCtx, key, retry, p.GetAppArmorProfile)
+			return lookupProfile(lookupCtx, key, retry, backoff, p.GetAppArmorProfile)
 		default:
 			return nil, errUnsupportedKind
 		}
@@ -722,7 +772,9 @@ func (p *podBinder) getProfile(
 		// missing, so the pods which follow wait for it shortly for a while,
 		// and wait for its status as long as before once it exists.
 		if enabled {
-			bindProfile, err = lookupKind(true, missingDeadline(lookup, recentlyMissing))
+			bindProfile, err = lookupKind(
+				true, missingDeadline(lookup, recentlyMissing, p.budget.missingProfileWait()),
+			)
 			if recentlyMissing && err != nil && !kerrors.IsNotFound(err) {
 				bindProfile, err = lookupKind(true, lookup.retryDeadline)
 			}
@@ -803,9 +855,11 @@ func (p *podBinder) getProfile(
 }
 
 // missingDeadline returns the deadline of the retried lookup of a profile.
-// A profile which was missing recently is only waited for shortly.
-func missingDeadline(lookup *profileLookup, recentlyMissing bool) time.Time {
-	if shortDeadline := time.Now().Add(missingProfileWait); recentlyMissing &&
+// A profile which was missing recently is only waited for missingWait.
+func missingDeadline(
+	lookup *profileLookup, recentlyMissing bool, missingWait time.Duration,
+) time.Time {
+	if shortDeadline := time.Now().Add(missingWait); recentlyMissing &&
 		shortDeadline.Before(lookup.retryDeadline) {
 		return shortDeadline
 	}
@@ -916,11 +970,12 @@ func hasContainerContext(c *corev1.Container, bindProfile any) bool {
 
 // retryProfileLookup runs get until it succeeds or fails with an error other
 // than a missing profile or status, because the profile might have been
-// created just before the pod. It stops early when ctx is done and returns the
-// last error. Without retry, get runs only once.
-func retryProfileLookup(ctx context.Context, retry bool, get func() error) error {
-	backoff := util.DefaultBackoff()
-
+// created just before the pod. It runs get once per step of the backoff and
+// stops early when ctx is done, and returns the last error. Without retry,
+// get runs only once.
+func retryProfileLookup(
+	ctx context.Context, retry bool, backoff wait.Backoff, get func() error,
+) error {
 	for {
 		err := get()
 		if err == nil || !retry ||
@@ -948,9 +1003,10 @@ func lookupProfile[T profilebase.StatusBaseUser](
 	ctx context.Context,
 	key types.NamespacedName,
 	retry bool,
+	backoff wait.Backoff,
 	get func(context.Context, types.NamespacedName) (T, error),
 ) (profile T, err error) {
-	err = retryProfileLookup(ctx, retry, func() error {
+	err = retryProfileLookup(ctx, retry, backoff, func() error {
 		var getErr error
 
 		profile, getErr = get(ctx, key)

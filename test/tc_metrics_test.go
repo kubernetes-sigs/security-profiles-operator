@@ -194,6 +194,6 @@ func (e *e2e) testCaseMetricsHTTP([]string) {
 	}
 	for _, endpoint := range endpoints {
 		output := e.runAndRetryPodCMD(endpoint)
-		e.Contains(output, "1.1\n")
+		e.assertHTTP11(output)
 	}
 }

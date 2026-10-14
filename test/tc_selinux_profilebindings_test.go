@@ -20,6 +20,7 @@ package e2e_test
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -88,10 +89,17 @@ func (e *e2e) testCaseSelinuxProfileBinding(image string) {
 		"--output", "jsonpath={.status.activeWorkloads[0]}")
 
 	e.Equal(fmt.Sprintf("%s/%s", namespace, testPodName), output)
-	output = e.kubectl("get", "selinuxprofile", selinuxTestProfileName,
-		"--output", "jsonpath={.metadata.finalizers[*]}")
 
-	e.Contains(output, "in-use-by-active-pods")
+	// The finalizer gets added after the status.
+	e.eventually(statusUpdateTimeout, time.Second, func() error {
+		output = e.kubectl("get", "selinuxprofile", selinuxTestProfileName,
+			"--output", "jsonpath={.metadata.finalizers[*]}")
+		if !strings.Contains(output, "in-use-by-active-pods") {
+			return fmt.Errorf("no active-pods finalizer in %s", output)
+		}
+
+		return nil
+	})
 }
 
 func (e *e2e) testCaseSelinuxProfileBindingNsNotEnabled() {

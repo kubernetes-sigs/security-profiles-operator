@@ -186,6 +186,10 @@ spec:
 	)
 
 	e.writeAndCreate(allowProfile, "allow-profile*.yaml")
+	// The operator deletes the profile below, the cleanup covers a failure
+	// before that. The pod of a failed test would keep the profile and fail
+	// the next test which creates a pod of the same name.
+	e.kubectlCleanup("seccompprofile", allowProfileName)
 
 	// Check that the seccomp profile was allowed and installed
 	e.waitFor(
@@ -198,6 +202,7 @@ spec:
 
 	// Create the pod which reference the allowed profile
 	e.writeAndCreate(allowPod, "allow-pod*.yaml")
+	e.kubectlCleanup("pod", allowPodName)
 
 	e.waitFor("condition=ready", "pod", allowPodName)
 

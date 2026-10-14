@@ -136,6 +136,8 @@ func (e *e2e) testCases() []testCase {
 		{
 			description: "Log Enricher (BPF Source)",
 			fn:          e.testCaseLogEnricherBpf,
+			flaky:       true,
+			issue:       bpfEnricherIssue,
 		},
 		{
 			description: "JSON Enricher",
@@ -442,6 +444,10 @@ const (
 	nodeAwareMetricsIssue = "scrapes the daemons of all nodes now, promote it once it passes reliably in CI"
 	// newTestCaseIssue marks new test cases, until they proved to be stable.
 	newTestCaseIssue = "new test case, promote it once it passes reliably in CI"
+	// bpfEnricherIssue marks the log enricher test case with the BPF
+	// source, which no CI job runs, see E2E_TEST_BPF_LOG_ENRICHER in
+	// doc/hacking.md.
+	bpfEnricherIssue = "needs a node with AppArmor and the BPF LSM, which no CI job of the suite has"
 )
 
 func (e *e2e) TestSecurityProfilesOperator() {
@@ -562,7 +568,7 @@ func (e *e2e) testNamespacedOperator(
 
 	e.runTestCasesWithPrefix("namespaced", namespacedTestCases, nodes)
 
-	e.cleanupOperator(e.operatorManifest)
+	e.cleanupOperator(manifest)
 	e.resetManifest(manifest)
 	e.kubectl("delete", "namespace", namespace)
 }
@@ -968,10 +974,26 @@ func (e *e2e) kubectlCleanup(args ...string) {
 		[]string{"delete", "--ignore-not-found", "--namespace", namespace}, args...,
 	))
 
-	e.T().Cleanup(func() {
+	e.cleanup(func() {
 		if _, err := e.kubectlCommand(cmd...); err != nil {
 			e.logf("Cleanup failed: kubectl %s: %v", strings.Join(cmd, " "), err)
 		}
+	})
+}
+
+// cleanup runs fn once the current test ends, also if it failed. The suite
+// points at the parent test by then, so fn runs with the current test again,
+// otherwise a failed assertion of fn would stop the parent test.
+func (e *e2e) cleanup(fn func()) {
+	t := e.T()
+
+	t.Cleanup(func() {
+		parent := e.T()
+
+		e.SetT(t)
+		defer e.SetT(parent)
+
+		fn()
 	})
 }
 

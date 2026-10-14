@@ -23,6 +23,8 @@ import (
 )
 
 func (e *e2e) testCaseVerbosityChange([]string) {
+	e.restoreSpodSpec()
+
 	e.logf("Change verbosity in spod")
 	e.patchSpod(`{"spec":{"verbosity": 1}}`)
 

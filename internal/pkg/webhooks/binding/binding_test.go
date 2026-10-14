@@ -36,6 +36,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
@@ -93,7 +94,25 @@ func newTestBinder(t *testing.T, mock *bindingfakes.FakeImpl) *podBinder {
 		impl:    mock,
 		decoder: admission.NewDecoder(scheme),
 		log:     logr.Discard(),
+		budget:  testLookupBudget(),
 	}
+}
+
+// testLookupBudget returns a lookup budget which retries the lookups for
+// milliseconds instead of seconds, so that the tests of the retries do not
+// wait for the production budget. The deadlines bound the retries, the
+// backoff has more steps than fit into them.
+func testLookupBudget() lookupBudget {
+	return lookupBudget{
+		timeout:     100 * time.Millisecond,
+		missingWait: 20 * time.Millisecond,
+		backoff:     testBackoff,
+	}
+}
+
+// testBackoff returns the backoff of testLookupBudget.
+func testBackoff() wait.Backoff {
+	return wait.Backoff{Duration: 2 * time.Millisecond, Factor: 1, Steps: 1000}
 }
 
 func TestHandle(t *testing.T) {

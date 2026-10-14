@@ -519,14 +519,15 @@ leaves it out and `TestSecurityProfilesOperator_Flaky` runs it instead, where
 quarantined, ideally with a link to the issue which tracks it.
 
 - `make test-e2e` skips the quarantined test cases, so they never fail the
-  CI jobs which run it, including the Prow job and `e2e-kind`. To run them
-  as well, without retries, use `make test-e2e E2E_SKIP_FLAKY_TESTS=false`.
-  The suite itself only skips them when `E2E_SKIP_FLAKY_TESTS` is set, a
-  plain `go test -tags e2e ./test` runs them.
-- The Fedora, Flatcar and Ubuntu CI jobs run them in a separate step through
-  `make test-flaky-e2e`. That step keeps a JUnit report of all attempts,
-  `build/junit-flaky-e2e.xml`, so a test case which only passes on retry
-  stays visible.
+  CI jobs which run it, including the Prow job. To run them as well, without
+  retries, use `make test-e2e E2E_SKIP_FLAKY_TESTS=false`. The suite itself
+  only skips them when `E2E_SKIP_FLAKY_TESTS` is set, a plain
+  `go test -tags e2e ./test` runs them.
+- The Fedora, Flatcar, Ubuntu and kind CI jobs run them in a separate step
+  through `make test-flaky-e2e`. That step keeps a JUnit report of all
+  attempts, `build/junit-flaky-e2e.xml`, so a test case which only passes on
+  retry stays visible. Only the kind job runs the seccomp tests, so it is the
+  only one which covers the quarantined seccomp test cases.
 - [`test/ci/junit-flakes.py`](../test/ci/junit-flakes.py) takes the reports
   of several runs, oldest first. It fails for test cases which are not
   quarantined but passed only on retry in the last three runs, and lists the

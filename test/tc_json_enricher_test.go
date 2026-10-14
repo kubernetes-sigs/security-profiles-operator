@@ -66,7 +66,7 @@ spec:
 	// The exec metadata webhook excludes the operator namespace, so run the
 	// test pod in its own namespace.
 	e.logf("Creating test pod")
-	defer e.switchToNs(jsonEnricherTestNamespace)()
+	defer e.switchToJsonEnricherNs()()
 
 	pod := fmt.Sprintf(`
 apiVersion: v1
@@ -116,6 +116,17 @@ spec:
 // jsonEnricherTestNamespace is the namespace of the JSON enricher test pods.
 const jsonEnricherTestNamespace = "spo-json-enricher-test"
 
+// switchToJsonEnricherNs switches to the namespace of the JSON enricher test
+// pods and returns the function which switches back. The namespace gets
+// deleted once the current test ends, with the pods the test and its debug
+// sessions created in it.
+func (e *e2e) switchToJsonEnricherNs() func() {
+	restoreNs := e.switchToNs(jsonEnricherTestNamespace)
+	e.kubectlCleanup("namespace", jsonEnricherTestNamespace)
+
+	return restoreNs
+}
+
 func stringContainsAny(fullString string, substrings ...string) bool {
 	for _, sub := range substrings {
 		if strings.Contains(fullString, sub) {
@@ -162,7 +173,7 @@ spec:
 	// The exec metadata webhook excludes the operator namespace, so run the
 	// test pod in its own namespace.
 	e.logf("Creating test pod")
-	defer e.switchToNs(jsonEnricherTestNamespace)()
+	defer e.switchToJsonEnricherNs()()
 
 	pod := fmt.Sprintf(`
 apiVersion: v1
@@ -200,6 +211,8 @@ spec:
 	// In 5 seconds the process info will be captured.
 	e.kubectl("exec", "-i", podName, "-c", containerName, "--", "sleep", "5")
 
+	// The debug pod of the node stays behind in the test namespace, which
+	// gets deleted with the test.
 	nodeName := e.kubectl("get", "nodes",
 		"-o", "jsonpath='{.items[0].metadata.name}'")
 	nodeDebuggingPodEnvOutput := e.kubectl("debug", "--profile", "general",

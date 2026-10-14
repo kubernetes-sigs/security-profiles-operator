@@ -338,6 +338,9 @@ func bpfSeccompRecordingList() *recordingapi.ProfileRecordingList {
 	}
 }
 
+// The cases of the table share most of their setup on purpose.
+//
+//nolint:dupl // test duplicates are fine
 func TestReconcile(t *testing.T) {
 	t.Parallel()
 
@@ -548,7 +551,16 @@ func TestReconcile(t *testing.T) {
 			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
 				t.Helper()
 
-				assert.NoError(t, err)
+				require.NoError(t, err)
+
+				// The profile got stored once and the pod is not tracked
+				// anymore.
+				mock, ok := sut.impl.(*fakeImpl)
+				require.True(t, ok)
+				assert.Equal(t, 1, mock.CreateOrUpdateCallCount())
+
+				_, tracked := sut.podsToWatch.Load(testRequest.String())
+				assert.False(t, tracked)
 			},
 		},
 		{
@@ -595,12 +607,12 @@ func TestReconcile(t *testing.T) {
 				assert.False(t, ok, "the failed pod must be collected")
 			},
 		},
-		{ //nolint:dupl // test duplicates are fine
+		{
 			name: "seccomp BPF GoArchToSeccompArch fails",
 			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
 				t.Helper()
 
-				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
+				profileName := fmt.Sprintf("profile_replica-123_4bbwm_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderBpf,
 					profiles: []profileToCollect{
@@ -638,12 +650,12 @@ func TestReconcile(t *testing.T) {
 				assert.Error(t, err)
 			},
 		},
-		{ //nolint:dupl // test duplicates are fine
+		{
 			name: "seccomp BPF CreateOrUpdate fails",
 			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
 				t.Helper()
 
-				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
+				profileName := fmt.Sprintf("profile_replica-123_4bbwm_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderBpf,
 					profiles: []profileToCollect{
@@ -678,15 +690,24 @@ func TestReconcile(t *testing.T) {
 			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
 				t.Helper()
 
-				assert.Error(t, err)
+				require.Error(t, err)
+
+				// The pod stays tracked, so the next reconcile retries the
+				// collect.
+				_, tracked := sut.podsToWatch.Load(testRequest.String())
+				assert.True(t, tracked)
+
+				mock, ok := sut.impl.(*fakeImpl)
+				require.True(t, ok)
+				assert.Equal(t, 1, mock.CreateOrUpdateCallCount())
 			},
 		},
-		{ //nolint:dupl // test duplicates are fine
+		{
 			name: "seccomp BPF DialBpfRecorder fails on collect",
 			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
 				t.Helper()
 
-				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
+				profileName := fmt.Sprintf("profile_replica-123_4bbwm_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderBpf,
 					profiles: []profileToCollect{
@@ -714,7 +735,16 @@ func TestReconcile(t *testing.T) {
 			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
 				t.Helper()
 
-				assert.Error(t, err)
+				require.Error(t, err)
+
+				// The pod stays tracked, so the next reconcile retries the
+				// collect.
+				_, tracked := sut.podsToWatch.Load(testRequest.String())
+				assert.True(t, tracked)
+
+				mock, ok := sut.impl.(*fakeImpl)
+				require.True(t, ok)
+				assert.Equal(t, 0, mock.CreateOrUpdateCallCount(), "nothing is stored")
 			},
 		},
 		{
@@ -722,7 +752,7 @@ func TestReconcile(t *testing.T) {
 			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
 				t.Helper()
 
-				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
+				profileName := fmt.Sprintf("profile_replica-123_4bbwm_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderBpf,
 					profiles: []profileToCollect{
@@ -842,12 +872,12 @@ func TestReconcile(t *testing.T) {
 				assert.NoError(t, err)
 			},
 		},
-		{ //nolint:dupl // test duplicates are fine
+		{
 			name: "seccomp BPF SyscallsForProfile fails",
 			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
 				t.Helper()
 
-				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
+				profileName := fmt.Sprintf("profile_replica-123_4bbwm_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderBpf,
 					profiles: []profileToCollect{
@@ -876,7 +906,16 @@ func TestReconcile(t *testing.T) {
 			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
 				t.Helper()
 
-				assert.Error(t, err)
+				require.Error(t, err)
+
+				// The pod stays tracked, so the next reconcile retries the
+				// collect.
+				_, tracked := sut.podsToWatch.Load(testRequest.String())
+				assert.True(t, tracked)
+
+				mock, ok := sut.impl.(*fakeImpl)
+				require.True(t, ok)
+				assert.Equal(t, 0, mock.CreateOrUpdateCallCount(), "nothing is stored")
 			},
 		},
 		{
@@ -961,7 +1000,7 @@ func TestReconcile(t *testing.T) {
 				assert.Error(t, err)
 			},
 		},
-		{ //nolint:dupl // test duplicates are fine
+		{
 			name: "seccomp BPF not enabled",
 			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
 				t.Helper()
@@ -1114,7 +1153,16 @@ func TestReconcile(t *testing.T) {
 			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
 				t.Helper()
 
-				assert.NoError(t, err)
+				require.NoError(t, err)
+
+				// The profile got stored once and the pod is not tracked
+				// anymore.
+				mock, ok := sut.impl.(*fakeImpl)
+				require.True(t, ok)
+				assert.Equal(t, 1, mock.CreateOrUpdateCallCount())
+
+				_, tracked := sut.podsToWatch.Load(testRequest.String())
+				assert.False(t, tracked)
 			},
 		},
 		{
@@ -1122,7 +1170,7 @@ func TestReconcile(t *testing.T) {
 			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
 				t.Helper()
 
-				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
+				profileName := fmt.Sprintf("profile_replica-123_4bbwm_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderBpf,
 					profiles: []profileToCollect{
@@ -1162,15 +1210,24 @@ func TestReconcile(t *testing.T) {
 			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
 				t.Helper()
 
-				assert.Error(t, err)
+				require.Error(t, err)
+
+				// The pod stays tracked, so the next reconcile retries the
+				// collect.
+				_, tracked := sut.podsToWatch.Load(testRequest.String())
+				assert.True(t, tracked)
+
+				mock, ok := sut.impl.(*fakeImpl)
+				require.True(t, ok)
+				assert.Equal(t, 1, mock.CreateOrUpdateCallCount())
 			},
 		},
-		{ //nolint:dupl // test duplicates are fine
+		{
 			name: "apparmor BPF DialBpfRecorder fails on collect",
 			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
 				t.Helper()
 
-				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
+				profileName := fmt.Sprintf("profile_replica-123_4bbwm_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderBpf,
 					profiles: []profileToCollect{
@@ -1206,7 +1263,7 @@ func TestReconcile(t *testing.T) {
 			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
 				t.Helper()
 
-				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
+				profileName := fmt.Sprintf("profile_replica-123_4bbwm_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderBpf,
 					profiles: []profileToCollect{
@@ -1336,12 +1393,12 @@ func TestReconcile(t *testing.T) {
 				assert.NoError(t, err)
 			},
 		},
-		{ //nolint:dupl // test duplicates are fine
+		{
 			name: "apparmor BPF ApparmorForProfiles fails",
 			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
 				t.Helper()
 
-				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
+				profileName := fmt.Sprintf("profile_replica-123_4bbwm_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderBpf,
 					profiles: []profileToCollect{
@@ -1455,7 +1512,7 @@ func TestReconcile(t *testing.T) {
 				assert.Error(t, err)
 			},
 		},
-		{ //nolint:dupl // test duplicates are fine
+		{
 			name: "apparmor BPF not enabled",
 			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
 				t.Helper()
@@ -1566,7 +1623,7 @@ func TestReconcile(t *testing.T) {
 				assert.Error(t, err)
 			},
 		},
-		{ //nolint:dupl // test duplicates are fine
+		{
 			name: "log seccomp success record",
 			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
 				t.Helper()
@@ -1602,7 +1659,7 @@ func TestReconcile(t *testing.T) {
 				assert.NoError(t, retryErr)
 			},
 		},
-		{ //nolint:dupl // test duplicates are fine
+		{
 			name: "log selinux success record",
 			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
 				t.Helper()
@@ -1690,7 +1747,16 @@ func TestReconcile(t *testing.T) {
 			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
 				t.Helper()
 
-				assert.NoError(t, err)
+				require.NoError(t, err)
+
+				// The profile got stored once and the pod is not tracked
+				// anymore.
+				mock, ok := sut.impl.(*fakeImpl)
+				require.True(t, ok)
+				assert.Equal(t, 1, mock.CreateOrUpdateCallCount())
+
+				_, tracked := sut.podsToWatch.Load(testRequest.String())
+				assert.False(t, tracked)
 			},
 		},
 		{
@@ -1698,7 +1764,7 @@ func TestReconcile(t *testing.T) {
 			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
 				t.Helper()
 
-				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
+				profileName := fmt.Sprintf("profile_replica-123_4bbwm_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderLogs,
 					profiles: []profileToCollect{
@@ -1730,15 +1796,20 @@ func TestReconcile(t *testing.T) {
 			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
 				t.Helper()
 
-				assert.Error(t, err)
+				require.Error(t, err)
+
+				// The pod stays tracked, so the next reconcile retries the
+				// collect.
+				_, tracked := sut.podsToWatch.Load(testRequest.String())
+				assert.True(t, tracked)
 			},
 		},
-		{ //nolint:dupl // test duplicates are fine
+		{
 			name: "logs seccomp failed CreateOrUpdate",
 			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
 				t.Helper()
 
-				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
+				profileName := fmt.Sprintf("profile_replica-123_4bbwm_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderLogs,
 					profiles: []profileToCollect{
@@ -1770,15 +1841,24 @@ func TestReconcile(t *testing.T) {
 			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
 				t.Helper()
 
-				assert.Error(t, err)
+				require.Error(t, err)
+
+				// The pod stays tracked, so the next reconcile retries the
+				// collect.
+				_, tracked := sut.podsToWatch.Load(testRequest.String())
+				assert.True(t, tracked)
+
+				mock, ok := sut.impl.(*fakeImpl)
+				require.True(t, ok)
+				assert.Equal(t, 1, mock.CreateOrUpdateCallCount())
 			},
 		},
-		{ //nolint:dupl // test duplicates are fine
+		{
 			name: "logs seccomp failed GoArchToSeccompArch",
 			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
 				t.Helper()
 
-				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
+				profileName := fmt.Sprintf("profile_replica-123_4bbwm_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderLogs,
 					profiles: []profileToCollect{
@@ -1813,12 +1893,12 @@ func TestReconcile(t *testing.T) {
 				assert.Error(t, err)
 			},
 		},
-		{ //nolint:dupl // test duplicates are fine
+		{
 			name: "logs seccomp failed Syscalls",
 			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
 				t.Helper()
 
-				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
+				profileName := fmt.Sprintf("profile_replica-123_4bbwm_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderLogs,
 					profiles: []profileToCollect{
@@ -1847,7 +1927,16 @@ func TestReconcile(t *testing.T) {
 			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
 				t.Helper()
 
-				assert.Error(t, err)
+				require.Error(t, err)
+
+				// The pod stays tracked, so the next reconcile retries the
+				// collect.
+				_, tracked := sut.podsToWatch.Load(testRequest.String())
+				assert.True(t, tracked)
+
+				mock, ok := sut.impl.(*fakeImpl)
+				require.True(t, ok)
+				assert.Equal(t, 0, mock.CreateOrUpdateCallCount(), "nothing is stored")
 			},
 		},
 		{
@@ -1855,7 +1944,7 @@ func TestReconcile(t *testing.T) {
 			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
 				t.Helper()
 
-				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
+				profileName := fmt.Sprintf("profile_replica-123_4bbwm_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderLogs,
 					profiles: []profileToCollect{
@@ -1924,12 +2013,12 @@ func TestReconcile(t *testing.T) {
 				assert.Error(t, err)
 			},
 		},
-		{ //nolint:dupl // test duplicates are fine
+		{
 			name: "logs seccomp DialEnricher fails",
 			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
 				t.Helper()
 
-				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
+				profileName := fmt.Sprintf("profile_replica-123_4bbwm_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderLogs,
 					profiles: []profileToCollect{
@@ -1957,7 +2046,16 @@ func TestReconcile(t *testing.T) {
 			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
 				t.Helper()
 
-				assert.Error(t, err)
+				require.Error(t, err)
+
+				// The pod stays tracked, so the next reconcile retries the
+				// collect.
+				_, tracked := sut.podsToWatch.Load(testRequest.String())
+				assert.True(t, tracked)
+
+				mock, ok := sut.impl.(*fakeImpl)
+				require.True(t, ok)
+				assert.Equal(t, 0, mock.CreateOrUpdateCallCount(), "nothing is stored")
 			},
 		},
 		{
@@ -1965,7 +2063,7 @@ func TestReconcile(t *testing.T) {
 			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
 				t.Helper()
 
-				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
+				profileName := fmt.Sprintf("profile_replica-123_4bbwm_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderLogs,
 					profiles: []profileToCollect{
@@ -2010,7 +2108,7 @@ func TestReconcile(t *testing.T) {
 			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
 				t.Helper()
 
-				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
+				profileName := fmt.Sprintf("profile_replica-123_4bbwm_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderLogs,
 					profiles: []profileToCollect{
@@ -2055,7 +2153,7 @@ func TestReconcile(t *testing.T) {
 			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
 				t.Helper()
 
-				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
+				profileName := fmt.Sprintf("profile_replica-123_4bbwm_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderLogs,
 					profiles: []profileToCollect{
@@ -2142,7 +2240,16 @@ func TestReconcile(t *testing.T) {
 			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
 				t.Helper()
 
-				assert.NoError(t, err)
+				require.NoError(t, err)
+
+				// The profile got stored once and the pod is not tracked
+				// anymore.
+				mock, ok := sut.impl.(*fakeImpl)
+				require.True(t, ok)
+				assert.Equal(t, 1, mock.CreateOrUpdateCallCount())
+
+				_, tracked := sut.podsToWatch.Load(testRequest.String())
+				assert.False(t, tracked)
 			},
 		},
 		{
@@ -2150,7 +2257,7 @@ func TestReconcile(t *testing.T) {
 			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
 				t.Helper()
 
-				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
+				profileName := fmt.Sprintf("profile_replica-123_4bbwm_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderLogs,
 					profiles: []profileToCollect{
@@ -2187,7 +2294,7 @@ func TestReconcile(t *testing.T) {
 			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
 				t.Helper()
 
-				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
+				profileName := fmt.Sprintf("profile_replica-123_4bbwm_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderLogs,
 					profiles: []profileToCollect{
@@ -2216,7 +2323,16 @@ func TestReconcile(t *testing.T) {
 			assert: func(t *testing.T, sut *RecorderReconciler, err error) {
 				t.Helper()
 
-				assert.Error(t, err)
+				require.Error(t, err)
+
+				// The pod stays tracked, so the next reconcile retries the
+				// collect.
+				_, tracked := sut.podsToWatch.Load(testRequest.String())
+				assert.True(t, tracked)
+
+				mock, ok := sut.impl.(*fakeImpl)
+				require.True(t, ok)
+				assert.Equal(t, 1, mock.CreateOrUpdateCallCount())
 			},
 		},
 		{
@@ -2224,7 +2340,7 @@ func TestReconcile(t *testing.T) {
 			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
 				t.Helper()
 
-				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
+				profileName := fmt.Sprintf("profile_replica-123_4bbwm_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderLogs,
 					profiles: []profileToCollect{
@@ -2260,12 +2376,12 @@ func TestReconcile(t *testing.T) {
 				assert.Error(t, err)
 			},
 		},
-		{ //nolint:dupl // test duplicates are fine
+		{
 			name: "logs selinux failed Avcs",
 			prepare: func(t *testing.T, sut *RecorderReconciler, mock *fakeImpl) {
 				t.Helper()
 
-				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
+				profileName := fmt.Sprintf("profile_replica-123_4bbwm_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderLogs,
 					profiles: []profileToCollect{

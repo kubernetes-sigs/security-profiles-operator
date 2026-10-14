@@ -28,22 +28,24 @@ func (e *e2e) testCaseTLSProfileOpenShift([]string) {
 	// Verify that operator pods are running (TLS config is applied at startup)
 	e.waitInOperatorNSFor("condition=ready", "pod", "-l", "app=security-profiles-operator")
 
-	// Verify the operator deployment logs show TLS watcher was enabled
+	// The watcher logs once at startup, which the earlier test cases pushed
+	// out of the last lines of the logs, so all lines get read. kubectl
+	// only returns the last ten lines for a label selector by default.
 	operatorLogs := e.kubectlOperatorNS(
-		"logs", "-l", "app=security-profiles-operator", "--tail=100",
+		"logs", "-l", "app=security-profiles-operator", "--tail=-1",
 	)
 	e.Contains(operatorLogs, "TLS profile watcher enabled")
 
 	// Verify the daemon pods also have TLS watcher enabled
 	e.waitInOperatorNSFor("condition=ready", "pod", "-l", "name=spod")
 	spodLogs := e.kubectlOperatorNS(
-		"logs", "-l", "name=spod", "-c", "security-profiles-operator", "--tail=100",
+		"logs", "-l", "name=spod", "-c", "security-profiles-operator", "--tail=-1",
 	)
 	e.Contains(spodLogs, "TLS profile watcher enabled")
 
 	// Verify HTTP/1.1 is enforced (HTTP/2 disabled as part of TLS config)
 	webhookOutput := e.runAndRetryPodCMD(curlHTTPVerCMD + webhooksURL + "mutate-v1-pod-binding")
-	e.Contains(webhookOutput, "1.1\n")
+	e.assertHTTP11(webhookOutput)
 
 	e.logf("TLS profile verification passed on OpenShift")
 }

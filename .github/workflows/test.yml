@@ -239,7 +239,9 @@ jobs:
             image: image
     name: e2e-ubuntu / ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 90
+    # The suite takes up to 60 minutes, which leaves the flaky test step with
+    # its retry too little time within 90.
+    timeout-minutes: 120
     env:
       # The suite runs in ./test, so the directory must be absolute.
       E2E_ARTIFACTS_DIR: ${{ github.workspace }}/build/e2e-artifacts
@@ -292,7 +294,9 @@ jobs:
   e2e-flatcar:
     needs: [image, e2e-test-binary]
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    # Booting the VM takes up to 10 minutes and the suite up to 60, which
+    # leaves the flaky test step with its retry too little time within 90.
+    timeout-minutes: 120
     env:
       RUN: ./hack/ci/run-flatcar.sh
     steps:
@@ -490,7 +494,9 @@ jobs:
   # The Go e2e suite on kind, which creates a fresh cluster per test and
   # builds the image itself. Like the Prow job
   # hack/pull-security-profiles-operator-test-e2e, it runs the seccomp tests,
-  # which need the kubelet directory at /var/lib/kubelet.
+  # which need the kubelet directory at /var/lib/kubelet. It is the only job
+  # which runs the quarantined seccomp test cases, the other e2e jobs skip
+  # the seccomp tests.
   # It runs on amd64 only: the build image and the
   # quay.io/security-profiles-operator/test-* images the suite uses are not
   # published for arm64.
@@ -498,7 +504,9 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    # The suite takes up to 60 minutes, the flaky test step with its retry up
+    # to 100.
+    timeout-minutes: 180
     env:
       # kind loads the image from docker, the runners have podman too.
       CONTAINER_RUNTIME: docker
@@ -512,6 +520,19 @@ jobs:
           go-version-file: ./go.mod
       - name: Run E2E tests
         run: make test-e2e
+      # Failed flaky tests get one retry, see make test-flaky-e2e. Each attempt
+      # creates a cluster and builds the image again, and may take
+      # E2E_RETRY_TIMEOUT (45m), plus the deployment of the operator.
+      - name: Run Flaky E2E tests
+        timeout-minutes: 100
+        run: make test-flaky-e2e E2E_RETRY_TIMEOUT=45m
+      - name: Upload the flaky test report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: junit-flaky-e2e-kind
+          path: build/junit-flaky-e2e.xml
+          if-no-files-found: ignore
       - name: Upload the diagnostics
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
