@@ -300,6 +300,11 @@ func (a *Artifact) profileEntries(
 			return nil, 0, fmt.Errorf("read profile: %w", err)
 		}
 
+		// Only the first document of a profile would get pulled.
+		if err := CheckSingleDocument(content); err != nil {
+			return nil, 0, fmt.Errorf("profile %s: %w", file, err)
+		}
+
 		entry := profileEntry{
 			platform: platform,
 			absPath:  absPath,

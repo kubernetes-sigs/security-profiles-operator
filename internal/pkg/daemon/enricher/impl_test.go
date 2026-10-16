@@ -21,8 +21,29 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
 )
+
+// writes records every write, like a rotating log file which can rotate
+// between two of them.
+type writes [][]byte
+
+func (w *writes) Write(p []byte) (int, error) {
+	*w = append(*w, append([]byte(nil), p...))
+
+	return len(p), nil
+}
+
+func TestDefaultImpl_PrintJsonOutput(t *testing.T) {
+	t.Parallel()
+
+	var w writes
+
+	newDefaultImpl(logr.Discard()).PrintJsonOutput(&w, []byte(`{"a":1}`))
+
+	require.Equal(t, writes{[]byte("{\"a\":1}\n")}, w, "the record and its newline are one write")
+}
 
 func TestDefaultImpl_EnvForPid(t *testing.T) {
 	t.Parallel()

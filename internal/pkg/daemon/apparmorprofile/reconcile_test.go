@@ -57,10 +57,13 @@ const (
 // countingProfileManager is a ProfileManager that records how the reconciler
 // drives it.
 type countingProfileManager struct {
-	enabled    bool
-	updated    bool
-	installErr error
-	removeErr  error
+	enabled bool
+	// unsupported makes KnownUnsupported report a host without AppArmor,
+	// instead of a failed detection.
+	unsupported bool
+	updated     bool
+	installErr  error
+	removeErr   error
 	// notRemoved makes RemoveProfile report that it removed nothing.
 	notRemoved bool
 	// loaded makes ProfileInstalled report the profile as loaded by the
@@ -74,6 +77,10 @@ type countingProfileManager struct {
 
 func (m *countingProfileManager) Enabled() bool {
 	return m.enabled
+}
+
+func (m *countingProfileManager) KnownUnsupported() bool {
+	return !m.enabled && m.unsupported
 }
 
 func (m *countingProfileManager) InstallProfile(
@@ -231,6 +238,46 @@ func TestReconcileNotSupportedEmitsNodeEvent(t *testing.T) {
 	require.Zero(t, manager.installs)
 	utiltest.RequireEvent(t, rec,
 		"Warning AppArmorNotSupportedOnNode node does not support apparmor, profile not added")
+}
+
+// A node which installed a profile and lost AppArmor since, like after a
+// reboot without it, must not block the deletion of the profile with its
+// finalizer.
+func TestReconcileNotSupportedReleasesDeletedProfile(t *testing.T) {
+	t.Parallel()
+
+	manager := &countingProfileManager{enabled: true}
+	r, cli, _ := newTestReconciler(t, manager, nil, testAppArmorProfile())
+
+	reconcileUntilInstalled(t, r)
+	getNodeStatus(t, cli)
+
+	manager.enabled = false
+
+	require.NoError(t, cli.Delete(t.Context(), testAppArmorProfile()))
+
+	// A failed detection keeps the finalizer, the profile may still be
+	// installed.
+	res, err := r.Reconcile(t.Context(), testRequest())
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{}, res)
+	require.NoError(
+		t,
+		cli.Get(t.Context(), testRequest().NamespacedName, &apparmorprofileapi.AppArmorProfile{}),
+	)
+
+	manager.unsupported = true
+
+	res, err = r.Reconcile(t.Context(), testRequest())
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{}, res)
+	require.Zero(t, manager.removes)
+
+	err = cli.Get(t.Context(), testRequest().NamespacedName, &apparmorprofileapi.AppArmorProfile{})
+	require.True(t, kerrors.IsNotFound(err), "the profile is gone: %v", err)
+
+	err = cli.Get(t.Context(), nodeStatusKey(), &secprofnodestatusapi.SecurityProfileNodeStatus{})
+	require.True(t, kerrors.IsNotFound(err), "the node status is gone: %v", err)
 }
 
 func TestReconcileNotSupportedWithoutRecorder(t *testing.T) {
@@ -677,13 +724,6 @@ func TestControllerMetadata(t *testing.T) {
 	builder := c.SchemeBuilder()
 	require.NoError(t, builder.AddToScheme(scheme))
 	require.True(t, scheme.Recognizes(apparmorprofileapi.GroupVersion.WithKind("AppArmorProfile")))
-}
-
-func TestOk(t *testing.T) {
-	t.Parallel()
-
-	require.Equal(t, "OK", ok(true, nil))
-	require.Equal(t, "NOT OK (boom)", ok(false, errors.New("boom")))
 }
 
 // Ptrace rules in the paths are deprecated, which is logged once per profile

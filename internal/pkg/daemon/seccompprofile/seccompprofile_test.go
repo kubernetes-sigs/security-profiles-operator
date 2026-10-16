@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
+	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
@@ -97,26 +98,6 @@ func TestReconcile(t *testing.T) {
 			wantResult: reconcile.Result{},
 			wantErr:    fmt.Errorf("%w: %w", common.ErrGetProfile, errOops),
 		},
-		{
-			name: "GotProfile",
-			rec: &Reconciler{
-				impl: supported,
-				client: utiltest.NewFakeClient(t, &interceptor.Funcs{
-					Get:               utiltest.GetReturns(nil),
-					Update:            utiltest.UpdateReturns(nil),
-					SubResourceUpdate: utiltest.SubResourceUpdateReturns(nil),
-				}),
-				log:     log.Log,
-				record:  events.NewFakeRecorder(10),
-				save:    func(_ string, _ []byte) (bool, error) { return false, nil },
-				metrics: metrics.New(),
-			},
-			req: reconcile.Request{
-				NamespacedName: types.NamespacedName{Namespace: namespace, Name: name},
-			},
-			wantResult: reconcile.Result{},
-			wantErr:    nil,
-		},
 	}
 
 	for _, tc := range cases {
@@ -126,11 +107,59 @@ func TestReconcile(t *testing.T) {
 			gotResult, gotErr := tc.rec.Reconcile(t.Context(), tc.req)
 			if tc.wantErr != nil {
 				require.EqualError(t, gotErr, tc.wantErr.Error())
+			} else {
+				require.NoError(t, gotErr)
 			}
 
 			require.Equal(t, tc.wantResult, gotResult)
 		})
 	}
+}
+
+// Reconcile installs a profile which it finds on a node with seccomp.
+func TestReconcileInstallsProfile(t *testing.T) {
+	t.Parallel()
+
+	env := newReconcileEnv(t, newTestProfile())
+	env.impl.IsSupportedReturns(true)
+
+	res, err := env.rec.Reconcile(t.Context(), reconcile.Request{NamespacedName: testProfileKey})
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{}, res)
+	require.Len(t, env.saved, 1)
+	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, env.nodeStatus(t).Status.Status)
+}
+
+// A node which installed a profile and lost seccomp since must not block the
+// deletion of the profile with its finalizer.
+func TestReconcileNotSupportedReleasesDeletedProfile(t *testing.T) {
+	t.Parallel()
+
+	env := newReconcileEnv(t, newTestProfile())
+	env.impl.IsSupportedReturns(true)
+
+	req := reconcile.Request{NamespacedName: testProfileKey}
+
+	_, err := env.rec.Reconcile(t.Context(), req)
+	require.NoError(t, err)
+	require.NotNil(t, env.nodeStatus(t))
+
+	env.impl.IsSupportedReturns(false)
+	require.NoError(t, env.cli.Delete(t.Context(), newTestProfile()))
+
+	res, err := env.rec.Reconcile(t.Context(), req)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{}, res)
+
+	err = env.cli.Get(t.Context(), testProfileKey, &seccompprofileapi.SeccompProfile{})
+	if !builtWithSeccomp {
+		require.NoError(t, err, "a build without seccomp keeps the finalizer")
+
+		return
+	}
+
+	require.True(t, kerrors.IsNotFound(err), "the profile is gone: %v", err)
+	require.Nil(t, env.nodeStatus(t))
 }
 
 // A node without seccomp reports every profile once instead of on every
@@ -188,7 +217,7 @@ func TestSaveProfileOnDisk(t *testing.T) {
 	dir := t.TempDir()
 	cases := []struct {
 		name        string
-		setup       func()
+		setup       func(*testing.T)
 		fileName    string
 		contents    string
 		wantErr     string
@@ -207,7 +236,9 @@ func TestSaveProfileOnDisk(t *testing.T) {
 		},
 		{
 			name: "NoPermissionToWriteFile",
-			setup: func() {
+			setup: func(t *testing.T) {
+				t.Helper()
+
 				targetDir := path.Join(dir, "/test/nopermissions")
 				require.NoError(t, os.MkdirAll(targetDir, dirPermissionMode))
 				require.NoError(t, os.Chmod(targetDir, 0))
@@ -221,7 +252,9 @@ func TestSaveProfileOnDisk(t *testing.T) {
 		},
 		{
 			name: "NoPermissionToWriteDir",
-			setup: func() {
+			setup: func(t *testing.T) {
+				t.Helper()
+
 				targetDir := path.Join(dir, "/nopermissions")
 				require.NoError(t, os.MkdirAll(targetDir, dirPermissionMode))
 				require.NoError(t, os.Chmod(targetDir, 0))
@@ -243,7 +276,7 @@ func TestSaveProfileOnDisk(t *testing.T) {
 			}
 
 			if tc.setup != nil {
-				tc.setup()
+				tc.setup(t)
 			}
 
 			_, gotErr := saveProfileOnDisk(tc.fileName, []byte(tc.contents))
@@ -321,22 +354,24 @@ func TestResolveSyscallsForProfile(t *testing.T) {
 
 	for _, tc := range []struct {
 		name    string
-		prepare func(mock *seccompprofilefakes.FakeImpl) *seccompprofileapi.SeccompProfile
-		assert  func([]seccompprofileapi.Syscall, error)
+		prepare func(t *testing.T, mock *seccompprofilefakes.FakeImpl) *seccompprofileapi.SeccompProfile
+		assert  func(*testing.T, []seccompprofileapi.Syscall, error)
 	}{
 		{
 			name: "success no base profile",
-			prepare: func(mock *seccompprofilefakes.FakeImpl) *seccompprofileapi.SeccompProfile {
+			prepare: func(_ *testing.T, mock *seccompprofilefakes.FakeImpl) *seccompprofileapi.SeccompProfile {
 				return &seccompprofileapi.SeccompProfile{}
 			},
-			assert: func(syscalls []seccompprofileapi.Syscall, err error) {
+			assert: func(t *testing.T, syscalls []seccompprofileapi.Syscall, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				require.Empty(t, syscalls)
 			},
 		},
 		{
 			name: "success two local base profiles",
-			prepare: func(mock *seccompprofilefakes.FakeImpl) *seccompprofileapi.SeccompProfile {
+			prepare: func(_ *testing.T, mock *seccompprofilefakes.FakeImpl) *seccompprofileapi.SeccompProfile {
 				mock.ClientGetProfileReturnsOnCall(
 					0,
 					&seccompprofileapi.SeccompProfile{
@@ -368,7 +403,9 @@ func TestResolveSyscallsForProfile(t *testing.T) {
 					},
 				}
 			},
-			assert: func(syscalls []seccompprofileapi.Syscall, err error) {
+			assert: func(t *testing.T, syscalls []seccompprofileapi.Syscall, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				require.Len(t, syscalls, 1)
 				require.Equal(t, []string{"first", "second", "third"}, syscalls[0].Names)
@@ -376,7 +413,7 @@ func TestResolveSyscallsForProfile(t *testing.T) {
 		},
 		{
 			name: "success two remote base profiles",
-			prepare: func(mock *seccompprofilefakes.FakeImpl) *seccompprofileapi.SeccompProfile {
+			prepare: func(_ *testing.T, mock *seccompprofilefakes.FakeImpl) *seccompprofileapi.SeccompProfile {
 				mock.PullResultTypeReturns(artifact.PullResultTypeSeccompProfile)
 				mock.PullResultSeccompProfileReturnsOnCall(0, &seccompprofileapi.SeccompProfile{
 					Spec: seccompprofileapi.SeccompProfileSpec{
@@ -403,7 +440,9 @@ func TestResolveSyscallsForProfile(t *testing.T) {
 					},
 				}
 			},
-			assert: func(syscalls []seccompprofileapi.Syscall, err error) {
+			assert: func(t *testing.T, syscalls []seccompprofileapi.Syscall, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				require.Len(t, syscalls, 1)
 				require.Equal(t, []string{"first", "second", "third"}, syscalls[0].Names)
@@ -411,7 +450,7 @@ func TestResolveSyscallsForProfile(t *testing.T) {
 		},
 		{
 			name: "failure on wrong PullResultTypeSeccompProfile",
-			prepare: func(mock *seccompprofilefakes.FakeImpl) *seccompprofileapi.SeccompProfile {
+			prepare: func(_ *testing.T, mock *seccompprofilefakes.FakeImpl) *seccompprofileapi.SeccompProfile {
 				mock.PullResultTypeReturns(artifact.PullResultTypeSelinuxProfile)
 
 				return &seccompprofileapi.SeccompProfile{
@@ -420,13 +459,15 @@ func TestResolveSyscallsForProfile(t *testing.T) {
 					},
 				}
 			},
-			assert: func(syscalls []seccompprofileapi.Syscall, err error) {
+			assert: func(t *testing.T, syscalls []seccompprofileapi.Syscall, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, errInvalidBaseProfile)
 			},
 		},
 		{
 			name: "failure on Pull",
-			prepare: func(mock *seccompprofilefakes.FakeImpl) *seccompprofileapi.SeccompProfile {
+			prepare: func(_ *testing.T, mock *seccompprofilefakes.FakeImpl) *seccompprofileapi.SeccompProfile {
 				mock.PullReturns(nil, errTest)
 
 				return &seccompprofileapi.SeccompProfile{
@@ -435,7 +476,9 @@ func TestResolveSyscallsForProfile(t *testing.T) {
 					},
 				}
 			},
-			assert: func(syscalls []seccompprofileapi.Syscall, err error) {
+			assert: func(t *testing.T, syscalls []seccompprofileapi.Syscall, err error) {
+				t.Helper()
+
 				require.Error(t, err)
 				require.ErrorIs(t, err, errTest)
 				require.NotErrorIs(t, err, errInvalidBaseProfile, "a failed pull is retried")
@@ -443,7 +486,7 @@ func TestResolveSyscallsForProfile(t *testing.T) {
 		},
 		{
 			name: "failure max recursion",
-			prepare: func(mock *seccompprofilefakes.FakeImpl) *seccompprofileapi.SeccompProfile {
+			prepare: func(_ *testing.T, mock *seccompprofilefakes.FakeImpl) *seccompprofileapi.SeccompProfile {
 				mock.PullResultTypeReturns(artifact.PullResultTypeSeccompProfile)
 				mock.PullResultSeccompProfileReturnsOnCall(0, &seccompprofileapi.SeccompProfile{
 					Spec: seccompprofileapi.SeccompProfileSpec{
@@ -460,13 +503,15 @@ func TestResolveSyscallsForProfile(t *testing.T) {
 					},
 				}
 			},
-			assert: func(syscalls []seccompprofileapi.Syscall, err error) {
+			assert: func(t *testing.T, syscalls []seccompprofileapi.Syscall, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, errInvalidBaseProfile)
 			},
 		},
 		{
 			name: "failure on ClientGetProfile",
-			prepare: func(mock *seccompprofilefakes.FakeImpl) *seccompprofileapi.SeccompProfile {
+			prepare: func(_ *testing.T, mock *seccompprofilefakes.FakeImpl) *seccompprofileapi.SeccompProfile {
 				mock.ClientGetProfileReturns(nil, errTest)
 
 				return &seccompprofileapi.SeccompProfile{
@@ -475,14 +520,16 @@ func TestResolveSyscallsForProfile(t *testing.T) {
 					},
 				}
 			},
-			assert: func(syscalls []seccompprofileapi.Syscall, err error) {
+			assert: func(t *testing.T, syscalls []seccompprofileapi.Syscall, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, errTest)
 				require.NotErrorIs(t, err, errInvalidBaseProfile, "an API error is retried")
 			},
 		},
 		{
 			name: "failure on missing local base profile",
-			prepare: func(mock *seccompprofilefakes.FakeImpl) *seccompprofileapi.SeccompProfile {
+			prepare: func(_ *testing.T, mock *seccompprofilefakes.FakeImpl) *seccompprofileapi.SeccompProfile {
 				mock.ClientGetProfileReturns(nil, kerrors.NewNotFound(schema.GroupResource{}, "test"))
 
 				return &seccompprofileapi.SeccompProfile{
@@ -491,7 +538,9 @@ func TestResolveSyscallsForProfile(t *testing.T) {
 					},
 				}
 			},
-			assert: func(syscalls []seccompprofileapi.Syscall, err error) {
+			assert: func(t *testing.T, syscalls []seccompprofileapi.Syscall, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, errInvalidBaseProfile)
 			},
 		},
@@ -505,7 +554,7 @@ func TestResolveSyscallsForProfile(t *testing.T) {
 			mock := &seccompprofilefakes.FakeImpl{}
 			mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{}, nil)
 
-			sp := prepare(mock)
+			sp := prepare(t, mock)
 
 			sut, ok := NewController().(*Reconciler)
 			require.True(t, ok)
@@ -517,7 +566,7 @@ func TestResolveSyscallsForProfile(t *testing.T) {
 			syscalls, _, err := sut.resolveSyscallsForProfile(
 				t.Context(), sp, sp.Spec.Syscalls, logr.Discard(), 0,
 			)
-			assert(syscalls, err)
+			assert(t, syscalls, err)
 		})
 	}
 }

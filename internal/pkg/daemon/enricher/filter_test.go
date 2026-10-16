@@ -18,9 +18,11 @@ package enricher
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/go-logr/logr"
+	"github.com/go-logr/logr/funcr"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
@@ -173,6 +175,27 @@ func TestGetEnricherFilters(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A filter without matchKeys never matches, which is worth a warning.
+func TestGetEnricherFiltersWarnsAboutFilterWithoutMatchKeys(t *testing.T) {
+	t.Parallel()
+
+	var warnings []string
+
+	logger := funcr.New(func(_, args string) {
+		if strings.Contains(args, "without matchKeys") {
+			warnings = append(warnings, args)
+		}
+	}, funcr.Options{})
+
+	_, err := GetEnricherFilters(
+		`[{"priority":1,"level":"None","matchKeys":["requestUID"]},{"priority":2,"level":"None"}]`,
+		logger,
+	)
+	require.NoError(t, err)
+	require.Len(t, warnings, 1)
+	require.Contains(t, warnings[0], `"priority"=2`)
 }
 
 func TestApplyEnricherFilters(t *testing.T) {

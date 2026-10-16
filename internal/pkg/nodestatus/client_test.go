@@ -510,6 +510,32 @@ func TestRemove(t *testing.T) {
 	require.NoError(t, sc.Remove(context.Background(), c))
 }
 
+func TestRemoveProfileGone(t *testing.T) {
+	t.Parallel()
+
+	// Another node removed the last finalizer, like the one all nodes share
+	// for a partial profile, so the profile went away. There is nothing left
+	// to remove, which must neither fail nor wait for the retry backoff.
+	sp := preparedProfile()
+	gets := 0
+	c := interceptor.NewClient(newFakeClient(t), interceptor.Funcs{
+		Get: func(
+			ctx context.Context, cl client.WithWatch, key client.ObjectKey,
+			obj client.Object, opts ...client.GetOption,
+		) error {
+			if _, ok := obj.(*seccompprofile.SeccompProfile); ok {
+				gets++
+			}
+
+			return cl.Get(ctx, key, obj, opts...)
+		},
+	})
+	sc := newStatusClient(t, sp, c)
+
+	require.NoError(t, sc.Remove(context.Background(), c))
+	require.Equal(t, 1, gets)
+}
+
 func TestRemoveNodeStatus(t *testing.T) {
 	t.Parallel()
 

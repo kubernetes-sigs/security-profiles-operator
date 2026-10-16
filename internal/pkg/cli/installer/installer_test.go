@@ -43,17 +43,18 @@ func TestRun(t *testing.T) {
 	apparmorProfile, err := os.ReadFile("../../../../examples/apparmorprofile.yaml")
 	require.NoError(t, err)
 
-	seccompProfile, err := os.ReadFile("../../../../examples/seccompprofile.yaml")
-	require.NoError(t, err)
+	// A single document, the examples hold several profiles.
+	seccompProfile := []byte("apiVersion: security-profiles-operator.x-k8s.io/v1\n" +
+		"kind: SeccompProfile\nmetadata:\n  name: profile\n")
 
 	for _, tc := range []struct {
 		name    string
-		prepare func(*installerfakes.FakeImpl) *Options
-		assert  func(*installerfakes.FakeImpl, error)
+		prepare func(*testing.T, *installerfakes.FakeImpl) *Options
+		assert  func(*testing.T, *installerfakes.FakeImpl, error)
 	}{
 		{
 			name: "successful apparmor install",
-			prepare: func(mock *installerfakes.FakeImpl) *Options {
+			prepare: func(_ *testing.T, mock *installerfakes.FakeImpl) *Options {
 				mock.ReadFileReturns(apparmorProfile, nil)
 				mock.AppArmorEnabledReturns(true)
 				mock.AppArmorInstallProfileReturns(true, nil)
@@ -62,55 +63,65 @@ func TestRun(t *testing.T) {
 					ProfilePath: "/foo",
 				}
 			},
-			assert: func(mock *installerfakes.FakeImpl, err error) {
+			assert: func(t *testing.T, mock *installerfakes.FakeImpl, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				require.Equal(t, "/foo", mock.ReadFileArgsForCall(0))
 			},
 		},
 		{
 			name: "insufficient permissions",
-			prepare: func(mock *installerfakes.FakeImpl) *Options {
+			prepare: func(_ *testing.T, mock *installerfakes.FakeImpl) *Options {
 				mock.ReadFileReturns(apparmorProfile, nil)
 				mock.AppArmorEnabledReturns(false)
 
 				return defaultOptions()
 			},
-			assert: func(mock *installerfakes.FakeImpl, err error) {
+			assert: func(t *testing.T, mock *installerfakes.FakeImpl, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, ErrAppArmorUnavailable)
 			},
 		},
 		{
 			name: "install failed",
-			prepare: func(mock *installerfakes.FakeImpl) *Options {
+			prepare: func(_ *testing.T, mock *installerfakes.FakeImpl) *Options {
 				mock.ReadFileReturns(apparmorProfile, nil)
 				mock.AppArmorEnabledReturns(true)
 				mock.AppArmorInstallProfileReturns(false, errors.New("profile syntax error"))
 
 				return defaultOptions()
 			},
-			assert: func(mock *installerfakes.FakeImpl, err error) {
+			assert: func(t *testing.T, mock *installerfakes.FakeImpl, err error) {
+				t.Helper()
+
 				require.ErrorContains(t, err, "profile syntax error")
 			},
 		},
 		{
 			name: "unsupported profile type",
-			prepare: func(mock *installerfakes.FakeImpl) *Options {
+			prepare: func(_ *testing.T, mock *installerfakes.FakeImpl) *Options {
 				mock.ReadFileReturns(seccompProfile, nil)
 
 				return defaultOptions()
 			},
-			assert: func(mock *installerfakes.FakeImpl, err error) {
+			assert: func(t *testing.T, mock *installerfakes.FakeImpl, err error) {
+				t.Helper()
+
 				require.ErrorContains(t, err, "cannot install SeccompProfile profiles")
 			},
 		},
 		{
 			name: "invalid file",
-			prepare: func(mock *installerfakes.FakeImpl) *Options {
+			prepare: func(_ *testing.T, mock *installerfakes.FakeImpl) *Options {
 				mock.ReadFileReturns([]byte{}, nil)
 
 				return defaultOptions()
 			},
-			assert: func(mock *installerfakes.FakeImpl, err error) {
+			assert: func(t *testing.T, mock *installerfakes.FakeImpl, err error) {
+				t.Helper()
+
 				require.ErrorContains(t, err, "failed to read")
 			},
 		},
@@ -122,27 +133,30 @@ func TestRun(t *testing.T) {
 			t.Parallel()
 
 			mock := &installerfakes.FakeImpl{}
-			options := prepare(mock)
+			options := prepare(t, mock)
 
 			sut := New(options, cli.Logger())
 			sut.impl = mock
 
 			err := sut.Run()
-			assert(mock, err)
+			assert(t, mock, err)
 		})
 	}
 }
 
-// TestPatchProfileName verifies which executable the installed profile
+// TestExecutable verifies which executable the installed profile
 // confines: the one of the options, or the command on the PATH the profile is
 // named after. The test sets the PATH for all its cases.
 //
 //nolint:paralleltest // see above
-func TestPatchProfileName(t *testing.T) {
+func TestExecutable(t *testing.T) {
 	dir := t.TempDir()
 	command := filepath.Join(dir, "test-command")
 	require.NoError(t, os.WriteFile(command, []byte("#!/bin/sh\n"), 0o700))
 	t.Setenv("PATH", dir)
+
+	wd, err := os.Getwd()
+	require.NoError(t, err)
 
 	for _, tc := range []struct {
 		name           string
@@ -158,6 +172,19 @@ func TestPatchProfileName(t *testing.T) {
 			want:           "/usr/bin/other",
 		},
 		{name: "command on the PATH", profileName: "test-command", want: command},
+		{
+			name:           "relative executable path",
+			profileName:    "p",
+			executablePath: "rel/app",
+			want:           filepath.Join(wd, "rel", "app"),
+		},
+		{
+			// An executable argument is a path, never a command on the PATH.
+			name:           "bare executable argument",
+			profileName:    "p",
+			executablePath: "test-command",
+			want:           filepath.Join(wd, "test-command"),
+		},
 		{name: "not a command", profileName: "my-profile", want: "my-profile"},
 		{name: "empty name", wantErr: true},
 	} {
@@ -168,7 +195,7 @@ func TestPatchProfileName(t *testing.T) {
 			options := Default()
 			options.ExecutablePath = tc.executablePath
 
-			err := PatchProfileName(profile, options)
+			_, err := executable(profile, options)
 			if tc.wantErr {
 				require.Error(t, err)
 
@@ -179,4 +206,36 @@ func TestPatchProfileName(t *testing.T) {
 			require.Equal(t, tc.want, profile.Name)
 		})
 	}
+}
+
+// TestAppArmorProfileUnresolvedName verifies the name earlier releases gave
+// the profile of a command on the PATH: its path on the PATH, without
+// resolving a symlink, and never the bare name, which may name an unrelated
+// profile. The test sets the PATH.
+func TestAppArmorProfileUnresolvedName(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target")
+	require.NoError(t, os.WriteFile(target, []byte("#!/bin/sh\n"), 0o700))
+
+	link := filepath.Join(dir, "test-command")
+	require.NoError(t, os.Symlink(target, link))
+	t.Setenv("PATH", dir)
+
+	content := []byte("apiVersion: security-profiles-operator.x-k8s.io/v1\n" +
+		"kind: AppArmorProfile\nmetadata:\n  name: test-command\n")
+
+	profile, unresolved, err := AppArmorProfile(content, Default(), "remove")
+	require.NoError(t, err)
+
+	wantTarget, err := filepath.EvalSymlinks(target)
+	require.NoError(t, err)
+	require.Equal(t, wantTarget, profile.Name)
+	require.Equal(t, link, unresolved)
+
+	options := Default()
+	options.ExecutablePath = "rel/app"
+
+	_, unresolved, err = AppArmorProfile(content, options, "remove")
+	require.NoError(t, err)
+	require.Equal(t, "rel/app", unresolved)
 }

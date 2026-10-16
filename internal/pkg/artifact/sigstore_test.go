@@ -758,21 +758,25 @@ func TestVerifyLegacySignatures(t *testing.T) {
 
 	for _, tc := range []struct {
 		name        string
-		annotations func(signedPayload []byte) []map[string]string
+		annotations func(t *testing.T, signedPayload []byte) []map[string]string
 		opts        PullOptions
 		otherDigest bool
 		wantErr     error
 	}{
 		{
 			name: "keyless",
-			annotations: func(signedPayload []byte) []map[string]string {
+			annotations: func(t *testing.T, signedPayload []byte) []map[string]string {
+				t.Helper()
+
 				return []map[string]string{sigstore.keylessLegacySignature(t, signedPayload, testIdentity)}
 			},
 			opts: PullOptions{CertIdentity: testIdentity, CertOidcIssuer: testIssuer},
 		},
 		{
 			name: "keyless with other signer first",
-			annotations: func(signedPayload []byte) []map[string]string {
+			annotations: func(t *testing.T, signedPayload []byte) []map[string]string {
+				t.Helper()
+
 				return []map[string]string{
 					sigstore.keylessLegacySignature(t, signedPayload, "other@example.com"),
 					sigstore.keylessLegacySignature(t, signedPayload, testIdentity),
@@ -782,7 +786,9 @@ func TestVerifyLegacySignatures(t *testing.T) {
 		},
 		{
 			name: "keyless with other identity",
-			annotations: func(signedPayload []byte) []map[string]string {
+			annotations: func(t *testing.T, signedPayload []byte) []map[string]string {
+				t.Helper()
+
 				return []map[string]string{sigstore.keylessLegacySignature(t, signedPayload, "other@example.com")}
 			},
 			opts:    PullOptions{CertIdentity: testIdentity},
@@ -790,14 +796,18 @@ func TestVerifyLegacySignatures(t *testing.T) {
 		},
 		{
 			name: "key",
-			annotations: func(signedPayload []byte) []map[string]string {
+			annotations: func(t *testing.T, signedPayload []byte) []map[string]string {
+				t.Helper()
+
 				return []map[string]string{sigstore.keyLegacySignature(t, signedPayload, key)}
 			},
 			opts: PullOptions{KeyRef: publicKey},
 		},
 		{
 			name: "key without transparency log entry",
-			annotations: func(signedPayload []byte) []map[string]string {
+			annotations: func(t *testing.T, signedPayload []byte) []map[string]string {
+				t.Helper()
+
 				annotations := sigstore.keyLegacySignature(t, signedPayload, key)
 				delete(annotations, annotationLegacyBundle)
 
@@ -808,7 +818,9 @@ func TestVerifyLegacySignatures(t *testing.T) {
 		},
 		{
 			name: "signature of another digest",
-			annotations: func(signedPayload []byte) []map[string]string {
+			annotations: func(t *testing.T, signedPayload []byte) []map[string]string {
+				t.Helper()
+
 				return []map[string]string{sigstore.keylessLegacySignature(t, signedPayload, testIdentity)}
 			},
 			otherDigest: true,
@@ -833,7 +845,7 @@ func TestVerifyLegacySignatures(t *testing.T) {
 				repo,
 				subject.Digest,
 				signedPayload,
-				tc.annotations(signedPayload)...)
+				tc.annotations(t, signedPayload)...)
 
 			opts := tc.opts
 			opts.PlainHTTP = true

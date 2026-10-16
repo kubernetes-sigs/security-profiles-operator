@@ -33,44 +33,52 @@ func TestRun(t *testing.T) {
 
 	for _, tc := range []struct {
 		name    string
-		prepare func(mock *pusherfakes.FakeImpl)
-		assert  func(error)
+		prepare func(t *testing.T, mock *pusherfakes.FakeImpl)
+		assert  func(*testing.T, error)
 	}{
 		{
 			name:    "success",
-			prepare: func(mock *pusherfakes.FakeImpl) {},
-			assert: func(err error) {
+			prepare: func(_ *testing.T, mock *pusherfakes.FakeImpl) {},
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 			},
 		},
 		{
 			name: "failure on Push",
-			prepare: func(mock *pusherfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *pusherfakes.FakeImpl) {
 				mock.PushReturns(errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, errTest)
 			},
 		},
 		{
 			name: "failure on signing after the push",
-			prepare: func(mock *pusherfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *pusherfakes.FakeImpl) {
 				mock.PushReturns(&artifact.UnsignedError{
 					Reference: "registry.example.com/profiles/crun@sha256:1234",
 					Err:       errTest,
 				})
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, errTest)
 				require.ErrorContains(t, err, "spoc sign registry.example.com/profiles/crun@sha256:1234")
 			},
 		},
 		{
 			name: "failure without identity",
-			prepare: func(mock *pusherfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *pusherfakes.FakeImpl) {
 				mock.PushReturns(artifact.ErrNoInteractiveSignIn)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, artifact.ErrNoInteractiveSignIn)
 				require.ErrorContains(t, err, "--"+FlagOIDCDeviceFlow)
 				require.ErrorContains(t, err, "--"+FlagDisableSigning)
@@ -84,13 +92,13 @@ func TestRun(t *testing.T) {
 			t.Parallel()
 
 			mock := &pusherfakes.FakeImpl{}
-			prepare(mock)
+			prepare(t, mock)
 
 			sut := New(Default())
 			sut.impl = mock
 
 			err := sut.Run()
-			assert(err)
+			assert(t, err)
 		})
 	}
 }

@@ -132,7 +132,7 @@ func (m *Metrics) AuditInc(
 		}
 
 		if err != nil {
-			return fmt.Errorf("record syscalls: %w", err)
+			return fmt.Errorf("receive audit metrics: %w", err)
 		}
 
 		switch {

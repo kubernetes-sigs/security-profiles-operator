@@ -149,47 +149,26 @@ func TestRecordedProfileName(t *testing.T) {
 	require.Equal(t, "rec-ctr-abcde", RecordedProfileName("rec", "ctr", "abcde"))
 }
 
-func TestLengthName(t *testing.T) {
+func TestHashedName(t *testing.T) {
 	t.Parallel()
 
 	const maxLen = 20
 
-	t.Run("a fitting name is returned as is", func(t *testing.T) {
-		t.Parallel()
-
-		got, err := lengthName(maxLen, "prefix", "%s-%s", "short", "name")
-		require.NoError(t, err)
-		require.Equal(t, "short-name", got)
-	})
-
-	t.Run("a name of exactly the limit is hashed", func(t *testing.T) {
-		t.Parallel()
-
-		// Documented off-by-one: the threshold is part of the persisted
-		// naming scheme of the node statuses.
-		name := strings.Repeat("n", maxLen)
-
-		got, err := lengthName(maxLen, "p", "%s", name)
-		require.NoError(t, err)
-		require.NotEqual(t, name, got)
-		require.Len(t, got, maxLen)
-	})
-
-	t.Run("a long name is replaced by the prefix and a hash", func(t *testing.T) {
+	t.Run("a name is replaced by the prefix and a hash", func(t *testing.T) {
 		t.Parallel()
 
 		name := strings.Repeat("n", 100)
 
-		got, err := lengthName(maxLen, "prefix", "%s", name)
+		got, err := hashedName(maxLen, "prefix", name)
 		require.NoError(t, err)
 		require.Len(t, got, maxLen)
 		require.True(t, strings.HasPrefix(got, "prefix-"))
 
-		again, err := lengthName(maxLen, "prefix", "%s", name)
+		again, err := hashedName(maxLen, "prefix", name)
 		require.NoError(t, err)
 		require.Equal(t, got, again, "hashing is deterministic")
 
-		other, err := lengthName(maxLen, "prefix", "%s", name+"x")
+		other, err := hashedName(maxLen, "prefix", name+"x")
 		require.NoError(t, err)
 		require.NotEqual(t, got, other, "different names get different hashes")
 	})
@@ -197,9 +176,7 @@ func TestLengthName(t *testing.T) {
 	t.Run("a limit beyond the hash length keeps the whole hash", func(t *testing.T) {
 		t.Parallel()
 
-		name := strings.Repeat("n", 300)
-
-		got, err := lengthName(200, "prefix", "%s", name)
+		got, err := hashedName(200, "prefix", strings.Repeat("n", 300))
 		require.NoError(t, err)
 		require.Len(t, got, len("prefix-")+sha256.Size*2)
 	})
@@ -207,7 +184,7 @@ func TestLengthName(t *testing.T) {
 	t.Run("a prefix without room for the hash fails", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := lengthName(maxLen, strings.Repeat("p", maxLen), "%s", strings.Repeat("n", 100))
+		_, err := hashedName(maxLen, strings.Repeat("p", maxLen), strings.Repeat("n", 100))
 		require.ErrorContains(t, err, "shortening string")
 	})
 }
@@ -216,6 +193,12 @@ func TestDNSLengthName(t *testing.T) {
 	t.Parallel()
 
 	require.Equal(t, "kind-name", DNSLengthName("kind", "%s-%s", "kind", "name"))
+
+	// Documented off-by-one: the threshold is part of the persisted naming
+	// scheme of the node statuses.
+	exact := strings.Repeat("n", validation.DNS1123LabelMaxLength)
+	require.NotEqual(t, exact, DNSLengthName("kind", "%s", exact))
+	require.Len(t, DNSLengthName("kind", "%s", exact), validation.DNS1123LabelMaxLength)
 
 	long := DNSLengthName("kind", "%s-%s", "kind", strings.Repeat("n", 100))
 	require.Len(t, long, validation.DNS1123LabelMaxLength)

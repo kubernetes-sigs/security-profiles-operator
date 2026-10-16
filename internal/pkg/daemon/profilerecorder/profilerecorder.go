@@ -59,6 +59,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/apparmorprofile/crd2armor"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/recordingmerger"
@@ -113,6 +114,10 @@ var (
 	// out the recorded data at all, for example because it stopped a
 	// recording which looked abandoned, or got restarted.
 	errBpfRecorderUnavailable = errors.New("bpf recorder cannot provide the recorded data")
+	// errBpfRecorderNotRunning is returned along with errBpfRecorderUnavailable
+	// if the BPF recorder does not record any more, which leaves no data to
+	// reset either.
+	errBpfRecorderNotRunning = errors.New(bpfrecorder.ErrNotRunning.Error())
 	// errIncompleteRead is returned if the BPF recorder cannot read all the
 	// data recorded for a profile.
 	errIncompleteRead = errors.New("bpf recorder cannot read all recorded data")
@@ -448,6 +453,12 @@ func (r *RecorderReconciler) authorizedProfiles(
 		if recording := r.recordingAuthorizes(
 			recordings, podLabels, parsed, profile.kind, recorder,
 		); recording != nil {
+			if err := validateRecordingName(profile.kind, recording.Name); err != nil {
+				r.ignoreInvalidRecordingName(pod, recording.Name, err, reject(profile.name))
+
+				continue
+			}
+
 			authorized = append(authorized, profile)
 			states[recording.Name] = recordingStateOf(recording)
 
@@ -476,6 +487,36 @@ func (r *RecorderReconciler) authorizedProfiles(
 	}
 
 	return authorized, states, nil
+}
+
+// ignoreInvalidRecordingName reports a recording annotation of a recording
+// whose name cannot name the recorded profiles, unless it got warned about
+// already. Recording it would keep the recorder armed for the whole life of
+// the pod, only to drop what it recorded.
+func (r *RecorderReconciler) ignoreInvalidRecordingName(
+	pod *corev1.Pod,
+	recording string,
+	err error,
+	warned bool,
+) {
+	if warned {
+		return
+	}
+
+	r.log.Info(
+		"Ignoring recording annotation of a recording with an invalid name",
+		"pod", pod.Name, "namespace", pod.Namespace,
+		"recording", recording, "error", err.Error(),
+	)
+	r.record.Eventf(
+		pod,
+		nil,
+		corev1.EventTypeWarning,
+		reasonAnnotationParsing,
+		util.EventActionRecord,
+		"%s",
+		"ignoring recording annotation: "+err.Error(),
+	)
 }
 
 // recordingAuthorizes returns the recording which asks for exactly this
@@ -561,6 +602,14 @@ func (r *RecorderReconciler) Reconcile(
 
 		profiles, recorder := r.podProfiles(logger, pod)
 		if len(profiles) == 0 {
+			if !r.isPodWithTraceAnnotation(pod) {
+				// The recording annotations got removed, so the warnings
+				// about them are not needed any more. A pod without them
+				// does not get reconciled when it gets deleted.
+				r.rejectedPods.Delete(req.String())
+				r.disabledRecorderPods.Delete(req.String())
+			}
+
 			return reconcile.Result{}, nil
 		}
 
@@ -593,6 +642,7 @@ func (r *RecorderReconciler) Reconcile(
 			}
 		}
 
+		r.warnIgnoredBpfAnnotations(logger, pod, recorder)
 		r.trackPod(logger, req, pod, recorder, profiles, recordings)
 	}
 
@@ -632,6 +682,10 @@ func (r *RecorderReconciler) reconcileTrackedPod(
 			// a pod which gets deleted, and the pod is not tracked any
 			// longer.
 			logger.Info("Recording annotations got removed, collecting the profiles")
+
+			// Nothing reconciles the pod when it gets deleted then.
+			r.rejectedPods.Delete(req.String())
+			r.disabledRecorderPods.Delete(req.String())
 
 			return true, r.collectPod(ctx, req.NamespacedName, bpf, "unannotated")
 		}
@@ -904,6 +958,17 @@ func bpfRecordingRequest(uid types.UID) *bpfrecorderapi.RecordingRequest {
 func (r *RecorderReconciler) abandonPod(
 	ctx context.Context, podName types.NamespacedName, collErr error, bpf *bpfRecorderSession,
 ) {
+	r.reportAbandoned(podName, collErr)
+
+	// Not reconcilable, so nothing will ever collect this pod: release it
+	// rather than leaking the watch and the recorder. A disabled recorder does
+	// not run, so there is nothing to reset in it.
+	r.releasePod(ctx, podName, bpf, !errors.Is(collErr, errRecorderDisabled))
+}
+
+// reportAbandoned tells the user that profiles of the pod can never be
+// collected.
+func (r *RecorderReconciler) reportAbandoned(podName types.NamespacedName, collErr error) {
 	r.log.Error(collErr, "cannot collect profile", "pod", podName.String())
 
 	// The pod may be gone already, which the event does not need.
@@ -919,11 +984,33 @@ func (r *RecorderReconciler) abandonPod(
 		"Giving up on collecting the recorded profiles: %s",
 		collErr.Error(),
 	)
+}
 
-	// Not reconcilable, so nothing will ever collect this pod: release it
-	// rather than leaking the watch and the recorder. A disabled recorder does
-	// not run, so there is nothing to reset in it.
-	r.releasePod(ctx, podName, bpf, !errors.Is(collErr, errRecorderDisabled))
+// warnIgnoredBpfAnnotations warns about the bpf recording annotations of a pod
+// which gets recorded by the log recorder. A pod is recorded by a single
+// recorder. The recording webhook checks the conflicts per annotation, so that
+// a log and a bpf recording can both select the pod. The pod gets tracked
+// right after, so this is reported once per pod.
+func (r *RecorderReconciler) warnIgnoredBpfAnnotations(
+	logger logr.Logger, pod *corev1.Pod, recorder profilerecordingapi.ProfileRecorder,
+) {
+	if recorder != profilerecordingapi.ProfileRecorderLogs {
+		return
+	}
+
+	if bpfProfiles, err := parseBpfAnnotations(
+		pod.Annotations,
+	); err != nil ||
+		len(bpfProfiles) == 0 {
+		return
+	}
+
+	const message = "Recording the profiles of the log recording annotations only, " +
+		"the bpf recording annotations of the pod are ignored"
+
+	logger.Info(message)
+	r.record.Eventf(pod, nil, corev1.EventTypeWarning, reasonAnnotationParsing,
+		util.EventActionRecord, "%s", message)
 }
 
 // reportNotRecorded reports that the profiles of the pod do not get recorded,
@@ -1445,10 +1532,34 @@ func (r *RecorderReconciler) collectBpfProfiles(
 		return err
 	}
 
+	var abandoned []error
+
 	for _, profileToCollect := range profiles {
-		if err := r.collectBpfProfile(
+		err := r.collectBpfProfile(
 			ctx, recorderClient, replicaSuffix, podName, profileToCollect, recordings,
-		); err != nil {
+		)
+		if unrecordable(err) {
+			// A profile which can never be collected, like an AppArmor
+			// profile on a node without the BPF LSM, must not cost the
+			// other profiles of the pod their data.
+			abandoned = append(abandoned, err)
+
+			// A recorder which stopped recording has nothing to reset,
+			// the reset would only fail with every retry. One which cannot
+			// record the kind still forgets the containers of the profile.
+			if errors.Is(err, errBpfRecorderNotRunning) {
+				continue
+			}
+
+			if err := r.resetBpfProfile(ctx, recorderClient, profileToCollect); err != nil {
+				r.log.Error(err, "Unable to reset recorded data of an unrecordable profile",
+					"profile", profileToCollect.name)
+			}
+
+			continue
+		}
+
+		if err != nil {
 			return err
 		}
 	}
@@ -1459,6 +1570,10 @@ func (r *RecorderReconciler) collectBpfProfiles(
 		r.log.Error(err, "Unable to stop bpf recorder")
 
 		return fmt.Errorf("stop bpf recorder: %w", err)
+	}
+
+	if len(abandoned) > 0 {
+		r.reportAbandoned(podName, errors.Join(abandoned...))
 	}
 
 	return nil
@@ -1645,8 +1760,18 @@ func (r *RecorderReconciler) bpfRecorderError(err error, what, profile string) e
 	}
 
 	if code == grpccodes.FailedPrecondition {
-		return fmt.Errorf("getting %s for profile: %w: %s",
-			what, errBpfRecorderUnavailable, grpcstatus.Convert(err).Message())
+		message := grpcstatus.Convert(err).Message()
+		if message == bpfrecorder.ErrNotRunning.Error() {
+			return fmt.Errorf("getting %s for profile: %w: %w",
+				what, errBpfRecorderUnavailable, errBpfRecorderNotRunning)
+		}
+
+		return fmt.Errorf(
+			"getting %s for profile: %w: %s",
+			what,
+			errBpfRecorderUnavailable,
+			message,
+		)
 	}
 
 	if code == grpccodes.DataLoss {
@@ -2334,7 +2459,7 @@ func newSeProfileBuilder(usageCtx string, log logr.Logger) *seProfileBuilder {
 
 func (sb *seProfileBuilder) AddAvcList(avcs []*enricherapi.AvcResponse_SelinuxAvc) error {
 	for _, avc := range avcs {
-		sb.log.Info("Received an AVC response",
+		sb.log.V(config.VerboseLevel).Info("Received an AVC response",
 			"perm", avc.GetPerm(), "tclass",
 			avc.GetTclass(), "scontext", avc.GetScontext(),
 			"tcontext", avc.GetTcontext())

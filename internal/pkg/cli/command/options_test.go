@@ -29,45 +29,59 @@ func TestFromContext(t *testing.T) {
 
 	for _, tc := range []struct {
 		name    string
-		prepare func(*flag.FlagSet)
-		assert  func(*Options, error)
+		prepare func(*testing.T, *flag.FlagSet)
+		assert  func(*testing.T, *Options, error)
 	}{
 		{
 			name: "success",
-			prepare: func(set *flag.FlagSet) {
+			prepare: func(t *testing.T, set *flag.FlagSet) {
+				t.Helper()
+
 				require.NoError(t, set.Parse([]string{"echo"}))
 			},
-			assert: func(options *Options, err error) {
+			assert: func(t *testing.T, options *Options, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				require.True(t, options.DropSudoPrivileges)
 			},
 		},
 		{
 			name: "privileged",
-			prepare: func(set *flag.FlagSet) {
+			prepare: func(t *testing.T, set *flag.FlagSet) {
+				t.Helper()
+
 				set.Bool(FlagPrivileged, false, "")
 				require.NoError(t, set.Parse([]string{"--" + FlagPrivileged, "echo"}))
 			},
-			assert: func(options *Options, err error) {
+			assert: func(t *testing.T, options *Options, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				require.False(t, options.DropSudoPrivileges)
 			},
 		},
 		{
 			name: "privileged set to false",
-			prepare: func(set *flag.FlagSet) {
+			prepare: func(t *testing.T, set *flag.FlagSet) {
+				t.Helper()
+
 				set.Bool(FlagPrivileged, false, "")
 				require.NoError(t, set.Parse([]string{"--" + FlagPrivileged + "=false", "echo"}))
 			},
-			assert: func(options *Options, err error) {
+			assert: func(t *testing.T, options *Options, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				require.True(t, options.DropSudoPrivileges)
 			},
 		},
 		{
 			name:    "failure no command provided",
-			prepare: func(set *flag.FlagSet) {},
-			assert: func(_ *Options, err error) {
+			prepare: func(*testing.T, *flag.FlagSet) {},
+			assert: func(t *testing.T, _ *Options, err error) {
+				t.Helper()
+
 				require.Error(t, err)
 			},
 		},
@@ -79,13 +93,13 @@ func TestFromContext(t *testing.T) {
 			t.Parallel()
 
 			set := flag.NewFlagSet("", flag.ExitOnError)
-			prepare(set)
+			prepare(t, set)
 
 			app := cli.NewApp()
 			ctx := cli.NewContext(app, set, nil)
 
 			options, err := FromContext(ctx)
-			assert(options, err)
+			assert(t, options, err)
 		})
 	}
 }

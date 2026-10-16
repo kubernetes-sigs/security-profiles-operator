@@ -38,19 +38,31 @@ type containerProfiles struct {
 	// Both directions keep insertion order, so Get is stable.
 	byContainer map[string][]string
 	byProfile   map[string][]string
+	// generations holds the latest recording generation which cached the
+	// profiles of a container.
+	generations map[string]uint64
 }
 
 func newContainerProfiles() *containerProfiles {
 	return &containerProfiles{
 		byContainer: map[string][]string{},
 		byProfile:   map[string][]string{},
+		generations: map[string]uint64{},
 	}
 }
 
 // Insert records that profile is being recorded for containerID.
 func (c *containerProfiles) Insert(containerID, profile string) {
+	c.InsertAt(containerID, profile, 0)
+}
+
+// InsertAt records that profile is being recorded for containerID by the
+// recording of the generation.
+func (c *containerProfiles) InsertAt(containerID, profile string, generation uint64) {
 	c.l.Lock()
 	defer c.l.Unlock()
+
+	c.generations[containerID] = max(c.generations[containerID], generation)
 
 	if !slices.Contains(c.byContainer[containerID], profile) {
 		c.byContainer[containerID] = append(c.byContainer[containerID], profile)
@@ -82,11 +94,29 @@ func (c *containerProfiles) Containers(profile string) []string {
 	return slices.Clone(c.byProfile[profile])
 }
 
+// DeleteAt is Delete if the latest recording which cached the container is
+// the one of the generation.
+func (c *containerProfiles) DeleteAt(containerID string, generation uint64) {
+	c.l.Lock()
+	defer c.l.Unlock()
+
+	if c.generations[containerID] != generation {
+		return
+	}
+
+	c.delete(containerID)
+}
+
 // Delete forgets a container and drops it from every profile recorded for it.
 func (c *containerProfiles) Delete(containerID string) {
 	c.l.Lock()
 	defer c.l.Unlock()
 
+	c.delete(containerID)
+}
+
+// delete is Delete for callers holding the lock.
+func (c *containerProfiles) delete(containerID string) {
 	for _, profile := range c.byContainer[containerID] {
 		c.byProfile[profile] = without(c.byProfile[profile], containerID)
 		if len(c.byProfile[profile]) == 0 {
@@ -95,20 +125,23 @@ func (c *containerProfiles) Delete(containerID string) {
 	}
 
 	delete(c.byContainer, containerID)
+	delete(c.generations, containerID)
 }
 
-// DeleteProfile forgets a single profile. It returns the containers which have
-// no profile left to be recorded for.
-func (c *containerProfiles) DeleteProfile(profile string) []string {
+// DeleteProfile forgets a single profile. It returns the containers the
+// profile was recorded for, and those of them which have no profile left to be
+// recorded for.
+func (c *containerProfiles) DeleteProfile(profile string) (containerIDs, unused []string) {
 	c.l.Lock()
 	defer c.l.Unlock()
 
-	var unused []string
+	containerIDs = c.byProfile[profile]
 
-	for _, containerID := range c.byProfile[profile] {
+	for _, containerID := range containerIDs {
 		c.byContainer[containerID] = without(c.byContainer[containerID], profile)
 		if len(c.byContainer[containerID]) == 0 {
 			delete(c.byContainer, containerID)
+			delete(c.generations, containerID)
 
 			unused = append(unused, containerID)
 		}
@@ -116,7 +149,7 @@ func (c *containerProfiles) DeleteProfile(profile string) []string {
 
 	delete(c.byProfile, profile)
 
-	return unused
+	return containerIDs, unused
 }
 
 // Clear forgets everything.
@@ -126,6 +159,7 @@ func (c *containerProfiles) Clear() {
 
 	clear(c.byContainer)
 	clear(c.byProfile)
+	clear(c.generations)
 }
 
 // Size returns the number of containers being recorded.

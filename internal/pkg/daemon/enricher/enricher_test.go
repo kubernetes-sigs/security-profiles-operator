@@ -146,7 +146,6 @@ func TestRun(t *testing.T) {
 				require.Equal(t, node, res.GetNode())
 				require.Equal(t, namespace, res.GetNamespace())
 				require.Equal(t, pod, res.GetPod())
-				require.Equal(t, executable, res.GetExecutable())
 				require.NotNil(t, res.GetSeccompReq())
 				require.Equal(t, wantSyscall, res.GetSeccompReq().GetSyscall())
 

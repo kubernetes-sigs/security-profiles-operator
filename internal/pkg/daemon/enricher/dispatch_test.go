@@ -128,7 +128,6 @@ func TestDispatchSelinuxLine(t *testing.T) {
 	require.Equal(t, namespace, req.GetNamespace())
 	require.Equal(t, pod, req.GetPod())
 	require.Equal(t, "container", req.GetContainer())
-	require.Equal(t, executable, req.GetExecutable())
 	require.Equal(t, line.Scontext, req.GetSelinuxReq().GetScontext())
 	require.Equal(t, line.Tcontext, req.GetSelinuxReq().GetTcontext())
 	require.Nil(t, req.GetSeccompReq())
@@ -197,11 +196,9 @@ func TestDispatchApparmorLine(t *testing.T) {
 	require.Equal(t, namespace, req.GetNamespace())
 	require.Equal(t, pod, req.GetPod())
 	require.Equal(t, "container", req.GetContainer())
-	require.Equal(t, "tini", req.GetExecutable())
 	require.Equal(t, line.Profile, req.GetApparmorReq().GetProfile())
 	require.Equal(t, line.Operation, req.GetApparmorReq().GetOperation())
 	require.Equal(t, line.Apparmor, req.GetApparmorReq().GetApparmor())
-	require.Equal(t, line.Name, req.GetApparmorReq().GetName())
 	require.Nil(t, req.GetSelinuxReq())
 
 	// AppArmor lines are not recorded.

@@ -18,7 +18,7 @@ package converter
 
 import "sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
 
-// DefaultOutputFile defines the default output location for the merger.
+// DefaultOutputFile defines the default output location for the converter.
 var DefaultOutputFile = "/dev/stdout"
 
 const (

@@ -52,6 +52,10 @@ func (f *FakeProfileManager) Enabled() bool {
 	return f.enabled
 }
 
+func (*FakeProfileManager) KnownUnsupported() bool {
+	return false
+}
+
 func (f *FakeProfileManager) InstallProfile(
 	_ profilebaseapi.StatusBaseUser, previouslyInstalled bool,
 ) (bool, error) {

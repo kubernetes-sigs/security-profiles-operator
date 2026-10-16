@@ -130,14 +130,20 @@ func TestContainerProfilesDeleteProfile(t *testing.T) {
 	sut.Insert("container-2", "seccomp-profile")
 
 	// Collecting one kind must leave the other one resolvable.
-	assert.Equal(t, []string{"container-2"}, sut.DeleteProfile("seccomp-profile"))
+	containerIDs, unused := sut.DeleteProfile("seccomp-profile")
+	assert.Equal(t, []string{"container-1", "container-2"}, containerIDs)
+	assert.Equal(t, []string{"container-2"}, unused)
 	assert.Empty(t, sut.Containers("seccomp-profile"))
 	assert.Equal(t, []string{"container-1"}, sut.Containers("apparmor-profile"))
 
-	assert.Equal(t, []string{"container-1"}, sut.DeleteProfile("apparmor-profile"))
+	containerIDs, unused = sut.DeleteProfile("apparmor-profile")
+	assert.Equal(t, []string{"container-1"}, containerIDs)
+	assert.Equal(t, []string{"container-1"}, unused)
 	assert.Zero(t, sut.Size())
 
-	assert.Empty(t, sut.DeleteProfile("unknown"))
+	containerIDs, unused = sut.DeleteProfile("unknown")
+	assert.Empty(t, containerIDs)
+	assert.Empty(t, unused)
 }
 
 // getAll returns every profile recorded for containerID.

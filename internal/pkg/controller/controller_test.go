@@ -41,6 +41,6 @@ func TestMaxConcurrentReconciles(t *testing.T) {
 	}
 
 	require.Equal(t, DefaultMaxConcurrentReconciles, MaxConcurrentReconciles(
-		context.WithValue(t.Context(), MaxConcurrentReconcilesKey, "7"),
+		context.WithValue(t.Context(), maxConcurrentReconcilesKey, "7"),
 	))
 }

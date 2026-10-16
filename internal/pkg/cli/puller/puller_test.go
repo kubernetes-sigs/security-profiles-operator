@@ -34,44 +34,52 @@ func TestRun(t *testing.T) {
 
 	for _, tc := range []struct {
 		name    string
-		prepare func(mock *pullerfakes.FakeImpl)
-		assert  func(error)
+		prepare func(t *testing.T, mock *pullerfakes.FakeImpl)
+		assert  func(*testing.T, error)
 	}{
 		{
 			name: "success",
-			prepare: func(mock *pullerfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *pullerfakes.FakeImpl) {
 				mock.PullReturns(&artifact.PullResult{}, nil)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 			},
 		},
 		{
 			name: "failure on WriteFile",
-			prepare: func(mock *pullerfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *pullerfakes.FakeImpl) {
 				mock.PullReturns(&artifact.PullResult{}, nil)
 				mock.WriteFileReturns(errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, errTest)
 			},
 		},
 		{
 			name: "failure on Pull",
-			prepare: func(mock *pullerfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *pullerfakes.FakeImpl) {
 				mock.PullReturns(nil, errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, errTest)
 				require.NotContains(t, err.Error(), FlagTrustedRoot)
 			},
 		},
 		{
 			name: "offline without cached trusted root",
-			prepare: func(mock *pullerfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *pullerfakes.FakeImpl) {
 				mock.PullReturns(nil, fmt.Errorf("verify: %w", artifact.ErrNoCachedTrustedRoot))
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, artifact.ErrNoCachedTrustedRoot)
 				require.ErrorContains(t, err, "--"+FlagTrustedRoot)
 				require.ErrorContains(t, err, "without --"+FlagOffline)
@@ -85,13 +93,13 @@ func TestRun(t *testing.T) {
 			t.Parallel()
 
 			mock := &pullerfakes.FakeImpl{}
-			prepare(mock)
+			prepare(t, mock)
 
 			sut := New(Default())
 			sut.impl = mock
 
 			err := sut.Run()
-			assert(err)
+			assert(t, err)
 		})
 	}
 }

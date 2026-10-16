@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
@@ -60,10 +61,13 @@ func Flags() []ucli.Flag {
 			DefaultText: DefaultInputFile,
 			TakesFile:   true,
 		},
-		&ucli.StringSliceFlag{
+		&ucli.GenericFlag{
 			Name:    FlagAnnotations,
 			Aliases: []string{"a"},
-			Usage:   "the annotations to be set in `KEY:VALUE` format",
+			Usage: "the annotations to be set in `KEY:VALUE` format, separated by commas " +
+				"or by repeating the flag; a value with a comma followed by a word and a " +
+				"colon needs a flag of its own",
+			Value: &annotationsFlag{},
 		},
 		&ucli.BoolFlag{
 			Name:    FlagDisableSigning,
@@ -122,7 +126,12 @@ func FromContext(ctx *ucli.Context) (*Options, error) {
 	options.plainHTTP = ctx.Bool(FlagPlainHTTP)
 	options.oidcDeviceFlow = ctx.Bool(FlagOIDCDeviceFlow)
 
-	options.annotations, err = annotations(ctx.StringSlice(FlagAnnotations))
+	var values []string
+	if flag, ok := ctx.Generic(FlagAnnotations).(*annotationsFlag); ok {
+		values = flag.values
+	}
+
+	options.annotations, err = annotations(values)
 	if err != nil {
 		return nil, err
 	}
@@ -206,6 +215,53 @@ func inputFiles(profiles, platforms []string) (map[*v1.Platform]string, error) {
 	}
 
 	return files, nil
+}
+
+// annotationStart matches the start of a comma separated part of an
+// annotations flag which starts another annotation: a key and a colon.
+var annotationStart = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9._/-]*:`)
+
+// annotationsFlag is the value of the annotations flag. Every occurrence of
+// the flag is one annotation, or several separated by commas. A comma only
+// separates annotations if a key and a colon follow it, which are not the
+// scheme of a URL, so that "description:A profile, https://example.com" and
+// "time:10:00, 11:00" stay one annotation, while "k1:v1,k2:v2" and
+// "k1:v1, k2:v2" set two. A value containing a comma followed by a word and a
+// colon needs a flag of its own.
+type annotationsFlag struct {
+	values []string
+}
+
+func (a *annotationsFlag) Set(value string) error {
+	parts := strings.Split(value, ",")
+	a.values = append(a.values, parts[0])
+
+	for _, part := range parts[1:] {
+		trimmed := strings.TrimSpace(part)
+
+		// An empty part fails like for the released versions.
+		if trimmed == "" || startsAnnotation(trimmed) {
+			a.values = append(a.values, trimmed)
+
+			continue
+		}
+
+		a.values[len(a.values)-1] += "," + part
+	}
+
+	return nil
+}
+
+// startsAnnotation reports whether a comma separated part of an annotations
+// flag starts with a key and a colon, which are not the scheme of a URL.
+func startsAnnotation(part string) bool {
+	key := annotationStart.FindString(part)
+
+	return key != "" && !strings.HasPrefix(part[len(key):], "//")
+}
+
+func (a *annotationsFlag) String() string {
+	return strings.Join(a.values, ",")
 }
 
 // annotations parses the annotations in KEY:VALUE format. Only the first

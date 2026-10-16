@@ -63,6 +63,12 @@ type ProfileManager interface {
 	// enabled by the underlying systems in the host.
 	Enabled() bool
 
+	// KnownUnsupported reports whether the host is known not to support the
+	// profile technology. Enabled is false as well if the detection failed,
+	// like when the daemon cannot enter the host mount namespace, which
+	// tells nothing about the profiles installed on the host.
+	KnownUnsupported() bool
+
 	// InstallProfile ensure the profile is installed/copied/loaded into the host.
 	// ownedByUs reports that the caller has independent evidence that this
 	// operator installed the profile, which makes it ours even when its policy

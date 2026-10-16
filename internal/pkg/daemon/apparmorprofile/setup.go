@@ -45,9 +45,18 @@ func (r *Reconciler) Setup(
 	r.manager = NewAppArmorProfileManager(r.log)
 	r.nodeName = os.Getenv(config.NodeNameEnvKey)
 
-	r.logNodeInfo()
+	// A build without AppArmor support reports every host as one without
+	// AppArmor.
+	enabled := r.manager.Enabled()
+	r.log.Info(
+		"Detected AppArmor support",
+		"enabled",
+		enabled,
+		"builtWithAppArmor",
+		builtWithAppArmor,
+	)
 
-	if r.manager.Enabled() {
+	if enabled {
 		removeStaleTempFiles(r.log)
 	}
 

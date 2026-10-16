@@ -17,8 +17,12 @@ limitations under the License.
 package artifact
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 
+	yamlv3 "go.yaml.in/yaml/v3"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 
@@ -26,6 +30,65 @@ import (
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 )
+
+// ErrMultipleDocuments is returned by CheckSingleDocument for content with
+// more than one YAML document.
+var ErrMultipleDocuments = errors.New(
+	"the file has several YAML documents, like the output of spoc record -t all, " +
+		"split it into one file per profile",
+)
+
+// CheckSingleDocument returns ErrMultipleDocuments if the content has more
+// than one YAML document which is not empty. ReadProfile only reads the first
+// one, the others would be dropped without a word.
+func CheckSingleDocument(content []byte) error {
+	decoder := yamlv3.NewDecoder(bytes.NewReader(content))
+	documents := 0
+
+	for {
+		var document yamlv3.Node
+
+		err := decoder.Decode(&document)
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+
+		if err != nil {
+			return fmt.Errorf("%w: %w", ErrDecodeYAML, err)
+		}
+
+		if emptyDocument(&document) {
+			continue
+		}
+
+		documents++
+		if documents > 1 {
+			return ErrMultipleDocuments
+		}
+	}
+}
+
+// emptyDocument reports whether a YAML document has no content, like one of
+// comments only, or null.
+func emptyDocument(document *yamlv3.Node) bool {
+	if len(document.Content) == 0 {
+		return true
+	}
+
+	content := document.Content[0]
+
+	return content.Kind == yamlv3.ScalarNode && content.Tag == "!!null"
+}
+
+// ReadSingleProfile is ReadProfile for content which has to hold a single
+// profile, like a file passed to spoc.
+func ReadSingleProfile(content []byte) (client.Object, error) {
+	if err := CheckSingleDocument(content); err != nil {
+		return nil, err
+	}
+
+	return ReadProfile(content)
+}
 
 // ReadProfile unmarshals a raw security profile YAML byte slice into a SeccompProfile, SelinuxProfile,
 // or AppArmorProfile struct. The caller can then use `switch obj := profile.(type) { ... `.

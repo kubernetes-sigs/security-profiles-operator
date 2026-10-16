@@ -37,23 +37,6 @@ func NamespacedName(name, namespace string) types.NamespacedName {
 	}
 }
 
-// lengthName creates a string of less than maxLen characters. A friendly name
-// which fits is returned as is, a longer one is replaced by its hashed form,
-// see hashedName.
-//
-// A friendly name of exactly maxLen characters would fit as well, but gets
-// hashed too. This is an off-by-one, but the result names the node status
-// objects and their labels, so changing the threshold would orphan the
-// statuses of every profile whose friendly name has exactly maxLen characters.
-func lengthName(maxLen int, hashPrefix, format string, a ...any) (string, error) {
-	friendlyName := fmt.Sprintf(format, a...)
-	if len(friendlyName) < maxLen {
-		return friendlyName, nil
-	}
-
-	return hashedName(maxLen, hashPrefix, friendlyName)
-}
-
 // hashedName returns hashPrefix, a dash and as much of the hex encoded SHA-256
 // hash of name as fits into maxLen characters. It is not very user friendly,
 // but it keeps names apart which a truncation would merge.
@@ -83,9 +66,14 @@ func withHash(maxLen int, hashPrefix, name string) string {
 const dnsMinHashLen = 16
 
 // DNSLengthName returns the friendly name if it fits into a DNS label, and
-// its hashed form otherwise, see lengthName. A prefix too long to leave room
+// its hashed form otherwise, see withHash. A prefix too long to leave room
 // for the hash gets shortened, so that the name is never empty. The callers
 // pass profile kinds, which are short enough to be kept as they are.
+//
+// A friendly name of exactly the length of a DNS label would fit as well, but
+// gets hashed too. This is an off-by-one, but the result names the node
+// status objects and their labels, so changing the threshold would orphan
+// the statuses of every profile whose friendly name has exactly that length.
 func DNSLengthName(hashPrefix, format string, a ...any) string {
 	const maxPrefixLen = validation.DNS1123LabelMaxLength - 1 - dnsMinHashLen
 

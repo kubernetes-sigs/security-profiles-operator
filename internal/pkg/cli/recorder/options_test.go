@@ -31,15 +31,19 @@ func TestFromContext(t *testing.T) {
 
 	for _, tc := range []struct {
 		name    string
-		prepare func(*flag.FlagSet)
-		assert  func(*Options, error)
+		prepare func(*testing.T, *flag.FlagSet)
+		assert  func(*testing.T, *Options, error)
 	}{
 		{
 			name: "success",
-			prepare: func(set *flag.FlagSet) {
+			prepare: func(t *testing.T, set *flag.FlagSet) {
+				t.Helper()
+
 				require.NoError(t, set.Parse([]string{"echo"}))
 			},
-			assert: func(options *Options, err error) {
+			assert: func(t *testing.T, options *Options, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				require.Equal(t, DefaultBaseSyscalls, options.baseSyscalls)
 				require.False(t, options.noProcStart)
@@ -48,7 +52,9 @@ func TestFromContext(t *testing.T) {
 		},
 		{
 			name: "boolean flags set",
-			prepare: func(set *flag.FlagSet) {
+			prepare: func(t *testing.T, set *flag.FlagSet) {
+				t.Helper()
+
 				set.Bool(FlagNoBaseSyscalls, false, "")
 				set.Bool(FlagNoProcStart, false, "")
 				set.Bool(command.FlagPrivileged, false, "")
@@ -56,7 +62,9 @@ func TestFromContext(t *testing.T) {
 					"--" + FlagNoBaseSyscalls, "--" + FlagNoProcStart, "--" + command.FlagPrivileged, "echo",
 				}))
 			},
-			assert: func(options *Options, err error) {
+			assert: func(t *testing.T, options *Options, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				require.Nil(t, options.baseSyscalls)
 				require.True(t, options.noProcStart)
@@ -65,7 +73,9 @@ func TestFromContext(t *testing.T) {
 		},
 		{
 			name: "boolean flags set to false",
-			prepare: func(set *flag.FlagSet) {
+			prepare: func(t *testing.T, set *flag.FlagSet) {
+				t.Helper()
+
 				set.Bool(FlagNoBaseSyscalls, false, "")
 				set.Bool(FlagNoProcStart, false, "")
 				set.Bool(command.FlagPrivileged, false, "")
@@ -76,7 +86,9 @@ func TestFromContext(t *testing.T) {
 					"echo",
 				}))
 			},
-			assert: func(options *Options, err error) {
+			assert: func(t *testing.T, options *Options, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				require.Equal(t, DefaultBaseSyscalls, options.baseSyscalls)
 				require.False(t, options.noProcStart)
@@ -85,29 +97,39 @@ func TestFromContext(t *testing.T) {
 		},
 		{
 			name:    "failure: no command provided",
-			prepare: func(set *flag.FlagSet) {},
-			assert: func(_ *Options, err error) {
-				require.Error(t, err)
+			prepare: func(*testing.T, *flag.FlagSet) {},
+			assert: func(t *testing.T, _ *Options, err error) {
+				t.Helper()
+
+				require.ErrorContains(t, err, "get command options")
 			},
 		},
 		{
 			name: "failure: unsupported type",
-			prepare: func(set *flag.FlagSet) {
+			prepare: func(t *testing.T, set *flag.FlagSet) {
+				t.Helper()
+
 				set.String(FlagType, "", "")
-				require.NoError(t, set.Set(FlagType, "wrong"))
+				require.NoError(t, set.Parse([]string{"--" + FlagType, "wrong", "echo"}))
 			},
-			assert: func(_ *Options, err error) {
-				require.Error(t, err)
+			assert: func(t *testing.T, _ *Options, err error) {
+				t.Helper()
+
+				require.EqualError(t, err, "unsupported "+FlagType+": wrong")
 			},
 		},
 		{
 			name: "failure: no filename provided",
-			prepare: func(set *flag.FlagSet) {
+			prepare: func(t *testing.T, set *flag.FlagSet) {
+				t.Helper()
+
 				set.String(FlagOutputFile, "", "")
-				require.NoError(t, set.Set(FlagOutputFile, ""))
+				require.NoError(t, set.Parse([]string{"--" + FlagOutputFile, "", "echo"}))
 			},
-			assert: func(_ *Options, err error) {
-				require.Error(t, err)
+			assert: func(t *testing.T, _ *Options, err error) {
+				t.Helper()
+
+				require.EqualError(t, err, "no filename provided")
 			},
 		},
 	} {
@@ -115,13 +137,13 @@ func TestFromContext(t *testing.T) {
 			t.Parallel()
 
 			set := flag.NewFlagSet("", flag.ExitOnError)
-			tc.prepare(set)
+			tc.prepare(t, set)
 
 			app := cli.NewApp()
 			ctx := cli.NewContext(app, set, nil)
 
 			options, err := FromContext(ctx)
-			tc.assert(options, err)
+			tc.assert(t, options, err)
 		})
 	}
 }

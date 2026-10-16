@@ -18,7 +18,6 @@ package artifact
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -143,14 +142,13 @@ func (a *Artifact) fetchProfile(
 
 	sha := subject.Digest.String()
 
-	manifestDescriptor, err := a.Copy(ctx, repo, sha, store, sha, copyOptions)
-	if err != nil {
+	if _, err := a.Copy(ctx, repo, sha, store, sha, copyOptions); err != nil {
 		return nil, false, fmt.Errorf("copy from repository: %w", err)
 	}
 
 	a.logger.Info("Checking profile contents")
 
-	content, runtimeFormat, err = a.profileContent(ctx, store, &manifestDescriptor, selection)
+	content, runtimeFormat, err = a.profileContent(ctx, store, selection)
 	if err != nil {
 		return nil, false, fmt.Errorf("read profile: %w", err)
 	}
@@ -244,6 +242,10 @@ func (a *Artifact) imageWithDigest(
 		desc.Digest.String()), repo, desc, nil
 }
 
+// errNoLayerSelected is returned if the copy of an artifact did not select
+// its profile layer, which it does for every manifest it copies.
+var errNoLayerSelected = errors.New("the copy selected no profile layer")
+
 // blobSizeLimit returns the ORAS PreCopy hook which rejects every blob of the
 // artifact larger than limit before it is fetched. ORAS reads the manifest
 // first to find the blobs, bounded by its own metadata limit, and runs the
@@ -265,26 +267,16 @@ func blobSizeLimit(limit int64) func(context.Context, v1.Descriptor) error {
 
 // profileContent returns the profile content of a pulled artifact, together
 // with whether the artifact uses the KEP-6061 runtime format. The layer is the
-// one the copy selected. If the copy did not select one, for example because
-// it found the manifest in the store already, it gets selected from the
-// stored manifest.
+// one the copy selected. Every pull copies into a new store, so the copy
+// always looks at the manifest and selects the layer.
 func (a *Artifact) profileContent(
 	ctx context.Context,
 	store *file.Store,
-	manifestDescriptor *v1.Descriptor,
 	selection *layerSelection,
 ) (content []byte, runtimeFormat bool, err error) {
 	layer, runtimeFormat, ok := selection.result()
 	if !ok {
-		manifest, err := a.manifest(ctx, store, manifestDescriptor)
-		if err != nil {
-			return nil, false, err
-		}
-
-		layer, runtimeFormat, err = selectLayer(manifest, selection.platform)
-		if err != nil {
-			return nil, false, err
-		}
+		return nil, false, errNoLayerSelected
 	}
 
 	a.logger.Info("Reading profile layer",
@@ -295,23 +287,6 @@ func (a *Artifact) profileContent(
 	content, err = a.blobContent(ctx, store, layer)
 
 	return content, runtimeFormat, err
-}
-
-// manifest returns the parsed manifest of a pulled artifact.
-func (a *Artifact) manifest(
-	ctx context.Context, store *file.Store, descriptor *v1.Descriptor,
-) (*v1.Manifest, error) {
-	content, err := a.blobContent(ctx, store, descriptor)
-	if err != nil {
-		return nil, fmt.Errorf("read manifest: %w", err)
-	}
-
-	manifest := &v1.Manifest{}
-	if err := json.Unmarshal(content, manifest); err != nil {
-		return nil, fmt.Errorf("unmarshal manifest: %w", err)
-	}
-
-	return manifest, nil
 }
 
 // blobContent returns the content of a blob from the store. The read is

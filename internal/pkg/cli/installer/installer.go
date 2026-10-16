@@ -20,12 +20,15 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
+	"path/filepath"
 
 	"github.com/go-logr/logr"
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/apparmorprofile"
 )
 
@@ -61,7 +64,7 @@ func (p *Installer) Run() error {
 		return fmt.Errorf("open profile: %w", err)
 	}
 
-	profile, err := AppArmorProfile(content, p.options, "install")
+	profile, _, err := AppArmorProfile(content, p.options, "install")
 	if err != nil {
 		return err
 	}
@@ -81,46 +84,85 @@ func (p *Installer) Run() error {
 }
 
 // AppArmorProfile parses the AppArmor profile of the file of the options and
-// names it after the executable it confines. action is what the caller does
-// with it, for the errors.
+// names it after the executable it confines. It returns the name before
+// resolving the executable as well, which earlier releases named the
+// profile with. action is what the caller does with it, for the errors.
 func AppArmorProfile(
 	content []byte, options *Options, action string,
-) (*apparmorprofileapi.AppArmorProfile, error) {
-	profile, err := artifact.ReadProfile(content)
+) (profile *apparmorprofileapi.AppArmorProfile, unresolved string, err error) {
+	obj, err := artifact.ReadSingleProfile(content)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read %s: %w", options.ProfilePath, err)
+		return nil, "", fmt.Errorf("failed to read %s: %w", options.ProfilePath, err)
 	}
 
-	obj, ok := profile.(*apparmorprofileapi.AppArmorProfile)
+	profile, ok := obj.(*apparmorprofileapi.AppArmorProfile)
 	if !ok {
-		return nil, fmt.Errorf(
+		return nil, "", fmt.Errorf(
 			"cannot %s %s profiles, only AppArmorProfile is supported",
-			action, profile.GetObjectKind().GroupVersionKind().Kind,
+			action, obj.GetObjectKind().GroupVersionKind().Kind,
 		)
 	}
 
-	if err := PatchProfileName(obj, options); err != nil {
-		return nil, fmt.Errorf("cannot %s apparmor profile: %w", action, err)
+	unresolved, err = executable(profile, options)
+	if err != nil {
+		return nil, "", fmt.Errorf("cannot %s apparmor profile: %w", action, err)
 	}
 
-	return obj, nil
+	return profile, unresolved, nil
 }
 
-func PatchProfileName(profile *apparmorprofileapi.AppArmorProfile, options *Options) error {
-	if options.ExecutablePath != "" {
-		profile.Name = options.ExecutablePath
-	} else {
-		// The profile name may as well be a command on the PATH, whose
-		// executable the profile then confines.
-		if resolved, err := exec.LookPath(profile.Name); err == nil {
-			log.Printf("Resolved profile name %s to executable %s", profile.Name, resolved)
-			profile.Name = resolved
+// executable names the profile after the executable it confines, and returns
+// that executable as earlier releases named the profile: the path of the
+// options as given, or the command on the PATH the profile is named after. A
+// path of the options is a path, never a command on the PATH. AppArmor
+// attaches a profile to the absolute path of the executable a symlink
+// resolves to, a profile named otherwise does not attach to anything.
+func executable(
+	profile *apparmorprofileapi.AppArmorProfile, options *Options,
+) (unresolved string, err error) {
+	unresolved = options.ExecutablePath
+	isExecutable := unresolved != ""
+
+	if !isExecutable {
+		unresolved = profile.Name
+
+		if found, err := exec.LookPath(profile.Name); err == nil {
+			unresolved = found
+			isExecutable = true
 		}
 	}
 
-	if profile.Name == "" {
-		return errors.New("apparmor profile has an empty name")
+	if unresolved == "" {
+		return "", errors.New("apparmor profile has an empty name")
 	}
 
-	return nil
+	// A profile name which is no command keeps its name.
+	if isExecutable {
+		resolved, err := cli.ResolvePath(unresolved)
+		if err != nil {
+			return "", fmt.Errorf("resolve executable %s: %w", unresolved, err)
+		}
+
+		if _, err := os.Stat(resolved); err != nil {
+			log.Printf(
+				"Executable %s does not exist, the profile attaches to it once it does",
+				resolved,
+			)
+		}
+
+		if resolved != profile.Name {
+			log.Printf("Resolved profile name %s to executable %s", unresolved, resolved)
+		}
+
+		profile.Name = resolved
+	}
+
+	if !filepath.IsAbs(profile.Name) {
+		log.Printf(
+			"Profile name %s is no absolute path, the profile does not attach to an executable",
+			profile.Name,
+		)
+	}
+
+	return unresolved, nil
 }

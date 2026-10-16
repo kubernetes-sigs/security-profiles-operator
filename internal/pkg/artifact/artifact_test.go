@@ -100,179 +100,213 @@ func TestPush(t *testing.T) {
 
 	for _, tc := range []struct {
 		name    string
-		prepare func(mock *artifactfakes.FakeImpl)
-		assert  func(error)
+		prepare func(t *testing.T, mock *artifactfakes.FakeImpl)
+		assert  func(*testing.T, error)
 	}{
 		{
 			name: "success with failed cleanup",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.RemoveAllReturns(errTest)
 				mock.FileCloseReturns(errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 			},
 		},
 		{
 			name: "success",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 			},
 		},
 		{
 			name: "success without trusted root",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.TrustedMaterialReturns(nil, errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 			},
 		},
 		{
 			name: "failure on SignBundle",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.SignBundleReturns(nil, errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, errTest)
 			},
 		},
 		{
 			name: "failure on SigningConfig",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.SigningConfigReturns(nil, errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, errTest)
 			},
 		},
 		{
 			name: "failure without SigningConfig",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.SigningConfigReturns(nil, nil)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, ErrNoSigningConfig)
 			},
 		},
 		{
 			name: "failure on IDToken",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.IDTokenReturns("", errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, errTest)
 			},
 		},
 		{
 			name: "failure on RepositoryPush",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.RepositoryPushReturns(errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, errTest)
 			},
 		},
 		{
 			name: "failure on Copy",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.CopyReturns(defaultDescriptor(), errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, errTest)
 			},
 		},
 		{
 			name: "failure on NewRepository",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.NewRepositoryReturns(nil, errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, errTest)
 			},
 		},
 		{
 			name: "failure on StoreTag",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.StoreTagReturns(errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, errTest)
 			},
 		},
 		{
 			name: "failure on ParseReferenceReturns",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.ParseReferenceReturns(nil, errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, errTest)
 			},
 		},
 		{
 			name: "failure on PackManifest",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.PackManifestReturns(defaultDescriptor(), errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, errTest)
 			},
 		},
 		{
 			name: "failure on FilepathAbs",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.FilepathAbsReturns("", errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, errTest)
 			},
 		},
 		{
 			name: "failure on adding the profile to the store",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.StorePushReturns(errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, errTest)
 			},
 		},
 		{
 			name: "failure on FileNew",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.FileNewReturns(nil, errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, errTest)
 			},
 		},
 		{
 			name: "failure on MkdirTemp",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.MkdirTempReturns("", errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, errTest)
 			},
 		},
@@ -285,7 +319,7 @@ func TestPush(t *testing.T) {
 
 			mock := &artifactfakes.FakeImpl{}
 			stubSigning(t, mock)
-			prepare(mock)
+			prepare(t, mock)
 
 			sut := New(logr.Discard())
 			sut.impl = mock
@@ -305,7 +339,7 @@ func TestPush(t *testing.T) {
 				map[string]string{"foo": "bar"},
 				nil,
 			)
-			assert(err)
+			assert(t, err)
 		})
 	}
 }
@@ -318,12 +352,12 @@ func TestPull(t *testing.T) {
 
 	for _, tc := range []struct {
 		name    string
-		prepare func(mock *artifactfakes.FakeImpl)
-		assert  func(*PullResult, error)
+		prepare func(t *testing.T, mock *artifactfakes.FakeImpl)
+		assert  func(*testing.T, *PullResult, error)
 	}{
 		{
 			name: "success with failed cleanup",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
@@ -331,7 +365,9 @@ func TestPull(t *testing.T) {
 				mock.RemoveAllReturns(errTest)
 				mock.FileCloseReturns(errTest)
 			},
-			assert: func(res *PullResult, err error) {
+			assert: func(t *testing.T, res *PullResult, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				require.NotNil(t, res)
 				require.NotNil(t, res.Content())
@@ -341,13 +377,15 @@ func TestPull(t *testing.T) {
 		},
 		{
 			name: "success seccomp",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.ReadProfileReturns(&seccompprofileapi.SeccompProfile{}, nil)
 			},
-			assert: func(res *PullResult, err error) {
+			assert: func(t *testing.T, res *PullResult, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				require.NotNil(t, res)
 				require.NotNil(t, res.Content())
@@ -357,13 +395,15 @@ func TestPull(t *testing.T) {
 		},
 		{
 			name: "success selinux",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.ReadProfileReturns(&selinuxprofileapi.SelinuxProfile{}, nil)
 			},
-			assert: func(res *PullResult, err error) {
+			assert: func(t *testing.T, res *PullResult, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				require.NotNil(t, res)
 				require.NotNil(t, res.Content())
@@ -373,13 +413,15 @@ func TestPull(t *testing.T) {
 		},
 		{
 			name: "success apparmor",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.ReadProfileReturns(&apparmorprofileapi.AppArmorProfile{}, nil)
 			},
-			assert: func(res *PullResult, err error) {
+			assert: func(t *testing.T, res *PullResult, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				require.NotNil(t, res)
 				require.NotNil(t, res.Content())
@@ -389,14 +431,16 @@ func TestPull(t *testing.T) {
 		},
 		{
 			name: "success runtime-spec seccomp profile",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				stubProfile(mock, rawSeccompJSON)
 				mock.ReadProfileReturns(nil, errTest)
 			},
-			assert: func(res *PullResult, err error) {
+			assert: func(t *testing.T, res *PullResult, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				require.NotNil(t, res)
 				require.Equal(t, PullResultTypeSeccompProfile, res.Type())
@@ -409,13 +453,15 @@ func TestPull(t *testing.T) {
 		},
 		{
 			name: "failure on all YAML decodes",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.ReadProfileReturns(nil, errTest)
 			},
-			assert: func(res *PullResult, err error) {
+			assert: func(t *testing.T, res *PullResult, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, ErrDecodeYAML)
 				require.ErrorIs(t, err, errTest)
 				require.Nil(t, res)
@@ -423,7 +469,7 @@ func TestPull(t *testing.T) {
 		},
 		{
 			name: "success on runtime format artifact",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
@@ -434,7 +480,9 @@ func TestPull(t *testing.T) {
 				}, map[digest.Digest]string{testLayer("").Digest: rawSeccompJSON})
 				mock.ReadProfileReturns(nil, errTest)
 			},
-			assert: func(res *PullResult, err error) {
+			assert: func(t *testing.T, res *PullResult, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				require.NotNil(t, res)
 				require.Equal(t, PullResultTypeSeccompProfile, res.Type())
@@ -443,7 +491,7 @@ func TestPull(t *testing.T) {
 		},
 		{
 			name: "success on runtime format artifact identified by artifactType",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
@@ -454,7 +502,9 @@ func TestPull(t *testing.T) {
 				}, map[digest.Digest]string{testLayer("").Digest: rawSeccompJSON})
 				mock.ReadProfileReturns(nil, errTest)
 			},
-			assert: func(res *PullResult, err error) {
+			assert: func(t *testing.T, res *PullResult, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				require.Equal(t, PullResultTypeSeccompProfile, res.Type())
 				require.JSONEq(t, rawSeccompJSON, string(res.Content()))
@@ -462,7 +512,7 @@ func TestPull(t *testing.T) {
 		},
 		{
 			name: "failure on runtime format artifact with multiple layers",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
@@ -471,14 +521,16 @@ func TestPull(t *testing.T) {
 					Layers: []ocispec.Descriptor{testLayer("a"), testLayer("b")},
 				}, nil)
 			},
-			assert: func(res *PullResult, err error) {
+			assert: func(t *testing.T, res *PullResult, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, ErrNoSingleLayer)
 				require.Nil(t, res)
 			},
 		},
 		{
 			name: "failure on undecodable runtime format artifact",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
@@ -487,7 +539,9 @@ func TestPull(t *testing.T) {
 					Layers: []ocispec.Descriptor{testLayer("")},
 				}, map[digest.Digest]string{testLayer("").Digest: `{"syscalls":[]}`})
 			},
-			assert: func(res *PullResult, err error) {
+			assert: func(t *testing.T, res *PullResult, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, ErrNoDefaultAction)
 				require.ErrorContains(t, err, MediaTypeSeccompProfile)
 				require.Nil(t, res)
@@ -495,7 +549,7 @@ func TestPull(t *testing.T) {
 		},
 		{
 			name: "success on single layer with unknown name",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
@@ -504,7 +558,9 @@ func TestPull(t *testing.T) {
 				}, map[digest.Digest]string{testLayer("seccomp.json").Digest: rawSeccompJSON})
 				mock.ReadProfileReturns(nil, errTest)
 			},
-			assert: func(res *PullResult, err error) {
+			assert: func(t *testing.T, res *PullResult, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				require.NotNil(t, res)
 				require.Equal(t, PullResultTypeSeccompProfile, res.Type())
@@ -513,7 +569,7 @@ func TestPull(t *testing.T) {
 		},
 		{
 			name: "failure on platform qualified single layer",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
@@ -521,14 +577,16 @@ func TestPull(t *testing.T) {
 					Layers: []ocispec.Descriptor{testLayer("profile-linux-arm64.yaml")},
 				}, nil)
 			},
-			assert: func(res *PullResult, err error) {
+			assert: func(t *testing.T, res *PullResult, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, ErrPlatformMismatch)
 				require.Nil(t, res)
 			},
 		},
 		{
 			name: "failure on single layer bound to another platform",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
@@ -540,14 +598,16 @@ func TestPull(t *testing.T) {
 					Layers: []ocispec.Descriptor{layer},
 				}, nil)
 			},
-			assert: func(res *PullResult, err error) {
+			assert: func(t *testing.T, res *PullResult, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, ErrPlatformMismatch)
 				require.Nil(t, res)
 			},
 		},
 		{
 			name: "failure on ReadFile without single layer",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
@@ -558,27 +618,31 @@ func TestPull(t *testing.T) {
 					},
 				}, nil)
 			},
-			assert: func(res *PullResult, err error) {
+			assert: func(t *testing.T, res *PullResult, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, ErrNoSingleLayer)
 				require.Nil(t, res)
 			},
 		},
 		{
 			name: "failure on StoreFetch of the manifest",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.StoreFetchReturns(nil, errTest)
 			},
-			assert: func(res *PullResult, err error) {
+			assert: func(t *testing.T, res *PullResult, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, errTest)
 				require.Nil(t, res)
 			},
 		},
 		{
 			name: "failure on unparsable manifest",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
@@ -588,14 +652,18 @@ func TestPull(t *testing.T) {
 					return io.NopCloser(strings.NewReader("not json")), nil
 				}
 			},
-			assert: func(res *PullResult, err error) {
+			assert: func(t *testing.T, res *PullResult, err error) {
+				t.Helper()
+
 				require.ErrorContains(t, err, "unmarshal manifest")
 				require.Nil(t, res)
 			},
 		},
 		{
 			name: "failure on StoreFetch of the single layer",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(t *testing.T, mock *artifactfakes.FakeImpl) {
+				t.Helper()
+
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
@@ -618,92 +686,125 @@ func TestPull(t *testing.T) {
 					return nil, errTest
 				}
 			},
-			assert: func(res *PullResult, err error) {
+			assert: func(t *testing.T, res *PullResult, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, errTest)
 				require.Nil(t, res)
 			},
 		},
 		{
 			name: "failure on Copy",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.CopyReturns(defaultDescriptor(), errTest)
 			},
-			assert: func(res *PullResult, err error) {
+			assert: func(t *testing.T, res *PullResult, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, errTest)
 				require.Nil(t, res)
 			},
 		},
 		{
+			// The copy into the new store of a pull always selects the
+			// layer, nothing else may be read instead.
+			name: "failure on Copy without a selected layer",
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
+				mock.NewRepositoryReturns(&remote.Repository{}, nil)
+				mock.ResolveRepositoryReturns(testSubject(), nil)
+				mock.ParseReferenceReturns(testRef, nil)
+				mock.CopyReturns(testSubject(), nil)
+			},
+			assert: func(t *testing.T, res *PullResult, err error) {
+				t.Helper()
+
+				require.ErrorIs(t, err, errNoLayerSelected)
+				require.Nil(t, res)
+			},
+		},
+		{
 			name: "failure on NewRepository",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.NewRepositoryReturns(nil, errTest)
 			},
-			assert: func(res *PullResult, err error) {
+			assert: func(t *testing.T, res *PullResult, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, errTest)
 				require.Nil(t, res)
 			},
 		},
 		{
 			name: "failure on ParseReference",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.ParseReferenceReturns(nil, errTest)
 			},
-			assert: func(res *PullResult, err error) {
+			assert: func(t *testing.T, res *PullResult, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, errTest)
 				require.Nil(t, res)
 			},
 		},
 		{
 			name: "failure on ResolveRepository",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.ResolveRepositoryReturns(ocispec.Descriptor{}, errTest)
 			},
-			assert: func(res *PullResult, err error) {
+			assert: func(t *testing.T, res *PullResult, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, errTest)
 				require.Nil(t, res)
 			},
 		},
 		{
 			name: "failure on FileNew",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.FileNewReturns(nil, errTest)
 			},
-			assert: func(res *PullResult, err error) {
+			assert: func(t *testing.T, res *PullResult, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, errTest)
 				require.Nil(t, res)
 			},
 		},
 		{
 			name: "failure on MkdirTemp",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.MkdirTempReturns("", errTest)
 			},
-			assert: func(res *PullResult, err error) {
+			assert: func(t *testing.T, res *PullResult, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, errTest)
 				require.Nil(t, res)
 			},
 		},
 		{
 			name: "failure on VerifyEntity",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.VerifyEntityReturns(errTest)
 			},
-			assert: func(res *PullResult, err error) {
+			assert: func(t *testing.T, res *PullResult, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, errTest)
 				require.ErrorContains(t, err, "verify signature")
 				require.Nil(t, res)
@@ -711,40 +812,46 @@ func TestPull(t *testing.T) {
 		},
 		{
 			name: "failure on TrustedMaterial",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.TrustedMaterialReturns(nil, errTest)
 			},
-			assert: func(res *PullResult, err error) {
+			assert: func(t *testing.T, res *PullResult, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, errTest)
 				require.Nil(t, res)
 			},
 		},
 		{
 			name: "failure on FetchAll",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.FetchAllReturns(nil, errTest)
 			},
-			assert: func(res *PullResult, err error) {
+			assert: func(t *testing.T, res *PullResult, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, errTest)
 				require.Nil(t, res)
 			},
 		},
 		{
 			name: "failure without signature",
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.ResolveRepositoryReturns(testSubject(), nil)
 				mock.SignatureReferrersReturns(nil, errTest)
 				mock.FetchReferenceReturns(ocispec.Descriptor{}, nil, errdef.ErrNotFound)
 			},
-			assert: func(res *PullResult, err error) {
+			assert: func(t *testing.T, res *PullResult, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, ErrNoSignature)
 				require.ErrorIs(t, err, errTest)
 				require.Nil(t, res)
@@ -759,13 +866,13 @@ func TestPull(t *testing.T) {
 
 			mock := &artifactfakes.FakeImpl{}
 			stubProfile(mock, "")
-			prepare(mock)
+			prepare(t, mock)
 
 			sut := New(logr.Discard())
 			sut.impl = mock
 
 			res, err := sut.Pull(t.Context(), "", "foo", "bar", nil, &PullOptions{})
-			assert(res, err)
+			assert(t, res, err)
 		})
 	}
 }
@@ -1062,13 +1169,13 @@ func TestPushRuntimeSpecSeccompProfileErrors(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		files   map[*ocispec.Platform]string
-		prepare func(mock *artifactfakes.FakeImpl)
+		prepare func(t *testing.T, mock *artifactfakes.FakeImpl)
 		wantErr error
 	}{
 		{
 			name:  "multiple runtime-spec profiles",
 			files: map[*ocispec.Platform]string{amd64: "raw-amd64", arm64: "raw-arm64"},
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.ReadFileReturns([]byte(rawSeccompJSON), nil)
 				mock.ReadProfileReturns(nil, errTest)
 			},
@@ -1077,7 +1184,7 @@ func TestPushRuntimeSpecSeccompProfileErrors(t *testing.T) {
 		{
 			name:  "mixed formats",
 			files: map[*ocispec.Platform]string{amd64: "raw", arm64: "crd"},
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.ReadFileStub = func(path string) ([]byte, error) {
 					if strings.HasSuffix(path, "raw") {
 						return []byte(rawSeccompJSON), nil
@@ -1098,7 +1205,7 @@ func TestPushRuntimeSpecSeccompProfileErrors(t *testing.T) {
 		{
 			name:  "failure on ReadFile",
 			files: map[*ocispec.Platform]string{amd64: "raw"},
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.ReadFileReturns(nil, errTest)
 			},
 			wantErr: errTest,
@@ -1106,7 +1213,7 @@ func TestPushRuntimeSpecSeccompProfileErrors(t *testing.T) {
 		{
 			name:  "neither a profile CRD nor a runtime-spec profile",
 			files: map[*ocispec.Platform]string{amd64: "moby"},
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				// The moby superset format used by the default profiles of
 				// containers/common and docker.
 				mock.ReadFileReturns([]byte(
@@ -1119,7 +1226,7 @@ func TestPushRuntimeSpecSeccompProfileErrors(t *testing.T) {
 		{
 			name:  "garbage input",
 			files: map[*ocispec.Platform]string{amd64: "garbage"},
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.ReadFileReturns([]byte("not a profile at all"), nil)
 				mock.ReadProfileReturns(nil, errTest)
 			},
@@ -1128,7 +1235,7 @@ func TestPushRuntimeSpecSeccompProfileErrors(t *testing.T) {
 		{
 			name:  "failure on StorePush",
 			files: map[*ocispec.Platform]string{amd64: "raw"},
-			prepare: func(mock *artifactfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *artifactfakes.FakeImpl) {
 				mock.ReadFileReturns([]byte(rawSeccompJSON), nil)
 				mock.ReadProfileReturns(nil, errTest)
 				mock.StorePushReturns(errTest)
@@ -1141,7 +1248,7 @@ func TestPushRuntimeSpecSeccompProfileErrors(t *testing.T) {
 
 			mock := &artifactfakes.FakeImpl{}
 			mock.FilepathAbsStub = func(path string) (string, error) { return path, nil }
-			tc.prepare(mock)
+			tc.prepare(t, mock)
 
 			sut := New(logr.Discard())
 			sut.impl = mock
@@ -1370,6 +1477,51 @@ func stubManifest(
 
 		return io.NopCloser(bytes.NewReader(raw)), nil
 	}
+
+	mock.CopyStub = func(
+		ctx context.Context, _ oras.ReadOnlyTarget, _ string,
+		_ oras.Target, _ string, opts oras.CopyOptions,
+	) (ocispec.Descriptor, error) {
+		return copyManifest(ctx, mock, opts)
+	}
+}
+
+// copyManifest runs the FindSuccessors hook of opts on the manifest which
+// StoreFetch returns, like ORAS does when it copies the manifest into the new
+// store of a pull, which selects the profile layer.
+func copyManifest(
+	ctx context.Context, mock *artifactfakes.FakeImpl, opts oras.CopyOptions,
+) (ocispec.Descriptor, error) {
+	subject := testSubject()
+
+	reader, err := mock.StoreFetch(ctx, nil, &subject)
+	if err != nil {
+		return ocispec.Descriptor{}, err
+	}
+
+	defer reader.Close()
+
+	raw, err := io.ReadAll(reader)
+	if err != nil {
+		return ocispec.Descriptor{}, err
+	}
+
+	manifest := orascontent.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, raw)
+
+	if opts.FindSuccessors != nil {
+		if _, err := opts.FindSuccessors(ctx, manifestFetcher(raw), manifest); err != nil {
+			return ocispec.Descriptor{}, err
+		}
+	}
+
+	return manifest, nil
+}
+
+// manifestFetcher fetches the manifest it holds.
+type manifestFetcher []byte
+
+func (m manifestFetcher) Fetch(context.Context, ocispec.Descriptor) (io.ReadCloser, error) {
+	return io.NopCloser(bytes.NewReader(m)), nil
 }
 
 // testSubject is the descriptor of the artifact manifest.
@@ -1782,7 +1934,7 @@ func TestPullBlobSizeLimit(t *testing.T) {
 					return ocispec.Descriptor{}, err
 				}
 
-				return ocispec.Descriptor{}, nil
+				return copyManifest(ctx, mock, opts)
 			}
 
 			sut := New(logr.Discard())

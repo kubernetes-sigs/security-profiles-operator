@@ -43,7 +43,6 @@ var knownReadPrefixes = []string{
 	"/etc/ld.so.conf",
 	"/etc/ld.so.conf.d/",
 	"/etc/locale/",
-	"/etc/locale.alias/",
 	"/etc/localtime",
 	"/usr/share/locale/",
 	"/usr/lib/locale/",

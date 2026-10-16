@@ -28,7 +28,6 @@ import (
 	"io"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -163,7 +162,21 @@ func (r *Recorder) recordCommand() (mntns uint32, err error) {
 		log.Print(WaitForSigIntMessage)
 		<-ch
 
+		// A further signal while the profile gets built ends spoc, like
+		// for the other commands.
+		r.StopNotify(ch)
+
 		return 0, nil
+	}
+
+	// The command shares the mount namespace of spoc. It is looked up before
+	// the command starts, so that a failure does not leave it running.
+	spocPid := os.Getpid()
+
+	//nolint:gosec // PIDs are positive and below the kernel pid_max of 2^22
+	mntns, err = r.FindProcMountNamespace(r.bpfRecorder, uint32(spocPid))
+	if err != nil {
+		return 0, fmt.Errorf("finding mntns of spoc PID %d: %w", spocPid, err)
 	}
 
 	cmd := command.New(r.options.commandOptions)
@@ -171,16 +184,6 @@ func (r *Recorder) recordCommand() (mntns uint32, err error) {
 	pid, err := r.CommandRun(cmd)
 	if err != nil {
 		return 0, fmt.Errorf("run command: %w", err)
-	}
-
-	// The command shares the mount namespace of spoc, which is still
-	// there if the command exits right away.
-	spocPid := os.Getpid()
-
-	//nolint:gosec // PIDs are positive and below the kernel pid_max of 2^22
-	mntns, err = r.FindProcMountNamespace(r.bpfRecorder, uint32(spocPid))
-	if err != nil {
-		return 0, fmt.Errorf("finding mntns of spoc PID %d: %w", spocPid, err)
 	}
 
 	if err := r.CommandWait(cmd); err != nil {
@@ -475,7 +478,7 @@ func (r *Recorder) buildAppArmorProfileRaw(
 	writer io.Writer,
 	spec *apparmorprofileapi.AppArmorProfileSpec,
 ) error {
-	programName, err := programPath(r.options.commandOptions.Command())
+	programName, err := cli.ExecutablePath(r.options.commandOptions.Command())
 	if err != nil {
 		return fmt.Errorf("get program name: %w", err)
 	}
@@ -492,29 +495,6 @@ func (r *Recorder) buildAppArmorProfileRaw(
 	}
 
 	return nil
-}
-
-// programPath returns the absolute path of the executable of the command,
-// which the raw AppArmor profile attaches to. A command name without a path
-// is resolved on the PATH like when it gets started, a relative path to the
-// working directory. A command which cannot be found, for example the one of
-// --no-proc-start, is taken relative to the working directory. AppArmor
-// attaches to the executable a symlink resolves to, so they get resolved.
-func programPath(name string) (string, error) {
-	if resolved, err := exec.LookPath(name); err == nil {
-		name = resolved
-	}
-
-	path, err := filepath.Abs(name)
-	if err != nil {
-		return "", err
-	}
-
-	if resolved, err := filepath.EvalSymlinks(path); err == nil {
-		return resolved, nil
-	}
-
-	return path, nil
 }
 
 func (r *Recorder) goArchToSeccompArch(goarch string) (seccompprofileapi.Arch, error) {

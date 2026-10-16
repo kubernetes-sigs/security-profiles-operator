@@ -78,7 +78,7 @@ run a command using a seccomp profile
 
 push profiles to a container registry
 
-**--annotations, -a**="": the annotations to be set in `KEY:VALUE` format
+**--annotations, -a**="": the annotations to be set in `KEY:VALUE` format, separated by commas or by repeating the flag; a value with a comma followed by a word and a colon needs a flag of its own
 
 **--disable-artifact-validation**: push a runtime-spec seccomp profile even if container runtimes would reject it as a KEP-6061 artifact, for publishing test fixtures
 

@@ -47,10 +47,11 @@ func TestGenerateProfileRejectsEmptyName(t *testing.T) {
 func TestGenerateProfileKeepsPathTraversal(t *testing.T) {
 	t.Parallel()
 
-	paths := []string{"/usr/bin/../etc/shadow", "/../etc/shadow"}
+	paths := []string{"/usr/bin/../etc/shadow", "/../etc/shadow", "/etc/.."}
 	abstract := &apparmorprofileapi.AppArmorAbstract{
 		Filesystem: &apparmorprofileapi.AppArmorFsRules{
-			ReadOnlyPaths: append([]string{"/etc/hosts"}, paths...),
+			// A name starting with two dots is no traversal.
+			ReadOnlyPaths: append([]string{"/etc/hosts", "/run/..data"}, paths...),
 		},
 	}
 
@@ -570,6 +571,24 @@ func TestGenerateProfile(t *testing.T) {
 				},
 			},
 			wantErr: true,
+		},
+		{
+			name: "Path sanitization - bad - trailing directory traversal",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Executable: &apparmorprofileapi.AppArmorExecutablesRules{
+					AllowedLibraries: []string{"/usr/lib/.."},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Path sanitization - good - name starting with two dots",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Executable: &apparmorprofileapi.AppArmorExecutablesRules{
+					AllowedExecutables: []string{"/opt/..data/app"},
+				},
+			},
+			wantErr: false,
 		},
 		{
 			name: "Capabilities sanitization - good - standard capability",

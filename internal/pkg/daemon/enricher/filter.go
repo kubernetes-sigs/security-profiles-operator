@@ -32,7 +32,8 @@ import (
 // GetEnricherFilters parses the filters of the enricher from their JSON
 // encoding and sorts them by priority. A filter with an unknown level counts
 // as Metadata, like in the released versions, and gets a warning: a typo like
-// "none" logs the lines the filter is meant to drop.
+// "none" logs the lines the filter is meant to drop. A filter without
+// matchKeys gets a warning too, as it never matches.
 func GetEnricherFilters(
 	enricherFiltersJsonStr string,
 	logger logr.Logger,
@@ -51,6 +52,13 @@ func GetEnricherFilters(
 			logger.Info(
 				"WARNING: unknown enricher filter level, using Metadata, "+
 					"valid levels are Metadata and None",
+				"level", filter.Level, "priority", filter.Priority,
+			)
+		}
+
+		if len(filter.MatchKeys) == 0 {
+			logger.Info(
+				"WARNING: enricher filter without matchKeys never matches",
 				"level", filter.Level, "priority", filter.Priority,
 			)
 		}

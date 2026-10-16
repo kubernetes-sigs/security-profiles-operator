@@ -29,9 +29,9 @@ import (
 // ctxKey is the type of the context keys of this package.
 type ctxKey string
 
-// MaxConcurrentReconcilesKey is the context key under which the manager
+// maxConcurrentReconcilesKey is the context key under which the manager
 // passes the number of concurrent reconciles per controller to Setup.
-const MaxConcurrentReconcilesKey ctxKey = "MaxConcurrentReconciles"
+const maxConcurrentReconcilesKey ctxKey = "MaxConcurrentReconciles"
 
 // DefaultMaxConcurrentReconciles is the number of concurrent reconciles of
 // a controller if the context does not carry one.
@@ -40,13 +40,13 @@ const DefaultMaxConcurrentReconciles = 4
 // WithMaxConcurrentReconciles returns a context carrying the number of
 // concurrent reconciles for the controllers, see Options.
 func WithMaxConcurrentReconciles(ctx context.Context, n int) context.Context {
-	return context.WithValue(ctx, MaxConcurrentReconcilesKey, n)
+	return context.WithValue(ctx, maxConcurrentReconcilesKey, n)
 }
 
 // MaxConcurrentReconciles returns the number of concurrent reconciles of the
 // context, or the default if it does not carry a positive one.
 func MaxConcurrentReconciles(ctx context.Context) int {
-	if n, ok := ctx.Value(MaxConcurrentReconcilesKey).(int); ok && n > 0 {
+	if n, ok := ctx.Value(maxConcurrentReconcilesKey).(int); ok && n > 0 {
 		return n
 	}
 

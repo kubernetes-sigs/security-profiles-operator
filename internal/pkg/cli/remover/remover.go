@@ -50,7 +50,7 @@ func (p *Remover) Run() error {
 		return fmt.Errorf("open profile: %w", err)
 	}
 
-	profile, err := installer.AppArmorProfile(content, p.options, "remove")
+	profile, unresolved, err := installer.AppArmorProfile(content, p.options, "remove")
 	if err != nil {
 		return err
 	}
@@ -62,8 +62,37 @@ func (p *Remover) Run() error {
 
 	p.logger.Info("Removing AppArmor profile", "profile", profile.Name)
 
-	if err := p.AppArmorRemoveProfile(manager, profile); err != nil {
+	removed, err := p.AppArmorRemoveProfile(manager, profile)
+	if err != nil {
 		return fmt.Errorf("remove apparmor profile: %w", err)
+	}
+
+	// Earlier releases named the profile without resolving the executable,
+	// like after a symlink or as a bare command name.
+	if !removed && unresolved != profile.Name {
+		p.logger.Info("Removing AppArmor profile", "profile", unresolved)
+
+		unresolvedProfile := profile.DeepCopy()
+		unresolvedProfile.Name = unresolved
+
+		removed, err = p.AppArmorRemoveProfile(manager, unresolvedProfile)
+		if err != nil {
+			return fmt.Errorf("remove apparmor profile: %w", err)
+		}
+	}
+
+	// Nothing to remove is no error, like for the released versions.
+	if !removed {
+		tried := []string{profile.Name}
+		if unresolved != profile.Name {
+			tried = append(tried, unresolved)
+		}
+
+		p.logger.Info(
+			"WARNING: no AppArmor profile of this operator was loaded under the tried names, "+
+				"nothing got unloaded, pass the path the profile got installed with explicitly",
+			"tried", tried,
+		)
 	}
 
 	return nil

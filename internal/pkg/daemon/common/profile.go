@@ -28,7 +28,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	profilebase "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/nodestatus"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -172,4 +174,40 @@ func (u *UnsupportedReports) Report(
 	reporter.ReportRelated(util.EventNode(nodeName), obj, reason, util.EventActionInstall, err)
 
 	return false
+}
+
+// ReleaseUnsupported removes the finalizer and the node status of the node
+// from a profile which is being deleted while the node does not support its
+// kind, like after a reboot without the LSM. The profile cannot be installed
+// on the node then, so there is nothing to remove from the node, but the
+// finalizer which the node added while it supported the kind would keep the
+// profile around until the node is gone. The retries of a conflicting write
+// read the profile through the reader, like the node status client does.
+func ReleaseUnsupported(
+	ctx context.Context,
+	c client.Client,
+	reader client.Reader,
+	profile profilebase.SecurityProfileBase,
+	nodeName string,
+) error {
+	if profile.GetDeletionTimestamp().IsZero() {
+		return nil
+	}
+
+	nsc, err := nodestatus.NewForProfileOnNode(profile, c, nodeName)
+	if err != nil {
+		return fmt.Errorf("cannot create nodeStatus: %w", err)
+	}
+
+	if !nsc.FinalizerExists() {
+		return nil
+	}
+
+	nsc.WithAPIReader(reader)
+
+	if err := nsc.Remove(ctx, c); err != nil {
+		return fmt.Errorf("releasing a profile which the node does not support: %w", err)
+	}
+
+	return nil
 }

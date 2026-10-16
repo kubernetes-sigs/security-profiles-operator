@@ -12,8 +12,6 @@ char LICENSE[] SEC("license") = "Dual BSD/GPL";
 #define likely(x) __builtin_expect((x), 1)
 #endif
 
-#define MAX_NAMESPACES 8096
-
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
     __uint(max_entries, 256 * 1024 /* 256 KB */);
@@ -27,6 +25,20 @@ struct {
     __type(key, u32);
     __type(value, u64);
 } lost_events SEC(".maps");
+
+// strings holds the long strings of an event, which do not fit on the stack
+// together.
+struct strings {
+    char name[256];
+    char profile[256];
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, u32);
+    __type(value, struct strings);
+} scratch SEC(".maps");
 
 static __always_inline u32 get_mntns()
 {
@@ -75,12 +87,19 @@ int BPF_KPROBE(kprobe__aa_audit, int type, struct aa_profile * profile,
         return 0;
     }
 
+    u32 zero = 0;
+    struct strings * strs = bpf_map_lookup_elem(&scratch, &zero);
+    if (!strs) {
+        return 0;
+    }
+
     u32 mntns = get_mntns();
     u32 pid = bpf_get_current_pid_tgid() >> 32;
     u32 request = BPF_CORE_READ(ad, request);
     u8 complain = (BPF_CORE_READ(profile, mode) == APPARMOR_COMPLAIN);
     const char * name_ptr = BPF_CORE_READ(ad, name);
     const char * op_ptr = BPF_CORE_READ(ad, op);
+    const char * profile_ptr = BPF_CORE_READ(profile, base.hname);
 
     char op[16];
     long op_len = read_kernel_str(op, sizeof(op), op_ptr);
@@ -97,15 +116,15 @@ int BPF_KPROBE(kprobe__aa_audit, int type, struct aa_profile * profile,
         }
     }
 
-    char name[256];
-    long name_len = read_kernel_str(name, sizeof(name), name_ptr);
+    long name_len = read_kernel_str(strs->name, sizeof(strs->name), name_ptr);
+    long profile_len =
+        read_kernel_str(strs->profile, sizeof(strs->profile), profile_ptr);
 
     struct bpf_dynptr event;
-    u32 size = 4 + 4 + 4 + 1 + op_len + comm_len + name_len;
+    u32 size = 4 + 4 + 4 + 1 + op_len + comm_len + name_len + profile_len;
     if (bpf_ringbuf_reserve_dynptr(&audit_log, size, 0, &event) != 0) {
         // The dynptr has to be released even if nothing got reserved.
         bpf_ringbuf_discard_dynptr(&event, 0);
-        u32 zero = 0;
         u64 * lost = bpf_map_lookup_elem(&lost_events, &zero);
         if (lost) {
             *lost += 1;
@@ -121,8 +140,10 @@ int BPF_KPROBE(kprobe__aa_audit, int type, struct aa_profile * profile,
     offset += op_len;
     bpf_dynptr_write(&event, offset, &comm, comm_len, 0);
     offset += comm_len;
-    bpf_dynptr_write(&event, offset, &name, name_len, 0);
+    bpf_dynptr_write(&event, offset, strs->name, name_len, 0);
     offset += name_len;
+    bpf_dynptr_write(&event, offset, strs->profile, profile_len, 0);
+    offset += profile_len;
     bpf_ringbuf_submit_dynptr(&event, 0);
 
     return 0;

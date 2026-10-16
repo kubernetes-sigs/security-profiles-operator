@@ -826,11 +826,10 @@ func (e *Enricher) dispatchSelinuxLine(
 		e.logger.Info("audit", kv...)
 
 		e.sendMetric(&apimetrics.AuditRequest{
-			Node:       nodeName,
-			Namespace:  info.Namespace,
-			Pod:        info.PodName,
-			Container:  info.ContainerName,
-			Executable: auditLine.Executable,
+			Node:      nodeName,
+			Namespace: info.Namespace,
+			Pod:       info.PodName,
+			Container: info.ContainerName,
 			SelinuxReq: &apimetrics.AuditRequest_SelinuxAuditReq{
 				Scontext: auditLine.Scontext,
 				Tcontext: auditLine.Tcontext,
@@ -910,11 +909,10 @@ func (e *Enricher) dispatchSeccompLine(
 		e.logger.Info("audit", kv...)
 
 		e.sendMetric(&apimetrics.AuditRequest{
-			Node:       nodeName,
-			Namespace:  info.Namespace,
-			Pod:        info.PodName,
-			Container:  info.ContainerName,
-			Executable: auditLine.Executable,
+			Node:      nodeName,
+			Namespace: info.Namespace,
+			Pod:       info.PodName,
+			Container: info.ContainerName,
 			SeccompReq: &apimetrics.AuditRequest_SeccompAuditReq{
 				Syscall: syscallName,
 			},
@@ -982,16 +980,14 @@ func (e *Enricher) dispatchApparmorLine(
 	e.logger.Info("audit", kv...)
 
 	e.sendMetric(&apimetrics.AuditRequest{
-		Node:       nodeName,
-		Namespace:  info.Namespace,
-		Pod:        info.PodName,
-		Container:  info.ContainerName,
-		Executable: auditLine.Executable,
+		Node:      nodeName,
+		Namespace: info.Namespace,
+		Pod:       info.PodName,
+		Container: info.ContainerName,
 		ApparmorReq: &apimetrics.AuditRequest_ApparmorAuditReq{
 			Profile:   auditLine.Profile,
 			Operation: auditLine.Operation,
 			Apparmor:  auditLine.Apparmor,
-			Name:      auditLine.Name,
 		},
 	})
 }
