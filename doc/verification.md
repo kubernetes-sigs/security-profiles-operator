@@ -405,12 +405,11 @@ manifests:
 | Operator bundle and catalog | `SLSA_BUILD_LEVEL_3` | GitHub (plus Cloud Build at level 1), see [bundle and catalog](release.md#bundle-and-catalog) |
 | Security profiles | `SLSA_BUILD_LEVEL_3` | GitHub of `main` (plus Cloud Build at level 1), see [security profiles](release.md#security-profiles) |
 
-The container images, bundle and catalog of a release that had to be
-promoted without the GitHub provenance only reach level 1, see
-[per-arch images](release.md#per-arch-images). So do the bundles, catalogs
-and profiles promoted before they got the GitHub provenance, see
-[older releases](#older-releases), because a digest keeps the summary of its
-first promotion.
+The bundles, catalogs and profiles promoted before they got the GitHub
+provenance only reach level 1, see [older releases](#older-releases), because
+a digest keeps the summary of its first promotion. The promoter doesn't
+evaluate them again, so the level 3 that the policy requires now leaves those
+summaries as they are.
 
 ### Missing and failed summaries
 
