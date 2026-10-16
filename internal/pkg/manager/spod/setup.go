@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
@@ -75,8 +76,6 @@ var (
 type daemonTunables struct {
 	selinuxdImage                  string
 	watchNamespace                 string
-	seccompLocalhostProfile        string
-	bpfRecorderSeccompProfile      string
 	jsonEnricherLogVolumeSource    *corev1.VolumeSource // Optionally provide a volume for usage in JSON Enricher
 	jsonEnricherLogVolumeMountPath string
 	// maxMetricSeries is passed on to the daemon unless empty.
@@ -229,34 +228,88 @@ func (r *ReconcileSPOd) Setup(
 		}
 	}
 
-	// Restore the cert-manager resources if they get deleted. Clusters which
-	// do not serve the cert-manager API cannot get them created either.
-	if r.caInjectType == bindata.CAInjectTypeCertManager {
-		servesCertManager, err := ServesCertManager(mgr.GetRESTMapper())
-		if err != nil {
-			return err
-		}
+	b, err = r.watchServiceMonitorAPI(mgr, b)
+	if err != nil {
+		return err
+	}
 
-		r.watchesCertManager = servesCertManager
-
-		if servesCertManager {
-			isCertManagerResource := builder.WithPredicates(predicate.NewPredicateFuncs(
-				func(obj client.Object) bool {
-					return inNamespace(obj) && bindata.IsCertManagerResourceName(obj.GetName())
-				},
-			))
-
-			for _, obj := range []client.Object{&certmanagerv1.Issuer{}, &certmanagerv1.Certificate{}} {
-				b = b.Watches(
-					obj,
-					handler.EnqueueRequestsFromMapFunc(r.allSPODs),
-					isCertManagerResource,
-				)
-			}
-		}
+	b, err = r.watchCertManager(mgr, b)
+	if err != nil {
+		return err
 	}
 
 	return b.Complete(r)
+}
+
+// watchCertManager restores the cert-manager resources if they get deleted.
+// Clusters which do not serve the cert-manager API cannot get them created
+// either.
+func (r *ReconcileSPOd) watchCertManager(
+	mgr ctrl.Manager, b *builder.Builder,
+) (*builder.Builder, error) {
+	if r.caInjectType != bindata.CAInjectTypeCertManager {
+		return b, nil
+	}
+
+	servesCertManager, err := ServesCertManager(mgr.GetRESTMapper())
+	if err != nil {
+		return nil, err
+	}
+
+	r.watchesCertManager = servesCertManager
+
+	if !servesCertManager {
+		return b, nil
+	}
+
+	isCertManagerResource := builder.WithPredicates(predicate.NewPredicateFuncs(
+		func(obj client.Object) bool {
+			return isInNamespace(obj, r.namespace) &&
+				bindata.IsCertManagerResourceName(obj.GetName())
+		},
+	))
+
+	for _, obj := range []client.Object{&certmanagerv1.Issuer{}, &certmanagerv1.Certificate{}} {
+		b = b.Watches(
+			obj,
+			handler.EnqueueRequestsFromMapFunc(r.allSPODs),
+			isCertManagerResource,
+		)
+	}
+
+	return b, nil
+}
+
+// watchServiceMonitorAPI reconciles the SPODs once the ServiceMonitor API
+// gets installed, if the cluster does not serve it yet, so that they create
+// their ServiceMonitor.
+func (r *ReconcileSPOd) watchServiceMonitorAPI(
+	mgr ctrl.Manager, b *builder.Builder,
+) (*builder.Builder, error) {
+	served, err := ServesServiceMonitors(mgr.GetRESTMapper())
+	if err != nil {
+		r.log.Error(err, "Cannot check whether the ServiceMonitor API is served")
+	}
+
+	if served {
+		return b, nil
+	}
+
+	events := make(chan event.GenericEvent)
+
+	if err := mgr.Add(&serviceMonitorWatcher{
+		mapper:   mgr.GetRESTMapper(),
+		interval: serviceMonitorRetry,
+		events:   events,
+		served:   func() { r.serviceMonitorMissing.Store(0) },
+		log:      r.log,
+	}); err != nil {
+		return nil, fmt.Errorf("add ServiceMonitor API watcher: %w", err)
+	}
+
+	return b.WatchesRawSource(
+		source.Channel(events, handler.EnqueueRequestsFromMapFunc(r.allSPODs)),
+	), nil
 }
 
 // isNamed returns a predicate which passes the objects of the name.
@@ -423,15 +476,6 @@ func (r *ReconcileSPOd) getTunables(ctx context.Context) (*daemonTunables, error
 		}
 	}
 
-	dt.seccompLocalhostProfile = util.GetSeccompLocalhostProfilePath(
-		node,
-		bindata.LocalSeccompProfilePath,
-	)
-	dt.bpfRecorderSeccompProfile = util.GetSeccompLocalhostProfilePath(
-		node,
-		bindata.LocalSeccompBpfRecorderProfilePath,
-	)
-
 	dt.selinuxdImage, err = r.getSelinuxdImage(ctx, node)
 	if err != nil {
 		return dt, fmt.Errorf("could not determine selinuxd image: %w", err)
@@ -546,17 +590,8 @@ func getEffectiveSPOd(dt *daemonTunables) *appsv1.DaemonSet {
 		})
 	}
 
-	if dt.seccompLocalhostProfile != "" {
-		daemon.SecurityContext.SeccompProfile.LocalhostProfile = &dt.seccompLocalhostProfile
-	}
-
 	selinuxd := &refSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDSelinuxd]
 	selinuxd.Image = dt.selinuxdImage
-
-	bpfRecorder := &refSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDBpfRecorder]
-	if dt.bpfRecorderSeccompProfile != "" {
-		bpfRecorder.SecurityContext.SeccompProfile.LocalhostProfile = &dt.bpfRecorderSeccompProfile
-	}
 
 	updateJsonEnricherSpec(dt, refSPOd)
 
@@ -579,10 +614,9 @@ func updateJsonEnricherSpec(dt *daemonTunables, refSPOd *appsv1.DaemonSet) {
 	}
 }
 
-// isInNamespace filters events by namespace. It must accept any watched
-// kind, not just the SPOD itself: WithEventFilter applies to every watch of the
-// controller, so type-asserting to the SPOD type here would silently discard all
-// DaemonSet events and make Owns(&appsv1.DaemonSet{}) a no-op.
+// isInNamespace returns true if the object is in the namespace. The
+// predicates of several watched kinds use it, so it must accept any kind, not
+// just the SPOD.
 func isInNamespace(obj client.Object, namespace string) bool {
 	if obj == nil {
 		return false

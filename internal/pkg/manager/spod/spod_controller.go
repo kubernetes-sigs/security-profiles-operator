@@ -63,6 +63,10 @@ const (
 	// operatorDeploymentRetry is how often a SPOD gets reconciled again while
 	// the operator Deployment, whose image the operands use, is missing.
 	operatorDeploymentRetry = 30 * time.Second
+	// serviceMonitorRetry is how often the ServiceMonitor gets created again
+	// while its API is missing, as every attempt costs a discovery request,
+	// and how often serviceMonitorWatcher checks for the API.
+	serviceMonitorRetry = 5 * time.Minute
 
 	reasonCannotCreateSPOD           string = "CannotCreateSPOD"
 	reasonCannotUpdateSPOD           string = "CannotUpdateSPOD"
@@ -106,6 +110,9 @@ type ReconcileSPOd struct {
 	// serviceMonitorSynced is set once the ServiceMonitor got patched by this
 	// process, see ensureServiceMonitor.
 	serviceMonitorSynced atomic.Bool
+	// serviceMonitorMissing is the time in Unix nanoseconds of the last
+	// attempt which found the ServiceMonitor API missing.
+	serviceMonitorMissing atomic.Int64
 	// This client, initialized using mgr.Client() above, is a split client
 	// that reads objects from the cache and writes to the apiserver
 	client client.Client
@@ -578,11 +585,17 @@ func (r *ReconcileSPOd) ensureServiceMonitor(
 		return nil
 	}
 
+	if missing := r.serviceMonitorMissing.Load(); missing != 0 &&
+		time.Since(time.Unix(0, missing)) < serviceMonitorRetry {
+		return nil
+	}
+
 	if err := patchOrCreate(ctx, r.client, serviceMonitor.DeepCopy()); err != nil {
+		// The API may get installed later on, so it gets retried.
 		if bindata.IsNotFound(err) {
 			r.log.V(config.VerboseLevel).
 				Info("Service monitor resource does not seem to exist, ignoring")
-			r.serviceMonitorSynced.Store(true)
+			r.serviceMonitorMissing.Store(time.Now().UnixNano())
 
 			return nil
 		}
@@ -1269,7 +1282,9 @@ func (r *ReconcileSPOd) configureRecording(
 		fmt.Sprintf("--with-recording=%t", enableRecording))
 
 	// addContainer adds the base container with the provided ID and passes
-	// the env var to the daemon, as the profile recorder is otherwise disabled.
+	// the env var to the daemon, as the profile recorder is otherwise
+	// disabled. The profile recorder does not use the JSON enricher, so it
+	// has no env var.
 	addContainer := func(id int, envKey string, configure func(*corev1.Container)) {
 		ctr := r.baseContainer(id)
 		ctr.Image = image
@@ -1281,7 +1296,10 @@ func (r *ReconcileSPOd) configureRecording(
 		configure(&ctr)
 
 		templateSpec.Containers = append(templateSpec.Containers, ctr)
-		r.addEnvVar(templateSpec, envKey)
+
+		if envKey != "" {
+			r.addEnvVar(templateSpec, envKey)
+		}
 	}
 
 	if r.isLogEnricherEnabled(cfg) {
@@ -1311,7 +1329,7 @@ func (r *ReconcileSPOd) configureRecording(
 	if r.isJsonEnricherEnabled(cfg) {
 		var volumeErr error
 
-		addContainer(bindata.ContainerIDJsonEnricher, config.EnableJsonEnricherEnvKey,
+		addContainer(bindata.ContainerIDJsonEnricher, "",
 			func(ctr *corev1.Container) {
 				volumeErr = r.addJsonEnricherLogVolume(ctx, templateSpec, ctr)
 				r.configureJsonEnricher(cfg, ctr)
@@ -1702,17 +1720,14 @@ func envFlagsFromEnvironment() envFlags {
 	}
 }
 
-// byEnvKey returns the flag of the environment variable.
+// byEnvKey returns the flag of the environment variable which the manager
+// passes on to the daemon.
 func (e envFlags) byEnvKey(key string) bool {
 	switch key {
 	case config.EnableLogEnricherEnvKey:
 		return e.enableLogEnricher
-	case config.EnableJsonEnricherEnvKey:
-		return e.enableJsonEnricher
 	case config.EnableBpfRecorderEnvKey:
 		return e.enableBpfRecorder
-	case config.EnableInsecureMetricsAccessEnvKey:
-		return e.enableInsecureMetricsAccess
 	default:
 		return false
 	}

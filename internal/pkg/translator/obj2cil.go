@@ -48,12 +48,22 @@ var (
 	// inject additional CIL statements, and matches the CRD validation.
 	identifierRegexp = regexp.MustCompile(`^[-a-zA-Z0-9._]+$`)
 
+	// permissionKeywords are parsed by CIL as an expression when they appear
+	// in a permission list, for example "all" expands to every permission of
+	// the class. The denied permissions are compared by name, so these
+	// keywords only ever served to bypass them.
+	permissionKeywords = map[string]struct{}{
+		"all": {}, "and": {}, "not": {}, "or": {}, "range": {}, "xor": {},
+	}
+
 	errInvalidIdentifier = errors.New("invalid identifier")
 )
 
 // Safe Defaults: Hardcoded denylists to prevent critical privilege escalation.
 var (
-	// deniedTypes prevents access to critical hosts assets.
+	// deniedTypes prevents access to critical hosts assets. The types are
+	// compared by name, so a type attribute which contains a denied type,
+	// like file_type, is not denied.
 	deniedTypes = map[string]struct{}{
 		"kernel_t":   {}, // Core kernel structures
 		"kmem_t":     {}, // Kernel memory
@@ -274,6 +284,10 @@ func validateSemanticRule(opts *deniedOptions, ttype selinuxprofileapi.LabelKey,
 	for _, perm := range perms {
 		if err := validateIdentifier("permission", perm); err != nil {
 			return err
+		}
+
+		if _, ok := permissionKeywords[perm]; ok {
+			return fmt.Errorf("%w: permission %q is a CIL keyword", errInvalidIdentifier, perm)
 		}
 	}
 

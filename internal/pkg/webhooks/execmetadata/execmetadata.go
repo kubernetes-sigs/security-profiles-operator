@@ -21,9 +21,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
+	"path"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/go-logr/logr"
 	"gomodules.xyz/jsonpatch/v2"
@@ -38,8 +39,6 @@ import (
 )
 
 var errUnsupportedSubResource = errors.New("unsupported pod sub resource")
-
-var execRequestUidRegex = regexp.MustCompile(`^` + config.ExecRequestUIDEnvKey + `=.*$`)
 
 type Handler struct {
 	log logr.Logger
@@ -171,15 +170,7 @@ func (p Handler) getPodExecPatch(req *admission.Request) ([]jsonpatch.JsonPatchO
 
 	p.log.V(1).Info("execObject before mutate", "execObject", execObject)
 
-	execCommand, replaced := replaceRegexMatches(execObject.Command,
-		execRequestUidRegex, fmt.Sprintf("%s=%s", config.ExecRequestUIDEnvKey, req.UID))
-
-	if !replaced {
-		execObject.Command = slices.Insert(execObject.Command, 0, "env",
-			fmt.Sprintf("%s=%s", config.ExecRequestUIDEnvKey, req.UID))
-	} else {
-		execObject.Command = execCommand
-	}
+	execObject.Command = setExecRequestUID(execObject.Command, string(req.UID))
 
 	p.log.V(1).Info("execObject after mutate", "execObject", execObject)
 
@@ -190,19 +181,160 @@ func (p Handler) getPodExecPatch(req *admission.Request) ([]jsonpatch.JsonPatchO
 	}), nil
 }
 
-// replaceRegexMatches replaces the matches of re in the elements of slice by
-// repl. The replacement is literal, so a "$" in it does not refer to a group.
-func replaceRegexMatches(slice []string, re *regexp.Regexp, repl string) ([]string, bool) {
-	replaced := false
+// setExecRequestUID makes the command run with the request UID. The leading
+// env commands of the command get parsed, every assignment of the variable in
+// them gets the request UID, and the innermost env command ends its
+// assignments with it, so that neither an assignment nor an option like -i or
+// -u of the command can replace or remove it. Arguments of the command which
+// runs are never changed. A command which is not an env command runs through
+// one, which takes its leading arguments with a "=" for assignments as well.
+// An env command with an option which is not known, like -S which splits a
+// string into more arguments, gets an env command which sets the variable
+// prepended. The command can still change the variable, see the
+// documentation of the exec metadata.
+func setExecRequestUID(command []string, uid string) []string {
+	assignment := config.ExecRequestUIDEnvKey + "=" + uid
 
-	for i, s := range slice {
-		if re.MatchString(s) {
-			slice[i] = re.ReplaceAllLiteralString(s, repl)
-			replaced = true
+	withEnv := command
+
+	switch {
+	case len(command) > 0 && strings.HasPrefix(command[0], "-"):
+		// The command must not become an option of env.
+		withEnv = append([]string{"env", "--"}, command...)
+	case len(command) == 0 || path.Base(command[0]) != "env":
+		withEnv = append([]string{"env"}, command...)
+	}
+
+	layers, ok := parseEnvLayers(withEnv)
+	if !ok {
+		return slices.Insert(command, 0, "env", assignment)
+	}
+
+	command = withEnv
+
+	innermostHasAssignment := false
+
+	for i, layer := range layers {
+		for j := layer.assignments; j < layer.end; j++ {
+			if strings.HasPrefix(command[j], config.ExecRequestUIDEnvKey+"=") {
+				command[j] = assignment
+
+				if i == len(layers)-1 {
+					innermostHasAssignment = true
+				}
+			}
 		}
 	}
 
-	return slice, replaced
+	if innermostHasAssignment {
+		return command
+	}
+
+	return slices.Insert(command, layers[len(layers)-1].end, assignment)
+}
+
+// envLayer is an env command within an exec command. Its assignments start at
+// the index assignments, after its options, and end before the index end,
+// where the command it runs starts.
+type envLayer struct {
+	assignments, end int
+}
+
+// parseEnvLayers returns the env commands the command starts with, an env
+// command which runs another env command being one layer each. It returns
+// false if an env command has an option which is not known or misses the
+// argument of an option. The options are the ones of GNU and busybox env
+// which do not change the arguments.
+func parseEnvLayers(command []string) ([]envLayer, bool) {
+	var layers []envLayer
+
+	for i := 0; i < len(command) && path.Base(command[i]) == "env"; {
+		i++
+
+	options:
+		for i < len(command) {
+			arg := command[i]
+
+			switch {
+			case arg == "--":
+				i++
+
+				// A lone "-" after the options is -i, also after "--".
+				if i < len(command) && command[i] == "-" {
+					i++
+				}
+
+				break options
+			case arg == "-":
+				i++
+
+				break options
+			case strings.HasPrefix(arg, "--"), strings.HasPrefix(arg, "-"):
+				n, ok := envOption(command, i)
+				if !ok {
+					return nil, false
+				}
+
+				i += n
+			default:
+				break options
+			}
+		}
+
+		layer := envLayer{assignments: i}
+
+		// Like env, every argument with a "=" is an assignment.
+		for i < len(command) && strings.Contains(command[i], "=") {
+			i++
+		}
+
+		layer.end = i
+		layers = append(layers, layer)
+	}
+
+	return layers, true
+}
+
+// envOption returns the number of arguments the option of the env command at
+// index i takes, or false if it is not known. Short options can be combined,
+// like -iu NAME.
+func envOption(command []string, i int) (int, bool) {
+	arg := command[i]
+	hasArg := i+1 < len(command)
+
+	if long, ok := strings.CutPrefix(arg, "--"); ok {
+		name, _, inline := strings.Cut(long, "=")
+
+		switch name {
+		case "ignore-environment", "null", "debug":
+			return 1, !inline
+		case "unset", "chdir":
+			if inline {
+				return 1, true
+			}
+
+			return 2, hasArg
+		default:
+			return 0, false
+		}
+	}
+
+	for j := 1; j < len(arg); j++ {
+		switch arg[j] {
+		case 'i', '0', 'v':
+		case 'u', 'C':
+			// The rest of the argument or the next one is the value.
+			if j+1 < len(arg) {
+				return 1, true
+			}
+
+			return 2, hasArg
+		default:
+			return 0, false
+		}
+	}
+
+	return 1, true
 }
 
 // isWindowsPodExec returns true if the exec request targets a Windows pod.

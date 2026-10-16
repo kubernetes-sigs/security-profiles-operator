@@ -108,9 +108,8 @@ func (p *podSeccompRecorder) Handle(
 	// annotations of the old pod are the ones to keep, so that a recording
 	// created later does not start on a pod which is already running, and
 	// removing or changing the annotation cannot rename the recorded profile.
-	// The match condition of the webhook leaves out updates which only add
-	// annotations, which the daemon and the recording tracker only count for
-	// a recording which selects the pod and the container.
+	// The match condition of the webhook leaves out updates which do not
+	// add, remove or change a recording annotation.
 	oldPod := &corev1.Pod{}
 
 	if !isCreate && len(req.OldObject.Raw) > 0 {

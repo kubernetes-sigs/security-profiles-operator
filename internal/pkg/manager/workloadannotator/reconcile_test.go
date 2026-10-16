@@ -18,6 +18,7 @@ package workloadannotator
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -1061,6 +1062,102 @@ func TestReconcilePodDeletionKeepsFinalizerOnConflict(t *testing.T) {
 			return cl.Update(ctx, obj, opts...)
 		},
 	}, aa)
+
+	require.NoError(t, reconcilePod(t, r))
+	requireInUse(t, c, aa, true)
+}
+
+// decodingReader decodes like the client of the API server, into the provided
+// object without zeroing it first. The fake client zeroes it, which hides
+// fields of a failed attempt surviving the read of the retry.
+type decodingReader struct {
+	client.Client
+}
+
+func (d decodingReader) Get(
+	ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption,
+) error {
+	fresh, ok := obj.DeepCopyObject().(client.Object)
+	if !ok {
+		return errors.New("copying object")
+	}
+
+	if err := d.Client.Get(ctx, key, fresh, opts...); err != nil {
+		return err
+	}
+
+	b, err := json.Marshal(fresh)
+	if err != nil {
+		return err
+	}
+
+	return json.Unmarshal(b, obj)
+}
+
+// The workloads set by an attempt which failed with a conflict used to
+// survive the read of the retry, so the retry wrote nothing.
+func TestReconcileWritesWorkloadsAfterConflict(t *testing.T) {
+	t.Parallel()
+
+	sp := &seccompprofileapi.SeccompProfile{ObjectMeta: objectMeta("foo")}
+	conflicted := false
+
+	r, c, _ := newAnnotator(t, &interceptor.Funcs{
+		SubResourcePatch: func(
+			ctx context.Context, cl client.Client, sub string, obj client.Object,
+			patch client.Patch, opts ...client.SubResourcePatchOption,
+		) error {
+			if !conflicted {
+				conflicted = true
+
+				return kerrors.NewConflict(
+					schema.GroupResource{},
+					"profile",
+					errors.New("conflict"),
+				)
+			}
+
+			return cl.SubResource(sub).Patch(ctx, obj, patch, opts...)
+		},
+	}, sp, podWith(withSeccomp("operator/foo.json")))
+	r.reader = decodingReader{c}
+
+	require.NoError(t, reconcilePod(t, r))
+	requireInUse(t, c, sp, true)
+	require.Equal(t, []string{"default/" + testPodName}, sp.Status.ActiveWorkloads)
+}
+
+// The finalizer added by an attempt which failed with a conflict used to
+// survive the read of the retry, so the retry wrote nothing.
+func TestReconcileAddsFinalizerAfterConflict(t *testing.T) {
+	t.Parallel()
+
+	aa := &apparmorprofileapi.AppArmorProfile{
+		ObjectMeta: objectMeta("aa"),
+		Status: apparmorprofileapi.AppArmorProfileStatus{
+			ActiveWorkloads: []string{"default/" + testPodName}, ActiveWorkloadsCount: 1,
+		},
+	}
+	conflicted := false
+
+	r, c, _ := newAnnotator(t, &interceptor.Funcs{
+		Update: func(
+			ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.UpdateOption,
+		) error {
+			if !conflicted {
+				conflicted = true
+
+				return kerrors.NewConflict(
+					schema.GroupResource{},
+					"profile",
+					errors.New("conflict"),
+				)
+			}
+
+			return cl.Update(ctx, obj, opts...)
+		},
+	}, aa, podWith(withAppArmor("aa")))
+	r.reader = decodingReader{c}
 
 	require.NoError(t, reconcilePod(t, r))
 	requireInUse(t, c, aa, true)

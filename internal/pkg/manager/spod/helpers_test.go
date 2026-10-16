@@ -190,9 +190,7 @@ func Test_envFlagsFromEnvironment(t *testing.T) {
 	require.Equal(t, envFlags{enableLogEnricher: true, enableJsonEnricher: true}, flags)
 
 	require.True(t, flags.byEnvKey(config.EnableLogEnricherEnvKey))
-	require.True(t, flags.byEnvKey(config.EnableJsonEnricherEnvKey))
 	require.False(t, flags.byEnvKey(config.EnableBpfRecorderEnvKey))
-	require.False(t, flags.byEnvKey(config.EnableInsecureMetricsAccessEnvKey))
 	require.False(t, flags.byEnvKey("OTHER"))
 }
 
@@ -261,6 +259,15 @@ func Test_getConfiguredSPOdLogEnricherSource(t *testing.T) {
 	}, certManager)
 	require.True(t, slices.ContainsFunc(podSpec.Volumes, func(v v1.Volume) bool {
 		return v.Name == "host-auditlog-volume"
+	}))
+
+	// The profile recorder of the daemon only uses the log enricher.
+	daemonEnv := podSpec.Containers[bindata.ContainerIDDaemon].Env
+	require.True(t, slices.ContainsFunc(daemonEnv, func(e v1.EnvVar) bool {
+		return e.Name == config.EnableLogEnricherEnvKey
+	}))
+	require.False(t, slices.ContainsFunc(daemonEnv, func(e v1.EnvVar) bool {
+		return e.Name == config.EnableJsonEnricherEnvKey
 	}))
 
 	// The base SPOd keeps the log mounts for the next render.

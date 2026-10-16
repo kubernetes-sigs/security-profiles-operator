@@ -843,6 +843,27 @@ func TestActiveWorkloadRequests(t *testing.T) {
 	require.Empty(t, activeWorkloadRequests(t.Context(), &corev1.Pod{}))
 }
 
+func TestPodUsesBinding(t *testing.T) {
+	t.Parallel()
+
+	binding := &profilebindingapi.ProfileBinding{ObjectMeta: metav1.ObjectMeta{Name: "binding"}}
+	applied := func(bindings string) *corev1.Pod {
+		return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+			profilebindingapi.AppliedBindingsAnnotation: bindings,
+		}}}
+	}
+
+	require.True(t, podUsesBinding(binding, applied("other,binding")))
+	require.False(t, podUsesBinding(binding, applied("other")))
+	require.False(t, podUsesBinding(&corev1.Pod{}, applied("binding")))
+
+	// A pod whose use depends on the namespace counts as not using it.
+	ephemeral := &corev1.Pod{Spec: corev1.PodSpec{
+		EphemeralContainers: []corev1.EphemeralContainer{{}},
+	}}
+	require.False(t, podUsesBinding(binding, ephemeral))
+}
+
 // countingReader counts the uncached reads.
 type countingReader struct {
 	client.Reader

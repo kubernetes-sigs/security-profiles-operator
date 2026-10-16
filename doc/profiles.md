@@ -910,7 +910,9 @@ In particular, the `SelinuxProfile` kind:
   `spec.selinux.options.deniedTypes`, `deniedClasses` and `deniedPermissions` of the `spod` instance. The
   operator also denies some of them by default, and `allowedTypes`, `allowedClasses` and `allowedPermissions`
   remove entries from that built-in denylist. Use the latter with care, because they relax a safe default for
-  every profile.
+  every profile. The lists are compared by name, so the CIL keywords `all`, `and`, `not`, `or`, `range` and
+  `xor` are rejected as permissions, and allowing a type attribute like `file_type` is not rejected, although
+  it contains denied types.
 - adds a new keyword `@self` that describes the process using the policy. This allows to reuse a policy between
   workloads and namespaces easily, as the "usage" of the policy (see below) is based on the profile name.
 
@@ -1516,7 +1518,9 @@ security context of a pod cannot be changed after its creation.
   new containers.
 - A binding always replaces a security context value of the pod author, so
   that the bound profile cannot be weakened, for example with
-  `type: Unconfined`.
+  `type: Unconfined`. For the same reason, the deprecated
+  `container.apparmor.security.beta.kubernetes.io/<container>` annotations of
+  the containers an AppArmorProfile gets bound to are removed.
 - The bindings only apply when a pod is created, so the image of a container
   of a running pod cannot be changed while an image binding of the namespace
   matches the old or the new image, independent of its `podSelector`. The

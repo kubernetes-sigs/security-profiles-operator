@@ -17,6 +17,7 @@ limitations under the License.
 package execmetadata
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -81,58 +82,175 @@ func TestRemoveExistingEnv(t *testing.T) {
 	}
 }
 
-func TestReplaceRegexMatches(t *testing.T) {
+func TestSetExecRequestUID(t *testing.T) {
 	t.Parallel()
 
-	const repl = config.ExecRequestUIDEnvKey + "=new"
+	const (
+		key  = config.ExecRequestUIDEnvKey
+		repl = key + "=new"
+		fake = key + "=fake"
+	)
 
 	for _, tc := range []struct {
-		name     string
-		in       []string
-		want     []string
-		replaced bool
-		repl     string
+		name string
+		in   []string
+		want []string
 	}{
-		{name: "nil"},
-		{name: "no match", in: []string{"env", "ls"}, want: []string{"env", "ls"}},
+		{name: "nil", want: []string{"env", repl}},
+		{name: "no env", in: []string{"ls"}, want: []string{"env", repl, "ls"}},
 		{
-			name:     "match",
-			in:       []string{"env", config.ExecRequestUIDEnvKey + "=old", "ls"},
-			want:     []string{"env", repl, "ls"},
-			replaced: true,
+			name: "env without the variable",
+			in:   []string{"env", "A=b", "ls"},
+			want: []string{"env", "A=b", repl, "ls"},
 		},
 		{
-			name:     "all matches",
-			in:       []string{config.ExecRequestUIDEnvKey + "=a", config.ExecRequestUIDEnvKey + "="},
-			want:     []string{repl, repl},
-			replaced: true,
+			name: "env with the variable",
+			in:   []string{"env", "A=b", fake, "ls"},
+			want: []string{"env", "A=b", repl, "ls"},
 		},
 		{
-			// A "$" in the replacement is no group reference.
-			name:     "dollar in replacement",
-			in:       []string{config.ExecRequestUIDEnvKey + "=old"},
-			want:     []string{config.ExecRequestUIDEnvKey + "=$1${0}$$"},
-			replaced: true,
-			repl:     config.ExecRequestUIDEnvKey + "=$1${0}$$",
+			name: "env by path",
+			in:   []string{"/usr/bin/env", fake, "ls"},
+			want: []string{"/usr/bin/env", repl, "ls"},
 		},
 		{
-			// Only whole arguments starting with the variable match.
+			name: "env without a command",
+			in:   []string{"env"},
+			want: []string{"env", repl},
+		},
+		{
+			name: "ignore environment",
+			in:   []string{"env", "-i", fake, "sh"},
+			want: []string{"env", "-i", repl, "sh"},
+		},
+		{
+			name: "ignore environment without the variable",
+			in:   []string{"env", "--ignore-environment", "sh"},
+			want: []string{"env", "--ignore-environment", repl, "sh"},
+		},
+		{
+			name: "lone dash",
+			in:   []string{"env", "-", "sh"},
+			want: []string{"env", "-", repl, "sh"},
+		},
+		{
+			name: "unset",
+			in: []string{
+				"env", "-u", key, "-u" + key, "--unset=" + key, "--unset", key, "sh",
+			},
+			want: []string{
+				"env", "-u", key, "-u" + key, "--unset=" + key, "--unset", key, repl, "sh",
+			},
+		},
+		{
+			name: "other options",
+			in: []string{
+				"env", "-0", "--null", "-v", "--debug", "-C", "/", "-C/", "--chdir=/",
+				"--chdir", "/", "sh",
+			},
+			want: []string{
+				"env", "-0", "--null", "-v", "--debug", "-C", "/", "-C/", "--chdir=/",
+				"--chdir", "/", repl, "sh",
+			},
+		},
+		{
+			name: "end of options",
+			in:   []string{"env", "--", fake, "-i"},
+			want: []string{"env", "--", repl, "-i"},
+		},
+		{
+			name: "nested env",
+			in:   []string{"env", "A=1", "env", fake, "sh"},
+			want: []string{"env", "A=1", "env", repl, "sh"},
+		},
+		{
+			name: "nested env unsetting the variable",
+			in:   []string{"env", fake, "env", "-u", key, "sh"},
+			want: []string{"env", repl, "env", "-u", key, repl, "sh"},
+		},
+		{
+			name: "all assignments",
+			in:   []string{"env", key + "=a", key + "=", "ls"},
+			want: []string{"env", repl, repl, "ls"},
+		},
+		{
+			name: "value with a newline",
+			in:   []string{"env", key + "=a\nb", "ls"},
+			want: []string{"env", repl, "ls"},
+		},
+		{
+			// Arguments of the command keep their value.
+			name: "argument of the command",
+			in:   []string{"sh", "-c", "echo", fake},
+			want: []string{"env", repl, "sh", "-c", "echo", fake},
+		},
+		{
+			name: "argument after the command of env",
+			in:   []string{"env", "ls", fake},
+			want: []string{"env", repl, "ls", fake},
+		},
+		{
+			// Only whole assignments of the variable match.
 			name: "prefix and suffix",
-			in:   []string{"X" + config.ExecRequestUIDEnvKey + "=a", config.ExecRequestUIDEnvKey},
-			want: []string{"X" + config.ExecRequestUIDEnvKey + "=a", config.ExecRequestUIDEnvKey},
+			in:   []string{"env", "X" + fake, key},
+			want: []string{"env", "X" + fake, repl, key},
+		},
+		{
+			name: "split string",
+			in:   []string{"env", "-S", fake + " sh"},
+			want: []string{"env", repl, "env", "-S", fake + " sh"},
+		},
+		{
+			name: "combined options",
+			in:   []string{"env", "-iu", key, "-vC/", "sh"},
+			want: []string{"env", "-iu", key, "-vC/", repl, "sh"},
+		},
+		{
+			name: "combined options with an unknown one",
+			in:   []string{"env", "-iS", fake + " sh"},
+			want: []string{"env", repl, "env", "-iS", fake + " sh"},
+		},
+		{
+			name: "lone dash after end of options",
+			in:   []string{"env", "--", "-", "sh"},
+			want: []string{"env", "--", "-", repl, "sh"},
+		},
+		{
+			name: "long option with a value it does not take",
+			in:   []string{"env", "--null=x", "sh"},
+			want: []string{"env", repl, "env", "--null=x", "sh"},
+		},
+		{
+			name: "abbreviated long option",
+			in:   []string{"env", "--ignore", "sh"},
+			want: []string{"env", repl, "env", "--ignore", "sh"},
+		},
+		{
+			// A command can only start with an assignment through env.
+			name: "assignment as command",
+			in:   []string{fake, "A=b", "sh"},
+			want: []string{"env", repl, "A=b", "sh"},
+		},
+		{
+			name: "assignment as command before env",
+			in:   []string{"A=b", "env", "-u", key, "sh"},
+			want: []string{"env", "A=b", "env", "-u", key, repl, "sh"},
+		},
+		{
+			name: "option as command",
+			in:   []string{"-i", "sh"},
+			want: []string{"env", "--", repl, "-i", "sh"},
+		},
+		{
+			name: "missing option argument",
+			in:   []string{"env", "-u"},
+			want: []string{"env", repl, "env", "-u"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			replacement := repl
-			if tc.repl != "" {
-				replacement = tc.repl
-			}
-
-			got, replaced := replaceRegexMatches(tc.in, execRequestUidRegex, replacement)
-			require.Equal(t, tc.replaced, replaced)
-			require.Equal(t, tc.want, got)
+			require.Equal(t, tc.want, setExecRequestUID(slices.Clone(tc.in), "new"))
 		})
 	}
 }

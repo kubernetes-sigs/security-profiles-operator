@@ -297,12 +297,6 @@ func Test_getTunables(t *testing.T) {
 			require.Equal(t, "watched", dt.watchNamespace)
 			require.Equal(t, "100", dt.maxMetricSeries)
 			require.Equal(t, "selinuxd:el9", dt.selinuxdImage)
-			require.Equal(t, bindata.LocalSeccompProfilePath, dt.seccompLocalhostProfile)
-			require.Equal(
-				t,
-				bindata.LocalSeccompBpfRecorderProfilePath,
-				dt.bpfRecorderSeccompProfile,
-			)
 
 			if tc.wantVolume {
 				require.NotNil(t, dt.jsonEnricherLogVolumeSource)

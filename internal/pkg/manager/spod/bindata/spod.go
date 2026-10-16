@@ -41,8 +41,8 @@ var (
 	healthzPath                        = "/healthz"
 	readyzPath                         = "/readyz"
 	openshiftCertAnnotation            = "service.beta.openshift.io/serving-cert-secret-name"
-	localSeccompProfilePath            = LocalSeccompProfilePath
-	localSeccompBpfRecorderProfilePath = LocalSeccompBpfRecorderProfilePath
+	localSeccompProfilePath            = config.SpoSeccompProfile
+	localSeccompBpfRecorderProfilePath = config.BpfRecorderSeccompProfile
 
 	// kubeletDirVolume is the seccomp directory of the host kubelet root
 	// directory known to the operator, which the non-root enabler mounts
@@ -83,8 +83,6 @@ const (
 	BpfRecorderContainerName                         = "bpf-recorder"
 	NonRootEnablerContainerName                      = "non-root-enabler"
 	SelinuxPoliciesCopierContainerName               = "selinux-shared-policies-copier"
-	LocalSeccompProfilePath                          = config.SpoSeccompProfile
-	LocalSeccompBpfRecorderProfilePath               = config.BpfRecorderSeccompProfile
 	DefaultPriorityClassName                         = "system-node-critical"
 	servicePort                                int32 = 443
 	ContainerPort                              int32 = 9443

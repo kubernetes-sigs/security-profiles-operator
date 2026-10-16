@@ -24,6 +24,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
@@ -663,6 +664,54 @@ func TestPatchOrCreate(t *testing.T) {
 	found := &corev1.Service{}
 	require.NoError(t, cl.Get(t.Context(), client.ObjectKeyFromObject(service), found))
 	require.Equal(t, "true", found.Labels["updated"])
+}
+
+// A ServiceMonitor API installed after the operator started used to get no
+// ServiceMonitor until the operator restarted.
+func TestEnsureServiceMonitorRetriesMissingAPI(t *testing.T) {
+	t.Parallel()
+
+	installed := false
+	patches := 0
+	r, cl, _ := newReconcileTest(t, testSPOD(), &interceptor.Funcs{
+		Patch: func(
+			ctx context.Context, c client.WithWatch, obj client.Object,
+			patch client.Patch, opts ...client.PatchOption,
+		) error {
+			if _, ok := obj.(*monitoringv1.ServiceMonitor); ok {
+				patches++
+
+				if !installed {
+					return &meta.NoKindMatchError{GroupKind: schema.GroupKind{
+						Group: monitoringv1.SchemeGroupVersion.Group, Kind: "ServiceMonitor",
+					}}
+				}
+			}
+
+			return c.Patch(ctx, obj, patch, opts...)
+		},
+	})
+
+	monitor := &monitoringv1.ServiceMonitor{ObjectMeta: metav1.ObjectMeta{
+		Name: "monitor", Namespace: testNamespace,
+	}}
+
+	require.NoError(t, r.ensureServiceMonitor(t.Context(), monitor))
+	require.False(t, r.serviceMonitorSynced.Load())
+	require.Equal(t, 1, patches)
+
+	installed = true
+
+	// The missing API is only retried once serviceMonitorRetry passed.
+	require.NoError(t, r.ensureServiceMonitor(t.Context(), monitor))
+	require.Equal(t, 1, patches)
+
+	r.serviceMonitorMissing.Store(time.Now().Add(-serviceMonitorRetry).UnixNano())
+
+	require.NoError(t, r.ensureServiceMonitor(t.Context(), monitor))
+	require.Equal(t, 2, patches)
+	require.True(t, r.serviceMonitorSynced.Load())
+	require.NoError(t, cl.Get(t.Context(), client.ObjectKeyFromObject(monitor), monitor))
 }
 
 func getSPOD(t *testing.T, cl client.Client) *spodapi.SecurityProfilesOperatorDaemon {

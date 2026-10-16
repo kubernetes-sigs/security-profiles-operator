@@ -540,8 +540,12 @@ func (p *podBinder) updatePod(
 	p.warnRecordedElsewhere(state, req.Namespace)
 
 	// The ephemeralcontainers subresource only accepts changes to the
-	// ephemeral containers, so the annotation is only set on creation.
+	// ephemeral containers, so the annotations are only changed on creation.
 	if !isEphemeral && setAppliedBindings(pod, state.applied) {
+		state.podChanged = true
+	}
+
+	if !isEphemeral && removeAppArmorAnnotations(pod, state) {
 		state.podChanged = true
 	}
 
@@ -947,6 +951,34 @@ func (p *podBinder) applyWildcardProfileToContainers(ctrs []*corev1.Container) w
 
 		return podChanged
 	}
+}
+
+// removeAppArmorAnnotations removes the deprecated AppArmor annotations of the
+// containers an AppArmorProfile got bound to, and returns whether the pod
+// changed. After the mutating admission, the API server copies the annotation
+// of a container into its unset security context field, which takes
+// precedence over the pod level profile of a wildcard binding. The profile
+// set on the container by an image binding would not match the annotation,
+// which rejects the pod.
+func removeAppArmorAnnotations(pod *corev1.Pod, state *bindState) bool {
+	kind := profilebindingapi.ProfileBindingKindAppArmorProfile
+	_, wildcard := state.wildcardProfiles[kind]
+	changed := false
+
+	for _, c := range util.PodContainers(pod) {
+		if _, bound := state.boundBy[kind][c]; !wildcard && !bound {
+			continue
+		}
+
+		key := corev1.DeprecatedAppArmorBetaContainerAnnotationKeyPrefix + c.Name
+		if _, ok := pod.Annotations[key]; ok {
+			delete(pod.Annotations, key)
+
+			changed = true
+		}
+	}
+
+	return changed
 }
 
 // hasContainerContext returns true if the container sets its own security

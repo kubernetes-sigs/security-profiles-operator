@@ -166,6 +166,7 @@ func requireWellFormedCIL(t *testing.T, name, policy string) {
 
 		for perm := range strings.FieldsSeq(match[3]) {
 			require.NotContains(t, denied.deniedPermissions, perm)
+			require.NotContains(t, permissionKeywords, perm)
 		}
 	}
 }

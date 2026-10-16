@@ -136,18 +136,12 @@ func (r *BindingTrackerReconciler) Setup(
 			},
 			GenericFunc: func(_ event.GenericEvent) bool { return true },
 		})).
-		// Reconcile the tracked pods once a binding enters the cache, for
-		// example after an operator restart. Pods deleted while no delete event
-		// could be observed are then released from the binding.
+		// Reconcile the tracked pods which do not use a binding once it
+		// enters the cache, and the ones an update adds, see
+		// WorkloadsHandler.
 		Watches(
 			&profilebindingapi.ProfileBinding{},
-			handler.EnqueueRequestsFromMapFunc(activeWorkloadRequests),
-			builder.WithPredicates(predicate.Funcs{
-				CreateFunc:  func(event.CreateEvent) bool { return true },
-				DeleteFunc:  func(event.DeleteEvent) bool { return false },
-				UpdateFunc:  func(event.UpdateEvent) bool { return false },
-				GenericFunc: func(event.GenericEvent) bool { return false },
-			}),
+			workloadtracker.WorkloadsHandler(r.client, activeWorkloadRequests, podUsesBinding),
 		).
 		Complete(r)
 }
@@ -178,6 +172,15 @@ func trackedPodChanged(oldObj, newObj client.Object) bool {
 			return a.Name == b.Name && a.Image == b.Image
 		},
 	)
+}
+
+// podUsesBinding returns true if the tracked pod still uses the binding, see
+// handlePodCreateOrUpdate. A pod whose use depends on the namespace counts as
+// not using it, which costs a reconcile of the pod.
+func podUsesBinding(obj client.Object, pod *corev1.Pod) bool {
+	binding, ok := obj.(*profilebindingapi.ProfileBinding)
+
+	return ok && !needsNamespaceCheck(pod) && podAnnotatedWithBinding(binding, pod, true, true)
 }
 
 // activeWorkloadRequests maps a binding to reconcile requests for the pods it

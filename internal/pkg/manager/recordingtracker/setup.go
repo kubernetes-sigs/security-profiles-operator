@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/recordingkinds"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/workloadtracker"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -94,20 +95,22 @@ func (r *RecordingTrackerReconciler) Setup(
 			},
 			GenericFunc: func(_ event.GenericEvent) bool { return true },
 		})).
-		// Reconcile the tracked pods once a recording enters the cache, for
-		// example after an operator restart. Pods deleted while no delete event
-		// could be observed are then released from the recording.
+		// Reconcile the tracked pods which are not recorded by a recording
+		// once it enters the cache, and the ones an update adds, see
+		// WorkloadsHandler.
 		Watches(
 			&profilerecordingapi.ProfileRecording{},
-			handler.EnqueueRequestsFromMapFunc(activeWorkloadRequests),
-			builder.WithPredicates(predicate.Funcs{
-				CreateFunc:  func(event.CreateEvent) bool { return true },
-				DeleteFunc:  func(event.DeleteEvent) bool { return false },
-				UpdateFunc:  func(event.UpdateEvent) bool { return false },
-				GenericFunc: func(event.GenericEvent) bool { return false },
-			}),
+			workloadtracker.WorkloadsHandler(r.client, activeWorkloadRequests, podRecordedByObject),
 		).
 		Complete(r)
+}
+
+// podRecordedByObject returns true if the tracked pod is still recorded by
+// the recording, see handlePodCreateOrUpdate.
+func podRecordedByObject(obj client.Object, pod *corev1.Pod) bool {
+	recording, ok := obj.(*profilerecordingapi.ProfileRecording)
+
+	return ok && podRecordedBy(pod, recording, true)
 }
 
 // activeWorkloadRequests maps a recording to reconcile requests for the pods

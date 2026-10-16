@@ -1389,6 +1389,20 @@ func TestRecordingMatchCondition(t *testing.T) {
 			mutate: func(p *corev1.Pod) {
 				p.Annotations = map[string]string{recordingKey: "recording_ctr_nonce_1"}
 			},
+			want: true,
+		},
+		"added recording annotation to a recorded pod": {
+			operation: admissionregv1.Update,
+			oldPod:    recorded,
+			mutate: func(p *corev1.Pod) {
+				p.Annotations[config.SelinuxProfileRecordLogsAnnotationKey+"ctr"] = "value"
+			},
+			want: true,
+		},
+		"added other annotation": {
+			operation: admissionregv1.Update,
+			oldPod:    recorded,
+			mutate:    func(p *corev1.Pod) { p.Annotations["new"] = "value" },
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
