@@ -71,6 +71,7 @@
         "default": { "$ref": "#/$defs/image" },
         "el8": { "$ref": "#/$defs/image" },
         "el9": { "$ref": "#/$defs/image" },
+        "el10": { "$ref": "#/$defs/image" },
         "fedora": { "$ref": "#/$defs/image" }
       }
     },
@@ -106,6 +107,17 @@
     "enableProfiling": { "type": "boolean" },
     "verbosity": { "type": "integer", "minimum": 0, "maximum": 10 },
     "restrictToNamespace": { "type": "string" },
+    "extraEnv": {
+      "description": "Additional environment variables of the operator container, whose names must not repeat the ones the chart sets.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
     "webhook": {
       "type": "object",
       "additionalProperties": false,

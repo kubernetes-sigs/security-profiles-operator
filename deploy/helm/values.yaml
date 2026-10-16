@@ -39,6 +39,12 @@ selinuxdImage:
     repository: security-profiles-operator/selinuxd-fedora
     tag: latest
     digest: sha256:a5c36469e66bc44c32fc36d8d23571ed8903430233d32136b6272013a535627d  # quay.io/security-profiles-operator/selinuxd-fedora:latest
+  # selinuxd publishes no image for RHEL 10 and CoreOS 10 nodes, which get the
+  # default image unless el10 is set to an image built for them.
+  # el10:
+  #   registry: registry.example.com
+  #   repository: selinuxd-el10
+  #   digest: sha256:...
 
 # The kubelet root directory of the nodes, where the seccomp profiles get
 # installed.
@@ -68,6 +74,11 @@ enableBpfRecorder: false
 enableProfiling: false
 verbosity: 0
 restrictToNamespace: ""
+
+# Additional environment variables of the operator container, like
+# MAX_METRIC_SERIES or ENABLE_INSECURE_METRICS_ACCESS. Their names must not
+# repeat the ones the chart sets already.
+extraEnv: []
 
 webhook:
   tolerations: []

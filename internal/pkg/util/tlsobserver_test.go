@@ -54,14 +54,13 @@ func TestTLSWatcherProfileChangeCallback(t *testing.T) {
 
 	var profileChanged atomic.Bool
 
-	watcher := &tlspkg.SecurityProfileWatcher{
-		Client:                    fakeClient,
-		InitialTLSProfileSpec:     initialProfile,
-		InitialTLSAdherencePolicy: configv1.TLSAdherencePolicyNoOpinion,
-		OnProfileChange: func(_ context.Context, _, _ configv1.TLSProfileSpec) {
+	watcher := newTLSWatcher(
+		fakeClient, initialProfile, configv1.TLSAdherencePolicyNoOpinion,
+		func(_ context.Context, _, _ configv1.TLSProfileSpec) {
 			profileChanged.Store(true)
 		},
-	}
+		nil,
+	)
 
 	_, err = watcher.Reconcile(context.Background(), reconcile.Request{
 		NamespacedName: client.ObjectKeyFromObject(apiServer),
@@ -86,14 +85,13 @@ func TestTLSWatcherNoChangeNoCallback(t *testing.T) {
 
 	var profileChanged atomic.Bool
 
-	watcher := &tlspkg.SecurityProfileWatcher{
-		Client:                    fakeClient,
-		InitialTLSProfileSpec:     initialProfile,
-		InitialTLSAdherencePolicy: configv1.TLSAdherencePolicyNoOpinion,
-		OnProfileChange: func(_ context.Context, _, _ configv1.TLSProfileSpec) {
+	watcher := newTLSWatcher(
+		fakeClient, initialProfile, configv1.TLSAdherencePolicyNoOpinion,
+		func(_ context.Context, _, _ configv1.TLSProfileSpec) {
 			profileChanged.Store(true)
 		},
-	}
+		nil,
+	)
 
 	_, err = watcher.Reconcile(context.Background(), reconcile.Request{
 		NamespacedName: client.ObjectKeyFromObject(apiServer),
@@ -120,14 +118,13 @@ func TestTLSWatcherAdherencePolicyChangeCallback(t *testing.T) {
 
 	var policyChanged atomic.Bool
 
-	watcher := &tlspkg.SecurityProfileWatcher{
-		Client:                    fakeClient,
-		InitialTLSProfileSpec:     initialProfile,
-		InitialTLSAdherencePolicy: configv1.TLSAdherencePolicyNoOpinion,
-		OnAdherencePolicyChange: func(_ context.Context, _, _ configv1.TLSAdherencePolicy) {
+	watcher := newTLSWatcher(
+		fakeClient, initialProfile, configv1.TLSAdherencePolicyNoOpinion,
+		nil,
+		func(_ context.Context, _, _ configv1.TLSAdherencePolicy) {
 			policyChanged.Store(true)
 		},
-	}
+	)
 
 	_, err = watcher.Reconcile(context.Background(), reconcile.Request{
 		NamespacedName: client.ObjectKeyFromObject(apiServer),
@@ -157,11 +154,9 @@ func TestTLSWatcherNilCallbacksDoNotPanic(t *testing.T) {
 	scheme := utiltest.NewScheme(t)
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(apiServer).Build()
 
-	watcher := &tlspkg.SecurityProfileWatcher{
-		Client:                    fakeClient,
-		InitialTLSProfileSpec:     initialProfile,
-		InitialTLSAdherencePolicy: configv1.TLSAdherencePolicyNoOpinion,
-	}
+	watcher := newTLSWatcher(
+		fakeClient, initialProfile, configv1.TLSAdherencePolicyNoOpinion, nil, nil,
+	)
 
 	require.NotPanics(t, func() {
 		_, err = watcher.Reconcile(context.Background(), reconcile.Request{
@@ -182,14 +177,13 @@ func TestTLSWatcherAPIServerNotFound(t *testing.T) {
 
 	var profileChanged atomic.Bool
 
-	watcher := &tlspkg.SecurityProfileWatcher{
-		Client:                    fakeClient,
-		InitialTLSProfileSpec:     initialProfile,
-		InitialTLSAdherencePolicy: configv1.TLSAdherencePolicyNoOpinion,
-		OnProfileChange: func(_ context.Context, _, _ configv1.TLSProfileSpec) {
+	watcher := newTLSWatcher(
+		fakeClient, initialProfile, configv1.TLSAdherencePolicyNoOpinion,
+		func(_ context.Context, _, _ configv1.TLSProfileSpec) {
 			profileChanged.Store(true)
 		},
-	}
+		nil,
+	)
 
 	_, err = watcher.Reconcile(context.Background(), reconcile.Request{
 		NamespacedName: client.ObjectKey{Name: tlspkg.APIServerName},

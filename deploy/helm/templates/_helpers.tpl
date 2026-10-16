@@ -34,7 +34,7 @@ Create chart name and version as used by the chart label.
 Common annotations
 */}}
 {{- define "security-profiles-operator.annotations" -}}
-meta.helm.sh/release-name: {{ include "security-profiles-operator.name" . }}
+meta.helm.sh/release-name: {{ .Release.Name | quote }}
 {{- end }}
 
 {{/*

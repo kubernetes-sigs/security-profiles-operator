@@ -72,12 +72,11 @@ func (e *e2e) waitForBpfRecorderLogPatterns(since time.Time, patterns []string) 
 	// and failing later with a confusing mismatch.
 	e.eventually(45*time.Second, defaultPollInterval, func() error {
 		e.logf("Waiting for bpf recorder to start recording %v", patterns)
-		logs := e.kubectlOperatorNS(
-			"logs",
-			"--since-time="+since.Format(time.RFC3339),
-			"ds/spod",
-			"bpf-recorder",
-		)
+
+		logs, err := e.spodContainerLogs(since, "bpf-recorder")
+		if err != nil {
+			return err
+		}
 
 		return unmatchedLogs(logs, regexes)
 	})

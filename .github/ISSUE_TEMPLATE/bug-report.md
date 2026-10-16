@@ -20,6 +20,10 @@ If the matter is security related, please disclose it privately via https://kube
 
 #### Environment:
 
+- Security Profiles Operator or spoc version (e.g. the image tag or `spoc version`):
+- Installation method (e.g. manifests, Helm, OLM):
+- Kubernetes version (e.g. `kubectl version`):
+- Container runtime and version:
 - Cloud provider or hardware configuration:
 - OS (e.g: `cat /etc/os-release`):
 - Kernel (e.g. `uname -a`):

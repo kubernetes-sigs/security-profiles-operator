@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   annotations:
-    meta.helm.sh/release-name: security-profiles-operator
+    meta.helm.sh/release-name: '{{ .Release.Name }}'
     meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
     app: security-profiles-operator
@@ -15,7 +15,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   annotations:
-    meta.helm.sh/release-name: security-profiles-operator
+    meta.helm.sh/release-name: '{{ .Release.Name }}'
     meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
     app: security-profiles-operator
@@ -28,7 +28,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   annotations:
-    meta.helm.sh/release-name: security-profiles-operator
+    meta.helm.sh/release-name: '{{ .Release.Name }}'
     meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
     app: security-profiles-operator
@@ -41,7 +41,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   annotations:
-    meta.helm.sh/release-name: security-profiles-operator
+    meta.helm.sh/release-name: '{{ .Release.Name }}'
     meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
     app: security-profiles-operator
@@ -205,7 +205,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   annotations:
-    meta.helm.sh/release-name: security-profiles-operator
+    meta.helm.sh/release-name: '{{ .Release.Name }}'
     meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
     app: security-profiles-operator
@@ -303,7 +303,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   annotations:
-    meta.helm.sh/release-name: security-profiles-operator
+    meta.helm.sh/release-name: '{{ .Release.Name }}'
     meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
     app: security-profiles-operator
@@ -428,7 +428,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   annotations:
-    meta.helm.sh/release-name: security-profiles-operator
+    meta.helm.sh/release-name: '{{ .Release.Name }}'
     meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
     app: security-profiles-operator
@@ -467,7 +467,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   annotations:
-    meta.helm.sh/release-name: security-profiles-operator
+    meta.helm.sh/release-name: '{{ .Release.Name }}'
     meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
     app: security-profiles-operator
@@ -531,7 +531,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   annotations:
-    meta.helm.sh/release-name: security-profiles-operator
+    meta.helm.sh/release-name: '{{ .Release.Name }}'
     meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
     app: security-profiles-operator
@@ -559,7 +559,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   annotations:
-    meta.helm.sh/release-name: security-profiles-operator
+    meta.helm.sh/release-name: '{{ .Release.Name }}'
     meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
     app: security-profiles-operator
@@ -579,7 +579,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   annotations:
-    meta.helm.sh/release-name: security-profiles-operator
+    meta.helm.sh/release-name: '{{ .Release.Name }}'
     meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
     app: security-profiles-operator
@@ -600,7 +600,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   annotations:
-    meta.helm.sh/release-name: security-profiles-operator
+    meta.helm.sh/release-name: '{{ .Release.Name }}'
     meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
     app: security-profiles-operator
@@ -620,7 +620,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   annotations:
-    meta.helm.sh/release-name: security-profiles-operator
+    meta.helm.sh/release-name: '{{ .Release.Name }}'
     meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
     app: security-profiles-operator
@@ -641,7 +641,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   annotations:
-    meta.helm.sh/release-name: security-profiles-operator
+    meta.helm.sh/release-name: '{{ .Release.Name }}'
     meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
     app: security-profiles-operator
@@ -661,7 +661,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   annotations:
-    meta.helm.sh/release-name: security-profiles-operator
+    meta.helm.sh/release-name: '{{ .Release.Name }}'
     meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
     app: security-profiles-operator
@@ -682,7 +682,7 @@ apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
 metadata:
   annotations:
-    meta.helm.sh/release-name: security-profiles-operator
+    meta.helm.sh/release-name: '{{ .Release.Name }}'
     meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
     app: security-profiles-operator
@@ -694,7 +694,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   annotations:
-    meta.helm.sh/release-name: security-profiles-operator
+    meta.helm.sh/release-name: '{{ .Release.Name }}'
     meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
     app: security-profiles-operator
@@ -713,7 +713,7 @@ automountServiceAccountToken: false
 kind: ServiceAccount
 metadata:
   annotations:
-    meta.helm.sh/release-name: security-profiles-operator
+    meta.helm.sh/release-name: '{{ .Release.Name }}'
     meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
     app: security-profiles-operator
@@ -726,7 +726,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   annotations:
-    meta.helm.sh/release-name: security-profiles-operator
+    meta.helm.sh/release-name: '{{ .Release.Name }}'
     meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
     app: security-profiles-operator
@@ -747,7 +747,7 @@ kind: Secret
 metadata:
   annotations:
     kubernetes.io/service-account.name: spo-metrics-client
-    meta.helm.sh/release-name: security-profiles-operator
+    meta.helm.sh/release-name: '{{ .Release.Name }}'
     meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
     app: security-profiles-operator
@@ -761,7 +761,7 @@ apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
   annotations:
-    meta.helm.sh/release-name: security-profiles-operator
+    meta.helm.sh/release-name: '{{ .Release.Name }}'
     meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
     app: security-profiles-operator
@@ -828,7 +828,7 @@ apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
 metadata:
   annotations:
-    meta.helm.sh/release-name: security-profiles-operator
+    meta.helm.sh/release-name: '{{ .Release.Name }}'
     meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
     app: security-profiles-operator
@@ -844,7 +844,7 @@ apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
   annotations:
-    meta.helm.sh/release-name: security-profiles-operator
+    meta.helm.sh/release-name: '{{ .Release.Name }}'
     meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
     app: security-profiles-operator
@@ -913,7 +913,7 @@ apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
 metadata:
   annotations:
-    meta.helm.sh/release-name: security-profiles-operator
+    meta.helm.sh/release-name: '{{ .Release.Name }}'
     meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
     app: security-profiles-operator
@@ -929,7 +929,7 @@ apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
   annotations:
-    meta.helm.sh/release-name: security-profiles-operator
+    meta.helm.sh/release-name: '{{ .Release.Name }}'
     meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
     app: security-profiles-operator
@@ -1019,7 +1019,7 @@ apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
 metadata:
   annotations:
-    meta.helm.sh/release-name: security-profiles-operator
+    meta.helm.sh/release-name: '{{ .Release.Name }}'
     meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
     app: security-profiles-operator
@@ -1035,7 +1035,7 @@ apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
   annotations:
-    meta.helm.sh/release-name: security-profiles-operator
+    meta.helm.sh/release-name: '{{ .Release.Name }}'
     meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
     app: security-profiles-operator
@@ -1092,7 +1092,7 @@ apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
 metadata:
   annotations:
-    meta.helm.sh/release-name: security-profiles-operator
+    meta.helm.sh/release-name: '{{ .Release.Name }}'
     meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
     app: security-profiles-operator
@@ -1237,7 +1237,6 @@ data:
       labels:
         spo.x-k8s.io/container-id: bpf-recorder
       name: bpfrecorder-apparmor
-      namespace: security-profiles-operator
     spec:
       abstract:
         capability:
@@ -1496,7 +1495,6 @@ data:
       labels:
         spo.x-k8s.io/container-id: security-profiles-operator
       name: spo-apparmor
-      namespace: security-profiles-operator
     spec:
       abstract:
         capability:
@@ -1543,7 +1541,7 @@ data:
 kind: ConfigMap
 metadata:
   annotations:
-    meta.helm.sh/release-name: security-profiles-operator
+    meta.helm.sh/release-name: '{{ .Release.Name }}'
     meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
     app: security-profiles-operator

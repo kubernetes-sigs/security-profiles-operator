@@ -19,7 +19,7 @@ limitations under the License.
 package e2e_test
 
 import (
-	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -57,27 +57,22 @@ func (e *e2e) testCaseWebhookDown([]string) {
 	replicas := e.deploymentReplicas(webhookDeployment)
 	managerReplicas := e.deploymentReplicas(config.OperatorName)
 
-	// The manager restores the replicas of the webhook, so it has to be
-	// stopped first.
-	e.logf("Scaling the manager and the webhook down")
-	e.kubectlOperatorNS("scale", "deployment", config.OperatorName, "--replicas=0")
-	e.kubectlOperatorNS("scale", "deployment", webhookDeployment, "--replicas=0")
 	// Leave a working manager and webhook behind, also if the test fails.
 	e.cleanup(func() {
 		e.scaleDeployment(config.OperatorName, managerReplicas)
 		e.scaleDeployment(webhookDeployment, replicas)
 	})
 
-	e.requireEventually(defaultWaitDuration, defaultPollInterval, func() error {
-		pods := e.kubectlOperatorNS(
-			"get", "pods", "-l", "name="+webhookDeployment, "-o", "name",
-		)
-		if pods != "" {
-			return errors.New("webhook pods still running: " + pods)
-		}
+	// The manager restores the webhook deployment, so it has to be gone
+	// before the webhook gets scaled down. A terminating manager may still
+	// reconcile and roll the webhook out again.
+	e.logf("Scaling the manager down")
+	e.kubectlOperatorNS("scale", "deployment", config.OperatorName, "--replicas=0")
+	e.waitForNoPods(config.OperatorName)
 
-		return nil
-	})
+	e.logf("Scaling the webhook down")
+	e.kubectlOperatorNS("scale", "deployment", webhookDeployment, "--replicas=0")
+	e.waitForNoPods(webhookDeployment)
 
 	e.logf("Checking that the binding webhook rejects pods while it is down")
 
@@ -110,6 +105,19 @@ func (e *e2e) testCaseWebhookDown([]string) {
 		}
 
 		return err
+	})
+}
+
+// waitForNoPods waits until no pod of the deployment in the operator
+// namespace is left, the pods carry the name of their deployment as label.
+func (e *e2e) waitForNoPods(deployment string) {
+	e.requireEventually(defaultWaitDuration, defaultPollInterval, func() error {
+		pods := e.kubectlOperatorNS("get", "pods", "-l", "name="+deployment, "-o", "name")
+		if pods != "" {
+			return fmt.Errorf("pods of %s still running: %s", deployment, pods)
+		}
+
+		return nil
 	})
 }
 

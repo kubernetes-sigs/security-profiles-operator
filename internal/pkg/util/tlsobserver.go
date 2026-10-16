@@ -22,6 +22,7 @@ import (
 	configv1 "github.com/openshift/api/config/v1"
 	tlspkg "github.com/openshift/controller-runtime-common/pkg/tls"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // SetupTLSWatcher sets up a TLS configuration watcher with the controller manager.
@@ -42,10 +43,28 @@ func SetupTLSWatcher(
 	onProfileChange func(ctx context.Context, oldProfile, newProfile configv1.TLSProfileSpec),
 	onAdherencePolicyChange func(ctx context.Context, oldPolicy, newPolicy configv1.TLSAdherencePolicy),
 ) error {
+	return newTLSWatcher(
+		mgr.GetClient(),
+		initialProfile,
+		initialAdherencePolicy,
+		onProfileChange,
+		onAdherencePolicyChange,
+	).SetupWithManager(mgr)
+}
+
+// newTLSWatcher returns the watcher of SetupTLSWatcher, which logs the
+// changes before it calls the callbacks, if they are set.
+func newTLSWatcher(
+	c client.Client,
+	initialProfile configv1.TLSProfileSpec,
+	initialAdherencePolicy configv1.TLSAdherencePolicy,
+	onProfileChange func(ctx context.Context, oldProfile, newProfile configv1.TLSProfileSpec),
+	onAdherencePolicyChange func(ctx context.Context, oldPolicy, newPolicy configv1.TLSAdherencePolicy),
+) *tlspkg.SecurityProfileWatcher {
 	log := ctrl.Log.WithName("tls-watcher")
 
-	watcher := &tlspkg.SecurityProfileWatcher{
-		Client:                    mgr.GetClient(),
+	return &tlspkg.SecurityProfileWatcher{
+		Client:                    c,
 		InitialTLSProfileSpec:     initialProfile,
 		InitialTLSAdherencePolicy: initialAdherencePolicy,
 		OnProfileChange: func(ctx context.Context, oldProfile, newProfile configv1.TLSProfileSpec) {
@@ -67,6 +86,4 @@ func SetupTLSWatcher(
 			}
 		},
 	}
-
-	return watcher.SetupWithManager(mgr)
 }

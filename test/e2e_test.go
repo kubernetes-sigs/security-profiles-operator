@@ -184,8 +184,6 @@ func (e *e2e) testCases() []testCase {
 		{
 			description: "SPOD: Profiling server protocol",
 			fn:          e.testCaseProfilingHTTP,
-			flaky:       true,
-			issue:       newTestCaseIssue,
 		},
 		{
 			description: "SPOD: Enable memory optimization",
@@ -291,7 +289,7 @@ func (e *e2e) testCases() []testCase {
 			description: "SPOD: Test webhook HTTP version",
 			fn:          e.testCaseWebhookHTTP,
 			flaky:       true,
-			issue:       untrackedIssue,
+			issue:       podOutputIssue,
 		},
 		{
 			description: "SPOD: Test Metrics HTTP version",
@@ -307,7 +305,7 @@ func (e *e2e) testCases() []testCase {
 				)
 			},
 			flaky:           true,
-			issue:           bindingIssue,
+			issue:           inUseFinalizerIssue,
 			clusterWideOnly: true,
 		},
 		{
@@ -320,22 +318,16 @@ func (e *e2e) testCases() []testCase {
 		{
 			description:     "Seccomp: Verify profile recording logs: static pod",
 			fn:              func([]string) { e.testCaseProfileRecordingStaticPodLogs() },
-			flaky:           true,
-			issue:           untrackedIssue,
 			clusterWideOnly: true,
 		},
 		{
 			description:     "Seccomp: Verify profile recording logs: multiple containers",
 			fn:              func([]string) { e.testCaseProfileRecordingMultiContainerLogs() },
-			flaky:           true,
-			issue:           untrackedIssue,
 			clusterWideOnly: true,
 		},
 		{
 			description:     "Seccomp: Verify profile recording logs: specific container",
 			fn:              func([]string) { e.testCaseProfileRecordingSpecificContainerLogs() },
-			flaky:           true,
-			issue:           untrackedIssue,
 			clusterWideOnly: true,
 		},
 		{
@@ -362,71 +354,51 @@ func (e *e2e) testCases() []testCase {
 		{
 			description:     "Seccomp: Verify profile recording logs: memory optimization",
 			fn:              func([]string) { e.testCaseProfileRecordingWithMemoryOptimization() },
-			flaky:           true,
-			issue:           untrackedIssue,
 			clusterWideOnly: true,
 		},
 		{
 			description:     "Seccomp: Verify profile recording bpf: kubectl run",
 			fn:              func([]string) { e.testCaseBpfRecorderKubectlRun() },
-			flaky:           true,
-			issue:           untrackedIssue,
 			clusterWideOnly: true,
 		},
 		{
 			description:     "Seccomp: Verify profile recording bpf: static pod",
 			fn:              func([]string) { e.testCaseBpfRecorderStaticPod() },
-			flaky:           true,
-			issue:           untrackedIssue,
 			clusterWideOnly: true,
 		},
 		{
 			description:     "Seccomp: Verify profile recording bpf: multiple containers",
 			fn:              func([]string) { e.testCaseBpfRecorderMultiContainer() },
-			flaky:           true,
-			issue:           untrackedIssue,
 			clusterWideOnly: true,
 		},
 		{
 			description:     "Seccomp: Verify profile recording bpf: deployment",
 			fn:              func([]string) { e.testCaseBpfRecorderDeployment() },
-			flaky:           true,
-			issue:           untrackedIssue,
 			clusterWideOnly: true,
 		},
 		{
 			description:     "Seccomp: Verify profile recording bpf: parallel",
 			fn:              func([]string) { e.testCaseBpfRecorderParallel() },
-			flaky:           true,
-			issue:           untrackedIssue,
 			clusterWideOnly: true,
 		},
 		{
 			description:     "Seccomp: Verify profile recording bpf: select container",
 			fn:              func([]string) { e.testCaseBpfRecorderSelectContainer() },
-			flaky:           true,
-			issue:           untrackedIssue,
 			clusterWideOnly: true,
 		},
 		{
 			description:     "Seccomp: Verify profile recording bpf: memory optimization",
 			fn:              func([]string) { e.testCaseBpfRecorderWithMemoryOptimization() },
-			flaky:           true,
-			issue:           untrackedIssue,
 			clusterWideOnly: true,
 		},
 		{
 			description:     "SPOD: Upgrade from the previous release",
 			fn:              e.testCaseUpgradeFromPreviousRelease,
-			flaky:           true,
-			issue:           newTestCaseIssue,
 			clusterWideOnly: true,
 		},
 		{
 			description:     "SPOD: Webhook down",
 			fn:              e.testCaseWebhookDown,
-			flaky:           true,
-			issue:           newTestCaseIssue,
 			clusterWideOnly: true,
 		},
 	}
@@ -439,15 +411,24 @@ const (
 	// bindingIssue is why the binding test cases do not run for the
 	// namespaced operator.
 	bindingIssue = "the webhook certificates of the namespaced operator are not ready in time"
+	// podOutputIssue marks the test cases whose pod command returned no
+	// output in the namespaced run on Prow, while kubectl run -i lost the
+	// output printed before it attached. The output gets read from the pod
+	// logs now.
+	podOutputIssue = "the pod command returned no output in the namespaced run on Prow, " +
+		"promote it once it passes reliably with the output read from the pod logs"
+	// inUseFinalizerIssue marks the test cases which wait for the in-use
+	// finalizer of a profile, which a conflicting update of the workload
+	// annotator can lose.
+	inUseFinalizerIssue = "the workload annotator can lose the in-use finalizer on a conflict"
 	// nodeAwareMetricsIssue marks the metrics test cases, which only ran on
 	// single node clusters before they scraped the daemons of all nodes.
 	nodeAwareMetricsIssue = "scrapes the daemons of all nodes now, promote it once it passes reliably in CI"
-	// newTestCaseIssue marks new test cases, until they proved to be stable.
-	newTestCaseIssue = "new test case, promote it once it passes reliably in CI"
 	// bpfEnricherIssue marks the log enricher test case with the BPF
-	// source, which no CI job runs, see E2E_TEST_BPF_LOG_ENRICHER in
-	// doc/hacking.md.
-	bpfEnricherIssue = "needs a node with AppArmor and the BPF LSM, which no CI job of the suite has"
+	// source, which no CI job runs yet, see E2E_TEST_BPF_LOG_ENRICHER in
+	// doc/hacking.md. A quarantined case which fails on retry fails the
+	// flaky test step, so it gets enabled once it passed on a node.
+	bpfEnricherIssue = "needs nodes with AppArmor for its kprobe on aa_audit, not proven in CI yet"
 )
 
 func (e *e2e) TestSecurityProfilesOperator() {
@@ -492,7 +473,7 @@ func (e *e2e) runTestCases(quarantined bool) {
 	e.deployCertManager()
 
 	// Deploy the operator
-	e.deployOperator(e.operatorManifest)
+	undeploy := e.deployOperatorWithCleanup(e.operatorManifest)
 
 	// Retrieve the inputs for the test cases
 	nodes := e.getNodes()
@@ -501,8 +482,7 @@ func (e *e2e) runTestCases(quarantined bool) {
 	e.runTestCasesWithPrefix("cluster-wide", testCases, nodes)
 
 	// Clean up cluster-wide deployment to prepare for namespace deployment
-	e.cleanupOperator(e.operatorManifest)
-	e.resetManifest(e.operatorManifest)
+	undeploy()
 
 	e.testNamespacedOperator(namespaceManifest, testNamespace, testCases, nodes)
 }
@@ -551,8 +531,13 @@ func (e *e2e) testNamespacedOperator(
 		return
 	}
 
-	// Deploy the namespace operator
-	e.kubectl("create", "namespace", namespace)
+	// Deploy the namespace operator. The namespace also gets deleted if the
+	// test fails before, which would otherwise fail the next run of the
+	// suite on the same cluster. Only an empty namespace left by such a run
+	// gets reused, leftover objects of the operator fail its creation.
+	e.kubectlCleanup("namespace", namespace)
+	nsManifest := "\napiVersion: v1\nkind: Namespace\nmetadata:\n  name: " + namespace
+	e.writeAndApply(nsManifest, namespace+".yml")
 	e.updateManifest(manifest, "NS_REPLACE", namespace)
 
 	// All following operations such as create pod will be in the test namespace
@@ -564,12 +549,11 @@ func (e *e2e) testNamespacedOperator(
 		e.kubectl("config", "set-context", "--current", "--namespace", curNs)
 	}()
 
-	e.deployOperator(manifest)
+	undeploy := e.deployOperatorWithCleanup(manifest)
 
 	e.runTestCasesWithPrefix("namespaced", namespacedTestCases, nodes)
 
-	e.cleanupOperator(manifest)
-	e.resetManifest(manifest)
+	undeploy()
 	e.kubectl("delete", "namespace", namespace)
 }
 
@@ -712,6 +696,30 @@ func (e *e2e) updateManifest(manifest, src, repl string) {
 	result := re.ReplaceAllString(string(content), repl)
 	err = os.WriteFile(path, []byte(result), 0o600)
 	e.Require().NoError(err)
+}
+
+// deployOperatorWithCleanup deploys the operator and returns the function
+// which cleans it up again. The cleanup also runs once the current test
+// ends, unless it ran before, so that a test which fails with the operator
+// deployed does not leave it to the next run of the suite on the same
+// cluster.
+func (e *e2e) deployOperatorWithCleanup(manifest string) (undeploy func()) {
+	deployed := true
+	undeploy = func() {
+		if !deployed {
+			return
+		}
+
+		deployed = false
+
+		e.cleanupOperator(manifest)
+		e.resetManifest(manifest)
+	}
+
+	e.cleanup(undeploy)
+	e.deployOperator(manifest)
+
+	return undeploy
 }
 
 func (e *e2e) deployOperator(manifest string) {
@@ -981,13 +989,18 @@ func (e *e2e) kubectlCleanup(args ...string) {
 	})
 }
 
-// cleanup runs fn once the current test ends, also if it failed. The suite
-// points at the parent test by then, so fn runs with the current test again,
-// otherwise a failed assertion of fn would stop the parent test.
+// cleanup runs fn once the current test ends, also if it failed, unless
+// TearDownTest deleted the cluster already. The suite points at the parent
+// test by then, so fn runs with the current test again, otherwise a failed
+// assertion of fn would stop the parent test.
 func (e *e2e) cleanup(fn func()) {
 	t := e.T()
 
 	t.Cleanup(func() {
+		if e.clusterTornDown {
+			return
+		}
+
 		parent := e.T()
 
 		e.SetT(t)

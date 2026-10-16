@@ -4,7 +4,6 @@ metadata:
   labels:
     spo.x-k8s.io/container-id: security-profiles-operator
   name: spo-apparmor
-  namespace: security-profiles-operator
 spec:
   abstract:
     capability:

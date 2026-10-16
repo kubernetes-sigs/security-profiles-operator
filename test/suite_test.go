@@ -39,6 +39,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/suite"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2/textlogger"
 	"sigs.k8s.io/release-utils/command"
 	"sigs.k8s.io/release-utils/helpers"
@@ -183,6 +184,9 @@ type e2e struct {
 	testStart        time.Time
 	subTestStart     time.Time
 	diagnosticsTimer *time.Timer
+	// clusterTornDown is set once TearDownTest deleted the cluster of the
+	// test, so that the cleanups which run after it skip the cluster.
+	clusterTornDown bool
 }
 
 func defaultWaitForReadyPods(e *e2e) {
@@ -448,6 +452,7 @@ func (e *kinde2e) SetupTest() {
 	// Deploy the cluster
 	e.logf("Deploying the cluster")
 	e.clusterName = fmt.Sprintf("spo-e2e-%d", time.Now().Unix())
+	e.clusterTornDown = false
 
 	cmd := exec.CommandContext(
 		context.Background(),
@@ -502,6 +507,10 @@ func (e *kinde2e) TearDownTest() {
 		e.logf("%s", output)
 		e.logf("########")
 	}
+
+	// The cleanups which run after the teardown skip the cluster, also if
+	// its deletion fails.
+	e.clusterTornDown = true
 
 	e.logf("Destroying cluster")
 	e.run(
@@ -900,8 +909,11 @@ func (e *e2e) runAndRetryPodCMD(podCMD string) string {
 // command does not output anything in CI, or its TLS connection fails, and
 // curl does not retry TLS errors itself. Every attempt asks podCMD again and
 // runs in a pod with a new name, since the pod of the previous attempt may
-// still be terminating. The output does not include the line kubectl prints
-// when it deletes the pod.
+// still be terminating.
+//
+// The output gets read from the logs of the completed pod. kubectl run -i
+// attaches to the pod after it started, which loses the output the command
+// printed before.
 func (e *e2e) retryPodCMD(podCMD func() (string, error), kubectlRunFlags ...string) string {
 	var output string
 
@@ -913,12 +925,7 @@ func (e *e2e) retryPodCMD(podCMD func() (string, error), kubectlRunFlags ...stri
 			return fmt.Errorf("getting pod command: %w", err)
 		}
 
-		podName := randomPodName()
-
-		args := append([]string{"-n", config.OperatorName}, kubectlRunFlags...)
-		args = append(args, podName, "--", "bash", "-c", cmd)
-
-		output, err = e.kubectlCommand(kubectlRunArgs(args...)...)
+		output, err = e.runPodCMD(cmd, kubectlRunFlags...)
 		if err != nil {
 			output = ""
 
@@ -927,7 +934,6 @@ func (e *e2e) retryPodCMD(podCMD func() (string, error), kubectlRunFlags ...stri
 			return fmt.Errorf("running pod command: %w", err)
 		}
 
-		output = podCommandOutput(output, podName)
 		if output != "" {
 			return nil
 		}
@@ -940,28 +946,73 @@ func (e *e2e) retryPodCMD(podCMD func() (string, error), kubectlRunFlags ...stri
 	return output
 }
 
-// podCommandOutput returns the output of kubectl run --rm without the line
-// which reports the deletion of the pod and the surrounding white space.
-func podCommandOutput(output, podName string) string {
-	deleted := fmt.Sprintf("pod %q deleted", podName)
+// runPodCMD runs cmd in a new pod of the operator namespace, waits until the
+// pod completed and returns the trimmed output of cmd. It fails if cmd fails.
+func (e *e2e) runPodCMD(cmd string, kubectlRunFlags ...string) (string, error) {
+	podName := randomPodName()
 
-	var lines []string
+	args := append([]string{
+		"run",
+		"--restart=Never",
+		"--image=" + throwawayImage,
+		"--image-pull-policy=IfNotPresent",
+		"-n", config.OperatorName,
+	}, kubectlRunFlags...)
+	args = append(args, podName, "--", "bash", "-c", cmd)
 
-	for line := range strings.SplitSeq(output, "\n") {
-		if strings.HasPrefix(line, deleted) {
-			continue
-		}
-
-		lines = append(lines, line)
+	if _, err := e.kubectlCommand(args...); err != nil {
+		return "", fmt.Errorf("creating pod: %w", err)
 	}
 
-	return strings.TrimSpace(strings.Join(lines, "\n"))
+	defer func() {
+		if _, err := e.kubectlCommand(
+			"delete", "pod", "-n", config.OperatorName, podName,
+			"--wait=false", "--ignore-not-found",
+		); err != nil {
+			e.logf("Unable to delete pod %s: %v", podName, err)
+		}
+	}()
+
+	var phase string
+
+	// The first pod on a node may still pull the image, like with the pod
+	// running timeout of kubectlRunArgs.
+	if err := poll(5*time.Minute, time.Second, func() error {
+		var err error
+
+		phase, err = e.kubectlCommand(
+			"get", "pod", "-n", config.OperatorName, podName,
+			"-o", "jsonpath={.status.phase}",
+		)
+		if err != nil {
+			return fmt.Errorf("getting pod phase: %w", err)
+		}
+
+		if phase != string(corev1.PodSucceeded) && phase != string(corev1.PodFailed) {
+			return fmt.Errorf("pod is %s", phase)
+		}
+
+		return nil
+	}); err != nil {
+		return "", fmt.Errorf("waiting for pod %s: %w", podName, err)
+	}
+
+	output, err := e.kubectlCommand("logs", "-n", config.OperatorName, podName)
+	if err != nil {
+		return "", fmt.Errorf("reading logs of pod %s: %w", podName, err)
+	}
+
+	output = strings.TrimSpace(output)
+
+	if phase == string(corev1.PodFailed) {
+		return "", fmt.Errorf("pod %s failed: %s", podName, output)
+	}
+
+	return output, nil
 }
 
 // assertHTTP11 checks that every line of the output of a curl pod command
-// reports HTTP/1.1, the endpoints of the operator disable HTTP/2. kubectl run
-// prints the output twice when the command exits before kubectl attached to
-// the pod, since it falls back to the logs of the pod then.
+// reports HTTP/1.1, the endpoints of the operator disable HTTP/2.
 func (e *e2e) assertHTTP11(output string) {
 	e.Equal([]string{"1.1"}, slices.Compact(strings.Fields(output)))
 }
@@ -1085,9 +1136,9 @@ func (e *e2e) logEnricherOnlyTestCase() {
 	e.enableLogEnricherInSpod()
 }
 
-// logEnricherBpfOnlyTestCase has its own switch: the BPF source only reports
-// AppArmor denials (it hooks aa_audit), while the log enricher test case waits
-// for seccomp audit lines, so it cannot pass wherever the BPF recorder runs.
+// logEnricherBpfOnlyTestCase has its own switch, since the BPF source reports
+// AppArmor audit events only, through a kprobe on aa_audit, so its test case
+// needs nodes with AppArmor enabled.
 func (e *e2e) logEnricherBpfOnlyTestCase() {
 	if !e.bpfEnricherEnabled {
 		e.T().Skip("Skipping log-enricher related test (BPF source)")
@@ -1122,12 +1173,16 @@ func (e *e2e) jsonEnricherOnlyTestCaseFileOptions(jsonLogFileName string,
 	e.enableJsonEnricherInSpodFileOptions(jsonLogFileName, enricherFilterJsonStr)
 }
 
-// enableLogEnricherBpfInSpod switches the log enricher to the BPF source
-// and restores the previous source once the current test ends, since the
-// other enricher tests wait for the lines of the audit log source.
+// enableLogEnricherBpfInSpod enables AppArmor and the log enricher with the
+// BPF source in one rollout, and restores the previous spec once the current
+// test ends, since the other enricher tests wait for the lines of the audit
+// log source.
 func (e *e2e) enableLogEnricherBpfInSpod() {
 	e.restoreSpodSpec()
-	e.patchSpod(`{"spec":{"enricher":{"logEnricherSource": "Bpf"}}}`)
+	e.logf("Enable log-enricher with the BPF source and AppArmor in SPOD")
+	e.patchSpod(`{"spec":{"enableAppArmor":true,"enricher":{"enableJsonEnricher":false,` +
+		`"enableLogEnricher":true,"logEnricherFilters":null,"logEnricherSource":"Bpf"}}}`)
+	e.waitForSpodPodsRunning("Failed to enable log-enricher in SPOD")
 }
 
 // restoreSpodSpec restores the current SPOD spec once the current test ends,
@@ -1157,14 +1212,19 @@ func (e *e2e) enableLogEnricherInSpod() {
 	// log lines this test waits for.
 	e.patchSpod(`{"spec":{"enricher":{"enableJsonEnricher": false,"enableLogEnricher": true,` +
 		`"logEnricherFilters": null}}}`)
+	e.waitForSpodPodsRunning("Failed to enable log-enricher in SPOD")
+}
 
+// waitForSpodPodsRunning waits until the old spod and webhook pods are gone
+// and the new ones run, and fails the test with the message otherwise.
+func (e *e2e) waitForSpodPodsRunning(message string) {
 	e.waitForTerminatingPods(podStartTimeout)
 
 	for _, podName := range append(e.getSpodPodNames(), e.getSpodWebhookPodNames()...) {
 		operatorName := config.OperatorName
 		if !e.podRunning(podName, &operatorName, podStartTimeout) {
 			e.logf("Pod %s not running", podName)
-			e.Fail("Failed to enable log-enricher in SPOD")
+			e.Fail(message)
 		}
 	}
 }
