@@ -26,8 +26,8 @@ merged, before the back-to-dev PR. Every build of `main` tags its staging
 images with the version of the [`VERSION`](../VERSION) file, so a commit merged
 in between moves the `vx.y.z` tags, which `kpromo pr` promotes, to images of
 another commit. Those either fail the release artifacts job or, if they are
-pushed after it ran, get promoted without the GitHub provenance of the
-release, with only the SLSA Build L1 provenance of Cloud Build, see
+pushed after it ran, only have the SLSA Build L1 provenance of Cloud Build,
+which fails the policy and blocks the promotion, see
 [per-arch images](#per-arch-images).
 
 The release takes several hours, most of it waiting for the staging build, the
@@ -285,9 +285,10 @@ subjects of `images.intoto.jsonl`:
 The release artifacts job checked the `vx.y.z` staging tags when it ran, but
 `kpromo pr` reads them later. A commit merged in between, before the
 back-to-dev PR, moves them to images that only have the provenance of Cloud
-Build, which still passes the policy, at level 1. That's why the
-`tide/merge-blocker` label of the release issue stays until the promotion PR
-is merged.
+Build, at level 1, while the policy requires level 3, so the promotion fails
+and only a new patch release helps, see [per-arch images](#per-arch-images).
+That's why the `tide/merge-blocker` label of the release issue stays until the
+promotion PR is merged.
 
 Promote within 90 days. The staging registry deletes images 90 days after
 their push: the container images were pushed by the build of the release
@@ -314,9 +315,9 @@ SBOMs of the `spoc` index and the chart, with the commands of
 [verification.md](verification.md#container-image) and
 [OCI artifacts](verification.md#oci-artifacts-on-registryk8sio). The platform
 manifests of `spoc` keep theirs in staging, because the promoter manifest
-doesn't list them. `cosign tree` lists what a promoted digest carries. While
-the policy is in `warn` mode, a violation doesn't block the promotion, the
-attestations are just missing then. Also check that the manifest list, its
+doesn't list them. `cosign tree` lists what a promoted digest carries. The
+policy is in `require` mode, so a digest that violates it isn't promoted at
+all. Also check that the manifest list, its
 platform manifests, `spoc` and the chart have a passed verification summary
 of the promoter, see
 [verification summaries](verification.md#verification-summaries). The
@@ -416,19 +417,20 @@ The job publishes `spoc` and the chart before it waits for
 `images.intoto.jsonl`, for up to 45 minutes (`IMAGE_WAIT_TIMEOUT`), so the
 image workflow can't hold them back. If it is late or failed, re-run its
 failed jobs and then the release artifacts job from prow. If the job fails
-because the staging digests are not the attested ones, either cut a new patch
-release, or promote anyway and accept that the container images of this
-release only have the L1 provenance of Cloud Build. `spoc` and the chart are
-not affected either way.
+because the staging digests are not the attested ones, cut a new patch
+release: the policy requires level 3 for the container images, so with only
+the L1 provenance of Cloud Build their promotion fails. `spoc` and the chart
+are not affected.
 
 Every per-arch digest of a release then has two SLSA provenances: the one of
 Cloud Build, signed as `sp-operator-sa@k8s-staging-images`, whose builder ID
 stays at level 1, and the GitHub one at level 3. With the GitHub builder bound
-to its signer in the policy, see [OCI artifacts](#oci-artifacts), each passes
-at its own level, and the image promoter reports the highest level of the
-provenances of a digest that pass the policy, so the per-arch images, their
-platform manifests and so the manifest list of a release verify at level 3,
-see [verification.md](verification.md#github-provenance-of-the-container-images)
+to its signer in the policy, see [OCI artifacts](#oci-artifacts), each
+verifies at its own level. The policy requires level 3 for every image, which
+the GitHub provenance gives the per-arch images, their platform manifests and
+so the manifest list of a release, and the image promoter carries the Cloud
+Build provenance next to it, see
+[verification.md](verification.md#github-provenance-of-the-container-images)
 for the commands.
 
 The binaries built with nix, the ones of the images and the released `spoc`
@@ -564,9 +566,12 @@ For the promoter to accept and carry the GitHub provenance, the provenance
 policy of this project, the `provenance` section of
 [its promoter manifest](https://github.com/kubernetes/k8s.io/blob/main/registry.k8s.io/manifests/k8s-staging-sp-operator/promoter-manifest.yaml),
 needs the signer and the builder that GitHub puts into it. Both are the
-reusable workflow, not the calling `build.yml` or `helm-chart-package.yaml`,
-whose path is in
-`buildDefinition.externalParameters.workflow` instead. Next to the signer and
+reusable workflow, not the calling `build.yml`, `helm-chart-package.yaml` or
+`image-reproducible.yml`, whose path is in
+`buildDefinition.externalParameters.workflow` instead. The promoter checks
+that it names the same calling workflow and ref as the signing certificate,
+and checks those and the event of the run, which the certificate records too,
+against the `callers` of the builder. Next to the signer and
 the Cloud Build builder of the staging build, the GitHub builder names its
 signer, so that only that signer may claim it, see
 [provenance policies](https://github.com/kubernetes-sigs/promo-tools/blob/main/docs/image-promotion.md#provenance-policies).
@@ -584,22 +589,49 @@ builders:
     level: 3
     signers:
       - sigstore(identityMatch=regex)::https://token.actions.githubusercontent.com::https://github\.com/kubernetes-sigs/security-profiles-operator/\.github/workflows/provenance\.yml@(refs/tags/v[0-9]+\.[0-9]+\.[0-9]+|refs/heads/main)
+    callers:
+      - workflows:
+          - .github/workflows/build.yml
+          - .github/workflows/helm-chart-package.yaml
+          - .github/workflows/image-reproducible.yml
+        refs:
+          - refs/tags/v[0-9]*.[0-9]*.[0-9]*
+        events:
+          - release
+      - workflows:
+          - .github/workflows/build.yml
+        refs:
+          - refs/heads/main
+        events:
+          - push
 sources:
   - github.com/kubernetes-sigs/security-profiles-operator
+levels:
+  - images:
+      - "*"
+      - "*/*"
+    level: 3
 ```
 
 The regexp has to match the whole identity, so it needs no anchors, and the
 builder names the signer exactly as written in `signers`. The staging build
 identity may then only claim the Cloud Build builder, which names no signers,
-and the GitHub identity only the GitHub builder. So what the staging build
-attests verifies at level 1, and what the GitHub workflows attest at level 3:
+and the GitHub identity only the GitHub builder. The `callers` of the GitHub
+builder repeat the checks of `provenance.yml`, see
+[the provenance signer](#the-provenance-signer): its provenance only counts
+for a release of a `v*` tag called by one of the three workflows, or for a
+push to `main` called by `build.yml`, and the run has to match all fields of
+one of the entries. So what the staging build attests verifies at level 1, and what
+the GitHub workflows attest at level 3:
 `spoc`, the released chart, the per-arch images, the bundle and the catalog of
 a release, and the security profiles. The signer is bound to the `v*` release
 tags and to `main`, which only changes through reviewed pull requests, since
 the profiles are published from `main`, see
 [security profiles](#security-profiles).
-When a digest carries provenance of both builders, the promoter reports the
-highest level that passes.
+`levels` requires level 3 for every image of the promoter manifest, also for
+new ones, so a digest without accepted GitHub provenance blocks the promotion
+even though its Cloud Build provenance verifies. When a digest carries provenance of both builders, the promoter
+carries both and reports the highest level that passes.
 [Attestations on registry.k8s.io](#attestations-on-registryk8sio) explains
 the `mode` of the policy. With
 `predicateTypes: [https://spdx.dev/Document/v3]` the policy can require an
@@ -683,8 +715,12 @@ identities of its own repository, which is what allows to
 [rehearse](#rehearsing-the-release-artifacts-job) the release artifacts job
 there. The release artifacts job and the `cosign` commands of
 [verification.md](verification.md) check the repository, ref and trigger of
-the certificate as well, the image promoter only checks the identity, which
-these checks bind to a release or to a push to `main`.
+the certificate as well, and so does the image promoter:
+[its policy](#oci-artifacts) only accepts the provenance of `provenance.yml`
+when it was called for a release of a `v*` tag by one of the three workflows
+above, or for a push to `main` by `build.yml`, and requires it at level 3 for
+every artifact. The checks of `provenance.yml` stay for verifiers that only
+check the identity.
 
 ## Staging attestations
 
@@ -866,8 +902,9 @@ next to the promoted digest in `registry.k8s.io`, and publishes a
 `promoter-summaries@k8s-releng-prod.iam.gserviceaccount.com`, see
 [verification summaries](verification.md#verification-summaries). The policy
 of this project trusts the attestations of the build identity and of the
-provenance workflow of a release or of `main`, and checks the builder ID and
-source of the provenance like the verification above, see
+provenance workflow of a release or of `main`, checks the builder ID, the
+source and the calling workflow, ref and event of the provenance like the
+verification above, and requires level 3 for every artifact, see
 [OCI artifacts](#oci-artifacts) for its content. In `warn` mode it reports
 violations without blocking the promotion, and a digest that violates it gets
 no attestations carried and a failed summary. In `require` mode a violation
