@@ -249,6 +249,19 @@ should be confined, which is used as the profile name:
 > sudo spoc remove profile.yaml /usr/bin/my-app
 ```
 
+The executable is a path, a bare name is taken relative to the working
+directory. Without the executable, a profile named after a command on the
+`PATH` confines that command. AppArmor attaches a profile to the absolute path
+of the executable, so a relative path or a symlink gets resolved to it, and a
+profile name which is no absolute path does not attach to anything.
+
+`spoc remove` only unloads a profile whose policy file under `/etc/apparmor.d`
+was written by `spoc install` or the operator, never a profile of the host or
+a container runtime. A profile installed under the unresolved path of the
+executable, as earlier releases did, gets removed as well. If nothing was
+unloaded, `spoc remove` logs a warning naming the tried names and still exits
+with 0; pass the path the profile got installed with to remove it then.
+
 ### Pull security profiles from OCI registries
 
 The `spoc` client is able to pull security profiles from OCI artifact compatible
@@ -386,8 +399,12 @@ accepted during verification can be restricted with
 `--allowed-identity-regexp` / `-i` and `--allowed-oidc-issuer-regexp`. It is
 possible to add custom annotations to the artifact manifest by using the
 `--annotations` / `-a` flag multiple times in `KEY:VALUE` format; only the
-first colon separates the key from the value, so timestamps keep theirs. The
-key must not be empty. The layers only carry their
+first colon separates the key from the value, so timestamps keep theirs.
+Several annotations can be separated by commas within one flag. A comma only
+starts another annotation if a key and a colon follow it, which are not the
+scheme of a URL like `https://`. A value containing a comma followed by a word
+and a colon, like `a, b: c`, needs a flag of its own. The key must not be
+empty. The layers only carry their
 `org.opencontainers.image.title` annotation.
 
 The manifest's `org.opencontainers.image.created` annotation is fixed to

@@ -25,6 +25,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/merger/mergerfakes"
 )
 
@@ -157,18 +158,20 @@ func TestRun(t *testing.T) {
 
 	for _, tc := range []struct {
 		name    string
-		prepare func(*mergerfakes.FakeImpl) *Options
-		assert  func(*mergerfakes.FakeImpl, error)
+		prepare func(*testing.T, *mergerfakes.FakeImpl) *Options
+		assert  func(*testing.T, *mergerfakes.FakeImpl, error)
 	}{
 		{
 			name: "successful seccomp merge",
-			prepare: func(mock *mergerfakes.FakeImpl) *Options {
+			prepare: func(_ *testing.T, mock *mergerfakes.FakeImpl) *Options {
 				mock.ReadFileReturnsOnCall(0, []byte(SeccompA), nil)
 				mock.ReadFileReturnsOnCall(1, []byte(SeccompB), nil)
 
 				return defaultOptions()
 			},
-			assert: func(mock *mergerfakes.FakeImpl, err error) {
+			assert: func(t *testing.T, mock *mergerfakes.FakeImpl, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 
 				_, merged, _ := mock.WriteFileArgsForCall(0)
@@ -177,7 +180,7 @@ func TestRun(t *testing.T) {
 		},
 		{
 			name: "successful apparmor merge",
-			prepare: func(mock *mergerfakes.FakeImpl) *Options {
+			prepare: func(_ *testing.T, mock *mergerfakes.FakeImpl) *Options {
 				mock.ReadFileReturnsOnCall(0, []byte(AppArmorBase), nil)
 				mock.ReadFileReturnsOnCall(1, []byte(`
 apiVersion: security-profiles-operator.x-k8s.io/v1
@@ -191,7 +194,9 @@ spec:
 
 				return defaultOptions()
 			},
-			assert: func(mock *mergerfakes.FakeImpl, err error) {
+			assert: func(t *testing.T, mock *mergerfakes.FakeImpl, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 
 				_, merged, _ := mock.WriteFileArgsForCall(0)
@@ -200,7 +205,7 @@ spec:
 		},
 		{
 			name: "apparmor base profile is up-to-date",
-			prepare: func(mock *mergerfakes.FakeImpl) *Options {
+			prepare: func(_ *testing.T, mock *mergerfakes.FakeImpl) *Options {
 				mock.ReadFileReturnsOnCall(0, []byte(AppArmorBase), nil)
 				mock.ReadFileReturnsOnCall(1, []byte(AppArmorSubset), nil)
 
@@ -209,20 +214,24 @@ spec:
 
 				return options
 			},
-			assert: func(mock *mergerfakes.FakeImpl, err error) {
+			assert: func(t *testing.T, mock *mergerfakes.FakeImpl, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				require.Equal(t, 0, mock.WriteFileCallCount())
 			},
 		},
 		{
 			name: "successful selinux merge",
-			prepare: func(mock *mergerfakes.FakeImpl) *Options {
+			prepare: func(_ *testing.T, mock *mergerfakes.FakeImpl) *Options {
 				mock.ReadFileReturnsOnCall(0, []byte(SelinuxA), nil)
 				mock.ReadFileReturnsOnCall(1, []byte(SelinuxB), nil)
 
 				return defaultOptions()
 			},
-			assert: func(mock *mergerfakes.FakeImpl, err error) {
+			assert: func(t *testing.T, mock *mergerfakes.FakeImpl, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 
 				_, merged, _ := mock.WriteFileArgsForCall(0)
@@ -233,7 +242,7 @@ spec:
 		},
 		{
 			name: "seccomp base profile is outdated",
-			prepare: func(mock *mergerfakes.FakeImpl) *Options {
+			prepare: func(_ *testing.T, mock *mergerfakes.FakeImpl) *Options {
 				mock.ReadFileReturnsOnCall(0, []byte(SeccompA), nil)
 				mock.ReadFileReturnsOnCall(1, []byte(SeccompB), nil)
 
@@ -242,14 +251,16 @@ spec:
 
 				return options
 			},
-			assert: func(mock *mergerfakes.FakeImpl, err error) {
+			assert: func(t *testing.T, mock *mergerfakes.FakeImpl, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, ErrBaseProfileOutdated)
 				require.Equal(t, 0, mock.WriteFileCallCount())
 			},
 		},
 		{
 			name: "seccomp base profile is up-to-date",
-			prepare: func(mock *mergerfakes.FakeImpl) *Options {
+			prepare: func(_ *testing.T, mock *mergerfakes.FakeImpl) *Options {
 				mock.ReadFileReturnsOnCall(0, []byte(SeccompMerged), nil)
 				mock.ReadFileReturnsOnCall(1, []byte(SeccompB), nil)
 
@@ -258,44 +269,52 @@ spec:
 
 				return options
 			},
-			assert: func(mock *mergerfakes.FakeImpl, err error) {
+			assert: func(t *testing.T, mock *mergerfakes.FakeImpl, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				require.Equal(t, 0, mock.WriteFileCallCount())
 			},
 		},
 		{
 			name: "cannot merge different formats",
-			prepare: func(mock *mergerfakes.FakeImpl) *Options {
+			prepare: func(_ *testing.T, mock *mergerfakes.FakeImpl) *Options {
 				mock.ReadFileReturnsOnCall(0, []byte(SeccompA), nil)
 				mock.ReadFileReturnsOnCall(1, []byte(SelinuxA), nil)
 
 				return defaultOptions()
 			},
-			assert: func(mock *mergerfakes.FakeImpl, err error) {
+			assert: func(t *testing.T, mock *mergerfakes.FakeImpl, err error) {
+				t.Helper()
+
 				require.ErrorContains(t, err, "cannot merge SeccompProfile with *recordingmerger.MergeableSelinuxProfile")
 				require.Equal(t, 0, mock.WriteFileCallCount())
 			},
 		},
 		{
 			name: "input file not found",
-			prepare: func(mock *mergerfakes.FakeImpl) *Options {
+			prepare: func(_ *testing.T, mock *mergerfakes.FakeImpl) *Options {
 				mock.ReadFileReturnsOnCall(0, nil, errors.New("file not found"))
 
 				return defaultOptions()
 			},
-			assert: func(mock *mergerfakes.FakeImpl, err error) {
+			assert: func(t *testing.T, mock *mergerfakes.FakeImpl, err error) {
+				t.Helper()
+
 				require.ErrorContains(t, err, "open profile: file not found")
 			},
 		},
 		{
 			name: "input file is not yaml",
-			prepare: func(mock *mergerfakes.FakeImpl) *Options {
+			prepare: func(_ *testing.T, mock *mergerfakes.FakeImpl) *Options {
 				mock.ReadFileReturnsOnCall(0, []byte("% this is not yaml"), nil)
 
 				return defaultOptions()
 			},
-			assert: func(mock *mergerfakes.FakeImpl, err error) {
-				require.ErrorContains(t, err, "cannot parse yaml")
+			assert: func(t *testing.T, mock *mergerfakes.FakeImpl, err error) {
+				t.Helper()
+
+				require.ErrorIs(t, err, artifact.ErrDecodeYAML)
 			},
 		},
 	} {
@@ -306,13 +325,13 @@ spec:
 			t.Parallel()
 
 			mock := &mergerfakes.FakeImpl{}
-			options := prepare(mock)
+			options := prepare(t, mock)
 
 			sut := New(options)
 			sut.impl = mock
 
 			err := sut.Run()
-			assert(mock, err)
+			assert(t, mock, err)
 		})
 	}
 }

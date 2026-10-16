@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,8 +42,14 @@ import (
 
 var (
 	hostSupportsAppArmor bool
-	checkHostSupport     sync.Once
+	// hostSupportDetected is false if the detection failed.
+	hostSupportDetected bool
+	checkHostSupport    sync.Once
 )
+
+// builtWithAppArmor reports whether the operator got built with AppArmor
+// support.
+const builtWithAppArmor = true
 
 const (
 	targetProfileDir string = "/etc/apparmor.d/"
@@ -75,10 +82,15 @@ func (a *aaProfileManager) Enabled() bool {
 			if err != nil {
 				a.logger.Info("AppArmor is not available on the host", "error", err.Error())
 
+				// Without the AppArmor module the host has no AppArmor
+				// for sure, the securityfs may only be unreadable.
+				hostSupportDetected = errors.Is(err, fs.ErrNotExist)
+
 				return nil
 			}
 
 			hostSupportsAppArmor = enabled
+			hostSupportDetected = true
 
 			return nil
 		}); err != nil {
@@ -90,6 +102,10 @@ func (a *aaProfileManager) Enabled() bool {
 	})
 
 	return hostSupportsAppArmor
+}
+
+func (a *aaProfileManager) KnownUnsupported() bool {
+	return !a.Enabled() && hostSupportDetected
 }
 
 func (a *aaProfileManager) RemoveProfile(

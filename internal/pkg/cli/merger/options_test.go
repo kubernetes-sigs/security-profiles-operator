@@ -29,33 +29,43 @@ func TestFromContext(t *testing.T) {
 
 	for _, tc := range []struct {
 		name    string
-		prepare func(*flag.FlagSet)
-		assert  func(error)
+		prepare func(*testing.T, *flag.FlagSet)
+		assert  func(*testing.T, error)
 	}{
 		{
 			name: "success",
-			prepare: func(set *flag.FlagSet) {
+			prepare: func(t *testing.T, set *flag.FlagSet) {
+				t.Helper()
+
 				require.NoError(t, set.Parse([]string{"foo.yaml", "bar.yaml"}))
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 			},
 		},
 		{
 			name:    "failure: no profiles provided",
-			prepare: func(set *flag.FlagSet) {},
-			assert: func(err error) {
+			prepare: func(*testing.T, *flag.FlagSet) {},
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.Error(t, err)
 			},
 		},
 		{
 			name: "failure: no filename provided",
-			prepare: func(set *flag.FlagSet) {
+			prepare: func(t *testing.T, set *flag.FlagSet) {
+				t.Helper()
+
 				set.String(FlagOutputFile, "", "")
 				require.NoError(t, set.Set(FlagOutputFile, ""))
 				require.NoError(t, set.Parse([]string{"foo.yaml", "bar.yaml"}))
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.Error(t, err)
 			},
 		},
@@ -64,13 +74,13 @@ func TestFromContext(t *testing.T) {
 			t.Parallel()
 
 			set := flag.NewFlagSet("", flag.ExitOnError)
-			tc.prepare(set)
+			tc.prepare(t, set)
 
 			app := cli.NewApp()
 			ctx := cli.NewContext(app, set, nil)
 
 			_, err := FromContext(ctx)
-			tc.assert(err)
+			tc.assert(t, err)
 		})
 	}
 }

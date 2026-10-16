@@ -31,7 +31,6 @@ service BpfRecorder {
   rpc ResetApparmorForProfile(ProfileRequest) returns (EmptyResponse) {}
 }
 
-message EmptyRequest {}
 message EmptyResponse {}
 
 // RecordingRequest starts or stops the recording for a client. The recording

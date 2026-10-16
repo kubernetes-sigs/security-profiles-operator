@@ -21,6 +21,11 @@ import "errors"
 // ErrNotFound is the GRPC error if no recorded profile found.
 var ErrNotFound = errors.New("no recorded profile found")
 
+// ErrNotRunning is returned if the recorder does not record, like after it
+// stopped a recording which looked abandoned. The status message of the gRPC
+// API is its text.
+var ErrNotRunning = errors.New("bpf recorder not running")
+
 var ErrStartBeforeLoad = errors.New("BPF module must be loaded before a recording can be started")
 
 // ErrAppArmorUnavailable is returned for AppArmor recording requests if the

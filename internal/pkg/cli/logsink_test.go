@@ -30,38 +30,40 @@ func TestLogSinkFormat(t *testing.T) {
 
 	for _, tc := range []struct {
 		name          string
-		sink          func() *LogSink
+		sink          func(*testing.T) *LogSink
 		err           error
 		keysAndValues []any
 		want          string
 	}{
 		{
 			name: "message only",
-			sink: func() *LogSink { return &LogSink{} },
+			sink: func(_ *testing.T) *LogSink { return &LogSink{} },
 			want: "Pulling profile",
 		},
 		{
 			name:          "key and value",
-			sink:          func() *LogSink { return &LogSink{} },
+			sink:          func(_ *testing.T) *LogSink { return &LogSink{} },
 			keysAndValues: []any{"image", "registry/base:v1", "count", 2},
 			want:          "Pulling profile (image=registry/base:v1, count=2)",
 		},
 		{
 			name:          "key without value",
-			sink:          func() *LogSink { return &LogSink{} },
+			sink:          func(_ *testing.T) *LogSink { return &LogSink{} },
 			keysAndValues: []any{"image", "registry/base:v1", "count"},
 			want:          "Pulling profile (image=registry/base:v1, count=<no value>)",
 		},
 		{
 			name:          "error",
-			sink:          func() *LogSink { return &LogSink{} },
+			sink:          func(_ *testing.T) *LogSink { return &LogSink{} },
 			err:           errTest,
 			keysAndValues: []any{"image", "registry/base:v1"},
 			want:          "Pulling profile, err: broken (image=registry/base:v1)",
 		},
 		{
 			name: "values of the sink come first",
-			sink: func() *LogSink {
+			sink: func(t *testing.T) *LogSink {
+				t.Helper()
+
 				sink, ok := (&LogSink{}).WithValues("component", "puller").(*LogSink)
 				require.True(t, ok)
 
@@ -72,7 +74,9 @@ func TestLogSinkFormat(t *testing.T) {
 		},
 		{
 			name: "values of the sink only",
-			sink: func() *LogSink {
+			sink: func(t *testing.T) *LogSink {
+				t.Helper()
+
 				sink, ok := (&LogSink{}).WithValues("component", "puller").(*LogSink)
 				require.True(t, ok)
 
@@ -82,7 +86,9 @@ func TestLogSinkFormat(t *testing.T) {
 		},
 		{
 			name: "nested names",
-			sink: func() *LogSink {
+			sink: func(t *testing.T) *LogSink {
+				t.Helper()
+
 				named, ok := (&LogSink{}).WithName("artifact").(*LogSink)
 				require.True(t, ok)
 
@@ -95,7 +101,9 @@ func TestLogSinkFormat(t *testing.T) {
 		},
 		{
 			name: "name keeps the values",
-			sink: func() *LogSink {
+			sink: func(t *testing.T) *LogSink {
+				t.Helper()
+
 				withValues, ok := (&LogSink{}).WithValues("component", "puller").(*LogSink)
 				require.True(t, ok)
 
@@ -113,7 +121,7 @@ func TestLogSinkFormat(t *testing.T) {
 			require.Equal(
 				t,
 				tc.want,
-				tc.sink().format("Pulling profile", tc.err, tc.keysAndValues...),
+				tc.sink(t).format("Pulling profile", tc.err, tc.keysAndValues...),
 			)
 		})
 	}

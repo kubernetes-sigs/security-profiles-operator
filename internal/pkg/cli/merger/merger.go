@@ -67,7 +67,7 @@ func (p *Merger) Run() error {
 			return fmt.Errorf("open profile: %w", err)
 		}
 
-		contents[i], err = artifact.ReadProfile(content)
+		contents[i], err = artifact.ReadSingleProfile(content)
 		if err != nil {
 			return fmt.Errorf("failed to read %s: %w", filepath, err)
 		}

@@ -133,14 +133,14 @@ func TestAuditIncOverGRPC(t *testing.T) {
 			Node: workload.GetNode(), Namespace: workload.GetNamespace(),
 			Pod: workload.GetPod(), Container: workload.GetContainer(),
 			ApparmorReq: &api.AuditRequest_ApparmorAuditReq{
-				Profile: "profile", Operation: "open", Apparmor: "DENIED", Name: "/etc/shadow",
+				Profile: "profile", Operation: "open", Apparmor: "DENIED",
 			},
 		},
 		{
 			Node: workload.GetNode(), Namespace: workload.GetNamespace(),
 			Pod: workload.GetPod(), Container: workload.GetContainer(),
 			ApparmorReq: &api.AuditRequest_ApparmorAuditReq{
-				Profile: "profile", Operation: "open", Apparmor: "ALLOWED", Name: "/etc/passwd",
+				Profile: "profile", Operation: "open", Apparmor: "ALLOWED",
 			},
 		},
 		// A request without a type is ignored.

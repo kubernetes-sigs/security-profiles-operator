@@ -42,7 +42,6 @@ type AuditRequest struct {
 	Namespace     string                         `protobuf:"bytes,2,opt,name=namespace,proto3" json:"namespace,omitempty"`
 	Pod           string                         `protobuf:"bytes,3,opt,name=pod,proto3" json:"pod,omitempty"`
 	Container     string                         `protobuf:"bytes,4,opt,name=container,proto3" json:"container,omitempty"`
-	Executable    string                         `protobuf:"bytes,5,opt,name=executable,proto3" json:"executable,omitempty"`
 	SeccompReq    *AuditRequest_SeccompAuditReq  `protobuf:"bytes,6,opt,name=seccomp_req,json=seccompReq,proto3" json:"seccomp_req,omitempty"`
 	SelinuxReq    *AuditRequest_SelinuxAuditReq  `protobuf:"bytes,7,opt,name=selinux_req,json=selinuxReq,proto3" json:"selinux_req,omitempty"`
 	ApparmorReq   *AuditRequest_ApparmorAuditReq `protobuf:"bytes,8,opt,name=apparmor_req,json=apparmorReq,proto3" json:"apparmor_req,omitempty"`
@@ -104,13 +103,6 @@ func (x *AuditRequest) GetPod() string {
 func (x *AuditRequest) GetContainer() string {
 	if x != nil {
 		return x.Container
-	}
-	return ""
-}
-
-func (x *AuditRequest) GetExecutable() string {
-	if x != nil {
-		return x.Executable
 	}
 	return ""
 }
@@ -333,7 +325,6 @@ type AuditRequest_ApparmorAuditReq struct {
 	Profile       string                 `protobuf:"bytes,1,opt,name=profile,proto3" json:"profile,omitempty"`
 	Operation     string                 `protobuf:"bytes,2,opt,name=operation,proto3" json:"operation,omitempty"`
 	Apparmor      string                 `protobuf:"bytes,3,opt,name=apparmor,proto3" json:"apparmor,omitempty"`
-	Name          string                 `protobuf:"bytes,5,opt,name=name,proto3" json:"name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -389,26 +380,16 @@ func (x *AuditRequest_ApparmorAuditReq) GetApparmor() string {
 	return ""
 }
 
-func (x *AuditRequest_ApparmorAuditReq) GetName() string {
-	if x != nil {
-		return x.Name
-	}
-	return ""
-}
-
 var File_api_grpc_metrics_api_proto protoreflect.FileDescriptor
 
 const file_api_grpc_metrics_api_proto_rawDesc = "" +
 	"\n" +
-	"\x1aapi/grpc/metrics/api.proto\x12\vapi_metrics\"\xf2\x04\n" +
+	"\x1aapi/grpc/metrics/api.proto\x12\vapi_metrics\"\xdb\x04\n" +
 	"\fAuditRequest\x12\x12\n" +
 	"\x04node\x18\x01 \x01(\tR\x04node\x12\x1c\n" +
 	"\tnamespace\x18\x02 \x01(\tR\tnamespace\x12\x10\n" +
 	"\x03pod\x18\x03 \x01(\tR\x03pod\x12\x1c\n" +
-	"\tcontainer\x18\x04 \x01(\tR\tcontainer\x12\x1e\n" +
-	"\n" +
-	"executable\x18\x05 \x01(\tR\n" +
-	"executable\x12J\n" +
+	"\tcontainer\x18\x04 \x01(\tR\tcontainer\x12J\n" +
 	"\vseccomp_req\x18\x06 \x01(\v2).api_metrics.AuditRequest.SeccompAuditReqR\n" +
 	"seccompReq\x12J\n" +
 	"\vselinux_req\x18\a \x01(\v2).api_metrics.AuditRequest.SelinuxAuditReqR\n" +
@@ -418,12 +399,12 @@ const file_api_grpc_metrics_api_proto_rawDesc = "" +
 	"\asyscall\x18\x01 \x01(\tR\asyscall\x1aI\n" +
 	"\x0fSelinuxAuditReq\x12\x1a\n" +
 	"\bscontext\x18\x01 \x01(\tR\bscontext\x12\x1a\n" +
-	"\btcontext\x18\x02 \x01(\tR\btcontext\x1a\x80\x01\n" +
+	"\btcontext\x18\x02 \x01(\tR\btcontext\x1ax\n" +
 	"\x10ApparmorAuditReq\x12\x18\n" +
 	"\aprofile\x18\x01 \x01(\tR\aprofile\x12\x1c\n" +
 	"\toperation\x18\x02 \x01(\tR\toperation\x12\x1a\n" +
-	"\bapparmor\x18\x03 \x01(\tR\bapparmor\x12\x12\n" +
-	"\x04name\x18\x05 \x01(\tR\x04nameJ\x04\b\x04\x10\x05\"c\n" +
+	"\bapparmor\x18\x03 \x01(\tR\bapparmorJ\x04\b\x04\x10\x05J\x04\b\x05\x10\x06R\x04nameJ\x04\b\x05\x10\x06R\n" +
+	"executable\"c\n" +
 	"\n" +
 	"BpfRequest\x12\x12\n" +
 	"\x04node\x18\x01 \x01(\tR\x04node\x12'\n" +

@@ -31,52 +31,68 @@ func TestFromContext(t *testing.T) {
 
 	for _, tc := range []struct {
 		name    string
-		prepare func(*flag.FlagSet)
-		assert  func(*Options, error)
+		prepare func(*testing.T, *flag.FlagSet)
+		assert  func(*testing.T, *Options, error)
 	}{
 		{
 			name: "success",
-			prepare: func(set *flag.FlagSet) {
+			prepare: func(t *testing.T, set *flag.FlagSet) {
+				t.Helper()
+
 				require.NoError(t, set.Parse([]string{"echo"}))
 			},
-			assert: func(opts *Options, err error) {
+			assert: func(t *testing.T, opts *Options, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				require.False(t, opts.disableSignatureVerification)
 			},
 		},
 		{
 			name: "failure username without password",
-			prepare: func(set *flag.FlagSet) {
+			prepare: func(t *testing.T, set *flag.FlagSet) {
+				t.Helper()
+
 				set.String(cli.FlagUsername, "", "")
 				require.NoError(t, set.Set(cli.FlagUsername, "username"))
 				require.NoError(t, set.Parse([]string{"echo"}))
 			},
-			assert: func(_ *Options, err error) {
+			assert: func(t *testing.T, _ *Options, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, cli.ErrIncompleteCredentials)
 			},
 		},
 		{
 			name: "success with verify signature disabled",
-			prepare: func(set *flag.FlagSet) {
+			prepare: func(t *testing.T, set *flag.FlagSet) {
+				t.Helper()
+
 				set.Bool(FlagDisableSignatureVerification, true, "")
 				require.NoError(t, set.Set(FlagDisableSignatureVerification, "true"))
 				require.NoError(t, set.Parse([]string{"echo"}))
 			},
-			assert: func(opts *Options, err error) {
+			assert: func(t *testing.T, opts *Options, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				require.True(t, opts.disableSignatureVerification)
 			},
 		},
 		{
 			name: "success with verify allowed identity and allowed oidc issuer regexp(s)",
-			prepare: func(set *flag.FlagSet) {
+			prepare: func(t *testing.T, set *flag.FlagSet) {
+				t.Helper()
+
 				set.String(FlagAllowedIdentityRegexp, "testIdentity*", "")
 				set.String(FlagAllowedOidcIssuerRegexp, "testOidc*", "")
 				require.NoError(t, set.Set(FlagAllowedIdentityRegexp, "testIdentity*"))
 				require.NoError(t, set.Set(FlagAllowedOidcIssuerRegexp, "testOidc*"))
 				require.NoError(t, set.Parse([]string{"echo"}))
 			},
-			assert: func(opts *Options, err error) {
+			assert: func(t *testing.T, opts *Options, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				require.Equal(t, "testIdentity*", opts.allowedIdentityRegexp)
 				require.Equal(t, "testOidc*", opts.allowedOidcIssuerRegexp)
@@ -84,7 +100,9 @@ func TestFromContext(t *testing.T) {
 		},
 		{
 			name: "success with key, trusted root and offline",
-			prepare: func(set *flag.FlagSet) {
+			prepare: func(t *testing.T, set *flag.FlagSet) {
+				t.Helper()
+
 				set.String(FlagKey, "", "")
 				set.String(FlagAllowedIdentityRegexp, "", "")
 				set.String(FlagTrustedRoot, "", "")
@@ -96,7 +114,9 @@ func TestFromContext(t *testing.T) {
 				require.NoError(t, set.Set(FlagOffline, "true"))
 				require.NoError(t, set.Parse([]string{"echo"}))
 			},
-			assert: func(opts *Options, err error) {
+			assert: func(t *testing.T, opts *Options, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				require.Equal(t, "cosign.pub", opts.keyRef)
 				require.Equal(t, "root.json", opts.trustedRootPath)
@@ -105,14 +125,18 @@ func TestFromContext(t *testing.T) {
 		},
 		{
 			name: "success with exact signer",
-			prepare: func(set *flag.FlagSet) {
+			prepare: func(t *testing.T, set *flag.FlagSet) {
+				t.Helper()
+
 				set.String(FlagCertificateIdentity, "", "")
 				set.String(FlagCertificateOidcIssuer, "", "")
 				require.NoError(t, set.Set(FlagCertificateIdentity, "me@example.com"))
 				require.NoError(t, set.Set(FlagCertificateOidcIssuer, "https://issuer"))
 				require.NoError(t, set.Parse([]string{"echo"}))
 			},
-			assert: func(opts *Options, err error) {
+			assert: func(t *testing.T, opts *Options, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				require.Equal(t, "me@example.com", opts.certIdentity)
 				require.Equal(t, "https://issuer", opts.certOidcIssuer)
@@ -120,7 +144,9 @@ func TestFromContext(t *testing.T) {
 		},
 		{
 			name: "failure key with exact signer",
-			prepare: func(set *flag.FlagSet) {
+			prepare: func(t *testing.T, set *flag.FlagSet) {
+				t.Helper()
+
 				set.String(FlagKey, "", "")
 				set.String(FlagCertificateIdentity, "", "")
 				set.String(FlagCertificateOidcIssuer, "", "")
@@ -129,7 +155,9 @@ func TestFromContext(t *testing.T) {
 				require.NoError(t, set.Set(FlagCertificateOidcIssuer, "https://issuer"))
 				require.NoError(t, set.Parse([]string{"echo"}))
 			},
-			assert: func(_ *Options, err error) {
+			assert: func(t *testing.T, _ *Options, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, ErrKeyWithIdentity)
 				require.ErrorContains(t, err, "--"+FlagCertificateIdentity)
 				require.ErrorContains(t, err, "--"+FlagCertificateOidcIssuer)
@@ -137,47 +165,63 @@ func TestFromContext(t *testing.T) {
 		},
 		{
 			name: "failure key with signer regexp",
-			prepare: func(set *flag.FlagSet) {
+			prepare: func(t *testing.T, set *flag.FlagSet) {
+				t.Helper()
+
 				set.String(FlagKey, "", "")
 				set.String(FlagAllowedOidcIssuerRegexp, "", "")
 				require.NoError(t, set.Set(FlagKey, "cosign.pub"))
 				require.NoError(t, set.Set(FlagAllowedOidcIssuerRegexp, "^https://issuer$"))
 				require.NoError(t, set.Parse([]string{"echo"}))
 			},
-			assert: func(_ *Options, err error) {
+			assert: func(t *testing.T, _ *Options, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, ErrKeyWithIdentity)
 				require.ErrorContains(t, err, "--"+FlagAllowedOidcIssuerRegexp)
 			},
 		},
 		{
 			name: "failure no image provided",
-			prepare: func(set *flag.FlagSet) {
+			prepare: func(t *testing.T, set *flag.FlagSet) {
+				t.Helper()
+
 				set.String(FlagOutputFile, "", "")
 				require.NoError(t, set.Set(FlagOutputFile, ""))
 			},
-			assert: func(_ *Options, err error) {
+			assert: func(t *testing.T, _ *Options, err error) {
+				t.Helper()
+
 				require.Error(t, err)
 			},
 		},
 		{
 			name: "failure no output file provided",
-			prepare: func(set *flag.FlagSet) {
+			prepare: func(t *testing.T, set *flag.FlagSet) {
+				t.Helper()
+
 				set.String(FlagOutputFile, "", "")
 				require.NoError(t, set.Set(FlagOutputFile, ""))
 				require.NoError(t, set.Parse([]string{"echo"}))
 			},
-			assert: func(_ *Options, err error) {
+			assert: func(t *testing.T, _ *Options, err error) {
+				t.Helper()
+
 				require.Error(t, err)
 			},
 		},
 		{
 			name: "failure parse platform",
-			prepare: func(set *flag.FlagSet) {
+			prepare: func(t *testing.T, set *flag.FlagSet) {
+				t.Helper()
+
 				set.String(FlagPlatform, "", "")
 				require.NoError(t, set.Set(FlagPlatform, "os//var"))
 				require.NoError(t, set.Parse([]string{"echo"}))
 			},
-			assert: func(_ *Options, err error) {
+			assert: func(t *testing.T, _ *Options, err error) {
+				t.Helper()
+
 				require.Error(t, err)
 			},
 		},
@@ -189,13 +233,13 @@ func TestFromContext(t *testing.T) {
 			t.Parallel()
 
 			set := flag.NewFlagSet("", flag.ExitOnError)
-			prepare(set)
+			prepare(t, set)
 
 			app := ucli.NewApp()
 			ctx := ucli.NewContext(app, set, nil)
 
 			opts, err := FromContext(ctx)
-			assert(opts, err)
+			assert(t, opts, err)
 		})
 	}
 }

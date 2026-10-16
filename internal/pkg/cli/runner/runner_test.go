@@ -44,125 +44,153 @@ func TestRun(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		profile string
-		prepare func(mock *runnerfakes.FakeImpl)
-		assert  func(error)
+		prepare func(t *testing.T, mock *runnerfakes.FakeImpl)
+		assert  func(*testing.T, error)
 	}{
 		{
 			name:    "success",
-			prepare: func(mock *runnerfakes.FakeImpl) {},
-			assert: func(err error) {
+			prepare: func(_ *testing.T, mock *runnerfakes.FakeImpl) {},
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 			},
 		},
 		{
 			name: "failure on ReadFile",
-			prepare: func(mock *runnerfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *runnerfakes.FakeImpl) {
 				mock.ReadFileReturns(nil, errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, errTest)
 			},
 		},
 		{
 			name:    "success with JSON profile",
 			profile: "profile.json",
-			prepare: func(mock *runnerfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *runnerfakes.FakeImpl) {
 				mock.ReadFileReturns([]byte(`{"defaultAction":"SCMP_ACT_ERRNO"}`), nil)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 			},
 		},
 		{
 			name: "failure on invalid YAML profile",
-			prepare: func(mock *runnerfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *runnerfakes.FakeImpl) {
 				mock.ReadFileReturns([]byte("{"), nil)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.ErrorContains(t, err, "unmarshal YAML profile")
 			},
 		},
 		{
 			name:    "failure on invalid JSON profile",
 			profile: "profile.json",
-			prepare: func(mock *runnerfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *runnerfakes.FakeImpl) {
 				mock.ReadFileReturns([]byte("{"), nil)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.ErrorContains(t, err, "unmarshal JSON profile")
 			},
 		},
 		{
 			name: "failure on SetupSeccomp",
-			prepare: func(mock *runnerfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *runnerfakes.FakeImpl) {
 				mock.SetupSeccompReturns(nil, errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, errTest)
 			},
 		},
 		{
 			name: "failure on YAML profile of another kind",
-			prepare: func(mock *runnerfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *runnerfakes.FakeImpl) {
 				mock.ReadFileReturns([]byte("apiVersion: security-profiles-operator.x-k8s.io/v1\n"+
 					"kind: AppArmorProfile\n"), nil)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.ErrorContains(t, err, "expected a SeccompProfile, got AppArmorProfile")
 			},
 		},
 		{
 			name: "success with JSON profile under the YAML name",
-			prepare: func(mock *runnerfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *runnerfakes.FakeImpl) {
 				mock.ReadFileReturns([]byte(`{"defaultAction":"SCMP_ACT_ERRNO"}`), nil)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 			},
 		},
 		{
 			name: "failure on YAML profile without kind",
-			prepare: func(mock *runnerfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *runnerfakes.FakeImpl) {
 				mock.ReadFileReturns([]byte("spec:\n  defaultAction: SCMP_ACT_ERRNO\n"), nil)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.ErrorContains(t, err, "unmarshal YAML profile")
 			},
 		},
 		{
 			name: "failure on YAML profile with base profile",
-			prepare: func(mock *runnerfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *runnerfakes.FakeImpl) {
 				mock.ReadFileReturns([]byte(seccompProfileYAML+"  baseProfileName: runc-v1.2.3\n"), nil)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, ErrBaseProfile)
 				require.ErrorContains(t, err, "runc-v1.2.3")
 			},
 		},
 		{
 			name: "failure on CommandRun",
-			prepare: func(mock *runnerfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *runnerfakes.FakeImpl) {
 				mock.CommandRunReturns(0, errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, errTest)
 			},
 		},
 		{
 			name: "failure on CommandWait",
-			prepare: func(mock *runnerfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *runnerfakes.FakeImpl) {
 				mock.CommandWaitReturns(errTest)
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, errTest)
 			},
 		},
 		{
 			name: "failure on CommandWait keeps the exit code",
-			prepare: func(mock *runnerfakes.FakeImpl) {
+			prepare: func(t *testing.T, mock *runnerfakes.FakeImpl) {
+				t.Helper()
+
 				mock.CommandWaitReturns(exec.CommandContext(t.Context(), "sh", "-c", "exit 42").Run())
 			},
-			assert: func(err error) {
+			assert: func(t *testing.T, err error) {
+				t.Helper()
+
 				code, exited := command.ExitCode(err)
 				require.True(t, exited)
 				require.Equal(t, 42, code)
@@ -178,7 +206,7 @@ func TestRun(t *testing.T) {
 
 			mock := &runnerfakes.FakeImpl{}
 			mock.ReadFileReturns([]byte(seccompProfileYAML), nil)
-			prepare(mock)
+			prepare(t, mock)
 
 			options := Default()
 			if profile != "" {
@@ -190,7 +218,7 @@ func TestRun(t *testing.T) {
 			sut.enricherGracePeriod = 0
 
 			err := sut.Run()
-			assert(err)
+			assert(t, err)
 		})
 	}
 }
@@ -208,15 +236,17 @@ func TestEnrich(t *testing.T) {
 
 	for _, tc := range []struct {
 		name    string
-		prepare func(*runnerfakes.FakeImpl, chan string)
-		assert  func(*runnerfakes.FakeImpl, chan string)
+		prepare func(*testing.T, *runnerfakes.FakeImpl, chan string)
+		assert  func(*testing.T, *runnerfakes.FakeImpl, chan string)
 	}{
 		{
 			name: "success with seccomp line",
-			prepare: func(mock *runnerfakes.FakeImpl, lineChan chan string) {
+			prepare: func(_ *testing.T, mock *runnerfakes.FakeImpl, lineChan chan string) {
 				mock.LinesReturns(lineChan)
 			},
-			assert: func(mock *runnerfakes.FakeImpl, lineChan chan string) {
+			assert: func(t *testing.T, mock *runnerfakes.FakeImpl, lineChan chan string) {
+				t.Helper()
+
 				lineChan <- seccompLine(testPid)
 
 				waitForFunctionCall(t, mock.PrintfCallCount)
@@ -227,11 +257,13 @@ func TestEnrich(t *testing.T) {
 		},
 		{
 			name: "success with seccomp line but unidentified syscall number",
-			prepare: func(mock *runnerfakes.FakeImpl, lineChan chan string) {
+			prepare: func(_ *testing.T, mock *runnerfakes.FakeImpl, lineChan chan string) {
 				mock.LinesReturns(lineChan)
 				mock.GetNameReturns("", errTest)
 			},
-			assert: func(mock *runnerfakes.FakeImpl, lineChan chan string) {
+			assert: func(t *testing.T, mock *runnerfakes.FakeImpl, lineChan chan string) {
+				t.Helper()
+
 				lineChan <- seccompLine(testPid)
 
 				waitForFunctionCall(t, mock.GetNameCallCount)
@@ -240,10 +272,12 @@ func TestEnrich(t *testing.T) {
 		},
 		{
 			name: "success with AppArmor line",
-			prepare: func(mock *runnerfakes.FakeImpl, lineChan chan string) {
+			prepare: func(_ *testing.T, mock *runnerfakes.FakeImpl, lineChan chan string) {
 				mock.LinesReturns(lineChan)
 			},
-			assert: func(mock *runnerfakes.FakeImpl, lineChan chan string) {
+			assert: func(t *testing.T, mock *runnerfakes.FakeImpl, lineChan chan string) {
+				t.Helper()
+
 				lineChan <- fmt.Sprintf(
 					`audit: type=1400 audit(1668191154.949:64): apparmor="DENIED" `+
 						`operation="exec" profile="p" name="/bin/x" pid=%d comm="x"`, testPid,
@@ -256,10 +290,12 @@ func TestEnrich(t *testing.T) {
 		},
 		{
 			name: "success with SELinux line",
-			prepare: func(mock *runnerfakes.FakeImpl, lineChan chan string) {
+			prepare: func(_ *testing.T, mock *runnerfakes.FakeImpl, lineChan chan string) {
 				mock.LinesReturns(lineChan)
 			},
-			assert: func(mock *runnerfakes.FakeImpl, lineChan chan string) {
+			assert: func(t *testing.T, mock *runnerfakes.FakeImpl, lineChan chan string) {
+				t.Helper()
+
 				lineChan <- fmt.Sprintf(
 					`type=AVC msg=audit(1613173578.156:2945): avc:  denied  { read } for  `+
 						`pid=%d comm="x" scontext=system_u:system_r:container_t:s0 `+
@@ -273,10 +309,12 @@ func TestEnrich(t *testing.T) {
 		},
 		{
 			name: "line of another process",
-			prepare: func(mock *runnerfakes.FakeImpl, lineChan chan string) {
+			prepare: func(_ *testing.T, mock *runnerfakes.FakeImpl, lineChan chan string) {
 				mock.LinesReturns(lineChan)
 			},
-			assert: func(mock *runnerfakes.FakeImpl, lineChan chan string) {
+			assert: func(t *testing.T, mock *runnerfakes.FakeImpl, lineChan chan string) {
+				t.Helper()
+
 				lineChan <- seccompLine(testPid + 1)
 
 				lineChan <- seccompLine(testPid)
@@ -287,10 +325,12 @@ func TestEnrich(t *testing.T) {
 		},
 		{
 			name: "no audit line",
-			prepare: func(mock *runnerfakes.FakeImpl, lineChan chan string) {
+			prepare: func(_ *testing.T, mock *runnerfakes.FakeImpl, lineChan chan string) {
 				mock.LinesReturns(lineChan)
 			},
-			assert: func(mock *runnerfakes.FakeImpl, lineChan chan string) {
+			assert: func(t *testing.T, mock *runnerfakes.FakeImpl, lineChan chan string) {
+				t.Helper()
+
 				lineChan <- "not an audit line"
 
 				lineChan <- seccompLine(testPid)
@@ -301,11 +341,13 @@ func TestEnrich(t *testing.T) {
 		},
 		{
 			name: "failure while tailing",
-			prepare: func(mock *runnerfakes.FakeImpl, lineChan chan string) {
+			prepare: func(_ *testing.T, mock *runnerfakes.FakeImpl, lineChan chan string) {
 				mock.LinesReturns(lineChan)
 				mock.TailErrReturns(errTest)
 			},
-			assert: func(mock *runnerfakes.FakeImpl, lineChan chan string) {
+			assert: func(t *testing.T, mock *runnerfakes.FakeImpl, lineChan chan string) {
+				t.Helper()
+
 				close(lineChan)
 
 				waitForFunctionCall(t, mock.TailErrCallCount)
@@ -314,13 +356,15 @@ func TestEnrich(t *testing.T) {
 		},
 		{
 			name: "success with line of a descendant",
-			prepare: func(mock *runnerfakes.FakeImpl, lineChan chan string) {
+			prepare: func(_ *testing.T, mock *runnerfakes.FakeImpl, lineChan chan string) {
 				mock.LinesReturns(lineChan)
 				mock.ProcessInfoCalls(func(pid int) (int, uint64, error) {
 					return map[int]int{testPid + 2: testPid + 1, testPid + 1: testPid}[pid], 1, nil
 				})
 			},
-			assert: func(mock *runnerfakes.FakeImpl, lineChan chan string) {
+			assert: func(t *testing.T, mock *runnerfakes.FakeImpl, lineChan chan string) {
+				t.Helper()
+
 				lineChan <- seccompLine(testPid + 2)
 
 				waitForFunctionCall(t, mock.PrintfCallCount)
@@ -329,12 +373,14 @@ func TestEnrich(t *testing.T) {
 		},
 		{
 			name: "success with line of an exited descendant seen before",
-			prepare: func(mock *runnerfakes.FakeImpl, lineChan chan string) {
+			prepare: func(_ *testing.T, mock *runnerfakes.FakeImpl, lineChan chan string) {
 				mock.LinesReturns(lineChan)
 				mock.ProcessInfoReturnsOnCall(0, testPid, 1, nil)
 				mock.ProcessInfoReturns(0, 0, errTest)
 			},
-			assert: func(mock *runnerfakes.FakeImpl, lineChan chan string) {
+			assert: func(t *testing.T, mock *runnerfakes.FakeImpl, lineChan chan string) {
+				t.Helper()
+
 				lineChan <- seccompLine(testPid + 1)
 
 				lineChan <- seccompLine(testPid + 1)
@@ -346,14 +392,16 @@ func TestEnrich(t *testing.T) {
 		},
 		{
 			name: "line of another process with the process ID of a descendant",
-			prepare: func(mock *runnerfakes.FakeImpl, lineChan chan string) {
+			prepare: func(_ *testing.T, mock *runnerfakes.FakeImpl, lineChan chan string) {
 				mock.LinesReturns(lineChan)
 				mock.ProcessInfoReturnsOnCall(0, testPid, 1, nil)
 				// The process ID got reused by a process of another tree.
 				mock.ProcessInfoReturnsOnCall(1, 999, 2, nil)
 				mock.ProcessInfoReturnsOnCall(2, 1, 1, nil)
 			},
-			assert: func(mock *runnerfakes.FakeImpl, lineChan chan string) {
+			assert: func(t *testing.T, mock *runnerfakes.FakeImpl, lineChan chan string) {
+				t.Helper()
+
 				lineChan <- seccompLine(testPid + 1)
 
 				lineChan <- seccompLine(testPid + 1)
@@ -377,7 +425,7 @@ func TestEnrich(t *testing.T) {
 
 			mock := &runnerfakes.FakeImpl{}
 			lineChan := make(chan string)
-			prepare(mock, lineChan)
+			prepare(t, mock, lineChan)
 
 			sut := New(Default())
 			sut.impl = mock
@@ -385,7 +433,7 @@ func TestEnrich(t *testing.T) {
 
 			go sut.enrich(nil)
 
-			assert(mock, lineChan)
+			assert(t, mock, lineChan)
 		})
 	}
 }

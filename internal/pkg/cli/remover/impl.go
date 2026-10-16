@@ -33,7 +33,7 @@ type impl interface {
 	AppArmorRemoveProfile(
 		manager apparmorprofile.ProfileManager,
 		p profilebaseapi.StatusBaseUser,
-	) error
+	) (bool, error)
 }
 
 func (*defaultImpl) ReadFile(name string) ([]byte, error) {
@@ -47,10 +47,10 @@ func (*defaultImpl) AppArmorEnabled(manager apparmorprofile.ProfileManager) bool
 func (*defaultImpl) AppArmorRemoveProfile(
 	manager apparmorprofile.ProfileManager,
 	p profilebaseapi.StatusBaseUser,
-) error {
-	// The user explicitly asked to remove this profile from the local host, so
-	// there is no custom resource whose name could target a runtime profile.
-	_, err := manager.RemoveProfile(p, true)
-
-	return err
+) (bool, error) {
+	// Only a policy file of the operator, like the one spoc install writes,
+	// proves the profile is ours. The profile file is as user supplied as a
+	// custom resource, so its name must not unload a profile loaded without
+	// such a file, like the default profile of a container runtime.
+	return manager.RemoveProfile(p, false)
 }

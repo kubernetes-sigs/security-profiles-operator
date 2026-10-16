@@ -227,10 +227,10 @@ func FuzzParseAuditFields(f *testing.F) {
 // FuzzParseBpfAuditEvent feeds arbitrary ring buffer events into the decoding
 // of the AppArmor enricher events.
 func FuzzParseBpfAuditEvent(f *testing.F) {
-	f.Add(bpfAuditEvent(4026531840, 4, 0, "open", "cat", "/etc/shadow"))
-	f.Add(bpfAuditEvent(1, 2, 1, "exec", "sh", "/bin/ls"))
-	f.Add(bpfAuditEvent(0, 0, 0, "", "", ""))
-	f.Add(bpfAuditEvent(0, 0, 0, "only", "two"))
+	f.Add(bpfAuditEvent(4026531840, 4, 0, "open", "cat", "/etc/shadow", "profile"))
+	f.Add(bpfAuditEvent(1, 2, 1, "exec", "sh", "/bin/ls", "profile"))
+	f.Add(bpfAuditEvent(0, 0, 0, "", "", "", ""))
+	f.Add(bpfAuditEvent(0, 0, 0, "only", "three", "strings"))
 	f.Add(bytes.Repeat([]byte{0xff}, bpfAuditHeaderSize+1))
 	f.Add([]byte{})
 
@@ -259,13 +259,13 @@ func FuzzParseBpfAuditEvent(f *testing.F) {
 		)
 
 		if raw[12] > 0 {
-			require.Equal(t, "ALLOW", line.Apparmor)
+			require.Equal(t, "ALLOWED", line.Apparmor)
 		} else {
 			require.Equal(t, "DENIED", line.Apparmor)
 		}
 
 		// The strings are null terminated, so none of them contains one.
-		for _, s := range []string{line.Operation, line.Executable, line.Name} {
+		for _, s := range []string{line.Operation, line.Executable, line.Name, line.Profile} {
 			require.NotContains(t, s, "\x00")
 		}
 
@@ -273,5 +273,6 @@ func FuzzParseBpfAuditEvent(f *testing.F) {
 		require.Equal(t, validUTF8(string(strs[0])), line.Operation)
 		require.Equal(t, validUTF8(string(strs[1])), line.Executable)
 		require.Equal(t, validUTF8(string(strs[2])), line.Name)
+		require.Equal(t, validUTF8(string(strs[3])), line.Profile)
 	})
 }

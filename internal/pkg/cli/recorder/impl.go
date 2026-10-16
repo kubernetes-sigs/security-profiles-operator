@@ -57,6 +57,7 @@ type impl interface {
 	Create(string) (io.WriteCloser, error)
 	PrintObj(printers.YAMLPrinter, runtime.Object, io.Writer) error
 	Notify(chan<- os.Signal, ...os.Signal)
+	StopNotify(chan<- os.Signal)
 }
 
 func (*defaultImpl) LoadBpfRecorder(b *bpfrecorder.BpfRecorder) error {
@@ -133,4 +134,8 @@ func (*defaultImpl) PrintObj(p printers.YAMLPrinter, obj runtime.Object, w io.Wr
 
 func (*defaultImpl) Notify(c chan<- os.Signal, sig ...os.Signal) {
 	signal.Notify(c, sig...)
+}
+
+func (*defaultImpl) StopNotify(c chan<- os.Signal) {
+	signal.Stop(c)
 }

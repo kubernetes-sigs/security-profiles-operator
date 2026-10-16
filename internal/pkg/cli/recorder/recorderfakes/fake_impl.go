@@ -165,6 +165,9 @@ type FakeImpl struct {
 	stopBpfRecordingReturnsOnCall map[int]struct {
 		result1 error
 	}
+	StopNotifyStub              func(chan<- os.Signal)
+	stopNotifyMutex             sync.RWMutex
+	stopNotifyArgsForCall       []FakeImplStopNotifyArgs
 	SyscallsGetValueStub        func(*bpfrecorder.BpfRecorder, uint64) ([]byte, error)
 	syscallsGetValueMutex       sync.RWMutex
 	syscallsGetValueArgsForCall []FakeImplSyscallsGetValueArgs
@@ -267,6 +270,11 @@ type FakeImplStartBpfRecordingArgs struct {
 // FakeImplStopBpfRecordingArgs holds the arguments of one call to StopBpfRecording.
 type FakeImplStopBpfRecordingArgs struct {
 	Arg1 *bpfrecorder.BpfRecorder
+}
+
+// FakeImplStopNotifyArgs holds the arguments of one call to StopNotify.
+type FakeImplStopNotifyArgs struct {
+	Arg1 chan<- os.Signal
 }
 
 // FakeImplSyscallsGetValueArgs holds the arguments of one call to SyscallsGetValue.
@@ -1204,6 +1212,44 @@ func (fake *FakeImpl) StopBpfRecordingReturnsOnCall(i int, result1 error) {
 	fake.stopBpfRecordingReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
+}
+
+func (fake *FakeImpl) StopNotify(arg1 chan<- os.Signal) {
+	fake.stopNotifyMutex.Lock()
+	fake.stopNotifyArgsForCall = append(fake.stopNotifyArgsForCall, FakeImplStopNotifyArgs{arg1})
+	stub := fake.StopNotifyStub
+	fake.recordInvocation("StopNotify", []interface{}{arg1})
+	fake.stopNotifyMutex.Unlock()
+	if stub != nil {
+		stub(arg1)
+	}
+}
+
+func (fake *FakeImpl) StopNotifyCallCount() int {
+	fake.stopNotifyMutex.RLock()
+	defer fake.stopNotifyMutex.RUnlock()
+	return len(fake.stopNotifyArgsForCall)
+}
+
+func (fake *FakeImpl) StopNotifyCalls(stub func(chan<- os.Signal)) {
+	fake.stopNotifyMutex.Lock()
+	defer fake.stopNotifyMutex.Unlock()
+	fake.StopNotifyStub = stub
+}
+
+func (fake *FakeImpl) StopNotifyArgsForCall(i int) chan<- os.Signal {
+	fake.stopNotifyMutex.RLock()
+	defer fake.stopNotifyMutex.RUnlock()
+	argsForCall := fake.stopNotifyArgsForCall[i]
+	return argsForCall.Arg1
+}
+
+func (fake *FakeImpl) StopNotifyArgs() []FakeImplStopNotifyArgs {
+	fake.stopNotifyMutex.RLock()
+	defer fake.stopNotifyMutex.RUnlock()
+	args := make([]FakeImplStopNotifyArgs, len(fake.stopNotifyArgsForCall))
+	copy(args, fake.stopNotifyArgsForCall)
+	return args
 }
 
 func (fake *FakeImpl) SyscallsGetValue(arg1 *bpfrecorder.BpfRecorder, arg2 uint64) ([]byte, error) {

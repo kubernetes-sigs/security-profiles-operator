@@ -163,7 +163,7 @@ func (r *Runner) Run() error {
 
 // specFromCRD returns the spec of a SeccompProfile CRD as runtime-spec JSON.
 func specFromCRD(content []byte) ([]byte, error) {
-	profile, err := artifact.ReadProfile(content)
+	profile, err := artifact.ReadSingleProfile(content)
 	if err != nil {
 		return nil, fmt.Errorf("unmarshal YAML profile: %w", err)
 	}

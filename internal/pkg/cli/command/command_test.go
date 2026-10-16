@@ -40,45 +40,53 @@ func TestRun(t *testing.T) {
 
 	for _, tc := range []struct {
 		name    string
-		prepare func(*commandfakes.FakeImpl)
-		assert  func(*commandfakes.FakeImpl, error, error)
+		prepare func(*testing.T, *commandfakes.FakeImpl)
+		assert  func(*testing.T, *commandfakes.FakeImpl, error, error)
 	}{
 		{
 			name: "success",
-			prepare: func(mock *commandfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *commandfakes.FakeImpl) {
 			},
-			assert: func(mock *commandfakes.FakeImpl, runErr, waitErr error) {
+			assert: func(t *testing.T, mock *commandfakes.FakeImpl, runErr, waitErr error) {
+				t.Helper()
+
 				require.NoError(t, runErr)
 				require.NoError(t, waitErr)
 			},
 		},
 		{
 			name: "failure on Wait",
-			prepare: func(mock *commandfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *commandfakes.FakeImpl) {
 				mock.CmdWaitReturns(errTest)
 			},
-			assert: func(mock *commandfakes.FakeImpl, runErr, waitErr error) {
+			assert: func(t *testing.T, mock *commandfakes.FakeImpl, runErr, waitErr error) {
+				t.Helper()
+
 				require.NoError(t, runErr)
 				require.Error(t, waitErr)
 			},
 		},
 		{
 			name: "success with error on Signal",
-			prepare: func(mock *commandfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *commandfakes.FakeImpl) {
 				mock.NotifyCalls(func(c chan<- os.Signal, s ...os.Signal) { c <- s[0] })
 				mock.SignalReturns(errTest)
 			},
-			assert: func(mock *commandfakes.FakeImpl, runErr, waitErr error) {
+			assert: func(t *testing.T, mock *commandfakes.FakeImpl, runErr, waitErr error) {
+				t.Helper()
+
 				require.NoError(t, runErr)
 				require.NoError(t, waitErr)
 			},
 		},
 		{
 			name: "failure on CmdStart",
-			prepare: func(mock *commandfakes.FakeImpl) {
+			prepare: func(_ *testing.T, mock *commandfakes.FakeImpl) {
 				mock.CmdStartReturns(errTest)
 			},
-			assert: func(mock *commandfakes.FakeImpl, runErr, waitErr error) {
+			assert: func(t *testing.T, mock *commandfakes.FakeImpl, runErr, waitErr error) {
+				t.Helper()
+
 				require.Error(t, runErr)
 				require.NoError(t, waitErr)
 				require.Equal(t, 1, mock.StopCallCount())
@@ -86,8 +94,10 @@ func TestRun(t *testing.T) {
 		},
 		{
 			name:    "signals are restored after Wait",
-			prepare: func(mock *commandfakes.FakeImpl) {},
-			assert: func(mock *commandfakes.FakeImpl, runErr, waitErr error) {
+			prepare: func(_ *testing.T, mock *commandfakes.FakeImpl) {},
+			assert: func(t *testing.T, mock *commandfakes.FakeImpl, runErr, waitErr error) {
+				t.Helper()
+
 				require.NoError(t, runErr)
 				require.NoError(t, waitErr)
 				require.Equal(t, 1, mock.NotifyCallCount())
@@ -107,7 +117,7 @@ func TestRun(t *testing.T) {
 			t.Parallel()
 
 			mock := &commandfakes.FakeImpl{}
-			prepare(mock)
+			prepare(t, mock)
 
 			sut := New(Default())
 			sut.impl = mock
@@ -115,7 +125,7 @@ func TestRun(t *testing.T) {
 			_, runErr := sut.Run()
 			waitErr := sut.Wait()
 
-			assert(mock, runErr, waitErr)
+			assert(t, mock, runErr, waitErr)
 		})
 	}
 }

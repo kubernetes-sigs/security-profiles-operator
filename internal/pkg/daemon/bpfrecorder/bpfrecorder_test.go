@@ -213,16 +213,19 @@ func TestRun(t *testing.T) {
 			},
 		},
 		{
+			// Everything up to serving the API succeeds, like for "success".
 			name: "Serve fails",
 			prepare: func(t *testing.T, mock *bpfrecorderfakes.FakeImpl) {
 				t.Helper()
 
+				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
+				mock.DialMetricsReturns(&grpc.ClientConn{}, nil)
 				mock.ServeReturns(errTest)
 			},
 			assert: func(t *testing.T, err error) {
 				t.Helper()
 
-				require.Error(t, err)
+				require.ErrorIs(t, err, errTest)
 			},
 		},
 		{
@@ -867,7 +870,7 @@ func TestSyscallsForProfile(t *testing.T) {
 			assert: func(t *testing.T, sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
 				t.Helper()
 
-				require.ErrorIs(t, err, errNotRunning)
+				require.ErrorIs(t, err, ErrNotRunning)
 				require.Equal(t, codes.FailedPrecondition, status.Code(err))
 			},
 		},
@@ -876,12 +879,15 @@ func TestSyscallsForProfile(t *testing.T) {
 			prepare: func(t *testing.T, sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
 				t.Helper()
 
+				atomic.StoreInt64(&sut.startRequests, 1)
+
 				sut.Seccomp = nil
 			},
 			assert: func(t *testing.T, sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
 				t.Helper()
 
-				require.Error(t, err)
+				require.ErrorIs(t, err, errNoSeccompRecording)
+				require.Equal(t, codes.FailedPrecondition, status.Code(err))
 			},
 		},
 		{
@@ -1085,12 +1091,15 @@ func TestApparmorForProfile(t *testing.T) {
 			prepare: func(t *testing.T, sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
 				t.Helper()
 
+				atomic.StoreInt64(&sut.startRequests, 1)
+
 				sut.AppArmor = nil
 			},
 			assert: func(t *testing.T, sut *BpfRecorder, resp *api.ApparmorResponse, err error) {
 				t.Helper()
 
-				require.Error(t, err)
+				require.ErrorIs(t, err, errNoAppArmorRecording)
+				require.Equal(t, codes.FailedPrecondition, status.Code(err))
 			},
 		},
 		{
@@ -1170,7 +1179,7 @@ func TestRPCError(t *testing.T) {
 			err:  fmt.Errorf("read syscalls: %w", ErrNotFound),
 			code: codes.NotFound,
 		},
-		{name: "not running", err: errNotRunning, code: codes.FailedPrecondition},
+		{name: "not running", err: ErrNotRunning, code: codes.FailedPrecondition},
 		{name: "no seccomp recording", err: errNoSeccompRecording, code: codes.FailedPrecondition},
 		{name: "no apparmor recording", err: errNoAppArmorRecording, code: codes.FailedPrecondition},
 		{
@@ -1377,6 +1386,117 @@ func TestHandlerFromFinishedRecordingIsDiscarded(t *testing.T) {
 
 	require.Equal(t, 0, sut.containerKeys.Size(),
 		"a handler from a finished recording must not repopulate the tables")
+}
+
+// TestForgetStaleLookupKeepsCurrentRecording asserts that a handler of a
+// finished recording, whose lookup outlived the recording, only drops what
+// the lookup cached when no handler of the current recording uses it.
+func TestForgetStaleLookupKeepsCurrentRecording(t *testing.T) {
+	t.Parallel()
+
+	const containerID = "container-id"
+
+	sut := New("", logr.Discard(), false, false)
+	sut.impl = &bpfrecorderfakes.FakeImpl{}
+
+	staleGeneration := sut.recordingGeneration.Load()
+
+	require.NoError(t, sut.StopRecording())
+
+	// The lookup of the stale handler cached the container after the stop.
+	sut.containerIDToProfileMap.InsertAt(containerID, "profile", staleGeneration)
+	sut.containersNotFound.Set("other-container", struct{}{}, ttlcache.DefaultTTL)
+
+	// A handler of the current recording registered the same container.
+	inserted, current := sut.insertKey(7, containerID, sut.recordingGeneration.Load())
+	require.True(t, inserted)
+	require.True(t, current)
+
+	sut.forgetStaleLookup(containerID, staleGeneration)
+
+	profile, ok := sut.containerIDToProfileMap.Get(containerID)
+	require.True(t, ok, "the profile of the current recording is kept")
+	require.Equal(t, "profile", profile)
+
+	// Without a handler of the current recording, the entries go.
+	sut.containerKeys.Delete(7)
+	sut.containersNotFound.Set(containerID, struct{}{}, ttlcache.DefaultTTL)
+	sut.containersWithoutProfile.Set(containerID, struct{}{}, ttlcache.DefaultTTL)
+	sut.forgetStaleLookup(containerID, staleGeneration)
+
+	_, ok = sut.containerIDToProfileMap.Get(containerID)
+	require.False(t, ok)
+	require.Nil(t, sut.containersNotFound.Get(containerID))
+	require.Nil(t, sut.containersWithoutProfile.Get(containerID))
+	require.NotNil(t, sut.containersNotFound.Get("other-container"))
+
+	// The profile which the current recording cached again for a container
+	// without keys, like for an unresolved one, is kept.
+	sut.containerIDToProfileMap.InsertAt(containerID, "profile", staleGeneration)
+	sut.containerIDToProfileMap.InsertAt(containerID, "profile", sut.recordingGeneration.Load())
+	sut.forgetStaleLookup(containerID, staleGeneration)
+
+	_, ok = sut.containerIDToProfileMap.Get(containerID)
+	require.True(t, ok, "the profile cached by the current recording is kept")
+
+	sut.containerIDToProfileMap.Delete(containerID)
+
+	// A handler of the current recording drops nothing.
+	sut.containerIDToProfileMap.Insert(containerID, "profile")
+	sut.forgetStaleLookup(containerID, sut.recordingGeneration.Load())
+
+	_, ok = sut.containerIDToProfileMap.Get(containerID)
+	require.True(t, ok)
+}
+
+// TestDeleteKeyKeepsKeyOfNextRecording asserts that a handler of a finished
+// recording does not delete a key which the next recording uses.
+func TestDeleteKeyKeepsKeyOfNextRecording(t *testing.T) {
+	t.Parallel()
+
+	sut := New("", logr.Discard(), false, false)
+	sut.impl = &bpfrecorderfakes.FakeImpl{}
+
+	staleGeneration := sut.recordingGeneration.Load()
+
+	require.NoError(t, sut.StopRecording())
+
+	inserted, current := sut.insertKey(7, "container-id", sut.recordingGeneration.Load())
+	require.True(t, inserted)
+	require.True(t, current)
+
+	sut.deleteKey(7, staleGeneration)
+	require.Equal(t, []uint64{7}, sut.containerKeys.Keys("container-id"))
+
+	sut.deleteKey(7, sut.recordingGeneration.Load())
+	require.Empty(t, sut.containerKeys.Keys("container-id"))
+}
+
+// TestResetProfileKeepsContainerCachedMeanwhile asserts that a container which
+// gets cached for a profile while its data is reset, like a restarted one,
+// keeps its mapping and its keys.
+func TestResetProfileKeepsContainerCachedMeanwhile(t *testing.T) {
+	t.Parallel()
+
+	sut := New("", logr.Discard(), false, false)
+	sut.impl = &bpfrecorderfakes.FakeImpl{}
+
+	require.True(t, sut.containerKeys.Insert(1, "collected"))
+	require.True(t, sut.containerKeys.Insert(2, "restarted"))
+	sut.containerIDToProfileMap.Insert("collected", "profile")
+
+	var cleared []uint64
+
+	sut.resetProfile("profile", func(keys []uint64) {
+		cleared = keys
+
+		sut.containerIDToProfileMap.Insert("restarted", "profile")
+	})
+
+	require.Equal(t, []uint64{1}, cleared)
+	require.Equal(t, []string{"restarted"}, sut.containerIDToProfileMap.Containers("profile"))
+	require.Equal(t, []uint64{2}, sut.containerKeys.Keys("restarted"))
+	require.Empty(t, sut.containerKeys.Keys("collected"))
 }
 
 // TestWaitForPidExitWakesConcurrentWaiters asserts that every caller waiting on

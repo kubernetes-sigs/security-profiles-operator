@@ -26,9 +26,19 @@ import (
 	profilebaseapi "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 )
 
+// builtWithAppArmor reports whether the operator got built with AppArmor
+// support.
+const builtWithAppArmor = false
+
 var errAppArmorNotSupported = errors.New("apparmor not enabled in this build")
 
 func (a *aaProfileManager) Enabled() bool {
+	return false
+}
+
+// KnownUnsupported is false, a build without AppArmor support does not know
+// about the host.
+func (a *aaProfileManager) KnownUnsupported() bool {
 	return false
 }
 

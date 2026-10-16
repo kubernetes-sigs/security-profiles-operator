@@ -28,8 +28,8 @@ import (
 
 // bpfAuditHeaderSize is the size of the fixed fields of an event of
 // enricher.bpf.c: the mount namespace, the PID, the request and the complain
-// flag. The operation, the command and the name follow as strings which are
-// each terminated by a null byte.
+// flag. The operation, the command, the name and the profile follow as strings
+// which are each terminated by a null byte.
 const bpfAuditHeaderSize = 4 + 4 + 4 + 1
 
 var errInvalidBpfAuditEvent = errors.New("invalid audit event")
@@ -46,14 +46,16 @@ func parseBpfAuditEvent(raw []byte, now time.Time) (*types.AuditLine, uint32, er
 	request := binary.LittleEndian.Uint32(raw[8:12])
 	complain := raw[12]
 
+	// Every string is terminated, so the last part is empty.
 	strs := bytes.Split(raw[bpfAuditHeaderSize:], []byte{0})
-	if len(strs) < 3 {
+	if len(strs) < 5 {
 		return nil, 0, fmt.Errorf("%w: %d strings", errInvalidBpfAuditEvent, len(strs))
 	}
 
+	// The kernel reports the same values in the audit log.
 	apparmor := "DENIED"
 	if complain > 0 {
-		apparmor = "ALLOW"
+		apparmor = "ALLOWED"
 	}
 
 	ts := now.UnixMilli()
@@ -66,6 +68,7 @@ func parseBpfAuditEvent(raw []byte, now time.Time) (*types.AuditLine, uint32, er
 		Operation:   validUTF8(string(strs[0])),
 		Executable:  validUTF8(string(strs[1])),
 		Name:        validUTF8(string(strs[2])),
+		Profile:     validUTF8(string(strs[3])),
 		ExtraInfo:   fmt.Sprintf("request:%d", request),
 	}, mntns, nil
 }

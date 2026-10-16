@@ -36,15 +36,19 @@ func TestFromContext(t *testing.T) {
 
 	for _, tc := range []struct {
 		name    string
-		prepare func(*flag.FlagSet)
-		assert  func(*Options, error)
+		prepare func(*testing.T, *flag.FlagSet)
+		assert  func(*testing.T, *Options, error)
 	}{
 		{
 			name: "success",
-			prepare: func(set *flag.FlagSet) {
+			prepare: func(t *testing.T, set *flag.FlagSet) {
+				t.Helper()
+
 				require.NoError(t, set.Parse([]string{"registry.example.com/profiles/crun:v1"}))
 			},
-			assert: func(options *Options, err error) {
+			assert: func(t *testing.T, options *Options, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				require.Equal(t, "registry.example.com/profiles/crun:v1", options.image)
 				require.False(t, options.plainHTTP)
@@ -53,14 +57,18 @@ func TestFromContext(t *testing.T) {
 		},
 		{
 			name: "success with flags",
-			prepare: func(set *flag.FlagSet) {
+			prepare: func(t *testing.T, set *flag.FlagSet) {
+				t.Helper()
+
 				set.Bool(FlagPlainHTTP, false, "")
 				set.Bool(FlagOIDCDeviceFlow, false, "")
 				require.NoError(t, set.Parse([]string{
 					"--" + FlagPlainHTTP, "--" + FlagOIDCDeviceFlow, "localhost:5000/crun:v1",
 				}))
 			},
-			assert: func(options *Options, err error) {
+			assert: func(t *testing.T, options *Options, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				require.True(t, options.plainHTTP)
 				require.True(t, options.oidcDeviceFlow)
@@ -68,27 +76,37 @@ func TestFromContext(t *testing.T) {
 		},
 		{
 			name:    "failure no image provided",
-			prepare: func(*flag.FlagSet) {},
-			assert: func(_ *Options, err error) {
+			prepare: func(*testing.T, *flag.FlagSet) {},
+			assert: func(t *testing.T, _ *Options, err error) {
+				t.Helper()
+
 				require.ErrorContains(t, err, "no image provided")
 			},
 		},
 		{
 			name: "failure too many images",
-			prepare: func(set *flag.FlagSet) {
+			prepare: func(t *testing.T, set *flag.FlagSet) {
+				t.Helper()
+
 				require.NoError(t, set.Parse([]string{"a:v1", "b:v1"}))
 			},
-			assert: func(_ *Options, err error) {
+			assert: func(t *testing.T, _ *Options, err error) {
+				t.Helper()
+
 				require.ErrorContains(t, err, "too many arguments")
 			},
 		},
 		{
 			name: "failure username without password",
-			prepare: func(set *flag.FlagSet) {
+			prepare: func(t *testing.T, set *flag.FlagSet) {
+				t.Helper()
+
 				set.String(cli.FlagUsername, "", "")
 				require.NoError(t, set.Parse([]string{"--" + cli.FlagUsername, "user", "a:v1"}))
 			},
-			assert: func(_ *Options, err error) {
+			assert: func(t *testing.T, _ *Options, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, cli.ErrIncompleteCredentials)
 			},
 		},
@@ -97,10 +115,10 @@ func TestFromContext(t *testing.T) {
 			t.Parallel()
 
 			set := flag.NewFlagSet("", flag.ContinueOnError)
-			tc.prepare(set)
+			tc.prepare(t, set)
 
 			options, err := FromContext(ucli.NewContext(ucli.NewApp(), set, nil))
-			tc.assert(options, err)
+			tc.assert(t, options, err)
 		})
 	}
 }
@@ -111,11 +129,13 @@ func TestRun(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		signErr error
-		assert  func(*signerfakes.FakeImpl, error)
+		assert  func(*testing.T, *signerfakes.FakeImpl, error)
 	}{
 		{
 			name: "success",
-			assert: func(mock *signerfakes.FakeImpl, err error) {
+			assert: func(t *testing.T, mock *signerfakes.FakeImpl, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				require.Equal(t, 1, mock.SignCallCount())
 
@@ -129,14 +149,18 @@ func TestRun(t *testing.T) {
 		{
 			name:    "failure",
 			signErr: errTest,
-			assert: func(_ *signerfakes.FakeImpl, err error) {
+			assert: func(t *testing.T, _ *signerfakes.FakeImpl, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, errTest)
 			},
 		},
 		{
 			name:    "failure without identity",
 			signErr: artifact.ErrNoInteractiveSignIn,
-			assert: func(_ *signerfakes.FakeImpl, err error) {
+			assert: func(t *testing.T, _ *signerfakes.FakeImpl, err error) {
+				t.Helper()
+
 				require.ErrorIs(t, err, artifact.ErrNoInteractiveSignIn)
 				require.ErrorContains(t, err, "--"+FlagOIDCDeviceFlow)
 			},
@@ -157,7 +181,7 @@ func TestRun(t *testing.T) {
 			})
 			sut.impl = mock
 
-			tc.assert(mock, sut.Run())
+			tc.assert(t, mock, sut.Run())
 		})
 	}
 }

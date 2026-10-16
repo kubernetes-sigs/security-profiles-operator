@@ -34,7 +34,8 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
-func BpfSupported(logger logr.Logger) error {
+// bpfSupported returns an error if the kernel is too old for the BPF source.
+func bpfSupported(logger logr.Logger) error {
 	_, version, err := util.Uname()
 	if err != nil {
 		logger.Error(err, "failed to get kernel version to check BPF support, continuing anyway...")
@@ -82,7 +83,7 @@ type BpfSource struct {
 }
 
 func NewBpfSource(logger logr.Logger) (*BpfSource, error) {
-	if err := BpfSupported(logger); err != nil {
+	if err := bpfSupported(logger); err != nil {
 		return nil, err
 	}
 

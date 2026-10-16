@@ -467,14 +467,26 @@ func (r *Reconciler) Reconcile(
 		// Every profile is counted in the error metric and gets a warning
 		// event once, and again if it is created again, instead of on
 		// every reconcile.
-		r.unsupported.Report(
-			ctx, r.client, req.NamespacedName, &seccompprofileapi.SeccompProfile{}, logger,
+		profile := &seccompprofileapi.SeccompProfile{}
+		if r.unsupported.Report(
+			ctx, r.client, req.NamespacedName, profile, logger,
 			r.errorReporter(), r.nodeName, reasonSeccompNotSupported, err,
-		)
+		) {
+			return reconcile.Result{}, nil
+		}
+
+		// A build without seccomp support tells nothing about the profiles
+		// installed on the node, they keep their finalizer then.
+		if !builtWithSeccomp {
+			return reconcile.Result{}, nil
+		}
+
 		// Do not requeue (will be requeued if a change to the object is
 		// observed, or after the usually very long reconcile timeout
 		// configured for the controller manager)
-		return reconcile.Result{}, nil
+		return reconcile.Result{}, common.ReleaseUnsupported(
+			ctx, r.client, r.apiReader(), profile, r.nodeName,
+		)
 	}
 
 	seccompProfile := &seccompprofileapi.SeccompProfile{}

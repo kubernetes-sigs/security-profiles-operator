@@ -52,7 +52,7 @@ func (p *Converter) Run() error {
 		return fmt.Errorf("read profile file %s: %w", p.options.inputFile, err)
 	}
 
-	profile, err := artifact.ReadProfile(content)
+	profile, err := artifact.ReadSingleProfile(content)
 	if err != nil {
 		return fmt.Errorf("decoding %s: %w", p.options.inputFile, err)
 	}

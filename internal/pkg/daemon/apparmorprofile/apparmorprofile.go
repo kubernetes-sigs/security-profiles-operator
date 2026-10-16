@@ -23,8 +23,6 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	aa "github.com/pjbgf/go-apparmor/pkg/apparmor"
-	"github.com/pjbgf/go-apparmor/pkg/hostop"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -215,18 +213,29 @@ func (r *Reconciler) Reconcile(
 		// event once, and again if it is created again, instead of on
 		// every reconcile. The error series of a profile which is gone get
 		// dropped, like on a node with AppArmor.
+		profile := &apparmorprofileapi.AppArmorProfile{}
 		if r.unsupported.Report(
-			ctx, r.client, req.NamespacedName, &apparmorprofileapi.AppArmorProfile{}, logger,
+			ctx, r.client, req.NamespacedName, profile, logger,
 			r.errorReporter(req.Name), r.nodeName, reasonAppArmorNotSupported,
 			errNodeWithoutAppArmor,
 		) {
 			r.metrics.DeleteAppArmorProfileErrors(req.Name)
+
+			return reconcile.Result{}, nil
+		}
+
+		// A failed detection tells nothing about the profiles installed on
+		// the node, they keep their finalizer then.
+		if !r.manager.KnownUnsupported() {
+			return reconcile.Result{}, nil
 		}
 
 		// Do not requeue (will be requeued if a change to the object is
 		// observed, or after the usually very long reconcile timeout
 		// configured for the controller manager)
-		return reconcile.Result{}, nil
+		return reconcile.Result{}, common.ReleaseUnsupported(
+			ctx, r.client, r.reader, profile, r.nodeName,
+		)
 	}
 
 	appArmorProfile := &apparmorprofileapi.AppArmorProfile{}
@@ -537,35 +546,4 @@ func (r *Reconciler) handleDeletion(
 	}
 
 	return nil
-}
-
-func (r *Reconciler) logNodeInfo() {
-	r.log.Info("detecting apparmor support...")
-
-	mount := hostop.NewMountHostOp(
-		hostop.WithLogger(r.log),
-		hostop.WithAssumeContainer(),
-		hostop.WithAssumeHostPidNamespace())
-	a := aa.NewAppArmor(aa.WithLogger(r.log))
-
-	err := mount.Do(func() error {
-		enabled, err := a.Enabled()
-		r.log.Info("apparmor enabled", "status", ok(enabled, err))
-
-		enforceable, err := a.Enforceable()
-		r.log.Info("apparmor enforceable", "status", ok(enforceable, err))
-
-		return nil
-	})
-	if err != nil {
-		r.log.Error(err, "mounting host")
-	}
-}
-
-func ok(ok bool, err error) string {
-	if ok {
-		return "OK"
-	}
-
-	return fmt.Sprintf("NOT OK (%v)", err)
 }

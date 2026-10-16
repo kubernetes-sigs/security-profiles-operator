@@ -25,6 +25,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/converter/converterfakes"
 )
 
@@ -227,55 +228,63 @@ spec:
 
 	for _, tc := range []struct {
 		name    string
-		prepare func(*converterfakes.FakeImpl) *Options
-		assert  func(*converterfakes.FakeImpl, error)
+		prepare func(*testing.T, *converterfakes.FakeImpl) *Options
+		assert  func(*testing.T, *converterfakes.FakeImpl, error)
 	}{
 		{
 			name: "input file not found",
-			prepare: func(mock *converterfakes.FakeImpl) *Options {
+			prepare: func(_ *testing.T, mock *converterfakes.FakeImpl) *Options {
 				mock.ReadFileReturnsOnCall(0, nil, errors.New("file not found"))
 
 				return defaultOptions()
 			},
-			assert: func(mock *converterfakes.FakeImpl, err error) {
+			assert: func(t *testing.T, mock *converterfakes.FakeImpl, err error) {
+				t.Helper()
+
 				require.ErrorContains(t, err, "file not found")
 			},
 		},
 		{
 			name: "input file is not yaml",
-			prepare: func(mock *converterfakes.FakeImpl) *Options {
+			prepare: func(_ *testing.T, mock *converterfakes.FakeImpl) *Options {
 				mock.ReadFileReturnsOnCall(0, []byte("% this is not yaml"), nil)
 
 				return defaultOptions()
 			},
-			assert: func(mock *converterfakes.FakeImpl, err error) {
-				require.ErrorContains(t, err, "cannot parse yaml")
+			assert: func(t *testing.T, mock *converterfakes.FakeImpl, err error) {
+				t.Helper()
+
+				require.ErrorIs(t, err, artifact.ErrDecodeYAML)
 			},
 		},
 		{
 			name: "AppArmor CRD without a name",
-			prepare: func(mock *converterfakes.FakeImpl) *Options {
+			prepare: func(_ *testing.T, mock *converterfakes.FakeImpl) *Options {
 				mock.ReadFileReturnsOnCall(0, []byte(
 					"apiVersion: security-profiles-operator.x-k8s.io/v1\nkind: AppArmorProfile\n",
 				), nil)
 
 				return defaultOptions()
 			},
-			assert: func(mock *converterfakes.FakeImpl, err error) {
+			assert: func(t *testing.T, mock *converterfakes.FakeImpl, err error) {
+				t.Helper()
+
 				require.ErrorContains(t, err, "profile has no name")
 				require.Zero(t, mock.WriteFileCallCount())
 			},
 		},
 		{
 			name: "unsupported kind",
-			prepare: func(mock *converterfakes.FakeImpl) *Options {
+			prepare: func(_ *testing.T, mock *converterfakes.FakeImpl) *Options {
 				mock.ReadFileReturnsOnCall(0, []byte(
 					"apiVersion: security-profiles-operator.x-k8s.io/v1\nkind: SelinuxProfile\n",
 				), nil)
 
 				return defaultOptions()
 			},
-			assert: func(mock *converterfakes.FakeImpl, err error) {
+			assert: func(t *testing.T, mock *converterfakes.FakeImpl, err error) {
+				t.Helper()
+
 				require.ErrorContains(t, err, "cannot convert SelinuxProfile profiles")
 				require.NotContains(t, err.Error(), "*v1.")
 			},
@@ -288,13 +297,13 @@ spec:
 			t.Parallel()
 
 			mock := &converterfakes.FakeImpl{}
-			options := prepare(mock)
+			options := prepare(t, mock)
 
 			sut := New(options)
 			sut.impl = mock
 
 			err := sut.Run()
-			assert(mock, err)
+			assert(t, mock, err)
 		})
 	}
 }

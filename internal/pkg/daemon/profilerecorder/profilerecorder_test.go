@@ -2712,6 +2712,141 @@ func TestAuthorizedProfilesWarnsOncePerPod(t *testing.T) {
 	require.Len(t, recorder.Events, 1)
 }
 
+// TestAuthorizedProfilesRejectsInvalidRecordingName asserts that a recording
+// whose name cannot name the recorded profiles does not get the pod recorded,
+// which would only drop the recorded data when the pod is gone.
+func TestAuthorizedProfilesRejectsInvalidRecordingName(t *testing.T) {
+	t.Parallel()
+
+	// A valid name of a ProfileRecording, but too long for the label which
+	// links the recorded profiles to it.
+	name := strings.Repeat("a", 64)
+
+	recordings := bpfSeccompRecordingList()
+	recordings.Items[0].Name = name
+
+	mock := newFakeImpl()
+	mock.ListRecordingsReturns(recordings, nil)
+
+	recorder := events.NewFakeRecorder(10)
+	sut := &RecorderReconciler{impl: mock, log: logr.Discard(), record: recorder}
+
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pod", Namespace: "ns", UID: "1"}}
+	profiles := []profileToCollect{{
+		kind: recordingapi.ProfileRecordingKindSeccompProfile,
+		name: name + "_ctr_4bbwm_1700000000",
+	}}
+
+	for range 2 {
+		authorized, _, err := sut.authorizedProfiles(
+			t.Context(), pod, profiles, recordingapi.ProfileRecorderBpf,
+		)
+		require.NoError(t, err)
+		require.Empty(t, authorized)
+	}
+
+	require.Len(t, recorder.Events, 1)
+	require.Contains(t, <-recorder.Events, errNameNotValid.Error())
+}
+
+// TestReconcileWarnsAboutIgnoredBpfAnnotations asserts that a pod with
+// authorized recording annotations of both recorders, which is only recorded
+// by the log recorder, tells why its BPF recordings stay empty.
+func TestReconcileWarnsAboutIgnoredBpfAnnotations(t *testing.T) {
+	t.Parallel()
+
+	request := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "pod"}}
+
+	mock := newFakeImpl()
+	mock.GetPodReturns(&corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "pod", Namespace: "ns", UID: "1",
+			Annotations: map[string]string{
+				config.SeccompProfileRecordLogsAnnotationKey + "ctr": testAnnotationValue,
+				config.SeccompProfileRecordBpfAnnotationKey + "ctr":  testAnnotationValue,
+			},
+		},
+		Spec:   corev1.PodSpec{Containers: []corev1.Container{{Name: "ctr"}}},
+		Status: corev1.PodStatus{Phase: corev1.PodPending},
+	}, nil)
+	mock.ListRecordingsReturns(
+		logsRecordingList(recordingapi.ProfileRecordingKindSeccompProfile),
+		nil,
+	)
+
+	recorder := events.NewFakeRecorder(10)
+	sut := &RecorderReconciler{impl: mock, log: logr.Discard(), record: recorder}
+
+	_, err := sut.Reconcile(t.Context(), request)
+	require.NoError(t, err)
+
+	value, ok := sut.podsToWatch.Load(request.String())
+	require.True(t, ok)
+	watched, ok := value.(podToWatch)
+	require.True(t, ok)
+	require.Equal(t, recordingapi.ProfileRecorderLogs, watched.recorder)
+
+	close(recorder.Events)
+
+	got := []string{}
+	for event := range recorder.Events {
+		got = append(got, event)
+	}
+
+	require.True(t, slices.ContainsFunc(got, func(event string) bool {
+		return strings.Contains(event, "bpf recording annotations of the pod are ignored")
+	}), got)
+}
+
+// TestReconcileForgetsWarningsOfUnannotatedPod asserts that the warnings
+// about a pod are forgotten once it lost its recording annotations, as
+// nothing reconciles the pod when it gets deleted then.
+func TestReconcileForgetsWarningsOfUnannotatedPod(t *testing.T) {
+	t.Parallel()
+
+	request := reconcile.Request{
+		NamespacedName: types.NamespacedName{Namespace: "ns", Name: "pod"},
+	}
+
+	for _, tracked := range []bool{false, true} {
+		t.Run(fmt.Sprintf("tracked %t", tracked), func(t *testing.T) {
+			t.Parallel()
+
+			mock := newFakeImpl()
+			mock.GetPodReturns(&corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{Name: "pod", Namespace: "ns", UID: "1"},
+				Status:     corev1.PodStatus{Phase: corev1.PodRunning},
+			}, nil)
+
+			sut := &RecorderReconciler{
+				impl: mock, log: logr.Discard(), record: events.NewFakeRecorder(10),
+			}
+			sut.rejectedPods.Store(request.String(), rejectedPod{uid: "1"})
+			sut.disabledRecorderPods.Store(request.String(), types.UID("1"))
+
+			if tracked {
+				sut.podsToWatch.Store(request.String(), podToWatch{
+					baseName: request.NamespacedName,
+					uid:      "1",
+					recorder: recordingapi.ProfileRecorderLogs,
+				})
+			}
+
+			_, err := sut.Reconcile(t.Context(), request)
+			require.NoError(t, err)
+
+			_, rejected := sut.rejectedPods.Load(request.String())
+			require.False(t, rejected)
+
+			_, disabled := sut.disabledRecorderPods.Load(request.String())
+			require.False(t, disabled)
+
+			_, watched := sut.podsToWatch.Load(request.String())
+			require.False(t, watched)
+		})
+	}
+}
+
 // TestReconcileDoesNotArmRecorderWithoutAuthorization pins down the ordering the
 // authorization gate depends on: nothing with a side effect may run before a
 // pod's recording annotations have been matched against a ProfileRecording.
@@ -4093,6 +4228,79 @@ func TestCollectBpfProfileRecorderNotRunning(t *testing.T) {
 			require.False(t, tracked)
 			require.Contains(t, <-recorder.Events, reasonRecordingAbandoned)
 			require.Zero(t, mock.CreateOrUpdateCallCount())
+		})
+	}
+}
+
+// TestCollectBpfProfilesKeepsRecordableProfiles asserts that a profile which
+// can never be collected, like an AppArmor profile on a node without the BPF
+// LSM, does not cost the other profiles of the pod their data. Its data is
+// reset, unless the recorder stopped recording, which would only fail.
+func TestCollectBpfProfilesKeepsRecordableProfiles(t *testing.T) {
+	t.Parallel()
+
+	podName := types.NamespacedName{Namespace: "ns", Name: "pod"}
+
+	for name, tc := range map[string]struct {
+		err        error
+		wantResets int
+	}{
+		"apparmor unavailable": {
+			err: grpcstatus.Error(
+				grpccodes.FailedPrecondition, bpfrecorder.ErrAppArmorUnavailable.Error(),
+			),
+			wantResets: 1,
+		},
+		"recorder not running": {err: errRecorderNotRunning},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			mock := newFakeImpl()
+			recorder := events.NewFakeRecorder(10)
+			sut := &RecorderReconciler{impl: mock, log: logr.Discard(), record: recorder}
+			bpfCollectPod(sut, mock, podName, recordingapi.ProfileRecordingKindSeccompProfile)
+			sut.podsToWatch.Store(podName.String(), podToWatch{
+				baseName: podName,
+				recorder: recordingapi.ProfileRecorderBpf,
+				profiles: []profileToCollect{
+					{
+						kind: recordingapi.ProfileRecordingKindAppArmorProfile,
+						name: testAnnotationValue,
+					},
+					{
+						kind: recordingapi.ProfileRecordingKindSeccompProfile,
+						name: testAnnotationValue,
+					},
+				},
+			})
+			mock.ListRecordingsReturns(bpfSeccompRecordingList(), nil)
+			mock.ApparmorForProfileReturns(nil, tc.err)
+			mock.SyscallsForProfileReturns(&bpfrecorderapi.SyscallsResponse{
+				Syscalls: []string{"read"},
+				GoArch:   runtime.GOARCH,
+			}, nil)
+
+			_, err := sut.Reconcile(t.Context(), reconcile.Request{NamespacedName: podName})
+			require.NoError(t, err)
+
+			_, tracked := sut.podsToWatch.Load(podName.String())
+			require.False(t, tracked)
+			require.Equal(t, 1, mock.CreateOrUpdateCallCount(), "the seccomp profile is stored")
+			require.Equal(t, 1, mock.ResetSyscallsForProfileCallCount())
+			require.Equal(t, tc.wantResets, mock.ResetApparmorForProfileCallCount())
+			require.Equal(t, 1, mock.StopBpfRecorderCallCount())
+
+			close(recorder.Events)
+
+			reasons := []string{}
+			for event := range recorder.Events {
+				reasons = append(reasons, event)
+			}
+
+			require.True(t, slices.ContainsFunc(reasons, func(event string) bool {
+				return strings.Contains(event, reasonRecordingAbandoned)
+			}), reasons)
 		})
 	}
 }

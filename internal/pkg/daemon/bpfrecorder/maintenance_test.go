@@ -76,7 +76,7 @@ func TestFindProfileRemembersMissingContainers(t *testing.T) {
 
 	const other = "0000000000000000000000000000000000000000000000000000000000000001"
 
-	_, err := sut.findProfileForContainerID(other)
+	_, err := sut.findProfileForContainerID(other, sut.recordingGeneration.Load())
 	require.ErrorIs(t, err, errContainerNotInCluster)
 	require.True(t, sut.containersNotFound.Has(other))
 
@@ -92,13 +92,13 @@ func TestFindProfileRemembersMissingContainers(t *testing.T) {
 		return ok
 	}, time.Minute, time.Millisecond)
 
-	_, err = sut.findProfileForContainerID(other)
+	_, err = sut.findProfileForContainerID(other, sut.recordingGeneration.Load())
 	require.ErrorIs(t, err, errContainerNotInCluster)
 
 	// A new recording looks again.
 	require.NoError(t, sut.StopRecording())
 
-	_, err = sut.findProfileForContainerID(other)
+	_, err = sut.findProfileForContainerID(other, sut.recordingGeneration.Load())
 	require.ErrorIs(t, err, errNoProfileForContainer)
 }
 
@@ -107,6 +107,33 @@ func TestFindProfileRemembersMissingContainers(t *testing.T) {
 // containers, which never show up in the pod status and wait as long as a pod
 // of the node has a pending container, and every handler would be blocked by
 // a burst of them otherwise.
+// TestFindProfileOfFinishedRecording asserts that a lookup which outlived its
+// recording caches nothing about the pod, which belongs to the current one.
+func TestFindProfileOfFinishedRecording(t *testing.T) {
+	t.Parallel()
+
+	sut, _ := newClusterRecorder(true, false)
+	watchPods(t, sut, podWithContainer(map[string]string{
+		config.SeccompProfileRecordBpfAnnotationKey + "ctr": profile,
+	}))
+
+	staleGeneration := sut.recordingGeneration.Load()
+	sut.recordingGeneration.Add(1)
+	sut.collectedProfiles.Store(profile, []string{"other-container"})
+
+	_, err := sut.findProfileForContainerID(containerID, staleGeneration)
+	require.ErrorIs(t, err, errRecordingEnded)
+	require.Zero(t, sut.containerIDToProfileMap.Size())
+	require.False(t, sut.containersWithoutProfile.Has(containerID))
+
+	_, collected := sut.collectedProfiles.Load(profile)
+	require.True(t, collected, "the current recording decides about collecting again")
+
+	got, err := sut.findProfileForContainerID(containerID, sut.recordingGeneration.Load())
+	require.NoError(t, err)
+	require.Equal(t, profile, got)
+}
+
 func TestFindProfileBoundsWaitingLookups(t *testing.T) {
 	t.Parallel()
 
@@ -128,12 +155,12 @@ func TestFindProfileBoundsWaitingLookups(t *testing.T) {
 	const sandbox = "0000000000000000000000000000000000000000000000000000000000000003"
 
 	// Not waited for, and looked up again with the next process.
-	_, err := sut.findProfileForContainerID(sandbox)
+	_, err := sut.findProfileForContainerID(sandbox, sut.recordingGeneration.Load())
 	require.ErrorIs(t, err, errContainerNotInCluster)
 	require.False(t, sut.containersNotFound.Has(sandbox))
 
 	// A container which a pod has is still found right away.
-	_, err = sut.findProfileForContainerID(containerID)
+	_, err = sut.findProfileForContainerID(containerID, sut.recordingGeneration.Load())
 	require.ErrorIs(t, err, errNoProfileForContainer)
 
 	// Waited for once a lookup is done.
@@ -141,7 +168,7 @@ func TestFindProfileBoundsWaitingLookups(t *testing.T) {
 
 	sut.containerLookupTimeout = 10 * time.Millisecond
 
-	_, err = sut.findProfileForContainerID(sandbox)
+	_, err = sut.findProfileForContainerID(sandbox, sut.recordingGeneration.Load())
 	require.ErrorIs(t, err, errContainerNotInCluster)
 	require.True(t, sut.containersNotFound.Has(sandbox))
 	require.Len(t, sut.waitingLookups, maxWaitingLookups-1)
@@ -188,7 +215,10 @@ func TestFindProfileWaitsForContainers(t *testing.T) {
 
 			for range lookups {
 				go func() {
-					got, err := sut.findProfileForContainerID(containerID)
+					got, err := sut.findProfileForContainerID(
+						containerID,
+						sut.recordingGeneration.Load(),
+					)
 					if err == nil && got != profile {
 						err = fmt.Errorf("got profile %q", got)
 					}
@@ -224,7 +254,7 @@ func TestFindProfileDoesNotWaitForUnknownContainers(t *testing.T) {
 	const unknown = "0000000000000000000000000000000000000000000000000000000000000003"
 
 	start := time.Now()
-	_, err := sut.findProfileForContainerID(unknown)
+	_, err := sut.findProfileForContainerID(unknown, sut.recordingGeneration.Load())
 	require.ErrorIs(t, err, errContainerNotInCluster)
 	require.Less(t, time.Since(start), 30*time.Second)
 	require.True(t, sut.containersNotFound.Has(unknown))
@@ -287,7 +317,7 @@ func TestCacheProfilesOfPod(t *testing.T) {
 		{Name: "none", ContainerID: "containerd://" + strings.Repeat("4", 64)},
 	}
 
-	sut.cacheProfilesOfPod(p)
+	sut.cacheProfilesOfPod(p, sut.recordingGeneration.Load())
 
 	got, ok := sut.containerIDToProfileMap.Get(containerID)
 	require.True(t, ok)
@@ -314,13 +344,13 @@ func TestCacheProfilesOfPodForgetsCollectedProfile(t *testing.T) {
 	)
 
 	sut.collectedProfiles.Store(profile, []string{containerID})
-	sut.cacheProfilesOfPod(p)
+	sut.cacheProfilesOfPod(p, sut.recordingGeneration.Load())
 
 	_, collected := sut.collectedProfiles.Load(profile)
 	require.True(t, collected, "the collected container stays collected")
 
 	sut.collectedProfiles.Store(profile, []string{strings.Repeat("5", 64)})
-	sut.cacheProfilesOfPod(p)
+	sut.cacheProfilesOfPod(p, sut.recordingGeneration.Load())
 
 	_, collected = sut.collectedProfiles.Load(profile)
 	require.False(t, collected, "a new container gets recorded again")

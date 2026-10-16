@@ -145,39 +145,23 @@ func TestIsSelinuxdReady(t *testing.T) {
 	t.Parallel()
 
 	for name, tc := range map[string]struct {
-		handler   http.HandlerFunc
+		body      string
 		want      bool
 		wantError bool
 	}{
-		"ready": {
-			handler: func(w http.ResponseWriter, _ *http.Request) {
-				writeBody(t, w, `{"ready": true}`)
-			},
-			want: true,
-		},
-		"not ready": {
-			handler: func(w http.ResponseWriter, _ *http.Request) {
-				writeBody(t, w, `{"ready": false}`)
-			},
-			want: false,
-		},
-		"missing key is not ready": {
-			handler: func(w http.ResponseWriter, _ *http.Request) {
-				writeBody(t, w, `{}`)
-			},
-			want: false,
-		},
-		"malformed response": {
-			handler: func(w http.ResponseWriter, _ *http.Request) {
-				writeBody(t, w, `not json`)
-			},
-			wantError: true,
-		},
+		"ready":                    {body: `{"ready": true}`, want: true},
+		"not ready":                {body: `{"ready": false}`, want: false},
+		"missing key is not ready": {body: `{}`, want: false},
+		"malformed response":       {body: `not json`, wantError: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := isSelinuxdReady(context.Background(), selinuxdTestClient(t, tc.handler))
+			handler := func(w http.ResponseWriter, _ *http.Request) {
+				writeBody(t, w, tc.body)
+			}
+
+			got, err := isSelinuxdReady(context.Background(), selinuxdTestClient(t, handler))
 			if tc.wantError {
 				require.Error(t, err)
 

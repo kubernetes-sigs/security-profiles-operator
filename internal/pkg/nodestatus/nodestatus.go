@@ -411,12 +411,18 @@ func (nsf *StatusClient) MigrateLegacyFinalizer(ctx context.Context) error {
 
 // removeFinalizer removes the finalizer of this node and the legacy one of
 // earlier releases, which other nodes may share, see MigrateLegacyFinalizer.
+// A profile which is gone has no finalizer left to remove: the finalizer
+// which got removed last, like the one shared by all nodes for a partial
+// profile, lets it go away while the other nodes still reconcile its
+// deletion.
 func (nsf *StatusClient) removeFinalizer(ctx context.Context) error {
-	return util.RetryWithFreshReads(ctx, nsf.client, nsf.reader, func(c client.Client) error {
+	err := util.RetryWithFreshReads(ctx, nsf.client, nsf.reader, func(c client.Client) error {
 		return util.RemoveFinalizers(
 			ctx, c, nsf.pol, nsf.finalizerString, nsf.legacyFinalizerString,
 		)
-	}, util.IsNotFoundOrConflict)
+	}, kerrors.IsConflict)
+
+	return client.IgnoreNotFound(err)
 }
 
 func (nsf *StatusClient) removeNodeStatus(ctx context.Context, c client.Client) error {

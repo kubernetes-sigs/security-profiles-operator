@@ -24,10 +24,6 @@ import (
 	"github.com/go-logr/logr"
 )
 
-func NewBpfSource(logger logr.Logger) (AuditLineSource, error) {
-	return nil, BpfSupported()
-}
-
-func BpfSupported() error {
-	return errors.New("BPF-based log enricher is unavailable on this platform")
+func NewBpfSource(logr.Logger) (AuditLineSource, error) {
+	return nil, errors.New("BPF-based log enricher is unavailable on this platform")
 }

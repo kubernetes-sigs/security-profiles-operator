@@ -45,22 +45,26 @@ func TestMain(m *testing.M) {
 }
 
 // runConfined runs the command through the run helper with the profile and
-// returns the error of its exit.
-func runConfined(t *testing.T, profile *specs.LinuxSeccomp, args ...string) error {
-	t.Helper()
-
+// returns the error of its start or its exit. It does not fail the test, so
+// that it can run outside of the test goroutine.
+func runConfined(profile *specs.LinuxSeccomp, args ...string) error {
 	set := flag.NewFlagSet("", flag.ContinueOnError)
-	require.NoError(t, set.Parse(args))
+	if err := set.Parse(args); err != nil {
+		return fmt.Errorf("parse args: %w", err)
+	}
 
 	options, err := command.FromContext(cli.NewContext(cli.NewApp(), set, nil))
-	require.NoError(t, err)
+	if err != nil {
+		return fmt.Errorf("command options: %w", err)
+	}
 
 	options.DropSudoPrivileges = false
 	options.PreStart = confine(profile)
 
 	cmd := command.New(options)
-	_, err = cmd.Run()
-	require.NoError(t, err)
+	if _, err := cmd.Run(); err != nil {
+		return fmt.Errorf("start command: %w", err)
+	}
 
 	return cmd.Wait()
 }
@@ -89,10 +93,12 @@ func TestConfine(t *testing.T) {
 		}},
 	}
 
-	if code, exited := command.ExitCode(runConfined(t, profile, "true")); exited {
+	err := runConfined(profile, "true")
+	if code, exited := command.ExitCode(err); exited {
 		require.NotEqual(t, initFailedExitCode, code, "run helper failed")
-		require.FailNow(t, "true failed", "exit code %d", code)
 	}
+
+	require.NoError(t, err)
 
 	const runs = 20
 
@@ -105,7 +111,7 @@ func TestConfine(t *testing.T) {
 	for i := range runs {
 		wg.Go(func() {
 			target := filepath.Join(dir, fmt.Sprintf("confined-%d", i))
-			confinedErrs[i] = runConfined(t, profile, "mkdir", target)
+			confinedErrs[i] = runConfined(profile, "mkdir", target)
 
 			// spoc must stay unconfined on every thread.
 			spocErrs[i] = os.Mkdir(filepath.Join(dir, fmt.Sprintf("spoc-%d", i)), 0o700)
@@ -167,7 +173,7 @@ func TestConfineKillsNothingButTheCommand(t *testing.T) {
 		}},
 	}
 
-	require.NoError(t, runConfined(t, profile, "true"))
+	require.NoError(t, runConfined(profile, "true"))
 }
 
 // TestConfineUnknownCommand verifies that a command which does not exist

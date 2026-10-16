@@ -31,17 +31,20 @@ message AuditRequest {
     string tcontext = 2;
   }
   message ApparmorAuditReq {
-    reserved 4;
+    // The metrics do not use the name of what got accessed.
+    reserved 4, 5;
+    reserved "name";
     string profile = 1;
     string operation = 2;
     string apparmor = 3;
-    string name = 5;
   }
+  // The metrics do not use the executable.
+  reserved 5;
+  reserved "executable";
   string node = 1;
   string namespace = 2;
   string pod = 3;
   string container = 4;
-  string executable = 5;
   SeccompAuditReq seccomp_req = 6;
   SelinuxAuditReq selinux_req = 7;
   ApparmorAuditReq apparmor_req = 8;

@@ -51,7 +51,7 @@ func TestParseBpfAuditEvent(t *testing.T) {
 		t.Parallel()
 
 		line, mntns, err := parseBpfAuditEvent(
-			bpfAuditEvent(4026531840, 4, 0, "open", "cat", "/etc/shadow"), now,
+			bpfAuditEvent(4026531840, 4, 0, "open", "cat", "/etc/shadow", "my-profile"), now,
 		)
 		require.NoError(t, err)
 		require.Equal(t, uint32(4026531840), mntns)
@@ -63,6 +63,7 @@ func TestParseBpfAuditEvent(t *testing.T) {
 			Operation:   "open",
 			Executable:  "cat",
 			Name:        "/etc/shadow",
+			Profile:     "my-profile",
 			ExtraInfo:   "request:4",
 		}, line)
 	})
@@ -70,19 +71,22 @@ func TestParseBpfAuditEvent(t *testing.T) {
 	t.Run("complain mode allows", func(t *testing.T) {
 		t.Parallel()
 
-		line, _, err := parseBpfAuditEvent(bpfAuditEvent(1, 2, 1, "exec", "sh", "/bin/ls"), now)
+		line, _, err := parseBpfAuditEvent(
+			bpfAuditEvent(1, 2, 1, "exec", "sh", "/bin/ls", "profile"), now,
+		)
 		require.NoError(t, err)
-		require.Equal(t, "ALLOW", line.Apparmor)
+		require.Equal(t, "ALLOWED", line.Apparmor)
 	})
 
 	t.Run("empty strings", func(t *testing.T) {
 		t.Parallel()
 
-		line, _, err := parseBpfAuditEvent(bpfAuditEvent(1, 0, 0, "", "", ""), now)
+		line, _, err := parseBpfAuditEvent(bpfAuditEvent(1, 0, 0, "", "", "", ""), now)
 		require.NoError(t, err)
 		require.Empty(t, line.Operation)
 		require.Empty(t, line.Executable)
 		require.Empty(t, line.Name)
+		require.Empty(t, line.Profile)
 	})
 
 	// The strings end up in protobuf messages, which take valid UTF-8 only.
@@ -90,18 +94,21 @@ func TestParseBpfAuditEvent(t *testing.T) {
 		t.Parallel()
 
 		line, _, err := parseBpfAuditEvent(
-			bpfAuditEvent(1, 0, 0, "open\xff", "c\xfeat", "/etc/\xc0\xaf"), now,
+			bpfAuditEvent(1, 0, 0, "open\xff", "c\xfeat", "/etc/\xc0\xaf", "p\xff"), now,
 		)
 		require.NoError(t, err)
 		require.Equal(t, "open\uFFFD", line.Operation)
 		require.Equal(t, "c\uFFFDat", line.Executable)
 		require.Equal(t, "/etc/\uFFFD", line.Name)
+		require.Equal(t, "p\uFFFD", line.Profile)
 	})
 
 	for name, raw := range map[string][]byte{
 		"empty":           nil,
 		"header only":     bpfAuditEvent(1, 0, 0),
 		"missing strings": bpfAuditEvent(1, 0, 0, "open"),
+		"missing profile": bpfAuditEvent(1, 0, 0, "open", "cat", "/etc/shadow"),
+		"unterminated":    bpfAuditEvent(1, 0, 0, "open", "cat", "/etc/shadow")[:28],
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()

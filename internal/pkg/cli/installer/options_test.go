@@ -29,15 +29,19 @@ func TestFromContext(t *testing.T) {
 
 	for _, tc := range []struct {
 		name    string
-		prepare func(*flag.FlagSet)
-		assert  func(*Options, error)
+		prepare func(*testing.T, *flag.FlagSet)
+		assert  func(*testing.T, *Options, error)
 	}{
 		{
 			name: "success: profile and executable specified",
-			prepare: func(set *flag.FlagSet) {
+			prepare: func(t *testing.T, set *flag.FlagSet) {
+				t.Helper()
+
 				require.NoError(t, set.Parse([]string{"profile.yml", "tail"}))
 			},
-			assert: func(options *Options, err error) {
+			assert: func(t *testing.T, options *Options, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				require.Equal(t, "tail", options.ExecutablePath)
 				require.Equal(t, "profile.yml", options.ProfilePath)
@@ -45,10 +49,14 @@ func TestFromContext(t *testing.T) {
 		},
 		{
 			name: "success: profile specified",
-			prepare: func(set *flag.FlagSet) {
+			prepare: func(t *testing.T, set *flag.FlagSet) {
+				t.Helper()
+
 				require.NoError(t, set.Parse([]string{"profile.yml"}))
 			},
-			assert: func(options *Options, err error) {
+			assert: func(t *testing.T, options *Options, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				require.Empty(t, options.ExecutablePath)
 				require.Equal(t, "profile.yml", options.ProfilePath)
@@ -56,10 +64,14 @@ func TestFromContext(t *testing.T) {
 		},
 		{
 			name: "success: all defaults",
-			prepare: func(set *flag.FlagSet) {
+			prepare: func(t *testing.T, set *flag.FlagSet) {
+				t.Helper()
+
 				require.NoError(t, set.Parse([]string{}))
 			},
-			assert: func(options *Options, err error) {
+			assert: func(t *testing.T, options *Options, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				require.Empty(t, options.ExecutablePath)
 				require.Equal(t, DefaultProfileFile, options.ProfilePath)
@@ -67,10 +79,14 @@ func TestFromContext(t *testing.T) {
 		},
 		{
 			name: "failure: too many args",
-			prepare: func(set *flag.FlagSet) {
+			prepare: func(t *testing.T, set *flag.FlagSet) {
+				t.Helper()
+
 				require.NoError(t, set.Parse([]string{"profile.yml", "tail", "-f", "/dev/null"}))
 			},
-			assert: func(options *Options, err error) {
+			assert: func(t *testing.T, options *Options, err error) {
+				t.Helper()
+
 				require.Error(t, err)
 			},
 		},
@@ -79,13 +95,13 @@ func TestFromContext(t *testing.T) {
 			t.Parallel()
 
 			set := flag.NewFlagSet("", flag.ExitOnError)
-			tc.prepare(set)
+			tc.prepare(t, set)
 
 			app := cli.NewApp()
 			ctx := cli.NewContext(app, set, nil)
 
 			options, err := FromContext(ctx)
-			tc.assert(options, err)
+			tc.assert(t, options, err)
 		})
 	}
 }

@@ -34,14 +34,16 @@ type FakeImpl struct {
 	appArmorEnabledReturnsOnCall map[int]struct {
 		result1 bool
 	}
-	AppArmorRemoveProfileStub        func(apparmorprofile.ProfileManager, v1.StatusBaseUser) error
+	AppArmorRemoveProfileStub        func(apparmorprofile.ProfileManager, v1.StatusBaseUser) (bool, error)
 	appArmorRemoveProfileMutex       sync.RWMutex
 	appArmorRemoveProfileArgsForCall []FakeImplAppArmorRemoveProfileArgs
 	appArmorRemoveProfileReturns     struct {
-		result1 error
+		result1 bool
+		result2 error
 	}
 	appArmorRemoveProfileReturnsOnCall map[int]struct {
-		result1 error
+		result1 bool
+		result2 error
 	}
 	ReadFileStub        func(string) ([]byte, error)
 	readFileMutex       sync.RWMutex
@@ -142,7 +144,7 @@ func (fake *FakeImpl) AppArmorEnabledReturnsOnCall(i int, result1 bool) {
 	}{result1}
 }
 
-func (fake *FakeImpl) AppArmorRemoveProfile(arg1 apparmorprofile.ProfileManager, arg2 v1.StatusBaseUser) error {
+func (fake *FakeImpl) AppArmorRemoveProfile(arg1 apparmorprofile.ProfileManager, arg2 v1.StatusBaseUser) (bool, error) {
 	fake.appArmorRemoveProfileMutex.Lock()
 	ret, specificReturn := fake.appArmorRemoveProfileReturnsOnCall[len(fake.appArmorRemoveProfileArgsForCall)]
 	fake.appArmorRemoveProfileArgsForCall = append(fake.appArmorRemoveProfileArgsForCall, FakeImplAppArmorRemoveProfileArgs{arg1, arg2})
@@ -154,9 +156,9 @@ func (fake *FakeImpl) AppArmorRemoveProfile(arg1 apparmorprofile.ProfileManager,
 		return stub(arg1, arg2)
 	}
 	if specificReturn {
-		return ret.result1
+		return ret.result1, ret.result2
 	}
-	return fakeReturns.result1
+	return fakeReturns.result1, fakeReturns.result2
 }
 
 func (fake *FakeImpl) AppArmorRemoveProfileCallCount() int {
@@ -165,7 +167,7 @@ func (fake *FakeImpl) AppArmorRemoveProfileCallCount() int {
 	return len(fake.appArmorRemoveProfileArgsForCall)
 }
 
-func (fake *FakeImpl) AppArmorRemoveProfileCalls(stub func(apparmorprofile.ProfileManager, v1.StatusBaseUser) error) {
+func (fake *FakeImpl) AppArmorRemoveProfileCalls(stub func(apparmorprofile.ProfileManager, v1.StatusBaseUser) (bool, error)) {
 	fake.appArmorRemoveProfileMutex.Lock()
 	defer fake.appArmorRemoveProfileMutex.Unlock()
 	fake.AppArmorRemoveProfileStub = stub
@@ -186,27 +188,30 @@ func (fake *FakeImpl) AppArmorRemoveProfileArgs() []FakeImplAppArmorRemoveProfil
 	return args
 }
 
-func (fake *FakeImpl) AppArmorRemoveProfileReturns(result1 error) {
+func (fake *FakeImpl) AppArmorRemoveProfileReturns(result1 bool, result2 error) {
 	fake.appArmorRemoveProfileMutex.Lock()
 	defer fake.appArmorRemoveProfileMutex.Unlock()
 	fake.AppArmorRemoveProfileStub = nil
 	fake.appArmorRemoveProfileReturns = struct {
-		result1 error
-	}{result1}
+		result1 bool
+		result2 error
+	}{result1, result2}
 }
 
-func (fake *FakeImpl) AppArmorRemoveProfileReturnsOnCall(i int, result1 error) {
+func (fake *FakeImpl) AppArmorRemoveProfileReturnsOnCall(i int, result1 bool, result2 error) {
 	fake.appArmorRemoveProfileMutex.Lock()
 	defer fake.appArmorRemoveProfileMutex.Unlock()
 	fake.AppArmorRemoveProfileStub = nil
 	if fake.appArmorRemoveProfileReturnsOnCall == nil {
 		fake.appArmorRemoveProfileReturnsOnCall = make(map[int]struct {
-			result1 error
+			result1 bool
+			result2 error
 		})
 	}
 	fake.appArmorRemoveProfileReturnsOnCall[i] = struct {
-		result1 error
-	}{result1}
+		result1 bool
+		result2 error
+	}{result1, result2}
 }
 
 func (fake *FakeImpl) ReadFile(arg1 string) ([]byte, error) {

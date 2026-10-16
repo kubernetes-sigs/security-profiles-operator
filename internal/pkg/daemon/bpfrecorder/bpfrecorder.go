@@ -287,8 +287,11 @@ type BpfRecorder struct {
 	// container, bounded by maxWaitingLookups.
 	waitingLookups chan struct{}
 	// profileLookups makes the handlers of processes of the same container
-	// share a single lookup.
+	// share a single lookup, per recording.
 	profileLookups singleflight.Group
+	// cacheMu makes caching the profile of a container atomic with marking
+	// the profile collected, see resetProfile.
+	cacheMu sync.Mutex
 
 	// droppedNewPidEvents counts the new pid events the handlers had no room
 	// for.
@@ -801,7 +804,7 @@ func (b *BpfRecorder) SyscallsForProfile(
 	}
 
 	if atomic.LoadInt64(&b.startRequests) == 0 {
-		return nil, errNotRunning
+		return nil, ErrNotRunning
 	}
 
 	if b.Seccomp == nil {
@@ -874,7 +877,7 @@ func (b *BpfRecorder) ApparmorForProfile(
 	}
 
 	if atomic.LoadInt64(&b.startRequests) == 0 {
-		return nil, errNotRunning
+		return nil, ErrNotRunning
 	}
 
 	if b.AppArmor == nil {
@@ -942,7 +945,6 @@ func (b *BpfRecorder) ResetApparmorForProfile(
 }
 
 var (
-	errNotRunning          = errors.New("bpf recorder not running")
 	errNoSeccompRecording  = errors.New("not seccomp profiles recording running")
 	errNoAppArmorRecording = errors.New("no apparmor profiles recording running")
 	// errIncompleteRead means that the syscalls of some containers of a
@@ -982,7 +984,7 @@ func rpcError(err error) error {
 	switch {
 	case errors.Is(err, ErrNotFound):
 		return &statusError{code: codes.NotFound, err: err}
-	case errors.Is(err, errNotRunning),
+	case errors.Is(err, ErrNotRunning),
 		errors.Is(err, errNoSeccompRecording),
 		errors.Is(err, errNoAppArmorRecording),
 		errors.Is(err, ErrAppArmorUnavailable):
@@ -1009,8 +1011,21 @@ func validateProfileRequest(r *api.ProfileRequest) error {
 // of its containers are only forgotten once no other profile of them is left
 // to collect, as a container can be recorded for seccomp and AppArmor at the
 // same time.
+//
+// The profile is forgotten and marked collected before its data gets
+// dropped, under the lock of caching a container for it. A container of it
+// which gets cached afterwards, like a restarted one, keeps its mapping and
+// its keys, and makes the profile get collected again, see forgetCollected.
 func (b *BpfRecorder) resetProfile(profile string, clearData func([]uint64)) {
-	containerIDs := b.containerIDToProfileMap.Containers(profile)
+	b.cacheMu.Lock()
+
+	containerIDs, unused := b.containerIDToProfileMap.DeleteProfile(profile)
+	if len(containerIDs) > 0 {
+		b.collectedProfiles.Store(profile, containerIDs)
+	}
+
+	b.cacheMu.Unlock()
+
 	if len(containerIDs) == 0 {
 		return
 	}
@@ -1024,9 +1039,7 @@ func (b *BpfRecorder) resetProfile(profile string, clearData func([]uint64)) {
 	})
 	b.attachUnattachMutex.RUnlock()
 
-	b.collectedProfiles.Store(profile, containerIDs)
-
-	for _, containerID := range b.containerIDToProfileMap.DeleteProfile(profile) {
+	for _, containerID := range unused {
 		b.containerKeys.DeleteContainer(containerID)
 	}
 }
@@ -1618,8 +1631,9 @@ func (b *BpfRecorder) StopRecording() error {
 	// Nothing is recording any more, so the per-session lookup tables can be
 	// released. Profiles are always collected before the recording is stopped.
 	// Ending the generation first makes handlers which are still in flight skip
-	// their writes. A handler which already passed that check can still land an
-	// entry here, which is why it re-checks afterwards and removes its own.
+	// their writes. They record and delete their keys under the read lock of
+	// the mutex held here, so none lands after the clear. What their lookups
+	// cache afterwards gets dropped by them, see forgetStaleLookup.
 	b.recordingGeneration.Add(1)
 	b.containerKeys.Clear()
 	b.containerIDToProfileMap.Clear()
@@ -1880,7 +1894,8 @@ func (b *BpfRecorder) handleNewPidEvent(event newPidEvent) {
 		return
 	}
 
-	if b.recordingGeneration.Load() != generation {
+	inserted, current := b.insertKey(key, containerID, generation)
+	if !current {
 		b.logger.V(config.VerboseLevel).Info(
 			"Discarding new pid event from a finished recording",
 			"pid", pid, "mntns", mntns, "containerID", containerID,
@@ -1889,7 +1904,7 @@ func (b *BpfRecorder) handleNewPidEvent(event newPidEvent) {
 		return
 	}
 
-	if !b.containerKeys.Insert(key, containerID) {
+	if !inserted {
 		// Once per container, a workload creating keys in a loop would flood
 		// the log otherwise.
 		if _, warned := b.keyLimitWarned.LoadOrStore(containerID, struct{}{}); !warned {
@@ -1906,27 +1921,28 @@ func (b *BpfRecorder) handleNewPidEvent(event newPidEvent) {
 
 	// The generation may end while the lookups below are running, in which
 	// case StopRecording has already cleared the tables and the entries of
-	// this handler would linger into the next recording, whatever the
-	// lookups return.
-	defer func() {
-		if b.recordingGeneration.Load() != generation {
-			b.containerKeys.Delete(key)
-			b.containerIDToProfileMap.Delete(containerID)
-		}
-	}()
+	// the lookup would linger into the next recording.
+	defer b.forgetStaleLookup(containerID, generation)
 
 	b.logger.V(config.VerboseLevel).Info(
 		"Found container ID for PID", "pid", pid,
 		"mntns", mntns, "key", key, "containerID", containerID,
 	)
 
-	profile, err := b.findProfileForContainerID(containerID)
+	profile, err := b.findProfileForContainerID(containerID, generation)
 	if err != nil {
 		if errors.Is(err, errNoProfileForContainer) {
 			// The container exists and is not recorded, its data would
 			// only fill up the maps.
-			b.containerKeys.Delete(key)
+			b.deleteKey(key, generation)
 			b.excludeKey(key, generation)
+
+			return
+		}
+
+		if errors.Is(err, errRecordingEnded) {
+			b.logger.V(config.VerboseLevel).Info("Discarding the lookup of a finished recording",
+				"id", containerID, "pid", pid, "mntns", mntns)
 
 			return
 		}
@@ -2091,6 +2107,64 @@ func (b *BpfRecorder) profileOfKey(key uint64) (string, bool) {
 	return b.containerIDToProfileMap.Get(containerID)
 }
 
+// insertKey records that the key belongs to the container, unless the
+// recording of the generation ended. It reports whether the key got recorded,
+// see containerKeys.Insert, and whether the recording is still running.
+func (b *BpfRecorder) insertKey(
+	key uint64,
+	containerID string,
+	generation uint64,
+) (inserted, current bool) {
+	b.attachUnattachMutex.RLock()
+	defer b.attachUnattachMutex.RUnlock()
+
+	// StopRecording holds the write lock while it ends the session and clears
+	// the tables, so that the key cannot linger into the next recording.
+	if b.recordingGeneration.Load() != generation {
+		return false, false
+	}
+
+	return b.containerKeys.Insert(key, containerID), true
+}
+
+// deleteKey forgets the key, unless the recording of the generation ended,
+// which cleared the keys already. The key may belong to the next recording
+// then.
+func (b *BpfRecorder) deleteKey(key, generation uint64) {
+	b.attachUnattachMutex.RLock()
+	defer b.attachUnattachMutex.RUnlock()
+
+	if b.recordingGeneration.Load() != generation {
+		return
+	}
+
+	b.containerKeys.Delete(key)
+}
+
+// forgetStaleLookup drops what the lookup of a handler of the recording of
+// the generation cached about the container after the recording ended. The
+// profile of the container is only dropped if that lookup cached it: the
+// current recording may have cached it again, see
+// cacheProfilesOfUnresolvedContainers. A handler of the current recording for
+// the same container keeps everything, it recorded its key before it looked
+// up the profile, which it may have found in the cache.
+func (b *BpfRecorder) forgetStaleLookup(containerID string, generation uint64) {
+	if b.recordingGeneration.Load() == generation {
+		return
+	}
+
+	b.attachUnattachMutex.Lock()
+	defer b.attachUnattachMutex.Unlock()
+
+	if len(b.containerKeys.Keys(containerID)) > 0 {
+		return
+	}
+
+	b.containerIDToProfileMap.DeleteAt(containerID, generation)
+	b.containersNotFound.Delete(containerID)
+	b.containersWithoutProfile.Delete(containerID)
+}
+
 // excludeKey stops recording a workload which is not recorded, and drops what
 // got recorded for it so far. This is only done with keys which are never
 // reused: an excluded mount namespace inode number could belong to a recorded
@@ -2191,9 +2265,12 @@ var (
 	// errContainerNotInCluster is returned if no pod of the node has the
 	// container.
 	errContainerNotInCluster = errors.New("container ID not found in cluster")
+
+	// errRecordingEnded is returned by a lookup which outlived its recording.
+	errRecordingEnded = errors.New("the recording of the lookup ended")
 )
 
-func (b *BpfRecorder) findProfileForContainerID(id string) (string, error) {
+func (b *BpfRecorder) findProfileForContainerID(id string, generation uint64) (string, error) {
 	if b.containersWithoutProfile.Get(id) != nil {
 		// Returned once per BPF event from an unannotated container, so no
 		// wrapping: the caller logs the container ID separately.
@@ -2213,9 +2290,12 @@ func (b *BpfRecorder) findProfileForContainerID(id string) (string, error) {
 	}
 
 	// The handlers of the processes of one container share a lookup, instead
-	// of each of them waiting for the container.
-	profile, err, _ := b.profileLookups.Do(id, func() (any, error) {
-		return b.lookupProfileForContainerID(id)
+	// of each of them waiting for the container. A handler of another
+	// recording does not share it, see forgetStaleLookup.
+	key := strconv.FormatUint(generation, 10) + "/" + id
+
+	profile, err, _ := b.profileLookups.Do(key, func() (any, error) {
+		return b.lookupProfileForContainerID(id, generation)
 	})
 	if err != nil {
 		return "", err
@@ -2231,7 +2311,7 @@ func (b *BpfRecorder) findProfileForContainerID(id string) (string, error) {
 
 // lookupProfileForContainerID waits for a pod of the node to have the
 // container and caches the profiles of the containers of the pod.
-func (b *BpfRecorder) lookupProfileForContainerID(id string) (string, error) {
+func (b *BpfRecorder) lookupProfileForContainerID(id string, generation uint64) (string, error) {
 	if b.pods == nil {
 		return "", fmt.Errorf("%w: %s", errContainerNotInCluster, id)
 	}
@@ -2248,7 +2328,13 @@ func (b *BpfRecorder) lookupProfileForContainerID(id string) (string, error) {
 		)
 	}
 
-	b.cacheProfilesOfPod(pod)
+	// The containers of the pod and whether they got collected belong to the
+	// current recording, which looks them up itself.
+	if b.recordingGeneration.Load() != generation {
+		return "", errRecordingEnded
+	}
+
+	b.cacheProfilesOfPod(pod, generation)
 
 	if profile, ok := b.containerIDToProfileMap.Get(id); ok {
 		b.logger.Info(
@@ -2320,14 +2406,14 @@ func (b *BpfRecorder) cacheProfilesOfUnresolvedContainers() {
 		}
 
 		if pod, ok := b.pods.Get(id); ok {
-			b.cacheProfilesOfPod(pod)
+			b.cacheProfilesOfPod(pod, b.recordingGeneration.Load())
 		}
 	}
 }
 
 // cacheProfilesOfPod caches the profiles recorded for the containers of the
-// pod.
-func (b *BpfRecorder) cacheProfilesOfPod(pod *v1.Pod) {
+// pod by the recording of the generation.
+func (b *BpfRecorder) cacheProfilesOfPod(pod *v1.Pod, generation uint64) {
 	for _, containerID := range podindex.ContainerIDs(pod) {
 		containerName, _ := podindex.ContainerName(pod, containerID)
 
@@ -2344,8 +2430,10 @@ func (b *BpfRecorder) cacheProfilesOfPod(pod *v1.Pod) {
 					"podName", pod.Name,
 					"containerName", containerName,
 				)
+				b.cacheMu.Lock()
 				b.forgetCollected(profile, containerID)
-				b.containerIDToProfileMap.Insert(containerID, profile)
+				b.containerIDToProfileMap.InsertAt(containerID, profile, generation)
+				b.cacheMu.Unlock()
 			}
 		}
 	}
