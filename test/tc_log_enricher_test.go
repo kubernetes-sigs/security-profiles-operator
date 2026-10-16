@@ -25,9 +25,79 @@ import (
 	"time"
 )
 
-func (e *e2e) testCaseLogEnricherBpf(args []string) {
+// testCaseLogEnricherBpf checks the BPF source of the log enricher, which
+// only reports AppArmor audit events (it hooks aa_audit), with a profile
+// that has no rule for the file the pod writes.
+func (e *e2e) testCaseLogEnricherBpf([]string) {
 	e.logEnricherBpfOnlyTestCase()
-	e.testCaseLogEnricher(args)
+
+	const (
+		profileName   = "enricher-apparmor"
+		podName       = "enricherpod-apparmor"
+		containerName = "enrichercontainer"
+	)
+
+	e.logf("Creating test AppArmor profile")
+
+	// The profile denies the write by having no rule for it. Explicit deny
+	// rules, which readOnlyPaths renders as well, are not audited, so no
+	// event would reach aa_audit. The executable rules let the shell and
+	// the busybox applets run, the base abstraction covers the libraries.
+	profile := fmt.Sprintf(`
+apiVersion: security-profiles-operator.x-k8s.io/v1
+kind: AppArmorProfile
+metadata:
+  name: %s
+spec:
+  abstract:
+    executable:
+      allowedExecutables:
+      - /bin/**
+      - /usr/bin/**
+`, profileName)
+
+	e.writeAndCreate(profile, "test-profile-*.yaml")
+	e.kubectlCleanup("apparmorprofile", profileName)
+
+	e.logf("Waiting for profile to be reconciled")
+	e.waitFor("jsonpath={.status.status}=Installed", "apparmorprofile", profileName)
+
+	e.logf("Creating test pod")
+	namespace := e.getCurrentContextNamespace(defaultNamespace)
+
+	pod := fmt.Sprintf(`
+apiVersion: v1
+kind: Pod
+metadata:
+  name: %s
+spec:
+  containers:
+  - image: busybox:latest
+    name: %s
+    command: ["sh", "-c", "while true; do touch /tmp/denied; sleep 1; done"]
+    securityContext:
+      appArmorProfile:
+        type: Localhost
+        localhostProfile: %s
+  restartPolicy: Never
+`, podName, containerName, profileName)
+
+	since := time.Now()
+
+	e.writeAndCreate(pod, "test-pod-*.yaml")
+	e.kubectlCleanup("pod", podName)
+
+	e.waitFor("jsonpath={.status.phase}=Running", "pod", podName)
+
+	e.logf("Checking log enricher output")
+	e.waitForEnricherLogs(since, enricherLogLine(
+		"type", "apparmor",
+		"namespace", namespace,
+		"pod", podName,
+		"container", containerName,
+		"apparmor", "DENIED",
+		"name", "/tmp/denied",
+	))
 }
 
 func (e *e2e) testCaseLogEnricher([]string) {
@@ -98,9 +168,8 @@ spec:
 	e.waitForEnricherLogs(since, enricherLogLine("syscallName", "listen"))
 
 	e.logf("Checking log enricher output")
-	output := e.kubectlOperatorNS(
-		"logs", "--since-time="+since.Format(time.RFC3339), "-l", "name=spod", "-c", "log-enricher",
-	)
+	output, err := e.spodContainerLogs(since, "log-enricher")
+	e.Require().NoError(err)
 
 	// then match the rest
 	e.Contains(output, `"audit"`)
@@ -218,14 +287,11 @@ spec:
 	listenLine := fmt.Sprintf(`syscallID=%d`, 50)
 
 	e.consistently(absentProfileTimeout, defaultPollInterval, func() error {
-		output := e.kubectlOperatorNS(
-			"logs",
-			"--since-time="+since.Format(time.RFC3339),
-			"-l",
-			"name=spod",
-			"-c",
-			"log-enricher",
-		)
+		output, err := e.spodContainerLogs(since, "log-enricher")
+		if err != nil {
+			return err
+		}
+
 		if strings.Contains(output, listenLine) {
 			return fmt.Errorf("the filtered %s got logged", listenLine)
 		}

@@ -132,6 +132,23 @@ func (e *e2e) pollEnricherLogs(
 	return err
 }
 
+// spodContainerLogs returns the logs of the container of all spod pods since
+// the provided time. kubectl logs ds/spod reads a single pod, which on a
+// cluster with several nodes need not be the one on the node of the workload,
+// and with a label selector it reads only the last 10 lines of each pod
+// unless --tail says otherwise. The error lets polling callers retry, since
+// the logs of a pod which is still starting cannot be read yet.
+func (e *e2e) spodContainerLogs(since time.Time, container string) (string, error) {
+	return e.kubectlCommand(
+		"-n", config.OperatorName,
+		"logs",
+		"--since-time="+since.Format(time.RFC3339),
+		"--tail=-1",
+		"-l", "name=spod",
+		"-c", container,
+	)
+}
+
 // pollEnricherContainerLogs polls the logs of the enricher container of the
 // spod since the provided time until they match the conditions, and returns
 // them, or the error of the last poll once the timeout passes.
@@ -142,12 +159,13 @@ func (e *e2e) pollEnricherContainerLogs(
 
 	err := poll(timeout, 3*time.Second, func() error {
 		e.logf("Waiting for the %s to record syscalls", container)
-		logs = e.kubectlOperatorNS(
-			"logs",
-			"--since-time="+since.Format(time.RFC3339),
-			"ds/spod",
-			container,
-		)
+
+		var err error
+
+		logs, err = e.spodContainerLogs(since, container)
+		if err != nil {
+			return err
+		}
 
 		return unmatchedLogs(logs, conditions)
 	})

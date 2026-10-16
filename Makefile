@@ -82,7 +82,7 @@ GO_RUN_TOOL := GOFLAGS= CGO_ENABLED=0 $(GO) run
 GOTESTSUM := GOFLAGS= $(GO) run gotest.tools/gotestsum@$(GOTESTSUM_VERSION)
 CI_IMAGE ?= golang:$(shell hack/go-version.sh)
 
-CONTROLLER_GEN_CMD := CGO_LDFLAGS= $(GO) run $(BUILD_FLAGS) -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen
+CONTROLLER_GEN_CMD := CGO_LDFLAGS= $(GO) tool controller-gen
 
 NIX := nix --extra-experimental-features 'nix-command flakes'
 
@@ -585,8 +585,8 @@ verify-in-a-container: ## Run all verification targets in a container
 	export WORKDIR=/go/src/sigs.k8s.io/security-profiles-operator && \
 	$(CONTAINER_RUNTIME) run -i$(if $(shell tty -s && echo t),t) \
 		-v $(shell pwd):$$WORKDIR \
-		-v $(shell go env GOCACHE):/root/.cache/go-build \
-		-v $(shell go env GOMODCACHE):/go/pkg/mod \
+		-v $(shell $(GO) env GOCACHE):/root/.cache/go-build \
+		-v $(shell $(GO) env GOMODCACHE):/go/pkg/mod \
 		-e GOCACHE=/root/.cache/go-build \
 		-e GOMODCACHE=/go/pkg/mod \
 		-w $$WORKDIR \

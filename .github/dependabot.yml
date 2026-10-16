@@ -38,6 +38,10 @@ updates:
   labels:
     - "release-note-none"
     - "ok-to-test"
+  ignore:
+    # dependencies.yaml keeps it on the release of the pre-commit hook, which
+    # Dependabot does not update, so both get bumped together by hand.
+    - dependency-name: "crate-ci/typos"
   groups:
     actions:
       patterns:

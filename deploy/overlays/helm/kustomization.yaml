@@ -41,7 +41,7 @@ patches:
       value: "Helm"
     - op: add
       path:  "/metadata/annotations/meta.helm.sh~1release-name"
-      value: "security-profiles-operator"
+      value: "{{ .Release.Name }}"
     - op: add
       path:  "/metadata/annotations/meta.helm.sh~1release-namespace"
       value: "{{ .Release.Namespace }}"

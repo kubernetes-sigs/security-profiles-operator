@@ -74,8 +74,10 @@ if [[ "$REPOSITORY_URL" != "$UPSTREAM_REPOSITORY_URL" ]] && signing_enabled; the
 fi
 
 # Downloads a static binary once, verifies its checksum and prints its path.
-# Callers run it in a command substitution, where bash ignores errexit, so every
-# failure returns explicitly and prints no path.
+# The name includes the version, so that a version bump downloads the new
+# release instead of reusing the old binary. Callers run it in a command
+# substitution, where bash ignores errexit, so every failure returns
+# explicitly and prints no path.
 download_tool() {
   local name="$1" url="$2" sha256="$3" path="$TOOLS_DIR/$1" download
 
@@ -95,14 +97,21 @@ download_tool() {
 }
 
 # Installs a Go command once, the module checksum database verifies it, and
-# prints its path.
+# prints its path. It goes to a directory per version of the package, like
+# download_tool, as go install names the binary after the package. Callers run
+# it in a command substitution like download_tool, so every failure returns
+# explicitly and prints no path.
 install_go_tool() {
-  local name="$1" pkg="$2" path
+  local name="$1" pkg="$2" dir path
 
-  mkdir -p "$TOOLS_DIR"
-  path="$(realpath "$TOOLS_DIR")/$name"
+  dir="$TOOLS_DIR/$name-${pkg##*@}"
+  mkdir -p "$dir" || return 1
+  path="$(realpath "$dir")/$name" || return 1
   if [[ ! -x "$path" ]]; then
-    GOBIN="$(dirname "$path")" GOFLAGS="" go install "$pkg" >&2
+    if ! GOBIN="$(dirname "$path")" GOFLAGS="" go install "$pkg" >&2; then
+      echo "Failed to install $name from $pkg" >&2
+      return 1
+    fi
   fi
 
   echo "$path"
@@ -113,7 +122,7 @@ cosign_bin() {
     echo "$COSIGN"
     return
   fi
-  download_tool cosign \
+  download_tool "cosign-$COSIGN_VERSION" \
     "https://github.com/sigstore/cosign/releases/download/$COSIGN_VERSION/cosign-linux-amd64" \
     "$COSIGN_SHA256"
 }
@@ -123,7 +132,7 @@ bom_bin() {
     echo "$BOM"
     return
   fi
-  download_tool bom \
+  download_tool "bom-$BOM_VERSION" \
     "https://github.com/kubernetes-sigs/bom/releases/download/$BOM_VERSION/bom-amd64-linux" \
     "$BOM_SHA256"
 }
@@ -133,7 +142,7 @@ jq_bin() {
     echo "$JQ"
     return
   fi
-  download_tool jq \
+  download_tool "jq-$JQ_VERSION" \
     "https://github.com/jqlang/jq/releases/download/jq-$JQ_VERSION/jq-linux-amd64" \
     "$JQ_SHA256"
 }

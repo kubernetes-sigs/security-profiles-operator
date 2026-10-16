@@ -30,9 +30,6 @@ changelog:
     - title: Regression
       labels:
         - kind/regression
-    - title: Dependencies
-      labels:
-        - dependencies
     - title: Other
       labels:
         - "*"

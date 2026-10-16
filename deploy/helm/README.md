@@ -30,6 +30,7 @@ please refer to [Installation Guide](https://github.com/kubernetes-sigs/security
 | enableJsonEnricher | bool | `false` | enable audit JSON enricher or not |
 | enableProfiling | bool | `false` | enable profiling or not |
 | enableSelinux | bool | unset | deprecated, use `selinux.enable` instead |
+| extraEnv | list | `[]` | additional environment variables of the operator container, like `MAX_METRIC_SERIES` or `ENABLE_INSECURE_METRICS_ACCESS`; their names must not repeat the environment variables the chart sets |
 | fullnameOverride | string | `""` | override the generated full name |
 | imagePullSecrets | list | `[]` | secrets for pulling the images from a private registry, for example `[{name: my-pull-secret}]`; they apply to the operator deployment and, through `spec.imagePullSecrets` of the SPOD, to the daemon and the webhook |
 | kubeletDir | string | `"/var/lib/kubelet"` | the kubelet root directory of the nodes, where the seccomp profiles get installed |
@@ -55,6 +56,7 @@ please refer to [Installation Guide](https://github.com/kubernetes-sigs/security
 | selinuxdImage.{default,el8,el9,fedora}.repository | string | `"security-profiles-operator/selinuxd"`, `"security-profiles-operator/selinuxd-el8"`, ... | the repository for the selinuxd images |
 | selinuxdImage.{default,el8,el9,fedora}.tag | string | `"latest"` | tag for the selinuxd images, only used when the digest is empty |
 | selinuxdImage.{default,el8,el9,fedora}.digest | string | the digest of the current `latest` tag | digest of the selinuxd images, set to `""` to use the tag |
+| selinuxdImage.el10 | object | unset | the selinuxd image for RHEL 10 and CoreOS 10 nodes, with the fields of the other images; selinuxd publishes none, so these nodes get the default image unless it is set |
 | serviceAccount | object | unset | has no effect, the operator always runs with the `security-profiles-operator` service account of the chart |
 | spod.spec | object | `{}` | any field of the SecurityProfilesOperatorDaemon spec, merged over the fields which the dedicated values render; objects get merged field by field, every other value, lists included, replaces the rendered one |
 | spoImage.digest | string | `""` | digest of the spoImage, the tag is only used when it is empty |

@@ -1110,7 +1110,8 @@ dependencies:
       - path: .pre-commit-config.yaml
         match: "frozen: v0\\.23"
 
-  # The pre-commit hook and the test workflow run the same release.
+  # The pre-commit hook and the test workflow run the same release, so
+  # .github/dependabot.yml leaves the action alone.
   - name: typos
     version: v1.51.1
     upstream:

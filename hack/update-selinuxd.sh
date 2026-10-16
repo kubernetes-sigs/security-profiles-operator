@@ -63,7 +63,7 @@ for image in "${IMAGES[@]}"; do
     continue
   fi
 
-  sed -i "s;$current;$latest;g" "$DEPLOYMENT" "$VALUES" "$DEPENDENCIES"
+  sed_i "s;$current;$latest;g" "$DEPLOYMENT" "$VALUES" "$DEPENDENCIES"
 done
 
 current=$(sed -n 's;^SELINUXD_COMMIT=\([a-f0-9]\{40\}\)$;\1;p' "$SELINUXD_BUILD")
@@ -82,7 +82,7 @@ else
   echo "The main branch of $SELINUXD_GIT moved from $current to $latest"
   moved=1
   if [[ "$CHECK" != "true" ]]; then
-    sed -i "s;$current;$latest;g" "$SELINUXD_BUILD" "$DEPENDENCIES"
+    sed_i "s;$current;$latest;g" "$SELINUXD_BUILD" "$DEPENDENCIES"
   fi
 fi
 

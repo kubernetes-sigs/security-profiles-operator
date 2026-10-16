@@ -18,6 +18,12 @@ limitations under the License.
 
 package e2e_test
 
+import (
+	"encoding/json"
+
+	corev1 "k8s.io/api/core/v1"
+)
+
 func (e *e2e) testCaseResourceRequirementsChange([]string) {
 	e.restoreSpodSpec()
 
@@ -26,10 +32,18 @@ func (e *e2e) testCaseResourceRequirementsChange([]string) {
 		{"requests": {"memory": "256Mi", "cpu": "250m"},
 		"limits": {"memory": "512Mi", "cpu": "500m"}}}}`)
 
-	updatedResourcesInSPODDS := e.kubectlOperatorNS("get", "ds", "spod", "-o", "yaml")
+	// Other containers of the DaemonSet already use some of these values by
+	// default, so only the resources of the daemon container count.
+	const daemonResources = `jsonpath={.spec.template.spec.containers[?(@.name=="security-profiles-operator")].resources}`
 
-	e.Contains(updatedResourcesInSPODDS, "256Mi")
-	e.Contains(updatedResourcesInSPODDS, "250m")
-	e.Contains(updatedResourcesInSPODDS, "512Mi")
-	e.Contains(updatedResourcesInSPODDS, "500m")
+	output := e.kubectlOperatorNS("get", "ds", "spod", "-o", daemonResources)
+
+	var resources corev1.ResourceRequirements
+
+	e.Require().NoError(json.Unmarshal([]byte(output), &resources))
+
+	e.Equal("256Mi", resources.Requests.Memory().String())
+	e.Equal("250m", resources.Requests.Cpu().String())
+	e.Equal("512Mi", resources.Limits.Memory().String())
+	e.Equal("500m", resources.Limits.Cpu().String())
 }

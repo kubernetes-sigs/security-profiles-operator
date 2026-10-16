@@ -273,6 +273,19 @@ function kubectl_wait() {
   try_until_ok kubectl wait --timeout 1s "$@"
 }
 
+# installed_csv prints the CSV the subscription installed, and fails while it
+# has none.
+# shellcheck disable=SC2329 # called through try_until_ok
+function installed_csv() {
+  local csv
+  csv=$(kubectl -n"$1" get sub security-profiles-operator-sub -ojsonpath='{.status.installedCSV}') || return 1
+  [[ -n "$csv" ]] || return 1
+  echo "$csv"
+}
+
+# check_spo_is_running returns non-zero when the operator is not running. Its
+# callers call it with ||, which turns off set -e inside it, so every step
+# returns on failure explicitly.
 function check_spo_is_running() {
   ns=$1
 
@@ -280,8 +293,8 @@ function check_spo_is_running() {
   # because on transient errors (which are for some reason common even
   # if the catalog is local) the pod gets restarted
   for _ in $(seq 1 5); do
-    kubectl_wait -nolm --for=condition=ready pods -lolm.catalogSource=security-profiles-operator
-    install_rv=$?
+    install_rv=0
+    kubectl_wait -nolm --for=condition=ready pods -lolm.catalogSource=security-profiles-operator || install_rv=$?
     if [ $install_rv -ne 0 ]; then
       catalog_pod=$(kubectl -nolm get pods --no-headers -lolm.catalogSource=security-profiles-operator | awk '{print $1}')
       catalog_logs=$(kubectl -nolm logs "$catalog_pod" 2>/dev/null)
@@ -291,12 +304,16 @@ function check_spo_is_running() {
       break
     fi
   done
+  if [ "$install_rv" -ne 0 ]; then
+    echo "The catalog source is not ready"
+    return 1
+  fi
 
   # wait a bit for CSV to appear
-  CSV=$(try_until_ok kubectl -n"$ns" get sub security-profiles-operator-sub -ojsonpath='{.status.installedCSV}')
+  CSV=$(try_until_ok installed_csv "$ns") || return 1
 
   # wait for the CSV to be actually installed
-  kubectl_wait -n"$ns" --for=jsonpath='{.status.phase}'=Succeeded csv "$CSV"
+  kubectl_wait -n"$ns" --for=jsonpath='{.status.phase}'=Succeeded csv "$CSV" || return 1
 
   # wait for the operator to be ready
   kubectl_wait -n"$ns" --for=condition=ready pod -lname=security-profiles-operator || return 1

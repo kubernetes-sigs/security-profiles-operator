@@ -36,7 +36,7 @@ The `status.message` of a node status tells why the profile failed on that
 node:
 
 ```sh
-kubectl get securityprofilenodestatuses -l spo.x-k8s.io/profile-id=SeccompProfile-profile-block \
+kubectl get securityprofilenodestatuses -l spo.x-k8s.io/profile-id=SeccompProfile-profile-block-all \
   -o custom-columns=NODE:.spec.nodeName,STATUS:.status.status,MESSAGE:.status.message
 ```
 

@@ -239,9 +239,9 @@ jobs:
             image: image
     name: e2e-ubuntu / ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
-    # The suite takes up to 60 minutes, which leaves the flaky test step with
-    # its retry too little time within 90.
-    timeout-minutes: 120
+    # The suite takes up to 60 minutes and the flaky test step with its retry
+    # up to 70, plus the start of kubernix.
+    timeout-minutes: 150
     env:
       # The suite runs in ./test, so the directory must be absolute.
       E2E_ARTIFACTS_DIR: ${{ github.workspace }}/build/e2e-artifacts
@@ -294,9 +294,9 @@ jobs:
   e2e-flatcar:
     needs: [image, e2e-test-binary]
     runs-on: ubuntu-24.04
-    # Booting the VM takes up to 10 minutes and the suite up to 60, which
-    # leaves the flaky test step with its retry too little time within 90.
-    timeout-minutes: 120
+    # Booting the VM takes up to 10 minutes, the suite up to 60 and the flaky
+    # test step with its retry up to 70.
+    timeout-minutes: 150
     env:
       RUN: ./hack/ci/run-flatcar.sh
     steps:

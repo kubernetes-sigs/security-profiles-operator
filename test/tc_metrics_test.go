@@ -21,7 +21,9 @@ package e2e_test
 import (
 	"bufio"
 	"fmt"
+	"maps"
 	"net"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -36,50 +38,149 @@ const (
 	metricsTimeout = 2 * time.Minute
 )
 
-// scrapeSpodMetrics returns the metrics of the daemons on all nodes. The
-// metrics service picks one daemon per request, so each daemon gets scraped
-// through the IP of its pod instead.
+// scrapeSeparator is what curl prints after the metrics of each daemon,
+// followed by the URL it scraped them from.
+const scrapeSeparator = "# end of the metrics of "
+
+// scrapeSpodMetrics returns the metrics of the daemons on all nodes.
 func (e *e2e) scrapeSpodMetrics() string {
-	podIPs := strings.Fields(e.kubectlOperatorNS(
-		"get", "pods", "-l", "name=spod", "-o", "jsonpath={.items[*].status.podIP}",
-	))
-	e.Require().NotEmpty(podIPs, "no IPs of the spod pods")
+	return strings.Join(slices.Collect(maps.Values(e.scrapeSpodMetricsByDaemon())), "\n")
+}
+
+// scrapeSpodMetricsByDaemon returns the metrics of the daemon on each node,
+// keyed by the name of its spod pod. The metrics service picks one daemon per
+// request, so each daemon gets scraped through the IP of its pod instead. A
+// daemon without an IP or without output has empty metrics, so that a check of
+// all daemons notices it.
+func (e *e2e) scrapeSpodMetricsByDaemon() map[string]string {
+	pods := strings.Split(strings.TrimSpace(e.kubectlOperatorNS(
+		"get", "pods", "-l", "name=spod", "-o",
+		`jsonpath={range .items[*]}{.metadata.name}{" "}{.status.podIP}{"\n"}{end}`,
+	)), "\n")
+
+	byDaemon := make(map[string]string, len(pods))
+	podsByURL := make(map[string]string, len(pods))
+
+	for _, pod := range pods {
+		name, ip, _ := strings.Cut(strings.TrimSpace(pod), " ")
+		if name == "" {
+			continue
+		}
+
+		byDaemon[name] = ""
+
+		if ip != "" {
+			podsByURL["https://"+net.JoinHostPort(ip, strconv.Itoa(int(bindata.ContainerPort)))+
+				metrics.HandlerPath] = name
+		}
+	}
+
+	e.Require().NotEmpty(byDaemon, "no spod pods")
 
 	// The service has only one daemon to pick then. Pods cannot connect to
 	// the IP of another pod on every CI cluster, like on kubernix on the
 	// GitHub runners, while the service works there.
-	if len(podIPs) == 1 {
-		return e.runAndRetryPodCMD(curlSpodCMD)
-	}
-
-	urls := make([]string, 0, len(podIPs))
-	for _, ip := range podIPs {
-		urls = append(urls, "https://"+
-			net.JoinHostPort(ip, strconv.Itoa(int(bindata.ContainerPort)))+metrics.HandlerPath)
-	}
-
-	return e.runAndRetryPodCMD(curlCMD + strings.Join(urls, " "))
-}
-
-// waitForMetricsIncrease waits until the daemons of all nodes counted more
-// updates and deletions than before.
-func (e *e2e) waitForMetricsIncrease(
-	operationUpdate, operationDelete string, updates, deletions int,
-) {
-	e.eventually(metricsTimeout, defaultPollInterval, func() error {
-		output := e.scrapeSpodMetrics()
-		if !strings.Contains(output, "promhttp_metric_handler_requests_total") {
-			return fmt.Errorf("no metrics of the daemons: %s", output)
+	if len(byDaemon) == 1 {
+		for name := range byDaemon {
+			byDaemon[name] = e.runAndRetryPodCMD(curlSpodCMD)
 		}
 
-		newUpdates := e.parseMetric(output, operationUpdate)
-		newDeletions := e.parseMetric(output, operationDelete)
+		return byDaemon
+	}
 
-		if newUpdates <= updates || newDeletions <= deletions {
-			return fmt.Errorf(
-				"updates went from %d to %d, deletions from %d to %d",
-				updates, newUpdates, deletions, newDeletions,
-			)
+	if len(podsByURL) == 0 {
+		return byDaemon
+	}
+
+	output := e.runAndRetryPodCMD(
+		curlCMD + `-w '\n` + scrapeSeparator + `%{url_effective}\n' ` +
+			strings.Join(slices.Sorted(maps.Keys(podsByURL)), " "),
+	)
+
+	var content []string
+
+	for line := range strings.Lines(output) {
+		url, found := strings.CutPrefix(strings.TrimSpace(line), scrapeSeparator)
+		if !found {
+			content = append(content, line)
+
+			continue
+		}
+
+		if name, ok := podsByURL[url]; ok {
+			byDaemon[name] = strings.Join(content, "")
+		}
+
+		content = nil
+	}
+
+	return byDaemon
+}
+
+// metricCounts are the update and deletion counts of each daemon.
+type metricCounts map[string][2]int
+
+// countMetrics returns the update and deletion counts of each daemon, and an
+// error which names the daemons whose metrics are missing.
+func (e *e2e) countMetrics(operationUpdate, operationDelete string) (metricCounts, error) {
+	counts := metricCounts{}
+
+	var missing []string
+
+	for daemon, output := range e.scrapeSpodMetricsByDaemon() {
+		if !strings.Contains(output, "promhttp_metric_handler_requests_total") {
+			missing = append(missing, daemon)
+
+			continue
+		}
+
+		counts[daemon] = [2]int{
+			e.parseMetric(output, operationUpdate),
+			e.parseMetric(output, operationDelete),
+		}
+	}
+
+	if len(missing) > 0 {
+		return counts, fmt.Errorf("no metrics of the daemons %v", missing)
+	}
+
+	return counts, nil
+}
+
+// baselineMetrics returns the update and deletion counts of each daemon, and
+// retries until it gets the metrics of all daemons.
+func (e *e2e) baselineMetrics(operationUpdate, operationDelete string) metricCounts {
+	var counts metricCounts
+
+	err := poll(metricsTimeout, defaultPollInterval, func() (err error) {
+		counts, err = e.countMetrics(operationUpdate, operationDelete)
+
+		return err
+	})
+	e.Require().NoError(err, "metrics of all daemons before the test")
+
+	return counts
+}
+
+// waitForMetricsIncrease waits until the daemon of each node counted more
+// updates and deletions than before. A daemon of a spod pod which replaced
+// one of before starts at zero.
+func (e *e2e) waitForMetricsIncrease(
+	operationUpdate, operationDelete string, before metricCounts,
+) {
+	e.eventually(metricsTimeout, defaultPollInterval, func() error {
+		after, err := e.countMetrics(operationUpdate, operationDelete)
+		if err != nil {
+			return err
+		}
+
+		for daemon, counts := range after {
+			if counts[0] <= before[daemon][0] || counts[1] <= before[daemon][1] {
+				return fmt.Errorf(
+					"daemon %s: updates went from %d to %d, deletions from %d to %d",
+					daemon, before[daemon][0], counts[0], before[daemon][1], counts[1],
+				)
+			}
 		}
 
 		return nil
@@ -95,9 +196,7 @@ func (e *e2e) testCaseSeccompMetrics([]string) {
 	)
 
 	e.logf("Retrieving spo metrics for getting assertions")
-	output := e.scrapeSpodMetrics()
-	metricDeletions := e.parseMetric(output, operationDelete)
-	metricUpdates := e.parseMetric(output, operationUpdate)
+	before := e.baselineMetrics(operationUpdate, operationDelete)
 
 	profile := fmt.Sprintf(`
 apiVersion: security-profiles-operator.x-k8s.io/v1
@@ -123,7 +222,7 @@ spec:
 	e.Contains(e.runAndRetryPodCMD(curlCtrlCMD), "controller_runtime_reconcile_total")
 
 	e.logf("Asserting that the daemons counted the update and the deletion")
-	e.waitForMetricsIncrease(operationUpdate, operationDelete, metricUpdates, metricDeletions)
+	e.waitForMetricsIncrease(operationUpdate, operationDelete, before)
 }
 
 func (e *e2e) testCaseSelinuxMetrics(nodes []string) {
@@ -135,9 +234,7 @@ func (e *e2e) testCaseSelinuxMetrics(nodes []string) {
 	)
 
 	e.logf("Retrieving spo metrics for getting assertions")
-	output := e.scrapeSpodMetrics()
-	metricDeletions := e.parseMetric(output, operationDelete)
-	metricUpdates := e.parseMetric(output, operationUpdate)
+	before := e.baselineMetrics(operationUpdate, operationDelete)
 
 	e.logf("Creating test errorlogger policy")
 
@@ -157,11 +254,10 @@ func (e *e2e) testCaseSelinuxMetrics(nodes []string) {
 	e.assertSelinuxPolicyIsRemoved(nodes, rawPolicyName)
 
 	e.logf("Asserting that the daemons counted the update and the deletion")
-	e.waitForMetricsIncrease(operationUpdate, operationDelete, metricUpdates, metricDeletions)
+	e.waitForMetricsIncrease(operationUpdate, operationDelete, before)
 }
 
-// parseMetric returns the sum of the values of the metric in the content,
-// which has the metrics of all daemons.
+// parseMetric returns the sum of the values of the metric in the content.
 func (e *e2e) parseMetric(content, metric string) int {
 	sum := 0
 

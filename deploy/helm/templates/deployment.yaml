@@ -38,6 +38,10 @@ spec:
           value: {{ include "security-profiles-operator.image" .Values.selinuxdImage.el9 }}
         - name: RELATED_IMAGE_SELINUXD_FEDORA
           value: {{ include "security-profiles-operator.image" .Values.selinuxdImage.fedora }}
+        {{- with .Values.selinuxdImage.el10 }}
+        - name: RELATED_IMAGE_SELINUXD_EL10
+          value: {{ include "security-profiles-operator.image" . }}
+        {{- end }}
         - name: OPERATOR_NAMESPACE
           valueFrom:
             fieldRef:
@@ -57,6 +61,9 @@ spec:
         {{- if .Values.restrictToNamespace }}
         - name: RESTRICT_TO_NAMESPACE
           value: {{ .Values.restrictToNamespace | quote }}
+        {{- end }}
+        {{- with .Values.extraEnv }}
+        {{- toYaml . | nindent 8 }}
         {{- end }}
         # Pinned by digest when one is set, the tag only applies without one.
         image: {{ include "security-profiles-operator.image" .Values.spoImage }}

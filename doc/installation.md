@@ -31,6 +31,7 @@
   - [Restricting to a Single Namespace](#restricting-to-a-single-namespace)
     - [Restricting to a Single Namespace with upstream deployment manifests](#restricting-to-a-single-namespace-with-upstream-deployment-manifests)
     - [Restricting to a Single Namespace when installing using OLM](#restricting-to-a-single-namespace-when-installing-using-olm)
+    - [OLM install modes and namespaces](#olm-install-modes-and-namespaces)
   - [Configuring webhooks](#configuring-webhooks)
 <!-- /toc -->
 
@@ -664,6 +665,28 @@ spec:
 OLM would then take care of updating the operator `Deployment` object with the new environment variable.
 Please refer to the [OLM documentation](https://github.com/operator-framework/operator-lifecycle-manager/blob/master/doc/design/subscription-config.md#res)
 for more details on tuning the operator's configuration with the `Subscription` objects.
+
+#### OLM install modes and namespaces
+
+The binding webhook never applies `ProfileBinding`s in the namespace of the
+operator, so that no binding can change the profiles of the operator itself.
+With the `OwnNamespace` install mode, which only targets that namespace,
+`ProfileBinding`s therefore have no effect. Use the `SingleNamespace` or
+`MultiNamespace` install mode to target other namespaces for them.
+`ProfileRecording`s work in the namespace of the operator.
+
+The bundle binds the `spo-metrics-client` cluster role to the
+`spo-metrics-client` service account of the `security-profiles-operator`
+namespace, and OLM creates that `ClusterRoleBinding` as it is. When OLM
+installs the operator into another namespace, the service account there gets
+no access to the metrics, which also breaks the automatically deployed
+`ServiceMonitor`. Bind the cluster role to it yourself:
+
+```sh
+kubectl create clusterrolebinding spo-metrics-client-<your-namespace> \
+  --clusterrole spo-metrics-client \
+  --serviceaccount <your-namespace>:spo-metrics-client
+```
 
 ### Configuring webhooks
 

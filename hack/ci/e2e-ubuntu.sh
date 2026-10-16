@@ -24,11 +24,10 @@ export E2E_TEST_JSON_ENRICHER=true
 export E2E_TEST_SECCOMP=false
 # The BPF recorder records single pods on kubernix, which the
 # e2e-seccomp-profile job does for the base profiles and e2e-debian for the
-# AppArmor recording. The suite's BPF gated tests do not work here: the BPF
-# log enricher source only hooks the AppArmor audit function (aa_audit), so it
-# never reports the seccomp events its test expects, and the multi container
-# deployments of the profile merging tests never get recorded (amd64) or
-# crash loop while recorded (arm64).
+# AppArmor recording. The suite's BPF recorder tests do not work here: the
+# multi container deployments of the profile merging tests never get recorded
+# (amd64) or crash loop while recorded (arm64). The test case of the BPF log
+# enricher source has its own switch, E2E_TEST_BPF_LOG_ENRICHER.
 export E2E_TEST_BPF_RECORDER=false
 # The curl pods of the profiling test cannot connect to the profiling port of
 # the spod pods on kubernix, while the test passes on Fedora and Flatcar.

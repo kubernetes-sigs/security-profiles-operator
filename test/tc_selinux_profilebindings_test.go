@@ -33,8 +33,7 @@ const (
 func (e *e2e) testCaseSelinuxProfileBinding(image string) {
 	e.selinuxOnlyTestCase()
 
-	cleanup := e.profileBindingTestPrep(nsBindingEnabled, true, image)
-	defer cleanup()
+	e.profileBindingTestPrep(nsBindingEnabled, true, image)
 
 	e.logf("the workload should not have errored")
 	log := e.kubectl("logs", testPodName, "-c", "errorloggerbinding")
@@ -105,8 +104,7 @@ func (e *e2e) testCaseSelinuxProfileBinding(image string) {
 func (e *e2e) testCaseSelinuxProfileBindingNsNotEnabled() {
 	e.selinuxOnlyTestCase()
 
-	cleanup := e.profileBindingTestPrep(nsBindingDisabled, false, "busybox:latest")
-	defer cleanup()
+	e.profileBindingTestPrep(nsBindingDisabled, false, "busybox:latest")
 
 	e.logf("the workload should have errored")
 	log := e.kubectl("logs", testPodName, "-c", "errorloggerbinding")
@@ -117,7 +115,7 @@ func (e *e2e) profileBindingTestPrep(
 	ns string,
 	labelNs bool,
 	image string,
-) func() {
+) {
 	selinuxTestProfile := fmt.Sprintf(`
 apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: SelinuxProfile
@@ -191,7 +189,10 @@ spec:
       type: Directory
 `, testPodName)
 
-	restoreNs := e.switchToNs(ns)
+	// The cleanups run once the test ends, also if a wait below fails, in
+	// reverse order: the objects get deleted in the namespace of the test,
+	// then the namespace of the context is restored.
+	e.cleanup(e.switchToNs(ns))
 
 	if labelNs {
 		e.enableBindingHookInNs(ns)
@@ -199,6 +200,7 @@ spec:
 
 	e.logf("creating policy")
 	e.writeAndCreate(selinuxTestProfile, "selinuxProfile-test.yml")
+	e.kubectlCleanup("selinuxprofile", selinuxTestProfileName)
 
 	// Let's wait for the policy to be processed
 	e.kubectl("wait", "--timeout", defaultLongOpTimeout,
@@ -206,18 +208,13 @@ spec:
 
 	e.logf("Creating test profile binding")
 	e.writeAndCreate(selinuxBinding, "selinuxPolicyBinding-test.yml")
+	e.kubectlCleanup("profilebinding", selinuxBindingName)
 
 	e.logf("Creating test pod")
 	e.writeAndCreate(testPod, "selinuxBindingPod-test.yml")
+	e.kubectlCleanup("pod", testPodName)
 
 	e.waitForPodCreated(testPodName)
 
 	e.waitFor("condition=ready", "pod", testPodName)
-
-	return func() {
-		defer restoreNs()
-		defer e.kubectl("delete", "selinuxprofile", selinuxTestProfileName)
-		defer e.kubectl("delete", "profilebinding", selinuxBindingName)
-		defer e.kubectl("delete", "pod", testPodName)
-	}
 }
