@@ -57,7 +57,11 @@ webhooks:
           (k.startsWith("io.containers.trace-logs/") || k.startsWith("io.containers.trace-bpf/") ||
           k.startsWith("io.containers.trace-bpf-apparmor/") || k.startsWith("io.containers.trace-avcs/")) &&
           !(has(object.metadata.annotations) && k in object.metadata.annotations &&
-          object.metadata.annotations[k] == oldObject.metadata.annotations[k])))
+          object.metadata.annotations[k] == oldObject.metadata.annotations[k]))) ||
+          (has(object.metadata.annotations) && object.metadata.annotations.exists(k,
+          (k.startsWith("io.containers.trace-logs/") || k.startsWith("io.containers.trace-bpf/") ||
+          k.startsWith("io.containers.trace-bpf-apparmor/") || k.startsWith("io.containers.trace-avcs/")) &&
+          !(has(oldObject.metadata.annotations) && k in oldObject.metadata.annotations)))
     objectSelector:
       matchExpressions:
         - key: name

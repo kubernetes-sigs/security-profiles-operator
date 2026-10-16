@@ -760,6 +760,18 @@ func TestObject2CILRejectsInvalidIdentifiers(t *testing.T) {
 			}),
 		},
 		{
+			name: "permission all bypassing the denylist",
+			profile: profile("foo", selinuxprofileapi.Allow{
+				"container_file_t": {"file": {"read", "all"}},
+			}),
+		},
+		{
+			name: "permission expression bypassing the denylist",
+			profile: profile("foo", selinuxprofileapi.Allow{
+				"container_file_t": {"file": {"not", "read"}},
+			}),
+		},
+		{
 			name:    "profile name with a dot",
 			profile: profile("foo.bar", valid),
 		},

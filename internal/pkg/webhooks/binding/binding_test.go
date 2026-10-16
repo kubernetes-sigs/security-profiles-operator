@@ -122,7 +122,7 @@ func TestHandle(t *testing.T) {
 		name    string
 		prepare func(*bindingfakes.FakeImpl)
 		request admission.Request
-		assert  func(admission.Response)
+		assert  func(*testing.T, admission.Response)
 	}{
 		{
 			name: "success pod unchanged",
@@ -135,7 +135,9 @@ func TestHandle(t *testing.T) {
 					Object:    runtime.RawExtension{Raw: []byte("{}")},
 				},
 			},
-			assert: func(resp admission.Response) {
+			assert: func(t *testing.T, resp admission.Response) {
+				t.Helper()
+
 				require.True(t, resp.Allowed)
 				require.Equal(t, http.StatusOK, int(resp.Result.Code))
 				require.Equal(t, "pod unchanged", resp.Result.Message)
@@ -162,7 +164,9 @@ func TestHandle(t *testing.T) {
 					Operation: admissionv1.Update,
 				},
 			},
-			assert: func(resp admission.Response) {
+			assert: func(t *testing.T, resp admission.Response) {
+				t.Helper()
+
 				require.True(t, resp.Allowed)
 				require.Empty(t, resp.Patches)
 				require.Equal(t, "pod update, skipping mutation", resp.Result.Message)
@@ -178,7 +182,9 @@ func TestHandle(t *testing.T) {
 					Operation: admissionv1.Create,
 				},
 			},
-			assert: func(resp admission.Response) {
+			assert: func(t *testing.T, resp admission.Response) {
+				t.Helper()
+
 				require.Equal(t, http.StatusInternalServerError, int(resp.Result.Code))
 			},
 		},
@@ -193,7 +199,9 @@ func TestHandle(t *testing.T) {
 					Object:    runtime.RawExtension{Raw: []byte("{")},
 				},
 			},
-			assert: func(resp admission.Response) {
+			assert: func(t *testing.T, resp admission.Response) {
+				t.Helper()
+
 				require.Equal(t, http.StatusBadRequest, int(resp.Result.Code))
 			},
 		},
@@ -234,7 +242,9 @@ func TestHandle(t *testing.T) {
 					},
 				},
 			},
-			assert: func(resp admission.Response) {
+			assert: func(t *testing.T, resp admission.Response) {
+				t.Helper()
+
 				require.True(t, resp.Allowed)
 				require.Len(t, resp.Patches, 1)
 			},
@@ -278,7 +288,9 @@ func TestHandle(t *testing.T) {
 					},
 				},
 			},
-			assert: func(resp admission.Response) {
+			assert: func(t *testing.T, resp admission.Response) {
+				t.Helper()
+
 				require.True(t, resp.Allowed)
 				require.Len(t, resp.Patches, 1)
 			},
@@ -322,7 +334,9 @@ func TestHandle(t *testing.T) {
 					},
 				},
 			},
-			assert: func(resp admission.Response) {
+			assert: func(t *testing.T, resp admission.Response) {
+				t.Helper()
+
 				require.True(t, resp.Allowed)
 				require.Empty(t, resp.Patches)
 				require.Equal(t, "pod unchanged", resp.Result.Message)
@@ -365,7 +379,9 @@ func TestHandle(t *testing.T) {
 					},
 				},
 			},
-			assert: func(resp admission.Response) {
+			assert: func(t *testing.T, resp admission.Response) {
+				t.Helper()
+
 				require.True(t, resp.Allowed)
 				require.Len(t, resp.Patches, 1)
 			},
@@ -413,7 +429,9 @@ func TestHandle(t *testing.T) {
 					},
 				},
 			},
-			assert: func(resp admission.Response) {
+			assert: func(t *testing.T, resp admission.Response) {
+				t.Helper()
+
 				require.True(t, resp.Allowed)
 				// add the pod level profile, and replace the container level
 				// profile
@@ -456,7 +474,9 @@ func TestHandle(t *testing.T) {
 					},
 				},
 			},
-			assert: func(resp admission.Response) {
+			assert: func(t *testing.T, resp admission.Response) {
+				t.Helper()
+
 				require.True(t, resp.Allowed)
 				require.Len(t, resp.Patches, 1)
 			},
@@ -504,7 +524,9 @@ func TestHandle(t *testing.T) {
 					},
 				},
 			},
-			assert: func(resp admission.Response) {
+			assert: func(t *testing.T, resp admission.Response) {
+				t.Helper()
+
 				require.True(t, resp.Allowed)
 				require.Len(t, resp.Patches, 2)
 			},
@@ -545,7 +567,9 @@ func TestHandle(t *testing.T) {
 					},
 				},
 			},
-			assert: func(resp admission.Response) {
+			assert: func(t *testing.T, resp admission.Response) {
+				t.Helper()
+
 				require.True(t, resp.Allowed)
 				require.Len(t, resp.Patches, 1)
 			},
@@ -587,7 +611,9 @@ func TestHandle(t *testing.T) {
 					},
 				},
 			},
-			assert: func(resp admission.Response) {
+			assert: func(t *testing.T, resp admission.Response) {
+				t.Helper()
+
 				require.True(t, resp.Allowed)
 				require.Len(t, resp.Patches, 1)
 			},
@@ -637,7 +663,9 @@ func TestHandle(t *testing.T) {
 					},
 				},
 			},
-			assert: func(resp admission.Response) {
+			assert: func(t *testing.T, resp admission.Response) {
+				t.Helper()
+
 				require.True(t, resp.Allowed)
 				// the pod level profile and the container level profile
 				require.Len(t, resp.Patches, 2)
@@ -680,11 +708,14 @@ func TestHandle(t *testing.T) {
 					},
 				},
 			},
-			assert: func(resp admission.Response) {
+			assert: func(t *testing.T, resp admission.Response) {
+				t.Helper()
+
 				require.True(t, resp.Allowed)
 				require.Len(t, resp.Patches, 1)
 			},
 		},
+		//nolint:dupl // test duplicates are fine
 		{
 			name: "failure get apparmor profile errored",
 			prepare: func(mock *bindingfakes.FakeImpl) {
@@ -714,7 +745,9 @@ func TestHandle(t *testing.T) {
 					},
 				},
 			},
-			assert: func(resp admission.Response) {
+			assert: func(t *testing.T, resp admission.Response) {
+				t.Helper()
+
 				require.Equal(t, http.StatusInternalServerError, int(resp.Result.Code))
 			},
 		},
@@ -753,7 +786,9 @@ func TestHandle(t *testing.T) {
 					},
 				},
 			},
-			assert: func(resp admission.Response) {
+			assert: func(t *testing.T, resp admission.Response) {
+				t.Helper()
+
 				require.True(t, resp.Allowed)
 				require.Empty(t, resp.Patches)
 			},
@@ -793,7 +828,9 @@ func TestHandle(t *testing.T) {
 					},
 				},
 			},
-			assert: func(resp admission.Response) {
+			assert: func(t *testing.T, resp admission.Response) {
+				t.Helper()
+
 				require.True(t, resp.Allowed)
 				require.Empty(t, resp.Patches)
 			},
@@ -833,10 +870,13 @@ func TestHandle(t *testing.T) {
 					},
 				},
 			},
-			assert: func(resp admission.Response) {
+			assert: func(t *testing.T, resp admission.Response) {
+				t.Helper()
+
 				require.Equal(t, http.StatusForbidden, int(resp.Result.Code))
 			},
 		},
+		//nolint:dupl // test duplicates are fine
 		{
 			name: "failure get seccomp profile errored",
 			prepare: func(mock *bindingfakes.FakeImpl) {
@@ -866,7 +906,9 @@ func TestHandle(t *testing.T) {
 					},
 				},
 			},
-			assert: func(resp admission.Response) {
+			assert: func(t *testing.T, resp admission.Response) {
+				t.Helper()
+
 				require.Equal(t, http.StatusInternalServerError, int(resp.Result.Code))
 			},
 		},
@@ -900,7 +942,9 @@ func TestHandle(t *testing.T) {
 					},
 				},
 			},
-			assert: func(resp admission.Response) {
+			assert: func(t *testing.T, resp admission.Response) {
+				t.Helper()
+
 				require.True(t, resp.Allowed)
 				require.Empty(t, resp.Patches)
 			},
@@ -922,7 +966,7 @@ func TestHandle(t *testing.T) {
 					return strings.HasPrefix(op.Path, "/metadata/annotations")
 				},
 			)
-			tc.assert(resp)
+			tc.assert(t, resp)
 		})
 	}
 }
@@ -1404,6 +1448,172 @@ func TestHandleAppliedBindings(t *testing.T) {
 		Operation: "remove",
 		Path:      "/metadata/annotations/spo.x-k8s.io~1profile-bindings",
 	}}, resp.Patches)
+}
+
+// The API server copies the deprecated AppArmor annotation of a container into
+// its security context after the mutating admission, so an "unconfined"
+// annotation used to override the pod level profile of a wildcard binding.
+func TestHandleRemovesAppArmorAnnotations(t *testing.T) {
+	t.Parallel()
+
+	const (
+		keyFoo   = corev1.DeprecatedAppArmorBetaContainerAnnotationKeyPrefix + "foo"
+		keyBar   = corev1.DeprecatedAppArmorBetaContainerAnnotationKeyPrefix + "bar"
+		keyDebug = corev1.DeprecatedAppArmorBetaContainerAnnotationKeyPrefix + "debug"
+	)
+
+	appArmorBinding := func(image string) profilebindingapi.ProfileBinding {
+		return profilebindingapi.ProfileBinding{
+			Spec: profilebindingapi.ProfileBindingSpec{
+				ProfileRef: profilebindingapi.ProfileRef{
+					Kind: profilebindingapi.ProfileBindingKindAppArmorProfile,
+					Name: "profile",
+				},
+				Image: image,
+			},
+		}
+	}
+
+	for _, tc := range []struct {
+		name       string
+		binding    profilebindingapi.ProfileBinding
+		ownProfile bool
+		ephemeral  bool
+		wantKept   []string
+	}{
+		{
+			name:     "wildcard binding removes all",
+			binding:  appArmorBinding(profilebindingapi.SelectAllContainersImage),
+			wantKept: []string{keyDebug},
+		},
+		{
+			name:       "wildcard binding removes the one of a container with its own profile",
+			binding:    appArmorBinding(profilebindingapi.SelectAllContainersImage),
+			ownProfile: true,
+			wantKept:   []string{keyDebug},
+		},
+		{
+			name:     "image binding removes the bound container",
+			binding:  appArmorBinding("foo"),
+			wantKept: []string{keyBar, keyDebug},
+		},
+		{
+			name: "seccomp binding keeps all",
+			binding: seccompBinding(
+				"wildcard", "profile", profilebindingapi.SelectAllContainersImage, 1,
+			),
+			wantKept: []string{keyFoo, keyBar, keyDebug},
+		},
+		{
+			// The ephemeralcontainers subresource cannot change annotations.
+			name:      "ephemeral container keeps all",
+			binding:   appArmorBinding(profilebindingapi.SelectAllContainersImage),
+			ephemeral: true,
+			wantKept:  []string{keyFoo, keyBar, keyDebug},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			mock := &bindingfakes.FakeImpl{}
+			mock.GetSeccompProfileCalls(localhostSeccompProfiles)
+			mock.GetAppArmorProfileReturns(&apparmorprofileapi.AppArmorProfile{
+				Status: apparmorprofileapi.AppArmorProfileStatus{
+					StatusBase: profilebaseapi.StatusBase{
+						Status: secprofnodestatusapi.ProfileStateInstalled,
+					},
+				},
+			}, nil)
+			mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
+				Items: []profilebindingapi.ProfileBinding{tc.binding},
+			}, nil)
+
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						keyFoo:   corev1.DeprecatedAppArmorBetaProfileNameUnconfined,
+						keyBar:   corev1.DeprecatedAppArmorBetaProfileNameUnconfined,
+						keyDebug: corev1.DeprecatedAppArmorBetaProfileNameUnconfined,
+					},
+				},
+				Spec: corev1.PodSpec{
+					InitContainers: []corev1.Container{{Name: "bar", Image: "bar"}},
+					Containers:     []corev1.Container{{Name: "foo", Image: "foo"}},
+				},
+			}
+
+			if tc.ownProfile {
+				pod.Spec.Containers[0].SecurityContext = &corev1.SecurityContext{
+					AppArmorProfile: &corev1.AppArmorProfile{
+						Type: corev1.AppArmorProfileTypeUnconfined,
+					},
+				}
+			}
+
+			request := admissionv1.AdmissionRequest{
+				Operation: admissionv1.Create,
+				Object:    rawObject(t, pod),
+			}
+
+			if tc.ephemeral {
+				newPod := pod.DeepCopy()
+				newPod.Spec.EphemeralContainers = []corev1.EphemeralContainer{{
+					EphemeralContainerCommon: corev1.EphemeralContainerCommon{
+						Name: "debug", Image: "debug",
+					},
+				}}
+				request = admissionv1.AdmissionRequest{
+					Operation:   admissionv1.Update,
+					SubResource: utils.EphemeralContainersSubResource,
+					Object:      rawObject(t, newPod),
+					OldObject:   rawObject(t, pod),
+				}
+			}
+
+			resp := newTestBinder(t, mock).Handle(
+				t.Context(), admission.Request{AdmissionRequest: request},
+			)
+			require.True(t, resp.Allowed)
+
+			var removed []string
+
+			for _, op := range resp.Patches {
+				if op.Operation == "remove" {
+					removed = append(removed, op.Path)
+				}
+			}
+
+			for _, key := range []string{keyFoo, keyBar, keyDebug} {
+				path := "/metadata/annotations/" + strings.ReplaceAll(key, "/", "~1")
+				require.Equal(
+					t,
+					!slices.Contains(tc.wantKept, key),
+					slices.Contains(removed, path),
+					key,
+				)
+			}
+
+			if tc.ownProfile {
+				require.Contains(t, resp.Patches, jsonpatch.JsonPatchOperation{
+					Operation: "add",
+					Path:      "/spec/containers/0/securityContext/appArmorProfile",
+					Value: map[string]any{
+						"type":             string(corev1.AppArmorProfileTypeLocalhost),
+						"localhostProfile": "",
+					},
+				})
+			}
+
+			if tc.ephemeral {
+				require.Len(t, resp.Patches, 1)
+				require.Equal(
+					t,
+					"/spec/ephemeralContainers/0/securityContext",
+					resp.Patches[0].Path,
+				)
+			}
+		})
+	}
 }
 
 // Bindings used to compare the images as strings, so a pod could escape a

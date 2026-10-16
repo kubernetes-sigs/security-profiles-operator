@@ -57,6 +57,7 @@ spec:
           metadata:
             type: object
           spec:
+            default: {}
             description: spec defines the desired state of the SecurityProfilesOperatorDaemon.
             properties:
               daemonResourceRequirements:
@@ -1761,6 +1762,8 @@ spec:
                     description: |-
                       tolerations if specified, the webhook's tolerations. When not set,
                       the webhook inherits the daemon's tolerations from the scheduling config.
+                      Unlike for the daemon, an empty list counts as not set, and the webhook
+                      keeps its default tolerations if neither list has an entry.
                     items:
                       description: |-
                         The pod this Toleration is attached to tolerates any taint that matches

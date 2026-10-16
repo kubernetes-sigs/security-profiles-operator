@@ -18,6 +18,7 @@ package execmetadata
 
 import (
 	"encoding/json"
+	"path"
 	"slices"
 	"strings"
 	"testing"
@@ -48,14 +49,19 @@ func fuzzRequest(subResource string, object, oldObject []byte) *admission.Reques
 }
 
 // FuzzGetPodExecPatch feeds arbitrary pod exec options into the exec patch.
-// A patch always sets a command which carries the request UID exactly once
-// for every existing UID assignment, or prefixes the command with env and the
-// UID assignment.
+// The patched command runs the command of the options with the request UID,
+// see requireExecRequestUID.
 func FuzzGetPodExecPatch(f *testing.F) {
 	for _, seed := range []string{
 		`{"command":["sh","-c","true"],"container":"app"}`,
 		`{"command":["env","` + config.ExecRequestUIDEnvKey + `=old","sh"]}`,
 		`{"command":["` + config.ExecRequestUIDEnvKey + `=a\nb"]}`,
+		`{"command":["env","` + config.ExecRequestUIDEnvKey + `=a\nb","sh"]}`,
+		`{"command":["sh","-c","true","` + config.ExecRequestUIDEnvKey + `=x"]}`,
+		`{"command":["env","-i","` + config.ExecRequestUIDEnvKey + `=x","sh"]}`,
+		`{"command":["env","A=1","env","-u","` + config.ExecRequestUIDEnvKey + `","sh"]}`,
+		`{"command":["/usr/bin/env","--","-i"]}`,
+		`{"command":["env","-S","` + config.ExecRequestUIDEnvKey + `=x sh"]}`,
 		`{"command":[]}`,
 		`{"command":null}`,
 		`{}`,
@@ -67,7 +73,6 @@ func FuzzGetPodExecPatch(f *testing.F) {
 	}
 
 	handler := Handler{log: logr.Discard()}
-	assignment := config.ExecRequestUIDEnvKey + "=" + fuzzUID
 
 	f.Fuzz(func(t *testing.T, object []byte) {
 		patches, err := handler.getPodExecPatch(fuzzRequest("", object, nil))
@@ -85,32 +90,226 @@ func FuzzGetPodExecPatch(f *testing.F) {
 		command, ok := patches[0].Value.([]string)
 		require.True(t, ok)
 
-		replaced := 0
-
-		for _, arg := range options.Command {
-			if execRequestUidRegex.MatchString(arg) {
-				replaced++
-			}
-		}
-
-		if replaced == 0 {
-			require.Len(t, command, len(options.Command)+2)
-			require.Equal(t, []string{"env", assignment}, command[:2])
-			require.True(t, slices.Equal(options.Command, command[2:]))
-
-			return
-		}
-
-		require.Len(t, command, len(options.Command))
-
-		for i, arg := range options.Command {
-			if execRequestUidRegex.MatchString(arg) {
-				require.Equal(t, assignment, command[i])
-			} else {
-				require.Equal(t, arg, command[i])
-			}
-		}
+		requireExecRequestUID(t, options.Command, command)
 	})
+}
+
+func TestSetExecRequestUIDRunsWithTheUID(t *testing.T) {
+	t.Parallel()
+
+	const key = config.ExecRequestUIDEnvKey
+
+	for name, command := range map[string][]string{
+		"no env":               {"sh", "-c", "true"},
+		"assignments":          {"A=1", key + "=fake", "sh"},
+		"option as command":    {"-i", "sh"},
+		"ignore environment":   {"env", "-i", key + "=fake", "sh"},
+		"unset":                {"env", "-u", key, "--unset=" + key, "sh"},
+		"combined options":     {"env", "-vu" + key, "-iC", "/", "sh"},
+		"nested env":           {"env", "A=1", "env", key + "=fake", "sh"},
+		"nested env unsetting": {"env", key + "=fake", "env", "-u" + key, "sh"},
+		"end of options":       {"env", "--", key + "=fake", "-i"},
+		"lone dash":            {"env", "-", "sh"},
+		"lone dash after --":   {"env", "--", "-", "HOME=/", "sh"},
+		"split string":         {"env", "-S", key + "=fake sh"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			requireExecRequestUID(t, command, setExecRequestUID(slices.Clone(command), fuzzUID))
+		})
+	}
+}
+
+// requireExecRequestUID asserts that the patched command runs what the
+// original one runs with the same environment, apart from the request UID,
+// according to simulateEnv. A command which is not an env command runs
+// through one, which takes its leading arguments with a "=" for assignments
+// and a leading "-" for -i. An original command with an option the
+// simulation does not know has to get an env command which sets the UID
+// prepended.
+func requireExecRequestUID(t *testing.T, original, patched []string) {
+	t.Helper()
+
+	assignment := config.ExecRequestUIDEnvKey + "=" + fuzzUID
+
+	throughEnv := original
+	if len(original) == 0 || path.Base(original[0]) != "env" {
+		throughEnv = append([]string{"env", "--"}, original...)
+	}
+
+	wantEnv, wantCommand, known := simulateEnv(throughEnv)
+	if !known {
+		require.Equal(t, append([]string{"env", assignment}, original...), patched)
+
+		return
+	}
+
+	gotEnv, gotCommand, known := simulateEnv(patched)
+	require.True(t, known, "%q", patched)
+	require.Equal(t, fuzzUID, gotEnv[config.ExecRequestUIDEnvKey], "%q", patched)
+
+	delete(wantEnv, config.ExecRequestUIDEnvKey)
+	delete(gotEnv, config.ExecRequestUIDEnvKey)
+	require.Equal(t, wantEnv, gotEnv, "%q", patched)
+	require.True(t, slices.Equal(wantCommand, gotCommand), "%q runs %q", patched, gotCommand)
+}
+
+// envOptionArgs are the options of GNU env, and whether they take an
+// argument, by their short and long names. -S splits its argument into more
+// arguments, which the simulation does not do.
+var envOptionArgs = map[string]bool{
+	"i": false, "ignore-environment": false,
+	"0": false, "null": false,
+	"v": false, "debug": false,
+	"u": true, "unset": true,
+	"C": true, "chdir": true,
+	"S": true, "split-string": true,
+}
+
+// envOptionNames maps the long names of the options to their short ones.
+var envOptionNames = map[string]string{
+	"ignore-environment": "i", "null": "0", "debug": "v",
+	"unset": "u", "chdir": "C", "split-string": "S",
+}
+
+// simulateEnv runs the env commands the command starts with, like GNU env
+// with getopt, on an environment which has the request UID variable and
+// others set. It returns the environment of the command they run, and that
+// command. It returns false if an option is not known, takes an argument it
+// does not get, or is -S.
+func simulateEnv(command []string) (env map[string]string, run []string, known bool) {
+	env = map[string]string{
+		config.ExecRequestUIDEnvKey: "inherited",
+		"HOME":                      "/root",
+		"PATH":                      "/bin",
+	}
+	args := command
+
+	for len(args) > 0 && path.Base(args[0]) == "env" {
+		opts, rest, ok := getoptEnv(args[1:])
+		if !ok {
+			return nil, nil, false
+		}
+
+		args = rest
+
+		// After the options, a lone "-" ignores the environment as well.
+		if len(args) > 0 && args[0] == "-" {
+			opts = append(opts, envOpt{name: "i"})
+			args = args[1:]
+		}
+
+		for _, opt := range opts {
+			switch opt.name {
+			case "i":
+				clear(env)
+			case "u":
+				delete(env, opt.value)
+			case "S":
+				return nil, nil, false
+			}
+		}
+
+		for len(args) > 0 && strings.Contains(args[0], "=") {
+			name, value, _ := strings.Cut(args[0], "=")
+			env[name] = value
+			args = args[1:]
+		}
+	}
+
+	return env, args, true
+}
+
+// envOpt is an option of env by its short name, with its argument.
+type envOpt struct {
+	name, value string
+}
+
+// getoptEnv parses the options of env like getopt with "+": they end at the
+// first argument which is not one, or after "--". It returns the options and
+// the arguments after them, or false for an invalid option.
+func getoptEnv(args []string) (opts []envOpt, rest []string, ok bool) {
+	for len(args) > 0 && len(args[0]) > 1 && args[0][0] == '-' {
+		arg := args[0]
+		args = args[1:]
+
+		if arg == "--" {
+			break
+		}
+
+		var parsed []envOpt
+
+		if long, isLong := strings.CutPrefix(arg, "--"); isLong {
+			parsed, args, ok = getoptEnvLong(long, args)
+		} else {
+			parsed, args, ok = getoptEnvShort(arg[1:], args)
+		}
+
+		if !ok {
+			return nil, nil, false
+		}
+
+		opts = append(opts, parsed...)
+	}
+
+	return opts, args, true
+}
+
+// getoptEnvLong parses a long option without its leading "--".
+func getoptEnvLong(long string, args []string) ([]envOpt, []string, bool) {
+	name, value, inline := strings.Cut(long, "=")
+
+	takesArg, ok := envOptionArgs[name]
+	if !ok || len(name) == 1 || (inline && !takesArg) {
+		return nil, nil, false
+	}
+
+	if takesArg && !inline {
+		if len(args) == 0 {
+			return nil, nil, false
+		}
+
+		value, args = args[0], args[1:]
+	}
+
+	return []envOpt{{name: envOptionNames[name], value: value}}, args, true
+}
+
+// getoptEnvShort parses the short options of an argument without its leading
+// "-". An option which takes an argument takes the rest of the argument, or
+// the next one.
+func getoptEnvShort(short string, args []string) ([]envOpt, []string, bool) {
+	var opts []envOpt
+
+	for short != "" {
+		name := short[:1]
+		short = short[1:]
+
+		takesArg, ok := envOptionArgs[name]
+		if !ok {
+			return nil, nil, false
+		}
+
+		if !takesArg {
+			opts = append(opts, envOpt{name: name})
+
+			continue
+		}
+
+		if short == "" {
+			if len(args) == 0 {
+				return nil, nil, false
+			}
+
+			short, args = args[0], args[1:]
+		}
+
+		opts = append(opts, envOpt{name: name, value: short})
+		short = ""
+	}
+
+	return opts, args, true
 }
 
 // FuzzGetPodPatch feeds arbitrary pods into the pod patch, for node debugging

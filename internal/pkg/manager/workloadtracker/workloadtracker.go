@@ -26,10 +26,15 @@ import (
 	"slices"
 	"strings"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
@@ -76,35 +81,48 @@ func (t *Tracker[T]) Track(ctx context.Context, obj T, workload string) error {
 		return nil
 	}
 
-	base, written, err := t.updateWorkloads(ctx, obj, func(workloads []string) ([]string, error) {
+	stored, found, err := t.updateWorkloads(ctx, obj, func(workloads []string) ([]string, error) {
 		if slices.Contains(workloads, workload) || len(workloads) >= MaxWorkloads {
 			return workloads, nil
 		}
 
 		return append(workloads, workload), nil
 	})
-	if err != nil {
+	if err != nil || !found || controllerutil.ContainsFinalizer(stored, t.Finalizer) {
 		return err
 	}
 
-	// The written patch carried the resource version of base, so its
-	// finalizers are the stored ones: with the finalizer, nothing is left to
-	// do. Without it, the finalizer is read through the API server as well,
-	// because the cache may still show the finalizer which an Untrack of the
-	// last workload removed in the meantime, in which case nothing would
-	// add it again.
-	if written && controllerutil.ContainsFinalizer(base, t.Finalizer) {
+	// The finalizer gets added to the stored object with its resource
+	// version, so that it costs no read. After a conflict, the object is read
+	// through the API server, because the cache may still show the finalizer
+	// which an Untrack of the last workload removed in the meantime, in which
+	// case nothing would add it again.
+	withFinalizer, ok := stored.DeepCopyObject().(T)
+	if !ok {
+		return fmt.Errorf("copying %s %s", t.Kind, obj.GetName())
+	}
+
+	controllerutil.AddFinalizer(withFinalizer, t.Finalizer)
+
+	err = t.Client.Patch(ctx, withFinalizer, client.MergeFromWithOptions(
+		stored, client.MergeFromWithOptimisticLock{},
+	))
+	if err == nil || errors.IsNotFound(err) {
 		return nil
 	}
 
+	if !errors.IsConflict(err) {
+		return fmt.Errorf("adding finalizer: %w", err)
+	}
+
 	c := t.Client
-	if written && t.Reader != nil {
+	if t.Reader != nil {
 		c = util.FreshReadClient(t.Client, t.Reader)
 	}
 
 	// AddFinalizer reads the object into the one it gets, which must not be
 	// the one of the caller.
-	withFinalizer, ok := obj.DeepCopyObject().(T)
+	withFinalizer, ok = obj.DeepCopyObject().(T)
 	if !ok {
 		return fmt.Errorf("copying %s %s", t.Kind, obj.GetName())
 	}
@@ -201,58 +219,65 @@ func fillUp(workloads, users []string, removed string) []string {
 // change, so that tracking a workload costs no read from the API server. The
 // object is read from the API server otherwise, because an outdated object
 // may need no change, and for every retry. The provided object stays as it
-// is. It returns the object the last attempt was based on, and whether that
-// attempt wrote it.
+// is. It returns the stored object, or false if it is gone.
 func (t *Tracker[T]) updateWorkloads(
 	ctx context.Context, obj T, update func([]string) ([]string, error),
-) (base T, written bool, err error) {
+) (stored T, found bool, err error) {
 	if obj.GetResourceVersion() != "" {
-		written, err := t.writeWorkloads(ctx, obj, update)
-		if written || (err != nil && !util.IsNotFoundOrConflict(err)) {
-			return obj, written, err
+		written, ok, err := t.writeWorkloads(ctx, obj, update)
+		if ok {
+			return written, true, nil
+		}
+
+		if err != nil && !util.IsNotFoundOrConflict(err) {
+			return obj, false, err
 		}
 	}
 
-	base = obj
-
 	if err := util.RetryWithContext(ctx, func() error {
-		current, found, err := t.get(ctx, obj)
-		if err != nil || !found {
+		current, ok, err := t.get(ctx, obj)
+		if err != nil || !ok {
+			found = false
+
 			return err
 		}
 
-		base = current
-		written, err = t.writeWorkloads(ctx, current, update)
+		stored, found = current, true
+
+		written, ok, err := t.writeWorkloads(ctx, current, update)
+		if ok {
+			stored = written
+		}
 
 		return err
 	}, util.IsNotFoundOrConflict); err != nil {
-		return base, false, fmt.Errorf("updating %s status: %w", t.Kind, err)
+		return stored, false, fmt.Errorf("updating %s status: %w", t.Kind, err)
 	}
 
-	return base, written, nil
+	return stored, found, nil
 }
 
 // writeWorkloads patches the workloads which update returns for the ones of
-// the object, if they changed. It returns whether it wrote them. The patch is
-// written with a copy, so that the object keeps its workloads if the write
-// fails.
+// the object, if they changed. It returns the written object, or false if
+// nothing was written. The patch is written with a copy, so that the object
+// keeps its workloads if the write fails. The written object is the provided
+// one with the written workloads and the new resource version: the patch
+// only succeeds if the object is stored, and decoding the response into the
+// copy would keep the fields the response omits, like an empty list of
+// finalizers.
 func (t *Tracker[T]) writeWorkloads(
 	ctx context.Context, obj T, update func([]string) ([]string, error),
-) (bool, error) {
+) (written T, ok bool, err error) {
 	workloads := *t.Workloads(obj)
 
 	updated, err := update(slices.Clone(workloads))
-	if err != nil {
-		return false, err
+	if err != nil || slices.Equal(updated, workloads) {
+		return written, false, err
 	}
 
-	if slices.Equal(updated, workloads) {
-		return false, nil
-	}
-
-	changed, ok := obj.DeepCopyObject().(T)
-	if !ok {
-		return false, fmt.Errorf("copying %s %s", t.Kind, obj.GetName())
+	changed, copied := obj.DeepCopyObject().(T)
+	if !copied {
+		return written, false, fmt.Errorf("copying %s %s", t.Kind, obj.GetName())
 	}
 
 	*t.Workloads(changed) = updated
@@ -260,10 +285,18 @@ func (t *Tracker[T]) writeWorkloads(
 	if err := t.Client.Status().Patch(
 		ctx, changed, client.MergeFromWithOptions(obj, client.MergeFromWithOptimisticLock{}),
 	); err != nil {
-		return false, fmt.Errorf("updating %s status: %w", t.Kind, err)
+		return written, false, fmt.Errorf("updating %s status: %w", t.Kind, err)
 	}
 
-	return true, nil
+	written, copied = obj.DeepCopyObject().(T)
+	if !copied {
+		return written, false, fmt.Errorf("copying %s %s", t.Kind, obj.GetName())
+	}
+
+	*t.Workloads(written) = updated
+	written.SetResourceVersion(changed.GetResourceVersion())
+
+	return written, true, nil
 }
 
 // PodRequests returns reconcile requests for the pods of the active
@@ -284,6 +317,60 @@ func PodRequests(podIDs []string) []reconcile.Request {
 	}
 
 	return requests
+}
+
+// WorkloadsHandler returns an event handler which enqueues the requests that
+// workloads maps an object to, once the object enters the cache and for those
+// an update of the object adds, unless their pod still uses the object. Pods
+// deleted while the operator did not run get released after a restart, and a
+// pod which stopped using the object before the cache got the write which
+// tracked it as well: the reconcile of its deletion, completion or changed
+// annotations did not find the object then. A pod which still uses the object
+// finds it on its later events, as the cache has the write by then, so it
+// does not get reconciled again. uses tells whether a pod which exists and is
+// not completed still uses the object, and must not read from the API server.
+func WorkloadsHandler(
+	pods client.Reader,
+	workloads handler.MapFunc,
+	uses func(obj client.Object, pod *corev1.Pod) bool,
+) handler.EventHandler {
+	enqueueUnused := func(
+		ctx context.Context,
+		q workqueue.TypedRateLimitingInterface[reconcile.Request],
+		obj client.Object,
+		request reconcile.Request,
+	) {
+		pod := &corev1.Pod{}
+		if err := pods.Get(ctx, request.NamespacedName, pod); err != nil ||
+			util.PodCompleted(pod) || !uses(obj, pod) {
+			q.Add(request)
+		}
+	}
+
+	return handler.Funcs{
+		CreateFunc: func(
+			ctx context.Context,
+			e event.CreateEvent,
+			q workqueue.TypedRateLimitingInterface[reconcile.Request],
+		) {
+			for _, request := range workloads(ctx, e.Object) {
+				enqueueUnused(ctx, q, e.Object, request)
+			}
+		},
+		UpdateFunc: func(
+			ctx context.Context,
+			e event.UpdateEvent,
+			q workqueue.TypedRateLimitingInterface[reconcile.Request],
+		) {
+			old := sets.New(workloads(ctx, e.ObjectOld)...)
+
+			for _, request := range workloads(ctx, e.ObjectNew) {
+				if !old.Has(request) {
+					enqueueUnused(ctx, q, e.ObjectNew, request)
+				}
+			}
+		},
+	}
 }
 
 // get reads the object of the provided one from the API server into a new

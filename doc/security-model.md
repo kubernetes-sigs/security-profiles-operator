@@ -309,8 +309,8 @@ in the `spod` resource, in which case the binding is skipped with an event. The 
 apply on pod creation, so the `binding-image.spo.io` validating webhook, which selects the same
 namespaces and pods, rejects image changes of running pods while an image binding matches the
 old or the new image. A match condition limits it to the updates which change an image. The
-recording webhook only gets the pod updates which remove or change a recording annotation,
-so that other updates, like the ones of the garbage collector, do not depend on it.
+recording webhook only gets the pod updates which add, remove or change a recording
+annotation, so that other updates, like the ones of the garbage collector, do not depend on it.
 
 The exec metadata webhooks use the `Ignore` failure policy. `execmetadata.spo.io` excludes the
 `kube-system`, `kube-public`, `kube-node-lease` and operator namespaces. Other system namespaces,

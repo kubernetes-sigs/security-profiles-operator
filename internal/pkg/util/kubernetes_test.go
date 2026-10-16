@@ -18,11 +18,9 @@ package util
 
 import (
 	"errors"
-	"path"
 	"reflect"
 	"testing"
 
-	"github.com/blang/semver/v4"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
@@ -33,152 +31,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util/utiltest"
 )
-
-func TestGetSeccompLocalhostProfilePath(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name string
-		node *corev1.Node
-		want string
-	}{
-		{
-			name: "Should prefix with localhost the seccomp profile for cri-o runtime for older version",
-			node: &corev1.Node{
-				Status: corev1.NodeStatus{
-					NodeInfo: corev1.NodeSystemInfo{
-						ContainerRuntimeVersion: "cri-o://1.2.3",
-						KubeletVersion:          "v1.22.3",
-					},
-				},
-			},
-			want: path.Join("localhost", bindata.LocalSeccompProfilePath),
-		},
-		{
-			name: "Should not prefix with localhost the seccomp profile for cri-o runtime for newer version",
-			node: &corev1.Node{
-				Status: corev1.NodeStatus{
-					NodeInfo: corev1.NodeSystemInfo{
-						ContainerRuntimeVersion: "cri-o://1.2.3",
-						KubeletVersion:          "v1.24.0",
-					},
-				},
-			},
-			want: bindata.LocalSeccompProfilePath,
-		},
-		{
-			name: "Should return local seccomp profile for docker runtime",
-			node: &corev1.Node{
-				Status: corev1.NodeStatus{
-					NodeInfo: corev1.NodeSystemInfo{
-						ContainerRuntimeVersion: "docker://1.2.3",
-					},
-				},
-			},
-			want: bindata.LocalSeccompProfilePath,
-		},
-		{
-			name: "Should return local seccomp profile for containerd runtime",
-			node: &corev1.Node{
-				Status: corev1.NodeStatus{
-					NodeInfo: corev1.NodeSystemInfo{
-						ContainerRuntimeVersion: "containerd://1.2.3",
-					},
-				},
-			},
-			want: bindata.LocalSeccompProfilePath,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			got := GetSeccompLocalhostProfilePath(tt.node, bindata.LocalSeccompProfilePath)
-			require.Equal(t, tt.want, got)
-		})
-	}
-}
-
-func TestGetContainerRuntime(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name string
-		node *corev1.Node
-		want string
-	}{
-		{
-			name: "Should return cri-o runtime",
-			node: &corev1.Node{
-				Status: corev1.NodeStatus{
-					NodeInfo: corev1.NodeSystemInfo{
-						ContainerRuntimeVersion: "cri-o://1.2.3",
-					},
-				},
-			},
-			want: "cri-o",
-		},
-		{
-			name: "Should return docker runtime",
-			node: &corev1.Node{
-				Status: corev1.NodeStatus{
-					NodeInfo: corev1.NodeSystemInfo{
-						ContainerRuntimeVersion: "docker://1.2.3",
-					},
-				},
-			},
-			want: "docker",
-		},
-		{
-			name: "Should return empty runtime",
-			node: nil,
-			want: "",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			got := GetContainerRuntime(tt.node)
-			require.Equal(t, tt.want, got)
-		})
-	}
-}
-
-func TestGetVersion(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name string
-		node *corev1.Node
-		want string
-	}{
-		{
-			name: "Should return the correct version",
-			node: &corev1.Node{
-				Status: corev1.NodeStatus{
-					NodeInfo: corev1.NodeSystemInfo{
-						KubeletVersion: "v1.25.3",
-					},
-				},
-			},
-			want: "v1.25.3",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			got := getVersion(tt.node)
-			_, err := semver.ParseTolerant(got)
-			require.NoError(t, err, "should return a valid version")
-			require.Equal(t, tt.want, got)
-		})
-	}
-}
 
 func TestMatchSelinuxdImageVersion(t *testing.T) {
 	t.Parallel()
@@ -760,22 +614,6 @@ func TestPodCompleted(t *testing.T) {
 	require.False(t, PodCompletedNow(pod(corev1.PodFailed), pod(corev1.PodFailed)))
 	require.False(t, PodCompletedNow(pod(corev1.PodPending), pod(corev1.PodRunning)))
 	require.False(t, PodCompletedNow(&corev1.Node{}, pod(corev1.PodFailed)))
-}
-
-func TestOlderThanKubeVersionWithFields(t *testing.T) {
-	t.Parallel()
-
-	for version, want := range map[string]bool{
-		"":                    true,
-		"garbage":             true,
-		"v1.22.5":             true,
-		"v1.23.0-alpha.1":     true,
-		"v1.23.0":             false,
-		"v1.27.6-gke.1248000": false,
-		"v1.30.1+k3s1":        false,
-	} {
-		require.Equal(t, want, olderThanKubeVersionWithFields(version), version)
-	}
 }
 
 func TestGetSelinuxdImage(t *testing.T) {

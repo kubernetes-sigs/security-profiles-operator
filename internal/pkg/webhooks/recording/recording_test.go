@@ -117,7 +117,7 @@ func TestHandle(t *testing.T) {
 		name    string
 		prepare func(*recordingfakes.FakeImpl)
 		request admission.Request
-		assert  func(admission.Response)
+		assert  func(*testing.T, admission.Response)
 	}{
 		{
 			name: "success pod unchanged",
@@ -129,7 +129,9 @@ func TestHandle(t *testing.T) {
 					Object: rawPod(t, &corev1.Pod{}),
 				},
 			},
-			assert: func(resp admission.Response) {
+			assert: func(t *testing.T, resp admission.Response) {
+				t.Helper()
+
 				require.True(t, resp.Allowed)
 				require.Equal(t, http.StatusOK, int(resp.Result.Code))
 				require.Equal(t, "pod unchanged", resp.Result.Message)
@@ -140,7 +142,9 @@ func TestHandle(t *testing.T) {
 			prepare: func(mock *recordingfakes.FakeImpl) {
 				mock.ListProfileRecordingsReturns(nil, errTest)
 			},
-			assert: func(resp admission.Response) {
+			assert: func(t *testing.T, resp admission.Response) {
+				t.Helper()
+
 				require.Equal(t, http.StatusInternalServerError, int(resp.Result.Code))
 			},
 		},
@@ -154,7 +158,9 @@ func TestHandle(t *testing.T) {
 					Object: runtime.RawExtension{Raw: []byte("{")},
 				},
 			},
-			assert: func(resp admission.Response) {
+			assert: func(t *testing.T, resp admission.Response) {
+				t.Helper()
+
 				require.Equal(t, http.StatusBadRequest, int(resp.Result.Code))
 			},
 		},
@@ -179,7 +185,9 @@ func TestHandle(t *testing.T) {
 					Object:    rawPod(t, testPod),
 				},
 			},
-			assert: func(resp admission.Response) {
+			assert: func(t *testing.T, resp admission.Response) {
+				t.Helper()
+
 				require.True(t, resp.Allowed)
 				require.Len(t, resp.Patches, 2) // 2 because security context and the annotation
 			},
@@ -209,7 +217,9 @@ func TestHandle(t *testing.T) {
 					OldObject: rawPod(t, testPod),
 				},
 			},
-			assert: func(resp admission.Response) {
+			assert: func(t *testing.T, resp admission.Response) {
+				t.Helper()
+
 				require.True(t, resp.Allowed)
 				require.Empty(t, resp.Patches)
 				require.Equal(t, "pod unchanged", resp.Result.Message)
@@ -238,7 +248,9 @@ func TestHandle(t *testing.T) {
 					OldObject: rawPod(t, annotatedPod("rec_container_abcde_1661693966")),
 				},
 			},
-			assert: func(resp admission.Response) {
+			assert: func(t *testing.T, resp admission.Response) {
+				t.Helper()
+
 				require.True(t, resp.Allowed)
 				require.Len(t, resp.Patches, 1)
 				require.Equal(t, "add", resp.Patches[0].Operation)
@@ -261,7 +273,9 @@ func TestHandle(t *testing.T) {
 					OldObject: runtime.RawExtension{Raw: []byte("{")},
 				},
 			},
-			assert: func(resp admission.Response) {
+			assert: func(t *testing.T, resp admission.Response) {
+				t.Helper()
+
 				require.Equal(t, http.StatusBadRequest, int(resp.Result.Code))
 			},
 		},
@@ -286,7 +300,9 @@ func TestHandle(t *testing.T) {
 					Object:    rawPod(t, windowsPod()),
 				},
 			},
-			assert: func(resp admission.Response) {
+			assert: func(t *testing.T, resp admission.Response) {
+				t.Helper()
+
 				require.True(t, resp.Allowed)
 				require.Empty(t, resp.Patches)
 				require.Equal(t, "windows pod, skipping mutation", resp.Result.Message)
@@ -313,7 +329,9 @@ func TestHandle(t *testing.T) {
 					Object:    rawPod(t, testPod),
 				},
 			},
-			assert: func(resp admission.Response) {
+			assert: func(t *testing.T, resp admission.Response) {
+				t.Helper()
+
 				require.True(t, resp.Allowed)
 				require.Len(t, resp.Patches, 1)
 			},
@@ -337,7 +355,9 @@ func TestHandle(t *testing.T) {
 					Object:    rawPod(t, testPod),
 				},
 			},
-			assert: func(resp admission.Response) {
+			assert: func(t *testing.T, resp admission.Response) {
+				t.Helper()
+
 				require.True(t, resp.Allowed)
 				require.Empty(t, resp.Patches)
 			},
@@ -380,7 +400,9 @@ func TestHandle(t *testing.T) {
 					Object:    rawPod(t, testPod),
 				},
 			},
-			assert: func(resp admission.Response) {
+			assert: func(t *testing.T, resp admission.Response) {
+				t.Helper()
+
 				require.True(t, resp.Allowed)
 				require.Len(t, resp.Patches, 1)
 
@@ -417,7 +439,9 @@ func TestHandle(t *testing.T) {
 					Object:    rawPod(t, trackedPod),
 				},
 			},
-			assert: func(resp admission.Response) {
+			assert: func(t *testing.T, resp admission.Response) {
+				t.Helper()
+
 				require.True(t, resp.Allowed)
 				// 2 because the container security context and the annotation,
 				// which does not have the expected format.
@@ -445,7 +469,9 @@ func TestHandle(t *testing.T) {
 					Object:    rawPod(t, testPod),
 				},
 			},
-			assert: func(resp admission.Response) {
+			assert: func(t *testing.T, resp admission.Response) {
+				t.Helper()
+
 				require.True(t, resp.Allowed)
 			},
 		},
@@ -457,7 +483,7 @@ func TestHandle(t *testing.T) {
 			tc.prepare(mock)
 
 			resp := newTestRecorder(t, mock).Handle(t.Context(), tc.request)
-			tc.assert(resp)
+			tc.assert(t, resp)
 		})
 	}
 }

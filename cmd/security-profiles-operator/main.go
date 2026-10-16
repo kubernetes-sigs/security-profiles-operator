@@ -193,7 +193,9 @@ var runtimeEnvVars = []clidocs.EnvVar{
 			config.EnableBpfRecorderEnvKey,
 		}, ", "),
 		Description: "enable the respective daemon container in addition to the " +
-			"`SecurityProfilesOperatorDaemon` configuration, the manager passes them on to the daemon",
+			"`SecurityProfilesOperatorDaemon` configuration, the manager passes `" +
+			config.EnableLogEnricherEnvKey + "` and `" + config.EnableBpfRecorderEnvKey +
+			"` on to the daemon",
 	},
 	{
 		Name: config.EnableInsecureMetricsAccessEnvKey,

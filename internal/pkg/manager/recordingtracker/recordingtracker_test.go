@@ -459,6 +459,21 @@ func TestPodMatchesRecordingBeingDeleted(t *testing.T) {
 	require.NotContains(t, updated.GetFinalizers(), finalizer)
 }
 
+func TestPodRecordedByObject(t *testing.T) {
+	t.Parallel()
+
+	recording := &profilerecordingapi.ProfileRecording{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-recording", Namespace: "default"},
+	}
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+		config.SeccompProfileRecordBpfAnnotationKey + "ctr": "test-recording_ctr_123_456",
+	}}}
+
+	require.True(t, podRecordedByObject(recording, pod))
+	require.False(t, podRecordedByObject(recording, &corev1.Pod{}))
+	require.False(t, podRecordedByObject(&corev1.Pod{}, pod))
+}
+
 func TestActiveWorkloadRequestsReleasesStalePods(t *testing.T) {
 	t.Parallel()
 

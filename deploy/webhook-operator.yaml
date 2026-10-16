@@ -1521,6 +1521,7 @@ spec:
           metadata:
             type: object
           spec:
+            default: {}
             description: spec defines the desired state of the SecurityProfilesOperatorDaemon.
             properties:
               daemonResourceRequirements:
@@ -3225,6 +3226,8 @@ spec:
                     description: |-
                       tolerations if specified, the webhook's tolerations. When not set,
                       the webhook inherits the daemon's tolerations from the scheduling config.
+                      Unlike for the daemon, an empty list counts as not set, and the webhook
+                      keeps its default tolerations if neither list has an entry.
                     items:
                       description: |-
                         The pod this Toleration is attached to tolerates any taint that matches
@@ -5373,6 +5376,10 @@ webhooks:
       || k.startsWith("io.containers.trace-bpf/") || k.startsWith("io.containers.trace-bpf-apparmor/")
       || k.startsWith("io.containers.trace-avcs/")) && !(has(object.metadata.annotations)
       && k in object.metadata.annotations && object.metadata.annotations[k] == oldObject.metadata.annotations[k])))
+      || (has(object.metadata.annotations) && object.metadata.annotations.exists(k,
+      (k.startsWith("io.containers.trace-logs/") || k.startsWith("io.containers.trace-bpf/")
+      || k.startsWith("io.containers.trace-bpf-apparmor/") || k.startsWith("io.containers.trace-avcs/"))
+      && !(has(oldObject.metadata.annotations) && k in oldObject.metadata.annotations)))
     name: create-or-recording-annotation-change
   name: recording.spo.io
   namespaceSelector:

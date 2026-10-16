@@ -21,16 +21,21 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	profilebindingapi "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
@@ -256,6 +261,52 @@ func TestTrackAddsFinalizerRemovedConcurrently(t *testing.T) {
 	require.Equal(t, []string{testFinalizer}, stored(t, c).Finalizers)
 }
 
+// TestTrackAddsMissingFinalizerOfListedWorkload asserts that tracking a
+// workload which is listed already adds the missing finalizer, although the
+// cache still shows it. This happens if an earlier Track wrote the workload
+// but failed to add the finalizer, which an Untrack had removed.
+func TestTrackAddsMissingFinalizerOfListedWorkload(t *testing.T) {
+	t.Parallel()
+
+	binding := testBinding()
+	binding.Status.ActiveWorkloads = []string{"pod-a"}
+
+	c := fake.NewClientBuilder().
+		WithScheme(utiltest.NewScheme(t)).
+		WithObjects(binding).
+		WithStatusSubresource(&profilebindingapi.ProfileBinding{}).
+		Build()
+
+	// The cache still shows the finalizer.
+	stale := interceptor.NewClient(c, interceptor.Funcs{
+		Get: func(
+			ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object,
+			opts ...client.GetOption,
+		) error {
+			err := cl.Get(ctx, key, obj, opts...)
+			if pb, ok := obj.(*profilebindingapi.ProfileBinding); ok && err == nil {
+				pb.Finalizers = []string{testFinalizer}
+			}
+
+			return err
+		},
+	})
+
+	sut := &Tracker[*profilebindingapi.ProfileBinding]{
+		Client:    stale,
+		Reader:    c,
+		Finalizer: testFinalizer,
+		Kind:      "ProfileBinding",
+		Workloads: func(pb *profilebindingapi.ProfileBinding) *[]string {
+			return &pb.Status.ActiveWorkloads
+		},
+	}
+
+	require.NoError(t, sut.Track(t.Context(), testBinding(), "pod-a"))
+	require.Equal(t, []string{"pod-a"}, stored(t, c).Status.ActiveWorkloads)
+	require.Equal(t, []string{testFinalizer}, stored(t, c).Finalizers)
+}
+
 // The list of workloads is capped. It only gets filled up again from the
 // users of the object once it runs empty, so that the finalizer stays while
 // any workload uses the object, and the users are not looked up for every
@@ -436,6 +487,84 @@ func TestTrackWritesCachedObject(t *testing.T) {
 	require.Equal(t, 2, apiReads)
 }
 
+// The finalizer gets added to the object which got written or read from the
+// API server, without reading it again.
+func TestTrackAddsFinalizerWithoutReadingAgain(t *testing.T) {
+	t.Parallel()
+
+	sut, c := newTracker(t, &interceptor.Funcs{}, testBinding())
+
+	apiReads := 0
+	sut.Reader = fake.NewClientBuilder().
+		WithScheme(utiltest.NewScheme(t)).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(
+				ctx context.Context, _ client.WithWatch, key client.ObjectKey,
+				obj client.Object, opts ...client.GetOption,
+			) error {
+				apiReads++
+
+				return c.Get(ctx, key, obj, opts...)
+			},
+		}).
+		Build()
+
+	// The written cached object.
+	require.NoError(t, sut.Track(t.Context(), stored(t, c), "pod-a"))
+	require.Zero(t, apiReads)
+	require.Equal(t, []string{testFinalizer}, stored(t, c).Finalizers)
+	require.Equal(t, []string{"pod-a"}, stored(t, c).Status.ActiveWorkloads)
+
+	// The object read from the API server, which needs no change.
+	require.NoError(t, util.RemoveFinalizer(t.Context(), c, stored(t, c), testFinalizer))
+	require.NoError(t, sut.Track(t.Context(), testBinding(), "pod-a"))
+	require.Equal(t, 1, apiReads)
+	require.Equal(t, []string{testFinalizer}, stored(t, c).Finalizers)
+}
+
+// A conflict of the finalizer patch reads the object from the API server and
+// adds the finalizer to it.
+func TestTrackAddsFinalizerAfterConflict(t *testing.T) {
+	t.Parallel()
+
+	conflicted := false
+	sut, c := newTracker(t, &interceptor.Funcs{
+		Patch: func(
+			ctx context.Context, cl client.WithWatch, obj client.Object,
+			patch client.Patch, opts ...client.PatchOption,
+		) error {
+			if !conflicted {
+				conflicted = true
+
+				return kerrors.NewConflict(schema.GroupResource{}, obj.GetName(), errTest)
+			}
+
+			return cl.Patch(ctx, obj, patch, opts...)
+		},
+	}, testBinding())
+
+	apiReads := 0
+	sut.Reader = fake.NewClientBuilder().
+		WithScheme(utiltest.NewScheme(t)).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(
+				ctx context.Context, _ client.WithWatch, key client.ObjectKey,
+				obj client.Object, opts ...client.GetOption,
+			) error {
+				apiReads++
+
+				return c.Get(ctx, key, obj, opts...)
+			},
+		}).
+		Build()
+
+	require.NoError(t, sut.Track(t.Context(), stored(t, c), "pod-a"))
+	require.True(t, conflicted)
+	require.Equal(t, 1, apiReads)
+	require.Equal(t, []string{testFinalizer}, stored(t, c).Finalizers)
+	require.Equal(t, []string{"pod-a"}, stored(t, c).Status.ActiveWorkloads)
+}
+
 // Tracking a workload with a full cached object which has the finalizer costs
 // no request to the API server, as every event of every pod beyond the cap
 // would do otherwise.
@@ -490,4 +619,87 @@ func TestPodRequests(t *testing.T) {
 		{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "a"}},
 		{NamespacedName: types.NamespacedName{Namespace: "other", Name: "b"}},
 	}, PodRequests([]string{"ns/a", "malformed", "other/b"}))
+}
+
+// A pod deleted, completed or changed before the cache got the write which
+// tracked it used to keep its workload and the finalizer, because only objects
+// entering the cache reconciled their workloads. Pods which still use the
+// object are not reconciled, as the write which tracks them would reconcile
+// them again otherwise.
+func TestWorkloadsHandler(t *testing.T) {
+	t.Parallel()
+
+	pod := func(name string, using bool, phase corev1.PodPhase) *corev1.Pod {
+		return &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: "ns",
+				Labels:    map[string]string{"uses": strconv.FormatBool(using)},
+			},
+			Status: corev1.PodStatus{Phase: phase},
+		}
+	}
+	pods := fake.NewClientBuilder().
+		WithScheme(utiltest.NewScheme(t)).
+		WithObjects(
+			pod("a", true, corev1.PodRunning),
+			pod("d", true, corev1.PodRunning),
+			pod("e", true, corev1.PodSucceeded),
+			pod("f", false, corev1.PodRunning),
+		).
+		Build()
+
+	sut := WorkloadsHandler(
+		pods,
+		func(_ context.Context, obj client.Object) []reconcile.Request {
+			pb, ok := obj.(*profilebindingapi.ProfileBinding)
+			if !ok {
+				return nil
+			}
+
+			return PodRequests(pb.Status.ActiveWorkloads)
+		},
+		func(obj client.Object, pod *corev1.Pod) bool {
+			_, ok := obj.(*profilebindingapi.ProfileBinding)
+
+			return ok && pod.Labels["uses"] == "true"
+		},
+	)
+
+	q := workqueue.NewTypedRateLimitingQueue(
+		workqueue.DefaultTypedControllerRateLimiter[reconcile.Request](),
+	)
+	t.Cleanup(q.ShutDown)
+
+	drain := func() []string {
+		var got []string
+
+		for q.Len() > 0 {
+			request, _ := q.Get()
+			got = append(got, request.String())
+			q.Done(request)
+			q.Forget(request)
+		}
+
+		slices.Sort(got)
+
+		return got
+	}
+
+	oldBinding := testBinding()
+	oldBinding.Status.ActiveWorkloads = []string{"ns/a", "ns/b"}
+
+	sut.Create(t.Context(), event.CreateEvent{Object: oldBinding}, q)
+	require.Equal(t, []string{"ns/b"}, drain())
+
+	newBinding := oldBinding.DeepCopy()
+	newBinding.Status.ActiveWorkloads = []string{"ns/b", "ns/c", "ns/d", "ns/e", "ns/f"}
+
+	// The completed pod and the one which does not use the binding anymore
+	// get reconciled as well as the missing one.
+	sut.Update(t.Context(), event.UpdateEvent{ObjectOld: oldBinding, ObjectNew: newBinding}, q)
+	require.Equal(t, []string{"ns/c", "ns/e", "ns/f"}, drain())
+
+	sut.Delete(t.Context(), event.DeleteEvent{Object: newBinding}, q)
+	require.Empty(t, drain())
 }

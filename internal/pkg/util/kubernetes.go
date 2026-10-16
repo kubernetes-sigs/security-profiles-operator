@@ -23,13 +23,11 @@ import (
 	"fmt"
 	"iter"
 	"os"
-	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
 
-	"github.com/blang/semver/v4"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -37,37 +35,6 @@ import (
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
-
-// kubeVersionWithFields is the first Kubernetes version which sets seccomp
-// up from fields.
-var kubeVersionWithFields = semver.Version{Major: 1, Minor: 23}
-
-// GetSeccompLocalhostProfilePath returns the path of local seccomp profile
-// according to the runtime.
-func GetSeccompLocalhostProfilePath(node *corev1.Node, seccompProfile string) string {
-	containerRuntime := GetContainerRuntime(node)
-	kubeVersion := getVersion(node)
-	// cri-o expects the local seccomp profile to be prefixed with 'localhost' when seccomp is set up
-	// from path (older Kubernetes version).
-	// see for more details:
-	// https://github.com/cri-o/cri-o/blob/1e6fd9c520d03d47835d1d4c3209e0f77c38f542/internal/config/seccomp/seccomp.go#L240
-	//
-	// Note: the newer Kubernetes versions set up the seccomp from fields and it doesn't require this fix.
-	if containerRuntime == "cri-o" && olderThanKubeVersionWithFields(kubeVersion) {
-		return path.Join("localhost", seccompProfile)
-	}
-
-	return seccompProfile
-}
-
-// olderThanKubeVersionWithFields reports whether the kubelet version is older
-// than kubeVersionWithFields. A version which cannot be parsed, like an empty
-// one, counts as older.
-func olderThanKubeVersionWithFields(kubeVersion string) bool {
-	version, err := semver.ParseTolerant(kubeVersion)
-
-	return err != nil || version.LT(kubeVersionWithFields)
-}
 
 // PodCompleted returns true if all containers of the pod terminated for good,
 // like the ones of a finished Job. The pod object stays until it gets
@@ -118,32 +85,6 @@ func AllContainers(pod *corev1.Pod) iter.Seq[*corev1.Container] {
 			}
 		}
 	}
-}
-
-// GetContainerRuntime parses the container runtime from a node object.
-func GetContainerRuntime(node *corev1.Node) string {
-	if node == nil {
-		return ""
-	}
-
-	containerRuntimeVersion := node.Status.NodeInfo.ContainerRuntimeVersion
-	parts := strings.Split(containerRuntimeVersion, ":")
-	containerRuntime := ""
-
-	if len(parts) > 0 {
-		containerRuntime = parts[0]
-	}
-
-	return containerRuntime
-}
-
-// getVersion returns the version of the kubelet running on the node.
-func getVersion(node *corev1.Node) string {
-	if node == nil {
-		return ""
-	}
-
-	return node.Status.NodeInfo.KubeletVersion
 }
 
 // ErrNoNodeName is returned if the name of the node is empty.

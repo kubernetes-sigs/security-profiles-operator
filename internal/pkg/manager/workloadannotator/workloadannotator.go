@@ -606,7 +606,11 @@ func (k *profileKind[T]) update(ctx context.Context, r *PodReconciler, prof T) e
 
 	if err := util.RetryWithContext(ctx, func() error {
 		if !cached {
-			if err := r.reader.Get(ctx, client.ObjectKeyFromObject(prof), prof); err != nil {
+			// The status of the profile was changed by the failed attempt,
+			// and decoding into it would keep the fields the response omits,
+			// like an empty list of workloads.
+			fresh := k.newObj()
+			if err := r.reader.Get(ctx, client.ObjectKeyFromObject(prof), fresh); err != nil {
 				if kerrors.IsNotFound(err) {
 					profileDeleted = true
 
@@ -615,6 +619,8 @@ func (k *profileKind[T]) update(ctx context.Context, r *PodReconciler, prof T) e
 
 				return fmt.Errorf("retrieving profile: %w", err)
 			}
+
+			prof = fresh
 
 			current, err := linkedPods()
 			if err != nil {
@@ -655,7 +661,7 @@ func (k *profileKind[T]) update(ctx context.Context, r *PodReconciler, prof T) e
 		return nil
 	}
 
-	return updateInUseFinalizer(ctx, r, prof, len(pods) > 0, linkedPods)
+	return k.updateInUseFinalizer(ctx, r, prof, len(pods) > 0, linkedPods)
 }
 
 // activeWorkloads returns the sorted pods which the status of a profile lists,
@@ -712,22 +718,22 @@ func listsFirstPods(pods, listed []string) bool {
 //
 // The API server rejects adding a finalizer to a profile which is being
 // deleted, so such a profile does not get it. Its status still lists the pods
-// using it.
-func updateInUseFinalizer(
+// using it. Every attempt reads into a new object, as the finalizers of a
+// failed attempt would survive the decoding of a profile without finalizers.
+func (k *profileKind[T]) updateInUseFinalizer(
 	ctx context.Context,
 	r *PodReconciler,
-	prof client.Object,
+	cached T,
 	inUse bool,
 	linkedPods func() ([]string, error),
 ) error {
-	if inUse == isInUse(prof) || (inUse && !prof.GetDeletionTimestamp().IsZero()) {
+	if inUse == isInUse(cached) || (inUse && !cached.GetDeletionTimestamp().IsZero()) {
 		return nil
 	}
 
 	if err := util.RetryWithContext(ctx, func() error {
-		if err := r.reader.Get(
-			ctx, util.NamespacedName(prof.GetName(), prof.GetNamespace()), prof,
-		); err != nil {
+		prof := k.newObj()
+		if err := r.reader.Get(ctx, client.ObjectKeyFromObject(cached), prof); err != nil {
 			return client.IgnoreNotFound(err)
 		}
 

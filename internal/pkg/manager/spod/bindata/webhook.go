@@ -130,10 +130,10 @@ var (
 		},
 	}
 	// On update the recording webhook only restores the recording annotations
-	// of the old pod, so it only needs to see the updates which remove or
-	// change one of them. The other updates, like the ones of the garbage
-	// collector or the removal of a finalizer, do not depend on the fail
-	// closed webhook being up.
+	// of the old pod and strips the added ones, so it only needs to see the
+	// updates which add, remove or change one of them. The other updates,
+	// like the ones of the garbage collector or the removal of a finalizer,
+	// do not depend on the fail closed webhook being up.
 	recordingMatchConditions = []admissionregv1.MatchCondition{
 		{
 			Name:       "create-or-recording-annotation-change",
@@ -196,8 +196,8 @@ var RecordingAnnotationPrefixes = []string{
 }
 
 // recordingMatchExpression returns the expression which is true for pod
-// creations and for pod updates which remove or change a recording
-// annotation of the old pod.
+// creations and for pod updates which add, remove or change a recording
+// annotation.
 func recordingMatchExpression() string {
 	isRecordingKey := make([]string, 0, len(RecordingAnnotationPrefixes))
 	for _, prefix := range RecordingAnnotationPrefixes {
@@ -207,11 +207,16 @@ func recordingMatchExpression() string {
 		)
 	}
 
+	isRecording := "(" + strings.Join(isRecordingKey, " || ") + ")"
+
 	return "request.operation != 'UPDATE' || " +
 		"(has(oldObject.metadata.annotations) && oldObject.metadata.annotations.exists(k, " +
-		"(" + strings.Join(isRecordingKey, " || ") + ") && " +
+		isRecording + " && " +
 		"!(has(object.metadata.annotations) && k in object.metadata.annotations && " +
-		"object.metadata.annotations[k] == oldObject.metadata.annotations[k])))"
+		"object.metadata.annotations[k] == oldObject.metadata.annotations[k]))) || " +
+		"(has(object.metadata.annotations) && object.metadata.annotations.exists(k, " +
+		isRecording + " && " +
+		"!(has(oldObject.metadata.annotations) && k in oldObject.metadata.annotations)))"
 }
 
 // systemNamespaces are the namespaces of the cluster components. Execs into

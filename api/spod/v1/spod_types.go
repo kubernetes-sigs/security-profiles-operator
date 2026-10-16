@@ -399,6 +399,8 @@ type SPODWebhookConfig struct {
 	Options []WebhookOptions `json:"options,omitempty"`
 	// tolerations if specified, the webhook's tolerations. When not set,
 	// the webhook inherits the daemon's tolerations from the scheduling config.
+	// Unlike for the daemon, an empty list counts as not set, and the webhook
+	// keeps its default tolerations if neither list has an entry.
 	// +optional
 	// +listType=atomic
 	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
@@ -600,6 +602,7 @@ type SecurityProfilesOperatorDaemon struct {
 
 	// spec defines the desired state of the SecurityProfilesOperatorDaemon.
 	// +optional
+	// +default={}
 	Spec SPODSpec `json:"spec,omitzero"` //nolint:kubeapilinter // spec is a value by convention
 	// status contains the observed state of the SecurityProfilesOperatorDaemon.
 	// +optional

@@ -166,7 +166,7 @@ The following variables are read at runtime.
 | `RESTRICT_TO_NAMESPACE` | restricts manager and daemon to the comma separated namespaces, the namespace of the operator is always included |
 | `WATCH_NAMESPACE` | used like `RESTRICT_TO_NAMESPACE` if that is not set |
 | `KUBELET_DIR` | kubelet root directory, used when the kubelet configuration written by the non-root-enabler has none, defaults to `/var/lib/kubelet` |
-| `ENABLE_LOG_ENRICHER, ENABLE_JSON_ENRICHER, ENABLE_BPF_RECORDER` | enable the respective daemon container in addition to the `SecurityProfilesOperatorDaemon` configuration, the manager passes them on to the daemon |
+| `ENABLE_LOG_ENRICHER, ENABLE_JSON_ENRICHER, ENABLE_BPF_RECORDER` | enable the respective daemon container in addition to the `SecurityProfilesOperatorDaemon` configuration, the manager passes `ENABLE_LOG_ENRICHER` and `ENABLE_BPF_RECORDER` on to the daemon |
 | `ENABLE_INSECURE_METRICS_ACCESS` | read by the manager as well: allows unauthenticated access to the metrics endpoint of the daemon in addition to the `SecurityProfilesOperatorDaemon` configuration |
 | `MAX_METRIC_SERIES` | read by the manager as well: passed on to the daemon if set |
 | `RELATED_IMAGE_SELINUXD` | image of the selinuxd container of the daemon if the image mapping of the operator ConfigMap selects none for the operating system of the node |
