@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/api/equality"
 	"sigs.k8s.io/yaml"
 )
 
@@ -101,7 +102,7 @@ func FuzzNameFromReference(f *testing.F) {
 
 // FuzzReadProfile feeds arbitrary YAML into the reading of pulled profiles.
 // An accepted profile has the kind of the content and survives a round trip
-// through YAML unchanged.
+// through YAML unchanged, apart from empty maps and lists the encoding drops.
 func FuzzReadProfile(f *testing.F) {
 	for _, seed := range []string{
 		SeccompProfileExample,
@@ -139,9 +140,19 @@ func FuzzReadProfile(f *testing.F) {
 		decoded, err := ReadProfile(encoded)
 		require.NoError(t, err)
 		require.Equal(t, kind, decoded.GetObjectKind().GroupVersionKind().Kind)
+		require.True(t, equality.Semantic.DeepEqual(profile, decoded),
+			"profile changed in a round trip through:\n%s", encoded)
 
+		// An empty map below a struct tagged omitzero, like spec: {allow: {}},
+		// keeps the struct in the first encoding but not in the second one.
 		again, err := yaml.Marshal(decoded)
 		require.NoError(t, err)
-		require.YAMLEq(t, string(encoded), string(again))
+
+		redecoded, err := ReadProfile(again)
+		require.NoError(t, err)
+
+		stable, err := yaml.Marshal(redecoded)
+		require.NoError(t, err)
+		require.YAMLEq(t, string(again), string(stable))
 	})
 }
