@@ -1,6 +1,6 @@
 dependencies:
   - name: golangci-lint
-    version: 2.14.0
+    version: 2.15.0
     upstream:
       flavour: github
       url: golangci/golangci-lint
@@ -13,25 +13,25 @@ dependencies:
   # Must be bumped together with golangci-lint above, see
   # golangci-lint-<version>-checksums.txt of the release.
   - name: golangci-lint-sha256-linux-amd64
-    version: ab90aeb7b066f92a33415b638a50fe5344bbb75a0d32ad30cc248d88f81032ab
+    version: 9b7fe6a6bf6334b98decf8d86b11415ea7889afdabdd1959fdce23af2a9ebcea
     refPaths:
     - path: Makefile
       match: "^GOLANGCI_LINT_SHA256_linux_amd64"
 
   - name: golangci-lint-sha256-linux-arm64
-    version: ee7ec5f3453d15ddf106fae5a4d6c71737712348a979d1fe9cd52ec7ea299bae
+    version: b4d8f17068b35ee6060cc2f69a16fb48740d706fbba81661c318649c114a6998
     refPaths:
     - path: Makefile
       match: "^GOLANGCI_LINT_SHA256_linux_arm64"
 
   - name: golangci-lint-sha256-darwin-amd64
-    version: a5667c1c3536be1740133213e1e822bfb8f0d98ea12903174d6d5f635e4ed68d
+    version: 767b899a28285e88ded2823d5dcc4bc5ef681173eb2d80f029a7b17ee4ece3b8
     refPaths:
     - path: Makefile
       match: "^GOLANGCI_LINT_SHA256_darwin_amd64"
 
   - name: golangci-lint-sha256-darwin-arm64
-    version: 5ef5f36a7147e91dc58ef9ef4d11bb7bad5ead0c76eb6c01327a73c641d1dcc3
+    version: d1e409481a8ca846c4bc97e781eb5cb1bd5c23353a0b3977a1cbda1b1b6447d5
     refPaths:
     - path: Makefile
       match: "^GOLANGCI_LINT_SHA256_darwin_arm64"
@@ -456,7 +456,7 @@ dependencies:
       match: "^ARG BUILD_IMAGE="
 
   - name: nix
-    version: 2.35.2
+    version: 2.35.3
     upstream:
       flavour: github
       url: NixOS/nix
@@ -472,7 +472,7 @@ dependencies:
 
   # Must be bumped together with nix above.
   - name: nix-sha256
-    version: 0c3960a9792331a22081c3c7a5d8465db9b17c50b3acdf18587fa4c6f2cb1158
+    version: 6ce3ce3703fdc241b560cba401c5d338042122fe5b1a81e07bf1a623f259eba0
     refPaths:
     - path: Dockerfile.build-image
       match: "^ARG NIX_SHA256"
@@ -684,7 +684,7 @@ dependencies:
       match: "\\[aarch64\\]="
 
   - name: helm
-    version: v3.22.0
+    version: v3.22.1
     upstream:
       flavour: github
       url: helm/helm
@@ -701,7 +701,7 @@ dependencies:
 
   # The chart is installed with both major versions, see the helm-install job.
   - name: helm-v4
-    version: v4.3.0
+    version: v4.3.1
     upstream:
       flavour: github
       url: helm/helm
@@ -714,7 +714,7 @@ dependencies:
 
   # Must be bumped together with helm above.
   - name: helm-sha256-linux-amd64
-    version: 1e4ab49e429626cf6c6958d914248b78c9730803c2751b87627e171dc800e7bb
+    version: 896cf63684a42a723d61c980369d6e588330927deb13676ca0d85006dd6da0ea
     refPaths:
     - path: hack/push-chart.sh
       match: "^HELM_SHA256="
@@ -937,7 +937,7 @@ dependencies:
   # have no v prefix and include per-architecture tags like 0.71.2-amd64, pin
   # the release version with the v prefix.
   - name: trivy
-    version: v0.75.0
+    version: v0.76.0
     upstream:
       flavour: container
       registry: ghcr.io/aquasecurity/trivy
@@ -1083,7 +1083,7 @@ dependencies:
         match: "^ACTIONLINT_VERSION"
 
   - name: zizmor
-    version: 1.30.1
+    version: 1.31.1
     upstream:
       flavour: github
       url: zizmorcore/zizmor

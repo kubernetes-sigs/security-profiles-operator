@@ -484,9 +484,13 @@ func waitOrKill(cmd *exec.Cmd) error {
 	killErr := killRecorder(cmd.Process.Pid)
 
 	// Reap it either way: a kill that failed still leaves a Wait outstanding,
-	// and nobody else is going to collect the process.
+	// and nobody else is going to collect the process. A recorder which
+	// exited cleanly did so on its own just before the kill.
 	select {
-	case <-done:
+	case err := <-done:
+		if err == nil {
+			return nil
+		}
 	case <-time.After(spocShutdownTimeout):
 	}
 

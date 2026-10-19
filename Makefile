@@ -14,14 +14,14 @@
 
 GO ?= go
 
-GOLANGCI_LINT_VERSION = v2.14.0
+GOLANGCI_LINT_VERSION = v2.15.0
 # Checksums of the golangci-lint release archives per GOOS_GOARCH, see
 # golangci-lint-<version>-checksums.txt of the release. Bump them together
 # with the version above.
-GOLANGCI_LINT_SHA256_linux_amd64 = ab90aeb7b066f92a33415b638a50fe5344bbb75a0d32ad30cc248d88f81032ab
-GOLANGCI_LINT_SHA256_linux_arm64 = ee7ec5f3453d15ddf106fae5a4d6c71737712348a979d1fe9cd52ec7ea299bae
-GOLANGCI_LINT_SHA256_darwin_amd64 = a5667c1c3536be1740133213e1e822bfb8f0d98ea12903174d6d5f635e4ed68d
-GOLANGCI_LINT_SHA256_darwin_arm64 = 5ef5f36a7147e91dc58ef9ef4d11bb7bad5ead0c76eb6c01327a73c641d1dcc3
+GOLANGCI_LINT_SHA256_linux_amd64 = 9b7fe6a6bf6334b98decf8d86b11415ea7889afdabdd1959fdce23af2a9ebcea
+GOLANGCI_LINT_SHA256_linux_arm64 = b4d8f17068b35ee6060cc2f69a16fb48740d706fbba81661c318649c114a6998
+GOLANGCI_LINT_SHA256_darwin_amd64 = 767b899a28285e88ded2823d5dcc4bc5ef681173eb2d80f029a7b17ee4ece3b8
+GOLANGCI_LINT_SHA256_darwin_arm64 = d1e409481a8ca846c4bc97e781eb5cb1bd5c23353a0b3977a1cbda1b1b6447d5
 REPO_INFRA_VERSION = v0.2.6
 # Checksum of hack/verify_boilerplate.py of REPO_INFRA_VERSION.
 VERIFY_BOILERPLATE_SHA256 = 3ee0139a0a2865ad2e9674012a2459d56f4009844aa1b430119d0da4c603da95

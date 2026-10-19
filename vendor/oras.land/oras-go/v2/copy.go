@@ -32,6 +32,7 @@ import (
 	"oras.land/oras-go/v2/internal/status"
 	"oras.land/oras-go/v2/internal/syncutil"
 	"oras.land/oras-go/v2/registry"
+	"oras.land/oras-go/v2/registry/remote/errcode"
 )
 
 // defaultConcurrency is the default value of CopyGraphOptions.Concurrency.
@@ -272,13 +273,83 @@ func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 		if err != nil {
 			return fmt.Errorf("failed to check cache existence: %s: %w", desc.Digest, err)
 		}
-		if exists {
-			return copyNode(ctx, proxy.Cache, dst, desc, opts)
+		pushNode := func() error {
+			if exists {
+				return copyNode(ctx, proxy.Cache, dst, desc, opts)
+			}
+			return mountOrCopyNode(ctx, src, dst, desc, opts)
 		}
-		return mountOrCopyNode(ctx, src, dst, desc, opts)
+		pushErr := pushNode()
+		if pushErr != nil && len(successors) != 0 && isMissingReferencedContentError(pushErr) {
+			// The push was rejected because the destination is missing content
+			// that this manifest references. This can happen when a previous copy
+			// was interrupted after a referenced manifest's blobs were uploaded but
+			// before that manifest itself was committed: the existence check above
+			// then reports the referenced manifest as present and skips it, yet the
+			// registry rejects this node for referencing it. Re-copy the manifest
+			// successors unconditionally and retry the push once so that an
+			// interrupted copy can self-heal instead of failing identically on
+			// every retry.
+			for _, node := range successors {
+				if !descriptor.IsManifest(node) {
+					// Blob existence is reported reliably by Exists, so
+					// re-pushing large blobs on this recovery path would be
+					// wasteful.
+					continue
+				}
+				if err := doCopyNode(ctx, src, dst, node); err != nil {
+					return err
+				}
+			}
+			pushErr = pushNode()
+		}
+		return pushErr
 	}
 
 	return syncutil.Go(ctx, limiter, fn, root)
+}
+
+// isMissingReferencedContentError reports whether err indicates that a
+// destination registry rejected a manifest because one or more of the
+// descriptors referenced by that manifest are not present in the destination.
+//
+// A registry returns MANIFEST_BLOB_UNKNOWN or BLOB_UNKNOWN when a pushed
+// manifest references content that the registry does not have; for an image
+// index that referenced content is its child manifests. copyGraph uses this to
+// trigger a one-shot, self-healing retry for graphs whose interior nodes were
+// skipped as already-existing but were not in fact durably committed by a prior
+// interrupted copy.
+//
+// References:
+//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#error-codes
+func isMissingReferencedContentError(err error) bool {
+	isMissingCode := func(code string) bool {
+		switch code {
+		case errcode.ErrorCodeManifestBlobUnknown,
+			errcode.ErrorCodeBlobUnknown,
+			errcode.ErrorCodeManifestUnknown:
+			return true
+		default:
+			return false
+		}
+	}
+	// A single inner error, e.g. exactly one missing descriptor.
+	var ec errcode.Error
+	if errors.As(err, &ec) && isMissingCode(ec.Code) {
+		return true
+	}
+	// Multiple inner errors, e.g. several missing descriptors. errcode.Errors
+	// only unwraps to a single errcode.Error when it holds exactly one element,
+	// so the multi-error case must be inspected explicitly.
+	var ecs errcode.Errors
+	if errors.As(err, &ecs) {
+		for _, e := range ecs {
+			if isMissingCode(e.Code) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // mountOrCopyNode tries to mount the node, if not falls back to copying.
