@@ -10,6 +10,7 @@ resources:
 - role.yaml
 - role_binding.yaml
 - mutatingwebhookconfig.yaml
+- validatingwebhookconfig.yaml
 - metrics_client.yaml
 - spod_job_policy.yaml
 - spod_node_status_policy.yaml

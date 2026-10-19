@@ -1616,6 +1616,107 @@ func TestHandleRemovesAppArmorAnnotations(t *testing.T) {
 	}
 }
 
+// The API server rejects a pod whose deprecated seccomp annotations do not
+// match the seccomp profile fields, so a legacy annotation used to block the
+// pods a SeccompProfile got bound to.
+func TestHandleRemovesSeccompAnnotations(t *testing.T) {
+	t.Parallel()
+
+	const (
+		keyPod = corev1.SeccompPodAnnotationKey
+		keyFoo = corev1.SeccompContainerAnnotationKeyPrefix + "foo"
+		keyBar = corev1.SeccompContainerAnnotationKeyPrefix + "bar"
+	)
+
+	for _, tc := range []struct {
+		name     string
+		binding  profilebindingapi.ProfileBinding
+		wantKept []string
+	}{
+		{
+			name: "wildcard binding removes all",
+			binding: seccompBinding(
+				"wildcard", "profile", profilebindingapi.SelectAllContainersImage, 1,
+			),
+		},
+		{
+			name:     "image binding removes the bound container",
+			binding:  seccompBinding("image", "profile", "foo", 1),
+			wantKept: []string{keyPod, keyBar},
+		},
+		{
+			name: "AppArmor binding keeps all",
+			binding: profilebindingapi.ProfileBinding{
+				Spec: profilebindingapi.ProfileBindingSpec{
+					ProfileRef: profilebindingapi.ProfileRef{
+						Kind: profilebindingapi.ProfileBindingKindAppArmorProfile,
+						Name: "profile",
+					},
+					Image: profilebindingapi.SelectAllContainersImage,
+				},
+			},
+			wantKept: []string{keyPod, keyFoo, keyBar},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			mock := &bindingfakes.FakeImpl{}
+			mock.GetSeccompProfileCalls(localhostSeccompProfiles)
+			mock.GetAppArmorProfileReturns(&apparmorprofileapi.AppArmorProfile{
+				Status: apparmorprofileapi.AppArmorProfileStatus{
+					StatusBase: profilebaseapi.StatusBase{
+						Status: secprofnodestatusapi.ProfileStateInstalled,
+					},
+				},
+			}, nil)
+			mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
+				Items: []profilebindingapi.ProfileBinding{tc.binding},
+			}, nil)
+
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						keyPod: corev1.SeccompProfileNameUnconfined,
+						keyFoo: corev1.SeccompProfileNameUnconfined,
+						keyBar: corev1.SeccompProfileNameUnconfined,
+					},
+				},
+				Spec: corev1.PodSpec{
+					InitContainers: []corev1.Container{{Name: "bar", Image: "bar"}},
+					Containers:     []corev1.Container{{Name: "foo", Image: "foo"}},
+				},
+			}
+
+			resp := newTestBinder(t, mock).Handle(t.Context(), admission.Request{
+				AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Create,
+					Object:    rawObject(t, pod),
+				},
+			})
+			require.True(t, resp.Allowed)
+
+			var removed []string
+
+			for _, op := range resp.Patches {
+				if op.Operation == "remove" {
+					removed = append(removed, op.Path)
+				}
+			}
+
+			for _, key := range []string{keyPod, keyFoo, keyBar} {
+				path := "/metadata/annotations/" + strings.ReplaceAll(key, "/", "~1")
+				require.Equal(
+					t,
+					!slices.Contains(tc.wantKept, key),
+					slices.Contains(removed, path),
+					key,
+				)
+			}
+		})
+	}
+}
+
 // Bindings used to compare the images as strings, so a pod could escape a
 // binding by writing the same image differently.
 func TestHandleNormalizesImages(t *testing.T) {
@@ -1708,6 +1809,91 @@ func TestHandleWarnsAboutProfilesRecordedElsewhere(t *testing.T) {
 	require.Contains(t, <-recorder.Events, reasonRecordedElsewhere)
 }
 
+// Privileged containers usually run unconfined, so a bound seccomp profile
+// likely has no effect on them, which the user gets told about once, not again
+// when the webhook gets reinvoked.
+func TestHandleWarnsAboutPrivilegedSeccompContainers(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name      string
+		binding   profilebindingapi.ProfileBinding
+		reinvoked bool
+		warnings  int
+	}{
+		{
+			name:     "image binding",
+			binding:  seccompBinding("image", "profile", "foo", 1),
+			warnings: 1,
+		},
+		{
+			name: "wildcard binding",
+			binding: seccompBinding(
+				"wildcard", "profile", profilebindingapi.SelectAllContainersImage, 1,
+			),
+			warnings: 1,
+		},
+		{
+			name:    "image binding of another container",
+			binding: seccompBinding("image", "profile", "bar", 1),
+		},
+		{
+			name:      "reinvocation",
+			binding:   seccompBinding("image", "profile", "foo", 1),
+			reinvoked: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			mock := &bindingfakes.FakeImpl{}
+			mock.GetSeccompProfileCalls(localhostSeccompProfiles)
+			mock.ListProfileBindingsReturns(&profilebindingapi.ProfileBindingList{
+				Items: []profilebindingapi.ProfileBinding{tc.binding},
+			}, nil)
+
+			pod := &corev1.Pod{Spec: corev1.PodSpec{Containers: []corev1.Container{
+				{
+					Name:            "privileged",
+					Image:           "foo",
+					SecurityContext: &corev1.SecurityContext{Privileged: new(true)},
+				},
+				{
+					Name:            "unprivileged",
+					Image:           "bar",
+					SecurityContext: &corev1.SecurityContext{Privileged: new(false)},
+				},
+			}}}
+
+			if tc.reinvoked {
+				pod.Annotations = map[string]string{
+					profilebindingapi.AppliedBindingsAnnotation: tc.binding.Name,
+				}
+			}
+
+			recorder := events.NewFakeRecorder(10)
+			binder := newTestBinder(t, mock)
+			binder.record = utils.NewSafeRecorder(recorder)
+
+			resp := binder.Handle(t.Context(), admission.Request{
+				AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Create,
+					Object:    rawObject(t, pod),
+				},
+			})
+			require.True(t, resp.Allowed)
+			require.Len(t, resp.Warnings, tc.warnings)
+			require.Len(t, recorder.Events, tc.warnings)
+
+			if tc.warnings > 0 {
+				require.Contains(t, resp.Warnings[0], "privileged container privileged")
+				require.Contains(t, resp.Warnings[0], "no effect")
+				require.Contains(t, <-recorder.Events, reasonPrivilegedContainer)
+			}
+		})
+	}
+}
+
 // Dry-run requests must not have side effects like events.
 func TestHandleDryRunRecordsNoEvents(t *testing.T) {
 	t.Parallel()
@@ -1765,4 +1951,93 @@ func TestPodMatchesSelectorReportsInvalidSelector(t *testing.T) {
 	require.False(t, binder.podMatchesSelector(testPod, pb))
 	require.Len(t, recorder.Events, 1)
 	require.Contains(t, <-recorder.Events, reasonInvalidPodSelector)
+}
+
+// The daemons never install partial profiles, so the pods a binding to one
+// binds would fail to start. They get rejected right away, because waiting
+// does not change the status. A binding to a partial profile which binds no
+// container of the pod does not reject it. A disabled profile stays installed
+// on the nodes whose pods use it, so it binds as before.
+func TestUpdatePodPartialProfileRejects(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name   string
+		status secprofnodestatusapi.ProfileState
+		image  string
+		reject bool
+		bound  bool
+	}{
+		{
+			name:   "partial",
+			status: secprofnodestatusapi.ProfileStatePartial,
+			image:  "foo",
+			reject: true,
+		},
+		{
+			name:   "partial of another image",
+			status: secprofnodestatusapi.ProfileStatePartial,
+			image:  "other",
+		},
+		{
+			name:   "disabled",
+			status: secprofnodestatusapi.ProfileStateDisabled,
+			image:  "foo",
+			bound:  true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			mock := &bindingfakes.FakeImpl{}
+			mock.GetAppArmorProfileReturns(&apparmorprofileapi.AppArmorProfile{
+				ObjectMeta: metav1.ObjectMeta{Name: "profile"},
+				Status: apparmorprofileapi.AppArmorProfileStatus{
+					StatusBase: profilebaseapi.StatusBase{Status: tc.status},
+				},
+			}, nil)
+
+			pod, _, resp := newTestBinder(t, mock).updatePod(
+				t.Context(),
+				[]profilebindingapi.ProfileBinding{{
+					ObjectMeta: metav1.ObjectMeta{Name: "binding"},
+					Spec: profilebindingapi.ProfileBindingSpec{
+						ProfileRef: profilebindingapi.ProfileRef{
+							Kind: profilebindingapi.ProfileBindingKindAppArmorProfile,
+							Name: "profile",
+						},
+						Image: tc.image,
+					},
+				}},
+				&admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Create,
+					Object:    rawObject(t, testPod),
+				}},
+			)
+
+			require.Equal(
+				t,
+				1,
+				mock.GetAppArmorProfileCallCount(),
+				"the lookup must not be retried",
+			)
+			require.Zero(t, mock.GetSPODCallCount())
+
+			if !tc.reject {
+				require.Equal(t, tc.bound, pod.Spec.Containers[0].SecurityContext != nil)
+
+				if tc.bound {
+					require.Nil(t, resp)
+				} else {
+					require.True(t, resp.Allowed)
+				}
+
+				return
+			}
+
+			require.False(t, resp.Allowed)
+			require.Equal(t, int32(http.StatusForbidden), resp.Result.Code)
+			require.Contains(t, resp.Result.Message, "partial profile")
+		})
+	}
 }

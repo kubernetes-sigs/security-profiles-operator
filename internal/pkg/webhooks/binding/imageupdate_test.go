@@ -31,7 +31,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
+	profilebaseapi "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	profilebindingapi "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
+	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/binding/bindingfakes"
 )
@@ -201,7 +203,8 @@ func TestImageUpdateValidatorSkipsOtherRequests(t *testing.T) {
 
 // The mutating webhook skips bindings to missing profiles and to profiles of
 // disabled kinds which never get installed, so they apply to no pod and do
-// not block image changes.
+// not block image changes. A partial profile may have been bound to the
+// running pods by an earlier release, so it still blocks them.
 func TestImageUpdateValidatorIgnoresBindingsWhichApplyToNoPod(t *testing.T) {
 	t.Parallel()
 
@@ -245,6 +248,19 @@ func TestImageUpdateValidatorIgnoresBindingsWhichApplyToNoPod(t *testing.T) {
 				mock.GetAppArmorProfileReturns(&apparmorprofileapi.AppArmorProfile{}, nil)
 				mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
 					Spec: spodapi.SPODSpec{EnableAppArmor: new(true)},
+				}, nil)
+			},
+		},
+		{
+			name:    "partial profile",
+			binding: appArmorBinding,
+			mock: func(mock *bindingfakes.FakeImpl) {
+				mock.GetAppArmorProfileReturns(&apparmorprofileapi.AppArmorProfile{
+					Status: apparmorprofileapi.AppArmorProfileStatus{
+						StatusBase: profilebaseapi.StatusBase{
+							Status: secprofnodestatusapi.ProfileStatePartial,
+						},
+					},
 				}, nil)
 			},
 		},

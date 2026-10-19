@@ -1239,10 +1239,11 @@ flag, can be enabled by setting `.spec.state` to `Enabled` in the profile CR.
 #### Disable profile recording
 
 Profile recorder controller along with the corresponding sidecar container is disabled
-when neither `enableBpfRecorder` nor `enableLogEnricher` is set in the SPOD configuration, and
-automatically enabled when either one of them is on. The same applies when either
-the BPF recorder of the log enricher are enabled using the environment variables
-`ENABLE_BPF_RECORDER` or `ENABLE_LOG_ENRICHER` respectively.
+when none of `enableBpfRecorder`, `enableLogEnricher` and `enableJsonEnricher` is set in the SPOD
+configuration, and automatically enabled when any of them is on, which also runs the daemon
+pods with `hostPID`. The same applies when the BPF recorder, the log enricher or the JSON
+enricher are enabled using the environment variables `ENABLE_BPF_RECORDER`,
+`ENABLE_LOG_ENRICHER` or `ENABLE_JSON_ENRICHER` respectively.
 
 Also, when running the daemon in standalone mode is possible to switch on the profile recorder
 controller by providing the `with-recording` command line argument or setting the `ENABLE_RECORDING`
@@ -1446,7 +1447,8 @@ digest, so only a binding for the digest matches it. Use a `"*"` binding to
 enforce a profile independent of the image reference.
 
 You can enable a default profile binding by using the string "\*" as the image name.
-This will only apply a profile binding if no other profile binding matches a container in the pod.
+It applies to every container of the pod which no image binding of the same profile kind binds,
+see [the precedence of the bindings](#binding-precedence-and-status).
 
 ```yaml
 apiVersion: security-profiles-operator.x-k8s.io/v1
@@ -1520,7 +1522,17 @@ security context of a pod cannot be changed after its creation.
   that the bound profile cannot be weakened, for example with
   `type: Unconfined`. For the same reason, the deprecated
   `container.apparmor.security.beta.kubernetes.io/<container>` annotations of
-  the containers an AppArmorProfile gets bound to are removed.
+  the containers an AppArmorProfile gets bound to are removed. The API server
+  rejects pods whose deprecated seccomp annotations do not match the seccomp
+  profile fields, so the `container.seccomp.security.alpha.kubernetes.io/<container>`
+  annotations of the containers a SeccompProfile gets bound to are removed as
+  well, and the `seccomp.security.alpha.kubernetes.io/pod` annotation with a
+  `"*"` binding.
+- Privileged containers usually run unconfined, so a SeccompProfile bound to a
+  privileged container likely has no effect, unless the container runtime
+  applies seccomp profiles to privileged containers, like CRI-O with
+  `privileged_seccomp_profile`. The pod is admitted with an admission warning
+  and the binding gets a `PrivilegedContainer` event.
 - The bindings only apply when a pod is created, so the image of a container
   of a running pod cannot be changed while an image binding of the namespace
   matches the old or the new image, independent of its `podSelector`. The
@@ -1537,7 +1549,9 @@ security context of a pod cannot be changed after its creation.
   cannot block all pods of a namespace. A pod is rejected while the referenced
   profile exists but has no status yet, which means that no node installed it,
   unless the profile kind is disabled in the SPOD configuration. Then the
-  binding is skipped and gets a `ProfileWithoutStatus` event.
+  binding is skipped and gets a `ProfileWithoutStatus` event. A pod bound to a
+  profile with the `Partial` status of a recording which is not merged yet is
+  rejected as well, because the nodes never install partial profiles.
 - Windows pods are never mutated, because the API server rejects seccomp,
   SELinux and AppArmor settings on them.
 
@@ -1570,7 +1584,8 @@ In this case, it might be useful to merge the per-container profiles
 into a single profile. This can be done by setting the `mergeStrategy`
 attribute to `Containers` in the `ProfileRecording`. Note that the following
 example uses a `SeccompProfile` as the `kind` but the same applies to
-`SelinuxProfile` as well.
+`SelinuxProfile` as well, and to `AppArmorProfile`, which is recorded with
+`recorder: Bpf` instead.
 
 ```yaml
 apiVersion: security-profiles-operator.x-k8s.io/v1
@@ -1635,9 +1650,9 @@ The profiles will be reconciled, one per container. Note that the profiles are m
 ```bash
 > kubectl get sp -lspo.x-k8s.io/recording-id=test-recording --show-labels
 NAME                                STATUS    AGE     LABELS
-test-recording-nginx-record-gmbrj   Partial   2m50s   spo.x-k8s.io/container-id=nginx-record,spo.x-k8s.io/partial=true,spo.x-k8s.io/profile-id=SeccompProfile-test-recording-nginx-record-gmbrj,spo.x-k8s.io/recording-id=test-recording
-test-recording-nginx-record-lclnb   Partial   2m50s   spo.x-k8s.io/container-id=nginx-record,spo.x-k8s.io/partial=true,spo.x-k8s.io/profile-id=SeccompProfile-test-recording-nginx-record-lclnb,spo.x-k8s.io/recording-id=test-recording
-test-recording-nginx-record-wdv2r   Partial   2m50s   spo.x-k8s.io/container-id=nginx-record,spo.x-k8s.io/partial=true,spo.x-k8s.io/profile-id=SeccompProfile-test-recording-nginx-record-wdv2r,spo.x-k8s.io/recording-id=test-recording
+test-recording-nginx-record-gmbrj   Partial   2m50s   spo.x-k8s.io/container-id=nginx-record,spo.x-k8s.io/partial=true,spo.x-k8s.io/profile-id=SeccompProfile-test-recording-nginx-record-gmbrj,spo.x-k8s.io/recording-id=test-recording,spo.x-k8s.io/recording-namespace=default
+test-recording-nginx-record-lclnb   Partial   2m50s   spo.x-k8s.io/container-id=nginx-record,spo.x-k8s.io/partial=true,spo.x-k8s.io/profile-id=SeccompProfile-test-recording-nginx-record-lclnb,spo.x-k8s.io/recording-id=test-recording,spo.x-k8s.io/recording-namespace=default
+test-recording-nginx-record-wdv2r   Partial   2m50s   spo.x-k8s.io/container-id=nginx-record,spo.x-k8s.io/partial=true,spo.x-k8s.io/profile-id=SeccompProfile-test-recording-nginx-record-wdv2r,spo.x-k8s.io/recording-id=test-recording,spo.x-k8s.io/recording-namespace=default
 ```
 
 Inspecting the first partial profile, which corresponds to the pod where we ran the extra command

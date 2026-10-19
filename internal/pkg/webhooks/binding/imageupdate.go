@@ -191,6 +191,10 @@ func (p *podBinder) bindingApplies(
 		return true, nil
 	case kerrors.IsNotFound(err):
 		return false, nil
+	case errors.Is(err, errProfPartial):
+		// The mutating webhook rejects new pods, but the running pods may
+		// have been bound by an earlier release.
+		return true, nil
 	case errors.Is(err, errProfWithoutStatus):
 		return p.cachedProfileKindEnabled(ctx, lookup, profileKind)
 	default:

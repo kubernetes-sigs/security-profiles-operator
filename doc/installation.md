@@ -257,7 +257,8 @@ place, the same procedure removes them afterwards.
 ### Installation on AKS
 
 In case you installed SPO on an [AKS cluster](https://azure.microsoft.com/en-us/products/kubernetes-service/#overview), it is recommended to [configure webhook](#configuring-webhooks) to respect the [control-plane](https://learn.microsoft.com/en-us/azure/aks/faq#can-i-use-admission-controller-webhooks-on-aks) label as follows.
-The `namespaceSelector` replaces the default one of the webhook, so it has to keep the `spo.x-k8s.io/enable-binding` and `spo.x-k8s.io/enable-recording` requirements, otherwise the webhooks apply to every namespace:
+The `namespaceSelector` replaces the default one of the webhook, so it has to keep the `spo.x-k8s.io/enable-binding` and `spo.x-k8s.io/enable-recording` requirements, otherwise the webhooks apply to every namespace.
+The patch replaces all entries of `webhook.options`, see [configuring webhooks](#configuring-webhooks) for the default entry to keep on OpenShift:
 
 ```sh
 $ kubectl -nsecurity-profiles-operator patch spod spod  --type=merge \
@@ -358,6 +359,10 @@ securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
 
 This is useful in situations when the spod daemon pod remains in `Pending` state, because there isn't enough capacity on the related
 node to be scheduled.
+
+The pods of the webhook which the operator manages use `system-cluster-critical`, unless the
+`priorityClassName` is set to a priority class other than `system-node-critical`, which then applies to
+them as well.
 
 ### Set logging verbosity
 
@@ -690,8 +695,10 @@ kubectl create clusterrolebinding spo-metrics-client-<your-namespace> \
 
 ### Configuring webhooks
 
-Both profile binding and profile recording make use of webhooks. Their configuration (an instance of
-`MutatingWebhookConfiguration` CR) is managed by SPO itself and not part of the deployed YAML manifests.
+Both profile binding and profile recording make use of webhooks. Their configuration (the
+`spo-mutating-webhook-configuration` and `spo-validating-webhook-configuration` objects) is managed by
+SPO itself. The `kubectl` manifests only ship them empty, so that deleting the manifests removes them,
+and the operator fills them in.
 The mutating webhooks are `binding.spo.io`, `recording.spo.io`, `execmetadata.spo.io` and
 `nodedebuggingpod.spo.io`.
 While the defaults should be acceptable for the majority of users and the webhooks do nothing unless an
@@ -712,6 +719,21 @@ the webhook instead of adding to it. A `namespaceSelector` for `binding.spo.io` 
 therefore has to repeat the `spo.x-k8s.io/enable-binding` or `spo.x-k8s.io/enable-recording`
 requirement, otherwise the webhook applies to every namespace the selector matches. Whatever the
 selector says, the operator keeps its own namespace excluded from `binding.spo.io`.
+
+`webhook.options` is a list, so a `--type=merge` patch replaces all of its entries. The OpenShift
+manifests of this repository, `deploy/openshift-dev.yaml` and `deploy/openshift-downstream.yaml`,
+default it to an entry which selects the `debug.openshift.io/managed-by: oc-debug` label of
+`oc debug node` for `nodedebuggingpod.spo.io`, instead of the
+`app.kubernetes.io/managed-by: kubectl-debug` label of `kubectl debug node`. Keep that entry when
+patching the options of an installation from these manifests, an installation through OLM does not
+set it:
+
+```yaml
+      - name: nodedebuggingpod.spo.io
+        objectSelector:
+          matchLabels:
+            debug.openshift.io/managed-by: oc-debug
+```
 
 For example, to set the `binding.spo.io` webhook's configuration to ignore errors as well as restrict it
 to the namespaces labeled with `spo.x-k8s.io/enable-binding` which are also labeled with
@@ -754,8 +776,8 @@ sets `webhook.staticConfig` to `true` in the SPOD it creates, and does not creat
 and its related resources, so `webhook.options` do not apply either.
 
 The Exec Metadata and Node Debugging Pod Metadata Webhook works in conjunction with the JSON Log Enricher. It's enabled only when JSON Log Enricher is
-enabled, and `spec.enricher.enableExecMetadata: false` disables the exec metadata webhook for images without an `env`
-binary. For details on its configuration, please refer to the [JSON Log Enricher](profiles.md#audit-json-log-enricher) section.
+enabled, and `spec.enricher.enableExecMetadata: false` removes both the `execmetadata.spo.io` and the
+`nodedebuggingpod.spo.io` webhooks, for example for images without an `env` binary. For details on its configuration, please refer to the [JSON Log Enricher](profiles.md#audit-json-log-enricher) section.
 
 Next to the mutating webhooks, SPO manages the `spo-validating-webhook-configuration`
 `ValidatingWebhookConfiguration`. Its `rawselinuxprofile-validation.spo.io` webhook

@@ -39,6 +39,7 @@ import (
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
@@ -61,7 +62,7 @@ func RegisterWebhook(
 	c client.Client,
 ) {
 	server.Register(
-		"/mutate-v1-pod-recording",
+		config.RecordingWebhookPath,
 		&webhook.Admission{
 			Handler: &podSeccompRecorder{
 				impl:    &defaultImpl{client: c},
@@ -87,6 +88,23 @@ func (p *podSeccompRecorder) Handle(
 		p = &dryRun
 	}
 
+	// Recording relies on Linux facilities, so Windows pods are skipped.
+	pod, podName, resp := utils.DecodePod(p.decoder, &req, p.log)
+	if resp != nil {
+		return *resp
+	}
+
+	// A recording only starts with the pod. On any other operation the
+	// annotations of the old pod are the ones to keep, independent of the
+	// recordings which select the pod, so that a recording does not start on
+	// a pod which is already running, and removing or changing the annotation
+	// cannot rename the recorded profile. The match condition of the webhook
+	// leaves out updates which do not add, remove or change a recording
+	// annotation.
+	if req.Operation != admissionv1.Create {
+		return p.keepRecordingAnnotations(&req, pod)
+	}
+
 	profileRecordings, err := p.ListProfileRecordings(
 		ctx, client.InNamespace(req.Namespace),
 	)
@@ -94,30 +112,6 @@ func (p *podSeccompRecorder) Handle(
 		p.log.Error(err, "Could not list profile recordings")
 
 		return admission.Errored(http.StatusInternalServerError, err)
-	}
-
-	// Recording relies on Linux facilities, so Windows pods are skipped.
-	pod, podName, resp := utils.DecodePod(p.decoder, &req, p.log)
-	if resp != nil {
-		return *resp
-	}
-
-	isCreate := req.Operation == admissionv1.Create
-
-	// A recording only starts with the pod. On any other operation the
-	// annotations of the old pod are the ones to keep, so that a recording
-	// created later does not start on a pod which is already running, and
-	// removing or changing the annotation cannot rename the recorded profile.
-	// The match condition of the webhook leaves out updates which do not
-	// add, remove or change a recording annotation.
-	oldPod := &corev1.Pod{}
-
-	if !isCreate && len(req.OldObject.Raw) > 0 {
-		if err := p.decoder.DecodeRaw(req.OldObject, oldPod); err != nil {
-			p.log.Error(err, "Failed to decode old pod")
-
-			return admission.Errored(http.StatusBadRequest, err)
-		}
 	}
 
 	podChanged := false
@@ -135,12 +129,8 @@ func (p *podSeccompRecorder) Handle(
 	})
 
 	// claimed maps the annotation keys set by this admission to the recording
-	// which set them. On update, a container stays with the recording which
-	// started recording it, even if the labels select an older one now.
+	// which set them.
 	claimed := map[string]string{}
-	if !isCreate {
-		claimed = ownersOfRecordedContainers(items, pod, oldPod)
-	}
 
 	for i := range items {
 		item := items[i]
@@ -179,7 +169,7 @@ func (p *podSeccompRecorder) Handle(
 		}
 
 		if selector.Matches(podLabels) {
-			changed, err := p.updatePod(pod, oldPod, podName, &item, isCreate, claimed)
+			changed, err := p.updatePod(pod, podName, &item, claimed)
 			if err != nil {
 				return admission.Errored(http.StatusInternalServerError, err)
 			}
@@ -203,16 +193,12 @@ func (p *podSeccompRecorder) Handle(
 	return utils.PodPatchResponse(p.decoder, &req, pod)
 }
 
-// updatePod applies the recording to the containers of the pod. On creation
-// the containers get their security context and a fresh recording annotation.
-// Otherwise oldPod is the pod before the update: only annotations which
-// already exist on it are kept up, with their value, and no new recording is
-// started.
+// updatePod applies the recording to the containers of the pod which gets
+// created: they get their security context and a fresh recording annotation.
 func (p *podSeccompRecorder) updatePod(
-	pod, oldPod *corev1.Pod,
+	pod *corev1.Pod,
 	podName string,
 	profileRecording *profilerecordingapi.ProfileRecording,
-	isCreate bool,
 	claimed map[string]string,
 ) (podChanged bool, err error) {
 	// Collect containers as references to not copy them during modification
@@ -232,11 +218,6 @@ func (p *podSeccompRecorder) updatePod(
 			p.log.Info("container is recorded by another recording already",
 				"pod", podName, "container", ctr.Name, "recording", owner)
 
-			// Reported when the pod gets created, not with every update.
-			if !isCreate {
-				continue
-			}
-
 			p.record.Eventf(
 				profileRecording,
 				nil,
@@ -253,34 +234,13 @@ func (p *podSeccompRecorder) updatePod(
 		claimed[key] = profileRecording.Name
 
 		// Container security contexts are immutable after creation, so they
-		// can only be set on CREATE. Mutating them on UPDATE would produce a
-		// patch the API server rejects, which blocks any further pod update.
-		if isCreate {
-			p.warnEventIfContainerPrivileged(profileRecording, ctr, podName)
+		// are only set here, on CREATE.
+		p.warnEventIfContainerPrivileged(profileRecording, ctr, podName)
 
-			p.updateSecurityContext(ctr, profileRecording)
-		} else {
-			oldValue, existed := oldPod.GetAnnotations()[key]
-			if !existed {
-				// The pod predates the recording, or did not match it on
-				// creation, so it is not being recorded. An annotation
-				// added since would start recording the running pod.
-				if _, added := pod.GetAnnotations()[key]; added {
-					delete(pod.Annotations, key)
-					p.log.Info("removing recording annotation added to the running pod",
-						"key", key, "pod", pod.Name)
+		p.updateSecurityContext(ctr, profileRecording)
 
-					podChanged = true
-				}
-
-				continue
-			}
-
-			// The value carries a random nonce and a timestamp, so a fresh
-			// one would rename the recorded profile, and a value of this
-			// recording would start recording a pod which another recording
-			// recorded. Keep the value the pod started with.
-			value = oldValue
+		if removeSeccompAnnotation(pod, ctr, profileRecording) {
+			podChanged = true
 		}
 
 		existingValue, ok := pod.GetAnnotations()[key]
@@ -300,13 +260,12 @@ func (p *podSeccompRecorder) updatePod(
 
 		// Overwrite a value which is not one of this recording and
 		// container, to avoid that an attacker spoofs a profile recording
-		// into its own controlled profile instead of the one expected. On
-		// creation the value carries a fresh nonce and timestamp, so a value
-		// of the recording is kept as it is, otherwise every admission would
-		// rename the recorded profile. On update the value is the one of the
-		// old pod, so a changed nonce gets reverted as well.
+		// into its own controlled profile instead of the one expected. The
+		// value carries a fresh nonce and timestamp, so a value of the
+		// recording is kept as it is, otherwise every admission would rename
+		// the recorded profile.
 		if existingValue == value ||
-			(isCreate && isRecordingAnnotationValue(existingValue, profileRecording.Name, ctr.Name)) {
+			isRecordingAnnotationValue(existingValue, profileRecording.Name, ctr.Name) {
 			continue
 		}
 
@@ -320,33 +279,72 @@ func (p *podSeccompRecorder) updatePod(
 	return podChanged, nil
 }
 
-// ownersOfRecordedContainers returns the recordings which record the
-// containers of the pod, by the annotation keys of the old pod.
-func ownersOfRecordedContainers(
-	recordings []profilerecordingapi.ProfileRecording, pod, oldPod *corev1.Pod,
-) map[string]string {
-	owners := map[string]string{}
+// keepRecordingAnnotations answers an update of the pod, whose recording
+// annotations get set back to the ones of the old pod.
+func (p *podSeccompRecorder) keepRecordingAnnotations(
+	req *admission.Request, pod *corev1.Pod,
+) admission.Response {
+	oldPod := &corev1.Pod{}
 
-	ctrs := util.PodContainers(pod)
+	if len(req.OldObject.Raw) > 0 {
+		if err := p.decoder.DecodeRaw(req.OldObject, oldPod); err != nil {
+			p.log.Error(err, "Failed to decode old pod")
 
-	for i := range recordings {
-		recording := &recordings[i]
-
-		for j := range ctrs {
-			name := ctrs[j].Name
-
-			key, _, err := recording.CtrAnnotation(name)
-			if err != nil {
-				continue
-			}
-
-			if isRecordingAnnotationValue(oldPod.GetAnnotations()[key], recording.Name, name) {
-				owners[key] = recording.Name
-			}
+			return admission.Errored(http.StatusBadRequest, err)
 		}
 	}
 
-	return owners
+	if !restoreRecordingAnnotations(pod, oldPod) {
+		return admission.Allowed("pod unchanged")
+	}
+
+	p.log.Info("keeping the recording annotations of the running pod", "pod", pod.Name)
+
+	resp := utils.PodPatchResponse(p.decoder, req, pod)
+	resp.Warnings = append(resp.Warnings, "the recording annotations of pod "+pod.Name+
+		" were kept, because a recording only starts or stops with the pod")
+
+	return resp
+}
+
+// restoreRecordingAnnotations sets the recording annotations of the pod to the
+// ones of the old pod, and returns whether the pod changed. A recording only
+// starts with the pod, so an added annotation would start recording the
+// running pod, and a changed or removed one would rename the recorded profile.
+func restoreRecordingAnnotations(pod, oldPod *corev1.Pod) bool {
+	changed := false
+
+	for key := range pod.Annotations {
+		if _, existed := oldPod.Annotations[key]; isRecordingAnnotationKey(key) && !existed {
+			delete(pod.Annotations, key)
+
+			changed = true
+		}
+	}
+
+	for key, oldValue := range oldPod.Annotations {
+		if value, ok := pod.Annotations[key]; !isRecordingAnnotationKey(key) ||
+			(ok && value == oldValue) {
+			continue
+		}
+
+		if pod.Annotations == nil {
+			pod.Annotations = make(map[string]string)
+		}
+
+		pod.Annotations[key] = oldValue
+		changed = true
+	}
+
+	return changed
+}
+
+// isRecordingAnnotationKey returns true if the annotation key is the one of a
+// recording, see ProfileRecording.CtrAnnotation.
+func isRecordingAnnotationKey(key string) bool {
+	return slices.ContainsFunc(bindata.RecordingAnnotationPrefixes, func(prefix string) bool {
+		return strings.HasPrefix(key, prefix)
+	})
 }
 
 // isRecordingAnnotationValue returns true if the annotation value has the
@@ -385,6 +383,28 @@ func (p *podSeccompRecorder) updateSecurityContext(
 
 	p.log.Info("set SecurityContext for container",
 		"container", ctr.Name, "securityContext", ctr.SecurityContext)
+}
+
+// removeSeccompAnnotation removes the deprecated seccomp annotation of the
+// container whose seccomp profile the logs recorder sets, and returns whether
+// the pod changed. The API server rejects a pod whose seccomp annotations do
+// not match the seccomp profile fields.
+func removeSeccompAnnotation(
+	pod *corev1.Pod, ctr *corev1.Container, pr *profilerecordingapi.ProfileRecording,
+) bool {
+	if pr.Spec.Recorder != profilerecordingapi.ProfileRecorderLogs ||
+		pr.Spec.Kind != profilerecordingapi.ProfileRecordingKindSeccompProfile {
+		return false
+	}
+
+	key := corev1.SeccompContainerAnnotationKeyPrefix + ctr.Name
+	if _, ok := pod.Annotations[key]; !ok {
+		return false
+	}
+
+	delete(pod.Annotations, key)
+
+	return true
 }
 
 func (p *podSeccompRecorder) updateSeccompSecurityContext(

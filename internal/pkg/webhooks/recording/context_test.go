@@ -198,6 +198,58 @@ func TestUpdateSecurityContext(t *testing.T) {
 	})
 }
 
+// The API server rejects a pod whose deprecated seccomp annotation of a
+// container does not match the seccomp profile which the logs recorder sets.
+func TestRemoveSeccompAnnotation(t *testing.T) {
+	t.Parallel()
+
+	const (
+		keyCtr   = corev1.SeccompContainerAnnotationKeyPrefix + "container"
+		keyOther = corev1.SeccompContainerAnnotationKeyPrefix + "other"
+	)
+
+	for _, tc := range []struct {
+		name     string
+		kind     profilerecordingapi.ProfileRecordingKind
+		recorder profilerecordingapi.ProfileRecorder
+		removed  bool
+	}{
+		{
+			name:     "seccomp logs recorder",
+			kind:     profilerecordingapi.ProfileRecordingKindSeccompProfile,
+			recorder: profilerecordingapi.ProfileRecorderLogs,
+			removed:  true,
+		},
+		{
+			name:     "seccomp bpf recorder",
+			kind:     profilerecordingapi.ProfileRecordingKindSeccompProfile,
+			recorder: profilerecordingapi.ProfileRecorderBpf,
+		},
+		{
+			name:     "SELinux logs recorder",
+			kind:     profilerecordingapi.ProfileRecordingKindSelinuxProfile,
+			recorder: profilerecordingapi.ProfileRecorderLogs,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+				keyCtr:   corev1.SeccompProfileNameUnconfined,
+				keyOther: corev1.SeccompProfileNameUnconfined,
+			}}}
+			rec := logsRecording(tc.kind)
+			rec.Spec.Recorder = tc.recorder
+
+			require.Equal(t, tc.removed, removeSeccompAnnotation(
+				pod, &corev1.Container{Name: "container"}, rec,
+			))
+			require.Equal(t, !tc.removed, pod.Annotations[keyCtr] != "")
+			require.Contains(t, pod.Annotations, keyOther)
+		})
+	}
+}
+
 func TestWarnEventIfContainerPrivileged(t *testing.T) {
 	t.Parallel()
 

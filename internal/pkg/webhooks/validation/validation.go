@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
 type rawSelinuxProfileValidator struct {
@@ -37,7 +38,7 @@ type rawSelinuxProfileValidator struct {
 
 func RegisterWebhook(server webhook.Server, scheme *runtime.Scheme) {
 	server.Register(
-		"/validate-rawselinuxprofile",
+		config.RawSelinuxProfileWebhookPath,
 		&webhook.Admission{
 			Handler: &rawSelinuxProfileValidator{
 				decoder: admission.NewDecoder(scheme),

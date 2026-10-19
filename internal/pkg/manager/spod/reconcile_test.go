@@ -263,8 +263,8 @@ func TestReconcileRemovesLegacyAppArmorAnnotation(t *testing.T) {
 }
 
 // The admission policies only harden the cluster, so failing to apply them
-// must not block the operands. They are applied again on the next
-// reconciliation.
+// must not block the operands. The reconciliation gets retried with backoff to
+// apply them again, because nothing else triggers it.
 func TestReconcileAdmissionPolicyFailure(t *testing.T) {
 	t.Parallel()
 
@@ -284,7 +284,12 @@ func TestReconcileAdmissionPolicyFailure(t *testing.T) {
 		},
 	})
 
-	reconcileSPOD(t, r)
+	res, err := r.Reconcile(t.Context(), reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: config.SPOdName, Namespace: testNamespace},
+	})
+	require.ErrorIs(t, err, errAdmissionPoliciesFailed)
+	require.ErrorIs(t, err, errTest)
+	require.Zero(t, res)
 	require.Equal(t, spodapi.SPODStateCreating, spodState(t, cl))
 	require.Contains(t, <-recorder.Events, reasonCannotApplyAdmissionPolicies)
 

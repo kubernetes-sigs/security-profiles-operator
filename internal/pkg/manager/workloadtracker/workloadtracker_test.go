@@ -111,6 +111,26 @@ func TestTrackAndUntrack(t *testing.T) {
 	require.NotContains(t, pb.Finalizers, testFinalizer)
 }
 
+// The Reader is optional, the Client reads the objects without it.
+func TestTrackAndUntrackWithoutReader(t *testing.T) {
+	t.Parallel()
+
+	sut, c := newTracker(t, &interceptor.Funcs{}, testBinding())
+	sut.Reader = nil
+
+	require.NoError(t, sut.Track(t.Context(), testBinding(), "pod-a"))
+
+	pb := stored(t, c)
+	require.Equal(t, []string{"pod-a"}, pb.Status.ActiveWorkloads)
+	require.Contains(t, pb.Finalizers, testFinalizer)
+
+	require.NoError(t, sut.Untrack(t.Context(), testBinding(), "pod-a"))
+
+	pb = stored(t, c)
+	require.Empty(t, pb.Status.ActiveWorkloads)
+	require.NotContains(t, pb.Finalizers, testFinalizer)
+}
+
 func TestTrackRetriesConflicts(t *testing.T) {
 	t.Parallel()
 

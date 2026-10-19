@@ -55,7 +55,7 @@ type Tracker[T client.Object] struct {
 	// Client writes the objects.
 	Client client.Client
 	// Reader reads the objects from the API server, so that a retry after a
-	// conflict sees the object which won it.
+	// conflict sees the object which won it. Without it, Client reads them.
 	Reader client.Reader
 	// Finalizer keeps an object while it has active workloads.
 	Finalizer string
@@ -115,10 +115,7 @@ func (t *Tracker[T]) Track(ctx context.Context, obj T, workload string) error {
 		return fmt.Errorf("adding finalizer: %w", err)
 	}
 
-	c := t.Client
-	if t.Reader != nil {
-		c = util.FreshReadClient(t.Client, t.Reader)
-	}
+	c := util.FreshReadClient(t.Client, t.reader())
 
 	// AddFinalizer reads the object into the one it gets, which must not be
 	// the one of the caller.
@@ -373,17 +370,27 @@ func WorkloadsHandler(
 	}
 }
 
+// reader returns the Reader, or the Client without one, so that every read
+// path falls back the same way.
+func (t *Tracker[T]) reader() client.Reader {
+	if t.Reader != nil {
+		return t.Reader
+	}
+
+	return t.Client
+}
+
 // get reads the object of the provided one from the API server into a new
 // object, so that no field of another version survives which the API server
-// omits, like an empty list of workloads. It returns false if the object is
-// gone.
+// omits, like an empty list of workloads. Without a Reader, it reads through
+// the Client. It returns false if the object is gone.
 func (t *Tracker[T]) get(ctx context.Context, obj T) (current T, found bool, err error) {
 	current, ok := reflect.TypeAssert[T](reflect.New(reflect.TypeFor[T]().Elem()))
 	if !ok {
 		return current, false, fmt.Errorf("creating %s %s", t.Kind, obj.GetName())
 	}
 
-	if err := t.Reader.Get(ctx, client.ObjectKeyFromObject(obj), current); err != nil {
+	if err := t.reader().Get(ctx, client.ObjectKeyFromObject(obj), current); err != nil {
 		if errors.IsNotFound(err) {
 			return current, false, nil
 		}

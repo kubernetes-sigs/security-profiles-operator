@@ -498,10 +498,11 @@ semodule -R
 						},
 						// The daemon counts as ready once its caches are
 						// synced, so that the rollout status of the SPOd tells
-						// whether the daemons act on the profiles. The values
-						// are the defaults of the API server, which have to be
-						// set explicitly, because the comparison with the
-						// existing DaemonSet does not ignore unset numbers.
+						// whether the daemons act on the profiles. The other
+						// values are the defaults of the API server, which
+						// have to be set explicitly, because the comparison
+						// with the existing DaemonSet does not ignore unset
+						// numbers.
 						ReadinessProbe: &corev1.Probe{
 							ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{
 								Path:   readyzPath,
@@ -510,7 +511,10 @@ semodule -R
 							}},
 							FailureThreshold: 3,
 							PeriodSeconds:    10,
-							TimeoutSeconds:   1,
+							// Above the timeout the cache sync check itself
+							// uses, so that it reports an unsynced cache
+							// rather than being cut off before it can.
+							TimeoutSeconds:   6,
 							SuccessThreshold: 1,
 						},
 					},
@@ -981,12 +985,14 @@ semodule -R
 				},
 				Tolerations: []corev1.Toleration{
 					{
-						Effect: corev1.TaintEffectNoSchedule,
-						Key:    "node-role.kubernetes.io/master",
+						Effect:   corev1.TaintEffectNoSchedule,
+						Key:      "node-role.kubernetes.io/master",
+						Operator: corev1.TolerationOpExists,
 					},
 					{
-						Effect: corev1.TaintEffectNoSchedule,
-						Key:    "node-role.kubernetes.io/control-plane",
+						Effect:   corev1.TaintEffectNoSchedule,
+						Key:      "node-role.kubernetes.io/control-plane",
+						Operator: corev1.TolerationOpExists,
 					},
 					{
 						Effect:   corev1.TaintEffectNoExecute,

@@ -97,6 +97,10 @@ var errOperatorDeploymentMissing = stderrors.New("operator deployment not found"
 // recording webhook could not be read.
 var errAdmissionPoliciesPending = stderrors.New("admission policies not applied")
 
+// errAdmissionPoliciesFailed is returned once the operands got reconciled, but
+// applying the admission policies failed.
+var errAdmissionPoliciesFailed = stderrors.New("applying the admission policies failed")
+
 // NewController returns a new empty controller instance.
 func NewController() controller.Controller {
 	return &ReconcileSPOd{}
@@ -289,6 +293,14 @@ func (r *ReconcileSPOd) Reconcile(
 		// reported.
 		if stderrors.Is(err, errAdmissionPoliciesPending) {
 			return reconcile.Result{RequeueAfter: operatorDeploymentRetry}, nil
+		}
+
+		// The operands are fine, but applying the admission policies failed,
+		// which applyAdmissionPolicies reported. The error retries with
+		// backoff, so that a failure which does not go away, like a missing
+		// permission, does not get reported again at a fixed interval.
+		if stderrors.Is(err, errAdmissionPoliciesFailed) {
+			return reconcile.Result{}, err
 		}
 
 		// A conflict only means that the cache is behind, which the next
@@ -720,10 +732,12 @@ func (r *ReconcileSPOd) recordingNamespaceSelector(
 // which for example restrict the use of the recording profiles to the
 // namespaces selected by the recording webhook. The policies are watched, so
 // changed or deleted ones are restored. Failures are reported but do not block
-// the reconciliation, and the policies get applied again on the next one. If
-// the selector of a static recording webhook cannot be read, the deployed
-// policies stay and the error is returned, so that the caller retries once it
-// reconciled the rest. A conflict is returned as well, without reporting it.
+// the reconciliation of the operands. A failed apply is returned wrapped in
+// errAdmissionPoliciesFailed, so that the caller retries once it reconciled the
+// rest, because a failed apply does not trigger the watch. If the selector of
+// a static recording webhook cannot be read, the deployed policies stay, and
+// errAdmissionPoliciesPending is returned. A conflict is returned as well,
+// without reporting it.
 func (r *ReconcileSPOd) applyAdmissionPolicies(
 	ctx context.Context,
 	spod *spodapi.SecurityProfilesOperatorDaemon,
@@ -769,7 +783,7 @@ func (r *ReconcileSPOd) applyAdmissionPolicies(
 			return err
 		}
 
-		r.log.Error(err, "Cannot apply the admission policies")
+		// The returned error gets logged by the controller.
 		r.record.Eventf(
 			spod,
 			nil,
@@ -779,6 +793,8 @@ func (r *ReconcileSPOd) applyAdmissionPolicies(
 			"%s",
 			err.Error(),
 		)
+
+		return fmt.Errorf("%w: %w", errAdmissionPoliciesFailed, err)
 	}
 
 	return nil

@@ -53,7 +53,9 @@ spec:
               path: /readyz
               port: 8085
               scheme: HTTP
-            timeoutSeconds: 1
+            # Above the timeout the check itself uses, so that it reports an
+            # unsynced cache rather than being cut off before it can.
+            timeoutSeconds: 6
             periodSeconds: 10
             successThreshold: 1
             failureThreshold: 3

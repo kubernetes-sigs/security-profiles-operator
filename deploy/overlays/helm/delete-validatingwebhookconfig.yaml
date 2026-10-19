@@ -1,0 +1,7 @@
+# The operator created the configuration of existing releases, which Helm
+# refuses to adopt on an upgrade, so the chart does not ship it.
+$patch: delete
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: spo-validating-webhook-configuration
