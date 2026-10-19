@@ -442,6 +442,56 @@ func TestCreateUpdateProfileRefusesForeignProfile(t *testing.T) {
 	require.ElementsMatch(t, []string{"exec"}, mergedSyscalls(t, r, "nginx"))
 }
 
+// The partial profiles get deleted after a successful merge, so a kind which
+// cannot be merged has to fail instead.
+func TestCreateUpdateProfileUnknownKind(t *testing.T) {
+	t.Parallel()
+
+	recording := testMergeRecording("NotAKind", true)
+	r := newMergeReconciler(t, recording)
+
+	merged, err := newMergeableProfile(partialSeccomp("partial-a", "nginx", "read"))
+	require.NoError(t, err)
+
+	_, err = createUpdateProfile(
+		t.Context(), r.client, recording, testRecording+"-nginx", merged, "NotAKind", nil, nil,
+	)
+	require.ErrorContains(t, err, errCannotMergeKind)
+}
+
+// A later merge round adds the rules of the partial profiles to the existing
+// merged profile, but keeps its other attributes.
+func TestMergeProfilesKeepsAttributesOfExistingMergedProfile(t *testing.T) {
+	t.Parallel()
+
+	recording := testMergeRecording(profilerecordingapi.ProfileRecordingKindSeccompProfile, true)
+	r := newMergeReconciler(t, recording, partialSeccomp("partial-a", "redis", "read"))
+
+	requireMerged(t, r, recording)
+
+	existing := &seccompprofile.SeccompProfile{}
+	require.NoError(t, r.client.Get(t.Context(),
+		types.NamespacedName{Name: testRecording + "-redis"}, existing))
+
+	existing.Spec.DefaultAction = seccompprofile.ActLog
+	existing.Spec.Flags = []seccompprofile.Flag{"SECCOMP_FILTER_FLAG_LOG"}
+	require.NoError(t, r.client.Update(t.Context(), existing))
+
+	partial := partialSeccomp("partial-b", "redis", "write")
+	partial.Spec.State = profilebase.SpecStateDisabled
+	require.NoError(t, r.client.Create(t.Context(), partial))
+	requireMerged(t, r, recording)
+
+	merged := &seccompprofile.SeccompProfile{}
+	require.NoError(t, r.client.Get(t.Context(),
+		types.NamespacedName{Name: testRecording + "-redis"}, merged))
+	require.ElementsMatch(t, []string{"read", "write"}, mergedSyscalls(t, r, "redis"))
+	require.Equal(t, seccompprofile.ActLog, merged.Spec.DefaultAction)
+	require.Equal(t, []seccompprofile.Flag{"SECCOMP_FILTER_FLAG_LOG"}, merged.Spec.Flags)
+	// The state is the one of the recording, like the partial profiles have.
+	require.Equal(t, profilebase.SpecStateDisabled, merged.Spec.State)
+}
+
 // An unknown kind has to be reported rather than silently doing nothing, while
 // the partial profiles of the supported kinds still get merged.
 func TestMergeProfilesUnknownKind(t *testing.T) {

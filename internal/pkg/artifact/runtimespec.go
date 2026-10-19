@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"sigs.k8s.io/security-profiles-merger/seccomp"
@@ -95,7 +96,9 @@ func decodeRuntimeSpecSeccompProfile(content []byte) (*specs.LinuxSeccomp, error
 		return nil, fmt.Errorf("decode runtime-spec seccomp profile: %w", err)
 	}
 
-	if decoder.More() {
+	// More reports false for a closing bracket or brace, which is trailing
+	// data as well, so only the end of the content is accepted.
+	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
 		return nil, ErrTrailingData
 	}
 

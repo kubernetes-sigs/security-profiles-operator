@@ -77,6 +77,7 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 		namespace       string
 		policyName      string
 		existingObjs    []runtime.Object
+		neededSince     time.Time
 		kind            *reloadKind
 		podOnlyInReader bool
 		wantErr         bool
@@ -279,6 +280,51 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 			wantJobCreated: true,
 		},
 		{
+			// The profiles of a node do not reload it at the same time.
+			name:       "skips when a job of another policy is running",
+			nodeName:   testNodeName,
+			namespace:  testNamespace,
+			policyName: "test-policy",
+			existingObjs: []runtime.Object{
+				createTestJob(
+					testNamespace, "other-policy-job",
+					testNodeName, "other-policy", testAction, 0, 0,
+				),
+			},
+			wantState: reloadJobBusy,
+		},
+		{
+			// A reload reloads the whole module store.
+			name:        "treats a job of another policy completed after the reload became necessary as done",
+			nodeName:    testNodeName,
+			namespace:   testNamespace,
+			policyName:  "test-policy",
+			neededSince: time.Now().Add(-time.Minute),
+			existingObjs: []runtime.Object{
+				createTestJobWithCreationTime(
+					testNamespace, "covering-job",
+					testNodeName, "other-policy", removeReload.action,
+					1, 0, time.Now().Add(-30*time.Second),
+				),
+			},
+			wantState: reloadJobDone,
+		},
+		{
+			name:        "creates job when a job of another policy completed before the reload became necessary",
+			nodeName:    testNodeName,
+			namespace:   testNamespace,
+			policyName:  "test-policy",
+			neededSince: time.Now().Add(-30 * time.Second),
+			existingObjs: []runtime.Object{
+				createTestJobWithCreationTime(
+					testNamespace, "older-job",
+					testNodeName, "other-policy", testAction,
+					1, 0, time.Now().Add(-time.Minute),
+				),
+			},
+			wantJobCreated: true,
+		},
+		{
 			name:           "fails without node name",
 			nodeName:       "",
 			namespace:      testNamespace,
@@ -341,7 +387,8 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 
 			logger := logf.Log.WithName("test")
 			state, err := r.createPolicyReloadJob(
-				context.Background(), tt.policyName, kind, testUID, testGeneration, logger,
+				context.Background(), tt.policyName, kind, testUID, testGeneration, "",
+				tt.neededSince, logger,
 			)
 
 			if tt.wantErr {
@@ -499,7 +546,7 @@ func TestNewReloadJob(t *testing.T) {
 	}}
 	selinuxd := &corev1.Container{Image: "selinuxd:test", ImagePullPolicy: corev1.PullNever}
 
-	job := newReloadJob("ns", "node-1", "policy", "remove", testUID, 3, pod, selinuxd)
+	job := newReloadJob("ns", "node-1", "policy", "remove", testUID, 3, "", pod, selinuxd)
 
 	require.Equal(t, "ns", job.Namespace)
 	require.Equal(t, reloadJobNamePrefix, job.GenerateName)
@@ -510,6 +557,12 @@ func TestNewReloadJob(t *testing.T) {
 	require.Equal(t, "3", job.Labels[reloadJobLabelGeneration])
 	require.Equal(t, string(testUID), job.Labels[reloadJobLabelProfileUID])
 	require.Empty(t, validation.IsValidLabelValue(job.Labels[reloadJobLabelProfileUID]))
+	require.NotContains(t, job.Labels, reloadJobLabelPolicyHash)
+
+	hash := policyHash("(blockinherit container)")
+	installJob := newReloadJob("ns", "node-1", "policy", "install", testUID, 3, hash, pod, selinuxd)
+	require.Equal(t, hash, installJob.Labels[reloadJobLabelPolicyHash])
+	require.Empty(t, validation.IsValidLabelValue(hash))
 	require.Equal(t, reloadJobTTL, *job.Spec.TTLSecondsAfterFinished)
 	require.Equal(t, reloadJobDeadline, *job.Spec.ActiveDeadlineSeconds)
 
@@ -592,7 +645,8 @@ func TestCreatePolicyReloadJobNames(t *testing.T) {
 		}
 
 		state, err := r.createPolicyReloadJob(
-			context.Background(), "test-policy", installReload, testUID, 1, logf.Log,
+			context.Background(), "test-policy", installReload, testUID, 1, "", time.Time{},
+			logf.Log,
 		)
 		require.NoError(t, err, node)
 		require.Equal(t, reloadJobCreated, state, node)
@@ -657,4 +711,26 @@ func TestAsLabelValue(t *testing.T) {
 		first := asLabelValue(longName)
 		require.Equal(t, first, asLabelValue(longName))
 	})
+}
+
+// A reload stays necessary since the first reconcile which needed it, until a
+// new generation or policy hash or its recording replaces it.
+func TestReloadNeededSince(t *testing.T) {
+	t.Parallel()
+
+	r := &ReconcileSelinux{}
+	first := time.Now()
+	later := first.Add(time.Minute)
+
+	require.Equal(t, first, r.reloadNeededSince(testUID, installReload, 1, "a", first))
+	require.Equal(t, first, r.reloadNeededSince(testUID, installReload, 1, "a", later))
+	require.Equal(t, later, r.reloadNeededSince(testUID, removeReload, 1, "", later),
+		"the actions are independent")
+	require.Equal(t, later, r.reloadNeededSince(testUID, installReload, 1, "b", later),
+		"a new policy hash needs a new reload")
+	require.Equal(t, later, r.reloadNeededSince(testUID, installReload, 2, "b", later),
+		"a new generation needs a new reload")
+
+	r.forgetReloadNeeds(testUID, installReload, removeReload)
+	require.Empty(t, r.reloadNeeds)
 }

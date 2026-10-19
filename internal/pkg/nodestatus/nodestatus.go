@@ -567,11 +567,17 @@ func (nsf *StatusClient) GetAnnotation(ctx context.Context, key string) (string,
 	return status.Annotations[key], nil
 }
 
-// SetAnnotation sets the annotation on the node status of the profile. A
-// conflict with another writer of the status, like SetNodeStatus running for
-// the same profile, is retried with the status read from the API server, the
-// cache may still return the version which lost.
+// SetAnnotation sets the annotation on the node status of the profile, see
+// SetAnnotations.
 func (nsf *StatusClient) SetAnnotation(ctx context.Context, key, value string) error {
+	return nsf.SetAnnotations(ctx, map[string]string{key: value})
+}
+
+// SetAnnotations sets the annotations on the node status of the profile in a
+// single update. A conflict with another writer of the status, like
+// SetNodeStatus running for the same profile, is retried with the status read
+// from the API server, the cache may still return the version which lost.
+func (nsf *StatusClient) SetAnnotations(ctx context.Context, annotations map[string]string) error {
 	return util.RetryWithFreshReads(ctx, nsf.client, nsf.reader, func(c client.Client) error {
 		status := secprofnodestatusapi.SecurityProfileNodeStatus{}
 		if err := nsf.getStatus(ctx, c, &status); err != nil {
@@ -579,14 +585,21 @@ func (nsf *StatusClient) SetAnnotation(ctx context.Context, key, value string) e
 		}
 
 		if status.Annotations == nil {
-			status.Annotations = make(map[string]string)
+			status.Annotations = make(map[string]string, len(annotations))
 		}
 
-		if status.Annotations[key] == value {
+		changed := false
+
+		for key, value := range annotations {
+			if status.Annotations[key] != value {
+				status.Annotations[key] = value
+				changed = true
+			}
+		}
+
+		if !changed {
 			return nil
 		}
-
-		status.Annotations[key] = value
 
 		if err := c.Update(ctx, &status); err != nil {
 			return fmt.Errorf("updating node status annotation: %w", err)

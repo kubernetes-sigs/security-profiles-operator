@@ -177,6 +177,14 @@ type BpfAppArmorFileProcessed struct {
 	ReadWritePaths     []string
 }
 
+// SetProgramPath sets the absolute path of the executable of the recorded
+// program, which is left out of the recorded libraries. The program name
+// passed to New filters the processes by their comm instead, the base name of
+// the path the program got started with, whose symlinks are not resolved.
+func (b *AppArmorRecorder) SetProgramPath(path string) {
+	b.programName = sanitizeFilePath(path)
+}
+
 func newAppArmorRecorder(logger logr.Logger, programName string) *AppArmorRecorder {
 	return &AppArmorRecorder{
 		logger:                   logger,

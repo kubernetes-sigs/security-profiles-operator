@@ -161,11 +161,11 @@ func requireWellFormedCIL(t *testing.T, name, policy string) {
 
 		match := cilAllowLineRegexp.FindStringSubmatch(line)
 		require.NotNil(t, match, line)
-		require.NotContains(t, denied.deniedTypes, match[1])
-		require.NotContains(t, denied.deniedClasses, match[2])
+		require.NotContains(t, denied.deniedTypes, globalName(match[1]))
+		require.NotContains(t, denied.deniedClasses, globalName(match[2]))
 
 		for perm := range strings.FieldsSeq(match[3]) {
-			require.NotContains(t, denied.deniedPermissions, perm)
+			require.NotContains(t, denied.deniedPermissions, globalName(perm))
 			require.NotContains(t, permissionKeywords, perm)
 		}
 	}

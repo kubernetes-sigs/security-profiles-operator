@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
@@ -77,6 +78,15 @@ func selectLayer(manifest *v1.Manifest, platform *v1.Platform) (*v1.Descriptor, 
 	}
 
 	if len(manifest.Layers) != 1 {
+		// The profiles of a multi platform artifact are bound to their
+		// platforms, so none of them is for the requested one.
+		if available := layerPlatforms(manifest.Layers); len(available) > 0 {
+			return nil, false, fmt.Errorf(
+				"%w: requested %q, available %s", ErrPlatformMismatch,
+				platformToString(platform), strings.Join(available, ", "),
+			)
+		}
+
 		return nil, false, fmt.Errorf("%w: got %d", ErrNoSingleLayer, len(manifest.Layers))
 	}
 
@@ -89,6 +99,25 @@ func selectLayer(manifest *v1.Manifest, platform *v1.Platform) (*v1.Descriptor, 
 	}
 
 	return layer, false, nil
+}
+
+// layerPlatforms returns the platforms of the layers which are bound to one,
+// or the names of the layers which are named for one.
+func layerPlatforms(layers []v1.Descriptor) []string {
+	var platforms []string
+
+	for i := range layers {
+		layer := &layers[i]
+
+		switch title := layer.Annotations[v1.AnnotationTitle]; {
+		case layer.Platform != nil:
+			platforms = append(platforms, platformToString(layer.Platform))
+		case platformQualifiedName.MatchString(title):
+			platforms = append(platforms, title)
+		}
+	}
+
+	return platforms
 }
 
 // layerMatchesPlatform reports whether the layer can be used for the

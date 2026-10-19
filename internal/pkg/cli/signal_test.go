@@ -38,7 +38,7 @@ const envSignalContextChild = "SPOC_TEST_SIGNAL_CONTEXT_CHILD"
 func TestSignalContextSecondSignal(t *testing.T) {
 	t.Parallel()
 
-	if os.Getenv(envSignalContextChild) != "" {
+	if os.Getenv(envSignalContextChild) == "second" {
 		os.Exit(signalContextChild())
 	}
 
@@ -47,7 +47,7 @@ func TestSignalContextSecondSignal(t *testing.T) {
 		t.Context(), os.Args[0], "-test.run=^TestSignalContextSecondSignal$",
 	)
 
-	cmd.Env = append(os.Environ(), envSignalContextChild+"=1")
+	cmd.Env = append(os.Environ(), envSignalContextChild+"=second")
 
 	out, err := cmd.CombinedOutput()
 
@@ -85,6 +85,51 @@ func signalContextChild() int {
 		}
 
 		time.Sleep(10 * time.Millisecond)
+	}
+
+	return 0
+}
+
+// TestSignalContextDuplicateSignal verifies that a signal which arrives twice
+// at once, directly and forwarded by a parent, does not terminate the process.
+func TestSignalContextDuplicateSignal(t *testing.T) {
+	t.Parallel()
+
+	if os.Getenv(envSignalContextChild) == "duplicate" {
+		os.Exit(signalContextDuplicateChild())
+	}
+
+	//nolint:gosec // the test binary itself
+	cmd := exec.CommandContext(
+		t.Context(), os.Args[0], "-test.run=^TestSignalContextDuplicateSignal$",
+	)
+
+	cmd.Env = append(os.Environ(), envSignalContextChild+"=duplicate")
+
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, "output: %s", out)
+	require.Contains(t, string(out), "context canceled")
+}
+
+// signalContextDuplicateChild signals itself twice at once and returns zero
+// if it still runs afterwards.
+func signalContextDuplicateChild() int {
+	ctx, stop := SignalContext()
+	defer stop()
+
+	for range 2 {
+		if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
+			return 1
+		}
+	}
+
+	<-ctx.Done()
+
+	// The duplicate may arrive after the cancellation.
+	time.Sleep(DuplicateSignalWindow / 4)
+
+	if errors.Is(ctx.Err(), context.Canceled) {
+		os.Stderr.WriteString("context canceled\n")
 	}
 
 	return 0

@@ -24,9 +24,12 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/recorder/recorderfakes"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
 )
@@ -166,7 +169,7 @@ func TestRun(t *testing.T) {
 			name: "failure creates no output file",
 			prepare: func(_ *testing.T, mock *recorderfakes.FakeImpl) *Options {
 				defaultMock(mock)
-				mock.GetNameReturns("", errTest)
+				mock.SyscallsGetValueReturns(nil, errTest)
 
 				return Default()
 			},
@@ -223,17 +226,28 @@ func TestRun(t *testing.T) {
 			},
 		},
 		{
-			name: "failure seccomp on GetName",
+			name: "success seccomp skips syscall unknown to libseccomp",
 			prepare: func(_ *testing.T, mock *recorderfakes.FakeImpl) *Options {
 				defaultMock(mock)
-				mock.GetNameReturns("", errTest)
+				mock.SyscallsGetValueReturns([]byte{1, 1}, nil)
+				mock.GetNameReturnsOnCall(0, "", errTest)
+				mock.GetNameReturnsOnCall(1, "read", nil)
 
 				return Default()
 			},
 			assert: func(t *testing.T, mock *recorderfakes.FakeImpl, err error) {
 				t.Helper()
 
-				require.ErrorIs(t, err, errTest)
+				require.NoError(t, err)
+				require.Equal(t, 2, mock.GetNameCallCount())
+				require.Equal(t, 1, mock.PrintObjCallCount())
+
+				_, obj, _ := mock.PrintObjArgsForCall(0)
+				profile, ok := obj.(*seccompprofileapi.SeccompProfile)
+				require.True(t, ok)
+				require.Len(t, profile.Spec.Syscalls, 1)
+				require.Contains(t, profile.Spec.Syscalls[0].Names, "read")
+				require.NotContains(t, profile.Spec.Syscalls[0].Names, "")
 			},
 		},
 		{
@@ -265,7 +279,8 @@ func TestRun(t *testing.T) {
 			},
 		},
 		{
-			// A further signal while the profile gets built ends spoc.
+			// A further signal while the profile gets built ends spoc,
+			// unless it is the same signal delivered twice.
 			name: "success without starting the command",
 			prepare: func(_ *testing.T, mock *recorderfakes.FakeImpl) *Options {
 				defaultMock(mock)
@@ -283,7 +298,10 @@ func TestRun(t *testing.T) {
 
 				require.NoError(t, err)
 				require.Zero(t, mock.CommandRunCallCount())
-				require.Equal(t, 1, mock.StopNotifyCallCount())
+				require.Zero(t, mock.StopNotifyCallCount(), "a duplicate must not end spoc")
+				require.Eventually(t, func() bool {
+					return mock.StopNotifyCallCount() == 1
+				}, 2*cli.DuplicateSignalWindow, 10*time.Millisecond)
 			},
 		},
 		{

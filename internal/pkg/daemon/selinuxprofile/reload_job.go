@@ -143,6 +143,7 @@ const (
 	reloadJobLabelAction     = "action"
 	reloadJobLabelGeneration = "generation"
 	reloadJobLabelProfileUID = "profile-uid"
+	reloadJobLabelPolicyHash = "policy-hash"
 )
 
 // createPolicyReloadJob creates a short-lived privileged Job to run semodule -R
@@ -152,14 +153,20 @@ const (
 // reconcile which failed to record the reload does not create another job for
 // it. The UID keeps a profile which got deleted and recreated with the same
 // name, and which starts at the same generation again, from matching a job of
-// the old profile. No job is created while a job for another generation is
-// still running on the node, which the caller has to retry.
+// the old profile. The job of an installation carries the hash of the policy
+// as well, see reloadPolicy. A reload reloads the whole module store, so a job
+// of any policy which got created after neededSince, when the reload became
+// necessary, and completed, did the reload already. No job is created while
+// another one is still running on the node, which the caller has to retry,
+// so that the profiles of a node do not reload it at the same time.
 func (r *ReconcileSelinux) createPolicyReloadJob(
 	ctx context.Context,
 	policyName string,
 	kind reloadKind,
 	uid types.UID,
 	generation int64,
+	hash string,
+	neededSince time.Time,
 	l logr.Logger,
 ) (reloadJobState, error) {
 	nodeName := r.nodeName
@@ -177,6 +184,8 @@ func (r *ReconcileSelinux) createPolicyReloadJob(
 		kind,
 		uid,
 		generation,
+		hash,
+		neededSince,
 		l,
 	)
 	if err != nil || state != reloadJobCreated {
@@ -198,6 +207,7 @@ func (r *ReconcileSelinux) createPolicyReloadJob(
 		kind.action,
 		uid,
 		generation,
+		hash,
 		pod,
 		selinuxd,
 	)
@@ -219,12 +229,14 @@ func (r *ReconcileSelinux) createPolicyReloadJob(
 	return reloadJobCreated, nil
 }
 
-// existingReloadJob looks for the reload jobs of the policy on the node. If
-// one of them is for the generation of the profile with the UID, it returns
-// the state of that job, see reloadJobOfGeneration. Otherwise it returns
-// reloadJobBusy if another job is still running and reloadJobCreated if a job
-// has to be created. A finished job for another generation is no reason to
-// skip: it reloaded an older generation.
+// existingReloadJob looks for the reload jobs on the node. If one of them is
+// the one of the policy for the generation and the policy hash of the profile
+// with the UID, it returns the state of that job, see reloadJobOfGeneration.
+// Otherwise it returns reloadJobDone if a job created after neededSince
+// completed, reloadJobBusy if another job is still running and
+// reloadJobCreated if a job has to be created. A job which finished before
+// the reload became necessary is no reason to skip: it reloaded an older
+// state of the module store.
 //
 // The jobs are read through the uncached API reader: r.client is backed by a
 // cluster-scoped cache, so listing through it would start a cluster-wide Job
@@ -236,42 +248,118 @@ func (r *ReconcileSelinux) existingReloadJob(
 	kind reloadKind,
 	uid types.UID,
 	generation int64,
+	hash string,
+	neededSince time.Time,
 	l logr.Logger,
 ) (reloadJobState, error) {
 	existingJobs := &batchv1.JobList{}
 	if err := r.clientReader.List(ctx, existingJobs,
 		client.InNamespace(namespace),
 		client.MatchingLabels{
-			reloadJobLabelApp:    reloadJobApp,
-			reloadJobLabelNode:   asLabelValue(nodeName),
-			reloadJobLabelPolicy: asLabelValue(policyName),
-			reloadJobLabelAction: kind.action,
+			reloadJobLabelApp:  reloadJobApp,
+			reloadJobLabelNode: asLabelValue(nodeName),
 		}); err != nil {
 		return reloadJobBusy, fmt.Errorf("listing existing reload jobs: %w", err)
 	}
 
 	wantGeneration := strconv.FormatInt(generation, 10)
-	state := reloadJobCreated
+
+	var running, covering *batchv1.Job
 
 	for i := range existingJobs.Items {
 		job := &existingJobs.Items[i]
-		if job.Labels[reloadJobLabelGeneration] == wantGeneration &&
-			job.Labels[reloadJobLabelProfileUID] == string(uid) {
+		samePolicy := job.Labels[reloadJobLabelPolicy] == asLabelValue(policyName)
+		sameAction := job.Labels[reloadJobLabelAction] == kind.action
+
+		if samePolicy && sameAction &&
+			job.Labels[reloadJobLabelGeneration] == wantGeneration &&
+			job.Labels[reloadJobLabelProfileUID] == string(uid) &&
+			job.Labels[reloadJobLabelPolicyHash] == hash {
 			return r.reloadJobOfGeneration(ctx, job, kind, l)
 		}
 
-		if !jobFinished(job) {
-			l.Info(
-				"Reload job already running for this node, retrying later",
-				"existingJob",
-				job.Name,
-			)
-
-			state = reloadJobBusy
+		switch {
+		// The removal of a policy does not wait for the reload of its
+		// installation, which does not remove it, and the other way around.
+		case !jobFinished(job) && (sameAction || !samePolicy):
+			running = job
+		case jobCompleted(job) && !neededSince.IsZero() &&
+			job.CreationTimestamp.After(neededSince):
+			// The creation time is truncated to seconds, so a job which got
+			// created shortly after the reload became necessary may not
+			// count, but one created before it never does.
+			covering = job
 		}
 	}
 
-	return state, nil
+	switch {
+	case covering != nil:
+		l.Info("Reload job of the node reloaded the policy already", "existingJob", covering.Name)
+
+		return reloadJobDone, nil
+	case running != nil:
+		l.Info(
+			"Reload job already running for this node, retrying later",
+			"existingJob",
+			running.Name,
+		)
+
+		return reloadJobBusy, nil
+	default:
+		return reloadJobCreated, nil
+	}
+}
+
+// reloadNeed records since when the reload of a generation and policy hash of
+// a profile is necessary, see reloadNeededSince.
+type reloadNeed struct {
+	generation int64
+	hash       string
+	since      time.Time
+}
+
+// reloadNeedKey identifies the reloads of a profile by its UID and the action.
+type reloadNeedKey struct {
+	uid    types.UID
+	action string
+}
+
+// reloadNeededSince returns since when the reload of the generation and the
+// policy hash of the profile with the UID is necessary, which is now unless
+// an earlier reconcile needed it already. A completed job of the node which
+// got created after that reloaded the policy, see existingReloadJob. A
+// restart of the daemon forgets it, which costs another reload job at most.
+func (r *ReconcileSelinux) reloadNeededSince(
+	uid types.UID, kind reloadKind, generation int64, hash string, now time.Time,
+) time.Time {
+	r.reloadNeedsMu.Lock()
+	defer r.reloadNeedsMu.Unlock()
+
+	key := reloadNeedKey{uid: uid, action: kind.action}
+
+	need, ok := r.reloadNeeds[key]
+	if ok && need.generation == generation && need.hash == hash {
+		return need.since
+	}
+
+	if r.reloadNeeds == nil {
+		r.reloadNeeds = map[reloadNeedKey]reloadNeed{}
+	}
+
+	r.reloadNeeds[key] = reloadNeed{generation: generation, hash: hash, since: now}
+
+	return now
+}
+
+// forgetReloadNeeds forgets the necessary reloads of the profile with the UID
+// for the kinds, once they got recorded.
+func (r *ReconcileSelinux) forgetReloadNeeds(uid types.UID, kinds ...reloadKind) {
+	r.reloadNeedsMu.Lock()
+	defer r.reloadNeedsMu.Unlock()
+
+	for _, kind := range kinds {
+		delete(r.reloadNeeds, reloadNeedKey{uid: uid, action: kind.action})
+	}
 }
 
 // reloadJobOfGeneration returns the state of the reload job of the generation
@@ -310,13 +398,21 @@ func (r *ReconcileSelinux) reloadJobOfGeneration(
 	}
 }
 
-// reloadFailures counts the failed reload jobs of a generation of a profile.
+// reloadFailures counts the failed reload jobs of a generation and policy
+// hash of a profile.
 type reloadFailures struct {
 	uid        types.UID
 	generation int64
+	hash       string
 	count      int
 	// retryAt is when the next job may be created.
 	retryAt time.Time
+}
+
+// of returns true if the failures are the ones of the generation of the
+// profile and the policy hash.
+func (f *reloadFailures) of(sp selinuxprofileapi.SelinuxProfileObject, hash string) bool {
+	return f.uid == sp.GetUID() && f.generation == sp.GetGeneration() && f.hash == hash
 }
 
 // reloadRetryInterval returns the delay after the failures of reload jobs of a
@@ -335,13 +431,13 @@ func reloadRetryInterval(failures int) time.Duration {
 // profile has to wait after its last job failed, or zero if it does not have
 // to wait.
 func (r *ReconcileSelinux) reloadRetryDelay(
-	sp selinuxprofileapi.SelinuxProfileObject, now time.Time,
+	sp selinuxprofileapi.SelinuxProfileObject, hash string, now time.Time,
 ) time.Duration {
 	r.reloadFailuresMu.Lock()
 	defer r.reloadFailuresMu.Unlock()
 
 	failures, ok := r.reloadFailures[client.ObjectKeyFromObject(sp)]
-	if !ok || failures.uid != sp.GetUID() || failures.generation != sp.GetGeneration() {
+	if !ok || !failures.of(sp, hash) {
 		return 0
 	}
 
@@ -352,7 +448,7 @@ func (r *ReconcileSelinux) reloadRetryDelay(
 // profile. It returns the number of failed jobs of the generation and the
 // delay until the next one may be created.
 func (r *ReconcileSelinux) recordReloadFailure(
-	sp selinuxprofileapi.SelinuxProfileObject, now time.Time,
+	sp selinuxprofileapi.SelinuxProfileObject, hash string, now time.Time,
 ) (int, time.Duration) {
 	r.reloadFailuresMu.Lock()
 	defer r.reloadFailuresMu.Unlock()
@@ -360,8 +456,8 @@ func (r *ReconcileSelinux) recordReloadFailure(
 	key := client.ObjectKeyFromObject(sp)
 
 	failures := r.reloadFailures[key]
-	if failures.uid != sp.GetUID() || failures.generation != sp.GetGeneration() {
-		failures = reloadFailures{uid: sp.GetUID(), generation: sp.GetGeneration()}
+	if !failures.of(sp, hash) {
+		failures = reloadFailures{uid: sp.GetUID(), generation: sp.GetGeneration(), hash: hash}
 	}
 
 	failures.count++
@@ -411,6 +507,7 @@ func newReloadJob(
 	namespace, nodeName, policyName, action string,
 	uid types.UID,
 	generation int64,
+	hash string,
 	pod *corev1.Pod,
 	selinuxd *corev1.Container,
 ) *batchv1.Job {
@@ -440,6 +537,10 @@ func newReloadJob(
 	jobLabels[reloadJobLabelAction] = action
 	jobLabels[reloadJobLabelGeneration] = strconv.FormatInt(generation, 10)
 	jobLabels[reloadJobLabelProfileUID] = string(uid)
+
+	if hash != "" {
+		jobLabels[reloadJobLabelPolicyHash] = hash
+	}
 
 	return &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{

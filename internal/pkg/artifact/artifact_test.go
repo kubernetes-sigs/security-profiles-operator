@@ -92,6 +92,31 @@ func TestPushDisableSigning(t *testing.T) {
 	require.Zero(t, mock.SignBundleCallCount())
 }
 
+// A digest is the result of a push, it cannot be pushed to like a tag.
+func TestPushDigestReference(t *testing.T) {
+	t.Parallel()
+
+	const testDigest = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+	for _, ref := range []string{
+		"docker.io/foo/bar@" + testDigest,
+		"docker.io/foo/bar:v1@" + testDigest,
+	} {
+		mock := &artifactfakes.FakeImpl{}
+		mock.ParseReferenceStub = name.ParseReference
+
+		sut := New(logr.Discard())
+		sut.impl = mock
+
+		err := sut.Push(
+			t.Context(), map[*ocispec.Platform]string{nil: "test"}, ref, "", "", nil, nil,
+		)
+		require.ErrorIs(t, err, ErrDigestReference, ref)
+		require.Zero(t, mock.MkdirTempCallCount())
+		require.Zero(t, mock.CopyCallCount())
+	}
+}
+
 func TestPush(t *testing.T) {
 	testRef, err := name.ParseReference("docker.io/foo/bar:v1")
 	require.NoError(t, err)
@@ -621,7 +646,7 @@ func TestPull(t *testing.T) {
 			assert: func(t *testing.T, res *PullResult, err error) {
 				t.Helper()
 
-				require.ErrorIs(t, err, ErrNoSingleLayer)
+				require.ErrorIs(t, err, ErrPlatformMismatch)
 				require.Nil(t, res)
 			},
 		},
@@ -1287,6 +1312,20 @@ func TestDecodeRuntimeSpecSeccompProfile(t *testing.T) {
 			name:    "trailing data",
 			content: rawSeccompJSON + `{"defaultAction":"SCMP_ACT_ALLOW"}`,
 			wantErr: ErrTrailingData,
+		},
+		{
+			name:    "trailing closing bracket",
+			content: rawSeccompJSON + `]`,
+			wantErr: ErrTrailingData,
+		},
+		{
+			name:    "trailing closing brace",
+			content: rawSeccompJSON + "\n}\n",
+			wantErr: ErrTrailingData,
+		},
+		{
+			name:    "valid with trailing whitespace",
+			content: rawSeccompJSON + "\n\t ",
 		},
 		{
 			name:        "unknown field",

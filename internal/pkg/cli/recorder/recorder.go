@@ -93,12 +93,26 @@ func (r *Recorder) Run() error {
 		return ErrBPFLSMDisabled
 	}
 
+	commandName := r.options.commandOptions.Command()
+
 	r.bpfRecorder = bpfrecorder.New(
-		r.options.commandOptions.Command(),
+		commandName,
 		cli.Logger(),
 		recordSeccomp,
 		recordAppArmor,
 	)
+
+	// The command name filters the processes by their comm, while the
+	// AppArmor recorder compares the program with the absolute paths of the
+	// files it maps.
+	if recordAppArmor {
+		programPath, err := cli.ExecutablePath(commandName)
+		if err != nil {
+			return fmt.Errorf("get program path: %w", err)
+		}
+
+		r.bpfRecorder.AppArmor.SetProgramPath(programPath)
+	}
 
 	if err := r.LoadBpfRecorder(r.bpfRecorder); err != nil {
 		return fmt.Errorf("load: %w", err)
@@ -163,8 +177,9 @@ func (r *Recorder) recordCommand() (mntns uint32, err error) {
 		<-ch
 
 		// A further signal while the profile gets built ends spoc, like
-		// for the other commands.
-		r.StopNotify(ch)
+		// for the other commands, unless it is the same signal delivered
+		// twice.
+		go cli.IgnoreDuplicateSignals(ch, func() { r.StopNotify(ch) })
 
 		return 0, nil
 	}
@@ -270,9 +285,13 @@ func (r *Recorder) processSeccomp(writer io.Writer, mntns uint32) error {
 
 		for id, found := range syscallsValue {
 			if found != 0 {
+				// A libseccomp older than the kernel cannot name every
+				// syscall, which must not lose the whole recording.
 				name, err := r.GetName(libseccomp.ScmpSyscall(id))
 				if err != nil {
-					return fmt.Errorf("get syscall name for id %d: %w", id, err)
+					log.Printf("WARNING: Skipping syscall ID %d: get syscall name: %v", id, err)
+
+					continue
 				}
 
 				syscallsMap[name] = true

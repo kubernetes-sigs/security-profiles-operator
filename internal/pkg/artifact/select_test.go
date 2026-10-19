@@ -110,6 +110,12 @@ func TestSelectLayer(t *testing.T) {
 			name:     "no layer of the platform",
 			manifest: &ocispec.Manifest{Layers: []ocispec.Descriptor{platformLayer(amd64), platformLayer(arm64v8)}},
 			platform: &ocispec.Platform{OS: "linux", Architecture: "s390x"},
+			wantErr:  ErrPlatformMismatch,
+		},
+		{
+			name:     "no single layer without platforms",
+			manifest: &ocispec.Manifest{Layers: []ocispec.Descriptor{testLayer("a"), testLayer("b")}},
+			platform: amd64,
 			wantErr:  ErrNoSingleLayer,
 		},
 		{
@@ -134,6 +140,21 @@ func TestSelectLayer(t *testing.T) {
 			require.Equal(t, tc.want, *layer)
 		})
 	}
+}
+
+// The error of a multi platform artifact without a layer of the platform
+// tells which platforms the artifact has.
+func TestSelectLayerNamesAvailablePlatforms(t *testing.T) {
+	t.Parallel()
+
+	amd64 := &ocispec.Platform{OS: "linux", Architecture: "amd64"}
+
+	_, _, err := selectLayer(&ocispec.Manifest{Layers: []ocispec.Descriptor{
+		platformLayer(amd64), testLayer("profile-linux-arm64.yaml"),
+	}}, &ocispec.Platform{OS: "linux", Architecture: "s390x"})
+	require.ErrorIs(t, err, ErrPlatformMismatch)
+	require.ErrorContains(t, err, `requested "linux/s390x"`)
+	require.ErrorContains(t, err, "available linux/amd64, profile-linux-arm64.yaml")
 }
 
 // memoryStorage is a content.ReadOnlyStorage which serves blobs from memory.

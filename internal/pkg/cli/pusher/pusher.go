@@ -60,19 +60,25 @@ func (p *Pusher) Run() error {
 			OIDCDeviceFlow:            p.options.oidcDeviceFlow,
 		},
 	); err != nil {
-		return fmt.Errorf("push profile: %w", withSigningHint(err))
+		return fmt.Errorf("push profile: %w", withSigningHint(err, p.options.plainHTTP))
 	}
 
 	return nil
 }
 
 // withSigningHint adds how to go on to a signing error: sign the pushed
-// artifact afterwards, or push without signature if there is no identity.
-func withSigningHint(err error) error {
+// artifact afterwards, over plain HTTP if the push used it, or push without
+// signature if there is no identity.
+func withSigningHint(err error, plainHTTP bool) error {
 	if unsigned, ok := errors.AsType[*artifact.UnsignedError](err); ok {
+		flags := ""
+		if plainHTTP {
+			flags = "--" + FlagPlainHTTP + " "
+		}
+
 		return fmt.Errorf(
-			"%w; once the cause is fixed, sign it with `spoc sign %s`",
-			err, unsigned.Reference,
+			"%w; once the cause is fixed, sign it with `spoc sign %s%s`",
+			err, flags, unsigned.Reference,
 		)
 	}
 

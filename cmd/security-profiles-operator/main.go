@@ -28,10 +28,12 @@ import (
 	_ "net/http/pprof" //nolint:gosec // required for profiling
 	"os"
 	"os/exec"
+	"os/signal"
 	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
@@ -1923,7 +1925,7 @@ func runSpoc(ctx context.Context, args []string, stdin io.Reader, stdout, stderr
 	c.Stdout = stdout
 	c.Stderr = stderr
 
-	if err := c.Run(); err != nil {
+	if err := runForwardingSignals(c, stderr); err != nil {
 		// A spoc killed by a signal exits like a shell reports it.
 		if code, ok := command.ExitCode(err); ok {
 			return cli.Exit("", code)
@@ -1933,4 +1935,57 @@ func runSpoc(ctx context.Context, args []string, stdin io.Reader, stdout, stderr
 	}
 
 	return nil
+}
+
+// forwardedSpocSignals are the signals which this process forwards to spoc
+// instead of terminating, so that spoc is not left behind.
+var forwardedSpocSignals = []os.Signal{
+	os.Interrupt, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT,
+}
+
+// runForwardingSignals runs the command and waits for it, while this process
+// forwards the signals which would terminate it to the command: spoc handles
+// them itself, for example by writing the recorded profile, and must not be
+// left behind. A signal which reaches both processes, like the SIGINT of a
+// terminal or a SIGTERM sent to the process group, reaches spoc twice in a
+// short time, which spoc takes as a single one.
+func runForwardingSignals(c *exec.Cmd, stderr io.Writer) error {
+	// Subscribe before the start, a signal in between would otherwise
+	// terminate this process and leave spoc running.
+	signals := make(chan os.Signal, len(forwardedSpocSignals))
+	signal.Notify(signals, forwardedSpocSignals...)
+
+	if err := c.Start(); err != nil {
+		signal.Stop(signals)
+
+		return err
+	}
+
+	done := make(chan struct{})
+
+	defer func() {
+		signal.Stop(signals)
+		close(done)
+	}()
+
+	go forwardSignals(signals, c.Process, stderr, done)
+
+	return c.Wait()
+}
+
+// forwardSignals forwards the signals to the process until done gets closed,
+// and reports the failures to stderr.
+func forwardSignals(
+	signals <-chan os.Signal, process *os.Process, stderr io.Writer, done <-chan struct{},
+) {
+	for {
+		select {
+		case sig := <-signals:
+			if err := process.Signal(sig); err != nil && !errors.Is(err, os.ErrProcessDone) {
+				fmt.Fprintf(stderr, "Unable to forward %s to %s: %v\n", sig, spocCmd, err)
+			}
+		case <-done:
+			return
+		}
+	}
 }

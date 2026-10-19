@@ -82,6 +82,9 @@ type JsonEnricher struct {
 	// nodeName is the node the enricher runs on, from the node name
 	// environment variable.
 	nodeName string
+	// warned holds the warnings about unknown syscalls which got logged
+	// already, which would otherwise be logged for every audit line.
+	warned onceWarner
 }
 
 type JsonEnricherOptions struct {
@@ -564,9 +567,12 @@ func (e *JsonEnricher) dispatchSeccompLine(
 	for syscall := range logBucket.SyscallIds {
 		syscallName, err := syscallName(syscall.ID, syscall.Arch)
 		if err != nil {
-			e.logger.Error(
-				err,
-				"no syscall name found for ID", "syscallId", syscall.ID, "arch", syscall.Arch,
+			e.warned.warn(
+				e.logger, unknownSyscallKey(syscall.Arch),
+				"no syscall name found for ID",
+				"syscallId", syscall.ID,
+				"arch", syscall.Arch,
+				"error", err.Error(),
 			)
 
 			continue
