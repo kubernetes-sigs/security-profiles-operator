@@ -18,7 +18,7 @@ set -euo pipefail
 # shellcheck source=hack/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
-KUBERNIX_VERSION=v0.4.2
+KUBERNIX_VERSION=v0.4.3
 KUBERNIX_ROOT=/var/lib/kubernix
 KUBERNIX_NODE=kubernix
 KUBERNIX_LOG=${RUNNER_TEMP:-/tmp}/kubernix.log
@@ -26,8 +26,8 @@ KUBERNIX_LOG=${RUNNER_TEMP:-/tmp}/kubernix.log
 export SPO_KUBELET_DIR=$KUBERNIX_ROOT/kubelet/$KUBERNIX_NODE/run
 
 declare -A KUBERNIX_SHA256=(
-  [x86_64]=fdb61e53148da60e112ca575531e5a310293cf40c1de306358f5250c243986b1
-  [aarch64]=f702588ead795c8de5069da6421f3541efa6397e5338fc81c7cf5253875f88e3
+  [x86_64]=f52d8e90282468a11ba585cca36b6110104c5573395dacdd101953d055e5677f
+  [aarch64]=fa03f7cfbf21e7ba210603eb6aa459830ab9b55b5d5bb3558a5db632dec7cccb
 )
 
 # Runs a command in the Nix environment of the cluster, which provides the
@@ -63,15 +63,8 @@ start_kubernix() {
   echo "nameserver 8.8.8.8" | sudo tee /etc/resolv.conf
   sudo systemctl stop systemd-resolved || true
 
-  sudo modprobe overlay
-  sudo modprobe br_netfilter
-  sudo sysctl -w \
-    net.bridge.bridge-nf-call-ip6tables=1 \
-    net.bridge.bridge-nf-call-iptables=1 \
-    net.ipv4.conf.all.route_localnet=1 \
-    net.ipv4.ip_forward=1
-
   echo "Starting kubernix, logging to $KUBERNIX_LOG"
+  # kubernix loads the kernel modules and sets the network sysctls on its own.
   # The cluster keeps running in the background for the following steps, the
   # runner only stops it at the end of the job. The log is written by the user,
   # so that it can be read without sudo.
