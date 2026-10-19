@@ -23,9 +23,11 @@ import (
 	"flag"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"syscall"
 	"testing"
 
 	configv1 "github.com/openshift/api/config/v1"
@@ -128,6 +130,43 @@ func TestRunSpoc(t *testing.T) {
 		require.False(t, isExitCoder)
 		require.ErrorContains(t, err, "running spoc")
 	})
+}
+
+// The signals reach spoc, which takes a duplicated one as a single one.
+func TestForwardSignals(t *testing.T) {
+	t.Parallel()
+
+	sleep, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Skip("sleep not found")
+	}
+
+	for _, sig := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP} {
+		t.Run(sig.String(), func(t *testing.T) {
+			t.Parallel()
+
+			c := exec.CommandContext(t.Context(), sleep, "60")
+			require.NoError(t, c.Start())
+
+			signals := make(chan os.Signal, 1)
+			done := make(chan struct{})
+
+			defer close(done)
+
+			stderr := &bytes.Buffer{}
+
+			go forwardSignals(signals, c.Process, stderr, done)
+
+			signals <- sig
+
+			require.Error(t, c.Wait())
+
+			status, ok := c.ProcessState.Sys().(syscall.WaitStatus)
+			require.True(t, ok)
+			require.True(t, status.Signaled())
+			require.Equal(t, sig, status.Signal())
+		})
+	}
 }
 
 func TestGetEnabledControllers(t *testing.T) {

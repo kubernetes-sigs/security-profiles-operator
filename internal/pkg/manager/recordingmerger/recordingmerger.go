@@ -48,15 +48,13 @@ import (
 const (
 	reconcileTimeout = 1 * time.Minute
 
-	errGetRecording       = "cannot get profile recording"
-	errMergingRec         = "cannot merge recorded profiles"
-	errCannotMergeKind    = "cannot merge profiles of kind"
-	errNoPartialProfiles  = "no partial profiles to merge"
-	errEmptyMergedProfile = "merged profile is empty"
+	errGetRecording      = "cannot get profile recording"
+	errMergingRec        = "cannot merge recorded profiles"
+	errCannotMergeKind   = "cannot merge profiles of kind"
+	errNoPartialProfiles = "no partial profiles to merge"
 
 	reasonCannotMergeKind       string = "KindNotSupportedForMerge"
 	reasonCannotCreateUpdate    string = "CannotCreateUpdateMergedProfile"
-	reasonMergedEmptyProfile    string = "MergedEmptyProfile"
 	reasonNoPartialProfiles     string = "NoPartialProfiles"
 	reasonMergedProfileConflict string = "MergedProfileConflict"
 
@@ -384,25 +382,6 @@ func (r *PolicyMergeReconciler) mergeTypedProfiles(
 			return true, nil, fmt.Errorf("cannot merge partial profiles: %w", err)
 		}
 
-		if mergedProfile == nil {
-			r.record.Eventf(
-				profileRecording,
-				nil,
-				corev1.EventTypeWarning,
-				reasonMergedEmptyProfile,
-				util.EventActionMerge,
-				"%s",
-				errEmptyMergedProfile,
-			)
-			r.log.Info(errEmptyMergedProfile, "container", cntName)
-
-			// Defensive only: mergeMergeableProfiles returns a nil profile just
-			// with a non-nil error, which is handled above. If that ever
-			// changes, skip only this container, because the remaining ones
-			// still need to be merged and their partial profiles cleaned up.
-			continue
-		}
-
 		mergedRecordingName := util.RecordedProfileName(profileRecording.Name, cntName, "")
 
 		res, err := createUpdateProfile(
@@ -528,44 +507,34 @@ func setMergedSpec(obj client.Object, merged mergeableProfile) error {
 // mergeInto merges the provided partial profiles into the freshly fetched
 // object. The partial profiles get deleted after each merge and the profile
 // recorder may write into the same profile, so the existing profile has to
-// be kept. Profiles created before the recording belong to a previous
-// recording with the same name and get replaced. It returns whether the
-// existing profile was kept.
+// be kept: the rules of the partial profiles get added to it, while its other
+// attributes, like the default action of a seccomp profile, stay the same.
+// Only the state comes from the partial profiles, like when the profile
+// recorder merges into the profile. Profiles created before the recording
+// belong to a previous recording with the same name and get replaced. It
+// returns whether the existing profile was kept.
 func mergeInto(
 	obj client.Object,
 	partial mergeableProfile,
 	profileRecording *profilerecordingapi.ProfileRecording,
 ) (kept bool, err error) {
-	partialObj, ok := partial.getProfile().DeepCopyObject().(client.Object)
-	if !ok {
-		return false, fmt.Errorf("copy %T: not a client.Object", partial.getProfile())
-	}
-
-	// Merge into a copy, because a retry after a conflict starts over.
-	merged, err := newMergeableProfile(partialObj)
-	if err != nil {
-		return false, fmt.Errorf("cannot create mergeable profile: %w", err)
-	}
-
 	existingCreated := obj.GetCreationTimestamp()
 	recordingCreated := profileRecording.GetCreationTimestamp()
+	kept = obj.GetResourceVersion() != "" && !existingCreated.Before(&recordingCreated)
 
-	if obj.GetResourceVersion() != "" && !existingCreated.Before(&recordingCreated) {
-		existingObj, ok := obj.DeepCopyObject().(client.Object)
-		if !ok {
-			return false, fmt.Errorf("copy %T: not a client.Object", obj)
-		}
+	desired := partial.getProfile()
 
-		existing, err := newMergeableProfile(existingObj)
+	// Merge into copies, because a retry after a conflict starts over.
+	if kept {
+		desired, err = MergeIntoStored(obj, desired)
 		if err != nil {
-			return false, fmt.Errorf("cannot create mergeable profile: %w", err)
-		}
-
-		if err := merged.merge(existing); err != nil {
 			return false, fmt.Errorf("failed to merge existing profile %s: %w", obj.GetName(), err)
 		}
+	}
 
-		kept = true
+	merged, err := newMergeableProfile(desired)
+	if err != nil {
+		return false, fmt.Errorf("cannot create mergeable profile: %w", err)
 	}
 
 	return kept, setMergedSpec(obj, merged)
@@ -666,8 +635,10 @@ func createUpdateProfile(
 	coverage []partialCoverage,
 	namesakes *namesakeRecordings,
 ) (res controllerutil.OperationResult, err error) {
+	// The partial profiles get deleted after a successful merge, so a kind
+	// which cannot be merged has to fail.
 	if newProfileObject(kind, mergedRecordingName, profileRecording) == nil {
-		return controllerutil.OperationResultNone, nil
+		return controllerutil.OperationResultNone, fmt.Errorf("%s: %s", errCannotMergeKind, kind)
 	}
 
 	if namesakes == nil {

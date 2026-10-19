@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"maps"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -140,30 +141,32 @@ func deniedOptionsFromOpts(opts *Options) *deniedOptions {
 		return denied
 	}
 
-	// Remove allowed types, classes, and permissions from the default denylist.
+	// Remove allowed types, classes, and permissions from the default
+	// denylist. The names are compared without their empty dot separated
+	// components, see globalName.
 	for _, t := range opts.AllowedTypes {
-		delete(denied.deniedTypes, t)
+		delete(denied.deniedTypes, globalName(t))
 	}
 
 	for _, c := range opts.AllowedClasses {
-		delete(denied.deniedClasses, c)
+		delete(denied.deniedClasses, globalName(c))
 	}
 
 	for _, p := range opts.AllowedPermissions {
-		delete(denied.deniedPermissions, p)
+		delete(denied.deniedPermissions, globalName(p))
 	}
 
 	// Add user-specified denied types, classes, and permissions to the denylist.
 	for _, t := range opts.DeniedTypes {
-		denied.deniedTypes[t] = struct{}{}
+		denied.deniedTypes[globalName(t)] = struct{}{}
 	}
 
 	for _, c := range opts.DeniedClasses {
-		denied.deniedClasses[c] = struct{}{}
+		denied.deniedClasses[globalName(c)] = struct{}{}
 	}
 
 	for _, p := range opts.DeniedPermissions {
-		denied.deniedPermissions[p] = struct{}{}
+		denied.deniedPermissions[globalName(p)] = struct{}{}
 	}
 
 	return denied
@@ -291,21 +294,35 @@ func validateSemanticRule(opts *deniedOptions, ttype selinuxprofileapi.LabelKey,
 		}
 	}
 
-	if _, ok := opts.deniedTypes[ttype.String()]; ok {
+	// CIL resolves a name with leading dots, for example ".kernel_t", to the
+	// symbol in the global namespace, so the names are compared with the
+	// denylists without their empty dot separated components, see
+	// globalName.
+	if _, ok := opts.deniedTypes[globalName(ttype.String())]; ok {
 		return fmt.Errorf("type %s is denied", ttype)
 	}
 
-	if _, ok := opts.deniedClasses[class.String()]; ok {
+	if _, ok := opts.deniedClasses[globalName(class.String())]; ok {
 		return fmt.Errorf("class %s is denied", class)
 	}
 
 	for _, perm := range perms {
-		if _, ok := opts.deniedPermissions[perm]; ok {
+		if _, ok := opts.deniedPermissions[globalName(perm)]; ok {
 			return fmt.Errorf("permission %s is denied", perm)
 		}
 	}
 
 	return nil
+}
+
+// globalName returns the name without its empty dot separated components. CIL
+// resolves a name with a leading dot in the global namespace and ignores the
+// empty components of it, so ".kernel_t", ".kernel_t." and "..kernel_t.." all
+// name kernel_t.
+func globalName(name string) string {
+	return strings.Join(slices.DeleteFunc(strings.Split(name, "."), func(part string) bool {
+		return part == ""
+	}), ".")
 }
 
 func getCILStart(sp *selinuxprofileapi.SelinuxProfile) string {

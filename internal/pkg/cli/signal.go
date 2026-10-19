@@ -20,23 +20,68 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
+	"time"
 )
+
+// DuplicateSignalWindow is how long another signal after a first one counts
+// as the same delivery. A signal sent to the process group of spoc, like the
+// SIGINT of a terminal, reaches spoc once directly and once more through a
+// parent which forwards it, like the spoc command of the operator.
+const DuplicateSignalWindow = time.Second
+
+// IgnoreDuplicateSignals receives the signals of ch for the
+// DuplicateSignalWindow after a first signal, and calls stop afterwards, which
+// restores the default handling of the signals. It blocks until then.
+func IgnoreDuplicateSignals(ch <-chan os.Signal, stop func()) {
+	timer := time.NewTimer(DuplicateSignalWindow)
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-ch:
+		case <-timer.C:
+			stop()
+
+			return
+		}
+	}
+}
 
 // SignalContext returns a context which gets canceled on the signals which
 // terminate spoc otherwise, so that commands can clean up, for example their
 // temporary files. The returned function restores the default handling.
 //
-// The first signal restores the default handling as well, so that a second
-// one terminates spoc. Some steps do not stop on the context, like an
-// interactive sign in or a TUF refresh, and would otherwise keep spoc running
-// with every further signal ignored.
+// The default handling gets restored shortly after the first signal as well,
+// so that a further one terminates spoc, see IgnoreDuplicateSignals. Some
+// steps do not stop on the context, like an interactive sign in or a TUF
+// refresh, and would otherwise keep spoc running with every further signal
+// ignored.
 func SignalContext() (context.Context, context.CancelFunc) {
-	ctx, stop := signal.NotifyContext(
-		context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP,
-	)
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 
-	context.AfterFunc(ctx, stop)
+	ctx, cancel := context.WithCancel(context.Background())
 
-	return ctx, stop
+	var once sync.Once
+
+	stopNotify := func() {
+		once.Do(func() { signal.Stop(signals) })
+	}
+
+	go func() {
+		select {
+		case <-signals:
+			cancel()
+			IgnoreDuplicateSignals(signals, stopNotify)
+		case <-ctx.Done():
+			stopNotify()
+		}
+	}()
+
+	return ctx, func() {
+		cancel()
+		stopNotify()
+	}
 }

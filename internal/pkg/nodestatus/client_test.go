@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -483,6 +484,33 @@ func TestAnnotations(t *testing.T) {
 	status, err = nodeStatus(t, c, wantStatusName)
 	require.NoError(t, err)
 	require.Equal(t, version, status.ResourceVersion)
+}
+
+// Several annotations are written in a single update.
+func TestSetAnnotations(t *testing.T) {
+	t.Parallel()
+
+	sp := preparedProfile()
+	existing := newStatusClient(t, sp, nil).statusObj(secprofnodestatusapi.ProfileStatePending)
+	c := newFakeClient(t, sp.DeepCopy(), existing)
+	sc := newStatusClient(t, sp, c)
+	ctx := context.Background()
+
+	before, err := nodeStatus(t, c, wantStatusName)
+	require.NoError(t, err)
+
+	require.NoError(t, sc.SetAnnotations(ctx, map[string]string{"a": "1", "b": "2"}))
+
+	after, err := nodeStatus(t, c, wantStatusName)
+	require.NoError(t, err)
+	require.Equal(t, "1", after.Annotations["a"])
+	require.Equal(t, "2", after.Annotations["b"])
+
+	beforeVersion, err := strconv.Atoi(before.ResourceVersion)
+	require.NoError(t, err)
+	afterVersion, err := strconv.Atoi(after.ResourceVersion)
+	require.NoError(t, err)
+	require.Equal(t, beforeVersion+1, afterVersion, "one update for both annotations")
 }
 
 func TestAnnotationsWithoutStatusObject(t *testing.T) {

@@ -846,3 +846,113 @@ func TestObject2CILUserNamespaceCapabilities(t *testing.T) {
 	})
 	require.ErrorContains(t, err, "class cap_userns is denied")
 }
+
+// CIL resolves names with leading dots to the global namespace, so they must
+// not bypass the denylists.
+func TestObject2CILDeniesGlobalNames(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name    string
+		allow   selinuxprofileapi.Allow
+		wantErr string
+	}{
+		{
+			name:    "type",
+			allow:   selinuxprofileapi.Allow{".kernel_t": {"file": {"read"}}},
+			wantErr: "type .kernel_t is denied",
+		},
+		{
+			name:    "type with several dots",
+			allow:   selinuxprofileapi.Allow{"..shadow_t": {"file": {"read"}}},
+			wantErr: "type ..shadow_t is denied",
+		},
+		{
+			name:    "type with a trailing dot",
+			allow:   selinuxprofileapi.Allow{".kernel_t.": {"file": {"read"}}},
+			wantErr: "type .kernel_t. is denied",
+		},
+		{
+			name:    "type with doubled outer dots",
+			allow:   selinuxprofileapi.Allow{"..shadow_t..": {"file": {"read"}}},
+			wantErr: "type ..shadow_t.. is denied",
+		},
+		{
+			name:    "class with a trailing dot",
+			allow:   selinuxprofileapi.Allow{"var_log_t": {".capability.": {"sys_admin"}}},
+			wantErr: "class .capability. is denied",
+		},
+		{
+			name:    "permission with a trailing dot",
+			allow:   selinuxprofileapi.Allow{"var_log_t": {"file": {"read", ".relabelto."}}},
+			wantErr: "permission .relabelto. is denied",
+		},
+		{
+			name:    "class",
+			allow:   selinuxprofileapi.Allow{"var_log_t": {".security": {"read"}}},
+			wantErr: "class .security is denied",
+		},
+		{
+			name:    "permission",
+			allow:   selinuxprofileapi.Allow{"var_log_t": {"file": {"read", ".relabelto"}}},
+			wantErr: "permission .relabelto is denied",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			sp := &selinuxprofileapi.SelinuxProfile{
+				ObjectMeta: metav1.ObjectMeta{Name: "foo"},
+				Spec:       selinuxprofileapi.SelinuxProfileSpec{Allow: tc.allow},
+			}
+
+			got, err := Object2CIL([]string{"container"}, nil, sp, nil)
+			require.ErrorContains(t, err, tc.wantErr)
+			require.Empty(t, got)
+		})
+	}
+}
+
+// The entries of the lists of the SPOD are compared without their leading
+// dots as well, so that they cover the same type either way.
+func TestObject2CILListEntriesWithGlobalNames(t *testing.T) {
+	t.Parallel()
+
+	sp := &selinuxprofileapi.SelinuxProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: "foo"},
+		Spec: selinuxprofileapi.SelinuxProfileSpec{
+			Allow: selinuxprofileapi.Allow{"foo_t": {"file": {"read"}}},
+		},
+	}
+
+	_, err := Object2CIL([]string{"container"}, nil, sp, &Options{
+		DeniedTypes: []string{".foo_t"},
+	})
+	require.ErrorContains(t, err, "type foo_t is denied")
+
+	sp.Spec.Allow = selinuxprofileapi.Allow{"kernel_t": {"file": {"read"}}}
+
+	got, err := Object2CIL([]string{"container"}, nil, sp, &Options{
+		AllowedTypes: []string{".kernel_t"},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, got)
+}
+
+// globalName drops the empty dot separated components, which CIL ignores in a
+// name with a leading dot.
+func TestGlobalName(t *testing.T) {
+	t.Parallel()
+
+	for name, want := range map[string]string{
+		"kernel_t":            "kernel_t",
+		".kernel_t":           "kernel_t",
+		".kernel_t.":          "kernel_t",
+		"..kernel_t..":        "kernel_t",
+		".container..process": "container.process",
+		"container.process":   "container.process",
+		"...":                 "",
+	} {
+		require.Equal(t, want, globalName(name), name)
+	}
+}

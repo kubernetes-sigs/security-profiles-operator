@@ -19,6 +19,8 @@ package selinuxprofile
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -29,6 +31,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -94,6 +97,9 @@ const (
 
 const (
 	reloadInstallGenerationAnnotation = "spo.x-k8s.io/selinux-policy-reload-generation"
+	// reloadInstallPolicyHashAnnotation records the hash of the policy whose
+	// installation got reloaded, see policyHash.
+	reloadInstallPolicyHashAnnotation = "spo.x-k8s.io/selinux-policy-reload-hash"
 	reloadRemoveGenerationAnnotation  = "spo.x-k8s.io/selinux-policy-reload-remove-generation"
 
 	// policyWrittenAnnotation is set on the node status of a profile before
@@ -150,11 +156,23 @@ type ReconcileSelinux struct {
 	// installed, per profile, see reportInstallError.
 	reported common.Reports[installError]
 
+	// reloadNeedsMu guards reloadNeeds.
+	reloadNeedsMu sync.Mutex
+	// reloadNeeds holds since when the reloads which are not recorded yet
+	// are necessary, per profile and action, see reloadNeededSince.
+	reloadNeeds map[reloadNeedKey]reloadNeed
+
 	// reloadFailuresMu guards reloadFailures.
 	reloadFailuresMu sync.Mutex
 	// reloadFailures counts the failed install reload jobs of the current
 	// generation, per profile, see reloadRetryDelay.
 	reloadFailures map[types.NamespacedName]reloadFailures
+
+	// selinuxdDownMu guards selinuxdDownSince.
+	selinuxdDownMu sync.Mutex
+	// selinuxdDownSince is when connecting to selinuxd started to fail, see
+	// selinuxdUp. It is zero while selinuxd can be connected to.
+	selinuxdDownSince time.Time
 
 	// removalsCounted holds the UID of the profiles whose removal got
 	// counted in the metrics, as a retried deletion or the deletion of a
@@ -481,7 +499,7 @@ func (r *ReconcileSelinux) reconcilePolicy(
 		return reconcile.Result{}, err
 	}
 
-	if res, done, err := r.waitForAncestors(ctx, sp, oh, nodeStatus, l); done {
+	if res, done, err := r.waitForAncestors(ctx, sp, oh, nodeStatus, cil, l); done {
 		return res, err
 	}
 
@@ -507,7 +525,7 @@ func (r *ReconcileSelinux) reconcilePolicy(
 		return r.waitForSelinuxd(ctx, sp, nodeStatus)
 	}
 
-	return r.handlePolicyStatus(ctx, sp, nodeStatus, l)
+	return r.handlePolicyStatus(ctx, sp, nodeStatus, policyHash(cil), l)
 }
 
 // waitForSelinuxd marks the policy as being installed and checks again after
@@ -536,7 +554,7 @@ func (r *ReconcileSelinux) checkPreconditions(
 	nodeStatus *nodestatus.StatusClient,
 	l logr.Logger,
 ) (reconcile.Result, bool, error) {
-	selinuxdReady, err := isSelinuxdReady(ctx, r.httpc)
+	selinuxdReady, err := r.selinuxdUp(ctx)
 	if err != nil {
 		r.reportError(sp, reasonCannotContactSelinuxd, util.EventActionInstall, err.Error())
 
@@ -635,12 +653,15 @@ func (r *ReconcileSelinux) checkConflicts(
 
 // waitForAncestors returns true with the result of the reconcile if the
 // profiles the policy inherits from are not installed yet: the policy inherits
-// their blocks, so it can only be installed after them.
+// their blocks, so it can only be installed after them. An installed policy
+// whose file stays the same does not get installed again, so it does not wait
+// for an inherited profile which is being updated.
 func (r *ReconcileSelinux) waitForAncestors(
 	ctx context.Context,
 	sp selinuxprofileapi.SelinuxProfileObject,
 	oh SelinuxObjectHandler,
 	nodeStatus *nodestatus.StatusClient,
+	cil string,
 	l logr.Logger,
 ) (reconcile.Result, bool, error) {
 	installed, err := r.inheritedProfilesInstalled(ctx, oh, l)
@@ -663,7 +684,7 @@ func (r *ReconcileSelinux) waitForAncestors(
 		return reconcile.Result{}, true, fmt.Errorf("checking inherited profiles: %w", err)
 	}
 
-	if installed {
+	if installed || r.installedAndUnchanged(ctx, sp, nodeStatus, cil) {
 		return reconcile.Result{}, false, nil
 	}
 
@@ -678,12 +699,31 @@ func (r *ReconcileSelinux) waitForAncestors(
 	return reconcile.Result{RequeueAfter: common.Wait}, true, nil
 }
 
+// installedAndUnchanged returns true if the node status tells that the policy
+// is installed and the policy file on disk holds the CIL policy already.
+func (r *ReconcileSelinux) installedAndUnchanged(
+	ctx context.Context,
+	sp selinuxprofileapi.SelinuxProfileObject,
+	nodeStatus *nodestatus.StatusClient,
+	cil string,
+) bool {
+	installed, err := nodeStatus.Matches(ctx, secprofnodestatusapi.ProfileStateInstalled)
+	if err != nil || !installed {
+		return false
+	}
+
+	content, err := os.ReadFile(r.policyPath(sp))
+
+	return err == nil && bytes.Equal(content, []byte(cil))
+}
+
 // handlePolicyStatus records the status of the policy which selinuxd reports
-// and reloads an installed policy.
+// and reloads an installed policy, whose hash is hash, see policyHash.
 func (r *ReconcileSelinux) handlePolicyStatus(
 	ctx context.Context,
 	sp selinuxprofileapi.SelinuxProfileObject,
 	nodeStatus *nodestatus.StatusClient,
+	hash string,
 	l logr.Logger,
 ) (reconcile.Result, error) {
 	l.V(config.VerboseLevel).Info("Checking if policy deployed", "policyName", sp.GetPolicyName())
@@ -725,7 +765,7 @@ func (r *ReconcileSelinux) handlePolicyStatus(
 		r.removalsCounted.Forget(client.ObjectKeyFromObject(sp))
 
 		reportInstalled = !alreadyInstalled
-		reloadRes, reloadErr = r.reloadInstalledPolicy(ctx, sp, nodeStatus, l)
+		reloadRes, reloadErr = r.reloadInstalledPolicy(ctx, sp, nodeStatus, hash, l)
 	case failedStatus:
 		polState = secprofnodestatusapi.ProfileStateError
 		message = fmt.Sprintf(
@@ -779,9 +819,13 @@ func (r *ReconcileSelinux) reconcileDisabledPolicy(
 				return r.reconcileDeletePolicy(ctx, sp, nodeStatus, l)
 			},
 			// The policy is not on the node anymore until it gets written
-			// again.
+			// and installed again.
 			AfterRemove: func() error {
-				return nodeStatus.SetAnnotation(ctx, policyWrittenAnnotation, "")
+				return nodeStatus.SetAnnotations(ctx, map[string]string{
+					policyWrittenAnnotation:           "",
+					reloadInstallGenerationAnnotation: "",
+					reloadInstallPolicyHashAnnotation: "",
+				})
 			},
 		},
 	)
@@ -826,7 +870,8 @@ func (r *ReconcileSelinux) policyInstalled(
 // module is ours if the policy file is on disk, or if the node status shows
 // that the policy got installed on the node before, for example by a SPOd pod
 // which has been replaced since. The node status moves past pending only
-// after the policy file got written.
+// after the policy file got written, and it records the reload of an
+// installation even if the profile failed afterwards.
 func (r *ReconcileSelinux) conflictsWithSystemModule(
 	ctx context.Context,
 	sp selinuxprofileapi.SelinuxProfileObject,
@@ -845,6 +890,21 @@ func (r *ReconcileSelinux) conflictsWithSystemModule(
 	state, err := nodeStatus.State(ctx)
 	if err != nil && !kerrors.IsNotFound(err) {
 		return false, fmt.Errorf("getting node status: %w", err)
+	}
+
+	// A profile which failed or waits for its inherited profiles after it
+	// got installed keeps its module when the emptyDir of a restarted SPOd
+	// pod loses the policy file. The reload of the installation is only
+	// recorded once selinuxd installed the policy, unlike the written policy
+	// file, which may have failed to install. It is removed with the policy,
+	// so it does not outlive a disabled profile.
+	installed, err := nodeStatus.GetAnnotation(ctx, reloadInstallGenerationAnnotation)
+	if err != nil && !kerrors.IsNotFound(err) {
+		return false, fmt.Errorf("getting the installation reload annotation: %w", err)
+	}
+
+	if installed != "" {
+		return false, nil
 	}
 
 	switch state {
@@ -989,6 +1049,9 @@ type reloadKind struct {
 	action string
 	// annotation of the node status records the reloaded generation.
 	annotation string
+	// hashAnnotation of the node status records the hash of the reloaded
+	// policy, if the reload depends on the content of the policy.
+	hashAnnotation string
 	// eventAction is the action of the events about the reload.
 	eventAction string
 	// waitForCompletion records the reload only once the job completed, and
@@ -1003,6 +1066,7 @@ var (
 	installReload = reloadKind{
 		action:            "install",
 		annotation:        reloadInstallGenerationAnnotation,
+		hashAnnotation:    reloadInstallPolicyHashAnnotation,
 		eventAction:       util.EventActionInstall,
 		waitForCompletion: true,
 	}
@@ -1018,19 +1082,25 @@ var (
 )
 
 // reloadPolicy makes sure that a job reloads the kernel policy once per
-// generation of the profile and action, which it records in the annotation of
-// the node status. It requeues while a reload job of another generation is
-// still running, because it may have started before the change of the policy,
-// and while the job of an installation runs. Nothing else triggers a reconcile
-// then. A failed job of an installation is deleted, and a new one gets
-// created after a backoff, see retryFailedReload. A failure to record the
-// reload is returned, so that the reconcile retries: the job carries the
-// generation, so the retry does not create another one.
+// generation of the profile and action, which it records in the annotations of
+// the node status. The reload of an installation depends on the hash of the
+// policy as well: an update of the operator can change the policy of a
+// generation, which selinuxd installs again. A reload which an earlier
+// release recorded without the hash gets done once more. A job of the node
+// which completed after the reload became necessary did the reload already,
+// see existingReloadJob. It requeues while another reload job runs on the
+// node, so that the profiles of the node share the reloads, and while the job
+// of an installation runs. Nothing else triggers a reconcile then. A failed
+// job of an installation is deleted, and a new one gets created after a
+// backoff, see retryFailedReload. A failure to record the reload is returned,
+// so that the reconcile retries: the job carries the generation, so the retry
+// does not create another one.
 func (r *ReconcileSelinux) reloadPolicy(
 	ctx context.Context,
 	sp selinuxprofileapi.SelinuxProfileObject,
 	nodeStatus *nodestatus.StatusClient,
 	kind reloadKind,
+	hash string,
 	l logr.Logger,
 ) (reconcile.Result, error) {
 	action, annotation := kind.action, kind.annotation
@@ -1042,16 +1112,25 @@ func (r *ReconcileSelinux) reloadPolicy(
 		l.Error(err, "Failed to read reload generation annotation")
 	}
 
-	if lastReloadGeneration == reloadGeneration {
+	lastReloadHash := ""
+	if kind.hashAnnotation != "" {
+		if lastReloadHash, err = nodeStatus.GetAnnotation(ctx, kind.hashAnnotation); err != nil {
+			l.Error(err, "Failed to read reload hash annotation")
+		}
+	}
+
+	if lastReloadGeneration == reloadGeneration && lastReloadHash == hash {
 		l.V(config.VerboseLevel).Info("Reload already performed for policy generation, skipping",
 			"generation", reloadGeneration, "policyName", sp.GetPolicyName(), "action", action)
 
 		return reconcile.Result{}, nil
 	}
 
+	neededSince := r.reloadNeededSince(sp.GetUID(), kind, generation, hash, time.Now())
+
 	// The resyncs of the daemon cache reconcile the profile while a failed
 	// reload waits for its retry, which must not create a job each time.
-	if wait := r.reloadRetryDelay(sp, time.Now()); wait > 0 {
+	if wait := r.reloadRetryDelay(sp, hash, time.Now()); wait > 0 {
 		l.Info("Waiting to retry the failed policy reload",
 			"generation", reloadGeneration, "policyName", sp.GetPolicyName(), "retryAfter", wait)
 
@@ -1059,7 +1138,7 @@ func (r *ReconcileSelinux) reloadPolicy(
 	}
 
 	state, err := r.createPolicyReloadJob(
-		ctx, sp.GetPolicyName(), kind, sp.GetUID(), generation, l,
+		ctx, sp.GetPolicyName(), kind, sp.GetUID(), generation, hash, neededSince, l,
 	)
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("%w: %w", errCreateReloadJob, err)
@@ -1069,7 +1148,7 @@ func (r *ReconcileSelinux) reloadPolicy(
 	case reloadJobBusy:
 		return reconcile.Result{RequeueAfter: reloadJobRetryInterval}, nil
 	case reloadJobFailed:
-		return r.retryFailedReload(sp, kind, l), nil
+		return r.retryFailedReload(sp, kind, hash, l), nil
 	case reloadJobCreated, reloadJobRunning:
 		if kind.waitForCompletion {
 			return reconcile.Result{RequeueAfter: reloadJobRetryInterval}, nil
@@ -1081,24 +1160,35 @@ func (r *ReconcileSelinux) reloadPolicy(
 	// A foreground deletion removes the node status before the profile, so
 	// there is nothing to record the reload in. The label of the job still
 	// keeps a retry from creating another one.
-	if err := nodeStatus.SetAnnotation(ctx, annotation, reloadGeneration); err != nil &&
-		!kerrors.IsNotFound(err) {
+	reloaded := map[string]string{annotation: reloadGeneration}
+	if kind.hashAnnotation != "" {
+		reloaded[kind.hashAnnotation] = hash
+	}
+
+	if err := nodeStatus.SetAnnotations(ctx, reloaded); err != nil && !kerrors.IsNotFound(err) {
 		return reconcile.Result{}, fmt.Errorf(
 			"recording the %s reload of generation %s: %w", action, reloadGeneration, err,
 		)
 	}
 
+	// A removed policy does not need the reload of its installation anymore.
+	if kind.action == removeReload.action {
+		r.forgetReloadNeeds(sp.GetUID(), installReload, removeReload)
+	} else {
+		r.forgetReloadNeeds(sp.GetUID(), kind)
+	}
+
 	return reconcile.Result{}, nil
 }
 
-// retryFailedReload counts the failed reload job of the generation of the
-// profile and returns when to create a new one. The first failure of a
-// generation gets reported, the further ones only get logged, so that a
+// retryFailedReload counts the failed reload job of the generation and policy
+// hash of the profile and returns when to create a new one. The first failure
+// of a generation and hash gets reported, the further ones only get logged, so that a
 // reload which keeps failing does not flood the profile with events.
 func (r *ReconcileSelinux) retryFailedReload(
-	sp selinuxprofileapi.SelinuxProfileObject, kind reloadKind, l logr.Logger,
+	sp selinuxprofileapi.SelinuxProfileObject, kind reloadKind, hash string, l logr.Logger,
 ) reconcile.Result {
-	failures, delay := r.recordReloadFailure(sp, time.Now())
+	failures, delay := r.recordReloadFailure(sp, hash, time.Now())
 
 	l.Info("Policy reload job failed, retrying",
 		"policyName", sp.GetPolicyName(), "failures", failures, "retryAfter", delay)
@@ -1128,9 +1218,10 @@ func (r *ReconcileSelinux) reloadInstalledPolicy(
 	ctx context.Context,
 	sp selinuxprofileapi.SelinuxProfileObject,
 	nodeStatus *nodestatus.StatusClient,
+	hash string,
 	l logr.Logger,
 ) (reconcile.Result, error) {
-	res, err := r.reloadPolicy(ctx, sp, nodeStatus, installReload, l)
+	res, err := r.reloadPolicy(ctx, sp, nodeStatus, installReload, hash, l)
 	if errors.Is(err, errCreateReloadJob) {
 		l.Error(
 			err,
@@ -1149,6 +1240,14 @@ func (r *ReconcileSelinux) reloadInstalledPolicy(
 	}
 
 	return res, err
+}
+
+// policyHash returns the hash of the CIL policy which tells apart the reloads
+// of the installed policy. It is short enough to be a label value.
+func policyHash(cil string) string {
+	sum := sha256.Sum256([]byte(cil))
+
+	return hex.EncodeToString(sum[:16])
 }
 
 // writePolicyFile writes the policy file with the CIL policy to the drop
@@ -1172,7 +1271,7 @@ func (r *ReconcileSelinux) reconcileDeletePolicy(
 	nodeStatus *nodestatus.StatusClient,
 	l logr.Logger,
 ) (reconcile.Result, error) {
-	selinuxdReady, err := isSelinuxdReady(ctx, r.httpc)
+	selinuxdReady, err := r.selinuxdUp(ctx)
 	if (err != nil || !selinuxdReady) && !r.policyMayBeWritten(ctx, nodeStatus) {
 		// A node without SELinux never gets a ready selinuxd, but it never
 		// wrote the policy either. Waiting for selinuxd would keep the
@@ -1219,8 +1318,7 @@ func (r *ReconcileSelinux) reconcileDeletePolicy(
 	}
 
 	if err != nil {
-		r.metrics.IncSelinuxProfileError(reasonCannotGetPolicyStatus)
-
+		// The caller reports the error, see common.ReconcileDeletion.
 		return reconcile.Result{}, fmt.Errorf("looking up policy status: %w", err)
 	}
 
@@ -1326,7 +1424,7 @@ func (r *ReconcileSelinux) reloadRemovedPolicy(
 	nodeStatus *nodestatus.StatusClient,
 	l logr.Logger,
 ) (reconcile.Result, error) {
-	res, err := r.reloadPolicy(ctx, sp, nodeStatus, removeReload, l)
+	res, err := r.reloadPolicy(ctx, sp, nodeStatus, removeReload, "", l)
 	if errors.Is(err, errCreateReloadJob) {
 		// Unlike a running job, a failure to create one may not go away, and
 		// it must not keep the profile from being removed.
@@ -1411,6 +1509,46 @@ func getPolicyStatus(
 	}
 
 	return nil, errors.New("invalid sePolStatus value")
+}
+
+// selinuxdStartupGrace bounds how long a selinuxd whose socket is missing or
+// refuses connections counts as starting up.
+const selinuxdStartupGrace = 5 * time.Minute
+
+// selinuxdUp returns true if selinuxd is ready. A selinuxd which does not
+// listen on its socket yet is starting up, which is not ready either rather
+// than an error, for the selinuxdStartupGrace since connecting to it started
+// to fail. Other failures, and a selinuxd which does not come up, are errors.
+func (r *ReconcileSelinux) selinuxdUp(ctx context.Context) (bool, error) {
+	ready, err := isSelinuxdReady(ctx, r.httpc)
+
+	r.selinuxdDownMu.Lock()
+	defer r.selinuxdDownMu.Unlock()
+
+	if !isSelinuxdStarting(err) {
+		r.selinuxdDownSince = time.Time{}
+
+		return ready, err
+	}
+
+	if r.selinuxdDownSince.IsZero() {
+		r.selinuxdDownSince = time.Now()
+	}
+
+	if time.Since(r.selinuxdDownSince) < selinuxdStartupGrace {
+		return false, nil
+	}
+
+	return false, err
+}
+
+// isSelinuxdStarting returns true if the connection to selinuxd failed,
+// because its socket does not exist yet or nothing listens on it.
+func isSelinuxdStarting(err error) bool {
+	opErr, ok := errors.AsType[*net.OpError](err)
+
+	return ok && opErr.Op == "dial" &&
+		(errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.ECONNREFUSED))
 }
 
 func isSelinuxdReady(ctx context.Context, httpc *http.Client) (bool, error) {

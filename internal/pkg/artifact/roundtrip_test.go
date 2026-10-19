@@ -94,7 +94,7 @@ func TestPushPullRoundTrip(t *testing.T) {
 	require.Equal(t, "arm64", name)
 
 	_, err = pulledName("/multi:v1", s390x)
-	require.ErrorIs(t, err, ErrNoSingleLayer)
+	require.ErrorIs(t, err, ErrPlatformMismatch)
 
 	// An index selects the manifest for the platform.
 	repo, err := remote.NewRepository(host + "/multi")

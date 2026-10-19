@@ -4633,3 +4633,35 @@ func trackedPods(sut *RecorderReconciler) int {
 
 	return tracked
 }
+
+// TestMergeStoredProfileArchitectures asserts that a profile recorded on a
+// node of another architecture adds its architecture to the stored profile.
+func TestMergeStoredProfileArchitectures(t *testing.T) {
+	t.Parallel()
+
+	profile := func(arch seccompprofileapi.Arch, syscall string) *seccompprofileapi.SeccompProfile {
+		return &seccompprofileapi.SeccompProfile{
+			Spec: seccompprofileapi.SeccompProfileSpec{
+				DefaultAction: seccompprofileapi.ActErrno,
+				Architectures: []seccompprofileapi.Arch{arch},
+				Syscalls: []seccompprofileapi.Syscall{{
+					Names:  []string{syscall},
+					Action: seccompprofileapi.ActAllow,
+				}},
+			},
+		}
+	}
+
+	stored := profile("SCMP_ARCH_X86_64", "read")
+	stored.ResourceVersion = "1"
+
+	merged, err := mergeStoredProfile(stored, profile("SCMP_ARCH_AARCH64", "write"))
+	require.NoError(t, err)
+
+	sp, ok := merged.(*seccompprofileapi.SeccompProfile)
+	require.True(t, ok)
+	require.Equal(t,
+		[]seccompprofileapi.Arch{"SCMP_ARCH_AARCH64", "SCMP_ARCH_X86_64"},
+		sp.Spec.Architectures,
+	)
+}

@@ -120,7 +120,7 @@ pull a profile from a container registry
 
 **--plain-http**: use HTTP instead of HTTPS to reach the registry, for local registries in tests
 
-**--platform, -p, --platforms**="": the platform to be used in format: os[/arch][/variant][:os_version]
+**--platform, -p, --platforms**="": the platform to be used in format: os[/arch][/variant][:os_version] (default: the os/arch of the host)
 
 **--trusted-root**="": path of a Sigstore trusted root JSON file to verify against instead of the one distributed through TUF
 

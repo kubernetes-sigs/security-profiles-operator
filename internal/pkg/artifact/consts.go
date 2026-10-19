@@ -245,8 +245,13 @@ var (
 	// the size limit of the pull.
 	ErrBlobTooLarge = errors.New("artifact blob exceeds the size limit")
 
-	// ErrPlatformMismatch is returned when the only layer of an artifact is
-	// bound to another platform than the requested one.
+	// ErrDigestReference is returned when the reference to push to has a
+	// digest, which is only known after the push, instead of a tag.
+	ErrDigestReference = errors.New("cannot push to a digest reference, use a tag instead")
+
+	// ErrPlatformMismatch is returned when the only layer of an artifact, or
+	// every layer of a multi platform artifact, is bound to another platform
+	// than the requested one.
 	ErrPlatformMismatch = errors.New("artifact layer is bound to another platform")
 
 	// ErrNoMatchingManifest is returned when an image index has no manifest

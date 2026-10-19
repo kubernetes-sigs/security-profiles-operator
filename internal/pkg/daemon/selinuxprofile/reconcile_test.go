@@ -19,6 +19,7 @@ package selinuxprofile
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -1669,7 +1670,8 @@ func TestReconcileRecordsPolicyFileBeforeWritingIt(t *testing.T) {
 
 // A policy which got installed before its profile failed is removed once the
 // profile gets disabled, even if its file got lost with the emptyDir of a
-// restarted SPOd pod. The record of the written policy is cleared afterwards.
+// restarted SPOd pod. The records of the written and installed policy are
+// cleared afterwards.
 func TestReconcileDisabledRemovesWrittenPolicyWithoutFile(t *testing.T) {
 	t.Parallel()
 
@@ -1684,7 +1686,11 @@ func TestReconcileDisabledRemovesWrittenPolicyWithoutFile(t *testing.T) {
 	_, err = ns.Create(ctx)
 	require.NoError(t, err)
 	require.NoError(t, ns.SetNodeStatus(ctx, secprofnodestatusapi.ProfileStateError))
-	require.NoError(t, ns.SetAnnotation(ctx, policyWrittenAnnotation, "true"))
+	require.NoError(t, ns.SetAnnotations(ctx, map[string]string{
+		policyWrittenAnnotation:           "true",
+		reloadInstallGenerationAnnotation: "1",
+		reloadInstallPolicyHashAnnotation: "hash",
+	}))
 
 	res, err := f.r.Reconcile(ctx, f.request)
 	require.NoError(t, err)
@@ -1692,6 +1698,8 @@ func TestReconcileDisabledRemovesWrittenPolicyWithoutFile(t *testing.T) {
 	require.Len(t, f.reloadJobs(t), 1, "the removal has to be reloaded")
 	require.Equal(t, secprofnodestatusapi.ProfileStateDisabled, f.nodeStatus(t).Status.Status)
 	require.Empty(t, f.annotation(t, policyWrittenAnnotation))
+	require.Empty(t, f.annotation(t, reloadInstallGenerationAnnotation))
+	require.Empty(t, f.annotation(t, reloadInstallPolicyHashAnnotation))
 	require.InDelta(t, 1, f.removals(t), 0)
 }
 
@@ -1744,4 +1752,287 @@ func TestReconcileDeletionWithoutNodeStatusSelinuxdNotReady(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+// errorCount returns the number of errors counted in the metrics for reason.
+func (f *reconcileFixture) errorCount(t *testing.T, reason string) float64 {
+	t.Helper()
+
+	return utiltest.CounterValue(t, f.r.metrics.Collectors(),
+		"security_profiles_operator_selinux_profile_error_total",
+		map[string]string{"reason": reason})
+}
+
+// unreachableSelinuxdClient returns a client of a selinuxd which does not
+// listen on its socket yet.
+func unreachableSelinuxdClient(t *testing.T) *http.Client {
+	t.Helper()
+
+	// The path of a socket is limited to about 100 bytes, which the temporary
+	// directory of the test, named after it, exceeds on macOS: a dial of a
+	// longer path fails with EINVAL instead of ENOENT. A short path which does
+	// not exist fails with ENOENT everywhere.
+	const socket = "/nonexistent-selinuxd/selinuxd.sock"
+
+	return &http.Client{Transport: &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", socket)
+		},
+	}}
+}
+
+// A selinuxd which cannot be dialed yet is starting up, like one which is not
+// ready, so that is no error worth an event per poll and profile.
+func TestReconcileSelinuxdNotListening(t *testing.T) {
+	t.Parallel()
+
+	f := newReconcileFixture(t, testProfile(), nil, selinuxd(t, true, http.StatusOK, ""))
+	f.r.httpc = unreachableSelinuxdClient(t)
+
+	res, err := f.r.Reconcile(context.Background(), f.request)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{RequeueAfter: selinuxdPollInterval}, res)
+	require.Equal(t, secprofnodestatusapi.ProfileStatePending, f.nodeStatus(t).Status.Status)
+	require.Empty(t, f.events())
+	require.Zero(t, f.errorCount(t, reasonCannotContactSelinuxd))
+
+	f = newReconcileFixture(t, testProfile(), nil, selinuxd(t, true, http.StatusOK, ""))
+	f.r.httpc = unreachableSelinuxdClient(t)
+	f.prepareDeletion(t)
+
+	res, err = f.r.Reconcile(context.Background(), f.request)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{RequeueAfter: selinuxdPollInterval}, res)
+	require.Len(t, f.profile(t).GetFinalizers(), 1)
+	require.Empty(t, f.events())
+	require.Zero(t, f.errorCount(t, reasonCannotRemovePolicy))
+}
+
+// A selinuxd which does not come up within the startup grace period gets
+// reported, like any other failure to contact it.
+func TestReconcileSelinuxdNotListeningAfterGrace(t *testing.T) {
+	t.Parallel()
+
+	f := newReconcileFixture(t, testProfile(), nil, selinuxd(t, true, http.StatusOK, ""))
+	f.r.httpc = unreachableSelinuxdClient(t)
+	f.r.selinuxdDownSince = time.Now().Add(-selinuxdStartupGrace)
+
+	_, err := f.r.Reconcile(context.Background(), f.request)
+	require.Error(t, err)
+	require.InDelta(t, 1, f.errorCount(t, reasonCannotContactSelinuxd), 0)
+	require.Len(t, f.events(), 1)
+}
+
+// A failed lookup of the removed policy is counted once, as a failed removal.
+func TestReconcileDeletionSelinuxdErrorCountedOnce(t *testing.T) {
+	t.Parallel()
+
+	f := newReconcileFixture(t, testProfile(), nil,
+		selinuxd(t, true, http.StatusInternalServerError, ""))
+	f.prepareDeletion(t)
+
+	_, err := f.r.Reconcile(context.Background(), f.request)
+	require.ErrorContains(t, err, "looking up policy status")
+	require.InDelta(t, 1, f.errorCount(t, reasonCannotRemovePolicy), 0)
+	require.Zero(t, f.errorCount(t, reasonCannotGetPolicyStatus))
+}
+
+// A profile which failed after its policy got installed keeps its module when
+// the emptyDir of a restarted SPOd pod loses the policy file. That module is
+// not a system module, so the policy gets written again. A policy file which
+// only got written may have failed to install, which tells nothing about the
+// module.
+func TestReconcileInstalledPolicyIsNoSystemModuleConflict(t *testing.T) {
+	t.Parallel()
+
+	f := newReconcileFixture(t, testProfile(), nil,
+		selinuxd(t, true, http.StatusOK, `{"status": "Installed", "msg": ""}`))
+	ctx := context.Background()
+
+	require.NoError(t, os.MkdirAll(filepath.Join(
+		f.r.moduleStorePath, "targeted", "active", "modules", "400", testReconcileProfile,
+	), 0o755))
+
+	ns, err := nodestatus.NewForProfileOnNode(f.profile(t), f.client, testReconcileNode)
+	require.NoError(t, err)
+	_, err = ns.Create(ctx)
+	require.NoError(t, err)
+	require.NoError(t, ns.SetNodeStatus(ctx, secprofnodestatusapi.ProfileStateError))
+	require.NoError(t, ns.SetAnnotation(ctx, policyWrittenAnnotation, "true"))
+
+	_, err = f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+	require.NoFileExists(t, filepath.Join(f.r.policyDir, testReconcileProfile+".cil"))
+
+	evts := f.events()
+	require.Len(t, evts, 1)
+	require.True(t, strings.HasPrefix(evts[0], "Warning "+reasonSystemModuleConflict+" "))
+
+	require.NoError(t, ns.SetAnnotation(ctx, reloadInstallGenerationAnnotation, "1"))
+
+	res, err := f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{RequeueAfter: selinuxdPollInterval}, res)
+	require.Equal(t, secprofnodestatusapi.ProfileStateInProgress, f.nodeStatus(t).Status.Status)
+	require.FileExists(t, filepath.Join(f.r.policyDir, testReconcileProfile+".cil"))
+	require.Empty(t, f.events())
+}
+
+// A node status of a release before the written policy annotation only
+// carries the reload of the installation, which tells as well that the module
+// is no system module after an update restarted the SPOd pod.
+func TestReconcileUpgradedInstalledPolicyIsNoSystemModuleConflict(t *testing.T) {
+	t.Parallel()
+
+	f := newReconcileFixture(t, testProfile(), nil,
+		selinuxd(t, true, http.StatusOK, `{"status": "Installed", "msg": ""}`))
+	ctx := context.Background()
+
+	require.NoError(t, os.MkdirAll(filepath.Join(
+		f.r.moduleStorePath, "targeted", "active", "modules", "400", testReconcileProfile,
+	), 0o755))
+
+	ns, err := nodestatus.NewForProfileOnNode(f.profile(t), f.client, testReconcileNode)
+	require.NoError(t, err)
+	_, err = ns.Create(ctx)
+	require.NoError(t, err)
+	require.NoError(t, ns.SetNodeStatus(ctx, secprofnodestatusapi.ProfileStatePending))
+	require.NoError(t, ns.SetAnnotation(ctx, reloadInstallGenerationAnnotation, "1"))
+
+	res, err := f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{RequeueAfter: selinuxdPollInterval}, res)
+	require.FileExists(t, filepath.Join(f.r.policyDir, testReconcileProfile+".cil"))
+	require.Empty(t, f.events())
+}
+
+// An update of the operator can change the policy of a generation, which
+// selinuxd installs again. The changed policy has to be reloaded as well, and
+// so has a policy whose reload an earlier release recorded without its hash.
+func TestReconcileReloadsChangedPolicyOfGeneration(t *testing.T) {
+	t.Parallel()
+
+	f := newReconcileFixture(t, testProfile(), nil,
+		selinuxd(t, true, http.StatusOK, `{"status": "Installed", "msg": ""}`))
+	ctx := context.Background()
+
+	for range 2 {
+		_, err := f.r.Reconcile(ctx, f.request)
+		require.NoError(t, err)
+	}
+
+	f.finishReloadJobs(t, batchv1.JobComplete)
+
+	res, err := f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{}, res)
+
+	hash := policyHash("(blockinherit container)")
+
+	require.Equal(t, "1", f.annotation(t, reloadInstallGenerationAnnotation))
+	require.Equal(t, hash, f.annotation(t, reloadInstallPolicyHashAnnotation))
+	require.Len(t, f.reloadJobs(t), 1)
+	require.Equal(t, hash, f.reloadJobs(t)[0].Labels[reloadJobLabelPolicyHash])
+
+	ns, err := nodestatus.NewForProfileOnNode(f.profile(t), f.client, testReconcileNode)
+	require.NoError(t, err)
+
+	for i, lastHash := range []string{policyHash("(blockinherit old)"), ""} {
+		require.NoError(t, ns.SetAnnotation(ctx, reloadInstallPolicyHashAnnotation, lastHash))
+
+		// The earlier jobs reloaded the policy of the last hash.
+		for _, job := range f.reloadJobs(t) {
+			if lastHash == "" {
+				delete(job.Labels, reloadJobLabelPolicyHash)
+			} else {
+				job.Labels[reloadJobLabelPolicyHash] = lastHash
+			}
+
+			require.NoError(t, f.client.Update(ctx, &job))
+		}
+
+		res, err = f.r.Reconcile(ctx, f.request)
+		require.NoError(t, err)
+		require.Equal(t, reconcile.Result{RequeueAfter: reloadJobRetryInterval}, res)
+		require.Len(t, f.reloadJobs(t), i+2)
+
+		f.finishReloadJobs(t, batchv1.JobComplete)
+
+		res, err = f.r.Reconcile(ctx, f.request)
+		require.NoError(t, err)
+		require.Equal(t, reconcile.Result{}, res)
+		require.Equal(t, hash, f.annotation(t, reloadInstallPolicyHashAnnotation))
+		require.Len(t, f.reloadJobs(t), i+2)
+	}
+}
+
+// An installed profile does not turn pending while a profile it inherits from
+// gets updated, as long as its own policy stays the same.
+func TestReconcileInstalledProfileDoesNotWaitForInheritedProfile(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	ancestor := testProfile()
+	ancestor.Name = "ancestor"
+
+	f := newReconcileFixture(t, testProfile(), nil,
+		selinuxd(t, true, http.StatusOK, `{"status": "Installed", "msg": ""}`))
+	require.NoError(t, f.client.Create(ctx, ancestor))
+
+	f.r.objectHandlerInit = func(
+		ctx context.Context, c client.Client, key types.NamespacedName, _ string,
+	) (SelinuxObjectHandler, error) {
+		oh := &inheritingFakeHandler{
+			fakeHandler: fakeHandler{sp: &selinuxprofileapi.SelinuxProfile{}},
+			ancestors:   []selinuxprofileapi.SelinuxProfileObject{ancestor},
+		}
+
+		err := oh.Init(ctx, c, key)
+
+		return oh, err
+	}
+
+	ns, err := nodestatus.NewForProfileOnNode(ancestor, f.client, testReconcileNode)
+	require.NoError(t, err)
+	_, err = ns.Create(ctx)
+	require.NoError(t, err)
+	require.NoError(t, ns.SetNodeStatus(ctx, secprofnodestatusapi.ProfileStateInstalled))
+
+	for range 2 {
+		_, err = f.r.Reconcile(ctx, f.request)
+		require.NoError(t, err)
+	}
+
+	f.finishReloadJobs(t, batchv1.JobComplete)
+
+	_, err = f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+
+	status := func() secprofnodestatusapi.ProfileState {
+		s := &secprofnodestatusapi.SecurityProfileNodeStatus{}
+		require.NoError(t, f.client.Get(ctx, types.NamespacedName{
+			Namespace: testReconcileNamespace,
+			Name:      "selinuxprofile-" + testReconcileProfile + "-" + testReconcileNode,
+		}, s))
+
+		return s.Status.Status
+	}
+
+	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, status())
+
+	// The inherited profile gets updated.
+	require.NoError(t, ns.SetNodeStatus(ctx, secprofnodestatusapi.ProfileStateInProgress))
+
+	res, err := f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{}, res)
+	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, status())
+
+	// A policy which has to be written again still waits.
+	require.NoError(t, os.Remove(filepath.Join(f.r.policyDir, testReconcileProfile+".cil")))
+
+	res, err = f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{RequeueAfter: common.Wait}, res)
+	require.Equal(t, secprofnodestatusapi.ProfileStatePending, status())
 }

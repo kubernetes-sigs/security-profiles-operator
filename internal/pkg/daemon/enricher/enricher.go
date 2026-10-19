@@ -262,22 +262,39 @@ type Enricher struct {
 	// server. It is a field so that tests do not have to spend the production
 	// backoff as wall-clock time.
 	metricsBackoff wait.Backoff
-	// warned holds the keys of the per audit line warnings which got logged
-	// already, which would otherwise be logged for every syscall. The keys
-	// are bounded by the architectures and syscall numbers.
-	warned sync.Map
+	// warned holds the per audit line warnings which got logged already,
+	// which would otherwise be logged for every syscall.
+	warned onceWarner
 }
 
 // warnOnce logs msg at the default level the first time it is called with
-// key, and at the verbose level afterwards.
+// key, and at the verbose level afterwards, see onceWarner.
 func (e *Enricher) warnOnce(key, msg string, kv ...any) {
-	if _, warned := e.warned.LoadOrStore(key, struct{}{}); warned {
-		e.logger.V(config.VerboseLevel).Info(msg, kv...)
+	e.warned.warn(e.logger, key, msg, kv...)
+}
+
+// onceWarner logs a warning at the default level the first time it gets
+// logged for a key, and at the verbose level afterwards. The keys are never
+// forgotten, so they have to be bounded, for example by the architectures.
+type onceWarner struct {
+	keys sync.Map
+}
+
+func (w *onceWarner) warn(logger logr.Logger, key, msg string, kv ...any) {
+	if _, warned := w.keys.LoadOrStore(key, struct{}{}); warned {
+		logger.V(config.VerboseLevel).Info(msg, kv...)
 
 		return
 	}
 
-	e.logger.Info(msg, kv...)
+	logger.Info(msg, kv...)
+}
+
+// unknownSyscallKey is the key of the warning about a syscall whose name is
+// unknown. The syscall IDs of the audit lines are arbitrary numbers, so the
+// warning is logged once per architecture only.
+func unknownSyscallKey(arch string) string {
+	return "syscall/" + arch
 }
 
 // New returns a new Enricher instance.
@@ -875,7 +892,7 @@ func (e *Enricher) dispatchSeccompLine(
 	syscallName, err := syscallName(auditLine.SystemCallID, auditLine.Arch)
 	if err != nil {
 		e.warnOnce(
-			fmt.Sprintf("syscall/%s/%d", auditLine.Arch, auditLine.SystemCallID),
+			unknownSyscallKey(auditLine.Arch),
 			"no syscall name found for ID",
 			"syscallID", auditLine.SystemCallID,
 			"arch", auditLine.Arch,

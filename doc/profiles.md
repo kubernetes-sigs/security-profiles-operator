@@ -1144,6 +1144,8 @@ When the enrichers start, all configured filter rules are parsed and loaded. For
   - Any keys specified in matchKeys are present in the log statement.
   - AND (if matchValues is provided and not empty): At least one of the values associated with the matched matchKeys in the log statement matches at least one string in the rule's matchValues.
   - Also note that int values although provided as string will be converted to int
+  - A value which is a list, like the `syscalls` of the JSON enricher, matches if any of its
+    elements does, and the level of the rule then applies to the whole log line
 - Action Based on level:
   - If the matching rule's level is "Metadata", the log line is emitted.
   - If the matching rule's level is "None", the log line is dropped.

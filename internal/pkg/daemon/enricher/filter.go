@@ -124,6 +124,14 @@ func matchAnyFilterValue(logValue any, filter types.EnricherFilterOptions) bool 
 		return true
 	}
 
+	// A list, like the syscalls of the JSON enricher, matches if any of its
+	// elements does.
+	if values, ok := logValue.([]string); ok {
+		return slices.ContainsFunc(values, func(value string) bool {
+			return matchAnyFilterValue(value, filter)
+		})
+	}
+
 	for _, value := range *filter.MatchValues {
 		if reflect.DeepEqual(value, logValue) {
 			return true

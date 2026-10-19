@@ -2231,7 +2231,7 @@ func (r *RecorderReconciler) storePartialProfile(
 	partial.SetName(target.name.Name)
 	partial.SetLabels(target.labels)
 
-	return r.storeProfile(ctx, target, partial, specBaseOf(partial), kind)
+	return r.storeProfile(ctx, target, partial, recordingmerger.SpecBaseOf(partial), kind)
 }
 
 const (
@@ -2309,28 +2309,12 @@ func mergeStoredProfile(stored, desired client.Object) (client.Object, error) {
 		return desired, nil
 	}
 
-	merged, err := recordingmerger.MergeProfiles([]client.Object{stored, desired})
+	merged, err := recordingmerger.MergeIntoStored(stored, desired)
 	if err != nil {
 		return nil, fmt.Errorf("merge with stored profile: %w", err)
 	}
 
-	specBaseOf(merged).State = specBaseOf(desired).State
-
 	return merged, nil
-}
-
-// specBaseOf returns the base spec of a recorded profile.
-func specBaseOf(obj client.Object) *profilebase.SpecBase {
-	switch p := obj.(type) {
-	case *seccompprofileapi.SeccompProfile:
-		return &p.Spec.SpecBase
-	case *selinuxprofileapi.SelinuxProfile:
-		return &p.Spec.SpecBase
-	case *apparmorprofileapi.AppArmorProfile:
-		return &p.Spec.SpecBase
-	default:
-		return &profilebase.SpecBase{}
-	}
 }
 
 // copySpec sets the spec of dst to the one of src.

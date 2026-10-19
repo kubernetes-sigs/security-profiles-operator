@@ -108,14 +108,19 @@ func TestWithSigningHint(t *testing.T) {
 
 	unsigned := &artifact.UnsignedError{Reference: "registry/profile@sha256:abc", Err: errTest}
 
-	err := withSigningHint(unsigned)
+	err := withSigningHint(unsigned, false)
 	require.ErrorIs(t, err, errTest)
-	require.ErrorContains(t, err, "spoc sign registry/profile@sha256:abc")
+	require.ErrorContains(t, err, "`spoc sign registry/profile@sha256:abc`")
 
-	err = withSigningHint(artifact.ErrNoInteractiveSignIn)
+	// The registry of the push is only reachable over plain HTTP.
+	err = withSigningHint(unsigned, true)
+	require.ErrorIs(t, err, errTest)
+	require.ErrorContains(t, err, "`spoc sign --"+FlagPlainHTTP+" registry/profile@sha256:abc`")
+
+	err = withSigningHint(artifact.ErrNoInteractiveSignIn, false)
 	require.ErrorIs(t, err, artifact.ErrNoInteractiveSignIn)
 	require.ErrorContains(t, err, "--"+FlagOIDCDeviceFlow)
 	require.ErrorContains(t, err, "--"+FlagDisableSigning)
 
-	require.Equal(t, errTest, withSigningHint(errTest))
+	require.Equal(t, errTest, withSigningHint(errTest, false))
 }

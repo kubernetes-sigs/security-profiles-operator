@@ -479,3 +479,69 @@ func TestMergeSelinuxProfileWithoutAllow(t *testing.T) {
 	require.NoError(t, other.merge(&MergeableSelinuxProfile{}))
 	require.Len(t, other.Spec.Allow, 1)
 }
+
+// A partial profile only adds a permission once, even if it lists it twice.
+func TestMergeSelinuxProfileDuplicatePermissions(t *testing.T) {
+	t.Parallel()
+
+	base := &MergeableSelinuxProfile{SelinuxProfile: selinuxprofileapi.SelinuxProfile{
+		Spec: selinuxprofileapi.SelinuxProfileSpec{
+			Allow: selinuxprofileapi.Allow{"self": {"file": {"read"}}},
+		},
+	}}
+	other := &MergeableSelinuxProfile{SelinuxProfile: selinuxprofileapi.SelinuxProfile{
+		Spec: selinuxprofileapi.SelinuxProfileSpec{
+			Allow: selinuxprofileapi.Allow{
+				"self":  {"file": {"read", "write", "write"}},
+				"other": {"dir": {"search", "search"}},
+			},
+		},
+	}}
+
+	require.NoError(t, base.merge(other))
+	require.Equal(t, selinuxprofileapi.Allow{
+		"self":  {"file": {"read", "write"}},
+		"other": {"dir": {"search"}},
+	}, base.Spec.Allow)
+}
+
+// Partial profiles recorded on nodes of different architectures each list the
+// architecture of their node, the merged profile needs all of them.
+func TestMergeSeccompProfileArchitectures(t *testing.T) {
+	t.Parallel()
+
+	const (
+		arm64 seccompprofile.Arch = "SCMP_ARCH_AARCH64"
+		x86   seccompprofile.Arch = "SCMP_ARCH_X86"
+		amd64 seccompprofile.Arch = "SCMP_ARCH_X86_64"
+	)
+
+	profile := func(archs ...seccompprofile.Arch) client.Object {
+		return &seccompprofile.SeccompProfile{Spec: seccompprofile.SeccompProfileSpec{
+			DefaultAction: seccompprofile.ActErrno,
+			Architectures: archs,
+		}}
+	}
+
+	merged, err := MergeProfiles([]client.Object{
+		profile(amd64, x86), profile(arm64), profile(amd64), profile(),
+	})
+	require.NoError(t, err)
+
+	sp, ok := merged.(*seccompprofile.SeccompProfile)
+	require.True(t, ok)
+	require.Equal(t, []seccompprofile.Arch{arm64, x86, amd64}, sp.Spec.Architectures)
+
+	// The check of spoc merge compares normalized profiles.
+	normalized, ok := profile(amd64, arm64, amd64).(*seccompprofile.SeccompProfile)
+	require.True(t, ok)
+	require.NoError(t, NormalizeProfile(normalized))
+	require.Equal(t, []seccompprofile.Arch{arm64, amd64}, normalized.Spec.Architectures)
+
+	merged, err = MergeProfiles([]client.Object{profile(), profile()})
+	require.NoError(t, err)
+
+	sp, ok = merged.(*seccompprofile.SeccompProfile)
+	require.True(t, ok)
+	require.Empty(t, sp.Spec.Architectures)
+}

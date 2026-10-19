@@ -181,17 +181,18 @@ If we now modify the profile, for example by forbidding `chmod`:
 ```
 
 `spoc run` reads raw JSON profiles if the file name ends with `.json`, and
-`SeccompProfile` CRDs in YAML otherwise. Other kinds and profiles with a
-`baseProfileName` are rejected, because the syscalls of the base profile would
-be missing. The `--type` / `-t` flag selects the profile type, which is
-`seccomp`, the only supported type for now. The profile is loaded in the
-process of the command right before it gets executed, so `spoc` itself is not
-confined. `SIGINT`, `SIGTERM` and `SIGHUP` are forwarded to the command, and
-`spoc run` exits with the exit code of the command. While the command runs
-and shortly after it exits, `spoc run` prints the seccomp, SELinux and
-AppArmor audit log lines of the process it started, like the syscalls its
-profile denies or logs. The lines of child processes the command forks are
-not printed.
+`SeccompProfile` CRDs in YAML otherwise. A file with another name which holds
+JSON without a `kind`, like the one `spoc pull --output-file` saves for a
+runtime format artifact, is read as raw JSON profile too. Other kinds and
+profiles with a `baseProfileName` are rejected, because the syscalls of the
+base profile would be missing. The `--type` / `-t` flag selects the profile
+type, which is `seccomp`, the only supported type for now. The profile is
+loaded in the process of the command right before it gets executed, so `spoc`
+itself is not confined. `SIGINT`, `SIGTERM` and `SIGHUP` are forwarded to the
+command, and `spoc run` exits with the exit code of the command. While the
+command runs and shortly after it exits, `spoc run` prints the seccomp,
+SELinux and AppArmor audit log lines of the process it started and of the
+processes it forks, like the syscalls their profile denies or logs.
 
 Then running `chmod` via `spoc run` will now throw an error, because the syscall
 is not allowed any more:

@@ -469,11 +469,12 @@ semodule -R
 								Protocol:      corev1.ProtocolTCP,
 							},
 						},
-						// The health checks of the daemon include the ones of
-						// its controllers, like the SELinux one, which asks
-						// selinuxd over its socket. selinuxd can be slow to
-						// answer while it installs policies, so a single slow
-						// or failed check must not restart the daemon.
+						// The liveness endpoint of the daemon only answers a
+						// ping, a node without support for a profile kind or
+						// a selinuxd which is not up does not fail it. The
+						// startup probe gives the daemon time to start its
+						// manager, which serves the endpoint, before the
+						// liveness probe takes over.
 						StartupProbe: &corev1.Probe{
 							ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{
 								Path:   healthzPath,

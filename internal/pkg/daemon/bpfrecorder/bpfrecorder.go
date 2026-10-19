@@ -1723,7 +1723,7 @@ func (b *BpfRecorder) handleEvent(eventBytes []byte) {
 	if !event.unmarshal(eventBytes) {
 		b.logger.Error(
 			errShortEvent, "Couldn't read event structure",
-			"got", len(eventBytes), "want", bpfEventSize,
+			"got", len(eventBytes), "wantAtLeast", bpfEventHeaderSize,
 		)
 
 		return

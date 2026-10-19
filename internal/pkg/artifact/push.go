@@ -27,6 +27,7 @@ import (
 	"strconv"
 	"time"
 
+	ggcrname "github.com/google/go-containerregistry/pkg/name"
 	"github.com/opencontainers/go-digest"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2"
@@ -46,6 +47,14 @@ func (a *Artifact) Push(
 ) error {
 	if opts == nil {
 		opts = &PushOptions{}
+	}
+
+	// The digest of the artifact is only known after the push, the
+	// reference needs a tag instead. An invalid reference fails later on.
+	if ref, err := a.ParseReference(to); err == nil {
+		if _, isDigest := ref.(ggcrname.Digest); isDigest {
+			return fmt.Errorf("%w: %s", ErrDigestReference, to)
+		}
 	}
 
 	dir, err := a.MkdirTemp("", "push-")

@@ -472,6 +472,34 @@ func TestApplyEnricherFiltersMatchesAnyNumericValue(t *testing.T) {
 	}
 }
 
+// The JSON enricher emits the syscalls as a list of names, a filter on them
+// matches if any of them matches.
+func TestApplyEnricherFiltersMatchesListElement(t *testing.T) {
+	t.Parallel()
+
+	filters := []types.EnricherFilterOptions{{
+		MatchKeys:   []string{"syscalls"},
+		MatchValues: &[]string{"mkdir"},
+		Level:       types.EnricherLogLevelNone,
+	}}
+
+	for name, tc := range map[string]struct {
+		syscalls []string
+		want     types.EnricherLogLevel
+	}{
+		"element matches":    {syscalls: []string{"chmod", "mkdir"}, want: types.EnricherLogLevelNone},
+		"no element matches": {syscalls: []string{"chmod", "read"}, want: types.EnricherLogLevelMetadata},
+		"empty list":         {syscalls: []string{}, want: types.EnricherLogLevelMetadata},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			got := ApplyEnricherFilters(map[string]any{"syscalls": tc.syscalls}, filters)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
 func TestConvertToInt(t *testing.T) {
 	t.Parallel()
 

@@ -191,6 +191,31 @@ func MergeProfiles(
 	return merged.getProfile(), nil
 }
 
+// MergeIntoStored returns a copy of the stored profile with the rules of the
+// desired one added, and the state of the desired one. The other attributes
+// of the stored profile, like the default action of a seccomp profile, stay
+// the same, the user may have changed them.
+func MergeIntoStored(stored, desired client.Object) (client.Object, error) {
+	storedCopy, ok := stored.DeepCopyObject().(client.Object)
+	if !ok {
+		return nil, fmt.Errorf("copy %T: not a client.Object", stored)
+	}
+
+	desiredCopy, ok := desired.DeepCopyObject().(client.Object)
+	if !ok {
+		return nil, fmt.Errorf("copy %T: not a client.Object", desired)
+	}
+
+	merged, err := MergeProfiles([]client.Object{storedCopy, desiredCopy})
+	if err != nil {
+		return nil, err
+	}
+
+	SpecBaseOf(merged).State = SpecBaseOf(desired).State
+
+	return merged, nil
+}
+
 // NormalizeProfile normalizes a profile's internal representation to match
 // the format produced by the merger library. For SeccompProfiles, this
 // converts multi-name syscall entries to single-name-per-entry format.
@@ -215,6 +240,7 @@ func normalizeSeccompProfile(sp *seccompprofile.SeccompProfile) error {
 	}
 
 	sp.Spec.Syscalls = syscalls
+	sp.Spec.Architectures = unionArchitectures(sp.Spec.Architectures, nil)
 
 	return nil
 }
@@ -240,6 +266,21 @@ func normalizeAppArmorProfile(ap *apparmorprofileapi.AppArmorProfile) {
 	if a.Ptrace != nil && a.Ptrace.AllowedAccess != nil {
 		slices.Sort(a.Ptrace.AllowedAccess)
 		a.Ptrace.AllowedAccess = slices.Compact(a.Ptrace.AllowedAccess)
+	}
+}
+
+// SpecBaseOf returns the base spec of the profile, or an empty one for an
+// object which is no profile.
+func SpecBaseOf(obj client.Object) *profilebase.SpecBase {
+	switch prf := obj.(type) {
+	case *seccompprofile.SeccompProfile:
+		return &prf.Spec.SpecBase
+	case *selinuxprofileapi.SelinuxProfile:
+		return &prf.Spec.SpecBase
+	case *apparmorprofileapi.AppArmorProfile:
+		return &prf.Spec.SpecBase
+	default:
+		return &profilebase.SpecBase{}
 	}
 }
 
@@ -307,8 +348,23 @@ func (sp *mergeableSeccompProfile) merge(other mergeableProfile) error {
 	}
 
 	sp.Spec.Syscalls = syscalls
+	sp.Spec.Architectures = unionArchitectures(sp.Spec.Architectures, otherSP.Spec.Architectures)
 
 	return nil
+}
+
+// unionArchitectures returns the sorted union of the architectures. The
+// partial profiles recorded on nodes of different architectures only list the
+// architecture of their node each.
+func unionArchitectures(a, b []seccompprofile.Arch) []seccompprofile.Arch {
+	if len(a) == 0 && len(b) == 0 {
+		return a
+	}
+
+	union := slices.Concat(a, b)
+	slices.Sort(union)
+
+	return slices.Compact(union)
 }
 
 func (sp *mergeableSeccompProfile) getProfile() client.Object {
@@ -360,6 +416,7 @@ func addAllow(union, additional selinuxprofileapi.Allow) selinuxprofileapi.Allow
 				_, ok := allPerms[newPerm]
 				if !ok {
 					union[labelKey][objClass] = append(union[labelKey][objClass], newPerm)
+					allPerms[newPerm] = true
 				}
 			}
 		}

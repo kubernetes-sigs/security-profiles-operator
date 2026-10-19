@@ -36,6 +36,8 @@ func FuzzDecodeRuntimeSpecSeccompProfile(f *testing.F) {
 		`{"defaultAction":"SCMP_ACT_ERRNO","defaultErrnoRet":1,"flags":["SCMP_FLTFLG_LOG"]}`,
 		`{"defaultAction":"SCMP_ACT_ERRNO","listenerPath":"/run/notify.sock"}`,
 		`{"defaultAction":"SCMP_ACT_ERRNO"} {}`,
+		`{"defaultAction":"SCMP_ACT_ERRNO"}]`,
+		`{"defaultAction":"SCMP_ACT_ERRNO"}}`,
 		`{"defaultAction":"SCMP_ACT_ERRNO","unknown":true}`,
 		`{"syscalls":[]}`,
 		`{}`,
@@ -55,6 +57,7 @@ func FuzzDecodeRuntimeSpecSeccompProfile(f *testing.F) {
 		}
 
 		require.NotEmpty(t, profile.DefaultAction)
+		require.True(t, json.Valid(content), "accepted content has to be a single JSON value")
 
 		encoded, err := json.Marshal(profile)
 		require.NoError(t, err)

@@ -71,6 +71,9 @@ func Flags() []ucli.Flag {
 			Name:    FlagPlatform,
 			Aliases: []string{"p", flagPlatformsAlias},
 			Usage:   "the platform to be used in format: os[/arch][/variant][:os_version]",
+			// Not the platform itself, the generated reference has to be the
+			// same on every host.
+			DefaultText: "the os/arch of the host",
 		},
 		&ucli.BoolFlag{
 			Name:    FlagDisableSignatureVerification,

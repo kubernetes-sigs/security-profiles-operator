@@ -724,4 +724,18 @@ func TestProcessedFileRules(t *testing.T) {
 
 		require.Empty(t, got.FileProcessed.AllowedLibraries)
 	})
+
+	t.Run("the program is compared by its path", func(t *testing.T) {
+		t.Parallel()
+
+		// spoc passes the command name, which filters the processes.
+		sut := newAppArmorRecorder(logr.Discard(), "app")
+		sut.SetProgramPath("/opt/app/bin/app")
+		sut.handleFileEvent(fileEvent(1, flagExec, "/opt/app/bin/app"))
+
+		got, ok := sut.GetAppArmorProcessed([]uint64{1})
+		require.True(t, ok)
+
+		require.Empty(t, got.FileProcessed.AllowedLibraries)
+	})
 }

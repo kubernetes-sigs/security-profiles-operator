@@ -24,6 +24,7 @@ import (
 	"testing"
 
 	"github.com/go-logr/logr"
+	"github.com/go-logr/logr/funcr"
 	"github.com/stretchr/testify/require"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/enricherfakes"
@@ -119,4 +120,34 @@ func TestJsonDispatchResolvesArchPerLine(t *testing.T) {
 	}{}
 	require.NoError(t, json.Unmarshal(output, &audit))
 	require.ElementsMatch(t, []string{"getuid", "socketcall"}, audit.Syscalls)
+}
+
+// The syscall IDs of the audit lines are arbitrary numbers, the warnings
+// about unknown ones must not remember each of them.
+func TestUnknownSyscallWarnedOncePerArch(t *testing.T) {
+	t.Parallel()
+
+	var logged []string
+
+	logger := funcr.New(func(_, args string) {
+		logged = append(logged, args)
+	}, funcr.Options{})
+
+	warner := &onceWarner{}
+	for id := range 100 {
+		warner.warn(logger, unknownSyscallKey("c000003e"), "no syscall name found for ID", "id", id)
+	}
+
+	warner.warn(logger, unknownSyscallKey("40000028"), "no syscall name found for ID", "id", 1)
+
+	require.Len(t, logged, 2)
+
+	keys := 0
+
+	warner.keys.Range(func(any, any) bool {
+		keys++
+
+		return true
+	})
+	require.Equal(t, 2, keys)
 }
