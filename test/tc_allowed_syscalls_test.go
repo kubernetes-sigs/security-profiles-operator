@@ -41,9 +41,7 @@ func (e *e2e) testCaseAllowedSyscallsValidation(nodes []string) {
 	const exampleProfilePath = "examples/seccompprofile-allowed-syscalls-validation.yaml"
 
 	e.logf("Changed allowed syscalls list in spod")
-	// Removing the list again must not depend on the rollout succeeding.
-	defer e.kubectlOperatorNS("patch", "spod", "spod", "--type=json",
-		"-p", `[{"op": "remove", "path": "/spec/security/allowedSyscalls"}]`)
+	defer e.removeAllowedSyscalls()
 
 	e.patchSpod(
 		`{"spec":{"security":{"allowedSyscalls": ["exit", "exit_group", "futex", "nanosleep"]}}}`,
@@ -112,15 +110,16 @@ func (e *e2e) testCaseAllowedSyscallsChange(nodes []string) {
 	const exampleProfilePath = "examples/seccompprofile-allowed-syscalls-change.yaml"
 	// Define an allowed syscalls list in the spod configuration
 	e.logf("Changed allowed syscalls list in spod")
-	// Removing the list again must not depend on the rollout succeeding.
-	defer e.kubectlOperatorNS("patch", "spod", "spod",
-		"--type=json", "-p", `[{"op": "remove", "path": "/spec/security/allowedSyscalls"}]`)
+	defer e.removeAllowedSyscalls()
 
 	e.patchSpod(
 		`{"spec":{"security":{"allowedSyscalls": ["exit", "exit_group", "futex", "nanosleep"]}}}`,
 	)
 
 	e.kubectl("create", "-f", exampleProfilePath)
+	// The operator deletes the profile below, the cleanup covers a failure
+	// before that.
+	e.kubectlCleanup("-f", exampleProfilePath)
 
 	// Check that the seccomp profile was allowed and installed
 	name := "profile-allowed-syscalls"
@@ -221,9 +220,7 @@ spec:
 	// Define an allowed syscalls list in the spod configuration, this should disallow the
 	// seccomp profile and trigger a deletion.
 	e.logf("Changed allowed syscalls list in spod")
-	// Removing the list again must not depend on the rollout succeeding.
-	defer e.kubectlOperatorNS("patch", "spod", "spod", "--type=json", "-p",
-		`[{"op": "remove", "path": "/spec/security/allowedSyscalls"}]`)
+	defer e.removeAllowedSyscalls()
 
 	e.patchSpod(
 		`{"spec":{"security":{"allowedSyscalls": ["exit", "exit_group", "futex", "nanosleep"]}}}`,
@@ -256,6 +253,17 @@ spec:
 		profileOperatorPath := path.Join(e.nodeRootfsPrefix, sp.GetProfileOperatorPath())
 		e.execNode(node, "test", "!", "-f", profileOperatorPath)
 	}
+}
+
+// removeAllowedSyscalls removes the allowed syscalls list from the SPOD, also
+// if the patch which added it failed. The following test cases create
+// profiles which the list does not allow. The manager and the daemons watch
+// the list on the SPOD and validate every profile again when it changes, so
+// there is no rollout of the daemon set to wait for, which patchSpod would
+// only give up on after spodGenerationTimeout.
+func (e *e2e) removeAllowedSyscalls() {
+	e.kubectlOperatorNS("patch", "spod", "spod", "--type=merge",
+		"-p", `{"spec":{"security":{"allowedSyscalls": null}}}`)
 }
 
 // waitForSeccompProfileRemoved waits until the operator removed the seccomp

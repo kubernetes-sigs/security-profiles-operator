@@ -50,7 +50,9 @@ var unsafePathChars = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 
 // profileKinds are the kinds of profiles the per node daemon keeps a finalizer
 // on.
-var profileKinds = []string{"seccompprofiles", "selinuxprofiles", "apparmorprofiles"}
+var profileKinds = []string{
+	"seccompprofiles", "selinuxprofiles", "rawselinuxprofiles", "apparmorprofiles",
+}
 
 // BeforeTest dumps the diagnostics shortly before the test binary times out.
 func (e *e2e) BeforeTest(_, _ string) {

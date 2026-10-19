@@ -275,7 +275,7 @@ will reconcile the `ServiceMonitor` into the cluster:
 
 ```
 > kubectl -n security-profiles-operator logs security-profiles-operator-d7c8cfc86-47qh2 | grep monitor
-I0520 09:29:35.578165       1 spod_controller.go:282] spod-config "msg"="Deploying operator service monitor"
+spod-config "msg"="Deploying operator service monitor"
 ```
 
 ```

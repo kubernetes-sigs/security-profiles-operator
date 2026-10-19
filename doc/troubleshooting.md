@@ -101,7 +101,7 @@ security-profiles-operator   spod                   5m
 The manager log names the resource, repeating every few seconds:
 
 ```
-E0918 14:49:17.170072 1 runtime.go:252] "Failed to watch" err="failed to list *v1.ProfileBinding: profilebindings.security-profiles-operator.x-k8s.io is forbidden: User \"system:serviceaccount:security-profiles-operator:security-profiles-operator\" cannot list resource \"profilebindings\" in API group \"security-profiles-operator.x-k8s.io\" at the cluster scope" logger="controller-runtime.cache.UnhandledError"
+"Failed to watch" err="failed to list *v1.ProfileBinding: profilebindings.security-profiles-operator.x-k8s.io is forbidden: User \"system:serviceaccount:security-profiles-operator:security-profiles-operator\" cannot list resource \"profilebindings\" in API group \"security-profiles-operator.x-k8s.io\" at the cluster scope" logger="controller-runtime.cache.UnhandledError"
 ```
 
 The operator reports this state through its readiness probe, so its pods stay
@@ -133,13 +133,13 @@ endpoint, where every container is using a different port:
 
 ```
 > kubectl -n security-profiles-operator logs --selector name=spod -c security-profiles-operator | grep "Starting profiling"
-I1202 15:14:40.276363       1 main.go:557] "Starting profiling server" endpoint="0.0.0.0:6060"
+"Starting profiling server" endpoint="0.0.0.0:6060"
 
 > kubectl -n security-profiles-operator logs --selector name=spod -c log-enricher | grep "Starting profiling"
-I1202 15:14:40.364046       1 main.go:557] "Starting profiling server" endpoint="0.0.0.0:6061"
+"Starting profiling server" endpoint="0.0.0.0:6061"
 
 > kubectl -n security-profiles-operator logs --selector name=spod -c bpf-recorder | grep "Starting profiling"
-I1202 15:14:40.457506       1 main.go:557] "Starting profiling server" endpoint="0.0.0.0:6062"
+"Starting profiling server" endpoint="0.0.0.0:6062"
 ```
 
 Then use the pprof tool to look at the heap profile:
@@ -169,7 +169,7 @@ Nonetheless, this socket can be used to reach the profiling endpoint as
 well:
 
 ```
-kubectl exec spod-4pt84 -c selinuxd -- curl --unix-socket /var/run/selinuxd/selinuxd.sock http://localhost/debug/pprof/heap --output - > /tmp/heap.selinuxd
+kubectl -n security-profiles-operator exec spod-4pt84 -c selinuxd -- curl --unix-socket /var/run/selinuxd/selinuxd.sock http://localhost/debug/pprof/heap --output - > /tmp/heap.selinuxd
 go tool pprof /tmp/heap.selinuxd
 ```
 

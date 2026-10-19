@@ -174,16 +174,23 @@ func TestWorkloadAnnotatorIgnoresPodStatusUpdates(t *testing.T) {
 
 	require.Eventually(t, func() bool { return gets.get(key) > 0 }, eventuallyTimeout, tick)
 
-	// Let the reconciles of the creation settle.
-	settled := gets.get(key)
+	// Let the reconciles of the creation settle: the count has to stay the
+	// same for a few ticks before it is the baseline.
+	const settledTicks = 10
 
-	require.Never(t, func() bool {
-		current := gets.get(key)
-		changed := current != settled
-		settled = current
+	settled, unchanged := gets.get(key), 0
 
-		return changed
-	}, quietPeriod, tick, "the pod creation keeps getting reconciled")
+	require.Eventually(t, func() bool {
+		if current := gets.get(key); current != settled {
+			settled, unchanged = current, 0
+
+			return false
+		}
+
+		unchanged++
+
+		return unchanged >= settledTicks
+	}, eventuallyTimeout, tick, "the pod creation keeps getting reconciled")
 
 	before := gets.get(key)
 

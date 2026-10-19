@@ -173,7 +173,12 @@ check_apparmor_profile_recording() {
     echo "Creating pod $PODNAME and start recording its apparmor profile"
     pod_file="${TMP_DIR}/${PODNAME}.yml"
     create_pod "$PODNAME" "$pod_file" "$SLEEP_INTERVAL_RECORDING" "$runtime"
-    wait_for_pod_status "$PODNAME" "Completed"
+    # The pod sleeps for SLEEP_INTERVAL_RECORDING, which takes most of the
+    # time wait_for_pod_status waits.
+    if ! k wait --for=jsonpath='{.status.phase}'=Succeeded --timeout=180s "pod/$PODNAME"; then
+      k describe pod "$PODNAME"
+      exit 1
+    fi
     echo "Deleting pod $PODNAME"
     k delete -f "$pod_file"
 

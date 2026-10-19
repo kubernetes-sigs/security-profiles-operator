@@ -82,6 +82,10 @@ func (e *e2e) testCaseWebhookOptionsChange([]string) {
 		whDefault[recordingIdx].namespaceSelector,
 		whPatchedConfig[recordingIdx].namespaceSelector,
 	)
+	e.Equal(
+		whDefault[recordingIdx].objectSelector,
+		whPatchedConfig[recordingIdx].objectSelector,
+	)
 
 	// go back to defaults
 	e.kubectlOperatorNS(
@@ -101,11 +105,16 @@ func (e *e2e) testCaseWebhookOptionsChange([]string) {
 	})
 	e.Equal("Fail", whRevertedConfig[bindingIdx].failurePolicy)
 	e.Equal(whDefault[bindingIdx].namespaceSelector, whRevertedConfig[bindingIdx].namespaceSelector)
+	e.Equal(whDefault[bindingIdx].objectSelector, whRevertedConfig[bindingIdx].objectSelector)
 	// check the other hook did not change
 	e.Equal("Fail", whRevertedConfig[recordingIdx].failurePolicy)
 	e.Equal(
 		whDefault[recordingIdx].namespaceSelector,
 		whRevertedConfig[recordingIdx].namespaceSelector,
+	)
+	e.Equal(
+		whDefault[recordingIdx].objectSelector,
+		whRevertedConfig[recordingIdx].objectSelector,
 	)
 }
 

@@ -146,9 +146,7 @@ The build toolchain they compile with, `quay.io/security-profiles-operator/build
 is built without caches on `main` and signed and attested by a job of the
 [`build`](../.github/workflows/build.yml) workflow that runs no repository code.
 The image builds only substitute from `cache.nixos.org`, whatever the build
-image configures. Build images pinned in `Dockerfile` before that change were
-still built with the old workflow, which used the GitHub Actions cache and
-the Cachix cache, until `BUILD_IMAGE` is pinned to an image built by it.
+image configures.
 
 The per-architecture images are reproducible, the same commit gives the same
 image digests. [`hack/image-cross.sh`](../hack/image-cross.sh) builds them
@@ -167,7 +165,8 @@ Images of commits from before the BuildKit image was pinned are not
 reproducible. To rebuild the images of a commit yourself and compare them
 with its staging images, with docker and buildx on a `linux/amd64` machine,
 like Cloud Build and GitHub Actions (the build image is only published for
-it):
+it), and Go, which installs `crane` for the throwaway registry the catalog
+gets rendered from:
 
 ```console
 > git checkout $COMMIT

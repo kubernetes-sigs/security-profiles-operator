@@ -402,9 +402,15 @@ function teardown_spo() {
   kubectl delete -f "$manifests"
 }
 
+# shellcheck disable=SC2329 # called through try_until_ok
+function spod_has_property() {
+  kubectl -nsecurity-profiles-operator get ds spod -oyaml | grep "$1"
+}
+
+# check_spod_property waits until the spod daemon set has the property, the
+# operator may not have rolled it out yet.
 function check_spod_property() {
-  what=$1
-  try_until_ok kubectl -nsecurity-profiles-operator get ds spod -oyaml | grep "$what"
+  try_until_ok spod_has_property "$1"
 }
 
 # The actual script begins here

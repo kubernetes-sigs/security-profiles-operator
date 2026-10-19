@@ -41,8 +41,9 @@ REGISTRY="${REGISTRY:-$STAGING_REGISTRY}"
 # publish unsigned.
 SIGN="${SIGN:-true}"
 # Identical content yields the same digest, so republishing is a no-op for the
-# registry; what is already published is left alone to spare the pushes and
-# the latest repoint. Set this to false to publish regardless.
+# registry; a versioned tag which is already published is left alone to spare
+# the pushes, latest still moves when it serves other content. Set this to
+# false to publish regardless.
 SKIP_EXISTING="${SKIP_EXISTING:-true}"
 # Talks to the registry over HTTP, for the throwaway registry of the build
 # workflow, which attests the profiles, see doc/release.md#security-profiles.
@@ -116,8 +117,9 @@ for runtime in "${RUNTIMES[@]}"; do
   "$SPOC" convert -o "$converted" "$profile"
 
   # latest follows the newest recording for manual pulls; the tests derive the
-  # versioned tag from the recorded profile. It moves only when a version is
-  # published. It is deliberately never promoted: tags in registry.k8s.io cannot
+  # versioned tag from the recorded profile. It moves when a version is
+  # published, and when it serves other content than the converted profile.
+  # It is deliberately never promoted: tags in registry.k8s.io cannot
   # be repointed, so a promoted latest would be frozen at whatever it pointed to
   # first.
   version_ref="$REGISTRY/$NAME_PREFIX$runtime:$version"

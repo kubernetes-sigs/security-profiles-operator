@@ -716,6 +716,10 @@ verify-go-version: ## Verify that nix builds with the Go version of go.mod
 CLANG_FORMAT_VERSION = 23
 CLANG_FORMAT ?= clang-format
 
+.PHONY: print-clang-format-version
+print-clang-format-version: ## Print the major version of clang-format CI formats with
+	@echo '$(CLANG_FORMAT_VERSION)'
+
 .PHONY: verify-format
 verify-format: ## Verify the code format
 	@version="$$($(CLANG_FORMAT) --version | sed -nE 's/.*clang-format version ([0-9]+)\..*/\1/p')"; \

@@ -21,6 +21,7 @@ package e2e_test
 import (
 	"encoding/json"
 	"path"
+	"strings"
 
 	v1 "k8s.io/api/core/v1"
 
@@ -99,7 +100,9 @@ func (e *e2e) verifyBaseProfileContent(node string, cm *v1.ConfigMap) {
 	content := cm.Data[name]
 	profilePath := path.Join("/var/lib/kubelet/seccomp", name)
 	catOutput := e.execNode(node, "cat", profilePath)
-	e.Contains(content, catOutput)
+	// The daemon copies the file as it is, the output of the command lacks
+	// the trailing newline only. An empty or truncated file must not pass.
+	e.Equal(strings.TrimSpace(content), strings.TrimSpace(catOutput))
 }
 
 func (e *e2e) verifyCRDProfileContent(node string, sp *seccompprofileapi.SeccompProfile) {
