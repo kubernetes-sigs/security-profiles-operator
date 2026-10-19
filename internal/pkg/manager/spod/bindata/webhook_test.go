@@ -658,7 +658,6 @@ func TestDeploymentNeedsUpdateIgnoresServerDefaults(t *testing.T) {
 		ctr.TerminationMessagePolicy = corev1.TerminationMessageReadFile
 
 		if probe := ctr.ReadinessProbe; probe != nil {
-			probe.TimeoutSeconds = 1
 			probe.PeriodSeconds = 10
 			probe.SuccessThreshold = 1
 			probe.FailureThreshold = 3

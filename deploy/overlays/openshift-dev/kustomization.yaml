@@ -1,5 +1,5 @@
-# This is the cluster wide security-profiles-operator deployment, which listens for
-# configMaps on all namespaces
+# This is the cluster wide deployment for OpenShift development clusters, which
+# uses the image of the internal registry of the cluster.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
@@ -28,10 +28,4 @@ patches:
   target:
     kind: CustomResourceDefinition
     name: securityprofilesoperatordaemons.security-profiles-operator.x-k8s.io
-- patch: |-
-    - op: add
-      path:  "/metadata/labels/openshift.io~1cluster-monitoring"
-      value: "true"
-  target:
-    kind: Namespace
 

@@ -5154,3 +5154,10 @@ metadata:
   labels:
     app: security-profiles-operator
   name: spo-mutating-webhook-configuration
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  labels:
+    app: security-profiles-operator
+  name: spo-validating-webhook-configuration

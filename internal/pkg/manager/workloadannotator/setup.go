@@ -215,10 +215,12 @@ func podPredicate() predicate.Funcs {
 	}
 }
 
-// podProfilesChanged returns true if the new pod references a profile and
-// the referenced profiles differ from the old pod, the pod got replaced by
-// one with the same name, which the reconciler tells apart by UID, or the pod
-// completed.
+// podProfilesChanged returns true if the old or new pod references a profile
+// and the referenced profiles differ between them, the pod got replaced by one
+// with the same name, which the reconciler tells apart by UID, or the pod
+// completed. An update after which the pod references no profile anymore has
+// to be reconciled, because the delete event of such a pod gets filtered and
+// the profile would keep the pod in its in-use finalizer.
 func podProfilesChanged(e event.UpdateEvent) bool {
 	o, ok := e.ObjectOld.(*corev1.Pod)
 	if !ok {
@@ -230,7 +232,7 @@ func podProfilesChanged(e event.UpdateEvent) bool {
 		return false
 	}
 
-	return hasProfile(n) && (o.UID != n.UID || util.PodCompletedNow(o, n) ||
+	return (hasProfile(o) || hasProfile(n)) && (o.UID != n.UID || util.PodCompletedNow(o, n) ||
 		!slices.Equal(getSeccompProfilesFromPod(o), getSeccompProfilesFromPod(n)) ||
 		!slices.Equal(getSelinuxProfilesFromPod(o), getSelinuxProfilesFromPod(n)) ||
 		!slices.Equal(getAppArmorProfilesFromPod(o), getAppArmorProfilesFromPod(n)))

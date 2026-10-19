@@ -237,6 +237,28 @@ const (
 	BpfRecorderApparmorProfileName = "bpfrecorder-apparmor"
 )
 
+// The paths the webhook server serves the webhooks at, which the webhook
+// configurations of the operator refer to.
+const (
+	// BindingWebhookPath is the path of the binding webhook.
+	BindingWebhookPath = "/mutate-v1-pod-binding"
+
+	// BindingImageWebhookPath is the path of the webhook which validates the
+	// image updates of pods bound by an image binding.
+	BindingImageWebhookPath = "/validate-v1-pod-binding-image"
+
+	// RecordingWebhookPath is the path of the recording webhook.
+	RecordingWebhookPath = "/mutate-v1-pod-recording"
+
+	// ExecMetadataWebhookPath is the path of the exec metadata webhook, which
+	// also serves the node debugging pods.
+	ExecMetadataWebhookPath = "/mutate-v1-exec-metadata"
+
+	// RawSelinuxProfileWebhookPath is the path of the RawSelinuxProfile
+	// validation webhook.
+	RawSelinuxProfileWebhookPath = "/validate-rawselinuxprofile"
+)
+
 var ErrPodNamespaceEnvNotFound = errors.New("the env variable OPERATOR_NAMESPACE hasn't been set")
 
 // KubeletConfig stores various configuration parameters of the kubelet.

@@ -366,8 +366,10 @@ kubectl get crds -o name | grep security-profiles-operator.x-k8s.io | xargs kube
 ```
 
 The operator creates some cluster scoped admission resources at runtime, which
-are not part of every manifest. Remove them once the operator is gone, because
-a running operator recreates them:
+are not part of every manifest: the `kubectl` manifests remove both webhook
+configurations, the Helm chart only the mutating one and OLM neither, and some
+admission policies are not part of any manifest. Remove them once
+the operator is gone, because a running operator recreates them:
 
 ```sh
 kubectl delete validatingadmissionpolicies,validatingadmissionpolicybindings -l app=security-profiles-operator

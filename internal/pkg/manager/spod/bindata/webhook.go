@@ -48,9 +48,11 @@ var (
 	replicas    int32 = 3
 	defaultMode int32 = 420
 	// timeoutSeconds bounds how long a request waits for a webhook. The
-	// handlers only read from the informer cache, so they either answer quickly
-	// or not at all, and a hanging webhook must not stall pod admission for
-	// long.
+	// handlers mostly read from the informer cache, so they either answer
+	// quickly or not at all, and a hanging webhook must not stall pod admission
+	// for long. Only the binding webhook reads the SPOD and the exec metadata
+	// webhook the pod of an exec from the API server, and the binding webhook
+	// bounds its retried profile lookups well below this timeout.
 	timeoutSeconds          int32 = 10
 	allScopes                     = admissionregv1.AllScopes
 	failurePolicyFail             = admissionregv1.Fail
@@ -337,7 +339,7 @@ const (
 	serviceName                  = "webhook-service"
 	webhookServerCert            = "webhook-server-cert"
 	rawSelinuxProfileValidation  = "rawselinuxprofile-validation.spo.io"
-	rawSelinuxProfileWebhookPath = "/validate-rawselinuxprofile"
+	rawSelinuxProfileWebhookPath = config.RawSelinuxProfileWebhookPath
 	certManagerInjectAnnotation  = "cert-manager.io/inject-ca-from"
 )
 
@@ -348,15 +350,15 @@ type webhook struct {
 }
 
 var (
-	binding                  = webhook{0, BindingWebhookName, "/mutate-v1-pod-binding"}
-	recording                = webhook{1, RecordingWebhookName, "/mutate-v1-pod-recording"}
-	execMetadata             = webhook{2, "execmetadata.spo.io", "/mutate-v1-exec-metadata"}
-	nodeDebuggingPodMetadata = webhook{3, "nodedebuggingpod.spo.io", "/mutate-v1-exec-metadata"}
+	binding                  = webhook{0, BindingWebhookName, config.BindingWebhookPath}
+	recording                = webhook{1, RecordingWebhookName, config.RecordingWebhookPath}
+	execMetadata             = webhook{2, "execmetadata.spo.io", config.ExecMetadataWebhookPath}
+	nodeDebuggingPodMetadata = webhook{3, "nodedebuggingpod.spo.io", config.ExecMetadataWebhookPath}
 
 	// bindingImageUpdate is part of the validating webhook configuration, so
 	// its index is the one there. The webhook options of binding.spo.io apply
 	// to it as well.
-	bindingImageUpdate = webhook{1, "binding-image.spo.io", "/validate-v1-pod-binding-image"}
+	bindingImageUpdate = webhook{1, "binding-image.spo.io", config.BindingImageWebhookPath}
 )
 
 type Webhook struct {
@@ -1393,7 +1395,7 @@ func getWebhookConfig(
 				CABundle: caBundle,
 				Service: &admissionregv1.ServiceReference{
 					Name: serviceName,
-					Path: &execMetadata.path,
+					Path: &nodeDebuggingPodMetadata.path,
 				},
 			},
 			ObjectSelector:          &objectSelectorNodeDebuggingPod,
@@ -1556,17 +1558,20 @@ var webhookDeployment = &appsv1.Deployment{
 						},
 						// The replica only gets admission requests once its
 						// webhook server runs and its caches are synced.
-						// The values are the defaults of the API server, which
-						// have to be set explicitly, because the comparison
-						// with the existing deployment does not ignore unset
-						// numbers.
+						// The other values are the defaults of the API
+						// server, which have to be set explicitly, because
+						// the comparison with the existing deployment does
+						// not ignore unset numbers. Like for the manager, the
+						// timeout is above the one the cache sync check
+						// itself uses, so that it reports an unsynced cache
+						// rather than being cut off before it can.
 						ReadinessProbe: &corev1.Probe{
 							ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{
 								Path:   "/readyz",
 								Port:   intstr.FromInt32(config.HealthProbePort),
 								Scheme: corev1.URISchemeHTTP,
 							}},
-							TimeoutSeconds:   1,
+							TimeoutSeconds:   6,
 							PeriodSeconds:    10,
 							SuccessThreshold: 1,
 							FailureThreshold: 3,
@@ -1606,12 +1611,14 @@ var webhookDeployment = &appsv1.Deployment{
 				},
 				Tolerations: []corev1.Toleration{
 					{
-						Effect: corev1.TaintEffectNoSchedule,
-						Key:    "node-role.kubernetes.io/master",
+						Effect:   corev1.TaintEffectNoSchedule,
+						Key:      "node-role.kubernetes.io/master",
+						Operator: corev1.TolerationOpExists,
 					},
 					{
-						Effect: corev1.TaintEffectNoSchedule,
-						Key:    "node-role.kubernetes.io/control-plane",
+						Effect:   corev1.TaintEffectNoSchedule,
+						Key:      "node-role.kubernetes.io/control-plane",
+						Operator: corev1.TolerationOpExists,
 					},
 					{
 						Effect:   corev1.TaintEffectNoExecute,

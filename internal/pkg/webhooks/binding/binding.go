@@ -48,6 +48,7 @@ import (
 	profilebindingapi "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1"
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
+	secprofnodestatusapi "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
@@ -58,6 +59,11 @@ import (
 
 var (
 	errProfWithoutStatus = errors.New("profile hasn't been initialized with status")
+
+	// errProfPartial is returned for a partial profile of a recording, which
+	// the daemons never install, so that waiting for it does not help.
+	errProfPartial = errors.New("profile is a partial profile of a recording, " +
+		"which the nodes do not install")
 
 	// errUnsupportedKind is returned for a binding of an unknown kind.
 	errUnsupportedKind = errors.New("unsupported profile kind")
@@ -88,6 +94,7 @@ const (
 	reasonBindingConflict      = "ProfileBindingConflict"
 	reasonInvalidPodSelector   = "InvalidPodSelector"
 	reasonRecordedElsewhere    = "ProfileRecordedInOtherNamespace"
+	reasonPrivilegedContainer  = "PrivilegedContainer"
 )
 
 // lookupBudget bounds the retried profile lookups of the admission requests.
@@ -228,10 +235,10 @@ func RegisterWebhook(
 		missing:           newMissingProfiles(),
 	}
 
-	server.Register("/mutate-v1-pod-binding", &webhook.Admission{Handler: binder})
+	server.Register(config.BindingWebhookPath, &webhook.Admission{Handler: binder})
 
 	server.Register(
-		"/validate-v1-pod-binding-image",
+		config.BindingImageWebhookPath,
 		&webhook.Admission{
 			Handler: &imageUpdateValidator{
 				binder:  binder,
@@ -376,6 +383,16 @@ func (p *podBinder) conflict(
 	return msg
 }
 
+// appliedBindings returns the bindings which the annotation of the pod lists.
+func appliedBindings(pod *corev1.Pod) sets.Set[string] {
+	value := pod.Annotations[profilebindingapi.AppliedBindingsAnnotation]
+	if value == "" {
+		return sets.New[string]()
+	}
+
+	return sets.New(strings.Split(value, ",")...)
+}
+
 // setAppliedBindings sets the annotation listing the bindings applied to the
 // pod, which the binding tracker uses to only track pods using a binding. A
 // value set by the pod author gets replaced. It returns true if the pod
@@ -495,6 +512,10 @@ func (p *podBinder) updatePod(
 
 	state := newBindState(podName, ctrs)
 
+	// partial are the bindings to partial profiles, which reject the pod if
+	// they bind one of its containers.
+	var partial []*profilebindingapi.ProfileBinding
+
 	for _, pb := range sortBindings(profilebindings) {
 		// Skip bindings whose podSelector does not match the pod's labels.
 		if !p.podMatchesSelector(pod, pb) {
@@ -511,7 +532,9 @@ func (p *podBinder) updatePod(
 			)))
 		}
 
-		if err != nil {
+		if errors.Is(err, errProfPartial) {
+			partial = append(partial, pb)
+		} else if err != nil {
 			return pod, state.warnings, new(admission.Errored(http.StatusInternalServerError, err))
 		}
 
@@ -537,7 +560,30 @@ func (p *podBinder) updatePod(
 		}
 	}
 
+	// A binding to a partial profile which matches no container, or loses
+	// against an older binding, does not change the pod.
+	for _, pb := range partial {
+		if state.applied.Has(pb.Name) {
+			return pod, state.warnings, new(admission.Denied(fmt.Sprintf(
+				"profile binding %s binds %s %s: %v: merge the partial profiles of its "+
+					"recording first",
+				pb.Name, pb.Spec.ProfileRef.Kind, pb.Spec.ProfileRef.Name, errProfPartial,
+			)))
+		}
+	}
+
 	p.warnRecordedElsewhere(state, req.Namespace)
+
+	// A reinvocation of the webhook sees the bindings which the earlier
+	// invocation applied, which already warned about them. The annotation of
+	// a pod which gets ephemeral containers lists the bindings of its
+	// creation instead.
+	warned := sets.New[string]()
+	if !isEphemeral {
+		warned = appliedBindings(pod)
+	}
+
+	p.warnPrivilegedSeccomp(state, ctrs, warned)
 
 	// The ephemeralcontainers subresource only accepts changes to the
 	// ephemeral containers, so the annotations are only changed on creation.
@@ -545,7 +591,7 @@ func (p *podBinder) updatePod(
 		state.podChanged = true
 	}
 
-	if !isEphemeral && removeAppArmorAnnotations(pod, state) {
+	if !isEphemeral && removeLegacyAnnotations(pod, state) {
 		state.podChanged = true
 	}
 
@@ -694,6 +740,49 @@ func (p *podBinder) warnRecordedElsewhere(state *bindState, namespace string) {
 	}
 }
 
+// warnPrivilegedSeccomp warns about the seccomp bindings applied to privileged
+// containers, which usually run unconfined, so that the bound profile has no
+// effect on them, unless the bindings got warned about already.
+func (p *podBinder) warnPrivilegedSeccomp(
+	state *bindState, ctrs []*corev1.Container, warned sets.Set[string],
+) {
+	kind := profilebindingapi.ProfileBindingKindSeccompProfile
+
+	for _, c := range ctrs {
+		if c.SecurityContext == nil || c.SecurityContext.Privileged == nil ||
+			!*c.SecurityContext.Privileged {
+			continue
+		}
+
+		pb, ok := state.boundBy[kind][c]
+		if !ok {
+			pb, ok = state.wildcardBindings[kind]
+		}
+
+		if !ok || warned.Has(pb.Name) {
+			continue
+		}
+
+		msg := fmt.Sprintf(
+			"profile binding %s applied %s %s to the privileged container %s of pod %s, "+
+				"which usually runs unconfined, so the profile likely has no effect",
+			pb.Name,
+			kind,
+			pb.Spec.ProfileRef.Name,
+			c.Name,
+			state.podName,
+		)
+
+		p.log.Info(msg)
+		p.record.Eventf(
+			pb, nil, corev1.EventTypeWarning, reasonPrivilegedContainer,
+			util.EventActionMutate, "%s", msg,
+		)
+
+		state.warnings = append(state.warnings, msg)
+	}
+}
+
 // profileLookup holds the state of the profile lookups of an admission
 // request.
 type profileLookup struct {
@@ -709,7 +798,9 @@ type profileLookup struct {
 // skipped, because rejecting the pod would block every pod matching the
 // binding. Profiles without status are not installed yet, so pods get
 // rejected, unless the SPOD does not enable the profile kind, which means
-// that no daemon ever reports a status. The SPOD is only read for a profile
+// that no daemon ever reports a status. Partial profiles of a recording are
+// never installed, so they are returned with errProfPartial without waiting,
+// and the pods they bind get rejected. The SPOD is only read for a profile
 // which is missing or has no status, so that admitting pods with installed
 // profiles does not depend on reading it.
 func (p *podBinder) getProfile(
@@ -832,6 +923,14 @@ func (p *podBinder) getProfile(
 
 		return nil, false, err
 
+	case errors.Is(err, errProfPartial):
+		// The container runtime would fail to start the pod on the nodes
+		// without the profile, so the caller rejects the pod if the binding
+		// binds one of its containers.
+		p.log.Info("profile is a partial profile", "kind", profileKind, "profile", key)
+
+		return bindProfile, false, err
+
 	case errors.Is(err, errProfWithoutStatus):
 		// No daemon ever reports a status for a disabled kind, so rejecting
 		// the pod would block it forever.
@@ -953,15 +1052,51 @@ func (p *podBinder) applyWildcardProfileToContainers(ctrs []*corev1.Container) w
 	}
 }
 
-// removeAppArmorAnnotations removes the deprecated AppArmor annotations of the
-// containers an AppArmorProfile got bound to, and returns whether the pod
-// changed. After the mutating admission, the API server copies the annotation
-// of a container into its unset security context field, which takes
-// precedence over the pod level profile of a wildcard binding. The profile
-// set on the container by an image binding would not match the annotation,
-// which rejects the pod.
-func removeAppArmorAnnotations(pod *corev1.Pod, state *bindState) bool {
-	kind := profilebindingapi.ProfileBindingKindAppArmorProfile
+// removeLegacyAnnotations removes the deprecated AppArmor and seccomp
+// annotations of the pod and containers a profile of the same kind got bound
+// to, and returns whether the pod changed.
+func removeLegacyAnnotations(pod *corev1.Pod, state *bindState) bool {
+	// After the mutating admission, the API server copies the AppArmor
+	// annotation of a container into its unset security context field, which
+	// takes precedence over the pod level profile of a wildcard binding. The
+	// profile set on the container by an image binding would not match the
+	// annotation, which rejects the pod.
+	changed := removeContainerAnnotations(
+		pod,
+		state,
+		profilebindingapi.ProfileBindingKindAppArmorProfile,
+		corev1.DeprecatedAppArmorBetaContainerAnnotationKeyPrefix,
+	)
+
+	// The API server rejects a pod whose seccomp annotations do not match the
+	// seccomp profile fields set by the bindings.
+	seccompKind := profilebindingapi.ProfileBindingKindSeccompProfile
+	if removeContainerAnnotations(
+		pod, state, seccompKind, corev1.SeccompContainerAnnotationKeyPrefix,
+	) {
+		changed = true
+	}
+
+	if _, wildcard := state.wildcardProfiles[seccompKind]; wildcard {
+		if _, ok := pod.Annotations[corev1.SeccompPodAnnotationKey]; ok {
+			delete(pod.Annotations, corev1.SeccompPodAnnotationKey)
+
+			changed = true
+		}
+	}
+
+	return changed
+}
+
+// removeContainerAnnotations removes the annotations with the key prefix of
+// the containers a profile of the kind got bound to, and returns whether the
+// pod changed.
+func removeContainerAnnotations(
+	pod *corev1.Pod,
+	state *bindState,
+	kind profilebindingapi.ProfileBindingKind,
+	keyPrefix string,
+) bool {
 	_, wildcard := state.wildcardProfiles[kind]
 	changed := false
 
@@ -970,7 +1105,7 @@ func removeAppArmorAnnotations(pod *corev1.Pod, state *bindState) bool {
 			continue
 		}
 
-		key := corev1.DeprecatedAppArmorBetaContainerAnnotationKeyPrefix + c.Name
+		key := keyPrefix + c.Name
 		if _, ok := pod.Annotations[key]; ok {
 			delete(pod.Annotations, key)
 
@@ -1030,7 +1165,10 @@ func retryProfileLookup(
 
 // lookupProfile gets the profile of the key with get, retried as
 // retryProfileLookup describes. A profile without status is not installed
-// yet, which errProfWithoutStatus tells.
+// yet, which errProfWithoutStatus tells. A partial profile of a recording does
+// not get installed by waiting, which errProfPartial tells. A disabled profile
+// stays installed on the nodes whose pods use it, so it is no reason to reject
+// a pod.
 func lookupProfile[T profilebase.StatusBaseUser](
 	ctx context.Context,
 	key types.NamespacedName,
@@ -1046,8 +1184,13 @@ func lookupProfile[T profilebase.StatusBaseUser](
 			return getErr
 		}
 
-		if profile.GetStatusBase().Status == "" {
+		status := profile.GetStatusBase().Status
+		if status == "" {
 			return errProfWithoutStatus
+		}
+
+		if status == secprofnodestatusapi.ProfileStatePartial {
+			return errProfPartial
 		}
 
 		return nil

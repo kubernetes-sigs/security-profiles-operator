@@ -1,0 +1,8 @@
+---
+# The operator fills in the webhooks. Shipping the empty configuration makes
+# deleting the manifests remove it, which keeps the fail closed webhooks from
+# outliving the operator.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: spo-validating-webhook-configuration

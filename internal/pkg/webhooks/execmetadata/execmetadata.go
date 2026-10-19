@@ -417,7 +417,7 @@ func (p Handler) Handle(ctx context.Context, req admission.Request) admission.Re
 // because the webhook does not cache pods otherwise.
 func RegisterWebhook(server webhook.Server, reader client.Reader) {
 	server.Register(
-		"/mutate-v1-exec-metadata",
+		config.ExecMetadataWebhookPath,
 		&webhook.Admission{
 			Handler: &Handler{
 				log:    logf.Log.WithName("execmetadata"),

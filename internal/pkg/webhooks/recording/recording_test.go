@@ -126,7 +126,8 @@ func TestHandle(t *testing.T) {
 			},
 			request: admission.Request{
 				AdmissionRequest: admissionv1.AdmissionRequest{
-					Object: rawPod(t, &corev1.Pod{}),
+					Operation: admissionv1.Create,
+					Object:    rawPod(t, &corev1.Pod{}),
 				},
 			},
 			assert: func(t *testing.T, resp admission.Response) {
@@ -141,6 +142,12 @@ func TestHandle(t *testing.T) {
 			name: "error could not list profile recordings",
 			prepare: func(mock *recordingfakes.FakeImpl) {
 				mock.ListProfileRecordingsReturns(nil, errTest)
+			},
+			request: admission.Request{
+				AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Create,
+					Object:    rawPod(t, testPod),
+				},
 			},
 			assert: func(t *testing.T, resp admission.Response) {
 				t.Helper()
@@ -626,6 +633,98 @@ func TestHandleKeepsRecordingAnnotation(t *testing.T) {
 			}
 
 			require.True(t, strings.HasPrefix(value, "rec_container_"), value)
+		})
+	}
+}
+
+// Annotations added on update used to be stripped only for the recordings
+// which select the pod, so a pod outside of their selectors could start a
+// recording of the running pod or rename the recorded profile.
+func TestHandleKeepsAnnotationsWithoutMatchingRecording(t *testing.T) {
+	t.Parallel()
+
+	const (
+		key   = profilerecordingapi.SeccompProfileRecordBpfAnnotationKey + "container"
+		value = "rec_container_abcde_1661693966"
+	)
+
+	for _, tc := range []struct {
+		name     string
+		old, new map[string]string
+		want     []jsonpatch.Operation
+	}{
+		{
+			name: "added",
+			old:  map[string]string{"other": "value"},
+			new:  map[string]string{"other": "value", key: value},
+			want: []jsonpatch.Operation{{
+				Operation: "remove",
+				Path:      "/metadata/annotations/io.containers.trace-bpf~1container",
+			}},
+		},
+		{
+			name: "changed",
+			old:  map[string]string{key: value},
+			new:  map[string]string{key: "rec_container_fghij_1661693999"},
+			want: []jsonpatch.Operation{{
+				// An add replaces an existing member, see addOperation.
+				Operation: "add",
+				Path:      "/metadata/annotations/io.containers.trace-bpf~1container",
+				Value:     value,
+			}},
+		},
+		{
+			name: "removed",
+			old:  map[string]string{"other": "value", key: value},
+			new:  map[string]string{"other": "value"},
+			want: []jsonpatch.Operation{{
+				Operation: "add",
+				Path:      "/metadata/annotations/io.containers.trace-bpf~1container",
+				Value:     value,
+			}},
+		},
+		{
+			name: "other annotation changed",
+			old:  map[string]string{"other": "value", key: value},
+			new:  map[string]string{"other": "changed", key: value},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			// The recording does not select the pod.
+			mock := &recordingfakes.FakeImpl{}
+			mock.ListProfileRecordingsReturns(&profilerecordingapi.ProfileRecordingList{
+				Items: []profilerecordingapi.ProfileRecording{{
+					ObjectMeta: metav1.ObjectMeta{Name: "rec", Namespace: "ns"},
+					Spec: profilerecordingapi.ProfileRecordingSpec{
+						Kind:     profilerecordingapi.ProfileRecordingKindSeccompProfile,
+						Recorder: profilerecordingapi.ProfileRecorderBpf,
+						PodSelector: &metav1.LabelSelector{
+							MatchLabels: map[string]string{"app": "other"},
+						},
+					},
+				}},
+			}, nil)
+
+			oldPod := testPod.DeepCopy()
+			oldPod.Annotations = tc.old
+			pod := testPod.DeepCopy()
+			pod.Annotations = tc.new
+
+			resp := newTestRecorder(t, mock).Handle(t.Context(), admission.Request{
+				AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Update,
+					Object:    rawPod(t, pod),
+					OldObject: rawPod(t, oldPod),
+				},
+			})
+			require.True(t, resp.Allowed)
+			require.Equal(t, tc.want, resp.Patches)
+			require.Len(t, resp.Warnings, len(tc.want))
+			// The annotations of the old pod are kept independent of the
+			// recordings, so a failing list cannot block pod updates.
+			require.Zero(t, mock.ListProfileRecordingsCallCount())
 		})
 	}
 }

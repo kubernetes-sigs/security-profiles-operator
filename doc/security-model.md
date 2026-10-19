@@ -71,7 +71,10 @@ The running permissions for the three core technologies supported:
 1. The `selinux-shared-policies-copier` init container runs privileged to reload the kernel
    policy with `semodule -R`. The long running `selinuxd` container is not privileged, adds the
    `CHOWN`, `FOWNER`, `FSETID` and `DAC_OVERRIDE` capabilities to the runtime defaults, and runs
-   with the `selinuxd.process` type.
+   with the `selinuxd.process` type. To reload the policy after a SELinux profile changed, the
+   daemon creates a Job in the operator namespace, pinned to its node: a privileged pod with
+   the `spc_t` type, which runs `semodule -R` in the `selinuxd` image as the `spod` service
+   account without a service account token and tolerates every taint.
 2. The type can be changed through `spec.selinux.typeTag` of the `spod` resource, for
    example to `unconfined_t` on Flatcar Linux. It is ignored while AppArmor is enabled.
 3. The daemon container runs with the Localhost seccomp profile `security-profiles-operator.json`,
@@ -94,7 +97,8 @@ Throughout their operation they require read and write permissions into host pat
 
 - `/var/lib/security-profiles-operator` (seccomp profiles, linked from the kubelet `seccomp`
   directory)
-- `/etc/selinux`, `/var/lib/selinux` and `/sys/fs/selinux` (only when SELinux is enabled)
+- `/etc/selinux`, `/var/lib/selinux` and `/sys/fs/selinux` (only when SELinux is enabled, also
+  mounted by the SELinux policy reload Job)
 - `/etc/apparmor.d` (only when AppArmor is enabled, through the host mount namespace)
 
 Host paths of optional features are only mounted when the feature is enabled, and read-only
@@ -290,7 +294,8 @@ installations through OLM come without these policies.
   SELinux profiles. Only the exec metadata webhook gets single pods: an exec request carries
   the `PodExecOptions`, not the pod, so it reads the target pod to skip Windows pods.
 - Operator namespace only: the `restricted-v2` SCC (`security.openshift.io`), and get on the
-  `spod` resource, for the profile kinds the binding webhook binds and the webhook options.
+  `spod` resource, which the binding webhook reads from the API server to tell whether it
+  enables the kind of a profile which is missing or has no status.
   Every replica serves requests, so the webhook runs without leader election and needs no
   leases.
 - Own API: read on the profiles, bindings and recordings, which the webhooks match pods
@@ -305,7 +310,9 @@ and only apply to namespaces with the `spo.x-k8s.io/enable-binding` or
 namespace, and also binds ephemeral containers, which get added to running pods for example by
 `kubectl debug`. Bindings to profiles which do not exist are skipped. A profile without status
 is not installed yet, so pods bound to it are rejected, unless its kind is disabled
-in the `spod` resource, in which case the binding is skipped with an event. The bindings only
+in the `spod` resource, in which case the binding is skipped with an event. Pods bound to a
+partial profile of a recording are rejected as well, because the daemons never install partial
+profiles. The bindings only
 apply on pod creation, so the `binding-image.spo.io` validating webhook, which selects the same
 namespaces and pods, rejects image changes of running pods while an image binding matches the
 old or the new image. A match condition limits it to the updates which change an image. The
@@ -316,7 +323,9 @@ The exec metadata webhooks use the `Ignore` failure policy. `execmetadata.spo.io
 `kube-system`, `kube-public`, `kube-node-lease` and operator namespaces. Other system namespaces,
 like the `openshift-*` ones, can be excluded through `spec.webhook.options` of the `spod`
 resource. `nodedebuggingpod.spo.io` applies to the pods of all namespaces which carry the
-`app.kubernetes.io/managed-by: kubectl-debug` label of `kubectl debug node`.
+`app.kubernetes.io/managed-by: kubectl-debug` label of `kubectl debug node`. The OpenShift
+manifests default it to the `debug.openshift.io/managed-by: oc-debug` label of `oc debug node`
+instead.
 
 The validating webhook and the daemons check the CIL policy of raw SELinux profiles, which
 the daemons place into a block named after the profile. The parentheses have to be balanced

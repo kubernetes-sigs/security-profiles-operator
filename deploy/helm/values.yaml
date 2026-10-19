@@ -90,6 +90,7 @@ spod:
   spec: {}
 
 nameOverride: ""
+# Has no effect, the chart uses fixed names for the resources it creates.
 fullnameOverride: ""
 
 # Annotations for the operator pods.

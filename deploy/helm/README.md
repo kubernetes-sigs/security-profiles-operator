@@ -31,7 +31,7 @@ please refer to [Installation Guide](https://github.com/kubernetes-sigs/security
 | enableProfiling | bool | `false` | enable profiling or not |
 | enableSelinux | bool | unset | deprecated, use `selinux.enable` instead |
 | extraEnv | list | `[]` | additional environment variables of the operator container, like `MAX_METRIC_SERIES` or `ENABLE_INSECURE_METRICS_ACCESS`; their names must not repeat the environment variables the chart sets |
-| fullnameOverride | string | `""` | override the generated full name |
+| fullnameOverride | string | `""` | has no effect, the chart uses fixed names for the resources it creates |
 | imagePullSecrets | list | `[]` | secrets for pulling the images from a private registry, for example `[{name: my-pull-secret}]`; they apply to the operator deployment and, through `spec.imagePullSecrets` of the SPOD, to the daemon and the webhook |
 | kubeletDir | string | `"/var/lib/kubelet"` | the kubelet root directory of the nodes, where the seccomp profiles get installed |
 | nameOverride | string | `""` | used for generating labels |

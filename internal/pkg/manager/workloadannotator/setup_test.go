@@ -64,6 +64,14 @@ func TestPodPredicateUpdate(t *testing.T) {
 		return pod
 	}
 
+	withAnnotation := func(pod *corev1.Pod) *corev1.Pod {
+		pod.Annotations = map[string]string{
+			corev1.SeccompPodAnnotationKey: "localhost/" + profile,
+		}
+
+		return pod
+	}
+
 	withSelinux := func(pod *corev1.Pod) *corev1.Pod {
 		pod.Spec.Containers = []corev1.Container{{SecurityContext: &corev1.SecurityContext{
 			SELinuxOptions: &corev1.SELinuxOptions{Type: "profile.process"},
@@ -96,7 +104,15 @@ func TestPodPredicateUpdate(t *testing.T) {
 		"seccomp profile changed": {
 			oldPod: seccompPod("a", profile), newPod: seccompPod("a", "operator/other.json"), want: true,
 		},
-		"seccomp profile removed": {oldPod: seccompPod("a", profile), newPod: seccompPod("a", "")},
+		"seccomp profile removed": {
+			oldPod: seccompPod("a", profile), newPod: seccompPod("a", ""), want: true,
+		},
+		"seccomp annotation removed": {
+			oldPod: withAnnotation(seccompPod("a", "")), newPod: seccompPod("a", ""), want: true,
+		},
+		"replaced by pod without profile": {
+			oldPod: seccompPod("a", profile), newPod: seccompPod("b", ""), want: true,
+		},
 		"selinux type added": {
 			oldPod: seccompPod("a", profile), newPod: withSelinux(seccompPod("a", profile)), want: true,
 		},
