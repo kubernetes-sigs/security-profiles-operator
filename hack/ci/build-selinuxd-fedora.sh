@@ -44,8 +44,24 @@ git -C "$SELINUXD_DIR" fetch -q --depth 1 \
   https://github.com/containers/selinuxd "$SELINUXD_COMMIT"
 git -C "$SELINUXD_DIR" checkout -q FETCH_HEAD
 
-sed -i "s|fedora-minimal:[0-9]*|fedora-minimal:$FEDORA_VERSION|" \
-  "$SELINUXD_DIR/images/fedora/Dockerfile"
+DOCKERFILE="$SELINUXD_DIR/images/fedora/Dockerfile"
+sed -i "s|fedora-minimal:[0-9]*|fedora-minimal:$FEDORA_VERSION|" "$DOCKERFILE"
 
-podman build -f "$SELINUXD_DIR/images/fedora/Dockerfile" \
+# The sed does not fail if a changed Dockerfile of selinuxd names its base
+# image differently, the image would silently keep the old Fedora release.
+# Every stage has to be based on the release, and a digest would pin the old
+# one whatever the tag says.
+FROM_LINES=$(grep -iE '^FROM .*fedora-minimal' "$DOCKERFILE" || true)
+if [[ -z $FROM_LINES ]]; then
+  echo "No fedora-minimal base image found in the selinuxd Dockerfile" >&2
+  exit 1
+fi
+while read -r line; do
+  if [[ ! $line =~ fedora-minimal:$FEDORA_VERSION([[:space:]]|$) ]]; then
+    echo "Unable to switch the selinuxd image to Fedora $FEDORA_VERSION: $line" >&2
+    exit 1
+  fi
+done <<<"$FROM_LINES"
+
+podman build -f "$DOCKERFILE" \
   -t "$IMAGE" "$SELINUXD_DIR"

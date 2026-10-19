@@ -90,12 +90,14 @@ registry or when the build cannot run:
 environments without an OIDC identity, and `SKIP_EXISTING=false` republishes a
 version that is already there.
 
-Versions that are already published are skipped. Identical content yields the
-same digest (the manifest's creation timestamp is fixed unless
-`SOURCE_DATE_EPOCH` is set), so a republish would be a no-op for the registry;
-skipping only avoids the pushes and the `latest` repoint. Skipping is keyed on
-the version tag, so a profile that is re-recorded without the runtime version
-changing needs `SKIP_EXISTING=false` to reach the registry.
+Versions that are already published are skipped, their versioned tag is not
+pushed again. Identical content yields the same digest (the manifest's creation
+timestamp is fixed unless `SOURCE_DATE_EPOCH` is set), so a republish would be
+a no-op for the registry; skipping only avoids the pushes. `latest` is checked
+by its content instead, and moves whenever it serves something else than the
+converted profile. Skipping is keyed on the version tag, so a profile that is
+re-recorded without the runtime version changing only moves `latest`, and
+needs `SKIP_EXISTING=false` to reach the versioned tag the tests pull.
 
 ## Promoting to registry.k8s.io
 

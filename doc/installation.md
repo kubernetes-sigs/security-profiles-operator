@@ -386,7 +386,7 @@ The daemon should now indicate that it's using the new logging verbosity:
 
 ```
 > kubectl -n security-profiles-operator logs --selector name=spod -c security-profiles-operator | head -n1
-I1111 15:13:16.942837       1 main.go:543] "Set logging verbosity to 1"
+"Set logging verbosity to 1"
 ```
 
 ### Pull images from private registry

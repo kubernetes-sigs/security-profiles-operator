@@ -8,7 +8,12 @@ apt-get install -y lsb-release gnupg unzip xz-utils
 
 # clang-format comes from the apt repository of LLVM, whose packages apt
 # verifies with the repository key, instead of running its install script.
-CLANG_VERSION=23
+# The version comes from the Makefile, whose verify-format checks it.
+CLANG_VERSION=$(make -s print-clang-format-version)
+if [[ ! "$CLANG_VERSION" =~ ^[0-9]+$ ]]; then
+    echo "Unexpected clang-format version from the Makefile: $CLANG_VERSION" >&2
+    exit 1
+fi
 CODENAME=$(lsb_release -cs)
 # The fingerprint of the repository key, see https://apt.llvm.org. apt trusts
 # the key for the repository, so it is checked before it gets installed. A key
@@ -28,7 +33,7 @@ gpg --dearmor -o /usr/share/keyrings/llvm-archive-keyring.gpg "$key"
 echo "deb [signed-by=/usr/share/keyrings/llvm-archive-keyring.gpg] https://apt.llvm.org/$CODENAME/ llvm-toolchain-$CODENAME-$CLANG_VERSION main" \
     >/etc/apt/sources.list.d/llvm.list
 apt-get update
-apt-get install -y clang-format-$CLANG_VERSION
-ln -sf /usr/bin/clang-format-$CLANG_VERSION /usr/bin/clang-format
+apt-get install -y "clang-format-$CLANG_VERSION"
+ln -sf "/usr/bin/clang-format-$CLANG_VERSION" /usr/bin/clang-format
 
 make verify

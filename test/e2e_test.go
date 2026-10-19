@@ -300,9 +300,7 @@ func (e *e2e) testCases() []testCase {
 		{
 			description: "Seccomp: Verify profile binding: image",
 			fn: func(nodes []string) {
-				e.testCaseSeccompProfileBinding(
-					nodes, "quay.io/security-profiles-operator/test-hello-world:latest",
-				)
+				e.testCaseSeccompProfileBinding(nodes, "busybox:latest")
 			},
 			flaky:           true,
 			issue:           inUseFinalizerIssue,

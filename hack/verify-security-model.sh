@@ -43,12 +43,13 @@ go_const() {
   echo "$value"
 }
 
-profiles=(
-  "$(go_const internal/pkg/config/config.go SpoApparmorProfileName)"
-  "$(go_const internal/pkg/config/config.go BpfRecorderApparmorProfileName)"
-  "$(go_const internal/pkg/config/config.go SpoSeccompProfile)"
-  "$(go_const internal/pkg/config/config.go BpfRecorderSeccompProfile)"
-)
+# Assign each substitution on its own: set -e only sees the exit status of the
+# last substitution of a compound array assignment.
+profiles=()
+profiles+=("$(go_const internal/pkg/config/config.go SpoApparmorProfileName)")
+profiles+=("$(go_const internal/pkg/config/config.go BpfRecorderApparmorProfileName)")
+profiles+=("$(go_const internal/pkg/config/config.go SpoSeccompProfile)")
+profiles+=("$(go_const internal/pkg/config/config.go BpfRecorderSeccompProfile)")
 
 for profile in "${profiles[@]}"; do
   if ! grep -qF "\`$profile\`" "$DOC"; then

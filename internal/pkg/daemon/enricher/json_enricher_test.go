@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/jellydator/ttlcache/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/natefinch/lumberjack.v2"
@@ -101,12 +102,21 @@ func getEnvMap(content []byte) map[string]string {
 	return envMap
 }
 
+// logLinesTTL returns the TTL of the log lines cache, which is the flush
+// interval of the audit lines.
+func logLinesTTL(sut *JsonEnricher) time.Duration {
+	return sut.logLinesCache.Set(0, &types.LogBucket{}, ttlcache.DefaultTTL).TTL()
+}
+
 func TestJsonEnricherNoOptions(t *testing.T) {
 	t.Parallel()
 
-	_, jErr := NewJsonEnricherArgs(logr.Discard(), nil)
+	sut, jErr := NewJsonEnricherArgs(logr.Discard(), nil)
 
 	require.NoError(t, jErr)
+	require.Equal(t, JsonEnricherDefaultOptions.AuditFreq, logLinesTTL(sut))
+	require.Equal(t, os.Stdout, sut.logWriter)
+	require.Empty(t, sut.enricherFilters)
 }
 
 func TestJsonEnricherFreqOptions(t *testing.T) {
@@ -115,9 +125,11 @@ func TestJsonEnricherFreqOptions(t *testing.T) {
 	opts := &JsonEnricherOptions{}
 	opts.AuditFreq = time.Duration(auditLogFlushTimeSeconds) * time.Second
 
-	_, jErr := NewJsonEnricherArgs(logr.Discard(), opts)
+	sut, jErr := NewJsonEnricherArgs(logr.Discard(), opts)
 
 	require.NoError(t, jErr)
+	require.Equal(t, opts.AuditFreq, logLinesTTL(sut))
+	require.Equal(t, os.Stdout, sut.logWriter)
 }
 
 func TestJsonEnricherLogPathOptionsInvalid(t *testing.T) {
@@ -152,9 +164,15 @@ func TestJsonEnricherLogPathOptionsValid(t *testing.T) {
 	opts.AuditLogMaxSize = 100
 	opts.AuditLogPath = "/dev/null"
 
-	_, jErr := NewJsonEnricherArgs(logr.Discard(), opts)
+	sut, jErr := NewJsonEnricherArgs(logr.Discard(), opts)
 
 	require.NoError(t, jErr)
+	require.Equal(t, &lumberjack.Logger{
+		Filename:   "/dev/null",
+		MaxSize:    100,
+		MaxAge:     10,
+		MaxBackups: 10,
+	}, sut.logWriter)
 }
 
 func TestJsonEnricherWithFilter(t *testing.T) {
@@ -165,11 +183,24 @@ func TestJsonEnricherWithFilter(t *testing.T) {
 	opts.AuditLogMaxAge = 10
 	opts.AuditLogMaxSize = 100
 	opts.AuditLogPath = "/dev/null"
-	opts.EnricherFiltersJson = "[]"
+	opts.EnricherFiltersJson = `[` +
+		`{"priority":200,"level":"Metadata","matchKeys":["podName"]},` +
+		`{"priority":100,"level":"None","matchKeys":["namespace"],"matchValues":["kube-system"]}]`
 
-	_, jErr := NewJsonEnricherArgs(logr.Discard(), opts)
+	sut, jErr := NewJsonEnricherArgs(logr.Discard(), opts)
 
 	require.NoError(t, jErr)
+	// The filters get applied in the order of their priority.
+	require.Equal(t, []types.EnricherFilterOptions{{
+		Priority:    100,
+		Level:       types.EnricherLogLevelNone,
+		MatchKeys:   []string{"namespace"},
+		MatchValues: &[]string{"kube-system"},
+	}, {
+		Priority:  200,
+		Level:     types.EnricherLogLevelMetadata,
+		MatchKeys: []string{"podName"},
+	}}, sut.enricherFilters)
 }
 
 func TestJsonEnricherWithInvalidFilter(t *testing.T) {

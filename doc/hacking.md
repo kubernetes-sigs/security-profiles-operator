@@ -91,9 +91,13 @@ container build directly.
 - `make nix` builds the binaries for amd64, arm64 and ppc64le with
   [Nix](https://nixos.org/download) into `build.tar.gz`, `make nix-amd64`,
   `make nix-arm64` and so on build a single architecture. `make nix-spoc`
-  builds `spoc` for these architectures and s390x, `make nix-spoc-<arch>` for
-  a single one. Nix needs no native libraries on the host, and
-  `make update-nixpkgs` updates its pinned package set.
+  builds `spoc` for these architectures and s390x like a release, which
+  includes generating the SBOMs with `bom` and signing the binaries and SBOMs
+  keylessly with `cosign`. The signing asks for an OIDC identity and records
+  the signatures in the public Rekor transparency log, so use
+  `make nix-spoc-<arch>` to only build `spoc` for a single architecture. Nix
+  needs no native libraries on the host, and `make update-nixpkgs` updates its
+  pinned package set.
 - `make update-bpf` rebuilds the committed BPF objects of the recorder and the
   enricher for amd64 and arm64 with Nix, after changing the BPF programs.
   `make update-vmlinux` regenerates the `vmlinux.h` they build against.
@@ -342,64 +346,63 @@ an example of using `counterfeiter`.
 
 The main structure used by the enricher controller is called `Enricher`. Note
 that any functionality in that package that we want to mock is provided not
-directly, but through implementing an interface called `impl`:
+directly, but through an embedded interface called `impl`:
 ```go
 type Enricher struct {
 	apienricher.UnimplementedEnricherServer
 	impl
-	logger           logr.Logger
-    ...
+	source auditsource.AuditLineSource
+	logger logr.Logger
+	...
 }
 ```
 Both the interface itself and the default implementation (`struct
-defaultImpl`) that the package uses normally is located in `impl.go`
-in the package directory. Note that the structure `defaultImpl` has no
-members (no state) and all parameters are provided to the methods.
+defaultImpl`) that the package uses normally are located in `impl.go` in the
+package directory. The methods of `defaultImpl` are thin wrappers around the
+calls into the node or the cluster, the state they need, like the file system
+and the logger, is set up by `newDefaultImpl`.
 
 ```go
-type defaultImpl struct{}
-
-//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate
+//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../../hack/boilerplate/boilerplate.generatego.txt
 //counterfeiter:generate . impl
 type impl interface {
-	ListPods(ctx context.Context, c kubernetes.Interface, nodeName string) (*v1.PodList, error)
-    ...
+	StartTail(src auditsource.AuditLineSource) (chan *types.AuditLine, error)
+	ContainerIDForPID(
+		cache *ttlcache.Cache[string, string], pid int,
+	) (containerID string, started time.Duration, err error)
+	PodListerWatcher(c kubernetes.Interface, nodeName string) podindex.ListerWatcher
+	...
 }
 
-func (d *defaultImpl) ListPods(
-	ctx context.Context, c kubernetes.Interface, nodeName string,
-) (*v1.PodList, error) {
-	return c.CoreV1().Pods("").List(ctx, metav1.ListOptions{
-		FieldSelector: "spec.nodeName=" + nodeName,
-	})
+func (d *defaultImpl) ContainerIDForPID(
+	cache *ttlcache.Cache[string, string],
+	pid int,
+) (containerID string, started time.Duration, err error) {
+	return util.ContainerIDAndStartTimeForPID(cache, pid)
 }
 ```
 
 The most important part is the `go:generate` and `counterfeiter:generate`
 annotations above the interface. These annotations are used by `go generate` to
-generate the mocked interfaces. SPO provides a makefile target `update-mocks`
-to regenerate the mocked interfaces.
+generate the mocked interfaces, the fake of the enricher is `FakeImpl` of the
+`enricherfakes` package. SPO provides a makefile target `update-mocks` to
+regenerate the mocked interfaces.
 
-The last step is to actually use the mocked functions in a test. Here is an example of a
-test that makes the `ListPods` interface method to return provided pods:
+The last step is to actually use the mocked functions in a test. Here is an
+example of a test that feeds the audit lines of a channel to the enricher and
+makes the `ContainerIDForPID` and `PodListerWatcher` interface methods return
+the container and the pod of the lines:
 ```go
-	prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {
-		mock.GetenvReturns(node)
-		mock.LinesReturns(lineChan)
-		mock.ContainerIDForPIDReturns(containerID, nil)
-		mock.ListPodsReturns(&v1.PodList{Items: []v1.Pod{{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      pod,
-				Namespace: namespace,
-			},
-			Status: v1.PodStatus{
-				ContainerStatuses: []v1.ContainerStatus{{
-					ContainerID: crioPrefix + containerID,
-				}},
-			},
-		}}}, nil)
+	prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine) {
+		mock.StartTailReturns(lineChan, nil)
+		mock.ContainerIDForPIDReturns(containerID, 0, nil)
+		mock.PodListerWatcherReturns(podindextest.New(*runningPod()))
 	},
 ```
+The test then replaces the implementation of the enricher with the fake
+(`sut.impl = mock`), and checks the calls of the enricher with the recording
+methods of the fake, like `mock.SendMetricCallCount()` and
+`mock.SendMetricArgsForCall(0)`.
 
 ## Installing SPO to your cluster from source
 The particular steps depend on what features are you interested in testing

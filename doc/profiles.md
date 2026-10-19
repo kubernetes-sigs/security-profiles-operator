@@ -117,10 +117,10 @@ enricher should be listening for new changes to the audit logs:
 
 ```
 > kubectl -n security-profiles-operator logs -f ds/spod log-enricher
-I0623 12:51:04.257814 1854764 deleg.go:130] setup "msg"="starting component: log-enricher"  "buildDate"="1980-01-01T00:00:00Z" "compiler"="gc" "gitCommit"="unknown" "gitTreeState"="clean" "goVersion"="go1.16.2" "platform"="linux/amd64" "version"="<version>"
-I0623 12:51:04.257890 1854764 enricher.go:44] log-enricher "msg"="Starting log-enricher on node: 127.0.0.1"
-I0623 12:51:04.257898 1854764 enricher.go:46] log-enricher "msg"="Connecting to local GRPC server"
-I0623 12:51:04.258061 1854764 enricher.go:69] log-enricher "msg"="Reading from file /var/log/audit/audit.log"
+setup "msg"="starting component: log-enricher"  "buildDate"="1980-01-01T00:00:00Z" "compiler"="gc" "gitCommit"="unknown" "gitTreeState"="clean" "goVersion"="go1.16.2" "platform"="linux/amd64" "version"="<version>"
+log-enricher "msg"="Starting log-enricher on node: 127.0.0.1"
+log-enricher "msg"="Connecting to local GRPC server"
+log-enricher "msg"="Reading from file /var/log/audit/audit.log"
 2021/06/23 12:51:04 Sought /var/log/audit/audit.log - &{Offset:0 Whence:2}
 ```
 
@@ -171,7 +171,7 @@ Then the enricher should indicate that it receives audit logs for those containe
 ```
 > kubectl -n security-profiles-operator logs --since=1m --selector name=spod -c log-enricher
 …
-I0705 12:08:18.729660 1843190 enricher.go:136] log-enricher "msg"="audit"  "container"="redis" "executable"="/usr/local/bin/redis-server" "namespace"="default" "node"="127.0.0.1" "pid"=1847839 "pod"="my-pod" "syscallID"=232 "syscallName"="epoll_wait" "timestamp"="1625486870.273:187492" "type"="seccomp"
+log-enricher "msg"="audit"  "container"="redis" "executable"="/usr/local/bin/redis-server" "namespace"="default" "node"="127.0.0.1" "pid"=1847839 "pod"="my-pod" "syscallID"=232 "syscallName"="epoll_wait" "timestamp"="1625486870.273:187492" "type"="seccomp"
 ```
 
 Now, if we remove the pod:
@@ -227,23 +227,23 @@ been finished:
 ```
 > kubectl -n security-profiles-operator logs --selector name=spod -c bpf-recorder
 Found 6 pods, using pod/spod-h7dpm
-I1115 12:02:45.991786  110307 main.go:182]  "msg"="Set logging verbosity to 0"
-I1115 12:02:45.991901  110307 deleg.go:130] setup "msg"="starting component: bpf-recorder"  "buildDate"="1980-01-01T00:00:00Z" "compiler"="gc" "gitCommit"="unknown" "gitTreeState"="clean" "goVersion"="go1.16.9" "libseccomp"="2.5.1" "platform"="linux/amd64" "version"="<version>"
-I1115 12:02:45.991955  110307 bpfrecorder.go:105] bpf-recorder "msg"="Setting up caches with expiry of 1h0m0s"
-I1115 12:02:45.991973  110307 bpfrecorder.go:121] bpf-recorder "msg"="Starting log-enricher on node: ip-10-0-228-234.us-east-2.compute.internal"
-I1115 12:02:45.994232  110307 bpfrecorder.go:152] bpf-recorder "msg"="Connecting to metrics server"
-I1115 12:02:48.373469  110307 bpfrecorder.go:168] bpf-recorder "msg"="Got system mount namespace: 4026531840"
-I1115 12:02:48.373518  110307 bpfrecorder.go:170] bpf-recorder "msg"="Doing BPF load/unload self-test"
-I1115 12:02:48.373529  110307 bpfrecorder.go:336] bpf-recorder "msg"="Loading bpf module"
-I1115 12:02:48.373570  110307 bpfrecorder.go:403] bpf-recorder "msg"="Using system btf file"
-I1115 12:02:48.373770  110307 bpfrecorder.go:356] bpf-recorder "msg"="Loading bpf object from module"
-I1115 12:02:48.403766  110307 bpfrecorder.go:362] bpf-recorder "msg"="Getting bpf program sys_enter"
-I1115 12:02:48.403792  110307 bpfrecorder.go:368] bpf-recorder "msg"="Attaching bpf tracepoint"
-I1115 12:02:48.406205  110307 bpfrecorder.go:373] bpf-recorder "msg"="Getting syscalls map"
-I1115 12:02:48.406287  110307 bpfrecorder.go:379] bpf-recorder "msg"="Getting comms map"
-I1115 12:02:48.406862  110307 bpfrecorder.go:396] bpf-recorder "msg"="Module successfully loaded, watching for events"
-I1115 12:02:48.406908  110307 bpfrecorder.go:677] bpf-recorder "msg"="Unloading bpf module"
-I1115 12:02:48.411636  110307 bpfrecorder.go:176] bpf-recorder "msg"="Starting GRPC API server"
+"msg"="Set logging verbosity to 0"
+setup "msg"="starting component: bpf-recorder"  "buildDate"="1980-01-01T00:00:00Z" "compiler"="gc" "gitCommit"="unknown" "gitTreeState"="clean" "goVersion"="go1.16.9" "libseccomp"="2.5.1" "platform"="linux/amd64" "version"="<version>"
+bpf-recorder "msg"="Setting up caches with expiry of 1h0m0s"
+bpf-recorder "msg"="Starting log-enricher on node: ip-10-0-228-234.us-east-2.compute.internal"
+bpf-recorder "msg"="Connecting to metrics server"
+bpf-recorder "msg"="Got system mount namespace: 4026531840"
+bpf-recorder "msg"="Doing BPF load/unload self-test"
+bpf-recorder "msg"="Loading bpf module"
+bpf-recorder "msg"="Using system btf file"
+bpf-recorder "msg"="Loading bpf object from module"
+bpf-recorder "msg"="Getting bpf program sys_enter"
+bpf-recorder "msg"="Attaching bpf tracepoint"
+bpf-recorder "msg"="Getting syscalls map"
+bpf-recorder "msg"="Getting comms map"
+bpf-recorder "msg"="Module successfully loaded, watching for events"
+bpf-recorder "msg"="Unloading bpf module"
+bpf-recorder "msg"="Starting GRPC API server"
 ```
 
 The recorder does a system sanity check on startup to ensure everything works as
@@ -294,10 +294,10 @@ Then the BPF recorder should indicate that it found the container:
 ```
 > kubectl -n security-profiles-operator logs --since=1m --selector name=spod -c bpf-recorder
 …
-I1115 12:12:30.029216   66106 bpfrecorder.go:654] bpf-recorder "msg"="Found container ID in cluster"  "containerID"="c2e10af47011f6a61cd7e92073db2711796f174af35b34486967588ef7f95fbc" "containerName"="nginx"
-I1115 12:12:30.029264   66106 bpfrecorder.go:539] bpf-recorder "msg"="Saving PID for profile"  "mntns"=4026533352 "pid"=74384 "profile"="my-recording-nginx-1636978341"
-I1115 12:12:30.029428   66106 bpfrecorder.go:512] bpf-recorder "msg"="Using short path via tracked mount namespace"  "mntns"=4026533352 "pid"=74403 "profile"="my-recording-nginx-1636978341"
-I1115 12:12:30.029575   66106 bpfrecorder.go:512] bpf-recorder "msg"="Using short path via tracked mount namespace"  "mntns"=4026533352 "pid"=74402 "profile"="my-recording-nginx-1636978341"
+bpf-recorder "msg"="Found container ID in cluster"  "containerID"="c2e10af47011f6a61cd7e92073db2711796f174af35b34486967588ef7f95fbc" "containerName"="nginx"
+bpf-recorder "msg"="Saving PID for profile"  "mntns"=4026533352 "pid"=74384 "profile"="my-recording-nginx-1636978341"
+bpf-recorder "msg"="Using short path via tracked mount namespace"  "mntns"=4026533352 "pid"=74403 "profile"="my-recording-nginx-1636978341"
+bpf-recorder "msg"="Using short path via tracked mount namespace"  "mntns"=4026533352 "pid"=74402 "profile"="my-recording-nginx-1636978341"
 …
 ```
 
@@ -746,23 +746,23 @@ been finished:
 ```
 > kubectl -n security-profiles-operator logs --selector name=spod -c bpf-recorder
 Found 6 pods, using pod/spod-h7dpm
-I1115 12:02:45.991786  110307 main.go:182]  "msg"="Set logging verbosity to 0"
-I1115 12:02:45.991901  110307 deleg.go:130] setup "msg"="starting component: bpf-recorder"  "buildDate"="1980-01-01T00:00:00Z" "compiler"="gc" "gitCommit"="unknown" "gitTreeState"="clean" "goVersion"="go1.16.9" "libseccomp"="2.5.1" "platform"="linux/amd64" "version"="<version>"
-I1115 12:02:45.991955  110307 bpfrecorder.go:105] bpf-recorder "msg"="Setting up caches with expiry of 1h0m0s"
-I1115 12:02:45.991973  110307 bpfrecorder.go:121] bpf-recorder "msg"="Starting log-enricher on node: ip-10-0-228-234.us-east-2.compute.internal"
-I1115 12:02:45.994232  110307 bpfrecorder.go:152] bpf-recorder "msg"="Connecting to metrics server"
-I1115 12:02:48.373469  110307 bpfrecorder.go:168] bpf-recorder "msg"="Got system mount namespace: 4026531840"
-I1115 12:02:48.373518  110307 bpfrecorder.go:170] bpf-recorder "msg"="Doing BPF load/unload self-test"
-I1115 12:02:48.373529  110307 bpfrecorder.go:336] bpf-recorder "msg"="Loading bpf module"
-I1115 12:02:48.373570  110307 bpfrecorder.go:403] bpf-recorder "msg"="Using system btf file"
-I1115 12:02:48.373770  110307 bpfrecorder.go:356] bpf-recorder "msg"="Loading bpf object from module"
-I1115 12:02:48.403766  110307 bpfrecorder.go:362] bpf-recorder "msg"="Getting bpf program sys_enter"
-I1115 12:02:48.403792  110307 bpfrecorder.go:368] bpf-recorder "msg"="Attaching bpf tracepoint"
-I1115 12:02:48.406205  110307 bpfrecorder.go:373] bpf-recorder "msg"="Getting syscalls map"
-I1115 12:02:48.406287  110307 bpfrecorder.go:379] bpf-recorder "msg"="Getting comms map"
-I1115 12:02:48.406862  110307 bpfrecorder.go:396] bpf-recorder "msg"="Module successfully loaded, watching for events"
-I1115 12:02:48.406908  110307 bpfrecorder.go:677] bpf-recorder "msg"="Unloading bpf module"
-I1115 12:02:48.411636  110307 bpfrecorder.go:176] bpf-recorder "msg"="Starting GRPC API server"
+"msg"="Set logging verbosity to 0"
+setup "msg"="starting component: bpf-recorder"  "buildDate"="1980-01-01T00:00:00Z" "compiler"="gc" "gitCommit"="unknown" "gitTreeState"="clean" "goVersion"="go1.16.9" "libseccomp"="2.5.1" "platform"="linux/amd64" "version"="<version>"
+bpf-recorder "msg"="Setting up caches with expiry of 1h0m0s"
+bpf-recorder "msg"="Starting log-enricher on node: ip-10-0-228-234.us-east-2.compute.internal"
+bpf-recorder "msg"="Connecting to metrics server"
+bpf-recorder "msg"="Got system mount namespace: 4026531840"
+bpf-recorder "msg"="Doing BPF load/unload self-test"
+bpf-recorder "msg"="Loading bpf module"
+bpf-recorder "msg"="Using system btf file"
+bpf-recorder "msg"="Loading bpf object from module"
+bpf-recorder "msg"="Getting bpf program sys_enter"
+bpf-recorder "msg"="Attaching bpf tracepoint"
+bpf-recorder "msg"="Getting syscalls map"
+bpf-recorder "msg"="Getting comms map"
+bpf-recorder "msg"="Module successfully loaded, watching for events"
+bpf-recorder "msg"="Unloading bpf module"
+bpf-recorder "msg"="Starting GRPC API server"
 ```
 
 Record the workload in its own namespace, not in the privileged operator
@@ -999,10 +999,10 @@ enricher should be listening for new changes to the audit logs:
 
 ```
 > kubectl -n security-profiles-operator logs -f ds/spod log-enricher
-I0623 12:51:04.257814 1854764 deleg.go:130] setup "msg"="starting component: log-enricher"  "buildDate"="1980-01-01T00:00:00Z" "compiler"="gc" "gitCommit"="unknown" "gitTreeState"="clean" "goVersion"="go1.16.2" "platform"="linux/amd64" "version"="<version>"
-I0623 12:51:04.257890 1854764 enricher.go:44] log-enricher "msg"="Starting log-enricher on node: 127.0.0.1"
-I0623 12:51:04.257898 1854764 enricher.go:46] log-enricher "msg"="Connecting to local GRPC server"
-I0623 12:51:04.258061 1854764 enricher.go:69] log-enricher "msg"="Reading from file /var/log/audit/audit.log"
+setup "msg"="starting component: log-enricher"  "buildDate"="1980-01-01T00:00:00Z" "compiler"="gc" "gitCommit"="unknown" "gitTreeState"="clean" "goVersion"="go1.16.2" "platform"="linux/amd64" "version"="<version>"
+log-enricher "msg"="Starting log-enricher on node: 127.0.0.1"
+log-enricher "msg"="Connecting to local GRPC server"
+log-enricher "msg"="Reading from file /var/log/audit/audit.log"
 2021/06/23 12:51:04 Sought /var/log/audit/audit.log - &{Offset:0 Whence:2}
 ```
 

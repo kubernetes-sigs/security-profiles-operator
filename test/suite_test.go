@@ -1215,6 +1215,20 @@ func (e *e2e) enableLogEnricherInSpod() {
 	e.waitForSpodPodsRunning("Failed to enable log-enricher in SPOD")
 }
 
+// enableLogEnricherInSpodWithFilters enables the log enricher with the
+// filters and restores the previous SPOD spec once the current test ends, so
+// that the filters do not leak into the following test cases.
+func (e *e2e) enableLogEnricherInSpodWithFilters(enricherFilterJsonStr string) {
+	e.restoreSpodSpec()
+
+	e.logf("Enable log-enricher in SPOD")
+	e.patchSpod(
+		"{\"spec\":{\"enricher\":{\"enableJsonEnricher\": false,\"enableLogEnricher\": true" +
+			",\"logEnricherFilters\":" + enricherFilterJsonStr + "}}}",
+	)
+	e.waitForSpodPodsRunning("Failed to enable log-enricher in SPOD")
+}
+
 // waitForSpodPodsRunning waits until the old spod and webhook pods are gone
 // and the new ones run, and fails the test with the message otherwise.
 func (e *e2e) waitForSpodPodsRunning(message string) {
@@ -1227,14 +1241,6 @@ func (e *e2e) waitForSpodPodsRunning(message string) {
 			e.Fail(message)
 		}
 	}
-}
-
-func (e *e2e) enableLogEnricherInSpodWithFilters(enricherFilterJsonStr string) {
-	e.logf("Enable log-enricher in SPOD")
-	e.patchSpod(
-		"{\"spec\":{\"enricher\":{\"enableJsonEnricher\": false,\"enableLogEnricher\": true" +
-			",\"logEnricherFilters\":" + enricherFilterJsonStr + "}}}",
-	)
 }
 
 func (e *e2e) enableJsonEnricherInSpod() {

@@ -854,8 +854,6 @@ dependencies:
   - name: clang-ci
     version: 23
     refPaths:
-    - path: hack/pull-security-profiles-operator-verify
-      match: "^CLANG_VERSION="
     - path: Makefile
       match: "^CLANG_FORMAT_VERSION ="
 

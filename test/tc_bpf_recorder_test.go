@@ -125,16 +125,21 @@ func (e *e2e) bpfRecorderStaticPod() {
 	profile := e.retryGetSeccompProfile(resourceName)
 	e.Contains(profile, "listen")
 
-	metrics := e.runAndRetryPodCMD(curlSpodCMD)
 	// we don't use resource name here, because the metrics are tracked by the annotation name which contains
 	// underscores instead of dashes
 	metricName := recordingName + "_nginx"
-	e.Regexp(fmt.Sprintf(`(?m)security_profiles_operator_seccomp_profile_bpf_total{`+
-		`mount_namespace=".*",`+
-		`node=".*",`+
-		`profile="%s_.*"} \d+`,
+	bpfMetric := regexp.MustCompile(fmt.Sprintf(
+		`(?m)security_profiles_operator_seccomp_profile_bpf_total{`+
+			`mount_namespace=".*",`+
+			`node=".*",`+
+			`profile="%s_.*"} \d+`,
 		metricName,
-	), metrics)
+	))
+
+	// The daemon of the node of the pod counts the recorded syscalls.
+	e.eventually(metricsTimeout, defaultPollInterval, func() error {
+		return unmatchedLogs(e.scrapeSpodMetrics(), []*regexp.Regexp{bpfMetric})
+	})
 }
 
 func (e *e2e) testCaseBpfRecorderMultiContainer() {

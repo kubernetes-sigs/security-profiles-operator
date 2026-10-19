@@ -647,6 +647,7 @@ func TestRemovePartialProfileWithoutRecording(t *testing.T) {
 
 	// A recording that is already gone is not an error.
 	require.NoError(t, sc.Remove(context.Background(), c))
+	require.NotContains(t, storedProfile(t, c, sp.Name).Finalizers, partialProfileFinalizer)
 }
 
 // staleOnce returns a client whose first read of the profile returns the

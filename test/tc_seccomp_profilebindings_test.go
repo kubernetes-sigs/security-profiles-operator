@@ -20,6 +20,7 @@ package e2e_test
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -40,6 +41,9 @@ spec:
   image: %s
 `, image)
 
+	// The pod keeps running after it printed its line: the trackers release
+	// a completed pod from the binding and the profile, which the checks
+	// below look for.
 	const testPod = `
 apiVersion: v1
 kind: Pod
@@ -47,8 +51,9 @@ metadata:
   name: hello
 spec:
   containers:
-  - image: quay.io/security-profiles-operator/test-hello-world:latest
+  - image: busybox:latest
     name: hello
+    command: ["sh", "-c", "echo Hello from the bound container; exec sleep 3600"]
     resources: {}
     securityContext:
       allowPrivilegeEscalation: false
@@ -58,6 +63,7 @@ spec:
       runAsUser: 1000
       runAsNonRoot: true
   restartPolicy: Never
+  terminationGracePeriodSeconds: 1
 `
 
 	restoreNs := e.switchToNs(nsBindingEnabled)
@@ -82,18 +88,22 @@ spec:
 
 	e.kubectlCleanup("pod", "hello")
 
-	e.logf("Waiting for test pod to be initialized")
-	e.waitFor("condition=initialized", "pod", "hello")
-
-	e.waitForPodCreated("hello")
+	e.logf("Waiting for test pod to be ready")
+	e.waitFor("condition=ready", "pod", "hello")
 
 	e.logf("Testing that container is launched without runtime permission errors")
 	output := e.kubectl("describe", "pod", "hello")
 	e.NotContains(output, "Error: failed to start containerd task")
 
 	e.logf("Testing that container ran successfully")
-	output = e.kubectl("logs", "hello")
-	e.Contains(output, "Hello from Docker!")
+	e.eventually(podStartTimeout, time.Second, func() error {
+		logs := e.kubectl("logs", "hello")
+		if !strings.Contains(logs, "Hello from the bound container") {
+			return fmt.Errorf("container did not print its line yet: %q", logs)
+		}
+
+		return nil
+	})
 
 	namespace := e.getCurrentContextNamespace(defaultNamespace)
 

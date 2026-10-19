@@ -29,6 +29,10 @@ const (
 	// selinuxWaitTimeout bounds the waits for the policies on the nodes and
 	// for the state of the pods which use them.
 	selinuxWaitTimeout = 30 * time.Second
+	// errorloggerRunTime is how long the errorlogger container has to keep
+	// running once its pod is ready. It writes every two seconds and stops
+	// at the first write which the policy does not allow.
+	errorloggerRunTime = 10 * time.Second
 	errorloggerPolicy  = `
 apiVersion: security-profiles-operator.x-k8s.io/v1
 kind: SelinuxProfile
@@ -193,11 +197,7 @@ func (e *e2e) selinuxBaseUsage(kind, policy, polName string, nodes []string) {
 	e.waitFor("condition=ready", "pod", "errorlogger")
 
 	e.logf("the workload should be running")
-	podWithPolicyPhase := e.kubectl(
-		"get", "pods", "errorlogger", "-o", "jsonpath={.status.phase}")
-	e.Truef(strings.EqualFold(podWithPolicyPhase, "running"),
-		"The pod without policy's phase should be 'Running', instead it's: %s",
-		podWithPolicyPhase)
+	e.assertErrorloggerKeepsRunning()
 
 	e.logf("cleaning up")
 
@@ -297,7 +297,7 @@ func (e *e2e) testCaseSelinuxIncompletePermissivePolicy() {
 	e.kubectl("wait", "--timeout", defaultLongOpTimeout,
 		"--for", "condition=ready", "selinuxprofile", permissiveProfileName)
 
-	e.logf("creating workload - it should become ready, but fail")
+	e.logf("creating workload - it should keep running")
 	podWithPolicy := fmt.Sprintf(
 		podWithPolicyFmt,
 		e.getSELinuxPolicyUsage("selinuxprofile", permissiveProfileName),
@@ -306,6 +306,7 @@ func (e *e2e) testCaseSelinuxIncompletePermissivePolicy() {
 	e.kubectlCleanup("pod", "errorlogger")
 
 	e.waitFor("condition=ready", "pod", "errorlogger")
+	e.assertErrorloggerKeepsRunning()
 
 	e.logf("removing workload")
 	e.kubectl("delete", "pod", "errorlogger")
@@ -358,6 +359,31 @@ func (e *e2e) testCaseSelinuxIncompleteDisabledPolicy() {
 
 	e.logf("removing policy")
 	e.kubectl("delete", "selinuxprofile", disabledProfileName)
+}
+
+// assertErrorloggerKeepsRunning checks that the errorlogger container keeps
+// running once its pod is ready and that none of its writes got denied. With
+// a policy which does not allow the writes, the pod is ready for a short time
+// before the container fails.
+func (e *e2e) assertErrorloggerKeepsRunning() {
+	e.consistently(errorloggerRunTime, time.Second, func() error {
+		status := e.kubectl("get", "pods", "errorlogger", "-o",
+			"jsonpath={.status.phase} {.status.containerStatuses[0].restartCount} "+
+				"{.status.containerStatuses[0].state.running.startedAt}")
+
+		fields := strings.Fields(status)
+		if len(fields) != 3 || fields[0] != "Running" || fields[1] != "0" {
+			return fmt.Errorf(
+				"the errorlogger container should keep running, "+
+					"got phase, restart count and start time %q", status,
+			)
+		}
+
+		return nil
+	})
+
+	log := e.kubectl("logs", "errorlogger", "-c", "errorlogger")
+	e.NotContains(log, "Permission denied")
 }
 
 func (e *e2e) assertSelinuxPolicyIsInstalled(nodes []string, policy string) {
