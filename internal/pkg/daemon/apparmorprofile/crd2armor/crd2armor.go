@@ -396,8 +396,8 @@ func (d *ApparmorData) Validate() error {
 
 	// 3. Validates all capabilities against an allowed list
 	if d.Capability != nil {
-		for _, cap := range d.Capability.AllowedCapabilities {
-			if err := validateCapability(cap); err != nil {
+		for _, capability := range d.Capability.AllowedCapabilities {
+			if err := validateCapability(capability); err != nil {
 				return fmt.Errorf("validating capability: %w", err)
 			}
 		}

@@ -12,7 +12,7 @@
 `oras-go` is a Go library for managing OCI artifacts, compliant with the [OCI Image Format Specification](https://github.com/opencontainers/image-spec) and the [OCI Distribution Specification](https://github.com/opencontainers/distribution-spec). It provides unified APIs for pushing, pulling, and managing artifacts across OCI-compliant registries, local file systems, and in-memory stores.
 
 > [!Note]
-> The `main` branch follows [Go's Security Policy](https://github.com/golang/go/security/policy) and supports the two latest versions of Go (currently `1.24` and `1.25`).
+> The `main` and `v2` branches follow [Go's Security Policy](https://github.com/golang/go/security/policy) and support the two latest versions of Go (currently `1.26` and `1.27`).
 
 ## Getting Started
 

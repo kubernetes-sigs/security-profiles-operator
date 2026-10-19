@@ -59,6 +59,16 @@ func (m *Memory) Tag(_ context.Context, desc ocispec.Descriptor, reference strin
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
+	// Drop reference from the tag set of the descriptor it previously
+	// pointed to, so that the reverse index stays in sync with index.
+	if oldDesc, ok := m.index[reference]; ok {
+		oldTagSet := m.tags[oldDesc.Digest]
+		oldTagSet.Delete(reference)
+		if len(oldTagSet) == 0 {
+			delete(m.tags, oldDesc.Digest)
+		}
+	}
+
 	m.index[reference] = desc
 	tagSet, ok := m.tags[desc.Digest]
 	if !ok {

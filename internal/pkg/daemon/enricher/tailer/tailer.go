@@ -289,12 +289,14 @@ func (t *Tailer) wait(ticker *time.Ticker) bool {
 				return true
 			}
 
-		case _, ok := <-errs:
-			if !ok {
+		case err, ok := <-errs:
+			// An overflow of the notifications is caught up by polling. Any
+			// other error of the watcher falls back to polling as well, which
+			// watches again after a while.
+			if !ok || !errors.Is(err, fsnotify.ErrEventOverflow) {
 				t.dropWatcher(ticker)
 			}
 
-			// An overflow of the notifications is caught up by polling.
 			return true
 		}
 	}

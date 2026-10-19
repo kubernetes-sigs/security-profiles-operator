@@ -24,7 +24,7 @@ concurrency:
 
 env:
   # The version of nix the kubernix jobs install, see nix in dependencies.yaml.
-  NIX_VERSION: '2.35.2'
+  NIX_VERSION: '2.35.3'
 
 permissions: {}
 
@@ -465,10 +465,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { kind: v1.30.13, digest: "sha256:397209b3d947d154f6641f2d0ce8d473732bd91c87d9575ade99049aa33cd648", helm: v3.22.0 }
-          - { kind: v1.30.13, digest: "sha256:397209b3d947d154f6641f2d0ce8d473732bd91c87d9575ade99049aa33cd648", helm: v4.3.0 }
-          - { kind: v1.37.0, digest: "sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5", helm: v3.22.0 }
-          - { kind: v1.37.0, digest: "sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5", helm: v4.3.0 }
+          - { kind: v1.30.13, digest: "sha256:397209b3d947d154f6641f2d0ce8d473732bd91c87d9575ade99049aa33cd648", helm: v3.22.1 }
+          - { kind: v1.30.13, digest: "sha256:397209b3d947d154f6641f2d0ce8d473732bd91c87d9575ade99049aa33cd648", helm: v4.3.1 }
+          - { kind: v1.37.0, digest: "sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5", helm: v3.22.1 }
+          - { kind: v1.37.0, digest: "sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5", helm: v4.3.1 }
     name: helm-install / kind ${{ matrix.kind }} / helm ${{ matrix.helm }}
     runs-on: ubuntu-24.04
     timeout-minutes: 40

@@ -41,6 +41,16 @@ var (
 	DefaultTLSCiphers = configv1.TLSProfiles[configv1.TLSProfileIntermediateType].Ciphers //nolint:gochecknoglobals
 	// DefaultMinTLSVersion is the default minimum TLS version for API servers.
 	DefaultMinTLSVersion = configv1.TLSProfiles[configv1.TLSProfileIntermediateType].MinTLSVersion //nolint:gochecknoglobals
+
+	// HTTP2NextProtos are the ALPN protocols advertised when HTTP/2 is enabled,
+	// with HTTP/1.1 fallback.
+	HTTP2NextProtos = []string{"h2", "http/1.1"} //nolint:gochecknoglobals
+
+	// HTTP1NextProtos are the ALPN protocols advertised when HTTP/2 is disabled,
+	// restricting negotiation to HTTP/1.1 only. This provides defense-in-depth
+	// against HTTP/2 Rapid Reset (CVE-2023-44487, CVE-2023-39325) alongside
+	// the primary fixes in Go 1.21.3+ and golang.org/x/net v0.17.0+.
+	HTTP1NextProtos = []string{"http/1.1"} //nolint:gochecknoglobals
 )
 
 // FetchAPIServerTLSProfile fetches the TLS profile spec configured in APIServer.
@@ -113,14 +123,21 @@ func GetTLSProfileSpec(profile *configv1.TLSSecurityProfile) (configv1.TLSProfil
 // Note: CipherSuites are only set when MinVersion is below TLS 1.3, as Go's TLS 1.3 implementation
 // does not allow configuring cipher suites - all TLS 1.3 ciphers are always enabled.
 // See: https://github.com/golang/go/issues/29349
-func NewTLSConfigFromProfile(profile configv1.TLSProfileSpec) (tlsConfig func(*tls.Config), unsupportedCiphers []string) {
+func NewTLSConfigFromProfile(profile configv1.TLSProfileSpec) (tlsConfig func(*tls.Config), unsupported []string) {
 	minVersion := libgocrypto.TLSVersionOrDie(string(profile.MinTLSVersion))
 	cipherSuites, unsupportedCiphers := cipherCodes(profile.Ciphers)
+	curvePrefs, unsupportedGroups := libgocrypto.TLSGroupsToCurveIDs(profile.Groups)
+
+	unsupported = unsupportedCiphers
+	for _, g := range unsupportedGroups {
+		unsupported = append(unsupported, string(g))
+	}
 
 	return func(tlsConf *tls.Config) {
 		tlsConf.MinVersion = minVersion
-		// TODO: add curve preferences from profile once https://github.com/openshift/api/pull/2583 merges.
-		// tlsConf.CurvePreferences <<<<<< profile.Curves
+		if len(curvePrefs) > 0 {
+			tlsConf.CurvePreferences = curvePrefs
+		}
 
 		// TLS 1.3 cipher suites are not configurable in Go (https://github.com/golang/go/issues/29349), so only set CipherSuites accordingly.
 		// TODO: revisit this once we get an answer on the best way to handle this here:
@@ -128,7 +145,35 @@ func NewTLSConfigFromProfile(profile configv1.TLSProfileSpec) (tlsConfig func(*t
 		if minVersion != tls.VersionTLS13 {
 			tlsConf.CipherSuites = cipherSuites
 		}
-	}, unsupportedCiphers
+	}, unsupported
+}
+
+// SetNextProtos returns a TLS configuration function that sets the ALPN
+// protocol negotiation list on a tls.Config. Empty strings are silently
+// ignored, which allows conditional protocol inclusion.
+// The returned function is intended to be used with controller-runtime's TLSOpts.
+//
+// Example:
+//
+//	// Disable HTTP/2:
+//	openshifttls.SetNextProtos("http/1.1")
+//
+//	// Enable HTTP/2 with fallback:
+//	openshifttls.SetNextProtos("h2", "http/1.1")
+//
+//	// Using the well-known protocol lists:
+//	openshifttls.SetNextProtos(openshifttls.HTTP1NextProtos...)
+//	openshifttls.SetNextProtos(openshifttls.HTTP2NextProtos...)
+func SetNextProtos(protos ...string) func(*tls.Config) {
+	var p []string
+	for _, proto := range protos {
+		if proto != "" {
+			p = append(p, proto)
+		}
+	}
+	return func(c *tls.Config) {
+		c.NextProtos = p
+	}
 }
 
 // cipherCode returns the TLS cipher code for an OpenSSL or IANA cipher name.

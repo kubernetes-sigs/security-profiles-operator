@@ -23,8 +23,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - helm: v3.22.0
-          - helm: v4.3.0
+          - helm: v3.22.1
+          - helm: v4.3.1
     name: lint-test / helm ${{ matrix.helm }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15

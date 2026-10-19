@@ -259,7 +259,7 @@ metadata:
     capabilities: Basic Install
     categories: Security
     containerImage: us-central1-docker.pkg.dev/k8s-staging-images/sp-operator/security-profiles-operator:latest
-    createdAt: "2026-10-16T08:58:08Z"
+    createdAt: "2026-10-19T07:06:03Z"
     olm.skipRange: '>=1.0.0 <1.1.2-dev'
     operatorframework.io/cluster-monitoring: "true"
     operatorframework.io/os.linux: supported
