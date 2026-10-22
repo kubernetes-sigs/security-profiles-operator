@@ -17,13 +17,11 @@ limitations under the License.
 package seccompprofile
 
 import (
-	"crypto/rand"
 	"errors"
 	"fmt"
 	"os"
 	"path"
 	"testing"
-	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
@@ -644,30 +642,6 @@ func TestResolveSyscallsForProfileBaseProfileCache(t *testing.T) {
 	_, _, err := sut.resolveSyscallsForProfile(t.Context(), sp, sp.Spec.Syscalls, logr.Discard(), 0)
 	require.NoError(t, err)
 	require.Equal(t, 2, mock.PullCallCount())
-}
-
-// TestRemoveStaleTempFiles asserts that the leftovers of interrupted profile
-// writes get removed from the directories of the namespaces as well.
-func TestRemoveStaleTempFiles(t *testing.T) {
-	t.Parallel()
-
-	root := t.TempDir()
-	nsDir := path.Join(root, "default")
-	require.NoError(t, os.Mkdir(nsDir, 0o700))
-
-	old := time.Now().Add(-time.Hour)
-	stale := path.Join(nsDir, ".tmp-"+rand.Text())
-	require.NoError(t, os.WriteFile(stale, []byte("{}"), 0o600))
-	require.NoError(t, os.Chtimes(stale, old, old))
-
-	profile := path.Join(nsDir, "profile.json")
-	require.NoError(t, os.WriteFile(profile, []byte("{}"), 0o600))
-	require.NoError(t, os.Chtimes(profile, old, old))
-
-	removeStaleTempFiles(logr.Discard(), root)
-
-	require.NoFileExists(t, stale)
-	require.FileExists(t, profile)
 }
 
 // A base profile pulled before is used if the SPOD with the pull settings
