@@ -50,14 +50,21 @@ The `e2e-seccomp-profile-update` job then merges the recordings of all
 architectures into `examples/baseprofile-<runtime>.yaml`: the profile lists
 every recorded architecture and the union of their syscalls, because the
 published artifact is platform independent and runtimes skip syscalls that do
-not exist on the architecture they run on. It sets `metadata.name` to
-`<runtime>-v<version>` from the recorded runtime version.
+not exist on the architecture they run on. The syscalls of the committed
+profile are kept, so a recording only adds to them: on the kernel of the
+runner, a runtime may leave out a syscall that it still needs on the older
+kernels of a cluster. It sets `metadata.name` to `<runtime>-v<version>` from the
+recorded runtime version.
 
 The job diffs the working tree and fails if anything changed, ignoring
 syscalls known to appear at random. A failure is the signal that a profile is
 due for an update, and it is expected whenever a runtime version changes. The
-job log shows which syscalls came and went, and the regenerated files are
-attached to the run as the `recorded-base-profiles` artifact.
+job log shows which syscalls were added and which ones no recording holds
+anymore, and the regenerated files are attached to the run as the
+`recorded-base-profiles` artifact. A syscall which no runtime version in use
+needs anymore has to be removed from the profile in a commit of its own. This
+includes the syscalls that appear at random: once a commit of a regenerated
+profile picks one up, it stays until it gets removed.
 
 ## Updating a profile
 
