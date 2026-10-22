@@ -148,7 +148,7 @@ const (
 	// KubeletDirEnvKey is the environment variable key for custom kubelet directory.
 	KubeletDirEnvKey = "KUBELET_DIR"
 
-	// AppArmorEnvKey is the environment variable key for enabling apaprmor profiles for
+	// AppArmorEnvKey is the environment variable key for enabling apparmor profiles for
 	// security-profiles-operator itself.
 	AppArmorEnvKey = "SPO_APPARMOR"
 

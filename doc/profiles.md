@@ -117,11 +117,10 @@ enricher should be listening for new changes to the audit logs:
 
 ```
 > kubectl -n security-profiles-operator logs -f ds/spod log-enricher
-setup "msg"="starting component: log-enricher"  "buildDate"="1980-01-01T00:00:00Z" "compiler"="gc" "gitCommit"="unknown" "gitTreeState"="clean" "goVersion"="go1.16.2" "platform"="linux/amd64" "version"="<version>"
-log-enricher "msg"="Starting log-enricher on node: 127.0.0.1"
+…
+log-enricher "msg"="Starting log-enricher on node" "node"="127.0.0.1"
 log-enricher "msg"="Connecting to local GRPC server"
-log-enricher "msg"="Reading from file /var/log/audit/audit.log"
-2021/06/23 12:51:04 Sought /var/log/audit/audit.log - &{Offset:0 Whence:2}
+log-enricher "msg"="Starting GRPC server API"
 ```
 
 To record by using the log enricher, create a `ProfileRecording` which is using
@@ -205,7 +204,7 @@ enabled. You can find out if your SPO build has the eBPF feature disabled by
 looking at the build tags:
 
 ```
-> kubectl logs --selector name=security-profiles-operator | grep buildTags
+> kubectl -n security-profiles-operator logs --selector name=security-profiles-operator --tail=-1 | grep buildTags
 ```
 
 If the output contains `no_bpf` then the feature has been disabled.
@@ -226,29 +225,28 @@ been finished:
 
 ```
 > kubectl -n security-profiles-operator logs --selector name=spod -c bpf-recorder
-Found 6 pods, using pod/spod-h7dpm
-"msg"="Set logging verbosity to 0"
-setup "msg"="starting component: bpf-recorder"  "buildDate"="1980-01-01T00:00:00Z" "compiler"="gc" "gitCommit"="unknown" "gitTreeState"="clean" "goVersion"="go1.16.9" "libseccomp"="2.5.1" "platform"="linux/amd64" "version"="<version>"
-bpf-recorder "msg"="Setting up caches with expiry of 1h0m0s"
-bpf-recorder "msg"="Starting log-enricher on node: ip-10-0-228-234.us-east-2.compute.internal"
+…
+bpf-recorder "msg"="Setting up caches" "expiry"="1h0m0s"
+bpf-recorder "msg"="Starting ebpf recorder on node" "node"="ip-10-0-228-234.us-east-2.compute.internal"
 bpf-recorder "msg"="Connecting to metrics server"
 bpf-recorder "msg"="Got system mount namespace: 4026531840"
-bpf-recorder "msg"="Doing BPF load/unload self-test"
-bpf-recorder "msg"="Loading bpf module"
+bpf-recorder "msg"="Loading BPF program"
+bpf-recorder "msg"="Loading bpf module..."
 bpf-recorder "msg"="Using system btf file"
 bpf-recorder "msg"="Loading bpf object from module"
-bpf-recorder "msg"="Getting bpf program sys_enter"
-bpf-recorder "msg"="Attaching bpf tracepoint"
+bpf-recorder "msg"="Excluding mount namespace" "mntns"=4026531840
 bpf-recorder "msg"="Getting syscalls map"
-bpf-recorder "msg"="Getting comms map"
-bpf-recorder "msg"="Module successfully loaded, watching for events"
-bpf-recorder "msg"="Unloading bpf module"
+bpf-recorder "msg"="BPF module successfully loaded."
+bpf-recorder "msg"="Doing BPF start/stop self-test..."
+…
+bpf-recorder "msg"="BPF start/stop self-test successful."
 bpf-recorder "msg"="Starting GRPC API server"
 ```
 
 The recorder does a system sanity check on startup to ensure everything works as
-expected. This includes a `load` and `unload` of the BPF module. If this fails,
-please open an issue so that we can find out what went wrong.
+expected. This includes loading the BPF module and starting and stopping a
+recording. If this fails, please open an issue so that we can find out what went
+wrong.
 
 To record seccomp profiles by using the BPF recorder, create a
 `ProfileRecording` which is using `recorder: Bpf`:
@@ -287,18 +285,6 @@ If the pod is up and running:
 > kubectl get pods
 NAME     READY   STATUS    RESTARTS   AGE
 my-pod   1/1     Running   0          10s
-```
-
-Then the BPF recorder should indicate that it found the container:
-
-```
-> kubectl -n security-profiles-operator logs --since=1m --selector name=spod -c bpf-recorder
-…
-bpf-recorder "msg"="Found container ID in cluster"  "containerID"="c2e10af47011f6a61cd7e92073db2711796f174af35b34486967588ef7f95fbc" "containerName"="nginx"
-bpf-recorder "msg"="Saving PID for profile"  "mntns"=4026533352 "pid"=74384 "profile"="my-recording-nginx-1636978341"
-bpf-recorder "msg"="Using short path via tracked mount namespace"  "mntns"=4026533352 "pid"=74403 "profile"="my-recording-nginx-1636978341"
-bpf-recorder "msg"="Using short path via tracked mount namespace"  "mntns"=4026533352 "pid"=74402 "profile"="my-recording-nginx-1636978341"
-…
 ```
 
 Now, if we remove the pod:
@@ -685,9 +671,11 @@ which is added by the kubectl client.
 
 Because this label might vary across different Kubernetes client implementations
 (e.g., oc debug in OpenShift uses `debug.openshift.io/managed-by: "oc-debug"`),
-you may need to configure additional `webhook.options` entries to ensure the webhook catches all relevant debug pods.
+you may need to change the `objectSelector` of the webhook in its `webhook.options` entry. There is one entry per
+webhook, and its `objectSelector` replaces the default one. A label selector requires all of its labels, so the
+webhook then catches the pods of the new selector instead of the ones of `kubectl debug`.
 
-For example, to include `oc debug pods`:
+For example, to catch `oc debug` pods instead:
 
 ```yaml
 # ... (rest of your spod configuration)
@@ -698,7 +686,6 @@ spec:
         objectSelector:
           matchLabels: # Use matchLabels for exact matching
             debug.openshift.io/managed-by: "oc-debug"
-# ... other webhook rule details like rules, clientConfig, etc.
 ```
 
 Reference: For more details on the label, see: https://github.com/kubernetes/kubernetes/pull/131791
@@ -745,23 +732,21 @@ been finished:
 
 ```
 > kubectl -n security-profiles-operator logs --selector name=spod -c bpf-recorder
-Found 6 pods, using pod/spod-h7dpm
-"msg"="Set logging verbosity to 0"
-setup "msg"="starting component: bpf-recorder"  "buildDate"="1980-01-01T00:00:00Z" "compiler"="gc" "gitCommit"="unknown" "gitTreeState"="clean" "goVersion"="go1.16.9" "libseccomp"="2.5.1" "platform"="linux/amd64" "version"="<version>"
-bpf-recorder "msg"="Setting up caches with expiry of 1h0m0s"
-bpf-recorder "msg"="Starting log-enricher on node: ip-10-0-228-234.us-east-2.compute.internal"
+…
+bpf-recorder "msg"="Setting up caches" "expiry"="1h0m0s"
+bpf-recorder "msg"="Starting ebpf recorder on node" "node"="ip-10-0-228-234.us-east-2.compute.internal"
 bpf-recorder "msg"="Connecting to metrics server"
 bpf-recorder "msg"="Got system mount namespace: 4026531840"
-bpf-recorder "msg"="Doing BPF load/unload self-test"
-bpf-recorder "msg"="Loading bpf module"
+bpf-recorder "msg"="Loading BPF program"
+bpf-recorder "msg"="Loading bpf module..."
 bpf-recorder "msg"="Using system btf file"
 bpf-recorder "msg"="Loading bpf object from module"
-bpf-recorder "msg"="Getting bpf program sys_enter"
-bpf-recorder "msg"="Attaching bpf tracepoint"
+bpf-recorder "msg"="Excluding mount namespace" "mntns"=4026531840
 bpf-recorder "msg"="Getting syscalls map"
-bpf-recorder "msg"="Getting comms map"
-bpf-recorder "msg"="Module successfully loaded, watching for events"
-bpf-recorder "msg"="Unloading bpf module"
+bpf-recorder "msg"="BPF module successfully loaded."
+bpf-recorder "msg"="Doing BPF start/stop self-test..."
+…
+bpf-recorder "msg"="BPF start/stop self-test successful."
 bpf-recorder "msg"="Starting GRPC API server"
 ```
 
@@ -1000,11 +985,10 @@ enricher should be listening for new changes to the audit logs:
 
 ```
 > kubectl -n security-profiles-operator logs -f ds/spod log-enricher
-setup "msg"="starting component: log-enricher"  "buildDate"="1980-01-01T00:00:00Z" "compiler"="gc" "gitCommit"="unknown" "gitTreeState"="clean" "goVersion"="go1.16.2" "platform"="linux/amd64" "version"="<version>"
-log-enricher "msg"="Starting log-enricher on node: 127.0.0.1"
+…
+log-enricher "msg"="Starting log-enricher on node" "node"="127.0.0.1"
 log-enricher "msg"="Connecting to local GRPC server"
-log-enricher "msg"="Reading from file /var/log/audit/audit.log"
-2021/06/23 12:51:04 Sought /var/log/audit/audit.log - &{Offset:0 Whence:2}
+log-enricher "msg"="Starting GRPC server API"
 ```
 
 Record the workload in its own namespace, not in the privileged operator
@@ -1262,7 +1246,6 @@ OCI artifacts, which are right now:
 - [Amazon Elastic Container Registry](https://aws.amazon.com/ecr)
 - [Google Artifact Registry](https://cloud.google.com/artifact-registry)
 - [GitHub Packages container registry](https://docs.github.com/en/packages/guides/about-github-container-registry)
-- [Bundle Bar](https://bundle.bar/docs/supported-clients/oras)
 - [Docker Hub](https://hub.docker.com)
 - [Zot Registry](https://zotregistry.io)
 

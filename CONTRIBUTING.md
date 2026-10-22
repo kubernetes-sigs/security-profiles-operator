@@ -19,7 +19,7 @@ We have full documentation on how to get started contributing here:
 - [Kubernetes Contributor
   Guide](https://git.k8s.io/community/contributors/guide) - Main contributor
   documentation, or you can just jump directly to the [contributing
-  section](https://git.k8s.io/community/contributors/guide#contributing)
+  section](https://git.k8s.io/community/contributors/guide/contributing.md)
 - [Contributor Cheat
   Sheet](https://git.k8s.io/community/contributors/guide/contributor-cheatsheet)
   - Common resources for existing developers

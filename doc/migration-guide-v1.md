@@ -3,6 +3,7 @@
 <!-- toc -->
 - [API version changes](#api-version-changes)
 - [Enum value changes](#enum-value-changes)
+- [Field changes from 0.10.x](#field-changes-from-010x)
 - [Removal of the old API versions](#removal-of-the-old-api-versions)
 - [Upgrade path](#upgrade-path)
 - [Recommended actions](#recommended-actions)
@@ -50,6 +51,53 @@ Several enum fields changed from uppercase/lowercase to PascalCase in v1:
 | SPOD | `spec.enricher.logEnricherSource` | `auditd` | `Auditd` |
 | SPOD | `spec.enricher.logEnricherSource` | `bpf` | `Bpf` |
 
+## Field changes from 0.10.x
+
+SPO 1.0.0 also renamed and moved fields of the old API versions, so a
+manifest written for 0.10.x needs these changes in addition to the new
+`apiVersion` and enum values:
+
+| CRD | Field in 0.10.x | Field in 1.0.0 and later |
+|-----|-----------------|--------------------------|
+| AppArmorProfile | `spec.complainMode: true` | `spec.mode: Complain` |
+| SelinuxProfile | `spec.permissive: true` | `spec.mode: Permissive` |
+| SPOD | `spec.enableSelinux` | `spec.selinux.enable` |
+| SPOD | `spec.selinuxTypeTag` | `spec.selinux.typeTag` |
+| SPOD | `spec.selinuxOptions` | `spec.selinux.options` |
+| SPOD | `spec.enableLogEnricher` | `spec.enricher.enableLogEnricher` |
+| SPOD | `spec.logEnricherFilters` | `spec.enricher.logEnricherFilters` |
+| SPOD | `spec.logEnricherSource` | `spec.enricher.logEnricherSource` |
+| SPOD | `spec.enableJsonEnricher` | `spec.enricher.enableJsonEnricher` |
+| SPOD | `spec.jsonEnricherFilters` | `spec.enricher.jsonEnricherFilters` |
+| SPOD | `spec.jsonEnricherOptions` | `spec.enricher.jsonEnricherOptions` |
+| SPOD | `spec.enableBpfRecorder` | `spec.enricher.enableBpfRecorder` |
+| SPOD | `spec.staticWebhookConfig` | `spec.webhook.staticConfig` |
+| SPOD | `spec.webhookOptions` | `spec.webhook.options` |
+| SPOD | `spec.tolerations` | `spec.scheduling.tolerations` |
+| SPOD | `spec.affinity` | `spec.scheduling.affinity` |
+| SPOD | `spec.priorityClassName` | `spec.scheduling.priorityClassName` |
+| SPOD | `spec.allowedSyscalls` | `spec.security.allowedSyscalls` |
+| SPOD | `spec.allowedSeccompActions` | `spec.security.allowedSeccompActions` |
+| SPOD | `spec.disableOciArtifactSignatureVerification` | `spec.security.disableOciArtifactSignatureVerification` |
+
+The CRDs of 1.0.0 and later do not know the old field names. `kubectl apply`
+validates the fields strictly by default, so applying a manifest written for
+0.10.x fails with an unknown field error. Objects stored before the upgrade,
+and objects written by clients which do not request strict field validation,
+lose the old fields silently instead: an AppArmorProfile with
+`complainMode: true` or a SelinuxProfile with `permissive: true` gets
+enforced, and a SPOD loses the settings of the old fields. A lost
+`allowedSyscalls` lifts the restriction of the system calls which seccomp
+profiles may allow.
+
+Since 1.0.x drops these fields, export the affected objects before the
+upgrade, and set the fields under their new names after it:
+
+```bash
+kubectl get apparmorprofiles,selinuxprofiles -A -o yaml >profiles-0.10.yaml
+kubectl get spod -A -o yaml >spod-0.10.yaml
+```
+
 ## Removal of the old API versions
 
 SPO 1.0.x serves the old API versions (`v1alpha1`, `v1alpha2`, `v1beta1`)
@@ -72,7 +120,9 @@ serve only v1, which means:
 ## Upgrade path
 
 1. **Upgrade to 1.0.x.** Install the latest 1.0.x release and wait for the
-   operator and the daemon to become ready.
+   operator and the daemon to become ready. Coming from 0.10.x, export the
+   objects with renamed fields before the upgrade and set the fields under
+   their new names after it, see [field changes](#field-changes-from-010x).
 
 2. **Migrate the stored objects to v1.** Objects written before the upgrade
    to 1.0.x stay stored in their old API version until they are written again.
@@ -129,7 +179,10 @@ Update everything that references the SPO APIs to v1:
 2. **Update enum values in manifests.** If you reference enum fields in
    manifests or scripts, update them to PascalCase (see table above).
 
-3. **Update Go client imports.** If you consume the SPO API types in Go code,
+3. **Update renamed fields.** Manifests written for 0.10.x have to use the new
+   field names of the [field changes](#field-changes-from-010x) table.
+
+4. **Update Go client imports.** If you consume the SPO API types in Go code,
    update imports from `api/*/v1alpha1` to `api/*/v1`. For example:
    ```go
    // Before
@@ -138,7 +191,7 @@ Update everything that references the SPO APIs to v1:
    import profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
    ```
 
-4. **Update scripts that parse enum strings.** If automation or monitoring
+5. **Update scripts that parse enum strings.** If automation or monitoring
    checks for specific enum string values (e.g., checking SPOD status for
    `"RUNNING"`), update those checks to use PascalCase (`"Running"`).
 
@@ -178,8 +231,10 @@ spec:
       app: my-app
 ```
 
-For CRDs without enum changes (SeccompProfile, SelinuxProfile, AppArmorProfile,
-ProfileBinding), only the `apiVersion` line needs updating.
+For SeccompProfile, RawSelinuxProfile and ProfileBinding, only the
+`apiVersion` line needs updating. SelinuxProfile, AppArmorProfile and SPOD
+manifests written for 0.10.x also need the
+[field changes](#field-changes-from-010x).
 
 ## Go API consumers
 
@@ -202,9 +257,26 @@ Update all imports from the old API version packages to v1:
 
 ### Struct compatibility
 
-The v1 Go types are structurally identical to their predecessors. Field names,
-types, and JSON tags are unchanged. After updating your import paths, your code
-should compile without modifications to struct field access.
+The v1 Go types have the fields of the old API versions of 1.0.x, so code
+written against 1.0.x mostly compiles after updating the import paths. The
+exceptions:
+
+- A few fields which are a plain `string` in the old API versions have a named
+  type in v1: `SPODEnricherConfig.LogEnricherSource` is a `LogEnricherSource`,
+  and `PolicyRef.Kind` of the SELinux profiles is a `PolicyRefKind`. Code which
+  assigns a `string` variable to them has to convert it.
+- `SchemeBuilder` is a `runtime.SchemeBuilder` of apimachinery instead of the
+  `*scheme.Builder` of controller-runtime. `AddToScheme` and `GroupVersion`
+  work as before, but code which calls `SchemeBuilder.Register` with objects
+  has to register them with a function, or use `AddToScheme`.
+
+Code written against 0.10.x also has to follow the
+[field changes](#field-changes-from-010x): for example, the SPOD settings moved
+into the `Selinux`, `Enricher`, `Webhook`, `Scheduling` and `Security` structs,
+`AppArmorProfileSpec.ComplainMode` became `Mode`, and
+`SelinuxProfileSpec.Permissive` became `Mode`. Several optional fields also
+changed from values to pointers, for example the `bool` switches of the SPOD,
+which are `*bool` now.
 
 ### Enum constants
 
