@@ -114,7 +114,7 @@ func (p *podSeccompRecorder) Handle(
 		return admission.Errored(http.StatusInternalServerError, err)
 	}
 
-	podChanged := false
+	podMatched := false
 	podLabels := labels.Set(pod.GetLabels())
 
 	// Recordings which select the same container conflict. The oldest one
@@ -169,14 +169,11 @@ func (p *podSeccompRecorder) Handle(
 		}
 
 		if selector.Matches(podLabels) {
-			changed, err := p.updatePod(pod, podName, &item, claimed)
-			if err != nil {
+			if err := p.updatePod(pod, podName, &item, claimed); err != nil {
 				return admission.Errored(http.StatusInternalServerError, err)
 			}
 
-			if changed {
-				podChanged = true
-			}
+			podMatched = true
 
 			// for any matched pod, check the name of the recording in case the recording
 			// is mergeable - in that case, the recording name will be used as a label
@@ -184,12 +181,15 @@ func (p *podSeccompRecorder) Handle(
 		}
 	}
 
-	if !podChanged {
+	if !podMatched {
 		return admission.Allowed("pod unchanged")
 	}
 
 	// The patch only touches the mutated fields, so that the fields of the
-	// pod which the vendored pod type does not know are kept.
+	// pod which the vendored pod type does not know are kept. It also carries
+	// the security context of a pod whose recording annotations are set
+	// already, for example when the webhook gets invoked again after another
+	// webhook changed the security context.
 	return utils.PodPatchResponse(p.decoder, &req, pod)
 }
 
@@ -200,7 +200,7 @@ func (p *podSeccompRecorder) updatePod(
 	podName string,
 	profileRecording *profilerecordingapi.ProfileRecording,
 	claimed map[string]string,
-) (podChanged bool, err error) {
+) error {
 	// Collect containers as references to not copy them during modification
 	ctrs := slices.DeleteFunc(util.PodContainers(pod), func(c *corev1.Container) bool {
 		return !util.RecordsContainer(profileRecording, c.Name)
@@ -211,7 +211,7 @@ func (p *podSeccompRecorder) updatePod(
 
 		key, value, err := profileRecording.CtrAnnotation(ctr.Name)
 		if err != nil {
-			return false, err
+			return err
 		}
 
 		if owner, ok := claimed[key]; ok && owner != profileRecording.Name {
@@ -239,9 +239,7 @@ func (p *podSeccompRecorder) updatePod(
 
 		p.updateSecurityContext(ctr, profileRecording)
 
-		if removeSeccompAnnotation(pod, ctr, profileRecording) {
-			podChanged = true
-		}
+		removeSeccompAnnotation(pod, ctr, profileRecording)
 
 		existingValue, ok := pod.GetAnnotations()[key]
 		if !ok {
@@ -252,8 +250,6 @@ func (p *podSeccompRecorder) updatePod(
 			pod.Annotations[key] = value
 			p.log.Info("adding recording annotation to pod",
 				"key", key, "value", value, "pod", pod.Name)
-
-			podChanged = true
 
 			continue
 		}
@@ -270,13 +266,12 @@ func (p *podSeccompRecorder) updatePod(
 		}
 
 		pod.Annotations[key] = value
-		podChanged = true
 
 		p.log.Info("workload already has annotation, overwriting",
 			"workload", podName, "existingValue", existingValue, "newValue", value)
 	}
 
-	return podChanged, nil
+	return nil
 }
 
 // keepRecordingAnnotations answers an update of the pod, whose recording
@@ -386,25 +381,18 @@ func (p *podSeccompRecorder) updateSecurityContext(
 }
 
 // removeSeccompAnnotation removes the deprecated seccomp annotation of the
-// container whose seccomp profile the logs recorder sets, and returns whether
-// the pod changed. The API server rejects a pod whose seccomp annotations do
-// not match the seccomp profile fields.
+// container whose seccomp profile the logs recorder sets. The API server
+// rejects a pod whose seccomp annotations do not match the seccomp profile
+// fields.
 func removeSeccompAnnotation(
 	pod *corev1.Pod, ctr *corev1.Container, pr *profilerecordingapi.ProfileRecording,
-) bool {
+) {
 	if pr.Spec.Recorder != profilerecordingapi.ProfileRecorderLogs ||
 		pr.Spec.Kind != profilerecordingapi.ProfileRecordingKindSeccompProfile {
-		return false
+		return
 	}
 
-	key := corev1.SeccompContainerAnnotationKeyPrefix + ctr.Name
-	if _, ok := pod.Annotations[key]; !ok {
-		return false
-	}
-
-	delete(pod.Annotations, key)
-
-	return true
+	delete(pod.Annotations, corev1.SeccompContainerAnnotationKeyPrefix+ctr.Name)
 }
 
 func (p *podSeccompRecorder) updateSeccompSecurityContext(

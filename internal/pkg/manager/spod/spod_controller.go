@@ -641,25 +641,52 @@ func (r *ReconcileSPOd) syncDefaultProfiles(
 			continue
 		}
 
-		found := &seccompprofileapi.SeccompProfile{}
-		err := r.client.Get(ctx, client.ObjectKeyFromObject(profile), found)
+		// The daemons write the status and finalizers of the profile at the
+		// same time, so a conflicting update gets retried with a fresh read.
+		// Otherwise the spec of a new release would not be applied, because
+		// only the reconciliation which updates the DaemonSet updates it.
+		if err := util.RetryWithFreshReads(
+			ctx,
+			r.client,
+			r.clientReader,
+			func(c client.Client) error {
+				return r.syncDefaultProfile(ctx, c, profile, updateSpec)
+			},
+			errors.IsConflict,
+		); err != nil {
+			return err
+		}
+	}
 
-		switch {
-		case errors.IsNotFound(err):
-			r.log.Info("Creating operator default profile", "profile", profile.Name)
+	return nil
+}
 
-			if err := r.client.Create(ctx, profile); err != nil && !errors.IsAlreadyExists(err) {
-				return fmt.Errorf("creating operator default profile %s: %w", profile.Name, err)
-			}
-		case err != nil:
-			return fmt.Errorf("getting operator default profile %s: %w", profile.Name, err)
-		case updateSpec && !reflect.DeepEqual(found.Spec, profile.Spec):
-			updated := found.DeepCopy()
-			updated.Spec = *profile.Spec.DeepCopy()
+// syncDefaultProfile creates the default profile if it is missing, and with
+// updateSpec updates the spec of an existing one.
+func (r *ReconcileSPOd) syncDefaultProfile(
+	ctx context.Context,
+	c client.Client,
+	profile *seccompprofileapi.SeccompProfile,
+	updateSpec bool,
+) error {
+	found := &seccompprofileapi.SeccompProfile{}
+	err := c.Get(ctx, client.ObjectKeyFromObject(profile), found)
 
-			if err := r.client.Update(ctx, updated); err != nil {
-				return fmt.Errorf("updating operator default profile %s: %w", profile.Name, err)
-			}
+	switch {
+	case errors.IsNotFound(err):
+		r.log.Info("Creating operator default profile", "profile", profile.Name)
+
+		if err := c.Create(ctx, profile.DeepCopy()); err != nil && !errors.IsAlreadyExists(err) {
+			return fmt.Errorf("creating operator default profile %s: %w", profile.Name, err)
+		}
+	case err != nil:
+		return fmt.Errorf("getting operator default profile %s: %w", profile.Name, err)
+	case updateSpec && !reflect.DeepEqual(found.Spec, profile.Spec):
+		updated := found.DeepCopy()
+		updated.Spec = *profile.Spec.DeepCopy()
+
+		if err := c.Update(ctx, updated); err != nil {
+			return fmt.Errorf("updating operator default profile %s: %w", profile.Name, err)
 		}
 	}
 
@@ -1781,22 +1808,14 @@ func addArgsConfig(args []string, argonfig string) []string {
 func sliceReplaceArg(slice []string, s string) bool {
 	const argSeparator = "="
 
-	newParts := strings.SplitN(s, argSeparator, 2)
-	if len(newParts) != 2 {
+	newKey, _, ok := strings.Cut(s, argSeparator)
+	if !ok {
 		return false
 	}
 
-	newKey := newParts[0]
-
 	for i := range slice {
-		existingItem := slice[i]
-		existingParts := strings.SplitN(
-			existingItem,
-			argSeparator,
-			2,
-		) // Split existing item to get its key
-
-		if len(existingParts) >= 1 && existingParts[0] == newKey {
+		// The key of an existing item without separator is the whole item.
+		if existingKey, _, _ := strings.Cut(slice[i], argSeparator); existingKey == newKey {
 			slice[i] = s
 
 			return true
@@ -1878,29 +1897,12 @@ func profilingEnvsSpo(add int) []corev1.EnvVar {
 	}
 }
 
+// spodNeedsUpdate reports if the found DaemonSet differs from the configured
+// one, see bindata.PodTemplateNeedsUpdate. The legacy AppArmor annotation only
+// needs to be removed.
 func spodNeedsUpdate(configured, found *appsv1.DaemonSet) bool {
-	cSpec, fSpec := &configured.Spec.Template.Spec, &found.Spec.Template.Spec
-
-	// If the length of the containers or volumes don't match, we clearly need
-	// an update. This way we avoid the expensive DeepDerivative check, and the
-	// volume count also catches a pruned trailing volume, which DeepDerivative
-	// would accept as a prefix match of the longer slice in the found object.
-	// The same applies to the arguments, environment variables and volume
-	// mounts of the containers, for example when profiling gets disabled.
-	// DeepDerivative also ignores fields which are unset in the configured
-	// object, so the scheduling fields are compared explicitly to detect when
-	// they got cleared. The legacy AppArmor annotation only needs to be removed.
-	return (len(cSpec.InitContainers) != len(fSpec.InitContainers) ||
-		len(cSpec.Containers) != len(fSpec.Containers) ||
-		len(cSpec.Volumes) != len(fSpec.Volumes) ||
-		containerListsDiffer(cSpec.InitContainers, fSpec.InitContainers) ||
-		containerListsDiffer(cSpec.Containers, fSpec.Containers) ||
-		cSpec.PriorityClassName != fSpec.PriorityClassName ||
-		!apiequality.Semantic.DeepEqual(cSpec.Affinity, fSpec.Affinity) ||
-		!apiequality.Semantic.DeepEqual(cSpec.Tolerations, fSpec.Tolerations) ||
-		!apiequality.Semantic.DeepEqual(cSpec.ImagePullSecrets, fSpec.ImagePullSecrets) ||
-		found.Annotations[legacyAppArmorAnnotation] != "" ||
-		!apiequality.Semantic.DeepDerivative(configured.Spec.Template, found.Spec.Template))
+	return bindata.PodTemplateNeedsUpdate(&configured.Spec.Template, &found.Spec.Template) ||
+		found.Annotations[legacyAppArmorAnnotation] != ""
 }
 
 // updateStrategyDiffers reports if the found DaemonSet does not roll its pods
@@ -1940,37 +1942,4 @@ func applyUpdateStrategy(updated, configured *appsv1.DaemonSet) {
 	}
 
 	strategy.RollingUpdate.MaxUnavailable = configured.Spec.UpdateStrategy.RollingUpdate.MaxUnavailable
-}
-
-// containerListsDiffer reports if the containers at the same index have a
-// different number of arguments, environment variables or volume mounts, a
-// readiness probe on one side only, or different resources or security
-// contexts. DeepDerivative ignores fields which are unset in the configured
-// container, so these get compared explicitly to detect cleared ones, like a
-// removed limit. Both lists are expected to have the same length.
-func containerListsDiffer(configured, found []corev1.Container) bool {
-	for i := range configured {
-		if len(configured[i].Args) != len(found[i].Args) ||
-			len(configured[i].Env) != len(found[i].Env) ||
-			len(configured[i].VolumeMounts) != len(found[i].VolumeMounts) ||
-			(configured[i].ReadinessProbe == nil) != (found[i].ReadinessProbe == nil) ||
-			!apiequality.Semantic.DeepEqual(configured[i].Resources, found[i].Resources) ||
-			securityContextsDiffer(configured[i].SecurityContext, found[i].SecurityContext) {
-			return true
-		}
-	}
-
-	return false
-}
-
-// securityContextsDiffer reports if the security contexts differ. The proc
-// mount type is ignored if it is not configured, because the API server may
-// default it.
-func securityContextsDiffer(configured, found *corev1.SecurityContext) bool {
-	if configured != nil && found != nil && configured.ProcMount == nil {
-		configured = configured.DeepCopy()
-		configured.ProcMount = found.ProcMount
-	}
-
-	return !apiequality.Semantic.DeepEqual(configured, found)
 }

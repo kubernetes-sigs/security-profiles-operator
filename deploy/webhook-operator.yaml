@@ -4552,15 +4552,15 @@ data:
   selinuxd-image-mapping.json: |
     [
         {
-            "regex": "(.*)(CoreOS).*(41[0-2]\\.[0-9]+)\\..*|(.*)(Red Hat Enterprise Linux)(\\s+release)?\\s+8\\.[0-9]+",
+            "regex": "CoreOS\\s+41[0-2]\\.[0-9]+\\.|Red Hat Enterprise Linux(\\s+release)?\\s+8\\.[0-9]+",
             "imageFromVar": "RELATED_IMAGE_SELINUXD_EL8"
         },
         {
-            "regex": "(.*)(CoreOS).*10\\.[0-9]+\\..*|(.*)(Red Hat Enterprise Linux CoreOS)\\s+10\\.[0-9]+\\..*|(.*)(Red Hat Enterprise Linux)(\\s+release)?\\s+10\\.[0-9]+",
+            "regex": "CoreOS\\s+10\\.[0-9]+\\.|Red Hat Enterprise Linux(\\s+release)?\\s+10\\.[0-9]+",
             "imageFromVar": "RELATED_IMAGE_SELINUXD_EL10"
         },
         {
-            "regex": "(.*)(CoreOS).*(41[3-9]\\.[0-9]+)\\..*|(.*)(CoreOS)\\s+9\\.[0-9]+\\..*|(.*)(Red Hat Enterprise Linux)(\\s+release)?\\s+9\\.[0-9]+",
+            "regex": "CoreOS\\s+(41[3-9]|9)\\.[0-9]+\\.|Red Hat Enterprise Linux(\\s+release)?\\s+9\\.[0-9]+",
             "imageFromVar": "RELATED_IMAGE_SELINUXD_EL9"
         },
         {
@@ -4803,6 +4803,8 @@ spec:
             path: /healthz
             port: health
           periodSeconds: 3
+      nodeSelector:
+        kubernetes.io/os: linux
       priorityClassName: system-cluster-critical
       securityContext:
         runAsNonRoot: true
@@ -4908,6 +4910,8 @@ spec:
         - mountPath: /tmp/k8s-webhook-server/serving-certs
           name: cert
           readOnly: true
+      nodeSelector:
+        kubernetes.io/os: linux
       priorityClassName: system-cluster-critical
       securityContext:
         seccompProfile:

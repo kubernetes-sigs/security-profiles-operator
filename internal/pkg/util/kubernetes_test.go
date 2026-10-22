@@ -18,6 +18,8 @@ package util
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -37,22 +39,11 @@ import (
 func TestMatchSelinuxdImageVersion(t *testing.T) {
 	t.Parallel()
 
-	mappingJSON := `[
-		{
-			"regex": "(.*)(CoreOS).*(41[0-2]\\.[0-9]+)\\..*|(.*)(Red Hat Enterprise Linux)(\\s+release)?\\s+8\\.[0-9]+",
-			"imageFromVar": "RELATED_IMAGE_SELINUXD_EL8"
-		},
-		{
-			"regex": "(.*)(CoreOS).*10\\.[0-9]+\\..*|(.*)(Red Hat Enterprise Linux CoreOS)\\s+10\\.[0-9]+\\..*` +
-		`|(.*)(Red Hat Enterprise Linux)(\\s+release)?\\s+10\\.[0-9]+",
-			"imageFromVar": "RELATED_IMAGE_SELINUXD_EL10"
-		},
-		{
-			"regex": "(.*)(CoreOS).*(41[3-9]\\.[0-9]+)\\..*|(.*)(CoreOS)\\s+9\\.[0-9]+\\..*` +
-		`|(.*)(Red Hat Enterprise Linux)(\\s+release)?\\s+9\\.[0-9]+",
-			"imageFromVar": "RELATED_IMAGE_SELINUXD_EL9"
-		}
-	]`
+	// The test covers the mapping which the operator ships.
+	mappingJSON, err := os.ReadFile(filepath.Join(
+		"..", "..", "..", "deploy", "base", "profiles", SelinuxdImageMappingKey,
+	))
+	require.NoError(t, err)
 
 	tests := []struct {
 		name string
@@ -146,6 +137,67 @@ func TestMatchSelinuxdImageVersion(t *testing.T) {
 				},
 			},
 			want: "RELATED_IMAGE_SELINUXD_EL10",
+		},
+		{
+			// The CoreOS versions must not match the build date of Fedora
+			// CoreOS, which follows the Fedora release.
+			name: "Fedora CoreOS with an April build date",
+			node: &corev1.Node{
+				Status: corev1.NodeStatus{
+					NodeInfo: corev1.NodeSystemInfo{
+						OSImage: "Fedora CoreOS 42.20250410.3.0",
+					},
+				},
+			},
+			want: "",
+		},
+		{
+			name: "Fedora CoreOS with an October build date",
+			node: &corev1.Node{
+				Status: corev1.NodeStatus{
+					NodeInfo: corev1.NodeSystemInfo{
+						OSImage: "Fedora CoreOS 42.20251010.3.0",
+					},
+				},
+			},
+			want: "",
+		},
+		{
+			// The published selinuxd-fedora image is based on Fedora 35 and
+			// cannot build the policies of current releases, see the CI
+			// script build-selinuxd-fedora.sh, so they keep the default image.
+			// Fedora 35 and later name themselves "Fedora Linux".
+			name: "Current Fedora keeps the default image",
+			node: &corev1.Node{
+				Status: corev1.NodeStatus{
+					NodeInfo: corev1.NodeSystemInfo{
+						OSImage: "Fedora Linux 42 (Cloud Edition)",
+					},
+				},
+			},
+			want: "",
+		},
+		{
+			name: "Should return fedora for Fedora 34",
+			node: &corev1.Node{
+				Status: corev1.NodeStatus{
+					NodeInfo: corev1.NodeSystemInfo{
+						OSImage: "Fedora 34 (Cloud Edition)",
+					},
+				},
+			},
+			want: "RELATED_IMAGE_SELINUXD_FEDORA",
+		},
+		{
+			name: "Should return el9 for CentOS Stream CoreOS 9",
+			node: &corev1.Node{
+				Status: corev1.NodeStatus{
+					NodeInfo: corev1.NodeSystemInfo{
+						OSImage: "CentOS Stream CoreOS 9.0.20250410-0",
+					},
+				},
+			},
+			want: "RELATED_IMAGE_SELINUXD_EL9",
 		},
 		{
 			name: "Does not match anything",
@@ -243,7 +295,7 @@ func TestMatchSelinuxdImageVersion(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := matchSelinuxdImageJSONMapping(tt.node, []byte(mappingJSON))
+			got, err := matchSelinuxdImageJSONMapping(tt.node, mappingJSON)
 			require.NoError(t, err)
 			require.Equal(t, tt.want, got)
 		})

@@ -241,9 +241,7 @@ func TestRemoveSeccompAnnotation(t *testing.T) {
 			rec := logsRecording(tc.kind)
 			rec.Spec.Recorder = tc.recorder
 
-			require.Equal(t, tc.removed, removeSeccompAnnotation(
-				pod, &corev1.Container{Name: "container"}, rec,
-			))
+			removeSeccompAnnotation(pod, &corev1.Container{Name: "container"}, rec)
 			require.Equal(t, !tc.removed, pod.Annotations[keyCtr] != "")
 			require.Contains(t, pod.Annotations, keyOther)
 		})

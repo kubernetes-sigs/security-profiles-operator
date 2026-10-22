@@ -809,23 +809,14 @@ func (p *profileReconciler[T]) Reconcile(
 }
 
 // getSeccompProfilesFromPod returns a slice of strings representing seccomp profiles required by the pod.
-// It looks first at the pod spec level, then in each container and init container, then in the annotations.
+// It looks first at the security contexts of the pod and its containers, then in the annotations.
 func getSeccompProfilesFromPod(pod *corev1.Pod) []string {
 	profiles := []string{}
-	// try to get profile from pod securityContext
-	sc := pod.Spec.SecurityContext
-	if sc != nil && isOperatorSeccompProfile(sc.SeccompProfile) {
-		profiles = append(profiles, *sc.SeccompProfile.LocalhostProfile)
-	}
 
-	// try to get profile(s) from securityContext in pods
-	for ctr := range util.AllContainers(pod) {
-		sc := ctr.SecurityContext
-		if sc != nil && isOperatorSeccompProfile(sc.SeccompProfile) {
-			profileString := *sc.SeccompProfile.LocalhostProfile
-			if !slices.Contains(profiles, profileString) {
-				profiles = append(profiles, profileString)
-			}
+	for fields := range util.SecurityContextProfiles(pod) {
+		if isOperatorSeccompProfile(fields.Seccomp) &&
+			!slices.Contains(profiles, *fields.Seccomp.LocalhostProfile) {
+			profiles = append(profiles, *fields.Seccomp.LocalhostProfile)
 		}
 	}
 
@@ -847,24 +838,15 @@ func getSeccompProfilesFromPod(pod *corev1.Pod) []string {
 }
 
 // getSelinuxProfilesFromPod returns the SELinux types of the pod which can
-// belong to a SelinuxProfile or RawSelinuxProfile. It looks first at the pod
-// spec level, then in each container.
+// belong to a SelinuxProfile or RawSelinuxProfile, from the security contexts
+// of the pod and its containers.
 func getSelinuxProfilesFromPod(pod *corev1.Pod) []string {
 	profiles := []string{}
-	// try to get profile from pod securityContext
-	sc := pod.Spec.SecurityContext
-	if sc != nil && isOperatorSelinuxType(sc.SELinuxOptions) {
-		profiles = append(profiles, sc.SELinuxOptions.Type)
-	}
 
-	// try to get profile(s) from securityContext in containers
-	for ctr := range util.AllContainers(pod) {
-		sc := ctr.SecurityContext
-		if sc != nil && isOperatorSelinuxType(sc.SELinuxOptions) {
-			profileString := sc.SELinuxOptions.Type
-			if !slices.Contains(profiles, profileString) {
-				profiles = append(profiles, profileString)
-			}
+	for fields := range util.SecurityContextProfiles(pod) {
+		if isOperatorSelinuxType(fields.SELinux) &&
+			!slices.Contains(profiles, fields.SELinux.Type) {
+			profiles = append(profiles, fields.SELinux.Type)
 		}
 	}
 
@@ -892,14 +874,8 @@ func getAppArmorProfilesFromPod(pod *corev1.Pod) []string {
 		return *profile.LocalhostProfile
 	}
 
-	if sc := pod.Spec.SecurityContext; sc != nil {
-		add(localhostName(sc.AppArmorProfile))
-	}
-
-	for ctr := range util.AllContainers(pod) {
-		if sc := ctr.SecurityContext; sc != nil {
-			add(localhostName(sc.AppArmorProfile))
-		}
+	for fields := range util.SecurityContextProfiles(pod) {
+		add(localhostName(fields.AppArmor))
 	}
 
 	for key, value := range pod.GetAnnotations() {

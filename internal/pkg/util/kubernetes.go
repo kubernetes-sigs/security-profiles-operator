@@ -87,6 +87,47 @@ func AllContainers(pod *corev1.Pod) iter.Seq[*corev1.Container] {
 	}
 }
 
+// ProfileFields are the profile fields of a pod or container security
+// context.
+type ProfileFields struct {
+	Seccomp  *corev1.SeccompProfile
+	SELinux  *corev1.SELinuxOptions
+	AppArmor *corev1.AppArmorProfile
+}
+
+// SecurityContextProfiles iterates over the profile fields of the pod security
+// context and of the security contexts of all containers, see AllContainers.
+// Unset security contexts are skipped.
+func SecurityContextProfiles(pod *corev1.Pod) iter.Seq[ProfileFields] {
+	return func(yield func(ProfileFields) bool) {
+		if sc := pod.Spec.SecurityContext; sc != nil {
+			fields := ProfileFields{
+				Seccomp:  sc.SeccompProfile,
+				SELinux:  sc.SELinuxOptions,
+				AppArmor: sc.AppArmorProfile,
+			}
+
+			if !yield(fields) {
+				return
+			}
+		}
+
+		for ctr := range AllContainers(pod) {
+			if sc := ctr.SecurityContext; sc != nil {
+				fields := ProfileFields{
+					Seccomp:  sc.SeccompProfile,
+					SELinux:  sc.SELinuxOptions,
+					AppArmor: sc.AppArmorProfile,
+				}
+
+				if !yield(fields) {
+					return
+				}
+			}
+		}
+	}
+}
+
 // ErrNoNodeName is returned if the name of the node is empty.
 var ErrNoNodeName = errors.New("no node name provided")
 

@@ -1956,23 +1956,50 @@ func TestPodMatchesSelectorReportsInvalidSelector(t *testing.T) {
 // The daemons never install partial profiles, so the pods a binding to one
 // binds would fail to start. They get rejected right away, because waiting
 // does not change the status. A binding to a partial profile which binds no
-// container of the pod does not reject it. A disabled profile stays installed
-// on the nodes whose pods use it, so it binds as before.
-func TestUpdatePodPartialProfileRejects(t *testing.T) {
+// container of the pod does not reject it. The same holds for a profile being
+// deleted which no pod uses, whose files the daemons remove. A disabled
+// profile, or one being deleted which pods use, stays installed on the nodes
+// whose pods use it, so it binds as before.
+func TestUpdatePodUninstalledProfileRejects(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
-		name   string
-		status secprofnodestatusapi.ProfileState
-		image  string
-		reject bool
-		bound  bool
+		name       string
+		status     secprofnodestatusapi.ProfileState
+		image      string
+		deleted    bool
+		finalizers []string
+		reject     string
+		bound      bool
 	}{
 		{
 			name:   "partial",
 			status: secprofnodestatusapi.ProfileStatePartial,
 			image:  "foo",
-			reject: true,
+			reject: "partial profile",
+		},
+		{
+			name:       "deleted",
+			status:     secprofnodestatusapi.ProfileStateTerminating,
+			image:      "foo",
+			deleted:    true,
+			finalizers: []string{"node-finalizer"},
+			reject:     "being deleted",
+		},
+		{
+			name:       "deleted of another image",
+			status:     secprofnodestatusapi.ProfileStateTerminating,
+			image:      "other",
+			deleted:    true,
+			finalizers: []string{"node-finalizer"},
+		},
+		{
+			name:       "deleted in use",
+			status:     secprofnodestatusapi.ProfileStateTerminating,
+			image:      "foo",
+			deleted:    true,
+			finalizers: []string{util.HasActivePodsFinalizerString},
+			bound:      true,
 		},
 		{
 			name:   "partial of another image",
@@ -1989,13 +2016,18 @@ func TestUpdatePodPartialProfileRejects(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			mock := &bindingfakes.FakeImpl{}
-			mock.GetAppArmorProfileReturns(&apparmorprofileapi.AppArmorProfile{
-				ObjectMeta: metav1.ObjectMeta{Name: "profile"},
+			profile := &apparmorprofileapi.AppArmorProfile{
+				ObjectMeta: metav1.ObjectMeta{Name: "profile", Finalizers: tc.finalizers},
 				Status: apparmorprofileapi.AppArmorProfileStatus{
 					StatusBase: profilebaseapi.StatusBase{Status: tc.status},
 				},
-			}, nil)
+			}
+			if tc.deleted {
+				profile.DeletionTimestamp = &metav1.Time{Time: time.Now()}
+			}
+
+			mock := &bindingfakes.FakeImpl{}
+			mock.GetAppArmorProfileReturns(profile, nil)
 
 			pod, _, resp := newTestBinder(t, mock).updatePod(
 				t.Context(),
@@ -2023,7 +2055,7 @@ func TestUpdatePodPartialProfileRejects(t *testing.T) {
 			)
 			require.Zero(t, mock.GetSPODCallCount())
 
-			if !tc.reject {
+			if tc.reject == "" {
 				require.Equal(t, tc.bound, pod.Spec.Containers[0].SecurityContext != nil)
 
 				if tc.bound {
@@ -2037,7 +2069,7 @@ func TestUpdatePodPartialProfileRejects(t *testing.T) {
 
 			require.False(t, resp.Allowed)
 			require.Equal(t, int32(http.StatusForbidden), resp.Result.Code)
-			require.Contains(t, resp.Result.Message, "partial profile")
+			require.Contains(t, resp.Result.Message, tc.reject)
 		})
 	}
 }

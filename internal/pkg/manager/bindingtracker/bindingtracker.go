@@ -50,6 +50,10 @@ const (
 	linkedPodsKey    = ".metadata.bindingActiveWorkloads"
 	finalizer        = "active-workload-lock"
 	reconcileTimeout = 1 * time.Minute
+
+	// appliedBindingsKey indexes the pods by the bindings the webhook
+	// applied to them.
+	appliedBindingsKey = ".metadata.annotations.appliedBindings"
 )
 
 // NewController returns a new empty controller instance.
@@ -479,14 +483,8 @@ func (r *BindingTrackerReconciler) profileCarrier(
 	}
 
 	return func(pod *corev1.Pod) bool {
-		if sc := pod.Spec.SecurityContext; sc != nil &&
-			carries(sc.SeccompProfile, sc.SELinuxOptions, sc.AppArmorProfile) {
-			return true
-		}
-
-		for ctr := range util.AllContainers(pod) {
-			if sc := ctr.SecurityContext; sc != nil &&
-				carries(sc.SeccompProfile, sc.SELinuxOptions, sc.AppArmorProfile) {
+		for fields := range util.SecurityContextProfiles(pod) {
+			if carries(fields.Seccomp, fields.SELinux, fields.AppArmor) {
 				return true
 			}
 		}

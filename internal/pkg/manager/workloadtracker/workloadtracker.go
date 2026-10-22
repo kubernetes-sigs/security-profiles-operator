@@ -26,6 +26,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -326,9 +327,16 @@ func PodRequests(podIDs []string) []reconcile.Request {
 // finds it on its later events, as the cache has the write by then, so it
 // does not get reconciled again. uses tells whether a pod which exists and is
 // not completed still uses the object, and must not read from the API server.
+//
+// Once the object enters the cache, the requests that admitted maps it to get
+// enqueued as well, unless workloads lists them: the webhook can admit a pod
+// for an object which the cache of the manager does not have yet, in which
+// case the reconcile of the pod creation did not find the object, and no
+// later event of the pod may reconcile it again.
 func WorkloadsHandler(
 	pods client.Reader,
 	workloads handler.MapFunc,
+	admitted handler.MapFunc,
 	uses func(obj client.Object, pod *corev1.Pod) bool,
 ) handler.EventHandler {
 	enqueueUnused := func(
@@ -350,8 +358,17 @@ func WorkloadsHandler(
 			e event.CreateEvent,
 			q workqueue.TypedRateLimitingInterface[reconcile.Request],
 		) {
-			for _, request := range workloads(ctx, e.Object) {
+			tracked := workloads(ctx, e.Object)
+			for _, request := range tracked {
 				enqueueUnused(ctx, q, e.Object, request)
+			}
+
+			trackedSet := sets.New(tracked...)
+
+			for _, request := range admitted(ctx, e.Object) {
+				if !trackedSet.Has(request) {
+					q.Add(request)
+				}
 			}
 		},
 		UpdateFunc: func(
@@ -367,6 +384,36 @@ func WorkloadsHandler(
 				}
 			}
 		},
+	}
+}
+
+// IndexedPods returns a function which maps an object to reconcile requests
+// for the pods in its namespace which the pod field index key maps to the
+// name of the object. A failing list is logged, as a map function cannot
+// return an error.
+func IndexedPods(pods client.Reader, key string, log logr.Logger) handler.MapFunc {
+	return func(ctx context.Context, obj client.Object) []reconcile.Request {
+		list := &corev1.PodList{}
+		if err := pods.List(
+			ctx, list,
+			client.InNamespace(obj.GetNamespace()),
+			client.MatchingFields{key: obj.GetName()},
+			client.UnsafeDisableDeepCopy,
+		); err != nil {
+			log.Error(err, "Cannot list the pods of an object",
+				"namespace", obj.GetNamespace(), "object", obj.GetName())
+
+			return nil
+		}
+
+		requests := make([]reconcile.Request, 0, len(list.Items))
+		for i := range list.Items {
+			requests = append(requests, reconcile.Request{
+				NamespacedName: client.ObjectKeyFromObject(&list.Items[i]),
+			})
+		}
+
+		return requests
 	}
 }
 

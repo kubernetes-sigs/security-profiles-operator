@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -74,6 +75,12 @@ func (r *BindingTrackerReconciler) Setup(
 		ctx, &profilebindingapi.ProfileBinding{}, profileRefKey, profileRefIndex,
 	); err != nil {
 		return fmt.Errorf("creating profile reference index: %w", err)
+	}
+
+	if err := mgr.GetFieldIndexer().IndexField(
+		ctx, &corev1.Pod{}, appliedBindingsKey, appliedBindingsIndex,
+	); err != nil {
+		return fmt.Errorf("creating applied bindings index: %w", err)
 	}
 
 	operatorNamespace, err := config.TryToGetOperatorNamespace()
@@ -137,11 +144,16 @@ func (r *BindingTrackerReconciler) Setup(
 			GenericFunc: func(_ event.GenericEvent) bool { return true },
 		})).
 		// Reconcile the tracked pods which do not use a binding once it
-		// enters the cache, and the ones an update adds, see
-		// WorkloadsHandler.
+		// enters the cache, the pods which the webhook applied it to before,
+		// and the tracked ones an update adds, see WorkloadsHandler.
 		Watches(
 			&profilebindingapi.ProfileBinding{},
-			workloadtracker.WorkloadsHandler(r.client, activeWorkloadRequests, podUsesBinding),
+			workloadtracker.WorkloadsHandler(
+				r.client,
+				activeWorkloadRequests,
+				workloadtracker.IndexedPods(r.client, appliedBindingsKey, r.log),
+				podUsesBinding,
+			),
 		).
 		Complete(r)
 }
@@ -181,6 +193,20 @@ func podUsesBinding(obj client.Object, pod *corev1.Pod) bool {
 	binding, ok := obj.(*profilebindingapi.ProfileBinding)
 
 	return ok && !needsNamespaceCheck(pod) && podAnnotatedWithBinding(binding, pod, true, true)
+}
+
+// appliedBindingsIndex indexes a pod by the names of the bindings which the
+// webhook applied to it.
+func appliedBindingsIndex(obj client.Object) []string {
+	applied := obj.GetAnnotations()[profilebindingapi.AppliedBindingsAnnotation]
+	if applied == "" {
+		return nil
+	}
+
+	return slices.DeleteFunc(
+		strings.Split(applied, ","),
+		func(name string) bool { return name == "" },
+	)
 }
 
 // activeWorkloadRequests maps a binding to reconcile requests for the pods it

@@ -35,7 +35,7 @@ please refer to [Installation Guide](https://github.com/kubernetes-sigs/security
 | imagePullSecrets | list | `[]` | secrets for pulling the images from a private registry, for example `[{name: my-pull-secret}]`; they apply to the operator deployment and, through `spec.imagePullSecrets` of the SPOD, to the daemon and the webhook |
 | kubeletDir | string | `"/var/lib/kubelet"` | the kubelet root directory of the nodes, where the seccomp profiles get installed |
 | nameOverride | string | `""` | used for generating labels |
-| nodeSelector | object | `{}` | specify on which node to deploy the workload |
+| nodeSelector | object | `{"kubernetes.io/os":"linux"}` | specify on which node to deploy the workload; entries get merged with the default, set `kubernetes.io/os` to `null` to remove it |
 | podAnnotations | object | `{}` | annotations for the operator pods |
 | podDisruptionBudget.enabled | bool | `true` | create a PodDisruptionBudget for the operator deployment |
 | podDisruptionBudget.minAvailable | int or string | `1` | the operator replicas to keep during voluntary disruptions like node drains; with a single replica, `1` blocks the drain of its node |
