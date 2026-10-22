@@ -101,34 +101,6 @@ func Test_pruneUnmountedVolumes(t *testing.T) {
 	require.Empty(t, empty.Volumes)
 }
 
-func Test_containerListsDiffer(t *testing.T) {
-	t.Parallel()
-
-	base := []v1.Container{{
-		Args:         []string{"a"},
-		Env:          []v1.EnvVar{{Name: "E"}},
-		VolumeMounts: []v1.VolumeMount{{Name: "v"}},
-	}}
-
-	require.False(t, containerListsDiffer(base, base))
-	require.False(t, containerListsDiffer(nil, nil))
-
-	for name, mutate := range map[string]func(*v1.Container){
-		"args":         func(c *v1.Container) { c.Args = nil },
-		"env":          func(c *v1.Container) { c.Env = append(c.Env, v1.EnvVar{Name: "F"}) },
-		"volumeMounts": func(c *v1.Container) { c.VolumeMounts = nil },
-	} {
-		found := []v1.Container{*base[0].DeepCopy()}
-		mutate(&found[0])
-		require.True(t, containerListsDiffer(base, found), name)
-	}
-
-	// Only the lengths are compared, the content is left to DeepDerivative.
-	found := []v1.Container{*base[0].DeepCopy()}
-	found[0].Args = []string{"b"}
-	require.False(t, containerListsDiffer(base, found))
-}
-
 func Test_addCapabilities(t *testing.T) {
 	t.Parallel()
 

@@ -18,6 +18,7 @@ package utils
 
 import (
 	"encoding/json"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -25,6 +26,8 @@ import (
 	"gomodules.xyz/jsonpatch/v2"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 // PodPatch returns the JSON patch which applies the changes of the mutated
@@ -36,7 +39,7 @@ import (
 func PodPatch(original, mutated *corev1.Pod) []jsonpatch.JsonPatchOperation {
 	patches := annotationPatches(original.Annotations, mutated.Annotations)
 
-	var origPod, mutPod *profileFields
+	var origPod, mutPod *util.ProfileFields
 	if original.Spec.SecurityContext != nil {
 		origPod = podProfileFields(original.Spec.SecurityContext)
 	}
@@ -80,7 +83,7 @@ func PodPatch(original, mutated *corev1.Pod) []jsonpatch.JsonPatchOperation {
 		for i := range min(list.original, list.mutated) {
 			orig, mut := list.originalContainers(i), list.mutatedContainers(i)
 
-			var origFields, mutFields *profileFields
+			var origFields, mutFields *util.ProfileFields
 			if orig != nil {
 				origFields = containerProfileFields(orig)
 			}
@@ -98,26 +101,23 @@ func PodPatch(original, mutated *corev1.Pod) []jsonpatch.JsonPatchOperation {
 	return patches
 }
 
-// profileFields are the security context fields which the webhooks mutate.
-type profileFields struct {
-	seccomp  *corev1.SeccompProfile
-	selinux  *corev1.SELinuxOptions
-	apparmor *corev1.AppArmorProfile
-}
-
-func podProfileFields(sc *corev1.PodSecurityContext) *profileFields {
-	return &profileFields{
-		seccomp:  sc.SeccompProfile,
-		selinux:  sc.SELinuxOptions,
-		apparmor: sc.AppArmorProfile,
+// podProfileFields returns the security context fields which the webhooks
+// mutate.
+func podProfileFields(sc *corev1.PodSecurityContext) *util.ProfileFields {
+	return &util.ProfileFields{
+		Seccomp:  sc.SeccompProfile,
+		SELinux:  sc.SELinuxOptions,
+		AppArmor: sc.AppArmorProfile,
 	}
 }
 
-func containerProfileFields(sc *corev1.SecurityContext) *profileFields {
-	return &profileFields{
-		seccomp:  sc.SeccompProfile,
-		selinux:  sc.SELinuxOptions,
-		apparmor: sc.AppArmorProfile,
+// containerProfileFields returns the security context fields which the
+// webhooks mutate.
+func containerProfileFields(sc *corev1.SecurityContext) *util.ProfileFields {
+	return &util.ProfileFields{
+		Seccomp:  sc.SeccompProfile,
+		SELinux:  sc.SELinuxOptions,
+		AppArmor: sc.AppArmorProfile,
 	}
 }
 
@@ -125,7 +125,7 @@ func containerProfileFields(sc *corev1.SecurityContext) *profileFields {
 // path. A security context which did not exist gets added as a whole, which
 // then only holds the fields the webhooks set.
 func securityContextPatches(
-	path string, original, mutated *profileFields, mutatedContext any,
+	path string, original, mutated *util.ProfileFields, mutatedContext any,
 ) []jsonpatch.JsonPatchOperation {
 	if mutated == nil {
 		return nil
@@ -135,28 +135,28 @@ func securityContextPatches(
 		return []jsonpatch.JsonPatchOperation{addOperation(path, mutatedContext)}
 	}
 
-	patches := objectPatch(path+"/seccompProfile", original.seccomp, mutated.seccomp)
+	patches := objectPatch(path+"/seccompProfile", original.Seccomp, mutated.Seccomp)
 	patches = append(
 		patches,
-		objectPatch(path+"/appArmorProfile", original.apparmor, mutated.apparmor)...)
+		objectPatch(path+"/appArmorProfile", original.AppArmor, mutated.AppArmor)...)
 
 	// The webhooks only set the type of the SELinux options and keep the
 	// other fields, like the level, which the platform may set.
 	switch {
-	case equality.Semantic.DeepEqual(original.selinux, mutated.selinux):
-	case original.selinux == nil || mutated.selinux == nil:
+	case equality.Semantic.DeepEqual(original.SELinux, mutated.SELinux):
+	case original.SELinux == nil || mutated.SELinux == nil:
 		patches = append(
 			patches,
-			objectPatch(path+"/seLinuxOptions", original.selinux, mutated.selinux)...)
+			objectPatch(path+"/seLinuxOptions", original.SELinux, mutated.SELinux)...)
 	default:
 		for _, field := range []struct {
 			name              string
 			original, mutated string
 		}{
-			{"user", original.selinux.User, mutated.selinux.User},
-			{"role", original.selinux.Role, mutated.selinux.Role},
-			{"type", original.selinux.Type, mutated.selinux.Type},
-			{"level", original.selinux.Level, mutated.selinux.Level},
+			{"user", original.SELinux.User, mutated.SELinux.User},
+			{"role", original.SELinux.Role, mutated.SELinux.Role},
+			{"type", original.SELinux.Type, mutated.SELinux.Type},
+			{"level", original.SELinux.Level, mutated.SELinux.Level},
 		} {
 			patches = append(patches, stringPatch(
 				path+"/seLinuxOptions/"+field.name, field.original, field.mutated,
@@ -205,13 +205,13 @@ func annotationPatches(original, mutated map[string]string) []jsonpatch.JsonPatc
 
 	var patches []jsonpatch.JsonPatchOperation
 
-	for _, key := range sortedKeys(mutated) {
+	for _, key := range slices.Sorted(maps.Keys(mutated)) {
 		if value, ok := original[key]; !ok || value != mutated[key] {
 			patches = append(patches, addOperation(annotationPath(key), mutated[key]))
 		}
 	}
 
-	for _, key := range sortedKeys(original) {
+	for _, key := range slices.Sorted(maps.Keys(original)) {
 		if _, ok := mutated[key]; !ok {
 			patches = append(patches, jsonpatch.JsonPatchOperation{
 				Operation: "remove", Path: annotationPath(key),
@@ -240,15 +240,4 @@ func addOperation(path string, value any) jsonpatch.JsonPatchOperation {
 	}
 
 	return jsonpatch.JsonPatchOperation{Operation: "add", Path: path, Value: value}
-}
-
-func sortedKeys(m map[string]string) []string {
-	keys := make([]string, 0, len(m))
-	for key := range m {
-		keys = append(keys, key)
-	}
-
-	slices.Sort(keys)
-
-	return keys
 }

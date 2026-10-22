@@ -39,6 +39,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -64,6 +65,10 @@ var (
 	// the daemons never install, so that waiting for it does not help.
 	errProfPartial = errors.New("profile is a partial profile of a recording, " +
 		"which the nodes do not install")
+
+	// errProfDeleted is returned for a profile which is being deleted and
+	// which no pod uses, so that the daemons remove it from the nodes.
+	errProfDeleted = errors.New("profile is being deleted and the nodes remove it")
 
 	// errUnsupportedKind is returned for a binding of an unknown kind.
 	errUnsupportedKind = errors.New("unsupported profile kind")
@@ -512,9 +517,10 @@ func (p *podBinder) updatePod(
 
 	state := newBindState(podName, ctrs)
 
-	// partial are the bindings to partial profiles, which reject the pod if
-	// they bind one of its containers.
-	var partial []*profilebindingapi.ProfileBinding
+	// uninstalled are the bindings to partial profiles or to profiles which
+	// get removed from the nodes, which reject the pod if they bind one of
+	// its containers.
+	var uninstalled []uninstalledBinding
 
 	for _, pb := range sortBindings(profilebindings) {
 		// Skip bindings whose podSelector does not match the pod's labels.
@@ -532,8 +538,8 @@ func (p *podBinder) updatePod(
 			)))
 		}
 
-		if errors.Is(err, errProfPartial) {
-			partial = append(partial, pb)
+		if errors.Is(err, errProfPartial) || errors.Is(err, errProfDeleted) {
+			uninstalled = append(uninstalled, uninstalledBinding{binding: pb, err: err})
 		} else if err != nil {
 			return pod, state.warnings, new(admission.Errored(http.StatusInternalServerError, err))
 		}
@@ -560,16 +566,23 @@ func (p *podBinder) updatePod(
 		}
 	}
 
-	// A binding to a partial profile which matches no container, or loses
-	// against an older binding, does not change the pod.
-	for _, pb := range partial {
-		if state.applied.Has(pb.Name) {
-			return pod, state.warnings, new(admission.Denied(fmt.Sprintf(
-				"profile binding %s binds %s %s: %v: merge the partial profiles of its "+
-					"recording first",
-				pb.Name, pb.Spec.ProfileRef.Kind, pb.Spec.ProfileRef.Name, errProfPartial,
-			)))
+	// A binding to a profile which the nodes do not install which matches no
+	// container, or loses against an older binding, does not change the pod.
+	for _, u := range uninstalled {
+		pb := u.binding
+		if !state.applied.Has(pb.Name) {
+			continue
 		}
+
+		hint := "recreate the profile or delete the binding"
+		if errors.Is(u.err, errProfPartial) {
+			hint = "merge the partial profiles of its recording first"
+		}
+
+		return pod, state.warnings, new(admission.Denied(fmt.Sprintf(
+			"profile binding %s binds %s %s: %v: %s",
+			pb.Name, pb.Spec.ProfileRef.Kind, pb.Spec.ProfileRef.Name, u.err, hint,
+		)))
 	}
 
 	p.warnRecordedElsewhere(state, req.Namespace)
@@ -691,6 +704,13 @@ func (p *podBinder) applyBinding(
 	}
 }
 
+// uninstalledBinding is a binding to a profile which the nodes do not install,
+// and err tells why.
+type uninstalledBinding struct {
+	binding *profilebindingapi.ProfileBinding
+	err     error
+}
+
 // recordedProfile is a binding to a profile recorded in another namespace.
 type recordedProfile struct {
 	binding   *profilebindingapi.ProfileBinding
@@ -800,7 +820,9 @@ type profileLookup struct {
 // rejected, unless the SPOD does not enable the profile kind, which means
 // that no daemon ever reports a status. Partial profiles of a recording are
 // never installed, so they are returned with errProfPartial without waiting,
-// and the pods they bind get rejected. The SPOD is only read for a profile
+// and the pods they bind get rejected. The same holds for profiles being
+// deleted which no pod uses, which get returned with errProfDeleted, because
+// the daemons remove them from the nodes. The SPOD is only read for a profile
 // which is missing or has no status, so that admitting pods with installed
 // profiles does not depend on reading it.
 func (p *podBinder) getProfile(
@@ -923,11 +945,12 @@ func (p *podBinder) getProfile(
 
 		return nil, false, err
 
-	case errors.Is(err, errProfPartial):
+	case errors.Is(err, errProfPartial), errors.Is(err, errProfDeleted):
 		// The container runtime would fail to start the pod on the nodes
 		// without the profile, so the caller rejects the pod if the binding
 		// binds one of its containers.
-		p.log.Info("profile is a partial profile", "kind", profileKind, "profile", key)
+		p.log.Info("profile is not installed on the nodes",
+			"kind", profileKind, "profile", key, "reason", err.Error())
 
 		return bindProfile, false, err
 
@@ -1166,9 +1189,11 @@ func retryProfileLookup(
 // lookupProfile gets the profile of the key with get, retried as
 // retryProfileLookup describes. A profile without status is not installed
 // yet, which errProfWithoutStatus tells. A partial profile of a recording does
-// not get installed by waiting, which errProfPartial tells. A disabled profile
-// stays installed on the nodes whose pods use it, so it is no reason to reject
-// a pod.
+// not get installed by waiting, which errProfPartial tells. A profile being
+// deleted which no pod uses gets removed from the nodes, which errProfDeleted
+// tells, while one which pods use stays installed until they are gone. A
+// disabled profile stays installed on the nodes whose pods use it, so it is no
+// reason to reject a pod.
 func lookupProfile[T profilebase.StatusBaseUser](
 	ctx context.Context,
 	key types.NamespacedName,
@@ -1191,6 +1216,13 @@ func lookupProfile[T profilebase.StatusBaseUser](
 
 		if status == secprofnodestatusapi.ProfileStatePartial {
 			return errProfPartial
+		}
+
+		// Checked after the status, so that a profile of a disabled kind,
+		// which has none, is skipped like before.
+		if profile.GetDeletionTimestamp() != nil &&
+			!controllerutil.ContainsFinalizer(profile, util.HasActivePodsFinalizerString) {
+			return errProfDeleted
 		}
 
 		return nil

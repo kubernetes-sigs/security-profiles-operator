@@ -1404,3 +1404,37 @@ func TestReconcileWarnsAboutIgnoredSelinuxTypeTag(t *testing.T) {
 		})
 	}
 }
+
+// The daemons write the default profile at the same time, so an update of its
+// spec which conflicts gets retried. Only the reconciliation which updates the
+// DaemonSet updates the spec, so it would keep the spec of the old release.
+func TestSyncDefaultProfilesRetriesConflict(t *testing.T) {
+	t.Parallel()
+
+	old := bindata.DefaultLogEnricherProfile()
+	old.Spec.DefaultAction = seccompprofileapi.ActAllow
+
+	var updates atomic.Int32
+
+	spod := testSPOD()
+	spod.Spec.Enricher.EnableLogEnricher = new(true)
+
+	r, cl, _ := newReconcileTest(t, spod, &interceptor.Funcs{
+		Update: func(
+			ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption,
+		) error {
+			if _, ok := obj.(*seccompprofileapi.SeccompProfile); ok && updates.Add(1) == 1 {
+				return apierrors.NewConflict(schema.GroupResource{}, obj.GetName(), errTest)
+			}
+
+			return c.Update(ctx, obj, opts...)
+		},
+	}, old)
+
+	require.NoError(t, r.syncDefaultProfiles(t.Context(), spod, true))
+	require.Equal(t, int32(2), updates.Load())
+
+	found := &seccompprofileapi.SeccompProfile{}
+	require.NoError(t, cl.Get(t.Context(), client.ObjectKeyFromObject(old), found))
+	require.Equal(t, bindata.DefaultLogEnricherProfile().Spec, found.Spec)
+}

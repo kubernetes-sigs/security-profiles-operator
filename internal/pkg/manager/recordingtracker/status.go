@@ -332,9 +332,11 @@ func (r *recordingStatusReconciler) recordedProfileNames(
 	}
 
 	for _, podName := range recording.Status.ActiveWorkloads {
+		// The pod is only read, so the cached one is not copied.
 		pod := &corev1.Pod{}
 		if err := r.client.Get(
 			ctx, client.ObjectKey{Name: podName, Namespace: recording.GetNamespace()}, pod,
+			client.UnsafeDisableDeepCopy,
 		); err != nil {
 			if errors.IsNotFound(err) {
 				continue

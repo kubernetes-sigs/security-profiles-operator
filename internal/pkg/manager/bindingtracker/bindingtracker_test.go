@@ -1059,3 +1059,19 @@ func TestTrackedPodChanged(t *testing.T) {
 		})
 	}
 }
+
+func TestAppliedBindingsIndex(t *testing.T) {
+	t.Parallel()
+
+	pod := func(annotations map[string]string) *corev1.Pod {
+		return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Annotations: annotations}}
+	}
+
+	require.Empty(t, appliedBindingsIndex(pod(nil)))
+	require.Empty(t, appliedBindingsIndex(pod(map[string]string{
+		profilebindingapi.AppliedBindingsAnnotation: "",
+	})))
+	require.Equal(t, []string{"a", "b"}, appliedBindingsIndex(pod(map[string]string{
+		profilebindingapi.AppliedBindingsAnnotation: "a,,b",
+	})))
+}

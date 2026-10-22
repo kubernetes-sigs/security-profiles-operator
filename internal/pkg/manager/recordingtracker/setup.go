@@ -73,6 +73,12 @@ func (r *RecordingTrackerReconciler) Setup(
 		return fmt.Errorf("creating profile recording index: %w", err)
 	}
 
+	if err := mgr.GetFieldIndexer().IndexField(
+		ctx, &corev1.Pod{}, recordingAnnotationsKey, recordingAnnotationsIndex,
+	); err != nil {
+		return fmt.Errorf("creating recording annotations index: %w", err)
+	}
+
 	if err := r.setupStatus(mgr, name+"-status"); err != nil {
 		return err
 	}
@@ -96,13 +102,43 @@ func (r *RecordingTrackerReconciler) Setup(
 			GenericFunc: func(_ event.GenericEvent) bool { return true },
 		})).
 		// Reconcile the tracked pods which are not recorded by a recording
-		// once it enters the cache, and the ones an update adds, see
+		// once it enters the cache, the pods which the webhook annotated for
+		// it before, and the tracked ones an update adds, see
 		// WorkloadsHandler.
 		Watches(
 			&profilerecordingapi.ProfileRecording{},
-			workloadtracker.WorkloadsHandler(r.client, activeWorkloadRequests, podRecordedByObject),
+			workloadtracker.WorkloadsHandler(
+				r.client,
+				activeWorkloadRequests,
+				workloadtracker.IndexedPods(r.client, recordingAnnotationsKey, r.log),
+				podRecordedByObject,
+			),
 		).
 		Complete(r)
+}
+
+// recordingAnnotationsIndex indexes a pod by the names of the recordings which
+// its recording annotations name. Their values start with the recording name
+// followed by an underscore, which object names do not contain, see
+// ProfileRecording.CtrAnnotation.
+func recordingAnnotationsIndex(obj client.Object) []string {
+	var names []string
+
+	for key, value := range obj.GetAnnotations() {
+		if !slices.ContainsFunc(bindata.RecordingAnnotationPrefixes, func(prefix string) bool {
+			return strings.HasPrefix(key, prefix)
+		}) {
+			continue
+		}
+
+		if name, _, ok := strings.Cut(value, "_"); ok && name != "" {
+			names = append(names, name)
+		}
+	}
+
+	slices.Sort(names)
+
+	return slices.Compact(names)
 }
 
 // podRecordedByObject returns true if the tracked pod is still recorded by

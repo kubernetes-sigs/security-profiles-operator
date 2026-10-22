@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
@@ -679,6 +680,11 @@ func TestWorkloadsHandler(t *testing.T) {
 
 			return PodRequests(pb.Status.ActiveWorkloads)
 		},
+		// The webhook admitted the tracked pod a and pod g, which the
+		// binding does not track yet.
+		func(context.Context, client.Object) []reconcile.Request {
+			return PodRequests([]string{"ns/a", "ns/g"})
+		},
 		func(obj client.Object, pod *corev1.Pod) bool {
 			_, ok := obj.(*profilebindingapi.ProfileBinding)
 
@@ -710,7 +716,7 @@ func TestWorkloadsHandler(t *testing.T) {
 	oldBinding.Status.ActiveWorkloads = []string{"ns/a", "ns/b"}
 
 	sut.Create(t.Context(), event.CreateEvent{Object: oldBinding}, q)
-	require.Equal(t, []string{"ns/b"}, drain())
+	require.Equal(t, []string{"ns/b", "ns/g"}, drain())
 
 	newBinding := oldBinding.DeepCopy()
 	newBinding.Status.ActiveWorkloads = []string{"ns/b", "ns/c", "ns/d", "ns/e", "ns/f"}
@@ -722,4 +728,28 @@ func TestWorkloadsHandler(t *testing.T) {
 
 	sut.Delete(t.Context(), event.DeleteEvent{Object: newBinding}, q)
 	require.Empty(t, drain())
+}
+
+func TestIndexedPods(t *testing.T) {
+	t.Parallel()
+
+	const key = "index"
+
+	pod := func(namespace, name, value string) *corev1.Pod {
+		return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+			Name: name, Namespace: namespace, Annotations: map[string]string{key: value},
+		}}
+	}
+
+	pods := fake.NewClientBuilder().
+		WithScheme(utiltest.NewScheme(t)).
+		WithObjects(pod("ns", "a", "binding"), pod("ns", "b", "other"), pod("other", "c", "binding")).
+		WithIndex(&corev1.Pod{}, key, func(obj client.Object) []string {
+			return []string{obj.GetAnnotations()[key]}
+		}).
+		Build()
+
+	// Only the pods in the namespace of the object count.
+	requests := IndexedPods(pods, key, logr.Discard())(t.Context(), testBinding())
+	require.Equal(t, PodRequests([]string{"ns/a"}), requests)
 }

@@ -457,7 +457,9 @@ func (r *ReconcileSPOd) getTunables(ctx context.Context) (*daemonTunables, error
 	var err error
 
 	dt := &daemonTunables{}
-	dt.watchNamespace = os.Getenv(config.RestrictNamespaceEnvKey)
+	// The daemons watch the same namespaces as the manager, which includes
+	// the WATCH_NAMESPACE set by OLM.
+	dt.watchNamespace = config.WatchNamespaces()
 
 	dt.maxMetricSeries, err = maxMetricSeries()
 	if err != nil {

@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"path"
 	"slices"
 	"strings"
 	"testing"
@@ -35,6 +36,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	profilerecordingapi "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1"
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/recording/recordingfakes"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
@@ -598,6 +601,15 @@ func TestHandleKeepsRecordingAnnotation(t *testing.T) {
 			resp := newTestRecorder(t, mock).Handle(t.Context(), request)
 			require.True(t, resp.Allowed)
 
+			if tc.keep && tc.operation == admissionv1.Create {
+				// The pod still gets the security context of the recording,
+				// for example when the webhook gets invoked again.
+				require.Len(t, resp.Patches, 1)
+				require.NotContains(t, resp.Patches[0].Path, "/metadata/annotations")
+
+				return
+			}
+
 			if tc.keep {
 				require.Empty(t, resp.Patches)
 
@@ -633,6 +645,83 @@ func TestHandleKeepsRecordingAnnotation(t *testing.T) {
 			}
 
 			require.True(t, strings.HasPrefix(value, "rec_container_"), value)
+		})
+	}
+}
+
+// The webhook gets invoked again when a later webhook changed the pod, which
+// carries the annotation of the recording then. It sends no patches if the
+// pod is recorded already, and restores the security context of the recording
+// if the other webhook changed it.
+func TestHandleReinvocation(t *testing.T) {
+	t.Parallel()
+
+	const valid = "rec_container_abcde_1661693966"
+
+	enricherProfile := &corev1.SeccompProfile{
+		Type: corev1.SeccompProfileTypeLocalhost,
+		LocalhostProfile: new(path.Join(
+			config.OperatorProfilesFolder,
+			config.LogEnricherProfile+seccompprofileapi.ExtJSON,
+		)),
+	}
+
+	for _, tc := range []struct {
+		name    string
+		profile *corev1.SeccompProfile
+		patched bool
+	}{
+		{name: "recorded already", profile: enricherProfile},
+		{
+			name:    "security context changed by another webhook",
+			profile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+			patched: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			mock := &recordingfakes.FakeImpl{}
+			mock.ListProfileRecordingsReturns(&profilerecordingapi.ProfileRecordingList{
+				Items: []profilerecordingapi.ProfileRecording{{
+					ObjectMeta: metav1.ObjectMeta{Name: "rec", Namespace: "ns"},
+					Spec: profilerecordingapi.ProfileRecordingSpec{
+						Kind:        profilerecordingapi.ProfileRecordingKindSeccompProfile,
+						Recorder:    profilerecordingapi.ProfileRecorderLogs,
+						PodSelector: selectAll,
+					},
+				}},
+			}, nil)
+
+			pod := annotatedPod(valid)
+			pod.Spec.Containers[0].SecurityContext = &corev1.SecurityContext{
+				SeccompProfile: tc.profile,
+			}
+
+			resp := newTestRecorder(t, mock).Handle(t.Context(), admission.Request{
+				AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Create,
+					Object:    rawPod(t, pod),
+				},
+			})
+			require.True(t, resp.Allowed)
+
+			if !tc.patched {
+				require.Empty(t, resp.Patches)
+
+				return
+			}
+
+			require.Len(t, resp.Patches, 1)
+			require.Equal(
+				t,
+				"/spec/containers/0/securityContext/seccompProfile",
+				resp.Patches[0].Path,
+			)
+			require.Equal(t, map[string]any{
+				"type":             string(corev1.SeccompProfileTypeLocalhost),
+				"localhostProfile": *enricherProfile.LocalhostProfile,
+			}, resp.Patches[0].Value)
 		})
 	}
 }

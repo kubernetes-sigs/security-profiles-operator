@@ -1553,7 +1553,9 @@ security context of a pod cannot be changed after its creation.
   unless the profile kind is disabled in the SPOD configuration. Then the
   binding is skipped and gets a `ProfileWithoutStatus` event. A pod bound to a
   profile with the `Partial` status of a recording which is not merged yet is
-  rejected as well, because the nodes never install partial profiles.
+  rejected as well, because the nodes never install partial profiles. So is a
+  pod bound to a profile which is being deleted and which no pod uses, because
+  the nodes remove it.
 - Windows pods are never mutated, because the API server rejects seccomp,
   SELinux and AppArmor settings on them.
 

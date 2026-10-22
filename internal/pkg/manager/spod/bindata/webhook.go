@@ -938,32 +938,10 @@ func (w *Webhook) workloadNeedsUpdate(ctx context.Context, c client.Client) (boo
 }
 
 // deploymentNeedsUpdate returns true if the found webhook deployment differs
-// from the configured one. DeepDerivative ignores the fields which are unset
-// in the configured deployment, like the ones defaulted by the API server, so
-// the fields which can get cleared are compared explicitly.
+// from the configured one, see PodTemplateNeedsUpdate.
 func deploymentNeedsUpdate(configured, found *appsv1.Deployment) bool {
-	cSpec, fSpec := &configured.Spec.Template.Spec, &found.Spec.Template.Spec
-
-	if !ptr.Equal(configured.Spec.Replicas, found.Spec.Replicas) ||
-		cSpec.PriorityClassName != fSpec.PriorityClassName ||
-		len(cSpec.Containers) != len(fSpec.Containers) ||
-		len(cSpec.Volumes) != len(fSpec.Volumes) {
-		return true
-	}
-
-	for i := range cSpec.Containers {
-		if len(cSpec.Containers[i].Args) != len(fSpec.Containers[i].Args) ||
-			len(cSpec.Containers[i].Env) != len(fSpec.Containers[i].Env) ||
-			len(cSpec.Containers[i].VolumeMounts) != len(fSpec.Containers[i].VolumeMounts) ||
-			(cSpec.Containers[i].ReadinessProbe == nil) != (fSpec.Containers[i].ReadinessProbe == nil) {
-			return true
-		}
-	}
-
-	return !apiequality.Semantic.DeepEqual(cSpec.Tolerations, fSpec.Tolerations) ||
-		!apiequality.Semantic.DeepEqual(cSpec.ImagePullSecrets, fSpec.ImagePullSecrets) ||
-		!apiequality.Semantic.DeepEqual(cSpec.Affinity, fSpec.Affinity) ||
-		!apiequality.Semantic.DeepDerivative(configured.Spec.Template, found.Spec.Template)
+	return !ptr.Equal(configured.Spec.Replicas, found.Spec.Replicas) ||
+		PodTemplateNeedsUpdate(&configured.Spec.Template, &found.Spec.Template)
 }
 
 // annotationsDiffer returns true if any of the configured annotations is
@@ -1625,6 +1603,11 @@ var webhookDeployment = &appsv1.Deployment{
 						Key:      "node.kubernetes.io/not-ready",
 						Operator: corev1.TolerationOpExists,
 					},
+				},
+				// Replicas on Windows nodes never get ready, which leaves
+				// the fail closed webhooks with fewer replicas.
+				NodeSelector: map[string]string{
+					"kubernetes.io/os": "linux",
 				},
 			},
 		},

@@ -19,6 +19,7 @@ package spod
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"slices"
 	"sync/atomic"
 	"testing"
@@ -306,6 +307,26 @@ func Test_getTunables(t *testing.T) {
 			}
 		})
 	}
+}
+
+// OLM restricts the operator with WATCH_NAMESPACE, which has to reach the
+// daemons as well.
+func Test_getTunablesWatchNamespace(t *testing.T) {
+	t.Setenv("WATCH_NAMESPACE", "ns1,ns2")
+	t.Setenv(config.NodeNameEnvKey, "")
+	t.Setenv("RELATED_IMAGE_SELINUXD", "selinuxd:default")
+	t.Setenv(config.MaxMetricSeriesEnvKey, "")
+	t.Setenv(config.RestrictNamespaceEnvKey, "")
+	require.NoError(t, os.Unsetenv(config.RestrictNamespaceEnvKey))
+
+	c := fake.NewClientBuilder().
+		WithObjects(operatorConfigMap(map[string]string{util.SelinuxdImageMappingKey: "[]"})).
+		Build()
+	r := &ReconcileSPOd{clientReader: c, log: logf.Log, namespace: testNamespace}
+
+	dt, err := r.getTunables(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "ns1,ns2", dt.watchNamespace)
 }
 
 func Test_defaultSPODCreator(t *testing.T) {

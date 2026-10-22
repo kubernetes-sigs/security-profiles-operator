@@ -160,7 +160,10 @@ topologySpreadConstraints:
   topologyKey: topology.kubernetes.io/zone
   whenUnsatisfiable: ScheduleAnyway
 
-nodeSelector: {}
+# The operator only runs on Linux nodes. Additional entries get merged, set
+# kubernetes.io/os to null to remove it.
+nodeSelector:
+  kubernetes.io/os: linux
 
 tolerations: []
 

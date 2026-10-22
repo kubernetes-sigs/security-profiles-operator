@@ -40,6 +40,10 @@ const (
 	linkedPodsKey    = ".metadata.recordingActiveWorkloads"
 	finalizer        = "active-seccomp-profile-recording-lock"
 	reconcileTimeout = 1 * time.Minute
+
+	// recordingAnnotationsKey indexes the pods by the recordings which
+	// their recording annotations name.
+	recordingAnnotationsKey = ".metadata.annotations.recordings"
 )
 
 // NewController returns a new empty controller instance.
@@ -225,8 +229,11 @@ func podRecordedBy(
 func (r *RecordingTrackerReconciler) recordingUsers(
 	ctx context.Context, recording *profilerecordingapi.ProfileRecording,
 ) ([]string, error) {
+	// The pods are only read, so the cached ones are not copied.
 	pods := &corev1.PodList{}
-	if err := r.client.List(ctx, pods, client.InNamespace(recording.Namespace)); err != nil {
+	if err := r.client.List(
+		ctx, pods, client.InNamespace(recording.Namespace), client.UnsafeDisableDeepCopy,
+	); err != nil {
 		return nil, fmt.Errorf("listing pods: %w", err)
 	}
 

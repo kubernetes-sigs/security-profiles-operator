@@ -901,3 +901,18 @@ func TestPodAnnotatedAtAdmissionIsTracked(t *testing.T) {
 		})
 	}
 }
+
+func TestRecordingAnnotationsIndex(t *testing.T) {
+	t.Parallel()
+
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+		config.SeccompProfileRecordLogsAnnotationKey + "a": "rec_a_abcde_1661693966",
+		config.SeccompProfileRecordLogsAnnotationKey + "b": "rec_b_abcde_1661693966",
+		config.SelinuxProfileRecordLogsAnnotationKey + "c": "other_c_abcde_1661693966",
+		config.SeccompProfileRecordBpfAnnotationKey + "d":  "_d_abcde_1661693966",
+		config.ApparmorProfileRecordBpfAnnotationKey + "e": "invalid",
+		"unrelated.example.com/annotation":                 "unrelated_value",
+	}}}
+
+	require.Equal(t, []string{"other", "rec"}, recordingAnnotationsIndex(pod))
+}

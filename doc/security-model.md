@@ -312,7 +312,8 @@ namespace, and also binds ephemeral containers, which get added to running pods 
 is not installed yet, so pods bound to it are rejected, unless its kind is disabled
 in the `spod` resource, in which case the binding is skipped with an event. Pods bound to a
 partial profile of a recording are rejected as well, because the daemons never install partial
-profiles. The bindings only
+profiles, like pods bound to a profile which is being deleted and which no pod uses, because the
+daemons remove it from the nodes. The bindings only
 apply on pod creation, so the `binding-image.spo.io` validating webhook, which selects the same
 namespaces and pods, rejects image changes of running pods while an image binding matches the
 old or the new image. A match condition limits it to the updates which change an image. The

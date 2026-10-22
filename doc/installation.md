@@ -680,6 +680,14 @@ With the `OwnNamespace` install mode, which only targets that namespace,
 `MultiNamespace` install mode to target other namespaces for them.
 `ProfileRecording`s work in the namespace of the operator.
 
+The operator and its daemons only watch the target namespaces of the install
+mode, like with [a single namespace](#restricting-to-a-single-namespace). The
+profiles are cluster scoped and not affected. The webhooks are not restricted
+to the target namespaces, so only these should carry the
+`spo.x-k8s.io/enable-binding` and `spo.x-k8s.io/enable-recording` labels: a
+`ProfileBinding` or `ProfileRecording` in another namespace still changes the
+pods there, but the operator and the daemons ignore it and its pods.
+
 The bundle binds the `spo-metrics-client` cluster role to the
 `spo-metrics-client` service account of the `security-profiles-operator`
 namespace, and OLM creates that `ClusterRoleBinding` as it is. When OLM
