@@ -17,9 +17,12 @@ limitations under the License.
 package util
 
 import (
+	"bytes"
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -32,6 +35,38 @@ const tempFilePrefix = ".tmp-"
 // tempFileRegexp matches the names createTemp generates: the prefix followed
 // by the output of rand.Text, which is 26 characters of base32.
 var tempFileRegexp = regexp.MustCompile(`^\.tmp-[A-Z2-7]{26}$`)
+
+// WriteFileIfChanged writes data to name with WriteFileAtomic, unless the file
+// holds data already. It reports whether it wrote the file. Rewriting a file
+// with the same content would make its watchers reload it for nothing.
+func WriteFileIfChanged(name string, data []byte, perm os.FileMode) (bool, error) {
+	if fileHolds(name, data) {
+		return false, nil
+	}
+
+	if err := WriteFileAtomic(name, data, perm); err != nil {
+		return false, err
+	}
+
+	return true, nil
+}
+
+// fileHolds reports whether the file name holds exactly data. A file which
+// does not exist or cannot be read holds nothing, the write tells why it
+// fails.
+func fileHolds(name string, data []byte) bool {
+	f, err := os.Open(name)
+	if err != nil {
+		return false
+	}
+
+	defer f.Close()
+
+	// One byte more than data tells a longer file apart.
+	existing, err := io.ReadAll(io.LimitReader(f, int64(len(data))+1))
+
+	return err == nil && bytes.Equal(existing, data)
+}
 
 // WriteFileAtomic writes data to a temporary file next to name, syncs it and
 // renames it over name. Readers therefore see either the previous or the new
@@ -60,19 +95,19 @@ func WriteFileAtomic(name string, data []byte, perm os.FileMode) (retErr error) 
 	}()
 
 	if _, err := tmp.Write(data); err != nil {
-		return fmt.Errorf("writing temporary file: %w", err)
+		return fmt.Errorf("writing temporary file: %w", withTargetName(err, name))
 	}
 
 	if err := tmp.Sync(); err != nil {
-		return fmt.Errorf("syncing temporary file: %w", err)
+		return fmt.Errorf("syncing temporary file: %w", withTargetName(err, name))
 	}
 
 	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("closing temporary file: %w", err)
+		return fmt.Errorf("closing temporary file: %w", withTargetName(err, name))
 	}
 
 	if err := os.Rename(tmp.Name(), name); err != nil {
-		return fmt.Errorf("renaming temporary file: %w", err)
+		return fmt.Errorf("renaming temporary file: %w", withTargetName(err, name))
 	}
 
 	return syncDir(dir)
@@ -92,10 +127,32 @@ func createTemp(dir string, perm os.FileMode) (*os.File, error) {
 			continue
 		}
 
+		if pathErr, ok := errors.AsType[*fs.PathError](err); ok {
+			// The random part of the name would make every error differ.
+			return nil, &fs.PathError{
+				Op: pathErr.Op, Path: filepath.Join(dir, tempFilePrefix+"*"), Err: pathErr.Err,
+			}
+		}
+
 		return f, err
 	}
 
 	return nil, fmt.Errorf("no unused temporary file name in %s after %d attempts", dir, attempts)
+}
+
+// withTargetName replaces the name of the temporary file in a path or link
+// error by the name of the file it gets renamed to. The random part of its
+// name would make every error differ, like the ones reported in a status.
+func withTargetName(err error, name string) error {
+	if pathErr, ok := errors.AsType[*fs.PathError](err); ok {
+		return &fs.PathError{Op: pathErr.Op, Path: name, Err: pathErr.Err}
+	}
+
+	if linkErr, ok := errors.AsType[*os.LinkError](err); ok {
+		return &fs.PathError{Op: linkErr.Op, Path: name, Err: linkErr.Err}
+	}
+
+	return err
 }
 
 // syncDir persists the directory entries of dir, like a completed rename.

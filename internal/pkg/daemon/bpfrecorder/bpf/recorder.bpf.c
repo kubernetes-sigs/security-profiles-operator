@@ -1062,20 +1062,23 @@ int BPF_KPROBE(cap_capable)
 {
     if (!_is_recording_cached)
         return 0;
+
+    // The probe fires on every capability check of the node, so the checks
+    // of the arguments come first.
+    unsigned long cap = PT_REGS_PARM3(ctx);
+    unsigned long cap_opt = PT_REGS_PARM4(ctx);
+    if (cap_opt & CAP_OPT_NOAUDIT)
+        return 0;
+    if (cap >= 64)  // the bitmask holds the capabilities the kernel has
+        return 0;
+
     u32 mntns = get_mntns();
     if (!mntns)
         return 0;
-
-    unsigned long cap = PT_REGS_PARM3(ctx);
-    unsigned long cap_opt = PT_REGS_PARM4(ctx);
     trace_hook("requesting capability: cap=%i cap_opt=%i", cap, cap_opt);
 
-    if (cap_opt & CAP_OPT_NOAUDIT)
-        return 0;
     if (is_container_init())  // there are some SYS_ADMIN privileges exercised
                               // by the runtime after the exec of the container
-        return 0;
-    if (cap >= 64)  // the bitmask holds the capabilities the kernel has
         return 0;
 
     // Report every capability once per key.

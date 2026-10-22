@@ -169,6 +169,53 @@ func TestRunForwardsSignals(t *testing.T) {
 	require.Equal(t, 1, mock.StopCallCount())
 }
 
+// TestRunForwardsRepeatedSignalOnce verifies that a signal which arrives
+// twice at once, like one sent to the process group of spoc which a parent
+// forwards as well, reaches the command once, while another signal still
+// gets forwarded.
+func TestRunForwardsRepeatedSignalOnce(t *testing.T) {
+	t.Parallel()
+
+	mock := &commandfakes.FakeImpl{}
+
+	var signals chan<- os.Signal
+
+	mock.NotifyCalls(func(c chan<- os.Signal, _ ...os.Signal) { signals = c })
+
+	forwarded := make(chan os.Signal, 3)
+
+	mock.SignalCalls(func(_ *exec.Cmd, sig os.Signal) error {
+		forwarded <- sig
+
+		return nil
+	})
+
+	sut := New(Default())
+	sut.impl = mock
+
+	_, err := sut.Run()
+	require.NoError(t, err)
+
+	// The signals are handled in order, so the SIGHUP comes last.
+	signals <- syscall.SIGTERM
+
+	signals <- syscall.SIGTERM
+
+	signals <- syscall.SIGHUP
+
+	for _, want := range []os.Signal{syscall.SIGTERM, syscall.SIGHUP} {
+		select {
+		case got := <-forwarded:
+			require.Equal(t, want, got)
+		case <-time.After(10 * time.Second):
+			require.FailNow(t, "signal not forwarded", "%v", want)
+		}
+	}
+
+	require.NoError(t, sut.Wait())
+	require.Equal(t, 2, mock.SignalCallCount())
+}
+
 // TestRunDoesNotForwardTerminalInterrupt verifies that a SIGINT is not
 // forwarded while the command is in the foreground process group of the
 // terminal, which sends it to the command as well, while the other signals

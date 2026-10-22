@@ -24,11 +24,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strconv"
 	"sync"
 	"syscall"
@@ -394,7 +395,7 @@ func (r *ReconcileSelinux) Reconcile(
 		r.reported.Forget(request.NamespacedName)
 		r.forgetReloadFailures(request.NamespacedName)
 
-		return common.ReconcileDeletion(
+		res, err := common.ReconcileDeletion(
 			ctx, instance, nodeStatus, r.client, reqLogger, r.errorReporter(), deletionReasons(),
 			func() (reconcile.Result, error) {
 				owner, found, err := r.policyOwner(ctx, instance)
@@ -412,6 +413,13 @@ func (r *ReconcileSelinux) Reconcile(
 				return r.reconcileDeletePolicy(ctx, instance, nodeStatus, reqLogger)
 			},
 		)
+
+		// The node released the profile, which needs no reload anymore.
+		if err == nil && res.IsZero() {
+			r.forgetReloadNeeds(instance.GetUID(), installReload, removeReload)
+		}
+
+		return res, err
 	}
 
 	// Unlike the other profile kinds, the policy is installed in the same
@@ -1257,9 +1265,17 @@ func (r *ReconcileSelinux) writePolicyFile(
 	cil string,
 	l logr.Logger,
 ) (bool, error) {
-	written, err := writeFileIfDiffers(r.policyPath(sp), []byte(cil), l)
+	const filePermissions = 0o600
+
+	policyPath := r.policyPath(sp)
+
+	written, err := util.WriteFileIfChanged(policyPath, []byte(cil), filePermissions)
 	if err != nil {
 		return false, fmt.Errorf("writing policy file: %w", err)
+	}
+
+	if written {
+		l.Info("Wrote policy file", "policyPath", policyPath)
 	}
 
 	return written, nil
@@ -1298,6 +1314,24 @@ func (r *ReconcileSelinux) reconcileDeletePolicy(
 		l.V(config.VerboseLevel).Info("selinuxd not yet up, requeue")
 
 		return reconcile.Result{RequeueAfter: selinuxdPollInterval}, nil
+	}
+
+	// semodule cannot remove a module which another installed module
+	// inherits, and selinuxd does not retry a removal which failed. The
+	// policy stays until the policies which inherit it are gone. A policy
+	// which this node never wrote, like one which conflicts with a system
+	// module, is not installed and blocks nothing.
+	if _, statErr := os.Stat(r.policyPath(sp)); statErr == nil {
+		inheritor, err := r.inheritingProfile(ctx, sp)
+		if err != nil {
+			return reconcile.Result{}, err
+		}
+
+		if inheritor != "" {
+			l.Info("Keeping the policy inherited by another profile", "name", inheritor)
+
+			return reconcile.Result{RequeueAfter: common.InUseRetry}, nil
+		}
 	}
 
 	res, err := r.reconcileDeletePolicyFile(sp, l)
@@ -1453,6 +1487,96 @@ func (r *ReconcileSelinux) reloadRemovedPolicy(
 	return res, err
 }
 
+// inheritingProfile returns the name of a profile whose policy on this node
+// inherits the one of sp, or an empty string if there is none. The policy file
+// of a profile tells it, like the module which selinuxd installed from it, and
+// not its spec, which may have changed or failed to validate since. A profile
+// without policy file, like after a restart of the daemon, whose policy no
+// longer translates, may still have its module installed, so its spec tells it
+// then. A policy file which outlived its profile does not count.
+func (r *ReconcileSelinux) inheritingProfile(
+	ctx context.Context, sp selinuxprofileapi.SelinuxProfileObject,
+) (string, error) {
+	if _, ok := sp.(*selinuxprofileapi.SelinuxProfile); !ok {
+		return "", nil
+	}
+
+	inherit := regexp.MustCompile(
+		`\(blockinherit\s+` + regexp.QuoteMeta(sp.GetPolicyName()) + `\s*\)`,
+	)
+
+	profiles := &selinuxprofileapi.SelinuxProfileList{}
+	if err := r.client.List(ctx, profiles); err != nil {
+		return "", fmt.Errorf("listing the SelinuxProfiles: %w", err)
+	}
+
+	for i := range profiles.Items {
+		other := &profiles.Items[i]
+		if other.GetPolicyName() == sp.GetPolicyName() {
+			continue
+		}
+
+		inherits, err := r.policyInherits(other, inherit, func() bool {
+			return slices.ContainsFunc(
+				other.Spec.Inherit,
+				func(ref selinuxprofileapi.PolicyRef) bool {
+					return ref.Kind == selinuxprofileapi.SelinuxProfilePolicyKind &&
+						ref.Name == sp.GetName()
+				},
+			)
+		})
+		if err != nil {
+			return "", err
+		}
+
+		if inherits {
+			return other.GetName(), nil
+		}
+	}
+
+	rawProfiles := &selinuxprofileapi.RawSelinuxProfileList{}
+	if err := r.client.List(ctx, rawProfiles); err != nil {
+		return "", fmt.Errorf("listing the RawSelinuxProfiles: %w", err)
+	}
+
+	for i := range rawProfiles.Items {
+		other := &rawProfiles.Items[i]
+		if other.GetPolicyName() == sp.GetPolicyName() {
+			continue
+		}
+
+		inherits, err := r.policyInherits(other, inherit, func() bool {
+			return inherit.MatchString(other.Spec.Policy)
+		})
+		if err != nil {
+			return "", err
+		}
+
+		if inherits {
+			return other.GetName(), nil
+		}
+	}
+
+	return "", nil
+}
+
+// policyInherits reports whether the policy file of the profile matches
+// inherit, or, without a policy file, whether specInherits.
+func (r *ReconcileSelinux) policyInherits(
+	sp selinuxprofileapi.SelinuxProfileObject,
+	inherit *regexp.Regexp,
+	specInherits func() bool,
+) (bool, error) {
+	content, err := os.ReadFile(r.policyPath(sp))
+	if errors.Is(err, os.ErrNotExist) {
+		return specInherits(), nil
+	} else if err != nil {
+		return false, fmt.Errorf("reading the policy which may inherit the policy: %w", err)
+	}
+
+	return inherit.Match(content), nil
+}
+
 func (r *ReconcileSelinux) reconcileDeletePolicyFile(sp selinuxprofileapi.SelinuxProfileObject,
 	l logr.Logger,
 ) (reconcile.Result, error) {
@@ -1579,44 +1703,6 @@ func selinuxdGetRequest(
 	}
 
 	return httpc.Do(req)
-}
-
-// writeFileIfDiffers checks if the content of file at filePath are the same as the byte array
-// contents, if not, overwrites the file at filePath.
-// Returns (written, error) where written is true if the file was actually written
-// (content differed or file didn't exist).
-//
-// Reopening the same file may seem wasteful and even look like a TOCTOU issue, but the policy
-// drop dir is private to this pod, but mostly just calling a single write is much easier codepath
-// than mucking around with seeks and truncates to account for all the corner cases.
-func writeFileIfDiffers(filePath string, contents []byte, l logr.Logger) (bool, error) {
-	const filePermissions = 0o600
-
-	file, err := os.OpenFile(filePath, os.O_RDONLY, filePermissions)
-	if os.IsNotExist(err) {
-		l.Info("Writing new policy file", "policyPath", filePath)
-
-		return true, util.WriteFileAtomic(filePath, contents, filePermissions)
-	} else if err != nil {
-		return false, fmt.Errorf("could not open for reading %s: %w", filePath, err)
-	}
-
-	defer file.Close()
-
-	const maxPolicyFileSize = 10 * 1024 * 1024 // 10MB
-
-	existing, err := io.ReadAll(io.LimitReader(file, maxPolicyFileSize))
-	if err != nil {
-		return false, fmt.Errorf("reading file %s: %w", filePath, err)
-	}
-
-	if bytes.Equal(existing, contents) {
-		return false, nil
-	}
-
-	l.Info("Updating policy file", "policyPath", filePath)
-
-	return true, util.WriteFileAtomic(filePath, contents, filePermissions)
 }
 
 // isSELinuxModuleInstalled checks whether an SELinux module with the given name

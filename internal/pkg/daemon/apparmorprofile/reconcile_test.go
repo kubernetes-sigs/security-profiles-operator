@@ -397,7 +397,53 @@ func TestReconcileInstallError(t *testing.T) {
 	_, err := r.Reconcile(t.Context(), testRequest())
 	require.ErrorIs(t, err, errInstall)
 	utiltest.RequireEvent(t, rec, "Warning CannotLoadAppArmorProfile apparmor_parser failed")
-	require.Equal(t, secprofnodestatusapi.ProfileStatePending, getNodeStatus(t, cli).Status.Status)
+
+	status := getNodeStatus(t, cli)
+	require.Equal(t, secprofnodestatusapi.ProfileStateError, status.Status.Status)
+	require.Equal(t, errInstall.Error(), status.Status.Message)
+	require.Empty(t, status.Annotations[installedAnnotation], "the profile never got installed")
+}
+
+// TestReconcileUpdateInstallError asserts that an installed profile whose
+// update fails to load reports the error, and that the error status does not
+// turn the next attempt into a conflict with a profile of the host.
+func TestReconcileUpdateInstallError(t *testing.T) {
+	t.Parallel()
+
+	manager := &countingProfileManager{enabled: true}
+	r, cli, rec := newTestReconciler(t, manager, nil, testAppArmorProfile())
+
+	reconcileUntilInstalled(t, r)
+
+	// A status of an earlier release only tells the installation by its
+	// state.
+	status := getNodeStatus(t, cli)
+	delete(status.Annotations, installedAnnotation)
+	require.NoError(t, cli.Update(t.Context(), status))
+
+	errInstall := errors.New("apparmor_parser failed")
+	manager.installErr = errInstall
+
+	_, err := r.Reconcile(t.Context(), testRequest())
+	require.ErrorIs(t, err, errInstall)
+	require.True(t, manager.gotOwnedByUs)
+	utiltest.RequireEvent(t, rec, "Warning CannotLoadAppArmorProfile apparmor_parser failed")
+
+	status = getNodeStatus(t, cli)
+	require.Equal(t, secprofnodestatusapi.ProfileStateError, status.Status.Status)
+	require.Equal(t, "true", status.Annotations[installedAnnotation])
+
+	// The next attempt still owns the profile, and a successful one marks it
+	// installed again.
+	manager.installErr = nil
+
+	reconcileUntilInstalled(t, r)
+	require.True(t, manager.gotOwnedByUs)
+	require.Equal(
+		t,
+		secprofnodestatusapi.ProfileStateInstalled,
+		getNodeStatus(t, cli).Status.Status,
+	)
 }
 
 // TestReconcileRejectsHostProfile asserts that a profile which conflicts with

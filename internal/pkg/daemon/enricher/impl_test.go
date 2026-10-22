@@ -45,96 +45,71 @@ func TestDefaultImpl_PrintJsonOutput(t *testing.T) {
 	require.Equal(t, writes{[]byte("{\"a\":1}\n")}, w, "the record and its newline are one write")
 }
 
-func TestDefaultImpl_EnvForPid(t *testing.T) {
+func TestDefaultImpl_ExecRequestIDForPID(t *testing.T) {
 	t.Parallel()
+
+	long := strings.Repeat("x", 2*maxEnvVarBytes)
 
 	for _, tc := range []struct {
 		name    string
-		prepare func() *fstest.MapFS
-		assert  func(t *testing.T, env map[string]string, retErr error)
+		environ string
+		want    string
+		found   bool
 	}{
 		{
-			name: "the best case",
-			prepare: func() *fstest.MapFS {
-				return &fstest.MapFS{
-					"proc/1234/environ": {Data: []byte("hello=world")},
-				}
-			},
-			assert: func(t *testing.T, env map[string]string, retErr error) {
-				t.Helper()
-
-				require.NoError(t, retErr)
-				require.Equal(t, "world", env["hello"])
-			},
+			name:    "the best case",
+			environ: "hello=world\x00" + requestIdEnv + "=request\x00other=value",
+			want:    "request",
+			found:   true,
 		},
 		{
-			name: "key with empty value",
-			prepare: func() *fstest.MapFS {
-				return &fstest.MapFS{
-					"proc/1234/environ": {Data: []byte("hello=")},
-				}
-			},
-			assert: func(t *testing.T, env map[string]string, retErr error) {
-				t.Helper()
-
-				require.NoError(t, retErr)
-				require.Len(t, env, 1)
-			},
+			name:    "last variable without NUL",
+			environ: "hello=world\x00" + requestIdEnv + "=request",
+			want:    "request",
+			found:   true,
 		},
 		{
-			name: "keys with no equals sign",
-			prepare: func() *fstest.MapFS {
-				return &fstest.MapFS{
-					"proc/1234/environ": {Data: []byte("hello")},
-				}
-			},
-			assert: func(t *testing.T, env map[string]string, retErr error) {
-				t.Helper()
-
-				require.NoError(t, retErr)
-				require.Empty(t, env)
-			},
+			name:    "the first of two",
+			environ: requestIdEnv + "=first\x00" + requestIdEnv + "=second",
+			want:    "first",
+			found:   true,
+		},
+		{name: "empty value", environ: requestIdEnv + "="},
+		{name: "no request ID", environ: "hello=world\x00\x00test1=test2"},
+		{name: "prefix of another variable", environ: "X" + requestIdEnv + "=request"},
+		{name: "empty environment"},
+		{
+			name:    "after a long variable",
+			environ: "LONG=" + long + "\x00" + requestIdEnv + "=request",
+			want:    "request",
+			found:   true,
 		},
 		{
-			name: "empty lines",
-			prepare: func() *fstest.MapFS {
-				return &fstest.MapFS{
-					"proc/1234/environ": {Data: []byte("hello=world\x00\x00\x00test1=test2")},
-				}
-			},
-			assert: func(t *testing.T, env map[string]string, retErr error) {
-				t.Helper()
-
-				require.NoError(t, retErr)
-				require.Equal(t, "world", env["hello"])
-				require.Equal(t, "test2", env["test1"])
-				require.Len(t, env, 2)
-			},
-		},
-		{
-			name: "incorrect file",
-			prepare: func() *fstest.MapFS {
-				return &fstest.MapFS{
-					"proc/unknown/environ": {Data: []byte("hello=world")},
-				}
-			},
-			assert: func(t *testing.T, env map[string]string, retErr error) {
-				t.Helper()
-
-				require.Error(t, retErr)
-			},
+			// The rest of a long variable is no variable of its own.
+			name:    "inside a long variable",
+			environ: "LONG=" + long + requestIdEnv + "=request",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			testImpl := defaultImpl{
-				fsys: tc.prepare(),
-			}
-			env, err := testImpl.EnvForPid(1234)
-			tc.assert(t, env, err)
+			testImpl := defaultImpl{fsys: fstest.MapFS{
+				"proc/1234/environ": {Data: []byte(tc.environ)},
+			}}
+
+			got, found, err := testImpl.ExecRequestIDForPID(1234)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+			require.Equal(t, tc.found, found)
 		})
 	}
+
+	t.Run("missing process", func(t *testing.T) {
+		t.Parallel()
+
+		_, _, err := (&defaultImpl{fsys: fstest.MapFS{}}).ExecRequestIDForPID(1234)
+		require.ErrorIs(t, err, ErrProcessNotFound)
+	})
 }
 
 func TestDefaultImpl_CmdlineForPID(t *testing.T) {
@@ -160,19 +135,33 @@ func TestDefaultImpl_CmdlineForPID(t *testing.T) {
 			},
 		},
 		{
-			name: "arguments with newlines and a long command line",
+			name: "arguments with newlines",
 			prepare: func() *fstest.MapFS {
-				long := strings.Repeat("x", 128*1024)
-
 				return &fstest.MapFS{
-					"proc/1234/cmdline": {Data: []byte("sh\x00-c\x00echo a\necho b\x00" + long)},
+					"proc/1234/cmdline": {Data: []byte("sh\x00-c\x00echo a\necho b\x00")},
 				}
 			},
 			assert: func(t *testing.T, cmd string, retErr error) {
 				t.Helper()
 
 				require.NoError(t, retErr)
-				require.Equal(t, "sh -c echo a\necho b "+strings.Repeat("x", 128*1024), cmd)
+				require.Equal(t, "sh -c echo a\necho b ", cmd)
+			},
+		},
+		{
+			name: "a long command line gets cut",
+			prepare: func() *fstest.MapFS {
+				long := strings.Repeat("x", 128*1024)
+
+				return &fstest.MapFS{
+					"proc/1234/cmdline": {Data: []byte("sh\x00" + long)},
+				}
+			},
+			assert: func(t *testing.T, cmd string, retErr error) {
+				t.Helper()
+
+				require.NoError(t, retErr)
+				require.Equal(t, "sh "+strings.Repeat("x", maxCmdlineBytes-len("sh ")), cmd)
 			},
 		},
 		{

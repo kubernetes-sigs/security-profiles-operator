@@ -101,16 +101,18 @@ type FakeImpl struct {
 		result1 *grpc.ClientConn
 		result2 error
 	}
-	EnvForPidStub        func(int) (map[string]string, error)
-	envForPidMutex       sync.RWMutex
-	envForPidArgsForCall []FakeImplEnvForPidArgs
-	envForPidReturns     struct {
-		result1 map[string]string
-		result2 error
+	ExecRequestIDForPIDStub        func(int) (string, bool, error)
+	execRequestIDForPIDMutex       sync.RWMutex
+	execRequestIDForPIDArgsForCall []FakeImplExecRequestIDForPIDArgs
+	execRequestIDForPIDReturns     struct {
+		result1 string
+		result2 bool
+		result3 error
 	}
-	envForPidReturnsOnCall map[int]struct {
-		result1 map[string]string
-		result2 error
+	execRequestIDForPIDReturnsOnCall map[int]struct {
+		result1 string
+		result2 bool
+		result3 error
 	}
 	InClusterConfigStub        func() (*rest.Config, error)
 	inClusterConfigMutex       sync.RWMutex
@@ -303,8 +305,8 @@ type FakeImplContainerIDForPIDArgs struct {
 	Arg2 int
 }
 
-// FakeImplEnvForPidArgs holds the arguments of one call to EnvForPid.
-type FakeImplEnvForPidArgs struct {
+// FakeImplExecRequestIDForPIDArgs holds the arguments of one call to ExecRequestIDForPID.
+type FakeImplExecRequestIDForPIDArgs struct {
 	Arg1 int
 }
 
@@ -792,74 +794,77 @@ func (fake *FakeImpl) DialReturnsOnCall(i int, result1 *grpc.ClientConn, result2
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) EnvForPid(arg1 int) (map[string]string, error) {
-	fake.envForPidMutex.Lock()
-	ret, specificReturn := fake.envForPidReturnsOnCall[len(fake.envForPidArgsForCall)]
-	fake.envForPidArgsForCall = append(fake.envForPidArgsForCall, FakeImplEnvForPidArgs{arg1})
-	stub := fake.EnvForPidStub
-	fakeReturns := fake.envForPidReturns
-	fake.recordInvocation("EnvForPid", []interface{}{arg1})
-	fake.envForPidMutex.Unlock()
+func (fake *FakeImpl) ExecRequestIDForPID(arg1 int) (string, bool, error) {
+	fake.execRequestIDForPIDMutex.Lock()
+	ret, specificReturn := fake.execRequestIDForPIDReturnsOnCall[len(fake.execRequestIDForPIDArgsForCall)]
+	fake.execRequestIDForPIDArgsForCall = append(fake.execRequestIDForPIDArgsForCall, FakeImplExecRequestIDForPIDArgs{arg1})
+	stub := fake.ExecRequestIDForPIDStub
+	fakeReturns := fake.execRequestIDForPIDReturns
+	fake.recordInvocation("ExecRequestIDForPID", []interface{}{arg1})
+	fake.execRequestIDForPIDMutex.Unlock()
 	if stub != nil {
 		return stub(arg1)
 	}
 	if specificReturn {
-		return ret.result1, ret.result2
+		return ret.result1, ret.result2, ret.result3
 	}
-	return fakeReturns.result1, fakeReturns.result2
+	return fakeReturns.result1, fakeReturns.result2, fakeReturns.result3
 }
 
-func (fake *FakeImpl) EnvForPidCallCount() int {
-	fake.envForPidMutex.RLock()
-	defer fake.envForPidMutex.RUnlock()
-	return len(fake.envForPidArgsForCall)
+func (fake *FakeImpl) ExecRequestIDForPIDCallCount() int {
+	fake.execRequestIDForPIDMutex.RLock()
+	defer fake.execRequestIDForPIDMutex.RUnlock()
+	return len(fake.execRequestIDForPIDArgsForCall)
 }
 
-func (fake *FakeImpl) EnvForPidCalls(stub func(int) (map[string]string, error)) {
-	fake.envForPidMutex.Lock()
-	defer fake.envForPidMutex.Unlock()
-	fake.EnvForPidStub = stub
+func (fake *FakeImpl) ExecRequestIDForPIDCalls(stub func(int) (string, bool, error)) {
+	fake.execRequestIDForPIDMutex.Lock()
+	defer fake.execRequestIDForPIDMutex.Unlock()
+	fake.ExecRequestIDForPIDStub = stub
 }
 
-func (fake *FakeImpl) EnvForPidArgsForCall(i int) int {
-	fake.envForPidMutex.RLock()
-	defer fake.envForPidMutex.RUnlock()
-	argsForCall := fake.envForPidArgsForCall[i]
+func (fake *FakeImpl) ExecRequestIDForPIDArgsForCall(i int) int {
+	fake.execRequestIDForPIDMutex.RLock()
+	defer fake.execRequestIDForPIDMutex.RUnlock()
+	argsForCall := fake.execRequestIDForPIDArgsForCall[i]
 	return argsForCall.Arg1
 }
 
-func (fake *FakeImpl) EnvForPidArgs() []FakeImplEnvForPidArgs {
-	fake.envForPidMutex.RLock()
-	defer fake.envForPidMutex.RUnlock()
-	args := make([]FakeImplEnvForPidArgs, len(fake.envForPidArgsForCall))
-	copy(args, fake.envForPidArgsForCall)
+func (fake *FakeImpl) ExecRequestIDForPIDArgs() []FakeImplExecRequestIDForPIDArgs {
+	fake.execRequestIDForPIDMutex.RLock()
+	defer fake.execRequestIDForPIDMutex.RUnlock()
+	args := make([]FakeImplExecRequestIDForPIDArgs, len(fake.execRequestIDForPIDArgsForCall))
+	copy(args, fake.execRequestIDForPIDArgsForCall)
 	return args
 }
 
-func (fake *FakeImpl) EnvForPidReturns(result1 map[string]string, result2 error) {
-	fake.envForPidMutex.Lock()
-	defer fake.envForPidMutex.Unlock()
-	fake.EnvForPidStub = nil
-	fake.envForPidReturns = struct {
-		result1 map[string]string
-		result2 error
-	}{result1, result2}
+func (fake *FakeImpl) ExecRequestIDForPIDReturns(result1 string, result2 bool, result3 error) {
+	fake.execRequestIDForPIDMutex.Lock()
+	defer fake.execRequestIDForPIDMutex.Unlock()
+	fake.ExecRequestIDForPIDStub = nil
+	fake.execRequestIDForPIDReturns = struct {
+		result1 string
+		result2 bool
+		result3 error
+	}{result1, result2, result3}
 }
 
-func (fake *FakeImpl) EnvForPidReturnsOnCall(i int, result1 map[string]string, result2 error) {
-	fake.envForPidMutex.Lock()
-	defer fake.envForPidMutex.Unlock()
-	fake.EnvForPidStub = nil
-	if fake.envForPidReturnsOnCall == nil {
-		fake.envForPidReturnsOnCall = make(map[int]struct {
-			result1 map[string]string
-			result2 error
+func (fake *FakeImpl) ExecRequestIDForPIDReturnsOnCall(i int, result1 string, result2 bool, result3 error) {
+	fake.execRequestIDForPIDMutex.Lock()
+	defer fake.execRequestIDForPIDMutex.Unlock()
+	fake.ExecRequestIDForPIDStub = nil
+	if fake.execRequestIDForPIDReturnsOnCall == nil {
+		fake.execRequestIDForPIDReturnsOnCall = make(map[int]struct {
+			result1 string
+			result2 bool
+			result3 error
 		})
 	}
-	fake.envForPidReturnsOnCall[i] = struct {
-		result1 map[string]string
-		result2 error
-	}{result1, result2}
+	fake.execRequestIDForPIDReturnsOnCall[i] = struct {
+		result1 string
+		result2 bool
+		result3 error
+	}{result1, result2, result3}
 }
 
 func (fake *FakeImpl) InClusterConfig() (*rest.Config, error) {

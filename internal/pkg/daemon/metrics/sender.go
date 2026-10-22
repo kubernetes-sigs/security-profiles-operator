@@ -97,7 +97,7 @@ func NewContextSender[T any](
 		logger:  logger,
 		open:    open,
 		queue:   make(chan T, queueSize),
-		maxSize: MaxMsgSize,
+		maxSize: maxMsgSize,
 		sleep:   sleepContext,
 	}
 }

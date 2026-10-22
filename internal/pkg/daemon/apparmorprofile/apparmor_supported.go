@@ -375,6 +375,13 @@ func loadPolicyFile(
 ) (bool, error) {
 	policy := []byte(managedByMarker + content)
 
+	// The policy files are written by renaming a regular file over them, so
+	// anything else, like the directory of the abstractions or a symlink,
+	// belongs to the host.
+	if info, err := os.Lstat(path); err == nil && !info.Mode().IsRegular() {
+		return false, fmt.Errorf("%w: %s", ErrHostPolicyFile, path)
+	}
+
 	previous, readErr := os.ReadFile(path)
 	if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
 		return false, fmt.Errorf("reading existing policy file: %w", readErr)

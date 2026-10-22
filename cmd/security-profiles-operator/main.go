@@ -134,6 +134,8 @@ const (
 	enricherLogSourceParam   string = "enricher-log-source"
 	// Deprecated: TLS version is now managed via OpenShift TLS profiles.
 	tlsMinVersionParam string = "tls-min-version"
+	// Deprecated: the operator manages the resources of the webhook.
+	staticWebhookParam string = "static"
 
 	// defaultTrue is the default text of the boolean flags which default to
 	// true.
@@ -405,7 +407,7 @@ func webhookCommand(info *version.Info) *cli.Command {
 				Usage:   "the port on which to expose the webhook service",
 			},
 			&cli.BoolFlag{
-				Name:    "static",
+				Name:    staticWebhookParam,
 				Aliases: []string{"s"},
 				Hidden:  true,
 				Usage:   "deprecated and ignored, the operator manages the resources of the webhook",
@@ -1401,17 +1403,14 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 		return errors.New("no controllers enabled")
 	}
 
-	cfg, tlsCfg, err := clusterConfig(ctx.Context)
-	if err != nil {
-		return err
-	}
-
 	maxSeries := ctx.Int(maxMetricSeriesFlag)
 	if maxSeries < 0 {
 		return fmt.Errorf("%s must not be negative: %d", maxMetricSeriesFlag, maxSeries)
 	}
 
-	// Setup metrics
+	// Setup metrics. The recorders and enrichers connect to the gRPC server
+	// with a short backoff, so it is served before the API server gets asked
+	// for the cluster configuration, which can take a while.
 	met := metrics.New()
 	met.SetMaxSeries(maxSeries)
 
@@ -1423,6 +1422,11 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 		return fmt.Errorf("start metrics grpc server: %w", err)
 	}
 	defer met.GracefulStop()
+
+	cfg, tlsCfg, err := clusterConfig(ctx.Context)
+	if err != nil {
+		return err
+	}
 
 	operatorNamespace, err := config.TryToGetOperatorNamespace()
 	if err != nil {
@@ -1636,11 +1640,18 @@ func nonRootEnablerKubeletDir(
 func runWebhook(ctx *cli.Context, info *version.Info) error {
 	printInfo("security-profiles-operator-webhook", info)
 
-	// Warn if deprecated tls-min-version flag is used
+	// Warn if deprecated flags are used
 	if ctx.IsSet(tlsMinVersionParam) {
 		setupLog.Info(
 			"--tls-min-version flag is deprecated and ignored, " +
 				"TLS configuration is now managed via OpenShift TLS profiles",
+		)
+	}
+
+	if ctx.IsSet(staticWebhookParam) {
+		setupLog.Info(
+			"--static flag is deprecated and ignored, " +
+				"the operator manages the resources of the webhook",
 		)
 	}
 
@@ -1948,7 +1959,9 @@ var forwardedSpocSignals = []os.Signal{
 // them itself, for example by writing the recorded profile, and must not be
 // left behind. A signal which reaches both processes, like the SIGINT of a
 // terminal or a SIGTERM sent to the process group, reaches spoc twice in a
-// short time, which spoc takes as a single one.
+// short time, which spoc takes as a single one: it forwards it to the command
+// it runs once, see cli.DuplicateSignalWindow. That command is in the process
+// group as well and gets such a signal directly too.
 func runForwardingSignals(c *exec.Cmd, stderr io.Writer) error {
 	// Subscribe before the start, a signal in between would otherwise
 	// terminate this process and leave spoc running.

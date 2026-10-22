@@ -60,6 +60,10 @@ type Recorder struct {
 	impl
 	options     *Options
 	bpfRecorder *bpfrecorder.BpfRecorder
+	// programPath is the absolute path of the recorded program, resolved
+	// once for an AppArmor recording, so that the raw profile attaches to
+	// the program the recording got filtered by.
+	programPath string
 }
 
 // New returns a new Recorder instance.
@@ -111,6 +115,7 @@ func (r *Recorder) Run() error {
 			return fmt.Errorf("get program path: %w", err)
 		}
 
+		r.programPath = programPath
 		r.bpfRecorder.AppArmor.SetProgramPath(programPath)
 	}
 
@@ -497,9 +502,14 @@ func (r *Recorder) buildAppArmorProfileRaw(
 	writer io.Writer,
 	spec *apparmorprofileapi.AppArmorProfileSpec,
 ) error {
-	programName, err := cli.ExecutablePath(r.options.commandOptions.Command())
-	if err != nil {
-		return fmt.Errorf("get program name: %w", err)
+	programName := r.programPath
+	if programName == "" {
+		var err error
+
+		programName, err = cli.ExecutablePath(r.options.commandOptions.Command())
+		if err != nil {
+			return fmt.Errorf("get program name: %w", err)
+		}
 	}
 
 	abstract := spec.Abstract

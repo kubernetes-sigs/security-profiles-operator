@@ -908,11 +908,12 @@ In particular, the `SelinuxProfile` kind:
 - performs basic validation of the permissions, classes and labels
 - allows to restrict the SELinux types, classes and permissions which can be used in the profiles by
   `spec.selinux.options.deniedTypes`, `deniedClasses` and `deniedPermissions` of the `spod` instance. The
-  operator also denies some of them by default, and `allowedTypes`, `allowedClasses` and `allowedPermissions`
-  remove entries from that built-in denylist. Use the latter with care, because they relax a safe default for
-  every profile. The lists are compared by name, so the CIL keywords `all`, `and`, `not`, `or`, `range` and
-  `xor` are rejected as permissions, and allowing a type attribute like `file_type` is not rejected, although
-  it contains denied types.
+  operator also denies some of them by default, for example the `transition` and `dyntransition` permissions
+  which would let a container switch into another domain, and `allowedTypes`, `allowedClasses` and
+  `allowedPermissions` remove entries from that built-in denylist. Use the latter with care, because they relax
+  a safe default for every profile. The lists are compared by name, so the CIL keywords `all`, `and`, `not`,
+  `or`, `range` and `xor` are rejected as permissions, and allowing a type attribute like `file_type` is not
+  rejected, although it contains denied types.
 - adds a new keyword `@self` that describes the process using the policy. This allows to reuse a policy between
   workloads and namespaces easily, as the "usage" of the policy (see below) is based on the profile name.
 

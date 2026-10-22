@@ -731,7 +731,7 @@ func TestPruneExcludedKeys(t *testing.T) {
 		}
 	})
 
-	sut.pruneExcludedKeys(sut.recordingGeneration.Load())
+	sut.pruneRemovedCgroups(sut.recordingGeneration.Load())
 
 	require.Equal(t, 1, mock.DeleteKey64CallCount())
 	_, deleted := mock.DeleteKey64ArgsForCall(0)
@@ -739,6 +739,41 @@ func TestPruneExcludedKeys(t *testing.T) {
 	require.False(t, sut.AppArmor.isExcluded(gone))
 	require.True(t, sut.AppArmor.isExcluded(alive))
 	require.True(t, sut.AppArmor.isExcluded(hidden))
+}
+
+// TestPruneRemovedCgroupsOfStartedContainers asserts that the started
+// containers whose cgroup is gone are forgotten, so that the ones still
+// running do not get evicted from the maps.
+func TestPruneRemovedCgroupsOfStartedContainers(t *testing.T) {
+	t.Parallel()
+
+	sut, mock := newClusterRecorder(false, true)
+	sut.cgroupKeys = true
+	sut.seccompInitBpfMap = &libbpfgo.BPFMap{}
+	sut.apparmorInitBpfMap = &libbpfgo.BPFMap{}
+
+	const (
+		gone  uint64 = 1
+		alive uint64 = 2
+	)
+
+	mock.MapKeysReturns([][]byte{
+		binary.NativeEndian.AppendUint64(nil, gone),
+		binary.NativeEndian.AppendUint64(nil, alive),
+	}, nil)
+	mock.CgroupRemovedCalls(func(id uint64) (bool, error) { return id == gone, nil })
+
+	sut.pruneRemovedCgroups(sut.recordingGeneration.Load())
+
+	require.Equal(t, 2, mock.MapKeysCallCount(), "the map of excluded workloads is not loaded")
+	require.Equal(t, 2, mock.CgroupRemovedCallCount(), "every cgroup is checked once")
+	require.Equal(t, 2, mock.DeleteKey64CallCount())
+
+	for i, want := range []*libbpfgo.BPFMap{sut.seccompInitBpfMap, sut.apparmorInitBpfMap} {
+		bpfMap, deleted := mock.DeleteKey64ArgsForCall(i)
+		require.Same(t, want, bpfMap)
+		require.Equal(t, gone, deleted)
+	}
 }
 
 // TestSweepStaleKeysUnknownProcesses asserts that no data is dropped while the

@@ -19,7 +19,7 @@ package converter
 import "sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
 
 // DefaultOutputFile defines the default output location for the converter.
-var DefaultOutputFile = "/dev/stdout"
+var DefaultOutputFile = cli.Stdout
 
 const (
 	// FlagOutputFile is the flag for defining the output file location.

@@ -28,6 +28,10 @@ display detailed version information
 
 run a command and record the security profile
 
+Run a command and record the security profile of what it did. The profile is written even if the command fails, and spoc record exits with 0 then, so that a crashing workload can still be profiled.
+
+>spoc record [command options] COMMAND
+
 **--base-syscalls, -b**="": base syscalls to be included in every profile to ensure compatibility with OCI runtimes like runc and crun (default: access, arch_prctl, brk, capget, capset, chdir, chmod, chown, clone, close, close_range, dup2, dup3, epoll_create1, epoll_ctl, epoll_pwait, execve, exit_group, faccessat2, fchdir, fchmodat, fchown, fchownat, fcntl, fstat, fstatfs, futex, getdents64, getegid, geteuid, getgid, getpid, getppid, gettid, getuid, ioctl, keyctl, lseek, mkdirat, mknodat, mmap, mount, mprotect, munmap, nanosleep, newfstatat, openat, openat2, pipe2, pivot_root, prctl, pread64, pselect6, read, readlink, readlinkat, rt_sigaction, rt_sigprocmask, rt_sigreturn, sched_getaffinity, sched_yield, seccomp, set_robust_list, set_tid_address, setgid, setgroups, sethostname, setns, setresgid, setresuid, setsid, setuid, sigaltstack, statfs, statx, symlinkat, tgkill, umask, umount2, unlinkat, unshare, utimensat, write)
 
 **--no-base-syscalls, -n**: do not add any base syscalls at all
@@ -44,6 +48,10 @@ run a command and record the security profile
 
 merge multiple security profiles
 
+Merge multiple security profiles into a combined profile. Permissions are additive. For AppArmor, the first profile may additionally contain glob paths.
+
+>spoc merge [command options] PROFILE...
+
 **--check, -c**: do not write an output file, but exit with an error if the first profile is not a superset of all others
 
 **--output-file, -o**="": the output file path for the combined profile (default: profile.yaml)
@@ -51,6 +59,10 @@ merge multiple security profiles
 ### convert, c
 
 convert a security profile to its raw format
+
+Convert a SeccompProfile CRD into a raw OCI runtime-spec seccomp profile in JSON, or an AppArmorProfile CRD into a raw AppArmor profile. The raw profile is written to stdout unless --output-file is set.
+
+>spoc convert [command options] PROFILE
 
 **--output-file, -o**="": the output file path for the raw profile (default: /dev/stdout)
 
@@ -60,13 +72,25 @@ convert a security profile to its raw format
 
 install an AppArmor profile on the local machine
 
+Load the AppArmorProfile CRD of PROFILE (default: profile.yaml) into the kernel. The profile confines EXECUTABLE, which becomes its name. Without it, a profile name which is a command on the PATH is resolved to its executable. Other profile kinds are rejected. Requires root on a host with AppArmor enabled.
+
+>spoc install [command options] [PROFILE [EXECUTABLE]]
+
 ### remove, rm
 
 remove an AppArmor profile from the local machine
 
+Unload the AppArmorProfile CRD of PROFILE (default: profile.yaml) from the kernel. The profile name is derived like on install, so pass the same EXECUTABLE. Requires root on a host with AppArmor enabled.
+
+>spoc remove [command options] [PROFILE [EXECUTABLE]]
+
 ### run, x
 
 run a command using a seccomp profile
+
+Run a command confined by the seccomp profile of --profile, and print the denials found in the audit log. spoc exits with the exit code of the command.
+
+>spoc run [command options] COMMAND
 
 **--privileged**: do not drop sudo privileges when running the target command
 
@@ -77,6 +101,10 @@ run a command using a seccomp profile
 ### push, p
 
 push profiles to a container registry
+
+Push the profiles of --profiles to IMAGE. Profile CRDs are pushed as YAML artifacts for oci:// base profiles. A raw OCI runtime-spec seccomp profile in JSON is pushed in the KEP-6061 runtime format for container runtimes (single JSON layer, media type application/vnd.cncf.seccomp-profile.config.v1+json); exactly one profile is allowed in that format.
+
+>spoc push [command options] IMAGE
 
 **--annotations, -a**="": the annotations to be set in `KEY:VALUE` format, separated by commas or by repeating the flag; a value with a comma followed by a word and a colon needs a flag of its own
 
@@ -99,6 +127,10 @@ push profiles to a container registry
 ### pull, l
 
 pull a profile from a container registry
+
+Pull the profile of IMAGE, verifying its signature by default. Profile CRD artifacts and KEP-6061 runtime format artifacts are supported; the artifact content is written unchanged, so runtime format artifacts are saved as runtime-spec JSON and the default output file switches to a .json extension.
+
+>spoc pull [command options] IMAGE
 
 **--allowed-identity-regexp, -i**="": regexp for allowed identities in signature verification (default: .*)
 
@@ -129,6 +161,10 @@ pull a profile from a container registry
 ### sign
 
 sign an artifact in a container registry
+
+Sign an artifact keyless like spoc push does, for example one whose signing failed after the push. A tag is resolved to its digest, which the signature is about.
+
+>spoc sign [command options] IMAGE
 
 **--oidc-device-flow**: sign in to the OIDC provider with the device flow if the environment has no identity token and stdin is not a terminal, instead of failing
 

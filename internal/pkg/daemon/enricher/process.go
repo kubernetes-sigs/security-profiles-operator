@@ -22,6 +22,7 @@ import (
 	"io/fs"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jellydator/ttlcache/v3"
 
@@ -29,8 +30,9 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 )
 
-// ErrProcessNotFound is the error returned by ContainerIDForPID if the
-// process path could not be found in /proc.
+// ErrProcessNotFound is the error returned by CmdlineForPID and
+// ExecRequestIDForPID if the files of the process could not be read from
+// /proc.
 var ErrProcessNotFound = errors.New("process not found in process file system path")
 
 const requestIdEnv = config.ExecRequestUIDEnvKey
@@ -43,11 +45,14 @@ const requestIdEnv = config.ExecRequestUIDEnvKey
 // the PID of a cached one does not get its command line and exec request. The
 // last process seen with a PID is cached under the PID alone as well: audit
 // lines are read with a delay, and the lines of a process which exited in
-// between belong to it.
+// between belong to it. startedLater, if not nil, reports whether the process
+// which started the duration after the boot started after the audit line got
+// logged: then it reused the PID of the process of the line.
 func GetProcessInfo(
 	pid int, executable string, uid, gid *uint32,
 	processCache *ttlcache.Cache[string, *types.ProcessInfo],
 	impl impl,
+	startedLater func(started time.Duration) bool,
 ) (*types.ProcessInfo, error) {
 	withLine := func(cached *types.ProcessInfo) *types.ProcessInfo {
 		info := *cached
@@ -76,6 +81,21 @@ func GetProcessInfo(
 	}
 
 	cacheKey := lastKey + "_" + strconv.FormatInt(int64(startTime), 10)
+
+	if startedLater != nil && startedLater(startTime) {
+		// The details of the running process are not the ones of the line.
+		// The last process seen with the PID is the one of the line, unless
+		// it is the running one.
+		if last := processCache.Get(lastKey); last != nil {
+			if running := processCache.Get(cacheKey); running == nil ||
+				running.Value() != last.Value() {
+				return withLine(last.Value()), nil
+			}
+		}
+
+		return withLine(&types.ProcessInfo{Pid: pid}),
+			fmt.Errorf("%w: pid %d", errProcessStartedLater, pid)
+	}
 
 	if item := processCache.Get(cacheKey); item != nil {
 		return withLine(item.Value()), nil
@@ -116,9 +136,9 @@ func processInfo(pid int, impl impl) (*types.ProcessInfo, []error) {
 	// details of a process.
 	reqIdEnvFound := false
 
-	env, err := impl.EnvForPid(pid)
+	reqId, ok, err := impl.ExecRequestIDForPID(pid)
 	if err == nil {
-		if reqId, ok := env[requestIdEnv]; ok {
+		if ok {
 			procInfo.ExecRequestId = &reqId
 			reqIdEnvFound = true
 		}

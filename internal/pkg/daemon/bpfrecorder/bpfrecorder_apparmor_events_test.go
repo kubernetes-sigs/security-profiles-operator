@@ -236,6 +236,31 @@ func TestHandleCapabilityEvent(t *testing.T) {
 	})
 }
 
+// TestEventsAfterStop asserts that the events which are still queued when the
+// recording stops are not recorded into the next one.
+func TestEventsAfterStop(t *testing.T) {
+	t.Parallel()
+
+	sut := newTestAppArmorRecorder()
+	sut.loaded = true
+
+	require.NoError(t, sut.StopRecording(&BpfRecorder{}))
+
+	sut.handleFileEvent(fileEvent(testKey, flagRead, "/stale"))
+	sut.handleSocketEvent(&bpfEvent{Key: testKey, Flags: socketFlags(afInet, sockStream)})
+	sut.handleCapabilityEvent(&bpfEvent{Key: testKey, Flags: 1})
+
+	require.Empty(t, sut.recordedFiles)
+	require.Empty(t, sut.recordedSocketsUse)
+	require.Empty(t, sut.recordedCapabilities)
+	require.Empty(t, sut.trackedKeys)
+
+	require.NoError(t, sut.StartRecording(&BpfRecorder{}))
+
+	sut.handleFileEvent(fileEvent(testKey, flagRead, "/fresh"))
+	require.Contains(t, sut.recordedFiles[recordingKey(testKey)], "/fresh")
+}
+
 // clearKey exists so that permissions needed only during container setup do
 // not leak into the recorded profile.
 func TestClearKey(t *testing.T) {

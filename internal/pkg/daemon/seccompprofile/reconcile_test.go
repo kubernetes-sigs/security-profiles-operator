@@ -301,8 +301,16 @@ func TestReconcileSeccompProfileSaveError(t *testing.T) {
 	require.Len(t, evs, 1)
 	require.Equal(t, "Warning "+reasonCannotSaveProfile+" disk full", evs[0])
 
-	// The node must not claim the profile is installed.
-	require.Equal(t, secprofnodestatusapi.ProfileStatePending, env.nodeStatus(t).Status.Status)
+	// The node must not claim the profile is installed, and tells why.
+	status := env.nodeStatus(t)
+	require.Equal(t, secprofnodestatusapi.ProfileStateError, status.Status.Status)
+	require.Contains(t, status.Status.Message, "disk full")
+
+	// A later attempt which succeeds installs it.
+	env.saveErr = nil
+	_, err = env.reconcile(t)
+	require.NoError(t, err)
+	require.Equal(t, secprofnodestatusapi.ProfileStateInstalled, env.nodeStatus(t).Status.Status)
 }
 
 func TestReconcileSeccompProfileNotAllowed(t *testing.T) {

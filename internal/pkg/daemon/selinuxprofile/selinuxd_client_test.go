@@ -21,83 +21,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
-	"path/filepath"
 	"testing"
 
-	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1"
 )
-
-// writeFileIfDiffers decides whether a policy file on the node gets rewritten,
-// which in turn decides whether selinuxd reloads the policy.
-func TestWriteFileIfDiffers(t *testing.T) {
-	t.Parallel()
-
-	t.Run("writes a file that does not exist", func(t *testing.T) {
-		t.Parallel()
-
-		path := filepath.Join(t.TempDir(), "policy.cil")
-
-		written, err := writeFileIfDiffers(path, []byte("content"), logr.Discard())
-		require.NoError(t, err)
-		require.True(t, written)
-
-		got, err := os.ReadFile(path)
-		require.NoError(t, err)
-		require.Equal(t, "content", string(got))
-	})
-
-	t.Run("does not rewrite identical content", func(t *testing.T) {
-		t.Parallel()
-
-		path := filepath.Join(t.TempDir(), "policy.cil")
-		require.NoError(t, os.WriteFile(path, []byte("content"), 0o600))
-
-		written, err := writeFileIfDiffers(path, []byte("content"), logr.Discard())
-		require.NoError(t, err)
-		require.False(t, written, "an unchanged policy must not trigger a reload")
-	})
-
-	t.Run("rewrites changed content", func(t *testing.T) {
-		t.Parallel()
-
-		path := filepath.Join(t.TempDir(), "policy.cil")
-		require.NoError(t, os.WriteFile(path, []byte("old"), 0o600))
-
-		written, err := writeFileIfDiffers(path, []byte("new"), logr.Discard())
-		require.NoError(t, err)
-		require.True(t, written)
-
-		got, err := os.ReadFile(path)
-		require.NoError(t, err)
-		require.Equal(t, "new", string(got))
-	})
-
-	t.Run("an empty file differs from content", func(t *testing.T) {
-		t.Parallel()
-
-		path := filepath.Join(t.TempDir(), "policy.cil")
-		require.NoError(t, os.WriteFile(path, nil, 0o600))
-
-		written, err := writeFileIfDiffers(path, []byte("content"), logr.Discard())
-		require.NoError(t, err)
-		require.True(t, written)
-	})
-
-	t.Run("fails when the path is not readable", func(t *testing.T) {
-		t.Parallel()
-
-		// A directory cannot be read as a policy file.
-		dir := t.TempDir()
-
-		_, err := writeFileIfDiffers(dir, []byte("content"), logr.Discard())
-		require.Error(t, err)
-	})
-}
 
 // writeBody writes a canned selinuxd response, failing the test if it cannot.
 // Assertions cannot run inside the handler goroutine, so this records the error

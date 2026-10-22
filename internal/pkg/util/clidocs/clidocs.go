@@ -66,10 +66,12 @@ func Command(newApp func() *cli.App, env []EnvVar) *cli.Command {
 // urfave/cli one heading level below a title, followed by the environment
 // variables of the flags and env.
 func Markdown(app *cli.App, env []EnvVar) (string, error) {
-	restore := documentBoolDefaults(app)
+	restoreBools := documentBoolDefaults(app)
+	restoreCommands := documentCommands(app)
 	doc, err := app.ToMarkdown()
 
-	restore()
+	restoreCommands()
+	restoreBools()
 
 	if err != nil {
 		return "", fmt.Errorf("generate markdown: %w", err)
@@ -127,6 +129,44 @@ func documentBoolDefaults(app *cli.App) (restore func()) {
 
 	replace(app.Flags)
 	replaceCommands(app.Commands)
+
+	return func() {
+		for _, restore := range restores {
+			restore()
+		}
+	}
+}
+
+// documentCommands adds the description and the arguments of the commands of
+// app to their usage, which urfave/cli prints in the help but leaves out of
+// the Markdown. The returned function puts the original usage back.
+func documentCommands(app *cli.App) (restore func()) {
+	var restores []func()
+
+	var document func(commands []*cli.Command, path string)
+
+	document = func(commands []*cli.Command, path string) {
+		for _, command := range commands {
+			usage, usageText := command.Usage, command.UsageText
+
+			restores = append(restores, func() {
+				command.Usage, command.UsageText = usage, usageText
+			})
+
+			if command.Description != "" {
+				command.Usage = strings.TrimSpace(usage + "\n\n" + command.Description)
+			}
+
+			name := path + " " + command.Name
+			if command.UsageText == "" && command.ArgsUsage != "" {
+				command.UsageText = name + " [command options] " + command.ArgsUsage
+			}
+
+			document(command.Subcommands, name)
+		}
+	}
+
+	document(app.Commands, app.Name)
 
 	return func() {
 		for _, restore := range restores {

@@ -25,6 +25,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"syscall"
 	"testing"
@@ -216,11 +217,13 @@ func TestConfinePassesCredential(t *testing.T) {
 		"the run helper needs the privileges to load the profile",
 	)
 	require.Equal(t, selfExe, cmd.Path)
-	require.Equal(t, []string{os.Args[0], InitArg}, cmd.Args)
-	require.Len(t, cmd.ExtraFiles, 1)
+	require.NotEmpty(t, cmd.ExtraFiles)
+
+	configFd := firstExtraFd + len(cmd.ExtraFiles) - 1
+	require.Equal(t, []string{os.Args[0], InitArg, strconv.Itoa(configFd)}, cmd.Args)
 
 	config := &initConfig{}
-	require.NoError(t, json.NewDecoder(cmd.ExtraFiles[0]).Decode(config))
+	require.NoError(t, json.NewDecoder(cmd.ExtraFiles[len(cmd.ExtraFiles)-1]).Decode(config))
 	require.Equal(
 		t,
 		&initCredential{UID: 1000, GID: 1001, Groups: []uint32{1001, 27}},
@@ -228,4 +231,132 @@ func TestConfinePassesCredential(t *testing.T) {
 	)
 	require.Equal(t, path, config.Path)
 	require.Equal(t, []string{"true"}, config.Args)
+}
+
+// TestExtraFiles verifies that the copies of the inherited file descriptors
+// get the numbers of the originals in the run helper, and that the config
+// follows them.
+func TestExtraFiles(t *testing.T) {
+	t.Parallel()
+
+	reader, writer, err := os.Pipe()
+	require.NoError(t, err)
+
+	defer reader.Close()
+	defer writer.Close()
+
+	files, configFd := extraFiles(nil, nil, reader)
+	require.Equal(t, firstExtraFd, configFd)
+	require.Equal(t, []*os.File{reader}, files)
+
+	// The numbers are only placed, so they need not be open in the test.
+	const first, second = 5, 8
+
+	copies, err := dupInherited([]int{int(writer.Fd()), int(writer.Fd())})
+	require.NoError(t, err)
+
+	defer closeFiles(copies)
+
+	firstCopy, secondCopy := copies[0], copies[1]
+
+	files, configFd = extraFiles([]int{first, second}, []*os.File{firstCopy, secondCopy}, reader)
+	require.Equal(t, second+1, configFd)
+	require.Len(t, files, configFd-firstExtraFd+1)
+
+	for i, file := range files {
+		switch fd := firstExtraFd + i; fd {
+		case first:
+			require.Same(t, firstCopy, file)
+		case second:
+			require.Same(t, secondCopy, file)
+		case configFd:
+			require.Same(t, reader, file)
+		default:
+			require.Nil(t, file, "the gap %d gets closed", fd)
+		}
+	}
+}
+
+// TestDupInherited verifies that the run helper gets copies of the inherited
+// file descriptors, so that closing them, or the garbage collection of their
+// files, leaves the originals open.
+func TestDupInherited(t *testing.T) {
+	t.Parallel()
+
+	reader, writer, err := os.Pipe()
+	require.NoError(t, err)
+
+	defer reader.Close()
+	defer writer.Close()
+
+	original := int(writer.Fd())
+
+	copies, err := dupInherited([]int{original})
+	require.NoError(t, err)
+	require.Len(t, copies, 1)
+	require.NotEqual(t, uintptr(original), copies[0].Fd())
+
+	flags, err := unix.FcntlInt(copies[0].Fd(), unix.F_GETFD, 0)
+	require.NoError(t, err)
+	require.NotZero(t, flags&unix.FD_CLOEXEC, "the copy must not leak into other commands")
+
+	closeFiles(copies)
+
+	_, err = unix.FcntlInt(uintptr(original), unix.F_GETFD, 0)
+	require.NoError(t, err, "the original stays open")
+
+	// A descriptor which is not open cannot be passed.
+	_, err = dupInherited([]int{original, -1})
+	require.Error(t, err)
+}
+
+// TestConfineKeepsInheritedFd verifies that the command can write to a file
+// descriptor which spoc inherited, like a shell passes it with 3>file. The
+// test cannot take the descriptor of the config, which the runtime of the test
+// may use, TestExtraFiles covers it.
+//
+//nolint:paralleltest // the inherited descriptor would leak into parallel tests
+func TestConfineKeepsInheritedFd(t *testing.T) {
+	if !seccomp.Enabled {
+		t.Skip("built without seccomp support")
+	}
+
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skipf("sh not available: %v", err)
+	}
+
+	out := filepath.Join(t.TempDir(), "out")
+
+	file, err := os.Create(out)
+	require.NoError(t, err)
+
+	defer file.Close()
+
+	// Without FD_CLOEXEC like an inherited descriptor, which spoc does not
+	// own: the run helper gets a copy of it. The later tests must not pass
+	// it.
+	fd, err := unix.FcntlInt(file.Fd(), unix.F_DUPFD, 10)
+	require.NoError(t, err)
+
+	t.Cleanup(func() { require.NoError(t, unix.Close(fd)) })
+
+	inherited, err := inheritedFds()
+	require.NoError(t, err)
+	require.Contains(t, inherited, fd)
+
+	profile := &specs.LinuxSeccomp{DefaultAction: specs.ActAllow}
+
+	// The shells which only take single digit descriptors in redirections
+	// can still open the inherited one by its path.
+	require.NoError(
+		t,
+		runConfined(profile, "sh", "-c", fmt.Sprintf("echo ok >/proc/self/fd/%d", fd)),
+	)
+
+	content, err := os.ReadFile(out)
+	require.NoError(t, err)
+	require.Equal(t, "ok\n", string(content))
+
+	_, err = unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0)
+	require.NoError(t, err, "the original stays open")
 }

@@ -42,7 +42,7 @@ func newGRPCTestClient(t *testing.T, sut *Metrics) api.MetricsClient {
 	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 
-	server := grpc.NewServer(grpc.MaxRecvMsgSize(MaxMsgSize))
+	server := grpc.NewServer(grpc.MaxRecvMsgSize(maxMsgSize))
 	api.RegisterMetricsServer(server, sut)
 
 	serveErr := make(chan error, 1)
@@ -282,7 +282,7 @@ func TestAuditIncOversizedOverGRPC(t *testing.T) {
 	stream, err := client.AuditInc(t.Context())
 	require.NoError(t, err)
 
-	err = stream.Send(&api.AuditRequest{Pod: strings.Repeat("a", MaxMsgSize)})
+	err = stream.Send(&api.AuditRequest{Pod: strings.Repeat("a", maxMsgSize)})
 	require.Equal(t, codes.ResourceExhausted, status.Code(err))
 	require.True(t, requestError(err))
 }

@@ -54,5 +54,5 @@ func (*defaultImpl) Pull(
 }
 
 func (*defaultImpl) WriteFile(name string, data []byte, perm os.FileMode) error {
-	return os.WriteFile(name, data, perm)
+	return cli.WriteFile(name, data, perm)
 }

@@ -26,6 +26,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"syscall"
 	"unsafe"
 
@@ -36,9 +37,8 @@ import (
 )
 
 const (
-	// initConfigFd is the file descriptor the run helper reads its
-	// configuration from, the first of exec.Cmd.ExtraFiles.
-	initConfigFd = 3
+	// firstExtraFd is the file descriptor of the first of exec.Cmd.ExtraFiles.
+	firstExtraFd = 3
 
 	// initFailedExitCode is the exit code of the run helper if it cannot
 	// execute the command, like a shell uses it for commands it cannot run.
@@ -94,8 +94,20 @@ func confine(profile *specs.LinuxSeccomp) func(*exec.Cmd) (func(), error) {
 			return nil, fmt.Errorf("marshal run helper config: %w", err)
 		}
 
+		inherited, err := inheritedFds()
+		if err != nil {
+			return nil, err
+		}
+
+		copies, err := dupInherited(inherited)
+		if err != nil {
+			return nil, err
+		}
+
 		reader, writer, err := os.Pipe()
 		if err != nil {
+			closeFiles(copies)
+
 			return nil, fmt.Errorf("create run helper pipe: %w", err)
 		}
 
@@ -113,16 +125,106 @@ func confine(profile *specs.LinuxSeccomp) func(*exec.Cmd) (func(), error) {
 			}
 		}()
 
+		var configFd int
+
 		cmd.Path = selfExe
-		cmd.Args = []string{os.Args[0], InitArg}
-		cmd.ExtraFiles = []*os.File{reader}
+		cmd.ExtraFiles, configFd = extraFiles(inherited, copies, reader)
+		cmd.Args = []string{os.Args[0], InitArg, strconv.Itoa(configFd)}
 
 		return func() {
 			if err := reader.Close(); err != nil {
 				log.Printf("Unable to close the run helper pipe: %v", err)
 			}
+
+			closeFiles(copies)
 		}, nil
 	}
+}
+
+// inheritedFds returns the file descriptors from firstExtraFd on which spoc
+// inherited and which the command inherits therefore, like the ones a shell
+// opens with a redirection like 3>file. Go opens its own files with
+// FD_CLOEXEC.
+func inheritedFds() ([]int, error) {
+	entries, err := os.ReadDir("/proc/self/fd")
+	if err != nil {
+		return nil, fmt.Errorf("list file descriptors: %w", err)
+	}
+
+	var fds []int
+
+	for _, entry := range entries {
+		fd, err := strconv.Atoi(entry.Name())
+		if err != nil || fd < firstExtraFd {
+			continue
+		}
+
+		// The descriptor of the directory listing is gone already.
+		flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0)
+		if err != nil || flags&unix.FD_CLOEXEC != 0 {
+			continue
+		}
+
+		fds = append(fds, fd)
+	}
+
+	return fds, nil
+}
+
+// dupInherited returns copies of the inherited file descriptors, which the
+// run helper gets passed at the numbers of the originals. A file which wraps
+// a descriptor closes it once it gets garbage collected, so the originals,
+// which spoc does not own, must not be wrapped. The caller closes the copies.
+func dupInherited(inherited []int) ([]*os.File, error) {
+	copies := make([]*os.File, 0, len(inherited))
+
+	for _, fd := range inherited {
+		dup, err := unix.FcntlInt(uintptr(fd), unix.F_DUPFD_CLOEXEC, 0)
+		if err != nil {
+			closeFiles(copies)
+
+			return nil, fmt.Errorf("duplicate inherited file descriptor %d: %w", fd, err)
+		}
+
+		copies = append(copies, os.NewFile(uintptr(dup), "inherited-"+strconv.Itoa(fd)))
+	}
+
+	return copies, nil
+}
+
+// closeFiles closes the files, logging the failures.
+func closeFiles(files []*os.File) {
+	for _, file := range files {
+		if err := file.Close(); err != nil {
+			log.Printf("Unable to close %s: %v", file.Name(), err)
+		}
+	}
+}
+
+// extraFiles returns the exec.Cmd.ExtraFiles which pass the copies of the
+// inherited file descriptors at the numbers of the originals and the config
+// after them, and the file descriptor of the config in the run helper. The
+// gaps get closed, which the execution of the command would do anyway. The
+// child moves a copy whose number is a lower target out of the way before it
+// places the files, see syscall.ProcAttr.
+func extraFiles(
+	inherited []int,
+	copies []*os.File,
+	config *os.File,
+) (files []*os.File, configFd int) {
+	configFd = firstExtraFd
+	for _, fd := range inherited {
+		configFd = max(configFd, fd+1)
+	}
+
+	files = make([]*os.File, configFd-firstExtraFd+1)
+	for i, fd := range inherited {
+		files[fd-firstExtraFd] = copies[i]
+	}
+
+	files[configFd-firstExtraFd] = config
+
+	return files, configFd
 }
 
 // Init runs the run helper if the process got started as one, in which case
@@ -138,7 +240,19 @@ func Init() {
 	// runtime from reusing it.
 	runtime.LockOSThread()
 
-	err := runInit(os.NewFile(initConfigFd, "run-helper-config"))
+	configFd := firstExtraFd
+
+	if len(os.Args) > 2 {
+		fd, err := strconv.Atoi(os.Args[2])
+		if err != nil || fd < firstExtraFd {
+			fmt.Fprintf(os.Stderr, "spoc run: invalid config file descriptor %q\n", os.Args[2])
+			os.Exit(initFailedExitCode)
+		}
+
+		configFd = fd
+	}
+
+	err := runInit(os.NewFile(uintptr(configFd), "run-helper-config"))
 	fmt.Fprintf(os.Stderr, "spoc run: %v\n", err)
 	os.Exit(initFailedExitCode)
 }

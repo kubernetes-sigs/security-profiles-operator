@@ -85,14 +85,18 @@ var (
 
 	// deniedPermissions prevents hostile actions on otherwise standard classes.
 	deniedPermissions = map[string]struct{}{
-		"load_policy": {}, // Can rewrite SELinux rules
-		"mac_admin":   {},
-		"mounton":     {},
-		"relabelto":   {}, // Can hijack other containers' files
-		"relabelfrom": {}, // Can hijack other containers' files
-		"setbool":     {},
-		"setenforce":  {}, // Can disable SELinux
-		"setsecparam": {},
+		// A process transition into another domain, like the unconfined
+		// spc_t, escapes every other rule of the profile.
+		"dyntransition": {},
+		"load_policy":   {}, // Can rewrite SELinux rules
+		"mac_admin":     {},
+		"mounton":       {},
+		"relabelto":     {}, // Can hijack other containers' files
+		"relabelfrom":   {}, // Can hijack other containers' files
+		"setbool":       {},
+		"setenforce":    {}, // Can disable SELinux
+		"setsecparam":   {},
+		"transition":    {}, // See dyntransition
 	}
 )
 

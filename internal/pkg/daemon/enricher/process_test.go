@@ -113,7 +113,7 @@ func TestGetProcessInfoReusedPid(t *testing.T) {
 	mock.ProcessStartTimeReturns(time.Second, nil)
 	mock.CmdlineForPIDReturns("first "+requestIdEnv+"=first-request", nil)
 
-	first, err := GetProcessInfo(pid, "/bin/first", &uid, nil, cache, mock)
+	first, err := GetProcessInfo(pid, "/bin/first", &uid, nil, cache, mock, nil)
 	require.NoError(t, err)
 	require.Equal(t, "first "+requestIdEnv+"=first-request", first.CmdLine)
 	require.Equal(t, "first-request", *first.ExecRequestId)
@@ -121,7 +121,7 @@ func TestGetProcessInfoReusedPid(t *testing.T) {
 	require.Equal(t, &uid, first.Uid)
 
 	// Cached for the same process, with the details of the audit line.
-	again, err := GetProcessInfo(pid, "/bin/exec", nil, nil, cache, mock)
+	again, err := GetProcessInfo(pid, "/bin/exec", nil, nil, cache, mock, nil)
 	require.NoError(t, err)
 	require.Equal(t, first.CmdLine, again.CmdLine)
 	require.Equal(t, "/bin/exec", again.Executable)
@@ -132,7 +132,7 @@ func TestGetProcessInfoReusedPid(t *testing.T) {
 	mock.ProcessStartTimeReturns(time.Minute, nil)
 	mock.CmdlineForPIDReturns("second", nil)
 
-	second, err := GetProcessInfo(pid, "/bin/second", nil, nil, cache, mock)
+	second, err := GetProcessInfo(pid, "/bin/second", nil, nil, cache, mock, nil)
 	require.NoError(t, err, "a process without request ID is no failure")
 	require.Equal(t, "second", second.CmdLine)
 	require.Nil(t, second.ExecRequestId)
@@ -141,21 +141,69 @@ func TestGetProcessInfoReusedPid(t *testing.T) {
 	mock.ProcessStartTimeReturns(0, os.ErrNotExist)
 	mock.CmdlineForPIDReturns("", os.ErrNotExist)
 
-	gone, err := GetProcessInfo(pid, "/bin/second", nil, nil, cache, mock)
+	gone, err := GetProcessInfo(pid, "/bin/second", nil, nil, cache, mock, nil)
 	require.NoError(t, err)
 	require.Equal(t, "second", gone.CmdLine)
 
 	// The cached info is never handed out itself.
 	gone.CmdLine = "changed"
 
-	again, err = GetProcessInfo(pid, "/bin/second", nil, nil, cache, mock)
+	again, err = GetProcessInfo(pid, "/bin/second", nil, nil, cache, mock, nil)
 	require.NoError(t, err)
 	require.Equal(t, "second", again.CmdLine)
 
 	// The details of an unknown process which is gone are not read.
 	calls := mock.CmdlineForPIDCallCount()
-	unknown, err := GetProcessInfo(pid+1, "/bin/unknown", nil, nil, cache, mock)
+	unknown, err := GetProcessInfo(pid+1, "/bin/unknown", nil, nil, cache, mock, nil)
 	require.Error(t, err)
 	require.Equal(t, pid+1, unknown.Pid)
 	require.Equal(t, calls, mock.CmdlineForPIDCallCount())
+}
+
+// TestGetProcessInfoStartedLater asserts that the lines of a process which
+// exited get the details of the process last seen with the PID, not the ones
+// of a process which reused the PID after the line got logged.
+func TestGetProcessInfoStartedLater(t *testing.T) {
+	t.Parallel()
+
+	const pid = 42
+
+	cache := ttlcache.New(ttlcache.WithTTL[string, *types.ProcessInfo](time.Hour))
+	mock := &enricherfakes.FakeImpl{}
+
+	startedLater := func(started time.Duration) bool { return started > time.Minute }
+
+	mock.ProcessStartTimeReturns(time.Second, nil)
+	mock.CmdlineForPIDReturns("first", nil)
+
+	first, err := GetProcessInfo(pid, "/bin/first", nil, nil, cache, mock, startedLater)
+	require.NoError(t, err)
+	require.Equal(t, "first", first.CmdLine)
+
+	// The process exited and another one reused the PID after the line got
+	// logged.
+	mock.ProcessStartTimeReturns(time.Hour, nil)
+	mock.CmdlineForPIDReturns("second", nil)
+
+	again, err := GetProcessInfo(pid, "/bin/first", nil, nil, cache, mock, startedLater)
+	require.NoError(t, err)
+	require.Equal(t, "first", again.CmdLine)
+	require.Equal(
+		t,
+		1,
+		mock.CmdlineForPIDCallCount(),
+		"the details of the new process are not read",
+	)
+
+	// The new process got cached by a line of its own, so it is no process
+	// of an older line.
+	second, err := GetProcessInfo(pid, "/bin/second", nil, nil, cache, mock, nil)
+	require.NoError(t, err)
+	require.Equal(t, "second", second.CmdLine)
+
+	unknown, err := GetProcessInfo(pid, "/bin/first", nil, nil, cache, mock, startedLater)
+	require.ErrorIs(t, err, errProcessStartedLater)
+	require.Empty(t, unknown.CmdLine)
+	require.Equal(t, pid, unknown.Pid)
+	require.Equal(t, "/bin/first", unknown.Executable)
 }
