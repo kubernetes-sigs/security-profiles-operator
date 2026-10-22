@@ -782,7 +782,7 @@ dependencies:
 
   # nix brings its own Go, make verify-go-version checks that it matches.
   - name: golang
-    version: 1.27.2
+    version: 1.27.3
     refPaths:
     - path: go.mod
       match: "^toolchain go"
@@ -796,7 +796,7 @@ dependencies:
   # Must be bumped together with golang above, the digest of the image the
   # Cloud Build steps run in.
   - name: golang-image-digest
-    version: sha256:648f440f42a0958804efb24df176f806f9d353b41f1c0627f666428e40310f6b
+    version: sha256:972b4110ba0f47539a975c31e52c64765e1ff19f2d74469ae4a595c6676e80a5
     refPaths:
     - path: cloudbuild.yaml
       match: "name: golang:"
@@ -806,13 +806,13 @@ dependencies:
   # Must be bumped together with golang above, the checksums of
   # go<version>.linux-<arch>.tar.gz from https://go.dev/dl/.
   - name: golang-sha256-linux-amd64
-    version: ecbadb99091a3f46e31f5f934b068b1864eafa7995211b39eaddf76996045fe5
+    version: 65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40
     refPaths:
     - path: Dockerfile.ubi
       match: "^ARG GO_SHA256_amd64="
 
   - name: golang-sha256-linux-arm64
-    version: 94f3e30b8e374bc285e7dadc11e0865726b9bc6e85b841ccceaabc0214c6b7c8
+    version: a06e99309dbcbdca1a8ccd2282c3ee146e55930886e26b4f1193269587165f49
     refPaths:
     - path: Dockerfile.ubi
       match: "^ARG GO_SHA256_arm64="
