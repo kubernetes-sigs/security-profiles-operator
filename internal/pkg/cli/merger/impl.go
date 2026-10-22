@@ -18,6 +18,8 @@ package merger
 
 import (
 	"os"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
 )
 
 type defaultImpl struct{}
@@ -34,5 +36,5 @@ func (*defaultImpl) ReadFile(name string) ([]byte, error) {
 }
 
 func (*defaultImpl) WriteFile(name string, data []byte, perm os.FileMode) error {
-	return os.WriteFile(name, data, perm)
+	return cli.WriteFile(name, data, perm)
 }

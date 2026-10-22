@@ -847,6 +847,32 @@ func TestObject2CILUserNamespaceCapabilities(t *testing.T) {
 	require.ErrorContains(t, err, "class cap_userns is denied")
 }
 
+// A transition into another domain escapes the profile, so it is denied by
+// default, and the SPOD can allow it.
+func TestObject2CILProcessTransitions(t *testing.T) {
+	t.Parallel()
+
+	for _, perm := range []string{"transition", "dyntransition"} {
+		sp := &selinuxprofileapi.SelinuxProfile{
+			ObjectMeta: metav1.ObjectMeta{Name: "foo"},
+			Spec: selinuxprofileapi.SelinuxProfileSpec{
+				Allow: selinuxprofileapi.Allow{
+					"spc_t": {"process": {perm}},
+				},
+			},
+		}
+
+		_, err := Object2CIL([]string{"container"}, nil, sp, nil)
+		require.ErrorContains(t, err, "permission "+perm+" is denied")
+
+		got, err := Object2CIL([]string{"container"}, nil, sp, &Options{
+			AllowedPermissions: []string{perm},
+		})
+		require.NoError(t, err)
+		require.Contains(t, got, "(allow process spc_t ( process ( "+perm+" )))\n")
+	}
+}
+
 // CIL resolves names with leading dots to the global namespace, so they must
 // not bypass the denylists.
 func TestObject2CILDeniesGlobalNames(t *testing.T) {

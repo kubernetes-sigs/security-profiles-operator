@@ -682,7 +682,7 @@ func (b *BpfRecorder) openMetricsStream(
 // Dial can be used to connect to the default GRPC server by creating a new
 // client.
 func Dial() (*grpc.ClientConn, error) {
-	return daemongrpc.Dial(config.GRPCServerSocketBpfRecorder) //nolint:wrapcheck // wrapped already
+	return daemongrpc.Dial(config.GRPCServerSocketBpfRecorder)
 }
 
 // Start starts the recording for the client of the request. A client with an
@@ -1571,12 +1571,9 @@ func (b *BpfRecorder) StartRecording() (err error) {
 		return err
 	}
 
-	if err := b.UpdateValue(b.isRecordingBpfMap, 0, []byte{1}); err != nil {
-		return fmt.Errorf("failed to update `is_recording`: %w", err)
-	}
-
-	syscall.Getgid() // Notify BPF program that is_recording has changed.
-
+	// The recorders start before the BPF programs record, the reverse of
+	// StopRecording, so that no event of the new recording gets dropped as
+	// one of the stopped one.
 	if b.AppArmor != nil {
 		if err := b.AppArmor.StartRecording(b); err != nil {
 			// The AppArmor hooks are not loaded on kernels without the BPF
@@ -1592,6 +1589,12 @@ func (b *BpfRecorder) StartRecording() (err error) {
 			return fmt.Errorf("starting seccomp recording: %w", err)
 		}
 	}
+
+	if err := b.UpdateValue(b.isRecordingBpfMap, 0, []byte{1}); err != nil {
+		return fmt.Errorf("failed to update `is_recording`: %w", err)
+	}
+
+	syscall.Getgid() // Notify BPF program that is_recording has changed.
 
 	b.logger.Info("Recording started.")
 
@@ -1988,9 +1991,8 @@ func (b *BpfRecorder) containerIDForKey(event *newPidEvent) (string, error) {
 
 		switch {
 		case err == nil:
-			if ids := util.ContainerIDRegex.FindAllString(path, -1); len(ids) > 0 {
-				// The last one, like ContainerIDForPID does.
-				return ids[len(ids)-1], nil
+			if id := util.ContainerIDFromCgroup(path); id != "" {
+				return id, nil
 			}
 
 			// Not a container, even if the process moved into one since,

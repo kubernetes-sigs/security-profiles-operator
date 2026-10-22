@@ -246,8 +246,10 @@ func TestSaveProfileOnDisk(t *testing.T) {
 			fileName:    path.Join(dir, "/test/nopermissions/filename.json"),
 			contents:    "some content",
 			fileCreated: false,
+			// The name of the temporary file is not part of the error, so
+			// that the node status does not change with every attempt.
 			wantErr: "cannot save profile: creating temporary file: open " +
-				dir + "/test/nopermissions/.tmp-",
+				dir + "/test/nopermissions/.tmp-*: permission denied",
 			needsNonRoot: true,
 		},
 		{

@@ -33,6 +33,8 @@ import (
 	"time"
 
 	"golang.org/x/sys/unix"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
 )
 
 var errNoSudoEnvironment = errors.New("not in a sudo environment")
@@ -386,8 +388,23 @@ func fileOwner(file *os.File) (uint32, error) {
 
 // forwardSignals forwards every received signal to the command with the
 // process ID until the channel gets closed.
+//
+// A signal sent to the process group of spoc, like a SIGTERM of timeout(1)
+// or systemd, reaches the command directly as well, and the spoc command of
+// the operator forwards it to spoc once more. A signal which arrives again
+// within the cli.DuplicateSignalWindow is therefore forwarded only once.
+// Without the sender of a signal, spoc cannot tell a signal sent to its
+// process group apart, so the command may still get it twice then.
 func (c *Command) forwardSignals(signals <-chan os.Signal, pid uint32) {
+	forwardedAt := map[os.Signal]time.Time{}
+
 	for sig := range signals {
+		if last, ok := forwardedAt[sig]; ok && time.Since(last) < cli.DuplicateSignalWindow {
+			log.Printf("Got %v again, the process got it already", sig)
+
+			continue
+		}
+
 		// The terminal sends the SIGINT of Ctrl+C to its whole foreground
 		// process group. If the command is part of it, forwarding would
 		// deliver it twice, which many programs take as a request to abort
@@ -400,6 +417,8 @@ func (c *Command) forwardSignals(signals <-chan os.Signal, pid uint32) {
 		}
 
 		log.Printf("Got %v, forwarding it to the process", sig)
+
+		forwardedAt[sig] = time.Now()
 
 		if err := c.Signal(c.cmd, sig); err != nil {
 			log.Printf("Unable to forward %v to the process: %v", sig, err)

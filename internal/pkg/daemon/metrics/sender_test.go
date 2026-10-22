@@ -418,8 +418,8 @@ func TestSenderDropsOversizedRequest(t *testing.T) {
 
 	go sut.Run(ctx)
 
-	oversized := &api.AuditRequest{Pod: strings.Repeat("a", MaxMsgSize)}
-	require.Greater(t, proto.Size(oversized), MaxMsgSize)
+	oversized := &api.AuditRequest{Pod: strings.Repeat("a", maxMsgSize)}
+	require.Greater(t, proto.Size(oversized), maxMsgSize)
 
 	require.True(t, sut.Send(oversized))
 	require.True(t, sut.Send(&api.AuditRequest{Pod: "pod"}))

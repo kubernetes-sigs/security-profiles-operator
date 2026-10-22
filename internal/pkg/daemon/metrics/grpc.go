@@ -34,9 +34,9 @@ import (
 )
 
 const (
-	// MaxMsgSize is the largest message the metrics server receives and its
+	// maxMsgSize is the largest message the metrics server receives and its
 	// clients send.
-	MaxMsgSize             = daemongrpc.MaxMsgSize
+	maxMsgSize             = daemongrpc.MaxMsgSize
 	socketMode os.FileMode = 0o660
 
 	// grpcStopTimeout bounds the graceful stop of the GRPC server. The log
@@ -118,7 +118,7 @@ func stopGRPCServer(server *grpc.Server, timeout time.Duration, log logr.Logger)
 // Dial can be used to connect to the default GRPC server by creating a new
 // client.
 func Dial() (*grpc.ClientConn, error) {
-	return daemongrpc.Dial(config.GRPCServerSocketMetrics) //nolint:wrapcheck // wrapped already
+	return daemongrpc.Dial(config.GRPCServerSocketMetrics)
 }
 
 // AuditInc updates the metrics for the audit counter.

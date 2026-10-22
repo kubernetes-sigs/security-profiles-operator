@@ -639,7 +639,7 @@ func (e *Enricher) startGrpcServer(ctx context.Context) error {
 // Dial can be used to connect to the default GRPC server by creating a new
 // client.
 func Dial() (*grpc.ClientConn, error) {
-	return daemongrpc.Dial(config.GRPCServerSocketEnricher) //nolint:wrapcheck // wrapped already
+	return daemongrpc.Dial(config.GRPCServerSocketEnricher)
 }
 
 // auditBacklog holds the lines of a container until it got looked up.

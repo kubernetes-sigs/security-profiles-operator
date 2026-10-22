@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package converter
+package cli
 
 import (
 	"os"
@@ -24,8 +24,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestWriteFileStdoutAppends verifies that the default output goes to stdout
-// as it is, so that a file stdout gets appended to is not truncated.
+// TestWriteFileStdoutAppends verifies that the output to stdout goes there as
+// it is, so that a file stdout gets appended to is not truncated.
 //
 //nolint:paralleltest // replaces os.Stdout
 func TestWriteFileStdoutAppends(t *testing.T) {
@@ -40,10 +40,23 @@ func TestWriteFileStdoutAppends(t *testing.T) {
 
 	t.Cleanup(func() { os.Stdout = stdout })
 
-	require.NoError(t, (&defaultImpl{}).WriteFile(DefaultOutputFile, []byte("second\n"), 0o644))
+	require.NoError(t, WriteFile(Stdout, []byte("second\n"), 0o644))
 	require.NoError(t, file.Close())
 
 	content, err := os.ReadFile(name)
 	require.NoError(t, err)
 	require.Equal(t, "first\nsecond\n", string(content))
+}
+
+func TestWriteFile(t *testing.T) {
+	t.Parallel()
+
+	name := filepath.Join(t.TempDir(), "out")
+	require.NoError(t, os.WriteFile(name, []byte("old content\n"), 0o600))
+
+	require.NoError(t, WriteFile(name, []byte("new\n"), 0o644))
+
+	content, err := os.ReadFile(name)
+	require.NoError(t, err)
+	require.Equal(t, "new\n", string(content))
 }

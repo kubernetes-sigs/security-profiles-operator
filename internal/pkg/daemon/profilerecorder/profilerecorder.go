@@ -23,7 +23,6 @@ import (
 	"maps"
 	"os"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -621,7 +620,8 @@ func (r *RecorderReconciler) Reconcile(
 		}
 
 		if len(profiles) == 0 {
-			logger.Info("No profile recording requests the annotations on this pod")
+			logger.V(config.VerboseLevel).
+				Info("No profile recording requests the annotations on this pod")
 
 			return reconcile.Result{}, nil
 		}
@@ -861,23 +861,19 @@ func (r *RecorderReconciler) collectPod(
 func (r *RecorderReconciler) getBpfRecorderClient(
 	ctx context.Context,
 ) (bpfrecorderapi.BpfRecorderClient, *grpc.ClientConn, error) {
-	r.log.Info("Checking if bpf recorder is enabled")
+	r.log.V(config.VerboseLevel).Info("Checking if bpf recorder is enabled")
 
 	spod, err := r.getSPOD(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("getting SPOD config: %w", err)
 	}
 
-	enableBpfRecorderEnv, err := strconv.ParseBool(os.Getenv(config.EnableBpfRecorderEnvKey))
-	if err != nil {
-		enableBpfRecorderEnv = false
-	}
-
-	if !ptr.Deref(spod.Spec.Enricher.EnableBpfRecorder, false) && !enableBpfRecorderEnv {
+	if !ptr.Deref(spod.Spec.Enricher.EnableBpfRecorder, false) &&
+		!config.EnvEnabled(config.EnableBpfRecorderEnvKey) {
 		return nil, nil, fmt.Errorf("bpf recorder %w", errRecorderDisabled)
 	}
 
-	r.log.Info("Connecting to local GRPC bpf recorder server")
+	r.log.V(config.VerboseLevel).Info("Connecting to local GRPC bpf recorder server")
 
 	conn, err := r.DialBpfRecorder()
 	if err != nil {
@@ -1221,23 +1217,19 @@ func (r *RecorderReconciler) collectLogProfiles(
 	profiles []profileToCollect,
 	recordings map[string]recordingState,
 ) error {
-	r.log.Info("Checking if enricher is enabled")
+	r.log.V(config.VerboseLevel).Info("Checking if enricher is enabled")
 
 	spod, err := r.getSPOD(ctx)
 	if err != nil {
 		return fmt.Errorf("getting SPOD config: %w", err)
 	}
 
-	enableLogEnricherEnv, err := strconv.ParseBool(os.Getenv(config.EnableLogEnricherEnvKey))
-	if err != nil {
-		enableLogEnricherEnv = false
-	}
-
-	if !ptr.Deref(spod.Spec.Enricher.EnableLogEnricher, false) && !enableLogEnricherEnv {
+	if !ptr.Deref(spod.Spec.Enricher.EnableLogEnricher, false) &&
+		!config.EnvEnabled(config.EnableLogEnricherEnvKey) {
 		return fmt.Errorf("log enricher %w", errRecorderDisabled)
 	}
 
-	r.log.Info("Connecting to local GRPC enricher server")
+	r.log.V(config.VerboseLevel).Info("Connecting to local GRPC enricher server")
 
 	enricherClient, closeConn, err := r.dialEnricher()
 	if err != nil {

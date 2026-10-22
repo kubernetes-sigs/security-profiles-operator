@@ -1183,6 +1183,13 @@ func (r *Reconciler) writeProfile(
 		l.Error(err, "cannot save profile into disk")
 		r.reportError(sp, reasonCannotSaveProfile, util.EventActionInstall, err)
 
+		// The controller retries it with backoff, the status tells why.
+		if statusErr := nodeStatus.SetNodeStatusWithMessage(
+			ctx, secprofnodestatusapi.ProfileStateError, err.Error(),
+		); statusErr != nil {
+			r.reportError(sp, common.ReasonCannotUpdateStatus, util.EventActionUpdate, statusErr)
+		}
+
 		return reconcile.Result{}, fmt.Errorf("cannot save profile into disk: %w", err)
 	}
 
@@ -1593,14 +1600,10 @@ func saveProfileOnDisk(fileName string, content []byte) (updated bool, err error
 		return false, fmt.Errorf("%w: %w", errCreatingOperatorDir, err)
 	}
 
-	existingContent, err := os.ReadFile(fileName)
-	if err == nil && bytes.Equal(existingContent, content) {
-		return false, nil
-	}
-
-	if err := util.WriteFileAtomic(fileName, content, filePermissionMode); err != nil {
+	updated, err = util.WriteFileIfChanged(fileName, content, filePermissionMode)
+	if err != nil {
 		return false, fmt.Errorf("%w: %w", errSavingProfile, err)
 	}
 
-	return true, nil
+	return updated, nil
 }

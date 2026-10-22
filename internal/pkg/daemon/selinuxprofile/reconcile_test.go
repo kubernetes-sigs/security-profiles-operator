@@ -304,9 +304,14 @@ func TestReconcileDeletionWithoutNodeStatus(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, f.client.Delete(ctx, f.nodeStatus(t)))
 
+	// A reload which never happened is not needed anymore once the profile
+	// is gone from the node.
+	f.r.reloadNeededSince(f.profile(t).GetUID(), installReload, 1, "hash", time.Now())
+
 	res, err := f.r.Reconcile(ctx, f.request)
 	require.NoError(t, err)
 	require.Equal(t, reconcile.Result{}, res)
+	require.Empty(t, f.r.reloadNeeds)
 
 	err = f.client.Get(ctx, f.request.NamespacedName, &selinuxprofileapi.SelinuxProfile{})
 	require.True(t, kerrors.IsNotFound(err), "profile should be deleted, got %v", err)
@@ -965,6 +970,100 @@ func TestReconcileDeletionPolicyRemoved(t *testing.T) {
 	require.Equal(t, testReconcileProfile, jobs.Items[0].Labels["policy"])
 	require.Equal(t, testReconcileNode, jobs.Items[0].Spec.Template.Spec.NodeName)
 	require.Empty(t, f.events())
+}
+
+// semodule cannot remove a module which another one inherits, and selinuxd
+// does not retry it, so the policy stays until the inheriting one is gone. The
+// policy files of the existing profiles tell it, not the specs, which may have
+// changed since. Only a profile without policy file, whose module may still be
+// installed, counts by its spec.
+func TestReconcileDeletionPolicyInherited(t *testing.T) {
+	t.Parallel()
+
+	f := newReconcileFixture(t, testProfile(), nil,
+		selinuxd(t, true, http.StatusOK, `{"status": "Installed", "msg": ""}`))
+	ctx := context.Background()
+
+	// A spec which inherits the policy, but whose policy on the node does
+	// not, does not keep it.
+	stale := testProfile()
+	stale.Name = "stale"
+	stale.Spec.Inherit = []selinuxprofileapi.PolicyRef{{
+		Kind: selinuxprofileapi.SelinuxProfilePolicyKind, Name: testReconcileProfile,
+	}}
+	require.NoError(t, f.client.Create(ctx, stale))
+
+	child := testProfile()
+	child.Name = "child"
+	require.NoError(t, f.client.Create(ctx, child))
+
+	// The policy file of a profile which is gone, like one deleted while
+	// the daemon was down, does not keep it either.
+	orphan := testProfile()
+	orphan.Name = "orphan"
+
+	inheriting := []byte("(block inheriting\n(blockinherit " + testReconcileProfile + ")\n)\n")
+	policyPath := f.r.policyPath(f.profile(t))
+	require.NoError(t, os.WriteFile(policyPath, []byte("(block my-policy)"), 0o600))
+	require.NoError(t, os.WriteFile(f.r.policyPath(stale), []byte("(block stale)"), 0o600))
+	require.NoError(t, os.WriteFile(f.r.policyPath(child), inheriting, 0o600))
+	require.NoError(t, os.WriteFile(f.r.policyPath(orphan), inheriting, 0o600))
+
+	f.prepareDeletion(t)
+
+	res, err := f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{RequeueAfter: common.InUseRetry}, res)
+	require.FileExists(t, policyPath)
+
+	// A profile whose policy does not translate anymore has no policy file
+	// after a restart of the daemon, but its module may still be installed,
+	// so it keeps the policy by its spec. The child without policy file
+	// does not inherit it by its spec.
+	unwritten := testProfile()
+	unwritten.Name = "unwritten"
+	unwritten.Spec.Inherit = stale.Spec.Inherit
+	require.NoError(t, f.client.Create(ctx, unwritten))
+	require.NoError(t, os.Remove(f.r.policyPath(child)))
+
+	res, err = f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{RequeueAfter: common.InUseRetry}, res)
+	require.FileExists(t, policyPath)
+
+	// Once no other profile inherits it, the removal goes on.
+	require.NoError(t, f.client.Delete(ctx, unwritten))
+
+	res, err = f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{RequeueAfter: selinuxdPollInterval}, res)
+	require.NoFileExists(t, policyPath)
+}
+
+// A policy which the node never wrote, like one which conflicts with a system
+// module of the same name, is not installed, so the policies which inherit the
+// system module do not keep its deletion from completing.
+func TestReconcileDeletionUnwrittenPolicyInherited(t *testing.T) {
+	t.Parallel()
+
+	f := newReconcileFixture(t, testProfile(), nil,
+		selinuxd(t, true, http.StatusNotFound, ""))
+	ctx := context.Background()
+
+	child := testProfile()
+	child.Name = "child"
+	require.NoError(t, f.client.Create(ctx, child))
+	require.NoError(t, os.WriteFile(f.r.policyPath(child), []byte(
+		"(block child\n(blockinherit "+testReconcileProfile+")\n)\n"), 0o600))
+
+	f.prepareDeletion(t)
+
+	res, err := f.r.Reconcile(ctx, f.request)
+	require.NoError(t, err)
+	require.Equal(t, reconcile.Result{}, res)
+
+	err = f.client.Get(ctx, f.request.NamespacedName, &selinuxprofileapi.SelinuxProfile{})
+	require.True(t, kerrors.IsNotFound(err), "profile should be deleted, got %v", err)
 }
 
 func TestReconcileDeletionReloadJobFailure(t *testing.T) {

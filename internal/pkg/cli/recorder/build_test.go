@@ -177,4 +177,14 @@ func TestBuildAppArmorProfileRaw(t *testing.T) {
 	require.Contains(t, out.String(), "profile ")
 	require.Contains(t, out.String(), programName)
 	require.Contains(t, out.String(), "/usr/bin/echo")
+
+	// The path the recording got filtered by is the one the profile attaches
+	// to, also if the program moved since.
+	sut.programPath = "/opt/recorded/program"
+
+	out.Reset()
+
+	require.NoError(t, sut.buildAppArmorProfileRaw(out, appArmorSpec()))
+	require.Contains(t, out.String(), "/opt/recorded/program")
+	require.NotContains(t, out.String(), programName)
 }

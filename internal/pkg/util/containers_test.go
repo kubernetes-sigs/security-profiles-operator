@@ -54,16 +54,32 @@ func TestExtractContainerID(t *testing.T) {
 		},
 		{
 			"Should extract CRI-O ID ending with .scope",
-			"0::/system.slice/crio-conmon-5819a498721cf8bb7e334809c9e48aa310bfc98801eb8017034ad17fb0749920.scope",
+			"0::/system.slice/crio-5819a498721cf8bb7e334809c9e48aa310bfc98801eb8017034ad17fb0749920.scope",
 			"5819a498721cf8bb7e334809c9e48aa310bfc98801eb8017034ad17fb0749920",
+		},
+		{
+			"Should not extract the ID of the conmon scope",
+			"0::/system.slice/crio-conmon-5819a498721cf8bb7e334809c9e48aa310bfc98801eb8017034ad17fb0749920.scope",
+			"",
+		},
+		{
+			"Should extract the last ID",
+			"0::/docker/b469ca5b54e01e7724b7a990f01d54f571dd7669b87851a87bd8b849c438c580/" +
+				"crio-af208fd68bf39a07a439ed0c9b6609b9ae63ecd8a5f1a2af3e0db48b945b320a.scope",
+			"af208fd68bf39a07a439ed0c9b6609b9ae63ecd8a5f1a2af3e0db48b945b320a",
+		},
+		{
+			"Should extract the container running conmon",
+			"0::/docker/b469ca5b54e01e7724b7a990f01d54f571dd7669b87851a87bd8b849c438c580/" +
+				"crio-conmon-af208fd68bf39a07a439ed0c9b6609b9ae63ecd8a5f1a2af3e0db48b945b320a.scope",
+			"b469ca5b54e01e7724b7a990f01d54f571dd7669b87851a87bd8b849c438c580",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := ContainerIDRegex.FindString(tt.cgroupLine)
-			require.Equal(t, tt.want, got)
+			require.Equal(t, tt.want, ContainerIDFromCgroup(tt.cgroupLine))
 		})
 	}
 }

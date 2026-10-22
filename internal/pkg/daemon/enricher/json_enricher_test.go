@@ -19,7 +19,6 @@ limitations under the License.
 package enricher
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -68,39 +67,7 @@ const (
 	// auditLogFlushSlackSeconds is how much later than the flush interval the
 	// output may still arrive before the test calls it a failure.
 	auditLogFlushSlackSeconds = 8
-	envForJsonTest            = "KUBERNETES_SERVICE_PORT=443\nKUBERNETES_PORT=tcp://172.30.0.1:443\n" +
-		"HOSTNAME=my-pod\nHOME=/root\nPKG_RELEASE=1~buster\nREQUEST_USER_NAME=containersetthis\n" +
-		"SERVICE_URL=http://my-service.default.svc.cluster.local\nTERM=xterm\n" +
-		"KUBERNETES_PORT_443_TCP_ADDR=172.30.0.1\nNGINX_VERSION=1.19.1\n" +
-		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\n" +
-		"KUBERNETES_PORT_443_TCP_PORT=443\nNJS_VERSION=0.4.2\nKUBERNETES_PORT_443_TCP_PROTO=tcp\n" +
-		"KUBERNETES_PORT_443_TCP=tcp://172.30.0.1:443\nKUBERNETES_SERVICE_PORT_HTTPS=443\n" +
-		"KUBERNETES_SERVICE_HOST=172.30.0.1\nPWD=/\n" +
-		"SPO_EXEC_REQUEST_UID=da83c434-91f0-4696-a04e-75d08b6d80b2\n" +
-		"NSS_SDB_USE_CACHE=no"
 )
-
-func getEnvMap(content []byte) map[string]string {
-	envMap := make(map[string]string)
-	envVars := bytes.SplitSeq(content, []byte{'\n'})
-
-	for envVarBytes := range envVars {
-		envVar := string(envVarBytes)
-		if envVar == "" {
-			continue
-		}
-
-		// Ignore keys with no values
-		parts := strings.SplitN(envVar, "=", 2)
-		if len(parts) == 2 {
-			key := parts[0]
-			value := parts[1]
-			envMap[key] = value
-		}
-	}
-
-	return envMap
-}
 
 // logLinesTTL returns the TTL of the log lines cache, which is the flush
 // interval of the audit lines.
@@ -321,7 +288,7 @@ func TestJsonRun(t *testing.T) {
 			"sends multiple lines": {
 				prepare: func(mock *enricherfakes.FakeImpl) {
 					mock.CmdlineForPIDReturns(cmdLineJsonTest, nil)
-					mock.EnvForPidReturns(getEnvMap([]byte(envForJsonTest)), nil)
+					mock.ExecRequestIDForPIDReturns("da83c434-91f0-4696-a04e-75d08b6d80b2", true, nil)
 				},
 				assert: func(t *testing.T, mock *enricherfakes.FakeImpl, lineChan chan string) {
 					t.Helper()

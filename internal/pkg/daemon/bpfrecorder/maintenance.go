@@ -29,6 +29,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	bpf "github.com/aquasecurity/libbpfgo"
 	v1 "k8s.io/api/core/v1"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
@@ -106,7 +107,7 @@ func (b *BpfRecorder) sweepStaleKeys() {
 
 	b.staleKeys = stale
 
-	b.pruneExcludedKeys(generation)
+	b.pruneRemovedCgroups(generation)
 
 	if len(drop) == 0 {
 		return
@@ -143,30 +144,62 @@ func (b *BpfRecorder) sweepStaleKeys() {
 	}
 }
 
-// pruneExcludedKeys forgets the excluded workloads whose cgroup is gone.
-// Cgroup IDs are never reused, but every excluded one stays in the kernel map
-// otherwise, which fills up during a long recording. With other keys, an
-// excluded workload is only known to be gone once the session ends.
-func (b *BpfRecorder) pruneExcludedKeys(generation uint64) {
+// pruneRemovedCgroups forgets the excluded workloads and the started
+// containers whose cgroup is gone. Cgroup IDs are never reused, but every one
+// of them stays in the kernel maps otherwise, which fill up during a long
+// recording. The maps of the started containers evict their oldest entries
+// then, which is the one of a long running container, so that the next exec
+// into it would clear what got recorded for it. With other keys, a workload
+// is only known to be gone once the session ends.
+func (b *BpfRecorder) pruneRemovedCgroups(generation uint64) {
 	if !b.cgroupKeys {
 		return
 	}
 
+	// A cgroup is in several of the maps, its removal is checked once.
+	removed := map[uint64]bool{}
+
+	b.pruneCgroupKeys(generation, removed, "excluded workloads",
+		func() *bpf.BPFMap { return b.excludeKeysBpfMap },
+		func(key uint64) {
+			if b.AppArmor != nil {
+				b.AppArmor.Unexclude(key)
+			}
+		},
+	)
+	b.pruneCgroupKeys(generation, removed, "started seccomp workloads",
+		func() *bpf.BPFMap { return b.seccompInitBpfMap }, nil,
+	)
+	b.pruneCgroupKeys(generation, removed, "started AppArmor workloads",
+		func() *bpf.BPFMap { return b.apparmorInitBpfMap }, nil,
+	)
+}
+
+// pruneCgroupKeys deletes the keys whose cgroup got removed from the map
+// which bpfMap returns, and calls forget for each, unless it is nil. removed
+// caches the removals checked already.
+func (b *BpfRecorder) pruneCgroupKeys(
+	generation uint64,
+	removed map[uint64]bool,
+	what string,
+	bpfMap func() *bpf.BPFMap,
+	forget func(key uint64),
+) {
 	// Close frees the map under the write lock, so it is listed under the
 	// read lock.
 	b.attachUnattachMutex.RLock()
 
-	if b.excludeKeysBpfMap == nil {
+	if bpfMap() == nil {
 		b.attachUnattachMutex.RUnlock()
 
 		return
 	}
 
-	raw, err := b.MapKeys(b.excludeKeysBpfMap)
+	raw, err := b.MapKeys(bpfMap())
 	b.attachUnattachMutex.RUnlock()
 
 	if err != nil {
-		b.logger.Error(err, "Unable to list excluded workloads")
+		b.logger.Error(err, "Unable to list "+what)
 
 		return
 	}
@@ -178,20 +211,24 @@ func (b *BpfRecorder) pruneExcludedKeys(generation uint64) {
 			continue
 		}
 
-		// Only a removed cgroup is gone. Other errors, like a cgroup outside
-		// of the cgroup namespace of the daemon, tell nothing about it.
 		key := binary.NativeEndian.Uint64(k)
 
-		removed, err := b.CgroupRemoved(key)
-		if err != nil {
-			b.logger.V(config.VerboseLevel).Info(
-				"Unable to check the cgroup of an excluded workload", "key", key, "error", err.Error(),
-			)
+		isRemoved, checked := removed[key]
+		if !checked {
+			// Only a removed cgroup is gone. Other errors, like a cgroup
+			// outside of the cgroup namespace of the daemon, tell nothing
+			// about it.
+			isRemoved, err = b.CgroupRemoved(key)
+			if err != nil {
+				b.logger.V(config.VerboseLevel).Info(
+					"Unable to check the cgroup of a workload", "key", key, "error", err.Error(),
+				)
+			}
 
-			continue
+			removed[key] = isRemoved
 		}
 
-		if removed {
+		if isRemoved {
 			gone = append(gone, key)
 		}
 	}
@@ -203,19 +240,19 @@ func (b *BpfRecorder) pruneExcludedKeys(generation uint64) {
 	b.attachUnattachMutex.RLock()
 	defer b.attachUnattachMutex.RUnlock()
 
-	if b.recordingGeneration.Load() != generation || b.excludeKeysBpfMap == nil {
+	if b.recordingGeneration.Load() != generation || bpfMap() == nil {
 		return
 	}
 
 	for _, key := range gone {
-		if err := b.DeleteKey64(b.excludeKeysBpfMap, key); err != nil {
-			b.logger.Error(err, "Unable to forget excluded workload", "key", key)
+		if err := b.DeleteKey64(bpfMap(), key); err != nil {
+			b.logger.Error(err, "Unable to forget workload", "key", key, "map", what)
 
 			continue
 		}
 
-		if b.AppArmor != nil {
-			b.AppArmor.Unexclude(key)
+		if forget != nil {
+			forget(key)
 		}
 	}
 }

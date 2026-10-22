@@ -89,18 +89,13 @@ func New(logger logr.Logger) *Artifact {
 // the last repository path element, so that pull results from runtime-spec
 // artifacts, which carry no metadata, still have a name.
 func nameFromReference(ref string) string {
-	name := ref
-	if idx := strings.Index(name, "@"); idx >= 0 {
-		name = name[:idx]
-	}
+	name, _, _ := strings.Cut(ref, "@")
 
 	if idx := strings.LastIndex(name, "/"); idx >= 0 {
 		name = name[idx+1:]
 	}
 
-	if idx := strings.Index(name, ":"); idx >= 0 {
-		name = name[:idx]
-	}
+	name, _, _ = strings.Cut(name, ":")
 
 	name = strings.Trim(
 		invalidNameChars.ReplaceAllString(strings.ToLower(name), "-"), "-.",

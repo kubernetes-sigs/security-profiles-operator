@@ -28,6 +28,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 
 	bpf "github.com/aquasecurity/libbpfgo"
@@ -62,10 +63,12 @@ const (
 
 	// maxProfilePathBytes bounds the path bytes of a single profile. A profile
 	// merges the paths of all keys of a recording, and maxTrackedPaths paths
-	// of pathMax bytes for each of them would not fit into a gRPC message. A
-	// path can end up in two of the rule lists, which the bound leaves room
-	// for below the maximum message size.
-	maxProfilePathBytes = 6 * 1024 * 1024
+	// of pathMax bytes for each of them would neither fit into a gRPC message
+	// nor into an object of the API server, which etcd limits to 1.5 MiB by
+	// default. A path can end up in two of the rule lists, and the managed
+	// fields of the object list every element of these sets again, which the
+	// bound leaves room for below that limit.
+	maxProfilePathBytes = 256 * 1024
 
 	// maxNormalizedPaths bounds the cache of normalized file paths.
 	maxNormalizedPaths = 4096
@@ -113,6 +116,12 @@ type AppArmorRecorder struct {
 	// reported again.
 	recordedCaps    *bpf.BPFMap
 	recordedSockets *bpf.BPFMap
+
+	// stopped is set while nothing is recording. The events which were still
+	// queued when the recording stopped are dropped then, so that they do not
+	// take up the keys of the next recording. The handlers check it under
+	// the lock of the data they record, which StopRecording holds to set it.
+	stopped atomic.Bool
 
 	recordedSocketsUse     map[recordingKey]*BpfAppArmorSocketTypes
 	lockRecordedSocketsUse sync.Mutex
@@ -297,6 +306,19 @@ func (b *AppArmorRecorder) StartRecording(r *BpfRecorder) error {
 		return ErrStartBeforeLoad
 	}
 
+	// Under the locks of StopRecording, like setting it, so that a handler
+	// sees the state of one recording while it holds its lock.
+	b.lockRecordedSocketsUse.Lock()
+	defer b.lockRecordedSocketsUse.Unlock()
+
+	b.lockRecordedCapabilities.Lock()
+	defer b.lockRecordedCapabilities.Unlock()
+
+	b.lockRecordedFiles.Lock()
+	defer b.lockRecordedFiles.Unlock()
+
+	b.stopped.Store(false)
+
 	return nil
 }
 
@@ -309,6 +331,8 @@ func (b *AppArmorRecorder) StopRecording(r *BpfRecorder) error {
 
 	b.lockRecordedFiles.Lock()
 	defer b.lockRecordedFiles.Unlock()
+
+	b.stopped.Store(true)
 
 	clear(b.recordedSocketsUse)
 	clear(b.recordedCapabilities)
@@ -439,7 +463,7 @@ func (b *AppArmorRecorder) handleFileEvent(fileEvent *bpfEvent) {
 	defer b.lockRecordedFiles.Unlock()
 
 	// The key may have been excluded since the check above, see trackKey.
-	if b.isExcluded(fileEvent.Key) || !b.trackKey(key) {
+	if b.stopped.Load() || b.isExcluded(fileEvent.Key) || !b.trackKey(key) {
 		return
 	}
 
@@ -483,7 +507,7 @@ func (b *AppArmorRecorder) handleSocketEvent(socketEvent *bpfEvent) {
 	defer b.lockRecordedSocketsUse.Unlock()
 
 	// Checked under the lock, see trackKey.
-	if b.isExcluded(socketEvent.Key) {
+	if b.stopped.Load() || b.isExcluded(socketEvent.Key) {
 		return
 	}
 
@@ -544,7 +568,7 @@ func (b *AppArmorRecorder) handleCapabilityEvent(capEvent *bpfEvent) {
 	defer b.lockRecordedCapabilities.Unlock()
 
 	// Checked under the lock, see trackKey.
-	if b.isExcluded(capEvent.Key) {
+	if b.stopped.Load() || b.isExcluded(capEvent.Key) {
 		return
 	}
 

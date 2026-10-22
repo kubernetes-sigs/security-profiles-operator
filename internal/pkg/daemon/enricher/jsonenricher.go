@@ -354,7 +354,7 @@ func (e *JsonEnricher) processLine(line string) {
 		// The uid and gid stay nil when the line carries none: defaulting to
 		// the zero value would attribute the record to root.
 		logBucket.ProcessInfo = e.fetchProcessInfo(auditLine.ProcessID,
-			auditLine.Executable, auditLine.Uid, auditLine.Gid)
+			auditLine.Executable, auditLine.Uid, auditLine.Gid, auditTime(auditLine))
 	}
 
 	e.processEbpf(logBucket, auditLine)
@@ -530,14 +530,22 @@ func (e *JsonEnricher) fetchContainerInfo(
 	return containerInfo, cID, false
 }
 
-// fetchProcessInfo returns the details of a process. What could not be read
-// stays empty, see GetProcessInfo.
+// fetchProcessInfo returns the details of the process which logged an audit
+// line at eventTime. What could not be read stays empty, see GetProcessInfo.
 func (e *JsonEnricher) fetchProcessInfo(
 	processId int,
 	executable string,
 	uid, gid *uint32,
+	eventTime time.Time,
 ) *types.ProcessInfo {
-	processInfo, err := GetProcessInfo(processId, executable, uid, gid, e.processCache, e.impl)
+	startedLater := func(started time.Duration) bool {
+		return errors.Is(e.lookup.startedBefore(e.impl, processId, started, eventTime),
+			errProcessStartedLater)
+	}
+
+	processInfo, err := GetProcessInfo(
+		processId, executable, uid, gid, e.processCache, e.impl, startedLater,
+	)
 	e.logger.V(config.VerboseLevel).Info("Process info",
 		"processInfo", processInfo)
 

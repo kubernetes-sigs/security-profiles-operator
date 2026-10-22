@@ -37,8 +37,10 @@ func newTestApp() *cli.App {
 	}
 	app.Commands = []*cli.Command{
 		{
-			Name:  "run",
-			Usage: "run it",
+			Name:        "run",
+			Usage:       "run it",
+			Description: "Run it until it is done.",
+			ArgsUsage:   "COMMAND",
 			Flags: []cli.Flag{
 				&cli.BoolFlag{
 					Name:    "fast",
@@ -95,6 +97,11 @@ func TestMarkdown(t *testing.T) {
 		"# tool command line reference\n\n## NAME\n\ntool - a test tool\n")
 	require.Contains(t, doc, "\n## GLOBAL OPTIONS\n")
 	require.Contains(t, doc, "\n### run\n")
+	require.Contains(
+		t,
+		doc,
+		"it\n\nRun it until it is done.\n\n>tool run [command options] COMMAND\n",
+	)
 	require.Contains(t, doc, "\n#### sub\n")
 	// Lines in code blocks are no headings.
 	require.Contains(t, doc, "\n# not a heading\n")
@@ -117,7 +124,7 @@ func TestMarkdown(t *testing.T) {
 	require.Contains(t, doc, "\n**--quiet**: do not tell\n")
 }
 
-func TestMarkdownRestoresBoolFlags(t *testing.T) {
+func TestMarkdownRestoresCommands(t *testing.T) {
 	t.Parallel()
 
 	app := newTestApp()
@@ -126,6 +133,8 @@ func TestMarkdownRestoresBoolFlags(t *testing.T) {
 	_, err := Markdown(app, nil)
 	require.NoError(t, err)
 	require.Equal(t, flags, app.Commands[0].Flags)
+	require.Equal(t, "run it", app.Commands[0].Usage)
+	require.Empty(t, app.Commands[0].UsageText)
 }
 
 func TestMarkdownWithoutEnvVars(t *testing.T) {

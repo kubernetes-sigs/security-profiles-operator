@@ -623,6 +623,34 @@ func TestLoadPolicyFileHostFile(t *testing.T) {
 	}
 }
 
+// A profile name which is a directory or a symlink of the host, like the one
+// of the abstractions, is rejected like a policy file of the host, ownership
+// notwithstanding, instead of failing on every attempt.
+func TestLoadPolicyFileNotRegular(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+
+	abstractions := filepath.Join(dir, "abstractions")
+	require.NoError(t, os.Mkdir(abstractions, 0o700))
+
+	link := filepath.Join(dir, "link")
+	require.NoError(t, os.Symlink(abstractions, link))
+
+	for _, path := range []string{abstractions, link} {
+		loader := &fakePolicyLoader{loaded: map[string]bool{}}
+
+		updated, err := loadPolicyFile(logr.Discard(), loader, path, "test", "policy", true)
+		require.ErrorIs(t, err, ErrHostPolicyFile)
+		require.False(t, updated)
+		require.Zero(t, loader.loads)
+	}
+
+	info, err := os.Lstat(link)
+	require.NoError(t, err)
+	require.Equal(t, os.ModeSymlink, info.Mode().Type(), "the symlink is kept")
+}
+
 // A policy which cannot be generated from the profile is rejected for good.
 func TestInstallProfileInvalidPolicy(t *testing.T) {
 	t.Parallel()

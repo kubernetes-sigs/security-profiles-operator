@@ -17,15 +17,16 @@ limitations under the License.
 package enricher
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"net"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -41,6 +42,15 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/podindex"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
+)
+
+const (
+	// maxCmdlineBytes is the length of a command line which gets read.
+	maxCmdlineBytes = 4 * 1024
+
+	// maxEnvVarBytes is the length of an environment variable which gets
+	// compared to the exec request ID, which is much shorter.
+	maxEnvVarBytes = 4 * 1024
 )
 
 type defaultImpl struct {
@@ -83,7 +93,7 @@ type impl interface {
 	RemoveAll(string) error
 	CmdlineForPID(pid int) (string, error)
 	PrintJsonOutput(w io.Writer, output []byte)
-	EnvForPid(pid int) (map[string]string, error)
+	ExecRequestIDForPID(pid int) (string, bool, error)
 	ProcessStartTime(pid int) (time.Duration, error)
 	Uptime() (time.Duration, error)
 }
@@ -186,12 +196,18 @@ func (d *defaultImpl) RemoveAll(path string) error {
 	return os.RemoveAll(path)
 }
 
+// CmdlineForPID returns the command line of the process, cut after
+// maxCmdlineBytes: the process controls its length, and it gets cached.
 func (d *defaultImpl) CmdlineForPID(pid int) (string, error) {
-	cmdline := fmt.Sprintf("proc/%d/cmdline", pid)
+	f, err := d.fsys.Open(filepath.Clean(fmt.Sprintf("proc/%d/cmdline", pid)))
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", ErrProcessNotFound, err)
+	}
+	defer f.Close()
 
 	// The arguments are separated by NUL bytes and may contain newlines, and
 	// a command line can be longer than a line a scanner takes.
-	content, err := fs.ReadFile(d.fsys, filepath.Clean(cmdline))
+	content, err := io.ReadAll(io.LimitReader(f, maxCmdlineBytes))
 	if err != nil {
 		return "", fmt.Errorf("%w: %w", ErrProcessNotFound, err)
 	}
@@ -199,37 +215,44 @@ func (d *defaultImpl) CmdlineForPID(pid int) (string, error) {
 	return string(bytes.ReplaceAll(content, []byte{0}, []byte{' '})), nil
 }
 
-func (d *defaultImpl) EnvForPid(pid int) (map[string]string, error) {
-	var retErr error
-
-	envFile := fmt.Sprintf("proc/%d/environ", pid)
-	envMap := make(map[string]string)
-
-	content, err := fs.ReadFile(d.fsys, filepath.Clean(envFile))
+// ExecRequestIDForPID returns the exec request ID in the environment of the
+// process and whether it has a non-empty one, see requestIdEnv. The
+// environment is not kept, the process controls its size.
+func (d *defaultImpl) ExecRequestIDForPID(pid int) (requestID string, found bool, err error) {
+	f, err := d.fsys.Open(filepath.Clean(fmt.Sprintf("proc/%d/environ", pid)))
 	if err != nil {
-		retErr = fmt.Errorf("%w: %w", ErrProcessNotFound, err)
-
-		return envMap, retErr
+		return "", false, fmt.Errorf("%w: %w", ErrProcessNotFound, err)
 	}
+	defer f.Close()
 
-	envVars := bytes.SplitSeq(content, []byte{0})
+	prefix := []byte(requestIdEnv + "=")
+	r := bufio.NewReaderSize(f, maxEnvVarBytes)
 
-	for envVarBytes := range envVars {
-		envVar := string(envVarBytes)
-		if envVar == "" {
-			continue
+	for {
+		entry, readErr := r.ReadSlice(0)
+
+		// A variable which does not fit into the buffer is no request ID.
+		long := false
+		for errors.Is(readErr, bufio.ErrBufferFull) {
+			long = true
+			_, readErr = r.ReadSlice(0)
 		}
 
-		// Ignore keys with no values
-		parts := strings.SplitN(envVar, "=", 2)
-		if len(parts) == 2 {
-			key := parts[0]
-			value := parts[1]
-			envMap[key] = value
+		if !long {
+			value, ok := bytes.CutPrefix(bytes.TrimSuffix(entry, []byte{0}), prefix)
+			if ok && len(value) > 0 {
+				return string(value), true, nil
+			}
+		}
+
+		if errors.Is(readErr, io.EOF) {
+			return "", false, nil
+		}
+
+		if readErr != nil {
+			return "", false, fmt.Errorf("%w: %w", ErrProcessNotFound, readErr)
 		}
 	}
-
-	return envMap, nil
 }
 
 // PrintJsonOutput writes the record with its newline in a single write, so
