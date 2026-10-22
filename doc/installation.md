@@ -256,7 +256,7 @@ place, the same procedure removes them afterwards.
 
 ### Installation on AKS
 
-In case you installed SPO on an [AKS cluster](https://azure.microsoft.com/en-us/products/kubernetes-service/#overview), it is recommended to [configure webhook](#configuring-webhooks) to respect the [control-plane](https://learn.microsoft.com/en-us/azure/aks/faq#can-i-use-admission-controller-webhooks-on-aks) label as follows.
+In case you installed SPO on an [AKS cluster](https://azure.microsoft.com/en-us/products/kubernetes-service/#overview), it is recommended to [configure webhook](#configuring-webhooks) to respect the [control-plane](https://learn.microsoft.com/en-us/azure/aks/faq#can-i-use-admission-controller-webhooks-on-aks-) label as follows.
 The `namespaceSelector` replaces the default one of the webhook, so it has to keep the `spo.x-k8s.io/enable-binding` and `spo.x-k8s.io/enable-recording` requirements, otherwise the webhooks apply to every namespace.
 The patch replaces all entries of `webhook.options`, see [configuring webhooks](#configuring-webhooks) for the default entry to keep on OpenShift:
 
@@ -451,17 +451,22 @@ kubectl -n security-profiles-operator patch spod spod --type merge -p \
 
 #### Select the selinuxd image
 
-The selinuxd container has to match the SELinux policy of the node, so the
-operator picks its image per node. The `selinuxd-image-mapping.json` key of the
-`security-profiles-operator-profile` ConfigMap maps regular expressions on the
-operating system of the node, as `kubectl get node -o
-jsonpath='{.status.nodeInfo.osImage}'` shows it, to the environment variables
-of the operator deployment which hold the images, like
-`RELATED_IMAGE_SELINUXD_EL9`. The first matching entry wins, and nodes
-without a match get the image of `RELATED_IMAGE_SELINUXD`, like the nodes whose
-variable is not set. The
+The selinuxd container has to match the SELinux policy of the nodes. The
+`selinuxd-image-mapping.json` key of the `security-profiles-operator-profile`
+ConfigMap maps regular expressions on the operating system of a node, as
+`kubectl get node -o jsonpath='{.status.nodeInfo.osImage}'` shows it, to the
+environment variables of the operator deployment which hold the images, like
+`RELATED_IMAGE_SELINUXD_EL9`. The first matching entry wins, and a node without
+a match gets the image of `RELATED_IMAGE_SELINUXD`, like a node whose variable
+is not set. The
 [command line reference](reference/security-profiles-operator.md) lists the
 variables.
+
+The operator picks a single image for all daemon pods: it matches the operating
+system of the node which the operator pod runs on, when the operator starts. The
+nodes with SELinux enabled should therefore run the operating system version of
+the node of the operator pod. Changes to the mapping take effect when the
+operator restarts.
 
 The released manifests and the Helm chart set the variables of the images
 which [selinuxd](https://github.com/containers/selinuxd) publishes. The mapping
@@ -576,14 +581,12 @@ See [Recording based on audit log](profiles.md#recording-based-on-audit-log) for
 
 ### Enable memory optimization in spod
 
-The controller running inside of spod daemon process is watching all pods available in the cluster when profile recording
-is enabled. It will perform some pre-filtering before the reconciliation to select only the pods running on local
-node as well as pods annotated for recording, but this operation takes place after all pods objects are loaded
-into the cache memory of the informer. This can lead to very high memory usage in large clusters with 1000s of pods, resulting
-in spod daemon running out of memory or crashing.
+The spod daemon caches the pods running on its node. On nodes with many pods,
+this cache can make the daemon use a lot of memory or run out of it.
 
-In order to prevent this situation, the spod daemon can be configured to only load into the cache memory the pods explicitly
-labeled for profile recording. This can be achieved by enabling memory optimization as follows:
+The daemon can be configured to cache only the pods of its node which are
+explicitly labeled for profile recording. This can be achieved by enabling
+memory optimization as follows:
 
 ```
 kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableMemoryOptimization":true}}'
@@ -668,7 +671,7 @@ spec:
 ```
 
 OLM would then take care of updating the operator `Deployment` object with the new environment variable.
-Please refer to the [OLM documentation](https://github.com/operator-framework/operator-lifecycle-manager/blob/master/doc/design/subscription-config.md#res)
+Please refer to the [OLM documentation](https://github.com/operator-framework/operator-lifecycle-manager/blob/master/doc/design/subscription-config.md#env)
 for more details on tuning the operator's configuration with the `Subscription` objects.
 
 #### OLM install modes and namespaces

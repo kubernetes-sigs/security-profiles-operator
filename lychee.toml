@@ -15,9 +15,12 @@ exclude_path = [
     "(^|/)\\.claude/",
 ]
 
-# Sites which reject automated requests or need a login. None at the moment,
-# add the ones which keep failing the scheduled run here.
-exclude = []
+# Sites which reject automated requests or need a login, add the ones which
+# keep failing the scheduled run here.
+exclude = [
+    "^https://kubernetes\\.slack\\.com/",
+    "^https://docs\\.redhat\\.com/",
+]
 
 # Retries against flaky hosts.
 max_retries = 3

@@ -534,7 +534,7 @@ quarantined, ideally with a link to the issue which tracks it.
 - [`test/ci/junit-flakes.py`](../test/ci/junit-flakes.py) takes the reports
   of several runs, oldest first. It fails for test cases which are not
   quarantined but passed only on retry in the last three runs, and lists the
-  quarantined ones which passed on the first try in the last five runs. To
+  quarantined ones which passed on the first try in the last ten runs. To
   cover all test cases, run the whole suite with retries:
   `make test-flaky-e2e E2E_RETRY_RUN=^TestSuite E2E_RETRY_TIMEOUT=120m`.
   A test case skipped in some environments counts with its outcome in the
@@ -543,10 +543,13 @@ quarantined, ideally with a link to the issue which tracks it.
 - The nightly [e2e-flakes workflow](../.github/workflows/e2e-flakes.yml) does
   that on kubernix and runs the script over the reports of its last runs, and
   over the reports of the last runs of the test workflow on `main`, which
-  cover the quarantined test cases on all e2e environments. It fails when a
-  test case needs to be quarantined and lists the ones to promote in the job
-  summary. A failed scheduled run opens an issue, or comments on the open
-  one.
+  cover the quarantined test cases on all e2e environments. It downloads the
+  reports of 15 runs, so that a run without reports, like a cancelled one,
+  does not keep a test case from getting promoted. A run which failed partway
+  and uploaded a partial report counts, and a test case missing from it did
+  not pass in that run. It fails when a test case needs to be quarantined and
+  lists the ones to promote in the job summary. A failed scheduled run opens
+  an issue, or comments on the open one.
 
 To quarantine a flaky test case, set `flaky: true` and its `issue`. To promote
 it, remove both again. New test cases start quarantined until they pass

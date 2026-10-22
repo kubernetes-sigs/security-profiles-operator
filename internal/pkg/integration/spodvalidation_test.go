@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	seccompapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1"
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1"
 )
 
@@ -154,6 +155,41 @@ func TestSPODValidation(t *testing.T) {
 				}
 			},
 			wantErr: "maxUnavailable must be",
+		},
+		{
+			name: "allowed seccomp actions",
+			mutate: func(spod *spodapi.SecurityProfilesOperatorDaemon) {
+				spod.Spec.Security.AllowedSeccompActions = []seccompapi.Action{
+					seccompapi.ActAllow, seccompapi.ActLog, seccompapi.ActTrace, seccompapi.ActNotify,
+				}
+			},
+		},
+		{
+			name: "allowed seccomp action errno",
+			mutate: func(spod *spodapi.SecurityProfilesOperatorDaemon) {
+				spod.Spec.Security.AllowedSeccompActions = []seccompapi.Action{seccompapi.ActErrno}
+			},
+			wantErr: "allowedSeccompActions may only contain",
+		},
+		{
+			name: "webhook namespace selector NotIn without values",
+			mutate: func(spod *spodapi.SecurityProfilesOperatorDaemon) {
+				spod.Spec.Webhook.Options[0].NamespaceSelector.MatchExpressions[0].Values = nil
+			},
+			wantErr: selectorErr,
+		},
+		{
+			name: "webhook object selector Exists with values",
+			mutate: func(spod *spodapi.SecurityProfilesOperatorDaemon) {
+				spod.Spec.Webhook.Options[0].ObjectSelector = &metav1.LabelSelector{
+					MatchExpressions: []metav1.LabelSelectorRequirement{{
+						Key:      "app",
+						Operator: metav1.LabelSelectorOpExists,
+						Values:   []string{"nginx"},
+					}},
+				}
+			},
+			wantErr: selectorErr,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

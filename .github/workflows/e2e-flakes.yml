@@ -121,7 +121,7 @@ jobs:
           path: ${{ runner.temp }}/reports/current
       - name: Analyze the nightly runs
         run: |
-          hack/ci/download-flaky-reports.sh "$RUNNER_TEMP/reports/nightly" e2e-flakes.yml "$BRANCH" schedule 4 \
+          hack/ci/download-flaky-reports.sh "$RUNNER_TEMP/reports/nightly" e2e-flakes.yml "$BRANCH" schedule 14 \
             >"$RUNNER_TEMP/nightly-runs"
           mapfile -t runs <"$RUNNER_TEMP/nightly-runs"
           if [[ -n "$(find "$RUNNER_TEMP/reports/current" -name '*.xml' -print -quit 2>/dev/null)" ]]; then
@@ -135,7 +135,7 @@ jobs:
       - name: Analyze the runs of the test workflow
         if: ${{ !cancelled() }}
         run: |
-          hack/ci/download-flaky-reports.sh "$RUNNER_TEMP/reports/test" test.yml "$BRANCH" push 10 \
+          hack/ci/download-flaky-reports.sh "$RUNNER_TEMP/reports/test" test.yml "$BRANCH" push 15 \
             >"$RUNNER_TEMP/test-runs"
           mapfile -t runs <"$RUNNER_TEMP/test-runs"
           if [[ ${#runs[@]} -eq 0 ]]; then

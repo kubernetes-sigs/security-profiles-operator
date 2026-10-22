@@ -230,7 +230,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("runs", nargs="+", help="JUnit report or directory per run, oldest first")
     parser.add_argument("--quarantine-after", type=int, default=3, metavar="N")
-    parser.add_argument("--promote-after", type=int, default=5, metavar="N")
+    parser.add_argument("--promote-after", type=int, default=10, metavar="N")
     parser.add_argument("--self-test", action="store_true", help="run the tests of this script and exit")
     args = parser.parse_args()
     if args.self_test:

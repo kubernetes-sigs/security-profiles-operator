@@ -2,7 +2,8 @@ name: lint
 # Static checks of the workflows, the shell scripts, the Dockerfiles, the
 # committed manifests and the documentation. They run on documentation only
 # pull requests too, because they are cheap and the documentation checks are
-# about exactly those. The weekly run also checks the external links.
+# about exactly those. The weekly and the manually started runs also check the
+# external links.
 on:
   push:
     branches:
@@ -99,7 +100,7 @@ jobs:
 
   # markdownlint with .markdownlint-cli2.yaml and lychee with lychee.toml.
   # Pull requests and pushes only check the links within the repository, the
-  # weekly run the external ones too.
+  # weekly and the manually started runs the external ones too.
   docs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -124,3 +125,29 @@ jobs:
           args: ${{ steps.links.outputs.args }}
           jobSummary: false
           token: ${{ github.token }}
+
+  # Nobody would notice the failures of the scheduled run otherwise, which
+  # checks the external links. A manually started run shows its result to the
+  # one who started it.
+  report:
+    needs: [actionlint, zizmor, shellcheck, dockerfiles, manifests, docs]
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      issues: write  # required for reporting the failure
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Report the failure
+        run: |
+          title="Weekly lint run failed"
+          body="The scheduled run $RUN_URL failed, see its failed jobs. The docs job of the scheduled run also checks the external links: if it failed, fix the broken links, or add the sites which reject automated requests to the exclude list of lychee.toml."
+          number=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
+          if [[ -n "$number" ]]; then
+            gh issue comment "$number" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi

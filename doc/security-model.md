@@ -88,7 +88,8 @@ The running permissions for the three core technologies supported:
 The operator and webhook deployments run as non-root with a read-only root filesystem, all
 capabilities dropped, privilege escalation disabled and the `RuntimeDefault` seccomp profile.
 On OpenShift they are pinned to the `restricted-v2` SCC through the
-`openshift.io/required-scc` annotation. Only the `spod` DaemonSet uses the `privileged` SCC.
+`openshift.io/required-scc` annotation. Only the pods of the `spod` service account (the `spod`
+DaemonSet and the SELinux policy reload Job) use the `privileged` SCC.
 
 
 #### Host Paths
@@ -258,7 +259,10 @@ ValidatingAdmissionPolicies limit the writes of the `spod` service account:
   change. Finalizers and annotations are not restricted. A compromised node can therefore
   still change recorded profiles, which are cluster scoped. Removing the
   `spo.x-k8s.io/recording-id` label from a recorded profile once its recording is done keeps
-  the daemons from changing it.
+  the daemons from changing it. The policy does not check that the labels name an existing
+  recording, so a compromised node can also create a profile under any name which is not
+  taken yet, for example one which a profile binding or a pod refers to before the profile
+  exists. The daemons of all nodes install it, and the pods using it run with it.
 - `spo-spod-jobs`: jobs have to be the SELinux policy reload job, running as `spod` on the
   node of the requesting daemon. The node is taken from the node name which Kubernetes adds to
   projected service account tokens, by default since 1.30 through the
