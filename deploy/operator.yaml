@@ -5015,6 +5015,8 @@ data:
           - /var/run/secrets/metrics/**
           - /sys/module/apparmor/parameters/enabled
           - /sys/devices/system/cpu/possible
+          - /etc/apparmor.d/
+          - /var/lib/kubelet/seccomp/operator/
           readWritePaths:
           - /var/run/grpc/metrics.sock
           - /tmp/aa_profile_bin_*

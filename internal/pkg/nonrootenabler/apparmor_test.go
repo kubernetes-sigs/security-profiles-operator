@@ -24,6 +24,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
 
+	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1"
 	profilebaseapi "sigs.k8s.io/security-profiles-operator/api/profilebase/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/nonrootenabler/nonrootenablerfakes"
@@ -112,6 +113,99 @@ func TestInstallApparmorProfiles(t *testing.T) {
 				require.Same(t, manager, gotManager)
 				require.Equal(t, want, gotProfile)
 			}
+		})
+	}
+}
+
+func TestRelocateProfilesRoot(t *testing.T) {
+	t.Parallel()
+
+	newFs := func() *apparmorprofileapi.AppArmorFsRules {
+		return &apparmorprofileapi.AppArmorFsRules{
+			ReadOnlyPaths: []string{
+				"/etc/apparmor.d/",
+				"/var/lib/kubelet/seccomp/operator/",
+			},
+			WriteOnlyPaths: []string{"/var/lib/kubelet/seccomp/operator/file"},
+			ReadWritePaths: []string{
+				"/var/lib/kubelet/seccomp/operator/**",
+				"/var/lib/kubelet/seccomp/operator-other/**",
+				"/var/lib/kubelet/seccomp/**",
+			},
+		}
+	}
+
+	for _, tc := range []struct {
+		name         string
+		fs           *apparmorprofileapi.AppArmorFsRules
+		profilesRoot string
+		want         *apparmorprofileapi.AppArmorFsRules
+	}{
+		{
+			name:         "default kubelet directory",
+			fs:           newFs(),
+			profilesRoot: "/var/lib/kubelet/seccomp/operator",
+			want:         newFs(),
+		},
+		{
+			name:         "custom kubelet directory",
+			fs:           newFs(),
+			profilesRoot: "/var/lib/k0s/kubelet/seccomp/operator",
+			want: &apparmorprofileapi.AppArmorFsRules{
+				ReadOnlyPaths: []string{
+					"/etc/apparmor.d/",
+					"/var/lib/k0s/kubelet/seccomp/operator/",
+				},
+				WriteOnlyPaths: []string{"/var/lib/k0s/kubelet/seccomp/operator/file"},
+				ReadWritePaths: []string{
+					"/var/lib/k0s/kubelet/seccomp/operator/**",
+					"/var/lib/kubelet/seccomp/operator-other/**",
+					"/var/lib/kubelet/seccomp/**",
+				},
+			},
+		},
+		{
+			name:         "no file system rules",
+			profilesRoot: "/var/lib/k0s/kubelet/seccomp/operator",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			profile := &apparmorprofileapi.AppArmorProfile{}
+			profile.Spec.Abstract.Filesystem = tc.fs
+
+			relocateProfilesRoot(profile, tc.profilesRoot)
+			require.Equal(t, tc.want, profile.Spec.Abstract.Filesystem)
+		})
+	}
+}
+
+// TestDaemonProfilesRoot cannot run in parallel, because the environment
+// variables are global.
+func TestDaemonProfilesRoot(t *testing.T) {
+	for _, tc := range []struct {
+		name, kubeletDir, want string
+	}{
+		{
+			name: "default kubelet directory",
+			want: "/var/lib/kubelet/seccomp/operator",
+		},
+		{
+			name:       "custom kubelet directory",
+			kubeletDir: "/var/lib/k0s/kubelet",
+			want:       "/var/lib/k0s/kubelet/seccomp/operator",
+		},
+		{
+			name:       "trailing slash",
+			kubeletDir: "/var/lib/k0s/kubelet/",
+			want:       "/var/lib/k0s/kubelet/seccomp/operator",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(config.KubeletDirEnvKey, tc.kubeletDir)
+
+			require.Equal(t, tc.want, daemonProfilesRoot())
 		})
 	}
 }

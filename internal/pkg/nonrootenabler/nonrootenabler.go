@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"strings"
 	"syscall"
 
 	"github.com/go-logr/logr"
@@ -347,6 +348,8 @@ func (*defaultImpl) InstallApparmor(manager apparmorprofile.ProfileManager, file
 		return errors.New("failed converting apparmor profile")
 	}
 
+	relocateProfilesRoot(ap, daemonProfilesRoot())
+
 	// These are the operator's own bundled profiles, shipped in the image, so
 	// they are ours by construction. Passing false here would make the init
 	// container fail on every upgrade from a release that installed them before
@@ -357,4 +360,40 @@ func (*defaultImpl) InstallApparmor(manager apparmorprofile.ProfileManager, file
 	}
 
 	return nil
+}
+
+// defaultProfilesRoot is the directory of the seccomp profiles in the daemon
+// container with the default kubelet directory, which the AppArmor profile of
+// the daemon refers to.
+var defaultProfilesRoot = path.Join(
+	config.DefaultKubeletPath, config.SeccompProfilesFolder, config.OperatorProfilesFolder,
+)
+
+// daemonProfilesRoot returns the directory of the seccomp profiles in the
+// daemon container. The daemon mounts and writes them below the kubelet
+// directory of KUBELET_DIR, not below the one of the node label, which only
+// the non-root enabler uses for the link of the kubelet.
+func daemonProfilesRoot() string {
+	return path.Join(
+		config.DefaultKubeletDir(), config.SeccompProfilesFolder, config.OperatorProfilesFolder,
+	)
+}
+
+// relocateProfilesRoot moves the file system rules of profile for
+// defaultProfilesRoot and the paths below it to profilesRoot, so that the
+// daemon can write the seccomp profiles with a custom kubelet directory.
+func relocateProfilesRoot(profile *apparmorprofileapi.AppArmorProfile, profilesRoot string) {
+	fs := profile.Spec.Abstract.Filesystem
+	if fs == nil || profilesRoot == defaultProfilesRoot {
+		return
+	}
+
+	for _, paths := range [][]string{fs.ReadOnlyPaths, fs.WriteOnlyPaths, fs.ReadWritePaths} {
+		for i, p := range paths {
+			rest, ok := strings.CutPrefix(p, defaultProfilesRoot)
+			if ok && (rest == "" || strings.HasPrefix(rest, "/")) {
+				paths[i] = profilesRoot + rest
+			}
+		}
+	}
 }

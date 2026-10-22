@@ -234,7 +234,9 @@ func (r *Reconciler) Setup(
 
 	r.namespace = namespace
 
-	removeStaleTempFiles(r.log, config.ProfilesRootPath())
+	// The temporary files of interrupted profile writes live next to the
+	// profiles.
+	common.RemoveStaleTempFiles(r.log, config.ProfilesRootPath())
 
 	if err := mgr.GetFieldIndexer().IndexField(
 		ctx, &seccompprofileapi.SeccompProfile{}, baseProfileIndex, indexBaseProfile,
@@ -333,28 +335,6 @@ func (r *Reconciler) handleAllowedSyscallsChanged(
 	}
 
 	return reconcileRequests
-}
-
-// removeStaleTempFiles removes the temporary files of interrupted profile
-// writes. They live next to the profiles, which are stored in a directory per
-// namespace below root.
-func removeStaleTempFiles(l logr.Logger, root string) {
-	common.RemoveStaleTempFiles(l, root)
-
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			l.Error(err, "Cannot list profile directories", "dir", root)
-		}
-
-		return
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() {
-			common.RemoveStaleTempFiles(l, filepath.Join(root, entry.Name()))
-		}
-	}
 }
 
 // baseProfileIndex indexes the profiles by the name of their local base
